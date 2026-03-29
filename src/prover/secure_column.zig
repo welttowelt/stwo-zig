@@ -158,7 +158,7 @@ pub fn SecureColumnByCoordsGeneric(comptime B: type) type {
                     columns[i][row] = coords[i];
                 }
             }
-            return .{ .columns = columns, .owns_columns = true };
+            return .{ .columns = columns, .owns_columns = true, .contiguous = true };
         }
 
         pub fn iter(self: *const Self) Iterator {

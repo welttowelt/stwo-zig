@@ -842,10 +842,18 @@ inline fn fftLayerLoopForwardM31(
     var rhs = lhs + half_block;
     var remaining = half_block;
 
+    // Software prefetch: bring the next cache lines into L1 before we need them.
+    // Each M31 is 4 bytes, so PACK_WIDTH (16) elements = 64 bytes = one cache line.
+    const PREFETCH_AHEAD = m31.PACK_WIDTH;
+
     // 16-lane SIMD path.
     const PW = m31.PACK_WIDTH;
     const twid_packed: m31.PackedM31 = @splat(twid.v);
     while (remaining >= PW) : (remaining -= PW) {
+        if (remaining > PW) {
+            @prefetch(lhs + PREFETCH_AHEAD, .{ .rw = .write, .locality = 3 });
+            @prefetch(rhs + PREFETCH_AHEAD, .{ .rw = .write, .locality = 3 });
+        }
         m31.butterflyPacked(lhs, rhs, twid_packed);
         lhs += PW;
         rhs += PW;
@@ -892,10 +900,17 @@ inline fn fftLayerLoopInverseM31(
     var rhs = lhs + half_block;
     var remaining = half_block;
 
+    // Software prefetch: bring the next cache lines into L1 before we need them.
+    const PREFETCH_AHEAD = m31.PACK_WIDTH;
+
     // 16-lane SIMD path.
     const PW = m31.PACK_WIDTH;
     const itwid_packed: m31.PackedM31 = @splat(itwid.v);
     while (remaining >= PW) : (remaining -= PW) {
+        if (remaining > PW) {
+            @prefetch(lhs + PREFETCH_AHEAD, .{ .rw = .write, .locality = 3 });
+            @prefetch(rhs + PREFETCH_AHEAD, .{ .rw = .write, .locality = 3 });
+        }
         m31.ibutterflyPacked(lhs, rhs, itwid_packed);
         lhs += PW;
         rhs += PW;

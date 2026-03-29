@@ -54,6 +54,19 @@ pub fn build(b: *std.Build) void {
     const riscv_test_step = b.step("test-riscv", "Run RISC-V runner tests (trace_dump)");
     riscv_test_step.dependOn(&run_riscv_tests.step);
 
+    // RISC-V prover tests (prove + verify roundtrips).
+    const riscv_prover_test_module = b.createModule(.{
+        .root_source_file = b.path("src/riscv_prover_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const riscv_prover_tests = b.addTest(.{
+        .root_module = riscv_prover_test_module,
+    });
+    const run_riscv_prover_tests = b.addRunArtifact(riscv_prover_tests);
+    const riscv_prover_test_step = b.step("test-riscv-prover", "Run RISC-V prover tests (prove+verify)");
+    riscv_prover_test_step.dependOn(&run_riscv_prover_tests.step);
+
     // -----------------------------------------------------------------
     // CUDA GPU backend (opt-in via -Dcuda=true)
     // -----------------------------------------------------------------

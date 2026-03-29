@@ -331,8 +331,31 @@ pub fn proveRiscV(
 ) !ProveOutput {
     if (exec_trace.step_count == 0) return ProverError.EmptyTrace;
 
+    // -----------------------------------------------------------------------
+    // Arena allocator for the entire proving pipeline.
+    //
+    // Every intermediate allocation (trace columns, twiddle factors, Merkle
+    // layers, commitment trees, FRI rounds, ...) plus the final proof
+    // payload are handed out from this arena, which is backed by
+    // page_allocator.  This gives us:
+    //   - Cache-line-aligned buffers (pages are 4096-byte-aligned).
+    //   - Fast bump-pointer allocation with zero fragmentation.
+    //   - O(1) bulk cleanup when the caller deinits ProveOutput.
+    //
+    // The arena itself is heap-allocated (via the caller's allocator) so
+    // that the returned ProveOutput can be moved without invalidating the
+    // internal Allocator pointer.
+    // -----------------------------------------------------------------------
+    const arena = try allocator.create(std.heap.ArenaAllocator);
+    arena.* = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    errdefer {
+        arena.deinit();
+        allocator.destroy(arena);
+    }
+    const arena_alloc = arena.allocator();
+
     // -- Step 1: Count rows per opcode family. --
-    const counts = try exec_trace.groupByOpcodeFamily(allocator);
+    const counts = try exec_trace.groupByOpcodeFamily(arena_alloc);
 
     // -- Step 2: Build statement with per-family descriptors. --
     var statement: RiscVStatement = .{
@@ -366,28 +389,28 @@ pub fn proveRiscV(
     pcs_config.mixInto(&channel);
 
     var scheme = try prover_pcs.CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel).init(
-        allocator,
+        arena_alloc,
         pcs_config,
     );
 
     // -- Step 3: Tree 0 -- Preprocessed (one IsFirst per active component). --
     const n_preproc = statement.n_components;
-    const preprocessed = try allocator.alloc(prover_pcs.ColumnEvaluation, n_preproc);
+    const preprocessed = try arena_alloc.alloc(prover_pcs.ColumnEvaluation, n_preproc);
     for (0..n_preproc) |i| {
         const ls = statement.component_descs[i].log_size;
-        const is_first = try genIsFirstColumn(allocator, ls);
+        const is_first = try genIsFirstColumn(arena_alloc, ls);
         preprocessed[i] = .{ .log_size = ls, .values = is_first };
     }
-    try scheme.commitOwned(allocator, preprocessed, &channel);
+    try scheme.commitOwned(arena_alloc, preprocessed, &channel);
 
     // -- Step 4: Tree 1 -- Main trace (n_columns per active component). --
     const n_main = statement.nMainColumns();
-    const main_columns = try allocator.alloc(prover_pcs.ColumnEvaluation, n_main);
+    const main_columns = try arena_alloc.alloc(prover_pcs.ColumnEvaluation, n_main);
     var col_offset: usize = 0;
     for (0..statement.n_components) |comp_idx| {
         const desc = statement.component_descs[comp_idx];
         const family_cols = try genColumnsForFamily(
-            allocator,
+            arena_alloc,
             exec_trace,
             desc.family,
             desc.log_size,
@@ -401,7 +424,7 @@ pub fn proveRiscV(
         }
         col_offset += desc.n_columns;
     }
-    try scheme.commitOwned(allocator, main_columns, &channel);
+    try scheme.commitOwned(arena_alloc, main_columns, &channel);
 
     mixStatement(&channel, statement);
 
@@ -423,16 +446,18 @@ pub fn proveRiscV(
         CpuBackend,
         Hasher,
         MerkleChannel,
-        allocator,
+        arena_alloc,
         components_arr[0..statement.n_components],
         &channel,
         scheme,
         false,
     );
     const proof = extended.proof;
-    extended.aux.deinit(allocator);
+    // With the arena, aux.deinit is a no-op (individual frees are ignored),
+    // but we call it for correctness if the arena is ever removed.
+    extended.aux.deinit(arena_alloc);
 
-    return .{ .statement = statement, .proof = proof };
+    return .{ .statement = statement, .proof = proof, ._arena = arena };
 }
 
 /// Verify a RISC-V STARK proof with per-opcode-family components.

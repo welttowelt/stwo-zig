@@ -846,7 +846,10 @@ test "prover vcs_lifted: packed leaf hashing matches legacy per-value path" {
         }
 
         pub fn hashChildren(children: struct { left: Hash, right: Hash }) Hash {
-            return BaseHasher.hashChildren(children);
+            return BaseHasher.hashChildren(.{
+                .left = children.left,
+                .right = children.right,
+            });
         }
 
         pub fn nodeSeed() @This() {
@@ -854,7 +857,10 @@ test "prover vcs_lifted: packed leaf hashing matches legacy per-value path" {
         }
 
         pub fn hashChildrenWithSeed(seed: @This(), children: struct { left: Hash, right: Hash }) Hash {
-            return BaseHasher.hashChildrenWithSeed(seed.inner, children);
+            return BaseHasher.hashChildrenWithSeed(seed.inner, .{
+                .left = children.left,
+                .right = children.right,
+            });
         }
 
         pub fn updateLeaf(self: *@This(), column_values: []const M31) void {
