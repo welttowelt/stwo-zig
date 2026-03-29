@@ -131,9 +131,10 @@ pub fn main() !void {
     std.debug.print("RISC-V End-to-End Proving Benchmark\n", .{});
     std.debug.print("====================================\n", .{});
     std.debug.print("fib(N) = fib({d})\n", .{fib_n});
+    const cpu_count = std.Thread.getCpuCount() catch 1;
     std.debug.print("Security: pow_bits={d}, n_queries={d}", .{ pow_bits, n_queries });
     if (production) std.debug.print(" [PRODUCTION — matches stark-v]", .{});
-    std.debug.print("\n\n", .{});
+    std.debug.print("\nCPU cores: {d} (used for parallel PoW grinding)\n\n", .{cpu_count});
 
     const config = pcs_core.PcsConfig{
         .pow_bits = pow_bits,
