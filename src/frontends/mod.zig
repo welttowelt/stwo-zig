@@ -13,3 +13,4 @@
 //! - `cairo` — (future) Full stwo-cairo prover in Zig
 
 pub const examples = @import("../examples/mod.zig");
+pub const cairo = @import("cairo/mod.zig");
