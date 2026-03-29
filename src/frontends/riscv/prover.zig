@@ -383,6 +383,109 @@ pub fn proveAndVerifyElf(
 // Tests
 // ---------------------------------------------------------------------------
 
+test "riscv prover: end-to-end ELF prove and verify" {
+    const alloc = std.testing.allocator;
+
+    // Build a hand-crafted ELF with ~8 instructions exercising multiple opcode families:
+    //   0x10000: ADDI x1, x0, 10     (0x00A00093) -- x1 = 10
+    //   0x10004: ADDI x2, x0, 20     (0x01400113) -- x2 = 20
+    //   0x10008: ADD  x3, x1, x2     (0x002081B3) -- x3 = 30
+    //   0x1000C: SW   x3, 0(x1)      (0x0030A023) -- mem[10] = 30 (store, addr=10)
+    //   0x10010: LW   x4, 0(x1)      (0x0000A203) -- x4 = mem[10] = 30 (load)
+    //   0x10014: BEQ  x3, x4, +8     (0x00418463) -- branch taken (30 == 30), skip to 0x1001C
+    //   0x10018: ADDI x5, x0, 99     (0x06300293) -- SKIPPED
+    //   0x1001C: ECALL                (0x00000073) -- halt
+    const n_insts = 8;
+    const code_size = n_insts * 4;
+    const elf_size = 84 + code_size;
+    var elf_buf: [elf_size]u8 = [_]u8{0} ** elf_size;
+
+    // ELF header
+    elf_buf[0] = 0x7F;
+    elf_buf[1] = 'E';
+    elf_buf[2] = 'L';
+    elf_buf[3] = 'F';
+    elf_buf[4] = 1; // ELFCLASS32
+    elf_buf[5] = 1; // ELFDATA2LSB
+    elf_buf[6] = 1; // EI_VERSION
+    elf_buf[16] = 2; // e_type = ET_EXEC
+    elf_buf[18] = 0xF3; // e_machine = EM_RISCV
+    elf_buf[20] = 1; // e_version
+    // e_entry = 0x10000
+    elf_buf[24] = 0x00;
+    elf_buf[25] = 0x00;
+    elf_buf[26] = 0x01;
+    elf_buf[27] = 0x00;
+    // e_phoff = 52
+    elf_buf[28] = 52;
+    // e_ehsize = 52
+    elf_buf[40] = 52;
+    // e_phentsize = 32
+    elf_buf[42] = 32;
+    // e_phnum = 1
+    elf_buf[44] = 1;
+
+    // Program header at offset 52
+    elf_buf[52] = 1; // p_type = PT_LOAD
+    elf_buf[56] = 84; // p_offset = 84
+    // p_vaddr = 0x10000
+    elf_buf[60] = 0x00;
+    elf_buf[61] = 0x00;
+    elf_buf[62] = 0x01;
+    elf_buf[63] = 0x00;
+    // p_filesz
+    elf_buf[68] = code_size;
+    // p_memsz
+    elf_buf[72] = code_size;
+
+    // Instructions at offset 84
+    const instructions = [n_insts]u32{
+        0x00A00093, // ADDI x1, x0, 10
+        0x01400113, // ADDI x2, x0, 20
+        0x002081B3, // ADD  x3, x1, x2
+        0x0030A023, // SW   x3, 0(x1)  -- store 30 at addr 10
+        0x0000A203, // LW   x4, 0(x1)  -- load from addr 10
+        0x00418463, // BEQ  x3, x4, +8 -- taken (30 == 30)
+        0x06300293, // ADDI x5, x0, 99 -- skipped
+        0x00000073, // ECALL
+    };
+    for (instructions, 0..) |inst_word, i| {
+        const offset = 84 + i * 4;
+        elf_buf[offset] = @truncate(inst_word);
+        elf_buf[offset + 1] = @truncate(inst_word >> 8);
+        elf_buf[offset + 2] = @truncate(inst_word >> 16);
+        elf_buf[offset + 3] = @truncate(inst_word >> 24);
+    }
+
+    // Step 1: Run the ELF
+    var run_result = try runner_mod.run(alloc, &elf_buf, 1000);
+    defer run_result.deinit();
+
+    // Verify execution correctness
+    try std.testing.expectEqual(@as(u32, 10), run_result.cpu_final.readReg(1));
+    try std.testing.expectEqual(@as(u32, 20), run_result.cpu_final.readReg(2));
+    try std.testing.expectEqual(@as(u32, 30), run_result.cpu_final.readReg(3));
+    try std.testing.expectEqual(@as(u32, 30), run_result.cpu_final.readReg(4));
+    // x5 should be 0 since BEQ was taken and ADDI x5 was skipped
+    try std.testing.expectEqual(@as(u32, 0), run_result.cpu_final.readReg(5));
+
+    // Step 2: Prove
+    const config = pcs_core.PcsConfig{
+        .pow_bits = 0,
+        .fri_config = .{
+            .log_blowup_factor = 1,
+            .log_last_layer_degree_bound = 0,
+            .n_queries = 3,
+        },
+    };
+
+    var output = try proveRiscV(alloc, config, &run_result.execution_trace);
+    defer output.deinit(alloc);
+
+    // Step 3: Verify
+    try verifyRiscV(alloc, config, output.statement, output.proof);
+}
+
 test "riscv prover: prove and verify synthetic trace" {
     const alloc = std.testing.allocator;
     var exec_trace = trace_mod.Trace.init(alloc);

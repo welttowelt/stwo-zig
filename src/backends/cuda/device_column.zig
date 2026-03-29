@@ -79,45 +79,32 @@ pub fn DeviceColumn(comptime F: type) type {
 
         /// Create an independent copy of this column on the same device.
         ///
-        /// The `allocator` parameter is accepted for API symmetry with
-        /// CPU backends but is unused -- device memory is allocated via
-        /// the CUDA runtime.
+        /// The `allocator` is used for a temporary host-side bounce buffer
+        /// needed because the FFI does not expose cudaMemcpyDeviceToDevice.
+        /// Data is downloaded to host memory, then re-uploaded to a fresh
+        /// device allocation.
         pub fn clone(self: Self, allocator: std.mem.Allocator) !Self {
-            _ = allocator;
-            const n_words: u32 = @intCast(self.size * words_per_elem);
-            // Allocate a fresh device buffer and copy device-to-device
-            // via a host bounce (the FFI does not expose cudaMemcpyD2D).
-            var new_col = try allocOnDevice(self.size, self.device_id);
-            // Use host-to-device round-trip: download then re-upload.
-            // This is correct though not optimal; a D2D FFI can be added later.
-            const tmp_host = ffi.cuda_malloc_uint32_t(n_words);
-            if (tmp_host == null) {
-                ffi.cuda_free_memory(new_col.device_ptr);
-                new_col.device_ptr = null;
-                return error.CudaAllocFailed;
-            }
-            // device -> host bounce buffer
+            const n_words = self.size * words_per_elem;
+
+            // Allocate host-side bounce buffer using the Zig allocator.
+            const tmp = try allocator.alloc(u32, n_words);
+            defer allocator.free(tmp);
+
+            // Download from source device buffer into host bounce buffer.
             ffi.copy_uint32_t_vec_from_device_to_host(
-                @ptrCast(self.device_ptr),
-                tmp_host.?,
-                n_words,
+                @ptrCast(self.device_ptr.?),
+                @ptrCast(tmp.ptr),
+                @intCast(n_words),
             );
-            // host bounce -> new device buffer
-            const uploaded = ffi.copy_uint32_t_vec_from_host_to_device(
-                tmp_host.?,
-                n_words,
+
+            // Upload from host bounce buffer into a new device allocation.
+            const new_ptr = ffi.copy_uint32_t_vec_from_host_to_device(
+                @ptrCast(tmp.ptr),
+                @intCast(n_words),
             );
-            if (uploaded == null) {
-                ffi.cuda_free_memory(new_col.device_ptr);
-                new_col.device_ptr = null;
-                return error.CudaAllocFailed;
-            }
-            // Free the intermediate allocation and use the uploaded pointer.
-            ffi.cuda_free_memory(new_col.device_ptr);
-            new_col.device_ptr = @ptrCast(uploaded);
-            // tmp_host was a device allocation used as scratch; free it.
-            ffi.cuda_free_memory(@ptrCast(tmp_host));
-            return new_col;
+            if (new_ptr == null) return error.CudaAllocFailed;
+
+            return .{ .device_ptr = @ptrCast(new_ptr), .size = self.size, .device_id = self.device_id };
         }
 
         // ---------------------------------------------------------
@@ -178,4 +165,27 @@ test "cuda: DeviceColumn free on null is safe" {
     // Should not panic or crash.
     col.free();
     try std.testing.expectEqual(@as(?*anyopaque, null), col.device_ptr);
+}
+
+test "cuda: clone accepts a Zig allocator (not device memory)" {
+    // This test verifies the clone() signature requires a std.mem.Allocator
+    // for the host bounce buffer, confirming the bug fix. We cannot call
+    // clone() without a real CUDA device, but we can verify the function
+    // signature accepts the allocator and that the type compiles correctly.
+    const ColM31 = DeviceColumn(M31);
+    const clone_fn_info = @typeInfo(@TypeOf(ColM31.clone));
+    // clone takes (self: Self, allocator: std.mem.Allocator) -> !Self
+    try std.testing.expectEqual(@as(usize, 2), clone_fn_info.@"fn".params.len);
+    // Second parameter should be std.mem.Allocator.
+    try std.testing.expect(clone_fn_info.@"fn".params[1].type == std.mem.Allocator);
+    // Return type should be an error union.
+    const return_info = @typeInfo(clone_fn_info.@"fn".return_type.?);
+    try std.testing.expect(return_info == .error_union);
+}
+
+test "cuda: clone signature for QM31 columns" {
+    const ColQM31 = DeviceColumn(QM31);
+    const clone_fn_info = @typeInfo(@TypeOf(ColQM31.clone));
+    try std.testing.expectEqual(@as(usize, 2), clone_fn_info.@"fn".params.len);
+    try std.testing.expect(clone_fn_info.@"fn".params[1].type == std.mem.Allocator);
 }

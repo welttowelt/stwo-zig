@@ -395,3 +395,49 @@ test "execute ECALL returns error" {
     const result = execute(&t.cpu, &t.mem, inst);
     try std.testing.expectError(error.Ecall, result);
 }
+
+test "executor equivalence: instruction sequence produces expected CPU state" {
+    // Run a sequence of instructions and verify the final register values
+    // match the RISC-V spec exactly.
+    //
+    // Program:
+    //   ADDI x1, x0, 10      # x1 = 10
+    //   ADDI x2, x0, 20      # x2 = 20
+    //   ADD  x3, x1, x2      # x3 = 30
+    //   SUB  x4, x2, x1      # x4 = 10
+    //   MUL  x5, x1, x2      # x5 = 200
+    //   SLL  x6, x1, x2      # x6 = 10 << (20 & 0x1F) = 10 << 20 = 10485760
+    //   SLT  x7, x1, x2      # x7 = 1  (10 < 20)
+    //   XOR  x8, x1, x2      # x8 = 10 ^ 20 = 30
+    var t = makeTestCpuAndMem();
+    defer t.mem.deinit();
+
+    const instructions = [_]u32{
+        0x00A00093, // ADDI x1, x0, 10
+        0x01400113, // ADDI x2, x0, 20
+        0x002081B3, // ADD  x3, x1, x2
+        0x40110233, // SUB  x4, x2, x1
+        0x022082B3, // MUL  x5, x1, x2
+        0x00209333, // SLL  x6, x1, x2
+        0x0020A3B3, // SLT  x7, x1, x2
+        0x00214433, // XOR  x8, x1, x2
+    };
+
+    for (instructions) |inst_word| {
+        const inst = try DecodedInst.decode(inst_word);
+        try execute(&t.cpu, &t.mem, inst);
+    }
+
+    // Verify all registers match expected values from the RISC-V spec.
+    try std.testing.expectEqual(@as(u32, 10), t.cpu.readReg(1)); // x1 = 10
+    try std.testing.expectEqual(@as(u32, 20), t.cpu.readReg(2)); // x2 = 20
+    try std.testing.expectEqual(@as(u32, 30), t.cpu.readReg(3)); // x3 = 30
+    try std.testing.expectEqual(@as(u32, 10), t.cpu.readReg(4)); // x4 = 10
+    try std.testing.expectEqual(@as(u32, 200), t.cpu.readReg(5)); // x5 = 200
+    try std.testing.expectEqual(@as(u32, 10485760), t.cpu.readReg(6)); // x6 = 10 << 20
+    try std.testing.expectEqual(@as(u32, 1), t.cpu.readReg(7)); // x7 = 1 (10 < 20)
+    try std.testing.expectEqual(@as(u32, 30), t.cpu.readReg(8)); // x8 = 10 ^ 20 = 30
+
+    // Verify PC advanced by 4 for each instruction (8 instructions * 4 = 32).
+    try std.testing.expectEqual(@as(u32, 0x1000 + 32), t.cpu.pc);
+}

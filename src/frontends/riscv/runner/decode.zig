@@ -385,3 +385,58 @@ test "decode ADDI with negative immediate" {
     try std.testing.expectEqual(@as(u5, 0), inst.rs1);
     try std.testing.expectEqual(@as(i32, -1), inst.imm);
 }
+
+test "decoder equivalence: Zig decoder vs known RV32IM instruction encodings" {
+    // Verify our decoder produces the exact same output as the RISC-V spec
+    // for a comprehensive set of known instruction encodings.
+    const Expected = struct {
+        encoding: u32,
+        opcode: Opcode,
+        rd: u5,
+        rs1: u5,
+        rs2: u5,
+        imm: i32,
+    };
+
+    const cases = [_]Expected{
+        // ADD x1, x2, x3
+        .{ .encoding = 0x003100B3, .opcode = .ADD, .rd = 1, .rs1 = 2, .rs2 = 3, .imm = 0 },
+        // SUB x2, x2, x3
+        .{ .encoding = 0x40310133, .opcode = .SUB, .rd = 2, .rs1 = 2, .rs2 = 3, .imm = 0 },
+        // ADDI x1, x0, 5
+        .{ .encoding = 0x00500093, .opcode = .ADDI, .rd = 1, .rs1 = 0, .rs2 = 0, .imm = 5 },
+        // LW x2, 0(x0)
+        .{ .encoding = 0x00002103, .opcode = .LW, .rd = 2, .rs1 = 0, .rs2 = 0, .imm = 0 },
+        // SW x1, 0(x2)
+        .{ .encoding = 0x00112023, .opcode = .SW, .rd = 0, .rs1 = 2, .rs2 = 1, .imm = 0 },
+        // BEQ x1, x2, 8
+        .{ .encoding = 0x00208463, .opcode = .BEQ, .rd = 0, .rs1 = 1, .rs2 = 2, .imm = 8 },
+        // JAL x1, 12
+        .{ .encoding = 0x00C000EF, .opcode = .JAL, .rd = 1, .rs1 = 0, .rs2 = 0, .imm = 12 },
+        // JALR x1, x1, 0
+        .{ .encoding = 0x000080E7, .opcode = .JALR, .rd = 1, .rs1 = 1, .rs2 = 0, .imm = 0 },
+        // LUI x3, 1
+        .{ .encoding = 0x000011B7, .opcode = .LUI, .rd = 3, .rs1 = 0, .rs2 = 0, .imm = 0x1000 },
+        // AUIPC x3, 1
+        .{ .encoding = 0x00001197, .opcode = .AUIPC, .rd = 3, .rs1 = 0, .rs2 = 0, .imm = 0x1000 },
+        // MUL x0, x1, x2
+        .{ .encoding = 0x02208033, .opcode = .MUL, .rd = 0, .rs1 = 1, .rs2 = 2, .imm = 0 },
+        // MULH x0, x1, x2
+        .{ .encoding = 0x02209033, .opcode = .MULH, .rd = 0, .rs1 = 1, .rs2 = 2, .imm = 0 },
+        // DIV x0, x1, x2
+        .{ .encoding = 0x0220C033, .opcode = .DIV, .rd = 0, .rs1 = 1, .rs2 = 2, .imm = 0 },
+        // SLLI x0, x0, 1
+        .{ .encoding = 0x00101013, .opcode = .SLLI, .rd = 0, .rs1 = 0, .rs2 = 0, .imm = 1 },
+        // ECALL
+        .{ .encoding = 0x00000073, .opcode = .ECALL, .rd = 0, .rs1 = 0, .rs2 = 0, .imm = 0 },
+    };
+
+    for (cases) |expected| {
+        const inst = try DecodedInst.decode(expected.encoding);
+        try std.testing.expectEqual(expected.opcode, inst.opcode);
+        try std.testing.expectEqual(expected.rd, inst.rd);
+        try std.testing.expectEqual(expected.rs1, inst.rs1);
+        try std.testing.expectEqual(expected.rs2, inst.rs2);
+        try std.testing.expectEqual(expected.imm, inst.imm);
+    }
+}

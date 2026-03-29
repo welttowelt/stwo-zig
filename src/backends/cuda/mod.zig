@@ -286,11 +286,45 @@ pub const CudaBackend = struct {
 
     /// Compute constraint quotients over the evaluation domain on the GPU.
     ///
-    /// This is a host-fallback stub. The full implementation requires
-    /// stwo-cuda to expose a quotient accumulation kernel, or a
-    /// download-compute-upload path.
+    /// The slice-based API cannot operate directly on device memory; use
+    /// `accumulateQuotientsDevice` for device-resident columns.
     pub fn accumulateQuotients() void {
-        @panic("CUDA accumulateQuotients: not yet implemented in stwo-cuda");
+        @panic("CUDA accumulateQuotients: use accumulateQuotientsDevice for device-resident columns");
+    }
+
+    /// Device-resident quotient accumulation.
+    ///
+    /// Delegates to the `accumulate_quotients` CUDA kernel via FFI.
+    pub fn accumulateQuotientsDevice(
+        log_size: u32,
+        n_columns: u32,
+        columns: [*]const [*]const u32,
+        random_coeff: QM31,
+        n_batches: u32,
+        batch_sizes: [*]const u32,
+        batch_column_indices: [*]const u32,
+        batch_point_xs: []const ffi.CudaQM31,
+        batch_point_ys: []const ffi.CudaQM31,
+        batch_line_coeffs_a: []const ffi.CudaQM31,
+        batch_line_coeffs_b: []const ffi.CudaQM31,
+        batch_line_coeffs_c: []const ffi.CudaQM31,
+        result: [*][*]u32,
+    ) void {
+        ffi.accumulate_quotients(
+            log_size,
+            n_columns,
+            columns,
+            qm31ToCuda(random_coeff),
+            n_batches,
+            batch_sizes,
+            batch_column_indices,
+            batch_point_xs.ptr,
+            batch_point_ys.ptr,
+            batch_line_coeffs_a.ptr,
+            batch_line_coeffs_b.ptr,
+            batch_line_coeffs_c.ptr,
+            result,
+        );
     }
 
     // ---------------------------------------------------------------
@@ -298,8 +332,23 @@ pub const CudaBackend = struct {
     // ---------------------------------------------------------------
 
     /// Accumulate constraint evaluations across domain positions on the GPU.
+    ///
+    /// The slice-based API cannot operate directly on device memory; use
+    /// `accumulateDevice` for device-resident columns.
     pub fn accumulate() void {
-        @panic("CUDA accumulate: not yet implemented in stwo-cuda");
+        @panic("CUDA accumulate: use accumulateDevice for device-resident columns");
+    }
+
+    /// Device-resident accumulation of two M31 columns.
+    ///
+    /// Adds `src` element-wise into `dst` in-place on the device.
+    pub fn accumulateDevice(dst: DeviceColumn(M31), src: DeviceColumn(M31)) void {
+        std.debug.assert(dst.size == src.size);
+        ffi.accumulate(
+            @intCast(dst.size),
+            @ptrCast(dst.device_ptr.?),
+            @ptrCast(src.device_ptr.?),
+        );
     }
 
     // ---------------------------------------------------------------
@@ -308,19 +357,83 @@ pub const CudaBackend = struct {
 
     /// Generate equality polynomial evaluations over the boolean hypercube.
     ///
-    /// Host-fallback stub: no dedicated CUDA kernel exists yet.
+    /// The slice-based API cannot operate directly on device memory; use
+    /// `genEqEvalsDevice` for device-resident data.
     pub fn genEqEvals() void {
-        @panic("CUDA genEqEvals: host fallback not yet wired");
+        @panic("CUDA genEqEvals: use genEqEvalsDevice for device-resident data");
+    }
+
+    /// Device-resident equality evaluations generation.
+    ///
+    /// Computes eq(y, .) scaled by `v` over the boolean hypercube and
+    /// writes the result into a device buffer.
+    pub fn genEqEvalsDevice(
+        y: [*]const ffi.CudaQM31,
+        y_len: u32,
+        v: QM31,
+        result: [*]u32,
+    ) void {
+        ffi.gen_eq_evals(y, y_len, qm31ToCuda(v), result);
     }
 
     /// Compute the next GKR circuit layer on the GPU.
+    ///
+    /// The slice-based API cannot operate directly on device memory; use
+    /// `nextLayerDevice` variants for device-resident data.
     pub fn nextLayer() void {
-        @panic("CUDA nextLayer: host fallback not yet wired");
+        @panic("CUDA nextLayer: use nextLayerGrandProductDevice / nextLayerLogupDevice");
+    }
+
+    /// Device-resident next grand-product layer.
+    pub fn nextLayerGrandProductDevice(
+        n: u32,
+        input: [*]const [*]const u32,
+        output: [*][*]u32,
+    ) void {
+        ffi.gkr_next_grand_product_layer(n, input, output);
+    }
+
+    /// Device-resident next logup-generic layer.
+    pub fn nextLayerLogupDevice(
+        n: u32,
+        num_input: [*]const [*]const u32,
+        den_input: [*]const [*]const u32,
+        num_output: [*][*]u32,
+        den_output: [*][*]u32,
+    ) void {
+        ffi.gkr_next_logup_generic_layer(n, num_input, den_input, num_output, den_output);
     }
 
     /// Sum multilinear extension as polynomial in first variable.
+    ///
+    /// The slice-based API cannot operate directly on device memory; use
+    /// `sumGrandProductDevice` / `sumLogupDevice` for device-resident data.
     pub fn sumAsPolyInFirstVariable() void {
-        @panic("CUDA sumAsPolyInFirstVariable: host fallback not yet wired");
+        @panic("CUDA sumAsPolyInFirstVariable: use sumGrandProductDevice / sumLogupDevice");
+    }
+
+    /// Device-resident sum for grand-product GKR layers.
+    pub fn sumGrandProductDevice(
+        n: u32,
+        input: [*]const [*]const u32,
+        eq: [*]const u32,
+        result_at_0: [*]u32,
+        result_at_2: [*]u32,
+    ) void {
+        ffi.gkr_sum_grand_product(n, input, eq, result_at_0, result_at_2);
+    }
+
+    /// Device-resident sum for logup-generic GKR layers.
+    pub fn sumLogupDevice(
+        n: u32,
+        num: [*]const [*]const u32,
+        den: [*]const [*]const u32,
+        eq: [*]const u32,
+        lambda: QM31,
+        result_at_0: [*]u32,
+        result_at_2: [*]u32,
+    ) void {
+        ffi.gkr_sum_logup_generic(n, num, den, eq, qm31ToCuda(lambda), result_at_0, result_at_2);
     }
 
     // ---------------------------------------------------------------
@@ -436,4 +549,79 @@ test "cuda: device method declarations exist" {
     _ = &CudaBackend.evalAtPointDevice;
     _ = &CudaBackend.foldCircleIntoLineDevice;
     _ = &CudaBackend.foldLineDevice;
+}
+
+test "cuda: accumulateQuotientsDevice declaration and type signature" {
+    // Verify the device variant exists and can be referenced at comptime.
+    const ptr = &CudaBackend.accumulateQuotientsDevice;
+    try std.testing.expect(@intFromPtr(ptr) != 0);
+
+    // Verify it accepts the expected parameter types by checking the function info.
+    const info = @typeInfo(@TypeOf(CudaBackend.accumulateQuotientsDevice));
+    // accumulateQuotientsDevice has 13 parameters.
+    try std.testing.expectEqual(@as(usize, 13), info.@"fn".params.len);
+    // Returns void.
+    try std.testing.expect(info.@"fn".return_type == void);
+}
+
+test "cuda: accumulateDevice declaration and type signature" {
+    const ptr = &CudaBackend.accumulateDevice;
+    try std.testing.expect(@intFromPtr(ptr) != 0);
+
+    const info = @typeInfo(@TypeOf(CudaBackend.accumulateDevice));
+    // accumulateDevice takes (dst: DeviceColumn(M31), src: DeviceColumn(M31)).
+    try std.testing.expectEqual(@as(usize, 2), info.@"fn".params.len);
+    try std.testing.expect(info.@"fn".return_type == void);
+}
+
+test "cuda: GKR device variant declarations exist" {
+    // genEqEvalsDevice
+    _ = &CudaBackend.genEqEvalsDevice;
+    const eq_info = @typeInfo(@TypeOf(CudaBackend.genEqEvalsDevice));
+    try std.testing.expectEqual(@as(usize, 4), eq_info.@"fn".params.len);
+    try std.testing.expect(eq_info.@"fn".return_type == void);
+
+    // nextLayerGrandProductDevice
+    _ = &CudaBackend.nextLayerGrandProductDevice;
+    const gp_info = @typeInfo(@TypeOf(CudaBackend.nextLayerGrandProductDevice));
+    try std.testing.expectEqual(@as(usize, 3), gp_info.@"fn".params.len);
+    try std.testing.expect(gp_info.@"fn".return_type == void);
+
+    // nextLayerLogupDevice
+    _ = &CudaBackend.nextLayerLogupDevice;
+    const lu_info = @typeInfo(@TypeOf(CudaBackend.nextLayerLogupDevice));
+    try std.testing.expectEqual(@as(usize, 5), lu_info.@"fn".params.len);
+    try std.testing.expect(lu_info.@"fn".return_type == void);
+
+    // sumGrandProductDevice
+    _ = &CudaBackend.sumGrandProductDevice;
+    const sgp_info = @typeInfo(@TypeOf(CudaBackend.sumGrandProductDevice));
+    try std.testing.expectEqual(@as(usize, 5), sgp_info.@"fn".params.len);
+    try std.testing.expect(sgp_info.@"fn".return_type == void);
+
+    // sumLogupDevice
+    _ = &CudaBackend.sumLogupDevice;
+    const slu_info = @typeInfo(@TypeOf(CudaBackend.sumLogupDevice));
+    try std.testing.expectEqual(@as(usize, 7), slu_info.@"fn".params.len);
+    try std.testing.expect(slu_info.@"fn".return_type == void);
+}
+
+test "cuda: FFI new declarations compile" {
+    // Verify that all newly added FFI extern declarations can be referenced
+    // at comptime. This ensures the signatures are syntactically valid and
+    // the symbols are known to the compiler (they resolve at link time).
+    _ = &ffi.copy_uint32_t_vec_from_device_to_device;
+    _ = &ffi.batch_eval_at_points;
+    _ = &ffi.accumulate_quotients;
+    _ = &ffi.lift_accumulate_secure_columns;
+    _ = &ffi.gen_eq_evals;
+    _ = &ffi.gkr_next_grand_product_layer;
+    _ = &ffi.gkr_next_logup_generic_layer;
+    _ = &ffi.gkr_sum_grand_product;
+    _ = &ffi.gkr_sum_logup_generic;
+    _ = &ffi.poseidon252_commit_on_first_layer;
+    _ = &ffi.poseidon252_commit_on_layer_with_previous;
+    _ = &ffi.execute_framework_eval_plan_v1;
+    _ = &ffi.fix_first_variable_base_field;
+    _ = &ffi.fix_first_variable_secure_field;
 }

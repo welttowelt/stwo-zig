@@ -147,18 +147,25 @@ pub const DeviceContext = struct {
         _ = self;
         if (src_dev == dst_dev) {
             const n_words: u32 = @intCast(size / @sizeOf(u32));
-            // Same-device: bounce through host.
-            const tmp = ffi.cuda_malloc_uint32_t(n_words);
-            if (tmp == null) @panic("transferP2P: failed to allocate bounce buffer");
-            ffi.copy_uint32_t_vec_from_device_to_host(@ptrCast(src), tmp.?, n_words);
-            const uploaded = ffi.copy_uint32_t_vec_from_host_to_device(tmp.?, n_words);
+            // Same-device: bounce through host memory.
+            // Use the page allocator for the host-side bounce buffer instead
+            // of cuda_malloc (which allocates on the device, not the host).
+            const host_alloc = std.heap.page_allocator;
+            const tmp = host_alloc.alloc(u32, n_words) catch
+                @panic("transferP2P: failed to allocate host bounce buffer");
+            defer host_alloc.free(tmp);
+            // Step 1: Download src device buffer into host bounce buffer.
+            ffi.copy_uint32_t_vec_from_device_to_host(@ptrCast(src), @ptrCast(tmp.ptr), n_words);
+            // Step 2: Upload host bounce into a new device allocation.
+            // The current FFI always allocates a new device buffer on upload,
+            // so we need an intermediate allocation and a second download to
+            // land the data in the caller-provided dst pointer. A proper D2D
+            // copy FFI would eliminate this extra round-trip.
+            const uploaded = ffi.copy_uint32_t_vec_from_host_to_device(@ptrCast(tmp.ptr), n_words);
             if (uploaded == null) @panic("transferP2P: failed to re-upload bounce buffer");
-            // Copy from uploaded into dst via one more bounce (since we
-            // cannot memcpy D2D directly). This is intentionally simple;
-            // a proper D2D FFI should be added for performance.
+            defer ffi.cuda_free_memory(@ptrCast(uploaded));
+            // Step 3: Download from intermediate device buffer into dst.
             ffi.copy_uint32_t_vec_from_device_to_host(@ptrCast(uploaded), @ptrCast(dst), n_words);
-            ffi.cuda_free_memory(@ptrCast(tmp));
-            ffi.cuda_free_memory(@ptrCast(uploaded));
         } else {
             @panic("Cross-device P2P not yet implemented - requires cudaMemcpyPeer FFI");
         }
