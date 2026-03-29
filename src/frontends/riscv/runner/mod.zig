@@ -9,6 +9,7 @@ pub const decode = @import("decode.zig");
 pub const memory = @import("memory.zig");
 pub const execute_mod = @import("execute.zig");
 pub const elf_loader = @import("elf_loader.zig");
+pub const trace = @import("trace.zig");
 
 pub const Cpu = cpu.Cpu;
 pub const Memory = memory.Memory;
@@ -21,7 +22,13 @@ pub const RunResult = struct {
     cpu_final: Cpu,
     /// Number of instructions executed.
     step_count: usize,
-    // Trace data for STARK proving will be added later.
+    /// Execution trace for STARK proving.
+    execution_trace: trace.Trace,
+
+    pub fn deinit(self: *RunResult) void {
+        self.execution_trace.deinit();
+        self.* = undefined;
+    }
 };
 
 /// Run a RISC-V ELF program to completion (or until `max_steps`).
@@ -35,23 +42,67 @@ pub fn run(allocator: std.mem.Allocator, elf_bytes: []const u8, max_steps: usize
     const elf_info = try elf_loader.loadElf(elf_bytes, &mem);
     const default_stack: u32 = 0x7FFF_0000;
     var rv_cpu = Cpu.init(elf_info.entry_point, default_stack);
+    var exec_trace = trace.Trace.init(allocator);
+    exec_trace.initial_pc = rv_cpu.pc;
 
     var steps: usize = 0;
     while (steps < max_steps) : (steps += 1) {
+        const pc_before = rv_cpu.pc;
         const inst_word = mem.readU32(rv_cpu.pc);
-        const inst = DecodedInst.decode(inst_word) catch |err| {
-            _ = err;
-            break; // illegal instruction — halt
-        };
+        const inst = DecodedInst.decode(inst_word) catch break;
+
+        // Capture pre-execution register values.
+        const rs1_val = rv_cpu.readReg(inst.rs1);
+        const rs2_val = rv_cpu.readReg(inst.rs2);
+
+        // Execute the instruction.
+        var halted = false;
         execute_mod.execute(&rv_cpu, &mem, inst) catch |err| switch (err) {
-            error.Ecall => break,
-            error.Ebreak => break,
+            error.Ecall => {
+                halted = true;
+            },
+            error.Ebreak => {
+                halted = true;
+            },
         };
+
+        const rd_val = rv_cpu.readReg(inst.rd);
+
+        // Record trace row.
+        try exec_trace.append(.{
+            .clk = @intCast(steps),
+            .pc = pc_before,
+            .opcode = inst.opcode,
+            .rd = inst.rd,
+            .rs1 = inst.rs1,
+            .rs2 = inst.rs2,
+            .imm = inst.imm,
+            .rs1_val = rs1_val,
+            .rs2_val = rs2_val,
+            .rd_val = rd_val,
+            .mem_addr = 0, // TODO: capture from memory-traced accesses
+            .mem_val = 0,
+            .is_load = switch (inst.opcode) {
+                .LB, .LBU, .LH, .LHU, .LW => true,
+                else => false,
+            },
+            .is_store = switch (inst.opcode) {
+                .SB, .SH, .SW => true,
+                else => false,
+            },
+            .branch_taken = (rv_cpu.pc != pc_before + 4),
+            .next_pc = rv_cpu.pc,
+        });
+
+        if (halted) break;
     }
+
+    exec_trace.final_pc = rv_cpu.pc;
 
     return .{
         .cpu_final = rv_cpu,
         .step_count = steps,
+        .execution_trace = exec_trace,
     };
 }
 
@@ -119,7 +170,9 @@ test "runner: run minimal ELF to ecall" {
     elf_buf[90] = 0x00;
     elf_buf[91] = 0x00;
 
-    const result = try run(std.testing.allocator, &elf_buf, 1000);
+    var result = try run(std.testing.allocator, &elf_buf, 1000);
+    defer result.deinit();
     try std.testing.expectEqual(@as(u32, 42), result.cpu_final.readReg(1));
     try std.testing.expectEqual(@as(usize, 2), result.step_count);
+    try std.testing.expectEqual(@as(usize, 2), result.execution_trace.rows.items.len);
 }
