@@ -520,7 +520,7 @@ fn interpolateIntoBufferWithTwiddles(
     }
 }
 
-fn interpolateBuffersWithTwiddles(
+pub fn interpolateBuffersWithTwiddles(
     coeffs_batch: []const []M31,
     domain: CircleDomain,
     twiddle_tree: M31TwiddleTree,
@@ -610,7 +610,7 @@ fn interpolateBuffersWithTwiddles(
     }
 }
 
-fn evaluateBuffersWithTwiddles(
+pub fn evaluateBuffersWithTwiddles(
     values_batch: []const []M31,
     domain: CircleDomain,
     twiddle_tree: M31TwiddleTree,
