@@ -163,7 +163,80 @@ pub fn main() !void {
         }
     }
 
+    // Stage 5: Witness generation (trace column preparation).
+    const prove_trace_mod = @import("prove_trace.zig");
+    const pcs_core_mod = @import("../../core/pcs/mod.zig");
+
+    const n_trace = raw_trace.len;
+    const log_size: u32 = @intCast(std.math.log2_int_ceil(usize, if (n_trace == 0) 1 else n_trace));
+    var trace_columns_result: [3][]M31 = undefined;
+    {
+        std.debug.print("\nStage 5: Witness generation (trace columns)...\n", .{});
+        const t = Timer.begin();
+
+        const result = try prove_trace_mod.genTraceColumns(allocator, raw_trace, log_size);
+        trace_columns_result = result[0];
+
+        const domain_size = @as(usize, 1) << @intCast(log_size);
+        std.debug.print("  Witness gen: {d:.2}ms\n", .{t.elapsedMs()});
+        std.debug.print("  log_size={d}, domain_size={d}, columns=3 (pc, ap, fp)\n", .{ log_size, domain_size });
+    }
+    defer for (trace_columns_result) |col| allocator.free(col);
+
+    // Stage 6: Proving (commitment + FRI + composition polynomial).
+    var prove_result: prove_trace_mod.ProveOutput = undefined;
+    {
+        std.debug.print("\nStage 6: STARK proving...\n", .{});
+        const t = Timer.begin();
+
+        const config = pcs_core_mod.PcsConfig{
+            .pow_bits = 0,
+            .fri_config = .{
+                .log_blowup_factor = 1,
+                .log_last_layer_degree_bound = 0,
+                .n_queries = 3,
+            },
+        };
+
+        prove_result = try prove_trace_mod.proveCairoTrace(
+            allocator,
+            config,
+            raw_trace,
+            log_size,
+        );
+
+        std.debug.print("  Proving: {d:.2}ms\n", .{t.elapsedMs()});
+    }
+    defer {
+        var p = prove_result;
+        p.proof.deinit(allocator);
+    }
+
+    // Stage 7: Verification.
+    {
+        std.debug.print("\nStage 7: STARK verification...\n", .{});
+        const t = Timer.begin();
+
+        const config = pcs_core_mod.PcsConfig{
+            .pow_bits = 0,
+            .fri_config = .{
+                .log_blowup_factor = 1,
+                .log_last_layer_degree_bound = 0,
+                .n_queries = 3,
+            },
+        };
+
+        try prove_trace_mod.verifyCairoTrace(
+            allocator,
+            config,
+            prove_result.statement,
+            prove_result.proof,
+        );
+
+        std.debug.print("  Verification: {d:.2}ms\n", .{t.elapsedMs()});
+        std.debug.print("  Result: VALID\n", .{});
+    }
+
     std.debug.print("\n============================\n", .{});
-    std.debug.print("Pipeline complete.\n", .{});
-    std.debug.print("Note: Proving stage requires full AIR component implementation.\n", .{});
+    std.debug.print("Full pipeline complete: execute -> trace -> prove -> verify\n", .{});
 }
