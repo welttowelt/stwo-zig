@@ -1335,19 +1335,34 @@ fn interpolateCoefficientColumns(
     var groups = try buildLogSizeGroupsFromColumns(allocator, columns);
     defer deinitLogSizeGroups(allocator, &groups);
 
-    for (groups.items) |group| {
+    // --- Phase 1: pre-allocate contiguous buffers and copy column data ---
+    const InterpBatchMeta = struct {
+        group_indices_start: usize,
+        group_indices_end: usize,
+        group_item_idx: usize,
+    };
+
+    var work_items = std.ArrayList(IfftWorkItem).empty;
+    defer work_items.deinit(allocator);
+
+    var work_meta = std.ArrayList(InterpBatchMeta).empty;
+    defer work_meta.deinit(allocator);
+
+    var work_value_slices = std.ArrayList([][]M31).empty;
+    defer {
+        for (work_value_slices.items) |s| allocator.free(s);
+        work_value_slices.deinit(allocator);
+    }
+
+    var total_columns: usize = 0;
+
+    for (groups.items, 0..) |group, group_idx| {
         const twiddle_tree = try getCachedTwiddleTree(allocator, twiddle_cache, group.log_size);
         const domain = canonic.CanonicCoset.new(group.log_size).circleDomain();
         const batch_len = preferredFftBatchLen(domain.size());
         var batch_start: usize = 0;
         while (batch_start < group.indices.items.len) : (batch_start += batch_len) {
             const chunk_len = @min(batch_len, group.indices.items.len - batch_start);
-            if (chunk_len == 1) {
-                const idx = group.indices.items[batch_start];
-                out[idx] = try interpolateSingleCoefficientColumn(allocator, columns[idx], twiddle_cache);
-                try initialized_indices.append(allocator, idx);
-                continue;
-            }
 
             // Allocate a single contiguous buffer for the entire batch instead
             // of chunk_len separate allocations. This reduces allocator overhead
@@ -1356,15 +1371,14 @@ fn interpolateCoefficientColumns(
             const batch_buffer = try allocator.alloc(M31, chunk_len * domain_size);
 
             // Track the contiguous buffer immediately so the outer errdefer
-            // handles cleanup on any subsequent failure. If the append fails,
-            // free the buffer before propagating.
+            // handles cleanup on any subsequent failure.
             backing_buffers.append(allocator, batch_buffer) catch |err| {
                 allocator.free(batch_buffer);
                 return err;
             };
 
             const batch_values = try allocator.alloc([]M31, chunk_len);
-            defer allocator.free(batch_values);
+            errdefer allocator.free(batch_values);
 
             for (group.indices.items[batch_start .. batch_start + chunk_len], 0..) |idx, batch_idx| {
                 const slice = batch_buffer[batch_idx * domain_size .. (batch_idx + 1) * domain_size];
@@ -1372,16 +1386,53 @@ fn interpolateCoefficientColumns(
                 batch_values[batch_idx] = slice;
             }
 
-            try prover_circle.poly.interpolateOwnedValuesBatchWithTwiddles(
-                domain,
-                batch_values,
-                twiddleTreeConst(twiddle_tree),
-            );
+            total_columns += chunk_len;
 
-            for (group.indices.items[batch_start .. batch_start + chunk_len], 0..) |idx, batch_idx| {
-                out[idx] = try prover_circle.CircleCoefficients.initBorrowed(batch_values[batch_idx]);
-                try initialized_indices.append(allocator, idx);
+            try work_value_slices.append(allocator, batch_values);
+            try work_items.append(allocator, .{
+                .values = batch_values,
+                .domain = domain,
+                .twiddle_tree = twiddleTreeConst(twiddle_tree),
+            });
+            try work_meta.append(allocator, .{
+                .group_indices_start = batch_start,
+                .group_indices_end = batch_start + chunk_len,
+                .group_item_idx = group_idx,
+            });
+        }
+    }
+
+    // --- Phase 2: run IFFT on all buffers ---
+    const use_parallel = !builtin.single_threaded and
+        work_items.items.len > 1 and
+        total_columns >= 4;
+
+    if (use_parallel) {
+        if (getOrInitFftPool()) |pool| {
+            var wait_group: std.Thread.WaitGroup = .{};
+            for (work_items.items[1..]) |*item| {
+                pool.spawnWg(&wait_group, ifftWorker, .{item});
             }
+            ifftWorker(&work_items.items[0]);
+            wait_group.wait();
+        } else {
+            for (work_items.items) |*item| {
+                ifftWorker(item);
+            }
+        }
+    } else {
+        for (work_items.items) |*item| {
+            ifftWorker(item);
+        }
+    }
+
+    // --- Phase 3: wrap results into CircleCoefficients (main thread) ---
+    for (work_meta.items, 0..) |meta, wi| {
+        const group = groups.items[meta.group_item_idx];
+        const batch_values = work_items.items[wi].values;
+        for (group.indices.items[meta.group_indices_start..meta.group_indices_end], 0..) |idx, bi| {
+            out[idx] = try prover_circle.CircleCoefficients.initBorrowed(batch_values[bi]);
+            try initialized_indices.append(allocator, idx);
         }
     }
 
@@ -1410,47 +1461,172 @@ fn interpolateOwnedColumnsForExtension(
     var groups = try buildLogSizeGroupsFromColumns(allocator, owned_columns);
     defer deinitLogSizeGroups(allocator, &groups);
 
-    for (groups.items) |group| {
+    // --- Phase 1: collect IFFT work items (buffers are already allocated) ---
+    const IfftBatchMeta = struct {
+        group_indices_start: usize,
+        group_indices_end: usize,
+        group_item_idx: usize,
+    };
+
+    var work_items = std.ArrayList(IfftWorkItem).empty;
+    defer work_items.deinit(allocator);
+
+    var work_meta = std.ArrayList(IfftBatchMeta).empty;
+    defer work_meta.deinit(allocator);
+
+    var work_value_slices = std.ArrayList([][]M31).empty;
+    defer {
+        for (work_value_slices.items) |s| allocator.free(s);
+        work_value_slices.deinit(allocator);
+    }
+
+    var total_columns: usize = 0;
+
+    for (groups.items, 0..) |group, group_idx| {
         const twiddle_tree = try getCachedTwiddleTree(allocator, twiddle_cache, group.log_size);
         const domain = canonic.CanonicCoset.new(group.log_size).circleDomain();
         const batch_len = preferredFftBatchLen(domain.size());
         var batch_start: usize = 0;
         while (batch_start < group.indices.items.len) : (batch_start += batch_len) {
             const chunk_len = @min(batch_len, group.indices.items.len - batch_start);
-            if (chunk_len == 1) {
-                const idx = group.indices.items[batch_start];
-                out[idx] = try interpolateOwnedSingleCoefficientColumn(
-                    allocator,
-                    owned_columns[idx],
-                    twiddle_cache,
-                );
-                owned_columns[idx].values = &[_]M31{};
-                try initialized_indices.append(allocator, idx);
-                continue;
-            }
 
             const batch_values = try allocator.alloc([]M31, chunk_len);
-            defer allocator.free(batch_values);
+            errdefer allocator.free(batch_values);
 
-            for (group.indices.items[batch_start .. batch_start + chunk_len], 0..) |idx, batch_idx| {
-                batch_values[batch_idx] = @constCast(owned_columns[idx].values);
+            for (group.indices.items[batch_start .. batch_start + chunk_len], 0..) |idx, bi| {
+                batch_values[bi] = @constCast(owned_columns[idx].values);
             }
 
-            try prover_circle.poly.interpolateOwnedValuesBatchWithTwiddles(
-                domain,
-                batch_values,
-                twiddleTreeConst(twiddle_tree),
-            );
-            for (group.indices.items[batch_start .. batch_start + chunk_len], 0..) |idx, batch_idx| {
-                out[idx] = try prover_circle.CircleCoefficients.initOwned(batch_values[batch_idx]);
-                owned_columns[idx].values = &[_]M31{};
-                try initialized_indices.append(allocator, idx);
+            total_columns += chunk_len;
+
+            try work_value_slices.append(allocator, batch_values);
+            try work_items.append(allocator, .{
+                .values = batch_values,
+                .domain = domain,
+                .twiddle_tree = twiddleTreeConst(twiddle_tree),
+            });
+            try work_meta.append(allocator, .{
+                .group_indices_start = batch_start,
+                .group_indices_end = batch_start + chunk_len,
+                .group_item_idx = group_idx,
+            });
+        }
+    }
+
+    // --- Phase 2: run IFFT on all buffers ---
+    const use_parallel = !builtin.single_threaded and
+        work_items.items.len > 1 and
+        total_columns >= 4;
+
+    if (use_parallel) {
+        if (getOrInitFftPool()) |pool| {
+            var wait_group: std.Thread.WaitGroup = .{};
+            for (work_items.items[1..]) |*item| {
+                pool.spawnWg(&wait_group, ifftWorker, .{item});
             }
+            ifftWorker(&work_items.items[0]);
+            wait_group.wait();
+        } else {
+            for (work_items.items) |*item| {
+                ifftWorker(item);
+            }
+        }
+    } else {
+        for (work_items.items) |*item| {
+            ifftWorker(item);
+        }
+    }
+
+    // --- Phase 3: wrap results into CircleCoefficients (main thread) ---
+    for (work_meta.items, 0..) |meta, wi| {
+        const group = groups.items[meta.group_item_idx];
+        const batch_values = work_items.items[wi].values;
+        for (group.indices.items[meta.group_indices_start..meta.group_indices_end], 0..) |idx, bi| {
+            out[idx] = try prover_circle.CircleCoefficients.initOwned(batch_values[bi]);
+            owned_columns[idx].values = &[_]M31{};
+            try initialized_indices.append(allocator, idx);
         }
     }
 
     return out;
 }
+
+// ---------------------------------------------------------------------------
+// Parallel FFT infrastructure
+// ---------------------------------------------------------------------------
+
+/// Maximum number of parallel workers for FFT/IFFT column processing.
+const fft_max_parallel_workers: usize = 16;
+
+/// Thread pool shared across FFT parallelisation calls. Initialised once on
+/// first use; subsequent calls reuse the same pool to avoid repeated
+/// thread creation/teardown overhead between commit rounds.
+const FftPoolState = struct {
+    mutex: std.Thread.Mutex = .{},
+    pool: std.Thread.Pool = undefined,
+    pool_initialized: bool = false,
+    failed: bool = false,
+};
+var fft_shared_pool_state: FftPoolState = .{};
+
+fn getOrInitFftPool() ?*std.Thread.Pool {
+    fft_shared_pool_state.mutex.lock();
+    defer fft_shared_pool_state.mutex.unlock();
+
+    if (fft_shared_pool_state.failed) return null;
+    if (!fft_shared_pool_state.pool_initialized) {
+        const cpu_count = std.Thread.getCpuCount() catch 1;
+        const n_workers = @min(cpu_count, fft_max_parallel_workers);
+        if (n_workers <= 1) {
+            fft_shared_pool_state.failed = true;
+            return null;
+        }
+        fft_shared_pool_state.pool.init(.{
+            .allocator = std.heap.page_allocator,
+            .n_jobs = @intCast(n_workers - 1),
+        }) catch {
+            fft_shared_pool_state.failed = true;
+            return null;
+        };
+        fft_shared_pool_state.pool_initialized = true;
+    }
+    return &fft_shared_pool_state.pool;
+}
+
+/// A self-contained work item for parallel forward-FFT evaluation.
+/// Each item references a sub-slice of pre-allocated value buffers that share
+/// the same domain and twiddle tree, so the worker performs pure in-place
+/// computation with no allocator interaction.
+const FftEvalWorkItem = struct {
+    values: [][]M31,
+    domain: prover_circle.CircleDomain,
+    twiddle_tree: twiddles_mod.TwiddleTree([]const M31),
+};
+
+fn fftEvalWorker(item: *const FftEvalWorkItem) void {
+    prover_circle.poly.evaluateBuffersWithTwiddles(
+        item.values,
+        item.domain,
+        item.twiddle_tree,
+    ) catch {};
+}
+
+/// A self-contained work item for parallel inverse-FFT (interpolation).
+const IfftWorkItem = struct {
+    values: [][]M31,
+    domain: prover_circle.CircleDomain,
+    twiddle_tree: twiddles_mod.TwiddleTree([]const M31),
+};
+
+fn ifftWorker(item: *const IfftWorkItem) void {
+    prover_circle.poly.interpolateBuffersWithTwiddles(
+        item.values,
+        item.domain,
+        item.twiddle_tree,
+    ) catch {};
+}
+
+// ---------------------------------------------------------------------------
 
 fn extendCoefficientColumnsByGroup(
     allocator: std.mem.Allocator,
@@ -1476,51 +1652,83 @@ fn extendCoefficientColumnsByGroup(
     var groups = try buildLogSizeGroupsFromCoefficients(allocator, coeffs);
     defer deinitLogSizeGroups(allocator, &groups);
 
+    // --- Phase 1: pre-allocate output buffers and copy coefficient data ---
+    // We collect all (buffer-slice, domain, twiddle) tuples so that the FFT
+    // phase can run without any allocator interaction.
+    var work_items = std.ArrayList(FftEvalWorkItem).empty;
+    defer work_items.deinit(allocator);
+
+    // Temporary storage for the per-work-item value-slice arrays. Each
+    // entry is an allocated [][]M31 that must be freed after use.
+    var work_value_slices = std.ArrayList([][]M31).empty;
+    defer {
+        for (work_value_slices.items) |s| allocator.free(s);
+        work_value_slices.deinit(allocator);
+    }
+
+    var total_columns: usize = 0;
+
     for (groups.items) |group| {
         const extended_log_size = std.math.add(u32, group.log_size, log_blowup_factor) catch
             return CommitmentSchemeError.ShapeMismatch;
         const twiddle_tree = try getCachedTwiddleTree(allocator, twiddle_cache, extended_log_size);
         const domain = canonic.CanonicCoset.new(extended_log_size).circleDomain();
+        const domain_size = domain.size();
 
-        const batch_len = preferredFftBatchLen(domain.size());
+        const batch_len = preferredFftBatchLen(domain_size);
         var batch_start: usize = 0;
         while (batch_start < group.indices.items.len) : (batch_start += batch_len) {
             const chunk_len = @min(batch_len, group.indices.items.len - batch_start);
-            if (chunk_len == 1) {
-                const idx = group.indices.items[batch_start];
-                const evaluation = try coeffs[idx].evaluateWithTwiddles(
-                    allocator,
-                    domain,
-                    twiddleTreeConst(twiddle_tree),
-                );
+
+            // Allocate value-buffer slice for this batch.
+            const batch_values = try allocator.alloc([]M31, chunk_len);
+            errdefer allocator.free(batch_values);
+
+            for (group.indices.items[batch_start .. batch_start + chunk_len], 0..) |idx, bi| {
+                const values = try allocator.alloc(M31, domain_size);
+                const coeff_slice = coeffs[idx].coefficients();
+                @memcpy(values[0..coeff_slice.len], coeff_slice);
+                if (coeff_slice.len < values.len) @memset(values[coeff_slice.len..], M31.zero());
+                batch_values[bi] = values;
                 out[idx] = .{
                     .log_size = extended_log_size,
-                    .values = evaluation.values,
-                };
-                continue;
-            }
-
-            const batch_polys = try allocator.alloc(prover_circle.CircleCoefficients, chunk_len);
-            defer allocator.free(batch_polys);
-            for (group.indices.items[batch_start .. batch_start + chunk_len], 0..) |idx, batch_idx| {
-                batch_polys[batch_idx] = coeffs[idx];
-            }
-
-            const batch_values = try prover_circle.poly.evaluateManyWithTwiddles(
-                allocator,
-                batch_polys,
-                domain,
-                twiddleTreeConst(twiddle_tree),
-            );
-            defer allocator.free(batch_values);
-
-            for (group.indices.items[batch_start .. batch_start + chunk_len], 0..) |idx, batch_idx| {
-                out[idx] = .{
-                    .log_size = extended_log_size,
-                    .values = batch_values[batch_idx],
+                    .values = values,
                 };
             }
+
+            total_columns += chunk_len;
+
+            try work_value_slices.append(allocator, batch_values);
+            try work_items.append(allocator, .{
+                .values = batch_values,
+                .domain = domain,
+                .twiddle_tree = twiddleTreeConst(twiddle_tree),
+            });
         }
+    }
+
+    // --- Phase 2: run FFT on all pre-allocated buffers ---
+    const use_parallel = !builtin.single_threaded and
+        work_items.items.len > 1 and
+        total_columns >= 4;
+
+    if (use_parallel) {
+        if (getOrInitFftPool()) |pool| {
+            var wait_group: std.Thread.WaitGroup = .{};
+            // Dispatch all but the first item to the pool; process the first
+            // item on the calling thread to keep it busy.
+            for (work_items.items[1..]) |*item| {
+                pool.spawnWg(&wait_group, fftEvalWorker, .{item});
+            }
+            fftEvalWorker(&work_items.items[0]);
+            wait_group.wait();
+            return out;
+        }
+    }
+
+    // Sequential fallback.
+    for (work_items.items) |*item| {
+        fftEvalWorker(item);
     }
 
     return out;
