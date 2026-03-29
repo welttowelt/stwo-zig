@@ -103,24 +103,44 @@ pub fn main() !void {
     defer std.process.argsFree(allocator, args);
 
     var fib_n: u32 = 10000;
+    var pow_bits: u32 = 0;
+    var n_queries: u64 = 3;
+    var production: bool = false;
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
         if (std.mem.eql(u8, args[i], "--fib-n") and i + 1 < args.len) {
             i += 1;
             fib_n = try std.fmt.parseInt(u32, args[i], 10);
+        } else if (std.mem.eql(u8, args[i], "--pow-bits") and i + 1 < args.len) {
+            i += 1;
+            pow_bits = try std.fmt.parseInt(u32, args[i], 10);
+        } else if (std.mem.eql(u8, args[i], "--n-queries") and i + 1 < args.len) {
+            i += 1;
+            n_queries = try std.fmt.parseInt(u64, args[i], 10);
+        } else if (std.mem.eql(u8, args[i], "--production")) {
+            production = true;
         }
+    }
+
+    // --production matches stark-v's benchmark config: pow_bits=24, n_queries=70
+    if (production) {
+        pow_bits = 24;
+        n_queries = 70;
     }
 
     std.debug.print("RISC-V End-to-End Proving Benchmark\n", .{});
     std.debug.print("====================================\n", .{});
-    std.debug.print("fib(N) = fib({d})\n\n", .{fib_n});
+    std.debug.print("fib(N) = fib({d})\n", .{fib_n});
+    std.debug.print("Security: pow_bits={d}, n_queries={d}", .{ pow_bits, n_queries });
+    if (production) std.debug.print(" [PRODUCTION — matches stark-v]", .{});
+    std.debug.print("\n\n", .{});
 
     const config = pcs_core.PcsConfig{
-        .pow_bits = 0,
+        .pow_bits = pow_bits,
         .fri_config = .{
             .log_blowup_factor = 1,
             .log_last_layer_degree_bound = 0,
-            .n_queries = 3,
+            .n_queries = n_queries,
         },
     };
 
