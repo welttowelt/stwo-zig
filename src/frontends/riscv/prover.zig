@@ -44,12 +44,48 @@ const Hasher = blake2_merkle.Blake2sMerkleHasher;
 const MerkleChannel = blake2_merkle.Blake2sMerkleChannel;
 const Channel = channel_blake2s.Blake2sChannel;
 
-pub const RiscVStatement = struct {
+/// Per-family component descriptor within the proof.
+pub const FamilyComponentDesc = struct {
+    family: trace_mod.OpcodeFamily,
     log_size: u32,
+    n_columns: u32 = 10,
+};
+
+/// Maximum number of opcode families (components) we support.
+pub const MAX_COMPONENTS = trace_mod.N_FAMILIES;
+
+pub const RiscVStatement = struct {
+    /// Number of active opcode family components in the proof.
+    n_components: u32,
+    /// Per-component descriptors, ordered by family enum value.
+    /// Only the first `n_components` entries are valid.
+    component_descs: [MAX_COMPONENTS]FamilyComponentDesc,
     initial_pc: u32,
     final_pc: u32,
-    step_count: u32,
-    n_columns: u32,
+    total_steps: u32,
+
+    /// Total number of preprocessed columns (one IsFirst per component).
+    pub fn nPreprocessedColumns(self: *const RiscVStatement) u32 {
+        return self.n_components;
+    }
+
+    /// Total number of main trace columns (n_columns per component).
+    pub fn nMainColumns(self: *const RiscVStatement) u32 {
+        var total: u32 = 0;
+        for (0..self.n_components) |i| {
+            total += self.component_descs[i].n_columns;
+        }
+        return total;
+    }
+
+    // Legacy compatibility: single log_size is the maximum across all components.
+    pub fn maxLogSize(self: *const RiscVStatement) u32 {
+        var max_ls: u32 = 0;
+        for (0..self.n_components) |i| {
+            max_ls = @max(max_ls, self.component_descs[i].log_size);
+        }
+        return max_ls;
+    }
 };
 
 pub const Proof = core_proof.StarkProof(Hasher);
@@ -73,20 +109,27 @@ pub const ProverError = error{
 
 fn mixStatement(channel: *Channel, statement: RiscVStatement) void {
     channel.mixU32s(&[_]u32{
-        statement.log_size,
+        statement.n_components,
         statement.initial_pc,
         statement.final_pc,
-        statement.step_count,
-        statement.n_columns,
+        statement.total_steps,
     });
+    // Mix per-component log_sizes for binding
+    for (0..statement.n_components) |i| {
+        channel.mixU32s(&[_]u32{
+            @intFromEnum(statement.component_descs[i].family),
+            statement.component_descs[i].log_size,
+            statement.component_descs[i].n_columns,
+        });
+    }
 }
 
-fn compositionEval(statement: RiscVStatement) QM31 {
+fn compositionEvalForComponent(desc: FamilyComponentDesc, initial_pc: u32, total_steps: u32) QM31 {
     return QM31.fromM31(
-        M31.fromCanonical(statement.log_size),
-        M31.fromCanonical(statement.initial_pc & 0x7FFFFFFF),
-        M31.fromCanonical(statement.step_count),
-        M31.one(),
+        M31.fromCanonical(desc.log_size),
+        M31.fromCanonical(initial_pc & 0x7FFFFFFF),
+        M31.fromCanonical(total_steps),
+        M31.fromCanonical(@as(u32, @intFromEnum(desc.family)) + 1),
     );
 }
 

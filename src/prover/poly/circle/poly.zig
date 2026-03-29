@@ -842,7 +842,15 @@ inline fn fftLayerLoopForwardM31(
     var rhs = lhs + half_block;
     var remaining = half_block;
 
-    // SIMD path: process 4 elements per iteration.
+    // 16-lane SIMD path.
+    const PW = m31.PACK_WIDTH;
+    const twid_packed: m31.PackedM31 = @splat(twid.v);
+    while (remaining >= PW) : (remaining -= PW) {
+        m31.butterflyPacked(lhs, rhs, twid_packed);
+        lhs += PW;
+        rhs += PW;
+    }
+    // 4-lane SIMD for remainder.
     const VW = m31.VEC_WIDTH;
     const twid_vec: m31.Vec4u32 = @splat(twid.v);
     while (remaining >= VW) : (remaining -= VW) {
@@ -884,7 +892,15 @@ inline fn fftLayerLoopInverseM31(
     var rhs = lhs + half_block;
     var remaining = half_block;
 
-    // SIMD path: process 4 elements per iteration.
+    // 16-lane SIMD path.
+    const PW = m31.PACK_WIDTH;
+    const itwid_packed: m31.PackedM31 = @splat(itwid.v);
+    while (remaining >= PW) : (remaining -= PW) {
+        m31.ibutterflyPacked(lhs, rhs, itwid_packed);
+        lhs += PW;
+        rhs += PW;
+    }
+    // 4-lane SIMD for remainder.
     const VW = m31.VEC_WIDTH;
     const itwid_vec: m31.Vec4u32 = @splat(itwid.v);
     while (remaining >= VW) : (remaining -= VW) {
