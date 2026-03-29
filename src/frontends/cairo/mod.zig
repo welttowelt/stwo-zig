@@ -21,8 +21,10 @@
 pub const adapter = @import("adapter/mod.zig");
 pub const air = @import("air/mod.zig");
 pub const common = @import("common/mod.zig");
+pub const prover = @import("prover.zig");
 
 // Convenience re-exports.
 pub const Felt252 = common.Felt252;
 pub const CasmState = common.CasmState;
 pub const ProverInput = adapter.ProverInput;
+pub const proveCairo = prover.proveCairo;

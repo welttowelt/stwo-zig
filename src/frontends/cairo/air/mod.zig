@@ -1,17 +1,15 @@
 //! Cairo AIR (Algebraic Intermediate Representation) definitions.
 //!
-//! Contains ~70 component constraint files and ~90 shared subroutines
-//! that define the polynomial constraints for each Cairo opcode, builtin,
-//! and memory operation.
+//! Contains component constraint files and claim types that define the
+//! polynomial constraints for each Cairo opcode, builtin, and memory
+//! operation.
 //!
-//! These constraints are evaluated via the `ExprEvaluator` API from
+//! Constraints are evaluated via the `ExprEvaluator` API from
 //! `core/constraint_framework/`.
 
-/// Component constraint definitions (add_opcode, ret_opcode, etc.)
-pub const components = struct {};
+pub const claims = @import("claims.zig");
+pub const components = @import("components/mod.zig");
 
-/// Shared subroutine constraints (instruction decoding, memory reads, etc.)
-pub const relations = struct {};
-
-/// Claim types for each component.
-pub const claims = struct {};
+pub const CairoClaim = claims.CairoClaim;
+pub const CairoInteractionClaim = claims.CairoInteractionClaim;
+pub const PublicData = claims.PublicData;
