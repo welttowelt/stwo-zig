@@ -181,7 +181,7 @@ pub fn TreeDecommitmentResult(comptime H: type) type {
 
 pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: type) type {
     return struct {
-        trees: TreeVec(CommitmentTreeProver(H)),
+        trees: std.ArrayListUnmanaged(CommitmentTreeProver(H)),
         config: PcsConfig,
         coefficient_retention_policy: CoefficientRetentionPolicy,
         twiddle_cache: std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)),
@@ -189,10 +189,9 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
         const Self = @This();
 
         pub fn init(allocator: std.mem.Allocator, config: PcsConfig) !Self {
+            _ = allocator;
             return .{
-                .trees = TreeVec(CommitmentTreeProver(H)).initOwned(
-                    try allocator.alloc(CommitmentTreeProver(H), 0),
-                ),
+                .trees = .{},
                 .config = config,
                 .coefficient_retention_policy = .always,
                 .twiddle_cache = std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)).init(allocator),
@@ -1131,11 +1130,19 @@ test "prover pcs: coefficient eval plan cache reuses duplicate point sets" {
 const PreparedCommitmentColumns = struct {
     columns: []ColumnEvaluation,
     coefficients: ?[]prover_circle.CircleCoefficients,
+    /// Contiguous backing buffers for batched coefficient data. When present,
+    /// coefficient entries borrow sub-slices of these buffers instead of each
+    /// owning a separate allocation. Freed alongside the coefficients.
+    coefficient_backing_buffers: ?[][]M31 = null,
 
     fn deinit(self: *PreparedCommitmentColumns, allocator: std.mem.Allocator) void {
         freeOwnedColumnEvaluations(allocator, self.columns);
         if (self.coefficients) |coeffs| {
             deinitOwnedCoefficientColumns(allocator, coeffs);
+        }
+        if (self.coefficient_backing_buffers) |bufs| {
+            for (bufs) |buf| allocator.free(buf);
+            allocator.free(bufs);
         }
         self.* = undefined;
     }
@@ -1199,10 +1206,11 @@ fn prepareColumnsForCommitOwned(
                 "Interpolate columns",
             );
             defer interpolate_stage.end();
-            const coeffs = try interpolateCoefficientColumns(allocator, owned_columns, twiddle_cache);
+            const result = try interpolateCoefficientColumns(allocator, owned_columns, twiddle_cache);
             return .{
                 .columns = owned_columns,
-                .coefficients = coeffs,
+                .coefficients = result.coefficients,
+                .coefficient_backing_buffers = result.backing_buffers,
             };
         }
     }
@@ -1286,18 +1294,42 @@ fn shouldRetainPolynomialCoefficients(
     };
 }
 
+const InterpolatedCoefficients = struct {
+    coefficients: []prover_circle.CircleCoefficients,
+    /// Contiguous backing buffers for batched coefficients. Each entry is a
+    /// single allocation whose sub-slices are borrowed by the corresponding
+    /// CircleCoefficients (owns_coeffs == false). Must be freed separately.
+    backing_buffers: [][]M31,
+
+    fn deinit(self: *InterpolatedCoefficients, allocator: std.mem.Allocator) void {
+        for (self.coefficients) |*coeff| {
+            @constCast(coeff).deinit(allocator);
+        }
+        allocator.free(self.coefficients);
+        for (self.backing_buffers) |buf| allocator.free(buf);
+        allocator.free(self.backing_buffers);
+        self.* = undefined;
+    }
+};
+
 fn interpolateCoefficientColumns(
     allocator: std.mem.Allocator,
     columns: []const ColumnEvaluation,
     twiddle_cache: *std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)),
-) ![]prover_circle.CircleCoefficients {
+) !InterpolatedCoefficients {
     const out = try allocator.alloc(prover_circle.CircleCoefficients, columns.len);
-    errdefer allocator.free(out);
+
+    var backing_buffers = std.ArrayList([]M31).empty;
+    defer backing_buffers.deinit(allocator);
 
     var initialized_indices = std.ArrayList(usize).empty;
     defer initialized_indices.deinit(allocator);
     errdefer {
+        // Individually-owned coefficients (from the single-column path)
+        // are freed via deinit; borrowed coefficients (from the batch path)
+        // are no-ops since their data lives in backing_buffers.
         for (initialized_indices.items) |idx| out[idx].deinit(allocator);
+        for (backing_buffers.items) |buf| allocator.free(buf);
         allocator.free(out);
     }
 
@@ -1318,17 +1350,27 @@ fn interpolateCoefficientColumns(
                 continue;
             }
 
+            // Allocate a single contiguous buffer for the entire batch instead
+            // of chunk_len separate allocations. This reduces allocator overhead
+            // and keeps FFT working data cache-contiguous.
+            const domain_size = domain.size();
+            const batch_buffer = try allocator.alloc(M31, chunk_len * domain_size);
+
+            // Track the contiguous buffer immediately so the outer errdefer
+            // handles cleanup on any subsequent failure. If the append fails,
+            // free the buffer before propagating.
+            backing_buffers.append(allocator, batch_buffer) catch |err| {
+                allocator.free(batch_buffer);
+                return err;
+            };
+
             const batch_values = try allocator.alloc([]M31, chunk_len);
             defer allocator.free(batch_values);
 
-            var initialized_batch: usize = 0;
-            errdefer {
-                for (batch_values[0..initialized_batch]) |values| allocator.free(values);
-            }
-
             for (group.indices.items[batch_start .. batch_start + chunk_len], 0..) |idx, batch_idx| {
-                batch_values[batch_idx] = try allocator.dupe(M31, columns[idx].values);
-                initialized_batch += 1;
+                const slice = batch_buffer[batch_idx * domain_size .. (batch_idx + 1) * domain_size];
+                @memcpy(slice, columns[idx].values);
+                batch_values[batch_idx] = slice;
             }
 
             try prover_circle.poly.interpolateOwnedValuesBatchWithTwiddles(
@@ -1336,13 +1378,19 @@ fn interpolateCoefficientColumns(
                 batch_values,
                 twiddleTreeConst(twiddle_tree),
             );
+
             for (group.indices.items[batch_start .. batch_start + chunk_len], 0..) |idx, batch_idx| {
-                out[idx] = try prover_circle.CircleCoefficients.initOwned(batch_values[batch_idx]);
+                out[idx] = try prover_circle.CircleCoefficients.initBorrowed(batch_values[batch_idx]);
                 try initialized_indices.append(allocator, idx);
             }
         }
     }
-    return out;
+
+    const owned_backing = try backing_buffers.toOwnedSlice(allocator);
+    return .{
+        .coefficients = out,
+        .backing_buffers = owned_backing,
+    };
 }
 
 fn interpolateOwnedColumnsForExtension(

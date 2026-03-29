@@ -331,31 +331,8 @@ pub fn proveRiscV(
 ) !ProveOutput {
     if (exec_trace.step_count == 0) return ProverError.EmptyTrace;
 
-    // -----------------------------------------------------------------------
-    // Arena allocator for the entire proving pipeline.
-    //
-    // Every intermediate allocation (trace columns, twiddle factors, Merkle
-    // layers, commitment trees, FRI rounds, ...) plus the final proof
-    // payload are handed out from this arena, which is backed by
-    // page_allocator.  This gives us:
-    //   - Cache-line-aligned buffers (pages are 4096-byte-aligned).
-    //   - Fast bump-pointer allocation with zero fragmentation.
-    //   - O(1) bulk cleanup when the caller deinits ProveOutput.
-    //
-    // The arena itself is heap-allocated (via the caller's allocator) so
-    // that the returned ProveOutput can be moved without invalidating the
-    // internal Allocator pointer.
-    // -----------------------------------------------------------------------
-    const arena = try allocator.create(std.heap.ArenaAllocator);
-    arena.* = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    errdefer {
-        arena.deinit();
-        allocator.destroy(arena);
-    }
-    const arena_alloc = arena.allocator();
-
     // -- Step 1: Count rows per opcode family. --
-    const counts = try exec_trace.groupByOpcodeFamily(arena_alloc);
+    const counts = try exec_trace.groupByOpcodeFamily(allocator);
 
     // -- Step 2: Build statement with per-family descriptors. --
     var statement: RiscVStatement = .{
@@ -389,28 +366,28 @@ pub fn proveRiscV(
     pcs_config.mixInto(&channel);
 
     var scheme = try prover_pcs.CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel).init(
-        arena_alloc,
+        allocator,
         pcs_config,
     );
 
     // -- Step 3: Tree 0 -- Preprocessed (one IsFirst per active component). --
     const n_preproc = statement.n_components;
-    const preprocessed = try arena_alloc.alloc(prover_pcs.ColumnEvaluation, n_preproc);
+    const preprocessed = try allocator.alloc(prover_pcs.ColumnEvaluation, n_preproc);
     for (0..n_preproc) |i| {
         const ls = statement.component_descs[i].log_size;
-        const is_first = try genIsFirstColumn(arena_alloc, ls);
+        const is_first = try genIsFirstColumn(allocator, ls);
         preprocessed[i] = .{ .log_size = ls, .values = is_first };
     }
-    try scheme.commitOwned(arena_alloc, preprocessed, &channel);
+    try scheme.commitOwned(allocator, preprocessed, &channel);
 
     // -- Step 4: Tree 1 -- Main trace (n_columns per active component). --
     const n_main = statement.nMainColumns();
-    const main_columns = try arena_alloc.alloc(prover_pcs.ColumnEvaluation, n_main);
+    const main_columns = try allocator.alloc(prover_pcs.ColumnEvaluation, n_main);
     var col_offset: usize = 0;
     for (0..statement.n_components) |comp_idx| {
         const desc = statement.component_descs[comp_idx];
         const family_cols = try genColumnsForFamily(
-            arena_alloc,
+            allocator,
             exec_trace,
             desc.family,
             desc.log_size,
@@ -424,7 +401,7 @@ pub fn proveRiscV(
         }
         col_offset += desc.n_columns;
     }
-    try scheme.commitOwned(arena_alloc, main_columns, &channel);
+    try scheme.commitOwned(allocator, main_columns, &channel);
 
     mixStatement(&channel, statement);
 
@@ -446,18 +423,16 @@ pub fn proveRiscV(
         CpuBackend,
         Hasher,
         MerkleChannel,
-        arena_alloc,
+        allocator,
         components_arr[0..statement.n_components],
         &channel,
         scheme,
         false,
     );
     const proof = extended.proof;
-    // With the arena, aux.deinit is a no-op (individual frees are ignored),
-    // but we call it for correctness if the arena is ever removed.
-    extended.aux.deinit(arena_alloc);
+    extended.aux.deinit(allocator);
 
-    return .{ .statement = statement, .proof = proof, ._arena = arena };
+    return .{ .statement = statement, .proof = proof };
 }
 
 /// Verify a RISC-V STARK proof with per-opcode-family components.
@@ -540,21 +515,24 @@ pub fn verifyRiscV(
 }
 
 /// Run a RISC-V ELF, prove execution, and verify the proof.
+/// Note: verification takes ownership of the proof. The returned statement
+/// can be inspected, but the proof field should not be accessed after this
+/// call.
 pub fn proveAndVerifyElf(
     allocator: std.mem.Allocator,
     elf_bytes: []const u8,
     max_steps: usize,
     pcs_config: pcs_core.PcsConfig,
-) !ProveOutput {
+) !RiscVStatement {
     var run_result = try runner_mod.run(allocator, elf_bytes, max_steps);
     defer run_result.deinit();
 
     const output = try proveRiscV(allocator, pcs_config, &run_result.execution_trace);
 
-    // Verify immediately.
+    // Verify immediately (takes ownership of the proof).
     try verifyRiscV(allocator, pcs_config, output.statement, output.proof);
 
-    return output;
+    return output.statement;
 }
 
 // ---------------------------------------------------------------------------
@@ -657,13 +635,12 @@ test "riscv prover: end-to-end ELF prove and verify" {
         },
     };
 
-    var output = try proveRiscV(alloc, config, &run_result.execution_trace);
-    defer output.deinit(alloc);
+    const output = try proveRiscV(alloc, config, &run_result.execution_trace);
 
     // Verify we got multiple components (the ELF uses ADDI, ADD, SW, LW, BEQ, ECALL)
     try std.testing.expect(output.statement.n_components > 1);
 
-    // Step 3: Verify
+    // Step 3: Verify (takes ownership of the proof)
     try verifyRiscV(alloc, config, output.statement, output.proof);
 }
 
@@ -706,8 +683,7 @@ test "riscv prover: prove and verify synthetic trace" {
         },
     };
 
-    var output = try proveRiscV(alloc, config, &exec_trace);
-    defer output.deinit(alloc);
+    const output = try proveRiscV(alloc, config, &exec_trace);
 
     // All 8 rows are ADDI (base_alu_imm), so we should have 1 component.
     try std.testing.expectEqual(@as(u32, 1), output.statement.n_components);
@@ -717,6 +693,7 @@ test "riscv prover: prove and verify synthetic trace" {
     );
     try std.testing.expectEqual(@as(u32, 3), output.statement.component_descs[0].log_size);
 
+    // Verify takes ownership of the proof.
     try verifyRiscV(alloc, config, output.statement, output.proof);
 }
 
@@ -806,8 +783,7 @@ test "riscv prover: multi-family splitting" {
         },
     };
 
-    var output = try proveRiscV(alloc, config, &exec_trace);
-    defer output.deinit(alloc);
+    const output = try proveRiscV(alloc, config, &exec_trace);
 
     // Should have 3 components.
     try std.testing.expectEqual(@as(u32, 3), output.statement.n_components);
@@ -831,5 +807,124 @@ test "riscv prover: multi-family splitting" {
     try std.testing.expectEqual(@as(u32, 3), output.statement.component_descs[1].log_size);
     try std.testing.expectEqual(@as(u32, 2), output.statement.component_descs[2].log_size);
 
+    // Verify takes ownership of the proof.
+    try verifyRiscV(alloc, config, output.statement, output.proof);
+}
+
+test "riscv prover: ADDI + ADD + BNE split prove and verify" {
+    const alloc = std.testing.allocator;
+    var exec_trace = trace_mod.Trace.init(alloc);
+    defer exec_trace.deinit();
+
+    exec_trace.initial_pc = 0x1000;
+
+    // Build a trace with 3 opcode families as required:
+    //   4 x ADDI (base_alu_imm)
+    //   2 x ADD  (base_alu_reg)
+    //   2 x BNE  (branch_eq)
+
+    // 4 ADDI instructions
+    for (0..4) |i| {
+        try exec_trace.append(.{
+            .clk = @intCast(i),
+            .pc = @intCast(0x1000 + i * 4),
+            .opcode = .ADDI,
+            .rd = 1,
+            .rs1 = 0,
+            .rs2 = 0,
+            .imm = @intCast(i + 1),
+            .rs1_val = 0,
+            .rs2_val = 0,
+            .rd_val = @intCast(i + 1),
+            .mem_addr = 0,
+            .mem_val = 0,
+            .is_load = false,
+            .is_store = false,
+            .branch_taken = false,
+            .next_pc = @intCast(0x1000 + (i + 1) * 4),
+        });
+    }
+    // 2 ADD instructions
+    for (0..2) |i| {
+        const step = 4 + i;
+        try exec_trace.append(.{
+            .clk = @intCast(step),
+            .pc = @intCast(0x1000 + step * 4),
+            .opcode = .ADD,
+            .rd = 3,
+            .rs1 = 1,
+            .rs2 = 2,
+            .imm = 0,
+            .rs1_val = 10,
+            .rs2_val = 20,
+            .rd_val = 30,
+            .mem_addr = 0,
+            .mem_val = 0,
+            .is_load = false,
+            .is_store = false,
+            .branch_taken = false,
+            .next_pc = @intCast(0x1000 + (step + 1) * 4),
+        });
+    }
+    // 2 BNE instructions (branch_eq family)
+    for (0..2) |i| {
+        const step = 6 + i;
+        try exec_trace.append(.{
+            .clk = @intCast(step),
+            .pc = @intCast(0x1000 + step * 4),
+            .opcode = .BNE,
+            .rd = 0,
+            .rs1 = 1,
+            .rs2 = 2,
+            .imm = 8,
+            .rs1_val = 10,
+            .rs2_val = 20,
+            .rd_val = 0,
+            .mem_addr = 0,
+            .mem_val = 0,
+            .is_load = false,
+            .is_store = false,
+            .branch_taken = true,
+            .next_pc = @intCast(0x1000 + step * 4 + 8),
+        });
+    }
+    exec_trace.final_pc = 0x1000 + 8 * 4;
+
+    const config = pcs_core.PcsConfig{
+        .pow_bits = 0,
+        .fri_config = .{
+            .log_blowup_factor = 1,
+            .log_last_layer_degree_bound = 0,
+            .n_queries = 3,
+        },
+    };
+
+    // Verify correct family grouping.
+    const counts = try exec_trace.groupByOpcodeFamily(alloc);
+    try std.testing.expectEqual(@as(usize, 4), counts.get(.base_alu_imm));
+    try std.testing.expectEqual(@as(usize, 2), counts.get(.base_alu_reg));
+    try std.testing.expectEqual(@as(usize, 2), counts.get(.branch_eq));
+    try std.testing.expectEqual(@as(usize, 8), counts.total());
+
+    // Prove with component splitting.
+    const output = try proveRiscV(alloc, config, &exec_trace);
+
+    // Verify statement: 3 components (base_alu_reg, base_alu_imm, branch_eq)
+    try std.testing.expectEqual(@as(u32, 3), output.statement.n_components);
+    try std.testing.expectEqual(@as(u32, 8), output.statement.total_steps);
+
+    // Component 0: base_alu_reg (ADD, 2 rows -> log_size=1)
+    try std.testing.expectEqual(trace_mod.OpcodeFamily.base_alu_reg, output.statement.component_descs[0].family);
+    try std.testing.expectEqual(@as(u32, 1), output.statement.component_descs[0].log_size);
+
+    // Component 1: base_alu_imm (ADDI, 4 rows -> log_size=2)
+    try std.testing.expectEqual(trace_mod.OpcodeFamily.base_alu_imm, output.statement.component_descs[1].family);
+    try std.testing.expectEqual(@as(u32, 2), output.statement.component_descs[1].log_size);
+
+    // Component 2: branch_eq (BNE, 2 rows -> log_size=1)
+    try std.testing.expectEqual(trace_mod.OpcodeFamily.branch_eq, output.statement.component_descs[2].family);
+    try std.testing.expectEqual(@as(u32, 1), output.statement.component_descs[2].log_size);
+
+    // Verify the proof (takes ownership).
     try verifyRiscV(alloc, config, output.statement, output.proof);
 }
