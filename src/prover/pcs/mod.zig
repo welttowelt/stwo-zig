@@ -189,7 +189,6 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
         const Self = @This();
 
         pub fn init(allocator: std.mem.Allocator, config: PcsConfig) !Self {
-            _ = allocator;
             return .{
                 .trees = .{},
                 .config = config,
