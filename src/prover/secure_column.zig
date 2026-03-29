@@ -12,12 +12,18 @@ const QM31 = qm31.QM31;
 /// `CpuBackend`).
 pub fn SecureColumnByCoordsGeneric(comptime B: type) type {
     const ColumnSlice = B.ColumnType(M31);
+    const DEGREE = qm31.SECURE_EXTENSION_DEGREE;
 
     return struct {
         const Self = @This();
 
         columns: [qm31.SECURE_EXTENSION_DEGREE]ColumnSlice,
         owns_columns: bool = true,
+        /// When true, all 4 column slices point into a single contiguous
+        /// allocation starting at columns[0].ptr with total length
+        /// DEGREE * columns[0].len.  When false, each column is a
+        /// separate heap allocation.
+        contiguous: bool = false,
 
         pub const Error = error{
             InconsistentColumnLength,
@@ -31,12 +37,19 @@ pub fn SecureColumnByCoordsGeneric(comptime B: type) type {
             return .{
                 .columns = columns,
                 .owns_columns = true,
+                .contiguous = false,
             };
         }
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
-            if (self.owns_columns) {
-                for (self.columns) |column| allocator.free(column);
+            if (self.owns_columns and self.columns[0].len > 0) {
+                if (self.contiguous) {
+                    // Free the single contiguous block starting at columns[0].ptr
+                    const total = DEGREE * self.columns[0].len;
+                    allocator.free(self.columns[0].ptr[0..total]);
+                } else {
+                    for (self.columns) |column| allocator.free(column);
+                }
             }
             self.* = undefined;
         }
@@ -51,42 +64,43 @@ pub fn SecureColumnByCoordsGeneric(comptime B: type) type {
         }
 
         pub fn zeros(allocator: std.mem.Allocator, column_len: usize) !Self {
-            var columns: [qm31.SECURE_EXTENSION_DEGREE]ColumnSlice = undefined;
-            for (0..qm31.SECURE_EXTENSION_DEGREE) |i| {
-                columns[i] = try allocator.alloc(M31, column_len);
-                @memset(columns[i], M31.zero());
+            // Single contiguous allocation for all 4 coordinate columns
+            const total = DEGREE * column_len;
+            const buffer = try allocator.alloc(M31, total);
+            @memset(buffer, M31.zero());
+            var columns: [DEGREE]ColumnSlice = undefined;
+            for (0..DEGREE) |i| {
+                columns[i] = buffer[i * column_len .. (i + 1) * column_len];
             }
-            return .{
-                .columns = columns,
-                .owns_columns = true,
-            };
+            return .{ .columns = columns, .owns_columns = true, .contiguous = true };
         }
 
         pub fn uninitialized(allocator: std.mem.Allocator, column_len: usize) !Self {
-            var columns: [qm31.SECURE_EXTENSION_DEGREE]ColumnSlice = undefined;
-            for (0..qm31.SECURE_EXTENSION_DEGREE) |i| {
-                columns[i] = try allocator.alloc(M31, column_len);
+            const total = DEGREE * column_len;
+            const buffer = try allocator.alloc(M31, total);
+            var columns: [DEGREE]ColumnSlice = undefined;
+            for (0..DEGREE) |i| {
+                columns[i] = buffer[i * column_len .. (i + 1) * column_len];
             }
-            return .{
-                .columns = columns,
-                .owns_columns = true,
-            };
+            return .{ .columns = columns, .owns_columns = true, .contiguous = true };
         }
 
         pub fn fromBaseFieldCol(
             allocator: std.mem.Allocator,
             column: []const M31,
         ) !Self {
-            var columns: [qm31.SECURE_EXTENSION_DEGREE]ColumnSlice = undefined;
-            columns[0] = try allocator.dupe(M31, column);
-            for (1..qm31.SECURE_EXTENSION_DEGREE) |i| {
-                columns[i] = try allocator.alloc(M31, column.len);
-                @memset(columns[i], M31.zero());
+            const column_len = column.len;
+            const total = DEGREE * column_len;
+            const buffer = try allocator.alloc(M31, total);
+            // Copy base field into first coordinate
+            @memcpy(buffer[0..column_len], column);
+            // Zero the remaining 3 coordinates
+            @memset(buffer[column_len..], M31.zero());
+            var columns: [DEGREE]ColumnSlice = undefined;
+            for (0..DEGREE) |i| {
+                columns[i] = buffer[i * column_len .. (i + 1) * column_len];
             }
-            return .{
-                .columns = columns,
-                .owns_columns = true,
-            };
+            return .{ .columns = columns, .owns_columns = true, .contiguous = true };
         }
 
         pub fn len(self: Self) usize {
@@ -101,14 +115,17 @@ pub fn SecureColumnByCoordsGeneric(comptime B: type) type {
             self: Self,
             allocator: std.mem.Allocator,
         ) !Self {
-            var columns: [qm31.SECURE_EXTENSION_DEGREE]ColumnSlice = undefined;
-            for (0..qm31.SECURE_EXTENSION_DEGREE) |i| {
-                columns[i] = try allocator.dupe(M31, self.columns[i]);
+            const column_len = self.columns[0].len;
+            const total = DEGREE * column_len;
+            const buffer = try allocator.alloc(M31, total);
+            for (0..DEGREE) |i| {
+                @memcpy(buffer[i * column_len .. (i + 1) * column_len], self.columns[i]);
             }
-            return .{
-                .columns = columns,
-                .owns_columns = true,
-            };
+            var columns: [DEGREE]ColumnSlice = undefined;
+            for (0..DEGREE) |i| {
+                columns[i] = buffer[i * column_len .. (i + 1) * column_len];
+            }
+            return .{ .columns = columns, .owns_columns = true, .contiguous = true };
         }
 
         pub fn set(self: *Self, index: usize, value: QM31) void {
@@ -128,20 +145,20 @@ pub fn SecureColumnByCoordsGeneric(comptime B: type) type {
             allocator: std.mem.Allocator,
             values: []const QM31,
         ) !Self {
-            var columns: [qm31.SECURE_EXTENSION_DEGREE]ColumnSlice = undefined;
-            for (0..qm31.SECURE_EXTENSION_DEGREE) |i| {
-                columns[i] = try allocator.alloc(M31, values.len);
+            const column_len = values.len;
+            const total = DEGREE * column_len;
+            const buffer = try allocator.alloc(M31, total);
+            var columns: [DEGREE]ColumnSlice = undefined;
+            for (0..DEGREE) |i| {
+                columns[i] = buffer[i * column_len .. (i + 1) * column_len];
             }
             for (values, 0..) |value, row| {
                 const coords = value.toM31Array();
-                for (0..qm31.SECURE_EXTENSION_DEGREE) |i| {
+                for (0..DEGREE) |i| {
                     columns[i][row] = coords[i];
                 }
             }
-            return .{
-                .columns = columns,
-                .owns_columns = true,
-            };
+            return .{ .columns = columns, .owns_columns = true };
         }
 
         pub fn iter(self: *const Self) Iterator {

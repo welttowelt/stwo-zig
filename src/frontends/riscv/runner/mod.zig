@@ -10,6 +10,7 @@ pub const memory = @import("memory.zig");
 pub const execute_mod = @import("execute.zig");
 pub const elf_loader = @import("elf_loader.zig");
 pub const trace = @import("trace.zig");
+pub const trace_dump = @import("trace_dump.zig");
 
 pub const Cpu = cpu.Cpu;
 pub const Memory = memory.Memory;

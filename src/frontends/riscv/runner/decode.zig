@@ -292,7 +292,7 @@ fn decodeJImm(inst: u32) i32 {
 
 /// Sign-extend a `bits`-wide unsigned value to i32.
 fn signExtend(value: u32, comptime bits: u5) i32 {
-    const shift = 32 - bits;
+    const shift: u5 = @intCast(32 - @as(u6, bits));
     const signed: i32 = @bitCast(value << shift);
     return signed >> shift;
 }

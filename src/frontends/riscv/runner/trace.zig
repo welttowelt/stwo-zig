@@ -51,13 +51,15 @@ pub const TraceRow = struct {
 /// Accumulated execution trace.
 pub const Trace = struct {
     rows: std.ArrayList(TraceRow),
+    allocator: std.mem.Allocator,
     initial_pc: u32,
     final_pc: u32,
     step_count: usize,
 
     pub fn init(allocator: std.mem.Allocator) Trace {
         return .{
-            .rows = std.ArrayList(TraceRow).init(allocator),
+            .rows = .{},
+            .allocator = allocator,
             .initial_pc = 0,
             .final_pc = 0,
             .step_count = 0,
@@ -65,13 +67,13 @@ pub const Trace = struct {
     }
 
     pub fn deinit(self: *Trace) void {
-        self.rows.deinit();
+        self.rows.deinit(self.allocator);
         self.* = undefined;
     }
 
     /// Append a trace row.
     pub fn append(self: *Trace, row: TraceRow) !void {
-        try self.rows.append(row);
+        try self.rows.append(self.allocator, row);
         self.step_count = self.rows.items.len;
     }
 

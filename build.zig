@@ -26,6 +26,35 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_tests.step);
 
     // -----------------------------------------------------------------
+    // RISC-V trace dumper CLI for cross-verification
+    // -----------------------------------------------------------------
+    const riscv_trace_module = b.createModule(.{
+        .root_source_file = b.path("src/riscv_trace_cli.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const riscv_trace_cli = b.addExecutable(.{
+        .name = "riscv-trace-dump",
+        .root_module = riscv_trace_module,
+    });
+    b.installArtifact(riscv_trace_cli);
+    const riscv_trace_step = b.step("riscv-trace-dump", "Build RISC-V trace dumper CLI");
+    riscv_trace_step.dependOn(&riscv_trace_cli.step);
+
+    // RISC-V runner tests (including trace_dump).
+    const riscv_test_module = b.createModule(.{
+        .root_source_file = b.path("src/riscv_trace_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const riscv_tests = b.addTest(.{
+        .root_module = riscv_test_module,
+    });
+    const run_riscv_tests = b.addRunArtifact(riscv_tests);
+    const riscv_test_step = b.step("test-riscv", "Run RISC-V runner tests (trace_dump)");
+    riscv_test_step.dependOn(&run_riscv_tests.step);
+
+    // -----------------------------------------------------------------
     // CUDA GPU backend (opt-in via -Dcuda=true)
     // -----------------------------------------------------------------
     const cuda_enabled = b.option(bool, "cuda", "Enable CUDA GPU backend") orelse false;

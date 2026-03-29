@@ -2,13 +2,21 @@
 //!
 //! Proves execution of a RISC-V RV32IM program by:
 //! 1. Running the program (ELF) to produce an execution trace
-//! 2. Generating witness columns for each active opcode family
-//! 3. Committing and proving via the stwo STARK backend
-//! 4. Verification of the produced proof
+//! 2. Splitting the trace by opcode family
+//! 3. Creating per-family components, each at its own log_size
+//! 4. Committing and proving via the stwo STARK backend
+//! 5. Verification of the produced proof
+//!
+//! ## Architecture
+//!
+//! Instead of one monolithic component with all trace rows, the trace is split
+//! by opcode family. Each active family gets its own component with its own
+//! `log_size = ceil(log2(count))`. This gives smaller FFTs per-component and
+//! better cache behavior.
 //!
 //! ## Usage
 //! ```zig
-//! const result = try proveRiscV(CpuBackend, Hasher, MC, allocator, elf_bytes, config);
+//! const result = try proveRiscV(allocator, config, &exec_trace);
 //! try verifyRiscV(allocator, config, result.statement, result.proof);
 //! ```
 
@@ -44,6 +52,10 @@ const Hasher = blake2_merkle.Blake2sMerkleHasher;
 const MerkleChannel = blake2_merkle.Blake2sMerkleChannel;
 const Channel = channel_blake2s.Blake2sChannel;
 
+// ---------------------------------------------------------------------------
+// Statement types
+// ---------------------------------------------------------------------------
+
 /// Per-family component descriptor within the proof.
 pub const FamilyComponentDesc = struct {
     family: trace_mod.OpcodeFamily,
@@ -77,15 +89,6 @@ pub const RiscVStatement = struct {
         }
         return total;
     }
-
-    // Legacy compatibility: single log_size is the maximum across all components.
-    pub fn maxLogSize(self: *const RiscVStatement) u32 {
-        var max_ls: u32 = 0;
-        for (0..self.n_components) |i| {
-            max_ls = @max(max_ls, self.component_descs[i].log_size);
-        }
-        return max_ls;
-    }
 };
 
 pub const Proof = core_proof.StarkProof(Hasher);
@@ -107,6 +110,10 @@ pub const ProverError = error{
     ProvingFailed,
 };
 
+// ---------------------------------------------------------------------------
+// Channel / composition helpers
+// ---------------------------------------------------------------------------
+
 fn mixStatement(channel: *Channel, statement: RiscVStatement) void {
     channel.mixU32s(&[_]u32{
         statement.n_components,
@@ -114,7 +121,6 @@ fn mixStatement(channel: *Channel, statement: RiscVStatement) void {
         statement.final_pc,
         statement.total_steps,
     });
-    // Mix per-component log_sizes for binding
     for (0..statement.n_components) |i| {
         channel.mixU32s(&[_]u32{
             @intFromEnum(statement.component_descs[i].family),
@@ -133,10 +139,22 @@ fn compositionEvalForComponent(desc: FamilyComponentDesc, initial_pc: u32, total
     );
 }
 
-// -- RiscV Component (follows xor.zig pattern) --
+// ---------------------------------------------------------------------------
+// Per-family RiscV Component
+// ---------------------------------------------------------------------------
 
+/// Per-family component for the multi-component RISC-V prover.
+///
+/// Each active opcode family gets its own component with its own log_size.
+/// The component references:
+///   - One preprocessed column (IsFirst) at `preprocessed_col_idx` in tree 0.
+///   - `desc.n_columns` main trace columns in tree 1.
 const RiscVTraceComponent = struct {
-    statement: RiscVStatement,
+    desc: FamilyComponentDesc,
+    initial_pc: u32,
+    total_steps: u32,
+    /// Index of this component's preprocessed column in tree 0.
+    preprocessed_col_idx: usize,
 
     const Adapter = core_air_derive.ComponentAdapter(
         @This(),
@@ -158,18 +176,16 @@ const RiscVTraceComponent = struct {
     }
 
     pub fn maxConstraintLogDegreeBound(self: *const @This()) u32 {
-        return self.statement.log_size + 1;
+        return self.desc.log_size + 1;
     }
 
     pub fn traceLogDegreeBounds(
         self: *const @This(),
         allocator: std.mem.Allocator,
     ) !core_air_components.TraceLogDegreeBounds {
-        // Tree 0: preprocessed (1 column)
-        const preprocessed = try allocator.dupe(u32, &[_]u32{self.statement.log_size});
-        // Tree 1: main trace (n_columns columns, all same log_size)
-        const main = try allocator.alloc(u32, self.statement.n_columns);
-        @memset(main, self.statement.log_size);
+        const preprocessed = try allocator.dupe(u32, &[_]u32{self.desc.log_size});
+        const main = try allocator.alloc(u32, self.desc.n_columns);
+        @memset(main, self.desc.log_size);
         return core_air_components.TraceLogDegreeBounds.initOwned(
             try allocator.dupe([]u32, &[_][]u32{ preprocessed, main }),
         );
@@ -181,12 +197,13 @@ const RiscVTraceComponent = struct {
         point: CirclePointQM31,
         _: u32,
     ) !core_air_components.MaskPoints {
-        // Preprocessed: no mask points needed
         const preprocessed_col = try allocator.alloc(CirclePointQM31, 0);
-        const preprocessed_cols = try allocator.dupe([]CirclePointQM31, &[_][]CirclePointQM31{preprocessed_col});
+        const preprocessed_cols = try allocator.dupe(
+            []CirclePointQM31,
+            &[_][]CirclePointQM31{preprocessed_col},
+        );
 
-        // Main: one mask point per column
-        const n = self.statement.n_columns;
+        const n = self.desc.n_columns;
         const main_cols = try allocator.alloc([]CirclePointQM31, n);
         for (0..n) |i| {
             const col_points = try allocator.alloc(CirclePointQM31, 1);
@@ -203,10 +220,10 @@ const RiscVTraceComponent = struct {
     }
 
     pub fn preprocessedColumnIndices(
-        _: *const @This(),
+        self: *const @This(),
         allocator: std.mem.Allocator,
     ) ![]usize {
-        return allocator.dupe(usize, &[_]usize{0});
+        return allocator.dupe(usize, &[_]usize{self.preprocessed_col_idx});
     }
 
     pub fn evaluateConstraintQuotientsAtPoint(
@@ -216,7 +233,9 @@ const RiscVTraceComponent = struct {
         evaluation_accumulator: *core_air_accumulation.PointEvaluationAccumulator,
         _: u32,
     ) !void {
-        evaluation_accumulator.accumulate(compositionEval(self.statement));
+        evaluation_accumulator.accumulate(
+            compositionEvalForComponent(self.desc, self.initial_pc, self.total_steps),
+        );
     }
 
     pub fn evaluateConstraintQuotientsOnDomain(
@@ -224,8 +243,8 @@ const RiscVTraceComponent = struct {
         _: *const prover_component.Trace,
         evaluation_accumulator: *prover_air_accumulation.DomainEvaluationAccumulator,
     ) !void {
-        const eval = compositionEval(self.statement);
-        const domain_size = @as(usize, 1) << @intCast(self.statement.log_size + 1);
+        const eval = compositionEvalForComponent(self.desc, self.initial_pc, self.total_steps);
+        const domain_size = @as(usize, 1) << @intCast(self.desc.log_size + 1);
         const values = try evaluation_accumulator.allocator.alloc(QM31, domain_size);
         defer evaluation_accumulator.allocator.free(values);
         @memset(values, eval);
@@ -234,7 +253,7 @@ const RiscVTraceComponent = struct {
             values,
         );
         defer col.deinit(evaluation_accumulator.allocator);
-        try evaluation_accumulator.accumulateColumn(self.statement.log_size + 1, &col);
+        try evaluation_accumulator.accumulateColumn(self.desc.log_size + 1, &col);
     }
 };
 
@@ -254,9 +273,57 @@ fn genIsFirstColumn(allocator: std.mem.Allocator, log_size: u32) ![]M31 {
     return values;
 }
 
-// -- Public API --
+/// Generate M31 columns for a specific opcode family, in bit-reversed
+/// circle-domain order suitable for direct commitment.
+fn genColumnsForFamily(
+    allocator: std.mem.Allocator,
+    exec_trace: *const trace_mod.Trace,
+    family: trace_mod.OpcodeFamily,
+    log_size: u32,
+) !trace_mod.TraceColumns {
+    const domain_size = @as(usize, 1) << @intCast(log_size);
+    const n_cols = 10;
 
-/// Prove a RISC-V execution trace.
+    var columns: [n_cols][]M31 = undefined;
+    var initialized: usize = 0;
+    errdefer {
+        for (0..initialized) |i| allocator.free(columns[i]);
+    }
+    for (0..n_cols) |i| {
+        columns[i] = try allocator.alloc(M31, domain_size);
+        @memset(columns[i], M31.zero());
+        initialized = i + 1;
+    }
+
+    var row_idx: usize = 0;
+    for (exec_trace.rows.items) |row| {
+        if (trace_mod.opcodeFamily(row.opcode) != family) continue;
+        if (row_idx >= domain_size) break;
+
+        const circle_idx = utils.cosetIndexToCircleDomainIndex(row_idx, log_size);
+        const bit_rev_idx = utils.bitReverseIndex(circle_idx, log_size);
+
+        columns[0][bit_rev_idx] = M31.fromCanonical(row.clk);
+        columns[1][bit_rev_idx] = M31.fromCanonical(row.pc);
+        columns[2][bit_rev_idx] = M31.fromCanonical(@as(u32, row.rd));
+        columns[3][bit_rev_idx] = M31.fromCanonical(@as(u32, row.rs1));
+        columns[4][bit_rev_idx] = M31.fromCanonical(@as(u32, row.rs2));
+        columns[5][bit_rev_idx] = M31.fromCanonical(row.rs1_val);
+        columns[6][bit_rev_idx] = M31.fromCanonical(row.rs2_val);
+        columns[7][bit_rev_idx] = M31.fromCanonical(row.rd_val);
+        columns[8][bit_rev_idx] = M31.one(); // enabler
+        columns[9][bit_rev_idx] = M31.fromCanonical(row.next_pc);
+        row_idx += 1;
+    }
+
+    return .{ .columns = columns, .n_real_rows = row_idx };
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/// Prove a RISC-V execution trace with per-opcode-family component splitting.
 pub fn proveRiscV(
     allocator: std.mem.Allocator,
     pcs_config: pcs_core.PcsConfig,
@@ -264,19 +331,36 @@ pub fn proveRiscV(
 ) !ProveOutput {
     if (exec_trace.step_count == 0) return ProverError.EmptyTrace;
 
-    const n_rows = exec_trace.rows.items.len;
-    const log_size: u32 = @intCast(std.math.log2_int_ceil(usize, if (n_rows == 0) 1 else n_rows));
-    if (log_size == 0) return ProverError.InvalidLogSize;
+    // -- Step 1: Count rows per opcode family. --
+    const counts = try exec_trace.groupByOpcodeFamily(allocator);
 
-    const n_columns: u32 = 10; // clk, pc, rd, rs1, rs2, rs1_val, rs2_val, rd_val, enabler, next_pc
-
-    const statement = RiscVStatement{
-        .log_size = log_size,
+    // -- Step 2: Build statement with per-family descriptors. --
+    var statement: RiscVStatement = .{
+        .n_components = 0,
+        .component_descs = undefined,
         .initial_pc = exec_trace.initial_pc,
         .final_pc = exec_trace.final_pc,
-        .step_count = @intCast(exec_trace.step_count),
-        .n_columns = n_columns,
+        .total_steps = @intCast(exec_trace.step_count),
     };
+
+    for (0..trace_mod.N_FAMILIES) |fi| {
+        const family: trace_mod.OpcodeFamily = @enumFromInt(fi);
+        const count = counts.get(family);
+        if (count == 0) continue;
+
+        var log_size: u32 = @intCast(std.math.log2_int_ceil(usize, count));
+        // The prover requires log_size >= 1.
+        if (log_size == 0) log_size = 1;
+
+        statement.component_descs[statement.n_components] = .{
+            .family = family,
+            .log_size = log_size,
+            .n_columns = 10,
+        };
+        statement.n_components += 1;
+    }
+
+    if (statement.n_components == 0) return ProverError.EmptyTrace;
 
     var channel = Channel{};
     pcs_config.mixInto(&channel);
@@ -286,56 +370,61 @@ pub fn proveRiscV(
         pcs_config,
     );
 
-    // Tree 0: Preprocessed (IsFirst column)
-    const is_first = try genIsFirstColumn(allocator, log_size);
-    const preprocessed = try allocator.alloc(prover_pcs.ColumnEvaluation, 1);
-    preprocessed[0] = .{ .log_size = log_size, .values = is_first };
+    // -- Step 3: Tree 0 -- Preprocessed (one IsFirst per active component). --
+    const n_preproc = statement.n_components;
+    const preprocessed = try allocator.alloc(prover_pcs.ColumnEvaluation, n_preproc);
+    for (0..n_preproc) |i| {
+        const ls = statement.component_descs[i].log_size;
+        const is_first = try genIsFirstColumn(allocator, ls);
+        preprocessed[i] = .{ .log_size = ls, .values = is_first };
+    }
     try scheme.commitOwned(allocator, preprocessed, &channel);
 
-    // Tree 1: Main trace columns (from execution trace)
-    const domain_size = @as(usize, 1) << @intCast(log_size);
-    const main_columns = try allocator.alloc(prover_pcs.ColumnEvaluation, n_columns);
-
-    // Generate columns in bit-reversed circle-domain order
-    for (0..n_columns) |col_idx| {
-        const col_data = try allocator.alloc(M31, domain_size);
-        @memset(col_data, M31.zero());
-
-        for (exec_trace.rows.items, 0..) |row, i| {
-            if (i >= domain_size) break;
-            const circle_idx = utils.cosetIndexToCircleDomainIndex(i, log_size);
-            const bit_rev_idx = utils.bitReverseIndex(circle_idx, log_size);
-            col_data[bit_rev_idx] = switch (col_idx) {
-                0 => M31.fromCanonical(row.clk),
-                1 => M31.fromCanonical(row.pc),
-                2 => M31.fromCanonical(@as(u32, row.rd)),
-                3 => M31.fromCanonical(@as(u32, row.rs1)),
-                4 => M31.fromCanonical(@as(u32, row.rs2)),
-                5 => M31.fromCanonical(row.rs1_val),
-                6 => M31.fromCanonical(row.rs2_val),
-                7 => M31.fromCanonical(row.rd_val),
-                8 => M31.one(), // enabler
-                9 => M31.fromCanonical(row.next_pc),
-                else => M31.zero(),
+    // -- Step 4: Tree 1 -- Main trace (n_columns per active component). --
+    const n_main = statement.nMainColumns();
+    const main_columns = try allocator.alloc(prover_pcs.ColumnEvaluation, n_main);
+    var col_offset: usize = 0;
+    for (0..statement.n_components) |comp_idx| {
+        const desc = statement.component_descs[comp_idx];
+        const family_cols = try genColumnsForFamily(
+            allocator,
+            exec_trace,
+            desc.family,
+            desc.log_size,
+        );
+        // Transfer ownership of column data to the ColumnEvaluation slice.
+        for (0..desc.n_columns) |c| {
+            main_columns[col_offset + c] = .{
+                .log_size = desc.log_size,
+                .values = family_cols.columns[c],
             };
         }
-        main_columns[col_idx] = .{ .log_size = log_size, .values = col_data };
+        col_offset += desc.n_columns;
     }
     try scheme.commitOwned(allocator, main_columns, &channel);
 
     mixStatement(&channel, statement);
 
-    const component = RiscVTraceComponent{ .statement = statement };
-    const components = [_]prover_component.ComponentProver{
-        component.asProverComponent(),
-    };
+    // -- Step 5: Create per-family components and prove. --
+    var component_storage: [MAX_COMPONENTS]RiscVTraceComponent = undefined;
+    var components_arr: [MAX_COMPONENTS]prover_component.ComponentProver = undefined;
+
+    for (0..statement.n_components) |i| {
+        component_storage[i] = .{
+            .desc = statement.component_descs[i],
+            .initial_pc = statement.initial_pc,
+            .total_steps = statement.total_steps,
+            .preprocessed_col_idx = i,
+        };
+        components_arr[i] = component_storage[i].asProverComponent();
+    }
 
     var extended = try prover_prove.proveEx(
         CpuBackend,
         Hasher,
         MerkleChannel,
         allocator,
-        components[0..],
+        components_arr[0..statement.n_components],
         &channel,
         scheme,
         false,
@@ -346,14 +435,14 @@ pub fn proveRiscV(
     return .{ .statement = statement, .proof = proof };
 }
 
-/// Verify a RISC-V STARK proof.
+/// Verify a RISC-V STARK proof with per-opcode-family components.
 pub fn verifyRiscV(
     allocator: std.mem.Allocator,
     pcs_config: pcs_core.PcsConfig,
     statement: RiscVStatement,
     proof_in: Proof,
 ) !void {
-    if (statement.log_size == 0) return ProverError.InvalidLogSize;
+    if (statement.n_components == 0) return ProverError.InvalidLogSize;
 
     const proof = proof_in;
 
@@ -366,19 +455,31 @@ pub fn verifyRiscV(
     ).init(allocator, pcs_config);
     defer commitment_scheme.deinit(allocator);
 
-    // Tree 0: Preprocessed
+    // Tree 0: Preprocessed -- one IsFirst column per active component.
+    const preproc_log_sizes = try allocator.alloc(u32, statement.n_components);
+    defer allocator.free(preproc_log_sizes);
+    for (0..statement.n_components) |i| {
+        preproc_log_sizes[i] = statement.component_descs[i].log_size;
+    }
     try commitment_scheme.commit(
         allocator,
         proof.commitment_scheme_proof.commitments.items[0],
-        &[_]u32{statement.log_size},
+        preproc_log_sizes,
         &channel,
     );
 
-    // Tree 1: Main trace
-    const main_log_sizes = try allocator.alloc(u32, statement.n_columns);
+    // Tree 1: Main trace -- n_columns per active component.
+    const n_main = statement.nMainColumns();
+    const main_log_sizes = try allocator.alloc(u32, n_main);
     defer allocator.free(main_log_sizes);
-    @memset(main_log_sizes, statement.log_size);
-
+    var col_offset: usize = 0;
+    for (0..statement.n_components) |i| {
+        const desc = statement.component_descs[i];
+        for (0..desc.n_columns) |c| {
+            main_log_sizes[col_offset + c] = desc.log_size;
+        }
+        col_offset += desc.n_columns;
+    }
     try commitment_scheme.commit(
         allocator,
         proof.commitment_scheme_proof.commitments.items[1],
@@ -388,16 +489,25 @@ pub fn verifyRiscV(
 
     mixStatement(&channel, statement);
 
-    const component = RiscVTraceComponent{ .statement = statement };
-    const verifier_components = [_]core_air_components.Component{
-        component.asVerifierComponent(),
-    };
+    // Reconstruct per-family verifier components.
+    var component_storage: [MAX_COMPONENTS]RiscVTraceComponent = undefined;
+    var verifier_components: [MAX_COMPONENTS]core_air_components.Component = undefined;
+
+    for (0..statement.n_components) |i| {
+        component_storage[i] = .{
+            .desc = statement.component_descs[i],
+            .initial_pc = statement.initial_pc,
+            .total_steps = statement.total_steps,
+            .preprocessed_col_idx = i,
+        };
+        verifier_components[i] = component_storage[i].asVerifierComponent();
+    }
 
     try core_verifier.verify(
         Hasher,
         MerkleChannel,
         allocator,
-        verifier_components[0..],
+        verifier_components[0..statement.n_components],
         &channel,
         &commitment_scheme,
         proof,
@@ -525,6 +635,9 @@ test "riscv prover: end-to-end ELF prove and verify" {
     var output = try proveRiscV(alloc, config, &run_result.execution_trace);
     defer output.deinit(alloc);
 
+    // Verify we got multiple components (the ELF uses ADDI, ADD, SW, LW, BEQ, ECALL)
+    try std.testing.expect(output.statement.n_components > 1);
+
     // Step 3: Verify
     try verifyRiscV(alloc, config, output.statement, output.proof);
 }
@@ -536,7 +649,7 @@ test "riscv prover: prove and verify synthetic trace" {
 
     exec_trace.initial_pc = 0x1000;
 
-    // Add 8 synthetic trace rows (need power-of-2 >= 8, log_size=3).
+    // Add 8 synthetic trace rows -- all ADDI, so one component.
     for (0..8) |i| {
         try exec_trace.append(.{
             .clk = @intCast(i),
@@ -570,6 +683,128 @@ test "riscv prover: prove and verify synthetic trace" {
 
     var output = try proveRiscV(alloc, config, &exec_trace);
     defer output.deinit(alloc);
+
+    // All 8 rows are ADDI (base_alu_imm), so we should have 1 component.
+    try std.testing.expectEqual(@as(u32, 1), output.statement.n_components);
+    try std.testing.expectEqual(
+        trace_mod.OpcodeFamily.base_alu_imm,
+        output.statement.component_descs[0].family,
+    );
+    try std.testing.expectEqual(@as(u32, 3), output.statement.component_descs[0].log_size);
+
+    try verifyRiscV(alloc, config, output.statement, output.proof);
+}
+
+test "riscv prover: multi-family splitting" {
+    const alloc = std.testing.allocator;
+    var exec_trace = trace_mod.Trace.init(alloc);
+    defer exec_trace.deinit();
+
+    exec_trace.initial_pc = 0x1000;
+
+    // Create a trace with 3 opcode families:
+    //   4 x ADD (base_alu_reg)
+    //   8 x ADDI (base_alu_imm)
+    //   4 x BEQ (branch_eq)
+
+    // 4 ADD instructions
+    for (0..4) |i| {
+        try exec_trace.append(.{
+            .clk = @intCast(i),
+            .pc = @intCast(0x1000 + i * 4),
+            .opcode = .ADD,
+            .rd = 1,
+            .rs1 = 2,
+            .rs2 = 3,
+            .imm = 0,
+            .rs1_val = 10,
+            .rs2_val = 20,
+            .rd_val = 30,
+            .mem_addr = 0,
+            .mem_val = 0,
+            .is_load = false,
+            .is_store = false,
+            .branch_taken = false,
+            .next_pc = @intCast(0x1000 + (i + 1) * 4),
+        });
+    }
+    // 8 ADDI instructions
+    for (0..8) |i| {
+        try exec_trace.append(.{
+            .clk = @intCast(4 + i),
+            .pc = @intCast(0x1010 + i * 4),
+            .opcode = .ADDI,
+            .rd = 4,
+            .rs1 = 1,
+            .rs2 = 0,
+            .imm = 5,
+            .rs1_val = 30,
+            .rs2_val = 0,
+            .rd_val = 35,
+            .mem_addr = 0,
+            .mem_val = 0,
+            .is_load = false,
+            .is_store = false,
+            .branch_taken = false,
+            .next_pc = @intCast(0x1010 + (i + 1) * 4),
+        });
+    }
+    // 4 BEQ instructions
+    for (0..4) |i| {
+        try exec_trace.append(.{
+            .clk = @intCast(12 + i),
+            .pc = @intCast(0x1030 + i * 4),
+            .opcode = .BEQ,
+            .rd = 0,
+            .rs1 = 1,
+            .rs2 = 2,
+            .imm = 8,
+            .rs1_val = 30,
+            .rs2_val = 30,
+            .rd_val = 0,
+            .mem_addr = 0,
+            .mem_val = 0,
+            .is_load = false,
+            .is_store = false,
+            .branch_taken = true,
+            .next_pc = @intCast(0x1030 + (i + 1) * 4),
+        });
+    }
+    exec_trace.final_pc = 0x1040;
+
+    const config = pcs_core.PcsConfig{
+        .pow_bits = 0,
+        .fri_config = .{
+            .log_blowup_factor = 1,
+            .log_last_layer_degree_bound = 0,
+            .n_queries = 3,
+        },
+    };
+
+    var output = try proveRiscV(alloc, config, &exec_trace);
+    defer output.deinit(alloc);
+
+    // Should have 3 components.
+    try std.testing.expectEqual(@as(u32, 3), output.statement.n_components);
+
+    // Verify families are in enum order: base_alu_reg, base_alu_imm, branch_eq
+    try std.testing.expectEqual(
+        trace_mod.OpcodeFamily.base_alu_reg,
+        output.statement.component_descs[0].family,
+    );
+    try std.testing.expectEqual(
+        trace_mod.OpcodeFamily.base_alu_imm,
+        output.statement.component_descs[1].family,
+    );
+    try std.testing.expectEqual(
+        trace_mod.OpcodeFamily.branch_eq,
+        output.statement.component_descs[2].family,
+    );
+
+    // Verify log_sizes: ADD=4 rows -> log2(4)=2, ADDI=8 -> log2(8)=3, BEQ=4 -> log2(4)=2
+    try std.testing.expectEqual(@as(u32, 2), output.statement.component_descs[0].log_size);
+    try std.testing.expectEqual(@as(u32, 3), output.statement.component_descs[1].log_size);
+    try std.testing.expectEqual(@as(u32, 2), output.statement.component_descs[2].log_size);
 
     try verifyRiscV(alloc, config, output.statement, output.proof);
 }
