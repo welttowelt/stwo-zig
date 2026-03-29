@@ -1865,6 +1865,11 @@ fn preferredFftBatchLen(value_len: usize) usize {
 }
 
 fn grind(channel: anytype, pow_bits: u32) u64 {
+    // Use the channel's optimized grind method if available (prefix caching + SIMD path).
+    if (@hasDecl(@TypeOf(channel.*), "grind")) {
+        return channel.grind(pow_bits);
+    }
+    // Fallback: per-nonce verification without caching.
     var nonce: u64 = 0;
     while (true) : (nonce += 1) {
         if (channel.verifyPowNonce(pow_bits, nonce)) return nonce;

@@ -122,6 +122,13 @@ pub fn Blake2sChannelGeneric(comptime is_m31_output: bool) type {
         /// Verifies that `H(H(POW_PREFIX, [0u8;12], digest, n_bits), nonce)` has at least
         /// `n_bits` trailing zero bits in the first 128 bits (little-endian), matching upstream.
         pub fn verifyPowNonce(self: Self, n_bits: u32, nonce: u64) bool {
+            const prefix = self.computePowPrefix(n_bits);
+            return verifyNonceWithPrefix(prefix, nonce, n_bits);
+        }
+
+        /// Compute the constant prefix hash: H(POW_PREFIX, [0u8;12], digest, n_bits).
+        /// This is invariant across nonces and can be cached for the grinding loop.
+        fn computePowPrefix(self: Self, n_bits: u32) Digest32 {
             var prefixed_hasher = Hasher.init();
             const prefix_bytes = u32ToBytesLe(POW_PREFIX);
             const bits_bytes = u32ToBytesLe(n_bits);
@@ -129,14 +136,31 @@ pub fn Blake2sChannelGeneric(comptime is_m31_output: bool) type {
             prefixed_hasher.update(&[_]u8{0} ** 12);
             prefixed_hasher.update(self.digest[0..]);
             prefixed_hasher.update(bits_bytes[0..]);
-            const prefixed_digest = prefixed_hasher.finalize();
+            return prefixed_hasher.finalize();
+        }
 
+        /// Check a single nonce against a pre-computed prefix hash.
+        /// Only hashes 40 bytes (prefix_digest + nonce) per call — the prefix
+        /// hash that would normally cost an extra compression is pre-computed.
+        fn verifyNonceWithPrefix(prefix: Digest32, nonce: u64, n_bits: u32) bool {
             var hasher = Hasher.init();
-            hasher.update(prefixed_digest[0..]);
+            hasher.update(prefix[0..]);
             const nonce_bytes = u64ToBytesLe(nonce);
             hasher.update(nonce_bytes[0..]);
             const out = hasher.finalize();
             return trailingZeroBits(out[0..16]) >= n_bits;
+        }
+
+        /// Grind for a valid PoW nonce with prefix caching.
+        /// The prefix hash is computed once, then only the nonce hash
+        /// (40 bytes via SIMD path) is repeated per trial.
+        pub fn grind(self: Self, n_bits: u32) u64 {
+            if (n_bits == 0) return 0;
+            const prefix = self.computePowPrefix(n_bits);
+            var nonce: u64 = 0;
+            while (true) : (nonce += 1) {
+                if (verifyNonceWithPrefix(prefix, nonce, n_bits)) return nonce;
+            }
         }
 
         fn drawBaseFelts(self: *Self) [FELTS_PER_HASH]M31 {
