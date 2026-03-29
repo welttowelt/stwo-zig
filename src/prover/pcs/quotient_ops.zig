@@ -492,10 +492,13 @@ fn computeMaterializedFriQuotients(
         const domain_point = domain.at(core_utils.bitReverseIndex(position, lifting_log_size));
         try workspace.beginRow(domain_point);
         for (lifted_columns.columns, prepared.contribution_plan.ranges) |lifted_column, contribution_range| {
-            const base_value = QM31.fromBase(lifted_column[position]);
+            // Small-big multiplication: use QM31.mulM31(M31) (4 base-field muls)
+            // instead of QM31.fromBase(M31).mul(QM31) (9 muls via Karatsuba
+            // with wasted zero-operand multiplications).
+            const base_value = lifted_column[position];
             for (prepared.contribution_plan.contributions[contribution_range.start .. contribution_range.start + contribution_range.len]) |contribution| {
                 workspace.batch_numerators[contribution.batch_index] = workspace.batch_numerators[contribution.batch_index].add(
-                    base_value.mul(contribution.value_coeff),
+                    contribution.value_coeff.mulM31(base_value),
                 );
             }
         }
@@ -546,10 +549,11 @@ fn computeStreamingFriQuotients(
                 std.debug.assert(idx < view.values.len);
                 break :blk view.values[idx];
             };
-            const base_value = QM31.fromBase(base);
+            // Small-big multiplication: QM31.mulM31(M31) avoids wasted
+            // zero-operand Karatsuba multiplications.
             for (prepared.contribution_plan.contributions[contribution_range.start .. contribution_range.start + contribution_range.len]) |contribution| {
                 workspace.batch_numerators[contribution.batch_index] = workspace.batch_numerators[contribution.batch_index].add(
-                    base_value.mul(contribution.value_coeff),
+                    contribution.value_coeff.mulM31(base),
                 );
             }
         }

@@ -265,7 +265,7 @@ pub const CircleEvaluation = struct {
 
         var acc = QM31.zero();
         for (self.values, weights) |value, weight| {
-            acc = acc.add(QM31.fromBase(value).mul(weight));
+            acc = acc.add(weight.mulM31(value));
         }
         return acc;
     }

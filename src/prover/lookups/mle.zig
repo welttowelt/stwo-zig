@@ -79,9 +79,10 @@ pub fn Mle(comptime F: type) type {
             const half = self.evals.len / 2;
             const out = try allocator.alloc(QM31, half);
             for (0..half) |i| {
-                const lhs = asSecure(F, self.evals[i]);
-                const rhs = asSecure(F, self.evals[i + half]);
-                out[i] = lookup_utils.foldMleEvals(QM31, assignment, lhs, rhs);
+                // Pass F directly so foldMleEvals can use the M31-specialized
+                // small-big multiply path when F=M31, avoiding premature
+                // promotion to QM31.
+                out[i] = lookup_utils.foldMleEvals(F, assignment, self.evals[i], self.evals[i + half]);
             }
             return try Mle(QM31).initOwned(out);
         }
@@ -99,10 +100,24 @@ pub fn Mle(comptime F: type) type {
             }
 
             const half = self.evals.len / 2;
-            var eval_at_0 = QM31.zero();
-            for (self.evals[0..half]) |value| {
-                eval_at_0 = eval_at_0.add(asSecure(F, value));
-            }
+            const eval_at_0 = blk: {
+                if (F == M31) {
+                    // Delayed reduction: accumulate M31 values as u64,
+                    // perform a single modular reduction at the end.
+                    // Max sum ≈ 2^31 * 2^30 = 2^61 < 2^64.
+                    var acc: u64 = 0;
+                    for (self.evals[0..half]) |value| {
+                        acc += @as(u64, value.v);
+                    }
+                    break :blk QM31.fromBase(M31.fromU64(acc));
+                } else {
+                    var sum = QM31.zero();
+                    for (self.evals[0..half]) |value| {
+                        sum = sum.add(asSecure(F, value));
+                    }
+                    break :blk sum;
+                }
+            };
             const eval_at_1 = claim.sub(eval_at_0);
 
             const coeffs = try allocator.alloc(QM31, 2);

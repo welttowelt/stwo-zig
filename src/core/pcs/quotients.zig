@@ -410,7 +410,7 @@ pub fn accumulateRowQuotientsWithWorkspace(
             if (sample_data.column_index >= queried_values_at_row.len) {
                 return error.ColumnIndexOutOfBounds;
             }
-            const value = QM31.fromBase(queried_values_at_row[sample_data.column_index]).mul(line_coeffs[i].c);
+            const value = line_coeffs[i].c.mulM31(queried_values_at_row[sample_data.column_index]);
             workspace.batch_numerators[batch_idx] = workspace.batch_numerators[batch_idx].add(value);
         }
     }
@@ -436,7 +436,7 @@ pub fn accumulateRowPartialNumerators(
         if (sample_data.column_index >= queried_values_at_row.len) {
             return error.ColumnIndexOutOfBounds;
         }
-        const value = QM31.fromBase(queried_values_at_row[sample_data.column_index]).mul(coeffs[i].c);
+        const value = coeffs[i].c.mulM31(queried_values_at_row[sample_data.column_index]);
         numerator = numerator.add(value.sub(coeffs[i].b));
     }
     return numerator;
@@ -479,7 +479,7 @@ pub fn accumulateRowQuotients(
             if (sample_data.column_index >= queried_values_at_row.len) {
                 return error.ColumnIndexOutOfBounds;
             }
-            const value = QM31.fromBase(queried_values_at_row[sample_data.column_index]).mul(line_coeffs[i].c);
+            const value = line_coeffs[i].c.mulM31(queried_values_at_row[sample_data.column_index]);
             batch_numerators[batch_idx] = batch_numerators[batch_idx].add(value);
         }
     }
@@ -523,7 +523,7 @@ fn accumulateRowQuotientsFromColumns(
 
         for (batch.cols_vals_randpows, 0..) |sample_data, i| {
             const column_queries = queried_values_flat[sample_data.column_index];
-            const value = QM31.fromBase(column_queries[row_idx]).mul(line_coeffs[i].c);
+            const value = line_coeffs[i].c.mulM31(column_queries[row_idx]);
             batch_numerators[batch_idx] = batch_numerators[batch_idx].add(value);
         }
     }
