@@ -12,6 +12,7 @@ const memory_mod = @import("../common/memory.zig");
 
 pub const decode = @import("decode.zig");
 pub const opcodes = @import("opcodes.zig");
+pub const trace_reader = @import("trace_reader.zig");
 
 const CasmState = cpu.CasmState;
 const Memory = memory_mod.Memory;
@@ -32,8 +33,8 @@ pub const StateTransitions = struct {
     final_state: CasmState,
     casm_states_by_opcode: opcodes.CasmStatesByOpcode,
 
-    pub fn deinit(self: *StateTransitions) void {
-        self.casm_states_by_opcode.deinit();
+    pub fn deinit(self: *StateTransitions, allocator: std.mem.Allocator) void {
+        self.casm_states_by_opcode.deinit(allocator);
         self.* = undefined;
     }
 };
@@ -47,7 +48,7 @@ pub const ProverInput = struct {
     builtin_segments: BuiltinSegments,
 
     pub fn deinit(self: *ProverInput, allocator: std.mem.Allocator) void {
-        self.state_transitions.deinit();
+        self.state_transitions.deinit(allocator);
         self.memory.deinit(allocator);
         allocator.free(self.public_memory_addresses);
         self.* = undefined;

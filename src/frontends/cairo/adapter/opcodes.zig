@@ -42,13 +42,14 @@ pub const CasmStatesByOpcode = struct {
     states: [N_OPCODES]std.ArrayList(CasmState),
 
     pub fn init(allocator: std.mem.Allocator) CasmStatesByOpcode {
+        _ = allocator;
         var self: CasmStatesByOpcode = undefined;
-        for (&self.states) |*list| list.* = std.ArrayList(CasmState).init(allocator);
+        for (&self.states) |*list| list.* = .empty;
         return self;
     }
 
-    pub fn deinit(self: *CasmStatesByOpcode) void {
-        for (&self.states) |*list| list.deinit();
+    pub fn deinit(self: *CasmStatesByOpcode, allocator: std.mem.Allocator) void {
+        for (&self.states) |*list| list.deinit(allocator);
         self.* = undefined;
     }
 
@@ -72,11 +73,12 @@ pub const CasmStatesByOpcode = struct {
     /// Classify an instruction and push the state into the appropriate category.
     pub fn pushInstruction(
         self: *CasmStatesByOpcode,
+        allocator: std.mem.Allocator,
         inst: Instruction,
         state: CasmState,
     ) !void {
         const tag = classifyInstruction(inst);
-        try self.get(tag).append(state);
+        try self.get(tag).append(allocator, state);
     }
 };
 
@@ -210,14 +212,14 @@ test "opcodes: call_abs classification" {
 test "opcodes: state_by_opcode total count" {
     const alloc = std.testing.allocator;
     var states = CasmStatesByOpcode.init(alloc);
-    defer states.deinit();
+    defer states.deinit(alloc);
 
     const M31 = @import("../../../core/fields/m31.zig").M31;
     const s = CasmState{ .pc = M31.fromCanonical(1), .ap = M31.fromCanonical(2), .fp = M31.fromCanonical(3) };
 
-    try states.get(.ret_opcode).append(s);
-    try states.get(.ret_opcode).append(s);
-    try states.get(.add_opcode).append(s);
+    try states.get(.ret_opcode).append(alloc, s);
+    try states.get(.ret_opcode).append(alloc, s);
+    try states.get(.add_opcode).append(alloc, s);
 
     try std.testing.expectEqual(@as(usize, 3), states.totalCount());
 }
