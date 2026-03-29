@@ -15,6 +15,7 @@ const prover_component = @import("../prover/air/component_prover.zig");
 const prover_pcs = @import("../prover/pcs/mod.zig");
 const prover_prove = @import("../prover/prove.zig");
 const secure_column = @import("../prover/secure_column.zig");
+const CpuBackend = @import("../backends/cpu_scalar/mod.zig").CpuBackend;
 
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
@@ -128,7 +129,7 @@ pub fn proveEx(
     var channel = Channel{};
     pcs_config.mixInto(&channel);
 
-    var scheme = try prover_pcs.CommitmentSchemeProver(Hasher, MerkleChannel).init(
+    var scheme = try prover_pcs.CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel).init(
         allocator,
         pcs_config,
     );
@@ -160,6 +161,7 @@ pub fn proveEx(
     };
 
     const proof = try prover_prove.proveEx(
+        CpuBackend,
         Hasher,
         MerkleChannel,
         allocator,

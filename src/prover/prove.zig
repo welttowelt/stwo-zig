@@ -34,14 +34,16 @@ pub const ProvingError = error{
 ///
 /// Returns only the `StarkProof` payload.
 pub fn prove(
+    comptime B: type,
     comptime H: type,
     comptime MC: type,
     allocator: std.mem.Allocator,
     components: []const component_prover.ComponentProver,
     channel: anytype,
-    commitment_scheme: pcs_prover.CommitmentSchemeProver(H, MC),
+    commitment_scheme: pcs_prover.CommitmentSchemeProver(B, H, MC),
 ) !proof_mod.StarkProof(H) {
     var extended = try proveEx(
+        B,
         H,
         MC,
         allocator,
@@ -57,15 +59,17 @@ pub fn prove(
 
 /// Extended proving entrypoint matching upstream component-driven `prove_ex`.
 pub fn proveEx(
+    comptime B: type,
     comptime H: type,
     comptime MC: type,
     allocator: std.mem.Allocator,
     components: []const component_prover.ComponentProver,
     channel: anytype,
-    commitment_scheme: pcs_prover.CommitmentSchemeProver(H, MC),
+    commitment_scheme: pcs_prover.CommitmentSchemeProver(B, H, MC),
     include_all_preprocessed_columns: bool,
 ) !proof_mod.ExtendedStarkProof(H) {
     return proveExWithRecorder(
+        B,
         H,
         MC,
         allocator,
@@ -78,16 +82,18 @@ pub fn proveEx(
 }
 
 pub fn proveExWithRecorder(
+    comptime B: type,
     comptime H: type,
     comptime MC: type,
     allocator: std.mem.Allocator,
     components: []const component_prover.ComponentProver,
     channel: anytype,
-    commitment_scheme: pcs_prover.CommitmentSchemeProver(H, MC),
+    commitment_scheme: pcs_prover.CommitmentSchemeProver(B, H, MC),
     include_all_preprocessed_columns: bool,
     recorder: ?*stage_profile.Recorder,
 ) !proof_mod.ExtendedStarkProof(H) {
     return proveExComponentsWithRecorder(
+        B,
         H,
         MC,
         allocator,
@@ -103,14 +109,16 @@ pub fn proveExWithRecorder(
 ///
 /// This path proves with caller-provided sample points (without AIR component orchestration).
 fn proveSampledPoints(
+    comptime B: type,
     comptime H: type,
     comptime MC: type,
     allocator: std.mem.Allocator,
     channel: anytype,
-    commitment_scheme: pcs_prover.CommitmentSchemeProver(H, MC),
+    commitment_scheme: pcs_prover.CommitmentSchemeProver(B, H, MC),
     sampled_points: TreeVec([][]CirclePointQM31),
 ) !proof_mod.StarkProof(H) {
     var extended = try proveExSampledPoints(
+        B,
         H,
         MC,
         allocator,
@@ -125,14 +133,16 @@ fn proveSampledPoints(
 
 /// Extended sampled-points proving entrypoint.
 fn proveExSampledPoints(
+    comptime B: type,
     comptime H: type,
     comptime MC: type,
     allocator: std.mem.Allocator,
     channel: anytype,
-    commitment_scheme: pcs_prover.CommitmentSchemeProver(H, MC),
+    commitment_scheme: pcs_prover.CommitmentSchemeProver(B, H, MC),
     sampled_points: TreeVec([][]CirclePointQM31),
 ) !proof_mod.ExtendedStarkProof(H) {
     return proveExSampledPointsWithRecorder(
+        B,
         H,
         MC,
         allocator,
@@ -144,11 +154,12 @@ fn proveExSampledPoints(
 }
 
 fn proveExSampledPointsWithRecorder(
+    comptime B: type,
     comptime H: type,
     comptime MC: type,
     allocator: std.mem.Allocator,
     channel: anytype,
-    commitment_scheme: pcs_prover.CommitmentSchemeProver(H, MC),
+    commitment_scheme: pcs_prover.CommitmentSchemeProver(B, H, MC),
     sampled_points: TreeVec([][]CirclePointQM31),
     recorder: ?*stage_profile.Recorder,
 ) !proof_mod.ExtendedStarkProof(H) {
@@ -174,15 +185,17 @@ fn proveExSampledPointsWithRecorder(
 /// Preconditions:
 /// - `commitment_scheme` contains at least preprocessed/main trace trees.
 fn proveExComponents(
+    comptime B: type,
     comptime H: type,
     comptime MC: type,
     allocator: std.mem.Allocator,
     components: []const component_prover.ComponentProver,
     channel: anytype,
-    commitment_scheme: pcs_prover.CommitmentSchemeProver(H, MC),
+    commitment_scheme: pcs_prover.CommitmentSchemeProver(B, H, MC),
     include_all_preprocessed_columns: bool,
 ) !proof_mod.ExtendedStarkProof(H) {
     return proveExComponentsWithRecorder(
+        B,
         H,
         MC,
         allocator,
@@ -195,12 +208,13 @@ fn proveExComponents(
 }
 
 fn proveExComponentsWithRecorder(
+    comptime B: type,
     comptime H: type,
     comptime MC: type,
     allocator: std.mem.Allocator,
     components: []const component_prover.ComponentProver,
     channel: anytype,
-    commitment_scheme: pcs_prover.CommitmentSchemeProver(H, MC),
+    commitment_scheme: pcs_prover.CommitmentSchemeProver(B, H, MC),
     include_all_preprocessed_columns: bool,
     recorder: ?*stage_profile.Recorder,
 ) !proof_mod.ExtendedStarkProof(H) {
@@ -281,6 +295,7 @@ fn proveExComponentsWithRecorder(
             );
             defer composition_commit_stage.end();
             try commitCompositionSplit(
+                B,
                 H,
                 MC,
                 allocator,
@@ -323,6 +338,7 @@ fn proveExComponentsWithRecorder(
     const sample_points = oods_sampling.sample_points;
 
     var ext_proof = try proveExSampledPointsWithRecorder(
+        B,
         H,
         MC,
         allocator,
@@ -358,15 +374,17 @@ fn proveExComponentsWithRecorder(
 }
 
 fn proveComponents(
+    comptime B: type,
     comptime H: type,
     comptime MC: type,
     allocator: std.mem.Allocator,
     components: []const component_prover.ComponentProver,
     channel: anytype,
-    commitment_scheme: pcs_prover.CommitmentSchemeProver(H, MC),
+    commitment_scheme: pcs_prover.CommitmentSchemeProver(B, H, MC),
     include_all_preprocessed_columns: bool,
 ) !proof_mod.StarkProof(H) {
     var extended = try proveExComponents(
+        B,
         H,
         MC,
         allocator,
@@ -385,11 +403,12 @@ fn proveComponents(
 /// This is a stepping-stone API until full in-prover sampled-value computation
 /// parity is wired through prover/poly modules.
 fn provePrepared(
+    comptime B: type,
     comptime H: type,
     comptime MC: type,
     allocator: std.mem.Allocator,
     channel: anytype,
-    commitment_scheme: pcs_prover.CommitmentSchemeProver(H, MC),
+    commitment_scheme: pcs_prover.CommitmentSchemeProver(B, H, MC),
     sampled_points: TreeVec([][]CirclePointQM31),
     sampled_values: TreeVec([][]QM31),
 ) !proof_mod.ExtendedStarkProof(H) {
@@ -411,10 +430,11 @@ fn provePrepared(
 }
 
 fn commitCompositionSplit(
+    comptime B: type,
     comptime H: type,
     comptime MC: type,
     allocator: std.mem.Allocator,
-    commitment_scheme: *pcs_prover.CommitmentSchemeProver(H, MC),
+    commitment_scheme: *pcs_prover.CommitmentSchemeProver(B, H, MC),
     left: prover_circle.SecureCirclePoly,
     right: prover_circle.SecureCirclePoly,
     channel: anytype,
@@ -469,7 +489,8 @@ test "prover prove: prepared proof verifies with core verifier" {
     const Hasher = @import("../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
     const MerkleChannel = @import("../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
     const Channel = @import("../core/channel/blake2s.zig").Blake2sChannel;
-    const Scheme = pcs_prover.CommitmentSchemeProver(Hasher, MerkleChannel);
+    const CpuBackend = @import("../backends/cpu_scalar/mod.zig").CpuBackend;
+    const Scheme = pcs_prover.CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel);
     const Verifier = @import("../core/pcs/verifier.zig").CommitmentSchemeVerifier(Hasher, MerkleChannel);
     const alloc = std.testing.allocator;
 
@@ -515,6 +536,7 @@ test "prover prove: prepared proof verifies with core verifier" {
     );
 
     var ext_proof = try provePrepared(
+        CpuBackend,
         Hasher,
         MerkleChannel,
         alloc,
@@ -553,7 +575,8 @@ test "prover prove: prove_ex computes sampled values and verifies" {
     const Hasher = @import("../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
     const MerkleChannel = @import("../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
     const Channel = @import("../core/channel/blake2s.zig").Blake2sChannel;
-    const Scheme = pcs_prover.CommitmentSchemeProver(Hasher, MerkleChannel);
+    const CpuBackend = @import("../backends/cpu_scalar/mod.zig").CpuBackend;
+    const Scheme = pcs_prover.CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel);
     const Verifier = @import("../core/pcs/verifier.zig").CommitmentSchemeVerifier(Hasher, MerkleChannel);
     const alloc = std.testing.allocator;
 
@@ -595,6 +618,7 @@ test "prover prove: prove_ex computes sampled values and verifies" {
     );
 
     var ext_proof = try proveExSampledPoints(
+        CpuBackend,
         Hasher,
         MerkleChannel,
         alloc,
@@ -632,7 +656,8 @@ test "prover prove: prove_ex supports non-zero blowup" {
     const Hasher = @import("../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
     const MerkleChannel = @import("../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
     const Channel = @import("../core/channel/blake2s.zig").Blake2sChannel;
-    const Scheme = pcs_prover.CommitmentSchemeProver(Hasher, MerkleChannel);
+    const CpuBackend = @import("../backends/cpu_scalar/mod.zig").CpuBackend;
+    const Scheme = pcs_prover.CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel);
     const Verifier = @import("../core/pcs/verifier.zig").CommitmentSchemeVerifier(Hasher, MerkleChannel);
     const alloc = std.testing.allocator;
 
@@ -676,6 +701,7 @@ test "prover prove: prove_ex supports non-zero blowup" {
     );
 
     var ext_proof = try proveExSampledPoints(
+        CpuBackend,
         Hasher,
         MerkleChannel,
         alloc,
@@ -713,7 +739,8 @@ test "prover prove: prove_ex components slice verifies with core verifier" {
     const Hasher = @import("../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
     const MerkleChannel = @import("../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
     const Channel = @import("../core/channel/blake2s.zig").Blake2sChannel;
-    const Scheme = pcs_prover.CommitmentSchemeProver(Hasher, MerkleChannel);
+    const CpuBackend = @import("../backends/cpu_scalar/mod.zig").CpuBackend;
+    const Scheme = pcs_prover.CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel);
     const VerifierScheme = @import("../core/pcs/verifier.zig").CommitmentSchemeVerifier(Hasher, MerkleChannel);
     const alloc = std.testing.allocator;
 
@@ -878,6 +905,7 @@ test "prover prove: prove_ex components slice verifies with core verifier" {
     };
 
     var ext_proof = try proveEx(
+        CpuBackend,
         Hasher,
         MerkleChannel,
         alloc,
@@ -914,6 +942,7 @@ test "prover prove: prove_ex components slice verifies with core verifier" {
     );
 
     var proof_from_prove = try prove(
+        CpuBackend,
         Hasher,
         MerkleChannel,
         alloc,

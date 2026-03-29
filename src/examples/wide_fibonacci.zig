@@ -17,6 +17,7 @@ const prover_pcs = @import("../prover/pcs/mod.zig");
 const prover_prove = @import("../prover/prove.zig");
 const stage_profile = @import("../prover/stage_profile.zig");
 const secure_column = @import("../prover/secure_column.zig");
+const CpuBackend = @import("../backends/cpu_scalar/mod.zig").CpuBackend;
 
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
@@ -191,7 +192,7 @@ fn proveExImpl(
 
     const Initialized = struct {
         channel: Channel,
-        scheme: prover_pcs.CommitmentSchemeProver(Hasher, MerkleChannel),
+        scheme: prover_pcs.CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel),
     };
     const initialized = blk: {
         var init_stage = try stage_profile.StageScope.begin(
@@ -205,7 +206,7 @@ fn proveExImpl(
         pcs_config.mixInto(&channel);
         break :blk Initialized{
             .channel = channel,
-            .scheme = try prover_pcs.CommitmentSchemeProver(Hasher, MerkleChannel).init(
+            .scheme = try prover_pcs.CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel).init(
                 allocator,
                 pcs_config,
             ),
@@ -270,6 +271,7 @@ fn proveExImpl(
         );
         defer core_prove_stage.end();
         break :blk try prover_prove.proveExWithRecorder(
+            CpuBackend,
             Hasher,
             MerkleChannel,
             allocator,

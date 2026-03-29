@@ -2,6 +2,8 @@
 const std = @import("std");
 
 pub const core = @import("core/mod.zig");
+pub const backend = @import("backend/mod.zig");
+pub const backends = @import("backends/mod.zig");
 pub const prover = @import("prover/mod.zig");
 pub const examples = @import("examples/mod.zig");
 pub const interop = @import("interop/mod.zig");
