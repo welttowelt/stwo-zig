@@ -1555,42 +1555,14 @@ fn interpolateOwnedColumnsForExtension(
 // Parallel FFT infrastructure
 // ---------------------------------------------------------------------------
 
-/// Maximum number of parallel workers for FFT/IFFT column processing.
-const fft_max_parallel_workers: usize = 16;
-
-/// Thread pool shared across FFT parallelisation calls. Initialised once on
-/// first use; subsequent calls reuse the same pool to avoid repeated
-/// thread creation/teardown overhead between commit rounds.
-const FftPoolState = struct {
-    mutex: std.Thread.Mutex = .{},
-    pool: std.Thread.Pool = undefined,
-    pool_initialized: bool = false,
-    failed: bool = false,
-};
-var fft_shared_pool_state: FftPoolState = .{};
+/// Unified work pool shared across FFT, Merkle, and other proving phases.
+/// Replaces the previous FFT-specific FftPoolState with a single global pool
+/// from work_pool.zig, avoiding duplicate thread pool creation overhead.
+const work_pool_mod = @import("../work_pool.zig");
 
 fn getOrInitFftPool() ?*std.Thread.Pool {
-    fft_shared_pool_state.mutex.lock();
-    defer fft_shared_pool_state.mutex.unlock();
-
-    if (fft_shared_pool_state.failed) return null;
-    if (!fft_shared_pool_state.pool_initialized) {
-        const cpu_count = std.Thread.getCpuCount() catch 1;
-        const n_workers = @min(cpu_count, fft_max_parallel_workers);
-        if (n_workers <= 1) {
-            fft_shared_pool_state.failed = true;
-            return null;
-        }
-        fft_shared_pool_state.pool.init(.{
-            .allocator = std.heap.page_allocator,
-            .n_jobs = @intCast(n_workers - 1),
-        }) catch {
-            fft_shared_pool_state.failed = true;
-            return null;
-        };
-        fft_shared_pool_state.pool_initialized = true;
-    }
-    return &fft_shared_pool_state.pool;
+    const pool = work_pool_mod.getGlobalPool() orelse return null;
+    return &pool.pool;
 }
 
 /// A self-contained work item for parallel forward-FFT evaluation.
@@ -1655,6 +1627,7 @@ fn extendCoefficientColumnsByGroup(
     // --- Phase 1: pre-allocate output buffers and copy coefficient data ---
     // We collect all (buffer-slice, domain, twiddle) tuples so that the FFT
     // phase can run without any allocator interaction.
+
     var work_items = std.ArrayList(FftEvalWorkItem).empty;
     defer work_items.deinit(allocator);
 

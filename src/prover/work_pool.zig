@@ -8,23 +8,26 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 pub const MAX_WORKERS: usize = 16;
-pub const WORKER_STACK_SIZE: usize = 1 << 20; // 1 MiB
+pub const WORKER_STACK_SIZE: usize = 16 * 1024 * 1024; // 16 MiB (matches std default)
 
 pub const WorkPool = struct {
     pool: std.Thread.Pool,
     n_workers: usize,
 
-    pub fn init() !WorkPool {
+    /// Initialise the pool IN PLACE. The `std.Thread.Pool` spawns workers
+    /// that hold a reference to the pool struct, so it must already live at
+    /// its final address (i.e. the global singleton). Never call this on a
+    /// stack-local variable and then move the result.
+    pub fn initInPlace(self: *WorkPool) !void {
         const n_workers = detectWorkerCount();
         if (n_workers <= 1) return error.SingleThreaded;
 
-        var pool: std.Thread.Pool = undefined;
-        try pool.init(.{
+        self.n_workers = n_workers;
+        try self.pool.init(.{
             .allocator = std.heap.page_allocator,
             .n_jobs = n_workers - 1, // main thread is worker 0
             .stack_size = WORKER_STACK_SIZE,
         });
-        return .{ .pool = pool, .n_workers = n_workers };
     }
 
     pub fn deinit(self: *WorkPool) void {
@@ -49,7 +52,8 @@ pub const WorkPool = struct {
 // Global singleton
 var global_state: struct {
     mutex: std.Thread.Mutex = .{},
-    pool: ?WorkPool = null,
+    pool: WorkPool = undefined,
+    pool_initialized: bool = false,
     init_failed: bool = false,
 } = .{};
 
@@ -63,13 +67,16 @@ pub fn getGlobalPool() ?*WorkPool {
     defer global_state.mutex.unlock();
 
     if (global_state.init_failed) return null;
-    if (global_state.pool != null) return &global_state.pool.?;
+    if (global_state.pool_initialized) return &global_state.pool;
 
-    global_state.pool = WorkPool.init() catch {
+    // Init the pool in-place at its final global address so spawned
+    // worker threads hold a valid reference.
+    global_state.pool.initInPlace() catch {
         global_state.init_failed = true;
         return null;
     };
-    return &global_state.pool.?;
+    global_state.pool_initialized = true;
+    return &global_state.pool;
 }
 
 fn detectWorkerCount() usize {

@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const m31 = @import("../../core/fields/m31.zig");
 const lifted_merkle_hasher = @import("../../core/vcs_lifted/merkle_hasher.zig");
 const vcs_lifted_verifier = @import("../../core/vcs_lifted/verifier.zig");
+const mmap_alloc_mod = @import("../mmap_alloc.zig");
 
 const M31 = m31.M31;
 
@@ -11,6 +12,11 @@ pub fn MerkleProverLifted(comptime H: type) type {
     return struct {
         /// Merkle layers from root to largest layer.
         layers: [][]H.Hash,
+        /// Allocator used for individual layer data buffers. When mmap is
+        /// available and layers are large enough, this is MmapAllocator
+        /// (MADV_SEQUENTIAL hint for streaming hash reads). The outer
+        /// `layers` array itself is always freed with the caller's allocator.
+        layer_allocator: std.mem.Allocator,
 
         const Self = @This();
         const NodeValue = vcs_lifted_verifier.MerkleDecommitmentLiftedAux(H).NodeValue;
@@ -113,7 +119,7 @@ pub fn MerkleProverLifted(comptime H: type) type {
         };
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
-            for (self.layers) |layer| allocator.free(layer);
+            for (self.layers) |layer| self.layer_allocator.free(layer);
             allocator.free(self.layers);
             self.* = undefined;
         }
@@ -142,6 +148,15 @@ pub fn MerkleProverLifted(comptime H: type) type {
             return commitWithOptions(allocator, columns, worker_override, false);
         }
 
+        fn layerAllocator(allocator: std.mem.Allocator) std.mem.Allocator {
+            // Use mmap-backed allocator for large Merkle layers on supported
+            // platforms; fall back to caller's allocator otherwise.
+            if (comptime builtin.os.tag == .macos or builtin.os.tag == .linux) {
+                return mmap_alloc_mod.MmapAllocator.allocator();
+            }
+            return allocator;
+        }
+
         fn commitWithOptions(
             allocator: std.mem.Allocator,
             columns: []const []const M31,
@@ -151,13 +166,17 @@ pub fn MerkleProverLifted(comptime H: type) type {
             const sorted = try sortColumnsByLogSizeAsc(allocator, columns);
             defer allocator.free(sorted);
 
+            // Use MmapAllocator for individual layer buffers (sequential-read
+            // hint helps the OS prefetcher during Merkle hashing).
+            const layer_alloc = layerAllocator(allocator);
+
             var layers_bottom_up = std.ArrayList([]H.Hash).empty;
             defer layers_bottom_up.deinit(allocator);
             errdefer {
-                for (layers_bottom_up.items) |layer| allocator.free(layer);
+                for (layers_bottom_up.items) |layer| layer_alloc.free(layer);
             }
 
-            const leaves = try buildLeaves(allocator, sorted);
+            const leaves = try buildLeaves(allocator, layer_alloc, sorted);
             try layers_bottom_up.append(allocator, leaves);
 
             if (leaves.len > 1) {
@@ -171,7 +190,7 @@ pub fn MerkleProverLifted(comptime H: type) type {
                 var i: usize = 0;
                 while (i < max_log_size) : (i += 1) {
                     const next_layer = try buildNextLayer(
-                        allocator,
+                        layer_alloc,
                         layers_bottom_up.items[layers_bottom_up.items.len - 1],
                         &executor,
                         worker_override,
@@ -185,7 +204,7 @@ pub fn MerkleProverLifted(comptime H: type) type {
             while (i < out_layers.len) : (i += 1) {
                 out_layers[i] = layers_bottom_up.items[out_layers.len - 1 - i];
             }
-            return .{ .layers = out_layers };
+            return .{ .layers = out_layers, .layer_allocator = layer_alloc };
         }
 
         fn merkleWorkerOverride(allocator: std.mem.Allocator) ?usize {
@@ -358,11 +377,12 @@ pub fn MerkleProverLifted(comptime H: type) type {
 
         fn buildLeaves(
             allocator: std.mem.Allocator,
+            layer_alloc: std.mem.Allocator,
             sorted_columns: []const ColumnRef,
         ) ![]H.Hash {
             var seed_hasher = H.defaultWithInitialState();
             if (sorted_columns.len == 0) {
-                const layer = try allocator.alloc(H.Hash, 1);
+                const layer = try layer_alloc.alloc(H.Hash, 1);
                 layer[0] = seed_hasher.finalize();
                 return layer;
             }
@@ -416,7 +436,9 @@ pub fn MerkleProverLifted(comptime H: type) type {
                 group_start = group_end;
             }
 
-            const out = try allocator.alloc(H.Hash, prev_layer.len);
+            // Output layer uses mmap-backed allocator for sequential-read
+            // hinting; temporary hasher arrays above use the regular allocator.
+            const out = try layer_alloc.alloc(H.Hash, prev_layer.len);
             for (prev_layer, 0..) |*hasher, i| out[i] = hasher.finalize();
             allocator.free(prev_layer);
             return out;

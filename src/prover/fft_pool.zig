@@ -7,12 +7,12 @@
 const std = @import("std");
 
 pub const FftPoolAllocator = struct {
-    buffer: []align(std.mem.page_size) u8,
+    buffer: []align(std.heap.page_size_min) u8,
     offset: usize,
 
     pub fn init(max_bytes: usize) !FftPoolAllocator {
         // Round up to page size
-        const page_size = std.mem.page_size;
+        const page_size = std.heap.page_size_min;
         const aligned_size = std.mem.alignForward(usize, max_bytes, page_size);
 
         const buf = try std.posix.mmap(
@@ -48,15 +48,16 @@ pub const FftPoolAllocator = struct {
             .vtable = &.{
                 .alloc = alloc,
                 .resize = resize,
+                .remap = remap,
                 .free = free,
             },
         };
     }
 
-    fn alloc(ctx: *anyopaque, len: usize, ptr_align: u8, _: usize) ?[*]u8 {
+    fn alloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, _: usize) ?[*]u8 {
         const self: *FftPoolAllocator = @ptrCast(@alignCast(ctx));
-        const alignment = @as(usize, 1) << @intCast(ptr_align);
-        const aligned_offset = std.mem.alignForward(usize, self.offset, alignment);
+        const align_bytes = alignment.toByteUnits();
+        const aligned_offset = std.mem.alignForward(usize, self.offset, align_bytes);
 
         if (aligned_offset + len > self.buffer.len) return null; // OOM
 
@@ -65,11 +66,15 @@ pub const FftPoolAllocator = struct {
         return result;
     }
 
-    fn resize(_: *anyopaque, _: [*]u8, _: usize, _: usize, _: u8, _: usize) bool {
+    fn resize(_: *anyopaque, _: []u8, _: std.mem.Alignment, _: usize, _: usize) bool {
         return false; // Bump allocator doesn't support resize
     }
 
-    fn free(_: *anyopaque, _: [*]u8, _: usize, _: u8, _: usize) void {
+    fn remap(_: *anyopaque, _: []u8, _: std.mem.Alignment, _: usize, _: usize) ?[*]u8 {
+        return null; // Bump allocator doesn't support remap
+    }
+
+    fn free(_: *anyopaque, _: []u8, _: std.mem.Alignment, _: usize) void {
         // No-op: bump allocator doesn't free individual allocations
     }
 };

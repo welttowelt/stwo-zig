@@ -14,15 +14,16 @@ pub const MmapAllocator = struct {
             .vtable = &.{
                 .alloc = alloc,
                 .resize = resize,
+                .remap = remap,
                 .free = free_fn,
             },
         };
     }
 
-    fn alloc(_: *anyopaque, len: usize, _: u8, _: usize) ?[*]u8 {
-        if (len == 0) return @as([*]u8, @ptrFromInt(std.mem.page_size)); // sentinel
+    fn alloc(_: *anyopaque, len: usize, _: std.mem.Alignment, _: usize) ?[*]u8 {
+        if (len == 0) return @as([*]u8, @ptrFromInt(std.heap.page_size_min)); // sentinel
 
-        const page_size = std.mem.page_size;
+        const page_size = std.heap.page_size_min;
         const total = std.mem.alignForward(usize, len, page_size);
 
         if (comptime builtin.os.tag == .macos or builtin.os.tag == .linux) {
@@ -42,23 +43,27 @@ pub const MmapAllocator = struct {
         }
 
         // Fallback for other platforms
-        return std.heap.page_allocator.vtable.alloc(std.heap.page_allocator.ptr, len, 0, 0);
+        return std.heap.page_allocator.vtable.alloc(std.heap.page_allocator.ptr, len, .@"1", 0);
     }
 
-    fn resize(_: *anyopaque, _: [*]u8, _: usize, _: usize, _: u8, _: usize) bool {
+    fn resize(_: *anyopaque, _: []u8, _: std.mem.Alignment, _: usize, _: usize) bool {
         return false;
     }
 
-    fn free_fn(_: *anyopaque, buf: [*]u8, len: usize, _: u8, _: usize) void {
-        if (len == 0) return;
-        const page_size = std.mem.page_size;
-        const total = std.mem.alignForward(usize, len, page_size);
+    fn remap(_: *anyopaque, _: []u8, _: std.mem.Alignment, _: usize, _: usize) ?[*]u8 {
+        return null;
+    }
+
+    fn free_fn(_: *anyopaque, buf: []u8, _: std.mem.Alignment, _: usize) void {
+        if (buf.len == 0) return;
+        const page_size = std.heap.page_size_min;
+        const total = std.mem.alignForward(usize, buf.len, page_size);
 
         if (comptime builtin.os.tag == .macos or builtin.os.tag == .linux) {
-            const slice: []align(std.mem.page_size) u8 = @alignCast(buf[0..total]);
+            const slice: []align(std.heap.page_size_min) u8 = @alignCast(buf.ptr[0..total]);
             std.posix.munmap(slice);
         } else {
-            std.heap.page_allocator.vtable.free(std.heap.page_allocator.ptr, buf, len, 0, 0);
+            std.heap.page_allocator.vtable.free(std.heap.page_allocator.ptr, buf, .@"1", 0);
         }
     }
 };
@@ -66,12 +71,12 @@ pub const MmapAllocator = struct {
 /// Hint to the OS that memory will be accessed sequentially.
 pub fn adviseSequential(ptr: [*]u8, len: usize) void {
     if (comptime builtin.os.tag == .linux) {
-        const aligned_ptr: [*]align(std.mem.page_size) u8 = @alignCast(ptr);
-        std.posix.madvise(aligned_ptr, len, .SEQUENTIAL);
+        const aligned_ptr: [*]align(std.heap.page_size_min) u8 = @alignCast(ptr);
+        std.posix.madvise(aligned_ptr, len, std.posix.MADV.SEQUENTIAL) catch {};
     }
     if (comptime builtin.os.tag == .macos) {
-        const aligned_ptr: [*]align(std.mem.page_size) u8 = @alignCast(ptr);
-        std.posix.madvise(aligned_ptr, len, .SEQUENTIAL);
+        const aligned_ptr: [*]align(std.heap.page_size_min) u8 = @alignCast(ptr);
+        std.posix.madvise(aligned_ptr, len, std.posix.MADV.SEQUENTIAL) catch {};
     }
 }
 
@@ -79,13 +84,13 @@ pub fn adviseSequential(ptr: [*]u8, len: usize) void {
 /// The next access will trigger a page fault and get zeroed pages.
 pub fn adviseDontNeed(ptr: [*]u8, len: usize) void {
     if (comptime builtin.os.tag == .linux) {
-        const aligned_ptr: [*]align(std.mem.page_size) u8 = @alignCast(ptr);
-        std.posix.madvise(aligned_ptr, len, .DONTNEED);
+        const aligned_ptr: [*]align(std.heap.page_size_min) u8 = @alignCast(ptr);
+        std.posix.madvise(aligned_ptr, len, std.posix.MADV.DONTNEED) catch {};
     }
     if (comptime builtin.os.tag == .macos) {
         // macOS equivalent: MADV_FREE lets the OS reclaim pages lazily
-        const aligned_ptr: [*]align(std.mem.page_size) u8 = @alignCast(ptr);
-        std.posix.madvise(aligned_ptr, len, .FREE);
+        const aligned_ptr: [*]align(std.heap.page_size_min) u8 = @alignCast(ptr);
+        std.posix.madvise(aligned_ptr, len, std.posix.MADV.FREE) catch {};
     }
 }
 
