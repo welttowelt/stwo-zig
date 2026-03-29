@@ -14,3 +14,4 @@
 
 pub const examples = @import("../examples/mod.zig");
 pub const cairo = @import("cairo/mod.zig");
+pub const riscv = @import("riscv/mod.zig");
