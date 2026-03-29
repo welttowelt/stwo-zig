@@ -57,18 +57,43 @@ pub const DeviceContext = struct {
         }
 
         // --- Real CUDA path ------------------------------------------------
-        // Probe device 0.  Multi-GPU support can be extended by iterating
-        // device IDs (requires a cudaGetDeviceCount FFI, not yet exposed).
-        var free_mem: usize = 0;
-        var total_mem: usize = 0;
-        ffi.cuda_get_memory_info(&free_mem, &total_mem);
+        // Enumerate all available CUDA devices via cudaGetDeviceCount.
+        var device_count: i32 = 0;
+        const err = ffi.cudaGetDeviceCount(&device_count);
+        if (err != 0 or device_count <= 0) {
+            // Fallback: treat as a single device and query memory the old way.
+            const devices = try allocator.alloc(DeviceInfo, 1);
+            var free_mem: usize = 0;
+            var total_mem: usize = 0;
+            ffi.cuda_get_memory_info(&free_mem, &total_mem);
+            devices[0] = DeviceInfo{
+                .id = 0,
+                .total_memory = total_mem,
+                .free_memory = free_mem,
+            };
+            return DeviceContext{
+                .devices = devices,
+                .active_device = 0,
+                .allocator = allocator,
+            };
+        }
 
-        const devices = try allocator.alloc(DeviceInfo, 1);
-        devices[0] = DeviceInfo{
-            .id = 0,
-            .total_memory = total_mem,
-            .free_memory = free_mem,
-        };
+        const n: usize = @intCast(device_count);
+        const devices = try allocator.alloc(DeviceInfo, n);
+        for (0..n) |i| {
+            _ = ffi.cudaSetDevice(@intCast(i));
+            var free_mem: usize = 0;
+            var total_mem: usize = 0;
+            ffi.cuda_get_memory_info(&free_mem, &total_mem);
+            devices[i] = DeviceInfo{
+                .id = @intCast(i),
+                .total_memory = total_mem,
+                .free_memory = free_mem,
+            };
+        }
+        // Restore device 0 as the default active device.
+        _ = ffi.cudaSetDevice(0);
+
         return DeviceContext{
             .devices = devices,
             .active_device = 0,
@@ -89,8 +114,10 @@ pub const DeviceContext = struct {
     /// Set the active device for subsequent operations.
     pub fn setDevice(self: *DeviceContext, id: u32) void {
         std.debug.assert(id < self.devices.len);
+        if (!comptime builtin.is_test) {
+            _ = ffi.cudaSetDevice(@intCast(id));
+        }
         self.active_device = id;
-        // TODO: call cudaSetDevice(id) via FFI when multi-GPU is wired.
     }
 
     /// Return the device ordinal with the most free memory that can
@@ -115,14 +142,15 @@ pub const DeviceContext = struct {
         if (comptime builtin.is_test) return; // No CUDA runtime in tests.
 
         for (self.devices) |*dev| {
-            // TODO: call cudaSetDevice(dev.id) before querying when
-            // multi-GPU is fully wired.
+            _ = ffi.cudaSetDevice(@intCast(dev.id));
             var free_mem: usize = 0;
             var total_mem: usize = 0;
             ffi.cuda_get_memory_info(&free_mem, &total_mem);
             dev.free_memory = free_mem;
             dev.total_memory = total_mem;
         }
+        // Restore the active device after scanning.
+        _ = ffi.cudaSetDevice(@intCast(self.active_device));
     }
 
     // ---------------------------------------------------------
@@ -132,10 +160,8 @@ pub const DeviceContext = struct {
     /// Copy `size` bytes between two devices.
     ///
     /// When `src_dev == dst_dev` this is a same-device copy using the
-    /// existing host-bounce path (the FFI does not yet expose
-    /// cudaMemcpyDeviceToDevice). Cross-device copies require
-    /// `cudaMemcpyPeer` which is not yet exposed; for now we panic to
-    /// make the gap explicit.
+    /// existing host-bounce path. Cross-device copies use
+    /// `cudaMemcpyPeer` for direct GPU-to-GPU transfer.
     pub fn transferP2P(
         self: *DeviceContext,
         src_dev: u32,
@@ -167,7 +193,13 @@ pub const DeviceContext = struct {
             // Step 3: Download from intermediate device buffer into dst.
             ffi.copy_uint32_t_vec_from_device_to_host(@ptrCast(uploaded), @ptrCast(dst), n_words);
         } else {
-            @panic("Cross-device P2P not yet implemented - requires cudaMemcpyPeer FFI");
+            // Cross-device: use CUDA peer-to-peer transfer.
+            if (comptime builtin.is_test) {
+                @panic("Cross-device P2P not available in test mode");
+            } else {
+                const rc = ffi.cudaMemcpyPeer(dst, @intCast(dst_dev), src, @intCast(src_dev), size);
+                if (rc != 0) @panic("transferP2P: cudaMemcpyPeer failed");
+            }
         }
     }
 };
@@ -213,4 +245,26 @@ test "cuda: refreshMemoryInfo is no-op in tests" {
     ctx.refreshMemoryInfo();
     // Memory stays at 0 in test mode.
     try std.testing.expectEqual(@as(usize, 0), ctx.devices[0].free_memory);
+}
+
+test "cuda: init creates exactly one device in test mode" {
+    var ctx = try DeviceContext.init(std.testing.allocator);
+    defer ctx.deinit();
+
+    try std.testing.expectEqual(@as(usize, 1), ctx.devices.len);
+    try std.testing.expectEqual(@as(u32, 0), ctx.devices[0].id);
+    try std.testing.expectEqual(@as(usize, 0), ctx.devices[0].total_memory);
+    try std.testing.expectEqual(@as(usize, 0), ctx.devices[0].free_memory);
+}
+
+test "cuda: setDevice updates active_device field" {
+    var ctx = try DeviceContext.init(std.testing.allocator);
+    defer ctx.deinit();
+
+    // Initially device 0.
+    try std.testing.expectEqual(@as(u32, 0), ctx.active_device);
+
+    // setDevice(0) should keep it at 0 (only one device in test mode).
+    ctx.setDevice(0);
+    try std.testing.expectEqual(@as(u32, 0), ctx.active_device);
 }

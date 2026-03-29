@@ -25,6 +25,35 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_tests.step);
 
+    // -----------------------------------------------------------------
+    // CUDA GPU backend (opt-in via -Dcuda=true)
+    // -----------------------------------------------------------------
+    const cuda_enabled = b.option(bool, "cuda", "Enable CUDA GPU backend") orelse false;
+    const cuda_lib_path = b.option([]const u8, "cuda-lib-path", "Path to libstwo_cuda.a") orelse "/Users/theodorepender/Coding/gpu-acc/stwo-cuda/build/lib";
+    const cuda_runtime_path = b.option([]const u8, "cuda-runtime-path", "Path to CUDA runtime libraries (libcudart)") orelse "/usr/local/cuda/lib64";
+
+    if (cuda_enabled) {
+        // CUDA-linked test binary: runs the same test suite but with the
+        // real CUDA libraries available at link time.
+        const cuda_test_module = b.createModule(.{
+            .root_source_file = b.path("src/stwo.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        const cuda_tests = b.addTest(.{
+            .root_module = cuda_test_module,
+        });
+        cuda_tests.addLibraryPath(.{ .cwd_relative = cuda_lib_path });
+        cuda_tests.addLibraryPath(.{ .cwd_relative = cuda_runtime_path });
+        cuda_tests.linkSystemLibrary("stwo_cuda");
+        cuda_tests.linkSystemLibrary("cudart");
+        cuda_tests.linkSystemLibrary("stdc++");
+
+        const run_cuda_tests = b.addRunArtifact(cuda_tests);
+        const cuda_test_step = b.step("cuda-test", "Run unit tests with CUDA backend linked");
+        cuda_test_step.dependOn(&run_cuda_tests.step);
+    }
+
     // Expanded compile/test graph gate.
     const deep_gate_cmd = b.addSystemCommand(&.{ "zig", "test", "src/stwo_deep.zig" });
     const deep_gate_step = b.step("deep-gate", "Run expanded deep graph coverage");

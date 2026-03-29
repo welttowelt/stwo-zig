@@ -20,6 +20,11 @@ pub const mul_comp = @import("mul.zig");
 pub const mulh = @import("mulh.zig");
 pub const div_comp = @import("div.zig");
 
+// ---- Infrastructure components ----
+pub const program = @import("program.zig");
+pub const memory_check = @import("memory_check.zig");
+pub const clock_update = @import("clock_update.zig");
+
 test {
     const std = @import("std");
     std.testing.refAllDecls(@This());

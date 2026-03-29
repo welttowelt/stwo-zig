@@ -352,6 +352,45 @@ pub const DivColumns = struct {
     pub const N_COLUMNS: usize = 20;
 };
 
+/// Program ROM: verifies fetched instructions match the committed program.
+pub const ProgramColumns = struct {
+    pc: M31,
+    instruction_word: M31,
+    enabler: M31,
+
+    pub const N_COLUMNS: usize = 3;
+};
+
+/// Memory integrity check: clock-ordered memory access consistency.
+pub const MemoryCheckColumns = struct {
+    addr_space: M31,
+    addr: M31,
+    clk: M31,
+    limb_0: M31,
+    limb_1: M31,
+    limb_2: M31,
+    limb_3: M31,
+    prev_clk: M31,
+    clk_diff: M31,
+    is_first_access: M31,
+    is_write: M31,
+    enabler: M31,
+
+    pub const N_COLUMNS: usize = 12;
+};
+
+/// Clock gap-filling: intermediate dummy accesses for large clock gaps.
+pub const ClockUpdateColumns = struct {
+    addr_space: M31,
+    addr: M31,
+    clk: M31,
+    prev_clk: M31,
+    clk_diff: M31,
+    enabler: M31,
+
+    pub const N_COLUMNS: usize = 6;
+};
+
 test "column counts match struct field counts" {
     const std = @import("std");
     const expectEqual = std.testing.expectEqual;
@@ -372,4 +411,7 @@ test "column counts match struct field counts" {
     try expectEqual(@as(usize, 14), @typeInfo(MulColumns).@"struct".fields.len);
     try expectEqual(@as(usize, 18), @typeInfo(MulhColumns).@"struct".fields.len);
     try expectEqual(@as(usize, 20), @typeInfo(DivColumns).@"struct".fields.len);
+    try expectEqual(@as(usize, 3), @typeInfo(ProgramColumns).@"struct".fields.len);
+    try expectEqual(@as(usize, 12), @typeInfo(MemoryCheckColumns).@"struct".fields.len);
+    try expectEqual(@as(usize, 6), @typeInfo(ClockUpdateColumns).@"struct".fields.len);
 }

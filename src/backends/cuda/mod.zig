@@ -607,9 +607,11 @@ test "cuda: GKR device variant declarations exist" {
 }
 
 test "cuda: FFI new declarations compile" {
-    // Verify that all newly added FFI extern declarations can be referenced
-    // at comptime. This ensures the signatures are syntactically valid and
-    // the symbols are known to the compiler (they resolve at link time).
+    // Verify that all FFI extern declarations can be referenced at comptime.
+    // This ensures the signatures are syntactically valid and the symbols are
+    // known to the compiler (they resolve at link time).
+
+    // Original declarations
     _ = &ffi.copy_uint32_t_vec_from_device_to_device;
     _ = &ffi.batch_eval_at_points;
     _ = &ffi.accumulate_quotients;
@@ -624,4 +626,68 @@ test "cuda: FFI new declarations compile" {
     _ = &ffi.execute_framework_eval_plan_v1;
     _ = &ffi.fix_first_variable_base_field;
     _ = &ffi.fix_first_variable_secure_field;
+
+    // Blake2s hash memory management
+    _ = &ffi.cuda_malloc_blake_2s_hash;
+    _ = &ffi.cuda_alloc_zeroes_blake_2s_hash;
+    _ = &ffi.copy_blake_2s_hash_vec_from_host_to_device;
+    _ = &ffi.copy_blake_2s_hash_vec_from_device_to_host;
+    _ = &ffi.copy_blake_2s_hash_vec_from_device_to_device;
+
+    // Poseidon252 hash memory management
+    _ = &ffi.cuda_malloc_poseidon252_hash;
+    _ = &ffi.cuda_alloc_zeroes_poseidon252_hash;
+    _ = &ffi.copy_poseidon252_hash_vec_from_host_to_device;
+    _ = &ffi.copy_poseidon252_hash_vec_from_device_to_host;
+    _ = &ffi.copy_poseidon252_hash_vec_from_device_to_device;
+
+    // Element access
+    _ = &ffi.cuda_get_uint32_t;
+    _ = &ffi.cuda_set_uint32_t;
+    _ = &ffi.cuda_increase_at;
+
+    // Pointer upload
+    _ = &ffi.copy_device_pointer_vec_from_host_to_device;
+    _ = &ffi.cuda_release_uploaded_pointer_vec;
+
+    // Remaining GKR operations
+    _ = &ffi.gkr_next_logup_multiplicities_layer;
+    _ = &ffi.gkr_next_logup_singles_layer;
+    _ = &ffi.gkr_sum_logup_multiplicities;
+    _ = &ffi.gkr_sum_logup_singles;
+
+    // Quotient operations (partial numerator / combiner)
+    _ = &ffi.accumulate_partial_quotient_numerators;
+    _ = &ffi.combine_quotients_from_numerators;
+
+    // Evaluation helpers
+    _ = &ffi.evaluate_columns;
+    _ = &ffi.barycentric_weights_from_point_vanishings;
+    _ = &ffi.sort_values_and_permute_with_bit_reverse_order;
+
+    // Witness generation (additional)
+    _ = &ffi.generate_assert_eq_fp_imm_traces;
+
+    // Lifted commitment
+    _ = &ffi.commit_on_first_layer_lifted;
+}
+
+test "cuda: multi-GPU FFI declarations compile" {
+    // CUDA runtime device management functions (from libcudart).
+    _ = &ffi.cudaGetDeviceCount;
+    _ = &ffi.cudaSetDevice;
+    _ = &ffi.cudaGetDevice;
+    _ = &ffi.cudaMemcpyPeer;
+    _ = &ffi.cudaDeviceEnablePeerAccess;
+}
+
+test "cuda: witness generation FFI declarations compile" {
+    _ = &ffi.generate_wide_fibonacci_trace;
+    _ = &ffi.generate_poseidon_traces;
+    _ = &ffi.generate_poseidon_interaction_traces;
+    _ = &ffi.generate_assert_eq_fp_imm_traces;
+}
+
+test {
+    _ = @import("hardware_test.zig");
 }
