@@ -636,7 +636,7 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                     "FRI commit",
                 );
                 defer fri_commit_stage.end();
-                break :blk try prover_fri.FriProver(H, MC).commit(
+                break :blk try prover_fri.FriProver(B, H, MC).commit(
                     allocator,
                     channel,
                     scheme.config.fri_config,

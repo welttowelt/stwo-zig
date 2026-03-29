@@ -10,6 +10,8 @@ const poly_utils = @import("../../../core/poly/utils.zig");
 const eval_mod = @import("evaluation.zig");
 const twiddles_mod = @import("../twiddles.zig");
 
+const CpuBackend = @import("../../../backends/cpu_scalar/mod.zig").CpuBackend;
+
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
 const CirclePointQM31 = circle.CirclePointQM31;
@@ -23,11 +25,13 @@ pub const PolyError = error{
     SingularSystem,
 };
 
-/// Polynomial coefficients in the circle-FFT basis.
+/// Polynomial coefficients in the circle-FFT basis, generic over backend `B`.
 ///
 /// Invariants:
 /// - `coeffs.len` is a non-zero power of two.
-pub const CircleCoefficients = struct {
+pub fn CircleCoefficientsGeneric(comptime B: type) type {
+    _ = B;
+    return struct {
     coeffs: []const M31,
     log_size: u32,
     owns_coeffs: bool,
@@ -322,7 +326,10 @@ pub const CircleCoefficients = struct {
             .right = try CircleCoefficients.initOwned(right),
         };
     }
-};
+    };
+}
+
+pub const CircleCoefficients = CircleCoefficientsGeneric(CpuBackend);
 
 /// Interpolates circle coefficients from bit-reversed domain evaluations.
 ///

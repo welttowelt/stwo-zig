@@ -77,7 +77,8 @@ pub fn FriDecommitResult(comptime H: type) type {
     };
 }
 
-pub fn FriProver(comptime H: type, comptime MC: type) type {
+pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
+    _ = B;
     return struct {
         config: core_fri.FriConfig,
         first_layer: FirstLayerProver,
@@ -904,10 +905,11 @@ test "prover fri: layer decommit corrupted witness fails" {
 }
 
 test "prover fri: commit and decommit roundtrip with verifier" {
+    const CpuBackend = @import("../backends/cpu_scalar/mod.zig").CpuBackend;
     const Hasher = @import("../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
     const MerkleChannel = @import("../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
     const Channel = @import("../core/channel/blake2s.zig").Blake2sChannel;
-    const Prover = FriProver(Hasher, MerkleChannel);
+    const Prover = FriProver(CpuBackend, Hasher, MerkleChannel);
     const Verifier = core_fri.FriVerifier(Hasher, MerkleChannel);
     const alloc = std.testing.allocator;
 
@@ -957,10 +959,11 @@ test "prover fri: commit and decommit roundtrip with verifier" {
 }
 
 test "prover fri: commit rejects non-canonic domain" {
+    const CpuBackend = @import("../backends/cpu_scalar/mod.zig").CpuBackend;
     const Hasher = @import("../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
     const MerkleChannel = @import("../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
     const Channel = @import("../core/channel/blake2s.zig").Blake2sChannel;
-    const Prover = FriProver(Hasher, MerkleChannel);
+    const Prover = FriProver(CpuBackend, Hasher, MerkleChannel);
     const alloc = std.testing.allocator;
 
     const invalid_domain = circle_domain.CircleDomain.new(
@@ -987,10 +990,11 @@ test "prover fri: commit rejects non-canonic domain" {
 }
 
 test "prover fri: commit rejects high-degree last layer" {
+    const CpuBackend = @import("../backends/cpu_scalar/mod.zig").CpuBackend;
     const Hasher = @import("../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
     const MerkleChannel = @import("../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
     const Channel = @import("../core/channel/blake2s.zig").Blake2sChannel;
-    const Prover = FriProver(Hasher, MerkleChannel);
+    const Prover = FriProver(CpuBackend, Hasher, MerkleChannel);
     const alloc = std.testing.allocator;
 
     const config = try core_fri.FriConfig.init(0, 1, 3);

@@ -1,159 +1,172 @@
 const std = @import("std");
 const m31 = @import("../core/fields/m31.zig");
 const qm31 = @import("../core/fields/qm31.zig");
+const CpuBackend = @import("../backends/cpu_scalar/mod.zig").CpuBackend;
 
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
 
-/// Column-major representation of secure field coordinates.
-pub const SecureColumnByCoords = struct {
-    columns: [qm31.SECURE_EXTENSION_DEGREE][]M31,
-    owns_columns: bool = true,
+/// Column-major representation of secure field coordinates, generic over the
+/// backend type `B`.  `B` must expose a `ColumnType(F)` associated type that
+/// maps a field element type to the concrete column storage (e.g. `[]F` for
+/// `CpuBackend`).
+pub fn SecureColumnByCoordsGeneric(comptime B: type) type {
+    const ColumnSlice = B.ColumnType(M31);
 
-    pub const Error = error{
-        InconsistentColumnLength,
-    };
+    return struct {
+        const Self = @This();
 
-    pub fn initOwned(columns: [qm31.SECURE_EXTENSION_DEGREE][]M31) Error!SecureColumnByCoords {
-        const column_len = columns[0].len;
-        for (columns[1..]) |column| {
-            if (column.len != column_len) return Error.InconsistentColumnLength;
-        }
-        return .{
-            .columns = columns,
-            .owns_columns = true,
+        columns: [qm31.SECURE_EXTENSION_DEGREE]ColumnSlice,
+        owns_columns: bool = true,
+
+        pub const Error = error{
+            InconsistentColumnLength,
         };
-    }
 
-    pub fn deinit(self: *SecureColumnByCoords, allocator: std.mem.Allocator) void {
-        if (self.owns_columns) {
-            for (self.columns) |column| allocator.free(column);
+        pub fn initOwned(columns: [qm31.SECURE_EXTENSION_DEGREE]ColumnSlice) Error!Self {
+            const column_len = columns[0].len;
+            for (columns[1..]) |column| {
+                if (column.len != column_len) return Error.InconsistentColumnLength;
+            }
+            return .{
+                .columns = columns,
+                .owns_columns = true,
+            };
         }
-        self.* = undefined;
-    }
 
-    pub fn at(self: SecureColumnByCoords, index: usize) QM31 {
-        return QM31.fromM31Array(.{
-            self.columns[0][index],
-            self.columns[1][index],
-            self.columns[2][index],
-            self.columns[3][index],
-        });
-    }
-
-    pub fn zeros(allocator: std.mem.Allocator, column_len: usize) !SecureColumnByCoords {
-        var columns: [qm31.SECURE_EXTENSION_DEGREE][]M31 = undefined;
-        for (0..qm31.SECURE_EXTENSION_DEGREE) |i| {
-            columns[i] = try allocator.alloc(M31, column_len);
-            @memset(columns[i], M31.zero());
+        pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+            if (self.owns_columns) {
+                for (self.columns) |column| allocator.free(column);
+            }
+            self.* = undefined;
         }
-        return .{
-            .columns = columns,
-            .owns_columns = true,
-        };
-    }
 
-    pub fn uninitialized(allocator: std.mem.Allocator, column_len: usize) !SecureColumnByCoords {
-        var columns: [qm31.SECURE_EXTENSION_DEGREE][]M31 = undefined;
-        for (0..qm31.SECURE_EXTENSION_DEGREE) |i| {
-            columns[i] = try allocator.alloc(M31, column_len);
+        pub fn at(self: Self, index: usize) QM31 {
+            return QM31.fromM31Array(.{
+                self.columns[0][index],
+                self.columns[1][index],
+                self.columns[2][index],
+                self.columns[3][index],
+            });
         }
-        return .{
-            .columns = columns,
-            .owns_columns = true,
-        };
-    }
 
-    pub fn fromBaseFieldCol(
-        allocator: std.mem.Allocator,
-        column: []const M31,
-    ) !SecureColumnByCoords {
-        var columns: [qm31.SECURE_EXTENSION_DEGREE][]M31 = undefined;
-        columns[0] = try allocator.dupe(M31, column);
-        for (1..qm31.SECURE_EXTENSION_DEGREE) |i| {
-            columns[i] = try allocator.alloc(M31, column.len);
-            @memset(columns[i], M31.zero());
+        pub fn zeros(allocator: std.mem.Allocator, column_len: usize) !Self {
+            var columns: [qm31.SECURE_EXTENSION_DEGREE]ColumnSlice = undefined;
+            for (0..qm31.SECURE_EXTENSION_DEGREE) |i| {
+                columns[i] = try allocator.alloc(M31, column_len);
+                @memset(columns[i], M31.zero());
+            }
+            return .{
+                .columns = columns,
+                .owns_columns = true,
+            };
         }
-        return .{
-            .columns = columns,
-            .owns_columns = true,
-        };
-    }
 
-    pub fn len(self: SecureColumnByCoords) usize {
-        return self.columns[0].len;
-    }
-
-    pub fn isEmpty(self: SecureColumnByCoords) bool {
-        return self.columns[0].len == 0;
-    }
-
-    pub fn cloneOwned(
-        self: SecureColumnByCoords,
-        allocator: std.mem.Allocator,
-    ) !SecureColumnByCoords {
-        var columns: [qm31.SECURE_EXTENSION_DEGREE][]M31 = undefined;
-        for (0..qm31.SECURE_EXTENSION_DEGREE) |i| {
-            columns[i] = try allocator.dupe(M31, self.columns[i]);
+        pub fn uninitialized(allocator: std.mem.Allocator, column_len: usize) !Self {
+            var columns: [qm31.SECURE_EXTENSION_DEGREE]ColumnSlice = undefined;
+            for (0..qm31.SECURE_EXTENSION_DEGREE) |i| {
+                columns[i] = try allocator.alloc(M31, column_len);
+            }
+            return .{
+                .columns = columns,
+                .owns_columns = true,
+            };
         }
-        return .{
-            .columns = columns,
-            .owns_columns = true,
-        };
-    }
 
-    pub fn set(self: *SecureColumnByCoords, index: usize, value: QM31) void {
-        const coords = value.toM31Array();
-        for (0..qm31.SECURE_EXTENSION_DEGREE) |i| {
-            self.columns[i][index] = coords[i];
+        pub fn fromBaseFieldCol(
+            allocator: std.mem.Allocator,
+            column: []const M31,
+        ) !Self {
+            var columns: [qm31.SECURE_EXTENSION_DEGREE]ColumnSlice = undefined;
+            columns[0] = try allocator.dupe(M31, column);
+            for (1..qm31.SECURE_EXTENSION_DEGREE) |i| {
+                columns[i] = try allocator.alloc(M31, column.len);
+                @memset(columns[i], M31.zero());
+            }
+            return .{
+                .columns = columns,
+                .owns_columns = true,
+            };
         }
-    }
 
-    pub fn toVec(self: SecureColumnByCoords, allocator: std.mem.Allocator) ![]QM31 {
-        const out = try allocator.alloc(QM31, self.len());
-        for (0..out.len) |i| out[i] = self.at(i);
-        return out;
-    }
-
-    pub fn fromSecureSlice(
-        allocator: std.mem.Allocator,
-        values: []const QM31,
-    ) !SecureColumnByCoords {
-        var columns: [qm31.SECURE_EXTENSION_DEGREE][]M31 = undefined;
-        for (0..qm31.SECURE_EXTENSION_DEGREE) |i| {
-            columns[i] = try allocator.alloc(M31, values.len);
+        pub fn len(self: Self) usize {
+            return self.columns[0].len;
         }
-        for (values, 0..) |value, row| {
+
+        pub fn isEmpty(self: Self) bool {
+            return self.columns[0].len == 0;
+        }
+
+        pub fn cloneOwned(
+            self: Self,
+            allocator: std.mem.Allocator,
+        ) !Self {
+            var columns: [qm31.SECURE_EXTENSION_DEGREE]ColumnSlice = undefined;
+            for (0..qm31.SECURE_EXTENSION_DEGREE) |i| {
+                columns[i] = try allocator.dupe(M31, self.columns[i]);
+            }
+            return .{
+                .columns = columns,
+                .owns_columns = true,
+            };
+        }
+
+        pub fn set(self: *Self, index: usize, value: QM31) void {
             const coords = value.toM31Array();
             for (0..qm31.SECURE_EXTENSION_DEGREE) |i| {
-                columns[i][row] = coords[i];
+                self.columns[i][index] = coords[i];
             }
         }
-        return .{
-            .columns = columns,
-            .owns_columns = true,
-        };
-    }
 
-    pub fn iter(self: *const SecureColumnByCoords) Iterator {
-        return .{
-            .column = self,
-            .index = 0,
-        };
-    }
-
-    pub const Iterator = struct {
-        column: *const SecureColumnByCoords,
-        index: usize,
-
-        pub fn next(self: *Iterator) ?QM31 {
-            if (self.index >= self.column.len()) return null;
-            const value = self.column.at(self.index);
-            self.index += 1;
-            return value;
+        pub fn toVec(self: Self, allocator: std.mem.Allocator) ![]QM31 {
+            const out = try allocator.alloc(QM31, self.len());
+            for (0..out.len) |i| out[i] = self.at(i);
+            return out;
         }
+
+        pub fn fromSecureSlice(
+            allocator: std.mem.Allocator,
+            values: []const QM31,
+        ) !Self {
+            var columns: [qm31.SECURE_EXTENSION_DEGREE]ColumnSlice = undefined;
+            for (0..qm31.SECURE_EXTENSION_DEGREE) |i| {
+                columns[i] = try allocator.alloc(M31, values.len);
+            }
+            for (values, 0..) |value, row| {
+                const coords = value.toM31Array();
+                for (0..qm31.SECURE_EXTENSION_DEGREE) |i| {
+                    columns[i][row] = coords[i];
+                }
+            }
+            return .{
+                .columns = columns,
+                .owns_columns = true,
+            };
+        }
+
+        pub fn iter(self: *const Self) Iterator {
+            return .{
+                .column = self,
+                .index = 0,
+            };
+        }
+
+        pub const Iterator = struct {
+            column: *const Self,
+            index: usize,
+
+            pub fn next(self: *Iterator) ?QM31 {
+                if (self.index >= self.column.len()) return null;
+                const value = self.column.at(self.index);
+                self.index += 1;
+                return value;
+            }
+        };
     };
-};
+}
+
+/// Backward-compatible alias: resolves to the same struct for CpuBackend.
+pub const SecureColumnByCoords = SecureColumnByCoordsGeneric(CpuBackend);
 
 test "secure column: set and at roundtrip" {
     const alloc = std.testing.allocator;
