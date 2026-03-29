@@ -841,6 +841,16 @@ inline fn fftLayerLoopForwardM31(
     var lhs = values.ptr + block_start;
     var rhs = lhs + half_block;
     var remaining = half_block;
+
+    // SIMD path: process 4 elements per iteration.
+    const VW = m31.VEC_WIDTH;
+    const twid_vec: m31.Vec4u32 = @splat(twid.v);
+    while (remaining >= VW) : (remaining -= VW) {
+        m31.butterflyVec4(lhs, rhs, twid_vec);
+        lhs += VW;
+        rhs += VW;
+    }
+    // Scalar tail.
     while (remaining != 0) : (remaining -= 1) {
         const v0 = lhs[0];
         const v1 = rhs[0];
@@ -873,6 +883,16 @@ inline fn fftLayerLoopInverseM31(
     var lhs = values.ptr + block_start;
     var rhs = lhs + half_block;
     var remaining = half_block;
+
+    // SIMD path: process 4 elements per iteration.
+    const VW = m31.VEC_WIDTH;
+    const itwid_vec: m31.Vec4u32 = @splat(itwid.v);
+    while (remaining >= VW) : (remaining -= VW) {
+        m31.ibutterflyVec4(lhs, rhs, itwid_vec);
+        lhs += VW;
+        rhs += VW;
+    }
+    // Scalar tail.
     while (remaining != 0) : (remaining -= 1) {
         const v0 = lhs[0];
         const v1 = rhs[0];

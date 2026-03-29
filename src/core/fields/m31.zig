@@ -160,6 +160,87 @@ fn reduce64(x: u64) u32 {
     return r;
 }
 
+// ---------------------------------------------------------------
+// SIMD vectorized M31 operations (4-lane)
+// ---------------------------------------------------------------
+
+pub const VEC_WIDTH: usize = 4;
+pub const Vec4u32 = @Vector(VEC_WIDTH, u32);
+pub const Vec4u64 = @Vector(VEC_WIDTH, u64);
+const P_VEC: Vec4u32 = @splat(Modulus);
+
+/// Load 4 M31 values from a pointer.
+pub inline fn loadVec4(ptr: [*]const M31) Vec4u32 {
+    const raw: *const [VEC_WIDTH]u32 = @ptrCast(ptr);
+    return raw.*;
+}
+
+/// Store 4 M31 values to a pointer.
+pub inline fn storeVec4(ptr: [*]M31, v: Vec4u32) void {
+    const raw: *[VEC_WIDTH]u32 = @ptrCast(ptr);
+    raw.* = v;
+}
+
+/// Vectorized M31 addition: (a + b) mod p, 4 lanes.
+pub inline fn addVec4(a: Vec4u32, b: Vec4u32) Vec4u32 {
+    const sum = a +% b;
+    const geq_p = sum >= P_VEC;
+    return @select(u32, geq_p, sum -% P_VEC, sum);
+}
+
+/// Vectorized M31 subtraction: (a - b) mod p, 4 lanes.
+pub inline fn subVec4(a: Vec4u32, b: Vec4u32) Vec4u32 {
+    const lt = a < b;
+    // If a < b, result = a + p - b; else result = a - b.
+    return @select(u32, lt, (a +% P_VEC) -% b, a -% b);
+}
+
+/// Vectorized M31 multiplication: (a * b) mod p, 4 lanes.
+/// Uses 64-bit intermediate products with Mersenne reduction.
+pub inline fn mulVec4(a: Vec4u32, b: Vec4u32) Vec4u32 {
+    const a64: Vec4u64 = a;
+    const b64: Vec4u64 = b;
+    const prod = a64 * b64;
+    return reduceVec4(prod);
+}
+
+/// Vectorized Mersenne reduction: x mod (2^31 - 1), 4 lanes.
+/// Two rounds of: t = (x & p) + (x >> 31).
+inline fn reduceVec4(x: Vec4u64) Vec4u32 {
+    const p64: Vec4u64 = @splat(@as(u64, Modulus));
+
+    // Round 1
+    var t = (x & p64) + (x >> @splat(@as(u6, 31)));
+    // Round 2
+    t = (t & p64) + (t >> @splat(@as(u6, 31)));
+
+    const r: Vec4u32 = @truncate(t);
+    // Conditional: if r == p -> 0, if r > p -> r - p, else r.
+    const is_p = r == P_VEC;
+    const gt_p = r > P_VEC;
+    const adjusted = @select(u32, gt_p, r -% P_VEC, r);
+    return @select(u32, is_p, @as(Vec4u32, @splat(0)), adjusted);
+}
+
+/// Vectorized butterfly: forward FFT.
+/// lhs[i] = lhs[i] + rhs[i]*twid, rhs[i] = lhs[i] - rhs[i]*twid.
+pub inline fn butterflyVec4(lhs: [*]M31, rhs: [*]M31, twid: Vec4u32) void {
+    const v0 = loadVec4(lhs);
+    const v1 = loadVec4(rhs);
+    const m = mulVec4(v1, twid);
+    storeVec4(lhs, addVec4(v0, m));
+    storeVec4(rhs, subVec4(v0, m));
+}
+
+/// Vectorized inverse butterfly: inverse FFT.
+/// lhs[i] = lhs[i] + rhs[i], rhs[i] = (lhs[i] - rhs[i]) * itwid.
+pub inline fn ibutterflyVec4(lhs: [*]M31, rhs: [*]M31, itwid: Vec4u32) void {
+    const v0 = loadVec4(lhs);
+    const v1 = loadVec4(rhs);
+    storeVec4(lhs, addVec4(v0, v1));
+    storeVec4(rhs, mulVec4(subVec4(v0, v1), itwid));
+}
+
 /// Fixed-exponent inversion for `p = 2^31 - 1`, computing `a^(p-2)`.
 /// Exponent bits: `111...1101` (31 bits).
 fn powPMinus2(a: M31) M31 {
