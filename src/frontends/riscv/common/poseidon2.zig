@@ -123,6 +123,90 @@ pub fn hashPair(left: [8]M31, right: [8]M31) [8]M31 {
     return result;
 }
 
+/// Full round state trace for one Poseidon2 permutation (443 M31 values).
+pub const PermuteTrace = struct {
+    enabler: M31,
+    initial_state: [STATE_WIDTH]M31,
+    // 4 first full rounds: each has state_in, after_sbox, after_mds (3 × 16 = 48)
+    full_rounds_first: [4][3][STATE_WIDTH]M31,
+    // 14 partial rounds: each has state0_in, after_sbox, after_mds_0 (3 values)
+    partial_rounds: [14][3]M31,
+    // 4 last full rounds: same as first
+    full_rounds_last: [4][3][STATE_WIDTH]M31,
+
+    /// Flatten to 443 M31 values for column storage.
+    pub fn flatten(self: PermuteTrace) [443]M31 {
+        var out: [443]M31 = undefined;
+        out[0] = self.enabler;
+        @memcpy(out[1..17], &self.initial_state);
+        var idx: usize = 17;
+        for (0..4) |r| {
+            for (0..3) |phase| {
+                @memcpy(out[idx .. idx + 16], &self.full_rounds_first[r][phase]);
+                idx += 16;
+            }
+        }
+        for (0..14) |r| {
+            out[idx] = self.partial_rounds[r][0];
+            idx += 1;
+            out[idx] = self.partial_rounds[r][1];
+            idx += 1;
+            out[idx] = self.partial_rounds[r][2];
+            idx += 1;
+        }
+        for (0..4) |r| {
+            for (0..3) |phase| {
+                @memcpy(out[idx .. idx + 16], &self.full_rounds_last[r][phase]);
+                idx += 16;
+            }
+        }
+        return out;
+    }
+};
+
+/// Permute with full trace capture.
+/// Applies the same operations as `permute` but records all intermediate states.
+pub fn permuteTraced(state: *State) PermuteTrace {
+    var trace: PermuteTrace = undefined;
+    trace.enabler = M31.one();
+    trace.initial_state = state.*;
+
+    // Initial linear layer (same as permute)
+    externalLinearLayer(state);
+
+    // First 4 full rounds
+    for (0..4) |r| {
+        trace.full_rounds_first[r][0] = state.*; // state_in
+        addRoundConstants(state, FULL_ROUND_CONSTANTS[r]);
+        sboxFull(state);
+        trace.full_rounds_first[r][1] = state.*; // after_sbox
+        externalLinearLayer(state);
+        trace.full_rounds_first[r][2] = state.*; // after_mds
+    }
+
+    // 14 partial rounds
+    for (0..14) |r| {
+        trace.partial_rounds[r][0] = state[0]; // state0_in
+        state[0] = state[0].add(PARTIAL_ROUND_CONSTANTS[r]);
+        state[0] = sbox(state[0]);
+        trace.partial_rounds[r][1] = state[0]; // after_sbox
+        internalLinearLayer(state);
+        trace.partial_rounds[r][2] = state[0]; // after_mds_0
+    }
+
+    // Last 4 full rounds
+    for (0..4) |r| {
+        trace.full_rounds_last[r][0] = state.*;
+        addRoundConstants(state, FULL_ROUND_CONSTANTS[4 + r]);
+        sboxFull(state);
+        trace.full_rounds_last[r][1] = state.*;
+        externalLinearLayer(state);
+        trace.full_rounds_last[r][2] = state.*;
+    }
+
+    return trace;
+}
+
 // ---------------------------------------------------------------------------
 // Round constants
 // ---------------------------------------------------------------------------
@@ -234,4 +318,72 @@ test "poseidon2: mds4x4 circulant correctness" {
     try std.testing.expect(v[1].eql(M31.fromCanonical(18)));
     try std.testing.expect(v[2].eql(M31.fromCanonical(21)));
     try std.testing.expect(v[3].eql(M31.fromCanonical(16)));
+}
+
+test "poseidon2: permuteTraced produces same output as permute" {
+    var state1: State = [_]M31{M31.zero()} ** STATE_WIDTH;
+    var state2: State = [_]M31{M31.zero()} ** STATE_WIDTH;
+    state1[0] = M31.fromCanonical(42);
+    state2[0] = M31.fromCanonical(42);
+
+    permute(&state1);
+    _ = permuteTraced(&state2);
+
+    for (0..STATE_WIDTH) |i| {
+        try std.testing.expect(state1[i].eql(state2[i]));
+    }
+}
+
+test "poseidon2: permuteTraced captures initial state" {
+    var state: State = [_]M31{M31.zero()} ** STATE_WIDTH;
+    state[0] = M31.fromCanonical(99);
+    state[1] = M31.fromCanonical(7);
+
+    const trace = permuteTraced(&state);
+
+    try std.testing.expect(trace.enabler.eql(M31.one()));
+    try std.testing.expect(trace.initial_state[0].eql(M31.fromCanonical(99)));
+    try std.testing.expect(trace.initial_state[1].eql(M31.fromCanonical(7)));
+}
+
+test "poseidon2: PermuteTrace flatten produces 443 values" {
+    var state: State = [_]M31{M31.zero()} ** STATE_WIDTH;
+    state[0] = M31.fromCanonical(1);
+
+    const trace = permuteTraced(&state);
+    const flat = trace.flatten();
+
+    try std.testing.expectEqual(@as(usize, 443), flat.len);
+    // enabler should be 1
+    try std.testing.expect(flat[0].eql(M31.one()));
+    // initial_state[0] should be 1
+    try std.testing.expect(flat[1].eql(M31.fromCanonical(1)));
+}
+
+test "poseidon2: permuteTraced round traces are non-trivial" {
+    var state: State = [_]M31{M31.zero()} ** STATE_WIDTH;
+    state[0] = M31.fromCanonical(42);
+
+    const trace = permuteTraced(&state);
+
+    // First full round state_in should differ from initial_state
+    // (because of the initial linear layer)
+    var differs = false;
+    for (0..STATE_WIDTH) |i| {
+        if (!trace.full_rounds_first[0][0][i].eql(trace.initial_state[i])) {
+            differs = true;
+            break;
+        }
+    }
+    try std.testing.expect(differs);
+
+    // Partial round traces should have non-zero values
+    var any_nonzero = false;
+    for (0..14) |r| {
+        if (!trace.partial_rounds[r][1].isZero()) {
+            any_nonzero = true;
+            break;
+        }
+    }
+    try std.testing.expect(any_nonzero);
 }

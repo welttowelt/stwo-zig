@@ -163,7 +163,7 @@ pub fn main() !void {
 
     // Stage 3: Prove
     const t_prove = Timer.begin();
-    var output = try riscv_prover.proveRiscV(allocator, config, &run_result.execution_trace);
+    var output = try riscv_prover.proveRiscV(allocator, config, &run_result.execution_trace, &run_result.state_chain_tracker);
     defer output.deinit(allocator);
     const prove_ms = t_prove.elapsedMs();
 

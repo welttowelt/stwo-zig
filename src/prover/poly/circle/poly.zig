@@ -842,18 +842,66 @@ inline fn fftLayerLoopForwardM31(
     var rhs = lhs + half_block;
     var remaining = half_block;
 
-    // Software prefetch: bring the next cache lines into L1 before we need them.
-    // Each M31 is 4 bytes, so PACK_WIDTH (16) elements = 64 bytes = one cache line.
-    const PREFETCH_AHEAD = m31.PACK_WIDTH;
-
-    // 16-lane SIMD path.
+    // 16-lane SIMD path with interleaved pipeline execution.
+    // By loading and multiplying multiple pairs before storing results,
+    // the CPU's out-of-order execution can pipeline the multiplications,
+    // hiding the 4-cycle multiply latency on Apple M4 Max.
     const PW = m31.PACK_WIDTH;
     const twid_packed: m31.PackedM31 = @splat(twid.v);
+
+    // 4-way interleaved: process 4 butterfly pairs simultaneously.
+    const PW4 = PW * 4;
+    while (remaining >= PW4) : (remaining -= PW4) {
+        // Load all 4 pairs.
+        const v0a = m31.loadPacked(lhs);
+        const v1a = m31.loadPacked(rhs);
+        const v0b = m31.loadPacked(lhs + PW);
+        const v1b = m31.loadPacked(rhs + PW);
+        const v0c = m31.loadPacked(lhs + PW * 2);
+        const v1c = m31.loadPacked(rhs + PW * 2);
+        const v0d = m31.loadPacked(lhs + PW * 3);
+        const v1d = m31.loadPacked(rhs + PW * 3);
+
+        // Issue all 4 multiplications (pipeline-friendly: independent operations).
+        const ma = m31.mulPacked(v1a, twid_packed);
+        const mb = m31.mulPacked(v1b, twid_packed);
+        const mc = m31.mulPacked(v1c, twid_packed);
+        const md = m31.mulPacked(v1d, twid_packed);
+
+        // Store results (by now the multiplies have completed).
+        m31.storePacked(lhs, m31.addPacked(v0a, ma));
+        m31.storePacked(rhs, m31.subPacked(v0a, ma));
+        m31.storePacked(lhs + PW, m31.addPacked(v0b, mb));
+        m31.storePacked(rhs + PW, m31.subPacked(v0b, mb));
+        m31.storePacked(lhs + PW * 2, m31.addPacked(v0c, mc));
+        m31.storePacked(rhs + PW * 2, m31.subPacked(v0c, mc));
+        m31.storePacked(lhs + PW * 3, m31.addPacked(v0d, md));
+        m31.storePacked(rhs + PW * 3, m31.subPacked(v0d, md));
+
+        lhs += PW4;
+        rhs += PW4;
+    }
+    // 2-way interleaved fallback for remaining >= 2 packed widths.
+    const PW2 = PW * 2;
+    while (remaining >= PW2) : (remaining -= PW2) {
+        const v0a = m31.loadPacked(lhs);
+        const v1a = m31.loadPacked(rhs);
+        const v0b = m31.loadPacked(lhs + PW);
+        const v1b = m31.loadPacked(rhs + PW);
+
+        const ma = m31.mulPacked(v1a, twid_packed);
+        const mb = m31.mulPacked(v1b, twid_packed);
+
+        m31.storePacked(lhs, m31.addPacked(v0a, ma));
+        m31.storePacked(rhs, m31.subPacked(v0a, ma));
+        m31.storePacked(lhs + PW, m31.addPacked(v0b, mb));
+        m31.storePacked(rhs + PW, m31.subPacked(v0b, mb));
+
+        lhs += PW2;
+        rhs += PW2;
+    }
+    // Single packed-width fallback.
     while (remaining >= PW) : (remaining -= PW) {
-        if (remaining > PW) {
-            @prefetch(lhs + PREFETCH_AHEAD, .{ .rw = .write, .locality = 3 });
-            @prefetch(rhs + PREFETCH_AHEAD, .{ .rw = .write, .locality = 3 });
-        }
         m31.butterflyPacked(lhs, rhs, twid_packed);
         lhs += PW;
         rhs += PW;
@@ -900,17 +948,81 @@ inline fn fftLayerLoopInverseM31(
     var rhs = lhs + half_block;
     var remaining = half_block;
 
-    // Software prefetch: bring the next cache lines into L1 before we need them.
-    const PREFETCH_AHEAD = m31.PACK_WIDTH;
-
-    // 16-lane SIMD path.
+    // 16-lane SIMD path with interleaved pipeline execution.
+    // By loading and computing multiple pairs before storing results,
+    // the CPU's out-of-order execution can pipeline the multiplications,
+    // hiding the 4-cycle multiply latency on Apple M4 Max.
     const PW = m31.PACK_WIDTH;
     const itwid_packed: m31.PackedM31 = @splat(itwid.v);
+
+    // 4-way interleaved: process 4 inverse butterfly pairs simultaneously.
+    const PW4 = PW * 4;
+    while (remaining >= PW4) : (remaining -= PW4) {
+        // Load all 4 pairs.
+        const v0a = m31.loadPacked(lhs);
+        const v1a = m31.loadPacked(rhs);
+        const v0b = m31.loadPacked(lhs + PW);
+        const v1b = m31.loadPacked(rhs + PW);
+        const v0c = m31.loadPacked(lhs + PW * 2);
+        const v1c = m31.loadPacked(rhs + PW * 2);
+        const v0d = m31.loadPacked(lhs + PW * 3);
+        const v1d = m31.loadPacked(rhs + PW * 3);
+
+        // Compute sums and diffs for all 4 pairs.
+        const sum_a = m31.addPacked(v0a, v1a);
+        const sum_b = m31.addPacked(v0b, v1b);
+        const sum_c = m31.addPacked(v0c, v1c);
+        const sum_d = m31.addPacked(v0d, v1d);
+        const diff_a = m31.subPacked(v0a, v1a);
+        const diff_b = m31.subPacked(v0b, v1b);
+        const diff_c = m31.subPacked(v0c, v1c);
+        const diff_d = m31.subPacked(v0d, v1d);
+
+        // Issue all 4 multiplications (pipeline-friendly: independent operations).
+        const ma = m31.mulPacked(diff_a, itwid_packed);
+        const mb = m31.mulPacked(diff_b, itwid_packed);
+        const mc = m31.mulPacked(diff_c, itwid_packed);
+        const md = m31.mulPacked(diff_d, itwid_packed);
+
+        // Store results (by now the multiplies have completed).
+        m31.storePacked(lhs, sum_a);
+        m31.storePacked(rhs, ma);
+        m31.storePacked(lhs + PW, sum_b);
+        m31.storePacked(rhs + PW, mb);
+        m31.storePacked(lhs + PW * 2, sum_c);
+        m31.storePacked(rhs + PW * 2, mc);
+        m31.storePacked(lhs + PW * 3, sum_d);
+        m31.storePacked(rhs + PW * 3, md);
+
+        lhs += PW4;
+        rhs += PW4;
+    }
+    // 2-way interleaved fallback for remaining >= 2 packed widths.
+    const PW2 = PW * 2;
+    while (remaining >= PW2) : (remaining -= PW2) {
+        const v0a = m31.loadPacked(lhs);
+        const v1a = m31.loadPacked(rhs);
+        const v0b = m31.loadPacked(lhs + PW);
+        const v1b = m31.loadPacked(rhs + PW);
+
+        const sum_a = m31.addPacked(v0a, v1a);
+        const sum_b = m31.addPacked(v0b, v1b);
+        const diff_a = m31.subPacked(v0a, v1a);
+        const diff_b = m31.subPacked(v0b, v1b);
+
+        const ma = m31.mulPacked(diff_a, itwid_packed);
+        const mb = m31.mulPacked(diff_b, itwid_packed);
+
+        m31.storePacked(lhs, sum_a);
+        m31.storePacked(rhs, ma);
+        m31.storePacked(lhs + PW, sum_b);
+        m31.storePacked(rhs + PW, mb);
+
+        lhs += PW2;
+        rhs += PW2;
+    }
+    // Single packed-width fallback.
     while (remaining >= PW) : (remaining -= PW) {
-        if (remaining > PW) {
-            @prefetch(lhs + PREFETCH_AHEAD, .{ .rw = .write, .locality = 3 });
-            @prefetch(rhs + PREFETCH_AHEAD, .{ .rw = .write, .locality = 3 });
-        }
         m31.ibutterflyPacked(lhs, rhs, itwid_packed);
         lhs += PW;
         rhs += PW;

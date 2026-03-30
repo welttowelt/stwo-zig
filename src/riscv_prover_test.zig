@@ -6,7 +6,9 @@
 
 const std = @import("std");
 pub const prover = @import("frontends/riscv/prover.zig");
+pub const infra_trace = @import("frontends/riscv/infra_trace.zig");
 
 test {
     _ = prover;
+    std.testing.refAllDeclsRecursive(infra_trace);
 }

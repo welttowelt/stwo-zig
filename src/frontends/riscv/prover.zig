@@ -16,7 +16,7 @@
 //!
 //! ## Usage
 //! ```zig
-//! const result = try proveRiscV(allocator, config, &exec_trace);
+//! const result = try proveRiscV(allocator, config, &exec_trace, &state_chain);
 //! try verifyRiscV(allocator, config, result.statement, result.proof);
 //! ```
 
@@ -45,6 +45,9 @@ const runner_mod = @import("runner/mod.zig");
 const trace_mod = @import("runner/trace.zig");
 const trace_columns = @import("air/trace_columns.zig");
 const interaction = @import("air/interaction.zig");
+const infra = @import("infra_trace.zig");
+const state_chain = @import("runner/state_chain.zig");
+const poseidon2 = @import("common/poseidon2.zig");
 
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
@@ -65,8 +68,19 @@ pub const FamilyComponentDesc = struct {
     n_columns: u32 = 10,
 };
 
+/// Descriptor for an infrastructure component in the proof.
+pub const InfraComponentDesc = struct {
+    log_size: u32,
+    n_columns: u32,
+};
+
 /// Maximum number of opcode families (components) we support.
 pub const MAX_COMPONENTS = trace_mod.N_FAMILIES;
+
+/// Maximum number of infrastructure components.
+/// program(1) + memory(1) + mem_clock_update(1) + reg_clock_update(1) +
+/// poseidon2(1) + merkle(1) + multiplicity(6) = 12.
+pub const MAX_INFRA_COMPONENTS: usize = 12;
 
 pub const RiscVStatement = struct {
     /// Number of active opcode family components in the proof.
@@ -78,13 +92,18 @@ pub const RiscVStatement = struct {
     final_pc: u32,
     total_steps: u32,
 
+    /// Number of infrastructure components in the proof.
+    n_infra: u32 = 0,
+    /// Infrastructure component descriptors.
+    infra_descs: [MAX_INFRA_COMPONENTS]InfraComponentDesc = undefined,
+
     /// Total number of preprocessed columns (one IsFirst per component).
     pub fn nPreprocessedColumns(self: *const RiscVStatement) u32 {
-        return self.n_components;
+        return self.n_components + self.n_infra;
     }
 
-    /// Total number of main trace columns (n_columns per component).
-    pub fn nMainColumns(self: *const RiscVStatement) u32 {
+    /// Total number of opcode-family main trace columns.
+    pub fn nOpcodeMainColumns(self: *const RiscVStatement) u32 {
         var total: u32 = 0;
         for (0..self.n_components) |i| {
             total += self.component_descs[i].n_columns;
@@ -92,12 +111,31 @@ pub const RiscVStatement = struct {
         return total;
     }
 
+    /// Total number of infrastructure main trace columns.
+    pub fn nInfraColumns(self: *const RiscVStatement) u32 {
+        var total: u32 = 0;
+        for (0..self.n_infra) |i| {
+            total += self.infra_descs[i].n_columns;
+        }
+        return total;
+    }
+
+    /// Total number of main trace columns (opcode + infrastructure).
+    pub fn nMainColumns(self: *const RiscVStatement) u32 {
+        return self.nOpcodeMainColumns() + self.nInfraColumns();
+    }
+
     /// Total number of M31 interaction trace columns across all components.
     /// Each QM31 interaction column expands to 4 M31 columns.
     pub fn nInteractionColumns(self: *const RiscVStatement) u32 {
         var total: u32 = 0;
+        // Opcode family interaction columns
         for (0..self.n_components) |i| {
             total += nInteractionQm31ColsForFamily(self.component_descs[i].family) * 4;
+        }
+        // Infrastructure interaction columns (use base_alu_reg count as placeholder)
+        for (0..self.n_infra) |_| {
+            total += nInteractionQm31ColsForFamily(.base_alu_reg) * 4;
         }
         return total;
     }
@@ -132,12 +170,19 @@ fn mixStatement(channel: *Channel, statement: RiscVStatement) void {
         statement.initial_pc,
         statement.final_pc,
         statement.total_steps,
+        statement.n_infra,
     });
     for (0..statement.n_components) |i| {
         channel.mixU32s(&[_]u32{
             @intFromEnum(statement.component_descs[i].family),
             statement.component_descs[i].log_size,
             statement.component_descs[i].n_columns,
+        });
+    }
+    for (0..statement.n_infra) |i| {
+        channel.mixU32s(&[_]u32{
+            statement.infra_descs[i].log_size,
+            statement.infra_descs[i].n_columns,
         });
     }
 }
@@ -688,6 +733,14 @@ fn evaluateDiv(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
     out[5] = qBool(enabler);
 }
 
+// -- Helpers --
+
+/// Compute log_size from a count, with minimum of 1.
+fn computeLogSize(count: usize) u32 {
+    if (count <= 1) return 1;
+    return @intCast(std.math.log2_int_ceil(usize, count));
+}
+
 // -- IsFirst column generation --
 
 fn genIsFirstColumn(allocator: std.mem.Allocator, log_size: u32) ![]M31 {
@@ -748,10 +801,15 @@ fn genColumnsForFamily(
 // ---------------------------------------------------------------------------
 
 /// Prove a RISC-V execution trace with per-opcode-family component splitting.
+///
+/// When `opt_chain` is provided, full infrastructure components are generated
+/// (memory, clock updates).  When null, only program ROM, multiplicity
+/// placeholders, Poseidon2, and Merkle placeholders are emitted.
 pub fn proveRiscV(
     allocator: std.mem.Allocator,
     pcs_config: pcs_core.PcsConfig,
     exec_trace: *const trace_mod.Trace,
+    opt_chain: ?*const state_chain.StateChainTracker,
 ) !ProveOutput {
     if (exec_trace.step_count == 0) return ProverError.EmptyTrace;
 
@@ -786,6 +844,96 @@ pub fn proveRiscV(
 
     if (statement.n_components == 0) return ProverError.EmptyTrace;
 
+    // -- Step 2b: Build infrastructure component descriptors. --
+    statement.n_infra = 0;
+
+    // Count unique PCs for program ROM sizing.
+    var unique_pcs: usize = 0;
+    {
+        var seen = std.AutoHashMap(u32, void).init(allocator);
+        defer seen.deinit();
+        for (exec_trace.rows.items) |row| {
+            const gop = try seen.getOrPut(row.pc);
+            if (!gop.found_existing) unique_pcs += 1;
+        }
+    }
+
+    // Program ROM (8 cols)
+    const program_log_size = computeLogSize(unique_pcs);
+    statement.infra_descs[statement.n_infra] = .{
+        .log_size = program_log_size,
+        .n_columns = infra.PROGRAM_TRACE_COLS,
+    };
+    statement.n_infra += 1;
+
+    // Memory check (9 cols) -- only if we have a state chain tracker with memory accesses.
+    var mem_log_size: u32 = 4;
+    if (opt_chain) |chain| {
+        const n_mem = chain.memAccessCount();
+        if (n_mem > 0) {
+            mem_log_size = computeLogSize(n_mem);
+            statement.infra_descs[statement.n_infra] = .{
+                .log_size = mem_log_size,
+                .n_columns = infra.MEMORY_TRACE_COLS,
+            };
+            statement.n_infra += 1;
+        }
+    }
+
+    // Memory clock update (7 cols)
+    var mem_cu_log: u32 = 4;
+    if (opt_chain) |chain| {
+        const n_mem_cu = chain.clock_updates_mem.items.len;
+        if (n_mem_cu > 0) {
+            mem_cu_log = computeLogSize(n_mem_cu);
+            statement.infra_descs[statement.n_infra] = .{
+                .log_size = mem_cu_log,
+                .n_columns = infra.MEM_CLOCK_UPDATE_COLS,
+            };
+            statement.n_infra += 1;
+        }
+    }
+
+    // Register clock update (7 cols)
+    var reg_cu_log: u32 = 4;
+    if (opt_chain) |chain| {
+        const n_reg_cu = chain.clock_updates_reg.items.len;
+        if (n_reg_cu > 0) {
+            reg_cu_log = computeLogSize(n_reg_cu);
+            statement.infra_descs[statement.n_infra] = .{
+                .log_size = reg_cu_log,
+                .n_columns = infra.REG_CLOCK_UPDATE_COLS,
+            };
+            statement.n_infra += 1;
+        }
+    }
+
+    // Poseidon2 placeholder (443 cols, minimal 16 rows)
+    const poseidon_log_size: u32 = 4;
+    statement.infra_descs[statement.n_infra] = .{
+        .log_size = poseidon_log_size,
+        .n_columns = infra.POSEIDON2_TRACE_COLS,
+    };
+    statement.n_infra += 1;
+
+    // Merkle placeholder (10 cols, minimal 16 rows)
+    const merkle_log_size: u32 = 4;
+    statement.infra_descs[statement.n_infra] = .{
+        .log_size = merkle_log_size,
+        .n_columns = infra.MERKLE_TRACE_COLS,
+    };
+    statement.n_infra += 1;
+
+    // Preprocessed multiplicity tables (6 x 1 col)
+    const mult_log_size = infra.multiplicityLogSize(exec_trace);
+    for (0..infra.N_MULTIPLICITY_TABLES) |_| {
+        statement.infra_descs[statement.n_infra] = .{
+            .log_size = mult_log_size,
+            .n_columns = 1,
+        };
+        statement.n_infra += 1;
+    }
+
     var channel = Channel{};
     pcs_config.mixInto(&channel);
 
@@ -794,20 +942,29 @@ pub fn proveRiscV(
         pcs_config,
     );
 
-    // -- Step 3: Tree 0 -- Preprocessed (one IsFirst per active component). --
-    const n_preproc = statement.n_components;
+    // -- Step 3: Tree 0 -- Preprocessed (one IsFirst per component, including infra). --
+    const n_preproc = statement.n_components + statement.n_infra;
     const preprocessed = try allocator.alloc(prover_pcs.ColumnEvaluation, n_preproc);
-    for (0..n_preproc) |i| {
+    for (0..statement.n_components) |i| {
         const ls = statement.component_descs[i].log_size;
         const is_first = try genIsFirstColumn(allocator, ls);
         preprocessed[i] = .{ .log_size = ls, .values = is_first };
     }
+    for (0..statement.n_infra) |i| {
+        const ls = statement.infra_descs[i].log_size;
+        const is_first = try genIsFirstColumn(allocator, ls);
+        preprocessed[statement.n_components + i] = .{ .log_size = ls, .values = is_first };
+    }
     try scheme.commitOwned(allocator, preprocessed, &channel);
 
-    // -- Step 4: Tree 1 -- Main trace (n_columns per active component). --
-    const n_main = statement.nMainColumns();
+    // -- Step 4: Tree 1 -- Main trace (opcode + infrastructure columns). --
+    const n_opcode_main = statement.nOpcodeMainColumns();
+    const n_infra_main = statement.nInfraColumns();
+    const n_main = n_opcode_main + n_infra_main;
     const main_columns = try allocator.alloc(prover_pcs.ColumnEvaluation, n_main);
     var col_offset: usize = 0;
+
+    // Opcode family columns.
     for (0..statement.n_components) |comp_idx| {
         const desc = statement.component_descs[comp_idx];
         const family_cols = try genColumnsForFamily(
@@ -825,6 +982,110 @@ pub fn proveRiscV(
         }
         col_offset += desc.n_columns;
     }
+
+    // Infrastructure columns.
+    // We track which infra descriptor index we're at. The order must match
+    // the statement's infra_descs order.
+    var infra_idx: usize = 0;
+
+    // Program ROM (8 cols)
+    {
+        const prog_cols = try infra.genProgramColumns(allocator, exec_trace, program_log_size);
+        for (0..infra.PROGRAM_TRACE_COLS) |c| {
+            main_columns[col_offset + c] = .{
+                .log_size = program_log_size,
+                .values = prog_cols.columns[c],
+            };
+        }
+        col_offset += infra.PROGRAM_TRACE_COLS;
+        infra_idx += 1;
+    }
+
+    // Memory check (9 cols) -- conditional
+    if (opt_chain) |chain| {
+        if (chain.memAccessCount() > 0) {
+            const mem_cols = try infra.genMemoryColumns(allocator, chain, mem_log_size);
+            for (0..infra.MEMORY_TRACE_COLS) |c| {
+                main_columns[col_offset + c] = .{
+                    .log_size = mem_log_size,
+                    .values = mem_cols.columns[c],
+                };
+            }
+            col_offset += infra.MEMORY_TRACE_COLS;
+            infra_idx += 1;
+        }
+    }
+
+    // Memory clock update (7 cols) -- conditional
+    if (opt_chain) |chain| {
+        if (chain.clock_updates_mem.items.len > 0) {
+            const cu_cols = try infra.genMemClockUpdateColumns(allocator, chain, mem_cu_log);
+            for (0..infra.MEM_CLOCK_UPDATE_COLS) |c| {
+                main_columns[col_offset + c] = .{
+                    .log_size = mem_cu_log,
+                    .values = cu_cols.columns[c],
+                };
+            }
+            col_offset += infra.MEM_CLOCK_UPDATE_COLS;
+            infra_idx += 1;
+        }
+    }
+
+    // Register clock update (7 cols) -- conditional
+    if (opt_chain) |chain| {
+        if (chain.clock_updates_reg.items.len > 0) {
+            const rcu_cols = try infra.genRegClockUpdateColumns(allocator, chain, reg_cu_log);
+            for (0..infra.REG_CLOCK_UPDATE_COLS) |c| {
+                main_columns[col_offset + c] = .{
+                    .log_size = reg_cu_log,
+                    .values = rcu_cols.columns[c],
+                };
+            }
+            col_offset += infra.REG_CLOCK_UPDATE_COLS;
+            infra_idx += 1;
+        }
+    }
+
+    // Poseidon2 (443 cols, empty placeholder)
+    {
+        const empty_traces: []const poseidon2.PermuteTrace = &.{};
+        const p2_cols = try infra.genPoseidon2Columns(allocator, empty_traces, poseidon_log_size);
+        for (0..infra.POSEIDON2_TRACE_COLS) |c| {
+            main_columns[col_offset + c] = .{
+                .log_size = poseidon_log_size,
+                .values = p2_cols.columns[c],
+            };
+        }
+        col_offset += infra.POSEIDON2_TRACE_COLS;
+        infra_idx += 1;
+    }
+
+    // Merkle (10 cols, empty placeholder)
+    {
+        const mkl_cols = try infra.genMerkleColumns(allocator, 0, merkle_log_size);
+        for (0..infra.MERKLE_TRACE_COLS) |c| {
+            main_columns[col_offset + c] = .{
+                .log_size = merkle_log_size,
+                .values = mkl_cols.columns[c],
+            };
+        }
+        col_offset += infra.MERKLE_TRACE_COLS;
+        infra_idx += 1;
+    }
+
+    // Preprocessed multiplicity tables (6 x 1 col)
+    {
+        const mult_cols = try infra.genPreprocessedMultiplicityColumns(allocator, exec_trace);
+        for (0..infra.N_MULTIPLICITY_TABLES) |c| {
+            main_columns[col_offset + c] = .{
+                .log_size = mult_log_size,
+                .values = mult_cols.columns[c],
+            };
+        }
+        col_offset += infra.N_MULTIPLICITY_TABLES;
+        infra_idx += 1;
+    }
+
     try scheme.commitOwned(allocator, main_columns, &channel);
 
     // -- Step 4b: Tree 2 -- Interaction trace (LogUp cumulative sum columns). --
@@ -846,25 +1107,46 @@ pub fn proveRiscV(
         allocator.free(result.columns);
         interaction_offset += n_m31;
     }
+    // Infrastructure interaction columns
+    for (0..statement.n_infra) |inf_idx| {
+        const n_qm31 = nInteractionQm31ColsForFamily(.base_alu_reg);
+        const result = try interaction.generateComponentInteractionColumns(
+            allocator,
+            statement.infra_descs[inf_idx].log_size,
+            n_qm31,
+        );
+        const n_m31 = n_qm31 * 4;
+        for (0..n_m31) |c| {
+            interaction_columns[interaction_offset + c] = result.columns[c];
+        }
+        allocator.free(result.columns);
+        interaction_offset += n_m31;
+    }
     try scheme.commitOwned(allocator, interaction_columns, &channel);
 
-    std.log.info("Columns committed: tree0={d} tree1={d} tree2={d} total={d}", .{
-        n_preproc,
+    std.log.info("Columns: opcode={d} infra={d} total tree1={d} tree2={d}", .{
+        n_opcode_main,
+        n_infra_main,
         n_main,
         n_interaction,
-        n_preproc + n_main + n_interaction,
     });
 
     mixStatement(&channel, statement);
 
     // -- Step 5: Create per-family components and prove. --
-    var component_storage: [MAX_COMPONENTS]RiscVTraceComponent = undefined;
-    var components_arr: [MAX_COMPONENTS]prover_component.ComponentProver = undefined;
+    const total_components = statement.n_components + statement.n_infra;
+    var component_storage: [MAX_COMPONENTS + MAX_INFRA_COMPONENTS]RiscVTraceComponent = undefined;
+    var components_arr: [MAX_COMPONENTS + MAX_INFRA_COMPONENTS]prover_component.ComponentProver = undefined;
 
     var main_offset: usize = 0;
+    // Opcode family components
     for (0..statement.n_components) |i| {
         component_storage[i] = .{
-            .desc = statement.component_descs[i],
+            .desc = .{
+                .family = statement.component_descs[i].family,
+                .log_size = statement.component_descs[i].log_size,
+                .n_columns = statement.component_descs[i].n_columns,
+            },
             .initial_pc = statement.initial_pc,
             .total_steps = statement.total_steps,
             .preprocessed_col_idx = i,
@@ -873,13 +1155,30 @@ pub fn proveRiscV(
         components_arr[i] = component_storage[i].asProverComponent();
         main_offset += statement.component_descs[i].n_columns;
     }
+    // Infrastructure components (same RiscVTraceComponent type, different descriptors)
+    for (0..statement.n_infra) |i| {
+        const idx = statement.n_components + i;
+        component_storage[idx] = .{
+            .desc = .{
+                .family = .base_alu_reg, // placeholder family for infra
+                .log_size = statement.infra_descs[i].log_size,
+                .n_columns = statement.infra_descs[i].n_columns,
+            },
+            .initial_pc = statement.initial_pc,
+            .total_steps = statement.total_steps,
+            .preprocessed_col_idx = idx, // no preprocessed for infra, but must be unique
+            .main_col_offset = main_offset,
+        };
+        components_arr[idx] = component_storage[idx].asProverComponent();
+        main_offset += statement.infra_descs[i].n_columns;
+    }
 
     var extended = try prover_prove.proveEx(
         CpuBackend,
         Hasher,
         MerkleChannel,
         allocator,
-        components_arr[0..statement.n_components],
+        components_arr[0..total_components],
         &channel,
         scheme,
         false,
@@ -910,11 +1209,15 @@ pub fn verifyRiscV(
     ).init(allocator, pcs_config);
     defer commitment_scheme.deinit(allocator);
 
-    // Tree 0: Preprocessed -- one IsFirst column per active component.
-    const preproc_log_sizes = try allocator.alloc(u32, statement.n_components);
+    // Tree 0: Preprocessed -- one IsFirst column per component (opcode + infra).
+    const n_preproc_v = statement.n_components + statement.n_infra;
+    const preproc_log_sizes = try allocator.alloc(u32, n_preproc_v);
     defer allocator.free(preproc_log_sizes);
     for (0..statement.n_components) |i| {
         preproc_log_sizes[i] = statement.component_descs[i].log_size;
+    }
+    for (0..statement.n_infra) |i| {
+        preproc_log_sizes[statement.n_components + i] = statement.infra_descs[i].log_size;
     }
     try commitment_scheme.commit(
         allocator,
@@ -923,17 +1226,26 @@ pub fn verifyRiscV(
         &channel,
     );
 
-    // Tree 1: Main trace -- n_columns per active component.
+    // Tree 1: Main trace -- opcode columns + infrastructure columns.
     const n_main = statement.nMainColumns();
     const main_log_sizes = try allocator.alloc(u32, n_main);
     defer allocator.free(main_log_sizes);
     var col_offset: usize = 0;
+    // Opcode family columns.
     for (0..statement.n_components) |i| {
         const desc = statement.component_descs[i];
         for (0..desc.n_columns) |c| {
             main_log_sizes[col_offset + c] = desc.log_size;
         }
         col_offset += desc.n_columns;
+    }
+    // Infrastructure columns (must match prover order).
+    for (0..statement.n_infra) |i| {
+        const idesc = statement.infra_descs[i];
+        for (0..idesc.n_columns) |c| {
+            main_log_sizes[col_offset + c] = idesc.log_size;
+        }
+        col_offset += idesc.n_columns;
     }
     try commitment_scheme.commit(
         allocator,
@@ -942,18 +1254,25 @@ pub fn verifyRiscV(
         &channel,
     );
 
-    // Tree 2: Interaction trace -- n_qm31 * 4 M31 columns per active component.
-    const n_interaction = statement.nInteractionColumns();
-    const interaction_log_sizes = try allocator.alloc(u32, n_interaction);
+    // Tree 2: Interaction trace -- n_qm31 * 4 M31 columns per component (opcode + infra).
+    const n_interaction_v = statement.nInteractionColumns();
+    const interaction_log_sizes = try allocator.alloc(u32, n_interaction_v);
     defer allocator.free(interaction_log_sizes);
-    var interaction_offset: usize = 0;
+    var interaction_offset_v: usize = 0;
     for (0..statement.n_components) |i| {
         const desc = statement.component_descs[i];
         const n_m31 = nInteractionQm31ColsForFamily(desc.family) * 4;
         for (0..n_m31) |c| {
-            interaction_log_sizes[interaction_offset + c] = desc.log_size;
+            interaction_log_sizes[interaction_offset_v + c] = desc.log_size;
         }
-        interaction_offset += n_m31;
+        interaction_offset_v += n_m31;
+    }
+    for (0..statement.n_infra) |i| {
+        const n_m31 = nInteractionQm31ColsForFamily(.base_alu_reg) * 4;
+        for (0..n_m31) |c| {
+            interaction_log_sizes[interaction_offset_v + c] = statement.infra_descs[i].log_size;
+        }
+        interaction_offset_v += n_m31;
     }
     try commitment_scheme.commit(
         allocator,
@@ -964,9 +1283,10 @@ pub fn verifyRiscV(
 
     mixStatement(&channel, statement);
 
-    // Reconstruct per-family verifier components.
-    var component_storage: [MAX_COMPONENTS]RiscVTraceComponent = undefined;
-    var verifier_components: [MAX_COMPONENTS]core_air_components.Component = undefined;
+    // Reconstruct per-family + infrastructure verifier components.
+    const total_v_components = statement.n_components + statement.n_infra;
+    var component_storage: [MAX_COMPONENTS + MAX_INFRA_COMPONENTS]RiscVTraceComponent = undefined;
+    var verifier_components: [MAX_COMPONENTS + MAX_INFRA_COMPONENTS]core_air_components.Component = undefined;
 
     var verifier_col_offset: usize = 0;
     for (0..statement.n_components) |i| {
@@ -980,12 +1300,28 @@ pub fn verifyRiscV(
         verifier_components[i] = component_storage[i].asVerifierComponent();
         verifier_col_offset += statement.component_descs[i].n_columns;
     }
+    for (0..statement.n_infra) |i| {
+        const idx = statement.n_components + i;
+        component_storage[idx] = .{
+            .desc = .{
+                .family = .base_alu_reg,
+                .log_size = statement.infra_descs[i].log_size,
+                .n_columns = statement.infra_descs[i].n_columns,
+            },
+            .initial_pc = statement.initial_pc,
+            .total_steps = statement.total_steps,
+            .preprocessed_col_idx = idx,
+            .main_col_offset = verifier_col_offset,
+        };
+        verifier_components[idx] = component_storage[idx].asVerifierComponent();
+        verifier_col_offset += statement.infra_descs[i].n_columns;
+    }
 
     try core_verifier.verify(
         Hasher,
         MerkleChannel,
         allocator,
-        verifier_components[0..statement.n_components],
+        verifier_components[0..total_v_components],
         &channel,
         &commitment_scheme,
         proof,
@@ -1005,7 +1341,7 @@ pub fn proveAndVerifyElf(
     var run_result = try runner_mod.run(allocator, elf_bytes, max_steps);
     defer run_result.deinit();
 
-    const output = try proveRiscV(allocator, pcs_config, &run_result.execution_trace);
+    const output = try proveRiscV(allocator, pcs_config, &run_result.execution_trace, &run_result.state_chain_tracker);
 
     // Verify immediately (takes ownership of the proof).
     try verifyRiscV(allocator, pcs_config, output.statement, output.proof);
@@ -1113,7 +1449,7 @@ test "riscv prover: end-to-end ELF prove and verify" {
         },
     };
 
-    const output = try proveRiscV(alloc, config, &run_result.execution_trace);
+    const output = try proveRiscV(alloc, config, &run_result.execution_trace, &run_result.state_chain_tracker);
 
     // Verify we got multiple components (the ELF uses ADDI, ADD, SW, LW, BEQ, ECALL)
     try std.testing.expect(output.statement.n_components > 1);
@@ -1161,7 +1497,7 @@ test "riscv prover: prove and verify synthetic trace" {
         },
     };
 
-    const output = try proveRiscV(alloc, config, &exec_trace);
+    const output = try proveRiscV(alloc, config, &exec_trace, null);
 
     // All 8 rows are ADDI (base_alu_imm), so we should have 1 component.
     try std.testing.expectEqual(@as(u32, 1), output.statement.n_components);
@@ -1261,7 +1597,7 @@ test "riscv prover: multi-family splitting" {
         },
     };
 
-    const output = try proveRiscV(alloc, config, &exec_trace);
+    const output = try proveRiscV(alloc, config, &exec_trace, null);
 
     // Should have 3 components.
     try std.testing.expectEqual(@as(u32, 3), output.statement.n_components);
@@ -1385,7 +1721,7 @@ test "riscv prover: ADDI + ADD + BNE split prove and verify" {
     try std.testing.expectEqual(@as(usize, 8), counts.total());
 
     // Prove with component splitting.
-    const output = try proveRiscV(alloc, config, &exec_trace);
+    const output = try proveRiscV(alloc, config, &exec_trace, null);
 
     // Verify statement: 3 components (base_alu_reg, base_alu_imm, branch_eq)
     try std.testing.expectEqual(@as(u32, 3), output.statement.n_components);

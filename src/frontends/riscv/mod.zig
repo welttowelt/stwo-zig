@@ -6,6 +6,7 @@
 pub const runner = @import("runner/mod.zig");
 pub const air = @import("air/mod.zig");
 pub const prover_mod = @import("prover.zig");
+pub const infra_trace = @import("infra_trace.zig");
 
 // Convenience re-exports.
 pub const Cpu = runner.Cpu;
@@ -15,3 +16,7 @@ pub const RiscVClaim = air.claims.RiscVClaim;
 pub const proveRiscV = prover_mod.proveRiscV;
 pub const verifyRiscV = prover_mod.verifyRiscV;
 pub const proveAndVerifyElf = prover_mod.proveAndVerifyElf;
+
+test {
+    @import("std").testing.refAllDeclsRecursive(infra_trace);
+}
