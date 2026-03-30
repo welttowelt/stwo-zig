@@ -23,19 +23,26 @@ pub const TreeSubspan = struct {
 pub const PcsConfig = struct {
     pow_bits: u32,
     fri_config: FriConfig,
+    lifting_log_size: ?u32 = null, // optional Merkle lifting size (stark-v fork)
 
     pub inline fn securityBits(self: PcsConfig) u32 {
         return self.pow_bits + self.fri_config.securityBits();
     }
 
     pub fn mixInto(self: PcsConfig, channel: anytype) void {
-        const packed_config = QM31.fromU32Unchecked(
+        const packed_config_1 = QM31.fromU32Unchecked(
             self.pow_bits,
             self.fri_config.log_blowup_factor,
             @as(u32, @intCast(self.fri_config.n_queries)),
             self.fri_config.log_last_layer_degree_bound,
         );
-        channel.mixFelts(&[_]QM31{packed_config});
+        const packed_config_2 = QM31.fromU32Unchecked(
+            self.fri_config.fold_step,
+            self.lifting_log_size orelse 0,
+            0,
+            0,
+        );
+        channel.mixFelts(&[_]QM31{ packed_config_1, packed_config_2 });
     }
 
     pub fn default() PcsConfig {

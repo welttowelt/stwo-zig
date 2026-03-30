@@ -19,6 +19,7 @@ pub const FriConfig = struct {
     log_blowup_factor: u32,
     log_last_layer_degree_bound: u32,
     n_queries: usize,
+    fold_step: u32 = 1, // number of folds per FRI round (stark-v uses 4)
 
     pub const Error = error{
         InvalidLastLayerDegreeBound,

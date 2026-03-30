@@ -19,11 +19,13 @@ pub const FriConfigWire = struct {
     log_blowup_factor: u32,
     log_last_layer_degree_bound: u32,
     n_queries: u64,
+    fold_step: u32 = 1,
 };
 
 pub const PcsConfigWire = struct {
     pow_bits: u32,
     fri_config: FriConfigWire,
+    lifting_log_size: ?u32 = null,
 };
 
 pub const Qm31Wire = [4]u32;
@@ -146,7 +148,9 @@ fn proofToWire(allocator: std.mem.Allocator, proof: Proof) !ProofWire {
                 .log_blowup_factor = pcs_proof.config.fri_config.log_blowup_factor,
                 .log_last_layer_degree_bound = pcs_proof.config.fri_config.log_last_layer_degree_bound,
                 .n_queries = pcs_proof.config.fri_config.n_queries,
+                .fold_step = pcs_proof.config.fri_config.fold_step,
             },
+            .lifting_log_size = pcs_proof.config.lifting_log_size,
         },
         .commitments = commitments,
         .sampled_values = sampled_values,
@@ -160,13 +164,16 @@ fn proofToWire(allocator: std.mem.Allocator, proof: Proof) !ProofWire {
 fn wireToProof(allocator: std.mem.Allocator, wire: ProofWire) !Proof {
     if (wire.config.fri_config.n_queries > std.math.maxInt(usize)) return CodecError.ValueOutOfRange;
 
+    var fri_config = try fri.FriConfig.init(
+        wire.config.fri_config.log_last_layer_degree_bound,
+        wire.config.fri_config.log_blowup_factor,
+        @intCast(wire.config.fri_config.n_queries),
+    );
+    fri_config.fold_step = wire.config.fri_config.fold_step;
     const config = pcs.PcsConfig{
         .pow_bits = wire.config.pow_bits,
-        .fri_config = try fri.FriConfig.init(
-            wire.config.fri_config.log_last_layer_degree_bound,
-            wire.config.fri_config.log_blowup_factor,
-            @intCast(wire.config.fri_config.n_queries),
-        ),
+        .fri_config = fri_config,
+        .lifting_log_size = wire.config.lifting_log_size,
     };
 
     const commitments = pcs.TreeVec(HashWire).initOwned(try allocator.dupe(HashWire, wire.commitments));
@@ -573,6 +580,8 @@ fn writeProofWireBinary(writer: anytype, wire: ProofWire) !void {
     try writer.writeInt(u32, wire.config.fri_config.log_last_layer_degree_bound, .little);
     if (wire.config.fri_config.n_queries > std.math.maxInt(u32)) return CodecError.ValueOutOfRange;
     try writer.writeInt(u32, @intCast(wire.config.fri_config.n_queries), .little);
+    try writer.writeInt(u32, wire.config.fri_config.fold_step, .little);
+    try writer.writeInt(u32, wire.config.lifting_log_size orelse std.math.maxInt(u32), .little);
 
     try writeCount(writer, wire.commitments.len);
     for (wire.commitments) |hash| try writeHashWire(writer, hash);
@@ -619,6 +628,9 @@ fn readProofWireBinary(
     const fri_log_blowup_factor = try cursor.readU32();
     const fri_log_last_layer_degree_bound = try cursor.readU32();
     const fri_n_queries = try cursor.readU32();
+    const fri_fold_step = try cursor.readU32();
+    const lifting_raw = try cursor.readU32();
+    const lifting_log_size: ?u32 = if (lifting_raw == std.math.maxInt(u32)) null else lifting_raw;
 
     const commitments_len = try cursor.readCount();
     const commitments = try allocator.alloc(HashWire, commitments_len);
@@ -671,7 +683,9 @@ fn readProofWireBinary(
                 .log_blowup_factor = fri_log_blowup_factor,
                 .log_last_layer_degree_bound = fri_log_last_layer_degree_bound,
                 .n_queries = fri_n_queries,
+                .fold_step = fri_fold_step,
             },
+            .lifting_log_size = lifting_log_size,
         },
         .commitments = commitments,
         .sampled_values = sampled_values,
