@@ -1069,12 +1069,13 @@ pub fn proveRiscV(
     };
     statement.n_infra += 1;
 
-    // Memory check (9 cols) -- only if we have a state chain tracker with memory accesses.
+    // Memory check (9 cols) -- includes BOTH register (addr_space=0) and memory (addr_space=1)
+    // accesses, matching stark-v's unified memory component.
     var mem_log_size: u32 = 4;
     if (opt_chain) |chain| {
-        const n_mem = chain.memAccessCount();
-        if (n_mem > 0) {
-            mem_log_size = computeLogSize(n_mem);
+        const n_total_accesses = chain.accesses.items.len; // ALL accesses (reg + mem)
+        if (n_total_accesses > 0) {
+            mem_log_size = computeLogSize(n_total_accesses);
             statement.infra_descs[statement.n_infra] = .{
                 .log_size = mem_log_size,
                 .n_columns = infra.MEMORY_TRACE_COLS,
@@ -1228,9 +1229,9 @@ pub fn proveRiscV(
         infra_idx += 1;
     }
 
-    // Memory check (9 cols) -- conditional
+    // Memory check (9 cols) -- includes ALL accesses (register + memory)
     if (opt_chain) |chain| {
-        if (chain.memAccessCount() > 0) {
+        if (chain.accesses.items.len > 0) {
             const mem_cols = try infra.genMemoryColumns(allocator, chain, mem_log_size);
             for (0..infra.MEMORY_TRACE_COLS) |c| {
                 main_columns[col_offset + c] = .{

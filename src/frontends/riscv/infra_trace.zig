@@ -153,7 +153,8 @@ pub fn genMemoryColumns(
 
     var row_idx: usize = 0;
     for (chain.accesses.items) |access| {
-        if (access.addr_space != 1) continue; // memory only
+        // Include BOTH register (addr_space=0) and memory (addr_space=1) accesses,
+        // matching stark-v's unified memory component.
         if (row_idx >= domain_size) break;
 
         placeValue(columns[0], row_idx, log_size, M31.one()); // enabler
