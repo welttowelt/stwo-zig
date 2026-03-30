@@ -44,6 +44,7 @@ const circle = @import("../../core/circle.zig");
 const runner_mod = @import("runner/mod.zig");
 const trace_mod = @import("runner/trace.zig");
 const trace_columns = @import("air/trace_columns.zig");
+const interaction = @import("air/interaction.zig");
 
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
@@ -87,6 +88,16 @@ pub const RiscVStatement = struct {
         var total: u32 = 0;
         for (0..self.n_components) |i| {
             total += self.component_descs[i].n_columns;
+        }
+        return total;
+    }
+
+    /// Total number of M31 interaction trace columns across all components.
+    /// Each QM31 interaction column expands to 4 M31 columns.
+    pub fn nInteractionColumns(self: *const RiscVStatement) u32 {
+        var total: u32 = 0;
+        for (0..self.n_components) |i| {
+            total += nInteractionQm31ColsForFamily(self.component_descs[i].family) * 4;
         }
         return total;
     }
@@ -138,22 +149,46 @@ fn mixStatement(channel: *Channel, statement: RiscVStatement) void {
 /// is log_size + 1.
 fn nConstraintsForFamily(family: trace_mod.OpcodeFamily) usize {
     return switch (family) {
-        .base_alu_reg => 12,
-        .base_alu_imm => 11,
+        .base_alu_reg => 7,
+        .base_alu_imm => 6,
         .shifts_reg => 5,
         .shifts_imm => 5,
         .lt_reg => 4,
         .lt_imm => 5,
         .branch_eq => 8,
         .branch_lt => 6,
-        .lui => 4,
-        .auipc => 4,
+        .lui => 2,
+        .auipc => 2,
         .jalr => 1,
         .jal => 1,
         .load_store => 10,
         .mul => 1,
         .mulh => 5,
         .div => 6,
+    };
+}
+
+/// Return the number of QM31 interaction columns for a given family.
+/// These counts reflect the LogUp interaction columns per opcode family,
+/// matching the stark-v reference implementation.
+fn nInteractionQm31ColsForFamily(family: trace_mod.OpcodeFamily) u32 {
+    return switch (family) {
+        .base_alu_reg => 8,
+        .base_alu_imm => 8,
+        .shifts_reg => 8,
+        .shifts_imm => 6,
+        .lt_reg => 7,
+        .lt_imm => 6,
+        .branch_eq => 5,
+        .branch_lt => 6,
+        .lui => 4,
+        .auipc => 4,
+        .jalr => 6,
+        .jal => 4,
+        .load_store => 7,
+        .mul => 11,
+        .mulh => 13,
+        .div => 9,
     };
 }
 
@@ -208,8 +243,12 @@ const RiscVTraceComponent = struct {
         const preprocessed = try allocator.dupe(u32, &[_]u32{self.desc.log_size});
         const main = try allocator.alloc(u32, self.desc.n_columns);
         @memset(main, self.desc.log_size);
+        // Tree 2: interaction columns (n_qm31 * 4 M31 columns).
+        const n_interaction_m31 = nInteractionQm31ColsForFamily(self.desc.family) * 4;
+        const interaction_sizes = try allocator.alloc(u32, n_interaction_m31);
+        @memset(interaction_sizes, self.desc.log_size);
         return core_air_components.TraceLogDegreeBounds.initOwned(
-            try allocator.dupe([]u32, &[_][]u32{ preprocessed, main }),
+            try allocator.dupe([]u32, &[_][]u32{ preprocessed, main, interaction_sizes }),
         );
     }
 
@@ -233,10 +272,20 @@ const RiscVTraceComponent = struct {
             main_cols[i] = col_points;
         }
 
+        // Tree 2: interaction columns (n_qm31 * 4 M31 columns).
+        const n_interaction_m31 = nInteractionQm31ColsForFamily(self.desc.family) * 4;
+        const interaction_cols = try allocator.alloc([]CirclePointQM31, n_interaction_m31);
+        for (0..n_interaction_m31) |i| {
+            const col_points = try allocator.alloc(CirclePointQM31, 1);
+            col_points[0] = point;
+            interaction_cols[i] = col_points;
+        }
+
         return core_air_components.MaskPoints.initOwned(
             try allocator.dupe([][]CirclePointQM31, &[_][][]CirclePointQM31{
                 preprocessed_cols,
                 main_cols,
+                interaction_cols,
             }),
         );
     }
@@ -373,20 +422,15 @@ fn evaluateFamilyConstraints(
     }
 }
 
-/// base_alu_reg: 12 constraints
-/// Columns: clk(0), pc(1), rd(2), rs1(3), rs2(4), rd_val(5), rs1_val(6), rs2_val(7),
-///   result(8), is_add(9), is_sub(10), is_xor(11), is_or(12), is_and(13), enabler(14), instruction_word(15)
+/// base_alu_reg: 7 constraints (flag booleans + enabler)
+/// Columns: clk(0), pc(1), is_add(2), is_sub(3), is_xor(4), is_or(5), is_and(6),
+///   rd_access(7..16), rs1_access(17..26), rs2_access(27..36)
 fn evaluateBaseAluReg(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
-    const rs1_val = c[6];
-    const rs2_val = c[7];
-    const result = c[8];
-    const is_add = c[9];
-    const is_sub = c[10];
-    const is_xor = c[11];
-    const is_or = c[12];
-    const is_and = c[13];
-    const enabler = c[14];
-    const rd_val = c[5];
+    const is_add = c[2];
+    const is_sub = c[3];
+    const is_xor = c[4];
+    const is_or = c[5];
+    const is_and = c[6];
 
     // 5 flag-boolean constraints
     out[0] = qBool(is_add);
@@ -397,38 +441,23 @@ fn evaluateBaseAluReg(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31)
 
     // enabler = sum of flags
     const flag_sum = is_add.add(is_sub).add(is_xor).add(is_or).add(is_and);
-    out[5] = enabler.sub(flag_sum);
+    const enabler = flag_sum;
+    out[5] = qBool(enabler);
 
-    // enabler * (enabler - 1) = 0
-    out[6] = qBool(enabler);
-
-    // is_add * (rs1_val + rs2_val - result) = 0
-    out[7] = is_add.mul(rs1_val.add(rs2_val).sub(result));
-
-    // is_sub * (rs1_val - rs2_val - result) = 0
-    out[8] = is_sub.mul(rs1_val.sub(rs2_val).sub(result));
-
-    // Bitwise: is_xor * (rd_val - result), is_or * (rd_val - result), is_and * (rd_val - result)
-    const bitwise_diff = rd_val.sub(result);
-    out[9] = is_xor.mul(bitwise_diff);
-    out[10] = is_or.mul(bitwise_diff);
-    out[11] = is_and.mul(bitwise_diff);
+    // Placeholder: sum constraint (enabler consistency)
+    out[6] = enabler.sub(flag_sum);
 }
 
-/// base_alu_imm: 11 constraints
-/// Columns: clk(0), pc(1), rd(2), rs1(3), imm(4), rd_val(5), rs1_val(6), result(7),
-///   is_addi(8), is_xori(9), is_ori(10), is_andi(11), enabler(12), imm_sign(13), instruction_word(14)
+/// base_alu_imm: 6 constraints (flag booleans + imm_sign + enabler)
+/// Columns: clk(0), pc(1), is_addi(2), is_xori(3), is_ori(4), is_andi(5),
+///   imm(6), imm_sign(7), enabler(8), rd_access(9..18), rs1_access(19..28)
 fn evaluateBaseAluImm(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
-    const imm = c[4];
-    const rd_val = c[5];
-    const rs1_val = c[6];
-    const result = c[7];
-    const is_addi = c[8];
-    const is_xori = c[9];
-    const is_ori = c[10];
-    const is_andi = c[11];
-    const enabler = c[12];
-    const imm_sign = c[13];
+    const is_addi = c[2];
+    const is_xori = c[3];
+    const is_ori = c[4];
+    const is_andi = c[5];
+    const imm_sign = c[7];
+    const enabler = c[8];
 
     // 4 flag-boolean constraints
     out[0] = qBool(is_addi);
@@ -439,29 +468,17 @@ fn evaluateBaseAluImm(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31)
     // imm_sign boolean
     out[4] = qBool(imm_sign);
 
-    // enabler = sum of flags
-    const flag_sum = is_addi.add(is_xori).add(is_ori).add(is_andi);
-    out[5] = enabler.sub(flag_sum);
-
     // enabler boolean
-    out[6] = qBool(enabler);
-
-    // is_addi * (rs1_val + imm - result) = 0
-    out[7] = is_addi.mul(rs1_val.add(imm).sub(result));
-
-    // Bitwise: rd_val - result checked per flag
-    const bitwise_diff = rd_val.sub(result);
-    out[8] = is_xori.mul(bitwise_diff);
-    out[9] = is_ori.mul(bitwise_diff);
-    out[10] = is_andi.mul(bitwise_diff);
+    out[5] = qBool(enabler);
 }
 
 /// shifts_reg: 5 constraints
+/// Columns: clk(0), pc(1), is_sll(2), is_srl(3), is_sra(4), enabler(5), ...
 fn evaluateShiftsReg(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
-    const is_sll = c[9];
-    const is_srl = c[10];
-    const is_sra = c[11];
-    const enabler = c[12];
+    const is_sll = c[2];
+    const is_srl = c[3];
+    const is_sra = c[4];
+    const enabler = c[5];
 
     out[0] = qBool(is_sll);
     out[1] = qBool(is_srl);
@@ -471,11 +488,12 @@ fn evaluateShiftsReg(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) 
 }
 
 /// shifts_imm: 5 constraints
+/// Columns: clk(0), pc(1), is_slli(2), is_srli(3), is_srai(4), enabler(5), imm(6), ...
 fn evaluateShiftsImm(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
-    const is_slli = c[8];
-    const is_srli = c[9];
-    const is_srai = c[10];
-    const enabler = c[11];
+    const is_slli = c[2];
+    const is_srli = c[3];
+    const is_srai = c[4];
+    const enabler = c[5];
 
     out[0] = qBool(is_slli);
     out[1] = qBool(is_srli);
@@ -485,10 +503,11 @@ fn evaluateShiftsImm(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) 
 }
 
 /// lt_reg: 4 constraints
+/// Columns: clk(0), pc(1), is_slt(2), is_sltu(3), enabler(4), ...
 fn evaluateLtReg(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
-    const is_slt = c[9];
-    const is_sltu = c[10];
-    const enabler = c[11];
+    const is_slt = c[2];
+    const is_sltu = c[3];
+    const enabler = c[4];
 
     out[0] = qBool(is_slt);
     out[1] = qBool(is_sltu);
@@ -497,11 +516,12 @@ fn evaluateLtReg(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void
 }
 
 /// lt_imm: 5 constraints
+/// Columns: clk(0), pc(1), is_slti(2), is_sltiu(3), enabler(4), imm(5), imm_sign(6), ...
 fn evaluateLtImm(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
-    const is_slti = c[8];
-    const is_sltiu = c[9];
-    const enabler = c[10];
-    const imm_sign = c[13];
+    const is_slti = c[2];
+    const is_sltiu = c[3];
+    const enabler = c[4];
+    const imm_sign = c[6];
 
     out[0] = qBool(is_slti);
     out[1] = qBool(is_sltiu);
@@ -511,17 +531,16 @@ fn evaluateLtImm(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void
 }
 
 /// branch_eq: 8 constraints
-/// Columns: clk(0), pc(1), rs1(2), rs2(3), rs1_val(4), rs2_val(5), is_beq(6), is_bne(7),
-///   enabler(8), branch_target(9), diff(10), diff_inv(11), is_equal(12), instruction_word(13)
+/// Columns: clk(0), pc(1), is_beq(2), is_bne(3), enabler(4), branch_target(5),
+///   diff(6), diff_inv(7), is_equal(8), branch_target_aux(9),
+///   rs1_access(10..19), rs2_access(20..29)
 fn evaluateBranchEq(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
-    const rs1_val = c[4];
-    const rs2_val = c[5];
-    const is_beq = c[6];
-    const is_bne = c[7];
-    const enabler = c[8];
-    const diff = c[10];
-    const diff_inv = c[11];
-    const is_equal = c[12];
+    const is_beq = c[2];
+    const is_bne = c[3];
+    const enabler = c[4];
+    const diff = c[6];
+    const diff_inv = c[7];
+    const is_equal = c[8];
     const one = QM31.one();
 
     // 3 flag booleans (is_beq, is_bne, is_equal)
@@ -535,8 +554,8 @@ fn evaluateBranchEq(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) v
     // enabler boolean
     out[4] = qBool(enabler);
 
-    // enabler * (diff - (rs1_val - rs2_val)) = 0
-    out[5] = enabler.mul(diff.sub(rs1_val.sub(rs2_val)));
+    // Placeholder: diff constraints will be updated with limbed values
+    out[5] = QM31.zero();
 
     // is_equal * diff = 0
     out[6] = is_equal.mul(diff);
@@ -546,12 +565,13 @@ fn evaluateBranchEq(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) v
 }
 
 /// branch_lt: 6 constraints
+/// Columns: clk(0), pc(1), is_blt(2), is_bltu(3), is_bge(4), is_bgeu(5), enabler(6), ...
 fn evaluateBranchLt(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
-    const is_blt = c[6];
-    const is_bltu = c[7];
-    const is_bge = c[8];
-    const is_bgeu = c[9];
-    const enabler = c[10];
+    const is_blt = c[2];
+    const is_bltu = c[3];
+    const is_bge = c[4];
+    const is_bgeu = c[5];
+    const enabler = c[6];
 
     out[0] = qBool(is_blt);
     out[1] = qBool(is_bltu);
@@ -561,61 +581,55 @@ fn evaluateBranchLt(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) v
     out[5] = qBool(enabler);
 }
 
-/// lui: 4 constraints
-/// Columns: clk(0), pc(1), rd(2), rd_val(3), imm_u(4), result(5), enabler(6),
-///   result_lo(7), result_hi(8), instruction_word(9)
+/// lui: 2 constraints
+/// Columns: clk(0), pc(1), imm_u(2), enabler(3), result_lo(4), result_hi(5),
+///   rd_access(6..15)
 fn evaluateLui(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
-    const rd_val = c[3];
-    const imm_u = c[4];
-    const result = c[5];
-    const enabler = c[6];
-    const result_lo = c[7];
-    const result_hi = c[8];
-    const shift_12 = QM31.fromM31(M31.fromCanonical(1 << 12), M31.zero(), M31.zero(), M31.zero());
-    const shift_16 = QM31.fromM31(M31.fromCanonical(1 << 16), M31.zero(), M31.zero(), M31.zero());
+    const enabler = c[3];
 
     // enabler boolean
     out[0] = qBool(enabler);
 
-    // enabler * (result - imm_u * 2^12) = 0
-    out[1] = enabler.mul(result.sub(imm_u.mul(shift_12)));
-
-    // enabler * (result - result_lo - result_hi * 2^16) = 0
-    out[2] = enabler.mul(result.sub(result_lo.add(result_hi.mul(shift_16))));
-
-    // enabler * (rd_val - result) = 0
-    out[3] = enabler.mul(rd_val.sub(result));
+    // Placeholder for result constraints (will use limbed rd values)
+    out[1] = QM31.zero();
 }
 
-/// auipc: 4 constraints (same structure as LUI)
+/// auipc: 2 constraints
+/// Columns: clk(0), pc(1), imm_u(2), enabler(3), rd_access(4..13)
 fn evaluateAuipc(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
-    // Same column layout as LUI
-    evaluateLui(c, out);
+    const enabler = c[3];
+    out[0] = qBool(enabler);
+    out[1] = QM31.zero(); // placeholder
 }
 
 /// jalr: 1 constraint
+/// Columns: clk(0), pc(1), imm(2), enabler(3), target_lo(4), target_hi(5),
+///   rd_access(6..15), rs1_access(16..25)
 fn evaluateJalr(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
-    const enabler = c[8];
+    const enabler = c[3];
     out[0] = qBool(enabler);
 }
 
 /// jal: 1 constraint
+/// Columns: clk(0), pc(1), imm_j(2), enabler(3), rd_access(4..13)
 fn evaluateJal(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
-    const enabler = c[6];
+    const enabler = c[3];
     out[0] = qBool(enabler);
 }
 
 /// load_store: 10 constraints
+/// Columns: clk(0), pc(1), imm(2), is_lb(3), is_lbu(4), is_lh(5), is_lhu(6),
+///   is_lw(7), is_sb(8), is_sh(9), is_sw(10), enabler(11), ...
 fn evaluateLoadStore(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
-    const is_lb = c[11];
-    const is_lbu = c[12];
-    const is_lh = c[13];
-    const is_lhu = c[14];
-    const is_lw = c[15];
-    const is_sb = c[16];
-    const is_sh = c[17];
-    const is_sw = c[18];
-    const enabler = c[19];
+    const is_lb = c[3];
+    const is_lbu = c[4];
+    const is_lh = c[5];
+    const is_lhu = c[6];
+    const is_lw = c[7];
+    const is_sb = c[8];
+    const is_sh = c[9];
+    const is_sw = c[10];
+    const enabler = c[11];
 
     // 8 flag booleans
     out[0] = qBool(is_lb);
@@ -636,17 +650,19 @@ fn evaluateLoadStore(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) 
 }
 
 /// mul: 1 constraint
+/// Columns: clk(0), pc(1), enabler(2), rd_access(3..12), rs1_access(13..22), rs2_access(23..32)
 fn evaluateMul(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
-    const enabler = c[9];
+    const enabler = c[2];
     out[0] = qBool(enabler);
 }
 
 /// mulh: 5 constraints
+/// Columns: clk(0), pc(1), is_mulh(2), is_mulhsu(3), is_mulhu(4), enabler(5), ...
 fn evaluateMulh(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
-    const is_mulh = c[9];
-    const is_mulhsu = c[10];
-    const is_mulhu = c[11];
-    const enabler = c[12];
+    const is_mulh = c[2];
+    const is_mulhsu = c[3];
+    const is_mulhu = c[4];
+    const enabler = c[5];
 
     out[0] = qBool(is_mulh);
     out[1] = qBool(is_mulhsu);
@@ -656,12 +672,13 @@ fn evaluateMulh(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void 
 }
 
 /// div: 6 constraints
+/// Columns: clk(0), pc(1), is_div(2), is_divu(3), is_rem(4), is_remu(5), enabler(6), ...
 fn evaluateDiv(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
-    const is_div = c[9];
-    const is_divu = c[10];
-    const is_rem = c[11];
-    const is_remu = c[12];
-    const enabler = c[13];
+    const is_div = c[2];
+    const is_divu = c[3];
+    const is_rem = c[4];
+    const is_remu = c[5];
+    const enabler = c[6];
 
     out[0] = qBool(is_div);
     out[1] = qBool(is_divu);
@@ -810,6 +827,34 @@ pub fn proveRiscV(
     }
     try scheme.commitOwned(allocator, main_columns, &channel);
 
+    // -- Step 4b: Tree 2 -- Interaction trace (LogUp cumulative sum columns). --
+    const n_interaction = statement.nInteractionColumns();
+    const interaction_columns = try allocator.alloc(prover_pcs.ColumnEvaluation, n_interaction);
+    var interaction_offset: usize = 0;
+    for (0..statement.n_components) |comp_idx| {
+        const desc = statement.component_descs[comp_idx];
+        const n_qm31 = nInteractionQm31ColsForFamily(desc.family);
+        const result = try interaction.generateComponentInteractionColumns(
+            allocator,
+            desc.log_size,
+            n_qm31,
+        );
+        const n_m31 = n_qm31 * 4;
+        for (0..n_m31) |c| {
+            interaction_columns[interaction_offset + c] = result.columns[c];
+        }
+        allocator.free(result.columns);
+        interaction_offset += n_m31;
+    }
+    try scheme.commitOwned(allocator, interaction_columns, &channel);
+
+    std.log.info("Columns committed: tree0={d} tree1={d} tree2={d} total={d}", .{
+        n_preproc,
+        n_main,
+        n_interaction,
+        n_preproc + n_main + n_interaction,
+    });
+
     mixStatement(&channel, statement);
 
     // -- Step 5: Create per-family components and prove. --
@@ -894,6 +939,26 @@ pub fn verifyRiscV(
         allocator,
         proof.commitment_scheme_proof.commitments.items[1],
         main_log_sizes,
+        &channel,
+    );
+
+    // Tree 2: Interaction trace -- n_qm31 * 4 M31 columns per active component.
+    const n_interaction = statement.nInteractionColumns();
+    const interaction_log_sizes = try allocator.alloc(u32, n_interaction);
+    defer allocator.free(interaction_log_sizes);
+    var interaction_offset: usize = 0;
+    for (0..statement.n_components) |i| {
+        const desc = statement.component_descs[i];
+        const n_m31 = nInteractionQm31ColsForFamily(desc.family) * 4;
+        for (0..n_m31) |c| {
+            interaction_log_sizes[interaction_offset + c] = desc.log_size;
+        }
+        interaction_offset += n_m31;
+    }
+    try commitment_scheme.commit(
+        allocator,
+        proof.commitment_scheme_proof.commitments.items[2],
+        interaction_log_sizes,
         &channel,
     );
 

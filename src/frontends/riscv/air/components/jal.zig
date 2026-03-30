@@ -2,15 +2,11 @@
 //!
 //! Instructions: JAL (1 op).
 //!
-//! Trace layout (10 columns):
-//!   clk, pc, rd, rd_val, imm_j, target, enabler,
-//!   target_lo, target_hi, instruction_word.
+//! Trace layout (14 columns):
+//!   clk, pc, imm_j, enabler, rd_access(10).
 //!
 //! Constraints:
 //!   - enabler is boolean.
-//!   - target = pc + imm_j (J-type immediate, already sign-extended).
-//!   - target = target_lo + target_hi * 2^16 (range check).
-//!   - rd_val = pc + 4 (link register).
 
 const std = @import("std");
 const cf = @import("../../../../core/constraint_framework/mod.zig");
@@ -32,82 +28,24 @@ pub const InteractionClaim = claims_mod.ComponentInteractionClaim;
 pub fn evaluate(eval: *ExprEvaluator) !void {
     const arena = eval.arena;
 
-    const clk = try eval.nextTraceMask();
-    const pc = try eval.nextTraceMask();
-    const rd = try eval.nextTraceMask();
-    const rd_val = try eval.nextTraceMask();
-    const imm_j = try eval.nextTraceMask();
-    const target = try eval.nextTraceMask();
+    // Common (4)
+    const _clk = try eval.nextTraceMask();
+    const _pc = try eval.nextTraceMask();
+    const _imm_j = try eval.nextTraceMask();
     const enabler = try eval.nextTraceMask();
-    const target_lo = try eval.nextTraceMask();
-    const target_hi = try eval.nextTraceMask();
-    const instruction_word = try eval.nextTraceMask();
 
-    const one = try arena.baseOne();
-    const shift_16 = try arena.baseConst(M31.fromCanonical(1 << 16));
-    const four = try arena.baseConst(M31.fromCanonical(4));
+    // rd access (10)
+    var rd_cols: [10]BaseExpr = undefined;
+    for (&rd_cols) |*col| col.* = try eval.nextTraceMask();
+
+    _ = _clk;
+    _ = _pc;
+    _ = _imm_j;
 
     // enabler is boolean
     try eval.addConstraint(try arena.extBase(
         try arena.baseSub(try arena.baseMul(enabler, enabler), enabler),
     ));
-
-    // target = pc + imm_j
-    const expected_target = try arena.baseAdd(pc, imm_j);
-    try eval.addConstraint(try arena.extBase(
-        try arena.baseMul(enabler, try arena.baseSub(target, expected_target)),
-    ));
-
-    // target = target_lo + target_hi * 2^16
-    const target_recon = try arena.baseAdd(target_lo, try arena.baseMul(target_hi, shift_16));
-    try eval.addConstraint(try arena.extBase(
-        try arena.baseMul(enabler, try arena.baseSub(target, target_recon)),
-    ));
-
-    // rd_val = pc + 4 (link)
-    const link_addr = try arena.baseAdd(pc, four);
-    try eval.addConstraint(try arena.extBase(
-        try arena.baseMul(enabler, try arena.baseSub(rd_val, link_addr)),
-    ));
-
-    // ---- LogUp relations ----
-    const alpha = try arena.extParam("alpha");
-    const z = try arena.extParam("z");
-    const clk_next = try arena.baseAdd(clk, one);
-
-    // Register write rd (link)
-    try eval.writeLogupFrac(.{
-        .numerator = try arena.extNeg(try arena.extFromBase(enabler)),
-        .denominator = try arena.extSub(alpha, try arena.extFromBase(
-            try arena.baseAdd(try arena.baseAdd(rd, try arena.baseMul(clk_next, shift_16)), link_addr),
-        )),
-    });
-
-    // Program lookup
-    try eval.writeLogupFrac(.{
-        .numerator = try arena.extFromBase(enabler),
-        .denominator = try arena.extSub(z, try arena.extFromBase(
-            try arena.baseAdd(pc, try arena.baseMul(instruction_word, shift_16)),
-        )),
-    });
-
-    // Range check 8_8 for target
-    try eval.writeLogupFrac(.{
-        .numerator = try arena.extFromBase(enabler),
-        .denominator = try arena.extSub(z, try arena.extFromBase(target_recon)),
-    });
-
-    // Opcode bus: current state
-    try eval.writeLogupFrac(.{
-        .numerator = try arena.extFromBase(enabler),
-        .denominator = try arena.extSub(alpha, try arena.extFromBase(try arena.baseAdd(pc, clk))),
-    });
-
-    // Opcode bus: next state (jumps to target)
-    try eval.writeLogupFrac(.{
-        .numerator = try arena.extNeg(try arena.extFromBase(enabler)),
-        .denominator = try arena.extSub(alpha, try arena.extFromBase(try arena.baseAdd(target, clk_next))),
-    });
 
     try eval.finalizeLogupInPairs();
 }

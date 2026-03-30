@@ -24,6 +24,9 @@ pub const div_comp = @import("div.zig");
 pub const program = @import("program.zig");
 pub const memory_check = @import("memory_check.zig");
 pub const clock_update = @import("clock_update.zig");
+pub const merkle = @import("merkle.zig");
+pub const reg_clock_update = @import("reg_clock_update.zig");
+pub const poseidon2_comp = @import("poseidon2_comp.zig");
 
 test {
     const std = @import("std");

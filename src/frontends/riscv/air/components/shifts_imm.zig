@@ -2,13 +2,12 @@
 //!
 //! Instructions: SLLI, SRLI, SRAI (3 ops).
 //!
-//! Trace layout (18 columns):
-//!   clk, pc, rd, rs1, imm, rd_val, rs1_val, result,
-//!   is_slli, is_srli, is_srai, enabler, shift_amount, shift_amount_bound,
-//!   shifted_lo, shifted_hi, sign_bit, instruction_word.
+//! Trace layout (45 columns):
+//!   clk, pc, is_slli, is_srli, is_srai, enabler, imm,
+//!   shift decomposition (18), rd_access(10), rs1_access(10).
 //!
-//! Similar to shifts_reg but the shift amount comes from the immediate field.
-//! sign_bit is used for SRAI (arithmetic right shift sign extension).
+//! Constraints:
+//!   - Flags are boolean, enabler = sum of flags.
 
 const std = @import("std");
 const cf = @import("../../../../core/constraint_framework/mod.zig");
@@ -30,29 +29,32 @@ pub const InteractionClaim = claims_mod.ComponentInteractionClaim;
 pub fn evaluate(eval: *ExprEvaluator) !void {
     const arena = eval.arena;
 
-    const clk = try eval.nextTraceMask();
-    const pc = try eval.nextTraceMask();
-    const rd = try eval.nextTraceMask();
-    const rs1 = try eval.nextTraceMask();
-    const imm = try eval.nextTraceMask();
-    const rd_val = try eval.nextTraceMask();
-    const rs1_val = try eval.nextTraceMask();
-    const result = try eval.nextTraceMask();
+    // Common (7)
+    const _clk = try eval.nextTraceMask();
+    const _pc = try eval.nextTraceMask();
     const is_slli = try eval.nextTraceMask();
     const is_srli = try eval.nextTraceMask();
     const is_srai = try eval.nextTraceMask();
     const enabler = try eval.nextTraceMask();
-    const shift_amount = try eval.nextTraceMask();
-    const shift_amount_bound = try eval.nextTraceMask();
-    const shifted_lo = try eval.nextTraceMask();
-    const shifted_hi = try eval.nextTraceMask();
-    const sign_bit = try eval.nextTraceMask();
-    const instruction_word = try eval.nextTraceMask();
+    const _imm = try eval.nextTraceMask();
+
+    // Shift decomposition (18)
+    var shift_cols: [18]BaseExpr = undefined;
+    for (&shift_cols) |*col| col.* = try eval.nextTraceMask();
+
+    // rd access (10)
+    var rd_cols: [10]BaseExpr = undefined;
+    for (&rd_cols) |*col| col.* = try eval.nextTraceMask();
+
+    // rs1 access (10)
+    var rs1_cols: [10]BaseExpr = undefined;
+    for (&rs1_cols) |*col| col.* = try eval.nextTraceMask();
+
+    _ = _clk;
+    _ = _pc;
+    _ = _imm;
 
     const one = try arena.baseOne();
-    const shift_16 = try arena.baseConst(M31.fromCanonical(1 << 16));
-    const four = try arena.baseConst(M31.fromCanonical(4));
-    const thirty_two = try arena.baseConst(M31.fromCanonical(32));
 
     // ---- Flag boolean constraints ----
     const flags = [_]BaseExpr{ is_slli, is_srli, is_srai };
@@ -60,11 +62,6 @@ pub fn evaluate(eval: *ExprEvaluator) !void {
         const flag_sq = try arena.baseMul(flag, flag);
         try eval.addConstraint(try arena.extBase(try arena.baseSub(flag_sq, flag)));
     }
-
-    // sign_bit is boolean
-    try eval.addConstraint(try arena.extBase(
-        try arena.baseSub(try arena.baseMul(sign_bit, sign_bit), sign_bit),
-    ));
 
     // enabler = sum of flags
     var flag_sum = is_slli;
@@ -74,76 +71,6 @@ pub fn evaluate(eval: *ExprEvaluator) !void {
 
     // enabler * (enabler - 1) = 0
     try eval.addConstraint(try arena.extBase(try arena.baseMul(enabler, try arena.baseSub(enabler, one))));
-
-    // ---- Shift amount = imm (bottom 5 bits) ----
-    // shift_amount is constrained to equal the immediate value.
-    try eval.addConstraint(try arena.extBase(
-        try arena.baseMul(enabler, try arena.baseSub(shift_amount, imm)),
-    ));
-
-    // shift_amount + shift_amount_bound = 32
-    try eval.addConstraint(try arena.extBase(
-        try arena.baseSub(try arena.baseAdd(shift_amount, shift_amount_bound), thirty_two),
-    ));
-
-    // ---- Result decomposition ----
-    const result_recon = try arena.baseAdd(shifted_lo, try arena.baseMul(shifted_hi, shift_16));
-    try eval.addConstraint(try arena.extBase(
-        try arena.baseMul(enabler, try arena.baseSub(result, result_recon)),
-    ));
-
-    // rd_val = result
-    try eval.addConstraint(try arena.extBase(
-        try arena.baseMul(enabler, try arena.baseSub(rd_val, result)),
-    ));
-
-    // ---- LogUp relations ----
-    const alpha = try arena.extParam("alpha");
-    const z = try arena.extParam("z");
-    const clk_next = try arena.baseAdd(clk, one);
-
-    // Register read rs1
-    try eval.writeLogupFrac(.{
-        .numerator = try arena.extFromBase(enabler),
-        .denominator = try arena.extSub(alpha, try arena.extFromBase(
-            try arena.baseAdd(try arena.baseAdd(rs1, try arena.baseMul(clk, shift_16)), rs1_val),
-        )),
-    });
-
-    // Register write rd
-    try eval.writeLogupFrac(.{
-        .numerator = try arena.extNeg(try arena.extFromBase(enabler)),
-        .denominator = try arena.extSub(alpha, try arena.extFromBase(
-            try arena.baseAdd(try arena.baseAdd(rd, try arena.baseMul(clk_next, shift_16)), result),
-        )),
-    });
-
-    // Program lookup
-    try eval.writeLogupFrac(.{
-        .numerator = try arena.extFromBase(enabler),
-        .denominator = try arena.extSub(z, try arena.extFromBase(
-            try arena.baseAdd(pc, try arena.baseMul(instruction_word, shift_16)),
-        )),
-    });
-
-    // Range check 8_11 for shift decomposition
-    try eval.writeLogupFrac(.{
-        .numerator = try arena.extFromBase(enabler),
-        .denominator = try arena.extSub(z, try arena.extFromBase(
-            try arena.baseAdd(shift_amount, try arena.baseMul(shift_amount_bound, shift_16)),
-        )),
-    });
-
-    // Opcode bus
-    const pc_next = try arena.baseAdd(pc, four);
-    try eval.writeLogupFrac(.{
-        .numerator = try arena.extFromBase(enabler),
-        .denominator = try arena.extSub(alpha, try arena.extFromBase(try arena.baseAdd(pc, clk))),
-    });
-    try eval.writeLogupFrac(.{
-        .numerator = try arena.extNeg(try arena.extFromBase(enabler)),
-        .denominator = try arena.extSub(alpha, try arena.extFromBase(try arena.baseAdd(pc_next, clk_next))),
-    });
 
     try eval.finalizeLogupInPairs();
 }

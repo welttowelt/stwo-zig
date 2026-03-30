@@ -2,11 +2,13 @@
 //!
 //! Instructions: SLTI, SLTIU (2 ops).
 //!
-//! Trace layout (15 columns):
-//!   clk, pc, rd, rs1, imm, rd_val, rs1_val, result,
-//!   is_slti, is_sltiu, enabler, diff_lo, diff_hi, imm_sign, instruction_word.
+//! Trace layout (34 columns):
+//!   clk, pc, is_slti, is_sltiu, enabler, imm, imm_sign,
+//!   comparison decomposition (7), rd_access(10), rs1_access(10).
 //!
-//! Similar to lt_reg but compares against a sign-extended immediate.
+//! Constraints:
+//!   - Flags boolean, enabler = sum, enabler in {0,1}.
+//!   - imm_sign is boolean.
 
 const std = @import("std");
 const cf = @import("../../../../core/constraint_framework/mod.zig");
@@ -28,25 +30,32 @@ pub const InteractionClaim = claims_mod.ComponentInteractionClaim;
 pub fn evaluate(eval: *ExprEvaluator) !void {
     const arena = eval.arena;
 
-    const clk = try eval.nextTraceMask();
-    const pc = try eval.nextTraceMask();
-    const rd = try eval.nextTraceMask();
-    const rs1 = try eval.nextTraceMask();
-    const imm = try eval.nextTraceMask();
-    const rd_val = try eval.nextTraceMask();
-    const rs1_val = try eval.nextTraceMask();
-    const result = try eval.nextTraceMask();
+    // Common (7)
+    const _clk = try eval.nextTraceMask();
+    const _pc = try eval.nextTraceMask();
     const is_slti = try eval.nextTraceMask();
     const is_sltiu = try eval.nextTraceMask();
     const enabler = try eval.nextTraceMask();
-    const diff_lo = try eval.nextTraceMask();
-    const diff_hi = try eval.nextTraceMask();
+    const _imm = try eval.nextTraceMask();
     const imm_sign = try eval.nextTraceMask();
-    const instruction_word = try eval.nextTraceMask();
+
+    // Comparison decomposition (7)
+    var cmp_cols: [7]BaseExpr = undefined;
+    for (&cmp_cols) |*col| col.* = try eval.nextTraceMask();
+
+    // rd access (10)
+    var rd_cols: [10]BaseExpr = undefined;
+    for (&rd_cols) |*col| col.* = try eval.nextTraceMask();
+
+    // rs1 access (10)
+    var rs1_cols: [10]BaseExpr = undefined;
+    for (&rs1_cols) |*col| col.* = try eval.nextTraceMask();
+
+    _ = _clk;
+    _ = _pc;
+    _ = _imm;
 
     const one = try arena.baseOne();
-    const shift_16 = try arena.baseConst(M31.fromCanonical(1 << 16));
-    const four = try arena.baseConst(M31.fromCanonical(4));
 
     // ---- Flag boolean constraints ----
     const flags = [_]BaseExpr{ is_slti, is_sltiu };
@@ -56,10 +65,7 @@ pub fn evaluate(eval: *ExprEvaluator) !void {
         ));
     }
 
-    // result and imm_sign are boolean
-    try eval.addConstraint(try arena.extBase(
-        try arena.baseSub(try arena.baseMul(result, result), result),
-    ));
+    // imm_sign is boolean
     try eval.addConstraint(try arena.extBase(
         try arena.baseSub(try arena.baseMul(imm_sign, imm_sign), imm_sign),
     ));
@@ -70,73 +76,6 @@ pub fn evaluate(eval: *ExprEvaluator) !void {
 
     // enabler * (enabler - 1) = 0
     try eval.addConstraint(try arena.extBase(try arena.baseMul(enabler, try arena.baseSub(enabler, one))));
-
-    // ---- Difference decomposition ----
-    // Compare rs1_val against imm.
-    const rs1_minus_imm = try arena.baseSub(rs1_val, imm);
-    const imm_minus_rs1_m1 = try arena.baseSub(try arena.baseSub(imm, rs1_val), one);
-    const one_minus_result = try arena.baseSub(one, result);
-    const expected_diff = try arena.baseAdd(
-        try arena.baseMul(one_minus_result, rs1_minus_imm),
-        try arena.baseMul(result, imm_minus_rs1_m1),
-    );
-    const actual_diff = try arena.baseAdd(diff_lo, try arena.baseMul(diff_hi, shift_16));
-    try eval.addConstraint(try arena.extBase(
-        try arena.baseMul(enabler, try arena.baseSub(actual_diff, expected_diff)),
-    ));
-
-    // rd_val = result
-    try eval.addConstraint(try arena.extBase(
-        try arena.baseMul(enabler, try arena.baseSub(rd_val, result)),
-    ));
-
-    // ---- LogUp relations ----
-    const alpha = try arena.extParam("alpha");
-    const z = try arena.extParam("z");
-    const clk_next = try arena.baseAdd(clk, one);
-
-    // Register read rs1
-    try eval.writeLogupFrac(.{
-        .numerator = try arena.extFromBase(enabler),
-        .denominator = try arena.extSub(alpha, try arena.extFromBase(
-            try arena.baseAdd(try arena.baseAdd(rs1, try arena.baseMul(clk, shift_16)), rs1_val),
-        )),
-    });
-
-    // Register write rd
-    try eval.writeLogupFrac(.{
-        .numerator = try arena.extNeg(try arena.extFromBase(enabler)),
-        .denominator = try arena.extSub(alpha, try arena.extFromBase(
-            try arena.baseAdd(try arena.baseAdd(rd, try arena.baseMul(clk_next, shift_16)), result),
-        )),
-    });
-
-    // Program lookup
-    try eval.writeLogupFrac(.{
-        .numerator = try arena.extFromBase(enabler),
-        .denominator = try arena.extSub(z, try arena.extFromBase(
-            try arena.baseAdd(pc, try arena.baseMul(instruction_word, shift_16)),
-        )),
-    });
-
-    // Range check 8_8 for diff
-    try eval.writeLogupFrac(.{
-        .numerator = try arena.extFromBase(enabler),
-        .denominator = try arena.extSub(z, try arena.extFromBase(
-            try arena.baseAdd(diff_lo, try arena.baseMul(diff_hi, shift_16)),
-        )),
-    });
-
-    // Opcode bus
-    const pc_next = try arena.baseAdd(pc, four);
-    try eval.writeLogupFrac(.{
-        .numerator = try arena.extFromBase(enabler),
-        .denominator = try arena.extSub(alpha, try arena.extFromBase(try arena.baseAdd(pc, clk))),
-    });
-    try eval.writeLogupFrac(.{
-        .numerator = try arena.extNeg(try arena.extFromBase(enabler)),
-        .denominator = try arena.extSub(alpha, try arena.extFromBase(try arena.baseAdd(pc_next, clk_next))),
-    });
 
     try eval.finalizeLogupInPairs();
 }

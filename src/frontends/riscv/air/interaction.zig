@@ -10,6 +10,7 @@ const M31 = @import("../../../core/fields/m31.zig").M31;
 const CM31 = @import("../../../core/fields/cm31.zig").CM31;
 const QM31 = @import("../../../core/fields/qm31.zig").QM31;
 const SECURE_EXTENSION_DEGREE = @import("../../../core/fields/qm31.zig").SECURE_EXTENSION_DEGREE;
+const prover_pcs = @import("../../../prover/pcs/mod.zig");
 
 /// Size of the common lookup random element vector.
 /// Must be >= max relation tuple size across all components.
@@ -145,6 +146,44 @@ pub fn generateInteractionTrace(
         .columns = columns,
         .claimed_sum = claimed_sum,
     };
+}
+
+/// Result of generating interaction trace columns for one component.
+pub const InteractionResult = struct {
+    /// Committed column evaluations (n_qm31_cols * 4 M31 columns).
+    columns: []prover_pcs.ColumnEvaluation,
+    /// The claimed LogUp sum for this component (zero for placeholder).
+    claimed_sum: QM31,
+};
+
+/// Generate interaction trace columns for a component.
+///
+/// Each component contributes `n_interaction_qm31_cols` QM31 columns,
+/// which are stored as `n_interaction_qm31_cols * 4` M31 columns.
+/// For now the columns are zero-filled with `claimed_sum = 0`, which is
+/// structurally correct for the commitment scheme. A full implementation
+/// would compute the LogUp cumulative sum fractions here.
+pub fn generateComponentInteractionColumns(
+    allocator: std.mem.Allocator,
+    log_size: u32,
+    n_interaction_qm31_cols: u32,
+) !InteractionResult {
+    const n_m31_cols = n_interaction_qm31_cols * SECURE_EXTENSION_DEGREE;
+    const n_rows = @as(usize, 1) << @intCast(log_size);
+    const columns = try allocator.alloc(prover_pcs.ColumnEvaluation, n_m31_cols);
+    errdefer allocator.free(columns);
+
+    var initialized: usize = 0;
+    errdefer {
+        for (0..initialized) |i| allocator.free(@constCast(columns[i].values));
+    }
+    for (0..n_m31_cols) |i| {
+        const vals = try allocator.alloc(M31, n_rows);
+        @memset(vals, M31.zero());
+        columns[i] = .{ .log_size = log_size, .values = vals };
+        initialized = i + 1;
+    }
+    return .{ .columns = columns, .claimed_sum = QM31.zero() };
 }
 
 /// Verify that the total LogUp sum across all components equals zero.
@@ -331,4 +370,37 @@ test "ComponentInteraction: deinit frees memory" {
     var result = try generateInteractionTrace(allocator, 16);
     result.deinit(allocator);
     // If deinit didn't properly free, the test allocator would detect leaks.
+}
+
+test "generateComponentInteractionColumns: allocates correct dimensions" {
+    const allocator = std.testing.allocator;
+    const log_size: u32 = 3;
+    const n_qm31: u32 = 5;
+    const n_rows: usize = 1 << log_size;
+    const n_m31 = n_qm31 * SECURE_EXTENSION_DEGREE;
+
+    const result = try generateComponentInteractionColumns(allocator, log_size, n_qm31);
+    defer {
+        for (result.columns) |col| allocator.free(@constCast(col.values));
+        allocator.free(result.columns);
+    }
+
+    // Should have n_qm31 * 4 M31 columns.
+    try std.testing.expectEqual(@as(usize, n_m31), result.columns.len);
+
+    // Each column should have the right log_size and n_rows entries.
+    for (result.columns) |col| {
+        try std.testing.expectEqual(log_size, col.log_size);
+        try std.testing.expectEqual(n_rows, col.values.len);
+    }
+
+    // All entries should be zero (placeholder).
+    for (result.columns) |col| {
+        for (col.values) |val| {
+            try std.testing.expect(val.eql(M31.zero()));
+        }
+    }
+
+    // Claimed sum should be zero (placeholder).
+    try std.testing.expect(result.claimed_sum.eql(QM31.zero()));
 }

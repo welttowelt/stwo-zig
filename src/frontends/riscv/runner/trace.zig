@@ -124,7 +124,7 @@ pub const Trace = struct {
 };
 
 /// Maximum number of columns across all opcode families.
-pub const MAX_FAMILY_COLUMNS: usize = 25; // LoadStoreColumns has the most
+pub const MAX_FAMILY_COLUMNS: usize = 65; // DivColumns has the most
 
 pub const TraceColumns = struct {
     columns: [MAX_FAMILY_COLUMNS][]M31,
@@ -177,9 +177,43 @@ inline fn u32ToM31(v: u32) M31 {
     return M31.fromU64(v);
 }
 
+/// Decompose a u32 value into 4 byte limbs and write to columns[start..start+4].
+inline fn writeU32Limbs(columns: *[MAX_FAMILY_COLUMNS][]M31, row_idx: usize, start: usize, val: u32) void {
+    columns[start][row_idx] = M31.fromCanonical(val & 0xFF);
+    columns[start + 1][row_idx] = M31.fromCanonical((val >> 8) & 0xFF);
+    columns[start + 2][row_idx] = M31.fromCanonical((val >> 16) & 0xFF);
+    columns[start + 3][row_idx] = M31.fromCanonical((val >> 24) & 0xFF);
+}
+
+/// Write a 10-column register access block at columns[start..start+10].
+/// Layout: addr, prev_0..3, clk_prev, next_0..3
+/// State chain data (prev values, clk_prev) is placeholder (zero) for now.
+inline fn writeRegAccess(
+    columns: *[MAX_FAMILY_COLUMNS][]M31,
+    row_idx: usize,
+    start: usize,
+    addr: u32,
+    next_val: u32,
+) void {
+    columns[start][row_idx] = M31.fromCanonical(addr); // addr
+    // prev_0..3: placeholder zeros (state chain data TBD)
+    columns[start + 1][row_idx] = M31.zero();
+    columns[start + 2][row_idx] = M31.zero();
+    columns[start + 3][row_idx] = M31.zero();
+    columns[start + 4][row_idx] = M31.zero();
+    // clk_prev: placeholder zero
+    columns[start + 5][row_idx] = M31.zero();
+    // next_0..3: decompose next_val into byte limbs
+    writeU32Limbs(columns, row_idx, start + 6, next_val);
+}
+
 /// Fill family-specific column data for a single trace row at the given index.
 /// Column ordering must match the struct field order in air/trace_columns.zig.
 /// All u32 values from the execution trace are reduced modulo P via u32ToM31.
+///
+/// Register access columns use placeholder values for state chain data
+/// (prev limbs and clk_prev are zero). The next limbs are the byte
+/// decomposition of the register value from the trace row.
 pub fn fillFamilyColumns(
     columns: *[MAX_FAMILY_COLUMNS][]M31,
     row_idx: usize,
@@ -188,257 +222,290 @@ pub fn fillFamilyColumns(
 ) void {
     switch (family) {
         .base_alu_reg => {
-            // BaseAluRegColumns: clk, pc, rd, rs1, rs2, rd_val, rs1_val, rs2_val,
-            //   result, is_add, is_sub, is_xor, is_or, is_and, enabler, instruction_word
-            const rs1m = u32ToM31(row.rs1_val);
-            const rs2m = u32ToM31(row.rs2_val);
-            const is_add: bool = (row.opcode == .ADD);
-            const is_sub: bool = (row.opcode == .SUB);
-            const is_xor: bool = (row.opcode == .XOR);
-            const is_or: bool = (row.opcode == .OR);
-            const is_and: bool = (row.opcode == .AND);
-            const is_real = is_add or is_sub or is_xor or is_or or is_and;
-            // result computed in M31 arithmetic so constraints hold
-            const result = if (is_add) rs1m.add(rs2m) else if (is_sub) rs1m.sub(rs2m) else u32ToM31(row.rd_val);
-            columns[0][row_idx] = u32ToM31(row.clk);
-            columns[1][row_idx] = u32ToM31(row.pc);
-            columns[2][row_idx] = M31.fromCanonical(@as(u32, row.rd));
-            columns[3][row_idx] = M31.fromCanonical(@as(u32, row.rs1));
-            columns[4][row_idx] = M31.fromCanonical(@as(u32, row.rs2));
-            columns[5][row_idx] = u32ToM31(row.rd_val);
-            columns[6][row_idx] = rs1m;
-            columns[7][row_idx] = rs2m;
-            columns[8][row_idx] = result;
-            columns[9][row_idx] = if (is_add) M31.one() else M31.zero();
-            columns[10][row_idx] = if (is_sub) M31.one() else M31.zero();
-            columns[11][row_idx] = if (is_xor) M31.one() else M31.zero();
-            columns[12][row_idx] = if (is_or) M31.one() else M31.zero();
-            columns[13][row_idx] = if (is_and) M31.one() else M31.zero();
-            columns[14][row_idx] = if (is_real) M31.one() else M31.zero(); // enabler
-            columns[15][row_idx] = M31.zero(); // instruction_word (placeholder)
+            // BaseAluRegColumns: 7 common + rd(10) + rs1(10) + rs2(10) = 37
+            var c: usize = 0;
+            columns[c][row_idx] = u32ToM31(row.clk);
+            c += 1;
+            columns[c][row_idx] = u32ToM31(row.pc);
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .ADD) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .SUB) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .XOR) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .OR) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .AND) M31.one() else M31.zero();
+            c += 1;
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rd), row.rd_val);
+            c += 10;
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rs1), row.rs1_val);
+            c += 10;
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rs2), row.rs2_val);
         },
         .base_alu_imm => {
-            // BaseAluImmColumns: clk, pc, rd, rs1, imm, rd_val, rs1_val, result,
-            //   is_addi, is_xori, is_ori, is_andi, enabler, imm_sign, instruction_word
-            const rs1m = u32ToM31(row.rs1_val);
-            const immm = immToM31(row.imm);
-            // For ADDI, result = rs1_val + imm in M31 arithmetic
-            const result = switch (row.opcode) {
-                .ADDI => rs1m.add(immm),
-                else => u32ToM31(row.rd_val), // bitwise ops use rd_val directly
-            };
-            columns[0][row_idx] = u32ToM31(row.clk);
-            columns[1][row_idx] = u32ToM31(row.pc);
-            columns[2][row_idx] = M31.fromCanonical(@as(u32, row.rd));
-            columns[3][row_idx] = M31.fromCanonical(@as(u32, row.rs1));
-            columns[4][row_idx] = immm;
-            columns[5][row_idx] = u32ToM31(row.rd_val);
-            columns[6][row_idx] = rs1m;
-            columns[7][row_idx] = result;
-            columns[8][row_idx] = if (row.opcode == .ADDI) M31.one() else M31.zero();
-            columns[9][row_idx] = if (row.opcode == .XORI) M31.one() else M31.zero();
-            columns[10][row_idx] = if (row.opcode == .ORI) M31.one() else M31.zero();
-            columns[11][row_idx] = if (row.opcode == .ANDI) M31.one() else M31.zero();
-            columns[12][row_idx] = M31.one(); // enabler
-            columns[13][row_idx] = if (row.imm < 0) M31.one() else M31.zero();
-            columns[14][row_idx] = M31.zero(); // instruction_word (placeholder)
-        },
-        .branch_eq => {
-            // BranchEqColumns: clk, pc, rs1, rs2, rs1_val, rs2_val, is_beq, is_bne,
-            //   enabler, branch_target, diff, diff_inv, is_equal, instruction_word
-            const rs1m = u32ToM31(row.rs1_val);
-            const rs2m = u32ToM31(row.rs2_val);
-            const diff_m31 = rs1m.sub(rs2m); // diff in M31 arithmetic
-            const is_eq: bool = (row.rs1_val == row.rs2_val);
-            const target: u32 = @bitCast(@as(i32, @bitCast(row.pc)) +% row.imm);
-            columns[0][row_idx] = u32ToM31(row.clk);
-            columns[1][row_idx] = u32ToM31(row.pc);
-            columns[2][row_idx] = M31.fromCanonical(@as(u32, row.rs1));
-            columns[3][row_idx] = M31.fromCanonical(@as(u32, row.rs2));
-            columns[4][row_idx] = rs1m;
-            columns[5][row_idx] = rs2m;
-            columns[6][row_idx] = if (row.opcode == .BEQ) M31.one() else M31.zero();
-            columns[7][row_idx] = if (row.opcode == .BNE) M31.one() else M31.zero();
-            columns[8][row_idx] = M31.one(); // enabler
-            columns[9][row_idx] = u32ToM31(target);
-            columns[10][row_idx] = diff_m31;
-            // diff_inv: multiplicative inverse in M31 (0 if diff=0)
-            columns[11][row_idx] = if (!diff_m31.isZero()) diff_m31.invUncheckedNonZero() else M31.zero();
-            columns[12][row_idx] = if (is_eq) M31.one() else M31.zero();
-            columns[13][row_idx] = M31.zero(); // instruction_word (placeholder)
-        },
-        .lui => {
-            // LuiColumns: clk, pc, rd, rd_val, imm_u, result, enabler,
-            //   result_lo, result_hi, instruction_word
-            const result_val = row.rd_val;
-            columns[0][row_idx] = u32ToM31(row.clk);
-            columns[1][row_idx] = u32ToM31(row.pc);
-            columns[2][row_idx] = M31.fromCanonical(@as(u32, row.rd));
-            columns[3][row_idx] = u32ToM31(row.rd_val);
-            columns[4][row_idx] = M31.fromCanonical(result_val >> 12); // imm_u fits in 20 bits
-            columns[5][row_idx] = u32ToM31(result_val); // result
-            columns[6][row_idx] = M31.one(); // enabler
-            columns[7][row_idx] = M31.fromCanonical(result_val & 0xFFFF); // result_lo
-            columns[8][row_idx] = M31.fromCanonical(result_val >> 16); // result_hi (max 16 bits)
-            columns[9][row_idx] = M31.zero(); // instruction_word (placeholder)
-        },
-        .auipc => {
-            // AuipcColumns: same layout as LUI
-            const result_val = row.rd_val;
-            columns[0][row_idx] = u32ToM31(row.clk);
-            columns[1][row_idx] = u32ToM31(row.pc);
-            columns[2][row_idx] = M31.fromCanonical(@as(u32, row.rd));
-            columns[3][row_idx] = u32ToM31(row.rd_val);
-            // imm_u for AUIPC: (result - pc) >> 12 may be large, use fromU64
-            const imm_bits: u32 = @bitCast(@as(i32, @bitCast(result_val)) -% @as(i32, @bitCast(row.pc)));
-            columns[4][row_idx] = u32ToM31(imm_bits);
-            columns[5][row_idx] = u32ToM31(result_val);
-            columns[6][row_idx] = M31.one();
-            columns[7][row_idx] = M31.fromCanonical(result_val & 0xFFFF);
-            columns[8][row_idx] = M31.fromCanonical(result_val >> 16);
-            columns[9][row_idx] = M31.zero();
-        },
-        .jal => {
-            // JalColumns: clk, pc, rd, rd_val, imm_j, target, enabler,
-            //   target_lo, target_hi, instruction_word
-            const target_val = row.next_pc;
-            columns[0][row_idx] = u32ToM31(row.clk);
-            columns[1][row_idx] = u32ToM31(row.pc);
-            columns[2][row_idx] = M31.fromCanonical(@as(u32, row.rd));
-            columns[3][row_idx] = u32ToM31(row.rd_val);
-            columns[4][row_idx] = immToM31(row.imm);
-            columns[5][row_idx] = u32ToM31(target_val);
-            columns[6][row_idx] = M31.one();
-            columns[7][row_idx] = M31.fromCanonical(target_val & 0xFFFF);
-            columns[8][row_idx] = M31.fromCanonical(target_val >> 16);
-            columns[9][row_idx] = M31.zero();
-        },
-        .jalr => {
-            // JalrColumns: clk, pc, rd, rs1, imm, rd_val, rs1_val, target,
-            //   enabler, target_lo, target_hi, instruction_word
-            const target_val = row.next_pc;
-            columns[0][row_idx] = u32ToM31(row.clk);
-            columns[1][row_idx] = u32ToM31(row.pc);
-            columns[2][row_idx] = M31.fromCanonical(@as(u32, row.rd));
-            columns[3][row_idx] = M31.fromCanonical(@as(u32, row.rs1));
-            columns[4][row_idx] = immToM31(row.imm);
-            columns[5][row_idx] = u32ToM31(row.rd_val);
-            columns[6][row_idx] = u32ToM31(row.rs1_val);
-            columns[7][row_idx] = u32ToM31(target_val);
-            columns[8][row_idx] = M31.one();
-            columns[9][row_idx] = M31.fromCanonical(target_val & 0xFFFF);
-            columns[10][row_idx] = M31.fromCanonical(target_val >> 16);
-            columns[11][row_idx] = M31.zero();
-        },
-        .load_store => {
-            // LoadStoreColumns: clk, pc, rd, rs1, rs2, imm, rd_val, rs1_val, rs2_val,
-            //   mem_addr, mem_val, is_lb..is_sw, enabler, byte_0..byte_3, instruction_word
-            columns[0][row_idx] = u32ToM31(row.clk);
-            columns[1][row_idx] = u32ToM31(row.pc);
-            columns[2][row_idx] = M31.fromCanonical(@as(u32, row.rd));
-            columns[3][row_idx] = M31.fromCanonical(@as(u32, row.rs1));
-            columns[4][row_idx] = M31.fromCanonical(@as(u32, row.rs2));
-            columns[5][row_idx] = immToM31(row.imm);
-            columns[6][row_idx] = u32ToM31(row.rd_val);
-            columns[7][row_idx] = u32ToM31(row.rs1_val);
-            columns[8][row_idx] = u32ToM31(row.rs2_val);
-            columns[9][row_idx] = u32ToM31(row.mem_addr);
-            columns[10][row_idx] = u32ToM31(row.mem_val);
-            columns[11][row_idx] = if (row.opcode == .LB) M31.one() else M31.zero();
-            columns[12][row_idx] = if (row.opcode == .LBU) M31.one() else M31.zero();
-            columns[13][row_idx] = if (row.opcode == .LH) M31.one() else M31.zero();
-            columns[14][row_idx] = if (row.opcode == .LHU) M31.one() else M31.zero();
-            columns[15][row_idx] = if (row.opcode == .LW) M31.one() else M31.zero();
-            columns[16][row_idx] = if (row.opcode == .SB) M31.one() else M31.zero();
-            columns[17][row_idx] = if (row.opcode == .SH) M31.one() else M31.zero();
-            columns[18][row_idx] = if (row.opcode == .SW) M31.one() else M31.zero();
-            columns[19][row_idx] = M31.one(); // enabler
-            columns[20][row_idx] = M31.fromCanonical(row.mem_val & 0xFF);
-            columns[21][row_idx] = M31.fromCanonical((row.mem_val >> 8) & 0xFF);
-            columns[22][row_idx] = M31.fromCanonical((row.mem_val >> 16) & 0xFF);
-            columns[23][row_idx] = M31.fromCanonical((row.mem_val >> 24) & 0xFF);
-            columns[24][row_idx] = M31.zero(); // instruction_word (placeholder)
+            // BaseAluImmColumns: 9 common + rd(10) + rs1(10) = 29
+            var c: usize = 0;
+            columns[c][row_idx] = u32ToM31(row.clk);
+            c += 1;
+            columns[c][row_idx] = u32ToM31(row.pc);
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .ADDI) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .XORI) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .ORI) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .ANDI) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = immToM31(row.imm);
+            c += 1;
+            columns[c][row_idx] = if (row.imm < 0) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = M31.one(); // enabler
+            c += 1;
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rd), row.rd_val);
+            c += 10;
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rs1), row.rs1_val);
         },
         .shifts_reg => {
+            // ShiftsRegColumns: 6 common + 18 shift decomp + rd(10) + rs1(10) + rs2(10) = 54
             const shamt: u5 = @truncate(row.rs2_val);
-            columns[0][row_idx] = u32ToM31(row.clk);
-            columns[1][row_idx] = u32ToM31(row.pc);
-            columns[2][row_idx] = M31.fromCanonical(@as(u32, row.rd));
-            columns[3][row_idx] = M31.fromCanonical(@as(u32, row.rs1));
-            columns[4][row_idx] = M31.fromCanonical(@as(u32, row.rs2));
-            columns[5][row_idx] = u32ToM31(row.rd_val);
-            columns[6][row_idx] = u32ToM31(row.rs1_val);
-            columns[7][row_idx] = u32ToM31(row.rs2_val);
-            columns[8][row_idx] = u32ToM31(row.rd_val); // result
-            columns[9][row_idx] = if (row.opcode == .SLL) M31.one() else M31.zero();
-            columns[10][row_idx] = if (row.opcode == .SRL) M31.one() else M31.zero();
-            columns[11][row_idx] = if (row.opcode == .SRA) M31.one() else M31.zero();
-            columns[12][row_idx] = M31.one();
-            columns[13][row_idx] = M31.fromCanonical(@as(u32, shamt));
-            columns[14][row_idx] = M31.fromCanonical(32 - @as(u32, shamt));
-            columns[15][row_idx] = M31.fromCanonical(row.rd_val & 0xFFFF);
-            columns[16][row_idx] = M31.fromCanonical(row.rd_val >> 16);
-            columns[17][row_idx] = M31.zero();
+            var c: usize = 0;
+            columns[c][row_idx] = u32ToM31(row.clk);
+            c += 1;
+            columns[c][row_idx] = u32ToM31(row.pc);
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .SLL) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .SRL) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .SRA) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = M31.one(); // enabler
+            c += 1;
+            // shift decomposition (18 cols)
+            columns[c][row_idx] = M31.fromCanonical(@as(u32, shamt)); // shift_amount
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(32 - @as(u32, shamt)); // shift_amount_bound
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(row.rd_val & 0xFFFF); // shifted_lo
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(row.rd_val >> 16); // shifted_hi
+            c += 1;
+            // shift_bit_0..4: individual bits of shamt
+            columns[c][row_idx] = M31.fromCanonical(@as(u32, shamt) & 1);
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical((@as(u32, shamt) >> 1) & 1);
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical((@as(u32, shamt) >> 2) & 1);
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical((@as(u32, shamt) >> 3) & 1);
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical((@as(u32, shamt) >> 4) & 1);
+            c += 1;
+            // shift_mask_lo, shift_mask_hi, sign_bit, sign_extend_lo, sign_extend_hi
+            columns[c][row_idx] = M31.zero(); // shift_mask_lo (placeholder)
+            c += 1;
+            columns[c][row_idx] = M31.zero(); // shift_mask_hi (placeholder)
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(row.rs1_val >> 31); // sign_bit
+            c += 1;
+            columns[c][row_idx] = M31.zero(); // sign_extend_lo (placeholder)
+            c += 1;
+            columns[c][row_idx] = M31.zero(); // sign_extend_hi (placeholder)
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(row.rd_val & 0xFFFF); // result_lo
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(row.rd_val >> 16); // result_hi
+            c += 1;
+            columns[c][row_idx] = M31.zero(); // carry (placeholder)
+            c += 1;
+            columns[c][row_idx] = M31.zero(); // overflow (placeholder)
+            c += 1;
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rd), row.rd_val);
+            c += 10;
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rs1), row.rs1_val);
+            c += 10;
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rs2), row.rs2_val);
         },
         .shifts_imm => {
+            // ShiftsImmColumns: 7 common + 18 shift decomp + rd(10) + rs1(10) = 45
             const shamt: u5 = @truncate(@as(u32, @bitCast(row.imm)));
-            columns[0][row_idx] = u32ToM31(row.clk);
-            columns[1][row_idx] = u32ToM31(row.pc);
-            columns[2][row_idx] = M31.fromCanonical(@as(u32, row.rd));
-            columns[3][row_idx] = M31.fromCanonical(@as(u32, row.rs1));
-            columns[4][row_idx] = immToM31(row.imm);
-            columns[5][row_idx] = u32ToM31(row.rd_val);
-            columns[6][row_idx] = u32ToM31(row.rs1_val);
-            columns[7][row_idx] = u32ToM31(row.rd_val);
-            columns[8][row_idx] = if (row.opcode == .SLLI) M31.one() else M31.zero();
-            columns[9][row_idx] = if (row.opcode == .SRLI) M31.one() else M31.zero();
-            columns[10][row_idx] = if (row.opcode == .SRAI) M31.one() else M31.zero();
-            columns[11][row_idx] = M31.one();
-            columns[12][row_idx] = M31.fromCanonical(@as(u32, shamt));
-            columns[13][row_idx] = M31.fromCanonical(32 - @as(u32, shamt));
-            columns[14][row_idx] = M31.fromCanonical(row.rd_val & 0xFFFF);
-            columns[15][row_idx] = M31.fromCanonical(row.rd_val >> 16);
-            columns[16][row_idx] = M31.fromCanonical(row.rs1_val >> 31);
-            columns[17][row_idx] = M31.zero();
+            var c: usize = 0;
+            columns[c][row_idx] = u32ToM31(row.clk);
+            c += 1;
+            columns[c][row_idx] = u32ToM31(row.pc);
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .SLLI) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .SRLI) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .SRAI) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = M31.one(); // enabler
+            c += 1;
+            columns[c][row_idx] = immToM31(row.imm); // imm
+            c += 1;
+            // shift decomposition (18 cols)
+            columns[c][row_idx] = M31.fromCanonical(@as(u32, shamt));
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(32 - @as(u32, shamt));
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(row.rd_val & 0xFFFF);
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(row.rd_val >> 16);
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(@as(u32, shamt) & 1);
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical((@as(u32, shamt) >> 1) & 1);
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical((@as(u32, shamt) >> 2) & 1);
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical((@as(u32, shamt) >> 3) & 1);
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical((@as(u32, shamt) >> 4) & 1);
+            c += 1;
+            columns[c][row_idx] = M31.zero(); // shift_mask_lo
+            c += 1;
+            columns[c][row_idx] = M31.zero(); // shift_mask_hi
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(row.rs1_val >> 31); // sign_bit
+            c += 1;
+            columns[c][row_idx] = M31.zero(); // sign_extend_lo
+            c += 1;
+            columns[c][row_idx] = M31.zero(); // sign_extend_hi
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(row.rd_val & 0xFFFF); // result_lo
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(row.rd_val >> 16); // result_hi
+            c += 1;
+            columns[c][row_idx] = M31.zero(); // carry
+            c += 1;
+            columns[c][row_idx] = M31.zero(); // overflow
+            c += 1;
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rd), row.rd_val);
+            c += 10;
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rs1), row.rs1_val);
         },
         .lt_reg => {
-            columns[0][row_idx] = u32ToM31(row.clk);
-            columns[1][row_idx] = u32ToM31(row.pc);
-            columns[2][row_idx] = M31.fromCanonical(@as(u32, row.rd));
-            columns[3][row_idx] = M31.fromCanonical(@as(u32, row.rs1));
-            columns[4][row_idx] = M31.fromCanonical(@as(u32, row.rs2));
-            columns[5][row_idx] = u32ToM31(row.rd_val);
-            columns[6][row_idx] = u32ToM31(row.rs1_val);
-            columns[7][row_idx] = u32ToM31(row.rs2_val);
-            columns[8][row_idx] = u32ToM31(row.rd_val);
-            columns[9][row_idx] = if (row.opcode == .SLT) M31.one() else M31.zero();
-            columns[10][row_idx] = if (row.opcode == .SLTU) M31.one() else M31.zero();
-            columns[11][row_idx] = M31.one();
+            // LtRegColumns: 5 common + 7 comparison + rd(10) + rs1(10) + rs2(10) = 42
             const diff = row.rs1_val -% row.rs2_val;
-            columns[12][row_idx] = M31.fromCanonical(diff & 0xFFFF);
-            columns[13][row_idx] = M31.fromCanonical(diff >> 16);
-            columns[14][row_idx] = M31.zero();
+            const is_lt: bool = switch (row.opcode) {
+                .SLT => @as(i32, @bitCast(row.rs1_val)) < @as(i32, @bitCast(row.rs2_val)),
+                .SLTU => row.rs1_val < row.rs2_val,
+                else => false,
+            };
+            var c: usize = 0;
+            columns[c][row_idx] = u32ToM31(row.clk);
+            c += 1;
+            columns[c][row_idx] = u32ToM31(row.pc);
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .SLT) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .SLTU) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = M31.one(); // enabler
+            c += 1;
+            // comparison decomposition (7)
+            columns[c][row_idx] = M31.fromCanonical(diff & 0xFFFF); // diff_lo
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(diff >> 16); // diff_hi
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(row.rs1_val >> 31); // rs1_sign
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(row.rs2_val >> 31); // rs2_sign
+            c += 1;
+            columns[c][row_idx] = if (is_lt) M31.one() else M31.zero(); // is_less_than
+            c += 1;
+            columns[c][row_idx] = M31.zero(); // borrow (placeholder)
+            c += 1;
+            columns[c][row_idx] = u32ToM31(row.rd_val); // result
+            c += 1;
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rd), row.rd_val);
+            c += 10;
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rs1), row.rs1_val);
+            c += 10;
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rs2), row.rs2_val);
         },
         .lt_imm => {
+            // LtImmColumns: 7 common + 7 comparison + rd(10) + rs1(10) = 34
             const imm_u32: u32 = @bitCast(row.imm);
             const diff = row.rs1_val -% imm_u32;
-            columns[0][row_idx] = u32ToM31(row.clk);
-            columns[1][row_idx] = u32ToM31(row.pc);
-            columns[2][row_idx] = M31.fromCanonical(@as(u32, row.rd));
-            columns[3][row_idx] = M31.fromCanonical(@as(u32, row.rs1));
-            columns[4][row_idx] = immToM31(row.imm);
-            columns[5][row_idx] = u32ToM31(row.rd_val);
-            columns[6][row_idx] = u32ToM31(row.rs1_val);
-            columns[7][row_idx] = u32ToM31(row.rd_val);
-            columns[8][row_idx] = if (row.opcode == .SLTI) M31.one() else M31.zero();
-            columns[9][row_idx] = if (row.opcode == .SLTIU) M31.one() else M31.zero();
-            columns[10][row_idx] = M31.one();
-            columns[11][row_idx] = M31.fromCanonical(diff & 0xFFFF);
-            columns[12][row_idx] = M31.fromCanonical(diff >> 16);
-            columns[13][row_idx] = if (row.imm < 0) M31.one() else M31.zero();
-            columns[14][row_idx] = M31.zero();
+            const is_lt: bool = switch (row.opcode) {
+                .SLTI => @as(i32, @bitCast(row.rs1_val)) < row.imm,
+                .SLTIU => row.rs1_val < imm_u32,
+                else => false,
+            };
+            var c: usize = 0;
+            columns[c][row_idx] = u32ToM31(row.clk);
+            c += 1;
+            columns[c][row_idx] = u32ToM31(row.pc);
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .SLTI) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .SLTIU) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = M31.one(); // enabler
+            c += 1;
+            columns[c][row_idx] = immToM31(row.imm); // imm
+            c += 1;
+            columns[c][row_idx] = if (row.imm < 0) M31.one() else M31.zero(); // imm_sign
+            c += 1;
+            // comparison decomposition (7)
+            columns[c][row_idx] = M31.fromCanonical(diff & 0xFFFF); // diff_lo
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(diff >> 16); // diff_hi
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(row.rs1_val >> 31); // rs1_sign
+            c += 1;
+            columns[c][row_idx] = if (is_lt) M31.one() else M31.zero(); // is_less_than
+            c += 1;
+            columns[c][row_idx] = M31.zero(); // borrow (placeholder)
+            c += 1;
+            columns[c][row_idx] = u32ToM31(row.rd_val); // result
+            c += 1;
+            columns[c][row_idx] = M31.zero(); // imm_ext (placeholder)
+            c += 1;
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rd), row.rd_val);
+            c += 10;
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rs1), row.rs1_val);
+        },
+        .branch_eq => {
+            // BranchEqColumns: 10 common + rs1(10) + rs2(10) = 30
+            const rs1m = u32ToM31(row.rs1_val);
+            const rs2m = u32ToM31(row.rs2_val);
+            const diff_m31 = rs1m.sub(rs2m);
+            const is_eq: bool = (row.rs1_val == row.rs2_val);
+            const target: u32 = @bitCast(@as(i32, @bitCast(row.pc)) +% row.imm);
+            var c: usize = 0;
+            columns[c][row_idx] = u32ToM31(row.clk);
+            c += 1;
+            columns[c][row_idx] = u32ToM31(row.pc);
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .BEQ) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .BNE) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = M31.one(); // enabler
+            c += 1;
+            columns[c][row_idx] = u32ToM31(target); // branch_target
+            c += 1;
+            columns[c][row_idx] = diff_m31; // diff
+            c += 1;
+            columns[c][row_idx] = if (!diff_m31.isZero()) diff_m31.invUncheckedNonZero() else M31.zero(); // diff_inv
+            c += 1;
+            columns[c][row_idx] = if (is_eq) M31.one() else M31.zero(); // is_equal
+            c += 1;
+            columns[c][row_idx] = M31.zero(); // branch_target_aux (placeholder)
+            c += 1;
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rs1), row.rs1_val);
+            c += 10;
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rs2), row.rs2_val);
         },
         .branch_lt => {
+            // BranchLtColumns: 8 common + 9 decomp + rs1(10) + rs2(10) = 37
             const diff = row.rs1_val -% row.rs2_val;
             const target_val: u32 = @bitCast(@as(i32, @bitCast(row.pc)) +% row.imm);
             const is_lt: bool = switch (row.opcode) {
@@ -448,83 +515,273 @@ pub fn fillFamilyColumns(
                 .BGEU => row.rs1_val < row.rs2_val,
                 else => false,
             };
-            columns[0][row_idx] = u32ToM31(row.clk);
-            columns[1][row_idx] = u32ToM31(row.pc);
-            columns[2][row_idx] = M31.fromCanonical(@as(u32, row.rs1));
-            columns[3][row_idx] = M31.fromCanonical(@as(u32, row.rs2));
-            columns[4][row_idx] = u32ToM31(row.rs1_val);
-            columns[5][row_idx] = u32ToM31(row.rs2_val);
-            columns[6][row_idx] = if (row.opcode == .BLT) M31.one() else M31.zero();
-            columns[7][row_idx] = if (row.opcode == .BLTU) M31.one() else M31.zero();
-            columns[8][row_idx] = if (row.opcode == .BGE) M31.one() else M31.zero();
-            columns[9][row_idx] = if (row.opcode == .BGEU) M31.one() else M31.zero();
-            columns[10][row_idx] = M31.one();
-            columns[11][row_idx] = u32ToM31(target_val);
-            columns[12][row_idx] = M31.fromCanonical(diff & 0xFFFF);
-            columns[13][row_idx] = M31.fromCanonical(diff >> 16);
-            columns[14][row_idx] = if (is_lt) M31.one() else M31.zero();
-            columns[15][row_idx] = M31.zero();
+            var c: usize = 0;
+            columns[c][row_idx] = u32ToM31(row.clk);
+            c += 1;
+            columns[c][row_idx] = u32ToM31(row.pc);
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .BLT) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .BLTU) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .BGE) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .BGEU) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = M31.one(); // enabler
+            c += 1;
+            columns[c][row_idx] = u32ToM31(target_val); // branch_target
+            c += 1;
+            // comparison/branch decomposition (9)
+            columns[c][row_idx] = M31.fromCanonical(diff & 0xFFFF); // diff_lo
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(diff >> 16); // diff_hi
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(row.rs1_val >> 31); // rs1_sign
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(row.rs2_val >> 31); // rs2_sign
+            c += 1;
+            columns[c][row_idx] = if (is_lt) M31.one() else M31.zero(); // is_less_than
+            c += 1;
+            columns[c][row_idx] = M31.zero(); // borrow (placeholder)
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(target_val & 0xFFFF); // branch_target_lo
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(target_val >> 16); // branch_target_hi
+            c += 1;
+            columns[c][row_idx] = M31.zero(); // branch_target_aux (placeholder)
+            c += 1;
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rs1), row.rs1_val);
+            c += 10;
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rs2), row.rs2_val);
+        },
+        .lui => {
+            // LuiColumns: 6 common + rd(10) = 16
+            const result_val = row.rd_val;
+            var c: usize = 0;
+            columns[c][row_idx] = u32ToM31(row.clk);
+            c += 1;
+            columns[c][row_idx] = u32ToM31(row.pc);
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(result_val >> 12); // imm_u
+            c += 1;
+            columns[c][row_idx] = M31.one(); // enabler
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(result_val & 0xFFFF); // result_lo
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(result_val >> 16); // result_hi
+            c += 1;
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rd), row.rd_val);
+        },
+        .auipc => {
+            // AuipcColumns: 4 common + rd(10) = 14
+            const result_val = row.rd_val;
+            const imm_bits: u32 = @bitCast(@as(i32, @bitCast(result_val)) -% @as(i32, @bitCast(row.pc)));
+            var c: usize = 0;
+            columns[c][row_idx] = u32ToM31(row.clk);
+            c += 1;
+            columns[c][row_idx] = u32ToM31(row.pc);
+            c += 1;
+            columns[c][row_idx] = u32ToM31(imm_bits); // imm_u
+            c += 1;
+            columns[c][row_idx] = M31.one(); // enabler
+            c += 1;
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rd), row.rd_val);
+        },
+        .jalr => {
+            // JalrColumns: 6 common + rd(10) + rs1(10) = 26
+            const target_val = row.next_pc;
+            var c: usize = 0;
+            columns[c][row_idx] = u32ToM31(row.clk);
+            c += 1;
+            columns[c][row_idx] = u32ToM31(row.pc);
+            c += 1;
+            columns[c][row_idx] = immToM31(row.imm); // imm
+            c += 1;
+            columns[c][row_idx] = M31.one(); // enabler
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(target_val & 0xFFFF); // target_lo
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(target_val >> 16); // target_hi
+            c += 1;
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rd), row.rd_val);
+            c += 10;
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rs1), row.rs1_val);
+        },
+        .jal => {
+            // JalColumns: 4 common + rd(10) = 14
+            var c: usize = 0;
+            columns[c][row_idx] = u32ToM31(row.clk);
+            c += 1;
+            columns[c][row_idx] = u32ToM31(row.pc);
+            c += 1;
+            columns[c][row_idx] = immToM31(row.imm); // imm_j
+            c += 1;
+            columns[c][row_idx] = M31.one(); // enabler
+            c += 1;
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rd), row.rd_val);
+        },
+        .load_store => {
+            // LoadStoreColumns: 20 common + rd(10) + rs1(10) + mem(10) = 50
+            var c: usize = 0;
+            columns[c][row_idx] = u32ToM31(row.clk);
+            c += 1;
+            columns[c][row_idx] = u32ToM31(row.pc);
+            c += 1;
+            columns[c][row_idx] = immToM31(row.imm); // imm
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .LB) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .LBU) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .LH) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .LHU) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .LW) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .SB) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .SH) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .SW) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = M31.one(); // enabler
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(row.mem_val & 0xFF); // byte_0
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical((row.mem_val >> 8) & 0xFF); // byte_1
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical((row.mem_val >> 16) & 0xFF); // byte_2
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical((row.mem_val >> 24) & 0xFF); // byte_3
+            c += 1;
+            columns[c][row_idx] = u32ToM31(row.mem_addr); // mem_addr
+            c += 1;
+            columns[c][row_idx] = u32ToM31(row.mem_val); // mem_val
+            c += 1;
+            columns[c][row_idx] = u32ToM31(row.rs2_val); // rs2_val
+            c += 1;
+            columns[c][row_idx] = M31.zero(); // sign_extend (placeholder)
+            c += 1;
+            // For loads, rd gets the loaded value; for stores, rd is not written
+            // but we still fill the access columns.
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rd), row.rd_val);
+            c += 10;
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rs1), row.rs1_val);
+            c += 10;
+            // memory access (10 cols): addr=mem_addr, next=mem_val decomposed
+            writeRegAccess(columns, row_idx, c, row.mem_addr, row.mem_val);
         },
         .mul => {
-            const prod: u64 = @as(u64, row.rs1_val) *% @as(u64, row.rs2_val);
-            columns[0][row_idx] = u32ToM31(row.clk);
-            columns[1][row_idx] = u32ToM31(row.pc);
-            columns[2][row_idx] = M31.fromCanonical(@as(u32, row.rd));
-            columns[3][row_idx] = M31.fromCanonical(@as(u32, row.rs1));
-            columns[4][row_idx] = M31.fromCanonical(@as(u32, row.rs2));
-            columns[5][row_idx] = u32ToM31(row.rd_val);
-            columns[6][row_idx] = u32ToM31(row.rs1_val);
-            columns[7][row_idx] = u32ToM31(row.rs2_val);
-            columns[8][row_idx] = u32ToM31(row.rd_val);
-            columns[9][row_idx] = M31.one();
-            columns[10][row_idx] = M31.fromCanonical(@truncate(prod & 0xFFFF));
-            columns[11][row_idx] = M31.fromCanonical(@truncate((prod >> 16) & 0xFFFF));
-            columns[12][row_idx] = M31.fromCanonical(@truncate(prod >> 32));
-            columns[13][row_idx] = M31.zero();
+            // MulColumns: 3 common + rd(10) + rs1(10) + rs2(10) = 33
+            var c: usize = 0;
+            columns[c][row_idx] = u32ToM31(row.clk);
+            c += 1;
+            columns[c][row_idx] = u32ToM31(row.pc);
+            c += 1;
+            columns[c][row_idx] = M31.one(); // enabler
+            c += 1;
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rd), row.rd_val);
+            c += 10;
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rs1), row.rs1_val);
+            c += 10;
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rs2), row.rs2_val);
         },
         .mulh => {
+            // MulhColumns: 6 common + 5 decomp + rd(10) + rs1(10) + rs2(10) = 41
             const prod: u64 = @as(u64, row.rs1_val) *% @as(u64, row.rs2_val);
-            columns[0][row_idx] = u32ToM31(row.clk);
-            columns[1][row_idx] = u32ToM31(row.pc);
-            columns[2][row_idx] = M31.fromCanonical(@as(u32, row.rd));
-            columns[3][row_idx] = M31.fromCanonical(@as(u32, row.rs1));
-            columns[4][row_idx] = M31.fromCanonical(@as(u32, row.rs2));
-            columns[5][row_idx] = u32ToM31(row.rd_val);
-            columns[6][row_idx] = u32ToM31(row.rs1_val);
-            columns[7][row_idx] = u32ToM31(row.rs2_val);
-            columns[8][row_idx] = u32ToM31(row.rd_val);
-            columns[9][row_idx] = if (row.opcode == .MULH) M31.one() else M31.zero();
-            columns[10][row_idx] = if (row.opcode == .MULHSU) M31.one() else M31.zero();
-            columns[11][row_idx] = if (row.opcode == .MULHU) M31.one() else M31.zero();
-            columns[12][row_idx] = M31.one();
-            columns[13][row_idx] = M31.fromCanonical(@truncate(prod & 0xFFFF));
-            columns[14][row_idx] = M31.fromCanonical(@truncate(prod >> 16));
-            columns[15][row_idx] = M31.fromCanonical(row.rs1_val >> 31);
-            columns[16][row_idx] = M31.fromCanonical(row.rs2_val >> 31);
-            columns[17][row_idx] = M31.zero();
+            var c: usize = 0;
+            columns[c][row_idx] = u32ToM31(row.clk);
+            c += 1;
+            columns[c][row_idx] = u32ToM31(row.pc);
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .MULH) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .MULHSU) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .MULHU) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = M31.one(); // enabler
+            c += 1;
+            // product decomposition (5)
+            columns[c][row_idx] = M31.fromCanonical(@truncate(prod & 0xFFFF)); // prod_lo
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(@truncate(prod >> 16)); // prod_hi
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(row.rs1_val >> 31); // rs1_sign
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(row.rs2_val >> 31); // rs2_sign
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(@truncate(prod >> 32)); // carry
+            c += 1;
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rd), row.rd_val);
+            c += 10;
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rs1), row.rs1_val);
+            c += 10;
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rs2), row.rs2_val);
         },
         .div => {
+            // DivColumns: 7 common + 28 decomp + rd(10) + rs1(10) + rs2(10) = 65
             const q_and_r = computeDivResult(row);
-            columns[0][row_idx] = u32ToM31(row.clk);
-            columns[1][row_idx] = u32ToM31(row.pc);
-            columns[2][row_idx] = M31.fromCanonical(@as(u32, row.rd));
-            columns[3][row_idx] = M31.fromCanonical(@as(u32, row.rs1));
-            columns[4][row_idx] = M31.fromCanonical(@as(u32, row.rs2));
-            columns[5][row_idx] = u32ToM31(row.rd_val);
-            columns[6][row_idx] = u32ToM31(row.rs1_val);
-            columns[7][row_idx] = u32ToM31(row.rs2_val);
-            columns[8][row_idx] = u32ToM31(row.rd_val);
-            columns[9][row_idx] = if (row.opcode == .DIV) M31.one() else M31.zero();
-            columns[10][row_idx] = if (row.opcode == .DIVU) M31.one() else M31.zero();
-            columns[11][row_idx] = if (row.opcode == .REM) M31.one() else M31.zero();
-            columns[12][row_idx] = if (row.opcode == .REMU) M31.one() else M31.zero();
-            columns[13][row_idx] = M31.one();
-            columns[14][row_idx] = u32ToM31(q_and_r.quotient);
-            columns[15][row_idx] = u32ToM31(q_and_r.remainder);
-            columns[16][row_idx] = if (row.rs2_val == 0) M31.one() else M31.zero();
-            columns[17][row_idx] = M31.fromCanonical(row.rs1_val >> 31);
-            columns[18][row_idx] = M31.fromCanonical(row.rs2_val >> 31);
-            columns[19][row_idx] = M31.zero();
+            var c: usize = 0;
+            columns[c][row_idx] = u32ToM31(row.clk);
+            c += 1;
+            columns[c][row_idx] = u32ToM31(row.pc);
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .DIV) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .DIVU) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .REM) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = if (row.opcode == .REMU) M31.one() else M31.zero();
+            c += 1;
+            columns[c][row_idx] = M31.one(); // enabler
+            c += 1;
+            // quotient byte limbs (4)
+            writeU32Limbs(columns, row_idx, c, q_and_r.quotient);
+            c += 4;
+            // remainder byte limbs (4)
+            writeU32Limbs(columns, row_idx, c, q_and_r.remainder);
+            c += 4;
+            columns[c][row_idx] = if (row.rs2_val == 0) M31.one() else M31.zero(); // rs2_is_zero
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(row.rs1_val >> 31); // rs1_sign
+            c += 1;
+            columns[c][row_idx] = M31.fromCanonical(row.rs2_val >> 31); // rs2_sign
+            c += 1;
+            columns[c][row_idx] = M31.zero(); // quotient_sign (placeholder)
+            c += 1;
+            columns[c][row_idx] = M31.zero(); // remainder_sign (placeholder)
+            c += 1;
+            // abs_rs1 limbs (4)
+            writeU32Limbs(columns, row_idx, c, row.rs1_val);
+            c += 4;
+            // abs_rs2 limbs (4)
+            writeU32Limbs(columns, row_idx, c, row.rs2_val);
+            c += 4;
+            // prod_lo_0, prod_lo_1, prod_hi_0, prod_hi_1 (placeholders)
+            columns[c][row_idx] = M31.zero();
+            c += 1;
+            columns[c][row_idx] = M31.zero();
+            c += 1;
+            columns[c][row_idx] = M31.zero();
+            c += 1;
+            columns[c][row_idx] = M31.zero();
+            c += 1;
+            // carry_0, carry_1, overflow (placeholders)
+            columns[c][row_idx] = M31.zero();
+            c += 1;
+            columns[c][row_idx] = M31.zero();
+            c += 1;
+            columns[c][row_idx] = M31.zero();
+            c += 1;
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rd), row.rd_val);
+            c += 10;
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rs1), row.rs1_val);
+            c += 10;
+            writeRegAccess(columns, row_idx, c, @as(u32, row.rs2), row.rs2_val);
         },
     }
 }

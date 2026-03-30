@@ -45,6 +45,10 @@ pub const RiscVClaim = struct {
     // ---- Infrastructure components ----
     program: ?ComponentClaim = null,
     memory: ?ComponentClaim = null,
+    merkle: ?ComponentClaim = null,
+    poseidon2: ?ComponentClaim = null,
+    mem_clock_update: ?ComponentClaim = null,
+    reg_clock_update: ?ComponentClaim = null,
 
     // ---- Preprocessed table components ----
     bitwise: ?ComponentClaim = null,
@@ -53,6 +57,14 @@ pub const RiscVClaim = struct {
     range_check_8_11: ?ComponentClaim = null,
     range_check_8_8_4: ?ComponentClaim = null,
     range_check_m31: ?ComponentClaim = null,
+
+    // ---- Preprocessed multiplicity tracking ----
+    bitwise_mult: ?ComponentClaim = null,
+    range_check_20_mult: ?ComponentClaim = null,
+    range_check_8_8_mult: ?ComponentClaim = null,
+    range_check_8_11_mult: ?ComponentClaim = null,
+    range_check_8_8_4_mult: ?ComponentClaim = null,
+    range_check_m31_mult: ?ComponentClaim = null,
 };
 
 /// Top-level RISC-V interaction claim (mirrors RiscVClaim structure).
@@ -78,6 +90,10 @@ pub const RiscVInteractionClaim = struct {
     // ---- Infrastructure components ----
     program: ?ComponentInteractionClaim = null,
     memory: ?ComponentInteractionClaim = null,
+    merkle: ?ComponentInteractionClaim = null,
+    poseidon2: ?ComponentInteractionClaim = null,
+    mem_clock_update: ?ComponentInteractionClaim = null,
+    reg_clock_update: ?ComponentInteractionClaim = null,
 
     // ---- Preprocessed table components ----
     bitwise: ?ComponentInteractionClaim = null,
@@ -86,6 +102,14 @@ pub const RiscVInteractionClaim = struct {
     range_check_8_11: ?ComponentInteractionClaim = null,
     range_check_8_8_4: ?ComponentInteractionClaim = null,
     range_check_m31: ?ComponentInteractionClaim = null,
+
+    // ---- Preprocessed multiplicity tracking ----
+    bitwise_mult: ?ComponentInteractionClaim = null,
+    range_check_20_mult: ?ComponentInteractionClaim = null,
+    range_check_8_8_mult: ?ComponentInteractionClaim = null,
+    range_check_8_11_mult: ?ComponentInteractionClaim = null,
+    range_check_8_8_4_mult: ?ComponentInteractionClaim = null,
+    range_check_m31_mult: ?ComponentInteractionClaim = null,
 };
 
 test "claims: default initialization" {

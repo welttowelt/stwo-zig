@@ -11,6 +11,7 @@ pub const execute_mod = @import("execute.zig");
 pub const elf_loader = @import("elf_loader.zig");
 pub const trace = @import("trace.zig");
 pub const trace_dump = @import("trace_dump.zig");
+pub const state_chain = @import("state_chain.zig");
 
 pub const Cpu = cpu.Cpu;
 pub const Memory = memory.Memory;
@@ -25,9 +26,12 @@ pub const RunResult = struct {
     step_count: usize,
     /// Execution trace for STARK proving.
     execution_trace: trace.Trace,
+    /// Memory and register access chain state.
+    state_chain_tracker: state_chain.StateChainTracker,
 
     pub fn deinit(self: *RunResult) void {
         self.execution_trace.deinit();
+        self.state_chain_tracker.deinit();
         self.* = undefined;
     }
 };
@@ -45,6 +49,7 @@ pub fn run(allocator: std.mem.Allocator, elf_bytes: []const u8, max_steps: usize
     var rv_cpu = Cpu.init(elf_info.entry_point, default_stack);
     var exec_trace = trace.Trace.init(allocator);
     exec_trace.initial_pc = rv_cpu.pc;
+    var chain_tracker = state_chain.StateChainTracker.init(allocator);
 
     var steps: usize = 0;
     while (steps < max_steps) : (steps += 1) {
@@ -118,6 +123,15 @@ pub fn run(allocator: std.mem.Allocator, elf_bytes: []const u8, max_steps: usize
             .next_pc = rv_cpu.pc,
         });
 
+        // Record state chain accesses.
+        // Clock model: each instruction step is at clock step*2 (even for
+        // reads, odd for writes), matching stark-v's interleaving.
+        const clk: u32 = @intCast(steps * 2);
+        if (inst.rs1 != 0) try chain_tracker.recordRegAccess(inst.rs1, clk, rs1_val);
+        if (inst.rs2 != 0) try chain_tracker.recordRegAccess(inst.rs2, clk, rs2_val);
+        if (inst.rd != 0) try chain_tracker.recordRegAccess(inst.rd, clk + 1, rd_val);
+        if (is_load or is_store) try chain_tracker.recordMemAccess(mem_addr, clk, mem_val);
+
         if (halted) break;
     }
 
@@ -127,6 +141,7 @@ pub fn run(allocator: std.mem.Allocator, elf_bytes: []const u8, max_steps: usize
         .cpu_final = rv_cpu,
         .step_count = steps,
         .execution_trace = exec_trace,
+        .state_chain_tracker = chain_tracker,
     };
 }
 
