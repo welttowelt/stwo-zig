@@ -1031,11 +1031,13 @@ pub fn proveRiscV(
     for (0..trace_mod.N_FAMILIES) |fi| {
         const family: trace_mod.OpcodeFamily = @enumFromInt(fi);
         const count = counts.get(family);
-        if (count == 0) continue;
-
-        var log_size: u32 = @intCast(std.math.log2_int_ceil(usize, count));
-        // The prover requires log_size >= 1.
-        if (log_size == 0) log_size = 1;
+        // Commit ALL families, even with 0 rows — stark-v pads empty families
+        // to minimum size (log_size=4 = 16 rows) for protocol compatibility.
+        const MIN_LOG_SIZE: u32 = 4;
+        const log_size: u32 = if (count == 0)
+            MIN_LOG_SIZE
+        else
+            @max(@as(u32, @intCast(std.math.log2_int_ceil(usize, count))), MIN_LOG_SIZE);
 
         statement.component_descs[statement.n_components] = .{
             .family = family,
@@ -1084,33 +1086,29 @@ pub fn proveRiscV(
         }
     }
 
-    // Memory clock update (7 cols)
+    // Memory clock update (7 cols) — always committed (stark-v pads empty)
     var mem_cu_log: u32 = 4;
     if (opt_chain) |chain| {
         const n_mem_cu = chain.clock_updates_mem.items.len;
-        if (n_mem_cu > 0) {
-            mem_cu_log = computeLogSize(n_mem_cu);
-            statement.infra_descs[statement.n_infra] = .{
-                .log_size = mem_cu_log,
-                .n_columns = infra.MEM_CLOCK_UPDATE_COLS,
-            };
-            statement.n_infra += 1;
-        }
+        if (n_mem_cu > 0) mem_cu_log = @max(computeLogSize(n_mem_cu), 4);
     }
+    statement.infra_descs[statement.n_infra] = .{
+        .log_size = mem_cu_log,
+        .n_columns = infra.MEM_CLOCK_UPDATE_COLS,
+    };
+    statement.n_infra += 1;
 
-    // Register clock update (7 cols)
+    // Register clock update (7 cols) — always committed
     var reg_cu_log: u32 = 4;
     if (opt_chain) |chain| {
         const n_reg_cu = chain.clock_updates_reg.items.len;
-        if (n_reg_cu > 0) {
-            reg_cu_log = computeLogSize(n_reg_cu);
-            statement.infra_descs[statement.n_infra] = .{
-                .log_size = reg_cu_log,
-                .n_columns = infra.REG_CLOCK_UPDATE_COLS,
-            };
-            statement.n_infra += 1;
-        }
+        if (n_reg_cu > 0) reg_cu_log = @max(computeLogSize(n_reg_cu), 4);
     }
+    statement.infra_descs[statement.n_infra] = .{
+        .log_size = reg_cu_log,
+        .n_columns = infra.REG_CLOCK_UPDATE_COLS,
+    };
+    statement.n_infra += 1;
 
     // Build real Poseidon2 Merkle trees and capture hash traces.
     const prog_merkle = try buildProgramMerkleTree(allocator, exec_trace);
@@ -1169,6 +1167,10 @@ pub fn proveRiscV(
         allocator,
         pcs_config,
     );
+
+    // Empty state chain for fallback when opt_chain is null.
+    var empty_chain = state_chain.StateChainTracker.init(allocator);
+    defer empty_chain.deinit();
 
     // -- Step 3: Tree 0 -- Preprocessed (one IsFirst per component, including infra). --
     const n_preproc = statement.n_components + statement.n_infra;
@@ -1244,34 +1246,32 @@ pub fn proveRiscV(
         }
     }
 
-    // Memory clock update (7 cols) -- conditional
-    if (opt_chain) |chain| {
-        if (chain.clock_updates_mem.items.len > 0) {
-            const cu_cols = try infra.genMemClockUpdateColumns(allocator, chain, mem_cu_log);
-            for (0..infra.MEM_CLOCK_UPDATE_COLS) |c| {
-                main_columns[col_offset + c] = .{
-                    .log_size = mem_cu_log,
-                    .values = cu_cols.columns[c],
-                };
-            }
-            col_offset += infra.MEM_CLOCK_UPDATE_COLS;
-            infra_idx += 1;
+    // Memory clock update (7 cols) — always committed
+    {
+        const chain_ptr = opt_chain orelse &empty_chain;
+        const cu_cols = try infra.genMemClockUpdateColumns(allocator, chain_ptr, mem_cu_log);
+        for (0..infra.MEM_CLOCK_UPDATE_COLS) |c| {
+            main_columns[col_offset + c] = .{
+                .log_size = mem_cu_log,
+                .values = cu_cols.columns[c],
+            };
         }
+        col_offset += infra.MEM_CLOCK_UPDATE_COLS;
+        infra_idx += 1;
     }
 
-    // Register clock update (7 cols) -- conditional
-    if (opt_chain) |chain| {
-        if (chain.clock_updates_reg.items.len > 0) {
-            const rcu_cols = try infra.genRegClockUpdateColumns(allocator, chain, reg_cu_log);
-            for (0..infra.REG_CLOCK_UPDATE_COLS) |c| {
-                main_columns[col_offset + c] = .{
-                    .log_size = reg_cu_log,
-                    .values = rcu_cols.columns[c],
-                };
-            }
-            col_offset += infra.REG_CLOCK_UPDATE_COLS;
-            infra_idx += 1;
+    // Register clock update (7 cols) — always committed
+    {
+        const chain_ptr = opt_chain orelse &empty_chain;
+        const rcu_cols = try infra.genRegClockUpdateColumns(allocator, chain_ptr, reg_cu_log);
+        for (0..infra.REG_CLOCK_UPDATE_COLS) |c| {
+            main_columns[col_offset + c] = .{
+                .log_size = reg_cu_log,
+                .values = rcu_cols.columns[c],
+            };
         }
+        col_offset += infra.REG_CLOCK_UPDATE_COLS;
+        infra_idx += 1;
     }
 
     // Poseidon2 (443 cols) -- real traces from Merkle tree building
