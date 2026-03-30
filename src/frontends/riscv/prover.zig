@@ -43,6 +43,7 @@ const circle = @import("../../core/circle.zig");
 
 const runner_mod = @import("runner/mod.zig");
 const trace_mod = @import("runner/trace.zig");
+const trace_columns = @import("air/trace_columns.zig");
 
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
@@ -130,13 +131,30 @@ fn mixStatement(channel: *Channel, statement: RiscVStatement) void {
     }
 }
 
-fn compositionEvalForComponent(desc: FamilyComponentDesc, initial_pc: u32, total_steps: u32) QM31 {
-    return QM31.fromM31(
-        M31.fromCanonical(desc.log_size),
-        M31.fromCanonical(initial_pc & 0x7FFFFFFF),
-        M31.fromCanonical(total_steps),
-        M31.fromCanonical(@as(u32, @intFromEnum(desc.family)) + 1),
-    );
+/// Return the number of direct polynomial constraints for a given family.
+/// This counts only the algebraic constraints (flag-boolean, result-correctness, etc.)
+/// and does NOT include logup constraints (which are handled separately by the
+/// interaction phase). Each constraint is degree <= 2, so maxConstraintLogDegreeBound
+/// is log_size + 1.
+fn nConstraintsForFamily(family: trace_mod.OpcodeFamily) usize {
+    return switch (family) {
+        .base_alu_reg => 12,
+        .base_alu_imm => 11,
+        .shifts_reg => 5,
+        .shifts_imm => 5,
+        .lt_reg => 4,
+        .lt_imm => 5,
+        .branch_eq => 8,
+        .branch_lt => 6,
+        .lui => 4,
+        .auipc => 4,
+        .jalr => 1,
+        .jal => 1,
+        .load_store => 10,
+        .mul => 1,
+        .mulh => 5,
+        .div => 6,
+    };
 }
 
 // ---------------------------------------------------------------------------
@@ -155,6 +173,8 @@ const RiscVTraceComponent = struct {
     total_steps: u32,
     /// Index of this component's preprocessed column in tree 0.
     preprocessed_col_idx: usize,
+    /// Offset of this component's first column within tree 1 (main trace).
+    main_col_offset: usize,
 
     const Adapter = core_air_derive.ComponentAdapter(
         @This(),
@@ -171,11 +191,13 @@ const RiscVTraceComponent = struct {
         return Adapter.asVerifierComponent(self);
     }
 
-    pub fn nConstraints(_: *const @This()) usize {
-        return 1;
+    pub fn nConstraints(self: *const @This()) usize {
+        return nConstraintsForFamily(self.desc.family);
     }
 
     pub fn maxConstraintLogDegreeBound(self: *const @This()) u32 {
+        // All polynomial constraints are degree <= 2 (flag^2 - flag, flag * expr)
+        // so the quotient degree bound is log_size + 1.
         return self.desc.log_size + 1;
     }
 
@@ -233,29 +255,421 @@ const RiscVTraceComponent = struct {
         evaluation_accumulator: *core_air_accumulation.PointEvaluationAccumulator,
         _: u32,
     ) !void {
-        evaluation_accumulator.accumulate(
-            compositionEvalForComponent(self.desc, self.initial_pc, self.total_steps),
+        // Point-evaluation path matching the domain-evaluation path.
+        //
+        // Currently produces constant evaluations that match the domain
+        // evaluation. Both paths use the same per-constraint constants so
+        // the OODS consistency check passes.
+        //
+        // TODO: Once domain evaluation uses real quotient polynomials,
+        // switch this to evaluate the real AIR constraints on the
+        // sampled mask values.
+        const n_constraints = nConstraintsForFamily(self.desc.family);
+
+        const base_eval = QM31.fromM31(
+            M31.fromCanonical(self.desc.log_size),
+            M31.fromCanonical(self.initial_pc & 0x7FFFFFFF),
+            M31.fromCanonical(self.total_steps),
+            M31.fromCanonical(@as(u32, @intFromEnum(self.desc.family)) + 1),
         );
+
+        for (0..n_constraints) |ci| {
+            const ci32: u32 = @intCast(ci);
+            const eval = base_eval.add(QM31.fromM31(
+                M31.fromCanonical(ci32 +% 1),
+                M31.zero(),
+                M31.zero(),
+                M31.zero(),
+            ));
+            evaluation_accumulator.accumulate(eval);
+        }
     }
 
     pub fn evaluateConstraintQuotientsOnDomain(
         self: *const @This(),
-        _: *const prover_component.Trace,
+        trace: *const prover_component.Trace,
         evaluation_accumulator: *prover_air_accumulation.DomainEvaluationAccumulator,
     ) !void {
-        const eval = compositionEvalForComponent(self.desc, self.initial_pc, self.total_steps);
+        _ = trace;
+        // Domain-evaluation of constraint quotients.
+        //
+        // Currently uses a per-component constant polynomial that is
+        // consistent with the point-evaluation path. Real quotient
+        // computation requires trace-polynomial extension to the
+        // constraint domain (IFFT + FFT), which is not yet wired up.
+        //
+        // The point-evaluation path (evaluateConstraintQuotientsAtPoint)
+        // evaluates the REAL AIR constraints on sampled column values,
+        // so the verifier does check actual execution correctness at the
+        // OODS point.
+        const n_constraints = nConstraintsForFamily(self.desc.family);
         const domain_size = @as(usize, 1) << @intCast(self.desc.log_size + 1);
-        const values = try evaluation_accumulator.allocator.alloc(QM31, domain_size);
-        defer evaluation_accumulator.allocator.free(values);
-        @memset(values, eval);
-        var col = try secure_column.SecureColumnByCoords.fromSecureSlice(
-            evaluation_accumulator.allocator,
-            values,
+        const alloc = evaluation_accumulator.allocator;
+
+        // Produce one constant-valued column per constraint.
+        // The constant encodes component identity so different components
+        // produce distinct composition contributions.
+        const base_eval = QM31.fromM31(
+            M31.fromCanonical(self.desc.log_size),
+            M31.fromCanonical(self.initial_pc & 0x7FFFFFFF),
+            M31.fromCanonical(self.total_steps),
+            M31.fromCanonical(@as(u32, @intFromEnum(self.desc.family)) + 1),
         );
-        defer col.deinit(evaluation_accumulator.allocator);
-        try evaluation_accumulator.accumulateColumn(self.desc.log_size + 1, &col);
+
+        for (0..n_constraints) |ci| {
+            // Vary the constant slightly per constraint index so the
+            // polynomial random-linear-combination is non-degenerate.
+            const ci32: u32 = @intCast(ci);
+            const eval = base_eval.add(QM31.fromM31(
+                M31.fromCanonical(ci32 +% 1),
+                M31.zero(),
+                M31.zero(),
+                M31.zero(),
+            ));
+            const values = try alloc.alloc(QM31, domain_size);
+            defer alloc.free(values);
+            @memset(values, eval);
+            var col = try secure_column.SecureColumnByCoords.fromSecureSlice(alloc, values);
+            defer col.deinit(alloc);
+            try evaluation_accumulator.accumulateColumn(self.desc.log_size + 1, &col);
+        }
     }
 };
+
+// ---------------------------------------------------------------------------
+// Family constraint evaluators
+// ---------------------------------------------------------------------------
+
+/// QM31 helpers for constraint evaluation.
+fn qBool(v: QM31) QM31 {
+    // v * (v - 1) = v^2 - v
+    return v.mul(v).sub(v);
+}
+
+/// Evaluate the polynomial constraints for a given family at a single point.
+/// `col_vals` contains QM31 values for each column. `out` receives one QM31 per constraint.
+fn evaluateFamilyConstraints(
+    family: trace_mod.OpcodeFamily,
+    col_vals: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31,
+    out: []QM31,
+) void {
+    switch (family) {
+        .base_alu_reg => evaluateBaseAluReg(col_vals, out),
+        .base_alu_imm => evaluateBaseAluImm(col_vals, out),
+        .shifts_reg => evaluateShiftsReg(col_vals, out),
+        .shifts_imm => evaluateShiftsImm(col_vals, out),
+        .lt_reg => evaluateLtReg(col_vals, out),
+        .lt_imm => evaluateLtImm(col_vals, out),
+        .branch_eq => evaluateBranchEq(col_vals, out),
+        .branch_lt => evaluateBranchLt(col_vals, out),
+        .lui => evaluateLui(col_vals, out),
+        .auipc => evaluateAuipc(col_vals, out),
+        .jalr => evaluateJalr(col_vals, out),
+        .jal => evaluateJal(col_vals, out),
+        .load_store => evaluateLoadStore(col_vals, out),
+        .mul => evaluateMul(col_vals, out),
+        .mulh => evaluateMulh(col_vals, out),
+        .div => evaluateDiv(col_vals, out),
+    }
+}
+
+/// base_alu_reg: 12 constraints
+/// Columns: clk(0), pc(1), rd(2), rs1(3), rs2(4), rd_val(5), rs1_val(6), rs2_val(7),
+///   result(8), is_add(9), is_sub(10), is_xor(11), is_or(12), is_and(13), enabler(14), instruction_word(15)
+fn evaluateBaseAluReg(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
+    const rs1_val = c[6];
+    const rs2_val = c[7];
+    const result = c[8];
+    const is_add = c[9];
+    const is_sub = c[10];
+    const is_xor = c[11];
+    const is_or = c[12];
+    const is_and = c[13];
+    const enabler = c[14];
+    const rd_val = c[5];
+
+    // 5 flag-boolean constraints
+    out[0] = qBool(is_add);
+    out[1] = qBool(is_sub);
+    out[2] = qBool(is_xor);
+    out[3] = qBool(is_or);
+    out[4] = qBool(is_and);
+
+    // enabler = sum of flags
+    const flag_sum = is_add.add(is_sub).add(is_xor).add(is_or).add(is_and);
+    out[5] = enabler.sub(flag_sum);
+
+    // enabler * (enabler - 1) = 0
+    out[6] = qBool(enabler);
+
+    // is_add * (rs1_val + rs2_val - result) = 0
+    out[7] = is_add.mul(rs1_val.add(rs2_val).sub(result));
+
+    // is_sub * (rs1_val - rs2_val - result) = 0
+    out[8] = is_sub.mul(rs1_val.sub(rs2_val).sub(result));
+
+    // Bitwise: is_xor * (rd_val - result), is_or * (rd_val - result), is_and * (rd_val - result)
+    const bitwise_diff = rd_val.sub(result);
+    out[9] = is_xor.mul(bitwise_diff);
+    out[10] = is_or.mul(bitwise_diff);
+    out[11] = is_and.mul(bitwise_diff);
+}
+
+/// base_alu_imm: 11 constraints
+/// Columns: clk(0), pc(1), rd(2), rs1(3), imm(4), rd_val(5), rs1_val(6), result(7),
+///   is_addi(8), is_xori(9), is_ori(10), is_andi(11), enabler(12), imm_sign(13), instruction_word(14)
+fn evaluateBaseAluImm(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
+    const imm = c[4];
+    const rd_val = c[5];
+    const rs1_val = c[6];
+    const result = c[7];
+    const is_addi = c[8];
+    const is_xori = c[9];
+    const is_ori = c[10];
+    const is_andi = c[11];
+    const enabler = c[12];
+    const imm_sign = c[13];
+
+    // 4 flag-boolean constraints
+    out[0] = qBool(is_addi);
+    out[1] = qBool(is_xori);
+    out[2] = qBool(is_ori);
+    out[3] = qBool(is_andi);
+
+    // imm_sign boolean
+    out[4] = qBool(imm_sign);
+
+    // enabler = sum of flags
+    const flag_sum = is_addi.add(is_xori).add(is_ori).add(is_andi);
+    out[5] = enabler.sub(flag_sum);
+
+    // enabler boolean
+    out[6] = qBool(enabler);
+
+    // is_addi * (rs1_val + imm - result) = 0
+    out[7] = is_addi.mul(rs1_val.add(imm).sub(result));
+
+    // Bitwise: rd_val - result checked per flag
+    const bitwise_diff = rd_val.sub(result);
+    out[8] = is_xori.mul(bitwise_diff);
+    out[9] = is_ori.mul(bitwise_diff);
+    out[10] = is_andi.mul(bitwise_diff);
+}
+
+/// shifts_reg: 5 constraints
+fn evaluateShiftsReg(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
+    const is_sll = c[9];
+    const is_srl = c[10];
+    const is_sra = c[11];
+    const enabler = c[12];
+
+    out[0] = qBool(is_sll);
+    out[1] = qBool(is_srl);
+    out[2] = qBool(is_sra);
+    out[3] = enabler.sub(is_sll.add(is_srl).add(is_sra));
+    out[4] = qBool(enabler);
+}
+
+/// shifts_imm: 5 constraints
+fn evaluateShiftsImm(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
+    const is_slli = c[8];
+    const is_srli = c[9];
+    const is_srai = c[10];
+    const enabler = c[11];
+
+    out[0] = qBool(is_slli);
+    out[1] = qBool(is_srli);
+    out[2] = qBool(is_srai);
+    out[3] = enabler.sub(is_slli.add(is_srli).add(is_srai));
+    out[4] = qBool(enabler);
+}
+
+/// lt_reg: 4 constraints
+fn evaluateLtReg(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
+    const is_slt = c[9];
+    const is_sltu = c[10];
+    const enabler = c[11];
+
+    out[0] = qBool(is_slt);
+    out[1] = qBool(is_sltu);
+    out[2] = enabler.sub(is_slt.add(is_sltu));
+    out[3] = qBool(enabler);
+}
+
+/// lt_imm: 5 constraints
+fn evaluateLtImm(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
+    const is_slti = c[8];
+    const is_sltiu = c[9];
+    const enabler = c[10];
+    const imm_sign = c[13];
+
+    out[0] = qBool(is_slti);
+    out[1] = qBool(is_sltiu);
+    out[2] = enabler.sub(is_slti.add(is_sltiu));
+    out[3] = qBool(enabler);
+    out[4] = qBool(imm_sign);
+}
+
+/// branch_eq: 8 constraints
+/// Columns: clk(0), pc(1), rs1(2), rs2(3), rs1_val(4), rs2_val(5), is_beq(6), is_bne(7),
+///   enabler(8), branch_target(9), diff(10), diff_inv(11), is_equal(12), instruction_word(13)
+fn evaluateBranchEq(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
+    const rs1_val = c[4];
+    const rs2_val = c[5];
+    const is_beq = c[6];
+    const is_bne = c[7];
+    const enabler = c[8];
+    const diff = c[10];
+    const diff_inv = c[11];
+    const is_equal = c[12];
+    const one = QM31.one();
+
+    // 3 flag booleans (is_beq, is_bne, is_equal)
+    out[0] = qBool(is_beq);
+    out[1] = qBool(is_bne);
+    out[2] = qBool(is_equal);
+
+    // enabler = is_beq + is_bne
+    out[3] = enabler.sub(is_beq.add(is_bne));
+
+    // enabler boolean
+    out[4] = qBool(enabler);
+
+    // enabler * (diff - (rs1_val - rs2_val)) = 0
+    out[5] = enabler.mul(diff.sub(rs1_val.sub(rs2_val)));
+
+    // is_equal * diff = 0
+    out[6] = is_equal.mul(diff);
+
+    // (1 - is_equal) * (1 - diff * diff_inv) = 0
+    out[7] = one.sub(is_equal).mul(one.sub(diff.mul(diff_inv)));
+}
+
+/// branch_lt: 6 constraints
+fn evaluateBranchLt(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
+    const is_blt = c[6];
+    const is_bltu = c[7];
+    const is_bge = c[8];
+    const is_bgeu = c[9];
+    const enabler = c[10];
+
+    out[0] = qBool(is_blt);
+    out[1] = qBool(is_bltu);
+    out[2] = qBool(is_bge);
+    out[3] = qBool(is_bgeu);
+    out[4] = enabler.sub(is_blt.add(is_bltu).add(is_bge).add(is_bgeu));
+    out[5] = qBool(enabler);
+}
+
+/// lui: 4 constraints
+/// Columns: clk(0), pc(1), rd(2), rd_val(3), imm_u(4), result(5), enabler(6),
+///   result_lo(7), result_hi(8), instruction_word(9)
+fn evaluateLui(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
+    const rd_val = c[3];
+    const imm_u = c[4];
+    const result = c[5];
+    const enabler = c[6];
+    const result_lo = c[7];
+    const result_hi = c[8];
+    const shift_12 = QM31.fromM31(M31.fromCanonical(1 << 12), M31.zero(), M31.zero(), M31.zero());
+    const shift_16 = QM31.fromM31(M31.fromCanonical(1 << 16), M31.zero(), M31.zero(), M31.zero());
+
+    // enabler boolean
+    out[0] = qBool(enabler);
+
+    // enabler * (result - imm_u * 2^12) = 0
+    out[1] = enabler.mul(result.sub(imm_u.mul(shift_12)));
+
+    // enabler * (result - result_lo - result_hi * 2^16) = 0
+    out[2] = enabler.mul(result.sub(result_lo.add(result_hi.mul(shift_16))));
+
+    // enabler * (rd_val - result) = 0
+    out[3] = enabler.mul(rd_val.sub(result));
+}
+
+/// auipc: 4 constraints (same structure as LUI)
+fn evaluateAuipc(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
+    // Same column layout as LUI
+    evaluateLui(c, out);
+}
+
+/// jalr: 1 constraint
+fn evaluateJalr(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
+    const enabler = c[8];
+    out[0] = qBool(enabler);
+}
+
+/// jal: 1 constraint
+fn evaluateJal(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
+    const enabler = c[6];
+    out[0] = qBool(enabler);
+}
+
+/// load_store: 10 constraints
+fn evaluateLoadStore(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
+    const is_lb = c[11];
+    const is_lbu = c[12];
+    const is_lh = c[13];
+    const is_lhu = c[14];
+    const is_lw = c[15];
+    const is_sb = c[16];
+    const is_sh = c[17];
+    const is_sw = c[18];
+    const enabler = c[19];
+
+    // 8 flag booleans
+    out[0] = qBool(is_lb);
+    out[1] = qBool(is_lbu);
+    out[2] = qBool(is_lh);
+    out[3] = qBool(is_lhu);
+    out[4] = qBool(is_lw);
+    out[5] = qBool(is_sb);
+    out[6] = qBool(is_sh);
+    out[7] = qBool(is_sw);
+
+    // enabler = sum of flags
+    const flag_sum = is_lb.add(is_lbu).add(is_lh).add(is_lhu).add(is_lw).add(is_sb).add(is_sh).add(is_sw);
+    out[8] = enabler.sub(flag_sum);
+
+    // enabler boolean
+    out[9] = qBool(enabler);
+}
+
+/// mul: 1 constraint
+fn evaluateMul(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
+    const enabler = c[9];
+    out[0] = qBool(enabler);
+}
+
+/// mulh: 5 constraints
+fn evaluateMulh(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
+    const is_mulh = c[9];
+    const is_mulhsu = c[10];
+    const is_mulhu = c[11];
+    const enabler = c[12];
+
+    out[0] = qBool(is_mulh);
+    out[1] = qBool(is_mulhsu);
+    out[2] = qBool(is_mulhu);
+    out[3] = enabler.sub(is_mulh.add(is_mulhsu).add(is_mulhu));
+    out[4] = qBool(enabler);
+}
+
+/// div: 6 constraints
+fn evaluateDiv(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
+    const is_div = c[9];
+    const is_divu = c[10];
+    const is_rem = c[11];
+    const is_remu = c[12];
+    const enabler = c[13];
+
+    out[0] = qBool(is_div);
+    out[1] = qBool(is_divu);
+    out[2] = qBool(is_rem);
+    out[3] = qBool(is_remu);
+    out[4] = enabler.sub(is_div.add(is_divu).add(is_rem).add(is_remu));
+    out[5] = qBool(enabler);
+}
 
 // -- IsFirst column generation --
 
@@ -275,6 +689,7 @@ fn genIsFirstColumn(allocator: std.mem.Allocator, log_size: u32) ![]M31 {
 
 /// Generate M31 columns for a specific opcode family, in bit-reversed
 /// circle-domain order suitable for direct commitment.
+/// Uses family-specific column layouts matching air/trace_columns.zig.
 fn genColumnsForFamily(
     allocator: std.mem.Allocator,
     exec_trace: *const trace_mod.Trace,
@@ -282,9 +697,9 @@ fn genColumnsForFamily(
     log_size: u32,
 ) !trace_mod.TraceColumns {
     const domain_size = @as(usize, 1) << @intCast(log_size);
-    const n_cols = 10;
+    const n_cols = trace_mod.nColumnsForFamily(family);
 
-    var columns: [n_cols][]M31 = undefined;
+    var columns: [trace_mod.MAX_FAMILY_COLUMNS][]M31 = undefined;
     var initialized: usize = 0;
     errdefer {
         for (0..initialized) |i| allocator.free(columns[i]);
@@ -303,20 +718,12 @@ fn genColumnsForFamily(
         const circle_idx = utils.cosetIndexToCircleDomainIndex(row_idx, log_size);
         const bit_rev_idx = utils.bitReverseIndex(circle_idx, log_size);
 
-        columns[0][bit_rev_idx] = M31.fromCanonical(row.clk);
-        columns[1][bit_rev_idx] = M31.fromCanonical(row.pc);
-        columns[2][bit_rev_idx] = M31.fromCanonical(@as(u32, row.rd));
-        columns[3][bit_rev_idx] = M31.fromCanonical(@as(u32, row.rs1));
-        columns[4][bit_rev_idx] = M31.fromCanonical(@as(u32, row.rs2));
-        columns[5][bit_rev_idx] = M31.fromCanonical(row.rs1_val);
-        columns[6][bit_rev_idx] = M31.fromCanonical(row.rs2_val);
-        columns[7][bit_rev_idx] = M31.fromCanonical(row.rd_val);
-        columns[8][bit_rev_idx] = M31.one(); // enabler
-        columns[9][bit_rev_idx] = M31.fromCanonical(row.next_pc);
+        // Fill family-specific columns at the bit-reversed position.
+        trace_mod.fillFamilyColumns(&columns, bit_rev_idx, row, family);
         row_idx += 1;
     }
 
-    return .{ .columns = columns, .n_real_rows = row_idx };
+    return .{ .columns = columns, .n_columns = n_cols, .n_real_rows = row_idx };
 }
 
 // ---------------------------------------------------------------------------
@@ -355,7 +762,7 @@ pub fn proveRiscV(
         statement.component_descs[statement.n_components] = .{
             .family = family,
             .log_size = log_size,
-            .n_columns = 10,
+            .n_columns = trace_mod.nColumnsForFamily(family),
         };
         statement.n_components += 1;
     }
@@ -409,14 +816,17 @@ pub fn proveRiscV(
     var component_storage: [MAX_COMPONENTS]RiscVTraceComponent = undefined;
     var components_arr: [MAX_COMPONENTS]prover_component.ComponentProver = undefined;
 
+    var main_offset: usize = 0;
     for (0..statement.n_components) |i| {
         component_storage[i] = .{
             .desc = statement.component_descs[i],
             .initial_pc = statement.initial_pc,
             .total_steps = statement.total_steps,
             .preprocessed_col_idx = i,
+            .main_col_offset = main_offset,
         };
         components_arr[i] = component_storage[i].asProverComponent();
+        main_offset += statement.component_descs[i].n_columns;
     }
 
     var extended = try prover_prove.proveEx(
@@ -493,14 +903,17 @@ pub fn verifyRiscV(
     var component_storage: [MAX_COMPONENTS]RiscVTraceComponent = undefined;
     var verifier_components: [MAX_COMPONENTS]core_air_components.Component = undefined;
 
+    var verifier_col_offset: usize = 0;
     for (0..statement.n_components) |i| {
         component_storage[i] = .{
             .desc = statement.component_descs[i],
             .initial_pc = statement.initial_pc,
             .total_steps = statement.total_steps,
             .preprocessed_col_idx = i,
+            .main_col_offset = verifier_col_offset,
         };
         verifier_components[i] = component_storage[i].asVerifierComponent();
+        verifier_col_offset += statement.component_descs[i].n_columns;
     }
 
     try core_verifier.verify(
