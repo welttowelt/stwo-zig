@@ -106,6 +106,8 @@ pub fn main() !void {
     var pow_bits: u32 = 0;
     var n_queries: u64 = 3;
     var production: bool = false;
+    var elf_path: ?[]const u8 = null;
+    var max_steps: usize = 10_000_000;
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
         if (std.mem.eql(u8, args[i], "--fib-n") and i + 1 < args.len) {
@@ -119,6 +121,12 @@ pub fn main() !void {
             n_queries = try std.fmt.parseInt(u64, args[i], 10);
         } else if (std.mem.eql(u8, args[i], "--production")) {
             production = true;
+        } else if (std.mem.eql(u8, args[i], "--elf") and i + 1 < args.len) {
+            i += 1;
+            elf_path = args[i];
+        } else if (std.mem.eql(u8, args[i], "--max-steps") and i + 1 < args.len) {
+            i += 1;
+            max_steps = try std.fmt.parseInt(usize, args[i], 10);
         }
     }
 
@@ -145,14 +153,21 @@ pub fn main() !void {
         },
     };
 
-    // Stage 1: Generate ELF
+    // Stage 1: Load or generate ELF
     const t_total = Timer.begin();
-    const elf_bytes = try makeFibElf(allocator, fib_n);
+    const elf_bytes = if (elf_path) |path|
+        try std.fs.cwd().readFileAlloc(allocator, path, 64 * 1024 * 1024)
+    else
+        try makeFibElf(allocator, fib_n);
     defer allocator.free(elf_bytes);
+
+    if (elf_path != null) {
+        std.debug.print("ELF: {s} ({d} bytes)\n", .{ elf_path.?, elf_bytes.len });
+    }
 
     // Stage 2: Execute
     const t_exec = Timer.begin();
-    var run_result = try runner.run(allocator, elf_bytes, fib_n * 6);
+    var run_result = try runner.run(allocator, elf_bytes, if (elf_path != null) max_steps else fib_n * 6);
     defer run_result.deinit();
     const exec_ms = t_exec.elapsedMs();
 
