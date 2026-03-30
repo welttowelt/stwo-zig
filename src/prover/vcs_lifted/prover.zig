@@ -4,6 +4,7 @@ const m31 = @import("../../core/fields/m31.zig");
 const lifted_merkle_hasher = @import("../../core/vcs_lifted/merkle_hasher.zig");
 const vcs_lifted_verifier = @import("../../core/vcs_lifted/verifier.zig");
 const mmap_alloc_mod = @import("../mmap_alloc.zig");
+const work_pool_mod = @import("../work_pool.zig");
 
 const M31 = m31.M31;
 
@@ -99,6 +100,14 @@ pub fn MerkleProverLifted(comptime H: type) type {
             }
 
             fn sharedThreadPool() ?*ThreadPool {
+                // Prefer the unified global work pool so Merkle hashing and
+                // FFT don't create competing thread pools.
+                if (work_pool_mod.getGlobalPool()) |global_pool| {
+                    return &global_pool.pool;
+                }
+
+                // Fallback: create our own pool (test builds, single-threaded,
+                // or if the global pool failed to initialise).
                 shared_pool_state.mutex.lock();
                 defer shared_pool_state.mutex.unlock();
 
@@ -439,9 +448,85 @@ pub fn MerkleProverLifted(comptime H: type) type {
             // Output layer uses mmap-backed allocator for sequential-read
             // hinting; temporary hasher arrays above use the regular allocator.
             const out = try layer_alloc.alloc(H.Hash, prev_layer.len);
-            for (prev_layer, 0..) |*hasher, i| out[i] = hasher.finalize();
+            if (prev_layer.len >= parallel_min_nodes and !builtin.single_threaded) {
+                finalizeLeafHashersParallel(prev_layer, out);
+            } else {
+                for (prev_layer, 0..) |*hasher, i| out[i] = hasher.finalize();
+            }
             allocator.free(prev_layer);
             return out;
+        }
+
+        const FinalizeRangeCtx = struct {
+            hashers: []H,
+            out: []H.Hash,
+            start: usize,
+            end: usize,
+        };
+
+        fn finalizeRange(ctx: *const FinalizeRangeCtx) void {
+            var i = ctx.start;
+            while (i < ctx.end) : (i += 1) {
+                ctx.out[i] = ctx.hashers[i].finalize();
+            }
+        }
+
+        fn finalizeRangeThread(ctx: *const FinalizeRangeCtx) void {
+            finalizeRange(ctx);
+        }
+
+        fn finalizeLeafHashersParallel(hashers: []H, out: []H.Hash) void {
+            std.debug.assert(hashers.len == out.len);
+            std.debug.assert(hashers.len >= parallel_min_nodes);
+
+            const worker_count = blk: {
+                const capacity = hashers.len / parallel_min_nodes_per_worker;
+                if (capacity < 2) break :blk @as(usize, 1);
+                const cpu_count = std.Thread.getCpuCount() catch break :blk @as(usize, 1);
+                break :blk @min(@min(cpu_count, capacity), max_parallel_workers);
+            };
+
+            if (worker_count <= 1) {
+                for (hashers, 0..) |*h, i| out[i] = h.finalize();
+                return;
+            }
+
+            // Try to use the unified global pool first, then the Merkle shared pool.
+            const pool_ptr: *ThreadPool = blk: {
+                if (work_pool_mod.getGlobalPool()) |global_pool| {
+                    break :blk &global_pool.pool;
+                }
+                break :blk LayerExecutor.sharedThreadPool() orelse {
+                    for (hashers, 0..) |*h, i| out[i] = h.finalize();
+                    return;
+                };
+            };
+
+            var contexts: [max_parallel_workers]FinalizeRangeCtx = undefined;
+            const chunk_len = (hashers.len + worker_count - 1) / worker_count;
+            var actual_workers: usize = 0;
+            var start: usize = 0;
+            while (start < hashers.len and actual_workers < worker_count) : (actual_workers += 1) {
+                const end = @min(hashers.len, start + chunk_len);
+                contexts[actual_workers] = FinalizeRangeCtx{
+                    .hashers = hashers,
+                    .out = out,
+                    .start = start,
+                    .end = end,
+                };
+                start = end;
+            }
+            if (actual_workers <= 1) {
+                finalizeRange(&contexts[0]);
+                return;
+            }
+
+            var wait_group: WaitGroup = .{};
+            for (1..actual_workers) |i| {
+                pool_ptr.spawnWg(&wait_group, finalizeRangeThread, .{&contexts[i]});
+            }
+            finalizeRange(&contexts[0]);
+            wait_group.wait();
         }
 
         fn updateLeafHashersPacked(

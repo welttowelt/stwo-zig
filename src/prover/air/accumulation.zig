@@ -1,7 +1,9 @@
 const std = @import("std");
+const m31_mod = @import("../../core/fields/m31.zig");
 const qm31 = @import("../../core/fields/qm31.zig");
 const secure_column = @import("../secure_column.zig");
 
+const M31 = m31_mod.M31;
 const QM31 = qm31.QM31;
 const SecureColumnByCoords = secure_column.SecureColumnByCoords;
 
@@ -35,6 +37,10 @@ pub const DomainEvaluationAccumulator = struct {
     random_coeff_powers: []QM31,
     next_power_index: usize,
     sub_accumulations: []?SecureColumnByCoords,
+    /// When true this accumulator owns `random_coeff_powers` and will free it
+    /// on deinit. Sub-accumulators created via `initForComponent` borrow the
+    /// parent's powers and set this to false.
+    owns_powers: bool = true,
 
     pub fn init(
         allocator: std.mem.Allocator,
@@ -55,6 +61,7 @@ pub const DomainEvaluationAccumulator = struct {
             .random_coeff_powers = powers,
             .next_power_index = powers.len,
             .sub_accumulations = subs,
+            .owns_powers = true,
         };
     }
 
@@ -63,7 +70,9 @@ pub const DomainEvaluationAccumulator = struct {
             if (maybe_col.*) |*col| col.deinit(self.allocator);
         }
         self.allocator.free(self.sub_accumulations);
-        self.allocator.free(self.random_coeff_powers);
+        if (self.owns_powers) {
+            self.allocator.free(self.random_coeff_powers);
+        }
         self.* = undefined;
     }
 
@@ -136,6 +145,62 @@ pub const DomainEvaluationAccumulator = struct {
                 out.set(row, evaluation.at(row).mul(random_coeff));
             }
             self.sub_accumulations[log_size] = out;
+        }
+    }
+
+    /// Create a sub-accumulator that owns no memory and shares the pre-computed
+    /// power slice of a parent accumulator. Intended for parallel evaluation:
+    /// each worker gets its own sub-accumulator that writes to independent
+    /// `sub_accumulations` but references the same `random_coeff_powers`.
+    ///
+    /// `start_power_index` is the value `next_power_index` should begin at for
+    /// this component (i.e. the number of remaining powers when this component
+    /// starts consuming). `n_powers` is how many powers this component will
+    /// consume (== nConstraints).
+    ///
+    /// The returned accumulator borrows `random_coeff_powers` from the parent;
+    /// it must NOT outlive the parent and its `deinit` frees only the
+    /// sub_accumulations array (not the powers).
+    pub fn initForComponent(
+        parent_powers: []QM31,
+        allocator: std.mem.Allocator,
+        max_log_size: u32,
+        start_power_index: usize,
+    ) !DomainEvaluationAccumulator {
+        const subs = try allocator.alloc(?SecureColumnByCoords, max_log_size + 1);
+        @memset(subs, null);
+
+        return .{
+            .allocator = allocator,
+            .max_log_size = max_log_size,
+            .random_coeff_powers = parent_powers,
+            .next_power_index = start_power_index,
+            .sub_accumulations = subs,
+            .owns_powers = false,
+        };
+    }
+
+    /// Merge another accumulator's sub_accumulations into this one.
+    /// Both accumulators must have the same max_log_size.
+    /// After merge, `other`'s slots that were transferred are set to null
+    /// so that `other.deinit()` will not double-free them.
+    pub fn merge(self: *DomainEvaluationAccumulator, other: *DomainEvaluationAccumulator) void {
+        for (0..self.sub_accumulations.len) |i| {
+            if (other.sub_accumulations[i]) |*other_col| {
+                if (self.sub_accumulations[i]) |*self_col| {
+                    // Both have this bucket: add other's values into self's
+                    const col_len = self_col.len();
+                    for (0..4) |coord| {
+                        for (0..col_len) |row| {
+                            self_col.columns[coord][row] = self_col.columns[coord][row].add(other_col.columns[coord][row]);
+                        }
+                    }
+                } else {
+                    // Self doesn't have this slot: take ownership from other
+                    self.sub_accumulations[i] = other.sub_accumulations[i];
+                    other.sub_accumulations[i] = null;
+                }
+            }
         }
     }
 
@@ -312,4 +377,121 @@ test "prover air accumulation: columns API assigns tail coefficient chunks" {
 
     try std.testing.expect(col0.col.at(0).eql(QM31.fromU32Unchecked(7, 0, 0, 0)));
     try std.testing.expect(col1.col.at(3).eql(QM31.fromU32Unchecked(9, 0, 0, 0)));
+}
+
+test "prover air accumulation: merge combines sub_accumulations" {
+    const alloc = std.testing.allocator;
+    const alpha = QM31.fromU32Unchecked(3, 0, 0, 0);
+
+    // Create two accumulators that accumulate into the same log_size bucket
+    // using initForComponent with pre-assigned power indices.
+    const total_constraints: usize = 2;
+    const powers = try generateSecurePowers(alloc, alpha, total_constraints);
+    defer alloc.free(powers);
+
+    // Accumulator A gets power index 2 (will consume 1 -> lands at index 1 = alpha)
+    var acc_a = try DomainEvaluationAccumulator.initForComponent(powers, alloc, 2, 2);
+    defer acc_a.deinit();
+
+    // Accumulator B gets power index 1 (will consume 1 -> lands at index 0 = 1)
+    var acc_b = try DomainEvaluationAccumulator.initForComponent(powers, alloc, 2, 1);
+    defer acc_b.deinit();
+
+    const vals_a = [_]QM31{
+        QM31.fromU32Unchecked(1, 0, 0, 0),
+        QM31.fromU32Unchecked(2, 0, 0, 0),
+        QM31.fromU32Unchecked(3, 0, 0, 0),
+        QM31.fromU32Unchecked(4, 0, 0, 0),
+    };
+    const vals_b = [_]QM31{
+        QM31.fromU32Unchecked(10, 0, 0, 0),
+        QM31.fromU32Unchecked(20, 0, 0, 0),
+        QM31.fromU32Unchecked(30, 0, 0, 0),
+        QM31.fromU32Unchecked(40, 0, 0, 0),
+    };
+
+    var col_a = try SecureColumnByCoords.fromSecureSlice(alloc, vals_a[0..]);
+    defer col_a.deinit(alloc);
+    var col_b = try SecureColumnByCoords.fromSecureSlice(alloc, vals_b[0..]);
+    defer col_b.deinit(alloc);
+
+    try acc_a.accumulateColumn(2, &col_a);
+    try acc_b.accumulateColumn(2, &col_b);
+
+    // Merge B into A
+    acc_a.merge(&acc_b);
+
+    // After merge, force next_power_index = 0 for finalize
+    acc_a.next_power_index = 0;
+    var combined = try acc_a.finalize();
+    defer combined.deinit(alloc);
+
+    // Also compute the sequential reference
+    var ref_acc = try DomainEvaluationAccumulator.init(alloc, alpha, 2, 2);
+    defer ref_acc.deinit();
+    try ref_acc.accumulateColumn(2, &col_a);
+    try ref_acc.accumulateColumn(2, &col_b);
+    var ref_combined = try ref_acc.finalize();
+    defer ref_combined.deinit(alloc);
+
+    // Compare
+    const combined_vec = try combined.toVec(alloc);
+    defer alloc.free(combined_vec);
+    const ref_vec = try ref_combined.toVec(alloc);
+    defer alloc.free(ref_vec);
+
+    try std.testing.expectEqual(combined_vec.len, ref_vec.len);
+    for (combined_vec, ref_vec) |c, r| {
+        try std.testing.expect(c.eql(r));
+    }
+}
+
+test "prover air accumulation: merge transfers ownership for empty slots" {
+    const alloc = std.testing.allocator;
+    const alpha = QM31.fromU32Unchecked(2, 0, 0, 0);
+
+    const total_constraints: usize = 2;
+    const powers = try generateSecurePowers(alloc, alpha, total_constraints);
+    defer alloc.free(powers);
+
+    // A writes to log_size 3, B writes to log_size 2 -> non-overlapping buckets
+    var acc_a = try DomainEvaluationAccumulator.initForComponent(powers, alloc, 3, 2);
+    defer acc_a.deinit();
+    var acc_b = try DomainEvaluationAccumulator.initForComponent(powers, alloc, 3, 1);
+    defer acc_b.deinit();
+
+    const large_vals = [_]QM31{
+        QM31.fromU32Unchecked(1, 0, 0, 0),
+        QM31.fromU32Unchecked(2, 0, 0, 0),
+        QM31.fromU32Unchecked(3, 0, 0, 0),
+        QM31.fromU32Unchecked(4, 0, 0, 0),
+        QM31.fromU32Unchecked(5, 0, 0, 0),
+        QM31.fromU32Unchecked(6, 0, 0, 0),
+        QM31.fromU32Unchecked(7, 0, 0, 0),
+        QM31.fromU32Unchecked(8, 0, 0, 0),
+    };
+    const small_vals = [_]QM31{
+        QM31.fromU32Unchecked(10, 0, 0, 0),
+        QM31.fromU32Unchecked(20, 0, 0, 0),
+        QM31.fromU32Unchecked(30, 0, 0, 0),
+        QM31.fromU32Unchecked(40, 0, 0, 0),
+    };
+
+    var col_large = try SecureColumnByCoords.fromSecureSlice(alloc, large_vals[0..]);
+    defer col_large.deinit(alloc);
+    var col_small = try SecureColumnByCoords.fromSecureSlice(alloc, small_vals[0..]);
+    defer col_small.deinit(alloc);
+
+    try acc_a.accumulateColumn(3, &col_large);
+    try acc_b.accumulateColumn(2, &col_small);
+
+    // Merge B into A: A has log_size 3 only, B has log_size 2 only
+    // So B's log_size=2 slot should be transferred to A.
+    acc_a.merge(&acc_b);
+
+    // B's slot should now be null (ownership transferred)
+    try std.testing.expect(acc_b.sub_accumulations[2] == null);
+    // A should now have both
+    try std.testing.expect(acc_a.sub_accumulations[3] != null);
+    try std.testing.expect(acc_a.sub_accumulations[2] != null);
 }

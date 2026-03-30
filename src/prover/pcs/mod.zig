@@ -760,14 +760,10 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
         ) !TreeVec([][]QM31) {
             if (self.trees.items.len != sampled_points.items.len) return CommitmentSchemeError.ShapeMismatch;
 
-            var barycentric_cache = std.AutoHashMap(u32, BarycentricContextCacheEntry).init(allocator);
-            defer {
-                var it = barycentric_cache.valueIterator();
-                while (it.next()) |entry| entry.deinit(allocator);
-                barycentric_cache.deinit();
-            }
+            const num_trees = self.trees.items.len;
 
-            const out = try allocator.alloc([][]QM31, self.trees.items.len);
+            // --- Phase 1 (sequential): Validate shapes and pre-allocate output arrays ---
+            const out = try allocator.alloc([][]QM31, num_trees);
             errdefer allocator.free(out);
 
             var initialized_trees: usize = 0;
@@ -783,11 +779,6 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                 if (tree.coefficients) |coeffs| {
                     if (coeffs.len != tree.columns.len) return CommitmentSchemeError.ShapeMismatch;
                 }
-
-                var coefficient_plans = std.ArrayList(CoefficientEvalPlan).empty;
-                defer deinitCoefficientEvalPlans(allocator, &coefficient_plans);
-                var coefficient_plan_index = std.AutoHashMap(u64, usize).init(allocator);
-                defer coefficient_plan_index.deinit();
 
                 const tree_values = try allocator.alloc([]QM31, tree.columns.len);
                 out[tree_idx] = tree_values;
@@ -806,53 +797,108 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                     const values = try allocator.alloc(QM31, points.len);
                     tree_values[col_idx] = values;
                     initialized_columns += 1;
-
-                    const fold_count = lifting_log_size - column.log_size;
-                    if (tree.coefficients) |coeffs| {
-                        const coeff = coeffs[col_idx];
-                        const plan = try getOrCreateCoefficientEvalPlan(
-                            allocator,
-                            &coefficient_plan_index,
-                            &coefficient_plans,
-                            coeff.logSize(),
-                            fold_count,
-                            points,
-                        );
-                        try plan.column_indices.append(allocator, col_idx);
-                    } else {
-                        const evaluation = try prover_circle.CircleEvaluation.init(
-                            canonic.CanonicCoset.new(column.log_size).circleDomain(),
-                            column.values,
-                        );
-                        const cache_entry = try getBarycentricCacheEntry(
-                            allocator,
-                            &barycentric_cache,
-                            column.log_size,
-                        );
-                        for (points, 0..) |point, i| {
-                            const folded_point = point.repeatedDouble(fold_count);
-                            values[i] = try evaluation.barycentricEvalAtPointWithContext(
-                                allocator,
-                                &cache_entry.context,
-                                &cache_entry.workspace,
-                                folded_point,
-                            );
-                        }
-                    }
-                }
-
-                if (tree.coefficients) |coeffs| {
-                    try evaluateCoefficientPlans(
-                        allocator,
-                        coeffs,
-                        tree_values,
-                        coefficient_plans.items,
-                    );
-                    for (coeffs) |*coeff| coeff.deinit(allocator);
-                    allocator.free(coeffs);
-                    tree.coefficients = null;
                 }
             }
+
+            // --- Phase 2 (sequential): Pre-build all barycentric contexts ---
+            // Contexts are keyed by log_size and are read-only during evaluation.
+            var barycentric_cache = std.AutoHashMap(u32, prover_circle_eval.BarycentricContext).init(allocator);
+            defer {
+                var it = barycentric_cache.valueIterator();
+                while (it.next()) |ctx| {
+                    var mutable_ctx = ctx.*;
+                    mutable_ctx.deinit(allocator);
+                }
+                barycentric_cache.deinit();
+            }
+
+            for (self.trees.items) |*tree| {
+                if (tree.coefficients != null) continue;
+                for (tree.columns) |column| {
+                    const gop = try barycentric_cache.getOrPut(column.log_size);
+                    if (!gop.found_existing) {
+                        gop.value_ptr.* = try prover_circle_eval.BarycentricContext.init(
+                            allocator,
+                            column.log_size,
+                        );
+                    }
+                }
+            }
+
+            // --- Phase 3: Evaluate per-tree (parallel when pool available) ---
+            const use_parallel = !builtin.single_threaded and
+                !builtin.is_test and
+                num_trees > 1;
+
+            if (use_parallel) {
+                if (work_pool_mod.getGlobalPool()) |pool| {
+                    // Build per-tree worker contexts.
+                    const worker_ctxs = try allocator.alloc(
+                        SampledValueWorkerCtx(H),
+                        num_trees,
+                    );
+                    defer allocator.free(worker_ctxs);
+
+                    for (
+                        self.trees.items,
+                        sampled_points.items,
+                        out,
+                        worker_ctxs,
+                    ) |*tree, tree_points, tree_values, *wctx| {
+                        wctx.* = .{
+                            .tree = tree,
+                            .tree_points = tree_points,
+                            .tree_values = tree_values,
+                            .lifting_log_size = lifting_log_size,
+                            .barycentric_cache = &barycentric_cache,
+                            .failed = false,
+                        };
+                    }
+
+                    // Spawn workers for trees [1..], run tree[0] on main thread.
+                    var wait_group: std.Thread.WaitGroup = .{};
+                    for (worker_ctxs[1..]) |*wctx| {
+                        pool.spawnWg(
+                            &wait_group,
+                            SampledValueWorkerCtx(H).run,
+                            .{wctx},
+                        );
+                    }
+                    SampledValueWorkerCtx(H).run(&worker_ctxs[0]);
+                    wait_group.wait();
+
+                    // Check for worker failures.
+                    for (worker_ctxs) |wctx| {
+                        if (wctx.failed) return error.ShapeMismatch;
+                    }
+                } else {
+                    // Pool not available — fall back to sequential.
+                    try evaluateTreesSequential(
+                        H,
+                        self.trees.items,
+                        sampled_points.items,
+                        out,
+                        allocator,
+                        &barycentric_cache,
+                        lifting_log_size,
+                    );
+                }
+            } else {
+                try evaluateTreesSequential(
+                    H,
+                    self.trees.items,
+                    sampled_points.items,
+                    out,
+                    allocator,
+                    &barycentric_cache,
+                    lifting_log_size,
+                );
+            }
+
+            // --- Phase 4 (sequential): Release coefficient memory ---
+            // Coefficient data was allocated by the main allocator, so must
+            // be freed on the main thread regardless of evaluation path.
+            releaseTreeCoefficients(H, self.trees.items, allocator);
 
             return TreeVec([][]QM31).initOwned(out);
         }
@@ -1840,16 +1886,6 @@ fn deinitTwiddleCache(
     cache.deinit();
 }
 
-const BarycentricContextCacheEntry = struct {
-    context: prover_circle_eval.BarycentricContext,
-    workspace: prover_circle_eval.BarycentricWorkspace,
-
-    fn deinit(self: *BarycentricContextCacheEntry, allocator: std.mem.Allocator) void {
-        self.context.deinit(allocator);
-        self.workspace.deinit(allocator);
-        self.* = undefined;
-    }
-};
 
 const CoefficientEvalPlan = struct {
     coeff_log_size: u32,
@@ -2060,19 +2096,181 @@ fn evaluateCoefficientPlans(
     }
 }
 
-fn getBarycentricCacheEntry(
+/// Worker context for parallel per-tree sampled-value evaluation.
+/// Each worker operates on a single tree, using thread-safe page_allocator
+/// for its own scratch allocations and read-only shared barycentric contexts.
+fn SampledValueWorkerCtx(comptime H: type) type {
+    return struct {
+        tree: *CommitmentTreeProver(H),
+        tree_points: [][]CirclePointQM31,
+        tree_values: [][]QM31,
+        lifting_log_size: u32,
+        barycentric_cache: *const std.AutoHashMap(u32, prover_circle_eval.BarycentricContext),
+        failed: bool,
+
+        const WorkerSelf = @This();
+
+        fn run(self: *WorkerSelf) void {
+            self.runInner() catch {
+                self.failed = true;
+            };
+        }
+
+        fn runInner(self: *WorkerSelf) !void {
+            // Use page_allocator for all per-tree scratch — it is thread-safe.
+            const scratch_alloc = std.heap.page_allocator;
+
+            var coefficient_plans = std.ArrayList(CoefficientEvalPlan).empty;
+            defer deinitCoefficientEvalPlans(scratch_alloc, &coefficient_plans);
+            var coefficient_plan_index = std.AutoHashMap(u64, usize).init(scratch_alloc);
+            defer coefficient_plan_index.deinit();
+
+            const tree = self.tree;
+            for (tree.columns, self.tree_points, 0..) |column, points, col_idx| {
+                const values = self.tree_values[col_idx];
+                const fold_count = self.lifting_log_size - column.log_size;
+                if (tree.coefficients) |coeffs| {
+                    const coeff = coeffs[col_idx];
+                    const plan = try getOrCreateCoefficientEvalPlan(
+                        scratch_alloc,
+                        &coefficient_plan_index,
+                        &coefficient_plans,
+                        coeff.logSize(),
+                        fold_count,
+                        points,
+                    );
+                    try plan.column_indices.append(scratch_alloc, col_idx);
+                } else {
+                    const evaluation = try prover_circle.CircleEvaluation.init(
+                        canonic.CanonicCoset.new(column.log_size).circleDomain(),
+                        column.values,
+                    );
+                    // Look up the pre-built context (read-only, safe across threads).
+                    const context = self.barycentric_cache.getPtr(column.log_size) orelse
+                        return error.ShapeMismatch;
+                    // Each thread gets its own workspace for scratch buffers.
+                    var workspace = prover_circle_eval.BarycentricWorkspace.init();
+                    defer workspace.deinit(scratch_alloc);
+
+                    for (points, 0..) |point, i| {
+                        const folded_point = point.repeatedDouble(fold_count);
+                        values[i] = try evaluation.barycentricEvalAtPointWithContext(
+                            scratch_alloc,
+                            context,
+                            &workspace,
+                            folded_point,
+                        );
+                    }
+                }
+            }
+
+            if (tree.coefficients) |coeffs| {
+                try evaluateCoefficientPlans(
+                    scratch_alloc,
+                    coeffs,
+                    self.tree_values,
+                    coefficient_plans.items,
+                );
+                // Note: coefficient memory is owned by the main allocator,
+                // so cleanup is deferred to the main thread after workers complete.
+            }
+        }
+    };
+}
+
+/// Sequential evaluation fallback for when the thread pool is unavailable
+/// or there is only a single tree.
+fn evaluateTreesSequential(
+    comptime H: type,
+    trees: []CommitmentTreeProver(H),
+    tree_points_list: [][][]CirclePointQM31,
+    out: [][][]QM31,
     allocator: std.mem.Allocator,
-    cache: *std.AutoHashMap(u32, BarycentricContextCacheEntry),
-    log_size: u32,
-) !*BarycentricContextCacheEntry {
-    const gop = try cache.getOrPut(log_size);
-    if (!gop.found_existing) {
-        gop.value_ptr.* = .{
-            .context = try prover_circle_eval.BarycentricContext.init(allocator, log_size),
-            .workspace = prover_circle_eval.BarycentricWorkspace.init(),
-        };
+    barycentric_cache: *std.AutoHashMap(u32, prover_circle_eval.BarycentricContext),
+    lifting_log_size: u32,
+) !void {
+    // Per-log_size workspace cache (reused across trees, like the old code).
+    var workspace_cache = std.AutoHashMap(u32, prover_circle_eval.BarycentricWorkspace).init(allocator);
+    defer {
+        var it = workspace_cache.valueIterator();
+        while (it.next()) |ws| {
+            var mutable_ws = ws.*;
+            mutable_ws.deinit(allocator);
+        }
+        workspace_cache.deinit();
     }
-    return gop.value_ptr;
+
+    for (trees, tree_points_list, out) |*tree, tree_points, tree_values| {
+        var coefficient_plans = std.ArrayList(CoefficientEvalPlan).empty;
+        defer deinitCoefficientEvalPlans(allocator, &coefficient_plans);
+        var coefficient_plan_index = std.AutoHashMap(u64, usize).init(allocator);
+        defer coefficient_plan_index.deinit();
+
+        for (tree.columns, tree_points, 0..) |column, points, col_idx| {
+            const values = tree_values[col_idx];
+            const fold_count = lifting_log_size - column.log_size;
+            if (tree.coefficients) |coeffs| {
+                const coeff = coeffs[col_idx];
+                const plan = try getOrCreateCoefficientEvalPlan(
+                    allocator,
+                    &coefficient_plan_index,
+                    &coefficient_plans,
+                    coeff.logSize(),
+                    fold_count,
+                    points,
+                );
+                try plan.column_indices.append(allocator, col_idx);
+            } else {
+                const evaluation = try prover_circle.CircleEvaluation.init(
+                    canonic.CanonicCoset.new(column.log_size).circleDomain(),
+                    column.values,
+                );
+                const context = barycentric_cache.getPtr(column.log_size) orelse
+                    return error.ShapeMismatch;
+                // Get or create a workspace for this log_size.
+                const ws_gop = try workspace_cache.getOrPut(column.log_size);
+                if (!ws_gop.found_existing) {
+                    ws_gop.value_ptr.* = prover_circle_eval.BarycentricWorkspace.init();
+                }
+                for (points, 0..) |point, i| {
+                    const folded_point = point.repeatedDouble(fold_count);
+                    values[i] = try evaluation.barycentricEvalAtPointWithContext(
+                        allocator,
+                        context,
+                        ws_gop.value_ptr,
+                        folded_point,
+                    );
+                }
+            }
+        }
+
+        if (tree.coefficients) |coeffs| {
+            try evaluateCoefficientPlans(
+                allocator,
+                coeffs,
+                tree_values,
+                coefficient_plans.items,
+            );
+            // Note: coefficient memory cleanup is done by the caller
+            // (releaseTreeCoefficients) after both parallel and sequential paths.
+        }
+    }
+}
+
+/// Release coefficient memory for all trees. Called on the main thread
+/// after evaluation (parallel or sequential) has completed.
+fn releaseTreeCoefficients(
+    comptime H: type,
+    trees: []CommitmentTreeProver(H),
+    allocator: std.mem.Allocator,
+) void {
+    for (trees) |*tree| {
+        if (tree.coefficients) |coeffs| {
+            for (coeffs) |*coeff| coeff.deinit(allocator);
+            allocator.free(coeffs);
+            tree.coefficients = null;
+        }
+    }
 }
 
 fn freeOwnedColumnEvaluations(

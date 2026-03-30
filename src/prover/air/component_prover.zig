@@ -7,6 +7,7 @@ const qm31 = @import("../../core/fields/qm31.zig");
 const pcs = @import("../../core/pcs/mod.zig");
 const accumulation = @import("accumulation.zig");
 const secure_column = @import("../secure_column.zig");
+const work_pool_mod = @import("../work_pool.zig");
 
 const CirclePointQM31 = circle.CirclePointQM31;
 const M31 = m31.M31;
@@ -217,6 +218,34 @@ pub const ComponentProvers = struct {
         random_coeff: QM31,
         trace: *const Trace,
     ) anyerror!SecureColumnByCoords {
+        // Try parallel path when a work pool is available and there are
+        // multiple components to evaluate.
+        if (self.components.len > 1) {
+            if (work_pool_mod.getGlobalPool()) |pool| {
+                return self.computeCompositionEvaluationParallel(
+                    allocator,
+                    random_coeff,
+                    trace,
+                    pool,
+                );
+            }
+        }
+
+        // Sequential fallback (single component, no pool, or test mode).
+        return self.computeCompositionEvaluationSequential(
+            allocator,
+            random_coeff,
+            trace,
+        );
+    }
+
+    /// Original sequential implementation.
+    fn computeCompositionEvaluationSequential(
+        self: ComponentProvers,
+        allocator: std.mem.Allocator,
+        random_coeff: QM31,
+        trace: *const Trace,
+    ) anyerror!SecureColumnByCoords {
         var accumulator = try accumulation.DomainEvaluationAccumulator.init(
             allocator,
             random_coeff,
@@ -229,6 +258,99 @@ pub const ComponentProvers = struct {
             try component.evaluateConstraintQuotientsOnDomain(trace, &accumulator);
         }
         return accumulator.finalize();
+    }
+
+    /// Context passed to each worker thread.
+    const ParallelWorkerCtx = struct {
+        component: ComponentProver,
+        trace: *const Trace,
+        accumulator: accumulation.DomainEvaluationAccumulator,
+        err: ?anyerror = null,
+
+        fn run(ctx: *ParallelWorkerCtx) void {
+            ctx.component.evaluateConstraintQuotientsOnDomain(
+                ctx.trace,
+                &ctx.accumulator,
+            ) catch |e| {
+                ctx.err = e;
+            };
+        }
+    };
+
+    /// Parallel implementation: each component gets its own accumulator
+    /// with pre-assigned power ranges, evaluated concurrently, then merged.
+    fn computeCompositionEvaluationParallel(
+        self: ComponentProvers,
+        allocator: std.mem.Allocator,
+        random_coeff: QM31,
+        trace: *const Trace,
+        pool: *work_pool_mod.WorkPool,
+    ) anyerror!SecureColumnByCoords {
+        const max_log_size = self.compositionLogDegreeBound();
+        const total_constraints = self.totalConstraints();
+
+        // Generate the shared powers array once.
+        const powers = try accumulation.generateSecurePowers(
+            allocator,
+            random_coeff,
+            total_constraints,
+        );
+        defer allocator.free(powers);
+
+        // Allocate per-component worker contexts.
+        const workers = try allocator.alloc(ParallelWorkerCtx, self.components.len);
+        defer allocator.free(workers);
+
+        // Pre-compute the starting power index for each component.
+        // Powers are consumed from the tail: the first component starts at
+        // total_constraints and consumes nConstraints() powers, the second
+        // starts where the first left off, etc.
+        var power_cursor: usize = total_constraints;
+        for (self.components, 0..) |component, i| {
+            const n = component.nConstraints();
+            workers[i] = .{
+                .component = component,
+                .trace = trace,
+                .accumulator = try accumulation.DomainEvaluationAccumulator.initForComponent(
+                    powers,
+                    allocator,
+                    max_log_size,
+                    power_cursor,
+                ),
+            };
+            power_cursor -= n;
+        }
+
+        // Clean up all sub-accumulators on exit (whether success or error).
+        defer {
+            for (workers) |*w| {
+                w.accumulator.deinit();
+            }
+        }
+
+        // Dispatch all but the first component to the thread pool;
+        // process the first on the calling thread to keep it busy.
+        var wg = std.Thread.WaitGroup{};
+        for (workers[1..]) |*w| {
+            pool.spawnWg(&wg, ParallelWorkerCtx.run, .{w});
+        }
+        ParallelWorkerCtx.run(&workers[0]);
+        wg.wait();
+
+        // Check for errors from any worker.
+        for (workers) |w| {
+            if (w.err) |e| return e;
+        }
+
+        // Merge all sub-accumulators into the first one.
+        for (workers[1..]) |*w| {
+            workers[0].accumulator.merge(&w.accumulator);
+        }
+
+        // Set next_power_index to 0 so finalize() succeeds.
+        workers[0].accumulator.next_power_index = 0;
+
+        return workers[0].accumulator.finalize();
     }
 };
 
@@ -468,4 +590,179 @@ test "prover air component prover: composition accumulation" {
         mock.max_log_size,
     );
     try std.testing.expect(eval.eql(QM31.fromU32Unchecked(13, 0, 0, 0)));
+}
+
+test "prover air component prover: multi-component sequential matches merged accumulators" {
+    // Verify that splitting accumulation across two independent accumulators
+    // (simulating what the parallel path does) produces the same result as
+    // the sequential path with a single accumulator.
+    const alloc = std.testing.allocator;
+    const alpha = QM31.fromU32Unchecked(7, 0, 0, 0);
+
+    const MockA = struct {
+        fn asComponent(self: *const @This()) ComponentProver {
+            return .{
+                .ctx = self,
+                .vtable = &.{
+                    .nConstraints = nConstraints,
+                    .maxConstraintLogDegreeBound = maxConstraintLogDegreeBound,
+                    .traceLogDegreeBounds = traceLogDegreeBounds,
+                    .maskPoints = maskPoints,
+                    .preprocessedColumnIndices = preprocessedColumnIndices,
+                    .evaluateConstraintQuotientsAtPoint = evaluateConstraintQuotientsAtPoint,
+                    .evaluateConstraintQuotientsOnDomain = evaluateConstraintQuotientsOnDomain,
+                },
+            };
+        }
+        fn nConstraints(_: *const anyopaque) usize {
+            return 1;
+        }
+        fn maxConstraintLogDegreeBound(_: *const anyopaque) u32 {
+            return 2;
+        }
+        fn traceLogDegreeBounds(_: *const anyopaque, a: std.mem.Allocator) !core_air_components.TraceLogDegreeBounds {
+            const preprocessed = try a.alloc(u32, 0);
+            const main_tree = try a.dupe(u32, &[_]u32{2});
+            return core_air_components.TraceLogDegreeBounds.initOwned(
+                try a.dupe([]u32, &[_][]u32{ preprocessed, main_tree }),
+            );
+        }
+        fn maskPoints(_: *const anyopaque, a: std.mem.Allocator, point: CirclePointQM31, _: u32) !core_air_components.MaskPoints {
+            const pp = try a.alloc([]CirclePointQM31, 0);
+            const mc = try a.alloc(CirclePointQM31, 1);
+            mc[0] = point;
+            const mcs = try a.dupe([]CirclePointQM31, &[_][]CirclePointQM31{mc});
+            return core_air_components.MaskPoints.initOwned(
+                try a.dupe([][]CirclePointQM31, &[_][][]CirclePointQM31{ pp, mcs }),
+            );
+        }
+        fn preprocessedColumnIndices(_: *const anyopaque, a: std.mem.Allocator) ![]usize {
+            return a.alloc(usize, 0);
+        }
+        fn evaluateConstraintQuotientsAtPoint(_: *const anyopaque, _: CirclePointQM31, _: *const core_air_components.MaskValues, _: *core_air_accumulation.PointEvaluationAccumulator, _: u32) !void {}
+        fn evaluateConstraintQuotientsOnDomain(
+            _: *const anyopaque,
+            _: *const Trace,
+            evaluation_accumulator: *accumulation.DomainEvaluationAccumulator,
+        ) !void {
+            const values = [_]QM31{
+                QM31.fromU32Unchecked(1, 0, 0, 0),
+                QM31.fromU32Unchecked(2, 0, 0, 0),
+                QM31.fromU32Unchecked(3, 0, 0, 0),
+                QM31.fromU32Unchecked(4, 0, 0, 0),
+            };
+            var col = try SecureColumnByCoords.fromSecureSlice(std.testing.allocator, values[0..]);
+            defer col.deinit(std.testing.allocator);
+            try evaluation_accumulator.accumulateColumn(2, &col);
+        }
+    };
+
+    const MockB = struct {
+        fn asComponent(self: *const @This()) ComponentProver {
+            return .{
+                .ctx = self,
+                .vtable = &.{
+                    .nConstraints = nConstraints,
+                    .maxConstraintLogDegreeBound = maxConstraintLogDegreeBound,
+                    .traceLogDegreeBounds = traceLogDegreeBounds,
+                    .maskPoints = maskPoints,
+                    .preprocessedColumnIndices = preprocessedColumnIndices,
+                    .evaluateConstraintQuotientsAtPoint = evaluateConstraintQuotientsAtPoint,
+                    .evaluateConstraintQuotientsOnDomain = evaluateConstraintQuotientsOnDomain,
+                },
+            };
+        }
+        fn nConstraints(_: *const anyopaque) usize {
+            return 1;
+        }
+        fn maxConstraintLogDegreeBound(_: *const anyopaque) u32 {
+            return 2;
+        }
+        fn traceLogDegreeBounds(_: *const anyopaque, a: std.mem.Allocator) !core_air_components.TraceLogDegreeBounds {
+            const preprocessed = try a.alloc(u32, 0);
+            const main_tree = try a.dupe(u32, &[_]u32{2});
+            return core_air_components.TraceLogDegreeBounds.initOwned(
+                try a.dupe([]u32, &[_][]u32{ preprocessed, main_tree }),
+            );
+        }
+        fn maskPoints(_: *const anyopaque, a: std.mem.Allocator, point: CirclePointQM31, _: u32) !core_air_components.MaskPoints {
+            const pp = try a.alloc([]CirclePointQM31, 0);
+            const mc = try a.alloc(CirclePointQM31, 1);
+            mc[0] = point;
+            const mcs = try a.dupe([]CirclePointQM31, &[_][]CirclePointQM31{mc});
+            return core_air_components.MaskPoints.initOwned(
+                try a.dupe([][]CirclePointQM31, &[_][][]CirclePointQM31{ pp, mcs }),
+            );
+        }
+        fn preprocessedColumnIndices(_: *const anyopaque, a: std.mem.Allocator) ![]usize {
+            return a.alloc(usize, 0);
+        }
+        fn evaluateConstraintQuotientsAtPoint(_: *const anyopaque, _: CirclePointQM31, _: *const core_air_components.MaskValues, _: *core_air_accumulation.PointEvaluationAccumulator, _: u32) !void {}
+        fn evaluateConstraintQuotientsOnDomain(
+            _: *const anyopaque,
+            _: *const Trace,
+            evaluation_accumulator: *accumulation.DomainEvaluationAccumulator,
+        ) !void {
+            const values = [_]QM31{
+                QM31.fromU32Unchecked(10, 0, 0, 0),
+                QM31.fromU32Unchecked(20, 0, 0, 0),
+                QM31.fromU32Unchecked(30, 0, 0, 0),
+                QM31.fromU32Unchecked(40, 0, 0, 0),
+            };
+            var col = try SecureColumnByCoords.fromSecureSlice(std.testing.allocator, values[0..]);
+            defer col.deinit(std.testing.allocator);
+            try evaluation_accumulator.accumulateColumn(2, &col);
+        }
+    };
+
+    const mock_a = MockA{};
+    const mock_b = MockB{};
+    const components_arr = [_]ComponentProver{ mock_a.asComponent(), mock_b.asComponent() };
+    const component_provers = ComponentProvers{
+        .components = components_arr[0..],
+        .n_preprocessed_columns = 0,
+    };
+
+    var trace = Trace{ .polys = TreeVec([]const Poly).initOwned(try alloc.alloc([]const Poly, 0)) };
+    defer trace.polys.deinit(alloc);
+
+    // Sequential path (getGlobalPool returns null in tests)
+    var sequential = try component_provers.computeCompositionEvaluationSequential(
+        alloc,
+        alpha,
+        &trace,
+    );
+    defer sequential.deinit(alloc);
+    const seq_vec = try sequential.toVec(alloc);
+    defer alloc.free(seq_vec);
+
+    // Simulate what the parallel path does: split into per-component
+    // accumulators, evaluate, merge, finalize.
+    const total_constraints = component_provers.totalConstraints();
+    const max_log_size = component_provers.compositionLogDegreeBound();
+    const powers = try accumulation.generateSecurePowers(alloc, alpha, total_constraints);
+    defer alloc.free(powers);
+
+    // Component A gets power_cursor = 2, component B gets power_cursor = 1
+    var acc_a = try accumulation.DomainEvaluationAccumulator.initForComponent(powers, alloc, max_log_size, 2);
+    defer acc_a.deinit();
+    var acc_b = try accumulation.DomainEvaluationAccumulator.initForComponent(powers, alloc, max_log_size, 1);
+    defer acc_b.deinit();
+
+    try components_arr[0].evaluateConstraintQuotientsOnDomain(&trace, &acc_a);
+    try components_arr[1].evaluateConstraintQuotientsOnDomain(&trace, &acc_b);
+
+    acc_a.merge(&acc_b);
+    acc_a.next_power_index = 0;
+
+    var merged = try acc_a.finalize();
+    defer merged.deinit(alloc);
+    const merged_vec = try merged.toVec(alloc);
+    defer alloc.free(merged_vec);
+
+    // Both paths must produce identical results
+    try std.testing.expectEqual(seq_vec.len, merged_vec.len);
+    for (seq_vec, merged_vec) |s, m| {
+        try std.testing.expect(s.eql(m));
+    }
 }
