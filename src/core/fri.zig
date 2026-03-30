@@ -94,7 +94,11 @@ pub const CirclePolyDegreeBound = struct {
     }
 
     pub inline fn foldToLine(self: CirclePolyDegreeBound) LinePolyDegreeBound {
-        return .{ .log_degree_bound = self.log_degree_bound - CIRCLE_TO_LINE_FOLD_STEP };
+        return self.foldToLineWithStep(CIRCLE_TO_LINE_FOLD_STEP);
+    }
+
+    pub inline fn foldToLineWithStep(self: CirclePolyDegreeBound, fold_step: u32) LinePolyDegreeBound {
+        return .{ .log_degree_bound = self.log_degree_bound - fold_step };
     }
 };
 
@@ -150,7 +154,7 @@ pub fn FriVerifier(comptime H: type, comptime MC: type) type {
             };
             errdefer first_layer.deinit(allocator);
 
-            var layer_bound = column_bound.foldToLine();
+            var layer_bound = column_bound.foldToLineWithStep(config.fold_step);
             var layer_domain = line.LineDomain.init(
                 circle.Coset.halfOdds(layer_bound.logDegreeBound() + config.log_blowup_factor),
             ) catch return FriVerificationError.InvalidNumFriLayers;
@@ -172,8 +176,8 @@ pub fn FriVerifier(comptime H: type, comptime MC: type) type {
                 };
                 initialized += 1;
 
-                layer_bound = layer_bound.fold(FOLD_STEP) orelse return FriVerificationError.InvalidNumFriLayers;
-                layer_domain = layer_domain.double();
+                layer_bound = layer_bound.fold(config.fold_step) orelse return FriVerificationError.InvalidNumFriLayers;
+                layer_domain = layer_domain.repeatedDouble(config.fold_step);
             }
 
             if (layer_bound.logDegreeBound() != config.log_last_layer_degree_bound) {
@@ -228,20 +232,22 @@ pub fn FriVerifier(comptime H: type, comptime MC: type) type {
                 allocator,
                 queries,
                 first_layer_query_evals,
+                self.config.fold_step,
             );
             defer first_layer_sparse_eval.deinit(allocator);
 
-            var layer_queries = try queries.fold(allocator, CIRCLE_TO_LINE_FOLD_STEP);
+            var layer_queries = try queries.fold(allocator, self.config.fold_step);
             defer layer_queries.deinit(allocator);
             var layer_query_evals = try first_layer_sparse_eval.foldCircleSubsets(
                 allocator,
                 self.first_layer.folding_alpha,
                 self.first_layer.column_commitment_domain,
+                self.config.fold_step,
             );
             defer allocator.free(layer_query_evals);
 
             for (self.inner_layers) |layer| {
-                const folded = try layer.verifyAndFold(allocator, layer_queries, layer_query_evals);
+                const folded = try layer.verifyAndFold(allocator, layer_queries, layer_query_evals, self.config.fold_step);
 
                 layer_queries.deinit(allocator);
                 allocator.free(layer_query_evals);
@@ -327,6 +333,7 @@ fn FriFirstLayerVerifier(comptime H: type) type {
             allocator: std.mem.Allocator,
             queries: queries_mod.Queries,
             column_query_evals: []const QM31,
+            fold_step: u32,
         ) !SparseEvaluation {
             if (queries.log_domain_size != self.column_commitment_domain.logSize()) {
                 return FriVerificationError.FirstLayerEvaluationsInvalid;
@@ -337,7 +344,7 @@ fn FriFirstLayerVerifier(comptime H: type) type {
                 queries,
                 column_query_evals,
                 self.proof.fri_witness,
-                CIRCLE_TO_LINE_FOLD_STEP,
+                fold_step,
             ) catch return FriVerificationError.FirstLayerEvaluationsInvalid;
             errdefer rebuilt.deinit(allocator);
 
@@ -392,6 +399,7 @@ fn FriInnerLayerVerifier(comptime H: type) type {
             allocator: std.mem.Allocator,
             queries: queries_mod.Queries,
             evals_at_queries: []const QM31,
+            fold_step: u32,
         ) !FoldedLayerState {
             if (queries.log_domain_size != self.domain.logSize()) {
                 return FriVerificationError.InnerLayerEvaluationsInvalid;
@@ -402,7 +410,7 @@ fn FriInnerLayerVerifier(comptime H: type) type {
                 queries,
                 evals_at_queries,
                 self.proof.fri_witness,
-                FOLD_STEP,
+                fold_step,
             ) catch return FriVerificationError.InnerLayerEvaluationsInvalid;
             errdefer rebuilt.deinit(allocator);
 
@@ -432,12 +440,13 @@ fn FriInnerLayerVerifier(comptime H: type) type {
                 self.proof.decommitment,
             ) catch return FriVerificationError.InnerLayerCommitmentInvalid;
 
-            var folded_queries = try queries.fold(allocator, FOLD_STEP);
+            var folded_queries = try queries.fold(allocator, fold_step);
             errdefer folded_queries.deinit(allocator);
             const folded_evals = try rebuilt.sparse_evaluation.foldLineSubsets(
                 allocator,
                 self.folding_alpha,
                 self.domain,
+                fold_step,
             );
 
             allocator.free(rebuilt.decommitment_positions);
@@ -592,7 +601,16 @@ pub const SparseEvaluation = struct {
         subset_evals: [][]QM31,
         subset_domain_initial_indexes: []usize,
     ) Error!SparseEvaluation {
-        const fold_factor = @as(usize, 1) << @intCast(FOLD_STEP);
+        // Use default FOLD_STEP for backward compatibility
+        return initOwnedWithStep(subset_evals, subset_domain_initial_indexes, FOLD_STEP);
+    }
+
+    pub fn initOwnedWithStep(
+        subset_evals: [][]QM31,
+        subset_domain_initial_indexes: []usize,
+        fold_step: u32,
+    ) Error!SparseEvaluation {
+        const fold_factor = @as(usize, 1) << @intCast(fold_step);
         for (subset_evals) |subset| {
             if (subset.len != fold_factor) return Error.InvalidSubsetSize;
         }
@@ -615,6 +633,7 @@ pub const SparseEvaluation = struct {
         allocator: std.mem.Allocator,
         fold_alpha: QM31,
         source_domain: line.LineDomain,
+        fold_step: u32,
     ) ![]QM31 {
         const out = try allocator.alloc(QM31, self.subset_evals.len);
         if (self.subset_evals.len == 0) return out;
@@ -624,7 +643,7 @@ pub const SparseEvaluation = struct {
         while (i < self.subset_evals.len) : (i += 1) {
             const domain_initial_index = self.subset_domain_initial_indexes[i];
             const fold_domain_initial = source_domain.coset().indexAt(domain_initial_index);
-            const fold_domain = try line.LineDomain.init(circle.Coset.new(fold_domain_initial, FOLD_STEP));
+            const fold_domain = try line.LineDomain.init(circle.Coset.new(fold_domain_initial, fold_step));
             const folded = try foldLineWithWorkspace(
                 allocator,
                 self.subset_evals[i],
@@ -643,10 +662,11 @@ pub const SparseEvaluation = struct {
         allocator: std.mem.Allocator,
         fold_alpha: QM31,
         source_domain: circle_domain.CircleDomain,
+        fold_step: u32,
     ) ![]QM31 {
         const out = try allocator.alloc(QM31, self.subset_evals.len);
         if (self.subset_evals.len == 0) return out;
-        const subset_fold_len = self.subset_evals[0].len >> @intCast(CIRCLE_TO_LINE_FOLD_STEP);
+        const subset_fold_len = self.subset_evals[0].len >> @intCast(fold_step);
         const buffer = try allocator.alloc(QM31, subset_fold_len);
         defer allocator.free(buffer);
         var workspace = try FoldCircleWorkspace.init(allocator, subset_fold_len);
@@ -656,7 +676,7 @@ pub const SparseEvaluation = struct {
             const domain_initial_index = self.subset_domain_initial_indexes[i];
             const fold_domain_initial = source_domain.indexAt(domain_initial_index);
             const fold_domain = circle_domain.CircleDomain.new(
-                circle.Coset.new(fold_domain_initial, CIRCLE_TO_LINE_FOLD_STEP - 1),
+                circle.Coset.new(fold_domain_initial, fold_step - 1),
             );
             if (fold_domain.half_coset.size() != buffer.len) return error.ShapeMismatch;
             @memset(buffer, QM31.zero());
@@ -752,9 +772,10 @@ pub fn computeDecommitmentPositionsAndRebuildEvals(
 
     return .{
         .decommitment_positions = try decommitment_positions.toOwnedSlice(allocator),
-        .sparse_evaluation = try SparseEvaluation.initOwned(
+        .sparse_evaluation = try SparseEvaluation.initOwnedWithStep(
             try subset_evals.toOwnedSlice(allocator),
             try subset_domain_initial_indexes.toOwnedSlice(allocator),
+            fold_step,
         ),
         .consumed_witness = witness_idx,
     };

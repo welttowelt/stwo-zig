@@ -219,11 +219,11 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
                 first_layer.merkle_tree,
                 first_layer.column,
                 queries.positions,
-                core_fri.CIRCLE_TO_LINE_FOLD_STEP,
+                self.config.fold_step,
             );
             errdefer first_layer_proof.deinit(allocator);
 
-            var layer_queries = try queries.fold(allocator, core_fri.CIRCLE_TO_LINE_FOLD_STEP);
+            var layer_queries = try queries.fold(allocator, self.config.fold_step);
             defer layer_queries.deinit(allocator);
 
             var inner_layer_proofs = std.ArrayList(core_fri.ExtendedFriLayerProof(H)).empty;
@@ -239,12 +239,12 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
                     layer.merkle_tree,
                     layer.column,
                     layer_queries.positions,
-                    core_fri.FOLD_STEP,
+                    self.config.fold_step,
                 );
                 errdefer inner_proof.deinit(allocator);
                 try inner_layer_proofs.append(allocator, inner_proof);
 
-                const next_queries = try layer_queries.fold(allocator, core_fri.FOLD_STEP);
+                const next_queries = try layer_queries.fold(allocator, self.config.fold_step);
                 layer_queries.deinit(allocator);
                 layer_queries = next_queries;
             }
@@ -309,7 +309,7 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
             config: core_fri.FriConfig,
             first_layer: FirstLayerProver,
         ) !InnerCommitResult {
-            const first_inner_layer_log_size = first_layer.domain.logSize() - core_fri.CIRCLE_TO_LINE_FOLD_STEP;
+            const first_inner_layer_log_size = first_layer.domain.logSize() - config.fold_step;
             const first_inner_layer_domain = try line.LineDomain.init(
                 circle.Coset.halfOdds(first_inner_layer_log_size),
             );
@@ -352,6 +352,7 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
             );
             defer fold_workspace.deinit(allocator);
 
+            const fold_step = config.fold_step;
             while (layer_evaluation.len() > config.lastLayerDomainSize()) {
                 var secure_values = try secure_column.SecureColumnByCoords.fromSecureSlice(
                     allocator,
@@ -373,13 +374,6 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
 
                 MC.mixRoot(channel, merkle_tree.root());
                 const fold_alpha = channel.drawSecureFelt();
-                const folded = try core_fri.foldLineInPlaceWithWorkspace(
-                    allocator,
-                    @constCast(layer_evaluation.values),
-                    layer_evaluation.domain(),
-                    fold_alpha,
-                    &fold_workspace,
-                );
 
                 const layer = InnerLayerProver{
                     .domain = layer_evaluation.domain(),
@@ -388,9 +382,20 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
                 };
                 try layers.append(allocator, layer);
 
-                layer_evaluation.domain_value = folded.domain;
-                layer_evaluation.values = folded.values;
-                layer_evaluation.owns_values = true;
+                // Fold fold_step times with the same alpha, each halving the domain.
+                var step: u32 = 0;
+                while (step < fold_step) : (step += 1) {
+                    const folded = try core_fri.foldLineInPlaceWithWorkspace(
+                        allocator,
+                        @constCast(layer_evaluation.values),
+                        layer_evaluation.domain(),
+                        fold_alpha,
+                        &fold_workspace,
+                    );
+                    layer_evaluation.domain_value = folded.domain;
+                    layer_evaluation.values = folded.values;
+                    layer_evaluation.owns_values = true;
+                }
             }
 
             return .{
