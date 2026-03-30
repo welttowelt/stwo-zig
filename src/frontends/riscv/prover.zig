@@ -741,6 +741,208 @@ fn computeLogSize(count: usize) u32 {
     return @intCast(std.math.log2_int_ceil(usize, count));
 }
 
+// ---------------------------------------------------------------------------
+// Poseidon2 Merkle tree building
+// ---------------------------------------------------------------------------
+
+/// Result of building a Poseidon2 Merkle tree with trace capture.
+const MerkleTreeResult = struct {
+    hash_traces: []poseidon2.PermuteTrace,
+    n_hashes: usize,
+    root: [8]M31,
+};
+
+/// Build a Poseidon2 Merkle tree from program instruction entries.
+///
+/// Collects unique PCs and their instruction opcodes from the execution trace,
+/// hashes each entry as a leaf, then builds the Merkle tree bottom-up using
+/// `permuteTraced` to capture all intermediate hash states.
+///
+/// Returns the captured hash traces (for Poseidon2 trace columns), the total
+/// number of hash invocations (for Merkle trace columns), and the tree root.
+fn buildProgramMerkleTree(
+    allocator: std.mem.Allocator,
+    exec_trace: *const trace_mod.Trace,
+) !MerkleTreeResult {
+    // Collect unique PCs with their instruction encoding (opcode enum value).
+    var pc_info = std.AutoHashMap(u32, u32).init(allocator);
+    defer pc_info.deinit();
+
+    for (exec_trace.rows.items) |row| {
+        const gop = try pc_info.getOrPut(row.pc);
+        if (!gop.found_existing) {
+            gop.value_ptr.* = @intFromEnum(row.opcode);
+        }
+    }
+
+    const n_leaves = pc_info.count();
+    if (n_leaves == 0) {
+        // Return a heap-allocated empty slice so the caller can safely free it.
+        const empty = try allocator.alloc(poseidon2.PermuteTrace, 0);
+        return MerkleTreeResult{
+            .hash_traces = empty,
+            .n_hashes = 0,
+            .root = .{M31.zero()} ** 8,
+        };
+    }
+
+    // Pad to next power of two (minimum 2 leaves for a valid tree).
+    var padded_leaves: usize = 2;
+    while (padded_leaves < n_leaves) padded_leaves *= 2;
+
+    // Build leaf digests: hash(addr, value_bytes, 0, 0, 0) for each entry.
+    var leaves = try allocator.alloc([8]M31, padded_leaves);
+    defer allocator.free(leaves);
+    @memset(leaves, .{M31.zero()} ** 8);
+
+    // Collect hash traces in an ArrayList (unmanaged).
+    var traces: std.ArrayList(poseidon2.PermuteTrace) = .{};
+    defer traces.deinit(allocator);
+
+    // Fill leaves from program entries.
+    var leaf_idx: usize = 0;
+    var iter = pc_info.iterator();
+    while (iter.next()) |entry| {
+        const word = entry.value_ptr.*;
+        const limbs = state_chain.StateChainTracker.decomposeU32(word);
+
+        // Hash the leaf data to produce an 8-element digest.
+        var state: poseidon2.State = .{M31.zero()} ** poseidon2.STATE_WIDTH;
+        state[0] = M31.fromCanonical(entry.key_ptr.* & 0x7FFFFFFF); // addr
+        state[1] = limbs[0];
+        state[2] = limbs[1];
+        state[3] = limbs[2];
+        state[4] = limbs[3];
+
+        const trace = poseidon2.permuteTraced(&state);
+        try traces.append(allocator, trace);
+        leaves[leaf_idx] = state[0..8].*;
+        leaf_idx += 1;
+    }
+
+    // Build Merkle tree bottom-up, hashing adjacent pairs.
+    var current_layer = leaves;
+    var owns_current = false; // leaves are freed via `defer allocator.free(leaves)`
+    defer if (owns_current) allocator.free(current_layer);
+
+    while (current_layer.len > 1) {
+        const next_len = current_layer.len / 2;
+        var next_layer = try allocator.alloc([8]M31, next_len);
+
+        for (0..next_len) |i| {
+            var state: poseidon2.State = .{M31.zero()} ** poseidon2.STATE_WIDTH;
+            @memcpy(state[0..8], &current_layer[i * 2]);
+            @memcpy(state[8..16], &current_layer[i * 2 + 1]);
+
+            const trace = poseidon2.permuteTraced(&state);
+            try traces.append(allocator, trace);
+
+            next_layer[i] = state[0..8].*;
+        }
+
+        if (owns_current) allocator.free(current_layer);
+        current_layer = next_layer;
+        owns_current = true;
+    }
+
+    const root = if (current_layer.len > 0) current_layer[0] else .{M31.zero()} ** 8;
+    const n_hashes = traces.items.len;
+
+    return MerkleTreeResult{
+        .hash_traces = try traces.toOwnedSlice(allocator),
+        .n_hashes = n_hashes,
+        .root = root,
+    };
+}
+
+/// Build a Poseidon2 Merkle tree from memory state entries.
+///
+/// Collects unique memory addresses and their final values from the state
+/// chain tracker, then builds a Merkle tree bottom-up, capturing all
+/// Poseidon2 hash traces.
+fn buildMemoryMerkleTree(
+    allocator: std.mem.Allocator,
+    chain: *const state_chain.StateChainTracker,
+) !MerkleTreeResult {
+    // Collect unique memory addresses with their latest values.
+    var addr_values = std.AutoHashMap(u32, [4]M31).init(allocator);
+    defer addr_values.deinit();
+
+    for (chain.accesses.items) |access| {
+        if (access.addr_space != 1) continue; // memory only
+        try addr_values.put(access.addr, access.value_limbs);
+    }
+
+    const n_leaves = addr_values.count();
+    if (n_leaves == 0) {
+        const empty = try allocator.alloc(poseidon2.PermuteTrace, 0);
+        return MerkleTreeResult{
+            .hash_traces = empty,
+            .n_hashes = 0,
+            .root = .{M31.zero()} ** 8,
+        };
+    }
+
+    var padded_leaves: usize = 2;
+    while (padded_leaves < n_leaves) padded_leaves *= 2;
+
+    var leaves = try allocator.alloc([8]M31, padded_leaves);
+    defer allocator.free(leaves);
+    @memset(leaves, .{M31.zero()} ** 8);
+
+    var traces: std.ArrayList(poseidon2.PermuteTrace) = .{};
+    defer traces.deinit(allocator);
+
+    var leaf_idx: usize = 0;
+    var iter = addr_values.iterator();
+    while (iter.next()) |entry| {
+        var state: poseidon2.State = .{M31.zero()} ** poseidon2.STATE_WIDTH;
+        state[0] = M31.fromCanonical(entry.key_ptr.* & 0x7FFFFFFF); // addr
+        state[1] = entry.value_ptr.*[0];
+        state[2] = entry.value_ptr.*[1];
+        state[3] = entry.value_ptr.*[2];
+        state[4] = entry.value_ptr.*[3];
+
+        const trace = poseidon2.permuteTraced(&state);
+        try traces.append(allocator, trace);
+        leaves[leaf_idx] = state[0..8].*;
+        leaf_idx += 1;
+    }
+
+    var current_layer = leaves;
+    var owns_current = false;
+    defer if (owns_current) allocator.free(current_layer);
+
+    while (current_layer.len > 1) {
+        const next_len = current_layer.len / 2;
+        var next_layer = try allocator.alloc([8]M31, next_len);
+
+        for (0..next_len) |i| {
+            var state: poseidon2.State = .{M31.zero()} ** poseidon2.STATE_WIDTH;
+            @memcpy(state[0..8], &current_layer[i * 2]);
+            @memcpy(state[8..16], &current_layer[i * 2 + 1]);
+
+            const trace = poseidon2.permuteTraced(&state);
+            try traces.append(allocator, trace);
+
+            next_layer[i] = state[0..8].*;
+        }
+
+        if (owns_current) allocator.free(current_layer);
+        current_layer = next_layer;
+        owns_current = true;
+    }
+
+    const root = if (current_layer.len > 0) current_layer[0] else .{M31.zero()} ** 8;
+    const n_hashes = traces.items.len;
+
+    return MerkleTreeResult{
+        .hash_traces = try traces.toOwnedSlice(allocator),
+        .n_hashes = n_hashes,
+        .root = root,
+    };
+}
+
 // -- IsFirst column generation --
 
 fn genIsFirstColumn(allocator: std.mem.Allocator, log_size: u32) ![]M31 {
@@ -803,8 +1005,9 @@ fn genColumnsForFamily(
 /// Prove a RISC-V execution trace with per-opcode-family component splitting.
 ///
 /// When `opt_chain` is provided, full infrastructure components are generated
-/// (memory, clock updates).  When null, only program ROM, multiplicity
-/// placeholders, Poseidon2, and Merkle placeholders are emitted.
+/// (memory, clock updates, memory Merkle tree).  When null, only program ROM,
+/// multiplicity placeholders, and a program-only Poseidon2 Merkle tree are
+/// emitted.
 pub fn proveRiscV(
     allocator: std.mem.Allocator,
     pcs_config: pcs_core.PcsConfig,
@@ -908,16 +1111,40 @@ pub fn proveRiscV(
         }
     }
 
-    // Poseidon2 placeholder (443 cols, minimal 16 rows)
-    const poseidon_log_size: u32 = 4;
+    // Build real Poseidon2 Merkle trees and capture hash traces.
+    const prog_merkle = try buildProgramMerkleTree(allocator, exec_trace);
+    defer allocator.free(prog_merkle.hash_traces);
+
+    // Optionally build memory Merkle tree when state chain is available.
+    var mem_merkle_traces: []poseidon2.PermuteTrace = &.{};
+    var owns_mem_merkle = false;
+    if (opt_chain) |chain| {
+        const mem_merkle = try buildMemoryMerkleTree(allocator, chain);
+        mem_merkle_traces = mem_merkle.hash_traces;
+        owns_mem_merkle = true;
+    }
+    defer if (owns_mem_merkle) allocator.free(mem_merkle_traces);
+
+    // Merge hash traces: total Poseidon2 rows = program tree hashes + memory tree hashes.
+    const total_hashes = prog_merkle.hash_traces.len + mem_merkle_traces.len;
+
+    // Compute Poseidon2 log_size from actual hash count (minimum 4 = 16 rows).
+    const poseidon_log_size: u32 = if (total_hashes > 0)
+        @max(4, computeLogSize(total_hashes))
+    else
+        4;
     statement.infra_descs[statement.n_infra] = .{
         .log_size = poseidon_log_size,
         .n_columns = infra.POSEIDON2_TRACE_COLS,
     };
     statement.n_infra += 1;
 
-    // Merkle placeholder (10 cols, minimal 16 rows)
-    const merkle_log_size: u32 = 4;
+    // Merkle node count = total internal hash calls (one per internal node).
+    const total_merkle_nodes = total_hashes;
+    const merkle_log_size: u32 = if (total_merkle_nodes > 0)
+        @max(4, computeLogSize(total_merkle_nodes))
+    else
+        4;
     statement.infra_descs[statement.n_infra] = .{
         .log_size = merkle_log_size,
         .n_columns = infra.MERKLE_TRACE_COLS,
@@ -1046,10 +1273,19 @@ pub fn proveRiscV(
         }
     }
 
-    // Poseidon2 (443 cols, empty placeholder)
+    // Poseidon2 (443 cols) -- real traces from Merkle tree building
     {
-        const empty_traces: []const poseidon2.PermuteTrace = &.{};
-        const p2_cols = try infra.genPoseidon2Columns(allocator, empty_traces, poseidon_log_size);
+        // Merge program and memory hash traces into one slice for column gen.
+        const merged_traces = try allocator.alloc(poseidon2.PermuteTrace, total_hashes);
+        defer allocator.free(merged_traces);
+        if (prog_merkle.hash_traces.len > 0) {
+            @memcpy(merged_traces[0..prog_merkle.hash_traces.len], prog_merkle.hash_traces);
+        }
+        if (mem_merkle_traces.len > 0) {
+            @memcpy(merged_traces[prog_merkle.hash_traces.len..], mem_merkle_traces);
+        }
+
+        const p2_cols = try infra.genPoseidon2Columns(allocator, merged_traces, poseidon_log_size);
         for (0..infra.POSEIDON2_TRACE_COLS) |c| {
             main_columns[col_offset + c] = .{
                 .log_size = poseidon_log_size,
@@ -1060,9 +1296,9 @@ pub fn proveRiscV(
         infra_idx += 1;
     }
 
-    // Merkle (10 cols, empty placeholder)
+    // Merkle (10 cols) -- real node count from Merkle tree building
     {
-        const mkl_cols = try infra.genMerkleColumns(allocator, 0, merkle_log_size);
+        const mkl_cols = try infra.genMerkleColumns(allocator, total_merkle_nodes, merkle_log_size);
         for (0..infra.MERKLE_TRACE_COLS) |c| {
             main_columns[col_offset + c] = .{
                 .log_size = merkle_log_size,
@@ -1129,6 +1365,13 @@ pub fn proveRiscV(
         n_infra_main,
         n_main,
         n_interaction,
+    });
+    std.log.info("Poseidon2 Merkle: {d} hash traces (program={d} memory={d}), poseidon_log_size={d}, merkle_log_size={d}", .{
+        total_hashes,
+        prog_merkle.hash_traces.len,
+        mem_merkle_traces.len,
+        poseidon_log_size,
+        merkle_log_size,
     });
 
     mixStatement(&channel, statement);
