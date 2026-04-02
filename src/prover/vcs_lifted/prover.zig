@@ -1225,8 +1225,9 @@ pub fn MerkleProverLifted(comptime H: type) type {
 
                     const out_layers = try self.allocator.alloc([]H.Hash, 1);
                     out_layers[0] = leaves;
+                    const alloc = self.allocator;
                     self.* = undefined;
-                    return .{ .layers = out_layers };
+                    return .{ .layers = out_layers, .layer_allocator = alloc };
                 }
 
                 // Finalize leaf hashers into leaf hashes.
@@ -1275,8 +1276,9 @@ pub fn MerkleProverLifted(comptime H: type) type {
                 while (i < out_layers.len) : (i += 1) {
                     out_layers[i] = layers_bottom_up.items[out_layers.len - 1 - i];
                 }
+                const alloc = self.allocator;
                 self.* = undefined;
-                return .{ .layers = out_layers };
+                return .{ .layers = out_layers, .layer_allocator = alloc };
             }
         };
     };

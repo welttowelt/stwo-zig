@@ -247,6 +247,14 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
             return self.commitOwnedWithRecorder(allocator, owned_columns, null, channel);
         }
 
+        /// Default batch size for streaming column commitment.
+        const streaming_batch_size: usize = 64;
+        /// Column count threshold above which commitOwnedWithRecorder
+        /// automatically uses the streaming path.  Below this threshold
+        /// the monolithic path is used (the overhead of streaming state
+        /// management is not worthwhile for small column sets).
+        const streaming_column_threshold: usize = 128;
+
         pub fn commitOwnedWithRecorder(
             self: *Self,
             allocator: std.mem.Allocator,
@@ -254,6 +262,18 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
             recorder: ?*stage_profile.Recorder,
             channel: anytype,
         ) !void {
+            // Auto-dispatch to streaming path for large column sets
+            // to reduce peak memory by processing in batches.
+            if (owned_columns.len >= streaming_column_threshold) {
+                return self.commitOwnedStreamingWithRecorder(
+                    allocator,
+                    owned_columns,
+                    streaming_batch_size,
+                    recorder,
+                    channel,
+                );
+            }
+
             errdefer freeOwnedColumnEvaluations(allocator, owned_columns);
             var prepared = try prepareColumnsForCommitOwned(
                 allocator,
@@ -360,8 +380,8 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
             self: *Self,
             allocator: std.mem.Allocator,
             batch_size: u32,
-        ) StreamingTreeBuilder(H, MC) {
-            return StreamingTreeBuilder(H, MC).init(
+        ) StreamingTreeBuilder(B, H, MC) {
+            return StreamingTreeBuilder(B, H, MC).init(
                 allocator,
                 self,
                 batch_size,
@@ -401,7 +421,7 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
         ) !void {
             const effective_batch_size: usize = if (batch_size_arg == 0) 64 else @as(usize, batch_size_arg);
 
-            var builder = StreamingTreeBuilder(H, MC).init(allocator, self, effective_batch_size);
+            var builder = StreamingTreeBuilder(B, H, MC).init(allocator, self, effective_batch_size);
             errdefer builder.deinit();
 
             // Process columns in batches.  Each iteration:
@@ -1113,11 +1133,11 @@ fn prefetchCommittedTreePages(comptime H: type, scheme: anytype) void {
 ///
 /// The resulting Merkle root is bit-identical to building the tree from all
 /// columns at once.
-pub fn StreamingTreeBuilder(comptime H: type, comptime MC: type) type {
+pub fn StreamingTreeBuilder(comptime B: type, comptime H: type, comptime MC: type) type {
     const MerkleProver = vcs_lifted_prover.MerkleProverLifted(H);
     return struct {
         allocator: std.mem.Allocator,
-        commitment_scheme: *CommitmentSchemeProver(H, MC),
+        commitment_scheme: *CommitmentSchemeProver(B, H, MC),
         batch_size: usize,
 
         /// Streaming Merkle committer that accumulates leaf hashes incrementally.
@@ -1138,7 +1158,7 @@ pub fn StreamingTreeBuilder(comptime H: type, comptime MC: type) type {
 
         pub fn init(
             allocator: std.mem.Allocator,
-            scheme: *CommitmentSchemeProver(H, MC),
+            scheme: *CommitmentSchemeProver(B, H, MC),
             batch_size: usize,
         ) Self {
             return .{
