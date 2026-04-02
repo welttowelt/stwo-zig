@@ -343,6 +343,114 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
             };
         }
 
+        /// Returns a `StreamingTreeBuilder` that commits columns in
+        /// configurable batches, reducing peak memory.
+        ///
+        /// Usage:
+        ///   1. Call `streamingTreeBuilder()` to obtain a builder.
+        ///   2. Call `builder.addColumns(batch)` for each batch of
+        ///      `ColumnEvaluation` (owned values).  The batch data is prepared
+        ///      (interpolated + extended), hashed into the Merkle leaf layer,
+        ///      and the extended column data is freed immediately.
+        ///   3. Call `builder.commit(channel)` to finalise the Merkle tree and
+        ///      append it to the commitment scheme.
+        ///
+        /// The final Merkle root is bit-identical to `commitOwned()`.
+        pub fn streamingTreeBuilder(
+            self: *Self,
+            allocator: std.mem.Allocator,
+            batch_size: u32,
+        ) StreamingTreeBuilder(H, MC) {
+            return StreamingTreeBuilder(H, MC).init(
+                allocator,
+                self,
+                batch_size,
+            );
+        }
+
+        /// Commits owned evaluation columns in streaming batches to reduce peak
+        /// memory.  Semantically identical to `commitOwned()` but processes
+        /// columns in groups of `batch_size`, freeing each batch's extended
+        /// evaluation data before the next batch is prepared.
+        ///
+        /// `batch_size` controls the number of columns prepared and hashed in
+        /// each round.  A value of 0 uses the default (64).
+        pub fn commitOwnedStreaming(
+            self: *Self,
+            allocator: std.mem.Allocator,
+            owned_columns: []ColumnEvaluation,
+            batch_size: u32,
+            channel: anytype,
+        ) !void {
+            return self.commitOwnedStreamingWithRecorder(
+                allocator,
+                owned_columns,
+                batch_size,
+                null,
+                channel,
+            );
+        }
+
+        pub fn commitOwnedStreamingWithRecorder(
+            self: *Self,
+            allocator: std.mem.Allocator,
+            owned_columns: []ColumnEvaluation,
+            batch_size_arg: u32,
+            recorder: ?*stage_profile.Recorder,
+            channel: anytype,
+        ) !void {
+            const effective_batch_size: usize = if (batch_size_arg == 0) 64 else @as(usize, batch_size_arg);
+
+            var builder = StreamingTreeBuilder(H, MC).init(allocator, self, effective_batch_size);
+            errdefer builder.deinit();
+
+            // Process columns in batches.  Each iteration:
+            //  1. Allocates a new batch array and moves column entries into it.
+            //  2. Nulls out the moved entries in the original array.
+            //  3. Passes the batch to addColumnsOwned (which takes full ownership).
+            //
+            // On error, `builder.deinit()` cleans up already-consumed data,
+            // and we manually free remaining unconsumed columns below.
+            var consumed: usize = 0;
+            while (consumed < owned_columns.len) {
+                const end = @min(owned_columns.len, consumed + effective_batch_size);
+                const batch_len = end - consumed;
+
+                const batch = allocator.alloc(ColumnEvaluation, batch_len) catch |err| {
+                    // Free unconsumed column values before propagating.
+                    for (owned_columns[consumed..]) |col| {
+                        if (col.values.len > 0) allocator.free(col.values);
+                    }
+                    allocator.free(owned_columns);
+                    return err;
+                };
+                @memcpy(batch, owned_columns[consumed..end]);
+
+                // Mark originals as consumed.
+                for (owned_columns[consumed..end]) |*col| {
+                    col.values = &[_]M31{};
+                }
+                consumed = end;
+
+                builder.addColumnsOwned(batch, recorder) catch |err| {
+                    // batch is owned by addColumnsOwned on success.
+                    // On error, addColumnsOwned's errdefer handles the batch
+                    // via prepareColumnsForCommitOwned's errdefer.
+                    // Free remaining unconsumed columns.
+                    for (owned_columns[consumed..]) |col| {
+                        if (col.values.len > 0) allocator.free(col.values);
+                    }
+                    allocator.free(owned_columns);
+                    return err;
+                };
+            }
+
+            // All column values have been transferred to the builder.
+            allocator.free(owned_columns);
+
+            try builder.commit(channel);
+        }
+
         pub fn roots(self: Self, allocator: std.mem.Allocator) !TreeVec(H.Hash) {
             const out = try allocator.alloc(H.Hash, self.trees.items.len);
             for (self.trees.items, 0..) |tree, i| {
@@ -1004,6 +1112,174 @@ fn prefetchCommittedTreePages(comptime H: type, scheme: anytype) void {
             mmap_alloc.prefetchPagesSlice(H.Hash, @constCast(merkle_layer));
         }
     }
+}
+
+/// A streaming tree builder that commits columns in configurable batches,
+/// building the Merkle leaf layer incrementally and freeing each batch's
+/// extended column data before the next batch is prepared.
+///
+/// The resulting Merkle root is bit-identical to building the tree from all
+/// columns at once.
+pub fn StreamingTreeBuilder(comptime H: type, comptime MC: type) type {
+    const MerkleProver = vcs_lifted_prover.MerkleProverLifted(H);
+    return struct {
+        allocator: std.mem.Allocator,
+        commitment_scheme: *CommitmentSchemeProver(H, MC),
+        batch_size: usize,
+
+        /// Streaming Merkle committer that accumulates leaf hashes incrementally.
+        streaming_committer: MerkleProver.StreamingCommitter,
+
+        /// Columns retained for later decommitment and sampled-value evaluation.
+        /// Each entry stores the *extended* column values and their log_size.
+        retained_columns: std.ArrayList(ColumnEvaluation),
+
+        /// Coefficient polynomials retained for sampled-value evaluation
+        /// (only when the retention policy says to keep them).
+        retained_coefficients: std.ArrayList(prover_circle.CircleCoefficients),
+
+        /// Whether we should retain coefficients.
+        retain_coefficients: bool,
+
+        const Self = @This();
+
+        pub fn init(
+            allocator: std.mem.Allocator,
+            scheme: *CommitmentSchemeProver(H, MC),
+            batch_size: usize,
+        ) Self {
+            return .{
+                .allocator = allocator,
+                .commitment_scheme = scheme,
+                .batch_size = if (batch_size == 0) 64 else batch_size,
+                .streaming_committer = MerkleProver.StreamingCommitter.init(allocator),
+                .retained_columns = std.ArrayList(ColumnEvaluation).empty,
+                .retained_coefficients = std.ArrayList(prover_circle.CircleCoefficients).empty,
+                .retain_coefficients = scheme.coefficient_retention_policy == .always,
+            };
+        }
+
+        pub fn deinit(self: *Self) void {
+            self.streaming_committer.deinit();
+            for (self.retained_columns.items) |col| {
+                if (col.values.len > 0) self.allocator.free(col.values);
+            }
+            self.retained_columns.deinit(self.allocator);
+            for (self.retained_coefficients.items) |*coeff| {
+                var c = coeff.*;
+                c.deinit(self.allocator);
+            }
+            self.retained_coefficients.deinit(self.allocator);
+            self.* = undefined;
+        }
+
+        /// Add a batch of owned columns.  The column values are consumed:
+        /// they are interpolated, extended to the commitment domain, hashed into
+        /// the streaming Merkle leaf layer, and the *original* values freed.
+        /// The *extended* values are retained (needed for decommitment).
+        ///
+        /// Columns MUST be supplied so that within each call (and across calls)
+        /// their extended log_sizes are non-decreasing.  In practice, grouping
+        /// columns by their original log_size achieves this.
+        pub fn addColumnsOwned(
+            self: *Self,
+            owned_batch: []ColumnEvaluation,
+            recorder: ?*stage_profile.Recorder,
+        ) !void {
+            if (owned_batch.len == 0) {
+                self.allocator.free(owned_batch);
+                return;
+            }
+
+            const log_blowup = self.commitment_scheme.config.fri_config.log_blowup_factor;
+
+            // Determine coefficient retention for this batch.
+            const batch_retain = self.retain_coefficients or
+                shouldRetainCoefficients(owned_batch, self.commitment_scheme.coefficient_retention_policy);
+
+            // Prepare: interpolate + extend.
+            // Follow the same ownership convention as commitOwnedWithRecorder:
+            // on error from prepareColumnsForCommitOwned the caller cleans up
+            // the input; on success the result owns the data.
+            var prepared = prepareColumnsForCommitOwned(
+                self.allocator,
+                owned_batch,
+                log_blowup,
+                if (batch_retain) CoefficientRetentionPolicy.always else CoefficientRetentionPolicy.never,
+                &self.commitment_scheme.twiddle_cache,
+                recorder,
+            ) catch |err| {
+                freeOwnedColumnEvaluations(self.allocator, owned_batch);
+                return err;
+            };
+            errdefer prepared.deinit(self.allocator);
+
+            // Build sorted ColumnRef array for the streaming Merkle committer.
+            const col_refs = try self.allocator.alloc([]const M31, prepared.columns.len);
+            defer self.allocator.free(col_refs);
+            for (prepared.columns, 0..) |col, i| {
+                col_refs[i] = col.values;
+            }
+            const sorted = try MerkleProver.sortColumnsByLogSizeAsc(self.allocator, col_refs);
+            defer self.allocator.free(sorted);
+
+            // Pre-allocate space in retained lists before any ownership transfer.
+            try self.retained_columns.ensureUnusedCapacity(self.allocator, prepared.columns.len);
+            if (prepared.coefficients) |coeffs| {
+                try self.retained_coefficients.ensureUnusedCapacity(self.allocator, coeffs.len);
+            }
+
+            // Feed into streaming Merkle leaf layer.
+            try self.streaming_committer.addColumns(sorted);
+
+            // From here, all operations are guaranteed not to fail (no try).
+            // Retain extended columns (needed for decommitment and quotient evaluation).
+            for (prepared.columns) |col| {
+                self.retained_columns.appendAssumeCapacity(col);
+            }
+
+            // Retain coefficients if needed.
+            if (prepared.coefficients) |coeffs| {
+                for (coeffs) |coeff| {
+                    self.retained_coefficients.appendAssumeCapacity(coeff);
+                }
+                self.allocator.free(coeffs);
+            }
+
+            // The prepared.columns outer slice was consumed into retained_columns
+            // element-by-element.  Free only the outer allocation.
+            self.allocator.free(prepared.columns);
+        }
+
+        /// Finalize the streaming commitment: build the full Merkle tree from
+        /// the accumulated leaf hashes, create a `CommitmentTreeProver`, mix
+        /// the root into the channel, and append the tree to the commitment
+        /// scheme.
+        pub fn commit(self: *Self, channel: anytype) !void {
+            // Finalize the Merkle tree.
+            var merkle = try self.streaming_committer.finalize();
+            // streaming_committer is now consumed; reinitialize to safe state for deinit.
+            self.streaming_committer = MerkleProver.StreamingCommitter.init(self.allocator);
+            errdefer merkle.deinit(self.allocator);
+
+            // Assemble the retained columns and coefficients into a CommitmentTreeProver.
+            const columns = try self.retained_columns.toOwnedSlice(self.allocator);
+            self.retained_columns = std.ArrayList(ColumnEvaluation).empty;
+
+            var coefficients: ?[]prover_circle.CircleCoefficients = null;
+            if (self.retained_coefficients.items.len > 0) {
+                coefficients = try self.retained_coefficients.toOwnedSlice(self.allocator);
+                self.retained_coefficients = std.ArrayList(prover_circle.CircleCoefficients).empty;
+            }
+
+            const tree = CommitmentTreeProver(H){
+                .columns = columns,
+                .coefficients = coefficients,
+                .commitment = merkle,
+            };
+            try self.commitment_scheme.appendCommittedTree(self.allocator, tree, channel);
+        }
+    };
 }
 
 fn flattenSampledValues(
@@ -3507,4 +3783,221 @@ test "prover pcs: prove values rejects sampled point on domain" {
         error.DegenerateLine,
         prove_result,
     );
+}
+
+test "prover pcs: streaming commitment produces identical root to non-streaming" {
+    const Hasher = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const MerkleChannel = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
+    const Channel = @import("../../core/channel/blake2s.zig").Blake2sChannel;
+    const Scheme = CommitmentSchemeProver(Hasher, MerkleChannel);
+    const alloc = std.testing.allocator;
+
+    // Create test columns of various sizes.
+    const n_large: usize = 16;
+    const n_small: usize = 4;
+    const large_len: usize = 1 << 4;
+    const small_len: usize = 1 << 2;
+
+    // Build column values.
+    const all_columns = try alloc.alloc(ColumnEvaluation, n_large + n_small);
+    defer {
+        for (all_columns) |col| {
+            if (col.values.len > 0) alloc.free(col.values);
+        }
+        alloc.free(all_columns);
+    }
+
+    for (0..n_large) |i| {
+        const values = try alloc.alloc(M31, large_len);
+        for (values, 0..) |*v, j| {
+            v.* = M31.fromU64(@as(u64, @intCast((i + 1) * 1009 + (j + 3) * 37)));
+        }
+        all_columns[i] = .{ .log_size = 4, .values = values };
+    }
+    for (0..n_small) |offset| {
+        const i = n_large + offset;
+        const values = try alloc.alloc(M31, small_len);
+        for (values, 0..) |*v, j| {
+            v.* = M31.fromU64(@as(u64, @intCast((i + 5) * 1223 + (j + 7) * 19)));
+        }
+        all_columns[i] = .{ .log_size = 2, .values = values };
+    }
+
+    // Non-streaming: commit all at once.
+    var scheme_ref = try Scheme.init(alloc, PcsConfig.default());
+    defer scheme_ref.deinit(alloc);
+    var channel_ref = Channel{};
+    try scheme_ref.commit(
+        alloc,
+        all_columns,
+        &channel_ref,
+    );
+
+    // Streaming: commit in batches of 5.
+    var scheme_stream = try Scheme.init(alloc, PcsConfig.default());
+    defer scheme_stream.deinit(alloc);
+    var channel_stream = Channel{};
+
+    // Build owned copies for the streaming path.
+    const stream_columns = try alloc.alloc(ColumnEvaluation, all_columns.len);
+    for (all_columns, 0..) |col, i| {
+        stream_columns[i] = .{
+            .log_size = col.log_size,
+            .values = try alloc.dupe(M31, col.values),
+        };
+    }
+
+    try scheme_stream.commitOwnedStreaming(
+        alloc,
+        stream_columns,
+        5,
+        &channel_stream,
+    );
+
+    // Verify identical roots.
+    var roots_ref = try scheme_ref.roots(alloc);
+    defer roots_ref.deinit(alloc);
+    var roots_stream = try scheme_stream.roots(alloc);
+    defer roots_stream.deinit(alloc);
+
+    try std.testing.expectEqual(roots_ref.items.len, roots_stream.items.len);
+    for (roots_ref.items, roots_stream.items) |root_ref, root_stream| {
+        try std.testing.expectEqualSlices(u8, root_ref[0..], root_stream[0..]);
+    }
+
+    // Verify identical channel state (the root mixing should match).
+    try std.testing.expectEqualSlices(u8, channel_ref.digestBytes()[0..], channel_stream.digestBytes()[0..]);
+}
+
+test "prover pcs: streaming commitment with batch_size=1 matches non-streaming" {
+    const Hasher = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const MerkleChannel = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
+    const Channel = @import("../../core/channel/blake2s.zig").Blake2sChannel;
+    const Scheme = CommitmentSchemeProver(Hasher, MerkleChannel);
+    const alloc = std.testing.allocator;
+
+    const col_len: usize = 1 << 3;
+    const n_cols: usize = 4;
+
+    const all_columns = try alloc.alloc(ColumnEvaluation, n_cols);
+    defer {
+        for (all_columns) |col| {
+            if (col.values.len > 0) alloc.free(col.values);
+        }
+        alloc.free(all_columns);
+    }
+
+    for (0..n_cols) |i| {
+        const values = try alloc.alloc(M31, col_len);
+        for (values, 0..) |*v, j| {
+            v.* = M31.fromU64(@as(u64, @intCast((i + 1) * 101 + (j + 1) * 7)));
+        }
+        all_columns[i] = .{ .log_size = 3, .values = values };
+    }
+
+    // Non-streaming.
+    var scheme_ref = try Scheme.init(alloc, PcsConfig.default());
+    defer scheme_ref.deinit(alloc);
+    var channel_ref = Channel{};
+    try scheme_ref.commit(alloc, all_columns, &channel_ref);
+
+    // Streaming with batch_size=1.
+    var scheme_stream = try Scheme.init(alloc, PcsConfig.default());
+    defer scheme_stream.deinit(alloc);
+    var channel_stream = Channel{};
+
+    const stream_columns = try alloc.alloc(ColumnEvaluation, n_cols);
+    for (all_columns, 0..) |col, i| {
+        stream_columns[i] = .{
+            .log_size = col.log_size,
+            .values = try alloc.dupe(M31, col.values),
+        };
+    }
+
+    try scheme_stream.commitOwnedStreaming(alloc, stream_columns, 1, &channel_stream);
+
+    var roots_ref = try scheme_ref.roots(alloc);
+    defer roots_ref.deinit(alloc);
+    var roots_stream = try scheme_stream.roots(alloc);
+    defer roots_stream.deinit(alloc);
+
+    try std.testing.expectEqual(roots_ref.items.len, roots_stream.items.len);
+    for (roots_ref.items, roots_stream.items) |root_ref, root_stream| {
+        try std.testing.expectEqualSlices(u8, root_ref[0..], root_stream[0..]);
+    }
+    try std.testing.expectEqualSlices(u8, channel_ref.digestBytes()[0..], channel_stream.digestBytes()[0..]);
+}
+
+test "prover pcs: streaming tree builder API matches non-streaming" {
+    const Hasher = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const MerkleChannel = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
+    const Channel = @import("../../core/channel/blake2s.zig").Blake2sChannel;
+    const Scheme = CommitmentSchemeProver(Hasher, MerkleChannel);
+    const alloc = std.testing.allocator;
+
+    const col_len: usize = 1 << 3;
+    const n_cols: usize = 6;
+
+    const all_columns = try alloc.alloc(ColumnEvaluation, n_cols);
+    defer {
+        for (all_columns) |col| {
+            if (col.values.len > 0) alloc.free(col.values);
+        }
+        alloc.free(all_columns);
+    }
+
+    for (0..n_cols) |i| {
+        const values = try alloc.alloc(M31, col_len);
+        for (values, 0..) |*v, j| {
+            v.* = M31.fromU64(@as(u64, @intCast((i + 3) * 503 + (j + 2) * 41)));
+        }
+        all_columns[i] = .{ .log_size = 3, .values = values };
+    }
+
+    // Non-streaming.
+    var scheme_ref = try Scheme.init(alloc, PcsConfig.default());
+    defer scheme_ref.deinit(alloc);
+    var channel_ref = Channel{};
+    try scheme_ref.commit(alloc, all_columns, &channel_ref);
+
+    // Streaming tree builder API: add two batches of 3.
+    var scheme_stream = try Scheme.init(alloc, PcsConfig.default());
+    defer scheme_stream.deinit(alloc);
+    var channel_stream = Channel{};
+
+    var builder = scheme_stream.streamingTreeBuilder(alloc, 3);
+    defer builder.deinit();
+
+    // Batch 1: first 3 columns.
+    const batch1 = try alloc.alloc(ColumnEvaluation, 3);
+    for (0..3) |i| {
+        batch1[i] = .{
+            .log_size = all_columns[i].log_size,
+            .values = try alloc.dupe(M31, all_columns[i].values),
+        };
+    }
+    try builder.addColumnsOwned(batch1, null);
+
+    // Batch 2: remaining 3 columns.
+    const batch2 = try alloc.alloc(ColumnEvaluation, 3);
+    for (0..3) |i| {
+        batch2[i] = .{
+            .log_size = all_columns[3 + i].log_size,
+            .values = try alloc.dupe(M31, all_columns[3 + i].values),
+        };
+    }
+    try builder.addColumnsOwned(batch2, null);
+
+    try builder.commit(&channel_stream);
+
+    var roots_ref = try scheme_ref.roots(alloc);
+    defer roots_ref.deinit(alloc);
+    var roots_stream = try scheme_stream.roots(alloc);
+    defer roots_stream.deinit(alloc);
+
+    try std.testing.expectEqual(roots_ref.items.len, roots_stream.items.len);
+    for (roots_ref.items, roots_stream.items) |root_ref, root_stream| {
+        try std.testing.expectEqualSlices(u8, root_ref[0..], root_stream[0..]);
+    }
+    try std.testing.expectEqualSlices(u8, channel_ref.digestBytes()[0..], channel_stream.digestBytes()[0..]);
 }

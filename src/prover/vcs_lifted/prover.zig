@@ -361,13 +361,13 @@ pub fn MerkleProverLifted(comptime H: type) type {
             };
         }
 
-        const ColumnRef = struct {
+        pub const ColumnRef = struct {
             values: []const M31,
             log_size: u32,
             original_index: usize,
         };
 
-        fn sortColumnsByLogSizeAsc(
+        pub fn sortColumnsByLogSizeAsc(
             allocator: std.mem.Allocator,
             columns: []const []const M31,
         ) ![]ColumnRef {
@@ -831,6 +831,203 @@ pub fn MerkleProverLifted(comptime H: type) type {
             hashBasicRange(&contexts[0]);
             wait_group.wait();
         }
+        /// Streaming committer that builds a Merkle tree incrementally from column
+        /// batches.  Each batch's column data is consumed and can be freed before
+        /// the next batch is fed, reducing peak memory.
+        ///
+        /// Usage:
+        ///   1. `init()` — start a streaming commitment for a known total column set.
+        ///   2. `addColumns()` — feed one or more batches of columns (must be
+        ///       supplied in ascending log-size order, matching `sortColumnsByLogSizeAsc`).
+        ///   3. `finalize()` — finalise the leaf hashes, build the internal tree
+        ///       layers, and return the completed `MerkleProverLifted`.
+        ///
+        /// The resulting Merkle root is bit-identical to calling `commit()` with all
+        /// columns at once.
+        pub const StreamingCommitter = struct {
+            allocator: std.mem.Allocator,
+            /// Leaf hasher state — one hasher per leaf position.
+            /// Grows (via expansion) as larger log_size columns are encountered.
+            leaf_hashers: []H,
+            /// Current log_size of the leaf hasher array (number of positions = 1 << leaf_log_size).
+            leaf_log_size: u32,
+            /// Whether any columns have been added yet.
+            initialized: bool,
+
+            pub fn init(allocator: std.mem.Allocator) StreamingCommitter {
+                return .{
+                    .allocator = allocator,
+                    .leaf_hashers = &[_]H{},
+                    .leaf_log_size = 0,
+                    .initialized = false,
+                };
+            }
+
+            pub fn deinit(self: *StreamingCommitter) void {
+                if (self.leaf_hashers.len > 0) {
+                    self.allocator.free(self.leaf_hashers);
+                }
+                self.* = undefined;
+            }
+
+            /// Feed a batch of columns into the streaming hasher.
+            ///
+            /// Columns MUST be supplied in ascending log_size order (matching
+            /// `sortColumnsByLogSizeAsc` within each batch and across batches).
+            /// Columns with the same log_size as columns from a previous batch
+            /// are permitted — they extend the same group.
+            ///
+            /// After this call returns, the caller may free the column value
+            /// slices; their data has been absorbed into the leaf hasher state.
+            pub fn addColumns(
+                self: *StreamingCommitter,
+                columns: []const ColumnRef,
+            ) !void {
+                if (columns.len == 0) return;
+
+                for (columns) |column| {
+                    if (!std.math.isPowerOfTwo(column.values.len) or column.values.len < 2) {
+                        return error.InvalidColumnSize;
+                    }
+                }
+
+                // Initialize seed hasher on first call.
+                if (!self.initialized) {
+                    const seed_hasher = H.defaultWithInitialState();
+                    const first_log_size = columns[0].log_size;
+                    const first_size = @as(usize, 1) << @intCast(first_log_size);
+                    self.leaf_hashers = try self.allocator.alloc(H, first_size);
+                    for (self.leaf_hashers) |*h| h.* = seed_hasher;
+                    self.leaf_log_size = first_log_size;
+                    self.initialized = true;
+                }
+
+                // Process columns in groups by log_size.
+                var group_start: usize = 0;
+                while (group_start < columns.len) {
+                    const log_size = columns[group_start].log_size;
+                    var group_end = group_start + 1;
+                    while (group_end < columns.len and
+                        columns[group_end].log_size == log_size)
+                    {
+                        group_end += 1;
+                    }
+
+                    // Expand leaf hashers if needed for this log_size.
+                    if (log_size > self.leaf_log_size) {
+                        const log_ratio = log_size - self.leaf_log_size;
+                        const layer_size = @as(usize, 1) << @intCast(log_size);
+                        const shift_amt: std.math.Log2Int(usize) = @intCast(log_ratio + 1);
+                        const expanded = try self.allocator.alloc(H, layer_size);
+                        for (0..layer_size) |idx| {
+                            const src_idx = ((idx >> shift_amt) << 1) + (idx & 1);
+                            expanded[idx] = self.leaf_hashers[src_idx];
+                        }
+                        self.allocator.free(self.leaf_hashers);
+                        self.leaf_hashers = expanded;
+                        self.leaf_log_size = log_size;
+                    }
+
+                    const layer_size = self.leaf_hashers.len;
+                    const group_columns = columns[group_start..group_end];
+
+                    // Feed column values into leaf hashers — same logic as buildLeaves.
+                    if (comptime @hasDecl(H, "updateLeafPackedBytes")) {
+                        try updateLeafHashersPacked(
+                            self.allocator,
+                            self.leaf_hashers,
+                            group_columns,
+                            layer_size,
+                        );
+                    } else {
+                        var idx: usize = 0;
+                        while (idx < layer_size) : (idx += 1) {
+                            for (group_columns) |column| {
+                                self.leaf_hashers[idx].updateLeaf(column.values[idx .. idx + 1]);
+                            }
+                        }
+                    }
+
+                    group_start = group_end;
+                }
+            }
+
+            /// Finalize the streaming commitment: produce leaf hashes from the
+            /// accumulated hasher state, build internal Merkle layers, and return
+            /// the completed tree.  The `StreamingCommitter` is consumed (its
+            /// hasher memory is freed).
+            pub fn finalize(self: *StreamingCommitter) !Self {
+                if (!self.initialized) {
+                    // No columns were added — replicate the empty-column path
+                    // from buildLeaves.
+                    const seed_hasher = H.defaultWithInitialState();
+                    var h = seed_hasher;
+                    const leaves = try self.allocator.alloc(H.Hash, 1);
+                    leaves[0] = h.finalize();
+
+                    var layers_bottom_up = std.ArrayList([]H.Hash).empty;
+                    defer layers_bottom_up.deinit(self.allocator);
+                    errdefer {
+                        for (layers_bottom_up.items) |layer| self.allocator.free(layer);
+                    }
+                    try layers_bottom_up.append(self.allocator, leaves);
+
+                    const out_layers = try self.allocator.alloc([]H.Hash, 1);
+                    out_layers[0] = leaves;
+                    self.* = undefined;
+                    return .{ .layers = out_layers };
+                }
+
+                // Finalize leaf hashers into leaf hashes.
+                const leaf_count = self.leaf_hashers.len;
+                const leaves = try self.allocator.alloc(H.Hash, leaf_count);
+                for (self.leaf_hashers, 0..) |*hasher, i| {
+                    leaves[i] = hasher.finalize();
+                }
+                // Free hasher state — column data is no longer needed.
+                self.allocator.free(self.leaf_hashers);
+                self.leaf_hashers = &[_]H{};
+
+                // Build internal tree layers — identical to commitWithOptions.
+                const worker_override = merkleWorkerOverride(self.allocator);
+                const reuse_pool = merklePoolReuseEnabled(self.allocator);
+
+                var layers_bottom_up = std.ArrayList([]H.Hash).empty;
+                defer layers_bottom_up.deinit(self.allocator);
+                errdefer {
+                    for (layers_bottom_up.items) |layer| self.allocator.free(layer);
+                }
+                try layers_bottom_up.append(self.allocator, leaves);
+
+                if (leaves.len > 1) {
+                    std.debug.assert(std.math.isPowerOfTwo(leaves.len));
+                    const max_log_size = std.math.log2_int(usize, leaves.len);
+                    const max_out_len = leaves.len >> 1;
+                    var executor: LayerExecutor = undefined;
+                    executor.init(parallelWorkersForLayer(max_out_len, worker_override), reuse_pool);
+                    defer executor.deinit();
+
+                    var i: usize = 0;
+                    while (i < max_log_size) : (i += 1) {
+                        const next_layer = try buildNextLayer(
+                            self.allocator,
+                            layers_bottom_up.items[layers_bottom_up.items.len - 1],
+                            &executor,
+                            worker_override,
+                        );
+                        try layers_bottom_up.append(self.allocator, next_layer);
+                    }
+                }
+
+                const out_layers = try self.allocator.alloc([]H.Hash, layers_bottom_up.items.len);
+                var i: usize = 0;
+                while (i < out_layers.len) : (i += 1) {
+                    out_layers[i] = layers_bottom_up.items[out_layers.len - 1 - i];
+                }
+                self.* = undefined;
+                return .{ .layers = out_layers };
+            }
+        };
     };
 }
 
@@ -1110,4 +1307,198 @@ test "prover vcs_lifted: root is stable across large-layer worker-count override
     try std.testing.expect(std.mem.eql(u8, std.mem.asBytes(&root_auto), std.mem.asBytes(&root_two)));
     try std.testing.expect(std.mem.eql(u8, std.mem.asBytes(&root_auto), std.mem.asBytes(&root_four)));
     try std.testing.expect(std.mem.eql(u8, std.mem.asBytes(&root_auto), std.mem.asBytes(&root_eight)));
+}
+
+test "prover vcs_lifted: streaming committer produces identical root — single batch" {
+    const Hasher = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Prover = MerkleProverLifted(Hasher);
+    const alloc = std.testing.allocator;
+
+    const columns = [_][]const M31{
+        &[_]M31{
+            M31.fromCanonical(1),
+            M31.fromCanonical(2),
+            M31.fromCanonical(3),
+            M31.fromCanonical(4),
+            M31.fromCanonical(5),
+            M31.fromCanonical(6),
+            M31.fromCanonical(7),
+            M31.fromCanonical(8),
+        },
+        &[_]M31{
+            M31.fromCanonical(9),
+            M31.fromCanonical(10),
+            M31.fromCanonical(11),
+            M31.fromCanonical(12),
+        },
+        &[_]M31{
+            M31.fromCanonical(13),
+            M31.fromCanonical(14),
+            M31.fromCanonical(15),
+            M31.fromCanonical(16),
+            M31.fromCanonical(17),
+            M31.fromCanonical(18),
+            M31.fromCanonical(19),
+            M31.fromCanonical(20),
+        },
+    };
+
+    // Reference: full commit.
+    var prover_ref = try Prover.commit(alloc, columns[0..]);
+    defer prover_ref.deinit(alloc);
+    const expected_root = prover_ref.root();
+
+    // Sort columns the same way commit() does internally.
+    const sorted = try Prover.sortColumnsByLogSizeAsc(alloc, columns[0..]);
+    defer alloc.free(sorted);
+
+    // Streaming: feed all sorted columns in one batch.
+    var streaming = Prover.StreamingCommitter.init(alloc);
+    errdefer streaming.deinit();
+    try streaming.addColumns(sorted);
+    var streaming_prover = try streaming.finalize();
+    defer streaming_prover.deinit(alloc);
+
+    try std.testing.expectEqualSlices(u8, expected_root[0..], streaming_prover.root()[0..]);
+}
+
+test "prover vcs_lifted: streaming committer produces identical root — column-by-column" {
+    const Hasher = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Prover = MerkleProverLifted(Hasher);
+    const alloc = std.testing.allocator;
+
+    const columns = [_][]const M31{
+        &[_]M31{
+            M31.fromCanonical(1),
+            M31.fromCanonical(2),
+            M31.fromCanonical(3),
+            M31.fromCanonical(4),
+            M31.fromCanonical(5),
+            M31.fromCanonical(6),
+            M31.fromCanonical(7),
+            M31.fromCanonical(8),
+        },
+        &[_]M31{
+            M31.fromCanonical(9),
+            M31.fromCanonical(10),
+            M31.fromCanonical(11),
+            M31.fromCanonical(12),
+        },
+        &[_]M31{
+            M31.fromCanonical(13),
+            M31.fromCanonical(14),
+            M31.fromCanonical(15),
+            M31.fromCanonical(16),
+            M31.fromCanonical(17),
+            M31.fromCanonical(18),
+            M31.fromCanonical(19),
+            M31.fromCanonical(20),
+        },
+    };
+
+    var prover_ref = try Prover.commit(alloc, columns[0..]);
+    defer prover_ref.deinit(alloc);
+    const expected_root = prover_ref.root();
+
+    // Sort, then feed one column at a time.
+    const sorted = try Prover.sortColumnsByLogSizeAsc(alloc, columns[0..]);
+    defer alloc.free(sorted);
+
+    var streaming = Prover.StreamingCommitter.init(alloc);
+    errdefer streaming.deinit();
+    for (sorted) |col| {
+        const single = [_]Prover.ColumnRef{col};
+        try streaming.addColumns(single[0..]);
+    }
+    var streaming_prover = try streaming.finalize();
+    defer streaming_prover.deinit(alloc);
+
+    try std.testing.expectEqualSlices(u8, expected_root[0..], streaming_prover.root()[0..]);
+}
+
+test "prover vcs_lifted: streaming committer produces identical root — many columns batched" {
+    const Hasher = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Prover = MerkleProverLifted(Hasher);
+    const alloc = std.testing.allocator;
+
+    const large_count: usize = 32;
+    const small_count: usize = 8;
+    const total = large_count + small_count;
+    const large_len: usize = 1 << 6;
+    const small_len: usize = 1 << 4;
+
+    const columns_storage = try alloc.alloc([]M31, total);
+    defer {
+        for (columns_storage) |column| alloc.free(column);
+        alloc.free(columns_storage);
+    }
+    const columns = try alloc.alloc([]const M31, total);
+    defer alloc.free(columns);
+
+    for (0..large_count) |i| {
+        const values = try alloc.alloc(M31, large_len);
+        columns_storage[i] = values;
+        columns[i] = values;
+        for (values, 0..) |*v, j| {
+            v.* = M31.fromU64(@as(u64, @intCast((i + 1) * 1009 + (j + 3) * 37)));
+        }
+    }
+    for (0..small_count) |offset| {
+        const i = large_count + offset;
+        const values = try alloc.alloc(M31, small_len);
+        columns_storage[i] = values;
+        columns[i] = values;
+        for (values, 0..) |*v, j| {
+            v.* = M31.fromU64(@as(u64, @intCast((i + 5) * 1223 + (j + 7) * 19)));
+        }
+    }
+
+    var prover_ref = try Prover.commit(alloc, columns);
+    defer prover_ref.deinit(alloc);
+    const expected_root = prover_ref.root();
+
+    const sorted = try Prover.sortColumnsByLogSizeAsc(alloc, columns);
+    defer alloc.free(sorted);
+
+    // Feed in batches of 5 (not aligned with group boundaries).
+    var streaming = Prover.StreamingCommitter.init(alloc);
+    errdefer streaming.deinit();
+    var batch_start: usize = 0;
+    while (batch_start < sorted.len) {
+        // Must split batches at log_size boundaries to maintain ordering invariant.
+        var batch_end = batch_start + 1;
+        while (batch_end < sorted.len and
+            batch_end - batch_start < 5 and
+            sorted[batch_end].log_size == sorted[batch_start].log_size)
+        {
+            batch_end += 1;
+        }
+        // If next column has a different log_size, that's fine — it'll be in the next batch.
+        // But within a batch, all columns must have non-decreasing log_size.
+        try streaming.addColumns(sorted[batch_start..batch_end]);
+        batch_start = batch_end;
+    }
+    var streaming_prover = try streaming.finalize();
+    defer streaming_prover.deinit(alloc);
+
+    try std.testing.expectEqualSlices(u8, expected_root[0..], streaming_prover.root()[0..]);
+}
+
+test "prover vcs_lifted: streaming committer empty columns" {
+    const Hasher = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Prover = MerkleProverLifted(Hasher);
+    const alloc = std.testing.allocator;
+
+    const no_columns = [_][]const M31{};
+    var prover_ref = try Prover.commit(alloc, no_columns[0..]);
+    defer prover_ref.deinit(alloc);
+    const expected_root = prover_ref.root();
+
+    var streaming = Prover.StreamingCommitter.init(alloc);
+    errdefer streaming.deinit();
+    // Finalize with no columns added.
+    var streaming_prover = try streaming.finalize();
+    defer streaming_prover.deinit(alloc);
+
+    try std.testing.expectEqualSlices(u8, expected_root[0..], streaming_prover.root()[0..]);
 }
