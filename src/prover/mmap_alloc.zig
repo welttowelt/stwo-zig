@@ -94,6 +94,83 @@ pub fn adviseDontNeed(ptr: [*]u8, len: usize) void {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Page-aligned release / prefetch helpers
+// ---------------------------------------------------------------------------
+
+const page_size: usize = std.heap.page_size_min;
+
+const AlignedRange = struct {
+    ptr: [*]align(page_size) u8,
+    len: usize,
+};
+
+/// Align a raw pointer range inward to page boundaries.
+/// Returns a zero-length range if the input is too small to contain a full page.
+fn alignToPageBoundaries(ptr: [*]u8, len: usize) AlignedRange {
+    const addr = @intFromPtr(ptr);
+    // Round start up to the next page boundary.
+    const aligned_start = std.mem.alignForward(usize, addr, page_size);
+    const end = addr + len;
+    if (aligned_start >= end) return .{ .ptr = @ptrFromInt(page_size), .len = 0 };
+    // Round length down to a page multiple.
+    const aligned_len = std.mem.alignBackward(usize, end - aligned_start, page_size);
+    if (aligned_len == 0) return .{ .ptr = @ptrFromInt(page_size), .len = 0 };
+    return .{
+        .ptr = @ptrFromInt(aligned_start),
+        .len = aligned_len,
+    };
+}
+
+fn releaseAdvice() u32 {
+    if (comptime builtin.os.tag.isDarwin()) {
+        return std.posix.MADV.FREE;
+    }
+    return std.posix.MADV.DONTNEED;
+}
+
+fn willneedAdvice() u32 {
+    return std.posix.MADV.WILLNEED;
+}
+
+fn doMadvise(ptr: [*]align(page_size) u8, len: usize, advice: u32) !void {
+    return std.posix.madvise(ptr, len, advice);
+}
+
+/// Release physical pages backing a memory region with inward page alignment.
+pub fn releasePages(ptr: [*]u8, len: usize) void {
+    const aligned = alignToPageBoundaries(ptr, len);
+    if (aligned.len == 0) return;
+    doMadvise(aligned.ptr, aligned.len, releaseAdvice()) catch {};
+}
+
+/// Hint to the kernel that the given memory region will be accessed soon.
+pub fn prefetchPages(ptr: [*]u8, len: usize) void {
+    const aligned = alignToPageBoundaries(ptr, len);
+    if (aligned.len == 0) return;
+    doMadvise(aligned.ptr, aligned.len, willneedAdvice()) catch {};
+}
+
+/// Release pages backing a typed slice.
+pub fn releasePagesSlice(comptime T: type, slice: []T) void {
+    if (slice.len == 0) return;
+    const byte_ptr: [*]u8 = @ptrCast(slice.ptr);
+    const byte_len = slice.len * @sizeOf(T);
+    releasePages(byte_ptr, byte_len);
+}
+
+/// Prefetch pages for a typed slice.
+pub fn prefetchPagesSlice(comptime T: type, slice: []T) void {
+    if (slice.len == 0) return;
+    const byte_ptr: [*]u8 = @ptrCast(slice.ptr);
+    const byte_len = slice.len * @sizeOf(T);
+    prefetchPages(byte_ptr, byte_len);
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
 test "mmap_alloc: basic alloc and free" {
     const a = MmapAllocator.allocator();
     const buf = try a.alloc(u8, 4096);
@@ -109,4 +186,64 @@ test "mmap_alloc: large allocation" {
     try std.testing.expectEqual(@as(u32, 42), buf[0]);
     try std.testing.expectEqual(@as(u32, 99), buf[1023 * 1024]);
     a.free(buf);
+}
+
+test "releasePages on page-aligned mmap region" {
+    const alloc = std.heap.page_allocator;
+    const size = page_size * 4;
+    const mem = try alloc.alloc(u8, size);
+    defer alloc.free(mem);
+
+    @memset(mem, 0xAB);
+    releasePages(mem.ptr, mem.len);
+
+    if (comptime !builtin.os.tag.isDarwin()) {
+        for (mem) |byte| {
+            try std.testing.expectEqual(@as(u8, 0), byte);
+        }
+    }
+}
+
+test "releasePagesSlice on typed data" {
+    const alloc = std.heap.page_allocator;
+    const count = page_size / @sizeOf(u64) * 2;
+    const data = try alloc.alloc(u64, count);
+    defer alloc.free(data);
+
+    for (data) |*v| v.* = 0xDEAD_BEEF;
+    releasePagesSlice(u64, data);
+
+    if (comptime !builtin.os.tag.isDarwin()) {
+        for (data) |v| {
+            try std.testing.expectEqual(@as(u64, 0), v);
+        }
+    }
+}
+
+test "prefetchPages does not crash" {
+    const alloc = std.heap.page_allocator;
+    const size = page_size * 2;
+    const mem = try alloc.alloc(u8, size);
+    defer alloc.free(mem);
+
+    @memset(mem, 0x42);
+    prefetchPages(mem.ptr, mem.len);
+
+    for (mem) |byte| {
+        try std.testing.expectEqual(@as(u8, 0x42), byte);
+    }
+}
+
+test "releasePages with sub-page region is no-op" {
+    var buf: [64]u8 = undefined;
+    @memset(&buf, 0x11);
+    releasePages(&buf, buf.len);
+    for (buf) |byte| {
+        try std.testing.expectEqual(@as(u8, 0x11), byte);
+    }
+}
+
+test "releasePagesSlice with empty slice is no-op" {
+    const empty: []u32 = &[_]u32{};
+    releasePagesSlice(u32, empty);
 }

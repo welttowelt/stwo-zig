@@ -4,6 +4,7 @@ const circle = @import("../../core/circle.zig");
 const channel_blake2s = @import("../../core/channel/blake2s.zig");
 const m31 = @import("../../core/fields/m31.zig");
 const qm31 = @import("../../core/fields/qm31.zig");
+const mmap_alloc = @import("../mmap_alloc.zig");
 const pcs_core = @import("../../core/pcs/mod.zig");
 const pcs_utils = @import("../../core/pcs/utils.zig");
 const core_quotients = @import("../../core/pcs/quotients.zig");
@@ -627,6 +628,12 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                 );
             };
 
+            // Column data has been fully consumed for quotient building.
+            // Release the physical pages backing committed column evaluations
+            // and their merkle tree layers to reduce RSS during FRI commit.
+            // The data will be prefetched before trace decommitment.
+            releaseCommittedTreePages(H, &scheme);
+
             var fri_prover = blk: {
                 var fri_commit_stage = try stage_profile.StageScope.begin(
                     recorder,
@@ -673,6 +680,10 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                     "Trace decommit",
                 );
                 defer trace_decommit_stage.end();
+                // Prefetch committed column and merkle pages that were
+                // released after quotient building; they will be read
+                // during decommitment below.
+                prefetchCommittedTreePages(H, &scheme);
                 var query_positions_tree = try scheme.buildQueryPositionsTree(
                     allocator,
                     fri_decommit.query_positions,
@@ -963,6 +974,36 @@ pub fn TreeBuilder(comptime B: type, comptime H: type, comptime MC: type) type {
             try self.commitment_scheme.appendCommittedTree(self.allocator, tree, channel);
         }
     };
+}
+
+/// Release physical pages backing all committed tree columns and merkle layers.
+///
+/// Called after quotient computation when column data is no longer needed
+/// until trace decommitment. This reduces RSS during the FRI commit phase.
+fn releaseCommittedTreePages(comptime H: type, scheme: anytype) void {
+    for (scheme.trees.items) |tree| {
+        for (tree.columns) |column| {
+            mmap_alloc.releasePagesSlice(M31, @constCast(column.values));
+        }
+        for (tree.commitment.layers) |merkle_layer| {
+            mmap_alloc.releasePagesSlice(H.Hash, @constCast(merkle_layer));
+        }
+    }
+}
+
+/// Prefetch physical pages for all committed tree columns and merkle layers.
+///
+/// Called before trace decommitment to re-populate pages that were
+/// previously released via `releaseCommittedTreePages`.
+fn prefetchCommittedTreePages(comptime H: type, scheme: anytype) void {
+    for (scheme.trees.items) |tree| {
+        for (tree.columns) |column| {
+            mmap_alloc.prefetchPagesSlice(M31, @constCast(column.values));
+        }
+        for (tree.commitment.layers) |merkle_layer| {
+            mmap_alloc.prefetchPagesSlice(H.Hash, @constCast(merkle_layer));
+        }
+    }
 }
 
 fn flattenSampledValues(

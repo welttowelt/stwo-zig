@@ -5,6 +5,7 @@ pub const fri = @import("fri.zig");
 pub const air = @import("air/mod.zig");
 pub const channel = @import("channel/mod.zig");
 pub const lookups = @import("lookups/mod.zig");
+pub const mmap_alloc = @import("mmap_alloc.zig");
 pub const pcs = @import("pcs/mod.zig");
 pub const poly = @import("poly/mod.zig");
 pub const secure_column = @import("secure_column.zig");

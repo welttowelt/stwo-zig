@@ -2,8 +2,9 @@ const std = @import("std");
 const builtin = @import("builtin");
 const m31 = @import("../../core/fields/m31.zig");
 const lifted_merkle_hasher = @import("../../core/vcs_lifted/merkle_hasher.zig");
+const mmap_alloc = @import("../mmap_alloc.zig");
+const mmap_alloc_mod = mmap_alloc;
 const vcs_lifted_verifier = @import("../../core/vcs_lifted/verifier.zig");
-const mmap_alloc_mod = @import("../mmap_alloc.zig");
 const work_pool_mod = @import("../work_pool.zig");
 
 const M31 = m31.M31;
@@ -198,13 +199,19 @@ pub fn MerkleProverLifted(comptime H: type) type {
 
                 var i: usize = 0;
                 while (i < max_log_size) : (i += 1) {
+                    const prev_idx = layers_bottom_up.items.len - 1;
                     const next_layer = try buildNextLayer(
                         layer_alloc,
-                        layers_bottom_up.items[layers_bottom_up.items.len - 1],
+                        layers_bottom_up.items[prev_idx],
                         &executor,
                         worker_override,
                     );
                     try layers_bottom_up.append(allocator, next_layer);
+                    // The previous layer was just consumed to produce the next
+                    // layer. Its data is still stored for later decommitment
+                    // but will not be accessed again until then. Release its
+                    // physical pages to reduce RSS during tree construction.
+                    mmap_alloc.releasePagesSlice(H.Hash, layers_bottom_up.items[prev_idx]);
                 }
             }
 
