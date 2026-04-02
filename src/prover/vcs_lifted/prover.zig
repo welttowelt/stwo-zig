@@ -1,13 +1,17 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const m31 = @import("../../core/fields/m31.zig");
+const qm31 = @import("../../core/fields/qm31.zig");
 const lifted_merkle_hasher = @import("../../core/vcs_lifted/merkle_hasher.zig");
 const mmap_alloc = @import("../mmap_alloc.zig");
 const mmap_alloc_mod = mmap_alloc;
 const vcs_lifted_verifier = @import("../../core/vcs_lifted/verifier.zig");
 const work_pool_mod = @import("../work_pool.zig");
+const quotient_ops = @import("../pcs/quotient_ops.zig");
+const secure_column = @import("../secure_column.zig");
 
 const M31 = m31.M31;
+const SecureColumnByCoords = secure_column.SecureColumnByCoords;
 
 pub fn MerkleProverLifted(comptime H: type) type {
     comptime lifted_merkle_hasher.assertMerkleHasherLifted(H);
@@ -148,6 +152,95 @@ pub fn MerkleProverLifted(comptime H: type) type {
                 merkleWorkerOverride(allocator),
                 merklePoolReuseEnabled(allocator),
             );
+        }
+
+        /// Builds a Merkle tree by computing quotient values lazily from the
+        /// provider, chunk by chunk.  Simultaneously writes the computed
+        /// quotient coordinates into `out_column`, so the caller obtains both
+        /// the Merkle commitment and the materialized column without ever
+        /// needing a separate full-column allocation before hashing.
+        pub fn commitWithLazyQuotients(
+            allocator: std.mem.Allocator,
+            provider: *quotient_ops.LazyQuotientProvider,
+            out_column: *SecureColumnByCoords,
+        ) !Self {
+            const domain_size = provider.domain_size;
+            if (domain_size < 2 or !std.math.isPowerOfTwo(domain_size)) return error.InvalidColumnSize;
+            const log_size: u32 = @intCast(std.math.log2_int(usize, domain_size));
+
+            // Allocate leaf hashers for the full domain.
+            const seed_hasher = H.defaultWithInitialState();
+            const leaf_hashers = try allocator.alloc(H, domain_size);
+            defer allocator.free(leaf_hashers);
+            @memset(leaf_hashers, seed_hasher);
+
+            // Process in chunks: compute quotients and feed to leaf hashers.
+            const chunk_size = quotient_ops.LAZY_QUOTIENT_CHUNK_SIZE;
+            var chunk_start: usize = 0;
+            while (chunk_start < domain_size) {
+                const this_chunk = @min(chunk_size, domain_size - chunk_start);
+
+                // Point coordinate buffers into out_column at the right offset.
+                var chunk_coords: [qm31.SECURE_EXTENSION_DEGREE][]M31 = undefined;
+                inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coord| {
+                    chunk_coords[coord] = out_column.columns[coord][chunk_start..][0..this_chunk];
+                }
+
+                try provider.computeChunk(chunk_start, this_chunk, &chunk_coords);
+
+                // Feed the freshly-computed values into leaf hashers.
+                for (0..this_chunk) |local_idx| {
+                    const position = chunk_start + local_idx;
+                    var values: [qm31.SECURE_EXTENSION_DEGREE]M31 = undefined;
+                    inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coord| {
+                        values[coord] = chunk_coords[coord][local_idx];
+                    }
+                    leaf_hashers[position].updateLeaf(values[0..]);
+                }
+
+                chunk_start += this_chunk;
+            }
+
+            // Finalize leaf hashes.
+            const leaves = try allocator.alloc(H.Hash, domain_size);
+            for (leaf_hashers, 0..) |*hasher, i| leaves[i] = hasher.finalize();
+
+            // Build internal Merkle layers from the leaves upward.
+            var layers_bottom_up = std.ArrayList([]H.Hash).empty;
+            defer layers_bottom_up.deinit(allocator);
+            errdefer {
+                for (layers_bottom_up.items) |layer| allocator.free(layer);
+            }
+
+            try layers_bottom_up.append(allocator, leaves);
+
+            if (domain_size > 1) {
+                const max_out_len = domain_size >> 1;
+                var executor: LayerExecutor = undefined;
+                executor.init(
+                    parallelWorkersForLayer(max_out_len, merkleWorkerOverride(allocator)),
+                    merklePoolReuseEnabled(allocator),
+                );
+                defer executor.deinit();
+
+                var i: usize = 0;
+                while (i < log_size) : (i += 1) {
+                    const next_layer = try buildNextLayer(
+                        allocator,
+                        layers_bottom_up.items[layers_bottom_up.items.len - 1],
+                        &executor,
+                        merkleWorkerOverride(allocator),
+                    );
+                    try layers_bottom_up.append(allocator, next_layer);
+                }
+            }
+
+            const out_layers = try allocator.alloc([]H.Hash, layers_bottom_up.items.len);
+            var j: usize = 0;
+            while (j < out_layers.len) : (j += 1) {
+                out_layers[j] = layers_bottom_up.items[out_layers.len - 1 - j];
+            }
+            return .{ .layers = out_layers };
         }
 
         fn commitWithWorkerOverride(
@@ -1501,4 +1594,144 @@ test "prover vcs_lifted: streaming committer empty columns" {
     defer streaming_prover.deinit(alloc);
 
     try std.testing.expectEqualSlices(u8, expected_root[0..], streaming_prover.root()[0..]);
+}
+
+test "MerkleProverLifted: commitWithLazyQuotients produces same root as standard commit" {
+    const alloc = std.testing.allocator;
+    const pcs_utils = @import("../../core/pcs/utils.zig");
+    const TreeVec = pcs_utils.TreeVec;
+    const quotients_mod = @import("../../core/pcs/quotients.zig");
+    const ColumnEvaluation = quotient_ops.ColumnEvaluation;
+    const PointSample = quotients_mod.PointSample;
+    const QM31 = qm31.QM31;
+
+    const blake2_merkle = @import("../../core/vcs_lifted/blake2_merkle.zig");
+    const Hasher = blake2_merkle.Blake2sMerkleHasher;
+    const Prover = MerkleProverLifted(Hasher);
+
+    const lifting_log_size: u32 = 6;
+    const domain_size = @as(usize, 1) << @intCast(lifting_log_size);
+
+    // Build test trace columns.
+    const col0 = try alloc.alloc(M31, domain_size);
+    defer alloc.free(col0);
+    for (col0, 0..) |*v, i| v.* = M31.fromCanonical(@intCast(i + 3));
+
+    const col1_log_size: u32 = 4;
+    const col1 = try alloc.alloc(M31, @as(usize, 1) << @intCast(col1_log_size));
+    defer alloc.free(col1);
+    for (col1, 0..) |*v, i| v.* = M31.fromCanonical(@intCast(101 + i));
+
+    const tree_columns = try alloc.dupe(ColumnEvaluation, &[_]ColumnEvaluation{
+        .{ .log_size = lifting_log_size, .values = col0 },
+        .{ .log_size = col1_log_size, .values = col1 },
+    });
+    var columns = TreeVec([]ColumnEvaluation).initOwned(
+        try alloc.dupe([]ColumnEvaluation, &[_][]ColumnEvaluation{tree_columns}),
+    );
+    defer columns.deinitDeep(alloc);
+
+    // Build sample data.
+    const point0 = @import("../../core/circle.zig").SECURE_FIELD_CIRCLE_GEN.mul(7);
+    const point1 = @import("../../core/circle.zig").SECURE_FIELD_CIRCLE_GEN.mul(19);
+
+    const col0_samples = try alloc.dupe(PointSample, &[_]PointSample{
+        .{ .point = point0, .value = QM31.fromU32Unchecked(1, 2, 3, 4) },
+    });
+    const col1_samples = try alloc.dupe(PointSample, &[_]PointSample{
+        .{ .point = point0, .value = QM31.fromU32Unchecked(5, 6, 7, 8) },
+        .{ .point = point1, .value = QM31.fromU32Unchecked(9, 10, 11, 12) },
+    });
+    const tree_samples = try alloc.dupe([]PointSample, &[_][]PointSample{
+        col0_samples,
+        col1_samples,
+    });
+    var samples = TreeVec([][]PointSample).initOwned(
+        try alloc.dupe([][]PointSample, &[_][][]PointSample{tree_samples}),
+    );
+    defer samples.deinitDeep(alloc);
+
+    // Split into points/values.
+    const point_trees = try alloc.alloc([][]@import("../../core/circle.zig").CirclePointQM31, 1);
+    errdefer alloc.free(point_trees);
+    const value_trees = try alloc.alloc([][]QM31, 1);
+    errdefer alloc.free(value_trees);
+
+    point_trees[0] = try alloc.alloc([]@import("../../core/circle.zig").CirclePointQM31, samples.items[0].len);
+    value_trees[0] = try alloc.alloc([]QM31, samples.items[0].len);
+
+    for (samples.items[0], 0..) |col_samples, col_idx| {
+        const pts = try alloc.alloc(@import("../../core/circle.zig").CirclePointQM31, col_samples.len);
+        const vals = try alloc.alloc(QM31, col_samples.len);
+        for (col_samples, 0..) |s, si| {
+            pts[si] = s.point;
+            vals[si] = s.value;
+        }
+        point_trees[0][col_idx] = pts;
+        value_trees[0][col_idx] = vals;
+    }
+
+    var sampled_points = TreeVec([][]@import("../../core/circle.zig").CirclePointQM31).initOwned(point_trees);
+    defer sampled_points.deinitDeep(alloc);
+    var sampled_values = TreeVec([][]QM31).initOwned(value_trees);
+    defer sampled_values.deinitDeep(alloc);
+
+    const alpha = QM31.fromU32Unchecked(3, 0, 1, 0);
+
+    // borrow columns for both paths
+    const borrowed_items = try alloc.alloc([]const ColumnEvaluation, columns.items.len);
+    defer alloc.free(borrowed_items);
+    for (columns.items, 0..) |tc, i| borrowed_items[i] = tc;
+
+    // === Standard path: compute quotients, then commit ===
+    var quotients_column = try quotient_ops.computeFriQuotients(
+        alloc,
+        TreeVec([]const ColumnEvaluation).initOwned(borrowed_items),
+        sampled_points,
+        sampled_values,
+        alpha,
+        lifting_log_size,
+        1,
+    );
+    defer quotients_column.deinit(alloc);
+
+    const standard_columns = [_][]const M31{
+        quotients_column.columns[0],
+        quotients_column.columns[1],
+        quotients_column.columns[2],
+        quotients_column.columns[3],
+    };
+    var standard_tree = try Prover.commit(alloc, standard_columns[0..]);
+    defer standard_tree.deinit(alloc);
+    const standard_root = standard_tree.root();
+
+    // === Lazy path: fused compute+commit ===
+    const borrowed_items2 = try alloc.alloc([]const ColumnEvaluation, columns.items.len);
+    defer alloc.free(borrowed_items2);
+    for (columns.items, 0..) |tc, i| borrowed_items2[i] = tc;
+
+    var provider = try quotient_ops.LazyQuotientProvider.init(
+        alloc,
+        TreeVec([]const ColumnEvaluation).initOwned(borrowed_items2),
+        sampled_points,
+        sampled_values,
+        alpha,
+        lifting_log_size,
+    );
+    defer provider.deinit(alloc);
+
+    var lazy_column = try SecureColumnByCoords.uninitialized(alloc, domain_size);
+    defer lazy_column.deinit(alloc);
+
+    var lazy_tree = try Prover.commitWithLazyQuotients(alloc, &provider, &lazy_column);
+    defer lazy_tree.deinit(alloc);
+    const lazy_root = lazy_tree.root();
+
+    // Roots must match.
+    try std.testing.expect(std.mem.eql(u8, std.mem.asBytes(&standard_root), std.mem.asBytes(&lazy_root)));
+
+    // Column values must also match.
+    for (0..domain_size) |i| {
+        try std.testing.expect(quotients_column.at(i).eql(lazy_column.at(i)));
+    }
 }

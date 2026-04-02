@@ -9,11 +9,13 @@ const mmap_alloc = @import("mmap_alloc.zig");
 const queries_mod = @import("../core/queries.zig");
 const vcs_lifted_verifier = @import("../core/vcs_lifted/verifier.zig");
 const prover_line = @import("line.zig");
+const quotient_ops = @import("pcs/quotient_ops.zig");
 const secure_column = @import("secure_column.zig");
 const vcs_lifted_prover = @import("vcs_lifted/prover.zig");
 
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
+const SecureColumnByCoords = secure_column.SecureColumnByCoords;
 
 pub const FriDecommitError = error{
     QueryOutOfRange,
@@ -172,6 +174,52 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
             };
         }
 
+        /// Fused commit: computes FRI quotients lazily and builds the Merkle
+        /// tree at the same time, avoiding a separate full-column
+        /// materialization before hashing.
+        ///
+        /// The resulting `SecureColumnByCoords` in `first_layer.column` is
+        /// bit-identical to what `computeFriQuotients` would have produced.
+        pub fn commitLazy(
+            allocator: std.mem.Allocator,
+            channel: anytype,
+            config: core_fri.FriConfig,
+            column_domain: circle_domain.CircleDomain,
+            provider: *quotient_ops.LazyQuotientProvider,
+        ) !Self {
+            if (!column_domain.isCanonic()) {
+                return FriProverError.NotCanonicDomain;
+            }
+            if (provider.domain_size != column_domain.size()) {
+                return FriProverError.ShapeMismatch;
+            }
+
+            var first_layer = try commitFirstLayerLazy(allocator, channel, column_domain, provider);
+            errdefer first_layer.deinit(allocator);
+
+            var inner_commit = try commitInnerLayers(allocator, channel, config, first_layer);
+            defer inner_commit.last_layer_evaluation.deinit(allocator);
+            errdefer {
+                for (inner_commit.inner_layers) |*layer| layer.deinit(allocator);
+                allocator.free(inner_commit.inner_layers);
+            }
+
+            var last_layer_poly = try commitLastLayer(
+                allocator,
+                channel,
+                config,
+                &inner_commit.last_layer_evaluation,
+            );
+            errdefer last_layer_poly.deinit(allocator);
+
+            return .{
+                .config = config,
+                .first_layer = first_layer,
+                .inner_layers = inner_commit.inner_layers,
+                .last_layer_poly = last_layer_poly,
+            };
+        }
+
         pub fn decommit(
             self: Self,
             allocator: std.mem.Allocator,
@@ -306,6 +354,29 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
                 column_refs[0..],
             );
             MC.mixRoot(channel, merkle_tree.root());
+            return .{
+                .domain = domain,
+                .column = column,
+                .merkle_tree = merkle_tree,
+            };
+        }
+
+        fn commitFirstLayerLazy(
+            allocator: std.mem.Allocator,
+            channel: anytype,
+            domain: circle_domain.CircleDomain,
+            provider: *quotient_ops.LazyQuotientProvider,
+        ) !FirstLayerProver {
+            var column = try SecureColumnByCoords.uninitialized(allocator, provider.domain_size);
+            errdefer column.deinit(allocator);
+
+            var merkle_tree = try vcs_lifted_prover.MerkleProverLifted(H).commitWithLazyQuotients(
+                allocator,
+                provider,
+                &column,
+            );
+            MC.mixRoot(channel, merkle_tree.root());
+
             return .{
                 .domain = domain,
                 .column = column,

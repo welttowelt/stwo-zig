@@ -712,29 +712,29 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
             const lifting_log_size = try scheme.maxTreeLogSize();
             const domain = canonic.CanonicCoset.new(lifting_log_size).circleDomain();
 
-            const borrowed_columns_items = try allocator.alloc([]const ColumnEvaluation, scheme.trees.items.len);
-            defer allocator.free(borrowed_columns_items);
-            for (scheme.trees.items, 0..) |tree, i| {
-                borrowed_columns_items[i] = tree.columns;
-            }
-
-            const quotients_column = blk: {
+            var fri_prover = blk: {
                 var fri_quotient_stage = try stage_profile.StageScope.begin(
                     recorder,
-                    "fri_quotient_build",
-                    "FRI quotient build",
+                    "fri_quotient_build_and_commit",
+                    "FRI quotient build + commit (lazy)",
                 );
                 defer fri_quotient_stage.end();
-                break :blk try quotient_ops.computeFriQuotients(
+
+                const borrowed_columns_items = try allocator.alloc([]const ColumnEvaluation, scheme.trees.items.len);
+                defer allocator.free(borrowed_columns_items);
+                for (scheme.trees.items, 0..) |tree, i| {
+                    borrowed_columns_items[i] = tree.columns;
+                }
+
+                var provider = try quotient_ops.LazyQuotientProvider.init(
                     allocator,
                     TreeVec([]const ColumnEvaluation).initOwned(borrowed_columns_items),
                     sampled_points_owned,
                     sampled_values_owned,
                     random_coeff,
                     lifting_log_size,
-                    scheme.config.fri_config.log_blowup_factor,
                 );
-            };
+                defer provider.deinit(allocator);
 
             // Column data has been fully consumed for quotient building.
             // Release the physical pages backing committed column evaluations
@@ -746,15 +746,15 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                 var fri_commit_stage = try stage_profile.StageScope.begin(
                     recorder,
                     "fri_commit",
-                    "FRI commit",
+                    "FRI quotient build + commit (lazy)",
                 );
                 defer fri_commit_stage.end();
-                break :blk try prover_fri.FriProver(B, H, MC).commit(
+                break :blk try prover_fri.FriProver(B, H, MC).commitLazy(
                     allocator,
                     channel,
                     scheme.config.fri_config,
                     domain,
-                    quotients_column,
+                    &provider,
                 );
             };
 

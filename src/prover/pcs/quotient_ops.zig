@@ -10,7 +10,9 @@ const secure_column = @import("../secure_column.zig");
 const work_pool_mod = @import("../work_pool.zig");
 const CircleDomain = @import("../../core/poly/circle/domain.zig").CircleDomain;
 
-const CirclePointQM31 = @import("../../core/circle.zig").CirclePointQM31;
+const circle_mod = @import("../../core/circle.zig");
+const circle_domain = @import("../../core/poly/circle/domain.zig");
+const CirclePointQM31 = circle_mod.CirclePointQM31;
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
 const TreeVec = pcs_utils.TreeVec;
@@ -21,6 +23,9 @@ const STREAMING_DOMAIN_THRESHOLD: usize = 1 << 12;
 const STREAMING_ACTIVE_COLUMN_THRESHOLD: usize = 1024;
 /// Minimum number of domain positions per worker thread to amortize overhead.
 const MIN_POSITIONS_PER_WORKER: usize = 256;
+/// Number of rows processed per chunk in lazy quotient evaluation.
+/// Chosen to amortize function-call overhead while keeping chunk memory bounded.
+pub const LAZY_QUOTIENT_CHUNK_SIZE: usize = 1024;
 
 pub const QuotientOpsError = error{
     ShapeMismatch,
@@ -91,6 +96,143 @@ const MaterializedLiftedColumns = struct {
         allocator.free(self.columns);
         allocator.free(self.storage);
         self.* = undefined;
+    }
+};
+
+/// Lazy quotient provider for fused quotient-computation + Merkle commitment.
+///
+/// Encapsulates all state needed to compute FRI quotient values on demand,
+/// one chunk at a time, without materializing the full quotient column
+/// or the lifted column matrix before Merkle hashing begins.
+///
+/// Usage:
+///   1. `init()` — prepare the provider from the same inputs as `computeFriQuotients`.
+///   2. Call `computeChunk()` repeatedly with ascending, non-overlapping position ranges.
+///      Each call fills the 4 coordinate buffers for a chunk of the output column.
+///   3. `deinit()` — release internal scratch memory.
+pub const LazyQuotientProvider = struct {
+    prepared: PreparedQuotientContext,
+    column_views: []LiftingColumnView,
+    workspace: quotients.RowQuotientWorkspace,
+    domain: circle_domain.CircleDomain,
+    lifting_log_size: u32,
+    domain_size: usize,
+
+    pub fn init(
+        allocator: std.mem.Allocator,
+        columns: TreeVec([]const ColumnEvaluation),
+        sampled_points: TreeVec([][]CirclePointQM31),
+        sampled_values: TreeVec([][]QM31),
+        random_coeff: QM31,
+        lifting_log_size: u32,
+    ) !LazyQuotientProvider {
+        if (columns.items.len != sampled_points.items.len) return QuotientOpsError.ShapeMismatch;
+        if (columns.items.len != sampled_values.items.len) return QuotientOpsError.ShapeMismatch;
+
+        for (columns.items, sampled_points.items, sampled_values.items) |tree_columns, tree_points, tree_values| {
+            if (tree_columns.len != tree_points.len) return QuotientOpsError.ShapeMismatch;
+            if (tree_columns.len != tree_values.len) return QuotientOpsError.ShapeMismatch;
+            for (tree_columns) |column| {
+                try column.validate();
+                if (column.log_size > lifting_log_size) return QuotientOpsError.InvalidColumnLogSize;
+            }
+        }
+
+        var column_log_sizes = try buildColumnLogSizes(allocator, columns);
+        defer column_log_sizes.deinitDeep(allocator);
+
+        const domain_size = try checkedPow2(lifting_log_size);
+        const flat_columns = try flattenColumnsBorrowed(allocator, columns);
+        defer allocator.free(flat_columns);
+
+        var prepared = try prepareQuotientContext(
+            allocator,
+            column_log_sizes,
+            sampled_points,
+            sampled_values,
+            random_coeff,
+            lifting_log_size,
+            flat_columns.len,
+        );
+        errdefer prepared.deinit(allocator);
+
+        const column_views = try buildActiveLiftingColumnViews(
+            allocator,
+            flat_columns,
+            prepared.contribution_plan.active_column_indices,
+            lifting_log_size,
+        );
+        errdefer allocator.free(column_views);
+
+        var workspace = try quotients.RowQuotientWorkspace.init(allocator, prepared.sample_batches);
+        errdefer workspace.deinit(allocator);
+
+        const domain = canonic.CanonicCoset.new(lifting_log_size).circleDomain();
+
+        return .{
+            .prepared = prepared,
+            .column_views = column_views,
+            .workspace = workspace,
+            .domain = domain,
+            .lifting_log_size = lifting_log_size,
+            .domain_size = domain_size,
+        };
+    }
+
+    pub fn deinit(self: *LazyQuotientProvider, allocator: std.mem.Allocator) void {
+        self.workspace.deinit(allocator);
+        allocator.free(self.column_views);
+        self.prepared.deinit(allocator);
+        self.* = undefined;
+    }
+
+    /// Compute quotient values for positions `[chunk_start .. chunk_start + chunk_len)`.
+    ///
+    /// The 4 output coordinate buffers must each have length >= `chunk_len`.
+    /// Positions must be in range `[0, domain_size)`.
+    pub fn computeChunk(
+        self: *LazyQuotientProvider,
+        chunk_start: usize,
+        chunk_len: usize,
+        out_coords: *[qm31.SECURE_EXTENSION_DEGREE][]M31,
+    ) !void {
+        std.debug.assert(chunk_start + chunk_len <= self.domain_size);
+        for (out_coords) |coord_buf| {
+            std.debug.assert(coord_buf.len >= chunk_len);
+        }
+
+        for (0..chunk_len) |local_idx| {
+            const position = chunk_start + local_idx;
+            const domain_point = self.domain.at(core_utils.bitReverseIndex(position, self.lifting_log_size));
+            try self.workspace.beginRow(domain_point);
+
+            for (self.column_views, self.prepared.contribution_plan.ranges) |view, contribution_range| {
+                const base = if (view.is_direct)
+                    view.values[position]
+                else blk: {
+                    const idx = ((position >> view.shift_amt) << 1) + (position & 1);
+                    std.debug.assert(idx < view.values.len);
+                    break :blk view.values[idx];
+                };
+                const base_value = QM31.fromBase(base);
+                for (self.prepared.contribution_plan.contributions[contribution_range.start .. contribution_range.start + contribution_range.len]) |contribution| {
+                    self.workspace.batch_numerators[contribution.batch_index] = self.workspace.batch_numerators[contribution.batch_index].add(
+                        base_value.mul(contribution.value_coeff),
+                    );
+                }
+            }
+
+            const quotient_value = try quotients.finalizeRowQuotients(
+                &self.prepared.quotient_constants,
+                domain_point.y,
+                self.workspace.batch_numerators,
+                self.workspace.denominator_inverses,
+            );
+            const coords = quotient_value.toM31Array();
+            inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coord| {
+                out_coords[coord][local_idx] = coords[coord];
+            }
+        }
     }
 };
 
@@ -1245,4 +1387,105 @@ test "prover pcs quotient ops: rejects shape mismatch" {
             1,
         ),
     );
+}
+
+test "prover pcs quotient ops: lazy provider matches materialized output" {
+    const alloc = std.testing.allocator;
+    const lifting_log_size: u32 = 6;
+    const domain_size = @as(usize, 1) << @intCast(lifting_log_size);
+
+    const col0 = try alloc.alloc(M31, domain_size);
+    defer alloc.free(col0);
+    for (col0, 0..) |*value, i| value.* = M31.fromCanonical(@intCast(i + 3));
+
+    const col1_log_size: u32 = 4;
+    const col1 = try alloc.alloc(M31, @as(usize, 1) << @intCast(col1_log_size));
+    defer alloc.free(col1);
+    for (col1, 0..) |*value, i| value.* = M31.fromCanonical(@intCast(101 + i));
+
+    const col2 = try alloc.alloc(M31, domain_size);
+    defer alloc.free(col2);
+    for (col2, 0..) |*value, i| value.* = M31.fromCanonical(@intCast(205 + i));
+
+    const tree_columns = try alloc.dupe(ColumnEvaluation, &[_]ColumnEvaluation{
+        .{ .log_size = lifting_log_size, .values = col0 },
+        .{ .log_size = col1_log_size, .values = col1 },
+        .{ .log_size = lifting_log_size, .values = col2 },
+    });
+    var columns = TreeVec([]ColumnEvaluation).initOwned(
+        try alloc.dupe([]ColumnEvaluation, &[_][]ColumnEvaluation{tree_columns}),
+    );
+    defer columns.deinitDeep(alloc);
+    var columns_borrowed = try borrowColumnsForTest(alloc, columns);
+    defer columns_borrowed.deinit(alloc);
+
+    const point0 = @import("../../core/circle.zig").SECURE_FIELD_CIRCLE_GEN.mul(7);
+    const point1 = @import("../../core/circle.zig").SECURE_FIELD_CIRCLE_GEN.mul(13);
+
+    const col0_samples = try alloc.dupe(PointSample, &[_]PointSample{
+        .{ .point = point0, .value = QM31.fromU32Unchecked(1, 2, 3, 4) },
+    });
+    const col1_samples = try alloc.dupe(PointSample, &[_]PointSample{
+        .{ .point = point0, .value = QM31.fromU32Unchecked(5, 6, 7, 8) },
+        .{ .point = point1, .value = QM31.fromU32Unchecked(9, 10, 11, 12) },
+    });
+    const col2_samples = try alloc.alloc(PointSample, 0);
+    const tree_samples = try alloc.dupe([]PointSample, &[_][]PointSample{
+        col0_samples,
+        col1_samples,
+        col2_samples,
+    });
+    var samples = TreeVec([][]PointSample).initOwned(
+        try alloc.dupe([][]PointSample, &[_][][]PointSample{tree_samples}),
+    );
+    defer samples.deinitDeep(alloc);
+    var split_samples = try splitPointSamplesForTest(alloc, samples);
+    defer split_samples.deinit(alloc);
+
+    const alpha = QM31.fromU32Unchecked(3, 0, 1, 0);
+
+    // Compute via existing materialized path.
+    var materialized = try computeFriQuotientsWithStrategy(
+        alloc,
+        columns_borrowed,
+        split_samples.points,
+        split_samples.values,
+        alpha,
+        lifting_log_size,
+        .materialized,
+    );
+    defer materialized.deinit(alloc);
+
+    // Compute via lazy provider, chunk by chunk.
+    var provider = try LazyQuotientProvider.init(
+        alloc,
+        columns_borrowed,
+        split_samples.points,
+        split_samples.values,
+        alpha,
+        lifting_log_size,
+    );
+    defer provider.deinit(alloc);
+
+    var lazy_column = try SecureColumnByCoords.uninitialized(alloc, domain_size);
+    defer lazy_column.deinit(alloc);
+
+    var chunk_start: usize = 0;
+    const chunk_size: usize = 16; // use small chunks in test to exercise boundary logic
+    while (chunk_start < domain_size) {
+        const this_chunk = @min(chunk_size, domain_size - chunk_start);
+        var chunk_coords: [qm31.SECURE_EXTENSION_DEGREE][]M31 = undefined;
+        inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coord| {
+            chunk_coords[coord] = lazy_column.columns[coord][chunk_start..][0..this_chunk];
+        }
+        try provider.computeChunk(chunk_start, this_chunk, &chunk_coords);
+        chunk_start += this_chunk;
+    }
+
+    // Verify bit-identical output.
+    for (0..domain_size) |i| {
+        const mat_val = materialized.at(i);
+        const lazy_val = lazy_column.at(i);
+        try std.testing.expect(mat_val.eql(lazy_val));
+    }
 }
