@@ -799,10 +799,9 @@ pub fn computeDecommitmentPositionsAndRebuildEvals(
 
     return .{
         .decommitment_positions = try decommitment_positions.toOwnedSlice(allocator),
-        .sparse_evaluation = try SparseEvaluation.initOwnedWithStep(
+        .sparse_evaluation = try SparseEvaluation.initOwned(
             try subset_evals.toOwnedSlice(allocator),
             try subset_domain_initial_indexes.toOwnedSlice(allocator),
-            fold_step,
         ),
         .consumed_witness = witness_idx,
     };

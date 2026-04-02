@@ -248,7 +248,7 @@ pub fn MerkleProverLifted(comptime H: type) type {
             while (j < out_layers.len) : (j += 1) {
                 out_layers[j] = layers_bottom_up.items[out_layers.len - 1 - j];
             }
-            return .{ .layers = out_layers };
+            return .{ .layers = out_layers, .layer_allocator = allocator };
         }
 
         fn commitWithWorkerOverride(
