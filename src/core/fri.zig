@@ -263,7 +263,7 @@ pub fn FriVerifier(comptime H: type, comptime MC: type) type {
             defer allocator.free(layer_query_evals);
 
             for (self.inner_layers) |layer| {
-                const folded = try layer.verifyAndFold(allocator, layer_queries, layer_query_evals, self.config.fold_step);
+                const folded = try layer.verifyAndFold(allocator, layer_queries, layer_query_evals);
 
                 layer_queries.deinit(allocator);
                 allocator.free(layer_query_evals);
@@ -419,7 +419,6 @@ fn FriInnerLayerVerifier(comptime H: type) type {
             allocator: std.mem.Allocator,
             queries: queries_mod.Queries,
             evals_at_queries: []const QM31,
-            fold_step: u32,
         ) !FoldedLayerState {
             if (queries.log_domain_size != self.domain.logSize()) {
                 return FriVerificationError.InnerLayerEvaluationsInvalid;
@@ -650,7 +649,6 @@ pub const SparseEvaluation = struct {
         allocator: std.mem.Allocator,
         fold_alpha: QM31,
         source_domain: line.LineDomain,
-        fold_step: u32,
     ) ![]QM31 {
         return self.foldLineSubsetsN(allocator, fold_alpha, source_domain, FOLD_STEP);
     }

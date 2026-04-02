@@ -21,9 +21,8 @@ pub const MmapAllocator = struct {
     }
 
     fn alloc(_: *anyopaque, len: usize, _: std.mem.Alignment, _: usize) ?[*]u8 {
-        if (len == 0) return @as([*]u8, @ptrFromInt(std.heap.page_size_min)); // sentinel
+        if (len == 0) return @as([*]u8, @ptrFromInt(page_size)); // sentinel
 
-        const page_size = std.heap.page_size_min;
         const total = std.mem.alignForward(usize, len, page_size);
 
         if (comptime builtin.os.tag == .macos or builtin.os.tag == .linux) {
@@ -56,7 +55,6 @@ pub const MmapAllocator = struct {
 
     fn free_fn(_: *anyopaque, buf: []u8, _: std.mem.Alignment, _: usize) void {
         if (buf.len == 0) return;
-        const page_size = std.heap.page_size_min;
         const total = std.mem.alignForward(usize, buf.len, page_size);
 
         if (comptime builtin.os.tag == .macos or builtin.os.tag == .linux) {

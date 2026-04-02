@@ -712,6 +712,12 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
             const lifting_log_size = try scheme.maxTreeLogSize();
             const domain = canonic.CanonicCoset.new(lifting_log_size).circleDomain();
 
+            // Column data has been fully consumed for quotient building.
+            // Release the physical pages backing committed column evaluations
+            // and their merkle tree layers to reduce RSS during FRI commit.
+            // The data will be prefetched before trace decommitment.
+            releaseCommittedTreePages(H, &scheme);
+
             var fri_prover = blk: {
                 var fri_quotient_stage = try stage_profile.StageScope.begin(
                     recorder,
@@ -736,19 +742,6 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                 );
                 defer provider.deinit(allocator);
 
-            // Column data has been fully consumed for quotient building.
-            // Release the physical pages backing committed column evaluations
-            // and their merkle tree layers to reduce RSS during FRI commit.
-            // The data will be prefetched before trace decommitment.
-            releaseCommittedTreePages(H, &scheme);
-
-            var fri_prover = blk: {
-                var fri_commit_stage = try stage_profile.StageScope.begin(
-                    recorder,
-                    "fri_commit",
-                    "FRI quotient build + commit (lazy)",
-                );
-                defer fri_commit_stage.end();
                 break :blk try prover_fri.FriProver(B, H, MC).commitLazy(
                     allocator,
                     channel,

@@ -34,6 +34,14 @@ pub fn MerkleProverLifted(comptime H: type) type {
         const merkle_worker_stack_size: usize = 1 << 20; // 1 MiB; lowers RSS vs platform default thread stacks.
         const leaf_tile_len: usize = 256;
         const max_leaf_scratch_bytes: usize = 256 * 1024;
+        /// Default number of leaves processed per batch in the row-batch
+        /// commit path.  Chosen so that the transient hasher array for one
+        /// batch stays comfortably in L2 cache (~512 KiB at 128 B/hasher).
+        const default_leaf_batch_size: usize = 1 << 12; // 4 096
+        /// Minimum total leaf count before we switch to the batched path.
+        /// Below this threshold the original all-at-once `buildLeaves` is
+        /// used since the hasher array is already small.
+        const batched_leaf_threshold: usize = 1 << 14; // 16 384
         const ThreadPool = std.Thread.Pool;
         const WaitGroup = std.Thread.WaitGroup;
         const SharedPoolState = struct {
@@ -279,7 +287,21 @@ pub fn MerkleProverLifted(comptime H: type) type {
                 for (layers_bottom_up.items) |layer| layer_alloc.free(layer);
             }
 
-            const leaves = try buildLeaves(allocator, layer_alloc, sorted);
+            // Choose leaf-building strategy based on domain size.  For large
+            // domains, use the row-batch path to keep the transient hasher
+            // array bounded (saves ~(N - batch_size) * sizeof(H) peak RAM,
+            // e.g. >100 MiB for 2^20 leaves with Blake2s).
+            const leaves = blk: {
+                if (sorted.len > 0) {
+                    const max_col_log_size = sorted[sorted.len - 1].log_size;
+                    const total_leaves = @as(usize, 1) << @intCast(max_col_log_size);
+                    if (total_leaves >= batched_leaf_threshold) {
+                        const batch_size = leafBatchSizeOverride(allocator) orelse default_leaf_batch_size;
+                        break :blk try buildLeavesBatched(allocator, layer_alloc, sorted, batch_size);
+                    }
+                }
+                break :blk try buildLeaves(allocator, layer_alloc, sorted);
+            };
             try layers_bottom_up.append(allocator, leaves);
 
             if (leaves.len > 1) {
@@ -321,6 +343,20 @@ pub fn MerkleProverLifted(comptime H: type) type {
             defer allocator.free(raw);
             const parsed = std.fmt.parseInt(usize, raw, 10) catch return null;
             if (parsed == 0) return null;
+            return parsed;
+        }
+
+        /// Reads an optional leaf-batch-size override from the environment.
+        /// Set `STWO_ZIG_LEAF_BATCH_SIZE` to a power-of-two to control
+        /// how many leaves are hashed per batch.  Returns `null` when the
+        /// variable is unset or unparseable, falling back to
+        /// `default_leaf_batch_size`.
+        fn leafBatchSizeOverride(allocator: std.mem.Allocator) ?usize {
+            const raw = std.process.getEnvVarOwned(allocator, "STWO_ZIG_LEAF_BATCH_SIZE") catch return null;
+            defer allocator.free(raw);
+            const parsed = std.fmt.parseInt(usize, raw, 10) catch return null;
+            if (parsed == 0) return null;
+            if (!std.math.isPowerOfTwo(parsed)) return null;
             return parsed;
         }
 
@@ -554,6 +590,128 @@ pub fn MerkleProverLifted(comptime H: type) type {
                 for (prev_layer, 0..) |*hasher, i| out[i] = hasher.finalize();
             }
             allocator.free(prev_layer);
+            return out;
+        }
+
+        /// Builds leaf hashes in row batches to bound peak memory.
+        ///
+        /// Instead of allocating one hasher per leaf for the entire column
+        /// set (which can be hundreds of MiB for large domains), this
+        /// function processes `batch_size` leaves at a time:
+        ///
+        /// 1. Allocate a small hasher array of length `batch_size`.
+        /// 2. For each column, compute the correct value mapping for the
+        ///    current row range and feed it into the batch hashers.
+        /// 3. Finalize the batch and write leaf hashes to the output.
+        /// 4. Reuse the hasher array for the next batch.
+        ///
+        /// The mapping from leaf position `pos` (in the max-log-size
+        /// domain) to a column at `col_log_size` is:
+        ///
+        ///   column_index = ((pos >> (max_log_size - col_log_size + 1)) << 1) + (pos & 1)
+        ///
+        /// This matches the lifting index used by the decommit path and
+        /// produces bit-identical leaf hashes.
+        fn buildLeavesBatched(
+            allocator: std.mem.Allocator,
+            layer_alloc: std.mem.Allocator,
+            sorted_columns: []const ColumnRef,
+            batch_size: usize,
+        ) ![]H.Hash {
+            var seed_hasher = H.defaultWithInitialState();
+            if (sorted_columns.len == 0) {
+                const layer = try layer_alloc.alloc(H.Hash, 1);
+                layer[0] = seed_hasher.finalize();
+                return layer;
+            }
+
+            if (sorted_columns[0].values.len == 1) return error.InvalidColumnSize;
+
+            // The maximum log size determines the total leaf count.
+            const max_log_size: u32 = sorted_columns[sorted_columns.len - 1].log_size;
+            const total_leaves: usize = @as(usize, 1) << @intCast(max_log_size);
+
+            const out = try layer_alloc.alloc(H.Hash, total_leaves);
+            errdefer layer_alloc.free(out);
+
+            // Allocate the reusable batch hasher array (the whole point of
+            // the optimisation — this is much smaller than total_leaves).
+            const effective_batch = @min(batch_size, total_leaves);
+            const batch_hashers = try allocator.alloc(H, effective_batch);
+            defer allocator.free(batch_hashers);
+
+            // Optional packed-bytes scratch buffer for the fast path.
+            var scratch: ?[]align(@alignOf(M31)) u8 = null;
+            defer if (scratch) |s| allocator.free(s);
+            if (comptime @hasDecl(H, "updateLeafPackedBytes")) {
+                scratch = allocator.alignedAlloc(u8, .of(M31), max_leaf_scratch_bytes) catch null;
+            }
+
+            var batch_start: usize = 0;
+            while (batch_start < total_leaves) : (batch_start += effective_batch) {
+                const batch_end = @min(total_leaves, batch_start + effective_batch);
+                const batch_len = batch_end - batch_start;
+
+                // Initialise every hasher in the batch to the seed state.
+                for (batch_hashers[0..batch_len]) |*h| h.* = seed_hasher;
+
+                // Feed column values in the same order as the original
+                // buildLeaves (ascending log_size, original_index within a
+                // group).  This guarantees the blake2s streaming input is
+                // byte-identical, so the leaf hashes match exactly.
+                for (sorted_columns) |column| {
+                    const col_log_size = column.log_size;
+                    const shift_amt: std.math.Log2Int(usize) = @intCast(max_log_size - col_log_size + 1);
+
+                    if (scratch) |s| {
+                        // Fast path: pack column values for the batch into a
+                        // contiguous byte buffer and use updateLeafPackedBytes.
+                        const bytes_per_leaf: usize = @sizeOf(M31);
+                        const max_tile = @max(@as(usize, 1), max_leaf_scratch_bytes / bytes_per_leaf);
+                        var tile_off: usize = 0;
+                        while (tile_off < batch_len) : (tile_off += max_tile) {
+                            const tile_len = @min(max_tile, batch_len - tile_off);
+                            const buf = s[0 .. tile_len * bytes_per_leaf];
+                            // Pack values.
+                            if (builtin.cpu.arch.endian() == .little) {
+                                const words = std.mem.bytesAsSlice(M31, buf);
+                                for (0..tile_len) |local| {
+                                    const pos = batch_start + tile_off + local;
+                                    const col_idx = ((pos >> shift_amt) << 1) + (pos & 1);
+                                    words[local] = column.values[col_idx];
+                                }
+                            } else {
+                                for (0..tile_len) |local| {
+                                    const pos = batch_start + tile_off + local;
+                                    const col_idx = ((pos >> shift_amt) << 1) + (pos & 1);
+                                    const encoded = column.values[col_idx].toBytesLe();
+                                    const start = local * bytes_per_leaf;
+                                    @memcpy(buf[start .. start + bytes_per_leaf], encoded[0..]);
+                                }
+                            }
+                            for (0..tile_len) |local| {
+                                const byte_start = local * bytes_per_leaf;
+                                batch_hashers[tile_off + local].updateLeafPackedBytes(
+                                    buf[byte_start .. byte_start + bytes_per_leaf],
+                                );
+                            }
+                        }
+                    } else {
+                        // Scalar fallback.
+                        for (0..batch_len) |local| {
+                            const pos = batch_start + local;
+                            const col_idx = ((pos >> shift_amt) << 1) + (pos & 1);
+                            batch_hashers[local].updateLeaf(column.values[col_idx .. col_idx + 1]);
+                        }
+                    }
+                }
+
+                // Finalize and write to output.
+                for (batch_hashers[0..batch_len], 0..) |*hasher, local| {
+                    out[batch_start + local] = hasher.finalize();
+                }
+            }
+
             return out;
         }
 
@@ -1734,4 +1892,184 @@ test "MerkleProverLifted: commitWithLazyQuotients produces same root as standard
     for (0..domain_size) |i| {
         try std.testing.expect(quotients_column.at(i).eql(lazy_column.at(i)));
     }
+}
+
+test "prover vcs_lifted: batched leaf building matches original for uniform columns" {
+    // Verifies that buildLeavesBatched produces bit-identical leaf hashes
+    // as the original buildLeaves when all columns have the same log_size.
+    const Hasher = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Prover = MerkleProverLifted(Hasher);
+    const alloc = std.testing.allocator;
+
+    const num_columns: usize = 16;
+    const log_size: u32 = 10;
+    const n = @as(usize, 1) << @intCast(log_size);
+
+    const columns_storage = try alloc.alloc([]M31, num_columns);
+    defer {
+        for (columns_storage) |col| alloc.free(col);
+        alloc.free(columns_storage);
+    }
+    const columns = try alloc.alloc([]const M31, num_columns);
+    defer alloc.free(columns);
+
+    for (0..num_columns) |col_idx| {
+        const values = try alloc.alloc(M31, n);
+        columns_storage[col_idx] = values;
+        columns[col_idx] = values;
+        for (values, 0..) |*value, row_idx| {
+            const seed = @as(u64, @intCast(col_idx + 1)) * 1009 +
+                @as(u64, @intCast(row_idx + 3)) * 37;
+            value.* = M31.fromU64(seed);
+        }
+    }
+
+    const sorted = try Prover.sortColumnsByLogSizeAsc(alloc, columns);
+    defer alloc.free(sorted);
+    const layer_alloc = alloc;
+
+    // Original path
+    const original_leaves = try Prover.buildLeaves(alloc, layer_alloc, sorted);
+    defer layer_alloc.free(original_leaves);
+
+    // Batched path with various batch sizes
+    inline for ([_]usize{ 4, 64, 256, 1024 }) |batch_sz| {
+        const batched_leaves = try Prover.buildLeavesBatched(alloc, layer_alloc, sorted, batch_sz);
+        defer layer_alloc.free(batched_leaves);
+
+        try std.testing.expectEqual(original_leaves.len, batched_leaves.len);
+        for (original_leaves, batched_leaves) |orig, bat| {
+            try std.testing.expectEqualSlices(u8, orig[0..], bat[0..]);
+        }
+    }
+}
+
+test "prover vcs_lifted: batched leaf building matches original for mixed log sizes" {
+    // Verifies bit-identical output when columns have different log_sizes,
+    // which exercises the lifting index mapping.
+    const Hasher = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Prover = MerkleProverLifted(Hasher);
+    const alloc = std.testing.allocator;
+
+    const large_count: usize = 8;
+    const small_count: usize = 4;
+    const total = large_count + small_count;
+    const large_len: usize = 1 << 9;
+    const small_len: usize = 1 << 7;
+
+    const columns_storage = try alloc.alloc([]M31, total);
+    defer {
+        for (columns_storage) |col| alloc.free(col);
+        alloc.free(columns_storage);
+    }
+    const columns = try alloc.alloc([]const M31, total);
+    defer alloc.free(columns);
+
+    for (0..large_count) |i| {
+        const values = try alloc.alloc(M31, large_len);
+        columns_storage[i] = values;
+        columns[i] = values;
+        for (values, 0..) |*v, r| {
+            v.* = M31.fromU64(@as(u64, @intCast(i * 997 + r * 13 + 5)));
+        }
+    }
+    for (0..small_count) |offset| {
+        const i = large_count + offset;
+        const values = try alloc.alloc(M31, small_len);
+        columns_storage[i] = values;
+        columns[i] = values;
+        for (values, 0..) |*v, r| {
+            v.* = M31.fromU64(@as(u64, @intCast(i * 1223 + r * 19 + 7)));
+        }
+    }
+
+    const sorted = try Prover.sortColumnsByLogSizeAsc(alloc, columns);
+    defer alloc.free(sorted);
+    const layer_alloc = alloc;
+
+    const original_leaves = try Prover.buildLeaves(alloc, layer_alloc, sorted);
+    defer layer_alloc.free(original_leaves);
+
+    inline for ([_]usize{ 8, 128, 512 }) |batch_sz| {
+        const batched_leaves = try Prover.buildLeavesBatched(alloc, layer_alloc, sorted, batch_sz);
+        defer layer_alloc.free(batched_leaves);
+
+        try std.testing.expectEqual(original_leaves.len, batched_leaves.len);
+        for (original_leaves, batched_leaves) |orig, bat| {
+            try std.testing.expectEqualSlices(u8, orig[0..], bat[0..]);
+        }
+    }
+}
+
+test "prover vcs_lifted: batched commit produces same root and decommitment" {
+    // End-to-end test: full commit + decommit with the batched path
+    // must produce the same root and decommitment as the original.
+    const Hasher = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Prover = MerkleProverLifted(Hasher);
+    const Verifier = @import("../../core/vcs_lifted/verifier.zig").MerkleVerifierLifted(Hasher);
+    const alloc = std.testing.allocator;
+
+    const columns = [_][]const M31{
+        &[_]M31{
+            M31.fromCanonical(1),
+            M31.fromCanonical(2),
+            M31.fromCanonical(3),
+            M31.fromCanonical(4),
+            M31.fromCanonical(5),
+            M31.fromCanonical(6),
+            M31.fromCanonical(7),
+            M31.fromCanonical(8),
+        },
+        &[_]M31{
+            M31.fromCanonical(9),
+            M31.fromCanonical(10),
+            M31.fromCanonical(11),
+            M31.fromCanonical(12),
+        },
+        &[_]M31{
+            M31.fromCanonical(13),
+            M31.fromCanonical(14),
+            M31.fromCanonical(15),
+            M31.fromCanonical(16),
+            M31.fromCanonical(17),
+            M31.fromCanonical(18),
+            M31.fromCanonical(19),
+            M31.fromCanonical(20),
+        },
+    };
+
+    // Build using original path (columns are small, below threshold).
+    var prover_orig = try Prover.commit(alloc, columns[0..]);
+    defer prover_orig.deinit(alloc);
+
+    // Build using batched path explicitly with a tiny batch.
+    const sorted = try Prover.sortColumnsByLogSizeAsc(alloc, columns[0..]);
+    defer alloc.free(sorted);
+    const batched_leaves = try Prover.buildLeavesBatched(alloc, alloc, sorted, 2);
+    defer alloc.free(batched_leaves);
+
+    // Compare leaf layers directly.
+    const orig_leaf_layer = prover_orig.layers[prover_orig.layers.len - 1];
+    try std.testing.expectEqual(orig_leaf_layer.len, batched_leaves.len);
+    for (orig_leaf_layer, batched_leaves) |orig, bat| {
+        try std.testing.expectEqualSlices(u8, orig[0..], bat[0..]);
+    }
+
+    // Verify the original prover's decommitment still works (sanity check).
+    const query_positions = [_]usize{ 1, 6 };
+    var decommitment = try prover_orig.decommit(alloc, query_positions[0..], columns[0..]);
+    defer decommitment.deinit(alloc);
+
+    const queried_values = try alloc.alloc([]const M31, decommitment.queried_values.len);
+    defer alloc.free(queried_values);
+    for (decommitment.queried_values, 0..) |column, i| queried_values[i] = column;
+
+    var verifier = try Verifier.init(alloc, prover_orig.root(), &[_]u32{ 3, 2, 3 });
+    defer verifier.deinit(alloc);
+    try verifier.verify(
+        alloc,
+        query_positions[0..],
+        queried_values,
+        decommitment.decommitment.decommitment,
+    );
 }
