@@ -147,8 +147,9 @@ pub fn main() !void {
         log_size = @intCast(std.math.log2_int_ceil(usize, if (n_trace == 0) 1 else n_trace));
     }
     defer if (raw_trace_allocated) allocator.free(raw_trace);
-    const domain_size = @as(usize, 1) << @intCast(log_size);
-    std.debug.print("\nTrace: {d} entries, log_size={d}, domain_size={d}\n", .{ raw_trace.len, log_size, domain_size });
+    const n_entries = raw_trace.len;
+    std.debug.print("Trace entries: {d}\n", .{n_entries});
+    std.debug.print("Security: pow_bits=0, n_queries=3\n\n", .{});
 
     const config = pcs_core_mod.PcsConfig{
         .pow_bits = 0,
@@ -160,9 +161,9 @@ pub fn main() !void {
     };
 
     // Prove
+    var prove_ms: f64 = undefined;
     var prove_result: prove_trace_mod.ProveOutput = undefined;
     {
-        std.debug.print("\nProve...\n", .{});
         const t = Timer.begin();
 
         prove_result = try prove_trace_mod.proveCairoTrace(
@@ -172,7 +173,8 @@ pub fn main() !void {
             log_size,
         );
 
-        std.debug.print("  Prove: {d:.2}ms\n", .{t.elapsedMs()});
+        prove_ms = t.elapsedMs();
+        std.debug.print("Prove:    {d:.1}ms\n", .{prove_ms});
     }
     defer {
         var p = prove_result;
@@ -180,8 +182,8 @@ pub fn main() !void {
     }
 
     // Verify
+    var verify_ms: f64 = undefined;
     {
-        std.debug.print("\nVerify...\n", .{});
         const t = Timer.begin();
 
         try prove_trace_mod.verifyCairoTrace(
@@ -191,10 +193,13 @@ pub fn main() !void {
             prove_result.proof,
         );
 
-        std.debug.print("  Verify: {d:.2}ms\n", .{t.elapsedMs()});
-        std.debug.print("  Result: VALID\n", .{});
+        verify_ms = t.elapsedMs();
+        std.debug.print("Verify:   {d:.1}ms\n", .{verify_ms});
     }
 
-    std.debug.print("\n============================\n", .{});
-    std.debug.print("Pipeline complete: trace -> prove -> verify\n", .{});
+    // Summary
+    const total_ms = prove_ms + verify_ms;
+    const throughput_khz = @as(f64, @floatFromInt(n_entries)) / prove_ms;
+    std.debug.print("\nTotal:    {d:.1}ms\n", .{total_ms});
+    std.debug.print("Throughput (entries/prove): {d:.1} kHz\n", .{throughput_khz});
 }
