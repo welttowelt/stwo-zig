@@ -104,6 +104,9 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
             domain: line.LineDomain,
             column: secure_column.SecureColumnByCoords,
             merkle_tree: vcs_lifted_prover.MerkleProverLifted(H),
+            /// Number of folds this layer performs (normally FOLD_STEP, may
+            /// be smaller for the last inner layer).
+            fold_step: u32 = core_fri.FOLD_STEP,
 
             fn deinit(self: *InnerLayerProver, allocator: std.mem.Allocator) void {
                 self.column.deinit(allocator);
@@ -251,12 +254,12 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
                     layer.merkle_tree,
                     layer.column,
                     layer_queries.positions,
-                    self.config.fold_step,
+                    layer.fold_step,
                 );
                 errdefer inner_proof.deinit(allocator);
                 try inner_layer_proofs.append(allocator, inner_proof);
 
-                const next_queries = try layer_queries.fold(allocator, self.config.fold_step);
+                const next_queries = try layer_queries.fold(allocator, layer.fold_step);
                 layer_queries.deinit(allocator);
                 layer_queries = next_queries;
             }
@@ -364,7 +367,10 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
             );
             defer fold_workspace.deinit(allocator);
 
-            const fold_step = config.fold_step;
+            // Compute the fold schedule: at most FOLD_STEP per layer, with a
+            // potentially smaller final step if the remaining log-size is not
+            // divisible by FOLD_STEP.
+            const last_layer_log_size = std.math.log2_int(usize, config.lastLayerDomainSize());
             while (layer_evaluation.len() > config.lastLayerDomainSize()) {
                 var secure_values = try secure_column.SecureColumnByCoords.fromSecureSlice(
                     allocator,
@@ -387,10 +393,17 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
                 MC.mixRoot(channel, merkle_tree.root());
                 const fold_alpha = channel.drawSecureFelt();
 
+                // Determine fold count for this layer: normally FOLD_STEP,
+                // but clamped so we don't overshoot the last-layer size.
+                const current_log_size = std.math.log2_int(usize, layer_evaluation.len());
+                const remaining_folds = current_log_size - last_layer_log_size;
+                const this_fold_step: u32 = @intCast(@min(core_fri.FOLD_STEP, remaining_folds));
+
                 const layer = InnerLayerProver{
                     .domain = layer_evaluation.domain(),
                     .column = secure_values,
                     .merkle_tree = merkle_tree,
+                    .fold_step = this_fold_step,
                 };
                 try layers.append(allocator, layer);
 
@@ -399,20 +412,17 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
                 // physical pages to reduce RSS during FRI commit.
                 releaseInnerLayerPages(&layer);
 
-                // Fold fold_step times with the same alpha, each halving the domain.
-                var step: u32 = 0;
-                while (step < fold_step) : (step += 1) {
-                    const folded = try core_fri.foldLineInPlaceWithWorkspace(
-                        allocator,
-                        @constCast(layer_evaluation.values),
-                        layer_evaluation.domain(),
-                        fold_alpha,
-                        &fold_workspace,
-                    );
-                    layer_evaluation.domain_value = folded.domain;
-                    layer_evaluation.values = folded.values;
-                    layer_evaluation.owns_values = true;
-                }
+                const folded = try core_fri.foldLineInPlaceNWithWorkspace(
+                    allocator,
+                    @constCast(layer_evaluation.values),
+                    layer_evaluation.domain(),
+                    fold_alpha,
+                    &fold_workspace,
+                    this_fold_step,
+                );
+                layer_evaluation.domain_value = folded.domain;
+                layer_evaluation.values = folded.values;
+                layer_evaluation.owns_values = true;
             }
 
             return .{

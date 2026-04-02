@@ -67,7 +67,10 @@ pub const FriConfig = struct {
 };
 
 /// Number of folds for univariate polynomials.
-pub const FOLD_STEP: u32 = 1;
+/// Each FRI inner layer folds the evaluation FOLD_STEP times, reducing its
+/// size by a factor of 2^FOLD_STEP.  Increasing this value (e.g. from 1 to 4)
+/// produces fewer intermediate committed layers and therefore less memory.
+pub const FOLD_STEP: u32 = 4;
 
 /// Number of folds when reducing circle to line polynomial.
 pub const CIRCLE_TO_LINE_FOLD_STEP: u32 = 1;
@@ -168,16 +171,29 @@ pub fn FriVerifier(comptime H: type, comptime MC: type) type {
 
             for (proof_in.inner_layers, 0..) |inner_proof, i| {
                 MC.mixRoot(channel, inner_proof.commitment);
+
+                // Determine fold count: normally FOLD_STEP, clamped to the
+                // remaining degree so we don't overshoot.
+                const remaining = layer_bound.logDegreeBound() - config.log_last_layer_degree_bound;
+                const this_fold_step: u32 = @min(FOLD_STEP, remaining);
+
                 inner_layers[i] = .{
                     .domain = layer_domain,
                     .folding_alpha = channel.drawSecureFelt(),
                     .layer_index = i,
                     .proof = try cloneLayerProof(H, allocator, inner_proof),
+                    .fold_step = this_fold_step,
                 };
                 initialized += 1;
 
-                layer_bound = layer_bound.fold(config.fold_step) orelse return FriVerificationError.InvalidNumFriLayers;
-                layer_domain = layer_domain.repeatedDouble(config.fold_step);
+                layer_bound = layer_bound.fold(this_fold_step) orelse return FriVerificationError.InvalidNumFriLayers;
+                // Advance domain by this_fold_step halvings.
+                {
+                    var step: u32 = 0;
+                    while (step < this_fold_step) : (step += 1) {
+                        layer_domain = layer_domain.double();
+                    }
+                }
             }
 
             if (layer_bound.logDegreeBound() != config.log_last_layer_degree_bound) {
@@ -386,6 +402,10 @@ fn FriInnerLayerVerifier(comptime H: type) type {
         folding_alpha: QM31,
         layer_index: usize,
         proof: FriLayerProof(H),
+        /// Number of folds this layer performs (normally FOLD_STEP, may be
+        /// smaller for the last inner layer when the remaining degree is not
+        /// evenly divisible by FOLD_STEP).
+        fold_step: u32 = FOLD_STEP,
 
         const Self = @This();
 
@@ -410,7 +430,7 @@ fn FriInnerLayerVerifier(comptime H: type) type {
                 queries,
                 evals_at_queries,
                 self.proof.fri_witness,
-                fold_step,
+                self.fold_step,
             ) catch return FriVerificationError.InnerLayerEvaluationsInvalid;
             errdefer rebuilt.deinit(allocator);
 
@@ -440,13 +460,13 @@ fn FriInnerLayerVerifier(comptime H: type) type {
                 self.proof.decommitment,
             ) catch return FriVerificationError.InnerLayerCommitmentInvalid;
 
-            var folded_queries = try queries.fold(allocator, fold_step);
+            var folded_queries = try queries.fold(allocator, self.fold_step);
             errdefer folded_queries.deinit(allocator);
-            const folded_evals = try rebuilt.sparse_evaluation.foldLineSubsets(
+            const folded_evals = try rebuilt.sparse_evaluation.foldLineSubsetsN(
                 allocator,
                 self.folding_alpha,
                 self.domain,
-                fold_step,
+                self.fold_step,
             );
 
             allocator.free(rebuilt.decommitment_positions);
@@ -601,18 +621,14 @@ pub const SparseEvaluation = struct {
         subset_evals: [][]QM31,
         subset_domain_initial_indexes: []usize,
     ) Error!SparseEvaluation {
-        // Use default FOLD_STEP for backward compatibility
-        return initOwnedWithStep(subset_evals, subset_domain_initial_indexes, FOLD_STEP);
-    }
-
-    pub fn initOwnedWithStep(
-        subset_evals: [][]QM31,
-        subset_domain_initial_indexes: []usize,
-        fold_step: u32,
-    ) Error!SparseEvaluation {
-        const fold_factor = @as(usize, 1) << @intCast(fold_step);
-        for (subset_evals) |subset| {
-            if (subset.len != fold_factor) return Error.InvalidSubsetSize;
+        // Validate that all subsets have the same (power-of-two) length.
+        // The actual fold step varies: CIRCLE_TO_LINE_FOLD_STEP for the first
+        // layer, FOLD_STEP for inner layers.  We just check consistency.
+        if (subset_evals.len > 0) {
+            const expected_len = subset_evals[0].len;
+            for (subset_evals[1..]) |subset| {
+                if (subset.len != expected_len) return Error.InvalidSubsetSize;
+            }
         }
         if (subset_evals.len != subset_domain_initial_indexes.len) return Error.ShapeMismatch;
         return .{
@@ -628,12 +644,24 @@ pub const SparseEvaluation = struct {
         self.* = undefined;
     }
 
+    /// Folds each subset using the default FOLD_STEP.
     pub fn foldLineSubsets(
         self: SparseEvaluation,
         allocator: std.mem.Allocator,
         fold_alpha: QM31,
         source_domain: line.LineDomain,
         fold_step: u32,
+    ) ![]QM31 {
+        return self.foldLineSubsetsN(allocator, fold_alpha, source_domain, FOLD_STEP);
+    }
+
+    /// Folds each subset using a caller-specified number of folds.
+    pub fn foldLineSubsetsN(
+        self: SparseEvaluation,
+        allocator: std.mem.Allocator,
+        fold_alpha: QM31,
+        source_domain: line.LineDomain,
+        n_folds: u32,
     ) ![]QM31 {
         const out = try allocator.alloc(QM31, self.subset_evals.len);
         if (self.subset_evals.len == 0) return out;
@@ -643,13 +671,14 @@ pub const SparseEvaluation = struct {
         while (i < self.subset_evals.len) : (i += 1) {
             const domain_initial_index = self.subset_domain_initial_indexes[i];
             const fold_domain_initial = source_domain.coset().indexAt(domain_initial_index);
-            const fold_domain = try line.LineDomain.init(circle.Coset.new(fold_domain_initial, fold_step));
-            const folded = try foldLineWithWorkspace(
+            const fold_domain = try line.LineDomain.init(circle.Coset.new(fold_domain_initial, n_folds));
+            const folded = try foldLineNWithWorkspace(
                 allocator,
                 self.subset_evals[i],
                 fold_domain,
                 fold_alpha,
                 &workspace,
+                n_folds,
             );
             defer allocator.free(folded.values);
             out[i] = folded.values[0];
@@ -862,7 +891,9 @@ pub fn foldLine(
     return foldLineWithWorkspace(allocator, eval, domain, alpha, &workspace);
 }
 
-pub fn foldLineWithWorkspace(
+/// Performs a single butterfly fold (halving), independent of FOLD_STEP.
+/// This is the building block used by the multi-step fold functions.
+pub fn foldLineSingleStep(
     allocator: std.mem.Allocator,
     eval: []const QM31,
     domain: line.LineDomain,
@@ -876,11 +907,11 @@ pub fn foldLineWithWorkspace(
     const x_values = workspace.x_values[0..folded_values.len];
     const inv_x_values = workspace.inv_x_values[0..folded_values.len];
 
-    var i: usize = 0;
-    const fold_shift: std.math.Log2Int(usize) = @intCast(FOLD_STEP);
     const domain_log_size = domain.logSize();
+    var i: usize = 0;
     while (i < folded_values.len) : (i += 1) {
-        x_values[i] = domain.at(core_utils.bitReverseIndex(i << fold_shift, domain_log_size));
+        // fold_shift=1 for single-step: each pair occupies 2 consecutive positions.
+        x_values[i] = domain.at(core_utils.bitReverseIndex(i << 1, domain_log_size));
     }
     try fields.batchInverseInPlace(M31, x_values, inv_x_values);
 
@@ -899,12 +930,48 @@ pub fn foldLineWithWorkspace(
     };
 }
 
-/// Folds a line evaluation in place and shrinks the backing slice to half length.
-///
-/// Preconditions:
-/// - `eval` is allocator-owned and mutable.
-/// - `eval.len == domain.size()` and `eval.len` is even.
-pub fn foldLineInPlaceWithWorkspace(
+/// Performs `n_folds` sequential single folds, reducing evaluation size by
+/// 2^n_folds.  Allocates and returns the final folded buffer.
+pub fn foldLineNWithWorkspace(
+    allocator: std.mem.Allocator,
+    eval: []const QM31,
+    domain: line.LineDomain,
+    alpha: QM31,
+    workspace: *FoldLineWorkspace,
+    n_folds: u32,
+) !FoldLineResult {
+    if (eval.len < 2 or (eval.len & 1) != 0) return error.InvalidEvaluationLength;
+
+    // First fold: allocate from the source (which is const).
+    var result = try foldLineSingleStep(allocator, eval, domain, alpha, workspace);
+
+    // Subsequent folds: fold from the previous result, freeing intermediates.
+    var step: u32 = 1;
+    while (step < n_folds) : (step += 1) {
+        const prev_values = result.values;
+        const prev_domain = result.domain;
+        result = try foldLineSingleStep(allocator, prev_values, prev_domain, alpha, workspace);
+        allocator.free(prev_values);
+    }
+
+    return result;
+}
+
+/// Convenience wrapper that folds FOLD_STEP times (the default for inner layers).
+pub fn foldLineWithWorkspace(
+    allocator: std.mem.Allocator,
+    eval: []const QM31,
+    domain: line.LineDomain,
+    alpha: QM31,
+    workspace: *FoldLineWorkspace,
+) !FoldLineResult {
+    return foldLineNWithWorkspace(allocator, eval, domain, alpha, workspace, FOLD_STEP);
+}
+
+/// Performs a single in-place fold (halving) on a mutable evaluation buffer.
+/// The buffer is compacted to its first half and then reallocated to the
+/// smaller size.
+fn foldLineInPlaceSingleStep(
     allocator: std.mem.Allocator,
     eval: []QM31,
     domain: line.LineDomain,
@@ -918,11 +985,10 @@ pub fn foldLineInPlaceWithWorkspace(
     const x_values = workspace.x_values[0..folded_len];
     const inv_x_values = workspace.inv_x_values[0..folded_len];
 
-    var i: usize = 0;
-    const fold_shift: std.math.Log2Int(usize) = @intCast(FOLD_STEP);
     const domain_log_size = domain.logSize();
+    var i: usize = 0;
     while (i < folded_len) : (i += 1) {
-        x_values[i] = domain.at(core_utils.bitReverseIndex(i << fold_shift, domain_log_size));
+        x_values[i] = domain.at(core_utils.bitReverseIndex(i << 1, domain_log_size));
     }
     try fields.batchInverseInPlace(M31, x_values, inv_x_values);
 
@@ -940,6 +1006,53 @@ pub fn foldLineInPlaceWithWorkspace(
         .domain = domain.double(),
         .values = resized,
     };
+}
+
+/// Folds a line evaluation in place by `n_folds` sequential halvings,
+/// shrinking the backing slice by a factor of 2^n_folds.
+///
+/// Preconditions:
+/// - `eval` is allocator-owned and mutable.
+/// - `eval.len >= 2^n_folds` and is a power of two.
+pub fn foldLineInPlaceNWithWorkspace(
+    allocator: std.mem.Allocator,
+    eval: []QM31,
+    domain: line.LineDomain,
+    alpha: QM31,
+    workspace: *FoldLineWorkspace,
+    n_folds: u32,
+) !FoldLineResult {
+    var current_eval = eval;
+    var current_domain = domain;
+
+    var step: u32 = 0;
+    while (step < n_folds) : (step += 1) {
+        const result = try foldLineInPlaceSingleStep(
+            allocator,
+            current_eval,
+            current_domain,
+            alpha,
+            workspace,
+        );
+        current_eval = result.values;
+        current_domain = result.domain;
+    }
+
+    return .{
+        .domain = current_domain,
+        .values = current_eval,
+    };
+}
+
+/// Convenience wrapper that folds FOLD_STEP times in place.
+pub fn foldLineInPlaceWithWorkspace(
+    allocator: std.mem.Allocator,
+    eval: []QM31,
+    domain: line.LineDomain,
+    alpha: QM31,
+    workspace: *FoldLineWorkspace,
+) !FoldLineResult {
+    return foldLineInPlaceNWithWorkspace(allocator, eval, domain, alpha, workspace, FOLD_STEP);
 }
 
 pub fn foldCircleIntoLine(
@@ -1163,35 +1276,44 @@ test "fri: compute decommitment fails on insufficient witness" {
     );
 }
 
-test "fri: fold line matches pairwise butterfly formula" {
+test "fri: fold line applies FOLD_STEP sequential butterfly folds" {
     const alloc = std.testing.allocator;
-    const domain = try line.LineDomain.init(circle.Coset.halfOdds(2));
+    // Domain must have at least 2^FOLD_STEP elements.
+    const domain = try line.LineDomain.init(circle.Coset.halfOdds(FOLD_STEP));
     const alpha = QM31.fromU32Unchecked(9, 0, 0, 0);
-    const eval = [_]QM31{
-        QM31.fromU32Unchecked(1, 2, 0, 0),
-        QM31.fromU32Unchecked(3, 4, 0, 0),
-        QM31.fromU32Unchecked(5, 6, 0, 0),
-        QM31.fromU32Unchecked(7, 8, 0, 0),
-    };
 
-    const folded = try foldLine(alloc, eval[0..], domain, alpha);
+    const fold_factor = @as(usize, 1) << @intCast(FOLD_STEP);
+    const eval_buf = try alloc.alloc(QM31, fold_factor);
+    defer alloc.free(eval_buf);
+    for (eval_buf, 0..) |*v, idx| {
+        v.* = QM31.fromU32Unchecked(@intCast(idx + 1), @intCast(idx + 2), 0, 0);
+    }
+
+    const folded = try foldLine(alloc, eval_buf, domain, alpha);
     defer alloc.free(folded.values);
 
-    try std.testing.expectEqual(@as(u32, domain.logSize() - 1), folded.domain.logSize());
-    try std.testing.expectEqual(@as(usize, 2), folded.values.len);
+    // After FOLD_STEP halvings the domain logSize shrinks by FOLD_STEP and
+    // the evaluation reduces to a single element.
+    try std.testing.expectEqual(@as(u32, 0), folded.domain.logSize());
+    try std.testing.expectEqual(@as(usize, 1), folded.values.len);
 
-    var expected0_f0 = eval[0];
-    var expected0_f1 = eval[1];
-    fft.ibutterfly(QM31, &expected0_f0, &expected0_f1, try domain.at(core_utils.bitReverseIndex(0, domain.logSize())).inv());
-    const expected0 = expected0_f0.add(alpha.mul(expected0_f1));
+    // Verify by applying FOLD_STEP single-step folds manually.
+    var expected = try alloc.dupe(QM31, eval_buf);
+    var cur_domain = domain;
+    var step: u32 = 0;
+    while (step < FOLD_STEP) : (step += 1) {
+        const half = expected.len / 2;
+        var ws = try FoldLineWorkspace.init(alloc, half);
+        defer ws.deinit(alloc);
+        const result = try foldLineSingleStep(alloc, expected, cur_domain, alpha, &ws);
+        alloc.free(expected);
+        expected = result.values;
+        cur_domain = result.domain;
+    }
+    defer alloc.free(expected);
 
-    var expected1_f0 = eval[2];
-    var expected1_f1 = eval[3];
-    fft.ibutterfly(QM31, &expected1_f0, &expected1_f1, try domain.at(core_utils.bitReverseIndex(2, domain.logSize())).inv());
-    const expected1 = expected1_f0.add(alpha.mul(expected1_f1));
-
-    try std.testing.expect(folded.values[0].eql(expected0));
-    try std.testing.expect(folded.values[1].eql(expected1));
+    try std.testing.expectEqual(@as(usize, 1), expected.len);
+    try std.testing.expect(folded.values[0].eql(expected[0]));
 }
 
 test "fri: fold line workspace path matches default implementation" {
