@@ -73,6 +73,20 @@ pub fn CommitmentTreeProver(comptime H: type) type {
             owned_columns: []ColumnEvaluation,
             owned_coefficients: ?[]prover_circle.CircleCoefficients,
         ) !Self {
+            return initOwnedWithCoefficientsForBackend(
+                @import("../../backends/cpu_scalar/mod.zig").CpuBackend,
+                allocator,
+                owned_columns,
+                owned_coefficients,
+            );
+        }
+
+        pub fn initOwnedWithCoefficientsForBackend(
+            comptime B: type,
+            allocator: std.mem.Allocator,
+            owned_columns: []ColumnEvaluation,
+            owned_coefficients: ?[]prover_circle.CircleCoefficients,
+        ) !Self {
             for (owned_columns) |column| try column.validate();
             if (owned_coefficients) |coeffs| {
                 if (coeffs.len != owned_columns.len) return CommitmentSchemeError.ShapeMismatch;
@@ -84,10 +98,10 @@ pub fn CommitmentTreeProver(comptime H: type) type {
                 column_refs[i] = column.values;
             }
 
-            var commitment = try vcs_lifted_prover.MerkleProverLifted(H).commit(
-                allocator,
-                column_refs,
-            );
+            var commitment = if (comptime @hasDecl(B, "commitMerkle"))
+                try B.commitMerkle(H, allocator, column_refs)
+            else
+                try vcs_lifted_prover.MerkleProverLifted(H).commit(allocator, column_refs);
             errdefer commitment.deinit(allocator);
 
             return .{
@@ -264,7 +278,8 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
             );
             errdefer prepared.deinit(allocator);
 
-            var tree = try CommitmentTreeProver(H).initOwnedWithCoefficients(
+            var tree = try CommitmentTreeProver(H).initOwnedWithCoefficientsForBackend(
+                B,
                 allocator,
                 prepared.columns,
                 prepared.coefficients,
@@ -312,7 +327,8 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                 );
                 errdefer prepared.deinit(allocator);
 
-                var tree = try CommitmentTreeProver(H).initOwnedWithCoefficients(
+                var tree = try CommitmentTreeProver(H).initOwnedWithCoefficientsForBackend(
+                    B,
                     allocator,
                     prepared.columns,
                     prepared.coefficients,
@@ -323,7 +339,8 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
 
             // Auto-dispatch to streaming path for large column sets
             // to reduce peak memory by processing in batches.
-            if (owned_columns.len >= streaming_column_threshold) {
+            const backend_prefers_monolithic = comptime @hasDecl(B, "preferMonolithicCommit") and B.preferMonolithicCommit;
+            if (owned_columns.len >= streaming_column_threshold and !backend_prefers_monolithic) {
                 return self.commitOwnedStreamingWithRecorder(
                     allocator,
                     owned_columns,
@@ -350,7 +367,8 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                 "Merkle commit",
             );
             defer merkle_commit_stage.end();
-            var tree = try CommitmentTreeProver(H).initOwnedWithCoefficients(
+            var tree = try CommitmentTreeProver(H).initOwnedWithCoefficientsForBackend(
+                B,
                 allocator,
                 prepared.columns,
                 prepared.coefficients,
@@ -404,7 +422,8 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                 stored_coefficients = coeffs;
             }
 
-            var tree = try CommitmentTreeProver(H).initOwnedWithCoefficients(
+            var tree = try CommitmentTreeProver(H).initOwnedWithCoefficientsForBackend(
+                B,
                 allocator,
                 columns,
                 stored_coefficients,
@@ -821,7 +840,8 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                     borrowed_columns_items[i] = tree.columns;
                 }
 
-                var provider = try quotient_ops.LazyQuotientProvider.init(
+                var provider = try quotient_ops.LazyQuotientProvider.initForBackend(
+                    B,
                     allocator,
                     TreeVec([]const ColumnEvaluation).initOwned(borrowed_columns_items),
                     sampled_points_owned,
@@ -985,6 +1005,21 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                     const values = try allocator.alloc(QM31, points.len);
                     tree_values[col_idx] = values;
                     initialized_columns += 1;
+                }
+            }
+
+            if (comptime @hasDecl(B, "evaluateCoefficientPlans")) {
+                if (try evaluateCoefficientTreesWithBackend(
+                    B,
+                    H,
+                    self.trees.items,
+                    sampled_points.items,
+                    out,
+                    allocator,
+                    lifting_log_size,
+                )) {
+                    releaseTreeCoefficients(H, self.trees.items, allocator);
+                    return TreeVec([][]QM31).initOwned(out);
                 }
             }
 
@@ -1160,7 +1195,8 @@ pub fn TreeBuilder(comptime B: type, comptime H: type, comptime MC: type) type {
             );
             errdefer prepared.deinit(self.allocator);
 
-            var tree = try CommitmentTreeProver(H).initOwnedWithCoefficients(
+            var tree = try CommitmentTreeProver(H).initOwnedWithCoefficientsForBackend(
+                B,
                 self.allocator,
                 prepared.columns,
                 prepared.coefficients,
@@ -2802,6 +2838,44 @@ fn evaluateTreesSequential(
             // (releaseTreeCoefficients) after both parallel and sequential paths.
         }
     }
+}
+
+fn evaluateCoefficientTreesWithBackend(
+    comptime B: type,
+    comptime H: type,
+    trees: []CommitmentTreeProver(H),
+    tree_points_list: [][][]CirclePointQM31,
+    out: [][][]QM31,
+    allocator: std.mem.Allocator,
+    lifting_log_size: u32,
+) !bool {
+    for (trees) |tree| if (tree.coefficients == null) return false;
+
+    for (trees, tree_points_list, out) |tree, tree_points, tree_values| {
+        const coefficients = tree.coefficients.?;
+        var plans = std.ArrayList(CoefficientEvalPlan).empty;
+        defer deinitCoefficientEvalPlans(allocator, &plans);
+        var plan_index = std.AutoHashMap(u64, usize).init(allocator);
+        defer plan_index.deinit();
+
+        for (tree.columns, tree_points, 0..) |column, points, column_index| {
+            if (coefficientsAreZero(coefficients[column_index])) {
+                @memset(tree_values[column_index], QM31.zero());
+                continue;
+            }
+            const plan = try getOrCreateCoefficientEvalPlan(
+                allocator,
+                &plan_index,
+                &plans,
+                coefficients[column_index].logSize(),
+                lifting_log_size - column.log_size,
+                points,
+            );
+            try plan.column_indices.append(allocator, column_index);
+        }
+        try B.evaluateCoefficientPlans(allocator, coefficients, tree_values, plans.items);
+    }
+    return true;
 }
 
 /// Release coefficient memory for all trees. Called on the main thread

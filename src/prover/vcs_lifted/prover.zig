@@ -163,6 +163,65 @@ pub fn MerkleProverLifted(comptime H: type) type {
             );
         }
 
+        /// Metal commitment constructor used by transaction-oriented engines.
+        ///
+        /// Hashing and all parent reductions execute in one Metal command
+        /// buffer. The layer readback exists only to satisfy the current CPU
+        /// decommitment representation; a fully resident engine retains the
+        /// returned Metal tree and gathers queried siblings on device.
+        pub fn commitMetal(
+            runtime: *@import("../../backends/metal/runtime.zig").Runtime,
+            allocator: std.mem.Allocator,
+            columns: []const []const M31,
+        ) !Self {
+            if (columns.len == 0) return commit(allocator, columns);
+
+            const log_sizes = try allocator.alloc(u32, columns.len);
+            defer allocator.free(log_sizes);
+            const word_columns = try allocator.alloc([]const u32, columns.len);
+            defer allocator.free(word_columns);
+            var max_log_size: u32 = 0;
+            for (columns, 0..) |column, index| {
+                if (column.len < 2 or !std.math.isPowerOfTwo(column.len)) return error.InvalidColumnSize;
+                const log_size: u32 = @intCast(std.math.log2_int(usize, column.len));
+                log_sizes[index] = log_size;
+                max_log_size = @max(max_log_size, log_size);
+                word_columns[index] = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(column));
+            }
+
+            var metal_tree = try runtime.commitColumns(
+                allocator,
+                word_columns,
+                log_sizes,
+                max_log_size,
+                H.leafSeed(),
+                H.nodeSeed(),
+            );
+            defer metal_tree.deinit();
+            const packed_layers = try metal_tree.copyLayers(runtime, allocator, max_log_size);
+            defer allocator.free(packed_layers);
+
+            const layer_alloc = layerAllocator(allocator);
+            const layers = try allocator.alloc([]H.Hash, max_log_size + 1);
+            errdefer allocator.free(layers);
+            var initialized: usize = 0;
+            errdefer for (layers[0..initialized]) |layer| layer_alloc.free(layer);
+
+            var packed_offset: usize = 0;
+            for (0..layers.len) |level| {
+                const hash_count = @as(usize, 1) << @intCast(level);
+                const layer = try layer_alloc.alloc(H.Hash, hash_count);
+                for (layer, 0..) |*hash, hash_index| {
+                    hash.* = packed_layers[packed_offset + hash_index];
+                }
+                layers[level] = layer;
+                initialized += 1;
+                packed_offset += hash_count;
+            }
+            std.debug.assert(packed_offset == packed_layers.len);
+            return .{ .layers = layers, .layer_allocator = layer_alloc };
+        }
+
         /// Builds a Merkle tree by computing quotient values lazily from the
         /// provider, chunk by chunk.  Simultaneously writes the computed
         /// quotient coordinates into `out_column`, so the caller obtains both

@@ -204,6 +204,64 @@ pub const ProveOutput = struct {
     }
 };
 
+/// Complete proving-engine substitution point.
+///
+/// The frontend owns statement construction and portable trace columns. The
+/// engine owns commitment state, commitment execution, composition, FRI,
+/// decommitment, and proof assembly. `Scheme` is intentionally opaque to the
+/// frontend so a device backend can store a resident arena and command graph.
+pub fn assertProverEngine(comptime Engine: type) void {
+    comptime {
+        if (!@hasDecl(Engine, "Scheme")) @compileError("prover engine requires Scheme");
+        if (!@hasDecl(Engine, "init")) @compileError("prover engine requires init");
+        if (!@hasDecl(Engine, "commit")) @compileError("prover engine requires commit");
+        if (!@hasDecl(Engine, "prove")) @compileError("prover engine requires prove");
+    }
+}
+
+/// CPU implementation of the complete proving-engine contract.
+pub const CpuProverEngine = struct {
+    pub const Scheme = prover_pcs.CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel);
+
+    pub fn init(allocator: std.mem.Allocator, config: pcs_core.PcsConfig) !Scheme {
+        return Scheme.init(allocator, config);
+    }
+
+    pub fn commit(
+        scheme: *Scheme,
+        allocator: std.mem.Allocator,
+        columns: []prover_pcs.ColumnEvaluation,
+        recorder: ?*stage_profile.Recorder,
+        channel: *Channel,
+    ) !void {
+        return scheme.commitOwnedWithRecorder(allocator, columns, recorder, channel);
+    }
+
+    pub fn prove(
+        allocator: std.mem.Allocator,
+        components: []const prover_component.ComponentProver,
+        channel: *Channel,
+        scheme: Scheme,
+        recorder: ?*stage_profile.Recorder,
+    ) !ExtendedProof {
+        return prover_prove.proveExWithRecorder(
+            CpuBackend,
+            Hasher,
+            MerkleChannel,
+            allocator,
+            components,
+            channel,
+            scheme,
+            false,
+            recorder,
+        );
+    }
+};
+
+comptime {
+    assertProverEngine(CpuProverEngine);
+}
+
 pub const ProverError = error{
     EmptyTrace,
     InvalidLogSize,
@@ -1272,6 +1330,23 @@ pub fn proveRiscVWithRecorder(
     opt_chain: ?*const state_chain.StateChainTracker,
     recorder: ?*stage_profile.Recorder,
 ) !ProveOutput {
+    return proveRiscVWithEngine(CpuProverEngine, allocator, pcs_config, exec_trace, opt_chain, recorder);
+}
+
+/// Proves through a transaction-level engine selected by the caller.
+///
+/// This is the backend substitution point. Engines may retain every committed
+/// column and all subsequent prover state on a device; the frontend performs no
+/// access to `Engine.Scheme` other than passing it back to engine methods.
+pub fn proveRiscVWithEngine(
+    comptime Engine: type,
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    exec_trace: *const trace_mod.Trace,
+    opt_chain: ?*const state_chain.StateChainTracker,
+    recorder: ?*stage_profile.Recorder,
+) !ProveOutput {
+    comptime assertProverEngine(Engine);
     if (exec_trace.step_count == 0) return ProverError.EmptyTrace;
 
     // -- Step 1: Count rows per opcode family. --
@@ -1414,10 +1489,7 @@ pub fn proveRiscVWithRecorder(
     var channel = Channel{};
     pcs_config.mixInto(&channel);
 
-    var scheme = try prover_pcs.CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel).init(
-        allocator,
-        pcs_config,
-    );
+    var scheme = try Engine.init(allocator, pcs_config);
 
     // Empty state chain for fallback when opt_chain is null.
     var empty_chain = state_chain.StateChainTracker.init(allocator);
@@ -1439,7 +1511,7 @@ pub fn proveRiscVWithRecorder(
             const is_first = try genIsFirstColumn(allocator, ls);
             preprocessed[statement.n_components + i] = .{ .log_size = ls, .values = is_first };
         }
-        try scheme.commitOwnedWithRecorder(allocator, preprocessed, recorder, &channel);
+        try Engine.commit(&scheme, allocator, preprocessed, recorder, &channel);
     }
 
     // -- Step 4: Tree 1 -- Main trace (opcode + infrastructure columns). --
@@ -1598,7 +1670,7 @@ pub fn proveRiscVWithRecorder(
     {
         var stage = try stage_profile.StageScope.begin(recorder, "riscv_main_trace_commit", "RISC-V main trace commit");
         defer stage.end();
-        try scheme.commitOwnedWithRecorder(allocator, main_columns, recorder, &channel);
+        try Engine.commit(&scheme, allocator, main_columns, recorder, &channel);
     }
 
     // The current AIR has no LogUp constraints: its interaction values are
@@ -1662,15 +1734,11 @@ pub fn proveRiscVWithRecorder(
         main_offset += statement.infra_descs[i].n_columns;
     }
 
-    var extended = try prover_prove.proveExWithRecorder(
-        CpuBackend,
-        Hasher,
-        MerkleChannel,
+    var extended = try Engine.prove(
         allocator,
         components_arr[0..total_components],
         &channel,
         scheme,
-        false,
         recorder,
     );
     const proof = extended.proof;
@@ -1972,6 +2040,86 @@ test "riscv prover: prove and verify synthetic trace" {
 
     // Verify takes ownership of the proof.
     try verifyRiscV(alloc, config, output.statement, output.proof);
+}
+
+test "riscv prover: transaction engine is the proving substitution point" {
+    const CountingEngine = struct {
+        pub const Scheme = CpuProverEngine.Scheme;
+        var init_calls: usize = 0;
+        var commit_calls: usize = 0;
+        var prove_calls: usize = 0;
+
+        pub fn init(allocator: std.mem.Allocator, config: pcs_core.PcsConfig) !Scheme {
+            init_calls += 1;
+            return CpuProverEngine.init(allocator, config);
+        }
+
+        pub fn commit(
+            scheme: *Scheme,
+            allocator: std.mem.Allocator,
+            columns: []prover_pcs.ColumnEvaluation,
+            recorder: ?*stage_profile.Recorder,
+            channel: *Channel,
+        ) !void {
+            commit_calls += 1;
+            return CpuProverEngine.commit(scheme, allocator, columns, recorder, channel);
+        }
+
+        pub fn prove(
+            allocator: std.mem.Allocator,
+            components: []const prover_component.ComponentProver,
+            channel: *Channel,
+            scheme: Scheme,
+            recorder: ?*stage_profile.Recorder,
+        ) !ExtendedProof {
+            prove_calls += 1;
+            return CpuProverEngine.prove(allocator, components, channel, scheme, recorder);
+        }
+    };
+
+    CountingEngine.init_calls = 0;
+    CountingEngine.commit_calls = 0;
+    CountingEngine.prove_calls = 0;
+
+    const allocator = std.testing.allocator;
+    var trace = trace_mod.Trace.init(allocator);
+    defer trace.deinit();
+    trace.initial_pc = 0x1000;
+    for (0..4) |row| {
+        try trace.append(.{
+            .clk = @intCast(row),
+            .pc = @intCast(0x1000 + row * 4),
+            .opcode = .ADDI,
+            .rd = 1,
+            .rs1 = 0,
+            .rs2 = 0,
+            .imm = 1,
+            .rs1_val = 0,
+            .rs2_val = 0,
+            .rd_val = @intCast(row + 1),
+            .mem_addr = 0,
+            .mem_val = 0,
+            .is_load = false,
+            .is_store = false,
+            .branch_taken = false,
+            .next_pc = @intCast(0x1000 + (row + 1) * 4),
+        });
+    }
+    trace.final_pc = 0x1010;
+    const config = pcs_core.PcsConfig{
+        .pow_bits = 0,
+        .fri_config = .{
+            .log_blowup_factor = 1,
+            .log_last_layer_degree_bound = 0,
+            .n_queries = 2,
+        },
+    };
+
+    var output = try proveRiscVWithEngine(CountingEngine, allocator, config, &trace, null, null);
+    defer output.deinit(allocator);
+    try std.testing.expectEqual(@as(usize, 1), CountingEngine.init_calls);
+    try std.testing.expectEqual(@as(usize, 2), CountingEngine.commit_calls);
+    try std.testing.expectEqual(@as(usize, 1), CountingEngine.prove_calls);
 }
 
 test "riscv prover: multi-family splitting" {

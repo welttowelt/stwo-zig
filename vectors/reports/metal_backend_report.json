@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "date": "2026-07-10",
+  "hardware": {
+    "chip": "Apple M4 Max",
+    "gpu_cores": 32,
+    "memory_bytes": 38654705664,
+    "metal": "Metal 3"
+  },
+  "workload": {
+    "program": "stark-v guest/guest-bin fib_input",
+    "elf_bytes": 58032,
+    "input_u32": 500000,
+    "cycles": 2500157,
+    "hash": "Blake2s",
+    "log_blowup_factor": 1,
+    "pow_bits": 10,
+    "n_queries": 3
+  },
+  "metal_runs": [
+    {"prove_ms":780.4,"prove_mhz":3.2037,"run_prove_ms":997.3,"run_prove_mhz":2.5069,"verified":true},
+    {"prove_ms":764.8,"prove_mhz":3.2690,"run_prove_ms":974.4,"run_prove_mhz":2.5659,"verified":true},
+    {"prove_ms":794.0,"prove_mhz":3.1490,"run_prove_ms":1003.7,"run_prove_mhz":2.4909,"verified":true}
+  ],
+  "median": {
+    "prove_ms": 780.4,
+    "prove_mhz": 3.2037,
+    "run_prove_ms": 997.3,
+    "run_prove_mhz": 2.5069
+  },
+  "controls": {
+    "zig_cpu_preserved_prove_ms": 1211.0,
+    "zig_cpu_post_refactor_prove_ms": 1195.8,
+    "rust_prove_ms": 9041.0,
+    "speedup_vs_zig_cpu_preserved": 1.5518,
+    "speedup_vs_rust": 11.5856
+  },
+  "kernel_benchmarks": {
+    "blake2s_columns": 2106,
+    "blake2s_log_size": 16,
+    "blake2s_cells": 138018816,
+    "blake2s_best_gpu_ms": 12.309,
+    "blake2s_gpu_mcells_per_second": 11212.6,
+    "blake2s_best_wall_ms": 67.806,
+    "quotient_gpu_ms_range": [9.403, 13.916]
+  },
+  "limitations": [
+    "Circle transforms and trace generation remain on CPU.",
+    "Merkle layers are read back for compatibility with the CPU decommitter.",
+    "Sampled polynomial evaluation remains on CPU until coefficients are resident.",
+    "The Zig RISC-V AIR and LogUp path are not yet sound-equivalent to Rust STWO.",
+    "No Zig SN PIE result is claimed because Cairo PIE adaptation is not implemented."
+  ]
+}

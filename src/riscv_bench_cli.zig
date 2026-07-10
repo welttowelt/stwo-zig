@@ -110,7 +110,13 @@ fn encodeBne(rs1: u5, rs2: u5, offset: i13) u32 {
 }
 
 pub fn main() !void {
+    return mainWithEngine(riscv_prover.CpuProverEngine);
+}
+
+pub fn mainWithEngine(comptime Engine: type) !void {
+    comptime riscv_prover.assertProverEngine(Engine);
     const allocator = std.heap.smp_allocator;
+    if (comptime @hasDecl(Engine, "warmup")) try Engine.warmup();
 
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
@@ -121,6 +127,7 @@ pub fn main() !void {
     var production: bool = false;
     var elf_path: ?[]const u8 = null;
     var input_path: ?[]const u8 = null;
+    var input_u32: ?u32 = null;
     var max_steps: usize = 10_000_000;
     var hosted: bool = false;
     var hint_path: ?[]const u8 = null;
@@ -148,6 +155,9 @@ pub fn main() !void {
         } else if (std.mem.eql(u8, args[i], "--input") and i + 1 < args.len) {
             i += 1;
             input_path = args[i];
+        } else if (std.mem.eql(u8, args[i], "--input-u32") and i + 1 < args.len) {
+            i += 1;
+            input_u32 = try std.fmt.parseInt(u32, args[i], 10);
         } else if (std.mem.eql(u8, args[i], "--max-steps") and i + 1 < args.len) {
             i += 1;
             max_steps = try std.fmt.parseInt(usize, args[i], 10);
@@ -214,6 +224,11 @@ pub fn main() !void {
     if (input_path) |path| {
         input_buf = try std.fs.cwd().readFileAlloc(allocator, path, 64 * 1024 * 1024);
         std.debug.print("Input: {s} ({d} bytes)\n", .{ path, input_buf.?.len });
+    } else if (input_u32) |value| {
+        const encoded = try allocator.alloc(u8, @sizeOf(u32));
+        std.mem.writeInt(u32, encoded[0..4], value, .little);
+        input_buf = encoded;
+        std.debug.print("Input u32: {d}\n", .{value});
     }
 
     // Load hint data if provided.
@@ -277,7 +292,8 @@ pub fn main() !void {
     const t_prove = Timer.begin();
     var recorder = stage_profile.Recorder.init(allocator, "zig", "riscv");
     defer recorder.deinit();
-    const output = try riscv_prover.proveRiscVWithRecorder(
+    const output = try riscv_prover.proveRiscVWithEngine(
+        Engine,
         allocator,
         config,
         &run_result.execution_trace,
@@ -354,6 +370,7 @@ fn printUsage() void {
         \\  --fib-n N         Prove a generated fib(N) guest (default: 10000)
         \\  --elf PATH        Prove an RV32IM ELF instead of the generated guest
         \\  --input PATH      Load bytes into the ELF's linker-defined input region
+        \\  --input-u32 N     Pass one little-endian u32 to the guest
         \\  --max-steps N     Execution limit for --elf (default: 10000000)
         \\  --hosted          Enable host-call support
         \\  --hint PATH       Host hint input

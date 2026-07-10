@@ -132,12 +132,33 @@ const MaterializedLiftedColumns = struct {
 pub const LazyQuotientProvider = struct {
     prepared: PreparedQuotientContext,
     combined_views: []CombinedContributionView,
+    raw_columns: []ColumnEvaluation,
     workspace: quotients.RowQuotientWorkspace,
     domain: circle_domain.CircleDomain,
     lifting_log_size: u32,
     domain_size: usize,
 
     pub fn init(
+        allocator: std.mem.Allocator,
+        columns: TreeVec([]const ColumnEvaluation),
+        sampled_points: TreeVec([][]CirclePointQM31),
+        sampled_values: TreeVec([][]QM31),
+        random_coeff: QM31,
+        lifting_log_size: u32,
+    ) !LazyQuotientProvider {
+        return initForBackend(
+            void,
+            allocator,
+            columns,
+            sampled_points,
+            sampled_values,
+            random_coeff,
+            lifting_log_size,
+        );
+    }
+
+    pub fn initForBackend(
+        comptime B: type,
         allocator: std.mem.Allocator,
         columns: TreeVec([]const ColumnEvaluation),
         sampled_points: TreeVec([][]CirclePointQM31),
@@ -162,7 +183,7 @@ pub const LazyQuotientProvider = struct {
 
         const domain_size = try checkedPow2(lifting_log_size);
         const flat_columns = try flattenColumnsBorrowed(allocator, columns);
-        defer allocator.free(flat_columns);
+        errdefer allocator.free(flat_columns);
 
         var prepared = try prepareQuotientContext(
             allocator,
@@ -182,16 +203,20 @@ pub const LazyQuotientProvider = struct {
         );
         defer allocator.free(nonzero_columns);
 
-        var combined_plan = try buildCombinedContributionPlan(
-            allocator,
-            flat_columns,
-            prepared.contribution_plan.active_column_indices,
-            prepared.contribution_plan.ranges,
-            prepared.contribution_plan.contributions,
-            nonzero_columns,
-            lifting_log_size,
-        );
-        errdefer combined_plan.deinit(allocator);
+        const use_raw_columns = comptime B != void and @hasDecl(B, "rawQuotientInputs") and B.rawQuotientInputs;
+        var combined_views: []CombinedContributionView = &.{};
+        if (!use_raw_columns) {
+            const combined_plan = try buildCombinedContributionPlan(
+                allocator,
+                flat_columns,
+                prepared.contribution_plan.active_column_indices,
+                prepared.contribution_plan.ranges,
+                prepared.contribution_plan.contributions,
+                nonzero_columns,
+                lifting_log_size,
+            );
+            combined_views = combined_plan.views;
+        }
 
         var workspace = try quotients.RowQuotientWorkspace.init(allocator, prepared.sample_batches);
         errdefer workspace.deinit(allocator);
@@ -200,7 +225,11 @@ pub const LazyQuotientProvider = struct {
 
         return .{
             .prepared = prepared,
-            .combined_views = combined_plan.views,
+            .combined_views = combined_views,
+            .raw_columns = if (use_raw_columns) flat_columns else blk: {
+                allocator.free(flat_columns);
+                break :blk &.{};
+            },
             .workspace = workspace,
             .domain = domain,
             .lifting_log_size = lifting_log_size,
@@ -212,6 +241,7 @@ pub const LazyQuotientProvider = struct {
         self.workspace.deinit(allocator);
         var combined_plan = CombinedContributionPlan{ .views = self.combined_views };
         combined_plan.deinit(allocator);
+        if (self.raw_columns.len != 0) allocator.free(self.raw_columns);
         self.prepared.deinit(allocator);
         self.* = undefined;
     }

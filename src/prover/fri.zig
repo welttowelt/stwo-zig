@@ -80,7 +80,6 @@ pub fn FriDecommitResult(comptime H: type) type {
 }
 
 pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
-    _ = B;
     return struct {
         config: core_fri.FriConfig,
         first_layer: FirstLayerProver,
@@ -337,10 +336,10 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
                 column.columns[2],
                 column.columns[3],
             };
-            var merkle_tree = try vcs_lifted_prover.MerkleProverLifted(H).commit(
-                allocator,
-                column_refs[0..],
-            );
+            var merkle_tree = if (comptime @hasDecl(B, "commitMerkle"))
+                try B.commitMerkle(H, allocator, column_refs[0..])
+            else
+                try vcs_lifted_prover.MerkleProverLifted(H).commit(allocator, column_refs[0..]);
             MC.mixRoot(channel, merkle_tree.root());
             return .{
                 .domain = domain,
@@ -358,7 +357,20 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
             var column = try SecureColumnByCoords.uninitialized(allocator, provider.domain_size);
             errdefer column.deinit(allocator);
 
-            var merkle_tree = try vcs_lifted_prover.MerkleProverLifted(H).commitWithLazyQuotients(
+            var merkle_tree = if (comptime @hasDecl(B, "commitMerkle")) blk: {
+                if (comptime @hasDecl(B, "computeLazyQuotients")) {
+                    try B.computeLazyQuotients(allocator, provider, &column);
+                } else {
+                    try provider.computeAll(allocator, &column);
+                }
+                const column_refs = [_][]const M31{
+                    column.columns[0],
+                    column.columns[1],
+                    column.columns[2],
+                    column.columns[3],
+                };
+                break :blk try B.commitMerkle(H, allocator, column_refs[0..]);
+            } else try vcs_lifted_prover.MerkleProverLifted(H).commitWithLazyQuotients(
                 allocator,
                 provider,
                 &column,
@@ -443,10 +455,10 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
                     secure_values.columns[2],
                     secure_values.columns[3],
                 };
-                var merkle_tree = try vcs_lifted_prover.MerkleProverLifted(H).commit(
-                    allocator,
-                    coord_refs[0..],
-                );
+                var merkle_tree = if (comptime @hasDecl(B, "commitMerkle"))
+                    try B.commitMerkle(H, allocator, coord_refs[0..])
+                else
+                    try vcs_lifted_prover.MerkleProverLifted(H).commit(allocator, coord_refs[0..]);
                 errdefer merkle_tree.deinit(allocator);
 
                 MC.mixRoot(channel, merkle_tree.root());

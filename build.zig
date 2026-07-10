@@ -84,6 +84,74 @@ pub fn build(b: *std.Build) void {
     riscv_bench_step.dependOn(&riscv_bench_cli.step);
 
     // -----------------------------------------------------------------
+    // Metal resident backend (macOS)
+    // -----------------------------------------------------------------
+    if (target.result.os.tag == .macos) {
+        const metal_test_module = b.createModule(.{
+            .root_source_file = b.path("src/metal_backend_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        const metal_tests = b.addTest(.{
+            .root_module = metal_test_module,
+            .filters = &.{"metal:"},
+        });
+        metal_tests.addCSourceFile(.{
+            .file = b.path("src/backends/metal/runtime.m"),
+            .flags = &.{ "-fobjc-arc", "-fblocks" },
+        });
+        metal_tests.linkLibC();
+        metal_tests.linkFramework("Foundation");
+        metal_tests.linkFramework("Metal");
+        metal_tests.linkSystemLibrary("objc");
+        const run_metal_tests = b.addRunArtifact(metal_tests);
+        const metal_test_step = b.step("metal-test", "Run resident Metal backend parity tests");
+        metal_test_step.dependOn(&run_metal_tests.step);
+
+        const metal_bench_module = b.createModule(.{
+            .root_source_file = b.path("src/metal_bench_cli.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        const metal_bench = b.addExecutable(.{
+            .name = "metal-bench",
+            .root_module = metal_bench_module,
+        });
+        metal_bench.addCSourceFile(.{
+            .file = b.path("src/backends/metal/runtime.m"),
+            .flags = &.{ "-fobjc-arc", "-fblocks" },
+        });
+        metal_bench.linkLibC();
+        metal_bench.linkFramework("Foundation");
+        metal_bench.linkFramework("Metal");
+        metal_bench.linkSystemLibrary("objc");
+        b.installArtifact(metal_bench);
+        const metal_bench_step = b.step("metal-bench", "Build resident Metal commitment benchmark");
+        metal_bench_step.dependOn(&metal_bench.step);
+
+        const riscv_metal_module = b.createModule(.{
+            .root_source_file = b.path("src/riscv_metal_bench_cli.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        const riscv_metal_bench = b.addExecutable(.{
+            .name = "riscv-metal-bench",
+            .root_module = riscv_metal_module,
+        });
+        riscv_metal_bench.addCSourceFile(.{
+            .file = b.path("src/backends/metal/runtime.m"),
+            .flags = &.{ "-fobjc-arc", "-fblocks" },
+        });
+        riscv_metal_bench.linkLibC();
+        riscv_metal_bench.linkFramework("Foundation");
+        riscv_metal_bench.linkFramework("Metal");
+        riscv_metal_bench.linkSystemLibrary("objc");
+        b.installArtifact(riscv_metal_bench);
+        const riscv_metal_step = b.step("riscv-metal-bench", "Build RISC-V prover with Metal commitments");
+        riscv_metal_step.dependOn(&riscv_metal_bench.step);
+    }
+
+    // -----------------------------------------------------------------
     // CUDA GPU backend (opt-in via -Dcuda=true)
     // -----------------------------------------------------------------
     const cuda_enabled = b.option(bool, "cuda", "Enable CUDA GPU backend") orelse false;
