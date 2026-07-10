@@ -258,8 +258,82 @@ pub fn execute(cpu: *Cpu, mem: *Memory, inst: DecodedInst) ExecuteError!void {
         },
 
         // ----------------------------------------------------------------
+        // RV32A: Atomic memory operations (single-threaded: plain R-M-W)
+        // ----------------------------------------------------------------
+        .LR_W => {
+            // Load Reserved: just a plain word load (no reservation tracking).
+            const addr = cpu.readReg(inst.rs1);
+            cpu.writeReg(inst.rd, mem.readU32(addr));
+        },
+        .SC_W => {
+            // Store Conditional: always succeeds (rd=0), plain store.
+            const addr = cpu.readReg(inst.rs1);
+            mem.writeU32(addr, cpu.readReg(inst.rs2));
+            cpu.writeReg(inst.rd, 0); // 0 = success
+        },
+        .AMOSWAP_W => {
+            const addr = cpu.readReg(inst.rs1);
+            const old = mem.readU32(addr);
+            mem.writeU32(addr, cpu.readReg(inst.rs2));
+            cpu.writeReg(inst.rd, old);
+        },
+        .AMOADD_W => {
+            const addr = cpu.readReg(inst.rs1);
+            const old = mem.readU32(addr);
+            mem.writeU32(addr, old +% cpu.readReg(inst.rs2));
+            cpu.writeReg(inst.rd, old);
+        },
+        .AMOAND_W => {
+            const addr = cpu.readReg(inst.rs1);
+            const old = mem.readU32(addr);
+            mem.writeU32(addr, old & cpu.readReg(inst.rs2));
+            cpu.writeReg(inst.rd, old);
+        },
+        .AMOOR_W => {
+            const addr = cpu.readReg(inst.rs1);
+            const old = mem.readU32(addr);
+            mem.writeU32(addr, old | cpu.readReg(inst.rs2));
+            cpu.writeReg(inst.rd, old);
+        },
+        .AMOXOR_W => {
+            const addr = cpu.readReg(inst.rs1);
+            const old = mem.readU32(addr);
+            mem.writeU32(addr, old ^ cpu.readReg(inst.rs2));
+            cpu.writeReg(inst.rd, old);
+        },
+        .AMOMIN_W => {
+            const addr = cpu.readReg(inst.rs1);
+            const old = mem.readU32(addr);
+            const a: i32 = @bitCast(old);
+            const b: i32 = @bitCast(cpu.readReg(inst.rs2));
+            mem.writeU32(addr, @bitCast(@min(a, b)));
+            cpu.writeReg(inst.rd, old);
+        },
+        .AMOMAX_W => {
+            const addr = cpu.readReg(inst.rs1);
+            const old = mem.readU32(addr);
+            const a: i32 = @bitCast(old);
+            const b: i32 = @bitCast(cpu.readReg(inst.rs2));
+            mem.writeU32(addr, @bitCast(@max(a, b)));
+            cpu.writeReg(inst.rd, old);
+        },
+        .AMOMINU_W => {
+            const addr = cpu.readReg(inst.rs1);
+            const old = mem.readU32(addr);
+            mem.writeU32(addr, @min(old, cpu.readReg(inst.rs2)));
+            cpu.writeReg(inst.rd, old);
+        },
+        .AMOMAXU_W => {
+            const addr = cpu.readReg(inst.rs1);
+            const old = mem.readU32(addr);
+            mem.writeU32(addr, @max(old, cpu.readReg(inst.rs2)));
+            cpu.writeReg(inst.rd, old);
+        },
+
+        // ----------------------------------------------------------------
         // System
         // ----------------------------------------------------------------
+        .FENCE => {}, // No-op in single-threaded zkVM.
         .ECALL => return error.Ecall,
         .EBREAK => return error.Ebreak,
     }

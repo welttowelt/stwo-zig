@@ -10,12 +10,16 @@
 const std = @import("std");
 const runner = @import("frontends/riscv/runner/mod.zig");
 const riscv_prover = @import("frontends/riscv/prover.zig");
+const stage_profile = @import("prover/stage_profile.zig");
 const pcs_core = @import("core/pcs/mod.zig");
 const trace_mod = @import("frontends/riscv/runner/trace.zig");
+const host_mod = @import("frontends/riscv/host/mod.zig");
 
 const Timer = struct {
     start: i128,
-    fn begin() Timer { return .{ .start = std.time.nanoTimestamp() }; }
+    fn begin() Timer {
+        return .{ .start = std.time.nanoTimestamp() };
+    }
     fn elapsedMs(self: Timer) f64 {
         const ns = std.time.nanoTimestamp() - self.start;
         return @as(f64, @floatFromInt(ns)) / 1_000_000.0;
@@ -66,12 +70,23 @@ fn makeFibElf(allocator: std.mem.Allocator, n: u32) ![]u8 {
     @memset(buf, 0);
 
     // ELF header
-    buf[0] = 0x7F; buf[1] = 'E'; buf[2] = 'L'; buf[3] = 'F';
-    buf[4] = 1; buf[5] = 1; buf[6] = 1;
-    buf[16] = 2; buf[18] = 0xF3; buf[20] = 1;
+    buf[0] = 0x7F;
+    buf[1] = 'E';
+    buf[2] = 'L';
+    buf[3] = 'F';
+    buf[4] = 1;
+    buf[5] = 1;
+    buf[6] = 1;
+    buf[16] = 2;
+    buf[18] = 0xF3;
+    buf[20] = 1;
     std.mem.writeInt(u32, buf[24..28], 0x10000, .little);
-    buf[28] = 52; buf[40] = 52; buf[42] = 32; buf[44] = 1;
-    buf[52] = 1; buf[56] = 84;
+    buf[28] = 52;
+    buf[40] = 52;
+    buf[42] = 32;
+    buf[44] = 1;
+    buf[52] = 1;
+    buf[56] = 84;
     std.mem.writeInt(u32, buf[60..64], 0x10000, .little);
     std.mem.writeInt(u32, buf[68..72], @intCast(code_size), .little);
     std.mem.writeInt(u32, buf[72..76], @intCast(code_size), .little);
@@ -95,9 +110,7 @@ fn encodeBne(rs1: u5, rs2: u5, offset: i13) u32 {
 }
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    const allocator = std.heap.smp_allocator;
 
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
@@ -107,10 +120,18 @@ pub fn main() !void {
     var n_queries: u64 = 3;
     var production: bool = false;
     var elf_path: ?[]const u8 = null;
+    var input_path: ?[]const u8 = null;
     var max_steps: usize = 10_000_000;
+    var hosted: bool = false;
+    var hint_path: ?[]const u8 = null;
+    var run_only: bool = false;
+    var profile_enabled: bool = false;
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
-        if (std.mem.eql(u8, args[i], "--fib-n") and i + 1 < args.len) {
+        if (std.mem.eql(u8, args[i], "--help") or std.mem.eql(u8, args[i], "-h")) {
+            printUsage();
+            return;
+        } else if (std.mem.eql(u8, args[i], "--fib-n") and i + 1 < args.len) {
             i += 1;
             fib_n = try std.fmt.parseInt(u32, args[i], 10);
         } else if (std.mem.eql(u8, args[i], "--pow-bits") and i + 1 < args.len) {
@@ -124,9 +145,25 @@ pub fn main() !void {
         } else if (std.mem.eql(u8, args[i], "--elf") and i + 1 < args.len) {
             i += 1;
             elf_path = args[i];
+        } else if (std.mem.eql(u8, args[i], "--input") and i + 1 < args.len) {
+            i += 1;
+            input_path = args[i];
         } else if (std.mem.eql(u8, args[i], "--max-steps") and i + 1 < args.len) {
             i += 1;
             max_steps = try std.fmt.parseInt(usize, args[i], 10);
+        } else if (std.mem.eql(u8, args[i], "--hosted")) {
+            hosted = true;
+        } else if (std.mem.eql(u8, args[i], "--hint") and i + 1 < args.len) {
+            i += 1;
+            hint_path = args[i];
+        } else if (std.mem.eql(u8, args[i], "--run-only")) {
+            run_only = true;
+        } else if (std.mem.eql(u8, args[i], "--profile")) {
+            profile_enabled = true;
+        } else {
+            std.debug.print("unknown argument: {s}\n\n", .{args[i]});
+            printUsage();
+            return error.InvalidArgument;
         }
     }
 
@@ -138,7 +175,11 @@ pub fn main() !void {
 
     std.debug.print("RISC-V End-to-End Proving Benchmark\n", .{});
     std.debug.print("====================================\n", .{});
-    std.debug.print("fib(N) = fib({d})\n", .{fib_n});
+    if (elf_path) |path| {
+        std.debug.print("Workload: external ELF {s}\n", .{path});
+    } else {
+        std.debug.print("Workload: generated fib({d})\n", .{fib_n});
+    }
     const cpu_count = std.Thread.getCpuCount() catch 1;
     std.debug.print("Security: pow_bits={d}, n_queries={d}", .{ pow_bits, n_queries });
     if (production) std.debug.print(" [PRODUCTION — matches stark-v]", .{});
@@ -167,25 +208,123 @@ pub fn main() !void {
 
     // Stage 2: Execute
     const t_exec = Timer.begin();
-    var run_result = try runner.run(allocator, elf_bytes, if (elf_path != null) max_steps else fib_n * 6);
+
+    var input_buf: ?[]const u8 = null;
+    defer if (input_buf) |buf| allocator.free(buf);
+    if (input_path) |path| {
+        input_buf = try std.fs.cwd().readFileAlloc(allocator, path, 64 * 1024 * 1024);
+        std.debug.print("Input: {s} ({d} bytes)\n", .{ path, input_buf.?.len });
+    }
+
+    // Load hint data if provided.
+    var hint_data_buf: ?[]const u8 = null;
+    defer if (hint_data_buf) |buf| allocator.free(buf);
+    var hints_slice: []const []const u8 = &.{};
+    var hints_storage: [1][]const u8 = undefined;
+    if (hint_path) |hp| {
+        hint_data_buf = try std.fs.cwd().readFileAlloc(allocator, hp, 64 * 1024 * 1024);
+        hints_storage[0] = hint_data_buf.?;
+        hints_slice = &hints_storage;
+        std.debug.print("Hint: {s} ({d} bytes)\n", .{ hp, hint_data_buf.?.len });
+    }
+
+    // Set up host runtime if --hosted is specified.
+    var host_runtime: ?host_mod.HostRuntime = null;
+    defer if (host_runtime) |*rt| rt.deinit();
+    var host_iface: ?runner.HostInterface = null;
+    if (hosted) {
+        host_runtime = host_mod.HostRuntime.init(allocator, hints_slice);
+        host_iface = host_runtime.?.interface();
+        std.debug.print("Mode: hosted (syscall dispatch enabled)\n", .{});
+    }
+
+    if (input_buf != null and hosted) return error.IncompatibleInputModes;
+    var run_result = if (input_buf) |input|
+        try runner.runWithInput(allocator, elf_bytes, input, if (elf_path != null) max_steps else fib_n * 6)
+    else
+        try runner.runWithHost(allocator, elf_bytes, if (elf_path != null) max_steps else fib_n * 6, host_iface);
     defer run_result.deinit();
     const exec_ms = t_exec.elapsedMs();
+
+    if (run_result.exit_code) |code| {
+        std.debug.print("Exit code: {d}\n", .{code});
+    }
+    if (host_runtime) |rt| {
+        const journal = rt.journalData();
+        if (journal.len > 0) {
+            std.debug.print("Journal: {d} bytes", .{journal.len});
+            if (journal.len <= 64) {
+                std.debug.print(" [", .{});
+                for (journal) |b| std.debug.print("{x:0>2}", .{b});
+                std.debug.print("]", .{});
+            }
+            std.debug.print("\n", .{});
+        }
+    }
 
     const cycles = run_result.execution_trace.step_count;
     std.debug.print("Execute:  {d:.1}ms  ({d} cycles, {d:.0} kHz)\n", .{
         exec_ms, cycles, @as(f64, @floatFromInt(cycles)) / exec_ms,
     });
 
+    if (run_only) {
+        const total_ms = t_total.elapsedMs();
+        std.debug.print("\nTotal (run-only): {d:.1}ms\n", .{total_ms});
+        return;
+    }
+
     // Stage 3: Prove
     const t_prove = Timer.begin();
-    var output = try riscv_prover.proveRiscV(allocator, config, &run_result.execution_trace, &run_result.state_chain_tracker);
-    defer output.deinit(allocator);
+    var recorder = stage_profile.Recorder.init(allocator, "zig", "riscv");
+    defer recorder.deinit();
+    const output = try riscv_prover.proveRiscVWithRecorder(
+        allocator,
+        config,
+        &run_result.execution_trace,
+        &run_result.state_chain_tracker,
+        if (profile_enabled) &recorder else null,
+    );
     const prove_ms = t_prove.elapsedMs();
 
     std.debug.print("Prove:    {d:.1}ms\n", .{prove_ms});
+    const preprocessed_cells = output.statement.nPreprocessedCells();
+    const main_cells = output.statement.nMainCells();
+    const interaction_cells = output.statement.nInteractionCells();
+    const committed_cells = main_cells;
+    std.debug.print("Trace cells: preprocessed={d} main={d} implicit-zero={d} committed={d}\n", .{
+        preprocessed_cells,
+        main_cells,
+        interaction_cells,
+        committed_cells,
+    });
+    std.debug.print("Committed cells/cycle: {d:.2}\n", .{
+        @as(f64, @floatFromInt(committed_cells)) / @as(f64, @floatFromInt(cycles)),
+    });
+    if (profile_enabled) {
+        std.debug.print("Trace layout:\n", .{});
+        for (0..output.statement.n_components) |component_index| {
+            const desc = output.statement.component_descs[component_index];
+            const cells = @as(u64, desc.n_columns) << @intCast(desc.log_size);
+            std.debug.print("  opcode {s}: log={d} columns={d} cells={d}\n", .{
+                @tagName(desc.family), desc.log_size, desc.n_columns, cells,
+            });
+        }
+        for (0..output.statement.n_infra) |infra_index| {
+            const desc = output.statement.infra_descs[infra_index];
+            const cells = @as(u64, desc.n_columns) << @intCast(desc.log_size);
+            std.debug.print("  infra {s}: log={d} columns={d} cells={d}\n", .{
+                @tagName(desc.kind), desc.log_size, desc.n_columns, cells,
+            });
+        }
+        var profile = try recorder.snapshot(allocator);
+        defer profile.deinit(allocator);
+        std.debug.print("Profile:\n", .{});
+        printProfileNodes(profile.stages, 1);
+    }
 
     // Stage 4: Verify
     const t_verify = Timer.begin();
+    // verifyRiscV consumes output.proof on both success and failure.
     try riscv_prover.verifyRiscV(allocator, config, output.statement, output.proof);
     const verify_ms = t_verify.elapsedMs();
 
@@ -204,9 +343,34 @@ pub fn main() !void {
     std.debug.print("Prove+Verify: {d:.1}ms\n", .{prove_verify_ms});
     std.debug.print("\n", .{});
 
-    // stark-v comparison
     const run_prove_khz = @as(f64, @floatFromInt(cycles)) / run_prove_ms;
     std.debug.print("Throughput (run+prove): {d:.1} kHz\n", .{run_prove_khz});
-    std.debug.print("stark-v reference:     567.0 kHz (M2 Max, fib 5M)\n", .{});
-    std.debug.print("Ratio:                 {d:.2}x\n", .{run_prove_khz / 567.0});
+}
+
+fn printUsage() void {
+    std.debug.print(
+        \\Usage: riscv-bench [options]
+        \\
+        \\  --fib-n N         Prove a generated fib(N) guest (default: 10000)
+        \\  --elf PATH        Prove an RV32IM ELF instead of the generated guest
+        \\  --input PATH      Load bytes into the ELF's linker-defined input region
+        \\  --max-steps N     Execution limit for --elf (default: 10000000)
+        \\  --hosted          Enable host-call support
+        \\  --hint PATH       Host hint input
+        \\  --pow-bits N      Proof-of-work bits (default: 0)
+        \\  --n-queries N     FRI query count (default: 3)
+        \\  --production      Use pow_bits=24 and n_queries=70
+        \\  --run-only        Execute the guest without proving
+        \\  --profile         Print nested prover stage timings
+        \\  -h, --help        Show this help
+        \\
+    , .{});
+}
+
+fn printProfileNodes(nodes: []const stage_profile.StageNode, depth: usize) void {
+    for (nodes) |node| {
+        for (0..depth) |_| std.debug.print("  ", .{});
+        std.debug.print("{s}: {d:.3}s\n", .{ node.id, node.seconds });
+        if (node.children) |children| printProfileNodes(children, depth + 1);
+    }
 }

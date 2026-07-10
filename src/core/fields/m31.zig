@@ -242,39 +242,40 @@ pub inline fn ibutterflyVec4(lhs: [*]M31, rhs: [*]M31, itwid: Vec4u32) void {
 }
 
 // ---------------------------------------------------------------
-// SIMD vectorized M31 operations (16-lane / PackedM31)
+// SIMD vectorized M31 operations (hardware-native packed lanes)
 // ---------------------------------------------------------------
 
-/// 16-lane packed width — maps to 4x NEON uint32x4 or 2x AVX2 __m256i.
-pub const PACK_WIDTH: usize = 16;
+/// Match the target's native SIMD width. A scalar lane keeps the same code path
+/// available on targets where Zig does not recommend vectorization.
+pub const PACK_WIDTH: usize = std.simd.suggestVectorLength(u32) orelse 1;
 pub const PackedM31 = @Vector(PACK_WIDTH, u32);
 pub const PackedU64 = @Vector(PACK_WIDTH, u64);
 const P_PACKED: PackedM31 = @splat(Modulus);
 
-/// Load 16 M31 values from a pointer.
+/// Load one packed group of M31 values from a pointer.
 pub inline fn loadPacked(ptr: [*]const M31) PackedM31 {
     const raw: *const [PACK_WIDTH]u32 = @ptrCast(ptr);
     return raw.*;
 }
 
-/// Store 16 M31 values to a pointer.
+/// Store one packed group of M31 values to a pointer.
 pub inline fn storePacked(ptr: [*]M31, v: PackedM31) void {
     const raw: *[PACK_WIDTH]u32 = @ptrCast(ptr);
     raw.* = v;
 }
 
-/// 16-lane M31 addition.
+/// Packed M31 addition.
 pub inline fn addPacked(a: PackedM31, b: PackedM31) PackedM31 {
     const sum = a +% b;
     return @select(u32, sum >= P_PACKED, sum -% P_PACKED, sum);
 }
 
-/// 16-lane M31 subtraction.
+/// Packed M31 subtraction.
 pub inline fn subPacked(a: PackedM31, b: PackedM31) PackedM31 {
     return @select(u32, a < b, (a +% P_PACKED) -% b, a -% b);
 }
 
-/// 16-lane M31 multiplication with Mersenne reduction.
+/// Packed M31 multiplication with Mersenne reduction.
 pub inline fn mulPacked(a: PackedM31, b: PackedM31) PackedM31 {
     const a64: PackedU64 = a;
     const b64: PackedU64 = b;
@@ -282,14 +283,14 @@ pub inline fn mulPacked(a: PackedM31, b: PackedM31) PackedM31 {
     return reducePacked(prod);
 }
 
-/// 16-lane M31 negation.
+/// Packed M31 negation.
 pub inline fn negPacked(a: PackedM31) PackedM31 {
     const zero_vec: PackedM31 = @splat(0);
     const is_zero = a == zero_vec;
     return @select(u32, is_zero, zero_vec, P_PACKED -% a);
 }
 
-/// 16-lane Mersenne reduction: x mod (2^31 - 1).
+/// Packed Mersenne reduction: x mod (2^31 - 1).
 /// Two rounds of: t = (x & p) + (x >> 31).
 inline fn reducePacked(x: PackedU64) PackedM31 {
     const p64: PackedU64 = @splat(@as(u64, Modulus));
@@ -299,7 +300,7 @@ inline fn reducePacked(x: PackedU64) PackedM31 {
     return @select(u32, r >= P_PACKED, r -% P_PACKED, r);
 }
 
-/// 16-lane forward butterfly: lhs[i] = lhs[i] + rhs[i]*twid, rhs[i] = lhs[i] - rhs[i]*twid.
+/// Packed forward butterfly: lhs[i] = lhs[i] + rhs[i]*twid, rhs[i] = lhs[i] - rhs[i]*twid.
 pub inline fn butterflyPacked(lhs: [*]M31, rhs: [*]M31, twid: PackedM31) void {
     const v0 = loadPacked(lhs);
     const v1 = loadPacked(rhs);
@@ -308,7 +309,7 @@ pub inline fn butterflyPacked(lhs: [*]M31, rhs: [*]M31, twid: PackedM31) void {
     storePacked(rhs, subPacked(v0, m));
 }
 
-/// 16-lane inverse butterfly.
+/// Packed inverse butterfly.
 pub inline fn ibutterflyPacked(lhs: [*]M31, rhs: [*]M31, itwid: PackedM31) void {
     const v0 = loadPacked(lhs);
     const v1 = loadPacked(rhs);
@@ -316,7 +317,7 @@ pub inline fn ibutterflyPacked(lhs: [*]M31, rhs: [*]M31, itwid: PackedM31) void 
     storePacked(rhs, mulPacked(subPacked(v0, v1), itwid));
 }
 
-/// Create a PackedM31 by splatting a single scalar M31 value across all 16 lanes.
+/// Create a PackedM31 by splatting a scalar across all lanes.
 pub inline fn splatPacked(x: M31) PackedM31 {
     return @splat(x.v);
 }
@@ -400,7 +401,7 @@ test "m31: randomized ring laws" {
     }
 }
 
-test "m31: packed 16-lane add matches scalar" {
+test "m31: packed add matches scalar" {
     var a_arr: [PACK_WIDTH]M31 = undefined;
     var b_arr: [PACK_WIDTH]M31 = undefined;
     for (0..PACK_WIDTH) |i| {
@@ -417,7 +418,7 @@ test "m31: packed 16-lane add matches scalar" {
     }
 }
 
-test "m31: packed 16-lane sub matches scalar" {
+test "m31: packed sub matches scalar" {
     var a_arr: [PACK_WIDTH]M31 = undefined;
     var b_arr: [PACK_WIDTH]M31 = undefined;
     for (0..PACK_WIDTH) |i| {
@@ -435,7 +436,7 @@ test "m31: packed 16-lane sub matches scalar" {
     }
 }
 
-test "m31: packed 16-lane mul matches scalar" {
+test "m31: packed mul matches scalar" {
     var a_arr: [PACK_WIDTH]M31 = undefined;
     var b_arr: [PACK_WIDTH]M31 = undefined;
     for (0..PACK_WIDTH) |i| {
@@ -452,7 +453,7 @@ test "m31: packed 16-lane mul matches scalar" {
     }
 }
 
-test "m31: packed 16-lane mul with large values" {
+test "m31: packed mul with large values" {
     // Test with values close to the modulus to stress the reduction.
     var a_arr: [PACK_WIDTH]M31 = undefined;
     var b_arr: [PACK_WIDTH]M31 = undefined;
@@ -470,7 +471,7 @@ test "m31: packed 16-lane mul with large values" {
     }
 }
 
-test "m31: packed 16-lane neg matches scalar" {
+test "m31: packed neg matches scalar" {
     var a_arr: [PACK_WIDTH]M31 = undefined;
     for (0..PACK_WIDTH) |i| {
         a_arr[i] = M31.fromCanonical(@intCast(i * 500));
@@ -543,7 +544,7 @@ test "m31: packed ibutterfly matches scalar" {
     }
 }
 
-test "m31: packed 16-lane randomized ring laws" {
+test "m31: packed randomized ring laws" {
     var prng = std.Random.DefaultPrng.init(0xdead_beef_cafe_babe);
     const rng = prng.random();
 
@@ -611,7 +612,7 @@ test "m31: packed 16-lane randomized ring laws" {
     }
 }
 
-test "m31: packed16 reduction edge cases" {
+test "m31: packed reduction edge cases" {
     // Test reduce with x = 0: should give 0.
     {
         const zero_vec: PackedU64 = @splat(0);
@@ -680,23 +681,26 @@ test "m31: packed16 reduction edge cases" {
     }
     // Test with heterogeneous lanes: each lane has a different edge case.
     {
+        const cases = [_]u64{
+            0,
+            1,
+            Modulus,
+            Modulus - 1,
+            Modulus + 1,
+            @as(u64, Modulus) * @as(u64, Modulus),
+            @as(u64, Modulus - 1) * @as(u64, Modulus - 1),
+            (@as(u64, 1) << 62) - 1,
+            2 * @as(u64, Modulus),
+            2 * @as(u64, Modulus) + 1,
+            3 * @as(u64, Modulus),
+            @as(u64, 1) << 31,
+            (@as(u64, 1) << 31) + 1,
+            42,
+            Modulus - 2,
+            @as(u64, Modulus) * 3 + 7,
+        };
         var input: [PACK_WIDTH]u64 = undefined;
-        input[0] = 0;
-        input[1] = 1;
-        input[2] = Modulus;
-        input[3] = Modulus - 1;
-        input[4] = Modulus + 1;
-        input[5] = @as(u64, Modulus) * @as(u64, Modulus);
-        input[6] = @as(u64, Modulus - 1) * @as(u64, Modulus - 1);
-        input[7] = (@as(u64, 1) << 62) - 1;
-        input[8] = 2 * @as(u64, Modulus);
-        input[9] = 2 * @as(u64, Modulus) + 1;
-        input[10] = 3 * @as(u64, Modulus);
-        input[11] = @as(u64, 1) << 31;
-        input[12] = (@as(u64, 1) << 31) + 1;
-        input[13] = 42;
-        input[14] = Modulus - 2;
-        input[15] = @as(u64, Modulus) * 3 + 7;
+        for (&input, 0..) |*value, i| value.* = cases[i % cases.len];
         const vec: PackedU64 = input;
         const result = reducePacked(vec);
         const result_arr: [PACK_WIDTH]u32 = result;
@@ -706,7 +710,7 @@ test "m31: packed16 reduction edge cases" {
     }
 }
 
-test "m31: packed16 add edge cases" {
+test "m31: packed add edge cases" {
     // Test adding zero.
     {
         var a_arr: [PACK_WIDTH]M31 = undefined;
@@ -735,7 +739,7 @@ test "m31: packed16 add edge cases" {
     }
 }
 
-test "m31: packed16 sub edge cases" {
+test "m31: packed sub edge cases" {
     // Test 0 - 0 = 0.
     {
         const zero_vec: PackedM31 = @splat(0);
@@ -760,7 +764,7 @@ test "m31: packed16 sub edge cases" {
     }
 }
 
-test "m31: packed16 neg edge cases" {
+test "m31: packed neg edge cases" {
     // neg(0) = 0.
     {
         const zero_vec: PackedM31 = @splat(0);
@@ -796,7 +800,7 @@ test "m31: packed16 neg edge cases" {
     }
 }
 
-test "m31: packed16 mul matches scalar for random inputs" {
+test "m31: packed mul matches scalar for random inputs" {
     var prng = std.Random.DefaultPrng.init(0xDEADBEEF);
     const rng = prng.random();
     var a_arr: [PACK_WIDTH]M31 = undefined;
@@ -815,7 +819,7 @@ test "m31: packed16 mul matches scalar for random inputs" {
     }
 }
 
-test "m31: packed16 mul with Modulus-1 values" {
+test "m31: packed mul with Modulus-1 values" {
     // (P-1) * (P-1) = 1 in M31 because P-1 = -1 mod P.
     {
         const pm1: PackedM31 = @splat(Modulus - 1);
@@ -845,7 +849,7 @@ test "m31: packed16 mul with Modulus-1 values" {
     }
 }
 
-test "m31: packed16 mul with zero values" {
+test "m31: packed mul with zero values" {
     // 0 * 0 = 0.
     {
         const zero_vec: PackedM31 = @splat(0);
@@ -867,7 +871,7 @@ test "m31: packed16 mul with zero values" {
     }
 }
 
-test "m31: packed16 all ops match scalar for many random rounds" {
+test "m31: packed all ops match scalar for many random rounds" {
     var prng = std.Random.DefaultPrng.init(0xCAFEBABE_12345678);
     const rng = prng.random();
 
@@ -916,7 +920,7 @@ test "m31: packed16 all ops match scalar for many random rounds" {
     }
 }
 
-test "m31: packed16 butterfly matches scalar fft.butterfly" {
+test "m31: packed butterfly matches scalar fft.butterfly" {
     const fft_mod = @import("../fft.zig");
     var lhs: [PACK_WIDTH]M31 = undefined;
     var rhs: [PACK_WIDTH]M31 = undefined;
@@ -944,7 +948,7 @@ test "m31: packed16 butterfly matches scalar fft.butterfly" {
     }
 }
 
-test "m31: packed16 ibutterfly matches scalar fft.ibutterfly" {
+test "m31: packed ibutterfly matches scalar fft.ibutterfly" {
     const fft_mod = @import("../fft.zig");
     var lhs: [PACK_WIDTH]M31 = undefined;
     var rhs: [PACK_WIDTH]M31 = undefined;
@@ -972,7 +976,7 @@ test "m31: packed16 ibutterfly matches scalar fft.ibutterfly" {
     }
 }
 
-test "m31: packed16 butterfly roundtrip (butterfly then ibutterfly)" {
+test "m31: packed butterfly roundtrip (butterfly then ibutterfly)" {
     var lhs: [PACK_WIDTH]M31 = undefined;
     var rhs: [PACK_WIDTH]M31 = undefined;
     const twid = M31.fromCanonical(7);

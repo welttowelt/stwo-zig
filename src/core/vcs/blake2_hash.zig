@@ -36,6 +36,7 @@ pub fn Blake2sHasherGeneric(comptime is_m31_output: bool) type {
         ctx: StdBlake2s256,
 
         const Self = @This();
+        pub const Fixed64Seed = blake2_backend.Blake2sHasher.Fixed64Seed;
 
         pub fn init() Self {
             return .{ .ctx = StdBlake2s256.init(.{}) };
@@ -75,6 +76,32 @@ pub fn Blake2sHasherGeneric(comptime is_m31_output: bool) type {
         pub fn hashFixed128(data: *const [128]u8) Blake2sHash {
             var out = blake2_backend.Blake2sHasher.hashFixed128(data);
             if (is_m31_output) out = reduceToM31(out);
+            return out;
+        }
+
+        pub fn seedAfterFixed64(data: *const [64]u8) Fixed64Seed {
+            return blake2_backend.Blake2sHasher.seedAfterFixed64(data);
+        }
+
+        pub fn hashFinal64FromSeed(seed: Fixed64Seed, data: *const [64]u8) Blake2sHash {
+            var out = blake2_backend.Blake2sHasher.hashFinal64FromSeed(seed, data);
+            if (is_m31_output) out = reduceToM31(out);
+            return out;
+        }
+
+        pub fn hashFinal64FromSeed4(seed: Fixed64Seed, data: *const [4][64]u8) [4]Blake2sHash {
+            var out = blake2_backend.Blake2sHasher.hashFinal64FromSeed4(seed, data);
+            if (is_m31_output) {
+                for (&out) |*digest| digest.* = reduceToM31(digest.*);
+            }
+            return out;
+        }
+
+        pub fn hashEqualFromSeed4(seed: Fixed64Seed, data: *const [4][]const u8) [4]Blake2sHash {
+            var out = blake2_backend.Blake2sHasher.hashEqualFromSeed4(seed, data);
+            if (is_m31_output) {
+                for (&out) |*digest| digest.* = reduceToM31(digest.*);
+            }
             return out;
         }
 

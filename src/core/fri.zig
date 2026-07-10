@@ -66,11 +66,9 @@ pub const FriConfig = struct {
     }
 };
 
-/// Number of folds for univariate polynomials.
-/// Each FRI inner layer folds the evaluation FOLD_STEP times, reducing its
-/// size by a factor of 2^FOLD_STEP.  Increasing this value (e.g. from 1 to 4)
-/// produces fewer intermediate committed layers and therefore less memory.
-pub const FOLD_STEP: u32 = 4;
+/// Upstream Stwo folds one level per FRI layer. Alternative schedules must be
+/// selected explicitly through `FriConfig.fold_step` and remain protocol-bound.
+pub const FOLD_STEP: u32 = 1;
 
 /// Number of folds when reducing circle to line polynomial.
 pub const CIRCLE_TO_LINE_FOLD_STEP: u32 = 1;

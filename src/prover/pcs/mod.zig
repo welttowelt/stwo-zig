@@ -4,7 +4,6 @@ const circle = @import("../../core/circle.zig");
 const channel_blake2s = @import("../../core/channel/blake2s.zig");
 const m31 = @import("../../core/fields/m31.zig");
 const qm31 = @import("../../core/fields/qm31.zig");
-const mmap_alloc = @import("../mmap_alloc.zig");
 const pcs_core = @import("../../core/pcs/mod.zig");
 const pcs_utils = @import("../../core/pcs/utils.zig");
 const core_quotients = @import("../../core/pcs/quotients.zig");
@@ -123,12 +122,53 @@ pub fn CommitmentTreeProver(comptime H: type) type {
             allocator: std.mem.Allocator,
             query_positions: []const usize,
         ) !vcs_lifted_prover.MerkleProverLifted(H).DecommitmentResult {
+            const QueryOrder = struct {
+                positions: []const usize,
+
+                fn lessThan(context: @This(), lhs: usize, rhs: usize) bool {
+                    const lhs_position = context.positions[lhs];
+                    const rhs_position = context.positions[rhs];
+                    return lhs_position < rhs_position or
+                        (lhs_position == rhs_position and lhs < rhs);
+                }
+            };
+            const order = try allocator.alloc(usize, query_positions.len);
+            defer allocator.free(order);
+            for (order, 0..) |*index, i| index.* = i;
+            std.sort.heap(usize, order, QueryOrder{ .positions = query_positions }, QueryOrder.lessThan);
+
+            const sorted_positions = try allocator.alloc(usize, query_positions.len);
+            defer allocator.free(sorted_positions);
+            for (order, 0..) |original_index, sorted_index| {
+                sorted_positions[sorted_index] = query_positions[original_index];
+            }
+
             const column_refs = try allocator.alloc([]const M31, self.columns.len);
             defer allocator.free(column_refs);
             for (self.columns, 0..) |column, i| {
                 column_refs[i] = column.values;
             }
-            return self.commitment.decommit(allocator, query_positions, column_refs);
+            var result = try self.commitment.decommit(allocator, sorted_positions, column_refs);
+            errdefer result.deinit(allocator);
+
+            const reordered = try allocator.alloc([]M31, result.queried_values.len);
+            var initialized: usize = 0;
+            errdefer {
+                for (reordered[0..initialized]) |column| allocator.free(column);
+                allocator.free(reordered);
+            }
+            for (result.queried_values, 0..) |sorted_values, column_index| {
+                const values = try allocator.alloc(M31, sorted_values.len);
+                for (order, 0..) |original_index, sorted_index| {
+                    values[original_index] = sorted_values[sorted_index];
+                }
+                reordered[column_index] = values;
+                initialized += 1;
+            }
+            for (result.queried_values) |column| allocator.free(column);
+            allocator.free(result.queried_values);
+            result.queried_values = reordered;
+            return result;
         }
 
         fn cloneColumnsOwned(
@@ -262,6 +302,25 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
             recorder: ?*stage_profile.Recorder,
             channel: anytype,
         ) !void {
+            if (columnEvaluationsAreConstant(owned_columns)) {
+                errdefer freeOwnedColumnEvaluations(allocator, owned_columns);
+                var prepared = try prepareConstantColumnsForCommitOwned(
+                    allocator,
+                    owned_columns,
+                    self.config.fri_config.log_blowup_factor,
+                    self.coefficient_retention_policy,
+                );
+                errdefer prepared.deinit(allocator);
+
+                var tree = try CommitmentTreeProver(H).initOwnedWithCoefficients(
+                    allocator,
+                    prepared.columns,
+                    prepared.coefficients,
+                );
+                errdefer tree.deinit(allocator);
+                return self.appendCommittedTree(allocator, tree, channel);
+            }
+
             // Auto-dispatch to streaming path for large column sets
             // to reduce peak memory by processing in batches.
             if (owned_columns.len >= streaming_column_threshold) {
@@ -421,6 +480,26 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
         ) !void {
             const effective_batch_size: usize = if (batch_size_arg == 0) 64 else @as(usize, batch_size_arg);
 
+            const ColumnOrder = struct {
+                columns: []const ColumnEvaluation,
+
+                fn lessThan(context: @This(), lhs: usize, rhs: usize) bool {
+                    const lhs_log_size = context.columns[lhs].log_size;
+                    const rhs_log_size = context.columns[rhs].log_size;
+                    return lhs_log_size < rhs_log_size or
+                        (lhs_log_size == rhs_log_size and lhs < rhs);
+                }
+            };
+            const order = try allocator.alloc(usize, owned_columns.len);
+            defer allocator.free(order);
+            for (order, 0..) |*index, i| index.* = i;
+            std.sort.heap(
+                usize,
+                order,
+                ColumnOrder{ .columns = owned_columns },
+                ColumnOrder.lessThan,
+            );
+
             var builder = StreamingTreeBuilder(B, H, MC).init(allocator, self, effective_batch_size);
             errdefer builder.deinit();
 
@@ -437,32 +516,28 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                 const batch_len = end - consumed;
 
                 const batch = allocator.alloc(ColumnEvaluation, batch_len) catch |err| {
-                    // Free unconsumed column values before propagating.
-                    for (owned_columns[consumed..]) |col| {
+                    for (owned_columns) |col| {
                         if (col.values.len > 0) allocator.free(col.values);
                     }
                     allocator.free(owned_columns);
                     return err;
                 };
-                @memcpy(batch, owned_columns[consumed..end]);
-
-                // Mark originals as consumed.
-                for (owned_columns[consumed..end]) |*col| {
-                    col.values = &[_]M31{};
+                for (order[consumed..end], 0..) |original_index, batch_index| {
+                    batch[batch_index] = owned_columns[original_index];
+                    owned_columns[original_index].values = &[_]M31{};
                 }
-                consumed = end;
 
-                builder.addColumnsOwned(batch, recorder) catch |err| {
+                builder.addColumnsOwnedIndexed(batch, order[consumed..end], recorder) catch |err| {
                     // batch is owned by addColumnsOwned on success.
                     // On error, addColumnsOwned's errdefer handles the batch
                     // via prepareColumnsForCommitOwned's errdefer.
-                    // Free remaining unconsumed columns.
-                    for (owned_columns[consumed..]) |col| {
+                    for (owned_columns) |col| {
                         if (col.values.len > 0) allocator.free(col.values);
                     }
                     allocator.free(owned_columns);
                     return err;
                 };
+                consumed = end;
             }
 
             // All column values have been transferred to the builder.
@@ -732,12 +807,6 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
             const lifting_log_size = try scheme.maxTreeLogSize();
             const domain = canonic.CanonicCoset.new(lifting_log_size).circleDomain();
 
-            // Column data has been fully consumed for quotient building.
-            // Release the physical pages backing committed column evaluations
-            // and their merkle tree layers to reduce RSS during FRI commit.
-            // The data will be prefetched before trace decommitment.
-            releaseCommittedTreePages(H, &scheme);
-
             var fri_prover = blk: {
                 var fri_quotient_stage = try stage_profile.StageScope.begin(
                     recorder,
@@ -801,10 +870,6 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                     "Trace decommit",
                 );
                 defer trace_decommit_stage.end();
-                // Prefetch committed column and merkle pages that were
-                // released after quotient building; they will be read
-                // during decommitment below.
-                prefetchCommittedTreePages(H, &scheme);
                 var query_positions_tree = try scheme.buildQueryPositionsTree(
                     allocator,
                     fri_decommit.query_positions,
@@ -856,17 +921,8 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
             tree: CommitmentTreeProver(H),
             channel: anytype,
         ) !void {
+            try self.trees.append(allocator, tree);
             MC.mixRoot(channel, tree.root());
-
-            const old_len = self.trees.items.len;
-            const out = try allocator.alloc(CommitmentTreeProver(H), old_len + 1);
-            errdefer allocator.free(out);
-
-            @memcpy(out[0..old_len], self.trees.items);
-            out[old_len] = tree;
-
-            allocator.free(self.trees.items);
-            self.trees.items = out;
         }
 
         fn maxLogSize(columns: []const ColumnEvaluation) u32 {
@@ -983,20 +1039,38 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                             .tree_values = tree_values,
                             .lifting_log_size = lifting_log_size,
                             .barycentric_cache = &barycentric_cache,
+                            .parallel_coefficient_plans = false,
                             .failed = false,
                         };
                     }
 
-                    // Spawn workers for trees [1..], run tree[0] on main thread.
+                    // Keep the largest tree on the main thread so it can safely
+                    // subdivide large coefficient batches onto this same pool.
+                    var primary_tree: usize = 0;
+                    var primary_cost: usize = 0;
+                    for (self.trees.items, sampled_points.items, 0..) |tree, tree_points, tree_idx| {
+                        var cost: usize = 0;
+                        for (tree.columns, tree_points) |column, points| {
+                            const column_cost = std.math.mul(usize, column.values.len, points.len) catch std.math.maxInt(usize);
+                            cost = std.math.add(usize, cost, column_cost) catch std.math.maxInt(usize);
+                        }
+                        if (cost > primary_cost) {
+                            primary_cost = cost;
+                            primary_tree = tree_idx;
+                        }
+                    }
+                    worker_ctxs[primary_tree].parallel_coefficient_plans = true;
+
                     var wait_group: std.Thread.WaitGroup = .{};
-                    for (worker_ctxs[1..]) |*wctx| {
+                    for (worker_ctxs, 0..) |*wctx, tree_idx| {
+                        if (tree_idx == primary_tree) continue;
                         pool.spawnWg(
                             &wait_group,
                             SampledValueWorkerCtx(H).run,
                             .{wctx},
                         );
                     }
-                    SampledValueWorkerCtx(H).run(&worker_ctxs[0]);
+                    SampledValueWorkerCtx(H).run(&worker_ctxs[primary_tree]);
                     wait_group.wait();
 
                     // Check for worker failures.
@@ -1097,36 +1171,6 @@ pub fn TreeBuilder(comptime B: type, comptime H: type, comptime MC: type) type {
     };
 }
 
-/// Release physical pages backing all committed tree columns and merkle layers.
-///
-/// Called after quotient computation when column data is no longer needed
-/// until trace decommitment. This reduces RSS during the FRI commit phase.
-fn releaseCommittedTreePages(comptime H: type, scheme: anytype) void {
-    for (scheme.trees.items) |tree| {
-        for (tree.columns) |column| {
-            mmap_alloc.releasePagesSlice(M31, @constCast(column.values));
-        }
-        for (tree.commitment.layers) |merkle_layer| {
-            mmap_alloc.releasePagesSlice(H.Hash, @constCast(merkle_layer));
-        }
-    }
-}
-
-/// Prefetch physical pages for all committed tree columns and merkle layers.
-///
-/// Called before trace decommitment to re-populate pages that were
-/// previously released via `releaseCommittedTreePages`.
-fn prefetchCommittedTreePages(comptime H: type, scheme: anytype) void {
-    for (scheme.trees.items) |tree| {
-        for (tree.columns) |column| {
-            mmap_alloc.prefetchPagesSlice(M31, @constCast(column.values));
-        }
-        for (tree.commitment.layers) |merkle_layer| {
-            mmap_alloc.prefetchPagesSlice(H.Hash, @constCast(merkle_layer));
-        }
-    }
-}
-
 /// A streaming tree builder that commits columns in configurable batches,
 /// building the Merkle leaf layer incrementally and freeing each batch's
 /// extended column data before the next batch is prepared.
@@ -1146,6 +1190,10 @@ pub fn StreamingTreeBuilder(comptime B: type, comptime H: type, comptime MC: typ
         /// Columns retained for later decommitment and sampled-value evaluation.
         /// Each entry stores the *extended* column values and their log_size.
         retained_columns: std.ArrayList(ColumnEvaluation),
+
+        /// Original PCS position for each retained column. Streaming hashes
+        /// columns in log-size order, then restores this order before commit.
+        retained_column_indices: std.ArrayList(usize),
 
         /// Coefficient polynomials retained for sampled-value evaluation
         /// (only when the retention policy says to keep them).
@@ -1167,6 +1215,7 @@ pub fn StreamingTreeBuilder(comptime B: type, comptime H: type, comptime MC: typ
                 .batch_size = if (batch_size == 0) 64 else batch_size,
                 .streaming_committer = MerkleProver.StreamingCommitter.init(allocator),
                 .retained_columns = std.ArrayList(ColumnEvaluation).empty,
+                .retained_column_indices = std.ArrayList(usize).empty,
                 .retained_coefficients = std.ArrayList(prover_circle.CircleCoefficients).empty,
                 .retain_coefficients = scheme.coefficient_retention_policy == .always,
             };
@@ -1178,6 +1227,7 @@ pub fn StreamingTreeBuilder(comptime B: type, comptime H: type, comptime MC: typ
                 if (col.values.len > 0) self.allocator.free(col.values);
             }
             self.retained_columns.deinit(self.allocator);
+            self.retained_column_indices.deinit(self.allocator);
             for (self.retained_coefficients.items) |*coeff| {
                 var c = coeff.*;
                 c.deinit(self.allocator);
@@ -1199,6 +1249,20 @@ pub fn StreamingTreeBuilder(comptime B: type, comptime H: type, comptime MC: typ
             owned_batch: []ColumnEvaluation,
             recorder: ?*stage_profile.Recorder,
         ) !void {
+            const first_index = self.retained_column_indices.items.len;
+            const indices = try self.allocator.alloc(usize, owned_batch.len);
+            defer self.allocator.free(indices);
+            for (indices, 0..) |*index, i| index.* = first_index + i;
+            return self.addColumnsOwnedIndexed(owned_batch, indices, recorder);
+        }
+
+        fn addColumnsOwnedIndexed(
+            self: *Self,
+            owned_batch: []ColumnEvaluation,
+            original_indices: []const usize,
+            recorder: ?*stage_profile.Recorder,
+        ) !void {
+            std.debug.assert(owned_batch.len == original_indices.len);
             if (owned_batch.len == 0) {
                 self.allocator.free(owned_batch);
                 return;
@@ -1238,6 +1302,7 @@ pub fn StreamingTreeBuilder(comptime B: type, comptime H: type, comptime MC: typ
 
             // Pre-allocate space in retained lists before any ownership transfer.
             try self.retained_columns.ensureUnusedCapacity(self.allocator, prepared.columns.len);
+            try self.retained_column_indices.ensureUnusedCapacity(self.allocator, prepared.columns.len);
             if (prepared.coefficients) |coeffs| {
                 try self.retained_coefficients.ensureUnusedCapacity(self.allocator, coeffs.len);
             }
@@ -1247,8 +1312,9 @@ pub fn StreamingTreeBuilder(comptime B: type, comptime H: type, comptime MC: typ
 
             // From here, all operations are guaranteed not to fail (no try).
             // Retain extended columns (needed for decommitment and quotient evaluation).
-            for (prepared.columns) |col| {
+            for (prepared.columns, original_indices) |col, original_index| {
                 self.retained_columns.appendAssumeCapacity(col);
+                self.retained_column_indices.appendAssumeCapacity(original_index);
             }
 
             // Retain coefficients if needed.
@@ -1275,14 +1341,44 @@ pub fn StreamingTreeBuilder(comptime B: type, comptime H: type, comptime MC: typ
             self.streaming_committer = MerkleProver.StreamingCommitter.init(self.allocator);
             errdefer merkle.deinit(self.allocator);
 
-            // Assemble the retained columns and coefficients into a CommitmentTreeProver.
-            const columns = try self.retained_columns.toOwnedSlice(self.allocator);
-            self.retained_columns = std.ArrayList(ColumnEvaluation).empty;
+            const original_indices = try self.retained_column_indices.toOwnedSlice(self.allocator);
+            self.retained_column_indices = std.ArrayList(usize).empty;
+            defer self.allocator.free(original_indices);
+
+            // Assemble the retained columns and coefficients into original PCS order.
+            const columns = blk: {
+                const streamed = try self.retained_columns.toOwnedSlice(self.allocator);
+                self.retained_columns = std.ArrayList(ColumnEvaluation).empty;
+                errdefer freeOwnedColumnEvaluations(self.allocator, streamed);
+
+                const ordered = try self.allocator.alloc(ColumnEvaluation, streamed.len);
+                for (streamed, original_indices) |column, original_index| {
+                    ordered[original_index] = column;
+                }
+                self.allocator.free(streamed);
+                break :blk ordered;
+            };
+            errdefer freeOwnedColumnEvaluations(self.allocator, columns);
 
             var coefficients: ?[]prover_circle.CircleCoefficients = null;
+            errdefer if (coefficients) |owned| deinitOwnedCoefficientColumns(self.allocator, owned);
             if (self.retained_coefficients.items.len > 0) {
-                coefficients = try self.retained_coefficients.toOwnedSlice(self.allocator);
+                const streamed_coefficients = try self.retained_coefficients.toOwnedSlice(self.allocator);
                 self.retained_coefficients = std.ArrayList(prover_circle.CircleCoefficients).empty;
+                errdefer deinitOwnedCoefficientColumns(self.allocator, streamed_coefficients);
+                if (streamed_coefficients.len == columns.len) {
+                    const ordered_coefficients = try self.allocator.alloc(
+                        prover_circle.CircleCoefficients,
+                        streamed_coefficients.len,
+                    );
+                    for (streamed_coefficients, original_indices) |coefficient, original_index| {
+                        ordered_coefficients[original_index] = coefficient;
+                    }
+                    self.allocator.free(streamed_coefficients);
+                    coefficients = ordered_coefficients;
+                } else {
+                    coefficients = streamed_coefficients;
+                }
             }
 
             const tree = CommitmentTreeProver(H){
@@ -1398,24 +1494,18 @@ test "prover pcs: streaming sampled-value mixing matches flattening path" {
         QM31.fromU32Unchecked(1, 2, 3, 4),
         QM31.fromU32Unchecked(5, 6, 7, 8),
     });
-    defer alloc.free(col00);
     const col01 = try alloc.alloc(QM31, 0);
-    defer alloc.free(col01);
     const col10 = try alloc.dupe(QM31, &[_]QM31{
         QM31.fromU32Unchecked(9, 10, 11, 12),
     });
-    defer alloc.free(col10);
     const col11 = try alloc.dupe(QM31, &[_]QM31{
         QM31.fromU32Unchecked(13, 14, 15, 16),
         QM31.fromU32Unchecked(17, 18, 19, 20),
         QM31.fromU32Unchecked(21, 22, 23, 24),
     });
-    defer alloc.free(col11);
 
     const tree0 = try alloc.dupe([]QM31, &[_][]QM31{ col00, col01 });
-    defer alloc.free(tree0);
     const tree1 = try alloc.dupe([]QM31, &[_][]QM31{ col10, col11 });
-    defer alloc.free(tree1);
 
     var sampled_values = TreeVec([][]QM31).initOwned(
         try alloc.dupe([][]QM31, &[_][][]QM31{ tree0, tree1 }),
@@ -1522,6 +1612,64 @@ const PreparedCommitmentColumns = struct {
         self.* = undefined;
     }
 };
+
+fn columnEvaluationsAreConstant(columns: []const ColumnEvaluation) bool {
+    if (columns.len == 0) return false;
+    for (columns) |column| {
+        if (column.values.len == 0) return false;
+        const first = column.values[0];
+        for (column.values[1..]) |value| {
+            if (!value.eql(first)) return false;
+        }
+    }
+    return true;
+}
+
+fn prepareConstantColumnsForCommitOwned(
+    allocator: std.mem.Allocator,
+    owned_columns: []ColumnEvaluation,
+    log_blowup_factor: u32,
+    retention_policy: CoefficientRetentionPolicy,
+) !PreparedCommitmentColumns {
+    const retain_coefficients = shouldRetainCoefficients(owned_columns, retention_policy);
+    const coefficients = if (retain_coefficients)
+        try allocator.alloc(prover_circle.CircleCoefficients, owned_columns.len)
+    else
+        null;
+    var initialized_coefficients: usize = 0;
+    errdefer if (coefficients) |coeffs| {
+        for (coeffs[0..initialized_coefficients]) |*coefficient| coefficient.deinit(allocator);
+        allocator.free(coeffs);
+    };
+
+    for (owned_columns, 0..) |*column, i| {
+        try column.validate();
+        const constant = column.values[0];
+        if (coefficients) |coeffs| {
+            const coefficient_values = try allocator.alloc(M31, column.values.len);
+            @memset(coefficient_values, M31.zero());
+            coefficient_values[0] = constant;
+            coeffs[i] = prover_circle.CircleCoefficients.initOwned(coefficient_values) catch |err| {
+                allocator.free(coefficient_values);
+                return err;
+            };
+            initialized_coefficients += 1;
+        }
+
+        if (log_blowup_factor != 0) {
+            const extended_log_size = std.math.add(u32, column.log_size, log_blowup_factor) catch
+                return error.InvalidColumnLogSize;
+            if (extended_log_size >= @bitSizeOf(usize)) return error.InvalidColumnLogSize;
+            const extended_len = @as(usize, 1) << @intCast(extended_log_size);
+            const extended_values = try allocator.alloc(M31, extended_len);
+            @memset(extended_values, constant);
+            allocator.free(column.values);
+            column.* = .{ .log_size = extended_log_size, .values = extended_values };
+        }
+    }
+
+    return .{ .columns = owned_columns, .coefficients = coefficients };
+}
 
 fn prepareColumnsForCommitBorrowed(
     allocator: std.mem.Allocator,
@@ -2216,7 +2364,6 @@ fn deinitTwiddleCache(
     cache.deinit();
 }
 
-
 const CoefficientEvalPlan = struct {
     coeff_log_size: u32,
     fold_count: u32,
@@ -2386,6 +2533,7 @@ fn evaluateCoefficientPlans(
     coeffs: []const prover_circle.CircleCoefficients,
     tree_values: [][]QM31,
     plans: []const CoefficientEvalPlan,
+    allow_parallel: bool,
 ) !void {
     var batch_coeffs: []prover_circle.CircleCoefficients = &[_]prover_circle.CircleCoefficients{};
     defer if (batch_coeffs.len != 0) allocator.free(batch_coeffs);
@@ -2418,12 +2566,70 @@ fn evaluateCoefficientPlans(
             batch_out_view[batch_idx] = tree_values[column_idx];
         }
 
-        prover_circle.poly.CircleCoefficients.evalManyAtPointsWithFlatFactors(
+        if (!allow_parallel or !evaluateCoefficientBatchParallel(
             batch_coeffs_view,
             plan.flat_factors,
             batch_out_view,
+        )) {
+            prover_circle.poly.CircleCoefficients.evalManyAtPointsWithFlatFactors(
+                batch_coeffs_view,
+                plan.flat_factors,
+                batch_out_view,
+            );
+        }
+    }
+}
+
+const CoefficientEvalWork = struct {
+    coefficients: []const prover_circle.CircleCoefficients,
+    flat_factors: []const QM31,
+    out: []const []QM31,
+
+    fn run(self: *const CoefficientEvalWork) void {
+        prover_circle.poly.CircleCoefficients.evalManyAtPointsWithFlatFactors(
+            self.coefficients,
+            self.flat_factors,
+            self.out,
         );
     }
+};
+
+fn evaluateCoefficientBatchParallel(
+    coefficients: []const prover_circle.CircleCoefficients,
+    flat_factors: []const QM31,
+    out: []const []QM31,
+) bool {
+    const min_columns_per_worker: usize = 8;
+    const pool = work_pool_mod.getGlobalPool() orelse return false;
+    const worker_count = @min(pool.workerCount(), coefficients.len / min_columns_per_worker);
+    if (worker_count <= 1) return false;
+
+    var work: [work_pool_mod.MAX_WORKERS]CoefficientEvalWork = undefined;
+    const chunk_len = (coefficients.len + worker_count - 1) / worker_count;
+    for (0..worker_count) |worker| {
+        const start = worker * chunk_len;
+        const end = @min(coefficients.len, start + chunk_len);
+        work[worker] = .{
+            .coefficients = coefficients[start..end],
+            .flat_factors = flat_factors,
+            .out = out[start..end],
+        };
+    }
+
+    var wait_group: std.Thread.WaitGroup = .{};
+    for (work[1..worker_count]) |*item| {
+        pool.spawnWg(&wait_group, CoefficientEvalWork.run, .{@as(*const CoefficientEvalWork, item)});
+    }
+    work[0].run();
+    wait_group.wait();
+    return true;
+}
+
+fn coefficientsAreZero(coefficients: prover_circle.CircleCoefficients) bool {
+    for (coefficients.coeffs) |coefficient| {
+        if (!coefficient.isZero()) return false;
+    }
+    return true;
 }
 
 /// Worker context for parallel per-tree sampled-value evaluation.
@@ -2436,6 +2642,7 @@ fn SampledValueWorkerCtx(comptime H: type) type {
         tree_values: [][]QM31,
         lifting_log_size: u32,
         barycentric_cache: *const std.AutoHashMap(u32, prover_circle_eval.BarycentricContext),
+        parallel_coefficient_plans: bool,
         failed: bool,
 
         const WorkerSelf = @This();
@@ -2461,6 +2668,10 @@ fn SampledValueWorkerCtx(comptime H: type) type {
                 const fold_count = self.lifting_log_size - column.log_size;
                 if (tree.coefficients) |coeffs| {
                     const coeff = coeffs[col_idx];
+                    if (coefficientsAreZero(coeff)) {
+                        @memset(values, QM31.zero());
+                        continue;
+                    }
                     const plan = try getOrCreateCoefficientEvalPlan(
                         scratch_alloc,
                         &coefficient_plan_index,
@@ -2500,6 +2711,7 @@ fn SampledValueWorkerCtx(comptime H: type) type {
                     coeffs,
                     self.tree_values,
                     coefficient_plans.items,
+                    self.parallel_coefficient_plans,
                 );
                 // Note: coefficient memory is owned by the main allocator,
                 // so cleanup is deferred to the main thread after workers complete.
@@ -2541,6 +2753,10 @@ fn evaluateTreesSequential(
             const fold_count = lifting_log_size - column.log_size;
             if (tree.coefficients) |coeffs| {
                 const coeff = coeffs[col_idx];
+                if (coefficientsAreZero(coeff)) {
+                    @memset(values, QM31.zero());
+                    continue;
+                }
                 const plan = try getOrCreateCoefficientEvalPlan(
                     allocator,
                     &coefficient_plan_index,
@@ -2580,6 +2796,7 @@ fn evaluateTreesSequential(
                 coeffs,
                 tree_values,
                 coefficient_plans.items,
+                false,
             );
             // Note: coefficient memory cleanup is done by the caller
             // (releaseTreeCoefficients) after both parallel and sequential paths.
@@ -2993,8 +3210,8 @@ test "prover pcs: decommit by tree positions verifies" {
         &channel,
     );
 
-    const tree0_queries = try alloc.dupe(usize, &[_]usize{ 0, 3 });
-    const tree1_queries = try alloc.dupe(usize, &[_]usize{ 1, 6 });
+    const tree0_queries = try alloc.dupe(usize, &[_]usize{ 3, 0, 3, 1 });
+    const tree1_queries = try alloc.dupe(usize, &[_]usize{ 6, 1, 6, 0 });
     var query_tree = TreeVec([]const usize).initOwned(
         try alloc.dupe([]const usize, &[_][]const usize{ tree0_queries, tree1_queries }),
     );
@@ -3002,6 +3219,19 @@ test "prover pcs: decommit by tree positions verifies" {
 
     var decommit = try scheme.decommitByTreePositions(alloc, query_tree);
     defer decommit.deinit(alloc);
+
+    try std.testing.expectEqualSlices(M31, &[_]M31{
+        scheme.trees.items[0].columns[0].values[3],
+        scheme.trees.items[0].columns[0].values[0],
+        scheme.trees.items[0].columns[0].values[3],
+        scheme.trees.items[0].columns[0].values[1],
+    }, decommit.queried_values.items[0][0]);
+    try std.testing.expectEqualSlices(M31, &[_]M31{
+        scheme.trees.items[1].columns[0].values[6],
+        scheme.trees.items[1].columns[0].values[1],
+        scheme.trees.items[1].columns[0].values[6],
+        scheme.trees.items[1].columns[0].values[0],
+    }, decommit.queried_values.items[1][0]);
 
     var sizes = try scheme.columnLogSizes(alloc);
     defer sizes.deinitDeep(alloc);
@@ -3802,7 +4032,8 @@ test "prover pcs: streaming commitment produces identical root to non-streaming"
     const Hasher = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
     const MerkleChannel = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
     const Channel = @import("../../core/channel/blake2s.zig").Blake2sChannel;
-    const Scheme = CommitmentSchemeProver(Hasher, MerkleChannel);
+    const CpuBackend = @import("../../backends/cpu_scalar/mod.zig").CpuBackend;
+    const Scheme = CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel);
     const alloc = std.testing.allocator;
 
     // Create test columns of various sizes.
@@ -3886,7 +4117,8 @@ test "prover pcs: streaming commitment with batch_size=1 matches non-streaming" 
     const Hasher = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
     const MerkleChannel = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
     const Channel = @import("../../core/channel/blake2s.zig").Blake2sChannel;
-    const Scheme = CommitmentSchemeProver(Hasher, MerkleChannel);
+    const CpuBackend = @import("../../backends/cpu_scalar/mod.zig").CpuBackend;
+    const Scheme = CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel);
     const alloc = std.testing.allocator;
 
     const col_len: usize = 1 << 3;
@@ -3945,7 +4177,8 @@ test "prover pcs: streaming tree builder API matches non-streaming" {
     const Hasher = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
     const MerkleChannel = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
     const Channel = @import("../../core/channel/blake2s.zig").Blake2sChannel;
-    const Scheme = CommitmentSchemeProver(Hasher, MerkleChannel);
+    const CpuBackend = @import("../../backends/cpu_scalar/mod.zig").CpuBackend;
+    const Scheme = CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel);
     const alloc = std.testing.allocator;
 
     const col_len: usize = 1 << 3;

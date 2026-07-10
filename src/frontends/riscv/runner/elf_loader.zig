@@ -19,6 +19,11 @@ pub const ElfError = error{
 pub const ElfInfo = struct {
     entry_point: u32,
     segments_loaded: usize,
+    stack_pointer: ?u32 = null,
+    global_pointer: ?u32 = null,
+    input_start: ?u32 = null,
+    input_end: ?u32 = null,
+    halt_flag: ?u32 = null,
 };
 
 // ELF32 constants
@@ -88,6 +93,11 @@ pub fn loadElf(elf_bytes: []const u8, mem: *Memory) (ElfError || error{OutOfMemo
     return .{
         .entry_point = e_entry,
         .segments_loaded = segments_loaded,
+        .stack_pointer = findSymbolValue(elf_bytes, "__stack_top"),
+        .global_pointer = findSymbolValue(elf_bytes, "__global_pointer$"),
+        .input_start = findSymbolValue(elf_bytes, "__input_start"),
+        .input_end = findSymbolValue(elf_bytes, "__input_end"),
+        .halt_flag = findSymbolValue(elf_bytes, "__halt_flag"),
     };
 }
 
@@ -104,6 +114,49 @@ fn readU32LE(bytes: *const [4]u8) u32 {
         (@as(u32, bytes[1]) << 8) |
         (@as(u32, bytes[2]) << 16) |
         (@as(u32, bytes[3]) << 24);
+}
+
+fn findSymbolValue(elf_bytes: []const u8, wanted: []const u8) ?u32 {
+    if (elf_bytes.len < ELF_HDR_SIZE) return null;
+    const shoff = @as(usize, readU32LE(elf_bytes[32..36]));
+    const shentsize = @as(usize, readU16LE(elf_bytes[46..48]));
+    const shnum = @as(usize, readU16LE(elf_bytes[48..50]));
+    if (shoff == 0 or shentsize < 40) return null;
+
+    for (0..shnum) |i| {
+        const section_offset = shoff + i * shentsize;
+        if (section_offset + 40 > elf_bytes.len) return null;
+        const section = elf_bytes[section_offset .. section_offset + 40];
+        if (readU32LE(section[4..8]) != 2) continue; // SHT_SYMTAB
+
+        const symbols_offset = @as(usize, readU32LE(section[16..20]));
+        const symbols_size = @as(usize, readU32LE(section[20..24]));
+        const string_section_index = @as(usize, readU32LE(section[24..28]));
+        const symbol_size = @as(usize, readU32LE(section[36..40]));
+        if (symbol_size < 16 or symbols_offset + symbols_size > elf_bytes.len) return null;
+        if (string_section_index >= shnum) return null;
+
+        const strings_header_offset = shoff + string_section_index * shentsize;
+        if (strings_header_offset + 40 > elf_bytes.len) return null;
+        const strings_header = elf_bytes[strings_header_offset .. strings_header_offset + 40];
+        const strings_offset = @as(usize, readU32LE(strings_header[16..20]));
+        const strings_size = @as(usize, readU32LE(strings_header[20..24]));
+        if (strings_offset + strings_size > elf_bytes.len) return null;
+        const strings = elf_bytes[strings_offset .. strings_offset + strings_size];
+
+        var symbol_offset = symbols_offset;
+        while (symbol_offset + symbol_size <= symbols_offset + symbols_size) : (symbol_offset += symbol_size) {
+            const symbol = elf_bytes[symbol_offset .. symbol_offset + symbol_size];
+            const name_offset = @as(usize, readU32LE(symbol[0..4]));
+            if (name_offset >= strings.len) continue;
+            const tail = strings[name_offset..];
+            const name_end = std.mem.indexOfScalar(u8, tail, 0) orelse continue;
+            if (std.mem.eql(u8, tail[0..name_end], wanted)) {
+                return readU32LE(symbol[4..8]);
+            }
+        }
+    }
+    return null;
 }
 
 // ---------------------------------------------------------------------------

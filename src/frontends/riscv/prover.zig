@@ -36,6 +36,8 @@ const prover_air_accumulation = @import("../../prover/air/accumulation.zig");
 const prover_component = @import("../../prover/air/component_prover.zig");
 const prover_pcs = @import("../../prover/pcs/mod.zig");
 const prover_prove = @import("../../prover/prove.zig");
+const stage_profile = @import("../../prover/stage_profile.zig");
+const work_pool = @import("../../prover/work_pool.zig");
 const secure_column = @import("../../prover/secure_column.zig");
 const CpuBackend = @import("../../backends/cpu_scalar/mod.zig").CpuBackend;
 const utils = @import("../../core/utils.zig");
@@ -69,18 +71,36 @@ pub const FamilyComponentDesc = struct {
 };
 
 /// Descriptor for an infrastructure component in the proof.
+pub const InfraKind = enum(u32) {
+    program,
+    memory,
+    clock_update,
+    poseidon2,
+    merkle,
+    bitwise,
+    range_check_20,
+    range_check_8_11,
+    range_check_8_8_4,
+    range_check_8_8,
+    range_check_m31,
+};
+
 pub const InfraComponentDesc = struct {
+    kind: InfraKind,
     log_size: u32,
     n_columns: u32,
 };
 
 /// Maximum number of opcode families (components) we support.
-pub const MAX_COMPONENTS = trace_mod.N_FAMILIES;
+pub const MAX_COMPONENTS: usize = 128;
+const MAX_OPCODE_SHARD_LOG_SIZE: u32 = 16;
+const MAX_OPCODE_SHARD_ROWS: usize = @as(usize, 1) << MAX_OPCODE_SHARD_LOG_SIZE;
 
 /// Maximum number of infrastructure components.
-/// program(1) + memory(1) + mem_clock_update(1) + reg_clock_update(1) +
-/// poseidon2(1) + merkle(1) + multiplicity(6) = 12.
-pub const MAX_INFRA_COMPONENTS: usize = 12;
+/// program + memory + clock_update + poseidon2 + merkle + six lookups = 11.
+pub const MAX_INFRA_COMPONENTS: usize = 256;
+const MAX_MEMORY_SHARD_LOG_SIZE: u32 = 16;
+const MAX_MEMORY_SHARD_ROWS: usize = @as(usize, 1) << MAX_MEMORY_SHARD_LOG_SIZE;
 
 pub const RiscVStatement = struct {
     /// Number of active opcode family components in the proof.
@@ -133,9 +153,39 @@ pub const RiscVStatement = struct {
         for (0..self.n_components) |i| {
             total += nInteractionQm31ColsForFamily(self.component_descs[i].family) * 4;
         }
-        // Infrastructure interaction columns (use base_alu_reg count as placeholder)
-        for (0..self.n_infra) |_| {
-            total += nInteractionQm31ColsForFamily(.base_alu_reg) * 4;
+        for (0..self.n_infra) |i| {
+            total += nInteractionM31ColsForInfra(self.infra_descs[i].kind);
+        }
+        return total;
+    }
+
+    pub fn nPreprocessedCells(self: *const RiscVStatement) u64 {
+        var total: u64 = 0;
+        for (0..self.n_components) |i| total += @as(u64, 1) << @intCast(self.component_descs[i].log_size);
+        for (0..self.n_infra) |i| total += @as(u64, 1) << @intCast(self.infra_descs[i].log_size);
+        return total;
+    }
+
+    pub fn nMainCells(self: *const RiscVStatement) u64 {
+        var total: u64 = 0;
+        for (0..self.n_components) |i| {
+            total += @as(u64, self.component_descs[i].n_columns) << @intCast(self.component_descs[i].log_size);
+        }
+        for (0..self.n_infra) |i| {
+            total += @as(u64, self.infra_descs[i].n_columns) << @intCast(self.infra_descs[i].log_size);
+        }
+        return total;
+    }
+
+    pub fn nInteractionCells(self: *const RiscVStatement) u64 {
+        var total: u64 = 0;
+        for (0..self.n_components) |i| {
+            const n_columns = nInteractionQm31ColsForFamily(self.component_descs[i].family) * 4;
+            total += @as(u64, n_columns) << @intCast(self.component_descs[i].log_size);
+        }
+        for (0..self.n_infra) |i| {
+            const n_columns = nInteractionM31ColsForInfra(self.infra_descs[i].kind);
+            total += @as(u64, n_columns) << @intCast(self.infra_descs[i].log_size);
         }
         return total;
     }
@@ -158,6 +208,7 @@ pub const ProverError = error{
     EmptyTrace,
     InvalidLogSize,
     ProvingFailed,
+    TooManyComponents,
 };
 
 // ---------------------------------------------------------------------------
@@ -181,6 +232,7 @@ fn mixStatement(channel: *Channel, statement: RiscVStatement) void {
     }
     for (0..statement.n_infra) |i| {
         channel.mixU32s(&[_]u32{
+            @intFromEnum(statement.infra_descs[i].kind),
             statement.infra_descs[i].log_size,
             statement.infra_descs[i].n_columns,
         });
@@ -218,10 +270,10 @@ fn nConstraintsForFamily(family: trace_mod.OpcodeFamily) usize {
 /// matching the stark-v reference implementation.
 fn nInteractionQm31ColsForFamily(family: trace_mod.OpcodeFamily) u32 {
     return switch (family) {
-        .base_alu_reg => 8,
+        .base_alu_reg => 9,
         .base_alu_imm => 8,
-        .shifts_reg => 8,
-        .shifts_imm => 6,
+        .shifts_reg => 9,
+        .shifts_imm => 7,
         .lt_reg => 7,
         .lt_imm => 6,
         .branch_eq => 5,
@@ -231,9 +283,19 @@ fn nInteractionQm31ColsForFamily(family: trace_mod.OpcodeFamily) u32 {
         .jalr => 6,
         .jal => 4,
         .load_store => 7,
-        .mul => 11,
-        .mulh => 13,
-        .div => 9,
+        .mul => 16,
+        .mulh => 20,
+        .div => 22,
+    };
+}
+
+fn nInteractionM31ColsForInfra(kind: InfraKind) u32 {
+    return switch (kind) {
+        .program => 12,
+        .memory => 16,
+        .merkle => 12,
+        .poseidon2 => 8,
+        .clock_update, .bitwise, .range_check_20, .range_check_8_11, .range_check_8_8_4, .range_check_8_8, .range_check_m31 => 4,
     };
 }
 
@@ -288,12 +350,8 @@ const RiscVTraceComponent = struct {
         const preprocessed = try allocator.dupe(u32, &[_]u32{self.desc.log_size});
         const main = try allocator.alloc(u32, self.desc.n_columns);
         @memset(main, self.desc.log_size);
-        // Tree 2: interaction columns (n_qm31 * 4 M31 columns).
-        const n_interaction_m31 = nInteractionQm31ColsForFamily(self.desc.family) * 4;
-        const interaction_sizes = try allocator.alloc(u32, n_interaction_m31);
-        @memset(interaction_sizes, self.desc.log_size);
         return core_air_components.TraceLogDegreeBounds.initOwned(
-            try allocator.dupe([]u32, &[_][]u32{ preprocessed, main, interaction_sizes }),
+            try allocator.dupe([]u32, &[_][]u32{ preprocessed, main }),
         );
     }
 
@@ -317,20 +375,10 @@ const RiscVTraceComponent = struct {
             main_cols[i] = col_points;
         }
 
-        // Tree 2: interaction columns (n_qm31 * 4 M31 columns).
-        const n_interaction_m31 = nInteractionQm31ColsForFamily(self.desc.family) * 4;
-        const interaction_cols = try allocator.alloc([]CirclePointQM31, n_interaction_m31);
-        for (0..n_interaction_m31) |i| {
-            const col_points = try allocator.alloc(CirclePointQM31, 1);
-            col_points[0] = point;
-            interaction_cols[i] = col_points;
-        }
-
         return core_air_components.MaskPoints.initOwned(
             try allocator.dupe([][]CirclePointQM31, &[_][][]CirclePointQM31{
                 preprocessed_cols,
                 main_cols,
-                interaction_cols,
             }),
         );
     }
@@ -397,10 +445,9 @@ const RiscVTraceComponent = struct {
         // so the verifier does check actual execution correctness at the
         // OODS point.
         const n_constraints = nConstraintsForFamily(self.desc.family);
-        const domain_size = @as(usize, 1) << @intCast(self.desc.log_size + 1);
-        const alloc = evaluation_accumulator.allocator;
 
-        // Produce one constant-valued column per constraint.
+        // Accumulate one constant polynomial per constraint without allocating
+        // a domain-sized column for every constraint.
         // The constant encodes component identity so different components
         // produce distinct composition contributions.
         const base_eval = QM31.fromM31(
@@ -420,12 +467,7 @@ const RiscVTraceComponent = struct {
                 M31.zero(),
                 M31.zero(),
             ));
-            const values = try alloc.alloc(QM31, domain_size);
-            defer alloc.free(values);
-            @memset(values, eval);
-            var col = try secure_column.SecureColumnByCoords.fromSecureSlice(alloc, values);
-            defer col.deinit(alloc);
-            try evaluation_accumulator.accumulateColumn(self.desc.log_size + 1, &col);
+            try evaluation_accumulator.accumulateConstant(self.desc.log_size + 1, eval);
         }
     }
 };
@@ -959,6 +1001,28 @@ fn genIsFirstColumn(allocator: std.mem.Allocator, log_size: u32) ![]M31 {
     return values;
 }
 
+fn isCommittedFamilyColumn(family: trace_mod.OpcodeFamily, column: usize) bool {
+    return switch (family) {
+        .base_alu_reg => !((column >= 8 and column <= 12) or
+            (column >= 18 and column <= 22) or
+            (column >= 28 and column <= 32)),
+        .base_alu_imm => !((column >= 10 and column <= 14) or
+            (column >= 20 and column <= 24)),
+        .branch_lt => !(column == 13 or column == 16 or
+            (column >= 18 and column <= 22) or
+            (column >= 28 and column <= 32)),
+        else => true,
+    };
+}
+
+fn nCommittedColumnsForFamily(family: trace_mod.OpcodeFamily) u32 {
+    var count: u32 = 0;
+    for (0..trace_mod.nColumnsForFamily(family)) |column| {
+        if (isCommittedFamilyColumn(family, column)) count += 1;
+    }
+    return count;
+}
+
 /// Generate M31 columns for a specific opcode family, in bit-reversed
 /// circle-domain order suitable for direct commitment.
 /// Uses family-specific column layouts matching air/trace_columns.zig.
@@ -982,13 +1046,15 @@ fn genColumnsForFamily(
         initialized = i + 1;
     }
 
+    const table = try infra.BitReversalTable.init(allocator, log_size);
+    defer table.deinit(allocator);
+
     var row_idx: usize = 0;
     for (exec_trace.rows.items) |row| {
         if (trace_mod.opcodeFamily(row.opcode) != family) continue;
         if (row_idx >= domain_size) break;
 
-        const circle_idx = utils.cosetIndexToCircleDomainIndex(row_idx, log_size);
-        const bit_rev_idx = utils.bitReverseIndex(circle_idx, log_size);
+        const bit_rev_idx = table.map(row_idx);
 
         // Fill family-specific columns at the bit-reversed position.
         trace_mod.fillFamilyColumns(&columns, bit_rev_idx, row, family);
@@ -996,6 +1062,188 @@ fn genColumnsForFamily(
     }
 
     return .{ .columns = columns, .n_columns = n_cols, .n_real_rows = row_idx };
+}
+
+/// Result of the single-pass column generation for all opcode families.
+const AllComponentColumns = struct {
+    components: [MAX_COMPONENTS]trace_mod.TraceColumns,
+};
+
+/// Generate M31 columns for ALL opcode families in a single pass over the
+/// execution trace. This replaces N_FAMILIES separate calls to
+/// `genColumnsForFamily`, each of which would independently iterate the
+/// entire trace, filtering for one family at a time.
+///
+/// Produces bit-identical output to the per-family approach: each family's
+/// columns are in bit-reversed circle-domain order with its own log_size.
+fn genAllFamilyColumns(
+    allocator: std.mem.Allocator,
+    exec_trace: *const trace_mod.Trace,
+    statement: RiscVStatement,
+) !AllComponentColumns {
+    var result: AllComponentColumns = undefined;
+
+    // Per-family metadata derived from statement descriptors.
+    var log_sizes: [MAX_COMPONENTS]u32 = undefined;
+    var domain_sizes: [MAX_COMPONENTS]usize = undefined;
+    var n_cols: [MAX_COMPONENTS]usize = undefined;
+    var row_counters: [trace_mod.N_FAMILIES]usize = .{0} ** trace_mod.N_FAMILIES;
+    var first_component: [trace_mod.N_FAMILIES]usize = undefined;
+    var family_component_counts: [trace_mod.N_FAMILIES]usize = .{0} ** trace_mod.N_FAMILIES;
+
+    // Track allocation progress for cleanup on error. We store the family
+    // enum indices (fi) of fully allocated families, plus a partial count
+    // for the family currently being allocated.
+    var initialized_components: [MAX_COMPONENTS]usize = undefined;
+    var n_initialized: usize = 0;
+    var partial_fi: usize = 0; // family index currently being allocated
+    var partial_cols: usize = 0; // columns allocated so far for partial_fi
+
+    errdefer {
+        // Free all columns in fully initialized families.
+        for (0..n_initialized) |i| {
+            const component_index = initialized_components[i];
+            for (0..n_cols[component_index]) |ci| {
+                allocator.free(result.components[component_index].columns[ci]);
+            }
+        }
+        // Free partially initialized columns in the family that failed.
+        if (partial_cols > 0) {
+            for (0..partial_cols) |ci| {
+                allocator.free(result.components[partial_fi].columns[ci]);
+            }
+        }
+    }
+
+    // Pre-allocate columns for all families.
+    for (0..statement.n_components) |comp_idx| {
+        const desc = statement.component_descs[comp_idx];
+        const fi = @intFromEnum(desc.family);
+        if (family_component_counts[fi] == 0) first_component[fi] = comp_idx;
+        family_component_counts[fi] += 1;
+        log_sizes[comp_idx] = desc.log_size;
+        domain_sizes[comp_idx] = @as(usize, 1) << @intCast(desc.log_size);
+        n_cols[comp_idx] = trace_mod.nColumnsForFamily(desc.family);
+
+        partial_fi = comp_idx;
+        partial_cols = 0;
+        for (0..n_cols[comp_idx]) |ci| {
+            result.components[comp_idx].columns[ci] = try allocator.alloc(M31, domain_sizes[comp_idx]);
+            @memset(result.components[comp_idx].columns[ci], M31.zero());
+            partial_cols = ci + 1;
+        }
+        result.components[comp_idx].n_columns = n_cols[comp_idx];
+        initialized_components[n_initialized] = comp_idx;
+        n_initialized += 1;
+        partial_cols = 0; // fully initialized, no longer partial
+    }
+
+    // Pre-compute bit-reversal tables for each active family's log_size.
+    var tables: [MAX_COMPONENTS]?infra.BitReversalTable = .{null} ** MAX_COMPONENTS;
+    errdefer {
+        for (&tables) |*t| {
+            if (t.*) |tbl| tbl.deinit(allocator);
+        }
+    }
+    for (0..statement.n_components) |comp_idx| {
+        tables[comp_idx] = try infra.BitReversalTable.init(allocator, log_sizes[comp_idx]);
+    }
+    defer {
+        for (&tables) |*t| {
+            if (t.*) |tbl| tbl.deinit(allocator);
+        }
+    }
+
+    const FillWork = struct {
+        rows: []const trace_mod.TraceRow,
+        family_offsets: [trace_mod.N_FAMILIES]usize,
+        result: *AllComponentColumns,
+        tables: *const [MAX_COMPONENTS]?infra.BitReversalTable,
+        domain_sizes: *const [MAX_COMPONENTS]usize,
+        first_component: *const [trace_mod.N_FAMILIES]usize,
+        family_component_counts: *const [trace_mod.N_FAMILIES]usize,
+
+        fn run(work: *@This()) void {
+            var offsets = work.family_offsets;
+            for (work.rows) |row| {
+                const family = trace_mod.opcodeFamily(row.opcode);
+                const fi = @intFromEnum(family);
+                const family_row = offsets[fi];
+                offsets[fi] += 1;
+                const shard_index = family_row / MAX_OPCODE_SHARD_ROWS;
+                if (shard_index >= work.family_component_counts[fi]) continue;
+                const component_index = work.first_component[fi] + shard_index;
+                const idx = family_row - shard_index * MAX_OPCODE_SHARD_ROWS;
+                if (idx >= work.domain_sizes[component_index]) continue;
+                const bit_rev_idx = work.tables[component_index].?.map(idx);
+                trace_mod.fillFamilyColumns(
+                    &work.result.components[component_index].columns,
+                    bit_rev_idx,
+                    row,
+                    family,
+                );
+            }
+        }
+    };
+
+    const active_pool = work_pool.getGlobalPool();
+    const worker_count = if (active_pool) |pool|
+        @max(@as(usize, 1), @min(pool.workerCount(), exec_trace.rows.items.len / 65_536))
+    else
+        1;
+    var worker_family_counts: [work_pool.MAX_WORKERS][trace_mod.N_FAMILIES]usize =
+        .{.{0} ** trace_mod.N_FAMILIES} ** work_pool.MAX_WORKERS;
+    const chunk_len = (exec_trace.rows.items.len + worker_count - 1) / worker_count;
+    for (0..worker_count) |worker| {
+        const start = worker * chunk_len;
+        const end = @min(exec_trace.rows.items.len, start + chunk_len);
+        for (exec_trace.rows.items[start..end]) |row| {
+            worker_family_counts[worker][@intFromEnum(trace_mod.opcodeFamily(row.opcode))] += 1;
+        }
+    }
+
+    var works: [work_pool.MAX_WORKERS]FillWork = undefined;
+    for (0..worker_count) |worker| {
+        var offsets: [trace_mod.N_FAMILIES]usize = undefined;
+        for (0..trace_mod.N_FAMILIES) |fi| {
+            offsets[fi] = row_counters[fi];
+            row_counters[fi] += worker_family_counts[worker][fi];
+        }
+        const start = worker * chunk_len;
+        const end = @min(exec_trace.rows.items.len, start + chunk_len);
+        works[worker] = .{
+            .rows = exec_trace.rows.items[start..end],
+            .family_offsets = offsets,
+            .result = &result,
+            .tables = &tables,
+            .domain_sizes = &domain_sizes,
+            .first_component = &first_component,
+            .family_component_counts = &family_component_counts,
+        };
+    }
+    if (worker_count > 1) {
+        var wait_group: std.Thread.WaitGroup = .{};
+        for (works[1..worker_count]) |*work| {
+            active_pool.?.spawnWg(&wait_group, FillWork.run, .{work});
+        }
+        FillWork.run(&works[0]);
+        wait_group.wait();
+    } else {
+        FillWork.run(&works[0]);
+    }
+
+    // Record actual row counts.
+    for (0..statement.n_components) |comp_idx| {
+        const fi = @intFromEnum(statement.component_descs[comp_idx].family);
+        const shard_index = comp_idx - first_component[fi];
+        const shard_start = shard_index * MAX_OPCODE_SHARD_ROWS;
+        result.components[comp_idx].n_real_rows = @min(
+            row_counters[fi] -| shard_start,
+            domain_sizes[comp_idx],
+        );
+    }
+
+    return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -1014,6 +1262,16 @@ pub fn proveRiscV(
     exec_trace: *const trace_mod.Trace,
     opt_chain: ?*const state_chain.StateChainTracker,
 ) !ProveOutput {
+    return proveRiscVWithRecorder(allocator, pcs_config, exec_trace, opt_chain, null);
+}
+
+pub fn proveRiscVWithRecorder(
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    exec_trace: *const trace_mod.Trace,
+    opt_chain: ?*const state_chain.StateChainTracker,
+    recorder: ?*stage_profile.Recorder,
+) !ProveOutput {
     if (exec_trace.step_count == 0) return ProverError.EmptyTrace;
 
     // -- Step 1: Count rows per opcode family. --
@@ -1031,20 +1289,20 @@ pub fn proveRiscV(
     for (0..trace_mod.N_FAMILIES) |fi| {
         const family: trace_mod.OpcodeFamily = @enumFromInt(fi);
         const count = counts.get(family);
-        // Commit ALL families, even with 0 rows — stark-v pads empty families
-        // to minimum size (log_size=4 = 16 rows) for protocol compatibility.
-        const MIN_LOG_SIZE: u32 = 4;
-        const log_size: u32 = if (count == 0)
-            MIN_LOG_SIZE
-        else
-            @max(@as(u32, @intCast(std.math.log2_int_ceil(usize, count))), MIN_LOG_SIZE);
+        if (count == 0) continue;
 
-        statement.component_descs[statement.n_components] = .{
-            .family = family,
-            .log_size = log_size,
-            .n_columns = trace_mod.nColumnsForFamily(family),
-        };
-        statement.n_components += 1;
+        var remaining = count;
+        while (remaining > 0) {
+            if (statement.n_components >= MAX_COMPONENTS) return ProverError.TooManyComponents;
+            const shard_len = @min(remaining, MAX_OPCODE_SHARD_ROWS);
+            statement.component_descs[statement.n_components] = .{
+                .family = family,
+                .log_size = computeLogSize(shard_len),
+                .n_columns = nCommittedColumnsForFamily(family),
+            };
+            statement.n_components += 1;
+            remaining -= shard_len;
+        }
     }
 
     if (statement.n_components == 0) return ProverError.EmptyTrace;
@@ -1066,6 +1324,7 @@ pub fn proveRiscV(
     // Program ROM (8 cols)
     const program_log_size = computeLogSize(unique_pcs);
     statement.infra_descs[statement.n_infra] = .{
+        .kind = .program,
         .log_size = program_log_size,
         .n_columns = infra.PROGRAM_TRACE_COLS,
     };
@@ -1073,40 +1332,37 @@ pub fn proveRiscV(
 
     // Memory check (9 cols) -- includes BOTH register (addr_space=0) and memory (addr_space=1)
     // accesses, matching stark-v's unified memory component.
-    var mem_log_size: u32 = 4;
+    var memory_shard_count: usize = 0;
+    var memory_shard_lengths: [MAX_INFRA_COMPONENTS]usize = undefined;
     if (opt_chain) |chain| {
         const n_total_accesses = chain.accesses.items.len; // ALL accesses (reg + mem)
-        if (n_total_accesses > 0) {
-            mem_log_size = computeLogSize(n_total_accesses);
+        var remaining = n_total_accesses;
+        while (remaining > 0) {
+            if (statement.n_infra >= MAX_INFRA_COMPONENTS) return ProverError.TooManyComponents;
+            const shard_len = @min(remaining, MAX_MEMORY_SHARD_ROWS);
+            const shard_log_size = @max(computeLogSize(shard_len), 4);
             statement.infra_descs[statement.n_infra] = .{
-                .log_size = mem_log_size,
+                .kind = .memory,
+                .log_size = shard_log_size,
                 .n_columns = infra.MEMORY_TRACE_COLS,
             };
             statement.n_infra += 1;
+            memory_shard_lengths[memory_shard_count] = shard_len;
+            memory_shard_count += 1;
+            remaining -= shard_len;
         }
     }
 
-    // Memory clock update (7 cols) — always committed (stark-v pads empty)
-    var mem_cu_log: u32 = 4;
+    // Unified clock update (8 cols) — current stark-v layout.
+    var clock_update_log: u32 = 4;
     if (opt_chain) |chain| {
-        const n_mem_cu = chain.clock_updates_mem.items.len;
-        if (n_mem_cu > 0) mem_cu_log = @max(computeLogSize(n_mem_cu), 4);
+        const n_updates = chain.clock_updates_mem.items.len + chain.clock_updates_reg.items.len;
+        if (n_updates > 0) clock_update_log = @max(computeLogSize(n_updates), 4);
     }
     statement.infra_descs[statement.n_infra] = .{
-        .log_size = mem_cu_log,
-        .n_columns = infra.MEM_CLOCK_UPDATE_COLS,
-    };
-    statement.n_infra += 1;
-
-    // Register clock update (7 cols) — always committed
-    var reg_cu_log: u32 = 4;
-    if (opt_chain) |chain| {
-        const n_reg_cu = chain.clock_updates_reg.items.len;
-        if (n_reg_cu > 0) reg_cu_log = @max(computeLogSize(n_reg_cu), 4);
-    }
-    statement.infra_descs[statement.n_infra] = .{
-        .log_size = reg_cu_log,
-        .n_columns = infra.REG_CLOCK_UPDATE_COLS,
+        .kind = .clock_update,
+        .log_size = clock_update_log,
+        .n_columns = infra.CLOCK_UPDATE_COLS,
     };
     statement.n_infra += 1;
 
@@ -1133,6 +1389,7 @@ pub fn proveRiscV(
     else
         4;
     statement.infra_descs[statement.n_infra] = .{
+        .kind = .poseidon2,
         .log_size = poseidon_log_size,
         .n_columns = infra.POSEIDON2_TRACE_COLS,
     };
@@ -1145,20 +1402,14 @@ pub fn proveRiscV(
     else
         4;
     statement.infra_descs[statement.n_infra] = .{
+        .kind = .merkle,
         .log_size = merkle_log_size,
         .n_columns = infra.MERKLE_TRACE_COLS,
     };
     statement.n_infra += 1;
 
-    // Preprocessed multiplicity tables (6 x 1 col)
-    const mult_log_size = infra.multiplicityLogSize(exec_trace);
-    for (0..infra.N_MULTIPLICITY_TABLES) |_| {
-        statement.infra_descs[statement.n_infra] = .{
-            .log_size = mult_log_size,
-            .n_columns = 1,
-        };
-        statement.n_infra += 1;
-    }
+    // Lookup multiplicities are protocol-known zero until LogUp is wired.
+    // Do not materialize or commit six full-domain placeholder columns.
 
     var channel = Channel{};
     pcs_config.mixInto(&channel);
@@ -1174,50 +1425,63 @@ pub fn proveRiscV(
 
     // -- Step 3: Tree 0 -- Preprocessed (one IsFirst per component, including infra). --
     const n_preproc = statement.n_components + statement.n_infra;
-    const preprocessed = try allocator.alloc(prover_pcs.ColumnEvaluation, n_preproc);
-    for (0..statement.n_components) |i| {
-        const ls = statement.component_descs[i].log_size;
-        const is_first = try genIsFirstColumn(allocator, ls);
-        preprocessed[i] = .{ .log_size = ls, .values = is_first };
+    {
+        var stage = try stage_profile.StageScope.begin(recorder, "riscv_preprocessed_commit", "RISC-V preprocessed trace commit");
+        defer stage.end();
+        const preprocessed = try allocator.alloc(prover_pcs.ColumnEvaluation, n_preproc);
+        for (0..statement.n_components) |i| {
+            const ls = statement.component_descs[i].log_size;
+            const is_first = try genIsFirstColumn(allocator, ls);
+            preprocessed[i] = .{ .log_size = ls, .values = is_first };
+        }
+        for (0..statement.n_infra) |i| {
+            const ls = statement.infra_descs[i].log_size;
+            const is_first = try genIsFirstColumn(allocator, ls);
+            preprocessed[statement.n_components + i] = .{ .log_size = ls, .values = is_first };
+        }
+        try scheme.commitOwnedWithRecorder(allocator, preprocessed, recorder, &channel);
     }
-    for (0..statement.n_infra) |i| {
-        const ls = statement.infra_descs[i].log_size;
-        const is_first = try genIsFirstColumn(allocator, ls);
-        preprocessed[statement.n_components + i] = .{ .log_size = ls, .values = is_first };
-    }
-    try scheme.commitOwned(allocator, preprocessed, &channel);
 
     // -- Step 4: Tree 1 -- Main trace (opcode + infrastructure columns). --
     const n_opcode_main = statement.nOpcodeMainColumns();
     const n_infra_main = statement.nInfraColumns();
     const n_main = n_opcode_main + n_infra_main;
     const main_columns = try allocator.alloc(prover_pcs.ColumnEvaluation, n_main);
-    var col_offset: usize = 0;
+    const OpcodeGenerationWork = struct {
+        allocator: std.mem.Allocator,
+        exec_trace: *const trace_mod.Trace,
+        statement: RiscVStatement,
+        result: AllComponentColumns = undefined,
+        err: ?anyerror = null,
 
-    // Opcode family columns.
-    for (0..statement.n_components) |comp_idx| {
-        const desc = statement.component_descs[comp_idx];
-        const family_cols = try genColumnsForFamily(
-            allocator,
-            exec_trace,
-            desc.family,
-            desc.log_size,
-        );
-        // Transfer ownership of column data to the ColumnEvaluation slice.
-        for (0..desc.n_columns) |c| {
-            main_columns[col_offset + c] = .{
-                .log_size = desc.log_size,
-                .values = family_cols.columns[c],
+        fn run(work: *@This()) void {
+            work.result = genAllFamilyColumns(
+                work.allocator,
+                work.exec_trace,
+                work.statement,
+            ) catch |err| {
+                work.err = err;
+                return;
             };
         }
-        col_offset += desc.n_columns;
-    }
+    };
+    var opcode_work = OpcodeGenerationWork{
+        .allocator = allocator,
+        .exec_trace = exec_trace,
+        .statement = statement,
+    };
+    var opcode_stage = try stage_profile.StageScope.begin(recorder, "riscv_opcode_trace_generation", "RISC-V opcode trace generation (overlapped)");
+    const opcode_thread = std.Thread.spawn(.{}, OpcodeGenerationWork.run, .{&opcode_work}) catch null;
+    var opcode_joined = false;
+    defer if (opcode_thread) |thread| {
+        if (!opcode_joined) thread.join();
+    };
+    if (opcode_thread == null) OpcodeGenerationWork.run(&opcode_work);
 
+    var col_offset: usize = n_opcode_main;
+
+    var infrastructure_stage = try stage_profile.StageScope.begin(recorder, "riscv_infrastructure_trace_generation", "RISC-V infrastructure trace generation");
     // Infrastructure columns.
-    // We track which infra descriptor index we're at. The order must match
-    // the statement's infra_descs order.
-    var infra_idx: usize = 0;
-
     // Program ROM (8 cols)
     {
         const prog_cols = try infra.genProgramColumns(allocator, exec_trace, program_log_size);
@@ -1228,50 +1492,43 @@ pub fn proveRiscV(
             };
         }
         col_offset += infra.PROGRAM_TRACE_COLS;
-        infra_idx += 1;
     }
 
     // Memory check (9 cols) -- includes ALL accesses (register + memory)
     if (opt_chain) |chain| {
-        if (chain.accesses.items.len > 0) {
-            const mem_cols = try infra.genMemoryColumns(allocator, chain, mem_log_size);
+        var access_start: usize = 0;
+        for (0..memory_shard_count) |shard_index| {
+            const shard_len = memory_shard_lengths[shard_index];
+            const shard_log_size = @max(computeLogSize(shard_len), 4);
+            const mem_cols = try infra.genMemoryColumnsRange(
+                allocator,
+                chain,
+                shard_log_size,
+                access_start,
+                access_start + shard_len,
+            );
             for (0..infra.MEMORY_TRACE_COLS) |c| {
                 main_columns[col_offset + c] = .{
-                    .log_size = mem_log_size,
+                    .log_size = shard_log_size,
                     .values = mem_cols.columns[c],
                 };
             }
             col_offset += infra.MEMORY_TRACE_COLS;
-            infra_idx += 1;
+            access_start += shard_len;
         }
     }
 
-    // Memory clock update (7 cols) — always committed
+    // Unified register + memory clock update (8 cols).
     {
         const chain_ptr = opt_chain orelse &empty_chain;
-        const cu_cols = try infra.genMemClockUpdateColumns(allocator, chain_ptr, mem_cu_log);
-        for (0..infra.MEM_CLOCK_UPDATE_COLS) |c| {
+        const cu_cols = try infra.genClockUpdateColumns(allocator, chain_ptr, clock_update_log);
+        for (0..infra.CLOCK_UPDATE_COLS) |c| {
             main_columns[col_offset + c] = .{
-                .log_size = mem_cu_log,
+                .log_size = clock_update_log,
                 .values = cu_cols.columns[c],
             };
         }
-        col_offset += infra.MEM_CLOCK_UPDATE_COLS;
-        infra_idx += 1;
-    }
-
-    // Register clock update (7 cols) — always committed
-    {
-        const chain_ptr = opt_chain orelse &empty_chain;
-        const rcu_cols = try infra.genRegClockUpdateColumns(allocator, chain_ptr, reg_cu_log);
-        for (0..infra.REG_CLOCK_UPDATE_COLS) |c| {
-            main_columns[col_offset + c] = .{
-                .log_size = reg_cu_log,
-                .values = rcu_cols.columns[c],
-            };
-        }
-        col_offset += infra.REG_CLOCK_UPDATE_COLS;
-        infra_idx += 1;
+        col_offset += infra.CLOCK_UPDATE_COLS;
     }
 
     // Poseidon2 (443 cols) -- real traces from Merkle tree building
@@ -1294,7 +1551,6 @@ pub fn proveRiscV(
             };
         }
         col_offset += infra.POSEIDON2_TRACE_COLS;
-        infra_idx += 1;
     }
 
     // Merkle (10 cols) -- real node count from Merkle tree building
@@ -1307,61 +1563,50 @@ pub fn proveRiscV(
             };
         }
         col_offset += infra.MERKLE_TRACE_COLS;
-        infra_idx += 1;
     }
+    infrastructure_stage.end();
 
-    // Preprocessed multiplicity tables (6 x 1 col)
-    {
-        const mult_cols = try infra.genPreprocessedMultiplicityColumns(allocator, exec_trace);
-        for (0..infra.N_MULTIPLICITY_TABLES) |c| {
-            main_columns[col_offset + c] = .{
-                .log_size = mult_log_size,
-                .values = mult_cols.columns[c],
-            };
-        }
-        col_offset += infra.N_MULTIPLICITY_TABLES;
-        infra_idx += 1;
+    if (opcode_thread) |thread| {
+        thread.join();
+        opcode_joined = true;
     }
+    opcode_stage.end();
+    if (opcode_work.err) |err| return err;
 
-    try scheme.commitOwned(allocator, main_columns, &channel);
-
-    // -- Step 4b: Tree 2 -- Interaction trace (LogUp cumulative sum columns). --
-    const n_interaction = statement.nInteractionColumns();
-    const interaction_columns = try allocator.alloc(prover_pcs.ColumnEvaluation, n_interaction);
-    var interaction_offset: usize = 0;
+    var opcode_col_offset: usize = 0;
     for (0..statement.n_components) |comp_idx| {
         const desc = statement.component_descs[comp_idx];
-        const n_qm31 = nInteractionQm31ColsForFamily(desc.family);
-        const result = try interaction.generateComponentInteractionColumns(
-            allocator,
-            desc.log_size,
-            n_qm31,
-        );
-        const n_m31 = n_qm31 * 4;
-        for (0..n_m31) |c| {
-            interaction_columns[interaction_offset + c] = result.columns[c];
+        var committed_column: usize = 0;
+        for (0..opcode_work.result.components[comp_idx].n_columns) |column| {
+            const values = opcode_work.result.components[comp_idx].columns[column];
+            if (!isCommittedFamilyColumn(desc.family, column)) {
+                allocator.free(values);
+                continue;
+            }
+            main_columns[opcode_col_offset + committed_column] = .{
+                .log_size = desc.log_size,
+                .values = values,
+            };
+            committed_column += 1;
         }
-        allocator.free(result.columns);
-        interaction_offset += n_m31;
+        std.debug.assert(committed_column == desc.n_columns);
+        opcode_col_offset += desc.n_columns;
     }
-    // Infrastructure interaction columns
-    for (0..statement.n_infra) |inf_idx| {
-        const n_qm31 = nInteractionQm31ColsForFamily(.base_alu_reg);
-        const result = try interaction.generateComponentInteractionColumns(
-            allocator,
-            statement.infra_descs[inf_idx].log_size,
-            n_qm31,
-        );
-        const n_m31 = n_qm31 * 4;
-        for (0..n_m31) |c| {
-            interaction_columns[interaction_offset + c] = result.columns[c];
-        }
-        allocator.free(result.columns);
-        interaction_offset += n_m31;
-    }
-    try scheme.commitOwned(allocator, interaction_columns, &channel);
+    std.debug.assert(opcode_col_offset == n_opcode_main);
+    std.debug.assert(col_offset == n_main);
 
-    std.log.info("Columns: opcode={d} infra={d} total tree1={d} tree2={d}", .{
+    {
+        var stage = try stage_profile.StageScope.begin(recorder, "riscv_main_trace_commit", "RISC-V main trace commit");
+        defer stage.end();
+        try scheme.commitOwnedWithRecorder(allocator, main_columns, recorder, &channel);
+    }
+
+    // The current AIR has no LogUp constraints: its interaction values are
+    // protocol-known zero and are not sampled by any component. Do not create
+    // a commitment for columns that the verifier can reconstruct exactly.
+    const n_interaction = statement.nInteractionColumns();
+
+    std.log.info("Columns: opcode={d} infra={d} total tree1={d} implicit-zero={d}", .{
         n_opcode_main,
         n_infra_main,
         n_main,
@@ -1417,7 +1662,7 @@ pub fn proveRiscV(
         main_offset += statement.infra_descs[i].n_columns;
     }
 
-    var extended = try prover_prove.proveEx(
+    var extended = try prover_prove.proveExWithRecorder(
         CpuBackend,
         Hasher,
         MerkleChannel,
@@ -1426,6 +1671,7 @@ pub fn proveRiscV(
         &channel,
         scheme,
         false,
+        recorder,
     );
     const proof = extended.proof;
     extended.aux.deinit(allocator);
@@ -1495,33 +1741,6 @@ pub fn verifyRiscV(
         allocator,
         proof.commitment_scheme_proof.commitments.items[1],
         main_log_sizes,
-        &channel,
-    );
-
-    // Tree 2: Interaction trace -- n_qm31 * 4 M31 columns per component (opcode + infra).
-    const n_interaction_v = statement.nInteractionColumns();
-    const interaction_log_sizes = try allocator.alloc(u32, n_interaction_v);
-    defer allocator.free(interaction_log_sizes);
-    var interaction_offset_v: usize = 0;
-    for (0..statement.n_components) |i| {
-        const desc = statement.component_descs[i];
-        const n_m31 = nInteractionQm31ColsForFamily(desc.family) * 4;
-        for (0..n_m31) |c| {
-            interaction_log_sizes[interaction_offset_v + c] = desc.log_size;
-        }
-        interaction_offset_v += n_m31;
-    }
-    for (0..statement.n_infra) |i| {
-        const n_m31 = nInteractionQm31ColsForFamily(.base_alu_reg) * 4;
-        for (0..n_m31) |c| {
-            interaction_log_sizes[interaction_offset_v + c] = statement.infra_descs[i].log_size;
-        }
-        interaction_offset_v += n_m31;
-    }
-    try commitment_scheme.commit(
-        allocator,
-        proof.commitment_scheme_proof.commitments.items[2],
-        interaction_log_sizes,
         &channel,
     );
 

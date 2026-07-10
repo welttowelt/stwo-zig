@@ -842,10 +842,9 @@ inline fn fftLayerLoopForwardM31(
     var rhs = lhs + half_block;
     var remaining = half_block;
 
-    // 16-lane SIMD path with interleaved pipeline execution.
+    // Hardware-native SIMD path with interleaved pipeline execution.
     // By loading and multiplying multiple pairs before storing results,
-    // the CPU's out-of-order execution can pipeline the multiplications,
-    // hiding the 4-cycle multiply latency on Apple M4 Max.
+    // the CPU's out-of-order execution can pipeline independent multiplies.
     const PW = m31.PACK_WIDTH;
     const twid_packed: m31.PackedM31 = @splat(twid.v);
 
@@ -948,10 +947,9 @@ inline fn fftLayerLoopInverseM31(
     var rhs = lhs + half_block;
     var remaining = half_block;
 
-    // 16-lane SIMD path with interleaved pipeline execution.
+    // Hardware-native SIMD path with interleaved pipeline execution.
     // By loading and computing multiple pairs before storing results,
-    // the CPU's out-of-order execution can pipeline the multiplications,
-    // hiding the 4-cycle multiply latency on Apple M4 Max.
+    // the CPU's out-of-order execution can pipeline independent multiplies.
     const PW = m31.PACK_WIDTH;
     const itwid_packed: m31.PackedM31 = @splat(itwid.v);
 

@@ -277,13 +277,11 @@ fn proveExComponentsWithRecorder(
                 "Composition interpolate and split",
             );
             defer composition_interpolate_stage.end();
-            var composition_poly = try prover_circle.secure_poly.interpolateFromEvaluation(
+            break :blk try prover_circle.secure_poly.interpolateAndSplitFromEvaluation(
                 allocator,
                 canonic.CanonicCoset.new(composition_log_size).circleDomain(),
                 &composition_eval,
             );
-            defer composition_poly.deinit(allocator);
-            break :blk try composition_poly.splitAtMid(allocator);
         };
         defer composition_split.deinit(allocator);
 

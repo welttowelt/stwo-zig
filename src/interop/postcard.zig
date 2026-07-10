@@ -620,8 +620,7 @@ test "postcard: proof serialize/deserialize roundtrip" {
 
     // Deserialize
     var rbs = std.io.fixedBufferStream(@as([]const u8, encoded));
-    var decoded = try deserializeProof(Hasher, alloc, rbs.reader());
-    defer decoded.deinit(alloc);
+    const decoded = try deserializeProof(Hasher, alloc, rbs.reader());
 
     // Re-serialize and compare bytes
     var out_buf2 = std.ArrayList(u8).empty;

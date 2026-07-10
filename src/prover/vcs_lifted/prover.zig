@@ -25,6 +25,7 @@ pub fn MerkleProverLifted(comptime H: type) type {
         layer_allocator: std.mem.Allocator,
 
         const Self = @This();
+        const NodeSeed = if (@hasDecl(H, "nodeSeed")) @TypeOf(H.nodeSeed()) else H;
         const NodeValue = vcs_lifted_verifier.MerkleDecommitmentLiftedAux(H).NodeValue;
         const ExtendedDecommitment = vcs_lifted_verifier.ExtendedMerkleDecommitmentLifted(H);
         const Decommitment = vcs_lifted_verifier.MerkleDecommitmentLifted(H);
@@ -176,48 +177,18 @@ pub fn MerkleProverLifted(comptime H: type) type {
             if (domain_size < 2 or !std.math.isPowerOfTwo(domain_size)) return error.InvalidColumnSize;
             const log_size: u32 = @intCast(std.math.log2_int(usize, domain_size));
 
-            // Allocate leaf hashers for the full domain.
-            const seed_hasher = H.defaultWithInitialState();
-            const leaf_hashers = try allocator.alloc(H, domain_size);
-            defer allocator.free(leaf_hashers);
-            @memset(leaf_hashers, seed_hasher);
+            try provider.computeAll(allocator, out_column);
 
-            // Process in chunks: compute quotients and feed to leaf hashers.
-            const chunk_size = quotient_ops.LAZY_QUOTIENT_CHUNK_SIZE;
-            var chunk_start: usize = 0;
-            while (chunk_start < domain_size) {
-                const this_chunk = @min(chunk_size, domain_size - chunk_start);
-
-                // Point coordinate buffers into out_column at the right offset.
-                var chunk_coords: [qm31.SECURE_EXTENSION_DEGREE][]M31 = undefined;
-                inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coord| {
-                    chunk_coords[coord] = out_column.columns[coord][chunk_start..][0..this_chunk];
-                }
-
-                try provider.computeChunk(chunk_start, this_chunk, &chunk_coords);
-
-                // Feed the freshly-computed values into leaf hashers.
-                for (0..this_chunk) |local_idx| {
-                    const position = chunk_start + local_idx;
-                    var values: [qm31.SECURE_EXTENSION_DEGREE]M31 = undefined;
-                    inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coord| {
-                        values[coord] = chunk_coords[coord][local_idx];
-                    }
-                    leaf_hashers[position].updateLeaf(values[0..]);
-                }
-
-                chunk_start += this_chunk;
-            }
-
-            // Finalize leaf hashes.
-            const leaves = try allocator.alloc(H.Hash, domain_size);
-            for (leaf_hashers, 0..) |*hasher, i| leaves[i] = hasher.finalize();
+            const layer_alloc = layerAllocator(allocator);
+            const leaves = try layer_alloc.alloc(H.Hash, domain_size);
+            errdefer layer_alloc.free(leaves);
+            hashLazyQuotientLeaves(out_column, leaves);
 
             // Build internal Merkle layers from the leaves upward.
             var layers_bottom_up = std.ArrayList([]H.Hash).empty;
             defer layers_bottom_up.deinit(allocator);
             errdefer {
-                for (layers_bottom_up.items) |layer| allocator.free(layer);
+                for (layers_bottom_up.items) |layer| layer_alloc.free(layer);
             }
 
             try layers_bottom_up.append(allocator, leaves);
@@ -234,7 +205,7 @@ pub fn MerkleProverLifted(comptime H: type) type {
                 var i: usize = 0;
                 while (i < log_size) : (i += 1) {
                     const next_layer = try buildNextLayer(
-                        allocator,
+                        layer_alloc,
                         layers_bottom_up.items[layers_bottom_up.items.len - 1],
                         &executor,
                         merkleWorkerOverride(allocator),
@@ -248,7 +219,57 @@ pub fn MerkleProverLifted(comptime H: type) type {
             while (j < out_layers.len) : (j += 1) {
                 out_layers[j] = layers_bottom_up.items[out_layers.len - 1 - j];
             }
-            return .{ .layers = out_layers, .layer_allocator = allocator };
+            return .{ .layers = out_layers, .layer_allocator = layer_alloc };
+        }
+
+        const LazyLeafRange = struct {
+            column: *const SecureColumnByCoords,
+            leaves: []H.Hash,
+            start: usize,
+            end: usize,
+        };
+
+        fn hashLazyLeafRange(work: *const LazyLeafRange) void {
+            for (work.start..work.end) |position| {
+                var values: [qm31.SECURE_EXTENSION_DEGREE]M31 = undefined;
+                inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coord| {
+                    values[coord] = work.column.columns[coord][position];
+                }
+                var hasher = H.defaultWithInitialState();
+                hasher.updateLeaf(values[0..]);
+                work.leaves[position] = hasher.finalize();
+            }
+        }
+
+        fn hashLazyQuotientLeaves(column: *const SecureColumnByCoords, leaves: []H.Hash) void {
+            const pool = work_pool_mod.getGlobalPool() orelse {
+                hashLazyLeafRange(&.{ .column = column, .leaves = leaves, .start = 0, .end = leaves.len });
+                return;
+            };
+            const worker_count = @min(pool.workerCount(), leaves.len / parallel_min_nodes_per_worker);
+            if (worker_count <= 1) {
+                hashLazyLeafRange(&.{ .column = column, .leaves = leaves, .start = 0, .end = leaves.len });
+                return;
+            }
+
+            var work: [work_pool_mod.MAX_WORKERS]LazyLeafRange = undefined;
+            const chunk_len = (leaves.len + worker_count - 1) / worker_count;
+            for (0..worker_count) |worker| {
+                const start = worker * chunk_len;
+                work[worker] = .{
+                    .column = column,
+                    .leaves = leaves,
+                    .start = start,
+                    .end = @min(leaves.len, start + chunk_len),
+                };
+            }
+
+            var wait_group: WaitGroup = .{};
+            for (work[1..worker_count]) |*item| {
+                pool.spawnWg(&wait_group, hashLazyLeafRange, .{@as(*const LazyLeafRange, item)});
+            }
+            hashLazyLeafRange(&work[0]);
+            wait_group.wait();
         }
 
         fn commitWithWorkerOverride(
@@ -280,6 +301,10 @@ pub fn MerkleProverLifted(comptime H: type) type {
             // Use MmapAllocator for individual layer buffers (sequential-read
             // hint helps the OS prefetcher during Merkle hashing).
             const layer_alloc = layerAllocator(allocator);
+
+            if (allColumnsConstant(sorted)) {
+                return commitConstantColumns(allocator, layer_alloc, sorted);
+            }
 
             var layers_bottom_up = std.ArrayList([]H.Hash).empty;
             defer layers_bottom_up.deinit(allocator);
@@ -322,11 +347,6 @@ pub fn MerkleProverLifted(comptime H: type) type {
                         worker_override,
                     );
                     try layers_bottom_up.append(allocator, next_layer);
-                    // The previous layer was just consumed to produce the next
-                    // layer. Its data is still stored for later decommitment
-                    // but will not be accessed again until then. Release its
-                    // physical pages to reduce RSS during tree construction.
-                    mmap_alloc.releasePagesSlice(H.Hash, layers_bottom_up.items[prev_idx]);
                 }
             }
 
@@ -334,6 +354,56 @@ pub fn MerkleProverLifted(comptime H: type) type {
             var i: usize = 0;
             while (i < out_layers.len) : (i += 1) {
                 out_layers[i] = layers_bottom_up.items[out_layers.len - 1 - i];
+            }
+            return .{ .layers = out_layers, .layer_allocator = layer_alloc };
+        }
+
+        fn allColumnsConstant(columns: []const ColumnRef) bool {
+            for (columns) |column| {
+                if (column.values.len == 0) return false;
+                const first = column.values[0];
+                for (column.values[1..]) |value| {
+                    if (!value.eql(first)) return false;
+                }
+            }
+            return true;
+        }
+
+        fn commitConstantColumns(
+            allocator: std.mem.Allocator,
+            layer_alloc: std.mem.Allocator,
+            columns: []const ColumnRef,
+        ) !Self {
+            const leaf_count = if (columns.len == 0)
+                @as(usize, 1)
+            else
+                @as(usize, 1) << @intCast(columns[columns.len - 1].log_size);
+
+            var leaf_hasher = H.defaultWithInitialState();
+            for (columns) |column| leaf_hasher.updateLeaf(column.values[0..1]);
+            const leaf_hash = leaf_hasher.finalize();
+
+            var layers_bottom_up = std.ArrayList([]H.Hash).empty;
+            defer layers_bottom_up.deinit(allocator);
+            errdefer for (layers_bottom_up.items) |layer| layer_alloc.free(layer);
+
+            const leaves = try layer_alloc.alloc(H.Hash, leaf_count);
+            @memset(leaves, leaf_hash);
+            try layers_bottom_up.append(allocator, leaves);
+
+            var layer_len = leaf_count;
+            var child_hash = leaf_hash;
+            while (layer_len > 1) {
+                layer_len >>= 1;
+                child_hash = H.hashChildren(.{ .left = child_hash, .right = child_hash });
+                const layer = try layer_alloc.alloc(H.Hash, layer_len);
+                @memset(layer, child_hash);
+                try layers_bottom_up.append(allocator, layer);
+            }
+
+            const out_layers = try allocator.alloc([]H.Hash, layers_bottom_up.items.len);
+            for (out_layers, 0..) |*layer, i| {
+                layer.* = layers_bottom_up.items[out_layers.len - 1 - i];
             }
             return .{ .layers = out_layers, .layer_allocator = layer_alloc };
         }
@@ -612,6 +682,161 @@ pub fn MerkleProverLifted(comptime H: type) type {
         ///
         /// This matches the lifting index used by the decommit path and
         /// produces bit-identical leaf hashes.
+        const BatchedLeafRangeCtx = struct {
+            seed_hasher: H,
+            sorted_columns: []const ColumnRef,
+            max_log_size: u32,
+            out: []H.Hash,
+            batch_hashers: []H,
+            scratch: ?[]align(@alignOf(M31)) u8,
+            start: usize,
+            end: usize,
+        };
+
+        fn buildLeavesBatchedRange(ctx: *const BatchedLeafRangeCtx) void {
+            if (comptime @hasDecl(H, "leafSeed") and @hasDecl(H, "hashPackedLeavesWithSeed4")) {
+                buildLeavesBatchedRange4(ctx);
+                return;
+            }
+            var batch_start = ctx.start;
+            while (batch_start < ctx.end) : (batch_start += ctx.batch_hashers.len) {
+                const batch_end = @min(ctx.end, batch_start + ctx.batch_hashers.len);
+                const batch_len = batch_end - batch_start;
+                for (ctx.batch_hashers[0..batch_len]) |*hasher| hasher.* = ctx.seed_hasher;
+
+                for (ctx.sorted_columns) |column| {
+                    const shift_amt: std.math.Log2Int(usize) = @intCast(ctx.max_log_size - column.log_size + 1);
+                    if (comptime @hasDecl(H, "updateLeafPackedBytes")) {
+                        const scratch = ctx.scratch orelse {
+                            for (0..batch_len) |local| {
+                                const position = batch_start + local;
+                                const column_index = ((position >> shift_amt) << 1) + (position & 1);
+                                ctx.batch_hashers[local].updateLeaf(column.values[column_index .. column_index + 1]);
+                            }
+                            continue;
+                        };
+                        const max_tile = max_leaf_scratch_bytes / @sizeOf(M31);
+                        var tile_offset: usize = 0;
+                        while (tile_offset < batch_len) : (tile_offset += max_tile) {
+                            const tile_len = @min(max_tile, batch_len - tile_offset);
+                            const buffer = scratch[0 .. tile_len * @sizeOf(M31)];
+                            if (builtin.cpu.arch.endian() == .little) {
+                                const words = std.mem.bytesAsSlice(M31, buffer);
+                                for (0..tile_len) |local| {
+                                    const position = batch_start + tile_offset + local;
+                                    const column_index = ((position >> shift_amt) << 1) + (position & 1);
+                                    words[local] = column.values[column_index];
+                                }
+                            } else {
+                                for (0..tile_len) |local| {
+                                    const position = batch_start + tile_offset + local;
+                                    const column_index = ((position >> shift_amt) << 1) + (position & 1);
+                                    const encoded = column.values[column_index].toBytesLe();
+                                    const byte_start = local * @sizeOf(M31);
+                                    @memcpy(buffer[byte_start .. byte_start + @sizeOf(M31)], encoded[0..]);
+                                }
+                            }
+                            for (0..tile_len) |local| {
+                                const byte_start = local * @sizeOf(M31);
+                                ctx.batch_hashers[tile_offset + local].updateLeafPackedBytes(
+                                    buffer[byte_start .. byte_start + @sizeOf(M31)],
+                                );
+                            }
+                        }
+                    } else {
+                        for (0..batch_len) |local| {
+                            const position = batch_start + local;
+                            const column_index = ((position >> shift_amt) << 1) + (position & 1);
+                            ctx.batch_hashers[local].updateLeaf(column.values[column_index .. column_index + 1]);
+                        }
+                    }
+                }
+
+                for (ctx.batch_hashers[0..batch_len], 0..) |*hasher, local| {
+                    ctx.out[batch_start + local] = hasher.finalize();
+                }
+            }
+        }
+
+        fn buildLeavesBatchedRange4(ctx: *const BatchedLeafRangeCtx) void {
+            const scratch = ctx.scratch orelse {
+                buildLeavesBatchedRangeScalar(ctx);
+                return;
+            };
+            const bytes_per_leaf = ctx.sorted_columns.len * @sizeOf(M31);
+            if (bytes_per_leaf == 0 or 4 * bytes_per_leaf > scratch.len) {
+                buildLeavesBatchedRangeScalar(ctx);
+                return;
+            }
+
+            const seed = H.leafSeed();
+            var position = ctx.start;
+            while (position + 4 <= ctx.end) : (position += 4) {
+                const buffer = scratch[0 .. 4 * bytes_per_leaf];
+                packBatchedLeafMessages(ctx, buffer, position, 4, bytes_per_leaf);
+                var messages: [4][]const u8 = undefined;
+                for (0..4) |lane| {
+                    messages[lane] = buffer[lane * bytes_per_leaf ..][0..bytes_per_leaf];
+                }
+                const hashes = H.hashPackedLeavesWithSeed4(seed, &messages);
+                inline for (0..4) |lane| ctx.out[position + lane] = hashes[lane];
+            }
+
+            while (position < ctx.end) : (position += 1) {
+                var hasher = ctx.seed_hasher;
+                for (ctx.sorted_columns) |column| {
+                    const shift_amt: std.math.Log2Int(usize) = @intCast(ctx.max_log_size - column.log_size + 1);
+                    const source_index = ((position >> shift_amt) << 1) + (position & 1);
+                    hasher.updateLeaf(column.values[source_index .. source_index + 1]);
+                }
+                ctx.out[position] = hasher.finalize();
+            }
+        }
+
+        fn packBatchedLeafMessages(
+            ctx: *const BatchedLeafRangeCtx,
+            buffer: []align(@alignOf(M31)) u8,
+            position: usize,
+            lane_count: usize,
+            bytes_per_leaf: usize,
+        ) void {
+            if (builtin.cpu.arch.endian() == .little) {
+                const words = std.mem.bytesAsSlice(M31, buffer);
+                for (0..lane_count) |lane| {
+                    for (ctx.sorted_columns, 0..) |column, column_index| {
+                        const shift_amt: std.math.Log2Int(usize) = @intCast(ctx.max_log_size - column.log_size + 1);
+                        const leaf_position = position + lane;
+                        const source_index = ((leaf_position >> shift_amt) << 1) + (leaf_position & 1);
+                        words[lane * ctx.sorted_columns.len + column_index] = column.values[source_index];
+                    }
+                }
+                return;
+            }
+            for (0..lane_count) |lane| {
+                for (ctx.sorted_columns, 0..) |column, column_index| {
+                    const shift_amt: std.math.Log2Int(usize) = @intCast(ctx.max_log_size - column.log_size + 1);
+                    const leaf_position = position + lane;
+                    const source_index = ((leaf_position >> shift_amt) << 1) + (leaf_position & 1);
+                    const encoded = column.values[source_index].toBytesLe();
+                    const start = lane * bytes_per_leaf + column_index * @sizeOf(M31);
+                    @memcpy(buffer[start .. start + @sizeOf(M31)], encoded[0..]);
+                }
+            }
+        }
+
+        fn buildLeavesBatchedRangeScalar(ctx: *const BatchedLeafRangeCtx) void {
+            var position = ctx.start;
+            while (position < ctx.end) : (position += 1) {
+                var hasher = ctx.seed_hasher;
+                for (ctx.sorted_columns) |column| {
+                    const shift_amt: std.math.Log2Int(usize) = @intCast(ctx.max_log_size - column.log_size + 1);
+                    const source_index = ((position >> shift_amt) << 1) + (position & 1);
+                    hasher.updateLeaf(column.values[source_index .. source_index + 1]);
+                }
+                ctx.out[position] = hasher.finalize();
+            }
+        }
+
         fn buildLeavesBatched(
             allocator: std.mem.Allocator,
             layer_alloc: std.mem.Allocator,
@@ -634,82 +859,52 @@ pub fn MerkleProverLifted(comptime H: type) type {
             const out = try layer_alloc.alloc(H.Hash, total_leaves);
             errdefer layer_alloc.free(out);
 
-            // Allocate the reusable batch hasher array (the whole point of
-            // the optimisation — this is much smaller than total_leaves).
-            const effective_batch = @min(batch_size, total_leaves);
-            const batch_hashers = try allocator.alloc(H, effective_batch);
-            defer allocator.free(batch_hashers);
+            const pool = work_pool_mod.getGlobalPool();
+            const worker_capacity = total_leaves / parallel_min_nodes_per_worker;
+            const worker_count = if (pool) |active_pool|
+                @max(@as(usize, 1), @min(active_pool.workerCount(), worker_capacity))
+            else
+                1;
+            const per_worker_batch = @min(@min(batch_size, total_leaves), @as(usize, 1024));
+            const hashers = try allocator.alloc(H, worker_count * per_worker_batch);
+            defer allocator.free(hashers);
+            const scratch_words_per_worker = max_leaf_scratch_bytes / @sizeOf(M31);
+            const scratch_words = if (comptime @hasDecl(H, "updateLeafPackedBytes"))
+                allocator.alloc(M31, worker_count * scratch_words_per_worker) catch null
+            else
+                null;
+            defer if (scratch_words) |words| allocator.free(words);
 
-            // Optional packed-bytes scratch buffer for the fast path.
-            var scratch: ?[]align(@alignOf(M31)) u8 = null;
-            defer if (scratch) |s| allocator.free(s);
-            if (comptime @hasDecl(H, "updateLeafPackedBytes")) {
-                scratch = allocator.alignedAlloc(u8, .of(M31), max_leaf_scratch_bytes) catch null;
+            var contexts: [max_parallel_workers]BatchedLeafRangeCtx = undefined;
+            const batches = (total_leaves + per_worker_batch - 1) / per_worker_batch;
+            const batches_per_worker = (batches + worker_count - 1) / worker_count;
+            for (0..worker_count) |worker| {
+                const start = @min(total_leaves, worker * batches_per_worker * per_worker_batch);
+                const end = @min(total_leaves, start + batches_per_worker * per_worker_batch);
+                contexts[worker] = .{
+                    .seed_hasher = seed_hasher,
+                    .sorted_columns = sorted_columns,
+                    .max_log_size = max_log_size,
+                    .out = out,
+                    .batch_hashers = hashers[worker * per_worker_batch ..][0..per_worker_batch],
+                    .scratch = if (scratch_words) |words| blk: {
+                        const scratch_start = worker * scratch_words_per_worker;
+                        break :blk std.mem.sliceAsBytes(words[scratch_start..][0..scratch_words_per_worker]);
+                    } else null,
+                    .start = start,
+                    .end = end,
+                };
             }
 
-            var batch_start: usize = 0;
-            while (batch_start < total_leaves) : (batch_start += effective_batch) {
-                const batch_end = @min(total_leaves, batch_start + effective_batch);
-                const batch_len = batch_end - batch_start;
-
-                // Initialise every hasher in the batch to the seed state.
-                for (batch_hashers[0..batch_len]) |*h| h.* = seed_hasher;
-
-                // Feed column values in the same order as the original
-                // buildLeaves (ascending log_size, original_index within a
-                // group).  This guarantees the blake2s streaming input is
-                // byte-identical, so the leaf hashes match exactly.
-                for (sorted_columns) |column| {
-                    const col_log_size = column.log_size;
-                    const shift_amt: std.math.Log2Int(usize) = @intCast(max_log_size - col_log_size + 1);
-
-                    if (scratch) |s| {
-                        // Fast path: pack column values for the batch into a
-                        // contiguous byte buffer and use updateLeafPackedBytes.
-                        const bytes_per_leaf: usize = @sizeOf(M31);
-                        const max_tile = @max(@as(usize, 1), max_leaf_scratch_bytes / bytes_per_leaf);
-                        var tile_off: usize = 0;
-                        while (tile_off < batch_len) : (tile_off += max_tile) {
-                            const tile_len = @min(max_tile, batch_len - tile_off);
-                            const buf = s[0 .. tile_len * bytes_per_leaf];
-                            // Pack values.
-                            if (builtin.cpu.arch.endian() == .little) {
-                                const words = std.mem.bytesAsSlice(M31, buf);
-                                for (0..tile_len) |local| {
-                                    const pos = batch_start + tile_off + local;
-                                    const col_idx = ((pos >> shift_amt) << 1) + (pos & 1);
-                                    words[local] = column.values[col_idx];
-                                }
-                            } else {
-                                for (0..tile_len) |local| {
-                                    const pos = batch_start + tile_off + local;
-                                    const col_idx = ((pos >> shift_amt) << 1) + (pos & 1);
-                                    const encoded = column.values[col_idx].toBytesLe();
-                                    const start = local * bytes_per_leaf;
-                                    @memcpy(buf[start .. start + bytes_per_leaf], encoded[0..]);
-                                }
-                            }
-                            for (0..tile_len) |local| {
-                                const byte_start = local * bytes_per_leaf;
-                                batch_hashers[tile_off + local].updateLeafPackedBytes(
-                                    buf[byte_start .. byte_start + bytes_per_leaf],
-                                );
-                            }
-                        }
-                    } else {
-                        // Scalar fallback.
-                        for (0..batch_len) |local| {
-                            const pos = batch_start + local;
-                            const col_idx = ((pos >> shift_amt) << 1) + (pos & 1);
-                            batch_hashers[local].updateLeaf(column.values[col_idx .. col_idx + 1]);
-                        }
-                    }
+            if (worker_count > 1) {
+                var wait_group: WaitGroup = .{};
+                for (contexts[1..worker_count]) |*ctx| {
+                    pool.?.spawnWg(&wait_group, buildLeavesBatchedRange, .{@as(*const BatchedLeafRangeCtx, ctx)});
                 }
-
-                // Finalize and write to output.
-                for (batch_hashers[0..batch_len], 0..) |*hasher, local| {
-                    out[batch_start + local] = hasher.finalize();
-                }
+                buildLeavesBatchedRange(&contexts[0]);
+                wait_group.wait();
+            } else {
+                buildLeavesBatchedRange(&contexts[0]);
             }
 
             return out;
@@ -787,22 +982,18 @@ pub fn MerkleProverLifted(comptime H: type) type {
             wait_group.wait();
         }
 
-        fn updateLeafHashersPacked(
-            allocator: std.mem.Allocator,
+        const PackedLeafRangeCtx = struct {
+            scratch: []align(@alignOf(M31)) u8,
             leaf_hashers: []H,
             group_columns: []const ColumnRef,
-            layer_size: usize,
-        ) !void {
-            var scratch = try allocator.alignedAlloc(
-                u8,
-                .of(M31),
-                max_leaf_scratch_bytes,
-            );
-            defer allocator.free(scratch);
+            start: usize,
+            end: usize,
+        };
 
-            var tile_start: usize = 0;
-            while (tile_start < layer_size) : (tile_start += leaf_tile_len) {
-                const tile_end = @min(layer_size, tile_start + leaf_tile_len);
+        fn updateLeafHashersPackedRange(ctx: *const PackedLeafRangeCtx) void {
+            var tile_start = ctx.start;
+            while (tile_start < ctx.end) : (tile_start += leaf_tile_len) {
+                const tile_end = @min(ctx.end, tile_start + leaf_tile_len);
                 const tile_size = tile_end - tile_start;
                 const max_chunk_columns = @max(
                     @as(usize, 1),
@@ -810,28 +1001,71 @@ pub fn MerkleProverLifted(comptime H: type) type {
                 );
 
                 var column_start: usize = 0;
-                while (column_start < group_columns.len) {
-                    const column_end = @min(group_columns.len, column_start + max_chunk_columns);
-                    const column_chunk = group_columns[column_start..column_end];
+                while (column_start < ctx.group_columns.len) {
+                    const column_end = @min(ctx.group_columns.len, column_start + max_chunk_columns);
+                    const column_chunk = ctx.group_columns[column_start..column_end];
                     const bytes_per_leaf = column_chunk.len * @sizeOf(M31);
                     const scratch_len = tile_size * bytes_per_leaf;
                     packLeafTileBytes(
-                        scratch[0..scratch_len],
+                        ctx.scratch[0..scratch_len],
                         column_chunk,
                         tile_start,
                         tile_size,
                     );
 
-                    var local_leaf: usize = 0;
-                    while (local_leaf < tile_size) : (local_leaf += 1) {
+                    for (0..tile_size) |local_leaf| {
                         const byte_start = local_leaf * bytes_per_leaf;
-                        leaf_hashers[tile_start + local_leaf].updateLeafPackedBytes(
-                            scratch[byte_start .. byte_start + bytes_per_leaf],
+                        ctx.leaf_hashers[tile_start + local_leaf].updateLeafPackedBytes(
+                            ctx.scratch[byte_start .. byte_start + bytes_per_leaf],
                         );
                     }
                     column_start = column_end;
                 }
             }
+        }
+
+        fn updateLeafHashersPacked(
+            allocator: std.mem.Allocator,
+            leaf_hashers: []H,
+            group_columns: []const ColumnRef,
+            layer_size: usize,
+        ) !void {
+            const pool = work_pool_mod.getGlobalPool();
+            const worker_count = if (pool) |active_pool|
+                @min(active_pool.workerCount(), layer_size / parallel_min_nodes_per_worker)
+            else
+                1;
+            const actual_workers = @max(@as(usize, 1), worker_count);
+            const scratch_words_per_worker = max_leaf_scratch_bytes / @sizeOf(M31);
+            const scratch_words = try allocator.alloc(M31, actual_workers * scratch_words_per_worker);
+            defer allocator.free(scratch_words);
+
+            var contexts: [max_parallel_workers]PackedLeafRangeCtx = undefined;
+            const tiles = (layer_size + leaf_tile_len - 1) / leaf_tile_len;
+            const tiles_per_worker = (tiles + actual_workers - 1) / actual_workers;
+            for (0..actual_workers) |worker| {
+                const start = @min(layer_size, worker * tiles_per_worker * leaf_tile_len);
+                const end = @min(layer_size, start + tiles_per_worker * leaf_tile_len);
+                const scratch_start = worker * scratch_words_per_worker;
+                contexts[worker] = .{
+                    .scratch = std.mem.sliceAsBytes(scratch_words[scratch_start..][0..scratch_words_per_worker]),
+                    .leaf_hashers = leaf_hashers,
+                    .group_columns = group_columns,
+                    .start = start,
+                    .end = end,
+                };
+            }
+
+            if (actual_workers > 1) {
+                var wait_group: WaitGroup = .{};
+                for (contexts[1..actual_workers]) |*ctx| {
+                    pool.?.spawnWg(&wait_group, updateLeafHashersPackedRange, .{@as(*const PackedLeafRangeCtx, ctx)});
+                }
+                updateLeafHashersPackedRange(&contexts[0]);
+                wait_group.wait();
+                return;
+            }
+            updateLeafHashersPackedRange(&contexts[0]);
         }
 
         fn packLeafTileBytes(
@@ -894,6 +1128,13 @@ pub fn MerkleProverLifted(comptime H: type) type {
             if (comptime @hasDecl(H, "nodeSeed") and @hasDecl(H, "hashChildrenWithSeed")) {
                 const seed = H.nodeSeed();
                 var i_seeded: usize = 0;
+                if (comptime @hasDecl(H, "hashChildrenWithSeed4")) {
+                    while (i_seeded + 4 <= out.len) : (i_seeded += 4) {
+                        const children: *const [8]H.Hash = @ptrCast(&prev_layer[2 * i_seeded]);
+                        const hashes = H.hashChildrenWithSeed4(seed, children);
+                        inline for (0..4) |lane| out[i_seeded + lane] = hashes[lane];
+                    }
+                }
                 while (i_seeded + 4 <= out.len) : (i_seeded += 4) {
                     out[i_seeded] = H.hashChildrenWithSeed(seed, .{
                         .left = prev_layer[2 * i_seeded],
@@ -969,11 +1210,18 @@ pub fn MerkleProverLifted(comptime H: type) type {
             prev_layer: []const H.Hash,
             start: usize,
             end: usize,
-            seed: H,
+            seed: NodeSeed,
         };
 
         fn hashSeededRange(ctx: *const SeededRangeCtx) void {
             var i = ctx.start;
+            if (comptime @hasDecl(H, "hashChildrenWithSeed4")) {
+                while (i + 4 <= ctx.end) : (i += 4) {
+                    const children: *const [8]H.Hash = @ptrCast(&ctx.prev_layer[2 * i]);
+                    const hashes = H.hashChildrenWithSeed4(ctx.seed, children);
+                    inline for (0..4) |lane| ctx.out[i + lane] = hashes[lane];
+                }
+            }
             while (i < ctx.end) : (i += 1) {
                 ctx.out[i] = H.hashChildrenWithSeed(ctx.seed, .{
                     .left = ctx.prev_layer[2 * i],
@@ -989,7 +1237,7 @@ pub fn MerkleProverLifted(comptime H: type) type {
         fn buildNextLayerSeededParallel(
             out: []H.Hash,
             prev_layer: []const H.Hash,
-            seed: H,
+            seed: NodeSeed,
             worker_count: usize,
             executor: *LayerExecutor,
         ) !void {
@@ -1208,48 +1456,49 @@ pub fn MerkleProverLifted(comptime H: type) type {
             /// the completed tree.  The `StreamingCommitter` is consumed (its
             /// hasher memory is freed).
             pub fn finalize(self: *StreamingCommitter) !Self {
+                const allocator = self.allocator;
+                const layer_alloc = layerAllocator(allocator);
                 if (!self.initialized) {
                     // No columns were added — replicate the empty-column path
                     // from buildLeaves.
                     const seed_hasher = H.defaultWithInitialState();
                     var h = seed_hasher;
-                    const leaves = try self.allocator.alloc(H.Hash, 1);
+                    const leaves = try layer_alloc.alloc(H.Hash, 1);
                     leaves[0] = h.finalize();
 
                     var layers_bottom_up = std.ArrayList([]H.Hash).empty;
-                    defer layers_bottom_up.deinit(self.allocator);
+                    defer layers_bottom_up.deinit(allocator);
                     errdefer {
-                        for (layers_bottom_up.items) |layer| self.allocator.free(layer);
+                        for (layers_bottom_up.items) |layer| layer_alloc.free(layer);
                     }
-                    try layers_bottom_up.append(self.allocator, leaves);
+                    try layers_bottom_up.append(allocator, leaves);
 
-                    const out_layers = try self.allocator.alloc([]H.Hash, 1);
+                    const out_layers = try allocator.alloc([]H.Hash, 1);
                     out_layers[0] = leaves;
-                    const alloc = self.allocator;
                     self.* = undefined;
-                    return .{ .layers = out_layers, .layer_allocator = alloc };
+                    return .{ .layers = out_layers, .layer_allocator = layer_alloc };
                 }
 
                 // Finalize leaf hashers into leaf hashes.
                 const leaf_count = self.leaf_hashers.len;
-                const leaves = try self.allocator.alloc(H.Hash, leaf_count);
-                for (self.leaf_hashers, 0..) |*hasher, i| {
-                    leaves[i] = hasher.finalize();
-                }
+                const leaves = try layer_alloc.alloc(H.Hash, leaf_count);
+                if (leaf_count >= parallel_min_nodes and !builtin.single_threaded)
+                    finalizeLeafHashersParallel(self.leaf_hashers, leaves)
+                else for (self.leaf_hashers, 0..) |*hasher, i| leaves[i] = hasher.finalize();
                 // Free hasher state — column data is no longer needed.
-                self.allocator.free(self.leaf_hashers);
+                allocator.free(self.leaf_hashers);
                 self.leaf_hashers = &[_]H{};
 
                 // Build internal tree layers — identical to commitWithOptions.
-                const worker_override = merkleWorkerOverride(self.allocator);
-                const reuse_pool = merklePoolReuseEnabled(self.allocator);
+                const worker_override = merkleWorkerOverride(allocator);
+                const reuse_pool = merklePoolReuseEnabled(allocator);
 
                 var layers_bottom_up = std.ArrayList([]H.Hash).empty;
-                defer layers_bottom_up.deinit(self.allocator);
+                defer layers_bottom_up.deinit(allocator);
                 errdefer {
-                    for (layers_bottom_up.items) |layer| self.allocator.free(layer);
+                    for (layers_bottom_up.items) |layer| layer_alloc.free(layer);
                 }
-                try layers_bottom_up.append(self.allocator, leaves);
+                try layers_bottom_up.append(allocator, leaves);
 
                 if (leaves.len > 1) {
                     std.debug.assert(std.math.isPowerOfTwo(leaves.len));
@@ -1262,23 +1511,22 @@ pub fn MerkleProverLifted(comptime H: type) type {
                     var i: usize = 0;
                     while (i < max_log_size) : (i += 1) {
                         const next_layer = try buildNextLayer(
-                            self.allocator,
+                            layer_alloc,
                             layers_bottom_up.items[layers_bottom_up.items.len - 1],
                             &executor,
                             worker_override,
                         );
-                        try layers_bottom_up.append(self.allocator, next_layer);
+                        try layers_bottom_up.append(allocator, next_layer);
                     }
                 }
 
-                const out_layers = try self.allocator.alloc([]H.Hash, layers_bottom_up.items.len);
+                const out_layers = try allocator.alloc([]H.Hash, layers_bottom_up.items.len);
                 var i: usize = 0;
                 while (i < out_layers.len) : (i += 1) {
                     out_layers[i] = layers_bottom_up.items[out_layers.len - 1 - i];
                 }
-                const alloc = self.allocator;
                 self.* = undefined;
-                return .{ .layers = out_layers, .layer_allocator = alloc };
+                return .{ .layers = out_layers, .layer_allocator = layer_alloc };
             }
         };
     };
@@ -1404,6 +1652,7 @@ test "prover vcs_lifted: packed leaf hashing matches legacy per-value path" {
     const LegacyLeafHasher = struct {
         inner: BaseHasher,
         pub const Hash = BaseHasher.Hash;
+        pub const NodeSeed = BaseHasher.NodeSeed;
 
         pub fn defaultWithInitialState() @This() {
             return .{ .inner = BaseHasher.defaultWithInitialState() };
@@ -1416,12 +1665,12 @@ test "prover vcs_lifted: packed leaf hashing matches legacy per-value path" {
             });
         }
 
-        pub fn nodeSeed() @This() {
-            return .{ .inner = BaseHasher.nodeSeed() };
+        pub fn nodeSeed() NodeSeed {
+            return BaseHasher.nodeSeed();
         }
 
-        pub fn hashChildrenWithSeed(seed: @This(), children: struct { left: Hash, right: Hash }) Hash {
-            return BaseHasher.hashChildrenWithSeed(seed.inner, .{
+        pub fn hashChildrenWithSeed(seed: NodeSeed, children: struct { left: Hash, right: Hash }) Hash {
+            return BaseHasher.hashChildrenWithSeed(seed, .{
                 .left = children.left,
                 .right = children.right,
             });
@@ -1613,6 +1862,30 @@ test "prover vcs_lifted: streaming committer produces identical root — single 
     defer streaming_prover.deinit(alloc);
 
     try std.testing.expectEqualSlices(u8, expected_root[0..], streaming_prover.root()[0..]);
+}
+
+test "prover vcs_lifted: constant-column fast path matches streaming committer" {
+    const Hasher = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Prover = MerkleProverLifted(Hasher);
+    const alloc = std.testing.allocator;
+
+    const values4 = [_]M31{M31.fromCanonical(7)} ** 4;
+    const values8_a = [_]M31{M31.fromCanonical(11)} ** 8;
+    const values8_b = [_]M31{M31.fromCanonical(13)} ** 8;
+    const columns = [_][]const M31{ values4[0..], values8_a[0..], values8_b[0..] };
+
+    var fast = try Prover.commit(alloc, columns[0..]);
+    defer fast.deinit(alloc);
+
+    const sorted = try Prover.sortColumnsByLogSizeAsc(alloc, columns[0..]);
+    defer alloc.free(sorted);
+    var streaming = Prover.StreamingCommitter.init(alloc);
+    errdefer streaming.deinit();
+    try streaming.addColumns(sorted);
+    var reference = try streaming.finalize();
+    defer reference.deinit(alloc);
+
+    try std.testing.expectEqualSlices(u8, reference.root()[0..], fast.root()[0..]);
 }
 
 test "prover vcs_lifted: streaming committer produces identical root — column-by-column" {

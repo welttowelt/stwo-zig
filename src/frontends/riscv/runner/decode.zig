@@ -69,9 +69,23 @@ pub const Opcode = enum(u8) {
     REM,
     REMU,
 
-    // ---- System ----
+    // ---- RV32A: Atomics ----
+    LR_W,
+    SC_W,
+    AMOSWAP_W,
+    AMOADD_W,
+    AMOAND_W,
+    AMOOR_W,
+    AMOXOR_W,
+    AMOMIN_W,
+    AMOMAX_W,
+    AMOMINU_W,
+    AMOMAXU_W,
+
+    // ---- System / Misc ----
     ECALL,
     EBREAK,
+    FENCE,
 };
 
 /// A fully-decoded RV32IM instruction.
@@ -232,9 +246,45 @@ pub const DecodedInst = struct {
                 .imm = decodeUImm(inst),
             },
 
+            // ----- RV32A: Atomic memory operations (AMO = 0b0101111) -----
+            0b0101111 => blk: {
+                if (funct3 != 0b010) return error.IllegalInstruction;
+                const funct5: u5 = @truncate(inst >> 27);
+                break :blk .{
+                    .opcode = switch (funct5) {
+                        0b00010 => .LR_W,
+                        0b00011 => .SC_W,
+                        0b00001 => .AMOSWAP_W,
+                        0b00000 => .AMOADD_W,
+                        0b01100 => .AMOAND_W,
+                        0b01000 => .AMOOR_W,
+                        0b00100 => .AMOXOR_W,
+                        0b10000 => .AMOMIN_W,
+                        0b10100 => .AMOMAX_W,
+                        0b11000 => .AMOMINU_W,
+                        0b11100 => .AMOMAXU_W,
+                        else => return error.IllegalInstruction,
+                    },
+                    .rd = rd,
+                    .rs1 = rs1,
+                    .rs2 = rs2,
+                    .imm = 0,
+                };
+            },
+
             // ----- SYSTEM (0b1110011) -----
             0b1110011 => .{
                 .opcode = if (inst == 0x00000073) Opcode.ECALL else Opcode.EBREAK,
+                .rd = 0,
+                .rs1 = 0,
+                .rs2 = 0,
+                .imm = 0,
+            },
+
+            // ----- FENCE (0b0001111) -----
+            // Memory ordering fence — no-op in single-threaded zkVM.
+            0b0001111 => .{
+                .opcode = .FENCE,
                 .rd = 0,
                 .rs1 = 0,
                 .rs2 = 0,

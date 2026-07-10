@@ -68,6 +68,22 @@ pub fn build(b: *std.Build) void {
     riscv_prover_test_step.dependOn(&run_riscv_prover_tests.step);
 
     // -----------------------------------------------------------------
+    // RISC-V benchmark CLI (execute, prove, verify, hosted mode)
+    // -----------------------------------------------------------------
+    const riscv_bench_module = b.createModule(.{
+        .root_source_file = b.path("src/riscv_bench_cli.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const riscv_bench_cli = b.addExecutable(.{
+        .name = "riscv-bench",
+        .root_module = riscv_bench_module,
+    });
+    b.installArtifact(riscv_bench_cli);
+    const riscv_bench_step = b.step("riscv-bench", "Build RISC-V benchmark CLI");
+    riscv_bench_step.dependOn(&riscv_bench_cli.step);
+
+    // -----------------------------------------------------------------
     // CUDA GPU backend (opt-in via -Dcuda=true)
     // -----------------------------------------------------------------
     const cuda_enabled = b.option(bool, "cuda", "Enable CUDA GPU backend") orelse false;

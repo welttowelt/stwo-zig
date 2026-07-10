@@ -18,6 +18,7 @@ pub fn Blake2sMerkleHasherGeneric(comptime is_m31_output: bool) type {
     return struct {
         inner: InnerHasher,
         pub const Hash = blake2_hash.Blake2sHash;
+        pub const NodeSeed = InnerHasher.Fixed64Seed;
 
         const Self = @This();
 
@@ -41,18 +42,34 @@ pub fn Blake2sMerkleHasherGeneric(comptime is_m31_output: bool) type {
 
         /// Pre-hashed node-domain separator state used to avoid reprocessing
         /// `NODE_PREFIX` for every parent hash on one Merkle layer.
-        pub fn nodeSeed() Self {
-            var hasher = Self.init();
-            hasher.inner.update(NODE_PREFIX[0..]);
-            return hasher;
+        pub fn nodeSeed() NodeSeed {
+            return InnerHasher.seedAfterFixed64(&NODE_PREFIX);
         }
 
-        pub fn hashChildrenWithSeed(seed: Self, children: struct { left: Hash, right: Hash }) Hash {
-            var hasher = seed;
-            hasher.inner.update(children.left[0..]);
-            hasher.inner.update(children.right[0..]);
-            return hasher.inner.finalize();
+        pub fn leafSeed() NodeSeed {
+            return InnerHasher.seedAfterFixed64(&LEAF_PREFIX);
         }
+
+        pub fn hashChildrenWithSeed(seed: NodeSeed, children: struct { left: Hash, right: Hash }) Hash {
+            var block: [64]u8 = undefined;
+            @memcpy(block[0..32], children.left[0..]);
+            @memcpy(block[32..64], children.right[0..]);
+            return InnerHasher.hashFinal64FromSeed(seed, &block);
+        }
+
+        pub fn hashChildrenWithSeed4(seed: NodeSeed, children: *const [8]Hash) [4]Hash {
+            var blocks: [4][64]u8 = undefined;
+            for (0..4) |lane| {
+                @memcpy(blocks[lane][0..32], children[2 * lane][0..]);
+                @memcpy(blocks[lane][32..64], children[2 * lane + 1][0..]);
+            }
+            return InnerHasher.hashFinal64FromSeed4(seed, &blocks);
+        }
+
+        pub fn hashPackedLeavesWithSeed4(seed: NodeSeed, messages: *const [4][]const u8) [4]Hash {
+            return InnerHasher.hashEqualFromSeed4(seed, messages);
+        }
+
 
         pub fn updateLeaf(self: *Self, column_values: []const M31) void {
             if (column_values.len == 0) return;

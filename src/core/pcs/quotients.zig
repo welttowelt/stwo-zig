@@ -1024,13 +1024,10 @@ test "pcs quotients: parallel sampled inputs match legacy point-sample batching"
         .{ .point = point0, .value = QM31.fromU32Unchecked(1, 2, 3, 4) },
         .{ .point = point1, .value = QM31.fromU32Unchecked(5, 6, 7, 8) },
     });
-    defer alloc.free(col0);
     const col1 = try alloc.dupe(PointSample, &[_]PointSample{
         .{ .point = point2, .value = QM31.fromU32Unchecked(9, 10, 11, 12) },
     });
-    defer alloc.free(col1);
     const tree = try alloc.dupe([]PointSample, &[_][]PointSample{ col0, col1 });
-    defer alloc.free(tree);
     var samples = TreeVec([][]PointSample).initOwned(
         try alloc.dupe([][]PointSample, &[_][][]PointSample{tree}),
     );

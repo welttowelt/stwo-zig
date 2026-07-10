@@ -179,10 +179,10 @@ inline fn u32ToM31(v: u32) M31 {
 
 /// Decompose a u32 value into 4 byte limbs and write to columns[start..start+4].
 inline fn writeU32Limbs(columns: *[MAX_FAMILY_COLUMNS][]M31, row_idx: usize, start: usize, val: u32) void {
-    columns[start][row_idx] = M31.fromCanonical(val & 0xFF);
-    columns[start + 1][row_idx] = M31.fromCanonical((val >> 8) & 0xFF);
-    columns[start + 2][row_idx] = M31.fromCanonical((val >> 16) & 0xFF);
-    columns[start + 3][row_idx] = M31.fromCanonical((val >> 24) & 0xFF);
+    columns[start][row_idx] = u32ToM31(val & 0xFF);
+    columns[start + 1][row_idx] = u32ToM31((val >> 8) & 0xFF);
+    columns[start + 2][row_idx] = u32ToM31((val >> 16) & 0xFF);
+    columns[start + 3][row_idx] = u32ToM31((val >> 24) & 0xFF);
 }
 
 /// Write a 10-column register access block at columns[start..start+10].
@@ -195,7 +195,7 @@ inline fn writeRegAccess(
     addr: u32,
     next_val: u32,
 ) void {
-    columns[start][row_idx] = M31.fromCanonical(addr); // addr
+    columns[start][row_idx] = u32ToM31(addr); // addr (may be register index or memory address)
     // prev_0..3: placeholder zeros (state chain data TBD)
     columns[start + 1][row_idx] = M31.zero();
     columns[start + 2][row_idx] = M31.zero();
@@ -286,39 +286,39 @@ pub fn fillFamilyColumns(
             columns[c][row_idx] = M31.one(); // enabler
             c += 1;
             // shift decomposition (18 cols)
-            columns[c][row_idx] = M31.fromCanonical(@as(u32, shamt)); // shift_amount
+            columns[c][row_idx] = u32ToM31(@as(u32, shamt)); // shift_amount
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(32 - @as(u32, shamt)); // shift_amount_bound
+            columns[c][row_idx] = u32ToM31(32 - @as(u32, shamt)); // shift_amount_bound
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(row.rd_val & 0xFFFF); // shifted_lo
+            columns[c][row_idx] = u32ToM31(row.rd_val & 0xFFFF); // shifted_lo
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(row.rd_val >> 16); // shifted_hi
+            columns[c][row_idx] = u32ToM31(row.rd_val >> 16); // shifted_hi
             c += 1;
             // shift_bit_0..4: individual bits of shamt
-            columns[c][row_idx] = M31.fromCanonical(@as(u32, shamt) & 1);
+            columns[c][row_idx] = u32ToM31(@as(u32, shamt) & 1);
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical((@as(u32, shamt) >> 1) & 1);
+            columns[c][row_idx] = u32ToM31((@as(u32, shamt) >> 1) & 1);
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical((@as(u32, shamt) >> 2) & 1);
+            columns[c][row_idx] = u32ToM31((@as(u32, shamt) >> 2) & 1);
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical((@as(u32, shamt) >> 3) & 1);
+            columns[c][row_idx] = u32ToM31((@as(u32, shamt) >> 3) & 1);
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical((@as(u32, shamt) >> 4) & 1);
+            columns[c][row_idx] = u32ToM31((@as(u32, shamt) >> 4) & 1);
             c += 1;
             // shift_mask_lo, shift_mask_hi, sign_bit, sign_extend_lo, sign_extend_hi
             columns[c][row_idx] = M31.zero(); // shift_mask_lo (placeholder)
             c += 1;
             columns[c][row_idx] = M31.zero(); // shift_mask_hi (placeholder)
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(row.rs1_val >> 31); // sign_bit
+            columns[c][row_idx] = u32ToM31(row.rs1_val >> 31); // sign_bit
             c += 1;
             columns[c][row_idx] = M31.zero(); // sign_extend_lo (placeholder)
             c += 1;
             columns[c][row_idx] = M31.zero(); // sign_extend_hi (placeholder)
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(row.rd_val & 0xFFFF); // result_lo
+            columns[c][row_idx] = u32ToM31(row.rd_val & 0xFFFF); // result_lo
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(row.rd_val >> 16); // result_hi
+            columns[c][row_idx] = u32ToM31(row.rd_val >> 16); // result_hi
             c += 1;
             columns[c][row_idx] = M31.zero(); // carry (placeholder)
             c += 1;
@@ -349,37 +349,37 @@ pub fn fillFamilyColumns(
             columns[c][row_idx] = immToM31(row.imm); // imm
             c += 1;
             // shift decomposition (18 cols)
-            columns[c][row_idx] = M31.fromCanonical(@as(u32, shamt));
+            columns[c][row_idx] = u32ToM31(@as(u32, shamt));
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(32 - @as(u32, shamt));
+            columns[c][row_idx] = u32ToM31(32 - @as(u32, shamt));
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(row.rd_val & 0xFFFF);
+            columns[c][row_idx] = u32ToM31(row.rd_val & 0xFFFF);
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(row.rd_val >> 16);
+            columns[c][row_idx] = u32ToM31(row.rd_val >> 16);
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(@as(u32, shamt) & 1);
+            columns[c][row_idx] = u32ToM31(@as(u32, shamt) & 1);
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical((@as(u32, shamt) >> 1) & 1);
+            columns[c][row_idx] = u32ToM31((@as(u32, shamt) >> 1) & 1);
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical((@as(u32, shamt) >> 2) & 1);
+            columns[c][row_idx] = u32ToM31((@as(u32, shamt) >> 2) & 1);
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical((@as(u32, shamt) >> 3) & 1);
+            columns[c][row_idx] = u32ToM31((@as(u32, shamt) >> 3) & 1);
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical((@as(u32, shamt) >> 4) & 1);
+            columns[c][row_idx] = u32ToM31((@as(u32, shamt) >> 4) & 1);
             c += 1;
             columns[c][row_idx] = M31.zero(); // shift_mask_lo
             c += 1;
             columns[c][row_idx] = M31.zero(); // shift_mask_hi
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(row.rs1_val >> 31); // sign_bit
+            columns[c][row_idx] = u32ToM31(row.rs1_val >> 31); // sign_bit
             c += 1;
             columns[c][row_idx] = M31.zero(); // sign_extend_lo
             c += 1;
             columns[c][row_idx] = M31.zero(); // sign_extend_hi
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(row.rd_val & 0xFFFF); // result_lo
+            columns[c][row_idx] = u32ToM31(row.rd_val & 0xFFFF); // result_lo
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(row.rd_val >> 16); // result_hi
+            columns[c][row_idx] = u32ToM31(row.rd_val >> 16); // result_hi
             c += 1;
             columns[c][row_idx] = M31.zero(); // carry
             c += 1;
@@ -409,13 +409,13 @@ pub fn fillFamilyColumns(
             columns[c][row_idx] = M31.one(); // enabler
             c += 1;
             // comparison decomposition (7)
-            columns[c][row_idx] = M31.fromCanonical(diff & 0xFFFF); // diff_lo
+            columns[c][row_idx] = u32ToM31(diff & 0xFFFF); // diff_lo
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(diff >> 16); // diff_hi
+            columns[c][row_idx] = u32ToM31(diff >> 16); // diff_hi
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(row.rs1_val >> 31); // rs1_sign
+            columns[c][row_idx] = u32ToM31(row.rs1_val >> 31); // rs1_sign
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(row.rs2_val >> 31); // rs2_sign
+            columns[c][row_idx] = u32ToM31(row.rs2_val >> 31); // rs2_sign
             c += 1;
             columns[c][row_idx] = if (is_lt) M31.one() else M31.zero(); // is_less_than
             c += 1;
@@ -454,11 +454,11 @@ pub fn fillFamilyColumns(
             columns[c][row_idx] = if (row.imm < 0) M31.one() else M31.zero(); // imm_sign
             c += 1;
             // comparison decomposition (7)
-            columns[c][row_idx] = M31.fromCanonical(diff & 0xFFFF); // diff_lo
+            columns[c][row_idx] = u32ToM31(diff & 0xFFFF); // diff_lo
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(diff >> 16); // diff_hi
+            columns[c][row_idx] = u32ToM31(diff >> 16); // diff_hi
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(row.rs1_val >> 31); // rs1_sign
+            columns[c][row_idx] = u32ToM31(row.rs1_val >> 31); // rs1_sign
             c += 1;
             columns[c][row_idx] = if (is_lt) M31.one() else M31.zero(); // is_less_than
             c += 1;
@@ -533,21 +533,21 @@ pub fn fillFamilyColumns(
             columns[c][row_idx] = u32ToM31(target_val); // branch_target
             c += 1;
             // comparison/branch decomposition (9)
-            columns[c][row_idx] = M31.fromCanonical(diff & 0xFFFF); // diff_lo
+            columns[c][row_idx] = u32ToM31(diff & 0xFFFF); // diff_lo
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(diff >> 16); // diff_hi
+            columns[c][row_idx] = u32ToM31(diff >> 16); // diff_hi
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(row.rs1_val >> 31); // rs1_sign
+            columns[c][row_idx] = u32ToM31(row.rs1_val >> 31); // rs1_sign
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(row.rs2_val >> 31); // rs2_sign
+            columns[c][row_idx] = u32ToM31(row.rs2_val >> 31); // rs2_sign
             c += 1;
             columns[c][row_idx] = if (is_lt) M31.one() else M31.zero(); // is_less_than
             c += 1;
             columns[c][row_idx] = M31.zero(); // borrow (placeholder)
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(target_val & 0xFFFF); // branch_target_lo
+            columns[c][row_idx] = u32ToM31(target_val & 0xFFFF); // branch_target_lo
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(target_val >> 16); // branch_target_hi
+            columns[c][row_idx] = u32ToM31(target_val >> 16); // branch_target_hi
             c += 1;
             columns[c][row_idx] = M31.zero(); // branch_target_aux (placeholder)
             c += 1;
@@ -563,13 +563,13 @@ pub fn fillFamilyColumns(
             c += 1;
             columns[c][row_idx] = u32ToM31(row.pc);
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(result_val >> 12); // imm_u
+            columns[c][row_idx] = u32ToM31(result_val >> 12); // imm_u
             c += 1;
             columns[c][row_idx] = M31.one(); // enabler
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(result_val & 0xFFFF); // result_lo
+            columns[c][row_idx] = u32ToM31(result_val & 0xFFFF); // result_lo
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(result_val >> 16); // result_hi
+            columns[c][row_idx] = u32ToM31(result_val >> 16); // result_hi
             c += 1;
             writeRegAccess(columns, row_idx, c, @as(u32, row.rd), row.rd_val);
         },
@@ -600,9 +600,9 @@ pub fn fillFamilyColumns(
             c += 1;
             columns[c][row_idx] = M31.one(); // enabler
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(target_val & 0xFFFF); // target_lo
+            columns[c][row_idx] = u32ToM31(target_val & 0xFFFF); // target_lo
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(target_val >> 16); // target_hi
+            columns[c][row_idx] = u32ToM31(target_val >> 16); // target_hi
             c += 1;
             writeRegAccess(columns, row_idx, c, @as(u32, row.rd), row.rd_val);
             c += 10;
@@ -648,13 +648,13 @@ pub fn fillFamilyColumns(
             c += 1;
             columns[c][row_idx] = M31.one(); // enabler
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(row.mem_val & 0xFF); // byte_0
+            columns[c][row_idx] = u32ToM31(row.mem_val & 0xFF); // byte_0
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical((row.mem_val >> 8) & 0xFF); // byte_1
+            columns[c][row_idx] = u32ToM31((row.mem_val >> 8) & 0xFF); // byte_1
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical((row.mem_val >> 16) & 0xFF); // byte_2
+            columns[c][row_idx] = u32ToM31((row.mem_val >> 16) & 0xFF); // byte_2
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical((row.mem_val >> 24) & 0xFF); // byte_3
+            columns[c][row_idx] = u32ToM31((row.mem_val >> 24) & 0xFF); // byte_3
             c += 1;
             columns[c][row_idx] = u32ToM31(row.mem_addr); // mem_addr
             c += 1;
@@ -705,15 +705,15 @@ pub fn fillFamilyColumns(
             columns[c][row_idx] = M31.one(); // enabler
             c += 1;
             // product decomposition (5)
-            columns[c][row_idx] = M31.fromCanonical(@truncate(prod & 0xFFFF)); // prod_lo
+            columns[c][row_idx] = u32ToM31(@truncate(prod & 0xFFFF)); // prod_lo
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(@truncate(prod >> 16)); // prod_hi
+            columns[c][row_idx] = u32ToM31(@truncate(prod >> 16)); // prod_hi
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(row.rs1_val >> 31); // rs1_sign
+            columns[c][row_idx] = u32ToM31(row.rs1_val >> 31); // rs1_sign
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(row.rs2_val >> 31); // rs2_sign
+            columns[c][row_idx] = u32ToM31(row.rs2_val >> 31); // rs2_sign
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(@truncate(prod >> 32)); // carry
+            columns[c][row_idx] = u32ToM31(@truncate(prod >> 32)); // carry
             c += 1;
             writeRegAccess(columns, row_idx, c, @as(u32, row.rd), row.rd_val);
             c += 10;
@@ -747,9 +747,9 @@ pub fn fillFamilyColumns(
             c += 4;
             columns[c][row_idx] = if (row.rs2_val == 0) M31.one() else M31.zero(); // rs2_is_zero
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(row.rs1_val >> 31); // rs1_sign
+            columns[c][row_idx] = u32ToM31(row.rs1_val >> 31); // rs1_sign
             c += 1;
-            columns[c][row_idx] = M31.fromCanonical(row.rs2_val >> 31); // rs2_sign
+            columns[c][row_idx] = u32ToM31(row.rs2_val >> 31); // rs2_sign
             c += 1;
             columns[c][row_idx] = M31.zero(); // quotient_sign (placeholder)
             c += 1;
@@ -857,11 +857,14 @@ pub fn opcodeFamily(op: Opcode) OpcodeFamily {
         .AUIPC => .auipc,
         .JALR => .jalr,
         .JAL => .jal,
-        .LB, .LBU, .LH, .LHU, .LW, .SB, .SH, .SW => .load_store,
+        .LB, .LBU, .LH, .LHU, .LW, .SB, .SH, .SW,
+        .LR_W, .SC_W, .AMOSWAP_W, .AMOADD_W, .AMOAND_W, .AMOOR_W, .AMOXOR_W,
+        .AMOMIN_W, .AMOMAX_W, .AMOMINU_W, .AMOMAXU_W,
+        => .load_store,
         .MUL => .mul,
         .MULH, .MULHSU, .MULHU => .mulh,
         .DIV, .DIVU, .REM, .REMU => .div,
-        .ECALL, .EBREAK => .base_alu_reg, // fallback
+        .ECALL, .EBREAK, .FENCE => .base_alu_reg, // fallback
     };
 }
 

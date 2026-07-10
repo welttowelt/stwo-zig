@@ -5,7 +5,6 @@ const m31 = @import("../core/fields/m31.zig");
 const qm31 = @import("../core/fields/qm31.zig");
 const line = @import("../core/poly/line.zig");
 const circle_domain = @import("../core/poly/circle/domain.zig");
-const mmap_alloc = @import("mmap_alloc.zig");
 const queries_mod = @import("../core/queries.zig");
 const vcs_lifted_verifier = @import("../core/vcs_lifted/verifier.zig");
 const prover_line = @import("line.zig");
@@ -153,11 +152,6 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
                 allocator.free(inner_commit.inner_layers);
             }
 
-            // After inner layers are committed, the first layer's column
-            // and merkle tree are only needed for later decommitment.
-            // Release their pages to reduce RSS during the rest of commit.
-            releaseFirstLayerPages(&first_layer);
-
             var last_layer_poly = try commitLastLayer(
                 allocator,
                 channel,
@@ -270,10 +264,6 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
                 return FriProverError.ShapeMismatch;
             }
 
-            // Prefetch the first layer's data before decommitting — pages
-            // may have been released after commit to reduce RSS.
-            prefetchFirstLayerPages(&first_layer);
-
             var first_layer_proof = try decommitLayerExtended(
                 H,
                 allocator,
@@ -294,8 +284,6 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
             }
 
             for (inner_layers) |layer| {
-                // Prefetch inner layer data that was released after commit.
-                prefetchInnerLayerPages(&layer);
                 var inner_proof = try decommitLayerExtended(
                     H,
                     allocator,
@@ -478,11 +466,6 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
                 };
                 try layers.append(allocator, layer);
 
-                // The committed layer's column data and merkle tree will
-                // not be accessed again until decommit. Release their
-                // physical pages to reduce RSS during FRI commit.
-                releaseInnerLayerPages(&layer);
-
                 const folded = try core_fri.foldLineInPlaceNWithWorkspace(
                     allocator,
                     @constCast(layer_evaluation.values),
@@ -500,46 +483,6 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
                 .inner_layers = try layers.toOwnedSlice(allocator),
                 .last_layer_evaluation = layer_evaluation,
             };
-        }
-
-        /// Release physical pages backing an inner layer's column and merkle tree.
-        fn releaseInnerLayerPages(layer: *const InnerLayerProver) void {
-            for (layer.column.columns) |col| {
-                mmap_alloc.releasePagesSlice(M31, @constCast(col));
-            }
-            for (layer.merkle_tree.layers) |merkle_layer| {
-                mmap_alloc.releasePagesSlice(H.Hash, @constCast(merkle_layer));
-            }
-        }
-
-        /// Release physical pages backing the first layer's column and merkle tree.
-        fn releaseFirstLayerPages(layer: *const FirstLayerProver) void {
-            for (layer.column.columns) |col| {
-                mmap_alloc.releasePagesSlice(M31, @constCast(col));
-            }
-            for (layer.merkle_tree.layers) |merkle_layer| {
-                mmap_alloc.releasePagesSlice(H.Hash, @constCast(merkle_layer));
-            }
-        }
-
-        /// Prefetch pages for an inner layer before decommitment.
-        fn prefetchInnerLayerPages(layer: *const InnerLayerProver) void {
-            for (layer.column.columns) |col| {
-                mmap_alloc.prefetchPagesSlice(M31, @constCast(col));
-            }
-            for (layer.merkle_tree.layers) |merkle_layer| {
-                mmap_alloc.prefetchPagesSlice(H.Hash, @constCast(merkle_layer));
-            }
-        }
-
-        /// Prefetch pages for the first layer before decommitment.
-        fn prefetchFirstLayerPages(layer: *const FirstLayerProver) void {
-            for (layer.column.columns) |col| {
-                mmap_alloc.prefetchPagesSlice(M31, @constCast(col));
-            }
-            for (layer.merkle_tree.layers) |merkle_layer| {
-                mmap_alloc.prefetchPagesSlice(H.Hash, @constCast(merkle_layer));
-            }
         }
 
         fn commitLastLayer(

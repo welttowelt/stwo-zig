@@ -27,21 +27,34 @@ pub fn Blake2sMerkleHasherGeneric(comptime is_m31_output: bool) type {
             column_values: []const M31,
         ) Blake2sHash {
             if (children_hashes) |children| {
-                var payload: [128]u8 = undefined;
-                @memcpy(payload[0..64], NODE_PREFIX[0..]);
-                @memcpy(payload[64..96], children.left[0..]);
-                @memcpy(payload[96..128], children.right[0..]);
-                return Hasher.hashFixed128(&payload);
+                if (column_values.len == 0) {
+                    var payload: [128]u8 = undefined;
+                    @memcpy(payload[0..64], NODE_PREFIX[0..]);
+                    @memcpy(payload[64..96], children.left[0..]);
+                    @memcpy(payload[96..128], children.right[0..]);
+                    return Hasher.hashFixed128(&payload);
+                }
+
+                var hasher = Hasher.init();
+                hasher.update(NODE_PREFIX[0..]);
+                hasher.update(children.left[0..]);
+                hasher.update(children.right[0..]);
+                updateColumnValues(&hasher, column_values);
+                return hasher.finalize();
             }
 
             var hasher = Hasher.init();
             hasher.update(LEAF_PREFIX[0..]);
+            updateColumnValues(&hasher, column_values);
+            return hasher.finalize();
+        }
 
-            var at: usize = 0;
+        fn updateColumnValues(hasher: *Hasher, column_values: []const M31) void {
             if (builtin.cpu.arch.endian() == .little) {
                 // `M31` is represented as canonical little-endian u32 words.
                 hasher.update(std.mem.sliceAsBytes(column_values));
             } else {
+                var at: usize = 0;
                 var bytes: [pack_chunk_elems * 4]u8 = undefined;
                 while (at < column_values.len) {
                     const chunk = @min(pack_chunk_elems, column_values.len - at);
@@ -54,8 +67,6 @@ pub fn Blake2sMerkleHasherGeneric(comptime is_m31_output: bool) type {
                     at += chunk;
                 }
             }
-
-            return hasher.finalize();
         }
     };
 }
@@ -96,6 +107,20 @@ test "blake2 merkle: deterministic hashing" {
     const h1 = Blake2sMerkleHasher.hashNode(null, values[0..]);
     const h2 = Blake2sMerkleHasher.hashNode(null, values[0..]);
     try std.testing.expect(std.mem.eql(u8, h1[0..], h2[0..]));
+}
+
+test "blake2 merkle: inner nodes commit column values" {
+    const a = [_]M31{M31.fromCanonical(3)};
+    const b = [_]M31{M31.fromCanonical(4)};
+    const hash_a = Blake2sMerkleHasher.hashNode(.{
+        .left = [_]u8{1} ** 32,
+        .right = [_]u8{2} ** 32,
+    }, a[0..]);
+    const hash_b = Blake2sMerkleHasher.hashNode(.{
+        .left = [_]u8{1} ** 32,
+        .right = [_]u8{2} ** 32,
+    }, b[0..]);
+    try std.testing.expect(!std.mem.eql(u8, hash_a[0..], hash_b[0..]));
 }
 
 test "blake2 merkle: m31-output hasher produces canonical limbs" {

@@ -37,6 +37,7 @@ pub const DomainEvaluationAccumulator = struct {
     random_coeff_powers: []QM31,
     next_power_index: usize,
     sub_accumulations: []?SecureColumnByCoords,
+    constant_accumulations: []QM31,
     /// When true this accumulator owns `random_coeff_powers` and will free it
     /// on deinit. Sub-accumulators created via `initForComponent` borrow the
     /// parent's powers and set this to false.
@@ -54,6 +55,9 @@ pub const DomainEvaluationAccumulator = struct {
         const subs = try allocator.alloc(?SecureColumnByCoords, max_log_size + 1);
         errdefer allocator.free(subs);
         @memset(subs, null);
+        const constants = try allocator.alloc(QM31, max_log_size + 1);
+        errdefer allocator.free(constants);
+        @memset(constants, QM31.zero());
 
         return .{
             .allocator = allocator,
@@ -61,6 +65,7 @@ pub const DomainEvaluationAccumulator = struct {
             .random_coeff_powers = powers,
             .next_power_index = powers.len,
             .sub_accumulations = subs,
+            .constant_accumulations = constants,
             .owns_powers = true,
         };
     }
@@ -70,6 +75,7 @@ pub const DomainEvaluationAccumulator = struct {
             if (maybe_col.*) |*col| col.deinit(self.allocator);
         }
         self.allocator.free(self.sub_accumulations);
+        self.allocator.free(self.constant_accumulations);
         if (self.owns_powers) {
             self.allocator.free(self.random_coeff_powers);
         }
@@ -148,6 +154,22 @@ pub const DomainEvaluationAccumulator = struct {
         }
     }
 
+    /// Accumulates a constant polynomial without materializing a domain-sized
+    /// column. Constants remain constant when lifted to larger domains.
+    pub fn accumulateConstant(
+        self: *DomainEvaluationAccumulator,
+        log_size: u32,
+        evaluation: QM31,
+    ) AccumulationError!void {
+        if (log_size > self.max_log_size) return AccumulationError.InvalidLogSize;
+        if (self.next_power_index == 0) return AccumulationError.NotEnoughCoefficients;
+
+        self.next_power_index -= 1;
+        const random_coeff = self.random_coeff_powers[self.next_power_index];
+        self.constant_accumulations[log_size] = self.constant_accumulations[log_size]
+            .add(evaluation.mul(random_coeff));
+    }
+
     /// Create a sub-accumulator that owns no memory and shares the pre-computed
     /// power slice of a parent accumulator. Intended for parallel evaluation:
     /// each worker gets its own sub-accumulator that writes to independent
@@ -168,7 +190,10 @@ pub const DomainEvaluationAccumulator = struct {
         start_power_index: usize,
     ) !DomainEvaluationAccumulator {
         const subs = try allocator.alloc(?SecureColumnByCoords, max_log_size + 1);
+        errdefer allocator.free(subs);
         @memset(subs, null);
+        const constants = try allocator.alloc(QM31, max_log_size + 1);
+        @memset(constants, QM31.zero());
 
         return .{
             .allocator = allocator,
@@ -176,6 +201,7 @@ pub const DomainEvaluationAccumulator = struct {
             .random_coeff_powers = parent_powers,
             .next_power_index = start_power_index,
             .sub_accumulations = subs,
+            .constant_accumulations = constants,
             .owns_powers = false,
         };
     }
@@ -186,6 +212,8 @@ pub const DomainEvaluationAccumulator = struct {
     /// so that `other.deinit()` will not double-free them.
     pub fn merge(self: *DomainEvaluationAccumulator, other: *DomainEvaluationAccumulator) void {
         for (0..self.sub_accumulations.len) |i| {
+            self.constant_accumulations[i] = self.constant_accumulations[i]
+                .add(other.constant_accumulations[i]);
             if (other.sub_accumulations[i]) |*other_col| {
                 if (self.sub_accumulations[i]) |*self_col| {
                     // Both have this bucket: add other's values into self's
@@ -209,7 +237,27 @@ pub const DomainEvaluationAccumulator = struct {
         if (self.next_power_index != 0) return AccumulationError.UnusedCoefficients;
 
         const max_size = try checkedPow2(self.max_log_size);
-        var out = try SecureColumnByCoords.zeros(self.allocator, max_size);
+        var constant = QM31.zero();
+        for (self.constant_accumulations) |value| constant = constant.add(value);
+
+        var has_nonconstant = false;
+        for (self.sub_accumulations) |maybe_sub| {
+            if (maybe_sub != null) {
+                has_nonconstant = true;
+                break;
+            }
+        }
+
+        var out = if (has_nonconstant)
+            try SecureColumnByCoords.zeros(self.allocator, max_size)
+        else blk: {
+            const constant_out = try SecureColumnByCoords.uninitialized(self.allocator, max_size);
+            const coordinates = constant.toM31Array();
+            inline for (0..4) |coordinate| {
+                @memset(constant_out.columns[coordinate], coordinates[coordinate]);
+            }
+            break :blk constant_out;
+        };
         errdefer out.deinit(self.allocator);
 
         for (self.sub_accumulations, 0..) |maybe_sub, log_size_usize| {
@@ -218,6 +266,12 @@ pub const DomainEvaluationAccumulator = struct {
             for (0..max_size) |position| {
                 const lifted = try liftedValueAt(sub, log_size, self.max_log_size, position);
                 out.set(position, out.at(position).add(lifted));
+            }
+        }
+
+        if (has_nonconstant and !constant.eql(QM31.zero())) {
+            for (0..max_size) |position| {
+                out.set(position, out.at(position).add(constant));
             }
         }
 
@@ -494,4 +548,41 @@ test "prover air accumulation: merge transfers ownership for empty slots" {
     // A should now have both
     try std.testing.expect(acc_a.sub_accumulations[3] != null);
     try std.testing.expect(acc_a.sub_accumulations[2] != null);
+}
+
+test "prover air accumulation: constants match materialized columns after merge" {
+    const alloc = std.testing.allocator;
+    const alpha = QM31.fromU32Unchecked(3, 1, 0, 0);
+    const value_a = QM31.fromU32Unchecked(7, 2, 1, 0);
+    const value_b = QM31.fromU32Unchecked(11, 0, 4, 1);
+
+    const powers = try generateSecurePowers(alloc, alpha, 2);
+    defer alloc.free(powers);
+    var acc_a = try DomainEvaluationAccumulator.initForComponent(powers, alloc, 3, 2);
+    defer acc_a.deinit();
+    var acc_b = try DomainEvaluationAccumulator.initForComponent(powers, alloc, 3, 1);
+    defer acc_b.deinit();
+    try acc_a.accumulateConstant(3, value_a);
+    try acc_b.accumulateConstant(2, value_b);
+    acc_a.merge(&acc_b);
+    acc_a.next_power_index = 0;
+    var combined = try acc_a.finalize();
+    defer combined.deinit(alloc);
+
+    var reference = try DomainEvaluationAccumulator.init(alloc, alpha, 3, 2);
+    defer reference.deinit();
+    const values_a = [_]QM31{value_a} ** 8;
+    const values_b = [_]QM31{value_b} ** 4;
+    var col_a = try SecureColumnByCoords.fromSecureSlice(alloc, &values_a);
+    defer col_a.deinit(alloc);
+    var col_b = try SecureColumnByCoords.fromSecureSlice(alloc, &values_b);
+    defer col_b.deinit(alloc);
+    try reference.accumulateColumn(3, &col_a);
+    try reference.accumulateColumn(2, &col_b);
+    var expected = try reference.finalize();
+    defer expected.deinit(alloc);
+
+    for (0..combined.len()) |row| {
+        try std.testing.expect(combined.at(row).eql(expected.at(row)));
+    }
 }

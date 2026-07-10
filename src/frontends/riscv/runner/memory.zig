@@ -58,12 +58,26 @@ pub const Memory = struct {
         self.writeByte(addr +% 3, @truncate(val >> 24));
     }
 
-    // ----- Bulk loading -----
+    // ----- Bulk access -----
 
     /// Copy a contiguous slice of bytes into memory starting at `base_addr`.
     pub fn loadSegment(self: *Memory, base_addr: u32, segment: []const u8) void {
         for (segment, 0..) |byte, i| {
             self.writeByte(base_addr +% @as(u32, @intCast(i)), byte);
+        }
+    }
+
+    /// Read `buf.len` bytes from guest memory starting at `addr` into `buf`.
+    pub fn readSlice(self: *const Memory, addr: u32, buf: []u8) void {
+        for (buf, 0..) |*b, i| {
+            b.* = self.readByte(addr +% @as(u32, @intCast(i)));
+        }
+    }
+
+    /// Write `data` bytes into guest memory starting at `addr`.
+    pub fn writeSlice(self: *Memory, addr: u32, data: []const u8) void {
+        for (data, 0..) |byte, i| {
+            self.writeByte(addr +% @as(u32, @intCast(i)), byte);
         }
     }
 };
@@ -122,4 +136,25 @@ test "Memory loadSegment" {
     mem.loadSegment(0x2000, &data);
 
     try std.testing.expectEqual(@as(u32, 0x40302010), mem.readU32(0x2000));
+}
+
+test "Memory readSlice/writeSlice roundtrip" {
+    var mem = Memory.init(std.testing.allocator);
+    defer mem.deinit();
+
+    const data = [_]u8{ 0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE };
+    mem.writeSlice(0x3000, &data);
+
+    var buf: [6]u8 = undefined;
+    mem.readSlice(0x3000, &buf);
+    try std.testing.expectEqualSlices(u8, &data, &buf);
+}
+
+test "Memory readSlice returns zeros for untouched" {
+    var mem = Memory.init(std.testing.allocator);
+    defer mem.deinit();
+
+    var buf: [4]u8 = undefined;
+    mem.readSlice(0x5000, &buf);
+    try std.testing.expectEqualSlices(u8, &[_]u8{ 0, 0, 0, 0 }, &buf);
 }

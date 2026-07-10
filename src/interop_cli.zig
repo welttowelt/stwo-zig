@@ -534,9 +534,7 @@ fn collectProofMetricsFromWire(
 }
 
 fn runGenerate(allocator: std.mem.Allocator, cli: Cli) !void {
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    const gen_alloc = arena.allocator();
+    const gen_alloc = allocator;
 
     const example = cli.example orelse return error.MissingExample;
     if (cli.stage_profile_out != null and example != .wide_fibonacci) {
@@ -552,26 +550,31 @@ fn runGenerate(allocator: std.mem.Allocator, cli: Cli) !void {
                 .n_rounds = cli.blake_n_rounds,
             };
             var proved_statement: blake.Statement = undefined;
-            const proof: blake.Proof = switch (cli.prove_mode) {
+            var proof: blake.Proof = switch (cli.prove_mode) {
                 .prove => blk: {
                     const output = try blake.prove(gen_alloc, config, statement);
                     proved_statement = output.statement;
                     break :blk output.proof;
                 },
                 .prove_ex => blk: {
-                    const output = try blake.proveEx(
+                    var output = try blake.proveEx(
                         gen_alloc,
                         config,
                         statement,
                         cli.include_all_preprocessed_columns,
                     );
                     proved_statement = output.statement;
-                    break :blk output.proof.proof;
+                    const owned_proof = output.proof.proof;
+                    output.proof.aux.deinit(gen_alloc);
+                    break :blk owned_proof;
                 },
             };
+            defer proof.deinit(gen_alloc);
 
             const proof_bytes = try proof_wire.encodeProofBytes(gen_alloc, proof);
+            defer gen_alloc.free(proof_bytes);
             const proof_bytes_hex = try examples_artifact.bytesToHexAlloc(gen_alloc, proof_bytes);
+            defer gen_alloc.free(proof_bytes_hex);
 
             try examples_artifact.writeArtifact(gen_alloc, cli.artifact_path, .{
                 .schema_version = examples_artifact.SCHEMA_VERSION,
@@ -595,26 +598,31 @@ fn runGenerate(allocator: std.mem.Allocator, cli: Cli) !void {
                 .log_n_rows = cli.plonk_log_n_rows,
             };
             var proved_statement: plonk.Statement = undefined;
-            const proof: plonk.Proof = switch (cli.prove_mode) {
+            var proof: plonk.Proof = switch (cli.prove_mode) {
                 .prove => blk: {
                     const output = try plonk.prove(gen_alloc, config, statement);
                     proved_statement = output.statement;
                     break :blk output.proof;
                 },
                 .prove_ex => blk: {
-                    const output = try plonk.proveEx(
+                    var output = try plonk.proveEx(
                         gen_alloc,
                         config,
                         statement,
                         cli.include_all_preprocessed_columns,
                     );
                     proved_statement = output.statement;
-                    break :blk output.proof.proof;
+                    const owned_proof = output.proof.proof;
+                    output.proof.aux.deinit(gen_alloc);
+                    break :blk owned_proof;
                 },
             };
+            defer proof.deinit(gen_alloc);
 
             const proof_bytes = try proof_wire.encodeProofBytes(gen_alloc, proof);
+            defer gen_alloc.free(proof_bytes);
             const proof_bytes_hex = try examples_artifact.bytesToHexAlloc(gen_alloc, proof_bytes);
+            defer gen_alloc.free(proof_bytes_hex);
 
             try examples_artifact.writeArtifact(gen_alloc, cli.artifact_path, .{
                 .schema_version = examples_artifact.SCHEMA_VERSION,
@@ -638,26 +646,31 @@ fn runGenerate(allocator: std.mem.Allocator, cli: Cli) !void {
                 .log_n_instances = cli.poseidon_log_n_instances,
             };
             var proved_statement: poseidon.Statement = undefined;
-            const proof: poseidon.Proof = switch (cli.prove_mode) {
+            var proof: poseidon.Proof = switch (cli.prove_mode) {
                 .prove => blk: {
                     const output = try poseidon.prove(gen_alloc, config, statement);
                     proved_statement = output.statement;
                     break :blk output.proof;
                 },
                 .prove_ex => blk: {
-                    const output = try poseidon.proveEx(
+                    var output = try poseidon.proveEx(
                         gen_alloc,
                         config,
                         statement,
                         cli.include_all_preprocessed_columns,
                     );
                     proved_statement = output.statement;
-                    break :blk output.proof.proof;
+                    const owned_proof = output.proof.proof;
+                    output.proof.aux.deinit(gen_alloc);
+                    break :blk owned_proof;
                 },
             };
+            defer proof.deinit(gen_alloc);
 
             const proof_bytes = try proof_wire.encodeProofBytes(gen_alloc, proof);
+            defer gen_alloc.free(proof_bytes);
             const proof_bytes_hex = try examples_artifact.bytesToHexAlloc(gen_alloc, proof_bytes);
+            defer gen_alloc.free(proof_bytes_hex);
 
             try examples_artifact.writeArtifact(gen_alloc, cli.artifact_path, .{
                 .schema_version = examples_artifact.SCHEMA_VERSION,
@@ -682,7 +695,7 @@ fn runGenerate(allocator: std.mem.Allocator, cli: Cli) !void {
                 try m31FromCanonical(cli.sm_initial_1),
             };
             var statement: state_machine.PreparedStatement = undefined;
-            const proof: state_machine.Proof = switch (cli.prove_mode) {
+            var proof: state_machine.Proof = switch (cli.prove_mode) {
                 .prove => blk: {
                     const output = try state_machine.prove(
                         gen_alloc,
@@ -694,7 +707,7 @@ fn runGenerate(allocator: std.mem.Allocator, cli: Cli) !void {
                     break :blk output.proof;
                 },
                 .prove_ex => blk: {
-                    const output = try state_machine.proveEx(
+                    var output = try state_machine.proveEx(
                         gen_alloc,
                         config,
                         cli.sm_log_n_rows,
@@ -702,12 +715,17 @@ fn runGenerate(allocator: std.mem.Allocator, cli: Cli) !void {
                         cli.include_all_preprocessed_columns,
                     );
                     statement = output.statement;
-                    break :blk output.proof.proof;
+                    const owned_proof = output.proof.proof;
+                    output.proof.aux.deinit(gen_alloc);
+                    break :blk owned_proof;
                 },
             };
+            defer proof.deinit(gen_alloc);
 
             const proof_bytes = try proof_wire.encodeProofBytes(gen_alloc, proof);
+            defer gen_alloc.free(proof_bytes);
             const proof_bytes_hex = try examples_artifact.bytesToHexAlloc(gen_alloc, proof_bytes);
+            defer gen_alloc.free(proof_bytes_hex);
 
             try examples_artifact.writeArtifact(gen_alloc, cli.artifact_path, .{
                 .schema_version = examples_artifact.SCHEMA_VERSION,
@@ -739,7 +757,7 @@ fn runGenerate(allocator: std.mem.Allocator, cli: Cli) !void {
                 break :blk &maybe_stage_recorder.?;
             } else null;
 
-            const proof: wide_fibonacci.Proof = switch (cli.prove_mode) {
+            var proof: wide_fibonacci.Proof = switch (cli.prove_mode) {
                 .prove => blk: {
                     const output = if (stage_recorder) |recorder|
                         try wide_fibonacci.proveProfiled(gen_alloc, config, statement, recorder)
@@ -749,7 +767,7 @@ fn runGenerate(allocator: std.mem.Allocator, cli: Cli) !void {
                     break :blk output.proof;
                 },
                 .prove_ex => blk: {
-                    const output = if (stage_recorder) |recorder|
+                    var output = if (stage_recorder) |recorder|
                         try wide_fibonacci.proveExProfiled(
                             gen_alloc,
                             config,
@@ -765,9 +783,12 @@ fn runGenerate(allocator: std.mem.Allocator, cli: Cli) !void {
                             cli.include_all_preprocessed_columns,
                         );
                     proved_statement = output.statement;
-                    break :blk output.proof.proof;
+                    const owned_proof = output.proof.proof;
+                    output.proof.aux.deinit(gen_alloc);
+                    break :blk owned_proof;
                 },
             };
+            defer proof.deinit(gen_alloc);
 
             const proof_bytes = blk: {
                 var proof_encode_stage = try stage_profile.StageScope.begin(
@@ -778,7 +799,9 @@ fn runGenerate(allocator: std.mem.Allocator, cli: Cli) !void {
                 defer proof_encode_stage.end();
                 break :blk try proof_wire.encodeProofBytes(gen_alloc, proof);
             };
+            defer gen_alloc.free(proof_bytes);
             const proof_bytes_hex = try examples_artifact.bytesToHexAlloc(gen_alloc, proof_bytes);
+            defer gen_alloc.free(proof_bytes_hex);
 
             {
                 var artifact_write_stage = try stage_profile.StageScope.begin(
@@ -815,26 +838,31 @@ fn runGenerate(allocator: std.mem.Allocator, cli: Cli) !void {
                 .offset = cli.xor_offset,
             };
             var proved_statement: xor.Statement = undefined;
-            const proof: xor.Proof = switch (cli.prove_mode) {
+            var proof: xor.Proof = switch (cli.prove_mode) {
                 .prove => blk: {
                     const output = try xor.prove(gen_alloc, config, statement);
                     proved_statement = output.statement;
                     break :blk output.proof;
                 },
                 .prove_ex => blk: {
-                    const output = try xor.proveEx(
+                    var output = try xor.proveEx(
                         gen_alloc,
                         config,
                         statement,
                         cli.include_all_preprocessed_columns,
                     );
                     proved_statement = output.statement;
-                    break :blk output.proof.proof;
+                    const owned_proof = output.proof.proof;
+                    output.proof.aux.deinit(gen_alloc);
+                    break :blk owned_proof;
                 },
             };
+            defer proof.deinit(gen_alloc);
 
             const proof_bytes = try proof_wire.encodeProofBytes(gen_alloc, proof);
+            defer gen_alloc.free(proof_bytes);
             const proof_bytes_hex = try examples_artifact.bytesToHexAlloc(gen_alloc, proof_bytes);
+            defer gen_alloc.free(proof_bytes_hex);
 
             try examples_artifact.writeArtifact(gen_alloc, cli.artifact_path, .{
                 .schema_version = examples_artifact.SCHEMA_VERSION,

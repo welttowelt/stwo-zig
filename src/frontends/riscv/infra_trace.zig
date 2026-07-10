@@ -19,16 +19,23 @@ const M31 = m31.M31;
 const StateChainTracker = state_chain.StateChainTracker;
 
 /// Number of trace columns for the Program ROM component.
-pub const PROGRAM_TRACE_COLS: usize = trace_columns.ProgramColumns.N_COLUMNS; // 8
+/// The trailing root column is protocol-known zero until the program lookup
+/// is wired, so only the seven populated columns are committed.
+pub const PROGRAM_TRACE_COLS: usize = trace_columns.ProgramColumns.N_COLUMNS - 1;
 
 /// Number of trace columns for the Memory check component.
-pub const MEMORY_TRACE_COLS: usize = trace_columns.MemoryCheckColumns.N_COLUMNS; // 9
+/// Multiplicity and root are protocol-known zero until LogUp/state-root
+/// constraints are wired, so only the seven populated columns are committed.
+pub const MEMORY_TRACE_COLS: usize = trace_columns.MemoryCheckColumns.N_COLUMNS - 2;
 
 /// Number of trace columns for the memory clock update component.
 pub const MEM_CLOCK_UPDATE_COLS: usize = trace_columns.MemClockUpdateColumns.N_COLUMNS; // 7
 
 /// Number of trace columns for the register clock update component.
 pub const REG_CLOCK_UPDATE_COLS: usize = trace_columns.RegClockUpdateColumns.N_COLUMNS; // 7
+
+/// Unified clock-gap table used by the current stark-v AIR.
+pub const CLOCK_UPDATE_COLS: usize = 8;
 
 /// Number of trace columns for a single Poseidon2 permutation.
 pub const POSEIDON2_TRACE_COLS: usize = 443;
@@ -43,13 +50,39 @@ pub const N_MULTIPLICITY_TABLES: usize = 6;
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Place `value` at the bit-reversed circle-domain position for `row_idx`.
-fn placeValue(col: []M31, row_idx: usize, log_size: u32, value: M31) void {
-    const br = utils.bitReverseIndex(
-        utils.cosetIndexToCircleDomainIndex(row_idx, log_size),
-        log_size,
-    );
-    col[br] = value;
+/// Pre-computed permutation table mapping coset row indices to
+/// bit-reversed circle-domain positions.  Building this once per log_size
+/// replaces per-cell `cosetIndexToCircleDomainIndex` + `bitReverseIndex`
+/// calls with a single table lookup.
+pub const BitReversalTable = struct {
+    mapping: []const usize,
+
+    /// Allocate and populate the permutation table for `log_size`.
+    pub fn init(allocator: std.mem.Allocator, log_size: u32) !BitReversalTable {
+        const n = @as(usize, 1) << @intCast(log_size);
+        const buf = try allocator.alloc(usize, n);
+        for (0..n) |i| {
+            buf[i] = utils.bitReverseIndex(
+                utils.cosetIndexToCircleDomainIndex(i, log_size),
+                log_size,
+            );
+        }
+        return .{ .mapping = buf };
+    }
+
+    pub fn deinit(self: BitReversalTable, allocator: std.mem.Allocator) void {
+        allocator.free(self.mapping);
+    }
+
+    /// Look up the destination index for `row_idx`.
+    pub inline fn map(self: BitReversalTable, row_idx: usize) usize {
+        return self.mapping[row_idx];
+    }
+};
+
+/// Place `value` at the pre-computed bit-reversed circle-domain position.
+inline fn placeValue(col: []M31, row_idx: usize, table: BitReversalTable, value: M31) void {
+    col[table.map(row_idx)] = value;
 }
 
 /// Allocate `n` zero-filled columns of `domain_size` elements each.
@@ -75,12 +108,12 @@ fn allocZeroColumns(
 // Program ROM (8 columns)
 // ---------------------------------------------------------------------------
 
-/// Generate 8 columns for the Program ROM component.
+/// Generate the seven populated columns for the Program ROM component.
 ///
 /// Iterates over execution trace rows, collecting unique PCs and their
 /// instruction words (byte-decomposed).  Each unique PC becomes one row.
 ///
-/// Columns: enabler, addr, value_0..3, multiplicity, root.
+/// Columns: enabler, addr, value_0..3, multiplicity.
 pub fn genProgramColumns(
     allocator: std.mem.Allocator,
     exec_trace: *const trace_mod.Trace,
@@ -89,6 +122,9 @@ pub fn genProgramColumns(
     const domain_size = @as(usize, 1) << @intCast(log_size);
     var columns = try allocZeroColumns(allocator, PROGRAM_TRACE_COLS, domain_size);
     errdefer for (&columns) |col| allocator.free(col);
+
+    const table = try BitReversalTable.init(allocator, log_size);
+    defer table.deinit(allocator);
 
     // Collect unique PCs with multiplicity and opcode.
     // Key: PC -> { multiplicity, opcode_value }.
@@ -116,14 +152,13 @@ pub fn genProgramColumns(
         const info = pc_info.get(row.pc) orelse PcInfo{ .mult = 0, .opcode_val = 0 };
         const word = info.opcode_val;
 
-        placeValue(columns[0], row_idx, log_size, M31.one()); // enabler
-        placeValue(columns[1], row_idx, log_size, M31.fromCanonical(row.pc & 0x7FFFFFFF)); // addr
-        placeValue(columns[2], row_idx, log_size, M31.fromCanonical(word & 0xFF)); // value_0
-        placeValue(columns[3], row_idx, log_size, M31.fromCanonical((word >> 8) & 0xFF)); // value_1
-        placeValue(columns[4], row_idx, log_size, M31.fromCanonical((word >> 16) & 0xFF)); // value_2
-        placeValue(columns[5], row_idx, log_size, M31.fromCanonical((word >> 24) & 0xFF)); // value_3
-        placeValue(columns[6], row_idx, log_size, M31.fromCanonical(info.mult)); // multiplicity
-        // columns[7] = root (zero placeholder)
+        placeValue(columns[0], row_idx, table, M31.one()); // enabler
+        placeValue(columns[1], row_idx, table, M31.fromCanonical(row.pc & 0x7FFFFFFF)); // addr
+        placeValue(columns[2], row_idx, table, M31.fromCanonical(word & 0xFF)); // value_0
+        placeValue(columns[3], row_idx, table, M31.fromCanonical((word >> 8) & 0xFF)); // value_1
+        placeValue(columns[4], row_idx, table, M31.fromCanonical((word >> 16) & 0xFF)); // value_2
+        placeValue(columns[5], row_idx, table, M31.fromCanonical((word >> 24) & 0xFF)); // value_3
+        placeValue(columns[6], row_idx, table, M31.fromCanonical(info.mult)); // multiplicity
         row_idx += 1;
     }
 
@@ -139,33 +174,50 @@ pub fn freeProgramColumns(allocator: std.mem.Allocator, columns: *[PROGRAM_TRACE
 // Memory check (9 columns)
 // ---------------------------------------------------------------------------
 
-/// Generate 9 columns for the Memory integrity check component.
+/// Generate the seven populated columns for the Memory integrity component.
 ///
-/// Columns: enabler, addr, clk, value_0..3, multiplicity, root.
+/// Columns: enabler, addr, clk, value_0..3.
+pub const MemoryColumnsResult = struct {
+    columns: [MEMORY_TRACE_COLS][]M31,
+    n_real_rows: usize,
+};
+
 pub fn genMemoryColumns(
     allocator: std.mem.Allocator,
     chain: *const StateChainTracker,
     log_size: u32,
-) !struct { columns: [MEMORY_TRACE_COLS][]M31, n_real_rows: usize } {
+) !MemoryColumnsResult {
+    return genMemoryColumnsRange(allocator, chain, log_size, 0, chain.accesses.items.len);
+}
+
+pub fn genMemoryColumnsRange(
+    allocator: std.mem.Allocator,
+    chain: *const StateChainTracker,
+    log_size: u32,
+    access_start: usize,
+    access_end: usize,
+) !MemoryColumnsResult {
+    if (access_start > access_end or access_end > chain.accesses.items.len) return error.InvalidAccessRange;
     const domain_size = @as(usize, 1) << @intCast(log_size);
     var columns = try allocZeroColumns(allocator, MEMORY_TRACE_COLS, domain_size);
     errdefer for (&columns) |col| allocator.free(col);
 
+    const table = try BitReversalTable.init(allocator, log_size);
+    defer table.deinit(allocator);
+
     var row_idx: usize = 0;
-    for (chain.accesses.items) |access| {
+    for (chain.accesses.items[access_start..access_end]) |access| {
         // Include BOTH register (addr_space=0) and memory (addr_space=1) accesses,
         // matching stark-v's unified memory component.
         if (row_idx >= domain_size) break;
 
-        placeValue(columns[0], row_idx, log_size, M31.one()); // enabler
-        placeValue(columns[1], row_idx, log_size, M31.fromCanonical(access.addr & 0x7FFFFFFF)); // addr
-        placeValue(columns[2], row_idx, log_size, M31.fromCanonical(access.clk)); // clk
-        placeValue(columns[3], row_idx, log_size, access.value_limbs[0]); // value_0
-        placeValue(columns[4], row_idx, log_size, access.value_limbs[1]); // value_1
-        placeValue(columns[5], row_idx, log_size, access.value_limbs[2]); // value_2
-        placeValue(columns[6], row_idx, log_size, access.value_limbs[3]); // value_3
-        // columns[7] = multiplicity (zero placeholder)
-        // columns[8] = root (zero placeholder)
+        placeValue(columns[0], row_idx, table, M31.one()); // enabler
+        placeValue(columns[1], row_idx, table, M31.fromCanonical(access.addr & 0x7FFFFFFF)); // addr
+        placeValue(columns[2], row_idx, table, M31.fromCanonical(access.clk)); // clk
+        placeValue(columns[3], row_idx, table, access.value_limbs[0]); // value_0
+        placeValue(columns[4], row_idx, table, access.value_limbs[1]); // value_1
+        placeValue(columns[5], row_idx, table, access.value_limbs[2]); // value_2
+        placeValue(columns[6], row_idx, table, access.value_limbs[3]); // value_3
         row_idx += 1;
     }
 
@@ -193,16 +245,19 @@ pub fn genMemClockUpdateColumns(
     var columns = try allocZeroColumns(allocator, MEM_CLOCK_UPDATE_COLS, domain_size);
     errdefer for (&columns) |col| allocator.free(col);
 
+    const table = try BitReversalTable.init(allocator, log_size);
+    defer table.deinit(allocator);
+
     for (chain.clock_updates_mem.items, 0..) |upd, row_idx| {
         if (row_idx >= domain_size) break;
 
-        placeValue(columns[0], row_idx, log_size, M31.one()); // enabler
-        placeValue(columns[1], row_idx, log_size, M31.fromCanonical(upd.addr & 0x7FFFFFFF)); // addr
-        placeValue(columns[2], row_idx, log_size, M31.fromCanonical(upd.clk)); // clk
-        placeValue(columns[3], row_idx, log_size, M31.fromCanonical(upd.clk_prev)); // clk_prev
-        placeValue(columns[4], row_idx, log_size, upd.value_limbs[0]); // value_0
-        placeValue(columns[5], row_idx, log_size, upd.value_limbs[1]); // value_1
-        placeValue(columns[6], row_idx, log_size, upd.value_limbs[2]); // value_2
+        placeValue(columns[0], row_idx, table, M31.one()); // enabler
+        placeValue(columns[1], row_idx, table, M31.fromCanonical(upd.addr & 0x7FFFFFFF)); // addr
+        placeValue(columns[2], row_idx, table, M31.fromCanonical(upd.clk)); // clk
+        placeValue(columns[3], row_idx, table, M31.fromCanonical(upd.clk_prev)); // clk_prev
+        placeValue(columns[4], row_idx, table, upd.value_limbs[0]); // value_0
+        placeValue(columns[5], row_idx, table, upd.value_limbs[1]); // value_1
+        placeValue(columns[6], row_idx, table, upd.value_limbs[2]); // value_2
     }
 
     return .{ .columns = columns, .n_real_rows = chain.clock_updates_mem.items.len };
@@ -229,16 +284,19 @@ pub fn genRegClockUpdateColumns(
     var columns = try allocZeroColumns(allocator, REG_CLOCK_UPDATE_COLS, domain_size);
     errdefer for (&columns) |col| allocator.free(col);
 
+    const table = try BitReversalTable.init(allocator, log_size);
+    defer table.deinit(allocator);
+
     for (chain.clock_updates_reg.items, 0..) |upd, row_idx| {
         if (row_idx >= domain_size) break;
 
-        placeValue(columns[0], row_idx, log_size, M31.one()); // enabler
-        placeValue(columns[1], row_idx, log_size, M31.fromCanonical(upd.addr & 0x7FFFFFFF)); // addr
-        placeValue(columns[2], row_idx, log_size, M31.fromCanonical(upd.clk_prev)); // clk_prev
-        placeValue(columns[3], row_idx, log_size, upd.value_limbs[0]); // value_0
-        placeValue(columns[4], row_idx, log_size, upd.value_limbs[1]); // value_1
-        placeValue(columns[5], row_idx, log_size, upd.value_limbs[2]); // value_2
-        placeValue(columns[6], row_idx, log_size, upd.value_limbs[3]); // value_3
+        placeValue(columns[0], row_idx, table, M31.one()); // enabler
+        placeValue(columns[1], row_idx, table, M31.fromCanonical(upd.addr & 0x7FFFFFFF)); // addr
+        placeValue(columns[2], row_idx, table, M31.fromCanonical(upd.clk_prev)); // clk_prev
+        placeValue(columns[3], row_idx, table, upd.value_limbs[0]); // value_0
+        placeValue(columns[4], row_idx, table, upd.value_limbs[1]); // value_1
+        placeValue(columns[5], row_idx, table, upd.value_limbs[2]); // value_2
+        placeValue(columns[6], row_idx, table, upd.value_limbs[3]); // value_3
     }
 
     return .{ .columns = columns, .n_real_rows = chain.clock_updates_reg.items.len };
@@ -247,6 +305,56 @@ pub fn genRegClockUpdateColumns(
 /// Free columns allocated by `genRegClockUpdateColumns`.
 pub fn freeRegClockUpdateColumns(allocator: std.mem.Allocator, columns: *[REG_CLOCK_UPDATE_COLS][]M31) void {
     for (columns) |col| allocator.free(col);
+}
+
+/// Generate the unified stark-v clock-gap layout.
+/// Columns: enabler, addr_space, addr, clk_prev, value_0..value_3.
+pub fn genClockUpdateColumns(
+    allocator: std.mem.Allocator,
+    chain: *const StateChainTracker,
+    log_size: u32,
+) !struct { columns: [CLOCK_UPDATE_COLS][]M31, n_real_rows: usize } {
+    const domain_size = @as(usize, 1) << @intCast(log_size);
+    var columns = try allocZeroColumns(allocator, CLOCK_UPDATE_COLS, domain_size);
+    errdefer for (&columns) |col| allocator.free(col);
+
+    const table = try BitReversalTable.init(allocator, log_size);
+    defer table.deinit(allocator);
+
+    var row_idx: usize = 0;
+    for (chain.clock_updates_reg.items) |upd| {
+        if (row_idx >= domain_size) break;
+        placeClockUpdateRow(&columns, row_idx, table, 0, upd);
+        row_idx += 1;
+    }
+    for (chain.clock_updates_mem.items) |upd| {
+        if (row_idx >= domain_size) break;
+        placeClockUpdateRow(&columns, row_idx, table, 1, upd);
+        row_idx += 1;
+    }
+
+    return .{
+        .columns = columns,
+        .n_real_rows = chain.clock_updates_reg.items.len + chain.clock_updates_mem.items.len,
+    };
+}
+
+pub fn freeClockUpdateColumns(allocator: std.mem.Allocator, columns: *[CLOCK_UPDATE_COLS][]M31) void {
+    for (columns) |column| allocator.free(column);
+}
+
+fn placeClockUpdateRow(
+    columns: *[CLOCK_UPDATE_COLS][]M31,
+    row_idx: usize,
+    table: BitReversalTable,
+    addr_space: u32,
+    upd: state_chain.ClockUpdate,
+) void {
+    placeValue(columns[0], row_idx, table, M31.one());
+    placeValue(columns[1], row_idx, table, M31.fromCanonical(addr_space));
+    placeValue(columns[2], row_idx, table, M31.fromCanonical(upd.addr & 0x7FFFFFFF));
+    placeValue(columns[3], row_idx, table, M31.fromCanonical(upd.clk_prev));
+    for (0..4) |i| placeValue(columns[4 + i], row_idx, table, upd.value_limbs[i]);
 }
 
 // ---------------------------------------------------------------------------
@@ -299,11 +407,14 @@ pub fn genPoseidon2Columns(
     var columns = try allocZeroColumns(allocator, POSEIDON2_TRACE_COLS, domain_size);
     errdefer for (&columns) |col| allocator.free(col);
 
+    const table = try BitReversalTable.init(allocator, log_size);
+    defer table.deinit(allocator);
+
     for (hash_traces, 0..) |trace, row| {
         if (row >= domain_size) break;
         const flat = trace.flatten();
         for (0..POSEIDON2_TRACE_COLS) |col| {
-            placeValue(columns[col], row, log_size, flat[col]);
+            placeValue(columns[col], row, table, flat[col]);
         }
     }
 
@@ -326,10 +437,13 @@ pub fn genMerkleColumns(
     var columns = try allocZeroColumns(allocator, MERKLE_TRACE_COLS, domain_size);
     errdefer for (&columns) |col| allocator.free(col);
 
+    const table = try BitReversalTable.init(allocator, log_size);
+    defer table.deinit(allocator);
+
     // Generate n_nodes rows with enabler=1 and index
     for (0..@min(n_nodes, domain_size)) |row| {
-        placeValue(columns[0], row, log_size, M31.one()); // enabler
-        placeValue(columns[1], row, log_size, M31.fromU64(@as(u64, row))); // index
+        placeValue(columns[0], row, table, M31.one()); // enabler
+        placeValue(columns[1], row, table, M31.fromU64(@as(u64, row))); // index
     }
 
     return .{ .columns = columns, .n_real_rows = n_nodes };
@@ -449,16 +563,40 @@ test "infra_trace: genProgramColumns basic" {
     defer exec_trace.deinit();
 
     try exec_trace.append(.{
-        .clk = 0, .pc = 0x1000, .opcode = .ADDI, .rd = 1, .rs1 = 0, .rs2 = 0,
-        .imm = 1, .rs1_val = 0, .rs2_val = 0, .rd_val = 1,
-        .mem_addr = 0, .mem_val = 0, .is_load = false, .is_store = false,
-        .branch_taken = false, .next_pc = 0x1004,
+        .clk = 0,
+        .pc = 0x1000,
+        .opcode = .ADDI,
+        .rd = 1,
+        .rs1 = 0,
+        .rs2 = 0,
+        .imm = 1,
+        .rs1_val = 0,
+        .rs2_val = 0,
+        .rd_val = 1,
+        .mem_addr = 0,
+        .mem_val = 0,
+        .is_load = false,
+        .is_store = false,
+        .branch_taken = false,
+        .next_pc = 0x1004,
     });
     try exec_trace.append(.{
-        .clk = 1, .pc = 0x1004, .opcode = .ADD, .rd = 2, .rs1 = 1, .rs2 = 0,
-        .imm = 0, .rs1_val = 1, .rs2_val = 0, .rd_val = 1,
-        .mem_addr = 0, .mem_val = 0, .is_load = false, .is_store = false,
-        .branch_taken = false, .next_pc = 0x1008,
+        .clk = 1,
+        .pc = 0x1004,
+        .opcode = .ADD,
+        .rd = 2,
+        .rs1 = 1,
+        .rs2 = 0,
+        .imm = 0,
+        .rs1_val = 1,
+        .rs2_val = 0,
+        .rd_val = 1,
+        .mem_addr = 0,
+        .mem_val = 0,
+        .is_load = false,
+        .is_store = false,
+        .branch_taken = false,
+        .next_pc = 0x1008,
     });
 
     var result = try genProgramColumns(allocator, &exec_trace, 4);
@@ -476,10 +614,22 @@ test "infra_trace: genPreprocessedMultiplicityColumns basic" {
 
     for (0..32) |i| {
         try exec_trace.append(.{
-            .clk = @intCast(i), .pc = @intCast(0x1000 + i * 4), .opcode = .ADDI,
-            .rd = 1, .rs1 = 0, .rs2 = 0, .imm = 1, .rs1_val = 0, .rs2_val = 0,
-            .rd_val = 1, .mem_addr = 0, .mem_val = 0, .is_load = false,
-            .is_store = false, .branch_taken = false, .next_pc = @intCast(0x1004 + i * 4),
+            .clk = @intCast(i),
+            .pc = @intCast(0x1000 + i * 4),
+            .opcode = .ADDI,
+            .rd = 1,
+            .rs1 = 0,
+            .rs2 = 0,
+            .imm = 1,
+            .rs1_val = 0,
+            .rs2_val = 0,
+            .rd_val = 1,
+            .mem_addr = 0,
+            .mem_val = 0,
+            .is_load = false,
+            .is_store = false,
+            .branch_taken = false,
+            .next_pc = @intCast(0x1004 + i * 4),
         });
     }
 
@@ -500,24 +650,60 @@ fn makeSmallExecTrace(allocator: std.mem.Allocator) !trace_mod.Trace {
     errdefer t.deinit();
     // Row 0: pc=0x100
     try t.append(.{
-        .clk = 0, .pc = 0x100, .opcode = .ADD, .rd = 1, .rs1 = 2, .rs2 = 3,
-        .imm = 0, .rs1_val = 10, .rs2_val = 20, .rd_val = 30,
-        .mem_addr = 0, .mem_val = 0, .is_load = false, .is_store = false,
-        .branch_taken = false, .next_pc = 0x104,
+        .clk = 0,
+        .pc = 0x100,
+        .opcode = .ADD,
+        .rd = 1,
+        .rs1 = 2,
+        .rs2 = 3,
+        .imm = 0,
+        .rs1_val = 10,
+        .rs2_val = 20,
+        .rd_val = 30,
+        .mem_addr = 0,
+        .mem_val = 0,
+        .is_load = false,
+        .is_store = false,
+        .branch_taken = false,
+        .next_pc = 0x104,
     });
     // Row 1: pc=0x104
     try t.append(.{
-        .clk = 1, .pc = 0x104, .opcode = .SUB, .rd = 4, .rs1 = 1, .rs2 = 5,
-        .imm = 0, .rs1_val = 30, .rs2_val = 5, .rd_val = 25,
-        .mem_addr = 0, .mem_val = 0, .is_load = false, .is_store = false,
-        .branch_taken = false, .next_pc = 0x108,
+        .clk = 1,
+        .pc = 0x104,
+        .opcode = .SUB,
+        .rd = 4,
+        .rs1 = 1,
+        .rs2 = 5,
+        .imm = 0,
+        .rs1_val = 30,
+        .rs2_val = 5,
+        .rd_val = 25,
+        .mem_addr = 0,
+        .mem_val = 0,
+        .is_load = false,
+        .is_store = false,
+        .branch_taken = false,
+        .next_pc = 0x108,
     });
     // Row 2: repeat pc=0x100 (multiplicity test)
     try t.append(.{
-        .clk = 2, .pc = 0x100, .opcode = .ADD, .rd = 1, .rs1 = 2, .rs2 = 3,
-        .imm = 0, .rs1_val = 10, .rs2_val = 20, .rd_val = 30,
-        .mem_addr = 0, .mem_val = 0, .is_load = false, .is_store = false,
-        .branch_taken = false, .next_pc = 0x104,
+        .clk = 2,
+        .pc = 0x100,
+        .opcode = .ADD,
+        .rd = 1,
+        .rs1 = 2,
+        .rs2 = 3,
+        .imm = 0,
+        .rs1_val = 10,
+        .rs2_val = 20,
+        .rd_val = 30,
+        .mem_addr = 0,
+        .mem_val = 0,
+        .is_load = false,
+        .is_store = false,
+        .branch_taken = false,
+        .next_pc = 0x104,
     });
     return t;
 }
@@ -786,6 +972,29 @@ test "infra_trace: genRegClockUpdateColumns all columns have domain_size length"
     for (result.columns) |col| {
         try std.testing.expectEqual(domain_size, col.len);
     }
+}
+
+test "infra_trace: unified clock updates preserve address spaces" {
+    const allocator = std.testing.allocator;
+    var chain = StateChainTracker.init(allocator);
+    defer chain.deinit();
+
+    try chain.recordRegAccess(5, 2_000_000, 0x01020304);
+    try chain.recordMemAccess(0x3000, 2_000_000, 0xA0B0C0D0);
+
+    var result = try genClockUpdateColumns(allocator, &chain, 2);
+    defer freeClockUpdateColumns(allocator, &result.columns);
+
+    try std.testing.expectEqual(@as(usize, 2), result.n_real_rows);
+    var register_rows: usize = 0;
+    var memory_rows: usize = 0;
+    for (result.columns[0], result.columns[1]) |enabled, addr_space| {
+        if (!enabled.eql(M31.one())) continue;
+        if (addr_space.eql(M31.zero())) register_rows += 1;
+        if (addr_space.eql(M31.one())) memory_rows += 1;
+    }
+    try std.testing.expectEqual(@as(usize, 1), register_rows);
+    try std.testing.expectEqual(@as(usize, 1), memory_rows);
 }
 
 // ---------------------------------------------------------------------------

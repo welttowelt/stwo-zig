@@ -1,0 +1,12 @@
+[package]
+name = "stwo-guest-sdk"
+version = "0.1.0"
+edition = "2021"
+description = "Guest SDK for stwo-zig RISC-V zkVM — syscall wrappers and I/O"
+
+[dependencies]
+serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
+postcard = { version = "1", default-features = false, features = ["alloc"] }
+
+[features]
+default = []

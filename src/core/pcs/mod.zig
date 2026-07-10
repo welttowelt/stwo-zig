@@ -36,13 +36,19 @@ pub const PcsConfig = struct {
             @as(u32, @intCast(self.fri_config.n_queries)),
             self.fri_config.log_last_layer_degree_bound,
         );
-        const packed_config_2 = QM31.fromU32Unchecked(
-            self.fri_config.fold_step,
-            self.lifting_log_size orelse 0,
-            0,
-            0,
-        );
-        channel.mixFelts(&[_]QM31{ packed_config_1, packed_config_2 });
+        channel.mixFelts(&[_]QM31{packed_config_1});
+
+        // Preserve the upstream transcript unless fork-only parameters are
+        // explicitly selected. Default proofs must remain Rust-compatible.
+        if (self.fri_config.fold_step != fri.FOLD_STEP or self.lifting_log_size != null) {
+            const packed_config_2 = QM31.fromU32Unchecked(
+                self.fri_config.fold_step,
+                self.lifting_log_size orelse 0,
+                0,
+                0,
+            );
+            channel.mixFelts(&[_]QM31{packed_config_2});
+        }
     }
 
     pub fn default() PcsConfig {

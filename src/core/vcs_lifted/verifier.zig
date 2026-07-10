@@ -9,6 +9,8 @@ pub const MerkleVerificationError = error{
     WitnessTooShort,
     WitnessTooLong,
     RootMismatch,
+    InvalidQueryShape,
+    DuplicateQueryMismatch,
 };
 
 pub fn MerkleDecommitmentLifted(comptime H: type) type {
@@ -97,12 +99,38 @@ pub fn MerkleVerifierLifted(comptime H: type) type {
         ) (std.mem.Allocator.Error || MerkleVerificationError)!void {
             if (self.column_log_sizes.len == 0) return;
 
-            // If duplicate queries appear, all columns should agree on their values.
-            var i: usize = 1;
-            while (i < query_positions.len) : (i += 1) {
-                if (query_positions[i - 1] != query_positions[i]) continue;
-                for (queried_values) |col| {
-                    std.debug.assert(col[i - 1].eql(col[i]));
+            for (queried_values) |column| {
+                if (column.len != query_positions.len) return MerkleVerificationError.InvalidQueryShape;
+            }
+
+            const QueryOrder = struct {
+                positions: []const usize,
+
+                fn lessThan(context: @This(), lhs: usize, rhs: usize) bool {
+                    const lhs_position = context.positions[lhs];
+                    const rhs_position = context.positions[rhs];
+                    return lhs_position < rhs_position or
+                        (lhs_position == rhs_position and lhs < rhs);
+                }
+            };
+            const query_order = try allocator.alloc(usize, query_positions.len);
+            defer allocator.free(query_order);
+            for (query_order, 0..) |*index, j| index.* = j;
+            std.sort.heap(
+                usize,
+                query_order,
+                QueryOrder{ .positions = query_positions },
+                QueryOrder.lessThan,
+            );
+
+            var unique_positions = std.ArrayList(usize).empty;
+            defer unique_positions.deinit(allocator);
+            for (query_order) |original_index| {
+                const position = query_positions[original_index];
+                if (unique_positions.items.len == 0 or
+                    unique_positions.items[unique_positions.items.len - 1] != position)
+                {
+                    try unique_positions.append(allocator, position);
                 }
             }
 
@@ -113,7 +141,8 @@ pub fn MerkleVerifierLifted(comptime H: type) type {
             for (col_indices, 0..) |*idx, j| idx.* = j;
             std.sort.heap(usize, col_indices, self.column_log_sizes, lessByLogSize);
 
-            // Deduplicate values per sorted column by query positions.
+            // Sort query values into Merkle order and deduplicate folded
+            // positions. The proof keeps its original order for FRI answers.
             var dedup_cols = try allocator.alloc([]M31, n_cols);
             defer {
                 for (dedup_cols) |col| allocator.free(col);
@@ -123,10 +152,12 @@ pub fn MerkleVerifierLifted(comptime H: type) type {
                 const col = queried_values[col_idx];
                 var dedup = std.ArrayList(M31).empty;
                 defer dedup.deinit(allocator);
-                var k: usize = 0;
-                while (k < query_positions.len and k < col.len) : (k += 1) {
-                    if (k == 0 or query_positions[k] != query_positions[k - 1]) {
-                        try dedup.append(allocator, col[k]);
+                for (query_order, 0..) |original_index, sorted_index| {
+                    const position = query_positions[original_index];
+                    if (sorted_index == 0 or position != query_positions[query_order[sorted_index - 1]]) {
+                        try dedup.append(allocator, col[original_index]);
+                    } else if (!dedup.items[dedup.items.len - 1].eql(col[original_index])) {
+                        return MerkleVerificationError.DuplicateQueryMismatch;
                     }
                 }
                 dedup_cols[j] = try dedup.toOwnedSlice(allocator);
@@ -140,7 +171,7 @@ pub fn MerkleVerifierLifted(comptime H: type) type {
             defer allocator.free(col_pos);
             @memset(col_pos, 0);
 
-            for (query_positions) |pos| {
+            for (unique_positions.items) |pos| {
                 var row = std.ArrayList(M31).empty;
                 defer row.deinit(allocator);
                 for (dedup_cols, 0..) |col, col_i| {
