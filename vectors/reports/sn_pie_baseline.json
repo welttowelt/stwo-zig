@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "measured_at": "2026-07-10",
+  "hardware": {
+    "model": "MacBook Pro Mac16,5",
+    "chip": "Apple M4 Max",
+    "cpu_cores": 14,
+    "gpu_cores": 32,
+    "memory_bytes": 38654705664,
+    "metal_support": "Metal 3",
+    "metal_max_buffer_length": 21743271936,
+    "metal_recommended_working_set_size": 28991029248
+  },
+  "corpus": [
+    {"name":"SN_PIE_1","path":"/Users/theodorepender/Coding/stwo-things/SN_PIEs/SN_PIE_1.zip","archive_bytes":81919642,"n_steps":14645112,"memory_holes":1025855},
+    {"name":"SN_PIE_2","path":"/Users/theodorepender/Coding/stwo-things/SN_PIEs/SN_PIE_2.zip","archive_bytes":44039431,"n_steps":7706864,"memory_holes":799597},
+    {"name":"SN_PIE_3","path":"/Users/theodorepender/Coding/stwo-things/SN_PIEs/SN_PIE_3.zip","archive_bytes":81333170,"n_steps":14075019,"memory_holes":1222424},
+    {"name":"SN_PIE_4","path":"/Users/theodorepender/Coding/stwo-things/SN_PIEs/SN_PIE_4.zip","archive_bytes":76790282,"n_steps":14058247,"memory_holes":1231693},
+    {"name":"sepolia_target_10m","path":"/Users/theodorepender/Downloads/sepolia_near_step_target_pies_10m_to_60m/pies/target10m_sepolia_10309951_10310029.zip","archive_bytes":99112978,"n_steps":12450281,"memory_holes":693876},
+    {"name":"sepolia_target_20m","path":"/Users/theodorepender/Downloads/sepolia_near_step_target_pies_10m_to_60m/pies/target20m_sepolia_10310472_10310597.zip","archive_bytes":190942738,"n_steps":22212985,"memory_holes":777826},
+    {"name":"sepolia_target_30m","path":"/Users/theodorepender/Downloads/sepolia_near_step_target_pies_10m_to_60m/pies/target30m_sepolia_10310081_10310276.zip","archive_bytes":291546159,"n_steps":32719374,"memory_holes":967232},
+    {"name":"sepolia_target_40m","path":"/Users/theodorepender/Downloads/sepolia_near_step_target_pies_10m_to_60m/pies/target40m_sepolia_10310387_10310630.zip","archive_bytes":332553334,"n_steps":39580612,"memory_holes":1184165},
+    {"name":"sepolia_target_50m","path":"/Users/theodorepender/Downloads/sepolia_near_step_target_pies_10m_to_60m/pies/target50m_v2_sepolia_10310244_10310583.zip","archive_bytes":413021392,"n_steps":49746014,"memory_holes":1392187},
+    {"name":"sepolia_target_60m","path":"/Users/theodorepender/Downloads/sepolia_near_step_target_pies_10m_to_60m/pies/target60m_sepolia_10310244_10310653.zip","archive_bytes":501028450,"n_steps":60111972,"memory_holes":1595128}
+  ],
+  "runs": [
+    {
+      "name": "SN_PIE_2_counts_only",
+      "runner": "/Users/theodorepender/Coding/stwo-things/stwo-cairo/stwo_cairo_prover/target/release/pie_bench",
+      "adapted_cycle_count": 7833306,
+      "vm_seconds": 2.819,
+      "adapt_seconds": 0.466,
+      "wall_seconds": 3.89,
+      "maximum_resident_bytes": 4313989120,
+      "status": "ok"
+    },
+    {
+      "name": "SN_PIE_2_rust_simd_prove",
+      "backend": "simd",
+      "pcs": {"hash":"Blake2s","pow_bits":26,"fri_log_blowup":1,"fri_log_last_layer_degree_bound":0,"fri_n_queries":70},
+      "wall_seconds": 52.37,
+      "maximum_resident_bytes": 17342873600,
+      "peak_memory_footprint_bytes": 48664025152,
+      "status": "failed",
+      "error": "QM31 inverse panic: 0 has no inverse"
+    }
+  ],
+  "notes": [
+    "Archive byte counts are exact compressed file sizes and must not be used as in-memory proof input size metrics.",
+    "The Zig repository does not yet implement Cairo PIE bootloader/adaptation, so no Zig SN PIE proof result is claimed."
+  ]
+}
