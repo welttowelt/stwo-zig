@@ -25,6 +25,29 @@ The adapted input contains:
 - builtin segment data; and
 - the 11-bit public-segment presence context.
 
+## Implemented binary boundary
+
+The Zig frontend now imports the complete canonical adapted input through the
+versioned `STWZCPI` little-endian format. Version 1 contains, in order:
+
+- initial and final `(pc, ap, fp)` states and unique-PC count;
+- the 11-bit public segment mask;
+- all 20 opcode state vectors in canonical adapter order;
+- memory configuration, address-to-ID, ID-to-big, and ID-to-small tables;
+- public memory addresses; and
+- the nine builtin segment ranges represented by current stwo-cairo.
+
+The reader uses a 1 MiB streaming buffer, validates every count before
+allocation, rejects trailing data, and allocates only the final typed Zig
+tables. On `SN_PIE_2` the 152 MiB adapted artifact loads in 0.32 seconds with
+about 162 MiB peak RSS. It reproduces 7,833,306 cycles, 8,871,004 address IDs,
+146,246 big values, 1,604,405 small values, and 4,166 public memory addresses.
+
+This is an ingestion result, not a proof result. The remaining correctness gate
+is a mechanical export of the canonical witness generators and generated AIR.
+The symbolic exporter must preserve polynomial constraints and every LogUp
+`RelationEntry`; omitting relation multiplicities or values is not acceptable.
+
 The production interchange format must be a versioned, little-endian binary
 container. JSON remains a parity/debug format only: multi-million-step PIEs
 make a DOM-style JSON import an unacceptable memory multiplier.

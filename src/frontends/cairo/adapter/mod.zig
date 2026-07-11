@@ -13,19 +13,31 @@ const memory_mod = @import("../common/memory.zig");
 pub const decode = @import("decode.zig");
 pub const opcodes = @import("opcodes.zig");
 pub const trace_reader = @import("trace_reader.zig");
+pub const adapted_input = @import("adapted_input.zig");
 
 const CasmState = cpu.CasmState;
 const Memory = memory_mod.Memory;
 
-/// Builtin segment descriptors.
-pub const BuiltinSegments = struct {
-    /// Segment presence flags for 11 builtin types.
-    present: [N_PUBLIC_SEGMENTS]bool = .{false} ** N_PUBLIC_SEGMENTS,
-
-    pub const N_PUBLIC_SEGMENTS: usize = 11;
-    // 0=output, 1=pedersen, 2=range_check, 3=ecdsa, 4=bitwise,
-    // 5=ec_op, 6=keccak, 7=poseidon, 8=range_check96, 9=add_mod, 10=mul_mod
+pub const MemorySegmentAddresses = struct {
+    begin_addr: usize,
+    stop_ptr: usize,
 };
+
+/// Builtin segment descriptors in canonical stwo-cairo order.
+pub const BuiltinSegments = struct {
+    add_mod_builtin: ?MemorySegmentAddresses = null,
+    bitwise_builtin: ?MemorySegmentAddresses = null,
+    output: ?MemorySegmentAddresses = null,
+    mul_mod_builtin: ?MemorySegmentAddresses = null,
+    pedersen_builtin: ?MemorySegmentAddresses = null,
+    poseidon_builtin: ?MemorySegmentAddresses = null,
+    range_check96_builtin: ?MemorySegmentAddresses = null,
+    range_check_builtin: ?MemorySegmentAddresses = null,
+    ec_op_builtin: ?MemorySegmentAddresses = null,
+};
+
+pub const N_PUBLIC_SEGMENTS: usize = 11;
+pub const PublicSegmentContext = [N_PUBLIC_SEGMENTS]bool;
 
 /// State transitions extracted from a Cairo VM trace.
 pub const StateTransitions = struct {
@@ -46,6 +58,7 @@ pub const ProverInput = struct {
     pc_count: usize,
     public_memory_addresses: []u32,
     builtin_segments: BuiltinSegments,
+    public_segment_context: PublicSegmentContext,
 
     pub fn deinit(self: *ProverInput, allocator: std.mem.Allocator) void {
         self.state_transitions.deinit(allocator);

@@ -25,6 +25,19 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_tests.step);
 
+    const cairo_input_module = b.createModule(.{
+        .root_source_file = b.path("src/cairo_input_cli.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cairo_input_cli = b.addExecutable(.{
+        .name = "cairo-input",
+        .root_module = cairo_input_module,
+    });
+    b.installArtifact(cairo_input_cli);
+    const cairo_input_step = b.step("cairo-input", "Build adapted Cairo input inspector");
+    cairo_input_step.dependOn(&cairo_input_cli.step);
+
     // -----------------------------------------------------------------
     // RISC-V trace dumper CLI for cross-verification
     // -----------------------------------------------------------------
