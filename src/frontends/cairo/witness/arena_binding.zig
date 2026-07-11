@@ -613,6 +613,51 @@ pub fn prepareFixedTableBatch(
     return protocol_recipes.FixedTableBatchRecipe.init(allocator, metal, resident_arena, bindings.items);
 }
 
+pub fn interpolateTraceColumns(
+    allocator: std.mem.Allocator,
+    metal: *metal_runtime.Runtime,
+    resident_arena: *arena_plan.ResidentArena,
+    schedule: []const std.json.Value,
+    plan: arena_plan.Plan,
+    source_purpose: []const u8,
+    destination_purpose: []const u8,
+    inverse_twiddle_purpose: []const u8,
+) !f64 {
+    const sources = try collectScheduleOrder(allocator, schedule, plan, source_purpose);
+    defer allocator.free(sources);
+    const destinations = try collectScheduleOrder(allocator, schedule, plan, destination_purpose);
+    defer allocator.free(destinations);
+    if (sources.len != destinations.len) return Error.InvalidCardinality;
+    const inverse_twiddles = try one(schedule, plan, inverse_twiddle_purpose);
+    var gpu_ms: f64 = 0;
+    for (4..25) |log_size_usize| {
+        const log_size: u32 = @intCast(log_size_usize);
+        const expected_bytes = (@as(u64, 1) << @intCast(log_size)) * 4;
+        var source_offsets = std.ArrayList(u32).empty;
+        defer source_offsets.deinit(allocator);
+        var destination_offsets = std.ArrayList(u32).empty;
+        defer destination_offsets.deinit(allocator);
+        for (sources, destinations) |source, destination| {
+            if (source.size_bytes != expected_bytes) continue;
+            if (destination.size_bytes != expected_bytes) return Error.InvalidBindingSize;
+            try source_offsets.append(allocator, try wordOffset(source));
+            try destination_offsets.append(allocator, try wordOffset(destination));
+        }
+        if (source_offsets.items.len == 0) continue;
+        const scale = (try M31.fromCanonical(@as(u32, 1) << @intCast(log_size)).inv()).v;
+        var prepared = try metal.prepareCircleIfft(
+            source_offsets.items,
+            destination_offsets.items,
+            log_size,
+            try wordOffset(inverse_twiddles),
+            scale,
+        );
+        defer prepared.deinit();
+        gpu_ms += try metal.circleIfftPrepared(resident_arena.buffer, prepared);
+    }
+    return gpu_ms;
+}
+
 pub fn prepareEcOpWitness(
     allocator: std.mem.Allocator,
     metal: *metal_runtime.Runtime,

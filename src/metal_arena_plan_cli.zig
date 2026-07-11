@@ -303,6 +303,7 @@ pub fn main() !void {
     var witness_graph_gpu_ms: f64 = 0;
     var populated_preprocessed_coefficients: usize = 0;
     var preprocessed_gpu_ms: f64 = 0;
+    var base_interpolation_gpu_ms: f64 = 0;
     if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_PREPARE_METAL")) {
         const bindings = if (proof_bindings) |*value| value else return error.MissingPreparedProofBindings;
         var metal = try metal_runtime.Runtime.init();
@@ -402,6 +403,13 @@ pub fn main() !void {
                 executed_witness_programs = recorded.executed_programs + native.executed_programs;
                 witness_graph_gpu_ms = recorded.gpu_ms + native.gpu_ms;
             }
+        }
+        if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_BASE_INTERPOLATION")) {
+            if (executed_witness_programs != witness_bundle.?.entries.len) return error.WitnessGraphNotExecuted;
+            base_interpolation_gpu_ms = try arena_binding_mod.interpolateTraceColumns(
+                allocator, &metal, &resident_arena, schedule, plan,
+                "BaseTrace", "BaseCoefficients", "InverseTwiddles",
+            );
         }
         const composition_path = args[7];
         if (!std.mem.endsWith(u8, composition_path, ".bin")) return error.InvalidCompositionPath;
@@ -532,6 +540,7 @@ pub fn main() !void {
         .witness_graph_gpu_ms = witness_graph_gpu_ms,
         .populated_preprocessed_coefficients = populated_preprocessed_coefficients,
         .preprocessed_gpu_ms = preprocessed_gpu_ms,
+        .base_interpolation_gpu_ms = base_interpolation_gpu_ms,
         .prepared_quotient_partials = if (proof_bindings) |bindings| bindings.quotient_partials.len else 0,
         .prepared_fri_layers = if (proof_bindings) |bindings| bindings.fri_merkle_layers.len else 0,
         .native_recipe_buffers = native_recipe_buffers,
