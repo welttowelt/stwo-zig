@@ -1802,6 +1802,7 @@ pub const DecommitQueryRecipe = struct {
     mapped_queries: arena_plan.Binding,
     expanded_positions: arena_plan.Binding,
     walk_queries: arena_plan.Binding,
+    walk_scratch: arena_plan.Binding,
     sparse_indices: arena_plan.Binding,
     counts: arena_plan.Binding,
     assembly: arena_plan.Binding,
@@ -1816,17 +1817,18 @@ pub const DecommitQueryRecipe = struct {
         mapped_queries: arena_plan.Binding,
         expanded_positions: arena_plan.Binding,
         walk_queries: arena_plan.Binding,
+        walk_scratch: arena_plan.Binding,
         sparse_indices: arena_plan.Binding,
         counts: arena_plan.Binding,
         assembly: arena_plan.Binding,
         tree_count: u32,
     ) !DecommitQueryRecipe {
-        for ([_]arena_plan.Binding{ raw_queries, unique_queries, mapped_queries, expanded_positions, walk_queries, sparse_indices, counts }) |binding| {
+        for ([_]arena_plan.Binding{ raw_queries, unique_queries, mapped_queries, expanded_positions, walk_queries, walk_scratch, sparse_indices, counts }) |binding| {
             if (binding.offset_bytes % 4 != 0) return recovery.RecoveryError.BindingSizeMismatch;
         }
         if (raw_queries.size_bytes != 70 * 4 or unique_queries.size_bytes < raw_queries.size_bytes or tree_count == 0 or
             mapped_queries.size_bytes < raw_queries.size_bytes or expanded_positions.size_bytes < 560 * 4 or
-            walk_queries.size_bytes < 560 * 4 or sparse_indices.size_bytes < 560 * 4 or counts.size_bytes < 4 * 4 or
+            walk_queries.size_bytes < 560 * 4 or walk_scratch.size_bytes < walk_queries.size_bytes or sparse_indices.size_bytes < 560 * 4 or counts.size_bytes < 4 * 4 or
             assembly.offset_bytes % 4 != 0 or assembly.size_bytes / 4 > std.math.maxInt(u32))
             return recovery.RecoveryError.BindingSizeMismatch;
         return .{
@@ -1837,6 +1839,7 @@ pub const DecommitQueryRecipe = struct {
             .mapped_queries = mapped_queries,
             .expanded_positions = expanded_positions,
             .walk_queries = walk_queries,
+            .walk_scratch = walk_scratch,
             .sparse_indices = sparse_indices,
             .counts = counts,
             .assembly = assembly,
@@ -1952,6 +1955,35 @@ pub const DecommitQueryRecipe = struct {
             count_base + 2,
             @intCast(self.expanded_positions.size_bytes / 4),
             try bindingWordOffset(values),
+        );
+    }
+
+    pub fn assembleFri(
+        self: *DecommitQueryRecipe,
+        tree_index: u32,
+        leaf_log: u32,
+        coordinate_offsets: arena_plan.Binding,
+        retained_offsets: arena_plan.Binding,
+        values: arena_plan.Binding,
+    ) !void {
+        try self.gatherFriValues(coordinate_offsets, values);
+        if (retained_offsets.size_bytes < @as(u64, leaf_log + 1) * 4) return recovery.RecoveryError.BindingSizeMismatch;
+        const count_base = try bindingWordOffset(self.counts);
+        self.accumulated_gpu_ms += try self.metal.decommitAssembleFri(
+            self.arena.buffer,
+            tree_index,
+            leaf_log,
+            try bindingWordOffset(self.mapped_queries),
+            count_base + 1,
+            try bindingWordOffset(self.expanded_positions),
+            count_base + 2,
+            try bindingWordOffset(values),
+            try bindingWordOffset(self.walk_queries),
+            try bindingWordOffset(self.walk_scratch),
+            count_base + 3,
+            try bindingWordOffset(retained_offsets),
+            try bindingWordOffset(self.assembly),
+            @intCast(self.assembly.size_bytes / 4),
         );
     }
 };

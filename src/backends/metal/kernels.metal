@@ -2535,6 +2535,109 @@ kernel void stwo_zig_decommit_gather_fri_values_resident(
     }
 }
 
+inline bool decommit_contains_sorted(device uint *arena, uint base, uint count, uint target) {
+    uint lo = 0u, hi = count;
+    while (lo < hi) {
+        uint mid = lo + ((hi - lo) >> 1u);
+        if (arena[base + mid] < target) lo = mid + 1u; else hi = mid;
+    }
+    return lo < count && arena[base + lo] == target;
+}
+
+inline bool decommit_reserve(device uint *arena, uint assembly, uint capacity, uint count, thread uint &offset) {
+    uint cursor = arena[assembly + 7u];
+    if (cursor > capacity || count > capacity - cursor) {
+        arena[assembly + 7u] = 0u;
+        return false;
+    }
+    offset = cursor;
+    arena[assembly + 7u] = cursor + count;
+    return true;
+}
+
+inline void decommit_copy_hash(device uint *arena, uint destination, uint source) {
+    for (uint word = 0u; word < 8u; ++word) arena[destination + word] = arena[source + word];
+}
+
+kernel void stwo_zig_decommit_assemble_fri_resident(
+    device uint *arena [[buffer(0)]],
+    constant uint &tree_index [[buffer(1)]], constant uint &leaf_log [[buffer(2)]],
+    constant uint &tree_queries [[buffer(3)]], constant uint &tree_count_at [[buffer(4)]],
+    constant uint &expanded [[buffer(5)]], constant uint &expanded_count_at [[buffer(6)]],
+    constant uint &values [[buffer(7)]], constant uint &walk [[buffer(8)]],
+    constant uint &scratch [[buffer(9)]], constant uint &walk_count_at [[buffer(10)]],
+    constant uint &retained_offsets [[buffer(11)]], constant uint &assembly [[buffer(12)]],
+    constant uint &capacity [[buffer(13)]], uint lane [[thread_position_in_grid]]
+) {
+    if (lane != 0u || arena[assembly + 7u] == 0u) return;
+    uint meta = assembly + 8u + tree_index * 16u;
+    uint tree_start = arena[assembly + 7u];
+    uint query_count = arena[tree_count_at], expanded_count = arena[expanded_count_at], offset = 0u;
+    if (!decommit_reserve(arena, assembly, capacity, query_count, offset)) return;
+    arena[meta + 2u] = offset; arena[meta + 3u] = query_count;
+    for (uint i = 0u; i < query_count; ++i) arena[assembly + offset + i] = arena[tree_queries + i];
+
+    uint witness_count = 0u;
+    for (uint i = 0u; i < expanded_count; ++i)
+        witness_count += decommit_contains_sorted(arena, tree_queries, query_count, arena[expanded + i]) ? 0u : 1u;
+    if (!decommit_reserve(arena, assembly, capacity, 4u * witness_count, offset)) return;
+    arena[meta + 6u] = offset; arena[meta + 7u] = witness_count;
+    uint witness = 0u;
+    for (uint i = 0u; i < expanded_count; ++i) {
+        if (decommit_contains_sorted(arena, tree_queries, query_count, arena[expanded + i])) continue;
+        for (uint c = 0u; c < 4u; ++c) arena[assembly + offset + 4u * witness + c] = arena[values + 4u * i + c];
+        ++witness;
+    }
+
+    uint current_count = arena[walk_count_at];
+    bool current_is_walk = true;
+    uint hash_offset = arena[assembly + 7u];
+    uint aux_offset = hash_offset + leaf_log * current_count * 8u;
+    uint reserve = leaf_log * current_count * 28u;
+    if (!decommit_reserve(arena, assembly, capacity, reserve, offset)) return;
+    uint hash_count = 0u, aux_count = 0u;
+    for (int layer = int(leaf_log) - 1; layer >= 0; --layer) {
+        uint previous_level = uint(layer) + 1u, next_count = 0u;
+        uint current = current_is_walk ? walk : scratch;
+        uint next = current_is_walk ? scratch : walk;
+        for (uint i = 0u; i < current_count;) {
+            uint first = arena[current + i];
+            bool pair = i + 1u < current_count && arena[current + i + 1u] == (first ^ 1u);
+            if (!pair) {
+                uint source = arena[retained_offsets + previous_level] + (first ^ 1u) * 8u;
+                decommit_copy_hash(arena, assembly + hash_offset + hash_count * 8u, source);
+                ++hash_count;
+            }
+            uint parent = first >> 1u;
+            arena[next + next_count++] = parent;
+            for (uint child = 2u * parent; child <= 2u * parent + 1u; ++child) {
+                uint entry = assembly + aux_offset + aux_count * 10u;
+                arena[entry] = previous_level; arena[entry + 1u] = child;
+                decommit_copy_hash(arena, entry + 2u, arena[retained_offsets + previous_level] + child * 8u);
+                ++aux_count;
+            }
+            i += pair ? 2u : 1u;
+        }
+        current_is_walk = !current_is_walk;
+        current_count = next_count;
+    }
+    uint compact_aux = hash_offset + hash_count * 8u;
+    for (uint i = 0u; i < aux_count * 10u; ++i) arena[assembly + compact_aux + i] = arena[assembly + aux_offset + i];
+    arena[assembly + 7u] = compact_aux + aux_count * 10u;
+
+    if (!decommit_reserve(arena, assembly, capacity, expanded_count * 5u, offset)) return;
+    arena[meta + 12u] = offset; arena[meta + 13u] = expanded_count;
+    for (uint i = 0u; i < expanded_count; ++i) {
+        arena[assembly + offset + 5u * i] = arena[expanded + i];
+        for (uint c = 0u; c < 4u; ++c) arena[assembly + offset + 5u * i + 1u + c] = arena[values + 4u * i + c];
+    }
+    arena[meta] = 1u; arena[meta + 1u] = tree_index;
+    arena[meta + 4u] = 0u; arena[meta + 5u] = 0u;
+    arena[meta + 8u] = hash_offset; arena[meta + 9u] = hash_count;
+    arena[meta + 10u] = compact_aux; arena[meta + 11u] = aux_count;
+    arena[meta + 14u] = leaf_log; arena[meta + 15u] = arena[assembly + 7u] - tree_start;
+}
+
 struct PolynomialEvalTask {
     uint coefficient_offset, coefficient_length, basis_offset, log_size, output_index;
 };

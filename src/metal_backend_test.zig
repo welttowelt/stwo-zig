@@ -972,8 +972,8 @@ test "metal: resident decommit query preparation matches canonical mapping" {
     const expanded_count_base: u32 = 320;
     const walk_base: u32 = 328;
     const walk_count_base: u32 = 456;
-    const assembly_base: u32 = 3500;
-    const assembly_capacity: u32 = 500;
+    const assembly_base: u32 = 3150;
+    const assembly_capacity: u32 = 946;
     const raw = [_]u32{ 0x101, 7, 7, 33, 2, 0x1ff, 65, 16, 17, 18, 19 };
     @memcpy(words[raw_base .. raw_base + raw.len], &raw);
     _ = try runtime.decommitNormalizeQueries(arena, raw_base, raw.len, 8, unique_base, unique_count_base, 12, assembly_base, assembly_capacity);
@@ -1090,6 +1090,31 @@ test "metal: resident decommit query preparation matches canonical mapping" {
             words[fri_values_base + index * 4 + coordinate],
         );
     }
+    const retained_offsets: u32 = 3100;
+    words[retained_offsets] = 0;
+    words[retained_offsets + 1] = 2890;
+    words[retained_offsets + 2] = 2922;
+    for (0..32) |index| words[2890 + index] = @intCast(0x1000 + index);
+    for (0..64) |index| words[2922 + index] = @intCast(0x2000 + index);
+    _ = try runtime.decommitAssembleFri(
+        arena,
+        4,
+        2,
+        tree_base,
+        tree_count_base,
+        expanded_base,
+        expanded_count_base,
+        fri_values_base,
+        walk_base,
+        900,
+        walk_count_base,
+        retained_offsets,
+        assembly_base,
+        assembly_capacity,
+    );
+    try std.testing.expect(words[assembly_base + 7] > 221);
+    try std.testing.expectEqual(@as(u32, 1), words[assembly_base + 8 + 4 * 16]);
+    try std.testing.expectEqual(@as(u32, 4), words[assembly_base + 8 + 4 * 16 + 1]);
 }
 
 test "metal: exact Cairo transcript controller binds resident ordinals" {

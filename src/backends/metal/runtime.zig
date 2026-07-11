@@ -676,6 +676,26 @@ extern fn stwo_zig_metal_decommit_gather_fri_values(
     error_message: [*]u8,
     error_message_len: usize,
 ) bool;
+extern fn stwo_zig_metal_decommit_assemble_fri(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    tree_index: u32,
+    leaf_log: u32,
+    tree_queries: u32,
+    tree_count_at: u32,
+    expanded: u32,
+    expanded_count_at: u32,
+    values: u32,
+    walk: u32,
+    scratch: u32,
+    walk_count_at: u32,
+    retained_offsets: u32,
+    assembly: u32,
+    capacity: u32,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
 extern fn stwo_zig_metal_qm31_to_coordinates(
     runtime: *anyopaque,
     source: [*]const u32,
@@ -2107,6 +2127,30 @@ pub const Runtime = struct {
     ) MetalError!f64 {
         return self.transcriptCall(arena, stwo_zig_metal_decommit_gather_fri_values, .{
             coordinate_bases, positions_base, count_base, max_positions, values_base,
+        });
+    }
+
+    pub fn decommitAssembleFri(
+        self: *Runtime,
+        arena: ResidentBuffer,
+        tree_index: u32,
+        leaf_log: u32,
+        tree_queries: u32,
+        tree_count_at: u32,
+        expanded: u32,
+        expanded_count_at: u32,
+        values: u32,
+        walk: u32,
+        scratch: u32,
+        walk_count_at: u32,
+        retained_offsets: u32,
+        assembly: u32,
+        capacity: u32,
+    ) MetalError!f64 {
+        return self.transcriptCall(arena, stwo_zig_metal_decommit_assemble_fri, .{
+            tree_index, leaf_log, tree_queries, tree_count_at, expanded,         expanded_count_at,
+            values,     walk,     scratch,      walk_count_at, retained_offsets, assembly,
+            capacity,
         });
     }
 
