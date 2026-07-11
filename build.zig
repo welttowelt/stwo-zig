@@ -25,6 +25,15 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_tests.step);
 
+    const arena_plan_test_module = b.createModule(.{
+        .root_source_file = b.path("src/metal_arena_plan_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const arena_plan_tests = b.addTest(.{ .root_module = arena_plan_test_module });
+    const run_arena_plan_tests = b.addRunArtifact(arena_plan_tests);
+    test_step.dependOn(&run_arena_plan_tests.step);
+
     const cairo_input_module = b.createModule(.{
         .root_source_file = b.path("src/cairo_input_cli.zig"),
         .target = target,
@@ -100,6 +109,53 @@ pub fn build(b: *std.Build) void {
     // Metal resident backend (macOS)
     // -----------------------------------------------------------------
     if (target.result.os.tag == .macos) {
+        const metal_arena_plan_module = b.createModule(.{
+            .root_source_file = b.path("src/metal_arena_plan_cli.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        const metal_arena_plan = b.addExecutable(.{
+            .name = "metal-arena-plan",
+            .root_module = metal_arena_plan_module,
+        });
+        b.installArtifact(metal_arena_plan);
+        const metal_arena_plan_step = b.step("metal-arena-plan", "Build sparse Metal arena planner");
+        metal_arena_plan_step.dependOn(&metal_arena_plan.step);
+
+        const metal_recovery_bench_module = b.createModule(.{
+            .root_source_file = b.path("src/metal_recovery_bench_cli.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        const metal_recovery_bench = b.addExecutable(.{
+            .name = "metal-recovery-bench",
+            .root_module = metal_recovery_bench_module,
+        });
+        b.installArtifact(metal_recovery_bench);
+        const metal_recovery_bench_step = b.step("metal-recovery-bench", "Build Metal recovery storage benchmark");
+        metal_recovery_bench_step.dependOn(&metal_recovery_bench.step);
+
+        const metal_ec_op_bench_module = b.createModule(.{
+            .root_source_file = b.path("src/metal_ec_op_bench_cli.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        const metal_ec_op_bench = b.addExecutable(.{
+            .name = "metal-ec-op-bench",
+            .root_module = metal_ec_op_bench_module,
+        });
+        metal_ec_op_bench.addCSourceFile(.{
+            .file = b.path("src/backends/metal/runtime.m"),
+            .flags = &.{ "-fobjc-arc", "-fblocks" },
+        });
+        metal_ec_op_bench.linkLibC();
+        metal_ec_op_bench.linkFramework("Foundation");
+        metal_ec_op_bench.linkFramework("Metal");
+        metal_ec_op_bench.linkSystemLibrary("objc");
+        b.installArtifact(metal_ec_op_bench);
+        const metal_ec_op_bench_step = b.step("metal-ec-op-bench", "Build resident Metal EC-op benchmark");
+        metal_ec_op_bench_step.dependOn(&metal_ec_op_bench.step);
+
         const metal_test_module = b.createModule(.{
             .root_source_file = b.path("src/metal_backend_test.zig"),
             .target = target,

@@ -57,6 +57,110 @@ twiddles and runtime overhead. The Zig/Metal port therefore consumes the same
 witness ISA but must use its own liveness plan with epoch-local reuse and
 spill/recompute; copying the detached arena allocation would fail locally.
 
+That allocator is now implemented in `src/backends/metal/arena_plan.zig`.
+Unlike the contiguous Rust lifetime, it accepts exact sparse live ranges, with up
+to 64 component-local sub-epochs per protocol phase. Recoverable values occupy
+only their live ranges; a deterministic cost comparison selects spill or
+recomputation, and an epoch runner enforces restore/recompute before dispatch
+and spill/release after the caller's Metal command-buffer barrier. Physical
+slots are colored into one 16 KiB-aligned resident Metal slab and validated for
+live alias overlap before allocation.
+
+Running the planner over the exact 17,552-buffer SN2 preflight schedule reduces
+the plan from 60.56 GiB and 16,589 slots to 28.07 GiB and 6,778 slots. The plan
+contains 121,398 materialization actions (301 resident, 5,039 spilled, and
+12,212 recomputed buffers), passes alias validation, and fits the laptop's
+29 GiB Metal budget. Global workspaces conservatively remain live across all
+component sub-epochs in their phase. These are allocation-plan results,
+not proof throughput: witness/AIR completion and reference-verifier acceptance
+remain the benchmark gate below.
+
+The reproducible planner command is:
+
+```sh
+zig build install -Doptimize=ReleaseFast
+gzip -dc vectors/cairo/sn_pie_2_arena_schedule.json.gz > /tmp/sn2-arena.json
+zig-out/bin/metal-arena-plan /tmp/sn2-arena.json 29 \
+  vectors/cairo/sn_pie_2_witness_programs.bin \
+  vectors/cairo/sn_pie_2_multiplicity_feeds.bin \
+  vectors/cairo/cairo_relation_templates.bin \
+  vectors/cairo/cairo_fixed_tables.bin
+```
+
+The compressed vector is the exact host-only preflight export used for this
+result. The CLI applies the versioned protocol-purpose schedule policy, keeps
+global workspaces live for the full phase, and prints the input SHA-256
+alongside the deterministic plan hash.
+
+## Executable recovery
+
+`src/backends/metal/recovery.zig` turns the allocation plan into executable,
+fail-closed hooks. Irreducible values use deterministic page-aligned extents in
+a pre-sized sparse file; spill and restore perform no allocation, verify a
+Wyhash checksum, and account exact bytes. `RecoveryEngine.validatePlan` rejects
+the session before Metal allocation if any spill extent or recomputation recipe
+is absent.
+
+Recomputation is coalesced by schedule tick. One grouped operation can own all
+outputs from a witness, LogUp, Merkle, quotient, or FRI launch; the first output
+hook dispatches it and the remaining logical bindings do no duplicate work.
+The runner indexes actions by tick, avoiding a scan of all 121,798 actions at
+each component sub-epoch.
+
+The canonical SN2 witness bundle contains 33 validated recorded programs in the
+versioned `STWZWIT` format. The matching `STWZFED` artifact contains the exact
+33 multiplicity-feed plans and LUTs. Zig resolves their source and destination
+columns through the sparse arena's real offsets; physical contiguity is not
+assumed. An artifact-wide test binds every feed against deliberately disjoint
+column addresses.
+
+The prepared Metal feed batch owns every descriptor, LUT, source-offset,
+destination-offset, and clear-span buffer for the lifetime of the recipe. A
+recovery launch clears every unique shared consumer once, crosses a Metal
+buffer barrier, then encodes all 33 atomic producer scatters in the same command
+buffer. The clear uses a prefix-indexed linear launch and touches exactly the
+destination word count instead of `largest_table * table_count`. Repeated
+launches allocate no Metal buffers and perform no compatibility readback or CPU
+synchronization between producers.
+
+Recorded witness programs bind 3,120 BaseTrace/LookupInputs/SubcomponentInputs
+buffers (23.63 GiB), native feeds bind 119 BaseTrace buffers, and three
+genuinely unreferenced fixed multiplicity tables use explicit zero recipes.
+The `STWZFIX` artifact binds 21 canonical fixed-table LookupInputs slabs through
+one prepared Metal batch, covering another 2,473,164,992 bytes. Its descriptor
+graph hash and every source, multiplicity, output, and row geometry are checked
+against the SN schedule before recomputation is enabled. The remaining
+exceptional writer, `ec_op_builtin`, is now one prepared Metal dispatch. It owns
+all 273 trace columns, the 488-word lookup row, 127 padded partial-input columns,
+and four multiplicity side effects. Stark-field Montgomery arithmetic is
+checked independently, and a canonical Rust artifact checks all trace, lookup,
+and partial columns for 64 rows. The real SN2 geometry has 1,024 EC instances
+and 252 rounds per instance. A parallel prefix/suffix batch-inversion scan
+reduced its median GPU time from 6,643.76 ms to 1,640.26 ms (`4.05x`), or
+157,321 EC round-steps/s, with zero hot-path allocation and zero compatibility
+readback.
+
+Resident circle transforms bind all 5,717 base and interaction coefficient
+buffers. A sparse prepared IFFT additionally reconstructs 144 exact
+PreprocessedCoefficients columns from their retained evaluation counterparts,
+without packing columns or leaving the arena. The 17 coefficient-only columns
+remain spill-backed. The `STWZREL` artifact binds all 58 relation instances and
+2,268 interaction output columns (5,425,139,968 bytes) to the resident LogUp
+engine. Sparse Blake2s parent chains reconstruct 174 upper Merkle layers across
+12 commitment/FRI trees; only each chain's bottom layer remains stored.
+
+The recovery gate is now fail closed in the planner as well as the executor.
+Only 12,212 buffers with concrete recipes may use `.recompute`; every unbound
+value is assigned `.spill`, for which `FileSpillStore` has a checksummed extent.
+Consequently `RecoveryEngine.validatePlan` has no unbound recomputation. This
+also invalidates the earlier 19.97 MiB spill estimate: it depended on classifying
+unregistered interaction/Merkle/FRI work as recomputable. The conservative
+fallback is currently 5,039 buffers and 6,067,431,908 bytes, down from
+25,009,389,380 bytes before exact relation, preprocessed IFFT, fixed-table,
+Merkle-parent, and EC-op recipes were bound. Replacing that
+fallback with exact resident protocol recipes is performance work, not a reason
+to weaken the gate.
+
 `src/frontends/cairo/witness/program.zig` implements the canonical 28-op,
 16-byte witness instruction ABI, semantic hash, strict SSA/shape validation,
 and the reference interpreter for core arithmetic, table reads, trace writes,

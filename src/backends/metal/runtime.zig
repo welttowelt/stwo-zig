@@ -16,6 +16,197 @@ extern fn stwo_zig_metal_buffer_create(
     error_message_len: usize,
 ) ?*anyopaque;
 extern fn stwo_zig_metal_buffer_destroy(buffer: ?*anyopaque) void;
+extern fn stwo_zig_metal_clear_arena_ranges(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    ranges: [*]const [2]u32,
+    range_count: u32,
+    max_length: u32,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_witness_feed_prepare(
+    runtime: *anyopaque,
+    descriptors: [*]const u32,
+    descriptor_count: u32,
+    luts: [*]const u32,
+    lut_words: usize,
+    destination_offsets: [*]const u32,
+    destination_count: usize,
+    source_offsets: [*]const u32,
+    source_count: usize,
+    clear_ranges: [*]const [2]u32,
+    clear_range_count: u32,
+    clear_max_length: u32,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
+extern fn stwo_zig_metal_witness_feed_plan_destroy(plan: ?*anyopaque) void;
+extern fn stwo_zig_metal_witness_feed_batch_prepare(
+    runtime: *anyopaque,
+    plans: [*]const *anyopaque,
+    column_lengths: [*]const u32,
+    plan_count: u32,
+    clear_ranges: [*]const [2]u32,
+    clear_range_count: u32,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
+extern fn stwo_zig_metal_witness_feed_batch_destroy(batch: ?*anyopaque) void;
+extern fn stwo_zig_metal_witness_feed_batch_counts_prepared(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    batch: *anyopaque,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_circle_lde_prepare(
+    runtime: *anyopaque,
+    source_offsets: [*]const u32,
+    destination_offsets: [*]const u32,
+    column_count: u32,
+    base_log_size: u32,
+    extended_log_size: u32,
+    twiddle_offset_words: u32,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
+extern fn stwo_zig_metal_circle_lde_plan_destroy(plan: ?*anyopaque) void;
+extern fn stwo_zig_metal_circle_lde_prepared(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    plan: *anyopaque,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_circle_ifft_prepare(
+    runtime: *anyopaque,
+    source_offsets: [*]const u32,
+    destination_offsets: [*]const u32,
+    column_count: u32,
+    log_size: u32,
+    twiddle_offset_words: u32,
+    scale_factor: u32,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
+extern fn stwo_zig_metal_circle_ifft_plan_destroy(plan: ?*anyopaque) void;
+extern fn stwo_zig_metal_circle_ifft_prepared(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    plan: *anyopaque,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_fixed_table_prepare(
+    runtime: *anyopaque,
+    descriptors: [*]const u32,
+    descriptor_words: u32,
+    source_offsets: [*]const u32,
+    source_count: u32,
+    multiplicity_offsets: [*]const u32,
+    multiplicity_count: u32,
+    destination_offset: u32,
+    row_count: u32,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
+extern fn stwo_zig_metal_fixed_table_plan_destroy(plan: ?*anyopaque) void;
+extern fn stwo_zig_metal_fixed_table_batch_prepare(
+    runtime: *anyopaque,
+    plans: [*]const *anyopaque,
+    plan_count: u32,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
+extern fn stwo_zig_metal_fixed_table_batch_destroy(batch: ?*anyopaque) void;
+extern fn stwo_zig_metal_fixed_table_batch_prepared(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    batch: *anyopaque,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_merkle_parent_chain_prepare(
+    runtime: *anyopaque,
+    child_offsets: [*]const u32,
+    destination_offsets: [*]const u32,
+    parent_counts: [*]const u32,
+    level_count: u32,
+    node_seed: *const [8]u32,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
+extern fn stwo_zig_metal_merkle_parent_chain_destroy(plan: ?*anyopaque) void;
+extern fn stwo_zig_metal_merkle_parent_chain_prepared(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    plan: *anyopaque,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_ec_op_prepare(
+    runtime: *anyopaque,
+    execution_offsets: *const [37]u32,
+    trace_offsets: *const [273]u32,
+    partial_offsets: *const [127]u32,
+    multiplicity_offsets: *const [4]u32,
+    lookup_offset: u32,
+    segment_offset: u32,
+    scratch_offset: u32,
+    row_count: u32,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
+extern fn stwo_zig_metal_ec_op_plan_destroy(plan: ?*anyopaque) void;
+extern fn stwo_zig_metal_ec_op_prepared(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    plan: *anyopaque,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_relation_prepare(
+    runtime: *anyopaque,
+    geometry: [*]const u32,
+    instance_count: u32,
+    source_offsets: [*]const u32,
+    source_count: u32,
+    descriptors: [*]const u32,
+    descriptor_words: u32,
+    output_offsets: [*]const u32,
+    output_count: u32,
+    total_blocks: u32,
+    alpha_offset_words: u32,
+    z_offset_words: u32,
+    scratch_offset_words: u32,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
+extern fn stwo_zig_metal_relation_plan_destroy(plan: ?*anyopaque) void;
+extern fn stwo_zig_metal_relation_prepared(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    plan: *anyopaque,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_witness_feed_counts_prepared(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    plan: *anyopaque,
+    column_length: u32,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
 extern fn stwo_zig_metal_fri_fold_circle(
     runtime: *anyopaque,
     source: [*]const u32,
@@ -43,6 +234,15 @@ extern fn stwo_zig_metal_qm31_to_coordinates(
     source: [*]const u32,
     value_count: u32,
     destination: [*]u32,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_felt252_oracle(
+    runtime: *anyopaque,
+    inputs: [*]const u32,
+    count: u32,
+    outputs: [*]u32,
     gpu_milliseconds: *f64,
     error_message: [*]u8,
     error_message_len: usize,
@@ -161,6 +361,7 @@ pub const MetalError = error{
     TimerUnsupported,
     PolynomialEvaluationFailed,
     CircleTransformFailed,
+    WitnessFeedFailed,
 };
 
 pub const Runtime = struct {
@@ -194,6 +395,461 @@ pub const Runtime = struct {
             return MetalError.RuntimeInitializationFailed;
         };
         return .{ .handle = handle, .contents = contents, .byte_length = byte_length };
+    }
+
+    pub fn clearArenaRanges(self: *Runtime, arena: ResidentBuffer, ranges: []const [2]u32) MetalError!void {
+        if (ranges.len == 0) return;
+        var max_length: u32 = 0;
+        for (ranges) |range| {
+            max_length = @max(max_length, range[1]);
+            const end = @as(u64, range[0]) + range[1];
+            if (end * @sizeOf(u32) > arena.byte_length) return MetalError.WitnessFeedFailed;
+        }
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_clear_arena_ranges(self.handle, arena.handle, ranges.ptr, @intCast(ranges.len), max_length, &message, message.len)) {
+            std.log.err("Metal arena clear failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.WitnessFeedFailed;
+        }
+    }
+
+    pub fn witnessFeedCounts(
+        self: *Runtime,
+        arena: ResidentBuffer,
+        column_length: u32,
+        descriptors: []const u32,
+        luts: []const u32,
+        destination_offsets: []const u32,
+        source_offsets: []const u32,
+        clear_ranges: []const [2]u32,
+    ) MetalError!f64 {
+        if (descriptors.len == 0 or descriptors.len % 14 != 0 or column_length == 0 or destination_offsets.len == 0 or source_offsets.len == 0)
+            return MetalError.WitnessFeedFailed;
+        const arena_words = arena.byte_length / @sizeOf(u32);
+        for (source_offsets) |offset| {
+            if (@as(u64, offset) + column_length > arena_words) return MetalError.WitnessFeedFailed;
+        }
+        var descriptor_index: usize = 0;
+        while (descriptor_index < descriptors.len) : (descriptor_index += 14) {
+            const e = descriptors[descriptor_index .. descriptor_index + 14];
+            const source_count: u32 = if (e[11] == 1) 1 else if (e[11] == 2 or e[11] == 3) 3 else e[1];
+            if (@as(u64, e[0]) + source_count > source_offsets.len) return MetalError.WitnessFeedFailed;
+            const destination_count: u32 = if (e[11] == 3) 16 else e[7] + 1;
+            if (@as(u64, e[10]) + destination_count > destination_offsets.len) return MetalError.WitnessFeedFailed;
+            for (destination_offsets[e[10] .. e[10] + destination_count]) |offset| {
+                if (@as(u64, offset) + e[8] > arena_words) return MetalError.WitnessFeedFailed;
+            }
+            if (e[11] == 1) {
+                if (@as(u64, e[13]) + e[7] >= destination_offsets.len or
+                    @as(u64, destination_offsets[e[13] + e[7]]) + e[12] > arena_words)
+                    return MetalError.WitnessFeedFailed;
+            }
+            if (e[9] != std.math.maxInt(u32)) {
+                const required_lut_words: u64 = if (e[11] == 2)
+                    @as(u64, 1) << @intCast(2 * e[2])
+                else
+                    e[8];
+                if (@as(u64, e[9]) + required_lut_words > luts.len) return MetalError.WitnessFeedFailed;
+            }
+        }
+        const descriptor_count: u32 = @intCast(descriptors.len / 14);
+        _ = descriptor_count;
+        var plan = try self.prepareWitnessFeed(descriptors, luts, destination_offsets, source_offsets, clear_ranges);
+        defer plan.deinit();
+        return self.witnessFeedCountsPrepared(arena, column_length, plan);
+    }
+
+    pub fn prepareWitnessFeed(
+        self: *Runtime,
+        descriptors: []const u32,
+        luts: []const u32,
+        destination_offsets: []const u32,
+        source_offsets: []const u32,
+        clear_ranges: []const [2]u32,
+    ) MetalError!WitnessFeedPlan {
+        if (descriptors.len == 0 or descriptors.len % 14 != 0 or destination_offsets.len == 0 or source_offsets.len == 0 or clear_ranges.len == 0)
+            return MetalError.WitnessFeedFailed;
+        var clear_max_length: u32 = 0;
+        for (clear_ranges) |range| {
+            if (range[1] == 0) return MetalError.WitnessFeedFailed;
+            clear_max_length = @max(clear_max_length, range[1]);
+        }
+        const empty_lut = [_]u32{0};
+        const lut_words = if (luts.len == 0) empty_lut[0..] else luts;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        const handle = stwo_zig_metal_witness_feed_prepare(
+            self.handle,
+            descriptors.ptr,
+            @intCast(descriptors.len / 14),
+            lut_words.ptr,
+            luts.len,
+            destination_offsets.ptr,
+            destination_offsets.len,
+            source_offsets.ptr,
+            source_offsets.len,
+            clear_ranges.ptr,
+            @intCast(clear_ranges.len),
+            clear_max_length,
+            &message,
+            message.len,
+        ) orelse {
+            std.log.err("Metal witness feed preparation failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.WitnessFeedFailed;
+        };
+        return .{ .handle = handle };
+    }
+
+    pub fn witnessFeedCountsPrepared(
+        self: *Runtime,
+        arena: ResidentBuffer,
+        column_length: u32,
+        plan: WitnessFeedPlan,
+    ) MetalError!f64 {
+        if (column_length == 0) return MetalError.WitnessFeedFailed;
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_witness_feed_counts_prepared(
+            self.handle,
+            arena.handle,
+            plan.handle,
+            column_length,
+            &gpu_ms,
+            &message,
+            message.len,
+        )) {
+            std.log.err("Metal witness feed failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.WitnessFeedFailed;
+        }
+        return gpu_ms;
+    }
+
+    pub fn prepareWitnessFeedBatch(
+        self: *Runtime,
+        plans: []const WitnessFeedPlan,
+        column_lengths: []const u32,
+        clear_ranges: []const [2]u32,
+    ) MetalError!WitnessFeedBatchPlan {
+        if (plans.len == 0 or plans.len > 256 or plans.len != column_lengths.len or clear_ranges.len == 0)
+            return MetalError.WitnessFeedFailed;
+        var handles: [256]*anyopaque = undefined;
+        for (plans, handles[0..plans.len]) |plan, *handle| handle.* = plan.handle;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        const handle = stwo_zig_metal_witness_feed_batch_prepare(
+            self.handle,
+            handles[0..plans.len].ptr,
+            column_lengths.ptr,
+            @intCast(plans.len),
+            clear_ranges.ptr,
+            @intCast(clear_ranges.len),
+            &message,
+            message.len,
+        ) orelse {
+            std.log.err("Metal witness feed batch preparation failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.WitnessFeedFailed;
+        };
+        return .{ .handle = handle };
+    }
+
+    pub fn witnessFeedBatchCountsPrepared(
+        self: *Runtime,
+        arena: ResidentBuffer,
+        batch: WitnessFeedBatchPlan,
+    ) MetalError!f64 {
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_witness_feed_batch_counts_prepared(
+            self.handle,
+            arena.handle,
+            batch.handle,
+            &gpu_ms,
+            &message,
+            message.len,
+        )) {
+            std.log.err("Metal witness feed batch failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.WitnessFeedFailed;
+        }
+        return gpu_ms;
+    }
+
+    pub fn prepareCircleLde(
+        self: *Runtime,
+        source_offsets: []const u32,
+        destination_offsets: []const u32,
+        base_log_size: u32,
+        extended_log_size: u32,
+        twiddle_offset_words: u32,
+    ) MetalError!CircleLdePlan {
+        if (source_offsets.len == 0 or source_offsets.len != destination_offsets.len or
+            base_log_size < 3 or extended_log_size <= base_log_size or extended_log_size >= 31)
+            return MetalError.CircleTransformFailed;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        const handle = stwo_zig_metal_circle_lde_prepare(
+            self.handle,
+            source_offsets.ptr,
+            destination_offsets.ptr,
+            @intCast(source_offsets.len),
+            base_log_size,
+            extended_log_size,
+            twiddle_offset_words,
+            &message,
+            message.len,
+        ) orelse {
+            std.log.err("Metal sparse circle LDE preparation failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CircleTransformFailed;
+        };
+        return .{ .handle = handle };
+    }
+
+    pub fn circleLdePrepared(self: *Runtime, arena: ResidentBuffer, plan: CircleLdePlan) MetalError!f64 {
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_circle_lde_prepared(
+            self.handle,
+            arena.handle,
+            plan.handle,
+            &gpu_ms,
+            &message,
+            message.len,
+        )) {
+            std.log.err("Metal sparse circle LDE failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CircleTransformFailed;
+        }
+        return gpu_ms;
+    }
+
+    pub fn prepareCircleIfft(
+        self: *Runtime,
+        source_offsets: []const u32,
+        destination_offsets: []const u32,
+        log_size: u32,
+        twiddle_offset_words: u32,
+        scale_factor: u32,
+    ) MetalError!CircleIfftPlan {
+        if (source_offsets.len == 0 or source_offsets.len != destination_offsets.len or log_size < 3 or log_size >= 31)
+            return MetalError.CircleTransformFailed;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        const handle = stwo_zig_metal_circle_ifft_prepare(
+            self.handle,
+            source_offsets.ptr,
+            destination_offsets.ptr,
+            @intCast(source_offsets.len),
+            log_size,
+            twiddle_offset_words,
+            scale_factor,
+            &message,
+            message.len,
+        ) orelse {
+            std.log.err("Metal sparse circle IFFT preparation failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CircleTransformFailed;
+        };
+        return .{ .handle = handle };
+    }
+
+    pub fn circleIfftPrepared(self: *Runtime, arena: ResidentBuffer, plan: CircleIfftPlan) MetalError!f64 {
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_circle_ifft_prepared(
+            self.handle,
+            arena.handle,
+            plan.handle,
+            &gpu_ms,
+            &message,
+            message.len,
+        )) {
+            std.log.err("Metal sparse circle IFFT failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CircleTransformFailed;
+        }
+        return gpu_ms;
+    }
+
+    pub fn prepareFixedTable(
+        self: *Runtime,
+        descriptors: []const u32,
+        source_offsets: []const u32,
+        multiplicity_offsets: []const u32,
+        destination_offset: u32,
+        row_count: u32,
+    ) MetalError!FixedTablePlan {
+        if (descriptors.len == 0 or descriptors.len % 4 != 0 or multiplicity_offsets.len == 0 or row_count == 0)
+            return MetalError.WitnessFeedFailed;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        const handle = stwo_zig_metal_fixed_table_prepare(
+            self.handle,
+            descriptors.ptr,
+            @intCast(descriptors.len),
+            source_offsets.ptr,
+            @intCast(source_offsets.len),
+            multiplicity_offsets.ptr,
+            @intCast(multiplicity_offsets.len),
+            destination_offset,
+            row_count,
+            &message,
+            message.len,
+        ) orelse {
+            std.log.err("Metal fixed-table preparation failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.WitnessFeedFailed;
+        };
+        return .{ .handle = handle };
+    }
+
+    pub fn prepareFixedTableBatch(self: *Runtime, plans: []const FixedTablePlan) MetalError!FixedTableBatchPlan {
+        if (plans.len == 0 or plans.len > 64) return MetalError.WitnessFeedFailed;
+        var handles: [64]*anyopaque = undefined;
+        for (plans, handles[0..plans.len]) |plan, *handle| handle.* = plan.handle;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        const handle = stwo_zig_metal_fixed_table_batch_prepare(
+            self.handle,
+            handles[0..plans.len].ptr,
+            @intCast(plans.len),
+            &message,
+            message.len,
+        ) orelse {
+            std.log.err("Metal fixed-table batch preparation failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.WitnessFeedFailed;
+        };
+        return .{ .handle = handle };
+    }
+
+    pub fn fixedTableBatchPrepared(self: *Runtime, arena: ResidentBuffer, batch: FixedTableBatchPlan) MetalError!f64 {
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_fixed_table_batch_prepared(self.handle, arena.handle, batch.handle, &gpu_ms, &message, message.len)) {
+            std.log.err("Metal fixed-table batch failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.WitnessFeedFailed;
+        }
+        return gpu_ms;
+    }
+
+    pub fn prepareMerkleParentChain(
+        self: *Runtime,
+        child_offsets: []const u32,
+        destination_offsets: []const u32,
+        parent_counts: []const u32,
+        node_seed: [8]u32,
+    ) MetalError!MerkleParentChainPlan {
+        if (child_offsets.len == 0 or child_offsets.len != destination_offsets.len or child_offsets.len != parent_counts.len)
+            return MetalError.CommitmentFailed;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        const handle = stwo_zig_metal_merkle_parent_chain_prepare(
+            self.handle,
+            child_offsets.ptr,
+            destination_offsets.ptr,
+            parent_counts.ptr,
+            @intCast(child_offsets.len),
+            &node_seed,
+            &message,
+            message.len,
+        ) orelse {
+            std.log.err("Metal Merkle parent-chain preparation failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CommitmentFailed;
+        };
+        return .{ .handle = handle };
+    }
+
+    pub fn merkleParentChainPrepared(self: *Runtime, arena: ResidentBuffer, plan: MerkleParentChainPlan) MetalError!f64 {
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_merkle_parent_chain_prepared(self.handle, arena.handle, plan.handle, &gpu_ms, &message, message.len)) {
+            std.log.err("Metal Merkle parent-chain failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CommitmentFailed;
+        }
+        return gpu_ms;
+    }
+
+    pub fn prepareEcOp(
+        self: *Runtime,
+        execution_offsets: [37]u32,
+        trace_offsets: [273]u32,
+        partial_offsets: [127]u32,
+        multiplicity_offsets: [4]u32,
+        lookup_offset: u32,
+        segment_offset: u32,
+        scratch_offset: u32,
+        row_count: u32,
+    ) MetalError!EcOpPlan {
+        if (row_count < 16 or !std.math.isPowerOfTwo(row_count)) return MetalError.WitnessFeedFailed;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        const handle = stwo_zig_metal_ec_op_prepare(
+            self.handle,
+            &execution_offsets,
+            &trace_offsets,
+            &partial_offsets,
+            &multiplicity_offsets,
+            lookup_offset,
+            segment_offset,
+            scratch_offset,
+            row_count,
+            &message,
+            message.len,
+        ) orelse {
+            std.log.err("Metal EC-op preparation failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.WitnessFeedFailed;
+        };
+        return .{ .handle = handle };
+    }
+
+    pub fn ecOpPrepared(self: *Runtime, arena: ResidentBuffer, plan: EcOpPlan) MetalError!f64 {
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_ec_op_prepared(self.handle, arena.handle, plan.handle, &gpu_ms, &message, message.len)) {
+            std.log.err("Metal EC-op execution failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.WitnessFeedFailed;
+        }
+        return gpu_ms;
+    }
+
+    pub fn prepareRelation(
+        self: *Runtime,
+        geometry: []const u32,
+        source_offsets: []const u32,
+        descriptors: []const u32,
+        output_offsets: []const u32,
+        total_blocks: u32,
+        alpha_offset_words: u32,
+        z_offset_words: u32,
+        scratch_offset_words: u32,
+    ) MetalError!RelationPlan {
+        if (geometry.len == 0 or geometry.len % 10 != 0 or source_offsets.len == 0 or
+            descriptors.len == 0 or descriptors.len % 16 != 0 or output_offsets.len == 0 or total_blocks == 0)
+            return MetalError.PolynomialEvaluationFailed;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        const handle = stwo_zig_metal_relation_prepare(
+            self.handle,
+            geometry.ptr,
+            @intCast(geometry.len / 10),
+            source_offsets.ptr,
+            @intCast(source_offsets.len),
+            descriptors.ptr,
+            @intCast(descriptors.len),
+            output_offsets.ptr,
+            @intCast(output_offsets.len),
+            total_blocks,
+            alpha_offset_words,
+            z_offset_words,
+            scratch_offset_words,
+            &message,
+            message.len,
+        ) orelse {
+            std.log.err("Metal relation preparation failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.PolynomialEvaluationFailed;
+        };
+        return .{ .handle = handle };
+    }
+
+    pub fn relationPrepared(self: *Runtime, arena: ResidentBuffer, plan: RelationPlan) MetalError!f64 {
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_relation_prepared(
+            self.handle,
+            arena.handle,
+            plan.handle,
+            &gpu_ms,
+            &message,
+            message.len,
+        )) {
+            std.log.err("Metal relation execution failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.PolynomialEvaluationFailed;
+        }
+        return gpu_ms;
     }
 
     pub fn foldFriCircle(
@@ -243,6 +899,25 @@ pub const Runtime = struct {
         if (!stwo_zig_metal_qm31_to_coordinates(self.handle, source, value_count, destination, &gpu_ms, &message, message.len)) {
             std.log.err("Metal QM31 coordinate conversion failed: {s}", .{std.mem.sliceTo(&message, 0)});
             return MetalError.CircleTransformFailed;
+        }
+        return gpu_ms;
+    }
+
+    pub fn felt252Oracle(self: *Runtime, inputs: []const u32, outputs: []u32) MetalError!f64 {
+        if (inputs.len == 0 or inputs.len % 16 != 0 or outputs.len != inputs.len) return MetalError.InvalidColumns;
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_felt252_oracle(
+            self.handle,
+            inputs.ptr,
+            @intCast(inputs.len / 16),
+            outputs.ptr,
+            &gpu_ms,
+            &message,
+            message.len,
+        )) {
+            std.log.err("Metal Felt252 oracle failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.PolynomialEvaluationFailed;
         }
         return gpu_ms;
     }
@@ -639,6 +1314,45 @@ pub const Runtime = struct {
         return gpu_ms;
     }
 
+    /// Allocation-free single-column transform for arena recomputation. The
+    /// column pointer already aliases resident shared storage.
+    pub fn transformCircleResident(
+        self: *Runtime,
+        column: []@import("../../core/fields/m31.zig").M31,
+        twiddles: []const @import("../../core/fields/m31.zig").M31,
+        log_size: u32,
+        inverse: bool,
+    ) MetalError!f64 {
+        if (log_size < 3) return MetalError.CircleTransformFailed;
+        const expected_len = @as(usize, 1) << @intCast(log_size);
+        if (column.len != expected_len or twiddles.len != expected_len / 2) return MetalError.CircleTransformFailed;
+        var pointers = [_][*]u32{std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(column)).ptr};
+        const scale_factor = if (inverse)
+            (@import("../../core/fields/m31.zig").M31.fromCanonical(@intCast(expected_len)).inv() catch
+                return MetalError.CircleTransformFailed).v
+        else
+            1;
+        const words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(twiddles));
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_circle_transform(
+            self.handle,
+            &pointers,
+            1,
+            log_size,
+            words.ptr,
+            inverse,
+            scale_factor,
+            &gpu_ms,
+            &message,
+            message.len,
+        )) {
+            std.log.err("Metal resident circle recomputation failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CircleTransformFailed;
+        }
+        return gpu_ms;
+    }
+
     pub fn transformCircleLde(
         self: *Runtime,
         allocator: std.mem.Allocator,
@@ -693,6 +1407,87 @@ pub const Runtime = struct {
             return MetalError.CircleTransformFailed;
         }
         return gpu_ms;
+    }
+};
+
+pub const WitnessFeedPlan = struct {
+    handle: *anyopaque,
+
+    pub fn deinit(self: *WitnessFeedPlan) void {
+        stwo_zig_metal_witness_feed_plan_destroy(self.handle);
+        self.* = undefined;
+    }
+};
+
+pub const WitnessFeedBatchPlan = struct {
+    handle: *anyopaque,
+
+    pub fn deinit(self: *WitnessFeedBatchPlan) void {
+        stwo_zig_metal_witness_feed_batch_destroy(self.handle);
+        self.* = undefined;
+    }
+};
+
+pub const CircleLdePlan = struct {
+    handle: *anyopaque,
+
+    pub fn deinit(self: *CircleLdePlan) void {
+        stwo_zig_metal_circle_lde_plan_destroy(self.handle);
+        self.* = undefined;
+    }
+};
+
+pub const CircleIfftPlan = struct {
+    handle: *anyopaque,
+
+    pub fn deinit(self: *CircleIfftPlan) void {
+        stwo_zig_metal_circle_ifft_plan_destroy(self.handle);
+        self.* = undefined;
+    }
+};
+
+pub const FixedTablePlan = struct {
+    handle: *anyopaque,
+
+    pub fn deinit(self: *FixedTablePlan) void {
+        stwo_zig_metal_fixed_table_plan_destroy(self.handle);
+        self.* = undefined;
+    }
+};
+
+pub const FixedTableBatchPlan = struct {
+    handle: *anyopaque,
+
+    pub fn deinit(self: *FixedTableBatchPlan) void {
+        stwo_zig_metal_fixed_table_batch_destroy(self.handle);
+        self.* = undefined;
+    }
+};
+
+pub const MerkleParentChainPlan = struct {
+    handle: *anyopaque,
+
+    pub fn deinit(self: *MerkleParentChainPlan) void {
+        stwo_zig_metal_merkle_parent_chain_destroy(self.handle);
+        self.* = undefined;
+    }
+};
+
+pub const EcOpPlan = struct {
+    handle: *anyopaque,
+
+    pub fn deinit(self: *EcOpPlan) void {
+        stwo_zig_metal_ec_op_plan_destroy(self.handle);
+        self.* = undefined;
+    }
+};
+
+pub const RelationPlan = struct {
+    handle: *anyopaque,
+
+    pub fn deinit(self: *RelationPlan) void {
+        stwo_zig_metal_relation_plan_destroy(self.handle);
+        self.* = undefined;
     }
 };
 
