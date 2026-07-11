@@ -291,6 +291,68 @@ extern fn stwo_zig_metal_eval_prepared(
     error_message: [*]u8,
     error_message_len: usize,
 ) bool;
+extern fn stwo_zig_metal_composition_finalize_prepare(
+    runtime: *anyopaque,
+    accumulator_offsets: [*]const u32,
+    accumulator_logs: [*]const u32,
+    accumulator_count: u32,
+    inverse_twiddle_offset_words: u32,
+    output_offsets: *const [8]u32,
+    scale_factor: u32,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
+extern fn stwo_zig_metal_composition_lde_prepare(
+    runtime: *anyopaque,
+    source_offsets: [*]const u32,
+    source_logs: [*]const u32,
+    destination_offsets: [*]const u32,
+    column_count: u32,
+    extended_log: u32,
+    twiddle_offset_words: u32,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
+extern fn stwo_zig_metal_composition_lde_destroy(plan: ?*anyopaque) void;
+extern fn stwo_zig_metal_composition_inputs_prepare(
+    runtime: *anyopaque,
+    descriptors: ?[*]const u32,
+    descriptor_count: u32,
+    random_offset: u32,
+    powers_offset: u32,
+    power_count: u32,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
+extern fn stwo_zig_metal_composition_inputs_destroy(plan: ?*anyopaque) void;
+extern fn stwo_zig_metal_composition_front_prepare(
+    inputs: *anyopaque,
+    lde_plans: [*]const *anyopaque,
+    eval_batches: [*]const *anyopaque,
+    component_count: u32,
+    accumulator_offset: u32,
+    accumulator_words: u32,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
+extern fn stwo_zig_metal_composition_front_destroy(plan: ?*anyopaque) void;
+extern fn stwo_zig_metal_composition_front_prepared(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    plan: *anyopaque,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_composition_finalize_destroy(plan: ?*anyopaque) void;
+extern fn stwo_zig_metal_composition_finalize_prepared(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    plan: *anyopaque,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
 extern fn stwo_zig_metal_relation_prepare(
     runtime: *anyopaque,
     geometry: [*]const u32,
@@ -1136,6 +1198,144 @@ pub const Runtime = struct {
         return gpu_ms;
     }
 
+    pub fn prepareCompositionFinalize(
+        self: *Runtime,
+        accumulator_offsets: []const u32,
+        accumulator_logs: []const u32,
+        inverse_twiddle_offset_words: u32,
+        output_offsets: [8]u32,
+        scale_factor: u32,
+    ) MetalError!CompositionFinalizePlan {
+        if (accumulator_offsets.len == 0 or accumulator_offsets.len != accumulator_logs.len or scale_factor == 0)
+            return MetalError.PolynomialEvaluationFailed;
+        for (accumulator_logs, 0..) |log_size, index| {
+            if (log_size < 3 or log_size >= 31 or (index != 0 and log_size <= accumulator_logs[index - 1]))
+                return MetalError.PolynomialEvaluationFailed;
+        }
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        const handle = stwo_zig_metal_composition_finalize_prepare(
+            self.handle,
+            accumulator_offsets.ptr,
+            accumulator_logs.ptr,
+            @intCast(accumulator_logs.len),
+            inverse_twiddle_offset_words,
+            &output_offsets,
+            scale_factor,
+            &message,
+            message.len,
+        ) orelse {
+            std.log.err("Metal composition-finalize preparation failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.PolynomialEvaluationFailed;
+        };
+        return .{ .handle = handle };
+    }
+
+    pub fn prepareCompositionLde(
+        self: *Runtime,
+        source_offsets: []const u32,
+        source_logs: []const u32,
+        destination_offsets: []const u32,
+        extended_log: u32,
+        twiddle_offset_words: u32,
+    ) MetalError!CompositionLdePlan {
+        if (source_offsets.len == 0 or source_offsets.len != source_logs.len or source_offsets.len != destination_offsets.len or
+            extended_log < 3 or extended_log >= 31)
+            return MetalError.PolynomialEvaluationFailed;
+        for (source_logs) |log_size| if (log_size < 3 or log_size > extended_log) return MetalError.PolynomialEvaluationFailed;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        const handle = stwo_zig_metal_composition_lde_prepare(
+            self.handle,
+            source_offsets.ptr,
+            source_logs.ptr,
+            destination_offsets.ptr,
+            @intCast(source_offsets.len),
+            extended_log,
+            twiddle_offset_words,
+            &message,
+            message.len,
+        ) orelse {
+            std.log.err("Metal composition LDE preparation failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.PolynomialEvaluationFailed;
+        };
+        return .{ .handle = handle };
+    }
+
+    pub fn prepareCompositionFront(
+        self: *Runtime,
+        inputs: CompositionInputPlan,
+        lde_plans: []const CompositionLdePlan,
+        eval_batches: []const EvalBatchPlan,
+        accumulator_offset: u32,
+        accumulator_words: u32,
+    ) MetalError!CompositionFrontPlan {
+        _ = self;
+        if (lde_plans.len == 0 or lde_plans.len != eval_batches.len or accumulator_words == 0)
+            return MetalError.PolynomialEvaluationFailed;
+        const lde_handles: []const *anyopaque = @ptrCast(lde_plans);
+        const eval_handles: []const *anyopaque = @ptrCast(eval_batches);
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        const handle = stwo_zig_metal_composition_front_prepare(
+            inputs.handle,
+            lde_handles.ptr,
+            eval_handles.ptr,
+            @intCast(lde_plans.len),
+            accumulator_offset,
+            accumulator_words,
+            &message,
+            message.len,
+        ) orelse {
+            std.log.err("Metal composition-front preparation failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.PolynomialEvaluationFailed;
+        };
+        return .{ .handle = handle };
+    }
+
+    pub fn prepareCompositionInputs(
+        self: *Runtime,
+        descriptors: []const CompositionExtParamDescriptor,
+        random_offset: u32,
+        powers_offset: u32,
+        power_count: u32,
+    ) MetalError!CompositionInputPlan {
+        if (power_count == 0) return MetalError.PolynomialEvaluationFailed;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        const words: ?[*]const u32 = if (descriptors.len == 0) null else @ptrCast(descriptors.ptr);
+        const handle = stwo_zig_metal_composition_inputs_prepare(
+            self.handle,
+            words,
+            @intCast(descriptors.len),
+            random_offset,
+            powers_offset,
+            power_count,
+            &message,
+            message.len,
+        ) orelse {
+            std.log.err("Metal composition input preparation failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.PolynomialEvaluationFailed;
+        };
+        return .{ .handle = handle };
+    }
+
+    pub fn compositionFrontPrepared(self: *Runtime, arena: ResidentBuffer, plan: CompositionFrontPlan) MetalError!f64 {
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_composition_front_prepared(self.handle, arena.handle, plan.handle, &gpu_ms, &message, message.len)) {
+            std.log.err("Metal composition-front execution failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.PolynomialEvaluationFailed;
+        }
+        return gpu_ms;
+    }
+
+    pub fn compositionFinalizePrepared(self: *Runtime, arena: ResidentBuffer, plan: CompositionFinalizePlan) MetalError!f64 {
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_composition_finalize_prepared(self.handle, arena.handle, plan.handle, &gpu_ms, &message, message.len)) {
+            std.log.err("Metal composition-finalize execution failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.PolynomialEvaluationFailed;
+        }
+        return gpu_ms;
+    }
+
     pub fn prepareRelation(
         self: *Runtime,
         geometry: []const u32,
@@ -1921,11 +2121,55 @@ pub const EvalPlan = extern struct {
     }
 };
 
-pub const EvalBatchPlan = struct {
+pub const EvalBatchPlan = extern struct {
     handle: *anyopaque,
 
     pub fn deinit(self: *EvalBatchPlan) void {
         stwo_zig_metal_eval_batch_destroy(self.handle);
+        self.* = undefined;
+    }
+};
+
+pub const CompositionFinalizePlan = struct {
+    handle: *anyopaque,
+
+    pub fn deinit(self: *CompositionFinalizePlan) void {
+        stwo_zig_metal_composition_finalize_destroy(self.handle);
+        self.* = undefined;
+    }
+};
+
+pub const CompositionLdePlan = extern struct {
+    handle: *anyopaque,
+
+    pub fn deinit(self: *CompositionLdePlan) void {
+        stwo_zig_metal_composition_lde_destroy(self.handle);
+        self.* = undefined;
+    }
+};
+
+pub const CompositionExtParamDescriptor = extern struct {
+    destination: u32,
+    kind: u32,
+    source: u32,
+    scale: u32,
+    constant: [4]u32,
+};
+
+pub const CompositionInputPlan = extern struct {
+    handle: *anyopaque,
+
+    pub fn deinit(self: *CompositionInputPlan) void {
+        stwo_zig_metal_composition_inputs_destroy(self.handle);
+        self.* = undefined;
+    }
+};
+
+pub const CompositionFrontPlan = struct {
+    handle: *anyopaque,
+
+    pub fn deinit(self: *CompositionFrontPlan) void {
+        stwo_zig_metal_composition_front_destroy(self.handle);
         self.* = undefined;
     }
 };

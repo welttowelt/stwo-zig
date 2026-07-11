@@ -111,6 +111,112 @@ test "metal: fused V1 evaluation program matches scalar field arithmetic" {
     }
 }
 
+test "metal: composition front interleaves coefficient LDE and fused AIR" {
+    const allocator = std.testing.allocator;
+    const base_log: u32 = 8;
+    const eval_log: u32 = 10;
+    const base_rows = @as(usize, 1) << base_log;
+    const eval_rows = @as(usize, 1) << eval_log;
+    const base_domain = canonic.CanonicCoset.new(base_log).circleDomain();
+    const eval_domain = canonic.CanonicCoset.new(eval_log).circleDomain();
+    var base_tree = try twiddles.precomputeM31(allocator, base_domain.half_coset);
+    defer twiddles.deinitM31(allocator, &base_tree);
+    var eval_tree = try twiddles.precomputeM31(allocator, eval_domain.half_coset);
+    defer twiddles.deinitM31(allocator, &eval_tree);
+    const base_const_tree = twiddles.TwiddleTree([]const M31).init(base_tree.root_coset, base_tree.twiddles, base_tree.itwiddles);
+    const eval_const_tree = twiddles.TwiddleTree([]const M31).init(eval_tree.root_coset, eval_tree.twiddles, eval_tree.itwiddles);
+    const coefficients = try allocator.alloc(M31, base_rows);
+    defer allocator.free(coefficients);
+    for (coefficients, 0..) |*value, row| value.* = M31.fromCanonical(@intCast((row * 65537 + 19) % m31.Modulus));
+    var expected = try allocator.dupe(M31, coefficients);
+    defer allocator.free(expected);
+    var base_columns = [_][]M31{expected};
+    try circle_poly.interpolateBuffersWithTwiddles(&base_columns, base_domain, base_const_tree);
+    const source_coefficients = try allocator.dupe(M31, expected);
+    defer allocator.free(source_coefficients);
+    expected = try allocator.realloc(expected, eval_rows);
+    @memset(expected[base_rows..], M31.zero());
+    var eval_columns = [_][]M31{expected};
+    try circle_poly.evaluateBuffersWithTwiddles(&eval_columns, eval_domain, eval_const_tree);
+
+    var base_insts = [_]eval_program.BaseInst{
+        .{ .op = .trace_col, .interaction = 0, .dst = 0, .a = 0, .b = 0, .imm = 0 },
+        .{ .op = .constant, .interaction = 0, .dst = 1, .a = 0, .b = 0, .imm = 0 },
+    };
+    var ext_insts = [_]eval_program.ExtInst{
+        .{ .op = .secure_col, .dst = 0, .a = 0, .b = 1, .c = 1, .d = 1 },
+    };
+    var roots = [_]u32{0};
+    const program = eval_program.Program{
+        .allocator = allocator,
+        .header = .{ .flags = eval_program.Flag.prefinalized_logup, .semantic_hash = 0x5678, .capability_bits = eval_program.Capability.prefinalized_logup, .n_interactions = 1, .n_base_params = 0, .n_ext_params = 0, .n_constraints = 1, .max_base_regs = 2, .max_ext_regs = 1, .domain_log_size = base_log },
+        .base_consts = &.{},
+        .ext_consts = &.{},
+        .base_insts = &base_insts,
+        .ext_insts = &ext_insts,
+        .constraint_roots = &roots,
+    };
+    const source = try eval_codegen.generate(allocator, program);
+    defer allocator.free(source);
+    const name = try eval_codegen.kernelName(allocator, program.header.semantic_hash);
+    defer allocator.free(name);
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    var arena = try runtime.allocateResidentBuffer(128 * 1024);
+    defer arena.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
+    const coefficient_offset: u32 = 0;
+    const tile_offset: u32 = 1024;
+    const twiddle_offset: u32 = 4096;
+    const trace_offsets: u32 = 8192;
+    const interaction_offsets: u32 = 8193;
+    const random_offset: u32 = 8194;
+    const denom_offset: u32 = 8198;
+    const accumulator_offset: u32 = 8202;
+    @memcpy(words[coefficient_offset .. coefficient_offset + base_rows], std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(source_coefficients)));
+    @memcpy(words[twiddle_offset .. twiddle_offset + eval_tree.twiddles.len], std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(eval_tree.twiddles)));
+    words[trace_offsets] = tile_offset;
+    words[interaction_offsets] = 0;
+    words[random_offset..][0..4].* = .{ 1, 0, 0, 0 };
+    words[denom_offset..][0..4].* = .{ 1, 1, 1, 1 };
+    var eval_plan = try runtime.prepareEval(source, name, .{
+        .trace_offsets = trace_offsets,
+        .interaction_offsets = interaction_offsets,
+        .base_params = 0,
+        .ext_params = 0,
+        .random_coeffs = random_offset,
+        .denom_inv = denom_offset,
+        .coordinates = .{ accumulator_offset, accumulator_offset + eval_rows, accumulator_offset + 2 * eval_rows, accumulator_offset + 3 * eval_rows },
+        .row_count = eval_rows,
+        .trace_log_size = base_log,
+        .domain_log_size = base_log,
+        .rc_base = 0,
+    });
+    defer eval_plan.deinit();
+    var eval_batch = try runtime.prepareEvalBatch(&.{eval_plan});
+    defer eval_batch.deinit();
+    var lde = try runtime.prepareCompositionLde(&.{coefficient_offset}, &.{base_log}, &.{tile_offset}, eval_log, twiddle_offset);
+    defer lde.deinit();
+    const dynamic_source: u32 = 25_020;
+    words[dynamic_source..][0..4].* = .{ 7, 11, 13, 17 };
+    const ext_descriptors = [_]metal.CompositionExtParamDescriptor{
+        .{ .destination = 25_000, .kind = 0, .source = 0, .scale = 2, .constant = .{ 3, 5, 19, 23 } },
+        .{ .destination = 25_004, .kind = 1, .source = dynamic_source, .scale = 3, .constant = .{ 0, 0, 0, 0 } },
+    };
+    var inputs = try runtime.prepareCompositionInputs(&ext_descriptors, random_offset, random_offset, 1);
+    defer inputs.deinit();
+    var front = try runtime.prepareCompositionFront(inputs, &.{lde}, &.{eval_batch}, accumulator_offset, 4 * eval_rows);
+    defer front.deinit();
+    const gpu_ms = try runtime.compositionFrontPrepared(arena, front);
+    try std.testing.expect(gpu_ms > 0);
+    const actual_bytes = std.mem.sliceAsBytes(words[accumulator_offset .. accumulator_offset + eval_rows]);
+    const actual: []align(@alignOf(M31)) const u8 = @alignCast(actual_bytes);
+    try std.testing.expectEqualSlices(M31, expected, std.mem.bytesAsSlice(M31, actual));
+    try std.testing.expectEqualSlices(u32, &.{ 6, 10, 38, 46, 21, 33, 39, 51 }, words[25_000..25_008]);
+    for (1..4) |coordinate| for (words[accumulator_offset + coordinate * eval_rows .. accumulator_offset + (coordinate + 1) * eval_rows]) |value|
+        try std.testing.expectEqual(@as(u32, 0), value);
+}
+
 test "metal: Felt252 Montgomery multiplication and inversion match scalar vectors" {
     var runtime = try metal.Runtime.init();
     defer runtime.deinit();
@@ -671,6 +777,62 @@ test "metal: prepared sparse evaluation IFFT matches CPU" {
         const actual_bytes = std.mem.sliceAsBytes(words[offset .. offset + column.len]);
         const actual: []align(@alignOf(M31)) const u8 = @alignCast(actual_bytes);
         try std.testing.expectEqualSlices(M31, column, std.mem.bytesAsSlice(M31, actual));
+    }
+}
+
+test "metal: prepared composition lift interpolate and split matches CPU" {
+    const allocator = std.testing.allocator;
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    const previous_log: u32 = 8;
+    const current_log: u32 = 10;
+    const previous_rows = @as(usize, 1) << previous_log;
+    const current_rows = @as(usize, 1) << current_log;
+    const domain = canonic.CanonicCoset.new(current_log).circleDomain();
+    var tree = try twiddles.precomputeM31(allocator, domain.half_coset);
+    defer twiddles.deinitM31(allocator, &tree);
+    const const_tree = twiddles.TwiddleTree([]const M31).init(tree.root_coset, tree.twiddles, tree.itwiddles);
+    var expected: [4][]M31 = undefined;
+    defer for (&expected) |column| allocator.free(column);
+    const previous_offset: u32 = 0;
+    const current_offset: u32 = @intCast(4 * previous_rows);
+    const twiddle_offset: u32 = current_offset + 4 * current_rows;
+    const output_start: u32 = twiddle_offset + @as(u32, @intCast(tree.itwiddles.len));
+    var output_offsets: [8]u32 = undefined;
+    for (&output_offsets, 0..) |*offset, index| offset.* = output_start + @as(u32, @intCast(index * current_rows / 2));
+    var arena = try runtime.allocateResidentBuffer(@as(usize, output_start + 8 * current_rows / 2) * 4);
+    defer arena.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
+    for (0..4) |coordinate| {
+        expected[coordinate] = try allocator.alloc(M31, current_rows);
+        for (0..previous_rows) |row| words[previous_offset + coordinate * previous_rows + row] = @intCast((coordinate * 1237 + row * 17 + 3) % m31.Modulus);
+        for (0..current_rows) |row| {
+            const value: u32 = @intCast((coordinate * 3571 + row * 29 + 11) % m31.Modulus);
+            words[current_offset + coordinate * current_rows + row] = value;
+            const lifted = (row >> (current_log - previous_log + 1) << 1) + (row & 1);
+            expected[coordinate][row] = M31.fromCanonical(value).add(M31.fromCanonical(words[previous_offset + coordinate * previous_rows + lifted]));
+        }
+    }
+    try circle_poly.interpolateBuffersWithTwiddles(&expected, domain, const_tree);
+    @memcpy(words[twiddle_offset .. twiddle_offset + tree.itwiddles.len], std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(tree.itwiddles)));
+    const scale = try M31.fromCanonical(@intCast(current_rows)).inv();
+    var plan = try runtime.prepareCompositionFinalize(
+        &.{ previous_offset, current_offset },
+        &.{ previous_log, current_log },
+        twiddle_offset,
+        output_offsets,
+        scale.v,
+    );
+    defer plan.deinit();
+    const gpu_ms = try runtime.compositionFinalizePrepared(arena, plan);
+    try std.testing.expect(gpu_ms > 0);
+    for (0..8) |output| {
+        const coordinate = output & 3;
+        const half = output >> 2;
+        const source = expected[coordinate][half * current_rows / 2 ..][0 .. current_rows / 2];
+        const actual_bytes = std.mem.sliceAsBytes(words[output_offsets[output] .. output_offsets[output] + current_rows / 2]);
+        const actual: []align(@alignOf(M31)) const u8 = @alignCast(actual_bytes);
+        try std.testing.expectEqualSlices(M31, source, std.mem.bytesAsSlice(M31, actual));
     }
 }
 

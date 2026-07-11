@@ -84,7 +84,8 @@ zig-out/bin/metal-arena-plan /tmp/sn2-arena.json 29 \
   vectors/cairo/sn_pie_2_witness_programs.bin \
   vectors/cairo/sn_pie_2_multiplicity_feeds.bin \
   vectors/cairo/cairo_relation_templates.bin \
-  vectors/cairo/cairo_fixed_tables.bin
+  vectors/cairo/cairo_fixed_tables.bin \
+  vectors/cairo/sn_pie_2_composition.bin
 ```
 
 The compressed vector is the exact host-only preflight export used for this
@@ -196,11 +197,26 @@ seconds for 279 independent runtime compilations. A machine-specific
 279 pipelines in 13.90 ms (80 ms total process time); the 55 MiB sidecar is
 ignored by git and regenerated per Metal driver.
 
-The remaining composition blocker is graph orchestration, not AIR ownership:
-interleave each component's coefficient LDE with its fused parts through one
-reused tile, lift the per-log accumulators, interpolate the maximum accumulator,
-and split four secure coordinates into eight quotient coefficient columns in
-the same resident command buffer.
+Composition graph ownership is now resident at both substitution boundaries.
+The prepared front clears the shared accumulator once and, in one command
+buffer, interleaves each component's variable-log coefficient LDE with its
+fused AIR parts before reusing the single tile. The prepared back lifts all 18
+accumulator log classes, interpolates four secure coordinates, normalizes, and
+splits them into eight quotient coefficient columns in one command buffer.
+Both boundaries have CPU parity tests. One coalesced recovery recipe owns the
+eight outputs with no compatibility readback.
+
+The exact planner gate consumes `sn_pie_2_composition.bin`, checks the 58
+component instances and 279 parts against every trace span, preprocessed index,
+extension-parameter extent, twiddle table, 100,662,912-word accumulator slab,
+5,300-word random-power slab, tile, descriptor slab, and output geometry. It
+then binds the eight 268,435,456-byte composition outputs as recomputable. This
+reduces the conservative spill fallback to 4,680 buffers and 3,135,728,380
+bytes. Descending random powers and typed constant/dynamic extension parameters
+are now also materialized by Metal at the start of the same front command
+buffer; parity covers constant scaling and resident-source scaling. The
+remaining composition wiring is construction of the exact prepared front plan
+from the validated SN schedule bindings.
 
 `src/frontends/cairo/witness/program.zig` implements the canonical 28-op,
 16-byte witness instruction ABI, semantic hash, strict SSA/shape validation,

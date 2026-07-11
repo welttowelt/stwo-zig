@@ -4,6 +4,7 @@ const witness_bundle_mod = @import("frontends/cairo/witness/bundle.zig");
 const feed_bundle_mod = @import("frontends/cairo/witness/feed_bundle.zig");
 const relation_bundle_mod = @import("frontends/cairo/witness/relation_bundle.zig");
 const fixed_table_bundle_mod = @import("frontends/cairo/witness/fixed_table_bundle.zig");
+const composition_bundle_mod = @import("frontends/cairo/witness/composition_bundle.zig");
 
 const epoch_names = [_][]const u8{
     "Ingest",            "Witness", "BaseCommit", "Interaction", "InteractionCommit", "Composition",
@@ -45,6 +46,7 @@ const FixedTableCoverage = struct { components: usize, lookup_buffers: usize, lo
 const MerkleParentCoverage = struct { sources: []?u32, buffers: usize, bytes: u64, chains: usize };
 const MerkleCommitCoverage = struct { bottoms: []bool, commitments: usize, buffers: usize, bytes: u64 };
 const EcOpCoverage = struct { rows: u64, output_buffers: usize, output_bytes: u64 };
+const CompositionCoverage = struct { components: usize, parts: usize, output_buffers: usize, output_bytes: u64 };
 const ScheduledColumn = struct { ordinal: u32, words: u64 };
 const ScheduledGroup = struct { start: usize, len: usize, rows: u64 };
 
@@ -54,8 +56,8 @@ pub fn main() !void {
     const allocator = debug_allocator.allocator();
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
-    if (args.len < 3 or args.len > 7) {
-        std.debug.print("usage: metal-arena-plan <arena_preflight.json> <budget-gib> [witness-programs.bin] [multiplicity-feeds.bin] [relation-templates.bin] [fixed-tables.bin]\n", .{});
+    if (args.len < 3 or args.len > 8) {
+        std.debug.print("usage: metal-arena-plan <arena_preflight.json> <budget-gib> [witness-programs.bin] [multiplicity-feeds.bin] [relation-templates.bin] [fixed-tables.bin] [composition.bin]\n", .{});
         return error.InvalidArguments;
     }
     const budget_gib = try std.fmt.parseFloat(f64, args[2]);
@@ -87,9 +89,7 @@ pub fn main() !void {
     else
         null;
     defer if (feed_bundle) |*bundle| bundle.deinit();
-    var relation_bundle: ?relation_bundle_mod.Bundle = if (args.len == 6)
-        try relation_bundle_mod.Bundle.readFile(allocator, args[5])
-    else if (args.len == 7)
+    var relation_bundle: ?relation_bundle_mod.Bundle = if (args.len >= 6)
         try relation_bundle_mod.Bundle.readFile(allocator, args[5])
     else
         null;
@@ -98,7 +98,7 @@ pub fn main() !void {
         try validateRelationCoverage(allocator, schedule, bundle)
     else
         null;
-    var fixed_table_bundle: ?fixed_table_bundle_mod.Bundle = if (args.len == 7)
+    var fixed_table_bundle: ?fixed_table_bundle_mod.Bundle = if (args.len >= 7)
         try fixed_table_bundle_mod.Bundle.readFile(allocator, args[6])
     else
         null;
@@ -107,6 +107,15 @@ pub fn main() !void {
     defer fixed_table_destinations.deinit();
     const fixed_table_coverage: ?FixedTableCoverage = if (fixed_table_bundle) |bundle|
         try validateFixedTableCoverage(schedule, bundle, &fixed_table_destinations)
+    else
+        null;
+    var composition_bundle: ?composition_bundle_mod.Bundle = if (args.len == 8)
+        try composition_bundle_mod.Bundle.readFile(allocator, args[7])
+    else
+        null;
+    defer if (composition_bundle) |*bundle| bundle.deinit();
+    const composition_coverage: ?CompositionCoverage = if (composition_bundle) |bundle|
+        try validateCompositionCoverage(schedule, bundle)
     else
         null;
     var native_destinations = std.StringHashMap(void).init(allocator);
@@ -254,6 +263,8 @@ pub fn main() !void {
             has_recompute_recipe = true;
         } else if ((std.mem.eql(u8, purpose, "InteractionTrace") or std.mem.eql(u8, purpose, "RelationClaimedSum")) and relation_coverage != null) {
             has_recompute_recipe = true;
+        } else if (std.mem.eql(u8, purpose, "CompositionCoefficients") and composition_coverage != null) {
+            has_recompute_recipe = true;
         }
         const recoverable = prepared[index].range_count > 1;
         const can_recompute = recoverable and has_recompute_recipe;
@@ -355,6 +366,11 @@ pub fn main() !void {
         .ec_op_rows = ec_op_coverage.rows,
         .ec_op_output_buffers = ec_op_coverage.output_buffers,
         .ec_op_output_bytes = ec_op_coverage.output_bytes,
+        .composition_plan_hash = if (composition_bundle) |bundle| bundle.plan_hash else 0,
+        .composition_recipe_components = if (composition_coverage) |coverage| coverage.components else 0,
+        .composition_recipe_parts = if (composition_coverage) |coverage| coverage.parts else 0,
+        .composition_recipe_buffers = if (composition_coverage) |coverage| coverage.output_buffers else 0,
+        .composition_recipe_bytes = if (composition_coverage) |coverage| coverage.output_bytes else 0,
         .native_recipe_buffers = native_recipe_buffers,
         .native_recipe_bytes = native_recipe_bytes,
         .zero_recipe_buffers = zero_recipe_buffers,
@@ -634,6 +650,61 @@ fn validateEcOpCoverage(schedule: []const std.json.Value) !EcOpCoverage {
         .output_buffers = trace_count + 1 + partial_count + 1,
         .output_bytes = trace_bytes + lookup_bytes + partial_bytes + rows * 256 * 4,
     };
+}
+
+fn validateCompositionCoverage(
+    schedule: []const std.json.Value,
+    bundle: composition_bundle_mod.Bundle,
+) !CompositionCoverage {
+    if (bundle.components.len == 0 or bundle.total_constraints == 0 or bundle.max_evaluation_log_size >= 31)
+        return error.CompositionShapeMismatch;
+    var tree_columns = [_]u32{ 0, 0, 0 };
+    for (schedule) |entry| {
+        const purpose = entry.object.get("purpose").?.string;
+        if (std.mem.eql(u8, purpose, "PreprocessedCoefficients")) tree_columns[0] += 1;
+        if (std.mem.eql(u8, purpose, "BaseCoefficients")) tree_columns[1] += 1;
+        if (std.mem.eql(u8, purpose, "InteractionCoefficients")) tree_columns[2] += 1;
+    }
+    var parts: usize = 0;
+    var accumulator_logs: u32 = 0;
+    for (bundle.components, 0..) |component, component_index| {
+        if (component.trace_spans.len != 3 or component.random_coefficient_offset >= bundle.total_constraints)
+            return error.CompositionShapeMismatch;
+        for (component.trace_spans) |span| if (span.end > tree_columns[span.tree]) return error.CompositionShapeMismatch;
+        for (component.preprocessed_indices) |index| if (index >= tree_columns[0]) return error.CompositionShapeMismatch;
+        const ext = findScheduled(schedule, "CompositionExtParams", null, @intCast(component_index)) orelse
+            return error.CompositionShapeMismatch;
+        if (ext.get("len_words").?.integer < component.ext_sources.len * 4) return error.CompositionShapeMismatch;
+        parts += component.parts.len;
+        accumulator_logs |= @as(u32, 1) << @intCast(component.evaluation_log_size);
+    }
+    var accumulator_words: u64 = 0;
+    for (0..31) |log_size| {
+        if (accumulator_logs & (@as(u32, 1) << @intCast(log_size)) != 0)
+            accumulator_words += @as(u64, 4) << @intCast(log_size);
+    }
+    const accumulators = findScheduled(schedule, "CompositionAccumulators", null, 0) orelse return error.CompositionShapeMismatch;
+    if (accumulators.get("len_words").?.integer != accumulator_words) return error.CompositionShapeMismatch;
+    const powers = findScheduled(schedule, "CompositionRandomCoefficientPowers", null, 0) orelse return error.CompositionShapeMismatch;
+    if (powers.get("len_words").?.integer != bundle.total_constraints * 4) return error.CompositionShapeMismatch;
+    const forward = findScheduled(schedule, "ForwardTwiddles", null, 0) orelse return error.CompositionShapeMismatch;
+    const inverse = findScheduled(schedule, "InverseTwiddles", null, 0) orelse return error.CompositionShapeMismatch;
+    const required_twiddles = @as(u64, 1) << @intCast(bundle.max_evaluation_log_size - 1);
+    if (forward.get("len_words").?.integer < required_twiddles or inverse.get("len_words").?.integer < required_twiddles)
+        return error.CompositionShapeMismatch;
+    const descriptors = findScheduled(schedule, "CompositionDescriptors", null, 0) orelse return error.CompositionShapeMismatch;
+    const tile = findScheduled(schedule, "CompositionLdeTile", null, 0) orelse return error.CompositionShapeMismatch;
+    if (descriptors.get("len_words").?.integer == 0 or tile.get("len_words").?.integer == 0)
+        return error.CompositionShapeMismatch;
+    var output_bytes: u64 = 0;
+    const output_words = @as(u64, 1) << @intCast(bundle.max_evaluation_log_size - 1);
+    for (0..8) |ordinal| {
+        const output = findScheduled(schedule, "CompositionCoefficients", null, @intCast(ordinal)) orelse
+            return error.CompositionShapeMismatch;
+        if (output.get("len_words").?.integer != output_words) return error.CompositionShapeMismatch;
+        output_bytes += output_words * 4;
+    }
+    return .{ .components = bundle.components.len, .parts = parts, .output_buffers = 8, .output_bytes = output_bytes };
 }
 
 fn findScheduled(
