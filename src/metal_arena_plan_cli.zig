@@ -321,7 +321,10 @@ pub fn main() !void {
         const bindings = if (proof_bindings) |*value| value else return error.MissingPreparedProofBindings;
         var metal = try metal_runtime.Runtime.init();
         defer metal.deinit();
-        const commitment_scratch_bytes = if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_COMMITMENTS"))
+        const needs_twiddle_scratch = std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_COMMITMENTS") or
+            std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_PREPROCESSED") or
+            std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_BASE_INTERPOLATION");
+        const commitment_scratch_bytes = if (needs_twiddle_scratch)
             bindings.commitmentScratchBytes()
         else
             0;
@@ -415,7 +418,8 @@ pub fn main() !void {
         defer fixed_tables.deinit();
         if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_PREPROCESSED")) {
             if (populated_preprocessed_coefficients == 0) return error.MissingPreprocessedCoefficients;
-            try arena_binding_mod.populateForwardTwiddles(allocator, &resident_arena, schedule, plan);
+            if (requested_commit_tree_count == 0)
+                try bindings.populateCommitmentTwiddles(allocator, &resident_arena, plan);
             preprocessed_gpu_ms += try arena_binding_mod.evaluatePreprocessedCoefficients(
                 allocator,
                 &metal,

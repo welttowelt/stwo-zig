@@ -381,7 +381,7 @@ pub const PreparedProofBindings = struct {
     }
 
     pub fn commitmentScratchBytes(self: PreparedProofBindings) u64 {
-        return self.forward_twiddles.size_bytes * 2 - 32;
+        return self.forward_twiddles.size_bytes;
     }
 
     pub fn populateCommitmentTwiddles(
@@ -390,7 +390,7 @@ pub const PreparedProofBindings = struct {
         resident_arena: *arena_plan.ResidentArena,
         plan: arena_plan.Plan,
     ) !void {
-        try populateTwiddleBank(allocator, resident_arena, self.commitmentTwiddleBinding(plan), false);
+        try populateForwardTwiddleBinding(allocator, resident_arena, self.commitmentTwiddleBinding(plan));
     }
 
     pub fn populateCommitmentInverseTwiddles(
@@ -399,7 +399,7 @@ pub const PreparedProofBindings = struct {
         resident_arena: *arena_plan.ResidentArena,
         plan: arena_plan.Plan,
     ) !void {
-        try populateTwiddleBank(allocator, resident_arena, self.commitmentTwiddleBinding(plan), true);
+        try populateInverseTwiddles(allocator, resident_arena, self.commitmentTwiddleBinding(plan));
     }
 
     pub fn commitmentTwiddleStorage(self: PreparedProofBindings, plan: arena_plan.Plan) arena_plan.Binding {
@@ -664,30 +664,9 @@ fn populateForwardTwiddleBinding(
     @memcpy(try resident_arena.bytes(forward), std.mem.sliceAsBytes(tree.twiddles));
 }
 
-fn populateTwiddleBank(
-    allocator: std.mem.Allocator,
-    resident_arena: *arena_plan.ResidentArena,
-    storage: arena_plan.Binding,
-    inverse: bool,
-) !void {
-    const words = storage.size_bytes / 4;
-    const max_log: u32 = std.math.log2_int(u64, (words + 8) / 2) + 1;
-    for (4..max_log + 1) |log_usize| {
-        const log_size: u32 = @intCast(log_usize);
-        const binding = twiddleBankBinding(storage, log_size);
-        var tree = try twiddles_mod.precomputeM31(allocator, circle_mod.Coset.halfOdds(log_size - 1));
-        defer twiddles_mod.deinitM31(allocator, &tree);
-        @memcpy(try resident_arena.bytes(binding), std.mem.sliceAsBytes(if (inverse) tree.itwiddles else tree.twiddles));
-    }
-}
-
 fn twiddleBankBinding(storage: arena_plan.Binding, log_size: u32) arena_plan.Binding {
     std.debug.assert(log_size >= 4);
-    var result = storage;
-    const tree_words = @as(u64, 1) << @intCast(log_size - 1);
-    result.offset_bytes += (tree_words - 8) * 4;
-    result.size_bytes = tree_words * 4;
-    return result;
+    return storage;
 }
 
 pub fn populateNamedInverseTwiddles(
