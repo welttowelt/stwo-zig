@@ -45,6 +45,39 @@ test "metal: prepared arena gather seals one proof buffer" {
     try std.testing.expectEqualSlices(u32, &.{ 11, 13, 17, 19, 23, 29, 31 }, words[64..71]);
 }
 
+test "metal: witness edge gather preserves producer and packed padding order" {
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    var arena = try runtime.allocateResidentBuffer(16 * 1024);
+    defer arena.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
+    const outputs = [_]u32{ 512, 576, 640 };
+    const producer_rows: u32 = 16;
+    for (0..4) |source_word| {
+        for (0..producer_rows) |row|
+            words[source_word * producer_rows + row] = @intCast(source_word * 100 + row);
+    }
+    _ = try runtime.witnessInputGather(
+        arena,
+        &.{0},
+        &.{.{ producer_rows, 0, 2, 2, 0 }},
+        2,
+        32,
+        64,
+        &outputs,
+        true,
+        false,
+    );
+    for (0..64) |row| {
+        const source_row = if (row < 32) row else row & 15;
+        const instance = source_row / 16;
+        const inner = source_row % 16;
+        try std.testing.expectEqual(@as(u32, @intCast(instance * 200 + inner)), words[outputs[0] + row]);
+        try std.testing.expectEqual(@as(u32, @intCast(instance * 200 + 100 + inner)), words[outputs[1] + row]);
+        try std.testing.expectEqual(@as(u32, @intFromBool(row < 32)), words[outputs[2] + row]);
+    }
+}
+
 test "metal: fused V1 evaluation program matches scalar field arithmetic" {
     const allocator = std.testing.allocator;
     var base = [_]eval_program.BaseInst{
@@ -1117,6 +1150,130 @@ test "metal: resident decommit query preparation matches canonical mapping" {
     try std.testing.expectEqual(@as(u32, 4), words[assembly_base + 8 + 4 * 16 + 1]);
 }
 
+test "metal: trace sparse parents and assembly are resident and fail closed" {
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    var arena = try runtime.allocateResidentBuffer(64 * 1024);
+    defer arena.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
+    const counts: u32 = 100;
+    const mapped: u32 = 128;
+    const walk: u32 = 256;
+    const scratch: u32 = 320;
+    const values: u32 = 384;
+    const sparse_indices: u32 = 512;
+    const sparse_hashes: u32 = 640;
+    const sparse_offsets: u32 = 800;
+    const retained_offsets: u32 = 820;
+    const retained_level_one: u32 = 832;
+    const parent_indices: u32 = 900;
+    const parent_hashes: u32 = 920;
+    const assembly: u32 = 1024;
+    const capacity: u32 = 2048;
+
+    words[mapped] = 0;
+    words[mapped + 1] = 1;
+    words[counts + 1] = 2;
+    words[walk] = 0;
+    words[walk + 1] = 1;
+    words[counts + 2] = 2;
+    words[counts + 4] = 2;
+    words[values] = 11;
+    words[values + 1] = 12;
+    words[sparse_indices] = 0;
+    words[sparse_indices + 1] = 1;
+    words[sparse_offsets] = 0;
+    const column_offsets: u32 = 1180;
+    const column_logs: u32 = 1184;
+    const column_zero: u32 = 1200;
+    const column_one: u32 = 1210;
+    words[column_offsets] = column_zero;
+    words[column_offsets + 1] = column_one;
+    words[column_logs] = 2;
+    words[column_logs + 1] = 2;
+    for (0..4) |row| {
+        words[column_zero + row] = @intCast(10 + row);
+        words[column_one + row] = @intCast(20 + row);
+    }
+    _ = try runtime.decommitSparseLeaves(
+        arena,
+        column_offsets,
+        column_logs,
+        2,
+        2,
+        sparse_indices,
+        counts + 4,
+        2,
+        sparse_hashes,
+        Hasher.leafSeed(),
+    );
+    for (0..2) |row| {
+        var leaf = Hasher.defaultWithInitialState();
+        leaf.updateLeaf(&.{ M31.fromCanonical(@intCast(10 + row)), M31.fromCanonical(@intCast(20 + row)) });
+        const expected = leaf.finalize();
+        try std.testing.expectEqualSlices(
+            u8,
+            &expected,
+            std.mem.sliceAsBytes(words[sparse_hashes + row * 8 .. sparse_hashes + (row + 1) * 8]),
+        );
+    }
+    words[retained_offsets] = 0;
+    words[retained_offsets + 1] = retained_level_one;
+    for (0..16) |index| words[retained_level_one + index] = @intCast(0x200 + index);
+
+    words[assembly] = 0x44575453;
+    words[assembly + 1] = 1;
+    words[assembly + 2] = 1;
+    words[assembly + 7] = 24;
+    _ = try runtime.decommitAssembleTrace(
+        arena,
+        0,
+        0,
+        2,
+        1,
+        1,
+        mapped,
+        counts + 1,
+        70,
+        walk,
+        scratch,
+        counts + 2,
+        values,
+        retained_offsets,
+        sparse_indices,
+        sparse_hashes,
+        sparse_offsets,
+        counts + 4,
+        1,
+        assembly,
+        capacity,
+    );
+    try std.testing.expect(words[assembly + 7] > 24);
+    try std.testing.expectEqual(@as(u32, 0), words[assembly + 8]);
+    try std.testing.expect(words[assembly + 8 + 15] != 0);
+
+    words[sparse_indices + 2] = 2;
+    words[sparse_indices + 3] = 3;
+    words[counts + 4] = 4;
+    for (16..32) |index| words[sparse_hashes + index] = @intCast(0x100 + index);
+    _ = try runtime.decommitSparseParent(
+        arena,
+        sparse_indices,
+        sparse_hashes,
+        counts + 4,
+        4,
+        parent_indices,
+        parent_hashes,
+        counts + 5,
+        Hasher.nodeSeed(),
+    );
+    try std.testing.expectEqual(@as(u32, 2), words[counts + 5]);
+    try std.testing.expectEqualSlices(u32, &.{ 0, 1 }, words[parent_indices .. parent_indices + 2]);
+    var nonzero = false;
+    for (words[parent_hashes .. parent_hashes + 16]) |word| nonzero = nonzero or word != 0;
+    try std.testing.expect(nonzero);
+}
+
 test "metal: exact Cairo transcript controller binds resident ordinals" {
     var runtime = try metal.Runtime.init();
     defer runtime.deinit();
@@ -1624,6 +1781,39 @@ test "metal: resident lifted Merkle root matches CPU" {
     var compatible_tree = try CpuTree.commitMetal(&runtime, allocator, &cpu_columns);
     defer compatible_tree.deinit(allocator);
     try std.testing.expectEqualSlices(u8, &cpu_tree.root(), &compatible_tree.root());
+}
+
+test "metal: execution tables split compact little-endian values into 9-bit columns" {
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    const rows: u32 = 16;
+    const source_offset: u32 = 0;
+    var offsets: [28]u32 = undefined;
+    for (&offsets, 0..) |*offset, limb| offset.* = 64 + @as(u32, @intCast(limb)) * rows;
+    var arena = try runtime.allocateResidentBuffer((64 + 28 * rows) * 4);
+    defer arena.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
+    const values = [_][8]u32{
+        .{ 0xffffffff, 0x01234567, 0x89abcdef, 0x76543210, 1, 2, 3, 4 },
+        .{ 511, 0, 0, 0, 0, 0, 0, 0 },
+    };
+    @memcpy(words[source_offset .. source_offset + values.len * 8], std.mem.bytesAsSlice(u32, std.mem.asBytes(&values)));
+    _ = try runtime.executionTableSplit(arena, source_offset, values.len, rows, 8, &offsets);
+    for (0..rows) |row| {
+        var bit: usize = 0;
+        for (offsets) |offset| {
+            var expected: u32 = 0;
+            if (row < values.len) {
+                const word = bit / 32;
+                const shift: u5 = @intCast(bit % 32);
+                expected = values[row][word] >> shift;
+                if (shift > 23 and word + 1 < 8) expected |= values[row][word + 1] << @intCast(32 - @as(u6, shift));
+                expected &= 0x1ff;
+            }
+            try std.testing.expectEqual(expected, words[offset + row]);
+            bit += 9;
+        }
+    }
 }
 
 test "metal: prepared sparse Merkle leaves match committed tree" {

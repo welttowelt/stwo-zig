@@ -437,6 +437,66 @@ struct WitnessArgs {
     uint poseidon_keys;
 };
 
+kernel void stwo_zig_witness_input_gather_resident(
+    device uint *arena [[buffer(0)]], constant uint *producer_offsets [[buffer(1)]],
+    constant uint *edge_descriptors [[buffer(2)]], constant uint &edge_count [[buffer(3)]],
+    constant uint &input_width [[buffer(4)]], constant uint &total_real_rows [[buffer(5)]],
+    constant uint &consumer_rows [[buffer(6)]], constant uint *consumer_offsets [[buffer(7)]],
+    constant uint &include_enabler [[buffer(8)]], constant uint &include_iota [[buffer(9)]],
+    uint row [[thread_position_in_grid]]
+) {
+    if (row >= consumer_rows) return;
+    uint source_global_row = row < total_real_rows ? row : (row & 15u);
+    for (uint edge = 0u; edge < edge_count; ++edge) {
+        constant uint *descriptor = edge_descriptors + edge * 5u;
+        uint producer_rows = descriptor[0], edge_rows = producer_rows * descriptor[3], destination_offset = descriptor[4];
+        if (source_global_row < destination_offset || source_global_row >= destination_offset + edge_rows) continue;
+        uint local_row = source_global_row - destination_offset;
+        uint instance = local_row / producer_rows, producer_row = local_row % producer_rows;
+        for (uint word = 0u; word < input_width; ++word) {
+            uint source_word = descriptor[1] + instance * descriptor[2] + word;
+            arena[consumer_offsets[word] + row] = arena[producer_offsets[edge] + source_word * producer_rows + producer_row];
+        }
+        break;
+    }
+    uint tail = input_width;
+    if (include_enabler != 0u) arena[consumer_offsets[tail++] + row] = uint(row < total_real_rows);
+    if (include_iota != 0u) arena[consumer_offsets[tail] + row] = row;
+}
+
+kernel void stwo_zig_execution_table_split_resident(
+    device uint *arena [[buffer(0)]], constant uint &source_offset [[buffer(1)]],
+    constant uint &value_count [[buffer(2)]], constant uint &column_rows [[buffer(3)]],
+    constant uint &source_words [[buffer(4)]], constant uint &limb_count [[buffer(5)]],
+    constant uint *destination_offsets [[buffer(6)]], uint row [[thread_position_in_grid]]
+) {
+    if (row >= column_rows) return;
+    uint words[8] = {0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u};
+    if (row < value_count) {
+        for (uint word = 0u; word < source_words; ++word)
+            words[word] = arena[source_offset + row * source_words + word];
+    }
+    uint bits_left = 32u, word_index = 0u, word = words[0];
+    for (uint limb = 0u; limb < limb_count; ++limb) {
+        uint value;
+        if (bits_left > 9u) {
+            value = word & 0x1ffu;
+            word >>= 9u;
+            bits_left -= 9u;
+        } else {
+            value = word;
+            word_index += 1u;
+            word = word_index < source_words ? words[word_index] : 0u;
+            if (bits_left < 9u) {
+                value |= (word << bits_left) & 0x1ffu;
+                word >>= 9u - bits_left;
+            }
+            bits_left += 23u;
+        }
+        arena[destination_offsets[limb] + row] = value;
+    }
+}
+
 inline uint witness_table_limb(device uint *arena, constant WitnessArgs &args, uint encoded_id, uint limb) {
     uint tag = encoded_id >> 30u, value = encoded_id & 0x3fffffffu;
     if (tag == 1u) {
@@ -2557,6 +2617,148 @@ inline bool decommit_reserve(device uint *arena, uint assembly, uint capacity, u
 
 inline void decommit_copy_hash(device uint *arena, uint destination, uint source) {
     for (uint word = 0u; word < 8u; ++word) arena[destination + word] = arena[source + word];
+}
+
+kernel void stwo_zig_decommit_sparse_parent_resident(
+    device uint *arena [[buffer(0)]], constant uint &child_indices [[buffer(1)]],
+    constant uint &child_hashes [[buffer(2)]], constant uint &child_count_at [[buffer(3)]],
+    constant uint &max_child_count [[buffer(4)]], constant uint &parent_indices [[buffer(5)]],
+    constant uint &parent_hashes [[buffer(6)]], constant uint &parent_count_at [[buffer(7)]],
+    constant uint *node_seed [[buffer(8)]], uint parent [[thread_position_in_grid]]
+) {
+    uint count = min(arena[child_count_at], max_child_count), parents = count >> 1u;
+    if (parent == 0u) arena[parent_count_at] = parents;
+    if (parent >= parents) return;
+    uint left = 2u * parent;
+    arena[parent_indices + parent] = arena[child_indices + left] >> 1u;
+    uint state[8], message[16];
+    for (uint i = 0u; i < 8u; ++i) state[i] = node_seed[i];
+    for (uint i = 0u; i < 16u; ++i) message[i] = arena[child_hashes + left * 8u + i];
+    blake2s_compress(state, message, 128u, true);
+    for (uint i = 0u; i < 8u; ++i) arena[parent_hashes + parent * 8u + i] = state[i];
+}
+
+kernel void stwo_zig_decommit_sparse_leaves_resident(
+    device uint *arena [[buffer(0)]], constant uint &column_offsets [[buffer(1)]],
+    constant uint &column_logs [[buffer(2)]], constant uint &column_count [[buffer(3)]],
+    constant uint &lifting_log [[buffer(4)]], constant uint &leaf_indices [[buffer(5)]],
+    constant uint &leaf_count_at [[buffer(6)]], constant uint &max_leaf_count [[buffer(7)]],
+    constant uint &output_hashes [[buffer(8)]], constant uint *leaf_seed [[buffer(9)]],
+    uint sparse_index [[thread_position_in_grid]]
+) {
+    uint count = min(arena[leaf_count_at], max_leaf_count);
+    if (sparse_index >= count) return;
+    uint position = arena[leaf_indices + sparse_index];
+    uint state[8], message[16], in_block = 0u, total_bytes = 64u;
+    for (uint i = 0u; i < 8u; ++i) state[i] = leaf_seed[i];
+    for (uint column = 0u; column < column_count; ++column) {
+        uint log_size = arena[column_logs + column];
+        uint row = decommit_lifted_index(position, lifting_log, log_size);
+        message[in_block++] = arena[arena[column_offsets + column] + row];
+        total_bytes += 4u;
+        if (in_block == 16u) {
+            blake2s_compress(state, message, total_bytes, column + 1u == column_count);
+            in_block = 0u;
+        }
+    }
+    if (in_block != 0u) {
+        for (uint i = in_block; i < 16u; ++i) message[i] = 0u;
+        blake2s_compress(state, message, total_bytes, true);
+    }
+    for (uint i = 0u; i < 8u; ++i) arena[output_hashes + sparse_index * 8u + i] = state[i];
+}
+
+inline uint decommit_trace_node_hash(
+    device uint *arena, uint level, uint index, uint leaf_log, uint first_retained_log,
+    uint retained_offsets, uint sparse_indices, uint sparse_hashes,
+    uint sparse_offsets, uint sparse_counts, uint sparse_level_count
+) {
+    if (level <= first_retained_log) return arena[retained_offsets + level] + index * 8u;
+    uint distance = leaf_log - level;
+    if (distance >= sparse_level_count) return 0xffffffffu;
+    uint offset = arena[sparse_offsets + distance], lo = 0u, hi = arena[sparse_counts + distance];
+    while (lo < hi) {
+        uint mid = lo + ((hi - lo) >> 1u), current = arena[sparse_indices + offset + mid];
+        if (current < index) lo = mid + 1u; else hi = mid;
+    }
+    if (lo >= arena[sparse_counts + distance] || arena[sparse_indices + offset + lo] != index) return 0xffffffffu;
+    return sparse_hashes + (offset + lo) * 8u;
+}
+
+kernel void stwo_zig_decommit_assemble_trace_resident(
+    device uint *arena [[buffer(0)]], constant uint &tree_index [[buffer(1)]],
+    constant uint &role [[buffer(2)]], constant uint &leaf_log [[buffer(3)]],
+    constant uint &first_retained_log [[buffer(4)]], constant uint &column_count [[buffer(5)]],
+    constant uint &mapped [[buffer(6)]], constant uint &mapped_count_at [[buffer(7)]],
+    constant uint &max_queries [[buffer(8)]], constant uint &walk [[buffer(9)]],
+    constant uint &scratch [[buffer(10)]], constant uint &walk_count_at [[buffer(11)]],
+    constant uint &values [[buffer(12)]], constant uint &retained_offsets [[buffer(13)]],
+    constant uint &sparse_indices [[buffer(14)]], constant uint &sparse_hashes [[buffer(15)]],
+    constant uint &sparse_offsets [[buffer(16)]], constant uint &sparse_counts [[buffer(17)]],
+    constant uint &sparse_level_count [[buffer(18)]], constant uint &assembly [[buffer(19)]],
+    constant uint &capacity [[buffer(20)]], uint lane [[thread_position_in_grid]]
+) {
+    if (lane != 0u || arena[assembly + 7u] == 0u) return;
+    uint meta = assembly + 8u + tree_index * 16u;
+    uint tree_start = arena[assembly + 7u], mapped_count = min(arena[mapped_count_at], max_queries), offset = 0u;
+    if (!decommit_reserve(arena, assembly, capacity, mapped_count, offset)) return;
+    arena[meta + 2u] = offset; arena[meta + 3u] = mapped_count;
+    for (uint i = 0u; i < mapped_count; ++i) arena[assembly + offset + i] = arena[mapped + i];
+
+    uint value_words = column_count * mapped_count;
+    if (!decommit_reserve(arena, assembly, capacity, value_words, offset)) return;
+    arena[meta + 4u] = offset; arena[meta + 5u] = value_words;
+    for (uint c = 0u; c < column_count; ++c)
+        for (uint q = 0u; q < mapped_count; ++q)
+            arena[assembly + offset + c * mapped_count + q] = arena[values + c * max_queries + q];
+
+    uint current_count = min(arena[walk_count_at], max_queries);
+    bool current_is_walk = true;
+    uint hash_offset = arena[assembly + 7u], hash_count = 0u;
+    uint aux_offset = hash_offset + leaf_log * current_count * 8u;
+    uint reserve = leaf_log * current_count * 28u;
+    if (!decommit_reserve(arena, assembly, capacity, reserve, offset)) return;
+    uint aux_count = 0u;
+    for (int layer = int(leaf_log) - 1; layer >= 0; --layer) {
+        uint previous_level = uint(layer) + 1u, next_count = 0u;
+        uint current = current_is_walk ? walk : scratch, next = current_is_walk ? scratch : walk;
+        for (uint i = 0u; i < current_count;) {
+            uint first = arena[current + i];
+            bool pair = i + 1u < current_count && arena[current + i + 1u] == (first ^ 1u);
+            if (!pair) {
+                uint source = decommit_trace_node_hash(arena, previous_level, first ^ 1u, leaf_log,
+                    first_retained_log, retained_offsets, sparse_indices, sparse_hashes,
+                    sparse_offsets, sparse_counts, sparse_level_count);
+                if (source == 0xffffffffu) { arena[assembly + 7u] = 0u; return; }
+                decommit_copy_hash(arena, assembly + hash_offset + hash_count * 8u, source);
+                ++hash_count;
+            }
+            uint parent = first >> 1u;
+            arena[next + next_count++] = parent;
+            for (uint child = 2u * parent; child <= 2u * parent + 1u; ++child) {
+                uint source = decommit_trace_node_hash(arena, previous_level, child, leaf_log,
+                    first_retained_log, retained_offsets, sparse_indices, sparse_hashes,
+                    sparse_offsets, sparse_counts, sparse_level_count);
+                if (source == 0xffffffffu) { arena[assembly + 7u] = 0u; return; }
+                uint entry = assembly + aux_offset + aux_count * 10u;
+                arena[entry] = previous_level; arena[entry + 1u] = child;
+                decommit_copy_hash(arena, entry + 2u, source);
+                ++aux_count;
+            }
+            i += pair ? 2u : 1u;
+        }
+        current_is_walk = !current_is_walk;
+        current_count = next_count;
+    }
+    uint compact_aux = hash_offset + hash_count * 8u;
+    for (uint i = 0u; i < aux_count * 10u; ++i) arena[assembly + compact_aux + i] = arena[assembly + aux_offset + i];
+    arena[assembly + 7u] = compact_aux + aux_count * 10u;
+    arena[meta] = 0u; arena[meta + 1u] = role;
+    arena[meta + 6u] = 0u; arena[meta + 7u] = 0u;
+    arena[meta + 8u] = hash_offset; arena[meta + 9u] = hash_count;
+    arena[meta + 10u] = compact_aux; arena[meta + 11u] = aux_count;
+    arena[meta + 12u] = 0u; arena[meta + 13u] = 0u;
+    arena[meta + 14u] = leaf_log; arena[meta + 15u] = arena[assembly + 7u] - tree_start;
 }
 
 kernel void stwo_zig_decommit_assemble_fri_resident(

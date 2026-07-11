@@ -45,8 +45,13 @@
 @property(nonatomic, strong) id<MTLComputePipelineState> decommitPrepareTraceQueriesResident;
 @property(nonatomic, strong) id<MTLComputePipelineState> decommitGatherTraceValuesResident;
 @property(nonatomic, strong) id<MTLComputePipelineState> decommitAssembleFriResident;
+@property(nonatomic, strong) id<MTLComputePipelineState> decommitSparseParentResident;
+@property(nonatomic, strong) id<MTLComputePipelineState> decommitSparseLeavesResident;
+@property(nonatomic, strong) id<MTLComputePipelineState> decommitAssembleTraceResident;
 @property(nonatomic, strong) id<MTLComputePipelineState> qm31ToCoordinates;
 @property(nonatomic, strong) id<MTLComputePipelineState> witnessFeedCounts;
+@property(nonatomic, strong) id<MTLComputePipelineState> witnessInputGatherResident;
+@property(nonatomic, strong) id<MTLComputePipelineState> executionTableSplitResident;
 @property(nonatomic, strong) id<MTLComputePipelineState> clearArenaRanges;
 @property(nonatomic, strong) id<MTLComputePipelineState> clearArenaSpans;
 @property(nonatomic, strong) id<MTLComputePipelineState> circleExpandSparse;
@@ -467,8 +472,13 @@ void *stwo_zig_metal_runtime_create(
         runtime.decommitPrepareTraceQueriesResident = make_pipeline(device, library, @"stwo_zig_decommit_prepare_trace_queries_resident", error_message, error_message_len);
         runtime.decommitGatherTraceValuesResident = make_pipeline(device, library, @"stwo_zig_decommit_gather_trace_values_resident", error_message, error_message_len);
         runtime.decommitAssembleFriResident = make_pipeline(device, library, @"stwo_zig_decommit_assemble_fri_resident", error_message, error_message_len);
+        runtime.decommitSparseParentResident = make_pipeline(device, library, @"stwo_zig_decommit_sparse_parent_resident", error_message, error_message_len);
+        runtime.decommitSparseLeavesResident = make_pipeline(device, library, @"stwo_zig_decommit_sparse_leaves_resident", error_message, error_message_len);
+        runtime.decommitAssembleTraceResident = make_pipeline(device, library, @"stwo_zig_decommit_assemble_trace_resident", error_message, error_message_len);
         runtime.qm31ToCoordinates = make_pipeline(device, library, @"stwo_zig_qm31_to_coordinates", error_message, error_message_len);
         runtime.witnessFeedCounts = make_pipeline(device, library, @"stwo_zig_witness_feed_counts", error_message, error_message_len);
+        runtime.witnessInputGatherResident = make_pipeline(device, library, @"stwo_zig_witness_input_gather_resident", error_message, error_message_len);
+        runtime.executionTableSplitResident = make_pipeline(device, library, @"stwo_zig_execution_table_split_resident", error_message, error_message_len);
         runtime.clearArenaRanges = make_pipeline(device, library, @"stwo_zig_clear_arena_ranges", error_message, error_message_len);
         runtime.clearArenaSpans = make_pipeline(device, library, @"stwo_zig_clear_arena_spans", error_message, error_message_len);
         runtime.circleExpandSparse = make_pipeline(device, library, @"stwo_zig_circle_expand_sparse", error_message, error_message_len);
@@ -518,7 +528,11 @@ void *stwo_zig_metal_runtime_create(
             runtime.decommitGatherFriValuesResident == nil || runtime.decommitPrepareTraceQueriesResident == nil ||
             runtime.decommitGatherTraceValuesResident == nil || runtime.qm31ToCoordinates == nil ||
             runtime.decommitAssembleFriResident == nil ||
+            runtime.decommitSparseParentResident == nil || runtime.decommitAssembleTraceResident == nil ||
+            runtime.decommitSparseLeavesResident == nil ||
             runtime.witnessFeedCounts == nil || runtime.clearArenaRanges == nil || runtime.clearArenaSpans == nil ||
+            runtime.witnessInputGatherResident == nil ||
+            runtime.executionTableSplitResident == nil ||
             runtime.circleExpandSparse == nil || runtime.circleCopySparse == nil || runtime.circleIfftFirstSparse == nil ||
             runtime.circleIfftLayerSparse == nil || runtime.circleRescaleSparse == nil ||
             runtime.circleRfftLayerSparse == nil || runtime.circleRfftLastSparse == nil) return NULL;
@@ -1214,6 +1228,129 @@ bool stwo_zig_metal_decommit_assemble_fri(
         uint32_t args[]={tree_index,leaf_log,tree_queries,tree_count_at,expanded,expanded_count_at,values,walk,scratch,walk_count_at,retained_offsets,assembly,capacity};
         for(NSUInteger i=0;i<13u;++i)[encoder setBytes:&args[i] length:4u atIndex:i+1u];
         [encoder dispatchThreads:MTLSizeMake(1u,1u,1u) threadsPerThreadgroup:MTLSizeMake(1u,1u,1u)]; [encoder endEncoding]; [command commit]; [command waitUntilCompleted];
+        if(command.status==MTLCommandBufferStatusError){write_error(error_message,error_message_len,command.error.localizedDescription);return false;}
+        if(gpu_milliseconds)*gpu_milliseconds=(command.GPUEndTime-command.GPUStartTime)*1000.0; return true;
+    }
+}
+
+bool stwo_zig_metal_decommit_sparse_parent(
+    void *runtime_ptr, void *arena_ptr, uint32_t child_indices, uint32_t child_hashes,
+    uint32_t child_count_at, uint32_t max_child_count, uint32_t parent_indices,
+    uint32_t parent_hashes, uint32_t parent_count_at, const uint32_t node_seed[8],
+    double *gpu_milliseconds, char *error_message, size_t error_message_len
+) {
+    if(runtime_ptr==NULL||arena_ptr==NULL||node_seed==NULL||max_child_count<2u)return false;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime=(__bridge StwoZigMetalRuntime *)runtime_ptr; id<MTLBuffer> arena=(__bridge id<MTLBuffer>)arena_ptr;
+        NSUInteger words=arena.length/sizeof(uint32_t), parents=max_child_count/2u;
+        if((NSUInteger)child_indices+max_child_count>words||(NSUInteger)child_hashes+(NSUInteger)max_child_count*8u>words||
+           child_count_at>=words||(NSUInteger)parent_indices+parents>words||(NSUInteger)parent_hashes+parents*8u>words||parent_count_at>=words)return false;
+        id<MTLCommandBuffer> command=[runtime.queue commandBuffer]; id<MTLComputeCommandEncoder> encoder=[command computeCommandEncoder];
+        [encoder setComputePipelineState:runtime.decommitSparseParentResident]; [encoder setBuffer:arena offset:0 atIndex:0];
+        uint32_t args[]={child_indices,child_hashes,child_count_at,max_child_count,parent_indices,parent_hashes,parent_count_at};
+        for(NSUInteger i=0;i<7u;++i)[encoder setBytes:&args[i] length:4u atIndex:i+1u]; [encoder setBytes:node_seed length:32u atIndex:8];
+        [encoder dispatchThreads:MTLSizeMake(parents,1u,1u) threadsPerThreadgroup:MTLSizeMake(MIN(parents,256u),1u,1u)]; [encoder endEncoding]; [command commit]; [command waitUntilCompleted];
+        if(command.status==MTLCommandBufferStatusError){write_error(error_message,error_message_len,command.error.localizedDescription);return false;}
+        if(gpu_milliseconds)*gpu_milliseconds=(command.GPUEndTime-command.GPUStartTime)*1000.0; return true;
+    }
+}
+
+bool stwo_zig_metal_decommit_sparse_leaves(
+    void *runtime_ptr, void *arena_ptr, uint32_t column_offsets, uint32_t column_logs,
+    uint32_t column_count, uint32_t lifting_log, uint32_t leaf_indices,
+    uint32_t leaf_count_at, uint32_t max_leaf_count, uint32_t output_hashes,
+    const uint32_t leaf_seed[8], double *gpu_milliseconds, char *error_message,
+    size_t error_message_len
+) {
+    if(runtime_ptr==NULL||arena_ptr==NULL||leaf_seed==NULL||column_count==0u||lifting_log>=31u||max_leaf_count==0u)return false;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime=(__bridge StwoZigMetalRuntime *)runtime_ptr; id<MTLBuffer> arena=(__bridge id<MTLBuffer>)arena_ptr;
+        NSUInteger words=arena.length/sizeof(uint32_t);
+        if((NSUInteger)column_offsets+column_count>words||(NSUInteger)column_logs+column_count>words||
+           (NSUInteger)leaf_indices+max_leaf_count>words||leaf_count_at>=words||(NSUInteger)output_hashes+(NSUInteger)max_leaf_count*8u>words)return false;
+        id<MTLCommandBuffer> command=[runtime.queue commandBuffer]; id<MTLComputeCommandEncoder> encoder=[command computeCommandEncoder];
+        [encoder setComputePipelineState:runtime.decommitSparseLeavesResident]; [encoder setBuffer:arena offset:0 atIndex:0];
+        uint32_t args[]={column_offsets,column_logs,column_count,lifting_log,leaf_indices,leaf_count_at,max_leaf_count,output_hashes};
+        for(NSUInteger i=0;i<8u;++i)[encoder setBytes:&args[i] length:4u atIndex:i+1u]; [encoder setBytes:leaf_seed length:32u atIndex:9];
+        [encoder dispatchThreads:MTLSizeMake(max_leaf_count,1u,1u) threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)max_leaf_count,256u),1u,1u)]; [encoder endEncoding]; [command commit]; [command waitUntilCompleted];
+        if(command.status==MTLCommandBufferStatusError){write_error(error_message,error_message_len,command.error.localizedDescription);return false;}
+        if(gpu_milliseconds)*gpu_milliseconds=(command.GPUEndTime-command.GPUStartTime)*1000.0; return true;
+    }
+}
+
+bool stwo_zig_metal_decommit_assemble_trace(
+    void *runtime_ptr, void *arena_ptr, uint32_t tree_index, uint32_t role,
+    uint32_t leaf_log, uint32_t first_retained_log, uint32_t column_count,
+    uint32_t mapped, uint32_t mapped_count_at, uint32_t max_queries,
+    uint32_t walk, uint32_t scratch, uint32_t walk_count_at, uint32_t values,
+    uint32_t retained_offsets, uint32_t sparse_indices, uint32_t sparse_hashes,
+    uint32_t sparse_offsets, uint32_t sparse_counts, uint32_t sparse_level_count,
+    uint32_t assembly, uint32_t capacity, double *gpu_milliseconds,
+    char *error_message, size_t error_message_len
+) {
+    if(runtime_ptr==NULL||arena_ptr==NULL||leaf_log>=31u||column_count==0u||max_queries==0u||capacity==0u)return false;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime=(__bridge StwoZigMetalRuntime *)runtime_ptr; id<MTLBuffer> arena=(__bridge id<MTLBuffer>)arena_ptr;
+        NSUInteger words=arena.length/sizeof(uint32_t);
+        if(mapped_count_at>=words||walk_count_at>=words||(NSUInteger)retained_offsets+first_retained_log+1u>words||
+           (NSUInteger)sparse_offsets+sparse_level_count>words||(NSUInteger)sparse_counts+sparse_level_count>words||(NSUInteger)assembly+capacity>words)return false;
+        id<MTLCommandBuffer> command=[runtime.queue commandBuffer]; id<MTLComputeCommandEncoder> encoder=[command computeCommandEncoder];
+        [encoder setComputePipelineState:runtime.decommitAssembleTraceResident]; [encoder setBuffer:arena offset:0 atIndex:0];
+        uint32_t args[]={tree_index,role,leaf_log,first_retained_log,column_count,mapped,mapped_count_at,max_queries,walk,scratch,walk_count_at,values,retained_offsets,sparse_indices,sparse_hashes,sparse_offsets,sparse_counts,sparse_level_count,assembly,capacity};
+        for(NSUInteger i=0;i<20u;++i)[encoder setBytes:&args[i] length:4u atIndex:i+1u];
+        [encoder dispatchThreads:MTLSizeMake(1u,1u,1u) threadsPerThreadgroup:MTLSizeMake(1u,1u,1u)]; [encoder endEncoding]; [command commit]; [command waitUntilCompleted];
+        if(command.status==MTLCommandBufferStatusError){write_error(error_message,error_message_len,command.error.localizedDescription);return false;}
+        if(gpu_milliseconds)*gpu_milliseconds=(command.GPUEndTime-command.GPUStartTime)*1000.0; return true;
+    }
+}
+
+bool stwo_zig_metal_witness_input_gather(
+    void *runtime_ptr, void *arena_ptr, const uint32_t *producer_offsets,
+    const uint32_t *edge_descriptors, uint32_t edge_count, uint32_t input_width,
+    uint32_t total_real_rows, uint32_t consumer_rows, const uint32_t *consumer_offsets,
+    uint32_t include_enabler, uint32_t include_iota, double *gpu_milliseconds,
+    char *error_message, size_t error_message_len
+) {
+    uint32_t output_count=input_width+include_enabler+include_iota;
+    if(runtime_ptr==NULL||arena_ptr==NULL||producer_offsets==NULL||edge_descriptors==NULL||consumer_offsets==NULL||
+       edge_count==0u||input_width==0u||consumer_rows==0u||total_real_rows==0u||total_real_rows>consumer_rows||output_count==0u)return false;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime=(__bridge StwoZigMetalRuntime *)runtime_ptr; id<MTLBuffer> arena=(__bridge id<MTLBuffer>)arena_ptr;
+        NSUInteger words=arena.length/sizeof(uint32_t);
+        for(uint32_t i=0u;i<output_count;++i)if((NSUInteger)consumer_offsets[i]+consumer_rows>words)return false;
+        id<MTLCommandBuffer> command=[runtime.queue commandBuffer]; id<MTLComputeCommandEncoder> encoder=[command computeCommandEncoder];
+        [encoder setComputePipelineState:runtime.witnessInputGatherResident]; [encoder setBuffer:arena offset:0 atIndex:0];
+        [encoder setBytes:producer_offsets length:(NSUInteger)edge_count*4u atIndex:1];
+        [encoder setBytes:edge_descriptors length:(NSUInteger)edge_count*5u*4u atIndex:2];
+        uint32_t args[]={edge_count,input_width,total_real_rows,consumer_rows}; for(NSUInteger i=0;i<4u;++i)[encoder setBytes:&args[i] length:4u atIndex:i+3u];
+        [encoder setBytes:consumer_offsets length:(NSUInteger)output_count*4u atIndex:7];
+        [encoder setBytes:&include_enabler length:4u atIndex:8]; [encoder setBytes:&include_iota length:4u atIndex:9];
+        [encoder dispatchThreads:MTLSizeMake(consumer_rows,1u,1u) threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)consumer_rows,256u),1u,1u)]; [encoder endEncoding]; [command commit]; [command waitUntilCompleted];
+        if(command.status==MTLCommandBufferStatusError){write_error(error_message,error_message_len,command.error.localizedDescription);return false;}
+        if(gpu_milliseconds)*gpu_milliseconds=(command.GPUEndTime-command.GPUStartTime)*1000.0; return true;
+    }
+}
+
+bool stwo_zig_metal_execution_table_split(
+    void *runtime_ptr, void *arena_ptr, uint32_t source_offset, uint32_t value_count,
+    uint32_t column_rows, uint32_t source_words, uint32_t limb_count,
+    const uint32_t *destination_offsets, double *gpu_milliseconds,
+    char *error_message, size_t error_message_len
+) {
+    if(runtime_ptr==NULL||arena_ptr==NULL||destination_offsets==NULL||value_count>column_rows||
+       column_rows==0u||!((source_words==8u&&limb_count==28u)||(source_words==4u&&limb_count==8u)))return false;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime=(__bridge StwoZigMetalRuntime *)runtime_ptr; id<MTLBuffer> arena=(__bridge id<MTLBuffer>)arena_ptr;
+        NSUInteger words=arena.length/sizeof(uint32_t);
+        if((NSUInteger)source_offset+(NSUInteger)value_count*source_words>words)return false;
+        for(uint32_t i=0u;i<limb_count;++i)if((NSUInteger)destination_offsets[i]+column_rows>words)return false;
+        id<MTLCommandBuffer> command=[runtime.queue commandBuffer]; id<MTLComputeCommandEncoder> encoder=[command computeCommandEncoder];
+        [encoder setComputePipelineState:runtime.executionTableSplitResident]; [encoder setBuffer:arena offset:0 atIndex:0];
+        uint32_t args[]={source_offset,value_count,column_rows,source_words,limb_count};
+        for(NSUInteger i=0;i<5u;++i)[encoder setBytes:&args[i] length:4u atIndex:i+1u];
+        [encoder setBytes:destination_offsets length:(NSUInteger)limb_count*4u atIndex:6];
+        [encoder dispatchThreads:MTLSizeMake(column_rows,1u,1u) threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)column_rows,256u),1u,1u)];
+        [encoder endEncoding]; [command commit]; [command waitUntilCompleted];
         if(command.status==MTLCommandBufferStatusError){write_error(error_message,error_message_len,command.error.localizedDescription);return false;}
         if(gpu_milliseconds)*gpu_milliseconds=(command.GPUEndTime-command.GPUStartTime)*1000.0; return true;
     }

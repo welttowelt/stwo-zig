@@ -106,6 +106,11 @@ pub const AotWitnessBatchRecipe = struct {
         for (self.plans) |plan| self.accumulated_gpu_ms += try self.metal.witnessPrepared(self.arena.buffer, plan);
     }
 
+    pub fn executeIndex(self: *AotWitnessBatchRecipe, index: usize) !void {
+        if (index >= self.plans.len) return recovery.RecoveryError.BindingSizeMismatch;
+        self.accumulated_gpu_ms += try self.metal.witnessPrepared(self.arena.buffer, self.plans[index]);
+    }
+
     pub fn makeRecipes(self: *AotWitnessBatchRecipe, allocator: std.mem.Allocator) ![]recovery.Recipe {
         const recipes = try allocator.alloc(recovery.Recipe, self.destinations.len);
         for (self.destinations, recipes) |destination, *recipe_entry|
@@ -656,8 +661,10 @@ pub const EcOpRecipe = struct {
             if (binding.size_bytes == 0) return recovery.RecoveryError.BindingSizeMismatch;
             offset.* = try asOffset(binding);
         }
+        // The current Metal EC kernel uses threadgroup prefix/suffix products;
+        // `scratch` is retained in the ABI for schedule compatibility only.
         if (bindings.lookup.size_bytes != column_bytes * 488 or bindings.segment_start.size_bytes != 4 or
-            bindings.scratch.size_bytes < @as(u64, bindings.row_count) * 4 * 16 * 4)
+            bindings.scratch.size_bytes < 4)
             return recovery.RecoveryError.BindingSizeMismatch;
         var prepared = try metal.prepareEcOp(
             execution_offsets,
@@ -691,13 +698,17 @@ pub const EcOpRecipe = struct {
         return recipes;
     }
 
+    pub fn execute(self: *EcOpRecipe) !void {
+        self.accumulated_gpu_ms += try self.metal.ecOpPrepared(self.arena.buffer, self.prepared);
+    }
+
     fn run(raw: *anyopaque, tick: u16, requested: arena_plan.Binding, _: []u8) !void {
         const self: *EcOpRecipe = @ptrCast(@alignCast(raw));
         if (self.last_tick == tick) return;
         var found = false;
         for (self.destinations) |destination| found = found or destination.logical_id == requested.logical_id;
         if (!found) return recovery.RecoveryError.MissingRecipe;
-        self.accumulated_gpu_ms += try self.metal.ecOpPrepared(self.arena.buffer, self.prepared);
+        try self.execute();
         self.last_tick = tick;
     }
 };
@@ -827,13 +838,17 @@ pub const CompactRecipe = struct {
         return recipes;
     }
 
+    pub fn execute(self: *CompactRecipe) !void {
+        self.accumulated_gpu_ms += try self.metal.compactPrepared(self.arena.buffer, self.prepared);
+    }
+
     fn run(raw: *anyopaque, tick: u16, requested: arena_plan.Binding, _: []u8) !void {
         const self: *CompactRecipe = @ptrCast(@alignCast(raw));
         if (self.last_tick == tick) return;
         var found = false;
         for (self.destinations) |destination| found = found or destination.logical_id == requested.logical_id;
         if (!found) return recovery.RecoveryError.MissingRecipe;
-        self.accumulated_gpu_ms += try self.metal.compactPrepared(self.arena.buffer, self.prepared);
+        try self.execute();
         self.last_tick = tick;
     }
 };
@@ -1804,6 +1819,7 @@ pub const DecommitQueryRecipe = struct {
     walk_queries: arena_plan.Binding,
     walk_scratch: arena_plan.Binding,
     sparse_indices: arena_plan.Binding,
+    sparse_hashes: arena_plan.Binding,
     counts: arena_plan.Binding,
     assembly: arena_plan.Binding,
     tree_count: u32,
@@ -1819,11 +1835,12 @@ pub const DecommitQueryRecipe = struct {
         walk_queries: arena_plan.Binding,
         walk_scratch: arena_plan.Binding,
         sparse_indices: arena_plan.Binding,
+        sparse_hashes: arena_plan.Binding,
         counts: arena_plan.Binding,
         assembly: arena_plan.Binding,
         tree_count: u32,
     ) !DecommitQueryRecipe {
-        for ([_]arena_plan.Binding{ raw_queries, unique_queries, mapped_queries, expanded_positions, walk_queries, walk_scratch, sparse_indices, counts }) |binding| {
+        for ([_]arena_plan.Binding{ raw_queries, unique_queries, mapped_queries, expanded_positions, walk_queries, walk_scratch, sparse_indices, sparse_hashes, counts }) |binding| {
             if (binding.offset_bytes % 4 != 0) return recovery.RecoveryError.BindingSizeMismatch;
         }
         if (raw_queries.size_bytes != 70 * 4 or unique_queries.size_bytes < raw_queries.size_bytes or tree_count == 0 or
@@ -1841,6 +1858,7 @@ pub const DecommitQueryRecipe = struct {
             .walk_queries = walk_queries,
             .walk_scratch = walk_scratch,
             .sparse_indices = sparse_indices,
+            .sparse_hashes = sparse_hashes,
             .counts = counts,
             .assembly = assembly,
             .tree_count = tree_count,
@@ -1878,9 +1896,9 @@ pub const DecommitQueryRecipe = struct {
             try bindingWordOffset(self.mapped_queries),
             count_base + 1,
             try bindingWordOffset(self.expanded_positions),
-            count_base + 2,
-            try bindingWordOffset(self.walk_queries),
             count_base + 3,
+            try bindingWordOffset(self.walk_queries),
+            count_base + 2,
         );
     }
 
@@ -1906,7 +1924,7 @@ pub const DecommitQueryRecipe = struct {
             try bindingWordOffset(self.walk_queries),
             count_base + 2,
             try bindingWordOffset(self.sparse_indices),
-            count_base + 3,
+            count_base + 4,
         );
     }
 
@@ -1940,6 +1958,101 @@ pub const DecommitQueryRecipe = struct {
         );
     }
 
+    pub fn sparseParent(
+        self: *DecommitQueryRecipe,
+        distance: u32,
+        child_offset: u32,
+        child_capacity: u32,
+        parent_offset: u32,
+        node_seed: [8]u32,
+    ) !void {
+        if (distance == 0 or child_capacity < 2 or parent_offset >= self.sparse_indices.size_bytes / 4 or
+            @as(u64, child_offset + child_capacity) * 4 > self.sparse_indices.size_bytes or
+            @as(u64, child_offset + child_capacity) * 32 > self.sparse_hashes.size_bytes)
+            return recovery.RecoveryError.BindingSizeMismatch;
+        const count_base = try bindingWordOffset(self.counts);
+        self.accumulated_gpu_ms += try self.metal.decommitSparseParent(
+            self.arena.buffer,
+            try bindingWordOffset(self.sparse_indices) + child_offset,
+            try bindingWordOffset(self.sparse_hashes) + child_offset * 8,
+            count_base + 4 + distance - 1,
+            child_capacity,
+            try bindingWordOffset(self.sparse_indices) + parent_offset,
+            try bindingWordOffset(self.sparse_hashes) + parent_offset * 8,
+            count_base + 4 + distance,
+            node_seed,
+        );
+    }
+
+    pub fn sparseLeaves(
+        self: *DecommitQueryRecipe,
+        column_offsets: arena_plan.Binding,
+        column_logs: arena_plan.Binding,
+        column_count: u32,
+        leaf_log: u32,
+        max_leaf_count: u32,
+        leaf_seed: [8]u32,
+    ) !void {
+        if (column_offsets.size_bytes < @as(u64, column_count) * 4 or
+            column_logs.size_bytes < @as(u64, column_count) * 4 or
+            @as(u64, max_leaf_count) * 4 > self.sparse_indices.size_bytes or
+            @as(u64, max_leaf_count) * 32 > self.sparse_hashes.size_bytes)
+            return recovery.RecoveryError.BindingSizeMismatch;
+        const count_base = try bindingWordOffset(self.counts);
+        self.accumulated_gpu_ms += try self.metal.decommitSparseLeaves(
+            self.arena.buffer,
+            try bindingWordOffset(column_offsets),
+            try bindingWordOffset(column_logs),
+            column_count,
+            leaf_log,
+            try bindingWordOffset(self.sparse_indices),
+            count_base + 4,
+            max_leaf_count,
+            try bindingWordOffset(self.sparse_hashes),
+            leaf_seed,
+        );
+    }
+
+    pub fn assembleTrace(
+        self: *DecommitQueryRecipe,
+        tree_index: u32,
+        role: u32,
+        leaf_log: u32,
+        unretained: u32,
+        column_count: u32,
+        retained_offsets: arena_plan.Binding,
+        sparse_offsets: arena_plan.Binding,
+        values: arena_plan.Binding,
+    ) !void {
+        if (unretained > leaf_log or retained_offsets.size_bytes < @as(u64, leaf_log - unretained + 1) * 4 or
+            sparse_offsets.size_bytes < @as(u64, unretained) * 4 or values.size_bytes < @as(u64, column_count) * 70 * 4)
+            return recovery.RecoveryError.BindingSizeMismatch;
+        const count_base = try bindingWordOffset(self.counts);
+        self.accumulated_gpu_ms += try self.metal.decommitAssembleTrace(
+            self.arena.buffer,
+            tree_index,
+            role,
+            leaf_log,
+            leaf_log - unretained,
+            column_count,
+            try bindingWordOffset(self.mapped_queries),
+            count_base + 1,
+            70,
+            try bindingWordOffset(self.walk_queries),
+            try bindingWordOffset(self.walk_scratch),
+            count_base + 2,
+            try bindingWordOffset(values),
+            try bindingWordOffset(retained_offsets),
+            try bindingWordOffset(self.sparse_indices),
+            try bindingWordOffset(self.sparse_hashes),
+            try bindingWordOffset(sparse_offsets),
+            count_base + 4,
+            unretained,
+            try bindingWordOffset(self.assembly),
+            @intCast(self.assembly.size_bytes / 4),
+        );
+    }
+
     pub fn gatherFriValues(
         self: *DecommitQueryRecipe,
         coordinate_offsets: arena_plan.Binding,
@@ -1952,7 +2065,7 @@ pub const DecommitQueryRecipe = struct {
             self.arena.buffer,
             try bindingWordOffset(coordinate_offsets),
             try bindingWordOffset(self.expanded_positions),
-            count_base + 2,
+            count_base + 3,
             @intCast(self.expanded_positions.size_bytes / 4),
             try bindingWordOffset(values),
         );
@@ -1976,11 +2089,11 @@ pub const DecommitQueryRecipe = struct {
             try bindingWordOffset(self.mapped_queries),
             count_base + 1,
             try bindingWordOffset(self.expanded_positions),
-            count_base + 2,
+            count_base + 3,
             try bindingWordOffset(values),
             try bindingWordOffset(self.walk_queries),
             try bindingWordOffset(self.walk_scratch),
-            count_base + 3,
+            count_base + 2,
             try bindingWordOffset(retained_offsets),
             try bindingWordOffset(self.assembly),
             @intCast(self.assembly.size_bytes / 4),

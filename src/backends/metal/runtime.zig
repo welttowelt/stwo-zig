@@ -696,6 +696,93 @@ extern fn stwo_zig_metal_decommit_assemble_fri(
     error_message: [*]u8,
     error_message_len: usize,
 ) bool;
+extern fn stwo_zig_metal_decommit_sparse_parent(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    child_indices: u32,
+    child_hashes: u32,
+    child_count_at: u32,
+    max_child_count: u32,
+    parent_indices: u32,
+    parent_hashes: u32,
+    parent_count_at: u32,
+    node_seed: *const [8]u32,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_decommit_sparse_leaves(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    column_offsets: u32,
+    column_logs: u32,
+    column_count: u32,
+    lifting_log: u32,
+    leaf_indices: u32,
+    leaf_count_at: u32,
+    max_leaf_count: u32,
+    output_hashes: u32,
+    leaf_seed: *const [8]u32,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_decommit_assemble_trace(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    tree_index: u32,
+    role: u32,
+    leaf_log: u32,
+    first_retained_log: u32,
+    column_count: u32,
+    mapped: u32,
+    mapped_count_at: u32,
+    max_queries: u32,
+    walk: u32,
+    scratch: u32,
+    walk_count_at: u32,
+    values: u32,
+    retained_offsets: u32,
+    sparse_indices: u32,
+    sparse_hashes: u32,
+    sparse_offsets: u32,
+    sparse_counts: u32,
+    sparse_level_count: u32,
+    assembly: u32,
+    capacity: u32,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_witness_input_gather(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    producer_offsets: [*]const u32,
+    edge_descriptors: [*]const u32,
+    edge_count: u32,
+    input_width: u32,
+    total_real_rows: u32,
+    consumer_rows: u32,
+    consumer_offsets: [*]const u32,
+    include_enabler: u32,
+    include_iota: u32,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_execution_table_split(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    source_offset: u32,
+    value_count: u32,
+    column_rows: u32,
+    source_words: u32,
+    limb_count: u32,
+    destination_offsets: [*]const u32,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
 extern fn stwo_zig_metal_qm31_to_coordinates(
     runtime: *anyopaque,
     source: [*]const u32,
@@ -2152,6 +2239,171 @@ pub const Runtime = struct {
             values,     walk,     scratch,      walk_count_at, retained_offsets, assembly,
             capacity,
         });
+    }
+
+    pub fn decommitSparseParent(
+        self: *Runtime,
+        arena: ResidentBuffer,
+        child_indices: u32,
+        child_hashes: u32,
+        child_count_at: u32,
+        max_child_count: u32,
+        parent_indices: u32,
+        parent_hashes: u32,
+        parent_count_at: u32,
+        node_seed: [8]u32,
+    ) MetalError!f64 {
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_decommit_sparse_parent(
+            self.handle,
+            arena.handle,
+            child_indices,
+            child_hashes,
+            child_count_at,
+            max_child_count,
+            parent_indices,
+            parent_hashes,
+            parent_count_at,
+            &node_seed,
+            &gpu_ms,
+            &message,
+            message.len,
+        )) {
+            std.log.err("Metal decommit sparse parent failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CommitmentFailed;
+        }
+        return gpu_ms;
+    }
+
+    pub fn decommitSparseLeaves(
+        self: *Runtime,
+        arena: ResidentBuffer,
+        column_offsets: u32,
+        column_logs: u32,
+        column_count: u32,
+        lifting_log: u32,
+        leaf_indices: u32,
+        leaf_count_at: u32,
+        max_leaf_count: u32,
+        output_hashes: u32,
+        leaf_seed: [8]u32,
+    ) MetalError!f64 {
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_decommit_sparse_leaves(
+            self.handle,
+            arena.handle,
+            column_offsets,
+            column_logs,
+            column_count,
+            lifting_log,
+            leaf_indices,
+            leaf_count_at,
+            max_leaf_count,
+            output_hashes,
+            &leaf_seed,
+            &gpu_ms,
+            &message,
+            message.len,
+        )) {
+            std.log.err("Metal decommit sparse leaves failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CommitmentFailed;
+        }
+        return gpu_ms;
+    }
+
+    pub fn decommitAssembleTrace(
+        self: *Runtime,
+        arena: ResidentBuffer,
+        tree_index: u32,
+        role: u32,
+        leaf_log: u32,
+        first_retained_log: u32,
+        column_count: u32,
+        mapped: u32,
+        mapped_count_at: u32,
+        max_queries: u32,
+        walk: u32,
+        scratch: u32,
+        walk_count_at: u32,
+        values: u32,
+        retained_offsets: u32,
+        sparse_indices: u32,
+        sparse_hashes: u32,
+        sparse_offsets: u32,
+        sparse_counts: u32,
+        sparse_level_count: u32,
+        assembly: u32,
+        capacity: u32,
+    ) MetalError!f64 {
+        return self.transcriptCall(arena, stwo_zig_metal_decommit_assemble_trace, .{
+            tree_index,    role,           leaf_log,      first_retained_log, column_count, mapped,           mapped_count_at,
+            max_queries,   walk,           scratch,       walk_count_at,      values,       retained_offsets, sparse_indices,
+            sparse_hashes, sparse_offsets, sparse_counts, sparse_level_count, assembly,     capacity,
+        });
+    }
+
+    pub fn witnessInputGather(
+        self: *Runtime,
+        arena: ResidentBuffer,
+        producer_offsets: []const u32,
+        edge_descriptors: []const [5]u32,
+        input_width: u32,
+        total_real_rows: u32,
+        consumer_rows: u32,
+        consumer_offsets: []const u32,
+        include_enabler: bool,
+        include_iota: bool,
+    ) MetalError!f64 {
+        if (producer_offsets.len == 0 or producer_offsets.len != edge_descriptors.len or
+            consumer_offsets.len != input_width + @intFromBool(include_enabler) + @intFromBool(include_iota))
+            return MetalError.InvalidColumns;
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_witness_input_gather(
+            self.handle,
+            arena.handle,
+            producer_offsets.ptr,
+            @ptrCast(edge_descriptors.ptr),
+            @intCast(edge_descriptors.len),
+            input_width,
+            total_real_rows,
+            consumer_rows,
+            consumer_offsets.ptr,
+            @intFromBool(include_enabler),
+            @intFromBool(include_iota),
+            &gpu_ms,
+            &message,
+            message.len,
+        )) {
+            std.log.err("Metal witness input gather failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.WitnessFeedFailed;
+        }
+        return gpu_ms;
+    }
+
+    pub fn executionTableSplit(
+        self: *Runtime,
+        arena: ResidentBuffer,
+        source_offset: u32,
+        value_count: u32,
+        column_rows: u32,
+        source_words: u32,
+        destination_offsets: []const u32,
+    ) MetalError!f64 {
+        if (!((source_words == 8 and destination_offsets.len == 28) or
+            (source_words == 4 and destination_offsets.len == 8))) return MetalError.InvalidColumns;
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_execution_table_split(
+            self.handle, arena.handle, source_offset, value_count, column_rows, source_words,
+            @intCast(destination_offsets.len), destination_offsets.ptr, &gpu_ms, &message, message.len,
+        )) {
+            std.log.err("Metal execution table split failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.WitnessFeedFailed;
+        }
+        return gpu_ms;
     }
 
     pub fn qm31ToCoordinates(

@@ -6,6 +6,8 @@ const composition_bundle_mod = @import("composition_bundle.zig");
 const fixed_table_bundle_mod = @import("fixed_table_bundle.zig");
 const witness_bundle_mod = @import("bundle.zig");
 const witness_codegen = @import("../../../backends/metal/witness_codegen.zig");
+const cairo_adapter = @import("../adapter/mod.zig");
+const cairo_opcodes = @import("../adapter/opcodes.zig");
 const M31 = @import("../../../core/fields/m31.zig").M31;
 
 pub const Error = error{
@@ -95,6 +97,7 @@ pub const PreparedProofBindings = struct {
     decommit_walk_scratch: arena_plan.Binding,
     decommit_expanded_positions: arena_plan.Binding,
     decommit_sparse_indices: arena_plan.Binding,
+    decommit_sparse_hashes: arena_plan.Binding,
     decommit_counts: arena_plan.Binding,
     decommit_values: arena_plan.Binding,
     decommit_assembly: arena_plan.Binding,
@@ -185,6 +188,7 @@ pub const PreparedProofBindings = struct {
             .decommit_walk_scratch = try one(schedule, plan, "DecommitWalkScratch"),
             .decommit_expanded_positions = try one(schedule, plan, "DecommitExpandedPositions"),
             .decommit_sparse_indices = try one(schedule, plan, "DecommitSparseIndices"),
+            .decommit_sparse_hashes = try one(schedule, plan, "DecommitSparseHashes"),
             .decommit_counts = try one(schedule, plan, "DecommitCounts"),
             .decommit_values = try one(schedule, plan, "DecommitValues"),
             .decommit_assembly = try one(schedule, plan, "DecommitAssembly"),
@@ -320,6 +324,7 @@ pub const PreparedProofBindings = struct {
             self.decommit_walk_queries,
             self.decommit_walk_scratch,
             self.decommit_sparse_indices,
+            self.decommit_sparse_hashes,
             self.decommit_counts,
             self.decommit_assembly,
             12,
@@ -369,6 +374,113 @@ pub const PreparedProofBindings = struct {
 /// Binds all 33 canonical witness programs to the captured SN2 arena. The
 /// pointer workspaces retain their CUDA-sized allocation but contain native
 /// u32 Metal word offsets in the leading half.
+pub fn populateExecutionTables(
+    allocator: std.mem.Allocator,
+    metal: *metal_runtime.Runtime,
+    resident_arena: *arena_plan.ResidentArena,
+    schedule: []const std.json.Value,
+    plan: arena_plan.Plan,
+    input: *const cairo_adapter.ProverInput,
+) !f64 {
+    const raw_address = try one(schedule, plan, "ExecutionTableRawAddressToId");
+    const raw_big = try one(schedule, plan, "ExecutionTableRawF252Words");
+    const raw_small = try one(schedule, plan, "ExecutionTableRawSmallWords");
+    if (raw_address.size_bytes != @as(u64, input.memory.address_to_id.len) * 4 or
+        raw_big.size_bytes != @as(u64, input.memory.f252_values.len) * 8 * 4 or
+        raw_small.size_bytes != @as(u64, input.memory.small_values.len) * 4 * 4)
+        return Error.InvalidBindingSize;
+
+    @memcpy(try resident_arena.bytes(raw_address), std.mem.sliceAsBytes(input.memory.address_to_id));
+    @memcpy(try resident_arena.bytes(raw_big), std.mem.sliceAsBytes(input.memory.f252_values));
+    const small_bytes = try resident_arena.bytes(raw_small);
+    const small_aligned: []align(4) u8 = @alignCast(small_bytes);
+    const small_words = std.mem.bytesAsSlice(u32, small_aligned);
+    for (input.memory.small_values, 0..) |value, row| {
+        inline for (0..4) |word| small_words[row * 4 + word] = @truncate(value >> (word * 32));
+    }
+
+    const big = try collect(allocator, schedule, plan, "ExecutionTableBigLimb");
+    defer allocator.free(big);
+    const small = try collect(allocator, schedule, plan, "ExecutionTableSmallLimb");
+    defer allocator.free(small);
+    if (big.len != 28 or small.len != 8) return Error.InvalidCardinality;
+    const big_rows = std.math.cast(u32, big[0].size_bytes / 4) orelse return Error.InvalidBindingSize;
+    const small_rows = std.math.cast(u32, small[0].size_bytes / 4) orelse return Error.InvalidBindingSize;
+    var big_offsets: [28]u32 = undefined;
+    var small_offsets: [8]u32 = undefined;
+    for (big, &big_offsets) |binding, *offset| {
+        if (binding.size_bytes != @as(u64, big_rows) * 4) return Error.InvalidBindingSize;
+        offset.* = try wordOffset(binding);
+    }
+    for (small, &small_offsets) |binding, *offset| {
+        if (binding.size_bytes != @as(u64, small_rows) * 4) return Error.InvalidBindingSize;
+        offset.* = try wordOffset(binding);
+    }
+    var gpu_ms = try metal.executionTableSplit(
+        resident_arena.buffer, try wordOffset(raw_big), @intCast(input.memory.f252_values.len),
+        big_rows, 8, &big_offsets,
+    );
+    gpu_ms += try metal.executionTableSplit(
+        resident_arena.buffer, try wordOffset(raw_small), @intCast(input.memory.small_values.len),
+        small_rows, 4, &small_offsets,
+    );
+    return gpu_ms;
+}
+
+pub fn prepareEcOpWitness(
+    allocator: std.mem.Allocator,
+    metal: *metal_runtime.Runtime,
+    resident_arena: *arena_plan.ResidentArena,
+    schedule: []const std.json.Value,
+    plan: arena_plan.Plan,
+    input: *const cairo_adapter.ProverInput,
+) !protocol_recipes.EcOpRecipe {
+    var execution: [37]arena_plan.Binding = undefined;
+    execution[0] = try one(schedule, plan, "ExecutionTableRawAddressToId");
+    const big = try collect(allocator, schedule, plan, "ExecutionTableBigLimb");
+    defer allocator.free(big);
+    const small = try collect(allocator, schedule, plan, "ExecutionTableSmallLimb");
+    defer allocator.free(small);
+    if (big.len != 28 or small.len != 8) return Error.InvalidCardinality;
+    @memcpy(execution[1..29], big);
+    @memcpy(execution[29..37], small);
+
+    const trace = try collectComponent(allocator, schedule, plan, "BaseTrace", "ec_op_builtin");
+    defer allocator.free(trace);
+    const partial = try collectComponent(allocator, schedule, plan, "WitnessInput", "partial_ec_mul_generic");
+    defer allocator.free(partial);
+    if (trace.len != 273 or partial.len != 126) return Error.InvalidCardinality;
+    var trace_columns: [273]arena_plan.Binding = undefined;
+    var partial_columns: [127]arena_plan.Binding = undefined;
+    @memcpy(&trace_columns, trace);
+    @memcpy(partial_columns[0..126], partial);
+    const partial_iota = try oneComponent(schedule, plan, "EcOpPartialIota", "ec_op_builtin");
+    partial_columns[126] = partial_iota;
+    const segment_start = try oneComponent(schedule, plan, "EcOpSegmentStart", "ec_op_builtin");
+    const ec_segment = input.builtin_segments.ec_op_builtin orelse return Error.MissingBinding;
+    if (ec_segment.begin_addr > std.math.maxInt(u32)) return Error.InvalidBindingSize;
+    const segment_bytes = try resident_arena.bytes(segment_start);
+    const segment_aligned: *align(4) u32 = @ptrCast(@alignCast(segment_bytes.ptr));
+    segment_aligned.* = @intCast(ec_segment.begin_addr);
+    const row_count = std.math.cast(u32, trace[0].size_bytes / 4) orelse return Error.InvalidBindingSize;
+    const multiplicities = [4]arena_plan.Binding{
+        try oneComponentOrdinal(schedule, plan, "RuntimeMultiplicity", "memory_address_to_id", 21),
+        try oneComponentOrdinal(schedule, plan, "RuntimeMultiplicity", "memory_id_to_big", 22),
+        try oneComponentOrdinal(schedule, plan, "RuntimeMultiplicity", "memory_id_to_big", 23),
+        try oneComponentOrdinal(schedule, plan, "FixedMultiplicity", "range_check_8", 0),
+    };
+    return protocol_recipes.EcOpRecipe.init(allocator, metal, resident_arena, .{
+        .execution_columns = execution,
+        .trace_columns = trace_columns,
+        .partial_columns = partial_columns,
+        .multiplicities = multiplicities,
+        .lookup = try oneComponent(schedule, plan, "LookupInputs", "ec_op_builtin"),
+        .segment_start = segment_start,
+        .scratch = partial_iota,
+        .row_count = row_count,
+    });
+}
+
 pub fn prepareAotWitnessBatch(
     allocator: std.mem.Allocator,
     metal: *metal_runtime.Runtime,
@@ -478,6 +590,421 @@ pub fn prepareAotWitnessBatch(
         resident_arena,
         metallib_path,
         invocations,
+    );
+}
+
+const CasmLane = struct {
+    label: []const u8,
+    tag: cairo_opcodes.OpcodeTag,
+    iota: bool = false,
+};
+
+const casm_lanes = [_]CasmLane{
+    .{ .label = "add_ap_opcode", .tag = .add_ap_opcode },
+    .{ .label = "add_opcode", .tag = .add_opcode },
+    .{ .label = "add_opcode_small", .tag = .add_opcode_small },
+    .{ .label = "assert_eq_opcode", .tag = .assert_eq_opcode },
+    .{ .label = "assert_eq_opcode_double_deref", .tag = .assert_eq_opcode_double_deref },
+    .{ .label = "assert_eq_opcode_imm", .tag = .assert_eq_opcode_imm },
+    .{ .label = "call_opcode_abs", .tag = .call_opcode_abs },
+    .{ .label = "call_opcode_rel_imm", .tag = .call_opcode_rel_imm },
+    .{ .label = "jnz_opcode_non_taken", .tag = .jnz_opcode_non_taken },
+    .{ .label = "jnz_opcode_taken", .tag = .jnz_opcode_taken },
+    .{ .label = "jump_opcode_abs", .tag = .jump_opcode_abs },
+    .{ .label = "jump_opcode_double_deref", .tag = .jump_opcode_double_deref },
+    .{ .label = "jump_opcode_rel", .tag = .jump_opcode_rel },
+    .{ .label = "jump_opcode_rel_imm", .tag = .jump_opcode_rel_imm },
+    .{ .label = "mul_opcode", .tag = .mul_opcode },
+    .{ .label = "mul_opcode_small", .tag = .mul_opcode_small },
+    .{ .label = "ret_opcode", .tag = .ret_opcode },
+    .{ .label = "blake_compress_opcode", .tag = .blake_compress_opcode, .iota = true },
+    .{ .label = "qm_31_add_mul_opcode", .tag = .qm_31_add_mul_opcode },
+};
+
+/// Materializes the direct adapted-input lanes without an intermediate packed
+/// matrix. Padding repeats row zero exactly as stwo-cairo's `casm_slot_columns`.
+pub fn populateCasmWitnessInputs(
+    allocator: std.mem.Allocator,
+    resident_arena: *arena_plan.ResidentArena,
+    schedule: []const std.json.Value,
+    plan: arena_plan.Plan,
+    witness_bundle: witness_bundle_mod.Bundle,
+    input: *const cairo_adapter.ProverInput,
+) !usize {
+    var populated: usize = 0;
+    for (casm_lanes) |lane| {
+        const program_entry = witness_bundle.find(lane.label) orelse continue;
+        const states = input.state_transitions.casm_states_by_opcode.getConst(lane.tag);
+        if (states.len == 0) return Error.MissingBinding;
+        const bindings = try collectComponent(allocator, schedule, plan, "WitnessInput", lane.label);
+        defer allocator.free(bindings);
+        const expected_columns: usize = if (lane.iota) 5 else 4;
+        if (program_entry.program.n_inputs != expected_columns or bindings.len != expected_columns)
+            return Error.InvalidCardinality;
+        const row_count = bindings[0].size_bytes / 4;
+        const expected_rows = @max(std.math.ceilPowerOfTwo(usize, states.len) catch return Error.InvalidBindingSize, 16);
+        if (row_count != expected_rows) return Error.InvalidBindingSize;
+        for (bindings, 0..) |binding, column| {
+            const bytes = try resident_arena.bytes(binding);
+            if (bytes.len != row_count * 4) return Error.InvalidBindingSize;
+            const aligned: []align(4) u8 = @alignCast(bytes);
+            const destination = std.mem.bytesAsSlice(u32, aligned);
+            for (destination, 0..) |*value, row| {
+                const state = states[if (row < states.len) row else 0];
+                value.* = switch (column) {
+                    0 => state.pc.v,
+                    1 => state.ap.v,
+                    2 => state.fp.v,
+                    3 => @intFromBool(row < states.len),
+                    4 => @intCast(row),
+                    else => unreachable,
+                };
+            }
+        }
+        populated += 1;
+    }
+    return populated;
+}
+
+pub fn populateBuiltinSeedWitnessInputs(
+    allocator: std.mem.Allocator,
+    resident_arena: *arena_plan.ResidentArena,
+    schedule: []const std.json.Value,
+    plan: arena_plan.Plan,
+    witness_bundle: witness_bundle_mod.Bundle,
+    input: *const cairo_adapter.ProverInput,
+) !usize {
+    const SeedLane = struct { label: []const u8, segment: ?cairo_adapter.MemorySegmentAddresses };
+    const lanes = [_]SeedLane{
+        .{ .label = "bitwise_builtin", .segment = input.builtin_segments.bitwise_builtin },
+        .{ .label = "range_check_builtin", .segment = input.builtin_segments.range_check_builtin },
+        .{ .label = "pedersen_builtin", .segment = input.builtin_segments.pedersen_builtin },
+        .{ .label = "poseidon_builtin", .segment = input.builtin_segments.poseidon_builtin },
+    };
+    var populated: usize = 0;
+    for (lanes) |lane| {
+        const entry = witness_bundle.find(lane.label) orelse continue;
+        const segment = lane.segment orelse return Error.MissingBinding;
+        const bindings = try collectComponent(allocator, schedule, plan, "WitnessInput", lane.label);
+        defer allocator.free(bindings);
+        if (entry.program.n_inputs != 3 or bindings.len != 3 or segment.begin_addr > std.math.maxInt(u32))
+            return Error.InvalidCardinality;
+        const row_count = bindings[0].size_bytes / 4;
+        if (row_count < 16 or !std.math.isPowerOfTwo(row_count)) return Error.InvalidBindingSize;
+        for (bindings, 0..) |binding, column| {
+            const bytes = try resident_arena.bytes(binding);
+            if (bytes.len != row_count * 4) return Error.InvalidBindingSize;
+            const aligned: []align(4) u8 = @alignCast(bytes);
+            const destination = std.mem.bytesAsSlice(u32, aligned);
+            for (destination, 0..) |*value, row| value.* = switch (column) {
+                0 => @intCast(segment.begin_addr),
+                1 => 1,
+                2 => @intCast(row),
+                else => unreachable,
+            };
+        }
+        populated += 1;
+    }
+    return populated;
+}
+
+pub const WitnessEdge = struct {
+    producer: []const u8,
+    word_base: u32,
+    words_per_instance: u32,
+    instances: u32,
+};
+
+const edge_blake_round = [_]WitnessEdge{.{ .producer = "blake_compress_opcode", .word_base = 110, .words_per_instance = 19, .instances = 10 }};
+const edge_blake_g = [_]WitnessEdge{.{ .producer = "blake_round", .word_base = 81, .words_per_instance = 6, .instances = 8 }};
+const edge_triple_xor = [_]WitnessEdge{.{ .producer = "blake_compress_opcode", .word_base = 300, .words_per_instance = 3, .instances = 8 }};
+const edge_partial_w18 = [_]WitnessEdge{.{ .producer = "pedersen_aggregator_window_bits_18", .word_base = 7, .words_per_instance = 72, .instances = 28 }};
+const edge_cube = [_]WitnessEdge{
+    .{ .producer = "poseidon_aggregator", .word_base = 282, .words_per_instance = 10, .instances = 2 },
+    .{ .producer = "poseidon_3_partial_rounds_chain", .word_base = 1, .words_per_instance = 10, .instances = 3 },
+    .{ .producer = "poseidon_full_round_chain", .word_base = 0, .words_per_instance = 10, .instances = 3 },
+};
+const edge_range_252 = [_]WitnessEdge{
+    .{ .producer = "poseidon_aggregator", .word_base = 262, .words_per_instance = 10, .instances = 2 },
+    .{ .producer = "poseidon_3_partial_rounds_chain", .word_base = 61, .words_per_instance = 10, .instances = 3 },
+};
+const edge_poseidon_full = [_]WitnessEdge{.{ .producer = "poseidon_aggregator", .word_base = 6, .words_per_instance = 32, .instances = 8 }};
+const edge_poseidon_partial = [_]WitnessEdge{.{ .producer = "poseidon_aggregator", .word_base = 342, .words_per_instance = 42, .instances = 27 }};
+const compact_verify_edges = [_]WitnessEdge{
+    .{ .producer = "add_opcode", .word_base = 0, .words_per_instance = 7, .instances = 1 },
+    .{ .producer = "add_opcode_small", .word_base = 0, .words_per_instance = 7, .instances = 1 },
+    .{ .producer = "add_ap_opcode", .word_base = 0, .words_per_instance = 7, .instances = 1 },
+    .{ .producer = "assert_eq_opcode", .word_base = 0, .words_per_instance = 7, .instances = 1 },
+    .{ .producer = "assert_eq_opcode_imm", .word_base = 0, .words_per_instance = 7, .instances = 1 },
+    .{ .producer = "assert_eq_opcode_double_deref", .word_base = 0, .words_per_instance = 7, .instances = 1 },
+    .{ .producer = "blake_compress_opcode", .word_base = 0, .words_per_instance = 7, .instances = 1 },
+    .{ .producer = "call_opcode_abs", .word_base = 0, .words_per_instance = 7, .instances = 1 },
+    .{ .producer = "call_opcode_rel_imm", .word_base = 0, .words_per_instance = 7, .instances = 1 },
+    .{ .producer = "generic_opcode", .word_base = 0, .words_per_instance = 7, .instances = 1 },
+    .{ .producer = "jnz_opcode_non_taken", .word_base = 0, .words_per_instance = 7, .instances = 1 },
+    .{ .producer = "jnz_opcode_taken", .word_base = 0, .words_per_instance = 7, .instances = 1 },
+    .{ .producer = "jump_opcode_abs", .word_base = 0, .words_per_instance = 7, .instances = 1 },
+    .{ .producer = "jump_opcode_double_deref", .word_base = 0, .words_per_instance = 7, .instances = 1 },
+    .{ .producer = "jump_opcode_rel", .word_base = 0, .words_per_instance = 7, .instances = 1 },
+    .{ .producer = "jump_opcode_rel_imm", .word_base = 0, .words_per_instance = 7, .instances = 1 },
+    .{ .producer = "mul_opcode", .word_base = 0, .words_per_instance = 7, .instances = 1 },
+    .{ .producer = "mul_opcode_small", .word_base = 0, .words_per_instance = 7, .instances = 1 },
+    .{ .producer = "qm_31_add_mul_opcode", .word_base = 0, .words_per_instance = 7, .instances = 1 },
+    .{ .producer = "ret_opcode", .word_base = 0, .words_per_instance = 7, .instances = 1 },
+};
+const compact_pedersen_edges = [_]WitnessEdge{.{ .producer = "pedersen_builtin", .word_base = 3, .words_per_instance = 3, .instances = 1 }};
+const compact_poseidon_edges = [_]WitnessEdge{.{ .producer = "poseidon_builtin", .word_base = 6, .words_per_instance = 6, .instances = 1 }};
+
+fn witnessEdges(label: []const u8) ?[]const WitnessEdge {
+    if (std.mem.eql(u8, label, "blake_round")) return &edge_blake_round;
+    if (std.mem.eql(u8, label, "blake_g")) return &edge_blake_g;
+    if (std.mem.eql(u8, label, "triple_xor_32")) return &edge_triple_xor;
+    if (std.mem.eql(u8, label, "partial_ec_mul_window_bits_18")) return &edge_partial_w18;
+    if (std.mem.eql(u8, label, "cube_252")) return &edge_cube;
+    if (std.mem.eql(u8, label, "range_check_252_width_27")) return &edge_range_252;
+    if (std.mem.eql(u8, label, "poseidon_full_round_chain")) return &edge_poseidon_full;
+    if (std.mem.eql(u8, label, "poseidon_3_partial_rounds_chain")) return &edge_poseidon_partial;
+    return null;
+}
+
+const CompactGeometry = struct {
+    edges: []const WitnessEdge,
+    tuple_words: u32,
+    key_words: u32,
+    enabler_slot: u32,
+    iota_slot: u32,
+    multiplicity_slot: u32,
+};
+
+fn compactGeometry(label: []const u8) ?CompactGeometry {
+    if (std.mem.eql(u8, label, "verify_instruction")) return .{ .edges = &compact_verify_edges, .tuple_words = 7, .key_words = 1, .enabler_slot = 7, .iota_slot = 8, .multiplicity_slot = 9 };
+    if (std.mem.eql(u8, label, "pedersen_aggregator_window_bits_18")) return .{ .edges = &compact_pedersen_edges, .tuple_words = 3, .key_words = 2, .enabler_slot = 3, .iota_slot = 4, .multiplicity_slot = 5 };
+    if (std.mem.eql(u8, label, "poseidon_aggregator")) return .{ .edges = &compact_poseidon_edges, .tuple_words = 6, .key_words = 3, .enabler_slot = 6, .iota_slot = 7, .multiplicity_slot = 8 };
+    return null;
+}
+
+pub fn prepareCompactWitnessInput(
+    allocator: std.mem.Allocator,
+    metal: *metal_runtime.Runtime,
+    resident_arena: *arena_plan.ResidentArena,
+    schedule: []const std.json.Value,
+    plan: arena_plan.Plan,
+    witness_bundle: witness_bundle_mod.Bundle,
+    consumer: []const u8,
+) !protocol_recipes.CompactRecipe {
+    const geometry = compactGeometry(consumer) orelse return Error.MissingBinding;
+    const outputs = try collectComponent(allocator, schedule, plan, "WitnessInput", consumer);
+    defer allocator.free(outputs);
+    if (outputs.len <= geometry.multiplicity_slot) return Error.InvalidCardinality;
+    const consumer_rows = std.math.cast(u32, outputs[0].size_bytes / 4) orelse return Error.InvalidBindingSize;
+    var sources = std.ArrayList(arena_plan.Binding).empty;
+    defer sources.deinit(allocator);
+    var descriptors = std.ArrayList(u32).empty;
+    defer descriptors.deinit(allocator);
+    var total_rows: u32 = 0;
+    for (geometry.edges) |edge| {
+        const producer_entry = witness_bundle.find(edge.producer) orelse continue;
+        const source = try oneComponent(schedule, plan, "SubcomponentInputs", edge.producer);
+        const producer_rows = std.math.cast(u32, source.size_bytes / 4 / producer_entry.program.n_sub_words) orelse return Error.InvalidBindingSize;
+        try sources.append(allocator, source);
+        try descriptors.appendSlice(allocator, &.{ producer_rows, edge.word_base, edge.words_per_instance, edge.instances, total_rows });
+        total_rows = std.math.add(u32, total_rows, std.math.mul(u32, producer_rows, edge.instances) catch return Error.InvalidBindingSize) catch return Error.InvalidBindingSize;
+    }
+    const descriptor_binding = try oneComponent(schedule, plan, "WitnessInputCompactDescriptors", consumer);
+    if (descriptor_binding.size_bytes != descriptors.items.len * 4) return Error.InvalidCardinality;
+    @memcpy(try resident_arena.bytes(descriptor_binding), std.mem.sliceAsBytes(descriptors.items));
+    const key_a = try oneComponentOrdinal(schedule, plan, "WitnessInputCompactSortKey", consumer, 0);
+    const key_b = try oneComponentOrdinal(schedule, plan, "WitnessInputCompactSortKey", consumer, 1);
+    const index_a = try oneComponentOrdinal(schedule, plan, "WitnessInputCompactSortIndex", consumer, 0);
+    const index_b = try oneComponentOrdinal(schedule, plan, "WitnessInputCompactSortIndex", consumer, 1);
+    const sort_rows = std.math.cast(u32, key_a.size_bytes / 4) orelse return Error.InvalidBindingSize;
+    return protocol_recipes.CompactRecipe.init(allocator, metal, resident_arena, .{
+        .sources = sources.items,
+        .descriptors = descriptors.items,
+        .outputs = outputs,
+        .tuple_words = geometry.tuple_words,
+        .key_words = geometry.key_words,
+        .total_rows = total_rows,
+        .sort_rows = sort_rows,
+        .consumer_rows = consumer_rows,
+        .enabler_slot = geometry.enabler_slot,
+        .multiplicity_slot = geometry.multiplicity_slot,
+        .iota_slot = geometry.iota_slot,
+        .tuples = try oneComponent(schedule, plan, "WitnessInputCompactTupleScratch", consumer),
+        .keys_a = key_a,
+        .keys_b = key_b,
+        .indices_a = index_a,
+        .indices_b = index_b,
+        .heads = try oneComponent(schedule, plan, "WitnessInputCompactRunHeads", consumer),
+        .positions = try oneComponent(schedule, plan, "WitnessInputCompactRunPositions", consumer),
+        .unique = try oneComponent(schedule, plan, "WitnessInputCompactUniqueCount", consumer),
+        .sort_temp = try oneComponent(schedule, plan, "WitnessInputCompactSortTemp", consumer),
+        .scan_temp = try oneComponent(schedule, plan, "WitnessInputCompactScanTemp", consumer),
+    });
+}
+
+pub const WitnessExecutionTelemetry = struct {
+    executed_programs: usize,
+    gpu_ms: f64,
+};
+
+fn witnessIndex(bundle: witness_bundle_mod.Bundle, label: []const u8) ?usize {
+    for (bundle.entries, 0..) |entry, index| if (std.mem.eql(u8, entry.label, label)) return index;
+    return null;
+}
+
+fn dependenciesReady(bundle: witness_bundle_mod.Bundle, executed: []const bool, edges: []const WitnessEdge) bool {
+    for (edges) |edge| {
+        const index = witnessIndex(bundle, edge.producer) orelse continue;
+        if (!executed[index]) return false;
+    }
+    return true;
+}
+
+/// Runs every recorded witness program whose inputs are produced by the AOT,
+/// gather, seed, or compact routes. The sole native EC-op lane is deliberately
+/// left to `EcOpRecipe`, which owns its 126 wide partial-input columns.
+pub fn executeRecordedWitnessGraph(
+    allocator: std.mem.Allocator,
+    metal: *metal_runtime.Runtime,
+    resident_arena: *arena_plan.ResidentArena,
+    schedule: []const std.json.Value,
+    plan: arena_plan.Plan,
+    witness_bundle: witness_bundle_mod.Bundle,
+    batch: *protocol_recipes.AotWitnessBatchRecipe,
+) !WitnessExecutionTelemetry {
+    var compact_verify = try prepareCompactWitnessInput(allocator, metal, resident_arena, schedule, plan, witness_bundle, "verify_instruction");
+    defer compact_verify.deinit();
+    var compact_pedersen = try prepareCompactWitnessInput(allocator, metal, resident_arena, schedule, plan, witness_bundle, "pedersen_aggregator_window_bits_18");
+    defer compact_pedersen.deinit();
+    var compact_poseidon = try prepareCompactWitnessInput(allocator, metal, resident_arena, schedule, plan, witness_bundle, "poseidon_aggregator");
+    defer compact_poseidon.deinit();
+    const executed = try allocator.alloc(bool, witness_bundle.entries.len);
+    defer allocator.free(executed);
+    @memset(executed, false);
+    var count: usize = 0;
+    const initial_gpu_ms = batch.accumulated_gpu_ms;
+
+    for (witness_bundle.entries, 0..) |entry, index| {
+        var direct = false;
+        for (casm_lanes) |lane| direct = direct or std.mem.eql(u8, lane.label, entry.label);
+        direct = direct or std.mem.eql(u8, entry.label, "bitwise_builtin") or
+            std.mem.eql(u8, entry.label, "range_check_builtin") or
+            std.mem.eql(u8, entry.label, "pedersen_builtin") or
+            std.mem.eql(u8, entry.label, "poseidon_builtin");
+        if (!direct) continue;
+        try batch.executeIndex(index);
+        executed[index] = true;
+        count += 1;
+    }
+
+    var compact_gpu_ms: f64 = 0;
+    var gather_gpu_ms: f64 = 0;
+    var progress = true;
+    while (progress) {
+        progress = false;
+        for (witness_bundle.entries, 0..) |entry, index| {
+            if (executed[index] or std.mem.eql(u8, entry.label, "partial_ec_mul_generic")) continue;
+            if (compactGeometry(entry.label)) |geometry| {
+                if (!dependenciesReady(witness_bundle, executed, geometry.edges)) continue;
+                if (std.mem.eql(u8, entry.label, "verify_instruction")) {
+                    try compact_verify.execute();
+                    compact_gpu_ms += compact_verify.accumulated_gpu_ms;
+                    compact_verify.accumulated_gpu_ms = 0;
+                } else if (std.mem.eql(u8, entry.label, "pedersen_aggregator_window_bits_18")) {
+                    try compact_pedersen.execute();
+                    compact_gpu_ms += compact_pedersen.accumulated_gpu_ms;
+                    compact_pedersen.accumulated_gpu_ms = 0;
+                } else {
+                    try compact_poseidon.execute();
+                    compact_gpu_ms += compact_poseidon.accumulated_gpu_ms;
+                    compact_poseidon.accumulated_gpu_ms = 0;
+                }
+            } else if (witnessEdges(entry.label)) |edges| {
+                if (!dependenciesReady(witness_bundle, executed, edges)) continue;
+                gather_gpu_ms += try gatherWitnessInput(allocator, metal, resident_arena, schedule, plan, witness_bundle, entry.label);
+            } else continue;
+            try batch.executeIndex(index);
+            executed[index] = true;
+            count += 1;
+            progress = true;
+        }
+    }
+    if (count + 1 != witness_bundle.entries.len) return Error.InvalidCardinality;
+    const native_index = witnessIndex(witness_bundle, "partial_ec_mul_generic") orelse return Error.MissingBinding;
+    if (executed[native_index]) return Error.InvalidCardinality;
+    return .{ .executed_programs = count, .gpu_ms = batch.accumulated_gpu_ms - initial_gpu_ms + compact_gpu_ms + gather_gpu_ms };
+}
+
+pub fn executeNativeEcConsumer(
+    witness_bundle: witness_bundle_mod.Bundle,
+    batch: *protocol_recipes.AotWitnessBatchRecipe,
+    ec_op: *protocol_recipes.EcOpRecipe,
+) !WitnessExecutionTelemetry {
+    const index = witnessIndex(witness_bundle, "partial_ec_mul_generic") orelse return Error.MissingBinding;
+    const initial_batch_ms = batch.accumulated_gpu_ms;
+    const initial_ec_ms = ec_op.accumulated_gpu_ms;
+    try ec_op.execute();
+    try batch.executeIndex(index);
+    return .{
+        .executed_programs = 1,
+        .gpu_ms = batch.accumulated_gpu_ms - initial_batch_ms + ec_op.accumulated_gpu_ms - initial_ec_ms,
+    };
+}
+
+/// Launches one canonical producer-edge gather immediately before its consumer
+/// witness program. Producer sub-word slabs and consumer columns never leave
+/// the resident arena.
+pub fn gatherWitnessInput(
+    allocator: std.mem.Allocator,
+    metal: *metal_runtime.Runtime,
+    resident_arena: *arena_plan.ResidentArena,
+    schedule: []const std.json.Value,
+    plan: arena_plan.Plan,
+    witness_bundle: witness_bundle_mod.Bundle,
+    consumer: []const u8,
+) !f64 {
+    const edges = witnessEdges(consumer) orelse return Error.MissingBinding;
+    const consumer_entry = witness_bundle.find(consumer) orelse return Error.MissingBinding;
+    const input_width = edges[0].words_per_instance;
+    const consumer_bindings = try collectComponent(allocator, schedule, plan, "WitnessInput", consumer);
+    defer allocator.free(consumer_bindings);
+    if (consumer_entry.program.n_inputs != input_width + 1 or consumer_bindings.len != input_width + 1)
+        return Error.InvalidCardinality;
+    const consumer_rows = std.math.cast(u32, consumer_bindings[0].size_bytes / 4) orelse return Error.InvalidBindingSize;
+    const producer_offsets = try allocator.alloc(u32, edges.len);
+    defer allocator.free(producer_offsets);
+    const descriptors = try allocator.alloc([5]u32, edges.len);
+    defer allocator.free(descriptors);
+    var real_rows: u32 = 0;
+    for (edges, producer_offsets, descriptors) |edge, *producer_offset, *descriptor| {
+        if (edge.words_per_instance != input_width) return Error.InvalidCardinality;
+        const producer_entry = witness_bundle.find(edge.producer) orelse return Error.MissingBinding;
+        const source = try oneComponent(schedule, plan, "SubcomponentInputs", edge.producer);
+        const producer_rows = std.math.cast(u32, source.size_bytes / 4 / producer_entry.program.n_sub_words) orelse return Error.InvalidBindingSize;
+        if (producer_rows == 0 or source.size_bytes != @as(u64, producer_rows) * producer_entry.program.n_sub_words * 4)
+            return Error.InvalidBindingSize;
+        producer_offset.* = try wordOffset(source);
+        descriptor.* = .{ producer_rows, edge.word_base, edge.words_per_instance, edge.instances, real_rows };
+        real_rows = std.math.add(u32, real_rows, std.math.mul(u32, producer_rows, edge.instances) catch return Error.InvalidBindingSize) catch return Error.InvalidBindingSize;
+    }
+    if (real_rows > consumer_rows) return Error.InvalidBindingSize;
+    const consumer_offsets = try allocator.alloc(u32, consumer_bindings.len);
+    defer allocator.free(consumer_offsets);
+    for (consumer_bindings, consumer_offsets) |binding, *offset| {
+        if (binding.size_bytes != @as(u64, consumer_rows) * 4) return Error.InvalidBindingSize;
+        offset.* = try wordOffset(binding);
+    }
+    return metal.witnessInputGather(
+        resident_arena.buffer,
+        producer_offsets,
+        descriptors,
+        input_width,
+        real_rows,
+        consumer_rows,
+        consumer_offsets,
+        true,
+        false,
     );
 }
 
@@ -767,6 +1294,24 @@ fn oneComponent(
     for (schedule) |entry| {
         if (!std.mem.eql(u8, try purpose(entry), name) or
             !std.mem.eql(u8, try componentName(entry), component)) continue;
+        if (found != null) return Error.DuplicateBinding;
+        found = plan.binding(try logicalId(entry)) catch return Error.MissingBinding;
+    }
+    return found orelse Error.MissingBinding;
+}
+
+fn oneComponentOrdinal(
+    schedule: []const std.json.Value,
+    plan: arena_plan.Plan,
+    name: []const u8,
+    component: []const u8,
+    wanted_ordinal: u32,
+) !arena_plan.Binding {
+    var found: ?arena_plan.Binding = null;
+    for (schedule) |entry| {
+        if (!std.mem.eql(u8, try purpose(entry), name) or
+            !std.mem.eql(u8, try componentName(entry), component) or
+            try ordinal(entry) != wanted_ordinal) continue;
         if (found != null) return Error.DuplicateBinding;
         found = plan.binding(try logicalId(entry)) catch return Error.MissingBinding;
     }

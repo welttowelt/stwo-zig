@@ -7,6 +7,7 @@ const fixed_table_bundle_mod = @import("frontends/cairo/witness/fixed_table_bund
 const composition_bundle_mod = @import("frontends/cairo/witness/composition_bundle.zig");
 const arena_binding_mod = @import("frontends/cairo/witness/arena_binding.zig");
 const metal_runtime = @import("backends/metal/runtime.zig");
+const adapted_input = @import("frontends/cairo/adapter/adapted_input.zig");
 const blake2_merkle = @import("core/vcs_lifted/blake2_merkle.zig");
 
 const epoch_names = [_][]const u8{
@@ -295,12 +296,46 @@ pub fn main() !void {
         null;
     defer if (proof_bindings) |*bindings| bindings.deinit();
     var resident_prepare_gate: []const u8 = "not_requested";
+    var populated_direct_witness_lanes: usize = 0;
+    var execution_table_split_gpu_ms: f64 = 0;
     if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_PREPARE_METAL")) {
         const bindings = if (proof_bindings) |*value| value else return error.MissingPreparedProofBindings;
         var metal = try metal_runtime.Runtime.init();
         defer metal.deinit();
         var resident_arena = try arena.ResidentArena.init(&metal, plan);
         defer resident_arena.deinit();
+        if (std.process.getEnvVarOwned(allocator, "STWO_ZIG_SN2_POPULATE_INPUT")) |input_path| {
+            defer allocator.free(input_path);
+            var prover_input = try adapted_input.readFile(allocator, input_path);
+            defer prover_input.deinit(allocator);
+            execution_table_split_gpu_ms = try arena_binding_mod.populateExecutionTables(
+                allocator,
+                &metal,
+                &resident_arena,
+                schedule,
+                plan,
+                &prover_input,
+            );
+            populated_direct_witness_lanes = try arena_binding_mod.populateCasmWitnessInputs(
+                allocator,
+                &resident_arena,
+                schedule,
+                plan,
+                witness_bundle.?,
+                &prover_input,
+            );
+            populated_direct_witness_lanes += try arena_binding_mod.populateBuiltinSeedWitnessInputs(
+                allocator,
+                &resident_arena,
+                schedule,
+                plan,
+                witness_bundle.?,
+                &prover_input,
+            );
+        } else |err| switch (err) {
+            error.EnvironmentVariableNotFound => {},
+            else => return err,
+        }
         var witness = try arena_binding_mod.prepareAotWitnessBatch(
             allocator,
             &metal,
@@ -312,6 +347,18 @@ pub fn main() !void {
             "vectors/cairo/sn_pie_2_witness.metallib",
         );
         defer witness.deinit();
+        var compact_verify = try arena_binding_mod.prepareCompactWitnessInput(
+            allocator, &metal, &resident_arena, schedule, plan, witness_bundle.?, "verify_instruction",
+        );
+        defer compact_verify.deinit();
+        var compact_pedersen = try arena_binding_mod.prepareCompactWitnessInput(
+            allocator, &metal, &resident_arena, schedule, plan, witness_bundle.?, "pedersen_aggregator_window_bits_18",
+        );
+        defer compact_pedersen.deinit();
+        var compact_poseidon = try arena_binding_mod.prepareCompactWitnessInput(
+            allocator, &metal, &resident_arena, schedule, plan, witness_bundle.?, "poseidon_aggregator",
+        );
+        defer compact_poseidon.deinit();
         const composition_path = args[7];
         if (!std.mem.endsWith(u8, composition_path, ".bin")) return error.InvalidCompositionPath;
         const composition_metallib = try std.fmt.allocPrint(
@@ -435,6 +482,8 @@ pub fn main() !void {
         .prepared_proof_copy_ranges = if (proof_bindings) |bindings| bindings.proof_copies.len else 0,
         .prepared_proof_words = if (proof_bindings) |bindings| bindings.proof_bytes.size_bytes / 4 else 0,
         .resident_prepare_gate = resident_prepare_gate,
+        .populated_direct_witness_lanes = populated_direct_witness_lanes,
+        .execution_table_split_gpu_ms = execution_table_split_gpu_ms,
         .prepared_quotient_partials = if (proof_bindings) |bindings| bindings.quotient_partials.len else 0,
         .prepared_fri_layers = if (proof_bindings) |bindings| bindings.fri_merkle_layers.len else 0,
         .native_recipe_buffers = native_recipe_buffers,
