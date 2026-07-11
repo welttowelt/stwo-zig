@@ -410,13 +410,17 @@ pub const FixedTableBatchRecipe = struct {
         return recipes;
     }
 
+    pub fn execute(self: *FixedTableBatchRecipe) !void {
+        self.accumulated_gpu_ms += try self.metal.fixedTableBatchPrepared(self.arena.buffer, self.batch);
+    }
+
     fn run(raw: *anyopaque, tick: u16, requested: arena_plan.Binding, _: []u8) !void {
         const self: *FixedTableBatchRecipe = @ptrCast(@alignCast(raw));
         if (self.last_tick == tick) return;
         var found = false;
         for (self.destinations) |destination| found = found or destination.logical_id == requested.logical_id;
         if (!found) return recovery.RecoveryError.MissingRecipe;
-        self.accumulated_gpu_ms += try self.metal.fixedTableBatchPrepared(self.arena.buffer, self.batch);
+        try self.execute();
         self.last_tick = tick;
     }
 };

@@ -2352,6 +2352,22 @@ static void encode_composition_lde(
     [last endEncoding];
 }
 
+bool stwo_zig_metal_composition_lde_prepared(
+    void *runtime_ptr, void *arena_ptr, void *plan_ptr,
+    double *gpu_milliseconds, char *error_message, size_t error_message_len
+) {
+    if(runtime_ptr==NULL||arena_ptr==NULL||plan_ptr==NULL)return false;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime=(__bridge StwoZigMetalRuntime *)runtime_ptr;
+        id<MTLBuffer> arena=(__bridge id<MTLBuffer>)arena_ptr;
+        StwoZigCompositionLdePlan *plan=(__bridge StwoZigCompositionLdePlan *)plan_ptr;
+        id<MTLCommandBuffer> command=[runtime.queue commandBuffer];
+        encode_composition_lde(runtime,arena,plan,command); [command commit]; [command waitUntilCompleted];
+        if(command.status==MTLCommandBufferStatusError){write_error(error_message,error_message_len,command.error.localizedDescription);return false;}
+        if(gpu_milliseconds)*gpu_milliseconds=(command.GPUEndTime-command.GPUStartTime)*1000.0; return true;
+    }
+}
+
 void *stwo_zig_metal_composition_inputs_prepare(
     void *runtime_ptr, const uint32_t *descriptors, uint32_t descriptor_count,
     uint32_t random_offset, uint32_t powers_offset, uint32_t power_count,

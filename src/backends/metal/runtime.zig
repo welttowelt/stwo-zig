@@ -347,6 +347,14 @@ extern fn stwo_zig_metal_composition_lde_prepare(
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
+extern fn stwo_zig_metal_composition_lde_prepared(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    plan: *anyopaque,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
 extern fn stwo_zig_metal_composition_lde_destroy(plan: ?*anyopaque) void;
 extern fn stwo_zig_metal_composition_inputs_prepare(
     runtime: *anyopaque,
@@ -1698,6 +1706,16 @@ pub const Runtime = struct {
             return MetalError.PolynomialEvaluationFailed;
         };
         return .{ .handle = handle };
+    }
+
+    pub fn compositionLdePrepared(self: *Runtime, arena: ResidentBuffer, plan: CompositionLdePlan) MetalError!f64 {
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_composition_lde_prepared(self.handle, arena.handle, plan.handle, &gpu_ms, &message, message.len)) {
+            std.log.err("Metal composition LDE execution failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.PolynomialEvaluationFailed;
+        }
+        return gpu_ms;
     }
 
     pub fn prepareCompositionFront(

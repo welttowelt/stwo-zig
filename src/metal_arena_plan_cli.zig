@@ -8,6 +8,7 @@ const composition_bundle_mod = @import("frontends/cairo/witness/composition_bund
 const arena_binding_mod = @import("frontends/cairo/witness/arena_binding.zig");
 const metal_runtime = @import("backends/metal/runtime.zig");
 const adapted_input = @import("frontends/cairo/adapter/adapted_input.zig");
+const cairo_adapter = @import("frontends/cairo/adapter/mod.zig");
 const blake2_merkle = @import("core/vcs_lifted/blake2_merkle.zig");
 
 const epoch_names = [_][]const u8{
@@ -298,23 +299,40 @@ pub fn main() !void {
     var resident_prepare_gate: []const u8 = "not_requested";
     var populated_direct_witness_lanes: usize = 0;
     var execution_table_split_gpu_ms: f64 = 0;
+    var executed_witness_programs: usize = 0;
+    var witness_graph_gpu_ms: f64 = 0;
+    var populated_preprocessed_coefficients: usize = 0;
+    var preprocessed_gpu_ms: f64 = 0;
     if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_PREPARE_METAL")) {
         const bindings = if (proof_bindings) |*value| value else return error.MissingPreparedProofBindings;
         var metal = try metal_runtime.Runtime.init();
         defer metal.deinit();
         var resident_arena = try arena.ResidentArena.init(&metal, plan);
         defer resident_arena.deinit();
+        if (std.process.getEnvVarOwned(allocator, "STWO_ZIG_SN2_PREPROCESSED_COEFFS")) |coefficients_path| {
+            defer allocator.free(coefficients_path);
+            try arena_binding_mod.populatePreprocessedCoefficients(
+                allocator, &resident_arena, schedule, plan, fixed_table_bundle.?, coefficients_path,
+            );
+            try arena_binding_mod.populateProtocolTwiddles(allocator, &resident_arena, schedule, plan);
+            populated_preprocessed_coefficients = fixed_table_bundle.?.preprocessed_identities.len;
+        } else |err| switch (err) {
+            error.EnvironmentVariableNotFound => {},
+            else => return err,
+        }
+        var prover_input: ?cairo_adapter.ProverInput = null;
+        defer if (prover_input) |*adapted| adapted.deinit(allocator);
         if (std.process.getEnvVarOwned(allocator, "STWO_ZIG_SN2_POPULATE_INPUT")) |input_path| {
             defer allocator.free(input_path);
-            var prover_input = try adapted_input.readFile(allocator, input_path);
-            defer prover_input.deinit(allocator);
+            prover_input = try adapted_input.readFile(allocator, input_path);
+            const adapted = &prover_input.?;
             execution_table_split_gpu_ms = try arena_binding_mod.populateExecutionTables(
                 allocator,
                 &metal,
                 &resident_arena,
                 schedule,
                 plan,
-                &prover_input,
+                adapted,
             );
             populated_direct_witness_lanes = try arena_binding_mod.populateCasmWitnessInputs(
                 allocator,
@@ -322,7 +340,7 @@ pub fn main() !void {
                 schedule,
                 plan,
                 witness_bundle.?,
-                &prover_input,
+                adapted,
             );
             populated_direct_witness_lanes += try arena_binding_mod.populateBuiltinSeedWitnessInputs(
                 allocator,
@@ -330,7 +348,7 @@ pub fn main() !void {
                 schedule,
                 plan,
                 witness_bundle.?,
-                &prover_input,
+                adapted,
             );
         } else |err| switch (err) {
             error.EnvironmentVariableNotFound => {},
@@ -347,6 +365,18 @@ pub fn main() !void {
             "vectors/cairo/sn_pie_2_witness.metallib",
         );
         defer witness.deinit();
+        var fixed_tables = try arena_binding_mod.prepareFixedTableBatch(
+            allocator, &metal, &resident_arena, schedule, plan, fixed_table_bundle.?,
+        );
+        defer fixed_tables.deinit();
+        if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_PREPROCESSED")) {
+            if (populated_preprocessed_coefficients == 0) return error.MissingPreprocessedCoefficients;
+            preprocessed_gpu_ms += try arena_binding_mod.evaluatePreprocessedCoefficients(
+                allocator, &metal, &resident_arena, schedule, plan,
+            );
+            try fixed_tables.execute();
+            preprocessed_gpu_ms += fixed_tables.accumulated_gpu_ms;
+        }
         var compact_verify = try arena_binding_mod.prepareCompactWitnessInput(
             allocator, &metal, &resident_arena, schedule, plan, witness_bundle.?, "verify_instruction",
         );
@@ -359,6 +389,20 @@ pub fn main() !void {
             allocator, &metal, &resident_arena, schedule, plan, witness_bundle.?, "poseidon_aggregator",
         );
         defer compact_poseidon.deinit();
+        if (prover_input) |*adapted| {
+            var ec_op = try arena_binding_mod.prepareEcOpWitness(
+                allocator, &metal, &resident_arena, schedule, plan, adapted,
+            );
+            defer ec_op.deinit();
+            if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_WITNESS")) {
+                const recorded = try arena_binding_mod.executeRecordedWitnessGraph(
+                    allocator, &metal, &resident_arena, schedule, plan, witness_bundle.?, &witness,
+                );
+                const native = try arena_binding_mod.executeNativeEcConsumer(witness_bundle.?, &witness, &ec_op);
+                executed_witness_programs = recorded.executed_programs + native.executed_programs;
+                witness_graph_gpu_ms = recorded.gpu_ms + native.gpu_ms;
+            }
+        }
         const composition_path = args[7];
         if (!std.mem.endsWith(u8, composition_path, ".bin")) return error.InvalidCompositionPath;
         const composition_metallib = try std.fmt.allocPrint(
@@ -484,6 +528,10 @@ pub fn main() !void {
         .resident_prepare_gate = resident_prepare_gate,
         .populated_direct_witness_lanes = populated_direct_witness_lanes,
         .execution_table_split_gpu_ms = execution_table_split_gpu_ms,
+        .executed_witness_programs = executed_witness_programs,
+        .witness_graph_gpu_ms = witness_graph_gpu_ms,
+        .populated_preprocessed_coefficients = populated_preprocessed_coefficients,
+        .preprocessed_gpu_ms = preprocessed_gpu_ms,
         .prepared_quotient_partials = if (proof_bindings) |bindings| bindings.quotient_partials.len else 0,
         .prepared_fri_layers = if (proof_bindings) |bindings| bindings.fri_merkle_layers.len else 0,
         .native_recipe_buffers = native_recipe_buffers,

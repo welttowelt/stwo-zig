@@ -9,6 +9,8 @@ const witness_codegen = @import("../../../backends/metal/witness_codegen.zig");
 const cairo_adapter = @import("../adapter/mod.zig");
 const cairo_opcodes = @import("../adapter/opcodes.zig");
 const M31 = @import("../../../core/fields/m31.zig").M31;
+const twiddles_mod = @import("../../../prover/poly/twiddles.zig");
+const circle_mod = @import("../../../core/circle.zig");
 
 pub const Error = error{
     InvalidSchedule,
@@ -425,6 +427,190 @@ pub fn populateExecutionTables(
         small_rows, 4, &small_offsets,
     );
     return gpu_ms;
+}
+
+pub fn populatePreprocessedCoefficients(
+    allocator: std.mem.Allocator,
+    resident_arena: *arena_plan.ResidentArena,
+    schedule: []const std.json.Value,
+    plan: arena_plan.Plan,
+    fixed_bundle: fixed_table_bundle_mod.Bundle,
+    path: []const u8,
+) !void {
+    const coefficients = try collectScheduleOrder(allocator, schedule, plan, "PreprocessedCoefficients");
+    defer allocator.free(coefficients);
+    if (coefficients.len != fixed_bundle.preprocessed_identities.len) return Error.InvalidPreprocessedCount;
+    const file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
+    var buffer: [1 << 20]u8 = undefined;
+    var reader = file.readerStreaming(&buffer);
+    const stream = &reader.interface;
+    if (!std.mem.eql(u8, try stream.takeArray(8), "STWZPPC\x00")) return Error.InvalidSchedule;
+    if (try stream.takeInt(u32, .little) != 1 or try stream.takeInt(u32, .little) != coefficients.len)
+        return Error.InvalidPreprocessedCount;
+    for (coefficients, fixed_bundle.preprocessed_identities) |binding, expected_identity| {
+        const identity_len = try stream.takeInt(u16, .little);
+        if (try stream.takeInt(u16, .little) != 0 or identity_len != expected_identity.len)
+            return Error.InvalidSchedule;
+        const log_size = try stream.takeInt(u32, .little);
+        const value_count = try stream.takeInt(u64, .little);
+        if (log_size >= 31 or value_count != @as(u64, 1) << @intCast(log_size) or binding.size_bytes != value_count * 4)
+            return Error.InvalidBindingSize;
+        const identity = try allocator.alloc(u8, identity_len);
+        defer allocator.free(identity);
+        try stream.readSliceAll(identity);
+        if (!std.mem.eql(u8, identity, expected_identity)) return Error.InvalidSchedule;
+        const destination = try resident_arena.bytes(binding);
+        try stream.readSliceAll(destination);
+        const aligned: []align(4) u8 = @alignCast(destination);
+        for (std.mem.bytesAsSlice(u32, aligned)) |value| if (value >= 0x7fffffff) return Error.InvalidSchedule;
+    }
+    var trailing: [1]u8 = undefined;
+    if (try stream.readSliceShort(&trailing) != 0) return Error.InvalidSchedule;
+}
+
+pub fn evaluatePreprocessedCoefficients(
+    allocator: std.mem.Allocator,
+    metal: *metal_runtime.Runtime,
+    resident_arena: *arena_plan.ResidentArena,
+    schedule: []const std.json.Value,
+    plan: arena_plan.Plan,
+) !f64 {
+    const twiddles = try one(schedule, plan, "ForwardTwiddles");
+    var gpu_ms: f64 = 0;
+    for (4..26) |log_size_usize| {
+        const log_size: u32 = @intCast(log_size_usize);
+        var source_offsets = std.ArrayList(u32).empty;
+        defer source_offsets.deinit(allocator);
+        var source_logs = std.ArrayList(u32).empty;
+        defer source_logs.deinit(allocator);
+        var destination_offsets = std.ArrayList(u32).empty;
+        defer destination_offsets.deinit(allocator);
+        const expected_bytes = (@as(u64, 1) << @intCast(log_size)) * 4;
+        for (schedule) |entry| {
+            if (!std.mem.eql(u8, try purpose(entry), "PreprocessedEvaluations")) continue;
+            const destination = plan.binding(try logicalId(entry)) catch return Error.MissingBinding;
+            if (destination.size_bytes != expected_bytes) continue;
+            const source = try oneOrdinal(schedule, plan, "PreprocessedCoefficients", try ordinal(entry));
+            if (destination.size_bytes != expected_bytes) return Error.InvalidBindingSize;
+            try source_offsets.append(allocator, try wordOffset(source));
+            try source_logs.append(allocator, log_size);
+            try destination_offsets.append(allocator, try wordOffset(destination));
+        }
+        if (source_offsets.items.len == 0) continue;
+        var prepared = try metal.prepareCompositionLde(
+            source_offsets.items,
+            source_logs.items,
+            destination_offsets.items,
+            log_size,
+            try wordOffset(twiddles),
+        );
+        defer prepared.deinit();
+        gpu_ms += try metal.compositionLdePrepared(resident_arena.buffer, prepared);
+    }
+    return gpu_ms;
+}
+
+pub fn populateProtocolTwiddles(
+    allocator: std.mem.Allocator,
+    resident_arena: *arena_plan.ResidentArena,
+    schedule: []const std.json.Value,
+    plan: arena_plan.Plan,
+) !void {
+    const forward = try one(schedule, plan, "ForwardTwiddles");
+    const preprocessed_inverse = try one(schedule, plan, "PreprocessedInverseTwiddles");
+    if (forward.size_bytes != preprocessed_inverse.size_bytes) return Error.InvalidBindingSize;
+    try populateTwiddlePair(allocator, resident_arena, forward, preprocessed_inverse);
+    const inverse = try one(schedule, plan, "InverseTwiddles");
+    try populateInverseTwiddles(allocator, resident_arena, inverse);
+    const quotient_inverse = try one(schedule, plan, "QuotientInverseTwiddles");
+    try populateInverseTwiddles(allocator, resident_arena, quotient_inverse);
+}
+
+fn populateTwiddlePair(
+    allocator: std.mem.Allocator,
+    resident_arena: *arena_plan.ResidentArena,
+    forward: arena_plan.Binding,
+    inverse: arena_plan.Binding,
+) !void {
+    if (forward.size_bytes == 0 or forward.size_bytes % 4 != 0 or !std.math.isPowerOfTwo(forward.size_bytes / 4))
+        return Error.InvalidBindingSize;
+    const log_words: u32 = std.math.log2_int(u64, forward.size_bytes / 4);
+    var tree = try twiddles_mod.precomputeM31(allocator, circle_mod.Coset.halfOdds(log_words));
+    defer twiddles_mod.deinitM31(allocator, &tree);
+    @memcpy(try resident_arena.bytes(forward), std.mem.sliceAsBytes(tree.twiddles));
+    @memcpy(try resident_arena.bytes(inverse), std.mem.sliceAsBytes(tree.itwiddles));
+}
+
+fn populateInverseTwiddles(
+    allocator: std.mem.Allocator,
+    resident_arena: *arena_plan.ResidentArena,
+    inverse: arena_plan.Binding,
+) !void {
+    if (inverse.size_bytes == 0 or inverse.size_bytes % 4 != 0 or !std.math.isPowerOfTwo(inverse.size_bytes / 4))
+        return Error.InvalidBindingSize;
+    const log_words: u32 = std.math.log2_int(u64, inverse.size_bytes / 4);
+    var tree = try twiddles_mod.precomputeM31(allocator, circle_mod.Coset.halfOdds(log_words));
+    defer twiddles_mod.deinitM31(allocator, &tree);
+    @memcpy(try resident_arena.bytes(inverse), std.mem.sliceAsBytes(tree.itwiddles));
+}
+
+pub fn prepareFixedTableBatch(
+    allocator: std.mem.Allocator,
+    metal: *metal_runtime.Runtime,
+    resident_arena: *arena_plan.ResidentArena,
+    schedule: []const std.json.Value,
+    plan: arena_plan.Plan,
+    fixed_bundle: fixed_table_bundle_mod.Bundle,
+) !protocol_recipes.FixedTableBatchRecipe {
+    var bindings = std.ArrayList(protocol_recipes.FixedTableBindings).empty;
+    defer bindings.deinit(allocator);
+    var owned_sources = std.ArrayList([]arena_plan.Binding).empty;
+    defer {
+        for (owned_sources.items) |items| allocator.free(items);
+        owned_sources.deinit(allocator);
+    }
+    var owned_multiplicities = std.ArrayList([]arena_plan.Binding).empty;
+    defer {
+        for (owned_multiplicities.items) |items| allocator.free(items);
+        owned_multiplicities.deinit(allocator);
+    }
+    for (fixed_bundle.entries) |entry| {
+        const destination = oneComponent(schedule, plan, "LookupInputs", entry.component) catch |err| switch (err) {
+            Error.MissingBinding => continue,
+            else => return err,
+        };
+        const sources = try allocator.alloc(arena_plan.Binding, entry.preprocessed_sources.len);
+        var sources_owned = false;
+        errdefer if (!sources_owned) allocator.free(sources);
+        for (entry.preprocessed_sources, sources) |identity, *source| {
+            const ordinal_value = fixed_bundle.identityOrdinal(identity) orelse return Error.MissingBinding;
+            source.* = try oneOrdinal(schedule, plan, "PreprocessedEvaluations", ordinal_value);
+        }
+        try owned_sources.append(allocator, sources);
+        sources_owned = true;
+        const multiplicity_slab = try oneComponent(schedule, plan, "FixedMultiplicity", entry.component);
+        const multiplicities = try allocator.alloc(arena_plan.Binding, entry.multiplicity_columns);
+        var multiplicities_owned = false;
+        errdefer if (!multiplicities_owned) allocator.free(multiplicities);
+        const column_bytes = @as(u64, entry.row_count) * 4;
+        if (multiplicity_slab.size_bytes != column_bytes * entry.multiplicity_columns) return Error.InvalidBindingSize;
+        for (multiplicities, 0..) |*column, index| {
+            column.* = multiplicity_slab;
+            column.offset_bytes += @as(u64, @intCast(index)) * column_bytes;
+            column.size_bytes = column_bytes;
+        }
+        try owned_multiplicities.append(allocator, multiplicities);
+        multiplicities_owned = true;
+        try bindings.append(allocator, .{
+            .row_count = entry.row_count,
+            .descriptors = entry.lookup_descriptors,
+            .sources = sources,
+            .multiplicities = multiplicities,
+            .destination = destination,
+        });
+    }
+    return protocol_recipes.FixedTableBatchRecipe.init(allocator, metal, resident_arena, bindings.items);
 }
 
 pub fn prepareEcOpWitness(
