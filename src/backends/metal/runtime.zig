@@ -8,6 +8,45 @@ extern fn stwo_zig_metal_runtime_create(
     error_message_len: usize,
 ) ?*anyopaque;
 extern fn stwo_zig_metal_runtime_destroy(runtime: ?*anyopaque) void;
+extern fn stwo_zig_metal_buffer_create(
+    runtime: *anyopaque,
+    byte_length: usize,
+    contents: **anyopaque,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
+extern fn stwo_zig_metal_buffer_destroy(buffer: ?*anyopaque) void;
+extern fn stwo_zig_metal_fri_fold_circle(
+    runtime: *anyopaque,
+    source: [*]const u32,
+    source_count: u32,
+    inverse_y: [*]const u32,
+    alpha: *const [4]u32,
+    destination: [*]u32,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_fri_fold_line(
+    runtime: *anyopaque,
+    source: [*]const u32,
+    source_count: u32,
+    inverse_x: [*]const u32,
+    alpha: *const [4]u32,
+    destination: [*]u32,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_qm31_to_coordinates(
+    runtime: *anyopaque,
+    source: [*]const u32,
+    value_count: u32,
+    destination: [*]u32,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
 extern fn stwo_zig_metal_merkle_commit(
     runtime: *anyopaque,
     columns: [*]const [*]const u32,
@@ -139,6 +178,73 @@ pub const Runtime = struct {
     pub fn deinit(self: *Runtime) void {
         stwo_zig_metal_runtime_destroy(self.handle);
         self.* = undefined;
+    }
+
+    pub fn allocateResidentBuffer(self: *Runtime, byte_length: usize) MetalError!ResidentBuffer {
+        var contents: *anyopaque = undefined;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        const handle = stwo_zig_metal_buffer_create(
+            self.handle,
+            byte_length,
+            &contents,
+            &message,
+            message.len,
+        ) orelse {
+            std.log.err("Metal resident buffer allocation failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.RuntimeInitializationFailed;
+        };
+        return .{ .handle = handle, .contents = contents, .byte_length = byte_length };
+    }
+
+    pub fn foldFriCircle(
+        self: *Runtime,
+        source: [*]const u32,
+        source_count: u32,
+        inverse_y: []const u32,
+        alpha: [4]u32,
+        destination: [*]u32,
+    ) MetalError!f64 {
+        if (inverse_y.len != source_count / 2) return MetalError.InvalidColumns;
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_fri_fold_circle(self.handle, source, source_count, inverse_y.ptr, &alpha, destination, &gpu_ms, &message, message.len)) {
+            std.log.err("Metal FRI circle fold failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CircleTransformFailed;
+        }
+        return gpu_ms;
+    }
+
+    pub fn foldFriLine(
+        self: *Runtime,
+        source: [*]const u32,
+        source_count: u32,
+        inverse_x: []const u32,
+        alpha: [4]u32,
+        destination: [*]u32,
+    ) MetalError!f64 {
+        if (inverse_x.len != source_count / 2) return MetalError.InvalidColumns;
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_fri_fold_line(self.handle, source, source_count, inverse_x.ptr, &alpha, destination, &gpu_ms, &message, message.len)) {
+            std.log.err("Metal FRI line fold failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CircleTransformFailed;
+        }
+        return gpu_ms;
+    }
+
+    pub fn qm31ToCoordinates(
+        self: *Runtime,
+        source: [*]const u32,
+        value_count: u32,
+        destination: [*]u32,
+    ) MetalError!f64 {
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_qm31_to_coordinates(self.handle, source, value_count, destination, &gpu_ms, &message, message.len)) {
+            std.log.err("Metal QM31 coordinate conversion failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CircleTransformFailed;
+        }
+        return gpu_ms;
     }
 
     pub fn commitColumns(
@@ -587,6 +693,21 @@ pub const Runtime = struct {
             return MetalError.CircleTransformFailed;
         }
         return gpu_ms;
+    }
+};
+
+pub const ResidentBuffer = struct {
+    handle: *anyopaque,
+    contents: *anyopaque,
+    byte_length: usize,
+
+    pub fn deinit(self: *ResidentBuffer) void {
+        destroyOpaque(self.handle);
+        self.* = undefined;
+    }
+
+    pub fn destroyOpaque(handle: *anyopaque) void {
+        stwo_zig_metal_buffer_destroy(handle);
     }
 };
 

@@ -2,6 +2,7 @@ const std = @import("std");
 const m31 = @import("../core/fields/m31.zig");
 const qm31 = @import("../core/fields/qm31.zig");
 const CpuBackend = @import("../backends/cpu_scalar/mod.zig").CpuBackend;
+const ResidentStorage = @import("resident_storage.zig").ResidentStorage;
 
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
@@ -24,6 +25,7 @@ pub fn SecureColumnByCoordsGeneric(comptime B: type) type {
         /// DEGREE * columns[0].len.  When false, each column is a
         /// separate heap allocation.
         contiguous: bool = false,
+        resident_storage: ?ResidentStorage = null,
 
         pub const Error = error{
             InconsistentColumnLength,
@@ -42,7 +44,9 @@ pub fn SecureColumnByCoordsGeneric(comptime B: type) type {
         }
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
-            if (self.owns_columns and self.columns[0].len > 0) {
+            if (self.resident_storage) |storage| {
+                storage.deinit();
+            } else if (self.owns_columns and self.columns[0].len > 0) {
                 if (self.contiguous) {
                     // Free the single contiguous block starting at columns[0].ptr
                     const total = DEGREE * self.columns[0].len;
@@ -52,6 +56,22 @@ pub fn SecureColumnByCoordsGeneric(comptime B: type) type {
                 }
             }
             self.* = undefined;
+        }
+
+        pub fn initResident(
+            columns: [DEGREE]ColumnSlice,
+            storage: ResidentStorage,
+        ) Error!Self {
+            const column_len = columns[0].len;
+            for (columns[1..]) |column| {
+                if (column.len != column_len) return Error.InconsistentColumnLength;
+            }
+            return .{
+                .columns = columns,
+                .owns_columns = false,
+                .contiguous = true,
+                .resident_storage = storage,
+            };
         }
 
         pub fn at(self: Self, index: usize) QM31 {

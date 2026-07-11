@@ -354,7 +354,10 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
             domain: circle_domain.CircleDomain,
             provider: *quotient_ops.LazyQuotientProvider,
         ) !FirstLayerProver {
-            var column = try SecureColumnByCoords.uninitialized(allocator, provider.domain_size);
+            var column = if (comptime @hasDecl(B, "allocateSecureColumn"))
+                try B.allocateSecureColumn(provider.domain_size)
+            else
+                try SecureColumnByCoords.uninitialized(allocator, provider.domain_size);
             errdefer column.deinit(allocator);
 
             var merkle_tree = if (comptime @hasDecl(B, "commitMerkle")) blk: {
@@ -400,10 +403,10 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
                 circle.Coset.halfOdds(first_inner_layer_log_size),
             );
 
-            var layer_evaluation = try prover_line.LineEvaluation.newZero(
-                allocator,
-                first_inner_layer_domain,
-            );
+            var layer_evaluation = if (comptime @hasDecl(B, "allocateLineEvaluation"))
+                try B.allocateLineEvaluation(first_inner_layer_domain)
+            else
+                try prover_line.LineEvaluation.newZero(allocator, first_inner_layer_domain);
             errdefer layer_evaluation.deinit(allocator);
 
             var fold_circle_workspace = try core_fri.FoldCircleWorkspace.init(
@@ -454,10 +457,13 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
             // divisible by FOLD_STEP.
             const last_layer_log_size = std.math.log2_int(usize, config.lastLayerDomainSize());
             while (layer_evaluation.len() > config.lastLayerDomainSize()) {
-                var secure_values = try secure_column.SecureColumnByCoords.fromSecureSlice(
-                    allocator,
-                    layer_evaluation.values,
-                );
+                var secure_values = if (comptime @hasDecl(B, "secureColumnFromLine"))
+                    try B.secureColumnFromLine(layer_evaluation)
+                else
+                    try secure_column.SecureColumnByCoords.fromSecureSlice(
+                        allocator,
+                        layer_evaluation.values,
+                    );
                 errdefer secure_values.deinit(allocator);
 
                 const coord_refs = [_][]const M31{
@@ -489,27 +495,39 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
                 };
                 try layers.append(allocator, layer);
 
-                const folded = if (comptime @hasDecl(B, "foldLineN"))
-                    try B.foldLineN(
+                if (comptime @hasDecl(B, "foldLineEvaluationN")) {
+                    const folded_evaluation = try B.foldLineEvaluationN(
                         allocator,
-                        @constCast(layer_evaluation.values),
-                        layer_evaluation.domain(),
-                        fold_alpha,
-                        &fold_workspace,
-                        this_fold_step,
-                    )
-                else
-                    try core_fri.foldLineInPlaceNWithWorkspace(
-                        allocator,
-                        @constCast(layer_evaluation.values),
-                        layer_evaluation.domain(),
+                        layer_evaluation,
                         fold_alpha,
                         &fold_workspace,
                         this_fold_step,
                     );
-                layer_evaluation.domain_value = folded.domain;
-                layer_evaluation.values = folded.values;
-                layer_evaluation.owns_values = true;
+                    layer_evaluation.deinit(allocator);
+                    layer_evaluation = folded_evaluation;
+                } else {
+                    const folded = if (comptime @hasDecl(B, "foldLineN"))
+                        try B.foldLineN(
+                            allocator,
+                            @constCast(layer_evaluation.values),
+                            layer_evaluation.domain(),
+                            fold_alpha,
+                            &fold_workspace,
+                            this_fold_step,
+                        )
+                    else
+                        try core_fri.foldLineInPlaceNWithWorkspace(
+                            allocator,
+                            @constCast(layer_evaluation.values),
+                            layer_evaluation.domain(),
+                            fold_alpha,
+                            &fold_workspace,
+                            this_fold_step,
+                        );
+                    layer_evaluation.domain_value = folded.domain;
+                    layer_evaluation.values = folded.values;
+                    layer_evaluation.owns_values = true;
+                }
             }
 
             return .{
@@ -556,12 +574,9 @@ pub fn decommitLayerExtended(
     query_positions: []const usize,
     fold_step: u32,
 ) !core_fri.ExtendedFriLayerProof(H) {
-    const column_values = try column.toVec(allocator);
-    defer allocator.free(column_values);
-
-    const helper = try computeDecommitmentPositionsAndWitnessEvals(
+    const helper = try computeDecommitmentPositionsAndWitnessEvalsFromCoords(
         allocator,
-        column_values,
+        column,
         query_positions,
         fold_step,
     );
@@ -680,6 +695,56 @@ pub fn computeDecommitmentPositionsAndWitnessEvals(
     };
 }
 
+fn computeDecommitmentPositionsAndWitnessEvalsFromCoords(
+    allocator: std.mem.Allocator,
+    column: secure_column.SecureColumnByCoords,
+    query_positions: []const usize,
+    fold_step: u32,
+) (std.mem.Allocator.Error || FriDecommitError)!DecommitmentPositionsResult {
+    if (fold_step >= @bitSizeOf(usize)) return FriDecommitError.FoldStepTooLarge;
+
+    var decommitment_positions = std.ArrayList(usize).empty;
+    defer decommitment_positions.deinit(allocator);
+    var witness_evals = std.ArrayList(QM31).empty;
+    defer witness_evals.deinit(allocator);
+    var value_map = std.ArrayList(ValueEntry).empty;
+    defer value_map.deinit(allocator);
+
+    const subset_len = @as(usize, 1) << @intCast(fold_step);
+    var subset_start_idx: usize = 0;
+    while (subset_start_idx < query_positions.len) {
+        const subset_key = query_positions[subset_start_idx] >> @intCast(fold_step);
+        var subset_end_idx = subset_start_idx + 1;
+        while (subset_end_idx < query_positions.len and
+            (query_positions[subset_end_idx] >> @intCast(fold_step)) == subset_key)
+        {
+            subset_end_idx += 1;
+        }
+
+        const subset_queries = query_positions[subset_start_idx..subset_end_idx];
+        const subset_start = subset_key << @intCast(fold_step);
+        var subset_query_at: usize = 0;
+        for (subset_start..subset_start + subset_len) |position| {
+            if (position >= column.len()) return FriDecommitError.QueryOutOfRange;
+            const eval = column.at(position);
+            try decommitment_positions.append(allocator, position);
+            try value_map.append(allocator, .{ .position = position, .value = eval });
+            if (subset_query_at < subset_queries.len and subset_queries[subset_query_at] == position) {
+                subset_query_at += 1;
+            } else {
+                try witness_evals.append(allocator, eval);
+            }
+        }
+        subset_start_idx = subset_end_idx;
+    }
+
+    return .{
+        .decommitment_positions = try decommitment_positions.toOwnedSlice(allocator),
+        .witness_evals = try witness_evals.toOwnedSlice(allocator),
+        .value_map = try value_map.toOwnedSlice(allocator),
+    };
+}
+
 /// Produces a FRI layer decommitment proof for `query_positions`.
 pub fn decommitLayer(
     comptime H: type,
@@ -689,12 +754,9 @@ pub fn decommitLayer(
     query_positions: []const usize,
     fold_step: u32,
 ) !LayerDecommitResult(H) {
-    const column_values = try column.toVec(allocator);
-    defer allocator.free(column_values);
-
-    const helper = try computeDecommitmentPositionsAndWitnessEvals(
+    const helper = try computeDecommitmentPositionsAndWitnessEvalsFromCoords(
         allocator,
-        column_values,
+        column,
         query_positions,
         fold_step,
     );

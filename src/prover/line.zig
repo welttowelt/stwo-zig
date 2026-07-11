@@ -10,6 +10,7 @@ const M31 = m31.M31;
 const QM31 = qm31.QM31;
 const LineDomain = poly_line.LineDomain;
 const LinePoly = poly_line.LinePoly;
+const ResidentStorage = @import("resident_storage.zig").ResidentStorage;
 
 /// Evaluations of a univariate polynomial on a line domain.
 ///
@@ -18,6 +19,7 @@ pub const LineEvaluation = struct {
     values: []const QM31,
     domain_value: LineDomain,
     owns_values: bool = true,
+    resident_storage: ?ResidentStorage = null,
 
     pub const Error = error{
         InvalidLength,
@@ -43,8 +45,24 @@ pub const LineEvaluation = struct {
     }
 
     pub fn deinit(self: *LineEvaluation, allocator: std.mem.Allocator) void {
-        if (self.owns_values) allocator.free(self.values);
+        if (self.resident_storage) |storage| {
+            storage.deinit();
+        } else if (self.owns_values) allocator.free(self.values);
         self.* = undefined;
+    }
+
+    pub fn initResident(
+        line_domain: LineDomain,
+        values: []QM31,
+        storage: ResidentStorage,
+    ) Error!LineEvaluation {
+        if (values.len != line_domain.size()) return Error.InvalidLength;
+        return .{
+            .values = values,
+            .domain_value = line_domain,
+            .owns_values = false,
+            .resident_storage = storage,
+        };
     }
 
     pub fn newZero(allocator: std.mem.Allocator, line_domain: LineDomain) !LineEvaluation {
@@ -80,7 +98,7 @@ pub const LineEvaluation = struct {
         self: *LineEvaluation,
         allocator: std.mem.Allocator,
     ) (std.mem.Allocator.Error || Error)!LinePoly {
-        const coeffs: []QM31 = if (self.owns_values)
+        const coeffs: []QM31 = if (self.owns_values and self.resident_storage == null)
             @constCast(self.values)
         else
             try allocator.dupe(QM31, self.values);
@@ -92,7 +110,7 @@ pub const LineEvaluation = struct {
         const len_inv = len_m31.inv() catch return Error.DivisionByZero;
         for (coeffs) |*v| v.* = v.mulM31(len_inv);
 
-        if (self.owns_values) {
+        if (self.owns_values and self.resident_storage == null) {
             self.values = &[_]QM31{};
             self.owns_values = false;
         }

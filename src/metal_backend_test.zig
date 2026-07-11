@@ -10,9 +10,85 @@ const MetalProverEngine = @import("backends/metal/prover_engine.zig").MetalProve
 const canonic = @import("core/poly/circle/canonic.zig");
 const circle_poly = @import("prover/poly/circle/poly.zig");
 const twiddles = @import("prover/poly/twiddles.zig");
+const core_fri = @import("core/fri.zig");
+const qm31 = @import("core/fields/qm31.zig");
+const line = @import("core/poly/line.zig");
+const MetalBackend = @import("backends/metal/commit_backend.zig").MetalCommitBackend;
 
 const M31 = m31.M31;
 const Hasher = blake2_merkle.Blake2sMerkleHasher;
+const QM31 = qm31.QM31;
+
+test "metal: resident FRI folds and coordinate conversion match CPU" {
+    const allocator = std.testing.allocator;
+    const log_size: u32 = 10;
+    const domain = canonic.CanonicCoset.new(log_size).circleDomain();
+    var source = try MetalBackend.allocateSecureColumn(domain.size());
+    defer source.deinit(allocator);
+    for (source.columns, 0..) |column, coordinate| {
+        for (column, 0..) |*value, index| {
+            value.* = M31.fromCanonical(@intCast((coordinate * 65537 + index * 8191 + 19) % m31.Modulus));
+        }
+    }
+    const alpha = QM31.fromU32Unchecked(7, 11, 13, 17);
+    const line_domain = try line.LineDomain.init(@import("core/circle.zig").Coset.halfOdds(log_size - 1));
+
+    const expected = try allocator.alloc(QM31, line_domain.size());
+    defer allocator.free(expected);
+    @memset(expected, QM31.zero());
+    var cpu_circle_workspace = try core_fri.FoldCircleWorkspace.init(allocator, expected.len);
+    defer cpu_circle_workspace.deinit(allocator);
+    try core_fri.foldCircleColumnsIntoLineWithWorkspace(
+        allocator,
+        expected,
+        source.columns,
+        domain,
+        alpha,
+        &cpu_circle_workspace,
+    );
+
+    var resident_line = try MetalBackend.allocateLineEvaluation(line_domain);
+    defer resident_line.deinit(allocator);
+    var gpu_circle_workspace = try core_fri.FoldCircleWorkspace.init(allocator, expected.len);
+    defer gpu_circle_workspace.deinit(allocator);
+    try MetalBackend.foldCircleIntoLine(
+        allocator,
+        @constCast(resident_line.values),
+        source.columns,
+        domain,
+        alpha,
+        &gpu_circle_workspace,
+    );
+    try std.testing.expectEqualSlices(QM31, expected, resident_line.values);
+
+    var coordinates = try MetalBackend.secureColumnFromLine(resident_line);
+    defer coordinates.deinit(allocator);
+    for (expected, 0..) |value, index| try std.testing.expect(value.eql(coordinates.at(index)));
+
+    var cpu_line_workspace = try core_fri.FoldLineWorkspace.init(allocator, expected.len / 2);
+    defer cpu_line_workspace.deinit(allocator);
+    const expected_fold = try core_fri.foldLineNWithWorkspace(
+        allocator,
+        expected,
+        line_domain,
+        alpha,
+        &cpu_line_workspace,
+        2,
+    );
+    defer allocator.free(expected_fold.values);
+
+    var gpu_line_workspace = try core_fri.FoldLineWorkspace.init(allocator, expected.len / 2);
+    defer gpu_line_workspace.deinit(allocator);
+    var resident_fold = try MetalBackend.foldLineEvaluationN(
+        allocator,
+        resident_line,
+        alpha,
+        &gpu_line_workspace,
+        2,
+    );
+    defer resident_fold.deinit(allocator);
+    try std.testing.expectEqualSlices(QM31, expected_fold.values, resident_fold.values);
+}
 
 test "metal: batched circle IFFT and RFFT match CPU" {
     const allocator = std.testing.allocator;

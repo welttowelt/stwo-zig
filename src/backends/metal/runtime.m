@@ -25,6 +25,9 @@
 @property(nonatomic, strong) id<MTLComputePipelineState> circleRfftFused;
 @property(nonatomic, strong) id<MTLComputePipelineState> quotientNumerator;
 @property(nonatomic, strong) id<MTLComputePipelineState> quotientFinalize;
+@property(nonatomic, strong) id<MTLComputePipelineState> friFoldCircle;
+@property(nonatomic, strong) id<MTLComputePipelineState> friFoldLine;
+@property(nonatomic, strong) id<MTLComputePipelineState> qm31ToCoordinates;
 @end
 @implementation StwoZigMetalRuntime
 @end
@@ -75,6 +78,8 @@ static id<MTLComputePipelineState> make_pipeline(
     return pipeline;
 }
 
+static id<MTLBuffer> alias_shared_buffer(id<MTLDevice> device, void *bytes, size_t length);
+
 void *stwo_zig_metal_runtime_create(
     const char *source_utf8,
     char *error_message,
@@ -121,14 +126,163 @@ void *stwo_zig_metal_runtime_create(
         runtime.circleRfftFused = make_pipeline(device, library, @"stwo_zig_circle_rfft_fused_tail", error_message, error_message_len);
         runtime.quotientNumerator = make_pipeline(device, library, @"stwo_zig_quotient_numerator_raw", error_message, error_message_len);
         runtime.quotientFinalize = make_pipeline(device, library, @"stwo_zig_quotient_finalize", error_message, error_message_len);
+        runtime.friFoldCircle = make_pipeline(device, library, @"stwo_zig_fri_fold_circle", error_message, error_message_len);
+        runtime.friFoldLine = make_pipeline(device, library, @"stwo_zig_fri_fold_line", error_message, error_message_len);
+        runtime.qm31ToCoordinates = make_pipeline(device, library, @"stwo_zig_qm31_to_coordinates", error_message, error_message_len);
         if (runtime.queue == nil || runtime.leaves == nil || runtime.parents == nil ||
             runtime.quotients == nil || runtime.rawQuotients == nil || runtime.polynomialEval == nil ||
             runtime.polynomialBasis == nil || runtime.circleIfftFirst == nil || runtime.circleIfftLayer == nil ||
             runtime.circleRfftLayer == nil || runtime.circleRfftLast == nil || runtime.circleRescale == nil ||
             runtime.circleExpand == nil || runtime.circleIfftFused == nil || runtime.circleRfftFused == nil ||
-            runtime.quotientNumerator == nil || runtime.quotientFinalize == nil) return NULL;
+            runtime.quotientNumerator == nil || runtime.quotientFinalize == nil ||
+            runtime.friFoldCircle == nil || runtime.friFoldLine == nil || runtime.qm31ToCoordinates == nil) return NULL;
         return (__bridge_retained void *)runtime;
     }
+}
+
+bool stwo_zig_metal_qm31_to_coordinates(
+    void *runtime_ptr, const uint32_t *source, uint32_t value_count,
+    uint32_t *destination, double *gpu_milliseconds,
+    char *error_message, size_t error_message_len
+) {
+    if (runtime_ptr == NULL || source == NULL || destination == NULL || value_count == 0u) return false;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        size_t bytes = (size_t)value_count * 4u * sizeof(uint32_t);
+        id<MTLBuffer> source_buffer = alias_shared_buffer(runtime.device, (void *)source, bytes);
+        if (source_buffer == nil) source_buffer = [runtime.device newBufferWithBytes:source length:bytes options:MTLResourceStorageModeShared];
+        id<MTLBuffer> destination_buffer = alias_shared_buffer(runtime.device, destination, bytes);
+        bool direct_destination = destination_buffer != nil;
+        if (destination_buffer == nil) destination_buffer = [runtime.device newBufferWithLength:bytes options:MTLResourceStorageModeShared];
+        if (source_buffer == nil || destination_buffer == nil) {
+            write_error(error_message, error_message_len, @"QM31 coordinate buffer allocation failed"); return false;
+        }
+        id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
+        id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
+        [encoder setComputePipelineState:runtime.qm31ToCoordinates];
+        [encoder setBuffer:source_buffer offset:0 atIndex:0]; [encoder setBuffer:destination_buffer offset:0 atIndex:1];
+        [encoder setBytes:&value_count length:sizeof(value_count) atIndex:2];
+        NSUInteger width = MIN(runtime.qm31ToCoordinates.maxTotalThreadsPerThreadgroup, runtime.qm31ToCoordinates.threadExecutionWidth * 8u);
+        [encoder dispatchThreads:MTLSizeMake(value_count, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+        [encoder endEncoding]; [command commit]; [command waitUntilCompleted];
+        if (command.status == MTLCommandBufferStatusError) { write_error(error_message, error_message_len, command.error.localizedDescription); return false; }
+        if (!direct_destination) memcpy(destination, destination_buffer.contents, bytes);
+        if (gpu_milliseconds) *gpu_milliseconds = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
+        return true;
+    }
+}
+
+static id<MTLBuffer> alias_shared_buffer(id<MTLDevice> device, void *bytes, size_t length) {
+    size_t page_size = (size_t)getpagesize();
+    if (((uintptr_t)bytes % page_size) == 0u && (length % page_size) == 0u) {
+        return [device newBufferWithBytesNoCopy:bytes length:length
+                                        options:MTLResourceStorageModeShared deallocator:nil];
+    }
+    return nil;
+}
+
+bool stwo_zig_metal_fri_fold_circle(
+    void *runtime_ptr, const uint32_t *source, uint32_t source_count,
+    const uint32_t *inverse_y, const uint32_t *alpha, uint32_t *destination,
+    double *gpu_milliseconds, char *error_message, size_t error_message_len
+) {
+    if (runtime_ptr == NULL || source == NULL || inverse_y == NULL || alpha == NULL || destination == NULL || source_count < 2u) return false;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        uint32_t destination_count = source_count >> 1u;
+        size_t source_bytes = (size_t)source_count * 4u * sizeof(uint32_t);
+        size_t destination_bytes = (size_t)destination_count * 4u * sizeof(uint32_t);
+        id<MTLBuffer> source_buffer = alias_shared_buffer(runtime.device, (void *)source, source_bytes);
+        if (source_buffer == nil) source_buffer = [runtime.device newBufferWithBytes:source length:source_bytes options:MTLResourceStorageModeShared];
+        id<MTLBuffer> destination_buffer = alias_shared_buffer(runtime.device, destination, destination_bytes);
+        bool direct_destination = destination_buffer != nil;
+        if (destination_buffer == nil) destination_buffer = [runtime.device newBufferWithLength:destination_bytes options:MTLResourceStorageModeShared];
+        id<MTLBuffer> inverse_buffer = [runtime.device newBufferWithBytes:inverse_y length:(size_t)destination_count * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+        if (source_buffer == nil || destination_buffer == nil || inverse_buffer == nil) {
+            write_error(error_message, error_message_len, @"FRI circle fold buffer allocation failed");
+            return false;
+        }
+        id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
+        id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
+        [encoder setComputePipelineState:runtime.friFoldCircle];
+        [encoder setBuffer:source_buffer offset:0 atIndex:0];
+        [encoder setBuffer:inverse_buffer offset:0 atIndex:1];
+        [encoder setBytes:alpha length:4u * sizeof(uint32_t) atIndex:2];
+        [encoder setBuffer:destination_buffer offset:0 atIndex:3];
+        [encoder setBytes:&destination_count length:sizeof(destination_count) atIndex:4];
+        NSUInteger width = MIN(runtime.friFoldCircle.maxTotalThreadsPerThreadgroup, runtime.friFoldCircle.threadExecutionWidth * 8u);
+        [encoder dispatchThreads:MTLSizeMake(destination_count, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+        [encoder endEncoding];
+        [command commit]; [command waitUntilCompleted];
+        if (command.status == MTLCommandBufferStatusError) {
+            write_error(error_message, error_message_len, command.error.localizedDescription); return false;
+        }
+        if (!direct_destination) memcpy(destination, destination_buffer.contents, destination_bytes);
+        if (gpu_milliseconds) *gpu_milliseconds = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
+        return true;
+    }
+}
+
+bool stwo_zig_metal_fri_fold_line(
+    void *runtime_ptr, const uint32_t *source, uint32_t source_count,
+    const uint32_t *inverse_x, const uint32_t *alpha, uint32_t *destination,
+    double *gpu_milliseconds, char *error_message, size_t error_message_len
+) {
+    if (runtime_ptr == NULL || source == NULL || inverse_x == NULL || alpha == NULL || destination == NULL || source_count < 2u) return false;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        uint32_t destination_count = source_count >> 1u;
+        size_t source_bytes = (size_t)source_count * 4u * sizeof(uint32_t);
+        size_t destination_bytes = (size_t)destination_count * 4u * sizeof(uint32_t);
+        id<MTLBuffer> source_buffer = alias_shared_buffer(runtime.device, (void *)source, source_bytes);
+        if (source_buffer == nil) source_buffer = [runtime.device newBufferWithBytes:source length:source_bytes options:MTLResourceStorageModeShared];
+        id<MTLBuffer> destination_buffer = alias_shared_buffer(runtime.device, destination, destination_bytes);
+        bool direct_destination = destination_buffer != nil;
+        if (destination_buffer == nil) destination_buffer = [runtime.device newBufferWithLength:destination_bytes options:MTLResourceStorageModeShared];
+        id<MTLBuffer> inverse_buffer = [runtime.device newBufferWithBytes:inverse_x length:(size_t)destination_count * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+        if (source_buffer == nil || destination_buffer == nil || inverse_buffer == nil) {
+            write_error(error_message, error_message_len, @"FRI line fold buffer allocation failed"); return false;
+        }
+        id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
+        id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
+        [encoder setComputePipelineState:runtime.friFoldLine];
+        [encoder setBuffer:source_buffer offset:0 atIndex:0]; [encoder setBuffer:inverse_buffer offset:0 atIndex:1];
+        [encoder setBytes:alpha length:4u * sizeof(uint32_t) atIndex:2]; [encoder setBuffer:destination_buffer offset:0 atIndex:3];
+        [encoder setBytes:&destination_count length:sizeof(destination_count) atIndex:4];
+        NSUInteger width = MIN(runtime.friFoldLine.maxTotalThreadsPerThreadgroup, runtime.friFoldLine.threadExecutionWidth * 8u);
+        [encoder dispatchThreads:MTLSizeMake(destination_count, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+        [encoder endEncoding]; [command commit]; [command waitUntilCompleted];
+        if (command.status == MTLCommandBufferStatusError) { write_error(error_message, error_message_len, command.error.localizedDescription); return false; }
+        if (!direct_destination) memcpy(destination, destination_buffer.contents, destination_bytes);
+        if (gpu_milliseconds) *gpu_milliseconds = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
+        return true;
+    }
+}
+
+void *stwo_zig_metal_buffer_create(
+    void *runtime_ptr,
+    size_t byte_length,
+    void **contents,
+    char *error_message,
+    size_t error_message_len
+) {
+    if (runtime_ptr == NULL || byte_length == 0u || contents == NULL) return NULL;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        id<MTLBuffer> buffer = [runtime.device newBufferWithLength:byte_length
+                                                           options:MTLResourceStorageModeShared];
+        if (buffer == nil || buffer.contents == NULL) {
+            write_error(error_message, error_message_len, @"Metal resident buffer allocation failed");
+            return NULL;
+        }
+        *contents = buffer.contents;
+        return (__bridge_retained void *)buffer;
+    }
+}
+
+void stwo_zig_metal_buffer_destroy(void *buffer) {
+    if (buffer == NULL) return;
+    @autoreleasepool { __unused id value = (__bridge_transfer id)buffer; }
 }
 
 bool stwo_zig_metal_circle_transform(

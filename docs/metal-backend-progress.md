@@ -86,8 +86,35 @@ The follow-up residency boundary pass also writes quotient results directly in
 the native coordinate-major `SecureColumnByCoords` layout, removing the 40 MiB
 row-major compatibility transpose. Circle-to-line and variable-step line folds
 now dispatch through backend hooks instead of bypassing the backend in
-`core/fri.zig`; the Metal implementation still delegates those hooks to CPU
-until the secure-column owner becomes a device-backed allocation.
+`core/fri.zig`. At that checkpoint the Metal implementation still delegated
+those hooks to CPU pending a device-backed secure-column owner.
+
+The resident FRI pass replaces that temporary boundary with Metal-owned mapped
+storage on Apple unified memory:
+
+- `SecureColumnByCoords` and `LineEvaluation` can carry an external resident
+  owner and release the retained `MTLBuffer` instead of calling the Zig
+  allocator;
+- quotient output is born in a Metal allocation and remains coordinate-major;
+- circle-to-line and variable-step line folds write into new resident buffers;
+- retained FRI layers are transposed to coordinate-major form on Metal before
+  commitment; and
+- decommitment gathers fold subsets directly from mapped coordinate storage,
+  removing the previous full-column `[]QM31` proof-assembly copy.
+
+Direct CPU-oracle tests cover circle folding, two-step line folding, and QM31
+coordinate conversion. On the available generated 2.5M-cycle workload, three
+prove runs measured 2,349.5 ms, 2,094.5 ms, and 2,064.7 ms. This workload has a
+different 1,925-column trace and is not comparable to the exact shared-ELF
+results above. Its resident FRI commit measured 352-358 ms on the stable runs,
+while FRI decommit fell to 1 ms.
+
+Fiat-Shamir challenge drawing and final proof assembly each round to 0 ms in
+the stage profile. FRI decommit is 1 ms. They remain CPU control operations:
+each FRI layer is transcript-dependent on the preceding 32-byte Merkle root,
+and a Metal command-buffer round trip would cost more than the scalar work.
+All bulk transcript inputs, layer values, hashes, and queried openings remain
+Metal-owned or compactly gathered.
 
 Three current exact runs:
 
