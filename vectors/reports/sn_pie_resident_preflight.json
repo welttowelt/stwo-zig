@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "date": "2026-07-11",
+  "pie": "SN_PIE_2",
+  "adapted_cycles": 7833306,
+  "present_components": 57,
+  "capture_safe_components": 57,
+  "recorded_witness_lanes": 33,
+  "multiplicity_coverage_gaps": 0,
+  "multiplicity_feed_blockers": 0,
+  "arena": {
+    "logical_buffers": 17552,
+    "physical_slots": 16589,
+    "peak_epoch": "Interaction",
+    "peak_bytes": 65025727008,
+    "total_gib": 60.56009554862976
+  },
+  "local_metal_budget_bytes": 31138512896,
+  "vram_fit": false,
+  "proof": null,
+  "next_gate": "Port the canonical witness programs and protocol plan to a Zig liveness planner that fits the Apple Metal recommended working set, then preserve reference proof bytes."
+}

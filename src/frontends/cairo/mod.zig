@@ -23,6 +23,7 @@ pub const air = @import("air/mod.zig");
 pub const common = @import("common/mod.zig");
 pub const prover = @import("prover.zig");
 pub const prove_trace = @import("prove_trace.zig");
+pub const witness = @import("witness/mod.zig");
 
 // Convenience re-exports.
 pub const Felt252 = common.Felt252;

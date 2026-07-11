@@ -48,6 +48,21 @@ is a mechanical export of the canonical witness generators and generated AIR.
 The symbolic exporter must preserve polynomial constraints and every LogUp
 `RelationEntry`; omitting relation multiplicities or values is not acceptable.
 
+The advanced resident branch's strict SN2 preflight establishes the current
+mechanical-coverage frontier: all 57 present components are capture-safe, 33
+witness lanes have recorded bytecode, and there are no multiplicity coverage
+gaps or feed blockers. Its existing detached arena plan is not viable on this
+M4 Max: it peaks at 65,025,727,008 bytes (60.56 GiB) during interaction, before
+twiddles and runtime overhead. The Zig/Metal port therefore consumes the same
+witness ISA but must use its own liveness plan with epoch-local reuse and
+spill/recompute; copying the detached arena allocation would fail locally.
+
+`src/frontends/cairo/witness/program.zig` implements the canonical 28-op,
+16-byte witness instruction ABI, semantic hash, strict SSA/shape validation,
+and the reference interpreter for core arithmetic, table reads, trace writes,
+multiplicity feeds, lookup words, and subcomponent words. Computed deduces use
+the same explicit fail-closed boundary as the canonical generator.
+
 The production interchange format must be a versioned, little-endian binary
 container. JSON remains a parity/debug format only: multi-million-step PIEs
 make a DOM-style JSON import an unacceptable memory multiplier.
