@@ -8,6 +8,7 @@
 //!   ./riscv_bench --fib-n 500000
 
 const std = @import("std");
+const builtin = @import("builtin");
 const runner = @import("frontends/riscv/runner/mod.zig");
 const riscv_prover = @import("frontends/riscv/prover.zig");
 const stage_profile = @import("prover/stage_profile.zig");
@@ -193,7 +194,11 @@ pub fn mainWithEngine(comptime Engine: type) !void {
     const cpu_count = std.Thread.getCpuCount() catch 1;
     std.debug.print("Security: pow_bits={d}, n_queries={d}", .{ pow_bits, n_queries });
     if (production) std.debug.print(" [PRODUCTION — matches stark-v]", .{});
-    std.debug.print("\nCPU cores: {d} (used for parallel PoW grinding)\n\n", .{cpu_count});
+    std.debug.print("\nOptimization: {s}\n", .{@tagName(builtin.mode)});
+    if (builtin.mode == .Debug) {
+        std.debug.print("WARNING: Debug throughput is not comparable to release benchmarks.\n", .{});
+    }
+    std.debug.print("CPU cores: {d} (used for parallel PoW grinding)\n\n", .{cpu_count});
 
     const config = pcs_core.PcsConfig{
         .pow_bits = pow_bits,

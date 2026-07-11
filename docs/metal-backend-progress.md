@@ -39,6 +39,17 @@ Workload and protocol parameters match the preserved Rust/Zig comparison:
 - Blake2s, blowup 1, PoW 10, 3 FRI queries
 - same M4 Max laptop
 
+Performance runs must use `-Doptimize=ReleaseFast`; Debug proving is roughly
+an order of magnitude slower and is not a benchmark. The exact artifact can be
+reproduced from `ClementWalter/stark-v` commit
+`d478f783055aa0d73a93768a433a3c6c31c91d1c` with:
+
+```sh
+cd guest/guest-bin
+cargo build --release --bin fib_input
+zig build riscv-metal-bench -Doptimize=ReleaseFast
+```
+
 Original transaction-engine Metal runs:
 
 | Run | Prove | Prove MHz | Run + prove | Run + prove MHz |
