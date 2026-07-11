@@ -1783,6 +1783,75 @@ test "metal: resident lifted Merkle root matches CPU" {
     try std.testing.expectEqualSlices(u8, &cpu_tree.root(), &compatible_tree.root());
 }
 
+test "metal: incremental leaf absorption matches monolithic lifted leaves" {
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    const lifting_log: u32 = 6;
+    const rows: u32 = 1 << lifting_log;
+    var arena = try runtime.allocateResidentBuffer(32768);
+    defer arena.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
+    var offsets: [20]u32 = undefined;
+    var logs: [20]u32 = undefined;
+    var cursor: u32 = 0;
+    for (&offsets, &logs, 0..) |*offset, *log_size, column| {
+        log_size.* = if (column < 16) 5 else 6;
+        offset.* = cursor;
+        const length = @as(u32, 1) << @intCast(log_size.*);
+        for (words[cursor .. cursor + length], 0..) |*value, row| value.* = @intCast((column * 313 + row * 17 + 9) % m31.Modulus);
+        cursor += length;
+    }
+    const monolithic: u32 = 4096;
+    const incremental: u32 = monolithic + rows * 8;
+    var leaves = try runtime.prepareMerkleLeaves(&offsets, &logs, lifting_log, monolithic, Hasher.leafSeed());
+    defer leaves.deinit();
+    _ = try runtime.merkleLeavesPrepared(arena, leaves);
+    _ = try runtime.leafAbsorb(arena, offsets[0..16], logs[0..16], incremental, lifting_log, 0, false, 64, Hasher.leafSeed());
+    _ = try runtime.leafAbsorb(arena, offsets[16..20], logs[16..20], incremental, lifting_log, 16, true, 64, Hasher.leafSeed());
+    try std.testing.expectEqualSlices(u32, words[monolithic .. monolithic + rows * 8], words[incremental .. incremental + rows * 8]);
+}
+
+test "metal: sparse LDE reads the canonical suffix of a larger twiddle tower" {
+    const allocator = std.testing.allocator;
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    const base_log: u32 = 9;
+    const eval_log: u32 = 10;
+    const tower_log: u32 = 13;
+    var base_tree = try twiddles.precomputeM31(allocator, canonic.CanonicCoset.new(base_log).circleDomain().half_coset);
+    defer twiddles.deinitM31(allocator, &base_tree);
+    var eval_tree = try twiddles.precomputeM31(allocator, canonic.CanonicCoset.new(eval_log).circleDomain().half_coset);
+    defer twiddles.deinitM31(allocator, &eval_tree);
+    var tower = try twiddles.precomputeM31(allocator, canonic.CanonicCoset.new(tower_log).circleDomain().half_coset);
+    defer twiddles.deinitM31(allocator, &tower);
+    const coefficients = try allocator.alloc(M31, @as(usize, 1) << base_log);
+    defer allocator.free(coefficients);
+    const expected = try allocator.alloc(M31, @as(usize, 1) << eval_log);
+    defer allocator.free(expected);
+    for (coefficients, 0..) |*value, row| value.* = M31.fromCanonical(@intCast((row * 7919 + 17) % m31.Modulus));
+    const base_const = twiddles.TwiddleTree([]const M31).init(base_tree.root_coset, base_tree.twiddles, base_tree.itwiddles);
+    const eval_const = twiddles.TwiddleTree([]const M31).init(eval_tree.root_coset, eval_tree.twiddles, eval_tree.itwiddles);
+    var coefficient_columns = [_][]M31{coefficients};
+    try circle_poly.interpolateBuffersWithTwiddles(&coefficient_columns, canonic.CanonicCoset.new(base_log).circleDomain(), base_const);
+    @memcpy(expected[0..coefficients.len], coefficients);
+    @memset(expected[coefficients.len..], M31.zero());
+    var expected_columns = [_][]M31{expected};
+    try circle_poly.evaluateBuffersWithTwiddles(&expected_columns, canonic.CanonicCoset.new(eval_log).circleDomain(), eval_const);
+    const source: u32 = 0;
+    const destination: u32 = 2048;
+    const tower_offset: u32 = 4096;
+    var arena = try runtime.allocateResidentBuffer(65536);
+    defer arena.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
+    @memcpy(words[source .. source + coefficients.len], std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(coefficients)));
+    @memcpy(words[tower_offset .. tower_offset + tower.twiddles.len], std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(tower.twiddles)));
+    const suffix = tower_offset + @as(u32, @intCast(tower.twiddles.len - eval_tree.twiddles.len));
+    var lde = try runtime.prepareCompositionLde(&.{source}, &.{base_log}, &.{destination}, eval_log, suffix);
+    defer lde.deinit();
+    _ = try runtime.compositionLdePrepared(arena, lde);
+    try std.testing.expectEqualSlices(u32, std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(expected)), words[destination .. destination + expected.len]);
+}
+
 test "metal: execution tables split compact little-endian values into 9-bit columns" {
     var runtime = try metal.Runtime.init();
     defer runtime.deinit();

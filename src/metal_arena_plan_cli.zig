@@ -304,6 +304,8 @@ pub fn main() !void {
     var populated_preprocessed_coefficients: usize = 0;
     var preprocessed_gpu_ms: f64 = 0;
     var base_interpolation_gpu_ms: f64 = 0;
+    var commitment_gpu_ms: f64 = 0;
+    var commitment_roots: [4]?[32]u8 = .{ null, null, null, null };
     if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_PREPARE_METAL")) {
         const bindings = if (proof_bindings) |*value| value else return error.MissingPreparedProofBindings;
         var metal = try metal_runtime.Runtime.init();
@@ -410,6 +412,24 @@ pub fn main() !void {
                 allocator, &metal, &resident_arena, schedule, plan,
                 "BaseTrace", "BaseCoefficients", "InverseTwiddles",
             );
+        }
+        if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_COMMITMENTS")) {
+            if (populated_preprocessed_coefficients == 0 or base_interpolation_gpu_ms == 0) return error.CommitmentInputsNotExecuted;
+            const tree_count = if (std.process.getEnvVarOwned(allocator, "STWO_ZIG_SN2_COMMIT_TREE_COUNT")) |value| blk: {
+                defer allocator.free(value);
+                break :blk try std.fmt.parseInt(usize, value, 10);
+            } else |err| switch (err) { error.EnvironmentVariableNotFound => 1, else => return err };
+            if (tree_count == 0 or tree_count > 2) return error.InvalidCommitmentTreeCount;
+            for (0..tree_count) |tree| {
+                const committed = try bindings.executeCommitment(
+                    &metal, &resident_arena, schedule, plan, @intCast(tree),
+                    blake2_merkle.Blake2sMerkleHasher.leafSeed(), blake2_merkle.Blake2sMerkleHasher.nodeSeed(),
+                );
+                commitment_gpu_ms += committed.gpu_ms;
+                var root: [32]u8 = undefined;
+                @memcpy(&root, (try resident_arena.bytes(committed.root))[0..32]);
+                commitment_roots[tree] = root;
+            }
         }
         const composition_path = args[7];
         if (!std.mem.endsWith(u8, composition_path, ".bin")) return error.InvalidCompositionPath;
@@ -541,6 +561,8 @@ pub fn main() !void {
         .populated_preprocessed_coefficients = populated_preprocessed_coefficients,
         .preprocessed_gpu_ms = preprocessed_gpu_ms,
         .base_interpolation_gpu_ms = base_interpolation_gpu_ms,
+        .commitment_gpu_ms = commitment_gpu_ms,
+        .commitment_roots = commitment_roots,
         .prepared_quotient_partials = if (proof_bindings) |bindings| bindings.quotient_partials.len else 0,
         .prepared_fri_layers = if (proof_bindings) |bindings| bindings.fri_merkle_layers.len else 0,
         .native_recipe_buffers = native_recipe_buffers,

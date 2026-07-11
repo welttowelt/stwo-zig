@@ -791,6 +791,16 @@ extern fn stwo_zig_metal_execution_table_split(
     error_message: [*]u8,
     error_message_len: usize,
 ) bool;
+extern fn stwo_zig_metal_leaf_absorb(
+    runtime: *anyopaque, arena: *anyopaque, column_offsets: [*]const u32, column_logs: [*]const u32, column_count: u32,
+    state_offset: u32, lifting_log: u32, first_column: u32, is_final: u32, prefix_bytes: u32,
+    leaf_seed: *const [8]u32, gpu_milliseconds: *f64,
+    error_message: [*]u8, error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_parent_plain(
+    runtime: *anyopaque, arena: *anyopaque, child_offset: u32, destination_offset: u32,
+    parent_count: u32, gpu_milliseconds: *f64, error_message: [*]u8, error_message_len: usize,
+) bool;
 extern fn stwo_zig_metal_qm31_to_coordinates(
     runtime: *anyopaque,
     source: [*]const u32,
@@ -2420,6 +2430,29 @@ pub const Runtime = struct {
         )) {
             std.log.err("Metal execution table split failed: {s}", .{std.mem.sliceTo(&message, 0)});
             return MetalError.WitnessFeedFailed;
+        }
+        return gpu_ms;
+    }
+
+    pub fn leafAbsorb(
+        self: *Runtime, arena: ResidentBuffer, column_offsets: []const u32, column_logs: []const u32, state_offset: u32,
+        lifting_log: u32, first_column: u32, is_final: bool, prefix_bytes: u32, leaf_seed: [8]u32,
+    ) MetalError!f64 {
+        if (column_offsets.len == 0 or column_offsets.len > 16 or column_offsets.len != column_logs.len) return MetalError.CommitmentFailed;
+        var gpu_ms: f64 = 0; var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_leaf_absorb(self.handle, arena.handle, column_offsets.ptr, column_logs.ptr, @intCast(column_offsets.len),
+            state_offset, lifting_log, first_column, @intFromBool(is_final), prefix_bytes, &leaf_seed, &gpu_ms, &message, message.len)) {
+            std.log.err("Metal leaf absorb failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CommitmentFailed;
+        }
+        return gpu_ms;
+    }
+
+    pub fn parentPlain(self: *Runtime, arena: ResidentBuffer, child_offset: u32, destination_offset: u32, parent_count: u32) MetalError!f64 {
+        var gpu_ms: f64 = 0; var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_parent_plain(self.handle, arena.handle, child_offset, destination_offset, parent_count, &gpu_ms, &message, message.len)) {
+            std.log.err("Metal plain parent hash failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CommitmentFailed;
         }
         return gpu_ms;
     }

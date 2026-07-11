@@ -214,6 +214,29 @@ kernel void stwo_zig_blake2s_leaves(
     for (uint i = 0; i < 8u; ++i) destination[base + i] = state[i];
 }
 
+kernel void stwo_zig_blake2s_leaf_absorb_resident(
+    device uint *arena [[buffer(0)]], constant uint *column_offsets [[buffer(1)]],
+    constant uint *column_logs [[buffer(2)]], constant uint &column_count [[buffer(3)]],
+    constant uint &state_offset [[buffer(4)]], constant uint &lifting_log [[buffer(5)]],
+    constant uint &first_column [[buffer(6)]], constant uint &is_final [[buffer(7)]],
+    constant uint &prefix_bytes [[buffer(8)]], constant uint *leaf_seed [[buffer(9)]],
+    uint row [[thread_position_in_grid]]
+) {
+    uint row_count = 1u << lifting_log;
+    if (row >= row_count || column_count == 0u || column_count > 16u) return;
+    uint state[8], message[16];
+    if (first_column == 0u) {
+        if (prefix_bytes == 0u) blake2s_init_hash(state);
+        else for (uint i = 0u; i < 8u; ++i) state[i] = leaf_seed[i];
+    }
+    else for (uint i = 0u; i < 8u; ++i) state[i] = arena[state_offset + row * 8u + i];
+    for (uint i = 0u; i < column_count; ++i)
+        message[i] = arena[column_offsets[i] + lifted_index(row, lifting_log - column_logs[i])];
+    for (uint i = column_count; i < 16u; ++i) message[i] = 0u;
+    blake2s_compress(state, message, prefix_bytes + (first_column + column_count) * 4u, is_final != 0u);
+    for (uint i = 0u; i < 8u; ++i) arena[state_offset + row * 8u + i] = state[i];
+}
+
 kernel void stwo_zig_blake2s_parents(
     device const uint *children [[buffer(0)]],
     device uint *destination [[buffer(1)]],
@@ -241,6 +264,18 @@ kernel void stwo_zig_blake2s_parents_sparse(
     for (uint i = 0; i < 16u; ++i) message[i] = arena[child_offset + parent * 16u + i];
     blake2s_compress(state, message, 128u, true);
     for (uint i = 0; i < 8u; ++i) arena[destination_offset + parent * 8u + i] = state[i];
+}
+
+kernel void stwo_zig_blake2s_parents_plain_sparse(
+    device uint *arena [[buffer(0)]], constant uint &child_offset [[buffer(1)]],
+    constant uint &destination_offset [[buffer(2)]], constant uint &parent_count [[buffer(3)]],
+    uint parent [[thread_position_in_grid]]
+) {
+    if (parent >= parent_count) return;
+    uint state[8], message[16]; blake2s_init_hash(state);
+    for (uint i = 0u; i < 16u; ++i) message[i] = arena[child_offset + parent * 16u + i];
+    blake2s_compress(state, message, 64u, true);
+    for (uint i = 0u; i < 8u; ++i) arena[destination_offset + parent * 8u + i] = state[i];
 }
 
 struct Qm31Value { uint a, b, c, d; };

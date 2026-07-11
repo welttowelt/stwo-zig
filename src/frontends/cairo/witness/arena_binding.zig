@@ -42,6 +42,11 @@ pub const ProofCopy = struct {
     word_count: u32,
 };
 
+pub const CommitmentTelemetry = struct {
+    gpu_ms: f64,
+    root: arena_plan.Binding,
+};
+
 pub const OrdinalBinding = struct {
     ordinal: u32,
     binding: arena_plan.Binding,
@@ -344,6 +349,29 @@ pub const PreparedProofBindings = struct {
         return prepareCompositionRecipe(self, allocator, metal, resident_arena, bundle, metallib_path);
     }
 
+    pub fn executeCommitment(
+        self: PreparedProofBindings,
+        metal: *metal_runtime.Runtime,
+        resident_arena: *arena_plan.ResidentArena,
+        schedule: []const std.json.Value,
+        plan: arena_plan.Plan,
+        tree_index: u32,
+        leaf_seed: [8]u32,
+        node_seed: [8]u32,
+    ) !CommitmentTelemetry {
+        const coefficients = switch (tree_index) {
+            0 => self.preprocessed_coefficients,
+            1 => self.base_coefficients,
+            2 => self.interaction_coefficients,
+            3 => self.composition_coefficients,
+            else => return Error.InvalidCardinality,
+        };
+        return executeStreamingCommitment(
+            self.allocator, metal, resident_arena, schedule, plan, coefficients,
+            tree_index, leaf_seed, node_seed,
+        );
+    }
+
     fn validateSn2(self: PreparedProofBindings) !void {
         if (self.composition_coefficients.len != Sn2Counts.composition_coefficients) return Error.InvalidCompositionCount;
         if (self.quotient_partials.len != Sn2Counts.quotient_partials) return Error.InvalidQuotientCount;
@@ -503,10 +531,20 @@ pub fn evaluatePreprocessedCoefficients(
             source_logs.items,
             destination_offsets.items,
             log_size,
-            try wordOffset(twiddles),
+            try twiddleOffsetForLog(twiddles, log_size),
         );
         defer prepared.deinit();
         gpu_ms += try metal.compositionLdePrepared(resident_arena.buffer, prepared);
+    }
+    const seq4 = try oneOrdinal(schedule, plan, "PreprocessedEvaluations", 0);
+    const seq4_bytes = try resident_arena.bytes(seq4);
+    if (seq4_bytes.len != 16 * 4) return Error.InvalidBindingSize;
+    const seq4_aligned: []align(4) u8 = @alignCast(seq4_bytes);
+    for (std.mem.bytesAsSlice(u32, seq4_aligned), 0..) |value, expected| {
+        if (value != expected) {
+            std.log.err("preprocessed seq_4 parity mismatch at row {d}: expected {d}, got {d}", .{ expected, expected, value });
+            return Error.InvalidSchedule;
+        }
     }
     return gpu_ms;
 }
@@ -649,7 +687,7 @@ pub fn interpolateTraceColumns(
             source_offsets.items,
             destination_offsets.items,
             log_size,
-            try wordOffset(inverse_twiddles),
+            try twiddleOffsetForLog(inverse_twiddles, log_size),
             scale,
         );
         defer prepared.deinit();
@@ -1367,7 +1405,7 @@ fn prepareCompositionRecipe(
             source_logs,
             destination_offsets,
             component.evaluation_log_size,
-            try asOffset(bindings.forward_twiddles),
+            try twiddleOffsetForLog(bindings.forward_twiddles, component.evaluation_log_size),
         );
         initialized_ldes += 1;
 
@@ -1500,6 +1538,15 @@ fn logicalId(entry: std.json.Value) !u32 {
 fn wordOffset(binding: arena_plan.Binding) !u32 {
     if (binding.offset_bytes % 4 != 0) return Error.InvalidBindingSize;
     return std.math.cast(u32, binding.offset_bytes / 4) orelse Error.InvalidBindingSize;
+}
+
+fn twiddleOffsetForLog(binding: arena_plan.Binding, transform_log: u32) !u32 {
+    if (transform_log == 0 or binding.offset_bytes % 4 != 0 or binding.size_bytes % 4 != 0)
+        return Error.InvalidBindingSize;
+    const required_words = @as(u64, 1) << @intCast(transform_log - 1);
+    const available_words = binding.size_bytes / 4;
+    if (required_words > available_words) return Error.InvalidBindingSize;
+    return std.math.cast(u32, binding.offset_bytes / 4 + available_words - required_words) orelse Error.InvalidBindingSize;
 }
 
 fn writeBindingOffsets(
@@ -1846,6 +1893,145 @@ fn oneOrdinal(
         found = plan.binding(try logicalId(entry)) catch return Error.MissingBinding;
     }
     return found orelse Error.MissingBinding;
+}
+
+fn collectTreePurpose(
+    allocator: std.mem.Allocator,
+    schedule: []const std.json.Value,
+    plan: arena_plan.Plan,
+    name: []const u8,
+    tree_index: u32,
+) ![]arena_plan.Binding {
+    const Item = struct { ordinal_value: u32, binding: arena_plan.Binding };
+    var items = std.ArrayList(Item).empty;
+    defer items.deinit(allocator);
+    for (schedule) |entry| {
+        if (!std.mem.eql(u8, try purpose(entry), name)) continue;
+        const ordinal_value = try ordinal(entry);
+        if (ordinal_value >> 20 != tree_index) continue;
+        try items.append(allocator, .{ .ordinal_value = ordinal_value, .binding = plan.binding(try logicalId(entry)) catch return Error.MissingBinding });
+    }
+    if (items.items.len == 0) return Error.MissingBinding;
+    std.mem.sortUnstable(Item, items.items, {}, struct {
+        fn lessThan(_: void, lhs: Item, rhs: Item) bool { return lhs.ordinal_value < rhs.ordinal_value; }
+    }.lessThan);
+    const result = try allocator.alloc(arena_plan.Binding, items.items.len);
+    for (items.items, result) |item, *binding| binding.* = item.binding;
+    return result;
+}
+
+fn executeStreamingCommitment(
+    allocator: std.mem.Allocator,
+    metal: *metal_runtime.Runtime,
+    resident_arena: *arena_plan.ResidentArena,
+    schedule: []const std.json.Value,
+    plan: arena_plan.Plan,
+    coefficients: []const arena_plan.Binding,
+    tree_index: u32,
+    leaf_seed: [8]u32,
+    node_seed: [8]u32,
+) !CommitmentTelemetry {
+    const group_descriptors = try collectTreePurpose(allocator, schedule, plan, "CommitColumnLogSizes", tree_index);
+    defer allocator.free(group_descriptors);
+    const tile_items = try collectTreePurpose(allocator, schedule, plan, "CommitLdeTile", tree_index);
+    defer allocator.free(tile_items);
+    const leaf_items = try collectTreePurpose(allocator, schedule, plan, "MerkleLeafState", tree_index);
+    defer allocator.free(leaf_items);
+    if (tile_items.len != 1 or leaf_items.len != 1) return Error.InvalidCardinality;
+    const tile = tile_items[0];
+    const leaf_state = leaf_items[0];
+    const scratch_items = collectTreePurpose(allocator, schedule, plan, "MerkleLayerScratch", tree_index) catch &[_]arena_plan.Binding{};
+    defer if (scratch_items.len != 0) allocator.free(scratch_items);
+    const retained = try collectTreePurpose(allocator, schedule, plan, "RetainedMerkleLayers", tree_index);
+    defer allocator.free(retained);
+    if (leaf_state.size_bytes % 32 != 0 or !std.math.isPowerOfTwo(leaf_state.size_bytes / 32)) return Error.InvalidBindingSize;
+    const lifting_log: u32 = std.math.log2_int(u64, leaf_state.size_bytes / 32);
+    const twiddles = try one(schedule, plan, "ForwardTwiddles");
+    var coefficient_cursor: usize = 0;
+    var gpu_ms: f64 = 0;
+    for (group_descriptors, 0..) |descriptor, group_index| {
+        const width = std.math.cast(usize, descriptor.size_bytes / 4) orelse return Error.InvalidBindingSize;
+        if (width == 0 or width > 16 or coefficient_cursor + width > coefficients.len) return Error.InvalidCardinality;
+        const group = coefficients[coefficient_cursor .. coefficient_cursor + width];
+        var output_offsets: [16]u32 = undefined;
+        var output_logs: [16]u32 = undefined;
+        var tile_cursor: u64 = 0;
+        for (group, 0..) |source, index| {
+            if (source.size_bytes < 64 or !std.math.isPowerOfTwo(source.size_bytes / 4)) return Error.InvalidBindingSize;
+            const coefficient_log: u32 = std.math.log2_int(u64, source.size_bytes / 4);
+            const evaluation_log = coefficient_log + 1;
+            const evaluation_words = @as(u64, 1) << @intCast(evaluation_log);
+            if (tile_cursor + evaluation_words > tile.size_bytes / 4) return Error.InvalidBindingSize;
+            output_offsets[index] = std.math.cast(u32, tile.offset_bytes / 4 + tile_cursor) orelse return Error.InvalidBindingSize;
+            output_logs[index] = evaluation_log;
+            tile_cursor += evaluation_words;
+        }
+        for (4..lifting_log + 1) |evaluation_log_usize| {
+            const evaluation_log: u32 = @intCast(evaluation_log_usize);
+            var sources = std.ArrayList(u32).empty;
+            defer sources.deinit(allocator);
+            var logs = std.ArrayList(u32).empty;
+            defer logs.deinit(allocator);
+            var outputs = std.ArrayList(u32).empty;
+            defer outputs.deinit(allocator);
+            for (group, output_offsets[0..width], output_logs[0..width]) |source, output, log_size| {
+                if (log_size != evaluation_log) continue;
+                try sources.append(allocator, try wordOffset(source));
+                try logs.append(allocator, std.math.log2_int(u64, source.size_bytes / 4));
+                try outputs.append(allocator, output);
+            }
+            if (sources.items.len == 0) continue;
+            var lde = try metal.prepareCompositionLde(sources.items, logs.items, outputs.items, evaluation_log, try twiddleOffsetForLog(twiddles, evaluation_log));
+            defer lde.deinit();
+            gpu_ms += try metal.compositionLdePrepared(resident_arena.buffer, lde);
+        }
+        gpu_ms += try metal.leafAbsorb(
+            resident_arena.buffer, output_offsets[0..width], output_logs[0..width], try wordOffset(leaf_state),
+            lifting_log, @intCast(coefficient_cursor), group_index + 1 == group_descriptors.len, 0, leaf_seed,
+        );
+        coefficient_cursor += width;
+    }
+    if (coefficient_cursor != coefficients.len) return Error.InvalidCardinality;
+
+    const bottom_hashes = retained[0].size_bytes / 32;
+    var child_offsets = std.ArrayList(u32).empty;
+    defer child_offsets.deinit(allocator);
+    var destination_offsets = std.ArrayList(u32).empty;
+    defer destination_offsets.deinit(allocator);
+    var parent_counts = std.ArrayList(u32).empty;
+    defer parent_counts.deinit(allocator);
+    var current_offset = try wordOffset(leaf_state);
+    var current_hashes = leaf_state.size_bytes / 32;
+    var ping_is_leaf = true;
+    while (current_hashes > bottom_hashes) {
+        const next_hashes = current_hashes / 2;
+        const destination = if (next_hashes == bottom_hashes)
+            try wordOffset(retained[0])
+        else blk: {
+            if (scratch_items.len == 0) return Error.MissingBinding;
+            ping_is_leaf = !ping_is_leaf;
+            break :blk try wordOffset(if (ping_is_leaf) leaf_state else scratch_items[0]);
+        };
+        try child_offsets.append(allocator, current_offset);
+        try destination_offsets.append(allocator, destination);
+        try parent_counts.append(allocator, @intCast(next_hashes));
+        current_offset = destination;
+        current_hashes = next_hashes;
+    }
+    for (retained[1..]) |layer| {
+        try child_offsets.append(allocator, current_offset);
+        try destination_offsets.append(allocator, try wordOffset(layer));
+        try parent_counts.append(allocator, @intCast(layer.size_bytes / 32));
+        current_offset = try wordOffset(layer);
+    }
+    _ = node_seed;
+    for (child_offsets.items, destination_offsets.items, parent_counts.items) |child, destination, count|
+        gpu_ms += try metal.parentPlain(resident_arena.buffer, child, destination, count);
+    const root = retained[retained.len - 1];
+    const transcript_ordinals = [_]u32{ 3, 20, 23, 24 };
+    const transcript_root = try oneOrdinal(schedule, plan, "TranscriptInput", transcript_ordinals[tree_index]);
+    @memcpy((try resident_arena.bytes(transcript_root))[0..32], (try resident_arena.bytes(root))[0..32]);
+    return .{ .gpu_ms = gpu_ms, .root = root };
 }
 
 fn buildProofCopies(
