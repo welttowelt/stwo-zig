@@ -301,6 +301,17 @@ pub fn main() !void {
         defer metal.deinit();
         var resident_arena = try arena.ResidentArena.init(&metal, plan);
         defer resident_arena.deinit();
+        var witness = try arena_binding_mod.prepareAotWitnessBatch(
+            allocator,
+            &metal,
+            &resident_arena,
+            schedule,
+            plan,
+            witness_bundle.?,
+            fixed_table_bundle.?,
+            "vectors/cairo/sn_pie_2_witness.metallib",
+        );
+        defer witness.deinit();
         const composition_path = args[7];
         if (!std.mem.endsWith(u8, composition_path, ".bin")) return error.InvalidCompositionPath;
         const composition_metallib = try std.fmt.allocPrint(

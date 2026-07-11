@@ -226,6 +226,17 @@ pub fn build(b: *std.Build) void {
         });
         b.installArtifact(metal_eval_source);
 
+        const metal_witness_source_module = b.createModule(.{
+            .root_source_file = b.path("src/metal_witness_source_cli.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        const metal_witness_source = b.addExecutable(.{
+            .name = "metal-witness-source",
+            .root_module = metal_witness_source_module,
+        });
+        b.installArtifact(metal_witness_source);
+
         const metal_test_module = b.createModule(.{
             .root_source_file = b.path("src/metal_backend_test.zig"),
             .target = target,

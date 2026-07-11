@@ -423,6 +423,151 @@ inline void felt_to_m31_words(thread const Felt252Metal &value, thread uint *wor
     }
 }
 
+struct WitnessArgs {
+    uint input_offsets;
+    uint table_offsets;
+    uint table_strides;
+    uint output_offsets;
+    uint multiplicity_offsets;
+    uint lookup_words;
+    uint sub_words;
+    uint row_count;
+    uint pedersen_offsets;
+    uint pedersen_rows;
+    uint poseidon_keys;
+};
+
+inline uint witness_table_limb(device uint *arena, constant WitnessArgs &args, uint encoded_id, uint limb) {
+    uint tag = encoded_id >> 30u, value = encoded_id & 0x3fffffffu;
+    if (tag == 1u) {
+        return value < arena[args.table_strides + 1u]
+            ? arena[arena[args.table_offsets + 1u + limb] + value] : 0u;
+    }
+    return limb < 8u && value < arena[args.table_strides + 2u]
+        ? arena[arena[args.table_offsets + 29u + limb] + value] : 0u;
+}
+
+inline Felt252Metal witness_from_w27(thread const uint *words) {
+    uint limbs[28];
+    for (uint i = 0u; i < 9u; ++i) {
+        limbs[3u * i] = words[i] & 0x1ffu;
+        limbs[3u * i + 1u] = (words[i] >> 9u) & 0x1ffu;
+        limbs[3u * i + 2u] = (words[i] >> 18u) & 0x1ffu;
+    }
+    limbs[27] = words[9] & 0x1ffu;
+    return felt_from_m31_words(limbs);
+}
+
+inline void witness_to_w27(thread const Felt252Metal &value, thread uint *words) {
+    uint limbs[28]; felt_to_m31_words(value, limbs);
+    for (uint i = 0u; i < 9u; ++i)
+        words[i] = limbs[3u * i] | (limbs[3u * i + 1u] << 9u) | (limbs[3u * i + 2u] << 18u);
+    words[9] = limbs[27];
+}
+
+inline Felt252Metal witness_value_mul(thread const Felt252Metal &a, thread const Felt252Metal &b) {
+    Felt252Metal am = felt_to_montgomery(a), bm = felt_to_montgomery(b);
+    return felt_from_montgomery(felt_mont_mul(am, bm));
+}
+inline Felt252Metal witness_value_cube(thread const Felt252Metal &value) {
+    Felt252Metal square = witness_value_mul(value, value); return witness_value_mul(square, value);
+}
+inline Felt252Metal witness_poseidon_key(device uint *arena, constant WitnessArgs &args, uint round, uint key) {
+    uint words[10]; uint safe_round = round < 35u ? round : 0u;
+    for (uint i = 0u; i < 10u; ++i)
+        words[i] = arena[arena[args.poseidon_keys + key * 10u + i] + safe_round];
+    return witness_from_w27(words);
+}
+
+inline void witness_deduce_0(device uint *, constant WitnessArgs &, thread const uint *input, thread uint *output) {
+    uint a=input[0], b=input[1], c=input[2], d=input[3], m0=input[4], m1=input[5];
+    a=a+b+m0; d=d^a; d=(d>>16u)|(d<<16u); c+=d; b=b^c; b=(b>>12u)|(b<<20u);
+    a=a+b+m1; d=d^a; d=(d>>8u)|(d<<24u); c+=d; b=b^c; b=(b>>7u)|(b<<25u);
+    output[0]=a; output[1]=b; output[2]=c; output[3]=d;
+}
+
+constant uint witness_blake_sigma[160] = {
+    0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15, 14,10,4,8,9,15,13,6,1,12,0,2,11,7,5,3,
+    11,8,12,0,5,2,15,13,10,14,3,6,7,1,9,4, 7,9,3,1,13,12,11,14,2,6,5,10,4,0,15,8,
+    9,0,5,7,2,4,10,15,14,1,11,12,6,8,3,13, 2,12,6,10,0,11,8,3,4,13,7,5,15,14,1,9,
+    12,5,1,15,14,13,4,10,0,7,6,3,9,2,8,11, 13,11,7,14,12,1,3,9,5,0,15,4,8,6,2,10,
+    6,15,14,9,11,3,0,8,12,2,13,7,1,4,10,5, 10,2,8,4,7,6,1,5,15,11,9,14,3,12,13,0
+};
+inline void witness_deduce_1(device uint *, constant WitnessArgs &, thread const uint *input, thread uint *output) {
+    uint round = input[0] < 10u ? input[0] : 0u;
+    for (uint i = 0u; i < 16u; ++i) output[i] = witness_blake_sigma[round * 16u + i];
+}
+
+inline void witness_deduce_3(device uint *arena, constant WitnessArgs &args, thread const uint *input, thread uint *output) {
+    uint row = input[0] & (args.pedersen_rows - 1u);
+    for (uint column = 0u; column < 56u; ++column) output[column] = arena[arena[args.pedersen_offsets + column] + row];
+}
+
+inline EcPointMetal witness_ec_add(thread const EcPointMetal &left_standard, thread const EcPointMetal &right_standard) {
+    EcPointMetal left = { felt_to_montgomery(left_standard.x), felt_to_montgomery(left_standard.y) };
+    EcPointMetal right = { felt_to_montgomery(right_standard.x), felt_to_montgomery(right_standard.y) };
+    Felt252Metal dx = felt_sub_252(right.x, left.x), dy = felt_sub_252(right.y, left.y);
+    Felt252Metal inverse = felt_inverse_252(dx), slope = felt_mont_mul(dy, inverse);
+    Felt252Metal x = felt_sub_252(felt_sub_252(felt_mont_mul(slope, slope), left.x), right.x);
+    Felt252Metal y = felt_sub_252(felt_mont_mul(slope, felt_sub_252(left.x, x)), left.y);
+    return { felt_from_montgomery(x), felt_from_montgomery(y) };
+}
+
+inline void witness_deduce_2(device uint *arena, constant WitnessArgs &args, thread const uint *input, thread uint *output) {
+    EcPointMetal accumulator = { felt_from_m31_words(input + 16), felt_from_m31_words(input + 44) };
+    uint row = (input[1] * 262144u + input[2]) & (args.pedersen_rows - 1u), limbs[28];
+    for (uint i = 0u; i < 28u; ++i) limbs[i] = arena[arena[args.pedersen_offsets + i] + row];
+    EcPointMetal point; point.x = felt_from_m31_words(limbs);
+    for (uint i = 0u; i < 28u; ++i) limbs[i] = arena[arena[args.pedersen_offsets + 28u + i] + row];
+    point.y = felt_from_m31_words(limbs);
+    EcPointMetal sum = witness_ec_add(accumulator, point);
+    output[0]=input[0]; output[1]=input[1]+1u;
+    for(uint i=0u;i<13u;++i) output[2u+i]=input[3u+i]; output[15]=0u;
+    felt_to_m31_words(sum.x, output+16); felt_to_m31_words(sum.y, output+44);
+}
+
+inline void witness_deduce_felt_binary(uint kind, thread const uint *input, thread uint *output) {
+    Felt252Metal a=felt_from_m31_words(input), b=felt_from_m31_words(input+28), result;
+    if(kind==4u) result=felt_add_252(a,b);
+    else if(kind==5u) result=felt_sub_252(a,b);
+    else {
+        Felt252Metal am=felt_to_montgomery(a), bm=felt_to_montgomery(b);
+        if(kind==7u) bm=felt_inverse_252(bm);
+        result=felt_from_montgomery(felt_mont_mul(am,bm));
+    }
+    felt_to_m31_words(result,output);
+}
+inline void witness_deduce_4(device uint *, constant WitnessArgs &, thread const uint *i, thread uint *o){witness_deduce_felt_binary(4u,i,o);}
+inline void witness_deduce_5(device uint *, constant WitnessArgs &, thread const uint *i, thread uint *o){witness_deduce_felt_binary(5u,i,o);}
+inline void witness_deduce_6(device uint *, constant WitnessArgs &, thread const uint *i, thread uint *o){witness_deduce_felt_binary(6u,i,o);}
+inline void witness_deduce_7(device uint *, constant WitnessArgs &, thread const uint *i, thread uint *o){witness_deduce_felt_binary(7u,i,o);}
+
+inline void witness_deduce_8(device uint *arena, constant WitnessArgs &args, thread const uint *input, thread uint *output) {
+    uint round=input[0]<35u?input[0]:0u;
+    for(uint i=0u;i<30u;++i) output[i]=arena[arena[args.poseidon_keys+i]+round];
+}
+inline void witness_deduce_9(device uint *, constant WitnessArgs &, thread const uint *input, thread uint *output) {
+    Felt252Metal value=witness_from_w27(input); value=witness_value_cube(value); witness_to_w27(value,output);
+}
+inline void witness_deduce_10(device uint *arena, constant WitnessArgs &args, thread const uint *input, thread uint *output) {
+    Felt252Metal x=witness_value_cube(witness_from_w27(input+2)), y=witness_value_cube(witness_from_w27(input+12)), z=witness_value_cube(witness_from_w27(input+22));
+    Felt252Metal yz=felt_sub_252(y,z), xyz=felt_sub_252(x,yz), xyz_neg=felt_add_252(x,yz), xy=felt_add_252(x,y), two_xy=felt_add_252(xy,xy);
+    Felt252Metal nx=felt_add_252(felt_add_252(two_xy,xyz),witness_poseidon_key(arena,args,input[1],0u));
+    Felt252Metal ny=felt_add_252(xyz,witness_poseidon_key(arena,args,input[1],1u));
+    Felt252Metal nz=felt_add_252(felt_sub_252(xyz_neg,z),witness_poseidon_key(arena,args,input[1],2u));
+    output[0]=input[0]; output[1]=input[1]+1u; witness_to_w27(nx,output+2); witness_to_w27(ny,output+12); witness_to_w27(nz,output+22);
+}
+inline void witness_deduce_11(device uint *arena, constant WitnessArgs &args, thread const uint *input, thread uint *output) {
+    Felt252Metal state[4]; for(uint i=0u;i<4u;++i) state[i]=witness_from_w27(input+2u+i*10u);
+    for(uint key=0u;key<3u;++key){
+        Felt252Metal z23=witness_value_cube(state[3]), z03z13=felt_add_252(state[0],state[2]), z03z13z1=felt_add_252(z03z13,state[1]);
+        Felt252Metal longsum=felt_add_252(felt_sub_252(felt_add_252(z03z13z1,state[3]),z23),witness_poseidon_key(arena,args,input[1],key));
+        Felt252Metal half_z3=felt_add_252(felt_add_252(felt_add_252(longsum,z03z13z1),z03z13),state[0]), z3=felt_add_252(half_z3,half_z3);
+        state[0]=state[2]; state[1]=state[3]; state[2]=z23; state[3]=z3;
+    }
+    output[0]=input[0]; output[1]=input[1]+1u; for(uint i=0u;i<4u;++i) witness_to_w27(state[i],output+2u+i*10u);
+}
+
 kernel void stwo_zig_felt252_oracle(
     device const uint *inputs [[buffer(0)]], device uint *outputs [[buffer(1)]],
     constant uint &count [[buffer(2)]], uint index [[thread_position_in_grid]]
@@ -2242,12 +2387,34 @@ kernel void stwo_zig_decommit_normalize_queries_resident(
     constant uint &log_domain_size [[buffer(3)]],
     constant uint &unique_base [[buffer(4)]],
     constant uint &unique_count_base [[buffer(5)]],
+    constant uint &tree_count [[buffer(6)]],
+    constant uint &assembly_base [[buffer(7)]],
+    constant uint &assembly_capacity [[buffer(8)]],
     uint lane [[thread_position_in_grid]]
 ) {
     if (lane != 0u) return;
     uint mask = (1u << log_domain_size) - 1u;
     for (uint i = 0u; i < raw_count; ++i) arena[unique_base + i] = arena[raw_base + i] & mask;
-    arena[unique_count_base] = decommit_sort_unique(arena + unique_base, raw_count);
+    uint unique_count = decommit_sort_unique(arena + unique_base, raw_count);
+    arena[unique_count_base] = unique_count;
+    uint raw_offset = 8u + tree_count * 16u;
+    uint unique_offset = raw_offset + raw_count;
+    uint used = unique_offset + unique_count;
+    if (used > assembly_capacity) {
+        arena[assembly_base + 7u] = 0u;
+        return;
+    }
+    arena[assembly_base] = 0x44575453u;
+    arena[assembly_base + 1u] = 1u;
+    arena[assembly_base + 2u] = tree_count;
+    arena[assembly_base + 3u] = raw_count;
+    arena[assembly_base + 4u] = unique_count;
+    arena[assembly_base + 5u] = raw_offset;
+    arena[assembly_base + 6u] = unique_offset;
+    arena[assembly_base + 7u] = used;
+    for (uint i = 0u; i < tree_count * 16u; ++i) arena[assembly_base + 8u + i] = 0u;
+    for (uint i = 0u; i < raw_count; ++i) arena[assembly_base + raw_offset + i] = arena[raw_base + i] & mask;
+    for (uint i = 0u; i < unique_count; ++i) arena[assembly_base + unique_offset + i] = arena[unique_base + i];
 }
 
 kernel void stwo_zig_decommit_prepare_fri_queries_resident(

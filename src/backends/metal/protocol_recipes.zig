@@ -37,6 +37,93 @@ pub const HostCopyRecipe = struct {
     }
 };
 
+pub const AotWitnessInvocation = struct {
+    kernel_name: []const u8,
+    layout: runtime.WitnessLayout,
+    destinations: []const arena_plan.Binding,
+};
+
+/// Executes the canonical recorded witness programs directly against one
+/// resident arena. Pipeline creation is AOT-only; every output, lookup slab,
+/// and subcomponent slab is tracked as a product of the same prepared batch.
+pub const AotWitnessBatchRecipe = struct {
+    allocator: std.mem.Allocator,
+    metal: *runtime.Runtime,
+    arena: *arena_plan.ResidentArena,
+    plans: []runtime.WitnessPlan,
+    destinations: []arena_plan.Binding,
+    last_tick: ?u16 = null,
+    accumulated_gpu_ms: f64 = 0,
+
+    pub fn init(
+        allocator: std.mem.Allocator,
+        metal: *runtime.Runtime,
+        resident_arena: *arena_plan.ResidentArena,
+        metallib_path: []const u8,
+        invocations: []const AotWitnessInvocation,
+    ) !AotWitnessBatchRecipe {
+        if (invocations.len == 0) return recovery.RecoveryError.BindingSizeMismatch;
+        var library = try metal.loadEvalLibrary(metallib_path);
+        defer library.deinit();
+        const plans = try allocator.alloc(runtime.WitnessPlan, invocations.len);
+        var initialized: usize = 0;
+        errdefer {
+            for (plans[0..initialized]) |*plan| plan.deinit();
+            allocator.free(plans);
+        }
+        var destinations = std.ArrayList(arena_plan.Binding).empty;
+        errdefer destinations.deinit(allocator);
+        for (invocations, plans) |invocation, *plan| {
+            if (invocation.kernel_name.len == 0 or invocation.destinations.len == 0 or
+                invocation.layout.row_count == 0 or !std.math.isPowerOfTwo(invocation.layout.row_count))
+                return recovery.RecoveryError.BindingSizeMismatch;
+            plan.* = try metal.prepareWitnessFromLibrary(library, invocation.kernel_name, invocation.layout);
+            initialized += 1;
+            for (invocation.destinations) |destination| {
+                for (destinations.items) |existing| if (existing.logical_id == destination.logical_id)
+                    return recovery.RecoveryError.BindingSizeMismatch;
+                try destinations.append(allocator, destination);
+            }
+        }
+        try library.serialize();
+        return .{
+            .allocator = allocator,
+            .metal = metal,
+            .arena = resident_arena,
+            .plans = plans,
+            .destinations = try destinations.toOwnedSlice(allocator),
+        };
+    }
+
+    pub fn deinit(self: *AotWitnessBatchRecipe) void {
+        for (self.plans) |*plan| plan.deinit();
+        self.allocator.free(self.plans);
+        self.allocator.free(self.destinations);
+        self.* = undefined;
+    }
+
+    pub fn execute(self: *AotWitnessBatchRecipe) !void {
+        for (self.plans) |plan| self.accumulated_gpu_ms += try self.metal.witnessPrepared(self.arena.buffer, plan);
+    }
+
+    pub fn makeRecipes(self: *AotWitnessBatchRecipe, allocator: std.mem.Allocator) ![]recovery.Recipe {
+        const recipes = try allocator.alloc(recovery.Recipe, self.destinations.len);
+        for (self.destinations, recipes) |destination, *recipe_entry|
+            recipe_entry.* = .{ .logical_id = destination.logical_id, .context = self, .run = run };
+        return recipes;
+    }
+
+    fn run(raw: *anyopaque, tick: u16, requested: arena_plan.Binding, _: []u8) !void {
+        const self: *AotWitnessBatchRecipe = @ptrCast(@alignCast(raw));
+        if (self.last_tick == tick) return;
+        var found = false;
+        for (self.destinations) |destination| found = found or destination.logical_id == requested.logical_id;
+        if (!found) return recovery.RecoveryError.MissingRecipe;
+        try self.execute();
+        self.last_tick = tick;
+    }
+};
+
 /// Rebuilds one coefficient/evaluation column from another resident column.
 /// Copy and transform both target the final arena slot; no intermediate device
 /// allocation or compatibility readback is introduced.
@@ -1717,6 +1804,8 @@ pub const DecommitQueryRecipe = struct {
     walk_queries: arena_plan.Binding,
     sparse_indices: arena_plan.Binding,
     counts: arena_plan.Binding,
+    assembly: arena_plan.Binding,
+    tree_count: u32,
     accumulated_gpu_ms: f64 = 0,
 
     pub fn init(
@@ -1729,13 +1818,16 @@ pub const DecommitQueryRecipe = struct {
         walk_queries: arena_plan.Binding,
         sparse_indices: arena_plan.Binding,
         counts: arena_plan.Binding,
+        assembly: arena_plan.Binding,
+        tree_count: u32,
     ) !DecommitQueryRecipe {
         for ([_]arena_plan.Binding{ raw_queries, unique_queries, mapped_queries, expanded_positions, walk_queries, sparse_indices, counts }) |binding| {
             if (binding.offset_bytes % 4 != 0) return recovery.RecoveryError.BindingSizeMismatch;
         }
-        if (raw_queries.size_bytes != 70 * 4 or unique_queries.size_bytes < raw_queries.size_bytes or
+        if (raw_queries.size_bytes != 70 * 4 or unique_queries.size_bytes < raw_queries.size_bytes or tree_count == 0 or
             mapped_queries.size_bytes < raw_queries.size_bytes or expanded_positions.size_bytes < 560 * 4 or
-            walk_queries.size_bytes < 560 * 4 or sparse_indices.size_bytes < 560 * 4 or counts.size_bytes < 4 * 4)
+            walk_queries.size_bytes < 560 * 4 or sparse_indices.size_bytes < 560 * 4 or counts.size_bytes < 4 * 4 or
+            assembly.offset_bytes % 4 != 0 or assembly.size_bytes / 4 > std.math.maxInt(u32))
             return recovery.RecoveryError.BindingSizeMismatch;
         return .{
             .metal = metal,
@@ -1747,6 +1839,8 @@ pub const DecommitQueryRecipe = struct {
             .walk_queries = walk_queries,
             .sparse_indices = sparse_indices,
             .counts = counts,
+            .assembly = assembly,
+            .tree_count = tree_count,
         };
     }
 
@@ -1759,6 +1853,9 @@ pub const DecommitQueryRecipe = struct {
             24,
             try bindingWordOffset(self.unique_queries),
             count_base,
+            self.tree_count,
+            try bindingWordOffset(self.assembly),
+            @intCast(self.assembly.size_bytes / 4),
         );
     }
 
@@ -1807,6 +1904,54 @@ pub const DecommitQueryRecipe = struct {
             count_base + 2,
             try bindingWordOffset(self.sparse_indices),
             count_base + 3,
+        );
+    }
+
+    pub fn gatherTraceValues(
+        self: *DecommitQueryRecipe,
+        column_offsets: arena_plan.Binding,
+        column_logs: arena_plan.Binding,
+        column_count: u32,
+        lifting_log: u32,
+        first_column: u32,
+        stride: u32,
+        values: arena_plan.Binding,
+    ) !void {
+        if (column_offsets.size_bytes < @as(u64, column_count) * 4 or
+            column_logs.size_bytes < @as(u64, column_count) * 4 or
+            values.size_bytes < (@as(u64, first_column) + column_count) * stride * 4)
+            return recovery.RecoveryError.BindingSizeMismatch;
+        const count_base = try bindingWordOffset(self.counts);
+        self.accumulated_gpu_ms += try self.metal.decommitGatherTraceValues(
+            self.arena.buffer,
+            try bindingWordOffset(column_offsets),
+            try bindingWordOffset(column_logs),
+            column_count,
+            lifting_log,
+            try bindingWordOffset(self.mapped_queries),
+            count_base + 1,
+            70,
+            first_column,
+            stride,
+            try bindingWordOffset(values),
+        );
+    }
+
+    pub fn gatherFriValues(
+        self: *DecommitQueryRecipe,
+        coordinate_offsets: arena_plan.Binding,
+        values: arena_plan.Binding,
+    ) !void {
+        if (coordinate_offsets.size_bytes < 16 or values.size_bytes < self.expanded_positions.size_bytes * 4)
+            return recovery.RecoveryError.BindingSizeMismatch;
+        const count_base = try bindingWordOffset(self.counts);
+        self.accumulated_gpu_ms += try self.metal.decommitGatherFriValues(
+            self.arena.buffer,
+            try bindingWordOffset(coordinate_offsets),
+            try bindingWordOffset(self.expanded_positions),
+            count_base + 2,
+            @intCast(self.expanded_positions.size_bytes / 4),
+            try bindingWordOffset(values),
         );
     }
 };

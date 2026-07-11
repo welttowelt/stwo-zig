@@ -972,11 +972,15 @@ test "metal: resident decommit query preparation matches canonical mapping" {
     const expanded_count_base: u32 = 320;
     const walk_base: u32 = 328;
     const walk_count_base: u32 = 456;
+    const assembly_base: u32 = 3500;
+    const assembly_capacity: u32 = 500;
     const raw = [_]u32{ 0x101, 7, 7, 33, 2, 0x1ff, 65, 16, 17, 18, 19 };
     @memcpy(words[raw_base .. raw_base + raw.len], &raw);
-    _ = try runtime.decommitNormalizeQueries(arena, raw_base, raw.len, 8, unique_base, unique_count_base);
+    _ = try runtime.decommitNormalizeQueries(arena, raw_base, raw.len, 8, unique_base, unique_count_base, 12, assembly_base, assembly_capacity);
     try std.testing.expectEqual(@as(u32, 10), words[unique_count_base]);
     try std.testing.expectEqualSlices(u32, &.{ 1, 2, 7, 16, 17, 18, 19, 33, 65, 255 }, words[unique_base .. unique_base + 10]);
+    try std.testing.expectEqualSlices(u32, &.{ 0x44575453, 1, 12, raw.len, 10, 200, 211, 221 }, words[assembly_base .. assembly_base + 8]);
+    try std.testing.expectEqualSlices(u32, &.{ 1, 7, 7, 33, 2, 255, 65, 16, 17, 18, 19 }, words[assembly_base + 200 .. assembly_base + 211]);
 
     _ = try runtime.decommitPrepareFriQueries(
         arena,
@@ -1022,6 +1026,70 @@ test "metal: resident decommit query preparation matches canonical mapping" {
     try std.testing.expectEqualSlices(u32, &.{ 0, 1, 2, 3, 5, 9, 31 }, words[walk_base .. walk_base + 7]);
     try std.testing.expectEqual(@as(u32, 16), words[expanded_count_base]);
     try std.testing.expectEqualSlices(u32, &.{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 28, 29, 30, 31 }, words[expanded_base .. expanded_base + 16]);
+
+    const column_offsets_base: u32 = 480;
+    const column_logs_base: u32 = 484;
+    const trace_values_base: u32 = 1024;
+    words[column_offsets_base] = 512;
+    words[column_offsets_base + 1] = 768;
+    words[column_logs_base] = 8;
+    words[column_logs_base + 1] = 7;
+    for (0..256) |row| words[512 + row] = @intCast(1000 + row);
+    for (0..128) |row| words[768 + row] = @intCast(2000 + row);
+    _ = try runtime.decommitGatherTraceValues(
+        arena,
+        column_offsets_base,
+        column_logs_base,
+        2,
+        8,
+        tree_base,
+        tree_count_base,
+        raw.len,
+        0,
+        raw.len,
+        trace_values_base,
+    );
+    for (words[tree_base .. tree_base + words[tree_count_base]], 0..) |query, index| {
+        try std.testing.expectEqual(1000 + query, words[trace_values_base + index]);
+        const lifted = ((query >> 2) << 1) + (query & 1);
+        try std.testing.expectEqual(2000 + lifted, words[trace_values_base + raw.len + index]);
+    }
+
+    _ = try runtime.decommitPrepareFriQueries(
+        arena,
+        unique_base,
+        unique_count_base,
+        raw.len,
+        3,
+        3,
+        2,
+        tree_base,
+        tree_count_base,
+        expanded_base,
+        expanded_count_base,
+        walk_base,
+        walk_count_base,
+    );
+    const coordinate_bases: u32 = 490;
+    const fri_values_base: u32 = 3000;
+    for (0..4) |coordinate| {
+        words[coordinate_bases + coordinate] = @intCast(1600 + coordinate * 256);
+        for (0..256) |row| words[1600 + coordinate * 256 + row] = @intCast(coordinate * 1000 + row);
+    }
+    _ = try runtime.decommitGatherFriValues(
+        arena,
+        coordinate_bases,
+        expanded_base,
+        expanded_count_base,
+        128,
+        fri_values_base,
+    );
+    for (words[expanded_base .. expanded_base + words[expanded_count_base]], 0..) |position, index| {
+        for (0..4) |coordinate| try std.testing.expectEqual(
+            @as(u32, @intCast(coordinate * 1000)) + position,
+            words[fri_values_base + index * 4 + coordinate],
+        );
+    }
 }
 
 test "metal: exact Cairo transcript controller binds resident ordinals" {

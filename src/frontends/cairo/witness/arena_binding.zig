@@ -3,6 +3,9 @@ const arena_plan = @import("../../../backends/metal/arena_plan.zig");
 const metal_runtime = @import("../../../backends/metal/runtime.zig");
 const protocol_recipes = @import("../../../backends/metal/protocol_recipes.zig");
 const composition_bundle_mod = @import("composition_bundle.zig");
+const fixed_table_bundle_mod = @import("fixed_table_bundle.zig");
+const witness_bundle_mod = @import("bundle.zig");
+const witness_codegen = @import("../../../backends/metal/witness_codegen.zig");
 const M31 = @import("../../../core/fields/m31.zig").M31;
 
 pub const Error = error{
@@ -10,6 +13,14 @@ pub const Error = error{
     DuplicateBinding,
     MissingBinding,
     InvalidCardinality,
+    InvalidCompositionCount,
+    InvalidQuotientCount,
+    InvalidFriChallengeCount,
+    InvalidFriRetainedCount,
+    InvalidFriLayerCount,
+    InvalidExtParamCount,
+    InvalidClaimedSumCount,
+    InvalidPreprocessedCount,
     InvalidBindingSize,
 };
 
@@ -32,6 +43,12 @@ pub const OrdinalBinding = struct {
     binding: arena_plan.Binding,
 };
 
+pub const NamedBinding = struct {
+    component: []const u8,
+    ordinal: u32,
+    binding: arena_plan.Binding,
+};
+
 /// Exact logical-to-physical binding set consumed by the prepared composition,
 /// quotient, FRI and compact proof-assembly stages. This is deliberately built
 /// from the captured schedule and the colored plan; no allocation id or offset
@@ -46,6 +63,8 @@ pub const PreparedProofBindings = struct {
     preprocessed_coefficients: []arena_plan.Binding,
     base_coefficients: []arena_plan.Binding,
     interaction_coefficients: []arena_plan.Binding,
+    named_base_coefficients: []NamedBinding,
+    named_interaction_coefficients: []NamedBinding,
     composition_ext_params: []arena_plan.Binding,
     relation_claimed_sums: []arena_plan.Binding,
     relation_alpha_powers: arena_plan.Binding,
@@ -111,10 +130,14 @@ pub const PreparedProofBindings = struct {
         }
         const preprocessed_coefficients = try collectScheduleOrder(allocator, schedule, plan, "PreprocessedCoefficients");
         errdefer allocator.free(preprocessed_coefficients);
-        const base_coefficients = try collectScheduleOrder(allocator, schedule, plan, "BaseCoefficients");
+        const base_coefficients = try collectCommitmentOrder(allocator, schedule, plan, "BaseCoefficients");
         errdefer allocator.free(base_coefficients);
-        const interaction_coefficients = try collectScheduleOrder(allocator, schedule, plan, "InteractionCoefficients");
+        const interaction_coefficients = try collectCommitmentOrder(allocator, schedule, plan, "InteractionCoefficients");
         errdefer allocator.free(interaction_coefficients);
+        const named_base_coefficients = try collectNamed(allocator, schedule, plan, "BaseCoefficients");
+        errdefer allocator.free(named_base_coefficients);
+        const named_interaction_coefficients = try collectNamed(allocator, schedule, plan, "InteractionCoefficients");
+        errdefer allocator.free(named_interaction_coefficients);
         const composition_ext_params = try collect(allocator, schedule, plan, "CompositionExtParams");
         errdefer allocator.free(composition_ext_params);
         const relation_claimed_sums = try collect(allocator, schedule, plan, "RelationClaimedSum");
@@ -129,6 +152,8 @@ pub const PreparedProofBindings = struct {
             .preprocessed_coefficients = preprocessed_coefficients,
             .base_coefficients = base_coefficients,
             .interaction_coefficients = interaction_coefficients,
+            .named_base_coefficients = named_base_coefficients,
+            .named_interaction_coefficients = named_interaction_coefficients,
             .composition_ext_params = composition_ext_params,
             .relation_claimed_sums = relation_claimed_sums,
             .relation_alpha_powers = try one(schedule, plan, "RelationAlphaPowers"),
@@ -181,6 +206,8 @@ pub const PreparedProofBindings = struct {
         self.allocator.free(self.preprocessed_coefficients);
         self.allocator.free(self.base_coefficients);
         self.allocator.free(self.interaction_coefficients);
+        self.allocator.free(self.named_base_coefficients);
+        self.allocator.free(self.named_interaction_coefficients);
         self.allocator.free(self.composition_ext_params);
         self.allocator.free(self.relation_claimed_sums);
         self.allocator.free(self.assembly);
@@ -291,6 +318,8 @@ pub const PreparedProofBindings = struct {
             self.decommit_walk_queries,
             self.decommit_sparse_indices,
             self.decommit_counts,
+            self.decommit_assembly,
+            12,
         );
     }
 
@@ -306,13 +335,14 @@ pub const PreparedProofBindings = struct {
     }
 
     fn validateSn2(self: PreparedProofBindings) !void {
-        if (self.composition_coefficients.len != Sn2Counts.composition_coefficients or
-            self.quotient_partials.len != Sn2Counts.quotient_partials or
-            self.fri_challenges.len != Sn2Counts.fri_challenges or
-            self.fri_retained_evaluations.len != Sn2Counts.fri_retained_evaluations or
-            self.fri_merkle_layers.len != Sn2Counts.fri_merkle_layers or self.composition_ext_params.len != 58 or
-            self.relation_claimed_sums.len != 58 or self.preprocessed_coefficients.len != 144)
-            return Error.InvalidCardinality;
+        if (self.composition_coefficients.len != Sn2Counts.composition_coefficients) return Error.InvalidCompositionCount;
+        if (self.quotient_partials.len != Sn2Counts.quotient_partials) return Error.InvalidQuotientCount;
+        if (self.fri_challenges.len != Sn2Counts.fri_challenges) return Error.InvalidFriChallengeCount;
+        if (self.fri_retained_evaluations.len != Sn2Counts.fri_retained_evaluations) return Error.InvalidFriRetainedCount;
+        if (self.fri_merkle_layers.len != Sn2Counts.fri_merkle_layers) return Error.InvalidFriLayerCount;
+        if (self.composition_ext_params.len != 58) return Error.InvalidExtParamCount;
+        if (self.relation_claimed_sums.len != 58) return Error.InvalidClaimedSumCount;
+        if (self.preprocessed_coefficients.len != 161) return Error.InvalidPreprocessedCount;
         for (self.composition_coefficients) |binding| {
             if (binding.size_bytes != (@as(u64, 1) << 23) * 4) return Error.InvalidBindingSize;
         }
@@ -332,6 +362,121 @@ pub const PreparedProofBindings = struct {
         if (cursor * 4 != self.proof_bytes.size_bytes) return Error.InvalidBindingSize;
     }
 };
+
+/// Binds all 33 canonical witness programs to the captured SN2 arena. The
+/// pointer workspaces retain their CUDA-sized allocation but contain native
+/// u32 Metal word offsets in the leading half.
+pub fn prepareAotWitnessBatch(
+    allocator: std.mem.Allocator,
+    metal: *metal_runtime.Runtime,
+    resident_arena: *arena_plan.ResidentArena,
+    schedule: []const std.json.Value,
+    plan: arena_plan.Plan,
+    witness_bundle: witness_bundle_mod.Bundle,
+    fixed_bundle: fixed_table_bundle_mod.Bundle,
+    metallib_path: []const u8,
+) !protocol_recipes.AotWitnessBatchRecipe {
+    const table_pointers = try one(schedule, plan, "ExecutionTablePointers");
+    const table_strides = try one(schedule, plan, "ExecutionTableStrides");
+    var execution_tables = std.ArrayList(arena_plan.Binding).empty;
+    defer execution_tables.deinit(allocator);
+    try execution_tables.append(allocator, try one(schedule, plan, "ExecutionTableRawAddressToId"));
+    const big = try collect(allocator, schedule, plan, "ExecutionTableBigLimb");
+    defer allocator.free(big);
+    const small = try collect(allocator, schedule, plan, "ExecutionTableSmallLimb");
+    defer allocator.free(small);
+    if (big.len != 28 or small.len != 8) return Error.InvalidCardinality;
+    try execution_tables.appendSlice(allocator, big);
+    try execution_tables.appendSlice(allocator, small);
+    try writeBindingOffsets(resident_arena, table_pointers, execution_tables.items);
+    const stride_bytes = try resident_arena.bytes(table_strides);
+    if (stride_bytes.len != 12) return Error.InvalidBindingSize;
+    const stride_aligned: []align(4) u8 = @alignCast(stride_bytes);
+    const strides = std.mem.bytesAsSlice(u32, stride_aligned);
+    strides[0] = @intCast(execution_tables.items[0].size_bytes / 4);
+    strides[1] = @intCast(big[0].size_bytes / 4);
+    strides[2] = @intCast(small[0].size_bytes / 4);
+
+    const pedersen_entry = fixed_bundle.find("pedersen_points_table_window_bits_18") orelse return Error.MissingBinding;
+    const poseidon_entry = fixed_bundle.find("poseidon_round_keys") orelse return Error.MissingBinding;
+    const pedersen_pointers = try oneComponent(schedule, plan, "FixedTableSourcePointers", pedersen_entry.component);
+    const poseidon_pointers = try oneComponent(schedule, plan, "FixedTableSourcePointers", poseidon_entry.component);
+    try writePreprocessedOffsets(resident_arena, schedule, plan, fixed_bundle, pedersen_entry.preprocessed_sources, pedersen_pointers);
+    try writePreprocessedOffsets(resident_arena, schedule, plan, fixed_bundle, poseidon_entry.preprocessed_sources, poseidon_pointers);
+
+    const invocations = try allocator.alloc(protocol_recipes.AotWitnessInvocation, witness_bundle.entries.len);
+    defer allocator.free(invocations);
+    const names = try allocator.alloc([]u8, witness_bundle.entries.len);
+    var names_initialized: usize = 0;
+    defer {
+        for (names[0..names_initialized]) |name| allocator.free(name);
+        allocator.free(names);
+    }
+    const owned_destinations = try allocator.alloc([]arena_plan.Binding, witness_bundle.entries.len);
+    var destinations_initialized: usize = 0;
+    defer {
+        for (owned_destinations[0..destinations_initialized]) |destinations| allocator.free(destinations);
+        allocator.free(owned_destinations);
+    }
+
+    for (witness_bundle.entries, invocations, names, owned_destinations) |entry, *invocation, *name, *owned| {
+        const inputs = try collectComponent(allocator, schedule, plan, "WitnessInput", entry.label);
+        defer allocator.free(inputs);
+        const outputs = try collectComponent(allocator, schedule, plan, "BaseTrace", entry.label);
+        defer allocator.free(outputs);
+        if (inputs.len != entry.program.n_inputs or outputs.len != entry.program.n_cols or outputs.len == 0)
+            return Error.InvalidCardinality;
+        const row_count = std.math.cast(u32, outputs[0].size_bytes / 4) orelse return Error.InvalidBindingSize;
+        if (row_count == 0 or !std.math.isPowerOfTwo(row_count)) return Error.InvalidBindingSize;
+        for (inputs) |binding| if (binding.size_bytes != @as(u64, row_count) * 4) return Error.InvalidBindingSize;
+        for (outputs) |binding| if (binding.size_bytes != @as(u64, row_count) * 4) return Error.InvalidBindingSize;
+
+        const input_pointers = try oneComponent(schedule, plan, "WitnessInputPointers", entry.label);
+        const output_pointers = try oneComponent(schedule, plan, "WitnessOutputPointers", entry.label);
+        const multiplicity_pointers = try oneComponent(schedule, plan, "WitnessMultiplicityPointers", entry.label);
+        try writeBindingOffsets(resident_arena, input_pointers, inputs);
+        try writeBindingOffsets(resident_arena, output_pointers, outputs);
+        const multiplicity_dummy = try oneComponent(schedule, plan, "WitnessMultiplicityDummy", entry.label);
+        try writeBindingOffsets(resident_arena, multiplicity_pointers, &.{multiplicity_dummy});
+
+        const lookup = try oneComponent(schedule, plan, "LookupInputs", entry.label);
+        const sub = try oneComponent(schedule, plan, "SubcomponentInputs", entry.label);
+        if (lookup.size_bytes != @as(u64, row_count) * entry.program.n_lookup_words * 4 or
+            sub.size_bytes != @as(u64, row_count) * entry.program.n_sub_words * 4)
+            return Error.InvalidBindingSize;
+        owned.* = try allocator.alloc(arena_plan.Binding, outputs.len + 2);
+        destinations_initialized += 1;
+        @memcpy(owned.*[0..outputs.len], outputs);
+        owned.*[outputs.len] = lookup;
+        owned.*[outputs.len + 1] = sub;
+        name.* = try witness_codegen.kernelName(allocator, entry.semantic_hash);
+        names_initialized += 1;
+        invocation.* = .{
+            .kernel_name = name.*,
+            .layout = .{
+                .input_offsets = try wordOffset(input_pointers),
+                .table_offsets = try wordOffset(table_pointers),
+                .table_strides = try wordOffset(table_strides),
+                .output_offsets = try wordOffset(output_pointers),
+                .multiplicity_offsets = try wordOffset(multiplicity_pointers),
+                .lookup_words = try wordOffset(lookup),
+                .sub_words = try wordOffset(sub),
+                .row_count = row_count,
+                .pedersen_offsets = try wordOffset(pedersen_pointers) + 1,
+                .pedersen_rows = pedersen_entry.row_count,
+                .poseidon_keys = try wordOffset(poseidon_pointers) + 1,
+            },
+            .destinations = owned.*,
+        };
+    }
+    return protocol_recipes.AotWitnessBatchRecipe.init(
+        allocator,
+        metal,
+        resident_arena,
+        metallib_path,
+        invocations,
+    );
+}
 
 fn prepareCompositionRecipe(
     bindings: PreparedProofBindings,
@@ -403,10 +548,14 @@ fn prepareCompositionRecipe(
     var ext_descriptors = std.ArrayList(metal_runtime.CompositionExtParamDescriptor).empty;
     defer ext_descriptors.deinit(allocator);
 
+    const canonical_base = try canonicalTraceTree(allocator, bundle, bindings.named_base_coefficients, 1);
+    defer allocator.free(canonical_base);
+    const canonical_interaction = try canonicalTraceTree(allocator, bundle, bindings.named_interaction_coefficients, 2);
+    defer allocator.free(canonical_interaction);
     const trees = [_][]const arena_plan.Binding{
         bindings.preprocessed_coefficients,
-        bindings.base_coefficients,
-        bindings.interaction_coefficients,
+        canonical_base,
+        canonical_interaction,
     };
     const tile_base = try asOffset(bindings.composition_lde_tile);
     const accumulator_base = try asOffset(bindings.composition_accumulators);
@@ -441,7 +590,13 @@ fn prepareCompositionRecipe(
         for (sources.items, source_offsets, source_logs, destination_offsets, 0..) |source, *source_offset, *source_log, *destination, index| {
             source_offset.* = try asOffset(source);
             source_log.* = try bindingLog(source);
-            if (source_log.* >= component.evaluation_log_size) return Error.InvalidBindingSize;
+            if (source_log.* > component.evaluation_log_size) {
+                std.debug.print(
+                    "composition source exceeds domain: {s}[{}] local={} source={} log={} evaluation_log={} spans={any}\n",
+                    .{ component.label, component.instance, index, source.logical_id, source_log.*, component.evaluation_log_size, component.trace_spans },
+                );
+                return Error.InvalidBindingSize;
+            }
             destination.* = std.math.add(u32, tile_base, @intCast(index * @as(usize, row_count))) catch return Error.InvalidBindingSize;
         }
         if (@as(u64, sources.items.len) * row_count * 4 > bindings.composition_lde_tile.size_bytes)
@@ -581,6 +736,86 @@ fn logicalId(entry: std.json.Value) !u32 {
     return @intCast(value.integer);
 }
 
+fn wordOffset(binding: arena_plan.Binding) !u32 {
+    if (binding.offset_bytes % 4 != 0) return Error.InvalidBindingSize;
+    return std.math.cast(u32, binding.offset_bytes / 4) orelse Error.InvalidBindingSize;
+}
+
+fn writeBindingOffsets(
+    resident_arena: *arena_plan.ResidentArena,
+    destination: arena_plan.Binding,
+    sources: []const arena_plan.Binding,
+) !void {
+    const bytes = try resident_arena.bytes(destination);
+    if (bytes.len % 4 != 0 or bytes.len < sources.len * 4) return Error.InvalidBindingSize;
+    const aligned: []align(4) u8 = @alignCast(bytes);
+    const words = std.mem.bytesAsSlice(u32, aligned);
+    @memset(words, 0);
+    for (sources, words[0..sources.len]) |source, *offset| offset.* = try wordOffset(source);
+}
+
+fn oneComponent(
+    schedule: []const std.json.Value,
+    plan: arena_plan.Plan,
+    name: []const u8,
+    component: []const u8,
+) !arena_plan.Binding {
+    var found: ?arena_plan.Binding = null;
+    for (schedule) |entry| {
+        if (!std.mem.eql(u8, try purpose(entry), name) or
+            !std.mem.eql(u8, try componentName(entry), component)) continue;
+        if (found != null) return Error.DuplicateBinding;
+        found = plan.binding(try logicalId(entry)) catch return Error.MissingBinding;
+    }
+    return found orelse Error.MissingBinding;
+}
+
+fn collectComponent(
+    allocator: std.mem.Allocator,
+    schedule: []const std.json.Value,
+    plan: arena_plan.Plan,
+    name: []const u8,
+    component: []const u8,
+) ![]arena_plan.Binding {
+    var ordered = std.ArrayList(OrderedBinding).empty;
+    defer ordered.deinit(allocator);
+    for (schedule) |entry| {
+        if (!std.mem.eql(u8, try purpose(entry), name) or
+            !std.mem.eql(u8, try componentName(entry), component)) continue;
+        try ordered.append(allocator, .{
+            .ordinal = try ordinal(entry),
+            .binding = plan.binding(try logicalId(entry)) catch return Error.MissingBinding,
+        });
+    }
+    if (ordered.items.len == 0) return Error.MissingBinding;
+    std.mem.sortUnstable(OrderedBinding, ordered.items, {}, struct {
+        fn lessThan(_: void, lhs: OrderedBinding, rhs: OrderedBinding) bool {
+            return lhs.ordinal < rhs.ordinal;
+        }
+    }.lessThan);
+    for (ordered.items, 0..) |item, index| if (item.ordinal != index) return Error.InvalidSchedule;
+    const result = try allocator.alloc(arena_plan.Binding, ordered.items.len);
+    for (ordered.items, result) |item, *binding| binding.* = item.binding;
+    return result;
+}
+
+fn writePreprocessedOffsets(
+    resident_arena: *arena_plan.ResidentArena,
+    schedule: []const std.json.Value,
+    plan: arena_plan.Plan,
+    fixed_bundle: fixed_table_bundle_mod.Bundle,
+    identities: []const []u8,
+    destination: arena_plan.Binding,
+) !void {
+    const sources = try fixed_bundle.allocator.alloc(arena_plan.Binding, identities.len);
+    defer fixed_bundle.allocator.free(sources);
+    for (identities, sources) |identity, *source| {
+        const wanted = fixed_bundle.identityOrdinal(identity) orelse return Error.MissingBinding;
+        source.* = try oneOrdinal(schedule, plan, "PreprocessedEvaluations", wanted);
+    }
+    try writeBindingOffsets(resident_arena, destination, sources);
+}
+
 fn ordinal(entry: std.json.Value) !u32 {
     const value = entry.object.get("ordinal") orelse return 0;
     if (value != .integer or value.integer < 0 or value.integer > std.math.maxInt(u32)) return Error.InvalidSchedule;
@@ -632,6 +867,142 @@ fn collectScheduleOrder(
     }
     if (result.items.len == 0) return Error.MissingBinding;
     return result.toOwnedSlice(allocator);
+}
+
+fn collectCommitmentOrder(
+    allocator: std.mem.Allocator,
+    schedule: []const std.json.Value,
+    plan: arena_plan.Plan,
+    name: []const u8,
+) ![]arena_plan.Binding {
+    const Item = struct { schedule_index: usize, binding: arena_plan.Binding };
+    var items = std.ArrayList(Item).empty;
+    defer items.deinit(allocator);
+    for (schedule, 0..) |entry, schedule_index| {
+        if (std.mem.eql(u8, try purpose(entry), name)) try items.append(allocator, .{
+            .schedule_index = schedule_index,
+            .binding = plan.binding(try logicalId(entry)) catch return Error.MissingBinding,
+        });
+    }
+    if (items.items.len == 0) return Error.MissingBinding;
+    std.mem.sortUnstable(Item, items.items, {}, struct {
+        fn lessThan(_: void, lhs: Item, rhs: Item) bool {
+            if (lhs.binding.size_bytes != rhs.binding.size_bytes) return lhs.binding.size_bytes > rhs.binding.size_bytes;
+            return lhs.schedule_index < rhs.schedule_index;
+        }
+    }.lessThan);
+    const result = try allocator.alloc(arena_plan.Binding, items.items.len);
+    for (items.items, result) |item, *binding| binding.* = item.binding;
+    return result;
+}
+
+fn componentName(entry: std.json.Value) ![]const u8 {
+    if (entry != .object) return Error.InvalidSchedule;
+    const value = entry.object.get("component") orelse return Error.InvalidSchedule;
+    if (value != .string or value.string.len == 0) return Error.InvalidSchedule;
+    return value.string;
+}
+
+/// Preserve capture order here. Several Cairo component families have multiple
+/// instances whose column ordinals restart at zero, and the capture records
+/// those instances consecutively under the same component label.
+fn collectNamed(
+    allocator: std.mem.Allocator,
+    schedule: []const std.json.Value,
+    plan: arena_plan.Plan,
+    name: []const u8,
+) ![]NamedBinding {
+    var result = std.ArrayList(NamedBinding).empty;
+    errdefer result.deinit(allocator);
+    for (schedule) |entry| {
+        if (!std.mem.eql(u8, try purpose(entry), name)) continue;
+        try result.append(allocator, .{
+            .component = try componentName(entry),
+            .ordinal = try ordinal(entry),
+            .binding = plan.binding(try logicalId(entry)) catch return Error.MissingBinding,
+        });
+    }
+    if (result.items.len == 0) return Error.MissingBinding;
+    return result.toOwnedSlice(allocator);
+}
+
+fn canonicalTraceTree(
+    allocator: std.mem.Allocator,
+    bundle: composition_bundle_mod.Bundle,
+    named: []const NamedBinding,
+    tree_index: u32,
+) ![]arena_plan.Binding {
+    var column_count: usize = 0;
+    for (bundle.components) |component| {
+        var found = false;
+        for (component.trace_spans) |span| {
+            if (span.tree != tree_index) continue;
+            if (found or span.start > span.end) return Error.InvalidBindingSize;
+            found = true;
+            column_count = @max(column_count, span.end);
+        }
+        if (!found) return Error.InvalidBindingSize;
+    }
+    if (column_count != named.len) return Error.InvalidCardinality;
+
+    const result = try allocator.alloc(arena_plan.Binding, column_count);
+    errdefer allocator.free(result);
+    var assigned = try allocator.alloc(bool, column_count);
+    defer allocator.free(assigned);
+    @memset(assigned, false);
+
+    var cursors = std.StringHashMap(usize).init(allocator);
+    defer cursors.deinit();
+    for (bundle.components) |component| {
+        const captured_label = if (std.mem.eql(u8, component.label, "memory_id_to_small"))
+            "memory_id_to_big"
+        else
+            component.label;
+        var wanted: ?composition_bundle_mod.TraceSpan = null;
+        for (component.trace_spans) |span| {
+            if (span.tree != tree_index) continue;
+            if (wanted != null) return Error.InvalidBindingSize;
+            wanted = span;
+        }
+        const span = wanted orelse return Error.InvalidBindingSize;
+        const count: usize = span.end - span.start;
+        const skipped = cursors.get(captured_label) orelse 0;
+        var seen: usize = 0;
+        var copied: usize = 0;
+        for (named) |item| {
+            if (!std.mem.eql(u8, item.component, captured_label)) continue;
+            if (seen < skipped) {
+                seen += 1;
+                continue;
+            }
+            if (copied == count) break;
+            if (item.ordinal != copied) return Error.InvalidSchedule;
+            const destination: usize = span.start + copied;
+            if (destination >= result.len or assigned[destination]) return Error.DuplicateBinding;
+            result[destination] = item.binding;
+            assigned[destination] = true;
+            copied += 1;
+            seen += 1;
+        }
+        if (copied != count) {
+            std.debug.print(
+                "canonical tree {} missing {s}[{}]: span={}..{} skipped={} copied={}\n",
+                .{ tree_index, component.label, component.instance, span.start, span.end, skipped, copied },
+            );
+            return Error.MissingBinding;
+        }
+        try cursors.put(captured_label, skipped + count);
+    }
+    for (assigned) |present| if (!present) return Error.MissingBinding;
+    for (named) |item| {
+        const consumed = cursors.get(item.component) orelse 0;
+        var available: usize = 0;
+        for (named) |candidate| if (std.mem.eql(u8, candidate.component, item.component)) {
+            available += 1;
+        };
+        if (consumed != available) return Error.InvalidCardinality;
+    }
+    return result;
 }
 
 fn collect(

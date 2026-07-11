@@ -269,6 +269,24 @@ extern fn stwo_zig_metal_eval_library_load(
     error_message_len: usize,
 ) ?*anyopaque;
 extern fn stwo_zig_metal_eval_library_destroy(library: ?*anyopaque) void;
+extern fn stwo_zig_metal_witness_prepare_library(
+    runtime: *anyopaque,
+    library: *anyopaque,
+    name: [*]const u8,
+    name_len: usize,
+    arguments: *const WitnessLayout,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
+extern fn stwo_zig_metal_witness_plan_destroy(plan: ?*anyopaque) void;
+extern fn stwo_zig_metal_witness_prepared(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    plan: *anyopaque,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
 extern fn stwo_zig_metal_eval_library_serialize(
     library: *anyopaque,
     error_message: [*]u8,
@@ -583,6 +601,9 @@ extern fn stwo_zig_metal_decommit_normalize_queries(
     log_domain_size: u32,
     unique_base: u32,
     unique_count_base: u32,
+    tree_count: u32,
+    assembly_base: u32,
+    assembly_capacity: u32,
     gpu_milliseconds: *f64,
     error_message: [*]u8,
     error_message_len: usize,
@@ -622,6 +643,35 @@ extern fn stwo_zig_metal_decommit_prepare_trace_queries(
     walk_count_base: u32,
     leaves_base: u32,
     leaf_count_base: u32,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_decommit_gather_trace_values(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    column_offsets_base: u32,
+    column_logs_base: u32,
+    column_count: u32,
+    lifting_log: u32,
+    queries_base: u32,
+    query_count_base: u32,
+    max_queries: u32,
+    first_column: u32,
+    stride: u32,
+    output_base: u32,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_decommit_gather_fri_values(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    coordinate_bases: u32,
+    positions_base: u32,
+    count_base: u32,
+    max_positions: u32,
+    values_base: u32,
     gpu_milliseconds: *f64,
     error_message: [*]u8,
     error_message_len: usize,
@@ -1416,6 +1466,39 @@ pub const Runtime = struct {
         return .{ .handle = handle };
     }
 
+    pub fn prepareWitnessFromLibrary(
+        self: *Runtime,
+        library: EvalLibrary,
+        name: []const u8,
+        layout: WitnessLayout,
+    ) MetalError!WitnessPlan {
+        if (name.len == 0 or layout.row_count == 0) return MetalError.WitnessFeedFailed;
+        var message: [4096]u8 = [_]u8{0} ** 4096;
+        const handle = stwo_zig_metal_witness_prepare_library(
+            self.handle,
+            library.handle,
+            name.ptr,
+            name.len,
+            &layout,
+            &message,
+            message.len,
+        ) orelse {
+            std.log.err("Metal witness pipeline resolution failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.WitnessFeedFailed;
+        };
+        return .{ .handle = handle };
+    }
+
+    pub fn witnessPrepared(self: *Runtime, arena: ResidentBuffer, plan: WitnessPlan) MetalError!f64 {
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_witness_prepared(self.handle, arena.handle, plan.handle, &gpu_ms, &message, message.len)) {
+            std.log.err("Metal witness execution failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.WitnessFeedFailed;
+        }
+        return gpu_ms;
+    }
+
     pub fn evalPrepared(self: *Runtime, arena: ResidentBuffer, plan: EvalPlan) MetalError!f64 {
         var gpu_ms: f64 = 0;
         var message: [1024]u8 = [_]u8{0} ** 1024;
@@ -1939,9 +2022,12 @@ pub const Runtime = struct {
         log_domain_size: u32,
         unique_base: u32,
         unique_count_base: u32,
+        tree_count: u32,
+        assembly_base: u32,
+        assembly_capacity: u32,
     ) MetalError!f64 {
         return self.transcriptCall(arena, stwo_zig_metal_decommit_normalize_queries, .{
-            raw_base, raw_count, log_domain_size, unique_base, unique_count_base,
+            raw_base, raw_count, log_domain_size, unique_base, unique_count_base, tree_count, assembly_base, assembly_capacity,
         });
     }
 
@@ -1987,6 +2073,40 @@ pub const Runtime = struct {
         return self.transcriptCall(arena, stwo_zig_metal_decommit_prepare_trace_queries, .{
             unique_base, unique_count_base, max_queries, source_log,      tree_log,    leaf_log,        unretained,
             mapped_base, mapped_count_base, walk_base,   walk_count_base, leaves_base, leaf_count_base,
+        });
+    }
+
+    pub fn decommitGatherTraceValues(
+        self: *Runtime,
+        arena: ResidentBuffer,
+        column_offsets_base: u32,
+        column_logs_base: u32,
+        column_count: u32,
+        lifting_log: u32,
+        queries_base: u32,
+        query_count_base: u32,
+        max_queries: u32,
+        first_column: u32,
+        stride: u32,
+        output_base: u32,
+    ) MetalError!f64 {
+        return self.transcriptCall(arena, stwo_zig_metal_decommit_gather_trace_values, .{
+            column_offsets_base, column_logs_base, column_count, lifting_log, queries_base,
+            query_count_base,    max_queries,      first_column, stride,      output_base,
+        });
+    }
+
+    pub fn decommitGatherFriValues(
+        self: *Runtime,
+        arena: ResidentBuffer,
+        coordinate_bases: u32,
+        positions_base: u32,
+        count_base: u32,
+        max_positions: u32,
+        values_base: u32,
+    ) MetalError!f64 {
+        return self.transcriptCall(arena, stwo_zig_metal_decommit_gather_fri_values, .{
+            coordinate_bases, positions_base, count_base, max_positions, values_base,
         });
     }
 
@@ -2662,6 +2782,24 @@ pub const EvalLayout = struct {
     rc_base: u32,
 };
 
+pub const WitnessLayout = extern struct {
+    input_offsets: u32,
+    table_offsets: u32,
+    table_strides: u32,
+    output_offsets: u32,
+    multiplicity_offsets: u32,
+    lookup_words: u32,
+    sub_words: u32,
+    row_count: u32,
+    pedersen_offsets: u32,
+    pedersen_rows: u32,
+    poseidon_keys: u32,
+};
+
+comptime {
+    if (@sizeOf(WitnessLayout) != 11 * @sizeOf(u32)) @compileError("Metal witness ABI drift");
+}
+
 fn evalArguments(layout: EvalLayout) MetalError![14]u32 {
     if (layout.row_count < 2 or !std.math.isPowerOfTwo(layout.row_count) or layout.trace_log_size >= 32 or
         layout.domain_log_size >= @ctz(layout.row_count)) return MetalError.PolynomialEvaluationFailed;
@@ -2695,6 +2833,15 @@ pub const EvalPlan = extern struct {
 
     pub fn deinit(self: *EvalPlan) void {
         stwo_zig_metal_eval_destroy(self.handle);
+        self.* = undefined;
+    }
+};
+
+pub const WitnessPlan = extern struct {
+    handle: *anyopaque,
+
+    pub fn deinit(self: *WitnessPlan) void {
+        stwo_zig_metal_witness_plan_destroy(self.handle);
         self.* = undefined;
     }
 };
