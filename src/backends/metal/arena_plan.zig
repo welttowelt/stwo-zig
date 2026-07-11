@@ -415,6 +415,11 @@ pub const ResidentArena = struct {
         return .{ .buffer = try metal.allocateResidentBuffer(@intCast(plan.total_bytes)) };
     }
 
+    pub fn initWithExtra(metal: *runtime.Runtime, plan: Plan, extra_bytes: u64) runtime.MetalError!ResidentArena {
+        const byte_length = std.math.add(u64, plan.total_bytes, extra_bytes) catch return runtime.MetalError.ColumnTooLarge;
+        return .{ .buffer = try metal.allocateResidentBuffer(@intCast(byte_length)) };
+    }
+
     pub fn deinit(self: *ResidentArena) void {
         self.buffer.deinit();
         self.* = undefined;

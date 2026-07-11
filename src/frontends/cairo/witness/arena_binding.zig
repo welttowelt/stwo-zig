@@ -139,7 +139,7 @@ pub const PreparedProofBindings = struct {
         for (transcript_outputs) |output| {
             if (output.ordinal == 5) decommit_raw_queries = output.binding;
         }
-        const preprocessed_coefficients = try collectScheduleOrder(allocator, schedule, plan, "PreprocessedCoefficients");
+        const preprocessed_coefficients = try collectCommitmentOrder(allocator, schedule, plan, "PreprocessedCoefficients");
         errdefer allocator.free(preprocessed_coefficients);
         const base_coefficients = try collectCommitmentOrder(allocator, schedule, plan, "BaseCoefficients");
         errdefer allocator.free(base_coefficients);
@@ -367,9 +367,54 @@ pub const PreparedProofBindings = struct {
             else => return Error.InvalidCardinality,
         };
         return executeStreamingCommitment(
-            self.allocator, metal, resident_arena, schedule, plan, coefficients,
-            tree_index, leaf_seed, node_seed,
+            self.allocator,
+            metal,
+            resident_arena,
+            schedule,
+            plan,
+            coefficients,
+            self.commitmentTwiddleBinding(plan),
+            tree_index,
+            leaf_seed,
+            node_seed,
         );
+    }
+
+    pub fn commitmentScratchBytes(self: PreparedProofBindings) u64 {
+        return self.forward_twiddles.size_bytes * 2 - 32;
+    }
+
+    pub fn populateCommitmentTwiddles(
+        self: PreparedProofBindings,
+        allocator: std.mem.Allocator,
+        resident_arena: *arena_plan.ResidentArena,
+        plan: arena_plan.Plan,
+    ) !void {
+        try populateTwiddleBank(allocator, resident_arena, self.commitmentTwiddleBinding(plan), false);
+    }
+
+    pub fn populateCommitmentInverseTwiddles(
+        self: PreparedProofBindings,
+        allocator: std.mem.Allocator,
+        resident_arena: *arena_plan.ResidentArena,
+        plan: arena_plan.Plan,
+    ) !void {
+        try populateTwiddleBank(allocator, resident_arena, self.commitmentTwiddleBinding(plan), true);
+    }
+
+    pub fn commitmentTwiddleStorage(self: PreparedProofBindings, plan: arena_plan.Plan) arena_plan.Binding {
+        return self.commitmentTwiddleBinding(plan);
+    }
+
+    fn commitmentTwiddleBinding(self: PreparedProofBindings, plan: arena_plan.Plan) arena_plan.Binding {
+        return .{
+            .logical_id = std.math.maxInt(u32),
+            .slot = std.math.maxInt(u32),
+            .offset_bytes = plan.total_bytes,
+            .size_bytes = self.commitmentScratchBytes(),
+            .materialization = .resident,
+            .occupied = [_]u64{0} ** (arena_plan.max_ticks / 64),
+        };
     }
 
     fn validateSn2(self: PreparedProofBindings) !void {
@@ -447,12 +492,20 @@ pub fn populateExecutionTables(
         offset.* = try wordOffset(binding);
     }
     var gpu_ms = try metal.executionTableSplit(
-        resident_arena.buffer, try wordOffset(raw_big), @intCast(input.memory.f252_values.len),
-        big_rows, 8, &big_offsets,
+        resident_arena.buffer,
+        try wordOffset(raw_big),
+        @intCast(input.memory.f252_values.len),
+        big_rows,
+        8,
+        &big_offsets,
     );
     gpu_ms += try metal.executionTableSplit(
-        resident_arena.buffer, try wordOffset(raw_small), @intCast(input.memory.small_values.len),
-        small_rows, 4, &small_offsets,
+        resident_arena.buffer,
+        try wordOffset(raw_small),
+        @intCast(input.memory.small_values.len),
+        small_rows,
+        4,
+        &small_offsets,
     );
     return gpu_ms;
 }
@@ -491,10 +544,33 @@ pub fn populatePreprocessedCoefficients(
         const destination = try resident_arena.bytes(binding);
         try stream.readSliceAll(destination);
         const aligned: []align(4) u8 = @alignCast(destination);
-        for (std.mem.bytesAsSlice(u32, aligned)) |value| if (value >= 0x7fffffff) return Error.InvalidSchedule;
+        const words = std.mem.bytesAsSlice(u32, aligned);
+        for (words) |value| if (value >= 0x7fffffff) return Error.InvalidSchedule;
+        if (log_size > 16) canonicalizeSimdCoefficientBlocks(words, log_size);
     }
     var trailing: [1]u8 = undefined;
     if (try stream.readSliceShort(&trailing) != 0) return Error.InvalidSchedule;
+}
+
+fn canonicalizeSimdCoefficientBlocks(words: []u32, log_size: u32) void {
+    const log_lanes: u32 = 4;
+    std.debug.assert(log_size > 16 and words.len == @as(usize, 1) << @intCast(log_size));
+    const log_vectors = log_size - log_lanes;
+    const half = log_vectors / 2;
+    const outer = @as(usize, 1) << @intCast(half);
+    const middle = @as(usize, 1) << @intCast(log_vectors & 1);
+    for (0..outer) |a| {
+        for (0..middle) |b| {
+            for (0..outer) |c| {
+                const i = (a << @intCast(log_vectors - half)) | (b << @intCast(half)) | c;
+                const j = (c << @intCast(log_vectors - half)) | (b << @intCast(half)) | a;
+                if (i >= j) continue;
+                const lhs = words[i * 16 ..][0..16];
+                const rhs = words[j * 16 ..][0..16];
+                for (lhs, rhs) |*left, *right| std.mem.swap(u32, left, right);
+            }
+        }
+    }
 }
 
 pub fn evaluatePreprocessedCoefficients(
@@ -503,6 +579,7 @@ pub fn evaluatePreprocessedCoefficients(
     resident_arena: *arena_plan.ResidentArena,
     schedule: []const std.json.Value,
     plan: arena_plan.Plan,
+    twiddle_storage: ?arena_plan.Binding,
 ) !f64 {
     const twiddles = try one(schedule, plan, "ForwardTwiddles");
     var gpu_ms: f64 = 0;
@@ -531,7 +608,7 @@ pub fn evaluatePreprocessedCoefficients(
             source_logs.items,
             destination_offsets.items,
             log_size,
-            try twiddleOffsetForLog(twiddles, log_size),
+            try twiddleOffsetForLog(if (twiddle_storage) |storage| twiddleBankBinding(storage, log_size) else twiddles, log_size),
         );
         defer prepared.deinit();
         gpu_ms += try metal.compositionLdePrepared(resident_arena.buffer, prepared);
@@ -563,6 +640,64 @@ pub fn populateProtocolTwiddles(
     try populateInverseTwiddles(allocator, resident_arena, inverse);
     const quotient_inverse = try one(schedule, plan, "QuotientInverseTwiddles");
     try populateInverseTwiddles(allocator, resident_arena, quotient_inverse);
+}
+
+pub fn populateForwardTwiddles(
+    allocator: std.mem.Allocator,
+    resident_arena: *arena_plan.ResidentArena,
+    schedule: []const std.json.Value,
+    plan: arena_plan.Plan,
+) !void {
+    try populateForwardTwiddleBinding(allocator, resident_arena, try one(schedule, plan, "ForwardTwiddles"));
+}
+
+fn populateForwardTwiddleBinding(
+    allocator: std.mem.Allocator,
+    resident_arena: *arena_plan.ResidentArena,
+    forward: arena_plan.Binding,
+) !void {
+    if (forward.size_bytes == 0 or forward.size_bytes % 4 != 0 or !std.math.isPowerOfTwo(forward.size_bytes / 4))
+        return Error.InvalidBindingSize;
+    const log_words: u32 = std.math.log2_int(u64, forward.size_bytes / 4);
+    var tree = try twiddles_mod.precomputeM31(allocator, circle_mod.Coset.halfOdds(log_words));
+    defer twiddles_mod.deinitM31(allocator, &tree);
+    @memcpy(try resident_arena.bytes(forward), std.mem.sliceAsBytes(tree.twiddles));
+}
+
+fn populateTwiddleBank(
+    allocator: std.mem.Allocator,
+    resident_arena: *arena_plan.ResidentArena,
+    storage: arena_plan.Binding,
+    inverse: bool,
+) !void {
+    const words = storage.size_bytes / 4;
+    const max_log: u32 = std.math.log2_int(u64, (words + 8) / 2) + 1;
+    for (4..max_log + 1) |log_usize| {
+        const log_size: u32 = @intCast(log_usize);
+        const binding = twiddleBankBinding(storage, log_size);
+        var tree = try twiddles_mod.precomputeM31(allocator, circle_mod.Coset.halfOdds(log_size - 1));
+        defer twiddles_mod.deinitM31(allocator, &tree);
+        @memcpy(try resident_arena.bytes(binding), std.mem.sliceAsBytes(if (inverse) tree.itwiddles else tree.twiddles));
+    }
+}
+
+fn twiddleBankBinding(storage: arena_plan.Binding, log_size: u32) arena_plan.Binding {
+    std.debug.assert(log_size >= 4);
+    var result = storage;
+    const tree_words = @as(u64, 1) << @intCast(log_size - 1);
+    result.offset_bytes += (tree_words - 8) * 4;
+    result.size_bytes = tree_words * 4;
+    return result;
+}
+
+pub fn populateNamedInverseTwiddles(
+    allocator: std.mem.Allocator,
+    resident_arena: *arena_plan.ResidentArena,
+    schedule: []const std.json.Value,
+    plan: arena_plan.Plan,
+    purpose_name: []const u8,
+) !void {
+    try populateInverseTwiddles(allocator, resident_arena, try one(schedule, plan, purpose_name));
 }
 
 fn populateTwiddlePair(
@@ -660,6 +795,7 @@ pub fn interpolateTraceColumns(
     source_purpose: []const u8,
     destination_purpose: []const u8,
     inverse_twiddle_purpose: []const u8,
+    twiddle_storage: ?arena_plan.Binding,
 ) !f64 {
     const sources = try collectScheduleOrder(allocator, schedule, plan, source_purpose);
     defer allocator.free(sources);
@@ -687,7 +823,7 @@ pub fn interpolateTraceColumns(
             source_offsets.items,
             destination_offsets.items,
             log_size,
-            try twiddleOffsetForLog(inverse_twiddles, log_size),
+            try twiddleOffsetForLog(if (twiddle_storage) |storage| twiddleBankBinding(storage, log_size) else inverse_twiddles, log_size),
             scale,
         );
         defer prepared.deinit();
@@ -1713,7 +1849,7 @@ fn collectCommitmentOrder(
     if (items.items.len == 0) return Error.MissingBinding;
     std.mem.sortUnstable(Item, items.items, {}, struct {
         fn lessThan(_: void, lhs: Item, rhs: Item) bool {
-            if (lhs.binding.size_bytes != rhs.binding.size_bytes) return lhs.binding.size_bytes > rhs.binding.size_bytes;
+            if (lhs.binding.size_bytes != rhs.binding.size_bytes) return lhs.binding.size_bytes < rhs.binding.size_bytes;
             return lhs.schedule_index < rhs.schedule_index;
         }
     }.lessThan);
@@ -1913,7 +2049,9 @@ fn collectTreePurpose(
     }
     if (items.items.len == 0) return Error.MissingBinding;
     std.mem.sortUnstable(Item, items.items, {}, struct {
-        fn lessThan(_: void, lhs: Item, rhs: Item) bool { return lhs.ordinal_value < rhs.ordinal_value; }
+        fn lessThan(_: void, lhs: Item, rhs: Item) bool {
+            return lhs.ordinal_value < rhs.ordinal_value;
+        }
     }.lessThan);
     const result = try allocator.alloc(arena_plan.Binding, items.items.len);
     for (items.items, result) |item, *binding| binding.* = item.binding;
@@ -1927,6 +2065,7 @@ fn executeStreamingCommitment(
     schedule: []const std.json.Value,
     plan: arena_plan.Plan,
     coefficients: []const arena_plan.Binding,
+    twiddles: arena_plan.Binding,
     tree_index: u32,
     leaf_seed: [8]u32,
     node_seed: [8]u32,
@@ -1946,7 +2085,6 @@ fn executeStreamingCommitment(
     defer allocator.free(retained);
     if (leaf_state.size_bytes % 32 != 0 or !std.math.isPowerOfTwo(leaf_state.size_bytes / 32)) return Error.InvalidBindingSize;
     const lifting_log: u32 = std.math.log2_int(u64, leaf_state.size_bytes / 32);
-    const twiddles = try one(schedule, plan, "ForwardTwiddles");
     var coefficient_cursor: usize = 0;
     var gpu_ms: f64 = 0;
     for (group_descriptors, 0..) |descriptor, group_index| {
@@ -1981,18 +2119,25 @@ fn executeStreamingCommitment(
                 try outputs.append(allocator, output);
             }
             if (sources.items.len == 0) continue;
-            var lde = try metal.prepareCompositionLde(sources.items, logs.items, outputs.items, evaluation_log, try twiddleOffsetForLog(twiddles, evaluation_log));
+            const evaluation_twiddles = twiddleBankBinding(twiddles, evaluation_log);
+            var lde = try metal.prepareCompositionLde(sources.items, logs.items, outputs.items, evaluation_log, try twiddleOffsetForLog(evaluation_twiddles, evaluation_log));
             defer lde.deinit();
             gpu_ms += try metal.compositionLdePrepared(resident_arena.buffer, lde);
         }
         gpu_ms += try metal.leafAbsorb(
-            resident_arena.buffer, output_offsets[0..width], output_logs[0..width], try wordOffset(leaf_state),
-            lifting_log, @intCast(coefficient_cursor), group_index + 1 == group_descriptors.len, 0, leaf_seed,
+            resident_arena.buffer,
+            output_offsets[0..width],
+            output_logs[0..width],
+            try wordOffset(leaf_state),
+            lifting_log,
+            @intCast(coefficient_cursor),
+            group_index + 1 == group_descriptors.len,
+            0,
+            leaf_seed,
         );
         coefficient_cursor += width;
     }
     if (coefficient_cursor != coefficients.len) return Error.InvalidCardinality;
-
     const bottom_hashes = retained[0].size_bytes / 32;
     var child_offsets = std.ArrayList(u32).empty;
     defer child_offsets.deinit(allocator);
@@ -2066,4 +2211,17 @@ fn buildProofCopies(
     try append(&copies, allocator, &cursor, try oneOrdinal(schedule, plan, "TranscriptInput", 31));
     try append(&copies, allocator, &cursor, try one(schedule, plan, "DecommitAssembly"));
     return copies.toOwnedSlice(allocator);
+}
+
+test "Cairo preprocessed SIMD coefficient blocks are canonicalized" {
+    const allocator = std.testing.allocator;
+    const log_size: u32 = 17;
+    const words = try allocator.alloc(u32, @as(usize, 1) << log_size);
+    defer allocator.free(words);
+    for (words, 0..) |*word, index| word.* = @intCast(index);
+    canonicalizeSimdCoefficientBlocks(words, log_size);
+    try std.testing.expectEqual(@as(u32, 128 * 16), words[16]);
+    try std.testing.expectEqual(@as(u32, 16), words[128 * 16]);
+    canonicalizeSimdCoefficientBlocks(words, log_size);
+    for (words, 0..) |word, index| try std.testing.expectEqual(@as(u32, @intCast(index)), word);
 }

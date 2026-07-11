@@ -1852,6 +1852,27 @@ test "metal: sparse LDE reads the canonical suffix of a larger twiddle tower" {
     try std.testing.expectEqualSlices(u32, std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(expected)), words[destination .. destination + expected.len]);
 }
 
+test "metal: sparse LDE matches Rust seq_4 reference" {
+    const allocator = std.testing.allocator;
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    const base_log: u32 = 4;
+    const eval_log: u32 = 5;
+    const coefficients_u32 = [_]u32{ 1073741831, 0, 1943228410, 0, 380597802, 0, 142783525, 0, 2147221503, 0, 69204140, 0, 1551296076, 0, 1518526074, 4 };
+    const expected = [_]u32{ 863170483, 863203251, 1007143128, 1007175896, 465131302, 465164070, 1722190238, 1722223006, 1856766077, 1856798845, 946856874, 946889642, 55834652, 55867420, 1672710822, 1672743590, 1641251221, 1641218453, 600224473, 600191705, 58867736, 58834968, 1334657298, 1334624530, 200854279, 200821511, 1606816039, 1606783271, 493042739, 493009971, 506868288, 506835520 };
+    var eval_tree = try twiddles.precomputeM31(allocator, canonic.CanonicCoset.new(eval_log).circleDomain().half_coset);
+    defer twiddles.deinitM31(allocator, &eval_tree);
+    var arena = try runtime.allocateResidentBuffer(4096);
+    defer arena.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
+    @memcpy(words[0..coefficients_u32.len], &coefficients_u32);
+    @memcpy(words[128 .. 128 + eval_tree.twiddles.len], std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(eval_tree.twiddles)));
+    var lde = try runtime.prepareCompositionLde(&.{0}, &.{base_log}, &.{256}, eval_log, 128);
+    defer lde.deinit();
+    _ = try runtime.compositionLdePrepared(arena, lde);
+    try std.testing.expectEqualSlices(u32, &expected, words[256 .. 256 + expected.len]);
+}
+
 test "metal: execution tables split compact little-endian values into 9-bit columns" {
     var runtime = try metal.Runtime.init();
     defer runtime.deinit();
