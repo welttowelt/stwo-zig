@@ -177,6 +177,28 @@
 @implementation StwoZigCompactPlan
 @end
 
+@interface StwoZigEvalPlan : NSObject
+@property(nonatomic, strong) id<MTLComputePipelineState> pipeline;
+@property(nonatomic, strong) id<MTLBuffer> arguments;
+@property(nonatomic) uint32_t rowCount;
+@end
+@implementation StwoZigEvalPlan
+@end
+
+@interface StwoZigEvalBatch : NSObject
+@property(nonatomic, strong) NSArray<StwoZigEvalPlan *> *plans;
+@end
+@implementation StwoZigEvalBatch
+@end
+
+@interface StwoZigEvalLibrary : NSObject
+@property(nonatomic, strong) id<MTLLibrary> library;
+@property(nonatomic, strong) id<MTLBinaryArchive> archive;
+@property(nonatomic, strong) NSURL *archiveURL;
+@end
+@implementation StwoZigEvalLibrary
+@end
+
 @interface StwoZigMerkleLeafPlan : NSObject
 @property(nonatomic, strong) id<MTLBuffer> columnOffsets;
 @property(nonatomic, strong) id<MTLBuffer> columnLogSizes;
@@ -1145,6 +1167,205 @@ void *stwo_zig_metal_compact_prepare(
 
 void stwo_zig_metal_compact_destroy(void *plan_ptr) {
     if (plan_ptr != NULL) CFRelease(plan_ptr);
+}
+
+void *stwo_zig_metal_eval_prepare(
+    void *runtime_ptr, const char *source_bytes, size_t source_len,
+    const char *name_bytes, size_t name_len, const uint32_t *arguments,
+    char *error_message, size_t error_message_len
+) {
+    if (runtime_ptr == NULL || source_bytes == NULL || source_len == 0u ||
+        name_bytes == NULL || name_len == 0u || arguments == NULL || arguments[10] == 0u) return NULL;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        NSString *source = [[NSString alloc] initWithBytes:source_bytes length:source_len encoding:NSUTF8StringEncoding];
+        NSString *name = [[NSString alloc] initWithBytes:name_bytes length:name_len encoding:NSUTF8StringEncoding];
+        if (source == nil || name == nil) {
+            write_error(error_message, error_message_len, @"Invalid Metal evaluation source encoding"); return NULL;
+        }
+        MTLCompileOptions *options = [MTLCompileOptions new];
+        options.mathMode = MTLMathModeSafe;
+        NSError *error = nil;
+        id<MTLLibrary> library = [runtime.device newLibraryWithSource:source options:options error:&error];
+        if (library == nil) {
+            write_error(error_message, error_message_len,
+                        error.localizedDescription ?: @"Failed to compile Metal evaluation program");
+            return NULL;
+        }
+        id<MTLComputePipelineState> pipeline = make_pipeline(runtime.device, library, name, error_message, error_message_len);
+        if (pipeline == nil) return NULL;
+        StwoZigEvalPlan *plan = [StwoZigEvalPlan new];
+        plan.pipeline = pipeline;
+        plan.arguments = [runtime.device newBufferWithBytes:arguments length:14u * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+        plan.rowCount = arguments[10];
+        if (plan.arguments == nil) {
+            write_error(error_message, error_message_len, @"Metal evaluation argument allocation failed"); return NULL;
+        }
+        return (__bridge_retained void *)plan;
+    }
+}
+
+void *stwo_zig_metal_eval_library_load(
+    void *runtime_ptr, const char *path_bytes, size_t path_len,
+    char *error_message, size_t error_message_len
+) {
+    if (runtime_ptr == NULL || path_bytes == NULL || path_len == 0u) return NULL;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        NSString *path = [[NSString alloc] initWithBytes:path_bytes length:path_len encoding:NSUTF8StringEncoding];
+        if (path == nil) { write_error(error_message, error_message_len, @"Invalid metallib path encoding"); return NULL; }
+        NSError *error = nil;
+        id<MTLLibrary> library = [runtime.device newLibraryWithURL:[NSURL fileURLWithPath:path] error:&error];
+        if (library == nil) {
+            write_error(error_message, error_message_len, error.localizedDescription ?: @"Failed to load Metal evaluation library");
+            return NULL;
+        }
+        StwoZigEvalLibrary *result = [StwoZigEvalLibrary new];
+        result.library = library;
+        NSString *archivePath = [path stringByAppendingString:@".binarchive"];
+        result.archiveURL = [NSURL fileURLWithPath:archivePath];
+        MTLBinaryArchiveDescriptor *archiveDescriptor = [MTLBinaryArchiveDescriptor new];
+        if ([[NSFileManager defaultManager] fileExistsAtPath:archivePath]) archiveDescriptor.url = result.archiveURL;
+        result.archive = [runtime.device newBinaryArchiveWithDescriptor:archiveDescriptor error:&error];
+        if (result.archive == nil) {
+            write_error(error_message, error_message_len, error.localizedDescription ?: @"Failed to load Metal binary archive");
+            return NULL;
+        }
+        return (__bridge_retained void *)result;
+    }
+}
+
+void stwo_zig_metal_eval_library_destroy(void *library_ptr) {
+    if (library_ptr != NULL) CFRelease(library_ptr);
+}
+
+void *stwo_zig_metal_eval_prepare_library(
+    void *runtime_ptr, void *library_ptr, const char *name_bytes, size_t name_len,
+    const uint32_t *arguments, char *error_message, size_t error_message_len
+) {
+    if (runtime_ptr == NULL || library_ptr == NULL || name_bytes == NULL || name_len == 0u ||
+        arguments == NULL || arguments[10] == 0u) return NULL;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        StwoZigEvalLibrary *library = (__bridge StwoZigEvalLibrary *)library_ptr;
+        NSString *name = [[NSString alloc] initWithBytes:name_bytes length:name_len encoding:NSUTF8StringEncoding];
+        if (name == nil) { write_error(error_message, error_message_len, @"Invalid Metal function encoding"); return NULL; }
+        id<MTLFunction> function = [library.library newFunctionWithName:name];
+        if (function == nil) { write_error(error_message, error_message_len, @"Missing Metal evaluation function"); return NULL; }
+        MTLComputePipelineDescriptor *descriptor = [MTLComputePipelineDescriptor new];
+        descriptor.computeFunction = function;
+        descriptor.binaryArchives = @[library.archive];
+        NSError *error = nil;
+        if (![library.archive addComputePipelineFunctionsWithDescriptor:descriptor error:&error]) {
+            write_error(error_message, error_message_len, error.localizedDescription ?: @"Failed to add Metal pipeline to archive"); return NULL;
+        }
+        id<MTLComputePipelineState> pipeline =
+            [runtime.device newComputePipelineStateWithDescriptor:descriptor options:MTLPipelineOptionNone reflection:nil error:&error];
+        if (pipeline == nil) {
+            write_error(error_message, error_message_len, error.localizedDescription ?: @"Failed to resolve Metal evaluation pipeline"); return NULL;
+        }
+        StwoZigEvalPlan *plan = [StwoZigEvalPlan new];
+        plan.pipeline = pipeline;
+        plan.arguments = [runtime.device newBufferWithBytes:arguments length:14u * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+        plan.rowCount = arguments[10];
+        if (plan.arguments == nil) { write_error(error_message, error_message_len, @"Metal evaluation argument allocation failed"); return NULL; }
+        return (__bridge_retained void *)plan;
+    }
+}
+
+bool stwo_zig_metal_eval_library_serialize(
+    void *library_ptr, char *error_message, size_t error_message_len
+) {
+    if (library_ptr == NULL) return false;
+    @autoreleasepool {
+        StwoZigEvalLibrary *library = (__bridge StwoZigEvalLibrary *)library_ptr;
+        NSError *error = nil;
+        if (![library.archive serializeToURL:library.archiveURL error:&error]) {
+            write_error(error_message, error_message_len, error.localizedDescription ?: @"Failed to serialize Metal binary archive");
+            return false;
+        }
+        return true;
+    }
+}
+
+void stwo_zig_metal_eval_destroy(void *plan_ptr) {
+    if (plan_ptr != NULL) CFRelease(plan_ptr);
+}
+
+void *stwo_zig_metal_eval_batch_prepare(
+    const void *const *plan_ptrs, uint32_t plan_count,
+    char *error_message, size_t error_message_len
+) {
+    if (plan_ptrs == NULL || plan_count == 0u) return NULL;
+    @autoreleasepool {
+        NSMutableArray<StwoZigEvalPlan *> *plans = [NSMutableArray arrayWithCapacity:plan_count];
+        for (uint32_t i = 0; i < plan_count; ++i) {
+            if (plan_ptrs[i] == NULL) {
+                write_error(error_message, error_message_len, @"Null Metal evaluation plan in batch"); return NULL;
+            }
+            [plans addObject:(__bridge StwoZigEvalPlan *)plan_ptrs[i]];
+        }
+        StwoZigEvalBatch *batch = [StwoZigEvalBatch new];
+        batch.plans = plans;
+        return (__bridge_retained void *)batch;
+    }
+}
+
+void stwo_zig_metal_eval_batch_destroy(void *batch_ptr) {
+    if (batch_ptr != NULL) CFRelease(batch_ptr);
+}
+
+bool stwo_zig_metal_eval_batch_prepared(
+    void *runtime_ptr, void *arena_ptr, void *batch_ptr,
+    double *gpu_milliseconds, char *error_message, size_t error_message_len
+) {
+    if (runtime_ptr == NULL || arena_ptr == NULL || batch_ptr == NULL) return false;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        id<MTLBuffer> arena = (__bridge id<MTLBuffer>)arena_ptr;
+        StwoZigEvalBatch *batch = (__bridge StwoZigEvalBatch *)batch_ptr;
+        id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
+        for (StwoZigEvalPlan *plan in batch.plans) {
+            id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
+            [encoder setComputePipelineState:plan.pipeline];
+            [encoder setBuffer:arena offset:0 atIndex:0];
+            [encoder setBuffer:plan.arguments offset:0 atIndex:1];
+            NSUInteger width = MIN((NSUInteger)256u, MIN((NSUInteger)plan.rowCount, plan.pipeline.maxTotalThreadsPerThreadgroup));
+            [encoder dispatchThreads:MTLSizeMake(plan.rowCount, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+            [encoder endEncoding];
+        }
+        [command commit]; [command waitUntilCompleted];
+        if (command.status == MTLCommandBufferStatusError) {
+            write_error(error_message, error_message_len, command.error.localizedDescription); return false;
+        }
+        if (gpu_milliseconds) *gpu_milliseconds = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
+        return true;
+    }
+}
+
+bool stwo_zig_metal_eval_prepared(
+    void *runtime_ptr, void *arena_ptr, void *plan_ptr,
+    double *gpu_milliseconds, char *error_message, size_t error_message_len
+) {
+    if (runtime_ptr == NULL || arena_ptr == NULL || plan_ptr == NULL) return false;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        id<MTLBuffer> arena = (__bridge id<MTLBuffer>)arena_ptr;
+        StwoZigEvalPlan *plan = (__bridge StwoZigEvalPlan *)plan_ptr;
+        id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
+        id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
+        [encoder setComputePipelineState:plan.pipeline];
+        [encoder setBuffer:arena offset:0 atIndex:0];
+        [encoder setBuffer:plan.arguments offset:0 atIndex:1];
+        NSUInteger width = MIN((NSUInteger)256u, MIN((NSUInteger)plan.rowCount, plan.pipeline.maxTotalThreadsPerThreadgroup));
+        [encoder dispatchThreads:MTLSizeMake(plan.rowCount, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+        [encoder endEncoding]; [command commit]; [command waitUntilCompleted];
+        if (command.status == MTLCommandBufferStatusError) {
+            write_error(error_message, error_message_len, command.error.localizedDescription); return false;
+        }
+        if (gpu_milliseconds) *gpu_milliseconds = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
+        return true;
+    }
 }
 
 bool stwo_zig_metal_compact_prepared(

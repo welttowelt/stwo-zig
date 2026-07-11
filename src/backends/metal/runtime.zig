@@ -235,6 +235,62 @@ extern fn stwo_zig_metal_compact_prepared(
     error_message: [*]u8,
     error_message_len: usize,
 ) bool;
+extern fn stwo_zig_metal_eval_prepare(
+    runtime: *anyopaque,
+    source: [*]const u8,
+    source_len: usize,
+    name: [*]const u8,
+    name_len: usize,
+    arguments: *const [14]u32,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
+extern fn stwo_zig_metal_eval_library_load(
+    runtime: *anyopaque,
+    path: [*]const u8,
+    path_len: usize,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
+extern fn stwo_zig_metal_eval_library_destroy(library: ?*anyopaque) void;
+extern fn stwo_zig_metal_eval_library_serialize(
+    library: *anyopaque,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_eval_prepare_library(
+    runtime: *anyopaque,
+    library: *anyopaque,
+    name: [*]const u8,
+    name_len: usize,
+    arguments: *const [14]u32,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
+extern fn stwo_zig_metal_eval_destroy(plan: ?*anyopaque) void;
+extern fn stwo_zig_metal_eval_batch_prepare(
+    plans: [*]const *anyopaque,
+    plan_count: u32,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
+extern fn stwo_zig_metal_eval_batch_destroy(batch: ?*anyopaque) void;
+extern fn stwo_zig_metal_eval_batch_prepared(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    batch: *anyopaque,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_eval_prepared(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    plan: *anyopaque,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
 extern fn stwo_zig_metal_relation_prepare(
     runtime: *anyopaque,
     geometry: [*]const u32,
@@ -999,6 +1055,87 @@ pub const Runtime = struct {
         return gpu_ms;
     }
 
+    pub fn prepareEval(self: *Runtime, source: []const u8, name: []const u8, layout: EvalLayout) MetalError!EvalPlan {
+        if (source.len == 0 or name.len == 0) return MetalError.PolynomialEvaluationFailed;
+        const arguments = try evalArguments(layout);
+        var message: [4096]u8 = [_]u8{0} ** 4096;
+        const handle = stwo_zig_metal_eval_prepare(
+            self.handle,
+            source.ptr,
+            source.len,
+            name.ptr,
+            name.len,
+            &arguments,
+            &message,
+            message.len,
+        ) orelse {
+            std.log.err("Metal evaluation preparation failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.PolynomialEvaluationFailed;
+        };
+        return .{ .handle = handle };
+    }
+
+    pub fn loadEvalLibrary(self: *Runtime, path: []const u8) MetalError!EvalLibrary {
+        if (path.len == 0) return MetalError.PolynomialEvaluationFailed;
+        var message: [4096]u8 = [_]u8{0} ** 4096;
+        const handle = stwo_zig_metal_eval_library_load(self.handle, path.ptr, path.len, &message, message.len) orelse {
+            std.log.err("Metal evaluation library load failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.PolynomialEvaluationFailed;
+        };
+        return .{ .handle = handle };
+    }
+
+    pub fn prepareEvalFromLibrary(self: *Runtime, library: EvalLibrary, name: []const u8, layout: EvalLayout) MetalError!EvalPlan {
+        if (name.len == 0) return MetalError.PolynomialEvaluationFailed;
+        const arguments = try evalArguments(layout);
+        var message: [4096]u8 = [_]u8{0} ** 4096;
+        const handle = stwo_zig_metal_eval_prepare_library(
+            self.handle,
+            library.handle,
+            name.ptr,
+            name.len,
+            &arguments,
+            &message,
+            message.len,
+        ) orelse {
+            std.log.err("Metal evaluation pipeline resolution failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.PolynomialEvaluationFailed;
+        };
+        return .{ .handle = handle };
+    }
+
+    pub fn evalPrepared(self: *Runtime, arena: ResidentBuffer, plan: EvalPlan) MetalError!f64 {
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_eval_prepared(self.handle, arena.handle, plan.handle, &gpu_ms, &message, message.len)) {
+            std.log.err("Metal evaluation execution failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.PolynomialEvaluationFailed;
+        }
+        return gpu_ms;
+    }
+
+    pub fn prepareEvalBatch(self: *Runtime, plans: []const EvalPlan) MetalError!EvalBatchPlan {
+        _ = self;
+        if (plans.len == 0) return MetalError.PolynomialEvaluationFailed;
+        const handles: []const *anyopaque = @ptrCast(plans);
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        const handle = stwo_zig_metal_eval_batch_prepare(handles.ptr, @intCast(handles.len), &message, message.len) orelse {
+            std.log.err("Metal evaluation batch preparation failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.PolynomialEvaluationFailed;
+        };
+        return .{ .handle = handle };
+    }
+
+    pub fn evalBatchPrepared(self: *Runtime, arena: ResidentBuffer, batch: EvalBatchPlan) MetalError!f64 {
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_eval_batch_prepared(self.handle, arena.handle, batch.handle, &gpu_ms, &message, message.len)) {
+            std.log.err("Metal evaluation batch execution failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.PolynomialEvaluationFailed;
+        }
+        return gpu_ms;
+    }
+
     pub fn prepareRelation(
         self: *Runtime,
         geometry: []const u32,
@@ -1729,6 +1866,66 @@ pub const CompactPlan = struct {
 
     pub fn deinit(self: *CompactPlan) void {
         stwo_zig_metal_compact_destroy(self.handle);
+        self.* = undefined;
+    }
+};
+
+pub const EvalLayout = struct {
+    trace_offsets: u32,
+    interaction_offsets: u32,
+    base_params: u32,
+    ext_params: u32,
+    random_coeffs: u32,
+    denom_inv: u32,
+    coordinates: [4]u32,
+    row_count: u32,
+    trace_log_size: u32,
+    domain_log_size: u32,
+    rc_base: u32,
+};
+
+fn evalArguments(layout: EvalLayout) MetalError![14]u32 {
+    if (layout.row_count < 2 or !std.math.isPowerOfTwo(layout.row_count) or layout.trace_log_size >= 32 or
+        layout.domain_log_size >= @ctz(layout.row_count)) return MetalError.PolynomialEvaluationFailed;
+    return .{
+        layout.trace_offsets,   layout.interaction_offsets, layout.base_params,    layout.ext_params,
+        layout.random_coeffs,   layout.denom_inv,           layout.coordinates[0], layout.coordinates[1],
+        layout.coordinates[2],  layout.coordinates[3],      layout.row_count,      layout.trace_log_size,
+        layout.domain_log_size, layout.rc_base,
+    };
+}
+
+pub const EvalLibrary = struct {
+    handle: *anyopaque,
+
+    pub fn deinit(self: *EvalLibrary) void {
+        stwo_zig_metal_eval_library_destroy(self.handle);
+        self.* = undefined;
+    }
+
+    pub fn serialize(self: EvalLibrary) MetalError!void {
+        var message: [4096]u8 = [_]u8{0} ** 4096;
+        if (!stwo_zig_metal_eval_library_serialize(self.handle, &message, message.len)) {
+            std.log.err("Metal evaluation archive serialization failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.PolynomialEvaluationFailed;
+        }
+    }
+};
+
+pub const EvalPlan = extern struct {
+    handle: *anyopaque,
+
+    pub fn deinit(self: *EvalPlan) void {
+        stwo_zig_metal_eval_destroy(self.handle);
+        self.* = undefined;
+    }
+};
+
+pub const EvalBatchPlan = struct {
+    handle: *anyopaque,
+
+    pub fn deinit(self: *EvalBatchPlan) void {
+        stwo_zig_metal_eval_batch_destroy(self.handle);
         self.* = undefined;
     }
 };

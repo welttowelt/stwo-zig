@@ -174,12 +174,33 @@ Merkle-parent, and EC-op recipes were bound. Replacing that
 fallback with exact resident protocol recipes is performance work, not a reason
 to weaken the gate.
 
-The remaining protocol blocker is Cairo composition and quotient evaluation.
-The canonical backend already lowers framework constraints to the versioned,
-GPU-neutral `MetalEvaluationProgramV1` instruction stream; Zig should consume
-that binary program in a prepared Metal interpreter rather than translating
-generated CUDA or expanding the AIR through Zig `comptime`. This preserves an
-auditable ABI and keeps the large generated AIR out of compiler specialization.
+The exact SN2 Cairo composition AIR is now exported as the versioned,
+GPU-neutral `MetalEvaluationProgramV1` instruction stream. Zig validates the
+full binary ABI, section bounds, semantic hashes, register dataflow, typed
+extension-parameter provenance, trace subspans, denominator geometry, and
+constraint ordering before generating Metal. The Metal-specific 512-instruction
+split contains 58 component instances, 279 parts, 1,325 constraints, and 112,956
+instructions; the largest indivisible constraint cone is 1,338 instructions.
+This avoids translating generated CUDA and keeps the AIR out of Zig `comptime`.
+
+Each V1 part becomes an unrolled per-row MSL kernel that reads sparse resident
+columns through arena offset tables and fuses random-coefficient accumulation
+and denominator multiplication into four resident coordinate accumulators. A
+real Metal parity test checks the generated kernel against scalar M31/QM31
+arithmetic, and a retained batch encodes all parts into one command buffer.
+All 271 unique SN2 kernels compile together into the portable 7.4 MiB
+`sn_pie_2_composition.metallib`. Building that library takes 14.69 seconds
+(13.19 seconds Metal compile plus 1.50 seconds link), compared with 148.89
+seconds for 279 independent runtime compilations. A machine-specific
+`MTLBinaryArchive` takes 25.92 seconds to populate once and then resolves all
+279 pipelines in 13.90 ms (80 ms total process time); the 55 MiB sidecar is
+ignored by git and regenerated per Metal driver.
+
+The remaining composition blocker is graph orchestration, not AIR ownership:
+interleave each component's coefficient LDE with its fused parts through one
+reused tile, lift the per-log accumulators, interpolate the maximum accumulator,
+and split four secure coordinates into eight quotient coefficient columns in
+the same resident command buffer.
 
 `src/frontends/cairo/witness/program.zig` implements the canonical 28-op,
 16-byte witness instruction ABI, semantic hash, strict SSA/shape validation,

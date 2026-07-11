@@ -19,4 +19,5 @@ vectors/reports/prove_checkpoints_artifacts/
 vectors/reports/release_evidence.json
 vectors/reports/latest_release_evidence.json
 target/
+*.metallib.binarchive
 .DS_Store

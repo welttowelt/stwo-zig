@@ -14,10 +14,102 @@ const core_fri = @import("core/fri.zig");
 const qm31 = @import("core/fields/qm31.zig");
 const line = @import("core/poly/line.zig");
 const MetalBackend = @import("backends/metal/commit_backend.zig").MetalCommitBackend;
+const eval_program = @import("frontends/cairo/witness/eval_program.zig");
+const eval_codegen = @import("backends/metal/eval_codegen.zig");
 
 const M31 = m31.M31;
 const Hasher = blake2_merkle.Blake2sMerkleHasher;
 const QM31 = qm31.QM31;
+
+test "metal: fused V1 evaluation program matches scalar field arithmetic" {
+    const allocator = std.testing.allocator;
+    var base = [_]eval_program.BaseInst{
+        .{ .op = .trace_col, .interaction = 0, .dst = 0, .a = 0, .b = 0, .imm = 0 },
+        .{ .op = .constant, .interaction = 0, .dst = 1, .a = 7, .b = 0, .imm = 0 },
+        .{ .op = .mul, .interaction = 0, .dst = 2, .a = 0, .b = 1, .imm = 0 },
+    };
+    var ext = [_]eval_program.ExtInst{
+        .{ .op = .secure_col, .dst = 0, .a = 2, .b = 1, .c = 0, .d = 1 },
+        .{ .op = .param, .dst = 1, .a = 0, .b = 0, .c = 0, .d = 0 },
+        .{ .op = .mul, .dst = 2, .a = 0, .b = 1, .c = 0, .d = 0 },
+    };
+    var roots = [_]u32{2};
+    const program = eval_program.Program{
+        .allocator = allocator,
+        .header = .{ .flags = eval_program.Flag.prefinalized_logup, .semantic_hash = 0x1234, .capability_bits = eval_program.Capability.prefinalized_logup | eval_program.Capability.ext_mul, .n_interactions = 1, .n_base_params = 0, .n_ext_params = 1, .n_constraints = 1, .max_base_regs = 3, .max_ext_regs = 3, .domain_log_size = 7 },
+        .base_consts = &.{},
+        .ext_consts = &.{},
+        .base_insts = &base,
+        .ext_insts = &ext,
+        .constraint_roots = &roots,
+    };
+    const source = try eval_codegen.generate(allocator, program);
+    defer allocator.free(source);
+    const name = try eval_codegen.kernelName(allocator, program.header.semantic_hash);
+    defer allocator.free(name);
+
+    const rows: u32 = 256;
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    var arena = try runtime.allocateResidentBuffer(16 * 1024);
+    defer arena.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
+    var next: u32 = 0;
+    const trace = next;
+    for (0..rows) |row| words[next + row] = @intCast(row + 1);
+    next += rows;
+    const trace_offsets = next;
+    words[next] = trace;
+    next += 1;
+    const interaction_offsets = next;
+    words[next] = 0;
+    next += 1;
+    const ext_params = next;
+    const ext_value = QM31.fromU32Unchecked(3, 5, 11, 13);
+    for (ext_value.toM31Array(), 0..) |value, index| words[next + index] = value.v;
+    next += 4;
+    const random_coeffs = next;
+    const random = QM31.fromU32Unchecked(17, 19, 23, 29);
+    for (random.toM31Array(), 0..) |value, index| words[next + index] = value.v;
+    next += 4;
+    const denom = next;
+    words[next] = 31;
+    next += 1;
+    var coordinates: [4]u32 = undefined;
+    for (&coordinates) |*offset| {
+        offset.* = next;
+        @memset(words[next .. next + rows], 0);
+        next += rows;
+    }
+    var plan = try runtime.prepareEval(source, name, .{
+        .trace_offsets = trace_offsets,
+        .interaction_offsets = interaction_offsets,
+        .base_params = 0,
+        .ext_params = ext_params,
+        .random_coeffs = random_coeffs,
+        .denom_inv = denom,
+        .coordinates = coordinates,
+        .row_count = rows,
+        .trace_log_size = 8,
+        .domain_log_size = 7,
+        .rc_base = 0,
+    });
+    defer plan.deinit();
+    const gpu_ms = try runtime.evalPrepared(arena, plan);
+    try std.testing.expect(gpu_ms > 0);
+    for (coordinates) |offset| @memset(words[offset .. offset + rows], 0);
+    var batch = try runtime.prepareEvalBatch(&.{plan});
+    defer batch.deinit();
+    const batch_ms = try runtime.evalBatchPrepared(arena, batch);
+    try std.testing.expect(batch_ms > 0);
+    for (0..rows) |row| {
+        const value = M31.fromCanonical(@intCast(row + 1));
+        const seven = M31.fromCanonical(7);
+        const root = QM31.fromM31(value.mul(seven), seven, value, seven);
+        const expected = root.mul(ext_value).mul(random).mulM31(M31.fromCanonical(31)).toM31Array();
+        for (expected, coordinates) |coordinate, offset| try std.testing.expectEqual(coordinate.v, words[offset + row]);
+    }
+}
 
 test "metal: Felt252 Montgomery multiplication and inversion match scalar vectors" {
     var runtime = try metal.Runtime.init();

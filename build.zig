@@ -34,6 +34,15 @@ pub fn build(b: *std.Build) void {
     const run_arena_plan_tests = b.addRunArtifact(arena_plan_tests);
     test_step.dependOn(&run_arena_plan_tests.step);
 
+    const metal_eval_test_module = b.createModule(.{
+        .root_source_file = b.path("src/metal_eval_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const metal_eval_tests = b.addTest(.{ .root_module = metal_eval_test_module });
+    const run_metal_eval_tests = b.addRunArtifact(metal_eval_tests);
+    test_step.dependOn(&run_metal_eval_tests.step);
+
     const cairo_input_module = b.createModule(.{
         .root_source_file = b.path("src/cairo_input_cli.zig"),
         .target = target,
@@ -176,6 +185,38 @@ pub fn build(b: *std.Build) void {
         b.installArtifact(metal_compact_bench);
         const metal_compact_bench_step = b.step("metal-compact-bench", "Build resident Metal compaction benchmark");
         metal_compact_bench_step.dependOn(&metal_compact_bench.step);
+
+        const metal_eval_prepare_module = b.createModule(.{
+            .root_source_file = b.path("src/metal_eval_prepare_cli.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        const metal_eval_prepare = b.addExecutable(.{
+            .name = "metal-eval-prepare",
+            .root_module = metal_eval_prepare_module,
+        });
+        metal_eval_prepare.addCSourceFile(.{
+            .file = b.path("src/backends/metal/runtime.m"),
+            .flags = &.{ "-fobjc-arc", "-fblocks" },
+        });
+        metal_eval_prepare.linkLibC();
+        metal_eval_prepare.linkFramework("Foundation");
+        metal_eval_prepare.linkFramework("Metal");
+        metal_eval_prepare.linkSystemLibrary("objc");
+        b.installArtifact(metal_eval_prepare);
+        const metal_eval_prepare_step = b.step("metal-eval-prepare", "Compile exact SN Cairo AIR programs for Metal");
+        metal_eval_prepare_step.dependOn(&metal_eval_prepare.step);
+
+        const metal_eval_source_module = b.createModule(.{
+            .root_source_file = b.path("src/metal_eval_source_cli.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        const metal_eval_source = b.addExecutable(.{
+            .name = "metal-eval-source",
+            .root_module = metal_eval_source_module,
+        });
+        b.installArtifact(metal_eval_source);
 
         const metal_test_module = b.createModule(.{
             .root_source_file = b.path("src/metal_backend_test.zig"),

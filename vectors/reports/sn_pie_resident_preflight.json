@@ -82,6 +82,24 @@
     "compact_prepared_arena_bytes": 1219231816,
     "compact_hot_path_allocations": 0,
     "compact_compatibility_readback_bytes": 0,
+    "composition_bundle": "vectors/cairo/sn_pie_2_composition.bin",
+    "composition_bundle_sha256": "fdb84be46893a8bb6eb8eeac19bc8746d064a04c3700accca367911a921a47e9",
+    "composition_metallib": "vectors/cairo/sn_pie_2_composition.metallib",
+    "composition_metallib_sha256": "85db09e024a661d78e34e53ed2ae36c150567977223f34bba88f119b3c7b21ab",
+    "composition_plan_hash": 10359646181791462711,
+    "composition_component_instances": 58,
+    "composition_constraints": 1325,
+    "composition_program_parts": 279,
+    "composition_unique_metal_kernels": 271,
+    "composition_v1_instructions": 112956,
+    "composition_max_split_instructions": 512,
+    "composition_largest_indivisible_instructions": 1338,
+    "composition_independent_runtime_compile_ms": 148887.651755,
+    "composition_combined_metal_compile_ms": 13190.0,
+    "composition_metallib_link_ms": 1500.0,
+    "composition_binary_archive_population_ms": 25919.984247,
+    "composition_binary_archive_warm_pipeline_ms": 13.900298,
+    "composition_binary_archive_warm_process_ms": 80.0,
     "physical_slots": 6777,
     "actions": 120101,
     "spilled_buffers": 4688,
@@ -102,5 +120,5 @@
     "recovery_policy": "exact recipe or checksummed spill; no inferred recomputation"
   },
   "proof": null,
-  "next_gate": "Export and interpret the versioned Cairo MetalEvaluationProgramV1 composition AIR on Metal, bind quotient and FRI bottoms, then produce an SN PIE proof accepted by the reference verifier."
+  "next_gate": "Interleave resident coefficient LDE and fused Cairo AIR parts, lift and interpolate composition accumulators into eight quotient columns, bind quotient and FRI bottoms, then produce an SN PIE proof accepted by the reference verifier."
 }
