@@ -23,8 +23,25 @@ pub fn MerkleProverLifted(comptime H: type) type {
         /// (MADV_SEQUENTIAL hint for streaming hash reads). The outer
         /// `layers` array itself is always freed with the caller's allocator.
         layer_allocator: std.mem.Allocator,
+        /// Present for Metal commitments. The complete tree remains device
+        /// resident and only queried authentication nodes are read back.
+        resident_tree: ?ResidentTree = null,
+        metal_root: ?H.Hash = null,
+        metal_log_size: u32 = 0,
 
         const Self = @This();
+        const ResidentTree = struct {
+            handle: *anyopaque,
+            runtime_handle: *anyopaque,
+            destroy: *const fn (*anyopaque) void,
+            copy_hashes: *const fn (
+                *anyopaque,
+                *anyopaque,
+                std.mem.Allocator,
+                u32,
+                []const u32,
+            ) anyerror![][32]u8,
+        };
         const NodeSeed = if (@hasDecl(H, "nodeSeed")) @TypeOf(H.nodeSeed()) else H;
         const NodeValue = vcs_lifted_verifier.MerkleDecommitmentLiftedAux(H).NodeValue;
         const ExtendedDecommitment = vcs_lifted_verifier.ExtendedMerkleDecommitmentLifted(H);
@@ -142,12 +159,17 @@ pub fn MerkleProverLifted(comptime H: type) type {
         };
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
-            for (self.layers) |layer| self.layer_allocator.free(layer);
-            allocator.free(self.layers);
+            if (self.resident_tree) |tree| {
+                tree.destroy(tree.handle);
+            } else {
+                for (self.layers) |layer| self.layer_allocator.free(layer);
+                allocator.free(self.layers);
+            }
             self.* = undefined;
         }
 
         pub fn root(self: Self) H.Hash {
+            if (self.metal_root) |root_hash| return root_hash;
             return self.layers[0][0];
         }
 
@@ -197,29 +219,24 @@ pub fn MerkleProverLifted(comptime H: type) type {
                 H.leafSeed(),
                 H.nodeSeed(),
             );
-            defer metal_tree.deinit();
-            const packed_layers = try metal_tree.copyLayers(runtime, allocator, max_log_size);
-            defer allocator.free(packed_layers);
-
-            const layer_alloc = layerAllocator(allocator);
-            const layers = try allocator.alloc([]H.Hash, max_log_size + 1);
-            errdefer allocator.free(layers);
-            var initialized: usize = 0;
-            errdefer for (layers[0..initialized]) |layer| layer_alloc.free(layer);
-
-            var packed_offset: usize = 0;
-            for (0..layers.len) |level| {
-                const hash_count = @as(usize, 1) << @intCast(level);
-                const layer = try layer_alloc.alloc(H.Hash, hash_count);
-                for (layer, 0..) |*hash, hash_index| {
-                    hash.* = packed_layers[packed_offset + hash_index];
-                }
-                layers[level] = layer;
-                initialized += 1;
-                packed_offset += hash_count;
+            errdefer metal_tree.deinit();
+            const root_result = try metal_tree.root();
+            if (@sizeOf(H.Hash) != @sizeOf(@TypeOf(root_result.hash))) {
+                return error.UnsupportedMetalHash;
             }
-            std.debug.assert(packed_offset == packed_layers.len);
-            return .{ .layers = layers, .layer_allocator = layer_alloc };
+            const root_hash: H.Hash = @bitCast(root_result.hash);
+            return .{
+                .layers = &.{},
+                .layer_allocator = allocator,
+                .resident_tree = .{
+                    .handle = metal_tree.handle,
+                    .runtime_handle = metal_tree.runtime_handle,
+                    .destroy = @import("../../backends/metal/runtime.zig").Tree.destroyOpaque,
+                    .copy_hashes = @import("../../backends/metal/runtime.zig").Tree.copyHashesOpaque,
+                },
+                .metal_root = root_hash,
+                .metal_log_size = max_log_size,
+            };
         }
 
         /// Builds a Merkle tree by computing quotient values lazily from the
@@ -510,7 +527,10 @@ pub fn MerkleProverLifted(comptime H: type) type {
             query_positions: []const usize,
             columns: []const []const M31,
         ) !DecommitmentResult {
-            const max_log_size_u32: u32 = @intCast(self.layers.len - 1);
+            const max_log_size_u32: u32 = if (self.resident_tree != null)
+                self.metal_log_size
+            else
+                @intCast(self.layers.len - 1);
 
             const queried_values = try allocator.alloc([]M31, columns.len);
             var queried_values_initialized: usize = 0;
@@ -553,18 +573,38 @@ pub fn MerkleProverLifted(comptime H: type) type {
                 }
             }
 
-            var layer_log_size: i64 = @intCast(self.layers.len);
-            layer_log_size -= 2;
+            var layer_log_size: i64 = @intCast(max_log_size_u32);
+            layer_log_size -= 1;
             while (layer_log_size >= 0) : (layer_log_size -= 1) {
-                const prev_layer_hashes = self.layers[@intCast(layer_log_size + 1)];
-
                 var curr_layer_queries = std.ArrayList(usize).empty;
                 defer curr_layer_queries.deinit(allocator);
 
                 var all_node_values_for_layer = std.ArrayList(NodeValue).empty;
                 defer all_node_values_for_layer.deinit(allocator);
 
+                const child_indices = try allocator.alloc(u32, prev_layer_queries.items.len * 2);
+                defer allocator.free(child_indices);
+                var child_pair_count: usize = 0;
+                var scan: usize = 0;
+                while (scan < prev_layer_queries.items.len) {
+                    const first = prev_layer_queries.items[scan];
+                    const has_sibling = scan + 1 < prev_layer_queries.items.len and
+                        ((first ^ 1) == prev_layer_queries.items[scan + 1]);
+                    const curr_index = first >> 1;
+                    child_indices[2 * child_pair_count] = @intCast(2 * curr_index);
+                    child_indices[2 * child_pair_count + 1] = @intCast(2 * curr_index + 1);
+                    child_pair_count += 1;
+                    scan += if (has_sibling) 2 else 1;
+                }
+                const child_hashes = try self.readHashes(
+                    allocator,
+                    @intCast(layer_log_size + 1),
+                    child_indices[0 .. child_pair_count * 2],
+                );
+                defer allocator.free(child_hashes);
+
                 var p: usize = 0;
+                var pair_index: usize = 0;
                 while (p < prev_layer_queries.items.len) {
                     const first = prev_layer_queries.items[p];
                     var chunk_len: usize = 1;
@@ -575,20 +615,22 @@ pub fn MerkleProverLifted(comptime H: type) type {
                     }
 
                     if (chunk_len == 1) {
-                        try hash_witness.append(allocator, prev_layer_hashes[first ^ 1]);
+                        const sibling_offset: usize = if ((first & 1) == 0) 1 else 0;
+                        try hash_witness.append(allocator, child_hashes[2 * pair_index + sibling_offset]);
                     }
 
                     const curr_index = first >> 1;
                     try curr_layer_queries.append(allocator, curr_index);
                     try all_node_values_for_layer.append(allocator, .{
                         .index = 2 * curr_index,
-                        .hash = prev_layer_hashes[2 * curr_index],
+                        .hash = child_hashes[2 * pair_index],
                     });
                     try all_node_values_for_layer.append(allocator, .{
                         .index = 2 * curr_index + 1,
-                        .hash = prev_layer_hashes[2 * curr_index + 1],
+                        .hash = child_hashes[2 * pair_index + 1],
                     });
                     p += chunk_len;
+                    pair_index += 1;
                 }
 
                 prev_layer_queries.clearRetainingCapacity();
@@ -617,6 +659,36 @@ pub fn MerkleProverLifted(comptime H: type) type {
                     },
                 },
             };
+        }
+
+        fn readHashes(
+            self: Self,
+            allocator: std.mem.Allocator,
+            layer_log_size: u32,
+            indices: []const u32,
+        ) ![]H.Hash {
+            if (self.resident_tree) |tree| {
+                if (@sizeOf(H.Hash) != @sizeOf([32]u8)) return error.UnsupportedMetalHash;
+                const packed_hashes = tree.copy_hashes(
+                    tree.runtime_handle,
+                    tree.handle,
+                    allocator,
+                    layer_log_size,
+                    indices,
+                ) catch |err| switch (err) {
+                    error.OutOfMemory => return error.OutOfMemory,
+                    else => return error.InvalidColumnSize,
+                };
+                defer allocator.free(packed_hashes);
+                const out = try allocator.alloc(H.Hash, packed_hashes.len);
+                for (packed_hashes, out) |hash, *destination| destination.* = @bitCast(hash);
+                return out;
+            }
+
+            const layer = self.layers[layer_log_size];
+            const out = try allocator.alloc(H.Hash, indices.len);
+            for (indices, out) |index, *destination| destination.* = layer[index];
+            return out;
         }
 
         pub const ColumnRef = struct {

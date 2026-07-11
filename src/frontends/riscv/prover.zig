@@ -1162,13 +1162,15 @@ fn genAllFamilyColumns(
         for (0..n_initialized) |i| {
             const component_index = initialized_components[i];
             for (0..n_cols[component_index]) |ci| {
-                allocator.free(result.components[component_index].columns[ci]);
+                const values = result.components[component_index].columns[ci];
+                if (values.len != 0) allocator.free(values);
             }
         }
         // Free partially initialized columns in the family that failed.
         if (partial_cols > 0) {
             for (0..partial_cols) |ci| {
-                allocator.free(result.components[partial_fi].columns[ci]);
+                const values = result.components[partial_fi].columns[ci];
+                if (values.len != 0) allocator.free(values);
             }
         }
     }
@@ -1186,6 +1188,11 @@ fn genAllFamilyColumns(
         partial_fi = comp_idx;
         partial_cols = 0;
         for (0..n_cols[comp_idx]) |ci| {
+            if (!isCommittedFamilyColumn(desc.family, ci)) {
+                result.components[comp_idx].columns[ci] = &.{};
+                partial_cols = ci + 1;
+                continue;
+            }
             result.components[comp_idx].columns[ci] = try allocator.alloc(M31, domain_sizes[comp_idx]);
             @memset(result.components[comp_idx].columns[ci], M31.zero());
             partial_cols = ci + 1;
@@ -1652,7 +1659,7 @@ pub fn proveRiscVWithEngine(
         for (0..opcode_work.result.components[comp_idx].n_columns) |column| {
             const values = opcode_work.result.components[comp_idx].columns[column];
             if (!isCommittedFamilyColumn(desc.family, column)) {
-                allocator.free(values);
+                std.debug.assert(values.len == 0);
                 continue;
             }
             main_columns[opcode_col_offset + committed_column] = .{

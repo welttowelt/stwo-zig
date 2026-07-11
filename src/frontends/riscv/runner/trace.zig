@@ -185,6 +185,12 @@ inline fn writeU32Limbs(columns: *[MAX_FAMILY_COLUMNS][]M31, row_idx: usize, sta
     columns[start + 3][row_idx] = u32ToM31((val >> 24) & 0xFF);
 }
 
+fn writeZero(columns: *[MAX_FAMILY_COLUMNS][]M31, row_idx: usize, column: usize) void {
+    // Protocol-implicit zero columns are represented by an empty slice in the
+    // optimized trace generator and are neither materialized nor committed.
+    if (columns[column].len != 0) columns[column][row_idx] = M31.zero();
+}
+
 /// Write a 10-column register access block at columns[start..start+10].
 /// Layout: addr, prev_0..3, clk_prev, next_0..3
 /// State chain data (prev values, clk_prev) is placeholder (zero) for now.
@@ -197,12 +203,12 @@ inline fn writeRegAccess(
 ) void {
     columns[start][row_idx] = u32ToM31(addr); // addr (may be register index or memory address)
     // prev_0..3: placeholder zeros (state chain data TBD)
-    columns[start + 1][row_idx] = M31.zero();
-    columns[start + 2][row_idx] = M31.zero();
-    columns[start + 3][row_idx] = M31.zero();
-    columns[start + 4][row_idx] = M31.zero();
+    writeZero(columns, row_idx, start + 1);
+    writeZero(columns, row_idx, start + 2);
+    writeZero(columns, row_idx, start + 3);
+    writeZero(columns, row_idx, start + 4);
     // clk_prev: placeholder zero
-    columns[start + 5][row_idx] = M31.zero();
+    writeZero(columns, row_idx, start + 5);
     // next_0..3: decompose next_val into byte limbs
     writeU32Limbs(columns, row_idx, start + 6, next_val);
 }
@@ -543,13 +549,13 @@ pub fn fillFamilyColumns(
             c += 1;
             columns[c][row_idx] = if (is_lt) M31.one() else M31.zero(); // is_less_than
             c += 1;
-            columns[c][row_idx] = M31.zero(); // borrow (placeholder)
+            writeZero(columns, row_idx, c); // borrow (placeholder)
             c += 1;
             columns[c][row_idx] = u32ToM31(target_val & 0xFFFF); // branch_target_lo
             c += 1;
             columns[c][row_idx] = u32ToM31(target_val >> 16); // branch_target_hi
             c += 1;
-            columns[c][row_idx] = M31.zero(); // branch_target_aux (placeholder)
+            writeZero(columns, row_idx, c); // branch_target_aux (placeholder)
             c += 1;
             writeRegAccess(columns, row_idx, c, @as(u32, row.rs1), row.rs1_val);
             c += 10;

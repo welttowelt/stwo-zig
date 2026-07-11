@@ -2849,7 +2849,10 @@ fn evaluateCoefficientTreesWithBackend(
     allocator: std.mem.Allocator,
     lifting_log_size: u32,
 ) !bool {
-    for (trees) |tree| if (tree.coefficients == null) return false;
+    for (trees, 0..) |tree, tree_index| if (tree.coefficients == null) {
+        std.log.debug("backend sampled evaluation unavailable: tree {d} has no coefficients", .{tree_index});
+        return false;
+    };
 
     for (trees, tree_points_list, out) |tree, tree_points, tree_values| {
         const coefficients = tree.coefficients.?;
@@ -2859,10 +2862,6 @@ fn evaluateCoefficientTreesWithBackend(
         defer plan_index.deinit();
 
         for (tree.columns, tree_points, 0..) |column, points, column_index| {
-            if (coefficientsAreZero(coefficients[column_index])) {
-                @memset(tree_values[column_index], QM31.zero());
-                continue;
-            }
             const plan = try getOrCreateCoefficientEvalPlan(
                 allocator,
                 &plan_index,

@@ -13,6 +13,7 @@
 @property(nonatomic, strong) id<MTLComputePipelineState> quotients;
 @property(nonatomic, strong) id<MTLComputePipelineState> rawQuotients;
 @property(nonatomic, strong) id<MTLComputePipelineState> polynomialEval;
+@property(nonatomic, strong) id<MTLComputePipelineState> polynomialBasis;
 @end
 @implementation StwoZigMetalRuntime
 @end
@@ -89,16 +90,24 @@ void *stwo_zig_metal_runtime_create(
                                              error_message, error_message_len);
         runtime.polynomialEval = make_pipeline(device, library, @"stwo_zig_eval_polynomials",
                                                error_message, error_message_len);
+        runtime.polynomialBasis = make_pipeline(device, library, @"stwo_zig_eval_basis",
+                                                error_message, error_message_len);
         if (runtime.queue == nil || runtime.leaves == nil || runtime.parents == nil ||
-            runtime.quotients == nil || runtime.rawQuotients == nil || runtime.polynomialEval == nil) return NULL;
+            runtime.quotients == nil || runtime.rawQuotients == nil || runtime.polynomialEval == nil ||
+            runtime.polynomialBasis == nil) return NULL;
         return (__bridge_retained void *)runtime;
     }
 }
 
 bool stwo_zig_metal_eval_polynomials(
     void *runtime_ptr,
-    const uint32_t *coefficients, size_t coefficient_count,
+    const uint32_t *const *coefficients,
+    const size_t *coefficient_lengths,
+    uint32_t coefficient_column_count,
+    size_t coefficient_count,
     const uint32_t *factors, size_t factor_word_count,
+    const void *basis_tasks, uint32_t basis_task_count,
+    uint32_t basis_count,
     const void *tasks, uint32_t task_count,
     uint32_t output_count,
     uint32_t *output,
@@ -107,8 +116,7 @@ bool stwo_zig_metal_eval_polynomials(
 ) {
     @autoreleasepool {
         StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
-        id<MTLBuffer> coefficient_buffer = [runtime.device newBufferWithBytes:coefficients
-                                                                       length:coefficient_count * sizeof(uint32_t)
+        id<MTLBuffer> coefficient_buffer = [runtime.device newBufferWithLength:coefficient_count * sizeof(uint32_t)
                                                                       options:MTLResourceStorageModeShared];
         id<MTLBuffer> factor_buffer = [runtime.device newBufferWithBytes:factors
                                                                   length:factor_word_count * sizeof(uint32_t)
@@ -116,17 +124,40 @@ bool stwo_zig_metal_eval_polynomials(
         id<MTLBuffer> task_buffer = [runtime.device newBufferWithBytes:tasks
                                                                 length:(NSUInteger)task_count * 5u * sizeof(uint32_t)
                                                                options:MTLResourceStorageModeShared];
+        id<MTLBuffer> basis_task_buffer = [runtime.device newBufferWithBytes:basis_tasks
+                                                                      length:(NSUInteger)basis_task_count * 4u * sizeof(uint32_t)
+                                                                     options:MTLResourceStorageModeShared];
+        id<MTLBuffer> basis_buffer = [runtime.device newBufferWithLength:(NSUInteger)basis_count * 4u * sizeof(uint32_t)
+                                                                 options:MTLResourceStorageModePrivate];
         id<MTLBuffer> output_buffer = [runtime.device newBufferWithLength:(NSUInteger)output_count * 4u * sizeof(uint32_t)
                                                                  options:MTLResourceStorageModeShared];
-        if (coefficient_buffer == nil || factor_buffer == nil || task_buffer == nil || output_buffer == nil) {
+        if (coefficient_buffer == nil || factor_buffer == nil || task_buffer == nil ||
+            basis_task_buffer == nil || basis_buffer == nil || output_buffer == nil) {
             write_error(error_message, error_message_len, @"Metal polynomial evaluation allocation failed");
             return false;
         }
+        uint32_t *coefficient_destination = coefficient_buffer.contents;
+        size_t coefficient_cursor = 0;
+        for (uint32_t i = 0; i < coefficient_column_count; ++i) {
+            memcpy(coefficient_destination + coefficient_cursor, coefficients[i],
+                   coefficient_lengths[i] * sizeof(uint32_t));
+            coefficient_cursor += coefficient_lengths[i];
+        }
         id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
+        id<MTLComputeCommandEncoder> basis_encoder = [command computeCommandEncoder];
+        [basis_encoder setComputePipelineState:runtime.polynomialBasis];
+        [basis_encoder setBuffer:factor_buffer offset:0 atIndex:0];
+        [basis_encoder setBuffer:basis_task_buffer offset:0 atIndex:1];
+        [basis_encoder setBytes:&basis_task_count length:sizeof(basis_task_count) atIndex:2];
+        [basis_encoder setBuffer:basis_buffer offset:0 atIndex:3];
+        NSUInteger basis_width = MIN((NSUInteger)256u, runtime.polynomialBasis.maxTotalThreadsPerThreadgroup);
+        [basis_encoder dispatchThreadgroups:MTLSizeMake(basis_task_count, 1, 1)
+                      threadsPerThreadgroup:MTLSizeMake(basis_width, 1, 1)];
+        [basis_encoder endEncoding];
         id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
         [encoder setComputePipelineState:runtime.polynomialEval];
         [encoder setBuffer:coefficient_buffer offset:0 atIndex:0];
-        [encoder setBuffer:factor_buffer offset:0 atIndex:1];
+        [encoder setBuffer:basis_buffer offset:0 atIndex:1];
         [encoder setBuffer:task_buffer offset:0 atIndex:2];
         [encoder setBytes:&task_count length:sizeof(task_count) atIndex:3];
         [encoder setBuffer:output_buffer offset:0 atIndex:4];
@@ -433,6 +464,58 @@ bool stwo_zig_metal_tree_copy_layers(
             return false;
         }
         memcpy(destination, readback.contents, required);
+        return true;
+    }
+}
+
+bool stwo_zig_metal_tree_copy_hashes(
+    void *runtime_ptr,
+    void *tree_ptr,
+    uint32_t layer_log_size,
+    const uint32_t *indices,
+    uint32_t index_count,
+    uint8_t *destination,
+    char *error_message,
+    size_t error_message_len
+) {
+    if (runtime_ptr == NULL || tree_ptr == NULL || indices == NULL || destination == NULL) return false;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        StwoZigMetalTree *tree = (__bridge StwoZigMetalTree *)tree_ptr;
+        if (layer_log_size > tree.logSize) {
+            write_error(error_message, error_message_len, @"Invalid Metal layer log size");
+            return false;
+        }
+        uint32_t layer_count = 1u << layer_log_size;
+        for (uint32_t i = 0; i < index_count; ++i) {
+            if (indices[i] >= layer_count) {
+                write_error(error_message, error_message_len, @"Invalid Metal layer hash index");
+                return false;
+            }
+        }
+
+        id<MTLBuffer> source = tree.layers[(NSUInteger)(tree.logSize - layer_log_size)];
+        id<MTLBuffer> readback = [runtime.device newBufferWithLength:(NSUInteger)index_count * 32u
+                                                            options:MTLResourceStorageModeShared];
+        if (readback == nil) {
+            write_error(error_message, error_message_len, @"Metal selective readback allocation failed");
+            return false;
+        }
+        id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
+        id<MTLBlitCommandEncoder> blit = [command blitCommandEncoder];
+        for (uint32_t i = 0; i < index_count; ++i) {
+            [blit copyFromBuffer:source sourceOffset:(NSUInteger)indices[i] * 32u
+                       toBuffer:readback destinationOffset:(NSUInteger)i * 32u size:32u];
+        }
+        [blit endEncoding];
+        [command commit];
+        [command waitUntilCompleted];
+        if (command.status == MTLCommandBufferStatusError) {
+            write_error(error_message, error_message_len,
+                        command.error.localizedDescription ?: @"Metal selective hash readback failed");
+            return false;
+        }
+        memcpy(destination, readback.contents, (NSUInteger)index_count * 32u);
         return true;
     }
 }

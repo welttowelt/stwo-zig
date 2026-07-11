@@ -326,12 +326,43 @@ kernel void stwo_zig_quotient_rows_raw(
 }
 
 struct PolynomialEvalTask {
-    uint coefficient_offset, coefficient_length, factor_offset, log_size, output_index;
+    uint coefficient_offset, coefficient_length, basis_offset, log_size, output_index;
 };
+
+struct PolynomialBasisTask {
+    uint factor_offset, log_size, basis_offset, basis_length;
+};
+
+kernel void stwo_zig_eval_basis(
+    device const uint *factors [[buffer(0)]],
+    device const PolynomialBasisTask *tasks [[buffer(1)]],
+    constant uint &task_count [[buffer(2)]],
+    device Qm31Value *basis [[buffer(3)]],
+    uint lane [[thread_index_in_threadgroup]],
+    uint group_width [[threads_per_threadgroup]],
+    uint task_index [[threadgroup_position_in_grid]]
+) {
+    if (task_index >= task_count) return;
+    PolynomialBasisTask task = tasks[task_index];
+    for (uint coefficient_index = lane; coefficient_index < task.basis_length; coefficient_index += group_width) {
+        Qm31Value value = { 1u, 0u, 0u, 0u };
+        uint bits = coefficient_index;
+        for (uint bit = 0; bit < task.log_size && bits != 0u; ++bit) {
+            if ((bits & 1u) != 0u) {
+                uint factor_base = task.factor_offset + bit * 4u;
+                Qm31Value factor = { factors[factor_base], factors[factor_base + 1u],
+                                     factors[factor_base + 2u], factors[factor_base + 3u] };
+                value = qm_mul(value, factor);
+            }
+            bits >>= 1u;
+        }
+        basis[task.basis_offset + coefficient_index] = value;
+    }
+}
 
 kernel void stwo_zig_eval_polynomials(
     device const uint *coefficients [[buffer(0)]],
-    device const uint *factors [[buffer(1)]],
+    device const Qm31Value *basis [[buffer(1)]],
     device const PolynomialEvalTask *tasks [[buffer(2)]],
     constant uint &task_count [[buffer(3)]],
     device uint *output [[buffer(4)]],
@@ -343,20 +374,10 @@ kernel void stwo_zig_eval_polynomials(
     PolynomialEvalTask task = tasks[task_index];
     Qm31Value partial_value = { 0u, 0u, 0u, 0u };
     for (uint coefficient_index = lane; coefficient_index < task.coefficient_length; coefficient_index += group_width) {
-        Qm31Value basis = { 1u, 0u, 0u, 0u };
-        uint bits = coefficient_index;
-        for (uint bit = 0; bit < task.log_size && bits != 0u; ++bit) {
-            if ((bits & 1u) != 0u) {
-                uint factor_base = task.factor_offset + bit * 4u;
-                Qm31Value factor = { factors[factor_base], factors[factor_base + 1u],
-                                     factors[factor_base + 2u], factors[factor_base + 3u] };
-                basis = qm_mul(basis, factor);
-            }
-            bits >>= 1u;
-        }
         partial_value = qm_add(
             partial_value,
-            qm_mul_m31(basis, coefficients[task.coefficient_offset + coefficient_index])
+            qm_mul_m31(basis[task.basis_offset + coefficient_index],
+                       coefficients[task.coefficient_offset + coefficient_index])
         );
     }
     threadgroup Qm31Value partials[256];

@@ -34,6 +34,16 @@ extern fn stwo_zig_metal_tree_copy_layers(
     error_message: [*]u8,
     error_message_len: usize,
 ) bool;
+extern fn stwo_zig_metal_tree_copy_hashes(
+    runtime: *anyopaque,
+    tree: *anyopaque,
+    layer_log_size: u32,
+    indices: [*]const u32,
+    index_count: u32,
+    destination: [*]u8,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
 extern fn stwo_zig_metal_compute_quotients(
     runtime: *anyopaque,
     flat_views: [*]const u32,
@@ -57,10 +67,15 @@ extern fn stwo_zig_metal_compute_quotients(
 ) bool;
 extern fn stwo_zig_metal_eval_polynomials(
     runtime: *anyopaque,
-    coefficients: [*]const u32,
+    coefficients: [*]const [*]const u32,
+    coefficient_lengths: [*]const usize,
+    coefficient_column_count: u32,
     coefficient_count: usize,
     factors: [*]const u32,
     factor_word_count: usize,
+    basis_tasks: *const anyopaque,
+    basis_task_count: u32,
+    basis_count: u32,
     tasks: *const anyopaque,
     task_count: u32,
     output_count: u32,
@@ -156,7 +171,7 @@ pub const Runtime = struct {
             std.log.err("Metal commitment failed: {s}", .{std.mem.sliceTo(&message, 0)});
             return MetalError.CommitmentFailed;
         };
-        return .{ .handle = tree };
+        return .{ .handle = tree, .runtime_handle = self.handle, .log_size = lifting_log_size };
     }
 
     pub fn computeQuotients(
@@ -335,30 +350,35 @@ pub const Runtime = struct {
     ) (MetalError || std.mem.Allocator.Error)!f64 {
         const coefficient_offsets = try allocator.alloc(u32, coefficients.len);
         defer allocator.free(coefficient_offsets);
+        const coefficient_ptrs = try allocator.alloc([*]const u32, coefficients.len);
+        defer allocator.free(coefficient_ptrs);
+        const coefficient_lengths = try allocator.alloc(usize, coefficients.len);
+        defer allocator.free(coefficient_lengths);
         var coefficient_count: usize = 0;
         for (coefficients, 0..) |coefficient, index| {
-            coefficient_offsets[index] = @intCast(coefficient_count);
-            coefficient_count += coefficient.coefficients().len;
-        }
-        const coefficient_words = try allocator.alloc(u32, coefficient_count);
-        defer allocator.free(coefficient_words);
-        var coefficient_cursor: usize = 0;
-        for (coefficients) |coefficient| {
             const words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(coefficient.coefficients()));
-            @memcpy(coefficient_words[coefficient_cursor .. coefficient_cursor + words.len], words);
-            coefficient_cursor += words.len;
+            coefficient_offsets[index] = @intCast(coefficient_count);
+            coefficient_ptrs[index] = words.ptr;
+            coefficient_lengths[index] = words.len;
+            coefficient_count += words.len;
         }
 
         var factor_word_count: usize = 0;
         var task_count: usize = 0;
+        var basis_task_count: usize = 0;
+        var basis_count: usize = 0;
         for (plans) |plan| {
             factor_word_count += plan.flat_factors.len * 4;
             task_count += plan.column_indices.items.len * plan.normalized_points.len;
+            basis_task_count += plan.normalized_points.len;
+            basis_count += plan.normalized_points.len * (@as(usize, 1) << @intCast(plan.coeff_log_size));
         }
         const factor_words = try allocator.alloc(u32, factor_word_count);
         defer allocator.free(factor_words);
         const task_words = try allocator.alloc(u32, task_count * 5);
         defer allocator.free(task_words);
+        const basis_task_words = try allocator.alloc(u32, basis_task_count * 4);
+        defer allocator.free(basis_task_words);
 
         const output_offsets = try allocator.alloc(u32, tree_values.len);
         defer allocator.free(output_offsets);
@@ -370,7 +390,10 @@ pub const Runtime = struct {
 
         var factor_cursor: usize = 0;
         var task_cursor: usize = 0;
+        var basis_task_cursor: usize = 0;
+        var basis_cursor: usize = 0;
         for (plans) |plan| {
+            const plan_factor_start = factor_cursor;
             for (plan.flat_factors) |factor| {
                 const coordinates = factor.toM31Array();
                 inline for (0..4) |coordinate| {
@@ -378,13 +401,26 @@ pub const Runtime = struct {
                     factor_cursor += 1;
                 }
             }
+            const plan_basis_start = basis_cursor;
+            const coefficient_length = @as(usize, 1) << @intCast(plan.coeff_log_size);
+            for (0..plan.normalized_points.len) |point_index| {
+                const base = basis_task_cursor * 4;
+                basis_task_words[base..][0..4].* = .{
+                    @intCast(plan_factor_start + point_index * plan.coeff_log_size * 4),
+                    plan.coeff_log_size,
+                    @intCast(basis_cursor),
+                    @intCast(coefficient_length),
+                };
+                basis_task_cursor += 1;
+                basis_cursor += coefficient_length;
+            }
             for (plan.column_indices.items) |column_index| {
                 for (0..plan.normalized_points.len) |point_index| {
                     const base = task_cursor * 5;
                     task_words[base..][0..5].* = .{
                         coefficient_offsets[column_index],
                         @intCast(coefficients[column_index].coefficients().len),
-                        @intCast(factor_cursor - plan.flat_factors.len * 4 + point_index * plan.coeff_log_size * 4),
+                        @intCast(plan_basis_start + point_index * coefficient_length),
                         plan.coeff_log_size,
                         output_offsets[column_index] + @as(u32, @intCast(point_index)),
                     };
@@ -399,10 +435,15 @@ pub const Runtime = struct {
         var message: [1024]u8 = [_]u8{0} ** 1024;
         if (!stwo_zig_metal_eval_polynomials(
             self.handle,
-            coefficient_words.ptr,
-            coefficient_words.len,
+            coefficient_ptrs.ptr,
+            coefficient_lengths.ptr,
+            @intCast(coefficients.len),
+            coefficient_count,
             factor_words.ptr,
             factor_words.len,
+            @ptrCast(basis_task_words.ptr),
+            @intCast(basis_task_count),
+            @intCast(basis_count),
             @ptrCast(task_words.ptr),
             @intCast(task_count),
             @intCast(output_count),
@@ -429,10 +470,31 @@ pub const Runtime = struct {
 
 pub const Tree = struct {
     handle: *anyopaque,
+    runtime_handle: *anyopaque,
+    log_size: u32,
 
     pub fn deinit(self: *Tree) void {
         stwo_zig_metal_tree_destroy(self.handle);
         self.* = undefined;
+    }
+
+    pub fn destroyOpaque(handle: *anyopaque) void {
+        stwo_zig_metal_tree_destroy(handle);
+    }
+
+    pub fn copyHashesOpaque(
+        runtime_handle: *anyopaque,
+        handle: *anyopaque,
+        allocator: std.mem.Allocator,
+        layer_log_size: u32,
+        indices: []const u32,
+    ) anyerror![][32]u8 {
+        const tree = Tree{
+            .handle = handle,
+            .runtime_handle = runtime_handle,
+            .log_size = layer_log_size,
+        };
+        return tree.copyHashes(allocator, layer_log_size, indices);
     }
 
     pub fn root(self: Tree) MetalError!struct { hash: [32]u8, gpu_ms: f64 } {
@@ -440,6 +502,40 @@ pub const Tree = struct {
         var gpu_ms: f64 = 0;
         if (!stwo_zig_metal_tree_root(self.handle, &hash, &gpu_ms)) return MetalError.RootReadFailed;
         return .{ .hash = hash, .gpu_ms = gpu_ms };
+    }
+
+    /// Reads only selected hashes from one logical root-to-leaf layer.
+    /// `layer_log_size == 0` addresses the root and `log_size` the leaves.
+    pub fn copyHashes(
+        self: Tree,
+        allocator: std.mem.Allocator,
+        layer_log_size: u32,
+        indices: []const u32,
+    ) (MetalError || std.mem.Allocator.Error)![][32]u8 {
+        if (layer_log_size > self.log_size) return MetalError.RootReadFailed;
+        const layer_len = @as(usize, 1) << @intCast(layer_log_size);
+        for (indices) |index| {
+            if (index >= layer_len) return MetalError.RootReadFailed;
+        }
+        const output = try allocator.alloc([32]u8, indices.len);
+        errdefer allocator.free(output);
+        if (indices.len == 0) return output;
+
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_tree_copy_hashes(
+            self.runtime_handle,
+            self.handle,
+            layer_log_size,
+            indices.ptr,
+            @intCast(indices.len),
+            @ptrCast(output.ptr),
+            &message,
+            message.len,
+        )) {
+            std.log.err("Metal selective hash readback failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.RootReadFailed;
+        }
+        return output;
     }
 
     /// Copies all layers in root-to-leaf order. This is a compatibility path

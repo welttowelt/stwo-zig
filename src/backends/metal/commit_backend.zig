@@ -48,6 +48,22 @@ pub const MetalCommitBackend = struct {
         std.log.debug("Metal quotient kernel: {d:.3}ms", .{gpu_ms});
     }
 
+    pub fn evaluateCoefficientPlans(
+        allocator: std.mem.Allocator,
+        coefficients: anytype,
+        tree_values: anytype,
+        plans: anytype,
+    ) !void {
+        if (plans.len == 0) return;
+        const gpu_ms = try (try runtime()).evaluateCoefficientPlans(
+            allocator,
+            coefficients,
+            tree_values,
+            plans,
+        );
+        std.log.debug("Metal sampled-value kernel: {d:.3}ms", .{gpu_ms});
+    }
+
     pub const ColumnType = cpu.ColumnType;
     pub const batchInverse = cpu.batchInverse;
     pub const interpolate = cpu.interpolate;
