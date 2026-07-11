@@ -25,6 +25,22 @@ extern fn stwo_zig_metal_clear_arena_ranges(
     error_message: [*]u8,
     error_message_len: usize,
 ) bool;
+extern fn stwo_zig_metal_arena_copy_prepare(
+    runtime: *anyopaque,
+    ranges: [*]const ArenaCopyRange,
+    range_count: u32,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
+extern fn stwo_zig_metal_arena_copy_plan_destroy(plan: ?*anyopaque) void;
+extern fn stwo_zig_metal_arena_copy_prepared(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    plan: *anyopaque,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
 extern fn stwo_zig_metal_witness_feed_prepare(
     runtime: *anyopaque,
     descriptors: [*]const u32,
@@ -410,6 +426,206 @@ extern fn stwo_zig_metal_fri_fold_line(
     error_message: [*]u8,
     error_message_len: usize,
 ) bool;
+extern fn stwo_zig_metal_fri_fold_prepare(
+    runtime: *anyopaque,
+    source_offset_words: u32,
+    inverse_offset_words: u32,
+    alpha_offset_words: u32,
+    destination_offset_words: u32,
+    source_count: u32,
+    circle: bool,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
+extern fn stwo_zig_metal_fri_fold_plan_destroy(plan: ?*anyopaque) void;
+extern fn stwo_zig_metal_fri_fold_prepared(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    plan: *anyopaque,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_quotient_combine_prepare(
+    runtime: *anyopaque,
+    partial_offsets: [*]const u32,
+    partial_logs: [*]const u32,
+    sample_count: u32,
+    sample_offset: u32,
+    linear_offset: u32,
+    scratch_offset: u32,
+    output_offset: u32,
+    row_count: u32,
+    log_size: u32,
+    initial_index: u32,
+    step_size: u32,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
+extern fn stwo_zig_metal_quotient_combine_plan_destroy(plan: ?*anyopaque) void;
+extern fn stwo_zig_metal_quotient_combine_prepared(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    plan: *anyopaque,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_fri_round_prepare(
+    runtime: *anyopaque,
+    twiddle_base: u32,
+    twiddle_words: u32,
+    input_base: u32,
+    input_stride: u32,
+    alpha_base: u32,
+    output_base: u32,
+    output_stride: u32,
+    n: u32,
+    fold_count: u32,
+    first_circle: bool,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
+extern fn stwo_zig_metal_fri_round_plan_destroy(plan: ?*anyopaque) void;
+extern fn stwo_zig_metal_fri_round_prepared(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    plan: *anyopaque,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_fri_tree_prepare(
+    runtime: *anyopaque,
+    evaluation_base: u32,
+    coordinate_stride: u32,
+    evaluation_size: u32,
+    log_rows_per_leaf: u32,
+    layer_offsets: [*]const u32,
+    layer_count: u32,
+    leaf_seed: *const [8]u32,
+    node_seed: *const [8]u32,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
+extern fn stwo_zig_metal_fri_tree_plan_destroy(plan: ?*anyopaque) void;
+extern fn stwo_zig_metal_fri_tree_prepared(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    plan: *anyopaque,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_fri_final_prepare(
+    runtime: *anyopaque,
+    evaluation_base: u32,
+    coordinate_stride: u32,
+    inverse_x: u32,
+    coefficient_base: u32,
+    degree_error: u32,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
+extern fn stwo_zig_metal_fri_final_plan_destroy(plan: ?*anyopaque) void;
+extern fn stwo_zig_metal_fri_final_prepared(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    plan: *anyopaque,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_transcript_init(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    state_base: u32,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_transcript_mix(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    state_base: u32,
+    source_base: u32,
+    source_words: u32,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_transcript_draw_secure(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    state_base: u32,
+    destination_base: u32,
+    felt_count: u32,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_transcript_draw_queries(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    state_base: u32,
+    destination_base: u32,
+    log_domain_size: u32,
+    query_count: u32,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_decommit_normalize_queries(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    raw_base: u32,
+    raw_count: u32,
+    log_domain_size: u32,
+    unique_base: u32,
+    unique_count_base: u32,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_decommit_prepare_fri_queries(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    unique_base: u32,
+    unique_count_base: u32,
+    max_queries: u32,
+    cumulative_fold: u32,
+    fold_step: u32,
+    packed_log: u32,
+    tree_queries_base: u32,
+    tree_count_base: u32,
+    expanded_base: u32,
+    expanded_count_base: u32,
+    walk_base: u32,
+    walk_count_base: u32,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_decommit_prepare_trace_queries(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    unique_base: u32,
+    unique_count_base: u32,
+    max_queries: u32,
+    source_log: u32,
+    tree_log: u32,
+    leaf_log: u32,
+    unretained: u32,
+    mapped_base: u32,
+    mapped_count_base: u32,
+    walk_base: u32,
+    walk_count_base: u32,
+    leaves_base: u32,
+    leaf_count_base: u32,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
 extern fn stwo_zig_metal_qm31_to_coordinates(
     runtime: *anyopaque,
     source: [*]const u32,
@@ -576,6 +792,40 @@ pub const Runtime = struct {
             return MetalError.RuntimeInitializationFailed;
         };
         return .{ .handle = handle, .contents = contents, .byte_length = byte_length };
+    }
+
+    pub fn prepareArenaCopies(self: *Runtime, ranges: []const ArenaCopyRange) MetalError!ArenaCopyPlan {
+        if (ranges.len == 0) return MetalError.InvalidColumns;
+        for (ranges) |range| if (range.word_count == 0) return MetalError.InvalidColumns;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        const handle = stwo_zig_metal_arena_copy_prepare(
+            self.handle,
+            ranges.ptr,
+            @intCast(ranges.len),
+            &message,
+            message.len,
+        ) orelse {
+            std.log.err("Metal arena copy preparation failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.InvalidColumns;
+        };
+        return .{ .handle = handle };
+    }
+
+    pub fn arenaCopyPrepared(self: *Runtime, arena: ResidentBuffer, plan: ArenaCopyPlan) MetalError!f64 {
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_arena_copy_prepared(
+            self.handle,
+            arena.handle,
+            plan.handle,
+            &gpu_ms,
+            &message,
+            message.len,
+        )) {
+            std.log.err("Metal prepared arena copy failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.InvalidColumns;
+        }
+        return gpu_ms;
     }
 
     pub fn clearArenaRanges(self: *Runtime, arena: ResidentBuffer, ranges: []const [2]u32) MetalError!void {
@@ -1427,6 +1677,319 @@ pub const Runtime = struct {
         return gpu_ms;
     }
 
+    pub fn prepareFriFold(
+        self: *Runtime,
+        source_offset_words: u32,
+        inverse_offset_words: u32,
+        alpha_offset_words: u32,
+        destination_offset_words: u32,
+        source_count: u32,
+        circle: bool,
+    ) MetalError!FriFoldPlan {
+        if (source_count < 2 or source_count & 1 != 0) return MetalError.InvalidColumns;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        const handle = stwo_zig_metal_fri_fold_prepare(
+            self.handle,
+            source_offset_words,
+            inverse_offset_words,
+            alpha_offset_words,
+            destination_offset_words,
+            source_count,
+            circle,
+            &message,
+            message.len,
+        ) orelse {
+            std.log.err("Metal FRI fold preparation failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CircleTransformFailed;
+        };
+        return .{ .handle = handle };
+    }
+
+    pub fn friFoldPrepared(self: *Runtime, arena: ResidentBuffer, plan: FriFoldPlan) MetalError!f64 {
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_fri_fold_prepared(
+            self.handle,
+            arena.handle,
+            plan.handle,
+            &gpu_ms,
+            &message,
+            message.len,
+        )) {
+            std.log.err("Metal prepared FRI fold failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CircleTransformFailed;
+        }
+        return gpu_ms;
+    }
+
+    pub fn prepareQuotientCombine(
+        self: *Runtime,
+        partial_offsets: []const u32,
+        partial_logs: []const u32,
+        sample_offset: u32,
+        linear_offset: u32,
+        scratch_offset: u32,
+        output_offset: u32,
+        log_size: u32,
+        initial_index: u32,
+        step_size: u32,
+    ) MetalError!QuotientCombinePlan {
+        if (partial_logs.len == 0 or partial_offsets.len != partial_logs.len * 4 or log_size < 2 or log_size >= 31)
+            return MetalError.QuotientFailed;
+        for (partial_logs) |partial_log| if (partial_log > log_size) return MetalError.QuotientFailed;
+        const row_count = @as(u32, 1) << @intCast(log_size);
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        const handle = stwo_zig_metal_quotient_combine_prepare(
+            self.handle,
+            partial_offsets.ptr,
+            partial_logs.ptr,
+            @intCast(partial_logs.len),
+            sample_offset,
+            linear_offset,
+            scratch_offset,
+            output_offset,
+            row_count,
+            log_size,
+            initial_index,
+            step_size,
+            &message,
+            message.len,
+        ) orelse {
+            std.log.err("Metal quotient-combine preparation failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.QuotientFailed;
+        };
+        return .{ .handle = handle };
+    }
+
+    pub fn quotientCombinePrepared(self: *Runtime, arena: ResidentBuffer, plan: QuotientCombinePlan) MetalError!f64 {
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_quotient_combine_prepared(
+            self.handle,
+            arena.handle,
+            plan.handle,
+            &gpu_ms,
+            &message,
+            message.len,
+        )) {
+            std.log.err("Metal prepared quotient combine failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.QuotientFailed;
+        }
+        return gpu_ms;
+    }
+
+    pub fn prepareFriRound(
+        self: *Runtime,
+        twiddle_base: u32,
+        twiddle_words: u32,
+        input_base: u32,
+        input_stride: u32,
+        alpha_base: u32,
+        output_base: u32,
+        output_stride: u32,
+        n: u32,
+        fold_count: u32,
+        first_circle: bool,
+    ) MetalError!FriRoundPlan {
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        const handle = stwo_zig_metal_fri_round_prepare(
+            self.handle,
+            twiddle_base,
+            twiddle_words,
+            input_base,
+            input_stride,
+            alpha_base,
+            output_base,
+            output_stride,
+            n,
+            fold_count,
+            first_circle,
+            &message,
+            message.len,
+        ) orelse {
+            std.log.err("Metal FRI round preparation failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CircleTransformFailed;
+        };
+        return .{ .handle = handle };
+    }
+
+    pub fn friRoundPrepared(self: *Runtime, arena: ResidentBuffer, plan: FriRoundPlan) MetalError!f64 {
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_fri_round_prepared(self.handle, arena.handle, plan.handle, &gpu_ms, &message, message.len)) {
+            std.log.err("Metal prepared FRI round failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CircleTransformFailed;
+        }
+        return gpu_ms;
+    }
+
+    pub fn prepareFriTree(
+        self: *Runtime,
+        evaluation_base: u32,
+        coordinate_stride: u32,
+        evaluation_size: u32,
+        log_rows_per_leaf: u32,
+        layer_offsets: []const u32,
+        leaf_seed: [8]u32,
+        node_seed: [8]u32,
+    ) MetalError!FriTreePlan {
+        if (layer_offsets.len < 2) return MetalError.CommitmentFailed;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        const handle = stwo_zig_metal_fri_tree_prepare(
+            self.handle,
+            evaluation_base,
+            coordinate_stride,
+            evaluation_size,
+            log_rows_per_leaf,
+            layer_offsets.ptr,
+            @intCast(layer_offsets.len),
+            &leaf_seed,
+            &node_seed,
+            &message,
+            message.len,
+        ) orelse {
+            std.log.err("Metal FRI tree preparation failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CommitmentFailed;
+        };
+        return .{ .handle = handle };
+    }
+
+    pub fn friTreePrepared(self: *Runtime, arena: ResidentBuffer, plan: FriTreePlan) MetalError!f64 {
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_fri_tree_prepared(self.handle, arena.handle, plan.handle, &gpu_ms, &message, message.len)) {
+            std.log.err("Metal prepared FRI tree failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CommitmentFailed;
+        }
+        return gpu_ms;
+    }
+
+    pub fn prepareFriFinal(
+        self: *Runtime,
+        evaluation_base: u32,
+        coordinate_stride: u32,
+        inverse_x: u32,
+        coefficient_base: u32,
+        degree_error: u32,
+    ) MetalError!FriFinalPlan {
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        const handle = stwo_zig_metal_fri_final_prepare(
+            self.handle,
+            evaluation_base,
+            coordinate_stride,
+            inverse_x,
+            coefficient_base,
+            degree_error,
+            &message,
+            message.len,
+        ) orelse {
+            std.log.err("Metal FRI final preparation failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CircleTransformFailed;
+        };
+        return .{ .handle = handle };
+    }
+
+    pub fn friFinalPrepared(self: *Runtime, arena: ResidentBuffer, plan: FriFinalPlan) MetalError!f64 {
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_fri_final_prepared(self.handle, arena.handle, plan.handle, &gpu_ms, &message, message.len)) {
+            std.log.err("Metal prepared FRI final failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CircleTransformFailed;
+        }
+        return gpu_ms;
+    }
+
+    pub fn transcriptInit(self: *Runtime, arena: ResidentBuffer, state_base: u32) MetalError!f64 {
+        return self.transcriptCall(arena, stwo_zig_metal_transcript_init, .{state_base});
+    }
+
+    pub fn transcriptMix(self: *Runtime, arena: ResidentBuffer, state_base: u32, source_base: u32, source_words: u32) MetalError!f64 {
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_transcript_mix(self.handle, arena.handle, state_base, source_base, source_words, &gpu_ms, &message, message.len)) {
+            std.log.err("Metal transcript mix failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CommitmentFailed;
+        }
+        return gpu_ms;
+    }
+
+    fn transcriptCall(self: *Runtime, arena: ResidentBuffer, comptime call: anytype, args: anytype) MetalError!f64 {
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!@call(.auto, call, .{ self.handle, arena.handle } ++ args ++ .{ &gpu_ms, &message, message.len })) {
+            std.log.err("Metal transcript operation failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CommitmentFailed;
+        }
+        return gpu_ms;
+    }
+
+    pub fn transcriptDrawSecure(self: *Runtime, arena: ResidentBuffer, state_base: u32, destination_base: u32, felt_count: u32) MetalError!f64 {
+        return self.transcriptCall(arena, stwo_zig_metal_transcript_draw_secure, .{ state_base, destination_base, felt_count });
+    }
+
+    pub fn transcriptDrawQueries(self: *Runtime, arena: ResidentBuffer, state_base: u32, destination_base: u32, log_domain_size: u32, query_count: u32) MetalError!f64 {
+        return self.transcriptCall(arena, stwo_zig_metal_transcript_draw_queries, .{ state_base, destination_base, log_domain_size, query_count });
+    }
+
+    pub fn decommitNormalizeQueries(
+        self: *Runtime,
+        arena: ResidentBuffer,
+        raw_base: u32,
+        raw_count: u32,
+        log_domain_size: u32,
+        unique_base: u32,
+        unique_count_base: u32,
+    ) MetalError!f64 {
+        return self.transcriptCall(arena, stwo_zig_metal_decommit_normalize_queries, .{
+            raw_base, raw_count, log_domain_size, unique_base, unique_count_base,
+        });
+    }
+
+    pub fn decommitPrepareFriQueries(
+        self: *Runtime,
+        arena: ResidentBuffer,
+        unique_base: u32,
+        unique_count_base: u32,
+        max_queries: u32,
+        cumulative_fold: u32,
+        fold_step: u32,
+        packed_log: u32,
+        tree_queries_base: u32,
+        tree_count_base: u32,
+        expanded_base: u32,
+        expanded_count_base: u32,
+        walk_base: u32,
+        walk_count_base: u32,
+    ) MetalError!f64 {
+        return self.transcriptCall(arena, stwo_zig_metal_decommit_prepare_fri_queries, .{
+            unique_base,       unique_count_base, max_queries,   cumulative_fold,     fold_step, packed_log,
+            tree_queries_base, tree_count_base,   expanded_base, expanded_count_base, walk_base, walk_count_base,
+        });
+    }
+
+    pub fn decommitPrepareTraceQueries(
+        self: *Runtime,
+        arena: ResidentBuffer,
+        unique_base: u32,
+        unique_count_base: u32,
+        max_queries: u32,
+        source_log: u32,
+        tree_log: u32,
+        leaf_log: u32,
+        unretained: u32,
+        mapped_base: u32,
+        mapped_count_base: u32,
+        walk_base: u32,
+        walk_count_base: u32,
+        leaves_base: u32,
+        leaf_count_base: u32,
+    ) MetalError!f64 {
+        return self.transcriptCall(arena, stwo_zig_metal_decommit_prepare_trace_queries, .{
+            unique_base, unique_count_base, max_queries, source_log,      tree_log,    leaf_log,        unretained,
+            mapped_base, mapped_count_base, walk_base,   walk_count_base, leaves_base, leaf_count_base,
+        });
+    }
+
     pub fn qm31ToCoordinates(
         self: *Runtime,
         source: [*]const u32,
@@ -1949,6 +2512,21 @@ pub const Runtime = struct {
     }
 };
 
+pub const ArenaCopyRange = extern struct {
+    source_word_offset: u32,
+    destination_word_offset: u32,
+    word_count: u32,
+};
+
+pub const ArenaCopyPlan = struct {
+    handle: *anyopaque,
+
+    pub fn deinit(self: *ArenaCopyPlan) void {
+        stwo_zig_metal_arena_copy_plan_destroy(self.handle);
+        self.* = undefined;
+    }
+};
+
 pub const WitnessFeedPlan = struct {
     handle: *anyopaque,
 
@@ -2179,6 +2757,48 @@ pub const RelationPlan = struct {
 
     pub fn deinit(self: *RelationPlan) void {
         stwo_zig_metal_relation_plan_destroy(self.handle);
+        self.* = undefined;
+    }
+};
+
+pub const FriFoldPlan = struct {
+    handle: *anyopaque,
+
+    pub fn deinit(self: *FriFoldPlan) void {
+        stwo_zig_metal_fri_fold_plan_destroy(self.handle);
+        self.* = undefined;
+    }
+};
+
+pub const QuotientCombinePlan = struct {
+    handle: *anyopaque,
+
+    pub fn deinit(self: *QuotientCombinePlan) void {
+        stwo_zig_metal_quotient_combine_plan_destroy(self.handle);
+        self.* = undefined;
+    }
+};
+
+pub const FriRoundPlan = struct {
+    handle: *anyopaque,
+    pub fn deinit(self: *FriRoundPlan) void {
+        stwo_zig_metal_fri_round_plan_destroy(self.handle);
+        self.* = undefined;
+    }
+};
+
+pub const FriTreePlan = struct {
+    handle: *anyopaque,
+    pub fn deinit(self: *FriTreePlan) void {
+        stwo_zig_metal_fri_tree_plan_destroy(self.handle);
+        self.* = undefined;
+    }
+};
+
+pub const FriFinalPlan = struct {
+    handle: *anyopaque,
+    pub fn deinit(self: *FriFinalPlan) void {
+        stwo_zig_metal_fri_final_plan_destroy(self.handle);
         self.* = undefined;
     }
 };

@@ -69,6 +69,108 @@ inline void blake2s_compress(
     for (uint i = 0; i < 8u; ++i) state[i] ^= v[i] ^ v[i + 8u];
 }
 
+inline void blake2s_init_hash(thread uint *state) {
+    for (uint i = 0u; i < 8u; ++i) state[i] = blake2s_iv[i];
+    state[0] ^= 0x01010020u;
+}
+
+inline void transcript_hash_digest_words(
+    device uint *arena, uint state_base, uint source_base, uint source_words
+) {
+    uint hash[8], block[16];
+    blake2s_init_hash(hash);
+    uint total_words = 8u + source_words;
+    uint total_bytes = total_words * 4u;
+    uint consumed = 0u;
+    while (consumed < total_words) {
+        uint count = min(16u, total_words - consumed);
+        for (uint i = 0u; i < 16u; ++i) block[i] = 0u;
+        for (uint i = 0u; i < count; ++i) {
+            uint at = consumed + i;
+            block[i] = at < 8u ? arena[state_base + at] : arena[source_base + at - 8u];
+        }
+        consumed += count;
+        blake2s_compress(hash, block, min(consumed * 4u, total_bytes), consumed == total_words);
+    }
+    for (uint i = 0u; i < 8u; ++i) arena[state_base + i] = hash[i];
+    arena[state_base + 8u] = 0u;
+}
+
+inline void transcript_draw_words(device uint *arena, uint state_base, uint counter, thread uint *output) {
+    uint hash[8], block[16];
+    blake2s_init_hash(hash);
+    for (uint i = 0u; i < 16u; ++i) block[i] = 0u;
+    for (uint i = 0u; i < 8u; ++i) block[i] = arena[state_base + i];
+    block[8] = counter;
+    blake2s_compress(hash, block, 37u, true);
+    for (uint i = 0u; i < 8u; ++i) output[i] = hash[i];
+}
+
+kernel void stwo_zig_transcript_init_resident(
+    device uint *arena [[buffer(0)]], constant uint &state_base [[buffer(1)]],
+    uint lane [[thread_position_in_grid]]
+) {
+    if (lane != 0u) return;
+    for (uint i = 0u; i < 9u; ++i) arena[state_base + i] = 0u;
+}
+
+kernel void stwo_zig_transcript_mix_resident(
+    device uint *arena [[buffer(0)]], constant uint &state_base [[buffer(1)]],
+    constant uint &source_base [[buffer(2)]], constant uint &source_words [[buffer(3)]],
+    uint lane [[thread_position_in_grid]]
+) {
+    if (lane != 0u) return;
+    transcript_hash_digest_words(arena, state_base, source_base, source_words);
+}
+
+kernel void stwo_zig_transcript_draw_secure_resident(
+    device uint *arena [[buffer(0)]], constant uint &state_base [[buffer(1)]],
+    constant uint &destination_base [[buffer(2)]], constant uint &felt_count [[buffer(3)]],
+    uint lane [[thread_position_in_grid]]
+) {
+    if (lane != 0u) return;
+    uint produced = 0u, target = felt_count * 4u;
+    uint counter = arena[state_base + 8u];
+    while (produced < target) {
+        uint words[8];
+        bool accepted = false;
+        for (uint attempt = 0u; attempt < 64u; ++attempt) {
+            transcript_draw_words(arena, state_base, counter++, words);
+            accepted = true;
+            for (uint i = 0u; i < 8u; ++i) accepted = accepted && words[i] < 0xfffffffeu;
+            if (accepted) break;
+        }
+        if (!accepted) {
+            arena[state_base + 9u] = 1u;
+            arena[state_base + 8u] = counter;
+            return;
+        }
+        for (uint i = 0u; i < 8u && produced < target; ++i) {
+            arena[destination_base + produced] = words[i] >= 0x7fffffffu ? words[i] - 0x7fffffffu : words[i];
+            ++produced;
+        }
+    }
+    arena[state_base + 8u] = counter;
+}
+
+kernel void stwo_zig_transcript_draw_queries_resident(
+    device uint *arena [[buffer(0)]], constant uint &state_base [[buffer(1)]],
+    constant uint &destination_base [[buffer(2)]], constant uint &log_domain_size [[buffer(3)]],
+    constant uint &query_count [[buffer(4)]], uint lane [[thread_position_in_grid]]
+) {
+    if (lane != 0u) return;
+    uint mask = log_domain_size == 0u ? 0u : ((1u << log_domain_size) - 1u);
+    uint produced = 0u;
+    uint counter = arena[state_base + 8u];
+    while (produced < query_count) {
+        uint words[8];
+        transcript_draw_words(arena, state_base, counter++, words);
+        for (uint i = 0u; i < 8u && produced < query_count; ++i)
+            arena[destination_base + produced++] = words[i] & mask;
+    }
+    arena[state_base + 8u] = counter;
+}
+
 inline uint lifted_index(uint index, uint log_ratio) {
     if (log_ratio == 0u) return index;
     return ((index >> (log_ratio + 1u)) << 1u) | (index & 1u);
@@ -1830,6 +1932,440 @@ kernel void stwo_zig_quotient_finalize(
     output[row_count + row] = accumulator.b;
     output[2u * row_count + row] = accumulator.c;
     output[3u * row_count + row] = accumulator.d;
+}
+
+struct CircleM31Value { uint x, y; };
+
+inline CircleM31Value circle_mul(CircleM31Value lhs, CircleM31Value rhs) {
+    return {
+        m31_sub(m31_mul(lhs.x, rhs.x), m31_mul(lhs.y, rhs.y)),
+        m31_add(m31_mul(lhs.x, rhs.y), m31_mul(lhs.y, rhs.x)),
+    };
+}
+
+inline CircleM31Value circle_pow(uint exponent) {
+    CircleM31Value result = { 1u, 0u };
+    CircleM31Value base = { 2u, 1268011823u };
+    while (exponent != 0u) {
+        if ((exponent & 1u) != 0u) result = circle_mul(result, base);
+        base = circle_mul(base, base);
+        exponent >>= 1u;
+    }
+    return result;
+}
+
+inline CircleM31Value quotient_domain_point(
+    uint initial_index,
+    uint step_size,
+    uint row,
+    uint row_count,
+    uint log_size
+) {
+    uint domain_index = reverse_bits(row) >> (32u - log_size);
+    uint half_count = row_count >> 1u;
+    uint local = domain_index < half_count ? domain_index : domain_index - half_count;
+    ulong global = (ulong)initial_index + (ulong)step_size * local;
+    uint exponent = (uint)(global & 0x7ffffffful);
+    if (domain_index >= half_count) exponent = (0x80000000u - exponent) & 0x7fffffffu;
+    return circle_pow(exponent);
+}
+
+kernel void stwo_zig_quotient_domain_points_resident(
+    device uint *arena [[buffer(0)]],
+    constant uint &destination_offset [[buffer(1)]],
+    constant uint &row_count [[buffer(2)]],
+    constant uint &log_size [[buffer(3)]],
+    constant uint &initial_index [[buffer(4)]],
+    constant uint &step_size [[buffer(5)]],
+    uint row [[thread_position_in_grid]]
+) {
+    if (row >= row_count) return;
+    CircleM31Value point = quotient_domain_point(initial_index, step_size, row, row_count, log_size);
+    arena[destination_offset + row] = point.x;
+    arena[destination_offset + row_count + row] = point.y;
+}
+
+kernel void stwo_zig_quotient_denominators_resident(
+    device uint *arena [[buffer(0)]],
+    constant uint &domain_offset [[buffer(1)]],
+    constant uint &sample_offset [[buffer(2)]],
+    constant uint &scratch_offset [[buffer(3)]],
+    constant uint &row_count [[buffer(4)]],
+    constant uint &sample_count [[buffer(5)]],
+    uint gid [[thread_position_in_grid]]
+) {
+    uint total = row_count * sample_count;
+    if (gid >= total) return;
+    uint row = gid / sample_count;
+    uint sample = gid - row * sample_count;
+    uint base = sample_offset + sample * 8u;
+    Cm31Value prx = { arena[base], arena[base + 1u] };
+    Cm31Value pix = { arena[base + 2u], arena[base + 3u] };
+    Cm31Value pry = { arena[base + 4u], arena[base + 5u] };
+    Cm31Value piy = { arena[base + 6u], arena[base + 7u] };
+    uint x = arena[domain_offset + row];
+    uint y = arena[domain_offset + row_count + row];
+    Cm31Value denominator = cm_sub(
+        cm_mul(cm_sub(prx, { x, 0u }), piy),
+        cm_mul(cm_sub(pry, { y, 0u }), pix)
+    );
+    Cm31Value inverse = cm_inv(denominator);
+    arena[scratch_offset + gid * 2u] = inverse.a;
+    arena[scratch_offset + gid * 2u + 1u] = inverse.b;
+}
+
+kernel void stwo_zig_quotient_combine_resident(
+    device uint *arena [[buffer(0)]],
+    device const uint *partial_offsets [[buffer(1)]],
+    device const uint *partial_logs [[buffer(2)]],
+    constant uint &sample_offset [[buffer(3)]],
+    constant uint &linear_offset [[buffer(4)]],
+    constant uint &scratch_offset [[buffer(5)]],
+    constant uint &output_offset [[buffer(6)]],
+    constant uint &row_count [[buffer(7)]],
+    constant uint &log_size [[buffer(8)]],
+    constant uint &sample_count [[buffer(9)]],
+    uint row [[thread_position_in_grid]]
+) {
+    if (row >= row_count) return;
+    uint y = arena[output_offset + row_count + row];
+    Qm31Value quotient = { 0u, 0u, 0u, 0u };
+    for (uint sample = 0u; sample < sample_count; ++sample) {
+        uint partial_log = partial_logs[sample];
+        uint log_ratio = log_size - partial_log;
+        uint lifted = (row >> (log_ratio + 1u) << 1u) + (row & 1u);
+        Qm31Value partial = {
+            arena[partial_offsets[sample] + lifted],
+            arena[partial_offsets[sample_count + sample] + lifted],
+            arena[partial_offsets[2u * sample_count + sample] + lifted],
+            arena[partial_offsets[3u * sample_count + sample] + lifted],
+        };
+        uint linear = linear_offset + sample * 4u;
+        Qm31Value first = { arena[linear], arena[linear + 1u], arena[linear + 2u], arena[linear + 3u] };
+        uint inverse = scratch_offset + (row * sample_count + sample) * 2u;
+        quotient = qm_add(quotient, qm_mul_cm(
+            qm_sub(partial, qm_mul_m31(first, y)),
+            { arena[inverse], arena[inverse + 1u] }
+        ));
+    }
+    arena[output_offset + row] = quotient.a;
+    arena[output_offset + row_count + row] = quotient.b;
+    arena[output_offset + 2u * row_count + row] = quotient.c;
+    arena[output_offset + 3u * row_count + row] = quotient.d;
+}
+
+inline Qm31Value fri_load_planar(device const uint *arena, uint base, uint stride, uint index) {
+    return {
+        arena[base + index], arena[base + stride + index],
+        arena[base + 2u * stride + index], arena[base + 3u * stride + index],
+    };
+}
+
+inline uint fri_circle_twiddle(device const uint *twiddles, uint offset, uint index) {
+    uint k = index >> 2u;
+    uint a = twiddles[offset + 2u * k];
+    uint b = twiddles[offset + 2u * k + 1u];
+    switch (index & 3u) {
+        case 0u: return b;
+        case 1u: return m31_neg(b);
+        case 2u: return m31_neg(a);
+        default: return a;
+    }
+}
+
+inline Qm31Value fri_fold_pair(Qm31Value left, Qm31Value right, uint inverse, Qm31Value alpha) {
+    return qm_add(qm_add(left, right), qm_mul(alpha, qm_mul_m31(qm_sub(left, right), inverse)));
+}
+
+kernel void stwo_zig_fri_fold3_resident(
+    device uint *arena [[buffer(0)]],
+    constant uint &twiddle_base [[buffer(1)]],
+    constant uint &twiddle_offset_0 [[buffer(2)]],
+    constant uint &twiddle_offset_1 [[buffer(3)]],
+    constant uint &twiddle_offset_2 [[buffer(4)]],
+    constant uint &input_base [[buffer(5)]],
+    constant uint &input_stride [[buffer(6)]],
+    constant uint &alpha_base [[buffer(7)]],
+    constant uint &output_base [[buffer(8)]],
+    constant uint &output_stride [[buffer(9)]],
+    constant uint &n [[buffer(10)]],
+    constant uint &first_circle [[buffer(11)]],
+    uint index [[thread_position_in_grid]]
+) {
+    if (index >= (n >> 3u)) return;
+    Qm31Value alpha0 = { arena[alpha_base], arena[alpha_base + 1u], arena[alpha_base + 2u], arena[alpha_base + 3u] };
+    Qm31Value alpha1 = qm_mul(alpha0, alpha0);
+    Qm31Value alpha2 = qm_mul(alpha1, alpha1);
+    Qm31Value stage0[4];
+    for (uint k = 0u; k < 4u; ++k) {
+        uint out = 4u * index + k;
+        uint inverse = first_circle != 0u
+            ? fri_circle_twiddle(arena, twiddle_base + twiddle_offset_0, out)
+            : arena[twiddle_base + twiddle_offset_0 + out];
+        stage0[k] = fri_fold_pair(
+            fri_load_planar(arena, input_base, input_stride, 2u * out),
+            fri_load_planar(arena, input_base, input_stride, 2u * out + 1u),
+            inverse,
+            alpha0
+        );
+    }
+    Qm31Value stage1[2];
+    for (uint k = 0u; k < 2u; ++k) {
+        uint out = 2u * index + k;
+        stage1[k] = fri_fold_pair(
+            stage0[2u * k], stage0[2u * k + 1u],
+            arena[twiddle_base + twiddle_offset_1 + out], alpha1
+        );
+    }
+    Qm31Value result = fri_fold_pair(
+        stage1[0], stage1[1], arena[twiddle_base + twiddle_offset_2 + index], alpha2
+    );
+    arena[output_base + index] = result.a;
+    arena[output_base + output_stride + index] = result.b;
+    arena[output_base + 2u * output_stride + index] = result.c;
+    arena[output_base + 3u * output_stride + index] = result.d;
+}
+
+kernel void stwo_zig_fri_fold2_resident(
+    device uint *arena [[buffer(0)]],
+    constant uint &twiddle_base [[buffer(1)]],
+    constant uint &twiddle_offset_0 [[buffer(2)]],
+    constant uint &twiddle_offset_1 [[buffer(3)]],
+    constant uint &input_base [[buffer(4)]],
+    constant uint &input_stride [[buffer(5)]],
+    constant uint &alpha_base [[buffer(6)]],
+    constant uint &output_base [[buffer(7)]],
+    constant uint &output_stride [[buffer(8)]],
+    constant uint &n [[buffer(9)]],
+    uint index [[thread_position_in_grid]]
+) {
+    if (index >= (n >> 2u)) return;
+    Qm31Value alpha0 = { arena[alpha_base], arena[alpha_base + 1u], arena[alpha_base + 2u], arena[alpha_base + 3u] };
+    Qm31Value alpha1 = qm_mul(alpha0, alpha0);
+    Qm31Value stage0[2];
+    for (uint k = 0u; k < 2u; ++k) {
+        uint out = 2u * index + k;
+        stage0[k] = fri_fold_pair(
+            fri_load_planar(arena, input_base, input_stride, 2u * out),
+            fri_load_planar(arena, input_base, input_stride, 2u * out + 1u),
+            arena[twiddle_base + twiddle_offset_0 + out], alpha0
+        );
+    }
+    Qm31Value result = fri_fold_pair(
+        stage0[0], stage0[1], arena[twiddle_base + twiddle_offset_1 + index], alpha1
+    );
+    arena[output_base + index] = result.a;
+    arena[output_base + output_stride + index] = result.b;
+    arena[output_base + 2u * output_stride + index] = result.c;
+    arena[output_base + 3u * output_stride + index] = result.d;
+}
+
+kernel void stwo_zig_fri_packed_leaves_resident(
+    device uint *arena [[buffer(0)]],
+    constant uint &evaluation_base [[buffer(1)]],
+    constant uint &coordinate_stride [[buffer(2)]],
+    constant uint &evaluation_size [[buffer(3)]],
+    constant uint &log_rows_per_leaf [[buffer(4)]],
+    constant uint &destination_base [[buffer(5)]],
+    constant uint *leaf_seed [[buffer(6)]],
+    uint leaf [[thread_position_in_grid]]
+) {
+    uint leaf_count = evaluation_size >> log_rows_per_leaf;
+    if (leaf >= leaf_count) return;
+    uint state[8], message[16];
+    for (uint i = 0u; i < 8u; ++i) state[i] = leaf_seed[i];
+    for (uint i = 0u; i < 16u; ++i) message[i] = 0u;
+    if (log_rows_per_leaf == 0u) {
+        for (uint coordinate = 0u; coordinate < 4u; ++coordinate)
+            message[coordinate] = arena[evaluation_base + coordinate * coordinate_stride + leaf];
+        blake2s_compress(state, message, 80u, true);
+    } else {
+        for (uint offset = 0u; offset < 4u; ++offset) {
+            for (uint coordinate = 0u; coordinate < 4u; ++coordinate) {
+                message[coordinate + 4u * offset] =
+                    arena[evaluation_base + coordinate * coordinate_stride + 4u * leaf + offset];
+            }
+        }
+        blake2s_compress(state, message, 128u, true);
+    }
+    for (uint i = 0u; i < 8u; ++i) arena[destination_base + leaf * 8u + i] = state[i];
+}
+
+kernel void stwo_zig_fri_final_line_resident(
+    device uint *arena [[buffer(0)]],
+    constant uint &evaluation_base [[buffer(1)]],
+    constant uint &coordinate_stride [[buffer(2)]],
+    constant uint &inverse_x [[buffer(3)]],
+    constant uint &coefficient_base [[buffer(4)]],
+    constant uint &degree_error [[buffer(5)]],
+    uint lane [[thread_position_in_grid]]
+) {
+    if (lane != 0u) return;
+    Qm31Value left = fri_load_planar(arena, evaluation_base, coordinate_stride, 0u);
+    Qm31Value right = fri_load_planar(arena, evaluation_base, coordinate_stride, 1u);
+    Qm31Value c0 = qm_mul_m31(qm_add(left, right), 1073741824u);
+    Qm31Value c1 = qm_mul_m31(qm_mul_m31(qm_sub(left, right), inverse_x), 1073741824u);
+    arena[coefficient_base] = c0.a;
+    arena[coefficient_base + 1u] = c0.b;
+    arena[coefficient_base + 2u] = c0.c;
+    arena[coefficient_base + 3u] = c0.d;
+    arena[coefficient_base + 4u] = c1.a;
+    arena[coefficient_base + 5u] = c1.b;
+    arena[coefficient_base + 6u] = c1.c;
+    arena[coefficient_base + 7u] = c1.d;
+    arena[degree_error] = (c1.a | c1.b | c1.c | c1.d) != 0u ? 1u : 0u;
+}
+
+inline uint decommit_sort_unique(device uint *values, uint count) {
+    for (uint i = 1u; i < count; ++i) {
+        uint value = values[i], j = i;
+        while (j != 0u && values[j - 1u] > value) {
+            values[j] = values[j - 1u];
+            --j;
+        }
+        values[j] = value;
+    }
+    uint unique = 0u;
+    for (uint i = 0u; i < count; ++i) {
+        if (unique == 0u || values[i] != values[unique - 1u]) values[unique++] = values[i];
+    }
+    return unique;
+}
+
+/// Canonicalizes the transcript's raw query positions once. Query counts are
+/// protocol constants, so a serial insertion sort is faster than allocating a
+/// device radix-sort workspace and keeps the prepared graph pointer-stable.
+kernel void stwo_zig_decommit_normalize_queries_resident(
+    device uint *arena [[buffer(0)]],
+    constant uint &raw_base [[buffer(1)]],
+    constant uint &raw_count [[buffer(2)]],
+    constant uint &log_domain_size [[buffer(3)]],
+    constant uint &unique_base [[buffer(4)]],
+    constant uint &unique_count_base [[buffer(5)]],
+    uint lane [[thread_position_in_grid]]
+) {
+    if (lane != 0u) return;
+    uint mask = (1u << log_domain_size) - 1u;
+    for (uint i = 0u; i < raw_count; ++i) arena[unique_base + i] = arena[raw_base + i] & mask;
+    arena[unique_count_base] = decommit_sort_unique(arena + unique_base, raw_count);
+}
+
+kernel void stwo_zig_decommit_prepare_fri_queries_resident(
+    device uint *arena [[buffer(0)]],
+    constant uint &unique_base [[buffer(1)]],
+    constant uint &unique_count_base [[buffer(2)]],
+    constant uint &max_queries [[buffer(3)]],
+    constant uint &cumulative_fold [[buffer(4)]],
+    constant uint &fold_step [[buffer(5)]],
+    constant uint &packed_log [[buffer(6)]],
+    constant uint &tree_queries_base [[buffer(7)]],
+    constant uint &tree_count_base [[buffer(8)]],
+    constant uint &expanded_base [[buffer(9)]],
+    constant uint &expanded_count_base [[buffer(10)]],
+    constant uint &walk_base [[buffer(11)]],
+    constant uint &walk_count_base [[buffer(12)]],
+    uint lane [[thread_position_in_grid]]
+) {
+    if (lane != 0u) return;
+    uint count = min(arena[unique_count_base], max_queries);
+    for (uint i = 0u; i < count; ++i) arena[tree_queries_base + i] = arena[unique_base + i] >> cumulative_fold;
+    uint queries = decommit_sort_unique(arena + tree_queries_base, count);
+    arena[tree_count_base] = queries;
+    uint out = 0u, previous_coset = 0xffffffffu, coset_size = 1u << fold_step;
+    for (uint i = 0u; i < queries; ++i) {
+        uint coset = arena[tree_queries_base + i] >> fold_step;
+        if (coset == previous_coset) continue;
+        previous_coset = coset;
+        uint start = coset << fold_step;
+        for (uint j = 0u; j < coset_size; ++j) arena[expanded_base + out++] = start + j;
+    }
+    arena[expanded_count_base] = out;
+    for (uint i = 0u; i < out; ++i) arena[walk_base + i] = arena[expanded_base + i] >> packed_log;
+    arena[walk_count_base] = decommit_sort_unique(arena + walk_base, out);
+}
+
+inline uint decommit_map_query_log(uint position, uint source_log, uint target_log) {
+    if (source_log < target_log) return ((position >> 1u) << (target_log - source_log + 1u)) | (position & 1u);
+    return ((position >> (source_log - target_log + 1u)) << 1u) | (position & 1u);
+}
+
+kernel void stwo_zig_decommit_prepare_trace_queries_resident(
+    device uint *arena [[buffer(0)]],
+    constant uint &unique_base [[buffer(1)]],
+    constant uint &unique_count_base [[buffer(2)]],
+    constant uint &max_queries [[buffer(3)]],
+    constant uint &source_log [[buffer(4)]],
+    constant uint &tree_log [[buffer(5)]],
+    constant uint &leaf_log [[buffer(6)]],
+    constant uint &unretained [[buffer(7)]],
+    constant uint &mapped_base [[buffer(8)]],
+    constant uint &mapped_count_base [[buffer(9)]],
+    constant uint &walk_base [[buffer(10)]],
+    constant uint &walk_count_base [[buffer(11)]],
+    constant uint &leaf_indices_base [[buffer(12)]],
+    constant uint &leaf_count_base [[buffer(13)]],
+    uint lane [[thread_position_in_grid]]
+) {
+    if (lane != 0u) return;
+    uint count = min(arena[unique_count_base], max_queries);
+    for (uint i = 0u; i < count; ++i) {
+        arena[mapped_base + i] = decommit_map_query_log(arena[unique_base + i], source_log, tree_log);
+        arena[walk_base + i] = arena[mapped_base + i];
+    }
+    arena[mapped_count_base] = count;
+    uint dedup = decommit_sort_unique(arena + walk_base, count);
+    arena[walk_count_base] = dedup;
+    if (unretained == 0u) { arena[leaf_count_base] = 0u; return; }
+    uint span = 1u << unretained, leaves = 0u;
+    for (uint i = 0u; i < dedup; ++i) {
+        uint base = (arena[walk_base + i] >> unretained) << unretained;
+        for (uint j = 0u; j < span; ++j) arena[leaf_indices_base + leaves++] = base + j;
+    }
+    arena[leaf_count_base] = decommit_sort_unique(arena + leaf_indices_base, leaves);
+    (void)leaf_log;
+}
+
+inline uint decommit_lifted_index(uint position, uint lifting_log, uint column_log) {
+    uint shift = lifting_log - column_log;
+    return shift == 0u ? position : ((position >> (shift + 1u)) << 1u) + (position & 1u);
+}
+
+kernel void stwo_zig_decommit_gather_trace_values_resident(
+    device uint *arena [[buffer(0)]],
+    constant uint &column_offsets_base [[buffer(1)]],
+    constant uint &column_logs_base [[buffer(2)]],
+    constant uint &column_count [[buffer(3)]],
+    constant uint &lifting_log [[buffer(4)]],
+    constant uint &queries_base [[buffer(5)]],
+    constant uint &query_count_base [[buffer(6)]],
+    constant uint &max_queries [[buffer(7)]],
+    constant uint &first_column [[buffer(8)]],
+    constant uint &stride [[buffer(9)]],
+    constant uint &output_base [[buffer(10)]],
+    uint3 grid_position [[thread_position_in_grid]]
+) {
+    uint query = grid_position.x, column = grid_position.y;
+    if (column >= column_count || query >= min(arena[query_count_base], max_queries)) return;
+    uint row = decommit_lifted_index(arena[queries_base + query], lifting_log, arena[column_logs_base + column]);
+    uint value = arena[arena[column_offsets_base + column] + row];
+    arena[output_base + (first_column + column) * stride + query] = value < 0x7fffffffu ? value : value % 0x7fffffffu;
+}
+
+kernel void stwo_zig_decommit_gather_fri_values_resident(
+    device uint *arena [[buffer(0)]],
+    constant uint *coordinate_bases [[buffer(1)]],
+    constant uint &positions_base [[buffer(2)]],
+    constant uint &count_base [[buffer(3)]],
+    constant uint &max_positions [[buffer(4)]],
+    constant uint &values_base [[buffer(5)]],
+    uint index [[thread_position_in_grid]]
+) {
+    if (index >= min(arena[count_base], max_positions)) return;
+    uint position = arena[positions_base + index];
+    for (uint coordinate = 0u; coordinate < 4u; ++coordinate) {
+        uint value = arena[coordinate_bases[coordinate] + position];
+        arena[values_base + 4u * index + coordinate] = value < 0x7fffffffu ? value : value % 0x7fffffffu;
+    }
 }
 
 struct PolynomialEvalTask {

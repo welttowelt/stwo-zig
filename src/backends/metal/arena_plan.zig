@@ -90,17 +90,29 @@ pub const Plan = struct {
 
     pub fn validate(self: Plan, budget_bytes: u64) (std.mem.Allocator.Error || Error)!void {
         if (self.total_bytes > budget_bytes) return Error.BudgetExceeded;
-        const occupied_by_slot = try self.allocator.alloc(TickSet, self.slots.len);
-        defer self.allocator.free(occupied_by_slot);
-        @memset(occupied_by_slot, [_]u64{0} ** (max_ticks / 64));
-        for (self.bindings) |first| {
-            const first_slot = self.slots[first.slot];
-            if (first.offset_bytes != first_slot.offset_bytes or
-                first.size_bytes > first_slot.capacity_bytes or
-                first.offset_bytes + first.size_bytes > self.total_bytes)
+        if (self.bindings.len != self.slots.len) return Error.BindingOutOfBounds;
+        for (self.bindings, 0..) |bound, index| {
+            const slot = self.slots[bound.slot];
+            if (bound.slot != index or bound.offset_bytes != slot.offset_bytes or
+                bound.size_bytes != slot.capacity_bytes or
+                bound.offset_bytes + bound.size_bytes > self.total_bytes)
                 return Error.BindingOutOfBounds;
-            if (intersects(occupied_by_slot[first.slot], first.occupied)) return Error.AliasOverlap;
-            unionInto(&occupied_by_slot[first.slot], first.occupied);
+        }
+        const active = try self.allocator.alloc(Binding, self.bindings.len);
+        defer self.allocator.free(active);
+        for (0..max_ticks) |tick| {
+            var count: usize = 0;
+            for (self.bindings) |bound| {
+                if (!hasTick(bound.occupied, @intCast(tick))) continue;
+                active[count] = bound;
+                count += 1;
+            }
+            std.mem.sortUnstable(Binding, active[0..count], {}, offsetLessThan);
+            if (count > 1) {
+                for (active[1..count], active[0 .. count - 1]) |current, previous| {
+                    if (rangesOverlap(previous, current)) return Error.AliasOverlap;
+                }
+            }
         }
     }
 };
@@ -132,61 +144,75 @@ pub fn build(
     }
     std.mem.sortUnstable(WorkBuffer, work, logical, WorkBuffer.lessThan);
 
-    var slots = std.ArrayList(Slot).empty;
-    defer slots.deinit(allocator);
     var unsorted_bindings = std.ArrayList(Binding).empty;
     defer unsorted_bindings.deinit(allocator);
-
+    var slots = std.ArrayList(Slot).empty;
+    defer slots.deinit(allocator);
+    var tick_bindings: [max_ticks]std.ArrayList(u32) = [_]std.ArrayList(u32){.empty} ** max_ticks;
+    defer for (&tick_bindings) |*items| items.deinit(allocator);
+    const seen = try allocator.alloc(u32, logical.len);
+    defer allocator.free(seen);
+    @memset(seen, 0);
+    var generation: u32 = 0;
+    var conflicts = std.ArrayList(MemoryRange).empty;
+    defer conflicts.deinit(allocator);
+    var total_bytes: u64 = 0;
     for (work) |item| {
         const buffer = logical[item.input_index];
-        var candidate: ?usize = null;
-        var candidate_growth: u64 = std.math.maxInt(u64);
-        var candidate_capacity: u64 = std.math.maxInt(u64);
-        for (slots.items, 0..) |slot, slot_index| {
-            if (intersects(slot.occupied, item.occupied)) continue;
-            const capacity = @max(slot.capacity_bytes, buffer.size_bytes);
-            const growth = capacity - slot.capacity_bytes;
-            if (growth < candidate_growth or
-                (growth == candidate_growth and capacity < candidate_capacity))
-            {
-                candidate = slot_index;
-                candidate_growth = growth;
-                candidate_capacity = capacity;
+        conflicts.clearRetainingCapacity();
+        generation +%= 1;
+        if (generation == 0) {
+            @memset(seen, 0);
+            generation = 1;
+        }
+        for (0..max_ticks) |tick| {
+            if (!hasTick(item.occupied, @intCast(tick))) continue;
+            for (tick_bindings[tick].items) |binding_index| {
+                if (seen[binding_index] == generation) continue;
+                seen[binding_index] = generation;
+                const binding = unsorted_bindings.items[binding_index];
+                try conflicts.append(allocator, .{
+                    .start = binding.offset_bytes,
+                    .end = std.math.add(u64, binding.offset_bytes, binding.size_bytes) catch return Error.SizeOverflow,
+                });
             }
         }
-        const slot_index = candidate orelse blk: {
-            try slots.append(allocator, .{
-                .offset_bytes = 0,
-                .capacity_bytes = 0,
-                .alignment = buffer.alignment,
-                .occupied = [_]u64{0} ** (max_ticks / 64),
-            });
-            break :blk slots.items.len - 1;
-        };
-        var slot = &slots.items[slot_index];
-        slot.capacity_bytes = @max(slot.capacity_bytes, buffer.size_bytes);
-        slot.alignment = @max(slot.alignment, buffer.alignment);
-        unionInto(&slot.occupied, item.occupied);
+        std.mem.sortUnstable(MemoryRange, conflicts.items, {}, MemoryRange.lessThan);
+        var offset = try alignForward(0, buffer.alignment);
+        for (conflicts.items) |conflict| {
+            const end = std.math.add(u64, offset, buffer.size_bytes) catch return Error.SizeOverflow;
+            if (end <= conflict.start) break;
+            if (offset < conflict.end) offset = try alignForward(conflict.end, buffer.alignment);
+        }
+        const binding_index: u32 = @intCast(unsorted_bindings.items.len);
         try unsorted_bindings.append(allocator, .{
             .logical_id = buffer.id,
-            .slot = @intCast(slot_index),
-            .offset_bytes = 0,
+            .slot = binding_index,
+            .offset_bytes = offset,
             .size_bytes = buffer.size_bytes,
             .materialization = item.materialization,
             .occupied = item.occupied,
         });
-    }
-
-    var total_bytes: u64 = 0;
-    for (slots.items) |*slot| {
-        total_bytes = try alignForward(total_bytes, slot.alignment);
-        slot.offset_bytes = total_bytes;
-        total_bytes = std.math.add(u64, total_bytes, slot.capacity_bytes) catch return Error.SizeOverflow;
+        try slots.append(allocator, .{
+            .offset_bytes = offset,
+            .capacity_bytes = buffer.size_bytes,
+            .alignment = buffer.alignment,
+            .occupied = item.occupied,
+        });
+        total_bytes = @max(total_bytes, std.math.add(u64, offset, buffer.size_bytes) catch return Error.SizeOverflow);
+        for (0..max_ticks) |tick| {
+            if (hasTick(item.occupied, @intCast(tick))) try tick_bindings[tick].append(allocator, binding_index);
+        }
     }
     total_bytes = try alignForward(total_bytes, 16 * 1024);
     if (total_bytes > budget_bytes) return Error.BudgetExceeded;
-    for (unsorted_bindings.items) |*binding| binding.offset_bytes = slots.items[binding.slot].offset_bytes;
     std.mem.sortUnstable(Binding, unsorted_bindings.items, {}, bindingLessThan);
+    const ordered_slots = try allocator.alloc(Slot, slots.items.len);
+    errdefer allocator.free(ordered_slots);
+    for (unsorted_bindings.items, 0..) |*binding, index| {
+        ordered_slots[index] = slots.items[binding.slot];
+        binding.slot = @intCast(index);
+    }
 
     var actions = std.ArrayList(Action).empty;
     defer actions.deinit(allocator);
@@ -198,8 +224,7 @@ pub fn build(
 
     const owned_bindings = try unsorted_bindings.toOwnedSlice(allocator);
     errdefer allocator.free(owned_bindings);
-    const owned_slots = try slots.toOwnedSlice(allocator);
-    errdefer allocator.free(owned_slots);
+    const owned_slots = ordered_slots;
     const owned_actions = try actions.toOwnedSlice(allocator);
     errdefer allocator.free(owned_actions);
     const action_offsets = try buildActionOffsets(allocator, owned_actions);
@@ -230,6 +255,16 @@ const WorkBuffer = struct {
         const right = logical[b.input_index];
         if (left.size_bytes != right.size_bytes) return left.size_bytes > right.size_bytes;
         return left.id < right.id;
+    }
+};
+
+const MemoryRange = struct {
+    start: u64,
+    end: u64,
+
+    fn lessThan(_: void, lhs: MemoryRange, rhs: MemoryRange) bool {
+        if (lhs.start != rhs.start) return lhs.start < rhs.start;
+        return lhs.end < rhs.end;
     }
 };
 
@@ -310,6 +345,15 @@ fn buildActionOffsets(allocator: std.mem.Allocator, actions: []const Action) ![]
 fn bindingLessThan(_: void, a: Binding, b: Binding) bool {
     return a.logical_id < b.logical_id;
 }
+fn offsetLessThan(_: void, a: Binding, b: Binding) bool {
+    if (a.offset_bytes != b.offset_bytes) return a.offset_bytes < b.offset_bytes;
+    return a.size_bytes < b.size_bytes;
+}
+fn rangesOverlap(a: Binding, b: Binding) bool {
+    const a_end = a.offset_bytes + a.size_bytes;
+    const b_end = b.offset_bytes + b.size_bytes;
+    return a.offset_bytes < b_end and b.offset_bytes < a_end;
+}
 fn actionLessThan(_: void, a: Action, b: Action) bool {
     if (a.tick != b.tick) return a.tick < b.tick;
     if (a.logical_id != b.logical_id) return a.logical_id < b.logical_id;
@@ -384,6 +428,18 @@ pub const ResidentArena = struct {
     }
 };
 
+pub fn peakLogicalBytes(bindings: []const Binding) u64 {
+    var peak: u64 = 0;
+    for (0..max_ticks) |tick| {
+        var live: u64 = 0;
+        for (bindings) |binding| {
+            if (hasTick(binding.occupied, @intCast(tick))) live += binding.size_bytes;
+        }
+        peak = @max(peak, live);
+    }
+    return peak;
+}
+
 pub const RecoveryHooks = struct {
     context: *anyopaque,
     spill: *const fn (*anyopaque, u16, Binding) anyerror!void,
@@ -397,20 +453,15 @@ pub const EpochRunner = struct {
     allocator: std.mem.Allocator,
     plan: *const Plan,
     states: []State,
-    slot_owners: []?u32,
 
     pub fn init(allocator: std.mem.Allocator, plan: *const Plan) !EpochRunner {
         const states = try allocator.alloc(State, plan.bindings.len);
-        errdefer allocator.free(states);
         @memset(states, .absent);
-        const owners = try allocator.alloc(?u32, plan.slots.len);
-        @memset(owners, null);
-        return .{ .allocator = allocator, .plan = plan, .states = states, .slot_owners = owners };
+        return .{ .allocator = allocator, .plan = plan, .states = states };
     }
 
     pub fn deinit(self: *EpochRunner) void {
         self.allocator.free(self.states);
-        self.allocator.free(self.slot_owners);
         self.* = undefined;
     }
 
@@ -421,14 +472,15 @@ pub const EpochRunner = struct {
             if (action.kind == .spill or action.kind == .release) continue;
             const index = self.bindingIndex(action.logical_id) orelse return Error.UnknownBinding;
             const binding = self.plan.bindings[index];
-            if (self.slot_owners[binding.slot] != null) return Error.AliasOverlap;
+            for (self.plan.bindings, self.states) |other, state| {
+                if (state == .live and rangesOverlap(binding, other)) return Error.AliasOverlap;
+            }
             switch (action.kind) {
                 .produce => {},
                 .restore => try hooks.restore(hooks.context, tick, binding),
                 .recompute => try hooks.recompute(hooks.context, tick, binding),
                 else => unreachable,
             }
-            self.slot_owners[binding.slot] = binding.logical_id;
             self.states[index] = .live;
         }
     }
@@ -449,10 +501,7 @@ pub const EpochRunner = struct {
         for (actions) |action| {
             if (action.kind != .release) continue;
             const index = self.bindingIndex(action.logical_id) orelse return Error.UnknownBinding;
-            const binding = self.plan.bindings[index];
             if (self.states[index] != .live and self.states[index] != .spilled) return Error.InvalidUseOrder;
-            if (self.slot_owners[binding.slot] != binding.logical_id) return Error.AliasOverlap;
-            self.slot_owners[binding.slot] = null;
             if (self.states[index] != .spilled) self.states[index] = .absent;
         }
     }

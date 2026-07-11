@@ -244,10 +244,9 @@ pub const MetalCommitBackend = struct {
         const M31 = @import("../../core/fields/m31.zig").M31;
         const core_utils = @import("../../core/utils.zig");
         const fields = @import("../../core/fields/mod.zig");
-        const alpha_coords = alpha.toM31Array();
-        const alpha_words = [4]u32{ alpha_coords[0].v, alpha_coords[1].v, alpha_coords[2].v, alpha_coords[3].v };
         var current = evaluation;
         var owns_current = false;
+        var current_alpha = alpha;
         errdefer if (owns_current) current.deinit(allocator);
         var step: u32 = 0;
         while (step < n_folds) : (step += 1) {
@@ -266,6 +265,8 @@ pub const MetalCommitBackend = struct {
             const source_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(current.values));
             const destination_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(@constCast(next.values)));
             const inverse_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(inverse_x));
+            const alpha_coords = current_alpha.toM31Array();
+            const alpha_words = [4]u32{ alpha_coords[0].v, alpha_coords[1].v, alpha_coords[2].v, alpha_coords[3].v };
             const gpu_ms = try (try runtime()).foldFriLine(
                 source_words.ptr,
                 @intCast(current.len()),
@@ -277,6 +278,7 @@ pub const MetalCommitBackend = struct {
             if (owns_current) current.deinit(allocator);
             current = next;
             owns_current = true;
+            current_alpha = current_alpha.square();
         }
         return current;
     }

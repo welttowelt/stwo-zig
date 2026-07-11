@@ -127,6 +127,14 @@ pub fn build(b: *std.Build) void {
             .name = "metal-arena-plan",
             .root_module = metal_arena_plan_module,
         });
+        metal_arena_plan.addCSourceFile(.{
+            .file = b.path("src/backends/metal/runtime.m"),
+            .flags = &.{ "-fobjc-arc", "-fblocks" },
+        });
+        metal_arena_plan.linkLibC();
+        metal_arena_plan.linkFramework("Foundation");
+        metal_arena_plan.linkFramework("Metal");
+        metal_arena_plan.linkSystemLibrary("objc");
         b.installArtifact(metal_arena_plan);
         const metal_arena_plan_step = b.step("metal-arena-plan", "Build sparse Metal arena planner");
         metal_arena_plan_step.dependOn(&metal_arena_plan.step);

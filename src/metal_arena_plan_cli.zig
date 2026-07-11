@@ -5,6 +5,9 @@ const feed_bundle_mod = @import("frontends/cairo/witness/feed_bundle.zig");
 const relation_bundle_mod = @import("frontends/cairo/witness/relation_bundle.zig");
 const fixed_table_bundle_mod = @import("frontends/cairo/witness/fixed_table_bundle.zig");
 const composition_bundle_mod = @import("frontends/cairo/witness/composition_bundle.zig");
+const arena_binding_mod = @import("frontends/cairo/witness/arena_binding.zig");
+const metal_runtime = @import("backends/metal/runtime.zig");
+const blake2_merkle = @import("core/vcs_lifted/blake2_merkle.zig");
 
 const epoch_names = [_][]const u8{
     "Ingest",            "Witness", "BaseCommit", "Interaction", "InteractionCommit", "Composition",
@@ -286,6 +289,52 @@ pub fn main() !void {
         return;
     };
     defer plan.deinit();
+    var proof_bindings: ?arena_binding_mod.PreparedProofBindings = if (composition_bundle != null)
+        try arena_binding_mod.PreparedProofBindings.initSn2(allocator, schedule, plan)
+    else
+        null;
+    defer if (proof_bindings) |*bindings| bindings.deinit();
+    var resident_prepare_gate: []const u8 = "not_requested";
+    if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_PREPARE_METAL")) {
+        const bindings = if (proof_bindings) |*value| value else return error.MissingPreparedProofBindings;
+        var metal = try metal_runtime.Runtime.init();
+        defer metal.deinit();
+        var resident_arena = try arena.ResidentArena.init(&metal, plan);
+        defer resident_arena.deinit();
+        const composition_path = args[7];
+        if (!std.mem.endsWith(u8, composition_path, ".bin")) return error.InvalidCompositionPath;
+        const composition_metallib = try std.fmt.allocPrint(
+            allocator,
+            "{s}.metallib",
+            .{composition_path[0 .. composition_path.len - ".bin".len]},
+        );
+        defer allocator.free(composition_metallib);
+        var composition = try bindings.prepareComposition(
+            allocator,
+            &metal,
+            &resident_arena,
+            composition_bundle.?,
+            composition_metallib,
+        );
+        defer composition.deinit();
+        var quotient = try bindings.prepareQuotient(allocator, &metal, &resident_arena);
+        defer quotient.deinit();
+        var fri = try bindings.prepareFri(
+            &metal,
+            &resident_arena,
+            blake2_merkle.Blake2sMerkleHasher.leafSeed(),
+            blake2_merkle.Blake2sMerkleHasher.nodeSeed(),
+        );
+        defer fri.deinit();
+        var transcript = try bindings.prepareTranscript(&metal, &resident_arena);
+        defer transcript.deinit();
+        var decommit_queries = try bindings.prepareDecommitQueries(&metal, &resident_arena);
+        try decommit_queries.normalize();
+        for (0..8) |round| try decommit_queries.prepareFri(round);
+        var assembly = try bindings.prepareProofAssembly(allocator, &metal, &resident_arena);
+        defer assembly.deinit();
+        resident_prepare_gate = "passed_full_arena_and_protocol_plans";
+    }
     const missing_names = try allocator.alloc([]const u8, missing_components.count());
     defer allocator.free(missing_names);
     var missing_iterator = missing_components.keyIterator();
@@ -371,6 +420,12 @@ pub fn main() !void {
         .composition_recipe_parts = if (composition_coverage) |coverage| coverage.parts else 0,
         .composition_recipe_buffers = if (composition_coverage) |coverage| coverage.output_buffers else 0,
         .composition_recipe_bytes = if (composition_coverage) |coverage| coverage.output_bytes else 0,
+        .prepared_proof_bindings = if (proof_bindings) |bindings| bindings.assembly.len else 0,
+        .prepared_proof_copy_ranges = if (proof_bindings) |bindings| bindings.proof_copies.len else 0,
+        .prepared_proof_words = if (proof_bindings) |bindings| bindings.proof_bytes.size_bytes / 4 else 0,
+        .resident_prepare_gate = resident_prepare_gate,
+        .prepared_quotient_partials = if (proof_bindings) |bindings| bindings.quotient_partials.len else 0,
+        .prepared_fri_layers = if (proof_bindings) |bindings| bindings.fri_merkle_layers.len else 0,
         .native_recipe_buffers = native_recipe_buffers,
         .native_recipe_bytes = native_recipe_bytes,
         .zero_recipe_buffers = zero_recipe_buffers,
@@ -403,6 +458,7 @@ pub fn main() !void {
         .total_bytes = plan.total_bytes,
         .total_gib = @as(f64, @floatFromInt(plan.total_bytes)) / (1024.0 * 1024.0 * 1024.0),
         .peak_live_bytes = plan.peak_live_bytes,
+        .peak_logical_bytes = arena.peakLogicalBytes(plan.bindings),
         .budget_bytes = budget_bytes,
         .budget_gib = budget_gib,
         .fits = true,

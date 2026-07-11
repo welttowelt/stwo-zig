@@ -3,6 +3,7 @@ const M31 = @import("../../core/fields/m31.zig").M31;
 const arena_plan = @import("arena_plan.zig");
 const recovery = @import("recovery.zig");
 const runtime = @import("runtime.zig");
+const blake2s_channel = @import("../../core/channel/blake2s.zig");
 
 pub const CopyRecipe = struct {
     access: recovery.BufferAccess,
@@ -1338,6 +1339,723 @@ pub const RelationRecipe = struct {
         for (self.destinations) |binding| found = found or binding.logical_id == requested.logical_id;
         if (!found) return recovery.RecoveryError.MissingRecipe;
         self.accumulated_gpu_ms += try self.metal.relationPrepared(self.arena.buffer, self.prepared);
+        self.last_tick = tick;
+    }
+};
+
+/// One circle-to-line or line-to-line FRI fold with every operand resident in
+/// the shared arena. The challenge and inverse-coordinate column are bindings,
+/// so replay never uploads control data or reads the folded column back.
+pub const FriFoldRecipe = struct {
+    metal: *runtime.Runtime,
+    arena: *arena_plan.ResidentArena,
+    destination: arena_plan.Binding,
+    prepared: runtime.FriFoldPlan,
+    last_tick: ?u16 = null,
+    accumulated_gpu_ms: f64 = 0,
+
+    pub fn init(
+        metal: *runtime.Runtime,
+        resident_arena: *arena_plan.ResidentArena,
+        source: arena_plan.Binding,
+        inverse_coordinates: arena_plan.Binding,
+        challenge: arena_plan.Binding,
+        destination: arena_plan.Binding,
+        source_count: u32,
+        circle: bool,
+    ) !FriFoldRecipe {
+        const destination_count = source_count / 2;
+        if (source_count < 2 or source_count & 1 != 0 or
+            source.offset_bytes % 4 != 0 or inverse_coordinates.offset_bytes % 4 != 0 or
+            challenge.offset_bytes % 4 != 0 or destination.offset_bytes % 4 != 0 or
+            source.size_bytes < @as(u64, source_count) * 16 or
+            inverse_coordinates.size_bytes < @as(u64, destination_count) * 4 or
+            challenge.size_bytes < 16 or destination.size_bytes < @as(u64, destination_count) * 16)
+            return recovery.RecoveryError.BindingSizeMismatch;
+        return .{
+            .metal = metal,
+            .arena = resident_arena,
+            .destination = destination,
+            .prepared = try metal.prepareFriFold(
+                std.math.cast(u32, source.offset_bytes / 4) orelse return recovery.RecoveryError.BindingSizeMismatch,
+                std.math.cast(u32, inverse_coordinates.offset_bytes / 4) orelse return recovery.RecoveryError.BindingSizeMismatch,
+                std.math.cast(u32, challenge.offset_bytes / 4) orelse return recovery.RecoveryError.BindingSizeMismatch,
+                std.math.cast(u32, destination.offset_bytes / 4) orelse return recovery.RecoveryError.BindingSizeMismatch,
+                source_count,
+                circle,
+            ),
+        };
+    }
+
+    pub fn deinit(self: *FriFoldRecipe) void {
+        self.prepared.deinit();
+        self.* = undefined;
+    }
+
+    pub fn recipe(self: *FriFoldRecipe) recovery.Recipe {
+        return .{ .logical_id = self.destination.logical_id, .context = self, .run = run };
+    }
+
+    fn run(raw: *anyopaque, tick: u16, requested: arena_plan.Binding, _: []u8) !void {
+        const self: *FriFoldRecipe = @ptrCast(@alignCast(raw));
+        if (requested.logical_id != self.destination.logical_id) return recovery.RecoveryError.MissingRecipe;
+        if (self.last_tick == tick) return;
+        self.accumulated_gpu_ms += try self.metal.friFoldPrepared(self.arena.buffer, self.prepared);
+        self.last_tick = tick;
+    }
+};
+
+/// Prepared quotient bottom: combine mixed-log secure numerators on the
+/// quotient subdomain, interpolate its four coordinates in place, then LDE
+/// directly into the full-domain planar buffer consumed by FRI.
+pub const QuotientRecipe = struct {
+    metal: *runtime.Runtime,
+    arena: *arena_plan.ResidentArena,
+    destination: arena_plan.Binding,
+    combine: runtime.QuotientCombinePlan,
+    interpolate: runtime.CircleIfftPlan,
+    evaluate: runtime.CircleLdePlan,
+    last_tick: ?u16 = null,
+    accumulated_gpu_ms: f64 = 0,
+
+    pub fn init(
+        allocator: std.mem.Allocator,
+        metal: *runtime.Runtime,
+        resident_arena: *arena_plan.ResidentArena,
+        partials_source_major: []const arena_plan.Binding,
+        sample_points: arena_plan.Binding,
+        first_linear_terms: arena_plan.Binding,
+        denominator_scratch: arena_plan.Binding,
+        subdomain_values: arena_plan.Binding,
+        quotient_values: arena_plan.Binding,
+        inverse_subdomain_twiddles: arena_plan.Binding,
+        forward_twiddles: arena_plan.Binding,
+    ) !QuotientRecipe {
+        if (partials_source_major.len == 0 or partials_source_major.len % 4 != 0 or
+            sample_points.offset_bytes % 4 != 0 or first_linear_terms.offset_bytes % 4 != 0 or
+            denominator_scratch.offset_bytes % 4 != 0 or subdomain_values.offset_bytes % 4 != 0 or
+            quotient_values.offset_bytes % 4 != 0 or inverse_subdomain_twiddles.offset_bytes % 4 != 0 or
+            forward_twiddles.offset_bytes % 4 != 0)
+            return recovery.RecoveryError.BindingSizeMismatch;
+        const sample_count = partials_source_major.len / 4;
+        if (sample_points.size_bytes != @as(u64, sample_count) * 8 * 4 or
+            first_linear_terms.size_bytes != @as(u64, sample_count) * 4 * 4 or
+            subdomain_values.size_bytes % 16 != 0 or quotient_values.size_bytes % 16 != 0)
+            return recovery.RecoveryError.BindingSizeMismatch;
+        const subdomain_rows = subdomain_values.size_bytes / 16;
+        const quotient_rows = quotient_values.size_bytes / 16;
+        if (!std.math.isPowerOfTwo(subdomain_rows) or !std.math.isPowerOfTwo(quotient_rows) or quotient_rows <= subdomain_rows)
+            return recovery.RecoveryError.BindingSizeMismatch;
+        const subdomain_log: u32 = std.math.log2_int(u64, subdomain_rows);
+        const quotient_log: u32 = std.math.log2_int(u64, quotient_rows);
+        if (denominator_scratch.size_bytes != subdomain_rows * sample_count * 8 or
+            inverse_subdomain_twiddles.size_bytes < subdomain_rows / 2 * 4 or
+            forward_twiddles.size_bytes < quotient_rows / 2 * 4)
+            return recovery.RecoveryError.BindingSizeMismatch;
+
+        const offsets = try allocator.alloc(u32, partials_source_major.len);
+        defer allocator.free(offsets);
+        const logs = try allocator.alloc(u32, sample_count);
+        defer allocator.free(logs);
+        for (0..sample_count) |source| {
+            const first = partials_source_major[source * 4];
+            if (first.size_bytes < 4 or first.size_bytes % 4 != 0 or !std.math.isPowerOfTwo(first.size_bytes / 4))
+                return recovery.RecoveryError.BindingSizeMismatch;
+            logs[source] = std.math.log2_int(u64, first.size_bytes / 4);
+            if (logs[source] > subdomain_log) return recovery.RecoveryError.BindingSizeMismatch;
+            for (0..4) |coordinate| {
+                const partial = partials_source_major[source * 4 + coordinate];
+                if (partial.size_bytes != first.size_bytes or partial.offset_bytes % 4 != 0)
+                    return recovery.RecoveryError.BindingSizeMismatch;
+                offsets[coordinate * sample_count + source] = std.math.cast(u32, partial.offset_bytes / 4) orelse
+                    return recovery.RecoveryError.BindingSizeMismatch;
+            }
+        }
+        const subdomain_offset = std.math.cast(u32, subdomain_values.offset_bytes / 4) orelse
+            return recovery.RecoveryError.BindingSizeMismatch;
+        const quotient_offset = std.math.cast(u32, quotient_values.offset_bytes / 4) orelse
+            return recovery.RecoveryError.BindingSizeMismatch;
+        const initial_index = @as(u32, 1) << @intCast(30 - quotient_log);
+        const step_size = @as(u32, 1) << @intCast(32 - subdomain_log);
+        var combine = try metal.prepareQuotientCombine(
+            offsets,
+            logs,
+            std.math.cast(u32, sample_points.offset_bytes / 4) orelse return recovery.RecoveryError.BindingSizeMismatch,
+            std.math.cast(u32, first_linear_terms.offset_bytes / 4) orelse return recovery.RecoveryError.BindingSizeMismatch,
+            std.math.cast(u32, denominator_scratch.offset_bytes / 4) orelse return recovery.RecoveryError.BindingSizeMismatch,
+            subdomain_offset,
+            subdomain_log,
+            initial_index,
+            step_size,
+        );
+        errdefer combine.deinit();
+        var subdomain_offsets: [4]u32 = undefined;
+        var quotient_offsets: [4]u32 = undefined;
+        for (0..4) |coordinate| {
+            subdomain_offsets[coordinate] = subdomain_offset + @as(u32, @intCast(coordinate)) * @as(u32, @intCast(subdomain_rows));
+            quotient_offsets[coordinate] = quotient_offset + @as(u32, @intCast(coordinate)) * @as(u32, @intCast(quotient_rows));
+        }
+        const scale = @import("../../core/fields/m31.zig").M31.fromCanonical(@intCast(subdomain_rows)).inv() catch
+            return recovery.RecoveryError.BindingSizeMismatch;
+        var interpolate = try metal.prepareCircleIfft(
+            &subdomain_offsets,
+            &subdomain_offsets,
+            subdomain_log,
+            std.math.cast(u32, inverse_subdomain_twiddles.offset_bytes / 4) orelse return recovery.RecoveryError.BindingSizeMismatch,
+            scale.v,
+        );
+        errdefer interpolate.deinit();
+        var evaluate = try metal.prepareCircleLde(
+            &subdomain_offsets,
+            &quotient_offsets,
+            subdomain_log,
+            quotient_log,
+            std.math.cast(u32, forward_twiddles.offset_bytes / 4) orelse return recovery.RecoveryError.BindingSizeMismatch,
+        );
+        errdefer evaluate.deinit();
+        return .{
+            .metal = metal,
+            .arena = resident_arena,
+            .destination = quotient_values,
+            .combine = combine,
+            .interpolate = interpolate,
+            .evaluate = evaluate,
+        };
+    }
+
+    pub fn deinit(self: *QuotientRecipe) void {
+        self.evaluate.deinit();
+        self.interpolate.deinit();
+        self.combine.deinit();
+        self.* = undefined;
+    }
+
+    pub fn recipe(self: *QuotientRecipe) recovery.Recipe {
+        return .{ .logical_id = self.destination.logical_id, .context = self, .run = run };
+    }
+
+    fn run(raw: *anyopaque, tick: u16, requested: arena_plan.Binding, _: []u8) !void {
+        const self: *QuotientRecipe = @ptrCast(@alignCast(raw));
+        if (requested.logical_id != self.destination.logical_id) return recovery.RecoveryError.MissingRecipe;
+        if (self.last_tick == tick) return;
+        self.accumulated_gpu_ms += try self.metal.quotientCombinePrepared(self.arena.buffer, self.combine);
+        self.accumulated_gpu_ms += try self.metal.circleIfftPrepared(self.arena.buffer, self.interpolate);
+        self.accumulated_gpu_ms += try self.metal.circleLdePrepared(self.arena.buffer, self.evaluate);
+        self.last_tick = tick;
+    }
+};
+
+/// Exact STWO FRI bottom with planar secure evaluations, four rows per leaf,
+/// and the canonical 3,3,3,3,3,3,3,2 fold schedule. Transcript control calls
+/// `commitTree` and `foldRound` alternately so each device root can be mixed
+/// before its resident challenge is consumed.
+pub const FriRecipe = struct {
+    metal: *runtime.Runtime,
+    arena: *arena_plan.ResidentArena,
+    rounds: [8]runtime.FriRoundPlan,
+    trees: [8]runtime.FriTreePlan,
+    final: runtime.FriFinalPlan,
+    roots: [8]arena_plan.Binding,
+    initialized_rounds: usize,
+    initialized_trees: usize,
+    initialized_final: bool,
+    accumulated_gpu_ms: f64 = 0,
+
+    pub fn init(
+        metal: *runtime.Runtime,
+        resident_arena: *arena_plan.ResidentArena,
+        quotient: arena_plan.Binding,
+        retained: []const arena_plan.Binding,
+        challenges: []const arena_plan.Binding,
+        inverse_twiddles: arena_plan.Binding,
+        final_evaluation: arena_plan.Binding,
+        final_coefficients: arena_plan.Binding,
+        final_degree_error: arena_plan.Binding,
+        merkle_layers_root_first: []const arena_plan.Binding,
+        leaf_seed: [8]u32,
+        node_seed: [8]u32,
+    ) !FriRecipe {
+        if (retained.len != 7 or challenges.len != 8 or merkle_layers_root_first.len != 100 or
+            inverse_twiddles.offset_bytes % 4 != 0 or inverse_twiddles.size_bytes != (@as(u64, 1) << 23) * 4)
+            return recovery.RecoveryError.BindingSizeMismatch;
+        var self = FriRecipe{
+            .metal = metal,
+            .arena = resident_arena,
+            .rounds = undefined,
+            .trees = undefined,
+            .final = undefined,
+            .roots = undefined,
+            .initialized_rounds = 0,
+            .initialized_trees = 0,
+            .initialized_final = false,
+        };
+        errdefer self.deinitInitialized();
+
+        var evaluations: [8]arena_plan.Binding = undefined;
+        evaluations[0] = quotient;
+        @memcpy(evaluations[1..], retained);
+        const evaluation_logs = [_]u32{ 24, 21, 18, 15, 12, 9, 6, 3 };
+        const layer_counts = [_]usize{ 23, 20, 17, 14, 11, 8, 5, 2 };
+        var layer_cursor: usize = 0;
+        for (evaluations, evaluation_logs, layer_counts, 0..) |evaluation, log_size, layer_count, tree| {
+            const rows = @as(u64, 1) << @intCast(log_size);
+            if (evaluation.offset_bytes % 4 != 0 or evaluation.size_bytes != rows * 16)
+                return recovery.RecoveryError.BindingSizeMismatch;
+            var layer_offsets: [23]u32 = undefined;
+            const group = merkle_layers_root_first[layer_cursor .. layer_cursor + layer_count];
+            for (0..layer_count) |bottom_index| {
+                const binding = group[layer_count - 1 - bottom_index];
+                const expected_hashes = (@as(u64, 1) << @intCast(log_size - 2)) >> @intCast(bottom_index);
+                if (binding.offset_bytes % 4 != 0 or binding.size_bytes != expected_hashes * 32)
+                    return recovery.RecoveryError.BindingSizeMismatch;
+                layer_offsets[bottom_index] = std.math.cast(u32, binding.offset_bytes / 4) orelse
+                    return recovery.RecoveryError.BindingSizeMismatch;
+            }
+            self.roots[tree] = group[0];
+            self.trees[tree] = try metal.prepareFriTree(
+                std.math.cast(u32, evaluation.offset_bytes / 4) orelse return recovery.RecoveryError.BindingSizeMismatch,
+                @intCast(rows),
+                @intCast(rows),
+                2,
+                layer_offsets[0..layer_count],
+                leaf_seed,
+                node_seed,
+            );
+            self.initialized_trees += 1;
+            layer_cursor += layer_count;
+        }
+
+        const twiddle_base = std.math.cast(u32, inverse_twiddles.offset_bytes / 4) orelse
+            return recovery.RecoveryError.BindingSizeMismatch;
+        const twiddle_words: u32 = @intCast(inverse_twiddles.size_bytes / 4);
+        for (0..8) |round| {
+            const source = evaluations[round];
+            const source_rows = @as(u32, 1) << @intCast(evaluation_logs[round]);
+            const fold_count: u32 = if (round == 7) 2 else 3;
+            const output = if (round == 7) final_evaluation else evaluations[round + 1];
+            const output_rows = source_rows >> @intCast(fold_count);
+            if (challenges[round].offset_bytes % 4 != 0 or challenges[round].size_bytes < 16 or
+                output.offset_bytes % 4 != 0 or output.size_bytes < @as(u64, output_rows) * 16)
+                return recovery.RecoveryError.BindingSizeMismatch;
+            self.rounds[round] = try metal.prepareFriRound(
+                twiddle_base,
+                twiddle_words,
+                std.math.cast(u32, source.offset_bytes / 4) orelse return recovery.RecoveryError.BindingSizeMismatch,
+                source_rows,
+                std.math.cast(u32, challenges[round].offset_bytes / 4) orelse return recovery.RecoveryError.BindingSizeMismatch,
+                std.math.cast(u32, output.offset_bytes / 4) orelse return recovery.RecoveryError.BindingSizeMismatch,
+                output_rows,
+                source_rows,
+                fold_count,
+                round == 0,
+            );
+            self.initialized_rounds += 1;
+        }
+        if (final_coefficients.offset_bytes % 4 != 0 or final_coefficients.size_bytes != 32 or
+            final_degree_error.offset_bytes % 4 != 0 or final_degree_error.size_bytes != 4)
+            return recovery.RecoveryError.BindingSizeMismatch;
+        const final_x = @import("../../core/circle.zig").Coset.halfOdds(1).initial.x;
+        const inverse_x = final_x.inv() catch return recovery.RecoveryError.BindingSizeMismatch;
+        self.final = try metal.prepareFriFinal(
+            std.math.cast(u32, final_evaluation.offset_bytes / 4) orelse return recovery.RecoveryError.BindingSizeMismatch,
+            2,
+            inverse_x.v,
+            std.math.cast(u32, final_coefficients.offset_bytes / 4) orelse return recovery.RecoveryError.BindingSizeMismatch,
+            std.math.cast(u32, final_degree_error.offset_bytes / 4) orelse return recovery.RecoveryError.BindingSizeMismatch,
+        );
+        self.initialized_final = true;
+        return self;
+    }
+
+    fn deinitInitialized(self: *FriRecipe) void {
+        if (self.initialized_final) self.final.deinit();
+        for (self.rounds[0..self.initialized_rounds]) |*plan| plan.deinit();
+        for (self.trees[0..self.initialized_trees]) |*plan| plan.deinit();
+    }
+
+    pub fn deinit(self: *FriRecipe) void {
+        self.deinitInitialized();
+        self.* = undefined;
+    }
+
+    pub fn commitTree(self: *FriRecipe, tree: usize) !arena_plan.Binding {
+        if (tree >= self.trees.len) return recovery.RecoveryError.BindingSizeMismatch;
+        self.accumulated_gpu_ms += try self.metal.friTreePrepared(self.arena.buffer, self.trees[tree]);
+        return self.roots[tree];
+    }
+
+    pub fn foldRound(self: *FriRecipe, round: usize) !void {
+        if (round >= self.rounds.len) return recovery.RecoveryError.BindingSizeMismatch;
+        self.accumulated_gpu_ms += try self.metal.friRoundPrepared(self.arena.buffer, self.rounds[round]);
+    }
+
+    pub fn finalize(self: *FriRecipe) !void {
+        self.accumulated_gpu_ms += try self.metal.friFinalPrepared(self.arena.buffer, self.final);
+    }
+};
+
+pub const TranscriptBinding = struct {
+    ordinal: u32,
+    binding: arena_plan.Binding,
+};
+
+fn bindingWordOffset(binding: arena_plan.Binding) !u32 {
+    if (binding.offset_bytes % 4 != 0) return recovery.RecoveryError.BindingSizeMismatch;
+    return std.math.cast(u32, binding.offset_bytes / 4) orelse recovery.RecoveryError.BindingSizeMismatch;
+}
+
+/// Query-normalization and FRI coset preparation for the canonical Cairo
+/// opening schedule. All eight FRI trees reuse the same epoch-local workspaces;
+/// only their cumulative fold differs.
+pub const DecommitQueryRecipe = struct {
+    metal: *runtime.Runtime,
+    arena: *arena_plan.ResidentArena,
+    raw_queries: arena_plan.Binding,
+    unique_queries: arena_plan.Binding,
+    mapped_queries: arena_plan.Binding,
+    expanded_positions: arena_plan.Binding,
+    walk_queries: arena_plan.Binding,
+    sparse_indices: arena_plan.Binding,
+    counts: arena_plan.Binding,
+    accumulated_gpu_ms: f64 = 0,
+
+    pub fn init(
+        metal: *runtime.Runtime,
+        resident_arena: *arena_plan.ResidentArena,
+        raw_queries: arena_plan.Binding,
+        unique_queries: arena_plan.Binding,
+        mapped_queries: arena_plan.Binding,
+        expanded_positions: arena_plan.Binding,
+        walk_queries: arena_plan.Binding,
+        sparse_indices: arena_plan.Binding,
+        counts: arena_plan.Binding,
+    ) !DecommitQueryRecipe {
+        for ([_]arena_plan.Binding{ raw_queries, unique_queries, mapped_queries, expanded_positions, walk_queries, sparse_indices, counts }) |binding| {
+            if (binding.offset_bytes % 4 != 0) return recovery.RecoveryError.BindingSizeMismatch;
+        }
+        if (raw_queries.size_bytes != 70 * 4 or unique_queries.size_bytes < raw_queries.size_bytes or
+            mapped_queries.size_bytes < raw_queries.size_bytes or expanded_positions.size_bytes < 560 * 4 or
+            walk_queries.size_bytes < 560 * 4 or sparse_indices.size_bytes < 560 * 4 or counts.size_bytes < 4 * 4)
+            return recovery.RecoveryError.BindingSizeMismatch;
+        return .{
+            .metal = metal,
+            .arena = resident_arena,
+            .raw_queries = raw_queries,
+            .unique_queries = unique_queries,
+            .mapped_queries = mapped_queries,
+            .expanded_positions = expanded_positions,
+            .walk_queries = walk_queries,
+            .sparse_indices = sparse_indices,
+            .counts = counts,
+        };
+    }
+
+    pub fn normalize(self: *DecommitQueryRecipe) !void {
+        const count_base = try bindingWordOffset(self.counts);
+        self.accumulated_gpu_ms += try self.metal.decommitNormalizeQueries(
+            self.arena.buffer,
+            try bindingWordOffset(self.raw_queries),
+            70,
+            24,
+            try bindingWordOffset(self.unique_queries),
+            count_base,
+        );
+    }
+
+    pub fn prepareFri(self: *DecommitQueryRecipe, round: usize) !void {
+        if (round >= 8) return recovery.RecoveryError.BindingSizeMismatch;
+        const cumulative_folds = [_]u32{ 0, 3, 6, 9, 12, 15, 18, 21 };
+        const fold_steps = [_]u32{ 3, 3, 3, 3, 3, 3, 3, 2 };
+        const count_base = try bindingWordOffset(self.counts);
+        self.accumulated_gpu_ms += try self.metal.decommitPrepareFriQueries(
+            self.arena.buffer,
+            try bindingWordOffset(self.unique_queries),
+            count_base,
+            70,
+            cumulative_folds[round],
+            fold_steps[round],
+            2,
+            try bindingWordOffset(self.mapped_queries),
+            count_base + 1,
+            try bindingWordOffset(self.expanded_positions),
+            count_base + 2,
+            try bindingWordOffset(self.walk_queries),
+            count_base + 3,
+        );
+    }
+
+    pub fn prepareTrace(
+        self: *DecommitQueryRecipe,
+        source_log: u32,
+        tree_log: u32,
+        leaf_log: u32,
+        unretained: u32,
+    ) !void {
+        const count_base = try bindingWordOffset(self.counts);
+        self.accumulated_gpu_ms += try self.metal.decommitPrepareTraceQueries(
+            self.arena.buffer,
+            try bindingWordOffset(self.unique_queries),
+            count_base,
+            70,
+            source_log,
+            tree_log,
+            leaf_log,
+            unretained,
+            try bindingWordOffset(self.mapped_queries),
+            count_base + 1,
+            try bindingWordOffset(self.walk_queries),
+            count_base + 2,
+            try bindingWordOffset(self.sparse_indices),
+            count_base + 3,
+        );
+    }
+};
+
+/// Exact Cairo transcript controller. Blake2s absorption and rejection-sampled
+/// challenge/query draws execute in the resident arena; the host only orders
+/// true protocol dependencies and grinds the two proof-of-work nonces.
+pub const TranscriptRecipe = struct {
+    allocator: std.mem.Allocator,
+    metal: *runtime.Runtime,
+    arena: *arena_plan.ResidentArena,
+    state: arena_plan.Binding,
+    inputs: []TranscriptBinding,
+    outputs: []TranscriptBinding,
+    accumulated_gpu_ms: f64 = 0,
+
+    pub fn init(
+        allocator: std.mem.Allocator,
+        metal: *runtime.Runtime,
+        resident_arena: *arena_plan.ResidentArena,
+        state: arena_plan.Binding,
+        inputs: []const TranscriptBinding,
+        outputs: []const TranscriptBinding,
+    ) !TranscriptRecipe {
+        if (state.offset_bytes % 4 != 0 or state.size_bytes < 40 or inputs.len == 0 or outputs.len == 0)
+            return recovery.RecoveryError.BindingSizeMismatch;
+        return .{
+            .allocator = allocator,
+            .metal = metal,
+            .arena = resident_arena,
+            .state = state,
+            .inputs = try allocator.dupe(TranscriptBinding, inputs),
+            .outputs = try allocator.dupe(TranscriptBinding, outputs),
+        };
+    }
+
+    pub fn deinit(self: *TranscriptRecipe) void {
+        self.allocator.free(self.inputs);
+        self.allocator.free(self.outputs);
+        self.* = undefined;
+    }
+
+    pub fn initialize(self: *TranscriptRecipe) !void {
+        self.accumulated_gpu_ms += try self.metal.transcriptInit(self.arena.buffer, try wordOffset(self.state));
+    }
+
+    pub fn publishInput(self: *TranscriptRecipe, ordinal: u32, source: arena_plan.Binding, words: u32) !void {
+        const destination = try self.find(self.inputs, ordinal);
+        if (source.size_bytes < @as(u64, words) * 4 or destination.size_bytes < @as(u64, words) * 4)
+            return recovery.RecoveryError.BindingSizeMismatch;
+        const source_bytes = try self.arena.bytes(source);
+        const destination_bytes = try self.arena.bytes(destination);
+        @memcpy(destination_bytes[0 .. @as(usize, words) * 4], source_bytes[0 .. @as(usize, words) * 4]);
+    }
+
+    pub fn bootstrapThroughBase(self: *TranscriptRecipe) !void {
+        for ([_]u32{ 1, 2, 3, 10, 11, 12, 13, 14, 15, 16, 20 }) |input| try self.mixInput(input);
+    }
+
+    pub fn interactionPowAndLookup(self: *TranscriptRecipe) !u64 {
+        const nonce = try self.grindAndMix(21, 24);
+        try self.drawSecure(1, 2);
+        return nonce;
+    }
+
+    pub fn interactionAndComposition(self: *TranscriptRecipe) !void {
+        try self.mixInput(22);
+        try self.mixInput(23);
+        try self.drawSecure(2, 1);
+    }
+
+    pub fn compositionAndOods(self: *TranscriptRecipe) !void {
+        try self.mixInput(24);
+        try self.drawSecure(3, 1);
+    }
+
+    pub fn oodsAndQuotient(self: *TranscriptRecipe) !void {
+        try self.mixInput(25);
+        try self.drawSecure(4, 1);
+    }
+
+    pub fn friLayer(
+        self: *TranscriptRecipe,
+        layer: u32,
+        root: arena_plan.Binding,
+        challenge: arena_plan.Binding,
+    ) !void {
+        const input_ordinal = 65536 + layer * 4;
+        const output_ordinal = input_ordinal + 1;
+        try self.publishInput(input_ordinal, root, 8);
+        try self.mixInput(input_ordinal);
+        try self.drawSecure(output_ordinal, 1);
+        const drawn = try self.find(self.outputs, output_ordinal);
+        const output_bytes = try self.arena.bytes(drawn);
+        const challenge_bytes = try self.arena.bytes(challenge);
+        if (challenge_bytes.len < 16) return recovery.RecoveryError.BindingSizeMismatch;
+        @memcpy(challenge_bytes[0..16], output_bytes[0..16]);
+    }
+
+    pub fn lastLayer(self: *TranscriptRecipe, coefficients: arena_plan.Binding) !void {
+        try self.publishInput(30, coefficients, 4);
+        try self.mixInput(30);
+    }
+
+    pub fn queryPowAndPositions(self: *TranscriptRecipe) !u64 {
+        const nonce = try self.grindAndMix(31, 26);
+        const queries = try self.find(self.outputs, 5);
+        self.accumulated_gpu_ms += try self.metal.transcriptDrawQueries(
+            self.arena.buffer,
+            try wordOffset(self.state),
+            try wordOffset(queries),
+            24,
+            70,
+        );
+        return nonce;
+    }
+
+    pub fn output(self: TranscriptRecipe, ordinal: u32) !arena_plan.Binding {
+        return self.find(self.outputs, ordinal);
+    }
+
+    fn mixInput(self: *TranscriptRecipe, ordinal: u32) !void {
+        const input = try self.find(self.inputs, ordinal);
+        if (input.size_bytes == 0 or input.size_bytes % 4 != 0 or input.size_bytes / 4 > std.math.maxInt(u32))
+            return recovery.RecoveryError.BindingSizeMismatch;
+        self.accumulated_gpu_ms += try self.metal.transcriptMix(
+            self.arena.buffer,
+            try wordOffset(self.state),
+            try wordOffset(input),
+            @intCast(input.size_bytes / 4),
+        );
+    }
+
+    fn drawSecure(self: *TranscriptRecipe, ordinal: u32, felt_count: u32) !void {
+        const output_binding = try self.find(self.outputs, ordinal);
+        if (output_binding.size_bytes < @as(u64, felt_count) * 16)
+            return recovery.RecoveryError.BindingSizeMismatch;
+        self.accumulated_gpu_ms += try self.metal.transcriptDrawSecure(
+            self.arena.buffer,
+            try wordOffset(self.state),
+            try wordOffset(output_binding),
+            felt_count,
+        );
+    }
+
+    fn grindAndMix(self: *TranscriptRecipe, input_ordinal: u32, pow_bits: u32) !u64 {
+        const state_bytes = try self.arena.bytes(self.state);
+        const state_words = std.mem.bytesAsSlice(u32, @as([]align(4) u8, @alignCast(state_bytes)));
+        var channel = blake2s_channel.Blake2sChannel{};
+        @memcpy(&channel.digest, std.mem.sliceAsBytes(state_words[0..8]));
+        channel.n_draws = state_words[8];
+        const nonce = channel.grind(pow_bits);
+        const destination = try self.find(self.inputs, input_ordinal);
+        const destination_bytes = try self.arena.bytes(destination);
+        if (destination_bytes.len < 8) return recovery.RecoveryError.BindingSizeMismatch;
+        std.mem.writeInt(u64, destination_bytes[0..8], nonce, .little);
+        try self.mixInput(input_ordinal);
+        return nonce;
+    }
+
+    fn find(_: TranscriptRecipe, bindings: []const TranscriptBinding, ordinal: u32) !arena_plan.Binding {
+        for (bindings) |binding| if (binding.ordinal == ordinal) return binding.binding;
+        return recovery.RecoveryError.MissingRecipe;
+    }
+
+    fn wordOffset(binding: arena_plan.Binding) !u32 {
+        if (binding.offset_bytes % 4 != 0) return recovery.RecoveryError.BindingSizeMismatch;
+        return std.math.cast(u32, binding.offset_bytes / 4) orelse recovery.RecoveryError.BindingSizeMismatch;
+    }
+};
+
+pub const ProofCopy = struct {
+    source: arena_plan.Binding,
+    destination_word_offset: u32,
+    word_count: u32,
+};
+
+/// Seals all proof-visible roots, claims, samples, nonces, final coefficients
+/// and compact decommitment words into one resident buffer using one blit
+/// command. Only this buffer crosses the host boundary.
+pub const ProofAssemblyRecipe = struct {
+    allocator: std.mem.Allocator,
+    metal: *runtime.Runtime,
+    arena: *arena_plan.ResidentArena,
+    destination: arena_plan.Binding,
+    ranges: []runtime.ArenaCopyRange,
+    prepared: runtime.ArenaCopyPlan,
+    last_tick: ?u16 = null,
+    accumulated_gpu_ms: f64 = 0,
+
+    pub fn init(
+        allocator: std.mem.Allocator,
+        metal: *runtime.Runtime,
+        resident_arena: *arena_plan.ResidentArena,
+        copies: []const ProofCopy,
+        destination: arena_plan.Binding,
+    ) !ProofAssemblyRecipe {
+        if (copies.len == 0 or destination.offset_bytes % 4 != 0) return recovery.RecoveryError.BindingSizeMismatch;
+        const ranges = try allocator.alloc(runtime.ArenaCopyRange, copies.len);
+        errdefer allocator.free(ranges);
+        var expected_destination_words: u64 = 0;
+        for (copies, ranges) |copy, *range| {
+            if (copy.source.offset_bytes % 4 != 0 or copy.word_count == 0 or
+                copy.source.size_bytes < @as(u64, copy.word_count) * 4 or
+                copy.destination_word_offset != expected_destination_words)
+                return recovery.RecoveryError.BindingSizeMismatch;
+            range.* = .{
+                .source_word_offset = std.math.cast(u32, copy.source.offset_bytes / 4) orelse return recovery.RecoveryError.BindingSizeMismatch,
+                .destination_word_offset = std.math.add(
+                    u32,
+                    std.math.cast(u32, destination.offset_bytes / 4) orelse return recovery.RecoveryError.BindingSizeMismatch,
+                    copy.destination_word_offset,
+                ) catch return recovery.RecoveryError.BindingSizeMismatch,
+                .word_count = copy.word_count,
+            };
+            expected_destination_words += copy.word_count;
+        }
+        if (expected_destination_words * 4 != destination.size_bytes) return recovery.RecoveryError.BindingSizeMismatch;
+        return .{
+            .allocator = allocator,
+            .metal = metal,
+            .arena = resident_arena,
+            .destination = destination,
+            .ranges = ranges,
+            .prepared = try metal.prepareArenaCopies(ranges),
+        };
+    }
+
+    pub fn deinit(self: *ProofAssemblyRecipe) void {
+        self.prepared.deinit();
+        self.allocator.free(self.ranges);
+        self.* = undefined;
+    }
+
+    pub fn recipe(self: *ProofAssemblyRecipe) recovery.Recipe {
+        return .{ .logical_id = self.destination.logical_id, .context = self, .run = run };
+    }
+
+    pub fn words(self: *ProofAssemblyRecipe) ![]const u32 {
+        const bytes = try self.arena.bytes(self.destination);
+        const aligned: []align(@alignOf(u32)) u8 = @alignCast(bytes);
+        return std.mem.bytesAsSlice(u32, aligned);
+    }
+
+    fn run(raw: *anyopaque, tick: u16, requested: arena_plan.Binding, _: []u8) !void {
+        const self: *ProofAssemblyRecipe = @ptrCast(@alignCast(raw));
+        if (requested.logical_id != self.destination.logical_id) return recovery.RecoveryError.MissingRecipe;
+        if (self.last_tick == tick) return;
+        self.accumulated_gpu_ms += try self.metal.arenaCopyPrepared(self.arena.buffer, self.prepared);
         self.last_tick = tick;
     }
 };

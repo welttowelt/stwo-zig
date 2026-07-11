@@ -13,13 +13,37 @@ const twiddles = @import("prover/poly/twiddles.zig");
 const core_fri = @import("core/fri.zig");
 const qm31 = @import("core/fields/qm31.zig");
 const line = @import("core/poly/line.zig");
+const prover_line = @import("prover/line.zig");
 const MetalBackend = @import("backends/metal/commit_backend.zig").MetalCommitBackend;
 const eval_program = @import("frontends/cairo/witness/eval_program.zig");
 const eval_codegen = @import("backends/metal/eval_codegen.zig");
+const circle_core = @import("core/circle.zig");
+const core_utils = @import("core/utils.zig");
+const blake2s_channel = @import("core/channel/blake2s.zig");
+const protocol_recipes = @import("backends/metal/protocol_recipes.zig");
+const arena_plan = @import("backends/metal/arena_plan.zig");
 
 const M31 = m31.M31;
 const Hasher = blake2_merkle.Blake2sMerkleHasher;
 const QM31 = qm31.QM31;
+
+test "metal: prepared arena gather seals one proof buffer" {
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    var arena = try runtime.allocateResidentBuffer(16 * 1024);
+    defer arena.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
+    @memcpy(words[16..20], &[_]u32{ 11, 13, 17, 19 });
+    @memcpy(words[32..35], &[_]u32{ 23, 29, 31 });
+    const ranges = [_]metal.ArenaCopyRange{
+        .{ .source_word_offset = 16, .destination_word_offset = 64, .word_count = 4 },
+        .{ .source_word_offset = 32, .destination_word_offset = 68, .word_count = 3 },
+    };
+    var plan = try runtime.prepareArenaCopies(&ranges);
+    defer plan.deinit();
+    try std.testing.expect(try runtime.arenaCopyPrepared(arena, plan) > 0);
+    try std.testing.expectEqualSlices(u32, &.{ 11, 13, 17, 19, 23, 29, 31 }, words[64..71]);
+}
 
 test "metal: fused V1 evaluation program matches scalar field arithmetic" {
     const allocator = std.testing.allocator;
@@ -545,6 +569,37 @@ test "metal: resident FRI folds and coordinate conversion match CPU" {
         &cpu_circle_workspace,
     );
 
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    var arena = try runtime.allocateResidentBuffer(64 * 1024);
+    defer arena.deinit();
+    const arena_words: [*]u32 = @ptrCast(@alignCast(arena.contents));
+    const source_offset: u32 = 0;
+    const inverse_offset: u32 = @intCast(domain.size() * 4);
+    const alpha_offset: u32 = inverse_offset + @as(u32, @intCast(line_domain.size()));
+    const destination_offset: u32 = alpha_offset + 4;
+    const source_words = std.mem.bytesAsSlice(
+        u32,
+        std.mem.sliceAsBytes(source.columns[0].ptr[0 .. domain.size() * 4]),
+    );
+    @memcpy(arena_words[source_offset .. source_offset + source_words.len], source_words);
+    for (cpu_circle_workspace.inv_py_values[0..line_domain.size()], 0..) |value, row| {
+        arena_words[inverse_offset + row] = value.v;
+    }
+    for (alpha.toM31Array(), 0..) |value, coordinate| arena_words[alpha_offset + coordinate] = value.v;
+    var prepared = try runtime.prepareFriFold(
+        source_offset,
+        inverse_offset,
+        alpha_offset,
+        destination_offset,
+        @intCast(domain.size()),
+        true,
+    );
+    defer prepared.deinit();
+    try std.testing.expect(try runtime.friFoldPrepared(arena, prepared) > 0);
+    const prepared_values: [*]const QM31 = @ptrCast(@alignCast(arena_words + destination_offset));
+    try std.testing.expectEqualSlices(QM31, expected, prepared_values[0..line_domain.size()]);
+
     var resident_line = try MetalBackend.allocateLineEvaluation(line_domain);
     defer resident_line.deinit(allocator);
     var gpu_circle_workspace = try core_fri.FoldCircleWorkspace.init(allocator, expected.len);
@@ -586,6 +641,449 @@ test "metal: resident FRI folds and coordinate conversion match CPU" {
     );
     defer resident_fold.deinit(allocator);
     try std.testing.expectEqualSlices(QM31, expected_fold.values, resident_fold.values);
+}
+
+test "metal: prepared resident quotient combine matches canonical scalar formula" {
+    const allocator = std.testing.allocator;
+    const log_size: u32 = 6;
+    const row_count: u32 = @as(u32, 1) << @intCast(log_size);
+    var split = try canonic.CanonicCoset.new(log_size + 2).circleDomain().split(allocator, 2);
+    defer split.deinit(allocator);
+    const domain = split.subdomain;
+    const sample_points = [_]circle_core.CirclePointQM31{
+        circle_core.SECURE_FIELD_CIRCLE_GEN,
+        circle_core.SECURE_FIELD_CIRCLE_GEN.double(),
+    };
+    const first_terms = [_]QM31{
+        QM31.fromU32Unchecked(3, 5, 7, 11),
+        QM31.fromU32Unchecked(13, 17, 19, 23),
+    };
+    const partial_logs = [_]u32{ 5, 6 };
+
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    var arena = try runtime.allocateResidentBuffer(64 * 1024);
+    defer arena.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
+    const partial_offsets = [_]u32{ 0, 32, 96, 128, 192, 224, 288, 320 };
+    for (0..partial_logs.len) |sample| {
+        const length = @as(u32, 1) << @intCast(partial_logs[sample]);
+        for (0..4) |coordinate| {
+            const offset = partial_offsets[coordinate * partial_logs.len + sample];
+            for (0..length) |row| {
+                words[offset + row] = @intCast((sample * 100003 + coordinate * 65537 + row * 8191 + 29) % m31.Modulus);
+            }
+        }
+    }
+    const sample_offset: u32 = 512;
+    for (sample_points, 0..) |point, sample| {
+        const x = point.x.toM31Array();
+        const y = point.y.toM31Array();
+        const base = sample_offset + @as(u32, @intCast(sample)) * 8;
+        for (0..4) |coordinate| words[base + coordinate] = x[coordinate].v;
+        for (0..4) |coordinate| words[base + 4 + coordinate] = y[coordinate].v;
+    }
+    const linear_offset: u32 = 544;
+    for (first_terms, 0..) |term, sample| {
+        for (term.toM31Array(), 0..) |coordinate, index| {
+            words[linear_offset + sample * 4 + index] = coordinate.v;
+        }
+    }
+    const scratch_offset: u32 = 576;
+    const output_offset: u32 = 1024;
+    var prepared = try runtime.prepareQuotientCombine(
+        &partial_offsets,
+        &partial_logs,
+        sample_offset,
+        linear_offset,
+        scratch_offset,
+        output_offset,
+        log_size,
+        @intCast(domain.half_coset.initial_index.v),
+        @intCast(domain.half_coset.step_size.v),
+    );
+    defer prepared.deinit();
+    try std.testing.expect(try runtime.quotientCombinePrepared(arena, prepared) > 0);
+
+    for (0..row_count) |row| {
+        const point = domain.at(core_utils.bitReverseIndex(row, log_size));
+        var expected = QM31.zero();
+        for (sample_points, first_terms, partial_logs, 0..) |sample_point, first, partial_log, sample| {
+            const denominator = sample_point.x.c0.subM31(point.x).mul(sample_point.y.c1).sub(
+                sample_point.y.c0.subM31(point.y).mul(sample_point.x.c1),
+            );
+            const inverse = try denominator.inv();
+            const log_ratio = log_size - partial_log;
+            const lifted = (row >> @intCast(log_ratio + 1) << @intCast(1)) + (row & 1);
+            var coordinates: [4]M31 = undefined;
+            for (&coordinates, 0..) |*coordinate, index| {
+                coordinate.* = M31.fromCanonical(words[partial_offsets[index * partial_logs.len + sample] + lifted]);
+            }
+            const numerator = QM31.fromM31Array(coordinates).sub(first.mulM31(point.y));
+            expected = expected.add(numerator.mulCM31(inverse));
+        }
+        const actual = QM31.fromU32Unchecked(
+            words[output_offset + row],
+            words[output_offset + row_count + row],
+            words[output_offset + 2 * row_count + row],
+            words[output_offset + 3 * row_count + row],
+        );
+        try std.testing.expect(expected.eql(actual));
+    }
+}
+
+test "metal: fused resident FRI round matches scalar three-fold path" {
+    const allocator = std.testing.allocator;
+    const log_size: u32 = 6;
+    const domain = canonic.CanonicCoset.new(log_size).circleDomain();
+    var tree = try twiddles.precomputeM31(allocator, domain.half_coset);
+    defer twiddles.deinitM31(allocator, &tree);
+    var source = try MetalBackend.allocateSecureColumn(domain.size());
+    defer source.deinit(allocator);
+    for (source.columns, 0..) |column, coordinate| {
+        for (column, 0..) |*value, row| {
+            value.* = M31.fromCanonical(@intCast((coordinate * 65537 + row * 8191 + 43) % m31.Modulus));
+        }
+    }
+    const alpha = QM31.fromU32Unchecked(7, 11, 13, 17);
+    const first_domain = try line.LineDomain.init(circle_core.Coset.halfOdds(log_size - 1));
+    const first_values = try allocator.alloc(QM31, first_domain.size());
+    defer allocator.free(first_values);
+    @memset(first_values, QM31.zero());
+    var circle_workspace = try core_fri.FoldCircleWorkspace.init(allocator, first_values.len);
+    defer circle_workspace.deinit(allocator);
+    try core_fri.foldCircleColumnsIntoLineWithWorkspace(
+        allocator,
+        first_values,
+        source.columns,
+        domain,
+        alpha,
+        &circle_workspace,
+    );
+    var line_workspace = try core_fri.FoldLineWorkspace.init(allocator, first_values.len / 2);
+    defer line_workspace.deinit(allocator);
+    const second = try core_fri.foldLineSingleStep(
+        allocator,
+        first_values,
+        first_domain,
+        alpha.square(),
+        &line_workspace,
+    );
+    defer allocator.free(second.values);
+    const expected = try core_fri.foldLineSingleStep(
+        allocator,
+        second.values,
+        second.domain,
+        alpha.square().square(),
+        &line_workspace,
+    );
+    defer allocator.free(expected.values);
+
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    var arena = try runtime.allocateResidentBuffer(64 * 1024);
+    defer arena.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
+    const input_base: u32 = 0;
+    const input_stride: u32 = @intCast(domain.size());
+    for (source.columns, 0..) |column, coordinate| {
+        const offset = input_base + @as(u32, @intCast(coordinate)) * input_stride;
+        @memcpy(words[offset .. offset + column.len], std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(column)));
+    }
+    const twiddle_base: u32 = 512;
+    @memcpy(words[twiddle_base .. twiddle_base + tree.itwiddles.len], std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(tree.itwiddles)));
+    const alpha_base: u32 = 576;
+    for (alpha.toM31Array(), 0..) |coordinate, index| words[alpha_base + index] = coordinate.v;
+    const output_base: u32 = 640;
+    const output_stride: u32 = 8;
+    var prepared = try runtime.prepareFriRound(
+        twiddle_base,
+        @intCast(tree.itwiddles.len),
+        input_base,
+        input_stride,
+        alpha_base,
+        output_base,
+        output_stride,
+        @intCast(domain.size()),
+        3,
+        true,
+    );
+    defer prepared.deinit();
+    try std.testing.expect(try runtime.friRoundPrepared(arena, prepared) > 0);
+    for (expected.values, 0..) |value, row| {
+        const coordinates = value.toM31Array();
+        for (coordinates, 0..) |coordinate, index| {
+            try std.testing.expectEqual(coordinate.v, words[output_base + index * output_stride + row]);
+        }
+    }
+}
+
+test "metal: packed resident FRI tree matches canonical lifted root" {
+    const evaluation_size: u32 = 8;
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    var arena = try runtime.allocateResidentBuffer(16 * 1024);
+    defer arena.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
+
+    const evaluation_base: u32 = 0;
+    const coordinate_stride: u32 = evaluation_size;
+    var coordinates: [4][evaluation_size]M31 = undefined;
+    for (&coordinates, 0..) |*column, coordinate| {
+        for (column, 0..) |*value, row| {
+            value.* = M31.fromCanonical(@intCast(1 + coordinate * 101 + row * 17));
+            words[evaluation_base + coordinate * coordinate_stride + row] = value.v;
+        }
+    }
+
+    const leaf_offset: u32 = 128;
+    const root_offset: u32 = 160;
+    const layers = [_]u32{ leaf_offset, root_offset };
+    var prepared = try runtime.prepareFriTree(
+        evaluation_base,
+        coordinate_stride,
+        evaluation_size,
+        2,
+        &layers,
+        Hasher.leafSeed(),
+        Hasher.nodeSeed(),
+    );
+    defer prepared.deinit();
+    try std.testing.expect(try runtime.friTreePrepared(arena, prepared) > 0);
+
+    var leaves: [2]Hasher.Hash = undefined;
+    for (&leaves, 0..) |*digest, leaf| {
+        var hasher = Hasher.defaultWithInitialState();
+        var message: [16]M31 = undefined;
+        for (0..4) |offset| for (0..4) |coordinate| {
+            message[coordinate + 4 * offset] = coordinates[coordinate][4 * leaf + offset];
+        };
+        hasher.updateLeaf(&message);
+        digest.* = hasher.finalize();
+    }
+    const expected = Hasher.hashChildrenWithSeed(
+        Hasher.nodeSeed(),
+        .{ .left = leaves[0], .right = leaves[1] },
+    );
+    try std.testing.expectEqualSlices(
+        u8,
+        &expected,
+        std.mem.asBytes(words[root_offset .. root_offset + 8]),
+    );
+}
+
+test "metal: resident FRI final interpolation matches canonical line polynomial" {
+    const allocator = std.testing.allocator;
+    const domain = try line.LineDomain.init(circle_core.Coset.halfOdds(1));
+    const values = [_]QM31{
+        QM31.fromU32Unchecked(11, 13, 17, 19),
+        QM31.fromU32Unchecked(23, 29, 31, 37),
+    };
+    var evaluation = try prover_line.LineEvaluation.initOwned(domain, try allocator.dupe(QM31, &values));
+    var polynomial = try evaluation.interpolate(allocator);
+    defer polynomial.deinit(allocator);
+    const expected = polynomial.intoOrderedCoefficients();
+
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    var arena = try runtime.allocateResidentBuffer(16 * 1024);
+    defer arena.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
+    const evaluation_base: u32 = 0;
+    const stride: u32 = 2;
+    for (values, 0..) |value, row| for (value.toM31Array(), 0..) |coordinate, index| {
+        words[evaluation_base + index * stride + row] = coordinate.v;
+    };
+    const coefficient_base: u32 = 64;
+    const error_offset: u32 = 80;
+    const inverse_x = try domain.at(0).inv();
+    var prepared = try runtime.prepareFriFinal(
+        evaluation_base,
+        stride,
+        inverse_x.v,
+        coefficient_base,
+        error_offset,
+    );
+    defer prepared.deinit();
+    try std.testing.expect(try runtime.friFinalPrepared(arena, prepared) > 0);
+    for (expected, 0..) |coefficient, index| for (coefficient.toM31Array(), 0..) |coordinate, coordinate_index| {
+        try std.testing.expectEqual(coordinate.v, words[coefficient_base + index * 4 + coordinate_index]);
+    };
+    try std.testing.expectEqual(@as(u32, @intFromBool(!expected[1].isZero())), words[error_offset]);
+}
+
+test "metal: resident Blake2s transcript matches host channel" {
+    const allocator = std.testing.allocator;
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    var arena = try runtime.allocateResidentBuffer(16 * 1024);
+    defer arena.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
+    const state_base: u32 = 0;
+    const source_base: u32 = 32;
+    const secure_base: u32 = 128;
+    const query_base: u32 = 192;
+    const source = [_]QM31{
+        QM31.fromU32Unchecked(1, 2, 3, 4),
+        QM31.fromU32Unchecked(5, 6, 7, 8),
+        QM31.fromU32Unchecked(9, 10, 11, 12),
+    };
+    @memcpy(words[source_base .. source_base + 12], std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(&source)));
+
+    var channel = blake2s_channel.Blake2sChannel{};
+    channel.mixFelts(&source);
+    const expected_secure = try channel.drawSecureFelts(allocator, 3);
+    defer allocator.free(expected_secure);
+    var expected_queries: [13]u32 = undefined;
+    var produced: usize = 0;
+    while (produced < expected_queries.len) {
+        const draw = channel.drawU32s();
+        for (draw) |word| {
+            expected_queries[produced] = word & ((@as(u32, 1) << 24) - 1);
+            produced += 1;
+            if (produced == expected_queries.len) break;
+        }
+    }
+
+    _ = try runtime.transcriptInit(arena, state_base);
+    _ = try runtime.transcriptMix(arena, state_base, source_base, 12);
+    _ = try runtime.transcriptDrawSecure(arena, state_base, secure_base, 3);
+    _ = try runtime.transcriptDrawQueries(arena, state_base, query_base, 24, expected_queries.len);
+    try std.testing.expectEqualSlices(
+        u32,
+        std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(expected_secure)),
+        words[secure_base .. secure_base + 12],
+    );
+    try std.testing.expectEqualSlices(u32, &expected_queries, words[query_base .. query_base + expected_queries.len]);
+}
+
+test "metal: resident decommit query preparation matches canonical mapping" {
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    var arena = try runtime.allocateResidentBuffer(16 * 1024);
+    defer arena.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
+    const raw_base: u32 = 0;
+    const unique_base: u32 = 64;
+    const unique_count_base: u32 = 120;
+    const tree_base: u32 = 128;
+    const tree_count_base: u32 = 184;
+    const expanded_base: u32 = 192;
+    const expanded_count_base: u32 = 320;
+    const walk_base: u32 = 328;
+    const walk_count_base: u32 = 456;
+    const raw = [_]u32{ 0x101, 7, 7, 33, 2, 0x1ff, 65, 16, 17, 18, 19 };
+    @memcpy(words[raw_base .. raw_base + raw.len], &raw);
+    _ = try runtime.decommitNormalizeQueries(arena, raw_base, raw.len, 8, unique_base, unique_count_base);
+    try std.testing.expectEqual(@as(u32, 10), words[unique_count_base]);
+    try std.testing.expectEqualSlices(u32, &.{ 1, 2, 7, 16, 17, 18, 19, 33, 65, 255 }, words[unique_base .. unique_base + 10]);
+
+    _ = try runtime.decommitPrepareFriQueries(
+        arena,
+        unique_base,
+        unique_count_base,
+        raw.len,
+        3,
+        3,
+        2,
+        tree_base,
+        tree_count_base,
+        expanded_base,
+        expanded_count_base,
+        walk_base,
+        walk_count_base,
+    );
+    try std.testing.expectEqual(@as(u32, 5), words[tree_count_base]);
+    try std.testing.expectEqualSlices(u32, &.{ 0, 2, 4, 8, 31 }, words[tree_base .. tree_base + 5]);
+    try std.testing.expectEqual(@as(u32, 24), words[expanded_count_base]);
+    try std.testing.expectEqualSlices(u32, &.{ 0, 1, 2, 3, 4, 5, 6, 7 }, words[expanded_base .. expanded_base + 8]);
+    try std.testing.expectEqual(@as(u32, 6), words[walk_count_base]);
+    try std.testing.expectEqualSlices(u32, &.{ 0, 1, 2, 3, 6, 7 }, words[walk_base .. walk_base + 6]);
+
+    _ = try runtime.decommitPrepareTraceQueries(
+        arena,
+        unique_base,
+        unique_count_base,
+        raw.len,
+        24,
+        21,
+        21,
+        2,
+        tree_base,
+        tree_count_base,
+        walk_base,
+        walk_count_base,
+        expanded_base,
+        expanded_count_base,
+    );
+    try std.testing.expectEqual(@as(u32, 10), words[tree_count_base]);
+    try std.testing.expectEqualSlices(u32, &.{ 1, 0, 1, 2, 3, 2, 3, 5, 9, 31 }, words[tree_base .. tree_base + 10]);
+    try std.testing.expectEqual(@as(u32, 7), words[walk_count_base]);
+    try std.testing.expectEqualSlices(u32, &.{ 0, 1, 2, 3, 5, 9, 31 }, words[walk_base .. walk_base + 7]);
+    try std.testing.expectEqual(@as(u32, 16), words[expanded_count_base]);
+    try std.testing.expectEqualSlices(u32, &.{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 28, 29, 30, 31 }, words[expanded_base .. expanded_base + 16]);
+}
+
+test "metal: exact Cairo transcript controller binds resident ordinals" {
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    var resident = arena_plan.ResidentArena{ .buffer = try runtime.allocateResidentBuffer(16 * 1024) };
+    defer resident.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(resident.buffer.contents));
+    const occupied = [_]u64{0} ** (arena_plan.max_ticks / 64);
+    const input_ordinals = [_]u32{ 1, 2, 3, 10, 11, 12, 13, 14, 15, 16, 20 };
+    const input_lengths = [_]u32{ 4, 8, 8, 4, 4, 4, 4, 4, 8, 8, 8 };
+    var inputs: [input_ordinals.len]protocol_recipes.TranscriptBinding = undefined;
+    var next: u32 = 64;
+    var channel = blake2s_channel.Blake2sChannel{};
+    for (input_ordinals, input_lengths, &inputs) |binding_ordinal, length, *input| {
+        for (0..length) |index| words[next + index] = @intCast(1 + binding_ordinal * 19 + index);
+        channel.mixU32s(words[next .. next + length]);
+        input.* = .{
+            .ordinal = binding_ordinal,
+            .binding = .{
+                .logical_id = binding_ordinal,
+                .slot = binding_ordinal,
+                .offset_bytes = @as(u64, next) * 4,
+                .size_bytes = @as(u64, length) * 4,
+                .materialization = .resident,
+                .occupied = occupied,
+            },
+        };
+        next += length;
+    }
+    const state = arena_plan.Binding{
+        .logical_id = 1000,
+        .slot = 1000,
+        .offset_bytes = 0,
+        .size_bytes = 64,
+        .materialization = .resident,
+        .occupied = occupied,
+    };
+    const dummy_output = protocol_recipes.TranscriptBinding{
+        .ordinal = 1,
+        .binding = .{
+            .logical_id = 1001,
+            .slot = 1001,
+            .offset_bytes = 1024,
+            .size_bytes = 32,
+            .materialization = .resident,
+            .occupied = occupied,
+        },
+    };
+    var recipe = try protocol_recipes.TranscriptRecipe.init(
+        std.testing.allocator,
+        &runtime,
+        &resident,
+        state,
+        &inputs,
+        &.{dummy_output},
+    );
+    defer recipe.deinit();
+    try recipe.initialize();
+    try recipe.bootstrapThroughBase();
+    try std.testing.expectEqualSlices(u8, &channel.digest, std.mem.sliceAsBytes(words[0..8]));
+    try std.testing.expectEqual(@as(u32, 0), words[8]);
 }
 
 test "metal: batched circle IFFT and RFFT match CPU" {

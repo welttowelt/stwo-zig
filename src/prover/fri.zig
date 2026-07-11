@@ -398,15 +398,17 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
             config: core_fri.FriConfig,
             first_layer: FirstLayerProver,
         ) !InnerCommitResult {
-            const first_inner_layer_log_size = first_layer.domain.logSize() - config.fold_step;
-            const first_inner_layer_domain = try line.LineDomain.init(
-                circle.Coset.halfOdds(first_inner_layer_log_size),
+            if (config.fold_step == 0 or config.fold_step > first_layer.domain.logSize())
+                return core_fri.FriVerificationError.InvalidNumFriLayers;
+            const circle_fold_log_size = first_layer.domain.logSize() - 1;
+            const circle_fold_domain = try line.LineDomain.init(
+                circle.Coset.halfOdds(circle_fold_log_size),
             );
 
             var layer_evaluation = if (comptime @hasDecl(B, "allocateLineEvaluation"))
-                try B.allocateLineEvaluation(first_inner_layer_domain)
+                try B.allocateLineEvaluation(circle_fold_domain)
             else
-                try prover_line.LineEvaluation.newZero(allocator, first_inner_layer_domain);
+                try prover_line.LineEvaluation.newZero(allocator, circle_fold_domain);
             errdefer layer_evaluation.deinit(allocator);
 
             var fold_circle_workspace = try core_fri.FoldCircleWorkspace.init(
@@ -439,6 +441,47 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
                     folding_alpha,
                     &fold_circle_workspace,
                 );
+            }
+
+            if (config.fold_step > 1) {
+                var first_line_workspace = try core_fri.FoldLineWorkspace.init(
+                    allocator,
+                    layer_evaluation.len() / 2,
+                );
+                defer first_line_workspace.deinit(allocator);
+                if (comptime @hasDecl(B, "foldLineEvaluationN")) {
+                    const folded = try B.foldLineEvaluationN(
+                        allocator,
+                        layer_evaluation,
+                        folding_alpha.square(),
+                        &first_line_workspace,
+                        config.fold_step - 1,
+                    );
+                    layer_evaluation.deinit(allocator);
+                    layer_evaluation = folded;
+                } else {
+                    const folded = if (comptime @hasDecl(B, "foldLineN"))
+                        try B.foldLineN(
+                            allocator,
+                            @constCast(layer_evaluation.values),
+                            layer_evaluation.domain(),
+                            folding_alpha.square(),
+                            &first_line_workspace,
+                            config.fold_step - 1,
+                        )
+                    else
+                        try core_fri.foldLineInPlaceNWithWorkspace(
+                            allocator,
+                            @constCast(layer_evaluation.values),
+                            layer_evaluation.domain(),
+                            folding_alpha.square(),
+                            &first_line_workspace,
+                            config.fold_step - 1,
+                        );
+                    layer_evaluation.domain_value = folded.domain;
+                    layer_evaluation.values = folded.values;
+                    layer_evaluation.owns_values = true;
+                }
             }
 
             var layers = std.ArrayList(InnerLayerProver).empty;
@@ -485,7 +528,7 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
                 // but clamped so we don't overshoot the last-layer size.
                 const current_log_size = std.math.log2_int(usize, layer_evaluation.len());
                 const remaining_folds = current_log_size - last_layer_log_size;
-                const this_fold_step: u32 = @intCast(@min(core_fri.FOLD_STEP, remaining_folds));
+                const this_fold_step: u32 = @intCast(@min(config.fold_step, remaining_folds));
 
                 const layer = InnerLayerProver{
                     .domain = layer_evaluation.domain(),

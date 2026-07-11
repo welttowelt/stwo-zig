@@ -173,7 +173,7 @@ pub fn FriVerifier(comptime H: type, comptime MC: type) type {
                 // Determine fold count: normally FOLD_STEP, clamped to the
                 // remaining degree so we don't overshoot.
                 const remaining = layer_bound.logDegreeBound() - config.log_last_layer_degree_bound;
-                const this_fold_step: u32 = @min(FOLD_STEP, remaining);
+                const this_fold_step: u32 = @min(config.fold_step, remaining);
 
                 inner_layers[i] = .{
                     .domain = layer_domain,
@@ -691,11 +691,15 @@ pub const SparseEvaluation = struct {
     ) ![]QM31 {
         const out = try allocator.alloc(QM31, self.subset_evals.len);
         if (self.subset_evals.len == 0) return out;
-        const subset_fold_len = self.subset_evals[0].len >> @intCast(fold_step);
-        const buffer = try allocator.alloc(QM31, subset_fold_len);
-        defer allocator.free(buffer);
-        var workspace = try FoldCircleWorkspace.init(allocator, subset_fold_len);
-        defer workspace.deinit(allocator);
+        if (fold_step == 0 or self.subset_evals[0].len != (@as(usize, 1) << @intCast(fold_step)))
+            return error.ShapeMismatch;
+        const circle_fold_len = self.subset_evals[0].len / 2;
+        const circle_buffer = try allocator.alloc(QM31, circle_fold_len);
+        defer allocator.free(circle_buffer);
+        var circle_workspace = try FoldCircleWorkspace.init(allocator, circle_fold_len);
+        defer circle_workspace.deinit(allocator);
+        var line_workspace = try FoldLineWorkspace.init(allocator, @max(1, circle_fold_len / 2));
+        defer line_workspace.deinit(allocator);
         var i: usize = 0;
         while (i < self.subset_evals.len) : (i += 1) {
             const domain_initial_index = self.subset_domain_initial_indexes[i];
@@ -703,17 +707,30 @@ pub const SparseEvaluation = struct {
             const fold_domain = circle_domain.CircleDomain.new(
                 circle.Coset.new(fold_domain_initial, fold_step - 1),
             );
-            if (fold_domain.half_coset.size() != buffer.len) return error.ShapeMismatch;
-            @memset(buffer, QM31.zero());
+            if (fold_domain.half_coset.size() != circle_buffer.len) return error.ShapeMismatch;
+            @memset(circle_buffer, QM31.zero());
             try foldCircleIntoLineWithWorkspace(
                 allocator,
-                buffer,
+                circle_buffer,
                 self.subset_evals[i],
                 fold_domain,
                 fold_alpha,
-                &workspace,
+                &circle_workspace,
             );
-            out[i] = buffer[0];
+            if (fold_step == 1) {
+                out[i] = circle_buffer[0];
+            } else {
+                const folded = try foldLineNWithWorkspace(
+                    allocator,
+                    circle_buffer,
+                    line.LineDomain.fromCircleDomain(fold_domain),
+                    fold_alpha.square(),
+                    &line_workspace,
+                    fold_step - 1,
+                );
+                defer allocator.free(folded.values);
+                out[i] = folded.values[0];
+            }
         }
         return out;
     }
@@ -938,14 +955,16 @@ pub fn foldLineNWithWorkspace(
     if (eval.len < 2 or (eval.len & 1) != 0) return error.InvalidEvaluationLength;
 
     // First fold: allocate from the source (which is const).
-    var result = try foldLineSingleStep(allocator, eval, domain, alpha, workspace);
+    var current_alpha = alpha;
+    var result = try foldLineSingleStep(allocator, eval, domain, current_alpha, workspace);
 
     // Subsequent folds: fold from the previous result, freeing intermediates.
     var step: u32 = 1;
     while (step < n_folds) : (step += 1) {
         const prev_values = result.values;
         const prev_domain = result.domain;
-        result = try foldLineSingleStep(allocator, prev_values, prev_domain, alpha, workspace);
+        current_alpha = current_alpha.square();
+        result = try foldLineSingleStep(allocator, prev_values, prev_domain, current_alpha, workspace);
         allocator.free(prev_values);
     }
 
@@ -1019,6 +1038,7 @@ pub fn foldLineInPlaceNWithWorkspace(
 ) !FoldLineResult {
     var current_eval = eval;
     var current_domain = domain;
+    var current_alpha = alpha;
 
     var step: u32 = 0;
     while (step < n_folds) : (step += 1) {
@@ -1026,11 +1046,12 @@ pub fn foldLineInPlaceNWithWorkspace(
             allocator,
             current_eval,
             current_domain,
-            alpha,
+            current_alpha,
             workspace,
         );
         current_eval = result.values;
         current_domain = result.domain;
+        current_alpha = current_alpha.square();
     }
 
     return .{
@@ -1295,15 +1316,17 @@ test "fri: fold line applies FOLD_STEP sequential butterfly folds" {
     // Verify by applying FOLD_STEP single-step folds manually.
     var expected = try alloc.dupe(QM31, eval_buf);
     var cur_domain = domain;
+    var current_alpha = alpha;
     var step: u32 = 0;
     while (step < FOLD_STEP) : (step += 1) {
         const half = expected.len / 2;
         var ws = try FoldLineWorkspace.init(alloc, half);
         defer ws.deinit(alloc);
-        const result = try foldLineSingleStep(alloc, expected, cur_domain, alpha, &ws);
+        const result = try foldLineSingleStep(alloc, expected, cur_domain, current_alpha, &ws);
         alloc.free(expected);
         expected = result.values;
         cur_domain = result.domain;
+        current_alpha = current_alpha.square();
     }
     defer alloc.free(expected);
 
