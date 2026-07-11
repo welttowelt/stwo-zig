@@ -492,11 +492,10 @@ kernel void stwo_zig_quotient_rows(
         Qm31Value numerator = qm_sub(numerator_sum, qm_add(qm_mul_m31(sum_a, domain_y[row]), sum_b));
         accumulator = qm_add(accumulator, qm_mul_cm(numerator, denominator_inverse));
     }
-    uint output_base = row * 4u;
-    output[output_base] = accumulator.a;
-    output[output_base + 1u] = accumulator.b;
-    output[output_base + 2u] = accumulator.c;
-    output[output_base + 3u] = accumulator.d;
+    output[row] = accumulator.a;
+    output[row_count + row] = accumulator.b;
+    output[2u * row_count + row] = accumulator.c;
+    output[3u * row_count + row] = accumulator.d;
 }
 
 kernel void stwo_zig_quotient_rows_raw(
@@ -547,11 +546,10 @@ kernel void stwo_zig_quotient_rows_raw(
         Qm31Value numerator = qm_sub(numerator_sum, qm_add(qm_mul_m31(sum_a, domain_y[row]), sum_b));
         accumulator = qm_add(accumulator, qm_mul_cm(numerator, denominator_inverse));
     }
-    uint output_base = row * 4u;
-    output[output_base] = accumulator.a;
-    output[output_base + 1u] = accumulator.b;
-    output[output_base + 2u] = accumulator.c;
-    output[output_base + 3u] = accumulator.d;
+    output[row] = accumulator.a;
+    output[row_count + row] = accumulator.b;
+    output[2u * row_count + row] = accumulator.c;
+    output[3u * row_count + row] = accumulator.d;
 }
 
 kernel void stwo_zig_quotient_numerator_raw(
@@ -616,11 +614,10 @@ kernel void stwo_zig_quotient_finalize(
         );
         accumulator = qm_add(accumulator, qm_mul_cm(numerator, cm_inv(denominator)));
     }
-    uint output_base = row * 4u;
-    output[output_base] = accumulator.a;
-    output[output_base + 1u] = accumulator.b;
-    output[output_base + 2u] = accumulator.c;
-    output[output_base + 3u] = accumulator.d;
+    output[row] = accumulator.a;
+    output[row_count + row] = accumulator.b;
+    output[2u * row_count + row] = accumulator.c;
+    output[3u * row_count + row] = accumulator.d;
 }
 
 struct PolynomialEvalTask {

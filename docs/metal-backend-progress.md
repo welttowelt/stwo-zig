@@ -82,6 +82,13 @@ The resident transform/quotient pass on 2026-07-11 adds:
 - direct-run FRI numerator accumulation without flattening the trace; and
 - parallel generation of independent RISC-V memory shards.
 
+The follow-up residency boundary pass also writes quotient results directly in
+the native coordinate-major `SecureColumnByCoords` layout, removing the 40 MiB
+row-major compatibility transpose. Circle-to-line and variable-step line folds
+now dispatch through backend hooks instead of bypassing the backend in
+`core/fri.zig`; the Metal implementation still delegates those hooks to CPU
+until the secure-column owner becomes a device-backed allocation.
+
 Three current exact runs:
 
 | Run | Prove | Prove MHz | Run + prove | Run + prove MHz |

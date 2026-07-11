@@ -138,6 +138,24 @@ pub const CpuBackend = struct {
         );
     }
 
+    pub fn foldLineN(
+        allocator: std.mem.Allocator,
+        eval: []QM31,
+        domain: anytype,
+        alpha: QM31,
+        workspace: *core_fri.FoldLineWorkspace,
+        n_folds: u32,
+    ) !core_fri.FoldLineResult {
+        return core_fri.foldLineInPlaceNWithWorkspace(
+            allocator,
+            eval,
+            domain,
+            alpha,
+            workspace,
+            n_folds,
+        );
+    }
+
     // ---------------------------------------------------------------
     // QuotientOps
     // ---------------------------------------------------------------

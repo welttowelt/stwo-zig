@@ -418,14 +418,25 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
                 first_layer.column.columns[2],
                 first_layer.column.columns[3],
             };
-            try core_fri.foldCircleColumnsIntoLineWithWorkspace(
-                allocator,
-                @constCast(layer_evaluation.values),
-                first_layer_columns,
-                first_layer.domain,
-                folding_alpha,
-                &fold_circle_workspace,
-            );
+            if (comptime @hasDecl(B, "foldCircleIntoLine")) {
+                try B.foldCircleIntoLine(
+                    allocator,
+                    @constCast(layer_evaluation.values),
+                    first_layer_columns,
+                    first_layer.domain,
+                    folding_alpha,
+                    &fold_circle_workspace,
+                );
+            } else {
+                try core_fri.foldCircleColumnsIntoLineWithWorkspace(
+                    allocator,
+                    @constCast(layer_evaluation.values),
+                    first_layer_columns,
+                    first_layer.domain,
+                    folding_alpha,
+                    &fold_circle_workspace,
+                );
+            }
 
             var layers = std.ArrayList(InnerLayerProver).empty;
             defer layers.deinit(allocator);
@@ -478,14 +489,24 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
                 };
                 try layers.append(allocator, layer);
 
-                const folded = try core_fri.foldLineInPlaceNWithWorkspace(
-                    allocator,
-                    @constCast(layer_evaluation.values),
-                    layer_evaluation.domain(),
-                    fold_alpha,
-                    &fold_workspace,
-                    this_fold_step,
-                );
+                const folded = if (comptime @hasDecl(B, "foldLineN"))
+                    try B.foldLineN(
+                        allocator,
+                        @constCast(layer_evaluation.values),
+                        layer_evaluation.domain(),
+                        fold_alpha,
+                        &fold_workspace,
+                        this_fold_step,
+                    )
+                else
+                    try core_fri.foldLineInPlaceNWithWorkspace(
+                        allocator,
+                        @constCast(layer_evaluation.values),
+                        layer_evaluation.domain(),
+                        fold_alpha,
+                        &fold_workspace,
+                        this_fold_step,
+                    );
                 layer_evaluation.domain_value = folded.domain;
                 layer_evaluation.values = folded.values;
                 layer_evaluation.owns_values = true;

@@ -645,8 +645,15 @@ bool stwo_zig_metal_compute_quotients(
         id<MTLBuffer> y_buffer = [runtime.device newBufferWithBytes:domain_y
                                                              length:(NSUInteger)row_count * sizeof(uint32_t)
                                                             options:MTLResourceStorageModeShared];
-        id<MTLBuffer> output_buffer = [runtime.device newBufferWithLength:(NSUInteger)row_count * 4u * sizeof(uint32_t)
-                                                                 options:MTLResourceStorageModeShared];
+        size_t output_bytes = (size_t)row_count * 4u * sizeof(uint32_t);
+        size_t page_size = (size_t)getpagesize();
+        bool direct_output = ((uintptr_t)output % page_size) == 0u && (output_bytes % page_size) == 0u;
+        id<MTLBuffer> output_buffer = direct_output
+            ? [runtime.device newBufferWithBytesNoCopy:output
+                                                length:output_bytes
+                                               options:MTLResourceStorageModeShared
+                                           deallocator:nil]
+            : [runtime.device newBufferWithLength:output_bytes options:MTLResourceStorageModeShared];
         if (flat_buffer == nil || view_buffer == nil || sample_buffer == nil ||
             linear_buffer == nil || x_buffer == nil || y_buffer == nil || output_buffer == nil) {
             write_error(error_message, error_message_len, @"Metal quotient allocation failed");
@@ -765,7 +772,7 @@ bool stwo_zig_metal_compute_quotients(
                         command.error.localizedDescription ?: @"Metal quotient execution failed");
             return false;
         }
-        memcpy(output, output_buffer.contents, (NSUInteger)row_count * 4u * sizeof(uint32_t));
+        if (!direct_output) memcpy(output, output_buffer.contents, output_bytes);
         if (gpu_milliseconds != NULL) {
             *gpu_milliseconds = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
         }

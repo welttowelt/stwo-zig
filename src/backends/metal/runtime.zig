@@ -323,8 +323,8 @@ pub const Runtime = struct {
             domain_y[position] = point.y.v;
         }
 
-        const output = try allocator.alloc(u32, row_count * 4);
-        defer allocator.free(output);
+        if (!out.contiguous or out.columns[0].len != row_count) return MetalError.QuotientFailed;
+        const output = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(out.columns[0].ptr[0 .. row_count * 4]));
         const prepared_ns = total_timer.lap();
         var gpu_ms: f64 = 0;
         var message: [1024]u8 = [_]u8{0} ** 1024;
@@ -351,11 +351,6 @@ pub const Runtime = struct {
         )) {
             std.log.err("Metal quotient failed: {s}", .{std.mem.sliceTo(&message, 0)});
             return MetalError.QuotientFailed;
-        }
-        for (0..row_count) |row| {
-            inline for (0..4) |coordinate| {
-                out.columns[coordinate][row].v = output[row * 4 + coordinate];
-            }
         }
         const dispatch_and_copy_ns = total_timer.lap();
         std.log.debug(

@@ -147,6 +147,7 @@ pub const MetalCommitBackend = struct {
     pub const evalAtPoint = cpu.evalAtPoint;
     pub const foldCircleIntoLine = cpu.foldCircleIntoLine;
     pub const foldLine = cpu.foldLine;
+    pub const foldLineN = cpu.foldLineN;
     pub const accumulateQuotients = cpu.accumulateQuotients;
     pub const accumulate = cpu.accumulate;
     pub const genEqEvals = cpu.genEqEvals;
