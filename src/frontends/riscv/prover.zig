@@ -1575,25 +1575,64 @@ pub fn proveRiscVWithEngine(
 
     // Memory check (9 cols) -- includes ALL accesses (register + memory)
     if (opt_chain) |chain| {
+        const MemoryShardWork = struct {
+            allocator: std.mem.Allocator,
+            chain: *const state_chain.StateChainTracker,
+            log_size: u32,
+            access_start: usize,
+            access_end: usize,
+            result: infra.MemoryColumnsResult = undefined,
+            err: ?anyerror = null,
+
+            fn run(work: *@This()) void {
+                work.result = infra.genMemoryColumnsRange(
+                    work.allocator,
+                    work.chain,
+                    work.log_size,
+                    work.access_start,
+                    work.access_end,
+                ) catch |err| {
+                    work.err = err;
+                    return;
+                };
+            }
+        };
+        const works = try allocator.alloc(MemoryShardWork, memory_shard_count);
+        defer allocator.free(works);
         var access_start: usize = 0;
-        for (0..memory_shard_count) |shard_index| {
-            const shard_len = memory_shard_lengths[shard_index];
-            const shard_log_size = @max(computeLogSize(shard_len), 4);
-            const mem_cols = try infra.genMemoryColumnsRange(
-                allocator,
-                chain,
-                shard_log_size,
-                access_start,
-                access_start + shard_len,
-            );
+        for (works, memory_shard_lengths[0..memory_shard_count]) |*work, shard_len| {
+            work.* = .{
+                .allocator = allocator,
+                .chain = chain,
+                .log_size = @max(computeLogSize(shard_len), 4),
+                .access_start = access_start,
+                .access_end = access_start + shard_len,
+            };
+            access_start += shard_len;
+        }
+        if (work_pool.getGlobalPool()) |pool| {
+            var wait_group: std.Thread.WaitGroup = .{};
+            for (works) |*work| pool.spawnWg(&wait_group, MemoryShardWork.run, .{work});
+            wait_group.wait();
+        } else {
+            for (works) |*work| MemoryShardWork.run(work);
+        }
+        for (works) |*work| {
+            if (work.err) |err| {
+                for (works) |*completed| {
+                    if (completed.err == null) infra.freeMemoryColumns(allocator, &completed.result.columns);
+                }
+                return err;
+            }
+        }
+        for (works) |*work| {
             for (0..infra.MEMORY_TRACE_COLS) |c| {
                 main_columns[col_offset + c] = .{
-                    .log_size = shard_log_size,
-                    .values = mem_cols.columns[c],
+                    .log_size = work.log_size,
+                    .values = work.result.columns[c],
                 };
             }
             col_offset += infra.MEMORY_TRACE_COLS;
-            access_start += shard_len;
         }
     }
 

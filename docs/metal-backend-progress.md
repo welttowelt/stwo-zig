@@ -71,6 +71,30 @@ two-stage sampled evaluator, three exact runs measured:
 This is 1.14x faster than the first Metal median and 13.23x faster than the
 same-program Rust baseline on prove-only wall time.
 
+The resident transform/quotient pass on 2026-07-11 adds:
+
+- fused, parity-tested circle IFFT/RFFT with 2,048-element threadgroup tiles;
+- one-command IFFT, coefficient extension, and RFFT over zero-copy contiguous
+  backing arenas;
+- GPU-blit commitment upload from contiguous column runs;
+- direct-run sampled polynomial evaluation without a flattened coefficient
+  staging buffer;
+- direct-run FRI numerator accumulation without flattening the trace; and
+- parallel generation of independent RISC-V memory shards.
+
+Three current exact runs:
+
+| Run | Prove | Prove MHz | Run + prove | Run + prove MHz |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 401.2 ms | 6.232 | 625.2 ms | 3.999 |
+| 2 | 389.1 ms | 6.426 | 610.2 ms | 4.097 |
+| 3 | 390.3 ms | 6.406 | 610.8 ms | 4.093 |
+| Median | **390.3 ms** | **6.406** | **610.8 ms** | **4.093** |
+
+The current prove-only median is 2.00x faster than the first Metal median,
+3.10x faster than the preserved Zig CPU median, and 23.16x faster than the
+same-program Rust baseline.
+
 ## Kernel and stage evidence
 
 - Synthetic Blake2s tree, 2,106 uniform log-16 columns:
@@ -79,13 +103,14 @@ same-program Rust baseline on prove-only wall time.
   - GPU throughput: 11.21 billion committed cells/s
   - one-copy wall time: 67.806 ms, 2.04 billion cells/s
 - Raw FRI quotient kernel on the full workload: 9.4-13.9 ms.
-- Full FRI quotient/commit stage: about 109-116 ms, down from about 478 ms on
-  CPU.
+- Full FRI quotient/commit stage: 32.2 ms wall, including 23.6 ms of GPU work,
+  down from about 478 ms on CPU.
 - Main commitment: about 230-245 ms, down from about 303 ms on CPU.
-- Sampled-value evaluation is now about 77-79 ms wall, of which only about
-  8 ms is GPU execution; coefficient upload remains the dominant cost.
-- Opcode/infrastructure trace generation is about 156-168 ms and remains CPU
-  resident.
+- Sampled-value evaluation is now about 18-24 ms wall and consumes contiguous
+  coefficient runs directly, without a flattened upload arena.
+- The dominant fused circle IFFT/RFFT group is 57.236 ms on GPU.
+- Parallel RISC-V infrastructure trace generation is about 63-68 ms and still
+  originates on CPU.
 
 ## Correctness gates
 
@@ -98,16 +123,16 @@ same-program Rust baseline on prove-only wall time.
 
 ## Remaining high-value work
 
-1. Keep coefficient polynomials resident from interpolation through sampled
-   evaluation; this removes the remaining roughly 70 ms sampled-value upload.
-2. Port batched circle IFFT/RFFT into the transaction arena. CPU transforms are
-   still most of the main-commit wall time.
-3. Generate opcode and infrastructure columns directly into Metal buffers.
-4. Retain FRI quotient output on device and perform folds there. Merkle layers
+1. Generate opcode and infrastructure columns directly into Metal buffers,
+   removing the remaining source-to-coefficient arena transfer.
+2. Retain FRI quotient output on device and perform folds there. Merkle layers
    are already resident and opening reads only the compact authentication path.
-5. Replace runtime source compilation with an embedded AOT metallib. Current
+3. Move Fiat-Shamir state, query generation, and compact proof packing into the
+   transaction command stream.
+4. Replace runtime source compilation with an embedded AOT metallib. Current
    benchmarks warm the persistent runtime before measured proving.
-6. Add the adapted Cairo input bridge before claiming SN PIE proving numbers.
+5. Add the adapted Cairo AIR/witness bridge before claiming SN PIE proving
+   numbers.
 
 The existing AIR and LogUp soundness limitations documented in
 `riscv-rust-parity.md` still apply. Performance comparisons do not establish

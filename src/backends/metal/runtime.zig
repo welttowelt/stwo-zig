@@ -84,6 +84,33 @@ extern fn stwo_zig_metal_eval_polynomials(
     error_message: [*]u8,
     error_message_len: usize,
 ) bool;
+extern fn stwo_zig_metal_circle_transform(
+    runtime: *anyopaque,
+    columns: [*]const [*]u32,
+    column_count: u32,
+    log_size: u32,
+    twiddles: [*]const u32,
+    inverse: bool,
+    scale_factor: u32,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_circle_lde(
+    runtime: *anyopaque,
+    source_columns: [*]const [*]const u32,
+    base_columns: [*]const [*]u32,
+    extended_columns: [*]const [*]u32,
+    column_count: u32,
+    base_log_size: u32,
+    extended_log_size: u32,
+    inverse_twiddles: [*]const u32,
+    forward_twiddles: [*]const u32,
+    scale_factor: u32,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
 
 pub const MetalError = error{
     RuntimeInitializationFailed,
@@ -94,6 +121,7 @@ pub const MetalError = error{
     QuotientFailed,
     TimerUnsupported,
     PolynomialEvaluationFailed,
+    CircleTransformFailed,
 };
 
 pub const Runtime = struct {
@@ -463,6 +491,105 @@ pub const Runtime = struct {
                 }
                 value.* = @import("../../core/fields/qm31.zig").QM31.fromM31Array(coordinates);
             }
+        }
+        return gpu_ms;
+    }
+
+    pub fn transformCircle(
+        self: *Runtime,
+        allocator: std.mem.Allocator,
+        columns: []const []@import("../../core/fields/m31.zig").M31,
+        twiddles: []const @import("../../core/fields/m31.zig").M31,
+        log_size: u32,
+        inverse: bool,
+    ) (MetalError || std.mem.Allocator.Error)!f64 {
+        if (columns.len == 0 or log_size < 3) return MetalError.CircleTransformFailed;
+        const expected_len = @as(usize, 1) << @intCast(log_size);
+        if (twiddles.len != expected_len / 2) return MetalError.CircleTransformFailed;
+        const pointers = try allocator.alloc([*]u32, columns.len);
+        defer allocator.free(pointers);
+        for (columns, 0..) |column, index| {
+            if (column.len != expected_len) return MetalError.CircleTransformFailed;
+            pointers[index] = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(column)).ptr;
+        }
+        const scale_factor = if (inverse)
+            (@import("../../core/fields/m31.zig").M31.fromCanonical(@intCast(expected_len)).inv() catch
+                return MetalError.CircleTransformFailed).v
+        else
+            1;
+        const words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(twiddles));
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_circle_transform(
+            self.handle,
+            pointers.ptr,
+            @intCast(columns.len),
+            log_size,
+            words.ptr,
+            inverse,
+            scale_factor,
+            &gpu_ms,
+            &message,
+            message.len,
+        )) {
+            std.log.err("Metal circle transform failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CircleTransformFailed;
+        }
+        return gpu_ms;
+    }
+
+    pub fn transformCircleLde(
+        self: *Runtime,
+        allocator: std.mem.Allocator,
+        source_columns: []const []const @import("../../core/fields/m31.zig").M31,
+        base_columns: []const []@import("../../core/fields/m31.zig").M31,
+        extended_columns: []const []@import("../../core/fields/m31.zig").M31,
+        inverse_twiddles: []const @import("../../core/fields/m31.zig").M31,
+        forward_twiddles: []const @import("../../core/fields/m31.zig").M31,
+        base_log_size: u32,
+        extended_log_size: u32,
+    ) (MetalError || std.mem.Allocator.Error)!f64 {
+        if (base_columns.len == 0 or source_columns.len != base_columns.len or base_columns.len != extended_columns.len or base_log_size < 3 or extended_log_size <= base_log_size) {
+            return MetalError.CircleTransformFailed;
+        }
+        const base_len = @as(usize, 1) << @intCast(base_log_size);
+        const extended_len = @as(usize, 1) << @intCast(extended_log_size);
+        if (inverse_twiddles.len != base_len / 2 or forward_twiddles.len != extended_len / 2) return MetalError.CircleTransformFailed;
+        const base_ptrs = try allocator.alloc([*]u32, base_columns.len);
+        defer allocator.free(base_ptrs);
+        const source_ptrs = try allocator.alloc([*]const u32, source_columns.len);
+        defer allocator.free(source_ptrs);
+        const extended_ptrs = try allocator.alloc([*]u32, extended_columns.len);
+        defer allocator.free(extended_ptrs);
+        for (source_columns, base_columns, extended_columns, 0..) |source, base, extended, index| {
+            if (source.len != base_len or base.len != base_len or extended.len != extended_len) return MetalError.CircleTransformFailed;
+            source_ptrs[index] = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(source)).ptr;
+            base_ptrs[index] = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(base)).ptr;
+            extended_ptrs[index] = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(extended)).ptr;
+        }
+        const inverse_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(inverse_twiddles));
+        const forward_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(forward_twiddles));
+        const scale_factor = (@import("../../core/fields/m31.zig").M31.fromCanonical(@intCast(base_len)).inv() catch
+            return MetalError.CircleTransformFailed).v;
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_circle_lde(
+            self.handle,
+            source_ptrs.ptr,
+            base_ptrs.ptr,
+            extended_ptrs.ptr,
+            @intCast(base_columns.len),
+            base_log_size,
+            extended_log_size,
+            inverse_words.ptr,
+            forward_words.ptr,
+            scale_factor,
+            &gpu_ms,
+            &message,
+            message.len,
+        )) {
+            std.log.err("Metal circle LDE failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CircleTransformFailed;
         }
         return gpu_ms;
     }

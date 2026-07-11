@@ -158,6 +158,235 @@ inline uint m31_inv(uint value) {
     return result;
 }
 
+inline uint circle_twiddle(device const uint *twiddles, uint index) {
+    uint pair = index >> 2u;
+    switch (index & 3u) {
+        case 0u: return twiddles[2u * pair + 1u];
+        case 1u: return m31_neg(twiddles[2u * pair + 1u]);
+        case 2u: return m31_neg(twiddles[2u * pair]);
+        default: return twiddles[2u * pair];
+    }
+}
+
+kernel void stwo_zig_circle_ifft_first(
+    device uint *values [[buffer(0)]],
+    device const uint *twiddles [[buffer(1)]],
+    constant uint &log_size [[buffer(2)]],
+    constant uint &column_count [[buffer(3)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    uint pair_count = 1u << (log_size - 1u);
+    if (position.x >= pair_count || position.y >= column_count) return;
+    uint base = position.y << log_size;
+    uint idx0 = base + (position.x << 1u);
+    uint idx1 = idx0 + 1u;
+    uint lhs = values[idx0];
+    uint rhs = values[idx1];
+    uint twiddle = circle_twiddle(twiddles, position.x);
+    values[idx0] = m31_add(lhs, rhs);
+    values[idx1] = m31_mul(m31_sub(lhs, rhs), twiddle);
+}
+
+kernel void stwo_zig_circle_ifft_layer(
+    device uint *values [[buffer(0)]],
+    device const uint *twiddles [[buffer(1)]],
+    constant uint &log_size [[buffer(2)]],
+    constant uint &layer [[buffer(3)]],
+    constant uint &twiddle_offset [[buffer(4)]],
+    constant uint &column_count [[buffer(5)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    uint pair_count = 1u << (log_size - 1u);
+    if (position.x >= pair_count || position.y >= column_count) return;
+    uint polynomial_count = 1u << layer;
+    uint twiddle_index = position.x >> layer;
+    uint lane = position.x & (polynomial_count - 1u);
+    uint base = (position.y << log_size) + (twiddle_index << (layer + 1u));
+    uint idx0 = base + lane;
+    uint idx1 = idx0 + polynomial_count;
+    uint lhs = values[idx0];
+    uint rhs = values[idx1];
+    values[idx0] = m31_add(lhs, rhs);
+    values[idx1] = m31_mul(m31_sub(lhs, rhs), twiddles[twiddle_offset + twiddle_index]);
+}
+
+kernel void stwo_zig_circle_rfft_layer(
+    device uint *values [[buffer(0)]],
+    device const uint *twiddles [[buffer(1)]],
+    constant uint &log_size [[buffer(2)]],
+    constant uint &layer [[buffer(3)]],
+    constant uint &twiddle_offset [[buffer(4)]],
+    constant uint &column_count [[buffer(5)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    uint pair_count = 1u << (log_size - 1u);
+    if (position.x >= pair_count || position.y >= column_count) return;
+    uint polynomial_count = 1u << layer;
+    uint twiddle_index = position.x >> layer;
+    uint lane = position.x & (polynomial_count - 1u);
+    uint base = (position.y << log_size) + (twiddle_index << (layer + 1u));
+    uint idx0 = base + lane;
+    uint idx1 = idx0 + polynomial_count;
+    uint lhs = values[idx0];
+    uint product = m31_mul(values[idx1], twiddles[twiddle_offset + twiddle_index]);
+    values[idx0] = m31_add(lhs, product);
+    values[idx1] = m31_sub(lhs, product);
+}
+
+kernel void stwo_zig_circle_rfft_last(
+    device uint *values [[buffer(0)]],
+    device const uint *twiddles [[buffer(1)]],
+    constant uint &log_size [[buffer(2)]],
+    constant uint &column_count [[buffer(3)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    uint pair_count = 1u << (log_size - 1u);
+    if (position.x >= pair_count || position.y >= column_count) return;
+    uint base = position.y << log_size;
+    uint idx0 = base + (position.x << 1u);
+    uint idx1 = idx0 + 1u;
+    uint lhs = values[idx0];
+    uint product = m31_mul(values[idx1], circle_twiddle(twiddles, position.x));
+    values[idx0] = m31_add(lhs, product);
+    values[idx1] = m31_sub(lhs, product);
+}
+
+kernel void stwo_zig_circle_rescale(
+    device uint *values [[buffer(0)]],
+    constant uint &value_count [[buffer(1)]],
+    constant uint &factor [[buffer(2)]],
+    uint index [[thread_position_in_grid]]
+) {
+    if (index < value_count) values[index] = m31_mul(values[index], factor);
+}
+
+kernel void stwo_zig_circle_expand_coefficients(
+    device const uint *coefficients [[buffer(0)]],
+    device uint *extended [[buffer(1)]],
+    constant uint &base_log_size [[buffer(2)]],
+    constant uint &extended_log_size [[buffer(3)]],
+    constant uint &column_count [[buffer(4)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    uint extended_len = 1u << extended_log_size;
+    if (position.x >= extended_len || position.y >= column_count) return;
+    uint base_len = 1u << base_log_size;
+    uint value = position.x < base_len
+        ? coefficients[(position.y << base_log_size) + position.x]
+        : 0u;
+    extended[(position.y << extended_log_size) + position.x] = value;
+}
+
+constant uint circle_fused_tile_log = 11u;
+constant uint circle_fused_tile_size = 1u << circle_fused_tile_log;
+constant uint circle_fused_threads = 256u;
+
+kernel void stwo_zig_circle_ifft_fused_tail(
+    device uint *values [[buffer(0)]],
+    device const uint *twiddles [[buffer(1)]],
+    constant uint &log_size [[buffer(2)]],
+    constant uint &column_count [[buffer(3)]],
+    uint lane [[thread_index_in_threadgroup]],
+    uint2 group [[threadgroup_position_in_grid]]
+) {
+    if (group.y >= column_count) return;
+    threadgroup uint tile[circle_fused_tile_size];
+    uint value_len = 1u << log_size;
+    uint tile_offset = group.x << circle_fused_tile_log;
+    uint column_offset = group.y << log_size;
+    for (uint item = lane; item < circle_fused_tile_size; item += circle_fused_threads) {
+        tile[item] = values[column_offset + tile_offset + item];
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    for (uint pair = lane; pair < circle_fused_tile_size / 2u; pair += circle_fused_threads) {
+        uint idx0 = pair << 1u;
+        uint idx1 = idx0 + 1u;
+        uint lhs = tile[idx0];
+        uint rhs = tile[idx1];
+        uint global_pair = (tile_offset >> 1u) + pair;
+        tile[idx0] = m31_add(lhs, rhs);
+        tile[idx1] = m31_mul(m31_sub(lhs, rhs), circle_twiddle(twiddles, global_pair));
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    uint pair_count = value_len >> 1u;
+    for (uint layer = 1u; layer < circle_fused_tile_log; ++layer) {
+        uint distance = 1u << layer;
+        uint stride = distance << 1u;
+        uint twiddle_offset = pair_count - (1u << (log_size - layer));
+        uint group_base = tile_offset / stride;
+        for (uint pair = lane; pair < circle_fused_tile_size / 2u; pair += circle_fused_threads) {
+            uint local_group = pair / distance;
+            uint inner = pair - local_group * distance;
+            uint idx0 = local_group * stride + inner;
+            uint idx1 = idx0 + distance;
+            uint lhs = tile[idx0];
+            uint rhs = tile[idx1];
+            uint twiddle = twiddles[twiddle_offset + group_base + local_group];
+            tile[idx0] = m31_add(lhs, rhs);
+            tile[idx1] = m31_mul(m31_sub(lhs, rhs), twiddle);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+
+    for (uint item = lane; item < circle_fused_tile_size; item += circle_fused_threads) {
+        values[column_offset + tile_offset + item] = tile[item];
+    }
+}
+
+kernel void stwo_zig_circle_rfft_fused_tail(
+    device uint *values [[buffer(0)]],
+    device const uint *twiddles [[buffer(1)]],
+    constant uint &log_size [[buffer(2)]],
+    constant uint &column_count [[buffer(3)]],
+    uint lane [[thread_index_in_threadgroup]],
+    uint2 group [[threadgroup_position_in_grid]]
+) {
+    if (group.y >= column_count) return;
+    threadgroup uint tile[circle_fused_tile_size];
+    uint value_len = 1u << log_size;
+    uint tile_offset = group.x << circle_fused_tile_log;
+    uint column_offset = group.y << log_size;
+    for (uint item = lane; item < circle_fused_tile_size; item += circle_fused_threads) {
+        tile[item] = values[column_offset + tile_offset + item];
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    uint pair_count = value_len >> 1u;
+    for (uint layer = circle_fused_tile_log - 1u; layer > 0u; --layer) {
+        uint distance = 1u << layer;
+        uint stride = distance << 1u;
+        uint twiddle_offset = pair_count - (1u << (log_size - layer));
+        uint group_base = tile_offset / stride;
+        for (uint pair = lane; pair < circle_fused_tile_size / 2u; pair += circle_fused_threads) {
+            uint local_group = pair / distance;
+            uint inner = pair - local_group * distance;
+            uint idx0 = local_group * stride + inner;
+            uint idx1 = idx0 + distance;
+            uint lhs = tile[idx0];
+            uint product = m31_mul(tile[idx1], twiddles[twiddle_offset + group_base + local_group]);
+            tile[idx0] = m31_add(lhs, product);
+            tile[idx1] = m31_sub(lhs, product);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+
+    for (uint pair = lane; pair < circle_fused_tile_size / 2u; pair += circle_fused_threads) {
+        uint idx0 = pair << 1u;
+        uint idx1 = idx0 + 1u;
+        uint lhs = tile[idx0];
+        uint global_pair = (tile_offset >> 1u) + pair;
+        uint product = m31_mul(tile[idx1], circle_twiddle(twiddles, global_pair));
+        tile[idx0] = m31_add(lhs, product);
+        tile[idx1] = m31_sub(lhs, product);
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    for (uint item = lane; item < circle_fused_tile_size; item += circle_fused_threads) {
+        values[column_offset + tile_offset + item] = tile[item];
+    }
+}
+
 inline Cm31Value cm_add(Cm31Value lhs, Cm31Value rhs) {
     return { m31_add(lhs.a, rhs.a), m31_add(lhs.b, rhs.b) };
 }
@@ -317,6 +546,75 @@ kernel void stwo_zig_quotient_rows_raw(
                             linear_terms[linear_base + 6u], linear_terms[linear_base + 7u] };
         Qm31Value numerator = qm_sub(numerator_sum, qm_add(qm_mul_m31(sum_a, domain_y[row]), sum_b));
         accumulator = qm_add(accumulator, qm_mul_cm(numerator, denominator_inverse));
+    }
+    uint output_base = row * 4u;
+    output[output_base] = accumulator.a;
+    output[output_base + 1u] = accumulator.b;
+    output[output_base + 2u] = accumulator.c;
+    output[output_base + 3u] = accumulator.d;
+}
+
+kernel void stwo_zig_quotient_numerator_raw(
+    device const uint *flat_columns [[buffer(0)]],
+    device const RawQuotientView *views [[buffer(1)]],
+    constant uint &view_count [[buffer(2)]],
+    device Qm31Value *numerators [[buffer(3)]],
+    constant uint &batch_count [[buffer(4)]],
+    constant uint &row_count [[buffer(5)]],
+    uint row [[thread_position_in_grid]]
+) {
+    if (row >= row_count) return;
+    for (uint batch = 0; batch < batch_count; ++batch) {
+        Qm31Value sum = numerators[batch * row_count + row];
+        for (uint view_index = 0; view_index < view_count; ++view_index) {
+            RawQuotientView view = views[view_index];
+            if (view.batch != batch) continue;
+            uint source = view.direct != 0u
+                ? row
+                : ((row >> view.shift) << 1u) | (row & 1u);
+            uint value = flat_columns[view.offset + source];
+            sum = qm_add(sum, {
+                m31_mul(value, view.coeff_a), m31_mul(value, view.coeff_b),
+                m31_mul(value, view.coeff_c), m31_mul(value, view.coeff_d),
+            });
+        }
+        numerators[batch * row_count + row] = sum;
+    }
+}
+
+kernel void stwo_zig_quotient_finalize(
+    device const Qm31Value *numerators [[buffer(0)]],
+    device const uint *sample_components [[buffer(1)]],
+    device const uint *linear_terms [[buffer(2)]],
+    constant uint &batch_count [[buffer(3)]],
+    device const uint *domain_x [[buffer(4)]],
+    device const uint *domain_y [[buffer(5)]],
+    device uint *output [[buffer(6)]],
+    constant uint &row_count [[buffer(7)]],
+    uint row [[thread_position_in_grid]]
+) {
+    if (row >= row_count) return;
+    Qm31Value accumulator = { 0u, 0u, 0u, 0u };
+    for (uint batch = 0; batch < batch_count; ++batch) {
+        uint sample_base = batch * 8u;
+        Cm31Value prx = { sample_components[sample_base], sample_components[sample_base + 1u] };
+        Cm31Value pry = { sample_components[sample_base + 2u], sample_components[sample_base + 3u] };
+        Cm31Value pix = { sample_components[sample_base + 4u], sample_components[sample_base + 5u] };
+        Cm31Value piy = { sample_components[sample_base + 6u], sample_components[sample_base + 7u] };
+        Cm31Value denominator = cm_sub(
+            cm_mul(cm_sub(prx, { domain_x[row], 0u }), piy),
+            cm_mul(cm_sub(pry, { domain_y[row], 0u }), pix)
+        );
+        uint linear_base = batch * 8u;
+        Qm31Value sum_a = { linear_terms[linear_base], linear_terms[linear_base + 1u],
+                            linear_terms[linear_base + 2u], linear_terms[linear_base + 3u] };
+        Qm31Value sum_b = { linear_terms[linear_base + 4u], linear_terms[linear_base + 5u],
+                            linear_terms[linear_base + 6u], linear_terms[linear_base + 7u] };
+        Qm31Value numerator = qm_sub(
+            numerators[batch * row_count + row],
+            qm_add(qm_mul_m31(sum_a, domain_y[row]), sum_b)
+        );
+        accumulator = qm_add(accumulator, qm_mul_cm(numerator, cm_inv(denominator)));
     }
     uint output_base = row * 4u;
     output[output_base] = accumulator.a;

@@ -48,6 +48,8 @@ pub fn CommitmentTreeProver(comptime H: type) type {
     return struct {
         columns: []ColumnEvaluation,
         coefficients: ?[]prover_circle.CircleCoefficients,
+        column_backing_buffers: ?[][]M31 = null,
+        coefficient_backing_buffers: ?[][]M31 = null,
         commitment: vcs_lifted_prover.MerkleProverLifted(H),
 
         const Self = @This();
@@ -87,6 +89,24 @@ pub fn CommitmentTreeProver(comptime H: type) type {
             owned_columns: []ColumnEvaluation,
             owned_coefficients: ?[]prover_circle.CircleCoefficients,
         ) !Self {
+            return initOwnedWithBackingForBackend(
+                B,
+                allocator,
+                owned_columns,
+                owned_coefficients,
+                null,
+                null,
+            );
+        }
+
+        pub fn initOwnedWithBackingForBackend(
+            comptime B: type,
+            allocator: std.mem.Allocator,
+            owned_columns: []ColumnEvaluation,
+            owned_coefficients: ?[]prover_circle.CircleCoefficients,
+            column_backing_buffers: ?[][]M31,
+            coefficient_backing_buffers: ?[][]M31,
+        ) !Self {
             for (owned_columns) |column| try column.validate();
             if (owned_coefficients) |coeffs| {
                 if (coeffs.len != owned_columns.len) return CommitmentSchemeError.ShapeMismatch;
@@ -107,15 +127,27 @@ pub fn CommitmentTreeProver(comptime H: type) type {
             return .{
                 .columns = owned_columns,
                 .coefficients = owned_coefficients,
+                .column_backing_buffers = column_backing_buffers,
+                .coefficient_backing_buffers = coefficient_backing_buffers,
                 .commitment = commitment,
             };
         }
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
-            freeOwnedColumns(allocator, self.columns);
+            if (self.column_backing_buffers) |buffers| {
+                allocator.free(self.columns);
+                for (buffers) |buffer| allocator.free(buffer);
+                allocator.free(buffers);
+            } else {
+                freeOwnedColumns(allocator, self.columns);
+            }
             if (self.coefficients) |coeffs| {
                 for (coeffs) |*coeff| coeff.deinit(allocator);
                 allocator.free(coeffs);
+            }
+            if (self.coefficient_backing_buffers) |buffers| {
+                for (buffers) |buffer| allocator.free(buffer);
+                allocator.free(buffers);
             }
             self.commitment.deinit(allocator);
             self.* = undefined;
@@ -278,11 +310,13 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
             );
             errdefer prepared.deinit(allocator);
 
-            var tree = try CommitmentTreeProver(H).initOwnedWithCoefficientsForBackend(
+            var tree = try CommitmentTreeProver(H).initOwnedWithBackingForBackend(
                 B,
                 allocator,
                 prepared.columns,
                 prepared.coefficients,
+                prepared.column_backing_buffers,
+                prepared.coefficient_backing_buffers,
             );
             errdefer tree.deinit(allocator);
             try self.appendCommittedTree(allocator, tree, channel);
@@ -351,7 +385,8 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
             }
 
             errdefer freeOwnedColumnEvaluations(allocator, owned_columns);
-            var prepared = try prepareColumnsForCommitOwned(
+            var prepared = try prepareColumnsForCommitOwnedForBackend(
+                B,
                 allocator,
                 owned_columns,
                 self.config.fri_config.log_blowup_factor,
@@ -367,11 +402,13 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                 "Merkle commit",
             );
             defer merkle_commit_stage.end();
-            var tree = try CommitmentTreeProver(H).initOwnedWithCoefficientsForBackend(
+            var tree = try CommitmentTreeProver(H).initOwnedWithBackingForBackend(
                 B,
                 allocator,
                 prepared.columns,
                 prepared.coefficients,
+                prepared.column_backing_buffers,
+                prepared.coefficient_backing_buffers,
             );
             errdefer tree.deinit(allocator);
             try self.appendCommittedTree(allocator, tree, channel);
@@ -394,7 +431,8 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
             channel: anytype,
         ) !void {
             const blowup = self.config.fri_config.log_blowup_factor;
-            const columns = try extendCoefficientColumnsByGroup(
+            const columns = try extendCoefficientColumnsByGroupForBackend(
+                B,
                 allocator,
                 polys,
                 blowup,
@@ -1185,7 +1223,8 @@ pub fn TreeBuilder(comptime B: type, comptime H: type, comptime MC: type) type {
                 freeOwnedColumnEvaluations(self.allocator, base_columns);
             }
 
-            var prepared = try prepareColumnsForCommitOwned(
+            var prepared = try prepareColumnsForCommitOwnedForBackend(
+                B,
                 self.allocator,
                 base_columns,
                 self.commitment_scheme.config.fri_config.log_blowup_factor,
@@ -1195,11 +1234,13 @@ pub fn TreeBuilder(comptime B: type, comptime H: type, comptime MC: type) type {
             );
             errdefer prepared.deinit(self.allocator);
 
-            var tree = try CommitmentTreeProver(H).initOwnedWithCoefficientsForBackend(
+            var tree = try CommitmentTreeProver(H).initOwnedWithBackingForBackend(
                 B,
                 self.allocator,
                 prepared.columns,
                 prepared.coefficients,
+                prepared.column_backing_buffers,
+                prepared.coefficient_backing_buffers,
             );
             errdefer tree.deinit(self.allocator);
             try self.commitment_scheme.appendCommittedTree(self.allocator, tree, channel);
@@ -1314,7 +1355,8 @@ pub fn StreamingTreeBuilder(comptime B: type, comptime H: type, comptime MC: typ
             // Follow the same ownership convention as commitOwnedWithRecorder:
             // on error from prepareColumnsForCommitOwned the caller cleans up
             // the input; on success the result owns the data.
-            var prepared = prepareColumnsForCommitOwned(
+            var prepared = prepareColumnsForCommitOwnedForBackend(
+                B,
                 self.allocator,
                 owned_batch,
                 log_blowup,
@@ -1631,13 +1673,20 @@ test "prover pcs: coefficient eval plan cache reuses duplicate point sets" {
 const PreparedCommitmentColumns = struct {
     columns: []ColumnEvaluation,
     coefficients: ?[]prover_circle.CircleCoefficients,
+    column_backing_buffers: ?[][]M31 = null,
     /// Contiguous backing buffers for batched coefficient data. When present,
     /// coefficient entries borrow sub-slices of these buffers instead of each
     /// owning a separate allocation. Freed alongside the coefficients.
     coefficient_backing_buffers: ?[][]M31 = null,
 
     fn deinit(self: *PreparedCommitmentColumns, allocator: std.mem.Allocator) void {
-        freeOwnedColumnEvaluations(allocator, self.columns);
+        if (self.column_backing_buffers) |buffers| {
+            allocator.free(self.columns);
+            for (buffers) |buffer| allocator.free(buffer);
+            allocator.free(buffers);
+        } else {
+            freeOwnedColumnEvaluations(allocator, self.columns);
+        }
         if (self.coefficients) |coeffs| {
             deinitOwnedCoefficientColumns(allocator, coeffs);
         }
@@ -1749,12 +1798,43 @@ fn prepareColumnsForCommitOwned(
     twiddle_cache: *std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)),
     recorder: ?*stage_profile.Recorder,
 ) !PreparedCommitmentColumns {
+    return prepareColumnsForCommitOwnedForBackend(
+        @import("../../backends/cpu_scalar/mod.zig").CpuBackend,
+        allocator,
+        owned_columns,
+        log_blowup_factor,
+        retention_policy,
+        twiddle_cache,
+        recorder,
+    );
+}
+
+fn prepareColumnsForCommitOwnedForBackend(
+    comptime B: type,
+    allocator: std.mem.Allocator,
+    owned_columns: []ColumnEvaluation,
+    log_blowup_factor: u32,
+    retention_policy: CoefficientRetentionPolicy,
+    twiddle_cache: *std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)),
+    recorder: ?*stage_profile.Recorder,
+) !PreparedCommitmentColumns {
     const retain_coefficients = shouldRetainCoefficients(owned_columns, retention_policy);
     if (log_blowup_factor == 0 and !retain_coefficients) {
         return .{
             .columns = owned_columns,
             .coefficients = null,
         };
+    }
+
+    if (log_blowup_factor != 0 and comptime @hasDecl(B, "interpolateAndEvaluateCircleBuffers")) {
+        return prepareColumnsCombinedForBackend(
+            B,
+            allocator,
+            owned_columns,
+            log_blowup_factor,
+            retain_coefficients,
+            twiddle_cache,
+        );
     }
 
     if (log_blowup_factor == 0) {
@@ -1781,7 +1861,7 @@ fn prepareColumnsForCommitOwned(
             "Interpolate columns",
         );
         defer interpolate_stage.end();
-        break :blk try interpolateOwnedColumnsForExtension(allocator, owned_columns, twiddle_cache);
+        break :blk try interpolateOwnedColumnsForExtensionForBackend(B, allocator, owned_columns, twiddle_cache);
     };
     errdefer deinitOwnedCoefficientColumns(allocator, coeffs);
     allocator.free(owned_columns);
@@ -1793,7 +1873,8 @@ fn prepareColumnsForCommitOwned(
             "Evaluate extended domain",
         );
         defer eval_stage.end();
-        break :blk try extendCoefficientColumnsByGroup(
+        break :blk try extendCoefficientColumnsByGroupForBackend(
+            B,
             allocator,
             coeffs,
             log_blowup_factor,
@@ -1812,6 +1893,105 @@ fn prepareColumnsForCommitOwned(
     return .{
         .columns = extended,
         .coefficients = coeffs,
+    };
+}
+
+fn prepareColumnsCombinedForBackend(
+    comptime B: type,
+    allocator: std.mem.Allocator,
+    owned_columns: []ColumnEvaluation,
+    log_blowup_factor: u32,
+    retain_coefficients: bool,
+    twiddle_cache: *std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)),
+) !PreparedCommitmentColumns {
+    const extended = try allocator.alloc(ColumnEvaluation, owned_columns.len);
+    for (extended) |*column| column.* = .{ .log_size = 0, .values = &.{} };
+    errdefer allocator.free(extended);
+
+    const coefficients = try allocator.alloc(prover_circle.CircleCoefficients, owned_columns.len);
+    errdefer allocator.free(coefficients);
+    var initialized_indices = std.ArrayList(usize).empty;
+    defer initialized_indices.deinit(allocator);
+    errdefer for (initialized_indices.items) |index| coefficients[index].deinit(allocator);
+
+    var coefficient_buffers = std.ArrayList([]M31).empty;
+    defer coefficient_buffers.deinit(allocator);
+    errdefer for (coefficient_buffers.items) |buffer| allocator.free(buffer);
+    var column_buffers = std.ArrayList([]M31).empty;
+    defer column_buffers.deinit(allocator);
+    errdefer for (column_buffers.items) |buffer| allocator.free(buffer);
+
+    var groups = try buildLogSizeGroupsFromColumns(allocator, owned_columns);
+    defer deinitLogSizeGroups(allocator, &groups);
+    for (groups.items) |group| {
+        const extended_log_size = std.math.add(u32, group.log_size, log_blowup_factor) catch
+            return CommitmentSchemeError.ShapeMismatch;
+        const base_domain = canonic.CanonicCoset.new(group.log_size).circleDomain();
+        const extended_domain = canonic.CanonicCoset.new(extended_log_size).circleDomain();
+        const base_twiddles = try getCachedTwiddleTree(allocator, twiddle_cache, group.log_size);
+        const extended_twiddles = try getCachedTwiddleTree(allocator, twiddle_cache, extended_log_size);
+
+        const base_buffer = try allocator.alloc(M31, group.indices.items.len * base_domain.size());
+        try coefficient_buffers.append(allocator, base_buffer);
+        const extended_buffer = try allocator.alloc(M31, group.indices.items.len * extended_domain.size());
+        try column_buffers.append(allocator, extended_buffer);
+
+        const base_values = try allocator.alloc([]M31, group.indices.items.len);
+        defer allocator.free(base_values);
+        const source_values = try allocator.alloc([]const M31, group.indices.items.len);
+        defer allocator.free(source_values);
+        const extended_values = try allocator.alloc([]M31, group.indices.items.len);
+        defer allocator.free(extended_values);
+        for (group.indices.items, 0..) |column_index, group_index| {
+            const base = base_buffer[group_index * base_domain.size() ..][0..base_domain.size()];
+            source_values[group_index] = owned_columns[column_index].values;
+            base_values[group_index] = base;
+            const values = extended_buffer[group_index * extended_domain.size() ..][0..extended_domain.size()];
+            extended_values[group_index] = values;
+            extended[column_index] = .{ .log_size = extended_log_size, .values = values };
+        }
+        try B.interpolateAndEvaluateCircleBuffers(
+            allocator,
+            source_values,
+            base_values,
+            extended_values,
+            base_domain,
+            twiddleTreeConst(base_twiddles),
+            extended_domain,
+            twiddleTreeConst(extended_twiddles),
+        );
+
+        for (group.indices.items, base_values) |column_index, base| {
+            coefficients[column_index] = try prover_circle.CircleCoefficients.initBorrowed(base);
+            try initialized_indices.append(allocator, column_index);
+        }
+    }
+
+    for (owned_columns) |column| allocator.free(column.values);
+    allocator.free(owned_columns);
+
+    const owned_column_buffers = try allocator.dupe([]M31, column_buffers.items);
+    errdefer allocator.free(owned_column_buffers);
+
+    if (!retain_coefficients) {
+        deinitOwnedCoefficientColumns(allocator, coefficients);
+        for (coefficient_buffers.items) |buffer| allocator.free(buffer);
+        coefficient_buffers.clearRetainingCapacity();
+        column_buffers.clearRetainingCapacity();
+        return .{
+            .columns = extended,
+            .coefficients = null,
+            .column_backing_buffers = owned_column_buffers,
+        };
+    }
+    const owned_coefficient_buffers = try allocator.dupe([]M31, coefficient_buffers.items);
+    coefficient_buffers.clearRetainingCapacity();
+    column_buffers.clearRetainingCapacity();
+    return .{
+        .columns = extended,
+        .coefficients = coefficients,
+        .column_backing_buffers = owned_column_buffers,
+        .coefficient_backing_buffers = owned_coefficient_buffers,
     };
 }
 
@@ -2008,6 +2188,20 @@ fn interpolateOwnedColumnsForExtension(
     owned_columns: []ColumnEvaluation,
     twiddle_cache: *std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)),
 ) ![]prover_circle.CircleCoefficients {
+    return interpolateOwnedColumnsForExtensionForBackend(
+        @import("../../backends/cpu_scalar/mod.zig").CpuBackend,
+        allocator,
+        owned_columns,
+        twiddle_cache,
+    );
+}
+
+fn interpolateOwnedColumnsForExtensionForBackend(
+    comptime B: type,
+    allocator: std.mem.Allocator,
+    owned_columns: []ColumnEvaluation,
+    twiddle_cache: *std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)),
+) ![]prover_circle.CircleCoefficients {
     const out = try allocator.alloc(prover_circle.CircleCoefficients, owned_columns.len);
     errdefer allocator.free(out);
 
@@ -2045,7 +2239,10 @@ fn interpolateOwnedColumnsForExtension(
     for (groups.items, 0..) |group, group_idx| {
         const twiddle_tree = try getCachedTwiddleTree(allocator, twiddle_cache, group.log_size);
         const domain = canonic.CanonicCoset.new(group.log_size).circleDomain();
-        const batch_len = preferredFftBatchLen(domain.size());
+        const batch_len = if (comptime @hasDecl(B, "interpolateCircleBuffers"))
+            group.indices.items.len
+        else
+            preferredFftBatchLen(domain.size());
         var batch_start: usize = 0;
         while (batch_start < group.indices.items.len) : (batch_start += batch_len) {
             const chunk_len = @min(batch_len, group.indices.items.len - batch_start);
@@ -2078,7 +2275,11 @@ fn interpolateOwnedColumnsForExtension(
         work_items.items.len > 1 and
         total_columns >= 4;
 
-    if (use_parallel) {
+    if (comptime @hasDecl(B, "interpolateCircleBuffers")) {
+        for (work_items.items) |*item| {
+            try B.interpolateCircleBuffers(allocator, item.values, item.domain, item.twiddle_tree);
+        }
+    } else if (use_parallel) {
         if (getOrInitFftPool()) |pool| {
             var wait_group: std.Thread.WaitGroup = .{};
             for (work_items.items[1..]) |*item| {
@@ -2166,6 +2367,22 @@ fn extendCoefficientColumnsByGroup(
     log_blowup_factor: u32,
     twiddle_cache: *std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)),
 ) ![]ColumnEvaluation {
+    return extendCoefficientColumnsByGroupForBackend(
+        @import("../../backends/cpu_scalar/mod.zig").CpuBackend,
+        allocator,
+        coeffs,
+        log_blowup_factor,
+        twiddle_cache,
+    );
+}
+
+fn extendCoefficientColumnsByGroupForBackend(
+    comptime B: type,
+    allocator: std.mem.Allocator,
+    coeffs: []const prover_circle.CircleCoefficients,
+    log_blowup_factor: u32,
+    twiddle_cache: *std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)),
+) ![]ColumnEvaluation {
     const out = try allocator.alloc(ColumnEvaluation, coeffs.len);
     errdefer allocator.free(out);
     for (out) |*column| {
@@ -2208,7 +2425,10 @@ fn extendCoefficientColumnsByGroup(
         const domain = canonic.CanonicCoset.new(extended_log_size).circleDomain();
         const domain_size = domain.size();
 
-        const batch_len = preferredFftBatchLen(domain_size);
+        const batch_len = if (comptime @hasDecl(B, "evaluateCircleBuffers"))
+            group.indices.items.len
+        else
+            preferredFftBatchLen(domain_size);
         var batch_start: usize = 0;
         while (batch_start < group.indices.items.len) : (batch_start += batch_len) {
             const chunk_len = @min(batch_len, group.indices.items.len - batch_start);
@@ -2245,7 +2465,12 @@ fn extendCoefficientColumnsByGroup(
         work_items.items.len > 1 and
         total_columns >= 4;
 
-    if (use_parallel) {
+    if (comptime @hasDecl(B, "evaluateCircleBuffers")) {
+        for (work_items.items) |*item| {
+            try B.evaluateCircleBuffers(allocator, item.values, item.domain, item.twiddle_tree);
+        }
+        return out;
+    } else if (use_parallel) {
         if (getOrInitFftPool()) |pool| {
             var wait_group: std.Thread.WaitGroup = .{};
             // Dispatch all but the first item to the pool; process the first

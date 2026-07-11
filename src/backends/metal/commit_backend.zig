@@ -64,6 +64,82 @@ pub const MetalCommitBackend = struct {
         std.log.debug("Metal sampled-value kernel: {d:.3}ms", .{gpu_ms});
     }
 
+    pub fn interpolateCircleBuffers(
+        allocator: std.mem.Allocator,
+        values: []const []@import("../../core/fields/m31.zig").M31,
+        domain: @import("../../core/poly/circle/domain.zig").CircleDomain,
+        twiddle_tree: @import("../../prover/poly/twiddles.zig").TwiddleTree([]const @import("../../core/fields/m31.zig").M31),
+    ) !void {
+        if (domain.logSize() < 3) {
+            return @import("../../prover/poly/circle/poly.zig").interpolateBuffersWithTwiddles(values, domain, twiddle_tree);
+        }
+        _ = try (try runtime()).transformCircle(
+            allocator,
+            values,
+            twiddle_tree.itwiddles,
+            domain.logSize(),
+            true,
+        );
+    }
+
+    pub fn evaluateCircleBuffers(
+        allocator: std.mem.Allocator,
+        values: []const []@import("../../core/fields/m31.zig").M31,
+        domain: @import("../../core/poly/circle/domain.zig").CircleDomain,
+        twiddle_tree: @import("../../prover/poly/twiddles.zig").TwiddleTree([]const @import("../../core/fields/m31.zig").M31),
+    ) !void {
+        if (domain.logSize() < 3) {
+            return @import("../../prover/poly/circle/poly.zig").evaluateBuffersWithTwiddles(values, domain, twiddle_tree);
+        }
+        _ = try (try runtime()).transformCircle(
+            allocator,
+            values,
+            twiddle_tree.twiddles,
+            domain.logSize(),
+            false,
+        );
+    }
+
+    pub fn interpolateAndEvaluateCircleBuffers(
+        allocator: std.mem.Allocator,
+        source_values: []const []const @import("../../core/fields/m31.zig").M31,
+        base_values: []const []@import("../../core/fields/m31.zig").M31,
+        extended_values: []const []@import("../../core/fields/m31.zig").M31,
+        base_domain: @import("../../core/poly/circle/domain.zig").CircleDomain,
+        base_twiddles: @import("../../prover/poly/twiddles.zig").TwiddleTree([]const @import("../../core/fields/m31.zig").M31),
+        extended_domain: @import("../../core/poly/circle/domain.zig").CircleDomain,
+        extended_twiddles: @import("../../prover/poly/twiddles.zig").TwiddleTree([]const @import("../../core/fields/m31.zig").M31),
+    ) !void {
+        if (base_domain.logSize() < 3) {
+            for (source_values, base_values) |source, base| @memcpy(base, source);
+            try @import("../../prover/poly/circle/poly.zig").interpolateBuffersWithTwiddles(
+                base_values,
+                base_domain,
+                base_twiddles,
+            );
+            for (base_values, extended_values) |base, extended| {
+                @memcpy(extended[0..base.len], base);
+                @memset(extended[base.len..], @import("../../core/fields/m31.zig").M31.zero());
+            }
+            return @import("../../prover/poly/circle/poly.zig").evaluateBuffersWithTwiddles(
+                extended_values,
+                extended_domain,
+                extended_twiddles,
+            );
+        }
+        const gpu_ms = try (try runtime()).transformCircleLde(
+            allocator,
+            source_values,
+            base_values,
+            extended_values,
+            base_twiddles.itwiddles,
+            extended_twiddles.twiddles,
+            base_domain.logSize(),
+            extended_domain.logSize(),
+        );
+        std.log.debug("Metal circle IFFT+RFFT: {d:.3}ms", .{gpu_ms});
+    }
+
     pub const ColumnType = cpu.ColumnType;
     pub const batchInverse = cpu.batchInverse;
     pub const interpolate = cpu.interpolate;
