@@ -67,9 +67,9 @@ slots are colored into one 16 KiB-aligned resident Metal slab and validated for
 live alias overlap before allocation.
 
 Running the planner over the exact 17,552-buffer SN2 preflight schedule reduces
-the plan from 60.56 GiB and 16,589 slots to 28.07 GiB and 6,778 slots. The plan
-contains 121,398 materialization actions (301 resident, 5,039 spilled, and
-12,212 recomputed buffers), passes alias validation, and fits the laptop's
+the plan from 60.56 GiB and 16,589 slots to 28.06 GiB and 6,777 slots. The plan
+contains 120,101 materialization actions (4,688 spilled and 12,090 recomputed
+buffers), passes alias validation, and fits the laptop's
 29 GiB Metal budget. Global workspaces conservatively remain live across all
 component sub-epochs in their phase. These are allocation-plan results,
 not proof throughput: witness/AIR completion and reference-verifier acceptance
@@ -104,7 +104,7 @@ is absent.
 Recomputation is coalesced by schedule tick. One grouped operation can own all
 outputs from a witness, LogUp, Merkle, quotient, or FRI launch; the first output
 hook dispatches it and the remaining logical bindings do no duplicate work.
-The runner indexes actions by tick, avoiding a scan of all 121,798 actions at
+The runner indexes actions by tick, avoiding a scan of all 120,101 actions at
 each component sub-epoch.
 
 The canonical SN2 witness bundle contains 33 validated recorded programs in the
@@ -147,19 +147,39 @@ without packing columns or leaving the arena. The 17 coefficient-only columns
 remain spill-backed. The `STWZREL` artifact binds all 58 relation instances and
 2,268 interaction output columns (5,425,139,968 bytes) to the resident LogUp
 engine. Sparse Blake2s parent chains reconstruct 174 upper Merkle layers across
-12 commitment/FRI trees; only each chain's bottom layer remains stored.
+12 commitment/FRI trees. The four Cairo commitment trees now use a single
+prepared command buffer per tree: sparse evaluation columns are lifted directly
+from their arena offsets into canonically ordered leaves, lower parent levels
+ping-pong through two workspaces, and retained upper layers are written in
+place. Those commitment bottoms are therefore no longer spill snapshots; FRI
+bottoms remain spill-backed.
+
+The three canonical multiset writers also run entirely in the arena. One
+prepared command buffer gathers disjoint sparse producers, performs a stable
+key-prefix radix sort, rejects equal-key/different-suffix collisions, run-length
+encodes the tuples, and writes counts, padding, enablers, and iota columns. At
+the exact verify-instruction geometry of 16,777,216 input rows, the M4 Max
+median is 194.201 ms (86.39 million rows/s) with a 1,219,231,816-byte prepared
+arena footprint, zero hot-path allocations, and zero compatibility readback.
 
 The recovery gate is now fail closed in the planner as well as the executor.
-Only 12,212 buffers with concrete recipes may use `.recompute`; every unbound
+Only 12,090 buffers with concrete recipes may use `.recompute`; every unbound
 value is assigned `.spill`, for which `FileSpillStore` has a checksummed extent.
 Consequently `RecoveryEngine.validatePlan` has no unbound recomputation. This
 also invalidates the earlier 19.97 MiB spill estimate: it depended on classifying
 unregistered interaction/Merkle/FRI work as recomputable. The conservative
-fallback is currently 5,039 buffers and 6,067,431,908 bytes, down from
+fallback is currently 4,688 buffers and 3,404,163,836 bytes, down from
 25,009,389,380 bytes before exact relation, preprocessed IFFT, fixed-table,
 Merkle-parent, and EC-op recipes were bound. Replacing that
 fallback with exact resident protocol recipes is performance work, not a reason
 to weaken the gate.
+
+The remaining protocol blocker is Cairo composition and quotient evaluation.
+The canonical backend already lowers framework constraints to the versioned,
+GPU-neutral `MetalEvaluationProgramV1` instruction stream; Zig should consume
+that binary program in a prepared Metal interpreter rather than translating
+generated CUDA or expanding the AIR through Zig `comptime`. This preserves an
+auditable ABI and keeps the large generated AIR out of compiler specialization.
 
 `src/frontends/cairo/witness/program.zig` implements the canonical 28-op,
 16-byte witness instruction ABI, semantic hash, strict SSA/shape validation,

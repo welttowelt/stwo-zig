@@ -174,6 +174,98 @@ test "metal: resident EC-op matches canonical Rust witness ABI" {
     }
 }
 
+test "metal: resident compact writer matches canonical multiset ordering" {
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    var arena = try runtime.allocateResidentBuffer(16 * 1024);
+    defer arena.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
+    const tuples = [_][3]u32{
+        .{ 3, 2, 30 }, .{ 0, 5, 5 },  .{ 2, 2, 22 }, .{ 1, 9, 19 },
+        .{ 2, 2, 22 }, .{ 3, 2, 30 }, .{ 0, 5, 5 },  .{ 2, 2, 22 },
+        .{ 7, 1, 71 }, .{ 1, 9, 19 }, .{ 2, 2, 22 }, .{ 0, 5, 5 },
+        .{ 3, 2, 30 }, .{ 2, 2, 22 }, .{ 0, 5, 5 },  .{ 2, 2, 22 },
+    };
+    var next: u32 = 0;
+    var source_offsets: [2]u32 = undefined;
+    for (&source_offsets, 0..) |*offset, source_index| {
+        offset.* = next;
+        for (0..3) |tuple_word| for (0..8) |row| {
+            words[next + tuple_word * 8 + row] = tuples[source_index * 8 + row][tuple_word];
+        };
+        next += 24;
+    }
+    const descriptors = [_]u32{
+        8, 0, 3, 1, 0,
+        8, 0, 3, 1, 8,
+    };
+    const tuples_offset = next;
+    next += 16 * 3;
+    const indices_a_offset = next;
+    next += 16;
+    const indices_b_offset = next;
+    next += 16;
+    const counts_offset = next;
+    next += 16;
+    const radix_offsets_offset = next;
+    next += 16;
+    const bases_offset = next;
+    next += 16;
+    const heads_offset = next;
+    next += 16;
+    const positions_offset = next;
+    next += 16;
+    const block_sums_offset = next;
+    next += 1;
+    const error_offset = next;
+    next += 1;
+    const unique_offset = next;
+    next += 1;
+    var output_offsets: [6]u32 = undefined;
+    for (&output_offsets) |*offset| {
+        offset.* = next;
+        next += 16;
+    }
+    try std.testing.expect(@as(usize, next) * 4 <= arena.byte_length);
+    var plan = try runtime.prepareCompact(&source_offsets, &descriptors, &output_offsets, .{
+        .tuple_words = 3,
+        .key_words = 2,
+        .total_rows = 16,
+        .sort_rows = 16,
+        .consumer_rows = 16,
+        .tuples_offset = tuples_offset,
+        .indices_a_offset = indices_a_offset,
+        .indices_b_offset = indices_b_offset,
+        .counts_offset = counts_offset,
+        .radix_offsets_offset = radix_offsets_offset,
+        .bases_offset = bases_offset,
+        .heads_offset = heads_offset,
+        .positions_offset = positions_offset,
+        .block_sums_offset = block_sums_offset,
+        .error_offset = error_offset,
+        .unique_offset = unique_offset,
+        .enabler_slot = 3,
+        .iota_slot = 4,
+        .multiplicity_slot = 5,
+    });
+    defer plan.deinit();
+    const gpu_ms = try runtime.compactPrepared(arena, plan);
+    try std.testing.expect(gpu_ms > 0);
+    try std.testing.expectEqual(@as(u32, 5), words[unique_offset]);
+    const expected = [_][3]u32{ .{ 0, 5, 5 }, .{ 1, 9, 19 }, .{ 2, 2, 22 }, .{ 3, 2, 30 }, .{ 7, 1, 71 } };
+    for (0..3) |tuple_word| {
+        for (expected, 0..) |tuple, row| try std.testing.expectEqual(tuple[tuple_word], words[output_offsets[tuple_word] + row]);
+        for (expected.len..16) |row| try std.testing.expectEqual(expected[0][tuple_word], words[output_offsets[tuple_word] + row]);
+    }
+    try std.testing.expectEqualSlices(u32, &.{ 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, words[output_offsets[3] .. output_offsets[3] + 16]);
+    for (0..16) |row| try std.testing.expectEqual(@as(u32, @intCast(row)), words[output_offsets[4] + row]);
+    try std.testing.expectEqualSlices(u32, &.{ 4, 2, 6, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, words[output_offsets[5] .. output_offsets[5] + 16]);
+
+    words[source_offsets[1] + 2 * 8 + 5] = 23;
+    _ = try runtime.compactPrepared(arena, plan);
+    try std.testing.expectEqual(std.math.maxInt(u32), words[unique_offset]);
+}
+
 test "metal: resident witness feed matches scalar histogram" {
     var runtime = try metal.Runtime.init();
     defer runtime.deinit();
@@ -687,6 +779,78 @@ test "metal: resident lifted Merkle root matches CPU" {
     var compatible_tree = try CpuTree.commitMetal(&runtime, allocator, &cpu_columns);
     defer compatible_tree.deinit(allocator);
     try std.testing.expectEqualSlices(u8, &cpu_tree.root(), &compatible_tree.root());
+}
+
+test "metal: prepared sparse Merkle leaves match committed tree" {
+    const allocator = std.testing.allocator;
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    const log_sizes = [_]u32{ 10, 9, 10, 8, 9, 10, 7, 10, 8, 10, 9, 10, 6, 10, 9, 10, 8 };
+    var owned: [log_sizes.len][]M31 = undefined;
+    var initialized: usize = 0;
+    defer for (owned[0..initialized]) |column| allocator.free(column);
+    var gpu_columns: [log_sizes.len][]const u32 = undefined;
+    var total_words: u32 = 0;
+    for (log_sizes, 0..) |log_size, column_index| {
+        const column = try allocator.alloc(M31, @as(usize, 1) << @intCast(log_size));
+        owned[column_index] = column;
+        initialized += 1;
+        for (column, 0..) |*value, row| value.* = M31.fromCanonical(@intCast((column_index * 7919 + row * 104729 + 17) % m31.Modulus));
+        gpu_columns[column_index] = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(column));
+        total_words += @intCast(column.len);
+    }
+    var reference = try runtime.commitColumns(allocator, &gpu_columns, &log_sizes, 10, Hasher.leafSeed(), Hasher.nodeSeed());
+    defer reference.deinit();
+    const reference_layers = try reference.copyLayers(&runtime, allocator, 10);
+    defer allocator.free(reference_layers);
+
+    const destination_offset = std.mem.alignForward(u32, total_words, 64);
+    const scratch_offset = destination_offset + 1024 * 8;
+    var arena = try runtime.allocateResidentBuffer(@as(usize, scratch_offset + 512 * 8) * 4);
+    defer arena.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
+    var column_offsets: [log_sizes.len]u32 = undefined;
+    var next: u32 = 0;
+    for (owned, &column_offsets) |column, *offset| {
+        offset.* = next;
+        @memcpy(words[next .. next + column.len], std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(column)));
+        next += @intCast(column.len);
+    }
+    var order: [log_sizes.len]usize = undefined;
+    for (&order, 0..) |*index, value| index.* = value;
+    std.sort.heap(usize, &order, log_sizes, struct {
+        fn lessThan(sizes: [log_sizes.len]u32, lhs: usize, rhs: usize) bool {
+            return sizes[lhs] < sizes[rhs] or (sizes[lhs] == sizes[rhs] and lhs < rhs);
+        }
+    }.lessThan);
+    var sorted_offsets: [log_sizes.len]u32 = undefined;
+    var sorted_logs: [log_sizes.len]u32 = undefined;
+    for (order, 0..) |source, destination| {
+        sorted_offsets[destination] = column_offsets[source];
+        sorted_logs[destination] = log_sizes[source];
+    }
+    var plan = try runtime.prepareMerkleLeaves(&sorted_offsets, &sorted_logs, 10, destination_offset, Hasher.leafSeed());
+    defer plan.deinit();
+    const gpu_ms = try runtime.merkleLeavesPrepared(arena, plan);
+    try std.testing.expect(gpu_ms > 0);
+    try std.testing.expectEqualSlices(
+        u8,
+        std.mem.sliceAsBytes(reference_layers[reference_layers.len - 1024 ..]),
+        std.mem.sliceAsBytes(words[destination_offset .. destination_offset + 1024 * 8]),
+    );
+    var layer_offsets: [11]u32 = undefined;
+    for (&layer_offsets, 0..) |*offset, level| offset.* = if (level % 2 == 0) destination_offset else scratch_offset;
+    var resident = try runtime.prepareResidentMerkle(
+        &sorted_offsets,
+        &sorted_logs,
+        10,
+        &layer_offsets,
+        Hasher.leafSeed(),
+        Hasher.nodeSeed(),
+    );
+    defer resident.deinit();
+    _ = try runtime.residentMerklePrepared(arena, resident);
+    try std.testing.expectEqualSlices(u8, &reference_layers[0], std.mem.sliceAsBytes(words[layer_offsets[10] .. layer_offsets[10] + 8]));
 }
 
 test "metal: transaction engine proves and CPU verifier accepts" {

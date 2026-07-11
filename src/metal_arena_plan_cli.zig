@@ -43,6 +43,7 @@ const RelationCoverage = struct { instances: usize, output_buffers: usize, outpu
 const PreprocessedCoverage = struct { sources: []?u32, buffers: usize, bytes: u64 };
 const FixedTableCoverage = struct { components: usize, lookup_buffers: usize, lookup_bytes: u64 };
 const MerkleParentCoverage = struct { sources: []?u32, buffers: usize, bytes: u64, chains: usize };
+const MerkleCommitCoverage = struct { bottoms: []bool, commitments: usize, buffers: usize, bytes: u64 };
 const EcOpCoverage = struct { rows: u64, output_buffers: usize, output_bytes: u64 };
 const ScheduledColumn = struct { ordinal: u32, words: u64 };
 const ScheduledGroup = struct { start: usize, len: usize, rows: u64 };
@@ -73,6 +74,8 @@ pub fn main() !void {
     defer allocator.free(preprocessed_coverage.sources);
     const merkle_parent_coverage = try buildMerkleParentSources(allocator, schedule);
     defer allocator.free(merkle_parent_coverage.sources);
+    const merkle_commit_coverage = try buildMerkleCommitCoverage(allocator, schedule);
+    defer allocator.free(merkle_commit_coverage.bottoms);
     const ec_op_coverage = try validateEcOpCoverage(schedule);
     var witness_bundle: ?witness_bundle_mod.Bundle = if (args.len >= 4)
         try witness_bundle_mod.Bundle.readFile(allocator, args[3])
@@ -214,13 +217,16 @@ pub fn main() !void {
             }
         }
         if (std.mem.eql(u8, purpose, "WitnessInput") and object.get("component") != null and
-            object.get("component").? == .string and
-            std.mem.eql(u8, object.get("component").?.string, "partial_ec_mul_generic") and
-            object.get("ordinal").?.integer < 126)
+            object.get("component").? == .string)
         {
-            native_recipe_buffers += 1;
-            native_recipe_bytes += bytes;
-            has_recompute_recipe = true;
+            const component_name = object.get("component").?.string;
+            const ec_partial = std.mem.eql(u8, component_name, "partial_ec_mul_generic") and
+                object.get("ordinal").?.integer < 126;
+            if (ec_partial or compactComponent(component_name)) {
+                native_recipe_buffers += 1;
+                native_recipe_bytes += bytes;
+                has_recompute_recipe = true;
+            }
         }
         if (std.mem.eql(u8, purpose, "BaseCoefficients") and witness_bundle != null) {
             const component_name = object.get("component").?.string;
@@ -243,7 +249,7 @@ pub fn main() !void {
             preprocessed_recipe_bytes += bytes;
             has_recompute_recipe = true;
         } else if ((std.mem.eql(u8, purpose, "RetainedMerkleLayers") or std.mem.eql(u8, purpose, "FriMerkleLayer")) and
-            merkle_parent_coverage.sources[index] != null)
+            (merkle_parent_coverage.sources[index] != null or merkle_commit_coverage.bottoms[index]))
         {
             has_recompute_recipe = true;
         } else if ((std.mem.eql(u8, purpose, "InteractionTrace") or std.mem.eql(u8, purpose, "RelationClaimedSum")) and relation_coverage != null) {
@@ -367,6 +373,9 @@ pub fn main() !void {
         .merkle_parent_recipe_chains = merkle_parent_coverage.chains,
         .merkle_parent_recipe_buffers = merkle_parent_coverage.buffers,
         .merkle_parent_recipe_bytes = merkle_parent_coverage.bytes,
+        .merkle_commit_recipe_commitments = merkle_commit_coverage.commitments,
+        .merkle_commit_recipe_buffers = merkle_commit_coverage.buffers,
+        .merkle_commit_recipe_bytes = merkle_commit_coverage.bytes,
         .physical_slots = plan.slots.len,
         .actions = plan.actions.len,
         .resident_buffers = resident,
@@ -515,6 +524,63 @@ fn buildMerkleParentSources(allocator: std.mem.Allocator, schedule: []const std.
         previous = object;
     }
     return .{ .sources = sources, .buffers = buffers, .bytes = bytes, .chains = chains };
+}
+
+fn buildMerkleCommitCoverage(allocator: std.mem.Allocator, schedule: []const std.json.Value) !MerkleCommitCoverage {
+    const bottoms = try allocator.alloc(bool, schedule.len);
+    errdefer allocator.free(bottoms);
+    @memset(bottoms, false);
+    var commitments: usize = 0;
+    var buffers: usize = 0;
+    var bytes: u64 = 0;
+    var previous: ?std.json.ObjectMap = null;
+    for (schedule) |entry| {
+        const object = entry.object;
+        if (!std.mem.eql(u8, object.get("purpose").?.string, "RetainedMerkleLayers")) continue;
+        const words: u64 = @intCast(object.get("len_words").?.integer);
+        const chained = if (previous) |child|
+            std.mem.eql(u8, child.get("first").?.string, object.get("first").?.string) and
+                std.mem.eql(u8, child.get("last").?.string, object.get("last").?.string) and
+                @as(u64, @intCast(child.get("len_words").?.integer)) == words * 2
+        else
+            false;
+        previous = object;
+        if (chained) continue;
+        const ordinal: u32 = @intCast(object.get("ordinal").?.integer);
+        const commitment = ordinal >> 20;
+        if (commitment > 3 or (ordinal & 0xfffff) != 3) return error.InvalidRetainedTree;
+        const base = commitment << 20;
+        const leaf = findScheduled(schedule, "MerkleLeafState", null, base + 1) orelse return error.InvalidRetainedTree;
+        const parent = findScheduled(schedule, "MerkleLayerScratch", null, base + 2) orelse return error.InvalidRetainedTree;
+        const leaf_words: u64 = @intCast(leaf.get("len_words").?.integer);
+        const parent_words: u64 = @intCast(parent.get("len_words").?.integer);
+        if (leaf_words != words * 16 or parent_words != leaf_words / 2) return error.InvalidRetainedShape;
+        var evaluation_count: usize = 0;
+        var maximum_evaluation_words: u64 = 0;
+        for (schedule) |candidate_entry| {
+            const candidate = candidate_entry.object;
+            const candidate_purpose = candidate.get("purpose").?.string;
+            const matches = if (commitment == 0)
+                std.mem.eql(u8, candidate_purpose, "PreprocessedEvaluations")
+            else
+                std.mem.eql(u8, candidate_purpose, "CommitRetainedEvaluation") and
+                    (@as(u32, @intCast(candidate.get("ordinal").?.integer)) >> 20) == commitment;
+            if (!matches) continue;
+            evaluation_count += 1;
+            maximum_evaluation_words = @max(maximum_evaluation_words, @as(u64, @intCast(candidate.get("len_words").?.integer)));
+        }
+        if (evaluation_count == 0 or maximum_evaluation_words * 8 > leaf_words or
+            !std.math.isPowerOfTwo(leaf_words / (maximum_evaluation_words * 8)))
+            return error.InvalidRetainedShape;
+        const id: u32 = @intCast(object.get("id").?.integer);
+        if (id >= bottoms.len) return error.InvalidLogicalId;
+        bottoms[id] = true;
+        commitments += 1;
+        buffers += 1;
+        bytes += words * 4;
+    }
+    if (commitments != 4) return error.InvalidRetainedTree;
+    return .{ .bottoms = bottoms, .commitments = commitments, .buffers = buffers, .bytes = bytes };
 }
 
 fn validateEcOpCoverage(schedule: []const std.json.Value) !EcOpCoverage {
@@ -812,6 +878,8 @@ fn localTick(phase: u16, component: u16) u16 {
 }
 
 fn inferredUsePhases(purpose: []const u8, first: u16, last: u16) PhaseList {
+    if (std.mem.eql(u8, purpose, "WitnessInput") or std.mem.startsWith(u8, purpose, "WitnessInputCompact"))
+        return .{ .items = .{ 1, 0, 0, 0, 0, 0 }, .len = 1 };
     if (std.mem.eql(u8, purpose, "BaseTrace") or std.mem.eql(u8, purpose, "LookupInputs"))
         return .{ .items = .{ 1, 3, 0, 0, 0, 0 }, .len = 2 };
     if (std.mem.eql(u8, purpose, "BaseCoefficients")) return .{ .items = .{ 1, 2, 5, 7, 8, 10 }, .len = 6 };
@@ -831,6 +899,12 @@ fn zeroMultiplicityComponent(component: []const u8) bool {
     return std.mem.eql(u8, component, "range_check_6") or
         std.mem.eql(u8, component, "range_check_12") or
         std.mem.eql(u8, component, "range_check_3_6_6_3");
+}
+
+fn compactComponent(component: []const u8) bool {
+    return std.mem.eql(u8, component, "verify_instruction") or
+        std.mem.eql(u8, component, "pedersen_aggregator_window_bits_18") or
+        std.mem.eql(u8, component, "poseidon_aggregator");
 }
 
 fn writeFailure(err: anyerror, logical: usize, components: usize, budget: u64) !void {

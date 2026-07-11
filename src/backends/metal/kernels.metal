@@ -1303,6 +1303,230 @@ kernel void stwo_zig_clear_arena_spans(
     if (local < spans[base + 1u]) arena[spans[base] + local] = 0u;
 }
 
+kernel void stwo_zig_compact_gather(
+    device uint *arena [[buffer(0)]], device const uint *source_offsets [[buffer(1)]],
+    device const uint *descriptors [[buffer(2)]], constant uint *params [[buffer(3)]],
+    uint row [[thread_position_in_grid]]
+) {
+    uint edge_count = params[0], tuple_words = params[1], total_rows = params[2];
+    uint sort_rows = params[3], tuples_offset = params[4], indices_offset = params[5];
+    if (row >= sort_rows) return;
+    if (row == 0u) arena[params[13]] = 0u;
+    arena[indices_offset + row] = row;
+    if (row >= total_rows) {
+        for (uint word = 0; word < tuple_words; ++word)
+            arena[tuples_offset + row * tuple_words + word] = 0xffffffffu;
+        return;
+    }
+    for (uint edge = 0; edge < edge_count; ++edge) {
+        uint base = edge * 5u, producer_rows = descriptors[base];
+        uint edge_rows = producer_rows * descriptors[base + 3u];
+        uint destination = descriptors[base + 4u];
+        if (row < destination || row >= destination + edge_rows) continue;
+        uint local = row - destination;
+        uint instance = local / producer_rows, producer_row = local % producer_rows;
+        for (uint word = 0; word < tuple_words; ++word) {
+            uint source_word = descriptors[base + 1u] + instance * descriptors[base + 2u] + word;
+            arena[tuples_offset + row * tuple_words + word] =
+                arena[source_offsets[edge] + source_word * producer_rows + producer_row];
+        }
+        return;
+    }
+}
+
+kernel void stwo_zig_compact_radix_histogram(
+    device uint *arena [[buffer(0)]], constant uint *params [[buffer(1)]],
+    constant uint &word [[buffer(2)]], constant uint &shift [[buffer(3)]],
+    constant uint &indices_offset [[buffer(4)]],
+    uint row [[thread_position_in_grid]], uint lane [[thread_index_in_threadgroup]],
+    uint group [[threadgroup_position_in_grid]]
+) {
+    threadgroup atomic_uint counts[16];
+    if (lane < 16u) atomic_store_explicit(&counts[lane], 0u, memory_order_relaxed);
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    uint tuple_words = params[1], sort_rows = params[3], tuples_offset = params[4];
+    uint counts_offset = params[7];
+    if (row < sort_rows) {
+        uint source = arena[indices_offset + row];
+        uint digit = (arena[tuples_offset + source * tuple_words + word] >> shift) & 15u;
+        atomic_fetch_add_explicit(&counts[digit], 1u, memory_order_relaxed);
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (lane < 16u) arena[counts_offset + group * 16u + lane] = atomic_load_explicit(&counts[lane], memory_order_relaxed);
+}
+
+kernel void stwo_zig_compact_radix_prefix(
+    device uint *arena [[buffer(0)]], constant uint *params [[buffer(1)]],
+    constant uint &block_count [[buffer(2)]], uint digit [[thread_index_in_threadgroup]]
+) {
+    threadgroup uint totals[16];
+    uint counts_offset = params[7], offsets_offset = params[8], bases_offset = params[9];
+    if (digit < 16u) {
+        uint sum = 0u;
+        for (uint block = 0; block < block_count; ++block) {
+            uint index = block * 16u + digit;
+            arena[offsets_offset + index] = sum;
+            sum += arena[counts_offset + index];
+        }
+        totals[digit] = sum;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (digit == 0u) {
+        uint sum = 0u;
+        for (uint value = 0; value < 16u; ++value) {
+            arena[bases_offset + value] = sum;
+            sum += totals[value];
+        }
+    }
+}
+
+kernel void stwo_zig_compact_radix_scatter(
+    device uint *arena [[buffer(0)]], constant uint *params [[buffer(1)]],
+    constant uint &word [[buffer(2)]], constant uint &shift [[buffer(3)]],
+    constant uint &source_indices [[buffer(4)]], constant uint &destination_indices [[buffer(5)]],
+    uint row [[thread_position_in_grid]], uint lane [[thread_index_in_threadgroup]],
+    uint group [[threadgroup_position_in_grid]], uint simd_lane [[thread_index_in_simdgroup]],
+    uint simd_group [[simdgroup_index_in_threadgroup]], uint group_width [[threads_per_threadgroup]]
+) {
+    threadgroup uint subgroup_counts[8][16];
+    uint tuple_words = params[1], tuples_offset = params[4];
+    uint offsets_offset = params[8], bases_offset = params[9];
+    uint source = arena[source_indices + row];
+    uint digit = (arena[tuples_offset + source * tuple_words + word] >> shift) & 15u;
+    uint local_rank = 0u;
+    for (uint value = 0; value < 16u; ++value) {
+        uint present = digit == value ? 1u : 0u;
+        uint rank = simd_prefix_exclusive_sum(present);
+        uint count = simd_sum(present);
+        if (simd_lane == 0u) subgroup_counts[simd_group][value] = count;
+        if (digit == value) local_rank = rank;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    uint preceding = 0u;
+    for (uint subgroup = 0; subgroup < simd_group; ++subgroup) preceding += subgroup_counts[subgroup][digit];
+    uint destination = arena[bases_offset + digit] + arena[offsets_offset + group * 16u + digit] + preceding + local_rank;
+    arena[destination_indices + destination] = source;
+}
+
+inline bool compact_tuple_equal(
+    device uint *arena, uint tuples_offset, uint tuple_words, uint lhs, uint rhs
+) {
+    for (uint word = 0; word < tuple_words; ++word)
+        if (arena[tuples_offset + lhs * tuple_words + word] != arena[tuples_offset + rhs * tuple_words + word]) return false;
+    return true;
+}
+
+inline bool compact_key_equal(
+    device uint *arena, uint tuples_offset, uint tuple_words, uint key_words, uint lhs, uint rhs
+) {
+    for (uint word = 0; word < key_words; ++word)
+        if (arena[tuples_offset + lhs * tuple_words + word] != arena[tuples_offset + rhs * tuple_words + word]) return false;
+    return true;
+}
+
+kernel void stwo_zig_compact_heads(
+    device uint *arena [[buffer(0)]], constant uint *params [[buffer(1)]], uint row [[thread_position_in_grid]]
+) {
+    uint tuple_words = params[1], total_rows = params[2], sort_rows = params[3];
+    uint tuples_offset = params[4], indices_offset = params[5], heads_offset = params[10];
+    uint error_offset = params[13], key_words = params[14];
+    if (row >= sort_rows) return;
+    if (row >= total_rows) { arena[heads_offset + row] = 0u; return; }
+    if (row == 0u) { arena[heads_offset] = 1u; return; }
+    uint current = arena[indices_offset + row], previous = arena[indices_offset + row - 1u];
+    bool same_tuple = compact_tuple_equal(arena, tuples_offset, tuple_words, current, previous);
+    if (!same_tuple && compact_key_equal(arena, tuples_offset, tuple_words, key_words, current, previous))
+        atomic_store_explicit((device atomic_uint *)&arena[error_offset], 1u, memory_order_relaxed);
+    arena[heads_offset + row] = same_tuple ? 0u : 1u;
+}
+
+kernel void stwo_zig_compact_scan_local(
+    device uint *arena [[buffer(0)]], constant uint *params [[buffer(1)]],
+    uint row [[thread_position_in_grid]], uint lane [[thread_index_in_threadgroup]],
+    uint group [[threadgroup_position_in_grid]], uint group_width [[threads_per_threadgroup]]
+) {
+    threadgroup uint values[256];
+    uint sort_rows = params[3], heads_offset = params[10], positions_offset = params[11];
+    uint block_sums_offset = params[12];
+    values[lane] = row < sort_rows ? arena[heads_offset + row] : 0u;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    for (uint stride = 1u; stride < group_width; stride <<= 1u) {
+        uint addend = lane >= stride ? values[lane - stride] : 0u;
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        values[lane] += addend;
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    if (row < sort_rows) arena[positions_offset + row] = values[lane];
+    if (lane + 1u == group_width) arena[block_sums_offset + group] = values[lane];
+}
+
+kernel void stwo_zig_compact_scan_blocks(
+    device uint *arena [[buffer(0)]], constant uint *params [[buffer(1)]],
+    constant uint &block_count [[buffer(2)]], uint row [[thread_position_in_grid]]
+) {
+    if (row != 0u) return;
+    uint block_sums_offset = params[12], sum = 0u;
+    for (uint block = 0; block < block_count; ++block) {
+        uint value = arena[block_sums_offset + block];
+        arena[block_sums_offset + block] = sum;
+        sum += value;
+    }
+}
+
+kernel void stwo_zig_compact_scan_add(
+    device uint *arena [[buffer(0)]], constant uint *params [[buffer(1)]],
+    uint row [[thread_position_in_grid]], uint group [[threadgroup_position_in_grid]]
+) {
+    if (row < params[3]) arena[params[11] + row] += arena[params[12] + group];
+}
+
+kernel void stwo_zig_compact_clear_outputs(
+    device uint *arena [[buffer(0)]], device const uint *output_offsets [[buffer(1)]],
+    constant uint *params [[buffer(2)]], uint row [[thread_position_in_grid]]
+) {
+    uint input_count = params[15], consumer_rows = params[16];
+    if (row >= consumer_rows) return;
+    for (uint input = 0; input < input_count; ++input) arena[output_offsets[input] + row] = 0u;
+}
+
+kernel void stwo_zig_compact_scatter(
+    device uint *arena [[buffer(0)]], device const uint *output_offsets [[buffer(1)]],
+    constant uint *params [[buffer(2)]], uint row [[thread_position_in_grid]]
+) {
+    uint tuple_words = params[1], total_rows = params[2];
+    if (row >= total_rows) return;
+    uint tuples_offset = params[4], indices_offset = params[5], heads_offset = params[10];
+    uint positions_offset = params[11], multiplicity_slot = params[19];
+    uint compact_row = arena[positions_offset + row] - 1u;
+    if (arena[heads_offset + row] != 0u) {
+        uint source = arena[indices_offset + row];
+        for (uint word = 0; word < tuple_words; ++word)
+            arena[output_offsets[word] + compact_row] = arena[tuples_offset + source * tuple_words + word];
+    }
+    atomic_fetch_add_explicit((device atomic_uint *)&arena[output_offsets[multiplicity_slot] + compact_row], 1u, memory_order_relaxed);
+}
+
+kernel void stwo_zig_compact_finalize(
+    device uint *arena [[buffer(0)]], device const uint *output_offsets [[buffer(1)]],
+    constant uint *params [[buffer(2)]], uint row [[thread_position_in_grid]]
+) {
+    uint tuple_words = params[1], total_rows = params[2], positions_offset = params[11];
+    uint error_offset = params[13], consumer_rows = params[16], unique_offset = params[17];
+    uint enabler_slot = params[18], multiplicity_slot = params[19], iota_slot = params[20];
+    uint unique = arena[positions_offset + total_rows - 1u];
+    uint expected = unique < 16u ? 16u : 1u << (32u - clz(unique - 1u));
+    bool invalid = arena[error_offset] != 0u || unique == 0u || unique > consumer_rows || expected != consumer_rows;
+    if (row == 0u) arena[unique_offset] = invalid ? 0xffffffffu : unique;
+    if (row >= consumer_rows || invalid) return;
+    if (row >= unique) {
+        for (uint word = 0; word < tuple_words; ++word)
+            arena[output_offsets[word] + row] = arena[output_offsets[word]];
+        arena[output_offsets[multiplicity_slot] + row] = 0u;
+    }
+    if (enabler_slot != 0xffffffffu) arena[output_offsets[enabler_slot] + row] = row < unique ? 1u : 0u;
+    if (iota_slot != 0xffffffffu) arena[output_offsets[iota_slot] + row] = row;
+}
+
 kernel void stwo_zig_fri_fold_circle(
     device const uint *source [[buffer(0)]],
     device const uint *inverse_y [[buffer(1)]],

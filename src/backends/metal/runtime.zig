@@ -141,6 +141,48 @@ extern fn stwo_zig_metal_merkle_parent_chain_prepare(
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
+extern fn stwo_zig_metal_merkle_leaf_prepare(
+    runtime: *anyopaque,
+    column_offsets: [*]const u32,
+    column_log_sizes: [*]const u32,
+    column_count: u32,
+    lifting_log_size: u32,
+    destination_offset: u32,
+    leaf_seed: *const [8]u32,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
+extern fn stwo_zig_metal_merkle_leaf_destroy(plan: ?*anyopaque) void;
+extern fn stwo_zig_metal_merkle_leaf_prepared(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    plan: *anyopaque,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_resident_merkle_prepare(
+    runtime: *anyopaque,
+    column_offsets: [*]const u32,
+    column_log_sizes: [*]const u32,
+    column_count: u32,
+    lifting_log_size: u32,
+    layer_offsets: [*]const u32,
+    layer_count: u32,
+    leaf_seed: *const [8]u32,
+    node_seed: *const [8]u32,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
+extern fn stwo_zig_metal_resident_merkle_destroy(plan: ?*anyopaque) void;
+extern fn stwo_zig_metal_resident_merkle_prepared(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    plan: *anyopaque,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
 extern fn stwo_zig_metal_merkle_parent_chain_destroy(plan: ?*anyopaque) void;
 extern fn stwo_zig_metal_merkle_parent_chain_prepared(
     runtime: *anyopaque,
@@ -165,6 +207,27 @@ extern fn stwo_zig_metal_ec_op_prepare(
 ) ?*anyopaque;
 extern fn stwo_zig_metal_ec_op_plan_destroy(plan: ?*anyopaque) void;
 extern fn stwo_zig_metal_ec_op_prepared(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    plan: *anyopaque,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_compact_prepare(
+    runtime: *anyopaque,
+    source_offsets: [*]const u32,
+    source_count: u32,
+    descriptors: [*]const u32,
+    descriptor_words: u32,
+    output_offsets: [*]const u32,
+    output_count: u32,
+    params: *const [21]u32,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
+extern fn stwo_zig_metal_compact_destroy(plan: ?*anyopaque) void;
+extern fn stwo_zig_metal_compact_prepared(
     runtime: *anyopaque,
     arena: *anyopaque,
     plan: *anyopaque,
@@ -745,6 +808,96 @@ pub const Runtime = struct {
         return .{ .handle = handle };
     }
 
+    pub fn prepareMerkleLeaves(
+        self: *Runtime,
+        column_offsets: []const u32,
+        column_log_sizes: []const u32,
+        lifting_log_size: u32,
+        destination_offset: u32,
+        leaf_seed: [8]u32,
+    ) MetalError!MerkleLeafPlan {
+        if (column_offsets.len == 0 or column_offsets.len != column_log_sizes.len or lifting_log_size >= 31 or
+            destination_offset % 64 != 0)
+            return MetalError.CommitmentFailed;
+        for (column_log_sizes, 0..) |log_size, index| {
+            if (log_size > lifting_log_size or (index != 0 and column_log_sizes[index - 1] > log_size))
+                return MetalError.CommitmentFailed;
+        }
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        const handle = stwo_zig_metal_merkle_leaf_prepare(
+            self.handle,
+            column_offsets.ptr,
+            column_log_sizes.ptr,
+            @intCast(column_offsets.len),
+            lifting_log_size,
+            destination_offset,
+            &leaf_seed,
+            &message,
+            message.len,
+        ) orelse {
+            std.log.err("Metal Merkle leaf preparation failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CommitmentFailed;
+        };
+        return .{ .handle = handle };
+    }
+
+    pub fn merkleLeavesPrepared(self: *Runtime, arena: ResidentBuffer, plan: MerkleLeafPlan) MetalError!f64 {
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_merkle_leaf_prepared(self.handle, arena.handle, plan.handle, &gpu_ms, &message, message.len)) {
+            std.log.err("Metal Merkle leaves failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CommitmentFailed;
+        }
+        return gpu_ms;
+    }
+
+    pub fn prepareResidentMerkle(
+        self: *Runtime,
+        column_offsets: []const u32,
+        column_log_sizes: []const u32,
+        lifting_log_size: u32,
+        layer_offsets: []const u32,
+        leaf_seed: [8]u32,
+        node_seed: [8]u32,
+    ) MetalError!ResidentMerklePlan {
+        if (column_offsets.len == 0 or column_offsets.len != column_log_sizes.len or lifting_log_size >= 31 or
+            layer_offsets.len < 2 or layer_offsets.len > lifting_log_size + 1)
+            return MetalError.CommitmentFailed;
+        for (column_log_sizes, 0..) |log_size, index| {
+            if (log_size > lifting_log_size or (index != 0 and column_log_sizes[index - 1] > log_size))
+                return MetalError.CommitmentFailed;
+        }
+        for (layer_offsets) |offset| if (offset % 64 != 0) return MetalError.CommitmentFailed;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        const handle = stwo_zig_metal_resident_merkle_prepare(
+            self.handle,
+            column_offsets.ptr,
+            column_log_sizes.ptr,
+            @intCast(column_offsets.len),
+            lifting_log_size,
+            layer_offsets.ptr,
+            @intCast(layer_offsets.len),
+            &leaf_seed,
+            &node_seed,
+            &message,
+            message.len,
+        ) orelse {
+            std.log.err("Metal resident Merkle preparation failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CommitmentFailed;
+        };
+        return .{ .handle = handle };
+    }
+
+    pub fn residentMerklePrepared(self: *Runtime, arena: ResidentBuffer, plan: ResidentMerklePlan) MetalError!f64 {
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_resident_merkle_prepared(self.handle, arena.handle, plan.handle, &gpu_ms, &message, message.len)) {
+            std.log.err("Metal resident Merkle execution failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CommitmentFailed;
+        }
+        return gpu_ms;
+    }
+
     pub fn merkleParentChainPrepared(self: *Runtime, arena: ResidentBuffer, plan: MerkleParentChainPlan) MetalError!f64 {
         var gpu_ms: f64 = 0;
         var message: [1024]u8 = [_]u8{0} ** 1024;
@@ -792,6 +945,55 @@ pub const Runtime = struct {
         var message: [1024]u8 = [_]u8{0} ** 1024;
         if (!stwo_zig_metal_ec_op_prepared(self.handle, arena.handle, plan.handle, &gpu_ms, &message, message.len)) {
             std.log.err("Metal EC-op execution failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.WitnessFeedFailed;
+        }
+        return gpu_ms;
+    }
+
+    pub fn prepareCompact(
+        self: *Runtime,
+        source_offsets: []const u32,
+        descriptors: []const u32,
+        output_offsets: []const u32,
+        layout: CompactLayout,
+    ) MetalError!CompactPlan {
+        if (source_offsets.len == 0 or descriptors.len != source_offsets.len * 5 or output_offsets.len == 0 or
+            layout.tuple_words == 0 or layout.key_words == 0 or layout.key_words > layout.tuple_words or
+            layout.total_rows == 0 or layout.sort_rows < layout.total_rows or !std.math.isPowerOfTwo(layout.sort_rows) or
+            layout.consumer_rows < 16 or !std.math.isPowerOfTwo(layout.consumer_rows))
+            return MetalError.WitnessFeedFailed;
+        const params = [21]u32{
+            @intCast(source_offsets.len), layout.tuple_words,      layout.total_rows,       layout.sort_rows,
+            layout.tuples_offset,         layout.indices_a_offset, layout.indices_b_offset, layout.counts_offset,
+            layout.radix_offsets_offset,  layout.bases_offset,     layout.heads_offset,     layout.positions_offset,
+            layout.block_sums_offset,     layout.error_offset,     layout.key_words,        @intCast(output_offsets.len),
+            layout.consumer_rows,         layout.unique_offset,    layout.enabler_slot,     layout.multiplicity_slot,
+            layout.iota_slot,
+        };
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        const handle = stwo_zig_metal_compact_prepare(
+            self.handle,
+            source_offsets.ptr,
+            @intCast(source_offsets.len),
+            descriptors.ptr,
+            @intCast(descriptors.len),
+            output_offsets.ptr,
+            @intCast(output_offsets.len),
+            &params,
+            &message,
+            message.len,
+        ) orelse {
+            std.log.err("Metal compact preparation failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.WitnessFeedFailed;
+        };
+        return .{ .handle = handle };
+    }
+
+    pub fn compactPrepared(self: *Runtime, arena: ResidentBuffer, plan: CompactPlan) MetalError!f64 {
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_compact_prepared(self.handle, arena.handle, plan.handle, &gpu_ms, &message, message.len)) {
+            std.log.err("Metal compact execution failed: {s}", .{std.mem.sliceTo(&message, 0)});
             return MetalError.WitnessFeedFailed;
         }
         return gpu_ms;
@@ -1473,11 +1675,60 @@ pub const MerkleParentChainPlan = struct {
     }
 };
 
+pub const MerkleLeafPlan = struct {
+    handle: *anyopaque,
+
+    pub fn deinit(self: *MerkleLeafPlan) void {
+        stwo_zig_metal_merkle_leaf_destroy(self.handle);
+        self.* = undefined;
+    }
+};
+
+pub const ResidentMerklePlan = struct {
+    handle: *anyopaque,
+
+    pub fn deinit(self: *ResidentMerklePlan) void {
+        stwo_zig_metal_resident_merkle_destroy(self.handle);
+        self.* = undefined;
+    }
+};
+
 pub const EcOpPlan = struct {
     handle: *anyopaque,
 
     pub fn deinit(self: *EcOpPlan) void {
         stwo_zig_metal_ec_op_plan_destroy(self.handle);
+        self.* = undefined;
+    }
+};
+
+pub const CompactLayout = struct {
+    tuple_words: u32,
+    key_words: u32,
+    total_rows: u32,
+    sort_rows: u32,
+    consumer_rows: u32,
+    tuples_offset: u32,
+    indices_a_offset: u32,
+    indices_b_offset: u32,
+    counts_offset: u32,
+    radix_offsets_offset: u32,
+    bases_offset: u32,
+    heads_offset: u32,
+    positions_offset: u32,
+    block_sums_offset: u32,
+    error_offset: u32,
+    unique_offset: u32,
+    enabler_slot: u32 = std.math.maxInt(u32),
+    multiplicity_slot: u32,
+    iota_slot: u32 = std.math.maxInt(u32),
+};
+
+pub const CompactPlan = struct {
+    handle: *anyopaque,
+
+    pub fn deinit(self: *CompactPlan) void {
+        stwo_zig_metal_compact_destroy(self.handle);
         self.* = undefined;
     }
 };

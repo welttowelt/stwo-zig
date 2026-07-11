@@ -47,6 +47,17 @@
 @property(nonatomic, strong) id<MTLComputePipelineState> parentsSparse;
 @property(nonatomic, strong) id<MTLComputePipelineState> felt252Oracle;
 @property(nonatomic, strong) id<MTLComputePipelineState> ecOpWitness;
+@property(nonatomic, strong) id<MTLComputePipelineState> compactGather;
+@property(nonatomic, strong) id<MTLComputePipelineState> compactRadixHistogram;
+@property(nonatomic, strong) id<MTLComputePipelineState> compactRadixPrefix;
+@property(nonatomic, strong) id<MTLComputePipelineState> compactRadixScatter;
+@property(nonatomic, strong) id<MTLComputePipelineState> compactHeads;
+@property(nonatomic, strong) id<MTLComputePipelineState> compactScanLocal;
+@property(nonatomic, strong) id<MTLComputePipelineState> compactScanBlocks;
+@property(nonatomic, strong) id<MTLComputePipelineState> compactScanAdd;
+@property(nonatomic, strong) id<MTLComputePipelineState> compactClearOutputs;
+@property(nonatomic, strong) id<MTLComputePipelineState> compactScatter;
+@property(nonatomic, strong) id<MTLComputePipelineState> compactFinalize;
 @end
 
 @interface StwoZigWitnessFeedPlan : NSObject
@@ -149,6 +160,45 @@
 @property(nonatomic) uint32_t rowCount;
 @end
 @implementation StwoZigEcOpPlan
+@end
+
+@interface StwoZigCompactPlan : NSObject
+@property(nonatomic, strong) id<MTLBuffer> sourceOffsets;
+@property(nonatomic, strong) id<MTLBuffer> descriptors;
+@property(nonatomic, strong) id<MTLBuffer> outputOffsets;
+@property(nonatomic, strong) id<MTLBuffer> params;
+@property(nonatomic) uint32_t sortRows;
+@property(nonatomic) uint32_t totalRows;
+@property(nonatomic) uint32_t consumerRows;
+@property(nonatomic) uint32_t keyWords;
+@property(nonatomic) uint32_t indicesA;
+@property(nonatomic) uint32_t indicesB;
+@end
+@implementation StwoZigCompactPlan
+@end
+
+@interface StwoZigMerkleLeafPlan : NSObject
+@property(nonatomic, strong) id<MTLBuffer> columnOffsets;
+@property(nonatomic, strong) id<MTLBuffer> columnLogSizes;
+@property(nonatomic, strong) id<MTLBuffer> leafSeed;
+@property(nonatomic) uint32_t columnCount;
+@property(nonatomic) uint32_t liftingLogSize;
+@property(nonatomic) uint32_t destinationOffset;
+@end
+@implementation StwoZigMerkleLeafPlan
+@end
+
+@interface StwoZigResidentMerklePlan : NSObject
+@property(nonatomic, strong) id<MTLBuffer> columnOffsets;
+@property(nonatomic, strong) id<MTLBuffer> columnLogSizes;
+@property(nonatomic, strong) NSData *layerOffsets;
+@property(nonatomic, strong) id<MTLBuffer> leafSeed;
+@property(nonatomic, strong) id<MTLBuffer> nodeSeed;
+@property(nonatomic) uint32_t columnCount;
+@property(nonatomic) uint32_t liftingLogSize;
+@property(nonatomic) uint32_t layerCount;
+@end
+@implementation StwoZigResidentMerklePlan
 @end
 @implementation StwoZigMetalRuntime
 @end
@@ -268,6 +318,17 @@ void *stwo_zig_metal_runtime_create(
         runtime.parentsSparse = make_pipeline(device, library, @"stwo_zig_blake2s_parents_sparse", error_message, error_message_len);
         runtime.felt252Oracle = make_pipeline(device, library, @"stwo_zig_felt252_oracle", error_message, error_message_len);
         runtime.ecOpWitness = make_pipeline(device, library, @"stwo_zig_ec_op_witness", error_message, error_message_len);
+        runtime.compactGather = make_pipeline(device, library, @"stwo_zig_compact_gather", error_message, error_message_len);
+        runtime.compactRadixHistogram = make_pipeline(device, library, @"stwo_zig_compact_radix_histogram", error_message, error_message_len);
+        runtime.compactRadixPrefix = make_pipeline(device, library, @"stwo_zig_compact_radix_prefix", error_message, error_message_len);
+        runtime.compactRadixScatter = make_pipeline(device, library, @"stwo_zig_compact_radix_scatter", error_message, error_message_len);
+        runtime.compactHeads = make_pipeline(device, library, @"stwo_zig_compact_heads", error_message, error_message_len);
+        runtime.compactScanLocal = make_pipeline(device, library, @"stwo_zig_compact_scan_local", error_message, error_message_len);
+        runtime.compactScanBlocks = make_pipeline(device, library, @"stwo_zig_compact_scan_blocks", error_message, error_message_len);
+        runtime.compactScanAdd = make_pipeline(device, library, @"stwo_zig_compact_scan_add", error_message, error_message_len);
+        runtime.compactClearOutputs = make_pipeline(device, library, @"stwo_zig_compact_clear_outputs", error_message, error_message_len);
+        runtime.compactScatter = make_pipeline(device, library, @"stwo_zig_compact_scatter", error_message, error_message_len);
+        runtime.compactFinalize = make_pipeline(device, library, @"stwo_zig_compact_finalize", error_message, error_message_len);
         if (runtime.queue == nil || runtime.leaves == nil || runtime.parents == nil ||
             runtime.quotients == nil || runtime.rawQuotients == nil || runtime.polynomialEval == nil ||
             runtime.polynomialBasis == nil || runtime.circleIfftFirst == nil || runtime.circleIfftLayer == nil ||
@@ -281,7 +342,11 @@ void *stwo_zig_metal_runtime_create(
             runtime.circleRfftLayerSparse == nil || runtime.circleRfftLastSparse == nil) return NULL;
         if (runtime.relationFused == nil || runtime.relationBlockScan == nil ||
             runtime.relationScanBlocks == nil || runtime.relationScanFinalize == nil || runtime.fixedTableLookup == nil ||
-            runtime.parentsSparse == nil || runtime.felt252Oracle == nil || runtime.ecOpWitness == nil) return NULL;
+            runtime.parentsSparse == nil || runtime.felt252Oracle == nil || runtime.ecOpWitness == nil ||
+            runtime.compactGather == nil || runtime.compactRadixHistogram == nil || runtime.compactRadixPrefix == nil ||
+            runtime.compactRadixScatter == nil || runtime.compactHeads == nil || runtime.compactScanLocal == nil ||
+            runtime.compactScanBlocks == nil || runtime.compactScanAdd == nil || runtime.compactClearOutputs == nil ||
+            runtime.compactScatter == nil || runtime.compactFinalize == nil) return NULL;
         return (__bridge_retained void *)runtime;
     }
 }
@@ -836,6 +901,137 @@ bool stwo_zig_metal_fixed_table_batch_prepared(
     }
 }
 
+void *stwo_zig_metal_merkle_leaf_prepare(
+    void *runtime_ptr, const uint32_t *column_offsets, const uint32_t *column_log_sizes,
+    uint32_t column_count, uint32_t lifting_log_size, uint32_t destination_offset,
+    const uint32_t *leaf_seed, char *error_message, size_t error_message_len
+) {
+    if (runtime_ptr == NULL || column_offsets == NULL || column_log_sizes == NULL || column_count == 0u ||
+        lifting_log_size >= 31u || (destination_offset & 63u) != 0u || leaf_seed == NULL) return NULL;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        for (uint32_t column = 0; column < column_count; ++column) if (column_log_sizes[column] > lifting_log_size) return NULL;
+        StwoZigMerkleLeafPlan *plan = [StwoZigMerkleLeafPlan new];
+        plan.columnOffsets = [runtime.device newBufferWithBytes:column_offsets length:column_count * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+        plan.columnLogSizes = [runtime.device newBufferWithBytes:column_log_sizes length:column_count * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+        plan.leafSeed = [runtime.device newBufferWithBytes:leaf_seed length:8u * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+        plan.columnCount = column_count; plan.liftingLogSize = lifting_log_size; plan.destinationOffset = destination_offset;
+        if (plan.columnOffsets == nil || plan.columnLogSizes == nil || plan.leafSeed == nil) {
+            write_error(error_message, error_message_len, @"Metal Merkle leaf plan allocation failed"); return NULL;
+        }
+        return (__bridge_retained void *)plan;
+    }
+}
+
+void stwo_zig_metal_merkle_leaf_destroy(void *plan_ptr) {
+    if (plan_ptr != NULL) CFRelease(plan_ptr);
+}
+
+bool stwo_zig_metal_merkle_leaf_prepared(
+    void *runtime_ptr, void *arena_ptr, void *plan_ptr,
+    double *gpu_milliseconds, char *error_message, size_t error_message_len
+) {
+    if (runtime_ptr == NULL || arena_ptr == NULL || plan_ptr == NULL) return false;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        id<MTLBuffer> arena = (__bridge id<MTLBuffer>)arena_ptr;
+        StwoZigMerkleLeafPlan *plan = (__bridge StwoZigMerkleLeafPlan *)plan_ptr;
+        uint32_t leaf_count = 1u << plan.liftingLogSize;
+        uint32_t column_count = plan.columnCount, lifting_log_size = plan.liftingLogSize;
+        id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
+        id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
+        [encoder setComputePipelineState:runtime.leaves]; [encoder setBuffer:arena offset:0 atIndex:0];
+        [encoder setBuffer:plan.columnOffsets offset:0 atIndex:1]; [encoder setBuffer:plan.columnLogSizes offset:0 atIndex:2];
+        [encoder setBuffer:arena offset:(NSUInteger)plan.destinationOffset * sizeof(uint32_t) atIndex:3];
+        [encoder setBytes:&column_count length:sizeof(column_count) atIndex:4];
+        [encoder setBytes:&lifting_log_size length:sizeof(lifting_log_size) atIndex:5]; [encoder setBuffer:plan.leafSeed offset:0 atIndex:6];
+        NSUInteger width = MIN((NSUInteger)256u, runtime.leaves.maxTotalThreadsPerThreadgroup);
+        [encoder dispatchThreads:MTLSizeMake(leaf_count, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+        [encoder endEncoding]; [command commit]; [command waitUntilCompleted];
+        if (command.status == MTLCommandBufferStatusError) {
+            write_error(error_message, error_message_len, command.error.localizedDescription); return false;
+        }
+        if (gpu_milliseconds) *gpu_milliseconds = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
+        return true;
+    }
+}
+
+void *stwo_zig_metal_resident_merkle_prepare(
+    void *runtime_ptr, const uint32_t *column_offsets, const uint32_t *column_log_sizes,
+    uint32_t column_count, uint32_t lifting_log_size, const uint32_t *layer_offsets,
+    uint32_t layer_count, const uint32_t *leaf_seed, const uint32_t *node_seed,
+    char *error_message, size_t error_message_len
+) {
+    if (runtime_ptr == NULL || column_offsets == NULL || column_log_sizes == NULL || column_count == 0u ||
+        lifting_log_size >= 31u || layer_offsets == NULL || layer_count < 2u ||
+        layer_count > lifting_log_size + 1u || leaf_seed == NULL || node_seed == NULL) return NULL;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        for (uint32_t column = 0; column < column_count; ++column) {
+            if (column_log_sizes[column] > lifting_log_size ||
+                (column != 0u && column_log_sizes[column - 1u] > column_log_sizes[column])) return NULL;
+        }
+        for (uint32_t layer = 0; layer < layer_count; ++layer) if ((layer_offsets[layer] & 63u) != 0u) return NULL;
+        StwoZigResidentMerklePlan *plan = [StwoZigResidentMerklePlan new];
+        plan.columnOffsets = [runtime.device newBufferWithBytes:column_offsets length:column_count * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+        plan.columnLogSizes = [runtime.device newBufferWithBytes:column_log_sizes length:column_count * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+        plan.layerOffsets = [NSData dataWithBytes:layer_offsets length:layer_count * sizeof(uint32_t)];
+        plan.leafSeed = [runtime.device newBufferWithBytes:leaf_seed length:8u * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+        plan.nodeSeed = [runtime.device newBufferWithBytes:node_seed length:8u * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+        plan.columnCount = column_count; plan.liftingLogSize = lifting_log_size; plan.layerCount = layer_count;
+        if (plan.columnOffsets == nil || plan.columnLogSizes == nil || plan.layerOffsets == nil ||
+            plan.leafSeed == nil || plan.nodeSeed == nil) {
+            write_error(error_message, error_message_len, @"Resident Merkle plan allocation failed"); return NULL;
+        }
+        return (__bridge_retained void *)plan;
+    }
+}
+
+void stwo_zig_metal_resident_merkle_destroy(void *plan_ptr) {
+    if (plan_ptr != NULL) CFRelease(plan_ptr);
+}
+
+bool stwo_zig_metal_resident_merkle_prepared(
+    void *runtime_ptr, void *arena_ptr, void *plan_ptr,
+    double *gpu_milliseconds, char *error_message, size_t error_message_len
+) {
+    if (runtime_ptr == NULL || arena_ptr == NULL || plan_ptr == NULL) return false;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        id<MTLBuffer> arena = (__bridge id<MTLBuffer>)arena_ptr;
+        StwoZigResidentMerklePlan *plan = (__bridge StwoZigResidentMerklePlan *)plan_ptr;
+        const uint32_t *layers = plan.layerOffsets.bytes;
+        uint32_t leaf_count = 1u << plan.liftingLogSize;
+        uint32_t column_count = plan.columnCount, lifting_log_size = plan.liftingLogSize;
+        id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
+        id<MTLComputeCommandEncoder> leaves = [command computeCommandEncoder];
+        [leaves setComputePipelineState:runtime.leaves]; [leaves setBuffer:arena offset:0 atIndex:0];
+        [leaves setBuffer:plan.columnOffsets offset:0 atIndex:1]; [leaves setBuffer:plan.columnLogSizes offset:0 atIndex:2];
+        [leaves setBuffer:arena offset:(NSUInteger)layers[0] * sizeof(uint32_t) atIndex:3];
+        [leaves setBytes:&column_count length:sizeof(column_count) atIndex:4];
+        [leaves setBytes:&lifting_log_size length:sizeof(lifting_log_size) atIndex:5]; [leaves setBuffer:plan.leafSeed offset:0 atIndex:6];
+        NSUInteger leaf_width = MIN((NSUInteger)256u, runtime.leaves.maxTotalThreadsPerThreadgroup);
+        [leaves dispatchThreads:MTLSizeMake(leaf_count, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(leaf_width, 1u, 1u)];
+        [leaves endEncoding];
+        for (uint32_t level = 1u; level < plan.layerCount; ++level) {
+            uint32_t child = layers[level - 1u], destination = layers[level], parent_count = leaf_count >> level;
+            id<MTLComputeCommandEncoder> parents = [command computeCommandEncoder];
+            [parents setComputePipelineState:runtime.parentsSparse]; [parents setBuffer:arena offset:0 atIndex:0];
+            [parents setBytes:&child length:sizeof(child) atIndex:1]; [parents setBytes:&destination length:sizeof(destination) atIndex:2];
+            [parents setBytes:&parent_count length:sizeof(parent_count) atIndex:3]; [parents setBuffer:plan.nodeSeed offset:0 atIndex:4];
+            NSUInteger width = MIN((NSUInteger)256u, runtime.parentsSparse.maxTotalThreadsPerThreadgroup);
+            [parents dispatchThreads:MTLSizeMake(parent_count, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+            [parents endEncoding];
+        }
+        [command commit]; [command waitUntilCompleted];
+        if (command.status == MTLCommandBufferStatusError) {
+            write_error(error_message, error_message_len, command.error.localizedDescription); return false;
+        }
+        if (gpu_milliseconds) *gpu_milliseconds = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
+        return true;
+    }
+}
+
 void *stwo_zig_metal_merkle_parent_chain_prepare(
     void *runtime_ptr, const uint32_t *child_offsets, const uint32_t *destination_offsets,
     const uint32_t *parent_counts, uint32_t level_count, const uint32_t *node_seed,
@@ -917,6 +1113,132 @@ void *stwo_zig_metal_ec_op_prepare(
 
 void stwo_zig_metal_ec_op_plan_destroy(void *plan_ptr) {
     if (plan_ptr != NULL) CFRelease(plan_ptr);
+}
+
+void *stwo_zig_metal_compact_prepare(
+    void *runtime_ptr, const uint32_t *source_offsets, uint32_t source_count,
+    const uint32_t *descriptors, uint32_t descriptor_words,
+    const uint32_t *output_offsets, uint32_t output_count, const uint32_t *params,
+    char *error_message, size_t error_message_len
+) {
+    if (runtime_ptr == NULL || source_offsets == NULL || source_count == 0u || descriptors == NULL ||
+        descriptor_words != source_count * 5u || output_offsets == NULL || output_count == 0u || params == NULL) return NULL;
+    uint32_t total_rows = params[2], sort_rows = params[3], key_words = params[14], consumer_rows = params[16];
+    if (params[0] != source_count || params[1] == 0u || key_words == 0u || key_words > params[1] ||
+        total_rows == 0u || sort_rows < total_rows || sort_rows < 16u || (sort_rows & (sort_rows - 1u)) != 0u ||
+        consumer_rows < 16u || (consumer_rows & (consumer_rows - 1u)) != 0u || params[15] != output_count) return NULL;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        StwoZigCompactPlan *plan = [StwoZigCompactPlan new];
+        plan.sourceOffsets = [runtime.device newBufferWithBytes:source_offsets length:source_count * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+        plan.descriptors = [runtime.device newBufferWithBytes:descriptors length:descriptor_words * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+        plan.outputOffsets = [runtime.device newBufferWithBytes:output_offsets length:output_count * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+        plan.params = [runtime.device newBufferWithBytes:params length:21u * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+        plan.sortRows = sort_rows; plan.totalRows = total_rows; plan.consumerRows = consumer_rows;
+        plan.keyWords = key_words; plan.indicesA = params[5]; plan.indicesB = params[6];
+        if (plan.sourceOffsets == nil || plan.descriptors == nil || plan.outputOffsets == nil || plan.params == nil) {
+            write_error(error_message, error_message_len, @"Metal compact plan allocation failed"); return NULL;
+        }
+        return (__bridge_retained void *)plan;
+    }
+}
+
+void stwo_zig_metal_compact_destroy(void *plan_ptr) {
+    if (plan_ptr != NULL) CFRelease(plan_ptr);
+}
+
+bool stwo_zig_metal_compact_prepared(
+    void *runtime_ptr, void *arena_ptr, void *plan_ptr,
+    double *gpu_milliseconds, char *error_message, size_t error_message_len
+) {
+    if (runtime_ptr == NULL || arena_ptr == NULL || plan_ptr == NULL) return false;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        id<MTLBuffer> arena = (__bridge id<MTLBuffer>)arena_ptr;
+        StwoZigCompactPlan *plan = (__bridge StwoZigCompactPlan *)plan_ptr;
+        NSUInteger width = MIN((NSUInteger)256u, MIN((NSUInteger)plan.sortRows, runtime.compactGather.maxTotalThreadsPerThreadgroup));
+        uint32_t block_count = (uint32_t)(plan.sortRows / width);
+        id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
+        id<MTLComputeCommandEncoder> gather = [command computeCommandEncoder];
+        [gather setComputePipelineState:runtime.compactGather]; [gather setBuffer:arena offset:0 atIndex:0];
+        [gather setBuffer:plan.sourceOffsets offset:0 atIndex:1]; [gather setBuffer:plan.descriptors offset:0 atIndex:2];
+        [gather setBuffer:plan.params offset:0 atIndex:3];
+        [gather dispatchThreads:MTLSizeMake(plan.sortRows, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+        [gather endEncoding];
+
+        uint32_t current = plan.indicesA, next = plan.indicesB;
+        for (uint32_t word = plan.keyWords; word-- > 0u;) {
+            for (uint32_t shift = 0u; shift < 32u; shift += 4u) {
+                id<MTLComputeCommandEncoder> histogram = [command computeCommandEncoder];
+                [histogram setComputePipelineState:runtime.compactRadixHistogram]; [histogram setBuffer:arena offset:0 atIndex:0];
+                [histogram setBuffer:plan.params offset:0 atIndex:1]; [histogram setBytes:&word length:sizeof(word) atIndex:2];
+                [histogram setBytes:&shift length:sizeof(shift) atIndex:3]; [histogram setBytes:&current length:sizeof(current) atIndex:4];
+                [histogram dispatchThreads:MTLSizeMake(plan.sortRows, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+                [histogram endEncoding];
+
+                id<MTLComputeCommandEncoder> prefix = [command computeCommandEncoder];
+                [prefix setComputePipelineState:runtime.compactRadixPrefix]; [prefix setBuffer:arena offset:0 atIndex:0];
+                [prefix setBuffer:plan.params offset:0 atIndex:1]; [prefix setBytes:&block_count length:sizeof(block_count) atIndex:2];
+                [prefix dispatchThreadgroups:MTLSizeMake(1u, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(16u, 1u, 1u)];
+                [prefix endEncoding];
+
+                id<MTLComputeCommandEncoder> scatter = [command computeCommandEncoder];
+                [scatter setComputePipelineState:runtime.compactRadixScatter]; [scatter setBuffer:arena offset:0 atIndex:0];
+                [scatter setBuffer:plan.params offset:0 atIndex:1]; [scatter setBytes:&word length:sizeof(word) atIndex:2];
+                [scatter setBytes:&shift length:sizeof(shift) atIndex:3]; [scatter setBytes:&current length:sizeof(current) atIndex:4];
+                [scatter setBytes:&next length:sizeof(next) atIndex:5];
+                [scatter dispatchThreads:MTLSizeMake(plan.sortRows, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+                [scatter endEncoding];
+                uint32_t swap = current; current = next; next = swap;
+            }
+        }
+        if (current != plan.indicesA) {
+            write_error(error_message, error_message_len, @"Metal compact radix parity invariant failed"); return false;
+        }
+
+        id<MTLComputeCommandEncoder> heads = [command computeCommandEncoder];
+        [heads setComputePipelineState:runtime.compactHeads]; [heads setBuffer:arena offset:0 atIndex:0];
+        [heads setBuffer:plan.params offset:0 atIndex:1];
+        [heads dispatchThreads:MTLSizeMake(plan.sortRows, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+        [heads endEncoding];
+        id<MTLComputeCommandEncoder> scan = [command computeCommandEncoder];
+        [scan setComputePipelineState:runtime.compactScanLocal]; [scan setBuffer:arena offset:0 atIndex:0];
+        [scan setBuffer:plan.params offset:0 atIndex:1];
+        [scan dispatchThreads:MTLSizeMake(plan.sortRows, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+        [scan endEncoding];
+        id<MTLComputeCommandEncoder> scan_blocks = [command computeCommandEncoder];
+        [scan_blocks setComputePipelineState:runtime.compactScanBlocks]; [scan_blocks setBuffer:arena offset:0 atIndex:0];
+        [scan_blocks setBuffer:plan.params offset:0 atIndex:1]; [scan_blocks setBytes:&block_count length:sizeof(block_count) atIndex:2];
+        [scan_blocks dispatchThreads:MTLSizeMake(1u, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(1u, 1u, 1u)];
+        [scan_blocks endEncoding];
+        id<MTLComputeCommandEncoder> scan_add = [command computeCommandEncoder];
+        [scan_add setComputePipelineState:runtime.compactScanAdd]; [scan_add setBuffer:arena offset:0 atIndex:0];
+        [scan_add setBuffer:plan.params offset:0 atIndex:1];
+        [scan_add dispatchThreads:MTLSizeMake(plan.sortRows, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+        [scan_add endEncoding];
+        NSUInteger consumer_width = MIN((NSUInteger)256u, MIN((NSUInteger)plan.consumerRows, runtime.compactClearOutputs.maxTotalThreadsPerThreadgroup));
+        id<MTLComputeCommandEncoder> clear = [command computeCommandEncoder];
+        [clear setComputePipelineState:runtime.compactClearOutputs]; [clear setBuffer:arena offset:0 atIndex:0];
+        [clear setBuffer:plan.outputOffsets offset:0 atIndex:1]; [clear setBuffer:plan.params offset:0 atIndex:2];
+        [clear dispatchThreads:MTLSizeMake(plan.consumerRows, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(consumer_width, 1u, 1u)];
+        [clear endEncoding];
+        id<MTLComputeCommandEncoder> compact_scatter = [command computeCommandEncoder];
+        [compact_scatter setComputePipelineState:runtime.compactScatter]; [compact_scatter setBuffer:arena offset:0 atIndex:0];
+        [compact_scatter setBuffer:plan.outputOffsets offset:0 atIndex:1]; [compact_scatter setBuffer:plan.params offset:0 atIndex:2];
+        [compact_scatter dispatchThreads:MTLSizeMake(plan.totalRows, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+        [compact_scatter endEncoding];
+        id<MTLComputeCommandEncoder> finalize = [command computeCommandEncoder];
+        [finalize setComputePipelineState:runtime.compactFinalize]; [finalize setBuffer:arena offset:0 atIndex:0];
+        [finalize setBuffer:plan.outputOffsets offset:0 atIndex:1]; [finalize setBuffer:plan.params offset:0 atIndex:2];
+        [finalize dispatchThreads:MTLSizeMake(plan.consumerRows, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(consumer_width, 1u, 1u)];
+        [finalize endEncoding];
+        [command commit]; [command waitUntilCompleted];
+        if (command.status == MTLCommandBufferStatusError) {
+            write_error(error_message, error_message_len, command.error.localizedDescription); return false;
+        }
+        if (gpu_milliseconds) *gpu_milliseconds = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
+        return true;
+    }
 }
 
 bool stwo_zig_metal_ec_op_prepared(

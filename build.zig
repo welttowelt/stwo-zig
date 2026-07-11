@@ -156,6 +156,27 @@ pub fn build(b: *std.Build) void {
         const metal_ec_op_bench_step = b.step("metal-ec-op-bench", "Build resident Metal EC-op benchmark");
         metal_ec_op_bench_step.dependOn(&metal_ec_op_bench.step);
 
+        const metal_compact_bench_module = b.createModule(.{
+            .root_source_file = b.path("src/metal_compact_bench_cli.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        const metal_compact_bench = b.addExecutable(.{
+            .name = "metal-compact-bench",
+            .root_module = metal_compact_bench_module,
+        });
+        metal_compact_bench.addCSourceFile(.{
+            .file = b.path("src/backends/metal/runtime.m"),
+            .flags = &.{ "-fobjc-arc", "-fblocks" },
+        });
+        metal_compact_bench.linkLibC();
+        metal_compact_bench.linkFramework("Foundation");
+        metal_compact_bench.linkFramework("Metal");
+        metal_compact_bench.linkSystemLibrary("objc");
+        b.installArtifact(metal_compact_bench);
+        const metal_compact_bench_step = b.step("metal-compact-bench", "Build resident Metal compaction benchmark");
+        metal_compact_bench_step.dependOn(&metal_compact_bench.step);
+
         const metal_test_module = b.createModule(.{
             .root_source_file = b.path("src/metal_backend_test.zig"),
             .target = target,

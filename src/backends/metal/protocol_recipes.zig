@@ -396,6 +396,122 @@ pub const MerkleParentChainRecipe = struct {
     }
 };
 
+/// Regenerates a complete commitment from resident evaluations. Lower levels
+/// ping-pong through the epoch-local leaf/parent workspaces; retained layers
+/// are written directly and stay device-owned through decommitment.
+pub const MerkleCommitRecipe = struct {
+    allocator: std.mem.Allocator,
+    metal: *runtime.Runtime,
+    arena: *arena_plan.ResidentArena,
+    destinations: []arena_plan.Binding,
+    prepared: runtime.ResidentMerklePlan,
+    last_tick: ?u16 = null,
+    accumulated_gpu_ms: f64 = 0,
+
+    pub fn init(
+        allocator: std.mem.Allocator,
+        metal: *runtime.Runtime,
+        resident_arena: *arena_plan.ResidentArena,
+        evaluations: []const arena_plan.Binding,
+        leaf_workspace: arena_plan.Binding,
+        parent_workspace: arena_plan.Binding,
+        retained_layers_bottom_up: []const arena_plan.Binding,
+        leaf_seed: [8]u32,
+        node_seed: [8]u32,
+    ) !MerkleCommitRecipe {
+        if (evaluations.len == 0 or retained_layers_bottom_up.len == 0)
+            return recovery.RecoveryError.BindingSizeMismatch;
+        const asOffset = struct {
+            fn get(binding: arena_plan.Binding) !u32 {
+                if (binding.offset_bytes % 256 != 0) return recovery.RecoveryError.BindingSizeMismatch;
+                return std.math.cast(u32, binding.offset_bytes / 4) orelse recovery.RecoveryError.BindingSizeMismatch;
+            }
+        }.get;
+        const source_offsets = try allocator.alloc(u32, evaluations.len);
+        defer allocator.free(source_offsets);
+        const source_logs = try allocator.alloc(u32, evaluations.len);
+        defer allocator.free(source_logs);
+        var maximum_source_log: u32 = 0;
+        var previous_size: u64 = 0;
+        for (evaluations, source_offsets, source_logs) |evaluation, *offset, *log_size| {
+            if (evaluation.size_bytes < 64 or evaluation.size_bytes % 4 != 0 or
+                !std.math.isPowerOfTwo(evaluation.size_bytes / 4) or evaluation.size_bytes < previous_size)
+                return recovery.RecoveryError.BindingSizeMismatch;
+            previous_size = evaluation.size_bytes;
+            log_size.* = std.math.log2_int(u64, evaluation.size_bytes / 4);
+            maximum_source_log = @max(maximum_source_log, log_size.*);
+            offset.* = try asOffset(evaluation);
+        }
+        if (leaf_workspace.size_bytes % 32 != 0 or !std.math.isPowerOfTwo(leaf_workspace.size_bytes / 32))
+            return recovery.RecoveryError.BindingSizeMismatch;
+        const lifting_log_size: u32 = std.math.log2_int(u64, leaf_workspace.size_bytes / 32);
+        if (lifting_log_size < maximum_source_log) return recovery.RecoveryError.BindingSizeMismatch;
+        const leaf_words = leaf_workspace.size_bytes / 4;
+        if (parent_workspace.size_bytes < leaf_words * 2)
+            return recovery.RecoveryError.BindingSizeMismatch;
+        const bottom = retained_layers_bottom_up[0];
+        if (bottom.size_bytes == 0 or bottom.size_bytes % 32 != 0 or !std.math.isPowerOfTwo(bottom.size_bytes / 32))
+            return recovery.RecoveryError.BindingSizeMismatch;
+        const bottom_hashes = bottom.size_bytes / 32;
+        const leaf_hashes = @as(u64, 1) << @intCast(lifting_log_size);
+        if (bottom_hashes > leaf_hashes or leaf_hashes % bottom_hashes != 0 or
+            !std.math.isPowerOfTwo(leaf_hashes / bottom_hashes))
+            return recovery.RecoveryError.BindingSizeMismatch;
+        const lower_levels: u32 = std.math.log2_int(u64, leaf_hashes / bottom_hashes);
+        if (lower_levels == 0) return recovery.RecoveryError.BindingSizeMismatch;
+        const lower_count: usize = lower_levels;
+        const layer_offsets = try allocator.alloc(u32, lower_count + retained_layers_bottom_up.len);
+        defer allocator.free(layer_offsets);
+        layer_offsets[0] = try asOffset(leaf_workspace);
+        for (1..lower_count) |level| layer_offsets[level] = try asOffset(if (level % 2 == 0) leaf_workspace else parent_workspace);
+        for (retained_layers_bottom_up, 0..) |layer, index| {
+            const expected_hashes = bottom_hashes >> @intCast(index);
+            if (expected_hashes == 0 or layer.size_bytes != expected_hashes * 32)
+                return recovery.RecoveryError.BindingSizeMismatch;
+            layer_offsets[lower_count + index] = try asOffset(layer);
+        }
+        var prepared = try metal.prepareResidentMerkle(
+            source_offsets,
+            source_logs,
+            lifting_log_size,
+            layer_offsets,
+            leaf_seed,
+            node_seed,
+        );
+        errdefer prepared.deinit();
+        return .{
+            .allocator = allocator,
+            .metal = metal,
+            .arena = resident_arena,
+            .destinations = try allocator.dupe(arena_plan.Binding, retained_layers_bottom_up),
+            .prepared = prepared,
+        };
+    }
+
+    pub fn deinit(self: *MerkleCommitRecipe) void {
+        self.prepared.deinit();
+        self.allocator.free(self.destinations);
+        self.* = undefined;
+    }
+
+    pub fn makeRecipes(self: *MerkleCommitRecipe, allocator: std.mem.Allocator) ![]recovery.Recipe {
+        const recipes = try allocator.alloc(recovery.Recipe, self.destinations.len);
+        for (self.destinations, recipes) |destination, *recipe_entry|
+            recipe_entry.* = .{ .logical_id = destination.logical_id, .context = self, .run = run };
+        return recipes;
+    }
+
+    fn run(raw: *anyopaque, tick: u16, requested: arena_plan.Binding, _: []u8) !void {
+        const self: *MerkleCommitRecipe = @ptrCast(@alignCast(raw));
+        if (self.last_tick == tick) return;
+        var found = false;
+        for (self.destinations) |destination| found = found or destination.logical_id == requested.logical_id;
+        if (!found) return recovery.RecoveryError.MissingRecipe;
+        self.accumulated_gpu_ms += try self.metal.residentMerklePrepared(self.arena.buffer, self.prepared);
+        self.last_tick = tick;
+    }
+};
+
 pub const EcOpBindings = struct {
     execution_columns: [37]arena_plan.Binding,
     trace_columns: [273]arena_plan.Binding,
@@ -494,6 +610,142 @@ pub const EcOpRecipe = struct {
         for (self.destinations) |destination| found = found or destination.logical_id == requested.logical_id;
         if (!found) return recovery.RecoveryError.MissingRecipe;
         self.accumulated_gpu_ms += try self.metal.ecOpPrepared(self.arena.buffer, self.prepared);
+        self.last_tick = tick;
+    }
+};
+
+pub const CompactBindings = struct {
+    sources: []const arena_plan.Binding,
+    descriptors: []const u32,
+    outputs: []const arena_plan.Binding,
+    tuple_words: u32,
+    key_words: u32,
+    total_rows: u32,
+    sort_rows: u32,
+    consumer_rows: u32,
+    enabler_slot: u32,
+    multiplicity_slot: u32,
+    iota_slot: u32,
+    tuples: arena_plan.Binding,
+    keys_a: arena_plan.Binding,
+    keys_b: arena_plan.Binding,
+    indices_a: arena_plan.Binding,
+    indices_b: arena_plan.Binding,
+    heads: arena_plan.Binding,
+    positions: arena_plan.Binding,
+    unique: arena_plan.Binding,
+    sort_temp: arena_plan.Binding,
+    scan_temp: arena_plan.Binding,
+};
+
+/// Canonical device multiset writer. All radix, scan, and tuple workspaces are
+/// sparse arena bindings whose live range is the consumer's witness tick.
+pub const CompactRecipe = struct {
+    allocator: std.mem.Allocator,
+    metal: *runtime.Runtime,
+    arena: *arena_plan.ResidentArena,
+    destinations: []arena_plan.Binding,
+    prepared: runtime.CompactPlan,
+    last_tick: ?u16 = null,
+    accumulated_gpu_ms: f64 = 0,
+
+    pub fn init(
+        allocator: std.mem.Allocator,
+        metal: *runtime.Runtime,
+        resident_arena: *arena_plan.ResidentArena,
+        bindings: CompactBindings,
+    ) !CompactRecipe {
+        if (bindings.sources.len == 0 or bindings.descriptors.len != bindings.sources.len * 5 or
+            bindings.outputs.len == 0 or bindings.tuple_words == 0 or bindings.key_words == 0 or
+            bindings.key_words > bindings.tuple_words or bindings.total_rows == 0 or
+            bindings.sort_rows < bindings.total_rows or !std.math.isPowerOfTwo(bindings.sort_rows) or
+            bindings.consumer_rows < 16 or !std.math.isPowerOfTwo(bindings.consumer_rows) or
+            bindings.outputs.len <= bindings.multiplicity_slot or bindings.outputs.len <= bindings.enabler_slot or
+            bindings.outputs.len <= bindings.iota_slot)
+            return recovery.RecoveryError.BindingSizeMismatch;
+        const asOffset = struct {
+            fn get(binding: arena_plan.Binding) !u32 {
+                if (binding.offset_bytes % 4 != 0) return recovery.RecoveryError.BindingSizeMismatch;
+                return std.math.cast(u32, binding.offset_bytes / 4) orelse recovery.RecoveryError.BindingSizeMismatch;
+            }
+        }.get;
+        const source_offsets = try allocator.alloc(u32, bindings.sources.len);
+        defer allocator.free(source_offsets);
+        for (bindings.sources, source_offsets, 0..) |source, *offset, edge| {
+            const descriptor = bindings.descriptors[edge * 5 ..][0..5];
+            if (descriptor[0] == 0 or descriptor[2] < bindings.tuple_words or descriptor[3] == 0)
+                return recovery.RecoveryError.BindingSizeMismatch;
+            const last_word = @as(u64, descriptor[1]) + @as(u64, descriptor[3] - 1) * descriptor[2] + bindings.tuple_words;
+            if (last_word * descriptor[0] * 4 > source.size_bytes)
+                return recovery.RecoveryError.BindingSizeMismatch;
+            offset.* = try asOffset(source);
+        }
+        const output_offsets = try allocator.alloc(u32, bindings.outputs.len);
+        defer allocator.free(output_offsets);
+        const output_bytes = @as(u64, bindings.consumer_rows) * 4;
+        for (bindings.outputs, output_offsets) |output, *offset| {
+            if (output.size_bytes != output_bytes) return recovery.RecoveryError.BindingSizeMismatch;
+            offset.* = try asOffset(output);
+        }
+        const sort_bytes = @as(u64, bindings.sort_rows) * 4;
+        if (bindings.tuples.size_bytes < sort_bytes * bindings.tuple_words or
+            bindings.keys_a.size_bytes < sort_bytes or bindings.keys_b.size_bytes < sort_bytes or
+            bindings.indices_a.size_bytes < sort_bytes or bindings.indices_b.size_bytes < sort_bytes or
+            bindings.heads.size_bytes < sort_bytes or bindings.positions.size_bytes < sort_bytes or
+            bindings.unique.size_bytes < 4 or bindings.sort_temp.size_bytes < 17 * 4 or
+            bindings.scan_temp.size_bytes < @as(u64, @max(1, bindings.sort_rows / 256)) * 4)
+            return recovery.RecoveryError.BindingSizeMismatch;
+        var prepared = try metal.prepareCompact(source_offsets, bindings.descriptors, output_offsets, .{
+            .tuple_words = bindings.tuple_words,
+            .key_words = bindings.key_words,
+            .total_rows = bindings.total_rows,
+            .sort_rows = bindings.sort_rows,
+            .consumer_rows = bindings.consumer_rows,
+            .tuples_offset = try asOffset(bindings.tuples),
+            .indices_a_offset = try asOffset(bindings.indices_a),
+            .indices_b_offset = try asOffset(bindings.indices_b),
+            .counts_offset = try asOffset(bindings.keys_a),
+            .radix_offsets_offset = try asOffset(bindings.keys_b),
+            .bases_offset = (try asOffset(bindings.sort_temp)) + 1,
+            .heads_offset = try asOffset(bindings.heads),
+            .positions_offset = try asOffset(bindings.positions),
+            .block_sums_offset = try asOffset(bindings.scan_temp),
+            .error_offset = try asOffset(bindings.sort_temp),
+            .unique_offset = try asOffset(bindings.unique),
+            .enabler_slot = bindings.enabler_slot,
+            .multiplicity_slot = bindings.multiplicity_slot,
+            .iota_slot = bindings.iota_slot,
+        });
+        errdefer prepared.deinit();
+        return .{
+            .allocator = allocator,
+            .metal = metal,
+            .arena = resident_arena,
+            .destinations = try allocator.dupe(arena_plan.Binding, bindings.outputs),
+            .prepared = prepared,
+        };
+    }
+
+    pub fn deinit(self: *CompactRecipe) void {
+        self.prepared.deinit();
+        self.allocator.free(self.destinations);
+        self.* = undefined;
+    }
+
+    pub fn makeRecipes(self: *CompactRecipe, allocator: std.mem.Allocator) ![]recovery.Recipe {
+        const recipes = try allocator.alloc(recovery.Recipe, self.destinations.len);
+        for (self.destinations, recipes) |destination, *recipe_entry|
+            recipe_entry.* = .{ .logical_id = destination.logical_id, .context = self, .run = run };
+        return recipes;
+    }
+
+    fn run(raw: *anyopaque, tick: u16, requested: arena_plan.Binding, _: []u8) !void {
+        const self: *CompactRecipe = @ptrCast(@alignCast(raw));
+        if (self.last_tick == tick) return;
+        var found = false;
+        for (self.destinations) |destination| found = found or destination.logical_id == requested.logical_id;
+        if (!found) return recovery.RecoveryError.MissingRecipe;
+        self.accumulated_gpu_ms += try self.metal.compactPrepared(self.arena.buffer, self.prepared);
         self.last_tick = tick;
     }
 };
