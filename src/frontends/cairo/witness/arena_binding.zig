@@ -373,15 +373,24 @@ pub const PreparedProofBindings = struct {
             schedule,
             plan,
             coefficients,
-            self.commitmentTwiddleBinding(plan),
+            self.commitmentTwiddleBinding(plan, tree_index),
             tree_index,
             leaf_seed,
             node_seed,
         );
     }
 
-    pub fn commitmentScratchBytes(self: PreparedProofBindings) u64 {
-        return self.forward_twiddles.size_bytes;
+    pub fn commitmentScratchBytes(self: PreparedProofBindings, tree_index: u32) u64 {
+        const coefficients = switch (tree_index) {
+            0 => self.preprocessed_coefficients,
+            1 => self.base_coefficients,
+            2 => self.interaction_coefficients,
+            3 => self.composition_coefficients,
+            else => return 0,
+        };
+        var max_bytes: u64 = 0;
+        for (coefficients) |binding| max_bytes = @max(max_bytes, binding.size_bytes);
+        return max_bytes;
     }
 
     pub fn populateCommitmentTwiddles(
@@ -389,8 +398,9 @@ pub const PreparedProofBindings = struct {
         allocator: std.mem.Allocator,
         resident_arena: *arena_plan.ResidentArena,
         plan: arena_plan.Plan,
+        tree_index: u32,
     ) !void {
-        try populateForwardTwiddleBinding(allocator, resident_arena, self.commitmentTwiddleBinding(plan));
+        try populateForwardTwiddleBinding(allocator, resident_arena, self.commitmentTwiddleBinding(plan, tree_index));
     }
 
     pub fn populateCommitmentInverseTwiddles(
@@ -398,20 +408,36 @@ pub const PreparedProofBindings = struct {
         allocator: std.mem.Allocator,
         resident_arena: *arena_plan.ResidentArena,
         plan: arena_plan.Plan,
+        tree_index: u32,
     ) !void {
-        try populateInverseTwiddles(allocator, resident_arena, self.commitmentTwiddleBinding(plan));
+        try populateInverseTwiddles(allocator, resident_arena, self.commitmentTwiddleBinding(plan, tree_index));
     }
 
-    pub fn commitmentTwiddleStorage(self: PreparedProofBindings, plan: arena_plan.Plan) arena_plan.Binding {
-        return self.commitmentTwiddleBinding(plan);
+    pub fn commitmentTwiddleStorage(self: PreparedProofBindings, plan: arena_plan.Plan, tree_index: u32) arena_plan.Binding {
+        return self.commitmentTwiddleBinding(plan, tree_index);
     }
 
-    fn commitmentTwiddleBinding(self: PreparedProofBindings, plan: arena_plan.Plan) arena_plan.Binding {
+    pub fn restoreCommitmentRoot(
+        self: PreparedProofBindings,
+        resident_arena: *arena_plan.ResidentArena,
+        schedule: []const std.json.Value,
+        plan: arena_plan.Plan,
+        tree_index: u32,
+        root: [32]u8,
+    ) !void {
+        _ = self;
+        const transcript_ordinals = [_]u32{ 3, 20, 23, 24 };
+        if (tree_index >= transcript_ordinals.len) return Error.InvalidCardinality;
+        const destination = try oneOrdinal(schedule, plan, "TranscriptInput", transcript_ordinals[tree_index]);
+        @memcpy((try resident_arena.bytes(destination))[0..32], &root);
+    }
+
+    fn commitmentTwiddleBinding(self: PreparedProofBindings, plan: arena_plan.Plan, tree_index: u32) arena_plan.Binding {
         return .{
             .logical_id = std.math.maxInt(u32),
             .slot = std.math.maxInt(u32),
             .offset_bytes = plan.total_bytes,
-            .size_bytes = self.commitmentScratchBytes(),
+            .size_bytes = self.commitmentScratchBytes(tree_index),
             .materialization = .resident,
             .occupied = [_]u64{0} ** (arena_plan.max_ticks / 64),
         };
@@ -624,6 +650,109 @@ pub fn evaluatePreprocessedCoefficients(
         }
     }
     return gpu_ms;
+}
+
+pub fn spillPreprocessedEvaluations(
+    allocator: std.mem.Allocator,
+    resident_arena: *arena_plan.ResidentArena,
+    schedule: []const std.json.Value,
+    plan: arena_plan.Plan,
+    path: []const u8,
+) !void {
+    const evaluations = try collectScheduleOrder(allocator, schedule, plan, "PreprocessedEvaluations");
+    defer allocator.free(evaluations);
+    const file = try std.fs.cwd().createFile(path, .{ .truncate = true });
+    defer file.close();
+    var buffer: [1 << 20]u8 = undefined;
+    var file_writer = file.writer(&buffer);
+    const writer = &file_writer.interface;
+    try writer.writeAll("STWZPEV\x00");
+    try writer.writeInt(u32, 1, .little);
+    try writer.writeInt(u32, @intCast(evaluations.len), .little);
+    for (evaluations) |binding| {
+        try writer.writeInt(u64, binding.size_bytes, .little);
+        try writer.writeAll(try resident_arena.bytes(binding));
+    }
+    try writer.flush();
+}
+
+pub fn restorePreprocessedEvaluations(
+    allocator: std.mem.Allocator,
+    resident_arena: *arena_plan.ResidentArena,
+    schedule: []const std.json.Value,
+    plan: arena_plan.Plan,
+    path: []const u8,
+) !void {
+    const evaluations = try collectScheduleOrder(allocator, schedule, plan, "PreprocessedEvaluations");
+    defer allocator.free(evaluations);
+    const file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
+    var buffer: [1 << 20]u8 = undefined;
+    var file_reader = file.reader(&buffer);
+    const reader = &file_reader.interface;
+    if (!std.mem.eql(u8, try reader.takeArray(8), "STWZPEV\x00") or
+        try reader.takeInt(u32, .little) != 1 or
+        try reader.takeInt(u32, .little) != evaluations.len)
+        return Error.InvalidSchedule;
+    for (evaluations) |binding| {
+        if (try reader.takeInt(u64, .little) != binding.size_bytes) return Error.InvalidBindingSize;
+        try reader.readSliceAll(try resident_arena.bytes(binding));
+    }
+    var trailing: [1]u8 = undefined;
+    if (try reader.readSliceShort(&trailing) != 0) return Error.InvalidSchedule;
+}
+
+pub fn restoreFixedTablePreprocessedEvaluations(
+    allocator: std.mem.Allocator,
+    resident_arena: *arena_plan.ResidentArena,
+    schedule: []const std.json.Value,
+    plan: arena_plan.Plan,
+    fixed_bundle: fixed_table_bundle_mod.Bundle,
+    path: []const u8,
+) !void {
+    var wanted = [_]bool{false} ** 161;
+    for (fixed_bundle.entries) |entry| {
+        _ = oneComponent(schedule, plan, "LookupInputs", entry.component) catch |err| switch (err) {
+            Error.MissingBinding => continue,
+            else => return err,
+        };
+        for (entry.preprocessed_sources) |identity| {
+            const source_ordinal = fixed_bundle.identityOrdinal(identity) orelse return Error.MissingBinding;
+            if (source_ordinal >= wanted.len) return Error.InvalidCardinality;
+            wanted[source_ordinal] = true;
+        }
+    }
+    const file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
+    var buffer: [1 << 20]u8 = undefined;
+    var file_reader = file.reader(&buffer);
+    const reader = &file_reader.interface;
+    var evaluation_count: usize = 0;
+    for (schedule) |entry| if (std.mem.eql(u8, try purpose(entry), "PreprocessedEvaluations")) {
+        evaluation_count += 1;
+    };
+    if (!std.mem.eql(u8, try reader.takeArray(8), "STWZPEV\x00") or
+        try reader.takeInt(u32, .little) != 1 or
+        try reader.takeInt(u32, .little) != evaluation_count)
+        return Error.InvalidSchedule;
+    var seen: usize = 0;
+    for (schedule) |entry| {
+        if (!std.mem.eql(u8, try purpose(entry), "PreprocessedEvaluations")) continue;
+        const binding = plan.binding(try logicalId(entry)) catch return Error.MissingBinding;
+        const size_bytes = try reader.takeInt(u64, .little);
+        if (size_bytes != binding.size_bytes) return Error.InvalidBindingSize;
+        const source_ordinal = try ordinal(entry);
+        if (source_ordinal >= wanted.len) return Error.InvalidCardinality;
+        if (wanted[source_ordinal])
+            try reader.readSliceAll(try resident_arena.bytes(binding))
+        else
+            try reader.discardAll64(size_bytes);
+        seen += 1;
+    }
+    if (seen != evaluation_count) return Error.InvalidPreprocessedCount;
+    var trailing: [1]u8 = undefined;
+    if (try reader.readSliceShort(&trailing) != 0) return Error.InvalidSchedule;
+    _ = allocator;
 }
 
 pub fn populateProtocolTwiddles(

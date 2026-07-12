@@ -321,33 +321,104 @@ pub fn main() !void {
         const bindings = if (proof_bindings) |*value| value else return error.MissingPreparedProofBindings;
         var metal = try metal_runtime.Runtime.init();
         defer metal.deinit();
-        const needs_twiddle_scratch = std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_COMMITMENTS") or
-            std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_PREPROCESSED") or
-            std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_BASE_INTERPOLATION");
-        const commitment_scratch_bytes = if (needs_twiddle_scratch)
-            bindings.commitmentScratchBytes()
-        else
-            0;
-        var resident_arena = try arena.ResidentArena.initWithExtra(&metal, plan, commitment_scratch_bytes);
-        defer resident_arena.deinit();
-        if (std.process.getEnvVarOwned(allocator, "STWO_ZIG_SN2_PREPROCESSED_COEFFS")) |coefficients_path| {
+        const restored_preprocessed_path = std.process.getEnvVarOwned(
+            allocator,
+            "STWO_ZIG_SN2_RESTORE_PREPROCESSED_EVALUATIONS",
+        ) catch |err| switch (err) {
+            error.EnvironmentVariableNotFound => null,
+            else => return err,
+        };
+        defer if (restored_preprocessed_path) |path| allocator.free(path);
+        const restoring_tree0 = restored_preprocessed_path != null;
+        const staged_tree0 = !restoring_tree0 and requested_commit_tree_count > 0 and
+            std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_PREPROCESSED") and
+            std.process.hasEnvVarConstant("STWO_ZIG_SN2_PREPROCESSED_COEFFS");
+        const preprocessed_spill_path = restored_preprocessed_path orelse "/tmp/stwo-zig-sn2-preprocessed-evaluations.spill";
+        var staged_tree0_root: ?[32]u8 = null;
+        if (restoring_tree0) {
+            const root_hex = try std.process.getEnvVarOwned(allocator, "STWO_ZIG_SN2_TREE0_ROOT_HEX");
+            defer allocator.free(root_hex);
+            if (root_hex.len != 64) return error.InvalidCommitmentRoot;
+            var root: [32]u8 = undefined;
+            _ = std.fmt.hexToBytes(&root, root_hex) catch return error.InvalidCommitmentRoot;
+            staged_tree0_root = root;
+            commitment_roots[0] = root;
+            populated_preprocessed_coefficients = fixed_table_bundle.?.preprocessed_identities.len;
+        }
+        if (staged_tree0) {
+            var tree0_arena = try arena.ResidentArena.initWithExtra(&metal, plan, bindings.commitmentScratchBytes(0));
+            defer tree0_arena.deinit();
+            const coefficients_path = try std.process.getEnvVarOwned(allocator, "STWO_ZIG_SN2_PREPROCESSED_COEFFS");
             defer allocator.free(coefficients_path);
             try arena_binding_mod.populatePreprocessedCoefficients(
                 allocator,
-                &resident_arena,
+                &tree0_arena,
                 schedule,
                 plan,
                 fixed_table_bundle.?,
                 coefficients_path,
             );
             populated_preprocessed_coefficients = fixed_table_bundle.?.preprocessed_identities.len;
-        } else |err| switch (err) {
-            error.EnvironmentVariableNotFound => {},
-            else => return err,
+            try bindings.populateCommitmentTwiddles(allocator, &tree0_arena, plan, 0);
+            const committed = try bindings.executeCommitment(
+                &metal,
+                &tree0_arena,
+                schedule,
+                plan,
+                0,
+                blake2_merkle.Blake2sMerkleHasher.leafSeed(),
+                blake2_merkle.Blake2sMerkleHasher.nodeSeed(),
+            );
+            commitment_gpu_ms += committed.gpu_ms;
+            var root: [32]u8 = undefined;
+            @memcpy(&root, (try tree0_arena.bytes(committed.root))[0..32]);
+            staged_tree0_root = root;
+            commitment_roots[0] = root;
+            preprocessed_gpu_ms += try arena_binding_mod.evaluatePreprocessedCoefficients(
+                allocator,
+                &metal,
+                &tree0_arena,
+                schedule,
+                plan,
+                bindings.commitmentTwiddleStorage(plan, 0),
+            );
+            try arena_binding_mod.spillPreprocessedEvaluations(
+                allocator,
+                &tree0_arena,
+                schedule,
+                plan,
+                preprocessed_spill_path,
+            );
         }
-        if (requested_commit_tree_count > 0) {
+        const needs_twiddle_scratch = std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_COMMITMENTS") or
+            std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_PREPROCESSED") or
+            std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_BASE_INTERPOLATION");
+        const commitment_scratch_bytes = if (needs_twiddle_scratch)
+            bindings.commitmentScratchBytes(if (staged_tree0 or restoring_tree0) 1 else 0)
+        else
+            0;
+        var resident_arena = try arena.ResidentArena.initWithExtra(&metal, plan, commitment_scratch_bytes);
+        defer resident_arena.deinit();
+        if (!staged_tree0 and !restoring_tree0) {
+            if (std.process.getEnvVarOwned(allocator, "STWO_ZIG_SN2_PREPROCESSED_COEFFS")) |coefficients_path| {
+                defer allocator.free(coefficients_path);
+                try arena_binding_mod.populatePreprocessedCoefficients(
+                    allocator,
+                    &resident_arena,
+                    schedule,
+                    plan,
+                    fixed_table_bundle.?,
+                    coefficients_path,
+                );
+                populated_preprocessed_coefficients = fixed_table_bundle.?.preprocessed_identities.len;
+            } else |err| switch (err) {
+                error.EnvironmentVariableNotFound => {},
+                else => return err,
+            }
+        }
+        if (requested_commit_tree_count > 0 and !staged_tree0 and !restoring_tree0) {
             if (populated_preprocessed_coefficients == 0) return error.CommitmentInputsNotExecuted;
-            try bindings.populateCommitmentTwiddles(allocator, &resident_arena, plan);
+            try bindings.populateCommitmentTwiddles(allocator, &resident_arena, plan, 0);
             const committed = try bindings.executeCommitment(
                 &metal,
                 &resident_arena,
@@ -396,17 +467,6 @@ pub fn main() !void {
             error.EnvironmentVariableNotFound => {},
             else => return err,
         }
-        var witness = try arena_binding_mod.prepareAotWitnessBatch(
-            allocator,
-            &metal,
-            &resident_arena,
-            schedule,
-            plan,
-            witness_bundle.?,
-            fixed_table_bundle.?,
-            "vectors/cairo/sn_pie_2_witness.metallib",
-        );
-        defer witness.deinit();
         var fixed_tables = try arena_binding_mod.prepareFixedTableBatch(
             allocator,
             &metal,
@@ -418,19 +478,41 @@ pub fn main() !void {
         defer fixed_tables.deinit();
         if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_PREPROCESSED")) {
             if (populated_preprocessed_coefficients == 0) return error.MissingPreprocessedCoefficients;
-            if (requested_commit_tree_count == 0)
-                try bindings.populateCommitmentTwiddles(allocator, &resident_arena, plan);
-            preprocessed_gpu_ms += try arena_binding_mod.evaluatePreprocessedCoefficients(
-                allocator,
-                &metal,
-                &resident_arena,
-                schedule,
-                plan,
-                bindings.commitmentTwiddleStorage(plan),
-            );
+            if (staged_tree0 or restoring_tree0) {
+                try arena_binding_mod.restoreFixedTablePreprocessedEvaluations(
+                    allocator,
+                    &resident_arena,
+                    schedule,
+                    plan,
+                    fixed_table_bundle.?,
+                    preprocessed_spill_path,
+                );
+            } else {
+                if (requested_commit_tree_count == 0)
+                    try bindings.populateCommitmentTwiddles(allocator, &resident_arena, plan, 0);
+                preprocessed_gpu_ms += try arena_binding_mod.evaluatePreprocessedCoefficients(
+                    allocator,
+                    &metal,
+                    &resident_arena,
+                    schedule,
+                    plan,
+                    bindings.commitmentTwiddleStorage(plan, 0),
+                );
+            }
             try fixed_tables.execute();
             preprocessed_gpu_ms += fixed_tables.accumulated_gpu_ms;
         }
+        var witness = try arena_binding_mod.prepareAotWitnessBatch(
+            allocator,
+            &metal,
+            &resident_arena,
+            schedule,
+            plan,
+            witness_bundle.?,
+            fixed_table_bundle.?,
+            "vectors/cairo/sn_pie_2_witness.metallib",
+        );
+        defer witness.deinit();
         var compact_verify = try arena_binding_mod.prepareCompactWitnessInput(
             allocator,
             &metal,
@@ -488,7 +570,7 @@ pub fn main() !void {
         }
         if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_BASE_INTERPOLATION")) {
             if (executed_witness_programs != witness_bundle.?.entries.len) return error.WitnessGraphNotExecuted;
-            try bindings.populateCommitmentInverseTwiddles(allocator, &resident_arena, plan);
+            try bindings.populateCommitmentInverseTwiddles(allocator, &resident_arena, plan, 1);
             base_interpolation_gpu_ms = try arena_binding_mod.interpolateTraceColumns(
                 allocator,
                 &metal,
@@ -498,12 +580,12 @@ pub fn main() !void {
                 "BaseTrace",
                 "BaseCoefficients",
                 "InverseTwiddles",
-                bindings.commitmentTwiddleStorage(plan),
+                bindings.commitmentTwiddleStorage(plan, 1),
             );
         }
         if (requested_commit_tree_count > 1) {
             if (base_interpolation_gpu_ms == 0) return error.CommitmentInputsNotExecuted;
-            try bindings.populateCommitmentTwiddles(allocator, &resident_arena, plan);
+            try bindings.populateCommitmentTwiddles(allocator, &resident_arena, plan, 1);
             for (1..requested_commit_tree_count) |tree| {
                 const committed = try bindings.executeCommitment(
                     &metal,
@@ -520,6 +602,8 @@ pub fn main() !void {
                 commitment_roots[tree] = root;
             }
         }
+        if (staged_tree0_root) |root|
+            try bindings.restoreCommitmentRoot(&resident_arena, schedule, plan, 0, root);
         const composition_path = args[7];
         if (!std.mem.endsWith(u8, composition_path, ".bin")) return error.InvalidCompositionPath;
         const composition_metallib = try std.fmt.allocPrint(
