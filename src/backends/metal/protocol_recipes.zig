@@ -990,14 +990,18 @@ pub const CompositionRecipe = struct {
         return recipes;
     }
 
+    pub fn execute(self: *CompositionRecipe) !void {
+        self.accumulated_gpu_ms += try self.metal.compositionFrontPrepared(self.arena.buffer, self.front);
+        self.accumulated_gpu_ms += try self.metal.compositionFinalizePrepared(self.arena.buffer, self.finalize);
+    }
+
     fn run(raw: *anyopaque, tick: u16, requested: arena_plan.Binding, _: []u8) !void {
         const self: *CompositionRecipe = @ptrCast(@alignCast(raw));
         if (self.last_tick == tick) return;
         var found = false;
         for (self.destinations) |binding| found = found or binding.logical_id == requested.logical_id;
         if (!found) return recovery.RecoveryError.MissingRecipe;
-        self.accumulated_gpu_ms += try self.metal.compositionFrontPrepared(self.arena.buffer, self.front);
-        self.accumulated_gpu_ms += try self.metal.compositionFinalizePrepared(self.arena.buffer, self.finalize);
+        try self.execute();
         self.last_tick = tick;
     }
 };
@@ -1231,9 +1235,7 @@ pub const WitnessFeedBatchRecipe = struct {
             for (entry.bound.destination_bindings) |binding| {
                 var found = false;
                 for (unique.items) |existing| {
-                    if (existing.logical_id != binding.logical_id) continue;
-                    if (existing.offset_bytes != binding.offset_bytes or existing.size_bytes != binding.size_bytes)
-                        return recovery.RecoveryError.BindingSizeMismatch;
+                    if (existing.offset_bytes != binding.offset_bytes or existing.size_bytes != binding.size_bytes) continue;
                     found = true;
                     break;
                 }
@@ -1242,7 +1244,8 @@ pub const WitnessFeedBatchRecipe = struct {
         }
         std.mem.sortUnstable(arena_plan.Binding, unique.items, {}, struct {
             fn lessThan(_: void, lhs: arena_plan.Binding, rhs: arena_plan.Binding) bool {
-                return lhs.logical_id < rhs.logical_id;
+                if (lhs.offset_bytes != rhs.offset_bytes) return lhs.offset_bytes < rhs.offset_bytes;
+                return lhs.size_bytes < rhs.size_bytes;
             }
         }.lessThan);
         const ranges = try allocator.alloc([2]u32, unique.items.len);
@@ -1298,13 +1301,17 @@ pub const WitnessFeedBatchRecipe = struct {
         return recipes;
     }
 
+    pub fn execute(self: *WitnessFeedBatchRecipe) !void {
+        self.accumulated_gpu_ms += try self.metal.witnessFeedBatchCountsPrepared(self.arena.buffer, self.prepared);
+    }
+
     fn run(raw: *anyopaque, tick: u16, requested: arena_plan.Binding, _: []u8) !void {
         const self: *WitnessFeedBatchRecipe = @ptrCast(@alignCast(raw));
         if (self.last_tick == tick) return;
         var found = false;
         for (self.destinations) |binding| found = found or binding.logical_id == requested.logical_id;
         if (!found) return recovery.RecoveryError.MissingRecipe;
-        self.accumulated_gpu_ms += try self.metal.witnessFeedBatchCountsPrepared(self.arena.buffer, self.prepared);
+        try self.execute();
         self.last_tick = tick;
     }
 };
@@ -1438,13 +1445,17 @@ pub const RelationRecipe = struct {
         return recipes;
     }
 
+    pub fn execute(self: *RelationRecipe) !void {
+        self.accumulated_gpu_ms += try self.metal.relationPrepared(self.arena.buffer, self.prepared);
+    }
+
     fn run(raw: *anyopaque, tick: u16, requested: arena_plan.Binding, _: []u8) !void {
         const self: *RelationRecipe = @ptrCast(@alignCast(raw));
         if (self.last_tick == tick) return;
         var found = false;
         for (self.destinations) |binding| found = found or binding.logical_id == requested.logical_id;
         if (!found) return recovery.RecoveryError.MissingRecipe;
-        self.accumulated_gpu_ms += try self.metal.relationPrepared(self.arena.buffer, self.prepared);
+        try self.execute();
         self.last_tick = tick;
     }
 };

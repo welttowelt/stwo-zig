@@ -301,9 +301,14 @@ pub fn main() !void {
     var execution_table_split_gpu_ms: f64 = 0;
     var executed_witness_programs: usize = 0;
     var witness_graph_gpu_ms: f64 = 0;
+    var multiplicity_feed_gpu_ms: f64 = 0;
     var populated_preprocessed_coefficients: usize = 0;
     var preprocessed_gpu_ms: f64 = 0;
     var base_interpolation_gpu_ms: f64 = 0;
+    var relation_gpu_ms: f64 = 0;
+    var interaction_interpolation_gpu_ms: f64 = 0;
+    var composition_gpu_ms: f64 = 0;
+    var transcript_gpu_ms: f64 = 0;
     var commitment_gpu_ms: f64 = 0;
     var commitment_roots: [4]?[32]u8 = .{ null, null, null, null };
     const requested_commit_tree_count = if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_COMMITMENTS")) blk: {
@@ -314,7 +319,7 @@ pub fn main() !void {
             error.EnvironmentVariableNotFound => 1,
             else => return err,
         };
-        if (tree_count == 0 or tree_count > 2) return error.InvalidCommitmentTreeCount;
+        if (tree_count == 0 or tree_count > 4) return error.InvalidCommitmentTreeCount;
         break :blk tree_count;
     } else 0;
     if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_PREPARE_METAL")) {
@@ -393,10 +398,12 @@ pub fn main() !void {
         const needs_twiddle_scratch = std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_COMMITMENTS") or
             std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_PREPROCESSED") or
             std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_BASE_INTERPOLATION");
-        const commitment_scratch_bytes = if (needs_twiddle_scratch)
-            bindings.commitmentScratchBytes(if (staged_tree0 or restoring_tree0) 1 else 0)
-        else
-            0;
+        const commitment_scratch_bytes = if (needs_twiddle_scratch) blk: {
+            var bytes: u64 = 0;
+            for (0..requested_commit_tree_count) |tree|
+                bytes = @max(bytes, bindings.commitmentScratchBytes(@intCast(tree)));
+            break :blk bytes;
+        } else 0;
         var resident_arena = try arena.ResidentArena.initWithExtra(&metal, plan, commitment_scratch_bytes);
         defer resident_arena.deinit();
         if (!staged_tree0 and !restoring_tree0) {
@@ -476,6 +483,15 @@ pub fn main() !void {
             fixed_table_bundle.?,
         );
         defer fixed_tables.deinit();
+        var multiplicity_feeds = try arena_binding_mod.prepareMultiplicityFeedBatch(
+            allocator,
+            &metal,
+            &resident_arena,
+            schedule,
+            plan,
+            feed_bundle.?,
+        );
+        defer multiplicity_feeds.deinit();
         if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_PREPROCESSED")) {
             if (populated_preprocessed_coefficients == 0) return error.MissingPreprocessedCoefficients;
             if (staged_tree0 or restoring_tree0) {
@@ -499,8 +515,6 @@ pub fn main() !void {
                     bindings.commitmentTwiddleStorage(plan, 0),
                 );
             }
-            try fixed_tables.execute();
-            preprocessed_gpu_ms += fixed_tables.accumulated_gpu_ms;
         }
         var witness = try arena_binding_mod.prepareAotWitnessBatch(
             allocator,
@@ -566,6 +580,10 @@ pub fn main() !void {
                 const native = try arena_binding_mod.executeNativeEcConsumer(witness_bundle.?, &witness, &ec_op);
                 executed_witness_programs = recorded.executed_programs + native.executed_programs;
                 witness_graph_gpu_ms = recorded.gpu_ms + native.gpu_ms;
+                try multiplicity_feeds.execute();
+                multiplicity_feed_gpu_ms = multiplicity_feeds.batch.accumulated_gpu_ms;
+                try fixed_tables.execute();
+                preprocessed_gpu_ms += fixed_tables.accumulated_gpu_ms;
             }
         }
         if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_BASE_INTERPOLATION")) {
@@ -586,24 +604,73 @@ pub fn main() !void {
         if (requested_commit_tree_count > 1) {
             if (base_interpolation_gpu_ms == 0) return error.CommitmentInputsNotExecuted;
             try bindings.populateCommitmentTwiddles(allocator, &resident_arena, plan, 1);
-            for (1..requested_commit_tree_count) |tree| {
-                const committed = try bindings.executeCommitment(
-                    &metal,
-                    &resident_arena,
-                    schedule,
-                    plan,
-                    @intCast(tree),
-                    blake2_merkle.Blake2sMerkleHasher.leafSeed(),
-                    blake2_merkle.Blake2sMerkleHasher.nodeSeed(),
-                );
-                commitment_gpu_ms += committed.gpu_ms;
-                var root: [32]u8 = undefined;
-                @memcpy(&root, (try resident_arena.bytes(committed.root))[0..32]);
-                commitment_roots[tree] = root;
-            }
+            const committed = try bindings.executeCommitment(
+                &metal,
+                &resident_arena,
+                schedule,
+                plan,
+                1,
+                blake2_merkle.Blake2sMerkleHasher.leafSeed(),
+                blake2_merkle.Blake2sMerkleHasher.nodeSeed(),
+            );
+            commitment_gpu_ms += committed.gpu_ms;
+            var root: [32]u8 = undefined;
+            @memcpy(&root, (try resident_arena.bytes(committed.root))[0..32]);
+            commitment_roots[1] = root;
         }
         if (staged_tree0_root) |root|
             try bindings.restoreCommitmentRoot(&resident_arena, schedule, plan, 0, root);
+        var transcript = try bindings.prepareTranscript(&metal, &resident_arena);
+        defer transcript.deinit();
+        if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_RELATIONS")) {
+            if (requested_commit_tree_count < 3 or commitment_roots[0] == null or commitment_roots[1] == null)
+                return error.CommitmentInputsNotExecuted;
+            var relation = try bindings.prepareRelations(
+                allocator,
+                &metal,
+                &resident_arena,
+                schedule,
+                plan,
+                relation_bundle.?,
+                witness_bundle.?,
+            );
+            defer relation.deinit();
+            try transcript.initialize();
+            try transcript.bootstrapThroughBase();
+            _ = try transcript.interactionPowAndLookup();
+            try bindings.materializeRelationChallenges(&resident_arena);
+            try relation.execute();
+            relation_gpu_ms = relation.accumulated_gpu_ms;
+            try bindings.publishInteractionClaim(&resident_arena, schedule, plan);
+            try bindings.populateCommitmentInverseTwiddles(allocator, &resident_arena, plan, 2);
+            interaction_interpolation_gpu_ms = try arena_binding_mod.interpolateTraceColumns(
+                allocator,
+                &metal,
+                &resident_arena,
+                schedule,
+                plan,
+                "InteractionTrace",
+                "InteractionCoefficients",
+                "InverseTwiddles",
+                bindings.commitmentTwiddleStorage(plan, 2),
+            );
+            try bindings.populateCommitmentTwiddles(allocator, &resident_arena, plan, 2);
+            const committed = try bindings.executeCommitment(
+                &metal,
+                &resident_arena,
+                schedule,
+                plan,
+                2,
+                blake2_merkle.Blake2sMerkleHasher.leafSeed(),
+                blake2_merkle.Blake2sMerkleHasher.nodeSeed(),
+            );
+            commitment_gpu_ms += committed.gpu_ms;
+            var root: [32]u8 = undefined;
+            @memcpy(&root, (try resident_arena.bytes(committed.root))[0..32]);
+            commitment_roots[2] = root;
+            try transcript.interactionAndComposition();
+            transcript_gpu_ms = transcript.accumulated_gpu_ms;
+        }
         const composition_path = args[7];
         if (!std.mem.endsWith(u8, composition_path, ".bin")) return error.InvalidCompositionPath;
         const composition_metallib = try std.fmt.allocPrint(
@@ -620,6 +687,28 @@ pub fn main() !void {
             composition_metallib,
         );
         defer composition.deinit();
+        if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_COMPOSITION")) {
+            if (requested_commit_tree_count < 4 or commitment_roots[2] == null)
+                return error.CommitmentInputsNotExecuted;
+            try composition.execute();
+            composition_gpu_ms = composition.accumulated_gpu_ms;
+            try bindings.populateCommitmentTwiddles(allocator, &resident_arena, plan, 3);
+            const committed = try bindings.executeCommitment(
+                &metal,
+                &resident_arena,
+                schedule,
+                plan,
+                3,
+                blake2_merkle.Blake2sMerkleHasher.leafSeed(),
+                blake2_merkle.Blake2sMerkleHasher.nodeSeed(),
+            );
+            commitment_gpu_ms += committed.gpu_ms;
+            var root: [32]u8 = undefined;
+            @memcpy(&root, (try resident_arena.bytes(committed.root))[0..32]);
+            commitment_roots[3] = root;
+            try transcript.compositionAndOods();
+            transcript_gpu_ms = transcript.accumulated_gpu_ms;
+        }
         var quotient = try bindings.prepareQuotient(allocator, &metal, &resident_arena);
         defer quotient.deinit();
         var fri = try bindings.prepareFri(
@@ -629,8 +718,6 @@ pub fn main() !void {
             blake2_merkle.Blake2sMerkleHasher.nodeSeed(),
         );
         defer fri.deinit();
-        var transcript = try bindings.prepareTranscript(&metal, &resident_arena);
-        defer transcript.deinit();
         var decommit_queries = try bindings.prepareDecommitQueries(&metal, &resident_arena);
         try decommit_queries.normalize();
         for (0..8) |round| try decommit_queries.prepareFri(round);
@@ -731,9 +818,14 @@ pub fn main() !void {
         .execution_table_split_gpu_ms = execution_table_split_gpu_ms,
         .executed_witness_programs = executed_witness_programs,
         .witness_graph_gpu_ms = witness_graph_gpu_ms,
+        .multiplicity_feed_gpu_ms = multiplicity_feed_gpu_ms,
         .populated_preprocessed_coefficients = populated_preprocessed_coefficients,
         .preprocessed_gpu_ms = preprocessed_gpu_ms,
         .base_interpolation_gpu_ms = base_interpolation_gpu_ms,
+        .relation_gpu_ms = relation_gpu_ms,
+        .interaction_interpolation_gpu_ms = interaction_interpolation_gpu_ms,
+        .composition_gpu_ms = composition_gpu_ms,
+        .transcript_gpu_ms = transcript_gpu_ms,
         .commitment_gpu_ms = commitment_gpu_ms,
         .commitment_roots = commitment_roots,
         .prepared_quotient_partials = if (proof_bindings) |bindings| bindings.quotient_partials.len else 0,
