@@ -641,25 +641,14 @@ pub const PreparedProofBindings = struct {
     }
 
     fn commitmentTwiddleBinding(self: PreparedProofBindings, plan: arena_plan.Plan, tree_index: u32) arena_plan.Binding {
-        return .{
-            .logical_id = std.math.maxInt(u32),
-            .slot = std.math.maxInt(u32),
-            .offset_bytes = plan.total_bytes,
-            .size_bytes = self.commitmentScratchBytes(tree_index),
-            .materialization = .resident,
-            .occupied = [_]u64{0} ** (arena_plan.max_ticks / 64),
-        };
+        _ = plan;
+        _ = tree_index;
+        return self.forward_twiddles;
     }
 
     fn relationScratchBinding(self: PreparedProofBindings, plan: arena_plan.Plan) arena_plan.Binding {
-        return .{
-            .logical_id = self.relation_scan_scratch.logical_id,
-            .slot = std.math.maxInt(u32),
-            .offset_bytes = plan.total_bytes,
-            .size_bytes = self.commitmentScratchBytes(1),
-            .materialization = .resident,
-            .occupied = [_]u64{0} ** (arena_plan.max_ticks / 64),
-        };
+        _ = plan;
+        return self.relation_scan_scratch;
     }
 
     fn validateSn2(self: PreparedProofBindings) !void {
@@ -1348,8 +1337,8 @@ pub fn prepareAotWitnessBatch(
 ) !protocol_recipes.AotWitnessBatchRecipe {
     const table_pointers_planned = try one(schedule, plan, "ExecutionTablePointers");
     const table_strides_planned = try one(schedule, plan, "ExecutionTableStrides");
-    const table_pointers = syntheticScratchBinding(plan, 0, table_pointers_planned.size_bytes);
-    const table_strides = syntheticScratchBinding(plan, 256, table_strides_planned.size_bytes);
+    const table_pointers = table_pointers_planned;
+    const table_strides = table_strides_planned;
     var execution_tables = std.ArrayList(arena_plan.Binding).empty;
     defer execution_tables.deinit(allocator);
     try execution_tables.append(allocator, try one(schedule, plan, "ExecutionTableRawAddressToId"));
@@ -1373,8 +1362,8 @@ pub fn prepareAotWitnessBatch(
     const poseidon_entry = fixed_bundle.find("poseidon_round_keys") orelse return Error.MissingBinding;
     const pedersen_pointers_planned = try oneComponent(schedule, plan, "FixedTableSourcePointers", pedersen_entry.component);
     const poseidon_pointers_planned = try oneComponent(schedule, plan, "FixedTableSourcePointers", poseidon_entry.component);
-    const pedersen_pointers = syntheticScratchBinding(plan, 512, pedersen_pointers_planned.size_bytes);
-    const poseidon_pointers = syntheticScratchBinding(plan, 1024, poseidon_pointers_planned.size_bytes);
+    const pedersen_pointers = pedersen_pointers_planned;
+    const poseidon_pointers = poseidon_pointers_planned;
     try writePreprocessedOffsets(resident_arena, schedule, plan, fixed_bundle, pedersen_entry.preprocessed_sources, pedersen_pointers);
     try writePreprocessedOffsets(resident_arena, schedule, plan, fixed_bundle, poseidon_entry.preprocessed_sources, poseidon_pointers);
 
@@ -1393,7 +1382,7 @@ pub fn prepareAotWitnessBatch(
         allocator.free(owned_destinations);
     }
 
-    for (witness_bundle.entries, invocations, names, owned_destinations, 0..) |entry, *invocation, *name, *owned, invocation_index| {
+    for (witness_bundle.entries, invocations, names, owned_destinations) |entry, *invocation, *name, *owned| {
         const inputs = try collectComponent(allocator, schedule, plan, "WitnessInput", entry.label);
         defer allocator.free(inputs);
         const outputs = try collectComponent(allocator, schedule, plan, "BaseTrace", entry.label);
@@ -1405,20 +1394,19 @@ pub fn prepareAotWitnessBatch(
         for (inputs) |binding| if (binding.size_bytes != @as(u64, row_count) * 4) return Error.InvalidBindingSize;
         for (outputs) |binding| if (binding.size_bytes != @as(u64, row_count) * 4) return Error.InvalidBindingSize;
 
-        const scratch_base = 4096 + @as(u64, @intCast(invocation_index)) * 16384;
         const input_pointers_planned = try oneComponent(schedule, plan, "WitnessInputPointers", entry.label);
         const output_pointers_planned = try oneComponent(schedule, plan, "WitnessOutputPointers", entry.label);
         const multiplicity_pointers_planned = try oneComponent(schedule, plan, "WitnessMultiplicityPointers", entry.label);
         if (input_pointers_planned.size_bytes > 2048 or output_pointers_planned.size_bytes > 8192 or
             multiplicity_pointers_planned.size_bytes > 2048)
             return Error.InvalidBindingSize;
-        const input_pointers = syntheticScratchBinding(plan, scratch_base, input_pointers_planned.size_bytes);
-        const output_pointers = syntheticScratchBinding(plan, scratch_base + 2048, output_pointers_planned.size_bytes);
-        const multiplicity_pointers = syntheticScratchBinding(plan, scratch_base + 10240, multiplicity_pointers_planned.size_bytes);
+        if (entry.program.n_mult_tables != 0) return Error.InvalidCardinality;
+        const input_pointers = input_pointers_planned;
+        const output_pointers = output_pointers_planned;
+        const multiplicity_pointers = multiplicity_pointers_planned;
         try writeBindingOffsets(resident_arena, input_pointers, inputs);
         try writeBindingOffsets(resident_arena, output_pointers, outputs);
-        const multiplicity_dummy = syntheticScratchBinding(plan, scratch_base + 12288, 4);
-        try writeBindingOffsets(resident_arena, multiplicity_pointers, &.{multiplicity_dummy});
+        try writeBindingOffsets(resident_arena, multiplicity_pointers, &.{});
 
         const lookup = try oneComponent(schedule, plan, "LookupInputs", entry.label);
         const sub = try oneComponent(schedule, plan, "SubcomponentInputs", entry.label);
@@ -2156,17 +2144,6 @@ fn logicalId(entry: std.json.Value) !u32 {
 fn wordOffset(binding: arena_plan.Binding) !u32 {
     if (binding.offset_bytes % 4 != 0) return Error.InvalidBindingSize;
     return std.math.cast(u32, binding.offset_bytes / 4) orelse Error.InvalidBindingSize;
-}
-
-fn syntheticScratchBinding(plan: arena_plan.Plan, relative_offset: u64, size_bytes: u64) arena_plan.Binding {
-    return .{
-        .logical_id = std.math.maxInt(u32),
-        .slot = std.math.maxInt(u32),
-        .offset_bytes = plan.total_bytes + relative_offset,
-        .size_bytes = size_bytes,
-        .materialization = .resident,
-        .occupied = [_]u64{0} ** (arena_plan.max_ticks / 64),
-    };
 }
 
 fn twiddleOffsetForLog(binding: arena_plan.Binding, transform_log: u32) !u32 {

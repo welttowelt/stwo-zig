@@ -9,6 +9,9 @@ const arena_binding_mod = @import("frontends/cairo/witness/arena_binding.zig");
 const metal_runtime = @import("backends/metal/runtime.zig");
 const adapted_input = @import("frontends/cairo/adapter/adapted_input.zig");
 const cairo_adapter = @import("frontends/cairo/adapter/mod.zig");
+const cairo_proof_plan = @import("frontends/cairo/proof_plan.zig");
+const staged_arena_planner = @import("frontends/cairo/staged_arena_planner.zig");
+const cairo_memory_trace = @import("frontends/cairo/memory_trace.zig");
 const blake2_merkle = @import("core/vcs_lifted/blake2_merkle.zig");
 
 const epoch_names = [_][]const u8{
@@ -75,6 +78,10 @@ pub fn main() !void {
     const parsed = try std.json.parseFromSlice(std.json.Value, allocator, input, .{});
     defer parsed.deinit();
     const schedule = parsed.value.object.get("arena").?.object.get("logical_buffer_schedule").?.array.items;
+    const compacted_consumer_rows = if (parsed.value.object.get("compacted_consumer_rows")) |value|
+        value.array.items
+    else
+        &.{};
     const retained_sources = try buildRetainedSources(allocator, schedule);
     defer allocator.free(retained_sources);
     const preprocessed_coverage = try buildPreprocessedSources(allocator, schedule);
@@ -119,6 +126,30 @@ pub fn main() !void {
     else
         null;
     defer if (composition_bundle) |*bundle| bundle.deinit();
+    var prover_input: ?cairo_adapter.ProverInput = if (std.process.getEnvVarOwned(allocator, "STWO_ZIG_SN2_POPULATE_INPUT")) |input_path| blk: {
+        defer allocator.free(input_path);
+        break :blk try adapted_input.readFile(allocator, input_path);
+    } else |err| switch (err) {
+        error.EnvironmentVariableNotFound => null,
+        else => return err,
+    };
+    defer if (prover_input) |*adapted| adapted.deinit(allocator);
+    var proof_plan: ?cairo_proof_plan.CairoProofPlan = if (witness_bundle != null and prover_input != null)
+        try cairo_proof_plan.CairoProofPlan.fromWitnessSchedule(
+            allocator,
+            schedule,
+            compacted_consumer_rows,
+            witness_bundle.?,
+            &prover_input.?,
+        )
+    else
+        null;
+    defer if (proof_plan) |*value| value.deinit();
+    var staged_planner: ?staged_arena_planner.StagedArenaPlanner = if (proof_plan) |*value|
+        try staged_arena_planner.StagedArenaPlanner.init(allocator, value)
+    else
+        null;
+    defer if (staged_planner) |*value| value.deinit();
     const composition_coverage: ?CompositionCoverage = if (composition_bundle) |bundle|
         try validateCompositionCoverage(schedule, bundle)
     else
@@ -173,14 +204,28 @@ pub fn main() !void {
             },
             else => {},
         };
-        const phases = inferredUsePhases(purpose, first, last);
-        for (phases.slice()) |phase| {
-            const range: arena.LiveRange = if (component) |id|
-                .{ .first = localTick(phase, id), .last = localTick(phase, id) }
-            else
-                .{ .first = globalTick(phase), .last = globalTick(phase) + 64 };
-            prepared[index].ranges[prepared[index].range_count] = range;
-            prepared[index].range_count += 1;
+        var staged = false;
+        if (staged_planner) |planner| if (object.get("component")) |component_value| {
+            if (component_value == .string) if (proof_plan.?.componentIndex(component_value.string)) |proof_component| {
+                if (stagedRole(purpose)) |role| {
+                    var ranges: [3]arena.LiveRange = undefined;
+                    const derived = try planner.rangesFor(role, proof_component, &ranges);
+                    @memcpy(prepared[index].ranges[0..derived.len], derived);
+                    prepared[index].range_count = derived.len;
+                    staged = true;
+                }
+            };
+        };
+        if (!staged) {
+            const phases = inferredUsePhases(purpose, first, last);
+            for (phases.slice()) |phase| {
+                const range: arena.LiveRange = if (component) |id|
+                    .{ .first = localTick(phase, id), .last = localTick(phase, id) }
+                else
+                    .{ .first = globalTick(phase), .last = globalTick(phase) + 64 };
+                prepared[index].ranges[prepared[index].range_count] = range;
+                prepared[index].range_count += 1;
+            }
         }
         const words: u64 = @intCast(object.get("len_words").?.integer);
         const bytes = std.math.mul(u64, words, 4) catch return error.SizeOverflow;
@@ -286,11 +331,86 @@ pub fn main() !void {
         };
     }
 
-    var plan = arena.build(allocator, logical, budget_bytes) catch |err| {
+    var peak_tick: u16 = 0;
+    var diagnostic_peak_logical_bytes: u64 = 0;
+    var diagnostic_base_peak_bytes: u64 = 0;
+    var diagnostic_base_peak_tick: u16 = 0;
+    for (0..arena.max_ticks) |tick_usize| {
+        const tick: u16 = @intCast(tick_usize);
+        var live_bytes: u64 = 0;
+        for (logical) |buffer| {
+            var live = false;
+            for (buffer.live_ranges) |range| live = live or (range.first <= tick and tick <= range.last);
+            if (live) live_bytes = std.math.add(u64, live_bytes, buffer.size_bytes) catch return error.SizeOverflow;
+        }
+        if (live_bytes > diagnostic_peak_logical_bytes) {
+            diagnostic_peak_logical_bytes = live_bytes;
+            peak_tick = tick;
+        }
+        if (tick <= 2 * 65 and live_bytes > diagnostic_base_peak_bytes) {
+            diagnostic_base_peak_bytes = live_bytes;
+            diagnostic_base_peak_tick = tick;
+        }
+    }
+    var peak_purpose_map = std.StringHashMap(PurposeStat).init(allocator);
+    defer peak_purpose_map.deinit();
+    for (schedule, logical) |entry, buffer| {
+        var live = false;
+        for (buffer.live_ranges) |range| live = live or (range.first <= peak_tick and peak_tick <= range.last);
+        if (!live) continue;
+        const purpose = entry.object.get("purpose").?.string;
+        const result = try peak_purpose_map.getOrPut(purpose);
+        if (!result.found_existing) result.value_ptr.* = .{ .purpose = purpose };
+        result.value_ptr.buffers += 1;
+        result.value_ptr.bytes = std.math.add(u64, result.value_ptr.bytes, buffer.size_bytes) catch return error.SizeOverflow;
+    }
+    const peak_purposes = try allocator.alloc(PurposeStat, peak_purpose_map.count());
+    defer allocator.free(peak_purposes);
+    var peak_purpose_iterator = peak_purpose_map.valueIterator();
+    var peak_purpose_index: usize = 0;
+    while (peak_purpose_iterator.next()) |stat| : (peak_purpose_index += 1) peak_purposes[peak_purpose_index] = stat.*;
+    std.mem.sortUnstable(PurposeStat, peak_purposes, {}, struct {
+        fn lessThan(_: void, lhs: PurposeStat, rhs: PurposeStat) bool {
+            if (lhs.bytes != rhs.bytes) return lhs.bytes > rhs.bytes;
+            return std.mem.lessThan(u8, lhs.purpose, rhs.purpose);
+        }
+    }.lessThan);
+    var base_peak_purpose_map = std.StringHashMap(PurposeStat).init(allocator);
+    defer base_peak_purpose_map.deinit();
+    for (schedule, logical) |entry, buffer| {
+        var live = false;
+        for (buffer.live_ranges) |range| live = live or (range.first <= diagnostic_base_peak_tick and diagnostic_base_peak_tick <= range.last);
+        if (!live) continue;
+        const purpose = entry.object.get("purpose").?.string;
+        const result = try base_peak_purpose_map.getOrPut(purpose);
+        if (!result.found_existing) result.value_ptr.* = .{ .purpose = purpose };
+        result.value_ptr.buffers += 1;
+        result.value_ptr.bytes = std.math.add(u64, result.value_ptr.bytes, buffer.size_bytes) catch return error.SizeOverflow;
+    }
+    const base_peak_purposes = try allocator.alloc(PurposeStat, base_peak_purpose_map.count());
+    defer allocator.free(base_peak_purposes);
+    var base_peak_iterator = base_peak_purpose_map.valueIterator();
+    var base_peak_index: usize = 0;
+    while (base_peak_iterator.next()) |stat| : (base_peak_index += 1) base_peak_purposes[base_peak_index] = stat.*;
+    std.mem.sortUnstable(PurposeStat, base_peak_purposes, {}, struct {
+        fn lessThan(_: void, lhs: PurposeStat, rhs: PurposeStat) bool {
+            if (lhs.bytes != rhs.bytes) return lhs.bytes > rhs.bytes;
+            return std.mem.lessThan(u8, lhs.purpose, rhs.purpose);
+        }
+    }.lessThan);
+
+    var full_plan = arena.build(allocator, logical, budget_bytes) catch |err| {
         try writeFailure(err, schedule.len, component_ids.count(), budget_bytes);
         return;
     };
-    defer plan.deinit();
+    defer full_plan.deinit();
+    var projected_plan: ?arena.Plan = if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_PREPARE_METAL") and
+        !std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_RELATIONS"))
+        try arena.projectThroughTick(allocator, logical, full_plan, 2 * 65, budget_bytes)
+    else
+        null;
+    defer if (projected_plan) |*projected| projected.deinit();
+    const plan = if (projected_plan) |projected| projected else full_plan;
     var proof_bindings: ?arena_binding_mod.PreparedProofBindings = if (composition_bundle != null)
         try arena_binding_mod.PreparedProofBindings.initSn2(allocator, schedule, plan)
     else
@@ -302,6 +422,9 @@ pub fn main() !void {
     var executed_witness_programs: usize = 0;
     var witness_graph_gpu_ms: f64 = 0;
     var multiplicity_feed_gpu_ms: f64 = 0;
+    var memory_public_seed_gpu_ms: f64 = 0;
+    var memory_trace_gpu_ms: f64 = 0;
+    var memory_rc99_gpu_ms: f64 = 0;
     var populated_preprocessed_coefficients: usize = 0;
     var preprocessed_gpu_ms: f64 = 0;
     var base_interpolation_gpu_ms: f64 = 0;
@@ -310,6 +433,7 @@ pub fn main() !void {
     var composition_gpu_ms: f64 = 0;
     var transcript_gpu_ms: f64 = 0;
     var commitment_gpu_ms: f64 = 0;
+    var resident_arena_bytes: u64 = 0;
     var commitment_roots: [4]?[32]u8 = .{ null, null, null, null };
     const requested_commit_tree_count = if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_COMMITMENTS")) blk: {
         const tree_count = if (std.process.getEnvVarOwned(allocator, "STWO_ZIG_SN2_COMMIT_TREE_COUNT")) |value| value_blk: {
@@ -395,17 +519,15 @@ pub fn main() !void {
                 preprocessed_spill_path,
             );
         }
-        const needs_twiddle_scratch = std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_COMMITMENTS") or
-            std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_PREPROCESSED") or
-            std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_BASE_INTERPOLATION");
-        const commitment_scratch_bytes = if (needs_twiddle_scratch) blk: {
-            var bytes: u64 = 0;
-            for (0..requested_commit_tree_count) |tree|
-                bytes = @max(bytes, bindings.commitmentScratchBytes(@intCast(tree)));
-            break :blk bytes;
-        } else 0;
-        var resident_arena = try arena.ResidentArena.initWithExtra(&metal, plan, commitment_scratch_bytes);
+        const resident_bytes = plan.total_bytes;
+        resident_arena_bytes = resident_bytes;
+        var resident_arena = try arena.ResidentArena.initByteLength(&metal, resident_bytes);
         defer resident_arena.deinit();
+        var memory_trace: ?cairo_memory_trace.CairoMemoryTrace = if (prover_input != null)
+            try cairo_memory_trace.CairoMemoryTrace.init(allocator, schedule, plan, fixed_table_bundle.?)
+        else
+            null;
+        defer if (memory_trace) |*trace| trace.deinit();
         if (!staged_tree0 and !restoring_tree0) {
             if (std.process.getEnvVarOwned(allocator, "STWO_ZIG_SN2_PREPROCESSED_COEFFS")) |coefficients_path| {
                 defer allocator.free(coefficients_path);
@@ -440,12 +562,7 @@ pub fn main() !void {
             @memcpy(&root, (try resident_arena.bytes(committed.root))[0..32]);
             commitment_roots[0] = root;
         }
-        var prover_input: ?cairo_adapter.ProverInput = null;
-        defer if (prover_input) |*adapted| adapted.deinit(allocator);
-        if (std.process.getEnvVarOwned(allocator, "STWO_ZIG_SN2_POPULATE_INPUT")) |input_path| {
-            defer allocator.free(input_path);
-            prover_input = try adapted_input.readFile(allocator, input_path);
-            const adapted = &prover_input.?;
+        if (prover_input) |*adapted| {
             execution_table_split_gpu_ms = try arena_binding_mod.populateExecutionTables(
                 allocator,
                 &metal,
@@ -470,9 +587,6 @@ pub fn main() !void {
                 witness_bundle.?,
                 adapted,
             );
-        } else |err| switch (err) {
-            error.EnvironmentVariableNotFound => {},
-            else => return err,
         }
         var fixed_tables = try arena_binding_mod.prepareFixedTableBatch(
             allocator,
@@ -582,6 +696,14 @@ pub fn main() !void {
                 witness_graph_gpu_ms = recorded.gpu_ms + native.gpu_ms;
                 try multiplicity_feeds.execute();
                 multiplicity_feed_gpu_ms = multiplicity_feeds.batch.accumulated_gpu_ms;
+                if (!std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_PREPROCESSED"))
+                    return error.MissingPreprocessedEvaluations;
+                const trace = if (memory_trace) |*value| value else return error.MissingMemoryTrace;
+                try trace.populateRc99Lut(&resident_arena);
+                const memory_telemetry = try trace.execute(&metal, &resident_arena, adapted);
+                memory_public_seed_gpu_ms = memory_telemetry.public_seed_gpu_ms;
+                memory_trace_gpu_ms = memory_telemetry.trace_gpu_ms;
+                memory_rc99_gpu_ms = memory_telemetry.rc99_gpu_ms;
                 try fixed_tables.execute();
                 preprocessed_gpu_ms += fixed_tables.accumulated_gpu_ms;
             }
@@ -813,12 +935,17 @@ pub fn main() !void {
         .prepared_proof_bindings = if (proof_bindings) |bindings| bindings.assembly.len else 0,
         .prepared_proof_copy_ranges = if (proof_bindings) |bindings| bindings.proof_copies.len else 0,
         .prepared_proof_words = if (proof_bindings) |bindings| bindings.proof_bytes.size_bytes / 4 else 0,
+        .cairo_proof_plan_components = if (proof_plan) |value| value.components.len else 0,
+        .cairo_witness_levels = if (proof_plan) |value| value.levels.len else 0,
         .resident_prepare_gate = resident_prepare_gate,
         .populated_direct_witness_lanes = populated_direct_witness_lanes,
         .execution_table_split_gpu_ms = execution_table_split_gpu_ms,
         .executed_witness_programs = executed_witness_programs,
         .witness_graph_gpu_ms = witness_graph_gpu_ms,
         .multiplicity_feed_gpu_ms = multiplicity_feed_gpu_ms,
+        .memory_public_seed_gpu_ms = memory_public_seed_gpu_ms,
+        .memory_trace_gpu_ms = memory_trace_gpu_ms,
+        .memory_rc99_gpu_ms = memory_rc99_gpu_ms,
         .populated_preprocessed_coefficients = populated_preprocessed_coefficients,
         .preprocessed_gpu_ms = preprocessed_gpu_ms,
         .base_interpolation_gpu_ms = base_interpolation_gpu_ms,
@@ -827,6 +954,7 @@ pub fn main() !void {
         .composition_gpu_ms = composition_gpu_ms,
         .transcript_gpu_ms = transcript_gpu_ms,
         .commitment_gpu_ms = commitment_gpu_ms,
+        .resident_arena_bytes = resident_arena_bytes,
         .commitment_roots = commitment_roots,
         .prepared_quotient_partials = if (proof_bindings) |bindings| bindings.quotient_partials.len else 0,
         .prepared_fri_layers = if (proof_bindings) |bindings| bindings.fri_merkle_layers.len else 0,
@@ -861,8 +989,15 @@ pub fn main() !void {
         .recompute_snapshot_bytes = recompute_snapshot_bytes,
         .total_bytes = plan.total_bytes,
         .total_gib = @as(f64, @floatFromInt(plan.total_bytes)) / (1024.0 * 1024.0 * 1024.0),
+        .base_epoch_arena_bytes = arena.bytesThroughTick(plan, 2 * 65),
         .peak_live_bytes = plan.peak_live_bytes,
         .peak_logical_bytes = arena.peakLogicalBytes(plan.bindings),
+        .diagnostic_peak_tick = peak_tick,
+        .diagnostic_peak_logical_bytes = diagnostic_peak_logical_bytes,
+        .diagnostic_base_peak_bytes = diagnostic_base_peak_bytes,
+        .diagnostic_base_peak_tick = diagnostic_base_peak_tick,
+        .diagnostic_base_peak_purposes = base_peak_purposes,
+        .diagnostic_peak_purposes = peak_purposes,
         .budget_bytes = budget_bytes,
         .budget_gib = budget_gib,
         .fits = true,
@@ -1417,6 +1552,9 @@ fn inferredUsePhases(purpose: []const u8, first: u16, last: u16) PhaseList {
     if (std.mem.eql(u8, purpose, "InteractionTrace")) return .{ .items = .{ 3, 5, 0, 0, 0, 0 }, .len = 2 };
     if (std.mem.eql(u8, purpose, "InteractionCoefficients")) return .{ .items = .{ 3, 4, 5, 7, 8, 10 }, .len = 6 };
     if (std.mem.eql(u8, purpose, "PreprocessedCoefficients")) return .{ .items = .{ 0, 5, 7, 8, 10, 0 }, .len = 5 };
+    // Streaming commitments consume the LDE tile directly. Compact retained
+    // evaluations are recomputed only when decommit assembly requests them.
+    if (std.mem.eql(u8, purpose, "CommitRetainedEvaluation")) return .{ .items = .{ 10, 0, 0, 0, 0, 0 }, .len = 1 };
     var result = PhaseList{ .len = 1 };
     result.items[0] = first;
     if (last != first) {
@@ -1424,6 +1562,18 @@ fn inferredUsePhases(purpose: []const u8, first: u16, last: u16) PhaseList {
         result.len = 2;
     }
     return result;
+}
+
+fn stagedRole(purpose: []const u8) ?staged_arena_planner.BufferRole {
+    if (std.mem.eql(u8, purpose, "WitnessInput") or std.mem.startsWith(u8, purpose, "WitnessInputCompact"))
+        return .witness_input;
+    if (std.mem.eql(u8, purpose, "SubcomponentInputs")) return .producer_slab;
+    if (std.mem.eql(u8, purpose, "BaseTrace")) return .base_trace;
+    if (std.mem.eql(u8, purpose, "BaseCoefficients")) return .base_coefficients;
+    if (std.mem.eql(u8, purpose, "LookupInputs")) return .lookup_inputs;
+    if (std.mem.eql(u8, purpose, "InteractionTrace")) return .interaction_trace;
+    if (std.mem.eql(u8, purpose, "InteractionCoefficients")) return .interaction_coefficients;
+    return null;
 }
 
 fn zeroMultiplicityComponent(component: []const u8) bool {

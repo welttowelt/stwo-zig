@@ -420,6 +420,11 @@ pub const ResidentArena = struct {
         return .{ .buffer = try metal.allocateResidentBuffer(@intCast(byte_length)) };
     }
 
+    pub fn initByteLength(metal: *runtime.Runtime, byte_length: u64) runtime.MetalError!ResidentArena {
+        if (byte_length == 0) return runtime.MetalError.ColumnTooLarge;
+        return .{ .buffer = try metal.allocateResidentBuffer(@intCast(byte_length)) };
+    }
+
     pub fn deinit(self: *ResidentArena) void {
         self.buffer.deinit();
         self.* = undefined;
@@ -432,6 +437,109 @@ pub const ResidentArena = struct {
         return base[@intCast(binding.offset_bytes)..@intCast(end)];
     }
 };
+
+/// Highest physical byte touched by any binding live through `last_tick`.
+/// This is the allocation boundary for an epoch-local arena; later bindings
+/// retain their exact plan metadata but are not allocated until their stage.
+pub fn bytesThroughTick(plan: Plan, last_tick: u16) u64 {
+    var required: u64 = 0;
+    for (plan.bindings) |binding| {
+        var live = false;
+        var tick: u16 = 0;
+        while (tick <= last_tick) : (tick += 1) live = live or hasTick(binding.occupied, tick);
+        if (live) required = @max(required, binding.offset_bytes + binding.size_bytes);
+    }
+    return std.mem.alignForward(u64, required, 16 * 1024);
+}
+
+/// Recolors only the bindings consumed through `last_tick`. Bindings owned by
+/// later epochs remain present with their exact logical sizes so typed binders
+/// can validate the whole protocol, but they have no physical occupancy until
+/// a later projected arena is entered.
+pub fn projectThroughTick(
+    allocator: std.mem.Allocator,
+    logical: []const LogicalBuffer,
+    full: Plan,
+    last_tick: u16,
+    budget_bytes: u64,
+) !Plan {
+    var run_count: usize = 0;
+    var active_count: usize = 0;
+    for (full.bindings) |bound| {
+        var in_run = false;
+        var active = false;
+        var tick: u16 = 0;
+        while (tick <= last_tick) : (tick += 1) {
+            const live = hasTick(bound.occupied, tick);
+            active = active or live;
+            if (live and !in_run) run_count += 1;
+            in_run = live;
+        }
+        if (active) active_count += 1;
+    }
+    if (active_count == 0) return Error.EmptySchedule;
+    const ranges = try allocator.alloc(LiveRange, run_count);
+    defer allocator.free(ranges);
+    const active = try allocator.alloc(LogicalBuffer, active_count);
+    defer allocator.free(active);
+    var range_cursor: usize = 0;
+    var active_cursor: usize = 0;
+    for (full.bindings) |bound| {
+        const range_start = range_cursor;
+        var open: ?u16 = null;
+        var tick: u16 = 0;
+        while (tick <= last_tick) : (tick += 1) {
+            const live = hasTick(bound.occupied, tick);
+            if (live and open == null) open = tick;
+            if (open != null and (!live or tick == last_tick)) {
+                const end = if (live and tick == last_tick) tick else tick - 1;
+                ranges[range_cursor] = .{ .first = open.?, .last = end };
+                range_cursor += 1;
+                open = null;
+            }
+        }
+        if (range_cursor == range_start) continue;
+        const source = findLogical(logical, bound.logical_id) orelse return Error.UnknownBinding;
+        active[active_cursor] = source;
+        active[active_cursor].live_ranges = ranges[range_start..range_cursor];
+        active_cursor += 1;
+    }
+    var projected = try build(allocator, active, budget_bytes);
+    errdefer projected.deinit();
+    const bindings = try allocator.alloc(Binding, full.bindings.len);
+    errdefer allocator.free(bindings);
+    const slots = try allocator.alloc(Slot, full.bindings.len);
+    errdefer allocator.free(slots);
+    for (full.bindings, bindings, slots, 0..) |source, *destination, *slot, index| {
+        if (projected.binding(source.logical_id)) |active_binding| {
+            destination.* = active_binding;
+            destination.slot = @intCast(index);
+            slot.* = projected.slots[active_binding.slot];
+        } else |_| {
+            destination.* = source;
+            destination.slot = @intCast(index);
+            destination.offset_bytes = 0;
+            destination.materialization = .recompute;
+            destination.occupied = [_]u64{0} ** (max_ticks / 64);
+            slot.* = .{
+                .offset_bytes = 0,
+                .capacity_bytes = source.size_bytes,
+                .alignment = 16 * 1024,
+                .occupied = [_]u64{0} ** (max_ticks / 64),
+            };
+        }
+    }
+    allocator.free(projected.bindings);
+    allocator.free(projected.slots);
+    projected.bindings = bindings;
+    projected.slots = slots;
+    return projected;
+}
+
+fn findLogical(logical: []const LogicalBuffer, id: u32) ?LogicalBuffer {
+    for (logical) |buffer| if (buffer.id == id) return buffer;
+    return null;
+}
 
 pub fn peakLogicalBytes(bindings: []const Binding) u64 {
     var peak: u64 = 0;
