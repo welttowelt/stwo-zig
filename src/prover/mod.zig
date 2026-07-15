@@ -1,3 +1,5 @@
+pub const fft_pool = @import("fft_pool.zig");
+pub const mmap_alloc = @import("mmap_alloc.zig");
 pub const line = @import("line.zig");
 pub const fri = @import("fri.zig");
 pub const air = @import("air/mod.zig");
@@ -10,3 +12,5 @@ pub const stage_profile = @import("stage_profile.zig");
 pub const vcs = @import("vcs/mod.zig");
 pub const vcs_lifted = @import("vcs_lifted/mod.zig");
 pub const prove = @import("prove.zig");
+pub const task_graph = @import("task_graph.zig");
+pub const work_pool = @import("work_pool.zig");

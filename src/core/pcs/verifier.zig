@@ -146,12 +146,15 @@ pub fn CommitmentSchemeVerifier(comptime H: type, comptime MC: type) type {
             }
 
             for (self.trees.items, 0..) |tree, i| {
-                try tree.verify(
+                tree.verify(
                     allocator,
                     query_positions_tree[i],
                     proof.queried_values.items[i],
                     proof.decommitments.items[i],
-                );
+                ) catch |err| {
+                    std.log.err("PCS Merkle verification failed for tree {d}: {s}", .{ i, @errorName(err) });
+                    return err;
+                };
             }
 
             const fri_answers = try quotients.friAnswers(
@@ -166,7 +169,10 @@ pub fn CommitmentSchemeVerifier(comptime H: type, comptime MC: type) type {
             );
             defer allocator.free(fri_answers);
 
-            try fri_verifier.decommit(allocator, fri_answers);
+            fri_verifier.decommit(allocator, fri_answers) catch |err| {
+                std.log.err("FRI verification failed: {s}", .{@errorName(err)});
+                return err;
+            };
         }
 
         fn appendTree(self: *Self, allocator: std.mem.Allocator, tree: MerkleVerifier) !void {

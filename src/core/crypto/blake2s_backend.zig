@@ -135,6 +135,97 @@ pub const Blake2sHasher = struct {
         return stateToDigest(hasher.h);
     }
 
+    /// State after hashing one complete, non-terminal 64-byte block.
+    pub const Fixed64Seed = [8]u32;
+
+    pub fn seedAfterFixed64(data: *const [64]u8) Fixed64Seed {
+        var hasher = Self.init();
+        hasher.addCounter(64);
+        hasher.compressBlockBytes(data[0..], false);
+        return hasher.h;
+    }
+
+    /// Finishes a 128-byte message from the state returned by
+    /// `seedAfterFixed64`, hashing only its terminal 64-byte block.
+    pub fn hashFinal64FromSeed(seed: Fixed64Seed, data: *const [64]u8) Blake2sHash {
+        var h = seed;
+        var words: [16]u32 = undefined;
+        loadBlockWords(data, &words);
+        switch (effectiveMode()) {
+            .simd => compressSimd(&h, &words, 128, 0, 0xFFFF_FFFF),
+            .scalar => compressScalar(&h, &words, 128, 0, 0xFFFF_FFFF),
+            .auto => unreachable,
+        }
+        return stateToDigest(h);
+    }
+
+    pub fn hashFinal64FromSeed4(
+        seed: Fixed64Seed,
+        data: *const [4][64]u8,
+    ) [4]Blake2sHash {
+        var messages: [16]V4 = undefined;
+        for (0..16) |word_index| {
+            const byte_index = word_index * 4;
+            messages[word_index] = .{
+                readU32LeFromFixed(&data[0], byte_index),
+                readU32LeFromFixed(&data[1], byte_index),
+                readU32LeFromFixed(&data[2], byte_index),
+                readU32LeFromFixed(&data[3], byte_index),
+            };
+        }
+
+        var states: [8]V4 = undefined;
+        for (0..8) |word_index| states[word_index] = @splat(seed[word_index]);
+        compressParallel4(&states, &messages, 128, 0, 0xFFFF_FFFF);
+
+        var out: [4]Blake2sHash = undefined;
+        for (0..4) |lane| {
+            var lane_state: [8]u32 = undefined;
+            for (0..8) |word_index| lane_state[word_index] = states[word_index][lane];
+            out[lane] = stateToDigest(lane_state);
+        }
+        return out;
+    }
+
+    pub fn hashEqualFromSeed4(
+        seed: Fixed64Seed,
+        data: *const [4][]const u8,
+    ) [4]Blake2sHash {
+        const len = data[0].len;
+        for (data[1..]) |message| std.debug.assert(message.len == len);
+        std.debug.assert(len > 0);
+
+        var states: [8]V4 = undefined;
+        for (0..8) |word_index| states[word_index] = @splat(seed[word_index]);
+
+        var at: usize = 0;
+        var counter: u32 = 64;
+        while (at + 64 < len) : (at += 64) {
+            var blocks: [4][64]u8 = undefined;
+            for (0..4) |lane| @memcpy(blocks[lane][0..], data[lane][at .. at + 64]);
+            var messages: [16]V4 = undefined;
+            loadParallelBlock4(&blocks, &messages);
+            counter +%= 64;
+            compressParallel4(&states, &messages, counter, 0, 0);
+        }
+
+        const remaining = len - at;
+        var final_blocks = [_][64]u8{[_]u8{0} ** 64} ** 4;
+        for (0..4) |lane| @memcpy(final_blocks[lane][0..remaining], data[lane][at..]);
+        var final_messages: [16]V4 = undefined;
+        loadParallelBlock4(&final_blocks, &final_messages);
+        counter +%= @intCast(remaining);
+        compressParallel4(&states, &final_messages, counter, 0, 0xFFFF_FFFF);
+
+        var out: [4]Blake2sHash = undefined;
+        for (0..4) |lane| {
+            var lane_state: [8]u32 = undefined;
+            for (0..8) |word_index| lane_state[word_index] = states[word_index][lane];
+            out[lane] = stateToDigest(lane_state);
+        }
+        return out;
+    }
+
     fn addCounter(self: *Self, inc: u32) void {
         const sum: u64 = @as(u64, self.t0) + @as(u64, inc);
         self.t0 = @truncate(sum);
@@ -220,6 +311,18 @@ fn readU32LeFromFixed(data: *const [64]u8, at: usize) u32 {
         (@as(u32, data[at + 1]) << 8) |
         (@as(u32, data[at + 2]) << 16) |
         (@as(u32, data[at + 3]) << 24);
+}
+
+fn loadParallelBlock4(data: *const [4][64]u8, out: *[16]V4) void {
+    for (0..16) |word_index| {
+        const byte_index = word_index * 4;
+        out[word_index] = .{
+            readU32LeFromFixed(&data[0], byte_index),
+            readU32LeFromFixed(&data[1], byte_index),
+            readU32LeFromFixed(&data[2], byte_index),
+            readU32LeFromFixed(&data[3], byte_index),
+        };
+    }
 }
 
 fn stateToDigest(h: [8]u32) Blake2sHash {
@@ -378,6 +481,30 @@ fn compressSimd(h: *[8]u32, m: *const [16]u32, t0: u32, t1: u32, f0: u32) void {
     }
 }
 
+fn compressParallel4(h: *[8]V4, m: *const [16]V4, t0: u32, t1: u32, f0: u32) void {
+    var v: [16]V4 = undefined;
+    for (0..8) |i| {
+        v[i] = h[i];
+        v[i + 8] = @splat(BLAKE2S_IV[i]);
+    }
+    v[12] ^= @as(V4, @splat(t0));
+    v[13] ^= @as(V4, @splat(t1));
+    v[14] ^= @as(V4, @splat(f0));
+
+    for (BLAKE2S_SIGMA) |s| {
+        g4(&v[0], &v[4], &v[8], &v[12], m[s[0]], m[s[1]]);
+        g4(&v[1], &v[5], &v[9], &v[13], m[s[2]], m[s[3]]);
+        g4(&v[2], &v[6], &v[10], &v[14], m[s[4]], m[s[5]]);
+        g4(&v[3], &v[7], &v[11], &v[15], m[s[6]], m[s[7]]);
+        g4(&v[0], &v[5], &v[10], &v[15], m[s[8]], m[s[9]]);
+        g4(&v[1], &v[6], &v[11], &v[12], m[s[10]], m[s[11]]);
+        g4(&v[2], &v[7], &v[8], &v[13], m[s[12]], m[s[13]]);
+        g4(&v[3], &v[4], &v[9], &v[14], m[s[14]], m[s[15]]);
+    }
+
+    for (0..8) |i| h[i] ^= v[i] ^ v[i + 8];
+}
+
 fn digestToHex(digest: Blake2sHash) [64]u8 {
     return std.fmt.bytesToHex(digest, .lower);
 }
@@ -432,6 +559,45 @@ test "blake2s backend: fixed single-block helpers equal generic hash" {
             const generic = Blake2sHasher.hash(payload[0..]);
             const fixed = Blake2sHasher.hashFixedSingleBlock(byte_len, &payload);
             try std.testing.expect(std.mem.eql(u8, generic[0..], fixed[0..]));
+        }
+    }
+}
+
+test "blake2s backend: four-way terminal compression matches scalar messages" {
+    var prng = std.Random.DefaultPrng.init(0x6c62_6174_6368_345f);
+    var prefix: [64]u8 = undefined;
+    var blocks: [4][64]u8 = undefined;
+    prng.random().bytes(prefix[0..]);
+    for (&blocks) |*block| prng.random().bytes(block[0..]);
+
+    const seed = Blake2sHasher.seedAfterFixed64(&prefix);
+    const batched = Blake2sHasher.hashFinal64FromSeed4(seed, &blocks);
+    for (blocks, 0..) |block, lane| {
+        const expected = Blake2sHasher.hashFinal64FromSeed(seed, &block);
+        try std.testing.expectEqualSlices(u8, expected[0..], batched[lane][0..]);
+    }
+}
+
+test "blake2s backend: four-way equal messages match seeded scalar stream" {
+    var prng = std.Random.DefaultPrng.init(0x6c65_6166_345f_7369);
+    var prefix: [64]u8 = undefined;
+    prng.random().bytes(prefix[0..]);
+    const seed = Blake2sHasher.seedAfterFixed64(&prefix);
+
+    inline for (.{ @as(usize, 4), @as(usize, 64), @as(usize, 68), @as(usize, 3296) }) |len| {
+        var storage: [4][len]u8 = undefined;
+        var messages: [4][]const u8 = undefined;
+        for (&storage, 0..) |*message, lane| {
+            prng.random().bytes(message[0..]);
+            messages[lane] = message;
+        }
+        const batched = Blake2sHasher.hashEqualFromSeed4(seed, &messages);
+        for (storage, 0..) |message, lane| {
+            var payload: [64 + len]u8 = undefined;
+            @memcpy(payload[0..64], prefix[0..]);
+            @memcpy(payload[64..], message[0..]);
+            const expected = Blake2sHasher.hash(payload[0..]);
+            try std.testing.expectEqualSlices(u8, expected[0..], batched[lane][0..]);
         }
     }
 }

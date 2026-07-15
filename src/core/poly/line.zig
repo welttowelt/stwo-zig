@@ -61,6 +61,10 @@ pub const LineDomain = struct {
         return .{ .coset_value = self.coset_value.double() };
     }
 
+    pub fn repeatedDouble(self: LineDomain, n_doubles: u32) LineDomain {
+        return .{ .coset_value = self.coset_value.repeatedDouble(n_doubles) };
+    }
+
     pub inline fn coset(self: LineDomain) Coset {
         return self.coset_value;
     }

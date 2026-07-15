@@ -122,6 +122,64 @@ pub fn interpolateFromEvaluation(
     );
 }
 
+/// Interpolates and splits an evaluation, with a direct path for constant
+/// secure-field columns. A constant polynomial has only coefficient zero in
+/// the left half and an all-zero right half.
+pub fn interpolateAndSplitFromEvaluation(
+    allocator: std.mem.Allocator,
+    domain: CircleDomain,
+    values: *const SecureColumnByCoords,
+) !SecureCirclePoly.SplitPair {
+    if (domain.size() != values.len() or values.len() < 2) return SecurePolyError.ShapeMismatch;
+
+    var is_constant = true;
+    for (values.columns) |column| {
+        const first = column[0];
+        for (column[1..]) |value| {
+            if (!value.eql(first)) {
+                is_constant = false;
+                break;
+            }
+        }
+        if (!is_constant) break;
+    }
+
+    if (!is_constant) {
+        var polynomial = try interpolateFromEvaluation(allocator, domain, values);
+        defer polynomial.deinit(allocator);
+        return polynomial.splitAtMid(allocator);
+    }
+
+    const half_len = values.len() / 2;
+    var left_polys: [qm31.SECURE_EXTENSION_DEGREE]CircleCoefficients = undefined;
+    var right_polys: [qm31.SECURE_EXTENSION_DEGREE]CircleCoefficients = undefined;
+    var initialized: usize = 0;
+    errdefer {
+        for (0..initialized) |coordinate| {
+            left_polys[coordinate].deinit(allocator);
+            right_polys[coordinate].deinit(allocator);
+        }
+    }
+
+    for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+        const left = try allocator.alloc(M31, half_len);
+        errdefer allocator.free(left);
+        @memset(left, M31.zero());
+        left[0] = values.columns[coordinate][0];
+        const right = try allocator.alloc(M31, half_len);
+        errdefer allocator.free(right);
+        @memset(right, M31.zero());
+        left_polys[coordinate] = try CircleCoefficients.initOwned(left);
+        right_polys[coordinate] = try CircleCoefficients.initOwned(right);
+        initialized += 1;
+    }
+
+    return .{
+        .left = try SecureCirclePoly.init(left_polys),
+        .right = try SecureCirclePoly.init(right_polys),
+    };
+}
+
 pub fn interpolateFromEvaluationWithTwiddles(
     allocator: std.mem.Allocator,
     domain: CircleDomain,

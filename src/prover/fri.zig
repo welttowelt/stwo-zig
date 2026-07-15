@@ -8,11 +8,13 @@ const circle_domain = @import("../core/poly/circle/domain.zig");
 const queries_mod = @import("../core/queries.zig");
 const vcs_lifted_verifier = @import("../core/vcs_lifted/verifier.zig");
 const prover_line = @import("line.zig");
+const quotient_ops = @import("pcs/quotient_ops.zig");
 const secure_column = @import("secure_column.zig");
 const vcs_lifted_prover = @import("vcs_lifted/prover.zig");
 
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
+const SecureColumnByCoords = secure_column.SecureColumnByCoords;
 
 pub const FriDecommitError = error{
     QueryOutOfRange,
@@ -77,7 +79,7 @@ pub fn FriDecommitResult(comptime H: type) type {
     };
 }
 
-pub fn FriProver(comptime H: type, comptime MC: type) type {
+pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
     return struct {
         config: core_fri.FriConfig,
         first_layer: FirstLayerProver,
@@ -102,6 +104,9 @@ pub fn FriProver(comptime H: type, comptime MC: type) type {
             domain: line.LineDomain,
             column: secure_column.SecureColumnByCoords,
             merkle_tree: vcs_lifted_prover.MerkleProverLifted(H),
+            /// Number of folds this layer performs (normally FOLD_STEP, may
+            /// be smaller for the last inner layer).
+            fold_step: u32 = core_fri.FOLD_STEP,
 
             fn deinit(self: *InnerLayerProver, allocator: std.mem.Allocator) void {
                 self.column.deinit(allocator);
@@ -137,6 +142,52 @@ pub fn FriProver(comptime H: type, comptime MC: type) type {
             }
 
             var first_layer = try commitFirstLayer(allocator, channel, column_domain, column);
+            errdefer first_layer.deinit(allocator);
+
+            var inner_commit = try commitInnerLayers(allocator, channel, config, first_layer);
+            defer inner_commit.last_layer_evaluation.deinit(allocator);
+            errdefer {
+                for (inner_commit.inner_layers) |*layer| layer.deinit(allocator);
+                allocator.free(inner_commit.inner_layers);
+            }
+
+            var last_layer_poly = try commitLastLayer(
+                allocator,
+                channel,
+                config,
+                &inner_commit.last_layer_evaluation,
+            );
+            errdefer last_layer_poly.deinit(allocator);
+
+            return .{
+                .config = config,
+                .first_layer = first_layer,
+                .inner_layers = inner_commit.inner_layers,
+                .last_layer_poly = last_layer_poly,
+            };
+        }
+
+        /// Fused commit: computes FRI quotients lazily and builds the Merkle
+        /// tree at the same time, avoiding a separate full-column
+        /// materialization before hashing.
+        ///
+        /// The resulting `SecureColumnByCoords` in `first_layer.column` is
+        /// bit-identical to what `computeFriQuotients` would have produced.
+        pub fn commitLazy(
+            allocator: std.mem.Allocator,
+            channel: anytype,
+            config: core_fri.FriConfig,
+            column_domain: circle_domain.CircleDomain,
+            provider: *quotient_ops.LazyQuotientProvider,
+        ) !Self {
+            if (!column_domain.isCanonic()) {
+                return FriProverError.NotCanonicDomain;
+            }
+            if (provider.domain_size != column_domain.size()) {
+                return FriProverError.ShapeMismatch;
+            }
+
+            var first_layer = try commitFirstLayerLazy(allocator, channel, column_domain, provider);
             errdefer first_layer.deinit(allocator);
 
             var inner_commit = try commitInnerLayers(allocator, channel, config, first_layer);
@@ -218,11 +269,11 @@ pub fn FriProver(comptime H: type, comptime MC: type) type {
                 first_layer.merkle_tree,
                 first_layer.column,
                 queries.positions,
-                core_fri.CIRCLE_TO_LINE_FOLD_STEP,
+                self.config.fold_step,
             );
             errdefer first_layer_proof.deinit(allocator);
 
-            var layer_queries = try queries.fold(allocator, core_fri.CIRCLE_TO_LINE_FOLD_STEP);
+            var layer_queries = try queries.fold(allocator, self.config.fold_step);
             defer layer_queries.deinit(allocator);
 
             var inner_layer_proofs = std.ArrayList(core_fri.ExtendedFriLayerProof(H)).empty;
@@ -238,12 +289,12 @@ pub fn FriProver(comptime H: type, comptime MC: type) type {
                     layer.merkle_tree,
                     layer.column,
                     layer_queries.positions,
-                    core_fri.FOLD_STEP,
+                    layer.fold_step,
                 );
                 errdefer inner_proof.deinit(allocator);
                 try inner_layer_proofs.append(allocator, inner_proof);
 
-                const next_queries = try layer_queries.fold(allocator, core_fri.FOLD_STEP);
+                const next_queries = try layer_queries.fold(allocator, layer.fold_step);
                 layer_queries.deinit(allocator);
                 layer_queries = next_queries;
             }
@@ -285,11 +336,50 @@ pub fn FriProver(comptime H: type, comptime MC: type) type {
                 column.columns[2],
                 column.columns[3],
             };
-            var merkle_tree = try vcs_lifted_prover.MerkleProverLifted(H).commit(
+            var merkle_tree = if (comptime @hasDecl(B, "commitMerkle"))
+                try B.commitMerkle(H, allocator, column_refs[0..])
+            else
+                try vcs_lifted_prover.MerkleProverLifted(H).commit(allocator, column_refs[0..]);
+            MC.mixRoot(channel, merkle_tree.root());
+            return .{
+                .domain = domain,
+                .column = column,
+                .merkle_tree = merkle_tree,
+            };
+        }
+
+        fn commitFirstLayerLazy(
+            allocator: std.mem.Allocator,
+            channel: anytype,
+            domain: circle_domain.CircleDomain,
+            provider: *quotient_ops.LazyQuotientProvider,
+        ) !FirstLayerProver {
+            var column = if (comptime @hasDecl(B, "allocateSecureColumn"))
+                try B.allocateSecureColumn(provider.domain_size)
+            else
+                try SecureColumnByCoords.uninitialized(allocator, provider.domain_size);
+            errdefer column.deinit(allocator);
+
+            var merkle_tree = if (comptime @hasDecl(B, "commitMerkle")) blk: {
+                if (comptime @hasDecl(B, "computeLazyQuotients")) {
+                    try B.computeLazyQuotients(allocator, provider, &column);
+                } else {
+                    try provider.computeAll(allocator, &column);
+                }
+                const column_refs = [_][]const M31{
+                    column.columns[0],
+                    column.columns[1],
+                    column.columns[2],
+                    column.columns[3],
+                };
+                break :blk try B.commitMerkle(H, allocator, column_refs[0..]);
+            } else try vcs_lifted_prover.MerkleProverLifted(H).commitWithLazyQuotients(
                 allocator,
-                column_refs[0..],
+                provider,
+                &column,
             );
             MC.mixRoot(channel, merkle_tree.root());
+
             return .{
                 .domain = domain,
                 .column = column,
@@ -308,15 +398,17 @@ pub fn FriProver(comptime H: type, comptime MC: type) type {
             config: core_fri.FriConfig,
             first_layer: FirstLayerProver,
         ) !InnerCommitResult {
-            const first_inner_layer_log_size = first_layer.domain.logSize() - core_fri.CIRCLE_TO_LINE_FOLD_STEP;
-            const first_inner_layer_domain = try line.LineDomain.init(
-                circle.Coset.halfOdds(first_inner_layer_log_size),
+            if (config.fold_step == 0 or config.fold_step > first_layer.domain.logSize())
+                return core_fri.FriVerificationError.InvalidNumFriLayers;
+            const circle_fold_log_size = first_layer.domain.logSize() - 1;
+            const circle_fold_domain = try line.LineDomain.init(
+                circle.Coset.halfOdds(circle_fold_log_size),
             );
 
-            var layer_evaluation = try prover_line.LineEvaluation.newZero(
-                allocator,
-                first_inner_layer_domain,
-            );
+            var layer_evaluation = if (comptime @hasDecl(B, "allocateLineEvaluation"))
+                try B.allocateLineEvaluation(circle_fold_domain)
+            else
+                try prover_line.LineEvaluation.newZero(allocator, circle_fold_domain);
             errdefer layer_evaluation.deinit(allocator);
 
             var fold_circle_workspace = try core_fri.FoldCircleWorkspace.init(
@@ -331,14 +423,66 @@ pub fn FriProver(comptime H: type, comptime MC: type) type {
                 first_layer.column.columns[2],
                 first_layer.column.columns[3],
             };
-            try core_fri.foldCircleColumnsIntoLineWithWorkspace(
-                allocator,
-                @constCast(layer_evaluation.values),
-                first_layer_columns,
-                first_layer.domain,
-                folding_alpha,
-                &fold_circle_workspace,
-            );
+            if (comptime @hasDecl(B, "foldCircleIntoLine")) {
+                try B.foldCircleIntoLine(
+                    allocator,
+                    @constCast(layer_evaluation.values),
+                    first_layer_columns,
+                    first_layer.domain,
+                    folding_alpha,
+                    &fold_circle_workspace,
+                );
+            } else {
+                try core_fri.foldCircleColumnsIntoLineWithWorkspace(
+                    allocator,
+                    @constCast(layer_evaluation.values),
+                    first_layer_columns,
+                    first_layer.domain,
+                    folding_alpha,
+                    &fold_circle_workspace,
+                );
+            }
+
+            if (config.fold_step > 1) {
+                var first_line_workspace = try core_fri.FoldLineWorkspace.init(
+                    allocator,
+                    layer_evaluation.len() / 2,
+                );
+                defer first_line_workspace.deinit(allocator);
+                if (comptime @hasDecl(B, "foldLineEvaluationN")) {
+                    const folded = try B.foldLineEvaluationN(
+                        allocator,
+                        layer_evaluation,
+                        folding_alpha.square(),
+                        &first_line_workspace,
+                        config.fold_step - 1,
+                    );
+                    layer_evaluation.deinit(allocator);
+                    layer_evaluation = folded;
+                } else {
+                    const folded = if (comptime @hasDecl(B, "foldLineN"))
+                        try B.foldLineN(
+                            allocator,
+                            @constCast(layer_evaluation.values),
+                            layer_evaluation.domain(),
+                            folding_alpha.square(),
+                            &first_line_workspace,
+                            config.fold_step - 1,
+                        )
+                    else
+                        try core_fri.foldLineInPlaceNWithWorkspace(
+                            allocator,
+                            @constCast(layer_evaluation.values),
+                            layer_evaluation.domain(),
+                            folding_alpha.square(),
+                            &first_line_workspace,
+                            config.fold_step - 1,
+                        );
+                    layer_evaluation.domain_value = folded.domain;
+                    layer_evaluation.values = folded.values;
+                    layer_evaluation.owns_values = true;
+                }
+            }
 
             var layers = std.ArrayList(InnerLayerProver).empty;
             defer layers.deinit(allocator);
@@ -351,11 +495,18 @@ pub fn FriProver(comptime H: type, comptime MC: type) type {
             );
             defer fold_workspace.deinit(allocator);
 
+            // Compute the fold schedule: at most FOLD_STEP per layer, with a
+            // potentially smaller final step if the remaining log-size is not
+            // divisible by FOLD_STEP.
+            const last_layer_log_size = std.math.log2_int(usize, config.lastLayerDomainSize());
             while (layer_evaluation.len() > config.lastLayerDomainSize()) {
-                var secure_values = try secure_column.SecureColumnByCoords.fromSecureSlice(
-                    allocator,
-                    layer_evaluation.values,
-                );
+                var secure_values = if (comptime @hasDecl(B, "secureColumnFromLine"))
+                    try B.secureColumnFromLine(layer_evaluation)
+                else
+                    try secure_column.SecureColumnByCoords.fromSecureSlice(
+                        allocator,
+                        layer_evaluation.values,
+                    );
                 errdefer secure_values.deinit(allocator);
 
                 const coord_refs = [_][]const M31{
@@ -364,32 +515,62 @@ pub fn FriProver(comptime H: type, comptime MC: type) type {
                     secure_values.columns[2],
                     secure_values.columns[3],
                 };
-                var merkle_tree = try vcs_lifted_prover.MerkleProverLifted(H).commit(
-                    allocator,
-                    coord_refs[0..],
-                );
+                var merkle_tree = if (comptime @hasDecl(B, "commitMerkle"))
+                    try B.commitMerkle(H, allocator, coord_refs[0..])
+                else
+                    try vcs_lifted_prover.MerkleProverLifted(H).commit(allocator, coord_refs[0..]);
                 errdefer merkle_tree.deinit(allocator);
 
                 MC.mixRoot(channel, merkle_tree.root());
                 const fold_alpha = channel.drawSecureFelt();
-                const folded = try core_fri.foldLineInPlaceWithWorkspace(
-                    allocator,
-                    @constCast(layer_evaluation.values),
-                    layer_evaluation.domain(),
-                    fold_alpha,
-                    &fold_workspace,
-                );
+
+                // Determine fold count for this layer: normally FOLD_STEP,
+                // but clamped so we don't overshoot the last-layer size.
+                const current_log_size = std.math.log2_int(usize, layer_evaluation.len());
+                const remaining_folds = current_log_size - last_layer_log_size;
+                const this_fold_step: u32 = @intCast(@min(config.fold_step, remaining_folds));
 
                 const layer = InnerLayerProver{
                     .domain = layer_evaluation.domain(),
                     .column = secure_values,
                     .merkle_tree = merkle_tree,
+                    .fold_step = this_fold_step,
                 };
                 try layers.append(allocator, layer);
 
-                layer_evaluation.domain_value = folded.domain;
-                layer_evaluation.values = folded.values;
-                layer_evaluation.owns_values = true;
+                if (comptime @hasDecl(B, "foldLineEvaluationN")) {
+                    const folded_evaluation = try B.foldLineEvaluationN(
+                        allocator,
+                        layer_evaluation,
+                        fold_alpha,
+                        &fold_workspace,
+                        this_fold_step,
+                    );
+                    layer_evaluation.deinit(allocator);
+                    layer_evaluation = folded_evaluation;
+                } else {
+                    const folded = if (comptime @hasDecl(B, "foldLineN"))
+                        try B.foldLineN(
+                            allocator,
+                            @constCast(layer_evaluation.values),
+                            layer_evaluation.domain(),
+                            fold_alpha,
+                            &fold_workspace,
+                            this_fold_step,
+                        )
+                    else
+                        try core_fri.foldLineInPlaceNWithWorkspace(
+                            allocator,
+                            @constCast(layer_evaluation.values),
+                            layer_evaluation.domain(),
+                            fold_alpha,
+                            &fold_workspace,
+                            this_fold_step,
+                        );
+                    layer_evaluation.domain_value = folded.domain;
+                    layer_evaluation.values = folded.values;
+                    layer_evaluation.owns_values = true;
+                }
             }
 
             return .{
@@ -436,12 +617,9 @@ pub fn decommitLayerExtended(
     query_positions: []const usize,
     fold_step: u32,
 ) !core_fri.ExtendedFriLayerProof(H) {
-    const column_values = try column.toVec(allocator);
-    defer allocator.free(column_values);
-
-    const helper = try computeDecommitmentPositionsAndWitnessEvals(
+    const helper = try computeDecommitmentPositionsAndWitnessEvalsFromCoords(
         allocator,
-        column_values,
+        column,
         query_positions,
         fold_step,
     );
@@ -560,6 +738,56 @@ pub fn computeDecommitmentPositionsAndWitnessEvals(
     };
 }
 
+fn computeDecommitmentPositionsAndWitnessEvalsFromCoords(
+    allocator: std.mem.Allocator,
+    column: secure_column.SecureColumnByCoords,
+    query_positions: []const usize,
+    fold_step: u32,
+) (std.mem.Allocator.Error || FriDecommitError)!DecommitmentPositionsResult {
+    if (fold_step >= @bitSizeOf(usize)) return FriDecommitError.FoldStepTooLarge;
+
+    var decommitment_positions = std.ArrayList(usize).empty;
+    defer decommitment_positions.deinit(allocator);
+    var witness_evals = std.ArrayList(QM31).empty;
+    defer witness_evals.deinit(allocator);
+    var value_map = std.ArrayList(ValueEntry).empty;
+    defer value_map.deinit(allocator);
+
+    const subset_len = @as(usize, 1) << @intCast(fold_step);
+    var subset_start_idx: usize = 0;
+    while (subset_start_idx < query_positions.len) {
+        const subset_key = query_positions[subset_start_idx] >> @intCast(fold_step);
+        var subset_end_idx = subset_start_idx + 1;
+        while (subset_end_idx < query_positions.len and
+            (query_positions[subset_end_idx] >> @intCast(fold_step)) == subset_key)
+        {
+            subset_end_idx += 1;
+        }
+
+        const subset_queries = query_positions[subset_start_idx..subset_end_idx];
+        const subset_start = subset_key << @intCast(fold_step);
+        var subset_query_at: usize = 0;
+        for (subset_start..subset_start + subset_len) |position| {
+            if (position >= column.len()) return FriDecommitError.QueryOutOfRange;
+            const eval = column.at(position);
+            try decommitment_positions.append(allocator, position);
+            try value_map.append(allocator, .{ .position = position, .value = eval });
+            if (subset_query_at < subset_queries.len and subset_queries[subset_query_at] == position) {
+                subset_query_at += 1;
+            } else {
+                try witness_evals.append(allocator, eval);
+            }
+        }
+        subset_start_idx = subset_end_idx;
+    }
+
+    return .{
+        .decommitment_positions = try decommitment_positions.toOwnedSlice(allocator),
+        .witness_evals = try witness_evals.toOwnedSlice(allocator),
+        .value_map = try value_map.toOwnedSlice(allocator),
+    };
+}
+
 /// Produces a FRI layer decommitment proof for `query_positions`.
 pub fn decommitLayer(
     comptime H: type,
@@ -569,12 +797,9 @@ pub fn decommitLayer(
     query_positions: []const usize,
     fold_step: u32,
 ) !LayerDecommitResult(H) {
-    const column_values = try column.toVec(allocator);
-    defer allocator.free(column_values);
-
-    const helper = try computeDecommitmentPositionsAndWitnessEvals(
+    const helper = try computeDecommitmentPositionsAndWitnessEvalsFromCoords(
         allocator,
-        column_values,
+        column,
         query_positions,
         fold_step,
     );
@@ -904,10 +1129,11 @@ test "prover fri: layer decommit corrupted witness fails" {
 }
 
 test "prover fri: commit and decommit roundtrip with verifier" {
+    const CpuBackend = @import("../backends/cpu_scalar/mod.zig").CpuBackend;
     const Hasher = @import("../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
     const MerkleChannel = @import("../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
     const Channel = @import("../core/channel/blake2s.zig").Blake2sChannel;
-    const Prover = FriProver(Hasher, MerkleChannel);
+    const Prover = FriProver(CpuBackend, Hasher, MerkleChannel);
     const Verifier = core_fri.FriVerifier(Hasher, MerkleChannel);
     const alloc = std.testing.allocator;
 
@@ -957,10 +1183,11 @@ test "prover fri: commit and decommit roundtrip with verifier" {
 }
 
 test "prover fri: commit rejects non-canonic domain" {
+    const CpuBackend = @import("../backends/cpu_scalar/mod.zig").CpuBackend;
     const Hasher = @import("../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
     const MerkleChannel = @import("../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
     const Channel = @import("../core/channel/blake2s.zig").Blake2sChannel;
-    const Prover = FriProver(Hasher, MerkleChannel);
+    const Prover = FriProver(CpuBackend, Hasher, MerkleChannel);
     const alloc = std.testing.allocator;
 
     const invalid_domain = circle_domain.CircleDomain.new(
@@ -987,10 +1214,11 @@ test "prover fri: commit rejects non-canonic domain" {
 }
 
 test "prover fri: commit rejects high-degree last layer" {
+    const CpuBackend = @import("../backends/cpu_scalar/mod.zig").CpuBackend;
     const Hasher = @import("../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
     const MerkleChannel = @import("../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
     const Channel = @import("../core/channel/blake2s.zig").Blake2sChannel;
-    const Prover = FriProver(Hasher, MerkleChannel);
+    const Prover = FriProver(CpuBackend, Hasher, MerkleChannel);
     const alloc = std.testing.allocator;
 
     const config = try core_fri.FriConfig.init(0, 1, 3);

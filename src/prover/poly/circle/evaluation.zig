@@ -8,6 +8,8 @@ const canonic = @import("../../../core/poly/circle/canonic.zig");
 const domain_mod = @import("../../../core/poly/circle/domain.zig");
 const utils = @import("../../../core/utils.zig");
 
+const CpuBackend = @import("../../../backends/cpu_scalar/mod.zig").CpuBackend;
+
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
 const CirclePointM31 = circle.CirclePointM31;
@@ -224,12 +226,15 @@ fn barycentricWeightsReference(
     return out;
 }
 
-/// Evaluation of a base-field column over a circle domain in bit-reversed order.
+/// Evaluation of a base-field column over a circle domain in bit-reversed order,
+/// generic over backend `B`.
 ///
 /// Invariants:
 /// - `values.len == domain.size()`.
 /// - `values[i]` corresponds to `domain.at(bit_reverse(i))`.
-pub const CircleEvaluation = struct {
+pub fn CircleEvaluationGeneric(comptime B: type) type {
+    _ = B;
+    return struct {
     domain: CircleDomain,
     values: []const M31,
 
@@ -265,7 +270,7 @@ pub const CircleEvaluation = struct {
 
         var acc = QM31.zero();
         for (self.values, weights) |value, weight| {
-            acc = acc.add(QM31.fromBase(value).mul(weight));
+            acc = acc.add(weight.mulM31(value));
         }
         return acc;
     }
@@ -303,7 +308,10 @@ pub const CircleEvaluation = struct {
     ) (std.mem.Allocator.Error || EvaluationError)!QM31 {
         return self.barycentricEvalAtPoint(allocator, point);
     }
-};
+    };
+}
+
+pub const CircleEvaluation = CircleEvaluationGeneric(CpuBackend);
 
 fn pointM31IntoQM31(point: CirclePointM31) CirclePointQM31 {
     return .{

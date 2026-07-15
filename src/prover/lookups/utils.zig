@@ -236,7 +236,9 @@ pub fn foldMleEvals(comptime F: type, assignment: QM31, eval0: F, eval1: F) QM31
         return assignment.mul(eval1.sub(eval0)).add(eval0);
     }
     if (F == M31) {
-        return assignment.mul(QM31.fromBase(eval1.sub(eval0))).add(QM31.fromBase(eval0));
+        // Small-big multiplication: QM31 * M31 uses 4 base-field muls
+        // instead of 9 (Karatsuba) for QM31 * QM31.fromBase(M31).
+        return assignment.mulM31(eval1.sub(eval0)).addM31(eval0);
     }
     @compileError("foldMleEvals currently supports M31 and QM31");
 }

@@ -832,33 +832,61 @@ fn evalLogupSum(
     const denominators = input_denominators.evalsSlice();
 
     for (0..n_terms) |i| {
-        const num_r0i0 = asSecure(F, numerators[i * 2]);
         const den_r0i0 = denominators[i * 2];
-        const num_r0i1 = asSecure(F, numerators[i * 2 + 1]);
         const den_r0i1 = denominators[i * 2 + 1];
-
-        const num_r1i0 = asSecure(F, numerators[(n_terms + i) * 2]);
         const den_r1i0 = denominators[(n_terms + i) * 2];
-        const num_r1i1 = asSecure(F, numerators[(n_terms + i) * 2 + 1]);
         const den_r1i1 = denominators[(n_terms + i) * 2 + 1];
 
-        const num_r2i0 = num_r1i0.add(num_r1i0).sub(num_r0i0);
         const den_r2i0 = den_r1i0.add(den_r1i0).sub(den_r0i0);
-        const num_r2i1 = num_r1i1.add(num_r1i1).sub(num_r0i1);
         const den_r2i1 = den_r1i1.add(den_r1i1).sub(den_r0i1);
 
-        const frac_r0 = fraction.Fraction(QM31, QM31).new(num_r0i0, den_r0i0)
-            .add(fraction.Fraction(QM31, QM31).new(num_r0i1, den_r0i1));
-        const frac_r2 = fraction.Fraction(QM31, QM31).new(num_r2i0, den_r2i0)
-            .add(fraction.Fraction(QM31, QM31).new(num_r2i1, den_r2i1));
-
         const eq_eval = eq_evals.at(i);
-        eval_at_0 = eval_at_0.add(
-            eq_eval.mul(frac_r0.numerator.add(lambda.mul(frac_r0.denominator))),
-        );
-        eval_at_2 = eval_at_2.add(
-            eq_eval.mul(frac_r2.numerator.add(lambda.mul(frac_r2.denominator))),
-        );
+
+        if (F == M31) {
+            // Small-big specialization: keep numerators as M31 through
+            // interpolation and use Fraction(M31, QM31) so cross-products
+            // use QM31.mulM31 (4 base-field muls) instead of QM31.mul
+            // (9 base-field muls via Karatsuba).
+            const num_r0i0 = numerators[i * 2];
+            const num_r0i1 = numerators[i * 2 + 1];
+            const num_r1i0 = numerators[(n_terms + i) * 2];
+            const num_r1i1 = numerators[(n_terms + i) * 2 + 1];
+
+            const num_r2i0 = num_r1i0.add(num_r1i0).sub(num_r0i0);
+            const num_r2i1 = num_r1i1.add(num_r1i1).sub(num_r0i1);
+
+            const frac_r0 = fraction.Fraction(M31, QM31).new(num_r0i0, den_r0i0)
+                .add(fraction.Fraction(M31, QM31).new(num_r0i1, den_r0i1));
+            const frac_r2 = fraction.Fraction(M31, QM31).new(num_r2i0, den_r2i0)
+                .add(fraction.Fraction(M31, QM31).new(num_r2i1, den_r2i1));
+
+            eval_at_0 = eval_at_0.add(
+                eq_eval.mul(frac_r0.numerator.add(lambda.mul(frac_r0.denominator))),
+            );
+            eval_at_2 = eval_at_2.add(
+                eq_eval.mul(frac_r2.numerator.add(lambda.mul(frac_r2.denominator))),
+            );
+        } else {
+            const num_r0i0 = asSecure(F, numerators[i * 2]);
+            const num_r0i1 = asSecure(F, numerators[i * 2 + 1]);
+            const num_r1i0 = asSecure(F, numerators[(n_terms + i) * 2]);
+            const num_r1i1 = asSecure(F, numerators[(n_terms + i) * 2 + 1]);
+
+            const num_r2i0 = num_r1i0.add(num_r1i0).sub(num_r0i0);
+            const num_r2i1 = num_r1i1.add(num_r1i1).sub(num_r0i1);
+
+            const frac_r0 = fraction.Fraction(QM31, QM31).new(num_r0i0, den_r0i0)
+                .add(fraction.Fraction(QM31, QM31).new(num_r0i1, den_r0i1));
+            const frac_r2 = fraction.Fraction(QM31, QM31).new(num_r2i0, den_r2i0)
+                .add(fraction.Fraction(QM31, QM31).new(num_r2i1, den_r2i1));
+
+            eval_at_0 = eval_at_0.add(
+                eq_eval.mul(frac_r0.numerator.add(lambda.mul(frac_r0.denominator))),
+            );
+            eval_at_2 = eval_at_2.add(
+                eq_eval.mul(frac_r2.numerator.add(lambda.mul(frac_r2.denominator))),
+            );
+        }
     }
 
     return .{ eval_at_0, eval_at_2 };

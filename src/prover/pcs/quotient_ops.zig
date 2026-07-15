@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const m31 = @import("../../core/fields/m31.zig");
 const qm31 = @import("../../core/fields/qm31.zig");
 const quotients = @import("../../core/pcs/quotients.zig");
@@ -6,8 +7,12 @@ const pcs_utils = @import("../../core/pcs/utils.zig");
 const canonic = @import("../../core/poly/circle/canonic.zig");
 const core_utils = @import("../../core/utils.zig");
 const secure_column = @import("../secure_column.zig");
+const work_pool_mod = @import("../work_pool.zig");
+const CircleDomain = @import("../../core/poly/circle/domain.zig").CircleDomain;
 
-const CirclePointQM31 = @import("../../core/circle.zig").CirclePointQM31;
+const circle_mod = @import("../../core/circle.zig");
+const circle_domain = @import("../../core/poly/circle/domain.zig");
+const CirclePointQM31 = circle_mod.CirclePointQM31;
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
 const TreeVec = pcs_utils.TreeVec;
@@ -16,6 +21,11 @@ const SecureColumnByCoords = secure_column.SecureColumnByCoords;
 const MATERIALIZE_LIFTED_THRESHOLD_BYTES: usize = 48 * 1024 * 1024;
 const STREAMING_DOMAIN_THRESHOLD: usize = 1 << 12;
 const STREAMING_ACTIVE_COLUMN_THRESHOLD: usize = 1024;
+/// Minimum number of domain positions per worker thread to amortize overhead.
+const MIN_POSITIONS_PER_WORKER: usize = 256;
+/// Number of rows processed per chunk in lazy quotient evaluation.
+/// Chosen to amortize function-call overhead while keeping chunk memory bounded.
+pub const LAZY_QUOTIENT_CHUNK_SIZE: usize = 1024;
 
 pub const QuotientOpsError = error{
     ShapeMismatch,
@@ -27,6 +37,25 @@ const LiftingColumnView = struct {
     values: []const M31,
     shift_amt: std.math.Log2Int(usize),
     is_direct: bool,
+};
+
+const CombinedContributionView = struct {
+    coordinates: [qm31.SECURE_EXTENSION_DEGREE][]M31,
+    batch_index: usize,
+    shift_amt: std.math.Log2Int(usize),
+    is_direct: bool,
+};
+
+const CombinedContributionPlan = struct {
+    views: []CombinedContributionView,
+
+    fn deinit(self: *CombinedContributionPlan, allocator: std.mem.Allocator) void {
+        for (self.views) |view| {
+            for (view.coordinates) |coordinate| allocator.free(coordinate);
+        }
+        allocator.free(self.views);
+        self.* = undefined;
+    }
 };
 
 const ColumnContribution = struct {
@@ -86,6 +115,252 @@ const MaterializedLiftedColumns = struct {
         allocator.free(self.columns);
         allocator.free(self.storage);
         self.* = undefined;
+    }
+};
+
+/// Lazy quotient provider for fused quotient-computation + Merkle commitment.
+///
+/// Encapsulates all state needed to compute FRI quotient values on demand,
+/// one chunk at a time, without materializing the full quotient column
+/// or the lifted column matrix before Merkle hashing begins.
+///
+/// Usage:
+///   1. `init()` — prepare the provider from the same inputs as `computeFriQuotients`.
+///   2. Call `computeChunk()` repeatedly with ascending, non-overlapping position ranges.
+///      Each call fills the 4 coordinate buffers for a chunk of the output column.
+///   3. `deinit()` — release internal scratch memory.
+pub const LazyQuotientProvider = struct {
+    prepared: PreparedQuotientContext,
+    combined_views: []CombinedContributionView,
+    raw_columns: []ColumnEvaluation,
+    workspace: quotients.RowQuotientWorkspace,
+    domain: circle_domain.CircleDomain,
+    lifting_log_size: u32,
+    domain_size: usize,
+
+    pub fn init(
+        allocator: std.mem.Allocator,
+        columns: TreeVec([]const ColumnEvaluation),
+        sampled_points: TreeVec([][]CirclePointQM31),
+        sampled_values: TreeVec([][]QM31),
+        random_coeff: QM31,
+        lifting_log_size: u32,
+    ) !LazyQuotientProvider {
+        return initForBackend(
+            void,
+            allocator,
+            columns,
+            sampled_points,
+            sampled_values,
+            random_coeff,
+            lifting_log_size,
+        );
+    }
+
+    pub fn initForBackend(
+        comptime B: type,
+        allocator: std.mem.Allocator,
+        columns: TreeVec([]const ColumnEvaluation),
+        sampled_points: TreeVec([][]CirclePointQM31),
+        sampled_values: TreeVec([][]QM31),
+        random_coeff: QM31,
+        lifting_log_size: u32,
+    ) !LazyQuotientProvider {
+        if (columns.items.len != sampled_points.items.len) return QuotientOpsError.ShapeMismatch;
+        if (columns.items.len != sampled_values.items.len) return QuotientOpsError.ShapeMismatch;
+
+        for (columns.items, sampled_points.items, sampled_values.items) |tree_columns, tree_points, tree_values| {
+            if (tree_columns.len != tree_points.len) return QuotientOpsError.ShapeMismatch;
+            if (tree_columns.len != tree_values.len) return QuotientOpsError.ShapeMismatch;
+            for (tree_columns) |column| {
+                try column.validate();
+                if (column.log_size > lifting_log_size) return QuotientOpsError.InvalidColumnLogSize;
+            }
+        }
+
+        var column_log_sizes = try buildColumnLogSizes(allocator, columns);
+        defer column_log_sizes.deinitDeep(allocator);
+
+        const domain_size = try checkedPow2(lifting_log_size);
+        const flat_columns = try flattenColumnsBorrowed(allocator, columns);
+        errdefer allocator.free(flat_columns);
+
+        var prepared = try prepareQuotientContext(
+            allocator,
+            column_log_sizes,
+            sampled_points,
+            sampled_values,
+            random_coeff,
+            lifting_log_size,
+            flat_columns.len,
+        );
+        errdefer prepared.deinit(allocator);
+
+        const nonzero_columns = try markNonzeroColumnsAndSamples(
+            allocator,
+            columns,
+            sampled_values,
+        );
+        defer allocator.free(nonzero_columns);
+
+        const use_raw_columns = comptime B != void and @hasDecl(B, "rawQuotientInputs") and B.rawQuotientInputs;
+        var combined_views: []CombinedContributionView = &.{};
+        if (!use_raw_columns) {
+            const combined_plan = try buildCombinedContributionPlan(
+                allocator,
+                flat_columns,
+                prepared.contribution_plan.active_column_indices,
+                prepared.contribution_plan.ranges,
+                prepared.contribution_plan.contributions,
+                nonzero_columns,
+                lifting_log_size,
+            );
+            combined_views = combined_plan.views;
+        }
+
+        var workspace = try quotients.RowQuotientWorkspace.init(allocator, prepared.sample_batches);
+        errdefer workspace.deinit(allocator);
+
+        const domain = canonic.CanonicCoset.new(lifting_log_size).circleDomain();
+
+        return .{
+            .prepared = prepared,
+            .combined_views = combined_views,
+            .raw_columns = if (use_raw_columns) flat_columns else blk: {
+                allocator.free(flat_columns);
+                break :blk &.{};
+            },
+            .workspace = workspace,
+            .domain = domain,
+            .lifting_log_size = lifting_log_size,
+            .domain_size = domain_size,
+        };
+    }
+
+    pub fn deinit(self: *LazyQuotientProvider, allocator: std.mem.Allocator) void {
+        self.workspace.deinit(allocator);
+        var combined_plan = CombinedContributionPlan{ .views = self.combined_views };
+        combined_plan.deinit(allocator);
+        if (self.raw_columns.len != 0) allocator.free(self.raw_columns);
+        self.prepared.deinit(allocator);
+        self.* = undefined;
+    }
+
+    /// Compute quotient values for positions `[chunk_start .. chunk_start + chunk_len)`.
+    ///
+    /// The 4 output coordinate buffers must each have length >= `chunk_len`.
+    /// Positions must be in range `[0, domain_size)`.
+    pub fn computeChunk(
+        self: *LazyQuotientProvider,
+        chunk_start: usize,
+        chunk_len: usize,
+        out_coords: *[qm31.SECURE_EXTENSION_DEGREE][]M31,
+    ) !void {
+        std.debug.assert(chunk_start + chunk_len <= self.domain_size);
+        for (out_coords) |coord_buf| {
+            std.debug.assert(coord_buf.len >= chunk_len);
+        }
+
+        for (0..chunk_len) |local_idx| {
+            const position = chunk_start + local_idx;
+            const domain_point = self.domain.at(core_utils.bitReverseIndex(position, self.lifting_log_size));
+            try self.workspace.beginRow(domain_point);
+
+            for (self.combined_views) |view| {
+                const idx = if (view.is_direct)
+                    position
+                else blk: {
+                    break :blk ((position >> view.shift_amt) << 1) + (position & 1);
+                };
+                const value = QM31.fromM31(
+                    view.coordinates[0][idx],
+                    view.coordinates[1][idx],
+                    view.coordinates[2][idx],
+                    view.coordinates[3][idx],
+                );
+                self.workspace.batch_numerators[view.batch_index] =
+                    self.workspace.batch_numerators[view.batch_index].add(value);
+            }
+
+            const quotient_value = try quotients.finalizeRowQuotients(
+                &self.prepared.quotient_constants,
+                domain_point.y,
+                self.workspace.batch_numerators,
+                self.workspace.denominator_inverses,
+            );
+            const coords = quotient_value.toM31Array();
+            inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coord| {
+                out_coords[coord][local_idx] = coords[coord];
+            }
+        }
+    }
+
+    /// Materialize the full quotient column, splitting disjoint domain ranges
+    /// across the global prover pool when enough work is available.
+    pub fn computeAll(
+        self: *LazyQuotientProvider,
+        allocator: std.mem.Allocator,
+        out: *SecureColumnByCoords,
+    ) !void {
+        if (out.len() != self.domain_size) return QuotientOpsError.ShapeMismatch;
+
+        if (!builtin.single_threaded) {
+            if (try self.computeAllParallel(allocator, out)) return;
+        }
+
+        var chunk_start: usize = 0;
+        while (chunk_start < self.domain_size) {
+            const chunk_len = @min(LAZY_QUOTIENT_CHUNK_SIZE, self.domain_size - chunk_start);
+            var chunk_coords: [qm31.SECURE_EXTENSION_DEGREE][]M31 = undefined;
+            inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coord| {
+                chunk_coords[coord] = out.columns[coord][chunk_start..][0..chunk_len];
+            }
+            try self.computeChunk(chunk_start, chunk_len, &chunk_coords);
+            chunk_start += chunk_len;
+        }
+    }
+
+    fn computeAllParallel(
+        self: *const LazyQuotientProvider,
+        allocator: std.mem.Allocator,
+        out: *SecureColumnByCoords,
+    ) !bool {
+        const pool = work_pool_mod.getGlobalPool() orelse return false;
+        const n_workers = @min(pool.workerCount(), self.domain_size / MIN_POSITIONS_PER_WORKER);
+        if (n_workers <= 1) return false;
+
+        const workspaces = try allocator.alloc(quotients.RowQuotientWorkspace, n_workers);
+        defer allocator.free(workspaces);
+        var initialized: usize = 0;
+        defer for (workspaces[0..initialized]) |*workspace| workspace.deinit(allocator);
+        for (workspaces) |*workspace| {
+            workspace.* = try quotients.RowQuotientWorkspace.init(allocator, self.prepared.sample_batches);
+            initialized += 1;
+        }
+
+        var work_items: [work_pool_mod.MAX_WORKERS]StreamingChunkWork = undefined;
+        const chunk_len = (self.domain_size + n_workers - 1) / n_workers;
+        for (0..n_workers) |worker| {
+            const start = worker * chunk_len;
+            work_items[worker] = .{
+                .out_columns = out.columns,
+                .start = start,
+                .end = @min(self.domain_size, start + chunk_len),
+                .workspace = &workspaces[worker],
+                .domain = self.domain,
+                .combined_views = self.combined_views,
+                .quotient_constants = &self.prepared.quotient_constants,
+                .lifting_log_size = self.lifting_log_size,
+            };
+        }
+
+        var wait_group: std.Thread.WaitGroup = .{};
+        for (work_items[1..n_workers]) |*item| {
+            pool.spawnWg(&wait_group, streamingChunkWorker, .{@as(*const StreamingChunkWork, item)});
+        }
+        streamingChunkWorker(&work_items[0]);
+        wait_group.wait();
+        return true;
     }
 };
 
@@ -168,7 +443,6 @@ fn computeFriQuotientsWithStrategy(
     lifting_log_size: u32,
     forced_strategy: ?QuotientConstructionStrategy,
 ) !SecureColumnByCoords {
-
     if (columns.items.len != sampled_points.items.len) return QuotientOpsError.ShapeMismatch;
     if (columns.items.len != sampled_values.items.len) return QuotientOpsError.ShapeMismatch;
 
@@ -204,14 +478,26 @@ fn computeFriQuotientsWithStrategy(
         domain_size,
     );
     return switch (strategy) {
-        .materialized => computeMaterializedFriQuotients(
+        .materialized => computeMaterializedFriQuotientsParallel(
+            allocator,
+            flat_columns,
+            &prepared,
+            lifting_log_size,
+            domain_size,
+        ) catch computeMaterializedFriQuotients(
             allocator,
             flat_columns,
             &prepared,
             lifting_log_size,
             domain_size,
         ),
-        .streaming => computeStreamingFriQuotients(
+        .streaming => computeStreamingFriQuotientsParallel(
+            allocator,
+            flat_columns,
+            &prepared,
+            lifting_log_size,
+            domain_size,
+        ) catch computeStreamingFriQuotients(
             allocator,
             flat_columns,
             &prepared,
@@ -423,6 +709,117 @@ fn buildActiveLiftingColumnViews(
     return views;
 }
 
+fn markNonzeroColumnsAndSamples(
+    allocator: std.mem.Allocator,
+    columns: TreeVec([]const ColumnEvaluation),
+    sampled_values: TreeVec([][]QM31),
+) ![]bool {
+    const nonzero = try allocator.alloc(bool, countColumns(columns));
+    errdefer allocator.free(nonzero);
+
+    var flat_idx: usize = 0;
+    for (columns.items, sampled_values.items) |tree_columns, tree_samples| {
+        if (tree_columns.len != tree_samples.len) return QuotientOpsError.ShapeMismatch;
+        for (tree_columns, tree_samples) |column, samples| {
+            var has_nonzero = false;
+            for (column.values) |value| {
+                if (!value.isZero()) {
+                    has_nonzero = true;
+                    break;
+                }
+            }
+            if (!has_nonzero) {
+                for (samples) |value| {
+                    if (!value.eql(QM31.zero())) {
+                        has_nonzero = true;
+                        break;
+                    }
+                }
+            }
+            nonzero[flat_idx] = has_nonzero;
+            flat_idx += 1;
+        }
+    }
+    std.debug.assert(flat_idx == nonzero.len);
+    return nonzero;
+}
+
+fn buildCombinedContributionPlan(
+    allocator: std.mem.Allocator,
+    flat_columns: []const ColumnEvaluation,
+    active_column_indices: []const usize,
+    contribution_ranges: []const ColumnContributionRange,
+    contributions: []const ColumnContribution,
+    nonzero_columns: []const bool,
+    lifting_log_size: u32,
+) !CombinedContributionPlan {
+    if (active_column_indices.len != contribution_ranges.len or
+        flat_columns.len != nonzero_columns.len)
+    {
+        return QuotientOpsError.ShapeMismatch;
+    }
+
+    var views = std.ArrayList(CombinedContributionView).empty;
+    defer views.deinit(allocator);
+    errdefer for (views.items) |view| {
+        for (view.coordinates) |coordinate| allocator.free(coordinate);
+    };
+
+    for (active_column_indices, contribution_ranges) |column_idx, contribution_range| {
+        if (column_idx >= nonzero_columns.len or column_idx >= flat_columns.len) {
+            return QuotientOpsError.ShapeMismatch;
+        }
+        if (!nonzero_columns[column_idx]) continue;
+        const column = flat_columns[column_idx];
+        if (column.log_size > lifting_log_size) return QuotientOpsError.InvalidColumnLogSize;
+        const log_shift = lifting_log_size - column.log_size;
+        if (log_shift >= @bitSizeOf(usize)) return QuotientOpsError.InvalidColumnLogSize;
+
+        const column_contributions = contributions[contribution_range.start .. contribution_range.start + contribution_range.len];
+        for (column_contributions) |contribution| {
+            var view_index: ?usize = null;
+            for (views.items, 0..) |view, i| {
+                if (view.batch_index == contribution.batch_index and
+                    view.coordinates[0].len == column.values.len)
+                {
+                    view_index = i;
+                    break;
+                }
+            }
+
+            if (view_index == null) {
+                var coordinates: [qm31.SECURE_EXTENSION_DEGREE][]M31 = undefined;
+                var initialized: usize = 0;
+                errdefer for (coordinates[0..initialized]) |coordinate| allocator.free(coordinate);
+                inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coord| {
+                    coordinates[coord] = try allocator.alloc(M31, column.values.len);
+                    @memset(coordinates[coord], M31.zero());
+                    initialized += 1;
+                }
+                try views.append(allocator, .{
+                    .coordinates = coordinates,
+                    .batch_index = contribution.batch_index,
+                    .shift_amt = @intCast(log_shift + 1),
+                    .is_direct = column.log_size == lifting_log_size,
+                });
+                view_index = views.items.len - 1;
+            }
+
+            const coeffs = contribution.value_coeff.toM31Array();
+            const view = &views.items[view_index.?];
+            for (column.values, 0..) |base, value_index| {
+                inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coord| {
+                    view.coordinates[coord][value_index] = view.coordinates[coord][value_index].add(
+                        base.mul(coeffs[coord]),
+                    );
+                }
+            }
+        }
+    }
+
+    return .{ .views = try views.toOwnedSlice(allocator) };
+}
+
 fn materializeActiveLiftedColumns(
     allocator: std.mem.Allocator,
     flat_columns: []const ColumnEvaluation,
@@ -492,10 +889,13 @@ fn computeMaterializedFriQuotients(
         const domain_point = domain.at(core_utils.bitReverseIndex(position, lifting_log_size));
         try workspace.beginRow(domain_point);
         for (lifted_columns.columns, prepared.contribution_plan.ranges) |lifted_column, contribution_range| {
-            const base_value = QM31.fromBase(lifted_column[position]);
+            // Small-big multiplication: use QM31.mulM31(M31) (4 base-field muls)
+            // instead of QM31.fromBase(M31).mul(QM31) (9 muls via Karatsuba
+            // with wasted zero-operand multiplications).
+            const base_value = lifted_column[position];
             for (prepared.contribution_plan.contributions[contribution_range.start .. contribution_range.start + contribution_range.len]) |contribution| {
                 workspace.batch_numerators[contribution.batch_index] = workspace.batch_numerators[contribution.batch_index].add(
-                    base_value.mul(contribution.value_coeff),
+                    contribution.value_coeff.mulM31(base_value),
                 );
             }
         }
@@ -521,13 +921,19 @@ fn computeStreamingFriQuotients(
     const domain = canonic.CanonicCoset.new(lifting_log_size).circleDomain();
     std.debug.assert(domain.size() == domain_size);
 
-    const column_views = try buildActiveLiftingColumnViews(
+    const nonzero_columns = try allocator.alloc(bool, flat_columns.len);
+    defer allocator.free(nonzero_columns);
+    @memset(nonzero_columns, true);
+    var combined_plan = try buildCombinedContributionPlan(
         allocator,
         flat_columns,
         prepared.contribution_plan.active_column_indices,
+        prepared.contribution_plan.ranges,
+        prepared.contribution_plan.contributions,
+        nonzero_columns,
         lifting_log_size,
     );
-    defer allocator.free(column_views);
+    defer combined_plan.deinit(allocator);
 
     var workspace = try quotients.RowQuotientWorkspace.init(allocator, prepared.sample_batches);
     defer workspace.deinit(allocator);
@@ -538,20 +944,19 @@ fn computeStreamingFriQuotients(
     for (0..domain_size) |position| {
         const domain_point = domain.at(core_utils.bitReverseIndex(position, lifting_log_size));
         try workspace.beginRow(domain_point);
-        for (column_views, prepared.contribution_plan.ranges) |view, contribution_range| {
-            const base = if (view.is_direct)
-                view.values[position]
+        for (combined_plan.views) |view| {
+            const idx = if (view.is_direct)
+                position
             else blk: {
-                const idx = ((position >> view.shift_amt) << 1) + (position & 1);
-                std.debug.assert(idx < view.values.len);
-                break :blk view.values[idx];
+                break :blk ((position >> view.shift_amt) << 1) + (position & 1);
             };
-            const base_value = QM31.fromBase(base);
-            for (prepared.contribution_plan.contributions[contribution_range.start .. contribution_range.start + contribution_range.len]) |contribution| {
-                workspace.batch_numerators[contribution.batch_index] = workspace.batch_numerators[contribution.batch_index].add(
-                    base_value.mul(contribution.value_coeff),
-                );
-            }
+            const value = QM31.fromM31(
+                view.coordinates[0][idx],
+                view.coordinates[1][idx],
+                view.coordinates[2][idx],
+                view.coordinates[3][idx],
+            );
+            workspace.batch_numerators[view.batch_index] = workspace.batch_numerators[view.batch_index].add(value);
         }
         try writeQuotientRow(
             &out,
@@ -561,6 +966,253 @@ fn computeStreamingFriQuotients(
             &workspace,
         );
     }
+
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// Parallel quotient computation
+// ---------------------------------------------------------------------------
+
+/// Work item for a single chunk of domain positions (materialized path).
+const MaterializedChunkWork = struct {
+    out_columns: [qm31.SECURE_EXTENSION_DEGREE][]M31,
+    start: usize,
+    end: usize,
+    workspace: *quotients.RowQuotientWorkspace,
+    domain: CircleDomain,
+    lifted_columns: []const []M31,
+    contribution_plan_ranges: []const ColumnContributionRange,
+    contributions: []const ColumnContribution,
+    quotient_constants: *const quotients.QuotientConstants,
+    lifting_log_size: u32,
+};
+
+fn materializedChunkWorker(item: *const MaterializedChunkWork) void {
+    const ws = item.workspace;
+    for (item.start..item.end) |position| {
+        const domain_point = item.domain.at(core_utils.bitReverseIndex(position, item.lifting_log_size));
+        ws.beginRow(domain_point) catch return;
+        for (item.lifted_columns, item.contribution_plan_ranges) |lifted_column, contribution_range| {
+            const base_value = lifted_column[position];
+            for (item.contributions[contribution_range.start .. contribution_range.start + contribution_range.len]) |contribution| {
+                ws.batch_numerators[contribution.batch_index] = ws.batch_numerators[contribution.batch_index].add(
+                    contribution.value_coeff.mulM31(base_value),
+                );
+            }
+        }
+        writeQuotientRowNoError(
+            item.out_columns,
+            position,
+            item.quotient_constants,
+            domain_point.y,
+            ws,
+        );
+    }
+}
+
+/// Work item for a single chunk of domain positions (streaming path).
+const StreamingChunkWork = struct {
+    out_columns: [qm31.SECURE_EXTENSION_DEGREE][]M31,
+    start: usize,
+    end: usize,
+    workspace: *quotients.RowQuotientWorkspace,
+    domain: CircleDomain,
+    combined_views: []const CombinedContributionView,
+    quotient_constants: *const quotients.QuotientConstants,
+    lifting_log_size: u32,
+};
+
+fn streamingChunkWorker(item: *const StreamingChunkWork) void {
+    const ws = item.workspace;
+    for (item.start..item.end) |position| {
+        const domain_point = item.domain.at(core_utils.bitReverseIndex(position, item.lifting_log_size));
+        ws.beginRow(domain_point) catch return;
+        for (item.combined_views) |view| {
+            const idx = if (view.is_direct)
+                position
+            else blk: {
+                break :blk ((position >> view.shift_amt) << 1) + (position & 1);
+            };
+            const value = QM31.fromM31(
+                view.coordinates[0][idx],
+                view.coordinates[1][idx],
+                view.coordinates[2][idx],
+                view.coordinates[3][idx],
+            );
+            ws.batch_numerators[view.batch_index] = ws.batch_numerators[view.batch_index].add(value);
+        }
+        writeQuotientRowNoError(
+            item.out_columns,
+            position,
+            item.quotient_constants,
+            domain_point.y,
+            ws,
+        );
+    }
+}
+
+/// Write a quotient row without returning an error (for use in worker threads).
+/// Silently skips if finalizeRowQuotients fails (should not happen with valid data).
+fn writeQuotientRowNoError(
+    out_columns: [qm31.SECURE_EXTENSION_DEGREE][]M31,
+    position: usize,
+    quotient_constants: *const quotients.QuotientConstants,
+    domain_y: M31,
+    workspace: *const quotients.RowQuotientWorkspace,
+) void {
+    const quotient_value = quotients.finalizeRowQuotients(
+        quotient_constants,
+        domain_y,
+        workspace.batch_numerators,
+        workspace.denominator_inverses,
+    ) catch return;
+    const coords = quotient_value.toM31Array();
+    inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coord| {
+        out_columns[coord][position] = coords[coord];
+    }
+}
+
+/// Parallel version of `computeMaterializedFriQuotients`.
+/// Falls back to sequential via error return if parallelism is unavailable.
+fn computeMaterializedFriQuotientsParallel(
+    allocator: std.mem.Allocator,
+    flat_columns: []const ColumnEvaluation,
+    prepared: *const PreparedQuotientContext,
+    lifting_log_size: u32,
+    domain_size: usize,
+) !SecureColumnByCoords {
+    if (comptime builtin.single_threaded) return error.ParallelUnavailable;
+    const pool = work_pool_mod.getGlobalPool() orelse return error.ParallelUnavailable;
+
+    const n_workers = @min(pool.workerCount(), domain_size / MIN_POSITIONS_PER_WORKER);
+    if (n_workers <= 1) return error.ParallelUnavailable;
+
+    const domain = canonic.CanonicCoset.new(lifting_log_size).circleDomain();
+
+    var lifted_columns = try materializeActiveLiftedColumns(
+        allocator,
+        flat_columns,
+        prepared.contribution_plan.active_column_indices,
+        lifting_log_size,
+    );
+    defer lifted_columns.deinit(allocator);
+
+    // Allocate per-worker workspaces.
+    const workspaces = try allocator.alloc(quotients.RowQuotientWorkspace, n_workers);
+    defer allocator.free(workspaces);
+    var ws_initialized: usize = 0;
+    defer for (workspaces[0..ws_initialized]) |*ws| ws.deinit(allocator);
+    for (workspaces) |*ws| {
+        ws.* = try quotients.RowQuotientWorkspace.init(allocator, prepared.sample_batches);
+        ws_initialized += 1;
+    }
+
+    var out = try SecureColumnByCoords.uninitialized(allocator, domain_size);
+    errdefer out.deinit(allocator);
+
+    const chunk_size = domain_size / n_workers;
+
+    // Build work items on the stack (bounded by MAX_WORKERS).
+    var work_items: [work_pool_mod.MAX_WORKERS]MaterializedChunkWork = undefined;
+    for (0..n_workers) |w| {
+        const start = w * chunk_size;
+        const end = if (w == n_workers - 1) domain_size else start + chunk_size;
+        work_items[w] = .{
+            .out_columns = out.columns,
+            .start = start,
+            .end = end,
+            .workspace = &workspaces[w],
+            .domain = domain,
+            .lifted_columns = lifted_columns.columns,
+            .contribution_plan_ranges = prepared.contribution_plan.ranges,
+            .contributions = prepared.contribution_plan.contributions,
+            .quotient_constants = &prepared.quotient_constants,
+            .lifting_log_size = lifting_log_size,
+        };
+    }
+
+    // Dispatch workers: all but the first to the pool, first on this thread.
+    var wait_group: std.Thread.WaitGroup = .{};
+    for (work_items[1..n_workers]) |*item| {
+        pool.spawnWg(&wait_group, materializedChunkWorker, .{@as(*const MaterializedChunkWork, item)});
+    }
+    materializedChunkWorker(&work_items[0]);
+    wait_group.wait();
+
+    return out;
+}
+
+/// Parallel version of `computeStreamingFriQuotients`.
+/// Falls back to sequential via error return if parallelism is unavailable.
+fn computeStreamingFriQuotientsParallel(
+    allocator: std.mem.Allocator,
+    flat_columns: []const ColumnEvaluation,
+    prepared: *const PreparedQuotientContext,
+    lifting_log_size: u32,
+    domain_size: usize,
+) !SecureColumnByCoords {
+    if (comptime builtin.single_threaded) return error.ParallelUnavailable;
+    const pool = work_pool_mod.getGlobalPool() orelse return error.ParallelUnavailable;
+
+    const n_workers = @min(pool.workerCount(), domain_size / MIN_POSITIONS_PER_WORKER);
+    if (n_workers <= 1) return error.ParallelUnavailable;
+
+    const domain = canonic.CanonicCoset.new(lifting_log_size).circleDomain();
+
+    const nonzero_columns = try allocator.alloc(bool, flat_columns.len);
+    defer allocator.free(nonzero_columns);
+    @memset(nonzero_columns, true);
+    var combined_plan = try buildCombinedContributionPlan(
+        allocator,
+        flat_columns,
+        prepared.contribution_plan.active_column_indices,
+        prepared.contribution_plan.ranges,
+        prepared.contribution_plan.contributions,
+        nonzero_columns,
+        lifting_log_size,
+    );
+    defer combined_plan.deinit(allocator);
+
+    // Allocate per-worker workspaces.
+    const workspaces = try allocator.alloc(quotients.RowQuotientWorkspace, n_workers);
+    defer allocator.free(workspaces);
+    var ws_initialized: usize = 0;
+    defer for (workspaces[0..ws_initialized]) |*ws| ws.deinit(allocator);
+    for (workspaces) |*ws| {
+        ws.* = try quotients.RowQuotientWorkspace.init(allocator, prepared.sample_batches);
+        ws_initialized += 1;
+    }
+
+    var out = try SecureColumnByCoords.uninitialized(allocator, domain_size);
+    errdefer out.deinit(allocator);
+
+    const chunk_size = domain_size / n_workers;
+
+    // Build work items on the stack (bounded by MAX_WORKERS).
+    var work_items: [work_pool_mod.MAX_WORKERS]StreamingChunkWork = undefined;
+    for (0..n_workers) |w| {
+        const start = w * chunk_size;
+        const end = if (w == n_workers - 1) domain_size else start + chunk_size;
+        work_items[w] = .{
+            .out_columns = out.columns,
+            .start = start,
+            .end = end,
+            .workspace = &workspaces[w],
+            .domain = domain,
+            .combined_views = combined_plan.views,
+            .quotient_constants = &prepared.quotient_constants,
+            .lifting_log_size = lifting_log_size,
+        };
+    }
+
+    // Dispatch workers: all but the first to the pool, first on this thread.
+    var wait_group: std.Thread.WaitGroup = .{};
+    for (work_items[1..n_workers]) |*item| {
+        pool.spawnWg(&wait_group, streamingChunkWorker, .{@as(*const StreamingChunkWork, item)});
+    }
+    streamingChunkWorker(&work_items[0]);
+    wait_group.wait();
 
     return out;
 }
@@ -980,4 +1632,105 @@ test "prover pcs quotient ops: rejects shape mismatch" {
             1,
         ),
     );
+}
+
+test "prover pcs quotient ops: lazy provider matches materialized output" {
+    const alloc = std.testing.allocator;
+    const lifting_log_size: u32 = 6;
+    const domain_size = @as(usize, 1) << @intCast(lifting_log_size);
+
+    const col0 = try alloc.alloc(M31, domain_size);
+    defer alloc.free(col0);
+    for (col0, 0..) |*value, i| value.* = M31.fromCanonical(@intCast(i + 3));
+
+    const col1_log_size: u32 = 4;
+    const col1 = try alloc.alloc(M31, @as(usize, 1) << @intCast(col1_log_size));
+    defer alloc.free(col1);
+    for (col1, 0..) |*value, i| value.* = M31.fromCanonical(@intCast(101 + i));
+
+    const col2 = try alloc.alloc(M31, domain_size);
+    defer alloc.free(col2);
+    for (col2, 0..) |*value, i| value.* = M31.fromCanonical(@intCast(205 + i));
+
+    const tree_columns = try alloc.dupe(ColumnEvaluation, &[_]ColumnEvaluation{
+        .{ .log_size = lifting_log_size, .values = col0 },
+        .{ .log_size = col1_log_size, .values = col1 },
+        .{ .log_size = lifting_log_size, .values = col2 },
+    });
+    var columns = TreeVec([]ColumnEvaluation).initOwned(
+        try alloc.dupe([]ColumnEvaluation, &[_][]ColumnEvaluation{tree_columns}),
+    );
+    defer columns.deinitDeep(alloc);
+    var columns_borrowed = try borrowColumnsForTest(alloc, columns);
+    defer columns_borrowed.deinit(alloc);
+
+    const point0 = @import("../../core/circle.zig").SECURE_FIELD_CIRCLE_GEN.mul(7);
+    const point1 = @import("../../core/circle.zig").SECURE_FIELD_CIRCLE_GEN.mul(13);
+
+    const col0_samples = try alloc.dupe(PointSample, &[_]PointSample{
+        .{ .point = point0, .value = QM31.fromU32Unchecked(1, 2, 3, 4) },
+    });
+    const col1_samples = try alloc.dupe(PointSample, &[_]PointSample{
+        .{ .point = point0, .value = QM31.fromU32Unchecked(5, 6, 7, 8) },
+        .{ .point = point1, .value = QM31.fromU32Unchecked(9, 10, 11, 12) },
+    });
+    const col2_samples = try alloc.alloc(PointSample, 0);
+    const tree_samples = try alloc.dupe([]PointSample, &[_][]PointSample{
+        col0_samples,
+        col1_samples,
+        col2_samples,
+    });
+    var samples = TreeVec([][]PointSample).initOwned(
+        try alloc.dupe([][]PointSample, &[_][][]PointSample{tree_samples}),
+    );
+    defer samples.deinitDeep(alloc);
+    var split_samples = try splitPointSamplesForTest(alloc, samples);
+    defer split_samples.deinit(alloc);
+
+    const alpha = QM31.fromU32Unchecked(3, 0, 1, 0);
+
+    // Compute via existing materialized path.
+    var materialized = try computeFriQuotientsWithStrategy(
+        alloc,
+        columns_borrowed,
+        split_samples.points,
+        split_samples.values,
+        alpha,
+        lifting_log_size,
+        .materialized,
+    );
+    defer materialized.deinit(alloc);
+
+    // Compute via lazy provider, chunk by chunk.
+    var provider = try LazyQuotientProvider.init(
+        alloc,
+        columns_borrowed,
+        split_samples.points,
+        split_samples.values,
+        alpha,
+        lifting_log_size,
+    );
+    defer provider.deinit(alloc);
+
+    var lazy_column = try SecureColumnByCoords.uninitialized(alloc, domain_size);
+    defer lazy_column.deinit(alloc);
+
+    var chunk_start: usize = 0;
+    const chunk_size: usize = 16; // use small chunks in test to exercise boundary logic
+    while (chunk_start < domain_size) {
+        const this_chunk = @min(chunk_size, domain_size - chunk_start);
+        var chunk_coords: [qm31.SECURE_EXTENSION_DEGREE][]M31 = undefined;
+        inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coord| {
+            chunk_coords[coord] = lazy_column.columns[coord][chunk_start..][0..this_chunk];
+        }
+        try provider.computeChunk(chunk_start, this_chunk, &chunk_coords);
+        chunk_start += this_chunk;
+    }
+
+    // Verify bit-identical output.
+    for (0..domain_size) |i| {
+        const mat_val = materialized.at(i);
+        const lazy_val = lazy_column.at(i);
+        try std.testing.expect(mat_val.eql(lazy_val));
+    }
 }

@@ -10,6 +10,8 @@ const poly_utils = @import("../../../core/poly/utils.zig");
 const eval_mod = @import("evaluation.zig");
 const twiddles_mod = @import("../twiddles.zig");
 
+const CpuBackend = @import("../../../backends/cpu_scalar/mod.zig").CpuBackend;
+
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
 const CirclePointQM31 = circle.CirclePointQM31;
@@ -23,11 +25,13 @@ pub const PolyError = error{
     SingularSystem,
 };
 
-/// Polynomial coefficients in the circle-FFT basis.
+/// Polynomial coefficients in the circle-FFT basis, generic over backend `B`.
 ///
 /// Invariants:
 /// - `coeffs.len` is a non-zero power of two.
-pub const CircleCoefficients = struct {
+pub fn CircleCoefficientsGeneric(comptime B: type) type {
+    _ = B;
+    return struct {
     coeffs: []const M31,
     log_size: u32,
     owns_coeffs: bool,
@@ -322,7 +326,10 @@ pub const CircleCoefficients = struct {
             .right = try CircleCoefficients.initOwned(right),
         };
     }
-};
+    };
+}
+
+pub const CircleCoefficients = CircleCoefficientsGeneric(CpuBackend);
 
 /// Interpolates circle coefficients from bit-reversed domain evaluations.
 ///
@@ -513,7 +520,7 @@ fn interpolateIntoBufferWithTwiddles(
     }
 }
 
-fn interpolateBuffersWithTwiddles(
+pub fn interpolateBuffersWithTwiddles(
     coeffs_batch: []const []M31,
     domain: CircleDomain,
     twiddle_tree: M31TwiddleTree,
@@ -603,7 +610,7 @@ fn interpolateBuffersWithTwiddles(
     }
 }
 
-fn evaluateBuffersWithTwiddles(
+pub fn evaluateBuffersWithTwiddles(
     values_batch: []const []M31,
     domain: CircleDomain,
     twiddle_tree: M31TwiddleTree,
@@ -834,6 +841,79 @@ inline fn fftLayerLoopForwardM31(
     var lhs = values.ptr + block_start;
     var rhs = lhs + half_block;
     var remaining = half_block;
+
+    // Hardware-native SIMD path with interleaved pipeline execution.
+    // By loading and multiplying multiple pairs before storing results,
+    // the CPU's out-of-order execution can pipeline independent multiplies.
+    const PW = m31.PACK_WIDTH;
+    const twid_packed: m31.PackedM31 = @splat(twid.v);
+
+    // 4-way interleaved: process 4 butterfly pairs simultaneously.
+    const PW4 = PW * 4;
+    while (remaining >= PW4) : (remaining -= PW4) {
+        // Load all 4 pairs.
+        const v0a = m31.loadPacked(lhs);
+        const v1a = m31.loadPacked(rhs);
+        const v0b = m31.loadPacked(lhs + PW);
+        const v1b = m31.loadPacked(rhs + PW);
+        const v0c = m31.loadPacked(lhs + PW * 2);
+        const v1c = m31.loadPacked(rhs + PW * 2);
+        const v0d = m31.loadPacked(lhs + PW * 3);
+        const v1d = m31.loadPacked(rhs + PW * 3);
+
+        // Issue all 4 multiplications (pipeline-friendly: independent operations).
+        const ma = m31.mulPacked(v1a, twid_packed);
+        const mb = m31.mulPacked(v1b, twid_packed);
+        const mc = m31.mulPacked(v1c, twid_packed);
+        const md = m31.mulPacked(v1d, twid_packed);
+
+        // Store results (by now the multiplies have completed).
+        m31.storePacked(lhs, m31.addPacked(v0a, ma));
+        m31.storePacked(rhs, m31.subPacked(v0a, ma));
+        m31.storePacked(lhs + PW, m31.addPacked(v0b, mb));
+        m31.storePacked(rhs + PW, m31.subPacked(v0b, mb));
+        m31.storePacked(lhs + PW * 2, m31.addPacked(v0c, mc));
+        m31.storePacked(rhs + PW * 2, m31.subPacked(v0c, mc));
+        m31.storePacked(lhs + PW * 3, m31.addPacked(v0d, md));
+        m31.storePacked(rhs + PW * 3, m31.subPacked(v0d, md));
+
+        lhs += PW4;
+        rhs += PW4;
+    }
+    // 2-way interleaved fallback for remaining >= 2 packed widths.
+    const PW2 = PW * 2;
+    while (remaining >= PW2) : (remaining -= PW2) {
+        const v0a = m31.loadPacked(lhs);
+        const v1a = m31.loadPacked(rhs);
+        const v0b = m31.loadPacked(lhs + PW);
+        const v1b = m31.loadPacked(rhs + PW);
+
+        const ma = m31.mulPacked(v1a, twid_packed);
+        const mb = m31.mulPacked(v1b, twid_packed);
+
+        m31.storePacked(lhs, m31.addPacked(v0a, ma));
+        m31.storePacked(rhs, m31.subPacked(v0a, ma));
+        m31.storePacked(lhs + PW, m31.addPacked(v0b, mb));
+        m31.storePacked(rhs + PW, m31.subPacked(v0b, mb));
+
+        lhs += PW2;
+        rhs += PW2;
+    }
+    // Single packed-width fallback.
+    while (remaining >= PW) : (remaining -= PW) {
+        m31.butterflyPacked(lhs, rhs, twid_packed);
+        lhs += PW;
+        rhs += PW;
+    }
+    // 4-lane SIMD for remainder.
+    const VW = m31.VEC_WIDTH;
+    const twid_vec: m31.Vec4u32 = @splat(twid.v);
+    while (remaining >= VW) : (remaining -= VW) {
+        m31.butterflyVec4(lhs, rhs, twid_vec);
+        lhs += VW;
+        rhs += VW;
+    }
+    // Scalar tail.
     while (remaining != 0) : (remaining -= 1) {
         const v0 = lhs[0];
         const v1 = rhs[0];
@@ -866,6 +946,94 @@ inline fn fftLayerLoopInverseM31(
     var lhs = values.ptr + block_start;
     var rhs = lhs + half_block;
     var remaining = half_block;
+
+    // Hardware-native SIMD path with interleaved pipeline execution.
+    // By loading and computing multiple pairs before storing results,
+    // the CPU's out-of-order execution can pipeline independent multiplies.
+    const PW = m31.PACK_WIDTH;
+    const itwid_packed: m31.PackedM31 = @splat(itwid.v);
+
+    // 4-way interleaved: process 4 inverse butterfly pairs simultaneously.
+    const PW4 = PW * 4;
+    while (remaining >= PW4) : (remaining -= PW4) {
+        // Load all 4 pairs.
+        const v0a = m31.loadPacked(lhs);
+        const v1a = m31.loadPacked(rhs);
+        const v0b = m31.loadPacked(lhs + PW);
+        const v1b = m31.loadPacked(rhs + PW);
+        const v0c = m31.loadPacked(lhs + PW * 2);
+        const v1c = m31.loadPacked(rhs + PW * 2);
+        const v0d = m31.loadPacked(lhs + PW * 3);
+        const v1d = m31.loadPacked(rhs + PW * 3);
+
+        // Compute sums and diffs for all 4 pairs.
+        const sum_a = m31.addPacked(v0a, v1a);
+        const sum_b = m31.addPacked(v0b, v1b);
+        const sum_c = m31.addPacked(v0c, v1c);
+        const sum_d = m31.addPacked(v0d, v1d);
+        const diff_a = m31.subPacked(v0a, v1a);
+        const diff_b = m31.subPacked(v0b, v1b);
+        const diff_c = m31.subPacked(v0c, v1c);
+        const diff_d = m31.subPacked(v0d, v1d);
+
+        // Issue all 4 multiplications (pipeline-friendly: independent operations).
+        const ma = m31.mulPacked(diff_a, itwid_packed);
+        const mb = m31.mulPacked(diff_b, itwid_packed);
+        const mc = m31.mulPacked(diff_c, itwid_packed);
+        const md = m31.mulPacked(diff_d, itwid_packed);
+
+        // Store results (by now the multiplies have completed).
+        m31.storePacked(lhs, sum_a);
+        m31.storePacked(rhs, ma);
+        m31.storePacked(lhs + PW, sum_b);
+        m31.storePacked(rhs + PW, mb);
+        m31.storePacked(lhs + PW * 2, sum_c);
+        m31.storePacked(rhs + PW * 2, mc);
+        m31.storePacked(lhs + PW * 3, sum_d);
+        m31.storePacked(rhs + PW * 3, md);
+
+        lhs += PW4;
+        rhs += PW4;
+    }
+    // 2-way interleaved fallback for remaining >= 2 packed widths.
+    const PW2 = PW * 2;
+    while (remaining >= PW2) : (remaining -= PW2) {
+        const v0a = m31.loadPacked(lhs);
+        const v1a = m31.loadPacked(rhs);
+        const v0b = m31.loadPacked(lhs + PW);
+        const v1b = m31.loadPacked(rhs + PW);
+
+        const sum_a = m31.addPacked(v0a, v1a);
+        const sum_b = m31.addPacked(v0b, v1b);
+        const diff_a = m31.subPacked(v0a, v1a);
+        const diff_b = m31.subPacked(v0b, v1b);
+
+        const ma = m31.mulPacked(diff_a, itwid_packed);
+        const mb = m31.mulPacked(diff_b, itwid_packed);
+
+        m31.storePacked(lhs, sum_a);
+        m31.storePacked(rhs, ma);
+        m31.storePacked(lhs + PW, sum_b);
+        m31.storePacked(rhs + PW, mb);
+
+        lhs += PW2;
+        rhs += PW2;
+    }
+    // Single packed-width fallback.
+    while (remaining >= PW) : (remaining -= PW) {
+        m31.ibutterflyPacked(lhs, rhs, itwid_packed);
+        lhs += PW;
+        rhs += PW;
+    }
+    // 4-lane SIMD for remainder.
+    const VW = m31.VEC_WIDTH;
+    const itwid_vec: m31.Vec4u32 = @splat(itwid.v);
+    while (remaining >= VW) : (remaining -= VW) {
+        m31.ibutterflyVec4(lhs, rhs, itwid_vec);
+        lhs += VW;
+        rhs += VW;
+    }
+    // Scalar tail.
     while (remaining != 0) : (remaining -= 1) {
         const v0 = lhs[0];
         const v1 = rhs[0];
