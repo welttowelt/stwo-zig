@@ -35,6 +35,12 @@ Interop/checkpoint example set: `blake`, `poseidon`, `plonk`, `state_machine`, `
 - Python 3
 - Rust nightly `nightly-2025-07-14` (for Rust-side parity and interop tools)
 
+## Contributing
+
+Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before changing protocol, Zig, SIMD, Metal, benchmark,
+or repository architecture code. It defines the correctness, ownership, layout, performance,
+evidence, and review requirements for this project.
+
 ## Core Commands
 
 ```bash
