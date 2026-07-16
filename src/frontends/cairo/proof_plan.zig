@@ -44,6 +44,48 @@ pub const WriterKind = enum {
     memory_trace,
 };
 
+/// Lookup slabs whose base writer is cheaper than replaying the same witness
+/// program during interaction and whose retained footprint fits the SN2 arena.
+pub fn retainsLookupInputs(component: []const u8) bool {
+    if (std.process.hasEnvVarConstant("STWO_ZIG_METAL_REPLAY_RETAINED_LOOKUPS")) return false;
+    return retainsLookupInputsByPolicy(component, true);
+}
+
+fn retainsLookupInputsByPolicy(component: []const u8, retain: bool) bool {
+    if (!retain) return false;
+    return std.mem.eql(u8, component, "partial_ec_mul_window_bits_18") or
+        std.mem.eql(u8, component, "cube_252") or
+        std.mem.eql(u8, component, "poseidon_3_partial_rounds_chain");
+}
+
+/// Retained lookup producers still replay only their interaction subwords so
+/// downstream gathers observe the interaction-epoch producer slab.
+pub fn retainedLookupReplaysSubwords(component: []const u8) bool {
+    return retainsLookupInputs(component) and
+        std.mem.eql(u8, component, "poseidon_3_partial_rounds_chain");
+}
+
+test "retained lookup policy is narrow and explicit" {
+    for ([_][]const u8{
+        "partial_ec_mul_window_bits_18",
+        "cube_252",
+        "poseidon_3_partial_rounds_chain",
+    }) |component| try std.testing.expect(retainsLookupInputs(component));
+    try std.testing.expect(retainedLookupReplaysSubwords("poseidon_3_partial_rounds_chain"));
+    for ([_][]const u8{
+        "partial_ec_mul_generic",
+        "blake_g",
+        "add_opcode",
+        "verify_instruction",
+    }) |component| {
+        try std.testing.expect(!retainsLookupInputs(component));
+        try std.testing.expect(!retainedLookupReplaysSubwords(component));
+    }
+    try std.testing.expect(!retainsLookupInputsByPolicy("partial_ec_mul_window_bits_18", false));
+    try std.testing.expect(!retainsLookupInputsByPolicy("cube_252", false));
+    try std.testing.expect(!retainsLookupInputsByPolicy("poseidon_3_partial_rounds_chain", false));
+}
+
 pub const Component = struct {
     name: []const u8,
     canonical_ordinal: u32,
@@ -161,7 +203,7 @@ pub const CairoProofPlan = struct {
         schedule: []const std.json.Value,
         row_overrides: []const std.json.Value,
         bundle: witness_bundle.Bundle,
-        input: *const adapter.ProverInput,
+        input: ?*const adapter.ProverInput,
     ) !CairoProofPlan {
         const components = try allocator.alloc(Component, bundle.entries.len);
         defer allocator.free(components);
@@ -216,7 +258,10 @@ pub const CairoProofPlan = struct {
         }
         for (bundle.entries, 0..) |entry, index| {
             real_rows[index] = try exactRowOverride(row_overrides, entry.label) orelse
-                directRealRows(input, entry.label, padded_rows[index]);
+                if (input) |adapted|
+                    directRealRows(adapted, entry.label, padded_rows[index])
+                else
+                    padded_rows[index];
         }
         var unresolved = bundle.entries.len;
         while (unresolved > 0) {

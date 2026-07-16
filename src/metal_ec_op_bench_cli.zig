@@ -1,5 +1,9 @@
 const std = @import("std");
 const metal = @import("backends/metal/runtime.zig");
+const adapted_input = @import("frontends/cairo/adapter/adapted_input.zig");
+const cairo_adapter = @import("frontends/cairo/adapter/mod.zig");
+
+const OutputMode = enum { base, lookup, all };
 
 fn takeWord(bytes: []const u8, cursor: *usize) !u32 {
     if (cursor.* + 4 > bytes.len) return error.Truncated;
@@ -14,25 +18,57 @@ pub fn main() !void {
     const allocator = gpa.allocator();
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
-    if (args.len != 2) return error.InvalidArguments;
+    if (args.len < 2 or args.len > 3) return error.InvalidArguments;
+    const output_mode: OutputMode = if (args.len == 3)
+        std.meta.stringToEnum(OutputMode, args[2]) orelse return error.InvalidArguments
+    else
+        .all;
     const bytes = try std.fs.cwd().readFileAlloc(allocator, args[1], 512 * 1024 * 1024);
     defer allocator.free(bytes);
-    if (bytes.len < 32 or !std.mem.eql(u8, bytes[0..8], "STWZECI\x00")) return error.InvalidInput;
-    var cursor: usize = 8;
-    if (try takeWord(bytes, &cursor) != 1) return error.InvalidInput;
-    const rows = try takeWord(bytes, &cursor);
-    const segment = try takeWord(bytes, &cursor);
-    const n_addresses = try takeWord(bytes, &cursor);
-    const n_big = try takeWord(bytes, &cursor);
-    const n_small = try takeWord(bytes, &cursor);
-    if (rows < 16 or !std.math.isPowerOfTwo(rows)) return error.InvalidInput;
-    const aligned: []align(4) const u8 = @alignCast(bytes[cursor..]);
-    const input_words = std.mem.bytesAsSlice(u32, aligned);
-    const expected_words = @as(usize, n_addresses) + @as(usize, n_big) * 8 + @as(usize, n_small) * 4;
-    if (input_words.len != expected_words) return error.InvalidInput;
-    const addresses = input_words[0..n_addresses];
-    const big_words = input_words[n_addresses .. n_addresses + @as(usize, n_big) * 8];
-    const small_words = input_words[n_addresses + @as(usize, n_big) * 8 ..];
+    if (bytes.len < 32) return error.InvalidInput;
+    var adapted: ?cairo_adapter.ProverInput = null;
+    defer if (adapted) |*input| input.deinit(allocator);
+    var rows: u32 = undefined;
+    var segment: u32 = undefined;
+    var addresses: []const u32 = undefined;
+    var big_words: []const u32 = undefined;
+    var small_words: []const u32 = undefined;
+    if (std.mem.eql(u8, bytes[0..8], &adapted_input.MAGIC)) {
+        adapted = try adapted_input.readFile(allocator, args[1]);
+        const input = &adapted.?;
+        const ec_segment = input.builtin_segments.ec_op_builtin orelse return error.InvalidInput;
+        if (ec_segment.stop_ptr < ec_segment.begin_addr or ec_segment.begin_addr > std.math.maxInt(u32))
+            return error.InvalidInput;
+        const instances = (ec_segment.stop_ptr - ec_segment.begin_addr) / 7;
+        rows = @intCast(@max(std.math.ceilPowerOfTwo(usize, instances) catch return error.InvalidInput, 16));
+        segment = @intCast(ec_segment.begin_addr);
+        addresses = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(input.memory.address_to_id));
+        big_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(input.memory.f252_values));
+        small_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(input.memory.small_values));
+    } else {
+        const input_only = std.mem.eql(u8, bytes[0..8], "STWZECI\x00");
+        const parity_fixture = std.mem.eql(u8, bytes[0..8], "STWZECO\x00");
+        if (!input_only and !parity_fixture) return error.InvalidInput;
+        var cursor: usize = 8;
+        if (try takeWord(bytes, &cursor) != 1) return error.InvalidInput;
+        rows = try takeWord(bytes, &cursor);
+        segment = try takeWord(bytes, &cursor);
+        const n_addresses = try takeWord(bytes, &cursor);
+        const n_big = try takeWord(bytes, &cursor);
+        const n_small = try takeWord(bytes, &cursor);
+        if (rows < 16 or !std.math.isPowerOfTwo(rows)) return error.InvalidInput;
+        const aligned: []align(4) const u8 = @alignCast(bytes[cursor..]);
+        const input_words = std.mem.bytesAsSlice(u32, aligned);
+        const expected_words = @as(usize, n_addresses) + @as(usize, n_big) * 8 + @as(usize, n_small) * 4;
+        if ((input_only and input_words.len != expected_words) or input_words.len < expected_words)
+            return error.InvalidInput;
+        addresses = input_words[0..n_addresses];
+        big_words = input_words[n_addresses .. n_addresses + @as(usize, n_big) * 8];
+        small_words = input_words[n_addresses + @as(usize, n_big) * 8 ..][0 .. @as(usize, n_small) * 4];
+    }
+    const n_addresses = std.math.cast(u32, addresses.len) orelse return error.InvalidInput;
+    const n_big = std.math.cast(u32, big_words.len / 8) orelse return error.InvalidInput;
+    const n_small = std.math.cast(u32, small_words.len / 4) orelse return error.InvalidInput;
 
     const total_words = @as(usize, n_addresses) + @as(usize, n_big) * 28 + @as(usize, n_small) * 8 +
         @as(usize, rows) * (273 + 488 + 127 * 256) + n_addresses + n_big + n_small + 256 + 1;
@@ -95,13 +131,25 @@ pub fn main() !void {
     words[next] = segment;
     next += 1;
     if (next > total_words) return error.SizeOverflow;
-    var plan = try runtime.prepareEcOp(execution_offsets, trace_offsets, partial_offsets, multiplicity_offsets, lookup_offset, segment_offset, partial_offsets[126], rows);
+    var plan = try runtime.prepareEcOp(
+        execution_offsets,
+        trace_offsets,
+        partial_offsets,
+        multiplicity_offsets,
+        lookup_offset,
+        segment_offset,
+        partial_offsets[126],
+        rows,
+        output_mode != .lookup,
+        output_mode != .base,
+    );
     defer plan.deinit();
     var samples: [5]f64 = undefined;
     for (&samples) |*sample| sample.* = try runtime.ecOpPrepared(arena, plan);
     std.mem.sort(f64, &samples, {}, std.sort.asc(f64));
     const median = samples[2];
     const result = .{
+        .output_mode = @tagName(output_mode),
         .rows = rows,
         .rounds_per_row = 252,
         .gpu_ms_median = median,

@@ -4,6 +4,8 @@ const proof_plan = @import("proof_plan.zig");
 
 pub const BufferRole = enum {
     witness_input,
+    retained_witness_input,
+    retained_lookup_inputs,
     producer_slab,
     base_trace,
     base_coefficients,
@@ -11,6 +13,8 @@ pub const BufferRole = enum {
     multiplicity,
     interaction_trace,
     interaction_coefficients,
+    component_scratch,
+    witness_shared,
     protocol_persistent,
 };
 
@@ -171,14 +175,28 @@ pub const StagedArenaPlanner = struct {
             break :blk self.component_ticks[index];
         } else 0;
         const interaction_tick = if (spec.component_index) |index|
-            std.math.add(u16, self.ticks.interaction_start, @intCast(index)) catch return Error.TickOverflow
+            try self.interactionTickForWitnessTick(self.component_ticks[index])
         else
             self.ticks.interaction_start;
         switch (spec.role) {
-            .witness_input => output[0] = .{ .first = witness_epoch, .last = component_tick },
-            .producer_slab => output[0] = .{
-                .first = component_tick,
-                .last = self.last_consumer_ticks[spec.component_index orelse return Error.InvalidComponentIndex],
+            .witness_input => {
+                output[0] = .{ .first = witness_epoch, .last = component_tick };
+                output[1] = .{ .first = interaction_tick, .last = interaction_tick };
+            },
+            .retained_witness_input, .retained_lookup_inputs => {
+                if (spec.component_index == null) return Error.InvalidComponentIndex;
+                output[0] = .{ .first = component_tick, .last = interaction_tick };
+            },
+            .producer_slab => {
+                const component_index = spec.component_index orelse return Error.InvalidComponentIndex;
+                output[0] = .{
+                    .first = component_tick,
+                    .last = self.last_consumer_ticks[component_index],
+                };
+                output[1] = .{
+                    .first = interaction_tick,
+                    .last = try self.interactionTickForWitnessTick(self.last_consumer_ticks[component_index]),
+                };
             },
             .base_trace => output[0] = .{ .first = component_tick, .last = component_tick },
             .base_coefficients => {
@@ -186,10 +204,7 @@ pub const StagedArenaPlanner = struct {
                 output[1] = .{ .first = self.ticks.composition, .last = self.ticks.quotient };
                 output[2] = .{ .first = self.ticks.decommit, .last = self.ticks.decommit };
             },
-            .lookup_inputs => {
-                output[0] = .{ .first = component_tick, .last = component_tick };
-                output[1] = .{ .first = interaction_tick, .last = interaction_tick };
-            },
+            .lookup_inputs => output[0] = .{ .first = interaction_tick, .last = interaction_tick },
             .multiplicity => output[0] = .{ .first = 0, .last = self.ticks.interaction_commit },
             .interaction_trace => output[0] = .{ .first = interaction_tick, .last = interaction_tick },
             .interaction_coefficients => {
@@ -197,15 +212,35 @@ pub const StagedArenaPlanner = struct {
                 output[1] = .{ .first = self.ticks.composition, .last = self.ticks.quotient };
                 output[2] = .{ .first = self.ticks.decommit, .last = self.ticks.decommit };
             },
+            .component_scratch => {
+                output[0] = .{ .first = component_tick, .last = component_tick };
+                output[1] = .{ .first = interaction_tick, .last = interaction_tick };
+            },
+            .witness_shared => {
+                const interaction_last = std.math.add(
+                    u16,
+                    self.ticks.interaction_start,
+                    std.math.cast(u16, self.proof.components.len - 1) orelse return Error.TickOverflow,
+                ) catch return Error.TickOverflow;
+                output[0] = .{ .first = witness_epoch, .last = self.ticks.base_commit - 1 };
+                output[1] = .{ .first = self.ticks.interaction_start, .last = interaction_last };
+            },
             .protocol_persistent => output[0] = .{ .first = 0, .last = self.ticks.assemble },
         }
+    }
+
+    fn interactionTickForWitnessTick(self: StagedArenaPlanner, witness_tick: u16) !u16 {
+        if (witness_tick <= witness_epoch) return Error.InvalidComponentIndex;
+        const execution_ordinal = witness_tick - witness_epoch - 1;
+        if (execution_ordinal >= self.proof.components.len) return Error.InvalidComponentIndex;
+        return std.math.add(u16, self.ticks.interaction_start, execution_ordinal) catch return Error.TickOverflow;
     }
 };
 
 fn roleRangeCount(role: BufferRole) usize {
     return switch (role) {
         .base_coefficients, .interaction_coefficients => 3,
-        .lookup_inputs => 2,
+        .witness_input, .producer_slab, .component_scratch, .witness_shared => 2,
         else => 1,
     };
 }
@@ -246,7 +281,103 @@ test "staged arena liveness retains producer through last dependent level" {
     };
     var inputs = try planner.derive(std.testing.allocator, &specs);
     defer inputs.deinit();
-    try std.testing.expectEqual(arena_plan.LiveRange{ .first = 1, .last = 2 }, inputs.logical[0].live_ranges[0]);
+    try std.testing.expectEqual(@as(usize, 2), inputs.logical[0].live_ranges.len);
+    try std.testing.expectEqual(arena_plan.LiveRange{ .first = 66, .last = 67 }, inputs.logical[0].live_ranges[0]);
+    try std.testing.expectEqual(arena_plan.LiveRange{ .first = 196, .last = 197 }, inputs.logical[0].live_ranges[1]);
     try std.testing.expectEqual(@as(usize, 3), inputs.logical[1].live_ranges.len);
     try std.testing.expectEqual(planner.ticks.base_commit, inputs.logical[1].live_ranges[0].last);
+}
+
+test "interaction liveness follows topological execution rather than canonical index" {
+    const rows = [_]proof_plan.TracePart{.{ .id = .main, .rows = .{ .real_rows = 16, .padded_rows = 16 } }};
+    const edge = [_]proof_plan.ProducerEdge{.{
+        .producer = "producer",
+        .word_base = 0,
+        .words_per_instance = 1,
+        .instances = 1,
+    }};
+    const components = [_]proof_plan.Component{
+        .{
+            .name = "consumer",
+            .canonical_ordinal = 0,
+            .writer = .recorded_aot,
+            .trace_parts = &rows,
+            .producer_edges = &edge,
+            .capacity_feeds = &.{},
+        },
+        .{
+            .name = "producer",
+            .canonical_ordinal = 1,
+            .writer = .recorded_aot,
+            .trace_parts = &rows,
+            .producer_edges = &.{},
+            .capacity_feeds = &.{},
+        },
+    };
+    var proof = try proof_plan.CairoProofPlan.init(std.testing.allocator, &components);
+    defer proof.deinit();
+    var planner = try StagedArenaPlanner.init(std.testing.allocator, &proof);
+    defer planner.deinit();
+    const specs = [_]BufferSpec{
+        .{ .logical_id = 1, .component_index = 1, .role = .producer_slab, .size_bytes = 64 },
+        .{ .logical_id = 2, .component_index = 0, .role = .witness_input, .size_bytes = 64 },
+    };
+    var inputs = try planner.derive(std.testing.allocator, &specs);
+    defer inputs.deinit();
+    try std.testing.expectEqual(arena_plan.LiveRange{ .first = 196, .last = 197 }, inputs.logical[0].live_ranges[1]);
+    try std.testing.expectEqual(arena_plan.LiveRange{ .first = 197, .last = 197 }, inputs.logical[1].live_ranges[1]);
+}
+
+test "staged arena liveness retains selected witness and lookup inputs through interaction" {
+    const rows = [_]proof_plan.TracePart{.{ .id = .main, .rows = .{ .real_rows = 16, .padded_rows = 16 } }};
+    const components = [_]proof_plan.Component{.{
+        .name = "partial_ec_mul_generic",
+        .canonical_ordinal = 0,
+        .writer = .recorded_aot,
+        .trace_parts = &rows,
+        .producer_edges = &.{},
+        .capacity_feeds = &.{},
+    }};
+    var proof = try proof_plan.CairoProofPlan.init(std.testing.allocator, &components);
+    defer proof.deinit();
+    var planner = try StagedArenaPlanner.init(std.testing.allocator, &proof);
+    defer planner.deinit();
+    const specs = [_]BufferSpec{
+        .{
+            .logical_id = 1,
+            .component_index = 0,
+            .role = .retained_witness_input,
+            .size_bytes = 64,
+        },
+        .{
+            .logical_id = 2,
+            .component_index = 0,
+            .role = .retained_lookup_inputs,
+            .size_bytes = 128,
+        },
+        .{
+            .logical_id = 3,
+            .component_index = 0,
+            .role = .lookup_inputs,
+            .size_bytes = 128,
+        },
+    };
+    var inputs = try planner.derive(std.testing.allocator, &specs);
+    defer inputs.deinit();
+    try std.testing.expectEqual(@as(usize, 1), inputs.logical[0].live_ranges.len);
+    try std.testing.expectEqual(
+        arena_plan.LiveRange{ .first = 66, .last = 196 },
+        inputs.logical[0].live_ranges[0],
+    );
+    try std.testing.expectEqual(@as(usize, 1), inputs.logical[1].live_ranges.len);
+    try std.testing.expectEqual(
+        arena_plan.LiveRange{ .first = 66, .last = 196 },
+        inputs.logical[1].live_ranges[0],
+    );
+    try std.testing.expectEqual(arena_plan.LiveRange{ .first = 196, .last = 196 }, inputs.logical[2].live_ranges[0]);
+    var ranges: [1]arena_plan.LiveRange = undefined;
+    try std.testing.expectError(
+        Error.InvalidComponentIndex,
+        planner.rangesFor(.retained_lookup_inputs, null, &ranges),
+    );
 }

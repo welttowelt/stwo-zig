@@ -1,0 +1,325 @@
+from __future__ import annotations
+
+import importlib.util
+import json
+from pathlib import Path
+import struct
+import tempfile
+import unittest
+
+
+ROOT = Path(__file__).resolve().parents[2]
+SPEC = importlib.util.spec_from_file_location(
+    "sn_pie_arena_schedule", ROOT / "scripts" / "sn_pie_arena_schedule.py"
+)
+assert SPEC is not None and SPEC.loader is not None
+schedule_tool = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(schedule_tool)
+
+
+def entry(
+    logical_id: int,
+    purpose: str,
+    words: int,
+    component: str | None = None,
+    ordinal: int = 0,
+) -> dict[str, object]:
+    result: dict[str, object] = {
+        "id": logical_id,
+        "purpose": purpose,
+        "ordinal": ordinal,
+        "len_words": words,
+        "first": "Witness",
+        "last": "Interaction",
+    }
+    if component is not None:
+        result["component"] = component
+    return result
+
+
+class ArenaScheduleTests(unittest.TestCase):
+    def test_adapted_input_derives_exact_compact_and_raw_geometry(self) -> None:
+        address_ids = list(range(64))
+        pedersen_begin = 1
+        pedersen_triples = [(7, 8, 9), (7, 8, 9), (10, 11, 12), (13, 14, 15)]
+        for row, values in enumerate(pedersen_triples):
+            address_ids[pedersen_begin + row * 3 : pedersen_begin + (row + 1) * 3] = values
+        poseidon_begin = 20
+        poseidon_tuples = [
+            (1, 2, 3, 4, 5, 6),
+            (1, 2, 3, 4, 5, 6),
+            (7, 8, 9, 10, 11, 12),
+            (13, 14, 15, 16, 17, 18),
+        ]
+        for row, values in enumerate(poseidon_tuples):
+            address_ids[poseidon_begin + row * 6 : poseidon_begin + (row + 1) * 6] = values
+
+        data = bytearray(schedule_tool.ADAPTED_INPUT_MAGIC)
+        data.extend(struct.pack("<II", schedule_tool.ADAPTED_INPUT_VERSION, 0))
+        data.extend(bytes(2 * 3 * 4))
+        data.extend(struct.pack("<QHHIII", 17, 0, 0, 0, schedule_tool.OPCODE_COUNT, 0))
+        for _ in range(schedule_tool.OPCODE_COUNT):
+            data.extend(struct.pack("<Q", 0))
+        data.extend(struct.pack("<QQII", 0, 0, 24, 0))
+        data.extend(struct.pack("<QQQ", len(address_ids), 1, 1))
+        data.extend(struct.pack("<" + "I" * len(address_ids), *address_ids))
+        data.extend(bytes(8 * 4))
+        data.extend(bytes(2 * 8))
+        data.extend(struct.pack("<Q", 0))
+        for segment_index in range(schedule_tool.BUILTIN_SEGMENT_COUNT):
+            if segment_index == schedule_tool.PEDERSEN_SEGMENT_INDEX:
+                data.extend(struct.pack("<B7xQQ", 1, pedersen_begin, pedersen_begin + 12))
+            elif segment_index == schedule_tool.POSEIDON_SEGMENT_INDEX:
+                data.extend(struct.pack("<B7xQQ", 1, poseidon_begin, poseidon_begin + 24))
+            else:
+                data.extend(struct.pack("<B7xQQ", 0, 0, 0))
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "input.stwzcpi"
+            path.write_bytes(data)
+            metadata = schedule_tool.adapted_input_metadata(path, 4, 4)
+        self.assertEqual(metadata["pc_count"], 17)
+        self.assertEqual(metadata["address_count"], 64)
+        self.assertEqual(metadata["f252_count"], 1)
+        self.assertEqual(metadata["small_count"], 1)
+        self.assertEqual(metadata["pedersen_compact_rows"], 3)
+        self.assertEqual(metadata["poseidon_compact_rows"], 3)
+
+    def test_proof_rows_includes_memory_small_as_second_memory_group(self) -> None:
+        proof = {
+            "claim": {
+                "public_data": {},
+                "add_opcode": {"log_size": 7},
+                "memory_id_to_big": {"big_log_sizes": [5]},
+                "memory_id_to_small": {"log_size": 9},
+                "generic_opcode": None,
+            }
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "proof.json"
+            path.write_text(json.dumps(proof))
+            self.assertEqual(
+                schedule_tool.proof_rows(path),
+                {"add_opcode": [128], "memory_id_to_big": [32, 512], "memory_id_to_small": [512]},
+            )
+
+    def test_grouped_memory_rows_and_runtime_multiplicities_retarget(self) -> None:
+        schedule = [
+            entry(0, "BaseTrace", 32, "memory_id_to_big", 0),
+            entry(1, "BaseTrace", 32, "memory_id_to_big", 1),
+            entry(2, "BaseCoefficients", 32, "memory_id_to_big", 0),
+            entry(3, "BaseCoefficients", 32, "memory_id_to_big", 1),
+            entry(4, "BaseTrace", 256, "memory_id_to_big", 0),
+            entry(5, "BaseCoefficients", 256, "memory_id_to_big", 0),
+            entry(6, "RuntimeMultiplicity", 32, "memory_id_to_big", 22),
+            entry(7, "RuntimeMultiplicity", 256, "memory_id_to_big", 23),
+        ]
+        pairs = schedule_tool.source_target_rows(
+            schedule, {"memory_id_to_big": [64, 1024]}
+        )
+        schedule_tool.scale_component_entries(schedule, pairs)
+        self.assertEqual(
+            [int(value["len_words"]) for value in schedule],
+            [64, 64, 64, 64, 1024, 1024, 64, 1024],
+        )
+
+    def test_execution_table_geometry_comes_from_adapted_input(self) -> None:
+        schedule = [
+            entry(0, "ExecutionTableRawAddressToId", 10),
+            entry(1, "ExecutionTableRawF252Words", 10),
+            entry(2, "ExecutionTableRawSmallWords", 10),
+            entry(3, "ExecutionTableBigLimb", 10, ordinal=0),
+            entry(4, "ExecutionTableSmallLimb", 10, ordinal=0),
+            entry(5, "RuntimeMultiplicity", 10, "memory_address_to_id", 21),
+        ]
+        pairs = {"memory_id_to_big": [(16, 32), (64, 128)]}
+        metadata = {"address_count": 65, "f252_count": 3, "small_count": 5}
+        schedule_tool.update_execution_table_geometry(schedule, pairs, metadata)
+        self.assertEqual(
+            [int(value["len_words"]) for value in schedule],
+            [65, 24, 20, 32, 128, 128],
+        )
+
+    def test_composition_geometry_uses_unique_evaluation_logs(self) -> None:
+        label = b"component"
+        header = bytearray(40)
+        header[:8] = schedule_tool.COMPOSITION_MAGIC
+        struct.pack_into("<I", header, 8, 1)
+        struct.pack_into("<I", header, 28, 2)
+        components = bytearray()
+        for evaluation_log in (7, 9):
+            component = bytearray(44)
+            struct.pack_into("<H", component, 0, len(label))
+            struct.pack_into("<I", component, 12, evaluation_log)
+            struct.pack_into("<IIIII", component, 24, 0, 1, 0, 0, 0)
+            components.extend(component)
+            components.extend(label)
+            components.extend(struct.pack("<I", 0))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "composition.bin"
+            path.write_bytes(header + components)
+            schedule = [
+                entry(0, "CompositionAccumulators", 1),
+                entry(1, "CompositionCoefficients", 1),
+                entry(2, "InverseTwiddles", 1),
+                entry(3, "ForwardTwiddles", 4096),
+                entry(4, "CompositionLdeTile", 1),
+            ]
+            schedule_tool.update_composition_geometry(schedule, path)
+        self.assertEqual(int(schedule[0]["len_words"]), (4 << 7) + (4 << 9))
+        self.assertEqual(int(schedule[1]["len_words"]), 1 << 8)
+        self.assertEqual(int(schedule[2]["len_words"]), 1 << 8)
+        self.assertEqual(int(schedule[3]["len_words"]), 4096)
+        self.assertEqual(int(schedule[4]["len_words"]), 1 << 9)
+
+    def test_fri_geometry_covers_log_24_and_log_25(self) -> None:
+        evaluations, folds, leaves = schedule_tool.fri_geometry(24)
+        self.assertEqual(evaluations, [24, 21, 18, 15, 12, 9, 6, 3])
+        self.assertEqual(folds, [3, 3, 3, 3, 3, 3, 3, 2])
+        self.assertEqual(sum(log_size + 1 for log_size in leaves), 100)
+
+        evaluations, folds, leaves = schedule_tool.fri_geometry(25)
+        self.assertEqual(evaluations, [25, 22, 19, 16, 13, 10, 7, 4])
+        self.assertEqual(folds, [3] * 8)
+        self.assertEqual(sum(log_size + 1 for log_size in leaves), 108)
+
+    def test_quotient_geometry_reads_fixture_header_and_partial_logs(self) -> None:
+        partial_logs = [4, 6]
+        data = bytearray(b"STWZQI01")
+        data.extend(struct.pack("<IIII", 1, len(partial_logs), 6, 7))
+        data.extend(bytes(32))
+        for partial_log in partial_logs:
+            data.extend(struct.pack("<I", partial_log))
+            data.extend(bytes(48 + (16 << partial_log)))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "quotient.bin"
+            path.write_bytes(data)
+            self.assertEqual(schedule_tool.quotient_geometry(path), (6, 7, partial_logs))
+
+    def test_transcript_geometry_uses_fixture_input_lengths(self) -> None:
+        schedule = [
+            entry(0, "TranscriptInput", 4392, ordinal=14),
+            entry(1, "TranscriptInput", 24440, ordinal=25),
+            entry(2, "TranscriptInput", 8, ordinal=65536),
+        ]
+        fixture = {
+            "inputs": {
+                "14": [0] * 5548,
+                "25": [0] * 24436,
+            }
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "transcript.json"
+            path.write_text(json.dumps(fixture))
+            changed = schedule_tool.update_transcript_geometry(schedule, path)
+        self.assertEqual(changed, 2)
+        self.assertEqual(
+            [int(value["len_words"]) for value in schedule],
+            [5548, 24436, 8],
+        )
+
+    def test_proof_geometry_tracks_transcript_input_size(self) -> None:
+        schedule = [
+            entry(index, "TranscriptInput", 8, ordinal=ordinal)
+            for index, ordinal in enumerate(
+                schedule_tool.PROOF_TRANSCRIPT_INPUT_ORDINALS
+            )
+        ]
+        schedule.extend(
+            [
+                entry(len(schedule), "DecommitAssembly", 100),
+                entry(len(schedule) + 1, "ProofBytes", 240),
+            ]
+        )
+        changed = schedule_tool.update_proof_geometry(schedule)
+        self.assertEqual(changed, 1)
+        proof = next(value for value in schedule if value["purpose"] == "ProofBytes")
+        self.assertEqual(
+            int(proof["len_words"]),
+            100 + 8 * len(schedule_tool.PROOF_TRANSCRIPT_INPUT_ORDINALS),
+        )
+
+    def test_generic_relation_bundle_parser_preserves_canonical_order(self) -> None:
+        components = schedule_tool.read_relation_components(
+            ROOT / "vectors" / "cairo" / "cairo_relation_templates.bin"
+        )
+        self.assertEqual(len(components), 67)
+        self.assertEqual(components[0][0], "add_ap_opcode")
+        self.assertEqual(components[0][1][0][1], 4)
+
+    def test_retention_sources_are_materialized_in_coefficient_order(self) -> None:
+        schedule: list[dict[str, object]] = []
+        for index in range(16):
+            schedule.append(entry(index, "BaseCoefficients", 2, "large", index))
+        for index in range(16):
+            schedule.append(entry(16 + index, "BaseCoefficients", 1, "small", index))
+        selected = schedule_tool.retention_sources(schedule)[0]
+        self.assertEqual([int(value["len_words"]) for value in selected[:16]], [1] * 16)
+        self.assertEqual([int(value["len_words"]) for value in selected[16:]], [2] * 16)
+
+    def test_zero_retention_adds_workspace_for_every_decommit_group(self) -> None:
+        schedule: list[dict[str, object]] = []
+
+        def add(purpose: str, words: int, ordinal: int = 0) -> None:
+            schedule.append(entry(len(schedule), purpose, words, ordinal=ordinal))
+
+        # One coefficient column per trace column is enough to preserve the
+        # exact 11/216/142/1 decommit grouping geometry.
+        for purpose, columns in zip(
+            schedule_tool.COEFFICIENT_PURPOSES,
+            (161, 3449, 2268),
+            strict=True,
+        ):
+            for ordinal in range(columns):
+                add(purpose, 8, ordinal)
+        for ordinal in range(8):
+            add("CompositionCoefficients", 8, ordinal)
+
+        for tree in range(1, 4):
+            add("CommitRetainedEvaluation", 16, tree << 20)
+            add("MerkleLeafState", 128, tree << 20)
+            add("MerkleLayerScratch", 64, tree << 20)
+            add("RetainedMerkleLayers", 8, tree << 20)
+
+        group_counts = (11, 216, 142, 1)
+        column_counts = (161, 3449, 2268, 8)
+        for tree, (group_count, column_count) in enumerate(
+            zip(group_counts, column_counts, strict=True)
+        ):
+            remaining = column_count
+            for group in range(group_count):
+                columns = min(remaining, 16)
+                remaining -= columns
+                ordinal = (tree << 16) | group
+                add("DecommitTraceEvaluationPointers", columns * 2, ordinal)
+                add("DecommitTraceEvaluationLogs", columns, ordinal)
+            self.assertEqual(remaining, 0)
+
+        rebuilt, removed, added = schedule_tool.rebuild_retention(schedule, 0)
+        self.assertEqual(removed, 3)
+        self.assertEqual(added, 370)
+        self.assertFalse(
+            any(value["purpose"] == "CommitRetainedEvaluation" for value in rebuilt)
+        )
+        expected_ordinals = {
+            (tree << 16) | group
+            for tree, group_count in enumerate(group_counts)
+            for group in range(group_count)
+        }
+        for purpose in (
+            "DecommitTraceCoefficientPointers",
+            "DecommitTraceCoefficientSizes",
+            "DecommitTraceLdeOutputPointers",
+        ):
+            self.assertEqual(
+                {
+                    int(value["ordinal"])
+                    for value in rebuilt
+                    if value["purpose"] == purpose
+                },
+                expected_ordinals,
+            )
+
+
+if __name__ == "__main__":
+    unittest.main()

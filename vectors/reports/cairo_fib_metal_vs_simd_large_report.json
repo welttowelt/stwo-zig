@@ -1,0 +1,752 @@
+{
+  "schema_version": 1,
+  "benchmark": "cairo_fib_backend_compare",
+  "status": "completed",
+  "workload": "compiled Cairo recursive Fibonacci program",
+  "cycle_semantics": "emitted Cairo opcode cycles; expected 7 * fib_n + 16",
+  "protocol": {
+    "security_bits": 96,
+    "n_queries": 70,
+    "pow_bits": 26,
+    "fold_step": 3
+  },
+  "measurement": {
+    "warmups": 0,
+    "repeats": 1,
+    "process_model": "fresh gpu_bench process per proof; every subprocess uses --reps 1 --reuse-input",
+    "execution_policy": "strictly sequential with alternating backend and size order",
+    "proof_acceptance": "each process emits one record only after verify_cairo returns and must exit zero",
+    "end_to_end_scope": "subprocess launch through verified process exit",
+    "internal_total": {
+      "field": "constructed_internal_total_s",
+      "measurement_kind": "constructed_non_overlapping_phase_sum",
+      "components": [
+        "vm_s",
+        "adapt_s",
+        "prove_s",
+        "verify_s"
+      ],
+      "directly_timed": false,
+      "excludes": [
+        "process startup and teardown",
+        "compiled program read and parse",
+        "input clone and prewarm",
+        "proof size calculation and JSON reporting"
+      ]
+    }
+  },
+  "artifacts": {
+    "gpu_bench": {
+      "path": "/Users/theodorepender/code/personal/stwo-cairo/stwo_cairo_prover/target/release/gpu_bench",
+      "sha256": "1b3ccbdc13d86318d97685f7d8438ace703e2dc20bb897734b604a21f0f69b51"
+    },
+    "compiled_json": {
+      "path": "/Users/theodorepender/code/personal/stwo-cairo/gpu_benchmarks/fib/compiled.json",
+      "sha256": "bd79e52ee27d3faa2bf12dde995ebd4398070878278cfb62557143fe15ea1589"
+    }
+  },
+  "backends": {
+    "rust-simd": {
+      "gpu_bench_backend": "simd",
+      "engine": "legacy",
+      "acceleration": "cpu_simd"
+    },
+    "rust-metal": {
+      "gpu_bench_backend": "metal",
+      "engine": "legacy",
+      "acceleration": "apple_metal_gpu"
+    }
+  },
+  "environment": {
+    "RAYON_NUM_THREADS": "18"
+  },
+  "limitations": [
+    "Native Cairo cycle MHz is comparable only between backends proving this exact Cairo program and protocol.",
+    "Cross-VM Fib comparisons must use fib iterations per second because VM cycle definitions differ.",
+    "gpu_bench rounds its internal phase timings to milliseconds.",
+    "No result is synthesized; every reported lane is an executed gpu_bench backend.",
+    "The Metal lane is accepted only as metal/legacy, matching gpu_bench's implemented dispatch table."
+  ],
+  "rows": [
+    {
+      "fib_n": 1000000,
+      "expected_cycles": 7000016,
+      "backends": {
+        "rust-simd": {
+          "summary": {
+            "samples": 1,
+            "vm_s": {
+              "median": 0.352,
+              "p25": 0.352,
+              "p75": 0.352,
+              "min": 0.352,
+              "max": 0.352
+            },
+            "adapt_s": {
+              "median": 0.502,
+              "p25": 0.502,
+              "p75": 0.502,
+              "min": 0.502,
+              "max": 0.502
+            },
+            "execute_adapt_s": {
+              "median": 0.854,
+              "p25": 0.854,
+              "p75": 0.854,
+              "min": 0.854,
+              "max": 0.854
+            },
+            "prove_s": {
+              "median": 3.925,
+              "p25": 3.925,
+              "p75": 3.925,
+              "min": 3.925,
+              "max": 3.925
+            },
+            "verify_s": {
+              "median": 0.002843,
+              "p25": 0.002843,
+              "p75": 0.002843,
+              "min": 0.002843,
+              "max": 0.002843
+            },
+            "constructed_internal_total_s": {
+              "median": 4.781843,
+              "p25": 4.781843,
+              "p75": 4.781843,
+              "min": 4.781843,
+              "max": 4.781843
+            },
+            "process_wall_s": {
+              "median": 4.839187957986724,
+              "p25": 4.839187957986724,
+              "p75": 4.839187957986724,
+              "min": 4.839187957986724,
+              "max": 4.839187957986724
+            },
+            "native_prove_mhz": {
+              "median": 1.783443566878981,
+              "p25": 1.783443566878981,
+              "p75": 1.783443566878981,
+              "min": 1.783443566878981,
+              "max": 1.783443566878981
+            },
+            "native_end_to_end_mhz": {
+              "median": 1.4465269918782526,
+              "p25": 1.4465269918782526,
+              "p75": 1.4465269918782526,
+              "min": 1.4465269918782526,
+              "max": 1.4465269918782526
+            },
+            "fib_prove_iterations_per_s": {
+              "median": 254777.0700636943,
+              "p25": 254777.0700636943,
+              "p75": 254777.0700636943,
+              "min": 254777.0700636943,
+              "max": 254777.0700636943
+            },
+            "fib_end_to_end_iterations_per_s": {
+              "median": 206646.24079120002,
+              "p25": 206646.24079120002,
+              "p75": 206646.24079120002,
+              "min": 206646.24079120002,
+              "max": 206646.24079120002
+            }
+          },
+          "raw_samples": [
+            {
+              "fib_n": 1000000,
+              "cycles": 7000016,
+              "vm_s": 0.352,
+              "adapt_s": 0.502,
+              "execute_adapt_s": 0.854,
+              "prove_s": 3.925,
+              "verify_s": 0.002843,
+              "constructed_internal_total_s": 4.781843,
+              "constructed_internal_total": {
+                "seconds": 4.781843,
+                "measurement_kind": "constructed_non_overlapping_phase_sum",
+                "components": [
+                  "vm_s",
+                  "adapt_s",
+                  "prove_s",
+                  "verify_s"
+                ],
+                "directly_timed": false
+              },
+              "native_prove_mhz": 1.783443566878981,
+              "fib_prove_iterations_per_s": 254777.0700636943,
+              "proof_kb": 1166.089,
+              "proof_verified": true,
+              "verification_evidence": "gpu_bench emitted its sole record after verify_cairo returned",
+              "protocol": {
+                "security_bits": 96,
+                "n_queries": 70,
+                "pow_bits": 26,
+                "fold_step": 3
+              },
+              "gpu_bench_reported_mhz": 1.783,
+              "gpu_bench_record": {
+                "adapt_s": 0.502,
+                "backend": "simd",
+                "bootloader_overhead_pct": null,
+                "cycle_count": 7000016,
+                "engine": "legacy",
+                "fold_step": 3,
+                "gpu": "",
+                "host_mem_gb": 0.0,
+                "mhz": 1.783,
+                "n": 1000000,
+                "n_queries": 70,
+                "nproc": 18,
+                "peak_rss_gb": 12.81,
+                "pie_n_steps": null,
+                "pool_reserved_high_gb": 0.0,
+                "pool_used_high_gb": 0.0,
+                "pow_bits": 26,
+                "program": "/Users/theodorepender/code/personal/stwo-cairo/gpu_benchmarks/fib/compiled.json",
+                "proof_kb": 1166.089,
+                "prove_s_cold": 3.925,
+                "prove_s_warm": 3.925,
+                "security_bits": 96,
+                "steps_per_s": 1783425.0,
+                "useful_mhz": null,
+                "verify_ms": 2.843,
+                "vm_s": 0.352,
+                "vram_end_gb": 0.0,
+                "vram_peak_gb": 0.0
+              },
+              "process_wall_s": 4.839187957986724,
+              "native_end_to_end_mhz": 1.4465269918782526,
+              "fib_end_to_end_iterations_per_s": 206646.24079120002,
+              "command": [
+                "/Users/theodorepender/code/personal/stwo-cairo/stwo_cairo_prover/target/release/gpu_bench",
+                "--program",
+                "/Users/theodorepender/code/personal/stwo-cairo/gpu_benchmarks/fib/compiled.json",
+                "--iterations",
+                "1000000",
+                "--backend",
+                "simd",
+                "--engine",
+                "legacy",
+                "--reps",
+                "1",
+                "--reuse-input"
+              ],
+              "returncode": 0,
+              "stdout": "{\"adapt_s\":0.502,\"backend\":\"simd\",\"bootloader_overhead_pct\":null,\"cycle_count\":7000016,\"engine\":\"legacy\",\"fold_step\":3,\"gpu\":\"\",\"host_mem_gb\":0.0,\"mhz\":1.783,\"n\":1000000,\"n_queries\":70,\"nproc\":18,\"peak_rss_gb\":12.81,\"pie_n_steps\":null,\"pool_reserved_high_gb\":0.0,\"pool_used_high_gb\":0.0,\"pow_bits\":26,\"program\":\"/Users/theodorepender/code/personal/stwo-cairo/gpu_benchmarks/fib/compiled.json\",\"proof_kb\":1166.089,\"prove_s_cold\":3.925,\"prove_s_warm\":3.925,\"security_bits\":96,\"steps_per_s\":1783425.0,\"useful_mhz\":null,\"verify_ms\":2.843,\"vm_s\":0.352,\"vram_end_gb\":0.0,\"vram_peak_gb\":0.0}\n",
+              "stderr": "rep=0 prove_s=3.925\n"
+            }
+          ]
+        },
+        "rust-metal": {
+          "summary": {
+            "samples": 1,
+            "vm_s": {
+              "median": 0.374,
+              "p25": 0.374,
+              "p75": 0.374,
+              "min": 0.374,
+              "max": 0.374
+            },
+            "adapt_s": {
+              "median": 0.383,
+              "p25": 0.383,
+              "p75": 0.383,
+              "min": 0.383,
+              "max": 0.383
+            },
+            "execute_adapt_s": {
+              "median": 0.757,
+              "p25": 0.757,
+              "p75": 0.757,
+              "min": 0.757,
+              "max": 0.757
+            },
+            "prove_s": {
+              "median": 17.339,
+              "p25": 17.339,
+              "p75": 17.339,
+              "min": 17.339,
+              "max": 17.339
+            },
+            "verify_s": {
+              "median": 0.002902,
+              "p25": 0.002902,
+              "p75": 0.002902,
+              "min": 0.002902,
+              "max": 0.002902
+            },
+            "constructed_internal_total_s": {
+              "median": 18.098902,
+              "p25": 18.098902,
+              "p75": 18.098902,
+              "min": 18.098902,
+              "max": 18.098902
+            },
+            "process_wall_s": {
+              "median": 18.17300329200225,
+              "p25": 18.17300329200225,
+              "p75": 18.17300329200225,
+              "min": 18.17300329200225,
+              "max": 18.17300329200225
+            },
+            "native_prove_mhz": {
+              "median": 0.40371509314262644,
+              "p25": 0.40371509314262644,
+              "p75": 0.40371509314262644,
+              "min": 0.40371509314262644,
+              "max": 0.40371509314262644
+            },
+            "native_end_to_end_mhz": {
+              "median": 0.38518762625661523,
+              "p25": 0.38518762625661523,
+              "p75": 0.38518762625661523,
+              "min": 0.38518762625661523,
+              "max": 0.38518762625661523
+            },
+            "fib_prove_iterations_per_s": {
+              "median": 57673.4529096257,
+              "p25": 57673.4529096257,
+              "p75": 57673.4529096257,
+              "min": 57673.4529096257,
+              "max": 57673.4529096257
+            },
+            "fib_end_to_end_iterations_per_s": {
+              "median": 55026.67797568109,
+              "p25": 55026.67797568109,
+              "p75": 55026.67797568109,
+              "min": 55026.67797568109,
+              "max": 55026.67797568109
+            }
+          },
+          "raw_samples": [
+            {
+              "fib_n": 1000000,
+              "cycles": 7000016,
+              "vm_s": 0.374,
+              "adapt_s": 0.383,
+              "execute_adapt_s": 0.757,
+              "prove_s": 17.339,
+              "verify_s": 0.002902,
+              "constructed_internal_total_s": 18.098902,
+              "constructed_internal_total": {
+                "seconds": 18.098902,
+                "measurement_kind": "constructed_non_overlapping_phase_sum",
+                "components": [
+                  "vm_s",
+                  "adapt_s",
+                  "prove_s",
+                  "verify_s"
+                ],
+                "directly_timed": false
+              },
+              "native_prove_mhz": 0.40371509314262644,
+              "fib_prove_iterations_per_s": 57673.4529096257,
+              "proof_kb": 1166.089,
+              "proof_verified": true,
+              "verification_evidence": "gpu_bench emitted its sole record after verify_cairo returned",
+              "protocol": {
+                "security_bits": 96,
+                "n_queries": 70,
+                "pow_bits": 26,
+                "fold_step": 3
+              },
+              "gpu_bench_reported_mhz": 0.404,
+              "gpu_bench_record": {
+                "adapt_s": 0.383,
+                "backend": "metal",
+                "bootloader_overhead_pct": null,
+                "cycle_count": 7000016,
+                "engine": "legacy",
+                "fold_step": 3,
+                "gpu": "",
+                "host_mem_gb": 0.0,
+                "mhz": 0.404,
+                "n": 1000000,
+                "n_queries": 70,
+                "nproc": 18,
+                "peak_rss_gb": 9.424,
+                "pie_n_steps": null,
+                "pool_reserved_high_gb": 0.0,
+                "pool_used_high_gb": 0.0,
+                "pow_bits": 26,
+                "program": "/Users/theodorepender/code/personal/stwo-cairo/gpu_benchmarks/fib/compiled.json",
+                "proof_kb": 1166.089,
+                "prove_s_cold": 17.339,
+                "prove_s_warm": 17.339,
+                "security_bits": 96,
+                "steps_per_s": 403713.0,
+                "useful_mhz": null,
+                "verify_ms": 2.902,
+                "vm_s": 0.374,
+                "vram_end_gb": 0.0,
+                "vram_peak_gb": 0.0
+              },
+              "process_wall_s": 18.17300329200225,
+              "native_end_to_end_mhz": 0.38518762625661523,
+              "fib_end_to_end_iterations_per_s": 55026.67797568109,
+              "command": [
+                "/Users/theodorepender/code/personal/stwo-cairo/stwo_cairo_prover/target/release/gpu_bench",
+                "--program",
+                "/Users/theodorepender/code/personal/stwo-cairo/gpu_benchmarks/fib/compiled.json",
+                "--iterations",
+                "1000000",
+                "--backend",
+                "metal",
+                "--engine",
+                "legacy",
+                "--reps",
+                "1",
+                "--reuse-input"
+              ],
+              "returncode": 0,
+              "stdout": "{\"adapt_s\":0.383,\"backend\":\"metal\",\"bootloader_overhead_pct\":null,\"cycle_count\":7000016,\"engine\":\"legacy\",\"fold_step\":3,\"gpu\":\"\",\"host_mem_gb\":0.0,\"mhz\":0.404,\"n\":1000000,\"n_queries\":70,\"nproc\":18,\"peak_rss_gb\":9.424,\"pie_n_steps\":null,\"pool_reserved_high_gb\":0.0,\"pool_used_high_gb\":0.0,\"pow_bits\":26,\"program\":\"/Users/theodorepender/code/personal/stwo-cairo/gpu_benchmarks/fib/compiled.json\",\"proof_kb\":1166.089,\"prove_s_cold\":17.339,\"prove_s_warm\":17.339,\"security_bits\":96,\"steps_per_s\":403713.0,\"useful_mhz\":null,\"verify_ms\":2.902,\"vm_s\":0.374,\"vram_end_gb\":0.0,\"vram_peak_gb\":0.0}\n",
+              "stderr": "rep=0 prove_s=17.339\n"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fib_n": 2000000,
+      "expected_cycles": 14000016,
+      "backends": {
+        "rust-simd": {
+          "summary": {
+            "samples": 1,
+            "vm_s": {
+              "median": 0.728,
+              "p25": 0.728,
+              "p75": 0.728,
+              "min": 0.728,
+              "max": 0.728
+            },
+            "adapt_s": {
+              "median": 0.777,
+              "p25": 0.777,
+              "p75": 0.777,
+              "min": 0.777,
+              "max": 0.777
+            },
+            "execute_adapt_s": {
+              "median": 1.505,
+              "p25": 1.505,
+              "p75": 1.505,
+              "min": 1.505,
+              "max": 1.505
+            },
+            "prove_s": {
+              "median": 6.563,
+              "p25": 6.563,
+              "p75": 6.563,
+              "min": 6.563,
+              "max": 6.563
+            },
+            "verify_s": {
+              "median": 0.002921,
+              "p25": 0.002921,
+              "p75": 0.002921,
+              "min": 0.002921,
+              "max": 0.002921
+            },
+            "constructed_internal_total_s": {
+              "median": 8.070921,
+              "p25": 8.070921,
+              "p75": 8.070921,
+              "min": 8.070921,
+              "max": 8.070921
+            },
+            "process_wall_s": {
+              "median": 8.14711866696598,
+              "p25": 8.14711866696598,
+              "p75": 8.14711866696598,
+              "min": 8.14711866696598,
+              "max": 8.14711866696598
+            },
+            "native_prove_mhz": {
+              "median": 2.1331732439433186,
+              "p25": 2.1331732439433186,
+              "p75": 2.1331732439433186,
+              "min": 2.1331732439433186,
+              "max": 2.1331732439433186
+            },
+            "native_end_to_end_mhz": {
+              "median": 1.718400893897089,
+              "p25": 1.718400893897089,
+              "p75": 1.718400893897089,
+              "min": 1.718400893897089,
+              "max": 1.718400893897089
+            },
+            "fib_prove_iterations_per_s": {
+              "median": 304738.6865762609,
+              "p25": 304738.6865762609,
+              "p75": 304738.6865762609,
+              "min": 304738.6865762609,
+              "max": 304738.6865762609
+            },
+            "fib_end_to_end_iterations_per_s": {
+              "median": 245485.56143037108,
+              "p25": 245485.56143037108,
+              "p75": 245485.56143037108,
+              "min": 245485.56143037108,
+              "max": 245485.56143037108
+            }
+          },
+          "raw_samples": [
+            {
+              "fib_n": 2000000,
+              "cycles": 14000016,
+              "vm_s": 0.728,
+              "adapt_s": 0.777,
+              "execute_adapt_s": 1.505,
+              "prove_s": 6.563,
+              "verify_s": 0.002921,
+              "constructed_internal_total_s": 8.070921,
+              "constructed_internal_total": {
+                "seconds": 8.070921,
+                "measurement_kind": "constructed_non_overlapping_phase_sum",
+                "components": [
+                  "vm_s",
+                  "adapt_s",
+                  "prove_s",
+                  "verify_s"
+                ],
+                "directly_timed": false
+              },
+              "native_prove_mhz": 2.1331732439433186,
+              "fib_prove_iterations_per_s": 304738.6865762609,
+              "proof_kb": 1221.597,
+              "proof_verified": true,
+              "verification_evidence": "gpu_bench emitted its sole record after verify_cairo returned",
+              "protocol": {
+                "security_bits": 96,
+                "n_queries": 70,
+                "pow_bits": 26,
+                "fold_step": 3
+              },
+              "gpu_bench_reported_mhz": 2.133,
+              "gpu_bench_record": {
+                "adapt_s": 0.777,
+                "backend": "simd",
+                "bootloader_overhead_pct": null,
+                "cycle_count": 14000016,
+                "engine": "legacy",
+                "fold_step": 3,
+                "gpu": "",
+                "host_mem_gb": 0.0,
+                "mhz": 2.133,
+                "n": 2000000,
+                "n_queries": 70,
+                "nproc": 18,
+                "peak_rss_gb": 18.329,
+                "pie_n_steps": null,
+                "pool_reserved_high_gb": 0.0,
+                "pool_used_high_gb": 0.0,
+                "pow_bits": 26,
+                "program": "/Users/theodorepender/code/personal/stwo-cairo/gpu_benchmarks/fib/compiled.json",
+                "proof_kb": 1221.597,
+                "prove_s_cold": 6.563,
+                "prove_s_warm": 6.563,
+                "security_bits": 96,
+                "steps_per_s": 2133109.0,
+                "useful_mhz": null,
+                "verify_ms": 2.921,
+                "vm_s": 0.728,
+                "vram_end_gb": 0.0,
+                "vram_peak_gb": 0.0
+              },
+              "process_wall_s": 8.14711866696598,
+              "native_end_to_end_mhz": 1.718400893897089,
+              "fib_end_to_end_iterations_per_s": 245485.56143037108,
+              "command": [
+                "/Users/theodorepender/code/personal/stwo-cairo/stwo_cairo_prover/target/release/gpu_bench",
+                "--program",
+                "/Users/theodorepender/code/personal/stwo-cairo/gpu_benchmarks/fib/compiled.json",
+                "--iterations",
+                "2000000",
+                "--backend",
+                "simd",
+                "--engine",
+                "legacy",
+                "--reps",
+                "1",
+                "--reuse-input"
+              ],
+              "returncode": 0,
+              "stdout": "{\"adapt_s\":0.777,\"backend\":\"simd\",\"bootloader_overhead_pct\":null,\"cycle_count\":14000016,\"engine\":\"legacy\",\"fold_step\":3,\"gpu\":\"\",\"host_mem_gb\":0.0,\"mhz\":2.133,\"n\":2000000,\"n_queries\":70,\"nproc\":18,\"peak_rss_gb\":18.329,\"pie_n_steps\":null,\"pool_reserved_high_gb\":0.0,\"pool_used_high_gb\":0.0,\"pow_bits\":26,\"program\":\"/Users/theodorepender/code/personal/stwo-cairo/gpu_benchmarks/fib/compiled.json\",\"proof_kb\":1221.597,\"prove_s_cold\":6.563,\"prove_s_warm\":6.563,\"security_bits\":96,\"steps_per_s\":2133109.0,\"useful_mhz\":null,\"verify_ms\":2.921,\"vm_s\":0.728,\"vram_end_gb\":0.0,\"vram_peak_gb\":0.0}\n",
+              "stderr": "rep=0 prove_s=6.563\n"
+            }
+          ]
+        },
+        "rust-metal": {
+          "summary": {
+            "samples": 1,
+            "vm_s": {
+              "median": 0.73,
+              "p25": 0.73,
+              "p75": 0.73,
+              "min": 0.73,
+              "max": 0.73
+            },
+            "adapt_s": {
+              "median": 0.777,
+              "p25": 0.777,
+              "p75": 0.777,
+              "min": 0.777,
+              "max": 0.777
+            },
+            "execute_adapt_s": {
+              "median": 1.5070000000000001,
+              "p25": 1.5070000000000001,
+              "p75": 1.5070000000000001,
+              "min": 1.5070000000000001,
+              "max": 1.5070000000000001
+            },
+            "prove_s": {
+              "median": 21.937,
+              "p25": 21.937,
+              "p75": 21.937,
+              "min": 21.937,
+              "max": 21.937
+            },
+            "verify_s": {
+              "median": 0.0027069999999999998,
+              "p25": 0.0027069999999999998,
+              "p75": 0.0027069999999999998,
+              "min": 0.0027069999999999998,
+              "max": 0.0027069999999999998
+            },
+            "constructed_internal_total_s": {
+              "median": 23.446707000000004,
+              "p25": 23.446707000000004,
+              "p75": 23.446707000000004,
+              "min": 23.446707000000004,
+              "max": 23.446707000000004
+            },
+            "process_wall_s": {
+              "median": 23.51115837501129,
+              "p25": 23.51115837501129,
+              "p75": 23.51115837501129,
+              "min": 23.51115837501129,
+              "max": 23.51115837501129
+            },
+            "native_prove_mhz": {
+              "median": 0.638191913205999,
+              "p25": 0.638191913205999,
+              "p75": 0.638191913205999,
+              "min": 0.638191913205999,
+              "max": 0.638191913205999
+            },
+            "native_end_to_end_mhz": {
+              "median": 0.595462621479333,
+              "p25": 0.595462621479333,
+              "p75": 0.595462621479333,
+              "min": 0.595462621479333,
+              "max": 0.595462621479333
+            },
+            "fib_prove_iterations_per_s": {
+              "median": 91170.16912066372,
+              "p25": 91170.16912066372,
+              "p75": 91170.16912066372,
+              "min": 91170.16912066372,
+              "max": 91170.16912066372
+            },
+            "fib_end_to_end_iterations_per_s": {
+              "median": 85065.9915644858,
+              "p25": 85065.9915644858,
+              "p75": 85065.9915644858,
+              "min": 85065.9915644858,
+              "max": 85065.9915644858
+            }
+          },
+          "raw_samples": [
+            {
+              "fib_n": 2000000,
+              "cycles": 14000016,
+              "vm_s": 0.73,
+              "adapt_s": 0.777,
+              "execute_adapt_s": 1.5070000000000001,
+              "prove_s": 21.937,
+              "verify_s": 0.0027069999999999998,
+              "constructed_internal_total_s": 23.446707000000004,
+              "constructed_internal_total": {
+                "seconds": 23.446707000000004,
+                "measurement_kind": "constructed_non_overlapping_phase_sum",
+                "components": [
+                  "vm_s",
+                  "adapt_s",
+                  "prove_s",
+                  "verify_s"
+                ],
+                "directly_timed": false
+              },
+              "native_prove_mhz": 0.638191913205999,
+              "fib_prove_iterations_per_s": 91170.16912066372,
+              "proof_kb": 1221.597,
+              "proof_verified": true,
+              "verification_evidence": "gpu_bench emitted its sole record after verify_cairo returned",
+              "protocol": {
+                "security_bits": 96,
+                "n_queries": 70,
+                "pow_bits": 26,
+                "fold_step": 3
+              },
+              "gpu_bench_reported_mhz": 0.638,
+              "gpu_bench_record": {
+                "adapt_s": 0.777,
+                "backend": "metal",
+                "bootloader_overhead_pct": null,
+                "cycle_count": 14000016,
+                "engine": "legacy",
+                "fold_step": 3,
+                "gpu": "",
+                "host_mem_gb": 0.0,
+                "mhz": 0.638,
+                "n": 2000000,
+                "n_queries": 70,
+                "nproc": 18,
+                "peak_rss_gb": 17.136,
+                "pie_n_steps": null,
+                "pool_reserved_high_gb": 0.0,
+                "pool_used_high_gb": 0.0,
+                "pow_bits": 26,
+                "program": "/Users/theodorepender/code/personal/stwo-cairo/gpu_benchmarks/fib/compiled.json",
+                "proof_kb": 1221.597,
+                "prove_s_cold": 21.937,
+                "prove_s_warm": 21.937,
+                "security_bits": 96,
+                "steps_per_s": 638188.0,
+                "useful_mhz": null,
+                "verify_ms": 2.707,
+                "vm_s": 0.73,
+                "vram_end_gb": 0.0,
+                "vram_peak_gb": 0.0
+              },
+              "process_wall_s": 23.51115837501129,
+              "native_end_to_end_mhz": 0.595462621479333,
+              "fib_end_to_end_iterations_per_s": 85065.9915644858,
+              "command": [
+                "/Users/theodorepender/code/personal/stwo-cairo/stwo_cairo_prover/target/release/gpu_bench",
+                "--program",
+                "/Users/theodorepender/code/personal/stwo-cairo/gpu_benchmarks/fib/compiled.json",
+                "--iterations",
+                "2000000",
+                "--backend",
+                "metal",
+                "--engine",
+                "legacy",
+                "--reps",
+                "1",
+                "--reuse-input"
+              ],
+              "returncode": 0,
+              "stdout": "{\"adapt_s\":0.777,\"backend\":\"metal\",\"bootloader_overhead_pct\":null,\"cycle_count\":14000016,\"engine\":\"legacy\",\"fold_step\":3,\"gpu\":\"\",\"host_mem_gb\":0.0,\"mhz\":0.638,\"n\":2000000,\"n_queries\":70,\"nproc\":18,\"peak_rss_gb\":17.136,\"pie_n_steps\":null,\"pool_reserved_high_gb\":0.0,\"pool_used_high_gb\":0.0,\"pow_bits\":26,\"program\":\"/Users/theodorepender/code/personal/stwo-cairo/gpu_benchmarks/fib/compiled.json\",\"proof_kb\":1221.597,\"prove_s_cold\":21.937,\"prove_s_warm\":21.937,\"security_bits\":96,\"steps_per_s\":638188.0,\"useful_mhz\":null,\"verify_ms\":2.707,\"vm_s\":0.73,\"vram_end_gb\":0.0,\"vram_peak_gb\":0.0}\n",
+              "stderr": "rep=0 prove_s=21.937\n"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

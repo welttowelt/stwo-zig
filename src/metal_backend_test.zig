@@ -2,6 +2,7 @@ const std = @import("std");
 const metal = @import("backends/metal/runtime.zig");
 const m31 = @import("core/fields/m31.zig");
 const blake2_merkle = @import("core/vcs_lifted/blake2_merkle.zig");
+const blake2_hash = @import("core/vcs/blake2_hash.zig");
 const merkle_prover = @import("prover/vcs_lifted/prover.zig");
 const riscv_prover = @import("frontends/riscv/prover.zig");
 const trace_mod = @import("frontends/riscv/runner/trace.zig");
@@ -22,10 +23,128 @@ const core_utils = @import("core/utils.zig");
 const blake2s_channel = @import("core/channel/blake2s.zig");
 const protocol_recipes = @import("backends/metal/protocol_recipes.zig");
 const arena_plan = @import("backends/metal/arena_plan.zig");
+const secure_column = @import("prover/secure_column.zig");
+const secure_circle_poly = @import("prover/poly/circle/secure_poly.zig");
+const cairo_arena_binding = @import("frontends/cairo/witness/arena_binding.zig");
+const cairo_proof_plan = @import("frontends/cairo/proof_plan.zig");
+const cairo_witness_bundle = @import("frontends/cairo/witness/bundle.zig");
+const cairo_oods = @import("frontends/cairo/witness/oods.zig");
+const cairo_quotient_inputs = @import("frontends/cairo/witness/quotient_inputs.zig");
 
 const M31 = m31.M31;
 const Hasher = blake2_merkle.Blake2sMerkleHasher;
 const QM31 = qm31.QM31;
+
+fn testResidentBinding(logical_id: u32, offset_words: u32, word_count: u32) arena_plan.Binding {
+    return .{
+        .logical_id = logical_id,
+        .slot = logical_id,
+        .offset_bytes = @as(u64, offset_words) * @sizeOf(u32),
+        .size_bytes = @as(u64, word_count) * @sizeOf(u32),
+        .materialization = .resident,
+        .occupied = [_]u64{0} ** (arena_plan.max_ticks / 64),
+    };
+}
+
+test {
+    std.testing.refAllDecls(cairo_arena_binding);
+    std.testing.refAllDecls(cairo_oods);
+    std.testing.refAllDecls(cairo_quotient_inputs);
+}
+
+test "metal: prepared state restore preserves immutable ranges and clears mutable bytes" {
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    var arena = try runtime.allocateResidentBuffer(256);
+    defer arena.deinit();
+    var snapshot = try runtime.allocateResidentBuffer(32);
+    defer snapshot.deinit();
+    const arena_bytes: [*]u8 = @ptrCast(arena.contents);
+    @memset(arena_bytes[0..arena.byte_length], 0x31);
+    for (arena_bytes[32..48], 0..) |*byte, index| byte.* = @intCast(index + 1);
+    for (arena_bytes[160..176], 0..) |*byte, index| byte.* = @intCast(index + 33);
+    const ranges = [_]metal.PreparedStateRange{
+        .{ .arena_byte_offset = 32, .snapshot_byte_offset = 0, .byte_count = 16 },
+        .{ .arena_byte_offset = 160, .snapshot_byte_offset = 16, .byte_count = 16 },
+    };
+    _ = try runtime.preparedStateTransfer(arena, snapshot, &ranges, true, false);
+    @memset(arena_bytes[0..arena.byte_length], 0xa7);
+    _ = try runtime.preparedStateTransfer(arena, snapshot, &ranges, false, true);
+
+    for (arena_bytes[0..32]) |byte| try std.testing.expectEqual(@as(u8, 0), byte);
+    for (arena_bytes[32..48], 0..) |byte, index| try std.testing.expectEqual(@as(u8, @intCast(index + 1)), byte);
+    for (arena_bytes[48..160]) |byte| try std.testing.expectEqual(@as(u8, 0), byte);
+    for (arena_bytes[160..176], 0..) |byte, index| try std.testing.expectEqual(@as(u8, @intCast(index + 33)), byte);
+    for (arena_bytes[176..256]) |byte| try std.testing.expectEqual(@as(u8, 0), byte);
+}
+
+test "metal: arena range clear zeros exact disjoint spans" {
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    var arena = try runtime.allocateResidentBuffer(256);
+    defer arena.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
+    for (words[0..64], 0..) |*word, index| word.* = @intCast(index + 1);
+
+    try runtime.clearArenaRanges(arena, &.{ .{ 4, 3 }, .{ 16, 5 }, .{ 40, 1 } });
+
+    for (words[0..64], 0..) |word, index| {
+        const cleared = (index >= 4 and index < 7) or
+            (index >= 16 and index < 21) or index == 40;
+        try std.testing.expectEqual(if (cleared) @as(u32, 0) else @as(u32, @intCast(index + 1)), word);
+    }
+}
+
+test "metal: component-local relation APIs fail closed on incomplete layouts" {
+    var bindings: cairo_arena_binding.PreparedProofBindings = undefined;
+    bindings.relation_claimed_sums = &.{};
+    try std.testing.expectError(
+        cairo_arena_binding.Error.InvalidClaimedSumCount,
+        bindings.prepareRelationComponents(
+            std.testing.allocator,
+            undefined,
+            undefined,
+            &.{},
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+        ),
+    );
+
+    var proof: cairo_proof_plan.CairoProofPlan = undefined;
+    proof.components = &.{};
+    var witness_bundle: cairo_witness_bundle.Bundle = undefined;
+    witness_bundle.entries = &.{};
+    var relation_operations: [0]cairo_arena_binding.RelationComponentOperation = .{};
+    var relations = cairo_arena_binding.PreparedRelationComponents{
+        .allocator = std.testing.allocator,
+        .operations = &relation_operations,
+    };
+    try std.testing.expectError(
+        cairo_arena_binding.Error.MissingBinding,
+        cairo_arena_binding.executeScheduledInteractionGraph(
+            std.testing.allocator,
+            undefined,
+            undefined,
+            &.{},
+            undefined,
+            &proof,
+            witness_bundle,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            &relations,
+        ),
+    );
+
+    var native: cairo_arena_binding.NativeBaseInterpolationBatch = undefined;
+    native.fixed = &.{};
+    try std.testing.expectError(cairo_arena_binding.Error.MissingBinding, native.materializeFixed("range_check_6"));
+}
 
 test "metal: prepared arena gather seals one proof buffer" {
     var runtime = try metal.Runtime.init();
@@ -43,6 +162,36 @@ test "metal: prepared arena gather seals one proof buffer" {
     defer plan.deinit();
     try std.testing.expect(try runtime.arenaCopyPrepared(arena, plan) > 0);
     try std.testing.expectEqualSlices(u32, &.{ 11, 13, 17, 19, 23, 29, 31 }, words[64..71]);
+}
+
+test "metal: proof assembly recipe executes prepared resident copies" {
+    const allocator = std.testing.allocator;
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    var resident = arena_plan.ResidentArena{ .buffer = try runtime.allocateResidentBuffer(16 * 1024) };
+    defer resident.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(resident.buffer.contents));
+    const first = testResidentBinding(1, 16, 4);
+    const second = testResidentBinding(2, 32, 3);
+    const destination = testResidentBinding(3, 64, 7);
+    @memcpy(words[16..20], &[_]u32{ 11, 13, 17, 19 });
+    @memcpy(words[32..35], &[_]u32{ 23, 29, 31 });
+    var recipe = try protocol_recipes.ProofAssemblyRecipe.init(
+        allocator,
+        &runtime,
+        &resident,
+        &.{
+            .{ .source = first, .destination_word_offset = 0, .word_count = 4 },
+            .{ .source = second, .destination_word_offset = 4, .word_count = 3 },
+        },
+        destination,
+    );
+    defer recipe.deinit();
+
+    try recipe.execute();
+
+    try std.testing.expect(recipe.accumulated_gpu_ms > 0);
+    try std.testing.expectEqualSlices(u32, &.{ 11, 13, 17, 19, 23, 29, 31 }, try recipe.words());
 }
 
 test "metal: witness edge gather preserves producer and packed padding order" {
@@ -168,7 +317,136 @@ test "metal: fused V1 evaluation program matches scalar field arithmetic" {
     }
 }
 
-test "metal: composition front interleaves coefficient LDE and fused AIR" {
+test "metal: fused multi-part AIR preserves legacy accumulator order" {
+    const allocator = std.testing.allocator;
+    var first_base = [_]eval_program.BaseInst{
+        .{ .op = .trace_col, .interaction = 0, .dst = 0, .a = 0, .b = 0, .imm = 0 },
+        .{ .op = .constant, .interaction = 0, .dst = 1, .a = 7, .b = 0, .imm = 0 },
+        .{ .op = .mul, .interaction = 0, .dst = 2, .a = 0, .b = 1, .imm = 0 },
+    };
+    var second_base = [_]eval_program.BaseInst{
+        .{ .op = .trace_col, .interaction = 0, .dst = 0, .a = 0, .b = 0, .imm = 0 },
+        .{ .op = .constant, .interaction = 0, .dst = 1, .a = 11, .b = 0, .imm = 0 },
+        .{ .op = .add, .interaction = 0, .dst = 2, .a = 0, .b = 1, .imm = 0 },
+    };
+    var ext = [_]eval_program.ExtInst{
+        .{ .op = .secure_col, .dst = 0, .a = 2, .b = 1, .c = 0, .d = 1 },
+    };
+    var roots = [_]u32{0};
+    const first = eval_program.Program{
+        .allocator = allocator,
+        .header = .{ .flags = eval_program.Flag.prefinalized_logup, .semantic_hash = 0x11112222, .capability_bits = eval_program.Capability.prefinalized_logup, .n_interactions = 1, .n_base_params = 0, .n_ext_params = 0, .n_constraints = 1, .max_base_regs = 3, .max_ext_regs = 1, .domain_log_size = 7 },
+        .base_consts = &.{},
+        .ext_consts = &.{},
+        .base_insts = &first_base,
+        .ext_insts = &ext,
+        .constraint_roots = &roots,
+    };
+    var second = first;
+    second.header.semantic_hash = 0x33334444;
+    second.base_insts = &second_base;
+    const fused_parts = [_]eval_codegen.FusedPart{
+        .{ .program = first, .rc_base = 0 },
+        .{ .program = second, .rc_base = 1 },
+    };
+    const first_source = try eval_codegen.generate(allocator, first);
+    defer allocator.free(first_source);
+    const second_source = try eval_codegen.generate(allocator, second);
+    defer allocator.free(second_source);
+    const fused_source = try eval_codegen.generateFusedKernel(allocator, &fused_parts, true);
+    defer allocator.free(fused_source);
+    const first_name = try eval_codegen.kernelName(allocator, first.header.semantic_hash);
+    defer allocator.free(first_name);
+    const second_name = try eval_codegen.kernelName(allocator, second.header.semantic_hash);
+    defer allocator.free(second_name);
+    const fused_name = try eval_codegen.fusedKernelName(allocator, &fused_parts);
+    defer allocator.free(fused_name);
+
+    const rows: u32 = 256;
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    var arena = try runtime.allocateResidentBuffer(32 * 1024);
+    defer arena.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
+    var next: u32 = 0;
+    const trace = next;
+    for (0..rows) |row| words[next + row] = @intCast(row + 1);
+    next += rows;
+    const trace_offsets = next;
+    words[next] = trace;
+    next += 1;
+    const interaction_offsets = next;
+    words[next] = 0;
+    next += 1;
+    const random_coeffs = next;
+    words[next..][0..8].* = .{ 2, 3, 5, 7, 11, 13, 17, 19 };
+    next += 8;
+    const denom = next;
+    words[next..][0..2].* = .{ 23, 29 };
+    next += 2;
+    var legacy_coordinates: [4]u32 = undefined;
+    var fused_coordinates: [4]u32 = undefined;
+    for (&legacy_coordinates, &fused_coordinates, 0..) |*legacy, *fused, coordinate| {
+        legacy.* = next;
+        next += rows;
+        fused.* = next;
+        next += rows;
+        for (0..rows) |row| {
+            const initial: u32 = @intCast(coordinate * 1000 + row + 29);
+            words[legacy.* + row] = initial;
+            words[fused.* + row] = initial;
+        }
+    }
+    const layout = struct {
+        fn make(
+            trace_offsets_: u32,
+            interaction_offsets_: u32,
+            random_coeffs_: u32,
+            denom_: u32,
+            coordinates_: [4]u32,
+            rc_base_: u32,
+        ) metal.EvalLayout {
+            return .{
+                .trace_offsets = trace_offsets_,
+                .interaction_offsets = interaction_offsets_,
+                .base_params = 0,
+                .ext_params = 0,
+                .random_coeffs = random_coeffs_,
+                .denom_inv = denom_,
+                .coordinates = coordinates_,
+                .row_count = rows,
+                .trace_log_size = 7,
+                .domain_log_size = 7,
+                .rc_base = rc_base_,
+            };
+        }
+    }.make;
+    var first_plan = try runtime.prepareEval(
+        first_source,
+        first_name,
+        layout(trace_offsets, interaction_offsets, random_coeffs, denom, legacy_coordinates, 0),
+    );
+    defer first_plan.deinit();
+    var second_plan = try runtime.prepareEval(
+        second_source,
+        second_name,
+        layout(trace_offsets, interaction_offsets, random_coeffs, denom, legacy_coordinates, 1),
+    );
+    defer second_plan.deinit();
+    var fused_plan = try runtime.prepareEval(
+        fused_source,
+        fused_name,
+        layout(trace_offsets, interaction_offsets, random_coeffs, denom, fused_coordinates, 0),
+    );
+    defer fused_plan.deinit();
+    _ = try runtime.evalPrepared(arena, first_plan);
+    _ = try runtime.evalPrepared(arena, second_plan);
+    _ = try runtime.evalPrepared(arena, fused_plan);
+    for (legacy_coordinates, fused_coordinates) |legacy, fused|
+        try std.testing.expectEqualSlices(u32, words[legacy .. legacy + rows], words[fused .. fused + rows]);
+}
+
+test "metal: composition graph interleaves LDE and AIR before finalizing coefficients" {
     const allocator = std.testing.allocator;
     const base_log: u32 = 8;
     const eval_log: u32 = 10;
@@ -230,8 +508,15 @@ test "metal: composition front interleaves coefficient LDE and fused AIR" {
     const random_offset: u32 = 8194;
     const denom_offset: u32 = 8198;
     const accumulator_offset: u32 = 8202;
+    const previous_accumulator_offset: u32 = 6000;
+    const inverse_twiddle_offset: u32 = 25_100;
+    const output_start: u32 = 26_000;
+    var output_offsets: [8]u32 = undefined;
+    for (&output_offsets, 0..) |*offset, index| offset.* = output_start + @as(u32, @intCast(index * eval_rows / 2));
     @memcpy(words[coefficient_offset .. coefficient_offset + base_rows], std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(source_coefficients)));
     @memcpy(words[twiddle_offset .. twiddle_offset + eval_tree.twiddles.len], std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(eval_tree.twiddles)));
+    @memcpy(words[inverse_twiddle_offset .. inverse_twiddle_offset + eval_tree.itwiddles.len], std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(eval_tree.itwiddles)));
+    @memset(words[previous_accumulator_offset .. previous_accumulator_offset + 4 * (@as(usize, 1) << 8)], 0);
     words[trace_offsets] = tile_offset;
     words[interaction_offsets] = 0;
     words[random_offset..][0..4].* = .{ 1, 0, 0, 0 };
@@ -264,14 +549,33 @@ test "metal: composition front interleaves coefficient LDE and fused AIR" {
     defer inputs.deinit();
     var front = try runtime.prepareCompositionFront(inputs, &.{lde}, &.{eval_batch}, accumulator_offset, 4 * eval_rows);
     defer front.deinit();
-    const gpu_ms = try runtime.compositionFrontPrepared(arena, front);
+    const scale = try M31.fromCanonical(@intCast(eval_rows)).inv();
+    var finalize = try runtime.prepareCompositionFinalize(
+        &.{ previous_accumulator_offset, accumulator_offset },
+        &.{ 8, eval_log },
+        inverse_twiddle_offset,
+        output_offsets,
+        scale.v,
+    );
+    defer finalize.deinit();
+    var expected_coefficients = try allocator.dupe(M31, expected);
+    defer allocator.free(expected_coefficients);
+    var expected_columns = [_][]M31{expected_coefficients};
+    try circle_poly.interpolateBuffersWithTwiddles(&expected_columns, eval_domain, eval_const_tree);
+    const gpu_ms = try runtime.compositionPrepared(arena, front, finalize);
     try std.testing.expect(gpu_ms > 0);
-    const actual_bytes = std.mem.sliceAsBytes(words[accumulator_offset .. accumulator_offset + eval_rows]);
-    const actual: []align(@alignOf(M31)) const u8 = @alignCast(actual_bytes);
-    try std.testing.expectEqualSlices(M31, expected, std.mem.bytesAsSlice(M31, actual));
     try std.testing.expectEqualSlices(u32, &.{ 6, 10, 38, 46, 21, 33, 39, 51 }, words[25_000..25_008]);
-    for (1..4) |coordinate| for (words[accumulator_offset + coordinate * eval_rows .. accumulator_offset + (coordinate + 1) * eval_rows]) |value|
-        try std.testing.expectEqual(@as(u32, 0), value);
+    for (0..8) |output| {
+        const actual_words = words[output_offsets[output] .. output_offsets[output] + eval_rows / 2];
+        if ((output & 3) == 0) {
+            const half = output >> 2;
+            try std.testing.expectEqualSlices(
+                u32,
+                std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(expected_coefficients[half * eval_rows / 2 ..][0 .. eval_rows / 2])),
+                actual_words,
+            );
+        } else for (actual_words) |value| try std.testing.expectEqual(@as(u32, 0), value);
+    }
 }
 
 test "metal: Felt252 Montgomery multiplication and inversion match scalar vectors" {
@@ -411,6 +715,8 @@ test "metal: resident EC-op matches canonical Rust witness ABI" {
         segment_offset,
         scratch_offset,
         rows,
+        true,
+        true,
     );
     defer plan.deinit();
     const gpu_ms = try runtime.ecOpPrepared(arena, plan);
@@ -426,6 +732,183 @@ test "metal: resident EC-op matches canonical Rust witness ABI" {
     try std.testing.expectEqualSlices(u32, expected_lookup, words[lookup_offset .. lookup_offset + expected_lookup.len]);
     for (partial_offsets, 0..) |offset, column| {
         try std.testing.expectEqualSlices(u32, expected_partial[column * partial_rows ..][0..partial_rows], words[offset .. offset + partial_rows]);
+    }
+
+    const untouched: u32 = 0x5a5a5a5a;
+    for (trace_offsets) |offset| @memset(words[offset .. offset + rows], untouched);
+    for (partial_offsets) |offset| @memset(words[offset .. offset + partial_rows], untouched);
+    for (multiplicity_offsets, multiplicity_lengths) |offset, length| @memset(words[offset .. offset + length], untouched);
+    @memset(words[lookup_offset .. lookup_offset + expected_lookup.len], 0);
+    var lookup_plan = try runtime.prepareEcOp(
+        execution_offsets,
+        trace_offsets,
+        partial_offsets,
+        multiplicity_offsets,
+        lookup_offset,
+        segment_offset,
+        scratch_offset,
+        rows,
+        false,
+        true,
+    );
+    defer lookup_plan.deinit();
+    _ = try runtime.ecOpPrepared(arena, lookup_plan);
+    try std.testing.expectEqualSlices(u32, expected_lookup, words[lookup_offset .. lookup_offset + expected_lookup.len]);
+    for (trace_offsets) |offset| for (words[offset .. offset + rows]) |value| try std.testing.expectEqual(untouched, value);
+    for (partial_offsets) |offset| for (words[offset .. offset + partial_rows]) |value| try std.testing.expectEqual(untouched, value);
+    for (multiplicity_offsets, multiplicity_lengths) |offset, length| for (words[offset .. offset + length]) |value| try std.testing.expectEqual(untouched, value);
+}
+
+test "metal: resident EC-op finalizes canonical padding across threadgroups" {
+    const allocator = std.testing.allocator;
+    const bytes = try std.fs.cwd().readFileAlloc(allocator, "vectors/cairo/ec_op_parity.bin", 16 * 1024 * 1024);
+    defer allocator.free(bytes);
+    var cursor: usize = 8;
+    const Read = struct {
+        fn word(data: []const u8, at: *usize) u32 {
+            const value = std.mem.readInt(u32, data[at.*..][0..4], .little);
+            at.* += 4;
+            return value;
+        }
+    };
+    try std.testing.expectEqualSlices(u8, "STWZECO\x00", bytes[0..8]);
+    try std.testing.expectEqual(@as(u32, 1), Read.word(bytes, &cursor));
+    const fixture_rows = Read.word(bytes, &cursor);
+    const segment = Read.word(bytes, &cursor);
+    const n_addresses = Read.word(bytes, &cursor);
+    const n_big = Read.word(bytes, &cursor);
+    const n_small = Read.word(bytes, &cursor);
+    try std.testing.expectEqual(@as(u32, 64), fixture_rows);
+    const address_bytes: []align(4) const u8 = @alignCast(bytes[cursor .. cursor + @as(usize, n_addresses) * 4]);
+    const addresses = std.mem.bytesAsSlice(u32, address_bytes);
+    cursor += @as(usize, n_addresses) * 4;
+    const big_bytes: []align(4) const u8 = @alignCast(bytes[cursor .. cursor + @as(usize, n_big) * 8 * 4]);
+    const big_words = std.mem.bytesAsSlice(u32, big_bytes);
+    cursor += @as(usize, n_big) * 8 * 4;
+    const small_bytes: []align(4) const u8 = @alignCast(bytes[cursor .. cursor + @as(usize, n_small) * 4 * 4]);
+    const small_words = std.mem.bytesAsSlice(u32, small_bytes);
+    cursor += @as(usize, n_small) * 4 * 4;
+    const trace_bytes: []align(4) const u8 = @alignCast(bytes[cursor .. cursor + @as(usize, fixture_rows) * 273 * 4]);
+    const expected_trace = std.mem.bytesAsSlice(u32, trace_bytes);
+    cursor += @as(usize, fixture_rows) * 273 * 4;
+    cursor += @as(usize, fixture_rows) * 488 * 4;
+    const fixture_partial_rows = @as(usize, fixture_rows) * 256;
+    const partial_bytes: []align(4) const u8 = @alignCast(bytes[cursor .. cursor + fixture_partial_rows * 127 * 4]);
+    const expected_partial = std.mem.bytesAsSlice(u32, partial_bytes);
+
+    const rows: u32 = 512;
+    const address_count = @max(addresses.len, @as(usize, segment) + @as(usize, rows) * 7);
+    const expanded_addresses = try allocator.alloc(u32, address_count);
+    defer allocator.free(expanded_addresses);
+    @memset(expanded_addresses, 0);
+    @memcpy(expanded_addresses[0..addresses.len], addresses);
+    for (0..rows) |row| {
+        const source = @as(usize, segment) + (row % fixture_rows) * 7;
+        const destination = @as(usize, segment) + row * 7;
+        @memcpy(expanded_addresses[destination..][0..7], addresses[source..][0..7]);
+    }
+
+    const partial_rows = @as(usize, rows) * 256;
+    const total_words = address_count + @as(usize, n_big) * 28 + @as(usize, n_small) * 8 +
+        @as(usize, rows) * (273 + 488) + partial_rows * 127 +
+        address_count + @as(usize, n_big) + @as(usize, n_small) + 256 + 1;
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    var arena = try runtime.allocateResidentBuffer(total_words * 4);
+    defer arena.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
+    var next: u32 = 0;
+    var execution_offsets: [37]u32 = undefined;
+    execution_offsets[0] = next;
+    @memcpy(words[next .. next + address_count], expanded_addresses);
+    next += @intCast(address_count);
+    for (0..28) |limb| {
+        execution_offsets[1 + limb] = next;
+        const bit = limb * 9;
+        const source_limb = bit / 32;
+        const shift: u5 = @intCast(bit % 32);
+        for (0..n_big) |index| {
+            const source = big_words[index * 8 ..][0..8];
+            var value = source[source_limb] >> shift;
+            if (shift > 23 and source_limb + 1 < 8) value |= source[source_limb + 1] << @intCast(@as(u6, 32) - shift);
+            words[next + index] = value & 0x1ff;
+        }
+        next += n_big;
+    }
+    for (0..8) |limb| {
+        execution_offsets[29 + limb] = next;
+        const bit = limb * 9;
+        const source_limb = bit / 32;
+        const shift: u5 = @intCast(bit % 32);
+        for (0..n_small) |index| {
+            const source = small_words[index * 4 ..][0..4];
+            var value = source[source_limb] >> shift;
+            if (shift > 23 and source_limb + 1 < 4) value |= source[source_limb + 1] << @intCast(@as(u6, 32) - shift);
+            words[next + index] = value & 0x1ff;
+        }
+        next += n_small;
+    }
+    var trace_offsets: [273]u32 = undefined;
+    for (&trace_offsets) |*offset| {
+        offset.* = next;
+        next += rows;
+    }
+    const lookup_offset = next;
+    next += rows * 488;
+    var partial_offsets: [127]u32 = undefined;
+    for (&partial_offsets) |*offset| {
+        offset.* = next;
+        next += @intCast(partial_rows);
+    }
+    var multiplicity_offsets: [4]u32 = undefined;
+    const multiplicity_lengths = [_]u32{ @intCast(address_count), n_big, n_small, 256 };
+    for (&multiplicity_offsets, multiplicity_lengths) |*offset, length| {
+        offset.* = next;
+        next += length;
+    }
+    const segment_offset = next;
+    words[next] = segment;
+    next += 1;
+    try std.testing.expect(@as(usize, next) <= total_words);
+
+    var plan = try runtime.prepareEcOp(
+        execution_offsets,
+        trace_offsets,
+        partial_offsets,
+        multiplicity_offsets,
+        lookup_offset,
+        segment_offset,
+        partial_offsets[126],
+        rows,
+        true,
+        false,
+    );
+    defer plan.deinit();
+    const poison: u32 = 0xa5a5a5a5;
+    for (0..2) |_| {
+        for (trace_offsets) |offset| @memset(words[offset .. offset + rows], poison);
+        for (partial_offsets) |offset| @memset(words[offset .. offset + partial_rows], poison);
+        for (multiplicity_offsets, multiplicity_lengths) |offset, length| @memset(words[offset .. offset + length], 0);
+        _ = try runtime.ecOpPrepared(arena, plan);
+
+        for (0..rows) |row| for (trace_offsets, 0..) |offset, column| {
+            const source_row = row % fixture_rows;
+            try std.testing.expectEqual(expected_trace[source_row * 273 + column], words[offset + row]);
+        };
+        for ([_]u32{ 0, 1, 251 }) |round| for (partial_offsets[0..126], 0..) |offset, column| for (0..rows) |row| {
+            const expected = if (column == 0)
+                @as(u32, @intCast(row))
+            else
+                expected_partial[column * fixture_partial_rows + @as(usize, round) * fixture_rows + row % fixture_rows];
+            try std.testing.expectEqual(expected, words[offset + @as(usize, round) * rows + row]);
+        };
+        for (252..256) |round| for (partial_offsets[0..126], 0..) |offset, column| for (0..rows) |row| {
+            const pad = (round - 252) * rows + row;
+            const expected = if (column == 125) @as(u32, 0) else expected_partial[column * fixture_partial_rows + (pad & 15)];
+            try std.testing.expectEqual(expected, words[offset + round * rows + row]);
+        };
+        for (words[partial_offsets[126] .. partial_offsets[126] + partial_rows], 0..) |value, index|
+            try std.testing.expectEqual(@as(u32, @intCast(index)), value);
     }
 }
 
@@ -765,6 +1248,107 @@ test "metal: prepared resident quotient combine matches canonical scalar formula
     }
 }
 
+test "metal: quotient recipe executes combine, interpolation, and LDE" {
+    const allocator = std.testing.allocator;
+    const subdomain_log: u32 = 6;
+    const quotient_log: u32 = 8;
+    const subdomain_rows: u32 = @as(u32, 1) << @intCast(subdomain_log);
+    const quotient_rows: u32 = @as(u32, 1) << @intCast(quotient_log);
+    var split = try canonic.CanonicCoset.new(quotient_log).circleDomain().split(
+        allocator,
+        quotient_log - subdomain_log,
+    );
+    defer split.deinit(allocator);
+    const subdomain = split.subdomain;
+    const quotient_domain = canonic.CanonicCoset.new(quotient_log).circleDomain();
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    var resident = arena_plan.ResidentArena{ .buffer = try runtime.allocateResidentBuffer(64 * 1024) };
+    defer resident.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(resident.buffer.contents));
+
+    const partials = [_]arena_plan.Binding{
+        testResidentBinding(10, 0, subdomain_rows),
+        testResidentBinding(11, 64, subdomain_rows),
+        testResidentBinding(12, 128, subdomain_rows),
+        testResidentBinding(13, 192, subdomain_rows),
+    };
+    const sample_points = testResidentBinding(14, 256, 8);
+    const first_linear_terms = testResidentBinding(15, 264, 4);
+    const denominator_scratch = testResidentBinding(16, 268, subdomain_rows * 2);
+    const subdomain_values = testResidentBinding(17, 396, subdomain_rows * 4);
+    const quotient_values = testResidentBinding(18, 652, quotient_rows * 4);
+    const inverse_twiddles = testResidentBinding(19, 1676, subdomain_rows / 2);
+    const forward_twiddles = testResidentBinding(20, 1708, @as(u32, 1) << @intCast(quotient_log + 1));
+
+    for (partials, 0..) |partial, coordinate| {
+        const base: usize = @intCast(partial.offset_bytes / 4);
+        for (0..subdomain_rows) |row|
+            words[base + row] = @intCast(1 + coordinate * 257 + row * 17);
+    }
+    const sample_point = circle_core.SECURE_FIELD_CIRCLE_GEN;
+    for (sample_point.x.toM31Array(), 0..) |coordinate, index| words[256 + index] = coordinate.v;
+    for (sample_point.y.toM31Array(), 0..) |coordinate, index| words[260 + index] = coordinate.v;
+    @memset(words[264..268], 0);
+
+    var subdomain_twiddles = try twiddles.precomputeM31(allocator, subdomain.half_coset);
+    defer twiddles.deinitM31(allocator, &subdomain_twiddles);
+    @memcpy(words[1676 .. 1676 + subdomain_twiddles.itwiddles.len], std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(subdomain_twiddles.itwiddles)));
+    var quotient_twiddles = try twiddles.precomputeM31(allocator, circle_core.Coset.halfOdds(quotient_log + 1));
+    defer twiddles.deinitM31(allocator, &quotient_twiddles);
+    @memcpy(words[1708 .. 1708 + quotient_twiddles.twiddles.len], std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(quotient_twiddles.twiddles)));
+
+    var expected_subdomain = try secure_column.SecureColumnByCoords.uninitialized(allocator, subdomain_rows);
+    defer expected_subdomain.deinit(allocator);
+    for (0..subdomain_rows) |row| {
+        const point = subdomain.at(core_utils.bitReverseIndex(row, subdomain_log));
+        const denominator = sample_point.x.c0.subM31(point.x).mul(sample_point.y.c1).sub(
+            sample_point.y.c0.subM31(point.y).mul(sample_point.x.c1),
+        );
+        const inverse = try denominator.inv();
+        const partial = QM31.fromU32Unchecked(
+            words[partials[0].offset_bytes / 4 + row],
+            words[partials[1].offset_bytes / 4 + row],
+            words[partials[2].offset_bytes / 4 + row],
+            words[partials[3].offset_bytes / 4 + row],
+        );
+        expected_subdomain.set(row, partial.mulCM31(inverse));
+    }
+    var expected_poly = try secure_circle_poly.interpolateFromEvaluation(
+        allocator,
+        subdomain,
+        &expected_subdomain,
+    );
+    defer expected_poly.deinit(allocator);
+
+    var recipe = try protocol_recipes.QuotientRecipe.init(
+        allocator,
+        &runtime,
+        &resident,
+        &partials,
+        sample_points,
+        first_linear_terms,
+        denominator_scratch,
+        subdomain_values,
+        quotient_values,
+        inverse_twiddles,
+        forward_twiddles,
+    );
+    defer recipe.deinit();
+
+    try recipe.execute();
+
+    try std.testing.expect(recipe.accumulated_gpu_ms > 0);
+    for (expected_poly.polys, 0..) |coordinate_poly, coordinate| {
+        const expected = try coordinate_poly.evaluate(allocator, quotient_domain);
+        defer allocator.free(@constCast(expected.values));
+        const actual_offset = quotient_values.offset_bytes / 4 + coordinate * quotient_rows;
+        for (expected.values, 0..) |expected_value, row| {
+            try std.testing.expectEqual(expected_value.v, words[actual_offset + row]);
+        }
+    }
+}
+
 test "metal: fused resident FRI round matches scalar three-fold path" {
     const allocator = std.testing.allocator;
     const log_size: u32 = 6;
@@ -851,7 +1435,86 @@ test "metal: fused resident FRI round matches scalar three-fold path" {
     }
 }
 
-test "metal: packed resident FRI tree matches canonical lifted root" {
+fn expectResidentFriLineRoundMatchesScalar(source_log_size: u32, fold_count: u32) !void {
+    const allocator = std.testing.allocator;
+    const twiddle_log_size: u32 = 8;
+    const domain = try line.LineDomain.init(circle_core.Coset.halfOdds(source_log_size));
+    var tree = try twiddles.precomputeM31(
+        allocator,
+        circle_core.Coset.halfOdds(twiddle_log_size),
+    );
+    defer twiddles.deinitM31(allocator, &tree);
+
+    const source = try allocator.alloc(QM31, domain.size());
+    defer allocator.free(source);
+    for (source, 0..) |*value, row| {
+        value.* = QM31.fromU32Unchecked(
+            @intCast(3 + row * 17),
+            @intCast(5 + row * 29),
+            @intCast(7 + row * 43),
+            @intCast(11 + row * 61),
+        );
+    }
+    const alpha = QM31.fromU32Unchecked(19, 23, 31, 37);
+    var workspace = try core_fri.FoldLineWorkspace.init(allocator, source.len / 2);
+    defer workspace.deinit(allocator);
+    const expected = try core_fri.foldLineNWithWorkspace(
+        allocator,
+        source,
+        domain,
+        alpha,
+        &workspace,
+        fold_count,
+    );
+    defer allocator.free(expected.values);
+
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    var arena = try runtime.allocateResidentBuffer(64 * 1024);
+    defer arena.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
+    const input_base: u32 = 0;
+    const input_stride: u32 = @intCast(source.len);
+    for (source, 0..) |value, row| for (value.toM31Array(), 0..) |coordinate, index| {
+        words[input_base + index * input_stride + row] = coordinate.v;
+    };
+    const alpha_base: u32 = 512;
+    for (alpha.toM31Array(), 0..) |coordinate, index| words[alpha_base + index] = coordinate.v;
+    const twiddle_base: u32 = 1024;
+    @memcpy(
+        words[twiddle_base .. twiddle_base + tree.itwiddles.len],
+        std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(tree.itwiddles)),
+    );
+    const output_base: u32 = 2048;
+    const output_stride: u32 = @intCast(expected.values.len);
+    var prepared = try runtime.prepareFriRound(
+        twiddle_base,
+        @intCast(tree.itwiddles.len),
+        input_base,
+        input_stride,
+        alpha_base,
+        output_base,
+        output_stride,
+        @intCast(source.len),
+        fold_count,
+        false,
+    );
+    defer prepared.deinit();
+    try std.testing.expect(try runtime.friRoundPrepared(arena, prepared) > 0);
+    for (expected.values, 0..) |value, row| for (value.toM31Array(), 0..) |coordinate, index| {
+        try std.testing.expectEqual(coordinate.v, words[output_base + index * output_stride + row]);
+    };
+}
+
+test "metal: resident FRI line round selects the canonical twiddle subdomain" {
+    try expectResidentFriLineRoundMatchesScalar(6, 3);
+}
+
+test "metal: resident FRI final two-fold round matches scalar path" {
+    try expectResidentFriLineRoundMatchesScalar(3, 2);
+}
+
+test "metal: packed resident FRI tree matches canonical plain Blake2 root" {
     const evaluation_size: u32 = 8;
     var runtime = try metal.Runtime.init();
     defer runtime.deinit();
@@ -886,18 +1549,13 @@ test "metal: packed resident FRI tree matches canonical lifted root" {
 
     var leaves: [2]Hasher.Hash = undefined;
     for (&leaves, 0..) |*digest, leaf| {
-        var hasher = Hasher.defaultWithInitialState();
         var message: [16]M31 = undefined;
         for (0..4) |offset| for (0..4) |coordinate| {
             message[coordinate + 4 * offset] = coordinates[coordinate][4 * leaf + offset];
         };
-        hasher.updateLeaf(&message);
-        digest.* = hasher.finalize();
+        digest.* = blake2_hash.Blake2sHasher.hash(std.mem.sliceAsBytes(&message));
     }
-    const expected = Hasher.hashChildrenWithSeed(
-        Hasher.nodeSeed(),
-        .{ .left = leaves[0], .right = leaves[1] },
-    );
+    const expected = blake2_hash.Blake2sHasher.concatAndHash(leaves[0], leaves[1]);
     try std.testing.expectEqualSlices(
         u8,
         &expected,
@@ -945,6 +1603,40 @@ test "metal: resident FRI final interpolation matches canonical line polynomial"
     try std.testing.expectEqual(@as(u32, @intFromBool(!expected[1].isZero())), words[error_offset]);
 }
 
+test "metal: FRI final-degree validation fails closed" {
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    var resident = arena_plan.ResidentArena{ .buffer = try runtime.allocateResidentBuffer(16 * 1024) };
+    defer resident.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(resident.buffer.contents));
+    const error_binding = testResidentBinding(1, 32, 1);
+    var recipe = protocol_recipes.FriRecipe{
+        .metal = &runtime,
+        .arena = &resident,
+        .rounds = undefined,
+        .trees = undefined,
+        .final = undefined,
+        .roots = undefined,
+        .initialized_rounds = 0,
+        .initialized_trees = 0,
+        .initialized_final = false,
+        .final_degree_error = error_binding,
+    };
+
+    try std.testing.expectError(
+        protocol_recipes.FriRecipe.FinalDegreeError.FinalDegreeNotComputed,
+        recipe.validateFinalDegree(),
+    );
+    recipe.finalized = true;
+    words[32] = 0;
+    try recipe.validateFinalDegree();
+    words[32] = 1;
+    try std.testing.expectError(
+        protocol_recipes.FriRecipe.FinalDegreeError.FinalDegreeExceeded,
+        recipe.validateFinalDegree(),
+    );
+}
+
 test "metal: resident Blake2s transcript matches host channel" {
     const allocator = std.testing.allocator;
     var runtime = try metal.Runtime.init();
@@ -952,10 +1644,13 @@ test "metal: resident Blake2s transcript matches host channel" {
     var arena = try runtime.allocateResidentBuffer(16 * 1024);
     defer arena.deinit();
     const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
-    const state_base: u32 = 0;
+    const state_base_24: u32 = 0;
+    const state_base_25: u32 = 16;
     const source_base: u32 = 32;
-    const secure_base: u32 = 128;
-    const query_base: u32 = 192;
+    const secure_base_24: u32 = 128;
+    const secure_base_25: u32 = 144;
+    const query_base_24: u32 = 192;
+    const query_base_25: u32 = 224;
     const source = [_]QM31{
         QM31.fromU32Unchecked(1, 2, 3, 4),
         QM31.fromU32Unchecked(5, 6, 7, 8),
@@ -967,27 +1662,39 @@ test "metal: resident Blake2s transcript matches host channel" {
     channel.mixFelts(&source);
     const expected_secure = try channel.drawSecureFelts(allocator, 3);
     defer allocator.free(expected_secure);
-    var expected_queries: [13]u32 = undefined;
+    var expected_queries_24: [13]u32 = undefined;
+    var expected_queries_25: [13]u32 = undefined;
     var produced: usize = 0;
-    while (produced < expected_queries.len) {
+    while (produced < expected_queries_24.len) {
         const draw = channel.drawU32s();
         for (draw) |word| {
-            expected_queries[produced] = word & ((@as(u32, 1) << 24) - 1);
+            expected_queries_24[produced] = word & ((@as(u32, 1) << 24) - 1);
+            expected_queries_25[produced] = word & ((@as(u32, 1) << 25) - 1);
             produced += 1;
-            if (produced == expected_queries.len) break;
+            if (produced == expected_queries_24.len) break;
         }
     }
 
-    _ = try runtime.transcriptInit(arena, state_base);
-    _ = try runtime.transcriptMix(arena, state_base, source_base, 12);
-    _ = try runtime.transcriptDrawSecure(arena, state_base, secure_base, 3);
-    _ = try runtime.transcriptDrawQueries(arena, state_base, query_base, 24, expected_queries.len);
+    _ = try runtime.transcriptInit(arena, state_base_24);
+    _ = try runtime.transcriptInit(arena, state_base_25);
+    _ = try runtime.transcriptMix(arena, state_base_24, source_base, 12);
+    _ = try runtime.transcriptMix(arena, state_base_25, source_base, 12);
+    _ = try runtime.transcriptDrawSecure(arena, state_base_24, secure_base_24, 3);
+    _ = try runtime.transcriptDrawSecure(arena, state_base_25, secure_base_25, 3);
+    _ = try runtime.transcriptDrawQueries(arena, state_base_24, query_base_24, 24, expected_queries_24.len);
+    _ = try runtime.transcriptDrawQueries(arena, state_base_25, query_base_25, 25, expected_queries_25.len);
     try std.testing.expectEqualSlices(
         u32,
         std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(expected_secure)),
-        words[secure_base .. secure_base + 12],
+        words[secure_base_24 .. secure_base_24 + 12],
     );
-    try std.testing.expectEqualSlices(u32, &expected_queries, words[query_base .. query_base + expected_queries.len]);
+    try std.testing.expectEqualSlices(
+        u32,
+        std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(expected_secure)),
+        words[secure_base_25 .. secure_base_25 + 12],
+    );
+    try std.testing.expectEqualSlices(u32, &expected_queries_24, words[query_base_24 .. query_base_24 + expected_queries_24.len]);
+    try std.testing.expectEqualSlices(u32, &expected_queries_25, words[query_base_25 .. query_base_25 + expected_queries_25.len]);
 }
 
 test "metal: resident decommit query preparation matches canonical mapping" {
@@ -1064,23 +1771,34 @@ test "metal: resident decommit query preparation matches canonical mapping" {
     const column_logs_base: u32 = 484;
     const trace_values_base: u32 = 1024;
     words[column_offsets_base] = 512;
-    words[column_offsets_base + 1] = 768;
+    words[column_offsets_base + 1] = 0;
+    words[column_offsets_base + 2] = 768;
+    words[column_offsets_base + 3] = 0;
     words[column_logs_base] = 8;
     words[column_logs_base + 1] = 7;
     for (0..256) |row| words[512 + row] = @intCast(1000 + row);
     for (0..128) |row| words[768 + row] = @intCast(2000 + row);
-    _ = try runtime.decommitGatherTraceValues(
+    const sparse_hashes_base: u32 = 2000;
+    _ = try runtime.decommitTraceGroup(
         arena,
-        column_offsets_base,
-        column_logs_base,
-        2,
-        8,
-        tree_base,
-        tree_count_base,
-        raw.len,
-        0,
-        raw.len,
-        trace_values_base,
+        .{
+            .column_offsets = column_offsets_base,
+            .column_logs = column_logs_base,
+            .queries = tree_base,
+            .query_count_at = tree_count_base,
+            .values = trace_values_base,
+            .leaf_indices = expanded_base,
+            .leaf_count_at = expanded_count_base,
+            .output_hashes = sparse_hashes_base,
+            .column_count = 2,
+            .lifting_log = 8,
+            .max_queries = raw.len,
+            .first_column = 0,
+            .stride = raw.len,
+            .total_columns = 2,
+            .max_leaf_count = raw.len << 2,
+            .leaf_seed = Hasher.leafSeed(),
+        },
     );
     for (words[tree_base .. tree_base + words[tree_count_base]], 0..) |query, index| {
         try std.testing.expectEqual(1000 + query, words[trace_values_base + index]);
@@ -1106,7 +1824,8 @@ test "metal: resident decommit query preparation matches canonical mapping" {
     const coordinate_bases: u32 = 490;
     const fri_values_base: u32 = 3000;
     for (0..4) |coordinate| {
-        words[coordinate_bases + coordinate] = @intCast(1600 + coordinate * 256);
+        words[coordinate_bases + coordinate * 2] = @intCast(1600 + coordinate * 256);
+        words[coordinate_bases + coordinate * 2 + 1] = 0;
         for (0..256) |row| words[1600 + coordinate * 256 + row] = @intCast(coordinate * 1000 + row);
     }
     _ = try runtime.decommitGatherFriValues(
@@ -1125,8 +1844,11 @@ test "metal: resident decommit query preparation matches canonical mapping" {
     }
     const retained_offsets: u32 = 3100;
     words[retained_offsets] = 0;
-    words[retained_offsets + 1] = 2890;
-    words[retained_offsets + 2] = 2922;
+    words[retained_offsets + 1] = 0;
+    words[retained_offsets + 2] = 2890;
+    words[retained_offsets + 3] = 0;
+    words[retained_offsets + 4] = 2922;
+    words[retained_offsets + 5] = 0;
     for (0..32) |index| words[2890 + index] = @intCast(0x1000 + index);
     for (0..64) |index| words[2922 + index] = @intCast(0x2000 + index);
     _ = try runtime.decommitAssembleFri(
@@ -1188,7 +1910,9 @@ test "metal: trace sparse parents and assembly are resident and fail closed" {
     const column_zero: u32 = 1200;
     const column_one: u32 = 1210;
     words[column_offsets] = column_zero;
-    words[column_offsets + 1] = column_one;
+    words[column_offsets + 1] = 0;
+    words[column_offsets + 2] = column_one;
+    words[column_offsets + 3] = 0;
     words[column_logs] = 2;
     words[column_logs + 1] = 2;
     for (0..4) |row| {
@@ -1217,8 +1941,75 @@ test "metal: trace sparse parents and assembly are resident and fail closed" {
             std.mem.sliceAsBytes(words[sparse_hashes + row * 8 .. sparse_hashes + (row + 1) * 8]),
         );
     }
+
+    const streamed_offsets: u32 = 1500;
+    const streamed_logs: u32 = 1570;
+    const streamed_columns: u32 = 1620;
+    const streamed_hashes: u32 = 1800;
+    for (0..33) |column| {
+        words[streamed_offsets + column * 2] = @intCast(streamed_columns + column * 4);
+        words[streamed_offsets + column * 2 + 1] = 0;
+        words[streamed_logs + column] = 2;
+        for (0..4) |row| words[streamed_columns + column * 4 + row] = @intCast(100 + column * 10 + row);
+    }
+    _ = try runtime.decommitSparseLeafGroup(
+        arena,
+        streamed_offsets,
+        streamed_logs,
+        16,
+        0,
+        33,
+        2,
+        sparse_indices,
+        counts + 4,
+        2,
+        streamed_hashes,
+        Hasher.leafSeed(),
+    );
+    _ = try runtime.decommitSparseLeafGroup(
+        arena,
+        streamed_offsets + 32,
+        streamed_logs + 16,
+        16,
+        16,
+        33,
+        2,
+        sparse_indices,
+        counts + 4,
+        2,
+        streamed_hashes,
+        Hasher.leafSeed(),
+    );
+    _ = try runtime.decommitSparseLeafGroup(
+        arena,
+        streamed_offsets + 64,
+        streamed_logs + 32,
+        1,
+        32,
+        33,
+        2,
+        sparse_indices,
+        counts + 4,
+        2,
+        streamed_hashes,
+        Hasher.leafSeed(),
+    );
+    for (0..2) |row| {
+        var evaluations: [33]M31 = undefined;
+        for (&evaluations, 0..) |*value, column| value.* = M31.fromCanonical(@intCast(100 + column * 10 + row));
+        var leaf = Hasher.defaultWithInitialState();
+        leaf.updateLeaf(&evaluations);
+        const expected = leaf.finalize();
+        try std.testing.expectEqualSlices(
+            u8,
+            &expected,
+            std.mem.sliceAsBytes(words[streamed_hashes + row * 8 .. streamed_hashes + (row + 1) * 8]),
+        );
+    }
     words[retained_offsets] = 0;
-    words[retained_offsets + 1] = retained_level_one;
+    words[retained_offsets + 1] = 0;
+    words[retained_offsets + 2] = retained_level_one;
+    words[retained_offsets + 3] = 0;
     for (0..16) |index| words[retained_level_one + index] = @intCast(0x200 + index);
 
     words[assembly] = 0x44575453;
@@ -1326,6 +2117,7 @@ test "metal: exact Cairo transcript controller binds resident ordinals" {
         &runtime,
         &resident,
         state,
+        24,
         &inputs,
         &.{dummy_output},
     );
@@ -1466,8 +2258,8 @@ test "metal: prepared sparse coefficient LDE matches CPU" {
     var arena = try runtime.allocateResidentBuffer(128 * 1024);
     defer arena.deinit();
     const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
-    const source_offsets = [_]u32{ 0, 4096 };
-    const destination_offsets = [_]u32{ 8192, 16384 };
+    const source_offsets = [_]u64{ 0, 4096 };
+    const destination_offsets = [_]u64{ 8192, 16384 };
     const twiddle_offset: u32 = 24576;
     for (coefficients, source_offsets) |column, offset| {
         @memcpy(words[offset .. offset + column.len], std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(column)));
@@ -1510,11 +2302,12 @@ test "metal: prepared sparse evaluation IFFT matches CPU" {
     var arena = try runtime.allocateResidentBuffer(64 * 1024);
     defer arena.deinit();
     const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
-    const source_offsets = [_]u32{ 0, 2048 };
-    const destination_offsets = [_]u32{ 4096, 8192 };
+    const source_offsets = [_]u64{ 0, 2048 };
+    const destination_offsets = [_]u64{ 4096, 8192 };
     const twiddle_offset: u32 = 12288;
     for (evaluations, source_offsets) |column, offset| {
-        @memcpy(words[offset .. offset + column.len], std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(column)));
+        const word_offset: usize = @intCast(offset);
+        @memcpy(words[word_offset .. word_offset + column.len], std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(column)));
     }
     @memcpy(words[twiddle_offset .. twiddle_offset + tree.itwiddles.len], std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(tree.itwiddles)));
     const scale = try M31.fromCanonical(@intCast(domain.size())).inv();
@@ -1522,20 +2315,228 @@ test "metal: prepared sparse evaluation IFFT matches CPU" {
     defer plan.deinit();
     _ = try runtime.circleIfftPrepared(arena, plan);
     for (expected, destination_offsets) |column, offset| {
-        const actual_bytes = std.mem.sliceAsBytes(words[offset .. offset + column.len]);
+        const word_offset: usize = @intCast(offset);
+        const actual_bytes = std.mem.sliceAsBytes(words[word_offset .. word_offset + column.len]);
         const actual: []align(@alignOf(M31)) const u8 = @alignCast(actual_bytes);
         try std.testing.expectEqualSlices(M31, column, std.mem.bytesAsSlice(M31, actual));
     }
 }
 
-test "metal: prepared composition lift interpolate and split matches CPU" {
+fn expectPreparedSparseIfftDeterministic(log_size: u32, repetitions: usize) !void {
     const allocator = std.testing.allocator;
     var runtime = try metal.Runtime.init();
     defer runtime.deinit();
-    const previous_log: u32 = 8;
-    const current_log: u32 = 10;
-    const previous_rows = @as(usize, 1) << previous_log;
-    const current_rows = @as(usize, 1) << current_log;
+    const domain = canonic.CanonicCoset.new(log_size).circleDomain();
+    const rows = domain.size();
+    var tree = try twiddles.precomputeM31(allocator, domain.half_coset);
+    defer twiddles.deinitM31(allocator, &tree);
+    const const_tree = twiddles.TwiddleTree([]const M31).init(
+        tree.root_coset,
+        tree.twiddles,
+        tree.itwiddles,
+    );
+
+    var evaluations: [2][]M31 = undefined;
+    var expected: [2][]M31 = undefined;
+    defer for (&evaluations) |column| allocator.free(column);
+    defer for (&expected) |column| allocator.free(column);
+    for (&evaluations, &expected, 0..) |*evaluation, *coefficient, column_index| {
+        evaluation.* = try allocator.alloc(M31, rows);
+        coefficient.* = try allocator.alloc(M31, rows);
+        for (evaluation.*, 0..) |*value, row| value.* = M31.fromCanonical(
+            @intCast((column_index * 0x1f123 + row * 0x10101 + row * row * 17 + 29) % m31.Modulus),
+        );
+        @memcpy(coefficient.*, evaluation.*);
+    }
+    try circle_poly.interpolateBuffersWithTwiddles(&expected, domain, const_tree);
+
+    const source_offsets = [_]u64{ 0, rows };
+    const destination_offsets = [_]u64{ 2 * rows, 3 * rows };
+    const twiddle_offset: u32 = @intCast(4 * rows);
+    const arena_words = 4 * rows + tree.itwiddles.len;
+    var arena = try runtime.allocateResidentBuffer(arena_words * @sizeOf(u32));
+    defer arena.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
+    @memcpy(
+        words[twiddle_offset .. twiddle_offset + tree.itwiddles.len],
+        std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(tree.itwiddles)),
+    );
+    const scale = try M31.fromCanonical(@intCast(rows)).inv();
+    var plan = try runtime.prepareCircleIfft(
+        &source_offsets,
+        &destination_offsets,
+        log_size,
+        twiddle_offset,
+        scale.v,
+    );
+    defer plan.deinit();
+
+    for (0..repetitions) |_| {
+        for (evaluations, source_offsets) |column, offset| {
+            const start: usize = @intCast(offset);
+            @memcpy(
+                words[start .. start + rows],
+                std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(column)),
+            );
+        }
+        _ = try runtime.circleIfftPrepared(arena, plan);
+        for (expected, destination_offsets) |column, offset| {
+            const start: usize = @intCast(offset);
+            try std.testing.expectEqualSlices(
+                u32,
+                std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(column)),
+                words[start .. start + rows],
+            );
+        }
+    }
+}
+
+test "metal: prepared sparse evaluation IFFT is deterministic across command submissions" {
+    // Log 10 is the smallest domain whose 512 butterflies span more than one
+    // 256-thread group, so it exercises cross-group visibility at every layer.
+    try expectPreparedSparseIfftDeterministic(10, 16);
+}
+
+test "metal: prepared sparse evaluation IFFT log-24 stress gate" {
+    const allocator = std.testing.allocator;
+    const enabled = std.process.getEnvVarOwned(
+        allocator,
+        "STWO_ZIG_METAL_IFFT_LOG24_STRESS",
+    ) catch return error.SkipZigTest;
+    defer allocator.free(enabled);
+    if (!std.mem.eql(u8, enabled, "1")) return error.SkipZigTest;
+    try expectPreparedSparseIfftDeterministic(24, 2);
+}
+
+fn expectPreparedCompositionFinalizeChainMatchesCpu(logs: []const u32, repetitions: usize) !void {
+    const allocator = std.testing.allocator;
+    if (logs.len < 3 or repetitions == 0) return error.InvalidTestFixture;
+    for (logs[1..], logs[0 .. logs.len - 1]) |current, previous| {
+        if (current <= previous) return error.InvalidTestFixture;
+    }
+
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    const max_log = logs[logs.len - 1];
+    const max_rows = @as(usize, 1) << @intCast(max_log);
+    const domain = canonic.CanonicCoset.new(max_log).circleDomain();
+    var tree = try twiddles.precomputeM31(allocator, domain.half_coset);
+    defer twiddles.deinitM31(allocator, &tree);
+    const const_tree = twiddles.TwiddleTree([]const M31).init(
+        tree.root_coset,
+        tree.twiddles,
+        tree.itwiddles,
+    );
+
+    const accumulator_offsets = try allocator.alloc(u32, logs.len);
+    defer allocator.free(accumulator_offsets);
+    var accumulator_words: usize = 0;
+    for (logs, accumulator_offsets) |log_size, *offset| {
+        offset.* = @intCast(accumulator_words);
+        accumulator_words += 4 * (@as(usize, 1) << @intCast(log_size));
+    }
+    const initial = try allocator.alloc(u32, accumulator_words);
+    defer allocator.free(initial);
+    for (logs, accumulator_offsets, 0..) |log_size, offset, level| {
+        const rows = @as(usize, 1) << @intCast(log_size);
+        for (0..4) |coordinate| for (0..rows) |row| {
+            initial[@as(usize, offset) + coordinate * rows + row] = @intCast(
+                (level * 0x20b31 + coordinate * 0x1031 + row * 37 + row * row * 3 + 11) % m31.Modulus,
+            );
+        };
+    }
+
+    var lifted: [4][]M31 = undefined;
+    defer for (&lifted) |column| allocator.free(column);
+    const first_rows = @as(usize, 1) << @intCast(logs[0]);
+    for (&lifted, 0..) |*column, coordinate| {
+        column.* = try allocator.alloc(M31, first_rows);
+        const start = @as(usize, accumulator_offsets[0]) + coordinate * first_rows;
+        for (initial[start .. start + first_rows], column.*) |value, *destination|
+            destination.* = M31.fromCanonical(value);
+    }
+    for (logs[1..], accumulator_offsets[1..]) |current_log, offset| {
+        const previous_log: u32 = @intCast(std.math.log2_int(usize, lifted[0].len));
+        const log_ratio = current_log - previous_log;
+        const rows = @as(usize, 1) << @intCast(current_log);
+        var next: [4][]M31 = undefined;
+        var initialized: usize = 0;
+        errdefer for (next[0..initialized]) |column| allocator.free(column);
+        for (&next, 0..) |*column, coordinate| {
+            column.* = try allocator.alloc(M31, rows);
+            initialized += 1;
+            const start = @as(usize, offset) + coordinate * rows;
+            for (initial[start .. start + rows], column.*, 0..) |value, *destination, row| {
+                const source = (row >> @intCast(log_ratio + 1) << 1) + (row & 1);
+                destination.* = M31.fromCanonical(value).add(lifted[coordinate][source]);
+            }
+        }
+        for (&lifted, &next) |*previous, column| {
+            allocator.free(previous.*);
+            previous.* = column;
+        }
+    }
+    try circle_poly.interpolateBuffersWithTwiddles(&lifted, domain, const_tree);
+
+    const twiddle_offset: u32 = @intCast(accumulator_words);
+    const output_start = accumulator_words + tree.itwiddles.len;
+    var output_offsets: [8]u32 = undefined;
+    for (&output_offsets, 0..) |*offset, index| offset.* = @intCast(output_start + index * max_rows / 2);
+    var arena = try runtime.allocateResidentBuffer((output_start + 4 * max_rows) * @sizeOf(u32));
+    defer arena.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
+    @memcpy(
+        words[twiddle_offset .. twiddle_offset + tree.itwiddles.len],
+        std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(tree.itwiddles)),
+    );
+    const scale = try M31.fromCanonical(@intCast(max_rows)).inv();
+    var plan = try runtime.prepareCompositionFinalize(
+        accumulator_offsets,
+        logs,
+        twiddle_offset,
+        output_offsets,
+        scale.v,
+    );
+    defer plan.deinit();
+
+    for (0..repetitions) |_| {
+        @memcpy(words[0..initial.len], initial);
+        _ = try runtime.compositionFinalizePrepared(arena, plan);
+        for (0..8) |output| {
+            const coordinate = output & 3;
+            const half = output >> 2;
+            const expected = lifted[coordinate][half * max_rows / 2 ..][0 .. max_rows / 2];
+            const start: usize = output_offsets[output];
+            try std.testing.expectEqualSlices(
+                u32,
+                std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(expected)),
+                words[start .. start + max_rows / 2],
+            );
+        }
+    }
+}
+
+test "metal: multi-level composition lift and IFFT is deterministic" {
+    try expectPreparedCompositionFinalizeChainMatchesCpu(&.{ 3, 5, 7, 10 }, 16);
+}
+
+test "metal: multi-level composition finalize log-24 stress gate" {
+    const allocator = std.testing.allocator;
+    const enabled = std.process.getEnvVarOwned(
+        allocator,
+        "STWO_ZIG_METAL_IFFT_LOG24_STRESS",
+    ) catch return error.SkipZigTest;
+    defer allocator.free(enabled);
+    if (!std.mem.eql(u8, enabled, "1")) return error.SkipZigTest;
+    try expectPreparedCompositionFinalizeChainMatchesCpu(&.{ 5, 10, 17, 24 }, 2);
+}
+
+fn expectPreparedCompositionFinalizeMatchesCpu(previous_log: u32, current_log: u32) !void {
+    const allocator = std.testing.allocator;
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    const previous_rows = @as(usize, 1) << @intCast(previous_log);
+    const current_rows = @as(usize, 1) << @intCast(current_log);
     const domain = canonic.CanonicCoset.new(current_log).circleDomain();
     var tree = try twiddles.precomputeM31(allocator, domain.half_coset);
     defer twiddles.deinitM31(allocator, &tree);
@@ -1544,25 +2545,25 @@ test "metal: prepared composition lift interpolate and split matches CPU" {
     defer for (&expected) |column| allocator.free(column);
     const previous_offset: u32 = 0;
     const current_offset: u32 = @intCast(4 * previous_rows);
-    const twiddle_offset: u32 = current_offset + 4 * current_rows;
+    const twiddle_offset: u32 = current_offset + @as(u32, @intCast(4 * current_rows));
     const output_start: u32 = twiddle_offset + @as(u32, @intCast(tree.itwiddles.len));
     var output_offsets: [8]u32 = undefined;
     for (&output_offsets, 0..) |*offset, index| offset.* = output_start + @as(u32, @intCast(index * current_rows / 2));
-    var arena = try runtime.allocateResidentBuffer(@as(usize, output_start + 8 * current_rows / 2) * 4);
+    var arena = try runtime.allocateResidentBuffer((@as(usize, output_start) + 8 * current_rows / 2) * 4);
     defer arena.deinit();
     const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
     for (0..4) |coordinate| {
         expected[coordinate] = try allocator.alloc(M31, current_rows);
-        for (0..previous_rows) |row| words[previous_offset + coordinate * previous_rows + row] = @intCast((coordinate * 1237 + row * 17 + 3) % m31.Modulus);
+        for (0..previous_rows) |row| words[@as(usize, previous_offset) + coordinate * previous_rows + row] = @intCast((coordinate * 1237 + row * 17 + 3) % m31.Modulus);
         for (0..current_rows) |row| {
             const value: u32 = @intCast((coordinate * 3571 + row * 29 + 11) % m31.Modulus);
-            words[current_offset + coordinate * current_rows + row] = value;
-            const lifted = (row >> (current_log - previous_log + 1) << 1) + (row & 1);
-            expected[coordinate][row] = M31.fromCanonical(value).add(M31.fromCanonical(words[previous_offset + coordinate * previous_rows + lifted]));
+            words[@as(usize, current_offset) + coordinate * current_rows + row] = value;
+            const lifted = (row >> @intCast(current_log - previous_log + 1) << 1) + (row & 1);
+            expected[coordinate][row] = M31.fromCanonical(value).add(M31.fromCanonical(words[@as(usize, previous_offset) + coordinate * previous_rows + lifted]));
         }
     }
     try circle_poly.interpolateBuffersWithTwiddles(&expected, domain, const_tree);
-    @memcpy(words[twiddle_offset .. twiddle_offset + tree.itwiddles.len], std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(tree.itwiddles)));
+    @memcpy(words[@as(usize, twiddle_offset) .. @as(usize, twiddle_offset) + tree.itwiddles.len], std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(tree.itwiddles)));
     const scale = try M31.fromCanonical(@intCast(current_rows)).inv();
     var plan = try runtime.prepareCompositionFinalize(
         &.{ previous_offset, current_offset },
@@ -1578,10 +2579,19 @@ test "metal: prepared composition lift interpolate and split matches CPU" {
         const coordinate = output & 3;
         const half = output >> 2;
         const source = expected[coordinate][half * current_rows / 2 ..][0 .. current_rows / 2];
-        const actual_bytes = std.mem.sliceAsBytes(words[output_offsets[output] .. output_offsets[output] + current_rows / 2]);
+        const output_offset: usize = output_offsets[output];
+        const actual_bytes = std.mem.sliceAsBytes(words[output_offset .. output_offset + current_rows / 2]);
         const actual: []align(@alignOf(M31)) const u8 = @alignCast(actual_bytes);
         try std.testing.expectEqualSlices(M31, source, std.mem.bytesAsSlice(M31, actual));
     }
+}
+
+test "metal: prepared composition lift interpolate and split matches CPU" {
+    try expectPreparedCompositionFinalizeMatchesCpu(8, 10);
+}
+
+test "metal: prepared composition finalize matches CPU above SIMD transpose threshold" {
+    try expectPreparedCompositionFinalizeMatchesCpu(13, 17);
 }
 
 test "metal: prepared fixed-table lookup batch matches scalar materialization" {
@@ -1806,9 +2816,257 @@ test "metal: incremental leaf absorption matches monolithic lifted leaves" {
     var leaves = try runtime.prepareMerkleLeaves(&offsets, &logs, lifting_log, monolithic, Hasher.leafSeed());
     defer leaves.deinit();
     _ = try runtime.merkleLeavesPrepared(arena, leaves);
-    _ = try runtime.leafAbsorb(arena, offsets[0..16], logs[0..16], incremental, lifting_log, 0, false, 64, Hasher.leafSeed());
-    _ = try runtime.leafAbsorb(arena, offsets[16..20], logs[16..20], incremental, lifting_log, 16, true, 64, Hasher.leafSeed());
+    _ = try runtime.leafAbsorb(arena, offsets[0..16], logs[0..16], incremental, lifting_log, 0, false, 0, Hasher.leafSeed());
+    _ = try runtime.leafAbsorb(arena, offsets[16..20], logs[16..20], incremental, lifting_log, 16, true, 0, Hasher.leafSeed());
     try std.testing.expectEqualSlices(u32, words[monolithic .. monolithic + rows * 8], words[incremental .. incremental + rows * 8]);
+}
+
+test "metal: compact leaf absorption expands mixed logs and preserves the Merkle root" {
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    const lifting_log: u32 = 8;
+    const rows: u32 = 1 << lifting_log;
+    var arena = try runtime.allocateResidentBuffer(128 * 1024);
+    defer arena.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
+    var offsets: [24]u32 = undefined;
+    var logs: [24]u32 = undefined;
+    var cursor: u32 = 0;
+    for (&offsets, &logs, 0..) |*offset, *log_size, column| {
+        log_size.* = if (column < 8)
+            (if (column % 2 == 0) 4 else 5)
+        else if (column < 16)
+            (if (column % 2 == 0) 5 else 7)
+        else
+            (if (column % 2 == 0) 7 else 8);
+        offset.* = cursor;
+        const length = @as(u32, 1) << @intCast(log_size.*);
+        for (words[cursor .. cursor + length], 0..) |*value, row|
+            value.* = @intCast((column * 313 + row * 17 + 9) % m31.Modulus);
+        cursor += length;
+    }
+    const full_state: u32 = 8192;
+    const compact_state: u32 = full_state + rows * 8;
+    const snapshot: u32 = compact_state + rows * 8;
+    _ = try runtime.leafAbsorb(arena, offsets[0..8], logs[0..8], full_state, lifting_log, 0, false, 0, Hasher.leafSeed());
+    _ = try runtime.leafAbsorb(arena, offsets[8..16], logs[8..16], full_state, lifting_log, 8, false, 0, Hasher.leafSeed());
+    _ = try runtime.leafAbsorb(arena, offsets[16..24], logs[16..24], full_state, lifting_log, 16, true, 0, Hasher.leafSeed());
+
+    _ = try runtime.leafAbsorbCompact(arena, offsets[0..8], logs[0..8], compact_state, 5, compact_state, 5, 0, false, 0, Hasher.leafSeed());
+    {
+        var copy = try runtime.prepareArenaCopies(&.{.{
+            .source_word_offset = compact_state,
+            .destination_word_offset = snapshot,
+            .word_count = (1 << 5) * 8,
+        }});
+        defer copy.deinit();
+        _ = try runtime.arenaCopyPrepared(arena, copy);
+    }
+    _ = try runtime.leafAbsorbCompact(arena, offsets[8..16], logs[8..16], snapshot, 5, compact_state, 7, 8, false, 0, Hasher.leafSeed());
+    {
+        var copy = try runtime.prepareArenaCopies(&.{.{
+            .source_word_offset = compact_state,
+            .destination_word_offset = snapshot,
+            .word_count = (1 << 7) * 8,
+        }});
+        defer copy.deinit();
+        _ = try runtime.arenaCopyPrepared(arena, copy);
+    }
+    _ = try runtime.leafAbsorbCompact(arena, offsets[16..24], logs[16..24], snapshot, 7, compact_state, lifting_log, 16, true, 0, Hasher.leafSeed());
+    try std.testing.expectEqualSlices(u32, words[full_state .. full_state + rows * 8], words[compact_state .. compact_state + rows * 8]);
+
+    var full_children: [8]u32 = undefined;
+    var full_destinations: [8]u32 = undefined;
+    var compact_children: [8]u32 = undefined;
+    var compact_destinations: [8]u32 = undefined;
+    var parent_counts: [8]u32 = undefined;
+    var full_parent_cursor: u32 = 16384;
+    var compact_parent_cursor: u32 = 20480;
+    var parent_count = rows / 2;
+    for (0..8) |level| {
+        full_children[level] = if (level == 0) full_state else full_destinations[level - 1];
+        compact_children[level] = if (level == 0) compact_state else compact_destinations[level - 1];
+        full_destinations[level] = full_parent_cursor;
+        compact_destinations[level] = compact_parent_cursor;
+        parent_counts[level] = parent_count;
+        full_parent_cursor += parent_count * 8;
+        compact_parent_cursor += parent_count * 8;
+        parent_count /= 2;
+    }
+    var full_chain = try runtime.prepareMerkleParentChain(&full_children, &full_destinations, &parent_counts, Hasher.nodeSeed());
+    defer full_chain.deinit();
+    var compact_chain = try runtime.prepareMerkleParentChain(&compact_children, &compact_destinations, &parent_counts, Hasher.nodeSeed());
+    defer compact_chain.deinit();
+    _ = try runtime.merkleParentChainPrepared(arena, full_chain);
+    _ = try runtime.merkleParentChainPrepared(arena, compact_chain);
+    try std.testing.expectEqualSlices(u32, words[full_destinations[7] .. full_destinations[7] + 8], words[compact_destinations[7] .. compact_destinations[7] + 8]);
+}
+
+test "metal: compact leaf absorption expands a partial final group to the full domain" {
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    const lifting_log: u32 = 8;
+    const rows: u32 = 1 << lifting_log;
+    var arena = try runtime.allocateResidentBuffer(64 * 1024);
+    defer arena.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
+    var offsets: [16]u32 = undefined;
+    var logs: [16]u32 = undefined;
+    var cursor: u32 = 0;
+    for (&offsets, &logs, 0..) |*offset, *log_size, column| {
+        log_size.* = if (column < 8)
+            (if (column % 2 == 0) 4 else 5)
+        else
+            (if (column % 2 == 0) 6 else 7);
+        offset.* = cursor;
+        const length = @as(u32, 1) << @intCast(log_size.*);
+        for (words[cursor .. cursor + length], 0..) |*value, row|
+            value.* = @intCast((column * 199 + row * 29 + 3) % m31.Modulus);
+        cursor += length;
+    }
+    const full_state: u32 = 4096;
+    const compact_state: u32 = full_state + rows * 8;
+    const snapshot: u32 = compact_state + rows * 8;
+    _ = try runtime.leafAbsorb(arena, offsets[0..8], logs[0..8], full_state, lifting_log, 0, false, 0, Hasher.leafSeed());
+    _ = try runtime.leafAbsorb(arena, offsets[8..16], logs[8..16], full_state, lifting_log, 8, true, 0, Hasher.leafSeed());
+    _ = try runtime.leafAbsorbCompact(arena, offsets[0..8], logs[0..8], compact_state, 5, compact_state, 5, 0, false, 0, Hasher.leafSeed());
+    var copy = try runtime.prepareArenaCopies(&.{.{
+        .source_word_offset = compact_state,
+        .destination_word_offset = snapshot,
+        .word_count = (1 << 5) * 8,
+    }});
+    defer copy.deinit();
+    _ = try runtime.arenaCopyPrepared(arena, copy);
+    _ = try runtime.leafAbsorbCompact(arena, offsets[8..16], logs[8..16], snapshot, 5, compact_state, lifting_log, 8, true, 0, Hasher.leafSeed());
+    try std.testing.expectEqualSlices(u32, words[full_state .. full_state + rows * 8], words[compact_state .. compact_state + rows * 8]);
+}
+
+test "metal: batched decommit FRI round matches three legacy submissions" {
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    const arena_words: usize = 65536;
+    var legacy = try runtime.allocateResidentBuffer(arena_words * @sizeOf(u32));
+    defer legacy.deinit();
+    var batched = try runtime.allocateResidentBuffer(arena_words * @sizeOf(u32));
+    defer batched.deinit();
+
+    const unique_base: u64 = 64;
+    const tree_queries_base: u64 = 256;
+    const expanded_base: u64 = 512;
+    const walk_base: u64 = 1200;
+    const count_base: u64 = 2000;
+    const coordinate_bases: u64 = 2100;
+    const values_base: u64 = 3000;
+    const walk_scratch_base: u64 = 5500;
+    const retained_offsets: u64 = 6200;
+    const assembly_base: u64 = 8000;
+    const assembly_capacity: u32 = 30000;
+    const leaf_log: u32 = 4;
+    const max_positions: u32 = 560;
+
+    const Fixture = struct {
+        fn populate(buffer: metal.ResidentBuffer) void {
+            const words: [*]u32 = @ptrCast(@alignCast(buffer.contents));
+            @memset(words[0..arena_words], 0);
+            const queries = [_]u32{ 0, 1, 5, 6, 17, 31 };
+            @memcpy(words[unique_base .. unique_base + queries.len], &queries);
+            words[count_base] = queries.len;
+
+            const coordinate_sources = [_]u32{ 2200, 2300, 2400, 2500 };
+            for (coordinate_sources, 0..) |source, coordinate| {
+                words[coordinate_bases + 2 * coordinate] = source;
+                words[coordinate_bases + 2 * coordinate + 1] = 0;
+                for (0..64) |row| words[source + row] = @intCast(1000 * coordinate + 17 * row + 3);
+            }
+
+            var retained_cursor: u32 = 6400;
+            for (0..leaf_log + 1) |level| {
+                words[retained_offsets + 2 * level] = retained_cursor;
+                words[retained_offsets + 2 * level + 1] = 0;
+                const hashes = @as(u32, 1) << @intCast(level);
+                for (0..hashes * 8) |word| words[retained_cursor + word] =
+                    @intCast(0x10000 + level * 0x1000 + word);
+                retained_cursor += hashes * 8;
+            }
+
+            words[assembly_base] = 0x4457_5453;
+            words[assembly_base + 1] = 1;
+            words[assembly_base + 2] = 1;
+            words[assembly_base + 7] = 24;
+        }
+    };
+    Fixture.populate(legacy);
+    Fixture.populate(batched);
+
+    const legacy_gpu_ms =
+        try runtime.decommitPrepareFriQueries(
+            legacy,
+            unique_base,
+            count_base,
+            70,
+            0,
+            2,
+            2,
+            tree_queries_base,
+            count_base + 1,
+            expanded_base,
+            count_base + 3,
+            walk_base,
+            count_base + 2,
+        ) +
+        try runtime.decommitGatherFriValues(
+            legacy,
+            coordinate_bases,
+            expanded_base,
+            count_base + 3,
+            max_positions,
+            values_base,
+        ) +
+        try runtime.decommitAssembleFri(
+            legacy,
+            0,
+            leaf_log,
+            tree_queries_base,
+            count_base + 1,
+            expanded_base,
+            count_base + 3,
+            values_base,
+            walk_base,
+            walk_scratch_base,
+            count_base + 2,
+            retained_offsets,
+            assembly_base,
+            assembly_capacity,
+        );
+
+    const batched_gpu_ms = try runtime.decommitFriRound(batched, .{
+        .unique_base = unique_base,
+        .unique_count_base = count_base,
+        .tree_queries_base = tree_queries_base,
+        .tree_count_base = count_base + 1,
+        .expanded_base = expanded_base,
+        .expanded_count_base = count_base + 3,
+        .walk_base = walk_base,
+        .walk_count_base = count_base + 2,
+        .coordinate_bases = coordinate_bases,
+        .values_base = values_base,
+        .walk_scratch_base = walk_scratch_base,
+        .retained_offsets = retained_offsets,
+        .assembly_base = assembly_base,
+        .max_queries = 70,
+        .cumulative_fold = 0,
+        .fold_step = 2,
+        .packed_log = 2,
+        .max_positions = max_positions,
+        .tree_index = 0,
+        .leaf_log = leaf_log,
+        .assembly_capacity = assembly_capacity,
+    });
+    try std.testing.expect(legacy_gpu_ms > 0);
+    try std.testing.expect(batched_gpu_ms > 0);
+    const legacy_words: [*]const u32 = @ptrCast(@alignCast(legacy.contents));
+    const batched_words: [*]const u32 = @ptrCast(@alignCast(batched.contents));
+    try std.testing.expectEqualSlices(u32, legacy_words[0..arena_words], batched_words[0..arena_words]);
 }
 
 test "metal: sparse LDE reads the canonical suffix of a larger twiddle tower" {
@@ -1850,6 +3108,92 @@ test "metal: sparse LDE reads the canonical suffix of a larger twiddle tower" {
     defer lde.deinit();
     _ = try runtime.compositionLdePrepared(arena, lde);
     try std.testing.expectEqualSlices(u32, std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(expected)), words[destination .. destination + expected.len]);
+}
+
+test "metal: radix-4 sparse LDE matches deterministic CPU domains" {
+    const allocator = std.testing.allocator;
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    var prng = std.Random.DefaultPrng.init(0x5241_4449_5834_4c44);
+    const random = prng.random();
+
+    for ([_][2]u32{ .{ 10, 13 }, .{ 11, 14 } }) |logs| {
+        const base_log = logs[0];
+        const eval_log = logs[1];
+        const base_len = @as(usize, 1) << @intCast(base_log);
+        const eval_len = @as(usize, 1) << @intCast(eval_log);
+        var base_tree = try twiddles.precomputeM31(
+            allocator,
+            canonic.CanonicCoset.new(base_log).circleDomain().half_coset,
+        );
+        defer twiddles.deinitM31(allocator, &base_tree);
+        var eval_tree = try twiddles.precomputeM31(
+            allocator,
+            canonic.CanonicCoset.new(eval_log).circleDomain().half_coset,
+        );
+        defer twiddles.deinitM31(allocator, &eval_tree);
+        const coefficients = try allocator.alloc(m31.M31, base_len);
+        defer allocator.free(coefficients);
+        for (coefficients) |*value|
+            value.* = m31.M31.fromCanonical(random.int(u32) % m31.Modulus);
+        var coefficient_columns = [_][]m31.M31{coefficients};
+        const base_const = twiddles.TwiddleTree([]const m31.M31).init(
+            base_tree.root_coset,
+            base_tree.twiddles,
+            base_tree.itwiddles,
+        );
+        try circle_poly.interpolateBuffersWithTwiddles(
+            &coefficient_columns,
+            canonic.CanonicCoset.new(base_log).circleDomain(),
+            base_const,
+        );
+
+        const expected = try allocator.alloc(m31.M31, eval_len);
+        defer allocator.free(expected);
+        @memcpy(expected[0..base_len], coefficients);
+        @memset(expected[base_len..], m31.M31.zero());
+        var expected_columns = [_][]m31.M31{expected};
+        const eval_const = twiddles.TwiddleTree([]const m31.M31).init(
+            eval_tree.root_coset,
+            eval_tree.twiddles,
+            eval_tree.itwiddles,
+        );
+        try circle_poly.evaluateBuffersWithTwiddles(
+            &expected_columns,
+            canonic.CanonicCoset.new(eval_log).circleDomain(),
+            eval_const,
+        );
+
+        const source: u32 = 0;
+        const twiddle_offset: u32 = @intCast(base_len);
+        const destination_word = base_len + eval_tree.twiddles.len;
+        const destination: u32 = @intCast(destination_word);
+        var arena = try runtime.allocateResidentBuffer(
+            (destination_word + eval_len) * @sizeOf(u32),
+        );
+        defer arena.deinit();
+        const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
+        @memcpy(words[source .. source + base_len], std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(coefficients)));
+        @memcpy(
+            words[twiddle_offset .. twiddle_offset + eval_tree.twiddles.len],
+            std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(eval_tree.twiddles)),
+        );
+        var lde = try runtime.prepareCompositionLdeConfigured(
+            &.{source},
+            &.{base_log},
+            &.{destination},
+            eval_log,
+            twiddle_offset,
+            .{ .radix4 = true },
+        );
+        defer lde.deinit();
+        _ = try runtime.compositionLdePrepared(arena, lde);
+        try std.testing.expectEqualSlices(
+            u32,
+            std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(expected)),
+            words[destination_word .. destination_word + eval_len],
+        );
+    }
 }
 
 test "metal: sparse LDE matches Rust seq_4 reference" {

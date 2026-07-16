@@ -1,5 +1,13 @@
 # GPU Backend Design Document — stwo-zig STARK Prover
 
+> Scope notice, 2026-07-16: this document describes the CUDA/RISC-V workload
+> below. It is not the memory, protocol, or production-service architecture for
+> Cairo SN PIE Metal proving. Use
+> `docs/sn-pie-metal-production-architecture.md` as the normative SN PIE Metal
+> specification. In particular, do not carry this document's fixed 1,057-column
+> memory model or Poseidon recommendation into the Blake2s-compatible Cairo
+> prover.
+
 ## Executive Summary
 
 This document captures the design principles, memory architecture, and implementation strategy for the stwo-zig GPU (CUDA) proving backend. The learnings are derived from building a production Ethereum block proving pipeline end-to-end: RISC-V execution → trace generation → 1,057-column STARK prove → verify, including accelerated precompile syscalls (keccak256, ecrecover, sha256) that reduced per-block cycle counts by 37x.

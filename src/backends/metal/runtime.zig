@@ -8,6 +8,11 @@ extern fn stwo_zig_metal_runtime_create(
     error_message_len: usize,
 ) ?*anyopaque;
 extern fn stwo_zig_metal_runtime_destroy(runtime: ?*anyopaque) void;
+extern fn stwo_zig_metal_pipeline_cache_stats(
+    runtime: *anyopaque,
+    stats: *PipelineCacheStats,
+) bool;
+extern fn stwo_zig_metal_max_buffer_length(runtime: *anyopaque) u64;
 extern fn stwo_zig_metal_buffer_create(
     runtime: *anyopaque,
     byte_length: usize,
@@ -37,6 +42,18 @@ extern fn stwo_zig_metal_arena_copy_prepared(
     runtime: *anyopaque,
     arena: *anyopaque,
     plan: *anyopaque,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_prepared_state_transfer(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    snapshot: *anyopaque,
+    ranges: [*]const PreparedStateRange,
+    range_count: u32,
+    capture: bool,
+    clear_arena: bool,
     gpu_milliseconds: *f64,
     error_message: [*]u8,
     error_message_len: usize,
@@ -77,10 +94,27 @@ extern fn stwo_zig_metal_witness_feed_batch_counts_prepared(
     error_message: [*]u8,
     error_message_len: usize,
 ) bool;
+extern fn stwo_zig_metal_witness_feed_batch_clear_prepared(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    batch: *anyopaque,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_witness_feed_batch_index_prepared(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    batch: *anyopaque,
+    index: u32,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
 extern fn stwo_zig_metal_circle_lde_prepare(
     runtime: *anyopaque,
-    source_offsets: [*]const u32,
-    destination_offsets: [*]const u32,
+    source_offsets: [*]const u64,
+    destination_offsets: [*]const u64,
     column_count: u32,
     base_log_size: u32,
     extended_log_size: u32,
@@ -99,8 +133,8 @@ extern fn stwo_zig_metal_circle_lde_prepared(
 ) bool;
 extern fn stwo_zig_metal_circle_ifft_prepare(
     runtime: *anyopaque,
-    source_offsets: [*]const u32,
-    destination_offsets: [*]const u32,
+    source_offsets: [*]const u64,
+    destination_offsets: [*]const u64,
     column_count: u32,
     log_size: u32,
     twiddle_offset_words: u32,
@@ -218,6 +252,8 @@ extern fn stwo_zig_metal_ec_op_prepare(
     segment_offset: u32,
     scratch_offset: u32,
     row_count: u32,
+    write_base: bool,
+    write_lookup: bool,
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
@@ -265,6 +301,13 @@ extern fn stwo_zig_metal_eval_library_load(
     runtime: *anyopaque,
     path: [*]const u8,
     path_len: usize,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
+extern fn stwo_zig_metal_eval_library_compile(
+    runtime: *anyopaque,
+    source: [*]const u8,
+    source_len: usize,
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
@@ -338,12 +381,13 @@ extern fn stwo_zig_metal_composition_finalize_prepare(
 ) ?*anyopaque;
 extern fn stwo_zig_metal_composition_lde_prepare(
     runtime: *anyopaque,
-    source_offsets: [*]const u32,
+    source_offsets: [*]const u64,
     source_logs: [*]const u32,
     destination_offsets: [*]const u32,
     column_count: u32,
     extended_log: u32,
     twiddle_offset_words: u32,
+    use_radix4: bool,
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
@@ -391,6 +435,15 @@ extern fn stwo_zig_metal_composition_finalize_prepared(
     runtime: *anyopaque,
     arena: *anyopaque,
     plan: *anyopaque,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_composition_prepared(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    front: *anyopaque,
+    finalize: *anyopaque,
     gpu_milliseconds: *f64,
     error_message: [*]u8,
     error_message_len: usize,
@@ -493,6 +546,19 @@ extern fn stwo_zig_metal_quotient_combine_prepared(
     runtime: *anyopaque,
     arena: *anyopaque,
     plan: *anyopaque,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_quotient_coefficients_resident(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    terms: [*]const QuotientCoefficientTerm,
+    term_count: u32,
+    tasks: [*]const QuotientCoefficientTask,
+    task_count: u32,
+    row_starts: [*]const u32,
+    total_rows: u32,
     gpu_milliseconds: *f64,
     error_message: [*]u8,
     error_message_len: usize,
@@ -604,13 +670,13 @@ extern fn stwo_zig_metal_transcript_draw_queries(
 extern fn stwo_zig_metal_decommit_normalize_queries(
     runtime: *anyopaque,
     arena: *anyopaque,
-    raw_base: u32,
+    raw_base: u64,
     raw_count: u32,
     log_domain_size: u32,
-    unique_base: u32,
-    unique_count_base: u32,
+    unique_base: u64,
+    unique_count_base: u64,
     tree_count: u32,
-    assembly_base: u32,
+    assembly_base: u64,
     assembly_capacity: u32,
     gpu_milliseconds: *f64,
     error_message: [*]u8,
@@ -619,18 +685,18 @@ extern fn stwo_zig_metal_decommit_normalize_queries(
 extern fn stwo_zig_metal_decommit_prepare_fri_queries(
     runtime: *anyopaque,
     arena: *anyopaque,
-    unique_base: u32,
-    unique_count_base: u32,
+    unique_base: u64,
+    unique_count_base: u64,
     max_queries: u32,
     cumulative_fold: u32,
     fold_step: u32,
     packed_log: u32,
-    tree_queries_base: u32,
-    tree_count_base: u32,
-    expanded_base: u32,
-    expanded_count_base: u32,
-    walk_base: u32,
-    walk_count_base: u32,
+    tree_queries_base: u64,
+    tree_count_base: u64,
+    expanded_base: u64,
+    expanded_count_base: u64,
+    walk_base: u64,
+    walk_count_base: u64,
     gpu_milliseconds: *f64,
     error_message: [*]u8,
     error_message_len: usize,
@@ -638,19 +704,19 @@ extern fn stwo_zig_metal_decommit_prepare_fri_queries(
 extern fn stwo_zig_metal_decommit_prepare_trace_queries(
     runtime: *anyopaque,
     arena: *anyopaque,
-    unique_base: u32,
-    unique_count_base: u32,
+    unique_base: u64,
+    unique_count_base: u64,
     max_queries: u32,
     source_log: u32,
     tree_log: u32,
     leaf_log: u32,
     unretained: u32,
-    mapped_base: u32,
-    mapped_count_base: u32,
-    walk_base: u32,
-    walk_count_base: u32,
-    leaves_base: u32,
-    leaf_count_base: u32,
+    mapped_base: u64,
+    mapped_count_base: u64,
+    walk_base: u64,
+    walk_count_base: u64,
+    leaves_base: u64,
+    leaf_count_base: u64,
     gpu_milliseconds: *f64,
     error_message: [*]u8,
     error_message_len: usize,
@@ -658,16 +724,16 @@ extern fn stwo_zig_metal_decommit_prepare_trace_queries(
 extern fn stwo_zig_metal_decommit_gather_trace_values(
     runtime: *anyopaque,
     arena: *anyopaque,
-    column_offsets_base: u32,
-    column_logs_base: u32,
+    column_offsets_base: u64,
+    column_logs_base: u64,
     column_count: u32,
     lifting_log: u32,
-    queries_base: u32,
-    query_count_base: u32,
+    queries_base: u64,
+    query_count_base: u64,
     max_queries: u32,
     first_column: u32,
     stride: u32,
-    output_base: u32,
+    output_base: u64,
     gpu_milliseconds: *f64,
     error_message: [*]u8,
     error_message_len: usize,
@@ -675,11 +741,11 @@ extern fn stwo_zig_metal_decommit_gather_trace_values(
 extern fn stwo_zig_metal_decommit_gather_fri_values(
     runtime: *anyopaque,
     arena: *anyopaque,
-    coordinate_bases: u32,
-    positions_base: u32,
-    count_base: u32,
+    coordinate_bases: u64,
+    positions_base: u64,
+    count_base: u64,
     max_positions: u32,
-    values_base: u32,
+    values_base: u64,
     gpu_milliseconds: *f64,
     error_message: [*]u8,
     error_message_len: usize,
@@ -689,17 +755,68 @@ extern fn stwo_zig_metal_decommit_assemble_fri(
     arena: *anyopaque,
     tree_index: u32,
     leaf_log: u32,
-    tree_queries: u32,
-    tree_count_at: u32,
-    expanded: u32,
-    expanded_count_at: u32,
-    values: u32,
-    walk: u32,
-    scratch: u32,
-    walk_count_at: u32,
-    retained_offsets: u32,
-    assembly: u32,
+    tree_queries: u64,
+    tree_count_at: u64,
+    expanded: u64,
+    expanded_count_at: u64,
+    values: u64,
+    walk: u64,
+    scratch: u64,
+    walk_count_at: u64,
+    retained_offsets: u64,
+    assembly: u64,
     capacity: u32,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+pub const DecommitFriRoundParams = extern struct {
+    unique_base: u64,
+    unique_count_base: u64,
+    tree_queries_base: u64,
+    tree_count_base: u64,
+    expanded_base: u64,
+    expanded_count_base: u64,
+    walk_base: u64,
+    walk_count_base: u64,
+    coordinate_bases: u64,
+    values_base: u64,
+    walk_scratch_base: u64,
+    retained_offsets: u64,
+    assembly_base: u64,
+    max_queries: u32,
+    cumulative_fold: u32,
+    fold_step: u32,
+    packed_log: u32,
+    max_positions: u32,
+    tree_index: u32,
+    leaf_log: u32,
+    assembly_capacity: u32,
+};
+
+pub const DecommitTraceGroupParams = extern struct {
+    column_offsets: u64,
+    column_logs: u64,
+    queries: u64,
+    query_count_at: u64,
+    values: u64,
+    leaf_indices: u64,
+    leaf_count_at: u64,
+    output_hashes: u64,
+    column_count: u32,
+    lifting_log: u32,
+    max_queries: u32,
+    first_column: u32,
+    stride: u32,
+    total_columns: u32,
+    max_leaf_count: u32,
+    leaf_seed: [8]u32,
+};
+
+extern fn stwo_zig_metal_decommit_fri_round(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    params: *const DecommitFriRoundParams,
     gpu_milliseconds: *f64,
     error_message: [*]u8,
     error_message_len: usize,
@@ -707,13 +824,13 @@ extern fn stwo_zig_metal_decommit_assemble_fri(
 extern fn stwo_zig_metal_decommit_sparse_parent(
     runtime: *anyopaque,
     arena: *anyopaque,
-    child_indices: u32,
-    child_hashes: u32,
-    child_count_at: u32,
+    child_indices: u64,
+    child_hashes: u64,
+    child_count_at: u64,
     max_child_count: u32,
-    parent_indices: u32,
-    parent_hashes: u32,
-    parent_count_at: u32,
+    parent_indices: u64,
+    parent_hashes: u64,
+    parent_count_at: u64,
     node_seed: *const [8]u32,
     gpu_milliseconds: *f64,
     error_message: [*]u8,
@@ -722,15 +839,41 @@ extern fn stwo_zig_metal_decommit_sparse_parent(
 extern fn stwo_zig_metal_decommit_sparse_leaves(
     runtime: *anyopaque,
     arena: *anyopaque,
-    column_offsets: u32,
-    column_logs: u32,
+    column_offsets: u64,
+    column_logs: u64,
     column_count: u32,
     lifting_log: u32,
-    leaf_indices: u32,
-    leaf_count_at: u32,
+    leaf_indices: u64,
+    leaf_count_at: u64,
     max_leaf_count: u32,
-    output_hashes: u32,
+    output_hashes: u64,
     leaf_seed: *const [8]u32,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_decommit_sparse_leaf_group(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    column_offsets: u64,
+    column_logs: u64,
+    column_count: u32,
+    first_column: u32,
+    total_columns: u32,
+    lifting_log: u32,
+    leaf_indices: u64,
+    leaf_count_at: u64,
+    max_leaf_count: u32,
+    output_hashes: u64,
+    leaf_seed: *const [8]u32,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_decommit_trace_group(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    params: *const DecommitTraceGroupParams,
     gpu_milliseconds: *f64,
     error_message: [*]u8,
     error_message_len: usize,
@@ -743,20 +886,20 @@ extern fn stwo_zig_metal_decommit_assemble_trace(
     leaf_log: u32,
     first_retained_log: u32,
     column_count: u32,
-    mapped: u32,
-    mapped_count_at: u32,
+    mapped: u64,
+    mapped_count_at: u64,
     max_queries: u32,
-    walk: u32,
-    scratch: u32,
-    walk_count_at: u32,
-    values: u32,
-    retained_offsets: u32,
-    sparse_indices: u32,
-    sparse_hashes: u32,
-    sparse_offsets: u32,
-    sparse_counts: u32,
+    walk: u64,
+    scratch: u64,
+    walk_count_at: u64,
+    values: u64,
+    retained_offsets: u64,
+    sparse_indices: u64,
+    sparse_hashes: u64,
+    sparse_offsets: u64,
+    sparse_counts: u64,
     sparse_level_count: u32,
-    assembly: u32,
+    assembly: u64,
     capacity: u32,
     gpu_milliseconds: *f64,
     error_message: [*]u8,
@@ -863,6 +1006,35 @@ extern fn stwo_zig_metal_leaf_absorb(
     error_message: [*]u8,
     error_message_len: usize,
 ) bool;
+extern fn stwo_zig_metal_leaf_absorb_compact(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    column_offsets: [*]const u32,
+    column_logs: [*]const u32,
+    column_count: u32,
+    source_state_offset: u32,
+    source_state_log: u32,
+    destination_state_offset: u32,
+    destination_log: u32,
+    first_column: u32,
+    is_final: u32,
+    prefix_bytes: u32,
+    leaf_seed: *const [8]u32,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
+extern fn stwo_zig_metal_parent_seeded(
+    runtime: *anyopaque,
+    arena: *anyopaque,
+    child_offset: u32,
+    destination_offset: u32,
+    parent_count: u32,
+    node_seed: *const [8]u32,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
 extern fn stwo_zig_metal_parent_plain(
     runtime: *anyopaque,
     arena: *anyopaque,
@@ -960,6 +1132,7 @@ extern fn stwo_zig_metal_eval_polynomials(
     basis_task_count: u32,
     basis_count: u32,
     tasks: *const anyopaque,
+    task_columns: [*]const u32,
     task_count: u32,
     output_count: u32,
     output: [*]u32,
@@ -1008,6 +1181,40 @@ pub const MetalError = error{
     WitnessFeedFailed,
 };
 
+pub const PipelineCacheStats = extern struct {
+    library_cache_hits: u64,
+    library_cache_misses: u64,
+    pipeline_cache_hits: u64,
+    binary_archive_hits: u64,
+    binary_archive_misses: u64,
+    direct_compiles: u64,
+    archive_populations: u64,
+    archive_serializations: u64,
+    pipeline_preparation_seconds: f64,
+
+    pub fn zero() PipelineCacheStats {
+        return std.mem.zeroes(PipelineCacheStats);
+    }
+};
+
+comptime {
+    if (@sizeOf(PipelineCacheStats) != 8 * @sizeOf(u64) + @sizeOf(f64))
+        @compileError("Metal pipeline cache stats ABI drift");
+}
+
+test "pipeline cache stats zero value" {
+    const stats = PipelineCacheStats.zero();
+    try std.testing.expectEqual(@as(u64, 0), stats.library_cache_hits);
+    try std.testing.expectEqual(@as(u64, 0), stats.library_cache_misses);
+    try std.testing.expectEqual(@as(u64, 0), stats.pipeline_cache_hits);
+    try std.testing.expectEqual(@as(u64, 0), stats.binary_archive_hits);
+    try std.testing.expectEqual(@as(u64, 0), stats.binary_archive_misses);
+    try std.testing.expectEqual(@as(u64, 0), stats.direct_compiles);
+    try std.testing.expectEqual(@as(u64, 0), stats.archive_populations);
+    try std.testing.expectEqual(@as(u64, 0), stats.archive_serializations);
+    try std.testing.expectEqual(@as(f64, 0), stats.pipeline_preparation_seconds);
+}
+
 pub const Runtime = struct {
     handle: *anyopaque,
 
@@ -1025,7 +1232,22 @@ pub const Runtime = struct {
         self.* = undefined;
     }
 
+    pub fn pipelineCacheStats(self: *const Runtime) PipelineCacheStats {
+        var stats = PipelineCacheStats.zero();
+        _ = stwo_zig_metal_pipeline_cache_stats(self.handle, &stats);
+        return stats;
+    }
+
+    pub fn maxBufferLength(self: *const Runtime) u64 {
+        return stwo_zig_metal_max_buffer_length(self.handle);
+    }
+
     pub fn allocateResidentBuffer(self: *Runtime, byte_length: usize) MetalError!ResidentBuffer {
+        const maximum = self.maxBufferLength();
+        if (maximum == 0 or byte_length > maximum) {
+            std.log.err("Metal resident buffer length {} exceeds device maxBufferLength {}", .{ byte_length, maximum });
+            return MetalError.ColumnTooLarge;
+        }
         var contents: *anyopaque = undefined;
         var message: [1024]u8 = [_]u8{0} ** 1024;
         const handle = stwo_zig_metal_buffer_create(
@@ -1070,6 +1292,44 @@ pub const Runtime = struct {
             message.len,
         )) {
             std.log.err("Metal prepared arena copy failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.InvalidColumns;
+        }
+        return gpu_ms;
+    }
+
+    pub fn preparedStateTransfer(
+        self: *Runtime,
+        arena: ResidentBuffer,
+        snapshot: ResidentBuffer,
+        ranges: []const PreparedStateRange,
+        capture: bool,
+        clear_arena: bool,
+    ) MetalError!f64 {
+        if (ranges.len == 0 or (capture and clear_arena)) return MetalError.InvalidColumns;
+        for (ranges) |range| {
+            if (range.byte_count == 0) return MetalError.InvalidColumns;
+            const arena_end = std.math.add(u64, range.arena_byte_offset, range.byte_count) catch
+                return MetalError.InvalidColumns;
+            const snapshot_end = std.math.add(u64, range.snapshot_byte_offset, range.byte_count) catch
+                return MetalError.InvalidColumns;
+            if (arena_end > arena.byte_length or snapshot_end > snapshot.byte_length)
+                return MetalError.InvalidColumns;
+        }
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_prepared_state_transfer(
+            self.handle,
+            arena.handle,
+            snapshot.handle,
+            ranges.ptr,
+            @intCast(ranges.len),
+            capture,
+            clear_arena,
+            &gpu_ms,
+            &message,
+            message.len,
+        )) {
+            std.log.err("Metal prepared-state transfer failed: {s}", .{std.mem.sliceTo(&message, 0)});
             return MetalError.InvalidColumns;
         }
         return gpu_ms;
@@ -1248,10 +1508,54 @@ pub const Runtime = struct {
         return gpu_ms;
     }
 
+    pub fn witnessFeedBatchClearPrepared(
+        self: *Runtime,
+        arena: ResidentBuffer,
+        batch: WitnessFeedBatchPlan,
+    ) MetalError!f64 {
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_witness_feed_batch_clear_prepared(
+            self.handle,
+            arena.handle,
+            batch.handle,
+            &gpu_ms,
+            &message,
+            message.len,
+        )) {
+            std.log.err("Metal witness feed batch clear failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.WitnessFeedFailed;
+        }
+        return gpu_ms;
+    }
+
+    pub fn witnessFeedBatchIndexPrepared(
+        self: *Runtime,
+        arena: ResidentBuffer,
+        batch: WitnessFeedBatchPlan,
+        index: u32,
+    ) MetalError!f64 {
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_witness_feed_batch_index_prepared(
+            self.handle,
+            arena.handle,
+            batch.handle,
+            index,
+            &gpu_ms,
+            &message,
+            message.len,
+        )) {
+            std.log.err("Metal witness feed batch index failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.WitnessFeedFailed;
+        }
+        return gpu_ms;
+    }
+
     pub fn prepareCircleLde(
         self: *Runtime,
-        source_offsets: []const u32,
-        destination_offsets: []const u32,
+        source_offsets: []const u64,
+        destination_offsets: []const u64,
         base_log_size: u32,
         extended_log_size: u32,
         twiddle_offset_words: u32,
@@ -1296,8 +1600,8 @@ pub const Runtime = struct {
 
     pub fn prepareCircleIfft(
         self: *Runtime,
-        source_offsets: []const u32,
-        destination_offsets: []const u32,
+        source_offsets: []const u64,
+        destination_offsets: []const u64,
         log_size: u32,
         twiddle_offset_words: u32,
         scale_factor: u32,
@@ -1533,6 +1837,8 @@ pub const Runtime = struct {
         segment_offset: u32,
         scratch_offset: u32,
         row_count: u32,
+        write_base: bool,
+        write_lookup: bool,
     ) MetalError!EcOpPlan {
         if (row_count < 16 or !std.math.isPowerOfTwo(row_count)) return MetalError.WitnessFeedFailed;
         var message: [1024]u8 = [_]u8{0} ** 1024;
@@ -1546,6 +1852,8 @@ pub const Runtime = struct {
             segment_offset,
             scratch_offset,
             row_count,
+            write_base,
+            write_lookup,
             &message,
             message.len,
         ) orelse {
@@ -1639,6 +1947,16 @@ pub const Runtime = struct {
         var message: [4096]u8 = [_]u8{0} ** 4096;
         const handle = stwo_zig_metal_eval_library_load(self.handle, path.ptr, path.len, &message, message.len) orelse {
             std.log.err("Metal evaluation library load failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.PolynomialEvaluationFailed;
+        };
+        return .{ .handle = handle };
+    }
+
+    pub fn compileEvalLibrary(self: *Runtime, source: []const u8) MetalError!EvalLibrary {
+        if (source.len == 0) return MetalError.PolynomialEvaluationFailed;
+        var message: [4096]u8 = [_]u8{0} ** 4096;
+        const handle = stwo_zig_metal_eval_library_compile(self.handle, source.ptr, source.len, &message, message.len) orelse {
+            std.log.err("Metal source library compilation failed: {s}", .{std.mem.sliceTo(&message, 0)});
             return MetalError.PolynomialEvaluationFailed;
         };
         return .{ .handle = handle };
@@ -1762,11 +2080,30 @@ pub const Runtime = struct {
 
     pub fn prepareCompositionLde(
         self: *Runtime,
-        source_offsets: []const u32,
+        source_offsets: []const u64,
         source_logs: []const u32,
         destination_offsets: []const u32,
         extended_log: u32,
         twiddle_offset_words: u32,
+    ) MetalError!CompositionLdePlan {
+        return self.prepareCompositionLdeConfigured(
+            source_offsets,
+            source_logs,
+            destination_offsets,
+            extended_log,
+            twiddle_offset_words,
+            try compositionLdeOptionsFromEnvironment(),
+        );
+    }
+
+    pub fn prepareCompositionLdeConfigured(
+        self: *Runtime,
+        source_offsets: []const u64,
+        source_logs: []const u32,
+        destination_offsets: []const u32,
+        extended_log: u32,
+        twiddle_offset_words: u32,
+        options: CompositionLdeOptions,
     ) MetalError!CompositionLdePlan {
         if (source_offsets.len == 0 or source_offsets.len != source_logs.len or source_offsets.len != destination_offsets.len or
             extended_log < 3 or extended_log >= 31)
@@ -1781,6 +2118,7 @@ pub const Runtime = struct {
             @intCast(source_offsets.len),
             extended_log,
             twiddle_offset_words,
+            options.radix4,
             &message,
             message.len,
         ) orelse {
@@ -1871,6 +2209,31 @@ pub const Runtime = struct {
         var message: [1024]u8 = [_]u8{0} ** 1024;
         if (!stwo_zig_metal_composition_finalize_prepared(self.handle, arena.handle, plan.handle, &gpu_ms, &message, message.len)) {
             std.log.err("Metal composition-finalize execution failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.PolynomialEvaluationFailed;
+        }
+        return gpu_ms;
+    }
+
+    /// Executes the complete device-resident composition graph in one command
+    /// buffer. Diagnostic modes retain their explicit host-readback boundaries.
+    pub fn compositionPrepared(
+        self: *Runtime,
+        arena: ResidentBuffer,
+        front: CompositionFrontPlan,
+        finalize: CompositionFinalizePlan,
+    ) MetalError!f64 {
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_composition_prepared(
+            self.handle,
+            arena.handle,
+            front.handle,
+            finalize.handle,
+            &gpu_ms,
+            &message,
+            message.len,
+        )) {
+            std.log.err("Metal composition graph execution failed: {s}", .{std.mem.sliceTo(&message, 0)});
             return MetalError.PolynomialEvaluationFailed;
         }
         return gpu_ms;
@@ -2068,6 +2431,38 @@ pub const Runtime = struct {
         return gpu_ms;
     }
 
+    pub fn accumulateQuotientCoefficientsResident(
+        self: *Runtime,
+        arena: ResidentBuffer,
+        terms: []const QuotientCoefficientTerm,
+        tasks: []const QuotientCoefficientTask,
+        row_starts: []const u32,
+    ) MetalError!f64 {
+        if (terms.len == 0 or tasks.len == 0 or row_starts.len != tasks.len + 1 or
+            row_starts[0] != 0 or row_starts[row_starts.len - 1] == 0)
+            return MetalError.QuotientFailed;
+        const total_rows = row_starts[row_starts.len - 1];
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_quotient_coefficients_resident(
+            self.handle,
+            arena.handle,
+            terms.ptr,
+            @intCast(terms.len),
+            tasks.ptr,
+            @intCast(tasks.len),
+            row_starts.ptr,
+            total_rows,
+            &gpu_ms,
+            &message,
+            message.len,
+        )) {
+            std.log.err("Metal quotient coefficient accumulation failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.QuotientFailed;
+        }
+        return gpu_ms;
+    }
+
     pub fn prepareFriRound(
         self: *Runtime,
         twiddle_base: u32,
@@ -2224,13 +2619,13 @@ pub const Runtime = struct {
     pub fn decommitNormalizeQueries(
         self: *Runtime,
         arena: ResidentBuffer,
-        raw_base: u32,
+        raw_base: u64,
         raw_count: u32,
         log_domain_size: u32,
-        unique_base: u32,
-        unique_count_base: u32,
+        unique_base: u64,
+        unique_count_base: u64,
         tree_count: u32,
-        assembly_base: u32,
+        assembly_base: u64,
         assembly_capacity: u32,
     ) MetalError!f64 {
         return self.transcriptCall(arena, stwo_zig_metal_decommit_normalize_queries, .{
@@ -2241,18 +2636,18 @@ pub const Runtime = struct {
     pub fn decommitPrepareFriQueries(
         self: *Runtime,
         arena: ResidentBuffer,
-        unique_base: u32,
-        unique_count_base: u32,
+        unique_base: u64,
+        unique_count_base: u64,
         max_queries: u32,
         cumulative_fold: u32,
         fold_step: u32,
         packed_log: u32,
-        tree_queries_base: u32,
-        tree_count_base: u32,
-        expanded_base: u32,
-        expanded_count_base: u32,
-        walk_base: u32,
-        walk_count_base: u32,
+        tree_queries_base: u64,
+        tree_count_base: u64,
+        expanded_base: u64,
+        expanded_count_base: u64,
+        walk_base: u64,
+        walk_count_base: u64,
     ) MetalError!f64 {
         return self.transcriptCall(arena, stwo_zig_metal_decommit_prepare_fri_queries, .{
             unique_base,       unique_count_base, max_queries,   cumulative_fold,     fold_step, packed_log,
@@ -2263,19 +2658,19 @@ pub const Runtime = struct {
     pub fn decommitPrepareTraceQueries(
         self: *Runtime,
         arena: ResidentBuffer,
-        unique_base: u32,
-        unique_count_base: u32,
+        unique_base: u64,
+        unique_count_base: u64,
         max_queries: u32,
         source_log: u32,
         tree_log: u32,
         leaf_log: u32,
         unretained: u32,
-        mapped_base: u32,
-        mapped_count_base: u32,
-        walk_base: u32,
-        walk_count_base: u32,
-        leaves_base: u32,
-        leaf_count_base: u32,
+        mapped_base: u64,
+        mapped_count_base: u64,
+        walk_base: u64,
+        walk_count_base: u64,
+        leaves_base: u64,
+        leaf_count_base: u64,
     ) MetalError!f64 {
         return self.transcriptCall(arena, stwo_zig_metal_decommit_prepare_trace_queries, .{
             unique_base, unique_count_base, max_queries, source_log,      tree_log,    leaf_log,        unretained,
@@ -2286,16 +2681,16 @@ pub const Runtime = struct {
     pub fn decommitGatherTraceValues(
         self: *Runtime,
         arena: ResidentBuffer,
-        column_offsets_base: u32,
-        column_logs_base: u32,
+        column_offsets_base: u64,
+        column_logs_base: u64,
         column_count: u32,
         lifting_log: u32,
-        queries_base: u32,
-        query_count_base: u32,
+        queries_base: u64,
+        query_count_base: u64,
         max_queries: u32,
         first_column: u32,
         stride: u32,
-        output_base: u32,
+        output_base: u64,
     ) MetalError!f64 {
         return self.transcriptCall(arena, stwo_zig_metal_decommit_gather_trace_values, .{
             column_offsets_base, column_logs_base, column_count, lifting_log, queries_base,
@@ -2306,11 +2701,11 @@ pub const Runtime = struct {
     pub fn decommitGatherFriValues(
         self: *Runtime,
         arena: ResidentBuffer,
-        coordinate_bases: u32,
-        positions_base: u32,
-        count_base: u32,
+        coordinate_bases: u64,
+        positions_base: u64,
+        count_base: u64,
         max_positions: u32,
-        values_base: u32,
+        values_base: u64,
     ) MetalError!f64 {
         return self.transcriptCall(arena, stwo_zig_metal_decommit_gather_fri_values, .{
             coordinate_bases, positions_base, count_base, max_positions, values_base,
@@ -2322,16 +2717,16 @@ pub const Runtime = struct {
         arena: ResidentBuffer,
         tree_index: u32,
         leaf_log: u32,
-        tree_queries: u32,
-        tree_count_at: u32,
-        expanded: u32,
-        expanded_count_at: u32,
-        values: u32,
-        walk: u32,
-        scratch: u32,
-        walk_count_at: u32,
-        retained_offsets: u32,
-        assembly: u32,
+        tree_queries: u64,
+        tree_count_at: u64,
+        expanded: u64,
+        expanded_count_at: u64,
+        values: u64,
+        walk: u64,
+        scratch: u64,
+        walk_count_at: u64,
+        retained_offsets: u64,
+        assembly: u64,
         capacity: u32,
     ) MetalError!f64 {
         return self.transcriptCall(arena, stwo_zig_metal_decommit_assemble_fri, .{
@@ -2341,16 +2736,37 @@ pub const Runtime = struct {
         });
     }
 
+    pub fn decommitFriRound(
+        self: *Runtime,
+        arena: ResidentBuffer,
+        params: DecommitFriRoundParams,
+    ) MetalError!f64 {
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_decommit_fri_round(
+            self.handle,
+            arena.handle,
+            &params,
+            &gpu_ms,
+            &message,
+            message.len,
+        )) {
+            std.log.err("Metal decommit FRI round failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CommitmentFailed;
+        }
+        return gpu_ms;
+    }
+
     pub fn decommitSparseParent(
         self: *Runtime,
         arena: ResidentBuffer,
-        child_indices: u32,
-        child_hashes: u32,
-        child_count_at: u32,
+        child_indices: u64,
+        child_hashes: u64,
+        child_count_at: u64,
         max_child_count: u32,
-        parent_indices: u32,
-        parent_hashes: u32,
-        parent_count_at: u32,
+        parent_indices: u64,
+        parent_hashes: u64,
+        parent_count_at: u64,
         node_seed: [8]u32,
     ) MetalError!f64 {
         var gpu_ms: f64 = 0;
@@ -2379,14 +2795,14 @@ pub const Runtime = struct {
     pub fn decommitSparseLeaves(
         self: *Runtime,
         arena: ResidentBuffer,
-        column_offsets: u32,
-        column_logs: u32,
+        column_offsets: u64,
+        column_logs: u64,
         column_count: u32,
         lifting_log: u32,
-        leaf_indices: u32,
-        leaf_count_at: u32,
+        leaf_indices: u64,
+        leaf_count_at: u64,
         max_leaf_count: u32,
-        output_hashes: u32,
+        output_hashes: u64,
         leaf_seed: [8]u32,
     ) MetalError!f64 {
         var gpu_ms: f64 = 0;
@@ -2413,6 +2829,68 @@ pub const Runtime = struct {
         return gpu_ms;
     }
 
+    pub fn decommitSparseLeafGroup(
+        self: *Runtime,
+        arena: ResidentBuffer,
+        column_offsets: u64,
+        column_logs: u64,
+        column_count: u32,
+        first_column: u32,
+        total_columns: u32,
+        lifting_log: u32,
+        leaf_indices: u64,
+        leaf_count_at: u64,
+        max_leaf_count: u32,
+        output_hashes: u64,
+        leaf_seed: [8]u32,
+    ) MetalError!f64 {
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_decommit_sparse_leaf_group(
+            self.handle,
+            arena.handle,
+            column_offsets,
+            column_logs,
+            column_count,
+            first_column,
+            total_columns,
+            lifting_log,
+            leaf_indices,
+            leaf_count_at,
+            max_leaf_count,
+            output_hashes,
+            &leaf_seed,
+            &gpu_ms,
+            &message,
+            message.len,
+        )) {
+            std.log.err("Metal decommit sparse leaf group failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CommitmentFailed;
+        }
+        return gpu_ms;
+    }
+
+    pub fn decommitTraceGroup(
+        self: *Runtime,
+        arena: ResidentBuffer,
+        params: DecommitTraceGroupParams,
+    ) MetalError!f64 {
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_decommit_trace_group(
+            self.handle,
+            arena.handle,
+            &params,
+            &gpu_ms,
+            &message,
+            message.len,
+        )) {
+            std.log.err("Metal decommit trace group failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CommitmentFailed;
+        }
+        return gpu_ms;
+    }
+
     pub fn decommitAssembleTrace(
         self: *Runtime,
         arena: ResidentBuffer,
@@ -2421,20 +2899,20 @@ pub const Runtime = struct {
         leaf_log: u32,
         first_retained_log: u32,
         column_count: u32,
-        mapped: u32,
-        mapped_count_at: u32,
+        mapped: u64,
+        mapped_count_at: u64,
         max_queries: u32,
-        walk: u32,
-        scratch: u32,
-        walk_count_at: u32,
-        values: u32,
-        retained_offsets: u32,
-        sparse_indices: u32,
-        sparse_hashes: u32,
-        sparse_offsets: u32,
-        sparse_counts: u32,
+        walk: u64,
+        scratch: u64,
+        walk_count_at: u64,
+        values: u64,
+        retained_offsets: u64,
+        sparse_indices: u64,
+        sparse_hashes: u64,
+        sparse_offsets: u64,
+        sparse_counts: u64,
         sparse_level_count: u32,
-        assembly: u32,
+        assembly: u64,
         capacity: u32,
     ) MetalError!f64 {
         return self.transcriptCall(arena, stwo_zig_metal_decommit_assemble_trace, .{
@@ -2675,7 +3153,72 @@ pub const Runtime = struct {
         return gpu_ms;
     }
 
-    pub fn parentPlain(self: *Runtime, arena: ResidentBuffer, child_offset: u32, destination_offset: u32, parent_count: u32) MetalError!f64 {
+    pub fn leafAbsorbCompact(
+        self: *Runtime,
+        arena: ResidentBuffer,
+        column_offsets: []const u32,
+        column_logs: []const u32,
+        source_state_offset: u32,
+        source_state_log: u32,
+        destination_state_offset: u32,
+        destination_log: u32,
+        first_column: u32,
+        is_final: bool,
+        prefix_bytes: u32,
+        leaf_seed: [8]u32,
+    ) MetalError!f64 {
+        if (column_offsets.len == 0 or column_offsets.len > 16 or column_offsets.len != column_logs.len or
+            (first_column != 0 and source_state_log > destination_log)) return MetalError.CommitmentFailed;
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_leaf_absorb_compact(
+            self.handle,
+            arena.handle,
+            column_offsets.ptr,
+            column_logs.ptr,
+            @intCast(column_offsets.len),
+            source_state_offset,
+            source_state_log,
+            destination_state_offset,
+            destination_log,
+            first_column,
+            @intFromBool(is_final),
+            prefix_bytes,
+            &leaf_seed,
+            &gpu_ms,
+            &message,
+            message.len,
+        )) {
+            std.log.err("Metal compact leaf absorb failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CommitmentFailed;
+        }
+        return gpu_ms;
+    }
+
+    pub fn parentSeeded(
+        self: *Runtime,
+        arena: ResidentBuffer,
+        child_offset: u32,
+        destination_offset: u32,
+        parent_count: u32,
+        node_seed: [8]u32,
+    ) MetalError!f64 {
+        var gpu_ms: f64 = 0;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_parent_seeded(self.handle, arena.handle, child_offset, destination_offset, parent_count, &node_seed, &gpu_ms, &message, message.len)) {
+            std.log.err("Metal seeded parent hash failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CommitmentFailed;
+        }
+        return gpu_ms;
+    }
+
+    pub fn parentPlain(
+        self: *Runtime,
+        arena: ResidentBuffer,
+        child_offset: u32,
+        destination_offset: u32,
+        parent_count: u32,
+    ) MetalError!f64 {
         var gpu_ms: f64 = 0;
         var message: [1024]u8 = [_]u8{0} ** 1024;
         if (!stwo_zig_metal_parent_plain(self.handle, arena.handle, child_offset, destination_offset, parent_count, &gpu_ms, &message, message.len)) {
@@ -2978,6 +3521,8 @@ pub const Runtime = struct {
         defer allocator.free(factor_words);
         const task_words = try allocator.alloc(u32, task_count * 5);
         defer allocator.free(task_words);
+        const task_columns = try allocator.alloc(u32, task_count);
+        defer allocator.free(task_columns);
         const basis_task_words = try allocator.alloc(u32, basis_task_count * 4);
         defer allocator.free(basis_task_words);
 
@@ -3025,6 +3570,7 @@ pub const Runtime = struct {
                         plan.coeff_log_size,
                         output_offsets[column_index] + @as(u32, @intCast(point_index)),
                     };
+                    task_columns[task_cursor] = @intCast(column_index);
                     task_cursor += 1;
                 }
             }
@@ -3046,6 +3592,7 @@ pub const Runtime = struct {
             @intCast(basis_task_count),
             @intCast(basis_count),
             @ptrCast(task_words.ptr),
+            task_columns.ptr,
             @intCast(task_count),
             @intCast(output_count),
             output_words.ptr,
@@ -3208,9 +3755,30 @@ pub const Runtime = struct {
 };
 
 pub const ArenaCopyRange = extern struct {
-    source_word_offset: u32,
-    destination_word_offset: u32,
+    source_word_offset: u64,
+    destination_word_offset: u64,
     word_count: u32,
+    reserved: u32 = 0,
+};
+
+pub const PreparedStateRange = extern struct {
+    arena_byte_offset: u64,
+    snapshot_byte_offset: u64,
+    byte_count: u64,
+};
+
+pub const QuotientCoefficientTerm = extern struct {
+    source_word_offset: u64,
+    source_word_count: u32,
+    value_coefficients: [4]u32,
+};
+
+pub const QuotientCoefficientTask = extern struct {
+    term_start: u32,
+    term_count: u32,
+    destination_word_offsets: [4]u32,
+    row_count: u32,
+    constant_terms: [4]u32,
 };
 
 pub const ArenaCopyPlan = struct {
@@ -3438,6 +4006,28 @@ pub const CompositionFinalizePlan = struct {
         self.* = undefined;
     }
 };
+
+pub const CompositionLdeOptions = struct {
+    radix4: bool = true,
+};
+
+pub fn compositionLdeOptionsFromEnvironment() MetalError!CompositionLdeOptions {
+    return compositionLdeOptions(std.posix.getenv("STWO_ZIG_METAL_RADIX4_RFFT"));
+}
+
+fn compositionLdeOptions(value: ?[]const u8) MetalError!CompositionLdeOptions {
+    const encoded = value orelse return .{};
+    if (std.mem.eql(u8, encoded, "1")) return .{};
+    if (std.mem.eql(u8, encoded, "0")) return .{ .radix4 = false };
+    return MetalError.PolynomialEvaluationFailed;
+}
+
+test "composition LDE radix-4 policy is default-on with explicit rollback" {
+    try std.testing.expect((try compositionLdeOptions(null)).radix4);
+    try std.testing.expect((try compositionLdeOptions("1")).radix4);
+    try std.testing.expect(!(try compositionLdeOptions("0")).radix4);
+    try std.testing.expectError(MetalError.PolynomialEvaluationFailed, compositionLdeOptions("false"));
+}
 
 pub const CompositionLdePlan = extern struct {
     handle: *anyopaque,

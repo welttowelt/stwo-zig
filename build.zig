@@ -34,6 +34,15 @@ pub fn build(b: *std.Build) void {
     const run_arena_plan_tests = b.addRunArtifact(arena_plan_tests);
     test_step.dependOn(&run_arena_plan_tests.step);
 
+    const metal_session_protocol_test_module = b.createModule(.{
+        .root_source_file = b.path("src/metal_prover_session_protocol.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const metal_session_protocol_tests = b.addTest(.{ .root_module = metal_session_protocol_test_module });
+    const run_metal_session_protocol_tests = b.addRunArtifact(metal_session_protocol_tests);
+    test_step.dependOn(&run_metal_session_protocol_tests.step);
+
     const metal_eval_test_module = b.createModule(.{
         .root_source_file = b.path("src/metal_eval_test.zig"),
         .target = target,
@@ -110,9 +119,10 @@ pub fn build(b: *std.Build) void {
         .name = "riscv-bench",
         .root_module = riscv_bench_module,
     });
-    b.installArtifact(riscv_bench_cli);
+    const install_riscv_bench = b.addInstallArtifact(riscv_bench_cli, .{});
+    b.getInstallStep().dependOn(&install_riscv_bench.step);
     const riscv_bench_step = b.step("riscv-bench", "Build RISC-V benchmark CLI");
-    riscv_bench_step.dependOn(&riscv_bench_cli.step);
+    riscv_bench_step.dependOn(&install_riscv_bench.step);
 
     // -----------------------------------------------------------------
     // Metal resident backend (macOS)
@@ -135,9 +145,35 @@ pub fn build(b: *std.Build) void {
         metal_arena_plan.linkFramework("Foundation");
         metal_arena_plan.linkFramework("Metal");
         metal_arena_plan.linkSystemLibrary("objc");
-        b.installArtifact(metal_arena_plan);
+        const install_metal_arena_plan = b.addInstallArtifact(metal_arena_plan, .{});
+        b.getInstallStep().dependOn(&install_metal_arena_plan.step);
         const metal_arena_plan_step = b.step("metal-arena-plan", "Build sparse Metal arena planner");
-        metal_arena_plan_step.dependOn(&metal_arena_plan.step);
+        metal_arena_plan_step.dependOn(&install_metal_arena_plan.step);
+
+        const metal_arena_session_module = b.createModule(.{
+            .root_source_file = b.path("src/metal_prover_session_cli.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        const metal_arena_session = b.addExecutable(.{
+            .name = "metal-arena-session",
+            .root_module = metal_arena_session_module,
+        });
+        metal_arena_session.addCSourceFile(.{
+            .file = b.path("src/backends/metal/runtime.m"),
+            .flags = &.{ "-fobjc-arc", "-fblocks" },
+        });
+        metal_arena_session.linkLibC();
+        metal_arena_session.linkFramework("Foundation");
+        metal_arena_session.linkFramework("Metal");
+        metal_arena_session.linkSystemLibrary("objc");
+        const install_metal_arena_session = b.addInstallArtifact(metal_arena_session, .{});
+        b.getInstallStep().dependOn(&install_metal_arena_session.step);
+        const metal_arena_session_step = b.step(
+            "metal-arena-session",
+            "Build persistent Metal SN PIE prover session",
+        );
+        metal_arena_session_step.dependOn(&install_metal_arena_session.step);
 
         const metal_recovery_bench_module = b.createModule(.{
             .root_source_file = b.path("src/metal_recovery_bench_cli.zig"),
@@ -275,9 +311,10 @@ pub fn build(b: *std.Build) void {
         metal_bench.linkFramework("Foundation");
         metal_bench.linkFramework("Metal");
         metal_bench.linkSystemLibrary("objc");
-        b.installArtifact(metal_bench);
+        const install_metal_bench = b.addInstallArtifact(metal_bench, .{});
+        b.getInstallStep().dependOn(&install_metal_bench.step);
         const metal_bench_step = b.step("metal-bench", "Build resident Metal commitment benchmark");
-        metal_bench_step.dependOn(&metal_bench.step);
+        metal_bench_step.dependOn(&install_metal_bench.step);
 
         const riscv_metal_module = b.createModule(.{
             .root_source_file = b.path("src/riscv_metal_bench_cli.zig"),
@@ -296,9 +333,10 @@ pub fn build(b: *std.Build) void {
         riscv_metal_bench.linkFramework("Foundation");
         riscv_metal_bench.linkFramework("Metal");
         riscv_metal_bench.linkSystemLibrary("objc");
-        b.installArtifact(riscv_metal_bench);
+        const install_riscv_metal_bench = b.addInstallArtifact(riscv_metal_bench, .{});
+        b.getInstallStep().dependOn(&install_riscv_metal_bench.step);
         const riscv_metal_step = b.step("riscv-metal-bench", "Build RISC-V prover with Metal commitments");
-        riscv_metal_step.dependOn(&riscv_metal_bench.step);
+        riscv_metal_step.dependOn(&install_riscv_metal_bench.step);
     }
 
     // -----------------------------------------------------------------

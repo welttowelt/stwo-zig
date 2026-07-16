@@ -97,6 +97,9 @@ pub fn MerkleVerifierLifted(comptime H: type) type {
             queried_values: []const []const M31,
             decommitment: Decommitment,
         ) (std.mem.Allocator.Error || MerkleVerificationError)!void {
+            if (queried_values.len != self.column_log_sizes.len) {
+                return MerkleVerificationError.InvalidQueryShape;
+            }
             if (self.column_log_sizes.len == 0) return;
 
             for (queried_values) |column| {
@@ -237,6 +240,10 @@ pub fn MerkleVerifierLifted(comptime H: type) type {
             }
             if (prev_layer.items.len != 1) return MerkleVerificationError.RootMismatch;
             if (!vcs_hash.eql(prev_layer.items[0].hash, self.root)) {
+                if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_LOG_VERIFIER_DECOMMIT")) {
+                    std.debug.print("verifier_merkle_actual={any}\n", .{prev_layer.items[0].hash});
+                    std.debug.print("verifier_merkle_expected={any}\n", .{self.root});
+                }
                 return MerkleVerificationError.RootMismatch;
             }
         }
@@ -297,4 +304,25 @@ test "vcs_lifted verifier: verifies simple proof" {
     defer decommitment.deinit(alloc);
 
     try verifier.verify(alloc, query_positions[0..], queried_values[0..], decommitment);
+}
+
+test "vcs_lifted verifier: rejects queried column count mismatch" {
+    const Hasher = @import("blake2_merkle.zig").Blake2sMerkleHasher;
+    const Decommitment = MerkleDecommitmentLifted(Hasher);
+    const Verifier = MerkleVerifierLifted(Hasher);
+    const alloc = std.testing.allocator;
+
+    var verifier = try Verifier.init(alloc, [_]u8{0} ** 32, &[_]u32{2});
+    defer verifier.deinit(alloc);
+    var decommitment = Decommitment{ .hash_witness = try alloc.alloc(Hasher.Hash, 0) };
+    defer decommitment.deinit(alloc);
+    const queried_values = [_][]const M31{
+        &[_]M31{M31.fromCanonical(10)},
+        &[_]M31{M31.fromCanonical(20)},
+    };
+
+    try std.testing.expectError(
+        MerkleVerificationError.InvalidQueryShape,
+        verifier.verify(alloc, &[_]usize{1}, queried_values[0..], decommitment),
+    );
 }

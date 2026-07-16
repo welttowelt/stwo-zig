@@ -1,0 +1,1618 @@
+{
+  "schema_version": 2,
+  "benchmark": "cairo_fib_backend_compare",
+  "status": "completed",
+  "workload": "compiled Cairo recursive Fibonacci program",
+  "cycle_semantics": "emitted Cairo opcode cycles; expected 7 * fib_n + 16",
+  "protocol": {
+    "security_bits": 96,
+    "n_queries": 70,
+    "pow_bits": 26,
+    "fold_step": 3
+  },
+  "measurement": {
+    "warmups": 0,
+    "repeats": 1,
+    "proofs_per_process": 3,
+    "pause_s": 15.0,
+    "process_model": "fresh gpu_bench process per sample; each process executes one cold proof followed by resident warm proofs over a reused adapted input",
+    "execution_policy": "strictly sequential; backend and size order reverse on each alternate pass, while a single pass uses the declared order",
+    "proof_acceptance": "verify_cairo must accept every repetition; repeated proof bytes must be identical; the subprocess must exit zero",
+    "cold_scope": "first proof in each fresh process, including backend runtime JIT and in-process cache construction charged inside the prover timer",
+    "warm_scope": "median of subsequent proofs in the same process over --reuse-input; excludes VM execution and adaptation",
+    "sustained_scope": "all verified proofs divided by subprocess launch-through-exit wall time",
+    "end_to_end_scope": "one resident multi-proof subprocess from launch through verified exit",
+    "internal_total": {
+      "field": "resident_batch_internal_total_s",
+      "measurement_kind": "constructed_non_overlapping_phase_sum",
+      "components": [
+        "vm_s",
+        "adapt_s",
+        "prove_s_total",
+        "verify_s_total"
+      ],
+      "directly_timed": false,
+      "excludes": [
+        "process startup and teardown",
+        "compiled program read and parse",
+        "input clone and prewarm",
+        "proof size calculation and JSON reporting"
+      ]
+    }
+  },
+  "artifacts": {
+    "gpu_bench": {
+      "path": "/Users/theodorepender/code/personal/stwo-cairo/stwo_cairo_prover/target/release/gpu_bench",
+      "sha256": "26a1b7c5f3cec0d6cf8eb8be82265f9ef7172c842d3e2fe3cc2c6bab944bedae"
+    },
+    "compiled_json": {
+      "path": "/Users/theodorepender/code/personal/stwo-cairo/gpu_benchmarks/fib/compiled.json",
+      "sha256": "bd79e52ee27d3faa2bf12dde995ebd4398070878278cfb62557143fe15ea1589"
+    }
+  },
+  "backends": {
+    "rust-simd": {
+      "gpu_bench_backend": "simd",
+      "engine": "legacy",
+      "acceleration": "cpu_simd"
+    },
+    "apple-metal": {
+      "gpu_bench_backend": "metal",
+      "engine": "legacy",
+      "acceleration": "apple_metal_gpu"
+    }
+  },
+  "environment": {
+    "RAYON_NUM_THREADS": "16",
+    "metal_witness_upload_mode": "compiled_platform_default",
+    "metal_fri_pack_leaves_mode": "compiled_platform_default"
+  },
+  "limitations": [
+    "Native Cairo cycle MHz is comparable only between backends proving this exact Cairo program and protocol.",
+    "The warm service metric reuses one adapted input and therefore does not include raw Cairo VM execution or adaptation.",
+    "The sustained metric includes cold startup once per resident subprocess and amortizes it over proofs_per_process proofs.",
+    "This report has 1 measured outer pass(es); its warm statistic is the intra-process median of 2 resident proof(s) per sample.",
+    "STWO_BENCH_TRACE is scrubbed from headline runs because span aggregation perturbs measured execution.",
+    "gpu_bench rounds its internal phase timings to milliseconds.",
+    "No result is synthesized; every reported lane is an executed gpu_bench backend.",
+    "The Metal lane is accepted only as metal/legacy, matching gpu_bench's implemented dispatch table."
+  ],
+  "rows": [
+    {
+      "fib_n": 500000,
+      "expected_cycles": 3500016,
+      "backends": {
+        "rust-simd": {
+          "summary": {
+            "samples": 1,
+            "vm_s": {
+              "median": 0.17,
+              "p25": 0.17,
+              "p75": 0.17,
+              "min": 0.17,
+              "max": 0.17
+            },
+            "adapt_s": {
+              "median": 0.186,
+              "p25": 0.186,
+              "p75": 0.186,
+              "min": 0.186,
+              "max": 0.186
+            },
+            "execute_adapt_s": {
+              "median": 0.356,
+              "p25": 0.356,
+              "p75": 0.356,
+              "min": 0.356,
+              "max": 0.356
+            },
+            "cold_prove_s": {
+              "median": 2.661,
+              "p25": 2.661,
+              "p75": 2.661,
+              "min": 2.661,
+              "max": 2.661
+            },
+            "warm_prove_s": {
+              "median": 1.968,
+              "p25": 1.968,
+              "p75": 1.968,
+              "min": 1.968,
+              "max": 1.968
+            },
+            "prove_s_total": {
+              "median": 6.5969999999999995,
+              "p25": 6.5969999999999995,
+              "p75": 6.5969999999999995,
+              "min": 6.5969999999999995,
+              "max": 6.5969999999999995
+            },
+            "verify_s_total": {
+              "median": 0.00788,
+              "p25": 0.00788,
+              "p75": 0.00788,
+              "min": 0.00788,
+              "max": 0.00788
+            },
+            "verify_s_per_proof": {
+              "median": 0.0026266666666666665,
+              "p25": 0.0026266666666666665,
+              "p75": 0.0026266666666666665,
+              "min": 0.0026266666666666665,
+              "max": 0.0026266666666666665
+            },
+            "resident_batch_internal_total_s": {
+              "median": 6.9608799999999995,
+              "p25": 6.9608799999999995,
+              "p75": 6.9608799999999995,
+              "min": 6.9608799999999995,
+              "max": 6.9608799999999995
+            },
+            "process_wall_s": {
+              "median": 7.033906958007719,
+              "p25": 7.033906958007719,
+              "p75": 7.033906958007719,
+              "min": 7.033906958007719,
+              "max": 7.033906958007719
+            },
+            "amortized_process_wall_s": {
+              "median": 2.34463565266924,
+              "p25": 2.34463565266924,
+              "p75": 2.34463565266924,
+              "min": 2.34463565266924,
+              "max": 2.34463565266924
+            },
+            "process_overhead_s": {
+              "median": 0.42902695800771984,
+              "p25": 0.42902695800771984,
+              "p75": 0.42902695800771984,
+              "min": 0.42902695800771984,
+              "max": 0.42902695800771984
+            },
+            "cold_native_mhz": {
+              "median": 1.3153010146561441,
+              "p25": 1.3153010146561441,
+              "p75": 1.3153010146561441,
+              "min": 1.3153010146561441,
+              "max": 1.3153010146561441
+            },
+            "warm_native_mhz": {
+              "median": 1.7784634146341463,
+              "p25": 1.7784634146341463,
+              "p75": 1.7784634146341463,
+              "min": 1.7784634146341463,
+              "max": 1.7784634146341463
+            },
+            "sustained_native_mhz": {
+              "median": 1.4927760720585403,
+              "p25": 1.4927760720585403,
+              "p75": 1.4927760720585403,
+              "min": 1.4927760720585403,
+              "max": 1.4927760720585403
+            },
+            "cold_fib_iterations_per_s": {
+              "median": 187899.28598271328,
+              "p25": 187899.28598271328,
+              "p75": 187899.28598271328,
+              "min": 187899.28598271328,
+              "max": 187899.28598271328
+            },
+            "warm_fib_iterations_per_s": {
+              "median": 254065.0406504065,
+              "p25": 254065.0406504065,
+              "p75": 254065.0406504065,
+              "min": 254065.0406504065,
+              "max": 254065.0406504065
+            },
+            "sustained_fib_iterations_per_s": {
+              "median": 213252.74971007853,
+              "p25": 213252.74971007853,
+              "p75": 213252.74971007853,
+              "min": 213252.74971007853,
+              "max": 213252.74971007853
+            }
+          },
+          "raw_samples": [
+            {
+              "fib_n": 500000,
+              "cycles": 3500016,
+              "proofs_per_process": 3,
+              "vm_s": 0.17,
+              "adapt_s": 0.186,
+              "execute_adapt_s": 0.356,
+              "cold_prove_s": 2.661,
+              "warm_prove_s": 1.968,
+              "prove_s_total": 6.5969999999999995,
+              "prove_s_samples": [
+                2.661,
+                1.976,
+                1.96
+              ],
+              "verify_s_total": 0.00788,
+              "verify_s_per_proof": 0.0026266666666666665,
+              "verify_s_samples": [
+                0.00268,
+                0.0025819999999999997,
+                0.0026179999999999997
+              ],
+              "resident_batch_internal_total_s": 6.9608799999999995,
+              "resident_batch_internal_total": {
+                "seconds": 6.9608799999999995,
+                "measurement_kind": "constructed_non_overlapping_phase_sum",
+                "components": [
+                  "vm_s",
+                  "adapt_s",
+                  "prove_s_total",
+                  "verify_s_total"
+                ],
+                "directly_timed": false
+              },
+              "cold_native_mhz": 1.3153010146561441,
+              "warm_native_mhz": 1.7784634146341463,
+              "cold_fib_iterations_per_s": 187899.28598271328,
+              "warm_fib_iterations_per_s": 254065.0406504065,
+              "proof_kb": 1096.933,
+              "proof_verified": true,
+              "proofs_verified": 3,
+              "proof_byte_equal": true,
+              "verification_evidence": "gpu_bench called verify_cairo successfully for every repetition",
+              "protocol": {
+                "security_bits": 96,
+                "n_queries": 70,
+                "pow_bits": 26,
+                "fold_step": 3
+              },
+              "gpu_bench_reported_mhz": 1.779,
+              "gpu_bench_record": {
+                "adapt_s": 0.186,
+                "all_proofs_verified": true,
+                "backend": "simd",
+                "bootloader_overhead_pct": null,
+                "cycle_count": 3500016,
+                "engine": "legacy",
+                "fold_step": 3,
+                "gpu": "",
+                "host_mem_gb": 0.0,
+                "mhz": 1.779,
+                "n": 500000,
+                "n_queries": 70,
+                "nproc": 18,
+                "peak_rss_gb": 11.161,
+                "pie_n_steps": null,
+                "pool_reserved_high_gb": 0.0,
+                "pool_used_high_gb": 0.0,
+                "pow_bits": 26,
+                "program": "/Users/theodorepender/code/personal/stwo-cairo/gpu_benchmarks/fib/compiled.json",
+                "proof_byte_equal": true,
+                "proof_kb": 1096.933,
+                "proofs_requested": 3,
+                "proofs_verified": 3,
+                "prove_s_cold": 2.661,
+                "prove_s_samples": [
+                  2.661,
+                  1.976,
+                  1.96
+                ],
+                "prove_s_total": 6.597,
+                "prove_s_warm": 1.96,
+                "prove_s_warm_median": 1.968,
+                "security_bits": 96,
+                "steps_per_s": 1778630.0,
+                "useful_mhz": null,
+                "verify_ms": 2.68,
+                "verify_ms_samples": [
+                  2.68,
+                  2.582,
+                  2.618
+                ],
+                "verify_ms_total": 7.88,
+                "vm_s": 0.17,
+                "vram_end_gb": 0.0,
+                "vram_peak_gb": 0.0
+              },
+              "process_wall_s": 7.033906958007719,
+              "amortized_process_wall_s": 2.34463565266924,
+              "process_overhead_s": 0.42902695800771984,
+              "sustained_native_mhz": 1.4927760720585403,
+              "sustained_fib_iterations_per_s": 213252.74971007853,
+              "command": [
+                "/Users/theodorepender/code/personal/stwo-cairo/stwo_cairo_prover/target/release/gpu_bench",
+                "--program",
+                "/Users/theodorepender/code/personal/stwo-cairo/gpu_benchmarks/fib/compiled.json",
+                "--iterations",
+                "500000",
+                "--backend",
+                "simd",
+                "--engine",
+                "legacy",
+                "--reps",
+                "3",
+                "--reuse-input"
+              ],
+              "returncode": 0,
+              "stdout": "{\"adapt_s\":0.186,\"all_proofs_verified\":true,\"backend\":\"simd\",\"bootloader_overhead_pct\":null,\"cycle_count\":3500016,\"engine\":\"legacy\",\"fold_step\":3,\"gpu\":\"\",\"host_mem_gb\":0.0,\"mhz\":1.779,\"n\":500000,\"n_queries\":70,\"nproc\":18,\"peak_rss_gb\":11.161,\"pie_n_steps\":null,\"pool_reserved_high_gb\":0.0,\"pool_used_high_gb\":0.0,\"pow_bits\":26,\"program\":\"/Users/theodorepender/code/personal/stwo-cairo/gpu_benchmarks/fib/compiled.json\",\"proof_byte_equal\":true,\"proof_kb\":1096.933,\"proofs_requested\":3,\"proofs_verified\":3,\"prove_s_cold\":2.661,\"prove_s_samples\":[2.661,1.976,1.96],\"prove_s_total\":6.597,\"prove_s_warm\":1.96,\"prove_s_warm_median\":1.968,\"security_bits\":96,\"steps_per_s\":1778630.0,\"useful_mhz\":null,\"verify_ms\":2.68,\"verify_ms_samples\":[2.68,2.582,2.618],\"verify_ms_total\":7.88,\"vm_s\":0.17,\"vram_end_gb\":0.0,\"vram_peak_gb\":0.0}\n",
+              "stderr": "rep=0 prove_s=2.661\nrep=1 prove_s=1.976\nrep=2 prove_s=1.960\n"
+            }
+          ]
+        },
+        "apple-metal": {
+          "summary": {
+            "samples": 1,
+            "vm_s": {
+              "median": 0.189,
+              "p25": 0.189,
+              "p75": 0.189,
+              "min": 0.189,
+              "max": 0.189
+            },
+            "adapt_s": {
+              "median": 0.187,
+              "p25": 0.187,
+              "p75": 0.187,
+              "min": 0.187,
+              "max": 0.187
+            },
+            "execute_adapt_s": {
+              "median": 0.376,
+              "p25": 0.376,
+              "p75": 0.376,
+              "min": 0.376,
+              "max": 0.376
+            },
+            "cold_prove_s": {
+              "median": 7.485,
+              "p25": 7.485,
+              "p75": 7.485,
+              "min": 7.485,
+              "max": 7.485
+            },
+            "warm_prove_s": {
+              "median": 1.5735000000000001,
+              "p25": 1.5735000000000001,
+              "p75": 1.5735000000000001,
+              "min": 1.5735000000000001,
+              "max": 1.5735000000000001
+            },
+            "prove_s_total": {
+              "median": 10.632,
+              "p25": 10.632,
+              "p75": 10.632,
+              "min": 10.632,
+              "max": 10.632
+            },
+            "verify_s_total": {
+              "median": 0.007607,
+              "p25": 0.007607,
+              "p75": 0.007607,
+              "min": 0.007607,
+              "max": 0.007607
+            },
+            "verify_s_per_proof": {
+              "median": 0.0025356666666666665,
+              "p25": 0.0025356666666666665,
+              "p75": 0.0025356666666666665,
+              "min": 0.0025356666666666665,
+              "max": 0.0025356666666666665
+            },
+            "resident_batch_internal_total_s": {
+              "median": 11.015607,
+              "p25": 11.015607,
+              "p75": 11.015607,
+              "min": 11.015607,
+              "max": 11.015607
+            },
+            "process_wall_s": {
+              "median": 11.10829395899782,
+              "p25": 11.10829395899782,
+              "p75": 11.10829395899782,
+              "min": 11.10829395899782,
+              "max": 11.10829395899782
+            },
+            "amortized_process_wall_s": {
+              "median": 3.702764652999273,
+              "p25": 3.702764652999273,
+              "p75": 3.702764652999273,
+              "min": 3.702764652999273,
+              "max": 3.702764652999273
+            },
+            "process_overhead_s": {
+              "median": 0.4686869589978199,
+              "p25": 0.4686869589978199,
+              "p75": 0.4686869589978199,
+              "min": 0.4686869589978199,
+              "max": 0.4686869589978199
+            },
+            "cold_native_mhz": {
+              "median": 0.467604008016032,
+              "p25": 0.467604008016032,
+              "p75": 0.467604008016032,
+              "min": 0.467604008016032,
+              "max": 0.467604008016032
+            },
+            "warm_native_mhz": {
+              "median": 2.2243508102955194,
+              "p25": 2.2243508102955194,
+              "p75": 2.2243508102955194,
+              "min": 2.2243508102955194,
+              "max": 2.2243508102955194
+            },
+            "sustained_native_mhz": {
+              "median": 0.9452439806469891,
+              "p25": 0.9452439806469891,
+              "p75": 0.9452439806469891,
+              "min": 0.9452439806469891,
+              "max": 0.9452439806469891
+            },
+            "cold_fib_iterations_per_s": {
+              "median": 66800.2672010688,
+              "p25": 66800.2672010688,
+              "p75": 66800.2672010688,
+              "min": 66800.2672010688,
+              "max": 66800.2672010688
+            },
+            "warm_fib_iterations_per_s": {
+              "median": 317762.9488401652,
+              "p25": 317762.9488401652,
+              "p75": 317762.9488401652,
+              "min": 317762.9488401652,
+              "max": 317762.9488401652
+            },
+            "sustained_fib_iterations_per_s": {
+              "median": 135034.23707877178,
+              "p25": 135034.23707877178,
+              "p75": 135034.23707877178,
+              "min": 135034.23707877178,
+              "max": 135034.23707877178
+            }
+          },
+          "raw_samples": [
+            {
+              "fib_n": 500000,
+              "cycles": 3500016,
+              "proofs_per_process": 3,
+              "vm_s": 0.189,
+              "adapt_s": 0.187,
+              "execute_adapt_s": 0.376,
+              "cold_prove_s": 7.485,
+              "warm_prove_s": 1.5735000000000001,
+              "prove_s_total": 10.632,
+              "prove_s_samples": [
+                7.485,
+                1.561,
+                1.586
+              ],
+              "verify_s_total": 0.007607,
+              "verify_s_per_proof": 0.0025356666666666665,
+              "verify_s_samples": [
+                0.002474,
+                0.002421,
+                0.002712
+              ],
+              "resident_batch_internal_total_s": 11.015607,
+              "resident_batch_internal_total": {
+                "seconds": 11.015607,
+                "measurement_kind": "constructed_non_overlapping_phase_sum",
+                "components": [
+                  "vm_s",
+                  "adapt_s",
+                  "prove_s_total",
+                  "verify_s_total"
+                ],
+                "directly_timed": false
+              },
+              "cold_native_mhz": 0.467604008016032,
+              "warm_native_mhz": 2.2243508102955194,
+              "cold_fib_iterations_per_s": 66800.2672010688,
+              "warm_fib_iterations_per_s": 317762.9488401652,
+              "proof_kb": 1096.933,
+              "proof_verified": true,
+              "proofs_verified": 3,
+              "proof_byte_equal": true,
+              "verification_evidence": "gpu_bench called verify_cairo successfully for every repetition",
+              "protocol": {
+                "security_bits": 96,
+                "n_queries": 70,
+                "pow_bits": 26,
+                "fold_step": 3
+              },
+              "gpu_bench_reported_mhz": 2.224,
+              "gpu_bench_record": {
+                "adapt_s": 0.187,
+                "all_proofs_verified": true,
+                "backend": "metal",
+                "bootloader_overhead_pct": null,
+                "cycle_count": 3500016,
+                "engine": "legacy",
+                "fold_step": 3,
+                "gpu": "",
+                "host_mem_gb": 0.0,
+                "mhz": 2.224,
+                "n": 500000,
+                "n_queries": 70,
+                "nproc": 18,
+                "peak_rss_gb": 6.137,
+                "pie_n_steps": null,
+                "pool_reserved_high_gb": 0.0,
+                "pool_used_high_gb": 0.0,
+                "pow_bits": 26,
+                "program": "/Users/theodorepender/code/personal/stwo-cairo/gpu_benchmarks/fib/compiled.json",
+                "proof_byte_equal": true,
+                "proof_kb": 1096.933,
+                "proofs_requested": 3,
+                "proofs_verified": 3,
+                "prove_s_cold": 7.485,
+                "prove_s_samples": [
+                  7.485,
+                  1.561,
+                  1.586
+                ],
+                "prove_s_total": 10.632,
+                "prove_s_warm": 1.561,
+                "prove_s_warm_median": 1.574,
+                "security_bits": 96,
+                "steps_per_s": 2224212.0,
+                "useful_mhz": null,
+                "verify_ms": 2.474,
+                "verify_ms_samples": [
+                  2.474,
+                  2.421,
+                  2.712
+                ],
+                "verify_ms_total": 7.606,
+                "vm_s": 0.189,
+                "vram_end_gb": 0.0,
+                "vram_peak_gb": 0.0
+              },
+              "process_wall_s": 11.10829395899782,
+              "amortized_process_wall_s": 3.702764652999273,
+              "process_overhead_s": 0.4686869589978199,
+              "sustained_native_mhz": 0.9452439806469891,
+              "sustained_fib_iterations_per_s": 135034.23707877178,
+              "command": [
+                "/Users/theodorepender/code/personal/stwo-cairo/stwo_cairo_prover/target/release/gpu_bench",
+                "--program",
+                "/Users/theodorepender/code/personal/stwo-cairo/gpu_benchmarks/fib/compiled.json",
+                "--iterations",
+                "500000",
+                "--backend",
+                "metal",
+                "--engine",
+                "legacy",
+                "--reps",
+                "3",
+                "--reuse-input"
+              ],
+              "returncode": 0,
+              "stdout": "{\"adapt_s\":0.187,\"all_proofs_verified\":true,\"backend\":\"metal\",\"bootloader_overhead_pct\":null,\"cycle_count\":3500016,\"engine\":\"legacy\",\"fold_step\":3,\"gpu\":\"\",\"host_mem_gb\":0.0,\"mhz\":2.224,\"n\":500000,\"n_queries\":70,\"nproc\":18,\"peak_rss_gb\":6.137,\"pie_n_steps\":null,\"pool_reserved_high_gb\":0.0,\"pool_used_high_gb\":0.0,\"pow_bits\":26,\"program\":\"/Users/theodorepender/code/personal/stwo-cairo/gpu_benchmarks/fib/compiled.json\",\"proof_byte_equal\":true,\"proof_kb\":1096.933,\"proofs_requested\":3,\"proofs_verified\":3,\"prove_s_cold\":7.485,\"prove_s_samples\":[7.485,1.561,1.586],\"prove_s_total\":10.632,\"prove_s_warm\":1.561,\"prove_s_warm_median\":1.574,\"security_bits\":96,\"steps_per_s\":2224212.0,\"useful_mhz\":null,\"verify_ms\":2.474,\"verify_ms_samples\":[2.474,2.421,2.712],\"verify_ms_total\":7.606,\"vm_s\":0.189,\"vram_end_gb\":0.0,\"vram_peak_gb\":0.0}\n",
+              "stderr": "rep=0 prove_s=7.485\nrep=1 prove_s=1.561\nrep=2 prove_s=1.586\n"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fib_n": 1000000,
+      "expected_cycles": 7000016,
+      "backends": {
+        "rust-simd": {
+          "summary": {
+            "samples": 1,
+            "vm_s": {
+              "median": 0.372,
+              "p25": 0.372,
+              "p75": 0.372,
+              "min": 0.372,
+              "max": 0.372
+            },
+            "adapt_s": {
+              "median": 0.452,
+              "p25": 0.452,
+              "p75": 0.452,
+              "min": 0.452,
+              "max": 0.452
+            },
+            "execute_adapt_s": {
+              "median": 0.8240000000000001,
+              "p25": 0.8240000000000001,
+              "p75": 0.8240000000000001,
+              "min": 0.8240000000000001,
+              "max": 0.8240000000000001
+            },
+            "cold_prove_s": {
+              "median": 4.317,
+              "p25": 4.317,
+              "p75": 4.317,
+              "min": 4.317,
+              "max": 4.317
+            },
+            "warm_prove_s": {
+              "median": 3.5805,
+              "p25": 3.5805,
+              "p75": 3.5805,
+              "min": 3.5805,
+              "max": 3.5805
+            },
+            "prove_s_total": {
+              "median": 11.478,
+              "p25": 11.478,
+              "p75": 11.478,
+              "min": 11.478,
+              "max": 11.478
+            },
+            "verify_s_total": {
+              "median": 0.008132,
+              "p25": 0.008132,
+              "p75": 0.008132,
+              "min": 0.008132,
+              "max": 0.008132
+            },
+            "verify_s_per_proof": {
+              "median": 0.0027106666666666668,
+              "p25": 0.0027106666666666668,
+              "p75": 0.0027106666666666668,
+              "min": 0.0027106666666666668,
+              "max": 0.0027106666666666668
+            },
+            "resident_batch_internal_total_s": {
+              "median": 12.310132,
+              "p25": 12.310132,
+              "p75": 12.310132,
+              "min": 12.310132,
+              "max": 12.310132
+            },
+            "process_wall_s": {
+              "median": 12.423090875032358,
+              "p25": 12.423090875032358,
+              "p75": 12.423090875032358,
+              "min": 12.423090875032358,
+              "max": 12.423090875032358
+            },
+            "amortized_process_wall_s": {
+              "median": 4.141030291677453,
+              "p25": 4.141030291677453,
+              "p75": 4.141030291677453,
+              "min": 4.141030291677453,
+              "max": 4.141030291677453
+            },
+            "process_overhead_s": {
+              "median": 0.9369588750323581,
+              "p25": 0.9369588750323581,
+              "p75": 0.9369588750323581,
+              "min": 0.9369588750323581,
+              "max": 0.9369588750323581
+            },
+            "cold_native_mhz": {
+              "median": 1.621500115821172,
+              "p25": 1.621500115821172,
+              "p75": 1.621500115821172,
+              "min": 1.621500115821172,
+              "max": 1.621500115821172
+            },
+            "warm_native_mhz": {
+              "median": 1.9550386817483592,
+              "p25": 1.9550386817483592,
+              "p75": 1.9550386817483592,
+              "min": 1.9550386817483592,
+              "max": 1.9550386817483592
+            },
+            "sustained_native_mhz": {
+              "median": 1.6904044421187816,
+              "p25": 1.6904044421187816,
+              "p75": 1.6904044421187816,
+              "min": 1.6904044421187816,
+              "max": 1.6904044421187816
+            },
+            "cold_fib_iterations_per_s": {
+              "median": 231642.3442205235,
+              "p25": 231642.3442205235,
+              "p75": 231642.3442205235,
+              "min": 231642.3442205235,
+              "max": 231642.3442205235
+            },
+            "warm_fib_iterations_per_s": {
+              "median": 279290.60187124705,
+              "p25": 279290.60187124705,
+              "p75": 279290.60187124705,
+              "min": 279290.60187124705,
+              "max": 279290.60187124705
+            },
+            "sustained_fib_iterations_per_s": {
+              "median": 241485.79690657588,
+              "p25": 241485.79690657588,
+              "p75": 241485.79690657588,
+              "min": 241485.79690657588,
+              "max": 241485.79690657588
+            }
+          },
+          "raw_samples": [
+            {
+              "fib_n": 1000000,
+              "cycles": 7000016,
+              "proofs_per_process": 3,
+              "vm_s": 0.372,
+              "adapt_s": 0.452,
+              "execute_adapt_s": 0.8240000000000001,
+              "cold_prove_s": 4.317,
+              "warm_prove_s": 3.5805,
+              "prove_s_total": 11.478,
+              "prove_s_samples": [
+                4.317,
+                3.584,
+                3.577
+              ],
+              "verify_s_total": 0.008132,
+              "verify_s_per_proof": 0.0027106666666666668,
+              "verify_s_samples": [
+                0.0026520000000000003,
+                0.002807,
+                0.002673
+              ],
+              "resident_batch_internal_total_s": 12.310132,
+              "resident_batch_internal_total": {
+                "seconds": 12.310132,
+                "measurement_kind": "constructed_non_overlapping_phase_sum",
+                "components": [
+                  "vm_s",
+                  "adapt_s",
+                  "prove_s_total",
+                  "verify_s_total"
+                ],
+                "directly_timed": false
+              },
+              "cold_native_mhz": 1.621500115821172,
+              "warm_native_mhz": 1.9550386817483592,
+              "cold_fib_iterations_per_s": 231642.3442205235,
+              "warm_fib_iterations_per_s": 279290.60187124705,
+              "proof_kb": 1166.089,
+              "proof_verified": true,
+              "proofs_verified": 3,
+              "proof_byte_equal": true,
+              "verification_evidence": "gpu_bench called verify_cairo successfully for every repetition",
+              "protocol": {
+                "security_bits": 96,
+                "n_queries": 70,
+                "pow_bits": 26,
+                "fold_step": 3
+              },
+              "gpu_bench_reported_mhz": 1.955,
+              "gpu_bench_record": {
+                "adapt_s": 0.452,
+                "all_proofs_verified": true,
+                "backend": "simd",
+                "bootloader_overhead_pct": null,
+                "cycle_count": 7000016,
+                "engine": "legacy",
+                "fold_step": 3,
+                "gpu": "",
+                "host_mem_gb": 0.0,
+                "mhz": 1.955,
+                "n": 1000000,
+                "n_queries": 70,
+                "nproc": 18,
+                "peak_rss_gb": 12.739,
+                "pie_n_steps": null,
+                "pool_reserved_high_gb": 0.0,
+                "pool_used_high_gb": 0.0,
+                "pow_bits": 26,
+                "program": "/Users/theodorepender/code/personal/stwo-cairo/gpu_benchmarks/fib/compiled.json",
+                "proof_byte_equal": true,
+                "proof_kb": 1166.089,
+                "proofs_requested": 3,
+                "proofs_verified": 3,
+                "prove_s_cold": 4.317,
+                "prove_s_samples": [
+                  4.317,
+                  3.584,
+                  3.577
+                ],
+                "prove_s_total": 11.478,
+                "prove_s_warm": 3.577,
+                "prove_s_warm_median": 3.581,
+                "security_bits": 96,
+                "steps_per_s": 1955009.0,
+                "useful_mhz": null,
+                "verify_ms": 2.652,
+                "verify_ms_samples": [
+                  2.652,
+                  2.807,
+                  2.673
+                ],
+                "verify_ms_total": 8.133,
+                "vm_s": 0.372,
+                "vram_end_gb": 0.0,
+                "vram_peak_gb": 0.0
+              },
+              "process_wall_s": 12.423090875032358,
+              "amortized_process_wall_s": 4.141030291677453,
+              "process_overhead_s": 0.9369588750323581,
+              "sustained_native_mhz": 1.6904044421187816,
+              "sustained_fib_iterations_per_s": 241485.79690657588,
+              "command": [
+                "/Users/theodorepender/code/personal/stwo-cairo/stwo_cairo_prover/target/release/gpu_bench",
+                "--program",
+                "/Users/theodorepender/code/personal/stwo-cairo/gpu_benchmarks/fib/compiled.json",
+                "--iterations",
+                "1000000",
+                "--backend",
+                "simd",
+                "--engine",
+                "legacy",
+                "--reps",
+                "3",
+                "--reuse-input"
+              ],
+              "returncode": 0,
+              "stdout": "{\"adapt_s\":0.452,\"all_proofs_verified\":true,\"backend\":\"simd\",\"bootloader_overhead_pct\":null,\"cycle_count\":7000016,\"engine\":\"legacy\",\"fold_step\":3,\"gpu\":\"\",\"host_mem_gb\":0.0,\"mhz\":1.955,\"n\":1000000,\"n_queries\":70,\"nproc\":18,\"peak_rss_gb\":12.739,\"pie_n_steps\":null,\"pool_reserved_high_gb\":0.0,\"pool_used_high_gb\":0.0,\"pow_bits\":26,\"program\":\"/Users/theodorepender/code/personal/stwo-cairo/gpu_benchmarks/fib/compiled.json\",\"proof_byte_equal\":true,\"proof_kb\":1166.089,\"proofs_requested\":3,\"proofs_verified\":3,\"prove_s_cold\":4.317,\"prove_s_samples\":[4.317,3.584,3.577],\"prove_s_total\":11.478,\"prove_s_warm\":3.577,\"prove_s_warm_median\":3.581,\"security_bits\":96,\"steps_per_s\":1955009.0,\"useful_mhz\":null,\"verify_ms\":2.652,\"verify_ms_samples\":[2.652,2.807,2.673],\"verify_ms_total\":8.133,\"vm_s\":0.372,\"vram_end_gb\":0.0,\"vram_peak_gb\":0.0}\n",
+              "stderr": "rep=0 prove_s=4.317\nrep=1 prove_s=3.584\nrep=2 prove_s=3.577\n"
+            }
+          ]
+        },
+        "apple-metal": {
+          "summary": {
+            "samples": 1,
+            "vm_s": {
+              "median": 0.38,
+              "p25": 0.38,
+              "p75": 0.38,
+              "min": 0.38,
+              "max": 0.38
+            },
+            "adapt_s": {
+              "median": 0.378,
+              "p25": 0.378,
+              "p75": 0.378,
+              "min": 0.378,
+              "max": 0.378
+            },
+            "execute_adapt_s": {
+              "median": 0.758,
+              "p25": 0.758,
+              "p75": 0.758,
+              "min": 0.758,
+              "max": 0.758
+            },
+            "cold_prove_s": {
+              "median": 6.326,
+              "p25": 6.326,
+              "p75": 6.326,
+              "min": 6.326,
+              "max": 6.326
+            },
+            "warm_prove_s": {
+              "median": 2.7525,
+              "p25": 2.7525,
+              "p75": 2.7525,
+              "min": 2.7525,
+              "max": 2.7525
+            },
+            "prove_s_total": {
+              "median": 11.831,
+              "p25": 11.831,
+              "p75": 11.831,
+              "min": 11.831,
+              "max": 11.831
+            },
+            "verify_s_total": {
+              "median": 0.007962,
+              "p25": 0.007962,
+              "p75": 0.007962,
+              "min": 0.007962,
+              "max": 0.007962
+            },
+            "verify_s_per_proof": {
+              "median": 0.002654,
+              "p25": 0.002654,
+              "p75": 0.002654,
+              "min": 0.002654,
+              "max": 0.002654
+            },
+            "resident_batch_internal_total_s": {
+              "median": 12.596961999999998,
+              "p25": 12.596961999999998,
+              "p75": 12.596961999999998,
+              "min": 12.596961999999998,
+              "max": 12.596961999999998
+            },
+            "process_wall_s": {
+              "median": 12.727708542020991,
+              "p25": 12.727708542020991,
+              "p75": 12.727708542020991,
+              "min": 12.727708542020991,
+              "max": 12.727708542020991
+            },
+            "amortized_process_wall_s": {
+              "median": 4.2425695140069974,
+              "p25": 4.2425695140069974,
+              "p75": 4.2425695140069974,
+              "min": 4.2425695140069974,
+              "max": 4.2425695140069974
+            },
+            "process_overhead_s": {
+              "median": 0.8887465420209919,
+              "p25": 0.8887465420209919,
+              "p75": 0.8887465420209919,
+              "min": 0.8887465420209919,
+              "max": 0.8887465420209919
+            },
+            "cold_native_mhz": {
+              "median": 1.1065469490989568,
+              "p25": 1.1065469490989568,
+              "p75": 1.1065469490989568,
+              "min": 1.1065469490989568,
+              "max": 1.1065469490989568
+            },
+            "warm_native_mhz": {
+              "median": 2.543148410535877,
+              "p25": 2.543148410535877,
+              "p75": 2.543148410535877,
+              "min": 2.543148410535877,
+              "max": 2.543148410535877
+            },
+            "sustained_native_mhz": {
+              "median": 1.6499472729649316,
+              "p25": 1.6499472729649316,
+              "p75": 1.6499472729649316,
+              "min": 1.6499472729649316,
+              "max": 1.6499472729649316
+            },
+            "cold_fib_iterations_per_s": {
+              "median": 158077.77426493837,
+              "p25": 158077.77426493837,
+              "p75": 158077.77426493837,
+              "min": 158077.77426493837,
+              "max": 158077.77426493837
+            },
+            "warm_fib_iterations_per_s": {
+              "median": 363306.0853769301,
+              "p25": 363306.0853769301,
+              "p75": 363306.0853769301,
+              "min": 363306.0853769301,
+              "max": 363306.0853769301
+            },
+            "sustained_fib_iterations_per_s": {
+              "median": 235706.21452364273,
+              "p25": 235706.21452364273,
+              "p75": 235706.21452364273,
+              "min": 235706.21452364273,
+              "max": 235706.21452364273
+            }
+          },
+          "raw_samples": [
+            {
+              "fib_n": 1000000,
+              "cycles": 7000016,
+              "proofs_per_process": 3,
+              "vm_s": 0.38,
+              "adapt_s": 0.378,
+              "execute_adapt_s": 0.758,
+              "cold_prove_s": 6.326,
+              "warm_prove_s": 2.7525,
+              "prove_s_total": 11.831,
+              "prove_s_samples": [
+                6.326,
+                2.745,
+                2.76
+              ],
+              "verify_s_total": 0.007962,
+              "verify_s_per_proof": 0.002654,
+              "verify_s_samples": [
+                0.002641,
+                0.0026360000000000003,
+                0.002685
+              ],
+              "resident_batch_internal_total_s": 12.596961999999998,
+              "resident_batch_internal_total": {
+                "seconds": 12.596961999999998,
+                "measurement_kind": "constructed_non_overlapping_phase_sum",
+                "components": [
+                  "vm_s",
+                  "adapt_s",
+                  "prove_s_total",
+                  "verify_s_total"
+                ],
+                "directly_timed": false
+              },
+              "cold_native_mhz": 1.1065469490989568,
+              "warm_native_mhz": 2.543148410535877,
+              "cold_fib_iterations_per_s": 158077.77426493837,
+              "warm_fib_iterations_per_s": 363306.0853769301,
+              "proof_kb": 1166.089,
+              "proof_verified": true,
+              "proofs_verified": 3,
+              "proof_byte_equal": true,
+              "verification_evidence": "gpu_bench called verify_cairo successfully for every repetition",
+              "protocol": {
+                "security_bits": 96,
+                "n_queries": 70,
+                "pow_bits": 26,
+                "fold_step": 3
+              },
+              "gpu_bench_reported_mhz": 2.543,
+              "gpu_bench_record": {
+                "adapt_s": 0.378,
+                "all_proofs_verified": true,
+                "backend": "metal",
+                "bootloader_overhead_pct": null,
+                "cycle_count": 7000016,
+                "engine": "legacy",
+                "fold_step": 3,
+                "gpu": "",
+                "host_mem_gb": 0.0,
+                "mhz": 2.543,
+                "n": 1000000,
+                "n_queries": 70,
+                "nproc": 18,
+                "peak_rss_gb": 9.617,
+                "pie_n_steps": null,
+                "pool_reserved_high_gb": 0.0,
+                "pool_used_high_gb": 0.0,
+                "pow_bits": 26,
+                "program": "/Users/theodorepender/code/personal/stwo-cairo/gpu_benchmarks/fib/compiled.json",
+                "proof_byte_equal": true,
+                "proof_kb": 1166.089,
+                "proofs_requested": 3,
+                "proofs_verified": 3,
+                "prove_s_cold": 6.326,
+                "prove_s_samples": [
+                  6.326,
+                  2.745,
+                  2.76
+                ],
+                "prove_s_total": 11.831,
+                "prove_s_warm": 2.745,
+                "prove_s_warm_median": 2.753,
+                "security_bits": 96,
+                "steps_per_s": 2543038.0,
+                "useful_mhz": null,
+                "verify_ms": 2.641,
+                "verify_ms_samples": [
+                  2.641,
+                  2.636,
+                  2.685
+                ],
+                "verify_ms_total": 7.962,
+                "vm_s": 0.38,
+                "vram_end_gb": 0.0,
+                "vram_peak_gb": 0.0
+              },
+              "process_wall_s": 12.727708542020991,
+              "amortized_process_wall_s": 4.2425695140069974,
+              "process_overhead_s": 0.8887465420209919,
+              "sustained_native_mhz": 1.6499472729649316,
+              "sustained_fib_iterations_per_s": 235706.21452364273,
+              "command": [
+                "/Users/theodorepender/code/personal/stwo-cairo/stwo_cairo_prover/target/release/gpu_bench",
+                "--program",
+                "/Users/theodorepender/code/personal/stwo-cairo/gpu_benchmarks/fib/compiled.json",
+                "--iterations",
+                "1000000",
+                "--backend",
+                "metal",
+                "--engine",
+                "legacy",
+                "--reps",
+                "3",
+                "--reuse-input"
+              ],
+              "returncode": 0,
+              "stdout": "{\"adapt_s\":0.378,\"all_proofs_verified\":true,\"backend\":\"metal\",\"bootloader_overhead_pct\":null,\"cycle_count\":7000016,\"engine\":\"legacy\",\"fold_step\":3,\"gpu\":\"\",\"host_mem_gb\":0.0,\"mhz\":2.543,\"n\":1000000,\"n_queries\":70,\"nproc\":18,\"peak_rss_gb\":9.617,\"pie_n_steps\":null,\"pool_reserved_high_gb\":0.0,\"pool_used_high_gb\":0.0,\"pow_bits\":26,\"program\":\"/Users/theodorepender/code/personal/stwo-cairo/gpu_benchmarks/fib/compiled.json\",\"proof_byte_equal\":true,\"proof_kb\":1166.089,\"proofs_requested\":3,\"proofs_verified\":3,\"prove_s_cold\":6.326,\"prove_s_samples\":[6.326,2.745,2.76],\"prove_s_total\":11.831,\"prove_s_warm\":2.745,\"prove_s_warm_median\":2.753,\"security_bits\":96,\"steps_per_s\":2543038.0,\"useful_mhz\":null,\"verify_ms\":2.641,\"verify_ms_samples\":[2.641,2.636,2.685],\"verify_ms_total\":7.962,\"vm_s\":0.38,\"vram_end_gb\":0.0,\"vram_peak_gb\":0.0}\n",
+              "stderr": "rep=0 prove_s=6.326\nrep=1 prove_s=2.745\nrep=2 prove_s=2.760\n"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fib_n": 2000000,
+      "expected_cycles": 14000016,
+      "backends": {
+        "rust-simd": {
+          "summary": {
+            "samples": 1,
+            "vm_s": {
+              "median": 0.71,
+              "p25": 0.71,
+              "p75": 0.71,
+              "min": 0.71,
+              "max": 0.71
+            },
+            "adapt_s": {
+              "median": 1.027,
+              "p25": 1.027,
+              "p75": 1.027,
+              "min": 1.027,
+              "max": 1.027
+            },
+            "execute_adapt_s": {
+              "median": 1.7369999999999999,
+              "p25": 1.7369999999999999,
+              "p75": 1.7369999999999999,
+              "min": 1.7369999999999999,
+              "max": 1.7369999999999999
+            },
+            "cold_prove_s": {
+              "median": 7.217,
+              "p25": 7.217,
+              "p75": 7.217,
+              "min": 7.217,
+              "max": 7.217
+            },
+            "warm_prove_s": {
+              "median": 6.724,
+              "p25": 6.724,
+              "p75": 6.724,
+              "min": 6.724,
+              "max": 6.724
+            },
+            "prove_s_total": {
+              "median": 20.665,
+              "p25": 20.665,
+              "p75": 20.665,
+              "min": 20.665,
+              "max": 20.665
+            },
+            "verify_s_total": {
+              "median": 0.00877,
+              "p25": 0.00877,
+              "p75": 0.00877,
+              "min": 0.00877,
+              "max": 0.00877
+            },
+            "verify_s_per_proof": {
+              "median": 0.0029233333333333333,
+              "p25": 0.0029233333333333333,
+              "p75": 0.0029233333333333333,
+              "min": 0.0029233333333333333,
+              "max": 0.0029233333333333333
+            },
+            "resident_batch_internal_total_s": {
+              "median": 22.410769999999996,
+              "p25": 22.410769999999996,
+              "p75": 22.410769999999996,
+              "min": 22.410769999999996,
+              "max": 22.410769999999996
+            },
+            "process_wall_s": {
+              "median": 22.514512458001263,
+              "p25": 22.514512458001263,
+              "p75": 22.514512458001263,
+              "min": 22.514512458001263,
+              "max": 22.514512458001263
+            },
+            "amortized_process_wall_s": {
+              "median": 7.504837486000421,
+              "p25": 7.504837486000421,
+              "p75": 7.504837486000421,
+              "min": 7.504837486000421,
+              "max": 7.504837486000421
+            },
+            "process_overhead_s": {
+              "median": 1.8407424580012643,
+              "p25": 1.8407424580012643,
+              "p75": 1.8407424580012643,
+              "min": 1.8407424580012643,
+              "max": 1.8407424580012643
+            },
+            "cold_native_mhz": {
+              "median": 1.9398664264930028,
+              "p25": 1.9398664264930028,
+              "p75": 1.9398664264930028,
+              "min": 1.9398664264930028,
+              "max": 1.9398664264930028
+            },
+            "warm_native_mhz": {
+              "median": 2.0820963712076144,
+              "p25": 2.0820963712076144,
+              "p75": 2.0820963712076144,
+              "min": 2.0820963712076144,
+              "max": 2.0820963712076144
+            },
+            "sustained_native_mhz": {
+              "median": 1.8654655781841687,
+              "p25": 1.8654655781841687,
+              "p75": 1.8654655781841687,
+              "min": 1.8654655781841687,
+              "max": 1.8654655781841687
+            },
+            "cold_fib_iterations_per_s": {
+              "median": 277123.4585007621,
+              "p25": 277123.4585007621,
+              "p75": 277123.4585007621,
+              "min": 277123.4585007621,
+              "max": 277123.4585007621
+            },
+            "warm_fib_iterations_per_s": {
+              "median": 297441.998810232,
+              "p25": 297441.998810232,
+              "p75": 297441.998810232,
+              "min": 297441.998810232,
+              "max": 297441.998810232
+            },
+            "sustained_fib_iterations_per_s": {
+              "median": 266494.7780322778,
+              "p25": 266494.7780322778,
+              "p75": 266494.7780322778,
+              "min": 266494.7780322778,
+              "max": 266494.7780322778
+            }
+          },
+          "raw_samples": [
+            {
+              "fib_n": 2000000,
+              "cycles": 14000016,
+              "proofs_per_process": 3,
+              "vm_s": 0.71,
+              "adapt_s": 1.027,
+              "execute_adapt_s": 1.7369999999999999,
+              "cold_prove_s": 7.217,
+              "warm_prove_s": 6.724,
+              "prove_s_total": 20.665,
+              "prove_s_samples": [
+                7.217,
+                6.642,
+                6.806
+              ],
+              "verify_s_total": 0.00877,
+              "verify_s_per_proof": 0.0029233333333333333,
+              "verify_s_samples": [
+                0.002882,
+                0.002851,
+                0.0030369999999999998
+              ],
+              "resident_batch_internal_total_s": 22.410769999999996,
+              "resident_batch_internal_total": {
+                "seconds": 22.410769999999996,
+                "measurement_kind": "constructed_non_overlapping_phase_sum",
+                "components": [
+                  "vm_s",
+                  "adapt_s",
+                  "prove_s_total",
+                  "verify_s_total"
+                ],
+                "directly_timed": false
+              },
+              "cold_native_mhz": 1.9398664264930028,
+              "warm_native_mhz": 2.0820963712076144,
+              "cold_fib_iterations_per_s": 277123.4585007621,
+              "warm_fib_iterations_per_s": 297441.998810232,
+              "proof_kb": 1221.597,
+              "proof_verified": true,
+              "proofs_verified": 3,
+              "proof_byte_equal": true,
+              "verification_evidence": "gpu_bench called verify_cairo successfully for every repetition",
+              "protocol": {
+                "security_bits": 96,
+                "n_queries": 70,
+                "pow_bits": 26,
+                "fold_step": 3
+              },
+              "gpu_bench_reported_mhz": 2.082,
+              "gpu_bench_record": {
+                "adapt_s": 1.027,
+                "all_proofs_verified": true,
+                "backend": "simd",
+                "bootloader_overhead_pct": null,
+                "cycle_count": 14000016,
+                "engine": "legacy",
+                "fold_step": 3,
+                "gpu": "",
+                "host_mem_gb": 0.0,
+                "mhz": 2.082,
+                "n": 2000000,
+                "n_queries": 70,
+                "nproc": 18,
+                "peak_rss_gb": 18.179,
+                "pie_n_steps": null,
+                "pool_reserved_high_gb": 0.0,
+                "pool_used_high_gb": 0.0,
+                "pow_bits": 26,
+                "program": "/Users/theodorepender/code/personal/stwo-cairo/gpu_benchmarks/fib/compiled.json",
+                "proof_byte_equal": true,
+                "proof_kb": 1221.597,
+                "proofs_requested": 3,
+                "proofs_verified": 3,
+                "prove_s_cold": 7.217,
+                "prove_s_samples": [
+                  7.217,
+                  6.642,
+                  6.806
+                ],
+                "prove_s_total": 20.665,
+                "prove_s_warm": 6.642,
+                "prove_s_warm_median": 6.724,
+                "security_bits": 96,
+                "steps_per_s": 2082168.0,
+                "useful_mhz": null,
+                "verify_ms": 2.882,
+                "verify_ms_samples": [
+                  2.882,
+                  2.851,
+                  3.037
+                ],
+                "verify_ms_total": 8.77,
+                "vm_s": 0.71,
+                "vram_end_gb": 0.0,
+                "vram_peak_gb": 0.0
+              },
+              "process_wall_s": 22.514512458001263,
+              "amortized_process_wall_s": 7.504837486000421,
+              "process_overhead_s": 1.8407424580012643,
+              "sustained_native_mhz": 1.8654655781841687,
+              "sustained_fib_iterations_per_s": 266494.7780322778,
+              "command": [
+                "/Users/theodorepender/code/personal/stwo-cairo/stwo_cairo_prover/target/release/gpu_bench",
+                "--program",
+                "/Users/theodorepender/code/personal/stwo-cairo/gpu_benchmarks/fib/compiled.json",
+                "--iterations",
+                "2000000",
+                "--backend",
+                "simd",
+                "--engine",
+                "legacy",
+                "--reps",
+                "3",
+                "--reuse-input"
+              ],
+              "returncode": 0,
+              "stdout": "{\"adapt_s\":1.027,\"all_proofs_verified\":true,\"backend\":\"simd\",\"bootloader_overhead_pct\":null,\"cycle_count\":14000016,\"engine\":\"legacy\",\"fold_step\":3,\"gpu\":\"\",\"host_mem_gb\":0.0,\"mhz\":2.082,\"n\":2000000,\"n_queries\":70,\"nproc\":18,\"peak_rss_gb\":18.179,\"pie_n_steps\":null,\"pool_reserved_high_gb\":0.0,\"pool_used_high_gb\":0.0,\"pow_bits\":26,\"program\":\"/Users/theodorepender/code/personal/stwo-cairo/gpu_benchmarks/fib/compiled.json\",\"proof_byte_equal\":true,\"proof_kb\":1221.597,\"proofs_requested\":3,\"proofs_verified\":3,\"prove_s_cold\":7.217,\"prove_s_samples\":[7.217,6.642,6.806],\"prove_s_total\":20.665,\"prove_s_warm\":6.642,\"prove_s_warm_median\":6.724,\"security_bits\":96,\"steps_per_s\":2082168.0,\"useful_mhz\":null,\"verify_ms\":2.882,\"verify_ms_samples\":[2.882,2.851,3.037],\"verify_ms_total\":8.77,\"vm_s\":0.71,\"vram_end_gb\":0.0,\"vram_peak_gb\":0.0}\n",
+              "stderr": "rep=0 prove_s=7.217\nrep=1 prove_s=6.642\nrep=2 prove_s=6.806\n"
+            }
+          ]
+        },
+        "apple-metal": {
+          "summary": {
+            "samples": 1,
+            "vm_s": {
+              "median": 0.707,
+              "p25": 0.707,
+              "p75": 0.707,
+              "min": 0.707,
+              "max": 0.707
+            },
+            "adapt_s": {
+              "median": 0.782,
+              "p25": 0.782,
+              "p75": 0.782,
+              "min": 0.782,
+              "max": 0.782
+            },
+            "execute_adapt_s": {
+              "median": 1.4889999999999999,
+              "p25": 1.4889999999999999,
+              "p75": 1.4889999999999999,
+              "min": 1.4889999999999999,
+              "max": 1.4889999999999999
+            },
+            "cold_prove_s": {
+              "median": 8.546,
+              "p25": 8.546,
+              "p75": 8.546,
+              "min": 8.546,
+              "max": 8.546
+            },
+            "warm_prove_s": {
+              "median": 5.008,
+              "p25": 5.008,
+              "p75": 5.008,
+              "min": 5.008,
+              "max": 5.008
+            },
+            "prove_s_total": {
+              "median": 18.561999999999998,
+              "p25": 18.561999999999998,
+              "p75": 18.561999999999998,
+              "min": 18.561999999999998,
+              "max": 18.561999999999998
+            },
+            "verify_s_total": {
+              "median": 0.008672,
+              "p25": 0.008672,
+              "p75": 0.008672,
+              "min": 0.008672,
+              "max": 0.008672
+            },
+            "verify_s_per_proof": {
+              "median": 0.0028906666666666664,
+              "p25": 0.0028906666666666664,
+              "p75": 0.0028906666666666664,
+              "min": 0.0028906666666666664,
+              "max": 0.0028906666666666664
+            },
+            "resident_batch_internal_total_s": {
+              "median": 20.059672,
+              "p25": 20.059672,
+              "p75": 20.059672,
+              "min": 20.059672,
+              "max": 20.059672
+            },
+            "process_wall_s": {
+              "median": 20.215819542005192,
+              "p25": 20.215819542005192,
+              "p75": 20.215819542005192,
+              "min": 20.215819542005192,
+              "max": 20.215819542005192
+            },
+            "amortized_process_wall_s": {
+              "median": 6.738606514001731,
+              "p25": 6.738606514001731,
+              "p75": 6.738606514001731,
+              "min": 6.738606514001731,
+              "max": 6.738606514001731
+            },
+            "process_overhead_s": {
+              "median": 1.6451475420051949,
+              "p25": 1.6451475420051949,
+              "p75": 1.6451475420051949,
+              "min": 1.6451475420051949,
+              "max": 1.6451475420051949
+            },
+            "cold_native_mhz": {
+              "median": 1.6381951790311258,
+              "p25": 1.6381951790311258,
+              "p75": 1.6381951790311258,
+              "min": 1.6381951790311258,
+              "max": 1.6381951790311258
+            },
+            "warm_native_mhz": {
+              "median": 2.7955303514376997,
+              "p25": 2.7955303514376997,
+              "p75": 2.7955303514376997,
+              "min": 2.7955303514376997,
+              "max": 2.7955303514376997
+            },
+            "sustained_native_mhz": {
+              "median": 2.077583246760326,
+              "p25": 2.077583246760326,
+              "p75": 2.077583246760326,
+              "min": 2.077583246760326,
+              "max": 2.077583246760326
+            },
+            "cold_fib_iterations_per_s": {
+              "median": 234027.61525860053,
+              "p25": 234027.61525860053,
+              "p75": 234027.61525860053,
+              "min": 234027.61525860053,
+              "max": 234027.61525860053
+            },
+            "warm_fib_iterations_per_s": {
+              "median": 399361.02236421726,
+              "p25": 399361.02236421726,
+              "p75": 399361.02236421726,
+              "min": 399361.02236421726,
+              "max": 399361.02236421726
+            },
+            "sustained_fib_iterations_per_s": {
+              "median": 296797.2674831695,
+              "p25": 296797.2674831695,
+              "p75": 296797.2674831695,
+              "min": 296797.2674831695,
+              "max": 296797.2674831695
+            }
+          },
+          "raw_samples": [
+            {
+              "fib_n": 2000000,
+              "cycles": 14000016,
+              "proofs_per_process": 3,
+              "vm_s": 0.707,
+              "adapt_s": 0.782,
+              "execute_adapt_s": 1.4889999999999999,
+              "cold_prove_s": 8.546,
+              "warm_prove_s": 5.008,
+              "prove_s_total": 18.561999999999998,
+              "prove_s_samples": [
+                8.546,
+                4.979,
+                5.037
+              ],
+              "verify_s_total": 0.008672,
+              "verify_s_per_proof": 0.0028906666666666664,
+              "verify_s_samples": [
+                0.00283,
+                0.002828,
+                0.0030139999999999998
+              ],
+              "resident_batch_internal_total_s": 20.059672,
+              "resident_batch_internal_total": {
+                "seconds": 20.059672,
+                "measurement_kind": "constructed_non_overlapping_phase_sum",
+                "components": [
+                  "vm_s",
+                  "adapt_s",
+                  "prove_s_total",
+                  "verify_s_total"
+                ],
+                "directly_timed": false
+              },
+              "cold_native_mhz": 1.6381951790311258,
+              "warm_native_mhz": 2.7955303514376997,
+              "cold_fib_iterations_per_s": 234027.61525860053,
+              "warm_fib_iterations_per_s": 399361.02236421726,
+              "proof_kb": 1221.597,
+              "proof_verified": true,
+              "proofs_verified": 3,
+              "proof_byte_equal": true,
+              "verification_evidence": "gpu_bench called verify_cairo successfully for every repetition",
+              "protocol": {
+                "security_bits": 96,
+                "n_queries": 70,
+                "pow_bits": 26,
+                "fold_step": 3
+              },
+              "gpu_bench_reported_mhz": 2.795,
+              "gpu_bench_record": {
+                "adapt_s": 0.782,
+                "all_proofs_verified": true,
+                "backend": "metal",
+                "bootloader_overhead_pct": null,
+                "cycle_count": 14000016,
+                "engine": "legacy",
+                "fold_step": 3,
+                "gpu": "",
+                "host_mem_gb": 0.0,
+                "mhz": 2.795,
+                "n": 2000000,
+                "n_queries": 70,
+                "nproc": 18,
+                "peak_rss_gb": 17.082,
+                "pie_n_steps": null,
+                "pool_reserved_high_gb": 0.0,
+                "pool_used_high_gb": 0.0,
+                "pow_bits": 26,
+                "program": "/Users/theodorepender/code/personal/stwo-cairo/gpu_benchmarks/fib/compiled.json",
+                "proof_byte_equal": true,
+                "proof_kb": 1221.597,
+                "proofs_requested": 3,
+                "proofs_verified": 3,
+                "prove_s_cold": 8.546,
+                "prove_s_samples": [
+                  8.546,
+                  4.979,
+                  5.037
+                ],
+                "prove_s_total": 18.562,
+                "prove_s_warm": 4.979,
+                "prove_s_warm_median": 5.008,
+                "security_bits": 96,
+                "steps_per_s": 2795376.0,
+                "useful_mhz": null,
+                "verify_ms": 2.83,
+                "verify_ms_samples": [
+                  2.83,
+                  2.828,
+                  3.014
+                ],
+                "verify_ms_total": 8.672,
+                "vm_s": 0.707,
+                "vram_end_gb": 0.0,
+                "vram_peak_gb": 0.0
+              },
+              "process_wall_s": 20.215819542005192,
+              "amortized_process_wall_s": 6.738606514001731,
+              "process_overhead_s": 1.6451475420051949,
+              "sustained_native_mhz": 2.077583246760326,
+              "sustained_fib_iterations_per_s": 296797.2674831695,
+              "command": [
+                "/Users/theodorepender/code/personal/stwo-cairo/stwo_cairo_prover/target/release/gpu_bench",
+                "--program",
+                "/Users/theodorepender/code/personal/stwo-cairo/gpu_benchmarks/fib/compiled.json",
+                "--iterations",
+                "2000000",
+                "--backend",
+                "metal",
+                "--engine",
+                "legacy",
+                "--reps",
+                "3",
+                "--reuse-input"
+              ],
+              "returncode": 0,
+              "stdout": "{\"adapt_s\":0.782,\"all_proofs_verified\":true,\"backend\":\"metal\",\"bootloader_overhead_pct\":null,\"cycle_count\":14000016,\"engine\":\"legacy\",\"fold_step\":3,\"gpu\":\"\",\"host_mem_gb\":0.0,\"mhz\":2.795,\"n\":2000000,\"n_queries\":70,\"nproc\":18,\"peak_rss_gb\":17.082,\"pie_n_steps\":null,\"pool_reserved_high_gb\":0.0,\"pool_used_high_gb\":0.0,\"pow_bits\":26,\"program\":\"/Users/theodorepender/code/personal/stwo-cairo/gpu_benchmarks/fib/compiled.json\",\"proof_byte_equal\":true,\"proof_kb\":1221.597,\"proofs_requested\":3,\"proofs_verified\":3,\"prove_s_cold\":8.546,\"prove_s_samples\":[8.546,4.979,5.037],\"prove_s_total\":18.562,\"prove_s_warm\":4.979,\"prove_s_warm_median\":5.008,\"security_bits\":96,\"steps_per_s\":2795376.0,\"useful_mhz\":null,\"verify_ms\":2.83,\"verify_ms_samples\":[2.83,2.828,3.014],\"verify_ms_total\":8.672,\"vm_s\":0.707,\"vram_end_gb\":0.0,\"vram_peak_gb\":0.0}\n",
+              "stderr": "rep=0 prove_s=8.546\nrep=1 prove_s=4.979\nrep=2 prove_s=5.037\n"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

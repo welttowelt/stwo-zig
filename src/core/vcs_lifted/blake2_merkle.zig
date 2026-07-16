@@ -27,17 +27,11 @@ pub fn Blake2sMerkleHasherGeneric(comptime is_m31_output: bool) type {
         }
 
         pub fn defaultWithInitialState() Self {
-            var hasher = Self.init();
-            hasher.inner.update(LEAF_PREFIX[0..]);
-            return hasher;
+            return Self.init();
         }
 
         pub fn hashChildren(children: struct { left: Hash, right: Hash }) Hash {
-            var payload: [64 + 32 + 32]u8 = undefined;
-            @memcpy(payload[0..64], NODE_PREFIX[0..]);
-            @memcpy(payload[64..96], children.left[0..]);
-            @memcpy(payload[96..128], children.right[0..]);
-            return InnerHasher.hashFixed128(&payload);
+            return InnerHasher.concatAndHash(children.left, children.right);
         }
 
         /// Pre-hashed node-domain separator state used to avoid reprocessing
@@ -51,23 +45,25 @@ pub fn Blake2sMerkleHasherGeneric(comptime is_m31_output: bool) type {
         }
 
         pub fn hashChildrenWithSeed(seed: NodeSeed, children: struct { left: Hash, right: Hash }) Hash {
-            var block: [64]u8 = undefined;
-            @memcpy(block[0..32], children.left[0..]);
-            @memcpy(block[32..64], children.right[0..]);
-            return InnerHasher.hashFinal64FromSeed(seed, &block);
+            _ = seed;
+            return InnerHasher.concatAndHash(children.left, children.right);
         }
 
         pub fn hashChildrenWithSeed4(seed: NodeSeed, children: *const [8]Hash) [4]Hash {
-            var blocks: [4][64]u8 = undefined;
-            for (0..4) |lane| {
-                @memcpy(blocks[lane][0..32], children[2 * lane][0..]);
-                @memcpy(blocks[lane][32..64], children[2 * lane + 1][0..]);
-            }
-            return InnerHasher.hashFinal64FromSeed4(seed, &blocks);
+            _ = seed;
+            var out: [4]Hash = undefined;
+            for (&out, 0..) |*digest, lane| digest.* = InnerHasher.concatAndHash(
+                children[2 * lane],
+                children[2 * lane + 1],
+            );
+            return out;
         }
 
         pub fn hashPackedLeavesWithSeed4(seed: NodeSeed, messages: *const [4][]const u8) [4]Hash {
-            return InnerHasher.hashEqualFromSeed4(seed, messages);
+            _ = seed;
+            var out: [4]Hash = undefined;
+            for (&out, messages) |*digest, message| digest.* = InnerHasher.hash(message);
+            return out;
         }
 
 
@@ -149,7 +145,7 @@ test "vcs_lifted blake2: mix root changes channel digest" {
     try std.testing.expect(!std.mem.eql(u8, before[0..], channel.digestBytes()[0..]));
 }
 
-test "vcs_lifted blake2: updateLeaf matches explicit byte packing" {
+test "vcs_lifted blake2: updateLeaf matches plain explicit byte packing" {
     var prng = std.Random.DefaultPrng.init(0x5ca1_ab1e_1234_5678);
     const rng = prng.random();
     var values: [65]M31 = undefined;
@@ -162,7 +158,6 @@ test "vcs_lifted blake2: updateLeaf matches explicit byte packing" {
     const digest = lifted.finalize();
 
     var manual = blake2_hash.Blake2sHasher.init();
-    manual.update(LEAF_PREFIX[0..]);
     for (values[0..]) |value| {
         const encoded = value.toBytesLe();
         manual.update(encoded[0..]);

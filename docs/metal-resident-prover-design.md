@@ -1,6 +1,12 @@
 # Metal-resident prover design
 
-Status: design proposal, 2026-07-10
+Status: historical architectural intent, 2026-07-10
+
+The normative Cairo SN PIE Metal architecture is now
+`docs/sn-pie-metal-production-architecture.md`. This document established the
+resident-runtime direction, but its idealized ownership, memory, and command
+model does not describe the current implementation and is superseded where the
+unified specification differs.
 
 ## Decision
 
@@ -281,4 +287,3 @@ validation and arena bounds, not a number to omit.
 - Apple, [Synchronization events](https://developer.apple.com/documentation/metal/about-synchronization-events)
 - Apple, [Binary pipeline archives](https://developer.apple.com/documentation/metal/mtlbinaryarchive)
 - Apple, [GPU counter sample buffers](https://developer.apple.com/documentation/metal/gpu-counters-and-counter-sample-buffers)
-

@@ -119,7 +119,19 @@ pub const CairoMemoryTrace = struct {
             rc99_column_1.size_bytes != @as(u64, rc99_table_size) * 4)
             return Error.InvalidGeometry;
 
-        return .{
+        try validateNarrow(raw_address);
+        try validateNarrow(address_counts);
+        try validateNarrow(big_counts);
+        try validateNarrow(small_counts);
+        try validateNarrow(rc99_lut);
+        try validateNarrow(rc99_counts);
+        for (address_outputs) |binding| try validateNarrow(binding);
+        for (big_sources) |binding| try validateNarrow(binding);
+        for (big_parts) |part| for (part.outputs) |binding| try validateNarrow(binding);
+        for (small_sources) |binding| try validateNarrow(binding);
+        for (small_outputs) |binding| try validateNarrow(binding);
+
+        const result = CairoMemoryTrace{
             .allocator = allocator,
             .raw_address = raw_address,
             .address_counts = address_counts,
@@ -135,6 +147,23 @@ pub const CairoMemoryTrace = struct {
             .rc99_column_0 = rc99_column_0,
             .rc99_column_1 = rc99_column_1,
         };
+        return result;
+    }
+
+    /// Native memory kernels use Metal `uint` base offsets. Validate complete
+    /// ranges before dispatch so indexed access cannot wrap at 2^32 words.
+    pub fn validateNarrowAddresses(self: CairoMemoryTrace) !void {
+        try validateNarrow(self.raw_address);
+        try validateNarrow(self.address_counts);
+        try validateNarrow(self.big_counts);
+        try validateNarrow(self.small_counts);
+        try validateNarrow(self.rc99_lut);
+        try validateNarrow(self.rc99_counts);
+        for (self.address_outputs) |binding| try validateNarrow(binding);
+        for (self.big_sources) |binding| try validateNarrow(binding);
+        for (self.big_parts) |part| for (part.outputs) |binding| try validateNarrow(binding);
+        for (self.small_sources) |binding| try validateNarrow(binding);
+        for (self.small_part.outputs) |binding| try validateNarrow(binding);
     }
 
     pub fn deinit(self: *CairoMemoryTrace) void {
@@ -158,12 +187,21 @@ pub const CairoMemoryTrace = struct {
             return Error.InvalidGeometry;
         @memset(lut, std.math.maxInt(u32));
         for (lhs, rhs, 0..) |a, b, row| {
-            if (a >= 512 or b >= 512) return Error.InvalidRc99Table;
+            if (a >= 512 or b >= 512) {
+                std.log.err("invalid RC9_9 preprocessed row {d}: ({d}, {d}) is outside [0, 512)", .{ row, a, b });
+                return Error.InvalidRc99Table;
+            }
             const key = (a << 9) | b;
-            if (lut[key] != std.math.maxInt(u32)) return Error.InvalidRc99Table;
+            if (lut[key] != std.math.maxInt(u32)) {
+                std.log.err("invalid RC9_9 preprocessed row {d}: ({d}, {d}) duplicates row {d}", .{ row, a, b, lut[key] });
+                return Error.InvalidRc99Table;
+            }
             lut[key] = @intCast(row);
         }
-        for (lut) |row| if (row == std.math.maxInt(u32)) return Error.InvalidRc99Table;
+        for (lut, 0..) |row, key| if (row == std.math.maxInt(u32)) {
+            std.log.err("invalid RC9_9 preprocessed table: missing pair ({d}, {d})", .{ key >> 9, key & 511 });
+            return Error.InvalidRc99Table;
+        };
     }
 
     pub fn execute(
@@ -172,6 +210,21 @@ pub const CairoMemoryTrace = struct {
         resident_arena: *arena_plan.ResidentArena,
         input: *const adapter.ProverInput,
     ) !Telemetry {
+        var telemetry: Telemetry = .{};
+        telemetry.public_seed_gpu_ms = try self.seedPublicMemory(metal, resident_arena, input);
+        telemetry.trace_gpu_ms += try self.executeAddress(metal, resident_arena, input);
+        const values = try self.executeValues(metal, resident_arena);
+        telemetry.trace_gpu_ms += values.trace_gpu_ms;
+        telemetry.rc99_gpu_ms += values.rc99_gpu_ms;
+        return telemetry;
+    }
+
+    pub fn seedPublicMemory(
+        self: CairoMemoryTrace,
+        metal: *metal_runtime.Runtime,
+        resident_arena: *arena_plan.ResidentArena,
+        input: *const adapter.ProverInput,
+    ) !f64 {
         if (self.raw_address.size_bytes != @as(u64, input.memory.address_to_id.len) * 4)
             return Error.InvalidGeometry;
         const public_pairs = try self.allocator.alloc([2]u32, input.public_memory_addresses.len);
@@ -184,9 +237,7 @@ pub const CairoMemoryTrace = struct {
                 return Error.InvalidPublicMemory;
             pair.* = .{ address, id.raw };
         }
-
-        var telemetry: Telemetry = .{};
-        telemetry.public_seed_gpu_ms = try metal.publicMemorySeed(
+        return metal.publicMemorySeed(
             resident_arena.buffer,
             public_pairs,
             try wordOffset(self.address_counts),
@@ -196,10 +247,19 @@ pub const CairoMemoryTrace = struct {
             try wordOffset(self.small_counts),
             try wordCount(self.small_counts),
         );
+    }
 
+    pub fn executeAddress(
+        self: CairoMemoryTrace,
+        metal: *metal_runtime.Runtime,
+        resident_arena: *arena_plan.ResidentArena,
+        input: *const adapter.ProverInput,
+    ) !f64 {
+        if (self.raw_address.size_bytes != @as(u64, input.memory.address_to_id.len) * 4)
+            return Error.InvalidGeometry;
         var address_offsets: [32]u32 = undefined;
         for (self.address_outputs, &address_offsets) |binding, *offset| offset.* = try wordOffset(binding);
-        telemetry.trace_gpu_ms += try metal.memoryAddressBaseTrace(
+        return metal.memoryAddressBaseTrace(
             resident_arena.buffer,
             try wordOffset(self.raw_address),
             @intCast(input.memory.address_to_id.len),
@@ -208,7 +268,34 @@ pub const CairoMemoryTrace = struct {
             try uniformRows(self.address_outputs),
             &address_offsets,
         );
+    }
 
+    pub fn executeValues(
+        self: CairoMemoryTrace,
+        metal: *metal_runtime.Runtime,
+        resident_arena: *arena_plan.ResidentArena,
+    ) !Telemetry {
+        return self.executeValuesMode(metal, resident_arena, true);
+    }
+
+    /// Rebuilds only the relation source columns during interaction replay.
+    /// RC9_9 multiplicities were finalized in the base epoch and must not be
+    /// counted a second time.
+    pub fn executeValueTraces(
+        self: CairoMemoryTrace,
+        metal: *metal_runtime.Runtime,
+        resident_arena: *arena_plan.ResidentArena,
+    ) !f64 {
+        return (try self.executeValuesMode(metal, resident_arena, false)).trace_gpu_ms;
+    }
+
+    fn executeValuesMode(
+        self: CairoMemoryTrace,
+        metal: *metal_runtime.Runtime,
+        resident_arena: *arena_plan.ResidentArena,
+        count_rc99: bool,
+    ) !Telemetry {
+        var telemetry: Telemetry = .{};
         var big_source_offsets: [28]u32 = undefined;
         for (self.big_sources, &big_source_offsets) |binding, *offset| offset.* = try wordOffset(binding);
         for (self.big_parts) |part| {
@@ -224,14 +311,15 @@ pub const CairoMemoryTrace = struct {
                 part.row_count,
                 &output_offsets,
             );
-            telemetry.rc99_gpu_ms += try metal.memoryRc99Count(
-                resident_arena.buffer,
-                output_offsets[0..28],
-                part.row_count,
-                try wordOffset(self.rc99_lut),
-                rc99_table_size,
-                try wordOffset(self.rc99_counts),
-            );
+            if (count_rc99)
+                telemetry.rc99_gpu_ms += try metal.memoryRc99Count(
+                    resident_arena.buffer,
+                    output_offsets[0..28],
+                    part.row_count,
+                    try wordOffset(self.rc99_lut),
+                    rc99_table_size,
+                    try wordOffset(self.rc99_counts),
+                );
         }
 
         var small_source_offsets: [8]u32 = undefined;
@@ -248,14 +336,15 @@ pub const CairoMemoryTrace = struct {
             self.small_part.row_count,
             &small_output_offsets,
         );
-        telemetry.rc99_gpu_ms += try metal.memoryRc99Count(
-            resident_arena.buffer,
-            small_output_offsets[0..8],
-            self.small_part.row_count,
-            try wordOffset(self.rc99_lut),
-            rc99_table_size,
-            try wordOffset(self.rc99_counts),
-        );
+        if (count_rc99)
+            telemetry.rc99_gpu_ms += try metal.memoryRc99Count(
+                resident_arena.buffer,
+                small_output_offsets[0..8],
+                self.small_part.row_count,
+                try wordOffset(self.rc99_lut),
+                rc99_table_size,
+                try wordOffset(self.rc99_counts),
+            );
         return telemetry;
     }
 };
@@ -268,8 +357,19 @@ fn words(resident_arena: *arena_plan.ResidentArena, binding: arena_plan.Binding)
 }
 
 fn wordOffset(binding: arena_plan.Binding) !u32 {
-    if (binding.offset_bytes % 4 != 0) return Error.InvalidGeometry;
-    return std.math.cast(u32, binding.offset_bytes / 4) orelse Error.InvalidGeometry;
+    return arena_plan.narrowWordOffset(binding) catch {
+        std.log.err("memory trace binding id={} exceeds the u32 word-addressed range: offset={} size={} end={}", .{
+            binding.logical_id,
+            binding.offset_bytes,
+            binding.size_bytes,
+            binding.offset_bytes + binding.size_bytes,
+        });
+        return Error.InvalidGeometry;
+    };
+}
+
+fn validateNarrow(binding: arena_plan.Binding) !void {
+    _ = try wordOffset(binding);
 }
 
 fn wordCount(binding: arena_plan.Binding) !u32 {

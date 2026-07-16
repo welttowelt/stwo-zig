@@ -122,6 +122,8 @@ pub fn CommitmentSchemeVerifier(comptime H: type, comptime MC: type) type {
 
             const query_positions = try fri_verifier.sampleQueryPositions(allocator, channel);
             defer allocator.free(query_positions);
+            if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_LOG_VERIFIER_DECOMMIT"))
+                std.debug.print("verifier_sampled_queries={any}\n", .{query_positions});
 
             const pp_max_log_size = if (column_log_sizes.items.len > verifier_types.PREPROCESSED_TRACE_IDX)
                 maxOrDefault(column_log_sizes.items[verifier_types.PREPROCESSED_TRACE_IDX], 0)

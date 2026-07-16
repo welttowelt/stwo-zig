@@ -1,5 +1,12 @@
 # Metal backend progress
 
+Status: historical M4 Max and RISC-V/early Metal evidence.
+
+The normative Cairo SN PIE production architecture, current M5 Max results,
+performance model, and delivery gates are consolidated in
+`docs/sn-pie-metal-production-architecture.md`. This document remains useful as
+an implementation ledger but does not define the SN PIE service architecture.
+
 Measured 2026-07-10 on the local 32-GPU-core Apple M4 Max.
 
 ## Implemented

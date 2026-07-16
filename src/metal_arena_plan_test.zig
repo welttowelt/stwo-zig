@@ -7,6 +7,8 @@ const witness_bundle = @import("frontends/cairo/witness/bundle.zig");
 const feed_bundle = @import("frontends/cairo/witness/feed_bundle.zig");
 const relation_bundle = @import("frontends/cairo/witness/relation_bundle.zig");
 const fixed_table_bundle = @import("frontends/cairo/witness/fixed_table_bundle.zig");
+const resident_verifier = @import("frontends/cairo/witness/resident_verifier.zig");
+const arena_lifetime = @import("frontends/cairo/arena_lifetime.zig");
 
 test {
     std.testing.refAllDecls(recovery);
@@ -16,6 +18,7 @@ test {
     std.testing.refAllDecls(feed_bundle);
     std.testing.refAllDecls(relation_bundle);
     std.testing.refAllDecls(fixed_table_bundle);
+    std.testing.refAllDecls(resident_verifier);
 }
 
 test "sparse Metal plan enforces budget and aliases disjoint epochs" {
@@ -43,6 +46,101 @@ test "unrecoverable Metal values stay live between uses" {
         .{ .id = 2, .size_bytes = 4096, .alignment = 4096, .live_ranges = &b },
     };
     try std.testing.expectError(arena.Error.BudgetExceeded, arena.build(std.testing.allocator, &logical, 4096));
+}
+
+test "SN PIE transcript buffers cannot alias mid-protocol work" {
+    const phases = arena_lifetime.inferredUsePhases("TranscriptState", 0, 11);
+    try std.testing.expectEqualSlices(u16, &.{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 }, phases.slice());
+
+    var transcript_ranges: [12]arena.LiveRange = undefined;
+    for (phases.slice(), &transcript_ranges) |phase, *range| {
+        range.* = .{ .first = phase * 65, .last = phase * 65 + 64 };
+    }
+    const quotient_ranges = [_]arena.LiveRange{.{ .first = 8 * 65, .last = 10 * 65 + 64 }};
+    const logical = [_]arena.LogicalBuffer{
+        .{
+            .id = 1,
+            .size_bytes = 4096,
+            .alignment = 4096,
+            .live_ranges = &transcript_ranges,
+            .spill_cost_ns = 1,
+        },
+        .{ .id = 2, .size_bytes = 4096, .alignment = 4096, .live_ranges = &quotient_ranges },
+    };
+    var plan = try arena.build(std.testing.allocator, &logical, 16 * 1024);
+    defer plan.deinit();
+    try plan.validate(16 * 1024);
+
+    const transcript = try plan.binding(1);
+    const quotient = try plan.binding(2);
+    try std.testing.expectEqual(arena.Materialization.spill, transcript.materialization);
+    try std.testing.expect(
+        transcript.offset_bytes + transcript.size_bytes <= quotient.offset_bytes or
+            quotient.offset_bytes + quotient.size_bytes <= transcript.offset_bytes,
+    );
+}
+
+test "SN PIE composition inputs and coefficients cover their direct uses" {
+    try std.testing.expectEqualSlices(
+        u16,
+        &.{ 3, 4, 5 },
+        arena_lifetime.inferredUsePhases("RelationClaimedSum", 3, 5).slice(),
+    );
+    try std.testing.expectEqualSlices(
+        u16,
+        &.{5},
+        arena_lifetime.inferredUsePhases("CompositionExtParams", 0, 11).slice(),
+    );
+    try std.testing.expectEqualSlices(
+        u16,
+        &.{ 5, 9, 10 },
+        arena_lifetime.inferredUsePhases("InverseTwiddles", 0, 10).slice(),
+    );
+    const coefficient_phases = arena_lifetime.inferredUsePhases("CompositionCoefficients", 5, 10);
+    try std.testing.expectEqualSlices(u16, &.{ 5, 6, 7, 8, 9, 10 }, coefficient_phases.slice());
+
+    var coefficient_ranges: [6]arena.LiveRange = undefined;
+    for (coefficient_phases.slice(), &coefficient_ranges) |phase, *range| {
+        range.* = .{ .first = phase * 65, .last = phase * 65 + 64 };
+    }
+    const commit_ranges = [_]arena.LiveRange{.{ .first = 6 * 65, .last = 6 * 65 + 64 }};
+    const logical = [_]arena.LogicalBuffer{
+        .{
+            .id = 1,
+            .size_bytes = 4096,
+            .alignment = 4096,
+            .live_ranges = &coefficient_ranges,
+            .recompute_cost_ns = 1,
+        },
+        .{ .id = 2, .size_bytes = 4096, .alignment = 4096, .live_ranges = &commit_ranges },
+    };
+    var plan = try arena.build(std.testing.allocator, &logical, 16 * 1024);
+    defer plan.deinit();
+    try plan.validate(16 * 1024);
+
+    const coefficients = try plan.binding(1);
+    const commitment = try plan.binding(2);
+    try std.testing.expectEqual(arena.Materialization.recompute, coefficients.materialization);
+    try std.testing.expect(
+        coefficients.offset_bytes + coefficients.size_bytes <= commitment.offset_bytes or
+            commitment.offset_bytes + commitment.size_bytes <= coefficients.offset_bytes,
+    );
+}
+
+test "SN PIE quotient inverse twiddles are live during quotient" {
+    try std.testing.expectEqualSlices(
+        u16,
+        &.{8},
+        arena_lifetime.inferredUsePhases("QuotientInverseTwiddles", 0, 10).slice(),
+    );
+}
+
+test "SN PIE quotient tile remains live through FRI and decommitment" {
+    try std.testing.expectEqualSlices(
+        u16,
+        &.{ 8, 9, 10 },
+        arena_lifetime.inferredUsePhases("QuotientTile", 8, 10).slice(),
+    );
 }
 
 test "canonical SN PIE feeds bind every sparse arena column" {

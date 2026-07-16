@@ -92,13 +92,13 @@ pub const InfraComponentDesc = struct {
 };
 
 /// Maximum number of opcode families (components) we support.
-pub const MAX_COMPONENTS: usize = 128;
+pub const MAX_COMPONENTS: usize = 256;
 const MAX_OPCODE_SHARD_LOG_SIZE: u32 = 16;
 const MAX_OPCODE_SHARD_ROWS: usize = @as(usize, 1) << MAX_OPCODE_SHARD_LOG_SIZE;
 
 /// Maximum number of infrastructure components.
 /// program + memory + clock_update + poseidon2 + merkle + six lookups = 11.
-pub const MAX_INFRA_COMPONENTS: usize = 256;
+pub const MAX_INFRA_COMPONENTS: usize = 512;
 const MAX_MEMORY_SHARD_LOG_SIZE: u32 = 16;
 const MAX_MEMORY_SHARD_ROWS: usize = @as(usize, 1) << MAX_MEMORY_SHARD_LOG_SIZE;
 
@@ -266,7 +266,8 @@ pub const ProverError = error{
     EmptyTrace,
     InvalidLogSize,
     ProvingFailed,
-    TooManyComponents,
+    TooManyOpcodeComponents,
+    TooManyInfrastructureComponents,
 };
 
 // ---------------------------------------------------------------------------
@@ -1375,7 +1376,7 @@ pub fn proveRiscVWithEngine(
 
         var remaining = count;
         while (remaining > 0) {
-            if (statement.n_components >= MAX_COMPONENTS) return ProverError.TooManyComponents;
+            if (statement.n_components >= MAX_COMPONENTS) return ProverError.TooManyOpcodeComponents;
             const shard_len = @min(remaining, MAX_OPCODE_SHARD_ROWS);
             statement.component_descs[statement.n_components] = .{
                 .family = family,
@@ -1420,7 +1421,7 @@ pub fn proveRiscVWithEngine(
         const n_total_accesses = chain.accesses.items.len; // ALL accesses (reg + mem)
         var remaining = n_total_accesses;
         while (remaining > 0) {
-            if (statement.n_infra >= MAX_INFRA_COMPONENTS) return ProverError.TooManyComponents;
+            if (statement.n_infra >= MAX_INFRA_COMPONENTS) return ProverError.TooManyInfrastructureComponents;
             const shard_len = @min(remaining, MAX_MEMORY_SHARD_ROWS);
             const shard_log_size = @max(computeLogSize(shard_len), 4);
             statement.infra_descs[statement.n_infra] = .{

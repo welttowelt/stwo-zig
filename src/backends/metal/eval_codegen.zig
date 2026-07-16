@@ -1,10 +1,59 @@
 const std = @import("std");
 const eval = @import("../../frontends/cairo/witness/eval_program.zig");
 
-pub const codegen_version: u64 = 1;
+pub const codegen_version: u64 = 2;
+pub const default_fused_instruction_cap: usize = 512;
+pub const max_fused_instruction_cap: usize = 4096;
+
+pub const FusedPart = struct {
+    program: eval.Program,
+    rc_base: u32,
+};
 
 pub fn kernelName(allocator: std.mem.Allocator, semantic_hash: u64) ![]u8 {
     return std.fmt.allocPrint(allocator, "stwo_zig_eval_{x:0>16}", .{semantic_hash});
+}
+
+pub fn fusedKernelName(allocator: std.mem.Allocator, parts: []const FusedPart) ![]u8 {
+    try validateFusionGroup(parts);
+    return std.fmt.allocPrint(allocator, "stwo_zig_eval_fused_{x:0>16}", .{fusedGroupHash(parts)});
+}
+
+pub fn fusedKernelHash(parts: []const FusedPart) !u64 {
+    try validateFusionGroup(parts);
+    return fusedGroupHash(parts);
+}
+
+pub fn instructionCount(program: eval.Program) usize {
+    return program.base_insts.len + program.ext_insts.len;
+}
+
+pub fn fusionOperationCount(program: eval.Program) usize {
+    return instructionCount(program) + program.constraint_roots.len;
+}
+
+pub fn fusionGroupEnd(parts: []const FusedPart, start: usize, instruction_cap: usize) !usize {
+    if (start >= parts.len or instruction_cap == 0 or instruction_cap > max_fused_instruction_cap)
+        return error.InvalidFusionGroup;
+    var end = start;
+    var operations: usize = 0;
+    var expected_rc_base = parts[start].rc_base;
+    while (end < parts.len) : (end += 1) {
+        const part = parts[end];
+        if (part.rc_base != expected_rc_base) return error.InvalidFusionGroup;
+        expected_rc_base = std.math.add(u32, expected_rc_base, part.program.header.n_constraints) catch
+            return error.InvalidFusionGroup;
+        const next = fusionOperationCount(part.program);
+        if (next > instruction_cap) {
+            if (operations == 0) return start + 1;
+            break;
+        }
+        const total = std.math.add(usize, operations, next) catch return error.InvalidFusionGroup;
+        if (operations != 0 and total > instruction_cap) break;
+        operations = total;
+    }
+    if (end == start) return error.InvalidFusionGroup;
+    return end;
 }
 
 pub fn cacheKey(semantic_hash: u64) u64 {
@@ -45,6 +94,70 @@ pub fn generateKernel(allocator: std.mem.Allocator, program: eval.Program, inclu
         \\
     , .{name});
 
+    try emitProgramBody(allocator, writer, program, 0);
+    try writer.writeAll(
+        \\    Qm31 result = qm_mul_base(part_acc, arena[args.denom_inv + (row >> args.trace_log_size)]);
+        \\    arena[args.coord_0 + row] = m31_add(arena[args.coord_0 + row], result.a);
+        \\    arena[args.coord_1 + row] = m31_add(arena[args.coord_1 + row], result.b);
+        \\    arena[args.coord_2 + row] = m31_add(arena[args.coord_2 + row], result.c);
+        \\    arena[args.coord_3 + row] = m31_add(arena[args.coord_3 + row], result.d);
+        \\}
+        \\
+    );
+    return source.toOwnedSlice(allocator);
+}
+
+pub fn generateFusedKernel(
+    allocator: std.mem.Allocator,
+    parts: []const FusedPart,
+    include_preamble: bool,
+) ![]u8 {
+    try validateFusionGroup(parts);
+    var source = std.ArrayList(u8).empty;
+    errdefer source.deinit(allocator);
+    const writer = source.writer(allocator);
+    if (include_preamble) try writer.writeAll(preamble);
+    const name = try fusedKernelName(allocator, parts);
+    defer allocator.free(name);
+    try writer.print(
+        \\kernel void {s}(
+        \\    device uint *arena [[buffer(0)]],
+        \\    constant EvalArgs &args [[buffer(1)]],
+        \\    uint row [[thread_position_in_grid]]) {{
+        \\    if (row >= args.row_count) return;
+        \\    uint denominator = arena[args.denom_inv + (row >> args.trace_log_size)];
+        \\    Qm31 cumulative = {{
+        \\        arena[args.coord_0 + row], arena[args.coord_1 + row],
+        \\        arena[args.coord_2 + row], arena[args.coord_3 + row]
+        \\    }};
+        \\
+    , .{name});
+    const first_rc_base = parts[0].rc_base;
+    for (parts) |part| {
+        try writer.writeAll("    {\n");
+        try emitProgramBody(allocator, writer, part.program, part.rc_base - first_rc_base);
+        try writer.writeAll(
+            "    Qm31 part_result = qm_mul_base(part_acc, denominator);\n" ++
+                "    cumulative = qm_add(cumulative, part_result);\n    }\n",
+        );
+    }
+    try writer.writeAll(
+        \\    arena[args.coord_0 + row] = cumulative.a;
+        \\    arena[args.coord_1 + row] = cumulative.b;
+        \\    arena[args.coord_2 + row] = cumulative.c;
+        \\    arena[args.coord_3 + row] = cumulative.d;
+        \\}
+        \\
+    );
+    return source.toOwnedSlice(allocator);
+}
+
+fn emitProgramBody(
+    allocator: std.mem.Allocator,
+    writer: anytype,
+    program: eval.Program,
+    rc_offset: u32,
+) !void {
     const base_declared = try allocator.alloc(bool, program.header.max_base_regs);
     defer allocator.free(base_declared);
     @memset(base_declared, false);
@@ -83,21 +196,57 @@ pub fn generateKernel(allocator: std.mem.Allocator, program: eval.Program, inclu
         }
     }
 
-    try writer.writeAll("    Qm31 acc = { 0u, 0u, 0u, 0u };\n");
-    for (program.constraint_roots, 0..) |root, index| try writer.print(
-        "    acc = qm_add(acc, qm_mul(e{}, load_qm31(arena, args.random_coeffs + (args.rc_base + {}u) * 4u)));\n",
-        .{ root, index },
-    );
-    try writer.writeAll(
-        \\    Qm31 result = qm_mul_base(acc, arena[args.denom_inv + (row >> args.trace_log_size)]);
-        \\    arena[args.coord_0 + row] = m31_add(arena[args.coord_0 + row], result.a);
-        \\    arena[args.coord_1 + row] = m31_add(arena[args.coord_1 + row], result.b);
-        \\    arena[args.coord_2 + row] = m31_add(arena[args.coord_2 + row], result.c);
-        \\    arena[args.coord_3 + row] = m31_add(arena[args.coord_3 + row], result.d);
-        \\}
-        \\
-    );
-    return source.toOwnedSlice(allocator);
+    try writer.writeAll("    Qm31 part_acc = { 0u, 0u, 0u, 0u };\n");
+    for (program.constraint_roots, 0..) |root, index| {
+        const relative = std.math.add(u32, rc_offset, @intCast(index)) catch return error.InvalidFusionGroup;
+        try writer.print(
+            "    part_acc = qm_add(part_acc, qm_mul(e{}, load_qm31(arena, args.random_coeffs + (args.rc_base + {}u) * 4u)));\n",
+            .{ root, relative },
+        );
+    }
+}
+
+fn validateFusionGroup(parts: []const FusedPart) !void {
+    if (parts.len < 2) return error.InvalidFusionGroup;
+    const first = parts[0];
+    var instruction_count: usize = 0;
+    var expected_rc_base = first.rc_base;
+    for (parts) |part| {
+        try part.program.validate();
+        if (part.rc_base != expected_rc_base or
+            part.program.header.n_interactions != first.program.header.n_interactions or
+            part.program.header.n_base_params != first.program.header.n_base_params or
+            part.program.header.n_ext_params != first.program.header.n_ext_params or
+            part.program.header.domain_log_size != first.program.header.domain_log_size)
+            return error.InvalidFusionGroup;
+        expected_rc_base = std.math.add(u32, expected_rc_base, part.program.header.n_constraints) catch
+            return error.InvalidFusionGroup;
+        instruction_count = std.math.add(usize, instruction_count, fusionOperationCount(part.program)) catch
+            return error.InvalidFusionGroup;
+    }
+    if (instruction_count > max_fused_instruction_cap) return error.FusionGroupTooLarge;
+}
+
+fn fusedGroupHash(parts: []const FusedPart) u64 {
+    var hash: u64 = 0xcbf29ce484222325;
+    hashInt(&hash, codegen_version);
+    hashInt(&hash, @as(u64, @intCast(parts.len)));
+    const first_rc_base = parts[0].rc_base;
+    for (parts) |part| {
+        hashInt(&hash, part.program.header.semantic_hash);
+        hashInt(&hash, part.rc_base - first_rc_base);
+    }
+    return hash;
+}
+
+fn hashInt(hash: *u64, value: anytype) void {
+    const T = @TypeOf(value);
+    const U = std.meta.Int(.unsigned, @bitSizeOf(T));
+    const unsigned: U = @bitCast(value);
+    for (0..@sizeOf(T)) |index| {
+        hash.* ^= @as(u8, @truncate(unsigned >> @intCast(index * 8)));
+        hash.* *%= 0x100000001b3;
+    }
 }
 
 const preamble =
@@ -180,4 +329,64 @@ test "Metal evaluation codegen: emits fused arena kernel" {
     try std.testing.expect(std.mem.indexOf(u8, source, "b2 = m31_mul(b0, b1)") != null);
     try std.testing.expect(std.mem.indexOf(u8, source, "qm_mul(e0, e1)") != null);
     try std.testing.expect(std.mem.indexOf(u8, source, "args.coord_3 + row") != null);
+}
+
+test "Metal evaluation codegen: fuses adjacent parts with one accumulator store" {
+    var base = [_]eval.BaseInst{
+        .{ .op = .trace_col, .interaction = 0, .dst = 0, .a = 0, .b = 0, .imm = 0 },
+    };
+    var ext = [_]eval.ExtInst{
+        .{ .op = .secure_col, .dst = 0, .a = 0, .b = 0, .c = 0, .d = 0 },
+    };
+    var roots = [_]u32{0};
+    const first = eval.Program{
+        .allocator = std.testing.allocator,
+        .header = .{ .flags = eval.Flag.prefinalized_logup, .semantic_hash = 0x1111, .capability_bits = eval.Capability.prefinalized_logup, .n_interactions = 1, .n_base_params = 0, .n_ext_params = 0, .n_constraints = 1, .max_base_regs = 1, .max_ext_regs = 1, .domain_log_size = 8 },
+        .base_consts = &.{},
+        .ext_consts = &.{},
+        .base_insts = &base,
+        .ext_insts = &ext,
+        .constraint_roots = &roots,
+    };
+    var second = first;
+    second.header.semantic_hash = 0x2222;
+    const parts = [_]FusedPart{
+        .{ .program = first, .rc_base = 0 },
+        .{ .program = second, .rc_base = 1 },
+    };
+    const source = try generateFusedKernel(std.testing.allocator, &parts, true);
+    defer std.testing.allocator.free(source);
+    const name = try fusedKernelName(std.testing.allocator, &parts);
+    defer std.testing.allocator.free(name);
+    try std.testing.expect(std.mem.indexOf(u8, source, name) != null);
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, source, "arena[args.coord_0 + row] ="));
+    try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, source, "Qm31 part_result"));
+    try std.testing.expect(std.mem.indexOf(u8, source, "args.rc_base + 1u") != null);
+}
+
+test "Metal evaluation codegen: rejects a noncontiguous fusion group" {
+    var base = [_]eval.BaseInst{
+        .{ .op = .constant, .interaction = 0, .dst = 0, .a = 1, .b = 0, .imm = 0 },
+    };
+    var ext = [_]eval.ExtInst{
+        .{ .op = .secure_col, .dst = 0, .a = 0, .b = 0, .c = 0, .d = 0 },
+    };
+    var roots = [_]u32{0};
+    const program = eval.Program{
+        .allocator = std.testing.allocator,
+        .header = .{ .flags = eval.Flag.prefinalized_logup, .semantic_hash = 0x3333, .capability_bits = eval.Capability.prefinalized_logup, .n_interactions = 1, .n_base_params = 0, .n_ext_params = 0, .n_constraints = 1, .max_base_regs = 1, .max_ext_regs = 1, .domain_log_size = 8 },
+        .base_consts = &.{},
+        .ext_consts = &.{},
+        .base_insts = &base,
+        .ext_insts = &ext,
+        .constraint_roots = &roots,
+    };
+    const parts = [_]FusedPart{
+        .{ .program = program, .rc_base = 0 },
+        .{ .program = program, .rc_base = 2 },
+    };
+    try std.testing.expectError(
+        error.InvalidFusionGroup,
+        generateFusedKernel(std.testing.allocator, &parts, false),
+    );
 }

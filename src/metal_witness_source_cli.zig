@@ -16,12 +16,9 @@ pub fn main() !void {
     var buffer: [64 * 1024]u8 = undefined;
     var file_writer = output.writer(&buffer);
     const writer = &file_writer.interface;
-    try writer.writeAll(codegen.preambleSource());
-    for (bundle.entries) |entry| {
-        const source = try codegen.generateKernel(allocator, entry.program, entry.semantic_hash);
-        defer allocator.free(source);
-        try writer.writeAll(source);
-    }
+    const source = try codegen.generateSpecializedBatch(allocator, bundle.entries);
+    defer allocator.free(source);
+    try writer.writeAll(source);
     try writer.flush();
-    std.debug.print("emitted {} canonical Metal witness programs\n", .{bundle.entries.len});
+    std.debug.print("emitted {} specialized canonical Metal witness kernels\n", .{bundle.entries.len * 2});
 }

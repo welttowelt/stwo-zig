@@ -1,0 +1,3279 @@
+{
+  "schema_version": 2,
+  "benchmark": "riscv_fib_backend_compare",
+  "status": "completed",
+  "workload": "generated RV32IM iterative Fibonacci guest",
+  "cycle_semantics": "emitted VM cycles; generated guest is 5 * fib_n - 3",
+  "protocol": {
+    "hash": "blake2s",
+    "log_blowup_factor": 1,
+    "fri_log_last_layer_degree_bound": 0,
+    "fri_fold_step": 1,
+    "pow_bits": 10,
+    "n_queries": 3
+  },
+  "measurement": {
+    "warmups": 0,
+    "repeats": 3,
+    "process_model": "fresh process per proof; Metal runtime warmup occurs before the CLI prove timer",
+    "proof_acceptance": "every measured proof accepted by the shared Zig CPU verifier",
+    "execution_policy": "strictly sequential with alternating backend and size order",
+    "timing_scopes": {
+      "prove_ms": "proveRiscVWithEngine only; excludes execution, verification, and Metal runtime warmup",
+      "run_prove_ms": "guest execution plus proof; excludes verification and Metal runtime warmup",
+      "cli_total_ms": "ELF generation, guest execution, proof, and verification; excludes argument parsing and Metal runtime warmup",
+      "process_wall_s": "parent perf_counter around the fresh subprocess, including startup and Metal runtime warmup; cold end-to-end metric of record"
+    },
+    "throughput_units": {
+      "mhz": "emitted VM cycles per second divided by 1e6",
+      "fib_iterations_per_s": "requested Fibonacci loop iterations per second"
+    }
+  },
+  "backends": {
+    "cpu": {
+      "label": "Zig CPU ReleaseFast with auto-SIMD hot paths",
+      "binary": "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-bench",
+      "sha256": "2acb4102518a6f4ecacc5031e4415143e60b302be1ade3073144dbc58fd74e96"
+    },
+    "metal": {
+      "label": "generic hybrid MetalProverEngine",
+      "binary": "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-metal-bench",
+      "sha256": "bb46f51556c3b95bbaf5f203590f7fcc45b0655db2a0716de20acb2e18e7d337"
+    }
+  },
+  "limitations": [
+    "The repository has no distinct full Zig SimdBackend; the CPU lane uses CpuBackend with native SIMD hot paths.",
+    "MetalProverEngine is hybrid: bulk transforms, commitments, quotient work, sampling, and FRI use Metal while trace generation and compatibility operations remain CPU.",
+    "The CLI verifies each proof but does not expose proof bytes or a proof digest.",
+    "These RISC-V AIR performance diagnostics do not establish soundness equivalence with upstream Rust STWO."
+  ],
+  "rows": [
+    {
+      "fib_n": 25000,
+      "cycles": 124997,
+      "trace_cells": {
+        "preprocessed": 426082,
+        "main": 5224880,
+        "implicit_zero": 8913824,
+        "committed": 5224880
+      },
+      "committed_cells_per_cycle": 41.8,
+      "cpu": {
+        "summary": {
+          "samples": 3,
+          "execute_ms": {
+            "median": 7.8,
+            "p25": 6.75,
+            "p75": 8.1,
+            "min": 5.7,
+            "max": 8.4
+          },
+          "prove_ms": {
+            "median": 126.1,
+            "p25": 123.35,
+            "p75": 126.4,
+            "min": 120.6,
+            "max": 126.7
+          },
+          "verify_ms": {
+            "median": 0.3,
+            "p25": 0.3,
+            "p75": 0.3,
+            "min": 0.3,
+            "max": 0.3
+          },
+          "run_prove_ms": {
+            "median": 133.9,
+            "p25": 130.1,
+            "p75": 134.45,
+            "min": 126.3,
+            "max": 135.0
+          },
+          "cli_total_ms": {
+            "median": 134.2,
+            "p25": 130.39999999999998,
+            "p75": 134.75,
+            "min": 126.6,
+            "max": 135.3
+          },
+          "process_wall_s": {
+            "median": 0.1440503749763593,
+            "p25": 0.13993479148484766,
+            "p75": 0.14512404199922457,
+            "min": 0.13581920799333602,
+            "max": 0.14619770902208984
+          },
+          "process_overhead_ms": {
+            "median": 9.85037497635932,
+            "p25": 9.534791484847673,
+            "p75": 10.374041999224573,
+            "min": 9.219207993336028,
+            "max": 10.897709022089828
+          },
+          "prove_mhz": {
+            "median": 0.9912529738302935,
+            "p25": 0.9889058870729999,
+            "p75": 1.013856171823936,
+            "min": 0.9865588003157063,
+            "max": 1.0364593698175788
+          },
+          "run_prove_mhz": {
+            "median": 0.9335100821508588,
+            "p25": 0.9297068929272814,
+            "p75": 0.9615966879479552,
+            "min": 0.9259037037037038,
+            "max": 0.9896832937450515
+          },
+          "cli_total_mhz": {
+            "median": 0.9314232488822654,
+            "p25": 0.9276369755128251,
+            "p75": 0.9593806607760458,
+            "min": 0.9238507021433849,
+            "max": 0.9873380726698262
+          },
+          "e2e_mhz": {
+            "median": 0.8677311671039646,
+            "p25": 0.8613586025469431,
+            "p75": 0.8940250920882601,
+            "min": 0.8549860379899216,
+            "max": 0.9203190170725556
+          },
+          "prove_fib_iterations_per_s": {
+            "median": 198255.35289452816,
+            "p25": 197785.9242767826,
+            "p75": 202776.10099121102,
+            "min": 197316.4956590371,
+            "max": 207296.84908789385
+          },
+          "run_prove_fib_iterations_per_s": {
+            "median": 186706.49738610903,
+            "p25": 185945.84128564713,
+            "p75": 192323.9533644718,
+            "min": 185185.1851851852,
+            "max": 197941.40934283452
+          },
+          "cli_total_fib_iterations_per_s": {
+            "median": 186289.12071535023,
+            "p25": 185531.84786691383,
+            "p75": 191880.73729290417,
+            "min": 184774.57501847742,
+            "max": 197472.35387045814
+          },
+          "e2e_fib_iterations_per_s": {
+            "median": 173550.39863036005,
+            "p25": 172275.85512991174,
+            "p75": 178809.3098410882,
+            "min": 171001.31162946342,
+            "max": 184068.22105181636
+          }
+        },
+        "raw_samples": [
+          {
+            "cycles": 124997,
+            "execute_ms": 5.7,
+            "prove_ms": 120.6,
+            "verify_ms": 0.3,
+            "run_prove_ms": 126.3,
+            "cli_total_ms": 126.6,
+            "prove_mhz": 1.0364593698175788,
+            "run_prove_mhz": 0.9896832937450515,
+            "cli_total_mhz": 0.9873380726698262,
+            "trace_cells": {
+              "preprocessed": 426082,
+              "main": 5224880,
+              "implicit_zero": 8913824,
+              "committed": 5224880
+            },
+            "committed_cells_per_cycle": 41.8,
+            "proof_verified": true,
+            "fib_n": 25000,
+            "process_wall_s": 0.13581920799333602,
+            "process_overhead_ms": 9.219207993336028,
+            "e2e_mhz": 0.9203190170725556,
+            "prove_fib_iterations_per_s": 207296.84908789385,
+            "run_prove_fib_iterations_per_s": 197941.40934283452,
+            "cli_total_fib_iterations_per_s": 197472.35387045814,
+            "e2e_fib_iterations_per_s": 184068.22105181636,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-bench",
+              "--fib-n",
+              "25000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(25000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  5.7ms  (124997 cycles, 21929 kHz)\ninfo: Columns: opcode=106 infra=503 total tree1=609 implicit-zero=252\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    120.6ms\nTrace cells: preprocessed=426082 main=5224880 implicit-zero=8913824 committed=5224880\nCommitted cells/cycle: 41.80\nVerify:   0.3ms\n\nTotal:    126.6ms\nRun+Prove:126.3ms  (989.4 kHz)\nProve+Verify: 120.9ms\n\nThroughput (run+prove): 989.4 kHz\n"
+          },
+          {
+            "cycles": 124997,
+            "execute_ms": 8.4,
+            "prove_ms": 126.7,
+            "verify_ms": 0.3,
+            "run_prove_ms": 135.0,
+            "cli_total_ms": 135.3,
+            "prove_mhz": 0.9865588003157063,
+            "run_prove_mhz": 0.9259037037037038,
+            "cli_total_mhz": 0.9238507021433849,
+            "trace_cells": {
+              "preprocessed": 426082,
+              "main": 5224880,
+              "implicit_zero": 8913824,
+              "committed": 5224880
+            },
+            "committed_cells_per_cycle": 41.8,
+            "proof_verified": true,
+            "fib_n": 25000,
+            "process_wall_s": 0.14619770902208984,
+            "process_overhead_ms": 10.897709022089828,
+            "e2e_mhz": 0.8549860379899216,
+            "prove_fib_iterations_per_s": 197316.4956590371,
+            "run_prove_fib_iterations_per_s": 185185.1851851852,
+            "cli_total_fib_iterations_per_s": 184774.57501847742,
+            "e2e_fib_iterations_per_s": 171001.31162946342,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-bench",
+              "--fib-n",
+              "25000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(25000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  8.4ms  (124997 cycles, 14891 kHz)\ninfo: Columns: opcode=106 infra=503 total tree1=609 implicit-zero=252\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    126.7ms\nTrace cells: preprocessed=426082 main=5224880 implicit-zero=8913824 committed=5224880\nCommitted cells/cycle: 41.80\nVerify:   0.3ms\n\nTotal:    135.3ms\nRun+Prove:135.0ms  (925.6 kHz)\nProve+Verify: 126.9ms\n\nThroughput (run+prove): 925.6 kHz\n"
+          },
+          {
+            "cycles": 124997,
+            "execute_ms": 7.8,
+            "prove_ms": 126.1,
+            "verify_ms": 0.3,
+            "run_prove_ms": 133.9,
+            "cli_total_ms": 134.2,
+            "prove_mhz": 0.9912529738302935,
+            "run_prove_mhz": 0.9335100821508588,
+            "cli_total_mhz": 0.9314232488822654,
+            "trace_cells": {
+              "preprocessed": 426082,
+              "main": 5224880,
+              "implicit_zero": 8913824,
+              "committed": 5224880
+            },
+            "committed_cells_per_cycle": 41.8,
+            "proof_verified": true,
+            "fib_n": 25000,
+            "process_wall_s": 0.1440503749763593,
+            "process_overhead_ms": 9.85037497635932,
+            "e2e_mhz": 0.8677311671039646,
+            "prove_fib_iterations_per_s": 198255.35289452816,
+            "run_prove_fib_iterations_per_s": 186706.49738610903,
+            "cli_total_fib_iterations_per_s": 186289.12071535023,
+            "e2e_fib_iterations_per_s": 173550.39863036005,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-bench",
+              "--fib-n",
+              "25000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(25000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  7.8ms  (124997 cycles, 16058 kHz)\ninfo: Columns: opcode=106 infra=503 total tree1=609 implicit-zero=252\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    126.1ms\nTrace cells: preprocessed=426082 main=5224880 implicit-zero=8913824 committed=5224880\nCommitted cells/cycle: 41.80\nVerify:   0.3ms\n\nTotal:    134.2ms\nRun+Prove:133.9ms  (933.3 kHz)\nProve+Verify: 126.4ms\n\nThroughput (run+prove): 933.3 kHz\n"
+          }
+        ]
+      },
+      "metal": {
+        "summary": {
+          "samples": 3,
+          "execute_ms": {
+            "median": 6.1,
+            "p25": 6.05,
+            "p75": 6.1,
+            "min": 6.0,
+            "max": 6.1
+          },
+          "prove_ms": {
+            "median": 160.5,
+            "p25": 157.45,
+            "p75": 164.15,
+            "min": 154.4,
+            "max": 167.8
+          },
+          "verify_ms": {
+            "median": 0.3,
+            "p25": 0.3,
+            "p75": 0.3,
+            "min": 0.3,
+            "max": 0.3
+          },
+          "run_prove_ms": {
+            "median": 166.6,
+            "p25": 163.55,
+            "p75": 170.2,
+            "min": 160.5,
+            "max": 173.8
+          },
+          "cli_total_ms": {
+            "median": 166.9,
+            "p25": 163.85000000000002,
+            "p75": 170.5,
+            "min": 160.8,
+            "max": 174.1
+          },
+          "process_wall_s": {
+            "median": 0.20743695803685114,
+            "p25": 0.20472604149836116,
+            "p75": 0.2087413540284615,
+            "min": 0.20201512495987117,
+            "max": 0.21004575002007186
+          },
+          "process_overhead_ms": {
+            "median": 40.53695803685113,
+            "p25": 38.2413540284615,
+            "p75": 40.87604149836115,
+            "min": 35.94575002007187,
+            "max": 41.21512495987116
+          },
+          "prove_mhz": {
+            "median": 0.7787975077881619,
+            "p25": 0.7618570375651179,
+            "p75": 0.7941817849821639,
+            "min": 0.7449165673420738,
+            "max": 0.8095660621761658
+          },
+          "run_prove_mhz": {
+            "median": 0.750282112845138,
+            "p25": 0.7347411714973676,
+            "p75": 0.76453981031665,
+            "min": 0.7192002301495972,
+            "max": 0.7787975077881619
+          },
+          "cli_total_mhz": {
+            "median": 0.7489334931096465,
+            "p25": 0.7334472175485051,
+            "p75": 0.7631390102364153,
+            "min": 0.7179609419873636,
+            "max": 0.777344527363184
+          },
+          "e2e_mhz": {
+            "median": 0.6025782540534282,
+            "p25": 0.5988362090030344,
+            "p75": 0.6106644770774337,
+            "min": 0.5950941639526406,
+            "max": 0.6187507001014392
+          },
+          "prove_fib_iterations_per_s": {
+            "median": 155763.2398753894,
+            "p25": 152375.06451457192,
+            "p75": 158840.16916049263,
+            "min": 148986.88915375446,
+            "max": 161917.09844559585
+          },
+          "run_prove_fib_iterations_per_s": {
+            "median": 150060.02400960383,
+            "p25": 146951.76114174092,
+            "p75": 152911.63194249664,
+            "min": 143843.498273878,
+            "max": 155763.2398753894
+          },
+          "cli_total_fib_iterations_per_s": {
+            "median": 149790.29358897544,
+            "p25": 146692.9641408404,
+            "p75": 152631.4652024479,
+            "min": 143595.63469270535,
+            "max": 155472.63681592038
+          },
+          "e2e_fib_iterations_per_s": {
+            "median": 120518.54325572377,
+            "p25": 119770.11628339767,
+            "p75": 122135.82667532694,
+            "min": 119021.68931107158,
+            "max": 123753.1100949301
+          }
+        },
+        "raw_samples": [
+          {
+            "cycles": 124997,
+            "execute_ms": 6.1,
+            "prove_ms": 154.4,
+            "verify_ms": 0.3,
+            "run_prove_ms": 160.5,
+            "cli_total_ms": 160.8,
+            "prove_mhz": 0.8095660621761658,
+            "run_prove_mhz": 0.7787975077881619,
+            "cli_total_mhz": 0.777344527363184,
+            "trace_cells": {
+              "preprocessed": 426082,
+              "main": 5224880,
+              "implicit_zero": 8913824,
+              "committed": 5224880
+            },
+            "committed_cells_per_cycle": 41.8,
+            "proof_verified": true,
+            "fib_n": 25000,
+            "process_wall_s": 0.20201512495987117,
+            "process_overhead_ms": 41.21512495987116,
+            "e2e_mhz": 0.6187507001014392,
+            "prove_fib_iterations_per_s": 161917.09844559585,
+            "run_prove_fib_iterations_per_s": 155763.2398753894,
+            "cli_total_fib_iterations_per_s": 155472.63681592038,
+            "e2e_fib_iterations_per_s": 123753.1100949301,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-metal-bench",
+              "--fib-n",
+              "25000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(25000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  6.1ms  (124997 cycles, 20348 kHz)\ninfo: Columns: opcode=106 infra=503 total tree1=609 implicit-zero=252\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    154.4ms\nTrace cells: preprocessed=426082 main=5224880 implicit-zero=8913824 committed=5224880\nCommitted cells/cycle: 41.80\nVerify:   0.3ms\n\nTotal:    160.8ms\nRun+Prove:160.5ms  (778.7 kHz)\nProve+Verify: 154.7ms\n\nThroughput (run+prove): 778.7 kHz\n"
+          },
+          {
+            "cycles": 124997,
+            "execute_ms": 6.1,
+            "prove_ms": 160.5,
+            "verify_ms": 0.3,
+            "run_prove_ms": 166.6,
+            "cli_total_ms": 166.9,
+            "prove_mhz": 0.7787975077881619,
+            "run_prove_mhz": 0.750282112845138,
+            "cli_total_mhz": 0.7489334931096465,
+            "trace_cells": {
+              "preprocessed": 426082,
+              "main": 5224880,
+              "implicit_zero": 8913824,
+              "committed": 5224880
+            },
+            "committed_cells_per_cycle": 41.8,
+            "proof_verified": true,
+            "fib_n": 25000,
+            "process_wall_s": 0.20743695803685114,
+            "process_overhead_ms": 40.53695803685113,
+            "e2e_mhz": 0.6025782540534282,
+            "prove_fib_iterations_per_s": 155763.2398753894,
+            "run_prove_fib_iterations_per_s": 150060.02400960383,
+            "cli_total_fib_iterations_per_s": 149790.29358897544,
+            "e2e_fib_iterations_per_s": 120518.54325572377,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-metal-bench",
+              "--fib-n",
+              "25000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(25000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  6.1ms  (124997 cycles, 20498 kHz)\ninfo: Columns: opcode=106 infra=503 total tree1=609 implicit-zero=252\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    160.5ms\nTrace cells: preprocessed=426082 main=5224880 implicit-zero=8913824 committed=5224880\nCommitted cells/cycle: 41.80\nVerify:   0.3ms\n\nTotal:    166.9ms\nRun+Prove:166.6ms  (750.4 kHz)\nProve+Verify: 160.7ms\n\nThroughput (run+prove): 750.4 kHz\n"
+          },
+          {
+            "cycles": 124997,
+            "execute_ms": 6.0,
+            "prove_ms": 167.8,
+            "verify_ms": 0.3,
+            "run_prove_ms": 173.8,
+            "cli_total_ms": 174.1,
+            "prove_mhz": 0.7449165673420738,
+            "run_prove_mhz": 0.7192002301495972,
+            "cli_total_mhz": 0.7179609419873636,
+            "trace_cells": {
+              "preprocessed": 426082,
+              "main": 5224880,
+              "implicit_zero": 8913824,
+              "committed": 5224880
+            },
+            "committed_cells_per_cycle": 41.8,
+            "proof_verified": true,
+            "fib_n": 25000,
+            "process_wall_s": 0.21004575002007186,
+            "process_overhead_ms": 35.94575002007187,
+            "e2e_mhz": 0.5950941639526406,
+            "prove_fib_iterations_per_s": 148986.88915375446,
+            "run_prove_fib_iterations_per_s": 143843.498273878,
+            "cli_total_fib_iterations_per_s": 143595.63469270535,
+            "e2e_fib_iterations_per_s": 119021.68931107158,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-metal-bench",
+              "--fib-n",
+              "25000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(25000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  6.0ms  (124997 cycles, 20695 kHz)\ninfo: Columns: opcode=106 infra=503 total tree1=609 implicit-zero=252\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    167.8ms\nTrace cells: preprocessed=426082 main=5224880 implicit-zero=8913824 committed=5224880\nCommitted cells/cycle: 41.80\nVerify:   0.3ms\n\nTotal:    174.1ms\nRun+Prove:173.8ms  (719.2 kHz)\nProve+Verify: 168.0ms\n\nThroughput (run+prove): 719.2 kHz\n"
+          }
+        ]
+      },
+      "metal_speedup_prove": 0.7856697819314641,
+      "metal_speedup_run_prove": 0.8037214885954382,
+      "metal_speedup_cli_total": 0.8040742959856201,
+      "metal_speedup_e2e": 0.6944296539036635
+    },
+    {
+      "fib_n": 50000,
+      "cycles": 249997,
+      "trace_cells": {
+        "preprocessed": 852066,
+        "main": 10434992,
+        "implicit_zero": 17826720,
+        "committed": 10434992
+      },
+      "committed_cells_per_cycle": 41.74,
+      "cpu": {
+        "summary": {
+          "samples": 3,
+          "execute_ms": {
+            "median": 16.4,
+            "p25": 16.1,
+            "p75": 17.1,
+            "min": 15.8,
+            "max": 17.8
+          },
+          "prove_ms": {
+            "median": 167.9,
+            "p25": 167.2,
+            "p75": 168.75,
+            "min": 166.5,
+            "max": 169.6
+          },
+          "verify_ms": {
+            "median": 0.3,
+            "p25": 0.3,
+            "p75": 0.3,
+            "min": 0.3,
+            "max": 0.3
+          },
+          "run_prove_ms": {
+            "median": 184.3,
+            "p25": 183.3,
+            "p75": 185.8,
+            "min": 182.3,
+            "max": 187.3
+          },
+          "cli_total_ms": {
+            "median": 184.6,
+            "p25": 183.64999999999998,
+            "p75": 186.14999999999998,
+            "min": 182.7,
+            "max": 187.7
+          },
+          "process_wall_s": {
+            "median": 0.1959483329555951,
+            "p25": 0.19479691647575237,
+            "p75": 0.19741577096283436,
+            "min": 0.19364549999590963,
+            "max": 0.1988832089700736
+          },
+          "process_overhead_ms": {
+            "median": 11.183208970073622,
+            "p25": 11.064354482991632,
+            "p75": 11.265770962834367,
+            "min": 10.945499995909643,
+            "max": 11.348332955595112
+          },
+          "prove_mhz": {
+            "median": 1.4889636688505061,
+            "p25": 1.4815012919724229,
+            "p75": 1.4952235761669948,
+            "min": 1.4740389150943396,
+            "max": 1.5014834834834836
+          },
+          "run_prove_mhz": {
+            "median": 1.3564677156809548,
+            "p25": 1.3456043864042788,
+            "p75": 1.3639085698536424,
+            "min": 1.3347410571276028,
+            "max": 1.3713494240263302
+          },
+          "cli_total_mhz": {
+            "median": 1.3542632719393282,
+            "p25": 1.3430799577597548,
+            "p75": 1.3613051444535174,
+            "min": 1.3318966435801813,
+            "max": 1.3683470169677066
+          },
+          "e2e_mhz": {
+            "median": 1.2758312164699719,
+            "p25": 1.2664176353659378,
+            "p75": 1.2834173111025473,
+            "min": 1.2570040542619039,
+            "max": 1.2910034057351225
+          },
+          "prove_fib_iterations_per_s": {
+            "median": 297796.3073257891,
+            "p25": 296303.81404025306,
+            "p75": 299048.3038130447,
+            "min": 294811.320754717,
+            "max": 300300.3003003003
+          },
+          "run_prove_fib_iterations_per_s": {
+            "median": 271296.79869777535,
+            "p25": 269124.106770137,
+            "p75": 272784.9873905772,
+            "min": 266951.41484249866,
+            "max": 274273.176083379
+          },
+          "cli_total_fib_iterations_per_s": {
+            "median": 270855.9046587215,
+            "p25": 268619.2149825307,
+            "p75": 272264.2960622562,
+            "min": 266382.5253063399,
+            "max": 273672.68746579095
+          },
+          "e2e_fib_iterations_per_s": {
+            "median": 255169.3053256583,
+            "p25": 253286.56651198573,
+            "p75": 256686.54245901897,
+            "min": 251403.82769831317,
+            "max": 258203.77959237964
+          }
+        },
+        "raw_samples": [
+          {
+            "cycles": 249997,
+            "execute_ms": 16.4,
+            "prove_ms": 167.9,
+            "verify_ms": 0.3,
+            "run_prove_ms": 184.3,
+            "cli_total_ms": 184.6,
+            "prove_mhz": 1.4889636688505061,
+            "run_prove_mhz": 1.3564677156809548,
+            "cli_total_mhz": 1.3542632719393282,
+            "trace_cells": {
+              "preprocessed": 852066,
+              "main": 10434992,
+              "implicit_zero": 17826720,
+              "committed": 10434992
+            },
+            "committed_cells_per_cycle": 41.74,
+            "proof_verified": true,
+            "fib_n": 50000,
+            "process_wall_s": 0.1959483329555951,
+            "process_overhead_ms": 11.348332955595112,
+            "e2e_mhz": 1.2758312164699719,
+            "prove_fib_iterations_per_s": 297796.3073257891,
+            "run_prove_fib_iterations_per_s": 271296.79869777535,
+            "cli_total_fib_iterations_per_s": 270855.9046587215,
+            "e2e_fib_iterations_per_s": 255169.3053256583,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-bench",
+              "--fib-n",
+              "50000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(50000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  16.4ms  (249997 cycles, 15244 kHz)\ninfo: Columns: opcode=125 infra=531 total tree1=656 implicit-zero=348\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    167.9ms\nTrace cells: preprocessed=852066 main=10434992 implicit-zero=17826720 committed=10434992\nCommitted cells/cycle: 41.74\nVerify:   0.3ms\n\nTotal:    184.6ms\nRun+Prove:184.3ms  (1356.8 kHz)\nProve+Verify: 168.2ms\n\nThroughput (run+prove): 1356.8 kHz\n"
+          },
+          {
+            "cycles": 249997,
+            "execute_ms": 15.8,
+            "prove_ms": 166.5,
+            "verify_ms": 0.3,
+            "run_prove_ms": 182.3,
+            "cli_total_ms": 182.7,
+            "prove_mhz": 1.5014834834834836,
+            "run_prove_mhz": 1.3713494240263302,
+            "cli_total_mhz": 1.3683470169677066,
+            "trace_cells": {
+              "preprocessed": 852066,
+              "main": 10434992,
+              "implicit_zero": 17826720,
+              "committed": 10434992
+            },
+            "committed_cells_per_cycle": 41.74,
+            "proof_verified": true,
+            "fib_n": 50000,
+            "process_wall_s": 0.19364549999590963,
+            "process_overhead_ms": 10.945499995909643,
+            "e2e_mhz": 1.2910034057351225,
+            "prove_fib_iterations_per_s": 300300.3003003003,
+            "run_prove_fib_iterations_per_s": 274273.176083379,
+            "cli_total_fib_iterations_per_s": 273672.68746579095,
+            "e2e_fib_iterations_per_s": 258203.77959237964,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-bench",
+              "--fib-n",
+              "50000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(50000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  15.8ms  (249997 cycles, 15799 kHz)\ninfo: Columns: opcode=125 infra=531 total tree1=656 implicit-zero=348\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    166.5ms\nTrace cells: preprocessed=852066 main=10434992 implicit-zero=17826720 committed=10434992\nCommitted cells/cycle: 41.74\nVerify:   0.3ms\n\nTotal:    182.7ms\nRun+Prove:182.3ms  (1371.1 kHz)\nProve+Verify: 166.8ms\n\nThroughput (run+prove): 1371.1 kHz\n"
+          },
+          {
+            "cycles": 249997,
+            "execute_ms": 17.8,
+            "prove_ms": 169.6,
+            "verify_ms": 0.3,
+            "run_prove_ms": 187.3,
+            "cli_total_ms": 187.7,
+            "prove_mhz": 1.4740389150943396,
+            "run_prove_mhz": 1.3347410571276028,
+            "cli_total_mhz": 1.3318966435801813,
+            "trace_cells": {
+              "preprocessed": 852066,
+              "main": 10434992,
+              "implicit_zero": 17826720,
+              "committed": 10434992
+            },
+            "committed_cells_per_cycle": 41.74,
+            "proof_verified": true,
+            "fib_n": 50000,
+            "process_wall_s": 0.1988832089700736,
+            "process_overhead_ms": 11.183208970073622,
+            "e2e_mhz": 1.2570040542619039,
+            "prove_fib_iterations_per_s": 294811.320754717,
+            "run_prove_fib_iterations_per_s": 266951.41484249866,
+            "cli_total_fib_iterations_per_s": 266382.5253063399,
+            "e2e_fib_iterations_per_s": 251403.82769831317,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-bench",
+              "--fib-n",
+              "50000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(50000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  17.8ms  (249997 cycles, 14065 kHz)\ninfo: Columns: opcode=125 infra=531 total tree1=656 implicit-zero=348\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    169.6ms\nTrace cells: preprocessed=852066 main=10434992 implicit-zero=17826720 committed=10434992\nCommitted cells/cycle: 41.74\nVerify:   0.3ms\n\nTotal:    187.7ms\nRun+Prove:187.3ms  (1334.4 kHz)\nProve+Verify: 169.9ms\n\nThroughput (run+prove): 1334.4 kHz\n"
+          }
+        ]
+      },
+      "metal": {
+        "summary": {
+          "samples": 3,
+          "execute_ms": {
+            "median": 12.4,
+            "p25": 12.25,
+            "p75": 12.75,
+            "min": 12.1,
+            "max": 13.1
+          },
+          "prove_ms": {
+            "median": 125.0,
+            "p25": 120.25,
+            "p75": 129.25,
+            "min": 115.5,
+            "max": 133.5
+          },
+          "verify_ms": {
+            "median": 0.3,
+            "p25": 0.3,
+            "p75": 0.3,
+            "min": 0.3,
+            "max": 0.3
+          },
+          "run_prove_ms": {
+            "median": 137.4,
+            "p25": 132.5,
+            "p75": 142.0,
+            "min": 127.6,
+            "max": 146.6
+          },
+          "cli_total_ms": {
+            "median": 137.8,
+            "p25": 132.85000000000002,
+            "p75": 142.4,
+            "min": 127.9,
+            "max": 147.0
+          },
+          "process_wall_s": {
+            "median": 0.17973108298610896,
+            "p25": 0.1705864790128544,
+            "p75": 0.18423235398950055,
+            "min": 0.16144187503959984,
+            "max": 0.18873362499289215
+          },
+          "process_overhead_ms": {
+            "median": 41.733624992892146,
+            "p25": 37.63775001624599,
+            "p75": 41.83235398950055,
+            "min": 33.54187503959983,
+            "max": 41.93108298610895
+          },
+          "prove_mhz": {
+            "median": 1.9999760000000002,
+            "p25": 1.9363063520599253,
+            "p75": 2.082226095238095,
+            "min": 1.8726367041198502,
+            "max": 2.1644761904761904
+          },
+          "run_prove_mhz": {
+            "median": 1.8194832605531295,
+            "p25": 1.7623916984893888,
+            "p75": 1.889353699242082,
+            "min": 1.7053001364256481,
+            "max": 1.9592241379310347
+          },
+          "cli_total_mhz": {
+            "median": 1.8142017416545717,
+            "p25": 1.7574308028000751,
+            "p75": 1.8844151788804524,
+            "min": 1.7006598639455783,
+            "max": 1.954628616106333
+          },
+          "e2e_mhz": {
+            "median": 1.390950278863683,
+            "p25": 1.357776305981827,
+            "p75": 1.469738322198638,
+            "min": 1.3246023330999712,
+            "max": 1.5485263655335928
+          },
+          "prove_fib_iterations_per_s": {
+            "median": 400000.0,
+            "p25": 387265.9176029962,
+            "p75": 416450.2164502165,
+            "min": 374531.8352059925,
+            "max": 432900.4329004329
+          },
+          "run_prove_fib_iterations_per_s": {
+            "median": 363901.018922853,
+            "p25": 352482.56948871166,
+            "p75": 377875.27435170865,
+            "min": 341064.12005457026,
+            "max": 391849.5297805643
+          },
+          "cli_total_fib_iterations_per_s": {
+            "median": 362844.70246734394,
+            "p25": 351490.3784445564,
+            "p75": 376887.55842679157,
+            "min": 340136.05442176876,
+            "max": 390930.41438623925
+          },
+          "e2e_fib_iterations_per_s": {
+            "median": 278193.3940934657,
+            "p25": 271558.5198986042,
+            "p75": 293951.19185402984,
+            "min": 264923.6457037427,
+            "max": 309708.989614594
+          }
+        },
+        "raw_samples": [
+          {
+            "cycles": 249997,
+            "execute_ms": 12.1,
+            "prove_ms": 115.5,
+            "verify_ms": 0.3,
+            "run_prove_ms": 127.6,
+            "cli_total_ms": 127.9,
+            "prove_mhz": 2.1644761904761904,
+            "run_prove_mhz": 1.9592241379310347,
+            "cli_total_mhz": 1.954628616106333,
+            "trace_cells": {
+              "preprocessed": 852066,
+              "main": 10434992,
+              "implicit_zero": 17826720,
+              "committed": 10434992
+            },
+            "committed_cells_per_cycle": 41.74,
+            "proof_verified": true,
+            "fib_n": 50000,
+            "process_wall_s": 0.16144187503959984,
+            "process_overhead_ms": 33.54187503959983,
+            "e2e_mhz": 1.5485263655335928,
+            "prove_fib_iterations_per_s": 432900.4329004329,
+            "run_prove_fib_iterations_per_s": 391849.5297805643,
+            "cli_total_fib_iterations_per_s": 390930.41438623925,
+            "e2e_fib_iterations_per_s": 309708.989614594,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-metal-bench",
+              "--fib-n",
+              "50000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(50000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  12.1ms  (249997 cycles, 20635 kHz)\ninfo: Columns: opcode=125 infra=531 total tree1=656 implicit-zero=348\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    115.5ms\nTrace cells: preprocessed=852066 main=10434992 implicit-zero=17826720 committed=10434992\nCommitted cells/cycle: 41.74\nVerify:   0.3ms\n\nTotal:    127.9ms\nRun+Prove:127.6ms  (1958.7 kHz)\nProve+Verify: 115.8ms\n\nThroughput (run+prove): 1958.7 kHz\n"
+          },
+          {
+            "cycles": 249997,
+            "execute_ms": 12.4,
+            "prove_ms": 125.0,
+            "verify_ms": 0.3,
+            "run_prove_ms": 137.4,
+            "cli_total_ms": 137.8,
+            "prove_mhz": 1.9999760000000002,
+            "run_prove_mhz": 1.8194832605531295,
+            "cli_total_mhz": 1.8142017416545717,
+            "trace_cells": {
+              "preprocessed": 852066,
+              "main": 10434992,
+              "implicit_zero": 17826720,
+              "committed": 10434992
+            },
+            "committed_cells_per_cycle": 41.74,
+            "proof_verified": true,
+            "fib_n": 50000,
+            "process_wall_s": 0.17973108298610896,
+            "process_overhead_ms": 41.93108298610895,
+            "e2e_mhz": 1.390950278863683,
+            "prove_fib_iterations_per_s": 400000.0,
+            "run_prove_fib_iterations_per_s": 363901.018922853,
+            "cli_total_fib_iterations_per_s": 362844.70246734394,
+            "e2e_fib_iterations_per_s": 278193.3940934657,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-metal-bench",
+              "--fib-n",
+              "50000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(50000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  12.4ms  (249997 cycles, 20085 kHz)\ninfo: Columns: opcode=125 infra=531 total tree1=656 implicit-zero=348\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    125.0ms\nTrace cells: preprocessed=852066 main=10434992 implicit-zero=17826720 committed=10434992\nCommitted cells/cycle: 41.74\nVerify:   0.3ms\n\nTotal:    137.8ms\nRun+Prove:137.4ms  (1819.0 kHz)\nProve+Verify: 125.3ms\n\nThroughput (run+prove): 1819.0 kHz\n"
+          },
+          {
+            "cycles": 249997,
+            "execute_ms": 13.1,
+            "prove_ms": 133.5,
+            "verify_ms": 0.3,
+            "run_prove_ms": 146.6,
+            "cli_total_ms": 147.0,
+            "prove_mhz": 1.8726367041198502,
+            "run_prove_mhz": 1.7053001364256481,
+            "cli_total_mhz": 1.7006598639455783,
+            "trace_cells": {
+              "preprocessed": 852066,
+              "main": 10434992,
+              "implicit_zero": 17826720,
+              "committed": 10434992
+            },
+            "committed_cells_per_cycle": 41.74,
+            "proof_verified": true,
+            "fib_n": 50000,
+            "process_wall_s": 0.18873362499289215,
+            "process_overhead_ms": 41.733624992892146,
+            "e2e_mhz": 1.3246023330999712,
+            "prove_fib_iterations_per_s": 374531.8352059925,
+            "run_prove_fib_iterations_per_s": 341064.12005457026,
+            "cli_total_fib_iterations_per_s": 340136.05442176876,
+            "e2e_fib_iterations_per_s": 264923.6457037427,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-metal-bench",
+              "--fib-n",
+              "50000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(50000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  13.1ms  (249997 cycles, 19017 kHz)\ninfo: Columns: opcode=125 infra=531 total tree1=656 implicit-zero=348\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    133.5ms\nTrace cells: preprocessed=852066 main=10434992 implicit-zero=17826720 committed=10434992\nCommitted cells/cycle: 41.74\nVerify:   0.3ms\n\nTotal:    147.0ms\nRun+Prove:146.6ms  (1704.8 kHz)\nProve+Verify: 133.8ms\n\nThroughput (run+prove): 1704.8 kHz\n"
+          }
+        ]
+      },
+      "metal_speedup_prove": 1.3432,
+      "metal_speedup_run_prove": 1.3413391557496361,
+      "metal_speedup_cli_total": 1.3396226415094339,
+      "metal_speedup_e2e": 1.09023063623747
+    },
+    {
+      "fib_n": 100000,
+      "cycles": 499997,
+      "trace_cells": {
+        "preprocessed": 1704034,
+        "main": 20855216,
+        "implicit_zero": 35652512,
+        "committed": 20855216
+      },
+      "committed_cells_per_cycle": 41.71,
+      "cpu": {
+        "summary": {
+          "samples": 3,
+          "execute_ms": {
+            "median": 30.7,
+            "p25": 30.15,
+            "p75": 31.4,
+            "min": 29.6,
+            "max": 32.1
+          },
+          "prove_ms": {
+            "median": 276.0,
+            "p25": 275.1,
+            "p75": 276.45,
+            "min": 274.2,
+            "max": 276.9
+          },
+          "verify_ms": {
+            "median": 0.3,
+            "p25": 0.3,
+            "p75": 0.3,
+            "min": 0.3,
+            "max": 0.3
+          },
+          "run_prove_ms": {
+            "median": 306.7,
+            "p25": 305.29999999999995,
+            "p75": 307.9,
+            "min": 303.9,
+            "max": 309.1
+          },
+          "cli_total_ms": {
+            "median": 307.0,
+            "p25": 305.6,
+            "p75": 308.2,
+            "min": 304.2,
+            "max": 309.4
+          },
+          "process_wall_s": {
+            "median": 0.31718787498539314,
+            "p25": 0.31625185447046533,
+            "p75": 0.3187666664889548,
+            "min": 0.31531583395553753,
+            "max": 0.32034545799251646
+          },
+          "process_overhead_ms": {
+            "median": 10.94545799251648,
+            "p25": 10.566666488954809,
+            "p75": 11.03064597402701,
+            "min": 10.187874985393137,
+            "max": 11.11583395553754
+          },
+          "prove_mhz": {
+            "median": 1.8115833333333333,
+            "p25": 1.8086392650776455,
+            "p75": 1.817529449307075,
+            "min": 1.8056951968219574,
+            "max": 1.823475565280817
+          },
+          "run_prove_mhz": {
+            "median": 1.6302477991522661,
+            "p25": 1.6239187879617687,
+            "p75": 1.6377579897373704,
+            "min": 1.6175897767712712,
+            "max": 1.6452681803224745
+          },
+          "cli_total_mhz": {
+            "median": 1.6286547231270359,
+            "p25": 1.6223380273683015,
+            "p75": 1.6361501755017165,
+            "min": 1.6160213316095668,
+            "max": 1.6436456278763971
+          },
+          "e2e_mhz": {
+            "median": 1.5763433580902972,
+            "p25": 1.5685745028174782,
+            "p75": 1.5810227606538576,
+            "min": 1.560805647544659,
+            "max": 1.585702163217418
+          },
+          "prove_fib_iterations_per_s": {
+            "median": 362318.84057971014,
+            "p25": 361730.0233956695,
+            "p75": 363508.0709098405,
+            "min": 361141.2062116288,
+            "max": 364697.30123997084
+          },
+          "run_prove_fib_iterations_per_s": {
+            "median": 326051.5161395501,
+            "p25": 324785.7063065916,
+            "p75": 327553.5632688537,
+            "min": 323519.89647363307,
+            "max": 329055.6103981573
+          },
+          "cli_total_fib_iterations_per_s": {
+            "median": 325732.8990228013,
+            "p25": 324469.55229097407,
+            "p75": 327231.99849233427,
+            "min": 323206.20555914677,
+            "max": 328731.09796186717
+          },
+          "e2e_fib_iterations_per_s": {
+            "median": 315270.5632414389,
+            "p25": 313716.7828641928,
+            "p75": 316206.4493694677,
+            "min": 312163.0024869467,
+            "max": 317142.33549749653
+          }
+        },
+        "raw_samples": [
+          {
+            "cycles": 499997,
+            "execute_ms": 29.6,
+            "prove_ms": 274.2,
+            "verify_ms": 0.3,
+            "run_prove_ms": 303.9,
+            "cli_total_ms": 304.2,
+            "prove_mhz": 1.823475565280817,
+            "run_prove_mhz": 1.6452681803224745,
+            "cli_total_mhz": 1.6436456278763971,
+            "trace_cells": {
+              "preprocessed": 1704034,
+              "main": 20855216,
+              "implicit_zero": 35652512,
+              "committed": 20855216
+            },
+            "committed_cells_per_cycle": 41.71,
+            "proof_verified": true,
+            "fib_n": 100000,
+            "process_wall_s": 0.31531583395553753,
+            "process_overhead_ms": 11.11583395553754,
+            "e2e_mhz": 1.585702163217418,
+            "prove_fib_iterations_per_s": 364697.30123997084,
+            "run_prove_fib_iterations_per_s": 329055.6103981573,
+            "cli_total_fib_iterations_per_s": 328731.09796186717,
+            "e2e_fib_iterations_per_s": 317142.33549749653,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-bench",
+              "--fib-n",
+              "100000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(100000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  29.6ms  (499997 cycles, 16886 kHz)\ninfo: Columns: opcode=215 infra=587 total tree1=802 implicit-zero=596\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    274.2ms\nTrace cells: preprocessed=1704034 main=20855216 implicit-zero=35652512 committed=20855216\nCommitted cells/cycle: 41.71\nVerify:   0.3ms\n\nTotal:    304.2ms\nRun+Prove:303.9ms  (1645.5 kHz)\nProve+Verify: 274.6ms\n\nThroughput (run+prove): 1645.5 kHz\n"
+          },
+          {
+            "cycles": 499997,
+            "execute_ms": 30.7,
+            "prove_ms": 276.0,
+            "verify_ms": 0.3,
+            "run_prove_ms": 306.7,
+            "cli_total_ms": 307.0,
+            "prove_mhz": 1.8115833333333333,
+            "run_prove_mhz": 1.6302477991522661,
+            "cli_total_mhz": 1.6286547231270359,
+            "trace_cells": {
+              "preprocessed": 1704034,
+              "main": 20855216,
+              "implicit_zero": 35652512,
+              "committed": 20855216
+            },
+            "committed_cells_per_cycle": 41.71,
+            "proof_verified": true,
+            "fib_n": 100000,
+            "process_wall_s": 0.31718787498539314,
+            "process_overhead_ms": 10.187874985393137,
+            "e2e_mhz": 1.5763433580902972,
+            "prove_fib_iterations_per_s": 362318.84057971014,
+            "run_prove_fib_iterations_per_s": 326051.5161395501,
+            "cli_total_fib_iterations_per_s": 325732.8990228013,
+            "e2e_fib_iterations_per_s": 315270.5632414389,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-bench",
+              "--fib-n",
+              "100000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(100000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  30.7ms  (499997 cycles, 16308 kHz)\ninfo: Columns: opcode=215 infra=587 total tree1=802 implicit-zero=596\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    276.0ms\nTrace cells: preprocessed=1704034 main=20855216 implicit-zero=35652512 committed=20855216\nCommitted cells/cycle: 41.71\nVerify:   0.3ms\n\nTotal:    307.0ms\nRun+Prove:306.7ms  (1630.3 kHz)\nProve+Verify: 276.4ms\n\nThroughput (run+prove): 1630.3 kHz\n"
+          },
+          {
+            "cycles": 499997,
+            "execute_ms": 32.1,
+            "prove_ms": 276.9,
+            "verify_ms": 0.3,
+            "run_prove_ms": 309.1,
+            "cli_total_ms": 309.4,
+            "prove_mhz": 1.8056951968219574,
+            "run_prove_mhz": 1.6175897767712712,
+            "cli_total_mhz": 1.6160213316095668,
+            "trace_cells": {
+              "preprocessed": 1704034,
+              "main": 20855216,
+              "implicit_zero": 35652512,
+              "committed": 20855216
+            },
+            "committed_cells_per_cycle": 41.71,
+            "proof_verified": true,
+            "fib_n": 100000,
+            "process_wall_s": 0.32034545799251646,
+            "process_overhead_ms": 10.94545799251648,
+            "e2e_mhz": 1.560805647544659,
+            "prove_fib_iterations_per_s": 361141.2062116288,
+            "run_prove_fib_iterations_per_s": 323519.89647363307,
+            "cli_total_fib_iterations_per_s": 323206.20555914677,
+            "e2e_fib_iterations_per_s": 312163.0024869467,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-bench",
+              "--fib-n",
+              "100000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(100000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  32.1ms  (499997 cycles, 15554 kHz)\ninfo: Columns: opcode=215 infra=587 total tree1=802 implicit-zero=596\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    276.9ms\nTrace cells: preprocessed=1704034 main=20855216 implicit-zero=35652512 committed=20855216\nCommitted cells/cycle: 41.71\nVerify:   0.3ms\n\nTotal:    309.4ms\nRun+Prove:309.1ms  (1617.8 kHz)\nProve+Verify: 277.2ms\n\nThroughput (run+prove): 1617.8 kHz\n"
+          }
+        ]
+      },
+      "metal": {
+        "summary": {
+          "samples": 3,
+          "execute_ms": {
+            "median": 25.1,
+            "p25": 24.9,
+            "p75": 25.200000000000003,
+            "min": 24.7,
+            "max": 25.3
+          },
+          "prove_ms": {
+            "median": 132.3,
+            "p25": 132.2,
+            "p75": 136.05,
+            "min": 132.1,
+            "max": 139.8
+          },
+          "verify_ms": {
+            "median": 0.3,
+            "p25": 0.3,
+            "p75": 0.35,
+            "min": 0.3,
+            "max": 0.4
+          },
+          "run_prove_ms": {
+            "median": 157.6,
+            "p25": 157.45,
+            "p75": 161.05,
+            "min": 157.3,
+            "max": 164.5
+          },
+          "cli_total_ms": {
+            "median": 158.0,
+            "p25": 157.8,
+            "p75": 161.45,
+            "min": 157.6,
+            "max": 164.9
+          },
+          "process_wall_s": {
+            "median": 0.1995779579738155,
+            "p25": 0.19934329148964025,
+            "p75": 0.20113633348955773,
+            "min": 0.199108625005465,
+            "max": 0.20269470900529996
+          },
+          "process_overhead_ms": {
+            "median": 41.108625005465,
+            "p25": 39.451667005382475,
+            "p75": 41.543291489640254,
+            "min": 37.79470900529995,
+            "max": 41.977957973815506
+          },
+          "prove_mhz": {
+            "median": 3.779266817838246,
+            "p25": 3.6778916349563184,
+            "p75": 3.7821277314020905,
+            "min": 3.5765164520743915,
+            "max": 3.784988644965935
+          },
+          "run_prove_mhz": {
+            "median": 3.1725697969543147,
+            "p25": 3.106032618841899,
+            "p75": 3.1755951336964836,
+            "min": 3.039495440729483,
+            "max": 3.178620470438652
+          },
+          "cli_total_mhz": {
+            "median": 3.1645379746835443,
+            "p25": 3.098330236583737,
+            "p75": 3.1685538858189295,
+            "min": 3.0321224984839295,
+            "max": 3.1725697969543147
+          },
+          "e2e_mhz": {
+            "median": 2.505271649615732,
+            "p25": 2.486010396975229,
+            "p75": 2.5082243257737993,
+            "min": 2.466749144334726,
+            "max": 2.511177001931867
+          },
+          "prove_fib_iterations_per_s": {
+            "median": 755857.8987150416,
+            "p25": 735582.7404877067,
+            "p75": 756430.0848609273,
+            "min": 715307.5822603719,
+            "max": 757002.271006813
+          },
+          "run_prove_fib_iterations_per_s": {
+            "median": 634517.7664974619,
+            "p25": 621210.251029886,
+            "p75": 635122.8374763215,
+            "min": 607902.73556231,
+            "max": 635727.9084551812
+          },
+          "cli_total_fib_iterations_per_s": {
+            "median": 632911.3924050634,
+            "p25": 619669.7653353395,
+            "p75": 633714.5794512627,
+            "min": 606428.1382656156,
+            "max": 634517.7664974619
+          },
+          "e2e_fib_iterations_per_s": {
+            "median": 501057.33626716404,
+            "p25": 497205.06262542156,
+            "p75": 501647.8750420102,
+            "min": 493352.78898367914,
+            "max": 502238.41381685634
+          }
+        },
+        "raw_samples": [
+          {
+            "cycles": 499997,
+            "execute_ms": 24.7,
+            "prove_ms": 139.8,
+            "verify_ms": 0.3,
+            "run_prove_ms": 164.5,
+            "cli_total_ms": 164.9,
+            "prove_mhz": 3.5765164520743915,
+            "run_prove_mhz": 3.039495440729483,
+            "cli_total_mhz": 3.0321224984839295,
+            "trace_cells": {
+              "preprocessed": 1704034,
+              "main": 20855216,
+              "implicit_zero": 35652512,
+              "committed": 20855216
+            },
+            "committed_cells_per_cycle": 41.71,
+            "proof_verified": true,
+            "fib_n": 100000,
+            "process_wall_s": 0.20269470900529996,
+            "process_overhead_ms": 37.79470900529995,
+            "e2e_mhz": 2.466749144334726,
+            "prove_fib_iterations_per_s": 715307.5822603719,
+            "run_prove_fib_iterations_per_s": 607902.73556231,
+            "cli_total_fib_iterations_per_s": 606428.1382656156,
+            "e2e_fib_iterations_per_s": 493352.78898367914,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-metal-bench",
+              "--fib-n",
+              "100000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(100000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  24.7ms  (499997 cycles, 20213 kHz)\ninfo: Columns: opcode=215 infra=587 total tree1=802 implicit-zero=596\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    139.8ms\nTrace cells: preprocessed=1704034 main=20855216 implicit-zero=35652512 committed=20855216\nCommitted cells/cycle: 41.71\nVerify:   0.3ms\n\nTotal:    164.9ms\nRun+Prove:164.5ms  (3039.5 kHz)\nProve+Verify: 140.1ms\n\nThroughput (run+prove): 3039.5 kHz\n"
+          },
+          {
+            "cycles": 499997,
+            "execute_ms": 25.1,
+            "prove_ms": 132.1,
+            "verify_ms": 0.3,
+            "run_prove_ms": 157.3,
+            "cli_total_ms": 157.6,
+            "prove_mhz": 3.784988644965935,
+            "run_prove_mhz": 3.178620470438652,
+            "cli_total_mhz": 3.1725697969543147,
+            "trace_cells": {
+              "preprocessed": 1704034,
+              "main": 20855216,
+              "implicit_zero": 35652512,
+              "committed": 20855216
+            },
+            "committed_cells_per_cycle": 41.71,
+            "proof_verified": true,
+            "fib_n": 100000,
+            "process_wall_s": 0.1995779579738155,
+            "process_overhead_ms": 41.977957973815506,
+            "e2e_mhz": 2.505271649615732,
+            "prove_fib_iterations_per_s": 757002.271006813,
+            "run_prove_fib_iterations_per_s": 635727.9084551812,
+            "cli_total_fib_iterations_per_s": 634517.7664974619,
+            "e2e_fib_iterations_per_s": 501057.33626716404,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-metal-bench",
+              "--fib-n",
+              "100000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(100000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  25.1ms  (499997 cycles, 19889 kHz)\ninfo: Columns: opcode=215 infra=587 total tree1=802 implicit-zero=596\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    132.1ms\nTrace cells: preprocessed=1704034 main=20855216 implicit-zero=35652512 committed=20855216\nCommitted cells/cycle: 41.71\nVerify:   0.3ms\n\nTotal:    157.6ms\nRun+Prove:157.3ms  (3179.0 kHz)\nProve+Verify: 132.5ms\n\nThroughput (run+prove): 3179.0 kHz\n"
+          },
+          {
+            "cycles": 499997,
+            "execute_ms": 25.3,
+            "prove_ms": 132.3,
+            "verify_ms": 0.4,
+            "run_prove_ms": 157.6,
+            "cli_total_ms": 158.0,
+            "prove_mhz": 3.779266817838246,
+            "run_prove_mhz": 3.1725697969543147,
+            "cli_total_mhz": 3.1645379746835443,
+            "trace_cells": {
+              "preprocessed": 1704034,
+              "main": 20855216,
+              "implicit_zero": 35652512,
+              "committed": 20855216
+            },
+            "committed_cells_per_cycle": 41.71,
+            "proof_verified": true,
+            "fib_n": 100000,
+            "process_wall_s": 0.199108625005465,
+            "process_overhead_ms": 41.108625005465,
+            "e2e_mhz": 2.511177001931867,
+            "prove_fib_iterations_per_s": 755857.8987150416,
+            "run_prove_fib_iterations_per_s": 634517.7664974619,
+            "cli_total_fib_iterations_per_s": 632911.3924050634,
+            "e2e_fib_iterations_per_s": 502238.41381685634,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-metal-bench",
+              "--fib-n",
+              "100000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(100000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  25.3ms  (499997 cycles, 19781 kHz)\ninfo: Columns: opcode=215 infra=587 total tree1=802 implicit-zero=596\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    132.3ms\nTrace cells: preprocessed=1704034 main=20855216 implicit-zero=35652512 committed=20855216\nCommitted cells/cycle: 41.71\nVerify:   0.4ms\n\nTotal:    158.0ms\nRun+Prove:157.6ms  (3172.5 kHz)\nProve+Verify: 132.7ms\n\nThroughput (run+prove): 3172.5 kHz\n"
+          }
+        ]
+      },
+      "metal_speedup_prove": 2.0861678004535147,
+      "metal_speedup_run_prove": 1.9460659898477157,
+      "metal_speedup_cli_total": 1.9430379746835442,
+      "metal_speedup_e2e": 1.589293117364233
+    },
+    {
+      "fib_n": 250000,
+      "cycles": 1249997,
+      "trace_cells": {
+        "preprocessed": 4030562,
+        "main": 47233456,
+        "implicit_zero": 82838432,
+        "committed": 47233456
+      },
+      "committed_cells_per_cycle": 37.79,
+      "cpu": {
+        "summary": {
+          "samples": 3,
+          "execute_ms": {
+            "median": 63.6,
+            "p25": 62.5,
+            "p75": 64.15,
+            "min": 61.4,
+            "max": 64.7
+          },
+          "prove_ms": {
+            "median": 577.4,
+            "p25": 573.45,
+            "p75": 577.8499999999999,
+            "min": 569.5,
+            "max": 578.3
+          },
+          "verify_ms": {
+            "median": 0.5,
+            "p25": 0.5,
+            "p75": 0.5,
+            "min": 0.5,
+            "max": 0.5
+          },
+          "run_prove_ms": {
+            "median": 639.7,
+            "p25": 636.4000000000001,
+            "p75": 640.9000000000001,
+            "min": 633.1,
+            "max": 642.1
+          },
+          "cli_total_ms": {
+            "median": 640.2,
+            "p25": 636.9000000000001,
+            "p75": 641.4000000000001,
+            "min": 633.6,
+            "max": 642.6
+          },
+          "process_wall_s": {
+            "median": 0.6505868330132216,
+            "p25": 0.6483289164898451,
+            "p75": 0.6529156455071643,
+            "min": 0.6460709999664687,
+            "max": 0.655244458001107
+          },
+          "process_overhead_ms": {
+            "median": 12.47099996646864,
+            "p25": 11.428916489845108,
+            "p75": 12.557728983787797,
+            "min": 10.386833013221576,
+            "max": 12.644458001106955
+          },
+          "prove_mhz": {
+            "median": 2.164871839279529,
+            "p25": 2.1631872597746424,
+            "p75": 2.179887192686297,
+            "min": 2.161502680269756,
+            "max": 2.1949025460930645
+          },
+          "run_prove_mhz": {
+            "median": 1.954036267000156,
+            "p25": 1.9503844315844885,
+            "p75": 1.9642215768739526,
+            "min": 1.9467325961688209,
+            "max": 1.9744068867477491
+          },
+          "cli_total_mhz": {
+            "median": 1.9525101530771634,
+            "p25": 1.9488640090004552,
+            "p75": 1.9626794767911069,
+            "min": 1.945217864923747,
+            "max": 1.9728488005050504
+          },
+          "e2e_mhz": {
+            "median": 1.921337685563945,
+            "p25": 1.9145090353516654,
+            "p75": 1.9280524585648164,
+            "min": 1.907680385139386,
+            "max": 1.9347672315656876
+          },
+          "prove_fib_iterations_per_s": {
+            "median": 432975.40699688264,
+            "p25": 432638.49028730526,
+            "p75": 435978.48488562304,
+            "min": 432301.5735777279,
+            "max": 438981.56277436344
+          },
+          "run_prove_fib_iterations_per_s": {
+            "median": 390808.1913396904,
+            "p25": 390077.8225036717,
+            "p75": 392845.2582034102,
+            "min": 389347.45366765297,
+            "max": 394882.32506713
+          },
+          "cli_total_fib_iterations_per_s": {
+            "median": 390502.96782255545,
+            "p25": 389773.7372570605,
+            "p75": 392536.8374466313,
+            "min": 389044.5066915655,
+            "max": 394570.70707070705
+          },
+          "e2e_fib_iterations_per_s": {
+            "median": 384268.45935709146,
+            "p25": 382902.7260368756,
+            "p75": 385611.4171803645,
+            "min": 381536.99271665973,
+            "max": 386954.3750036375
+          }
+        },
+        "raw_samples": [
+          {
+            "cycles": 1249997,
+            "execute_ms": 63.6,
+            "prove_ms": 569.5,
+            "verify_ms": 0.5,
+            "run_prove_ms": 633.1,
+            "cli_total_ms": 633.6,
+            "prove_mhz": 2.1949025460930645,
+            "run_prove_mhz": 1.9744068867477491,
+            "cli_total_mhz": 1.9728488005050504,
+            "trace_cells": {
+              "preprocessed": 4030562,
+              "main": 47233456,
+              "implicit_zero": 82838432,
+              "committed": 47233456
+            },
+            "committed_cells_per_cycle": 37.79,
+            "proof_verified": true,
+            "fib_n": 250000,
+            "process_wall_s": 0.6460709999664687,
+            "process_overhead_ms": 12.47099996646864,
+            "e2e_mhz": 1.9347672315656876,
+            "prove_fib_iterations_per_s": 438981.56277436344,
+            "run_prove_fib_iterations_per_s": 394882.32506713,
+            "cli_total_fib_iterations_per_s": 394570.70707070705,
+            "e2e_fib_iterations_per_s": 386954.3750036375,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-bench",
+              "--fib-n",
+              "250000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(250000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  63.6ms  (1249997 cycles, 19647 kHz)\ninfo: Columns: opcode=452 infra=762 total tree1=1214 implicit-zero=1332\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    569.5ms\nTrace cells: preprocessed=4030562 main=47233456 implicit-zero=82838432 committed=47233456\nCommitted cells/cycle: 37.79\nVerify:   0.5ms\n\nTotal:    633.6ms\nRun+Prove:633.1ms  (1974.3 kHz)\nProve+Verify: 570.0ms\n\nThroughput (run+prove): 1974.3 kHz\n"
+          },
+          {
+            "cycles": 1249997,
+            "execute_ms": 64.7,
+            "prove_ms": 577.4,
+            "verify_ms": 0.5,
+            "run_prove_ms": 642.1,
+            "cli_total_ms": 642.6,
+            "prove_mhz": 2.164871839279529,
+            "run_prove_mhz": 1.9467325961688209,
+            "cli_total_mhz": 1.945217864923747,
+            "trace_cells": {
+              "preprocessed": 4030562,
+              "main": 47233456,
+              "implicit_zero": 82838432,
+              "committed": 47233456
+            },
+            "committed_cells_per_cycle": 37.79,
+            "proof_verified": true,
+            "fib_n": 250000,
+            "process_wall_s": 0.655244458001107,
+            "process_overhead_ms": 12.644458001106955,
+            "e2e_mhz": 1.907680385139386,
+            "prove_fib_iterations_per_s": 432975.40699688264,
+            "run_prove_fib_iterations_per_s": 389347.45366765297,
+            "cli_total_fib_iterations_per_s": 389044.5066915655,
+            "e2e_fib_iterations_per_s": 381536.99271665973,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-bench",
+              "--fib-n",
+              "250000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(250000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  64.7ms  (1249997 cycles, 19331 kHz)\ninfo: Columns: opcode=452 infra=762 total tree1=1214 implicit-zero=1332\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    577.4ms\nTrace cells: preprocessed=4030562 main=47233456 implicit-zero=82838432 committed=47233456\nCommitted cells/cycle: 37.79\nVerify:   0.5ms\n\nTotal:    642.6ms\nRun+Prove:642.1ms  (1946.8 kHz)\nProve+Verify: 577.9ms\n\nThroughput (run+prove): 1946.8 kHz\n"
+          },
+          {
+            "cycles": 1249997,
+            "execute_ms": 61.4,
+            "prove_ms": 578.3,
+            "verify_ms": 0.5,
+            "run_prove_ms": 639.7,
+            "cli_total_ms": 640.2,
+            "prove_mhz": 2.161502680269756,
+            "run_prove_mhz": 1.954036267000156,
+            "cli_total_mhz": 1.9525101530771634,
+            "trace_cells": {
+              "preprocessed": 4030562,
+              "main": 47233456,
+              "implicit_zero": 82838432,
+              "committed": 47233456
+            },
+            "committed_cells_per_cycle": 37.79,
+            "proof_verified": true,
+            "fib_n": 250000,
+            "process_wall_s": 0.6505868330132216,
+            "process_overhead_ms": 10.386833013221576,
+            "e2e_mhz": 1.921337685563945,
+            "prove_fib_iterations_per_s": 432301.5735777279,
+            "run_prove_fib_iterations_per_s": 390808.1913396904,
+            "cli_total_fib_iterations_per_s": 390502.96782255545,
+            "e2e_fib_iterations_per_s": 384268.45935709146,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-bench",
+              "--fib-n",
+              "250000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(250000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  61.4ms  (1249997 cycles, 20354 kHz)\ninfo: Columns: opcode=452 infra=762 total tree1=1214 implicit-zero=1332\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    578.3ms\nTrace cells: preprocessed=4030562 main=47233456 implicit-zero=82838432 committed=47233456\nCommitted cells/cycle: 37.79\nVerify:   0.5ms\n\nTotal:    640.2ms\nRun+Prove:639.7ms  (1954.2 kHz)\nProve+Verify: 578.7ms\n\nThroughput (run+prove): 1954.2 kHz\n"
+          }
+        ]
+      },
+      "metal": {
+        "summary": {
+          "samples": 3,
+          "execute_ms": {
+            "median": 56.1,
+            "p25": 55.75,
+            "p75": 56.3,
+            "min": 55.4,
+            "max": 56.5
+          },
+          "prove_ms": {
+            "median": 201.7,
+            "p25": 201.0,
+            "p75": 203.39999999999998,
+            "min": 200.3,
+            "max": 205.1
+          },
+          "verify_ms": {
+            "median": 0.4,
+            "p25": 0.4,
+            "p75": 0.4,
+            "min": 0.4,
+            "max": 0.4
+          },
+          "run_prove_ms": {
+            "median": 258.2,
+            "p25": 256.9,
+            "p75": 259.7,
+            "min": 255.6,
+            "max": 261.2
+          },
+          "cli_total_ms": {
+            "median": 258.7,
+            "p25": 257.4,
+            "p75": 260.15,
+            "min": 256.1,
+            "max": 261.6
+          },
+          "process_wall_s": {
+            "median": 0.30064745800336823,
+            "p25": 0.3005269790010061,
+            "p75": 0.3029039995162748,
+            "min": 0.300406499998644,
+            "max": 0.30516054102918133
+          },
+          "process_overhead_ms": {
+            "median": 43.56054102918131,
+            "p25": 42.63352051391266,
+            "p75": 44.05399951627476,
+            "min": 41.706499998644006,
+            "max": 44.547458003368206
+          },
+          "prove_mhz": {
+            "median": 6.197307882994547,
+            "p25": 6.145940630917069,
+            "p75": 6.218965973449345,
+            "min": 6.094573378839591,
+            "max": 6.240624063904144
+          },
+          "run_prove_mhz": {
+            "median": 4.841196746707978,
+            "p25": 4.813395080857818,
+            "p75": 4.865819421867291,
+            "min": 4.785593415007657,
+            "max": 4.890442097026604
+          },
+          "cli_total_mhz": {
+            "median": 4.8318399690761495,
+            "p25": 4.805057981479971,
+            "p75": 4.85636707551816,
+            "min": 4.778275993883792,
+            "max": 4.880894181960171
+          },
+          "e2e_mhz": {
+            "median": 4.157683581631999,
+            "p25": 4.126939155868953,
+            "p75": 4.1593510341340405,
+            "min": 4.096194730105907,
+            "max": 4.161018486636083
+          },
+          "prove_fib_iterations_per_s": {
+            "median": 1239464.5513138326,
+            "p25": 1229191.0762419966,
+            "p75": 1243796.1798007006,
+            "min": 1218917.6011701608,
+            "max": 1248127.8082875686
+          },
+          "run_prove_fib_iterations_per_s": {
+            "median": 968241.6731216111,
+            "p25": 962681.3266067475,
+            "p75": 973166.2199723861,
+            "min": 957120.9800918837,
+            "max": 978090.7668231612
+          },
+          "cli_total_fib_iterations_per_s": {
+            "median": 966370.3131039815,
+            "p25": 961013.9027293607,
+            "p75": 971275.746165423,
+            "min": 955657.4923547399,
+            "max": 976181.1792268644
+          },
+          "e2e_fib_iterations_per_s": {
+            "median": 831538.7120193086,
+            "p25": 825389.8121093396,
+            "p75": 831872.2033200961,
+            "min": 819240.9121993707,
+            "max": 832205.6946208837
+          }
+        },
+        "raw_samples": [
+          {
+            "cycles": 1249997,
+            "execute_ms": 56.1,
+            "prove_ms": 205.1,
+            "verify_ms": 0.4,
+            "run_prove_ms": 261.2,
+            "cli_total_ms": 261.6,
+            "prove_mhz": 6.094573378839591,
+            "run_prove_mhz": 4.785593415007657,
+            "cli_total_mhz": 4.778275993883792,
+            "trace_cells": {
+              "preprocessed": 4030562,
+              "main": 47233456,
+              "implicit_zero": 82838432,
+              "committed": 47233456
+            },
+            "committed_cells_per_cycle": 37.79,
+            "proof_verified": true,
+            "fib_n": 250000,
+            "process_wall_s": 0.30516054102918133,
+            "process_overhead_ms": 43.56054102918131,
+            "e2e_mhz": 4.096194730105907,
+            "prove_fib_iterations_per_s": 1218917.6011701608,
+            "run_prove_fib_iterations_per_s": 957120.9800918837,
+            "cli_total_fib_iterations_per_s": 955657.4923547399,
+            "e2e_fib_iterations_per_s": 819240.9121993707,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-metal-bench",
+              "--fib-n",
+              "250000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(250000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  56.1ms  (1249997 cycles, 22297 kHz)\ninfo: Columns: opcode=452 infra=762 total tree1=1214 implicit-zero=1332\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    205.1ms\nTrace cells: preprocessed=4030562 main=47233456 implicit-zero=82838432 committed=47233456\nCommitted cells/cycle: 37.79\nVerify:   0.4ms\n\nTotal:    261.6ms\nRun+Prove:261.2ms  (4786.0 kHz)\nProve+Verify: 205.6ms\n\nThroughput (run+prove): 4786.0 kHz\n"
+          },
+          {
+            "cycles": 1249997,
+            "execute_ms": 55.4,
+            "prove_ms": 200.3,
+            "verify_ms": 0.4,
+            "run_prove_ms": 255.6,
+            "cli_total_ms": 256.1,
+            "prove_mhz": 6.240624063904144,
+            "run_prove_mhz": 4.890442097026604,
+            "cli_total_mhz": 4.880894181960171,
+            "trace_cells": {
+              "preprocessed": 4030562,
+              "main": 47233456,
+              "implicit_zero": 82838432,
+              "committed": 47233456
+            },
+            "committed_cells_per_cycle": 37.79,
+            "proof_verified": true,
+            "fib_n": 250000,
+            "process_wall_s": 0.30064745800336823,
+            "process_overhead_ms": 44.547458003368206,
+            "e2e_mhz": 4.157683581631999,
+            "prove_fib_iterations_per_s": 1248127.8082875686,
+            "run_prove_fib_iterations_per_s": 978090.7668231612,
+            "cli_total_fib_iterations_per_s": 976181.1792268644,
+            "e2e_fib_iterations_per_s": 831538.7120193086,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-metal-bench",
+              "--fib-n",
+              "250000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(250000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  55.4ms  (1249997 cycles, 22572 kHz)\ninfo: Columns: opcode=452 infra=762 total tree1=1214 implicit-zero=1332\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    200.3ms\nTrace cells: preprocessed=4030562 main=47233456 implicit-zero=82838432 committed=47233456\nCommitted cells/cycle: 37.79\nVerify:   0.4ms\n\nTotal:    256.1ms\nRun+Prove:255.6ms  (4889.8 kHz)\nProve+Verify: 200.7ms\n\nThroughput (run+prove): 4889.8 kHz\n"
+          },
+          {
+            "cycles": 1249997,
+            "execute_ms": 56.5,
+            "prove_ms": 201.7,
+            "verify_ms": 0.4,
+            "run_prove_ms": 258.2,
+            "cli_total_ms": 258.7,
+            "prove_mhz": 6.197307882994547,
+            "run_prove_mhz": 4.841196746707978,
+            "cli_total_mhz": 4.8318399690761495,
+            "trace_cells": {
+              "preprocessed": 4030562,
+              "main": 47233456,
+              "implicit_zero": 82838432,
+              "committed": 47233456
+            },
+            "committed_cells_per_cycle": 37.79,
+            "proof_verified": true,
+            "fib_n": 250000,
+            "process_wall_s": 0.300406499998644,
+            "process_overhead_ms": 41.706499998644006,
+            "e2e_mhz": 4.161018486636083,
+            "prove_fib_iterations_per_s": 1239464.5513138326,
+            "run_prove_fib_iterations_per_s": 968241.6731216111,
+            "cli_total_fib_iterations_per_s": 966370.3131039815,
+            "e2e_fib_iterations_per_s": 832205.6946208837,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-metal-bench",
+              "--fib-n",
+              "250000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(250000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  56.5ms  (1249997 cycles, 22129 kHz)\ninfo: Columns: opcode=452 infra=762 total tree1=1214 implicit-zero=1332\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    201.7ms\nTrace cells: preprocessed=4030562 main=47233456 implicit-zero=82838432 committed=47233456\nCommitted cells/cycle: 37.79\nVerify:   0.4ms\n\nTotal:    258.7ms\nRun+Prove:258.2ms  (4840.9 kHz)\nProve+Verify: 202.2ms\n\nThroughput (run+prove): 4840.9 kHz\n"
+          }
+        ]
+      },
+      "metal_speedup_prove": 2.8626673277144272,
+      "metal_speedup_run_prove": 2.477536793183579,
+      "metal_speedup_cli_total": 2.474681097796676,
+      "metal_speedup_e2e": 2.163952548722141
+    },
+    {
+      "fib_n": 500000,
+      "cycles": 2499997,
+      "trace_cells": {
+        "preprocessed": 8061026,
+        "main": 94452144,
+        "implicit_zero": 165675936,
+        "committed": 94452144
+      },
+      "committed_cells_per_cycle": 37.78,
+      "cpu": {
+        "summary": {
+          "samples": 3,
+          "execute_ms": {
+            "median": 120.7,
+            "p25": 119.2,
+            "p75": 121.80000000000001,
+            "min": 117.7,
+            "max": 122.9
+          },
+          "prove_ms": {
+            "median": 1010.9,
+            "p25": 997.7,
+            "p75": 1014.05,
+            "min": 984.5,
+            "max": 1017.2
+          },
+          "verify_ms": {
+            "median": 0.6,
+            "p25": 0.6,
+            "p75": 0.6,
+            "min": 0.6,
+            "max": 0.6
+          },
+          "run_prove_ms": {
+            "median": 1133.8,
+            "p25": 1118.0,
+            "p75": 1135.85,
+            "min": 1102.2,
+            "max": 1137.9
+          },
+          "cli_total_ms": {
+            "median": 1134.4,
+            "p25": 1118.6,
+            "p75": 1136.5,
+            "min": 1102.8,
+            "max": 1138.6
+          },
+          "process_wall_s": {
+            "median": 1.1477927080122754,
+            "p25": 1.1313338540203404,
+            "p75": 1.149693229002878,
+            "min": 1.1148750000284053,
+            "max": 1.1515937499934807
+          },
+          "process_overhead_ms": {
+            "median": 12.993749993480833,
+            "p25": 12.534375010943108,
+            "p75": 13.19322900287807,
+            "min": 12.075000028405384,
+            "max": 13.392708012275307
+          },
+          "prove_mhz": {
+            "median": 2.473040854683945,
+            "p25": 2.4653824996974585,
+            "p75": 2.506198944355685,
+            "min": 2.4577241447109714,
+            "max": 2.539357034027425
+          },
+          "run_prove_mhz": {
+            "median": 2.204971776327395,
+            "p25": 2.2009993779255392,
+            "p75": 2.2365799727218536,
+            "min": 2.1970269795236836,
+            "max": 2.2681881691163124
+          },
+          "cli_total_mhz": {
+            "median": 2.2038055359661493,
+            "p25": 2.199740902534278,
+            "p75": 2.2353798263798828,
+            "min": 2.1956762691024063,
+            "max": 2.2669541167936162
+          },
+          "e2e_mhz": {
+            "median": 2.178091028587771,
+            "p25": 2.1744964382912384,
+            "p75": 2.210246097290322,
+            "min": 2.1709018479947053,
+            "max": 2.242401165992873
+          },
+          "prove_fib_iterations_per_s": {
+            "median": 494608.7644673063,
+            "p25": 493077.09163200157,
+            "p75": 501240.39035960543,
+            "min": 491545.41879669676,
+            "max": 507872.01625190454
+          },
+          "run_prove_fib_iterations_per_s": {
+            "median": 440994.8844593403,
+            "p25": 440200.4038255925,
+            "p75": 447316.53132420836,
+            "min": 439405.9231918446,
+            "max": 453638.17818907637
+          },
+          "cli_total_fib_iterations_per_s": {
+            "median": 440761.6361071932,
+            "p25": 439948.7084453057,
+            "p75": 447076.50176777865,
+            "min": 439135.7807834183,
+            "max": 453391.3674283642
+          },
+          "e2e_fib_iterations_per_s": {
+            "median": 435618.72846002836,
+            "p25": 434899.8095380191,
+            "p75": 442049.7499177643,
+            "min": 434180.8906160098,
+            "max": 448480.7713755002
+          }
+        },
+        "raw_samples": [
+          {
+            "cycles": 2499997,
+            "execute_ms": 117.7,
+            "prove_ms": 984.5,
+            "verify_ms": 0.6,
+            "run_prove_ms": 1102.2,
+            "cli_total_ms": 1102.8,
+            "prove_mhz": 2.539357034027425,
+            "run_prove_mhz": 2.2681881691163124,
+            "cli_total_mhz": 2.2669541167936162,
+            "trace_cells": {
+              "preprocessed": 8061026,
+              "main": 94452144,
+              "implicit_zero": 165675936,
+              "committed": 94452144
+            },
+            "committed_cells_per_cycle": 37.78,
+            "proof_verified": true,
+            "fib_n": 500000,
+            "process_wall_s": 1.1148750000284053,
+            "process_overhead_ms": 12.075000028405384,
+            "e2e_mhz": 2.242401165992873,
+            "prove_fib_iterations_per_s": 507872.01625190454,
+            "run_prove_fib_iterations_per_s": 453638.17818907637,
+            "cli_total_fib_iterations_per_s": 453391.3674283642,
+            "e2e_fib_iterations_per_s": 448480.7713755002,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-bench",
+              "--fib-n",
+              "500000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(500000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  117.7ms  (2499997 cycles, 21238 kHz)\ninfo: Columns: opcode=869 infra=1056 total tree1=1925 implicit-zero=2580\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    984.5ms\nTrace cells: preprocessed=8061026 main=94452144 implicit-zero=165675936 committed=94452144\nCommitted cells/cycle: 37.78\nVerify:   0.6ms\n\nTotal:    1102.8ms\nRun+Prove:1102.2ms  (2268.2 kHz)\nProve+Verify: 985.1ms\n\nThroughput (run+prove): 2268.2 kHz\n"
+          },
+          {
+            "cycles": 2499997,
+            "execute_ms": 122.9,
+            "prove_ms": 1010.9,
+            "verify_ms": 0.6,
+            "run_prove_ms": 1133.8,
+            "cli_total_ms": 1134.4,
+            "prove_mhz": 2.473040854683945,
+            "run_prove_mhz": 2.204971776327395,
+            "cli_total_mhz": 2.2038055359661493,
+            "trace_cells": {
+              "preprocessed": 8061026,
+              "main": 94452144,
+              "implicit_zero": 165675936,
+              "committed": 94452144
+            },
+            "committed_cells_per_cycle": 37.78,
+            "proof_verified": true,
+            "fib_n": 500000,
+            "process_wall_s": 1.1477927080122754,
+            "process_overhead_ms": 13.392708012275307,
+            "e2e_mhz": 2.178091028587771,
+            "prove_fib_iterations_per_s": 494608.7644673063,
+            "run_prove_fib_iterations_per_s": 440994.8844593403,
+            "cli_total_fib_iterations_per_s": 440761.6361071932,
+            "e2e_fib_iterations_per_s": 435618.72846002836,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-bench",
+              "--fib-n",
+              "500000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(500000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  122.9ms  (2499997 cycles, 20345 kHz)\ninfo: Columns: opcode=869 infra=1056 total tree1=1925 implicit-zero=2580\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    1010.9ms\nTrace cells: preprocessed=8061026 main=94452144 implicit-zero=165675936 committed=94452144\nCommitted cells/cycle: 37.78\nVerify:   0.6ms\n\nTotal:    1134.4ms\nRun+Prove:1133.8ms  (2205.0 kHz)\nProve+Verify: 1011.5ms\n\nThroughput (run+prove): 2205.0 kHz\n"
+          },
+          {
+            "cycles": 2499997,
+            "execute_ms": 120.7,
+            "prove_ms": 1017.2,
+            "verify_ms": 0.6,
+            "run_prove_ms": 1137.9,
+            "cli_total_ms": 1138.6,
+            "prove_mhz": 2.4577241447109714,
+            "run_prove_mhz": 2.1970269795236836,
+            "cli_total_mhz": 2.1956762691024063,
+            "trace_cells": {
+              "preprocessed": 8061026,
+              "main": 94452144,
+              "implicit_zero": 165675936,
+              "committed": 94452144
+            },
+            "committed_cells_per_cycle": 37.78,
+            "proof_verified": true,
+            "fib_n": 500000,
+            "process_wall_s": 1.1515937499934807,
+            "process_overhead_ms": 12.993749993480833,
+            "e2e_mhz": 2.1709018479947053,
+            "prove_fib_iterations_per_s": 491545.41879669676,
+            "run_prove_fib_iterations_per_s": 439405.9231918446,
+            "cli_total_fib_iterations_per_s": 439135.7807834183,
+            "e2e_fib_iterations_per_s": 434180.8906160098,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-bench",
+              "--fib-n",
+              "500000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(500000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  120.7ms  (2499997 cycles, 20715 kHz)\ninfo: Columns: opcode=869 infra=1056 total tree1=1925 implicit-zero=2580\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    1017.2ms\nTrace cells: preprocessed=8061026 main=94452144 implicit-zero=165675936 committed=94452144\nCommitted cells/cycle: 37.78\nVerify:   0.6ms\n\nTotal:    1138.6ms\nRun+Prove:1137.9ms  (2197.0 kHz)\nProve+Verify: 1017.8ms\n\nThroughput (run+prove): 2197.0 kHz\n"
+          }
+        ]
+      },
+      "metal": {
+        "summary": {
+          "samples": 3,
+          "execute_ms": {
+            "median": 112.1,
+            "p25": 111.94999999999999,
+            "p75": 112.75,
+            "min": 111.8,
+            "max": 113.4
+          },
+          "prove_ms": {
+            "median": 314.4,
+            "p25": 313.1,
+            "p75": 317.29999999999995,
+            "min": 311.8,
+            "max": 320.2
+          },
+          "verify_ms": {
+            "median": 0.6,
+            "p25": 0.6,
+            "p75": 0.6,
+            "min": 0.6,
+            "max": 0.6
+          },
+          "run_prove_ms": {
+            "median": 426.5,
+            "p25": 425.85,
+            "p75": 429.2,
+            "min": 425.2,
+            "max": 431.9
+          },
+          "cli_total_ms": {
+            "median": 427.1,
+            "p25": 426.45000000000005,
+            "p75": 429.85,
+            "min": 425.8,
+            "max": 432.6
+          },
+          "process_wall_s": {
+            "median": 0.47230920899892226,
+            "p25": 0.4693840834952425,
+            "p75": 0.4741665839974303,
+            "min": 0.4664589579915628,
+            "max": 0.4760239589959383
+          },
+          "process_overhead_ms": {
+            "median": 43.42395899593828,
+            "p25": 42.041458493750525,
+            "p75": 44.31658399743026,
+            "min": 40.65895799156277,
+            "max": 45.209208998922236
+          },
+          "prove_mhz": {
+            "median": 7.951644402035624,
+            "p25": 7.879627635121498,
+            "p75": 7.984797505700301,
+            "min": 7.807610868207371,
+            "max": 8.017950609364977
+          },
+          "run_prove_mhz": {
+            "median": 5.861657678780774,
+            "p25": 5.82501383591736,
+            "p75": 5.870618350208826,
+            "min": 5.788369993053948,
+            "max": 5.879579021636877
+          },
+          "cli_total_mhz": {
+            "median": 5.853423085928354,
+            "p25": 5.81621339224758,
+            "p75": 5.862358560343228,
+            "min": 5.779003698566805,
+            "max": 5.871294034758103
+          },
+          "e2e_mhz": {
+            "median": 5.293136259821909,
+            "p25": 5.272483225942215,
+            "p75": 5.326329079045969,
+            "min": 5.2518301920625206,
+            "max": 5.359521898270029
+          },
+          "prove_fib_iterations_per_s": {
+            "median": 1590330.7888040713,
+            "p25": 1575927.418137201,
+            "p75": 1596961.417493761,
+            "min": 1561524.0474703312,
+            "max": 1603592.046183451
+          },
+          "run_prove_fib_iterations_per_s": {
+            "median": 1172332.9425556858,
+            "p25": 1165004.1651884704,
+            "p75": 1174125.0789918597,
+            "min": 1157675.387821255,
+            "max": 1175917.2154280338
+          },
+          "cli_total_fib_iterations_per_s": {
+            "median": 1170686.0220088973,
+            "p25": 1163244.0743424052,
+            "p75": 1172473.1190363886,
+            "min": 1155802.126675913,
+            "max": 1174260.2160638797
+          },
+          "e2e_fib_iterations_per_s": {
+            "median": 1058628.5223186088,
+            "p25": 1054497.9105859357,
+            "p75": 1065267.0941297067,
+            "min": 1050367.2988532628,
+            "max": 1071905.6659408049
+          }
+        },
+        "raw_samples": [
+          {
+            "cycles": 2499997,
+            "execute_ms": 112.1,
+            "prove_ms": 314.4,
+            "verify_ms": 0.6,
+            "run_prove_ms": 426.5,
+            "cli_total_ms": 427.1,
+            "prove_mhz": 7.951644402035624,
+            "run_prove_mhz": 5.861657678780774,
+            "cli_total_mhz": 5.853423085928354,
+            "trace_cells": {
+              "preprocessed": 8061026,
+              "main": 94452144,
+              "implicit_zero": 165675936,
+              "committed": 94452144
+            },
+            "committed_cells_per_cycle": 37.78,
+            "proof_verified": true,
+            "fib_n": 500000,
+            "process_wall_s": 0.47230920899892226,
+            "process_overhead_ms": 45.209208998922236,
+            "e2e_mhz": 5.293136259821909,
+            "prove_fib_iterations_per_s": 1590330.7888040713,
+            "run_prove_fib_iterations_per_s": 1172332.9425556858,
+            "cli_total_fib_iterations_per_s": 1170686.0220088973,
+            "e2e_fib_iterations_per_s": 1058628.5223186088,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-metal-bench",
+              "--fib-n",
+              "500000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(500000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  112.1ms  (2499997 cycles, 22310 kHz)\ninfo: Columns: opcode=869 infra=1056 total tree1=1925 implicit-zero=2580\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    314.4ms\nTrace cells: preprocessed=8061026 main=94452144 implicit-zero=165675936 committed=94452144\nCommitted cells/cycle: 37.78\nVerify:   0.6ms\n\nTotal:    427.1ms\nRun+Prove:426.5ms  (5861.5 kHz)\nProve+Verify: 315.1ms\n\nThroughput (run+prove): 5861.5 kHz\n"
+          },
+          {
+            "cycles": 2499997,
+            "execute_ms": 113.4,
+            "prove_ms": 311.8,
+            "verify_ms": 0.6,
+            "run_prove_ms": 425.2,
+            "cli_total_ms": 425.8,
+            "prove_mhz": 8.017950609364977,
+            "run_prove_mhz": 5.879579021636877,
+            "cli_total_mhz": 5.871294034758103,
+            "trace_cells": {
+              "preprocessed": 8061026,
+              "main": 94452144,
+              "implicit_zero": 165675936,
+              "committed": 94452144
+            },
+            "committed_cells_per_cycle": 37.78,
+            "proof_verified": true,
+            "fib_n": 500000,
+            "process_wall_s": 0.4664589579915628,
+            "process_overhead_ms": 40.65895799156277,
+            "e2e_mhz": 5.359521898270029,
+            "prove_fib_iterations_per_s": 1603592.046183451,
+            "run_prove_fib_iterations_per_s": 1175917.2154280338,
+            "cli_total_fib_iterations_per_s": 1174260.2160638797,
+            "e2e_fib_iterations_per_s": 1071905.6659408049,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-metal-bench",
+              "--fib-n",
+              "500000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(500000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  113.4ms  (2499997 cycles, 22040 kHz)\ninfo: Columns: opcode=869 infra=1056 total tree1=1925 implicit-zero=2580\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    311.8ms\nTrace cells: preprocessed=8061026 main=94452144 implicit-zero=165675936 committed=94452144\nCommitted cells/cycle: 37.78\nVerify:   0.6ms\n\nTotal:    425.8ms\nRun+Prove:425.2ms  (5879.8 kHz)\nProve+Verify: 312.4ms\n\nThroughput (run+prove): 5879.8 kHz\n"
+          },
+          {
+            "cycles": 2499997,
+            "execute_ms": 111.8,
+            "prove_ms": 320.2,
+            "verify_ms": 0.6,
+            "run_prove_ms": 431.9,
+            "cli_total_ms": 432.6,
+            "prove_mhz": 7.807610868207371,
+            "run_prove_mhz": 5.788369993053948,
+            "cli_total_mhz": 5.779003698566805,
+            "trace_cells": {
+              "preprocessed": 8061026,
+              "main": 94452144,
+              "implicit_zero": 165675936,
+              "committed": 94452144
+            },
+            "committed_cells_per_cycle": 37.78,
+            "proof_verified": true,
+            "fib_n": 500000,
+            "process_wall_s": 0.4760239589959383,
+            "process_overhead_ms": 43.42395899593828,
+            "e2e_mhz": 5.2518301920625206,
+            "prove_fib_iterations_per_s": 1561524.0474703312,
+            "run_prove_fib_iterations_per_s": 1157675.387821255,
+            "cli_total_fib_iterations_per_s": 1155802.126675913,
+            "e2e_fib_iterations_per_s": 1050367.2988532628,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-metal-bench",
+              "--fib-n",
+              "500000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(500000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  111.8ms  (2499997 cycles, 22364 kHz)\ninfo: Columns: opcode=869 infra=1056 total tree1=1925 implicit-zero=2580\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    320.2ms\nTrace cells: preprocessed=8061026 main=94452144 implicit-zero=165675936 committed=94452144\nCommitted cells/cycle: 37.78\nVerify:   0.6ms\n\nTotal:    432.6ms\nRun+Prove:431.9ms  (5787.8 kHz)\nProve+Verify: 320.8ms\n\nThroughput (run+prove): 5787.8 kHz\n"
+          }
+        ]
+      },
+      "metal_speedup_prove": 3.215330788804071,
+      "metal_speedup_run_prove": 2.658382180539273,
+      "metal_speedup_cli_total": 2.6560524467337863,
+      "metal_speedup_e2e": 2.4301721968222187
+    },
+    {
+      "fib_n": 1000000,
+      "cycles": 4999997,
+      "trace_cells": {
+        "preprocessed": 16056418,
+        "main": 187185584,
+        "implicit_zero": 329515936,
+        "committed": 187185584
+      },
+      "committed_cells_per_cycle": 37.44,
+      "cpu": {
+        "summary": {
+          "samples": 3,
+          "execute_ms": {
+            "median": 207.6,
+            "p25": 207.45,
+            "p75": 207.6,
+            "min": 207.3,
+            "max": 207.6
+          },
+          "prove_ms": {
+            "median": 1893.6,
+            "p25": 1881.25,
+            "p75": 1899.4,
+            "min": 1868.9,
+            "max": 1905.2
+          },
+          "verify_ms": {
+            "median": 0.9,
+            "p25": 0.9,
+            "p75": 0.95,
+            "min": 0.9,
+            "max": 1.0
+          },
+          "run_prove_ms": {
+            "median": 2101.2,
+            "p25": 2088.8,
+            "p75": 2106.85,
+            "min": 2076.4,
+            "max": 2112.5
+          },
+          "cli_total_ms": {
+            "median": 2102.1,
+            "p25": 2089.75,
+            "p75": 2107.8,
+            "min": 2077.4,
+            "max": 2113.5
+          },
+          "process_wall_s": {
+            "median": 2.117995999986306,
+            "p25": 2.105958374973852,
+            "p75": 2.1235200414957944,
+            "min": 2.0939207499613985,
+            "max": 2.129044083005283
+          },
+          "process_overhead_ms": {
+            "median": 15.895999986305924,
+            "p25": 15.720041495794476,
+            "p75": 16.208374973852187,
+            "min": 15.544083005283028,
+            "max": 16.52074996139845
+          },
+          "prove_mhz": {
+            "median": 2.6404715885086607,
+            "p25": 2.6324332013506986,
+            "p75": 2.6579202610529817,
+            "min": 2.624394814192736,
+            "max": 2.675368933597303
+          },
+          "run_prove_mhz": {
+            "median": 2.379591185988959,
+            "p25": 2.3732268355980297,
+            "p75": 2.3938018056702646,
+            "min": 2.3668624852071005,
+            "max": 2.4080124253515702
+          },
+          "cli_total_mhz": {
+            "median": 2.3785723800009513,
+            "p25": 2.3721574935254344,
+            "p75": 2.3927128290685413,
+            "min": 2.3657426070499175,
+            "max": 2.4068532781361314
+          },
+          "e2e_mhz": {
+            "median": 2.3607207001487858,
+            "p25": 2.354595547906037,
+            "p75": 2.37429211661622,
+            "min": 2.3484703956632886,
+            "max": 2.387863533083654
+          },
+          "prove_fib_iterations_per_s": {
+            "median": 528094.634558513,
+            "p25": 526486.9561623133,
+            "p75": 531584.3711612192,
+            "min": 524879.2777661138,
+            "max": 535074.1077639253
+          },
+          "run_prove_fib_iterations_per_s": {
+            "median": 475918.52274890547,
+            "p25": 474645.6519069971,
+            "p75": 478760.6483904419,
+            "min": 473372.78106508875,
+            "max": 481602.7740319784
+          },
+          "cli_total_fib_iterations_per_s": {
+            "median": 475714.76142904715,
+            "p25": 474431.78336415684,
+            "p75": 478542.8529394201,
+            "min": 473148.8052992666,
+            "max": 481370.944449793
+          },
+          "e2e_fib_iterations_per_s": {
+            "median": 472144.4233164112,
+            "p25": 470919.39213284274,
+            "p75": 474858.708238469,
+            "min": 469694.36094927427,
+            "max": 477572.99316052673
+          }
+        },
+        "raw_samples": [
+          {
+            "cycles": 4999997,
+            "execute_ms": 207.6,
+            "prove_ms": 1868.9,
+            "verify_ms": 0.9,
+            "run_prove_ms": 2076.4,
+            "cli_total_ms": 2077.4,
+            "prove_mhz": 2.675368933597303,
+            "run_prove_mhz": 2.4080124253515702,
+            "cli_total_mhz": 2.4068532781361314,
+            "trace_cells": {
+              "preprocessed": 16056418,
+              "main": 187185584,
+              "implicit_zero": 329515936,
+              "committed": 187185584
+            },
+            "committed_cells_per_cycle": 37.44,
+            "proof_verified": true,
+            "fib_n": 1000000,
+            "process_wall_s": 2.0939207499613985,
+            "process_overhead_ms": 16.52074996139845,
+            "e2e_mhz": 2.387863533083654,
+            "prove_fib_iterations_per_s": 535074.1077639253,
+            "run_prove_fib_iterations_per_s": 481602.7740319784,
+            "cli_total_fib_iterations_per_s": 481370.944449793,
+            "e2e_fib_iterations_per_s": 477572.99316052673,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-bench",
+              "--fib-n",
+              "1000000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(1000000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  207.6ms  (4999997 cycles, 24090 kHz)\ninfo: Columns: opcode=1722 infra=1644 total tree1=3366 implicit-zero=5108\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    1868.9ms\nTrace cells: preprocessed=16056418 main=187185584 implicit-zero=329515936 committed=187185584\nCommitted cells/cycle: 37.44\nVerify:   0.9ms\n\nTotal:    2077.4ms\nRun+Prove:2076.4ms  (2408.0 kHz)\nProve+Verify: 1869.8ms\n\nThroughput (run+prove): 2408.0 kHz\n"
+          },
+          {
+            "cycles": 4999997,
+            "execute_ms": 207.6,
+            "prove_ms": 1893.6,
+            "verify_ms": 0.9,
+            "run_prove_ms": 2101.2,
+            "cli_total_ms": 2102.1,
+            "prove_mhz": 2.6404715885086607,
+            "run_prove_mhz": 2.379591185988959,
+            "cli_total_mhz": 2.3785723800009513,
+            "trace_cells": {
+              "preprocessed": 16056418,
+              "main": 187185584,
+              "implicit_zero": 329515936,
+              "committed": 187185584
+            },
+            "committed_cells_per_cycle": 37.44,
+            "proof_verified": true,
+            "fib_n": 1000000,
+            "process_wall_s": 2.117995999986306,
+            "process_overhead_ms": 15.895999986305924,
+            "e2e_mhz": 2.3607207001487858,
+            "prove_fib_iterations_per_s": 528094.634558513,
+            "run_prove_fib_iterations_per_s": 475918.52274890547,
+            "cli_total_fib_iterations_per_s": 475714.76142904715,
+            "e2e_fib_iterations_per_s": 472144.4233164112,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-bench",
+              "--fib-n",
+              "1000000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(1000000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  207.6ms  (4999997 cycles, 24086 kHz)\ninfo: Columns: opcode=1722 infra=1644 total tree1=3366 implicit-zero=5108\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    1893.6ms\nTrace cells: preprocessed=16056418 main=187185584 implicit-zero=329515936 committed=187185584\nCommitted cells/cycle: 37.44\nVerify:   0.9ms\n\nTotal:    2102.1ms\nRun+Prove:2101.2ms  (2379.6 kHz)\nProve+Verify: 1894.5ms\n\nThroughput (run+prove): 2379.6 kHz\n"
+          },
+          {
+            "cycles": 4999997,
+            "execute_ms": 207.3,
+            "prove_ms": 1905.2,
+            "verify_ms": 1.0,
+            "run_prove_ms": 2112.5,
+            "cli_total_ms": 2113.5,
+            "prove_mhz": 2.624394814192736,
+            "run_prove_mhz": 2.3668624852071005,
+            "cli_total_mhz": 2.3657426070499175,
+            "trace_cells": {
+              "preprocessed": 16056418,
+              "main": 187185584,
+              "implicit_zero": 329515936,
+              "committed": 187185584
+            },
+            "committed_cells_per_cycle": 37.44,
+            "proof_verified": true,
+            "fib_n": 1000000,
+            "process_wall_s": 2.129044083005283,
+            "process_overhead_ms": 15.544083005283028,
+            "e2e_mhz": 2.3484703956632886,
+            "prove_fib_iterations_per_s": 524879.2777661138,
+            "run_prove_fib_iterations_per_s": 473372.78106508875,
+            "cli_total_fib_iterations_per_s": 473148.8052992666,
+            "e2e_fib_iterations_per_s": 469694.36094927427,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-bench",
+              "--fib-n",
+              "1000000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(1000000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  207.3ms  (4999997 cycles, 24124 kHz)\ninfo: Columns: opcode=1722 infra=1644 total tree1=3366 implicit-zero=5108\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    1905.2ms\nTrace cells: preprocessed=16056418 main=187185584 implicit-zero=329515936 committed=187185584\nCommitted cells/cycle: 37.44\nVerify:   1.0ms\n\nTotal:    2113.5ms\nRun+Prove:2112.5ms  (2366.9 kHz)\nProve+Verify: 1906.2ms\n\nThroughput (run+prove): 2366.9 kHz\n"
+          }
+        ]
+      },
+      "metal": {
+        "summary": {
+          "samples": 3,
+          "execute_ms": {
+            "median": 198.6,
+            "p25": 198.14999999999998,
+            "p75": 198.64999999999998,
+            "min": 197.7,
+            "max": 198.7
+          },
+          "prove_ms": {
+            "median": 500.0,
+            "p25": 498.9,
+            "p75": 501.8,
+            "min": 497.8,
+            "max": 503.6
+          },
+          "verify_ms": {
+            "median": 1.0,
+            "p25": 1.0,
+            "p75": 1.0,
+            "min": 1.0,
+            "max": 1.0
+          },
+          "run_prove_ms": {
+            "median": 697.7,
+            "p25": 697.1,
+            "p75": 699.95,
+            "min": 696.5,
+            "max": 702.2
+          },
+          "cli_total_ms": {
+            "median": 698.7,
+            "p25": 698.1,
+            "p75": 700.95,
+            "min": 697.5,
+            "max": 703.2
+          },
+          "process_wall_s": {
+            "median": 0.7473787920316681,
+            "p25": 0.7442056875152048,
+            "p75": 0.7487479585106485,
+            "min": 0.7410325829987414,
+            "max": 0.7501171249896288
+          },
+          "process_overhead_ms": {
+            "median": 46.917124989628746,
+            "p25": 45.22485399418508,
+            "p75": 47.797958510648414,
+            "min": 43.53258299874142,
+            "max": 48.67879203166808
+          },
+          "prove_mhz": {
+            "median": 9.999994000000001,
+            "p25": 9.964251368546465,
+            "p75": 10.022091214543995,
+            "min": 9.92850873709293,
+            "max": 10.044188429087987
+          },
+          "run_prove_mhz": {
+            "median": 7.166399598681382,
+            "p25": 7.1434369112746126,
+            "p75": 7.172573094387353,
+            "min": 7.120474223867844,
+            "max": 7.178746590093324
+          },
+          "cli_total_mhz": {
+            "median": 7.156142836696722,
+            "p25": 7.133245621988861,
+            "p75": 7.16229865849173,
+            "min": 7.110348407281001,
+            "max": 7.168454480286739
+          },
+          "e2e_mhz": {
+            "median": 6.690043995506015,
+            "p25": 6.677832857169882,
+            "p75": 6.718690790943233,
+            "min": 6.665621718833749,
+            "max": 6.747337586380452
+          },
+          "prove_fib_iterations_per_s": {
+            "median": 2000000.0,
+            "p25": 1992851.4694201746,
+            "p75": 2004419.445560466,
+            "min": 1985702.9388403494,
+            "max": 2008838.891120932
+          },
+          "run_prove_fib_iterations_per_s": {
+            "median": 1433280.779704744,
+            "p25": 1428688.2394678663,
+            "p75": 1434515.4795867582,
+            "min": 1424095.6992309883,
+            "max": 1435750.1794687724
+          },
+          "cli_total_fib_iterations_per_s": {
+            "median": 1431229.4260769999,
+            "p25": 1426649.9803877603,
+            "p75": 1432460.5911747008,
+            "min": 1422070.534698521,
+            "max": 1433691.7562724014
+          },
+          "e2e_fib_iterations_per_s": {
+            "median": 1338009.601906964,
+            "p25": 1335567.3727744,
+            "p75": 1343738.9644320253,
+            "min": 1333125.143641836,
+            "max": 1349468.3269570866
+          }
+        },
+        "raw_samples": [
+          {
+            "cycles": 4999997,
+            "execute_ms": 198.7,
+            "prove_ms": 497.8,
+            "verify_ms": 1.0,
+            "run_prove_ms": 696.5,
+            "cli_total_ms": 697.5,
+            "prove_mhz": 10.044188429087987,
+            "run_prove_mhz": 7.178746590093324,
+            "cli_total_mhz": 7.168454480286739,
+            "trace_cells": {
+              "preprocessed": 16056418,
+              "main": 187185584,
+              "implicit_zero": 329515936,
+              "committed": 187185584
+            },
+            "committed_cells_per_cycle": 37.44,
+            "proof_verified": true,
+            "fib_n": 1000000,
+            "process_wall_s": 0.7410325829987414,
+            "process_overhead_ms": 43.53258299874142,
+            "e2e_mhz": 6.747337586380452,
+            "prove_fib_iterations_per_s": 2008838.891120932,
+            "run_prove_fib_iterations_per_s": 1435750.1794687724,
+            "cli_total_fib_iterations_per_s": 1433691.7562724014,
+            "e2e_fib_iterations_per_s": 1349468.3269570866,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-metal-bench",
+              "--fib-n",
+              "1000000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(1000000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  198.7ms  (4999997 cycles, 25159 kHz)\ninfo: Columns: opcode=1722 infra=1644 total tree1=3366 implicit-zero=5108\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    497.8ms\nTrace cells: preprocessed=16056418 main=187185584 implicit-zero=329515936 committed=187185584\nCommitted cells/cycle: 37.44\nVerify:   1.0ms\n\nTotal:    697.5ms\nRun+Prove:696.5ms  (7178.8 kHz)\nProve+Verify: 498.7ms\n\nThroughput (run+prove): 7178.8 kHz\n"
+          },
+          {
+            "cycles": 4999997,
+            "execute_ms": 197.7,
+            "prove_ms": 500.0,
+            "verify_ms": 1.0,
+            "run_prove_ms": 697.7,
+            "cli_total_ms": 698.7,
+            "prove_mhz": 9.999994000000001,
+            "run_prove_mhz": 7.166399598681382,
+            "cli_total_mhz": 7.156142836696722,
+            "trace_cells": {
+              "preprocessed": 16056418,
+              "main": 187185584,
+              "implicit_zero": 329515936,
+              "committed": 187185584
+            },
+            "committed_cells_per_cycle": 37.44,
+            "proof_verified": true,
+            "fib_n": 1000000,
+            "process_wall_s": 0.7473787920316681,
+            "process_overhead_ms": 48.67879203166808,
+            "e2e_mhz": 6.690043995506015,
+            "prove_fib_iterations_per_s": 2000000.0,
+            "run_prove_fib_iterations_per_s": 1433280.779704744,
+            "cli_total_fib_iterations_per_s": 1431229.4260769999,
+            "e2e_fib_iterations_per_s": 1338009.601906964,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-metal-bench",
+              "--fib-n",
+              "1000000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(1000000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  197.7ms  (4999997 cycles, 25292 kHz)\ninfo: Columns: opcode=1722 infra=1644 total tree1=3366 implicit-zero=5108\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    500.0ms\nTrace cells: preprocessed=16056418 main=187185584 implicit-zero=329515936 committed=187185584\nCommitted cells/cycle: 37.44\nVerify:   1.0ms\n\nTotal:    698.7ms\nRun+Prove:697.7ms  (7166.3 kHz)\nProve+Verify: 501.0ms\n\nThroughput (run+prove): 7166.3 kHz\n"
+          },
+          {
+            "cycles": 4999997,
+            "execute_ms": 198.6,
+            "prove_ms": 503.6,
+            "verify_ms": 1.0,
+            "run_prove_ms": 702.2,
+            "cli_total_ms": 703.2,
+            "prove_mhz": 9.92850873709293,
+            "run_prove_mhz": 7.120474223867844,
+            "cli_total_mhz": 7.110348407281001,
+            "trace_cells": {
+              "preprocessed": 16056418,
+              "main": 187185584,
+              "implicit_zero": 329515936,
+              "committed": 187185584
+            },
+            "committed_cells_per_cycle": 37.44,
+            "proof_verified": true,
+            "fib_n": 1000000,
+            "process_wall_s": 0.7501171249896288,
+            "process_overhead_ms": 46.917124989628746,
+            "e2e_mhz": 6.665621718833749,
+            "prove_fib_iterations_per_s": 1985702.9388403494,
+            "run_prove_fib_iterations_per_s": 1424095.6992309883,
+            "cli_total_fib_iterations_per_s": 1422070.534698521,
+            "e2e_fib_iterations_per_s": 1333125.143641836,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-metal-bench",
+              "--fib-n",
+              "1000000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(1000000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  198.6ms  (4999997 cycles, 25173 kHz)\ninfo: Columns: opcode=1722 infra=1644 total tree1=3366 implicit-zero=5108\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    503.6ms\nTrace cells: preprocessed=16056418 main=187185584 implicit-zero=329515936 committed=187185584\nCommitted cells/cycle: 37.44\nVerify:   1.0ms\n\nTotal:    703.2ms\nRun+Prove:702.2ms  (7120.6 kHz)\nProve+Verify: 504.6ms\n\nThroughput (run+prove): 7120.6 kHz\n"
+          }
+        ]
+      },
+      "metal_speedup_prove": 3.7872,
+      "metal_speedup_run_prove": 3.011609574315608,
+      "metal_speedup_cli_total": 3.0085873765564615,
+      "metal_speedup_e2e": 2.8338989847822194
+    },
+    {
+      "fib_n": 2000000,
+      "cycles": 9999997,
+      "trace_cells": {
+        "preprocessed": 32112738,
+        "main": 374356400,
+        "implicit_zero": 659030944,
+        "committed": 374356400
+      },
+      "committed_cells_per_cycle": 37.44,
+      "cpu": {
+        "summary": {
+          "samples": 3,
+          "execute_ms": {
+            "median": 420.4,
+            "p25": 420.35,
+            "p75": 423.65,
+            "min": 420.3,
+            "max": 426.9
+          },
+          "prove_ms": {
+            "median": 3718.8,
+            "p25": 3718.1000000000004,
+            "p75": 3734.55,
+            "min": 3717.4,
+            "max": 3750.3
+          },
+          "verify_ms": {
+            "median": 1.7,
+            "p25": 1.7,
+            "p75": 1.7,
+            "min": 1.7,
+            "max": 1.7
+          },
+          "run_prove_ms": {
+            "median": 4144.3,
+            "p25": 4141.700000000001,
+            "p75": 4157.55,
+            "min": 4139.1,
+            "max": 4170.8
+          },
+          "cli_total_ms": {
+            "median": 4146.1,
+            "p25": 4143.450000000001,
+            "p75": 4159.3,
+            "min": 4140.8,
+            "max": 4172.5
+          },
+          "process_wall_s": {
+            "median": 4.166485166992061,
+            "p25": 4.161930958478479,
+            "p75": 4.179772312490968,
+            "min": 4.157376749964897,
+            "max": 4.193059457989875
+          },
+          "process_overhead_ms": {
+            "median": 20.385166992060476,
+            "p25": 18.480958478478442,
+            "p75": 20.47231249096785,
+            "min": 16.576749964896408,
+            "max": 20.559457989875227
+          },
+          "prove_mhz": {
+            "median": 2.689038668387652,
+            "p25": 2.6777456094251404,
+            "p75": 2.689545024192212,
+            "min": 2.6664525504626293,
+            "max": 2.6900513799967722
+          },
+          "run_prove_mhz": {
+            "median": 2.4129520063701952,
+            "p25": 2.405286423248395,
+            "p75": 2.414467716359459,
+            "min": 2.3976208401265944,
+            "max": 2.4159834263487228
+          },
+          "cli_total_mhz": {
+            "median": 2.411904440317407,
+            "p25": 2.4042742093738023,
+            "p75": 2.4134479939222273,
+            "min": 2.396643978430198,
+            "max": 2.414991547527048
+          },
+          "e2e_mhz": {
+            "median": 2.400103828335327,
+            "p25": 2.3924982770429866,
+            "p75": 2.4027330279354304,
+            "min": 2.384892725750646,
+            "max": 2.4053622275355333
+          },
+          "prove_fib_iterations_per_s": {
+            "median": 537807.8950198989,
+            "p25": 535549.2825498129,
+            "p75": 537909.1662111923,
+            "min": 533290.670079727,
+            "max": 538010.4374024856
+          },
+          "run_prove_fib_iterations_per_s": {
+            "median": 482590.54605120287,
+            "p25": 481057.42896690767,
+            "p75": 482893.68813999824,
+            "min": 479524.3118826124,
+            "max": 483196.83022879367
+          },
+          "cli_total_fib_iterations_per_s": {
+            "median": 482381.03277779114,
+            "p25": 480854.9861312563,
+            "p75": 482689.74359136855,
+            "min": 479328.9394847214,
+            "max": 482998.4544049459
+          },
+          "e2e_fib_iterations_per_s": {
+            "median": 480020.90967333835,
+            "p25": 478499.79895853705,
+            "p75": 480546.749751111,
+            "min": 476978.6882437357,
+            "max": 481072.58982888365
+          }
+        },
+        "raw_samples": [
+          {
+            "cycles": 9999997,
+            "execute_ms": 420.4,
+            "prove_ms": 3750.3,
+            "verify_ms": 1.7,
+            "run_prove_ms": 4170.8,
+            "cli_total_ms": 4172.5,
+            "prove_mhz": 2.6664525504626293,
+            "run_prove_mhz": 2.3976208401265944,
+            "cli_total_mhz": 2.396643978430198,
+            "trace_cells": {
+              "preprocessed": 32112738,
+              "main": 374356400,
+              "implicit_zero": 659030944,
+              "committed": 374356400
+            },
+            "committed_cells_per_cycle": 37.44,
+            "proof_verified": true,
+            "fib_n": 2000000,
+            "process_wall_s": 4.193059457989875,
+            "process_overhead_ms": 20.559457989875227,
+            "e2e_mhz": 2.384892725750646,
+            "prove_fib_iterations_per_s": 533290.670079727,
+            "run_prove_fib_iterations_per_s": 479524.3118826124,
+            "cli_total_fib_iterations_per_s": 479328.9394847214,
+            "e2e_fib_iterations_per_s": 476978.6882437357,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-bench",
+              "--fib-n",
+              "2000000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(2000000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  420.4ms  (9999997 cycles, 23786 kHz)\ninfo: Columns: opcode=3376 infra=2820 total tree1=6196 implicit-zero=10108\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    3750.3ms\nTrace cells: preprocessed=32112738 main=374356400 implicit-zero=659030944 committed=374356400\nCommitted cells/cycle: 37.44\nVerify:   1.7ms\n\nTotal:    4172.5ms\nRun+Prove:4170.8ms  (2397.6 kHz)\nProve+Verify: 3752.0ms\n\nThroughput (run+prove): 2397.6 kHz\n"
+          },
+          {
+            "cycles": 9999997,
+            "execute_ms": 420.3,
+            "prove_ms": 3718.8,
+            "verify_ms": 1.7,
+            "run_prove_ms": 4139.1,
+            "cli_total_ms": 4140.8,
+            "prove_mhz": 2.689038668387652,
+            "run_prove_mhz": 2.4159834263487228,
+            "cli_total_mhz": 2.414991547527048,
+            "trace_cells": {
+              "preprocessed": 32112738,
+              "main": 374356400,
+              "implicit_zero": 659030944,
+              "committed": 374356400
+            },
+            "committed_cells_per_cycle": 37.44,
+            "proof_verified": true,
+            "fib_n": 2000000,
+            "process_wall_s": 4.157376749964897,
+            "process_overhead_ms": 16.576749964896408,
+            "e2e_mhz": 2.4053622275355333,
+            "prove_fib_iterations_per_s": 537807.8950198989,
+            "run_prove_fib_iterations_per_s": 483196.83022879367,
+            "cli_total_fib_iterations_per_s": 482998.4544049459,
+            "e2e_fib_iterations_per_s": 481072.58982888365,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-bench",
+              "--fib-n",
+              "2000000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(2000000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  420.3ms  (9999997 cycles, 23792 kHz)\ninfo: Columns: opcode=3376 infra=2820 total tree1=6196 implicit-zero=10108\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    3718.8ms\nTrace cells: preprocessed=32112738 main=374356400 implicit-zero=659030944 committed=374356400\nCommitted cells/cycle: 37.44\nVerify:   1.7ms\n\nTotal:    4140.8ms\nRun+Prove:4139.1ms  (2416.0 kHz)\nProve+Verify: 3720.5ms\n\nThroughput (run+prove): 2416.0 kHz\n"
+          },
+          {
+            "cycles": 9999997,
+            "execute_ms": 426.9,
+            "prove_ms": 3717.4,
+            "verify_ms": 1.7,
+            "run_prove_ms": 4144.3,
+            "cli_total_ms": 4146.1,
+            "prove_mhz": 2.6900513799967722,
+            "run_prove_mhz": 2.4129520063701952,
+            "cli_total_mhz": 2.411904440317407,
+            "trace_cells": {
+              "preprocessed": 32112738,
+              "main": 374356400,
+              "implicit_zero": 659030944,
+              "committed": 374356400
+            },
+            "committed_cells_per_cycle": 37.44,
+            "proof_verified": true,
+            "fib_n": 2000000,
+            "process_wall_s": 4.166485166992061,
+            "process_overhead_ms": 20.385166992060476,
+            "e2e_mhz": 2.400103828335327,
+            "prove_fib_iterations_per_s": 538010.4374024856,
+            "run_prove_fib_iterations_per_s": 482590.54605120287,
+            "cli_total_fib_iterations_per_s": 482381.03277779114,
+            "e2e_fib_iterations_per_s": 480020.90967333835,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-bench",
+              "--fib-n",
+              "2000000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(2000000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  426.9ms  (9999997 cycles, 23424 kHz)\ninfo: Columns: opcode=3376 infra=2820 total tree1=6196 implicit-zero=10108\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    3717.4ms\nTrace cells: preprocessed=32112738 main=374356400 implicit-zero=659030944 committed=374356400\nCommitted cells/cycle: 37.44\nVerify:   1.7ms\n\nTotal:    4146.1ms\nRun+Prove:4144.3ms  (2412.9 kHz)\nProve+Verify: 3719.1ms\n\nThroughput (run+prove): 2412.9 kHz\n"
+          }
+        ]
+      },
+      "metal": {
+        "summary": {
+          "samples": 3,
+          "execute_ms": {
+            "median": 416.5,
+            "p25": 412.7,
+            "p75": 416.65,
+            "min": 408.9,
+            "max": 416.8
+          },
+          "prove_ms": {
+            "median": 910.7,
+            "p25": 906.05,
+            "p75": 915.2,
+            "min": 901.4,
+            "max": 919.7
+          },
+          "verify_ms": {
+            "median": 1.7,
+            "p25": 1.7,
+            "p75": 1.75,
+            "min": 1.7,
+            "max": 1.8
+          },
+          "run_prove_ms": {
+            "median": 1319.7,
+            "p25": 1318.8000000000002,
+            "p75": 1328.15,
+            "min": 1317.9,
+            "max": 1336.6
+          },
+          "cli_total_ms": {
+            "median": 1321.4,
+            "p25": 1320.45,
+            "p75": 1329.9,
+            "min": 1319.5,
+            "max": 1338.4
+          },
+          "process_wall_s": {
+            "median": 1.368403207976371,
+            "p25": 1.3677018954767846,
+            "p75": 1.3787466039939318,
+            "min": 1.367000582977198,
+            "max": 1.3890900000114925
+          },
+          "process_overhead_ms": {
+            "median": 48.90320797637105,
+            "p25": 47.25189547678451,
+            "p75": 49.79660399393174,
+            "min": 45.60058297719797,
+            "max": 50.69000001149243
+          },
+          "prove_mhz": {
+            "median": 10.980561106840891,
+            "p25": 10.926834320953336,
+            "p75": 11.037205891782992,
+            "min": 10.873107535065781,
+            "max": 11.093850676725095
+          },
+          "run_prove_mhz": {
+            "median": 7.577477456997802,
+            "p25": 7.529572560610228,
+            "p75": 7.5826521513686185,
+            "min": 7.4816676642226545,
+            "max": 7.587826845739434
+          },
+          "cli_total_mhz": {
+            "median": 7.567728923868623,
+            "p25": 7.519667286202094,
+            "p75": 7.573177459281792,
+            "min": 7.471605648535565,
+            "max": 7.578625994694961
+          },
+          "e2e_mhz": {
+            "median": 7.307785411281113,
+            "p25": 7.253370421237554,
+            "p75": 7.311534525449058,
+            "min": 7.198955431193994,
+            "max": 7.315283639617002
+          },
+          "prove_fib_iterations_per_s": {
+            "median": 2196112.880202042,
+            "p25": 2185367.519800923,
+            "p75": 2207441.840589151,
+            "min": 2174622.159399804,
+            "max": 2218770.800976259
+          },
+          "run_prove_fib_iterations_per_s": {
+            "median": 1515495.9460483443,
+            "p25": 1505914.9638965349,
+            "p75": 1516530.8852329892,
+            "min": 1496333.9817447257,
+            "max": 1517565.8244176342
+          },
+          "cli_total_fib_iterations_per_s": {
+            "median": 1513546.2388375963,
+            "p25": 1503933.9084205911,
+            "p75": 1514635.9462471423,
+            "min": 1494321.5780035863,
+            "max": 1515725.653656688
+          },
+          "e2e_fib_iterations_per_s": {
+            "median": 1461557.5207234789,
+            "p25": 1450674.5194498666,
+            "p75": 1462307.3437820147,
+            "min": 1439791.5181762544,
+            "max": 1463057.1668405503
+          }
+        },
+        "raw_samples": [
+          {
+            "cycles": 9999997,
+            "execute_ms": 408.9,
+            "prove_ms": 910.7,
+            "verify_ms": 1.7,
+            "run_prove_ms": 1319.7,
+            "cli_total_ms": 1321.4,
+            "prove_mhz": 10.980561106840891,
+            "run_prove_mhz": 7.577477456997802,
+            "cli_total_mhz": 7.567728923868623,
+            "trace_cells": {
+              "preprocessed": 32112738,
+              "main": 374356400,
+              "implicit_zero": 659030944,
+              "committed": 374356400
+            },
+            "committed_cells_per_cycle": 37.44,
+            "proof_verified": true,
+            "fib_n": 2000000,
+            "process_wall_s": 1.367000582977198,
+            "process_overhead_ms": 45.60058297719797,
+            "e2e_mhz": 7.315283639617002,
+            "prove_fib_iterations_per_s": 2196112.880202042,
+            "run_prove_fib_iterations_per_s": 1515495.9460483443,
+            "cli_total_fib_iterations_per_s": 1513546.2388375963,
+            "e2e_fib_iterations_per_s": 1463057.1668405503,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-metal-bench",
+              "--fib-n",
+              "2000000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(2000000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  408.9ms  (9999997 cycles, 24454 kHz)\ninfo: Columns: opcode=3376 infra=2820 total tree1=6196 implicit-zero=10108\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    910.7ms\nTrace cells: preprocessed=32112738 main=374356400 implicit-zero=659030944 committed=374356400\nCommitted cells/cycle: 37.44\nVerify:   1.7ms\n\nTotal:    1321.4ms\nRun+Prove:1319.7ms  (7577.7 kHz)\nProve+Verify: 912.4ms\n\nThroughput (run+prove): 7577.7 kHz\n"
+          },
+          {
+            "cycles": 9999997,
+            "execute_ms": 416.5,
+            "prove_ms": 901.4,
+            "verify_ms": 1.7,
+            "run_prove_ms": 1317.9,
+            "cli_total_ms": 1319.5,
+            "prove_mhz": 11.093850676725095,
+            "run_prove_mhz": 7.587826845739434,
+            "cli_total_mhz": 7.578625994694961,
+            "trace_cells": {
+              "preprocessed": 32112738,
+              "main": 374356400,
+              "implicit_zero": 659030944,
+              "committed": 374356400
+            },
+            "committed_cells_per_cycle": 37.44,
+            "proof_verified": true,
+            "fib_n": 2000000,
+            "process_wall_s": 1.368403207976371,
+            "process_overhead_ms": 48.90320797637105,
+            "e2e_mhz": 7.307785411281113,
+            "prove_fib_iterations_per_s": 2218770.800976259,
+            "run_prove_fib_iterations_per_s": 1517565.8244176342,
+            "cli_total_fib_iterations_per_s": 1515725.653656688,
+            "e2e_fib_iterations_per_s": 1461557.5207234789,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-metal-bench",
+              "--fib-n",
+              "2000000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(2000000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  416.5ms  (9999997 cycles, 24011 kHz)\ninfo: Columns: opcode=3376 infra=2820 total tree1=6196 implicit-zero=10108\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    901.4ms\nTrace cells: preprocessed=32112738 main=374356400 implicit-zero=659030944 committed=374356400\nCommitted cells/cycle: 37.44\nVerify:   1.7ms\n\nTotal:    1319.5ms\nRun+Prove:1317.9ms  (7588.1 kHz)\nProve+Verify: 903.1ms\n\nThroughput (run+prove): 7588.1 kHz\n"
+          },
+          {
+            "cycles": 9999997,
+            "execute_ms": 416.8,
+            "prove_ms": 919.7,
+            "verify_ms": 1.8,
+            "run_prove_ms": 1336.6,
+            "cli_total_ms": 1338.4,
+            "prove_mhz": 10.873107535065781,
+            "run_prove_mhz": 7.4816676642226545,
+            "cli_total_mhz": 7.471605648535565,
+            "trace_cells": {
+              "preprocessed": 32112738,
+              "main": 374356400,
+              "implicit_zero": 659030944,
+              "committed": 374356400
+            },
+            "committed_cells_per_cycle": 37.44,
+            "proof_verified": true,
+            "fib_n": 2000000,
+            "process_wall_s": 1.3890900000114925,
+            "process_overhead_ms": 50.69000001149243,
+            "e2e_mhz": 7.198955431193994,
+            "prove_fib_iterations_per_s": 2174622.159399804,
+            "run_prove_fib_iterations_per_s": 1496333.9817447257,
+            "cli_total_fib_iterations_per_s": 1494321.5780035863,
+            "e2e_fib_iterations_per_s": 1439791.5181762544,
+            "command": [
+              "/Users/theodorepender/code/cryptography/stwo-zig/zig-out/bin/riscv-metal-bench",
+              "--fib-n",
+              "2000000",
+              "--pow-bits",
+              "10",
+              "--n-queries",
+              "3"
+            ],
+            "output": "RISC-V End-to-End Proving Benchmark\n====================================\nWorkload: generated fib(2000000)\nSecurity: pow_bits=10, n_queries=3\nOptimization: ReleaseFast\nCPU cores: 18 (used for parallel PoW grinding)\n\nExecute:  416.8ms  (9999997 cycles, 23991 kHz)\ninfo: Columns: opcode=3376 infra=2820 total tree1=6196 implicit-zero=10108\ninfo: Poseidon2 Merkle: 27 hash traces (program=27 memory=0), poseidon_log_size=5, merkle_log_size=5\nProve:    919.7ms\nTrace cells: preprocessed=32112738 main=374356400 implicit-zero=659030944 committed=374356400\nCommitted cells/cycle: 37.44\nVerify:   1.8ms\n\nTotal:    1338.4ms\nRun+Prove:1336.6ms  (7481.9 kHz)\nProve+Verify: 921.6ms\n\nThroughput (run+prove): 7481.9 kHz\n"
+          }
+        ]
+      },
+      "metal_speedup_prove": 4.083452289447678,
+      "metal_speedup_run_prove": 3.1403349246040766,
+      "metal_speedup_cli_total": 3.1376570304222793,
+      "metal_speedup_e2e": 3.0447788654000334
+    }
+  ]
+}

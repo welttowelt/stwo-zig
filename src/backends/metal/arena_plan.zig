@@ -3,6 +3,7 @@ const runtime = @import("runtime.zig");
 
 pub const max_ticks = 1024;
 const TickSet = [max_ticks / 64]u64;
+pub const narrow_word_address_space_bytes: u64 = (@as(u64, std.math.maxInt(u32)) + 1) * @sizeOf(u32);
 
 pub const Materialization = enum {
     resident,
@@ -21,6 +22,7 @@ pub const LogicalBuffer = struct {
     id: u32,
     size_bytes: u64,
     alignment: u32 = 16 * 1024,
+    placement_priority: u8 = 0,
     live_ranges: []const LiveRange,
     spill_cost_ns: ?u64 = null,
     recompute_cost_ns: ?u64 = null,
@@ -53,6 +55,7 @@ pub const Action = struct {
 pub const Error = error{
     EmptySchedule,
     DuplicateLogicalId,
+    UnsortedBindings,
     InvalidAlignment,
     InvalidTick,
     InvalidUseOrder,
@@ -61,6 +64,7 @@ pub const Error = error{
     AliasOverlap,
     UnknownBinding,
     BindingOutOfBounds,
+    NarrowAddressOverflow,
 };
 
 pub const Plan = struct {
@@ -82,9 +86,19 @@ pub const Plan = struct {
     }
 
     pub fn binding(self: Plan, logical_id: u32) Error!Binding {
-        for (self.bindings) |candidate| {
-            if (candidate.logical_id == logical_id) return candidate;
+        var low: usize = 0;
+        var high = self.bindings.len;
+        while (low < high) {
+            const middle = low + (high - low) / 2;
+            const candidate = self.bindings[middle];
+            if (candidate.logical_id < logical_id) {
+                low = middle + 1;
+            } else {
+                high = middle;
+            }
         }
+        if (low < self.bindings.len and self.bindings[low].logical_id == logical_id)
+            return self.bindings[low];
         return Error.UnknownBinding;
     }
 
@@ -92,6 +106,8 @@ pub const Plan = struct {
         if (self.total_bytes > budget_bytes) return Error.BudgetExceeded;
         if (self.bindings.len != self.slots.len) return Error.BindingOutOfBounds;
         for (self.bindings, 0..) |bound, index| {
+            if (index > 0 and self.bindings[index - 1].logical_id >= bound.logical_id)
+                return Error.UnsortedBindings;
             const slot = self.slots[bound.slot];
             if (bound.slot != index or bound.offset_bytes != slot.offset_bytes or
                 bound.size_bytes != slot.capacity_bytes or
@@ -116,6 +132,21 @@ pub const Plan = struct {
         }
     }
 };
+
+/// Validates a complete arena range consumed through a Metal `uint` word
+/// offset. Checking only the first word is insufficient because indexed kernel
+/// access would wrap at the 2^32-word boundary.
+pub fn validateNarrowWordBinding(binding: Binding) Error!void {
+    if (binding.offset_bytes % @sizeOf(u32) != 0 or binding.size_bytes % @sizeOf(u32) != 0)
+        return Error.InvalidAlignment;
+    const end = std.math.add(u64, binding.offset_bytes, binding.size_bytes) catch return Error.SizeOverflow;
+    if (end > narrow_word_address_space_bytes) return Error.NarrowAddressOverflow;
+}
+
+pub fn narrowWordOffset(binding: Binding) Error!u32 {
+    try validateNarrowWordBinding(binding);
+    return @intCast(binding.offset_bytes / @sizeOf(u32));
+}
 
 /// Plans the smallest live range allowed by each buffer's recovery policy.
 /// Values with no recovery recipe remain resident from first through last use.
@@ -253,8 +284,19 @@ const WorkBuffer = struct {
     fn lessThan(logical: []const LogicalBuffer, a: WorkBuffer, b: WorkBuffer) bool {
         const left = logical[a.input_index];
         const right = logical[b.input_index];
+        if (left.placement_priority != right.placement_priority)
+            return left.placement_priority > right.placement_priority;
         if (left.size_bytes != right.size_bytes) return left.size_bytes > right.size_bytes;
+        const left_ticks = occupiedTickCount(a.occupied);
+        const right_ticks = occupiedTickCount(b.occupied);
+        if (left_ticks != right_ticks) return left_ticks > right_ticks;
         return left.id < right.id;
+    }
+
+    fn occupiedTickCount(occupied: TickSet) u32 {
+        var count: u32 = 0;
+        for (occupied) |word| count += @popCount(word);
+        return count;
     }
 };
 
@@ -652,6 +694,28 @@ test "metal arena: sparse recovery shortens ranges and aliases safely" {
     try plan.validate(16 * 1024);
 }
 
+test "metal arena: binding lookup covers sorted boundaries and gaps" {
+    const uses = [_]LiveRange{.{ .first = 1, .last = 1 }};
+    const logical = [_]LogicalBuffer{
+        .{ .id = 3, .size_bytes = 256, .live_ranges = &uses },
+        .{ .id = 11, .size_bytes = 256, .live_ranges = &uses },
+        .{ .id = 29, .size_bytes = 256, .live_ranges = &uses },
+    };
+    var plan = try build(std.testing.allocator, &logical, 16 * 1024);
+    defer plan.deinit();
+
+    try std.testing.expectEqual(@as(u32, 3), (try plan.binding(3)).logical_id);
+    try std.testing.expectEqual(@as(u32, 11), (try plan.binding(11)).logical_id);
+    try std.testing.expectEqual(@as(u32, 29), (try plan.binding(29)).logical_id);
+    try std.testing.expectError(Error.UnknownBinding, plan.binding(0));
+    try std.testing.expectError(Error.UnknownBinding, plan.binding(12));
+    try std.testing.expectError(Error.UnknownBinding, plan.binding(30));
+
+    std.mem.swap(Binding, &plan.bindings[0], &plan.bindings[1]);
+    try std.testing.expectError(Error.UnsortedBindings, plan.validate(16 * 1024));
+    std.mem.swap(Binding, &plan.bindings[0], &plan.bindings[1]);
+}
+
 test "metal arena: unrecoverable values retain their full interval" {
     const uses_a = [_]LiveRange{ .{ .first = 1, .last = 1 }, .{ .first = 8, .last = 8 } };
     const uses_b = [_]LiveRange{.{ .first = 4, .last = 4 }};
@@ -660,6 +724,27 @@ test "metal arena: unrecoverable values retain their full interval" {
         .{ .id = 2, .size_bytes = 4096, .alignment = 4096, .live_ranges = &uses_b },
     };
     try std.testing.expectError(Error.BudgetExceeded, build(std.testing.allocator, &logical, 4096));
+}
+
+test "metal arena: narrow word bindings validate their complete extent" {
+    const last_word = Binding{
+        .logical_id = 1,
+        .slot = 0,
+        .offset_bytes = narrow_word_address_space_bytes - @sizeOf(u32),
+        .size_bytes = @sizeOf(u32),
+        .materialization = .resident,
+        .occupied = [_]u64{0} ** (max_ticks / 64),
+    };
+    try validateNarrowWordBinding(last_word);
+    try std.testing.expectEqual(std.math.maxInt(u32), try narrowWordOffset(last_word));
+
+    var crossing = last_word;
+    crossing.size_bytes = 2 * @sizeOf(u32);
+    try std.testing.expectError(Error.NarrowAddressOverflow, validateNarrowWordBinding(crossing));
+
+    var misaligned = last_word;
+    misaligned.offset_bytes += 1;
+    try std.testing.expectError(Error.InvalidAlignment, validateNarrowWordBinding(misaligned));
 }
 
 test "metal arena: epoch runner performs recovery around each local epoch" {

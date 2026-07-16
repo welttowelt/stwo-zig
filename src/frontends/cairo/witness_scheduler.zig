@@ -6,6 +6,7 @@ pub const Stage = enum {
     gather,
     compact,
     writer,
+    interpolate,
     feed,
 };
 
@@ -23,7 +24,8 @@ pub const ComponentOperation = struct {
     seed: ?Hook = null,
     gather: ?Hook = null,
     compact: ?Hook = null,
-    writer: Hook,
+    writer: ?Hook = null,
+    interpolate: Hook,
     feed: ?Hook = null,
 };
 
@@ -45,9 +47,9 @@ pub const Error = error{
 };
 
 /// Executes one proof plan level at a time. Every component operation is an
-/// indivisible seed/gather/compact -> writer -> feed sequence. Independent
-/// components in a level may later be assigned to Metal command-buffer lanes;
-/// the dependency and atomicity contract does not change.
+/// indivisible seed/gather/compact -> writer -> interpolate -> feed sequence.
+/// Independent components in a level may later be assigned to Metal
+/// command-buffer lanes; the dependency and atomicity contract does not change.
 pub const CairoWitnessScheduler = struct {
     allocator: std.mem.Allocator,
     plan: *const proof_plan.CairoProofPlan,
@@ -115,7 +117,8 @@ fn executeComponent(operation: ComponentOperation) !f64 {
     if (operation.seed) |hook| gpu_ms += try hook.run(operation.component_index, .seed);
     if (operation.gather) |hook| gpu_ms += try hook.run(operation.component_index, .gather);
     if (operation.compact) |hook| gpu_ms += try hook.run(operation.component_index, .compact);
-    gpu_ms += try operation.writer.run(operation.component_index, .writer);
+    if (operation.writer) |hook| gpu_ms += try hook.run(operation.component_index, .writer);
+    gpu_ms += try operation.interpolate.run(operation.component_index, .interpolate);
     if (operation.feed) |hook| gpu_ms += try hook.run(operation.component_index, .feed);
     return gpu_ms;
 }
@@ -163,13 +166,49 @@ test "Cairo witness scheduler preserves component atomicity and levels" {
     var context = Context{};
     const hook = Hook{ .context = &context, .run_fn = Context.run };
     const operations = [_]ComponentOperation{
-        .{ .component_index = 1, .gather = hook, .writer = hook, .feed = hook },
-        .{ .component_index = 0, .seed = hook, .writer = hook, .feed = hook },
+        .{ .component_index = 1, .gather = hook, .writer = hook, .interpolate = hook, .feed = hook },
+        .{ .component_index = 0, .seed = hook, .writer = hook, .interpolate = hook, .feed = hook },
     };
     var scheduler = try CairoWitnessScheduler.init(std.testing.allocator, &plan, &operations);
     defer scheduler.deinit();
     const result = try scheduler.execute(std.testing.allocator);
     defer std.testing.allocator.free(result.components);
-    try std.testing.expectEqual(@as(f64, 6), result.gpu_ms);
-    try std.testing.expectEqualSlices(u8, &.{ 0, 3, 4, 9, 11, 12 }, context.calls[0..context.len]);
+    try std.testing.expectEqual(@as(f64, 8), result.gpu_ms);
+    try std.testing.expectEqualSlices(u8, &.{ 0, 3, 4, 5, 9, 11, 12, 13 }, context.calls[0..context.len]);
+}
+
+test "Cairo witness scheduler permits a retained writer to run interaction directly" {
+    const rows = [_]proof_plan.TracePart{.{ .id = .main, .rows = .{ .real_rows = 16, .padded_rows = 16 } }};
+    const components = [_]proof_plan.Component{.{
+        .name = "retained",
+        .canonical_ordinal = 0,
+        .writer = .recorded_aot,
+        .trace_parts = &rows,
+        .producer_edges = &.{},
+        .capacity_feeds = &.{},
+    }};
+    var plan = try proof_plan.CairoProofPlan.init(std.testing.allocator, &components);
+    defer plan.deinit();
+
+    const Context = struct {
+        calls: [2]Stage = undefined,
+        len: usize = 0,
+
+        fn run(raw: *anyopaque, _: u32, stage: Stage) !f64 {
+            const self: *@This() = @ptrCast(@alignCast(raw));
+            self.calls[self.len] = stage;
+            self.len += 1;
+            return 1;
+        }
+    };
+    var context = Context{};
+    const hook = Hook{ .context = &context, .run_fn = Context.run };
+    const operations = [_]ComponentOperation{.{ .component_index = 0, .interpolate = hook }};
+    var scheduler = try CairoWitnessScheduler.init(std.testing.allocator, &plan, &operations);
+    defer scheduler.deinit();
+    const result = try scheduler.execute(std.testing.allocator);
+    defer std.testing.allocator.free(result.components);
+    try std.testing.expectEqual(@as(f64, 1), result.gpu_ms);
+    try std.testing.expectEqual(@as(usize, 1), context.len);
+    try std.testing.expectEqual(Stage.interpolate, context.calls[0]);
 }

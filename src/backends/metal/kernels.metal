@@ -190,11 +190,11 @@ kernel void stwo_zig_blake2s_leaves(
     if (row >= row_count) return;
 
     uint state[8];
-    for (uint i = 0; i < 8u; ++i) state[i] = leaf_seed[i];
+    blake2s_init_hash(state);
 
     uint message[16];
     uint in_block = 0u;
-    uint total_bytes = 64u;
+    uint total_bytes = 0u;
     for (uint column = 0; column < column_count; ++column) {
         uint log_size = column_log_sizes[column];
         uint source = lifted_index(row, lifting_log_size - log_size);
@@ -237,6 +237,34 @@ kernel void stwo_zig_blake2s_leaf_absorb_resident(
     for (uint i = 0u; i < 8u; ++i) arena[state_offset + row * 8u + i] = state[i];
 }
 
+kernel void stwo_zig_blake2s_leaf_absorb_compact_resident(
+    device uint *arena [[buffer(0)]], constant uint *column_offsets [[buffer(1)]],
+    constant uint *column_logs [[buffer(2)]], constant uint &column_count [[buffer(3)]],
+    constant uint &source_state_offset [[buffer(4)]], constant uint &source_state_log [[buffer(5)]],
+    constant uint &destination_state_offset [[buffer(6)]], constant uint &destination_log [[buffer(7)]],
+    constant uint &first_column [[buffer(8)]], constant uint &is_final [[buffer(9)]],
+    constant uint &prefix_bytes [[buffer(10)]], constant uint *leaf_seed [[buffer(11)]],
+    uint row [[thread_position_in_grid]]
+) {
+    uint row_count = 1u << destination_log;
+    if (row >= row_count || column_count == 0u || column_count > 16u) return;
+    uint state[8], message[16];
+    if (first_column == 0u) {
+        if (prefix_bytes == 0u) blake2s_init_hash(state);
+        else for (uint i = 0u; i < 8u; ++i) state[i] = leaf_seed[i];
+    } else {
+        uint source_row = lifted_index(row, destination_log - source_state_log);
+        for (uint i = 0u; i < 8u; ++i)
+            state[i] = arena[source_state_offset + source_row * 8u + i];
+    }
+    for (uint i = 0u; i < column_count; ++i)
+        message[i] = arena[column_offsets[i] + lifted_index(row, destination_log - column_logs[i])];
+    for (uint i = column_count; i < 16u; ++i) message[i] = 0u;
+    blake2s_compress(state, message, prefix_bytes + (first_column + column_count) * 4u, is_final != 0u);
+    for (uint i = 0u; i < 8u; ++i)
+        arena[destination_state_offset + row * 8u + i] = state[i];
+}
+
 kernel void stwo_zig_blake2s_parents(
     device const uint *children [[buffer(0)]],
     device uint *destination [[buffer(1)]],
@@ -247,9 +275,9 @@ kernel void stwo_zig_blake2s_parents(
     if (parent >= parent_count) return;
     uint state[8];
     uint message[16];
-    for (uint i = 0; i < 8u; ++i) state[i] = node_seed[i];
+    blake2s_init_hash(state);
     for (uint i = 0; i < 16u; ++i) message[i] = children[parent * 16u + i];
-    blake2s_compress(state, message, 128u, true);
+    blake2s_compress(state, message, 64u, true);
     for (uint i = 0; i < 8u; ++i) destination[parent * 8u + i] = state[i];
 }
 
@@ -260,9 +288,9 @@ kernel void stwo_zig_blake2s_parents_sparse(
 ) {
     if (parent >= parent_count) return;
     uint state[8], message[16];
-    for (uint i = 0; i < 8u; ++i) state[i] = node_seed[i];
+    blake2s_init_hash(state);
     for (uint i = 0; i < 16u; ++i) message[i] = arena[child_offset + parent * 16u + i];
-    blake2s_compress(state, message, 128u, true);
+    blake2s_compress(state, message, 64u, true);
     for (uint i = 0; i < 8u; ++i) arena[destination_offset + parent * 8u + i] = state[i];
 }
 
@@ -384,6 +412,43 @@ inline Felt252Metal felt_mont_mul(thread const Felt252Metal &a, thread const Fel
     if (t[32] != 0u || felt_ge_p(result)) result = felt_sub_p(result);
     return result;
 }
+inline Felt252Metal felt_mont_square(thread const Felt252Metal &value) {
+    uint t[33];
+    for (uint i = 0u; i < 33u; ++i) t[i] = 0u;
+    ulong carry = 0u;
+    for (uint diagonal = 0u; diagonal < 31u; ++diagonal) {
+        ulong coefficient = carry;
+        uint first = diagonal > 15u ? diagonal - 15u : 0u;
+        uint last = min(diagonal, 15u);
+        for (uint i = first; i <= last; ++i) {
+            uint j = diagonal - i;
+            if (i > j) break;
+            ulong product = ulong(value.limbs[i]) * ulong(value.limbs[j]);
+            coefficient += i == j ? product : product + product;
+        }
+        t[diagonal] = uint(coefficient) & 0xffffu;
+        carry = coefficient >> 16u;
+    }
+    t[31] = uint(carry) & 0xffffu;
+    t[32] = uint(carry >> 16u);
+    for (uint i = 0u; i < 16u; ++i) {
+        uint m = (t[i] * 0xffffu) & 0xffffu;
+        ulong reduction_carry = 0u;
+        for (uint j = 0u; j < 16u; ++j) {
+            ulong z = ulong(t[i + j]) + ulong(m) * ulong(felt_p[j]) + reduction_carry;
+            t[i + j] = uint(z) & 0xffffu; reduction_carry = z >> 16u;
+        }
+        uint k = i + 16u;
+        while (reduction_carry != 0u) {
+            ulong z = ulong(t[k]) + reduction_carry;
+            t[k] = uint(z) & 0xffffu; reduction_carry = z >> 16u; ++k;
+        }
+    }
+    Felt252Metal result;
+    for (uint i = 0u; i < 16u; ++i) result.limbs[i] = ushort(t[i + 16u]);
+    if (t[32] != 0u || felt_ge_p(result)) result = felt_sub_p(result);
+    return result;
+}
 inline Felt252Metal felt_add_252(thread const Felt252Metal &a, thread const Felt252Metal &b) {
     Felt252Metal result; uint carry = 0u;
     for (uint i = 0; i < 16u; ++i) {
@@ -424,6 +489,14 @@ inline Felt252Metal felt_inverse_252(thread const Felt252Metal &value) {
     Felt252Metal result = felt_one_montgomery();
     for (int bit = 251; bit >= 0; --bit) {
         result = felt_mont_mul(result, result);
+        if (bit < 192 || bit == 196 || bit == 251) result = felt_mont_mul(result, value);
+    }
+    return result;
+}
+inline Felt252Metal ec_felt_inverse_252(thread const Felt252Metal &value) {
+    Felt252Metal result = felt_one_montgomery();
+    for (int bit = 251; bit >= 0; --bit) {
+        result = felt_mont_square(result);
         if (bit < 192 || bit == 196 || bit == 251) result = felt_mont_mul(result, value);
     }
     return result;
@@ -648,7 +721,7 @@ inline Felt252Metal witness_poseidon_key(device uint *arena, constant WitnessArg
     return witness_from_w27(words);
 }
 
-inline void witness_deduce_0(device uint *, constant WitnessArgs &, thread const uint *input, thread uint *output) {
+[[clang::noinline]] void witness_deduce_0(device uint *, constant WitnessArgs &, thread const uint *input, thread uint *output) {
     uint a=input[0], b=input[1], c=input[2], d=input[3], m0=input[4], m1=input[5];
     a=a+b+m0; d=d^a; d=(d>>16u)|(d<<16u); c+=d; b=b^c; b=(b>>12u)|(b<<20u);
     a=a+b+m1; d=d^a; d=(d>>8u)|(d<<24u); c+=d; b=b^c; b=(b>>7u)|(b<<25u);
@@ -662,12 +735,12 @@ constant uint witness_blake_sigma[160] = {
     12,5,1,15,14,13,4,10,0,7,6,3,9,2,8,11, 13,11,7,14,12,1,3,9,5,0,15,4,8,6,2,10,
     6,15,14,9,11,3,0,8,12,2,13,7,1,4,10,5, 10,2,8,4,7,6,1,5,15,11,9,14,3,12,13,0
 };
-inline void witness_deduce_1(device uint *, constant WitnessArgs &, thread const uint *input, thread uint *output) {
+[[clang::noinline]] void witness_deduce_1(device uint *, constant WitnessArgs &, thread const uint *input, thread uint *output) {
     uint round = input[0] < 10u ? input[0] : 0u;
     for (uint i = 0u; i < 16u; ++i) output[i] = witness_blake_sigma[round * 16u + i];
 }
 
-inline void witness_deduce_3(device uint *arena, constant WitnessArgs &args, thread const uint *input, thread uint *output) {
+[[clang::noinline]] void witness_deduce_3(device uint *arena, constant WitnessArgs &args, thread const uint *input, thread uint *output) {
     uint row = input[0] & (args.pedersen_rows - 1u);
     for (uint column = 0u; column < 56u; ++column) output[column] = arena[arena[args.pedersen_offsets + column] + row];
 }
@@ -682,7 +755,7 @@ inline EcPointMetal witness_ec_add(thread const EcPointMetal &left_standard, thr
     return { felt_from_montgomery(x), felt_from_montgomery(y) };
 }
 
-inline void witness_deduce_2(device uint *arena, constant WitnessArgs &args, thread const uint *input, thread uint *output) {
+[[clang::noinline]] void witness_deduce_2(device uint *arena, constant WitnessArgs &args, thread const uint *input, thread uint *output) {
     EcPointMetal accumulator = { felt_from_m31_words(input + 16), felt_from_m31_words(input + 44) };
     uint row = (input[1] * 262144u + input[2]) & (args.pedersen_rows - 1u), limbs[28];
     for (uint i = 0u; i < 28u; ++i) limbs[i] = arena[arena[args.pedersen_offsets + i] + row];
@@ -695,7 +768,7 @@ inline void witness_deduce_2(device uint *arena, constant WitnessArgs &args, thr
     felt_to_m31_words(sum.x, output+16); felt_to_m31_words(sum.y, output+44);
 }
 
-inline void witness_deduce_felt_binary(uint kind, thread const uint *input, thread uint *output) {
+[[clang::noinline]] void witness_deduce_felt_binary(uint kind, thread const uint *input, thread uint *output) {
     Felt252Metal a=felt_from_m31_words(input), b=felt_from_m31_words(input+28), result;
     if(kind==4u) result=felt_add_252(a,b);
     else if(kind==5u) result=felt_sub_252(a,b);
@@ -706,19 +779,19 @@ inline void witness_deduce_felt_binary(uint kind, thread const uint *input, thre
     }
     felt_to_m31_words(result,output);
 }
-inline void witness_deduce_4(device uint *, constant WitnessArgs &, thread const uint *i, thread uint *o){witness_deduce_felt_binary(4u,i,o);}
-inline void witness_deduce_5(device uint *, constant WitnessArgs &, thread const uint *i, thread uint *o){witness_deduce_felt_binary(5u,i,o);}
-inline void witness_deduce_6(device uint *, constant WitnessArgs &, thread const uint *i, thread uint *o){witness_deduce_felt_binary(6u,i,o);}
-inline void witness_deduce_7(device uint *, constant WitnessArgs &, thread const uint *i, thread uint *o){witness_deduce_felt_binary(7u,i,o);}
+[[clang::noinline]] void witness_deduce_4(device uint *, constant WitnessArgs &, thread const uint *i, thread uint *o){witness_deduce_felt_binary(4u,i,o);}
+[[clang::noinline]] void witness_deduce_5(device uint *, constant WitnessArgs &, thread const uint *i, thread uint *o){witness_deduce_felt_binary(5u,i,o);}
+[[clang::noinline]] void witness_deduce_6(device uint *, constant WitnessArgs &, thread const uint *i, thread uint *o){witness_deduce_felt_binary(6u,i,o);}
+[[clang::noinline]] void witness_deduce_7(device uint *, constant WitnessArgs &, thread const uint *i, thread uint *o){witness_deduce_felt_binary(7u,i,o);}
 
-inline void witness_deduce_8(device uint *arena, constant WitnessArgs &args, thread const uint *input, thread uint *output) {
+[[clang::noinline]] void witness_deduce_8(device uint *arena, constant WitnessArgs &args, thread const uint *input, thread uint *output) {
     uint round=input[0]<35u?input[0]:0u;
     for(uint i=0u;i<30u;++i) output[i]=arena[arena[args.poseidon_keys+i]+round];
 }
-inline void witness_deduce_9(device uint *, constant WitnessArgs &, thread const uint *input, thread uint *output) {
+[[clang::noinline]] void witness_deduce_9(device uint *, constant WitnessArgs &, thread const uint *input, thread uint *output) {
     Felt252Metal value=witness_from_w27(input); value=witness_value_cube(value); witness_to_w27(value,output);
 }
-inline void witness_deduce_10(device uint *arena, constant WitnessArgs &args, thread const uint *input, thread uint *output) {
+[[clang::noinline]] void witness_deduce_10(device uint *arena, constant WitnessArgs &args, thread const uint *input, thread uint *output) {
     Felt252Metal x=witness_value_cube(witness_from_w27(input+2)), y=witness_value_cube(witness_from_w27(input+12)), z=witness_value_cube(witness_from_w27(input+22));
     Felt252Metal yz=felt_sub_252(y,z), xyz=felt_sub_252(x,yz), xyz_neg=felt_add_252(x,yz), xy=felt_add_252(x,y), two_xy=felt_add_252(xy,xy);
     Felt252Metal nx=felt_add_252(felt_add_252(two_xy,xyz),witness_poseidon_key(arena,args,input[1],0u));
@@ -726,7 +799,7 @@ inline void witness_deduce_10(device uint *arena, constant WitnessArgs &args, th
     Felt252Metal nz=felt_add_252(felt_sub_252(xyz_neg,z),witness_poseidon_key(arena,args,input[1],2u));
     output[0]=input[0]; output[1]=input[1]+1u; witness_to_w27(nx,output+2); witness_to_w27(ny,output+12); witness_to_w27(nz,output+22);
 }
-inline void witness_deduce_11(device uint *arena, constant WitnessArgs &args, thread const uint *input, thread uint *output) {
+[[clang::noinline]] void witness_deduce_11(device uint *arena, constant WitnessArgs &args, thread const uint *input, thread uint *output) {
     Felt252Metal state[4]; for(uint i=0u;i<4u;++i) state[i]=witness_from_w27(input+2u+i*10u);
     for(uint key=0u;key<3u;++key){
         Felt252Metal z23=witness_value_cube(state[3]), z03z13=felt_add_252(state[0],state[2]), z03z13z1=felt_add_252(z03z13,state[1]);
@@ -777,6 +850,7 @@ inline void ec_add_with_inverse(
     left.x = x3; left.y = y3;
 }
 inline void ec_store_lookup(device uint *arena, uint lookup, uint rows, uint row, uint word, uint value) {
+    if (lookup == 0xffffffffu) return;
     arena[lookup + word * rows + row] = value;
 }
 inline void ec_store_address_lookup(device uint *arena, uint lookup, uint rows, uint row, uint word, uint address, uint id) {
@@ -857,7 +931,76 @@ inline void ec_store_partial_lookup(
     ec_store_lookup(arena, lookup, rows, row, word, counter);
 }
 
-kernel void stwo_zig_ec_op_witness(
+struct EcProjectiveMetal { Felt252Metal x; Felt252Metal y; Felt252Metal z; };
+
+inline EcProjectiveMetal ec_projective_from_affine(thread const EcPointMetal &point) {
+    EcProjectiveMetal result = { point.x, point.y, felt_one_montgomery() };
+    return result;
+}
+
+inline EcProjectiveMetal ec_projective_double(thread const EcProjectiveMetal &point) {
+    Felt252Metal xx = felt_mont_square(point.x);
+    Felt252Metal yy = felt_mont_square(point.y);
+    Felt252Metal yyyy = felt_mont_square(yy);
+    Felt252Metal zz = felt_mont_square(point.z);
+    Felt252Metal x_plus_yy = felt_add_252(point.x, yy);
+    Felt252Metal s = felt_sub_252(felt_sub_252(felt_mont_square(x_plus_yy), xx), yyyy);
+    s = felt_add_252(s, s);
+    Felt252Metal m = felt_add_252(felt_add_252(xx, xx), xx);
+    m = felt_add_252(m, felt_mont_square(zz));
+    Felt252Metal x = felt_sub_252(felt_mont_square(m), felt_add_252(s, s));
+    Felt252Metal eight_yyyy = felt_add_252(yyyy, yyyy);
+    eight_yyyy = felt_add_252(eight_yyyy, eight_yyyy);
+    eight_yyyy = felt_add_252(eight_yyyy, eight_yyyy);
+    Felt252Metal y = felt_sub_252(felt_mont_mul(m, felt_sub_252(s, x)), eight_yyyy);
+    Felt252Metal z = felt_mont_mul(felt_add_252(point.y, point.y), point.z);
+    EcProjectiveMetal result = { x, y, z };
+    return result;
+}
+
+inline EcProjectiveMetal ec_projective_add(
+    thread const EcProjectiveMetal &left,
+    thread const EcProjectiveMetal &right
+) {
+    Felt252Metal z1z1 = felt_mont_square(left.z);
+    Felt252Metal z2z2 = felt_mont_square(right.z);
+    Felt252Metal u1 = felt_mont_mul(left.x, z2z2);
+    Felt252Metal u2 = felt_mont_mul(right.x, z1z1);
+    Felt252Metal s1 = felt_mont_mul(left.y, felt_mont_mul(right.z, z2z2));
+    Felt252Metal s2 = felt_mont_mul(right.y, felt_mont_mul(left.z, z1z1));
+    if (felt_equal_252(u1, u2) && felt_equal_252(s1, s2)) return ec_projective_double(left);
+    Felt252Metal h = felt_sub_252(u2, u1);
+    Felt252Metal two_h = felt_add_252(h, h);
+    Felt252Metal i = felt_mont_square(two_h);
+    Felt252Metal j = felt_mont_mul(h, i);
+    Felt252Metal r = felt_add_252(felt_sub_252(s2, s1), felt_sub_252(s2, s1));
+    Felt252Metal v = felt_mont_mul(u1, i);
+    Felt252Metal x = felt_sub_252(felt_sub_252(felt_mont_square(r), j), felt_add_252(v, v));
+    Felt252Metal y = felt_sub_252(
+        felt_mont_mul(r, felt_sub_252(v, x)),
+        felt_mont_mul(felt_add_252(s1, s1), j)
+    );
+    Felt252Metal z_sum = felt_add_252(left.z, right.z);
+    Felt252Metal z = felt_mont_mul(
+        felt_sub_252(felt_sub_252(felt_mont_square(z_sum), z1z1), z2z2),
+        h
+    );
+    EcProjectiveMetal result = { x, y, z };
+    return result;
+}
+
+inline EcPointMetal ec_projective_to_affine(
+    thread const EcProjectiveMetal &point,
+    thread const Felt252Metal &z_inverse
+) {
+    Felt252Metal inverse_squared = felt_mont_square(z_inverse);
+    EcPointMetal result;
+    result.x = felt_mont_mul(point.x, inverse_squared);
+    result.y = felt_mont_mul(point.y, felt_mont_mul(inverse_squared, z_inverse));
+    return result;
+}
+
+kernel void stwo_zig_ec_op_lookup(
     device uint *arena [[buffer(0)]], device const uint *execution_offsets [[buffer(1)]],
     device const uint *trace_offsets [[buffer(2)]], device const uint *partial_offsets [[buffer(3)]],
     device const uint *multiplicity_offsets [[buffer(4)]], constant uint *params [[buffer(5)]],
@@ -870,50 +1013,174 @@ kernel void stwo_zig_ec_op_witness(
     threadgroup Felt252Metal suffix_products[256];
     threadgroup Felt252Metal total_inverse;
     uint limbs[28], m[10];
+    EcPointMetal accumulator_affine, q_affine;
+    uint base = arena[segment_offset] + 7u * row;
+    uint address_offset = execution_offsets[0];
+
+    uint id = arena[address_offset + base];
+    Felt252Metal standard = ec_load_memory(arena, execution_offsets, id, limbs);
+    ec_store_address_lookup(arena, lookup, rows, row, 0, base, id);
+    ec_store_big_lookup(arena, lookup, rows, row, 3, id, limbs);
+    accumulator_affine.x = felt_to_montgomery(standard);
+
+    id = arena[address_offset + base + 1u]; standard = ec_load_memory(arena, execution_offsets, id, limbs);
+    ec_store_address_lookup(arena, lookup, rows, row, 33, base + 1u, id);
+    ec_store_big_lookup(arena, lookup, rows, row, 36, id, limbs);
+    accumulator_affine.y = felt_to_montgomery(standard);
+
+    id = arena[address_offset + base + 2u]; standard = ec_load_memory(arena, execution_offsets, id, limbs);
+    ec_store_address_lookup(arena, lookup, rows, row, 66, base + 2u, id);
+    ec_store_big_lookup(arena, lookup, rows, row, 69, id, limbs);
+    q_affine.x = felt_to_montgomery(standard);
+
+    id = arena[address_offset + base + 3u]; standard = ec_load_memory(arena, execution_offsets, id, limbs);
+    ec_store_address_lookup(arena, lookup, rows, row, 99, base + 3u, id);
+    ec_store_big_lookup(arena, lookup, rows, row, 102, id, limbs);
+    q_affine.y = felt_to_montgomery(standard);
+
+    id = arena[address_offset + base + 4u]; standard = ec_load_memory(arena, execution_offsets, id, limbs);
+    ec_store_address_lookup(arena, lookup, rows, row, 132, base + 4u, id);
+    ec_store_big_lookup(arena, lookup, rows, row, 135, id, limbs);
+    for (uint word = 0; word < 9u; ++word) m[word] = limbs[3u * word] | (limbs[3u * word + 1u] << 9u) | (limbs[3u * word + 2u] << 18u);
+    m[9] = limbs[27];
+    uint ms_is_max = limbs[27] == 256u, ms_mid_max = ms_is_max && limbs[21] == 136u;
+    uint rc0 = limbs[27] - ms_is_max, rc1 = ms_is_max * (120u + limbs[21] - ms_mid_max);
+    ec_store_lookup(arena, lookup, rows, row, 165, 1420243005u); ec_store_lookup(arena, lookup, rows, row, 166, rc0);
+    ec_store_lookup(arena, lookup, rows, row, 167, 1420243005u); ec_store_lookup(arena, lookup, rows, row, 168, rc1);
+    uint counter = 26u;
+    ec_store_partial_lookup(arena, lookup, rows, row, 169, row, 0, m, q_affine, accumulator_affine, counter);
+
+    EcProjectiveMetal accumulator = ec_projective_from_affine(accumulator_affine);
+    EcProjectiveMetal q = ec_projective_from_affine(q_affine);
+    for (uint round = 0; round < 252u; ++round) {
+        if ((m[0] & 1u) != 0u) accumulator = ec_projective_add(accumulator, q);
+        q = ec_projective_double(q);
+        if (counter == 0u) {
+            for (uint word = 0; word + 1u < 10u; ++word) m[word] = m[word + 1u];
+            m[9] = 0u; counter = 26u;
+        } else { m[0] >>= 1u; --counter; }
+    }
+
+    Felt252Metal product = felt_mont_mul(q.z, accumulator.z);
+    prefix_products[local_row] = product;
+    suffix_products[local_row] = product;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    uint group_start = group * group_size, group_rows = min(group_size, rows - group_start);
+    for (uint stride = 1u; stride < group_rows; stride <<= 1u) {
+        Felt252Metal prefix = prefix_products[local_row];
+        Felt252Metal suffix = suffix_products[local_row];
+        Felt252Metal preceding = felt_one_montgomery();
+        Felt252Metal following = felt_one_montgomery();
+        if (local_row >= stride) preceding = prefix_products[local_row - stride];
+        if (local_row + stride < group_rows) following = suffix_products[local_row + stride];
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        prefix_products[local_row] = felt_mont_mul(preceding, prefix);
+        suffix_products[local_row] = felt_mont_mul(suffix, following);
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    Felt252Metal preceding = felt_one_montgomery();
+    Felt252Metal following = felt_one_montgomery();
+    if (local_row != 0u) preceding = prefix_products[local_row - 1u];
+    if (local_row + 1u < group_rows) following = suffix_products[local_row + 1u];
+    if (local_row == 0u) {
+        Felt252Metal total = prefix_products[group_rows - 1u];
+        total_inverse = ec_felt_inverse_252(total);
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    Felt252Metal inverse = total_inverse;
+    Felt252Metal inverse_product = felt_mont_mul(felt_mont_mul(inverse, preceding), following);
+    q_affine = ec_projective_to_affine(q, felt_mont_mul(accumulator.z, inverse_product));
+    accumulator_affine = ec_projective_to_affine(accumulator, felt_mont_mul(q.z, inverse_product));
+
+    ec_store_partial_lookup(arena, lookup, rows, row, 295, row, 252u, m, q_affine, accumulator_affine, counter);
+    uint result_x_id = arena[address_offset + base + 5u];
+    ec_store_address_lookup(arena, lookup, rows, row, 421, base + 5u, result_x_id);
+    standard = felt_from_montgomery(accumulator_affine.x); felt_to_m31_words(standard, limbs);
+    ec_store_big_lookup(arena, lookup, rows, row, 424, result_x_id, limbs);
+    uint result_y_id = arena[address_offset + base + 6u];
+    ec_store_address_lookup(arena, lookup, rows, row, 454, base + 6u, result_y_id);
+    standard = felt_from_montgomery(accumulator_affine.y); felt_to_m31_words(standard, limbs);
+    ec_store_big_lookup(arena, lookup, rows, row, 457, result_y_id, limbs);
+    ec_store_lookup(arena, lookup, rows, row, 487, 1u);
+    (void)trace_offsets; (void)partial_offsets; (void)multiplicity_offsets;
+}
+
+kernel void stwo_zig_ec_op_witness(
+    device uint *arena [[buffer(0)]], device const uint *execution_offsets [[buffer(1)]],
+    device const uint *trace_offsets [[buffer(2)]], device const uint *partial_offsets [[buffer(3)]],
+    device const uint *multiplicity_offsets [[buffer(4)]], constant uint *params [[buffer(5)]],
+    uint row [[thread_position_in_grid]], uint local_row [[thread_index_in_threadgroup]],
+    uint group [[threadgroup_position_in_grid]], uint group_size [[threads_per_threadgroup]]
+) {
+    uint lookup = params[4] != 0u ? params[0] : 0xffffffffu;
+    bool write_base = params[5] != 0u;
+    uint segment_offset = params[1], rows = params[3];
+    if (row >= rows) return;
+    threadgroup Felt252Metal prefix_products[256];
+    threadgroup Felt252Metal suffix_products[256];
+    threadgroup Felt252Metal total_inverse;
+    uint limbs[28], m[10];
     EcPointMetal accumulator, q;
     uint base = arena[segment_offset] + 7u * row;
     uint address_offset = execution_offsets[0];
 
     uint id = arena[address_offset + base];
     Felt252Metal standard = ec_load_memory(arena, execution_offsets, id, limbs);
-    arena[trace_offsets[0] + row] = id; ec_store_trace_limbs(arena, trace_offsets, 1, row, limbs);
-    ec_count_memory(arena, multiplicity_offsets, base, id); ec_store_address_lookup(arena, lookup, rows, row, 0, base, id);
+    if (write_base) {
+        arena[trace_offsets[0] + row] = id; ec_store_trace_limbs(arena, trace_offsets, 1, row, limbs);
+        ec_count_memory(arena, multiplicity_offsets, base, id);
+    }
+    ec_store_address_lookup(arena, lookup, rows, row, 0, base, id);
     ec_store_big_lookup(arena, lookup, rows, row, 3, id, limbs); accumulator.x = felt_to_montgomery(standard);
 
     id = arena[address_offset + base + 1u]; standard = ec_load_memory(arena, execution_offsets, id, limbs);
-    arena[trace_offsets[29] + row] = id; ec_store_trace_limbs(arena, trace_offsets, 30, row, limbs);
-    ec_count_memory(arena, multiplicity_offsets, base + 1u, id); ec_store_address_lookup(arena, lookup, rows, row, 33, base + 1u, id);
+    if (write_base) {
+        arena[trace_offsets[29] + row] = id; ec_store_trace_limbs(arena, trace_offsets, 30, row, limbs);
+        ec_count_memory(arena, multiplicity_offsets, base + 1u, id);
+    }
+    ec_store_address_lookup(arena, lookup, rows, row, 33, base + 1u, id);
     ec_store_big_lookup(arena, lookup, rows, row, 36, id, limbs); accumulator.y = felt_to_montgomery(standard);
 
     id = arena[address_offset + base + 2u]; standard = ec_load_memory(arena, execution_offsets, id, limbs);
-    arena[trace_offsets[58] + row] = id; ec_store_trace_limbs(arena, trace_offsets, 59, row, limbs);
-    ec_count_memory(arena, multiplicity_offsets, base + 2u, id); ec_store_address_lookup(arena, lookup, rows, row, 66, base + 2u, id);
+    if (write_base) {
+        arena[trace_offsets[58] + row] = id; ec_store_trace_limbs(arena, trace_offsets, 59, row, limbs);
+        ec_count_memory(arena, multiplicity_offsets, base + 2u, id);
+    }
+    ec_store_address_lookup(arena, lookup, rows, row, 66, base + 2u, id);
     ec_store_big_lookup(arena, lookup, rows, row, 69, id, limbs); q.x = felt_to_montgomery(standard);
 
     id = arena[address_offset + base + 3u]; standard = ec_load_memory(arena, execution_offsets, id, limbs);
-    arena[trace_offsets[87] + row] = id; ec_store_trace_limbs(arena, trace_offsets, 88, row, limbs);
-    ec_count_memory(arena, multiplicity_offsets, base + 3u, id); ec_store_address_lookup(arena, lookup, rows, row, 99, base + 3u, id);
+    if (write_base) {
+        arena[trace_offsets[87] + row] = id; ec_store_trace_limbs(arena, trace_offsets, 88, row, limbs);
+        ec_count_memory(arena, multiplicity_offsets, base + 3u, id);
+    }
+    ec_store_address_lookup(arena, lookup, rows, row, 99, base + 3u, id);
     ec_store_big_lookup(arena, lookup, rows, row, 102, id, limbs); q.y = felt_to_montgomery(standard);
 
     id = arena[address_offset + base + 4u]; standard = ec_load_memory(arena, execution_offsets, id, limbs);
-    arena[trace_offsets[116] + row] = id; ec_store_trace_limbs(arena, trace_offsets, 117, row, limbs);
-    ec_count_memory(arena, multiplicity_offsets, base + 4u, id); ec_store_address_lookup(arena, lookup, rows, row, 132, base + 4u, id);
+    if (write_base) {
+        arena[trace_offsets[116] + row] = id; ec_store_trace_limbs(arena, trace_offsets, 117, row, limbs);
+        ec_count_memory(arena, multiplicity_offsets, base + 4u, id);
+    }
+    ec_store_address_lookup(arena, lookup, rows, row, 132, base + 4u, id);
     ec_store_big_lookup(arena, lookup, rows, row, 135, id, limbs);
     for (uint word = 0; word < 9u; ++word) m[word] = limbs[3u * word] | (limbs[3u * word + 1u] << 9u) | (limbs[3u * word + 2u] << 18u);
     m[9] = limbs[27];
     uint ms_is_max = limbs[27] == 256u, ms_mid_max = ms_is_max && limbs[21] == 136u;
     uint rc0 = limbs[27] - ms_is_max, rc1 = ms_is_max * (120u + limbs[21] - ms_mid_max);
-    arena[trace_offsets[145] + row] = ms_is_max; arena[trace_offsets[146] + row] = ms_mid_max; arena[trace_offsets[147] + row] = rc1;
+    if (write_base) {
+        arena[trace_offsets[145] + row] = ms_is_max; arena[trace_offsets[146] + row] = ms_mid_max; arena[trace_offsets[147] + row] = rc1;
+        atomic_fetch_add_explicit((device atomic_uint *)&arena[multiplicity_offsets[3] + rc0], 1u, memory_order_relaxed);
+        atomic_fetch_add_explicit((device atomic_uint *)&arena[multiplicity_offsets[3] + rc1], 1u, memory_order_relaxed);
+    }
     ec_store_lookup(arena, lookup, rows, row, 165, 1420243005u); ec_store_lookup(arena, lookup, rows, row, 166, rc0);
     ec_store_lookup(arena, lookup, rows, row, 167, 1420243005u); ec_store_lookup(arena, lookup, rows, row, 168, rc1);
-    atomic_fetch_add_explicit((device atomic_uint *)&arena[multiplicity_offsets[3] + rc0], 1u, memory_order_relaxed);
-    atomic_fetch_add_explicit((device atomic_uint *)&arena[multiplicity_offsets[3] + rc1], 1u, memory_order_relaxed);
     uint counter = 26u;
     ec_store_partial_lookup(arena, lookup, rows, row, 169, row, 0, m, q, accumulator, counter);
 
     uint group_start = group * group_size, group_rows = min(group_size, rows - group_start);
     for (uint round = 0; round < 252u; ++round) {
-        ec_store_partial(arena, partial_offsets, round * rows + row, row, round, m, q, accumulator, counter, 1u);
+        if (write_base) ec_store_partial(arena, partial_offsets, round * rows + row, row, round, m, q, accumulator, counter, 1u);
         bool add_point = (m[0] & 1u) != 0u;
         bool equal = felt_equal_252(accumulator.x, q.x) && felt_equal_252(accumulator.y, q.y);
         Felt252Metal add_denominator = !add_point ? felt_one_montgomery() :
@@ -954,34 +1221,54 @@ kernel void stwo_zig_ec_op_witness(
             for (uint word = 0; word + 1u < 10u; ++word) m[word] = m[word + 1u];
             m[9] = 0u; counter = 26u;
         } else { m[0] >>= 1u; --counter; }
-        threadgroup_barrier(mem_flags::mem_device);
     }
 
-    for (uint word = 0; word < 10u; ++word) arena[trace_offsets[148u + word] + row] = m[word];
-    Felt252Metal finals[4] = { q.x, q.y, accumulator.x, accumulator.y };
-    const uint trace_starts[4] = { 158u, 186u, 214u, 242u };
-    for (uint value_index = 0; value_index < 4u; ++value_index) {
-        standard = felt_from_montgomery(finals[value_index]); felt_to_m31_words(standard, limbs);
-        ec_store_trace_limbs(arena, trace_offsets, trace_starts[value_index], row, limbs);
+    if (write_base) {
+        for (uint word = 0; word < 10u; ++word) arena[trace_offsets[148u + word] + row] = m[word];
+        Felt252Metal finals[4] = { q.x, q.y, accumulator.x, accumulator.y };
+        const uint trace_starts[4] = { 158u, 186u, 214u, 242u };
+        for (uint value_index = 0; value_index < 4u; ++value_index) {
+            standard = felt_from_montgomery(finals[value_index]); felt_to_m31_words(standard, limbs);
+            ec_store_trace_limbs(arena, trace_offsets, trace_starts[value_index], row, limbs);
+        }
+        arena[trace_offsets[270] + row] = counter;
     }
-    arena[trace_offsets[270] + row] = counter;
     ec_store_partial_lookup(arena, lookup, rows, row, 295, row, 252u, m, q, accumulator, counter);
-    uint result_x_id = arena[address_offset + base + 5u]; arena[trace_offsets[271] + row] = result_x_id;
-    ec_count_memory(arena, multiplicity_offsets, base + 5u, result_x_id); ec_store_address_lookup(arena, lookup, rows, row, 421, base + 5u, result_x_id);
+    uint result_x_id = arena[address_offset + base + 5u];
+    if (write_base) {
+        arena[trace_offsets[271] + row] = result_x_id;
+        ec_count_memory(arena, multiplicity_offsets, base + 5u, result_x_id);
+    }
+    ec_store_address_lookup(arena, lookup, rows, row, 421, base + 5u, result_x_id);
     standard = felt_from_montgomery(accumulator.x); felt_to_m31_words(standard, limbs); ec_store_big_lookup(arena, lookup, rows, row, 424, result_x_id, limbs);
-    uint result_y_id = arena[address_offset + base + 6u]; arena[trace_offsets[272] + row] = result_y_id;
-    ec_count_memory(arena, multiplicity_offsets, base + 6u, result_y_id); ec_store_address_lookup(arena, lookup, rows, row, 454, base + 6u, result_y_id);
+    uint result_y_id = arena[address_offset + base + 6u];
+    if (write_base) {
+        arena[trace_offsets[272] + row] = result_y_id;
+        ec_count_memory(arena, multiplicity_offsets, base + 6u, result_y_id);
+    }
+    ec_store_address_lookup(arena, lookup, rows, row, 454, base + 6u, result_y_id);
     standard = felt_from_montgomery(accumulator.y); felt_to_m31_words(standard, limbs); ec_store_big_lookup(arena, lookup, rows, row, 457, result_y_id, limbs);
     ec_store_lookup(arena, lookup, rows, row, 487, 1u);
+}
 
-    for (uint round = 0; round < 256u; ++round) {
-        uint destination = round * rows + row;
-        arena[partial_offsets[126] + destination] = destination;
-    }
-    for (uint pad = row; pad < 4u * rows; pad += rows) {
-        uint destination = 252u * rows + pad, source = pad & 15u;
-        for (uint column = 0; column < 125u; ++column) arena[partial_offsets[column] + destination] = arena[partial_offsets[column] + source];
-        arena[partial_offsets[125] + destination] = 0u;
+kernel void stwo_zig_ec_op_base_finalize(
+    device uint *arena [[buffer(0)]],
+    device const uint *partial_offsets [[buffer(1)]],
+    constant uint *params [[buffer(2)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    uint rows = params[3];
+    uint pad = position.x, column = position.y;
+    uint padding_rows = 4u * rows;
+    if (pad >= padding_rows || column >= 126u) return;
+    uint destination = 252u * rows + pad;
+    arena[partial_offsets[column] + destination] = column < 125u
+        ? arena[partial_offsets[column] + (pad & 15u)]
+        : 0u;
+    if (column == 125u) {
+        for (uint index = pad; index < 256u * rows; index += padding_rows) {
+            arena[partial_offsets[126] + index] = index;
+        }
     }
 }
 
@@ -1007,8 +1294,8 @@ kernel void stwo_zig_circle_ifft_first(
     uint base = position.y << log_size;
     uint idx0 = base + (position.x << 1u);
     uint idx1 = idx0 + 1u;
-    uint lhs = values[idx0];
-    uint rhs = values[idx1];
+    uint lhs = m31_reduce(values[idx0]);
+    uint rhs = m31_reduce(values[idx1]);
     uint twiddle = circle_twiddle(twiddles, position.x);
     values[idx0] = m31_add(lhs, rhs);
     values[idx1] = m31_mul(m31_sub(lhs, rhs), twiddle);
@@ -1106,8 +1393,8 @@ kernel void stwo_zig_circle_expand_coefficients(
 
 kernel void stwo_zig_circle_expand_sparse(
     device uint *arena [[buffer(0)]],
-    device const uint *source_offsets [[buffer(1)]],
-    device const uint *destination_offsets [[buffer(2)]],
+    device const ulong *source_offsets [[buffer(1)]],
+    device const ulong *destination_offsets [[buffer(2)]],
     constant uint &base_log_size [[buffer(3)]],
     constant uint &extended_log_size [[buffer(4)]],
     constant uint &column_count [[buffer(5)]],
@@ -1121,7 +1408,7 @@ kernel void stwo_zig_circle_expand_sparse(
 }
 
 kernel void stwo_zig_composition_expand_sparse(
-    device uint *arena [[buffer(0)]], device const uint *source_offsets [[buffer(1)]],
+    device uint *arena [[buffer(0)]], device const ulong *source_offsets [[buffer(1)]],
     device const uint *source_log_sizes [[buffer(2)]], device const uint *destination_offsets [[buffer(3)]],
     constant uint &extended_log_size [[buffer(4)]], constant uint &column_count [[buffer(5)]],
     uint2 position [[thread_position_in_grid]]
@@ -1134,8 +1421,8 @@ kernel void stwo_zig_composition_expand_sparse(
 }
 
 kernel void stwo_zig_circle_copy_sparse(
-    device uint *arena [[buffer(0)]], device const uint *source_offsets [[buffer(1)]],
-    device const uint *destination_offsets [[buffer(2)]], constant uint &log_size [[buffer(3)]],
+    device uint *arena [[buffer(0)]], device const ulong *source_offsets [[buffer(1)]],
+    device const ulong *destination_offsets [[buffer(2)]], constant uint &log_size [[buffer(3)]],
     constant uint &column_count [[buffer(4)]], uint2 position [[thread_position_in_grid]]
 ) {
     uint length = 1u << log_size;
@@ -1144,20 +1431,22 @@ kernel void stwo_zig_circle_copy_sparse(
 }
 
 kernel void stwo_zig_circle_ifft_first_sparse(
-    device uint *arena [[buffer(0)]], device const uint *destination_offsets [[buffer(1)]],
+    device uint *arena [[buffer(0)]], device const ulong *destination_offsets [[buffer(1)]],
     device const uint *twiddles [[buffer(2)]], constant uint &log_size [[buffer(3)]],
     constant uint &column_count [[buffer(4)]], uint2 position [[thread_position_in_grid]]
 ) {
     uint pair_count = 1u << (log_size - 1u);
     if (position.x >= pair_count || position.y >= column_count) return;
-    uint idx0 = destination_offsets[position.y] + (position.x << 1u), idx1 = idx0 + 1u;
-    uint lhs = arena[idx0], rhs = arena[idx1];
+    ulong idx0 = destination_offsets[position.y] + (position.x << 1u), idx1 = idx0 + 1u;
+    // Relation columns may carry lazy M31 representatives above p. Normalize
+    // once at the transform boundary; every following butterfly is canonical.
+    uint lhs = m31_reduce(arena[idx0]), rhs = m31_reduce(arena[idx1]);
     arena[idx0] = m31_add(lhs, rhs);
     arena[idx1] = m31_mul(m31_sub(lhs, rhs), circle_twiddle(twiddles, position.x));
 }
 
 kernel void stwo_zig_circle_ifft_layer_sparse(
-    device uint *arena [[buffer(0)]], device const uint *destination_offsets [[buffer(1)]],
+    device uint *arena [[buffer(0)]], device const ulong *destination_offsets [[buffer(1)]],
     device const uint *twiddles [[buffer(2)]], constant uint &log_size [[buffer(3)]],
     constant uint &layer [[buffer(4)]], constant uint &twiddle_offset [[buffer(5)]],
     constant uint &column_count [[buffer(6)]], uint2 position [[thread_position_in_grid]]
@@ -1166,21 +1455,21 @@ kernel void stwo_zig_circle_ifft_layer_sparse(
     if (position.x >= pair_count || position.y >= column_count) return;
     uint polynomial_count = 1u << layer;
     uint twiddle_index = position.x >> layer, lane = position.x & (polynomial_count - 1u);
-    uint base = destination_offsets[position.y] + (twiddle_index << (layer + 1u));
-    uint idx0 = base + lane, idx1 = idx0 + polynomial_count;
+    ulong base = destination_offsets[position.y] + (twiddle_index << (layer + 1u));
+    ulong idx0 = base + lane, idx1 = idx0 + polynomial_count;
     uint lhs = arena[idx0], rhs = arena[idx1];
     arena[idx0] = m31_add(lhs, rhs);
     arena[idx1] = m31_mul(m31_sub(lhs, rhs), twiddles[twiddle_offset + twiddle_index]);
 }
 
 kernel void stwo_zig_circle_rescale_sparse(
-    device uint *arena [[buffer(0)]], device const uint *destination_offsets [[buffer(1)]],
+    device uint *arena [[buffer(0)]], device const ulong *destination_offsets [[buffer(1)]],
     constant uint &log_size [[buffer(2)]], constant uint &column_count [[buffer(3)]],
     constant uint &factor [[buffer(4)]], uint2 position [[thread_position_in_grid]]
 ) {
     uint length = 1u << log_size;
     if (position.x < length && position.y < column_count) {
-        uint index = destination_offsets[position.y] + position.x;
+        ulong index = destination_offsets[position.y] + position.x;
         arena[index] = m31_mul(arena[index], factor);
     }
 }
@@ -1232,6 +1521,52 @@ kernel void stwo_zig_circle_rfft_layer_sparse(
     arena[idx1] = m31_sub(lhs, product);
 }
 
+// Composes forward layers L and L-1. Each thread owns the four values touched
+// by both layers, so the intermediate values remain in registers and need no
+// device-wide barrier or second arena pass.
+kernel void stwo_zig_circle_rfft_radix4_sparse(
+    device uint *arena [[buffer(0)]],
+    device const uint *destination_offsets [[buffer(1)]],
+    device const uint *twiddles [[buffer(2)]],
+    constant uint &log_size [[buffer(3)]],
+    constant uint &layer [[buffer(4)]],
+    constant uint &column_count [[buffer(5)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    uint tuple_count = 1u << (log_size - 2u);
+    if (position.x >= tuple_count || position.y >= column_count || layer < 2u) return;
+    uint half_distance = 1u << (layer - 1u);
+    uint group = position.x >> (layer - 1u);
+    uint lane = position.x & (half_distance - 1u);
+    uint distance = half_distance << 1u;
+    uint base = destination_offsets[position.y] + (group << (layer + 1u));
+    uint idx0 = base + lane;
+    uint idx1 = idx0 + half_distance;
+    uint idx2 = idx0 + distance;
+    uint idx3 = idx2 + half_distance;
+
+    uint pair_count = 1u << (log_size - 1u);
+    uint first_twiddle_offset = pair_count - (1u << (log_size - layer));
+    uint second_twiddle_offset = pair_count - (1u << (log_size - layer + 1u));
+    uint first_twiddle = twiddles[first_twiddle_offset + group];
+    uint second_group = group << 1u;
+
+    uint a = arena[idx0];
+    uint b = arena[idx1];
+    uint c = m31_mul(arena[idx2], first_twiddle);
+    uint d = m31_mul(arena[idx3], first_twiddle);
+    uint ac_sum = m31_add(a, c);
+    uint ac_diff = m31_sub(a, c);
+    uint bd_sum = m31_add(b, d);
+    uint bd_diff = m31_sub(b, d);
+    uint upper = m31_mul(bd_sum, twiddles[second_twiddle_offset + second_group]);
+    uint lower = m31_mul(bd_diff, twiddles[second_twiddle_offset + second_group + 1u]);
+    arena[idx0] = m31_add(ac_sum, upper);
+    arena[idx1] = m31_sub(ac_sum, upper);
+    arena[idx2] = m31_add(ac_diff, lower);
+    arena[idx3] = m31_sub(ac_diff, lower);
+}
+
 kernel void stwo_zig_circle_rfft_last_sparse(
     device uint *arena [[buffer(0)]],
     device const uint *destination_offsets [[buffer(1)]],
@@ -1243,6 +1578,46 @@ kernel void stwo_zig_circle_rfft_last_sparse(
     uint pair_count = 1u << (log_size - 1u);
     if (position.x >= pair_count || position.y >= column_count) return;
     uint idx0 = destination_offsets[position.y] + (position.x << 1u), idx1 = idx0 + 1u;
+    uint lhs = arena[idx0];
+    uint product = m31_mul(arena[idx1], circle_twiddle(twiddles, position.x));
+    arena[idx0] = m31_add(lhs, product);
+    arena[idx1] = m31_sub(lhs, product);
+}
+
+kernel void stwo_zig_circle_rfft_layer_sparse_wide(
+    device uint *arena [[buffer(0)]],
+    device const ulong *destination_offsets [[buffer(1)]],
+    device const uint *twiddles [[buffer(2)]],
+    constant uint &log_size [[buffer(3)]],
+    constant uint &layer [[buffer(4)]],
+    constant uint &twiddle_offset [[buffer(5)]],
+    constant uint &column_count [[buffer(6)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    uint pair_count = 1u << (log_size - 1u);
+    if (position.x >= pair_count || position.y >= column_count) return;
+    uint polynomial_count = 1u << layer;
+    uint twiddle_index = position.x >> layer;
+    uint lane = position.x & (polynomial_count - 1u);
+    ulong base = destination_offsets[position.y] + (twiddle_index << (layer + 1u));
+    ulong idx0 = base + lane, idx1 = idx0 + polynomial_count;
+    uint lhs = arena[idx0];
+    uint product = m31_mul(arena[idx1], twiddles[twiddle_offset + twiddle_index]);
+    arena[idx0] = m31_add(lhs, product);
+    arena[idx1] = m31_sub(lhs, product);
+}
+
+kernel void stwo_zig_circle_rfft_last_sparse_wide(
+    device uint *arena [[buffer(0)]],
+    device const ulong *destination_offsets [[buffer(1)]],
+    device const uint *twiddles [[buffer(2)]],
+    constant uint &log_size [[buffer(3)]],
+    constant uint &column_count [[buffer(4)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    uint pair_count = 1u << (log_size - 1u);
+    if (position.x >= pair_count || position.y >= column_count) return;
+    ulong idx0 = destination_offsets[position.y] + (position.x << 1u), idx1 = idx0 + 1u;
     uint lhs = arena[idx0];
     uint product = m31_mul(arena[idx1], circle_twiddle(twiddles, position.x));
     arena[idx0] = m31_add(lhs, product);
@@ -1418,6 +1793,59 @@ kernel void stwo_zig_circle_rfft_fused_tail(
     threadgroup_barrier(mem_flags::mem_threadgroup);
     for (uint item = lane; item < circle_fused_tile_size; item += circle_fused_threads) {
         values[column_offset + tile_offset + item] = tile[item];
+    }
+}
+
+kernel void stwo_zig_circle_rfft_fused_tail_sparse(
+    device uint *arena [[buffer(0)]],
+    device const uint *destination_offsets [[buffer(1)]],
+    device const uint *twiddles [[buffer(2)]],
+    constant uint &log_size [[buffer(3)]],
+    constant uint &column_count [[buffer(4)]],
+    uint lane [[thread_index_in_threadgroup]],
+    uint2 group [[threadgroup_position_in_grid]]
+) {
+    if (group.y >= column_count) return;
+    threadgroup uint tile[circle_fused_tile_size];
+    uint value_len = 1u << log_size;
+    uint tile_offset = group.x << circle_fused_tile_log;
+    uint column_offset = destination_offsets[group.y];
+    for (uint item = lane; item < circle_fused_tile_size; item += circle_fused_threads) {
+        tile[item] = arena[column_offset + tile_offset + item];
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    uint pair_count = value_len >> 1u;
+    for (uint layer = circle_fused_tile_log - 1u; layer > 0u; --layer) {
+        uint distance = 1u << layer;
+        uint stride = distance << 1u;
+        uint twiddle_offset = pair_count - (1u << (log_size - layer));
+        uint group_base = tile_offset / stride;
+        for (uint pair = lane; pair < circle_fused_tile_size / 2u; pair += circle_fused_threads) {
+            uint local_group = pair / distance;
+            uint inner = pair - local_group * distance;
+            uint idx0 = local_group * stride + inner;
+            uint idx1 = idx0 + distance;
+            uint lhs = tile[idx0];
+            uint product = m31_mul(tile[idx1], twiddles[twiddle_offset + group_base + local_group]);
+            tile[idx0] = m31_add(lhs, product);
+            tile[idx1] = m31_sub(lhs, product);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+
+    for (uint pair = lane; pair < circle_fused_tile_size / 2u; pair += circle_fused_threads) {
+        uint idx0 = pair << 1u;
+        uint idx1 = idx0 + 1u;
+        uint lhs = tile[idx0];
+        uint global_pair = (tile_offset >> 1u) + pair;
+        uint product = m31_mul(tile[idx1], circle_twiddle(twiddles, global_pair));
+        tile[idx0] = m31_add(lhs, product);
+        tile[idx1] = m31_sub(lhs, product);
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    for (uint item = lane; item < circle_fused_tile_size; item += circle_fused_threads) {
+        arena[column_offset + tile_offset + item] = tile[item];
     }
 }
 
@@ -1762,21 +2190,9 @@ kernel void stwo_zig_witness_feed_counts(
     }
 }
 
-kernel void stwo_zig_clear_arena_ranges(
-    device uint *arena [[buffer(0)]],
-    device const uint2 *ranges [[buffer(1)]],
-    constant uint &range_count [[buffer(2)]],
-    constant uint &max_length [[buffer(3)]],
-    uint2 position [[thread_position_in_grid]]
-) {
-    if (position.y >= range_count || position.x >= max_length) return;
-    uint2 range = ranges[position.y];
-    if (position.x < range.y) arena[range.x + position.x] = 0u;
-}
-
 // Prepared feeds flatten variable-sized clear ranges into exact linear work.
-// Each span is {arena_offset, length, linear_prefix}; binary search avoids the
-// rectangular max_length * range_count over-dispatch used by the generic API.
+// Each span is {arena_offset, length, linear_prefix}; binary search maps the
+// compact dispatch back to its physical arena range.
 kernel void stwo_zig_clear_arena_spans(
     device uint *arena [[buffer(0)]],
     device const uint *spans [[buffer(1)]],
@@ -2284,6 +2700,75 @@ inline CircleM31Value quotient_domain_point(
     return circle_pow(exponent);
 }
 
+struct QuotientCoefficientTerm {
+    ulong source_offset;
+    uint source_words;
+    uint c0;
+    uint c1;
+    uint c2;
+    uint c3;
+};
+
+struct QuotientCoefficientTask {
+    uint term_start;
+    uint term_count;
+    uint destination0;
+    uint destination1;
+    uint destination2;
+    uint destination3;
+    uint row_count;
+    uint b0;
+    uint b1;
+    uint b2;
+    uint b3;
+};
+
+kernel void stwo_zig_quotient_coefficients_resident(
+    device uint *arena [[buffer(0)]],
+    device const QuotientCoefficientTerm *terms [[buffer(1)]],
+    device const QuotientCoefficientTask *tasks [[buffer(2)]],
+    device const uint *row_starts [[buffer(3)]],
+    constant uint &task_count [[buffer(4)]],
+    constant uint &total_rows [[buffer(5)]],
+    uint gid [[thread_position_in_grid]]
+) {
+    if (gid >= total_rows) return;
+    uint low = 0u;
+    uint high = task_count;
+    while (low + 1u < high) {
+        uint middle = low + ((high - low) >> 1u);
+        if (row_starts[middle] <= gid) low = middle;
+        else high = middle;
+    }
+    QuotientCoefficientTask task = tasks[low];
+    uint row = gid - row_starts[low];
+    if (row >= task.row_count) return;
+
+    uint accum0 = 0u;
+    uint accum1 = 0u;
+    uint accum2 = 0u;
+    uint accum3 = 0u;
+    for (uint i = 0u; i < task.term_count; ++i) {
+        QuotientCoefficientTerm term = terms[task.term_start + i];
+        if (row >= term.source_words) continue;
+        uint value = arena[term.source_offset + (ulong)row];
+        accum0 = m31_add(accum0, m31_mul(value, term.c0));
+        accum1 = m31_add(accum1, m31_mul(value, term.c1));
+        accum2 = m31_add(accum2, m31_mul(value, term.c2));
+        accum3 = m31_add(accum3, m31_mul(value, term.c3));
+    }
+    if (row == 0u) {
+        accum0 = m31_sub(accum0, task.b0);
+        accum1 = m31_sub(accum1, task.b1);
+        accum2 = m31_sub(accum2, task.b2);
+        accum3 = m31_sub(accum3, task.b3);
+    }
+    arena[task.destination0 + row] = accum0;
+    arena[task.destination1 + row] = accum1;
+    arena[task.destination2 + row] = accum2;
+    arena[task.destination3 + row] = accum3;
+}
+
 kernel void stwo_zig_quotient_domain_points_resident(
     device uint *arena [[buffer(0)]],
     constant uint &destination_offset [[buffer(1)]],
@@ -2487,12 +2972,12 @@ kernel void stwo_zig_fri_packed_leaves_resident(
     uint leaf_count = evaluation_size >> log_rows_per_leaf;
     if (leaf >= leaf_count) return;
     uint state[8], message[16];
-    for (uint i = 0u; i < 8u; ++i) state[i] = leaf_seed[i];
+    blake2s_init_hash(state);
     for (uint i = 0u; i < 16u; ++i) message[i] = 0u;
     if (log_rows_per_leaf == 0u) {
         for (uint coordinate = 0u; coordinate < 4u; ++coordinate)
             message[coordinate] = arena[evaluation_base + coordinate * coordinate_stride + leaf];
-        blake2s_compress(state, message, 80u, true);
+        blake2s_compress(state, message, 16u, true);
     } else {
         for (uint offset = 0u; offset < 4u; ++offset) {
             for (uint coordinate = 0u; coordinate < 4u; ++coordinate) {
@@ -2500,7 +2985,7 @@ kernel void stwo_zig_fri_packed_leaves_resident(
                     arena[evaluation_base + coordinate * coordinate_stride + 4u * leaf + offset];
             }
         }
-        blake2s_compress(state, message, 128u, true);
+        blake2s_compress(state, message, 64u, true);
     }
     for (uint i = 0u; i < 8u; ++i) arena[destination_base + leaf * 8u + i] = state[i];
 }
@@ -2551,13 +3036,13 @@ inline uint decommit_sort_unique(device uint *values, uint count) {
 /// device radix-sort workspace and keeps the prepared graph pointer-stable.
 kernel void stwo_zig_decommit_normalize_queries_resident(
     device uint *arena [[buffer(0)]],
-    constant uint &raw_base [[buffer(1)]],
+    constant ulong &raw_base [[buffer(1)]],
     constant uint &raw_count [[buffer(2)]],
     constant uint &log_domain_size [[buffer(3)]],
-    constant uint &unique_base [[buffer(4)]],
-    constant uint &unique_count_base [[buffer(5)]],
+    constant ulong &unique_base [[buffer(4)]],
+    constant ulong &unique_count_base [[buffer(5)]],
     constant uint &tree_count [[buffer(6)]],
-    constant uint &assembly_base [[buffer(7)]],
+    constant ulong &assembly_base [[buffer(7)]],
     constant uint &assembly_capacity [[buffer(8)]],
     uint lane [[thread_position_in_grid]]
 ) {
@@ -2588,18 +3073,18 @@ kernel void stwo_zig_decommit_normalize_queries_resident(
 
 kernel void stwo_zig_decommit_prepare_fri_queries_resident(
     device uint *arena [[buffer(0)]],
-    constant uint &unique_base [[buffer(1)]],
-    constant uint &unique_count_base [[buffer(2)]],
+    constant ulong &unique_base [[buffer(1)]],
+    constant ulong &unique_count_base [[buffer(2)]],
     constant uint &max_queries [[buffer(3)]],
     constant uint &cumulative_fold [[buffer(4)]],
     constant uint &fold_step [[buffer(5)]],
     constant uint &packed_log [[buffer(6)]],
-    constant uint &tree_queries_base [[buffer(7)]],
-    constant uint &tree_count_base [[buffer(8)]],
-    constant uint &expanded_base [[buffer(9)]],
-    constant uint &expanded_count_base [[buffer(10)]],
-    constant uint &walk_base [[buffer(11)]],
-    constant uint &walk_count_base [[buffer(12)]],
+    constant ulong &tree_queries_base [[buffer(7)]],
+    constant ulong &tree_count_base [[buffer(8)]],
+    constant ulong &expanded_base [[buffer(9)]],
+    constant ulong &expanded_count_base [[buffer(10)]],
+    constant ulong &walk_base [[buffer(11)]],
+    constant ulong &walk_count_base [[buffer(12)]],
     uint lane [[thread_position_in_grid]]
 ) {
     if (lane != 0u) return;
@@ -2627,19 +3112,19 @@ inline uint decommit_map_query_log(uint position, uint source_log, uint target_l
 
 kernel void stwo_zig_decommit_prepare_trace_queries_resident(
     device uint *arena [[buffer(0)]],
-    constant uint &unique_base [[buffer(1)]],
-    constant uint &unique_count_base [[buffer(2)]],
+    constant ulong &unique_base [[buffer(1)]],
+    constant ulong &unique_count_base [[buffer(2)]],
     constant uint &max_queries [[buffer(3)]],
     constant uint &source_log [[buffer(4)]],
     constant uint &tree_log [[buffer(5)]],
     constant uint &leaf_log [[buffer(6)]],
     constant uint &unretained [[buffer(7)]],
-    constant uint &mapped_base [[buffer(8)]],
-    constant uint &mapped_count_base [[buffer(9)]],
-    constant uint &walk_base [[buffer(10)]],
-    constant uint &walk_count_base [[buffer(11)]],
-    constant uint &leaf_indices_base [[buffer(12)]],
-    constant uint &leaf_count_base [[buffer(13)]],
+    constant ulong &mapped_base [[buffer(8)]],
+    constant ulong &mapped_count_base [[buffer(9)]],
+    constant ulong &walk_base [[buffer(10)]],
+    constant ulong &walk_count_base [[buffer(11)]],
+    constant ulong &leaf_indices_base [[buffer(12)]],
+    constant ulong &leaf_count_base [[buffer(13)]],
     uint lane [[thread_position_in_grid]]
 ) {
     if (lane != 0u) return;
@@ -2666,45 +3151,59 @@ inline uint decommit_lifted_index(uint position, uint lifting_log, uint column_l
     return shift == 0u ? position : ((position >> (shift + 1u)) << 1u) + (position & 1u);
 }
 
+inline ulong decommit_join_word_offset(uint low, uint high) {
+    return ulong(low) | (ulong(high) << 32u);
+}
+
+inline ulong decommit_wide_word_offset(device uint *arena, ulong base, uint index) {
+    ulong entry = base + 2ul * ulong(index);
+    return decommit_join_word_offset(arena[entry], arena[entry + 1u]);
+}
+
 kernel void stwo_zig_decommit_gather_trace_values_resident(
     device uint *arena [[buffer(0)]],
-    constant uint &column_offsets_base [[buffer(1)]],
-    constant uint &column_logs_base [[buffer(2)]],
+    constant ulong &column_offsets_base [[buffer(1)]],
+    constant ulong &column_logs_base [[buffer(2)]],
     constant uint &column_count [[buffer(3)]],
     constant uint &lifting_log [[buffer(4)]],
-    constant uint &queries_base [[buffer(5)]],
-    constant uint &query_count_base [[buffer(6)]],
+    constant ulong &queries_base [[buffer(5)]],
+    constant ulong &query_count_base [[buffer(6)]],
     constant uint &max_queries [[buffer(7)]],
     constant uint &first_column [[buffer(8)]],
     constant uint &stride [[buffer(9)]],
-    constant uint &output_base [[buffer(10)]],
+    constant ulong &output_base [[buffer(10)]],
     uint3 grid_position [[thread_position_in_grid]]
 ) {
     uint query = grid_position.x, column = grid_position.y;
     if (column >= column_count || query >= min(arena[query_count_base], max_queries)) return;
     uint row = decommit_lifted_index(arena[queries_base + query], lifting_log, arena[column_logs_base + column]);
-    uint value = arena[arena[column_offsets_base + column] + row];
+    ulong source = decommit_wide_word_offset(arena, column_offsets_base, column);
+    uint value = arena[source + ulong(row)];
     arena[output_base + (first_column + column) * stride + query] = value < 0x7fffffffu ? value : value % 0x7fffffffu;
 }
 
 kernel void stwo_zig_decommit_gather_fri_values_resident(
     device uint *arena [[buffer(0)]],
     constant uint *coordinate_bases [[buffer(1)]],
-    constant uint &positions_base [[buffer(2)]],
-    constant uint &count_base [[buffer(3)]],
+    constant ulong &positions_base [[buffer(2)]],
+    constant ulong &count_base [[buffer(3)]],
     constant uint &max_positions [[buffer(4)]],
-    constant uint &values_base [[buffer(5)]],
+    constant ulong &values_base [[buffer(5)]],
     uint index [[thread_position_in_grid]]
 ) {
     if (index >= min(arena[count_base], max_positions)) return;
     uint position = arena[positions_base + index];
     for (uint coordinate = 0u; coordinate < 4u; ++coordinate) {
-        uint value = arena[coordinate_bases[coordinate] + position];
+        ulong source = decommit_join_word_offset(
+            coordinate_bases[2u * coordinate],
+            coordinate_bases[2u * coordinate + 1u]
+        );
+        uint value = arena[source + ulong(position)];
         arena[values_base + 4u * index + coordinate] = value < 0x7fffffffu ? value : value % 0x7fffffffu;
     }
 }
 
-inline bool decommit_contains_sorted(device uint *arena, uint base, uint count, uint target) {
+inline bool decommit_contains_sorted(device uint *arena, ulong base, uint count, uint target) {
     uint lo = 0u, hi = count;
     while (lo < hi) {
         uint mid = lo + ((hi - lo) >> 1u);
@@ -2713,7 +3212,7 @@ inline bool decommit_contains_sorted(device uint *arena, uint base, uint count, 
     return lo < count && arena[base + lo] == target;
 }
 
-inline bool decommit_reserve(device uint *arena, uint assembly, uint capacity, uint count, thread uint &offset) {
+inline bool decommit_reserve(device uint *arena, ulong assembly, uint capacity, uint count, thread uint &offset) {
     uint cursor = arena[assembly + 7u];
     if (cursor > capacity || count > capacity - cursor) {
         arena[assembly + 7u] = 0u;
@@ -2724,15 +3223,15 @@ inline bool decommit_reserve(device uint *arena, uint assembly, uint capacity, u
     return true;
 }
 
-inline void decommit_copy_hash(device uint *arena, uint destination, uint source) {
-    for (uint word = 0u; word < 8u; ++word) arena[destination + word] = arena[source + word];
+inline void decommit_copy_hash(device uint *arena, ulong destination, ulong source) {
+    for (uint word = 0u; word < 8u; ++word) arena[destination + word] = arena[source + ulong(word)];
 }
 
 kernel void stwo_zig_decommit_sparse_parent_resident(
-    device uint *arena [[buffer(0)]], constant uint &child_indices [[buffer(1)]],
-    constant uint &child_hashes [[buffer(2)]], constant uint &child_count_at [[buffer(3)]],
-    constant uint &max_child_count [[buffer(4)]], constant uint &parent_indices [[buffer(5)]],
-    constant uint &parent_hashes [[buffer(6)]], constant uint &parent_count_at [[buffer(7)]],
+    device uint *arena [[buffer(0)]], constant ulong &child_indices [[buffer(1)]],
+    constant ulong &child_hashes [[buffer(2)]], constant ulong &child_count_at [[buffer(3)]],
+    constant uint &max_child_count [[buffer(4)]], constant ulong &parent_indices [[buffer(5)]],
+    constant ulong &parent_hashes [[buffer(6)]], constant ulong &parent_count_at [[buffer(7)]],
     constant uint *node_seed [[buffer(8)]], uint parent [[thread_position_in_grid]]
 ) {
     uint count = min(arena[child_count_at], max_child_count), parents = count >> 1u;
@@ -2741,29 +3240,30 @@ kernel void stwo_zig_decommit_sparse_parent_resident(
     uint left = 2u * parent;
     arena[parent_indices + parent] = arena[child_indices + left] >> 1u;
     uint state[8], message[16];
-    for (uint i = 0u; i < 8u; ++i) state[i] = node_seed[i];
+    blake2s_init_hash(state);
     for (uint i = 0u; i < 16u; ++i) message[i] = arena[child_hashes + left * 8u + i];
-    blake2s_compress(state, message, 128u, true);
+    blake2s_compress(state, message, 64u, true);
     for (uint i = 0u; i < 8u; ++i) arena[parent_hashes + parent * 8u + i] = state[i];
 }
 
 kernel void stwo_zig_decommit_sparse_leaves_resident(
-    device uint *arena [[buffer(0)]], constant uint &column_offsets [[buffer(1)]],
-    constant uint &column_logs [[buffer(2)]], constant uint &column_count [[buffer(3)]],
-    constant uint &lifting_log [[buffer(4)]], constant uint &leaf_indices [[buffer(5)]],
-    constant uint &leaf_count_at [[buffer(6)]], constant uint &max_leaf_count [[buffer(7)]],
-    constant uint &output_hashes [[buffer(8)]], constant uint *leaf_seed [[buffer(9)]],
+    device uint *arena [[buffer(0)]], constant ulong &column_offsets [[buffer(1)]],
+    constant ulong &column_logs [[buffer(2)]], constant uint &column_count [[buffer(3)]],
+    constant uint &lifting_log [[buffer(4)]], constant ulong &leaf_indices [[buffer(5)]],
+    constant ulong &leaf_count_at [[buffer(6)]], constant uint &max_leaf_count [[buffer(7)]],
+    constant ulong &output_hashes [[buffer(8)]], constant uint *leaf_seed [[buffer(9)]],
     uint sparse_index [[thread_position_in_grid]]
 ) {
     uint count = min(arena[leaf_count_at], max_leaf_count);
     if (sparse_index >= count) return;
     uint position = arena[leaf_indices + sparse_index];
-    uint state[8], message[16], in_block = 0u, total_bytes = 64u;
-    for (uint i = 0u; i < 8u; ++i) state[i] = leaf_seed[i];
+    uint state[8], message[16], in_block = 0u, total_bytes = 0u;
+    blake2s_init_hash(state);
     for (uint column = 0u; column < column_count; ++column) {
         uint log_size = arena[column_logs + column];
         uint row = decommit_lifted_index(position, lifting_log, log_size);
-        message[in_block++] = arena[arena[column_offsets + column] + row];
+        ulong source = decommit_wide_word_offset(arena, column_offsets, column);
+        message[in_block++] = arena[source + ulong(row)];
         total_bytes += 4u;
         if (in_block == 16u) {
             blake2s_compress(state, message, total_bytes, column + 1u == column_count);
@@ -2777,38 +3277,81 @@ kernel void stwo_zig_decommit_sparse_leaves_resident(
     for (uint i = 0u; i < 8u; ++i) arena[output_hashes + sparse_index * 8u + i] = state[i];
 }
 
-inline uint decommit_trace_node_hash(
-    device uint *arena, uint level, uint index, uint leaf_log, uint first_retained_log,
-    uint retained_offsets, uint sparse_indices, uint sparse_hashes,
-    uint sparse_offsets, uint sparse_counts, uint sparse_level_count
+/// Streams one block-aligned trace-column group into each sparse leaf hash.
+/// Full groups contain 16 columns; only the final group may be shorter. The
+/// Blake2s counter is global across groups, so this is byte-for-byte identical
+/// to hashing all trace columns in one invocation.
+kernel void stwo_zig_decommit_sparse_leaf_group_resident(
+    device uint *arena [[buffer(0)]], constant ulong &column_offsets [[buffer(1)]],
+    constant ulong &column_logs [[buffer(2)]], constant uint &column_count [[buffer(3)]],
+    constant uint &first_column [[buffer(4)]], constant uint &total_columns [[buffer(5)]],
+    constant uint &lifting_log [[buffer(6)]], constant ulong &leaf_indices [[buffer(7)]],
+    constant ulong &leaf_count_at [[buffer(8)]], constant uint &max_leaf_count [[buffer(9)]],
+    constant ulong &output_hashes [[buffer(10)]], constant uint *leaf_seed [[buffer(11)]],
+    uint sparse_index [[thread_position_in_grid]]
 ) {
-    if (level <= first_retained_log) return arena[retained_offsets + level] + index * 8u;
+    uint count = min(arena[leaf_count_at], max_leaf_count);
+    if (sparse_index >= count) return;
+    uint position = arena[leaf_indices + sparse_index];
+    uint state[8], message[16], in_block = 0u;
+    if (first_column == 0u) {
+        blake2s_init_hash(state);
+    } else {
+        for (uint i = 0u; i < 8u; ++i) state[i] = arena[output_hashes + sparse_index * 8u + i];
+    }
+    uint total_bytes = first_column * 4u;
+    for (uint column = 0u; column < column_count; ++column) {
+        uint log_size = arena[column_logs + column];
+        uint row = decommit_lifted_index(position, lifting_log, log_size);
+        ulong source = decommit_wide_word_offset(arena, column_offsets, column);
+        message[in_block++] = arena[source + ulong(row)];
+        total_bytes += 4u;
+        if (in_block == 16u) {
+            blake2s_compress(state, message, total_bytes, first_column + column + 1u == total_columns);
+            in_block = 0u;
+        }
+    }
+    if (in_block != 0u) {
+        for (uint i = in_block; i < 16u; ++i) message[i] = 0u;
+        blake2s_compress(state, message, total_bytes, true);
+    }
+    for (uint i = 0u; i < 8u; ++i) arena[output_hashes + sparse_index * 8u + i] = state[i];
+}
+
+inline ulong decommit_trace_node_hash(
+    device uint *arena, uint level, uint index, uint leaf_log, uint first_retained_log,
+    ulong retained_offsets, ulong sparse_indices, ulong sparse_hashes,
+    ulong sparse_offsets, ulong sparse_counts, uint sparse_level_count
+) {
+    if (level <= first_retained_log)
+        return decommit_wide_word_offset(arena, retained_offsets, level) + ulong(index) * 8ul;
     uint distance = leaf_log - level;
-    if (distance >= sparse_level_count) return 0xffffffffu;
+    if (distance >= sparse_level_count) return 0xfffffffffffffffful;
     uint offset = arena[sparse_offsets + distance], lo = 0u, hi = arena[sparse_counts + distance];
     while (lo < hi) {
         uint mid = lo + ((hi - lo) >> 1u), current = arena[sparse_indices + offset + mid];
         if (current < index) lo = mid + 1u; else hi = mid;
     }
-    if (lo >= arena[sparse_counts + distance] || arena[sparse_indices + offset + lo] != index) return 0xffffffffu;
-    return sparse_hashes + (offset + lo) * 8u;
+    if (lo >= arena[sparse_counts + distance] || arena[sparse_indices + offset + lo] != index)
+        return 0xfffffffffffffffful;
+    return sparse_hashes + ulong(offset + lo) * 8ul;
 }
 
 kernel void stwo_zig_decommit_assemble_trace_resident(
     device uint *arena [[buffer(0)]], constant uint &tree_index [[buffer(1)]],
     constant uint &role [[buffer(2)]], constant uint &leaf_log [[buffer(3)]],
     constant uint &first_retained_log [[buffer(4)]], constant uint &column_count [[buffer(5)]],
-    constant uint &mapped [[buffer(6)]], constant uint &mapped_count_at [[buffer(7)]],
-    constant uint &max_queries [[buffer(8)]], constant uint &walk [[buffer(9)]],
-    constant uint &scratch [[buffer(10)]], constant uint &walk_count_at [[buffer(11)]],
-    constant uint &values [[buffer(12)]], constant uint &retained_offsets [[buffer(13)]],
-    constant uint &sparse_indices [[buffer(14)]], constant uint &sparse_hashes [[buffer(15)]],
-    constant uint &sparse_offsets [[buffer(16)]], constant uint &sparse_counts [[buffer(17)]],
-    constant uint &sparse_level_count [[buffer(18)]], constant uint &assembly [[buffer(19)]],
+    constant ulong &mapped [[buffer(6)]], constant ulong &mapped_count_at [[buffer(7)]],
+    constant uint &max_queries [[buffer(8)]], constant ulong &walk [[buffer(9)]],
+    constant ulong &scratch [[buffer(10)]], constant ulong &walk_count_at [[buffer(11)]],
+    constant ulong &values [[buffer(12)]], constant ulong &retained_offsets [[buffer(13)]],
+    constant ulong &sparse_indices [[buffer(14)]], constant ulong &sparse_hashes [[buffer(15)]],
+    constant ulong &sparse_offsets [[buffer(16)]], constant ulong &sparse_counts [[buffer(17)]],
+    constant uint &sparse_level_count [[buffer(18)]], constant ulong &assembly [[buffer(19)]],
     constant uint &capacity [[buffer(20)]], uint lane [[thread_position_in_grid]]
 ) {
     if (lane != 0u || arena[assembly + 7u] == 0u) return;
-    uint meta = assembly + 8u + tree_index * 16u;
+    ulong meta = assembly + 8ul + ulong(tree_index) * 16ul;
     uint tree_start = arena[assembly + 7u], mapped_count = min(arena[mapped_count_at], max_queries), offset = 0u;
     if (!decommit_reserve(arena, assembly, capacity, mapped_count, offset)) return;
     arena[meta + 2u] = offset; arena[meta + 3u] = mapped_count;
@@ -2830,26 +3373,26 @@ kernel void stwo_zig_decommit_assemble_trace_resident(
     uint aux_count = 0u;
     for (int layer = int(leaf_log) - 1; layer >= 0; --layer) {
         uint previous_level = uint(layer) + 1u, next_count = 0u;
-        uint current = current_is_walk ? walk : scratch, next = current_is_walk ? scratch : walk;
+        ulong current = current_is_walk ? walk : scratch, next = current_is_walk ? scratch : walk;
         for (uint i = 0u; i < current_count;) {
             uint first = arena[current + i];
             bool pair = i + 1u < current_count && arena[current + i + 1u] == (first ^ 1u);
             if (!pair) {
-                uint source = decommit_trace_node_hash(arena, previous_level, first ^ 1u, leaf_log,
+                ulong source = decommit_trace_node_hash(arena, previous_level, first ^ 1u, leaf_log,
                     first_retained_log, retained_offsets, sparse_indices, sparse_hashes,
                     sparse_offsets, sparse_counts, sparse_level_count);
-                if (source == 0xffffffffu) { arena[assembly + 7u] = 0u; return; }
+                if (source == 0xfffffffffffffffful) { arena[assembly + 7u] = 0u; return; }
                 decommit_copy_hash(arena, assembly + hash_offset + hash_count * 8u, source);
                 ++hash_count;
             }
             uint parent = first >> 1u;
             arena[next + next_count++] = parent;
             for (uint child = 2u * parent; child <= 2u * parent + 1u; ++child) {
-                uint source = decommit_trace_node_hash(arena, previous_level, child, leaf_log,
+                ulong source = decommit_trace_node_hash(arena, previous_level, child, leaf_log,
                     first_retained_log, retained_offsets, sparse_indices, sparse_hashes,
                     sparse_offsets, sparse_counts, sparse_level_count);
-                if (source == 0xffffffffu) { arena[assembly + 7u] = 0u; return; }
-                uint entry = assembly + aux_offset + aux_count * 10u;
+                if (source == 0xfffffffffffffffful) { arena[assembly + 7u] = 0u; return; }
+                ulong entry = assembly + ulong(aux_offset + aux_count * 10u);
                 arena[entry] = previous_level; arena[entry + 1u] = child;
                 decommit_copy_hash(arena, entry + 2u, source);
                 ++aux_count;
@@ -2873,15 +3416,15 @@ kernel void stwo_zig_decommit_assemble_trace_resident(
 kernel void stwo_zig_decommit_assemble_fri_resident(
     device uint *arena [[buffer(0)]],
     constant uint &tree_index [[buffer(1)]], constant uint &leaf_log [[buffer(2)]],
-    constant uint &tree_queries [[buffer(3)]], constant uint &tree_count_at [[buffer(4)]],
-    constant uint &expanded [[buffer(5)]], constant uint &expanded_count_at [[buffer(6)]],
-    constant uint &values [[buffer(7)]], constant uint &walk [[buffer(8)]],
-    constant uint &scratch [[buffer(9)]], constant uint &walk_count_at [[buffer(10)]],
-    constant uint &retained_offsets [[buffer(11)]], constant uint &assembly [[buffer(12)]],
+    constant ulong &tree_queries [[buffer(3)]], constant ulong &tree_count_at [[buffer(4)]],
+    constant ulong &expanded [[buffer(5)]], constant ulong &expanded_count_at [[buffer(6)]],
+    constant ulong &values [[buffer(7)]], constant ulong &walk [[buffer(8)]],
+    constant ulong &scratch [[buffer(9)]], constant ulong &walk_count_at [[buffer(10)]],
+    constant ulong &retained_offsets [[buffer(11)]], constant ulong &assembly [[buffer(12)]],
     constant uint &capacity [[buffer(13)]], uint lane [[thread_position_in_grid]]
 ) {
     if (lane != 0u || arena[assembly + 7u] == 0u) return;
-    uint meta = assembly + 8u + tree_index * 16u;
+    ulong meta = assembly + 8ul + ulong(tree_index) * 16ul;
     uint tree_start = arena[assembly + 7u];
     uint query_count = arena[tree_count_at], expanded_count = arena[expanded_count_at], offset = 0u;
     if (!decommit_reserve(arena, assembly, capacity, query_count, offset)) return;
@@ -2909,22 +3452,25 @@ kernel void stwo_zig_decommit_assemble_fri_resident(
     uint hash_count = 0u, aux_count = 0u;
     for (int layer = int(leaf_log) - 1; layer >= 0; --layer) {
         uint previous_level = uint(layer) + 1u, next_count = 0u;
-        uint current = current_is_walk ? walk : scratch;
-        uint next = current_is_walk ? scratch : walk;
+        ulong current = current_is_walk ? walk : scratch;
+        ulong next = current_is_walk ? scratch : walk;
         for (uint i = 0u; i < current_count;) {
             uint first = arena[current + i];
             bool pair = i + 1u < current_count && arena[current + i + 1u] == (first ^ 1u);
             if (!pair) {
-                uint source = arena[retained_offsets + previous_level] + (first ^ 1u) * 8u;
+                ulong source = decommit_wide_word_offset(arena, retained_offsets, previous_level) +
+                    ulong(first ^ 1u) * 8ul;
                 decommit_copy_hash(arena, assembly + hash_offset + hash_count * 8u, source);
                 ++hash_count;
             }
             uint parent = first >> 1u;
             arena[next + next_count++] = parent;
             for (uint child = 2u * parent; child <= 2u * parent + 1u; ++child) {
-                uint entry = assembly + aux_offset + aux_count * 10u;
+                ulong entry = assembly + ulong(aux_offset + aux_count * 10u);
                 arena[entry] = previous_level; arena[entry + 1u] = child;
-                decommit_copy_hash(arena, entry + 2u, arena[retained_offsets + previous_level] + child * 8u);
+                ulong source = decommit_wide_word_offset(arena, retained_offsets, previous_level) +
+                    ulong(child) * 8ul;
+                decommit_copy_hash(arena, entry + 2u, source);
                 ++aux_count;
             }
             i += pair ? 2u : 1u;

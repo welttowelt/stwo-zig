@@ -1,8 +1,11 @@
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
+#import <CommonCrypto/CommonDigest.h>
+#import "runtime_profile.m"
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -29,6 +32,7 @@
 @property(nonatomic, strong) id<MTLComputePipelineState> quotientDomainPointsResident;
 @property(nonatomic, strong) id<MTLComputePipelineState> quotientDenominatorsResident;
 @property(nonatomic, strong) id<MTLComputePipelineState> quotientCombineResident;
+@property(nonatomic, strong) id<MTLComputePipelineState> quotientCoefficientsResident;
 @property(nonatomic, strong) id<MTLComputePipelineState> friFoldCircle;
 @property(nonatomic, strong) id<MTLComputePipelineState> friFoldLine;
 @property(nonatomic, strong) id<MTLComputePipelineState> friFold3Resident;
@@ -47,6 +51,7 @@
 @property(nonatomic, strong) id<MTLComputePipelineState> decommitAssembleFriResident;
 @property(nonatomic, strong) id<MTLComputePipelineState> decommitSparseParentResident;
 @property(nonatomic, strong) id<MTLComputePipelineState> decommitSparseLeavesResident;
+@property(nonatomic, strong) id<MTLComputePipelineState> decommitSparseLeafGroupResident;
 @property(nonatomic, strong) id<MTLComputePipelineState> decommitAssembleTraceResident;
 @property(nonatomic, strong) id<MTLComputePipelineState> qm31ToCoordinates;
 @property(nonatomic, strong) id<MTLComputePipelineState> witnessFeedCounts;
@@ -57,8 +62,8 @@
 @property(nonatomic, strong) id<MTLComputePipelineState> memoryRc99CountResident;
 @property(nonatomic, strong) id<MTLComputePipelineState> publicMemorySeedResident;
 @property(nonatomic, strong) id<MTLComputePipelineState> leafAbsorbResident;
+@property(nonatomic, strong) id<MTLComputePipelineState> leafAbsorbCompactResident;
 @property(nonatomic, strong) id<MTLComputePipelineState> parentsPlainSparse;
-@property(nonatomic, strong) id<MTLComputePipelineState> clearArenaRanges;
 @property(nonatomic, strong) id<MTLComputePipelineState> clearArenaSpans;
 @property(nonatomic, strong) id<MTLComputePipelineState> circleExpandSparse;
 @property(nonatomic, strong) id<MTLComputePipelineState> circleCopySparse;
@@ -66,7 +71,11 @@
 @property(nonatomic, strong) id<MTLComputePipelineState> circleIfftLayerSparse;
 @property(nonatomic, strong) id<MTLComputePipelineState> circleRescaleSparse;
 @property(nonatomic, strong) id<MTLComputePipelineState> circleRfftLayerSparse;
+@property(nonatomic, strong) id<MTLComputePipelineState> circleRfftRadix4Sparse;
 @property(nonatomic, strong) id<MTLComputePipelineState> circleRfftLastSparse;
+@property(nonatomic, strong) id<MTLComputePipelineState> circleRfftFusedSparse;
+@property(nonatomic, strong) id<MTLComputePipelineState> circleRfftLayerSparseWide;
+@property(nonatomic, strong) id<MTLComputePipelineState> circleRfftLastSparseWide;
 @property(nonatomic, strong) id<MTLComputePipelineState> relationFused;
 @property(nonatomic, strong) id<MTLComputePipelineState> relationBlockScan;
 @property(nonatomic, strong) id<MTLComputePipelineState> relationScanBlocks;
@@ -75,6 +84,8 @@
 @property(nonatomic, strong) id<MTLComputePipelineState> parentsSparse;
 @property(nonatomic, strong) id<MTLComputePipelineState> felt252Oracle;
 @property(nonatomic, strong) id<MTLComputePipelineState> ecOpWitness;
+@property(nonatomic, strong) id<MTLComputePipelineState> ecOpLookup;
+@property(nonatomic, strong) id<MTLComputePipelineState> ecOpBaseFinalize;
 @property(nonatomic, strong) id<MTLComputePipelineState> compactGather;
 @property(nonatomic, strong) id<MTLComputePipelineState> compactRadixHistogram;
 @property(nonatomic, strong) id<MTLComputePipelineState> compactRadixPrefix;
@@ -91,6 +102,17 @@
 @property(nonatomic, strong) id<MTLComputePipelineState> compositionExpand;
 @property(nonatomic, strong) id<MTLComputePipelineState> compositionRandomPowers;
 @property(nonatomic, strong) id<MTLComputePipelineState> compositionExtParams;
+@property(nonatomic, strong) NSMutableDictionary<NSString *, id> *evalLibraries;
+@property(nonatomic, strong) NSMutableDictionary<NSString *, id<MTLComputePipelineState>> *evalPipelines;
+@property(nonatomic) uint64_t evalLibraryCacheHits;
+@property(nonatomic) uint64_t evalLibraryCacheMisses;
+@property(nonatomic) uint64_t evalPipelineCacheHits;
+@property(nonatomic) uint64_t evalBinaryArchiveHits;
+@property(nonatomic) uint64_t evalBinaryArchiveMisses;
+@property(nonatomic) uint64_t evalDirectCompiles;
+@property(nonatomic) uint64_t evalArchivePopulations;
+@property(nonatomic) uint64_t evalArchiveSerializations;
+@property(nonatomic) double evalPipelinePreparationSeconds;
 @end
 
 @interface StwoZigWitnessFeedPlan : NSObject
@@ -190,7 +212,10 @@
 @property(nonatomic, strong) id<MTLBuffer> partialOffsets;
 @property(nonatomic, strong) id<MTLBuffer> multiplicityOffsets;
 @property(nonatomic, strong) id<MTLBuffer> params;
+@property(nonatomic, strong) id<MTLComputePipelineState> pipeline;
 @property(nonatomic) uint32_t rowCount;
+@property(nonatomic) NSUInteger threadgroupWidth;
+@property(nonatomic) bool writeBase;
 @end
 @implementation StwoZigEcOpPlan
 @end
@@ -236,6 +261,11 @@
 @property(nonatomic, strong) id<MTLLibrary> library;
 @property(nonatomic, strong) id<MTLBinaryArchive> archive;
 @property(nonatomic, strong) NSURL *archiveURL;
+@property(nonatomic, copy) NSString *cacheKey;
+@property(nonatomic, strong) NSData *sourceBytes;
+@property(nonatomic, weak) StwoZigMetalRuntime *runtimeOwner;
+@property(nonatomic) bool archiveLoaded;
+@property(nonatomic) bool archiveDirty;
 @end
 @implementation StwoZigEvalLibrary
 @end
@@ -247,6 +277,7 @@
 @property(nonatomic, strong) id<MTLBuffer> outputOffsets;
 @property(nonatomic) uint32_t accumulatorCount;
 @property(nonatomic) NSUInteger inverseTwiddleByteOffset;
+@property(nonatomic) uint32_t scaleFactor;
 @end
 @implementation StwoZigCompositionFinalizePlan
 @end
@@ -258,6 +289,7 @@
 @property(nonatomic) uint32_t columnCount;
 @property(nonatomic) uint32_t extendedLog;
 @property(nonatomic) NSUInteger twiddleByteOffset;
+@property(nonatomic) bool useRadix4;
 @end
 @implementation StwoZigCompositionLdePlan
 @end
@@ -382,6 +414,38 @@ typedef struct {
     uint32_t coefficient_offset, coefficient_length, basis_offset, log_size, output_index;
 } StwoZigPolynomialEvalTask;
 
+typedef struct {
+    uint64_t unique_base, unique_count_base;
+    uint64_t tree_queries_base, tree_count_base;
+    uint64_t expanded_base, expanded_count_base;
+    uint64_t walk_base, walk_count_base;
+    uint64_t coordinate_bases, values_base, walk_scratch_base;
+    uint64_t retained_offsets, assembly_base;
+    uint32_t max_queries, cumulative_fold, fold_step, packed_log;
+    uint32_t max_positions, tree_index, leaf_log, assembly_capacity;
+} StwoZigDecommitFriRoundParams;
+
+typedef struct {
+    uint64_t column_offsets, column_logs;
+    uint64_t queries, query_count_at, values;
+    uint64_t leaf_indices, leaf_count_at, output_hashes;
+    uint32_t column_count, lifting_log, max_queries, first_column;
+    uint32_t stride, total_columns, max_leaf_count;
+    uint32_t leaf_seed[8];
+} StwoZigDecommitTraceGroupParams;
+
+typedef struct {
+    uint64_t library_cache_hits;
+    uint64_t library_cache_misses;
+    uint64_t pipeline_cache_hits;
+    uint64_t binary_archive_hits;
+    uint64_t binary_archive_misses;
+    uint64_t direct_compiles;
+    uint64_t archive_populations;
+    uint64_t archive_serializations;
+    double pipeline_preparation_seconds;
+} StwoZigPipelineCacheStats;
+
 static void write_error(char *destination, size_t length, NSString *message) {
     if (destination == NULL || length == 0) return;
     const char *utf8 = message.UTF8String ?: "Metal error";
@@ -408,6 +472,7 @@ static id<MTLComputePipelineState> make_pipeline(
         write_error(error_message, error_message_len,
                     error.localizedDescription ?: @"Failed to create Metal pipeline");
     }
+    stwo_zig_metal_profile_name_pipeline(pipeline, name);
     return pipeline;
 }
 
@@ -436,7 +501,9 @@ void *stwo_zig_metal_runtime_create(
         }
         StwoZigMetalRuntime *runtime = [StwoZigMetalRuntime new];
         runtime.device = device;
-        runtime.queue = [device newCommandQueue];
+        runtime.queue = stwo_zig_metal_profile_queue([device newCommandQueue], device);
+        runtime.evalLibraries = [NSMutableDictionary dictionary];
+        runtime.evalPipelines = [NSMutableDictionary dictionary];
         runtime.leaves = make_pipeline(device, library, @"stwo_zig_blake2s_leaves",
                                        error_message, error_message_len);
         runtime.parents = make_pipeline(device, library, @"stwo_zig_blake2s_parents",
@@ -462,6 +529,7 @@ void *stwo_zig_metal_runtime_create(
         runtime.quotientDomainPointsResident = make_pipeline(device, library, @"stwo_zig_quotient_domain_points_resident", error_message, error_message_len);
         runtime.quotientDenominatorsResident = make_pipeline(device, library, @"stwo_zig_quotient_denominators_resident", error_message, error_message_len);
         runtime.quotientCombineResident = make_pipeline(device, library, @"stwo_zig_quotient_combine_resident", error_message, error_message_len);
+        runtime.quotientCoefficientsResident = make_pipeline(device, library, @"stwo_zig_quotient_coefficients_resident", error_message, error_message_len);
         runtime.friFoldCircle = make_pipeline(device, library, @"stwo_zig_fri_fold_circle", error_message, error_message_len);
         runtime.friFoldLine = make_pipeline(device, library, @"stwo_zig_fri_fold_line", error_message, error_message_len);
         runtime.friFold3Resident = make_pipeline(device, library, @"stwo_zig_fri_fold3_resident", error_message, error_message_len);
@@ -480,6 +548,7 @@ void *stwo_zig_metal_runtime_create(
         runtime.decommitAssembleFriResident = make_pipeline(device, library, @"stwo_zig_decommit_assemble_fri_resident", error_message, error_message_len);
         runtime.decommitSparseParentResident = make_pipeline(device, library, @"stwo_zig_decommit_sparse_parent_resident", error_message, error_message_len);
         runtime.decommitSparseLeavesResident = make_pipeline(device, library, @"stwo_zig_decommit_sparse_leaves_resident", error_message, error_message_len);
+        runtime.decommitSparseLeafGroupResident = make_pipeline(device, library, @"stwo_zig_decommit_sparse_leaf_group_resident", error_message, error_message_len);
         runtime.decommitAssembleTraceResident = make_pipeline(device, library, @"stwo_zig_decommit_assemble_trace_resident", error_message, error_message_len);
         runtime.qm31ToCoordinates = make_pipeline(device, library, @"stwo_zig_qm31_to_coordinates", error_message, error_message_len);
         runtime.witnessFeedCounts = make_pipeline(device, library, @"stwo_zig_witness_feed_counts", error_message, error_message_len);
@@ -490,8 +559,8 @@ void *stwo_zig_metal_runtime_create(
         runtime.memoryRc99CountResident = make_pipeline(device, library, @"stwo_zig_memory_rc99_count_resident", error_message, error_message_len);
         runtime.publicMemorySeedResident = make_pipeline(device, library, @"stwo_zig_public_memory_seed_resident", error_message, error_message_len);
         runtime.leafAbsorbResident = make_pipeline(device, library, @"stwo_zig_blake2s_leaf_absorb_resident", error_message, error_message_len);
+        runtime.leafAbsorbCompactResident = make_pipeline(device, library, @"stwo_zig_blake2s_leaf_absorb_compact_resident", error_message, error_message_len);
         runtime.parentsPlainSparse = make_pipeline(device, library, @"stwo_zig_blake2s_parents_plain_sparse", error_message, error_message_len);
-        runtime.clearArenaRanges = make_pipeline(device, library, @"stwo_zig_clear_arena_ranges", error_message, error_message_len);
         runtime.clearArenaSpans = make_pipeline(device, library, @"stwo_zig_clear_arena_spans", error_message, error_message_len);
         runtime.circleExpandSparse = make_pipeline(device, library, @"stwo_zig_circle_expand_sparse", error_message, error_message_len);
         runtime.circleCopySparse = make_pipeline(device, library, @"stwo_zig_circle_copy_sparse", error_message, error_message_len);
@@ -499,7 +568,11 @@ void *stwo_zig_metal_runtime_create(
         runtime.circleIfftLayerSparse = make_pipeline(device, library, @"stwo_zig_circle_ifft_layer_sparse", error_message, error_message_len);
         runtime.circleRescaleSparse = make_pipeline(device, library, @"stwo_zig_circle_rescale_sparse", error_message, error_message_len);
         runtime.circleRfftLayerSparse = make_pipeline(device, library, @"stwo_zig_circle_rfft_layer_sparse", error_message, error_message_len);
+        runtime.circleRfftRadix4Sparse = make_pipeline(device, library, @"stwo_zig_circle_rfft_radix4_sparse", error_message, error_message_len);
         runtime.circleRfftLastSparse = make_pipeline(device, library, @"stwo_zig_circle_rfft_last_sparse", error_message, error_message_len);
+        runtime.circleRfftFusedSparse = make_pipeline(device, library, @"stwo_zig_circle_rfft_fused_tail_sparse", error_message, error_message_len);
+        runtime.circleRfftLayerSparseWide = make_pipeline(device, library, @"stwo_zig_circle_rfft_layer_sparse_wide", error_message, error_message_len);
+        runtime.circleRfftLastSparseWide = make_pipeline(device, library, @"stwo_zig_circle_rfft_last_sparse_wide", error_message, error_message_len);
         runtime.relationFused = make_pipeline(device, library, @"stwo_zig_relation_fused", error_message, error_message_len);
         runtime.relationBlockScan = make_pipeline(device, library, @"stwo_zig_relation_block_scan", error_message, error_message_len);
         runtime.relationScanBlocks = make_pipeline(device, library, @"stwo_zig_relation_scan_blocks", error_message, error_message_len);
@@ -508,6 +581,8 @@ void *stwo_zig_metal_runtime_create(
         runtime.parentsSparse = make_pipeline(device, library, @"stwo_zig_blake2s_parents_sparse", error_message, error_message_len);
         runtime.felt252Oracle = make_pipeline(device, library, @"stwo_zig_felt252_oracle", error_message, error_message_len);
         runtime.ecOpWitness = make_pipeline(device, library, @"stwo_zig_ec_op_witness", error_message, error_message_len);
+        runtime.ecOpLookup = make_pipeline(device, library, @"stwo_zig_ec_op_lookup", error_message, error_message_len);
+        runtime.ecOpBaseFinalize = make_pipeline(device, library, @"stwo_zig_ec_op_base_finalize", error_message, error_message_len);
         runtime.compactGather = make_pipeline(device, library, @"stwo_zig_compact_gather", error_message, error_message_len);
         runtime.compactRadixHistogram = make_pipeline(device, library, @"stwo_zig_compact_radix_histogram", error_message, error_message_len);
         runtime.compactRadixPrefix = make_pipeline(device, library, @"stwo_zig_compact_radix_prefix", error_message, error_message_len);
@@ -531,7 +606,7 @@ void *stwo_zig_metal_runtime_create(
             runtime.circleExpand == nil || runtime.circleIfftFused == nil || runtime.circleRfftFused == nil ||
             runtime.quotientNumerator == nil || runtime.quotientFinalize == nil ||
             runtime.quotientDomainPointsResident == nil || runtime.quotientDenominatorsResident == nil ||
-            runtime.quotientCombineResident == nil ||
+            runtime.quotientCombineResident == nil || runtime.quotientCoefficientsResident == nil ||
             runtime.friFoldCircle == nil || runtime.friFoldLine == nil || runtime.friFold3Resident == nil ||
             runtime.friFold2Resident == nil || runtime.friPackedLeavesResident == nil || runtime.friFinalLineResident == nil ||
             runtime.transcriptInitResident == nil || runtime.transcriptMixResident == nil ||
@@ -542,19 +617,22 @@ void *stwo_zig_metal_runtime_create(
             runtime.decommitAssembleFriResident == nil ||
             runtime.decommitSparseParentResident == nil || runtime.decommitAssembleTraceResident == nil ||
             runtime.decommitSparseLeavesResident == nil ||
-            runtime.witnessFeedCounts == nil || runtime.clearArenaRanges == nil || runtime.clearArenaSpans == nil ||
+            runtime.witnessFeedCounts == nil || runtime.clearArenaSpans == nil ||
             runtime.witnessInputGatherResident == nil ||
             runtime.executionTableSplitResident == nil ||
             runtime.memoryAddressBaseTraceResident == nil || runtime.memoryValueBaseTraceResident == nil ||
             runtime.memoryRc99CountResident == nil || runtime.publicMemorySeedResident == nil ||
-            runtime.leafAbsorbResident == nil ||
+            runtime.leafAbsorbResident == nil || runtime.leafAbsorbCompactResident == nil ||
             runtime.parentsPlainSparse == nil ||
             runtime.circleExpandSparse == nil || runtime.circleCopySparse == nil || runtime.circleIfftFirstSparse == nil ||
             runtime.circleIfftLayerSparse == nil || runtime.circleRescaleSparse == nil ||
-            runtime.circleRfftLayerSparse == nil || runtime.circleRfftLastSparse == nil) return NULL;
+            runtime.circleRfftLayerSparse == nil || runtime.circleRfftRadix4Sparse == nil ||
+            runtime.circleRfftLastSparse == nil || runtime.circleRfftFusedSparse == nil ||
+            runtime.circleRfftLayerSparseWide == nil || runtime.circleRfftLastSparseWide == nil) return NULL;
         if (runtime.relationFused == nil || runtime.relationBlockScan == nil ||
             runtime.relationScanBlocks == nil || runtime.relationScanFinalize == nil || runtime.fixedTableLookup == nil ||
             runtime.parentsSparse == nil || runtime.felt252Oracle == nil || runtime.ecOpWitness == nil ||
+            runtime.ecOpLookup == nil || runtime.ecOpBaseFinalize == nil ||
             runtime.compactGather == nil || runtime.compactRadixHistogram == nil || runtime.compactRadixPrefix == nil ||
             runtime.compactRadixScatter == nil || runtime.compactHeads == nil || runtime.compactScanLocal == nil ||
             runtime.compactScanBlocks == nil || runtime.compactScanAdd == nil || runtime.compactClearOutputs == nil ||
@@ -562,6 +640,35 @@ void *stwo_zig_metal_runtime_create(
             runtime.compositionSplit == nil || runtime.compositionExpand == nil || runtime.compositionRandomPowers == nil ||
             runtime.compositionExtParams == nil) return NULL;
         return (__bridge_retained void *)runtime;
+    }
+}
+
+bool stwo_zig_metal_pipeline_cache_stats(
+    void *runtime_ptr, StwoZigPipelineCacheStats *stats
+) {
+    if (runtime_ptr == NULL || stats == NULL) return false;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        @synchronized(runtime) {
+            stats->library_cache_hits = runtime.evalLibraryCacheHits;
+            stats->library_cache_misses = runtime.evalLibraryCacheMisses;
+            stats->pipeline_cache_hits = runtime.evalPipelineCacheHits;
+            stats->binary_archive_hits = runtime.evalBinaryArchiveHits;
+            stats->binary_archive_misses = runtime.evalBinaryArchiveMisses;
+            stats->direct_compiles = runtime.evalDirectCompiles;
+            stats->archive_populations = runtime.evalArchivePopulations;
+            stats->archive_serializations = runtime.evalArchiveSerializations;
+            stats->pipeline_preparation_seconds = runtime.evalPipelinePreparationSeconds;
+        }
+        return true;
+    }
+}
+
+uint64_t stwo_zig_metal_max_buffer_length(void *runtime_ptr) {
+    if (runtime_ptr == NULL) return 0u;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        return (uint64_t)runtime.device.maxBufferLength;
     }
 }
 
@@ -804,6 +911,86 @@ void stwo_zig_metal_quotient_combine_plan_destroy(void *plan_ptr) {
     if (plan_ptr != NULL) CFRelease(plan_ptr);
 }
 
+typedef struct {
+    uint64_t source_word_offset;
+    uint32_t source_word_count;
+    uint32_t value_coefficients[4];
+} StwoZigQuotientCoefficientTerm;
+
+bool stwo_zig_metal_quotient_coefficients_resident(
+    void *runtime_ptr, void *arena_ptr,
+    const StwoZigQuotientCoefficientTerm *term_descriptors, uint32_t term_count,
+    const uint32_t *task_words, uint32_t task_count,
+    const uint32_t *row_starts, uint32_t total_rows,
+    double *gpu_milliseconds, char *error_message, size_t error_message_len
+) {
+    if (runtime_ptr == NULL || arena_ptr == NULL || term_descriptors == NULL || task_words == NULL ||
+        row_starts == NULL || term_count == 0u || task_count == 0u || total_rows == 0u ||
+        row_starts[0] != 0u || row_starts[task_count] != total_rows) return false;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        id<MTLBuffer> arena = (__bridge id<MTLBuffer>)arena_ptr;
+        NSUInteger arena_words = arena.length / sizeof(uint32_t);
+        for (uint32_t term = 0u; term < term_count; ++term) {
+            const StwoZigQuotientCoefficientTerm *descriptor = &term_descriptors[term];
+            if ((NSUInteger)descriptor->source_word_offset + descriptor->source_word_count > arena_words) {
+                write_error(error_message, error_message_len, @"Metal quotient coefficient source exceeds arena");
+                return false;
+            }
+        }
+        for (uint32_t task = 0u; task < task_count; ++task) {
+            const uint32_t *words = task_words + (NSUInteger)task * 11u;
+            uint32_t row_count = words[6];
+            if (words[0] + words[1] > term_count || row_starts[task] > row_starts[task + 1u] ||
+                row_starts[task + 1u] - row_starts[task] != row_count) {
+                write_error(error_message, error_message_len, @"Metal quotient coefficient task is malformed");
+                return false;
+            }
+            for (uint32_t coordinate = 0u; coordinate < 4u; ++coordinate) {
+                if ((NSUInteger)words[2u + coordinate] + row_count > arena_words) {
+                    write_error(error_message, error_message_len, @"Metal quotient coefficient destination exceeds arena");
+                    return false;
+                }
+            }
+        }
+        id<MTLBuffer> terms = [runtime.device newBufferWithBytes:term_descriptors
+            length:(NSUInteger)term_count * sizeof(StwoZigQuotientCoefficientTerm) options:MTLResourceStorageModeShared];
+        id<MTLBuffer> tasks = [runtime.device newBufferWithBytes:task_words
+            length:(NSUInteger)task_count * 11u * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+        id<MTLBuffer> starts = [runtime.device newBufferWithBytes:row_starts
+            length:(NSUInteger)(task_count + 1u) * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+        if (terms == nil || tasks == nil || starts == nil) {
+            write_error(error_message, error_message_len, @"Metal quotient coefficient descriptor allocation failed");
+            return false;
+        }
+        id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
+        id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
+        [encoder setComputePipelineState:runtime.quotientCoefficientsResident];
+        [encoder setBuffer:arena offset:0 atIndex:0];
+        [encoder setBuffer:terms offset:0 atIndex:1];
+        [encoder setBuffer:tasks offset:0 atIndex:2];
+        [encoder setBuffer:starts offset:0 atIndex:3];
+        [encoder setBytes:&task_count length:sizeof(task_count) atIndex:4];
+        [encoder setBytes:&total_rows length:sizeof(total_rows) atIndex:5];
+        NSUInteger width = MIN(runtime.quotientCoefficientsResident.maxTotalThreadsPerThreadgroup,
+                               runtime.quotientCoefficientsResident.threadExecutionWidth * 8u);
+        [encoder dispatchThreads:MTLSizeMake(total_rows, 1u, 1u)
+             threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+        [encoder endEncoding];
+        [command commit];
+        [command waitUntilCompleted];
+        if (command.status == MTLCommandBufferStatusError) {
+            write_error(error_message, error_message_len,
+                        command.error.localizedDescription ?: @"Metal quotient coefficient accumulation failed");
+            return false;
+        }
+        if (gpu_milliseconds != NULL) {
+            *gpu_milliseconds = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
+        }
+        return true;
+    }
+}
+
 bool stwo_zig_metal_quotient_combine_prepared(
     void *runtime_ptr, void *arena_ptr, void *plan_ptr,
     double *gpu_milliseconds, char *error_message, size_t error_message_len
@@ -981,11 +1168,11 @@ bool stwo_zig_metal_fri_tree_prepared(
         uint32_t parents = leaves >> 1u;
         for (uint32_t level = 1u; level < plan.layerCount; ++level) {
             id<MTLComputeCommandEncoder> parent = [command computeCommandEncoder];
-            [parent setComputePipelineState:runtime.parentsSparse]; [parent setBuffer:arena offset:0 atIndex:0];
+            [parent setComputePipelineState:runtime.parentsPlainSparse]; [parent setBuffer:arena offset:0 atIndex:0];
             uint32_t child = layers[level - 1u], output = layers[level];
             [parent setBytes:&child length:sizeof(child) atIndex:1]; [parent setBytes:&output length:sizeof(output) atIndex:2];
-            [parent setBytes:&parents length:sizeof(parents) atIndex:3]; [parent setBuffer:plan.nodeSeed offset:0 atIndex:4];
-            NSUInteger width = MIN(runtime.parentsSparse.maxTotalThreadsPerThreadgroup, runtime.parentsSparse.threadExecutionWidth * 8u);
+            [parent setBytes:&parents length:sizeof(parents) atIndex:3];
+            NSUInteger width = MIN(runtime.parentsPlainSparse.maxTotalThreadsPerThreadgroup, runtime.parentsPlainSparse.threadExecutionWidth * 8u);
             [parent dispatchThreads:MTLSizeMake(parents, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
             [parent endEncoding]; parents >>= 1u;
         }
@@ -1113,9 +1300,9 @@ bool stwo_zig_metal_transcript_draw_queries(
 }
 
 bool stwo_zig_metal_decommit_normalize_queries(
-    void *runtime_ptr, void *arena_ptr, uint32_t raw_base, uint32_t raw_count,
-    uint32_t log_domain_size, uint32_t unique_base, uint32_t unique_count_base,
-    uint32_t tree_count, uint32_t assembly_base, uint32_t assembly_capacity,
+    void *runtime_ptr, void *arena_ptr, uint64_t raw_base, uint32_t raw_count,
+    uint32_t log_domain_size, uint64_t unique_base, uint64_t unique_count_base,
+    uint32_t tree_count, uint64_t assembly_base, uint32_t assembly_capacity,
     double *gpu_milliseconds, char *error_message, size_t error_message_len
 ) {
     if(runtime_ptr==NULL||arena_ptr==NULL||raw_count==0u||log_domain_size==0u||log_domain_size>=31u||tree_count==0u||assembly_capacity<8u+tree_count*16u+raw_count)return false;
@@ -1125,18 +1312,90 @@ bool stwo_zig_metal_decommit_normalize_queries(
         if((NSUInteger)raw_base+raw_count>words||(NSUInteger)unique_base+raw_count>words||unique_count_base>=words||(NSUInteger)assembly_base+assembly_capacity>words)return false;
         id<MTLCommandBuffer> command=[runtime.queue commandBuffer]; id<MTLComputeCommandEncoder> encoder=[command computeCommandEncoder];
         [encoder setComputePipelineState:runtime.decommitNormalizeQueriesResident]; [encoder setBuffer:arena offset:0 atIndex:0];
-        uint32_t values[]={raw_base,raw_count,log_domain_size,unique_base,unique_count_base,tree_count,assembly_base,assembly_capacity}; for(NSUInteger i=0;i<8u;++i)[encoder setBytes:&values[i] length:4u atIndex:i+1u];
+        [encoder setBytes:&raw_base length:8u atIndex:1]; [encoder setBytes:&raw_count length:4u atIndex:2];
+        [encoder setBytes:&log_domain_size length:4u atIndex:3]; [encoder setBytes:&unique_base length:8u atIndex:4];
+        [encoder setBytes:&unique_count_base length:8u atIndex:5]; [encoder setBytes:&tree_count length:4u atIndex:6];
+        [encoder setBytes:&assembly_base length:8u atIndex:7]; [encoder setBytes:&assembly_capacity length:4u atIndex:8];
         [encoder dispatchThreads:MTLSizeMake(1u,1u,1u) threadsPerThreadgroup:MTLSizeMake(1u,1u,1u)]; [encoder endEncoding]; [command commit]; [command waitUntilCompleted];
         if(command.status==MTLCommandBufferStatusError){write_error(error_message,error_message_len,command.error.localizedDescription);return false;}
         if(gpu_milliseconds)*gpu_milliseconds=(command.GPUEndTime-command.GPUStartTime)*1000.0; return true;
     }
 }
 
+static void encode_decommit_prepare_fri_queries(
+    StwoZigMetalRuntime *runtime, id<MTLBuffer> arena,
+    const StwoZigDecommitFriRoundParams *params,
+    id<MTLCommandBuffer> command
+) {
+    id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
+    [encoder setComputePipelineState:runtime.decommitPrepareFriQueriesResident];
+    [encoder setBuffer:arena offset:0 atIndex:0];
+    [encoder setBytes:&params->unique_base length:8u atIndex:1];
+    [encoder setBytes:&params->unique_count_base length:8u atIndex:2];
+    [encoder setBytes:&params->max_queries length:4u atIndex:3];
+    [encoder setBytes:&params->cumulative_fold length:4u atIndex:4];
+    [encoder setBytes:&params->fold_step length:4u atIndex:5];
+    [encoder setBytes:&params->packed_log length:4u atIndex:6];
+    [encoder setBytes:&params->tree_queries_base length:8u atIndex:7];
+    [encoder setBytes:&params->tree_count_base length:8u atIndex:8];
+    [encoder setBytes:&params->expanded_base length:8u atIndex:9];
+    [encoder setBytes:&params->expanded_count_base length:8u atIndex:10];
+    [encoder setBytes:&params->walk_base length:8u atIndex:11];
+    [encoder setBytes:&params->walk_count_base length:8u atIndex:12];
+    [encoder dispatchThreads:MTLSizeMake(1u, 1u, 1u)
+          threadsPerThreadgroup:MTLSizeMake(1u, 1u, 1u)];
+    [encoder endEncoding];
+}
+
+static void encode_decommit_gather_fri_values(
+    StwoZigMetalRuntime *runtime, id<MTLBuffer> arena,
+    const StwoZigDecommitFriRoundParams *params,
+    id<MTLCommandBuffer> command
+) {
+    id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
+    [encoder setComputePipelineState:runtime.decommitGatherFriValuesResident];
+    [encoder setBuffer:arena offset:0 atIndex:0];
+    [encoder setBuffer:arena offset:(NSUInteger)params->coordinate_bases * sizeof(uint32_t) atIndex:1];
+    [encoder setBytes:&params->expanded_base length:8u atIndex:2];
+    [encoder setBytes:&params->expanded_count_base length:8u atIndex:3];
+    [encoder setBytes:&params->max_positions length:4u atIndex:4];
+    [encoder setBytes:&params->values_base length:8u atIndex:5];
+    [encoder dispatchThreads:MTLSizeMake(params->max_positions, 1u, 1u)
+          threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)params->max_positions, 256u), 1u, 1u)];
+    [encoder endEncoding];
+}
+
+static void encode_decommit_assemble_fri(
+    StwoZigMetalRuntime *runtime, id<MTLBuffer> arena,
+    const StwoZigDecommitFriRoundParams *params,
+    id<MTLCommandBuffer> command
+) {
+    id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
+    [encoder setComputePipelineState:runtime.decommitAssembleFriResident];
+    [encoder setBuffer:arena offset:0 atIndex:0];
+    [encoder setBytes:&params->tree_index length:4u atIndex:1];
+    [encoder setBytes:&params->leaf_log length:4u atIndex:2];
+    [encoder setBytes:&params->tree_queries_base length:8u atIndex:3];
+    [encoder setBytes:&params->tree_count_base length:8u atIndex:4];
+    [encoder setBytes:&params->expanded_base length:8u atIndex:5];
+    [encoder setBytes:&params->expanded_count_base length:8u atIndex:6];
+    [encoder setBytes:&params->values_base length:8u atIndex:7];
+    [encoder setBytes:&params->walk_base length:8u atIndex:8];
+    [encoder setBytes:&params->walk_scratch_base length:8u atIndex:9];
+    [encoder setBytes:&params->walk_count_base length:8u atIndex:10];
+    [encoder setBytes:&params->retained_offsets length:8u atIndex:11];
+    [encoder setBytes:&params->assembly_base length:8u atIndex:12];
+    [encoder setBytes:&params->assembly_capacity length:4u atIndex:13];
+    [encoder dispatchThreads:MTLSizeMake(1u, 1u, 1u)
+          threadsPerThreadgroup:MTLSizeMake(1u, 1u, 1u)];
+    [encoder endEncoding];
+}
+
 bool stwo_zig_metal_decommit_prepare_fri_queries(
-    void *runtime_ptr, void *arena_ptr, uint32_t unique_base, uint32_t unique_count_base,
+    void *runtime_ptr, void *arena_ptr, uint64_t unique_base, uint64_t unique_count_base,
     uint32_t max_queries, uint32_t cumulative_fold, uint32_t fold_step, uint32_t packed_log,
-    uint32_t tree_queries_base, uint32_t tree_count_base, uint32_t expanded_base,
-    uint32_t expanded_count_base, uint32_t walk_base, uint32_t walk_count_base,
+    uint64_t tree_queries_base, uint64_t tree_count_base, uint64_t expanded_base,
+    uint64_t expanded_count_base, uint64_t walk_base, uint64_t walk_count_base,
     double *gpu_milliseconds, char *error_message, size_t error_message_len
 ) {
     if(runtime_ptr==NULL||arena_ptr==NULL||max_queries==0u||fold_step==0u||fold_step>=8u||packed_log>=31u)return false;
@@ -1144,22 +1403,28 @@ bool stwo_zig_metal_decommit_prepare_fri_queries(
         StwoZigMetalRuntime *runtime=(__bridge StwoZigMetalRuntime *)runtime_ptr; id<MTLBuffer> arena=(__bridge id<MTLBuffer>)arena_ptr;
         NSUInteger words=arena.length/sizeof(uint32_t), expanded=(NSUInteger)max_queries<<fold_step;
         if((NSUInteger)unique_base+max_queries>words||unique_count_base>=words||(NSUInteger)tree_queries_base+max_queries>words||tree_count_base>=words||(NSUInteger)expanded_base+expanded>words||expanded_count_base>=words||(NSUInteger)walk_base+expanded>words||walk_count_base>=words)return false;
-        id<MTLCommandBuffer> command=[runtime.queue commandBuffer]; id<MTLComputeCommandEncoder> encoder=[command computeCommandEncoder];
-        [encoder setComputePipelineState:runtime.decommitPrepareFriQueriesResident]; [encoder setBuffer:arena offset:0 atIndex:0];
-        uint32_t values[]={unique_base,unique_count_base,max_queries,cumulative_fold,fold_step,packed_log,tree_queries_base,tree_count_base,expanded_base,expanded_count_base,walk_base,walk_count_base};
-        for(NSUInteger i=0;i<12u;++i)[encoder setBytes:&values[i] length:4u atIndex:i+1u];
-        [encoder dispatchThreads:MTLSizeMake(1u,1u,1u) threadsPerThreadgroup:MTLSizeMake(1u,1u,1u)]; [encoder endEncoding]; [command commit]; [command waitUntilCompleted];
+        StwoZigDecommitFriRoundParams params = {
+            .unique_base = unique_base, .unique_count_base = unique_count_base,
+            .tree_queries_base = tree_queries_base, .tree_count_base = tree_count_base,
+            .expanded_base = expanded_base, .expanded_count_base = expanded_count_base,
+            .walk_base = walk_base, .walk_count_base = walk_count_base,
+            .max_queries = max_queries, .cumulative_fold = cumulative_fold,
+            .fold_step = fold_step, .packed_log = packed_log,
+        };
+        id<MTLCommandBuffer> command=[runtime.queue commandBuffer];
+        encode_decommit_prepare_fri_queries(runtime, arena, &params, command);
+        [command commit]; [command waitUntilCompleted];
         if(command.status==MTLCommandBufferStatusError){write_error(error_message,error_message_len,command.error.localizedDescription);return false;}
         if(gpu_milliseconds)*gpu_milliseconds=(command.GPUEndTime-command.GPUStartTime)*1000.0; return true;
     }
 }
 
 bool stwo_zig_metal_decommit_prepare_trace_queries(
-    void *runtime_ptr, void *arena_ptr, uint32_t unique_base, uint32_t unique_count_base,
+    void *runtime_ptr, void *arena_ptr, uint64_t unique_base, uint64_t unique_count_base,
     uint32_t max_queries, uint32_t source_log, uint32_t tree_log, uint32_t leaf_log,
-    uint32_t unretained, uint32_t mapped_base, uint32_t mapped_count_base,
-    uint32_t walk_base, uint32_t walk_count_base, uint32_t leaves_base,
-    uint32_t leaf_count_base, double *gpu_milliseconds, char *error_message,
+    uint32_t unretained, uint64_t mapped_base, uint64_t mapped_count_base,
+    uint64_t walk_base, uint64_t walk_count_base, uint64_t leaves_base,
+    uint64_t leaf_count_base, double *gpu_milliseconds, char *error_message,
     size_t error_message_len
 ) {
     if(runtime_ptr==NULL||arena_ptr==NULL||max_queries==0u||source_log>=31u||tree_log>=31u||leaf_log>=31u||unretained>=8u)return false;
@@ -1169,8 +1434,13 @@ bool stwo_zig_metal_decommit_prepare_trace_queries(
         if((NSUInteger)unique_base+max_queries>words||unique_count_base>=words||(NSUInteger)mapped_base+max_queries>words||mapped_count_base>=words||(NSUInteger)walk_base+max_queries>words||walk_count_base>=words||(NSUInteger)leaves_base+leaves>words||leaf_count_base>=words)return false;
         id<MTLCommandBuffer> command=[runtime.queue commandBuffer]; id<MTLComputeCommandEncoder> encoder=[command computeCommandEncoder];
         [encoder setComputePipelineState:runtime.decommitPrepareTraceQueriesResident]; [encoder setBuffer:arena offset:0 atIndex:0];
-        uint32_t values[]={unique_base,unique_count_base,max_queries,source_log,tree_log,leaf_log,unretained,mapped_base,mapped_count_base,walk_base,walk_count_base,leaves_base,leaf_count_base};
-        for(NSUInteger i=0;i<13u;++i)[encoder setBytes:&values[i] length:4u atIndex:i+1u];
+        [encoder setBytes:&unique_base length:8u atIndex:1]; [encoder setBytes:&unique_count_base length:8u atIndex:2];
+        [encoder setBytes:&max_queries length:4u atIndex:3]; [encoder setBytes:&source_log length:4u atIndex:4];
+        [encoder setBytes:&tree_log length:4u atIndex:5]; [encoder setBytes:&leaf_log length:4u atIndex:6];
+        [encoder setBytes:&unretained length:4u atIndex:7]; [encoder setBytes:&mapped_base length:8u atIndex:8];
+        [encoder setBytes:&mapped_count_base length:8u atIndex:9]; [encoder setBytes:&walk_base length:8u atIndex:10];
+        [encoder setBytes:&walk_count_base length:8u atIndex:11]; [encoder setBytes:&leaves_base length:8u atIndex:12];
+        [encoder setBytes:&leaf_count_base length:8u atIndex:13];
         [encoder dispatchThreads:MTLSizeMake(1u,1u,1u) threadsPerThreadgroup:MTLSizeMake(1u,1u,1u)]; [encoder endEncoding]; [command commit]; [command waitUntilCompleted];
         if(command.status==MTLCommandBufferStatusError){write_error(error_message,error_message_len,command.error.localizedDescription);return false;}
         if(gpu_milliseconds)*gpu_milliseconds=(command.GPUEndTime-command.GPUStartTime)*1000.0; return true;
@@ -1178,10 +1448,10 @@ bool stwo_zig_metal_decommit_prepare_trace_queries(
 }
 
 bool stwo_zig_metal_decommit_gather_trace_values(
-    void *runtime_ptr, void *arena_ptr, uint32_t column_offsets_base,
-    uint32_t column_logs_base, uint32_t column_count, uint32_t lifting_log,
-    uint32_t queries_base, uint32_t query_count_base, uint32_t max_queries,
-    uint32_t first_column, uint32_t stride, uint32_t output_base,
+    void *runtime_ptr, void *arena_ptr, uint64_t column_offsets_base,
+    uint64_t column_logs_base, uint32_t column_count, uint32_t lifting_log,
+    uint64_t queries_base, uint64_t query_count_base, uint32_t max_queries,
+    uint32_t first_column, uint32_t stride, uint64_t output_base,
     double *gpu_milliseconds, char *error_message, size_t error_message_len
 ) {
     if(runtime_ptr==NULL||arena_ptr==NULL||column_count==0u||max_queries==0u||stride<max_queries||lifting_log>=31u)return false;
@@ -1189,12 +1459,15 @@ bool stwo_zig_metal_decommit_gather_trace_values(
         StwoZigMetalRuntime *runtime=(__bridge StwoZigMetalRuntime *)runtime_ptr; id<MTLBuffer> arena=(__bridge id<MTLBuffer>)arena_ptr;
         NSUInteger words=arena.length/sizeof(uint32_t);
         NSUInteger output_end=(NSUInteger)output_base+((NSUInteger)first_column+column_count)*stride;
-        if((NSUInteger)column_offsets_base+column_count>words||(NSUInteger)column_logs_base+column_count>words||
+        if((NSUInteger)column_offsets_base+(NSUInteger)column_count*2u>words||(NSUInteger)column_logs_base+column_count>words||
            (NSUInteger)queries_base+max_queries>words||query_count_base>=words||output_end>words)return false;
         id<MTLCommandBuffer> command=[runtime.queue commandBuffer]; id<MTLComputeCommandEncoder> encoder=[command computeCommandEncoder];
         [encoder setComputePipelineState:runtime.decommitGatherTraceValuesResident]; [encoder setBuffer:arena offset:0 atIndex:0];
-        uint32_t values[]={column_offsets_base,column_logs_base,column_count,lifting_log,queries_base,query_count_base,max_queries,first_column,stride,output_base};
-        for(NSUInteger i=0;i<10u;++i)[encoder setBytes:&values[i] length:4u atIndex:i+1u];
+        [encoder setBytes:&column_offsets_base length:8u atIndex:1]; [encoder setBytes:&column_logs_base length:8u atIndex:2];
+        [encoder setBytes:&column_count length:4u atIndex:3]; [encoder setBytes:&lifting_log length:4u atIndex:4];
+        [encoder setBytes:&queries_base length:8u atIndex:5]; [encoder setBytes:&query_count_base length:8u atIndex:6];
+        [encoder setBytes:&max_queries length:4u atIndex:7]; [encoder setBytes:&first_column length:4u atIndex:8];
+        [encoder setBytes:&stride length:4u atIndex:9]; [encoder setBytes:&output_base length:8u atIndex:10];
         MTLSize threads=MTLSizeMake(MIN((NSUInteger)max_queries,32u),MIN((NSUInteger)column_count,8u),1u);
         [encoder dispatchThreads:MTLSizeMake(max_queries,column_count,1u) threadsPerThreadgroup:threads]; [encoder endEncoding]; [command commit]; [command waitUntilCompleted];
         if(command.status==MTLCommandBufferStatusError){write_error(error_message,error_message_len,command.error.localizedDescription);return false;}
@@ -1203,23 +1476,25 @@ bool stwo_zig_metal_decommit_gather_trace_values(
 }
 
 bool stwo_zig_metal_decommit_gather_fri_values(
-    void *runtime_ptr, void *arena_ptr, uint32_t coordinate_bases,
-    uint32_t positions_base, uint32_t count_base, uint32_t max_positions,
-    uint32_t values_base, double *gpu_milliseconds, char *error_message,
+    void *runtime_ptr, void *arena_ptr, uint64_t coordinate_bases,
+    uint64_t positions_base, uint64_t count_base, uint32_t max_positions,
+    uint64_t values_base, double *gpu_milliseconds, char *error_message,
     size_t error_message_len
 ) {
     if(runtime_ptr==NULL||arena_ptr==NULL||max_positions==0u)return false;
     @autoreleasepool {
         StwoZigMetalRuntime *runtime=(__bridge StwoZigMetalRuntime *)runtime_ptr; id<MTLBuffer> arena=(__bridge id<MTLBuffer>)arena_ptr;
         NSUInteger words=arena.length/sizeof(uint32_t);
-        if((NSUInteger)coordinate_bases+4u>words||(NSUInteger)positions_base+max_positions>words||
+        if((NSUInteger)coordinate_bases+8u>words||(NSUInteger)positions_base+max_positions>words||
            count_base>=words||(NSUInteger)values_base+(NSUInteger)max_positions*4u>words)return false;
-        id<MTLCommandBuffer> command=[runtime.queue commandBuffer]; id<MTLComputeCommandEncoder> encoder=[command computeCommandEncoder];
-        [encoder setComputePipelineState:runtime.decommitGatherFriValuesResident]; [encoder setBuffer:arena offset:0 atIndex:0];
-        [encoder setBuffer:arena offset:(NSUInteger)coordinate_bases*sizeof(uint32_t) atIndex:1];
-        uint32_t values[]={positions_base,count_base,max_positions,values_base}; for(NSUInteger i=0;i<4u;++i)[encoder setBytes:&values[i] length:4u atIndex:i+2u];
-        [encoder dispatchThreads:MTLSizeMake(max_positions,1u,1u) threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)max_positions,256u),1u,1u)];
-        [encoder endEncoding]; [command commit]; [command waitUntilCompleted];
+        StwoZigDecommitFriRoundParams params = {
+            .expanded_base = positions_base, .expanded_count_base = count_base,
+            .coordinate_bases = coordinate_bases, .values_base = values_base,
+            .max_positions = max_positions,
+        };
+        id<MTLCommandBuffer> command=[runtime.queue commandBuffer];
+        encode_decommit_gather_fri_values(runtime, arena, &params, command);
+        [command commit]; [command waitUntilCompleted];
         if(command.status==MTLCommandBufferStatusError){write_error(error_message,error_message_len,command.error.localizedDescription);return false;}
         if(gpu_milliseconds)*gpu_milliseconds=(command.GPUEndTime-command.GPUStartTime)*1000.0; return true;
     }
@@ -1227,9 +1502,9 @@ bool stwo_zig_metal_decommit_gather_fri_values(
 
 bool stwo_zig_metal_decommit_assemble_fri(
     void *runtime_ptr, void *arena_ptr, uint32_t tree_index, uint32_t leaf_log,
-    uint32_t tree_queries, uint32_t tree_count_at, uint32_t expanded,
-    uint32_t expanded_count_at, uint32_t values, uint32_t walk, uint32_t scratch,
-    uint32_t walk_count_at, uint32_t retained_offsets, uint32_t assembly,
+    uint64_t tree_queries, uint64_t tree_count_at, uint64_t expanded,
+    uint64_t expanded_count_at, uint64_t values, uint64_t walk, uint64_t scratch,
+    uint64_t walk_count_at, uint64_t retained_offsets, uint64_t assembly,
     uint32_t capacity, double *gpu_milliseconds, char *error_message,
     size_t error_message_len
 ) {
@@ -1238,21 +1513,69 @@ bool stwo_zig_metal_decommit_assemble_fri(
         StwoZigMetalRuntime *runtime=(__bridge StwoZigMetalRuntime *)runtime_ptr; id<MTLBuffer> arena_buffer=(__bridge id<MTLBuffer>)arena_ptr;
         NSUInteger words=arena_buffer.length/sizeof(uint32_t);
         if(tree_count_at>=words||expanded_count_at>=words||walk_count_at>=words||
-           (NSUInteger)retained_offsets+leaf_log+1u>words||(NSUInteger)assembly+capacity>words)return false;
-        id<MTLCommandBuffer> command=[runtime.queue commandBuffer]; id<MTLComputeCommandEncoder> encoder=[command computeCommandEncoder];
-        [encoder setComputePipelineState:runtime.decommitAssembleFriResident]; [encoder setBuffer:arena_buffer offset:0 atIndex:0];
-        uint32_t args[]={tree_index,leaf_log,tree_queries,tree_count_at,expanded,expanded_count_at,values,walk,scratch,walk_count_at,retained_offsets,assembly,capacity};
-        for(NSUInteger i=0;i<13u;++i)[encoder setBytes:&args[i] length:4u atIndex:i+1u];
-        [encoder dispatchThreads:MTLSizeMake(1u,1u,1u) threadsPerThreadgroup:MTLSizeMake(1u,1u,1u)]; [encoder endEncoding]; [command commit]; [command waitUntilCompleted];
+           (NSUInteger)retained_offsets+(NSUInteger)(leaf_log+1u)*2u>words||(NSUInteger)assembly+capacity>words)return false;
+        StwoZigDecommitFriRoundParams params = {
+            .tree_queries_base = tree_queries, .tree_count_base = tree_count_at,
+            .expanded_base = expanded, .expanded_count_base = expanded_count_at,
+            .walk_base = walk, .walk_count_base = walk_count_at,
+            .values_base = values, .walk_scratch_base = scratch,
+            .retained_offsets = retained_offsets, .assembly_base = assembly,
+            .tree_index = tree_index, .leaf_log = leaf_log, .assembly_capacity = capacity,
+        };
+        id<MTLCommandBuffer> command=[runtime.queue commandBuffer];
+        encode_decommit_assemble_fri(runtime, arena_buffer, &params, command);
+        [command commit]; [command waitUntilCompleted];
         if(command.status==MTLCommandBufferStatusError){write_error(error_message,error_message_len,command.error.localizedDescription);return false;}
         if(gpu_milliseconds)*gpu_milliseconds=(command.GPUEndTime-command.GPUStartTime)*1000.0; return true;
     }
 }
 
+bool stwo_zig_metal_decommit_fri_round(
+    void *runtime_ptr, void *arena_ptr, const StwoZigDecommitFriRoundParams *params,
+    double *gpu_milliseconds, char *error_message, size_t error_message_len
+) {
+    if (runtime_ptr == NULL || arena_ptr == NULL || params == NULL ||
+        params->max_queries == 0u || params->fold_step == 0u || params->fold_step >= 8u ||
+        params->packed_log >= 31u || params->max_positions == 0u ||
+        params->leaf_log >= 31u || params->assembly_capacity == 0u) return false;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        id<MTLBuffer> arena = (__bridge id<MTLBuffer>)arena_ptr;
+        NSUInteger words = arena.length / sizeof(uint32_t);
+        NSUInteger expanded = (NSUInteger)params->max_queries << params->fold_step;
+        if ((NSUInteger)params->unique_base + params->max_queries > words ||
+            params->unique_count_base >= words ||
+            (NSUInteger)params->tree_queries_base + params->max_queries > words ||
+            params->tree_count_base >= words ||
+            (NSUInteger)params->expanded_base + expanded > words ||
+            params->expanded_count_base >= words ||
+            (NSUInteger)params->walk_base + expanded > words ||
+            params->walk_count_base >= words ||
+            (NSUInteger)params->coordinate_bases + 8u > words ||
+            (NSUInteger)params->expanded_base + params->max_positions > words ||
+            (NSUInteger)params->values_base + (NSUInteger)params->max_positions * 4u > words ||
+            (NSUInteger)params->retained_offsets + (NSUInteger)(params->leaf_log + 1u) * 2u > words ||
+            (NSUInteger)params->assembly_base + params->assembly_capacity > words) return false;
+
+        id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
+        encode_decommit_prepare_fri_queries(runtime, arena, params, command);
+        encode_decommit_gather_fri_values(runtime, arena, params, command);
+        encode_decommit_assemble_fri(runtime, arena, params, command);
+        [command commit];
+        [command waitUntilCompleted];
+        if (command.status == MTLCommandBufferStatusError) {
+            write_error(error_message, error_message_len, command.error.localizedDescription);
+            return false;
+        }
+        if (gpu_milliseconds) *gpu_milliseconds = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
+        return true;
+    }
+}
+
 bool stwo_zig_metal_decommit_sparse_parent(
-    void *runtime_ptr, void *arena_ptr, uint32_t child_indices, uint32_t child_hashes,
-    uint32_t child_count_at, uint32_t max_child_count, uint32_t parent_indices,
-    uint32_t parent_hashes, uint32_t parent_count_at, const uint32_t node_seed[8],
+    void *runtime_ptr, void *arena_ptr, uint64_t child_indices, uint64_t child_hashes,
+    uint64_t child_count_at, uint32_t max_child_count, uint64_t parent_indices,
+    uint64_t parent_hashes, uint64_t parent_count_at, const uint32_t node_seed[8],
     double *gpu_milliseconds, char *error_message, size_t error_message_len
 ) {
     if(runtime_ptr==NULL||arena_ptr==NULL||node_seed==NULL||max_child_count<2u)return false;
@@ -1263,8 +1586,10 @@ bool stwo_zig_metal_decommit_sparse_parent(
            child_count_at>=words||(NSUInteger)parent_indices+parents>words||(NSUInteger)parent_hashes+parents*8u>words||parent_count_at>=words)return false;
         id<MTLCommandBuffer> command=[runtime.queue commandBuffer]; id<MTLComputeCommandEncoder> encoder=[command computeCommandEncoder];
         [encoder setComputePipelineState:runtime.decommitSparseParentResident]; [encoder setBuffer:arena offset:0 atIndex:0];
-        uint32_t args[]={child_indices,child_hashes,child_count_at,max_child_count,parent_indices,parent_hashes,parent_count_at};
-        for(NSUInteger i=0;i<7u;++i)[encoder setBytes:&args[i] length:4u atIndex:i+1u]; [encoder setBytes:node_seed length:32u atIndex:8];
+        [encoder setBytes:&child_indices length:8u atIndex:1]; [encoder setBytes:&child_hashes length:8u atIndex:2];
+        [encoder setBytes:&child_count_at length:8u atIndex:3]; [encoder setBytes:&max_child_count length:4u atIndex:4];
+        [encoder setBytes:&parent_indices length:8u atIndex:5]; [encoder setBytes:&parent_hashes length:8u atIndex:6];
+        [encoder setBytes:&parent_count_at length:8u atIndex:7]; [encoder setBytes:node_seed length:32u atIndex:8];
         [encoder dispatchThreads:MTLSizeMake(parents,1u,1u) threadsPerThreadgroup:MTLSizeMake(MIN(parents,256u),1u,1u)]; [encoder endEncoding]; [command commit]; [command waitUntilCompleted];
         if(command.status==MTLCommandBufferStatusError){write_error(error_message,error_message_len,command.error.localizedDescription);return false;}
         if(gpu_milliseconds)*gpu_milliseconds=(command.GPUEndTime-command.GPUStartTime)*1000.0; return true;
@@ -1272,9 +1597,9 @@ bool stwo_zig_metal_decommit_sparse_parent(
 }
 
 bool stwo_zig_metal_decommit_sparse_leaves(
-    void *runtime_ptr, void *arena_ptr, uint32_t column_offsets, uint32_t column_logs,
-    uint32_t column_count, uint32_t lifting_log, uint32_t leaf_indices,
-    uint32_t leaf_count_at, uint32_t max_leaf_count, uint32_t output_hashes,
+    void *runtime_ptr, void *arena_ptr, uint64_t column_offsets, uint64_t column_logs,
+    uint32_t column_count, uint32_t lifting_log, uint64_t leaf_indices,
+    uint64_t leaf_count_at, uint32_t max_leaf_count, uint64_t output_hashes,
     const uint32_t leaf_seed[8], double *gpu_milliseconds, char *error_message,
     size_t error_message_len
 ) {
@@ -1282,38 +1607,131 @@ bool stwo_zig_metal_decommit_sparse_leaves(
     @autoreleasepool {
         StwoZigMetalRuntime *runtime=(__bridge StwoZigMetalRuntime *)runtime_ptr; id<MTLBuffer> arena=(__bridge id<MTLBuffer>)arena_ptr;
         NSUInteger words=arena.length/sizeof(uint32_t);
-        if((NSUInteger)column_offsets+column_count>words||(NSUInteger)column_logs+column_count>words||
+        if((NSUInteger)column_offsets+(NSUInteger)column_count*2u>words||(NSUInteger)column_logs+column_count>words||
            (NSUInteger)leaf_indices+max_leaf_count>words||leaf_count_at>=words||(NSUInteger)output_hashes+(NSUInteger)max_leaf_count*8u>words)return false;
         id<MTLCommandBuffer> command=[runtime.queue commandBuffer]; id<MTLComputeCommandEncoder> encoder=[command computeCommandEncoder];
         [encoder setComputePipelineState:runtime.decommitSparseLeavesResident]; [encoder setBuffer:arena offset:0 atIndex:0];
-        uint32_t args[]={column_offsets,column_logs,column_count,lifting_log,leaf_indices,leaf_count_at,max_leaf_count,output_hashes};
-        for(NSUInteger i=0;i<8u;++i)[encoder setBytes:&args[i] length:4u atIndex:i+1u]; [encoder setBytes:leaf_seed length:32u atIndex:9];
+        [encoder setBytes:&column_offsets length:8u atIndex:1]; [encoder setBytes:&column_logs length:8u atIndex:2];
+        [encoder setBytes:&column_count length:4u atIndex:3]; [encoder setBytes:&lifting_log length:4u atIndex:4];
+        [encoder setBytes:&leaf_indices length:8u atIndex:5]; [encoder setBytes:&leaf_count_at length:8u atIndex:6];
+        [encoder setBytes:&max_leaf_count length:4u atIndex:7]; [encoder setBytes:&output_hashes length:8u atIndex:8];
+        [encoder setBytes:leaf_seed length:32u atIndex:9];
         [encoder dispatchThreads:MTLSizeMake(max_leaf_count,1u,1u) threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)max_leaf_count,256u),1u,1u)]; [encoder endEncoding]; [command commit]; [command waitUntilCompleted];
         if(command.status==MTLCommandBufferStatusError){write_error(error_message,error_message_len,command.error.localizedDescription);return false;}
         if(gpu_milliseconds)*gpu_milliseconds=(command.GPUEndTime-command.GPUStartTime)*1000.0; return true;
     }
 }
 
+bool stwo_zig_metal_decommit_sparse_leaf_group(
+    void *runtime_ptr, void *arena_ptr, uint64_t column_offsets, uint64_t column_logs,
+    uint32_t column_count, uint32_t first_column, uint32_t total_columns,
+    uint32_t lifting_log, uint64_t leaf_indices, uint64_t leaf_count_at,
+    uint32_t max_leaf_count, uint64_t output_hashes, const uint32_t leaf_seed[8],
+    double *gpu_milliseconds, char *error_message, size_t error_message_len
+) {
+    if(runtime_ptr==NULL||arena_ptr==NULL||leaf_seed==NULL||column_count==0u||column_count>16u||
+       total_columns==0u||first_column>=total_columns||column_count>total_columns-first_column||
+       (first_column&15u)!=0u||(first_column+column_count<total_columns&&(column_count&15u)!=0u)||
+       lifting_log>=31u||max_leaf_count==0u)return false;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime=(__bridge StwoZigMetalRuntime *)runtime_ptr; id<MTLBuffer> arena=(__bridge id<MTLBuffer>)arena_ptr;
+        NSUInteger words=arena.length/sizeof(uint32_t);
+        if((NSUInteger)column_offsets+(NSUInteger)column_count*2u>words||(NSUInteger)column_logs+column_count>words||
+           (NSUInteger)leaf_indices+max_leaf_count>words||leaf_count_at>=words||
+           (NSUInteger)output_hashes+(NSUInteger)max_leaf_count*8u>words)return false;
+        id<MTLCommandBuffer> command=[runtime.queue commandBuffer]; id<MTLComputeCommandEncoder> encoder=[command computeCommandEncoder];
+        [encoder setComputePipelineState:runtime.decommitSparseLeafGroupResident]; [encoder setBuffer:arena offset:0 atIndex:0];
+        [encoder setBytes:&column_offsets length:8u atIndex:1]; [encoder setBytes:&column_logs length:8u atIndex:2];
+        [encoder setBytes:&column_count length:4u atIndex:3]; [encoder setBytes:&first_column length:4u atIndex:4];
+        [encoder setBytes:&total_columns length:4u atIndex:5]; [encoder setBytes:&lifting_log length:4u atIndex:6];
+        [encoder setBytes:&leaf_indices length:8u atIndex:7]; [encoder setBytes:&leaf_count_at length:8u atIndex:8];
+        [encoder setBytes:&max_leaf_count length:4u atIndex:9]; [encoder setBytes:&output_hashes length:8u atIndex:10];
+        [encoder setBytes:leaf_seed length:32u atIndex:11];
+        [encoder dispatchThreads:MTLSizeMake(max_leaf_count,1u,1u) threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)max_leaf_count,256u),1u,1u)]; [encoder endEncoding]; [command commit]; [command waitUntilCompleted];
+        if(command.status==MTLCommandBufferStatusError){write_error(error_message,error_message_len,command.error.localizedDescription);return false;}
+        if(gpu_milliseconds)*gpu_milliseconds=(command.GPUEndTime-command.GPUStartTime)*1000.0; return true;
+    }
+}
+
+bool stwo_zig_metal_decommit_trace_group(
+    void *runtime_ptr, void *arena_ptr, const StwoZigDecommitTraceGroupParams *params,
+    double *gpu_milliseconds, char *error_message, size_t error_message_len
+) {
+    if(runtime_ptr==NULL||arena_ptr==NULL||params==NULL||params->column_count==0u||
+       params->column_count>16u||params->max_queries==0u||params->stride<params->max_queries||
+       params->lifting_log>=31u||params->total_columns==0u||params->first_column>=params->total_columns||
+       params->column_count>params->total_columns-params->first_column||(params->first_column&15u)!=0u||
+       (params->first_column+params->column_count<params->total_columns&&(params->column_count&15u)!=0u)||
+       params->max_leaf_count==0u)return false;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime=(__bridge StwoZigMetalRuntime *)runtime_ptr;
+        id<MTLBuffer> arena=(__bridge id<MTLBuffer>)arena_ptr;
+        NSUInteger words=arena.length/sizeof(uint32_t);
+        NSUInteger output_end=(NSUInteger)params->values+
+            ((NSUInteger)params->first_column+params->column_count)*params->stride;
+        if((NSUInteger)params->column_offsets+(NSUInteger)params->column_count*2u>words||
+           (NSUInteger)params->column_logs+params->column_count>words||
+           (NSUInteger)params->queries+params->max_queries>words||params->query_count_at>=words||
+           output_end>words||(NSUInteger)params->leaf_indices+params->max_leaf_count>words||
+           params->leaf_count_at>=words||
+           (NSUInteger)params->output_hashes+(NSUInteger)params->max_leaf_count*8u>words)return false;
+        id<MTLCommandBuffer> command=[runtime.queue commandBuffer];
+        id<MTLComputeCommandEncoder> gather=[command computeCommandEncoder];
+        [gather setComputePipelineState:runtime.decommitGatherTraceValuesResident]; [gather setBuffer:arena offset:0 atIndex:0];
+        [gather setBytes:&params->column_offsets length:8u atIndex:1]; [gather setBytes:&params->column_logs length:8u atIndex:2];
+        [gather setBytes:&params->column_count length:4u atIndex:3]; [gather setBytes:&params->lifting_log length:4u atIndex:4];
+        [gather setBytes:&params->queries length:8u atIndex:5]; [gather setBytes:&params->query_count_at length:8u atIndex:6];
+        [gather setBytes:&params->max_queries length:4u atIndex:7]; [gather setBytes:&params->first_column length:4u atIndex:8];
+        [gather setBytes:&params->stride length:4u atIndex:9]; [gather setBytes:&params->values length:8u atIndex:10];
+        MTLSize gather_threads=MTLSizeMake(MIN((NSUInteger)params->max_queries,32u),MIN((NSUInteger)params->column_count,8u),1u);
+        [gather dispatchThreads:MTLSizeMake(params->max_queries,params->column_count,1u) threadsPerThreadgroup:gather_threads];
+        [gather endEncoding];
+        id<MTLComputeCommandEncoder> leaves=[command computeCommandEncoder];
+        [leaves setComputePipelineState:runtime.decommitSparseLeafGroupResident]; [leaves setBuffer:arena offset:0 atIndex:0];
+        [leaves setBytes:&params->column_offsets length:8u atIndex:1]; [leaves setBytes:&params->column_logs length:8u atIndex:2];
+        [leaves setBytes:&params->column_count length:4u atIndex:3]; [leaves setBytes:&params->first_column length:4u atIndex:4];
+        [leaves setBytes:&params->total_columns length:4u atIndex:5]; [leaves setBytes:&params->lifting_log length:4u atIndex:6];
+        [leaves setBytes:&params->leaf_indices length:8u atIndex:7]; [leaves setBytes:&params->leaf_count_at length:8u atIndex:8];
+        [leaves setBytes:&params->max_leaf_count length:4u atIndex:9]; [leaves setBytes:&params->output_hashes length:8u atIndex:10];
+        [leaves setBytes:params->leaf_seed length:32u atIndex:11];
+        [leaves dispatchThreads:MTLSizeMake(params->max_leaf_count,1u,1u)
+             threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)params->max_leaf_count,256u),1u,1u)];
+        [leaves endEncoding];
+        [command commit]; [command waitUntilCompleted];
+        if(command.status==MTLCommandBufferStatusError){write_error(error_message,error_message_len,command.error.localizedDescription);return false;}
+        if(gpu_milliseconds)*gpu_milliseconds=(command.GPUEndTime-command.GPUStartTime)*1000.0;
+        return true;
+    }
+}
+
 bool stwo_zig_metal_decommit_assemble_trace(
     void *runtime_ptr, void *arena_ptr, uint32_t tree_index, uint32_t role,
     uint32_t leaf_log, uint32_t first_retained_log, uint32_t column_count,
-    uint32_t mapped, uint32_t mapped_count_at, uint32_t max_queries,
-    uint32_t walk, uint32_t scratch, uint32_t walk_count_at, uint32_t values,
-    uint32_t retained_offsets, uint32_t sparse_indices, uint32_t sparse_hashes,
-    uint32_t sparse_offsets, uint32_t sparse_counts, uint32_t sparse_level_count,
-    uint32_t assembly, uint32_t capacity, double *gpu_milliseconds,
+    uint64_t mapped, uint64_t mapped_count_at, uint32_t max_queries,
+    uint64_t walk, uint64_t scratch, uint64_t walk_count_at, uint64_t values,
+    uint64_t retained_offsets, uint64_t sparse_indices, uint64_t sparse_hashes,
+    uint64_t sparse_offsets, uint64_t sparse_counts, uint32_t sparse_level_count,
+    uint64_t assembly, uint32_t capacity, double *gpu_milliseconds,
     char *error_message, size_t error_message_len
 ) {
     if(runtime_ptr==NULL||arena_ptr==NULL||leaf_log>=31u||column_count==0u||max_queries==0u||capacity==0u)return false;
     @autoreleasepool {
         StwoZigMetalRuntime *runtime=(__bridge StwoZigMetalRuntime *)runtime_ptr; id<MTLBuffer> arena=(__bridge id<MTLBuffer>)arena_ptr;
         NSUInteger words=arena.length/sizeof(uint32_t);
-        if(mapped_count_at>=words||walk_count_at>=words||(NSUInteger)retained_offsets+first_retained_log+1u>words||
+        if(mapped_count_at>=words||walk_count_at>=words||(NSUInteger)retained_offsets+(NSUInteger)(first_retained_log+1u)*2u>words||
            (NSUInteger)sparse_offsets+sparse_level_count>words||(NSUInteger)sparse_counts+sparse_level_count>words||(NSUInteger)assembly+capacity>words)return false;
         id<MTLCommandBuffer> command=[runtime.queue commandBuffer]; id<MTLComputeCommandEncoder> encoder=[command computeCommandEncoder];
         [encoder setComputePipelineState:runtime.decommitAssembleTraceResident]; [encoder setBuffer:arena offset:0 atIndex:0];
-        uint32_t args[]={tree_index,role,leaf_log,first_retained_log,column_count,mapped,mapped_count_at,max_queries,walk,scratch,walk_count_at,values,retained_offsets,sparse_indices,sparse_hashes,sparse_offsets,sparse_counts,sparse_level_count,assembly,capacity};
-        for(NSUInteger i=0;i<20u;++i)[encoder setBytes:&args[i] length:4u atIndex:i+1u];
+        [encoder setBytes:&tree_index length:4u atIndex:1]; [encoder setBytes:&role length:4u atIndex:2];
+        [encoder setBytes:&leaf_log length:4u atIndex:3]; [encoder setBytes:&first_retained_log length:4u atIndex:4];
+        [encoder setBytes:&column_count length:4u atIndex:5]; [encoder setBytes:&mapped length:8u atIndex:6];
+        [encoder setBytes:&mapped_count_at length:8u atIndex:7]; [encoder setBytes:&max_queries length:4u atIndex:8];
+        [encoder setBytes:&walk length:8u atIndex:9]; [encoder setBytes:&scratch length:8u atIndex:10];
+        [encoder setBytes:&walk_count_at length:8u atIndex:11]; [encoder setBytes:&values length:8u atIndex:12];
+        [encoder setBytes:&retained_offsets length:8u atIndex:13]; [encoder setBytes:&sparse_indices length:8u atIndex:14];
+        [encoder setBytes:&sparse_hashes length:8u atIndex:15]; [encoder setBytes:&sparse_offsets length:8u atIndex:16];
+        [encoder setBytes:&sparse_counts length:8u atIndex:17]; [encoder setBytes:&sparse_level_count length:4u atIndex:18];
+        [encoder setBytes:&assembly length:8u atIndex:19]; [encoder setBytes:&capacity length:4u atIndex:20];
         [encoder dispatchThreads:MTLSizeMake(1u,1u,1u) threadsPerThreadgroup:MTLSizeMake(1u,1u,1u)]; [encoder endEncoding]; [command commit]; [command waitUntilCompleted];
         if(command.status==MTLCommandBufferStatusError){write_error(error_message,error_message_len,command.error.localizedDescription);return false;}
         if(gpu_milliseconds)*gpu_milliseconds=(command.GPUEndTime-command.GPUStartTime)*1000.0; return true;
@@ -1490,6 +1908,52 @@ bool stwo_zig_metal_leaf_absorb(
     }
 }
 
+bool stwo_zig_metal_leaf_absorb_compact(
+    void *runtime_ptr, void *arena_ptr, const uint32_t *column_offsets, const uint32_t *column_logs, uint32_t column_count,
+    uint32_t source_state_offset, uint32_t source_state_log, uint32_t destination_state_offset, uint32_t destination_log,
+    uint32_t first_column, uint32_t is_final, uint32_t prefix_bytes, const uint32_t *leaf_seed,
+    double *gpu_milliseconds, char *error_message, size_t error_message_len
+) {
+    if(runtime_ptr==NULL||arena_ptr==NULL||column_offsets==NULL||column_logs==NULL||leaf_seed==NULL||column_count==0u||column_count>16u||destination_log>=31u)return false;
+    if(first_column!=0u&&(source_state_log>destination_log||source_state_log>=31u))return false;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime=(__bridge StwoZigMetalRuntime *)runtime_ptr; id<MTLBuffer> arena=(__bridge id<MTLBuffer>)arena_ptr;
+        uint32_t row_count=1u<<destination_log; NSUInteger words=arena.length/4u;
+        if((NSUInteger)destination_state_offset+(NSUInteger)row_count*8u>words)return false;
+        if(first_column!=0u&&((NSUInteger)source_state_offset+((NSUInteger)1u<<source_state_log)*8u>words))return false;
+        for(uint32_t i=0u;i<column_count;++i)if(column_logs[i]>destination_log||((NSUInteger)column_offsets[i]+((NSUInteger)1u<<column_logs[i])>words))return false;
+        id<MTLCommandBuffer> command=[runtime.queue commandBuffer]; id<MTLComputeCommandEncoder> encoder=[command computeCommandEncoder];
+        [encoder setComputePipelineState:runtime.leafAbsorbCompactResident]; [encoder setBuffer:arena offset:0 atIndex:0];
+        [encoder setBytes:column_offsets length:(NSUInteger)column_count*4u atIndex:1]; [encoder setBytes:column_logs length:(NSUInteger)column_count*4u atIndex:2];
+        uint32_t args[]={column_count,source_state_offset,source_state_log,destination_state_offset,destination_log,first_column,is_final,prefix_bytes};
+        for(NSUInteger i=0;i<8u;++i)[encoder setBytes:&args[i] length:4u atIndex:i+3u];
+        [encoder setBytes:leaf_seed length:32u atIndex:11];
+        [encoder dispatchThreads:MTLSizeMake(row_count,1u,1u) threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)row_count,256u),1u,1u)];
+        [encoder endEncoding]; [command commit]; [command waitUntilCompleted];
+        if(command.status==MTLCommandBufferStatusError){write_error(error_message,error_message_len,command.error.localizedDescription);return false;}
+        if(gpu_milliseconds)*gpu_milliseconds=(command.GPUEndTime-command.GPUStartTime)*1000.0; return true;
+    }
+}
+
+bool stwo_zig_metal_parent_seeded(
+    void *runtime_ptr, void *arena_ptr, uint32_t child_offset, uint32_t destination_offset,
+    uint32_t parent_count, const uint32_t *node_seed, double *gpu_milliseconds,
+    char *error_message, size_t error_message_len
+) {
+    if(runtime_ptr==NULL||arena_ptr==NULL||parent_count==0u||node_seed==NULL)return false;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime=(__bridge StwoZigMetalRuntime *)runtime_ptr; id<MTLBuffer> arena=(__bridge id<MTLBuffer>)arena_ptr;
+        NSUInteger words=arena.length/4u; if((NSUInteger)child_offset+(NSUInteger)parent_count*16u>words||(NSUInteger)destination_offset+(NSUInteger)parent_count*8u>words)return false;
+        id<MTLCommandBuffer> command=[runtime.queue commandBuffer]; id<MTLComputeCommandEncoder> encoder=[command computeCommandEncoder];
+        [encoder setComputePipelineState:runtime.parentsSparse]; [encoder setBuffer:arena offset:0 atIndex:0];
+        uint32_t args[]={child_offset,destination_offset,parent_count}; for(NSUInteger i=0;i<3u;++i)[encoder setBytes:&args[i] length:4u atIndex:i+1u];
+        [encoder setBytes:node_seed length:32u atIndex:4];
+        [encoder dispatchThreads:MTLSizeMake(parent_count,1u,1u) threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)parent_count,256u),1u,1u)]; [encoder endEncoding]; [command commit]; [command waitUntilCompleted];
+        if(command.status==MTLCommandBufferStatusError){write_error(error_message,error_message_len,command.error.localizedDescription);return false;}
+        if(gpu_milliseconds)*gpu_milliseconds=(command.GPUEndTime-command.GPUStartTime)*1000.0; return true;
+    }
+}
+
 bool stwo_zig_metal_parent_plain(
     void *runtime_ptr, void *arena_ptr, uint32_t child_offset, uint32_t destination_offset,
     uint32_t parent_count, double *gpu_milliseconds, char *error_message, size_t error_message_len
@@ -1517,6 +1981,13 @@ void *stwo_zig_metal_buffer_create(
     if (runtime_ptr == NULL || byte_length == 0u || contents == NULL) return NULL;
     @autoreleasepool {
         StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        if ((uint64_t)byte_length > (uint64_t)runtime.device.maxBufferLength) {
+            write_error(error_message, error_message_len,
+                        [NSString stringWithFormat:@"Metal buffer length %llu exceeds device maxBufferLength %llu",
+                                                   (unsigned long long)byte_length,
+                                                   (unsigned long long)runtime.device.maxBufferLength]);
+            return NULL;
+        }
         id<MTLBuffer> buffer = [runtime.device newBufferWithLength:byte_length
                                                            options:MTLResourceStorageModeShared];
         if (buffer == nil || buffer.contents == NULL) {
@@ -1541,29 +2012,51 @@ bool stwo_zig_metal_clear_arena_ranges(
     @autoreleasepool {
         StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
         id<MTLBuffer> arena = (__bridge id<MTLBuffer>)arena_ptr;
-        id<MTLBuffer> range_buffer = [runtime.device newBufferWithBytes:ranges length:(NSUInteger)range_count * 2u * sizeof(uint32_t) options:MTLResourceStorageModeShared];
-        if (range_buffer == nil) { write_error(error_message, error_message_len, @"Metal range upload failed"); return false; }
+        (void)max_length;
+        for (uint32_t index = 0; index < range_count; ++index) {
+            uint64_t offset = (uint64_t)ranges[(size_t)index * 2u] * sizeof(uint32_t);
+            uint64_t bytes = (uint64_t)ranges[(size_t)index * 2u + 1u] * sizeof(uint32_t);
+            if (offset > arena.length || bytes > arena.length - offset) {
+                write_error(error_message, error_message_len, @"Metal arena clear range exceeds arena");
+                return false;
+            }
+        }
         id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
-        id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
-        [encoder setComputePipelineState:runtime.clearArenaRanges];
-        [encoder setBuffer:arena offset:0 atIndex:0]; [encoder setBuffer:range_buffer offset:0 atIndex:1];
-        [encoder setBytes:&range_count length:sizeof(range_count) atIndex:2]; [encoder setBytes:&max_length length:sizeof(max_length) atIndex:3];
-        NSUInteger width = MIN(runtime.clearArenaRanges.maxTotalThreadsPerThreadgroup, runtime.clearArenaRanges.threadExecutionWidth * 8u);
-        [encoder dispatchThreads:MTLSizeMake(max_length, range_count, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
-        [encoder endEncoding]; [command commit]; [command waitUntilCompleted];
+        id<MTLBlitCommandEncoder> blit = [command blitCommandEncoder];
+        for (uint32_t index = 0; index < range_count; ++index) {
+            NSUInteger offset = (NSUInteger)ranges[(size_t)index * 2u] * sizeof(uint32_t);
+            NSUInteger bytes = (NSUInteger)ranges[(size_t)index * 2u + 1u] * sizeof(uint32_t);
+            if (bytes != 0u) [blit fillBuffer:arena range:NSMakeRange(offset, bytes) value:0u];
+        }
+        [blit endEncoding];
+        [command commit];
+        [command waitUntilCompleted];
         if (command.status == MTLCommandBufferStatusError) { write_error(error_message, error_message_len, command.error.localizedDescription); return false; }
         return true;
     }
 }
 
+typedef struct {
+    uint64_t source_word_offset;
+    uint64_t destination_word_offset;
+    uint32_t word_count;
+    uint32_t reserved;
+} StwoZigArenaCopyRange;
+
+typedef struct {
+    uint64_t arena_byte_offset;
+    uint64_t snapshot_byte_offset;
+    uint64_t byte_count;
+} StwoZigPreparedStateRange;
+
 void *stwo_zig_metal_arena_copy_prepare(
-    void *runtime_ptr, const uint32_t *ranges, uint32_t range_count,
+    void *runtime_ptr, const StwoZigArenaCopyRange *ranges, uint32_t range_count,
     char *error_message, size_t error_message_len
 ) {
     if (runtime_ptr == NULL || ranges == NULL || range_count == 0u) return NULL;
     @autoreleasepool {
         StwoZigArenaCopyPlan *plan = [StwoZigArenaCopyPlan new];
-        plan.ranges = [NSData dataWithBytes:ranges length:(NSUInteger)range_count * 3u * sizeof(uint32_t)];
+        plan.ranges = [NSData dataWithBytes:ranges length:(NSUInteger)range_count * sizeof(StwoZigArenaCopyRange)];
         plan.rangeCount = range_count;
         if (plan.ranges == nil) {
             write_error(error_message, error_message_len, @"Metal arena copy plan allocation failed");
@@ -1586,13 +2079,13 @@ bool stwo_zig_metal_arena_copy_prepared(
         StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
         id<MTLBuffer> arena = (__bridge id<MTLBuffer>)arena_ptr;
         StwoZigArenaCopyPlan *plan = (__bridge StwoZigArenaCopyPlan *)plan_ptr;
-        const uint32_t *ranges = plan.ranges.bytes;
+        const StwoZigArenaCopyRange *ranges = plan.ranges.bytes;
         id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
         id<MTLBlitCommandEncoder> blit = [command blitCommandEncoder];
         for (uint32_t index = 0; index < plan.rangeCount; ++index) {
-            NSUInteger source = (NSUInteger)ranges[index * 3u] * sizeof(uint32_t);
-            NSUInteger destination = (NSUInteger)ranges[index * 3u + 1u] * sizeof(uint32_t);
-            NSUInteger bytes = (NSUInteger)ranges[index * 3u + 2u] * sizeof(uint32_t);
+            NSUInteger source = (NSUInteger)ranges[index].source_word_offset * sizeof(uint32_t);
+            NSUInteger destination = (NSUInteger)ranges[index].destination_word_offset * sizeof(uint32_t);
+            NSUInteger bytes = (NSUInteger)ranges[index].word_count * sizeof(uint32_t);
             if (bytes == 0u || source + bytes > arena.length || destination + bytes > arena.length) {
                 [blit endEncoding];
                 write_error(error_message, error_message_len, @"Metal arena copy range exceeds arena");
@@ -1601,6 +2094,54 @@ bool stwo_zig_metal_arena_copy_prepared(
             [blit copyFromBuffer:arena sourceOffset:source toBuffer:arena destinationOffset:destination size:bytes];
         }
         [blit endEncoding]; [command commit]; [command waitUntilCompleted];
+        if (command.status == MTLCommandBufferStatusError) {
+            write_error(error_message, error_message_len, command.error.localizedDescription);
+            return false;
+        }
+        if (gpu_milliseconds) *gpu_milliseconds = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
+        return true;
+    }
+}
+
+bool stwo_zig_metal_prepared_state_transfer(
+    void *runtime_ptr, void *arena_ptr, void *snapshot_ptr,
+    const StwoZigPreparedStateRange *ranges, uint32_t range_count,
+    bool capture, bool clear_arena, double *gpu_milliseconds,
+    char *error_message, size_t error_message_len
+) {
+    if (runtime_ptr == NULL || arena_ptr == NULL || snapshot_ptr == NULL ||
+        ranges == NULL || range_count == 0u || (capture && clear_arena)) return false;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        id<MTLBuffer> arena = (__bridge id<MTLBuffer>)arena_ptr;
+        id<MTLBuffer> snapshot = (__bridge id<MTLBuffer>)snapshot_ptr;
+        id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
+        id<MTLBlitCommandEncoder> blit = [command blitCommandEncoder];
+        if (!capture && clear_arena)
+            [blit fillBuffer:arena range:NSMakeRange(0u, arena.length) value:0u];
+        for (uint32_t index = 0; index < range_count; ++index) {
+            const uint64_t arena_offset = ranges[index].arena_byte_offset;
+            const uint64_t snapshot_offset = ranges[index].snapshot_byte_offset;
+            const uint64_t bytes = ranges[index].byte_count;
+            if (bytes == 0u || arena_offset > arena.length || bytes > arena.length - arena_offset ||
+                snapshot_offset > snapshot.length || bytes > snapshot.length - snapshot_offset) {
+                [blit endEncoding];
+                write_error(error_message, error_message_len, @"Prepared-state range exceeds a Metal buffer");
+                return false;
+            }
+            if (capture) {
+                [blit copyFromBuffer:arena sourceOffset:(NSUInteger)arena_offset
+                            toBuffer:snapshot destinationOffset:(NSUInteger)snapshot_offset
+                                size:(NSUInteger)bytes];
+            } else {
+                [blit copyFromBuffer:snapshot sourceOffset:(NSUInteger)snapshot_offset
+                            toBuffer:arena destinationOffset:(NSUInteger)arena_offset
+                                size:(NSUInteger)bytes];
+            }
+        }
+        [blit endEncoding];
+        [command commit];
+        [command waitUntilCompleted];
         if (command.status == MTLCommandBufferStatusError) {
             write_error(error_message, error_message_len, command.error.localizedDescription);
             return false;
@@ -1730,8 +2271,60 @@ bool stwo_zig_metal_witness_feed_batch_counts_prepared(
     }
 }
 
+bool stwo_zig_metal_witness_feed_batch_clear_prepared(
+    void *runtime_ptr, void *arena_ptr, void *batch_ptr,
+    double *gpu_milliseconds, char *error_message, size_t error_message_len
+) {
+    if (runtime_ptr == NULL || arena_ptr == NULL || batch_ptr == NULL) return false;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        id<MTLBuffer> arena = (__bridge id<MTLBuffer>)arena_ptr;
+        StwoZigWitnessFeedBatch *batch = (__bridge StwoZigWitnessFeedBatch *)batch_ptr;
+        uint32_t clear_range_count = batch.clearRangeCount, clear_total_words = batch.clearTotalWords;
+        id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
+        id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
+        [encoder setComputePipelineState:runtime.clearArenaSpans];
+        [encoder setBuffer:arena offset:0 atIndex:0]; [encoder setBuffer:batch.clearSpans offset:0 atIndex:1];
+        [encoder setBytes:&clear_range_count length:sizeof(clear_range_count) atIndex:2]; [encoder setBytes:&clear_total_words length:sizeof(clear_total_words) atIndex:3];
+        NSUInteger width = MIN(runtime.clearArenaSpans.maxTotalThreadsPerThreadgroup, runtime.clearArenaSpans.threadExecutionWidth * 8u);
+        [encoder dispatchThreads:MTLSizeMake(clear_total_words, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+        [encoder endEncoding]; [command commit]; [command waitUntilCompleted];
+        if (command.status == MTLCommandBufferStatusError) { write_error(error_message, error_message_len, command.error.localizedDescription); return false; }
+        if (gpu_milliseconds) *gpu_milliseconds = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
+        return true;
+    }
+}
+
+bool stwo_zig_metal_witness_feed_batch_index_prepared(
+    void *runtime_ptr, void *arena_ptr, void *batch_ptr, uint32_t index,
+    double *gpu_milliseconds, char *error_message, size_t error_message_len
+) {
+    if (runtime_ptr == NULL || arena_ptr == NULL || batch_ptr == NULL) return false;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        id<MTLBuffer> arena = (__bridge id<MTLBuffer>)arena_ptr;
+        StwoZigWitnessFeedBatch *batch = (__bridge StwoZigWitnessFeedBatch *)batch_ptr;
+        if (index >= batch.plans.count) { write_error(error_message, error_message_len, @"Metal witness feed batch index is out of range"); return false; }
+        const uint32_t *column_lengths = batch.columnLengths.bytes;
+        StwoZigWitnessFeedPlan *plan = batch.plans[index];
+        uint32_t descriptor_count = plan.descriptorCount, column_length = column_lengths[index];
+        id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
+        id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
+        [encoder setComputePipelineState:runtime.witnessFeedCounts];
+        [encoder setBuffer:arena offset:0 atIndex:0]; [encoder setBuffer:plan.descriptors offset:0 atIndex:1]; [encoder setBuffer:plan.luts offset:0 atIndex:2];
+        [encoder setBuffer:plan.destinationOffsets offset:0 atIndex:3]; [encoder setBuffer:plan.sourceOffsets offset:0 atIndex:4];
+        [encoder setBytes:&column_length length:sizeof(column_length) atIndex:5]; [encoder setBytes:&descriptor_count length:sizeof(descriptor_count) atIndex:6];
+        NSUInteger width = MIN(runtime.witnessFeedCounts.maxTotalThreadsPerThreadgroup, runtime.witnessFeedCounts.threadExecutionWidth * 8u);
+        [encoder dispatchThreads:MTLSizeMake(column_length, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+        [encoder endEncoding]; [command commit]; [command waitUntilCompleted];
+        if (command.status == MTLCommandBufferStatusError) { write_error(error_message, error_message_len, command.error.localizedDescription); return false; }
+        if (gpu_milliseconds) *gpu_milliseconds = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
+        return true;
+    }
+}
+
 void *stwo_zig_metal_circle_lde_prepare(
-    void *runtime_ptr, const uint32_t *source_offsets, const uint32_t *destination_offsets,
+    void *runtime_ptr, const uint64_t *source_offsets, const uint64_t *destination_offsets,
     uint32_t column_count, uint32_t base_log_size, uint32_t extended_log_size,
     uint32_t twiddle_offset_words, char *error_message, size_t error_message_len
 ) {
@@ -1740,8 +2333,8 @@ void *stwo_zig_metal_circle_lde_prepare(
     @autoreleasepool {
         StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
         StwoZigCircleLdePlan *plan = [StwoZigCircleLdePlan new];
-        plan.sourceOffsets = [runtime.device newBufferWithBytes:source_offsets length:(NSUInteger)column_count * sizeof(uint32_t) options:MTLResourceStorageModeShared];
-        plan.destinationOffsets = [runtime.device newBufferWithBytes:destination_offsets length:(NSUInteger)column_count * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+        plan.sourceOffsets = [runtime.device newBufferWithBytes:source_offsets length:(NSUInteger)column_count * sizeof(uint64_t) options:MTLResourceStorageModeShared];
+        plan.destinationOffsets = [runtime.device newBufferWithBytes:destination_offsets length:(NSUInteger)column_count * sizeof(uint64_t) options:MTLResourceStorageModeShared];
         plan.columnCount = column_count;
         plan.baseLogSize = base_log_size;
         plan.extendedLogSize = extended_log_size;
@@ -1782,21 +2375,21 @@ bool stwo_zig_metal_circle_lde_prepared(
         for (uint32_t layer = extended_log_size - 1u; layer > 0u; --layer) {
             uint32_t twiddle_offset = extended_pairs - (1u << (extended_log_size - layer));
             id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
-            [encoder setComputePipelineState:runtime.circleRfftLayerSparse];
+            [encoder setComputePipelineState:runtime.circleRfftLayerSparseWide];
             [encoder setBuffer:arena offset:0 atIndex:0]; [encoder setBuffer:plan.destinationOffsets offset:0 atIndex:1];
             [encoder setBuffer:arena offset:plan.twiddleByteOffset atIndex:2]; [encoder setBytes:&extended_log_size length:sizeof(extended_log_size) atIndex:3];
             [encoder setBytes:&layer length:sizeof(layer) atIndex:4]; [encoder setBytes:&twiddle_offset length:sizeof(twiddle_offset) atIndex:5];
             [encoder setBytes:&column_count length:sizeof(column_count) atIndex:6];
-            NSUInteger width = MIN((NSUInteger)256u, runtime.circleRfftLayerSparse.maxTotalThreadsPerThreadgroup);
+            NSUInteger width = MIN((NSUInteger)256u, runtime.circleRfftLayerSparseWide.maxTotalThreadsPerThreadgroup);
             [encoder dispatchThreads:grid threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
             [encoder endEncoding];
         }
         id<MTLComputeCommandEncoder> last = [command computeCommandEncoder];
-        [last setComputePipelineState:runtime.circleRfftLastSparse];
+        [last setComputePipelineState:runtime.circleRfftLastSparseWide];
         [last setBuffer:arena offset:0 atIndex:0]; [last setBuffer:plan.destinationOffsets offset:0 atIndex:1];
         [last setBuffer:arena offset:plan.twiddleByteOffset atIndex:2]; [last setBytes:&extended_log_size length:sizeof(extended_log_size) atIndex:3];
         [last setBytes:&column_count length:sizeof(column_count) atIndex:4];
-        NSUInteger last_width = MIN((NSUInteger)256u, runtime.circleRfftLastSparse.maxTotalThreadsPerThreadgroup);
+        NSUInteger last_width = MIN((NSUInteger)256u, runtime.circleRfftLastSparseWide.maxTotalThreadsPerThreadgroup);
         [last dispatchThreads:grid threadsPerThreadgroup:MTLSizeMake(last_width, 1u, 1u)];
         [last endEncoding]; [command commit]; [command waitUntilCompleted];
         if (command.status == MTLCommandBufferStatusError) { write_error(error_message, error_message_len, command.error.localizedDescription); return false; }
@@ -1806,7 +2399,7 @@ bool stwo_zig_metal_circle_lde_prepared(
 }
 
 void *stwo_zig_metal_circle_ifft_prepare(
-    void *runtime_ptr, const uint32_t *source_offsets, const uint32_t *destination_offsets,
+    void *runtime_ptr, const uint64_t *source_offsets, const uint64_t *destination_offsets,
     uint32_t column_count, uint32_t log_size, uint32_t twiddle_offset_words,
     uint32_t scale_factor, char *error_message, size_t error_message_len
 ) {
@@ -1815,8 +2408,8 @@ void *stwo_zig_metal_circle_ifft_prepare(
     @autoreleasepool {
         StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
         StwoZigCircleIfftPlan *plan = [StwoZigCircleIfftPlan new];
-        plan.sourceOffsets = [runtime.device newBufferWithBytes:source_offsets length:(NSUInteger)column_count * sizeof(uint32_t) options:MTLResourceStorageModeShared];
-        plan.destinationOffsets = [runtime.device newBufferWithBytes:destination_offsets length:(NSUInteger)column_count * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+        plan.sourceOffsets = [runtime.device newBufferWithBytes:source_offsets length:(NSUInteger)column_count * sizeof(uint64_t) options:MTLResourceStorageModeShared];
+        plan.destinationOffsets = [runtime.device newBufferWithBytes:destination_offsets length:(NSUInteger)column_count * sizeof(uint64_t) options:MTLResourceStorageModeShared];
         plan.columnCount = column_count; plan.logSize = log_size; plan.scaleFactor = scale_factor;
         plan.twiddleByteOffset = (NSUInteger)twiddle_offset_words * sizeof(uint32_t);
         if (plan.sourceOffsets == nil || plan.destinationOffsets == nil) {
@@ -2155,22 +2748,31 @@ void *stwo_zig_metal_ec_op_prepare(
     void *runtime_ptr, const uint32_t *execution_offsets, const uint32_t *trace_offsets,
     const uint32_t *partial_offsets, const uint32_t *multiplicity_offsets,
     uint32_t lookup_offset, uint32_t segment_offset, uint32_t scratch_offset, uint32_t row_count,
+    bool write_base,
+    bool write_lookup,
     char *error_message, size_t error_message_len
 ) {
     if (runtime_ptr == NULL || execution_offsets == NULL || trace_offsets == NULL || partial_offsets == NULL ||
-        multiplicity_offsets == NULL || row_count < 16u || (row_count & (row_count - 1u)) != 0u) return NULL;
+        multiplicity_offsets == NULL || (!write_base && !write_lookup) || row_count < 16u ||
+        (row_count & (row_count - 1u)) != 0u) return NULL;
     @autoreleasepool {
         StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
         StwoZigEcOpPlan *plan = [StwoZigEcOpPlan new];
-        uint32_t params[4] = { lookup_offset, segment_offset, scratch_offset, row_count };
+        uint32_t params[6] = {
+            lookup_offset, segment_offset, scratch_offset, row_count,
+            write_lookup ? 1u : 0u, write_base ? 1u : 0u,
+        };
         plan.executionOffsets = [runtime.device newBufferWithBytes:execution_offsets length:37u * sizeof(uint32_t) options:MTLResourceStorageModeShared];
         plan.traceOffsets = [runtime.device newBufferWithBytes:trace_offsets length:273u * sizeof(uint32_t) options:MTLResourceStorageModeShared];
         plan.partialOffsets = [runtime.device newBufferWithBytes:partial_offsets length:127u * sizeof(uint32_t) options:MTLResourceStorageModeShared];
         plan.multiplicityOffsets = [runtime.device newBufferWithBytes:multiplicity_offsets length:4u * sizeof(uint32_t) options:MTLResourceStorageModeShared];
         plan.params = [runtime.device newBufferWithBytes:params length:sizeof(params) options:MTLResourceStorageModeShared];
+        plan.pipeline = write_base ? runtime.ecOpWitness : runtime.ecOpLookup;
         plan.rowCount = row_count;
+        plan.threadgroupWidth = write_base ? 256u : 128u;
+        plan.writeBase = write_base;
         if (plan.executionOffsets == nil || plan.traceOffsets == nil || plan.partialOffsets == nil ||
-            plan.multiplicityOffsets == nil || plan.params == nil) {
+            plan.multiplicityOffsets == nil || plan.params == nil || plan.pipeline == nil) {
             write_error(error_message, error_message_len, @"Metal EC-op plan allocation failed"); return NULL;
         }
         return (__bridge_retained void *)plan;
@@ -2249,6 +2851,130 @@ void *stwo_zig_metal_eval_prepare(
     }
 }
 
+static NSString *eval_source_sha256_hex(const char *bytes, size_t length) {
+    CC_SHA256_CTX context;
+    if (CC_SHA256_Init(&context) != 1) return nil;
+    size_t consumed = 0u;
+    while (consumed < length) {
+        size_t remaining = length - consumed;
+        CC_LONG chunk = (CC_LONG)MIN(remaining, (size_t)UINT32_MAX);
+        if (CC_SHA256_Update(&context, bytes + consumed, chunk) != 1) return nil;
+        consumed += chunk;
+    }
+    unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+    if (CC_SHA256_Final(digest, &context) != 1) return nil;
+    NSMutableString *hex = [NSMutableString stringWithCapacity:CC_SHA256_DIGEST_LENGTH * 2u];
+    for (size_t i = 0u; i < CC_SHA256_DIGEST_LENGTH; ++i) [hex appendFormat:@"%02x", digest[i]];
+    return hex;
+}
+
+static NSString *eval_metallib_archive_path(NSString *digest, size_t length) {
+    NSString *archiveName = [NSString stringWithFormat:
+        @"stwo-zig-eval-metallib-sha256-%@-%zu.binarchive", digest, length];
+    return [NSTemporaryDirectory() stringByAppendingPathComponent:archiveName];
+}
+
+static bool serialize_eval_archive(StwoZigEvalLibrary *library, NSError **error, bool *didSerialize) {
+    if (didSerialize != NULL) *didSerialize = false;
+    @synchronized(library) {
+        if (library.archive == nil || library.archiveURL == nil) {
+            if (error != NULL) {
+                *error = [NSError errorWithDomain:@"StwoZigMetalRuntime" code:1
+                    userInfo:@{NSLocalizedDescriptionKey: @"Metal library has no binary archive"}];
+            }
+            return false;
+        }
+        if (!library.archiveDirty) return true;
+        if (![library.archive serializeToURL:library.archiveURL error:error]) return false;
+        library.archiveDirty = false;
+        if (didSerialize != NULL) *didSerialize = true;
+        return true;
+    }
+}
+
+static id<MTLComputePipelineState> resolve_eval_pipeline(
+    StwoZigMetalRuntime *runtime, StwoZigEvalLibrary *library, NSString *name,
+    char *error_message, size_t error_message_len
+) {
+    @synchronized(runtime) {
+        CFAbsoluteTime prepareStart = CFAbsoluteTimeGetCurrent();
+        @try {
+            NSString *pipelineKey = nil;
+            if (library.cacheKey != nil) {
+                pipelineKey = [NSString stringWithFormat:@"%lu:%@%@",
+                    (unsigned long)library.cacheKey.length, library.cacheKey, name];
+                id<MTLComputePipelineState> cached = runtime.evalPipelines[pipelineKey];
+                if (cached != nil) {
+                    runtime.evalPipelineCacheHits += 1u;
+                    return cached;
+                }
+            }
+
+            id<MTLFunction> function = [library.library newFunctionWithName:name];
+            if (function == nil) {
+                write_error(error_message, error_message_len,
+                            [NSString stringWithFormat:@"Missing Metal function %@", name]);
+                return nil;
+            }
+
+            NSError *error = nil;
+            id<MTLComputePipelineState> pipeline = nil;
+            if (library.archive == nil) {
+                runtime.evalDirectCompiles += 1u;
+                pipeline = [runtime.device newComputePipelineStateWithFunction:function error:&error];
+            } else {
+                @synchronized(library) {
+                    MTLComputePipelineDescriptor *descriptor = [MTLComputePipelineDescriptor new];
+                    descriptor.computeFunction = function;
+                    descriptor.binaryArchives = @[library.archive];
+
+                    if (library.archiveLoaded) {
+                        pipeline = [runtime.device newComputePipelineStateWithDescriptor:descriptor
+                            options:MTLPipelineOptionFailOnBinaryArchiveMiss reflection:nil error:&error];
+                        if (pipeline != nil) runtime.evalBinaryArchiveHits += 1u;
+                    }
+
+                    if (pipeline == nil) {
+                        NSError *archiveLookupError = error;
+                        error = nil;
+                        runtime.evalDirectCompiles += 1u;
+                        pipeline = [runtime.device newComputePipelineStateWithFunction:function error:&error];
+                        if (pipeline == nil) {
+                            write_error(error_message, error_message_len,
+                                error.localizedDescription ?: archiveLookupError.localizedDescription ?:
+                                @"Failed to compile Metal evaluation pipeline");
+                            return nil;
+                        }
+
+                        // A direct compile succeeding distinguishes an archive miss from a real pipeline error.
+                        runtime.evalBinaryArchiveMisses += 1u;
+                        NSError *archiveError = nil;
+                        if (![library.archive addComputePipelineFunctionsWithDescriptor:descriptor error:&archiveError]) {
+                            write_error(error_message, error_message_len,
+                                archiveError.localizedDescription ?: @"Failed to add Metal pipeline to binary archive");
+                            return nil;
+                        }
+                        runtime.evalArchivePopulations += 1u;
+                        library.archiveLoaded = true;
+                        library.archiveDirty = true;
+                    }
+                }
+            }
+
+            if (pipeline == nil) {
+                write_error(error_message, error_message_len,
+                            error.localizedDescription ?: @"Failed to resolve Metal evaluation pipeline");
+                return nil;
+            }
+            stwo_zig_metal_profile_name_pipeline(pipeline, name);
+            if (pipelineKey != nil) runtime.evalPipelines[pipelineKey] = pipeline;
+            return pipeline;
+        } @finally {
+            runtime.evalPipelinePreparationSeconds += CFAbsoluteTimeGetCurrent() - prepareStart;
+        }
+    }
+}
+
 void *stwo_zig_metal_eval_library_load(
     void *runtime_ptr, const char *path_bytes, size_t path_len,
     char *error_message, size_t error_message_len
@@ -2258,24 +2984,119 @@ void *stwo_zig_metal_eval_library_load(
         StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
         NSString *path = [[NSString alloc] initWithBytes:path_bytes length:path_len encoding:NSUTF8StringEncoding];
         if (path == nil) { write_error(error_message, error_message_len, @"Invalid metallib path encoding"); return NULL; }
+        NSString *canonicalPath = [[path stringByStandardizingPath] stringByResolvingSymlinksInPath];
         NSError *error = nil;
-        id<MTLLibrary> library = [runtime.device newLibraryWithURL:[NSURL fileURLWithPath:path] error:&error];
-        if (library == nil) {
-            write_error(error_message, error_message_len, error.localizedDescription ?: @"Failed to load Metal evaluation library");
+        NSData *libraryData = [NSData dataWithContentsOfFile:canonicalPath
+            options:NSDataReadingMappedIfSafe error:&error];
+        if (libraryData == nil || libraryData.length == 0u) {
+            write_error(error_message, error_message_len,
+                        error.localizedDescription ?: @"Failed to read Metal evaluation library");
             return NULL;
         }
-        StwoZigEvalLibrary *result = [StwoZigEvalLibrary new];
-        result.library = library;
-        NSString *archivePath = [path stringByAppendingString:@".binarchive"];
-        result.archiveURL = [NSURL fileURLWithPath:archivePath];
-        MTLBinaryArchiveDescriptor *archiveDescriptor = [MTLBinaryArchiveDescriptor new];
-        if ([[NSFileManager defaultManager] fileExistsAtPath:archivePath]) archiveDescriptor.url = result.archiveURL;
-        result.archive = [runtime.device newBinaryArchiveWithDescriptor:archiveDescriptor error:&error];
-        if (result.archive == nil) {
-            write_error(error_message, error_message_len, error.localizedDescription ?: @"Failed to load Metal binary archive");
+        NSString *libraryDigest = eval_source_sha256_hex(libraryData.bytes, libraryData.length);
+        if (libraryDigest == nil || libraryDigest.length != CC_SHA256_DIGEST_LENGTH * 2u) {
+            write_error(error_message, error_message_len, @"Failed to identify Metal evaluation library");
             return NULL;
         }
-        return (__bridge_retained void *)result;
+        NSString *cacheKey = [NSString stringWithFormat:@"metallib:sha256:%@:%zu",
+                                                       libraryDigest, libraryData.length];
+        @synchronized(runtime) {
+            StwoZigEvalLibrary *cached = runtime.evalLibraries[cacheKey];
+            if (cached != nil) {
+                runtime.evalLibraryCacheHits += 1u;
+                return (__bridge_retained void *)cached;
+            }
+            runtime.evalLibraryCacheMisses += 1u;
+
+            id<MTLLibrary> metalLibrary =
+                [runtime.device newLibraryWithURL:[NSURL fileURLWithPath:canonicalPath] error:&error];
+            if (metalLibrary == nil) {
+                write_error(error_message, error_message_len,
+                            error.localizedDescription ?: @"Failed to load Metal evaluation library");
+                return NULL;
+            }
+            StwoZigEvalLibrary *result = [StwoZigEvalLibrary new];
+            result.library = metalLibrary;
+            result.cacheKey = cacheKey;
+            result.runtimeOwner = runtime;
+            NSString *archivePath = eval_metallib_archive_path(libraryDigest, libraryData.length);
+            result.archiveURL = [NSURL fileURLWithPath:archivePath];
+            result.archiveLoaded = [[NSFileManager defaultManager] fileExistsAtPath:archivePath];
+            MTLBinaryArchiveDescriptor *archiveDescriptor = [MTLBinaryArchiveDescriptor new];
+            if (result.archiveLoaded) archiveDescriptor.url = result.archiveURL;
+            result.archive = [runtime.device newBinaryArchiveWithDescriptor:archiveDescriptor error:&error];
+            if (result.archive == nil) {
+                write_error(error_message, error_message_len,
+                            error.localizedDescription ?: @"Failed to load Metal binary archive");
+                return NULL;
+            }
+            runtime.evalLibraries[cacheKey] = result;
+            return (__bridge_retained void *)result;
+        }
+    }
+}
+
+void *stwo_zig_metal_eval_library_compile(
+    void *runtime_ptr, const char *source_bytes, size_t source_len,
+    char *error_message, size_t error_message_len
+) {
+    if (runtime_ptr == NULL || source_bytes == NULL || source_len == 0u) return NULL;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        NSString *source = [[NSString alloc] initWithBytes:source_bytes length:source_len encoding:NSUTF8StringEncoding];
+        if (source == nil) {
+            write_error(error_message, error_message_len, @"Invalid Metal source library encoding");
+            return NULL;
+        }
+        NSString *sourceDigest = eval_source_sha256_hex(source_bytes, source_len);
+        NSData *sourceData = [NSData dataWithBytes:source_bytes length:source_len];
+        if (sourceDigest == nil || sourceDigest.length != CC_SHA256_DIGEST_LENGTH * 2u || sourceData == nil) {
+            write_error(error_message, error_message_len, @"Failed to identify Metal source library");
+            return NULL;
+        }
+        NSString *cacheKey = [NSString stringWithFormat:@"source:sha256:%@:%zu", sourceDigest, source_len];
+        @synchronized(runtime) {
+            StwoZigEvalLibrary *cached = runtime.evalLibraries[cacheKey];
+            if (cached != nil) {
+                if (cached.sourceBytes == nil || ![cached.sourceBytes isEqualToData:sourceData]) {
+                    write_error(error_message, error_message_len, @"Metal source cache identity collision");
+                    return NULL;
+                }
+                runtime.evalLibraryCacheHits += 1u;
+                return (__bridge_retained void *)cached;
+            }
+            runtime.evalLibraryCacheMisses += 1u;
+
+            MTLCompileOptions *options = [MTLCompileOptions new];
+            options.mathMode = MTLMathModeSafe;
+            NSError *error = nil;
+            id<MTLLibrary> library = [runtime.device newLibraryWithSource:source options:options error:&error];
+            if (library == nil) {
+                write_error(error_message, error_message_len,
+                            error.localizedDescription ?: @"Failed to compile Metal source library");
+                return NULL;
+            }
+            StwoZigEvalLibrary *result = [StwoZigEvalLibrary new];
+            result.library = library;
+            result.cacheKey = cacheKey;
+            result.sourceBytes = sourceData;
+            result.runtimeOwner = runtime;
+            NSString *archiveName = [NSString stringWithFormat:@"stwo-zig-eval-sha256-%@-%zu.binarchive",
+                sourceDigest, source_len];
+            NSString *archivePath = [NSTemporaryDirectory() stringByAppendingPathComponent:archiveName];
+            result.archiveURL = [NSURL fileURLWithPath:archivePath];
+            result.archiveLoaded = [[NSFileManager defaultManager] fileExistsAtPath:archivePath];
+            MTLBinaryArchiveDescriptor *archiveDescriptor = [MTLBinaryArchiveDescriptor new];
+            if (result.archiveLoaded) archiveDescriptor.url = result.archiveURL;
+            result.archive = [runtime.device newBinaryArchiveWithDescriptor:archiveDescriptor error:&error];
+            if (result.archive == nil) {
+                write_error(error_message, error_message_len,
+                            error.localizedDescription ?: @"Failed to load Metal source binary archive");
+                return NULL;
+            }
+            runtime.evalLibraries[cacheKey] = result;
+            return (__bridge_retained void *)result;
+        }
     }
 }
 
@@ -2294,17 +3115,9 @@ void *stwo_zig_metal_witness_prepare_library(
         StwoZigEvalLibrary *library = (__bridge StwoZigEvalLibrary *)library_ptr;
         NSString *name = [[NSString alloc] initWithBytes:name_bytes length:name_len encoding:NSUTF8StringEncoding];
         if (name == nil) { write_error(error_message, error_message_len, @"Invalid Metal witness function encoding"); return NULL; }
-        id<MTLFunction> function = [library.library newFunctionWithName:name];
-        if (function == nil) { write_error(error_message, error_message_len, @"Missing Metal witness function"); return NULL; }
-        MTLComputePipelineDescriptor *descriptor = [MTLComputePipelineDescriptor new];
-        descriptor.computeFunction = function; descriptor.binaryArchives = @[library.archive];
-        NSError *error = nil;
-        if (![library.archive addComputePipelineFunctionsWithDescriptor:descriptor error:&error]) {
-            write_error(error_message, error_message_len, error.localizedDescription ?: @"Failed to archive Metal witness pipeline"); return NULL;
-        }
         id<MTLComputePipelineState> pipeline =
-            [runtime.device newComputePipelineStateWithDescriptor:descriptor options:MTLPipelineOptionNone reflection:nil error:&error];
-        if (pipeline == nil) { write_error(error_message, error_message_len, error.localizedDescription ?: @"Failed to resolve Metal witness pipeline"); return NULL; }
+            resolve_eval_pipeline(runtime, library, name, error_message, error_message_len);
+        if (pipeline == nil) return NULL;
         StwoZigWitnessPlan *plan = [StwoZigWitnessPlan new];
         plan.pipeline = pipeline;
         plan.arguments = [runtime.device newBufferWithBytes:arguments length:11u * sizeof(uint32_t) options:MTLResourceStorageModeShared];
@@ -2351,20 +3164,9 @@ void *stwo_zig_metal_eval_prepare_library(
         StwoZigEvalLibrary *library = (__bridge StwoZigEvalLibrary *)library_ptr;
         NSString *name = [[NSString alloc] initWithBytes:name_bytes length:name_len encoding:NSUTF8StringEncoding];
         if (name == nil) { write_error(error_message, error_message_len, @"Invalid Metal function encoding"); return NULL; }
-        id<MTLFunction> function = [library.library newFunctionWithName:name];
-        if (function == nil) { write_error(error_message, error_message_len, @"Missing Metal evaluation function"); return NULL; }
-        MTLComputePipelineDescriptor *descriptor = [MTLComputePipelineDescriptor new];
-        descriptor.computeFunction = function;
-        descriptor.binaryArchives = @[library.archive];
-        NSError *error = nil;
-        if (![library.archive addComputePipelineFunctionsWithDescriptor:descriptor error:&error]) {
-            write_error(error_message, error_message_len, error.localizedDescription ?: @"Failed to add Metal pipeline to archive"); return NULL;
-        }
         id<MTLComputePipelineState> pipeline =
-            [runtime.device newComputePipelineStateWithDescriptor:descriptor options:MTLPipelineOptionNone reflection:nil error:&error];
-        if (pipeline == nil) {
-            write_error(error_message, error_message_len, error.localizedDescription ?: @"Failed to resolve Metal evaluation pipeline"); return NULL;
-        }
+            resolve_eval_pipeline(runtime, library, name, error_message, error_message_len);
+        if (pipeline == nil) return NULL;
         StwoZigEvalPlan *plan = [StwoZigEvalPlan new];
         plan.pipeline = pipeline;
         plan.arguments = [runtime.device newBufferWithBytes:arguments length:14u * sizeof(uint32_t) options:MTLResourceStorageModeShared];
@@ -2381,9 +3183,16 @@ bool stwo_zig_metal_eval_library_serialize(
     @autoreleasepool {
         StwoZigEvalLibrary *library = (__bridge StwoZigEvalLibrary *)library_ptr;
         NSError *error = nil;
-        if (![library.archive serializeToURL:library.archiveURL error:&error]) {
+        bool didSerialize = false;
+        if (!serialize_eval_archive(library, &error, &didSerialize)) {
             write_error(error_message, error_message_len, error.localizedDescription ?: @"Failed to serialize Metal binary archive");
             return false;
+        }
+        StwoZigMetalRuntime *runtimeOwner = library.runtimeOwner;
+        if (didSerialize && runtimeOwner != nil) {
+            @synchronized(runtimeOwner) {
+                runtimeOwner.evalArchiveSerializations += 1u;
+            }
         }
         return true;
     }
@@ -2445,9 +3254,10 @@ bool stwo_zig_metal_eval_batch_prepared(
 }
 
 void *stwo_zig_metal_composition_lde_prepare(
-    void *runtime_ptr, const uint32_t *source_offsets, const uint32_t *source_logs,
+    void *runtime_ptr, const uint64_t *source_offsets, const uint32_t *source_logs,
     const uint32_t *destination_offsets, uint32_t column_count, uint32_t extended_log,
-    uint32_t twiddle_offset_words, char *error_message, size_t error_message_len
+    uint32_t twiddle_offset_words, bool use_radix4,
+    char *error_message, size_t error_message_len
 ) {
     if (runtime_ptr == NULL || source_offsets == NULL || source_logs == NULL || destination_offsets == NULL ||
         column_count == 0u || extended_log < 3u || extended_log >= 31u) return NULL;
@@ -2455,11 +3265,12 @@ void *stwo_zig_metal_composition_lde_prepare(
     @autoreleasepool {
         StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
         StwoZigCompositionLdePlan *plan = [StwoZigCompositionLdePlan new];
-        plan.sourceOffsets = [runtime.device newBufferWithBytes:source_offsets length:column_count * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+        plan.sourceOffsets = [runtime.device newBufferWithBytes:source_offsets length:column_count * sizeof(uint64_t) options:MTLResourceStorageModeShared];
         plan.sourceLogs = [runtime.device newBufferWithBytes:source_logs length:column_count * sizeof(uint32_t) options:MTLResourceStorageModeShared];
         plan.destinationOffsets = [runtime.device newBufferWithBytes:destination_offsets length:column_count * sizeof(uint32_t) options:MTLResourceStorageModeShared];
         plan.columnCount = column_count; plan.extendedLog = extended_log;
         plan.twiddleByteOffset = (NSUInteger)twiddle_offset_words * sizeof(uint32_t);
+        plan.useRadix4 = use_radix4;
         if (plan.sourceOffsets == nil || plan.sourceLogs == nil || plan.destinationOffsets == nil) {
             write_error(error_message, error_message_len, @"Metal composition LDE plan allocation failed"); return NULL;
         }
@@ -2485,7 +3296,21 @@ static void encode_composition_lde(
     [expand dispatchThreads:MTLSizeMake(rows, columns, 1u) threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.compositionExpand.maxTotalThreadsPerThreadgroup), 1u, 1u)];
     [expand endEncoding];
     MTLSize grid = MTLSizeMake(pairs, columns, 1u);
-    for (uint32_t layer = log_size - 1u; layer > 0u; --layer) {
+    uint32_t forward_stop_layer = log_size >= 11u ? 10u : 0u;
+    uint32_t layer = log_size - 1u;
+    while (layer > forward_stop_layer) {
+        if (plan.useRadix4 && layer >= 12u) {
+            id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
+            [encoder setComputePipelineState:runtime.circleRfftRadix4Sparse]; [encoder setBuffer:arena offset:0 atIndex:0];
+            [encoder setBuffer:plan.destinationOffsets offset:0 atIndex:1]; [encoder setBuffer:arena offset:plan.twiddleByteOffset atIndex:2];
+            [encoder setBytes:&log_size length:sizeof(log_size) atIndex:3]; [encoder setBytes:&layer length:sizeof(layer) atIndex:4];
+            [encoder setBytes:&columns length:sizeof(columns) atIndex:5];
+            NSUInteger width = MIN((NSUInteger)256u, runtime.circleRfftRadix4Sparse.maxTotalThreadsPerThreadgroup);
+            [encoder dispatchThreads:MTLSizeMake(rows >> 2u, columns, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+            [encoder endEncoding];
+            layer -= 2u;
+            continue;
+        }
         uint32_t twiddle_offset = pairs - (1u << (log_size - layer));
         id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
         [encoder setComputePipelineState:runtime.circleRfftLayerSparse]; [encoder setBuffer:arena offset:0 atIndex:0];
@@ -2494,13 +3319,24 @@ static void encode_composition_lde(
         [encoder setBytes:&twiddle_offset length:sizeof(twiddle_offset) atIndex:5]; [encoder setBytes:&columns length:sizeof(columns) atIndex:6];
         [encoder dispatchThreads:grid threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.circleRfftLayerSparse.maxTotalThreadsPerThreadgroup), 1u, 1u)];
         [encoder endEncoding];
+        --layer;
     }
-    id<MTLComputeCommandEncoder> last = [command computeCommandEncoder];
-    [last setComputePipelineState:runtime.circleRfftLastSparse]; [last setBuffer:arena offset:0 atIndex:0];
-    [last setBuffer:plan.destinationOffsets offset:0 atIndex:1]; [last setBuffer:arena offset:plan.twiddleByteOffset atIndex:2];
-    [last setBytes:&log_size length:sizeof(log_size) atIndex:3]; [last setBytes:&columns length:sizeof(columns) atIndex:4];
-    [last dispatchThreads:grid threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.circleRfftLastSparse.maxTotalThreadsPerThreadgroup), 1u, 1u)];
-    [last endEncoding];
+    if (log_size >= 11u) {
+        id<MTLComputeCommandEncoder> fused = [command computeCommandEncoder];
+        [fused setComputePipelineState:runtime.circleRfftFusedSparse]; [fused setBuffer:arena offset:0 atIndex:0];
+        [fused setBuffer:plan.destinationOffsets offset:0 atIndex:1]; [fused setBuffer:arena offset:plan.twiddleByteOffset atIndex:2];
+        [fused setBytes:&log_size length:sizeof(log_size) atIndex:3]; [fused setBytes:&columns length:sizeof(columns) atIndex:4];
+        [fused dispatchThreadgroups:MTLSizeMake(rows >> 11u, columns, 1u)
+                 threadsPerThreadgroup:MTLSizeMake(256u, 1u, 1u)];
+        [fused endEncoding];
+    } else {
+        id<MTLComputeCommandEncoder> last = [command computeCommandEncoder];
+        [last setComputePipelineState:runtime.circleRfftLastSparse]; [last setBuffer:arena offset:0 atIndex:0];
+        [last setBuffer:plan.destinationOffsets offset:0 atIndex:1]; [last setBuffer:arena offset:plan.twiddleByteOffset atIndex:2];
+        [last setBytes:&log_size length:sizeof(log_size) atIndex:3]; [last setBytes:&columns length:sizeof(columns) atIndex:4];
+        [last dispatchThreads:grid threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.circleRfftLastSparse.maxTotalThreadsPerThreadgroup), 1u, 1u)];
+        [last endEncoding];
+    }
 }
 
 bool stwo_zig_metal_composition_lde_prepared(
@@ -2570,6 +3406,55 @@ void stwo_zig_metal_composition_front_destroy(void *plan_ptr) {
     if (plan_ptr != NULL) CFRelease(plan_ptr);
 }
 
+static uint64_t composition_fnv_m31_words(const uint32_t *words, NSUInteger count) {
+    uint64_t digest = UINT64_C(0xcbf29ce484222325);
+    for (NSUInteger index = 0; index < count; ++index) {
+        uint32_t value = words[index] % UINT32_C(0x7fffffff);
+        for (uint32_t byte = 0; byte < 4u; ++byte) {
+            digest ^= (value >> (byte * 8u)) & 0xffu;
+            digest *= UINT64_C(0x100000001b3);
+        }
+    }
+    return digest;
+}
+
+static void encode_composition_front_production(
+    StwoZigMetalRuntime *runtime, id<MTLBuffer> arena,
+    StwoZigCompositionFrontPlan *plan, id<MTLCommandBuffer> command
+) {
+    StwoZigCompositionInputPlan *inputs = plan.inputs;
+    id<MTLComputeCommandEncoder> powers = [command computeCommandEncoder];
+    [powers setComputePipelineState:runtime.compositionRandomPowers]; [powers setBuffer:arena offset:0 atIndex:0];
+    uint32_t random_offset = inputs.randomOffset, powers_offset = inputs.powersOffset, power_count = inputs.powerCount;
+    [powers setBytes:&random_offset length:sizeof(random_offset) atIndex:1]; [powers setBytes:&powers_offset length:sizeof(powers_offset) atIndex:2];
+    [powers setBytes:&power_count length:sizeof(power_count) atIndex:3];
+    [powers dispatchThreads:MTLSizeMake(power_count, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.compositionRandomPowers.maxTotalThreadsPerThreadgroup), 1u, 1u)];
+    [powers endEncoding];
+    if (inputs.descriptorCount != 0u) {
+        id<MTLComputeCommandEncoder> params = [command computeCommandEncoder];
+        uint32_t descriptor_count = inputs.descriptorCount;
+        [params setComputePipelineState:runtime.compositionExtParams]; [params setBuffer:arena offset:0 atIndex:0];
+        [params setBuffer:inputs.descriptors offset:0 atIndex:1]; [params setBytes:&descriptor_count length:sizeof(descriptor_count) atIndex:2];
+        [params dispatchThreads:MTLSizeMake(descriptor_count, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.compositionExtParams.maxTotalThreadsPerThreadgroup), 1u, 1u)];
+        [params endEncoding];
+    }
+    id<MTLBlitCommandEncoder> clear = [command blitCommandEncoder];
+    [clear fillBuffer:arena range:NSMakeRange((NSUInteger)plan.accumulatorOffset * 4u, (NSUInteger)plan.accumulatorWords * 4u) value:0u];
+    [clear endEncoding];
+    for (NSUInteger component = 0; component < plan.ldePlans.count; ++component) {
+        encode_composition_lde(runtime, arena, plan.ldePlans[component], command);
+        StwoZigEvalBatch *batch = plan.evalBatches[component];
+        for (StwoZigEvalPlan *eval in batch.plans) {
+            id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
+            [encoder setComputePipelineState:eval.pipeline]; [encoder setBuffer:arena offset:0 atIndex:0];
+            [encoder setBuffer:eval.arguments offset:0 atIndex:1];
+            NSUInteger width = MIN((NSUInteger)256u, MIN((NSUInteger)eval.rowCount, eval.pipeline.maxTotalThreadsPerThreadgroup));
+            [encoder dispatchThreads:MTLSizeMake(eval.rowCount, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+            [encoder endEncoding];
+        }
+    }
+}
+
 bool stwo_zig_metal_composition_front_prepared(
     void *runtime_ptr, void *arena_ptr, void *plan_ptr,
     double *gpu_milliseconds, char *error_message, size_t error_message_len
@@ -2580,6 +3465,22 @@ bool stwo_zig_metal_composition_front_prepared(
         id<MTLBuffer> arena = (__bridge id<MTLBuffer>)arena_ptr;
         StwoZigCompositionFrontPlan *plan = (__bridge StwoZigCompositionFrontPlan *)plan_ptr;
         if ((NSUInteger)plan.accumulatorOffset * 4u + (NSUInteger)plan.accumulatorWords * 4u > arena.length) return false;
+        bool log_digests = getenv("STWO_ZIG_SN2_LOG_COMPOSITION_DIGESTS") != NULL;
+        const char *part_component_text = getenv("STWO_ZIG_SN2_LOG_COMPOSITION_PART_COMPONENT");
+        NSInteger part_component = part_component_text == NULL ? -1 : (NSInteger)strtol(part_component_text, NULL, 10);
+        log_digests = log_digests || part_component >= 0;
+        if (!log_digests) {
+            id<MTLCommandBuffer> production_command = [runtime.queue commandBuffer];
+            encode_composition_front_production(runtime, arena, plan, production_command);
+            [production_command commit]; [production_command waitUntilCompleted];
+            if (production_command.status == MTLCommandBufferStatusError) {
+                write_error(error_message, error_message_len, production_command.error.localizedDescription); return false;
+            }
+            if (gpu_milliseconds) *gpu_milliseconds =
+                (production_command.GPUEndTime - production_command.GPUStartTime) * 1000.0;
+            return true;
+        }
+        double total_gpu_milliseconds = 0.0;
         id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
         StwoZigCompositionInputPlan *inputs = plan.inputs;
         id<MTLComputeCommandEncoder> powers = [command computeCommandEncoder];
@@ -2600,21 +3501,177 @@ bool stwo_zig_metal_composition_front_prepared(
         id<MTLBlitCommandEncoder> clear = [command blitCommandEncoder];
         [clear fillBuffer:arena range:NSMakeRange((NSUInteger)plan.accumulatorOffset * 4u, (NSUInteger)plan.accumulatorWords * 4u) value:0u];
         [clear endEncoding];
+        if (log_digests) {
+            [command commit]; [command waitUntilCompleted];
+            if (command.status == MTLCommandBufferStatusError) {
+                write_error(error_message, error_message_len, command.error.localizedDescription); return false;
+            }
+            total_gpu_milliseconds += (command.GPUEndTime-command.GPUStartTime)*1000.0;
+            const uint32_t *arena_words = arena.contents;
+            uint64_t powers_digest = composition_fnv_m31_words(arena_words + powers_offset, (NSUInteger)power_count * 4u);
+            fprintf(stderr,
+                    "composition_random_powers_digest words=%u first=%u last=%u fnv64=%016llx\n",
+                    power_count * 4u, arena_words[powers_offset], arena_words[powers_offset + power_count * 4u - 1u],
+                    (unsigned long long)powers_digest);
+            if (inputs.descriptorCount != 0u) {
+                const uint32_t *descriptors = inputs.descriptors.contents;
+                uint64_t ext_digest = UINT64_C(0xcbf29ce484222325);
+                uint32_t ext_first = 0u, ext_last = 0u;
+                for (uint32_t descriptor = 0; descriptor < inputs.descriptorCount; ++descriptor) {
+                    uint32_t destination = descriptors[descriptor * 8u];
+                    if (descriptor == 0u) ext_first = arena_words[destination];
+                    ext_last = arena_words[destination + 3u];
+                    const uint32_t *value = arena_words + destination;
+                    for (uint32_t coordinate = 0; coordinate < 4u; ++coordinate) {
+                        uint32_t canonical = value[coordinate] % UINT32_C(0x7fffffff);
+                        for (uint32_t byte = 0; byte < 4u; ++byte) {
+                            ext_digest ^= (canonical >> (byte * 8u)) & 0xffu;
+                            ext_digest *= UINT64_C(0x100000001b3);
+                        }
+                    }
+                }
+                fprintf(stderr,
+                        "composition_ext_params_digest values=%u first=%u last=%u fnv64=%016llx\n",
+                        inputs.descriptorCount, ext_first, ext_last, (unsigned long long)ext_digest);
+            }
+        }
         for (NSUInteger component = 0; component < plan.ldePlans.count; ++component) {
-            encode_composition_lde(runtime, arena, plan.ldePlans[component], command);
+            if (log_digests) command = [runtime.queue commandBuffer];
             StwoZigEvalBatch *batch = plan.evalBatches[component];
+            bool log_parts = (NSInteger)component == part_component;
+            StwoZigCompositionLdePlan *lde = plan.ldePlans[component];
+            if (log_parts && getenv("STWO_ZIG_SN2_ZERO_COMPOSITION_PART_ACCUMULATOR") != NULL) {
+                StwoZigEvalPlan *first_eval = batch.plans.firstObject;
+                const uint32_t *arguments = first_eval.arguments.contents;
+                NSUInteger accumulator_bytes = (NSUInteger)arguments[10] * sizeof(uint32_t);
+                id<MTLBlitCommandEncoder> zero_accumulator = [command blitCommandEncoder];
+                for (uint32_t coordinate = 0; coordinate < 4u; ++coordinate) {
+                    [zero_accumulator fillBuffer:arena
+                                           range:NSMakeRange((NSUInteger)arguments[6u + coordinate] * sizeof(uint32_t), accumulator_bytes)
+                                           value:0u];
+                }
+                [zero_accumulator endEncoding];
+            }
+            if (log_parts) {
+                const uint32_t *arena_words = arena.contents;
+                const uint64_t *source_offsets = lde.sourceOffsets.contents;
+                const uint32_t *source_logs = lde.sourceLogs.contents;
+                for (uint32_t column = 0; column < lde.columnCount; ++column) {
+                    uint32_t source_words = 1u << source_logs[column];
+                    const uint32_t *values = arena_words + source_offsets[column];
+                    uint64_t digest = composition_fnv_m31_words(values, source_words);
+                    fprintf(stderr,
+                            "composition_coefficient_source_digest component_index=%lu local_index=%u log_size=%u words=%u first=%u last=%u fnv64=%016llx\n",
+                            (unsigned long)component, column, source_logs[column], source_words,
+                            values[0], values[source_words - 1u], (unsigned long long)digest);
+                }
+            }
+            encode_composition_lde(runtime, arena, lde, command);
+            if (log_parts) {
+                [command commit]; [command waitUntilCompleted];
+                if (command.status == MTLCommandBufferStatusError) {
+                    write_error(error_message, error_message_len, command.error.localizedDescription); return false;
+                }
+                total_gpu_milliseconds += (command.GPUEndTime-command.GPUStartTime)*1000.0;
+
+                StwoZigEvalPlan *first_eval = batch.plans.firstObject;
+                const uint32_t *arguments = first_eval.arguments.contents;
+                const uint32_t *arena_words = arena.contents;
+                const uint32_t *lde_destinations = lde.destinationOffsets.contents;
+                uint32_t lde_rows = 1u << lde.extendedLog;
+                for (uint32_t column = 0; column < lde.columnCount; ++column) {
+                    const uint32_t *values = arena_words + lde_destinations[column];
+                    uint64_t digest = composition_fnv_m31_words(values, lde_rows);
+                    fprintf(stderr,
+                            "composition_lde_source_digest component_index=%lu local_index=%u log_size=%u words=%u first=%u last=%u fnv64=%016llx\n",
+                            (unsigned long)component, column, lde.extendedLog, lde_rows,
+                            values[0], values[lde_rows - 1u], (unsigned long long)digest);
+                }
+                const uint32_t *descriptors = inputs.descriptors.contents;
+                uint32_t expected_destination = arguments[3], ext_count = 0u;
+                uint64_t ext_digest = UINT64_C(0xcbf29ce484222325);
+                bool found_ext = false;
+                for (uint32_t descriptor = 0; descriptor < inputs.descriptorCount; ++descriptor) {
+                    const uint32_t *ext = descriptors + descriptor * 8u;
+                    if (ext[0] != expected_destination) {
+                        if (found_ext) break;
+                        continue;
+                    }
+                    found_ext = true;
+                    const uint32_t *value = arena_words + ext[0];
+                    fprintf(stderr,
+                            "composition_ext_param component_index=%lu slot=%u destination=%u kind=%u source=%u scale=%u value=%u,%u,%u,%u\n",
+                            (unsigned long)component, ext_count, ext[0], ext[1], ext[2], ext[3],
+                            value[0], value[1], value[2], value[3]);
+                    for (uint32_t coordinate = 0; coordinate < 4u; ++coordinate) {
+                        uint32_t canonical = value[coordinate] % UINT32_C(0x7fffffff);
+                        for (uint32_t byte = 0; byte < 4u; ++byte) {
+                            ext_digest ^= (canonical >> (byte * 8u)) & 0xffu;
+                            ext_digest *= UINT64_C(0x100000001b3);
+                        }
+                    }
+                    ++ext_count;
+                    expected_destination += 4u;
+                }
+                fprintf(stderr,
+                        "composition_ext_component_digest component_index=%lu values=%u fnv64=%016llx\n",
+                        (unsigned long)component, ext_count * 4u, (unsigned long long)ext_digest);
+            }
+            NSUInteger part_index = 0u;
             for (StwoZigEvalPlan *eval in batch.plans) {
+                if (log_parts) command = [runtime.queue commandBuffer];
                 id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
                 [encoder setComputePipelineState:eval.pipeline]; [encoder setBuffer:arena offset:0 atIndex:0];
                 [encoder setBuffer:eval.arguments offset:0 atIndex:1];
                 NSUInteger width = MIN((NSUInteger)256u, MIN((NSUInteger)eval.rowCount, eval.pipeline.maxTotalThreadsPerThreadgroup));
                 [encoder dispatchThreads:MTLSizeMake(eval.rowCount, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
                 [encoder endEncoding];
+                if (log_parts) {
+                    [command commit]; [command waitUntilCompleted];
+                    if (command.status == MTLCommandBufferStatusError) {
+                        write_error(error_message, error_message_len, command.error.localizedDescription); return false;
+                    }
+                    total_gpu_milliseconds += (command.GPUEndTime-command.GPUStartTime)*1000.0;
+                    const uint32_t *arguments = eval.arguments.contents;
+                    uint32_t rows = arguments[10], log_size = 31u - __builtin_clz(rows);
+                    const uint32_t *arena_words = arena.contents;
+                    for (uint32_t coordinate = 0; coordinate < 4u; ++coordinate) {
+                        const uint32_t *values = arena_words + arguments[6u + coordinate];
+                        uint64_t digest = composition_fnv_m31_words(values, rows);
+                        fprintf(stderr,
+                                "composition_accumulator_part_digest component_index=%lu part_index=%lu rc_base=%u log_size=%u coordinate=%u words=%u first=%u last=%u fnv64=%016llx\n",
+                                (unsigned long)component, (unsigned long)part_index, arguments[13], log_size, coordinate,
+                                rows, values[0], values[rows - 1u], (unsigned long long)digest);
+                    }
+                }
+                ++part_index;
+            }
+            if (log_digests && !log_parts) {
+                [command commit]; [command waitUntilCompleted];
+                if (command.status == MTLCommandBufferStatusError) {
+                    write_error(error_message, error_message_len, command.error.localizedDescription); return false;
+                }
+                total_gpu_milliseconds += (command.GPUEndTime-command.GPUStartTime)*1000.0;
+                StwoZigEvalPlan *first_eval = batch.plans.firstObject;
+                const uint32_t *arguments = first_eval.arguments.contents;
+                uint32_t rows = arguments[10], log_size = 31u - __builtin_clz(rows);
+                const uint32_t *arena_words = arena.contents;
+                for (uint32_t coordinate = 0; coordinate < 4u; ++coordinate) {
+                    const uint32_t *values = arena_words + arguments[6u + coordinate];
+                    uint64_t digest = composition_fnv_m31_words(values, rows);
+                    fprintf(stderr,
+                            "composition_accumulator_digest component_index=%lu log_size=%u coordinate=%u words=%u first=%u last=%u fnv64=%016llx\n",
+                            (unsigned long)component, log_size, coordinate, rows, values[0], values[rows - 1u],
+                            (unsigned long long)digest);
+                }
             }
         }
-        [command commit]; [command waitUntilCompleted];
-        if (command.status == MTLCommandBufferStatusError) { write_error(error_message, error_message_len, command.error.localizedDescription); return false; }
-        if (gpu_milliseconds) *gpu_milliseconds = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
+        if (!log_digests) {
+            [command commit]; [command waitUntilCompleted];
+            if (command.status == MTLCommandBufferStatusError) { write_error(error_message, error_message_len, command.error.localizedDescription); return false; }
+            total_gpu_milliseconds = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
+        }
+        if (gpu_milliseconds) *gpu_milliseconds = total_gpu_milliseconds;
         return true;
     }
 }
@@ -2638,22 +3695,76 @@ void *stwo_zig_metal_composition_finalize_prepare(
         plan.accumulatorLogs = [NSData dataWithBytes:accumulator_logs length:accumulator_count * sizeof(uint32_t)];
         uint32_t final_offset = accumulator_offsets[accumulator_count - 1u];
         uint32_t final_rows = 1u << accumulator_logs[accumulator_count - 1u];
-        uint32_t coordinates[4] = { final_offset, final_offset + final_rows, final_offset + 2u * final_rows, final_offset + 3u * final_rows };
-        plan.coordinateOffsets = [runtime.device newBufferWithLength:5u * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+        uint64_t coordinates[4] = { final_offset, final_offset + final_rows, final_offset + 2u * final_rows, final_offset + 3u * final_rows };
+        plan.coordinateOffsets = [runtime.device newBufferWithBytes:coordinates length:sizeof(coordinates) options:MTLResourceStorageModeShared];
         plan.outputOffsets = [runtime.device newBufferWithBytes:output_offsets length:8u * sizeof(uint32_t) options:MTLResourceStorageModeShared];
         plan.accumulatorCount = accumulator_count;
         plan.inverseTwiddleByteOffset = (NSUInteger)inverse_twiddle_offset_words * sizeof(uint32_t);
         if (plan.coordinateOffsets == nil || plan.outputOffsets == nil) {
             write_error(error_message, error_message_len, @"Metal composition-finalize plan allocation failed"); return NULL;
         }
-        memcpy(plan.coordinateOffsets.contents, coordinates, sizeof(coordinates));
-        ((uint32_t *)plan.coordinateOffsets.contents)[4] = scale_factor;
+        plan.scaleFactor = scale_factor;
         return (__bridge_retained void *)plan;
     }
 }
 
 void stwo_zig_metal_composition_finalize_destroy(void *plan_ptr) {
     if (plan_ptr != NULL) CFRelease(plan_ptr);
+}
+
+static void encode_composition_finalize_production(
+    StwoZigMetalRuntime *runtime, id<MTLBuffer> arena,
+    StwoZigCompositionFinalizePlan *plan, id<MTLCommandBuffer> command
+) {
+    const uint32_t *offsets = plan.accumulatorOffsets.bytes, *logs = plan.accumulatorLogs.bytes;
+    id<MTLComputeCommandEncoder> lift = [command computeCommandEncoder];
+    for (uint32_t i = 1u; i < plan.accumulatorCount; ++i) {
+        uint32_t previous_offset = offsets[i - 1u], previous_log = logs[i - 1u];
+        uint32_t current_offset = offsets[i], current_log = logs[i], current_rows = 1u << current_log;
+        [lift setComputePipelineState:runtime.compositionLift]; [lift setBuffer:arena offset:0 atIndex:0];
+        [lift setBytes:&previous_offset length:sizeof(previous_offset) atIndex:1];
+        [lift setBytes:&previous_log length:sizeof(previous_log) atIndex:2];
+        [lift setBytes:&current_offset length:sizeof(current_offset) atIndex:3];
+        [lift setBytes:&current_log length:sizeof(current_log) atIndex:4];
+        NSUInteger width = MIN((NSUInteger)256u, runtime.compositionLift.maxTotalThreadsPerThreadgroup);
+        [lift dispatchThreads:MTLSizeMake(current_rows, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+        [lift memoryBarrierWithScope:MTLBarrierScopeBuffers];
+    }
+    [lift endEncoding];
+    uint32_t log_size = logs[plan.accumulatorCount - 1u], rows = 1u << log_size, pairs = rows >> 1u;
+    uint32_t column_count = 4u;
+    MTLSize grid = MTLSizeMake(pairs, column_count, 1u);
+    id<MTLComputeCommandEncoder> transform = [command computeCommandEncoder];
+    [transform setComputePipelineState:runtime.circleIfftFirstSparse]; [transform setBuffer:arena offset:0 atIndex:0];
+    [transform setBuffer:plan.coordinateOffsets offset:0 atIndex:1]; [transform setBuffer:arena offset:plan.inverseTwiddleByteOffset atIndex:2];
+    [transform setBytes:&log_size length:sizeof(log_size) atIndex:3]; [transform setBytes:&column_count length:sizeof(column_count) atIndex:4];
+    [transform dispatchThreads:grid threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.circleIfftFirstSparse.maxTotalThreadsPerThreadgroup), 1u, 1u)];
+    [transform endEncoding];
+    for (uint32_t layer = 1u; layer < log_size; ++layer) {
+        transform = [command computeCommandEncoder];
+        uint32_t twiddle_offset = pairs - (1u << (log_size - layer));
+        [transform setComputePipelineState:runtime.circleIfftLayerSparse]; [transform setBuffer:arena offset:0 atIndex:0];
+        [transform setBuffer:plan.coordinateOffsets offset:0 atIndex:1]; [transform setBuffer:arena offset:plan.inverseTwiddleByteOffset atIndex:2];
+        [transform setBytes:&log_size length:sizeof(log_size) atIndex:3]; [transform setBytes:&layer length:sizeof(layer) atIndex:4];
+        [transform setBytes:&twiddle_offset length:sizeof(twiddle_offset) atIndex:5]; [transform setBytes:&column_count length:sizeof(column_count) atIndex:6];
+        [transform dispatchThreads:grid threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.circleIfftLayerSparse.maxTotalThreadsPerThreadgroup), 1u, 1u)];
+        [transform endEncoding];
+    }
+    transform = [command computeCommandEncoder];
+    uint32_t factor = plan.scaleFactor;
+    [transform setComputePipelineState:runtime.circleRescaleSparse]; [transform setBuffer:arena offset:0 atIndex:0];
+    [transform setBuffer:plan.coordinateOffsets offset:0 atIndex:1]; [transform setBytes:&log_size length:sizeof(log_size) atIndex:2];
+    [transform setBytes:&column_count length:sizeof(column_count) atIndex:3]; [transform setBytes:&factor length:sizeof(factor) atIndex:4];
+    [transform dispatchThreads:MTLSizeMake(rows, column_count, 1u) threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.circleRescaleSparse.maxTotalThreadsPerThreadgroup), 1u, 1u)];
+    [transform endEncoding];
+    transform = [command computeCommandEncoder];
+    uint32_t source_offset = offsets[plan.accumulatorCount - 1u];
+    [transform setComputePipelineState:runtime.compositionSplit]; [transform setBuffer:arena offset:0 atIndex:0];
+    [transform setBuffer:plan.outputOffsets offset:0 atIndex:1]; [transform setBytes:&source_offset length:sizeof(source_offset) atIndex:2];
+    [transform setBytes:&log_size length:sizeof(log_size) atIndex:3];
+    NSUInteger split_width = MIN((NSUInteger)256u, runtime.compositionSplit.maxTotalThreadsPerThreadgroup);
+    [transform dispatchThreads:MTLSizeMake((rows >> 1u) * 8u, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(split_width, 1u, 1u)];
+    [transform endEncoding];
 }
 
 bool stwo_zig_metal_composition_finalize_prepared(
@@ -2666,55 +3777,156 @@ bool stwo_zig_metal_composition_finalize_prepared(
         id<MTLBuffer> arena = (__bridge id<MTLBuffer>)arena_ptr;
         StwoZigCompositionFinalizePlan *plan = (__bridge StwoZigCompositionFinalizePlan *)plan_ptr;
         const uint32_t *offsets = plan.accumulatorOffsets.bytes, *logs = plan.accumulatorLogs.bytes;
+        bool log_digests = getenv("STWO_ZIG_SN2_LOG_COMPOSITION_DIGESTS") != NULL;
+        if (!log_digests) {
+            id<MTLCommandBuffer> production_command = [runtime.queue commandBuffer];
+            encode_composition_finalize_production(runtime, arena, plan, production_command);
+            [production_command commit]; [production_command waitUntilCompleted];
+            if (production_command.status == MTLCommandBufferStatusError) {
+                write_error(error_message, error_message_len, production_command.error.localizedDescription); return false;
+            }
+            if (gpu_milliseconds) *gpu_milliseconds =
+                (production_command.GPUEndTime - production_command.GPUStartTime) * 1000.0;
+            return true;
+        }
+        double total_gpu_milliseconds = 0.0;
         id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
+        id<MTLComputeCommandEncoder> lift = [command computeCommandEncoder];
         for (uint32_t i = 1u; i < plan.accumulatorCount; ++i) {
             uint32_t previous_offset = offsets[i - 1u], previous_log = logs[i - 1u];
             uint32_t current_offset = offsets[i], current_log = logs[i], current_rows = 1u << current_log;
-            id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
-            [encoder setComputePipelineState:runtime.compositionLift]; [encoder setBuffer:arena offset:0 atIndex:0];
-            [encoder setBytes:&previous_offset length:sizeof(previous_offset) atIndex:1];
-            [encoder setBytes:&previous_log length:sizeof(previous_log) atIndex:2];
-            [encoder setBytes:&current_offset length:sizeof(current_offset) atIndex:3];
-            [encoder setBytes:&current_log length:sizeof(current_log) atIndex:4];
+            [lift setComputePipelineState:runtime.compositionLift]; [lift setBuffer:arena offset:0 atIndex:0];
+            [lift setBytes:&previous_offset length:sizeof(previous_offset) atIndex:1];
+            [lift setBytes:&previous_log length:sizeof(previous_log) atIndex:2];
+            [lift setBytes:&current_offset length:sizeof(current_offset) atIndex:3];
+            [lift setBytes:&current_log length:sizeof(current_log) atIndex:4];
             NSUInteger width = MIN((NSUInteger)256u, runtime.compositionLift.maxTotalThreadsPerThreadgroup);
-            [encoder dispatchThreads:MTLSizeMake(current_rows, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
-            [encoder endEncoding];
+            [lift dispatchThreads:MTLSizeMake(current_rows, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+            [lift memoryBarrierWithScope:MTLBarrierScopeBuffers];
         }
+        [lift endEncoding];
         uint32_t log_size = logs[plan.accumulatorCount - 1u], rows = 1u << log_size, pairs = rows >> 1u;
+        if (log_digests) {
+            [command commit]; [command waitUntilCompleted];
+            if (command.status == MTLCommandBufferStatusError) {
+                write_error(error_message, error_message_len, command.error.localizedDescription); return false;
+            }
+            total_gpu_milliseconds += (command.GPUEndTime - command.GPUStartTime) * 1000.0;
+            const uint32_t *arena_words = arena.contents;
+            uint32_t final_offset = offsets[plan.accumulatorCount - 1u];
+            const uint32_t *output_offsets = plan.outputOffsets.contents;
+            const uint32_t *inverse_twiddles = arena_words + plan.inverseTwiddleByteOffset / sizeof(uint32_t);
+            uint64_t twiddle_digest = composition_fnv_m31_words(inverse_twiddles, pairs);
+            fprintf(stderr,
+                    "composition_finalize_twiddle_digest words=%u first=%u last=%u fnv64=%016llx\n",
+                    pairs, inverse_twiddles[0], inverse_twiddles[pairs - 1u],
+                    (unsigned long long)twiddle_digest);
+            uint64_t source_begin = final_offset;
+            uint64_t source_end = source_begin + (uint64_t)4u * rows;
+            for (uint32_t output = 0; output < 8u; ++output) {
+                uint64_t output_begin = output_offsets[output];
+                uint64_t output_end = output_begin + (rows >> 1u);
+                fprintf(stderr,
+                        "composition_finalize_layout output=%u source_begin=%llu source_end=%llu output_begin=%llu output_end=%llu overlaps_source=%u\n",
+                        output, (unsigned long long)source_begin, (unsigned long long)source_end,
+                        (unsigned long long)output_begin, (unsigned long long)output_end,
+                        output_begin < source_end && source_begin < output_end);
+            }
+            for (uint32_t coordinate = 0; coordinate < 4u; ++coordinate) {
+                const uint32_t *values = arena_words + final_offset + coordinate * rows;
+                uint64_t digest = composition_fnv_m31_words(values, rows);
+                fprintf(stderr,
+                        "composition_lifted_accumulator_digest coordinate=%u log_size=%u words=%u first=%u last=%u fnv64=%016llx\n",
+                        coordinate, log_size, rows, values[0], values[rows - 1u],
+                        (unsigned long long)digest);
+            }
+            command = [runtime.queue commandBuffer];
+        }
         uint32_t column_count = 4u;
         MTLSize grid = MTLSizeMake(pairs, column_count, 1u);
-        id<MTLComputeCommandEncoder> first = [command computeCommandEncoder];
-        [first setComputePipelineState:runtime.circleIfftFirstSparse]; [first setBuffer:arena offset:0 atIndex:0];
-        [first setBuffer:plan.coordinateOffsets offset:0 atIndex:1]; [first setBuffer:arena offset:plan.inverseTwiddleByteOffset atIndex:2];
-        [first setBytes:&log_size length:sizeof(log_size) atIndex:3]; [first setBytes:&column_count length:sizeof(column_count) atIndex:4];
-        [first dispatchThreads:grid threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.circleIfftFirstSparse.maxTotalThreadsPerThreadgroup), 1u, 1u)];
-        [first endEncoding];
+        id<MTLComputeCommandEncoder> transform = [command computeCommandEncoder];
+        [transform setComputePipelineState:runtime.circleIfftFirstSparse]; [transform setBuffer:arena offset:0 atIndex:0];
+        [transform setBuffer:plan.coordinateOffsets offset:0 atIndex:1]; [transform setBuffer:arena offset:plan.inverseTwiddleByteOffset atIndex:2];
+        [transform setBytes:&log_size length:sizeof(log_size) atIndex:3]; [transform setBytes:&column_count length:sizeof(column_count) atIndex:4];
+        [transform dispatchThreads:grid threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.circleIfftFirstSparse.maxTotalThreadsPerThreadgroup), 1u, 1u)];
+        [transform endEncoding];
         for (uint32_t layer = 1u; layer < log_size; ++layer) {
+            transform = [command computeCommandEncoder];
             uint32_t twiddle_offset = pairs - (1u << (log_size - layer));
-            id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
-            [encoder setComputePipelineState:runtime.circleIfftLayerSparse]; [encoder setBuffer:arena offset:0 atIndex:0];
-            [encoder setBuffer:plan.coordinateOffsets offset:0 atIndex:1]; [encoder setBuffer:arena offset:plan.inverseTwiddleByteOffset atIndex:2];
-            [encoder setBytes:&log_size length:sizeof(log_size) atIndex:3]; [encoder setBytes:&layer length:sizeof(layer) atIndex:4];
-            [encoder setBytes:&twiddle_offset length:sizeof(twiddle_offset) atIndex:5]; [encoder setBytes:&column_count length:sizeof(column_count) atIndex:6];
-            [encoder dispatchThreads:grid threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.circleIfftLayerSparse.maxTotalThreadsPerThreadgroup), 1u, 1u)];
-            [encoder endEncoding];
+            [transform setComputePipelineState:runtime.circleIfftLayerSparse]; [transform setBuffer:arena offset:0 atIndex:0];
+            [transform setBuffer:plan.coordinateOffsets offset:0 atIndex:1]; [transform setBuffer:arena offset:plan.inverseTwiddleByteOffset atIndex:2];
+            [transform setBytes:&log_size length:sizeof(log_size) atIndex:3]; [transform setBytes:&layer length:sizeof(layer) atIndex:4];
+            [transform setBytes:&twiddle_offset length:sizeof(twiddle_offset) atIndex:5]; [transform setBytes:&column_count length:sizeof(column_count) atIndex:6];
+            [transform dispatchThreads:grid threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.circleIfftLayerSparse.maxTotalThreadsPerThreadgroup), 1u, 1u)];
+            [transform endEncoding];
         }
-        uint32_t factor = ((uint32_t *)plan.coordinateOffsets.contents)[4];
-        id<MTLComputeCommandEncoder> scale = [command computeCommandEncoder];
-        [scale setComputePipelineState:runtime.circleRescaleSparse]; [scale setBuffer:arena offset:0 atIndex:0];
-        [scale setBuffer:plan.coordinateOffsets offset:0 atIndex:1]; [scale setBytes:&log_size length:sizeof(log_size) atIndex:2];
-        [scale setBytes:&column_count length:sizeof(column_count) atIndex:3]; [scale setBytes:&factor length:sizeof(factor) atIndex:4];
-        [scale dispatchThreads:MTLSizeMake(rows, column_count, 1u) threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.circleRescaleSparse.maxTotalThreadsPerThreadgroup), 1u, 1u)];
-        [scale endEncoding];
+        transform = [command computeCommandEncoder];
+        uint32_t factor = plan.scaleFactor;
+        [transform setComputePipelineState:runtime.circleRescaleSparse]; [transform setBuffer:arena offset:0 atIndex:0];
+        [transform setBuffer:plan.coordinateOffsets offset:0 atIndex:1]; [transform setBytes:&log_size length:sizeof(log_size) atIndex:2];
+        [transform setBytes:&column_count length:sizeof(column_count) atIndex:3]; [transform setBytes:&factor length:sizeof(factor) atIndex:4];
+        [transform dispatchThreads:MTLSizeMake(rows, column_count, 1u) threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.circleRescaleSparse.maxTotalThreadsPerThreadgroup), 1u, 1u)];
+        [transform endEncoding];
+        transform = [command computeCommandEncoder];
         uint32_t source_offset = offsets[plan.accumulatorCount - 1u];
-        id<MTLComputeCommandEncoder> split = [command computeCommandEncoder];
-        [split setComputePipelineState:runtime.compositionSplit]; [split setBuffer:arena offset:0 atIndex:0];
-        [split setBuffer:plan.outputOffsets offset:0 atIndex:1]; [split setBytes:&source_offset length:sizeof(source_offset) atIndex:2];
-        [split setBytes:&log_size length:sizeof(log_size) atIndex:3];
+        [transform setComputePipelineState:runtime.compositionSplit]; [transform setBuffer:arena offset:0 atIndex:0];
+        [transform setBuffer:plan.outputOffsets offset:0 atIndex:1]; [transform setBytes:&source_offset length:sizeof(source_offset) atIndex:2];
+        [transform setBytes:&log_size length:sizeof(log_size) atIndex:3];
         NSUInteger split_width = MIN((NSUInteger)256u, runtime.compositionSplit.maxTotalThreadsPerThreadgroup);
-        [split dispatchThreads:MTLSizeMake((rows >> 1u) * 8u, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(split_width, 1u, 1u)];
-        [split endEncoding]; [command commit]; [command waitUntilCompleted];
+        [transform dispatchThreads:MTLSizeMake((rows >> 1u) * 8u, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(split_width, 1u, 1u)];
+        [transform endEncoding]; [command commit]; [command waitUntilCompleted];
         if (command.status == MTLCommandBufferStatusError) { write_error(error_message, error_message_len, command.error.localizedDescription); return false; }
+        total_gpu_milliseconds += (command.GPUEndTime - command.GPUStartTime) * 1000.0;
+        if (log_digests) {
+            const uint32_t *output_offsets = plan.outputOffsets.contents;
+            const uint32_t *arena_words = arena.contents;
+            uint32_t output_rows = rows >> 1u;
+            for (uint32_t output = 0; output < 8u; ++output) {
+                const uint32_t *values = arena_words + output_offsets[output];
+                uint64_t digest = composition_fnv_m31_words(values, output_rows);
+                fprintf(stderr,
+                        "composition_coefficient_digest index=%u log_size=%u words=%u first=%u last=%u fnv64=%016llx\n",
+                        output, log_size - 1u, output_rows, values[0], values[output_rows - 1u],
+                        (unsigned long long)digest);
+            }
+        }
+        if (gpu_milliseconds) *gpu_milliseconds = total_gpu_milliseconds;
+        return true;
+    }
+}
+
+bool stwo_zig_metal_composition_prepared(
+    void *runtime_ptr, void *arena_ptr, void *front_ptr, void *finalize_ptr,
+    double *gpu_milliseconds, char *error_message, size_t error_message_len
+) {
+    if (runtime_ptr == NULL || arena_ptr == NULL || front_ptr == NULL || finalize_ptr == NULL) return false;
+    const char *part_component_text = getenv("STWO_ZIG_SN2_LOG_COMPOSITION_PART_COMPONENT");
+    bool diagnostics = getenv("STWO_ZIG_SN2_LOG_COMPOSITION_DIGESTS") != NULL ||
+        (part_component_text != NULL && strtol(part_component_text, NULL, 10) >= 0);
+    if (diagnostics) {
+        double front_gpu_milliseconds = 0.0, finalize_gpu_milliseconds = 0.0;
+        if (!stwo_zig_metal_composition_front_prepared(
+                runtime_ptr, arena_ptr, front_ptr, &front_gpu_milliseconds, error_message, error_message_len) ||
+            !stwo_zig_metal_composition_finalize_prepared(
+                runtime_ptr, arena_ptr, finalize_ptr, &finalize_gpu_milliseconds, error_message, error_message_len))
+            return false;
+        if (gpu_milliseconds) *gpu_milliseconds = front_gpu_milliseconds + finalize_gpu_milliseconds;
+        return true;
+    }
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        id<MTLBuffer> arena = (__bridge id<MTLBuffer>)arena_ptr;
+        StwoZigCompositionFrontPlan *front = (__bridge StwoZigCompositionFrontPlan *)front_ptr;
+        StwoZigCompositionFinalizePlan *finalize = (__bridge StwoZigCompositionFinalizePlan *)finalize_ptr;
+        if ((NSUInteger)front.accumulatorOffset * 4u + (NSUInteger)front.accumulatorWords * 4u > arena.length)
+            return false;
+        id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
+        encode_composition_front_production(runtime, arena, front, command);
+        encode_composition_finalize_production(runtime, arena, finalize, command);
+        [command commit]; [command waitUntilCompleted];
+        if (command.status == MTLCommandBufferStatusError) {
+            write_error(error_message, error_message_len, command.error.localizedDescription); return false;
+        }
         if (gpu_milliseconds) *gpu_milliseconds = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
         return true;
     }
@@ -2849,14 +4061,21 @@ bool stwo_zig_metal_ec_op_prepared(
         id<MTLBuffer> arena = (__bridge id<MTLBuffer>)arena_ptr;
         StwoZigEcOpPlan *plan = (__bridge StwoZigEcOpPlan *)plan_ptr;
         uint32_t rows = plan.rowCount;
-        NSUInteger width = MIN((NSUInteger)256u, MIN((NSUInteger)rows, runtime.ecOpWitness.maxTotalThreadsPerThreadgroup));
+        NSUInteger width = MIN(plan.threadgroupWidth, MIN((NSUInteger)rows, plan.pipeline.maxTotalThreadsPerThreadgroup));
         id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
         id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
-        [encoder setComputePipelineState:runtime.ecOpWitness]; [encoder setBuffer:arena offset:0 atIndex:0];
+        [encoder setComputePipelineState:plan.pipeline]; [encoder setBuffer:arena offset:0 atIndex:0];
         [encoder setBuffer:plan.executionOffsets offset:0 atIndex:1]; [encoder setBuffer:plan.traceOffsets offset:0 atIndex:2];
         [encoder setBuffer:plan.partialOffsets offset:0 atIndex:3]; [encoder setBuffer:plan.multiplicityOffsets offset:0 atIndex:4];
         [encoder setBuffer:plan.params offset:0 atIndex:5];
         [encoder dispatchThreads:MTLSizeMake(rows, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+        if (plan.writeBase) {
+            NSUInteger finalize_width = MIN((NSUInteger)256u, runtime.ecOpBaseFinalize.maxTotalThreadsPerThreadgroup);
+            [encoder setComputePipelineState:runtime.ecOpBaseFinalize]; [encoder setBuffer:arena offset:0 atIndex:0];
+            [encoder setBuffer:plan.partialOffsets offset:0 atIndex:1]; [encoder setBuffer:plan.params offset:0 atIndex:2];
+            [encoder dispatchThreads:MTLSizeMake((NSUInteger)rows * 4u, 126u, 1u)
+               threadsPerThreadgroup:MTLSizeMake(finalize_width, 1u, 1u)];
+        }
         [encoder endEncoding]; [command commit]; [command waitUntilCompleted];
         if (command.status == MTLCommandBufferStatusError) { write_error(error_message, error_message_len, command.error.localizedDescription); return false; }
         if (gpu_milliseconds) *gpu_milliseconds = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
@@ -3294,7 +4513,7 @@ bool stwo_zig_metal_eval_polynomials(
     const uint32_t *factors, size_t factor_word_count,
     const void *basis_tasks, uint32_t basis_task_count,
     uint32_t basis_count,
-    const void *tasks, uint32_t task_count,
+    const void *tasks, const uint32_t *task_columns, uint32_t task_count,
     uint32_t output_count,
     uint32_t *output,
     double *gpu_milliseconds,
@@ -3333,6 +4552,9 @@ bool stwo_zig_metal_eval_polynomials(
             }
         }
         id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
+        double total_gpu_milliseconds = 0.0;
+        bool command_has_work = true;
+        NSUInteger eval_encoders_in_command = 0u;
         NSMutableArray<id<MTLBuffer>> *coefficient_sources = [NSMutableArray array];
         id<MTLComputeCommandEncoder> basis_encoder = [command computeCommandEncoder];
         [basis_encoder setComputePipelineState:runtime.polynomialBasis];
@@ -3354,7 +4576,9 @@ bool stwo_zig_metal_eval_polynomials(
                 size_t run_start = column;
                 size_t run_words = coefficient_lengths[column];
                 column += 1;
-                while (column < coefficient_column_count && coefficients[column] == coefficients[run_start] + run_words) {
+                while (column < coefficient_column_count &&
+                       coefficient_lengths[column] <= UINT32_MAX - run_words &&
+                       coefficients[column] == coefficients[run_start] + run_words) {
                     run_words += coefficient_lengths[column];
                     column += 1;
                 }
@@ -3372,9 +4596,9 @@ bool stwo_zig_metal_eval_polynomials(
                 NSMutableData *run_task_data = [NSMutableData data];
                 for (uint32_t task_index = 0; task_index < task_count; ++task_index) {
                     StwoZigPolynomialEvalTask task = all_tasks[task_index];
-                    if ((size_t)task.coefficient_offset >= flat_offset &&
-                        (size_t)task.coefficient_offset < flat_offset + run_words) {
-                        task.coefficient_offset -= (uint32_t)flat_offset;
+                    uint32_t task_column = task_columns[task_index];
+                    if (task_column >= run_start && task_column < column) {
+                        task.coefficient_offset = (uint32_t)(coefficients[task_column] - coefficients[run_start]);
                         [run_task_data appendBytes:&task length:sizeof(task)];
                     }
                 }
@@ -3402,6 +4626,22 @@ bool stwo_zig_metal_eval_polynomials(
                 [encoder dispatchThreadgroups:MTLSizeMake(run_task_count, 1, 1)
                          threadsPerThreadgroup:MTLSizeMake(width, 1, 1)];
                 [encoder endEncoding];
+                command_has_work = true;
+                eval_encoders_in_command += 1u;
+                if (eval_encoders_in_command == 128u) {
+                    [command commit];
+                    [command waitUntilCompleted];
+                    if (command.status == MTLCommandBufferStatusError) {
+                        write_error(error_message, error_message_len,
+                                    command.error.localizedDescription ?: @"Metal polynomial evaluation failed");
+                        return false;
+                    }
+                    total_gpu_milliseconds += (command.GPUEndTime - command.GPUStartTime) * 1000.0;
+                    [coefficient_sources removeAllObjects];
+                    command = [runtime.queue commandBuffer];
+                    command_has_work = false;
+                    eval_encoders_in_command = 0u;
+                }
                 flat_offset += run_words;
             }
         } else {
@@ -3415,17 +4655,21 @@ bool stwo_zig_metal_eval_polynomials(
             [encoder dispatchThreadgroups:MTLSizeMake(task_count, 1, 1)
                      threadsPerThreadgroup:MTLSizeMake(width, 1, 1)];
             [encoder endEncoding];
+            command_has_work = true;
         }
-        [command commit];
-        [command waitUntilCompleted];
-        if (command.status == MTLCommandBufferStatusError) {
-            write_error(error_message, error_message_len,
-                        command.error.localizedDescription ?: @"Metal polynomial evaluation failed");
-            return false;
+        if (command_has_work) {
+            [command commit];
+            [command waitUntilCompleted];
+            if (command.status == MTLCommandBufferStatusError) {
+                write_error(error_message, error_message_len,
+                            command.error.localizedDescription ?: @"Metal polynomial evaluation failed");
+                return false;
+            }
+            total_gpu_milliseconds += (command.GPUEndTime - command.GPUStartTime) * 1000.0;
         }
         memcpy(output, output_buffer.contents, (NSUInteger)output_count * 4u * sizeof(uint32_t));
         if (gpu_milliseconds != NULL) {
-            *gpu_milliseconds = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
+            *gpu_milliseconds = total_gpu_milliseconds;
         }
         return true;
     }
@@ -3624,9 +4868,27 @@ bool stwo_zig_metal_compute_quotients(
     }
 }
 
-void stwo_zig_metal_runtime_destroy(void *runtime) {
-    if (runtime == NULL) return;
-    @autoreleasepool { __unused id value = (__bridge_transfer id)runtime; }
+void stwo_zig_metal_runtime_destroy(void *runtime_ptr) {
+    if (runtime_ptr == NULL) return;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime = (__bridge_transfer StwoZigMetalRuntime *)runtime_ptr;
+        NSArray<NSString *> *keys = nil;
+        @synchronized(runtime) {
+            keys = [runtime.evalLibraries.allKeys sortedArrayUsingSelector:@selector(compare:)];
+        }
+        for (NSString *key in keys) {
+            StwoZigEvalLibrary *library = runtime.evalLibraries[key];
+            if (!library.archiveDirty) continue;
+            NSError *error = nil;
+            bool didSerialize = false;
+            if (!serialize_eval_archive(library, &error, &didSerialize)) {
+                fprintf(stderr, "Failed to serialize Metal binary archive during shutdown: %s\n",
+                        error.localizedDescription.UTF8String ?: "unknown Metal error");
+            } else if (didSerialize) {
+                @synchronized(runtime) { runtime.evalArchiveSerializations += 1u; }
+            }
+        }
+    }
 }
 
 void *stwo_zig_metal_merkle_commit(

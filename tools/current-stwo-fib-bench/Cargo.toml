@@ -1,0 +1,19 @@
+[package]
+name = "current-stwo-fib-bench"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+itertools = "0.12"
+num-traits = "0.2"
+rayon = "1.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+stwo = { path = "../../../../personal/stwo/crates/stwo", default-features = false, features = ["parallel", "prover"] }
+stwo-backend-metal = { path = "../../../../personal/stwo/crates/backend-metal", features = ["parallel"] }
+stwo-constraint-framework = { path = "../../../../personal/stwo/crates/constraint-framework", default-features = false, features = ["parallel", "prover"] }
+stwo-examples = { path = "../../../../personal/stwo/crates/examples", features = ["parallel"] }
+
+[workspace]
+members = []

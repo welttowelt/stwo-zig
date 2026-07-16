@@ -73,6 +73,10 @@ pub const FOLD_STEP: u32 = 1;
 /// Number of folds when reducing circle to line polynomial.
 pub const CIRCLE_TO_LINE_FOLD_STEP: u32 = 1;
 
+/// STWO packs four consecutive QM31 evaluations into each FRI Merkle leaf
+/// whenever a layer folds more than one level.
+pub const LOG_PACKED_LEAF_SIZE: u32 = 2;
+
 pub const FriVerificationError = error{
     InvalidNumFriLayers,
     FirstLayerEvaluationsInvalid,
@@ -152,6 +156,8 @@ pub fn FriVerifier(comptime H: type, comptime MC: type) type {
                 .column_commitment_domain = column_commitment_domain,
                 .folding_alpha = channel.drawSecureFelt(),
                 .proof = try cloneLayerProof(H, allocator, proof_in.first_layer),
+                .pack_leaves = column_commitment_domain.logSize() >= LOG_PACKED_LEAF_SIZE and
+                    config.fold_step > 1,
             };
             errdefer first_layer.deinit(allocator);
 
@@ -181,6 +187,8 @@ pub fn FriVerifier(comptime H: type, comptime MC: type) type {
                     .layer_index = i,
                     .proof = try cloneLayerProof(H, allocator, inner_proof),
                     .fold_step = this_fold_step,
+                    .pack_leaves = layer_domain.logSize() >= LOG_PACKED_LEAF_SIZE and
+                        this_fold_step > 1,
                 };
                 initialized += 1;
 
@@ -334,6 +342,7 @@ fn FriFirstLayerVerifier(comptime H: type) type {
         column_commitment_domain: circle_domain.CircleDomain,
         folding_alpha: QM31,
         proof: FriLayerProof(H),
+        pack_leaves: bool,
 
         const Self = @This();
 
@@ -366,25 +375,28 @@ fn FriFirstLayerVerifier(comptime H: type) type {
                 return FriVerificationError.FirstLayerEvaluationsInvalid;
             }
 
-            const decommitmented_values = try sparseToBaseColumns(allocator, rebuilt.sparse_evaluation);
-            defer freeBaseColumns(allocator, decommitmented_values);
-            const repeated_sizes = [_]u32{
-                self.column_commitment_domain.logSize(),
-                self.column_commitment_domain.logSize(),
-                self.column_commitment_domain.logSize(),
-                self.column_commitment_domain.logSize(),
-            };
+            const leaf_log_size: u32 = if (self.pack_leaves) LOG_PACKED_LEAF_SIZE else 0;
+            var merkle_inputs = try buildMerkleVerificationInputs(
+                allocator,
+                rebuilt.decommitment_positions,
+                rebuilt.sparse_evaluation,
+                leaf_log_size,
+            );
+            defer merkle_inputs.deinit(allocator);
+            const repeated_sizes = try allocator.alloc(u32, merkle_inputs.columns.len);
+            defer allocator.free(repeated_sizes);
+            @memset(repeated_sizes, self.column_commitment_domain.logSize() - leaf_log_size);
             var merkle_verifier = try vcs_verifier.MerkleVerifierLifted(H).init(
                 allocator,
                 self.proof.commitment,
-                repeated_sizes[0..],
+                repeated_sizes,
             );
             defer merkle_verifier.deinit(allocator);
 
             merkle_verifier.verify(
                 allocator,
-                rebuilt.decommitment_positions,
-                decommitmented_values,
+                merkle_inputs.positions,
+                merkle_inputs.columns,
                 self.proof.decommitment,
             ) catch return FriVerificationError.FirstLayerCommitmentInvalid;
 
@@ -404,6 +416,7 @@ fn FriInnerLayerVerifier(comptime H: type) type {
         /// smaller for the last inner layer when the remaining degree is not
         /// evenly divisible by FOLD_STEP).
         fold_step: u32 = FOLD_STEP,
+        pack_leaves: bool,
 
         const Self = @This();
 
@@ -435,25 +448,28 @@ fn FriInnerLayerVerifier(comptime H: type) type {
                 return FriVerificationError.InnerLayerEvaluationsInvalid;
             }
 
-            const decommitmented_values = try sparseToBaseColumns(allocator, rebuilt.sparse_evaluation);
-            defer freeBaseColumns(allocator, decommitmented_values);
-            const repeated_sizes = [_]u32{
-                self.domain.logSize(),
-                self.domain.logSize(),
-                self.domain.logSize(),
-                self.domain.logSize(),
-            };
+            const leaf_log_size: u32 = if (self.pack_leaves) LOG_PACKED_LEAF_SIZE else 0;
+            var merkle_inputs = try buildMerkleVerificationInputs(
+                allocator,
+                rebuilt.decommitment_positions,
+                rebuilt.sparse_evaluation,
+                leaf_log_size,
+            );
+            defer merkle_inputs.deinit(allocator);
+            const repeated_sizes = try allocator.alloc(u32, merkle_inputs.columns.len);
+            defer allocator.free(repeated_sizes);
+            @memset(repeated_sizes, self.domain.logSize() - leaf_log_size);
             var merkle_verifier = try vcs_verifier.MerkleVerifierLifted(H).init(
                 allocator,
                 self.proof.commitment,
-                repeated_sizes[0..],
+                repeated_sizes,
             );
             defer merkle_verifier.deinit(allocator);
 
             merkle_verifier.verify(
                 allocator,
-                rebuilt.decommitment_positions,
-                decommitmented_values,
+                merkle_inputs.positions,
+                merkle_inputs.columns,
                 self.proof.decommitment,
             ) catch return FriVerificationError.InnerLayerCommitmentInvalid;
 
@@ -487,37 +503,95 @@ const FoldedLayerState = struct {
     }
 };
 
-fn sparseToBaseColumns(allocator: std.mem.Allocator, sparse: SparseEvaluation) ![][]M31 {
-    var columns = [_]std.ArrayList(M31){
-        .empty,
-        .empty,
-        .empty,
-        .empty,
-    };
-    defer {
-        for (&columns) |*column| column.deinit(allocator);
+const MerkleVerificationInputs = struct {
+    positions: []usize,
+    columns: [][]M31,
+
+    fn deinit(self: *MerkleVerificationInputs, allocator: std.mem.Allocator) void {
+        allocator.free(self.positions);
+        for (self.columns) |column| allocator.free(column);
+        allocator.free(self.columns);
+        self.* = undefined;
+    }
+};
+
+/// Converts reconstructed FRI evaluations into the leaf layout committed by
+/// STWO. With packed leaves, four consecutive QM31 values become one Merkle
+/// row with coordinates ordered by value first, then extension coordinate.
+fn buildMerkleVerificationInputs(
+    allocator: std.mem.Allocator,
+    decommitment_positions: []const usize,
+    sparse: SparseEvaluation,
+    leaf_log_size: u32,
+) !MerkleVerificationInputs {
+    if (leaf_log_size >= @bitSizeOf(usize)) return error.ShapeMismatch;
+    const leaf_size: usize = @as(usize, 1) << @intCast(leaf_log_size);
+
+    var value_count: usize = 0;
+    for (sparse.subset_evals) |subset| value_count += subset.len;
+    if (value_count != decommitment_positions.len or
+        decommitment_positions.len % leaf_size != 0)
+    {
+        return error.ShapeMismatch;
     }
 
+    const merkle_position_count = decommitment_positions.len / leaf_size;
+    const positions = try allocator.alloc(usize, merkle_position_count);
+    errdefer allocator.free(positions);
+
+    var leaf_index: usize = 0;
+    while (leaf_index < merkle_position_count) : (leaf_index += 1) {
+        const first_index = leaf_index * leaf_size;
+        const merkle_position = decommitment_positions[first_index] >> @intCast(leaf_log_size);
+        positions[leaf_index] = merkle_position;
+        var offset: usize = 0;
+        while (offset < leaf_size) : (offset += 1) {
+            const position = decommitment_positions[first_index + offset];
+            if ((position >> @intCast(leaf_log_size)) != merkle_position or
+                (position & (leaf_size - 1)) != offset)
+            {
+                return error.ShapeMismatch;
+            }
+        }
+        if (leaf_index > 0 and positions[leaf_index - 1] >= merkle_position) {
+            return error.ShapeMismatch;
+        }
+    }
+
+    const flattened_values = try allocator.alloc(QM31, value_count);
+    defer allocator.free(flattened_values);
+    var value_index: usize = 0;
     for (sparse.subset_evals) |subset| {
-        for (subset) |value| {
-            const arr = value.toM31Array();
-            inline for (arr, 0..) |coord, i| {
-                try columns[i].append(allocator, coord);
+        @memcpy(flattened_values[value_index..][0..subset.len], subset);
+        value_index += subset.len;
+    }
+
+    const column_count = qm31.SECURE_EXTENSION_DEGREE * leaf_size;
+    const columns = try allocator.alloc([]M31, column_count);
+    errdefer allocator.free(columns);
+    var initialized_columns: usize = 0;
+    errdefer {
+        for (columns[0..initialized_columns]) |column| allocator.free(column);
+    }
+    while (initialized_columns < columns.len) : (initialized_columns += 1) {
+        columns[initialized_columns] = try allocator.alloc(M31, merkle_position_count);
+    }
+
+    leaf_index = 0;
+    while (leaf_index < merkle_position_count) : (leaf_index += 1) {
+        var offset: usize = 0;
+        while (offset < leaf_size) : (offset += 1) {
+            const coords = flattened_values[leaf_index * leaf_size + offset].toM31Array();
+            inline for (coords, 0..) |coord, coordinate| {
+                columns[offset * qm31.SECURE_EXTENSION_DEGREE + coordinate][leaf_index] = coord;
             }
         }
     }
 
-    const out = try allocator.alloc([]M31, qm31.SECURE_EXTENSION_DEGREE);
-    var i: usize = 0;
-    while (i < out.len) : (i += 1) {
-        out[i] = try columns[i].toOwnedSlice(allocator);
-    }
-    return out;
-}
-
-fn freeBaseColumns(allocator: std.mem.Allocator, columns: [][]M31) void {
-    for (columns) |column| allocator.free(column);
-    allocator.free(columns);
+    return .{
+        .positions = positions,
+        .columns = columns,
+    };
 }
 
 pub fn FriLayerProofAux(comptime H: type) type {
@@ -1262,6 +1336,82 @@ test "fri: compute decommitment positions and rebuild evals" {
     try std.testing.expect(result.sparse_evaluation.subset_evals[1][1].eql(witness[1]));
     try std.testing.expect(result.sparse_evaluation.subset_evals[2][0].eql(witness[2]));
     try std.testing.expect(result.sparse_evaluation.subset_evals[2][1].eql(q5));
+}
+
+test "fri: packed Merkle inputs preserve STWO leaf coordinate order" {
+    const alloc = std.testing.allocator;
+    var first_leaf: [4]QM31 = undefined;
+    var second_leaf: [4]QM31 = undefined;
+    for (&first_leaf, 0..) |*value, i| {
+        const base: u32 = @intCast(i * qm31.SECURE_EXTENSION_DEGREE + 1);
+        value.* = QM31.fromU32Unchecked(base, base + 1, base + 2, base + 3);
+    }
+    for (&second_leaf, 0..) |*value, i| {
+        const base: u32 = @intCast((i + first_leaf.len) * qm31.SECURE_EXTENSION_DEGREE + 1);
+        value.* = QM31.fromU32Unchecked(base, base + 1, base + 2, base + 3);
+    }
+    var subsets = [_][]QM31{ first_leaf[0..], second_leaf[0..] };
+    var subset_initials = [_]usize{ 0, 0 };
+    const sparse = SparseEvaluation{
+        .subset_evals = subsets[0..],
+        .subset_domain_initial_indexes = subset_initials[0..],
+    };
+    const decommitment_positions = [_]usize{ 4, 5, 6, 7, 12, 13, 14, 15 };
+
+    var inputs = try buildMerkleVerificationInputs(
+        alloc,
+        decommitment_positions[0..],
+        sparse,
+        LOG_PACKED_LEAF_SIZE,
+    );
+    defer inputs.deinit(alloc);
+
+    try std.testing.expectEqualSlices(usize, &[_]usize{ 1, 3 }, inputs.positions);
+    try std.testing.expectEqual(@as(usize, 16), inputs.columns.len);
+    for (inputs.columns, 0..) |column, column_index| {
+        const offset = column_index / qm31.SECURE_EXTENSION_DEGREE;
+        const coordinate = column_index % qm31.SECURE_EXTENSION_DEGREE;
+        for (column, 0..) |value, leaf_index| {
+            const source_value = leaf_index * 4 + offset;
+            const expected: u32 = @intCast(
+                source_value * qm31.SECURE_EXTENSION_DEGREE + coordinate + 1,
+            );
+            try std.testing.expect(value.eql(M31.fromCanonical(expected)));
+        }
+    }
+
+    const Hasher = @import("vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    var opened_leaf_hashes: [2]Hasher.Hash = undefined;
+    for (&opened_leaf_hashes, 0..) |*hash, opened_index| {
+        var row: [16]M31 = undefined;
+        for (inputs.columns, 0..) |column, column_index| row[column_index] = column[opened_index];
+        var hasher = Hasher.defaultWithInitialState();
+        hasher.updateLeaf(row[0..]);
+        hash.* = hasher.finalize();
+    }
+    var sibling_row = [_]M31{M31.zero()} ** 16;
+    var sibling_hasher = Hasher.defaultWithInitialState();
+    sibling_hasher.updateLeaf(sibling_row[0..]);
+    const leaf_zero = sibling_hasher.finalize();
+    @memset(sibling_row[0..], M31.one());
+    sibling_hasher = Hasher.defaultWithInitialState();
+    sibling_hasher.updateLeaf(sibling_row[0..]);
+    const leaf_two = sibling_hasher.finalize();
+    const root = Hasher.hashChildren(.{
+        .left = Hasher.hashChildren(.{ .left = leaf_zero, .right = opened_leaf_hashes[0] }),
+        .right = Hasher.hashChildren(.{ .left = leaf_two, .right = opened_leaf_hashes[1] }),
+    });
+    var verifier = try vcs_verifier.MerkleVerifierLifted(Hasher).init(
+        alloc,
+        root,
+        &([_]u32{2} ** 16),
+    );
+    defer verifier.deinit(alloc);
+    var decommitment = vcs_verifier.MerkleDecommitmentLifted(Hasher){
+        .hash_witness = try alloc.dupe(Hasher.Hash, &[_]Hasher.Hash{ leaf_zero, leaf_two }),
+    };
+    defer decommitment.deinit(alloc);
+    try verifier.verify(alloc, inputs.positions, inputs.columns, decommitment);
 }
 
 test "fri: compute decommitment fails on insufficient witness" {

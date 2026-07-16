@@ -1,0 +1,638 @@
+{
+  "schema_version": 1,
+  "benchmark": "fib_backend_unified_compare",
+  "status": "completed",
+  "workload": "Fibonacci at identical requested N across native RISC-V and Cairo programs",
+  "comparability": {
+    "identical_fib_n": true,
+    "native_cycle_semantics": {
+      "riscv": "emitted RV32IM VM cycles; 5 * fib_n - 3",
+      "cairo": "emitted Cairo opcode cycles; 7 * fib_n + 16"
+    },
+    "native_mhz": "comparable only between lanes for the same VM program and protocol",
+    "cross_vm_metric": "fib iterations per second",
+    "fresh_process_wall": "direct parent perf_counter around one verified proof subprocess",
+    "internal_total": "RISC-V is directly timed by the CLI; Cairo is a constructed non-overlapping phase sum"
+  },
+  "protocols": {
+    "riscv": {
+      "hash": "blake2s",
+      "log_blowup_factor": 1,
+      "fri_log_last_layer_degree_bound": 0,
+      "fri_fold_step": 1,
+      "pow_bits": 10,
+      "n_queries": 3
+    },
+    "cairo": {
+      "security_bits": 96,
+      "n_queries": 70,
+      "pow_bits": 26,
+      "fold_step": 3
+    }
+  },
+  "lane_order": [
+    "riscv_zig_cpu",
+    "riscv_zig_metal_hybrid",
+    "cairo_rust_simd",
+    "cairo_rust_metal_hybrid"
+  ],
+  "lanes": {
+    "riscv_zig_cpu": {
+      "label": "Zig RISC-V CPU with auto-SIMD hot paths",
+      "vm": "riscv",
+      "acceleration": "cpu_auto_simd",
+      "hybrid": false
+    },
+    "riscv_zig_metal_hybrid": {
+      "label": "Zig RISC-V hybrid MetalProverEngine",
+      "vm": "riscv",
+      "acceleration": "apple_metal_gpu",
+      "hybrid": true
+    },
+    "cairo_rust_simd": {
+      "label": "Rust Cairo SimdBackend",
+      "vm": "cairo",
+      "acceleration": "cpu_simd",
+      "hybrid": false,
+      "source_backend": "rust-simd"
+    },
+    "cairo_rust_metal_hybrid": {
+      "label": "Rust Cairo hybrid Metal backend",
+      "vm": "cairo",
+      "acceleration": "apple_metal_gpu",
+      "hybrid": true,
+      "source_backend": "rust-metal"
+    }
+  },
+  "source_reports": {
+    "riscv": {
+      "path": "/Users/theodorepender/code/cryptography/stwo-zig/vectors/reports/riscv_fib_metal_vs_cpu_report.json",
+      "sha256": "639d9771b5f73f381c33d501e53d43f96d9fe89a872f239142eec741c12f15ef"
+    },
+    "cairo": [
+      {
+        "path": "/Users/theodorepender/code/cryptography/stwo-zig/vectors/reports/cairo_fib_metal_vs_simd_report.json",
+        "sha256": "797f7e78acfade0118f182ebfce73000390a3c61254fb395b5f653c40947cb6f"
+      },
+      {
+        "path": "/Users/theodorepender/code/cryptography/stwo-zig/vectors/reports/cairo_fib_metal_vs_simd_large_report.json",
+        "sha256": "f7b57156a7c5526bbd5a0a23ec8e81dfe3c5862112ee15bcfe24c1f6316c0815"
+      }
+    ]
+  },
+  "rows": [
+    {
+      "fib_n": 25000,
+      "lanes": {
+        "riscv_zig_cpu": {
+          "native_cycles": 124997,
+          "prove_s": 0.1261,
+          "internal_total": {
+            "seconds": 0.13419999999999999,
+            "measurement_kind": "direct_cli_timer",
+            "directly_timed": true
+          },
+          "fresh_process_wall_s": 0.1440503749763593,
+          "native_prove_mhz": 0.9912529738302935,
+          "native_end_to_end_mhz": 0.8677311671039646,
+          "fib_prove_iterations_per_s": 198255.35289452816,
+          "fib_end_to_end_iterations_per_s": 173550.39863036005,
+          "proofs_verified": 3,
+          "source_backend": "cpu"
+        },
+        "riscv_zig_metal_hybrid": {
+          "native_cycles": 124997,
+          "prove_s": 0.1605,
+          "internal_total": {
+            "seconds": 0.1669,
+            "measurement_kind": "direct_cli_timer",
+            "directly_timed": true
+          },
+          "fresh_process_wall_s": 0.20743695803685114,
+          "native_prove_mhz": 0.7787975077881619,
+          "native_end_to_end_mhz": 0.6025782540534282,
+          "fib_prove_iterations_per_s": 155763.2398753894,
+          "fib_end_to_end_iterations_per_s": 120518.54325572377,
+          "proofs_verified": 3,
+          "source_backend": "metal"
+        },
+        "cairo_rust_simd": {
+          "native_cycles": 175016,
+          "prove_s": 1.35,
+          "internal_total": {
+            "seconds": 1.3726360000000002,
+            "measurement_kind": "constructed_non_overlapping_phase_sum",
+            "directly_timed": false
+          },
+          "fresh_process_wall_s": 1.4028447500313632,
+          "native_prove_mhz": 0.12964148148148147,
+          "native_end_to_end_mhz": 0.12475792492083475,
+          "fib_prove_iterations_per_s": 18518.51851851852,
+          "fib_end_to_end_iterations_per_s": 17820.93136068056,
+          "proofs_verified": 1,
+          "source_backend": "rust-simd"
+        },
+        "cairo_rust_metal_hybrid": {
+          "native_cycles": 175016,
+          "prove_s": 1.967,
+          "internal_total": {
+            "seconds": 2.0017810000000003,
+            "measurement_kind": "constructed_non_overlapping_phase_sum",
+            "directly_timed": false
+          },
+          "fresh_process_wall_s": 2.0581669170060195,
+          "native_prove_mhz": 0.08897610574478902,
+          "native_end_to_end_mhz": 0.08503489126848507,
+          "fib_prove_iterations_per_s": 12709.710218607015,
+          "fib_end_to_end_iterations_per_s": 12146.731051516013,
+          "proofs_verified": 1,
+          "source_backend": "rust-metal"
+        }
+      },
+      "within_vm_metal_speedup": {
+        "riscv_over_cpu_auto_simd": {
+          "prove": 0.7856697819314641,
+          "fresh_process_total": 0.6944296539036635
+        },
+        "cairo_over_rust_simd": {
+          "prove": 0.6863243518047789,
+          "fresh_process_total": 0.6815991154264872
+        }
+      }
+    },
+    {
+      "fib_n": 50000,
+      "lanes": {
+        "riscv_zig_cpu": {
+          "native_cycles": 249997,
+          "prove_s": 0.1679,
+          "internal_total": {
+            "seconds": 0.1846,
+            "measurement_kind": "direct_cli_timer",
+            "directly_timed": true
+          },
+          "fresh_process_wall_s": 0.1959483329555951,
+          "native_prove_mhz": 1.4889636688505061,
+          "native_end_to_end_mhz": 1.2758312164699719,
+          "fib_prove_iterations_per_s": 297796.3073257891,
+          "fib_end_to_end_iterations_per_s": 255169.3053256583,
+          "proofs_verified": 3,
+          "source_backend": "cpu"
+        },
+        "riscv_zig_metal_hybrid": {
+          "native_cycles": 249997,
+          "prove_s": 0.125,
+          "internal_total": {
+            "seconds": 0.1378,
+            "measurement_kind": "direct_cli_timer",
+            "directly_timed": true
+          },
+          "fresh_process_wall_s": 0.17973108298610896,
+          "native_prove_mhz": 1.9999760000000002,
+          "native_end_to_end_mhz": 1.390950278863683,
+          "fib_prove_iterations_per_s": 400000.0,
+          "fib_end_to_end_iterations_per_s": 278193.3940934657,
+          "proofs_verified": 3,
+          "source_backend": "metal"
+        },
+        "cairo_rust_simd": {
+          "native_cycles": 350016,
+          "prove_s": 1.474,
+          "internal_total": {
+            "seconds": 1.528584,
+            "measurement_kind": "constructed_non_overlapping_phase_sum",
+            "directly_timed": false
+          },
+          "fresh_process_wall_s": 1.5749752499978058,
+          "native_prove_mhz": 0.23745997286295795,
+          "native_end_to_end_mhz": 0.22223587323069846,
+          "fib_prove_iterations_per_s": 33921.302578019,
+          "fib_end_to_end_iterations_per_s": 31746.530620128575,
+          "proofs_verified": 1,
+          "source_backend": "rust-simd"
+        },
+        "cairo_rust_metal_hybrid": {
+          "native_cycles": 350016,
+          "prove_s": 8.719,
+          "internal_total": {
+            "seconds": 8.779518999999999,
+            "measurement_kind": "constructed_non_overlapping_phase_sum",
+            "directly_timed": false
+          },
+          "fresh_process_wall_s": 8.81869187502889,
+          "native_prove_mhz": 0.040144053217112056,
+          "native_end_to_end_mhz": 0.039690240339512184,
+          "fib_prove_iterations_per_s": 5734.602592040372,
+          "fib_end_to_end_iterations_per_s": 5669.7751444951355,
+          "proofs_verified": 1,
+          "source_backend": "rust-metal"
+        }
+      },
+      "within_vm_metal_speedup": {
+        "riscv_over_cpu_auto_simd": {
+          "prove": 1.3432,
+          "fresh_process_total": 1.09023063623747
+        },
+        "cairo_over_rust_simd": {
+          "prove": 0.16905608441335016,
+          "fresh_process_total": 0.17859511051265142
+        }
+      }
+    },
+    {
+      "fib_n": 100000,
+      "lanes": {
+        "riscv_zig_cpu": {
+          "native_cycles": 499997,
+          "prove_s": 0.276,
+          "internal_total": {
+            "seconds": 0.307,
+            "measurement_kind": "direct_cli_timer",
+            "directly_timed": true
+          },
+          "fresh_process_wall_s": 0.31718787498539314,
+          "native_prove_mhz": 1.8115833333333333,
+          "native_end_to_end_mhz": 1.5763433580902972,
+          "fib_prove_iterations_per_s": 362318.84057971014,
+          "fib_end_to_end_iterations_per_s": 315270.5632414389,
+          "proofs_verified": 3,
+          "source_backend": "cpu"
+        },
+        "riscv_zig_metal_hybrid": {
+          "native_cycles": 499997,
+          "prove_s": 0.1323,
+          "internal_total": {
+            "seconds": 0.158,
+            "measurement_kind": "direct_cli_timer",
+            "directly_timed": true
+          },
+          "fresh_process_wall_s": 0.1995779579738155,
+          "native_prove_mhz": 3.779266817838246,
+          "native_end_to_end_mhz": 2.505271649615732,
+          "fib_prove_iterations_per_s": 755857.8987150416,
+          "fib_end_to_end_iterations_per_s": 501057.33626716404,
+          "proofs_verified": 3,
+          "source_backend": "metal"
+        },
+        "cairo_rust_simd": {
+          "native_cycles": 700016,
+          "prove_s": 1.506,
+          "internal_total": {
+            "seconds": 1.600611,
+            "measurement_kind": "constructed_non_overlapping_phase_sum",
+            "directly_timed": false
+          },
+          "fresh_process_wall_s": 1.6406841249554418,
+          "native_prove_mhz": 0.46481806108897744,
+          "native_end_to_end_mhz": 0.42666104300790453,
+          "fib_prove_iterations_per_s": 66401.06241699867,
+          "fib_end_to_end_iterations_per_s": 60950.18442548521,
+          "proofs_verified": 1,
+          "source_backend": "rust-simd"
+        },
+        "cairo_rust_metal_hybrid": {
+          "native_cycles": 700016,
+          "prove_s": 10.286,
+          "internal_total": {
+            "seconds": 10.375801,
+            "measurement_kind": "constructed_non_overlapping_phase_sum",
+            "directly_timed": false
+          },
+          "fresh_process_wall_s": 10.436075875011738,
+          "native_prove_mhz": 0.06805522068831422,
+          "native_end_to_end_mhz": 0.067076553331327,
+          "fib_prove_iterations_per_s": 9721.952167995334,
+          "fib_end_to_end_iterations_per_s": 9582.14574114406,
+          "proofs_verified": 1,
+          "source_backend": "rust-metal"
+        }
+      },
+      "within_vm_metal_speedup": {
+        "riscv_over_cpu_auto_simd": {
+          "prove": 2.0861678004535147,
+          "fresh_process_total": 1.589293117364233
+        },
+        "cairo_over_rust_simd": {
+          "prove": 0.14641259965000972,
+          "fresh_process_total": 0.15721274400504456
+        }
+      }
+    },
+    {
+      "fib_n": 250000,
+      "lanes": {
+        "riscv_zig_cpu": {
+          "native_cycles": 1249997,
+          "prove_s": 0.5774,
+          "internal_total": {
+            "seconds": 0.6402,
+            "measurement_kind": "direct_cli_timer",
+            "directly_timed": true
+          },
+          "fresh_process_wall_s": 0.6505868330132216,
+          "native_prove_mhz": 2.164871839279529,
+          "native_end_to_end_mhz": 1.921337685563945,
+          "fib_prove_iterations_per_s": 432975.40699688264,
+          "fib_end_to_end_iterations_per_s": 384268.45935709146,
+          "proofs_verified": 3,
+          "source_backend": "cpu"
+        },
+        "riscv_zig_metal_hybrid": {
+          "native_cycles": 1249997,
+          "prove_s": 0.2017,
+          "internal_total": {
+            "seconds": 0.2587,
+            "measurement_kind": "direct_cli_timer",
+            "directly_timed": true
+          },
+          "fresh_process_wall_s": 0.30064745800336823,
+          "native_prove_mhz": 6.197307882994547,
+          "native_end_to_end_mhz": 4.157683581631999,
+          "fib_prove_iterations_per_s": 1239464.5513138326,
+          "fib_end_to_end_iterations_per_s": 831538.7120193086,
+          "proofs_verified": 3,
+          "source_backend": "metal"
+        },
+        "cairo_rust_simd": {
+          "native_cycles": 1750016,
+          "prove_s": 2.019,
+          "internal_total": {
+            "seconds": 2.22867,
+            "measurement_kind": "constructed_non_overlapping_phase_sum",
+            "directly_timed": false
+          },
+          "fresh_process_wall_s": 2.2792615829966962,
+          "native_prove_mhz": 0.8667736503219414,
+          "native_end_to_end_mhz": 0.7677995422092527,
+          "fib_prove_iterations_per_s": 123823.67508667657,
+          "fib_end_to_end_iterations_per_s": 109684.64605598645,
+          "proofs_verified": 1,
+          "source_backend": "rust-simd"
+        },
+        "cairo_rust_metal_hybrid": {
+          "native_cycles": 1750016,
+          "prove_s": 12.429,
+          "internal_total": {
+            "seconds": 12.636823,
+            "measurement_kind": "constructed_non_overlapping_phase_sum",
+            "directly_timed": false
+          },
+          "fresh_process_wall_s": 12.70469966600649,
+          "native_prove_mhz": 0.14080102984954543,
+          "native_end_to_end_mhz": 0.137745562351423,
+          "fib_prove_iterations_per_s": 20114.248933944808,
+          "fib_end_to_end_iterations_per_s": 19677.75756784838,
+          "proofs_verified": 1,
+          "source_backend": "rust-metal"
+        }
+      },
+      "within_vm_metal_speedup": {
+        "riscv_over_cpu_auto_simd": {
+          "prove": 2.8626673277144277,
+          "fresh_process_total": 2.163952548722141
+        },
+        "cairo_over_rust_simd": {
+          "prove": 0.16244267439053828,
+          "fresh_process_total": 0.17940302745567727
+        }
+      }
+    },
+    {
+      "fib_n": 500000,
+      "lanes": {
+        "riscv_zig_cpu": {
+          "native_cycles": 2499997,
+          "prove_s": 1.0109,
+          "internal_total": {
+            "seconds": 1.1344,
+            "measurement_kind": "direct_cli_timer",
+            "directly_timed": true
+          },
+          "fresh_process_wall_s": 1.1477927080122754,
+          "native_prove_mhz": 2.473040854683945,
+          "native_end_to_end_mhz": 2.178091028587771,
+          "fib_prove_iterations_per_s": 494608.7644673063,
+          "fib_end_to_end_iterations_per_s": 435618.72846002836,
+          "proofs_verified": 3,
+          "source_backend": "cpu"
+        },
+        "riscv_zig_metal_hybrid": {
+          "native_cycles": 2499997,
+          "prove_s": 0.31439999999999996,
+          "internal_total": {
+            "seconds": 0.42710000000000004,
+            "measurement_kind": "direct_cli_timer",
+            "directly_timed": true
+          },
+          "fresh_process_wall_s": 0.47230920899892226,
+          "native_prove_mhz": 7.951644402035624,
+          "native_end_to_end_mhz": 5.293136259821909,
+          "fib_prove_iterations_per_s": 1590330.7888040713,
+          "fib_end_to_end_iterations_per_s": 1058628.5223186088,
+          "proofs_verified": 3,
+          "source_backend": "metal"
+        },
+        "cairo_rust_simd": {
+          "native_cycles": 3500016,
+          "prove_s": 2.492,
+          "internal_total": {
+            "seconds": 2.950841,
+            "measurement_kind": "constructed_non_overlapping_phase_sum",
+            "directly_timed": false
+          },
+          "fresh_process_wall_s": 3.0138855410041288,
+          "native_prove_mhz": 1.4045008025682182,
+          "native_end_to_end_mhz": 1.161296921326982,
+          "fib_prove_iterations_per_s": 200642.05457463884,
+          "fib_end_to_end_iterations_per_s": 165898.80179504634,
+          "proofs_verified": 1,
+          "source_backend": "rust-simd"
+        },
+        "cairo_rust_metal_hybrid": {
+          "native_cycles": 3500016,
+          "prove_s": 14.358,
+          "internal_total": {
+            "seconds": 14.751556,
+            "measurement_kind": "constructed_non_overlapping_phase_sum",
+            "directly_timed": false
+          },
+          "fresh_process_wall_s": 14.813021999958437,
+          "native_prove_mhz": 0.24376765566234848,
+          "native_end_to_end_mhz": 0.23627967338533762,
+          "fib_prove_iterations_per_s": 34823.79161443098,
+          "fib_end_to_end_iterations_per_s": 33754.0847506608,
+          "proofs_verified": 1,
+          "source_backend": "rust-metal"
+        }
+      },
+      "within_vm_metal_speedup": {
+        "riscv_over_cpu_auto_simd": {
+          "prove": 3.215330788804071,
+          "fresh_process_total": 2.4301721968222187
+        },
+        "cairo_over_rust_simd": {
+          "prove": 0.173561777406324,
+          "fresh_process_total": 0.20346189595968905
+        }
+      }
+    },
+    {
+      "fib_n": 1000000,
+      "lanes": {
+        "riscv_zig_cpu": {
+          "native_cycles": 4999997,
+          "prove_s": 1.8936,
+          "internal_total": {
+            "seconds": 2.1021,
+            "measurement_kind": "direct_cli_timer",
+            "directly_timed": true
+          },
+          "fresh_process_wall_s": 2.117995999986306,
+          "native_prove_mhz": 2.6404715885086607,
+          "native_end_to_end_mhz": 2.3607207001487858,
+          "fib_prove_iterations_per_s": 528094.634558513,
+          "fib_end_to_end_iterations_per_s": 472144.4233164112,
+          "proofs_verified": 3,
+          "source_backend": "cpu"
+        },
+        "riscv_zig_metal_hybrid": {
+          "native_cycles": 4999997,
+          "prove_s": 0.5,
+          "internal_total": {
+            "seconds": 0.6987000000000001,
+            "measurement_kind": "direct_cli_timer",
+            "directly_timed": true
+          },
+          "fresh_process_wall_s": 0.7473787920316681,
+          "native_prove_mhz": 9.999994000000001,
+          "native_end_to_end_mhz": 6.690043995506015,
+          "fib_prove_iterations_per_s": 2000000.0,
+          "fib_end_to_end_iterations_per_s": 1338009.601906964,
+          "proofs_verified": 3,
+          "source_backend": "metal"
+        },
+        "cairo_rust_simd": {
+          "native_cycles": 7000016,
+          "prove_s": 3.925,
+          "internal_total": {
+            "seconds": 4.781843,
+            "measurement_kind": "constructed_non_overlapping_phase_sum",
+            "directly_timed": false
+          },
+          "fresh_process_wall_s": 4.839187957986724,
+          "native_prove_mhz": 1.783443566878981,
+          "native_end_to_end_mhz": 1.4465269918782526,
+          "fib_prove_iterations_per_s": 254777.0700636943,
+          "fib_end_to_end_iterations_per_s": 206646.24079120002,
+          "proofs_verified": 1,
+          "source_backend": "rust-simd"
+        },
+        "cairo_rust_metal_hybrid": {
+          "native_cycles": 7000016,
+          "prove_s": 17.339,
+          "internal_total": {
+            "seconds": 18.098902,
+            "measurement_kind": "constructed_non_overlapping_phase_sum",
+            "directly_timed": false
+          },
+          "fresh_process_wall_s": 18.17300329200225,
+          "native_prove_mhz": 0.40371509314262644,
+          "native_end_to_end_mhz": 0.38518762625661523,
+          "fib_prove_iterations_per_s": 57673.4529096257,
+          "fib_end_to_end_iterations_per_s": 55026.67797568109,
+          "proofs_verified": 1,
+          "source_backend": "rust-metal"
+        }
+      },
+      "within_vm_metal_speedup": {
+        "riscv_over_cpu_auto_simd": {
+          "prove": 3.7872,
+          "fresh_process_total": 2.8338989847822194
+        },
+        "cairo_over_rust_simd": {
+          "prove": 0.22636830267028088,
+          "fresh_process_total": 0.2662844374279292
+        }
+      }
+    },
+    {
+      "fib_n": 2000000,
+      "lanes": {
+        "riscv_zig_cpu": {
+          "native_cycles": 9999997,
+          "prove_s": 3.7188000000000003,
+          "internal_total": {
+            "seconds": 4.146100000000001,
+            "measurement_kind": "direct_cli_timer",
+            "directly_timed": true
+          },
+          "fresh_process_wall_s": 4.166485166992061,
+          "native_prove_mhz": 2.689038668387652,
+          "native_end_to_end_mhz": 2.400103828335327,
+          "fib_prove_iterations_per_s": 537807.8950198989,
+          "fib_end_to_end_iterations_per_s": 480020.90967333835,
+          "proofs_verified": 3,
+          "source_backend": "cpu"
+        },
+        "riscv_zig_metal_hybrid": {
+          "native_cycles": 9999997,
+          "prove_s": 0.9107000000000001,
+          "internal_total": {
+            "seconds": 1.3214000000000001,
+            "measurement_kind": "direct_cli_timer",
+            "directly_timed": true
+          },
+          "fresh_process_wall_s": 1.368403207976371,
+          "native_prove_mhz": 10.980561106840891,
+          "native_end_to_end_mhz": 7.307785411281113,
+          "fib_prove_iterations_per_s": 2196112.880202042,
+          "fib_end_to_end_iterations_per_s": 1461557.5207234789,
+          "proofs_verified": 3,
+          "source_backend": "metal"
+        },
+        "cairo_rust_simd": {
+          "native_cycles": 14000016,
+          "prove_s": 6.563,
+          "internal_total": {
+            "seconds": 8.070921,
+            "measurement_kind": "constructed_non_overlapping_phase_sum",
+            "directly_timed": false
+          },
+          "fresh_process_wall_s": 8.14711866696598,
+          "native_prove_mhz": 2.1331732439433186,
+          "native_end_to_end_mhz": 1.718400893897089,
+          "fib_prove_iterations_per_s": 304738.6865762609,
+          "fib_end_to_end_iterations_per_s": 245485.56143037108,
+          "proofs_verified": 1,
+          "source_backend": "rust-simd"
+        },
+        "cairo_rust_metal_hybrid": {
+          "native_cycles": 14000016,
+          "prove_s": 21.937,
+          "internal_total": {
+            "seconds": 23.446707000000004,
+            "measurement_kind": "constructed_non_overlapping_phase_sum",
+            "directly_timed": false
+          },
+          "fresh_process_wall_s": 23.51115837501129,
+          "native_prove_mhz": 0.638191913205999,
+          "native_end_to_end_mhz": 0.595462621479333,
+          "fib_prove_iterations_per_s": 91170.16912066372,
+          "fib_end_to_end_iterations_per_s": 85065.9915644858,
+          "proofs_verified": 1,
+          "source_backend": "rust-metal"
+        }
+      },
+      "within_vm_metal_speedup": {
+        "riscv_over_cpu_auto_simd": {
+          "prove": 4.083452289447678,
+          "fresh_process_total": 3.0447788654000334
+        },
+        "cairo_over_rust_simd": {
+          "prove": 0.29917490996945795,
+          "fresh_process_total": 0.3465213638994964
+        }
+      }
+    }
+  ]
+}

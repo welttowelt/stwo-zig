@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "wide_fibonacci_simd_prove_verify",
+  "benchmark_lane": "simd-cpu",
+  "status": "completed",
+  "classification": "fresh-simd-baseline",
+  "git_commit": "4c10c4691b538e364a033489ad533ccff375bb40",
+  "started_at_epoch_ms": 1784239772763,
+  "completed_at_epoch_ms": 1784239778410,
+  "runner": {
+    "runner_class": "unspecified",
+    "hostname": "unknown",
+    "os": "macos",
+    "arch": "aarch64",
+    "cargo_profile": "release",
+    "cpu": "unknown",
+    "threads": 16,
+    "gpu_name": "unknown",
+    "gpu_driver": "unknown",
+    "cuda_toolkit": "unknown",
+    "stwo_cuda_mode": "no-cuda",
+    "stwo_metal_mode": "metal-dev"
+  },
+  "workload": {
+    "family": "wide_fibonacci",
+    "backend": "simd",
+    "channel": "blake2s",
+    "operation": "prove_verify",
+    "log_n_instances": 20,
+    "instances": 1048576,
+    "n_columns": 100,
+    "warmup_iterations": 1,
+    "sample_iterations": 3
+  },
+  "timings": {
+    "samples_ms": [
+      1466.563875,
+      1463.9685419999998,
+      1428.8007910000001
+    ],
+    "summary_ms": {
+      "min": 1428.8007910000001,
+      "max": 1466.563875,
+      "mean": 1453.1110693333333,
+      "median": 1463.9685419999998,
+      "stddev": 17.222585226543284
+    },
+    "prove_samples_ms": [
+      1466.353542,
+      1463.779834,
+      1428.594583
+    ],
+    "prove_summary_ms": {
+      "min": 1428.594583,
+      "max": 1466.353542,
+      "mean": 1452.9093196666665,
+      "median": 1463.779834,
+      "stddev": 17.225191002217713
+    },
+    "verify_samples_ms": [
+      0.210333,
+      0.188625,
+      0.206125
+    ],
+    "verify_summary_ms": {
+      "min": 0.188625,
+      "max": 0.210333,
+      "mean": 0.20169433333333334,
+      "median": 0.206125,
+      "stddev": 0.009399731249113223
+    },
+    "trace_gen_samples_ms": [
+      1010.1630829999999,
+      1008.015916,
+      977.884958
+    ],
+    "trace_gen_summary_ms": {
+      "min": 977.884958,
+      "max": 1010.1630829999999,
+      "mean": 998.6879856666666,
+      "median": 1008.015916,
+      "stddev": 14.736056722803996
+    },
+    "trace_commit_samples_ms": [
+      146.735542,
+      143.5085,
+      143.96520800000002
+    ],
+    "trace_commit_summary_ms": {
+      "min": 143.5085,
+      "max": 146.735542,
+      "mean": 144.73641666666666,
+      "median": 143.96520800000002,
+      "stddev": 1.4258382617714958
+    },
+    "prove_call_samples_ms": [
+      307.601083,
+      310.353667,
+      304.831417
+    ],
+    "prove_call_summary_ms": {
+      "min": 304.831417,
+      "max": 310.353667,
+      "mean": 307.595389,
+      "median": 307.601083,
+      "stddev": 2.2544527173059037
+    }
+  },
+  "proof": {
+    "size_estimate_bytes": 25488,
+    "commitments": 3,
+    "security_bits": 13,
+    "fri_queries": 3,
+    "pow_bits": 10
+  }
+}
