@@ -9,6 +9,7 @@ const vcs_lifted_verifier = @import("../../core/vcs_lifted/verifier.zig");
 const work_pool_mod = @import("../work_pool.zig");
 const quotient_ops = @import("../pcs/quotient_ops.zig");
 const secure_column = @import("../secure_column.zig");
+const decommit_mod = @import("decommit.zig");
 
 const M31 = m31.M31;
 const SecureColumnByCoords = secure_column.SecureColumnByCoords;
@@ -43,9 +44,6 @@ pub fn MerkleProverLifted(comptime H: type) type {
             ) anyerror![][32]u8,
         };
         const NodeSeed = if (@hasDecl(H, "nodeSeed")) @TypeOf(H.nodeSeed()) else H;
-        const NodeValue = vcs_lifted_verifier.MerkleDecommitmentLiftedAux(H).NodeValue;
-        const ExtendedDecommitment = vcs_lifted_verifier.ExtendedMerkleDecommitmentLifted(H);
-        const Decommitment = vcs_lifted_verifier.MerkleDecommitmentLifted(H);
         const parallel_min_nodes: usize = 1 << 13;
         const parallel_min_nodes_per_worker: usize = 1 << 12;
         const max_parallel_workers: usize = 16;
@@ -70,17 +68,7 @@ pub fn MerkleProverLifted(comptime H: type) type {
         };
         var shared_pool_state: SharedPoolState = .{};
 
-        pub const DecommitmentResult = struct {
-            queried_values: [][]M31,
-            decommitment: ExtendedDecommitment,
-
-            pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
-                for (self.queried_values) |column| allocator.free(column);
-                allocator.free(self.queried_values);
-                self.decommitment.deinit(allocator);
-                self.* = undefined;
-            }
-        };
+        pub const DecommitmentResult = decommit_mod.DecommitmentResult(H);
 
         const LayerExecutor = struct {
             enabled: bool = false,
@@ -527,141 +515,17 @@ pub fn MerkleProverLifted(comptime H: type) type {
             query_positions: []const usize,
             columns: []const []const M31,
         ) !DecommitmentResult {
-            const max_log_size_u32: u32 = if (self.resident_tree != null)
+            return decommit_mod.decommit(H, self, allocator, query_positions, columns);
+        }
+
+        pub fn maxLogSize(self: Self) u32 {
+            return if (self.resident_tree != null)
                 self.metal_log_size
             else
                 @intCast(self.layers.len - 1);
-
-            const queried_values = try allocator.alloc([]M31, columns.len);
-            var queried_values_initialized: usize = 0;
-            errdefer {
-                for (queried_values[0..queried_values_initialized]) |column| allocator.free(column);
-                allocator.free(queried_values);
-            }
-
-            for (columns, 0..) |column, i| {
-                if (!std.math.isPowerOfTwo(column.len) or column.len < 2) {
-                    return error.InvalidColumnSize;
-                }
-                const log_size: u32 = @intCast(std.math.log2_int(usize, column.len));
-                if (log_size > max_log_size_u32) return error.InvalidColumnSize;
-                const shift = max_log_size_u32 - log_size;
-                const shift_amt: std.math.Log2Int(usize) = @intCast(shift + 1);
-
-                queried_values[i] = try allocator.alloc(M31, query_positions.len);
-                queried_values_initialized += 1;
-                for (query_positions, 0..) |position, j| {
-                    const column_index = ((position >> shift_amt) << 1) + (position & 1);
-                    queried_values[i][j] = column[column_index];
-                }
-            }
-
-            var hash_witness = std.ArrayList(H.Hash).empty;
-            defer hash_witness.deinit(allocator);
-
-            var all_node_values = std.ArrayList([]NodeValue).empty;
-            defer {
-                for (all_node_values.items) |layer| allocator.free(layer);
-                all_node_values.deinit(allocator);
-            }
-
-            var prev_layer_queries = std.ArrayList(usize).empty;
-            defer prev_layer_queries.deinit(allocator);
-            for (query_positions, 0..) |position, i| {
-                if (i == 0 or query_positions[i - 1] != position) {
-                    try prev_layer_queries.append(allocator, position);
-                }
-            }
-
-            var layer_log_size: i64 = @intCast(max_log_size_u32);
-            layer_log_size -= 1;
-            while (layer_log_size >= 0) : (layer_log_size -= 1) {
-                var curr_layer_queries = std.ArrayList(usize).empty;
-                defer curr_layer_queries.deinit(allocator);
-
-                var all_node_values_for_layer = std.ArrayList(NodeValue).empty;
-                defer all_node_values_for_layer.deinit(allocator);
-
-                const child_indices = try allocator.alloc(u32, prev_layer_queries.items.len * 2);
-                defer allocator.free(child_indices);
-                var child_pair_count: usize = 0;
-                var scan: usize = 0;
-                while (scan < prev_layer_queries.items.len) {
-                    const first = prev_layer_queries.items[scan];
-                    const has_sibling = scan + 1 < prev_layer_queries.items.len and
-                        ((first ^ 1) == prev_layer_queries.items[scan + 1]);
-                    const curr_index = first >> 1;
-                    child_indices[2 * child_pair_count] = @intCast(2 * curr_index);
-                    child_indices[2 * child_pair_count + 1] = @intCast(2 * curr_index + 1);
-                    child_pair_count += 1;
-                    scan += if (has_sibling) 2 else 1;
-                }
-                const child_hashes = try self.readHashes(
-                    allocator,
-                    @intCast(layer_log_size + 1),
-                    child_indices[0 .. child_pair_count * 2],
-                );
-                defer allocator.free(child_hashes);
-
-                var p: usize = 0;
-                var pair_index: usize = 0;
-                while (p < prev_layer_queries.items.len) {
-                    const first = prev_layer_queries.items[p];
-                    var chunk_len: usize = 1;
-                    if (p + 1 < prev_layer_queries.items.len and
-                        ((first ^ 1) == prev_layer_queries.items[p + 1]))
-                    {
-                        chunk_len = 2;
-                    }
-
-                    if (chunk_len == 1) {
-                        const sibling_offset: usize = if ((first & 1) == 0) 1 else 0;
-                        try hash_witness.append(allocator, child_hashes[2 * pair_index + sibling_offset]);
-                    }
-
-                    const curr_index = first >> 1;
-                    try curr_layer_queries.append(allocator, curr_index);
-                    try all_node_values_for_layer.append(allocator, .{
-                        .index = 2 * curr_index,
-                        .hash = child_hashes[2 * pair_index],
-                    });
-                    try all_node_values_for_layer.append(allocator, .{
-                        .index = 2 * curr_index + 1,
-                        .hash = child_hashes[2 * pair_index + 1],
-                    });
-                    p += chunk_len;
-                    pair_index += 1;
-                }
-
-                prev_layer_queries.clearRetainingCapacity();
-                try prev_layer_queries.appendSlice(allocator, curr_layer_queries.items);
-
-                try all_node_values.append(allocator, try all_node_values_for_layer.toOwnedSlice(allocator));
-            }
-
-            const hash_witness_owned = try hash_witness.toOwnedSlice(allocator);
-            errdefer allocator.free(hash_witness_owned);
-
-            const all_node_values_owned = try all_node_values.toOwnedSlice(allocator);
-            errdefer {
-                for (all_node_values_owned) |layer| allocator.free(layer);
-                allocator.free(all_node_values_owned);
-            }
-
-            return .{
-                .queried_values = queried_values,
-                .decommitment = .{
-                    .decommitment = Decommitment{
-                        .hash_witness = hash_witness_owned,
-                    },
-                    .aux = .{
-                        .all_node_values = all_node_values_owned,
-                    },
-                },
-            };
         }
 
-        fn readHashes(
+        pub fn readHashes(
             self: Self,
             allocator: std.mem.Allocator,
             layer_log_size: u32,
