@@ -16,7 +16,7 @@
 //! | QuotientOps | `B.accumulateQuotients(...)` | Constraint quotients |
 //! | AccumulationOps | `B.accumulate(...)` | Domain evaluation accumulation |
 //! | GkrOps | `B.genEqEvals(...)` / `B.nextLayer(...)` | GKR circuit proving |
-//! | MerkleOps | `B.commitOnLayer(H, ...)` | Hash-specific Merkle commits |
+//! | MerkleOps | `B.MerkleTree(H)` / `B.commitMerkle(H, ...)` | Typed Merkle ownership |
 //!
 //! ## Usage
 //!

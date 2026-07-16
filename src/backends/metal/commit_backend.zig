@@ -28,6 +28,10 @@ pub const MetalCommitBackend = struct {
     /// complete tree in a single command buffer.
     pub const preferMonolithicCommit = true;
 
+    pub fn MerkleTree(comptime H: type) type {
+        return merkle.MerkleProverLifted(H);
+    }
+
     pub fn allocateSecureColumn(column_len: usize) !@import("../../prover/secure_column.zig").SecureColumnByCoords {
         const M31 = @import("../../core/fields/m31.zig").M31;
         const DEGREE = @import("../../core/fields/qm31.zig").SECURE_EXTENSION_DEGREE;
@@ -87,7 +91,7 @@ pub const MetalCommitBackend = struct {
         comptime H: type,
         allocator: std.mem.Allocator,
         columns: []const []const @import("../../core/fields/m31.zig").M31,
-    ) !merkle.MerkleProverLifted(H) {
+    ) !MerkleTree(H) {
         var cells: usize = 0;
         for (columns) |column| cells += column.len;
         if (cells < (1 << 24)) return merkle.MerkleProverLifted(H).commit(allocator, columns);

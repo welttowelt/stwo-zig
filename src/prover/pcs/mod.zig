@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const backend_merkle = @import("../../backend/merkle_ops.zig");
 const circle = @import("../../core/circle.zig");
 const m31 = @import("../../core/fields/m31.zig");
 const qm31 = @import("../../core/fields/qm31.zig");
@@ -68,6 +69,7 @@ pub fn TreeDecommitmentResult(comptime H: type) type {
 }
 
 pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: type) type {
+    comptime backend_merkle.assertMerkleOps(B, H);
     return struct {
         trees: std.ArrayListUnmanaged(CommitmentTreeProver(H)),
         config: PcsConfig,

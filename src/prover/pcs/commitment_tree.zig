@@ -4,6 +4,7 @@
 //! Scheme orchestration, FRI integration, and transcript policy live elsewhere.
 
 const std = @import("std");
+const backend_merkle = @import("../../backend/merkle_ops.zig");
 const m31 = @import("../../core/fields/m31.zig");
 const prover_circle = @import("../poly/circle/mod.zig");
 const vcs_lifted_prover = @import("../vcs_lifted/prover.zig");
@@ -96,6 +97,7 @@ pub fn CommitmentTreeProver(comptime H: type) type {
             column_backing_buffers: ?[][]M31,
             coefficient_backing_buffers: ?[][]M31,
         ) !Self {
+            if (comptime B != void) backend_merkle.assertMerkleOps(B, H);
             for (owned_columns) |column| try column.validate();
             if (owned_coefficients) |coeffs| {
                 if (coeffs.len != owned_columns.len) return error.ShapeMismatch;
@@ -107,7 +109,7 @@ pub fn CommitmentTreeProver(comptime H: type) type {
                 column_refs[i] = column.values;
             }
 
-            var commitment = if (comptime B != void and @hasDecl(B, "commitMerkle"))
+            var commitment = if (comptime B != void)
                 try B.commitMerkle(H, allocator, column_refs)
             else
                 try vcs_lifted_prover.MerkleProverLifted(H).commit(allocator, column_refs);

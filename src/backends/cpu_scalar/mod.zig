@@ -20,6 +20,7 @@ const qm31_mod = @import("../../core/fields/qm31.zig");
 const fields_mod = @import("../../core/fields/mod.zig");
 const core_fri = @import("../../core/fri.zig");
 const circle = @import("../../core/circle.zig");
+const lifted_merkle = @import("../../prover/vcs_lifted/prover.zig");
 
 const M31 = m31_mod.M31;
 const CM31 = cm31_mod.CM31;
@@ -198,10 +199,25 @@ pub const CpuBackend = struct {
     // MerkleOps
     // ---------------------------------------------------------------
 
-    /// Build one layer of a Merkle tree commitment.
-    /// Delegates to prover/vcs_lifted/prover.zig.
-    pub fn commitOnLayer() void {
-        // Placeholder — full wiring in Phase 3 when MerkleProver gains B.
+    pub fn MerkleTree(comptime H: type) type {
+        return lifted_merkle.MerkleProverLifted(H);
+    }
+
+    pub fn commitMerkle(
+        comptime H: type,
+        allocator: std.mem.Allocator,
+        columns: []const []const M31,
+    ) !MerkleTree(H) {
+        return MerkleTree(H).commit(allocator, columns);
+    }
+
+    pub fn commitLazyMerkle(
+        comptime H: type,
+        allocator: std.mem.Allocator,
+        provider: anytype,
+        out_column: anytype,
+    ) !MerkleTree(H) {
+        return MerkleTree(H).commitWithLazyQuotients(allocator, provider, out_column);
     }
 };
 

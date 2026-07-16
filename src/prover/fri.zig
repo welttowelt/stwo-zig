@@ -1,6 +1,7 @@
 const std = @import("std");
 const circle = @import("../core/circle.zig");
 const core_fri = @import("../core/fri.zig");
+const backend_merkle = @import("../backend/merkle_ops.zig");
 const m31 = @import("../core/fields/m31.zig");
 const qm31 = @import("../core/fields/qm31.zig");
 const line = @import("../core/poly/line.zig");
@@ -10,7 +11,6 @@ const vcs_lifted_verifier = @import("../core/vcs_lifted/verifier.zig");
 const prover_line = @import("line.zig");
 const quotient_ops = @import("pcs/quotient_ops.zig");
 const secure_column = @import("secure_column.zig");
-const vcs_lifted_prover = @import("vcs_lifted/prover.zig");
 
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
@@ -80,6 +80,7 @@ pub fn FriDecommitResult(comptime H: type) type {
 }
 
 pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
+    comptime backend_merkle.assertMerkleOps(B, H);
     return struct {
         config: core_fri.FriConfig,
         first_layer: FirstLayerProver,
@@ -91,7 +92,7 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
         const FirstLayerProver = struct {
             domain: circle_domain.CircleDomain,
             column: secure_column.SecureColumnByCoords,
-            merkle_tree: vcs_lifted_prover.MerkleProverLifted(H),
+            merkle_tree: B.MerkleTree(H),
 
             fn deinit(self: *FirstLayerProver, allocator: std.mem.Allocator) void {
                 self.column.deinit(allocator);
@@ -103,7 +104,7 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
         const InnerLayerProver = struct {
             domain: line.LineDomain,
             column: secure_column.SecureColumnByCoords,
-            merkle_tree: vcs_lifted_prover.MerkleProverLifted(H),
+            merkle_tree: B.MerkleTree(H),
             /// Number of folds this layer performs (normally FOLD_STEP, may
             /// be smaller for the last inner layer).
             fold_step: u32 = core_fri.FOLD_STEP,
@@ -336,10 +337,7 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
                 column.columns[2],
                 column.columns[3],
             };
-            var merkle_tree = if (comptime @hasDecl(B, "commitMerkle"))
-                try B.commitMerkle(H, allocator, column_refs[0..])
-            else
-                try vcs_lifted_prover.MerkleProverLifted(H).commit(allocator, column_refs[0..]);
+            var merkle_tree = try B.commitMerkle(H, allocator, column_refs[0..]);
             MC.mixRoot(channel, merkle_tree.root());
             return .{
                 .domain = domain,
@@ -360,7 +358,9 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
                 try SecureColumnByCoords.uninitialized(allocator, provider.domain_size);
             errdefer column.deinit(allocator);
 
-            var merkle_tree = if (comptime @hasDecl(B, "commitMerkle")) blk: {
+            var merkle_tree = if (comptime @hasDecl(B, "commitLazyMerkle"))
+                try B.commitLazyMerkle(H, allocator, provider, &column)
+            else blk: {
                 if (comptime @hasDecl(B, "computeLazyQuotients")) {
                     try B.computeLazyQuotients(allocator, provider, &column);
                 } else {
@@ -373,11 +373,7 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
                     column.columns[3],
                 };
                 break :blk try B.commitMerkle(H, allocator, column_refs[0..]);
-            } else try vcs_lifted_prover.MerkleProverLifted(H).commitWithLazyQuotients(
-                allocator,
-                provider,
-                &column,
-            );
+            };
             MC.mixRoot(channel, merkle_tree.root());
 
             return .{
@@ -515,10 +511,7 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
                     secure_values.columns[2],
                     secure_values.columns[3],
                 };
-                var merkle_tree = if (comptime @hasDecl(B, "commitMerkle"))
-                    try B.commitMerkle(H, allocator, coord_refs[0..])
-                else
-                    try vcs_lifted_prover.MerkleProverLifted(H).commit(allocator, coord_refs[0..]);
+                var merkle_tree = try B.commitMerkle(H, allocator, coord_refs[0..]);
                 errdefer merkle_tree.deinit(allocator);
 
                 MC.mixRoot(channel, merkle_tree.root());
@@ -612,7 +605,7 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
 pub fn decommitLayerExtended(
     comptime H: type,
     allocator: std.mem.Allocator,
-    merkle_tree: vcs_lifted_prover.MerkleProverLifted(H),
+    merkle_tree: anytype,
     column: secure_column.SecureColumnByCoords,
     query_positions: []const usize,
     fold_step: u32,
@@ -792,7 +785,7 @@ fn computeDecommitmentPositionsAndWitnessEvalsFromCoords(
 pub fn decommitLayer(
     comptime H: type,
     allocator: std.mem.Allocator,
-    merkle_tree: vcs_lifted_prover.MerkleProverLifted(H),
+    merkle_tree: anytype,
     column: secure_column.SecureColumnByCoords,
     query_positions: []const usize,
     fold_step: u32,

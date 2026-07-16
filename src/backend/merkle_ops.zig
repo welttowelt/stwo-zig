@@ -1,18 +1,49 @@
 //! Merkle tree operation contracts for prover backends.
 //!
-//! A backend must provide hash-function-parameterized leaf and layer
-//! construction for Merkle commitments.
+//! A backend owns the concrete tree representation and constructs it from
+//! committed columns. The generic prover depends only on the typed tree API.
+
+const std = @import("std");
+const m31 = @import("../core/fields/m31.zig");
+
+const M31 = m31.M31;
 
 /// Validates that backend `B` declares the required Merkle operations
 /// for hash function `H`.
 ///
 /// Required declarations:
-///   - `commitOnLayer(comptime H: type, allocator, prev_layer, columns) ![]H.Hash`
+/// - `MerkleTree(comptime H: type) type`
+/// - `commitMerkle(comptime H: type, allocator, columns) !MerkleTree(H)`
+///
+/// The associated tree must expose `root`, `deinit`, and `decommit`.
 pub fn assertMerkleOps(comptime B: type, comptime H: type) void {
-    _ = H;
     comptime {
-        if (!@hasDecl(B, "commitOnLayer")) {
-            @compileError("Backend must declare `commitOnLayer`.");
+        if (!@hasDecl(B, "MerkleTree")) {
+            @compileError("Backend must declare `MerkleTree(comptime H: type) type`.");
+        }
+        if (!@hasDecl(B, "commitMerkle")) {
+            @compileError("Backend must declare `commitMerkle`.");
+        }
+
+        const Tree = B.MerkleTree(H);
+        if (!@hasDecl(Tree, "root")) {
+            @compileError("Backend Merkle tree must declare `root`.");
+        }
+        if (!@hasDecl(Tree, "deinit")) {
+            @compileError("Backend Merkle tree must declare `deinit`.");
+        }
+        if (!@hasDecl(Tree, "decommit")) {
+            @compileError("Backend Merkle tree must declare `decommit`.");
+        }
+
+        const CommitResult = @TypeOf(B.commitMerkle(
+            H,
+            @as(std.mem.Allocator, undefined),
+            @as([]const []const M31, undefined),
+        ));
+        const commit_info = @typeInfo(CommitResult);
+        if (commit_info != .error_union or commit_info.error_union.payload != Tree) {
+            @compileError("`commitMerkle` must return an error union containing `MerkleTree(H)`.");
         }
     }
 }
