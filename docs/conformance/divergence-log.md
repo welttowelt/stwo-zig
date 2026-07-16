@@ -178,7 +178,7 @@ roadmap audit consumes its closed-divergence signoff. Metal/Cairo implementation
 - Extended `tools/stwo-vector-gen/src/main.rs` and `vectors/fields.json` with:
   - `example_wide_fibonacci_trace`
   - `example_plonk_trace`
-- Extended `src/core/fields/parity_vectors.zig` with deterministic parity tests for
+- Extended `src/interop/parity/vectors.zig` with deterministic parity tests for
   both sections.
 - Updated `scripts/e2e_examples.py` required coverage keys to include both new sections.
 
@@ -865,7 +865,7 @@ roadmap audit consumes its closed-divergence signoff. Metal/Cairo implementation
     - `example_xor_is_first`
     - `example_xor_is_step_with_offset`
   - Added deterministic generators for each section and state encoding helper.
-- `src/core/fields/parity_vectors.zig`
+- `src/interop/parity/vectors.zig`
   - Extended JSON parser schema for all new example sections.
   - Added parity tests that compare Rust-generated vectors against Zig example implementations.
   - Added explicit negative differential checks in each new parity slice:
@@ -903,7 +903,7 @@ roadmap audit consumes its closed-divergence signoff. Metal/Cairo implementation
     - `claimed_sum`
     - `telescoping_claim`
   - Skips degenerate denominator samples deterministically.
-- `src/core/fields/parity_vectors.zig`
+- `src/interop/parity/vectors.zig`
   - Added parser schema for `example_state_machine_claimed_sum`.
   - Added parity test that validates:
     - direct claimed-sum output
@@ -960,7 +960,7 @@ roadmap audit consumes its closed-divergence signoff. Metal/Cairo implementation
     - `mix_u64`
     - `mix_u32s`
     - sampled `z` and `alpha` after channel mixing.
-- `src/core/fields/parity_vectors.zig`
+- `src/interop/parity/vectors.zig`
   - Added parser schema for `example_state_machine_lookup_draw`.
   - Added parity test that replays channel mixing and validates `Elements.draw`.
   - Added negative differential case:
@@ -990,7 +990,7 @@ roadmap audit consumes its closed-divergence signoff. Metal/Cairo implementation
   - Added roundtrip tests for:
     - prepare/verify success path
     - failure-path via perturbed claimed sum.
-- `src/core/fields/parity_vectors.zig`
+- `src/interop/parity/vectors.zig`
   - Updated state-machine statement parity test to exercise new API directly:
     - validates `prepareStatement` output fields and claims.
     - validates `verifyStatement` success and expected rejection path.
@@ -1016,7 +1016,7 @@ roadmap audit consumes its closed-divergence signoff. Metal/Cairo implementation
     - `intermediate_state`, `final_state`
     - `x_axis_claimed_sum`, `y_axis_claimed_sum`
   - Uses non-degenerate samples only (skips zero-denominator combinations).
-- `src/core/fields/parity_vectors.zig`
+- `src/interop/parity/vectors.zig`
   - Added parser schema and parity test for `example_state_machine_statement`.
   - Test validates:
     - transition-state formulas

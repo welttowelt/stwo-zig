@@ -25,6 +25,15 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_tests.step);
 
+    const cross_module_test_module = b.createModule(.{
+        .root_source_file = b.path("src/tests.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cross_module_tests = b.addTest(.{ .root_module = cross_module_test_module });
+    const run_cross_module_tests = b.addRunArtifact(cross_module_tests);
+    test_step.dependOn(&run_cross_module_tests.step);
+
     const arena_plan_test_module = b.createModule(.{
         .root_source_file = b.path("src/metal_arena_plan_test.zig"),
         .target = target,

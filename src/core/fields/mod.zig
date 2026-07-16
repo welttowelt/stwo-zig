@@ -90,10 +90,6 @@ fn batchInverseClassic(comptime F: type, column: []const F, dst: []F) !void {
     dst[0] = curr_inverse;
 }
 
-test {
-    _ = @import("parity_vectors.zig");
-}
-
 fn randNonZeroM31(rng: std.Random) m31.M31 {
     while (true) {
         const x = rng.int(u32) & m31.Modulus;

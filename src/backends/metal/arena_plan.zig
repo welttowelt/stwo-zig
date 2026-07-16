@@ -105,9 +105,13 @@ pub const Plan = struct {
     pub fn validate(self: Plan, budget_bytes: u64) (std.mem.Allocator.Error || Error)!void {
         if (self.total_bytes > budget_bytes) return Error.BudgetExceeded;
         if (self.bindings.len != self.slots.len) return Error.BindingOutOfBounds;
+        if (self.bindings.len > 1) {
+            for (self.bindings[1..], 1..) |bound, index| {
+                if (self.bindings[index - 1].logical_id >= bound.logical_id)
+                    return Error.UnsortedBindings;
+            }
+        }
         for (self.bindings, 0..) |bound, index| {
-            if (index > 0 and self.bindings[index - 1].logical_id >= bound.logical_id)
-                return Error.UnsortedBindings;
             const slot = self.slots[bound.slot];
             if (bound.slot != index or bound.offset_bytes != slot.offset_bytes or
                 bound.size_bytes != slot.capacity_bytes or
@@ -697,9 +701,9 @@ test "metal arena: sparse recovery shortens ranges and aliases safely" {
 test "metal arena: binding lookup covers sorted boundaries and gaps" {
     const uses = [_]LiveRange{.{ .first = 1, .last = 1 }};
     const logical = [_]LogicalBuffer{
-        .{ .id = 3, .size_bytes = 256, .live_ranges = &uses },
-        .{ .id = 11, .size_bytes = 256, .live_ranges = &uses },
-        .{ .id = 29, .size_bytes = 256, .live_ranges = &uses },
+        .{ .id = 3, .size_bytes = 256, .alignment = 256, .live_ranges = &uses },
+        .{ .id = 11, .size_bytes = 256, .alignment = 256, .live_ranges = &uses },
+        .{ .id = 29, .size_bytes = 256, .alignment = 256, .live_ranges = &uses },
     };
     var plan = try build(std.testing.allocator, &logical, 16 * 1024);
     defer plan.deinit();

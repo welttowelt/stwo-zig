@@ -5,53 +5,18 @@ const qm31_mod = @import("../fields/qm31.zig");
 const M31 = m31_mod.M31;
 const QM31 = qm31_mod.QM31;
 
-pub const ColumnExpr = struct {
-    interaction: usize,
-    idx: usize,
-    offset: isize,
+const expr_types = @import("expr/types.zig");
+const expr_format = @import("expr/format.zig");
 
-    pub fn lessThan(_: void, lhs: ColumnExpr, rhs: ColumnExpr) bool {
-        if (lhs.interaction != rhs.interaction) return lhs.interaction < rhs.interaction;
-        if (lhs.idx != rhs.idx) return lhs.idx < rhs.idx;
-        return lhs.offset < rhs.offset;
-    }
-};
-
-pub const BaseExprNode = union(enum) {
-    col: ColumnExpr,
-    constant: M31,
-    param: []const u8,
-    add: struct { lhs: *const BaseExprNode, rhs: *const BaseExprNode },
-    sub: struct { lhs: *const BaseExprNode, rhs: *const BaseExprNode },
-    mul: struct { lhs: *const BaseExprNode, rhs: *const BaseExprNode },
-    neg: *const BaseExprNode,
-    inv: *const BaseExprNode,
-};
-
-pub const BaseExpr = *const BaseExprNode;
-
-pub const ExtExprNode = union(enum) {
-    secure_col: [4]BaseExpr,
-    constant: QM31,
-    param: []const u8,
-    add: struct { lhs: *const ExtExprNode, rhs: *const ExtExprNode },
-    sub: struct { lhs: *const ExtExprNode, rhs: *const ExtExprNode },
-    mul: struct { lhs: *const ExtExprNode, rhs: *const ExtExprNode },
-    neg: *const ExtExprNode,
-};
-
-pub const ExtExpr = *const ExtExprNode;
-
-pub const EvalError = error{
-    MissingColumn,
-    MissingParam,
-    MissingExtParam,
-    DivisionByZero,
-};
-
-pub const DegreeError = error{
-    InvalidInverseDegree,
-};
+pub const ColumnExpr = expr_types.ColumnExpr;
+pub const BaseExprNode = expr_types.BaseExprNode;
+pub const BaseExpr = expr_types.BaseExpr;
+pub const ExtExprNode = expr_types.ExtExprNode;
+pub const ExtExpr = expr_types.ExtExpr;
+pub const EvalError = expr_types.EvalError;
+pub const DegreeError = expr_types.DegreeError;
+pub const Assignment = expr_types.Assignment;
+pub const ExprVariables = expr_types.ExprVariables;
 
 pub const ExprArena = struct {
     arena: std.heap.ArenaAllocator,
@@ -397,158 +362,6 @@ pub const ExprArena = struct {
     }
 };
 
-pub const Assignment = struct {
-    columns: std.AutoHashMap(ColumnExpr, M31),
-    params: std.StringHashMap(M31),
-    ext_params: std.StringHashMap(QM31),
-
-    pub fn init(allocator: std.mem.Allocator) Assignment {
-        return .{
-            .columns = std.AutoHashMap(ColumnExpr, M31).init(allocator),
-            .params = std.StringHashMap(M31).init(allocator),
-            .ext_params = std.StringHashMap(QM31).init(allocator),
-        };
-    }
-
-    pub fn deinit(self: *Assignment) void {
-        self.columns.deinit();
-        self.params.deinit();
-        self.ext_params.deinit();
-        self.* = undefined;
-    }
-
-    pub fn setColumn(self: *Assignment, column: ColumnExpr, value: M31) !void {
-        try self.columns.put(column, value);
-    }
-
-    pub fn setParam(self: *Assignment, name: []const u8, value: M31) !void {
-        try self.params.put(name, value);
-    }
-
-    pub fn setExtParam(self: *Assignment, name: []const u8, value: QM31) !void {
-        try self.ext_params.put(name, value);
-    }
-};
-
-pub const ExprVariables = struct {
-    cols: std.AutoArrayHashMap(ColumnExpr, void),
-    params: std.StringArrayHashMap(void),
-    ext_params: std.StringArrayHashMap(void),
-
-    pub fn init(allocator: std.mem.Allocator) ExprVariables {
-        return .{
-            .cols = std.AutoArrayHashMap(ColumnExpr, void).init(allocator),
-            .params = std.StringArrayHashMap(void).init(allocator),
-            .ext_params = std.StringArrayHashMap(void).init(allocator),
-        };
-    }
-
-    pub fn deinit(self: *ExprVariables) void {
-        self.cols.deinit();
-        self.params.deinit();
-        self.ext_params.deinit();
-        self.* = undefined;
-    }
-
-    pub fn collectBase(self: *ExprVariables, expr: BaseExpr) !void {
-        switch (expr.*) {
-            .col => |col| try self.addCol(col),
-            .constant => {},
-            .param => |name| try self.addParam(name),
-            .add => |pair| {
-                try self.collectBase(pair.lhs);
-                try self.collectBase(pair.rhs);
-            },
-            .sub => |pair| {
-                try self.collectBase(pair.lhs);
-                try self.collectBase(pair.rhs);
-            },
-            .mul => |pair| {
-                try self.collectBase(pair.lhs);
-                try self.collectBase(pair.rhs);
-            },
-            .neg, .inv => |value| try self.collectBase(value),
-        }
-    }
-
-    pub fn collectExt(self: *ExprVariables, expr: ExtExpr) !void {
-        switch (expr.*) {
-            .secure_col => |values| {
-                for (values) |value| try self.collectBase(value);
-            },
-            .constant => {},
-            .param => |name| try self.addExtParam(name),
-            .add => |pair| {
-                try self.collectExt(pair.lhs);
-                try self.collectExt(pair.rhs);
-            },
-            .sub => |pair| {
-                try self.collectExt(pair.lhs);
-                try self.collectExt(pair.rhs);
-            },
-            .mul => |pair| {
-                try self.collectExt(pair.lhs);
-                try self.collectExt(pair.rhs);
-            },
-            .neg => |value| try self.collectExt(value),
-        }
-    }
-
-    pub fn randomAssignment(
-        self: *const ExprVariables,
-        allocator: std.mem.Allocator,
-        salt: u64,
-    ) !Assignment {
-        var assignment = Assignment.init(allocator);
-        errdefer assignment.deinit();
-
-        const cols_sorted = try allocator.dupe(ColumnExpr, self.cols.keys());
-        defer allocator.free(cols_sorted);
-        std.sort.heap(ColumnExpr, cols_sorted, {}, ColumnExpr.lessThan);
-
-        for (cols_sorted) |col| {
-            const h = hashColumn(salt, col);
-            try assignment.setColumn(col, M31.fromU64(h));
-        }
-
-        const params_sorted = try allocator.dupe([]const u8, self.params.keys());
-        defer allocator.free(params_sorted);
-        std.sort.heap([]const u8, params_sorted, {}, lessString);
-
-        for (params_sorted) |name| {
-            try assignment.setParam(name, M31.fromU64(hashName(salt, name, 0)));
-        }
-
-        const ext_sorted = try allocator.dupe([]const u8, self.ext_params.keys());
-        defer allocator.free(ext_sorted);
-        std.sort.heap([]const u8, ext_sorted, {}, lessString);
-
-        for (ext_sorted) |name| {
-            const value = QM31.fromM31Array(.{
-                M31.fromU64(hashName(salt, name, 1)),
-                M31.fromU64(hashName(salt, name, 2)),
-                M31.fromU64(hashName(salt, name, 3)),
-                M31.fromU64(hashName(salt, name, 4)),
-            });
-            try assignment.setExtParam(name, value);
-        }
-
-        return assignment;
-    }
-
-    fn addCol(self: *ExprVariables, col: ColumnExpr) !void {
-        try self.cols.put(col, {});
-    }
-
-    fn addParam(self: *ExprVariables, name: []const u8) !void {
-        try self.params.put(name, {});
-    }
-
-    fn addExtParam(self: *ExprVariables, name: []const u8) !void {
-        try self.ext_params.put(name, {});
-    }
-};
-
 pub const NamedExprs = struct {
     base_exprs: std.StringHashMap(BaseExpr),
     ext_exprs: std.StringHashMap(ExtExpr),
@@ -672,141 +485,8 @@ pub fn degreeBoundExt(expr: ExtExpr, named_exprs: *const NamedExprs) DegreeError
     }
 }
 
-pub fn formatBaseAlloc(expr: BaseExpr, allocator: std.mem.Allocator) ![]u8 {
-    var out = std.ArrayList(u8).empty;
-    defer out.deinit(allocator);
-    try formatBaseExpr(out.writer(allocator), expr);
-    return out.toOwnedSlice(allocator);
-}
-
-pub fn formatExtAlloc(expr: ExtExpr, allocator: std.mem.Allocator) ![]u8 {
-    var out = std.ArrayList(u8).empty;
-    defer out.deinit(allocator);
-    try formatExtExpr(out.writer(allocator), expr);
-    return out.toOwnedSlice(allocator);
-}
-
-fn formatBaseExpr(writer: anytype, expr: BaseExpr) !void {
-    switch (expr.*) {
-        .col => |col| {
-            if (col.offset >= 0) {
-                try writer.print(
-                    "trace_{d}_column_{d}_offset_{d}",
-                    .{ col.interaction, col.idx, col.offset },
-                );
-            } else {
-                const abs_offset: usize = @intCast(-col.offset);
-                try writer.print(
-                    "trace_{d}_column_{d}_offset_neg_{d}",
-                    .{ col.interaction, col.idx, abs_offset },
-                );
-            }
-        },
-        .constant => |value| try writer.print("m31({d}).into()", .{value.toU32()}),
-        .param => |name| try writer.writeAll(name),
-        .add => |pair| {
-            try formatBaseExpr(writer, pair.lhs);
-            try writer.writeAll(" + ");
-            try formatBaseExpr(writer, pair.rhs);
-        },
-        .sub => |pair| {
-            try formatBaseExpr(writer, pair.lhs);
-            try writer.writeAll(" - (");
-            try formatBaseExpr(writer, pair.rhs);
-            try writer.writeAll(")");
-        },
-        .mul => |pair| {
-            try writer.writeAll("(");
-            try formatBaseExpr(writer, pair.lhs);
-            try writer.writeAll(") * (");
-            try formatBaseExpr(writer, pair.rhs);
-            try writer.writeAll(")");
-        },
-        .neg => |value| {
-            try writer.writeAll("-(");
-            try formatBaseExpr(writer, value);
-            try writer.writeAll(")");
-        },
-        .inv => |value| {
-            try writer.writeAll("1 / (");
-            try formatBaseExpr(writer, value);
-            try writer.writeAll(")");
-        },
-    }
-}
-
-fn formatExtExpr(writer: anytype, expr: ExtExpr) !void {
-    switch (expr.*) {
-        .secure_col => |values| {
-            if (isBaseConstZero(values[1]) and isBaseConstZero(values[2]) and isBaseConstZero(values[3])) {
-                return formatBaseExpr(writer, values[0]);
-            }
-            try writer.writeAll("QM31Impl::from_partial_evals([");
-            try formatBaseExpr(writer, values[0]);
-            try writer.writeAll(", ");
-            try formatBaseExpr(writer, values[1]);
-            try writer.writeAll(", ");
-            try formatBaseExpr(writer, values[2]);
-            try writer.writeAll(", ");
-            try formatBaseExpr(writer, values[3]);
-            try writer.writeAll("])");
-        },
-        .constant => |value| {
-            const arr = value.toM31Array();
-            try writer.print(
-                "qm31({d}, {d}, {d}, {d})",
-                .{ arr[0].toU32(), arr[1].toU32(), arr[2].toU32(), arr[3].toU32() },
-            );
-        },
-        .param => |name| try writer.writeAll(name),
-        .add => |pair| {
-            try formatExtExpr(writer, pair.lhs);
-            try writer.writeAll(" + ");
-            try formatExtExpr(writer, pair.rhs);
-        },
-        .sub => |pair| {
-            try formatExtExpr(writer, pair.lhs);
-            try writer.writeAll(" - (");
-            try formatExtExpr(writer, pair.rhs);
-            try writer.writeAll(")");
-        },
-        .mul => |pair| {
-            try writer.writeAll("(");
-            try formatExtExpr(writer, pair.lhs);
-            try writer.writeAll(") * (");
-            try formatExtExpr(writer, pair.rhs);
-            try writer.writeAll(")");
-        },
-        .neg => |value| {
-            try writer.writeAll("-(");
-            try formatExtExpr(writer, value);
-            try writer.writeAll(")");
-        },
-    }
-}
-
-fn lessString(_: void, lhs: []const u8, rhs: []const u8) bool {
-    return std.mem.order(u8, lhs, rhs) == .lt;
-}
-
-fn hashColumn(salt: u64, col: ColumnExpr) u64 {
-    var hasher = std.hash.Wyhash.init(salt);
-
-    var interaction: u64 = @intCast(col.interaction);
-    var idx: u64 = @intCast(col.idx);
-    var offset: i64 = @intCast(col.offset);
-
-    hasher.update(std.mem.asBytes(&interaction));
-    hasher.update(std.mem.asBytes(&idx));
-    hasher.update(std.mem.asBytes(&offset));
-    return hasher.final();
-}
-
-fn hashName(salt: u64, name: []const u8, tag: u64) u64 {
-    var hasher = std.hash.Wyhash.init(salt ^ (tag *% 0x9e37_79b9_7f4a_7c15));
-    hasher.update(name);
-    return hasher.final();
-}
+pub const formatBaseAlloc = expr_format.formatBaseAlloc;
+pub const formatExtAlloc = expr_format.formatExtAlloc;
 
 fn baseConstValue(expr: BaseExpr) ?M31 {
     return switch (expr.*) {
@@ -863,13 +543,6 @@ fn baseConstArray(values: [4]BaseExpr) ?[4]M31 {
         out[i] = baseConstValue(value) orelse return null;
     }
     return out;
-}
-
-fn isBaseConstZero(expr: BaseExpr) bool {
-    if (baseConstValue(expr)) |value| {
-        return value.isZero();
-    }
-    return false;
 }
 
 test "constraint framework expr: simplify preserves evaluation" {

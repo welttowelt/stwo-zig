@@ -1,17 +1,17 @@
 const std = @import("std");
-const circle_mod = @import("../circle.zig");
-const constraints_mod = @import("../constraints.zig");
-const fft_mod = @import("../fft.zig");
-const fri_mod = @import("../fri.zig");
-const pcs_mod = @import("../pcs/mod.zig");
-const pcs_utils_mod = @import("../pcs/utils.zig");
-const proof_mod = @import("../proof.zig");
-const quotients_mod = @import("../pcs/quotients.zig");
-const canonic_mod = @import("../poly/circle/canonic.zig");
-const line_mod = @import("../poly/line.zig");
-const utils_mod = @import("../utils.zig");
-const vcs_verifier_mod = @import("../vcs/verifier.zig");
-const vcs_blake3 = @import("../vcs/blake3_hash.zig");
+const circle_mod = @import("../../core/circle.zig");
+const constraints_mod = @import("../../core/constraints.zig");
+const fft_mod = @import("../../core/fft.zig");
+const fri_mod = @import("../../core/fri.zig");
+const pcs_mod = @import("../../core/pcs/mod.zig");
+const pcs_utils_mod = @import("../../core/pcs/utils.zig");
+const proof_mod = @import("../../core/proof.zig");
+const quotients_mod = @import("../../core/pcs/quotients.zig");
+const canonic_mod = @import("../../core/poly/circle/canonic.zig");
+const line_mod = @import("../../core/poly/line.zig");
+const utils_mod = @import("../../core/utils.zig");
+const vcs_verifier_mod = @import("../../core/vcs/verifier.zig");
+const vcs_blake3 = @import("../../core/vcs/blake3_hash.zig");
 const prover_fri_mod = @import("../../prover/fri.zig");
 const prover_secure_column_mod = @import("../../prover/secure_column.zig");
 const vcs_prover_mod = @import("../../prover/vcs/prover.zig");
@@ -21,9 +21,9 @@ const example_plonk_mod = @import("../../examples/plonk.zig");
 const example_state_machine_mod = @import("../../examples/state_machine.zig");
 const example_wide_fibonacci_mod = @import("../../examples/wide_fibonacci.zig");
 const example_xor_mod = @import("../../examples/xor.zig");
-const cm31_mod = @import("cm31.zig");
-const m31_mod = @import("m31.zig");
-const qm31_mod = @import("qm31.zig");
+const cm31_mod = @import("../../core/fields/cm31.zig");
+const m31_mod = @import("../../core/fields/m31.zig");
+const qm31_mod = @import("../../core/fields/qm31.zig");
 
 const CirclePointM31 = circle_mod.CirclePointM31;
 const CirclePointQM31 = circle_mod.CirclePointQM31;
@@ -975,7 +975,7 @@ test "field vectors: fri decommit parity" {
 
 test "field vectors: fri layer decommit parity" {
     const alloc = std.testing.allocator;
-    const Hasher = @import("../vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Hasher = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
     const Prover = vcs_lifted_prover_mod.MerkleProverLifted(Hasher);
 
     var parsed = try parseVectors(alloc);
@@ -1106,8 +1106,8 @@ test "field vectors: fri layer decommit parity" {
 
 test "field vectors: proof extract oods parity" {
     const alloc = std.testing.allocator;
-    const Hasher = @import("../vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
-    const vcs_verifier = @import("../vcs_lifted/verifier.zig");
+    const Hasher = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const vcs_verifier = @import("../../core/vcs_lifted/verifier.zig");
     var parsed = try parseVectors(alloc);
     defer parsed.deinit();
 
@@ -1167,8 +1167,8 @@ test "field vectors: proof extract oods parity" {
 
 test "field vectors: proof size breakdown parity" {
     const alloc = std.testing.allocator;
-    const Hasher = @import("../vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
-    const vcs_verifier = @import("../vcs_lifted/verifier.zig");
+    const Hasher = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const vcs_verifier = @import("../../core/vcs_lifted/verifier.zig");
     var parsed = try parseVectors(alloc);
     defer parsed.deinit();
 
@@ -1320,7 +1320,7 @@ test "field vectors: prover line interpolation parity" {
 
 test "field vectors: vcs verifier parity" {
     const alloc = std.testing.allocator;
-    const Hasher = @import("../vcs/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Hasher = @import("../../core/vcs/blake2_merkle.zig").Blake2sMerkleHasher;
     const Verifier = vcs_verifier_mod.MerkleVerifier(Hasher);
     const Decommitment = vcs_verifier_mod.MerkleDecommitment(Hasher);
 
@@ -1365,7 +1365,7 @@ test "field vectors: vcs verifier parity" {
 
 test "field vectors: vcs prover parity" {
     const alloc = std.testing.allocator;
-    const Hasher = @import("../vcs/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Hasher = @import("../../core/vcs/blake2_merkle.zig").Blake2sMerkleHasher;
     const Prover = vcs_prover_mod.MerkleProver(Hasher);
     const Verifier = vcs_verifier_mod.MerkleVerifier(Hasher);
     const LogSizeQueries = vcs_verifier_mod.LogSizeQueries;
@@ -1447,9 +1447,9 @@ test "field vectors: vcs prover parity" {
 
 test "field vectors: vcs lifted verifier parity" {
     const alloc = std.testing.allocator;
-    const Hasher = @import("../vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
-    const Verifier = @import("../vcs_lifted/verifier.zig").MerkleVerifierLifted(Hasher);
-    const Decommitment = @import("../vcs_lifted/verifier.zig").MerkleDecommitmentLifted(Hasher);
+    const Hasher = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Verifier = @import("../../core/vcs_lifted/verifier.zig").MerkleVerifierLifted(Hasher);
+    const Decommitment = @import("../../core/vcs_lifted/verifier.zig").MerkleDecommitmentLifted(Hasher);
 
     var parsed = try parseVectors(alloc);
     defer parsed.deinit();
@@ -1502,9 +1502,9 @@ test "field vectors: vcs lifted verifier parity" {
 
 test "field vectors: vcs lifted prover parity" {
     const alloc = std.testing.allocator;
-    const Hasher = @import("../vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Hasher = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
     const Prover = vcs_lifted_prover_mod.MerkleProverLifted(Hasher);
-    const Verifier = @import("../vcs_lifted/verifier.zig").MerkleVerifierLifted(Hasher);
+    const Verifier = @import("../../core/vcs_lifted/verifier.zig").MerkleVerifierLifted(Hasher);
 
     var parsed = try parseVectors(alloc);
     defer parsed.deinit();
@@ -1705,7 +1705,7 @@ test "field vectors: examples state machine claimed-sum parity" {
 
 test "field vectors: examples state machine lookup draw parity" {
     const alloc = std.testing.allocator;
-    const Channel = @import("../channel/blake2s.zig").Blake2sChannel;
+    const Channel = @import("../../core/channel/blake2s.zig").Blake2sChannel;
 
     var parsed = try parseVectors(alloc);
     defer parsed.deinit();
@@ -1992,8 +1992,8 @@ fn expectedFriDecommitError(name: []const u8) prover_fri_mod.FriDecommitError {
     unreachable;
 }
 
-fn expectedVcsLiftedError(name: []const u8) @import("../vcs_lifted/verifier.zig").MerkleVerificationError {
-    const lifted_verifier = @import("../vcs_lifted/verifier.zig");
+fn expectedVcsLiftedError(name: []const u8) @import("../../core/vcs_lifted/verifier.zig").MerkleVerificationError {
+    const lifted_verifier = @import("../../core/vcs_lifted/verifier.zig");
     if (std.mem.eql(u8, name, "WitnessTooShort")) return lifted_verifier.MerkleVerificationError.WitnessTooShort;
     if (std.mem.eql(u8, name, "WitnessTooLong")) return lifted_verifier.MerkleVerificationError.WitnessTooLong;
     if (std.mem.eql(u8, name, "RootMismatch")) return lifted_verifier.MerkleVerificationError.RootMismatch;

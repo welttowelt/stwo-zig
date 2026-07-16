@@ -16,6 +16,8 @@ context. Root-level project entry points are limited to `README.md` and `CONTRIB
 
 ## Current Architecture
 
+- [`design/2026-07-17-source-conformance.md`](design/2026-07-17-source-conformance.md): active,
+  phased migration of source ownership, dependency direction, tests, and delivery automation.
 - [`sn-pie-metal-production-architecture.md`](sn-pie-metal-production-architecture.md): normative
   production architecture and delivery plan for the Cairo SN PIE Metal prover.
 - [`sn-pie-streaming.md`](sn-pie-streaming.md): streaming proof-service design and extraction notes.
