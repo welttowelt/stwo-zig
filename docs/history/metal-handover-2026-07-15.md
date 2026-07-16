@@ -1,5 +1,8 @@
 # Stwo Zig/Metal Cairo Prover Handover
 
+> Historical chronological ledger. The normative current architecture is
+> `docs/sn-pie-metal-production-architecture.md`.
+
 Date: 2026-07-15
 
 The normative end-to-end architecture and delivery plan is

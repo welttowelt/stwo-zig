@@ -23,3 +23,6 @@ __pycache__/
 *.py[cod]
 *.metallib.binarchive
 .DS_Store
+/cairo_bench
+/riscv_bench
+/riscv_trace_cli

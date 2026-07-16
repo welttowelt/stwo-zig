@@ -1,4 +1,4 @@
-# API_PARITY.md
+# API Parity Ledger
 
 This ledger maps every public export in the Zig root/module API surface to the pinned Rust parity target
 (or records a compatibility rationale when no direct upstream exported symbol exists).
@@ -11,6 +11,18 @@ This ledger maps every public export in the Zig root/module API surface to the p
 {
   "scope": "public exports from src/stwo.zig and major module surfaces",
   "symbols": {
+    "stwo.backend": {
+      "kind": "const",
+      "rationale": "Zig capability contracts corresponding to the upstream prover backend boundary.",
+      "rust_path": "crates/stwo/src/prover/backend/mod.rs",
+      "source": "src/stwo.zig"
+    },
+    "stwo.backends": {
+      "kind": "const",
+      "rationale": "Zig-specific concrete accelerator backend namespace; proof semantics remain parity-gated against upstream Stwo.",
+      "rust_path": null,
+      "source": "src/stwo.zig"
+    },
     "stwo.core": {
       "kind": "const",
       "rationale": null,
@@ -437,6 +449,18 @@ This ledger maps every public export in the Zig root/module API surface to the p
       "rust_path": "crates/stwo/src/lib.rs",
       "source": "src/core/mod.zig"
     },
+    "stwo.core.vcs_lifted.LOG_PACKED_LEAF_SIZE": {
+      "kind": "const",
+      "rationale": null,
+      "rust_path": "crates/stwo/src/core/vcs_lifted/verifier.rs",
+      "source": "src/core/vcs_lifted/mod.zig"
+    },
+    "stwo.core.vcs_lifted.PACKED_LEAF_SIZE": {
+      "kind": "const",
+      "rationale": null,
+      "rust_path": "crates/stwo/src/core/vcs_lifted/verifier.rs",
+      "source": "src/core/vcs_lifted/mod.zig"
+    },
     "stwo.core.vcs_lifted.blake2_merkle": {
       "kind": "const",
       "rationale": null,
@@ -447,6 +471,12 @@ This ledger maps every public export in the Zig root/module API surface to the p
       "kind": "const",
       "rationale": null,
       "rust_path": "crates/stwo/src/lib.rs",
+      "source": "src/core/vcs_lifted/mod.zig"
+    },
+    "stwo.core.vcs_lifted.packLeaf": {
+      "kind": "fn",
+      "rationale": "Zig helper implementing the packed lifted-leaf hashing semantics consumed by the upstream verifier path.",
+      "rust_path": "crates/stwo/src/core/vcs_lifted/verifier.rs",
       "source": "src/core/vcs_lifted/mod.zig"
     },
     "stwo.core.vcs_lifted.test_utils": {
@@ -515,6 +545,12 @@ This ledger maps every public export in the Zig root/module API surface to the p
       "rust_path": "crates/examples/src/lib.rs",
       "source": "src/examples/mod.zig"
     },
+    "stwo.frontends": {
+      "kind": "const",
+      "rationale": "Zig application frontend namespace for Cairo and RISC-V integrations; no direct upstream stwo crate export.",
+      "rust_path": null,
+      "source": "src/stwo.zig"
+    },
     "stwo.interop": {
       "kind": "const",
       "rationale": "Zig/Rust interoperability wire helper for conformance harness; no direct upstream crate export symbol.",
@@ -530,6 +566,12 @@ This ledger maps every public export in the Zig root/module API surface to the p
     "stwo.interop.proof_wire": {
       "kind": "const",
       "rationale": "Zig/Rust interoperability wire helper for conformance harness; no direct upstream crate export symbol.",
+      "rust_path": null,
+      "source": "src/interop/mod.zig"
+    },
+    "stwo.interop.postcard": {
+      "kind": "const",
+      "rationale": "Zig postcard-compatible interchange helper used by conformance tooling; no direct upstream public export.",
       "rust_path": null,
       "source": "src/interop/mod.zig"
     },
@@ -568,6 +610,12 @@ This ledger maps every public export in the Zig root/module API surface to the p
       "rationale": null,
       "rust_path": "crates/stwo/src/lib.rs",
       "source": "src/prover/channel/mod.zig"
+    },
+    "stwo.prover.fft_pool": {
+      "kind": "const",
+      "rationale": "Zig-specific bounded FFT worker-pool implementation; mathematical outputs remain differential-parity gated.",
+      "rust_path": null,
+      "source": "src/prover/mod.zig"
     },
     "stwo.prover.fri": {
       "kind": "const",
@@ -617,6 +665,12 @@ This ledger maps every public export in the Zig root/module API surface to the p
       "rust_path": "crates/stwo/src/lib.rs",
       "source": "src/prover/lookups/mod.zig"
     },
+    "stwo.prover.mmap_alloc": {
+      "kind": "const",
+      "rationale": "Zig-specific mapped-allocation policy for bounded prover storage; no direct upstream public export.",
+      "rust_path": null,
+      "source": "src/prover/mod.zig"
+    },
     "stwo.prover.pcs": {
       "kind": "const",
       "rationale": null,
@@ -645,6 +699,12 @@ This ledger maps every public export in the Zig root/module API surface to the p
       "kind": "fn",
       "rationale": null,
       "rust_path": "crates/stwo/src/lib.rs",
+      "source": "src/prover/pcs/mod.zig"
+    },
+    "stwo.prover.pcs.StreamingTreeBuilder": {
+      "kind": "fn",
+      "rationale": "Zig-specific bounded-memory tree builder whose roots and proofs are parity-gated against the upstream commitment path.",
+      "rust_path": null,
       "source": "src/prover/pcs/mod.zig"
     },
     "stwo.prover.pcs.TreeBuilder": {
@@ -707,6 +767,18 @@ This ledger maps every public export in the Zig root/module API surface to the p
       "rust_path": "crates/stwo/src/lib.rs",
       "source": "src/prover/mod.zig"
     },
+    "stwo.prover.stage_profile": {
+      "kind": "const",
+      "rationale": "Zig-specific opt-in stage telemetry; it does not alter proof semantics.",
+      "rust_path": null,
+      "source": "src/prover/mod.zig"
+    },
+    "stwo.prover.task_graph": {
+      "kind": "const",
+      "rationale": "Zig-specific bounded task-graph scheduler; output semantics remain parity-gated against upstream Stwo.",
+      "rust_path": null,
+      "source": "src/prover/mod.zig"
+    },
     "stwo.prover.vcs": {
       "kind": "const",
       "rationale": null,
@@ -742,6 +814,12 @@ This ledger maps every public export in the Zig root/module API surface to the p
       "rationale": null,
       "rust_path": "crates/stwo/src/lib.rs",
       "source": "src/prover/vcs_lifted/mod.zig"
+    },
+    "stwo.prover.work_pool": {
+      "kind": "const",
+      "rationale": "Zig-specific bounded prover worker pool; no direct upstream public export.",
+      "rust_path": null,
+      "source": "src/prover/mod.zig"
     },
     "stwo.std_shims": {
       "kind": "const",

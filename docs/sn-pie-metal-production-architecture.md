@@ -18,7 +18,7 @@ takes precedence for Cairo SN PIE Metal work:
 - `docs/metal-profiling.md` documents the current profiling tools.
 - `docs/gpu-backend-design.md` describes a different CUDA/RISC-V workload and
   is not a memory or protocol design for Cairo SN PIEs.
-- `HANDOVER-2026-07-15.md` is the chronological evidence and implementation
+- `docs/history/metal-handover-2026-07-15.md` is the chronological evidence and implementation
   ledger, not the target architecture.
 
 The existence of this plan does not imply that the current implementation is
@@ -3545,7 +3545,7 @@ in parallel where ownership permits:
 
 Repository evidence and companion documents:
 
-- `HANDOVER-2026-07-15.md`
+- `docs/history/metal-handover-2026-07-15.md`
 - `docs/sn-pie-streaming.md`
 - `docs/sn-pie-persistent-session.md`
 - `docs/metal-profiling.md`

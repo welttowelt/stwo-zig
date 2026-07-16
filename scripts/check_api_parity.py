@@ -10,8 +10,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
-API_PARITY_PATH = ROOT / "API_PARITY.md"
-UPSTREAM_PATH = ROOT / "UPSTREAM.md"
+CONFORMANCE_DIR = ROOT / "docs" / "conformance"
+API_PARITY_PATH = CONFORMANCE_DIR / "api-parity.md"
+UPSTREAM_PATH = CONFORMANCE_DIR / "upstream.md"
 
 API_PARITY_JSON_START = "<!-- API_PARITY_JSON_START -->"
 API_PARITY_JSON_END = "<!-- API_PARITY_JSON_END -->"
@@ -47,7 +48,7 @@ def parse_upstream_commit() -> str:
     text = UPSTREAM_PATH.read_text(encoding="utf-8")
     match = re.search(r"Pinned commit:\s*`([0-9a-f]{40})`", text)
     if not match:
-        raise RuntimeError("failed to parse pinned commit from UPSTREAM.md")
+        raise RuntimeError("failed to parse pinned commit from docs/conformance/upstream.md")
     return match.group(1)
 
 
@@ -72,7 +73,7 @@ def parse_api_parity_json() -> dict:
     start = text.find(API_PARITY_JSON_START)
     end = text.find(API_PARITY_JSON_END)
     if start < 0 or end < 0 or end <= start:
-        raise RuntimeError("failed to locate API parity JSON markers in API_PARITY.md")
+        raise RuntimeError("failed to locate API parity JSON markers in docs/conformance/api-parity.md")
     snippet = text[start + len(API_PARITY_JSON_START) : end]
     match = re.search(r"```json\s*(\{.*\})\s*```", snippet, re.DOTALL)
     if not match:
@@ -89,7 +90,8 @@ def validate() -> int:
     payload_commit = parity_payload.get("upstream_commit")
     if payload_commit != upstream_commit:
         errors.append(
-            f"upstream commit mismatch: API_PARITY.md has {payload_commit}, UPSTREAM.md has {upstream_commit}"
+            "upstream commit mismatch: docs/conformance/api-parity.md has "
+            f"{payload_commit}, docs/conformance/upstream.md has {upstream_commit}"
         )
 
     symbols = parity_payload.get("symbols")

@@ -172,14 +172,17 @@ def main():
                         help="Fibonacci iteration counts to benchmark")
     parser.add_argument("--warmups", type=int, default=1)
     parser.add_argument("--repeats", type=int, default=3)
-    parser.add_argument("--zig-trace-bin", default=str(ROOT / "riscv_trace_cli"),
-                        help="Path to the Zig trace dumper binary")
+    parser.add_argument(
+        "--zig-trace-bin",
+        default=str(ROOT / "zig-out" / "bin" / "riscv_trace_cli"),
+        help="Path to the Zig trace dumper binary",
+    )
     args = parser.parse_args()
 
     # Check binary exists
     if not os.path.exists(args.zig_trace_bin):
         print(f"Error: Zig trace binary not found at {args.zig_trace_bin}")
-        print("Build it with: zig build-exe src/riscv_trace_cli.zig -O ReleaseFast -femit-bin=riscv_trace_cli")
+        print("Build it with: zig build riscv-trace-dump -Doptimize=ReleaseFast")
         return 1
 
     print("RISC-V Fibonacci Benchmark")

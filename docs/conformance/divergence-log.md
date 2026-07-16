@@ -1,9 +1,13 @@
-# Handoff (Current)
+# Parity and Divergence Ledger
+
+Status: active conformance ledger. This file retains the chronological parity handoff because the
+roadmap audit consumes its closed-divergence signoff. Metal/Cairo implementation history lives in
+`docs/history/metal-handover-2026-07-15.md`.
 
 ## Scope Anchor
 - Upstream: `https://github.com/starkware-libs/stwo`
 - Pin: `a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2`
-- Contract: `CONFORMANCE.md` (strict parity + gated delivery)
+- Contract: `docs/conformance/contract.md` (strict parity + gated delivery)
 
 ## Latest Slice (Roadmap-Closure Instrumentation + air-utils Trace Surface)
 
@@ -31,7 +35,7 @@
   - `lookup_data`
 
 ### API Parity Surface Updates
-- Updated `API_PARITY.md` to include:
+- Updated `docs/conformance/api-parity.md` to include:
   - `stwo.core.air.trace` -> `crates/air-utils/src/trace/mod.rs`
   - `stwo.core.air.lookup_data` -> `crates/air-utils/src/lookup_data/mod.rs`
 - Updated std-shims root mapping:
@@ -51,7 +55,7 @@
 - `zig build roadmap-audit`
 
 ### Current Roadmap Closure Signal
-- `CONFORMANCE.md` section 15 now marks all roadmap crate rows `Complete`.
+- `docs/conformance/contract.md` section 15 now marks all roadmap crate rows `Complete`.
 - `zig build roadmap-audit` is green (`rows_complete=6`, `rows_partial=0`, `failure_count=0`).
 
 ## Latest Slice (Optimization Wave 2: Core Kernel + Opt Gate)
@@ -220,7 +224,7 @@
     - base: `--sm-log-n-rows 5 --sm-initial-0 1 --sm-initial-1 1`
     - medium: `--sm-log-n-rows 6 --sm-initial-0 3 --sm-initial-1 5`
   - strict threshold remains unchanged:
-    - `zig_over_rust <= 1.50` (per `CONFORMANCE.md` section 9.2).
+    - `zig_over_rust <= 1.50` (per `docs/conformance/contract.md` section 9.2).
 
 ### In-Process Bench Mode (CLI Surface)
 - Added explicit `--mode bench` support to:
@@ -474,7 +478,7 @@
     - proof wire size
     - commitments/decommitments shape metrics
   - Enforces default Zig/Rust latency gate:
-    - `zig_over_rust <= 1.50` (per `CONFORMANCE.md` section 9.2).
+    - `zig_over_rust <= 1.50` (per `docs/conformance/contract.md` section 9.2).
   - Supports stricter optional matrix:
     - `--include-medium`
 

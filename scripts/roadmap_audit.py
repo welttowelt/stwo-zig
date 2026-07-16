@@ -12,8 +12,8 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parent.parent
-CONFORMANCE = ROOT / "CONFORMANCE.md"
-HANDOFF = ROOT / "handoff.md"
+CONFORMANCE = ROOT / "docs" / "conformance" / "contract.md"
+DIVERGENCE_LOG = ROOT / "docs" / "conformance" / "divergence-log.md"
 DEFAULT_REPORT = ROOT / "vectors" / "reports" / "roadmap_closure_report.json"
 
 ROADMAP_SECTION_START = "### 15.1 Roadmap Table"
@@ -33,7 +33,7 @@ def parse_roadmap_rows(markdown: str) -> list[dict[str, str]]:
     start = markdown.find(ROADMAP_SECTION_START)
     end = markdown.find(ROADMAP_SECTION_END)
     if start < 0 or end < 0 or end <= start:
-        raise RuntimeError("failed to locate CONFORMANCE.md section 15.1 table")
+        raise RuntimeError("failed to locate docs/conformance/contract.md section 15.1 table")
 
     section = markdown[start:end]
     lines = [line.strip() for line in section.splitlines() if line.strip().startswith("|")]
@@ -106,9 +106,14 @@ def crate_evidence_checks(crate: str) -> list[tuple[bool, str]]:
         checks.append(status_ok(reports / "latest_e2e_interop_report.json"))
         checks.append(status_ok(reports / "latest_prove_checkpoints_report.json"))
         checks.append(status_ok(reports / "latest_release_evidence.json"))
-        handoff_text = HANDOFF.read_text(encoding="utf-8")
+        divergence_log_text = DIVERGENCE_LOG.read_text(encoding="utf-8")
         phrase = "no open high-severity functional/api divergence records"
-        checks.append((phrase in handoff_text.lower(), "handoff divergence signoff present"))
+        checks.append(
+            (
+                phrase in divergence_log_text.lower(),
+                "divergence-log signoff present",
+            )
+        )
 
     elif crate == "`crates/constraint-framework`":
         checks.append(((ROOT / "vectors" / "constraint_expr.json").exists(), "constraint_expr vectors present"))

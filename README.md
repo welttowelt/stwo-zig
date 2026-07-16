@@ -1,7 +1,9 @@
 # stwo-zig
 
 `stwo-zig` is a parity-driven Zig port of StarkWare's Rust `stwo` stack.
-The compatibility target is pinned in `/Users/theodorepender/Coding/stwo-zig/UPSTREAM.md` (`a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2`).
+The compatibility target is pinned in the
+[upstream contract](docs/conformance/upstream.md)
+(`a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2`).
 
 ## Equivalence Status (Formal)
 
@@ -10,11 +12,11 @@ At current `HEAD`, conformance evidence demonstrates:
 - Bidirectional proof roundtrip parity on the pinned upstream commit:
   - Rust-generated proofs verify in Zig.
   - Zig-generated proofs verify in Rust.
-  - Interop report: `/Users/theodorepender/Coding/stwo-zig/vectors/reports/latest_e2e_interop_report.json`
+  - Interop report: `vectors/reports/latest_e2e_interop_report.json`
     (`status=ok`, `12/12` cases, `48/48` tamper rejections).
 - Deterministic checkpoint parity:
   - `prove` and `prove_ex` proof bytes are equal for each checkpoint case.
-  - Checkpoint report: `/Users/theodorepender/Coding/stwo-zig/vectors/reports/latest_prove_checkpoints_report.json`
+  - Checkpoint report: `vectors/reports/latest_prove_checkpoints_report.json`
     (`status=ok`, `12` cases).
 - Exchange contract:
   - Interop uses `proof_exchange_json_wire_v1` JSON-wire artifacts.
@@ -98,8 +100,7 @@ Optimization track (non-authoritative for release conformance):
 
 ## Reports
 
-Primary machine-readable outputs are written under:
-`/Users/theodorepender/Coding/stwo-zig/vectors/reports/`
+Primary machine-readable outputs are written under `vectors/reports/`.
 
 Important artifacts:
 - `e2e_interop_report.json`
@@ -115,11 +116,13 @@ Important artifacts:
 - `optimization_baseline.json`
 - `optimization_compare_report.json`
 
-## Conformance References
+## Documentation
 
-- `/Users/theodorepender/Coding/stwo-zig/CONFORMANCE.md`
-- `/Users/theodorepender/Coding/stwo-zig/API_PARITY.md`
-- `/Users/theodorepender/Coding/stwo-zig/handoff.md`
+- [Documentation index](docs/README.md)
+- [Conformance contract](docs/conformance/contract.md)
+- [Upstream pin](docs/conformance/upstream.md)
+- [API parity ledger](docs/conformance/api-parity.md)
+- [Divergence ledger](docs/conformance/divergence-log.md)
 
 ## License
 

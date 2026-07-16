@@ -46,4 +46,4 @@ This increment targets:
 1. Bump the pin in this file to a specific upstream commit.
 2. Re-run vector generation for all committed parity fixtures.
 3. Require Zig parity tests to pass before merging.
-4. Document any intentional divergence in `handoff.md`.
+4. Document any intentional divergence in `docs/conformance/divergence-log.md`.

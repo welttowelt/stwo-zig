@@ -1,4 +1,4 @@
-# CONFORMANCE.md
+# Conformance Contract
 
 ## 1. Purpose
 
@@ -17,7 +17,7 @@ Any item marked `MUST` is a release blocker.
 ## 3. Source of Truth and Scope Lock
 
 1. Rust upstream is the canonical behavior and API source of truth.
-2. The pinned upstream commit in `UPSTREAM.md` is the legal compatibility target for each delivery slice.
+2. The pinned upstream commit in `docs/conformance/upstream.md` is the legal compatibility target for each delivery slice.
 3. Zig behavior that differs from the pinned Rust behavior is non-conformant unless approved as an explicit, documented divergence.
 4. Scope is limited to achieving end-to-end proof generation, verification, and benchmark comparability against Rust Stwo.
 5. Work that does not improve parity, correctness, or benchmark fidelity MUST NOT be prioritized.
@@ -38,7 +38,7 @@ Any item marked `MUST` is a release blocker.
 ### 4.2 API Conformance
 
 1. Public Zig APIs MUST map 1:1 to the intended Rust Stwo API surface for the pinned commit.
-2. Every exported Zig symbol MUST have a Rust parity mapping or a documented compatibility rationale in `API_PARITY.md`.
+2. Every exported Zig symbol MUST have a Rust parity mapping or a documented compatibility rationale in `docs/conformance/api-parity.md`.
 3. Public API additions without parity rationale are prohibited.
 
 ### 4.3 Proof Interoperability Conformance
@@ -53,7 +53,7 @@ All gates are mandatory for production readiness.
 
 | Gate | Requirement | Evidence Artifact |
 |---|---|---|
-| G1 | Upstream pin recorded and immutable for the sprint | `UPSTREAM.md` |
+| G1 | Upstream pin recorded and immutable for the sprint | `docs/conformance/upstream.md` |
 | G2 | Unit + property + law tests for modified modules | test files under `src/**` |
 | G3 | Differential parity vectors updated and passing | `vectors/fields.json`, parity test modules |
 | G4 | Verifier parity against Rust for supported modules | parity tests and vector coverage manifest |
@@ -62,7 +62,7 @@ All gates are mandatory for production readiness.
 | G7 | Rust->Zig and Zig->Rust e2e proof verification | e2e compatibility report |
 | G8 | Benchmark harness comparability | benchmark config + raw metrics |
 | G9 | Profiling and hotspot attribution | profiling report and flamegraphs |
-| G10 | Documentation and divergence log current | `README.md`, `UPSTREAM.md`, `API_PARITY.md`, `handoff.md`, this file |
+| G10 | Documentation and divergence log current | `README.md`, `docs/conformance/upstream.md`, `docs/conformance/api-parity.md`, `docs/conformance/divergence-log.md`, this file |
 
 ## 6. TDD and Test Formalities
 
@@ -149,7 +149,7 @@ Production conformance for this port is reached only when all items below pass:
 
 ## 11. Change-Control Process
 
-1. Any intentional divergence from Rust requires a written Divergence Record in `handoff.md` with:
+1. Any intentional divergence from Rust requires a written Divergence Record in `docs/conformance/divergence-log.md` with:
    - rationale
    - risk
    - compatibility impact
@@ -222,7 +222,7 @@ Each crate milestone is complete only when all items below are satisfied:
 2. Differential vectors are added/updated for changed semantics.
 3. Unit, property/law, and failure-path tests are green.
 4. Interoperability checks for affected proof paths are green.
-5. Documentation (`README.md`, `UPSTREAM.md`, `handoff.md`, `CONFORMANCE.md`) is updated.
+5. Documentation (`README.md` and the contracts under `docs/conformance/`) is updated.
 
 ### 15.4 Out-of-Scope Until Conformance
 

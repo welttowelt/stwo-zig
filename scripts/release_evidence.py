@@ -29,7 +29,7 @@ OPT_COMPARE_REPORT_DEFAULT = REPORTS_DIR / "optimization_compare_report.json"
 
 SCHEMA_VERSION = 1
 MANIFEST_TYPE = "release_evidence_v1"
-CONFORMANCE_REF = "CONFORMANCE.md"
+CONFORMANCE_REF = "docs/conformance/contract.md"
 
 
 def rel(path: Path) -> str:

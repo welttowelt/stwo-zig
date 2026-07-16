@@ -67,8 +67,8 @@ When requirements compete, use this order:
 1. **Protocol correctness and soundness.** Transcript order, field semantics, statement binding,
    proof shape, and verification behavior are never traded for speed.
 2. **Pinned Rust Stwo oracle parity.** For every protocol surface shared with Stwo, the Rust
-   implementation pinned in `UPSTREAM.md` is the final correctness oracle. Agreement among Zig
-   scalar, SIMD, and Metal implementations cannot overrule a Rust disagreement.
+   implementation pinned in `docs/conformance/upstream.md` is the final correctness oracle.
+   Agreement among Zig scalar, SIMD, and Metal implementations cannot overrule a Rust disagreement.
 3. **Memory and resource safety.** Ownership, bounds, lifetimes, alignment, queue completion, and
    failure cleanup must be explicit and correct.
 4. **Determinism and backend parity.** Equivalent inputs and protocol parameters must preserve the
@@ -200,9 +200,9 @@ A change will be blocked when any of the following applies:
 12. **Drive-by churn.** Unrelated formatting, renaming, generated outputs, or refactors obscure the
     behavior under review.
 13. **No final Rust-oracle evidence.** A shared Stwo protocol change, optimized backend, or proof
-    path lacks conformance against the exact Rust revision pinned in `UPSTREAM.md`. Zig-to-Zig
-    agreement, including agreement between scalar, SIMD, Metal, and the Zig verifier, is necessary
-    but not sufficient.
+    path lacks conformance against the exact Rust revision pinned in
+    `docs/conformance/upstream.md`. Zig-to-Zig agreement, including agreement between scalar, SIMD,
+    Metal, and the Zig verifier, is necessary but not sufficient.
 
 ---
 
@@ -638,8 +638,8 @@ A cache hit with incomplete identity is a correctness failure.
 ### Rust Stwo is the final correctness oracle
 
 For all behavior within the shared Stwo compatibility scope, the Rust implementation at the exact
-commit recorded in `UPSTREAM.md` is authoritative. This is a release and review gate, not an
-optional diagnostic.
+commit recorded in `docs/conformance/upstream.md` is authoritative. This is a release and review
+gate, not an optional diagnostic.
 
 The oracle hierarchy is:
 
@@ -662,8 +662,9 @@ Consequences:
   Rust oracle.
 - Oracle evidence must identify the Rust source revision and the executable/artifact used. Do not
   compare different Rust revisions opportunistically.
-- Upgrading the oracle is a controlled compatibility event: update `UPSTREAM.md`, regenerate bound
-  vectors, rerun bidirectional interop and tamper gates, and document intentional semantic changes.
+- Upgrading the oracle is a controlled compatibility event: update
+  `docs/conformance/upstream.md`, regenerate bound vectors, rerun bidirectional interop and tamper
+  gates, and document intentional semantic changes.
 - A Zig-only protocol extension cannot be called Stwo-parity-complete until a Rust reference,
   verifier adapter, or other Rust-side oracle at the pinned boundary can validate its shared
   semantics. A design note must define the extension and the exact point at which Rust remains
@@ -1406,7 +1407,7 @@ boundaries.
 - [ ] Scalar/reference behavior exists for optimized arithmetic or kernels.
 - [ ] Boundary, failure, and fixed-seed differential tests are included.
 - [ ] Protocol/security parameters are unchanged or deliberately versioned.
-- [ ] The exact Rust Stwo revision and oracle artifact match `UPSTREAM.md`.
+- [ ] The exact Rust Stwo revision and oracle artifact match `docs/conformance/upstream.md`.
 - [ ] Rust proofs verify in Zig and Zig proofs verify through the pinned Rust boundary.
 - [ ] Deterministic proof bytes match Rust, or documented canonical semantic checkpoints explain and
       validate any permitted byte difference.

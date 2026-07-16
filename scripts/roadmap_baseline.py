@@ -14,7 +14,7 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parent.parent
-CONFORMANCE = ROOT / "CONFORMANCE.md"
+CONFORMANCE = ROOT / "docs" / "conformance" / "contract.md"
 DEFAULT_OUT = ROOT / "vectors" / "reports" / "roadmap_baseline.json"
 
 ROADMAP_SECTION_START = "### 15.1 Roadmap Table"
@@ -40,7 +40,7 @@ def parse_roadmap_rows(markdown: str) -> list[dict[str, str]]:
     start = markdown.find(ROADMAP_SECTION_START)
     end = markdown.find(ROADMAP_SECTION_END)
     if start < 0 or end < 0 or end <= start:
-        raise RuntimeError("failed to locate CONFORMANCE.md section 15.1 table")
+        raise RuntimeError("failed to locate docs/conformance/contract.md section 15.1 table")
 
     section = markdown[start:end]
     lines = [line.strip() for line in section.splitlines() if line.strip().startswith("|")]

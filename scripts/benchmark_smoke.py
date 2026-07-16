@@ -713,7 +713,7 @@ def main() -> int:
         settings["include_long"] = True
     thresholds = {
         "max_zig_over_rust_ratio": args.max_zig_over_rust,
-        "conformance_reference": "CONFORMANCE.md Section 9.2",
+        "conformance_reference": "docs/conformance/contract.md Section 9.2",
     }
 
     settings_hash_payload: Dict[str, Any] = {

@@ -1,3 +1,9 @@
+# Original Scope of Work
+
+> Archived: retained as project-origin context. Its exclusions, milestones, and proposed layout are
+> superseded by `CONTRIBUTING.md`, `docs/conformance/contract.md`, and the current architecture
+> documents indexed in `docs/README.md`.
+
 Below is a formal engineering specification for a complete 1:1 porting of [Stwo](https://github.com/starkware-libs/stwo) from Rust to Zig, targeting a functionally equivalent prover/verifier framework with comparable performance characteristics and a clear path to production-hardening.
 
 Citations reference Stwo’s repo + official docs describing structure/benchmarks and its “work in progress” status.  ￼

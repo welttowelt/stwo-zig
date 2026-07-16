@@ -1,4 +1,7 @@
-# Engineering Specification — stwo-zig milestone 0.1
+# Engineering Specification - stwo-zig Milestone 0.1
+
+> Archived: this describes the original milestone 0.1 subset. Current requirements are defined by
+> `CONTRIBUTING.md` and `docs/conformance/contract.md`.
 
 This document describes the implemented milestone in this repository and the quality gates it must satisfy.
 
@@ -53,4 +56,3 @@ All changes must keep the following gates green:
 
 - `verify(challenge, nonce, difficulty)` checks leading zero bits of the digest.
 - `solve(challenge, difficulty, max_iters)` returns a nonce that verifies, or `null`.
-
