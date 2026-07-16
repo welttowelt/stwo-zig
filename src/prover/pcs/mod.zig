@@ -1,14 +1,12 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const circle = @import("../../core/circle.zig");
-const channel_blake2s = @import("../../core/channel/blake2s.zig");
 const m31 = @import("../../core/fields/m31.zig");
 const qm31 = @import("../../core/fields/qm31.zig");
 const pcs_core = @import("../../core/pcs/mod.zig");
 const pcs_utils = @import("../../core/pcs/utils.zig");
 const core_quotients = @import("../../core/pcs/quotients.zig");
 const verifier_types = @import("../../core/verifier_types.zig");
-const blake2_hash = @import("../../core/vcs/blake2_hash.zig");
 const vcs_verifier = @import("../../core/vcs_lifted/verifier.zig");
 const canonic = @import("../../core/poly/circle/canonic.zig");
 const component_prover = @import("../air/component_prover.zig");
@@ -19,6 +17,7 @@ const twiddles_mod = @import("../poly/twiddles.zig");
 const prover_fri = @import("../fri.zig");
 const vcs_lifted_prover = @import("../vcs_lifted/prover.zig");
 const commitment_tree = @import("commitment_tree.zig");
+const sampled_value_transcript = @import("sampled_value_transcript.zig");
 
 pub const quotient_ops = @import("quotient_ops.zig");
 
@@ -658,7 +657,7 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                     "Sampled-value channel mix",
                 );
                 defer sampled_value_mix_stage.end();
-                try mixSampledValuesIntoChannel(allocator, channel, sampled_values_owned);
+                try sampled_value_transcript.mixIntoChannel(allocator, channel, sampled_values_owned);
             }
 
             const random_coeff = channel.drawSecureFelt();
@@ -1269,153 +1268,6 @@ pub fn StreamingTreeBuilder(comptime B: type, comptime H: type, comptime MC: typ
             try self.commitment_scheme.appendCommittedTree(self.allocator, tree, channel);
         }
     };
-}
-
-fn flattenSampledValues(
-    allocator: std.mem.Allocator,
-    sampled_values: TreeVec([][]QM31),
-) ![]QM31 {
-    var total: usize = 0;
-    for (sampled_values.items) |tree| {
-        for (tree) |column| total += column.len;
-    }
-
-    const out = try allocator.alloc(QM31, total);
-    var at: usize = 0;
-    for (sampled_values.items) |tree| {
-        for (tree) |column| {
-            @memcpy(out[at .. at + column.len], column);
-            at += column.len;
-        }
-    }
-    return out;
-}
-
-fn mixSampledValuesIntoChannel(
-    allocator: std.mem.Allocator,
-    channel: anytype,
-    sampled_values: TreeVec([][]QM31),
-) !void {
-    const Channel = @TypeOf(channel.*);
-    if (@hasField(Channel, "channel")) {
-        try mixSampledValuesIntoChannel(allocator, &channel.channel, sampled_values);
-        return;
-    }
-
-    if (Channel == channel_blake2s.Blake2sChannel) {
-        mixSampledValuesIntoBlake2Channel(false, channel, sampled_values);
-        return;
-    }
-    if (Channel == channel_blake2s.Blake2sM31Channel) {
-        mixSampledValuesIntoBlake2Channel(true, channel, sampled_values);
-        return;
-    }
-
-    const flat = try flattenSampledValues(allocator, sampled_values);
-    defer allocator.free(flat);
-    channel.mixFelts(flat);
-}
-
-fn mixSampledValuesIntoBlake2Channel(
-    comptime is_m31_output: bool,
-    channel: *channel_blake2s.Blake2sChannelGeneric(is_m31_output),
-    sampled_values: TreeVec([][]QM31),
-) void {
-    var hasher = blake2_hash.Blake2sHasherGeneric(is_m31_output).init();
-    const digest = channel.digestBytes();
-    hasher.update(digest[0..]);
-
-    if (builtin.cpu.arch.endian() == .little) {
-        for (sampled_values.items) |tree_values| {
-            for (tree_values) |column_values| {
-                if (column_values.len == 0) continue;
-                hasher.update(std.mem.sliceAsBytes(column_values));
-            }
-        }
-    } else {
-        var scratch: [256 * qm31.SECURE_EXTENSION_DEGREE * @sizeOf(M31)]u8 = undefined;
-        for (sampled_values.items) |tree_values| {
-            for (tree_values) |column_values| {
-                var at: usize = 0;
-                while (at < column_values.len) {
-                    const chunk_len = @min(@as(usize, 256), column_values.len - at);
-                    packSecureFeltsLe(
-                        scratch[0 .. chunk_len * qm31.SECURE_EXTENSION_DEGREE * @sizeOf(M31)],
-                        column_values[at .. at + chunk_len],
-                    );
-                    hasher.update(scratch[0 .. chunk_len * qm31.SECURE_EXTENSION_DEGREE * @sizeOf(M31)]);
-                    at += chunk_len;
-                }
-            }
-        }
-    }
-
-    channel.updateDigest(hasher.finalize());
-}
-
-fn packSecureFeltsLe(dst: []u8, values: []const QM31) void {
-    std.debug.assert(dst.len == values.len * qm31.SECURE_EXTENSION_DEGREE * @sizeOf(M31));
-    var at: usize = 0;
-    for (values) |value| {
-        const coords = value.toM31Array();
-        inline for (coords) |coord| {
-            const encoded = coord.toBytesLe();
-            @memcpy(dst[at .. at + @sizeOf(M31)], encoded[0..]);
-            at += @sizeOf(M31);
-        }
-    }
-}
-
-test "prover pcs: streaming sampled-value mixing matches flattening path" {
-    const alloc = std.testing.allocator;
-    const LoggingChannel = @import("../channel/logging_channel.zig").LoggingChannel;
-
-    const col00 = try alloc.dupe(QM31, &[_]QM31{
-        QM31.fromU32Unchecked(1, 2, 3, 4),
-        QM31.fromU32Unchecked(5, 6, 7, 8),
-    });
-    const col01 = try alloc.alloc(QM31, 0);
-    const col10 = try alloc.dupe(QM31, &[_]QM31{
-        QM31.fromU32Unchecked(9, 10, 11, 12),
-    });
-    const col11 = try alloc.dupe(QM31, &[_]QM31{
-        QM31.fromU32Unchecked(13, 14, 15, 16),
-        QM31.fromU32Unchecked(17, 18, 19, 20),
-        QM31.fromU32Unchecked(21, 22, 23, 24),
-    });
-
-    const tree0 = try alloc.dupe([]QM31, &[_][]QM31{ col00, col01 });
-    const tree1 = try alloc.dupe([]QM31, &[_][]QM31{ col10, col11 });
-
-    var sampled_values = TreeVec([][]QM31).initOwned(
-        try alloc.dupe([][]QM31, &[_][][]QM31{ tree0, tree1 }),
-    );
-    defer sampled_values.deinitDeep(alloc);
-
-    const flat = try flattenSampledValues(alloc, sampled_values);
-    defer alloc.free(flat);
-
-    var expected_blake2 = channel_blake2s.Blake2sChannel{};
-    expected_blake2.mixFelts(flat);
-    var actual_blake2 = channel_blake2s.Blake2sChannel{};
-    try mixSampledValuesIntoChannel(alloc, &actual_blake2, sampled_values);
-    try std.testing.expectEqualSlices(u8, expected_blake2.digestBytes()[0..], actual_blake2.digestBytes()[0..]);
-
-    var expected_blake2_m31 = channel_blake2s.Blake2sM31Channel{};
-    expected_blake2_m31.mixFelts(flat);
-    var actual_blake2_m31 = channel_blake2s.Blake2sM31Channel{};
-    try mixSampledValuesIntoChannel(alloc, &actual_blake2_m31, sampled_values);
-    try std.testing.expectEqualSlices(u8, expected_blake2_m31.digestBytes()[0..], actual_blake2_m31.digestBytes()[0..]);
-
-    var expected_logging = LoggingChannel(channel_blake2s.Blake2sChannel).init(.{});
-    expected_logging.mixFelts(flat);
-    var actual_logging = LoggingChannel(channel_blake2s.Blake2sChannel).init(.{});
-    try mixSampledValuesIntoChannel(alloc, &actual_logging, sampled_values);
-    try std.testing.expectEqualSlices(
-        u8,
-        expected_logging.channel.digestBytes()[0..],
-        actual_logging.channel.digestBytes()[0..],
-    );
 }
 
 test "prover pcs: coefficient eval plan cache reuses duplicate point sets" {
