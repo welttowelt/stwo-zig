@@ -1,129 +1,76 @@
-# stwo-zig
+<div align="center">
 
-`stwo-zig` is a parity-driven Zig port of StarkWare's Rust `stwo` stack.
-The compatibility target is pinned in the
-[upstream contract](docs/conformance/upstream.md)
-(`a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2`).
+# Stwo Zig
 
-## Equivalence Status (Formal)
+**A high-performance Zig implementation of the Stwo prover and verifier.**
 
-At current `HEAD`, conformance evidence demonstrates:
+Protocol parity with Rust. Portable CPU execution. Resident GPU proving on Metal.
 
-- Bidirectional proof roundtrip parity on the pinned upstream commit:
-  - Rust-generated proofs verify in Zig.
-  - Zig-generated proofs verify in Rust.
-  - Interop report: `vectors/reports/latest_e2e_interop_report.json`
-    (`status=ok`, `12/12` cases, `48/48` tamper rejections).
-- Deterministic checkpoint parity:
-  - `prove` and `prove_ex` proof bytes are equal for each checkpoint case.
-  - Checkpoint report: `vectors/reports/latest_prove_checkpoints_report.json`
-    (`status=ok`, `12` cases).
-- Exchange contract:
-  - Interop uses `proof_exchange_json_wire_v1` JSON-wire artifacts.
-  - Guaranteed by gate: schema/semantic compatibility and bidirectional verification.
-  - Current observed state on committed interop artifacts: Rust and Zig `proof_bytes_hex` are byte-identical for the gated example matrix.
+[![Benchmark Pages](https://github.com/teddyjfpender/stwo-zig/actions/workflows/benchmark-pages.yml/badge.svg)](https://github.com/teddyjfpender/stwo-zig/actions/workflows/benchmark-pages.yml)
+[![Zig 0.15.x](https://img.shields.io/badge/Zig-0.15.x-F7A41D?logo=zig&logoColor=white)](https://ziglang.org/)
+![Backends: CPU, Metal, CUDA](https://img.shields.io/badge/backends-CPU_%7C_Metal_%7C_CUDA-2563EB)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-0F766E)](LICENSE)
 
-Equivalence scope is the pinned commit + gated matrices and fixtures; it is not an unbounded claim over arbitrary future parameters or upstream revisions.
+</div>
 
-## Scope
+---
 
-This repository includes prover/verifier plumbing, cross-language proof exchange,
-parity vectors, checkpoint harnesses, and strict conformance gates.
-Interop/checkpoint example set: `blake`, `poseidon`, `plonk`, `state_machine`, `wide_fibonacci`, `xor`.
+`stwo-zig` is a parity-first port of [StarkWare's Stwo](https://github.com/starkware-libs/stwo).
+It brings Stwo's circle-STARK protocol to Zig while making memory, vectorization, and device
+execution explicit. The result is one proving stack with native examples, Cairo and RISC-V
+frontends, and backends designed for both portability and throughput.
 
-## Requirements
+> [!IMPORTANT]
+> The [pinned Rust Stwo revision](docs/conformance/upstream.md) is the final correctness oracle.
+> Gated proofs cross-verify in both directions: Rust to Zig and Zig to Rust.
 
-- Zig 0.15.x
-- Python 3
-- Rust nightly `nightly-2025-07-14` (for Rust-side parity and interop tools)
+## Backends
 
-## Contributing
+| Backend | Execution model | Focus |
+| :--- | :--- | :--- |
+| **Zig CPU / SIMD** | Portable scalar backend with hardware-native SIMD hot paths | Predictable execution and broad compatibility |
+| **Metal** | Persistent, resident hybrid prover runtime for Apple GPUs | Wide traces, streaming proofs, and low transfer overhead |
+| **CUDA** | Device-column backend through `libstwo_cuda` | NVIDIA GPU acceleration and backend parity |
 
-Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before changing protocol, Zig, SIMD, Metal, benchmark,
-or repository architecture code. It defines the correctness, ownership, layout, performance,
-evidence, and review requirements for this project.
+## Frontends
 
-## Core Commands
+| Surface | What it proves |
+| :--- | :--- |
+| **Native Stwo** | Blake, Poseidon, Plonk, state-machine, wide-Fibonacci, and XOR AIRs |
+| **Cairo** | Cairo PIE ingestion, witness construction, proof planning, and resident Metal sessions |
+| **RISC-V** | RV32IM execution, trace generation, and CPU or Metal-backed proving |
 
-```bash
-zig build test
-zig build fmt
-zig build api-parity
-zig build upstream-surface
-zig build vectors
-zig build interop
-zig build prove-checkpoints
-zig build bench-smoke
-zig build bench-strict
-zig build bench-opt
-zig build bench-contrast
-zig build bench-full
-zig build bench-pages
-zig build bench-pages-validate
-zig build profile-smoke
-zig build profile-opt
-zig build profile-contrast
-zig build opt-gate
-zig build deep-gate
-zig build roadmap-baseline
-zig build roadmap-audit
-zig build std-shims-smoke
-zig build std-shims-behavior
-zig build release-evidence
+## Quick Start
+
+Requires **Zig 0.15.x** and **Python 3**. Rust parity tooling uses
+`nightly-2025-07-14`.
+
+```sh
+zig build test -Doptimize=ReleaseFast
+zig build test-riscv-prover -Doptimize=ReleaseFast
+zig build metal-test -Doptimize=ReleaseFast  # macOS with Metal
 ```
 
-## Release Gates
+Run the complete release confidence path with:
 
-```bash
-zig build release-gate
-zig build release-gate-strict
+```sh
+zig build release-gate-strict -Doptimize=ReleaseFast
 ```
 
-- `release-gate`: fast/base confidence path.
-- `release-gate-strict`: release-signoff path.
-- `roadmap-audit`: section-15 closure gate; must pass with all roadmap crate rows marked `Complete`.
+## Explore
 
-Strict sequence:
-`fmt -> test -> api-parity -> deep-gate -> vectors -> interop -> prove-checkpoints -> bench-strict (warmups=3,repeats=11) -> profile-smoke -> std-shims-smoke -> std-shims-behavior -> release-evidence`
+| | |
+| :--- | :--- |
+| **[Documentation](docs/README.md)** | Architecture, performance reports, profiling, and project history |
+| **[Conformance](docs/conformance/contract.md)** | Protocol parity, interoperability, and release requirements |
+| **[Metal architecture](docs/sn-pie-metal-production-architecture.md)** | The end-to-end design for resident, streaming block proving |
+| **[Benchmarks](docs/cairo-fib-resident-metal-vs-simd.md)** | Reproducible Metal and SIMD measurements with proof parity |
+| **[Contributing](CONTRIBUTING.md)** | Zig, SIMD, Metal, correctness, and engineering standards |
 
-Full benchmark add-on:
-`zig build bench-full` then `zig build bench-pages` / `zig build bench-pages-validate`.
-
-Optimization track (non-authoritative for release conformance):
-- `zig build bench-opt`
-- `zig build bench-contrast` (adds large contrast workloads: `poseidon_large`, `blake_large`, `wide_fibonacci` fib(100/500/1000), and `plonk_large`)
-- `zig build profile-opt`
-- `zig build profile-contrast` (adds `wide_fibonacci` fib500 + `plonk_deep` hotspot capture)
-- `zig build opt-gate` (runs baseline-compatible bench/profile plus comparator thresholds)
-- Native-tuned measurements can also be compared manually via
-  `python3 scripts/compare_optimization.py`.
-
-## Reports
-
-Primary machine-readable outputs are written under `vectors/reports/`.
-
-Important artifacts:
-- `e2e_interop_report.json`
-- `prove_checkpoints_report.json`
-- `benchmark_smoke_report.json`
-- `benchmark_opt_report.json`
-- `benchmark_contrast_report.json`
-- `benchmark_full_report.json`
-- `profile_smoke_report.json`
-- `profile_opt_report.json`
-- `std_shims_behavior_report.json`
-- `release_evidence.json`
-- `optimization_baseline.json`
-- `optimization_compare_report.json`
-
-## Documentation
-
-- [Documentation index](docs/README.md)
-- [Conformance contract](docs/conformance/contract.md)
-- [Upstream pin](docs/conformance/upstream.md)
-- [API parity ledger](docs/conformance/api-parity.md)
-- [Divergence ledger](docs/conformance/divergence-log.md)
+The compatibility target is pinned to upstream commit
+[`a8fcf4bd`](https://github.com/starkware-libs/stwo/commit/a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2).
+Claims of equivalence apply to that revision and the committed conformance matrices.
 
 ## License
 
-Apache-2.0 (mirrors upstream Stwo licensing).
+Licensed under [Apache 2.0](LICENSE), matching upstream Stwo.
