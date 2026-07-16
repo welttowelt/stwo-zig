@@ -8,6 +8,7 @@ const pcs_utils = @import("utils.zig");
 const canonic = @import("../poly/circle/canonic.zig");
 const core_utils = @import("../utils.zig");
 const sample_ops = @import("quotients/samples.zig");
+const row_evaluation = @import("quotients/row_evaluation.zig");
 
 const CirclePointM31 = circle.CirclePointM31;
 const CirclePointQM31 = circle.CirclePointQM31;
@@ -22,27 +23,7 @@ pub const SampleWithRandomness = sample_ops.SampleWithRandomness;
 pub const NumeratorData = sample_ops.NumeratorData;
 pub const ColumnSampleBatch = sample_ops.ColumnSampleBatch;
 
-/// Holds the precomputed constants used in each quotient evaluation.
-pub const QuotientConstants = struct {
-    line_coeffs: [][]constraints.LineCoeffs,
-    batch_linear_terms: []BatchLinearTerm,
-
-    pub fn deinit(self: *QuotientConstants, allocator: std.mem.Allocator) void {
-        for (self.line_coeffs) |batch_coeffs| allocator.free(batch_coeffs);
-        allocator.free(self.line_coeffs);
-        allocator.free(self.batch_linear_terms);
-        self.* = undefined;
-    }
-};
-
-const BatchLinearTerm = struct {
-    sum_a: QM31,
-    sum_b: QM31,
-
-    inline fn evalAt(self: BatchLinearTerm, domain_y: M31) QM31 {
-        return self.sum_a.mulM31(domain_y).add(self.sum_b);
-    }
-};
+pub const QuotientConstants = row_evaluation.QuotientConstants;
 
 const ColumnContribution = struct {
     batch_index: usize,
@@ -70,59 +51,14 @@ pub fn columnLineCoeffs(
     allocator: std.mem.Allocator,
     sample_batches: []const ColumnSampleBatch,
 ) ![][]constraints.LineCoeffs {
-    var outer = std.ArrayList([]constraints.LineCoeffs).empty;
-    defer outer.deinit(allocator);
-    errdefer {
-        for (outer.items) |batch_coeffs| allocator.free(batch_coeffs);
-    }
-
-    for (sample_batches) |batch| {
-        const batch_coeffs = try allocator.alloc(constraints.LineCoeffs, batch.cols_vals_randpows.len);
-        errdefer allocator.free(batch_coeffs);
-
-        for (batch.cols_vals_randpows, 0..) |sample_data, i| {
-            batch_coeffs[i] = constraints.complexConjugateLineCoeffs(
-                batch.point,
-                sample_data.sample_value,
-                sample_data.random_coeff,
-            ) catch return error.DegenerateLine;
-        }
-        try outer.append(allocator, batch_coeffs);
-    }
-
-    return outer.toOwnedSlice(allocator);
+    return row_evaluation.columnLineCoeffs(allocator, sample_batches);
 }
 
 pub fn quotientConstants(
     allocator: std.mem.Allocator,
     sample_batches: []const ColumnSampleBatch,
 ) !QuotientConstants {
-    const line_coeffs = try columnLineCoeffs(allocator, sample_batches);
-    errdefer {
-        for (line_coeffs) |batch_coeffs| allocator.free(batch_coeffs);
-        allocator.free(line_coeffs);
-    }
-
-    const batch_linear_terms = try allocator.alloc(BatchLinearTerm, sample_batches.len);
-    errdefer allocator.free(batch_linear_terms);
-    for (sample_batches, line_coeffs, 0..) |batch, coeffs, batch_idx| {
-        if (batch.cols_vals_randpows.len != coeffs.len) return error.ShapeMismatch;
-        var sum_a = QM31.zero();
-        var sum_b = QM31.zero();
-        for (coeffs) |coeff| {
-            sum_a = sum_a.add(coeff.a);
-            sum_b = sum_b.add(coeff.b);
-        }
-        batch_linear_terms[batch_idx] = .{
-            .sum_a = sum_a,
-            .sum_b = sum_b,
-        };
-    }
-
-    return .{
-        .line_coeffs = line_coeffs,
-        .batch_linear_terms = batch_linear_terms,
-    };
+    return row_evaluation.quotientConstants(allocator, sample_batches);
 }
 
 /// Computes the denominator inverses for one domain point and all sample points.
@@ -131,146 +67,10 @@ pub fn denominatorInverses(
     sample_points: []const CirclePointQM31,
     domain_point: CirclePointM31,
 ) ![]CM31 {
-    const denominators = try allocator.alloc(CM31, sample_points.len);
-    defer allocator.free(denominators);
-    const inverses = try allocator.alloc(CM31, sample_points.len);
-    errdefer allocator.free(inverses);
-
-    try denominatorInversesInto(sample_points, domain_point, denominators, inverses);
-    return inverses;
+    return row_evaluation.denominatorInverses(allocator, sample_points, domain_point);
 }
 
-fn denominatorInversesInto(
-    sample_points: []const CirclePointQM31,
-    domain_point: CirclePointM31,
-    denominators: []CM31,
-    denominator_inverses: []CM31,
-) !void {
-    if (denominators.len != sample_points.len) return error.ShapeMismatch;
-    if (denominator_inverses.len != sample_points.len) return error.ShapeMismatch;
-
-    const domain_x = CM31.fromBase(domain_point.x);
-    const domain_y = CM31.fromBase(domain_point.y);
-
-    for (sample_points, 0..) |sample_point, i| {
-        const prx = sample_point.x.c0;
-        const pry = sample_point.y.c0;
-        const pix = sample_point.x.c1;
-        const piy = sample_point.y.c1;
-        denominators[i] = prx.sub(domain_x).mul(piy).sub(pry.sub(domain_y).mul(pix));
-    }
-
-    try batchInverseIntoCM31(denominators, denominator_inverses);
-}
-
-const SamplePointComponents = struct {
-    prx: CM31,
-    pry: CM31,
-    pix: CM31,
-    piy: CM31,
-};
-
-/// Scratch workspace for row-by-row quotient accumulation.
-///
-/// Invariants:
-/// - `sample_point_components.len == denominator_scratch.len == denominator_inverses.len`.
-/// - lengths match the number of sample batches for the current quotient context.
-pub const RowQuotientWorkspace = struct {
-    sample_point_components: []SamplePointComponents,
-    denominator_scratch: []CM31,
-    denominator_inverses: []CM31,
-    batch_numerators: []QM31,
-
-    pub fn init(
-        allocator: std.mem.Allocator,
-        sample_batches: []const ColumnSampleBatch,
-    ) !RowQuotientWorkspace {
-        const sample_point_components = try allocator.alloc(SamplePointComponents, sample_batches.len);
-        errdefer allocator.free(sample_point_components);
-        const denominator_scratch = try allocator.alloc(CM31, sample_batches.len);
-        errdefer allocator.free(denominator_scratch);
-        const denominator_inverses = try allocator.alloc(CM31, sample_batches.len);
-        errdefer allocator.free(denominator_inverses);
-        const batch_numerators = try allocator.alloc(QM31, sample_batches.len);
-        errdefer allocator.free(batch_numerators);
-
-        for (sample_batches, 0..) |batch, i| {
-            sample_point_components[i] = .{
-                .prx = batch.point.x.c0,
-                .pry = batch.point.y.c0,
-                .pix = batch.point.x.c1,
-                .piy = batch.point.y.c1,
-            };
-        }
-
-        return .{
-            .sample_point_components = sample_point_components,
-            .denominator_scratch = denominator_scratch,
-            .denominator_inverses = denominator_inverses,
-            .batch_numerators = batch_numerators,
-        };
-    }
-
-    pub fn deinit(self: *RowQuotientWorkspace, allocator: std.mem.Allocator) void {
-        allocator.free(self.sample_point_components);
-        allocator.free(self.denominator_scratch);
-        allocator.free(self.denominator_inverses);
-        allocator.free(self.batch_numerators);
-        self.* = undefined;
-    }
-
-    pub fn beginRow(self: *RowQuotientWorkspace, domain_point: CirclePointM31) !void {
-        try denominatorInversesIntoFromComponents(
-            self.sample_point_components,
-            domain_point,
-            self.denominator_scratch,
-            self.denominator_inverses,
-        );
-        @memset(self.batch_numerators, QM31.zero());
-    }
-};
-
-fn denominatorInversesIntoFromComponents(
-    sample_point_components: []const SamplePointComponents,
-    domain_point: CirclePointM31,
-    denominators: []CM31,
-    denominator_inverses: []CM31,
-) !void {
-    if (denominators.len != sample_point_components.len) return error.ShapeMismatch;
-    if (denominator_inverses.len != sample_point_components.len) return error.ShapeMismatch;
-
-    const domain_x = CM31.fromBase(domain_point.x);
-    const domain_y = CM31.fromBase(domain_point.y);
-
-    for (sample_point_components, 0..) |sample, i| {
-        denominators[i] = sample.prx.sub(domain_x).mul(sample.piy).sub(sample.pry.sub(domain_y).mul(sample.pix));
-    }
-
-    try batchInverseIntoCM31(denominators, denominator_inverses);
-}
-
-fn batchInverseIntoCM31(values: []const CM31, out: []CM31) !void {
-    if (values.len != out.len) return error.ShapeMismatch;
-    if (values.len == 0) return;
-
-    out[0] = CM31.one();
-    var i: usize = 1;
-    while (i < values.len) : (i += 1) {
-        out[i] = out[i - 1].mul(values[i - 1]);
-    }
-
-    var inv_total = out[values.len - 1].mul(values[values.len - 1]).inv() catch {
-        return error.DivisionByZero;
-    };
-
-    var j: usize = values.len;
-    while (j > 0) {
-        j -= 1;
-        const prefix = if (j == 0) CM31.one() else out[j];
-        out[j] = inv_total.mul(prefix);
-        inv_total = inv_total.mul(values[j]);
-    }
-}
+pub const RowQuotientWorkspace = row_evaluation.RowQuotientWorkspace;
 
 /// Computes one quotient row using caller-provided reusable scratch.
 ///
@@ -282,32 +82,12 @@ pub fn accumulateRowQuotientsWithWorkspace(
     domain_point: CirclePointM31,
     workspace: *RowQuotientWorkspace,
 ) !QM31 {
-    if (sample_batches.len != quotient_constants.line_coeffs.len) return error.ShapeMismatch;
-    if (sample_batches.len != quotient_constants.batch_linear_terms.len) return error.ShapeMismatch;
-    if (workspace.sample_point_components.len != sample_batches.len) return error.ShapeMismatch;
-    if (workspace.denominator_scratch.len != sample_batches.len) return error.ShapeMismatch;
-    if (workspace.denominator_inverses.len != sample_batches.len) return error.ShapeMismatch;
-    if (workspace.batch_numerators.len != sample_batches.len) return error.ShapeMismatch;
-
-    try workspace.beginRow(domain_point);
-
-    for (sample_batches, 0..) |batch, batch_idx| {
-        const line_coeffs = quotient_constants.line_coeffs[batch_idx];
-        if (batch.cols_vals_randpows.len != line_coeffs.len) return error.ShapeMismatch;
-
-        for (batch.cols_vals_randpows, 0..) |sample_data, i| {
-            if (sample_data.column_index >= queried_values_at_row.len) {
-                return error.ColumnIndexOutOfBounds;
-            }
-            const value = line_coeffs[i].c.mulM31(queried_values_at_row[sample_data.column_index]);
-            workspace.batch_numerators[batch_idx] = workspace.batch_numerators[batch_idx].add(value);
-        }
-    }
-    return finalizeRowQuotients(
+    return row_evaluation.accumulateRowQuotientsWithWorkspace(
+        sample_batches,
+        queried_values_at_row,
         quotient_constants,
-        domain_point.y,
-        workspace.batch_numerators,
-        workspace.denominator_inverses,
+        domain_point,
+        workspace,
     );
 }
 
@@ -318,17 +98,7 @@ pub fn accumulateRowPartialNumerators(
     queried_values_at_row: []const M31,
     coeffs: []const constraints.LineCoeffs,
 ) !QM31 {
-    if (batch.cols_vals_randpows.len != coeffs.len) return error.ShapeMismatch;
-
-    var numerator = QM31.zero();
-    for (batch.cols_vals_randpows, 0..) |sample_data, i| {
-        if (sample_data.column_index >= queried_values_at_row.len) {
-            return error.ColumnIndexOutOfBounds;
-        }
-        const value = coeffs[i].c.mulM31(queried_values_at_row[sample_data.column_index]);
-        numerator = numerator.add(value.sub(coeffs[i].b));
-    }
-    return numerator;
+    return row_evaluation.accumulateRowPartialNumerators(batch, queried_values_at_row, coeffs);
 }
 
 /// Computes the full row quotient accumulation for one queried domain row.
@@ -339,88 +109,12 @@ pub fn accumulateRowQuotients(
     quotient_constants: *const QuotientConstants,
     domain_point: CirclePointM31,
 ) !QM31 {
-    if (sample_batches.len != quotient_constants.line_coeffs.len) return error.ShapeMismatch;
-    if (sample_batches.len != quotient_constants.batch_linear_terms.len) return error.ShapeMismatch;
-
-    const sample_points = try allocator.alloc(CirclePointQM31, sample_batches.len);
-    defer allocator.free(sample_points);
-    for (sample_batches, 0..) |batch, i| sample_points[i] = batch.point;
-
-    const denominator_scratch = try allocator.alloc(CM31, sample_batches.len);
-    defer allocator.free(denominator_scratch);
-    const denominator_inverses = try allocator.alloc(CM31, sample_batches.len);
-    defer allocator.free(denominator_inverses);
-    const batch_numerators = try allocator.alloc(QM31, sample_batches.len);
-    defer allocator.free(batch_numerators);
-    try denominatorInversesInto(
-        sample_points,
-        domain_point,
-        denominator_scratch,
-        denominator_inverses,
-    );
-    @memset(batch_numerators, QM31.zero());
-
-    for (sample_batches, 0..) |batch, batch_idx| {
-        const line_coeffs = quotient_constants.line_coeffs[batch_idx];
-        if (batch.cols_vals_randpows.len != line_coeffs.len) return error.ShapeMismatch;
-
-        for (batch.cols_vals_randpows, 0..) |sample_data, i| {
-            if (sample_data.column_index >= queried_values_at_row.len) {
-                return error.ColumnIndexOutOfBounds;
-            }
-            const value = line_coeffs[i].c.mulM31(queried_values_at_row[sample_data.column_index]);
-            batch_numerators[batch_idx] = batch_numerators[batch_idx].add(value);
-        }
-    }
-    return finalizeRowQuotients(
+    return row_evaluation.accumulateRowQuotients(
+        allocator,
+        sample_batches,
+        queried_values_at_row,
         quotient_constants,
-        domain_point.y,
-        batch_numerators,
-        denominator_inverses,
-    );
-}
-
-fn accumulateRowQuotientsFromColumns(
-    sample_batches: []const ColumnSampleBatch,
-    queried_values_flat: []const []const M31,
-    row_idx: usize,
-    quotient_constants: *const QuotientConstants,
-    domain_point: CirclePointM31,
-    sample_point_components: []const SamplePointComponents,
-    denominator_scratch: []CM31,
-    denominator_inverses: []CM31,
-    batch_numerators: []QM31,
-) !QM31 {
-    if (sample_batches.len != quotient_constants.line_coeffs.len) return error.ShapeMismatch;
-    if (sample_batches.len != quotient_constants.batch_linear_terms.len) return error.ShapeMismatch;
-    if (sample_point_components.len != sample_batches.len) return error.ShapeMismatch;
-    if (denominator_scratch.len != sample_batches.len) return error.ShapeMismatch;
-    if (denominator_inverses.len != sample_batches.len) return error.ShapeMismatch;
-    if (batch_numerators.len != sample_batches.len) return error.ShapeMismatch;
-
-    try denominatorInversesIntoFromComponents(
-        sample_point_components,
         domain_point,
-        denominator_scratch,
-        denominator_inverses,
-    );
-
-    @memset(batch_numerators, QM31.zero());
-    for (sample_batches, 0..) |batch, batch_idx| {
-        const line_coeffs = quotient_constants.line_coeffs[batch_idx];
-        if (batch.cols_vals_randpows.len != line_coeffs.len) return error.ShapeMismatch;
-
-        for (batch.cols_vals_randpows, 0..) |sample_data, i| {
-            const column_queries = queried_values_flat[sample_data.column_index];
-            const value = line_coeffs[i].c.mulM31(column_queries[row_idx]);
-            batch_numerators[batch_idx] = batch_numerators[batch_idx].add(value);
-        }
-    }
-    return finalizeRowQuotients(
-        quotient_constants,
-        domain_point.y,
-        batch_numerators,
-        denominator_inverses,
     );
 }
 
@@ -430,15 +124,12 @@ pub fn finalizeRowQuotients(
     batch_numerators: []const QM31,
     denominator_inverses: []const CM31,
 ) !QM31 {
-    if (quotient_constants.batch_linear_terms.len != batch_numerators.len) return error.ShapeMismatch;
-    if (denominator_inverses.len != batch_numerators.len) return error.ShapeMismatch;
-
-    var row_accumulator = QM31.zero();
-    for (quotient_constants.batch_linear_terms, batch_numerators, denominator_inverses) |linear_term, numerator_sum, denominator_inverse| {
-        const numerator = numerator_sum.sub(linear_term.evalAt(domain_y));
-        row_accumulator = row_accumulator.add(numerator.mulCM31(denominator_inverse));
-    }
-    return row_accumulator;
+    return row_evaluation.finalizeRowQuotients(
+        quotient_constants,
+        domain_y,
+        batch_numerators,
+        denominator_inverses,
+    );
 }
 
 fn validateSampleBatchColumnIndices(
@@ -1136,7 +827,7 @@ test "pcs quotients: row accumulators match direct formulas" {
     try std.testing.expect(row.eql(expected_row));
 }
 
-test "pcs quotients: zero-copy row accumulation matches row-copy path" {
+test "pcs quotients: workspace row accumulation matches allocating path" {
     const alloc = std.testing.allocator;
     const lifting_log_size: u32 = 6;
     const query_positions = [_]usize{ 0, 1, 2, 3 };
@@ -1231,23 +922,8 @@ test "pcs quotients: zero-copy row accumulation matches row-copy path" {
     const queried_values_flat = try pcs_utils.flatten([]M31, alloc, queried_values);
     defer alloc.free(queried_values_flat);
 
-    const sample_point_components = try alloc.alloc(SamplePointComponents, sample_batches.len);
-    defer alloc.free(sample_point_components);
-    for (sample_batches, 0..) |batch, i| {
-        sample_point_components[i] = .{
-            .prx = batch.point.x.c0,
-            .pry = batch.point.y.c0,
-            .pix = batch.point.x.c1,
-            .piy = batch.point.y.c1,
-        };
-    }
-
-    const denominator_scratch = try alloc.alloc(CM31, sample_batches.len);
-    defer alloc.free(denominator_scratch);
-    const denominator_inverses = try alloc.alloc(CM31, sample_batches.len);
-    defer alloc.free(denominator_inverses);
-    const batch_numerators = try alloc.alloc(QM31, sample_batches.len);
-    defer alloc.free(batch_numerators);
+    var workspace = try RowQuotientWorkspace.init(alloc, sample_batches);
+    defer workspace.deinit(alloc);
 
     const row_buffer = try alloc.alloc(M31, queried_values_flat.len);
     defer alloc.free(row_buffer);
@@ -1265,18 +941,14 @@ test "pcs quotients: zero-copy row accumulation matches row-copy path" {
             &q_consts,
             domain_point,
         );
-        const zero_copy = try accumulateRowQuotientsFromColumns(
+        const with_workspace = try accumulateRowQuotientsWithWorkspace(
             sample_batches,
-            queried_values_flat,
-            row_idx,
+            row_buffer,
             &q_consts,
             domain_point,
-            sample_point_components,
-            denominator_scratch,
-            denominator_inverses,
-            batch_numerators,
+            &workspace,
         );
-        try std.testing.expect(row_copy.eql(zero_copy));
+        try std.testing.expect(row_copy.eql(with_workspace));
     }
 }
 
