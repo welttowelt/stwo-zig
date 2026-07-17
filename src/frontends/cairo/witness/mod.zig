@@ -13,6 +13,8 @@ pub const proof_bundle = @import("proof_bundle.zig");
 pub const resident_verifier = @import("resident_verifier.zig");
 pub const proof_plan = @import("../proof_plan.zig");
 pub const witness_scheduler = @import("../witness_scheduler.zig");
+pub const checkpoint = @import("../conformance/checkpoint.zig");
+pub const checkpoint_receipt = @import("../conformance/receipt.zig");
 
 test {
     _ = direct_inputs;
@@ -23,4 +25,6 @@ test {
     _ = resident_verifier;
     _ = proof_plan;
     _ = witness_scheduler;
+    _ = checkpoint;
+    _ = checkpoint_receipt;
 }
