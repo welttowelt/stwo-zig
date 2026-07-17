@@ -8,8 +8,6 @@ const canonic = @import("../../../core/poly/circle/canonic.zig");
 const domain_mod = @import("../../../core/poly/circle/domain.zig");
 const utils = @import("../../../core/utils.zig");
 
-const CpuBackend = @import("../../../backends/cpu_scalar/mod.zig").CpuBackend;
-
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
 const CirclePointM31 = circle.CirclePointM31;
@@ -226,92 +224,98 @@ fn barycentricWeightsReference(
     return out;
 }
 
-/// Evaluation of a base-field column over a circle domain in bit-reversed order,
-/// generic over backend `B`.
+/// Evaluation of a host base-field column over a circle domain in bit-reversed order.
 ///
 /// Invariants:
 /// - `values.len == domain.size()`.
 /// - `values[i]` corresponds to `domain.at(bit_reverse(i))`.
+pub const CircleEvaluation = struct {
+    domain: CircleDomain,
+    values: []const M31,
+
+    pub fn init(domain: CircleDomain, values: []const M31) EvaluationError!CircleEvaluation {
+        if (domain.size() != values.len) return EvaluationError.ShapeMismatch;
+        return .{
+            .domain = domain,
+            .values = values,
+        };
+    }
+
+    /// Computes barycentric weights for a sampled point outside the canonic coset.
+    ///
+    /// Failure modes:
+    /// - `PointOnDomain` when `point` lies on the domain.
+    pub fn barycentricWeights(
+        allocator: std.mem.Allocator,
+        coset: CanonicCoset,
+        point: CirclePointQM31,
+    ) (std.mem.Allocator.Error || EvaluationError)![]QM31 {
+        return barycentricWeightsReference(
+            allocator,
+            CanonicCoset.new(coset.logSize()),
+            point,
+        );
+    }
+
+    pub fn barycentricEvalAtPointWithWeights(
+        self: CircleEvaluation,
+        weights: []const QM31,
+    ) EvaluationError!QM31 {
+        if (self.values.len != weights.len) return EvaluationError.ShapeMismatch;
+
+        var acc = QM31.zero();
+        for (self.values, weights) |value, weight| {
+            acc = acc.add(weight.mulM31(value));
+        }
+        return acc;
+    }
+
+    pub fn barycentricEvalAtPoint(
+        self: CircleEvaluation,
+        allocator: std.mem.Allocator,
+        point: CirclePointQM31,
+    ) (std.mem.Allocator.Error || EvaluationError)!QM31 {
+        var context = try BarycentricContext.init(allocator, self.domain.logSize());
+        defer context.deinit(allocator);
+
+        var workspace = BarycentricWorkspace.init();
+        defer workspace.deinit(allocator);
+
+        return self.barycentricEvalAtPointWithContext(allocator, &context, &workspace, point);
+    }
+
+    pub fn barycentricEvalAtPointWithContext(
+        self: CircleEvaluation,
+        allocator: std.mem.Allocator,
+        context: *const BarycentricContext,
+        workspace: *BarycentricWorkspace,
+        point: CirclePointQM31,
+    ) (std.mem.Allocator.Error || EvaluationError)!QM31 {
+        if (context.log_size != self.domain.logSize()) return EvaluationError.ShapeMismatch;
+        const weights = try context.computeWeights(allocator, workspace, point);
+        return self.barycentricEvalAtPointWithWeights(weights);
+    }
+
+    pub fn evalAtPoint(
+        self: CircleEvaluation,
+        allocator: std.mem.Allocator,
+        point: CirclePointQM31,
+    ) (std.mem.Allocator.Error || EvaluationError)!QM31 {
+        return self.barycentricEvalAtPoint(allocator, point);
+    }
+};
+
+/// Compatibility type function for callers parameterized by a prover backend.
+/// The evaluation currently borrows host slices, so its representation is
+/// backend-independent.
 pub fn CircleEvaluationGeneric(comptime B: type) type {
     _ = B;
-    return struct {
-        domain: CircleDomain,
-        values: []const M31,
-
-        pub fn init(domain: CircleDomain, values: []const M31) EvaluationError!CircleEvaluation {
-            if (domain.size() != values.len) return EvaluationError.ShapeMismatch;
-            return .{
-                .domain = domain,
-                .values = values,
-            };
-        }
-
-        /// Computes barycentric weights for a sampled point outside the canonic coset.
-        ///
-        /// Failure modes:
-        /// - `PointOnDomain` when `point` lies on the domain.
-        pub fn barycentricWeights(
-            allocator: std.mem.Allocator,
-            coset: CanonicCoset,
-            point: CirclePointQM31,
-        ) (std.mem.Allocator.Error || EvaluationError)![]QM31 {
-            return barycentricWeightsReference(
-                allocator,
-                CanonicCoset.new(coset.logSize()),
-                point,
-            );
-        }
-
-        pub fn barycentricEvalAtPointWithWeights(
-            self: CircleEvaluation,
-            weights: []const QM31,
-        ) EvaluationError!QM31 {
-            if (self.values.len != weights.len) return EvaluationError.ShapeMismatch;
-
-            var acc = QM31.zero();
-            for (self.values, weights) |value, weight| {
-                acc = acc.add(weight.mulM31(value));
-            }
-            return acc;
-        }
-
-        pub fn barycentricEvalAtPoint(
-            self: CircleEvaluation,
-            allocator: std.mem.Allocator,
-            point: CirclePointQM31,
-        ) (std.mem.Allocator.Error || EvaluationError)!QM31 {
-            var context = try BarycentricContext.init(allocator, self.domain.logSize());
-            defer context.deinit(allocator);
-
-            var workspace = BarycentricWorkspace.init();
-            defer workspace.deinit(allocator);
-
-            return self.barycentricEvalAtPointWithContext(allocator, &context, &workspace, point);
-        }
-
-        pub fn barycentricEvalAtPointWithContext(
-            self: CircleEvaluation,
-            allocator: std.mem.Allocator,
-            context: *const BarycentricContext,
-            workspace: *BarycentricWorkspace,
-            point: CirclePointQM31,
-        ) (std.mem.Allocator.Error || EvaluationError)!QM31 {
-            if (context.log_size != self.domain.logSize()) return EvaluationError.ShapeMismatch;
-            const weights = try context.computeWeights(allocator, workspace, point);
-            return self.barycentricEvalAtPointWithWeights(weights);
-        }
-
-        pub fn evalAtPoint(
-            self: CircleEvaluation,
-            allocator: std.mem.Allocator,
-            point: CirclePointQM31,
-        ) (std.mem.Allocator.Error || EvaluationError)!QM31 {
-            return self.barycentricEvalAtPoint(allocator, point);
-        }
-    };
+    return CircleEvaluation;
 }
 
-pub const CircleEvaluation = CircleEvaluationGeneric(CpuBackend);
+test "prover poly circle evaluation: generic type preserves host representation" {
+    try std.testing.expect(CircleEvaluationGeneric(struct {}) == CircleEvaluation);
+}
 
 fn pointM31IntoQM31(point: CirclePointM31) CirclePointQM31 {
     return .{
