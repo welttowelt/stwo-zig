@@ -13,9 +13,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BASELINE = ROOT / "docs/conformance/source-baseline.json"
+BASELINE_VERSION = 2
 IMPORT_RE = re.compile(r'@import\("([^"\n]+)"\)')
 MSL_INCLUDE_RE = re.compile(r'^\s*#\s*include\s*"([^"\n]+)"', re.MULTILINE)
 MSL_INCLUDE_PREFIX = "stwo_zig/"
+SOURCE_SUFFIXES = frozenset({".zig", ".metal", ".m", ".h"})
+MANUAL_SOURCE_CEILING = 850
 ROOT_ALLOWLIST = frozenset({
     "std_shims_freestanding.zig",
     "stwo.zig",
@@ -35,6 +38,7 @@ FORBIDDEN_TARGETS = {
 class Finding:
     key: str
     message: str
+    line_count: int | None = None
 
 
 def relative_import(source: Path, imported: str, src_root: Path) -> Path | None:
@@ -49,22 +53,27 @@ def relative_import(source: Path, imported: str, src_root: Path) -> Path | None:
 
 def is_generated(text: str) -> bool:
     header = "\n".join(text.splitlines()[:8]).lower()
-    return "generated" in header and "generator" in header
+    return (
+        "generated" in header
+        and "generator:" in header
+        and "regenerate:" in header
+    )
 
 
 def scan(repo: Path) -> list[Finding]:
     src_root = repo / "src"
     shader_include_root = src_root / "backends/metal/shaders/include"
     findings: list[Finding] = []
-    sources = sorted((*src_root.rglob("*.zig"), *src_root.rglob("*.metal")))
+    sources = sorted(path for path in src_root.rglob("*") if path.suffix in SOURCE_SUFFIXES)
     for source in sources:
         relative = source.relative_to(src_root)
         text = source.read_text(encoding="utf-8")
         line_count = len(text.splitlines())
-        if line_count > 850 and not is_generated(text):
+        if line_count > MANUAL_SOURCE_CEILING and not is_generated(text):
             findings.append(Finding(
                 f"file-size:{relative.as_posix()}",
-                f"{relative}: {line_count} lines exceeds the 850-line manual-source ceiling",
+                f"{relative}: {line_count} lines exceeds the {MANUAL_SOURCE_CEILING}-line manual-source ceiling",
+                line_count,
             ))
 
         if source.suffix == ".metal":
@@ -118,7 +127,7 @@ def load_baseline(path: Path) -> dict[str, dict[str, str]]:
     if not path.exists():
         return {}
     payload = json.loads(path.read_text(encoding="utf-8"))
-    if payload.get("version") != 1 or not isinstance(payload.get("findings"), list):
+    if payload.get("version") != BASELINE_VERSION or not isinstance(payload.get("findings"), list):
         raise ValueError(f"invalid source conformance baseline: {path}")
     result: dict[str, dict[str, str]] = {}
     for entry in payload["findings"]:
@@ -131,6 +140,10 @@ def load_baseline(path: Path) -> dict[str, dict[str, str]]:
             raise ValueError(f"invalid baseline finding in {path}")
         if not isinstance(reason, str) or not reason or not isinstance(plan, str) or not plan:
             raise ValueError(f"baseline finding lacks reason/plan: {key}")
+        if key.startswith("file-size:"):
+            max_lines = entry.get("max_lines")
+            if not isinstance(max_lines, int) or isinstance(max_lines, bool) or max_lines <= MANUAL_SOURCE_CEILING:
+                raise ValueError(f"file-size baseline finding lacks a valid max_lines budget: {key}")
         if key in result:
             raise ValueError(f"duplicate baseline finding: {key}")
         result[key] = entry
@@ -138,20 +151,23 @@ def load_baseline(path: Path) -> dict[str, dict[str, str]]:
 
 
 def write_baseline(path: Path, findings: list[Finding]) -> None:
+    def entry_for(finding: Finding) -> dict[str, object]:
+        entry: dict[str, object] = {
+            "key": finding.key,
+            "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+            "plan": (
+                "docs/design/2026-07-17-metal-shader-library-decomposition.md"
+                if ".metal" in finding.key
+                else "docs/design/2026-07-17-source-conformance.md"
+            ),
+        }
+        if finding.key.startswith("file-size:"):
+            entry["max_lines"] = finding.line_count or MANUAL_SOURCE_CEILING + 1
+        return entry
+
     payload = {
-        "version": 1,
-        "findings": [
-            {
-                "key": finding.key,
-                "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
-                "plan": (
-                    "docs/design/2026-07-17-metal-shader-library-decomposition.md"
-                    if ".metal" in finding.key
-                    else "docs/design/2026-07-17-source-conformance.md"
-                ),
-            }
-            for finding in findings
-        ],
+        "version": BASELINE_VERSION,
+        "findings": [entry_for(finding) for finding in findings],
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
@@ -186,17 +202,45 @@ def main(argv: list[str] | None = None) -> int:
     current = {finding.key: finding for finding in findings}
     new_keys = sorted(current.keys() - baseline.keys())
     stale_keys = sorted(baseline.keys() - current.keys())
+    grown_keys = sorted(
+        key
+        for key in current.keys() & baseline.keys()
+        if current[key].line_count is not None
+        and current[key].line_count > baseline[key].get("max_lines", MANUAL_SOURCE_CEILING)
+    )
+    invalid_plan_keys: list[str] = []
+    for key, entry in baseline.items():
+        plan = Path(entry["plan"])
+        if plan.is_absolute():
+            invalid_plan_keys.append(key)
+            continue
+        resolved_plan = (repo / plan).resolve()
+        try:
+            resolved_plan.relative_to(repo)
+        except ValueError:
+            invalid_plan_keys.append(key)
+            continue
+        if not resolved_plan.is_file():
+            invalid_plan_keys.append(key)
+
     for key in new_keys:
         print(f"error: {current[key].message}", file=sys.stderr)
     for key in stale_keys:
         print(f"error: stale baseline entry must be removed: {key}", file=sys.stderr)
+    for key in grown_keys:
+        print(
+            f"error: {current[key].message}; baseline budget is {baseline[key]['max_lines']} lines",
+            file=sys.stderr,
+        )
+    for key in invalid_plan_keys:
+        print(f"error: baseline decomposition plan is missing or outside the repository: {key}", file=sys.stderr)
 
     if args.strict and current:
         for finding in findings:
             if finding.key not in new_keys:
                 print(f"error: {finding.message}", file=sys.stderr)
         return 1
-    if new_keys or stale_keys:
+    if new_keys or stale_keys or grown_keys or invalid_plan_keys:
         return 1
     print(f"source conformance: {len(findings)} explained legacy findings, no new violations")
     return 0

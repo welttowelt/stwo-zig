@@ -1264,9 +1264,14 @@ python3 scripts/ci.py             # same standard gate as hosted CI
 python3 scripts/ci.py --strict    # release evidence gate
 ```
 
-The pre-commit hook is intentionally limited to formatting and source conformance. The pre-push
-hook adds repository tooling tests, Zig tests, deep graph coverage, and API parity. Neither hook
-runs hardware Metal benchmarks or large SN PIE workloads.
+The pre-commit hook is intentionally limited to staged-diff hygiene, formatting, and source
+conformance. The pre-push hook adds repository tooling tests, Zig tests, deep graph coverage, and
+API parity. Neither hook runs hardware Metal benchmarks or large SN PIE workloads.
+
+Git permits an emergency local bypass with `--no-verify`. That bypass skips feedback only; it does
+not waive any repository requirement. Disclose its use in the PR, run `python3 scripts/ci.py` before
+requesting review, and record any gate that remains unavailable. Hosted CI is authoritative and
+must not contain a corresponding bypass path.
 
 1. **Identify the contract.** Name the bug, feature, parity gap, architectural debt, or measured
    bottleneck.

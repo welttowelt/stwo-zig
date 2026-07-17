@@ -5,6 +5,14 @@ on:
   push:
     branches: ["main"]
   workflow_dispatch:
+    inputs:
+      gate:
+        description: Release gate to run
+        type: choice
+        options:
+          - standard
+          - strict
+        default: standard
 
 permissions:
   contents: read
@@ -15,7 +23,7 @@ concurrency:
 
 jobs:
   release-gate:
-    name: Standard release gate
+    name: Release gate
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -46,5 +54,26 @@ jobs:
           git -C "$STWO_CAIRO_RUST_ROOT" fetch --depth=1 origin "$STWO_CAIRO_REVISION"
           git -C "$STWO_CAIRO_RUST_ROOT" checkout --detach FETCH_HEAD
 
-      - name: Run shared CI entrypoint
+      - name: Run shared standard CI entrypoint
+        if: github.event_name != 'workflow_dispatch' || inputs.gate == 'standard'
         run: python3 scripts/ci.py
+
+      - name: Run shared strict CI entrypoint
+        if: github.event_name == 'workflow_dispatch' && inputs.gate == 'strict'
+        run: python3 scripts/ci.py --strict
+
+  metal-compile:
+    name: Metal compile and link
+    runs-on: macos-14
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          version: 0.15.2
+
+      - name: Compile Metal test graph without execution
+        run: zig build metal-check -Doptimize=ReleaseSafe

@@ -5,7 +5,15 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
-from scripts.check_source_conformance import ROOT_ALLOWLIST, Finding, load_baseline, main, scan, write_baseline
+from scripts.check_source_conformance import (
+    BASELINE_VERSION,
+    ROOT_ALLOWLIST,
+    Finding,
+    load_baseline,
+    main,
+    scan,
+    write_baseline,
+)
 
 
 class SourceConformanceTests(unittest.TestCase):
@@ -30,10 +38,28 @@ class SourceConformanceTests(unittest.TestCase):
             repo = Path(temporary)
             (repo / "src/core").mkdir(parents=True)
             (repo / "src/core/generated.zig").write_text(
-                "// Generated file. Generator: tools/example.zig\n" + "\n" * 900,
+                "// Generated file. Generator: tools/example.zig\n"
+                "// Regenerate: zig build generate-example\n"
+                + "\n" * 900,
                 encoding="utf-8",
             )
             self.assertEqual([], scan(repo))
+
+            (repo / "src/core/generated.zig").write_text(
+                "// Generated file. Generator: tools/example.zig\n" + "\n" * 900,
+                encoding="utf-8",
+            )
+            self.assertIn("file-size:core/generated.zig", {finding.key for finding in scan(repo)})
+
+    def test_objective_c_manual_source_uses_the_same_size_ceiling(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary)
+            (repo / "src/backends/metal").mkdir(parents=True)
+            (repo / "src/backends/metal/runtime.m").write_text("\n" * 851, encoding="utf-8")
+            self.assertIn(
+                "file-size:backends/metal/runtime.m",
+                {finding.key for finding in scan(repo)},
+            )
 
     def test_metal_size_and_repository_include_rules_are_enforced(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -73,13 +99,24 @@ class SourceConformanceTests(unittest.TestCase):
     def test_baseline_round_trip_requires_explanations(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "baseline.json"
-            write_baseline(path, [Finding("file-size:a.zig", "too large")])
+            write_baseline(path, [Finding("file-size:a.zig", "too large", 900)])
             self.assertIn("file-size:a.zig", load_baseline(path))
-            path.write_text(json.dumps({"version": 1, "findings": [{"key": "bad"}]}), encoding="utf-8")
+            path.write_text(json.dumps({
+                "version": BASELINE_VERSION,
+                "findings": [
+                    {"key": "file-size:a.zig", "reason": "legacy", "plan": "plan.md"},
+                ],
+            }), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                load_baseline(path)
+            path.write_text(
+                json.dumps({"version": BASELINE_VERSION, "findings": [{"key": "bad"}]}),
+                encoding="utf-8",
+            )
             with self.assertRaises(ValueError):
                 load_baseline(path)
             path.write_text(json.dumps({
-                "version": 1,
+                "version": BASELINE_VERSION,
                 "findings": [
                     {"key": "duplicate", "reason": "legacy", "plan": "plan.md"},
                     {"key": "duplicate", "reason": "legacy", "plan": "plan.md"},
@@ -110,6 +147,9 @@ class SourceConformanceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             repo = Path(temporary)
             (repo / "src").mkdir()
+            plan = repo / "docs/design/2026-07-17-source-conformance.md"
+            plan.parent.mkdir(parents=True)
+            plan.write_text("# Plan\n", encoding="utf-8")
             source = repo / "src/tool.zig"
             source.write_text("pub fn main() void {}\n", encoding="utf-8")
             baseline = repo / "baseline.json"
@@ -122,6 +162,28 @@ class SourceConformanceTests(unittest.TestCase):
                 self.assertEqual(0, main(["--repo", str(repo), "--baseline", str(baseline)]))
 
             source.unlink()
+            with redirect_stderr(io.StringIO()):
+                self.assertEqual(1, main(["--repo", str(repo), "--baseline", str(baseline)]))
+
+    def test_ratchet_rejects_oversized_file_growth_and_missing_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary)
+            source = repo / "src/core/legacy.zig"
+            source.parent.mkdir(parents=True)
+            source.write_text("\n" * 900, encoding="utf-8")
+            baseline = repo / "baseline.json"
+            write_baseline(baseline, scan(repo))
+
+            with redirect_stderr(io.StringIO()):
+                self.assertEqual(1, main(["--repo", str(repo), "--baseline", str(baseline)]))
+
+            plan = repo / "docs/design/2026-07-17-source-conformance.md"
+            plan.parent.mkdir(parents=True)
+            plan.write_text("# Plan\n", encoding="utf-8")
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(0, main(["--repo", str(repo), "--baseline", str(baseline)]))
+
+            source.write_text("\n" * 901, encoding="utf-8")
             with redirect_stderr(io.StringIO()):
                 self.assertEqual(1, main(["--repo", str(repo), "--baseline", str(baseline)]))
 

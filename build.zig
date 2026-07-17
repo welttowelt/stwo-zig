@@ -3,6 +3,8 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const optimize_arg = b.fmt("-Doptimize={s}", .{@tagName(optimize)});
+    const zig_optimize_arg = b.fmt("-O{s}", .{@tagName(optimize)});
 
     // Library module (importable by downstream packages).
     const stwo_module = b.addModule("stwo", .{
@@ -419,6 +421,11 @@ pub fn build(b: *std.Build) void {
         const run_metal_tests = b.addRunArtifact(metal_tests);
         const metal_test_step = b.step("metal-test", "Run resident Metal backend parity tests");
         metal_test_step.dependOn(&run_metal_tests.step);
+        const metal_check_step = b.step(
+            "metal-check",
+            "Compile and link resident Metal backend tests without executing them",
+        );
+        metal_check_step.dependOn(&metal_tests.step);
 
         const metal_bench_module = b.createModule(.{
             .root_source_file = b.path("src/metal_bench_cli.zig"),
@@ -940,7 +947,7 @@ pub fn build(b: *std.Build) void {
         "scripts/check_source_conformance.py",
     });
     rg_source_conformance.step.dependOn(&rg_fmt.step);
-    const rg_test = b.addSystemCommand(&.{ "zig", "test", "src/stwo.zig" });
+    const rg_test = b.addSystemCommand(&.{ "zig", "build", "test", optimize_arg });
     rg_test.step.dependOn(&rg_source_conformance.step);
     const rg_api_parity = b.addSystemCommand(&.{ "python3", "scripts/check_api_parity.py" });
     rg_api_parity.step.dependOn(&rg_test.step);
@@ -979,11 +986,11 @@ pub fn build(b: *std.Build) void {
         "scripts/check_source_conformance.py",
     });
     rgs_source_conformance.step.dependOn(&rgs_fmt.step);
-    const rgs_test = b.addSystemCommand(&.{ "zig", "test", "src/stwo.zig" });
+    const rgs_test = b.addSystemCommand(&.{ "zig", "build", "test", optimize_arg });
     rgs_test.step.dependOn(&rgs_source_conformance.step);
     const rgs_api_parity = b.addSystemCommand(&.{ "python3", "scripts/check_api_parity.py" });
     rgs_api_parity.step.dependOn(&rgs_test.step);
-    const rgs_deep = b.addSystemCommand(&.{ "zig", "test", "src/stwo_deep.zig" });
+    const rgs_deep = b.addSystemCommand(&.{ "zig", "test", "src/stwo_deep.zig", zig_optimize_arg });
     rgs_deep.step.dependOn(&rgs_api_parity.step);
     const rgs_vectors_fields = b.addSystemCommand(&.{ "python3", "scripts/parity_fields.py", "--skip-zig" });
     rgs_vectors_fields.step.dependOn(&rgs_deep.step);
