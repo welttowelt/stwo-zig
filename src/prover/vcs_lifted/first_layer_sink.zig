@@ -1,6 +1,7 @@
 //! CPU leaf sink for quotient tiles in the first FRI commitment.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const m31 = @import("../../core/fields/m31.zig");
 const qm31 = @import("../../core/fields/qm31.zig");
 const work_pool = @import("../work_pool.zig");
@@ -34,7 +35,35 @@ pub fn FirstLayerLeafSink(comptime H: type) type {
                     return error.QuotientTileRangeMismatch;
                 }
 
-                for (0..tile_len) |row| {
+                var row: usize = 0;
+                if (comptime @hasDecl(H, "leafSeed") and @hasDecl(H, "hashPackedLeavesWithSeed4")) {
+                    const seed = H.leafSeed();
+                    while (row + 4 <= tile_len) : (row += 4) {
+                        var values: [4][qm31.SECURE_EXTENSION_DEGREE]M31 = undefined;
+                        var packed_bytes: [4][qm31.SECURE_EXTENSION_DEGREE * @sizeOf(M31)]u8 = undefined;
+                        var messages: [4][]const u8 = undefined;
+                        for (0..4) |lane| {
+                            inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+                                values[lane][coordinate] = tile.coordinates[coordinate][row + lane];
+                            }
+                            if (builtin.cpu.arch.endian() == .little) {
+                                messages[lane] = std.mem.sliceAsBytes(values[lane][0..]);
+                            } else {
+                                inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+                                    const encoded = values[lane][coordinate].toBytesLe();
+                                    const start = coordinate * @sizeOf(M31);
+                                    @memcpy(packed_bytes[lane][start .. start + @sizeOf(M31)], encoded[0..]);
+                                }
+                                messages[lane] = packed_bytes[lane][0..];
+                            }
+                        }
+                        const hashes = H.hashPackedLeavesWithSeed4(seed, &messages);
+                        inline for (0..4) |lane| {
+                            self.leaves[tile.start - self.absolute_start + row + lane] = hashes[lane];
+                        }
+                    }
+                }
+                while (row < tile_len) : (row += 1) {
                     var values: [qm31.SECURE_EXTENSION_DEGREE]M31 = undefined;
                     inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
                         values[coordinate] = tile.coordinates[coordinate][row];
@@ -142,6 +171,45 @@ test "first layer sink enforces a complete ordered partition" {
     const leaves = try sink.takeLeaves();
     defer allocator.free(leaves);
     try std.testing.expectEqual(@as(usize, 4), leaves.len);
+}
+
+test "first layer sink four-lane hashing matches scalar tails" {
+    const H = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Sink = FirstLayerLeafSink(H);
+    const allocator = std.testing.allocator;
+    var sink = try Sink.init(allocator, 8);
+    defer sink.deinit();
+    const factory = sink.factory();
+    var writer = try factory.prepareWriter(0, .{ .start = 0, .end = 8 });
+
+    var values: [qm31.SECURE_EXTENSION_DEGREE][8]M31 = undefined;
+    inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+        for (0..8) |row| {
+            values[coordinate][row] = M31.fromCanonical(@intCast(101 * coordinate + 7 * row + 3));
+        }
+    }
+    var first_coordinates: [qm31.SECURE_EXTENSION_DEGREE][]const M31 = undefined;
+    var final_coordinates: [qm31.SECURE_EXTENSION_DEGREE][]const M31 = undefined;
+    inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+        first_coordinates[coordinate] = values[coordinate][0..7];
+        final_coordinates[coordinate] = values[coordinate][7..8];
+    }
+    try writer.absorb(.{ .start = 0, .coordinates = first_coordinates });
+    try writer.absorb(.{ .start = 7, .coordinates = final_coordinates });
+    try factory.finishWriters(1);
+
+    const leaves = try sink.takeLeaves();
+    defer allocator.free(leaves);
+    for (0..8) |row| {
+        var row_values: [qm31.SECURE_EXTENSION_DEGREE]M31 = undefined;
+        inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+            row_values[coordinate] = values[coordinate][row];
+        }
+        var hasher = H.defaultWithInitialState();
+        hasher.updateLeaf(row_values[0..]);
+        const expected = hasher.finalize();
+        try std.testing.expectEqualSlices(u8, expected[0..], leaves[row][0..]);
+    }
 }
 
 test "first layer sink rejects incomplete and out of order tiles" {
