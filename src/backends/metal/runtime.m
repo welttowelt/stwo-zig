@@ -82,6 +82,7 @@
 @property(nonatomic, strong) id<MTLComputePipelineState> relationScanFinalize;
 @property(nonatomic, strong) id<MTLComputePipelineState> fixedTableLookup;
 @property(nonatomic, strong) id<MTLComputePipelineState> parentsSparse;
+@property(nonatomic, strong) id<MTLComputePipelineState> parentTailSparse;
 @property(nonatomic, strong) id<MTLComputePipelineState> felt252Oracle;
 @property(nonatomic, strong) id<MTLComputePipelineState> ecOpWitness;
 @property(nonatomic, strong) id<MTLComputePipelineState> ecOpLookup;
@@ -202,6 +203,9 @@
 @property(nonatomic, strong) NSData *parentCounts;
 @property(nonatomic, strong) id<MTLBuffer> nodeSeed;
 @property(nonatomic) uint32_t levelCount;
+@property(nonatomic) uint32_t tailStart;
+@property(nonatomic) uint32_t tailThreadgroupWidth;
+@property(nonatomic) NSUInteger tailScratchBytes;
 @end
 @implementation StwoZigMerkleParentChain
 @end
@@ -619,6 +623,7 @@ void *stwo_zig_metal_runtime_create(
         runtime.relationScanFinalize = make_pipeline(device, library, @"stwo_zig_relation_scan_finalize", error_message, error_message_len);
         runtime.fixedTableLookup = make_pipeline(device, library, @"stwo_zig_fixed_table_lookup_sparse", error_message, error_message_len);
         runtime.parentsSparse = make_pipeline(device, library, @"stwo_zig_blake2s_parents_sparse", error_message, error_message_len);
+        runtime.parentTailSparse = make_pipeline(device, library, @"stwo_zig_blake2s_parent_tail_sparse", error_message, error_message_len);
         runtime.felt252Oracle = make_pipeline(device, library, @"stwo_zig_felt252_oracle", error_message, error_message_len);
         runtime.ecOpWitness = make_pipeline(device, library, @"stwo_zig_ec_op_witness", error_message, error_message_len);
         runtime.ecOpLookup = make_pipeline(device, library, @"stwo_zig_ec_op_lookup", error_message, error_message_len);
@@ -671,7 +676,7 @@ void *stwo_zig_metal_runtime_create(
             runtime.circleRfftLayerSparseWide == nil || runtime.circleRfftLastSparseWide == nil) return NULL;
         if (runtime.relationFused == nil || runtime.relationBlockScan == nil ||
             runtime.relationScanBlocks == nil || runtime.relationScanFinalize == nil || runtime.fixedTableLookup == nil ||
-            runtime.parentsSparse == nil || runtime.felt252Oracle == nil || runtime.ecOpWitness == nil ||
+            runtime.parentsSparse == nil || runtime.parentTailSparse == nil || runtime.felt252Oracle == nil || runtime.ecOpWitness == nil ||
             runtime.ecOpLookup == nil || runtime.ecOpBaseFinalize == nil ||
             runtime.compactGather == nil || runtime.compactRadixHistogram == nil || runtime.compactRadixPrefix == nil ||
             runtime.compactRadixScatter == nil || runtime.compactHeads == nil || runtime.compactScanLocal == nil ||
@@ -3060,6 +3065,42 @@ bool stwo_zig_metal_command_epoch_wait(
     }
 }
 
+static bool merkle_ranges_overlap(uint64_t lhs_start, uint64_t lhs_words,
+                                  uint64_t rhs_start, uint64_t rhs_words) {
+    return lhs_start < rhs_start + rhs_words && rhs_start < lhs_start + lhs_words;
+}
+
+static uint32_t merkle_parent_tail_start(
+    const uint32_t *children, const uint32_t *destinations, const uint32_t *counts,
+    uint32_t level_count, uint32_t capacity
+) {
+    if (capacity == 0u || level_count < 2u) return level_count;
+    for (uint32_t candidate = 0u; candidate + 1u < level_count; ++candidate) {
+        uint32_t first_count = counts[candidate];
+        if (first_count > capacity || (first_count & (first_count - 1u)) != 0u) continue;
+        bool eligible = true;
+        for (uint32_t level = candidate + 1u; level < level_count; ++level) {
+            if (children[level] != destinations[level - 1u] ||
+                (uint64_t)counts[level] * 2u != counts[level - 1u]) {
+                eligible = false;
+                break;
+            }
+        }
+        for (uint32_t lhs = candidate; eligible && lhs < level_count; ++lhs) {
+            uint64_t lhs_words = (uint64_t)counts[lhs] * 8u;
+            for (uint32_t rhs = lhs + 1u; rhs < level_count; ++rhs) {
+                if (merkle_ranges_overlap(destinations[lhs], lhs_words,
+                                          destinations[rhs], (uint64_t)counts[rhs] * 8u)) {
+                    eligible = false;
+                    break;
+                }
+            }
+        }
+        if (eligible) return candidate;
+    }
+    return level_count;
+}
+
 void *stwo_zig_metal_merkle_parent_chain_prepare(
     void *runtime_ptr, const uint32_t *child_offsets, const uint32_t *destination_offsets,
     const uint32_t *parent_counts, uint32_t level_count, const uint32_t *node_seed,
@@ -3077,6 +3118,18 @@ void *stwo_zig_metal_merkle_parent_chain_prepare(
         plan.nodeSeed = [runtime.device newBufferWithBytes:node_seed length:8u * sizeof(uint32_t) options:MTLResourceStorageModeShared];
         plan.levelCount = level_count;
         if (plan.nodeSeed == nil) { write_error(error_message, error_message_len, @"Metal Merkle parent-chain allocation failed"); return NULL; }
+        NSUInteger static_bytes = runtime.parentTailSparse.staticThreadgroupMemoryLength;
+        NSUInteger available_bytes = runtime.device.maxThreadgroupMemoryLength > static_bytes ?
+            runtime.device.maxThreadgroupMemoryLength - static_bytes : 0u;
+        NSUInteger capacity = MIN((NSUInteger)256u,
+            MIN(runtime.parentTailSparse.maxTotalThreadsPerThreadgroup,
+                available_bytes / (8u * sizeof(uint32_t))));
+        plan.tailStart = merkle_parent_tail_start(child_offsets, destination_offsets,
+                                                  parent_counts, level_count, (uint32_t)capacity);
+        if (plan.tailStart < level_count) {
+            plan.tailThreadgroupWidth = parent_counts[plan.tailStart];
+            plan.tailScratchBytes = (NSUInteger)plan.tailThreadgroupWidth * 8u * sizeof(uint32_t);
+        }
         return (__bridge_retained void *)plan;
     }
 }
@@ -3091,8 +3144,14 @@ static bool encode_merkle_parent_chain_prepared(
 ) {
     if (runtime == nil || arena == nil || plan == nil || command == nil) return false;
     const uint32_t *children = plan.childOffsets.bytes, *destinations = plan.destinationOffsets.bytes, *counts = plan.parentCounts.bytes;
+    uint64_t arena_words = arena.length / sizeof(uint32_t);
+    for (uint32_t level = 0u; level < plan.levelCount; ++level) {
+        uint64_t child_end = (uint64_t)children[level] + (uint64_t)counts[level] * 16u;
+        uint64_t destination_end = (uint64_t)destinations[level] + (uint64_t)counts[level] * 8u;
+        if (child_end > arena_words || destination_end > arena_words) return false;
+    }
     NSUInteger width = MIN((NSUInteger)256u, runtime.parentsSparse.maxTotalThreadsPerThreadgroup);
-    for (uint32_t level = 0; level < plan.levelCount; ++level) {
+    for (uint32_t level = 0; level < plan.tailStart; ++level) {
         uint32_t child = children[level], destination = destinations[level], count = counts[level];
         id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
         if (encoder == nil) return false;
@@ -3100,6 +3159,23 @@ static bool encode_merkle_parent_chain_prepared(
         [encoder setBytes:&child length:sizeof(child) atIndex:1]; [encoder setBytes:&destination length:sizeof(destination) atIndex:2];
         [encoder setBytes:&count length:sizeof(count) atIndex:3]; [encoder setBuffer:plan.nodeSeed offset:0 atIndex:4];
         [encoder dispatchThreads:MTLSizeMake(count, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+        [encoder endEncoding];
+        *compute_encoders += 1u; *dispatches += 1u;
+    }
+    if (plan.tailStart < plan.levelCount) {
+        uint32_t tail_levels = plan.levelCount - plan.tailStart;
+        id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
+        if (encoder == nil) return false;
+        [encoder setComputePipelineState:runtime.parentTailSparse];
+        [encoder setBuffer:arena offset:0 atIndex:0];
+        [encoder setBytes:children + plan.tailStart length:(NSUInteger)tail_levels * sizeof(uint32_t) atIndex:1];
+        [encoder setBytes:destinations + plan.tailStart length:(NSUInteger)tail_levels * sizeof(uint32_t) atIndex:2];
+        [encoder setBytes:counts + plan.tailStart length:(NSUInteger)tail_levels * sizeof(uint32_t) atIndex:3];
+        [encoder setBytes:&tail_levels length:sizeof(tail_levels) atIndex:4];
+        [encoder setBuffer:plan.nodeSeed offset:0 atIndex:5];
+        [encoder setThreadgroupMemoryLength:plan.tailScratchBytes atIndex:0];
+        [encoder dispatchThreadgroups:MTLSizeMake(1u, 1u, 1u)
+                 threadsPerThreadgroup:MTLSizeMake(plan.tailThreadgroupWidth, 1u, 1u)];
         [encoder endEncoding];
         *compute_encoders += 1u; *dispatches += 1u;
     }

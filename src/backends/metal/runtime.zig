@@ -1274,6 +1274,7 @@ pub const Runtime = struct {
         return CommandEpoch.init(
             self.handle,
             arena.handle,
+            arena.byte_length,
         ) catch MetalError.CommandEpochFailed;
     }
 
@@ -1722,8 +1723,24 @@ pub const Runtime = struct {
         parent_counts: []const u32,
         node_seed: [8]u32,
     ) MetalError!MerkleParentChainPlan {
-        if (child_offsets.len == 0 or child_offsets.len != destination_offsets.len or child_offsets.len != parent_counts.len)
+        if (child_offsets.len == 0 or child_offsets.len > std.math.maxInt(u32) or
+            child_offsets.len != destination_offsets.len or child_offsets.len != parent_counts.len)
             return MetalError.CommitmentFailed;
+        var required_words: u64 = 0;
+        for (child_offsets, destination_offsets, parent_counts) |child, destination, count| {
+            if (count == 0) return MetalError.CommitmentFailed;
+            const child_words = std.math.mul(u64, count, 16) catch return MetalError.CommitmentFailed;
+            const destination_words = std.math.mul(u64, count, 8) catch return MetalError.CommitmentFailed;
+            required_words = @max(
+                required_words,
+                std.math.add(u64, child, child_words) catch return MetalError.CommitmentFailed,
+                std.math.add(u64, destination, destination_words) catch return MetalError.CommitmentFailed,
+            );
+        }
+        const required_arena_bytes = std.math.cast(
+            usize,
+            std.math.mul(u64, required_words, @sizeOf(u32)) catch return MetalError.CommitmentFailed,
+        ) orelse return MetalError.CommitmentFailed;
         var message: [1024]u8 = [_]u8{0} ** 1024;
         const handle = stwo_zig_metal_merkle_parent_chain_prepare(
             self.handle,
@@ -1738,7 +1755,7 @@ pub const Runtime = struct {
             std.log.err("Metal Merkle parent-chain preparation failed: {s}", .{std.mem.sliceTo(&message, 0)});
             return MetalError.CommitmentFailed;
         };
-        return .{ .handle = handle };
+        return .{ .handle = handle, .required_arena_bytes = required_arena_bytes };
     }
 
     pub fn prepareMerkleLeaves(
@@ -1832,6 +1849,7 @@ pub const Runtime = struct {
     }
 
     pub fn merkleParentChainPrepared(self: *Runtime, arena: ResidentBuffer, plan: MerkleParentChainPlan) MetalError!f64 {
+        if (plan.required_arena_bytes > arena.byte_length) return MetalError.CommitmentFailed;
         var gpu_ms: f64 = 0;
         var message: [1024]u8 = [_]u8{0} ** 1024;
         if (!stwo_zig_metal_merkle_parent_chain_prepared(self.handle, arena.handle, plan.handle, &gpu_ms, &message, message.len)) {
@@ -3864,6 +3882,7 @@ pub const FixedTableBatchPlan = struct {
 
 pub const MerkleParentChainPlan = struct {
     handle: *anyopaque,
+    required_arena_bytes: usize,
 
     pub fn deinit(self: *MerkleParentChainPlan) void {
         stwo_zig_metal_merkle_parent_chain_destroy(self.handle);

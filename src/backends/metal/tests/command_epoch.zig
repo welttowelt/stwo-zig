@@ -355,9 +355,9 @@ test "metal: compact streaming commitment epoch preserves evaluations and root" 
     try std.testing.expectEqual(@as(u64, 1), stats.command_buffers);
     try std.testing.expectEqual(@as(u64, 1), stats.wait_count);
     try std.testing.expectEqual(@as(u64, 0), stats.intermediate_wait_count);
-    try std.testing.expectEqual(@as(u64, 23), stats.compute_encoders);
+    try std.testing.expectEqual(@as(u64, 17), stats.compute_encoders);
     try std.testing.expectEqual(@as(u64, 1), stats.blit_encoders);
-    try std.testing.expectEqual(@as(u64, 23), stats.dispatches);
+    try std.testing.expectEqual(@as(u64, 17), stats.dispatches);
     try std.testing.expectEqual(@as(u64, 5), 6 - stats.command_buffers);
     try std.testing.expectEqual(@as(u64, 5), 6 - stats.wait_count);
     try std.testing.expect(stats.gpu_milliseconds > 0);
@@ -410,6 +410,116 @@ test "metal: command epoch retains a prepared plan through completion" {
     try std.testing.expectEqual(@as(u64, 1), stats.wait_count);
     try std.testing.expectEqual(@as(u64, 1), stats.blit_encoders);
     try std.testing.expectEqualSlices(u32, words[0..16], words[64..80]);
+}
+
+test "metal: fused parent tail retains its plan and materializes every layer" {
+    var runtime = try runtime_mod.Runtime.init();
+    defer runtime.deinit();
+    var arena = try runtime.allocateResidentBuffer(4096);
+    defer arena.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
+    var children: [8]Hasher.Hash = undefined;
+    for (&children, 0..) |*hash, child| {
+        for (hash, 0..) |*byte, index| byte.* = @intCast((child * 37 + index * 13 + 11) & 0xff);
+    }
+    @memcpy(std.mem.sliceAsBytes(words[0 .. children.len * 8]), std.mem.sliceAsBytes(&children));
+
+    var middle: [4]Hasher.Hash = undefined;
+    for (&middle, 0..) |*hash, index|
+        hash.* = Hasher.hashChildrenWithSeed(Hasher.nodeSeed(), .{ .left = children[index * 2], .right = children[index * 2 + 1] });
+    var upper: [2]Hasher.Hash = undefined;
+    for (&upper, 0..) |*hash, index|
+        hash.* = Hasher.hashChildrenWithSeed(Hasher.nodeSeed(), .{ .left = middle[index * 2], .right = middle[index * 2 + 1] });
+    const root = Hasher.hashChildrenWithSeed(Hasher.nodeSeed(), .{ .left = upper[0], .right = upper[1] });
+
+    const middle_offset: u32 = 128;
+    const upper_offset: u32 = 192;
+    const root_offset: u32 = 224;
+    var plan = try runtime.prepareMerkleParentChain(
+        &.{ 0, middle_offset, upper_offset },
+        &.{ middle_offset, upper_offset, root_offset },
+        &.{ 4, 2, 1 },
+        Hasher.nodeSeed(),
+    );
+    var plan_live = true;
+    defer if (plan_live) plan.deinit();
+    var epoch = try runtime.beginCommandEpoch(arena);
+    defer epoch.deinit();
+    try epoch.encodeMerkleParentChain(plan);
+    plan.deinit();
+    plan_live = false;
+    try epoch.submit();
+    const stats = try epoch.wait();
+
+    try std.testing.expectEqual(@as(u64, 1), stats.compute_encoders);
+    try std.testing.expectEqual(@as(u64, 1), stats.dispatches);
+    try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&middle), std.mem.sliceAsBytes(words[middle_offset .. middle_offset + middle.len * 8]));
+    try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&upper), std.mem.sliceAsBytes(words[upper_offset .. upper_offset + upper.len * 8]));
+    try std.testing.expectEqualSlices(u8, &root, std.mem.sliceAsBytes(words[root_offset .. root_offset + 8]));
+}
+
+test "metal: parent tail capacity preserves a per-level prefix" {
+    var runtime = try runtime_mod.Runtime.init();
+    defer runtime.deinit();
+    var arena = try runtime.allocateResidentBuffer(64 * 1024);
+    defer arena.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
+    var children: [1024]Hasher.Hash = undefined;
+    for (&children, 0..) |*hash, child| {
+        for (hash, 0..) |*byte, index| byte.* = @intCast((child * 29 + index * 17 + 5) & 0xff);
+    }
+    @memcpy(std.mem.sliceAsBytes(words[0 .. children.len * 8]), std.mem.sliceAsBytes(&children));
+
+    var level0: [512]Hasher.Hash = undefined;
+    for (&level0, 0..) |*hash, index|
+        hash.* = Hasher.hashChildrenWithSeed(Hasher.nodeSeed(), .{ .left = children[index * 2], .right = children[index * 2 + 1] });
+    var level1: [256]Hasher.Hash = undefined;
+    for (&level1, 0..) |*hash, index|
+        hash.* = Hasher.hashChildrenWithSeed(Hasher.nodeSeed(), .{ .left = level0[index * 2], .right = level0[index * 2 + 1] });
+    var level2: [128]Hasher.Hash = undefined;
+    for (&level2, 0..) |*hash, index|
+        hash.* = Hasher.hashChildrenWithSeed(Hasher.nodeSeed(), .{ .left = level1[index * 2], .right = level1[index * 2 + 1] });
+
+    const level0_offset: u32 = 8192;
+    const level1_offset: u32 = 12288;
+    const level2_offset: u32 = 14336;
+    var plan = try runtime.prepareMerkleParentChain(
+        &.{ 0, level0_offset, level1_offset },
+        &.{ level0_offset, level1_offset, level2_offset },
+        &.{ 512, 256, 128 },
+        Hasher.nodeSeed(),
+    );
+    defer plan.deinit();
+    var epoch = try runtime.beginCommandEpoch(arena);
+    defer epoch.deinit();
+    try epoch.encodeMerkleParentChain(plan);
+    try epoch.submit();
+    const stats = try epoch.wait();
+
+    try std.testing.expectEqual(@as(u64, 2), stats.compute_encoders);
+    try std.testing.expectEqual(@as(u64, 2), stats.dispatches);
+    try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&level0), std.mem.sliceAsBytes(words[level0_offset .. level0_offset + level0.len * 8]));
+    try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&level1), std.mem.sliceAsBytes(words[level1_offset .. level1_offset + level1.len * 8]));
+    try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&level2), std.mem.sliceAsBytes(words[level2_offset .. level2_offset + level2.len * 8]));
+}
+
+test "metal: parent chain preparation and arena bounds fail closed" {
+    var runtime = try runtime_mod.Runtime.init();
+    defer runtime.deinit();
+    try std.testing.expectError(
+        runtime_mod.MetalError.CommitmentFailed,
+        runtime.prepareMerkleParentChain(&.{0}, &.{32}, &.{0}, Hasher.nodeSeed()),
+    );
+
+    var arena = try runtime.allocateResidentBuffer(256);
+    defer arena.deinit();
+    var plan = try runtime.prepareMerkleParentChain(&.{48}, &.{0}, &.{4}, Hasher.nodeSeed());
+    defer plan.deinit();
+    var epoch = try runtime.beginCommandEpoch(arena);
+    defer epoch.deinit();
+    try std.testing.expectError(runtime_mod.MetalError.CommandEpochFailed, epoch.encodeMerkleParentChain(plan));
+    try std.testing.expectEqual(runtime_mod.CommandEpoch.State.failed, epoch.state);
+    try std.testing.expectError(runtime_mod.MetalError.CommandEpochFailed, epoch.submit());
 }
 
 test "metal: empty command epoch fails closed before submission" {

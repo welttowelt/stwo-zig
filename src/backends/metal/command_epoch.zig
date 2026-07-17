@@ -94,6 +94,7 @@ comptime {
 /// encoded plan until completion. Treat this value as move-only.
 pub const CommandEpoch = struct {
     handle: *anyopaque,
+    arena_byte_length: usize,
     state: State = .encoding,
     encoded_operations: u32 = 0,
 
@@ -104,7 +105,7 @@ pub const CommandEpoch = struct {
         failed,
     };
 
-    pub fn init(runtime: *anyopaque, arena: *anyopaque) Error!CommandEpoch {
+    pub fn init(runtime: *anyopaque, arena: *anyopaque, arena_byte_length: usize) Error!CommandEpoch {
         var message: [1024]u8 = [_]u8{0} ** 1024;
         const handle = stwo_zig_metal_command_epoch_create(
             runtime,
@@ -115,7 +116,7 @@ pub const CommandEpoch = struct {
             std.log.err("Metal command epoch creation failed: {s}", .{std.mem.sliceTo(&message, 0)});
             return Error.CommandEpochFailed;
         };
-        return .{ .handle = handle };
+        return .{ .handle = handle, .arena_byte_length = arena_byte_length };
     }
 
     pub fn deinit(self: *CommandEpoch) void {
@@ -206,6 +207,7 @@ pub const CommandEpoch = struct {
     }
 
     pub fn encodeMerkleParentChain(self: *CommandEpoch, plan: anytype) Error!void {
+        if (plan.required_arena_bytes > self.arena_byte_length) return self.failWithoutLog();
         try self.encodePlan(stwo_zig_metal_command_epoch_encode_merkle_parent_chain, plan, "Merkle parent chain");
     }
 

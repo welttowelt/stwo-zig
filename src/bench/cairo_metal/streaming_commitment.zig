@@ -375,7 +375,7 @@ test "metal: bounded Cairo benchmark reaches the production streaming commitment
     try std.testing.expectEqual(@as(u64, 1), stats.command_buffers);
     try std.testing.expectEqual(@as(u64, 1), stats.wait_count);
     try std.testing.expectEqual(@as(u64, 0), stats.intermediate_wait_count);
-    try std.testing.expectEqual(@as(u64, 23), stats.compute_encoders);
+    try std.testing.expectEqual(@as(u64, 17), stats.compute_encoders);
     try std.testing.expectEqual(@as(u64, 1), stats.blit_encoders);
-    try std.testing.expectEqual(@as(u64, 23), stats.dispatches);
+    try std.testing.expectEqual(@as(u64, 17), stats.dispatches);
 }
