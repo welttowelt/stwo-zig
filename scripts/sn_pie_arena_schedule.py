@@ -537,64 +537,145 @@ def update_execution_table_geometry(
     return changed
 
 
-def read_relation_components(path: Path) -> list[tuple[str, list[tuple[int, int]]]]:
+def read_relation_components(
+    path: Path,
+) -> list[tuple[str, list[tuple[int, int, int, int]]]]:
     data = path.read_bytes()
     if data[:8] != RELATION_MAGIC or struct.unpack_from("<I", data, 8)[0] != 1:
         raise ValueError("unsupported relation bundle")
     count = struct.unpack_from("<I", data, 20)[0]
     offset = 24
-    result: list[tuple[str, list[tuple[int, int]]]] = []
+    result: list[tuple[str, list[tuple[int, int, int, int]]]] = []
     for _ in range(count):
         name_len, trace_count, _lookup_words = struct.unpack_from("<HHI", data, offset)
         offset += 8
         name = data[offset : offset + name_len].decode()
         offset += name_len
-        traces: list[tuple[int, int]] = []
+        traces: list[tuple[int, int, int, int]] = []
         for _ in range(trace_count):
-            part, _layout, _layout_arg, output_columns = struct.unpack_from("<IIII", data, offset)
+            part, layout, layout_arg, output_columns = struct.unpack_from(
+                "<IIII", data, offset
+            )
             offset += 16 + output_columns * 16 * 4
-            traces.append((part, output_columns))
+            traces.append((part, layout, layout_arg, output_columns))
         result.append((name, traces))
     if offset != len(data):
         raise ValueError("trailing relation bundle data")
     return result
 
 
-def retarget_relation_denominators(
-    schedule: list[dict[str, object]], relation_path: Path
-) -> int:
+def relation_source_count(layout: int, layout_arg: int) -> int:
+    if layout == 0:
+        return 1
+    if layout == 1:
+        return layout_arg * 2
+    if layout in (2, 3):
+        return layout_arg + 1
+    if layout == 4:
+        return layout_arg
+    raise ValueError(f"unsupported relation source layout: {layout}")
+
+
+def rebuild_relation_geometry(
+    schedule: list[dict[str, object]],
+    relation_path: Path,
+    target_components: list[str],
+) -> tuple[list[dict[str, object]], int, int]:
     groups = component_groups(schedule, "InteractionTrace")
-    denominators = [entry for entry in schedule if entry["purpose"] == "RelationDenominators"]
-    index = 0
-    changed = 0
+    purposes = (
+        "RelationSourcePointers",
+        "RelationOutputPointers",
+        "RelationDenominators",
+        "RelationClaimedSum",
+    )
+    templates = {
+        purpose: next(
+            (entry for entry in schedule if entry["purpose"] == purpose), None
+        )
+        for purpose in purposes
+    }
+    if any(template is None for template in templates.values()):
+        raise ValueError("schedule is missing relation geometry templates")
+    canonical_ordinals = {
+        component: ordinal for ordinal, component in enumerate(target_components)
+    }
+    if len(canonical_ordinals) != len(target_components):
+        raise ValueError("target proof has duplicate relation components")
+
+    rebuilt: dict[str, list[dict[str, object]]] = {
+        purpose: [] for purpose in purposes
+    }
+    claimed_ordinals: list[int] = []
     for component, traces in read_relation_components(relation_path):
         component_groups_ = groups.get(component, [])
         if not component_groups_:
             continue
         group_index = 0
-        for trace_index, (part, output_columns) in enumerate(traces):
-            remaining_fixed = sum(1 for later_part, _ in traces[trace_index + 1 :] if later_part != 1)
+        for trace_index, (part, layout, layout_arg, output_columns) in enumerate(traces):
+            remaining_fixed = sum(
+                1 for later_part, *_ in traces[trace_index + 1 :] if later_part != 1
+            )
             instances = len(component_groups_) - group_index - remaining_fixed if part == 1 else 1
             if instances <= 0:
                 raise ValueError(f"invalid relation group count for {component}")
             for _ in range(instances):
-                if index >= len(denominators) or group_index >= len(component_groups_):
-                    raise ValueError("relation denominator count mismatch")
+                if group_index >= len(component_groups_):
+                    raise ValueError("relation group count mismatch")
                 group = component_groups_[group_index]
                 if len(group) != output_columns * 4:
                     raise ValueError(f"relation output mismatch for {component}")
                 rows = int(group[0]["len_words"])
-                expected = rows * output_columns * 4
-                old = int(denominators[index]["len_words"])
-                denominators[index]["len_words"] = expected
-                changed += old != expected
-                index += 1
+                if any(int(entry["len_words"]) != rows for entry in group):
+                    raise ValueError(f"nonuniform relation output rows for {component}")
+                canonical_label = (
+                    "memory_id_to_small"
+                    if component == "memory_id_to_big" and part == 2
+                    else component
+                )
+                canonical_ordinal = canonical_ordinals.get(canonical_label)
+                if canonical_ordinal is None:
+                    raise ValueError(
+                        f"relation component {canonical_label} is absent from target proof"
+                    )
+                claimed_ordinals.append(canonical_ordinal)
+                target_words = {
+                    "RelationSourcePointers": relation_source_count(
+                        layout, layout_arg
+                    )
+                    * 2,
+                    "RelationOutputPointers": output_columns * 4 * 2,
+                    "RelationDenominators": rows * output_columns * 4,
+                    "RelationClaimedSum": 4,
+                }
+                for purpose in purposes:
+                    relation_entry = copy.deepcopy(templates[purpose])
+                    relation_entry["ordinal"] = canonical_ordinal
+                    relation_entry["len_words"] = target_words[purpose]
+                    rebuilt[purpose].append(relation_entry)
                 group_index += 1
         if group_index != len(component_groups_):
             raise ValueError(f"unused relation groups for {component}")
-    if index != len(denominators):
-        raise ValueError(f"updated {index} of {len(denominators)} relation denominators")
-    return changed
+    if sorted(claimed_ordinals) != list(range(len(target_components))):
+        raise ValueError("relation bundle does not cover every target proof component once")
+
+    result: list[dict[str, object]] = []
+    inserted: set[str] = set()
+    removed = 0
+    for entry in schedule:
+        purpose = str(entry["purpose"])
+        replacements = rebuilt.get(purpose)
+        if replacements is None:
+            result.append(entry)
+            continue
+        removed += 1
+        if purpose not in inserted:
+            result.extend(replacements)
+            inserted.add(purpose)
+    if inserted != set(purposes):
+        raise ValueError("schedule relation geometry replacement is incomplete")
+    for index, entry in enumerate(result):
+        entry["id"] = index
+    return result, removed + sum(map(len, rebuilt.values())), len(claimed_ordinals)
 
 
 def validate_composition_encoding(data: bytes) -> None:
@@ -1193,7 +1274,9 @@ def retarget(
         input_path, pedersen_source_rows, poseidon_source_rows
     )
     execution_changes = update_execution_table_geometry(schedule, pairs, input_metadata)
-    relation_changes = retarget_relation_denominators(schedule, relation_path)
+    schedule, relation_changes, relation_instances = rebuild_relation_geometry(
+        schedule, relation_path, target_components
+    )
     transcript_changes = update_transcript_geometry(schedule, transcript_path)
     schedule, quotient_changes, quotient_log = update_quotient_geometry(schedule, quotient_path)
     composition_log = max(composition_logs(composition_path))
@@ -1256,7 +1339,8 @@ def retarget(
         "trace_group_entries_changed": trace_group_changes,
         "component_entries_changed": component_changes,
         "execution_entries_changed": execution_changes,
-        "relation_denominators_changed": relation_changes,
+        "relation_entries_rebuilt": relation_changes,
+        "relation_instances": relation_instances,
         "transcript_entries_changed": transcript_changes,
         "quotient_entries_changed": quotient_changes,
         "composition_entries_changed": composition_changes,

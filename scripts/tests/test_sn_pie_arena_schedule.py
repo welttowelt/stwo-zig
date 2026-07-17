@@ -444,7 +444,77 @@ class ArenaScheduleTests(unittest.TestCase):
         )
         self.assertEqual(len(components), 67)
         self.assertEqual(components[0][0], "add_ap_opcode")
-        self.assertEqual(components[0][1][0][1], 4)
+        self.assertEqual(components[0][1][0], (0, 0, 55, 4))
+
+    def test_relation_geometry_is_rebuilt_from_projected_bundle(self) -> None:
+        schedule: list[dict[str, object]] = []
+
+        def add(
+            purpose: str,
+            words: int,
+            component: str | None = None,
+            ordinal: int = 0,
+        ) -> None:
+            schedule.append(
+                entry(len(schedule), purpose, words, component, ordinal)
+            )
+
+        for ordinal in range(12):
+            add("InteractionTrace", 16, "alpha", ordinal)
+        for ordinal in range(8):
+            add("InteractionTrace", 32, "memory_id_to_big", ordinal)
+        for ordinal in range(12):
+            add("InteractionTrace", 64, "memory_id_to_big", ordinal)
+        for purpose in (
+            "RelationSourcePointers",
+            "RelationOutputPointers",
+            "RelationDenominators",
+            "RelationClaimedSum",
+        ):
+            add(purpose, 999)
+
+        relation = bytearray(schedule_tool.RELATION_MAGIC)
+        relation.extend(struct.pack("<IQI", 1, 0x73963831C53DF4A2, 2))
+
+        def add_component(
+            name: str, traces: list[tuple[int, int, int, int]]
+        ) -> None:
+            encoded = name.encode()
+            relation.extend(
+                struct.pack("<HHI", len(encoded), len(traces), 0xFFFFFFFF)
+            )
+            relation.extend(encoded)
+            for part, layout, layout_arg, output_columns in traces:
+                relation.extend(
+                    struct.pack(
+                        "<IIII", part, layout, layout_arg, output_columns
+                    )
+                )
+                relation.extend(bytes(output_columns * 16 * 4))
+
+        add_component("alpha", [(0, 0, 9, 3)])
+        add_component("memory_id_to_big", [(1, 2, 7, 2), (2, 3, 11, 3)])
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "relations.bin"
+            path.write_bytes(relation)
+            rebuilt, _changed, instances = schedule_tool.rebuild_relation_geometry(
+                schedule,
+                path,
+                ["alpha", "memory_id_to_big", "memory_id_to_small"],
+            )
+
+        self.assertEqual(instances, 3)
+        expected_words = {
+            "RelationSourcePointers": [2, 16, 24],
+            "RelationOutputPointers": [24, 16, 24],
+            "RelationDenominators": [192, 256, 768],
+            "RelationClaimedSum": [4, 4, 4],
+        }
+        for purpose, words in expected_words.items():
+            entries = [value for value in rebuilt if value["purpose"] == purpose]
+            self.assertEqual([value["len_words"] for value in entries], words)
+            self.assertEqual([value["ordinal"] for value in entries], [0, 1, 2])
 
     def test_retention_sources_are_materialized_in_coefficient_order(self) -> None:
         schedule: list[dict[str, object]] = []
