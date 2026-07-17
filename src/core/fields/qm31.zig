@@ -89,7 +89,9 @@ pub const QM31 = struct {
     }
 
     pub inline fn eql(lhs: QM31, rhs: QM31) bool {
-        return lhs.c0.eql(rhs.c0) and lhs.c1.eql(rhs.c1);
+        comptime std.debug.assert(@sizeOf(QM31) == SECURE_EXTENSION_DEGREE * @sizeOf(M31));
+        // Canonical, padding-free limb bytes avoid an aggregate comparison miscompile in Zig 0.15.2.
+        return std.mem.eql(u8, std.mem.asBytes(&lhs), std.mem.asBytes(&rhs));
     }
 
     pub inline fn add(lhs: QM31, rhs: QM31) QM31 {
