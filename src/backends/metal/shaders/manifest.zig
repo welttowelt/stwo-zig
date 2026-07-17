@@ -137,6 +137,7 @@ pub const TranslationUnit = struct {
 const legacy_source = @embedFile("../kernels.metal");
 const base_source = @embedFile("include/base.metal");
 const blake2s_source = @embedFile("include/blake2s.metal");
+const merkle_source = @embedFile("include/merkle.metal");
 const m31_source = @embedFile("include/m31.metal");
 const extension_fields_source = @embedFile("include/extension_fields.metal");
 const circle_source = @embedFile("include/circle.metal");
@@ -153,6 +154,7 @@ const polynomial_eval_source = @embedFile("core/polynomial_eval.metal");
 pub const support_headers = [_]TranslationUnit{
     .{ .path = "src/backends/metal/shaders/include/base.metal", .source = base_source },
     .{ .path = "src/backends/metal/shaders/include/blake2s.metal", .source = blake2s_source },
+    .{ .path = "src/backends/metal/shaders/include/merkle.metal", .source = merkle_source },
     .{ .path = "src/backends/metal/shaders/include/m31.metal", .source = m31_source },
     .{ .path = "src/backends/metal/shaders/include/extension_fields.metal", .source = extension_fields_source },
     .{ .path = "src/backends/metal/shaders/include/circle.metal", .source = circle_source },
@@ -178,6 +180,8 @@ pub const amalgamated_source: [:0]const u8 = "#define STWO_ZIG_AMALGAMATED 1\n" 
     base_source ++
     "\n#line 1 \"src/backends/metal/shaders/include/blake2s.metal\"\n" ++
     blake2s_source ++
+    "\n#line 1 \"src/backends/metal/shaders/include/merkle.metal\"\n" ++
+    merkle_source ++
     "\n#line 1 \"src/backends/metal/shaders/include/m31.metal\"\n" ++
     m31_source ++
     "\n#line 1 \"src/backends/metal/shaders/include/extension_fields.metal\"\n" ++
@@ -310,6 +314,7 @@ test "polynomial evaluation declares standalone field and ABI dependencies" {
 test "legacy shader unit declares extracted support dependencies" {
     const dependencies = [_][]const u8{
         "#include \"stwo_zig/blake2s.metal\"",
+        "#include \"stwo_zig/merkle.metal\"",
         "#include \"stwo_zig/m31.metal\"",
         "#include \"stwo_zig/extension_fields.metal\"",
         "#include \"stwo_zig/circle.metal\"",
@@ -322,6 +327,21 @@ test "legacy shader unit declares extracted support dependencies" {
     for (dependencies) |dependency| {
         try std.testing.expect(std.mem.indexOf(u8, legacy_source, dependency) != null);
     }
+}
+
+test "Merkle support has one guarded lifted-index owner and no exported kernels" {
+    const owned_definitions = [_][]const u8{
+        "inline uint lifted_index(",
+        "inline uint decommit_lifted_index(",
+    };
+    for (owned_definitions) |definition| {
+        try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, merkle_source, definition));
+        try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, amalgamated_source, definition));
+        try std.testing.expectEqual(@as(usize, 0), std.mem.count(u8, legacy_source, definition));
+    }
+    try std.testing.expect(std.mem.startsWith(u8, merkle_source, "#ifndef STWO_ZIG_MERKLE_METAL"));
+    try std.testing.expectEqual(@as(usize, 0), std.mem.count(u8, merkle_source, "kernel void stwo_zig_"));
+    try std.testing.expect(std.mem.indexOf(u8, merkle_source, "#include \"stwo_zig/base.metal\"") != null);
 }
 
 test "circle support has one guarded helper owner and no exported kernels" {

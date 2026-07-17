@@ -3,6 +3,7 @@ using namespace metal;
 
 #ifndef STWO_ZIG_AMALGAMATED
 #include "stwo_zig/blake2s.metal"
+#include "stwo_zig/merkle.metal"
 #include "stwo_zig/m31.metal"
 #include "stwo_zig/extension_fields.metal"
 #include "stwo_zig/circle.metal"
@@ -12,11 +13,6 @@ using namespace metal;
 #include "stwo_zig/witness_tables.metal"
 #include "stwo_zig/witness_deductions.metal"
 #endif
-
-inline uint lifted_index(uint index, uint log_ratio) {
-    if (log_ratio == 0u) return index;
-    return ((index >> (log_ratio + 1u)) << 1u) | (index & 1u);
-}
 
 kernel void stwo_zig_blake2s_leaves(
     device const uint *flat_columns [[buffer(0)]],
@@ -2380,11 +2376,6 @@ kernel void stwo_zig_decommit_prepare_trace_queries_resident(
     }
     arena[leaf_count_base] = decommit_sort_unique(arena + leaf_indices_base, leaves);
     (void)leaf_log;
-}
-
-inline uint decommit_lifted_index(uint position, uint lifting_log, uint column_log) {
-    uint shift = lifting_log - column_log;
-    return shift == 0u ? position : ((position >> (shift + 1u)) << 1u) + (position & 1u);
 }
 
 inline ulong decommit_join_word_offset(uint low, uint high) {
