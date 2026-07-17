@@ -8,8 +8,6 @@ from dataclasses import dataclass
 
 
 REPORT_SCHEMA_VERSION = 3
-SUMMARY_SCHEMA_VERSION = 3
-SUMMARY_PROTOCOL = "native_proof_cross_backend_matrix_v3"
 
 INTEROP_ARTIFACT_SCHEMA_VERSION = 1
 INTEROP_UPSTREAM_COMMIT = "a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2"
@@ -26,7 +24,6 @@ DEFAULT_WORKLOADS = (
     "poseidon:log_n_instances=13",
 )
 DEFAULT_WARMUPS = 10
-DEFAULT_SAMPLES = 5
 DEFAULT_PROTOCOL = "functional"
 DEFAULT_COOLDOWN_SECONDS = 1.0
 

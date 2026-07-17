@@ -6,7 +6,9 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
+import sys
 import tempfile
 import time
 from contextlib import contextmanager
@@ -31,6 +33,12 @@ PROFILE_ENV_VARS = (
 MAX_STDOUT_BYTES = 64 * 1024 * 1024
 MAX_STDERR_BYTES = 64 * 1024 * 1024
 MAX_PROOF_ARTIFACT_BYTES = 64 * 1024 * 1024
+RESOURCE_TIME_BINARY = Path("/usr/bin/time")
+DARWIN_MAX_RSS_RE = re.compile(rb"^\s*(\d+)\s+maximum resident set size\s*$", re.MULTILINE)
+GNU_MAX_RSS_RE = re.compile(
+    rb"^\s*Maximum resident set size \(kbytes\):\s*(\d+)\s*$",
+    re.MULTILINE,
+)
 
 
 def sha256_file(path: Path) -> str:
@@ -110,6 +118,37 @@ def require_binary(path: Path, lane: str) -> Path:
     if not os.access(resolved, os.X_OK):
         raise MatrixError(f"{lane} benchmark binary is not executable: {resolved}")
     return resolved
+
+
+def resource_measurement_command(command: list[str]) -> tuple[list[str], str]:
+    if not RESOURCE_TIME_BINARY.is_file():
+        raise MatrixError(f"resource measurement binary is missing: {RESOURCE_TIME_BINARY}")
+    if sys.platform == "darwin":
+        return [str(RESOURCE_TIME_BINARY), "-l", *command], "darwin_usr_bin_time_l_v1"
+    if sys.platform.startswith("linux"):
+        return [str(RESOURCE_TIME_BINARY), "-v", *command], "gnu_usr_bin_time_v_v1"
+    raise MatrixError(f"peak RSS measurement is unsupported on {sys.platform}")
+
+
+def parse_process_resources(stderr: bytes, measurement: str) -> dict[str, Any]:
+    if measurement == "darwin_usr_bin_time_l_v1":
+        matches = DARWIN_MAX_RSS_RE.findall(stderr)
+        peak_rss_kib = (int(matches[0]) + 1023) // 1024 if len(matches) == 1 else None
+    elif measurement == "gnu_usr_bin_time_v_v1":
+        matches = GNU_MAX_RSS_RE.findall(stderr)
+        peak_rss_kib = int(matches[0]) if len(matches) == 1 else None
+    else:
+        raise MatrixError(f"unsupported process-resource measurement: {measurement}")
+    if peak_rss_kib is None or peak_rss_kib <= 0:
+        raise MatrixError(
+            f"resource measurement {measurement} did not report one positive peak RSS"
+        )
+    return {
+        "measurement": measurement,
+        "measurement_locale": "C",
+        "normalized_unit": "KiB",
+        "peak_rss_kib": peak_rss_kib,
+    }
 
 
 def as_bytes(value: bytes | str | None) -> bytes:
@@ -310,6 +349,7 @@ def run_lane(
         args.protocol,
         proof_artifact_path,
     )
+    measured_command, resource_measurement = resource_measurement_command(command)
     stdout_capture = tempfile.NamedTemporaryFile(
         dir=artifact_dir,
         prefix=f".{lane}.stdout.",
@@ -323,12 +363,13 @@ def run_lane(
     started = time.perf_counter()
     try:
         completed = subprocess.run(
-            command,
+            measured_command,
             cwd=ROOT,
             stdout=stdout_capture,
             stderr=stderr_capture,
             timeout=args.timeout_seconds,
             check=False,
+            env={**os.environ, "LC_ALL": "C"},
         )
     except subprocess.TimeoutExpired as error:
         publish_captures(
@@ -360,10 +401,12 @@ def run_lane(
         raise MatrixError(
             f"{lane} benchmark exited {completed.returncode}; stderr tail:\n{tail}"
         )
+    resources = parse_process_resources(stderr, resource_measurement)
     return {
         "lane": lane,
         "command": command,
         "process_wall_seconds": process_wall_seconds,
+        "resources": resources,
         "stdout_path": stdout_path,
         "stderr_path": stderr_path,
         "report": decode_report(stdout, lane),

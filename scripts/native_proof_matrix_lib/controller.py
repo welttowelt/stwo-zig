@@ -21,6 +21,15 @@ from .artifacts import (
     sha256_file,
 )
 from .contract import validate_pair, validate_proof_artifact, validate_report
+from .evidence import (
+    MIN_FORMAL_MEASURED_PROOFS,
+    SUMMARY_PROTOCOL,
+    SUMMARY_SCHEMA_VERSION,
+    stability_evidence,
+    validate_process_resources,
+    validate_rust_oracle_receipt,
+    validate_stability,
+)
 from .model import (
     LANES,
     MAX_COMMITTED_TRACE_CELLS,
@@ -28,8 +37,6 @@ from .model import (
     MAX_MATRIX_ROWS,
     MAX_SEQUENCE_LEN,
     MAX_TOTAL_REQUEST_CELLS,
-    SUMMARY_PROTOCOL,
-    SUMMARY_SCHEMA_VERSION,
     MatrixError,
     Workload,
 )
@@ -48,6 +55,7 @@ def numeric_summary(values: list[float]) -> dict[str, float]:
 def lane_metrics(
     report: dict[str, Any],
     workload: Workload,
+    resources: dict[str, Any],
 ) -> dict[str, dict[str, float]]:
     samples = report["timing"]["samples"]
     metrics = {
@@ -68,6 +76,7 @@ def lane_metrics(
     metrics["backend_init_seconds"] = numeric_summary(
         [float(report["timing"]["backend_init_seconds"])]
     )
+    metrics["peak_rss_kib"] = numeric_summary([float(resources["peak_rss_kib"])])
     return metrics
 
 
@@ -114,6 +123,9 @@ def summarize_lane(
 ) -> dict[str, Any]:
     report = execution["report"]
     artifact = execution["proof_artifact"]
+    resources = validate_process_resources(
+        execution.get("resources"), f"{execution['lane']}.resources"
+    )
     return {
         "display_name": "Zig CPU/SIMD" if execution["lane"] == "cpu" else "Zig Metal",
         "backend": report["backend"],
@@ -136,7 +148,8 @@ def summarize_lane(
             "proof_bytes": artifact["proof_bytes"],
             "proof_sha256": artifact["proof_sha256"],
         },
-        "metrics": lane_metrics(report, workload),
+        "metrics": lane_metrics(report, workload, resources),
+        "resources": resources,
         "session": report["session"],
         "backend_telemetry": report.get("backend_telemetry"),
     }
@@ -229,6 +242,12 @@ def _run_matrix_locked(
             if rust_oracle is not None
             else None
         )
+        if oracle_evidence is not None:
+            validate_rust_oracle_receipt(
+                oracle_evidence,
+                rust_oracle,
+                executions["cpu"]["proof_artifact"],
+            )
         row_provenance = executions["cpu"]["report"]["provenance"]
         if matrix_provenance is None:
             matrix_provenance = row_provenance
@@ -245,6 +264,10 @@ def _run_matrix_locked(
             for lane in LANES
         }
         unique_blockers = sorted(set(blockers))
+        stability = stability_evidence(
+            executions["cpu"]["report"], executions["metal"]["report"]
+        )
+        validate_stability(stability, f"row[{row_index}].stability")
         result_rows.append(
             {
                 "index": row_index,
@@ -255,6 +278,7 @@ def _run_matrix_locked(
                 "proof_bytes": fingerprints["cpu"][1],
                 "proof_parity": True,
                 "rust_oracle": oracle_evidence,
+                "stability": stability,
                 "headline_eligible": not unique_blockers,
                 "headline_blockers": unique_blockers,
                 "lanes": lane_summaries,
@@ -265,16 +289,32 @@ def _run_matrix_locked(
             }
         )
 
+    all_rust_oracles_verified = bool(result_rows) and all(
+        row["rust_oracle"] is not None
+        and row["rust_oracle"]["verified"] is True
+        and row["rust_oracle"]["status"] == "passed"
+        for row in result_rows
+    )
+    all_rows_stable = bool(result_rows) and all(
+        row["stability"]["satisfied"] for row in result_rows
+    )
+    if args.formal and not all_rust_oracles_verified:
+        raise MatrixError("formal matrix is missing a verified Rust receipt")
+    if args.formal and not all_rows_stable:
+        raise MatrixError("formal matrix did not satisfy measured-proof stability")
+
     document = {
         "schema_version": SUMMARY_SCHEMA_VERSION,
         "protocol": SUMMARY_PROTOCOL,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "correctness_scope": {
             "classification": (
-                "pinned_rust_stwo_oracle" if args.formal else "zig_cross_backend_parity"
+                "pinned_rust_stwo_oracle"
+                if all_rust_oracles_verified
+                else "zig_cross_backend_parity"
             ),
             "cpu_metal_canonical_proof_equality": True,
-            "pinned_rust_stwo_oracle_checked": args.formal,
+            "pinned_rust_stwo_oracle_checked": all_rust_oracles_verified,
             "final_correctness_oracle": "pinned Rust Stwo",
         },
         "configuration": {
@@ -285,6 +325,9 @@ def _run_matrix_locked(
             "timeout_seconds": args.timeout_seconds,
             "execution": "sequential_alternating_lane_order",
             "formal": args.formal,
+            "stability_contract": {
+                "minimum_measured_verified_proofs_per_lane": MIN_FORMAL_MEASURED_PROOFS,
+            },
             "bounds": {
                 "max_matrix_rows": MAX_MATRIX_ROWS,
                 "max_log_rows": MAX_LOG_ROWS,
@@ -306,7 +349,8 @@ def _run_matrix_locked(
             ),
             "all_proofs_verified_and_byte_identical": True,
             "all_cross_backend_proofs_identical": True,
-            "all_rust_oracles_verified": args.formal,
+            "all_rust_oracles_verified": all_rust_oracles_verified,
+            "all_rows_meet_stability_contract": all_rows_stable,
         },
         "rows": result_rows,
     }

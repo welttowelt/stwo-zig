@@ -21,12 +21,12 @@ from native_proof_matrix_lib import (  # noqa: E402
     BACKEND_COUNTER_KEYS,
     DEFAULT_COOLDOWN_SECONDS,
     DEFAULT_PROTOCOL,
-    DEFAULT_SAMPLES,
     DEFAULT_WARMUPS,
     DEFAULT_WORKLOADS,
     LIBRARY_PREPARATION_SECONDS_KEY,
     MAX_COMMITTED_TRACE_CELLS,
     MIN_HEADLINE_WARMUPS,
+    MIN_FORMAL_MEASURED_PROOFS,
     MatrixError,
     PIPELINE_CACHE_COUNTER_KEYS,
     PIPELINE_CACHE_SECONDS_KEY,
@@ -100,6 +100,11 @@ def validate_controller_args(
     args.formal = not args.allow_non_headline
     if args.formal and args.rust_oracle_bin is None:
         parser.error("formal mode requires --rust-oracle-bin")
+    if args.formal and args.samples < MIN_FORMAL_MEASURED_PROOFS:
+        parser.error(
+            "formal mode requires at least "
+            f"{MIN_FORMAL_MEASURED_PROOFS} measured proofs per lane"
+        )
     if args.warmups < 0 or args.warmups > MAX_WARMUPS:
         parser.error(f"warmups must be in [0, {MAX_WARMUPS}]")
     if args.samples <= 0 or args.samples > MAX_SAMPLES:
@@ -150,7 +155,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="trace widths; forms a product with --log-rows",
     )
     parser.add_argument("--warmups", type=int, default=DEFAULT_WARMUPS)
-    parser.add_argument("--samples", type=int, default=DEFAULT_SAMPLES)
+    parser.add_argument("--samples", type=int, default=MIN_FORMAL_MEASURED_PROOFS)
     parser.add_argument(
         "--protocol",
         choices=("smoke", "functional"),

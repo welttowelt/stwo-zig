@@ -20,8 +20,26 @@ DELTA_SCHEMA_VERSION = 1
 ARCHIVE_SCHEMA_VERSION = 1
 MAX_REPORT_BYTES = 128 * 1024 * 1024
 UPSTREAM_PROTOCOL = "upstream_family_matrix_v1"
-NATIVE_PROTOCOL = "native_proof_cross_backend_matrix_v3"
-SUPPORTED_PROTOCOLS = {UPSTREAM_PROTOCOL, NATIVE_PROTOCOL}
+NATIVE_PROTOCOL_V3 = "native_proof_cross_backend_matrix_v3"
+NATIVE_PROTOCOL_V4 = "native_proof_cross_backend_matrix_v4"
+# Compatibility alias used by historical report tests and callers.
+NATIVE_PROTOCOL = NATIVE_PROTOCOL_V3
+NATIVE_PROTOCOLS = {NATIVE_PROTOCOL_V3, NATIVE_PROTOCOL_V4}
+SUPPORTED_PROTOCOLS = {UPSTREAM_PROTOCOL, *NATIVE_PROTOCOLS}
+NATIVE_V4_RESOURCE_KEYS = {
+    "measurement",
+    "measurement_locale",
+    "normalized_unit",
+    "peak_rss_kib",
+}
+NATIVE_V4_STABILITY_KEYS = {
+    "required_verified_proofs_per_lane",
+    "cpu_verified_proofs",
+    "metal_verified_proofs",
+    "cpu_byte_identical",
+    "metal_byte_identical",
+    "satisfied",
+}
 
 
 class DeltaError(RuntimeError):
@@ -315,7 +333,157 @@ def native_metric_shape(name: str) -> tuple[str, str]:
         return "megahertz", "higher_is_better"
     if name.endswith("_per_second"):
         return "million_cells_per_second", "higher_is_better"
+    if name.endswith("_kib"):
+        return "kibibytes", "lower_is_better"
     raise DeltaError(f"unsupported native metric direction: {name}")
+
+
+def validate_native_v4_report(report: dict[str, Any], label: str) -> None:
+    configuration = require_object(report.get("configuration"), f"{label}.configuration")
+    stability_contract = require_object(
+        configuration.get("stability_contract"),
+        f"{label}.configuration.stability_contract",
+    )
+    if set(stability_contract) != {"minimum_measured_verified_proofs_per_lane"}:
+        raise DeltaError(f"{label} has an invalid stability contract")
+    required = stability_contract["minimum_measured_verified_proofs_per_lane"]
+    if isinstance(required, bool) or not isinstance(required, int) or required < 10:
+        raise DeltaError(f"{label} requires fewer than 10 measured proofs per lane")
+    samples = configuration.get("samples_per_lane")
+    if isinstance(samples, bool) or not isinstance(samples, int) or samples < required:
+        raise DeltaError(f"{label} does not satisfy its measured-proof count")
+
+    rows = require_list(report.get("rows"), f"{label}.rows")
+    headline_rows = 0
+    all_headline = bool(rows)
+    all_stable = bool(rows)
+    all_oracles = bool(rows)
+    for index, value in enumerate(rows):
+        row = require_object(value, f"{label}.rows[{index}]")
+        headline = row.get("headline_eligible")
+        if not isinstance(headline, bool):
+            raise DeltaError(f"{label}.rows[{index}].headline_eligible must be boolean")
+        headline_rows += int(headline)
+        all_headline = all_headline and headline
+        if row.get("proof_parity") is not True:
+            raise DeltaError(f"{label}.rows[{index}] lacks canonical proof parity")
+
+        stability = require_object(
+            row.get("stability"), f"{label}.rows[{index}].stability"
+        )
+        if set(stability) != NATIVE_V4_STABILITY_KEYS:
+            raise DeltaError(f"{label}.rows[{index}] has an invalid stability schema")
+        for field in (
+            "required_verified_proofs_per_lane",
+            "cpu_verified_proofs",
+            "metal_verified_proofs",
+        ):
+            value = stability[field]
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise DeltaError(
+                    f"{label}.rows[{index}].stability.{field} must be nonnegative"
+                )
+        for field in ("cpu_byte_identical", "metal_byte_identical", "satisfied"):
+            if not isinstance(stability[field], bool):
+                raise DeltaError(
+                    f"{label}.rows[{index}].stability.{field} must be boolean"
+                )
+        expected_stability = (
+            stability["required_verified_proofs_per_lane"] == required
+            and stability["cpu_verified_proofs"] >= required
+            and stability["metal_verified_proofs"] >= required
+            and stability["cpu_byte_identical"] is True
+            and stability["metal_byte_identical"] is True
+        )
+        if stability["satisfied"] is not expected_stability:
+            raise DeltaError(f"{label}.rows[{index}] has inconsistent stability evidence")
+        all_stable = all_stable and expected_stability
+
+        lanes = require_object(row.get("lanes"), f"{label}.rows[{index}].lanes")
+        if set(lanes) != {"cpu", "metal"}:
+            raise DeltaError(f"{label}.rows[{index}] must have CPU and Metal lanes")
+        expected_backends = {"cpu": "cpu_native", "metal": "metal_hybrid"}
+        for lane_name, expected_backend in expected_backends.items():
+            lane = require_object(
+                lanes.get(lane_name), f"{label}.rows[{index}].lanes.{lane_name}"
+            )
+            if lane.get("backend") != expected_backend:
+                raise DeltaError(
+                    f"{label}.rows[{index}].lanes.{lane_name} has the wrong backend"
+                )
+            resources = require_object(
+                lane.get("resources"),
+                f"{label}.rows[{index}].lanes.{lane_name}.resources",
+            )
+            if set(resources) != NATIVE_V4_RESOURCE_KEYS:
+                raise DeltaError(
+                    f"{label}.rows[{index}].lanes.{lane_name} has invalid resources"
+                )
+            peak = resources.get("peak_rss_kib")
+            if (
+                resources.get("measurement_locale") != "C"
+                or resources.get("normalized_unit") != "KiB"
+                or resources.get("measurement")
+                not in {"darwin_usr_bin_time_l_v1", "gnu_usr_bin_time_v_v1"}
+                or isinstance(peak, bool)
+                or not isinstance(peak, int)
+                or peak <= 0
+            ):
+                raise DeltaError(
+                    f"{label}.rows[{index}].lanes.{lane_name} has invalid RSS evidence"
+                )
+            metrics = native_lane_metrics(
+                lane, f"{label}.rows[{index}].lanes.{lane_name}"
+            )
+            rss = metrics.get("peak_rss_kib")
+            if rss is None or rss != {"median": float(peak), "mad": 0.0}:
+                raise DeltaError(
+                    f"{label}.rows[{index}].lanes.{lane_name} RSS metric disagrees"
+                )
+        metal_telemetry = require_object(
+            lanes["metal"].get("backend_telemetry"),
+            f"{label}.rows[{index}].lanes.metal.backend_telemetry",
+        )
+        total_fallbacks = metal_telemetry.get("total_cpu_fallbacks")
+        if (
+            isinstance(total_fallbacks, bool)
+            or not isinstance(total_fallbacks, int)
+            or total_fallbacks < 0
+        ):
+            raise DeltaError(f"{label}.rows[{index}] lacks Metal fallback evidence")
+
+        oracle = row.get("rust_oracle")
+        oracle_verified = (
+            isinstance(oracle, dict)
+            and oracle.get("verified") is True
+            and oracle.get("status") == "passed"
+            and oracle.get("artifact_sha256")
+            == require_object(
+                lanes["cpu"].get("proof_artifact"),
+                f"{label}.rows[{index}].lanes.cpu.proof_artifact",
+            ).get("sha256")
+        )
+        all_oracles = all_oracles and oracle_verified
+
+    summary = require_object(report.get("summary"), f"{label}.summary")
+    expected_summary = {
+        "rows": len(rows),
+        "headline_rows": headline_rows,
+        "all_rows_headline_eligible": all_headline,
+        "all_proofs_verified_and_byte_identical": True,
+        "all_cross_backend_proofs_identical": True,
+        "all_rust_oracles_verified": all_oracles,
+        "all_rows_meet_stability_contract": all_stable,
+    }
+    if summary != expected_summary:
+        raise DeltaError(f"{label}.summary is inconsistent with Native v4 rows")
+    correctness = require_object(
+        report.get("correctness_scope"), f"{label}.correctness_scope"
+    )
+    if correctness.get("pinned_rust_stwo_oracle_checked") is not all_oracles:
+        raise DeltaError(f"{label}.correctness_scope disagrees with Rust receipts")
+    if configuration.get("formal") is True and (not all_oracles or not all_stable):
+        raise DeltaError(f"{label} formal evidence is incomplete")
 
 
 def native_row_evidence(
@@ -372,19 +540,32 @@ def classify_native_metric(
 def compare_native(
     baseline: dict[str, Any], current: dict[str, Any]
 ) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
-    if baseline.get("schema_version") != 3 or current.get("schema_version") != 3:
-        raise IncompatibleReports("native matrix schema_version must be 3")
+    protocol = baseline.get("protocol")
+    expected_schema = 4 if protocol == NATIVE_PROTOCOL_V4 else 3
+    if (
+        baseline.get("schema_version") != expected_schema
+        or current.get("schema_version") != expected_schema
+    ):
+        raise IncompatibleReports(
+            f"native matrix schema_version must be {expected_schema} for {protocol}"
+        )
+    if protocol == NATIVE_PROTOCOL_V4:
+        validate_native_v4_report(baseline, "baseline")
+        validate_native_v4_report(current, "current")
     base_configuration = require_object(
         baseline.get("configuration"), "baseline.configuration"
     )
     curr_configuration = require_object(
         current.get("configuration"), "current.configuration"
     )
+    stable_configuration = NATIVE_STABLE_CONFIGURATION + (
+        ("stability_contract",) if protocol == NATIVE_PROTOCOL_V4 else ()
+    )
     base_settings = selected_fields(
-        base_configuration, NATIVE_STABLE_CONFIGURATION, "baseline.configuration"
+        base_configuration, stable_configuration, "baseline.configuration"
     )
     curr_settings = selected_fields(
-        curr_configuration, NATIVE_STABLE_CONFIGURATION, "current.configuration"
+        curr_configuration, stable_configuration, "current.configuration"
     )
     base_provenance = require_object(
         base_configuration.get("provenance"), "baseline.configuration.provenance"
@@ -501,7 +682,7 @@ def compare_native(
             )
 
     identity = {
-        "report_protocol": NATIVE_PROTOCOL,
+        "report_protocol": protocol,
         "settings": base_settings,
         "host_execution": base_host,
         "correctness_scope": base_oracle,

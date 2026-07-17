@@ -11,11 +11,11 @@ from .artifacts import (
 )
 from .contract import validate_pair, validate_proof_artifact, validate_report
 from .controller import run_matrix
+from .evidence import MIN_FORMAL_MEASURED_PROOFS, SUMMARY_PROTOCOL
 from .model import (
     BACKEND_COUNTER_KEYS,
     DEFAULT_COOLDOWN_SECONDS,
     DEFAULT_PROTOCOL,
-    DEFAULT_SAMPLES,
     DEFAULT_WARMUPS,
     DEFAULT_WORKLOADS,
     LIBRARY_PREPARATION_SECONDS_KEY,
@@ -26,7 +26,6 @@ from .model import (
     PIPELINE_CACHE_SECONDS_KEY,
     RUST_ORACLE_SHA256,
     SESSION_KEYS,
-    SUMMARY_PROTOCOL,
     Workload,
     parse_workload,
     validate_workload,
@@ -37,12 +36,12 @@ __all__ = [
     "BACKEND_COUNTER_KEYS",
     "DEFAULT_COOLDOWN_SECONDS",
     "DEFAULT_PROTOCOL",
-    "DEFAULT_SAMPLES",
     "DEFAULT_WARMUPS",
     "DEFAULT_WORKLOADS",
     "LIBRARY_PREPARATION_SECONDS_KEY",
     "MAX_COMMITTED_TRACE_CELLS",
     "MIN_HEADLINE_WARMUPS",
+    "MIN_FORMAL_MEASURED_PROOFS",
     "MatrixError",
     "PIPELINE_CACHE_COUNTER_KEYS",
     "PIPELINE_CACHE_SECONDS_KEY",

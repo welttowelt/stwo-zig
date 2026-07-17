@@ -9,6 +9,7 @@ import json
 import io
 import statistics
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -22,6 +23,7 @@ assert SPEC.loader is not None
 SPEC.loader.exec_module(MODULE)
 
 from native_proof_matrix_lib.contract import pipeline_preparation_occurred
+from native_proof_matrix_lib.model import RUST_ORACLE_SHA256
 
 PROOF_WIRE_BYTES = json.dumps(
     {
@@ -333,6 +335,12 @@ def lane_args(timeout_seconds: float = 2.0) -> argparse.Namespace:
         warmups=10,
         timeout_seconds=timeout_seconds,
     )
+
+
+def resource_usage_stderr(peak_rss_kib: int = 1024) -> bytes:
+    if sys.platform == "darwin":
+        return f"{peak_rss_kib * 1024}  maximum resident set size\n".encode()
+    return f"Maximum resident set size (kbytes): {peak_rss_kib}\n".encode()
 
 
 class NativeProofMatrixTests(unittest.TestCase):
@@ -865,6 +873,7 @@ class NativeProofMatrixTests(unittest.TestCase):
                 kwargs["stdout"].write(
                     json.dumps(make_report("cpu", workload)).encode()
                 )
+                kwargs["stderr"].write(resource_usage_stderr())
                 return subprocess.CompletedProcess(command, 0)
 
             artifact_dir = root / "missing"
@@ -986,7 +995,7 @@ class NativeProofMatrixTests(unittest.TestCase):
                 output_dir=root / "out",
                 protocol="functional",
                 warmups=10,
-                samples=5,
+                samples=10,
                 cooldown_seconds=0.0,
                 timeout_seconds=2.0,
                 formal=True,
@@ -1001,7 +1010,13 @@ class NativeProofMatrixTests(unittest.TestCase):
             ) -> dict[str, object]:
                 artifact_path = artifact_dir / f"{lane}.proof-artifact.json"
                 write_proof_artifact(artifact_path, workload)
-                report = make_report(lane, workload, artifact_path=artifact_path)
+                report = make_report(
+                    lane,
+                    workload,
+                    samples=_args.samples,
+                    warmups=_args.warmups,
+                    artifact_path=artifact_path,
+                )
                 stdout_path = artifact_dir / f"{lane}.stdout.json"
                 stderr_path = artifact_dir / f"{lane}.stderr.txt"
                 stdout_path.write_text(json.dumps(report))
@@ -1010,6 +1025,12 @@ class NativeProofMatrixTests(unittest.TestCase):
                     "lane": lane,
                     "command": [lane],
                     "process_wall_seconds": 1.0,
+                    "resources": {
+                        "measurement": "darwin_usr_bin_time_l_v1",
+                        "measurement_locale": "C",
+                        "normalized_unit": "KiB",
+                        "peak_rss_kib": 1024,
+                    },
                     "stdout_path": stdout_path,
                     "stderr_path": stderr_path,
                     "report": report,
@@ -1018,17 +1039,37 @@ class NativeProofMatrixTests(unittest.TestCase):
                     ),
                 }
 
-            oracle_evidence = {
-                "status": "passed",
-                "verified": True,
-                "upstream_commit": UPSTREAM_COMMIT,
-            }
+            def oracle_evidence(
+                binary: Path, artifact_path: Path, _timeout: float
+            ) -> dict[str, object]:
+                artifact_sha256 = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+                command = [
+                    str(binary),
+                    "--mode",
+                    "verify",
+                    "--artifact",
+                    str(artifact_path),
+                ]
+                return {
+                    "status": "passed",
+                    "verified": True,
+                    "upstream_commit": UPSTREAM_COMMIT,
+                    "toolchain": "nightly-2025-07-14",
+                    "binary_path": str(binary),
+                    "binary_sha256": RUST_ORACLE_SHA256,
+                    "artifact_path": str(artifact_path),
+                    "artifact_sha256": artifact_sha256,
+                    "command": command,
+                    "elapsed_seconds": 0.01,
+                    "stdout_sha256": hashlib.sha256(b"").hexdigest(),
+                    "stderr_sha256": hashlib.sha256(b"").hexdigest(),
+                }
             with mock.patch(
                 "native_proof_matrix_lib.controller.run_lane",
                 side_effect=fake_lane,
             ), mock.patch(
                 "native_proof_matrix_lib.controller.run_rust_oracle",
-                return_value=oracle_evidence,
+                side_effect=oracle_evidence,
             ) as oracle:
                 document = MODULE.run_matrix(matrix_args)
             self.assertEqual(oracle.call_count, 6)
