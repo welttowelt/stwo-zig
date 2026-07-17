@@ -72,6 +72,16 @@ COMPONENT_ORDINAL_PURPOSES = {
     "RelationSourcePointers",
 }
 COMPOSITION_PROJECTION_FORMAT = "stwo-zig-cairo-composition-projection"
+TRACE_GROUP_PURPOSES = {
+    "DecommitTraceEvaluationPointers": 2,
+    "DecommitTraceEvaluationLogs": 1,
+}
+OBSOLETE_COMMIT_GROUP_PURPOSES = {
+    "CommitColumnPointers",
+    "CommitCoefficientPointers",
+    "CommitCoefficientSizes",
+    "CommitOutputPointers",
+}
 
 
 def proof_rows(path: Path) -> dict[str, list[int]]:
@@ -97,6 +107,142 @@ def proof_components(path: Path) -> list[str]:
         for label, value in claim.items()
         if label != "public_data" and value is not None
     ]
+
+
+def proof_tree_columns(path: Path) -> tuple[int, int, int, int]:
+    proof = json.loads(path.read_text())
+    stark_proof = proof.get("stark_proof")
+    if stark_proof is None:
+        extended = proof.get("extended_stark_proof")
+        stark_proof = extended.get("proof") if isinstance(extended, dict) else None
+    if not isinstance(stark_proof, dict):
+        raise ValueError("proof has no canonical STARK payload")
+    queried = stark_proof.get("queried_values")
+    sampled = stark_proof.get("sampled_values")
+    if not isinstance(queried, list) or not isinstance(sampled, list):
+        raise ValueError("proof has no sampled/queried tree geometry")
+    if len(queried) != 4 or len(sampled) != 4:
+        raise ValueError("proof must have four commitment trees")
+    result = tuple(len(tree) for tree in queried)
+    if result != tuple(len(tree) for tree in sampled):
+        raise ValueError("sampled and queried tree geometry disagree")
+    return result
+
+
+def preprocessed_identities(path: Path) -> list[str]:
+    with path.open("rb") as stream:
+        if stream.read(8) != b"STWZPPC\0":
+            raise ValueError("unsupported preprocessed coefficient fixture")
+        version, count = struct.unpack("<II", stream.read(8))
+        if version != 1 or count == 0 or count > 1 << 16:
+            raise ValueError("invalid preprocessed coefficient fixture")
+        result: list[str] = []
+        for _ in range(count):
+            identity_len, reserved = struct.unpack("<HH", stream.read(4))
+            log_size = struct.unpack("<I", stream.read(4))[0]
+            value_count = struct.unpack("<Q", stream.read(8))[0]
+            if reserved != 0 or identity_len == 0 or value_count != 1 << log_size:
+                raise ValueError("invalid preprocessed coefficient entry")
+            result.append(stream.read(identity_len).decode())
+            stream.seek(value_count * 4, 1)
+        if stream.read(1):
+            raise ValueError("trailing preprocessed coefficient fixture data")
+        return result
+
+
+def target_preprocessed_identities(source: list[str], target_proof_path: Path) -> list[str]:
+    proof = json.loads(target_proof_path.read_text())
+    variant = proof.get("preprocessed_trace_variant")
+    if variant == "canonical":
+        result = list(source)
+    elif variant == "canonical_without_pedersen":
+        result = [identity for identity in source if not identity.startswith("pedersen_points_")]
+    else:
+        raise ValueError(f"unsupported target preprocessed variant: {variant!r}")
+    if len(result) != proof_tree_columns(target_proof_path)[0]:
+        raise ValueError("target preprocessed identities do not match proof tree 0")
+    return result
+
+
+def project_preprocessed_geometry(
+    schedule: list[dict[str, object]], source: list[str], target: list[str]
+) -> tuple[list[dict[str, object]], int]:
+    target_indices = {identity: index for index, identity in enumerate(target)}
+    if len(target_indices) != len(target):
+        raise ValueError("target preprocessed identities contain duplicates")
+    source_to_target = {
+        source_index: target_indices[identity]
+        for source_index, identity in enumerate(source)
+        if identity in target_indices
+    }
+    changed = 0
+    result: list[dict[str, object]] = []
+    for entry in schedule:
+        if entry["purpose"] not in {"PreprocessedCoefficients", "PreprocessedEvaluations"}:
+            result.append(entry)
+            continue
+        source_ordinal = int(entry["ordinal"])
+        target_ordinal = source_to_target.get(source_ordinal)
+        if target_ordinal is None:
+            changed += 1
+            continue
+        changed += source_ordinal != target_ordinal
+        entry["ordinal"] = target_ordinal
+        result.append(entry)
+    for index, entry in enumerate(result):
+        entry["id"] = index
+    coefficient_ordinals = sorted(
+        int(entry["ordinal"])
+        for entry in result
+        if entry["purpose"] == "PreprocessedCoefficients"
+    )
+    if coefficient_ordinals != list(range(len(target))):
+        raise ValueError("projected preprocessed coefficients are not contiguous")
+    return result, changed
+
+
+def rebuild_trace_group_geometry(
+    schedule: list[dict[str, object]], tree_columns: tuple[int, int, int, int]
+) -> tuple[list[dict[str, object]], int]:
+    templates: dict[str, dict[str, object]] = {}
+    for entry in schedule:
+        purpose = str(entry["purpose"])
+        if purpose == "CommitColumnLogSizes" or purpose in TRACE_GROUP_PURPOSES:
+            templates.setdefault(purpose, entry)
+    required = {"CommitColumnLogSizes", *TRACE_GROUP_PURPOSES}
+    if set(templates) != required:
+        raise ValueError("schedule is missing trace-group templates")
+
+    removed_purposes = required | OBSOLETE_COMMIT_GROUP_PURPOSES | {
+        "DecommitTraceCoefficientPointers",
+        "DecommitTraceCoefficientSizes",
+        "DecommitTraceLdeOutputPointers",
+    }
+    result = [entry for entry in schedule if entry["purpose"] not in removed_purposes]
+    removed = len(schedule) - len(result)
+    added = 0
+    for tree_index, column_count in enumerate(tree_columns):
+        if column_count <= 0:
+            raise ValueError(f"tree {tree_index} has no columns")
+        remaining = column_count
+        group_index = 0
+        while remaining:
+            width = min(16, remaining)
+            remaining -= width
+            commit = copy.deepcopy(templates["CommitColumnLogSizes"])
+            commit["ordinal"] = (tree_index << 20) | group_index
+            commit["len_words"] = width
+            result.append(commit)
+            for purpose, words_per_column in TRACE_GROUP_PURPOSES.items():
+                decommit = copy.deepcopy(templates[purpose])
+                decommit["ordinal"] = (tree_index << 16) | group_index
+                decommit["len_words"] = width * words_per_column
+                result.append(decommit)
+            group_index += 1
+            added += 3
+    for index, entry in enumerate(result):
+        entry["id"] = index
+    return result, removed + added
 
 
 def schedule_component_set(proof_component_order: list[str]) -> set[str]:
@@ -1006,6 +1152,7 @@ def retarget(
     template_proof_path: Path,
     proof_path: Path,
     input_path: Path,
+    preprocessed_coefficients_path: Path,
     composition_path: Path,
     quotient_path: Path,
     relation_path: Path,
@@ -1028,6 +1175,12 @@ def retarget(
     schedule, removed_component_entries = project_component_geometry(
         schedule, source_components, target_components
     )
+    target_tree_columns = proof_tree_columns(proof_path)
+    source_preprocessed = preprocessed_identities(preprocessed_coefficients_path)
+    target_preprocessed = target_preprocessed_identities(source_preprocessed, proof_path)
+    schedule, preprocessed_changes = project_preprocessed_geometry(
+        schedule, source_preprocessed, target_preprocessed
+    )
     pairs = source_target_rows(schedule, proof_rows(proof_path))
     component_changes = scale_component_entries(schedule, pairs)
     pedersen_source_rows = (
@@ -1049,6 +1202,22 @@ def retarget(
             f"composition max evaluation log {composition_log} does not match quotient log {quotient_log}"
         )
     composition_changes = update_composition_geometry(schedule, composition_path)
+    coefficient_counts = tuple(
+        sum(entry["purpose"] == purpose for entry in schedule)
+        for purpose in (
+            "PreprocessedCoefficients",
+            "BaseCoefficients",
+            "InteractionCoefficients",
+            "CompositionCoefficients",
+        )
+    )
+    if coefficient_counts != target_tree_columns:
+        raise ValueError(
+            f"projected coefficient counts {coefficient_counts} do not match proof {target_tree_columns}"
+        )
+    schedule, trace_group_changes = rebuild_trace_group_geometry(
+        schedule, target_tree_columns
+    )
     schedule, removed_retained, added_decommit_coefficient_groups = rebuild_retention(
         schedule, retained_evaluation_bytes
     )
@@ -1083,6 +1252,8 @@ def retarget(
         "output": str(output_path),
         "logical_buffers": len(schedule),
         "component_entries_removed": removed_component_entries,
+        "preprocessed_entries_changed": preprocessed_changes,
+        "trace_group_entries_changed": trace_group_changes,
         "component_entries_changed": component_changes,
         "execution_entries_changed": execution_changes,
         "relation_denominators_changed": relation_changes,
@@ -1114,6 +1285,7 @@ def main() -> int:
     parser.add_argument("--template-proof", type=Path, required=True)
     parser.add_argument("--proof", type=Path, required=True)
     parser.add_argument("--input", type=Path, required=True)
+    parser.add_argument("--preprocessed-coefficients", type=Path, required=True)
     parser.add_argument("--composition", type=Path, required=True)
     parser.add_argument("--quotient", type=Path, required=True)
     parser.add_argument("--relations", type=Path, required=True)
@@ -1132,6 +1304,7 @@ def main() -> int:
         args.template_proof,
         args.proof,
         args.input,
+        args.preprocessed_coefficients,
         args.composition,
         args.quotient,
         args.relations,

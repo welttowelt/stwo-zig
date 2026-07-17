@@ -124,6 +124,76 @@ class ArenaScheduleTests(unittest.TestCase):
             any(value.get("component") == "pedersen_builtin" for value in projected)
         )
 
+    def test_preprocessed_projection_remaps_identity_ordinals(self) -> None:
+        schedule = [
+            entry(0, "PreprocessedCoefficients", 8, ordinal=0),
+            entry(1, "PreprocessedCoefficients", 8, ordinal=1),
+            entry(2, "PreprocessedCoefficients", 8, ordinal=2),
+            entry(3, "PreprocessedEvaluations", 8, ordinal=1),
+            entry(4, "PreprocessedEvaluations", 8, ordinal=2),
+        ]
+        projected, changed = schedule_tool.project_preprocessed_geometry(
+            schedule,
+            ["seq_4", "pedersen_points_0", "seq_5"],
+            ["seq_4", "seq_5"],
+        )
+        self.assertEqual(changed, 4)
+        self.assertEqual(
+            [
+                int(value["ordinal"])
+                for value in projected
+                if value["purpose"] == "PreprocessedCoefficients"
+            ],
+            [0, 1],
+        )
+        self.assertEqual(
+            [
+                int(value["ordinal"])
+                for value in projected
+                if value["purpose"] == "PreprocessedEvaluations"
+            ],
+            [1],
+        )
+
+    def test_trace_groups_rebuild_from_runtime_tree_widths(self) -> None:
+        schedule = [
+            entry(0, "CommitColumnLogSizes", 16),
+            entry(1, "CommitColumnPointers", 32),
+            entry(2, "CommitCoefficientPointers", 32),
+            entry(3, "CommitCoefficientSizes", 16),
+            entry(4, "CommitOutputPointers", 32),
+            entry(5, "DecommitTraceEvaluationPointers", 32),
+            entry(6, "DecommitTraceEvaluationLogs", 16),
+            entry(7, "DecommitTraceCoefficientPointers", 32),
+            entry(8, "DecommitTraceCoefficientSizes", 16),
+            entry(9, "DecommitTraceLdeOutputPointers", 32),
+        ]
+        rebuilt, _changes = schedule_tool.rebuild_trace_group_geometry(
+            schedule, (17, 1, 16, 8)
+        )
+        self.assertFalse(
+            any(
+                value["purpose"] in schedule_tool.OBSOLETE_COMMIT_GROUP_PURPOSES
+                for value in rebuilt
+            )
+        )
+        self.assertEqual(
+            [
+                int(value["len_words"])
+                for value in rebuilt
+                if value["purpose"] == "CommitColumnLogSizes"
+            ],
+            [16, 1, 1, 16, 8],
+        )
+        self.assertEqual(
+            [
+                int(value["len_words"])
+                for value in rebuilt
+                if value["purpose"] == "DecommitTraceEvaluationPointers"
+            ],
+            [32, 2, 2, 32, 16],
+        )
+
     def test_proof_rows_includes_memory_small_as_second_memory_group(self) -> None:
         proof = {
             "claim": {
