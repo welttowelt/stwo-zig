@@ -51,6 +51,9 @@ The first migration pass has established these boundaries without changing proof
 - Arena-plan admission now delegates epoch/address-width policy and schedule coverage/shape checks
   to focused host-only modules. The one-shot runner consumes the shared `stwo` module rather than
   privately owning a second copy of the Cairo and Metal source graph.
+- Metal resource layouts, prepared-plan ownership, destructor bindings, and environment policy now
+  live in `backends/metal/runtime/resource_plans.zig`. The runtime facade retains all 31 public
+  names while dispatch, allocation, and the Objective-C ABI remain unchanged.
 - Cairo resident interaction execution and witness-input seeding have focused owners below
   `integrations/cairo_metal/resident/`; the arena-binding facade retains the stable public names.
 - Metal commitment, compaction, EC-op, and recovery benchmarks live under `src/bench/metal/` and

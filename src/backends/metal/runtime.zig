@@ -56,7 +56,6 @@ extern fn stwo_zig_metal_arena_copy_prepare(
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
-extern fn stwo_zig_metal_arena_copy_plan_destroy(plan: ?*anyopaque) void;
 extern fn stwo_zig_metal_arena_copy_prepared(
     runtime: *anyopaque,
     arena: *anyopaque,
@@ -93,7 +92,6 @@ extern fn stwo_zig_metal_witness_feed_prepare(
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
-extern fn stwo_zig_metal_witness_feed_plan_destroy(plan: ?*anyopaque) void;
 extern fn stwo_zig_metal_witness_feed_batch_prepare(
     runtime: *anyopaque,
     plans: [*]const *anyopaque,
@@ -104,7 +102,6 @@ extern fn stwo_zig_metal_witness_feed_batch_prepare(
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
-extern fn stwo_zig_metal_witness_feed_batch_destroy(batch: ?*anyopaque) void;
 extern fn stwo_zig_metal_witness_feed_batch_counts_prepared(
     runtime: *anyopaque,
     arena: *anyopaque,
@@ -141,7 +138,6 @@ extern fn stwo_zig_metal_circle_lde_prepare(
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
-extern fn stwo_zig_metal_circle_lde_plan_destroy(plan: ?*anyopaque) void;
 extern fn stwo_zig_metal_circle_lde_prepared(
     runtime: *anyopaque,
     arena: *anyopaque,
@@ -161,7 +157,6 @@ extern fn stwo_zig_metal_circle_ifft_prepare(
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
-extern fn stwo_zig_metal_circle_ifft_plan_destroy(plan: ?*anyopaque) void;
 extern fn stwo_zig_metal_circle_ifft_prepared(
     runtime: *anyopaque,
     arena: *anyopaque,
@@ -183,7 +178,6 @@ extern fn stwo_zig_metal_fixed_table_prepare(
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
-extern fn stwo_zig_metal_fixed_table_plan_destroy(plan: ?*anyopaque) void;
 extern fn stwo_zig_metal_fixed_table_batch_prepare(
     runtime: *anyopaque,
     plans: [*]const *anyopaque,
@@ -191,7 +185,6 @@ extern fn stwo_zig_metal_fixed_table_batch_prepare(
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
-extern fn stwo_zig_metal_fixed_table_batch_destroy(batch: ?*anyopaque) void;
 extern fn stwo_zig_metal_fixed_table_batch_prepared(
     runtime: *anyopaque,
     arena: *anyopaque,
@@ -223,7 +216,6 @@ extern fn stwo_zig_metal_merkle_leaf_prepare(
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
-extern fn stwo_zig_metal_merkle_leaf_destroy(plan: ?*anyopaque) void;
 extern fn stwo_zig_metal_merkle_leaf_prepared(
     runtime: *anyopaque,
     arena: *anyopaque,
@@ -246,7 +238,6 @@ extern fn stwo_zig_metal_resident_merkle_prepare(
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
-extern fn stwo_zig_metal_resident_merkle_destroy(plan: ?*anyopaque) void;
 extern fn stwo_zig_metal_resident_merkle_prepared(
     runtime: *anyopaque,
     arena: *anyopaque,
@@ -255,7 +246,6 @@ extern fn stwo_zig_metal_resident_merkle_prepared(
     error_message: [*]u8,
     error_message_len: usize,
 ) bool;
-extern fn stwo_zig_metal_merkle_parent_chain_destroy(plan: ?*anyopaque) void;
 extern fn stwo_zig_metal_merkle_parent_chain_prepared(
     runtime: *anyopaque,
     arena: *anyopaque,
@@ -279,7 +269,6 @@ extern fn stwo_zig_metal_ec_op_prepare(
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
-extern fn stwo_zig_metal_ec_op_plan_destroy(plan: ?*anyopaque) void;
 extern fn stwo_zig_metal_ec_op_prepared(
     runtime: *anyopaque,
     arena: *anyopaque,
@@ -300,7 +289,6 @@ extern fn stwo_zig_metal_compact_prepare(
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
-extern fn stwo_zig_metal_compact_destroy(plan: ?*anyopaque) void;
 extern fn stwo_zig_metal_compact_prepared(
     runtime: *anyopaque,
     arena: *anyopaque,
@@ -333,7 +321,6 @@ extern fn stwo_zig_metal_eval_library_compile(
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
-extern fn stwo_zig_metal_eval_library_destroy(library: ?*anyopaque) void;
 extern fn stwo_zig_metal_witness_prepare_library(
     runtime: *anyopaque,
     library: *anyopaque,
@@ -343,17 +330,11 @@ extern fn stwo_zig_metal_witness_prepare_library(
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
-extern fn stwo_zig_metal_witness_plan_destroy(plan: ?*anyopaque) void;
 extern fn stwo_zig_metal_witness_prepared(
     runtime: *anyopaque,
     arena: *anyopaque,
     plan: *anyopaque,
     gpu_milliseconds: *f64,
-    error_message: [*]u8,
-    error_message_len: usize,
-) bool;
-extern fn stwo_zig_metal_eval_library_serialize(
-    library: *anyopaque,
     error_message: [*]u8,
     error_message_len: usize,
 ) bool;
@@ -366,14 +347,12 @@ extern fn stwo_zig_metal_eval_prepare_library(
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
-extern fn stwo_zig_metal_eval_destroy(plan: ?*anyopaque) void;
 extern fn stwo_zig_metal_eval_batch_prepare(
     plans: [*]const *anyopaque,
     plan_count: u32,
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
-extern fn stwo_zig_metal_eval_batch_destroy(batch: ?*anyopaque) void;
 extern fn stwo_zig_metal_eval_batch_prepared(
     runtime: *anyopaque,
     arena: *anyopaque,
@@ -421,7 +400,6 @@ extern fn stwo_zig_metal_composition_lde_prepared(
     error_message: [*]u8,
     error_message_len: usize,
 ) bool;
-extern fn stwo_zig_metal_composition_lde_destroy(plan: ?*anyopaque) void;
 extern fn stwo_zig_metal_composition_inputs_prepare(
     runtime: *anyopaque,
     descriptors: ?[*]const u32,
@@ -432,7 +410,6 @@ extern fn stwo_zig_metal_composition_inputs_prepare(
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
-extern fn stwo_zig_metal_composition_inputs_destroy(plan: ?*anyopaque) void;
 extern fn stwo_zig_metal_composition_front_prepare(
     inputs: *anyopaque,
     lde_plans: [*]const *anyopaque,
@@ -443,7 +420,6 @@ extern fn stwo_zig_metal_composition_front_prepare(
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
-extern fn stwo_zig_metal_composition_front_destroy(plan: ?*anyopaque) void;
 extern fn stwo_zig_metal_composition_front_prepared(
     runtime: *anyopaque,
     arena: *anyopaque,
@@ -452,7 +428,6 @@ extern fn stwo_zig_metal_composition_front_prepared(
     error_message: [*]u8,
     error_message_len: usize,
 ) bool;
-extern fn stwo_zig_metal_composition_finalize_destroy(plan: ?*anyopaque) void;
 extern fn stwo_zig_metal_composition_finalize_prepared(
     runtime: *anyopaque,
     arena: *anyopaque,
@@ -487,7 +462,6 @@ extern fn stwo_zig_metal_relation_prepare(
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
-extern fn stwo_zig_metal_relation_plan_destroy(plan: ?*anyopaque) void;
 extern fn stwo_zig_metal_relation_prepared(
     runtime: *anyopaque,
     arena: *anyopaque,
@@ -555,7 +529,6 @@ extern fn stwo_zig_metal_fri_fold_prepare(
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
-extern fn stwo_zig_metal_fri_fold_plan_destroy(plan: ?*anyopaque) void;
 extern fn stwo_zig_metal_fri_fold_prepared(
     runtime: *anyopaque,
     arena: *anyopaque,
@@ -580,7 +553,6 @@ extern fn stwo_zig_metal_quotient_combine_prepare(
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
-extern fn stwo_zig_metal_quotient_combine_plan_destroy(plan: ?*anyopaque) void;
 extern fn stwo_zig_metal_quotient_combine_prepared(
     runtime: *anyopaque,
     arena: *anyopaque,
@@ -617,7 +589,6 @@ extern fn stwo_zig_metal_fri_round_prepare(
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
-extern fn stwo_zig_metal_fri_round_plan_destroy(plan: ?*anyopaque) void;
 extern fn stwo_zig_metal_fri_round_prepared(
     runtime: *anyopaque,
     arena: *anyopaque,
@@ -640,7 +611,6 @@ extern fn stwo_zig_metal_fri_tree_prepare(
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
-extern fn stwo_zig_metal_fri_tree_plan_destroy(plan: ?*anyopaque) void;
 extern fn stwo_zig_metal_fri_tree_prepared(
     runtime: *anyopaque,
     arena: *anyopaque,
@@ -659,7 +629,6 @@ extern fn stwo_zig_metal_fri_final_prepare(
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
-extern fn stwo_zig_metal_fri_final_plan_destroy(plan: ?*anyopaque) void;
 extern fn stwo_zig_metal_fri_final_prepared(
     runtime: *anyopaque,
     arena: *anyopaque,
@@ -3954,340 +3923,45 @@ pub const Runtime = struct {
     }
 };
 
-pub const ArenaCopyPlan = struct {
-    handle: *anyopaque,
+const resource_plans = @import("runtime/resource_plans.zig").ResourcePlans(MetalError);
 
-    pub fn deinit(self: *ArenaCopyPlan) void {
-        stwo_zig_metal_arena_copy_plan_destroy(self.handle);
-        self.* = undefined;
-    }
-};
+pub const ArenaCopyPlan = resource_plans.ArenaCopyPlan;
+pub const WitnessFeedPlan = resource_plans.WitnessFeedPlan;
+pub const WitnessFeedBatchPlan = resource_plans.WitnessFeedBatchPlan;
+pub const CircleLdePlan = resource_plans.CircleLdePlan;
+pub const CircleIfftPlan = resource_plans.CircleIfftPlan;
+pub const FixedTablePlan = resource_plans.FixedTablePlan;
+pub const FixedTableBatchPlan = resource_plans.FixedTableBatchPlan;
+pub const MerkleParentChainPlan = resource_plans.MerkleParentChainPlan;
+pub const MerkleLeafPlan = resource_plans.MerkleLeafPlan;
+pub const ResidentMerklePlan = resource_plans.ResidentMerklePlan;
+pub const EcOpPlan = resource_plans.EcOpPlan;
+pub const CompactLayout = resource_plans.CompactLayout;
+pub const CompactPlan = resource_plans.CompactPlan;
+pub const EvalLayout = resource_plans.EvalLayout;
+pub const WitnessLayout = resource_plans.WitnessLayout;
+pub const EvalLibrary = resource_plans.EvalLibrary;
+pub const EvalPlan = resource_plans.EvalPlan;
+pub const WitnessPlan = resource_plans.WitnessPlan;
+pub const EvalBatchPlan = resource_plans.EvalBatchPlan;
+pub const CompositionFinalizePlan = resource_plans.CompositionFinalizePlan;
+pub const CompositionLdeOptions = resource_plans.CompositionLdeOptions;
+pub const CompositionLdePlan = resource_plans.CompositionLdePlan;
+pub const CompositionExtParamDescriptor = resource_plans.CompositionExtParamDescriptor;
+pub const CompositionInputPlan = resource_plans.CompositionInputPlan;
+pub const CompositionFrontPlan = resource_plans.CompositionFrontPlan;
+pub const RelationPlan = resource_plans.RelationPlan;
+pub const FriFoldPlan = resource_plans.FriFoldPlan;
+pub const QuotientCombinePlan = resource_plans.QuotientCombinePlan;
+pub const FriRoundPlan = resource_plans.FriRoundPlan;
+pub const FriTreePlan = resource_plans.FriTreePlan;
+pub const FriFinalPlan = resource_plans.FriFinalPlan;
 
-pub const WitnessFeedPlan = struct {
-    handle: *anyopaque,
-
-    pub fn deinit(self: *WitnessFeedPlan) void {
-        stwo_zig_metal_witness_feed_plan_destroy(self.handle);
-        self.* = undefined;
-    }
-};
-
-pub const WitnessFeedBatchPlan = struct {
-    handle: *anyopaque,
-
-    pub fn deinit(self: *WitnessFeedBatchPlan) void {
-        stwo_zig_metal_witness_feed_batch_destroy(self.handle);
-        self.* = undefined;
-    }
-};
-
-pub const CircleLdePlan = struct {
-    handle: *anyopaque,
-
-    pub fn deinit(self: *CircleLdePlan) void {
-        stwo_zig_metal_circle_lde_plan_destroy(self.handle);
-        self.* = undefined;
-    }
-};
-
-pub const CircleIfftPlan = struct {
-    handle: *anyopaque,
-
-    pub fn deinit(self: *CircleIfftPlan) void {
-        stwo_zig_metal_circle_ifft_plan_destroy(self.handle);
-        self.* = undefined;
-    }
-};
-
-pub const FixedTablePlan = struct {
-    handle: *anyopaque,
-
-    pub fn deinit(self: *FixedTablePlan) void {
-        stwo_zig_metal_fixed_table_plan_destroy(self.handle);
-        self.* = undefined;
-    }
-};
-
-pub const FixedTableBatchPlan = struct {
-    handle: *anyopaque,
-
-    pub fn deinit(self: *FixedTableBatchPlan) void {
-        stwo_zig_metal_fixed_table_batch_destroy(self.handle);
-        self.* = undefined;
-    }
-};
-
-pub const MerkleParentChainPlan = struct {
-    handle: *anyopaque,
-    required_arena_bytes: usize,
-
-    pub fn deinit(self: *MerkleParentChainPlan) void {
-        stwo_zig_metal_merkle_parent_chain_destroy(self.handle);
-        self.* = undefined;
-    }
-};
-
-pub const MerkleLeafPlan = struct {
-    handle: *anyopaque,
-
-    pub fn deinit(self: *MerkleLeafPlan) void {
-        stwo_zig_metal_merkle_leaf_destroy(self.handle);
-        self.* = undefined;
-    }
-};
-
-pub const ResidentMerklePlan = struct {
-    handle: *anyopaque,
-
-    pub fn deinit(self: *ResidentMerklePlan) void {
-        stwo_zig_metal_resident_merkle_destroy(self.handle);
-        self.* = undefined;
-    }
-};
-
-pub const EcOpPlan = struct {
-    handle: *anyopaque,
-
-    pub fn deinit(self: *EcOpPlan) void {
-        stwo_zig_metal_ec_op_plan_destroy(self.handle);
-        self.* = undefined;
-    }
-};
-
-pub const CompactLayout = struct {
-    tuple_words: u32,
-    key_words: u32,
-    total_rows: u32,
-    sort_rows: u32,
-    consumer_rows: u32,
-    tuples_offset: u32,
-    indices_a_offset: u32,
-    indices_b_offset: u32,
-    counts_offset: u32,
-    radix_offsets_offset: u32,
-    bases_offset: u32,
-    heads_offset: u32,
-    positions_offset: u32,
-    block_sums_offset: u32,
-    error_offset: u32,
-    unique_offset: u32,
-    enabler_slot: u32 = std.math.maxInt(u32),
-    multiplicity_slot: u32,
-    iota_slot: u32 = std.math.maxInt(u32),
-};
-
-pub const CompactPlan = struct {
-    handle: *anyopaque,
-
-    pub fn deinit(self: *CompactPlan) void {
-        stwo_zig_metal_compact_destroy(self.handle);
-        self.* = undefined;
-    }
-};
-
-pub const EvalLayout = struct {
-    trace_offsets: u32,
-    interaction_offsets: u32,
-    base_params: u32,
-    ext_params: u32,
-    random_coeffs: u32,
-    denom_inv: u32,
-    coordinates: [4]u32,
-    row_count: u32,
-    trace_log_size: u32,
-    domain_log_size: u32,
-    rc_base: u32,
-};
-
-pub const WitnessLayout = extern struct {
-    input_offsets: u32,
-    table_offsets: u32,
-    table_strides: u32,
-    output_offsets: u32,
-    multiplicity_offsets: u32,
-    lookup_words: u32,
-    sub_words: u32,
-    row_count: u32,
-    pedersen_offsets: u32,
-    pedersen_rows: u32,
-    poseidon_keys: u32,
-};
-
-comptime {
-    if (@sizeOf(WitnessLayout) != 11 * @sizeOf(u32)) @compileError("Metal witness ABI drift");
-}
-
-fn evalArguments(layout: EvalLayout) MetalError![14]u32 {
-    if (layout.row_count < 2 or !std.math.isPowerOfTwo(layout.row_count) or layout.trace_log_size >= 32 or
-        layout.domain_log_size >= @ctz(layout.row_count)) return MetalError.PolynomialEvaluationFailed;
-    return .{
-        layout.trace_offsets,   layout.interaction_offsets, layout.base_params,    layout.ext_params,
-        layout.random_coeffs,   layout.denom_inv,           layout.coordinates[0], layout.coordinates[1],
-        layout.coordinates[2],  layout.coordinates[3],      layout.row_count,      layout.trace_log_size,
-        layout.domain_log_size, layout.rc_base,
-    };
-}
-
-pub const EvalLibrary = struct {
-    handle: *anyopaque,
-
-    pub fn deinit(self: *EvalLibrary) void {
-        stwo_zig_metal_eval_library_destroy(self.handle);
-        self.* = undefined;
-    }
-
-    pub fn serialize(self: EvalLibrary) MetalError!void {
-        var message: [4096]u8 = [_]u8{0} ** 4096;
-        if (!stwo_zig_metal_eval_library_serialize(self.handle, &message, message.len)) {
-            std.log.err("Metal evaluation archive serialization failed: {s}", .{std.mem.sliceTo(&message, 0)});
-            return MetalError.PolynomialEvaluationFailed;
-        }
-    }
-};
-
-pub const EvalPlan = extern struct {
-    handle: *anyopaque,
-
-    pub fn deinit(self: *EvalPlan) void {
-        stwo_zig_metal_eval_destroy(self.handle);
-        self.* = undefined;
-    }
-};
-
-pub const WitnessPlan = extern struct {
-    handle: *anyopaque,
-
-    pub fn deinit(self: *WitnessPlan) void {
-        stwo_zig_metal_witness_plan_destroy(self.handle);
-        self.* = undefined;
-    }
-};
-
-pub const EvalBatchPlan = extern struct {
-    handle: *anyopaque,
-
-    pub fn deinit(self: *EvalBatchPlan) void {
-        stwo_zig_metal_eval_batch_destroy(self.handle);
-        self.* = undefined;
-    }
-};
-
-pub const CompositionFinalizePlan = struct {
-    handle: *anyopaque,
-
-    pub fn deinit(self: *CompositionFinalizePlan) void {
-        stwo_zig_metal_composition_finalize_destroy(self.handle);
-        self.* = undefined;
-    }
-};
-
-pub const CompositionLdeOptions = struct {
-    radix4: bool = true,
-};
+const evalArguments = resource_plans.evalArguments;
 
 pub fn compositionLdeOptionsFromEnvironment() MetalError!CompositionLdeOptions {
-    return compositionLdeOptions(std.posix.getenv("STWO_ZIG_METAL_RADIX4_RFFT"));
+    return resource_plans.compositionLdeOptionsFromEnvironment();
 }
-
-fn compositionLdeOptions(value: ?[]const u8) MetalError!CompositionLdeOptions {
-    const encoded = value orelse return .{};
-    if (std.mem.eql(u8, encoded, "1")) return .{};
-    if (std.mem.eql(u8, encoded, "0")) return .{ .radix4 = false };
-    return MetalError.PolynomialEvaluationFailed;
-}
-
-test "composition LDE radix-4 policy is default-on with explicit rollback" {
-    try std.testing.expect((try compositionLdeOptions(null)).radix4);
-    try std.testing.expect((try compositionLdeOptions("1")).radix4);
-    try std.testing.expect(!(try compositionLdeOptions("0")).radix4);
-    try std.testing.expectError(MetalError.PolynomialEvaluationFailed, compositionLdeOptions("false"));
-}
-
-pub const CompositionLdePlan = extern struct {
-    handle: *anyopaque,
-
-    pub fn deinit(self: *CompositionLdePlan) void {
-        stwo_zig_metal_composition_lde_destroy(self.handle);
-        self.* = undefined;
-    }
-};
-
-pub const CompositionExtParamDescriptor = extern struct {
-    destination: u32,
-    kind: u32,
-    source: u32,
-    scale: u32,
-    constant: [4]u32,
-};
-
-pub const CompositionInputPlan = extern struct {
-    handle: *anyopaque,
-
-    pub fn deinit(self: *CompositionInputPlan) void {
-        stwo_zig_metal_composition_inputs_destroy(self.handle);
-        self.* = undefined;
-    }
-};
-
-pub const CompositionFrontPlan = struct {
-    handle: *anyopaque,
-
-    pub fn deinit(self: *CompositionFrontPlan) void {
-        stwo_zig_metal_composition_front_destroy(self.handle);
-        self.* = undefined;
-    }
-};
-
-pub const RelationPlan = struct {
-    handle: *anyopaque,
-
-    pub fn deinit(self: *RelationPlan) void {
-        stwo_zig_metal_relation_plan_destroy(self.handle);
-        self.* = undefined;
-    }
-};
-
-pub const FriFoldPlan = struct {
-    handle: *anyopaque,
-
-    pub fn deinit(self: *FriFoldPlan) void {
-        stwo_zig_metal_fri_fold_plan_destroy(self.handle);
-        self.* = undefined;
-    }
-};
-
-pub const QuotientCombinePlan = struct {
-    handle: *anyopaque,
-
-    pub fn deinit(self: *QuotientCombinePlan) void {
-        stwo_zig_metal_quotient_combine_plan_destroy(self.handle);
-        self.* = undefined;
-    }
-};
-
-pub const FriRoundPlan = struct {
-    handle: *anyopaque,
-    pub fn deinit(self: *FriRoundPlan) void {
-        stwo_zig_metal_fri_round_plan_destroy(self.handle);
-        self.* = undefined;
-    }
-};
-
-pub const FriTreePlan = struct {
-    handle: *anyopaque,
-    pub fn deinit(self: *FriTreePlan) void {
-        stwo_zig_metal_fri_tree_plan_destroy(self.handle);
-        self.* = undefined;
-    }
-};
-
-pub const FriFinalPlan = struct {
-    handle: *anyopaque,
-    pub fn deinit(self: *FriFinalPlan) void {
-        stwo_zig_metal_fri_final_plan_destroy(self.handle);
-        self.* = undefined;
-    }
-};
 
 pub const ResidentBuffer = struct {
     handle: *anyopaque,
