@@ -306,6 +306,32 @@ throughput on these bounded complete proofs. Exact proof digests were `1beb388c.
 `574b4d69...20831f`. This is the formal baseline for complete-transaction profiling; compact
 commitment-stage speedups are not extrapolated over it.
 
+### Complete Native profile after report v3
+
+A counter-enabled bounded Metal run retained the same exact Wide Fibonacci and XOR artifacts and
+passed the pinned Rust oracle. Wide measured 6.769 ms median prove time, 0.874 ms of actual Metal GPU
+execution, and 4.233 ms in command waits per proof; XOR measured 7.682, 1.118, and 4.391 ms. Wide
+issued 15 Metal dispatches and XOR 17, but both recorded exactly 13 `cpu_small_merkle_commits`, zero
+resident commits, and zero streaming commits. FRI quotient construction and commitment remained the
+largest stage at roughly 4.1-4.5 ms for Wide and 3.9-4.1 ms for XOR.
+
+This ranks the complete-proof host commitment boundary above kernel work. Metal GPU execution is
+only 13-14 percent of request latency, the Wide LDE is already one command and XOR LDE two, and no
+Metal leaf kernel can affect a transaction that never enters resident Merkle. Lowering the existing
+small-tree policy threshold without measuring allocation, copy, command, and wait cost is rejected.
+The next experiment is an explicit resident-small-tree crossover and then, if direct commits lose,
+a producer-to-resident-Merkle transaction that removes host materialization.
+
+The post-`684b5dd` CPU profile instead ranked sampled-value circle evaluation above generic trace
+leaf packing: `evalManyAtPointsWithFlatFactors` accounted for 358 selected top-of-stack samples,
+versus 97 for `buildLeavesBatchedRange`. Three exact-proof evaluator experiments were rejected and
+reverted. Four-polynomial packed QM31 evaluation regressed small/medium/wide proofs by 0.30, 0.59,
+and 0.89 percent. A fixed-factor QM31 multiplication matrix regressed the targeted wide sampled-value
+stage from 1.719 to 1.740 ms. Scalar pair interleaving left medium/wide proof medians inside MAD and
+regressed the same stage from 1.735 to 1.740 ms. The current scalar Karatsuba evaluator remains the
+accepted ARM64 implementation; future work must change coefficient/point reuse rather than repeat
+cross-polynomial gathers or widened multiplication transforms.
+
 ## Benchmark Matrix
 
 The checked-in driver will use stable workload identifiers and immutable protocol settings.

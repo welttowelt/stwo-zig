@@ -526,3 +526,11 @@ and `b12f77cc1faaaa046c1ade2fd627c505420732eea1c7f72f5066a58b8537170e`.
 The matrix establishes a trustworthy complete-proof baseline, not a Metal win:
 these bounded rows still favor CPU materially, so the next Metal work must target
 measured complete-transaction residency and fallback boundaries.
+
+The first complete-transaction Metal profile explains that gap. Wide and XOR spend
+only 0.874 and 1.118 ms per proof in actual GPU execution, but 4.233 and 4.391 ms in
+command waits. Each records 13 CPU small-Merkle fallbacks and no resident or streaming
+Merkle commit; FRI quotient construction/commitment is the dominant stage. LDE is
+already batched into one Wide command and two XOR commands. The next Metal gate is
+therefore a controlled resident-small-tree crossover and producer-to-commit residency,
+not speculative LDE or leaf-kernel work.
