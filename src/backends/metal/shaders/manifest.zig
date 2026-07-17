@@ -4,11 +4,17 @@ pub const core_shader_abi: u32 = 2;
 pub const witness_codegen_support_version: u64 = 6;
 
 pub const CompileProfile = struct {
+    sdk: []const u8,
+    language_standard: []const u8,
     math_mode: []const u8,
+    warnings_as_errors: bool,
 };
 
 pub const compile_profile: CompileProfile = .{
+    .sdk = "macosx",
+    .language_standard = "metal3.1",
     .math_mode = "safe",
+    .warnings_as_errors = true,
 };
 
 pub const Unit = enum {
@@ -242,6 +248,7 @@ pub const amalgamated_source: [:0]const u8 = "#define STWO_ZIG_AMALGAMATED 1\n" 
     polynomial_eval_source ++ "\x00";
 
 pub const amalgamated_source_sha256: [32]u8 = digest: {
+    @setEvalBranchQuota(10_000_000);
     var result: [32]u8 = undefined;
     std.crypto.hash.sha2.Sha256.hash(
         amalgamated_source[0 .. amalgamated_source.len - 1],
