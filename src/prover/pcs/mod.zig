@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const backend_merkle = @import("../../backend/merkle_ops.zig");
 const circle = @import("../../core/circle.zig");
 const m31 = @import("../../core/fields/m31.zig");
@@ -16,6 +15,9 @@ const twiddles_mod = @import("../poly/twiddles.zig");
 const prover_fri = @import("../fri.zig");
 const vcs_lifted_prover = @import("../vcs_lifted/prover.zig");
 const commitment_tree = @import("commitment_tree.zig");
+const circle_transforms = @import("columns/circle_transforms.zig");
+const column_preparation = @import("columns/preparation.zig");
+const column_storage = @import("columns/storage.zig");
 const sampled_value_transcript = @import("sampled_value_transcript.zig");
 const sampled_value_evaluation = @import("sampled_values.zig");
 
@@ -28,19 +30,13 @@ const PcsConfig = pcs_core.PcsConfig;
 const TreeVec = pcs_core.TreeVec;
 const TreeSubspan = pcs_core.TreeSubspan;
 const PREPROCESSED_TRACE_IDX = verifier_types.PREPROCESSED_TRACE_IDX;
-const COEFFICIENT_STORAGE_AUTO_MAX_BYTES: usize = 8 * 1024 * 1024;
-const FFT_BATCH_TARGET_BYTES: usize = 256 * 1024;
 
 pub const CommitmentSchemeError = error{
     ShapeMismatch,
     InvalidPreprocessedTree,
 };
 
-const CoefficientRetentionPolicy = enum {
-    auto,
-    always,
-    never,
-};
+const CoefficientRetentionPolicy = column_storage.CoefficientRetentionPolicy;
 
 pub const ColumnEvaluation = commitment_tree.ColumnEvaluation;
 
@@ -90,7 +86,7 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
             for (self.trees.items) |*tree| tree.deinit(allocator);
             self.trees.deinit(allocator);
-            deinitTwiddleCache(allocator, &self.twiddle_cache);
+            circle_transforms.deinitTwiddleCache(allocator, &self.twiddle_cache);
             self.* = undefined;
         }
 
@@ -104,7 +100,8 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
             columns: []const ColumnEvaluation,
             channel: anytype,
         ) !void {
-            var prepared = try prepareColumnsForCommitBorrowed(
+            var prepared = try column_preparation.prepareColumnsForCommitBorrowedForBackend(
+                B,
                 allocator,
                 columns,
                 self.config.fri_config.log_blowup_factor,
@@ -153,9 +150,9 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
             recorder: ?*stage_profile.Recorder,
             channel: anytype,
         ) !void {
-            if (columnEvaluationsAreConstant(owned_columns)) {
-                errdefer freeOwnedColumnEvaluations(allocator, owned_columns);
-                var prepared = try prepareConstantColumnsForCommitOwned(
+            if (column_preparation.columnEvaluationsAreConstant(owned_columns)) {
+                errdefer column_storage.freeOwnedColumnEvaluations(allocator, owned_columns);
+                var prepared = try column_preparation.prepareConstantColumnsForCommitOwned(
                     allocator,
                     owned_columns,
                     self.config.fri_config.log_blowup_factor,
@@ -185,8 +182,8 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                 );
             }
 
-            errdefer freeOwnedColumnEvaluations(allocator, owned_columns);
-            var prepared = try prepareColumnsForCommitOwnedForBackend(
+            errdefer column_storage.freeOwnedColumnEvaluations(allocator, owned_columns);
+            var prepared = try column_preparation.prepareColumnsForCommitOwnedForBackend(
                 B,
                 allocator,
                 owned_columns,
@@ -231,17 +228,17 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
             channel: anytype,
         ) !void {
             const blowup = self.config.fri_config.log_blowup_factor;
-            const columns = try extendCoefficientColumnsByGroupForBackend(
+            const columns = try circle_transforms.extendCoefficientColumnsByGroupForBackend(
                 B,
                 allocator,
                 polys,
                 blowup,
                 &self.twiddle_cache,
             );
-            errdefer freeOwnedColumnEvaluations(allocator, columns);
+            errdefer column_storage.freeOwnedColumnEvaluations(allocator, columns);
 
             var stored_coefficients: ?[]prover_circle.CircleCoefficients = null;
-            if (shouldRetainPolynomialCoefficients(polys, self.coefficient_retention_policy)) {
+            if (column_storage.shouldRetainPolynomialCoefficients(polys, self.coefficient_retention_policy)) {
                 const coeffs = try allocator.alloc(prover_circle.CircleCoefficients, polys.len);
                 errdefer allocator.free(coeffs);
 
@@ -851,10 +848,10 @@ pub fn TreeBuilder(comptime B: type, comptime H: type, comptime MC: type) type {
             const base_columns = try self.columns.toOwnedSlice(self.allocator);
             self.columns = std.ArrayList(ColumnEvaluation).empty;
             errdefer {
-                freeOwnedColumnEvaluations(self.allocator, base_columns);
+                column_storage.freeOwnedColumnEvaluations(self.allocator, base_columns);
             }
 
-            var prepared = try prepareColumnsForCommitOwnedForBackend(
+            var prepared = try column_preparation.prepareColumnsForCommitOwnedForBackend(
                 B,
                 self.allocator,
                 base_columns,
@@ -993,13 +990,13 @@ pub fn StreamingTreeBuilder(comptime B: type, comptime H: type, comptime MC: typ
 
             // Determine coefficient retention for this batch.
             const batch_retain = self.retain_coefficients or
-                shouldRetainCoefficients(owned_batch, self.commitment_scheme.coefficient_retention_policy);
+                column_storage.shouldRetainCoefficients(owned_batch, self.commitment_scheme.coefficient_retention_policy);
 
             // Prepare: interpolate + extend.
             // Follow the same ownership convention as commitOwnedWithRecorder:
             // on error from prepareColumnsForCommitOwned the caller cleans up
             // the input; on success the result owns the data.
-            var prepared = prepareColumnsForCommitOwnedForBackend(
+            var prepared = column_preparation.prepareColumnsForCommitOwnedForBackend(
                 B,
                 self.allocator,
                 owned_batch,
@@ -1008,7 +1005,7 @@ pub fn StreamingTreeBuilder(comptime B: type, comptime H: type, comptime MC: typ
                 &self.commitment_scheme.twiddle_cache,
                 recorder,
             ) catch |err| {
-                freeOwnedColumnEvaluations(self.allocator, owned_batch);
+                column_storage.freeOwnedColumnEvaluations(self.allocator, owned_batch);
                 return err;
             };
             errdefer prepared.deinit(self.allocator);
@@ -1071,7 +1068,7 @@ pub fn StreamingTreeBuilder(comptime B: type, comptime H: type, comptime MC: typ
             const columns = blk: {
                 const streamed = try self.retained_columns.toOwnedSlice(self.allocator);
                 self.retained_columns = std.ArrayList(ColumnEvaluation).empty;
-                errdefer freeOwnedColumnEvaluations(self.allocator, streamed);
+                errdefer column_storage.freeOwnedColumnEvaluations(self.allocator, streamed);
 
                 const ordered = try self.allocator.alloc(ColumnEvaluation, streamed.len);
                 for (streamed, original_indices) |column, original_index| {
@@ -1080,14 +1077,14 @@ pub fn StreamingTreeBuilder(comptime B: type, comptime H: type, comptime MC: typ
                 self.allocator.free(streamed);
                 break :blk ordered;
             };
-            errdefer freeOwnedColumnEvaluations(self.allocator, columns);
+            errdefer column_storage.freeOwnedColumnEvaluations(self.allocator, columns);
 
             var coefficients: ?[]prover_circle.CircleCoefficients = null;
-            errdefer if (coefficients) |owned| deinitOwnedCoefficientColumns(self.allocator, owned);
+            errdefer if (coefficients) |owned| column_storage.deinitOwnedCoefficientColumns(self.allocator, owned);
             if (self.retained_coefficients.items.len > 0) {
                 const streamed_coefficients = try self.retained_coefficients.toOwnedSlice(self.allocator);
                 self.retained_coefficients = std.ArrayList(prover_circle.CircleCoefficients).empty;
-                errdefer deinitOwnedCoefficientColumns(self.allocator, streamed_coefficients);
+                errdefer column_storage.deinitOwnedCoefficientColumns(self.allocator, streamed_coefficients);
                 if (streamed_coefficients.len == columns.len) {
                     const ordered_coefficients = try self.allocator.alloc(
                         prover_circle.CircleCoefficients,
@@ -1112,978 +1109,6 @@ pub fn StreamingTreeBuilder(comptime B: type, comptime H: type, comptime MC: typ
             try self.commitment_scheme.appendCommittedTree(self.allocator, tree, channel);
         }
     };
-}
-
-const PreparedCommitmentColumns = struct {
-    columns: []ColumnEvaluation,
-    coefficients: ?[]prover_circle.CircleCoefficients,
-    column_backing_buffers: ?[][]M31 = null,
-    /// Contiguous backing buffers for batched coefficient data. When present,
-    /// coefficient entries borrow sub-slices of these buffers instead of each
-    /// owning a separate allocation. Freed alongside the coefficients.
-    coefficient_backing_buffers: ?[][]M31 = null,
-
-    fn deinit(self: *PreparedCommitmentColumns, allocator: std.mem.Allocator) void {
-        if (self.column_backing_buffers) |buffers| {
-            allocator.free(self.columns);
-            for (buffers) |buffer| allocator.free(buffer);
-            allocator.free(buffers);
-        } else {
-            freeOwnedColumnEvaluations(allocator, self.columns);
-        }
-        if (self.coefficients) |coeffs| {
-            deinitOwnedCoefficientColumns(allocator, coeffs);
-        }
-        if (self.coefficient_backing_buffers) |bufs| {
-            for (bufs) |buf| allocator.free(buf);
-            allocator.free(bufs);
-        }
-        self.* = undefined;
-    }
-};
-
-fn columnEvaluationsAreConstant(columns: []const ColumnEvaluation) bool {
-    if (columns.len == 0) return false;
-    for (columns) |column| {
-        if (column.values.len == 0) return false;
-        const first = column.values[0];
-        for (column.values[1..]) |value| {
-            if (!value.eql(first)) return false;
-        }
-    }
-    return true;
-}
-
-fn prepareConstantColumnsForCommitOwned(
-    allocator: std.mem.Allocator,
-    owned_columns: []ColumnEvaluation,
-    log_blowup_factor: u32,
-    retention_policy: CoefficientRetentionPolicy,
-) !PreparedCommitmentColumns {
-    const retain_coefficients = shouldRetainCoefficients(owned_columns, retention_policy);
-    const coefficients = if (retain_coefficients)
-        try allocator.alloc(prover_circle.CircleCoefficients, owned_columns.len)
-    else
-        null;
-    var initialized_coefficients: usize = 0;
-    errdefer if (coefficients) |coeffs| {
-        for (coeffs[0..initialized_coefficients]) |*coefficient| coefficient.deinit(allocator);
-        allocator.free(coeffs);
-    };
-
-    for (owned_columns, 0..) |*column, i| {
-        try column.validate();
-        const constant = column.values[0];
-        if (coefficients) |coeffs| {
-            const coefficient_values = try allocator.alloc(M31, column.values.len);
-            @memset(coefficient_values, M31.zero());
-            coefficient_values[0] = constant;
-            coeffs[i] = prover_circle.CircleCoefficients.initOwned(coefficient_values) catch |err| {
-                allocator.free(coefficient_values);
-                return err;
-            };
-            initialized_coefficients += 1;
-        }
-
-        if (log_blowup_factor != 0) {
-            const extended_log_size = std.math.add(u32, column.log_size, log_blowup_factor) catch
-                return error.InvalidColumnLogSize;
-            if (extended_log_size >= @bitSizeOf(usize)) return error.InvalidColumnLogSize;
-            const extended_len = @as(usize, 1) << @intCast(extended_log_size);
-            const extended_values = try allocator.alloc(M31, extended_len);
-            @memset(extended_values, constant);
-            allocator.free(column.values);
-            column.* = .{ .log_size = extended_log_size, .values = extended_values };
-        }
-    }
-
-    return .{ .columns = owned_columns, .coefficients = coefficients };
-}
-
-fn prepareColumnsForCommitBorrowed(
-    allocator: std.mem.Allocator,
-    columns: []const ColumnEvaluation,
-    log_blowup_factor: u32,
-    retention_policy: CoefficientRetentionPolicy,
-    twiddle_cache: *std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)),
-) !PreparedCommitmentColumns {
-    const owned = try allocator.alloc(ColumnEvaluation, columns.len);
-    errdefer allocator.free(owned);
-
-    var initialized: usize = 0;
-    errdefer {
-        for (owned[0..initialized]) |column| allocator.free(column.values);
-    }
-
-    for (columns, 0..) |column, i| {
-        try column.validate();
-        owned[i] = .{
-            .log_size = column.log_size,
-            .values = try allocator.dupe(M31, column.values),
-        };
-        initialized += 1;
-    }
-
-    return prepareColumnsForCommitOwned(
-        allocator,
-        owned,
-        log_blowup_factor,
-        retention_policy,
-        twiddle_cache,
-        null,
-    );
-}
-
-fn prepareColumnsForCommitOwned(
-    allocator: std.mem.Allocator,
-    owned_columns: []ColumnEvaluation,
-    log_blowup_factor: u32,
-    retention_policy: CoefficientRetentionPolicy,
-    twiddle_cache: *std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)),
-    recorder: ?*stage_profile.Recorder,
-) !PreparedCommitmentColumns {
-    return prepareColumnsForCommitOwnedForBackend(
-        @import("../../backends/cpu_scalar/mod.zig").CpuBackend,
-        allocator,
-        owned_columns,
-        log_blowup_factor,
-        retention_policy,
-        twiddle_cache,
-        recorder,
-    );
-}
-
-fn prepareColumnsForCommitOwnedForBackend(
-    comptime B: type,
-    allocator: std.mem.Allocator,
-    owned_columns: []ColumnEvaluation,
-    log_blowup_factor: u32,
-    retention_policy: CoefficientRetentionPolicy,
-    twiddle_cache: *std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)),
-    recorder: ?*stage_profile.Recorder,
-) !PreparedCommitmentColumns {
-    const retain_coefficients = shouldRetainCoefficients(owned_columns, retention_policy);
-    if (log_blowup_factor == 0 and !retain_coefficients) {
-        return .{
-            .columns = owned_columns,
-            .coefficients = null,
-        };
-    }
-
-    if (log_blowup_factor != 0 and comptime @hasDecl(B, "interpolateAndEvaluateCircleBuffers")) {
-        return prepareColumnsCombinedForBackend(
-            B,
-            allocator,
-            owned_columns,
-            log_blowup_factor,
-            retain_coefficients,
-            twiddle_cache,
-        );
-    }
-
-    if (log_blowup_factor == 0) {
-        {
-            var interpolate_stage = try stage_profile.StageScope.begin(
-                recorder,
-                "interpolate_columns",
-                "Interpolate columns",
-            );
-            defer interpolate_stage.end();
-            const result = try interpolateCoefficientColumns(allocator, owned_columns, twiddle_cache);
-            return .{
-                .columns = owned_columns,
-                .coefficients = result.coefficients,
-                .coefficient_backing_buffers = result.backing_buffers,
-            };
-        }
-    }
-
-    const coeffs = blk: {
-        var interpolate_stage = try stage_profile.StageScope.begin(
-            recorder,
-            "interpolate_columns",
-            "Interpolate columns",
-        );
-        defer interpolate_stage.end();
-        break :blk try interpolateOwnedColumnsForExtensionForBackend(B, allocator, owned_columns, twiddle_cache);
-    };
-    errdefer deinitOwnedCoefficientColumns(allocator, coeffs);
-    allocator.free(owned_columns);
-
-    const extended = blk: {
-        var eval_stage = try stage_profile.StageScope.begin(
-            recorder,
-            "evaluate_extended_domain",
-            "Evaluate extended domain",
-        );
-        defer eval_stage.end();
-        break :blk try extendCoefficientColumnsByGroupForBackend(
-            B,
-            allocator,
-            coeffs,
-            log_blowup_factor,
-            twiddle_cache,
-        );
-    };
-
-    if (!retain_coefficients) {
-        deinitOwnedCoefficientColumns(allocator, coeffs);
-        return .{
-            .columns = extended,
-            .coefficients = null,
-        };
-    }
-
-    return .{
-        .columns = extended,
-        .coefficients = coeffs,
-    };
-}
-
-fn prepareColumnsCombinedForBackend(
-    comptime B: type,
-    allocator: std.mem.Allocator,
-    owned_columns: []ColumnEvaluation,
-    log_blowup_factor: u32,
-    retain_coefficients: bool,
-    twiddle_cache: *std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)),
-) !PreparedCommitmentColumns {
-    const extended = try allocator.alloc(ColumnEvaluation, owned_columns.len);
-    for (extended) |*column| column.* = .{ .log_size = 0, .values = &.{} };
-    errdefer allocator.free(extended);
-
-    const coefficients = try allocator.alloc(prover_circle.CircleCoefficients, owned_columns.len);
-    errdefer allocator.free(coefficients);
-    var initialized_indices = std.ArrayList(usize).empty;
-    defer initialized_indices.deinit(allocator);
-    errdefer for (initialized_indices.items) |index| coefficients[index].deinit(allocator);
-
-    var coefficient_buffers = std.ArrayList([]M31).empty;
-    defer coefficient_buffers.deinit(allocator);
-    errdefer for (coefficient_buffers.items) |buffer| allocator.free(buffer);
-    var column_buffers = std.ArrayList([]M31).empty;
-    defer column_buffers.deinit(allocator);
-    errdefer for (column_buffers.items) |buffer| allocator.free(buffer);
-
-    var groups = try buildLogSizeGroupsFromColumns(allocator, owned_columns);
-    defer deinitLogSizeGroups(allocator, &groups);
-    for (groups.items) |group| {
-        const extended_log_size = std.math.add(u32, group.log_size, log_blowup_factor) catch
-            return CommitmentSchemeError.ShapeMismatch;
-        const base_domain = canonic.CanonicCoset.new(group.log_size).circleDomain();
-        const extended_domain = canonic.CanonicCoset.new(extended_log_size).circleDomain();
-        const base_twiddles = try getCachedTwiddleTree(allocator, twiddle_cache, group.log_size);
-        const extended_twiddles = try getCachedTwiddleTree(allocator, twiddle_cache, extended_log_size);
-
-        const base_buffer = try allocator.alloc(M31, group.indices.items.len * base_domain.size());
-        try coefficient_buffers.append(allocator, base_buffer);
-        const extended_buffer = try allocator.alloc(M31, group.indices.items.len * extended_domain.size());
-        try column_buffers.append(allocator, extended_buffer);
-
-        const base_values = try allocator.alloc([]M31, group.indices.items.len);
-        defer allocator.free(base_values);
-        const source_values = try allocator.alloc([]const M31, group.indices.items.len);
-        defer allocator.free(source_values);
-        const extended_values = try allocator.alloc([]M31, group.indices.items.len);
-        defer allocator.free(extended_values);
-        for (group.indices.items, 0..) |column_index, group_index| {
-            const base = base_buffer[group_index * base_domain.size() ..][0..base_domain.size()];
-            source_values[group_index] = owned_columns[column_index].values;
-            base_values[group_index] = base;
-            const values = extended_buffer[group_index * extended_domain.size() ..][0..extended_domain.size()];
-            extended_values[group_index] = values;
-            extended[column_index] = .{ .log_size = extended_log_size, .values = values };
-        }
-        try B.interpolateAndEvaluateCircleBuffers(
-            allocator,
-            source_values,
-            base_values,
-            extended_values,
-            base_domain,
-            twiddleTreeConst(base_twiddles),
-            extended_domain,
-            twiddleTreeConst(extended_twiddles),
-        );
-
-        for (group.indices.items, base_values) |column_index, base| {
-            coefficients[column_index] = try prover_circle.CircleCoefficients.initBorrowed(base);
-            try initialized_indices.append(allocator, column_index);
-        }
-    }
-
-    for (owned_columns) |column| allocator.free(column.values);
-    allocator.free(owned_columns);
-
-    const owned_column_buffers = try allocator.dupe([]M31, column_buffers.items);
-    errdefer allocator.free(owned_column_buffers);
-
-    if (!retain_coefficients) {
-        deinitOwnedCoefficientColumns(allocator, coefficients);
-        for (coefficient_buffers.items) |buffer| allocator.free(buffer);
-        coefficient_buffers.clearRetainingCapacity();
-        column_buffers.clearRetainingCapacity();
-        return .{
-            .columns = extended,
-            .coefficients = null,
-            .column_backing_buffers = owned_column_buffers,
-        };
-    }
-    const owned_coefficient_buffers = try allocator.dupe([]M31, coefficient_buffers.items);
-    coefficient_buffers.clearRetainingCapacity();
-    column_buffers.clearRetainingCapacity();
-    return .{
-        .columns = extended,
-        .coefficients = coefficients,
-        .column_backing_buffers = owned_column_buffers,
-        .coefficient_backing_buffers = owned_coefficient_buffers,
-    };
-}
-
-fn shouldRetainCoefficients(
-    columns: []const ColumnEvaluation,
-    retention_policy: CoefficientRetentionPolicy,
-) bool {
-    return switch (retention_policy) {
-        .always => true,
-        .never => false,
-        .auto => blk: {
-            var total_bytes: usize = 0;
-            for (columns) |column| {
-                const column_bytes = std.math.mul(usize, column.values.len, @sizeOf(M31)) catch break :blk false;
-                total_bytes = std.math.add(usize, total_bytes, column_bytes) catch break :blk false;
-                if (total_bytes > COEFFICIENT_STORAGE_AUTO_MAX_BYTES) break :blk false;
-            }
-            break :blk true;
-        },
-    };
-}
-
-fn shouldRetainPolynomialCoefficients(
-    polys: []const prover_circle.CircleCoefficients,
-    retention_policy: CoefficientRetentionPolicy,
-) bool {
-    return switch (retention_policy) {
-        .always => true,
-        .never => false,
-        .auto => blk: {
-            var total_bytes: usize = 0;
-            for (polys) |poly| {
-                const poly_bytes = std.math.mul(usize, poly.coefficients().len, @sizeOf(M31)) catch break :blk false;
-                total_bytes = std.math.add(usize, total_bytes, poly_bytes) catch break :blk false;
-                if (total_bytes > COEFFICIENT_STORAGE_AUTO_MAX_BYTES) break :blk false;
-            }
-            break :blk true;
-        },
-    };
-}
-
-const InterpolatedCoefficients = struct {
-    coefficients: []prover_circle.CircleCoefficients,
-    /// Contiguous backing buffers for batched coefficients. Each entry is a
-    /// single allocation whose sub-slices are borrowed by the corresponding
-    /// CircleCoefficients (owns_coeffs == false). Must be freed separately.
-    backing_buffers: [][]M31,
-
-    fn deinit(self: *InterpolatedCoefficients, allocator: std.mem.Allocator) void {
-        for (self.coefficients) |*coeff| {
-            @constCast(coeff).deinit(allocator);
-        }
-        allocator.free(self.coefficients);
-        for (self.backing_buffers) |buf| allocator.free(buf);
-        allocator.free(self.backing_buffers);
-        self.* = undefined;
-    }
-};
-
-fn interpolateCoefficientColumns(
-    allocator: std.mem.Allocator,
-    columns: []const ColumnEvaluation,
-    twiddle_cache: *std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)),
-) !InterpolatedCoefficients {
-    const out = try allocator.alloc(prover_circle.CircleCoefficients, columns.len);
-
-    var backing_buffers = std.ArrayList([]M31).empty;
-    defer backing_buffers.deinit(allocator);
-
-    var initialized_indices = std.ArrayList(usize).empty;
-    defer initialized_indices.deinit(allocator);
-    errdefer {
-        // Individually-owned coefficients (from the single-column path)
-        // are freed via deinit; borrowed coefficients (from the batch path)
-        // are no-ops since their data lives in backing_buffers.
-        for (initialized_indices.items) |idx| out[idx].deinit(allocator);
-        for (backing_buffers.items) |buf| allocator.free(buf);
-        allocator.free(out);
-    }
-
-    var groups = try buildLogSizeGroupsFromColumns(allocator, columns);
-    defer deinitLogSizeGroups(allocator, &groups);
-
-    // --- Phase 1: pre-allocate contiguous buffers and copy column data ---
-    const InterpBatchMeta = struct {
-        group_indices_start: usize,
-        group_indices_end: usize,
-        group_item_idx: usize,
-    };
-
-    var work_items = std.ArrayList(IfftWorkItem).empty;
-    defer work_items.deinit(allocator);
-
-    var work_meta = std.ArrayList(InterpBatchMeta).empty;
-    defer work_meta.deinit(allocator);
-
-    var work_value_slices = std.ArrayList([][]M31).empty;
-    defer {
-        for (work_value_slices.items) |s| allocator.free(s);
-        work_value_slices.deinit(allocator);
-    }
-
-    var total_columns: usize = 0;
-
-    for (groups.items, 0..) |group, group_idx| {
-        const twiddle_tree = try getCachedTwiddleTree(allocator, twiddle_cache, group.log_size);
-        const domain = canonic.CanonicCoset.new(group.log_size).circleDomain();
-        const batch_len = preferredFftBatchLen(domain.size());
-        var batch_start: usize = 0;
-        while (batch_start < group.indices.items.len) : (batch_start += batch_len) {
-            const chunk_len = @min(batch_len, group.indices.items.len - batch_start);
-
-            // Allocate a single contiguous buffer for the entire batch instead
-            // of chunk_len separate allocations. This reduces allocator overhead
-            // and keeps FFT working data cache-contiguous.
-            const domain_size = domain.size();
-            const batch_buffer = try allocator.alloc(M31, chunk_len * domain_size);
-
-            // Track the contiguous buffer immediately so the outer errdefer
-            // handles cleanup on any subsequent failure.
-            backing_buffers.append(allocator, batch_buffer) catch |err| {
-                allocator.free(batch_buffer);
-                return err;
-            };
-
-            const batch_values = try allocator.alloc([]M31, chunk_len);
-            errdefer allocator.free(batch_values);
-
-            for (group.indices.items[batch_start .. batch_start + chunk_len], 0..) |idx, batch_idx| {
-                const slice = batch_buffer[batch_idx * domain_size .. (batch_idx + 1) * domain_size];
-                @memcpy(slice, columns[idx].values);
-                batch_values[batch_idx] = slice;
-            }
-
-            total_columns += chunk_len;
-
-            try work_value_slices.append(allocator, batch_values);
-            try work_items.append(allocator, .{
-                .values = batch_values,
-                .domain = domain,
-                .twiddle_tree = twiddleTreeConst(twiddle_tree),
-            });
-            try work_meta.append(allocator, .{
-                .group_indices_start = batch_start,
-                .group_indices_end = batch_start + chunk_len,
-                .group_item_idx = group_idx,
-            });
-        }
-    }
-
-    // --- Phase 2: run IFFT on all buffers ---
-    const use_parallel = !builtin.single_threaded and
-        work_items.items.len > 1 and
-        total_columns >= 4;
-
-    if (use_parallel) {
-        if (getOrInitFftPool()) |pool| {
-            var wait_group: std.Thread.WaitGroup = .{};
-            for (work_items.items[1..]) |*item| {
-                pool.spawnWg(&wait_group, ifftWorker, .{item});
-            }
-            ifftWorker(&work_items.items[0]);
-            wait_group.wait();
-        } else {
-            for (work_items.items) |*item| {
-                ifftWorker(item);
-            }
-        }
-    } else {
-        for (work_items.items) |*item| {
-            ifftWorker(item);
-        }
-    }
-
-    // --- Phase 3: wrap results into CircleCoefficients (main thread) ---
-    for (work_meta.items, 0..) |meta, wi| {
-        const group = groups.items[meta.group_item_idx];
-        const batch_values = work_items.items[wi].values;
-        for (group.indices.items[meta.group_indices_start..meta.group_indices_end], 0..) |idx, bi| {
-            out[idx] = try prover_circle.CircleCoefficients.initBorrowed(batch_values[bi]);
-            try initialized_indices.append(allocator, idx);
-        }
-    }
-
-    const owned_backing = try backing_buffers.toOwnedSlice(allocator);
-    return .{
-        .coefficients = out,
-        .backing_buffers = owned_backing,
-    };
-}
-
-fn interpolateOwnedColumnsForExtension(
-    allocator: std.mem.Allocator,
-    owned_columns: []ColumnEvaluation,
-    twiddle_cache: *std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)),
-) ![]prover_circle.CircleCoefficients {
-    return interpolateOwnedColumnsForExtensionForBackend(
-        @import("../../backends/cpu_scalar/mod.zig").CpuBackend,
-        allocator,
-        owned_columns,
-        twiddle_cache,
-    );
-}
-
-fn interpolateOwnedColumnsForExtensionForBackend(
-    comptime B: type,
-    allocator: std.mem.Allocator,
-    owned_columns: []ColumnEvaluation,
-    twiddle_cache: *std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)),
-) ![]prover_circle.CircleCoefficients {
-    const out = try allocator.alloc(prover_circle.CircleCoefficients, owned_columns.len);
-    errdefer allocator.free(out);
-
-    var initialized_indices = std.ArrayList(usize).empty;
-    defer initialized_indices.deinit(allocator);
-    errdefer {
-        for (initialized_indices.items) |idx| out[idx].deinit(allocator);
-        allocator.free(out);
-    }
-
-    var groups = try buildLogSizeGroupsFromColumns(allocator, owned_columns);
-    defer deinitLogSizeGroups(allocator, &groups);
-
-    // --- Phase 1: collect IFFT work items (buffers are already allocated) ---
-    const IfftBatchMeta = struct {
-        group_indices_start: usize,
-        group_indices_end: usize,
-        group_item_idx: usize,
-    };
-
-    var work_items = std.ArrayList(IfftWorkItem).empty;
-    defer work_items.deinit(allocator);
-
-    var work_meta = std.ArrayList(IfftBatchMeta).empty;
-    defer work_meta.deinit(allocator);
-
-    var work_value_slices = std.ArrayList([][]M31).empty;
-    defer {
-        for (work_value_slices.items) |s| allocator.free(s);
-        work_value_slices.deinit(allocator);
-    }
-
-    var total_columns: usize = 0;
-
-    for (groups.items, 0..) |group, group_idx| {
-        const twiddle_tree = try getCachedTwiddleTree(allocator, twiddle_cache, group.log_size);
-        const domain = canonic.CanonicCoset.new(group.log_size).circleDomain();
-        const batch_len = if (comptime @hasDecl(B, "interpolateCircleBuffers"))
-            group.indices.items.len
-        else
-            preferredFftBatchLen(domain.size());
-        var batch_start: usize = 0;
-        while (batch_start < group.indices.items.len) : (batch_start += batch_len) {
-            const chunk_len = @min(batch_len, group.indices.items.len - batch_start);
-
-            const batch_values = try allocator.alloc([]M31, chunk_len);
-            errdefer allocator.free(batch_values);
-
-            for (group.indices.items[batch_start .. batch_start + chunk_len], 0..) |idx, bi| {
-                batch_values[bi] = @constCast(owned_columns[idx].values);
-            }
-
-            total_columns += chunk_len;
-
-            try work_value_slices.append(allocator, batch_values);
-            try work_items.append(allocator, .{
-                .values = batch_values,
-                .domain = domain,
-                .twiddle_tree = twiddleTreeConst(twiddle_tree),
-            });
-            try work_meta.append(allocator, .{
-                .group_indices_start = batch_start,
-                .group_indices_end = batch_start + chunk_len,
-                .group_item_idx = group_idx,
-            });
-        }
-    }
-
-    // --- Phase 2: run IFFT on all buffers ---
-    const use_parallel = !builtin.single_threaded and
-        work_items.items.len > 1 and
-        total_columns >= 4;
-
-    if (comptime @hasDecl(B, "interpolateCircleBuffers")) {
-        for (work_items.items) |*item| {
-            try B.interpolateCircleBuffers(allocator, item.values, item.domain, item.twiddle_tree);
-        }
-    } else if (use_parallel) {
-        if (getOrInitFftPool()) |pool| {
-            var wait_group: std.Thread.WaitGroup = .{};
-            for (work_items.items[1..]) |*item| {
-                pool.spawnWg(&wait_group, ifftWorker, .{item});
-            }
-            ifftWorker(&work_items.items[0]);
-            wait_group.wait();
-        } else {
-            for (work_items.items) |*item| {
-                ifftWorker(item);
-            }
-        }
-    } else {
-        for (work_items.items) |*item| {
-            ifftWorker(item);
-        }
-    }
-
-    // --- Phase 3: wrap results into CircleCoefficients (main thread) ---
-    for (work_meta.items, 0..) |meta, wi| {
-        const group = groups.items[meta.group_item_idx];
-        const batch_values = work_items.items[wi].values;
-        for (group.indices.items[meta.group_indices_start..meta.group_indices_end], 0..) |idx, bi| {
-            out[idx] = try prover_circle.CircleCoefficients.initOwned(batch_values[bi]);
-            owned_columns[idx].values = &[_]M31{};
-            try initialized_indices.append(allocator, idx);
-        }
-    }
-
-    return out;
-}
-
-// ---------------------------------------------------------------------------
-// Parallel FFT infrastructure
-// ---------------------------------------------------------------------------
-
-/// Unified work pool shared across FFT, Merkle, and other proving phases.
-/// Replaces the previous FFT-specific FftPoolState with a single global pool
-/// from work_pool.zig, avoiding duplicate thread pool creation overhead.
-const work_pool_mod = @import("../work_pool.zig");
-
-fn getOrInitFftPool() ?*std.Thread.Pool {
-    const pool = work_pool_mod.getGlobalPool() orelse return null;
-    return &pool.pool;
-}
-
-/// A self-contained work item for parallel forward-FFT evaluation.
-/// Each item references a sub-slice of pre-allocated value buffers that share
-/// the same domain and twiddle tree, so the worker performs pure in-place
-/// computation with no allocator interaction.
-const FftEvalWorkItem = struct {
-    values: [][]M31,
-    domain: prover_circle.CircleDomain,
-    twiddle_tree: twiddles_mod.TwiddleTree([]const M31),
-};
-
-fn fftEvalWorker(item: *const FftEvalWorkItem) void {
-    prover_circle.poly.evaluateBuffersWithTwiddles(
-        item.values,
-        item.domain,
-        item.twiddle_tree,
-    ) catch {};
-}
-
-/// A self-contained work item for parallel inverse-FFT (interpolation).
-const IfftWorkItem = struct {
-    values: [][]M31,
-    domain: prover_circle.CircleDomain,
-    twiddle_tree: twiddles_mod.TwiddleTree([]const M31),
-};
-
-fn ifftWorker(item: *const IfftWorkItem) void {
-    prover_circle.poly.interpolateBuffersWithTwiddles(
-        item.values,
-        item.domain,
-        item.twiddle_tree,
-    ) catch {};
-}
-
-// ---------------------------------------------------------------------------
-
-fn extendCoefficientColumnsByGroup(
-    allocator: std.mem.Allocator,
-    coeffs: []const prover_circle.CircleCoefficients,
-    log_blowup_factor: u32,
-    twiddle_cache: *std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)),
-) ![]ColumnEvaluation {
-    return extendCoefficientColumnsByGroupForBackend(
-        @import("../../backends/cpu_scalar/mod.zig").CpuBackend,
-        allocator,
-        coeffs,
-        log_blowup_factor,
-        twiddle_cache,
-    );
-}
-
-fn extendCoefficientColumnsByGroupForBackend(
-    comptime B: type,
-    allocator: std.mem.Allocator,
-    coeffs: []const prover_circle.CircleCoefficients,
-    log_blowup_factor: u32,
-    twiddle_cache: *std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)),
-) ![]ColumnEvaluation {
-    const out = try allocator.alloc(ColumnEvaluation, coeffs.len);
-    errdefer allocator.free(out);
-    for (out) |*column| {
-        column.* = .{
-            .log_size = 0,
-            .values = &[_]M31{},
-        };
-    }
-    errdefer {
-        for (out) |column| {
-            if (column.values.len != 0) allocator.free(column.values);
-        }
-        allocator.free(out);
-    }
-
-    var groups = try buildLogSizeGroupsFromCoefficients(allocator, coeffs);
-    defer deinitLogSizeGroups(allocator, &groups);
-
-    // --- Phase 1: pre-allocate output buffers and copy coefficient data ---
-    // We collect all (buffer-slice, domain, twiddle) tuples so that the FFT
-    // phase can run without any allocator interaction.
-
-    var work_items = std.ArrayList(FftEvalWorkItem).empty;
-    defer work_items.deinit(allocator);
-
-    // Temporary storage for the per-work-item value-slice arrays. Each
-    // entry is an allocated [][]M31 that must be freed after use.
-    var work_value_slices = std.ArrayList([][]M31).empty;
-    defer {
-        for (work_value_slices.items) |s| allocator.free(s);
-        work_value_slices.deinit(allocator);
-    }
-
-    var total_columns: usize = 0;
-
-    for (groups.items) |group| {
-        const extended_log_size = std.math.add(u32, group.log_size, log_blowup_factor) catch
-            return CommitmentSchemeError.ShapeMismatch;
-        const twiddle_tree = try getCachedTwiddleTree(allocator, twiddle_cache, extended_log_size);
-        const domain = canonic.CanonicCoset.new(extended_log_size).circleDomain();
-        const domain_size = domain.size();
-
-        const batch_len = if (comptime @hasDecl(B, "evaluateCircleBuffers"))
-            group.indices.items.len
-        else
-            preferredFftBatchLen(domain_size);
-        var batch_start: usize = 0;
-        while (batch_start < group.indices.items.len) : (batch_start += batch_len) {
-            const chunk_len = @min(batch_len, group.indices.items.len - batch_start);
-
-            // Allocate value-buffer slice for this batch.
-            const batch_values = try allocator.alloc([]M31, chunk_len);
-            errdefer allocator.free(batch_values);
-
-            for (group.indices.items[batch_start .. batch_start + chunk_len], 0..) |idx, bi| {
-                const values = try allocator.alloc(M31, domain_size);
-                const coeff_slice = coeffs[idx].coefficients();
-                @memcpy(values[0..coeff_slice.len], coeff_slice);
-                if (coeff_slice.len < values.len) @memset(values[coeff_slice.len..], M31.zero());
-                batch_values[bi] = values;
-                out[idx] = .{
-                    .log_size = extended_log_size,
-                    .values = values,
-                };
-            }
-
-            total_columns += chunk_len;
-
-            try work_value_slices.append(allocator, batch_values);
-            try work_items.append(allocator, .{
-                .values = batch_values,
-                .domain = domain,
-                .twiddle_tree = twiddleTreeConst(twiddle_tree),
-            });
-        }
-    }
-
-    // --- Phase 2: run FFT on all pre-allocated buffers ---
-    const use_parallel = !builtin.single_threaded and
-        work_items.items.len > 1 and
-        total_columns >= 4;
-
-    if (comptime @hasDecl(B, "evaluateCircleBuffers")) {
-        for (work_items.items) |*item| {
-            try B.evaluateCircleBuffers(allocator, item.values, item.domain, item.twiddle_tree);
-        }
-        return out;
-    } else if (use_parallel) {
-        if (getOrInitFftPool()) |pool| {
-            var wait_group: std.Thread.WaitGroup = .{};
-            // Dispatch all but the first item to the pool; process the first
-            // item on the calling thread to keep it busy.
-            for (work_items.items[1..]) |*item| {
-                pool.spawnWg(&wait_group, fftEvalWorker, .{item});
-            }
-            fftEvalWorker(&work_items.items[0]);
-            wait_group.wait();
-            return out;
-        }
-    }
-
-    // Sequential fallback.
-    for (work_items.items) |*item| {
-        fftEvalWorker(item);
-    }
-
-    return out;
-}
-
-fn interpolateSingleCoefficientColumn(
-    allocator: std.mem.Allocator,
-    column: ColumnEvaluation,
-    twiddle_cache: *std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)),
-) !prover_circle.CircleCoefficients {
-    const domain = canonic.CanonicCoset.new(column.log_size).circleDomain();
-    const twiddle_tree = try getCachedTwiddleTree(allocator, twiddle_cache, column.log_size);
-    const evaluation = try prover_circle.CircleEvaluation.init(domain, column.values);
-    return prover_circle.poly.interpolateFromEvaluationWithTwiddles(
-        allocator,
-        evaluation,
-        twiddleTreeConst(twiddle_tree),
-    );
-}
-
-fn interpolateOwnedSingleCoefficientColumn(
-    allocator: std.mem.Allocator,
-    column: ColumnEvaluation,
-    twiddle_cache: *std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)),
-) !prover_circle.CircleCoefficients {
-    const domain = canonic.CanonicCoset.new(column.log_size).circleDomain();
-    const twiddle_tree = try getCachedTwiddleTree(allocator, twiddle_cache, column.log_size);
-    return prover_circle.poly.interpolateOwnedValuesWithTwiddles(
-        domain,
-        @constCast(column.values),
-        twiddleTreeConst(twiddle_tree),
-    );
-}
-
-fn deinitOwnedCoefficientColumns(
-    allocator: std.mem.Allocator,
-    columns: []prover_circle.CircleCoefficients,
-) void {
-    for (columns) |*coeff| coeff.deinit(allocator);
-    allocator.free(columns);
-}
-
-const LogSizeGroup = struct {
-    log_size: u32,
-    indices: std.ArrayList(usize),
-
-    fn deinit(self: *LogSizeGroup, allocator: std.mem.Allocator) void {
-        self.indices.deinit(allocator);
-        self.* = undefined;
-    }
-};
-
-fn buildLogSizeGroupsFromColumns(
-    allocator: std.mem.Allocator,
-    columns: []const ColumnEvaluation,
-) !std.ArrayList(LogSizeGroup) {
-    var groups = std.ArrayList(LogSizeGroup).empty;
-    errdefer deinitLogSizeGroups(allocator, &groups);
-
-    for (columns, 0..) |column, idx| {
-        try appendLogSizeGroupIndex(allocator, &groups, column.log_size, idx);
-    }
-    return groups;
-}
-
-fn buildLogSizeGroupsFromCoefficients(
-    allocator: std.mem.Allocator,
-    coeffs: []const prover_circle.CircleCoefficients,
-) !std.ArrayList(LogSizeGroup) {
-    var groups = std.ArrayList(LogSizeGroup).empty;
-    errdefer deinitLogSizeGroups(allocator, &groups);
-
-    for (coeffs, 0..) |coeff, idx| {
-        try appendLogSizeGroupIndex(allocator, &groups, coeff.logSize(), idx);
-    }
-    return groups;
-}
-
-fn appendLogSizeGroupIndex(
-    allocator: std.mem.Allocator,
-    groups: *std.ArrayList(LogSizeGroup),
-    log_size: u32,
-    idx: usize,
-) !void {
-    for (groups.items, 0..) |group, group_idx| {
-        if (group.log_size == log_size) {
-            try groups.items[group_idx].indices.append(allocator, idx);
-            return;
-        }
-    }
-
-    try groups.append(allocator, .{
-        .log_size = log_size,
-        .indices = std.ArrayList(usize).empty,
-    });
-    try groups.items[groups.items.len - 1].indices.append(allocator, idx);
-}
-
-fn deinitLogSizeGroups(
-    allocator: std.mem.Allocator,
-    groups: *std.ArrayList(LogSizeGroup),
-) void {
-    for (groups.items) |*group| group.deinit(allocator);
-    groups.deinit(allocator);
-}
-
-fn twiddleTreeConst(tree: twiddles_mod.TwiddleTree([]M31)) twiddles_mod.TwiddleTree([]const M31) {
-    return .{
-        .root_coset = tree.root_coset,
-        .twiddles = tree.twiddles,
-        .itwiddles = tree.itwiddles,
-    };
-}
-
-fn getCachedTwiddleTree(
-    allocator: std.mem.Allocator,
-    cache: *std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)),
-    log_size: u32,
-) !twiddles_mod.TwiddleTree([]M31) {
-    const gop = try cache.getOrPut(log_size);
-    if (!gop.found_existing) {
-        gop.value_ptr.* = try twiddles_mod.precomputeM31(
-            allocator,
-            canonic.CanonicCoset.new(log_size).circleDomain().half_coset,
-        );
-    }
-    return gop.value_ptr.*;
-}
-
-fn deinitTwiddleCache(
-    allocator: std.mem.Allocator,
-    cache: *std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)),
-) void {
-    var it = cache.valueIterator();
-    while (it.next()) |tree| twiddles_mod.deinitM31(allocator, tree);
-    cache.deinit();
-}
-
-fn freeOwnedColumnEvaluations(
-    allocator: std.mem.Allocator,
-    columns: []const ColumnEvaluation,
-) void {
-    for (columns) |column| {
-        if (column.values.len != 0) allocator.free(column.values);
-    }
-    allocator.free(columns);
-}
-
-fn preferredFftBatchLen(value_len: usize) usize {
-    const value_bytes = std.math.mul(usize, value_len, @sizeOf(M31)) catch return 1;
-    if (value_bytes == 0) return 1;
-    const max_batch = FFT_BATCH_TARGET_BYTES / value_bytes;
-    return std.math.clamp(max_batch, 1, 32);
 }
 
 fn grind(channel: anytype, pow_bits: u32) u64 {
