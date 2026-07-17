@@ -6,6 +6,7 @@ const quotients = @import("../../core/pcs/quotients.zig");
 const pcs_utils = @import("../../core/pcs/utils.zig");
 const canonic = @import("../../core/poly/circle/canonic.zig");
 const column_geometry = @import("quotient_column_geometry.zig");
+const planning = @import("quotients/planning.zig");
 const row_executor = @import("quotient_row_executor.zig");
 const tile_executor = @import("quotient_tile_executor.zig");
 const tile_sink = @import("quotient_tile_sink.zig");
@@ -20,9 +21,6 @@ const QM31 = qm31.QM31;
 const TreeVec = pcs_utils.TreeVec;
 const PointSample = quotients.PointSample;
 const SecureColumnByCoords = secure_column.SecureColumnByCoords;
-const MATERIALIZE_LIFTED_THRESHOLD_BYTES: usize = 48 * 1024 * 1024;
-const STREAMING_DOMAIN_THRESHOLD: usize = 1 << 12;
-const STREAMING_ACTIVE_COLUMN_THRESHOLD: usize = 1024;
 /// Minimum number of domain positions per worker thread to amortize overhead.
 const MIN_POSITIONS_PER_WORKER: usize = 256;
 /// Number of rows processed per chunk in lazy quotient evaluation.
@@ -38,78 +36,12 @@ pub const QuotientOpsError = column_geometry.QuotientOpsError;
 /// - `values` are in bit-reversed order, matching Stwo prover conventions.
 pub const ColumnEvaluation = column_geometry.ColumnEvaluation;
 
-const LiftingColumnView = row_executor.LiftingColumnView;
 const CombinedContributionView = row_executor.CombinedContributionView;
-
-const CombinedContributionPlan = struct {
-    views: []CombinedContributionView,
-
-    fn deinit(self: *CombinedContributionPlan, allocator: std.mem.Allocator) void {
-        for (self.views) |view| {
-            for (view.coordinates) |coordinate| allocator.free(coordinate);
-        }
-        allocator.free(self.views);
-        self.* = undefined;
-    }
-};
-
-const ColumnContribution = row_executor.ColumnContribution;
-const ColumnContributionRange = row_executor.ColumnContributionRange;
 
 pub const InputMode = enum {
     bounded_cpu,
     combined_compatibility,
     raw_backend,
-};
-
-const ColumnContributionPlan = struct {
-    active_column_indices: []usize,
-    ranges: []ColumnContributionRange,
-    contributions: []ColumnContribution,
-
-    fn deinit(self: *ColumnContributionPlan, allocator: std.mem.Allocator) void {
-        allocator.free(self.active_column_indices);
-        allocator.free(self.ranges);
-        allocator.free(self.contributions);
-        self.* = undefined;
-    }
-
-    fn activeColumnCount(self: ColumnContributionPlan) usize {
-        return self.active_column_indices.len;
-    }
-
-    fn totalContributions(self: ColumnContributionPlan) usize {
-        return self.contributions.len;
-    }
-};
-
-const QuotientConstructionStrategy = enum {
-    materialized,
-    streaming,
-};
-
-const PreparedQuotientContext = struct {
-    sample_batches: []quotients.ColumnSampleBatch,
-    quotient_constants: quotients.QuotientConstants,
-    contribution_plan: ColumnContributionPlan,
-
-    fn deinit(self: *PreparedQuotientContext, allocator: std.mem.Allocator) void {
-        self.contribution_plan.deinit(allocator);
-        self.quotient_constants.deinit(allocator);
-        quotients.ColumnSampleBatch.deinitSlice(allocator, self.sample_batches);
-        self.* = undefined;
-    }
-};
-
-const MaterializedLiftedColumns = struct {
-    storage: []M31,
-    columns: [][]M31,
-
-    fn deinit(self: *MaterializedLiftedColumns, allocator: std.mem.Allocator) void {
-        allocator.free(self.columns);
-        allocator.free(self.storage);
-        self.* = undefined;
-    }
 };
 
 /// Lazy quotient provider for fused quotient-computation + Merkle commitment.
@@ -124,7 +56,7 @@ const MaterializedLiftedColumns = struct {
 ///      Each call fills the 4 coordinate buffers for a chunk of the output column.
 ///   3. `deinit()` — release internal scratch memory.
 pub const LazyQuotientProvider = struct {
-    prepared: PreparedQuotientContext,
+    prepared: planning.PreparedContext,
     input_mode: InputMode,
     combined_views: []CombinedContributionView,
     direct_plan: tile_executor.DirectContributionPlan,
@@ -236,7 +168,7 @@ pub const LazyQuotientProvider = struct {
         const flat_columns = try column_geometry.flattenColumnsBorrowed(allocator, columns);
         errdefer allocator.free(flat_columns);
 
-        var prepared = try prepareQuotientContext(
+        var prepared = try planning.prepareContext(
             allocator,
             column_log_sizes,
             sampled_points,
@@ -247,7 +179,7 @@ pub const LazyQuotientProvider = struct {
         );
         errdefer prepared.deinit(allocator);
 
-        const nonzero_columns = try markNonzeroColumnsAndSamples(
+        const nonzero_columns = try planning.markNonzeroColumnsAndSamples(
             allocator,
             columns,
             sampled_values,
@@ -260,7 +192,7 @@ pub const LazyQuotientProvider = struct {
         var direct_plan = tile_executor.DirectContributionPlan{ .views = &.{}, .ranges = &.{} };
         switch (input_mode) {
             .combined_compatibility => {
-                const combined_plan = try buildCombinedContributionPlan(
+                const combined_plan = try planning.buildCombinedContributionPlan(
                     allocator,
                     flat_columns,
                     prepared.contribution_plan.active_column_indices,
@@ -282,7 +214,7 @@ pub const LazyQuotientProvider = struct {
             .raw_backend => {},
         }
         errdefer {
-            var combined_plan = CombinedContributionPlan{ .views = combined_views };
+            var combined_plan = planning.CombinedContributionPlan{ .views = combined_views };
             combined_plan.deinit(allocator);
             direct_plan.deinit(allocator);
         }
@@ -335,7 +267,7 @@ pub const LazyQuotientProvider = struct {
         if (self.direct_chunk_scratch) |*scratch| scratch.deinit(allocator);
         if (self.chunk_scratch) |*scratch| scratch.deinit(allocator);
         self.workspace.deinit(allocator);
-        var combined_plan = CombinedContributionPlan{ .views = self.combined_views };
+        var combined_plan = planning.CombinedContributionPlan{ .views = self.combined_views };
         combined_plan.deinit(allocator);
         self.direct_plan.deinit(allocator);
         if (self.raw_columns.len != 0) allocator.free(self.raw_columns);
@@ -685,7 +617,7 @@ fn computeFriQuotientsWithStrategy(
     sampled_values: TreeVec([][]QM31),
     random_coeff: QM31,
     lifting_log_size: u32,
-    forced_strategy: ?QuotientConstructionStrategy,
+    forced_strategy: ?planning.ConstructionStrategy,
 ) !SecureColumnByCoords {
     if (columns.items.len != sampled_points.items.len) return QuotientOpsError.ShapeMismatch;
     if (columns.items.len != sampled_values.items.len) return QuotientOpsError.ShapeMismatch;
@@ -706,7 +638,7 @@ fn computeFriQuotientsWithStrategy(
     const flat_columns = try column_geometry.flattenColumnsBorrowed(allocator, columns);
     defer allocator.free(flat_columns);
 
-    var prepared = try prepareQuotientContext(
+    var prepared = try planning.prepareContext(
         allocator,
         column_log_sizes,
         sampled_points,
@@ -717,7 +649,7 @@ fn computeFriQuotientsWithStrategy(
     );
     defer prepared.deinit(allocator);
 
-    const strategy = forced_strategy orelse chooseQuotientConstructionStrategy(
+    const strategy = forced_strategy orelse planning.chooseConstructionStrategy(
         prepared.contribution_plan.activeColumnCount(),
         domain_size,
     );
@@ -757,322 +689,17 @@ fn computeFriQuotientsWithStrategy(
     };
 }
 
-fn prepareQuotientContext(
-    allocator: std.mem.Allocator,
-    column_log_sizes: TreeVec([]u32),
-    sampled_points: TreeVec([][]CirclePointQM31),
-    sampled_values: TreeVec([][]QM31),
-    random_coeff: QM31,
-    lifting_log_size: u32,
-    flat_column_count: usize,
-) !PreparedQuotientContext {
-    const sample_batches = try quotients.buildColumnSampleBatchesFromParallelInputs(
-        allocator,
-        sampled_points,
-        sampled_values,
-        column_log_sizes,
-        lifting_log_size,
-        random_coeff,
-    );
-    errdefer quotients.ColumnSampleBatch.deinitSlice(allocator, sample_batches);
-
-    var quotient_constants = try quotients.quotientConstants(allocator, sample_batches);
-    errdefer quotient_constants.deinit(allocator);
-
-    try validateSampleBatchColumnIndices(sample_batches, flat_column_count);
-    var contribution_plan = try buildColumnContributionPlan(
-        allocator,
-        sample_batches,
-        &quotient_constants,
-        flat_column_count,
-    );
-    errdefer contribution_plan.deinit(allocator);
-
-    return .{
-        .sample_batches = sample_batches,
-        .quotient_constants = quotient_constants,
-        .contribution_plan = contribution_plan,
-    };
-}
-
-fn buildColumnContributionPlan(
-    allocator: std.mem.Allocator,
-    sample_batches: []const quotients.ColumnSampleBatch,
-    quotient_constants: *const quotients.QuotientConstants,
-    column_count: usize,
-) !ColumnContributionPlan {
-    const counts = try allocator.alloc(usize, column_count);
-    defer allocator.free(counts);
-    @memset(counts, 0);
-
-    var total_contributions: usize = 0;
-    var active_column_count: usize = 0;
-    for (sample_batches) |batch| {
-        for (batch.cols_vals_randpows) |sample_data| {
-            if (sample_data.column_index >= column_count) return QuotientOpsError.ShapeMismatch;
-            if (counts[sample_data.column_index] == 0) active_column_count += 1;
-            counts[sample_data.column_index] += 1;
-            total_contributions += 1;
-        }
-    }
-
-    const active_column_indices = try allocator.alloc(usize, active_column_count);
-    errdefer allocator.free(active_column_indices);
-    const ranges = try allocator.alloc(ColumnContributionRange, active_column_count);
-    errdefer allocator.free(ranges);
-
-    const invalid_active_index = std.math.maxInt(usize);
-    const column_to_active = try allocator.alloc(usize, column_count);
-    defer allocator.free(column_to_active);
-    @memset(column_to_active, invalid_active_index);
-
-    var at: usize = 0;
-    var active_idx: usize = 0;
-    for (counts, 0..) |count, col_idx| {
-        if (count == 0) continue;
-        active_column_indices[active_idx] = col_idx;
-        column_to_active[col_idx] = active_idx;
-        ranges[active_idx] = .{ .start = at, .len = count };
-        at += count;
-        active_idx += 1;
-    }
-    std.debug.assert(at == total_contributions);
-    std.debug.assert(active_idx == active_column_count);
-
-    const next_offsets = try allocator.alloc(usize, active_column_count);
-    defer allocator.free(next_offsets);
-    for (ranges, 0..) |range, idx| next_offsets[idx] = range.start;
-
-    const contributions = try allocator.alloc(ColumnContribution, total_contributions);
-    errdefer allocator.free(contributions);
-    for (sample_batches, 0..) |batch, batch_idx| {
-        const line_coeffs = quotient_constants.line_coeffs[batch_idx];
-        if (line_coeffs.len != batch.cols_vals_randpows.len) return QuotientOpsError.ShapeMismatch;
-        for (batch.cols_vals_randpows, 0..) |sample_data, coeff_idx| {
-            const mapped_active_idx = column_to_active[sample_data.column_index];
-            if (mapped_active_idx == invalid_active_index) return QuotientOpsError.ShapeMismatch;
-            const write_idx = next_offsets[mapped_active_idx];
-            contributions[write_idx] = .{
-                .batch_index = batch_idx,
-                .value_coeff = line_coeffs[coeff_idx].c,
-            };
-            next_offsets[mapped_active_idx] = write_idx + 1;
-        }
-    }
-
-    return .{
-        .active_column_indices = active_column_indices,
-        .ranges = ranges,
-        .contributions = contributions,
-    };
-}
-
-fn chooseQuotientConstructionStrategy(
-    active_column_count: usize,
-    domain_size: usize,
-) QuotientConstructionStrategy {
-    if (domain_size >= STREAMING_DOMAIN_THRESHOLD and
-        active_column_count > STREAMING_ACTIVE_COLUMN_THRESHOLD)
-    {
-        return .streaming;
-    }
-
-    const lifted_cells = std.math.mul(usize, active_column_count, domain_size) catch return .streaming;
-    const lifted_bytes = std.math.mul(usize, lifted_cells, @sizeOf(M31)) catch return .streaming;
-    return if (lifted_bytes > MATERIALIZE_LIFTED_THRESHOLD_BYTES)
-        .streaming
-    else
-        .materialized;
-}
-
-fn buildActiveLiftingColumnViews(
-    allocator: std.mem.Allocator,
-    flat_columns: []const ColumnEvaluation,
-    active_column_indices: []const usize,
-    lifting_log_size: u32,
-) ![]LiftingColumnView {
-    const views = try allocator.alloc(LiftingColumnView, active_column_indices.len);
-    errdefer allocator.free(views);
-
-    for (active_column_indices, 0..) |column_idx, active_idx| {
-        if (column_idx >= flat_columns.len) return QuotientOpsError.ShapeMismatch;
-        const column = flat_columns[column_idx];
-        if (column.log_size > lifting_log_size) return QuotientOpsError.InvalidColumnLogSize;
-        const log_shift = lifting_log_size - column.log_size;
-        if (log_shift >= @bitSizeOf(usize)) return QuotientOpsError.InvalidColumnLogSize;
-        views[active_idx] = .{
-            .values = column.values,
-            .shift_amt = @intCast(log_shift + 1),
-            .is_direct = column.log_size == lifting_log_size,
-        };
-    }
-
-    return views;
-}
-
-fn markNonzeroColumnsAndSamples(
-    allocator: std.mem.Allocator,
-    columns: TreeVec([]const ColumnEvaluation),
-    sampled_values: TreeVec([][]QM31),
-) ![]bool {
-    const nonzero = try allocator.alloc(bool, column_geometry.countColumns(columns));
-    errdefer allocator.free(nonzero);
-
-    var flat_idx: usize = 0;
-    for (columns.items, sampled_values.items) |tree_columns, tree_samples| {
-        if (tree_columns.len != tree_samples.len) return QuotientOpsError.ShapeMismatch;
-        for (tree_columns, tree_samples) |column, samples| {
-            var has_nonzero = false;
-            for (column.values) |value| {
-                if (!value.isZero()) {
-                    has_nonzero = true;
-                    break;
-                }
-            }
-            if (!has_nonzero) {
-                for (samples) |value| {
-                    if (!value.eql(QM31.zero())) {
-                        has_nonzero = true;
-                        break;
-                    }
-                }
-            }
-            nonzero[flat_idx] = has_nonzero;
-            flat_idx += 1;
-        }
-    }
-    std.debug.assert(flat_idx == nonzero.len);
-    return nonzero;
-}
-
-fn buildCombinedContributionPlan(
-    allocator: std.mem.Allocator,
-    flat_columns: []const ColumnEvaluation,
-    active_column_indices: []const usize,
-    contribution_ranges: []const ColumnContributionRange,
-    contributions: []const ColumnContribution,
-    nonzero_columns: []const bool,
-    lifting_log_size: u32,
-) !CombinedContributionPlan {
-    if (active_column_indices.len != contribution_ranges.len or
-        flat_columns.len != nonzero_columns.len)
-    {
-        return QuotientOpsError.ShapeMismatch;
-    }
-
-    var views = std.ArrayList(CombinedContributionView).empty;
-    defer views.deinit(allocator);
-    errdefer for (views.items) |view| {
-        for (view.coordinates) |coordinate| allocator.free(coordinate);
-    };
-
-    for (active_column_indices, contribution_ranges) |column_idx, contribution_range| {
-        if (column_idx >= nonzero_columns.len or column_idx >= flat_columns.len) {
-            return QuotientOpsError.ShapeMismatch;
-        }
-        if (!nonzero_columns[column_idx]) continue;
-        const column = flat_columns[column_idx];
-        if (column.log_size > lifting_log_size) return QuotientOpsError.InvalidColumnLogSize;
-        const log_shift = lifting_log_size - column.log_size;
-        if (log_shift >= @bitSizeOf(usize)) return QuotientOpsError.InvalidColumnLogSize;
-
-        const column_contributions = contributions[contribution_range.start .. contribution_range.start + contribution_range.len];
-        for (column_contributions) |contribution| {
-            var view_index: ?usize = null;
-            for (views.items, 0..) |view, i| {
-                if (view.batch_index == contribution.batch_index and
-                    view.coordinates[0].len == column.values.len)
-                {
-                    view_index = i;
-                    break;
-                }
-            }
-
-            if (view_index == null) {
-                var coordinates: [qm31.SECURE_EXTENSION_DEGREE][]M31 = undefined;
-                var initialized: usize = 0;
-                errdefer for (coordinates[0..initialized]) |coordinate| allocator.free(coordinate);
-                inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coord| {
-                    coordinates[coord] = try allocator.alloc(M31, column.values.len);
-                    @memset(coordinates[coord], M31.zero());
-                    initialized += 1;
-                }
-                try views.append(allocator, .{
-                    .coordinates = coordinates,
-                    .batch_index = contribution.batch_index,
-                    .shift_amt = @intCast(log_shift + 1),
-                    .is_direct = column.log_size == lifting_log_size,
-                });
-                view_index = views.items.len - 1;
-            }
-
-            const coeffs = contribution.value_coeff.toM31Array();
-            const view = &views.items[view_index.?];
-            for (column.values, 0..) |base, value_index| {
-                inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coord| {
-                    view.coordinates[coord][value_index] = view.coordinates[coord][value_index].add(
-                        base.mul(coeffs[coord]),
-                    );
-                }
-            }
-        }
-    }
-
-    return .{ .views = try views.toOwnedSlice(allocator) };
-}
-
-fn materializeActiveLiftedColumns(
-    allocator: std.mem.Allocator,
-    flat_columns: []const ColumnEvaluation,
-    active_column_indices: []const usize,
-    lifting_log_size: u32,
-) !MaterializedLiftedColumns {
-    const domain_size = try column_geometry.checkedPow2(lifting_log_size);
-    const total_cells = std.math.mul(usize, active_column_indices.len, domain_size) catch return QuotientOpsError.ShapeMismatch;
-    const storage = try allocator.alloc(M31, total_cells);
-    errdefer allocator.free(storage);
-    const columns = try allocator.alloc([]M31, active_column_indices.len);
-    errdefer allocator.free(columns);
-
-    for (active_column_indices, 0..) |column_idx, active_idx| {
-        if (column_idx >= flat_columns.len) return QuotientOpsError.ShapeMismatch;
-        const column = flat_columns[column_idx];
-        if (column.log_size > lifting_log_size) return QuotientOpsError.InvalidColumnLogSize;
-        const dest = storage[active_idx * domain_size ..][0..domain_size];
-        columns[active_idx] = dest;
-
-        if (column.log_size == lifting_log_size) {
-            @memcpy(dest, column.values);
-            continue;
-        }
-
-        const log_shift = lifting_log_size - column.log_size;
-        if (log_shift >= @bitSizeOf(usize)) return QuotientOpsError.InvalidColumnLogSize;
-        const shift_amt: std.math.Log2Int(usize) = @intCast(log_shift + 1);
-        for (0..domain_size) |position| {
-            const idx = ((position >> shift_amt) << 1) + (position & 1);
-            std.debug.assert(idx < column.values.len);
-            dest[position] = column.values[idx];
-        }
-    }
-
-    return .{
-        .storage = storage,
-        .columns = columns,
-    };
-}
-
 fn computeMaterializedFriQuotients(
     allocator: std.mem.Allocator,
     flat_columns: []const ColumnEvaluation,
-    prepared: *const PreparedQuotientContext,
+    prepared: *const planning.PreparedContext,
     lifting_log_size: u32,
     domain_size: usize,
 ) !SecureColumnByCoords {
     const domain = canonic.CanonicCoset.new(lifting_log_size).circleDomain();
     std.debug.assert(domain.size() == domain_size);
 
-    var lifted_columns = try materializeActiveLiftedColumns(
+    var lifted_columns = try planning.materializeActiveLiftedColumns(
         allocator,
         flat_columns,
         prepared.contribution_plan.active_column_indices,
@@ -1114,7 +741,7 @@ fn computeMaterializedFriQuotients(
 fn computeStreamingFriQuotients(
     allocator: std.mem.Allocator,
     flat_columns: []const ColumnEvaluation,
-    prepared: *const PreparedQuotientContext,
+    prepared: *const planning.PreparedContext,
     lifting_log_size: u32,
     domain_size: usize,
 ) !SecureColumnByCoords {
@@ -1124,7 +751,7 @@ fn computeStreamingFriQuotients(
     const nonzero_columns = try allocator.alloc(bool, flat_columns.len);
     defer allocator.free(nonzero_columns);
     @memset(nonzero_columns, true);
-    var combined_plan = try buildCombinedContributionPlan(
+    var combined_plan = try planning.buildCombinedContributionPlan(
         allocator,
         flat_columns,
         prepared.contribution_plan.active_column_indices,
@@ -1169,7 +796,7 @@ fn computeStreamingFriQuotients(
 fn computeMaterializedFriQuotientsParallel(
     allocator: std.mem.Allocator,
     flat_columns: []const ColumnEvaluation,
-    prepared: *const PreparedQuotientContext,
+    prepared: *const planning.PreparedContext,
     lifting_log_size: u32,
     domain_size: usize,
 ) !SecureColumnByCoords {
@@ -1187,7 +814,7 @@ fn computeMaterializedFriQuotientsParallel(
 
     const domain = canonic.CanonicCoset.new(lifting_log_size).circleDomain();
 
-    var lifted_columns = try materializeActiveLiftedColumns(
+    var lifted_columns = try planning.materializeActiveLiftedColumns(
         allocator,
         flat_columns,
         prepared.contribution_plan.active_column_indices,
@@ -1265,7 +892,7 @@ fn computeMaterializedFriQuotientsParallel(
 fn computeStreamingFriQuotientsParallel(
     allocator: std.mem.Allocator,
     flat_columns: []const ColumnEvaluation,
-    prepared: *const PreparedQuotientContext,
+    prepared: *const planning.PreparedContext,
     lifting_log_size: u32,
     domain_size: usize,
 ) !SecureColumnByCoords {
@@ -1286,7 +913,7 @@ fn computeStreamingFriQuotientsParallel(
     const nonzero_columns = try allocator.alloc(bool, flat_columns.len);
     defer allocator.free(nonzero_columns);
     @memset(nonzero_columns, true);
-    var combined_plan = try buildCombinedContributionPlan(
+    var combined_plan = try planning.buildCombinedContributionPlan(
         allocator,
         flat_columns,
         prepared.contribution_plan.active_column_indices,
@@ -1358,17 +985,6 @@ fn computeStreamingFriQuotientsParallel(
     }
 
     return out;
-}
-
-fn validateSampleBatchColumnIndices(
-    sample_batches: []const quotients.ColumnSampleBatch,
-    queried_values_cols: usize,
-) !void {
-    for (sample_batches) |batch| {
-        for (batch.cols_vals_randpows) |sample_data| {
-            if (sample_data.column_index >= queried_values_cols) return error.ColumnIndexOutOfBounds;
-        }
-    }
 }
 
 const SplitPointSamples = struct {
@@ -1592,16 +1208,16 @@ test "prover pcs quotient ops: compute fri quotients matches direct fri answers 
 
 test "prover pcs quotient ops: strategy switches to streaming for medium-wide lifted workloads" {
     try std.testing.expectEqual(
-        QuotientConstructionStrategy.materialized,
-        chooseQuotientConstructionStrategy(256, 2048),
+        planning.ConstructionStrategy.materialized,
+        planning.chooseConstructionStrategy(256, 2048),
     );
     try std.testing.expectEqual(
-        QuotientConstructionStrategy.streaming,
-        chooseQuotientConstructionStrategy(1500, 4096),
+        planning.ConstructionStrategy.streaming,
+        planning.chooseConstructionStrategy(1500, 4096),
     );
     try std.testing.expectEqual(
-        QuotientConstructionStrategy.streaming,
-        chooseQuotientConstructionStrategy(1400, 8192),
+        planning.ConstructionStrategy.streaming,
+        planning.chooseConstructionStrategy(1400, 8192),
     );
 }
 
