@@ -7,6 +7,7 @@ const report = @import("report.zig");
 
 const artifacts = stwo.interop.examples_artifact;
 const stage_profile = stwo.prover.stage_profile;
+const plonk = stwo.examples.plonk;
 const wide_fibonacci = stwo.examples.wide_fibonacci;
 const xor = stwo.examples.xor;
 
@@ -24,6 +25,7 @@ pub fn name(workload: config.Workload) []const u8 {
     return switch (workload) {
         .wide_fibonacci => "wide_fibonacci",
         .xor => "xor",
+        .plonk => "plonk",
     };
 }
 
@@ -31,6 +33,7 @@ pub fn parameters(workload: config.Workload) report.WorkloadParameters {
     return switch (workload) {
         .wide_fibonacci => |value| .{ .wide_fibonacci = value },
         .xor => |value| .{ .xor = value },
+        .plonk => |value| .{ .plonk = value },
     };
 }
 
@@ -58,6 +61,17 @@ pub fn geometry(workload: config.Workload) !Geometry {
                 .native_units = rows,
             };
         },
+        .plonk => |value| blk: {
+            const rows = @as(u64, 1) << @intCast(value.log_n_rows);
+            break :blk .{
+                .trace_log_rows = value.log_n_rows,
+                .trace_rows = rows,
+                .committed_columns = 8,
+                .committed_trace_cells = try std.math.mul(u64, rows, 8),
+                .native_unit = "plonk_rows",
+                .native_units = rows,
+            };
+        },
     };
 }
 
@@ -77,6 +91,11 @@ pub fn descriptorDigest(
             &buffer,
             "native-proof-workload-v3|example=xor|log_size={d}|log_step={d}|offset={d}",
             .{ value.log_size, value.log_step, value.offset },
+        ) catch unreachable,
+        .plonk => |value| std.fmt.bufPrint(
+            &buffer,
+            "native-proof-workload-v3|example=plonk|log_n_rows={d}",
+            .{value.log_n_rows},
         ) catch unreachable,
     };
     const description = std.fmt.bufPrint(
@@ -226,13 +245,81 @@ pub const XorSpec = struct {
     }
 };
 
+pub const PlonkSpec = struct {
+    pub const Request = plonk.Statement;
+    pub const PreparedInput = plonk.PreparedInput;
+    pub const Statement = plonk.Statement;
+    pub const Proof = plonk.Proof;
+    pub const ProveOutput = plonk.ProveOutput;
+    pub const example_name = "plonk";
+
+    pub fn request(value: config.PlonkParameters) Request {
+        return .{ .log_n_rows = value.log_n_rows };
+    }
+
+    pub fn prepareInput(allocator: std.mem.Allocator, value: Request) !PreparedInput {
+        return plonk.prepareInput(allocator, value);
+    }
+
+    pub fn requiredCircleLog(value: Request, pcs_config: stwo.core.pcs.PcsConfig) !u32 {
+        return plonk.requiredTwiddleCircleLog(value, pcs_config);
+    }
+
+    pub fn provePrepared(
+        comptime Engine: type,
+        session: *const Engine.Session,
+        allocator: std.mem.Allocator,
+        pcs_config: stwo.core.pcs.PcsConfig,
+        prepared: PreparedInput,
+        recorder: ?*stage_profile.Recorder,
+    ) !ProveOutput {
+        return plonk.provePreparedWithSessionAndEngine(
+            Engine,
+            session,
+            allocator,
+            pcs_config,
+            prepared,
+            recorder,
+        );
+    }
+
+    pub fn verify(
+        allocator: std.mem.Allocator,
+        pcs_config: stwo.core.pcs.PcsConfig,
+        statement: Statement,
+        proof: Proof,
+    ) !void {
+        return plonk.verify(allocator, pcs_config, statement, proof);
+    }
+
+    pub fn writeArtifact(
+        allocator: std.mem.Allocator,
+        path: []const u8,
+        pcs_config: stwo.core.pcs.PcsConfig,
+        statement: Statement,
+        proof_bytes: []const u8,
+    ) !void {
+        return artifacts.writeNativeProofArtifact(
+            allocator,
+            path,
+            pcs_config,
+            "prove",
+            .{ .plonk = statement },
+            proof_bytes,
+        );
+    }
+};
+
 test "native proof examples: geometry and descriptors are tagged" {
     const wide: config.Workload = .{ .wide_fibonacci = .{ .log_n_rows = 5, .sequence_len = 8 } };
     const xor_workload: config.Workload = .{ .xor = .{ .log_size = 5, .log_step = 2, .offset = 3 } };
+    const plonk_workload: config.Workload = .{ .plonk = .{ .log_n_rows = 5 } };
     const wide_geometry = try geometry(wide);
     const xor_geometry = try geometry(xor_workload);
+    const plonk_geometry = try geometry(plonk_workload);
     try std.testing.expectEqual(@as(u64, 256), wide_geometry.committed_trace_cells);
     try std.testing.expectEqual(@as(u64, 96), xor_geometry.committed_trace_cells);
+    try std.testing.expectEqual(@as(u64, 256), plonk_geometry.committed_trace_cells);
     try std.testing.expect(!std.mem.eql(
         u8,
         &descriptorDigest(wide, .smoke),
@@ -243,8 +330,10 @@ test "native proof examples: geometry and descriptors are tagged" {
 test "native proof examples: descriptor digests match independent fixed vectors" {
     const wide: config.Workload = .{ .wide_fibonacci = .{ .log_n_rows = 10, .sequence_len = 8 } };
     const xor_workload: config.Workload = .{ .xor = .{ .log_size = 10, .log_step = 2, .offset = 3 } };
+    const plonk_workload: config.Workload = .{ .plonk = .{ .log_n_rows = 10 } };
     var expected_wide: [32]u8 = undefined;
     var expected_xor: [32]u8 = undefined;
+    var expected_plonk: [32]u8 = undefined;
     _ = try std.fmt.hexToBytes(
         &expected_wide,
         "8586bce9ae8c0673453803b3b65ca8d4fc677638d53e5933e7692af4dd38586f",
@@ -253,6 +342,11 @@ test "native proof examples: descriptor digests match independent fixed vectors"
         &expected_xor,
         "b0272044b4e572bf519aa58c00ee3520f2961b409d2ecb67ba86c5760a991c0e",
     );
+    _ = try std.fmt.hexToBytes(
+        &expected_plonk,
+        "8e22d72f97cfe01bdb3fdf94e362160418ca16022db7cdaccacf073e2ef67cee",
+    );
     try std.testing.expectEqualSlices(u8, &expected_wide, &descriptorDigest(wide, .functional));
     try std.testing.expectEqualSlices(u8, &expected_xor, &descriptorDigest(xor_workload, .functional));
+    try std.testing.expectEqualSlices(u8, &expected_plonk, &descriptorDigest(plonk_workload, .functional));
 }

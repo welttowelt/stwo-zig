@@ -116,7 +116,7 @@ def make_report(
     workload: MODULE.Workload,
     *,
     samples: int = 5,
-    warmups: int = 1,
+    warmups: int = 10,
     digest: str = PROOF_WIRE_SHA256,
     proof_bytes: int = len(PROOF_WIRE_BYTES),
     artifact_path: Path | None = None,
@@ -143,7 +143,7 @@ def make_report(
         **rates,
     }
     minimum_samples = 5 if prove < 1.0 else 3
-    sampling_contract = warmups >= 1 and samples >= minimum_samples
+    sampling_contract = warmups >= MODULE.MIN_HEADLINE_WARMUPS and samples >= minimum_samples
     evidence_class = "verified_unprofiled" if sampling_contract else "correctness_only"
     requirements = {
         "verified_unprofiled": sampling_contract,
@@ -270,7 +270,7 @@ def make_report(
     }
 
 
-def args(samples: int = 5, warmups: int = 1) -> argparse.Namespace:
+def args(samples: int = 5, warmups: int = 10) -> argparse.Namespace:
     return argparse.Namespace(protocol="functional", samples=samples, warmups=warmups)
 
 
@@ -278,7 +278,7 @@ def lane_args(timeout_seconds: float = 2.0) -> argparse.Namespace:
     return argparse.Namespace(
         protocol="functional",
         samples=5,
-        warmups=1,
+        warmups=10,
         timeout_seconds=timeout_seconds,
     )
 
@@ -317,6 +317,12 @@ class NativeProofMatrixTests(unittest.TestCase):
                 3072,
                 "b0272044b4e572bf519aa58c00ee3520f2961b409d2ecb67ba86c5760a991c0e",
             ),
+            (
+                MODULE.parse_workload("plonk:log_n_rows=10"),
+                8,
+                8192,
+                "8e22d72f97cfe01bdb3fdf94e362160418ca16022db7cdaccacf073e2ef67cee",
+            ),
         )
         for workload, columns, cells, descriptor in vectors:
             with self.subTest(workload=workload.name):
@@ -340,6 +346,9 @@ class NativeProofMatrixTests(unittest.TestCase):
             "xor:log_size=10,log_step=2,offset=4",
             "wide_fibonacci:log_n_rows=10,log_n_rows=11,sequence_len=8",
             "wide_fibonacci:log_n_rows=22,sequence_len=512",
+            "plonk:log_n_rows=0",
+            "plonk:log_n_rows=23",
+            "plonk:log_size=10",
         )
         for encoded in invalid:
             with self.subTest(encoded=encoded):
@@ -349,7 +358,8 @@ class NativeProofMatrixTests(unittest.TestCase):
     def test_controller_bounds_and_formal_oracle_are_checked_during_parse(self) -> None:
         diagnostic = MODULE.parse_args(["--allow-non-headline"])
         self.assertFalse(diagnostic.formal)
-        self.assertEqual([row.name for row in diagnostic.workloads], ["wide_fibonacci", "xor"])
+        self.assertEqual([row.name for row in diagnostic.workloads], ["wide_fibonacci", "xor", "plonk"])
+        self.assertEqual(diagnostic.warmups, MODULE.MIN_HEADLINE_WARMUPS)
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             MODULE.parse_args([])
         formal = MODULE.parse_args(["--rust-oracle-bin", "/tmp/oracle"])
@@ -376,9 +386,17 @@ class NativeProofMatrixTests(unittest.TestCase):
             ["cpu", "--example", "wide_fibonacci", "--log-n-rows", "10", "--sequence-len", "8", "--warmups", "1", "--samples", "2", "--protocol", "functional", "--proof-artifact-out", "/tmp/proof.json"],
         )
         self.assertIn("--log-step", lane_command(Path("metal"), MODULE.Workload.xor(10, 2, 3), 1, 2, "functional", artifact))
+        self.assertEqual(
+            lane_command(Path("cpu"), MODULE.Workload.plonk(10), 10, 2, "functional", artifact),
+            ["cpu", "--example", "plonk", "--log-n-rows", "10", "--warmups", "10", "--samples", "2", "--protocol", "functional", "--proof-artifact-out", "/tmp/proof.json"],
+        )
 
     def test_reports_and_artifacts_validate_for_both_examples_and_lanes(self) -> None:
-        workloads = (MODULE.Workload.wide_fibonacci(10, 8), MODULE.Workload.xor(10, 2, 3))
+        workloads = (
+            MODULE.Workload.wide_fibonacci(10, 8),
+            MODULE.Workload.xor(10, 2, 3),
+            MODULE.Workload.plonk(10),
+        )
         with tempfile.TemporaryDirectory() as directory:
             for workload in workloads:
                 for lane in ("cpu", "metal"):
@@ -425,31 +443,41 @@ class NativeProofMatrixTests(unittest.TestCase):
 
     def test_sampling_evidence_and_headline_requirements_are_recomputed(self) -> None:
         workload = MODULE.Workload.wide_fibonacci(10, 8)
-        report = make_report("cpu", workload, samples=2)
-        report["evidence_class"] = "verified_unprofiled"
-        report["throughput"]["headline_requirements"]["verified_unprofiled"] = True
-        report["throughput"]["headline_requirements"]["sampling_contract"] = True
-        report["throughput"]["headline_eligible"] = True
-        for field in (
-            "headline_native_mhz",
-            "headline_request_native_mhz",
-            "headline_trace_row_mhz",
-            "headline_request_trace_row_mhz",
-            "headline_committed_mcells_per_second",
-        ):
-            report["throughput"][field] = summary(
-                report["timing"]["samples"][0][
-                    {
-                        "headline_native_mhz": "native_mhz",
-                        "headline_request_native_mhz": "request_native_mhz",
-                        "headline_trace_row_mhz": "trace_row_mhz",
-                        "headline_request_trace_row_mhz": "request_trace_row_mhz",
-                        "headline_committed_mcells_per_second": "committed_mcells_per_second",
-                    }[field]
-                ]
-            )
-        with self.assertRaisesRegex(MODULE.MatrixError, "measured sampling"):
-            MODULE.validate_report(report, "cpu", workload, args(samples=2))
+        for samples, warmups in ((2, 10), (5, 1)):
+            report = make_report("cpu", workload, samples=samples, warmups=warmups)
+            report["evidence_class"] = "verified_unprofiled"
+            requirements = report["throughput"]["headline_requirements"]
+            requirements["verified_unprofiled"] = True
+            requirements["sampling_contract"] = True
+            report["throughput"]["headline_eligible"] = True
+            for field in (
+                "headline_native_mhz",
+                "headline_request_native_mhz",
+                "headline_trace_row_mhz",
+                "headline_request_trace_row_mhz",
+                "headline_committed_mcells_per_second",
+            ):
+                report["throughput"][field] = summary(
+                    report["timing"]["samples"][0][
+                        {
+                            "headline_native_mhz": "native_mhz",
+                            "headline_request_native_mhz": "request_native_mhz",
+                            "headline_trace_row_mhz": "trace_row_mhz",
+                            "headline_request_trace_row_mhz": "request_trace_row_mhz",
+                            "headline_committed_mcells_per_second": "committed_mcells_per_second",
+                        }[field]
+                    ]
+                )
+            with self.subTest(samples=samples, warmups=warmups), self.assertRaisesRegex(
+                MODULE.MatrixError,
+                "measured sampling",
+            ):
+                MODULE.validate_report(
+                    report,
+                    "cpu",
+                    workload,
+                    args(samples=samples, warmups=warmups),
+                )
 
     def test_descriptor_session_protocol_and_telemetry_fail_closed(self) -> None:
         workload = MODULE.Workload.xor(10, 2, 3)
@@ -682,6 +710,7 @@ class NativeProofMatrixTests(unittest.TestCase):
         workloads = [
             MODULE.Workload.wide_fibonacci(10, 8),
             MODULE.Workload.xor(10, 2, 3),
+            MODULE.Workload.plonk(10),
         ]
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -699,7 +728,7 @@ class NativeProofMatrixTests(unittest.TestCase):
                 rust_oracle_bin=binaries["oracle"],
                 output_dir=root / "out",
                 protocol="functional",
-                warmups=1,
+                warmups=10,
                 samples=5,
                 cooldown_seconds=0.0,
                 timeout_seconds=2.0,
@@ -745,11 +774,11 @@ class NativeProofMatrixTests(unittest.TestCase):
                 return_value=oracle_evidence,
             ) as oracle:
                 document = MODULE.run_matrix(matrix_args)
-            self.assertEqual(oracle.call_count, 2)
+            self.assertEqual(oracle.call_count, 3)
             self.assertTrue(document["summary"]["all_rust_oracles_verified"])
             self.assertEqual(
                 [row["lane_order"] for row in document["rows"]],
-                [["cpu", "metal"], ["metal", "cpu"]],
+                [["cpu", "metal"], ["metal", "cpu"], ["cpu", "metal"]],
             )
             self.assertTrue(all(row["rust_oracle"] for row in document["rows"]))
 

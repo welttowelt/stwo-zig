@@ -20,13 +20,15 @@ RUST_ORACLE_SHA256 = "cbe4d3f107b261285381cd590dbf4b2f86e52eed337843081bd142969f
 DEFAULT_WORKLOADS = (
     "wide_fibonacci:log_n_rows=10,sequence_len=8",
     "xor:log_size=10,log_step=2,offset=3",
+    "plonk:log_n_rows=10",
 )
-DEFAULT_WARMUPS = 1
+DEFAULT_WARMUPS = 10
 DEFAULT_SAMPLES = 5
 DEFAULT_PROTOCOL = "functional"
 DEFAULT_COOLDOWN_SECONDS = 1.0
 
 MAX_MATRIX_ROWS = 12
+MIN_HEADLINE_WARMUPS = 10
 MAX_LOG_ROWS = 22
 MAX_SEQUENCE_LEN = 512
 MAX_XOR_OFFSET = (1 << 31) - 1
@@ -111,10 +113,12 @@ RATE_ABSOLUTE_TOLERANCE = 1e-15
 PARAMETER_ORDER = {
     "wide_fibonacci": ("log_n_rows", "sequence_len"),
     "xor": ("log_size", "log_step", "offset"),
+    "plonk": ("log_n_rows",),
 }
 NATIVE_UNITS = {
     "wide_fibonacci": "trace_rows",
     "xor": "xor_rows",
+    "plonk": "plonk_rows",
 }
 
 
@@ -141,13 +145,17 @@ class Workload:
             (("log_size", log_size), ("log_step", log_step), ("offset", offset)),
         )
 
+    @classmethod
+    def plonk(cls, log_n_rows: int) -> "Workload":
+        return cls("plonk", (("log_n_rows", log_n_rows),))
+
     @property
     def parameters(self) -> dict[str, int]:
         return dict(self.parameter_items)
 
     @property
     def trace_log_rows(self) -> int:
-        return self.parameters["log_n_rows" if self.name == "wide_fibonacci" else "log_size"]
+        return self.parameters["log_size" if self.name == "xor" else "log_n_rows"]
 
     @property
     def trace_rows(self) -> int:
@@ -155,7 +163,9 @@ class Workload:
 
     @property
     def committed_columns(self) -> int:
-        return self.parameters["sequence_len"] if self.name == "wide_fibonacci" else 3
+        if self.name == "wide_fibonacci":
+            return self.parameters["sequence_len"]
+        return 3 if self.name == "xor" else 8
 
     @property
     def committed_trace_cells(self) -> int:
@@ -248,7 +258,7 @@ def validate_workload(workload: Workload) -> None:
         sequence_len = values["sequence_len"]
         if sequence_len < 2 or sequence_len > MAX_SEQUENCE_LEN:
             raise ValueError(f"sequence length must be in [2, {MAX_SEQUENCE_LEN}]")
-    else:
+    elif workload.name == "xor":
         log_step = values["log_step"]
         if log_step < 0 or log_step > values["log_size"]:
             raise ValueError("XOR log_step must be in [0, log_size]")

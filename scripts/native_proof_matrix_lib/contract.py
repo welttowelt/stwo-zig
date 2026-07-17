@@ -15,6 +15,7 @@ from .model import (
     INTEROP_ARTIFACT_SCHEMA_VERSION,
     INTEROP_EXCHANGE_MODE,
     INTEROP_UPSTREAM_COMMIT,
+    MIN_HEADLINE_WARMUPS,
     PIPELINE_CACHE_COUNTER_KEYS,
     PIPELINE_CACHE_SECONDS_KEY,
     PROTOCOL_PRESETS,
@@ -573,7 +574,10 @@ def validate_report(
         float(sample["prove_seconds"]) for sample in samples
     )
     minimum_samples = 5 if prove_median < 1.0 else 3
-    sampling_contract = args.warmups >= 1 and args.samples >= minimum_samples
+    sampling_contract = (
+        args.warmups >= MIN_HEADLINE_WARMUPS
+        and args.samples >= minimum_samples
+    )
     expected_evidence_class = (
         "profiled_diagnostic"
         if profiled

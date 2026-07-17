@@ -25,6 +25,7 @@ from native_proof_matrix_lib import (  # noqa: E402
     DEFAULT_WARMUPS,
     DEFAULT_WORKLOADS,
     MAX_COMMITTED_TRACE_CELLS,
+    MIN_HEADLINE_WARMUPS,
     MatrixError,
     PIPELINE_CACHE_COUNTER_KEYS,
     PIPELINE_CACHE_SECONDS_KEY,

@@ -37,11 +37,13 @@ pub const Protocol = struct {
 pub const WorkloadParameters = union(enum) {
     wide_fibonacci: config.WideFibonacciParameters,
     xor: config.XorParameters,
+    plonk: config.PlonkParameters,
 
     pub fn jsonStringify(self: WorkloadParameters, writer: anytype) !void {
         switch (self) {
             .wide_fibonacci => |parameters| try writer.write(parameters),
             .xor => |parameters| try writer.write(parameters),
+            .plonk => |parameters| try writer.write(parameters),
         }
     }
 };

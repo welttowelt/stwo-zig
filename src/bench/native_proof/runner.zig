@@ -93,6 +93,15 @@ fn execute(
             args.workload(),
             examples.XorSpec.request(parameters),
         ),
+        .plonk => |parameters| executeExample(
+            Engine,
+            backend,
+            examples.PlonkSpec,
+            allocator,
+            args,
+            args.workload(),
+            examples.PlonkSpec.request(parameters),
+        ),
     };
 }
 
@@ -288,7 +297,8 @@ fn executeExample(
     const request_trace_row_summary = try statistics.summarize(allocator, request_trace_row_rates);
     const cell_summary = try statistics.summarize(allocator, cell_rates);
     const minimum_samples: usize = if (prove_summary.median < 1.0) 5 else 3;
-    const meets_sampling_contract = args.warmups >= 1 and args.samples >= minimum_samples;
+    const meets_sampling_contract = args.warmups >= config.MIN_HEADLINE_WARMUPS and
+        args.samples >= minimum_samples;
     const evidence_class = args.evidenceClass(meets_sampling_contract);
     const git_dirty = dirty_output.len != 0;
     const provenance_complete = true;
