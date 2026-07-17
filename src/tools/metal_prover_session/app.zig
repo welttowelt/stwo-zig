@@ -6,6 +6,8 @@ const artifact_manifest = stwo.metal_session.artifact_manifest;
 const artifact_store = stwo.metal_session.artifact_store;
 const metal_runtime = stwo.backends.metal.runtime;
 const compact_interchange = stwo.frontends.cairo.compact_verifier_interchange;
+const composition_bundle = stwo.frontends.cairo.witness.composition_bundle;
+const composition_prewarm = stwo.integrations.cairo_metal.composition_prewarm;
 const one_shot = @import("one_shot");
 const protocol = stwo.metal_session.protocol;
 const state = @import("state.zig");
@@ -23,6 +25,7 @@ const rust_verifier_stwo_revision = state.rust_verifier_stwo_revision;
 const RustVerifierConfig = state.RustVerifierConfig;
 const RustVerifierEvidence = state.RustVerifierEvidence;
 const PreparedGeometryKey = state.PreparedGeometryKey;
+const CompositionAotAdmissionCache = state.CompositionAotAdmissionCache;
 const PreparedGeometryPolicy = state.PreparedGeometryPolicy;
 const PreparedHostGeometryCache = state.PreparedHostGeometryCache;
 const ProofResult = state.ProofResult;
@@ -45,6 +48,7 @@ const compositionProgramKind = preparation.compositionProgramKind;
 const canonicalProofProtocolDigest = preparation.canonicalProofProtocolDigest;
 const preparedStateKey = preparation.preparedStateKey;
 const preparedGeometryKey = preparation.preparedGeometryKey;
+const compositionAotAdmissionKey = preparation.compositionAotAdmissionKey;
 const writeVerifiedResultFrame = preparation.writeVerifiedResultFrame;
 const cacheDelta = preparation.cacheDelta;
 const nanosecondsToSeconds = preparation.nanosecondsToSeconds;
@@ -100,6 +104,7 @@ pub fn main() !void {
     defer prepared_state.deinit();
     var prepared_host_geometry = PreparedHostGeometryCache.init(allocator);
     defer prepared_host_geometry.deinit();
+    var composition_aot_admissions = CompositionAotAdmissionCache{};
 
     const input_buffer = try allocator.alloc(u8, protocol.max_frame_bytes);
     defer allocator.free(input_buffer);
@@ -168,6 +173,7 @@ pub fn main() !void {
                     &views,
                     &prepared_state,
                     &prepared_host_geometry,
+                    &composition_aot_admissions,
                     request,
                     executable_identity,
                     rust_verifier,
@@ -199,13 +205,13 @@ fn proveRequest(
     views: *ViewCache,
     prepared_state: *one_shot.PreparedStateCache,
     prepared_host_geometry: *PreparedHostGeometryCache,
+    composition_aot_admissions: *CompositionAotAdmissionCache,
     request: protocol.Request,
     executable_identity: ExecutableIdentity,
     rust_verifier: RustVerifierConfig,
     composition_policy: preparation.CompositionProgramPolicy,
 ) !ProofResult {
     var block_timer = try std.time.Timer.start();
-    const pipeline_cache_before = runtime.pipelineCacheStats();
     const diagnostic_adapted_input = try allocator.dupe(
         u8,
         request.artifacts.adapted_input.diagnosticPath(),
@@ -222,6 +228,26 @@ fn proveRequest(
     defer prepared.deinit(allocator);
     const artifact_admission_wall_s = nanosecondsToSeconds(block_timer.read());
     const artifact_objects = prepared.artifactObjects(request.artifacts);
+    const composition_aot_started_ns = block_timer.read();
+    const composition_aot_before = runtime.pipelineCacheStats();
+    const composition_aot_cache_hit = switch (composition_policy) {
+        .diagnostic => false,
+        .approved_metallib => try admitCompositionAot(
+            allocator,
+            runtime,
+            composition_aot_admissions,
+            &prepared,
+            artifact_objects,
+        ),
+    };
+    const composition_aot_pipeline_cache_delta = cacheDelta(
+        runtime.pipelineCacheStats(),
+        composition_aot_before,
+    );
+    const composition_aot_admission_wall_s = nanosecondsToSeconds(
+        block_timer.read() - composition_aot_started_ns,
+    );
+    const pipeline_cache_before = runtime.pipelineCacheStats();
     const adapted_geometry_started_ns = block_timer.read();
     const adapted_geometry = try adaptedGeometry(
         prepared.snapshot(.adapted_input).path,
@@ -361,6 +387,13 @@ fn proveRequest(
     if (!std.mem.eql(u8, timing_scope, protocol.prove_timing_scope)) return error.InvalidProveTiming;
     const prove_wall_s = try positiveNumberField(cli_object, "prove_wall_s");
     const runner_provenance = cliProvenance(cli_object);
+    const prepared_state_telemetry = prepared_state.requestTelemetry();
+    const pipeline_cache_delta = cacheDelta(runtime.pipelineCacheStats(), pipeline_cache_before);
+    switch (composition_policy) {
+        .diagnostic => {},
+        .approved_metallib => if (prepared_state_telemetry.cache_hit)
+            try preparation.requireWarmPipelineCache(pipeline_cache_delta),
+    }
     const manifest_classification = artifact_manifest.classify(manifest.entries);
     const provenance = ProvenanceEvidence{
         .self_contained = runner_provenance.self_contained and
@@ -449,8 +482,6 @@ fn proveRequest(
         !std.mem.eql(u8, &staged_proof.sha256, &proof_digest))
         return error.StagedProofMismatch;
     try prepared_state.commit();
-    const prepared_state_telemetry = prepared_state.requestTelemetry();
-    const pipeline_cache_delta = cacheDelta(runtime.pipelineCacheStats(), pipeline_cache_before);
     const finalization_started_ns = block_timer.read();
     const final_report_file = try std.fs.createFileAbsolute(report_temporary, .{
         .read = true,
@@ -501,8 +532,14 @@ fn proveRequest(
         },
         .rust_verifier = rust_verifier_evidence,
         .pipeline_cache_delta = pipeline_cache_delta,
+        .composition_aot = .{
+            .required = composition_policy == .approved_metallib,
+            .cache_hit = composition_aot_cache_hit,
+            .admission_pipeline_cache_delta = composition_aot_pipeline_cache_delta,
+        },
         .service_phase_timing = .{
             .artifact_admission_wall_s = artifact_admission_wall_s,
+            .composition_aot_admission_wall_s = composition_aot_admission_wall_s,
             .adapted_geometry_fingerprint_wall_s = adapted_geometry_fingerprint_wall_s,
             .prepared_host_geometry_acquire_wall_s = prepared_host_geometry_acquire_wall_s,
             .pre_runner_wall_s = nanosecondsToSeconds(runner_started_ns) - artifact_admission_wall_s,
@@ -549,4 +586,35 @@ fn proveRequest(
         .prepared_state_cache_hit = prepared_state_telemetry.cache_hit,
         .rust_verifier = rust_verifier_evidence,
     };
+}
+
+fn admitCompositionAot(
+    allocator: std.mem.Allocator,
+    runtime: *metal_runtime.Runtime,
+    admissions: *CompositionAotAdmissionCache,
+    prepared: *const PreparedArtifacts,
+    objects: ArtifactObjectsEvidence,
+) !bool {
+    const key = compositionAotAdmissionKey(objects);
+    if (admissions.contains(key)) return true;
+
+    var bundle = try composition_bundle.Bundle.readFile(
+        allocator,
+        prepared.snapshot(.composition).path,
+    );
+    defer bundle.deinit();
+    const inputs = composition_prewarm.Inputs{
+        .allocator = allocator,
+        .runtime = runtime,
+        .bundle = &bundle,
+        .metallib_path = prepared.snapshot(.composition_program).path,
+    };
+    const first = try composition_prewarm.prewarm(inputs);
+    if (first.expected_plan_count == 0 or
+        first.resolved_plan_count != first.expected_plan_count)
+        return error.IncompleteCompositionAotPrewarm;
+    const second = try composition_prewarm.prewarm(inputs);
+    try composition_prewarm.validateSecondPass(second);
+    admissions.put(key);
+    return false;
 }

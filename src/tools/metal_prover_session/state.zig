@@ -21,6 +21,28 @@ pub const rust_verifier_stwo_cairo_revision = "dcd5834565b7a26a27a614e353c9c6010
 pub const rust_verifier_stwo_revision = "9d7e3d6fa0fc64a0d143a8b2fcb8ee952f4de8f2";
 
 pub const PreparedGeometryKey = [32]u8;
+pub const CompositionAotAdmissionKey = [32]u8;
+pub const composition_aot_admission_capacity = 8;
+
+pub const CompositionAotAdmissionCache = struct {
+    entries: [composition_aot_admission_capacity]?CompositionAotAdmissionKey =
+        [_]?CompositionAotAdmissionKey{null} ** composition_aot_admission_capacity,
+    next_victim: usize = 0,
+
+    pub fn contains(self: *const CompositionAotAdmissionCache, key: CompositionAotAdmissionKey) bool {
+        for (self.entries) |entry| {
+            const admitted = entry orelse continue;
+            if (std.mem.eql(u8, &admitted, &key)) return true;
+        }
+        return false;
+    }
+
+    pub fn put(self: *CompositionAotAdmissionCache, key: CompositionAotAdmissionKey) void {
+        if (self.contains(key)) return;
+        self.entries[self.next_victim] = key;
+        self.next_victim = (self.next_victim + 1) % self.entries.len;
+    }
+};
 
 pub const RustVerifierConfig = struct {
     allocator: std.mem.Allocator,

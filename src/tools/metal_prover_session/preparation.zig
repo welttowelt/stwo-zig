@@ -27,6 +27,7 @@ const rust_verifier_stwo_revision = state.rust_verifier_stwo_revision;
 const RustVerifierConfig = state.RustVerifierConfig;
 const RustVerifierEvidence = state.RustVerifierEvidence;
 const PreparedGeometryKey = state.PreparedGeometryKey;
+const CompositionAotAdmissionKey = state.CompositionAotAdmissionKey;
 const PreparedGeometryPolicy = state.PreparedGeometryPolicy;
 const PreparedHostGeometryCache = state.PreparedHostGeometryCache;
 const ProofResult = state.ProofResult;
@@ -224,6 +225,19 @@ pub fn preparedGeometryKey(
     hash.update(&adapted_geometry_fingerprint);
     const encoded_policy: [1]u8 = .{@intFromBool(policy.replay_retained_lookups)};
     hash.update(&encoded_policy);
+    return hash.finalResult();
+}
+
+pub fn compositionAotAdmissionKey(objects: ArtifactObjectsEvidence) CompositionAotAdmissionKey {
+    var hash = std.crypto.hash.sha2.Sha256.init(.{});
+    hash.update("stwo-zig-composition-aot-admission-v1\x00");
+    inline for (.{ objects.composition, objects.composition_program }) |object| {
+        hash.update(&object.object_id);
+        var encoded_bytes: [8]u8 = undefined;
+        std.mem.writeInt(u64, &encoded_bytes, object.bytes, .little);
+        hash.update(&encoded_bytes);
+    }
+    hash.update("unfused-evaluation-program-v1\x00");
     return hash.finalResult();
 }
 

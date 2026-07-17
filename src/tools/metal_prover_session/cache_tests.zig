@@ -11,8 +11,11 @@ const ArtifactObjectsEvidence = state.ArtifactObjectsEvidence;
 const PreparedGeometryKey = state.PreparedGeometryKey;
 const PreparedGeometryPolicy = state.PreparedGeometryPolicy;
 const PreparedHostGeometryCache = state.PreparedHostGeometryCache;
+const CompositionAotAdmissionCache = state.CompositionAotAdmissionCache;
+const composition_aot_admission_capacity = state.composition_aot_admission_capacity;
 const measureExecutableIdentity = verification.measureExecutableIdentity;
 const preparedGeometryKey = preparation.preparedGeometryKey;
+const compositionAotAdmissionKey = preparation.compositionAotAdmissionKey;
 const preparedStateKey = preparation.preparedStateKey;
 const publishExclusive = verification.publishExclusive;
 const publishOutputsExclusive = verification.publishOutputsExclusive;
@@ -158,6 +161,49 @@ test "prepared geometry key binds retained lookup policy" {
         .{ .replay_retained_lookups = true },
     );
     try std.testing.expect(!std.mem.eql(u8, &retained, &replayed));
+}
+
+test "composition AOT admission key binds bundle and metallib identity only" {
+    const base = testArtifactObjects();
+    const expected = compositionAotAdmissionKey(base);
+
+    var changed_input = base;
+    changed_input.adapted_input.object_id[0] ^= 1;
+    changed_input.adapted_input.bytes += 1;
+    try std.testing.expectEqual(expected, compositionAotAdmissionKey(changed_input));
+
+    var changed_bundle = base;
+    changed_bundle.composition.object_id[0] ^= 1;
+    try std.testing.expect(!std.mem.eql(
+        u8,
+        &expected,
+        &compositionAotAdmissionKey(changed_bundle),
+    ));
+
+    var changed_metallib = base;
+    changed_metallib.composition_program.object_id[0] ^= 1;
+    try std.testing.expect(!std.mem.eql(
+        u8,
+        &expected,
+        &compositionAotAdmissionKey(changed_metallib),
+    ));
+}
+
+test "composition AOT admission cache is bounded and exact" {
+    var cache = CompositionAotAdmissionCache{};
+    const first = [_]u8{0x11} ** 32;
+    cache.put(first);
+    try std.testing.expect(cache.contains(first));
+    cache.put(first);
+    try std.testing.expectEqual(@as(usize, 1), cache.next_victim);
+
+    for (1..composition_aot_admission_capacity + 1) |index| {
+        var key = [_]u8{0} ** 32;
+        key[0] = @intCast(index + 0x20);
+        cache.put(key);
+        try std.testing.expect(cache.contains(key));
+    }
+    try std.testing.expect(!cache.contains(first));
 }
 
 test "prepared host geometry cache owns exact-key parsed schedule transactionally" {
