@@ -54,6 +54,19 @@ pub const WitnessRecipes = struct {
     compact_pedersen: ?*protocol_recipes.CompactRecipe = null,
     compact_poseidon: ?*protocol_recipes.CompactRecipe = null,
     ec_op: ?*protocol_recipes.EcOpRecipe = null,
+
+    pub fn validate(self: WitnessRecipes, required: WitnessRecipeRequirements) Error!void {
+        if (required.verify_instruction and self.compact_verify == null or
+            required.pedersen and self.compact_pedersen == null or
+            required.poseidon and self.compact_poseidon == null or
+            required.ec_op and self.ec_op == null)
+            return Error.MissingBinding;
+        if (!required.verify_instruction and self.compact_verify != null or
+            !required.pedersen and self.compact_pedersen != null or
+            !required.poseidon and self.compact_poseidon != null or
+            !required.ec_op and self.ec_op != null)
+            return Error.InvalidSchedule;
+    }
 };
 
 pub const ProofCopy = struct {
@@ -3386,6 +3399,7 @@ pub fn executeScheduledWitnessGraph(
     feeds: *MultiplicityFeedBatch,
 ) !WitnessExecutionTelemetry {
     if (proof.components.len != witness_bundle.entries.len) return Error.InvalidCardinality;
+    try recipes.validate(WitnessRecipeRequirements.fromBundle(witness_bundle));
 
     const Context = struct {
         allocator: std.mem.Allocator,
@@ -4222,6 +4236,7 @@ pub fn executeScheduledInteractionGraph(
 ) !InteractionExecutionTelemetry {
     if (proof.components.len != witness_bundle.entries.len) return Error.InvalidCardinality;
     const requirements = WitnessRecipeRequirements.fromBundle(witness_bundle);
+    try recipes.validate(requirements);
     for (proof.components) |component| {
         if (try relations.componentIndex(component.name) == null) return Error.MissingBinding;
     }

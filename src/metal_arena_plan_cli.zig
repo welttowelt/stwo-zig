@@ -2097,6 +2097,10 @@ fn runOne(
     );
     const bundle_read_started_ns = runner_wall_timer.read();
     const witness_bundle = host_geometry.witness_bundle;
+    const witness_recipe_requirements = if (witness_bundle) |bundle|
+        arena_binding_mod.WitnessRecipeRequirements.fromBundle(bundle)
+    else
+        arena_binding_mod.WitnessRecipeRequirements{};
     const feed_bundle = host_geometry.feed_bundle;
     const relation_bundle = host_geometry.relation_bundle;
     const relation_coverage: ?RelationCoverage = if (relation_bundle) |bundle|
@@ -3370,7 +3374,9 @@ fn runOne(
         const compact_verify_started_ns = runner_wall_timer.read();
         var local_compact_verify: ?protocol_recipes.CompactRecipe = null;
         defer if (local_compact_verify) |*recipe| recipe.deinit();
-        const compact_verify = if (prepared_state_request) |request| compact_blk: {
+        const compact_verify: ?*protocol_recipes.CompactRecipe = if (!witness_recipe_requirements.verify_instruction)
+            null
+        else if (prepared_state_request) |request| compact_blk: {
             if (canonical_full_proof_plan) {
                 if (prepared_state_cache_hit) {
                     compact_verify_recipe_cache_hit = true;
@@ -3421,7 +3427,9 @@ fn runOne(
         const compact_pedersen_started_ns = runner_wall_timer.read();
         var local_compact_pedersen: ?protocol_recipes.CompactRecipe = null;
         defer if (local_compact_pedersen) |*recipe| recipe.deinit();
-        const compact_pedersen = if (prepared_state_request) |request| compact_blk: {
+        const compact_pedersen: ?*protocol_recipes.CompactRecipe = if (!witness_recipe_requirements.pedersen)
+            null
+        else if (prepared_state_request) |request| compact_blk: {
             if (canonical_full_proof_plan) {
                 if (prepared_state_cache_hit) {
                     compact_pedersen_recipe_cache_hit = true;
@@ -3472,7 +3480,9 @@ fn runOne(
         const compact_poseidon_started_ns = runner_wall_timer.read();
         var local_compact_poseidon: ?protocol_recipes.CompactRecipe = null;
         defer if (local_compact_poseidon) |*recipe| recipe.deinit();
-        const compact_poseidon = if (prepared_state_request) |request| compact_blk: {
+        const compact_poseidon: ?*protocol_recipes.CompactRecipe = if (!witness_recipe_requirements.poseidon)
+            null
+        else if (prepared_state_request) |request| compact_blk: {
             if (canonical_full_proof_plan) {
                 if (prepared_state_cache_hit) {
                     compact_poseidon_recipe_cache_hit = true;
@@ -3522,16 +3532,19 @@ fn runOne(
             if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_LOG_STAGE_TIMINGS"))
                 std.debug.print("prepare stage=ec_op_base begin\n", .{});
             const ec_op_base_started_ns = runner_wall_timer.read();
-            var ec_op = try arena_binding_mod.prepareEcOpWitness(
-                allocator,
-                metal,
-                resident_arena,
-                schedule,
-                plan,
-                adapted,
-                .base,
-            );
-            defer ec_op.deinit();
+            var ec_op: ?protocol_recipes.EcOpRecipe = if (witness_recipe_requirements.ec_op)
+                try arena_binding_mod.prepareEcOpWitness(
+                    allocator,
+                    metal,
+                    resident_arena,
+                    schedule,
+                    plan,
+                    adapted,
+                    .base,
+                )
+            else
+                null;
+            defer if (ec_op) |*recipe| recipe.deinit();
             RunnerPhaseTiming.addInterval(
                 &recipe_preparation_timing.ec_op_base_wall_s,
                 &runner_wall_timer,
@@ -3663,7 +3676,7 @@ fn runOne(
                         .compact_verify = compact_verify,
                         .compact_pedersen = compact_pedersen,
                         .compact_poseidon = compact_poseidon,
-                        .ec_op = &ec_op,
+                        .ec_op = if (ec_op) |*recipe| recipe else null,
                     },
                     recorded_interpolation,
                     multiplicity_feeds,
@@ -3839,16 +3852,19 @@ fn runOne(
             if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_LOG_STAGE_TIMINGS"))
                 std.debug.print("interaction_prepare stage=witness done\n", .{});
             const ec_op_interaction_started_ns = runner_wall_timer.read();
-            var ec_lookup = try arena_binding_mod.prepareEcOpWitness(
-                allocator,
-                metal,
-                resident_arena,
-                schedule,
-                plan,
-                adapted,
-                .lookup,
-            );
-            defer ec_lookup.deinit();
+            var ec_lookup: ?protocol_recipes.EcOpRecipe = if (witness_recipe_requirements.ec_op)
+                try arena_binding_mod.prepareEcOpWitness(
+                    allocator,
+                    metal,
+                    resident_arena,
+                    schedule,
+                    plan,
+                    adapted,
+                    .lookup,
+                )
+            else
+                null;
+            defer if (ec_lookup) |*recipe| recipe.deinit();
             RunnerPhaseTiming.addInterval(
                 &recipe_preparation_timing.ec_op_interaction_wall_s,
                 &runner_wall_timer,
@@ -3970,7 +3986,7 @@ fn runOne(
                     .compact_verify = compact_verify,
                     .compact_pedersen = compact_pedersen,
                     .compact_poseidon = compact_poseidon,
-                    .ec_op = &ec_lookup,
+                    .ec_op = if (ec_lookup) |*recipe| recipe else null,
                 },
                 &relations,
             );
