@@ -63,10 +63,11 @@ decommitment, filesystem, diagnostics, and field-arithmetic context.
 
 ### Migration ledger (2026-07-17)
 
-The audit table above is the historical pre-migration inventory. The live facade is now 6,336
+The audit table above is the historical pre-migration inventory. The live facade is now 5,709
 lines and delegates these accepted ownership slices without changing its public names:
 
 - `resident/errors.zig` owns the stable Cairo resident integration error set;
+- `resident/binding.zig` owns validated byte-binding to Metal word-offset conversion;
 - `resident/twiddles.zig` owns forward and inverse twiddle materialization;
 - `resident/commitment/telemetry.zig` owns the five opt-in commitment digest/sample operations;
 - `resident/preprocessed/storage.zig` owns preprocessed-evaluation spill, complete restore, and
@@ -75,6 +76,10 @@ lines and delegates these accepted ownership slices without changing its public 
   indexing.
 - `resident/lookups/multiplicity_feeds.zig` owns feed lifecycle, authenticated row/destination
   geometry, destination routing, and prepared batch construction.
+- `resident/trace/interpolation.zig` owns recorded/native base interpolation lifecycle, component
+  grouping, fixed-trace materialization, and trace/preprocessed interpolation;
+- `resident/trace/diagnostics.zig` owns opt-in base-evaluation digest and dump diagnostics invoked
+  directly by native fixed execution.
 
 Retained-Merkle spill/restore deliberately remains with the facade until commitment ordering and
 storage move together. It shares canonical tree-purpose ordering with proof binding and commitment
@@ -115,6 +120,7 @@ src/integrations/cairo_metal/
 |-- resident/
 |   |-- mod.zig                       subsystem map and invariants
 |   |-- errors.zig                    stable integration error contract
+|   |-- binding.zig                   validated resident binding address conversion
 |   |-- session.zig                   phase ordering over prepared typed views
 |   |-- proof_bindings.zig            authenticated schedule-to-view projection
 |   |-- transcript.zig                transcript recipe and challenge publication
@@ -126,9 +132,9 @@ src/integrations/cairo_metal/
 |   |-- lookups/
 |   |   |-- fixed_tables.zig          fixed-table preparation/indexing
 |   |   `-- multiplicity_feeds.zig    runtime feed geometry and prepared batch
-|   |-- interpolation/
-|   |   |-- batches.zig               recorded/native batch ownership
-|   |   `-- columns.zig               component and generic circle IFFT mapping
+|   |-- trace/
+|   |   |-- interpolation.zig         base interpolation mapping and batch ownership
+|   |   `-- diagnostics.zig           opt-in trace evaluation diagnostics
 |   |-- witness/
 |   |   |-- inputs.zig                CASM, builtin, direct, compact, gathered input
 |   |   |-- prepare.zig               EC and AOT recipe construction
@@ -209,8 +215,8 @@ change.
 | `resident/twiddles.zig` | `populateProtocolTwiddles`, `populateForwardTwiddles`, `populateForwardTwiddleBinding`, `twiddleBankBinding`, `populateNamedInverseTwiddles`, `populateQuotientInverseTwiddles`, `populateTwiddlePair`, `populateInverseTwiddles`, `populateSplitSubdomainInverseTwiddles`, `twiddleBindingForLog`, `twiddleOffsetForLog` |
 | `resident/lookups/fixed_tables.zig` | `prepareFixedTableBatch`, `fixedLookupIndex`, `clearFixedMultiplicities` |
 | `resident/lookups/multiplicity_feeds.zig` | `MultiplicityFeedBatch`, `runtimeFeedRowCount`, `runtimeFeedDestinationColumnBytes`, `recordFeedDestinationWidth`, `prepareMultiplicityFeedBatch`, `multiplicityDestination` |
-| `resident/interpolation/batches.zig` | `RecordedBaseInterpolationBatch`, `FixedBaseTraceOperation`, `NativeBaseInterpolationBatch`, `prepareRecordedBaseInterpolation`, `prepareNativeBaseInterpolation` |
-| `resident/interpolation/columns.zig` | `prepareComponentInterpolation`, `prepareComponentInterpolationGroups`, `prepareComponentInterpolationGroupsForPurposes`, `interpolateTraceColumns`, `interpolateAvailablePreprocessedColumns` |
+| `resident/trace/interpolation.zig` | `RecordedBaseInterpolationBatch`, `FixedBaseTraceOperation`, `NativeBaseInterpolationBatch`, `prepareRecordedBaseInterpolation`, `prepareNativeBaseInterpolation`, `prepareComponentInterpolation`, `prepareComponentInterpolationGroups`, `prepareComponentInterpolationGroupsForPurposes`, `interpolateTraceColumns`, `interpolateAvailablePreprocessedColumns` |
+| `resident/trace/diagnostics.zig` | `logComponentBaseEvalDigests` |
 
 The fixed-table module may call multiplicity destinations through an explicit typed destination
 map. It must not reach into feed program encoding. Conversely, feed preparation may consume fixed
@@ -322,7 +328,7 @@ import surface without touching the active feed path.
 1. After feed parity is committed, move `MultiplicityFeedBatch` and all runtime geometry checks as
    one unit to `lookups/multiplicity_feeds.zig`.
 2. Move fixed-table preparation separately.
-3. Move column interpolation, then its recorded/native owning batches.
+3. Move base and preprocessed column interpolation with its recorded/native owning batches.
 4. Replace private cross-region calls with typed destination and interpolation views. Do not add a
    generic `helpers.zig`.
 
