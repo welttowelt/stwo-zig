@@ -25,6 +25,18 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_tests.step);
 
+    const pcs_test_module = b.createModule(.{
+        .root_source_file = b.path("src/stwo_deep.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const pcs_tests = b.addTest(.{
+        .root_module = pcs_test_module,
+        .filters = &.{"prover pcs:"},
+    });
+    const run_pcs_tests = b.addRunArtifact(pcs_tests);
+    test_step.dependOn(&run_pcs_tests.step);
+
     const cross_module_test_module = b.createModule(.{
         .root_source_file = b.path("src/tests.zig"),
         .target = target,
