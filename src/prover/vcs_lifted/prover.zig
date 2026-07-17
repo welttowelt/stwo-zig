@@ -3,12 +3,12 @@ const builtin = @import("builtin");
 const m31 = @import("../../core/fields/m31.zig");
 const qm31 = @import("../../core/fields/qm31.zig");
 const lifted_merkle_hasher = @import("../../core/vcs_lifted/merkle_hasher.zig");
-const mmap_alloc = @import("../mmap_alloc.zig");
-const mmap_alloc_mod = mmap_alloc;
 const work_pool_mod = @import("../work_pool.zig");
 const quotient_ops = @import("../pcs/quotient_ops.zig");
 const secure_column = @import("../secure_column.zig");
 const decommit_mod = @import("decommit.zig");
+const columns_mod = @import("columns.zig");
+const parameters = @import("parameters.zig");
 
 const M31 = m31.M31;
 const SecureColumnByCoords = secure_column.SecureColumnByCoords;
@@ -26,20 +26,19 @@ pub fn MerkleProverLifted(comptime H: type) type {
 
         const Self = @This();
         const NodeSeed = if (@hasDecl(H, "nodeSeed")) @TypeOf(H.nodeSeed()) else H;
-        const parallel_min_nodes: usize = 1 << 13;
-        const parallel_min_nodes_per_worker: usize = 1 << 12;
-        const max_parallel_workers: usize = 16;
-        const merkle_worker_stack_size: usize = 1 << 20; // 1 MiB; lowers RSS vs platform default thread stacks.
-        const leaf_tile_len: usize = 256;
-        const max_leaf_scratch_bytes: usize = 256 * 1024;
-        /// Default number of leaves processed per batch in the row-batch
-        /// commit path.  Chosen so that the transient hasher array for one
-        /// batch stays comfortably in L2 cache (~512 KiB at 128 B/hasher).
-        const default_leaf_batch_size: usize = 1 << 12; // 4 096
-        /// Minimum total leaf count before we switch to the batched path.
-        /// Below this threshold the original all-at-once `buildLeaves` is
-        /// used since the hasher array is already small.
-        const batched_leaf_threshold: usize = 1 << 14; // 16 384
+        const parallel_min_nodes = parameters.parallel_min_nodes;
+        const parallel_min_nodes_per_worker = parameters.parallel_min_nodes_per_worker;
+        const max_parallel_workers = parameters.max_parallel_workers;
+        const merkle_worker_stack_size = parameters.merkle_worker_stack_size;
+        const leaf_tile_len = parameters.leaf_tile_len;
+        const max_leaf_scratch_bytes = parameters.max_leaf_scratch_bytes;
+        const default_leaf_batch_size = parameters.default_leaf_batch_size;
+        const batched_leaf_threshold = parameters.batched_leaf_threshold;
+        const layerAllocator = parameters.layerAllocator;
+        const merkleWorkerOverride = parameters.merkleWorkerOverride;
+        const leafBatchSizeOverride = parameters.leafBatchSizeOverride;
+        const merklePoolReuseEnabled = parameters.merklePoolReuseEnabled;
+        const parallelWorkersForLayer = parameters.parallelWorkersForLayer;
         const ThreadPool = std.Thread.Pool;
         const WaitGroup = std.Thread.WaitGroup;
         const SharedPoolState = struct {
@@ -267,15 +266,6 @@ pub fn MerkleProverLifted(comptime H: type) type {
             return commitWithOptions(allocator, columns, worker_override, false);
         }
 
-        fn layerAllocator(allocator: std.mem.Allocator) std.mem.Allocator {
-            // Use mmap-backed allocator for large Merkle layers on supported
-            // platforms; fall back to caller's allocator otherwise.
-            if (comptime builtin.os.tag == .macos or builtin.os.tag == .linux) {
-                return mmap_alloc_mod.MmapAllocator.allocator();
-            }
-            return allocator;
-        }
-
         fn commitWithOptions(
             allocator: std.mem.Allocator,
             columns: []const []const M31,
@@ -345,16 +335,7 @@ pub fn MerkleProverLifted(comptime H: type) type {
             return .{ .layers = out_layers, .layer_allocator = layer_alloc };
         }
 
-        fn allColumnsConstant(columns: []const ColumnRef) bool {
-            for (columns) |column| {
-                if (column.values.len == 0) return false;
-                const first = column.values[0];
-                for (column.values[1..]) |value| {
-                    if (!value.eql(first)) return false;
-                }
-            }
-            return true;
-        }
+        const allColumnsConstant = columns_mod.allConstant;
 
         fn commitConstantColumns(
             allocator: std.mem.Allocator,
@@ -395,43 +376,6 @@ pub fn MerkleProverLifted(comptime H: type) type {
             return .{ .layers = out_layers, .layer_allocator = layer_alloc };
         }
 
-        fn merkleWorkerOverride(allocator: std.mem.Allocator) ?usize {
-            const raw = std.process.getEnvVarOwned(allocator, "STWO_ZIG_MERKLE_WORKERS") catch return null;
-            defer allocator.free(raw);
-            const parsed = std.fmt.parseInt(usize, raw, 10) catch return null;
-            if (parsed == 0) return null;
-            return parsed;
-        }
-
-        /// Reads an optional leaf-batch-size override from the environment.
-        /// Set `STWO_ZIG_LEAF_BATCH_SIZE` to a power-of-two to control
-        /// how many leaves are hashed per batch.  Returns `null` when the
-        /// variable is unset or unparseable, falling back to
-        /// `default_leaf_batch_size`.
-        fn leafBatchSizeOverride(allocator: std.mem.Allocator) ?usize {
-            const raw = std.process.getEnvVarOwned(allocator, "STWO_ZIG_LEAF_BATCH_SIZE") catch return null;
-            defer allocator.free(raw);
-            const parsed = std.fmt.parseInt(usize, raw, 10) catch return null;
-            if (parsed == 0) return null;
-            if (!std.math.isPowerOfTwo(parsed)) return null;
-            return parsed;
-        }
-
-        fn merklePoolReuseEnabled(allocator: std.mem.Allocator) bool {
-            const raw = std.process.getEnvVarOwned(allocator, "STWO_ZIG_MERKLE_POOL_REUSE") catch return false;
-            defer allocator.free(raw);
-            if (raw.len == 0) return false;
-            if (std.mem.eql(u8, raw, "1")) return true;
-            if (std.mem.eql(u8, raw, "0")) return false;
-            if (std.ascii.eqlIgnoreCase(raw, "true")) return true;
-            if (std.ascii.eqlIgnoreCase(raw, "false")) return false;
-            if (std.ascii.eqlIgnoreCase(raw, "yes")) return true;
-            if (std.ascii.eqlIgnoreCase(raw, "no")) return false;
-            if (std.ascii.eqlIgnoreCase(raw, "on")) return true;
-            if (std.ascii.eqlIgnoreCase(raw, "off")) return false;
-            return false;
-        }
-
         pub fn decommit(
             self: Self,
             allocator: std.mem.Allocator,
@@ -457,35 +401,8 @@ pub fn MerkleProverLifted(comptime H: type) type {
             return out;
         }
 
-        pub const ColumnRef = struct {
-            values: []const M31,
-            log_size: u32,
-            original_index: usize,
-        };
-
-        pub fn sortColumnsByLogSizeAsc(
-            allocator: std.mem.Allocator,
-            columns: []const []const M31,
-        ) ![]ColumnRef {
-            const out = try allocator.alloc(ColumnRef, columns.len);
-            for (columns, 0..) |column, i| {
-                if (!std.math.isPowerOfTwo(column.len) or column.len < 2) {
-                    return error.InvalidColumnSize;
-                }
-                out[i] = .{
-                    .values = column,
-                    .log_size = @intCast(std.math.log2_int(usize, column.len)),
-                    .original_index = i,
-                };
-            }
-            std.sort.heap(ColumnRef, out, {}, lessByLogSizeAscStable);
-            return out;
-        }
-
-        fn lessByLogSizeAscStable(_: void, lhs: ColumnRef, rhs: ColumnRef) bool {
-            if (lhs.log_size == rhs.log_size) return lhs.original_index < rhs.original_index;
-            return lhs.log_size < rhs.log_size;
-        }
+        pub const ColumnRef = columns_mod.ColumnRef;
+        pub const sortColumnsByLogSizeAsc = columns_mod.sortByLogSizeAsc;
 
         fn buildLeaves(
             allocator: std.mem.Allocator,
@@ -1085,21 +1002,6 @@ pub fn MerkleProverLifted(comptime H: type) type {
                 });
             }
             return out;
-        }
-
-        fn parallelWorkersForLayer(out_len: usize, worker_override: ?usize) usize {
-            if (builtin.single_threaded) return 1;
-            if (out_len < parallel_min_nodes) return 1;
-            const capacity = out_len / parallel_min_nodes_per_worker;
-            if (capacity < 2) return 1;
-            if (worker_override) |requested| {
-                if (requested <= 1) return 1;
-                return @min(@min(requested, max_parallel_workers), capacity);
-            }
-            const cpu_count_raw = std.Thread.getCpuCount() catch return 1;
-            const cpu_count: usize = @intCast(cpu_count_raw);
-            if (cpu_count <= 1) return 1;
-            return @min(@min(cpu_count, capacity), max_parallel_workers);
         }
 
         const SeededRangeCtx = struct {
