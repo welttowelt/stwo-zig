@@ -59,6 +59,12 @@ class CiTests(unittest.TestCase):
         )
         self.assertIn("run: zig build metal-check -Doptimize=ReleaseSafe", workflow)
         self.assertNotIn("run: zig build metal-test", workflow)
+        self.assertIn("python3 scripts/metal_core_aot_receipt.py", workflow)
+        self.assertIn(
+            "uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4",
+            workflow,
+        )
+        self.assertIn("if-no-files-found: error", workflow)
 
         aot_products = (ROOT / "build_support/metal_core_aot.zig").read_text(
             encoding="utf-8"
