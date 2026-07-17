@@ -1168,11 +1168,11 @@ bool stwo_zig_metal_fri_tree_prepared(
         uint32_t parents = leaves >> 1u;
         for (uint32_t level = 1u; level < plan.layerCount; ++level) {
             id<MTLComputeCommandEncoder> parent = [command computeCommandEncoder];
-            [parent setComputePipelineState:runtime.parentsPlainSparse]; [parent setBuffer:arena offset:0 atIndex:0];
+            [parent setComputePipelineState:runtime.parentsSparse]; [parent setBuffer:arena offset:0 atIndex:0];
             uint32_t child = layers[level - 1u], output = layers[level];
             [parent setBytes:&child length:sizeof(child) atIndex:1]; [parent setBytes:&output length:sizeof(output) atIndex:2];
-            [parent setBytes:&parents length:sizeof(parents) atIndex:3];
-            NSUInteger width = MIN(runtime.parentsPlainSparse.maxTotalThreadsPerThreadgroup, runtime.parentsPlainSparse.threadExecutionWidth * 8u);
+            [parent setBytes:&parents length:sizeof(parents) atIndex:3]; [parent setBuffer:plan.nodeSeed offset:0 atIndex:4];
+            NSUInteger width = MIN(runtime.parentsSparse.maxTotalThreadsPerThreadgroup, runtime.parentsSparse.threadExecutionWidth * 8u);
             [parent dispatchThreads:MTLSizeMake(parents, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
             [parent endEncoding]; parents >>= 1u;
         }
@@ -1891,7 +1891,7 @@ bool stwo_zig_metal_leaf_absorb(
     uint32_t state_offset, uint32_t lifting_log, uint32_t first_column, uint32_t is_final, uint32_t prefix_bytes,
     const uint32_t *leaf_seed, double *gpu_milliseconds, char *error_message, size_t error_message_len
 ) {
-    if(runtime_ptr==NULL||arena_ptr==NULL||column_offsets==NULL||column_logs==NULL||leaf_seed==NULL||column_count==0u||column_count>16u||lifting_log>=31u)return false;
+    if(runtime_ptr==NULL||arena_ptr==NULL||column_offsets==NULL||column_logs==NULL||leaf_seed==NULL||column_count==0u||column_count>16u||lifting_log>=31u||(prefix_bytes!=0u&&prefix_bytes!=64u))return false;
     @autoreleasepool {
         StwoZigMetalRuntime *runtime=(__bridge StwoZigMetalRuntime *)runtime_ptr; id<MTLBuffer> arena=(__bridge id<MTLBuffer>)arena_ptr;
         uint32_t row_count=1u<<lifting_log; NSUInteger words=arena.length/4u; if((NSUInteger)state_offset+(NSUInteger)row_count*8u>words)return false;
@@ -1914,7 +1914,7 @@ bool stwo_zig_metal_leaf_absorb_compact(
     uint32_t first_column, uint32_t is_final, uint32_t prefix_bytes, const uint32_t *leaf_seed,
     double *gpu_milliseconds, char *error_message, size_t error_message_len
 ) {
-    if(runtime_ptr==NULL||arena_ptr==NULL||column_offsets==NULL||column_logs==NULL||leaf_seed==NULL||column_count==0u||column_count>16u||destination_log>=31u)return false;
+    if(runtime_ptr==NULL||arena_ptr==NULL||column_offsets==NULL||column_logs==NULL||leaf_seed==NULL||column_count==0u||column_count>16u||destination_log>=31u||(prefix_bytes!=0u&&prefix_bytes!=64u))return false;
     if(first_column!=0u&&(source_state_log>destination_log||source_state_log>=31u))return false;
     @autoreleasepool {
         StwoZigMetalRuntime *runtime=(__bridge StwoZigMetalRuntime *)runtime_ptr; id<MTLBuffer> arena=(__bridge id<MTLBuffer>)arena_ptr;

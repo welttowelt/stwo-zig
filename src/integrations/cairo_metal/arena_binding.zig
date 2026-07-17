@@ -5738,7 +5738,6 @@ fn executeStreamingCommitment(
     defer if (scratch_items.len != 0) allocator.free(scratch_items);
     const retained = try collectTreePurpose(allocator, schedule, plan, "RetainedMerkleLayers", tree_index);
     defer allocator.free(retained);
-    _ = node_seed;
     if (leaf_state.size_bytes % 32 != 0 or !std.math.isPowerOfTwo(leaf_state.size_bytes / 32)) return Error.InvalidBindingSize;
     const lifting_log: u32 = std.math.log2_int(u64, leaf_state.size_bytes / 32);
     var coefficient_cursor: usize = 0;
@@ -5950,7 +5949,7 @@ fn executeStreamingCommitment(
                 destination_log,
                 @intCast(coefficient_cursor),
                 is_final,
-                0,
+                metal_runtime.lifted_merkle_prefix_bytes,
                 leaf_seed,
             );
             leaf_state_log = destination_log;
@@ -5963,7 +5962,7 @@ fn executeStreamingCommitment(
             lifting_log,
             @intCast(coefficient_cursor),
             is_final,
-            0,
+            metal_runtime.lifted_merkle_prefix_bytes,
             leaf_seed,
         );
         gpu_ms += elapsed_leaf_gpu_ms;
@@ -6064,7 +6063,13 @@ fn executeStreamingCommitment(
         current_offset = destination;
     }
     for (child_offsets.items, destination_offsets.items, parent_counts.items, retained_copy_targets.items) |child, destination, count, copy_target| {
-        const elapsed_parent_gpu_ms = try metal.parentPlain(resident_arena.buffer, child, destination, count);
+        const elapsed_parent_gpu_ms = try metal.parentSeeded(
+            resident_arena.buffer,
+            child,
+            destination,
+            count,
+            node_seed,
+        );
         gpu_ms += elapsed_parent_gpu_ms;
         parent_gpu_ms += elapsed_parent_gpu_ms;
         if (copy_target) |target| {

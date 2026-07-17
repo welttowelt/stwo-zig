@@ -2,6 +2,8 @@ const std = @import("std");
 
 const kernel_source: [:0]const u8 = @embedFile("kernels.metal") ++ "\x00";
 
+pub const lifted_merkle_prefix_bytes: u32 = 64;
+
 extern fn stwo_zig_metal_runtime_create(
     source: [*:0]const u8,
     error_message: [*]u8,
@@ -3143,7 +3145,9 @@ pub const Runtime = struct {
         prefix_bytes: u32,
         leaf_seed: [8]u32,
     ) MetalError!f64 {
-        if (column_offsets.len == 0 or column_offsets.len > 16 or column_offsets.len != column_logs.len) return MetalError.CommitmentFailed;
+        if (column_offsets.len == 0 or column_offsets.len > 16 or column_offsets.len != column_logs.len or
+            (prefix_bytes != 0 and prefix_bytes != lifted_merkle_prefix_bytes))
+            return MetalError.CommitmentFailed;
         var gpu_ms: f64 = 0;
         var message: [1024]u8 = [_]u8{0} ** 1024;
         if (!stwo_zig_metal_leaf_absorb(self.handle, arena.handle, column_offsets.ptr, column_logs.ptr, @intCast(column_offsets.len), state_offset, lifting_log, first_column, @intFromBool(is_final), prefix_bytes, &leaf_seed, &gpu_ms, &message, message.len)) {
@@ -3168,7 +3172,9 @@ pub const Runtime = struct {
         leaf_seed: [8]u32,
     ) MetalError!f64 {
         if (column_offsets.len == 0 or column_offsets.len > 16 or column_offsets.len != column_logs.len or
-            (first_column != 0 and source_state_log > destination_log)) return MetalError.CommitmentFailed;
+            (first_column != 0 and source_state_log > destination_log) or
+            (prefix_bytes != 0 and prefix_bytes != lifted_merkle_prefix_bytes))
+            return MetalError.CommitmentFailed;
         var gpu_ms: f64 = 0;
         var message: [1024]u8 = [_]u8{0} ** 1024;
         if (!stwo_zig_metal_leaf_absorb_compact(
