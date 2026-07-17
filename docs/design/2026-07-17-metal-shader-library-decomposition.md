@@ -81,21 +81,25 @@ target architecture and must not be described as an AOT shader library yet:
 - the first Stage 2 protocol-family increment moves all five composition kernels intact into
   `core/composition.metal`. The standalone unit declares only base-field and extension-field
   dependencies; no helper, dispatch, allocation, or synchronization boundary changes;
-- the legacy file is now 2,582 lines. Its remaining 78 exported entry points, the complete
+- the commitments increment moves all seven Blake2s leaf and parent kernels intact into
+  `core/commitments.metal`. The standalone unit depends only on base, Blake2s, and Merkle support;
+  exported names, buffer contracts, dispatches, and the one-library boundary remain unchanged;
+- the legacy file is now 2,411 lines. Its remaining 71 exported entry points, the complete
   90-export runtime lookup set, and the one-library source-JIT boundary remain unchanged;
 - Stage 0 remains incomplete until every argument contract is represented in the manifest, Metal
   reflection validates it, and cold compilation/PSO/library counts are captured;
 - Stage 1 support-header decomposition is complete: shared circle, Merkle, decommit, Felt252, EC,
   and generated-witness support have explicit guarded owners. Protocol-family kernels remain in
   the legacy unit until their later family-move stages;
-- Stage 2 is underway: composition now has its planned family owner while the other protocol
-  families listed in the target layout remain in the legacy unit;
+- Stage 2 is underway: composition and commitments now have their planned family owners while the
+  other protocol families listed in the target layout remain in the legacy unit;
 - AOT AIR compilation/linking and authenticated metallib loading remain Stage 5 work. No current
   source extraction removes runtime compilation or changes warm proving speed.
 
-The Stage 1 support-header boundary is complete and Stage 2 has begun with composition. Each later
-family move still requires exact export, ABI, runtime-lookup, and dispatch preservation; source-JIT
-amalgamation resolving helpers by concatenation order is not sufficient evidence by itself.
+The Stage 1 support-header boundary is complete and Stage 2 has begun with composition and
+commitments. Each later family move still requires exact export, ABI, runtime-lookup, and dispatch
+preservation; source-JIT amalgamation resolving helpers by concatenation order is not sufficient
+evidence by itself.
 
 The problem is wider than file length:
 

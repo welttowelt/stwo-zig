@@ -10,7 +10,7 @@
       "key": "file-size:backends/metal/kernels.metal",
       "reason": "Legacy Metal shader monolith retained only for the staged, ABI-preserving library migration.",
       "plan": "docs/design/2026-07-17-metal-shader-library-decomposition.md",
-      "max_lines": 2582
+      "max_lines": 2411
     },
     {
       "key": "file-size:backends/metal/runtime.m",

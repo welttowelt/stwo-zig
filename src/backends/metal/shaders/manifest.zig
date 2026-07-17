@@ -148,6 +148,7 @@ const ec_source = @embedFile("include/ec.metal");
 const witness_abi_source = @embedFile("include/witness_abi.metal");
 const witness_tables_source = @embedFile("include/witness_tables.metal");
 const witness_deductions_source = @embedFile("include/witness_deductions.metal");
+const commitments_source = @embedFile("core/commitments.metal");
 const arena_ops_source = @embedFile("core/arena_ops.metal");
 const transcript_source = @embedFile("core/transcript.metal");
 const composition_source = @embedFile("core/composition.metal");
@@ -170,6 +171,7 @@ pub const support_headers = [_]TranslationUnit{
 };
 
 pub const translation_units = [_]TranslationUnit{
+    .{ .path = "src/backends/metal/shaders/core/commitments.metal", .source = commitments_source },
     .{ .path = "src/backends/metal/kernels.metal", .source = legacy_source },
     .{ .path = "src/backends/metal/shaders/core/arena_ops.metal", .source = arena_ops_source },
     .{ .path = "src/backends/metal/shaders/core/transcript.metal", .source = transcript_source },
@@ -206,6 +208,8 @@ pub const amalgamated_source: [:0]const u8 = "#define STWO_ZIG_AMALGAMATED 1\n" 
     witness_tables_source ++
     "\n#line 1 \"src/backends/metal/shaders/include/witness_deductions.metal\"\n" ++
     witness_deductions_source ++
+    "\n#line 1 \"src/backends/metal/shaders/core/commitments.metal\"\n" ++
+    commitments_source ++
     "\n#line 1 \"src/backends/metal/kernels.metal\"\n" ++
     legacy_source ++
     "\n#line 1 \"src/backends/metal/shaders/core/arena_ops.metal\"\n" ++
