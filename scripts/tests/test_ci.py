@@ -37,11 +37,19 @@ class CiTests(unittest.TestCase):
             build,
         )
         self.assertEqual(
-            2,
+            3,
             build.count(
                 'b.addSystemCommand(&.{ "zig", "test", "src/stwo_deep.zig", zig_optimize_arg })'
             ),
         )
+
+    def test_pre_push_and_hosted_ci_use_the_same_standard_entrypoint(self) -> None:
+        pre_push = (ROOT / ".githooks/pre-push").read_text(encoding="utf-8")
+        self.assertIn("exec python3 scripts/ci.py", pre_push)
+        self.assertNotIn("zig build", pre_push)
+
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        self.assertIn("run: python3 scripts/ci.py\n", workflow)
 
     def test_hosted_metal_gate_accepts_aot_core_and_compiles_broader_graph(self) -> None:
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")

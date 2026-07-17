@@ -704,7 +704,7 @@ pub fn build(b: *std.Build) void {
     roadmap_baseline_step.dependOn(&roadmap_baseline_cmd.step);
 
     // Deterministic release gate sequence:
-    // fmt -> upstream-pins -> source-conformance -> test -> api-parity -> vectors -> interop -> bench-smoke -> profile-smoke
+    // fmt -> upstream-pins -> source-conformance -> test -> api-parity -> deep-gate -> vectors -> interop -> bench-smoke -> profile-smoke
     const rg_fmt = b.addSystemCommand(&.{ "zig", "fmt", "--check", "build.zig", "src", "tools" });
     const rg_upstream_pins = b.addSystemCommand(&.{ "python3", "scripts/check_upstream_pins.py" });
     rg_upstream_pins.step.dependOn(&rg_fmt.step);
@@ -717,8 +717,10 @@ pub fn build(b: *std.Build) void {
     rg_test.step.dependOn(&rg_source_conformance.step);
     const rg_api_parity = b.addSystemCommand(&.{ "python3", "scripts/check_api_parity.py" });
     rg_api_parity.step.dependOn(&rg_test.step);
+    const rg_deep = b.addSystemCommand(&.{ "zig", "test", "src/stwo_deep.zig", zig_optimize_arg });
+    rg_deep.step.dependOn(&rg_api_parity.step);
     const rg_vectors_fields = b.addSystemCommand(&.{ "python3", "scripts/parity_fields.py", "--skip-zig" });
-    rg_vectors_fields.step.dependOn(&rg_api_parity.step);
+    rg_vectors_fields.step.dependOn(&rg_deep.step);
     const rg_vectors_constraint = b.addSystemCommand(&.{
         "python3",
         "scripts/parity_constraint_expr.py",
@@ -740,7 +742,7 @@ pub fn build(b: *std.Build) void {
 
     const release_gate_step = b.step(
         "release-gate",
-        "Run release gate sequence (fmt -> upstream-pins -> source-conformance -> test -> api-parity -> vectors -> interop -> bench-smoke -> profile-smoke)",
+        "Run release gate sequence (fmt -> upstream-pins -> source-conformance -> test -> api-parity -> deep-gate -> vectors -> interop -> bench-smoke -> profile-smoke)",
     );
     release_gate_step.dependOn(&rg_profile.step);
 

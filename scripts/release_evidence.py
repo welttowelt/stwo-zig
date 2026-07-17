@@ -94,6 +94,7 @@ def gate_steps(gate_mode: str) -> list[dict[str, str]]:
         {"name": "fmt", "command": "zig fmt --check build.zig src tools"},
         {"name": "test", "command": "zig test src/stwo.zig"},
         {"name": "api_parity", "command": "python3 scripts/check_api_parity.py"},
+        {"name": "deep_gate", "command": "zig test src/stwo_deep.zig"},
         {"name": "vectors_fields", "command": "python3 scripts/parity_fields.py --skip-zig"},
         {"name": "vectors_constraint", "command": "python3 scripts/parity_constraint_expr.py --skip-zig"},
         {"name": "vectors_air_derive", "command": "python3 scripts/parity_air_derive.py --skip-zig"},
@@ -102,7 +103,6 @@ def gate_steps(gate_mode: str) -> list[dict[str, str]]:
         {"name": "profile", "command": "python3 scripts/profile_smoke.py"},
     ]
     if gate_mode == "strict":
-        steps.insert(3, {"name": "deep_gate", "command": "zig test src/stwo_deep.zig"})
         steps.insert(8, {"name": "prove_checkpoints", "command": "python3 scripts/prove_checkpoints.py"})
         steps.append(
             {

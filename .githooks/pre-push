@@ -4,8 +4,4 @@ set -eu
 root=$(git rev-parse --show-toplevel)
 cd "$root"
 
-python3 scripts/check_source_conformance.py
-python3 -m unittest discover -s scripts/tests -p 'test_*.py'
-zig build test
-zig build deep-gate
-zig build api-parity
+exec python3 scripts/ci.py

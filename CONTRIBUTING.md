@@ -1267,8 +1267,10 @@ python3 scripts/ci.py --strict    # release evidence gate
 ```
 
 The pre-commit hook is intentionally limited to staged-diff hygiene, formatting, and source
-conformance. The pre-push hook adds repository tooling tests, Zig tests, deep graph coverage, and
-API parity. Neither hook runs hardware Metal benchmarks or large SN PIE workloads.
+conformance. The pre-push hook runs the same standard `scripts/ci.py` entrypoint as hosted CI,
+including tooling tests, Zig tests, deep graph coverage, vectors, Native interop, and bounded
+benchmark/profile smoke tests. Neither hook runs hardware Metal benchmarks or large SN PIE
+workloads.
 
 Git permits an emergency local bypass with `--no-verify`. That bypass skips feedback only; it does
 not waive any repository requirement. Disclose its use in the PR, run `python3 scripts/ci.py` before

@@ -75,11 +75,8 @@ class InstallHooksTests(unittest.TestCase):
         self.assertIn("python3 scripts/check_source_conformance.py", pre_commit)
 
         pre_push = (ROOT / ".githooks/pre-push").read_text(encoding="utf-8")
-        self.assertIn("python3 scripts/check_source_conformance.py", pre_push)
-        self.assertIn("python3 -m unittest discover", pre_push)
-        self.assertIn("zig build test", pre_push)
-        self.assertIn("zig build deep-gate", pre_push)
-        self.assertIn("zig build api-parity", pre_push)
+        self.assertIn("exec python3 scripts/ci.py", pre_push)
+        self.assertNotIn("zig build", pre_push)
 
         policy = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
         self.assertIn("emergency local bypass with `--no-verify`", policy)
