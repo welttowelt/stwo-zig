@@ -710,6 +710,31 @@ def resolve_command_executable(command: str) -> Path:
     return resolved
 
 
+def validate_core_aot_startup(
+    command: Sequence[str],
+) -> tuple[Path, str] | None:
+    """Validate the paired, digest-pinned core AOT daemon arguments."""
+    path_flag = "--core-metallib"
+    digest_flag = "--core-metallib-sha256"
+    path_indices = [index for index, value in enumerate(command) if value == path_flag]
+    digest_indices = [index for index, value in enumerate(command) if value == digest_flag]
+    if not path_indices and not digest_indices:
+        return None
+    if len(path_indices) != 1 or len(digest_indices) != 1:
+        raise ValueError("core AOT startup requires exactly one path and digest flag")
+    path_index = path_indices[0]
+    digest_index = digest_indices[0]
+    if path_index + 1 >= len(command) or digest_index + 1 >= len(command):
+        raise ValueError("core AOT startup flag is missing its value")
+    path = command[path_index + 1]
+    digest = command[digest_index + 1]
+    if not isinstance(path, str) or not path:
+        raise ValueError("core AOT metallib path must be a non-empty string")
+    if not isinstance(digest, str) or SHA256_PATTERN.fullmatch(digest) is None:
+        raise ValueError("core AOT metallib digest must be canonical lowercase SHA-256")
+    return Path(path), digest
+
+
 def _executable_identity(
     value: Mapping[str, object], label: str
 ) -> tuple[str, str, str]:
@@ -1268,6 +1293,7 @@ class PersistentSessionClient:
             raise ValueError("session command must not be empty")
         if not math.isfinite(startup_timeout_s) or startup_timeout_s <= 0:
             raise ValueError("startup timeout must be finite and positive")
+        self.core_aot_startup = validate_core_aot_startup(command)
         executable_path = resolve_command_executable(command[0])
         self.command = (str(executable_path), *command[1:])
         self.executable_path = executable_path

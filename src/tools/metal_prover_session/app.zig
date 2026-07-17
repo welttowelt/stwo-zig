@@ -11,6 +11,7 @@ const composition_prewarm = stwo.integrations.cairo_metal.composition_prewarm;
 const one_shot = @import("one_shot");
 const protocol = stwo.metal_session.protocol;
 const state = @import("state.zig");
+const startup = @import("startup.zig");
 const preparation = @import("preparation.zig");
 const verification = @import("verification.zig");
 
@@ -77,17 +78,10 @@ pub fn main() !void {
     const allocator = debug_allocator.allocator();
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
-    if ((args.len != 6 and args.len != 8) or
-        !std.mem.eql(u8, args[1], "--jsonl") or
-        !std.mem.eql(u8, args[2], "--rust-verifier") or
-        !std.mem.eql(u8, args[4], "--rust-verifier-lockfile") or
-        (args.len == 8 and !std.mem.eql(u8, args[6], "--composition-metallib-sha256")))
-        return error.InvalidArguments;
-    const composition_policy = try compositionProgramPolicy(if (args.len == 8) args[7] else null);
+    const options = try startup.parseArgs(args);
+    const composition_policy = try compositionProgramPolicy(options.composition_metallib_sha256);
     const executable_identity = try measureExecutableIdentity(allocator);
 
-    var runtime = try metal_runtime.Runtime.init();
-    defer runtime.deinit();
     const artifact_root = try std.fmt.allocPrint(
         allocator,
         "/private/tmp/stwo-zig-metal-artifacts-{}-{}",
@@ -96,7 +90,25 @@ pub fn main() !void {
     defer allocator.free(artifact_root);
     var store = try artifact_store.Store.initNew(allocator, artifact_root, true);
     defer store.deinit();
-    var rust_verifier = try RustVerifierConfig.init(allocator, args[3], args[5], store.root_path);
+    var core_metallib_snapshot: ?artifact_store.Snapshot = null;
+    defer if (core_metallib_snapshot) |*snapshot| snapshot.deinit(allocator);
+    var runtime = switch (options.runtime_mode) {
+        .diagnostic_source => try metal_runtime.Runtime.init(),
+        .production_core_aot => |core_aot| runtime: {
+            var snapshot = try startup.snapshotCoreMetallib(&store, core_aot);
+            errdefer snapshot.deinit(allocator);
+            const runtime = try metal_runtime.Runtime.initFromMetallib(snapshot.path);
+            core_metallib_snapshot = snapshot;
+            break :runtime runtime;
+        },
+    };
+    defer runtime.deinit();
+    var rust_verifier = try RustVerifierConfig.init(
+        allocator,
+        options.rust_verifier_path,
+        options.rust_verifier_lockfile_path,
+        store.root_path,
+    );
     defer rust_verifier.deinit();
     var views = ViewCache.init(allocator);
     defer views.deinit();

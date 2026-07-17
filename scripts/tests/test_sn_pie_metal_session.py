@@ -520,6 +520,43 @@ class SnPieMetalSessionTest(unittest.TestCase):
                 with self.assertRaises(MODULE.SessionProtocolError):
                     MODULE.validate_ready(candidate)
 
+    def test_client_accepts_only_paired_canonical_core_aot_arguments(self):
+        digest = "ab" * 32
+        client = MODULE.PersistentSessionClient(
+            [
+                sys.executable,
+                "--core-metallib",
+                "/core.metallib",
+                "--core-metallib-sha256",
+                digest,
+            ]
+        )
+        self.assertEqual(client.core_aot_startup, (Path("/core.metallib"), digest))
+
+        invalid = {
+            "missing digest": ["--core-metallib", "/core.metallib"],
+            "missing path": ["--core-metallib-sha256", digest],
+            "uppercase digest": [
+                "--core-metallib",
+                "/core.metallib",
+                "--core-metallib-sha256",
+                digest.upper(),
+            ],
+            "duplicate path": [
+                "--core-metallib",
+                "/core.metallib",
+                "--core-metallib",
+                "/other.metallib",
+                "--core-metallib-sha256",
+                digest,
+            ],
+        }
+        for label, arguments in invalid.items():
+            with self.subTest(label=label), self.assertRaisesRegex(
+                ValueError, "core AOT"
+            ):
+                MODULE.PersistentSessionClient([sys.executable, *arguments])
+
     def test_rejects_result_or_report_executable_identity_drift(self):
         with tempfile.TemporaryDirectory() as directory:
             request = self.make_request(Path(directory))

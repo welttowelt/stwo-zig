@@ -8,6 +8,7 @@ pub fn main() !void {
 }
 
 test {
+    _ = @import("startup.zig");
     _ = @import("protocol_tests.zig");
     _ = @import("cache_tests.zig");
 }
