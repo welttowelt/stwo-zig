@@ -157,9 +157,9 @@ pub fn build(b: *std.Build) void {
         .name = "cairo-input",
         .root_module = cairo_input_module,
     });
-    b.installArtifact(cairo_input_cli);
+    const install_cairo_input_cli = b.addInstallArtifact(cairo_input_cli, .{});
     const cairo_input_step = b.step("cairo-input", "Build adapted Cairo input inspector");
-    cairo_input_step.dependOn(&cairo_input_cli.step);
+    cairo_input_step.dependOn(&install_cairo_input_cli.step);
 
     // -----------------------------------------------------------------
     // RISC-V trace dumper CLI for cross-verification

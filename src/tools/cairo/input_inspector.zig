@@ -12,6 +12,7 @@ const receipt = stwo.frontends.cairo.conformance.receipt;
 const direct_trace = stwo.frontends.cairo.conformance.direct_trace;
 const memory_trace = stwo.frontends.cairo.conformance.memory_trace;
 const fixed_trace = stwo.frontends.cairo.conformance.fixed_trace;
+const base_trace_suite = stwo.frontends.cairo.conformance.base_trace_suite;
 
 pub fn main() !void {
     const allocator = std.heap.smp_allocator;
@@ -27,11 +28,100 @@ pub fn main() !void {
     if (args.len == 7 and std.mem.eql(u8, args[1], "compare-fixed")) {
         return compareFixed(allocator, args[2], args[3], args[4], args[5], args[6]);
     }
+    if (args.len == 7 and std.mem.eql(u8, args[1], "compare-base")) {
+        return compareBase(allocator, args[2], args[3], args[4], args[5], args[6]);
+    }
     std.debug.print(
-        "usage:\n  cairo-input <adapted-input.stwzcpi>\n  cairo-input compare-direct <adapted-input.stwzcpi> <witness.bin> <rust-receipt.json>\n  cairo-input compare-memory <adapted-input.stwzcpi> <witness.bin> <feeds.bin> <rust-receipt.json>\n  cairo-input compare-fixed <adapted-input.stwzcpi> <witness.bin> <feeds.bin> <fixed.bin> <rust-receipt.json>\n",
+        "usage:\n  cairo-input <adapted-input.stwzcpi>\n  cairo-input compare-direct <adapted-input.stwzcpi> <witness.bin> <rust-receipt.json>\n  cairo-input compare-memory <adapted-input.stwzcpi> <witness.bin> <feeds.bin> <rust-receipt.json>\n  cairo-input compare-fixed <adapted-input.stwzcpi> <witness.bin> <feeds.bin> <fixed.bin> <rust-receipt.json>\n  cairo-input compare-base <adapted-input.stwzcpi> <witness.bin> <feeds.bin> <fixed.bin> <rust-receipt.json>\n",
         .{},
     );
     return error.InvalidArgument;
+}
+
+fn compareBase(
+    allocator: std.mem.Allocator,
+    input_path: []const u8,
+    witness_path: []const u8,
+    feeds_path: []const u8,
+    fixed_path: []const u8,
+    receipt_path: []const u8,
+) !void {
+    const input_sha256 = try hashFile(input_path);
+    var expected = try receipt.readFile(allocator, receipt_path, .{
+        .input_sha256 = input_sha256,
+        .authority = direct_trace.trace_oracle_authority,
+    });
+    defer expected.deinit();
+    var input = try adapted_input.readFile(allocator, input_path);
+    defer input.deinit(allocator);
+    var witnesses = try witness_bundle.Bundle.readFile(allocator, witness_path);
+    defer witnesses.deinit();
+    var feeds = try feed_bundle.Bundle.readFile(allocator, feeds_path);
+    defer feeds.deinit();
+    var fixed = try fixed_table_bundle.Bundle.readFile(allocator, fixed_path);
+    defer fixed.deinit();
+
+    const outcome = try base_trace_suite.compare(
+        allocator,
+        &input,
+        &witnesses,
+        &feeds,
+        &fixed,
+        expected.components,
+        expected.final_accumulator,
+    );
+    switch (outcome) {
+        .success => |summary| {
+            const accumulator = std.fmt.bytesToHex(summary.final_accumulator, .lower);
+            std.debug.print(
+                "base trace parity: {d}/{d} components, {d} columns, final_accumulator_sha256={s}\n",
+                .{ summary.components, base_trace_suite.component_count, summary.columns, &accumulator },
+            );
+        },
+        .direct_mismatch => |mismatch| {
+            printDirectMismatch(mismatch);
+            return error.CairoBaseTraceMismatch;
+        },
+        .memory_mismatch => |mismatch| {
+            std.debug.print(
+                "base trace mismatch lane=memory component={d} label={s} kind={s}",
+                .{ mismatch.component_ordinal, mismatch.component_label, @tagName(mismatch.kind) },
+            );
+            if (mismatch.column_ordinal) |column| std.debug.print(" column={d}", .{column});
+            std.debug.print(
+                " expected_sha256={x} actual_sha256={x}\n",
+                .{ mismatch.expected_digest, mismatch.actual_digest },
+            );
+            return error.CairoBaseTraceMismatch;
+        },
+        .fixed_mismatch => |mismatch| {
+            std.debug.print(
+                "base trace mismatch lane=fixed component={d} label={s} kind={s} column={d} expected_sha256={x} actual_sha256={x}\n",
+                .{
+                    mismatch.component_ordinal,
+                    mismatch.component_label,
+                    @tagName(mismatch.kind),
+                    mismatch.column_ordinal,
+                    mismatch.expected_digest,
+                    mismatch.actual_digest,
+                },
+            );
+            return error.CairoBaseTraceMismatch;
+        },
+    }
+}
+
+fn printDirectMismatch(mismatch: direct_trace.Mismatch) void {
+    std.debug.print(
+        "base trace mismatch lane=direct component={d} label={s} kind={s}",
+        .{ mismatch.component_ordinal, mismatch.component_label, @tagName(mismatch.kind) },
+    );
+    if (mismatch.column_ordinal) |column| std.debug.print(" column={d}", .{column});
+    if (mismatch.expected_count) |count| std.debug.print(" expected_count={d}", .{count});
+    if (mismatch.actual_count) |count| std.debug.print(" actual_count={d}", .{count});
+    if (mismatch.expected_digest) |digest| std.debug.print(" expected_sha256={x}", .{digest});
+    if (mismatch.actual_digest) |digest| std.debug.print(" actual_sha256={x}", .{digest});
+    std.debug.print("\n", .{});
 }
 
 fn compareFixed(
