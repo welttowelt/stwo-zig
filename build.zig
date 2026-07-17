@@ -26,6 +26,7 @@ pub fn build(b: *std.Build) void {
     const tests = b.addTest(.{
         .root_module = test_module,
     });
+    if (target.result.os.tag == .macos) linkMetalRuntime(b, tests);
     const run_tests = b.addRunArtifact(tests);
 
     const test_step = b.step("test", "Run unit tests");
@@ -62,6 +63,7 @@ pub fn build(b: *std.Build) void {
     cross_module_test_options.addOption(bool, "riscv_only", false);
     cross_module_test_module.addOptions("test_options", cross_module_test_options);
     const cross_module_tests = b.addTest(.{ .root_module = cross_module_test_module });
+    if (target.result.os.tag == .macos) linkMetalRuntime(b, cross_module_tests);
     const run_cross_module_tests = b.addRunArtifact(cross_module_tests);
     test_step.dependOn(&run_cross_module_tests.step);
 
@@ -1041,4 +1043,15 @@ pub fn build(b: *std.Build) void {
         "Audit CONFORMANCE section-15 closure status (requires all rows Complete)",
     );
     roadmap_audit_step.dependOn(&roadmap_audit_cmd.step);
+}
+
+fn linkMetalRuntime(b: *std.Build, artifact: *std.Build.Step.Compile) void {
+    artifact.addCSourceFile(.{
+        .file = b.path("src/backends/metal/runtime.m"),
+        .flags = &.{ "-fobjc-arc", "-fblocks" },
+    });
+    artifact.linkLibC();
+    artifact.linkFramework("Foundation");
+    artifact.linkFramework("Metal");
+    artifact.linkSystemLibrary("objc");
 }
