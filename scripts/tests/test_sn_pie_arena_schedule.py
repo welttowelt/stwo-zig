@@ -172,6 +172,21 @@ class ArenaScheduleTests(unittest.TestCase):
         self.assertEqual(int(schedule[3]["len_words"]), 4096)
         self.assertEqual(int(schedule[4]["len_words"]), 1 << 9)
 
+    def test_projected_composition_geometry_rejects_plan_hash_mismatch(self) -> None:
+        data = bytearray(40)
+        data[:8] = schedule_tool.COMPOSITION_MAGIC
+        struct.pack_into("<I", data, 8, 2)
+        plan_hash = 0xCBF29CE484222325
+        for index, byte in enumerate(data):
+            plan_hash ^= 0 if 32 <= index < 40 else byte
+            plan_hash = (plan_hash * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
+        struct.pack_into("<Q", data, 32, plan_hash)
+        schedule_tool.validate_composition_encoding(data)
+
+        data[12] ^= 1
+        with self.assertRaisesRegex(ValueError, "invalid projected composition plan hash"):
+            schedule_tool.validate_composition_encoding(data)
+
     def test_fri_geometry_covers_log_24_and_log_25(self) -> None:
         evaluations, folds, leaves = schedule_tool.fri_geometry(24)
         self.assertEqual(evaluations, [24, 21, 18, 15, 12, 9, 6, 3])

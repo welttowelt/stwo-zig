@@ -3,6 +3,7 @@ const eval_program = @import("eval_program.zig");
 
 pub const magic = "STWZEVA\x00".*;
 pub const version: u32 = 1;
+pub const projected_version: u32 = 2;
 
 pub const TraceSpan = struct { tree: u32, start: u32, end: u32 };
 
@@ -51,7 +52,9 @@ pub const Bundle = struct {
     pub fn parse(allocator: std.mem.Allocator, bytes: []const u8) !Bundle {
         var reader = Reader{ .bytes = bytes };
         if (!std.mem.eql(u8, try reader.slice(8), &magic)) return error.InvalidMagic;
-        if (try reader.int(u32) != version) return error.UnsupportedVersion;
+        const encoded_version = try reader.int(u32);
+        if (encoded_version != version and encoded_version != projected_version)
+            return error.UnsupportedVersion;
         const max_instructions = try reader.int(u32);
         const total_constraints = try reader.int(u64);
         const max_eval_log = try reader.int(u32);
@@ -171,6 +174,8 @@ pub const Bundle = struct {
             };
         }
         if (reader.cursor != bytes.len) return error.TrailingData;
+        if (encoded_version == projected_version and plan_hash != projectedPlanHash(bytes))
+            return error.InvalidPlanHash;
         var next_constraint: u64 = 0;
         var found_max_log: u32 = 0;
         for (components) |component| {
@@ -195,6 +200,15 @@ pub const Bundle = struct {
         self.* = undefined;
     }
 };
+
+fn projectedPlanHash(bytes: []const u8) u64 {
+    var hash: u64 = 0xcbf29ce484222325;
+    for (bytes, 0..) |byte, index| {
+        hash ^= if (index >= 32 and index < 40) 0 else byte;
+        hash *%= 0x100000001b3;
+    }
+    return hash;
+}
 
 fn deinitComponent(allocator: std.mem.Allocator, component: *Component) void {
     allocator.free(component.label);
@@ -250,4 +264,17 @@ test "Cairo composition bundle: exact SN2 AIR programs load and validate" {
     }
     try std.testing.expectEqual(@as(usize, 279), parts);
     try std.testing.expectEqual(@as(usize, 112_956), programs);
+}
+
+test "Cairo composition bundle: projected plans authenticate their complete encoding" {
+    const allocator = std.testing.allocator;
+    var bytes = try std.fs.cwd().readFileAlloc(allocator, "vectors/cairo/sn_pie_2_composition.bin", 4 * 1024 * 1024);
+    defer allocator.free(bytes);
+    std.mem.writeInt(u32, bytes[8..12], projected_version, .little);
+    std.mem.writeInt(u64, bytes[32..40], projectedPlanHash(bytes), .little);
+
+    var bundle = try Bundle.parse(allocator, bytes);
+    bundle.deinit();
+    bytes[32] ^= 1;
+    try std.testing.expectError(error.InvalidPlanHash, Bundle.parse(allocator, bytes));
 }

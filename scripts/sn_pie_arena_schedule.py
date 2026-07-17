@@ -40,6 +40,7 @@ COEFFICIENT_PURPOSES = (
 )
 RELATION_MAGIC = b"STWZREL\0"
 COMPOSITION_MAGIC = b"STWZEVA\0"
+COMPOSITION_VERSIONS = (1, 2)
 ADAPTED_INPUT_MAGIC = b"STWZCPI\0"
 ADAPTED_INPUT_VERSION = 1
 OPCODE_COUNT = 20
@@ -359,10 +360,26 @@ def retarget_relation_denominators(
     return changed
 
 
+def validate_composition_encoding(data: bytes) -> None:
+    if (
+        data[:8] != COMPOSITION_MAGIC
+        or struct.unpack_from("<I", data, 8)[0] not in COMPOSITION_VERSIONS
+    ):
+        raise ValueError("unsupported composition bundle")
+    if struct.unpack_from("<I", data, 8)[0] != 2:
+        return
+    expected = struct.unpack_from("<Q", data, 32)[0]
+    actual = 0xCBF29CE484222325
+    for index, byte in enumerate(data):
+        actual ^= 0 if 32 <= index < 40 else byte
+        actual = (actual * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
+    if actual != expected:
+        raise ValueError("invalid projected composition plan hash")
+
+
 def composition_logs(path: Path) -> list[int]:
     data = path.read_bytes()
-    if data[:8] != COMPOSITION_MAGIC or struct.unpack_from("<I", data, 8)[0] != 1:
-        raise ValueError("unsupported composition bundle")
+    validate_composition_encoding(data)
     count = struct.unpack_from("<I", data, 28)[0]
     offset = 40
     logs: list[int] = []
@@ -385,8 +402,7 @@ def composition_logs(path: Path) -> list[int]:
 
 def composition_lde_words(path: Path) -> int:
     data = path.read_bytes()
-    if data[:8] != COMPOSITION_MAGIC or struct.unpack_from("<I", data, 8)[0] != 1:
-        raise ValueError("unsupported composition bundle")
+    validate_composition_encoding(data)
     count = struct.unpack_from("<I", data, 28)[0]
     offset = 40
     maximum_words = 0
