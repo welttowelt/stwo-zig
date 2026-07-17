@@ -35,11 +35,11 @@ frontends, and backends designed for both portability and throughput.
 
 ## Frontends
 
-| Surface | What it proves |
+| Surface | Current status |
 | :--- | :--- |
 | **Native Stwo** | Blake, Poseidon, Plonk, state-machine, wide-Fibonacci, and XOR AIRs |
-| **Cairo** | Cairo PIE ingestion, witness construction, proof planning, and resident Metal sessions |
-| **RISC-V** | RV32IM execution, trace generation, and CPU or Metal-backed proving |
+| **Cairo** | Versioned PIE ingestion and SN2-specialized resident proof machinery; the general Cairo proof path is not yet release-gated |
+| **RISC-V** | RV32IM execution and trace generation; the complete RV32IM AIR is not yet release-gated |
 
 ## Quick Start
 
@@ -72,7 +72,7 @@ python3 scripts/install_hooks.py
 | **[Documentation](docs/README.md)** | Architecture, performance reports, profiling, and project history |
 | **[Conformance](docs/conformance/contract.md)** | Protocol parity, interoperability, and release requirements |
 | **[Metal architecture](docs/sn-pie-metal-production-architecture.md)** | The end-to-end design for resident, streaming block proving |
-| **[Benchmarks](docs/cairo-fib-resident-metal-vs-simd.md)** | Reproducible Metal and SIMD measurements with proof parity |
+| **[Benchmarks](docs/cairo-fib-resident-metal-vs-simd.md)** | Rust Stwo-Cairo SIMD and Metal reference measurements with proof parity |
 | **[Contributing](CONTRIBUTING.md)** | Zig, SIMD, Metal, correctness, and engineering standards |
 
 The compatibility target is pinned to upstream commit

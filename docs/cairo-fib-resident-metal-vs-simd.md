@@ -1,6 +1,12 @@
-# Cairo Fib: Resident Metal vs SIMD
+# Rust Stwo-Cairo Fib: Resident Metal vs SIMD
 
 Status: corrected bounded evidence, 2026-07-16.
+
+> [!IMPORTANT]
+> This is a Rust `stwo-cairo` reference benchmark, not a Zig Metal benchmark. Both lanes execute
+> the Rust Cairo prover; the Metal lane uses Rust `stwo-backend-metal`. It remains the correctness
+> and performance oracle until the complete general Cairo witness, AIR, PCS, and FRI pipeline in
+> this repository produces proofs accepted by the pinned Rust verifier.
 
 The earlier fresh-process Cairo table charged runtime Metal initialization to every proof and did
 not measure resident backend throughput. This report separates the first cold proof from two warm
@@ -43,19 +49,19 @@ Cross-backend proof evidence:
 | Fib N | Backend | Cold prove | Cold MHz | Warm prove | Warm MHz | Three-proof process wall |
 | ---: | :--- | ---: | ---: | ---: | ---: | ---: |
 | 25,000 | Rust SIMD | 1.397 s | 0.125 | 0.7355 s | 0.2380 | 2.959 s |
-| 25,000 | Apple Metal | 1.810 s | 0.097 | 0.7565 s | 0.2313 | 3.444 s |
+| 25,000 | Rust Metal | 1.810 s | 0.097 | 0.7565 s | 0.2313 | 3.444 s |
 | 50,000 | Rust SIMD | 1.541 s | 0.227 | 0.869 s | 0.4028 | 3.414 s |
-| 50,000 | Apple Metal | 1.898 s | 0.184 | 0.864 s | 0.4051 | 3.790 s |
+| 50,000 | Rust Metal | 1.898 s | 0.184 | 0.864 s | 0.4051 | 3.790 s |
 | 100,000 | Rust SIMD | 1.591 s | 0.4400 | 0.9270 s | 0.7551 | 3.577 s |
-| 100,000 | Apple Metal | 5.173 s | 0.1353 | 0.8490 s | 0.8245 | 7.070 s |
+| 100,000 | Rust Metal | 5.173 s | 0.1353 | 0.8490 s | 0.8245 | 7.070 s |
 | 250,000 | Rust SIMD | 2.084 s | 0.8397 | 1.3905 s | 1.2586 | 5.192 s |
-| 250,000 | Apple Metal | 3.166 s | 0.5528 | 1.2450 s | 1.4056 | 5.964 s |
+| 250,000 | Rust Metal | 3.166 s | 0.5528 | 1.2450 s | 1.4056 | 5.964 s |
 | 500,000 | Rust SIMD | 2.661 s | 1.3153 | 1.9680 s | 1.7785 | 7.034 s |
-| 500,000 | Apple Metal | 7.485 s | 0.4676 | 1.5735 s | 2.2244 | 11.108 s |
+| 500,000 | Rust Metal | 7.485 s | 0.4676 | 1.5735 s | 2.2244 | 11.108 s |
 | 1,000,000 | Rust SIMD | 4.317 s | 1.6215 | 3.5805 s | 1.9550 | 12.423 s |
-| 1,000,000 | Apple Metal | 6.326 s | 1.1065 | 2.7525 s | 2.5431 | 12.728 s |
+| 1,000,000 | Rust Metal | 6.326 s | 1.1065 | 2.7525 s | 2.5431 | 12.728 s |
 | 2,000,000 | Rust SIMD | 7.217 s | 1.9399 | 6.7240 s | 2.0821 | 22.515 s |
-| 2,000,000 | Apple Metal | 8.546 s | 1.6382 | 5.0080 s | 2.7955 | 20.216 s |
+| 2,000,000 | Rust Metal | 8.546 s | 1.6382 | 5.0080 s | 2.7955 | 20.216 s |
 
 The current warm Metal lane is 2.9% slower at Fib25k and crosses SIMD at Fib50k. With the explicit
 16-thread policy, its proof-latency advantage grows from 9.2% at Fib100k to 34.3% at Fib2M. Warm
