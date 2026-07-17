@@ -170,6 +170,248 @@ test "metal: resident commitment epoch owns one submit and wait" {
     try std.testing.expectEqualSlices(u8, &cpu_tree.root(), std.mem.sliceAsBytes(root_words));
 }
 
+test "metal: compact streaming commitment epoch preserves evaluations and root" {
+    const allocator = std.testing.allocator;
+    var runtime = try runtime_mod.Runtime.init();
+    defer runtime.deinit();
+
+    const small_base_log: u32 = 4;
+    const small_eval_log: u32 = 5;
+    const large_base_log: u32 = 6;
+    const large_eval_log: u32 = 7;
+    const column_group_width = 16;
+    const column_count = column_group_width * 2;
+    var small_base_tree = try twiddles.precomputeM31(allocator, canonic.CanonicCoset.new(small_base_log).circleDomain().half_coset);
+    defer twiddles.deinitM31(allocator, &small_base_tree);
+    var small_eval_tree = try twiddles.precomputeM31(allocator, canonic.CanonicCoset.new(small_eval_log).circleDomain().half_coset);
+    defer twiddles.deinitM31(allocator, &small_eval_tree);
+    var large_base_tree = try twiddles.precomputeM31(allocator, canonic.CanonicCoset.new(large_base_log).circleDomain().half_coset);
+    defer twiddles.deinitM31(allocator, &large_base_tree);
+    var large_eval_tree = try twiddles.precomputeM31(allocator, canonic.CanonicCoset.new(large_eval_log).circleDomain().half_coset);
+    defer twiddles.deinitM31(allocator, &large_eval_tree);
+
+    var small_coefficients: [column_group_width][1 << small_base_log]M31 = undefined;
+    var small_evaluations: [column_group_width][1 << small_eval_log]M31 = undefined;
+    var large_coefficients: [column_group_width][1 << large_base_log]M31 = undefined;
+    var large_evaluations: [column_group_width][1 << large_eval_log]M31 = undefined;
+    var small_coefficient_slices: [column_group_width][]M31 = undefined;
+    var small_evaluation_slices: [column_group_width][]M31 = undefined;
+    var large_coefficient_slices: [column_group_width][]M31 = undefined;
+    var large_evaluation_slices: [column_group_width][]M31 = undefined;
+    for (0..column_group_width) |column| {
+        for (&small_coefficients[column], 0..) |*value, row|
+            value.* = M31.fromCanonical(@intCast((column * 313 + row * 17 + 9) % m31.Modulus));
+        for (&large_coefficients[column], 0..) |*value, row|
+            value.* = M31.fromCanonical(@intCast(((column + column_group_width) * 313 + row * 17 + 9) % m31.Modulus));
+        small_coefficient_slices[column] = &small_coefficients[column];
+        small_evaluation_slices[column] = &small_evaluations[column];
+        large_coefficient_slices[column] = &large_coefficients[column];
+        large_evaluation_slices[column] = &large_evaluations[column];
+    }
+    try circle_poly.interpolateBuffersWithTwiddles(
+        &small_coefficient_slices,
+        canonic.CanonicCoset.new(small_base_log).circleDomain(),
+        twiddles.TwiddleTree([]const M31).init(small_base_tree.root_coset, small_base_tree.twiddles, small_base_tree.itwiddles),
+    );
+    try circle_poly.interpolateBuffersWithTwiddles(
+        &large_coefficient_slices,
+        canonic.CanonicCoset.new(large_base_log).circleDomain(),
+        twiddles.TwiddleTree([]const M31).init(large_base_tree.root_coset, large_base_tree.twiddles, large_base_tree.itwiddles),
+    );
+    for (small_coefficients, &small_evaluations) |coefficient, *evaluation| {
+        @memcpy(evaluation[0..coefficient.len], &coefficient);
+        @memset(evaluation[coefficient.len..], M31.zero());
+    }
+    for (large_coefficients, &large_evaluations) |coefficient, *evaluation| {
+        @memcpy(evaluation[0..coefficient.len], &coefficient);
+        @memset(evaluation[coefficient.len..], M31.zero());
+    }
+    try circle_poly.evaluateBuffersWithTwiddles(
+        &small_evaluation_slices,
+        canonic.CanonicCoset.new(small_eval_log).circleDomain(),
+        twiddles.TwiddleTree([]const M31).init(small_eval_tree.root_coset, small_eval_tree.twiddles, small_eval_tree.itwiddles),
+    );
+    try circle_poly.evaluateBuffersWithTwiddles(
+        &large_evaluation_slices,
+        canonic.CanonicCoset.new(large_eval_log).circleDomain(),
+        twiddles.TwiddleTree([]const M31).init(large_eval_tree.root_coset, large_eval_tree.twiddles, large_eval_tree.itwiddles),
+    );
+
+    var source_offsets: [column_count]u64 = undefined;
+    var destination_offsets: [column_count]u32 = undefined;
+    var source_logs: [column_count]u32 = undefined;
+    var destination_logs: [column_count]u32 = undefined;
+    var cursor: u32 = 0;
+    for (0..column_count) |column| {
+        source_offsets[column] = cursor;
+        source_logs[column] = if (column < column_group_width) small_base_log else large_base_log;
+        cursor += @as(u32, 1) << @intCast(source_logs[column]);
+    }
+    const twiddle_offset = cursor;
+    cursor += @intCast(large_eval_tree.twiddles.len);
+    for (0..column_count) |column| {
+        destination_offsets[column] = cursor;
+        destination_logs[column] = if (column < column_group_width) small_eval_log else large_eval_log;
+        cursor += @as(u32, 1) << @intCast(destination_logs[column]);
+    }
+    const leaf_state = std.mem.alignForward(u32, cursor, 64);
+    const lifting_rows: u32 = 1 << large_eval_log;
+    const snapshot = leaf_state + lifting_rows * 8;
+    cursor = snapshot + (@as(u32, 1) << small_eval_log) * 8;
+    var parent_children: [large_eval_log]u32 = undefined;
+    var parent_destinations: [large_eval_log]u32 = undefined;
+    var parent_counts: [large_eval_log]u32 = undefined;
+    var parent_count = lifting_rows / 2;
+    for (0..large_eval_log) |level| {
+        parent_children[level] = if (level == 0) leaf_state else parent_destinations[level - 1];
+        parent_destinations[level] = cursor;
+        parent_counts[level] = parent_count;
+        cursor += parent_count * 8;
+        parent_count /= 2;
+    }
+
+    var arena = try runtime.allocateResidentBuffer(@as(usize, cursor) * @sizeOf(u32));
+    defer arena.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
+    for (0..column_count) |column| {
+        const offset: usize = @intCast(source_offsets[column]);
+        if (column < column_group_width) {
+            const coefficient = &small_coefficients[column];
+            @memcpy(words[offset .. offset + coefficient.len], std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(coefficient)));
+        } else {
+            const coefficient = &large_coefficients[column - column_group_width];
+            @memcpy(words[offset .. offset + coefficient.len], std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(coefficient)));
+        }
+    }
+    @memcpy(
+        words[twiddle_offset .. twiddle_offset + large_eval_tree.twiddles.len],
+        std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(large_eval_tree.twiddles)),
+    );
+
+    const small_twiddle_offset = twiddle_offset + @as(u32, @intCast(large_eval_tree.twiddles.len - small_eval_tree.twiddles.len));
+    var small_lde = try runtime.prepareCompositionLde(
+        source_offsets[0..column_group_width],
+        source_logs[0..column_group_width],
+        destination_offsets[0..column_group_width],
+        small_eval_log,
+        small_twiddle_offset,
+    );
+    defer small_lde.deinit();
+    var large_lde = try runtime.prepareCompositionLde(
+        source_offsets[column_group_width..],
+        source_logs[column_group_width..],
+        destination_offsets[column_group_width..],
+        large_eval_log,
+        twiddle_offset,
+    );
+    defer large_lde.deinit();
+    var snapshot_copy = try runtime.prepareArenaCopies(&.{.{
+        .source_word_offset = leaf_state,
+        .destination_word_offset = snapshot,
+        .word_count = (@as(u32, 1) << small_eval_log) * 8,
+    }});
+    defer snapshot_copy.deinit();
+    var parent_chain = try runtime.prepareMerkleParentChain(
+        &parent_children,
+        &parent_destinations,
+        &parent_counts,
+        Hasher.nodeSeed(),
+    );
+    defer parent_chain.deinit();
+
+    var epoch = try runtime.beginCommandEpoch(arena);
+    defer epoch.deinit();
+    try epoch.encodeCompositionLde(small_lde);
+    try epoch.encodeCompactLeaf(
+        destination_offsets[0..column_group_width],
+        destination_logs[0..column_group_width],
+        leaf_state,
+        small_eval_log,
+        leaf_state,
+        small_eval_log,
+        0,
+        false,
+        runtime_mod.lifted_merkle_prefix_bytes,
+        Hasher.leafSeed(),
+    );
+    try epoch.encodeArenaCopy(snapshot_copy);
+    try epoch.encodeCompositionLde(large_lde);
+    try epoch.encodeCompactLeaf(
+        destination_offsets[column_group_width..],
+        destination_logs[column_group_width..],
+        snapshot,
+        small_eval_log,
+        leaf_state,
+        large_eval_log,
+        column_group_width,
+        true,
+        runtime_mod.lifted_merkle_prefix_bytes,
+        Hasher.leafSeed(),
+    );
+    try epoch.encodeMerkleParentChain(parent_chain);
+    try epoch.submit();
+    const stats = try epoch.wait();
+
+    try std.testing.expectEqual(@as(u64, 1), stats.command_buffers);
+    try std.testing.expectEqual(@as(u64, 1), stats.wait_count);
+    try std.testing.expectEqual(@as(u64, 0), stats.intermediate_wait_count);
+    try std.testing.expectEqual(@as(u64, 23), stats.compute_encoders);
+    try std.testing.expectEqual(@as(u64, 1), stats.blit_encoders);
+    try std.testing.expectEqual(@as(u64, 23), stats.dispatches);
+    try std.testing.expectEqual(@as(u64, 5), 6 - stats.command_buffers);
+    try std.testing.expectEqual(@as(u64, 5), 6 - stats.wait_count);
+    try std.testing.expect(stats.gpu_milliseconds > 0);
+
+    var cpu_columns: [column_count][]const M31 = undefined;
+    for (0..column_count) |column| {
+        const expected = if (column < column_group_width)
+            small_evaluations[column][0..]
+        else
+            large_evaluations[column - column_group_width][0..];
+        cpu_columns[column] = expected;
+        const offset: usize = @intCast(destination_offsets[column]);
+        try std.testing.expectEqualSlices(
+            u32,
+            std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(expected)),
+            words[offset .. offset + expected.len],
+        );
+    }
+    const CpuTree = merkle_prover.MerkleProverLifted(Hasher);
+    var cpu_tree = try CpuTree.commit(allocator, &cpu_columns);
+    defer cpu_tree.deinit(allocator);
+    const root_words = words[parent_destinations[parent_destinations.len - 1]..][0..8];
+    try std.testing.expectEqualSlices(u8, &cpu_tree.root(), std.mem.sliceAsBytes(root_words));
+}
+
+test "metal: command epoch retains a prepared plan through completion" {
+    var runtime = try runtime_mod.Runtime.init();
+    defer runtime.deinit();
+    var arena = try runtime.allocateResidentBuffer(4096);
+    defer arena.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
+    for (words[0..16], 0..) |*word, index| word.* = @intCast(index * 17 + 3);
+
+    var copy = try runtime.prepareArenaCopies(&.{.{
+        .source_word_offset = 0,
+        .destination_word_offset = 64,
+        .word_count = 16,
+    }});
+    var copy_live = true;
+    defer if (copy_live) copy.deinit();
+    var epoch = try runtime.beginCommandEpoch(arena);
+    defer epoch.deinit();
+    try epoch.encodeArenaCopy(copy);
+    copy.deinit();
+    copy_live = false;
+    try epoch.submit();
+    const stats = try epoch.wait();
+
+    try std.testing.expectEqual(@as(u64, 1), stats.command_buffers);
+    try std.testing.expectEqual(@as(u64, 1), stats.wait_count);
+    try std.testing.expectEqual(@as(u64, 1), stats.blit_encoders);
+    try std.testing.expectEqualSlices(u32, words[0..16], words[64..80]);
+}
+
 test "metal: empty command epoch fails closed before submission" {
     var runtime = try runtime_mod.Runtime.init();
     defer runtime.deinit();

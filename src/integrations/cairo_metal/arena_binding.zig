@@ -5553,6 +5553,16 @@ fn executeStreamingCommitment(
     const use_compact_leaf_state = !std.process.hasEnvVarConstant("STWO_ZIG_SN2_COMMIT_FULL_LOG_LEAVES") and
         !std.process.hasEnvVarConstant("STWO_ZIG_SN2_LOG_COMMIT_STEPS");
     if (use_compact_leaf_state and scratch_items.len != 1) return Error.InvalidCardinality;
+    const requires_intermediate_visibility = std.process.hasEnvVarConstant("STWO_ZIG_SN2_LOG_STAGE_TIMINGS") or
+        std.process.hasEnvVarConstant("STWO_ZIG_SN2_LOG_COMMIT_LDE_DIGESTS") or
+        std.process.hasEnvVarConstant("STWO_ZIG_SN2_LOG_COMMIT_STEPS") or
+        std.process.hasEnvVarConstant("STWO_ZIG_SN2_REPEAT_COMMIT_LDE") or
+        std.process.hasEnvVarConstant("STWO_ZIG_SN2_REPAIR_COLUMN_613_LDE");
+    var command_epoch: ?metal_runtime.CommandEpoch = if (use_compact_leaf_state and !requires_intermediate_visibility)
+        try metal.beginCommandEpoch(resident_arena.buffer)
+    else
+        null;
+    defer if (command_epoch) |*epoch| epoch.deinit();
     var previous_group_log: ?u32 = null;
     var leaf_state_log: ?u32 = null;
     for (group_descriptors, 0..) |descriptor, group_index| {
@@ -5631,7 +5641,10 @@ fn executeStreamingCommitment(
             };
             var lde = try metal.prepareCompositionLde(sources.items, logs.items, outputs.items, evaluation_log, twiddle_offset);
             defer lde.deinit();
-            const elapsed_gpu_ms = try metal.compositionLdePrepared(resident_arena.buffer, lde);
+            const elapsed_gpu_ms = if (command_epoch) |*epoch| epoch_time: {
+                try epoch.encodeCompositionLde(lde);
+                break :epoch_time 0;
+            } else try metal.compositionLdePrepared(resident_arena.buffer, lde);
             gpu_ms += elapsed_gpu_ms;
             lde_gpu_ms += elapsed_gpu_ms;
             if (group_index == 48 and std.process.hasEnvVarConstant("STWO_ZIG_SN2_REPEAT_COMMIT_LDE")) {
@@ -5737,14 +5750,31 @@ fn executeStreamingCommitment(
                     }};
                     var copy = try metal.prepareArenaCopies(&ranges);
                     defer copy.deinit();
-                    const copy_gpu_ms = try metal.arenaCopyPrepared(resident_arena.buffer, copy);
+                    const copy_gpu_ms = if (command_epoch) |*epoch| epoch_time: {
+                        try epoch.encodeArenaCopy(copy);
+                        break :epoch_time 0;
+                    } else try metal.arenaCopyPrepared(resident_arena.buffer, copy);
                     gpu_ms += copy_gpu_ms;
                     leaf_gpu_ms += copy_gpu_ms;
                     source_state_offset = try wordOffset(scratch);
                     source_state_log = materialized_log;
                 }
             }
-            const elapsed = try metal.leafAbsorbCompact(
+            const elapsed = if (command_epoch) |*epoch| epoch_time: {
+                try epoch.encodeCompactLeaf(
+                    output_offsets[0..width],
+                    output_logs[0..width],
+                    source_state_offset,
+                    source_state_log,
+                    try wordOffset(leaf_state),
+                    destination_log,
+                    @intCast(coefficient_cursor),
+                    is_final,
+                    metal_runtime.lifted_merkle_prefix_bytes,
+                    leaf_seed,
+                );
+                break :epoch_time 0;
+            } else try metal.leafAbsorbCompact(
                 resident_arena.buffer,
                 output_offsets[0..width],
                 output_logs[0..width],
@@ -5867,21 +5897,53 @@ fn executeStreamingCommitment(
         try retained_copy_targets.append(allocator, copy_target);
         current_offset = destination;
     }
-    for (child_offsets.items, destination_offsets.items, parent_counts.items, retained_copy_targets.items) |child, destination, count, copy_target| {
-        const elapsed_parent_gpu_ms = try metal.parentSeeded(
-            resident_arena.buffer,
-            child,
-            destination,
-            count,
+    var has_retained_copy = false;
+    for (retained_copy_targets.items) |copy_target| has_retained_copy = has_retained_copy or copy_target != null;
+    if (!has_retained_copy) {
+        var parent_chain = try metal.prepareMerkleParentChain(
+            child_offsets.items,
+            destination_offsets.items,
+            parent_counts.items,
             node_seed,
         );
+        defer parent_chain.deinit();
+        const elapsed_parent_gpu_ms = if (command_epoch) |*epoch| epoch_time: {
+            try epoch.encodeMerkleParentChain(parent_chain);
+            break :epoch_time 0;
+        } else try metal.merkleParentChainPrepared(resident_arena.buffer, parent_chain);
         gpu_ms += elapsed_parent_gpu_ms;
         parent_gpu_ms += elapsed_parent_gpu_ms;
-        if (copy_target) |target| {
-            const byte_offset = @as(usize, destination) * 4;
-            const arena_bytes: [*]const u8 = @ptrCast(resident_arena.buffer.contents);
-            @memcpy(try resident_arena.bytes(target), arena_bytes[byte_offset..][0..@intCast(target.size_bytes)]);
+    } else {
+        for (child_offsets.items, destination_offsets.items, parent_counts.items, retained_copy_targets.items) |child, destination, count, copy_target| {
+            var parent_level = try metal.prepareMerkleParentChain(&.{child}, &.{destination}, &.{count}, node_seed);
+            defer parent_level.deinit();
+            const elapsed_parent_gpu_ms = if (command_epoch) |*epoch| epoch_time: {
+                try epoch.encodeMerkleParentChain(parent_level);
+                break :epoch_time 0;
+            } else try metal.merkleParentChainPrepared(resident_arena.buffer, parent_level);
+            gpu_ms += elapsed_parent_gpu_ms;
+            parent_gpu_ms += elapsed_parent_gpu_ms;
+            if (copy_target) |target| {
+                const ranges = [_]metal_runtime.ArenaCopyRange{.{
+                    .source_word_offset = destination,
+                    .destination_word_offset = target.offset_bytes / 4,
+                    .word_count = @intCast(target.size_bytes / 4),
+                }};
+                var copy = try metal.prepareArenaCopies(&ranges);
+                defer copy.deinit();
+                const copy_gpu_ms = if (command_epoch) |*epoch| epoch_time: {
+                    try epoch.encodeArenaCopy(copy);
+                    break :epoch_time 0;
+                } else try metal.arenaCopyPrepared(resident_arena.buffer, copy);
+                gpu_ms += copy_gpu_ms;
+                parent_gpu_ms += copy_gpu_ms;
+            }
         }
+    }
+    if (command_epoch) |*epoch| {
+        try epoch.submit();
+        const epoch_stats = try epoch.wait();
+        gpu_ms += epoch_stats.gpu_milliseconds;
     }
     if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_LOG_STAGE_TIMINGS"))
         std.debug.print("commit_merkle tree={d} parents_done={d} gpu_ms={d:.3}\n", .{ tree_index, parent_counts.items.len, gpu_ms });
