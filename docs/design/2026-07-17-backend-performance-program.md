@@ -353,6 +353,24 @@ regressed the same stage from 1.735 to 1.740 ms. The current scalar Karatsuba ev
 accepted ARM64 implementation; future work must change coefficient/point reuse rather than repeat
 cross-polynomial gathers or widened multiplication transforms.
 
+### Rejected CPU quotient domain cursor
+
+A later bounded log-14 CPU capture ranked `compressParallel4` at 431 top-stack hits, quotient tile
+execution at 359, FFT evaluation at 271, and batched CM31 inversion at 39. Within quotient tile
+execution, indexed domain-point construction still performed a bit reversal and generator-power
+reconstruction for each row. A candidate cursor emitted bit-reversed half-coset point/conjugate
+pairs and advanced with one precomputed transition addition for every two rows across all three
+batched quotient paths.
+
+Parity tests covered arbitrary odd and even starts, chunk boundaries, and domain logs 2, 3, 6, and
+13. Wide Fibonacci and XOR proofs retained exact bytes and digests. The inlined candidate reduced
+the profiled FRI stage by 1.74 percent on Wide log-14 and 1.28 percent on XOR log-14; complete proof
+medians improved by 0.96 and 1.02 percent. It was rejected because the small `log10x8` control
+regressed from 1.824229 to 1.947104 ms, or 6.74 percent. Moving the batched branch out of line did
+not recover the small control and erased the wide gain. No implementation was retained. The next
+CPU quotient experiment must preserve scalar-dispatcher binary locality or reduce arithmetic inside
+the existing batched implementation without adding another hot-path branch body.
+
 ## Benchmark Matrix
 
 The checked-in driver will use stable workload identifiers and immutable protocol settings.
