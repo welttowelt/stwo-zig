@@ -1057,7 +1057,7 @@ pub const PreparedProofBindings = struct {
         if (self.inverse_twiddles.size_bytes == 0 or
             !std.math.isPowerOfTwo(self.inverse_twiddles.size_bytes / @sizeOf(u32)))
             return Error.InvalidBindingSize;
-        try validateDisjointBindings(self.inverse_twiddles, self.composition_accumulators);
+        try validateDisjointActiveBindings(self.inverse_twiddles, self.composition_accumulators);
         if (self.decommit_values.size_bytes == 0 or self.decommit_assembly.size_bytes == 0 or
             self.decommit_trace_lde_tile.size_bytes == 0 or self.proof_bytes.size_bytes == 0 or
             self.assembly.len == 0 or
@@ -1147,6 +1147,16 @@ fn validateDisjointBindings(first: arena_plan.Binding, second: arena_plan.Bindin
         return Error.InvalidBindingSize;
     if (first.offset_bytes < second_end and second.offset_bytes < first_end)
         return Error.InvalidBindingAlias;
+}
+
+fn validateDisjointActiveBindings(first: arena_plan.Binding, second: arena_plan.Binding) Error!void {
+    if (!bindingHasActiveTick(first) or !bindingHasActiveTick(second)) return;
+    return validateDisjointBindings(first, second);
+}
+
+fn bindingHasActiveTick(binding: arena_plan.Binding) bool {
+    for (binding.occupied) |word| if (word != 0) return true;
+    return false;
 }
 
 pub const RelationComponentTelemetry = struct {
@@ -6725,6 +6735,15 @@ test "Cairo composition workspace rejects inverse twiddle aliases" {
     try std.testing.expectError(
         Error.InvalidBindingAlias,
         validateDisjointBindings(inverse_twiddles, accumulators),
+    );
+    try validateDisjointActiveBindings(inverse_twiddles, accumulators);
+
+    inverse_twiddles.occupied[0] = 1;
+    var active_accumulators = accumulators;
+    active_accumulators.occupied[0] = 1;
+    try std.testing.expectError(
+        Error.InvalidBindingAlias,
+        validateDisjointActiveBindings(inverse_twiddles, active_accumulators),
     );
 
     inverse_twiddles.offset_bytes = accumulators.offset_bytes + accumulators.size_bytes;
