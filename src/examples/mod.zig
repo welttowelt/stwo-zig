@@ -11,5 +11,6 @@ comptime {
     if (builtin.is_test) {
         _ = @import("common/prover_transaction_test.zig");
         _ = @import("wide_fibonacci/session_test.zig");
+        _ = @import("xor/session_test.zig");
     }
 }
