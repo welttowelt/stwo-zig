@@ -27,28 +27,39 @@ const cairo_quotient_reference = stwo.integrations.cairo_metal.quotient_referenc
 const runtime_decommit_geometry = stwo.integrations.cairo_metal.runtime_decommit_geometry;
 const schedule_addressing = @import("tools/metal_arena_plan/schedule_addressing.zig");
 const schedule_coverage = @import("tools/metal_arena_plan/schedule_coverage.zig");
+const arena_diagnostics = @import("tools/metal_arena_plan/diagnostics.zig");
+const proof_layout_support = @import("tools/metal_arena_plan/proof_layout.zig");
+const transcript_fixture = @import("tools/metal_arena_plan/transcript_fixture.zig");
 
 const aotNarrowAddressPurpose = schedule_addressing.aotNarrowAddressPurpose;
 const buildMerkleCommitCoverage = schedule_coverage.buildMerkleCommitCoverage;
 const buildMerkleParentSources = schedule_coverage.buildMerkleParentSources;
 const buildPreprocessedSources = schedule_coverage.buildPreprocessedSources;
 const buildRetainedSources = schedule_coverage.buildRetainedSources;
+const bindingDegreeLogs = proof_layout_support.bindingDegreeLogs;
 const compactComponent = schedule_addressing.compactComponent;
 const epochIndex = schedule_addressing.epochIndex;
 const globalTick = schedule_addressing.globalTick;
 const localTick = schedule_addressing.localTick;
 const logicalIdOf = schedule_addressing.logicalIdOf;
+const logAddOpcodeCoefficientDigests = arena_diagnostics.logAddOpcodeCoefficientDigests;
+const logComponentPurposeLayout = arena_diagnostics.logComponentPurposeLayout;
+const logPurposeDigests = arena_diagnostics.logPurposeDigests;
+const logPurposeLayout = arena_diagnostics.logPurposeLayout;
 const purposeOf = schedule_addressing.purposeOf;
 const CompositionCoverage = schedule_coverage.CompositionCoverage;
 const FixedTableCoverage = schedule_coverage.FixedTableCoverage;
 const RelationCoverage = schedule_coverage.RelationCoverage;
 const stagedRole = schedule_addressing.stagedRole;
+const TranscriptReferenceFixture = transcript_fixture.TranscriptReferenceFixture;
+const transcriptInputBinding = proof_layout_support.transcriptInputBinding;
 const validateCompositionCoverage = schedule_coverage.validateCompositionCoverage;
 const validateEcOpCoverage = schedule_coverage.validateEcOpCoverage;
 const validateFixedTableCoverage = schedule_coverage.validateFixedTableCoverage;
 const validateNarrowAddressedBindings = schedule_addressing.validateNarrowAddressedBindings;
 const validateRelationCoverage = schedule_coverage.validateRelationCoverage;
 const zeroMultiplicityComponent = schedule_addressing.zeroMultiplicityComponent;
+const dumpAddOpcodeCoefficients = arena_diagnostics.dumpAddOpcodeCoefficients;
 
 const prove_timing_scope_name = "recorded_witness_start_to_verified_proof";
 const pow_timing_scope_name = "cpu_nonce_search_or_fixture_validation_only";
@@ -4835,275 +4846,6 @@ fn runOne(
     };
     try std.json.Stringify.value(result, .{ .whitespace = .indent_2 }, report_writer);
     try report_writer.writeByte('\n');
-}
-
-const TranscriptReferenceFixture = struct {
-    allocator: std.mem.Allocator,
-    input_22: []u32,
-    input_23: [8]u32,
-    input_25: []u32,
-    interaction_nonce: u64,
-    expected_output_1: [8]u32,
-    expected_output_2: [4]u32,
-    expected_output_3: [4]u32,
-    expected_output_4: [4]u32,
-    fri_inputs: [][8]u32,
-    input_30: [4]u32,
-    input_31: [2]u32,
-    query_nonce: u64,
-
-    fn read(allocator: std.mem.Allocator, path: []const u8) !TranscriptReferenceFixture {
-        const encoded = try std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024);
-        defer allocator.free(encoded);
-        const parsed = try std.json.parseFromSlice(std.json.Value, allocator, encoded, .{});
-        defer parsed.deinit();
-        if (parsed.value != .object) return error.InvalidTranscriptReference;
-        const inputs = parsed.value.object.get("inputs") orelse return error.InvalidTranscriptReference;
-        const outputs = parsed.value.object.get("expected_outputs") orelse return error.InvalidTranscriptReference;
-        const fri_inputs_value = parsed.value.object.get("fri_inputs") orelse return error.InvalidTranscriptReference;
-        if (inputs != .object or outputs != .object or fri_inputs_value != .array or
-            fri_inputs_value.array.items.len == 0 or
-            fri_inputs_value.array.items.len > protocol_recipes.FriGeometry.max_round_count)
-            return error.InvalidTranscriptReference;
-        const nonce_words = try jsonFixedWords(2, inputs.object.get("21") orelse return error.InvalidTranscriptReference);
-        const z = try jsonFixedWords(4, parsed.value.object.get("z") orelse return error.InvalidTranscriptReference);
-        const alpha = try jsonFixedWords(4, parsed.value.object.get("alpha") orelse return error.InvalidTranscriptReference);
-        var expected_output_1: [8]u32 = undefined;
-        @memcpy(expected_output_1[0..4], &z);
-        @memcpy(expected_output_1[4..8], &alpha);
-        const input_25_value = inputs.object.get("25") orelse return error.InvalidTranscriptReference;
-        const input_22_value = inputs.object.get("22") orelse return error.InvalidTranscriptReference;
-        if (input_22_value != .array or input_22_value.array.items.len == 0)
-            return error.InvalidTranscriptReference;
-        const input_22 = try allocator.alloc(u32, input_22_value.array.items.len);
-        errdefer allocator.free(input_22);
-        try jsonWords(input_22_value, input_22);
-        if (input_25_value != .array or input_25_value.array.items.len == 0)
-            return error.InvalidTranscriptReference;
-        const input_25 = try allocator.alloc(u32, input_25_value.array.items.len);
-        errdefer allocator.free(input_25);
-        try jsonWords(input_25_value, input_25);
-        const fri_inputs = try allocator.alloc([8]u32, fri_inputs_value.array.items.len);
-        errdefer allocator.free(fri_inputs);
-        for (fri_inputs_value.array.items, 0..) |fri_input, index| {
-            if (fri_input != .object) return error.InvalidTranscriptReference;
-            const ordinal = fri_input.object.get("ordinal") orelse return error.InvalidTranscriptReference;
-            if (ordinal != .integer or ordinal.integer != 65536 + @as(i64, @intCast(index)) * 4)
-                return error.InvalidTranscriptReference;
-            fri_inputs[index] = try jsonFixedWords(
-                8,
-                fri_input.object.get("words") orelse return error.InvalidTranscriptReference,
-            );
-        }
-        const input_31 = try jsonFixedWords(2, inputs.object.get("31") orelse return error.InvalidTranscriptReference);
-        return .{
-            .allocator = allocator,
-            .input_22 = input_22,
-            .input_23 = try jsonFixedWords(8, inputs.object.get("23") orelse return error.InvalidTranscriptReference),
-            .input_25 = input_25,
-            .interaction_nonce = @as(u64, nonce_words[0]) | (@as(u64, nonce_words[1]) << 32),
-            .expected_output_1 = expected_output_1,
-            .expected_output_2 = try jsonFixedWords(4, outputs.object.get("2") orelse return error.InvalidTranscriptReference),
-            .expected_output_3 = try jsonFixedWords(4, outputs.object.get("3") orelse return error.InvalidTranscriptReference),
-            .expected_output_4 = try jsonFixedWords(4, outputs.object.get("4") orelse return error.InvalidTranscriptReference),
-            .fri_inputs = fri_inputs,
-            .input_30 = try jsonFixedWords(4, inputs.object.get("30") orelse return error.InvalidTranscriptReference),
-            .input_31 = input_31,
-            .query_nonce = @as(u64, input_31[0]) | (@as(u64, input_31[1]) << 32),
-        };
-    }
-
-    fn deinit(self: *TranscriptReferenceFixture) void {
-        self.allocator.free(self.input_22);
-        self.allocator.free(self.input_25);
-        self.allocator.free(self.fri_inputs);
-        self.* = undefined;
-    }
-};
-
-fn jsonFixedWords(comptime count: usize, value: std.json.Value) ![count]u32 {
-    var result: [count]u32 = undefined;
-    try jsonWords(value, &result);
-    return result;
-}
-
-fn jsonWords(value: std.json.Value, destination: []u32) !void {
-    if (value != .array or value.array.items.len != destination.len)
-        return error.InvalidTranscriptReference;
-    for (value.array.items, destination) |source, *word| {
-        if (source != .integer or source.integer < 0 or source.integer > std.math.maxInt(u32))
-            return error.InvalidTranscriptReference;
-        word.* = @intCast(source.integer);
-    }
-}
-
-fn transcriptInputBinding(
-    bindings: *const arena_binding_mod.PreparedProofBindings,
-    wanted_ordinal: u32,
-) !arena.Binding {
-    for (bindings.transcript_inputs) |input| if (input.ordinal == wanted_ordinal) return input.binding;
-    return error.MissingTranscriptInput;
-}
-
-fn bindingDegreeLogs(allocator: std.mem.Allocator, bindings: []const arena.Binding) ![]u32 {
-    const logs = try allocator.alloc(u32, bindings.len);
-    errdefer allocator.free(logs);
-    for (bindings, logs) |binding, *log_size| {
-        if (binding.size_bytes == 0 or binding.size_bytes % 4 != 0 or
-            !std.math.isPowerOfTwo(binding.size_bytes / 4))
-            return error.InvalidProofLayout;
-        log_size.* = std.math.log2_int(u64, binding.size_bytes / 4);
-    }
-    return logs;
-}
-
-fn logPurposeDigests(
-    resident_arena: *arena.ResidentArena,
-    schedule: []const std.json.Value,
-    plan: arena.Plan,
-    wanted_purpose: []const u8,
-) !void {
-    var index: usize = 0;
-    for (schedule) |entry| {
-        const object = entry.object;
-        if (!std.mem.eql(u8, object.get("purpose").?.string, wanted_purpose)) continue;
-        const logical_id: u32 = @intCast(object.get("id").?.integer);
-        const binding = try plan.binding(logical_id);
-        const bytes = try resident_arena.bytes(binding);
-        var digest: u64 = 0xcbf29ce484222325;
-        for (bytes) |byte| {
-            digest ^= byte;
-            digest *%= 0x100000001b3;
-        }
-        const component = if (object.get("component")) |value|
-            if (value == .string) value.string else ""
-        else
-            "";
-        std.debug.print(
-            "base_digest index={} id={} component={s} ordinal={} words={} first={x:0>8} last={x:0>8} fnv64={x:0>16}\n",
-            .{
-                index,
-                logical_id,
-                component,
-                object.get("ordinal").?.integer,
-                bytes.len / 4,
-                std.mem.readInt(u32, bytes[0..4], .little),
-                std.mem.readInt(u32, bytes[bytes.len - 4 ..][0..4], .little),
-                digest,
-            },
-        );
-        index += 1;
-    }
-}
-
-fn dumpAddOpcodeCoefficients(
-    resident_arena: *arena.ResidentArena,
-    schedule: []const std.json.Value,
-    plan: arena.Plan,
-) !void {
-    for ([_]u32{ 62, 64, 65, 79, 80 }) |wanted_ordinal| {
-        for (schedule) |entry| {
-            const object = entry.object;
-            if (!std.mem.eql(u8, object.get("purpose").?.string, "BaseCoefficients")) continue;
-            const component = object.get("component") orelse continue;
-            if (component != .string or !std.mem.eql(u8, component.string, "add_opcode")) continue;
-            if (object.get("ordinal").?.integer != wanted_ordinal) continue;
-            const binding = try plan.binding(@intCast(object.get("id").?.integer));
-            const path = try std.fmt.allocPrint(std.heap.page_allocator, "/tmp/sn2-metal-add-op-coeff-{}.bin", .{wanted_ordinal});
-            defer std.heap.page_allocator.free(path);
-            const file = try std.fs.createFileAbsolute(path, .{});
-            defer file.close();
-            try file.writeAll(try resident_arena.bytes(binding));
-            break;
-        }
-    }
-}
-
-fn logAddOpcodeCoefficientDigests(
-    resident_arena: *arena.ResidentArena,
-    schedule: []const std.json.Value,
-    plan: arena.Plan,
-    stage: []const u8,
-) !void {
-    for ([_]u32{ 62, 64, 65, 79, 80 }) |wanted_ordinal| {
-        for (schedule) |entry| {
-            const object = entry.object;
-            if (!std.mem.eql(u8, object.get("purpose").?.string, "BaseCoefficients")) continue;
-            const component = object.get("component") orelse continue;
-            if (component != .string or !std.mem.eql(u8, component.string, "add_opcode")) continue;
-            if (object.get("ordinal").?.integer != wanted_ordinal) continue;
-            const binding = try plan.binding(@intCast(object.get("id").?.integer));
-            const bytes = try resident_arena.bytes(binding);
-            var digest: u64 = 0xcbf29ce484222325;
-            for (bytes) |byte| {
-                digest ^= byte;
-                digest *%= 0x100000001b3;
-            }
-            std.debug.print(
-                "native_add_opcode_coeff_digest stage={s} ordinal={} first={x:0>8} last={x:0>8} fnv64={x:0>16}\n",
-                .{
-                    stage,
-                    wanted_ordinal,
-                    std.mem.readInt(u32, bytes[0..4], .little),
-                    std.mem.readInt(u32, bytes[bytes.len - 4 ..][0..4], .little),
-                    digest,
-                },
-            );
-            break;
-        }
-    }
-}
-
-fn logPurposeLayout(
-    schedule: []const std.json.Value,
-    plan: arena.Plan,
-    wanted_purpose: []const u8,
-) !void {
-    for (schedule) |entry| {
-        const object = entry.object;
-        if (!std.mem.eql(u8, object.get("purpose").?.string, wanted_purpose)) continue;
-        const logical_id: u32 = @intCast(object.get("id").?.integer);
-        const binding = try plan.binding(logical_id);
-        std.debug.print(
-            "arena_layout purpose={s} id={} ordinal={} offset={} end={} words={}\n",
-            .{
-                wanted_purpose,
-                logical_id,
-                object.get("ordinal").?.integer,
-                binding.offset_bytes,
-                binding.offset_bytes + binding.size_bytes,
-                binding.size_bytes / 4,
-            },
-        );
-    }
-}
-
-fn logComponentPurposeLayout(
-    schedule: []const std.json.Value,
-    plan: arena.Plan,
-    wanted_purpose: []const u8,
-    wanted_component: []const u8,
-) !void {
-    for (schedule) |entry| {
-        const object = entry.object;
-        if (!std.mem.eql(u8, object.get("purpose").?.string, wanted_purpose)) continue;
-        const component_value = object.get("component") orelse continue;
-        if (component_value != .string or !std.mem.eql(u8, component_value.string, wanted_component)) continue;
-        const logical_id: u32 = @intCast(object.get("id").?.integer);
-        const binding = try plan.binding(logical_id);
-        std.debug.print(
-            "arena_layout purpose={s} component={s} id={} ordinal={} offset={} end={} words={}\n",
-            .{
-                wanted_purpose,
-                wanted_component,
-                logical_id,
-                object.get("ordinal").?.integer,
-                binding.offset_bytes,
-                binding.offset_bytes + binding.size_bytes,
-                binding.size_bytes / 4,
-            },
-        );
-    }
 }
 
 fn writeFailure(

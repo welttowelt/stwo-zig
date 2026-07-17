@@ -84,7 +84,12 @@ pub fn build(b: *std.Build) void {
     const run_cross_module_tests = b.addRunArtifact(cross_module_tests);
     test_step.dependOn(&run_cross_module_tests.step);
 
-    inline for ([_][]const u8{ "schedule_addressing.zig", "schedule_coverage.zig" }) |filename| {
+    inline for ([_][]const u8{
+        "proof_layout.zig",
+        "schedule_addressing.zig",
+        "schedule_coverage.zig",
+        "transcript_fixture.zig",
+    }) |filename| {
         const arena_schedule_test_module = b.createModule(.{
             .root_source_file = b.path(b.fmt("src/tools/metal_arena_plan/{s}", .{filename})),
             .target = target,
