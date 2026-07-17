@@ -16,7 +16,12 @@ SPEC.loader.exec_module(MODULE)
 class CairoClaimRegistryTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.registry = MODULE.load_registry(MODULE.DEFAULT_RUST_ROOT.resolve())
+        rust_root = MODULE.DEFAULT_RUST_ROOT.resolve()
+        if not rust_root.exists():
+            raise unittest.SkipTest(
+                "pinned stwo-cairo checkout unavailable; set STWO_CAIRO_RUST_ROOT"
+            )
+        cls.registry = MODULE.load_registry(rust_root)
 
     def test_exact_claim_field_and_enable_slot_shapes(self):
         self.assertEqual(len(self.registry.claim_fields), 68)

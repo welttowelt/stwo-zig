@@ -18,6 +18,8 @@ jobs:
     name: Standard release gate
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      STWO_CAIRO_RUST_ROOT: ${{ runner.temp }}/stwo-cairo
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -34,6 +36,15 @@ jobs:
 
       - name: Install pinned Rust toolchain
         run: rustup toolchain install nightly-2025-07-14 --profile minimal
+
+      - name: Checkout pinned stwo-cairo oracle
+        env:
+          STWO_CAIRO_REVISION: dcd5834565b7a26a27a614e353c9c60109ebc1d9
+        run: |
+          git init "$STWO_CAIRO_RUST_ROOT"
+          git -C "$STWO_CAIRO_RUST_ROOT" remote add origin https://github.com/starkware-libs/stwo-cairo.git
+          git -C "$STWO_CAIRO_RUST_ROOT" fetch --depth=1 origin "$STWO_CAIRO_REVISION"
+          git -C "$STWO_CAIRO_RUST_ROOT" checkout --detach FETCH_HEAD
 
       - name: Run shared CI entrypoint
         run: python3 scripts/ci.py
