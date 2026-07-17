@@ -34,8 +34,8 @@ const core_verifier = @import("../../core/verifier.zig");
 const blake2_merkle = @import("../../core/vcs_lifted/blake2_merkle.zig");
 const prover_air_accumulation = @import("../../prover/air/accumulation.zig");
 const prover_component = @import("../../prover/air/component_prover.zig");
+const prover_engine = @import("../../prover/engine.zig");
 const prover_pcs = @import("../../prover/pcs/mod.zig");
-const prover_prove = @import("../../prover/prove.zig");
 const stage_profile = @import("../../prover/stage_profile.zig");
 const work_pool = @import("../../prover/work_pool.zig");
 const secure_column = @import("../../prover/secure_column.zig");
@@ -210,53 +210,15 @@ pub const ProveOutput = struct {
 /// engine owns commitment state, commitment execution, composition, FRI,
 /// decommitment, and proof assembly. `Scheme` is intentionally opaque to the
 /// frontend so a device backend can store a resident arena and command graph.
-pub fn assertProverEngine(comptime Engine: type) void {
-    comptime {
-        if (!@hasDecl(Engine, "Scheme")) @compileError("prover engine requires Scheme");
-        if (!@hasDecl(Engine, "init")) @compileError("prover engine requires init");
-        if (!@hasDecl(Engine, "commit")) @compileError("prover engine requires commit");
-        if (!@hasDecl(Engine, "prove")) @compileError("prover engine requires prove");
-    }
-}
+pub const assertProverEngine = prover_engine.assertProverEngine;
 
 /// CPU implementation of the complete proving-engine contract.
-pub const CpuProverEngine = struct {
-    pub const Scheme = prover_pcs.CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel);
-
-    pub fn init(allocator: std.mem.Allocator, config: pcs_core.PcsConfig) !Scheme {
-        return Scheme.init(allocator, config);
-    }
-
-    pub fn commit(
-        scheme: *Scheme,
-        allocator: std.mem.Allocator,
-        columns: []prover_pcs.ColumnEvaluation,
-        recorder: ?*stage_profile.Recorder,
-        channel: *Channel,
-    ) !void {
-        return scheme.commitOwnedWithRecorder(allocator, columns, recorder, channel);
-    }
-
-    pub fn prove(
-        allocator: std.mem.Allocator,
-        components: []const prover_component.ComponentProver,
-        channel: *Channel,
-        scheme: Scheme,
-        recorder: ?*stage_profile.Recorder,
-    ) !ExtendedProof {
-        return prover_prove.proveExWithRecorder(
-            CpuBackend,
-            Hasher,
-            MerkleChannel,
-            allocator,
-            components,
-            channel,
-            scheme,
-            false,
-            recorder,
-        );
-    }
-};
+pub const CpuProverEngine = prover_engine.ProverEngine(
+    CpuBackend,
+    Hasher,
+    MerkleChannel,
+    Channel,
+);
 
 comptime {
     assertProverEngine(CpuProverEngine);
@@ -1354,7 +1316,7 @@ pub fn proveRiscVWithEngine(
     opt_chain: ?*const state_chain.StateChainTracker,
     recorder: ?*stage_profile.Recorder,
 ) !ProveOutput {
-    comptime assertProverEngine(Engine);
+    comptime prover_engine.assertProverEngine(Engine);
     if (exec_trace.step_count == 0) return ProverError.EmptyTrace;
 
     // -- Step 1: Count rows per opcode family. --
@@ -1786,7 +1748,7 @@ pub fn proveRiscVWithEngine(
         components_arr[0..total_components],
         &channel,
         scheme,
-        recorder,
+        .{ .recorder = recorder },
     );
     const proof = extended.proof;
     extended.aux.deinit(allocator);
@@ -2117,10 +2079,10 @@ test "riscv prover: transaction engine is the proving substitution point" {
             components: []const prover_component.ComponentProver,
             channel: *Channel,
             scheme: Scheme,
-            recorder: ?*stage_profile.Recorder,
+            options: prover_engine.ProveOptions,
         ) !ExtendedProof {
             prove_calls += 1;
-            return CpuProverEngine.prove(allocator, components, channel, scheme, recorder);
+            return CpuProverEngine.prove(allocator, components, channel, scheme, options);
         }
     };
 

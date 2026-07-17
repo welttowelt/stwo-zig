@@ -13,8 +13,8 @@ const core_verifier = @import("../core/verifier.zig");
 const blake2_merkle = @import("../core/vcs_lifted/blake2_merkle.zig");
 const prover_air_accumulation = @import("../prover/air/accumulation.zig");
 const prover_component = @import("../prover/air/component_prover.zig");
+const prover_engine = @import("../prover/engine.zig");
 const prover_pcs = @import("../prover/pcs/mod.zig");
-const prover_prove = @import("../prover/prove.zig");
 const stage_profile = @import("../prover/stage_profile.zig");
 const secure_column = @import("../prover/secure_column.zig");
 const CpuBackend = @import("../backends/cpu_scalar/mod.zig").CpuBackend;
@@ -28,6 +28,20 @@ pub const MerkleChannel = blake2_merkle.Blake2sMerkleChannel;
 pub const Channel = channel_blake2s.Blake2sChannel;
 pub const Proof = core_proof.StarkProof(Hasher);
 pub const ExtendedProof = core_proof.ExtendedStarkProof(Hasher);
+pub const CpuProverEngine = prover_engine.ProverEngine(
+    CpuBackend,
+    Hasher,
+    MerkleChannel,
+    Channel,
+);
+
+pub fn ProverEngineForBackend(comptime Backend: type) type {
+    return prover_engine.ProverEngine(Backend, Hasher, MerkleChannel, Channel);
+}
+
+comptime {
+    prover_engine.assertProverEngine(CpuProverEngine);
+}
 
 pub const Statement = struct {
     log_n_rows: u32,
@@ -125,13 +139,7 @@ pub fn prove(
     pcs_config: pcs_core.PcsConfig,
     statement: Statement,
 ) anyerror!ProveOutput {
-    var prove_ex_output = try proveExImpl(allocator, pcs_config, statement, false, null);
-    const proof = prove_ex_output.proof.proof;
-    prove_ex_output.proof.aux.deinit(allocator);
-    return .{
-        .statement = prove_ex_output.statement,
-        .proof = proof,
-    };
+    return proveWithEngine(CpuProverEngine, allocator, pcs_config, statement, null);
 }
 
 pub fn proveEx(
@@ -140,7 +148,8 @@ pub fn proveEx(
     statement: Statement,
     include_all_preprocessed_columns: bool,
 ) anyerror!ProveExOutput {
-    return proveExImpl(
+    return proveExWithEngine(
+        CpuProverEngine,
         allocator,
         pcs_config,
         statement,
@@ -155,13 +164,7 @@ pub fn proveProfiled(
     statement: Statement,
     recorder: *stage_profile.Recorder,
 ) anyerror!ProveOutput {
-    var prove_ex_output = try proveExImpl(allocator, pcs_config, statement, false, recorder);
-    const proof = prove_ex_output.proof.proof;
-    prove_ex_output.proof.aux.deinit(allocator);
-    return .{
-        .statement = prove_ex_output.statement,
-        .proof = proof,
-    };
+    return proveWithEngine(CpuProverEngine, allocator, pcs_config, statement, recorder);
 }
 
 pub fn proveExProfiled(
@@ -171,7 +174,83 @@ pub fn proveExProfiled(
     include_all_preprocessed_columns: bool,
     recorder: *stage_profile.Recorder,
 ) anyerror!ProveExOutput {
+    return proveExWithEngine(
+        CpuProverEngine,
+        allocator,
+        pcs_config,
+        statement,
+        include_all_preprocessed_columns,
+        recorder,
+    );
+}
+
+pub fn proveWithBackend(
+    comptime Backend: type,
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    statement: Statement,
+    recorder: ?*stage_profile.Recorder,
+) anyerror!ProveOutput {
+    return proveWithEngine(
+        ProverEngineForBackend(Backend),
+        allocator,
+        pcs_config,
+        statement,
+        recorder,
+    );
+}
+
+pub fn proveExWithBackend(
+    comptime Backend: type,
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    statement: Statement,
+    include_all_preprocessed_columns: bool,
+    recorder: ?*stage_profile.Recorder,
+) anyerror!ProveExOutput {
+    return proveExWithEngine(
+        ProverEngineForBackend(Backend),
+        allocator,
+        pcs_config,
+        statement,
+        include_all_preprocessed_columns,
+        recorder,
+    );
+}
+
+pub fn proveWithEngine(
+    comptime Engine: type,
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    statement: Statement,
+    recorder: ?*stage_profile.Recorder,
+) anyerror!ProveOutput {
+    var prove_ex_output = try proveExWithEngine(
+        Engine,
+        allocator,
+        pcs_config,
+        statement,
+        false,
+        recorder,
+    );
+    const proof = prove_ex_output.proof.proof;
+    prove_ex_output.proof.aux.deinit(allocator);
+    return .{
+        .statement = prove_ex_output.statement,
+        .proof = proof,
+    };
+}
+
+pub fn proveExWithEngine(
+    comptime Engine: type,
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    statement: Statement,
+    include_all_preprocessed_columns: bool,
+    recorder: ?*stage_profile.Recorder,
+) anyerror!ProveExOutput {
     return proveExImpl(
+        Engine,
         allocator,
         pcs_config,
         statement,
@@ -181,18 +260,20 @@ pub fn proveExProfiled(
 }
 
 fn proveExImpl(
+    comptime Engine: type,
     allocator: std.mem.Allocator,
     pcs_config: pcs_core.PcsConfig,
     statement: Statement,
     include_all_preprocessed_columns: bool,
     recorder: ?*stage_profile.Recorder,
 ) anyerror!ProveExOutput {
+    comptime prover_engine.assertProverEngine(Engine);
     if (statement.log_n_rows == 0 or statement.log_n_rows >= 31) return Error.InvalidLogSize;
     if (statement.sequence_len < 2) return Error.InvalidSequenceLength;
 
     const Initialized = struct {
         channel: Channel,
-        scheme: prover_pcs.CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel),
+        scheme: Engine.Scheme,
     };
     const initialized = blk: {
         var init_stage = try stage_profile.StageScope.begin(
@@ -206,16 +287,12 @@ fn proveExImpl(
         pcs_config.mixInto(&channel);
         break :blk Initialized{
             .channel = channel,
-            .scheme = try prover_pcs.CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel).init(
-                allocator,
-                pcs_config,
-            ),
+            .scheme = try Engine.init(allocator, pcs_config),
         };
     };
     var channel = initialized.channel;
     var scheme = initialized.scheme;
 
-    const preprocessed = [_]prover_pcs.ColumnEvaluation{};
     {
         var preprocessed_stage = try stage_profile.StageScope.begin(
             recorder,
@@ -223,7 +300,8 @@ fn proveExImpl(
             "Preprocessed commit",
         );
         defer preprocessed_stage.end();
-        try scheme.commit(allocator, preprocessed[0..], &channel);
+        const preprocessed = try allocator.alloc(prover_pcs.ColumnEvaluation, 0);
+        try Engine.commit(&scheme, allocator, preprocessed, recorder, &channel);
     }
 
     const owned_columns = blk: {
@@ -243,7 +321,7 @@ fn proveExImpl(
             "Main trace commit",
         );
         defer main_trace_stage.end();
-        try scheme.commitOwnedWithRecorder(allocator, owned_columns, recorder, &channel);
+        try Engine.commit(&scheme, allocator, owned_columns, recorder, &channel);
     }
 
     {
@@ -270,16 +348,15 @@ fn proveExImpl(
             "Core prove",
         );
         defer core_prove_stage.end();
-        break :blk try prover_prove.proveExWithRecorder(
-            CpuBackend,
-            Hasher,
-            MerkleChannel,
+        break :blk try Engine.prove(
             allocator,
             components[0..],
             &channel,
             scheme,
-            include_all_preprocessed_columns,
-            recorder,
+            .{
+                .include_all_preprocessed_columns = include_all_preprocessed_columns,
+                .recorder = recorder,
+            },
         );
     };
     return .{
@@ -534,6 +611,80 @@ test "examples wide_fibonacci: trace generation follows recurrence" {
         a = b;
         b = c;
     }
+}
+
+test "examples wide_fibonacci: generic CPU engine owns the proving transaction" {
+    const CountingEngine = struct {
+        pub const Scheme = CpuProverEngine.Scheme;
+        var init_calls: usize = 0;
+        var commit_calls: usize = 0;
+        var prove_calls: usize = 0;
+
+        pub fn init(allocator: std.mem.Allocator, config: pcs_core.PcsConfig) !Scheme {
+            init_calls += 1;
+            return CpuProverEngine.init(allocator, config);
+        }
+
+        pub fn commit(
+            scheme: *Scheme,
+            allocator: std.mem.Allocator,
+            columns: []prover_pcs.ColumnEvaluation,
+            recorder: ?*stage_profile.Recorder,
+            channel: anytype,
+        ) !void {
+            commit_calls += 1;
+            return CpuProverEngine.commit(scheme, allocator, columns, recorder, channel);
+        }
+
+        pub fn prove(
+            allocator: std.mem.Allocator,
+            components: []const prover_component.ComponentProver,
+            channel: anytype,
+            scheme: Scheme,
+            options: prover_engine.ProveOptions,
+        ) !ExtendedProof {
+            prove_calls += 1;
+            return CpuProverEngine.prove(allocator, components, channel, scheme, options);
+        }
+    };
+
+    CountingEngine.init_calls = 0;
+    CountingEngine.commit_calls = 0;
+    CountingEngine.prove_calls = 0;
+
+    const config = pcs_core.PcsConfig{
+        .pow_bits = 0,
+        .fri_config = try @import("../core/fri.zig").FriConfig.init(0, 1, 3),
+    };
+    const statement = Statement{ .log_n_rows = 5, .sequence_len = 8 };
+    const output = try proveWithEngine(
+        CountingEngine,
+        std.testing.allocator,
+        config,
+        statement,
+        null,
+    );
+
+    try std.testing.expectEqual(@as(usize, 1), CountingEngine.init_calls);
+    try std.testing.expectEqual(@as(usize, 2), CountingEngine.commit_calls);
+    try std.testing.expectEqual(@as(usize, 1), CountingEngine.prove_calls);
+    try verify(std.testing.allocator, config, output.statement, output.proof);
+}
+
+test "examples wide_fibonacci: CPU backend selection route verifies" {
+    const config = pcs_core.PcsConfig{
+        .pow_bits = 0,
+        .fri_config = try @import("../core/fri.zig").FriConfig.init(0, 1, 3),
+    };
+    const statement = Statement{ .log_n_rows = 5, .sequence_len = 8 };
+    const output = try proveWithBackend(
+        CpuBackend,
+        std.testing.allocator,
+        config,
+        statement,
+        null,
+    );
+    try verify(std.testing.allocator, config, output.statement, output.proof);
 }
 
 test "examples wide_fibonacci: prove/verify wrapper roundtrip" {

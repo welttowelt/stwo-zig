@@ -617,6 +617,12 @@ This ledger maps every public export in the Zig root/module API surface to the p
       "rust_path": "crates/stwo/src/lib.rs",
       "source": "src/prover/channel/mod.zig"
     },
+    "stwo.prover.engine": {
+      "kind": "const",
+      "rationale": "Zig compile-time composition boundary for complete host and device proving transactions; proof semantics remain final-oracle gated against pinned Rust Stwo.",
+      "rust_path": null,
+      "source": "src/prover/mod.zig"
+    },
     "stwo.prover.fft_pool": {
       "kind": "const",
       "rationale": "Zig-specific bounded FFT worker-pool implementation; mathematical outputs remain differential-parity gated.",

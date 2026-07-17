@@ -15,7 +15,7 @@ fn runtime() !*runtime_mod.Runtime {
 }
 
 pub fn warmup() !void {
-    _ = try runtime();
+    return MetalCommitBackend.warmup();
 }
 
 /// CPU-compatible prover backend whose commitment constructor is Metal.
@@ -28,6 +28,10 @@ pub const MetalCommitBackend = struct {
     /// Materialize the prepared LDE columns once so Metal can consume the
     /// complete tree in a single command buffer.
     pub const preferMonolithicCommit = true;
+
+    pub fn warmup() !void {
+        _ = try runtime();
+    }
 
     pub fn MerkleTree(comptime H: type) type {
         return metal_merkle.MetalMerkleTree(H);

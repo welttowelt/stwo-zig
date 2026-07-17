@@ -1,4 +1,5 @@
 pub const fft_pool = @import("fft_pool.zig");
+pub const engine = @import("engine.zig");
 pub const mmap_alloc = @import("mmap_alloc.zig");
 pub const line = @import("line.zig");
 pub const fri = @import("fri.zig");
