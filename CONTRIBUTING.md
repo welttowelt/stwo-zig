@@ -1252,6 +1252,18 @@ references over large frameworks.
 
 ## Change workflow
 
+Use the repository entrypoints rather than reconstructing CI commands locally:
+
+```sh
+python3 scripts/install_hooks.py  # once per checkout
+python3 scripts/ci.py             # same standard gate as hosted CI
+python3 scripts/ci.py --strict    # release evidence gate
+```
+
+The pre-commit hook is intentionally limited to formatting and source conformance. The pre-push
+hook adds repository tooling tests, Zig tests, deep graph coverage, and API parity. Neither hook
+runs hardware Metal benchmarks or large SN PIE workloads.
+
 1. **Identify the contract.** Name the bug, feature, parity gap, architectural debt, or measured
    bottleneck.
 2. **Inspect the existing path.** Trace real call sites, ownership, protocol order, and reports.

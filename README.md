@@ -6,6 +6,7 @@
 
 Protocol parity with Rust. Portable CPU execution. Resident GPU proving on Metal.
 
+[![CI](https://github.com/teddyjfpender/stwo-zig/actions/workflows/ci.yml/badge.svg)](https://github.com/teddyjfpender/stwo-zig/actions/workflows/ci.yml)
 [![Benchmark Pages](https://github.com/teddyjfpender/stwo-zig/actions/workflows/benchmark-pages.yml/badge.svg)](https://github.com/teddyjfpender/stwo-zig/actions/workflows/benchmark-pages.yml)
 [![Zig 0.15.x](https://img.shields.io/badge/Zig-0.15.x-F7A41D?logo=zig&logoColor=white)](https://ziglang.org/)
 ![Backends: CPU, Metal, CUDA](https://img.shields.io/badge/backends-CPU_%7C_Metal_%7C_CUDA-2563EB)
@@ -51,10 +52,17 @@ zig build test-riscv-prover -Doptimize=ReleaseFast
 zig build metal-test -Doptimize=ReleaseFast  # macOS with Metal
 ```
 
-Run the complete release confidence path with:
+Run the same standard gate used by hosted CI:
 
 ```sh
-zig build release-gate-strict -Doptimize=ReleaseFast
+python3 scripts/ci.py
+```
+
+For release evidence, use `python3 scripts/ci.py --strict`. Enable the versioned fast pre-commit
+and broader pre-push checks once per checkout with:
+
+```sh
+python3 scripts/install_hooks.py
 ```
 
 ## Explore

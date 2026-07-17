@@ -44,6 +44,8 @@ The first migration pass has established these boundaries without changing proof
   independent modules. Metal execution remains outside the pure scheduling layer.
 - `scripts/check_source_conformance.py` provides a blocking ratchet for dependency direction,
   root-source placement, generated-file declarations, and the 850-line ceiling.
+- `scripts/ci.py` is the shared local and hosted CI entrypoint. Versioned pre-commit and pre-push
+  hooks provide bounded local feedback without running hardware Metal or large SN PIE workloads.
 
 The checked-in enforcement baseline contains 68 explained legacy findings: 23 dependency edges,
 18 oversized manually maintained files, and 27 misplaced root sources. New findings and stale
