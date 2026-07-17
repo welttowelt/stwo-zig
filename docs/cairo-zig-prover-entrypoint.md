@@ -69,7 +69,7 @@ the same authenticated runtime protocol contract.
 
 ## Admission status
 
-Semantic-pack version 1 is selected using a Rust reference proof. It is useful
+Semantic-pack version 2 is selected using a Rust reference proof. It is useful
 for differential development and Rust-oracle parity, but it is
 `proof_derived`. The public entrypoint therefore rejects it immediately in
 `production` admission mode. The current engine can run it only under the

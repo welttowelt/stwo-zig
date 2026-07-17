@@ -27,11 +27,17 @@ with encoded counts and an FNV-1a plan hash over the complete file, treating
 bytes `28..36` as zero. Legacy v1 retains its exact cardinality gate. Other
 artifacts retain v1 because their readers already validate encoded counts.
 
-The unified `stwo-zig-cairo-program-semantic-pack` v1 manifest binds the
+The unified `stwo-zig-cairo-program-semantic-pack` v2 manifest binds the
 composition projection manifest, source and projected composition bundle
 SHA-256 values, composition plan hash, dependency closure, every artifact's
 source/output SHA-256 and count, fixed identity ordinal mapping, and projected
-fixed-table plan hash.
+fixed-table plan hash. It also records
+`composition.verifier_max_log_degree_bound`, derived exactly as the projection
+target's required `max_evaluation_log_size - 1`. The Zig loader admits only
+bounds in `1..31` and requires both the authenticated projection target and the
+loaded composition bundle to agree with that relationship. Missing or drifting
+geometry is rejected; the prover session does not infer it from a known
+program, trace width, or legacy SN2 default.
 
 ```sh
 python3 scripts/cairo_program_semantic_pack.py \

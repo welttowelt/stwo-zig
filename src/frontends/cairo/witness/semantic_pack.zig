@@ -1,6 +1,6 @@
 //! Authenticated, program-specific Cairo semantic artifacts.
 //!
-//! Version 1 packs are projections selected from a Rust proof and are therefore
+//! Version 2 packs are projections selected from a Rust proof and are therefore
 //! parity/development inputs. They are never production-admissible.
 
 const std = @import("std");
@@ -11,8 +11,9 @@ const fixed_bundle = @import("fixed_table_bundle.zig");
 const composition_bundle = @import("composition_bundle.zig");
 
 pub const format = "stwo-zig-cairo-program-semantic-pack";
-pub const version: u32 = 1;
+pub const version: u32 = 2;
 pub const projection_format = "stwo-zig-cairo-composition-projection";
+pub const projection_version: u32 = 2;
 pub const max_manifest_bytes: usize = 16 * 1024 * 1024;
 pub const max_identity_bytes: usize = 4096;
 
@@ -42,6 +43,7 @@ pub const Loaded = struct {
     files: Files,
     manifest_sha256: [32]u8,
     provenance: Provenance,
+    verifier_max_log_degree_bound: u32,
     measurements: Measurements,
     composition: composition_bundle.Bundle,
     witness_programs: witness_bundle.Bundle,
@@ -80,6 +82,7 @@ const ArtifactExpectations = struct {
     projection_sha256: [32]u8,
     composition_sha256: [32]u8,
     composition_plan_hash: u64,
+    verifier_max_log_degree_bound: u32,
 };
 
 pub const Measurement = struct {
@@ -126,11 +129,16 @@ pub fn load(allocator: std.mem.Allocator, files: Files) !Loaded {
         files.composition_projection_manifest,
         expectations.composition_sha256,
         expectations.composition_plan_hash,
+        expectations.verifier_max_log_degree_bound,
     );
     var composition = try composition_bundle.Bundle.readFile(allocator, files.composition);
     errdefer composition.deinit();
     if (composition.plan_hash != expectations.composition_plan_hash)
         return error.CompositionPlanHashMismatch;
+    try validateVerifierGeometry(
+        composition.max_evaluation_log_size,
+        expectations.verifier_max_log_degree_bound,
+    );
     try validateActiveComponents(root, composition.components);
 
     var witness_programs = try witness_bundle.Bundle.readFile(allocator, files.witness_programs);
@@ -158,6 +166,7 @@ pub fn load(allocator: std.mem.Allocator, files: Files) !Loaded {
         .files = files,
         .manifest_sha256 = files.manifest.sha256,
         .provenance = .proof_derived,
+        .verifier_max_log_degree_bound = expectations.verifier_max_log_degree_bound,
         .measurements = measurements,
         .composition = composition,
         .witness_programs = witness_programs,
@@ -184,6 +193,7 @@ fn parseExpectations(root: std.json.ObjectMap) !ArtifactExpectations {
         .projection_sha256 = try digestField(composition, "manifest_sha256"),
         .composition_sha256 = try digestField(composition, "bundle_sha256"),
         .composition_plan_hash = try hexU64Field(composition, "plan_hash"),
+        .verifier_max_log_degree_bound = try verifierMaxLogDegreeBound(composition),
     };
 }
 
@@ -254,6 +264,7 @@ fn validateProjectionManifest(
     path: []const u8,
     composition_sha256: [32]u8,
     plan_hash: u64,
+    verifier_max_log_degree_bound: u32,
 ) !void {
     const bytes = try readSmallFile(allocator, path, max_manifest_bytes);
     defer allocator.free(bytes);
@@ -261,11 +272,23 @@ fn validateProjectionManifest(
     defer parsed.deinit();
     const root = try requireObject(parsed.value);
     try expectString(root, "format", projection_format);
-    try expectUnsigned(root, "version", 1);
+    try expectUnsigned(root, "version", projection_version);
     const target = try objectField(root, "target");
     if (!std.mem.eql(u8, &(try digestField(target, "bundle_sha256")), &composition_sha256) or
-        try hexU64Field(target, "plan_hash") != plan_hash)
+        try hexU64Field(target, "plan_hash") != plan_hash or
+        try unsignedField(target, "max_evaluation_log_size") != verifier_max_log_degree_bound + 1)
         return error.CompositionProjectionMismatch;
+}
+
+fn verifierMaxLogDegreeBound(composition: std.json.ObjectMap) !u32 {
+    const value = try unsignedField(composition, "verifier_max_log_degree_bound");
+    if (value < 1 or value > 31) return error.InvalidVerifierGeometry;
+    return @intCast(value);
+}
+
+fn validateVerifierGeometry(max_evaluation_log_size: u32, verifier_max_log_degree_bound: u32) !void {
+    if (max_evaluation_log_size != verifier_max_log_degree_bound + 1)
+        return error.VerifierGeometryMismatch;
 }
 
 fn validateCoefficientFile(path: []const u8, identities: []const []u8) !void {
@@ -443,9 +466,44 @@ test "semantic pack: digest parser rejects non-hex identities" {
     try std.testing.expectError(error.InvalidManifestDigest, digestField(parsed.value.object, "digest"));
 }
 
-test "semantic pack: version 1 is explicitly proof-derived" {
+test "semantic pack: version 2 is explicitly proof-derived" {
     try std.testing.expectEqual(Provenance.proof_derived, @as(Provenance, .proof_derived));
     try std.testing.expectEqualStrings(format, "stwo-zig-cairo-program-semantic-pack");
+    try std.testing.expectEqual(@as(u32, 2), version);
+}
+
+test "semantic pack: verifier maximum log authority is required and bounded" {
+    inline for (.{
+        .{ "{}", error.MissingManifestField },
+        .{ "{\"verifier_max_log_degree_bound\":0}", error.InvalidVerifierGeometry },
+        .{ "{\"verifier_max_log_degree_bound\":32}", error.InvalidVerifierGeometry },
+    }) |case| {
+        var parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, case[0], .{});
+        defer parsed.deinit();
+        try std.testing.expectError(case[1], verifierMaxLogDegreeBound(parsed.value.object));
+    }
+    var valid = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, "{\"verifier_max_log_degree_bound\":20}", .{});
+    defer valid.deinit();
+    try std.testing.expectEqual(@as(u32, 20), try verifierMaxLogDegreeBound(valid.value.object));
+    try validateVerifierGeometry(21, 20);
+    try std.testing.expectError(error.VerifierGeometryMismatch, validateVerifierGeometry(20, 20));
+}
+
+test "semantic pack: projection verifier geometry drift is rejected" {
+    var temporary = std.testing.tmpDir(.{});
+    defer temporary.cleanup();
+    const projection =
+        \\{"format":"stwo-zig-cairo-composition-projection","version":2,"target":{"bundle_sha256":"abababababababababababababababababababababababababababababababab","plan_hash":"1234567890abcdef","max_evaluation_log_size":21}}
+    ;
+    try temporary.dir.writeFile(.{ .sub_path = "projection.json", .data = projection });
+    const path = try temporary.dir.realpathAlloc(std.testing.allocator, "projection.json");
+    defer std.testing.allocator.free(path);
+    const digest = [_]u8{0xab} ** 32;
+    try validateProjectionManifest(std.testing.allocator, path, digest, 0x1234567890abcdef, 20);
+    try std.testing.expectError(
+        error.CompositionProjectionMismatch,
+        validateProjectionManifest(std.testing.allocator, path, digest, 0x1234567890abcdef, 19),
+    );
 }
 
 test "semantic pack: mutation after authentication is rejected" {

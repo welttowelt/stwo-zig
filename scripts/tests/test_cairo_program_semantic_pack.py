@@ -47,25 +47,32 @@ FIB_ACTIVE = [
 ]
 
 
-def write_authority(path: Path, active: list[str] = FIB_ACTIVE) -> None:
+def write_authority(
+    path: Path,
+    active: list[str] = FIB_ACTIVE,
+    max_evaluation_log_size: int | None = 21,
+) -> None:
+    target = {
+        "bundle_sha256": "ab" * 32,
+        "plan_hash": "1234567890abcdef",
+        "components": len(active),
+        "preprocessed_variant": "canonical_without_pedersen",
+        "tree_columns": [105, 396, 324, 8],
+    }
+    if max_evaluation_log_size is not None:
+        target["max_evaluation_log_size"] = max_evaluation_log_size
     path.write_text(
         json.dumps(
             {
                 "format": MODULE.COMPOSITION_MANIFEST_FORMAT,
-                "version": 1,
+                "version": MODULE.COMPOSITION_MANIFEST_VERSION,
                 "bundle_version": 2,
                 "source": {
                     "bundle_sha256": "cd" * 32,
                     "preprocessed_variant": "canonical",
                     "tree_columns": [161, 3449, 2268, 8],
                 },
-                "target": {
-                    "bundle_sha256": "ab" * 32,
-                    "plan_hash": "1234567890abcdef",
-                    "components": len(active),
-                    "preprocessed_variant": "canonical_without_pedersen",
-                    "tree_columns": [105, 396, 324, 8],
-                },
+                "target": target,
                 "components": [
                     {"label": label, "preprocessed": []} for label in active
                 ],
@@ -125,6 +132,10 @@ class CairoProgramSemanticPackTest(unittest.TestCase):
             },
         )
         self.assertEqual(manifest["composition"]["plan_hash"], "1234567890abcdef")
+        self.assertEqual(manifest["version"], 2)
+        self.assertEqual(
+            manifest["composition"]["verifier_max_log_degree_bound"], 20
+        )
         self.assertIn("memory_id_to_big#small", manifest["dependencies"])
 
         source_witness = MODULE.parse_witness(
@@ -201,6 +212,26 @@ class CairoProgramSemanticPackTest(unittest.TestCase):
         corrupted[-1] ^= 1
         with self.assertRaisesRegex(ValueError, "invalid projected fixed-table plan hash"):
             MODULE.parse_fixed(corrupted)
+
+    def test_projection_without_maximum_evaluation_log_size_fails_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            authority = Path(directory) / "composition.projection.json"
+            write_authority(authority, max_evaluation_log_size=None)
+            with self.assertRaisesRegex(
+                ValueError, "invalid target maximum evaluation log size"
+            ):
+                MODULE.parse_composition_authority(authority)
+
+    def test_projection_maximum_evaluation_log_size_is_bounded(self):
+        with tempfile.TemporaryDirectory() as directory:
+            authority = Path(directory) / "composition.projection.json"
+            for invalid in (True, 1, 33):
+                with self.subTest(invalid=invalid):
+                    write_authority(authority, max_evaluation_log_size=invalid)
+                    with self.assertRaisesRegex(
+                        ValueError, "invalid target maximum evaluation log size"
+                    ):
+                        MODULE.parse_composition_authority(authority)
 
 
 if __name__ == "__main__":

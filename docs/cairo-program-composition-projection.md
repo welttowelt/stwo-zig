@@ -57,6 +57,10 @@ widths, output SHA-256 and plan hash, every component span mapping,
 preprocessed identity mapping, constraint offset, and source and target
 semantic evaluator payload hashes. The retarget result also records exact
 domain-dependent constants and their old and new semantic hashes.
+The target additionally records `max_evaluation_log_size`. This authenticated
+field is the sole authority from which a projected semantic pack derives its
+verifier maximum log-degree bound; consumers must reject absent or inconsistent
+values rather than recover geometry heuristically.
 
 ```sh
 python3 scripts/sn_pie_composition_bundle.py \

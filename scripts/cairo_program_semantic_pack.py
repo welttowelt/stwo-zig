@@ -14,8 +14,9 @@ from typing import NamedTuple
 
 
 PACK_FORMAT = "stwo-zig-cairo-program-semantic-pack"
-PACK_VERSION = 1
+PACK_VERSION = 2
 COMPOSITION_MANIFEST_FORMAT = "stwo-zig-cairo-composition-projection"
+COMPOSITION_MANIFEST_VERSION = 2
 WITNESS_MAGIC = b"STWZWIT\0"
 FEED_MAGIC = b"STWZFED\0"
 RELATION_MAGIC = b"STWZREL\0"
@@ -80,7 +81,7 @@ def parse_composition_authority(path: Path) -> dict[str, object]:
     document = json.loads(encoded)
     if (
         document.get("format") != COMPOSITION_MANIFEST_FORMAT
-        or document.get("version") != 1
+        or document.get("version") != COMPOSITION_MANIFEST_VERSION
     ):
         raise ValueError("unsupported composition projection manifest")
     source = document.get("source")
@@ -96,6 +97,9 @@ def parse_composition_authority(path: Path) -> dict[str, object]:
     plan_hash = target.get("plan_hash")
     if not isinstance(plan_hash, str) or len(plan_hash) != 16 or int(plan_hash, 16) == 0:
         raise ValueError("invalid composition plan hash")
+    max_evaluation_log_size = target.get("max_evaluation_log_size")
+    if type(max_evaluation_log_size) is not int or not 2 <= max_evaluation_log_size <= 32:
+        raise ValueError("invalid target maximum evaluation log size")
     source_bundle_sha256 = source.get("bundle_sha256")
     target_bundle_sha256 = target.get("bundle_sha256")
     for digest in (source_bundle_sha256, target_bundle_sha256):
@@ -121,6 +125,7 @@ def parse_composition_authority(path: Path) -> dict[str, object]:
         "source_bundle_sha256": source_bundle_sha256,
         "bundle_sha256": target_bundle_sha256,
         "plan_hash": plan_hash,
+        "verifier_max_log_degree_bound": max_evaluation_log_size - 1,
         "active_components": active,
         "source_preprocessed_variant": source["preprocessed_variant"],
         "target_preprocessed_variant": target["preprocessed_variant"],
