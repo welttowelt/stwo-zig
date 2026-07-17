@@ -2224,6 +2224,21 @@ fn runtimeFeedDestinationColumnBytes(slab: arena_plan.Binding, width: u32) !u64 
     return column_bytes;
 }
 
+fn recordFeedDestinationWidth(
+    widths: *std.StringHashMap(u32),
+    destination: feed_bundle_mod.Destination,
+    table_size: u32,
+    referenced_columns: u32,
+) !void {
+    if (table_size == 0 or destination.words == 0 or destination.words % table_size != 0)
+        return Error.InvalidCardinality;
+    const width = std.math.cast(u32, destination.words / table_size) orelse return Error.InvalidCardinality;
+    if (width < referenced_columns) return Error.InvalidCardinality;
+    const entry = try widths.getOrPut(destination.name);
+    if (entry.found_existing and entry.value_ptr.* != width) return Error.InvalidCardinality;
+    entry.value_ptr.* = width;
+}
+
 const aot_narrow_address_limit_bytes = (@as(u64, std.math.maxInt(u32)) + 1) * @sizeOf(u32);
 
 fn aotBindingFitsNarrowAddress(binding: arena_plan.Binding) bool {
@@ -2270,16 +2285,20 @@ pub fn prepareMultiplicityFeedBatch(
             const descriptor = feed.descriptors[descriptor_index .. descriptor_index + 14];
             if (descriptor[10] >= feed.destinations.len) return Error.InvalidCardinality;
             const primary_width: u32 = if (descriptor[11] == 3) 16 else descriptor[7] + 1;
-            const primary = feed.destinations[descriptor[10]].name;
-            const primary_entry = try widths.getOrPut(primary);
-            if (!primary_entry.found_existing) primary_entry.value_ptr.* = 0;
-            primary_entry.value_ptr.* = @max(primary_entry.value_ptr.*, primary_width);
+            try recordFeedDestinationWidth(
+                &widths,
+                feed.destinations[descriptor[10]],
+                descriptor[8],
+                primary_width,
+            );
             if (descriptor[11] == 1) {
                 if (descriptor[13] >= feed.destinations.len) return Error.InvalidCardinality;
-                const secondary = feed.destinations[descriptor[13]].name;
-                const secondary_entry = try widths.getOrPut(secondary);
-                if (!secondary_entry.found_existing) secondary_entry.value_ptr.* = 0;
-                secondary_entry.value_ptr.* = @max(secondary_entry.value_ptr.*, descriptor[7] + 1);
+                try recordFeedDestinationWidth(
+                    &widths,
+                    feed.destinations[descriptor[13]],
+                    descriptor[12],
+                    descriptor[7] + 1,
+                );
             }
         }
     }
@@ -6900,6 +6919,22 @@ test "Cairo multiplicity feed geometry follows scheduled runtime rows" {
     try std.testing.expectError(Error.InvalidBindingSize, runtimeFeedRowCount(invalid, sub_words));
     invalid.size_bytes = @as(u64, sn2_rows) * 3 * @sizeOf(u32) - 4;
     try std.testing.expectError(Error.InvalidBindingSize, runtimeFeedDestinationColumnBytes(invalid, 3));
+
+    var widths = std.StringHashMap(u32).init(std.testing.allocator);
+    defer widths.deinit();
+    var name = "range_check_18".*;
+    const destination = feed_bundle_mod.Destination{ .name = &name, .words = 2 * (1 << 18) };
+    try recordFeedDestinationWidth(&widths, destination, 1 << 18, 1);
+    try std.testing.expectEqual(@as(?u32, 2), widths.get(&name));
+    try recordFeedDestinationWidth(&widths, destination, 1 << 18, 2);
+    try std.testing.expectError(Error.InvalidCardinality, recordFeedDestinationWidth(&widths, destination, 1 << 17, 1));
+
+    var narrow_name = "range_check_11".*;
+    const narrow_destination = feed_bundle_mod.Destination{ .name = &narrow_name, .words = 1 << 11 };
+    try std.testing.expectError(
+        Error.InvalidCardinality,
+        recordFeedDestinationWidth(&widths, narrow_destination, 1 << 11, 2),
+    );
 }
 
 test "Cairo AOT witness narrow addresses validate the complete binding extent" {
