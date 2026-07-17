@@ -12,11 +12,15 @@ const blake2s_channel = @import("../../core/channel/blake2s.zig");
 const blake2_hash = @import("../../core/vcs/blake2_hash.zig");
 const fri_geometry = @import("../../core/fri/geometry.zig");
 const cairo_merkle = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sPlainMerkleHasher;
+const aot_witness = @import("recipes/aot_witness.zig");
 const proof_assembly = @import("recipes/proof_assembly.zig");
 
 const cairo_domain_prefix_bytes = cairo_merkle.domainPrefixBytes();
 
 pub const FriGeometry = fri_geometry.FriGeometry;
+pub const AotWitnessInvocation = aot_witness.Invocation;
+pub const AotWorkspaceWrite = aot_witness.WorkspaceWrite;
+pub const AotWitnessBatchRecipe = aot_witness.BatchRecipe;
 pub const ProofCopy = proof_assembly.ProofCopy;
 pub const ProofAssemblyRecipe = proof_assembly.ProofAssemblyRecipe;
 
@@ -51,228 +55,6 @@ pub const HostCopyRecipe = struct {
         @memcpy(destination, self.source);
     }
 };
-
-pub const AotWitnessInvocation = struct {
-    kernel_name: []const u8,
-    layout: runtime.WitnessLayout,
-    destinations: []const arena_plan.Binding,
-    workspace_writes: []const AotWorkspaceWrite,
-};
-
-/// One small arena-resident indirection table consumed by a generated witness
-/// kernel. These tables are component-local and may alias, so they are
-/// materialized immediately before the owning invocation is dispatched.
-pub const AotWorkspaceWrite = struct {
-    destination: arena_plan.Binding,
-    binding_offsets: []const arena_plan.Binding = &.{},
-    words: []const u32 = &.{},
-};
-
-const OwnedAotWorkspaceWrite = struct {
-    destination: arena_plan.Binding,
-    words: []u32,
-};
-
-/// Executes the canonical recorded witness programs directly against one
-/// resident arena. Pipeline creation is AOT-only; every output, lookup slab,
-/// and subcomponent slab is tracked as a product of the same prepared batch.
-pub const AotWitnessBatchRecipe = struct {
-    allocator: std.mem.Allocator,
-    metal: *runtime.Runtime,
-    arena: *arena_plan.ResidentArena,
-    plans: []runtime.WitnessPlan,
-    destinations: []arena_plan.Binding,
-    workspace_writes: [][]OwnedAotWorkspaceWrite,
-    last_tick: ?u16 = null,
-    accumulated_gpu_ms: f64 = 0,
-
-    pub fn init(
-        allocator: std.mem.Allocator,
-        metal: *runtime.Runtime,
-        resident_arena: *arena_plan.ResidentArena,
-        metallib_path: []const u8,
-        invocations: []const AotWitnessInvocation,
-    ) !AotWitnessBatchRecipe {
-        var library = try metal.loadEvalLibrary(metallib_path);
-        defer library.deinit();
-        return initPlans(allocator, metal, resident_arena, library, null, invocations, true);
-    }
-
-    pub fn initSource(
-        allocator: std.mem.Allocator,
-        metal: *runtime.Runtime,
-        resident_arena: *arena_plan.ResidentArena,
-        source: []const u8,
-        invocations: []const AotWitnessInvocation,
-    ) !AotWitnessBatchRecipe {
-        var library = try metal.compileEvalLibrary(source);
-        defer library.deinit();
-        return initPlans(allocator, metal, resident_arena, library, null, invocations, false);
-    }
-
-    pub fn initSources(
-        allocator: std.mem.Allocator,
-        metal: *runtime.Runtime,
-        resident_arena: *arena_plan.ResidentArena,
-        sources: []const []const u8,
-        invocations: []const AotWitnessInvocation,
-    ) !AotWitnessBatchRecipe {
-        return initPlans(allocator, metal, resident_arena, null, sources, invocations, false);
-    }
-
-    fn initPlans(
-        allocator: std.mem.Allocator,
-        metal: *runtime.Runtime,
-        resident_arena: *arena_plan.ResidentArena,
-        library: ?runtime.EvalLibrary,
-        sources: ?[]const []const u8,
-        invocations: []const AotWitnessInvocation,
-        serialize: bool,
-    ) !AotWitnessBatchRecipe {
-        if (invocations.len == 0) return recovery.RecoveryError.BindingSizeMismatch;
-        if ((library == null) == (sources == null)) return recovery.RecoveryError.BindingSizeMismatch;
-        if (sources) |items| if (items.len != invocations.len) return recovery.RecoveryError.BindingSizeMismatch;
-        const plans = try allocator.alloc(runtime.WitnessPlan, invocations.len);
-        var initialized: usize = 0;
-        errdefer {
-            for (plans[0..initialized]) |*plan| plan.deinit();
-            allocator.free(plans);
-        }
-        const workspace_writes = try allocator.alloc([]OwnedAotWorkspaceWrite, invocations.len);
-        var workspaces_initialized: usize = 0;
-        errdefer {
-            for (workspace_writes[0..workspaces_initialized]) |writes| deinitAotWorkspaceWrites(allocator, writes);
-            allocator.free(workspace_writes);
-        }
-        var destinations = std.ArrayList(arena_plan.Binding).empty;
-        errdefer destinations.deinit(allocator);
-        for (invocations, plans, workspace_writes, 0..) |invocation, *plan, *writes, index| {
-            if (invocation.kernel_name.len == 0 or invocation.destinations.len == 0 or
-                invocation.workspace_writes.len == 0 or invocation.layout.row_count == 0 or
-                !std.math.isPowerOfTwo(invocation.layout.row_count))
-                return recovery.RecoveryError.BindingSizeMismatch;
-            if (sources) |items| {
-                var source_library = try metal.compileEvalLibrary(items[index]);
-                defer source_library.deinit();
-                plan.* = try metal.prepareWitnessFromLibrary(source_library, invocation.kernel_name, invocation.layout);
-            } else {
-                plan.* = try metal.prepareWitnessFromLibrary(library.?, invocation.kernel_name, invocation.layout);
-            }
-            initialized += 1;
-            writes.* = try initAotWorkspaceWrites(allocator, invocation.workspace_writes);
-            workspaces_initialized += 1;
-            for (invocation.destinations) |destination| {
-                for (destinations.items) |existing| if (existing.logical_id == destination.logical_id)
-                    return recovery.RecoveryError.BindingSizeMismatch;
-                try destinations.append(allocator, destination);
-            }
-        }
-        if (serialize) try library.?.serialize();
-        return .{
-            .allocator = allocator,
-            .metal = metal,
-            .arena = resident_arena,
-            .plans = plans,
-            .destinations = try destinations.toOwnedSlice(allocator),
-            .workspace_writes = workspace_writes,
-        };
-    }
-
-    pub fn deinit(self: *AotWitnessBatchRecipe) void {
-        for (self.plans) |*plan| plan.deinit();
-        self.allocator.free(self.plans);
-        self.allocator.free(self.destinations);
-        for (self.workspace_writes) |writes| deinitAotWorkspaceWrites(self.allocator, writes);
-        self.allocator.free(self.workspace_writes);
-        self.* = undefined;
-    }
-
-    /// Clears request-local execution bookkeeping while retaining the prepared
-    /// Metal plans and immutable arena workspace descriptions.
-    pub fn resetForRequest(self: *AotWitnessBatchRecipe) void {
-        self.last_tick = null;
-        self.accumulated_gpu_ms = 0;
-    }
-
-    pub fn execute(self: *AotWitnessBatchRecipe) !void {
-        for (self.plans, 0..) |_, index| try self.executeIndex(index);
-    }
-
-    pub fn executeIndex(self: *AotWitnessBatchRecipe, index: usize) !void {
-        if (index >= self.plans.len) return recovery.RecoveryError.BindingSizeMismatch;
-        try self.materializeWorkspaces(index);
-        self.accumulated_gpu_ms += try self.metal.witnessPrepared(self.arena.buffer, self.plans[index]);
-    }
-
-    fn materializeWorkspaces(self: *AotWitnessBatchRecipe, index: usize) !void {
-        for (self.workspace_writes[index]) |write| {
-            const bytes = try self.arena.bytes(write.destination);
-            if (bytes.len % 4 != 0 or bytes.len < write.words.len * 4)
-                return recovery.RecoveryError.BindingSizeMismatch;
-            const aligned: []align(4) u8 = @alignCast(bytes);
-            const destination = std.mem.bytesAsSlice(u32, aligned);
-            @memset(destination, 0);
-            @memcpy(destination[0..write.words.len], write.words);
-        }
-    }
-
-    pub fn makeRecipes(self: *AotWitnessBatchRecipe, allocator: std.mem.Allocator) ![]recovery.Recipe {
-        const recipes = try allocator.alloc(recovery.Recipe, self.destinations.len);
-        for (self.destinations, recipes) |destination, *recipe_entry|
-            recipe_entry.* = .{ .logical_id = destination.logical_id, .context = self, .run = run };
-        return recipes;
-    }
-
-    fn run(raw: *anyopaque, tick: u16, requested: arena_plan.Binding, _: []u8) !void {
-        const self: *AotWitnessBatchRecipe = @ptrCast(@alignCast(raw));
-        if (self.last_tick == tick) return;
-        var found = false;
-        for (self.destinations) |destination| found = found or destination.logical_id == requested.logical_id;
-        if (!found) return recovery.RecoveryError.MissingRecipe;
-        try self.execute();
-        self.last_tick = tick;
-    }
-};
-
-fn initAotWorkspaceWrites(
-    allocator: std.mem.Allocator,
-    source: []const AotWorkspaceWrite,
-) ![]OwnedAotWorkspaceWrite {
-    const result = try allocator.alloc(OwnedAotWorkspaceWrite, source.len);
-    var initialized: usize = 0;
-    errdefer {
-        for (result[0..initialized]) |write| allocator.free(write.words);
-        allocator.free(result);
-    }
-    while (initialized < source.len) : (initialized += 1) {
-        const write = source[initialized];
-        if ((write.binding_offsets.len != 0 and write.words.len != 0) or
-            write.destination.offset_bytes % 4 != 0 or write.destination.size_bytes % 4 != 0)
-            return recovery.RecoveryError.BindingSizeMismatch;
-        const word_count = if (write.binding_offsets.len != 0) write.binding_offsets.len else write.words.len;
-        if (write.destination.size_bytes < word_count * 4)
-            return recovery.RecoveryError.BindingSizeMismatch;
-        for (write.binding_offsets) |binding| {
-            if (binding.offset_bytes % 4 != 0 or binding.offset_bytes / 4 > std.math.maxInt(u32))
-                return recovery.RecoveryError.BindingSizeMismatch;
-        }
-        const words = try allocator.alloc(u32, word_count);
-        if (write.binding_offsets.len != 0) {
-            for (write.binding_offsets, words) |binding, *word| {
-                word.* = @intCast(binding.offset_bytes / 4);
-            }
-        } else {
-            @memcpy(words, write.words);
-        }
-        result[initialized] = .{ .destination = write.destination, .words = words };
-    }
-    return result;
-}
-
-fn deinitAotWorkspaceWrites(allocator: std.mem.Allocator, writes: []OwnedAotWorkspaceWrite) void {
-    for (writes) |write| allocator.free(write.words);
-    allocator.free(writes);
-}
 
 /// Rebuilds one coefficient/evaluation column from another resident column.
 /// Copy and transform both target the final arena slot; no intermediate device
@@ -3383,33 +3165,6 @@ pub const TranscriptRecipe = struct {
         return std.math.cast(u32, binding.offset_bytes / 4) orelse recovery.RecoveryError.BindingSizeMismatch;
     }
 };
-
-test "AOT witness batch request reset preserves prepared ownership" {
-    const plans = [_]runtime.WitnessPlan{.{ .handle = undefined }};
-    const destinations = [_]arena_plan.Binding{undefined};
-    const workspace_writes = [_][]OwnedAotWorkspaceWrite{&.{}};
-    var recipe = AotWitnessBatchRecipe{
-        .allocator = std.testing.allocator,
-        .metal = undefined,
-        .arena = undefined,
-        .plans = @constCast(&plans),
-        .destinations = @constCast(&destinations),
-        .workspace_writes = @constCast(&workspace_writes),
-        .last_tick = 17,
-        .accumulated_gpu_ms = 42.5,
-    };
-
-    const plans_ptr = recipe.plans.ptr;
-    const destinations_ptr = recipe.destinations.ptr;
-    const workspace_writes_ptr = recipe.workspace_writes.ptr;
-    recipe.resetForRequest();
-
-    try std.testing.expectEqual(@as(?u16, null), recipe.last_tick);
-    try std.testing.expectEqual(@as(f64, 0), recipe.accumulated_gpu_ms);
-    try std.testing.expectEqual(plans_ptr, recipe.plans.ptr);
-    try std.testing.expectEqual(destinations_ptr, recipe.destinations.ptr);
-    try std.testing.expectEqual(workspace_writes_ptr, recipe.workspace_writes.ptr);
-}
 
 test "fixed table batch request reset preserves prepared ownership" {
     const plans = [_]runtime.FixedTablePlan{.{ .handle = undefined }};
