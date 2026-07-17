@@ -96,7 +96,8 @@ pub const Felt252 = struct {
         var word: u64 = self.limbs[limb_idx] >> bit_idx;
         // Handle cross-limb boundary.
         if (bit_idx + BITS_PER_WORD > 64 and limb_idx + 1 < 4) {
-            word |= self.limbs[limb_idx + 1] << @intCast(64 - bit_idx);
+            const carry_shift: u6 = @intCast(@as(u7, 64) - @as(u7, bit_idx));
+            word |= self.limbs[limb_idx + 1] << carry_shift;
         }
         return M31.fromCanonical(@intCast(word & WORD_MASK));
     }
@@ -110,7 +111,8 @@ pub const Felt252 = struct {
             const bit_idx: u6 = @intCast(bit_offset % 64);
             result.limbs[limb_idx] |= @as(u64, words[i].v) << bit_idx;
             if (bit_idx + BITS_PER_WORD > 64 and limb_idx + 1 < 4) {
-                result.limbs[limb_idx + 1] |= @as(u64, words[i].v) >> @intCast(64 - bit_idx);
+                const carry_shift: u6 = @intCast(@as(u7, 64) - @as(u7, bit_idx));
+                result.limbs[limb_idx + 1] |= @as(u64, words[i].v) >> carry_shift;
             }
         }
         return result;

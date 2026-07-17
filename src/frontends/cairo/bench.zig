@@ -6,8 +6,8 @@
 //! 3. Parsing: convert raw entries to CasmState + Memory
 //! 4. Adapter: opcode classification into 20 categories
 //!
-//! Usage:
-//!   zig run src/frontends/cairo/bench.zig -- <cairo-file> [--cairo1-run <path>]
+//! Backend selection belongs to the executable integration boundary. The root
+//! benchmark CLI invokes `run` with its concrete backend.
 
 const std = @import("std");
 const trace_reader = @import("adapter/trace_reader.zig");
@@ -25,7 +25,7 @@ const Timer = struct {
     }
 };
 
-pub fn main() !void {
+pub fn run(comptime B: type) !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
@@ -167,6 +167,7 @@ pub fn main() !void {
         const t = Timer.begin();
 
         prove_result = try prove_trace_mod.proveCairoTrace(
+            B,
             allocator,
             config,
             raw_trace,

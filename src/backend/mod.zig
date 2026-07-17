@@ -21,7 +21,8 @@
 //! ## Usage
 //!
 //! ```zig
-//! const CpuBackend = @import("../backends/cpu_scalar/mod.zig").CpuBackend;
+//! const stwo = @import("stwo");
+//! const CpuBackend = stwo.backends.CpuBackend;
 //!
 //! pub fn prove(comptime B: type, comptime H: type, comptime MC: type, ...) !StarkProof(H) {
 //!     comptime assertBackendForChannel(B, H);

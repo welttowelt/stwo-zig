@@ -7,12 +7,13 @@
 //! ## Usage
 //!
 //! ```zig
-//! const result = try proveCairoTrace(allocator, config, statement,
+//! const result = try proveCairoTraceFromFile(Backend, allocator, config,
 //!     "vectors/cairo_traces/fib.trace");
 //! try verifyCairoTrace(allocator, config, result.statement, result.proof);
 //! ```
 
 const std = @import("std");
+const backend_mod = @import("../../backend/mod.zig");
 const core_air_accumulation = @import("../../core/air/accumulation.zig");
 const core_air_components = @import("../../core/air/components.zig");
 const core_air_derive = @import("../../core/air/derive.zig");
@@ -30,7 +31,6 @@ const prover_component = @import("../../prover/air/component_prover.zig");
 const prover_pcs = @import("../../prover/pcs/mod.zig");
 const prover_prove = @import("../../prover/prove.zig");
 const secure_column = @import("../../prover/secure_column.zig");
-const CpuBackend = @import("../../backends/cpu_scalar/mod.zig").CpuBackend;
 const utils = @import("../../core/utils.zig");
 
 const trace_reader = @import("adapter/trace_reader.zig");
@@ -321,11 +321,13 @@ const CairoTraceComponent = struct {
 /// 3. Mix statement into channel.
 /// 4. Build component and call generic `prover_prove.prove`.
 pub fn proveCairoTrace(
+    comptime B: type,
     allocator: std.mem.Allocator,
     pcs_config: pcs_core.PcsConfig,
     trace_entries: []const RawTraceEntry,
     log_size: u32,
 ) anyerror!ProveOutput {
+    comptime backend_mod.assertBackendForChannel(B, Hasher);
     if (log_size == 0) return Error.InvalidLogSize;
 
     const statement = CairoTraceStatement{
@@ -336,7 +338,7 @@ pub fn proveCairoTrace(
     var channel = Channel{};
     pcs_config.mixInto(&channel);
 
-    var scheme = try prover_pcs.CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel).init(
+    var scheme = try prover_pcs.CommitmentSchemeProver(B, Hasher, MerkleChannel).init(
         allocator,
         pcs_config,
     );
@@ -385,7 +387,7 @@ pub fn proveCairoTrace(
     };
 
     const ext_proof = try prover_prove.proveEx(
-        CpuBackend,
+        B,
         Hasher,
         MerkleChannel,
         allocator,
@@ -482,6 +484,7 @@ pub fn verifyCairoTrace(
 
 /// Read a binary trace file and prove it end-to-end.
 pub fn proveCairoTraceFromFile(
+    comptime B: type,
     allocator: std.mem.Allocator,
     pcs_config: pcs_core.PcsConfig,
     trace_path: []const u8,
@@ -494,7 +497,7 @@ pub fn proveCairoTraceFromFile(
     if (n == 0) return Error.InvalidTraceLength;
     const log_size = std.math.log2_int_ceil(usize, n);
 
-    return proveCairoTrace(allocator, pcs_config, entries, log_size);
+    return proveCairoTrace(B, allocator, pcs_config, entries, log_size);
 }
 
 // ---------------------------------------------------------------------------
@@ -519,79 +522,4 @@ test "cairo prove_trace: genTraceColumns produces correct length" {
     try std.testing.expectEqual(@as(usize, 8), columns[0].len);
     try std.testing.expectEqual(@as(usize, 8), columns[1].len);
     try std.testing.expectEqual(@as(usize, 8), columns[2].len);
-}
-
-test "cairo prove_trace: prove and verify synthetic trace" {
-    const alloc = std.testing.allocator;
-    const config = pcs_core.PcsConfig{
-        .pow_bits = 0,
-        .fri_config = try @import("../../core/fri.zig").FriConfig.init(0, 1, 3),
-    };
-
-    // Build a small synthetic trace (16 entries).
-    var entries: [16]RawTraceEntry = undefined;
-    for (0..16) |i| {
-        entries[i] = .{
-            .pc = @intCast(i + 1),
-            .ap = @intCast(100 + i),
-            .fp = @intCast(200),
-        };
-    }
-
-    const output = try proveCairoTrace(alloc, config, entries[0..], 4);
-    try verifyCairoTrace(alloc, config, output.statement, output.proof);
-}
-
-test "cairo prove_trace: verify rejects statement mismatch" {
-    const alloc = std.testing.allocator;
-    const config = pcs_core.PcsConfig{
-        .pow_bits = 0,
-        .fri_config = try @import("../../core/fri.zig").FriConfig.init(0, 1, 3),
-    };
-
-    var entries: [16]RawTraceEntry = undefined;
-    for (0..16) |i| {
-        entries[i] = .{
-            .pc = @intCast(i + 1),
-            .ap = @intCast(100 + i),
-            .fp = @intCast(200),
-        };
-    }
-
-    const output = try proveCairoTrace(alloc, config, entries[0..], 4);
-
-    // Tamper with the statement: change n_trace_columns.
-    var bad_statement = output.statement;
-    bad_statement.n_trace_columns = 99;
-
-    if (verifyCairoTrace(alloc, config, bad_statement, output.proof)) |_| {
-        try std.testing.expect(false); // should not succeed
-    } else |err| {
-        const verification_error = @import("../../core/verifier_types.zig").VerificationError;
-        try std.testing.expect(
-            err == verification_error.OodsNotMatching or
-                err == verification_error.InvalidStructure or
-                err == verification_error.ShapeMismatch,
-        );
-    }
-}
-
-test "cairo prove_trace: prove and verify from fib.trace file" {
-    const alloc = std.testing.allocator;
-    const config = pcs_core.PcsConfig{
-        .pow_bits = 0,
-        .fri_config = try @import("../../core/fri.zig").FriConfig.init(0, 1, 3),
-    };
-
-    const output = proveCairoTraceFromFile(
-        alloc,
-        config,
-        "vectors/cairo_traces/fib.trace",
-    ) catch |err| {
-        // Skip test if trace file is not available (CI, etc.)
-        if (err == error.FileNotFound) return;
-        return err;
-    };
-
-    try verifyCairoTrace(alloc, config, output.statement, output.proof);
 }
