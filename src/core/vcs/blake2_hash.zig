@@ -22,6 +22,10 @@ pub fn getBackendMode() BackendMode {
     return blake2_backend.getBackendMode();
 }
 
+pub fn getEffectiveBackendMode() BackendMode {
+    return blake2_backend.getEffectiveBackendMode();
+}
+
 pub fn supportsSimdBackend() bool {
     return blake2_backend.supportsSimdBackend();
 }

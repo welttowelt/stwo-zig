@@ -9,6 +9,7 @@ const statistics = @import("statistics.zig");
 const examples_artifact = stwo.interop.examples_artifact;
 const proof_wire = stwo.interop.proof_wire;
 const stage_profile = stwo.prover.stage_profile;
+const blake2_hash = stwo.core.vcs.blake2_hash;
 const M31_PACK_WIDTH = stwo.core.fields.m31.PACK_WIDTH;
 const HOST_TWIDDLE_BUDGET_BYTES: usize = 256 * 1024 * 1024;
 
@@ -384,6 +385,9 @@ fn executeExample(
             .target_arch = @tagName(builtin.cpu.arch),
             .cpu_count = try std.Thread.getCpuCount(),
             .simd_pack_width = M31_PACK_WIDTH,
+            .blake2s_requested_backend = @tagName(blake2_hash.getBackendMode()),
+            .blake2s_effective_backend = @tagName(blake2_hash.getEffectiveBackendMode()),
+            .blake2s_simd_supported = blake2_hash.supportsSimdBackend(),
             .single_threaded = builtin.single_threaded,
             .thread_parallelism_enabled = !builtin.single_threaded,
             .environment_overrides = overrides,

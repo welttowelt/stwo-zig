@@ -3,7 +3,7 @@ const stwo = @import("stwo");
 const config = @import("config.zig");
 const statistics = @import("statistics.zig");
 
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 
 pub const EnvironmentOverride = struct {
     name: []const u8,
@@ -19,6 +19,9 @@ pub const Provenance = struct {
     target_arch: []const u8,
     cpu_count: usize,
     simd_pack_width: usize,
+    blake2s_requested_backend: []const u8,
+    blake2s_effective_backend: []const u8,
+    blake2s_simd_supported: bool,
     single_threaded: bool,
     thread_parallelism_enabled: bool,
     environment_overrides: []const EnvironmentOverride,
@@ -243,6 +246,9 @@ test "native proof report: diagnostic evidence cannot populate headline rates" {
             .target_arch = "aarch64",
             .cpu_count = 8,
             .simd_pack_width = 4,
+            .blake2s_requested_backend = "auto",
+            .blake2s_effective_backend = "simd",
+            .blake2s_simd_supported = true,
             .single_threaded = false,
             .thread_parallelism_enabled = true,
             .environment_overrides = &.{},

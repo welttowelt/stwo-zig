@@ -231,7 +231,7 @@ def make_report(
             "exchange_mode": EXCHANGE_MODE,
         }
     return {
-        "schema_version": 3,
+        "schema_version": 4,
         "backend": "cpu_native" if lane == "cpu" else "metal_hybrid",
         "evidence_class": evidence_class,
         "profiled": False,
@@ -244,6 +244,9 @@ def make_report(
             "target_arch": "aarch64",
             "cpu_count": 8,
             "simd_pack_width": 4,
+            "blake2s_requested_backend": "auto",
+            "blake2s_effective_backend": "simd",
+            "blake2s_simd_supported": True,
             "single_threaded": False,
             "thread_parallelism_enabled": True,
             "environment_overrides": [],
@@ -334,4 +337,3 @@ def resource_usage_stderr(peak_rss_kib: int = 1024) -> bytes:
     if sys.platform == "darwin":
         return f"{peak_rss_kib * 1024}  maximum resident set size\n".encode()
     return f"Maximum resident set size (kbytes): {peak_rss_kib}\n".encode()
-

@@ -1,4 +1,4 @@
-"""Fail-closed report-v3, proof-artifact, telemetry, and parity validation."""
+"""Fail-closed report-v4, proof-artifact, telemetry, and parity validation."""
 
 from __future__ import annotations
 
@@ -38,6 +38,8 @@ REPORT_KEYS = {
 PROVENANCE_KEYS = {
     "git_commit", "git_dirty", "zig_version", "optimization", "target_os",
     "target_arch", "cpu_count", "simd_pack_width", "single_threaded",
+    "blake2s_requested_backend", "blake2s_effective_backend",
+    "blake2s_simd_supported",
     "thread_parallelism_enabled", "environment_overrides", "complete",
 }
 PROTOCOL_KEYS = {
@@ -573,6 +575,29 @@ def validate_report(
         require_string(provenance[field], f"{lane}.provenance.{field}", nonempty=True)
     require_int(provenance["cpu_count"], f"{lane}.provenance.cpu_count", positive=True)
     require_int(provenance["simd_pack_width"], f"{lane}.provenance.simd_pack_width", positive=True)
+    requested_blake2s = require_string(
+        provenance["blake2s_requested_backend"],
+        f"{lane}.provenance.blake2s_requested_backend",
+    )
+    effective_blake2s = require_string(
+        provenance["blake2s_effective_backend"],
+        f"{lane}.provenance.blake2s_effective_backend",
+    )
+    simd_supported = require_bool(
+        provenance["blake2s_simd_supported"],
+        f"{lane}.provenance.blake2s_simd_supported",
+    )
+    if requested_blake2s not in {"auto", "scalar", "simd"}:
+        raise MatrixError(f"{lane}.provenance.blake2s_requested_backend is unsupported")
+    if effective_blake2s not in {"scalar", "simd"}:
+        raise MatrixError(f"{lane}.provenance.blake2s_effective_backend is unsupported")
+    expected_blake2s = (
+        "simd"
+        if simd_supported and requested_blake2s in {"auto", "simd"}
+        else "scalar"
+    )
+    if effective_blake2s != expected_blake2s:
+        raise MatrixError(f"{lane} Blake2s requested/effective dispatch is inconsistent")
     single_threaded = require_bool(
         provenance["single_threaded"], f"{lane}.provenance.single_threaded"
     )

@@ -383,6 +383,21 @@ class NativeProofMatrixTests(unittest.TestCase):
         with self.assertRaisesRegex(MODULE.MatrixError, "no accelerated work"):
             MODULE.validate_report(report, "metal", workload, args())
 
+    def test_blake2s_dispatch_provenance_fails_closed(self) -> None:
+        workload = MODULE.Workload.wide_fibonacci(10, 8)
+        report = make_report("cpu", workload)
+        MODULE.validate_report(report, "cpu", workload, args())
+
+        inconsistent = make_report("cpu", workload)
+        inconsistent["provenance"]["blake2s_simd_supported"] = False
+        with self.assertRaisesRegex(MODULE.MatrixError, "requested/effective"):
+            MODULE.validate_report(inconsistent, "cpu", workload, args())
+
+        unsupported = make_report("cpu", workload)
+        unsupported["provenance"]["blake2s_requested_backend"] = "gpu"
+        with self.assertRaisesRegex(MODULE.MatrixError, "is unsupported"):
+            MODULE.validate_report(unsupported, "cpu", workload, args())
+
     def test_artifact_statement_and_cross_backend_proofs_must_match(self) -> None:
         workload = MODULE.Workload.xor(10, 2, 3)
         cpu = make_report("cpu", workload)

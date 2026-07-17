@@ -19,6 +19,10 @@ pub fn getBackendMode() BackendMode {
     return backend_mode;
 }
 
+pub fn getEffectiveBackendMode() BackendMode {
+    return effectiveMode();
+}
+
 pub fn supportsSimdBackend() bool {
     return switch (builtin.cpu.arch) {
         .x86_64, .aarch64 => true,
@@ -662,4 +666,24 @@ test "blake2s backend: scalar and simd modes are equivalent" {
         const simd_digest = Blake2sHasher.hashFixed128(&payload);
         try std.testing.expect(std.mem.eql(u8, scalar_digest[0..], simd_digest[0..]));
     }
+}
+
+test "blake2s backend: effective mode reports the selected implementation" {
+    const previous_mode = getBackendMode();
+    defer setBackendMode(previous_mode);
+
+    setBackendMode(.scalar);
+    try std.testing.expectEqual(BackendMode.scalar, getEffectiveBackendMode());
+
+    setBackendMode(.auto);
+    try std.testing.expectEqual(
+        if (supportsSimdBackend()) BackendMode.simd else BackendMode.scalar,
+        getEffectiveBackendMode(),
+    );
+
+    setBackendMode(.simd);
+    try std.testing.expectEqual(
+        if (supportsSimdBackend()) BackendMode.simd else BackendMode.scalar,
+        getEffectiveBackendMode(),
+    );
 }
