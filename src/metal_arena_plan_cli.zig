@@ -9,6 +9,7 @@ const cairo_oods = @import("integrations/cairo_metal/oods.zig");
 const cairo_quotient_inputs = @import("integrations/cairo_metal/quotient_inputs.zig");
 const cairo_quotient_reference = @import("integrations/cairo_metal/quotient_reference.zig");
 const arena_binding_mod = @import("integrations/cairo_metal/arena_binding.zig");
+const runtime_decommit_geometry = @import("integrations/cairo_metal/runtime_decommit_geometry.zig");
 const metal_runtime = @import("backends/metal/runtime.zig");
 const protocol_recipes = @import("backends/metal/protocol_recipes.zig");
 const adapted_input = @import("frontends/cairo/adapter/adapted_input.zig");
@@ -2779,13 +2780,24 @@ fn runOne(
             "TranscriptOutput",
         }) |wanted_purpose| try logPurposeLayout(schedule, plan, wanted_purpose);
     }
+    var decommit_geometry: ?runtime_decommit_geometry.OwnedProofDecommitGeometry = if (composition_bundle) |bundle|
+        try runtime_decommit_geometry.OwnedProofDecommitGeometry.init(
+            allocator,
+            schedule,
+            plan,
+            bundle,
+        )
+    else
+        null;
+    defer if (decommit_geometry) |*geometry| geometry.deinit();
     var proof_bindings: ?arena_binding_mod.PreparedProofBindings = if (composition_bundle != null)
-        try arena_binding_mod.PreparedProofBindings.initSn2(
+        try arena_binding_mod.PreparedProofBindings.init(
             allocator,
             schedule,
             plan,
             composition_bundle.?,
             relation_bundle orelse return error.MissingRelationBundle,
+            decommit_geometry.?.geometry(),
         )
     else
         null;
@@ -2866,7 +2878,10 @@ fn runOne(
     var preprocessed_coefficients_loaded_bytes: u64 = 0;
     var preprocessed_coefficients_reconstructed_bytes: u64 = 0;
     var commitment_roots: [4]?[32]u8 = .{ null, null, null, null };
-    var fri_roots: [8]?[32]u8 = .{ null, null, null, null, null, null, null, null };
+    const fri_root_count = if (proof_bindings) |bindings| bindings.decommit_fri_trees.len else 0;
+    const fri_roots = try allocator.alloc(?[32]u8, fri_root_count);
+    defer allocator.free(fri_roots);
+    @memset(fri_roots, null);
     const requested_commit_tree_count = if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_COMMITMENTS")) blk: {
         const tree_count = if (std.process.getEnvVarOwned(allocator, "STWO_ZIG_SN2_COMMIT_TREE_COUNT")) |value| value_blk: {
             defer allocator.free(value);
@@ -4372,7 +4387,11 @@ fn runOne(
                 std.debug.print("fri_prepare done\n", .{});
             if (execute_fri) {
                 if (!quotient_executed) return error.QuotientRequired;
-                for (0..8) |round| {
+                if (transcript_reference) |fixture| {
+                    if (fixture.fri_inputs.len != bindings.decommit_fri_trees.len)
+                        return error.InvalidTranscriptReference;
+                }
+                for (0..bindings.decommit_fri_trees.len) |round| {
                     const root_binding = try fri.commitTree(round);
                     var root: [32]u8 = undefined;
                     @memcpy(&root, (try resident_arena.bytes(root_binding))[0..32]);
@@ -4398,8 +4417,8 @@ fn runOne(
                 fri_reference_parity = transcript_reference != null;
                 if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_LOG_STAGE_TIMINGS"))
                     std.debug.print(
-                        "fri stage=execute gpu_ms={d:.3} roots=8 final_degree=valid parity={s}\n",
-                        .{ fri_gpu_ms, if (fri_reference_parity) "exact" else "unchecked" },
+                        "fri stage=execute gpu_ms={d:.3} roots={} final_degree=valid parity={s}\n",
+                        .{ fri_gpu_ms, bindings.decommit_fri_trees.len, if (fri_reference_parity) "exact" else "unchecked" },
                     );
             }
             if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_LOG_STAGE_TIMINGS"))
@@ -4426,7 +4445,7 @@ fn runOne(
                 query_pow_invocations = transcript.query_pow.invocations;
                 if (query_pow_invocations != 0)
                     query_pow_bits = transcript.query_pow.pow_bits;
-                decommit_lde_gpu_ms = try bindings.executeSn2Decommit(
+                decommit_lde_gpu_ms = try bindings.executeDecommit(
                     allocator,
                     metal,
                     resident_arena,
@@ -5519,7 +5538,7 @@ const TranscriptReferenceFixture = struct {
     expected_output_2: [4]u32,
     expected_output_3: [4]u32,
     expected_output_4: [4]u32,
-    fri_inputs: [8][8]u32,
+    fri_inputs: [][8]u32,
     input_30: [4]u32,
     input_31: [2]u32,
     query_nonce: u64,
@@ -5534,7 +5553,8 @@ const TranscriptReferenceFixture = struct {
         const outputs = parsed.value.object.get("expected_outputs") orelse return error.InvalidTranscriptReference;
         const fri_inputs_value = parsed.value.object.get("fri_inputs") orelse return error.InvalidTranscriptReference;
         if (inputs != .object or outputs != .object or fri_inputs_value != .array or
-            fri_inputs_value.array.items.len != 8)
+            fri_inputs_value.array.items.len == 0 or
+            fri_inputs_value.array.items.len > protocol_recipes.FriGeometry.max_round_count)
             return error.InvalidTranscriptReference;
         const nonce_words = try jsonFixedWords(2, inputs.object.get("21") orelse return error.InvalidTranscriptReference);
         const z = try jsonFixedWords(4, parsed.value.object.get("z") orelse return error.InvalidTranscriptReference);
@@ -5554,7 +5574,8 @@ const TranscriptReferenceFixture = struct {
         const input_25 = try allocator.alloc(u32, input_25_value.array.items.len);
         errdefer allocator.free(input_25);
         try jsonWords(input_25_value, input_25);
-        var fri_inputs: [8][8]u32 = undefined;
+        const fri_inputs = try allocator.alloc([8]u32, fri_inputs_value.array.items.len);
+        errdefer allocator.free(fri_inputs);
         for (fri_inputs_value.array.items, 0..) |fri_input, index| {
             if (fri_input != .object) return error.InvalidTranscriptReference;
             const ordinal = fri_input.object.get("ordinal") orelse return error.InvalidTranscriptReference;
@@ -5586,6 +5607,7 @@ const TranscriptReferenceFixture = struct {
     fn deinit(self: *TranscriptReferenceFixture) void {
         self.allocator.free(self.input_22);
         self.allocator.free(self.input_25);
+        self.allocator.free(self.fri_inputs);
         self.* = undefined;
     }
 };

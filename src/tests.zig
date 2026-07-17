@@ -13,6 +13,7 @@ test {
         _ = @import("tests/metal/cairo_transcript_fixture_test.zig");
         _ = @import("tests/metal/eval_codegen_test.zig");
         _ = @import("tests/metal/recipe_requirements_test.zig");
+        _ = @import("tests/metal/runtime_decommit_geometry_test.zig");
         _ = @import("tools/metal_session/artifacts/manifest.zig");
         _ = @import("tools/metal_session/artifacts/store.zig");
         _ = @import("tools/metal_session/artifacts/views.zig");
