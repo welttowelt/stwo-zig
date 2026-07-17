@@ -1,5 +1,5 @@
 const std = @import("std");
-const codegen = @import("backends/metal/witness_codegen.zig");
+const codegen = @import("integrations/cairo_metal/witness_codegen.zig");
 const bundle_mod = @import("frontends/cairo/witness/bundle.zig");
 
 pub fn main() !void {

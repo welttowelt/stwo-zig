@@ -12,7 +12,7 @@ pub const KernelMode = enum {
 };
 
 pub fn preambleParts() [3][]const u8 {
-    const source = @embedFile("kernels.metal");
+    const source = @embedFile("../../backends/metal/kernels.metal");
     const arithmetic_start = std.mem.indexOf(u8, source, "inline uint m31_reduce") orelse unreachable;
     const arithmetic_end = std.mem.indexOf(u8, source, "kernel void stwo_zig_witness_input_gather_resident") orelse unreachable;
     const helpers_start = std.mem.indexOf(u8, source, "inline uint witness_table_limb") orelse unreachable;
@@ -37,7 +37,7 @@ pub fn preamblePartsForProgram(program: witness.Program) [5][]const u8 {
         return .{ full[0], full[1], full[2], "", "" };
     }
 
-    const source = @embedFile("kernels.metal");
+    const source = @embedFile("../../backends/metal/kernels.metal");
     const m31_start = std.mem.indexOf(u8, source, "inline uint m31_reduce") orelse unreachable;
     const felt_start = std.mem.indexOf(u8, source, "struct Felt252Metal") orelse unreachable;
     const args_start = std.mem.indexOf(u8, source, "struct WitnessArgs") orelse unreachable;

@@ -6,6 +6,7 @@ pub const backend = @import("backend/mod.zig");
 pub const backends = @import("backends/mod.zig");
 pub const prover = @import("prover/mod.zig");
 pub const frontends = @import("frontends/mod.zig");
+pub const integrations = @import("integrations/mod.zig");
 pub const examples = @import("examples/mod.zig");
 pub const interop = @import("interop/mod.zig");
 pub const std_shims = @import("std_shims/mod.zig");

@@ -12,7 +12,6 @@ pub const proof_bundle = @import("proof_bundle.zig");
 pub const resident_verifier = @import("resident_verifier.zig");
 pub const proof_plan = @import("../proof_plan.zig");
 pub const witness_scheduler = @import("../witness_scheduler.zig");
-pub const memory_trace = @import("../memory_trace.zig");
 
 test {
     _ = eval_program;

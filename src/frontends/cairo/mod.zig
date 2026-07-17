@@ -29,7 +29,6 @@ pub const statement_bootstrap = @import("statement_bootstrap.zig");
 pub const compact_verifier_interchange = @import("compact_verifier_interchange.zig");
 pub const witness_scheduler = @import("witness_scheduler.zig");
 pub const staged_arena_planner = @import("staged_arena_planner.zig");
-pub const memory_trace = @import("memory_trace.zig");
 pub const witness = @import("witness/mod.zig");
 
 // Convenience re-exports.

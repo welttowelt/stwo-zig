@@ -551,6 +551,12 @@ This ledger maps every public export in the Zig root/module API surface to the p
       "rust_path": null,
       "source": "src/stwo.zig"
     },
+    "stwo.integrations": {
+      "kind": "const",
+      "rationale": "Zig composition namespace for frontend/backend adapters; proof semantics remain parity-gated against upstream Stwo.",
+      "rust_path": null,
+      "source": "src/stwo.zig"
+    },
     "stwo.interop": {
       "kind": "const",
       "rationale": "Zig/Rust interoperability wire helper for conformance harness; no direct upstream crate export symbol.",
