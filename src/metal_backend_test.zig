@@ -28,7 +28,7 @@ const secure_circle_poly = @import("prover/poly/circle/secure_poly.zig");
 const cairo_arena_binding = @import("integrations/cairo_metal/arena_binding.zig");
 const cairo_proof_plan = @import("frontends/cairo/proof_plan.zig");
 const cairo_witness_bundle = @import("frontends/cairo/witness/bundle.zig");
-const cairo_oods = @import("frontends/cairo/witness/oods.zig");
+const cairo_oods = @import("integrations/cairo_metal/oods.zig");
 const cairo_quotient_inputs = @import("frontends/cairo/witness/quotient_inputs.zig");
 
 const M31 = m31.M31;

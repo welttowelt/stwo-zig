@@ -1,13 +1,13 @@
 const std = @import("std");
-const arena_plan = @import("../../../backends/metal/arena_plan.zig");
-const metal_runtime = @import("../../../backends/metal/runtime.zig");
-const composition_bundle = @import("composition_bundle.zig");
-const eval_program = @import("eval_program.zig");
-const circle = @import("../../../core/circle.zig");
-const canonic = @import("../../../core/poly/circle/canonic.zig");
-const circle_poly = @import("../../../prover/poly/circle/poly.zig");
-const M31 = @import("../../../core/fields/m31.zig").M31;
-const QM31 = @import("../../../core/fields/qm31.zig").QM31;
+const arena_plan = @import("../../backends/metal/arena_plan.zig");
+const metal_runtime = @import("../../backends/metal/runtime.zig");
+const composition_bundle = @import("../../frontends/cairo/witness/composition_bundle.zig");
+const eval_program = @import("../../frontends/cairo/witness/eval_program.zig");
+const circle = @import("../../core/circle.zig");
+const canonic = @import("../../core/poly/circle/canonic.zig");
+const circle_poly = @import("../../prover/poly/circle/poly.zig");
+const M31 = @import("../../core/fields/m31.zig").M31;
+const QM31 = @import("../../core/fields/qm31.zig").QM31;
 
 pub const Telemetry = struct {
     wall_ms: f64,
