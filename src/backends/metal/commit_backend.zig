@@ -1,5 +1,6 @@
 const std = @import("std");
 const cpu = @import("../cpu_scalar/mod.zig").CpuBackend;
+const commit_policy = @import("commit_policy.zig");
 const runtime_mod = @import("runtime.zig");
 const merkle = @import("../../prover/vcs_lifted/prover.zig");
 const metal_merkle = @import("merkle_tree.zig");
@@ -110,6 +111,22 @@ pub const MetalCommitBackend = struct {
         return column;
     }
 
+    /// Places coordinate conversion where the immediately following Merkle
+    /// commitment will execute. Small host commitments avoid a synchronous GPU
+    /// dispatch and allocate their coordinate planes from the proof allocator.
+    pub fn secureColumnForMerkle(
+        allocator: std.mem.Allocator,
+        evaluation: @import("../../prover/line.zig").LineEvaluation,
+    ) !@import("../../prover/secure_column.zig").SecureColumnByCoords {
+        if (!commit_policy.secureColumnUsesResidentMerkle(evaluation.len())) {
+            return @import("../../prover/secure_column.zig").SecureColumnByCoords.fromSecureSlice(
+                allocator,
+                evaluation.values,
+            );
+        }
+        return secureColumnFromLine(evaluation);
+    }
+
     pub fn commitMerkle(
         comptime H: type,
         allocator: std.mem.Allocator,
@@ -117,7 +134,7 @@ pub const MetalCommitBackend = struct {
     ) !MerkleTree(H) {
         var cells: usize = 0;
         for (columns) |column| cells = try std.math.add(usize, cells, column.len);
-        if (cells < (1 << 24)) {
+        if (!commit_policy.usesResidentMerkle(cells)) {
             const host_tree = try merkle.MerkleProverLifted(H).commit(allocator, columns);
             telemetry.record(.host_merkle_commit);
             telemetry.record(.cpu_small_merkle_commit);

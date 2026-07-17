@@ -16,6 +16,7 @@ const qm31 = @import("core/fields/qm31.zig");
 const line = @import("core/poly/line.zig");
 const prover_line = @import("prover/line.zig");
 const MetalBackend = @import("backends/metal/commit_backend.zig").MetalCommitBackend;
+const metal_commit_policy = @import("backends/metal/commit_policy.zig");
 const eval_program = @import("frontends/cairo/witness/eval_program.zig");
 const eval_codegen = @import("integrations/cairo_metal/eval_codegen.zig");
 const circle_core = @import("core/circle.zig");
@@ -45,6 +46,19 @@ fn testResidentBinding(logical_id: u32, offset_words: u32, word_count: u32) aren
         .materialization = .resident,
         .occupied = [_]u64{0} ** (arena_plan.max_ticks / 64),
     };
+}
+
+test "metal: FRI commitment policy shares the exact secure-column boundary" {
+    const cell_threshold = metal_commit_policy.merkle_cell_threshold;
+    try std.testing.expect(!metal_commit_policy.usesResidentMerkle(cell_threshold - 1));
+    try std.testing.expect(metal_commit_policy.usesResidentMerkle(cell_threshold));
+
+    const value_threshold = cell_threshold / qm31.SECURE_EXTENSION_DEGREE;
+    try std.testing.expect(!metal_commit_policy.secureColumnUsesResidentMerkle(value_threshold - 1));
+    try std.testing.expect(metal_commit_policy.secureColumnUsesResidentMerkle(value_threshold));
+    try std.testing.expect(
+        metal_commit_policy.secureColumnUsesResidentMerkle(std.math.maxInt(usize)),
+    );
 }
 
 test {
@@ -1132,9 +1146,27 @@ test "metal: resident FRI folds and coordinate conversion match CPU" {
     );
     try std.testing.expectEqualSlices(QM31, expected, resident_line.values);
 
+    const resident_telemetry_before = try MetalBackend.telemetrySnapshot();
     var coordinates = try MetalBackend.secureColumnFromLine(resident_line);
     defer coordinates.deinit(allocator);
+    const resident_telemetry_after = try MetalBackend.telemetrySnapshot();
+    const resident_telemetry_delta = resident_telemetry_after.delta(resident_telemetry_before);
+    try std.testing.expectEqual(
+        @as(u64, 1),
+        resident_telemetry_delta.counters.metal_qm31_coordinate_dispatches,
+    );
     for (expected, 0..) |value, index| try std.testing.expect(value.eql(coordinates.at(index)));
+
+    const telemetry_before = resident_telemetry_after;
+    var host_coordinates = try MetalBackend.secureColumnForMerkle(allocator, resident_line);
+    defer host_coordinates.deinit(allocator);
+    const telemetry_after = try MetalBackend.telemetrySnapshot();
+    const telemetry_delta = telemetry_after.delta(telemetry_before);
+    try std.testing.expect(!metal_commit_policy.secureColumnUsesResidentMerkle(resident_line.len()));
+    try std.testing.expect(host_coordinates.resident_storage == null);
+    try std.testing.expect(host_coordinates.contiguous);
+    try std.testing.expectEqual(@as(u64, 0), telemetry_delta.counters.metal_qm31_coordinate_dispatches);
+    for (expected, 0..) |value, index| try std.testing.expect(value.eql(host_coordinates.at(index)));
 
     var cpu_line_workspace = try core_fri.FoldLineWorkspace.init(allocator, expected.len / 2);
     defer cpu_line_workspace.deinit(allocator);

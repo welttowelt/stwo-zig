@@ -7,6 +7,10 @@
 /// Required declarations:
 ///   - `foldCircleIntoLine(allocator, eval, alpha) !LineEvaluation(B)`
 ///   - `foldLine(allocator, eval, alpha) !LineEvaluation(B)`
+///
+/// Optional declarations:
+///   - `secureColumnForMerkle(allocator, evaluation) !SecureColumnByCoords`
+///   - `secureColumnFromLine(evaluation) !SecureColumnByCoords` (legacy fallback)
 pub fn assertFriOps(comptime B: type) void {
     comptime {
         if (!@hasDecl(B, "foldCircleIntoLine")) {

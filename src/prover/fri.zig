@@ -496,7 +496,9 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
             // divisible by FOLD_STEP.
             const last_layer_log_size = std.math.log2_int(usize, config.lastLayerDomainSize());
             while (layer_evaluation.len() > config.lastLayerDomainSize()) {
-                var secure_values = if (comptime @hasDecl(B, "secureColumnFromLine"))
+                var secure_values = if (comptime @hasDecl(B, "secureColumnForMerkle"))
+                    try B.secureColumnForMerkle(allocator, layer_evaluation)
+                else if (comptime @hasDecl(B, "secureColumnFromLine"))
                     try B.secureColumnFromLine(layer_evaluation)
                 else
                     try secure_column.SecureColumnByCoords.fromSecureSlice(
