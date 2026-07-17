@@ -10,6 +10,7 @@ const examples_artifact = stwo.interop.examples_artifact;
 const proof_wire = stwo.interop.proof_wire;
 const stage_profile = stwo.prover.stage_profile;
 const M31_PACK_WIDTH = stwo.core.fields.m31.PACK_WIDTH;
+const HOST_TWIDDLE_BUDGET_BYTES: usize = 256 * 1024 * 1024;
 
 const OVERRIDE_NAMES = [_][]const u8{
     "STWO_ZIG_WORKERS",
@@ -90,9 +91,18 @@ fn execute(
     };
     const rows = @as(u64, 1) << @intCast(args.log_rows);
     const committed_cells = try std.math.mul(u64, rows, args.sequence_len);
+    const max_circle_log = try wide_fibonacci.requiredTwiddleCircleLog(statement, pcs_config);
 
     var init_timer = try std.time.Timer.start();
     if (comptime @hasDecl(Engine, "warmup")) try Engine.warmup();
+    var session = try Engine.initSession(
+        allocator,
+        pcs_config,
+        max_circle_log,
+        HOST_TWIDDLE_BUDGET_BYTES,
+    );
+    defer session.deinit(allocator);
+    const session_construction = session.constructionTelemetry();
     const backend_init_seconds = nsToSeconds(init_timer.read());
     const post_warmup_pipeline_cache: ?report_mod.PipelineCacheDelta = if (backend == .metal_hybrid) blk: {
         const snapshot = try Engine.telemetrySnapshot();
@@ -110,6 +120,7 @@ fn execute(
         var outcome = try runGatedSample(
             Engine,
             backend,
+            &session,
             allocator,
             pcs_config,
             statement,
@@ -164,6 +175,7 @@ fn execute(
         const gated = try runGatedSample(
             Engine,
             backend,
+            &session,
             allocator,
             pcs_config,
             statement,
@@ -298,6 +310,12 @@ fn execute(
             .all_samples_byte_identical = all_samples_byte_identical,
             .artifact = proof_artifact_binding,
         },
+        .session = .{
+            .max_circle_log = max_circle_log,
+            .host_byte_budget = HOST_TWIDDLE_BUDGET_BYTES,
+            .retained_host_twiddle_bytes = session_construction.retained_twiddle_bytes,
+            .tower_build_count = session_construction.tower_build_count,
+        },
         .backend_telemetry = if (backend == .metal_hybrid) .{
             .post_warmup_pipeline_cache = post_warmup_pipeline_cache.?,
             .warmups = warmup_telemetry,
@@ -358,6 +376,7 @@ fn writeProofArtifact(
 fn runGatedSample(
     comptime Engine: type,
     comptime backend: config.Backend,
+    session: *const Engine.Session,
     allocator: std.mem.Allocator,
     pcs_config: stwo.core.pcs.PcsConfig,
     statement: wide_fibonacci.Statement,
@@ -369,6 +388,7 @@ fn runGatedSample(
         const before = try Engine.telemetrySnapshot();
         var sample = try runSample(
             Engine,
+            session,
             allocator,
             pcs_config,
             statement,
@@ -385,6 +405,7 @@ fn runGatedSample(
     return .{
         .sample = try runSample(
             Engine,
+            session,
             allocator,
             pcs_config,
             statement,
@@ -398,6 +419,7 @@ fn runGatedSample(
 
 fn runSample(
     comptime Engine: type,
+    session: *const Engine.Session,
     allocator: std.mem.Allocator,
     pcs_config: stwo.core.pcs.PcsConfig,
     statement: wide_fibonacci.Statement,
@@ -419,8 +441,9 @@ fn runSample(
     };
     var prove_timer = try std.time.Timer.start();
     prepared_owned = false;
-    const output = try wide_fibonacci.provePreparedWithEngine(
+    const output = try wide_fibonacci.provePreparedWithSessionAndEngine(
         Engine,
+        session,
         allocator,
         pcs_config,
         prepared,

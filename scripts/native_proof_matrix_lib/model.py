@@ -7,7 +7,7 @@ import hashlib
 from typing import NamedTuple
 
 
-REPORT_SCHEMA_VERSION = 1
+REPORT_SCHEMA_VERSION = 2
 SUMMARY_SCHEMA_VERSION = 1
 SUMMARY_PROTOCOL = "native_proof_cross_backend_matrix_v1"
 
@@ -63,6 +63,12 @@ HEADLINE_REQUIREMENT_KEYS = {
     "thread_parallelism_enabled",
     "byte_identical_verified_samples",
     "backend_telemetry_valid",
+}
+SESSION_KEYS = {
+    "max_circle_log",
+    "host_byte_budget",
+    "retained_host_twiddle_bytes",
+    "tower_build_count",
 }
 BACKEND_COUNTER_KEYS = {
     "host_merkle_commits",

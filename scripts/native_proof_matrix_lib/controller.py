@@ -129,6 +129,7 @@ def summarize_lane(
             "proof_sha256": artifact["proof_sha256"],
         },
         "metrics": lane_metrics(report, workload),
+        "session": report["session"],
         "backend_telemetry": report.get("backend_telemetry"),
     }
 

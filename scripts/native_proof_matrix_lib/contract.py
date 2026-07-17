@@ -20,6 +20,7 @@ from .model import (
     RATE_ABSOLUTE_TOLERANCE,
     RATE_RELATIVE_TOLERANCE,
     REPORT_SCHEMA_VERSION,
+    SESSION_KEYS,
     MatrixError,
     Workload,
     workload_descriptor_sha256,
@@ -357,6 +358,42 @@ def validate_sample_timing(
         raise MatrixError(f"{context}.committed_mcells_per_second is inconsistent")
 
 
+def validate_session(
+    report: dict[str, Any],
+    lane: str,
+    workload: Workload,
+    protocol: dict[str, Any],
+) -> None:
+    session = require_object(report, "session", lane)
+    context = f"{lane}.session"
+    require_exact_keys(session, SESSION_KEYS, context)
+
+    for field in SESSION_KEYS:
+        value = session[field]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise MatrixError(f"{context}.{field} must be a nonnegative integer")
+
+    required_circle_log = max(
+        workload.log_rows + 1,
+        workload.log_rows + protocol["log_blowup_factor"],
+    )
+    if session["max_circle_log"] < required_circle_log:
+        raise MatrixError(
+            f"{context}.max_circle_log does not cover the workload evaluation domain"
+        )
+    if session["tower_build_count"] != 1:
+        raise MatrixError(f"{context}.tower_build_count must equal 1")
+
+    retained_bytes = session["retained_host_twiddle_bytes"]
+    byte_budget = session["host_byte_budget"]
+    if retained_bytes <= 0:
+        raise MatrixError(f"{context}.retained_host_twiddle_bytes must be positive")
+    if retained_bytes > byte_budget:
+        raise MatrixError(
+            f"{context}.retained_host_twiddle_bytes exceeds host_byte_budget"
+        )
+
+
 def headline_blockers(report: dict[str, Any], lane: str) -> list[str]:
     blockers: list[str] = []
     provenance = require_object(report, "provenance", lane)
@@ -414,6 +451,8 @@ def validate_report(
     )
     if descriptor_digest != workload_descriptor_sha256(workload, args.protocol):
         raise MatrixError(f"{lane} workload descriptor digest is inconsistent")
+
+    validate_session(report, lane, workload, protocol)
 
     timing = require_object(report, "timing", lane)
     backend_init = require_finite_number(

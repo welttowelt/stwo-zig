@@ -177,7 +177,7 @@ def make_report(
             "exchange_mode": INTEROP_EXCHANGE_MODE,
         }
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "backend": "cpu_native" if lane == "cpu" else "metal_hybrid",
         "evidence_class": "verified_unprofiled",
         "profiled": False,
@@ -210,6 +210,12 @@ def make_report(
                 "functional",
             ),
             **workload.as_dict(),
+        },
+        "session": {
+            "max_circle_log": workload.log_rows + 1,
+            "host_byte_budget": 1 << 30,
+            "retained_host_twiddle_bytes": 1 << 20,
+            "tower_build_count": 1,
         },
         "proof": proof,
         "backend_telemetry": telemetry,
@@ -375,6 +381,10 @@ class NativeProofMatrixTests(unittest.TestCase):
                 document["rows"][0]["lanes"]["cpu"]["display_name"],
                 "Zig CPU/SIMD",
             )
+            self.assertEqual(
+                document["rows"][0]["lanes"]["cpu"]["session"],
+                make_report("cpu", workloads[0])["session"],
+            )
             self.assertAlmostEqual(
                 document["rows"][0]["speedup"]["metal_prove_time_speedup"],
                 2.0,
@@ -442,6 +452,65 @@ class NativeProofMatrixTests(unittest.TestCase):
         report = make_report("cpu", workload)
         report["workload"]["descriptor_sha256"] = "f" * 64
         with self.assertRaisesRegex(MODULE.MatrixError, "descriptor digest"):
+            MODULE.validate_report(report, "cpu", workload, args)
+
+    def test_session_schema_is_exact(self):
+        workload = MODULE.Workload(8, 4)
+        args = argparse.Namespace(samples=2, warmups=1, protocol="functional")
+        for mutation in ("missing", "extra"):
+            with self.subTest(mutation=mutation):
+                report = make_report("cpu", workload)
+                if mutation == "missing":
+                    del report["session"]["tower_build_count"]
+                else:
+                    report["session"]["device_twiddle_bytes"] = 1
+                with self.assertRaisesRegex(MODULE.MatrixError, "wrong schema"):
+                    MODULE.validate_report(report, "cpu", workload, args)
+
+    def test_session_builds_one_tower_with_bounded_retained_bytes(self):
+        workload = MODULE.Workload(8, 4)
+        args = argparse.Namespace(samples=2, warmups=1, protocol="functional")
+        mutations = {
+            "zero builds": ("tower_build_count", 0, "must equal 1"),
+            "multiple builds": ("tower_build_count", 2, "must equal 1"),
+            "no retained bytes": (
+                "retained_host_twiddle_bytes",
+                0,
+                "must be positive",
+            ),
+            "over budget": (
+                "retained_host_twiddle_bytes",
+                (1 << 30) + 1,
+                "exceeds host_byte_budget",
+            ),
+        }
+        for name, (field, value, message) in mutations.items():
+            with self.subTest(name=name):
+                report = make_report("metal", workload)
+                report["session"][field] = value
+                with self.assertRaisesRegex(MODULE.MatrixError, message):
+                    MODULE.validate_report(report, "metal", workload, args)
+
+    def test_session_fields_are_integer_counters(self):
+        workload = MODULE.Workload(8, 4)
+        args = argparse.Namespace(samples=2, warmups=1, protocol="functional")
+        for field, value in (
+            ("max_circle_log", True),
+            ("host_byte_budget", 1.5),
+            ("retained_host_twiddle_bytes", -1),
+        ):
+            with self.subTest(field=field):
+                report = make_report("cpu", workload)
+                report["session"][field] = value
+                with self.assertRaisesRegex(MODULE.MatrixError, "nonnegative integer"):
+                    MODULE.validate_report(report, "cpu", workload, args)
+
+    def test_session_max_circle_log_covers_protocol_blowup(self):
+        workload = MODULE.Workload(8, 4)
+        args = argparse.Namespace(samples=2, warmups=1, protocol="functional")
+        report = make_report("cpu", workload)
+        report["session"]["max_circle_log"] = workload.log_rows
+        with self.assertRaisesRegex(MODULE.MatrixError, "does not cover"):
             MODULE.validate_report(report, "cpu", workload, args)
 
     def test_missing_headline_requirement_key_is_fatal(self):

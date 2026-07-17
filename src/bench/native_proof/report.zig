@@ -3,7 +3,7 @@ const stwo = @import("stwo");
 const config = @import("config.zig");
 const statistics = @import("statistics.zig");
 
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 pub const EnvironmentOverride = struct {
     name: []const u8,
@@ -41,6 +41,13 @@ pub const Workload = struct {
     rows: u64,
     sequence_len: u32,
     committed_trace_cells: u64,
+};
+
+pub const Session = struct {
+    max_circle_log: u32,
+    host_byte_budget: usize,
+    retained_host_twiddle_bytes: usize,
+    tower_build_count: u64,
 };
 
 pub const CanonicalProof = struct {
@@ -166,6 +173,7 @@ pub const Report = struct {
     provenance: Provenance,
     protocol: Protocol,
     workload: Workload,
+    session: Session,
     proof: ProofEvidence,
     backend_telemetry: ?BackendTelemetry,
     timing: Timing,
@@ -208,6 +216,12 @@ test "native proof report: diagnostic evidence cannot populate headline rates" {
         },
         .protocol = .{ .name = .smoke, .pow_bits = 0, .log_blowup_factor = 1, .log_last_layer_degree_bound = 0, .n_queries = 3, .fold_step = 1 },
         .workload = .{ .name = "wide_fibonacci", .descriptor_sha256 = "abc", .log_rows = 5, .rows = 32, .sequence_len = 8, .committed_trace_cells = 256 },
+        .session = .{
+            .max_circle_log = 6,
+            .host_byte_budget = 1 << 20,
+            .retained_host_twiddle_bytes = 4096,
+            .tower_build_count = 1,
+        },
         .proof = .{ .samples = &.{.{ .bytes = 42, .sha256 = "def" }}, .verified_samples = 1, .all_samples_byte_identical = true },
         .backend_telemetry = null,
         .timing = .{
@@ -251,6 +265,12 @@ test "native proof report: diagnostic evidence cannot populate headline rates" {
     try std.testing.expect(object.get("backend_telemetry").? == .null);
     try std.testing.expect(object.get("proof").?.object.get("artifact").? == .null);
     try std.testing.expectEqual(@as(usize, 1), object.get("timing").?.object.get("stage_profiles").?.array.items.len);
+    const session = object.get("session").?.object;
+    try std.testing.expectEqual(@as(usize, 4), session.count());
+    try std.testing.expectEqual(@as(i64, 6), session.get("max_circle_log").?.integer);
+    try std.testing.expectEqual(@as(i64, 1 << 20), session.get("host_byte_budget").?.integer);
+    try std.testing.expectEqual(@as(i64, 4096), session.get("retained_host_twiddle_bytes").?.integer);
+    try std.testing.expectEqual(@as(i64, 1), session.get("tower_build_count").?.integer);
 }
 
 test "native proof report: proof artifact binds sample zero" {
