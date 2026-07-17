@@ -7,9 +7,11 @@ const adapted_input = stwo.frontends.cairo.adapter.adapted_input;
 const OpcodeTag = stwo.frontends.cairo.adapter.opcodes.OpcodeTag;
 const witness_bundle = stwo.frontends.cairo.witness.bundle;
 const feed_bundle = stwo.frontends.cairo.witness.feed_bundle;
+const fixed_table_bundle = stwo.frontends.cairo.witness.fixed_table_bundle;
 const receipt = stwo.frontends.cairo.conformance.receipt;
 const direct_trace = stwo.frontends.cairo.conformance.direct_trace;
 const memory_trace = stwo.frontends.cairo.conformance.memory_trace;
+const fixed_trace = stwo.frontends.cairo.conformance.fixed_trace;
 
 pub fn main() !void {
     const allocator = std.heap.smp_allocator;
@@ -22,11 +24,67 @@ pub fn main() !void {
     if (args.len == 6 and std.mem.eql(u8, args[1], "compare-memory")) {
         return compareMemory(allocator, args[2], args[3], args[4], args[5]);
     }
+    if (args.len == 7 and std.mem.eql(u8, args[1], "compare-fixed")) {
+        return compareFixed(allocator, args[2], args[3], args[4], args[5], args[6]);
+    }
     std.debug.print(
-        "usage:\n  cairo-input <adapted-input.stwzcpi>\n  cairo-input compare-direct <adapted-input.stwzcpi> <witness.bin> <rust-receipt.json>\n  cairo-input compare-memory <adapted-input.stwzcpi> <witness.bin> <feeds.bin> <rust-receipt.json>\n",
+        "usage:\n  cairo-input <adapted-input.stwzcpi>\n  cairo-input compare-direct <adapted-input.stwzcpi> <witness.bin> <rust-receipt.json>\n  cairo-input compare-memory <adapted-input.stwzcpi> <witness.bin> <feeds.bin> <rust-receipt.json>\n  cairo-input compare-fixed <adapted-input.stwzcpi> <witness.bin> <feeds.bin> <fixed.bin> <rust-receipt.json>\n",
         .{},
     );
     return error.InvalidArgument;
+}
+
+fn compareFixed(
+    allocator: std.mem.Allocator,
+    input_path: []const u8,
+    witness_path: []const u8,
+    feeds_path: []const u8,
+    fixed_path: []const u8,
+    receipt_path: []const u8,
+) !void {
+    const input_sha256 = try hashFile(input_path);
+    var expected = try receipt.readFile(allocator, receipt_path, .{
+        .input_sha256 = input_sha256,
+        .authority = direct_trace.trace_oracle_authority,
+    });
+    defer expected.deinit();
+    var input = try adapted_input.readFile(allocator, input_path);
+    defer input.deinit(allocator);
+    var witnesses = try witness_bundle.Bundle.readFile(allocator, witness_path);
+    defer witnesses.deinit();
+    var feeds = try feed_bundle.Bundle.readFile(allocator, feeds_path);
+    defer feeds.deinit();
+    var fixed = try fixed_table_bundle.Bundle.readFile(allocator, fixed_path);
+    defer fixed.deinit();
+
+    var report = try fixed_trace.compare(
+        allocator,
+        &input,
+        &witnesses,
+        &feeds,
+        &fixed,
+        expected.components,
+    );
+    defer report.deinit();
+    for (report.matches) |matched| std.debug.print(
+        "match component={d} label={s} rows={d} columns={d}\n",
+        .{ matched.ordinal, matched.label, matched.row_count, matched.column_count },
+    );
+    if (report.mismatch) |mismatch| {
+        std.debug.print(
+            "mismatch component={d} label={s} kind={s} column={d} expected_sha256={x} actual_sha256={x}\n",
+            .{
+                mismatch.component_ordinal,
+                mismatch.component_label,
+                @tagName(mismatch.kind),
+                mismatch.column_ordinal,
+                mismatch.expected_digest,
+                mismatch.actual_digest,
+            },
+        );
+        return error.CairoFixedTraceMismatch;
+    }
+    std.debug.print("fixed trace parity: {d} matched\n", .{report.matches.len});
 }
 
 fn compareMemory(
