@@ -3,7 +3,7 @@ const stwo = @import("stwo");
 const config = @import("config.zig");
 const statistics = @import("statistics.zig");
 
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 
 pub const EnvironmentOverride = struct {
     name: []const u8,
@@ -34,13 +34,29 @@ pub const Protocol = struct {
     fold_step: u32,
 };
 
+pub const WorkloadParameters = union(enum) {
+    wide_fibonacci: config.WideFibonacciParameters,
+    xor: config.XorParameters,
+
+    pub fn jsonStringify(self: WorkloadParameters, writer: anytype) !void {
+        switch (self) {
+            .wide_fibonacci => |parameters| try writer.write(parameters),
+            .xor => |parameters| try writer.write(parameters),
+        }
+    }
+};
+
 pub const Workload = struct {
     name: []const u8,
     descriptor_sha256: []const u8,
-    log_rows: u32,
-    rows: u64,
-    sequence_len: u32,
+    parameters: WorkloadParameters,
+    trace_log_rows: u32,
+    trace_rows: u64,
+    committed_trees: u32,
+    committed_columns: u64,
     committed_trace_cells: u64,
+    native_unit: []const u8,
+    native_units: u64,
 };
 
 pub const Session = struct {
@@ -126,7 +142,10 @@ pub const Sample = struct {
     proof_encode_seconds: f64,
     verify_seconds: f64,
     request_seconds: f64,
-    row_mhz: f64,
+    native_mhz: f64,
+    request_native_mhz: f64,
+    trace_row_mhz: f64,
+    request_trace_row_mhz: f64,
     committed_mcells_per_second: f64,
 };
 
@@ -145,10 +164,15 @@ pub const Timing = struct {
 };
 
 pub const Throughput = struct {
-    native_unit: []const u8 = "trace_rows",
     headline_eligible: bool,
-    headline_row_mhz: ?statistics.Summary,
-    diagnostic_row_mhz: ?statistics.Summary,
+    headline_native_mhz: ?statistics.Summary,
+    diagnostic_native_mhz: ?statistics.Summary,
+    headline_request_native_mhz: ?statistics.Summary,
+    diagnostic_request_native_mhz: ?statistics.Summary,
+    headline_trace_row_mhz: ?statistics.Summary,
+    diagnostic_trace_row_mhz: ?statistics.Summary,
+    headline_request_trace_row_mhz: ?statistics.Summary,
+    diagnostic_request_trace_row_mhz: ?statistics.Summary,
     headline_committed_mcells_per_second: ?statistics.Summary,
     diagnostic_committed_mcells_per_second: ?statistics.Summary,
     headline_requirements: HeadlineRequirements,
@@ -215,7 +239,18 @@ test "native proof report: diagnostic evidence cannot populate headline rates" {
             .complete = true,
         },
         .protocol = .{ .name = .smoke, .pow_bits = 0, .log_blowup_factor = 1, .log_last_layer_degree_bound = 0, .n_queries = 3, .fold_step = 1 },
-        .workload = .{ .name = "wide_fibonacci", .descriptor_sha256 = "abc", .log_rows = 5, .rows = 32, .sequence_len = 8, .committed_trace_cells = 256 },
+        .workload = .{
+            .name = "wide_fibonacci",
+            .descriptor_sha256 = "abc",
+            .parameters = .{ .wide_fibonacci = .{ .log_n_rows = 5, .sequence_len = 8 } },
+            .trace_log_rows = 5,
+            .trace_rows = 32,
+            .committed_trees = 2,
+            .committed_columns = 8,
+            .committed_trace_cells = 256,
+            .native_unit = "trace_rows",
+            .native_units = 32,
+        },
         .session = .{
             .max_circle_log = 6,
             .host_byte_budget = 1 << 20,
@@ -237,8 +272,14 @@ test "native proof report: diagnostic evidence cannot populate headline rates" {
         },
         .throughput = .{
             .headline_eligible = false,
-            .headline_row_mhz = null,
-            .diagnostic_row_mhz = summary,
+            .headline_native_mhz = null,
+            .diagnostic_native_mhz = summary,
+            .headline_request_native_mhz = null,
+            .diagnostic_request_native_mhz = summary,
+            .headline_trace_row_mhz = null,
+            .diagnostic_trace_row_mhz = summary,
+            .headline_request_trace_row_mhz = null,
+            .diagnostic_request_trace_row_mhz = summary,
             .headline_committed_mcells_per_second = null,
             .diagnostic_committed_mcells_per_second = summary,
             .headline_requirements = .{
@@ -260,8 +301,8 @@ test "native proof report: diagnostic evidence cannot populate headline rates" {
     const object = parsed.value.object;
     try std.testing.expectEqualStrings("profiled_diagnostic", object.get("evidence_class").?.string);
     const throughput = object.get("throughput").?.object;
-    try std.testing.expect(throughput.get("headline_row_mhz").? == .null);
-    try std.testing.expect(throughput.get("diagnostic_row_mhz").? == .object);
+    try std.testing.expect(throughput.get("headline_native_mhz").? == .null);
+    try std.testing.expect(throughput.get("diagnostic_native_mhz").? == .object);
     try std.testing.expect(object.get("backend_telemetry").? == .null);
     try std.testing.expect(object.get("proof").?.object.get("artifact").? == .null);
     try std.testing.expectEqual(@as(usize, 1), object.get("timing").?.object.get("stage_profiles").?.array.items.len);

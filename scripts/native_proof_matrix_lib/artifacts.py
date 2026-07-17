@@ -13,7 +13,13 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-from .model import MatrixError, Workload
+from .model import (
+    INTEROP_UPSTREAM_COMMIT,
+    RUST_ORACLE_SHA256,
+    RUST_ORACLE_TOOLCHAIN,
+    MatrixError,
+    Workload,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -213,10 +219,7 @@ def lane_command(
 ) -> list[str]:
     return [
         str(binary),
-        "--log-rows",
-        str(workload.log_rows),
-        "--sequence-len",
-        str(workload.sequence_len),
+        *workload.native_flags(),
         "--warmups",
         str(warmups),
         "--samples",
@@ -226,6 +229,64 @@ def lane_command(
         "--proof-artifact-out",
         str(proof_artifact_path),
     ]
+
+
+def run_rust_oracle(
+    binary: Path,
+    artifact_path: Path,
+    timeout_seconds: float,
+) -> dict[str, Any]:
+    resolved = require_binary(binary, "Rust oracle")
+    binary_sha256 = sha256_file(resolved)
+    if binary_sha256 != RUST_ORACLE_SHA256:
+        raise MatrixError(
+            "Rust oracle binary digest does not match the pinned verifier "
+            f"({binary_sha256} != {RUST_ORACLE_SHA256})"
+        )
+    artifact_sha256 = sha256_file(artifact_path)
+    command = [str(resolved), "--mode", "verify", "--artifact", str(artifact_path)]
+    started = time.perf_counter()
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout_seconds,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise MatrixError(
+            f"Rust oracle timed out after {timeout_seconds} seconds"
+        ) from error
+    elapsed_seconds = time.perf_counter() - started
+    if len(completed.stdout) > MAX_STDOUT_BYTES or len(completed.stderr) > MAX_STDERR_BYTES:
+        raise MatrixError("Rust oracle output exceeded capture limits")
+    if completed.returncode != 0:
+        tail = completed.stderr[-4000:].decode("utf-8", errors="replace")
+        raise MatrixError(
+            f"Rust oracle rejected canonical artifact; stderr tail:\n{tail}"
+        )
+    if completed.stdout.strip() or completed.stderr.strip():
+        raise MatrixError("Rust oracle verify mode produced unexpected output")
+    if sha256_file(resolved) != RUST_ORACLE_SHA256:
+        raise MatrixError("Rust oracle binary changed during verification")
+    if sha256_file(artifact_path) != artifact_sha256:
+        raise MatrixError("canonical artifact changed during Rust verification")
+    return {
+        "status": "passed",
+        "verified": True,
+        "upstream_commit": INTEROP_UPSTREAM_COMMIT,
+        "toolchain": RUST_ORACLE_TOOLCHAIN,
+        "binary_path": str(resolved),
+        "binary_sha256": binary_sha256,
+        "artifact_path": str(artifact_path),
+        "artifact_sha256": artifact_sha256,
+        "command": command,
+        "elapsed_seconds": elapsed_seconds,
+        "stdout_sha256": hashlib.sha256(completed.stdout).hexdigest(),
+        "stderr_sha256": hashlib.sha256(completed.stderr).hexdigest(),
+    }
 
 
 def run_lane(

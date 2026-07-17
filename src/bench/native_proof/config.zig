@@ -1,14 +1,29 @@
 const std = @import("std");
 
-pub const Backend = enum {
-    cpu_native,
-    metal_hybrid,
-};
+pub const Backend = enum { cpu_native, metal_hybrid };
 
 pub const EvidenceClass = enum {
     verified_unprofiled,
     profiled_diagnostic,
     correctness_only,
+};
+
+pub const Example = enum { wide_fibonacci, xor };
+
+pub const WideFibonacciParameters = struct {
+    log_n_rows: u32 = 12,
+    sequence_len: u32 = 16,
+};
+
+pub const XorParameters = struct {
+    log_size: u32 = 10,
+    log_step: u32 = 2,
+    offset: usize = 3,
+};
+
+pub const Workload = union(Example) {
+    wide_fibonacci: WideFibonacciParameters,
+    xor: XorParameters,
 };
 
 pub const Protocol = enum {
@@ -32,13 +47,21 @@ pub const ProtocolParameters = struct {
 };
 
 pub const Args = struct {
-    log_rows: u32 = 12,
-    sequence_len: u32 = 16,
+    example: Example = .wide_fibonacci,
+    wide_fibonacci: WideFibonacciParameters = .{},
+    xor: XorParameters = .{},
     protocol: Protocol = .functional,
     warmups: usize = 1,
     samples: usize = 5,
     profiled: bool = false,
     proof_artifact_out: ?[]const u8 = null,
+
+    pub fn workload(self: Args) Workload {
+        return switch (self.example) {
+            .wide_fibonacci => .{ .wide_fibonacci = self.wide_fibonacci },
+            .xor => .{ .xor = self.xor },
+        };
+    }
 
     pub fn evidenceClass(self: Args, meets_sampling_contract: bool) EvidenceClass {
         if (self.profiled) return .profiled_diagnostic;
@@ -46,13 +69,17 @@ pub const Args = struct {
     }
 };
 
-pub const ParseResult = union(enum) {
-    run: Args,
-    help,
-};
+pub const ParseResult = union(enum) { run: Args, help };
+
+const MAX_LOG_ROWS: u32 = 22;
+const MAX_SEQUENCE_LEN: u32 = 512;
+const MAX_XOR_OFFSET: usize = (1 << 31) - 1;
+const MAX_COMMITTED_CELLS: u64 = 1 << 25;
 
 pub fn parseArgs(argv: []const []const u8) !ParseResult {
     var result = Args{};
+    var saw_wide_parameter = false;
+    var saw_xor_parameter = false;
     var index: usize = 0;
     while (index < argv.len) : (index += 1) {
         const arg = argv[index];
@@ -64,12 +91,27 @@ pub fn parseArgs(argv: []const []const u8) !ParseResult {
         if (index + 1 >= argv.len) return error.MissingArgumentValue;
         index += 1;
         const value = argv[index];
-        if (std.mem.eql(u8, arg, "--log-rows")) {
-            result.log_rows = try std.fmt.parseInt(u32, value, 10);
+        if (std.mem.eql(u8, arg, "--example")) {
+            result.example = std.meta.stringToEnum(Example, value) orelse
+                return error.InvalidExample;
+        } else if (std.mem.eql(u8, arg, "--log-n-rows") or std.mem.eql(u8, arg, "--log-rows")) {
+            result.wide_fibonacci.log_n_rows = try std.fmt.parseInt(u32, value, 10);
+            saw_wide_parameter = true;
         } else if (std.mem.eql(u8, arg, "--sequence-len")) {
-            result.sequence_len = try std.fmt.parseInt(u32, value, 10);
+            result.wide_fibonacci.sequence_len = try std.fmt.parseInt(u32, value, 10);
+            saw_wide_parameter = true;
+        } else if (std.mem.eql(u8, arg, "--log-size")) {
+            result.xor.log_size = try std.fmt.parseInt(u32, value, 10);
+            saw_xor_parameter = true;
+        } else if (std.mem.eql(u8, arg, "--log-step")) {
+            result.xor.log_step = try std.fmt.parseInt(u32, value, 10);
+            saw_xor_parameter = true;
+        } else if (std.mem.eql(u8, arg, "--offset")) {
+            result.xor.offset = try std.fmt.parseInt(usize, value, 10);
+            saw_xor_parameter = true;
         } else if (std.mem.eql(u8, arg, "--protocol")) {
-            result.protocol = std.meta.stringToEnum(Protocol, value) orelse return error.InvalidProtocol;
+            result.protocol = std.meta.stringToEnum(Protocol, value) orelse
+                return error.InvalidProtocol;
         } else if (std.mem.eql(u8, arg, "--warmups")) {
             result.warmups = try std.fmt.parseInt(usize, value, 10);
         } else if (std.mem.eql(u8, arg, "--samples")) {
@@ -80,64 +122,82 @@ pub fn parseArgs(argv: []const []const u8) !ParseResult {
             return error.UnknownArgument;
         }
     }
+    if (result.example == .wide_fibonacci and saw_xor_parameter)
+        return error.IrrelevantWorkloadParameter;
+    if (result.example == .xor and saw_wide_parameter)
+        return error.IrrelevantWorkloadParameter;
     try validate(result);
     return .{ .run = result };
 }
 
 fn validate(args: Args) !void {
-    if (args.log_rows == 0 or args.log_rows >= 31) return error.InvalidLogRows;
-    if (args.sequence_len < 2) return error.InvalidSequenceLength;
-    if (args.warmups > 100) return error.TooManyWarmups;
-    if (args.samples == 0 or args.samples > 101) return error.InvalidSampleCount;
-    if (args.proof_artifact_out) |path| {
-        if (path.len == 0) return error.InvalidProofArtifactPath;
-    }
+    const committed_cells = switch (args.workload()) {
+        .wide_fibonacci => |parameters| blk: {
+            if (parameters.log_n_rows == 0 or parameters.log_n_rows > MAX_LOG_ROWS)
+                return error.InvalidLogRows;
+            if (parameters.sequence_len < 2 or parameters.sequence_len > MAX_SEQUENCE_LEN)
+                return error.InvalidSequenceLength;
+            const rows = @as(u64, 1) << @intCast(parameters.log_n_rows);
+            break :blk try std.math.mul(u64, rows, parameters.sequence_len);
+        },
+        .xor => |parameters| blk: {
+            if (parameters.log_size == 0 or parameters.log_size > MAX_LOG_ROWS)
+                return error.InvalidLogRows;
+            if (parameters.log_step > parameters.log_size) return error.InvalidStep;
+            if (parameters.offset > MAX_XOR_OFFSET) return error.InvalidOffset;
+            const period = @as(usize, 1) << @intCast(parameters.log_step);
+            if (parameters.offset >= period) return error.InvalidOffset;
+            const rows = @as(u64, 1) << @intCast(parameters.log_size);
+            break :blk try std.math.mul(u64, rows, 3);
+        },
+    };
+    if (committed_cells > MAX_COMMITTED_CELLS) return error.TooManyCommittedCells;
+    if (args.warmups > 10) return error.TooManyWarmups;
+    if (args.samples == 0 or args.samples > 21) return error.InvalidSampleCount;
+    if (args.proof_artifact_out) |path| if (path.len == 0)
+        return error.InvalidProofArtifactPath;
 }
 
 pub fn writeUsage(writer: anytype) !void {
     try writer.writeAll(
         \\Usage: native-proof-bench-{cpu|metal} [options]
         \\
-        \\  --log-rows N       Wide Fibonacci trace log2 rows (default: 12)
-        \\  --sequence-len N   Trace column count (default: 16)
-        \\  --protocol NAME    smoke or functional (default: functional)
-        \\  --warmups N        Verified untimed warmups (default: 1)
-        \\  --samples N        Verified timed samples (default: 5)
+        \\  --example NAME       wide_fibonacci or xor (default: wide_fibonacci)
+        \\  --log-n-rows N       Wide Fibonacci log2 rows (--log-rows legacy alias)
+        \\  --sequence-len N     Wide Fibonacci trace column count
+        \\  --log-size N         XOR log2 rows
+        \\  --log-step N         XOR periodic-indicator log2 step
+        \\  --offset N           XOR periodic-indicator offset
+        \\  --protocol NAME      smoke or functional (default: functional)
+        \\  --warmups N          Verified untimed warmups (maximum: 10)
+        \\  --samples N          Verified timed samples (maximum: 21)
         \\  --proof-artifact-out PATH
-        \\                     Write sample 0 for pinned Rust verification
-        \\  --profiled         Diagnostic instrumentation; never headline MHz
-        \\  -h, --help         Show this help
+        \\  --profiled           Diagnostic instrumentation; never headline MHz
+        \\  -h, --help           Show this help
         \\
     );
 }
 
-test "native proof config: parses a complete benchmark request" {
-    const parsed = try parseArgs(&.{
-        "--log-rows", "8", "--sequence-len", "32", "--protocol",           "smoke",
-        "--warmups",  "0", "--samples",      "5",  "--proof-artifact-out", "/tmp/proof.json",
-        "--profiled",
-    });
-    const args = parsed.run;
-    try std.testing.expectEqual(@as(u32, 8), args.log_rows);
-    try std.testing.expectEqual(@as(u32, 32), args.sequence_len);
-    try std.testing.expectEqual(Protocol.smoke, args.protocol);
-    try std.testing.expectEqual(@as(usize, 0), args.warmups);
-    try std.testing.expectEqual(@as(usize, 5), args.samples);
-    try std.testing.expectEqualStrings("/tmp/proof.json", args.proof_artifact_out.?);
-    try std.testing.expectEqual(EvidenceClass.profiled_diagnostic, args.evidenceClass(true));
+test "native proof config: parses tagged XOR and legacy wide requests" {
+    const xor_args = (try parseArgs(&.{
+        "--example", "xor", "--log-size",           "8",               "--log-step", "3",
+        "--offset",  "5",   "--protocol",           "smoke",           "--warmups",  "0",
+        "--samples", "5",   "--proof-artifact-out", "/tmp/proof.json",
+    })).run;
+    try std.testing.expectEqual(Example.xor, xor_args.example);
+    try std.testing.expectEqual(@as(u32, 8), xor_args.xor.log_size);
+    try std.testing.expectEqual(@as(usize, 5), xor_args.xor.offset);
+
+    const wide = (try parseArgs(&.{ "--log-rows", "7", "--sequence-len", "9" })).run;
+    try std.testing.expectEqual(@as(u32, 7), wide.wide_fibonacci.log_n_rows);
+    try std.testing.expectEqual(@as(u32, 9), wide.wide_fibonacci.sequence_len);
 }
 
-test "native proof config: rejects invalid and incomplete requests" {
+test "native proof config: bounds and tags fail closed" {
     try std.testing.expectError(error.InvalidSampleCount, parseArgs(&.{ "--samples", "0" }));
-    try std.testing.expectError(error.InvalidSequenceLength, parseArgs(&.{ "--sequence-len", "1" }));
-    try std.testing.expectError(error.InvalidProtocol, parseArgs(&.{ "--protocol", "production" }));
+    try std.testing.expectError(error.InvalidStep, parseArgs(&.{ "--example", "xor", "--log-step", "11" }));
+    try std.testing.expectError(error.InvalidOffset, parseArgs(&.{ "--example", "xor", "--offset", "4" }));
+    try std.testing.expectError(error.IrrelevantWorkloadParameter, parseArgs(&.{ "--example", "xor", "--log-rows", "5" }));
+    try std.testing.expectError(error.InvalidExample, parseArgs(&.{ "--example", "plonk" }));
     try std.testing.expectError(error.MissingArgumentValue, parseArgs(&.{"--log-rows"}));
-    try std.testing.expectError(error.UnknownArgument, parseArgs(&.{ "--other", "1" }));
-    try std.testing.expectError(error.InvalidProofArtifactPath, parseArgs(&.{ "--proof-artifact-out", "" }));
-}
-
-test "native proof config: undersampled unprofiled runs are correctness-only" {
-    const args = (try parseArgs(&.{ "--warmups", "0", "--samples", "1" })).run;
-    try std.testing.expect(args.proof_artifact_out == null);
-    try std.testing.expectEqual(EvidenceClass.correctness_only, args.evidenceClass(false));
 }

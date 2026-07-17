@@ -800,8 +800,6 @@ fn runGenerate(allocator: std.mem.Allocator, cli: Cli) !void {
                 break :blk try proof_wire.encodeProofBytes(gen_alloc, proof);
             };
             defer gen_alloc.free(proof_bytes);
-            const proof_bytes_hex = try examples_artifact.bytesToHexAlloc(gen_alloc, proof_bytes);
-            defer gen_alloc.free(proof_bytes_hex);
 
             {
                 var artifact_write_stage = try stage_profile.StageScope.begin(
@@ -810,22 +808,14 @@ fn runGenerate(allocator: std.mem.Allocator, cli: Cli) !void {
                     "Artifact write",
                 );
                 defer artifact_write_stage.end();
-                try examples_artifact.writeArtifact(gen_alloc, cli.artifact_path, .{
-                    .schema_version = examples_artifact.SCHEMA_VERSION,
-                    .upstream_commit = examples_artifact.UPSTREAM_COMMIT,
-                    .exchange_mode = examples_artifact.EXCHANGE_MODE,
-                    .generator = "zig",
-                    .example = "wide_fibonacci",
-                    .prove_mode = prove_mode,
-                    .pcs_config = examples_artifact.pcsConfigToWire(config),
-                    .blake_statement = null,
-                    .plonk_statement = null,
-                    .poseidon_statement = null,
-                    .state_machine_statement = null,
-                    .wide_fibonacci_statement = examples_artifact.wideFibonacciStatementToWire(proved_statement),
-                    .xor_statement = null,
-                    .proof_bytes_hex = proof_bytes_hex,
-                });
+                try examples_artifact.writeNativeProofArtifact(
+                    gen_alloc,
+                    cli.artifact_path,
+                    config,
+                    prove_mode,
+                    .{ .wide_fibonacci = proved_statement },
+                    proof_bytes,
+                );
             }
             if (cli.stage_profile_out) |path| {
                 try writeStageProfile(gen_alloc, &maybe_stage_recorder.?, path);
@@ -861,25 +851,14 @@ fn runGenerate(allocator: std.mem.Allocator, cli: Cli) !void {
 
             const proof_bytes = try proof_wire.encodeProofBytes(gen_alloc, proof);
             defer gen_alloc.free(proof_bytes);
-            const proof_bytes_hex = try examples_artifact.bytesToHexAlloc(gen_alloc, proof_bytes);
-            defer gen_alloc.free(proof_bytes_hex);
-
-            try examples_artifact.writeArtifact(gen_alloc, cli.artifact_path, .{
-                .schema_version = examples_artifact.SCHEMA_VERSION,
-                .upstream_commit = examples_artifact.UPSTREAM_COMMIT,
-                .exchange_mode = examples_artifact.EXCHANGE_MODE,
-                .generator = "zig",
-                .example = "xor",
-                .prove_mode = prove_mode,
-                .pcs_config = examples_artifact.pcsConfigToWire(config),
-                .blake_statement = null,
-                .plonk_statement = null,
-                .poseidon_statement = null,
-                .state_machine_statement = null,
-                .wide_fibonacci_statement = null,
-                .xor_statement = examples_artifact.xorStatementToWire(proved_statement),
-                .proof_bytes_hex = proof_bytes_hex,
-            });
+            try examples_artifact.writeNativeProofArtifact(
+                gen_alloc,
+                cli.artifact_path,
+                config,
+                prove_mode,
+                .{ .xor = proved_statement },
+                proof_bytes,
+            );
         },
     }
 }

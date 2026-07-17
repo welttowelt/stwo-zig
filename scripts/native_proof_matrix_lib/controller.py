@@ -17,6 +17,7 @@ from .artifacts import (
     require_binary,
     require_unprofiled_environment,
     run_lane,
+    run_rust_oracle,
     sha256_file,
 )
 from .contract import validate_pair, validate_proof_artifact, validate_report
@@ -57,15 +58,15 @@ def lane_metrics(
             "proof_encode_seconds",
             "verify_seconds",
             "request_seconds",
-            "row_mhz",
+            "native_mhz",
+            "request_native_mhz",
+            "trace_row_mhz",
+            "request_trace_row_mhz",
             "committed_mcells_per_second",
         )
     }
     metrics["backend_init_seconds"] = numeric_summary(
         [float(report["timing"]["backend_init_seconds"])]
-    )
-    metrics["request_row_mhz"] = numeric_summary(
-        [workload.rows / float(sample["request_seconds"]) / 1_000_000.0 for sample in samples]
     )
     return metrics
 
@@ -81,11 +82,18 @@ def comparison_metrics(
         "metal_request_time_speedup": (
             cpu["request_seconds"]["median"] / metal["request_seconds"]["median"]
         ),
-        "metal_row_mhz_speedup": (
-            metal["row_mhz"]["median"] / cpu["row_mhz"]["median"]
+        "metal_native_mhz_speedup": (
+            metal["native_mhz"]["median"] / cpu["native_mhz"]["median"]
         ),
-        "metal_request_row_mhz_speedup": (
-            metal["request_row_mhz"]["median"] / cpu["request_row_mhz"]["median"]
+        "metal_request_native_mhz_speedup": (
+            metal["request_native_mhz"]["median"] / cpu["request_native_mhz"]["median"]
+        ),
+        "metal_trace_row_mhz_speedup": (
+            metal["trace_row_mhz"]["median"] / cpu["trace_row_mhz"]["median"]
+        ),
+        "metal_request_trace_row_mhz_speedup": (
+            metal["request_trace_row_mhz"]["median"]
+            / cpu["request_trace_row_mhz"]["median"]
         ),
         "metal_committed_mcells_speedup": (
             metal["committed_mcells_per_second"]["median"]
@@ -140,11 +148,16 @@ def run_matrix(args: argparse.Namespace) -> dict[str, Any]:
         "cpu": require_binary(args.cpu_bin, "cpu"),
         "metal": require_binary(args.metal_bin, "metal"),
     }
+    rust_oracle = (
+        require_binary(args.rust_oracle_bin, "Rust oracle") if args.formal else None
+    )
     binary_hashes = {lane: sha256_file(binary) for lane, binary in binaries.items()}
     output_dir = args.output_dir.resolve()
     with output_dir_lock(output_dir):
         prepare_output_dir(output_dir)
-        return _run_matrix_locked(args, binaries, binary_hashes, output_dir)
+        return _run_matrix_locked(
+            args, binaries, binary_hashes, output_dir, rust_oracle
+        )
 
 
 def _run_matrix_locked(
@@ -152,6 +165,7 @@ def _run_matrix_locked(
     binaries: dict[str, Path],
     binary_hashes: dict[str, str],
     output_dir: Path,
+    rust_oracle: Path | None,
 ) -> dict[str, Any]:
     total_lanes = len(args.workloads) * len(LANES)
     completed_lanes = 0
@@ -201,6 +215,20 @@ def _run_matrix_locked(
             fingerprints["cpu"],
             fingerprints["metal"],
         )
+        if (
+            executions["cpu"]["proof_artifact"]["document"]["proof_bytes_hex"]
+            != executions["metal"]["proof_artifact"]["document"]["proof_bytes_hex"]
+        ):
+            raise MatrixError("CPU and Metal canonical proof bytes differ")
+        oracle_evidence = (
+            run_rust_oracle(
+                rust_oracle,
+                executions["cpu"]["proof_artifact"]["path"],
+                args.timeout_seconds,
+            )
+            if rust_oracle is not None
+            else None
+        )
         row_provenance = executions["cpu"]["report"]["provenance"]
         if matrix_provenance is None:
             matrix_provenance = row_provenance
@@ -220,12 +248,13 @@ def _run_matrix_locked(
         result_rows.append(
             {
                 "index": row_index,
-                "workload": workload.as_dict(),
+                "workload": workload.report_dict(),
                 "descriptor_sha256": executions["cpu"]["report"]["workload"]["descriptor_sha256"],
                 "lane_order": lane_order,
                 "proof_digest_sha256": fingerprints["cpu"][0],
                 "proof_bytes": fingerprints["cpu"][1],
                 "proof_parity": True,
+                "rust_oracle": oracle_evidence,
                 "headline_eligible": not unique_blockers,
                 "headline_blockers": unique_blockers,
                 "lanes": lane_summaries,
@@ -241,10 +270,12 @@ def _run_matrix_locked(
         "protocol": SUMMARY_PROTOCOL,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "correctness_scope": {
-            "classification": "zig_cross_backend_parity",
+            "classification": (
+                "pinned_rust_stwo_oracle" if args.formal else "zig_cross_backend_parity"
+            ),
             "cpu_metal_canonical_proof_equality": True,
-            "pinned_rust_stwo_oracle_checked": False,
-            "final_correctness_oracle": "pinned Rust Stwo; outside this controller",
+            "pinned_rust_stwo_oracle_checked": args.formal,
+            "final_correctness_oracle": "pinned Rust Stwo",
         },
         "configuration": {
             "proof_protocol": args.protocol,
@@ -253,6 +284,7 @@ def _run_matrix_locked(
             "cooldown_seconds": args.cooldown_seconds,
             "timeout_seconds": args.timeout_seconds,
             "execution": "sequential_alternating_lane_order",
+            "formal": args.formal,
             "bounds": {
                 "max_matrix_rows": MAX_MATRIX_ROWS,
                 "max_log_rows": MAX_LOG_ROWS,
@@ -274,6 +306,7 @@ def _run_matrix_locked(
             ),
             "all_proofs_verified_and_byte_identical": True,
             "all_cross_backend_proofs_identical": True,
+            "all_rust_oracles_verified": args.formal,
         },
         "rows": result_rows,
     }

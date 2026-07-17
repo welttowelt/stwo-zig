@@ -2,10 +2,10 @@ const std = @import("std");
 const builtin = @import("builtin");
 const stwo = @import("stwo");
 const config = @import("config.zig");
+const examples = @import("examples.zig");
 const report_mod = @import("report.zig");
 const statistics = @import("statistics.zig");
 
-const wide_fibonacci = stwo.examples.wide_fibonacci;
 const examples_artifact = stwo.interop.examples_artifact;
 const proof_wire = stwo.interop.proof_wire;
 const stage_profile = stwo.prover.stage_profile;
@@ -74,6 +74,37 @@ fn execute(
     allocator: std.mem.Allocator,
     args: config.Args,
 ) !void {
+    return switch (args.workload()) {
+        .wide_fibonacci => |parameters| executeExample(
+            Engine,
+            backend,
+            examples.WideFibonacciSpec,
+            allocator,
+            args,
+            args.workload(),
+            examples.WideFibonacciSpec.request(parameters),
+        ),
+        .xor => |parameters| executeExample(
+            Engine,
+            backend,
+            examples.XorSpec,
+            allocator,
+            args,
+            args.workload(),
+            examples.XorSpec.request(parameters),
+        ),
+    };
+}
+
+fn executeExample(
+    comptime Engine: type,
+    comptime backend: config.Backend,
+    comptime Spec: type,
+    allocator: std.mem.Allocator,
+    args: config.Args,
+    workload: config.Workload,
+    request: Spec.Request,
+) !void {
     const protocol_parameters = args.protocol.parameters();
     var fri_config = try stwo.core.fri.FriConfig.init(
         protocol_parameters.log_last_layer_degree_bound,
@@ -85,13 +116,8 @@ fn execute(
         .pow_bits = protocol_parameters.pow_bits,
         .fri_config = fri_config,
     };
-    const statement = wide_fibonacci.Statement{
-        .log_n_rows = args.log_rows,
-        .sequence_len = args.sequence_len,
-    };
-    const rows = @as(u64, 1) << @intCast(args.log_rows);
-    const committed_cells = try std.math.mul(u64, rows, args.sequence_len);
-    const max_circle_log = try wide_fibonacci.requiredTwiddleCircleLog(statement, pcs_config);
+    const workload_geometry = try examples.geometry(workload);
+    const max_circle_log = try Spec.requiredCircleLog(request, pcs_config);
 
     var init_timer = try std.time.Timer.start();
     if (comptime @hasDecl(Engine, "warmup")) try Engine.warmup();
@@ -104,10 +130,6 @@ fn execute(
     defer session.deinit(allocator);
     const session_construction = session.constructionTelemetry();
     const backend_init_seconds = nsToSeconds(init_timer.read());
-    const post_warmup_pipeline_cache: ?report_mod.PipelineCacheDelta = if (backend == .metal_hybrid) blk: {
-        const snapshot = try Engine.telemetrySnapshot();
-        break :blk pipelineCacheReport(snapshot.pipeline_cache);
-    } else null;
 
     const warmup_seconds = try allocator.alloc(f64, args.warmups);
     defer allocator.free(warmup_seconds);
@@ -120,18 +142,22 @@ fn execute(
         var outcome = try runGatedSample(
             Engine,
             backend,
+            Spec,
             &session,
             allocator,
             pcs_config,
-            statement,
-            rows,
-            committed_cells,
+            request,
+            workload_geometry,
             false,
         );
         defer outcome.sample.deinit(allocator);
         elapsed.* = outcome.sample.timing.request_seconds;
         if (comptime backend == .metal_hybrid) warmup_telemetry[index] = outcome.telemetry.?;
     }
+    const post_warmup_pipeline_cache: ?report_mod.PipelineCacheDelta = if (backend == .metal_hybrid) blk: {
+        const snapshot = try Engine.telemetrySnapshot();
+        break :blk pipelineCacheReport(snapshot.pipeline_cache);
+    } else null;
 
     const samples = try allocator.alloc(report_mod.Sample, args.samples);
     defer allocator.free(samples);
@@ -145,8 +171,14 @@ fn execute(
     defer allocator.free(verify_values);
     const request_values = try allocator.alloc(f64, args.samples);
     defer allocator.free(request_values);
-    const row_rates = try allocator.alloc(f64, args.samples);
-    defer allocator.free(row_rates);
+    const native_rates = try allocator.alloc(f64, args.samples);
+    defer allocator.free(native_rates);
+    const request_native_rates = try allocator.alloc(f64, args.samples);
+    defer allocator.free(request_native_rates);
+    const trace_row_rates = try allocator.alloc(f64, args.samples);
+    defer allocator.free(trace_row_rates);
+    const request_trace_row_rates = try allocator.alloc(f64, args.samples);
+    defer allocator.free(request_trace_row_rates);
     const cell_rates = try allocator.alloc(f64, args.samples);
     defer allocator.free(cell_rates);
     const proof_records = try allocator.alloc(report_mod.CanonicalProof, args.samples);
@@ -175,12 +207,12 @@ fn execute(
         const gated = try runGatedSample(
             Engine,
             backend,
+            Spec,
             &session,
             allocator,
             pcs_config,
-            statement,
-            rows,
-            committed_cells,
+            request,
+            workload_geometry,
             args.profiled,
         );
         var outcome = gated.sample;
@@ -216,12 +248,15 @@ fn execute(
         encode_values[index] = sample.proof_encode_seconds;
         verify_values[index] = sample.verify_seconds;
         request_values[index] = sample.request_seconds;
-        row_rates[index] = sample.row_mhz;
+        native_rates[index] = sample.native_mhz;
+        request_native_rates[index] = sample.request_native_mhz;
+        trace_row_rates[index] = sample.trace_row_mhz;
+        request_trace_row_rates[index] = sample.request_trace_row_mhz;
         cell_rates[index] = sample.committed_mcells_per_second;
     }
 
     const proof_artifact_binding: ?report_mod.ProofArtifactBinding = if (args.proof_artifact_out) |path| blk: {
-        try writeProofArtifact(allocator, path, pcs_config, statement, canonical_proof.?);
+        try Spec.writeArtifact(allocator, path, pcs_config, request, canonical_proof.?);
         break :blk .{
             .path = path,
             .sample_index = 0,
@@ -233,7 +268,7 @@ fn execute(
         };
     } else null;
 
-    const workload_digest = workloadDigest(args, protocol_parameters);
+    const workload_digest = examples.descriptorDigest(workload, args.protocol);
     var workload_digest_hex = std.fmt.bytesToHex(workload_digest, .lower);
 
     var provenance_owned = try collectProvenance(allocator);
@@ -247,7 +282,10 @@ fn execute(
     const encode_summary = try statistics.summarize(allocator, encode_values);
     const verify_summary = try statistics.summarize(allocator, verify_values);
     const request_summary = try statistics.summarize(allocator, request_values);
-    const row_summary = try statistics.summarize(allocator, row_rates);
+    const native_summary = try statistics.summarize(allocator, native_rates);
+    const request_native_summary = try statistics.summarize(allocator, request_native_rates);
+    const trace_row_summary = try statistics.summarize(allocator, trace_row_rates);
+    const request_trace_row_summary = try statistics.summarize(allocator, request_trace_row_rates);
     const cell_summary = try statistics.summarize(allocator, cell_rates);
     const minimum_samples: usize = if (prove_summary.median < 1.0) 5 else 3;
     const meets_sampling_contract = args.warmups >= 1 and args.samples >= minimum_samples;
@@ -297,12 +335,16 @@ fn execute(
             .fold_step = protocol_parameters.fold_step,
         },
         .workload = .{
-            .name = "wide_fibonacci",
+            .name = examples.name(workload),
             .descriptor_sha256 = &workload_digest_hex,
-            .log_rows = args.log_rows,
-            .rows = rows,
-            .sequence_len = args.sequence_len,
-            .committed_trace_cells = committed_cells,
+            .parameters = examples.parameters(workload),
+            .trace_log_rows = workload_geometry.trace_log_rows,
+            .trace_rows = workload_geometry.trace_rows,
+            .committed_trees = workload_geometry.committed_trees,
+            .committed_columns = workload_geometry.committed_columns,
+            .committed_trace_cells = workload_geometry.committed_trace_cells,
+            .native_unit = workload_geometry.native_unit,
+            .native_units = workload_geometry.native_units,
         },
         .proof = .{
             .samples = proof_records,
@@ -337,8 +379,14 @@ fn execute(
         },
         .throughput = .{
             .headline_eligible = headline_eligible,
-            .headline_row_mhz = if (headline_eligible) row_summary else null,
-            .diagnostic_row_mhz = if (evidence_class == .profiled_diagnostic) row_summary else null,
+            .headline_native_mhz = if (headline_eligible) native_summary else null,
+            .diagnostic_native_mhz = if (evidence_class == .profiled_diagnostic) native_summary else null,
+            .headline_request_native_mhz = if (headline_eligible) request_native_summary else null,
+            .diagnostic_request_native_mhz = if (evidence_class == .profiled_diagnostic) request_native_summary else null,
+            .headline_trace_row_mhz = if (headline_eligible) trace_row_summary else null,
+            .diagnostic_trace_row_mhz = if (evidence_class == .profiled_diagnostic) trace_row_summary else null,
+            .headline_request_trace_row_mhz = if (headline_eligible) request_trace_row_summary else null,
+            .diagnostic_request_trace_row_mhz = if (evidence_class == .profiled_diagnostic) request_trace_row_summary else null,
             .headline_committed_mcells_per_second = if (headline_eligible) cell_summary else null,
             .diagnostic_committed_mcells_per_second = if (evidence_class == .profiled_diagnostic) cell_summary else null,
             .headline_requirements = headline_requirements,
@@ -351,49 +399,27 @@ fn execute(
     try stdout.writeByte('\n');
 }
 
-fn writeProofArtifact(
-    allocator: std.mem.Allocator,
-    path: []const u8,
-    pcs_config: stwo.core.pcs.PcsConfig,
-    statement: wide_fibonacci.Statement,
-    canonical_proof: []const u8,
-) !void {
-    const proof_bytes_hex = try examples_artifact.bytesToHexAlloc(allocator, canonical_proof);
-    defer allocator.free(proof_bytes_hex);
-    try examples_artifact.writeArtifact(allocator, path, .{
-        .schema_version = examples_artifact.SCHEMA_VERSION,
-        .upstream_commit = examples_artifact.UPSTREAM_COMMIT,
-        .exchange_mode = examples_artifact.EXCHANGE_MODE,
-        .generator = "zig",
-        .example = "wide_fibonacci",
-        .prove_mode = "prove",
-        .pcs_config = examples_artifact.pcsConfigToWire(pcs_config),
-        .wide_fibonacci_statement = examples_artifact.wideFibonacciStatementToWire(statement),
-        .proof_bytes_hex = proof_bytes_hex,
-    });
-}
-
 fn runGatedSample(
     comptime Engine: type,
     comptime backend: config.Backend,
+    comptime Spec: type,
     session: *const Engine.Session,
     allocator: std.mem.Allocator,
     pcs_config: stwo.core.pcs.PcsConfig,
-    statement: wide_fibonacci.Statement,
-    rows: u64,
-    committed_cells: u64,
+    request: Spec.Request,
+    workload_geometry: examples.Geometry,
     profiled: bool,
 ) !GatedSampleOutcome {
     if (comptime backend == .metal_hybrid) {
         const before = try Engine.telemetrySnapshot();
         var sample = try runSample(
             Engine,
+            Spec,
             session,
             allocator,
             pcs_config,
-            statement,
-            rows,
-            committed_cells,
+            request,
+            workload_geometry,
             profiled,
         );
         errdefer sample.deinit(allocator);
@@ -405,12 +431,12 @@ fn runGatedSample(
     return .{
         .sample = try runSample(
             Engine,
+            Spec,
             session,
             allocator,
             pcs_config,
-            statement,
-            rows,
-            committed_cells,
+            request,
+            workload_geometry,
             profiled,
         ),
         .telemetry = null,
@@ -419,20 +445,20 @@ fn runGatedSample(
 
 fn runSample(
     comptime Engine: type,
+    comptime Spec: type,
     session: *const Engine.Session,
     allocator: std.mem.Allocator,
     pcs_config: stwo.core.pcs.PcsConfig,
-    statement: wide_fibonacci.Statement,
-    rows: u64,
-    committed_cells: u64,
+    request: Spec.Request,
+    workload_geometry: examples.Geometry,
     profiled: bool,
 ) !SampleOutcome {
-    var recorder = stage_profile.Recorder.init(allocator, @tagName(builtin.mode), "wide_fibonacci");
+    var recorder = stage_profile.Recorder.init(allocator, @tagName(builtin.mode), Spec.example_name);
     defer recorder.deinit();
 
     var request_timer = try std.time.Timer.start();
     var input_timer = try std.time.Timer.start();
-    const prepared = try wide_fibonacci.prepareInput(allocator, statement);
+    const prepared = try Spec.prepareInput(allocator, request);
     const input_seconds = nsToSeconds(input_timer.read());
     var prepared_owned = true;
     errdefer if (prepared_owned) {
@@ -441,7 +467,7 @@ fn runSample(
     };
     var prove_timer = try std.time.Timer.start();
     prepared_owned = false;
-    const output = try wide_fibonacci.provePreparedWithSessionAndEngine(
+    const output = try Spec.provePrepared(
         Engine,
         session,
         allocator,
@@ -463,7 +489,7 @@ fn runSample(
 
     var verify_timer = try std.time.Timer.start();
     proof_owned = false;
-    try wide_fibonacci.verify(allocator, pcs_config, output.statement, output.proof);
+    try Spec.verify(allocator, pcs_config, output.statement, output.proof);
     const verify_seconds = nsToSeconds(verify_timer.read());
     const request_seconds = nsToSeconds(request_timer.read());
     return .{
@@ -473,8 +499,11 @@ fn runSample(
             .proof_encode_seconds = encode_seconds,
             .verify_seconds = verify_seconds,
             .request_seconds = request_seconds,
-            .row_mhz = @as(f64, @floatFromInt(rows)) / prove_seconds / 1_000_000.0,
-            .committed_mcells_per_second = @as(f64, @floatFromInt(committed_cells)) / prove_seconds / 1_000_000.0,
+            .native_mhz = rate(workload_geometry.native_units, prove_seconds),
+            .request_native_mhz = rate(workload_geometry.native_units, request_seconds),
+            .trace_row_mhz = rate(workload_geometry.trace_rows, prove_seconds),
+            .request_trace_row_mhz = rate(workload_geometry.trace_rows, request_seconds),
+            .committed_mcells_per_second = rate(workload_geometry.committed_trace_cells, prove_seconds),
         },
         .canonical_proof = canonical,
         .stage_profile = if (profiled) try recorder.snapshot(allocator) else null,
@@ -530,8 +559,22 @@ fn backendTelemetryValid(
 ) bool {
     if (comptime backend == .cpu_native) return warmups.len == 0 and samples.len == 0;
     for (warmups) |delta| if (delta.metal_dispatches == 0) return false;
-    for (samples) |delta| if (delta.metal_dispatches == 0) return false;
+    for (samples) |delta| {
+        if (delta.metal_dispatches == 0 or pipelinePreparationOccurred(delta.pipeline_cache))
+            return false;
+    }
     return true;
+}
+
+fn pipelinePreparationOccurred(cache: report_mod.PipelineCacheDelta) bool {
+    // A pipeline cache hit still accrues lookup time; these counters identify
+    // samples that actually create or load pipeline state after warmup.
+    return cache.library_cache_misses > 0 or
+        cache.binary_archive_hits > 0 or
+        cache.binary_archive_misses > 0 or
+        cache.direct_compiles > 0 or
+        cache.archive_populations > 0 or
+        cache.archive_serializations > 0;
 }
 
 const TelemetryTotals = struct {
@@ -600,28 +643,12 @@ fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) ![]u8 {
     return allocator.dupe(u8, std.mem.trim(u8, result.stdout, " \t\r\n"));
 }
 
-fn workloadDigest(args: config.Args, protocol: config.ProtocolParameters) [32]u8 {
-    var description: [256]u8 = undefined;
-    const bytes = std.fmt.bufPrint(
-        &description,
-        "wide_fibonacci|log_rows={d}|sequence_len={d}|pow_bits={d}|blowup={d}|last={d}|queries={d}|fold={d}",
-        .{
-            args.log_rows,
-            args.sequence_len,
-            protocol.pow_bits,
-            protocol.log_blowup_factor,
-            protocol.log_last_layer_degree_bound,
-            protocol.n_queries,
-            protocol.fold_step,
-        },
-    ) catch unreachable;
-    var digest: [32]u8 = undefined;
-    std.crypto.hash.sha2.Sha256.hash(bytes, &digest, .{});
-    return digest;
-}
-
 fn nsToSeconds(ns: u64) f64 {
     return @as(f64, @floatFromInt(ns)) / std.time.ns_per_s;
+}
+
+fn rate(units: u64, seconds: f64) f64 {
+    return @as(f64, @floatFromInt(units)) / seconds / 1_000_000.0;
 }
 
 test {
@@ -658,6 +685,9 @@ test "native proof runner: every Metal request needs a dispatch" {
     invalid.metal_dispatches = 0;
     try std.testing.expect(backendTelemetryValid(.metal_hybrid, &.{valid}, &.{valid}));
     try std.testing.expect(!backendTelemetryValid(.metal_hybrid, &.{valid}, &.{invalid}));
+    var cold = valid;
+    cold.pipeline_cache.direct_compiles = 1;
+    try std.testing.expect(!backendTelemetryValid(.metal_hybrid, &.{valid}, &.{cold}));
     try std.testing.expect(backendTelemetryValid(.cpu_native, &.{}, &.{}));
 }
 
@@ -673,9 +703,15 @@ test "native proof runner: oracle artifact wraps exact canonical bytes" {
         .pow_bits = 10,
         .fri_config = try stwo.core.fri.FriConfig.init(0, 1, 3),
     };
-    const statement = wide_fibonacci.Statement{ .log_n_rows = 12, .sequence_len = 16 };
+    const statement = stwo.examples.wide_fibonacci.Statement{ .log_n_rows = 12, .sequence_len = 16 };
     const canonical = [_]u8{ 0, 1, 2, 127, 128, 255 };
-    try writeProofArtifact(std.testing.allocator, path, pcs_config, statement, &canonical);
+    try examples.WideFibonacciSpec.writeArtifact(
+        std.testing.allocator,
+        path,
+        pcs_config,
+        statement,
+        &canonical,
+    );
 
     var parsed = try examples_artifact.readArtifact(std.testing.allocator, path);
     defer parsed.deinit();

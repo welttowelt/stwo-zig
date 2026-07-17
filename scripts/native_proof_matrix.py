@@ -70,7 +70,7 @@ def resolve_workloads(
         if args.log_rows is None or args.sequence_lens is None:
             parser.error("--log-rows and --sequence-lens must be provided together")
         workloads = [
-            Workload(log_rows, sequence_len)
+            Workload.wide_fibonacci(log_rows, sequence_len)
             for log_rows in args.log_rows
             for sequence_len in args.sequence_lens
         ]
@@ -95,6 +95,9 @@ def validate_controller_args(
     args: argparse.Namespace,
     parser: argparse.ArgumentParser,
 ) -> None:
+    args.formal = not args.allow_non_headline
+    if args.formal and args.rust_oracle_bin is None:
+        parser.error("formal mode requires --rust-oracle-bin")
     if args.warmups < 0 or args.warmups > MAX_WARMUPS:
         parser.error(f"warmups must be in [0, {MAX_WARMUPS}]")
     if args.samples <= 0 or args.samples > MAX_SAMPLES:
@@ -127,7 +130,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--workload",
         action="append",
         type=parse_workload,
-        help="bounded matrix row as LOG_ROWS:SEQUENCE_LEN; repeat for more rows",
+        help=(
+            "bounded row as EXAMPLE:key=value,...; legacy LOG_ROWS:SEQUENCE_LEN "
+            "selects wide_fibonacci"
+        ),
     )
     parser.add_argument(
         "--log-rows",
@@ -168,6 +174,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--metal-bin",
         type=Path,
         default=ROOT / "zig-out/bin/native-proof-bench-metal",
+    )
+    parser.add_argument(
+        "--rust-oracle-bin",
+        type=Path,
+        help="pinned Rust Stwo verifier executable; required in formal mode",
     )
     parser.add_argument(
         "--allow-non-headline",

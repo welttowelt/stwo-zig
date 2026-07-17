@@ -1,21 +1,26 @@
-"""Static contract and bounded workload model for Native proof matrices."""
+"""Tagged workloads, canonical descriptors, and pre-launch matrix bounds."""
 
 from __future__ import annotations
 
 import argparse
 import hashlib
-from typing import NamedTuple
+from dataclasses import dataclass
 
 
-REPORT_SCHEMA_VERSION = 2
-SUMMARY_SCHEMA_VERSION = 1
-SUMMARY_PROTOCOL = "native_proof_cross_backend_matrix_v1"
+REPORT_SCHEMA_VERSION = 3
+SUMMARY_SCHEMA_VERSION = 3
+SUMMARY_PROTOCOL = "native_proof_cross_backend_matrix_v3"
 
 INTEROP_ARTIFACT_SCHEMA_VERSION = 1
 INTEROP_UPSTREAM_COMMIT = "a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2"
 INTEROP_EXCHANGE_MODE = "proof_exchange_json_wire_v1"
+RUST_ORACLE_TOOLCHAIN = "nightly-2025-07-14"
+RUST_ORACLE_SHA256 = "cbe4d3f107b261285381cd590dbf4b2f86e52eed337843081bd142969f1c4dac"
 
-DEFAULT_WORKLOADS = ("10:8", "12:16")
+DEFAULT_WORKLOADS = (
+    "wide_fibonacci:log_n_rows=10,sequence_len=8",
+    "xor:log_size=10,log_step=2,offset=3",
+)
 DEFAULT_WARMUPS = 1
 DEFAULT_SAMPLES = 5
 DEFAULT_PROTOCOL = "functional"
@@ -24,6 +29,7 @@ DEFAULT_COOLDOWN_SECONDS = 1.0
 MAX_MATRIX_ROWS = 12
 MAX_LOG_ROWS = 22
 MAX_SEQUENCE_LEN = 512
+MAX_XOR_OFFSET = (1 << 31) - 1
 MAX_COMMITTED_TRACE_CELLS = 1 << 25
 MAX_WARMUPS = 10
 MAX_SAMPLES = 21
@@ -32,10 +38,7 @@ MAX_TIMEOUT_SECONDS = 3600.0
 MAX_TOTAL_REQUEST_CELLS = 1 << 30
 
 LANES = ("cpu", "metal")
-EXPECTED_BACKENDS = {
-    "cpu": "cpu_native",
-    "metal": "metal_hybrid",
-}
+EXPECTED_BACKENDS = {"cpu": "cpu_native", "metal": "metal_hybrid"}
 PROTOCOL_PRESETS = {
     "smoke": {
         "name": "smoke",
@@ -105,56 +108,154 @@ ACCELERATED_CLASSIFICATIONS = {
 RATE_RELATIVE_TOLERANCE = 1e-12
 RATE_ABSOLUTE_TOLERANCE = 1e-15
 
+PARAMETER_ORDER = {
+    "wide_fibonacci": ("log_n_rows", "sequence_len"),
+    "xor": ("log_size", "log_step", "offset"),
+}
+NATIVE_UNITS = {
+    "wide_fibonacci": "trace_rows",
+    "xor": "xor_rows",
+}
+
 
 class MatrixError(RuntimeError):
     """A benchmark artifact failed the matrix contract."""
 
 
-class Workload(NamedTuple):
-    log_rows: int
-    sequence_len: int
+@dataclass(frozen=True)
+class Workload:
+    name: str
+    parameter_items: tuple[tuple[str, int], ...]
+
+    @classmethod
+    def wide_fibonacci(cls, log_n_rows: int, sequence_len: int) -> "Workload":
+        return cls(
+            "wide_fibonacci",
+            (("log_n_rows", log_n_rows), ("sequence_len", sequence_len)),
+        )
+
+    @classmethod
+    def xor(cls, log_size: int, log_step: int, offset: int) -> "Workload":
+        return cls(
+            "xor",
+            (("log_size", log_size), ("log_step", log_step), ("offset", offset)),
+        )
 
     @property
-    def rows(self) -> int:
-        return 1 << self.log_rows
+    def parameters(self) -> dict[str, int]:
+        return dict(self.parameter_items)
+
+    @property
+    def trace_log_rows(self) -> int:
+        return self.parameters["log_n_rows" if self.name == "wide_fibonacci" else "log_size"]
+
+    @property
+    def trace_rows(self) -> int:
+        return 1 << self.trace_log_rows
+
+    @property
+    def committed_columns(self) -> int:
+        return self.parameters["sequence_len"] if self.name == "wide_fibonacci" else 3
 
     @property
     def committed_trace_cells(self) -> int:
-        return self.rows * self.sequence_len
+        return self.trace_rows * self.committed_columns
+
+    @property
+    def native_unit(self) -> str:
+        return NATIVE_UNITS[self.name]
+
+    @property
+    def native_units(self) -> int:
+        return self.trace_rows
 
     @property
     def slug(self) -> str:
-        return f"log-{self.log_rows}-sequence-{self.sequence_len}"
+        suffix = "-".join(f"{key}-{value}" for key, value in self.parameter_items)
+        return f"{self.name}-{suffix}"
 
-    def as_dict(self) -> dict[str, int]:
+    def report_dict(self) -> dict[str, object]:
         return {
-            "log_rows": self.log_rows,
-            "rows": self.rows,
-            "sequence_len": self.sequence_len,
+            "name": self.name,
+            "parameters": self.parameters,
+            "trace_log_rows": self.trace_log_rows,
+            "trace_rows": self.trace_rows,
+            "committed_trees": 2,
+            "committed_columns": self.committed_columns,
             "committed_trace_cells": self.committed_trace_cells,
+            "native_unit": self.native_unit,
+            "native_units": self.native_units,
         }
 
+    def native_flags(self) -> list[str]:
+        flags = ["--example", self.name]
+        for key, value in self.parameter_items:
+            flags.extend((f"--{key.replace('_', '-')}", str(value)))
+        return flags
 
-def parse_workload(value: str) -> Workload:
-    parts = value.replace(",", ":").split(":")
-    if len(parts) != 2:
-        raise argparse.ArgumentTypeError("workload must be LOG_ROWS:SEQUENCE_LEN")
-    try:
-        workload = Workload(int(parts[0]), int(parts[1]))
-    except ValueError as error:
-        raise argparse.ArgumentTypeError("workload values must be integers") from error
-    try:
-        validate_workload(workload)
-    except ValueError as error:
-        raise argparse.ArgumentTypeError(str(error)) from error
+
+def _canonical_workload(name: str, parameters: dict[str, int]) -> Workload:
+    expected = PARAMETER_ORDER.get(name)
+    if expected is None:
+        raise ValueError(f"unsupported workload example: {name}")
+    if set(parameters) != set(expected):
+        raise ValueError(
+            f"{name} parameters must be exactly {','.join(expected)}"
+        )
+    ordered = tuple((key, parameters[key]) for key in expected)
+    workload = Workload(name, ordered)
+    validate_workload(workload)
     return workload
 
 
+def parse_workload(value: str) -> Workload:
+    if "=" not in value:
+        parts = value.replace(",", ":").split(":")
+        if len(parts) != 2:
+            raise argparse.ArgumentTypeError(
+                "workload must be EXAMPLE:key=value,... or legacy LOG_ROWS:SEQUENCE_LEN"
+            )
+        try:
+            return _canonical_workload(
+                "wide_fibonacci",
+                {"log_n_rows": int(parts[0]), "sequence_len": int(parts[1])},
+            )
+        except ValueError as error:
+            raise argparse.ArgumentTypeError(str(error)) from error
+
+    try:
+        name, encoded_parameters = value.split(":", 1)
+        parameters: dict[str, int] = {}
+        for item in encoded_parameters.split(","):
+            key, encoded = item.split("=", 1)
+            if not key or key in parameters:
+                raise ValueError("workload parameter names must be unique and nonempty")
+            parameters[key] = int(encoded)
+        return _canonical_workload(name, parameters)
+    except (ValueError, TypeError) as error:
+        raise argparse.ArgumentTypeError(str(error)) from error
+
+
 def validate_workload(workload: Workload) -> None:
-    if workload.log_rows <= 0 or workload.log_rows > MAX_LOG_ROWS:
-        raise ValueError(f"log rows must be in [1, {MAX_LOG_ROWS}]")
-    if workload.sequence_len < 2 or workload.sequence_len > MAX_SEQUENCE_LEN:
-        raise ValueError(f"sequence length must be in [2, {MAX_SEQUENCE_LEN}]")
+    if workload.name not in PARAMETER_ORDER:
+        raise ValueError(f"unsupported workload example: {workload.name}")
+    if tuple(key for key, _ in workload.parameter_items) != PARAMETER_ORDER[workload.name]:
+        raise ValueError("workload parameters are not in canonical order")
+    values = workload.parameters
+    if workload.trace_log_rows <= 0 or workload.trace_log_rows > MAX_LOG_ROWS:
+        raise ValueError(f"trace log rows must be in [1, {MAX_LOG_ROWS}]")
+    if workload.name == "wide_fibonacci":
+        sequence_len = values["sequence_len"]
+        if sequence_len < 2 or sequence_len > MAX_SEQUENCE_LEN:
+            raise ValueError(f"sequence length must be in [2, {MAX_SEQUENCE_LEN}]")
+    else:
+        log_step = values["log_step"]
+        if log_step < 0 or log_step > values["log_size"]:
+            raise ValueError("XOR log_step must be in [0, log_size]")
+        if values["offset"] < 0 or values["offset"] > MAX_XOR_OFFSET:
+            raise ValueError(f"XOR offset must be in [0, {MAX_XOR_OFFSET}]")
+        if values["offset"] >= 1 << log_step:
+            raise ValueError("XOR offset must be smaller than 2^log_step")
     if workload.committed_trace_cells > MAX_COMMITTED_TRACE_CELLS:
         raise ValueError(
             "workload exceeds committed trace cell limit "
@@ -162,15 +263,22 @@ def validate_workload(workload: Workload) -> None:
         )
 
 
-def workload_descriptor_sha256(workload: Workload, protocol_name: str) -> str:
+def descriptor_bytes(workload: Workload, protocol_name: str) -> bytes:
     protocol = PROTOCOL_PRESETS[protocol_name]
-    description = (
-        f"wide_fibonacci|log_rows={workload.log_rows}"
-        f"|sequence_len={workload.sequence_len}"
-        f"|pow_bits={protocol['pow_bits']}"
-        f"|blowup={protocol['log_blowup_factor']}"
-        f"|last={protocol['log_last_layer_degree_bound']}"
-        f"|queries={protocol['n_queries']}"
-        f"|fold={protocol['fold_step']}"
+    fields = ["native-proof-workload-v3", f"example={workload.name}"]
+    fields.extend(f"{key}={value}" for key, value in workload.parameter_items)
+    fields.extend(
+        (
+            f"protocol={protocol['name']}",
+            f"pow_bits={protocol['pow_bits']}",
+            f"log_blowup_factor={protocol['log_blowup_factor']}",
+            f"log_last_layer_degree_bound={protocol['log_last_layer_degree_bound']}",
+            f"n_queries={protocol['n_queries']}",
+            f"fold_step={protocol['fold_step']}",
+        )
     )
-    return hashlib.sha256(description.encode()).hexdigest()
+    return "|".join(fields).encode("ascii")
+
+
+def workload_descriptor_sha256(workload: Workload, protocol_name: str) -> str:
+    return hashlib.sha256(descriptor_bytes(workload, protocol_name)).hexdigest()

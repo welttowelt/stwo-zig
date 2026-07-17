@@ -7,6 +7,7 @@ from .artifacts import (
     output_dir_lock,
     require_unprofiled_environment,
     run_lane,
+    run_rust_oracle,
 )
 from .contract import validate_pair, validate_proof_artifact, validate_report
 from .controller import run_matrix
@@ -21,6 +22,7 @@ from .model import (
     MatrixError,
     PIPELINE_CACHE_COUNTER_KEYS,
     PIPELINE_CACHE_SECONDS_KEY,
+    RUST_ORACLE_SHA256,
     SESSION_KEYS,
     SUMMARY_PROTOCOL,
     Workload,
@@ -40,6 +42,7 @@ __all__ = [
     "MatrixError",
     "PIPELINE_CACHE_COUNTER_KEYS",
     "PIPELINE_CACHE_SECONDS_KEY",
+    "RUST_ORACLE_SHA256",
     "SESSION_KEYS",
     "SUMMARY_PROTOCOL",
     "Workload",
@@ -50,6 +53,7 @@ __all__ = [
     "parse_workload",
     "run_lane",
     "run_matrix",
+    "run_rust_oracle",
     "require_unprofiled_environment",
     "validate_pair",
     "validate_proof_artifact",

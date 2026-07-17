@@ -74,6 +74,11 @@ pub const InteropArtifact = struct {
     proof_bytes_hex: []const u8,
 };
 
+pub const NativeStatement = union(enum) {
+    wide_fibonacci: wide_fibonacci.Statement,
+    xor: xor.Statement,
+};
+
 pub const ArtifactError = error{
     InvalidHexLength,
     InvalidHexDigit,
@@ -93,6 +98,41 @@ pub fn writeArtifact(
     defer file.close();
     try file.writeAll(rendered);
     try file.writeAll("\n");
+}
+
+/// Writes the canonical proof-exchange artifact used by native suite lanes.
+pub fn writeNativeProofArtifact(
+    allocator: std.mem.Allocator,
+    path: []const u8,
+    config: pcs.PcsConfig,
+    prove_mode: []const u8,
+    statement: NativeStatement,
+    proof_bytes: []const u8,
+) !void {
+    const proof_bytes_hex = try bytesToHexAlloc(allocator, proof_bytes);
+    defer allocator.free(proof_bytes_hex);
+
+    var artifact = InteropArtifact{
+        .schema_version = SCHEMA_VERSION,
+        .upstream_commit = UPSTREAM_COMMIT,
+        .exchange_mode = EXCHANGE_MODE,
+        .generator = "zig",
+        .example = undefined,
+        .prove_mode = prove_mode,
+        .pcs_config = pcsConfigToWire(config),
+        .proof_bytes_hex = proof_bytes_hex,
+    };
+    switch (statement) {
+        .wide_fibonacci => |value| {
+            artifact.example = "wide_fibonacci";
+            artifact.wide_fibonacci_statement = wideFibonacciStatementToWire(value);
+        },
+        .xor => |value| {
+            artifact.example = "xor";
+            artifact.xor_statement = xorStatementToWire(value);
+        },
+    }
+    try writeArtifact(allocator, path, artifact);
 }
 
 pub fn readArtifact(allocator: std.mem.Allocator, path: []const u8) !std.json.Parsed(InteropArtifact) {
