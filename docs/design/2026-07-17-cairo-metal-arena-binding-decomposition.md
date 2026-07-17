@@ -1,6 +1,6 @@
 # Cairo Metal Arena Binding Decomposition
 
-Status: required, staged behind the active Cairo parity fix
+Status: active, behavior-preserving migration after Rust-oracle Cairo parity
 
 ## Decision
 
@@ -59,6 +59,25 @@ ownership violations are:
 The module therefore violates progressive disclosure: a caller looking for proof geometry must
 read past commitment execution, and a caller looking for feed geometry inherits composition,
 decommitment, filesystem, diagnostics, and field-arithmetic context.
+
+### Migration ledger (2026-07-17)
+
+The audit table above is the historical pre-migration inventory. The live facade is now 6,604
+lines and delegates these accepted ownership slices without changing its public names:
+
+- `resident/errors.zig` owns the stable Cairo resident integration error set;
+- `resident/twiddles.zig` owns forward and inverse twiddle materialization;
+- `resident/commitment/telemetry.zig` owns the five opt-in commitment digest/sample operations;
+- `resident/preprocessed/storage.zig` owns preprocessed-evaluation spill, complete restore, and
+  fixed-table-selective restore;
+- `resident/lookups/fixed_tables.zig` owns fixed-table recipe preparation and active schedule
+  indexing.
+
+Retained-Merkle spill/restore deliberately remains with the facade until commitment ordering and
+storage move together. It shares canonical tree-purpose ordering with proof binding and commitment
+execution; importing that policy from preprocessed storage or duplicating it would weaken the
+dependency graph. The source-conformance baseline remains in force until the completion criteria
+below are satisfied.
 
 ## Invariants
 
