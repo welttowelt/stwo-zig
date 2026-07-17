@@ -4,6 +4,7 @@ const std = @import("std");
 const core_air_utils = @import("../../core/air/utils.zig");
 const m31 = @import("../../core/fields/m31.zig");
 const prover_pcs = @import("../../prover/pcs/mod.zig");
+const prover_transaction = @import("../common/prover_transaction.zig");
 
 const M31 = m31.M31;
 
@@ -12,18 +13,9 @@ pub const Statement = struct {
     sequence_len: u32,
 };
 
-pub const PreparedInput = struct {
-    statement: Statement,
-    columns: []prover_pcs.ColumnEvaluation,
+pub const PreparedInput = prover_transaction.PreparedInput(Statement);
 
-    pub fn deinit(self: *PreparedInput, allocator: std.mem.Allocator) void {
-        for (self.columns) |column| allocator.free(column.values);
-        allocator.free(self.columns);
-        self.* = undefined;
-    }
-};
-
-pub const Error = error{
+pub const Error = prover_transaction.Error || error{
     InvalidLogSize,
     InvalidSequenceLength,
 };
@@ -97,9 +89,23 @@ pub fn prepare(
     statement: Statement,
 ) (std.mem.Allocator.Error || Error)!PreparedInput {
     const columns = try generate(allocator, statement);
+    var main = prover_transaction.OwnedColumns.init(
+        try intoOwnedColumns(allocator, statement.log_n_rows, columns),
+    );
+    errdefer main.deinit(allocator);
+
+    var preprocessed = prover_transaction.OwnedColumns.init(
+        try allocator.alloc(prover_pcs.ColumnEvaluation, 0),
+    );
+    errdefer preprocessed.deinit(allocator);
+
     return .{
-        .statement = statement,
-        .columns = try intoOwnedColumns(allocator, statement.log_n_rows, columns),
+        .request = statement,
+        .trace = try prover_transaction.PreparedTrace.initOwned(
+            allocator,
+            preprocessed.take(),
+            main.take(),
+        ),
     };
 }
 

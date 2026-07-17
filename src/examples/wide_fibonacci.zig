@@ -17,6 +17,7 @@ const prover_engine = @import("../prover/engine.zig");
 const prover_pcs = @import("../prover/pcs/mod.zig");
 const stage_profile = @import("../prover/stage_profile.zig");
 const secure_column = @import("../prover/secure_column.zig");
+const prover_transaction = @import("common/prover_transaction.zig");
 const trace_input = @import("wide_fibonacci/trace.zig");
 const CpuBackend = @import("../backends/cpu_scalar/mod.zig").CpuBackend;
 
@@ -51,10 +52,7 @@ pub const ProveOutput = struct {
     proof: Proof,
 };
 
-pub const ProveExOutput = struct {
-    statement: Statement,
-    proof: ExtendedProof,
-};
+pub const ProveExOutput = prover_transaction.Output(Statement, ExtendedProof);
 
 pub const PreparedInput = trace_input.PreparedInput;
 
@@ -324,105 +322,19 @@ fn provePreparedExImpl(
     include_all_preprocessed_columns: bool,
     recorder: ?*stage_profile.Recorder,
 ) anyerror!ProveExOutput {
-    comptime prover_engine.assertProverEngine(Engine);
-    var prepared = prepared_input;
-    var prepared_owned = true;
-    errdefer if (prepared_owned) prepared.deinit(allocator);
-    const statement = prepared_input.statement;
-    if (statement.log_n_rows == 0 or statement.log_n_rows >= 31) return Error.InvalidLogSize;
-    if (statement.sequence_len < 2 or prepared_input.columns.len != @as(usize, statement.sequence_len))
-        return Error.InvalidSequenceLength;
-    const required_circle_log = try requiredTwiddleCircleLog(statement, pcs_config);
-
-    const Initialized = struct {
-        channel: Channel,
-        scheme: Engine.Scheme,
-    };
-    const initialized = blk: {
-        var init_stage = try stage_profile.StageScope.begin(
-            recorder,
-            "channel_and_scheme_init",
-            "Channel and scheme init",
-        );
-        defer init_stage.end();
-
-        var channel = Channel{};
-        pcs_config.mixInto(&channel);
-        break :blk Initialized{
-            .channel = channel,
-            .scheme = if (comptime use_session)
-                try Engine.initWithSession(session, pcs_config, required_circle_log)
-            else
-                try Engine.init(allocator, pcs_config),
-        };
-    };
-    var channel = initialized.channel;
-    var scheme = initialized.scheme;
-    var scheme_owned = true;
-    errdefer if (scheme_owned) Engine.deinit(&scheme, allocator);
-
-    {
-        var preprocessed_stage = try stage_profile.StageScope.begin(
-            recorder,
-            "preprocessed_commit",
-            "Preprocessed commit",
-        );
-        defer preprocessed_stage.end();
-        const preprocessed = try allocator.alloc(prover_pcs.ColumnEvaluation, 0);
-        try Engine.commit(&scheme, allocator, preprocessed, recorder, &channel);
-    }
-
-    {
-        var main_trace_stage = try stage_profile.StageScope.begin(
-            recorder,
-            "main_trace_commit",
-            "Main trace commit",
-        );
-        defer main_trace_stage.end();
-        prepared_owned = false;
-        try Engine.commit(&scheme, allocator, prepared.columns, recorder, &channel);
-    }
-
-    {
-        var statement_mix_stage = try stage_profile.StageScope.begin(
-            recorder,
-            "statement_mix",
-            "Statement mix",
-        );
-        defer statement_mix_stage.end();
-        mixStatement(&channel, statement);
-    }
-
-    const component = WideFibonacciComponent{
-        .statement = statement,
-    };
-    const components = [_]prover_component.ComponentProver{
-        component.asProverComponent(),
-    };
-
-    const proof = blk: {
-        var core_prove_stage = try stage_profile.StageScope.begin(
-            recorder,
-            "core_prove",
-            "Core prove",
-        );
-        defer core_prove_stage.end();
-        scheme_owned = false;
-        break :blk try Engine.prove(
-            allocator,
-            components[0..],
-            &channel,
-            scheme,
-            .{
-                .include_all_preprocessed_columns = include_all_preprocessed_columns,
-                .recorder = recorder,
-            },
-        );
-    };
-    return .{
-        .statement = statement,
-        .proof = proof,
-    };
+    return prover_transaction.provePreparedEx(
+        Engine,
+        ProvingSpec,
+        use_session,
+        session,
+        allocator,
+        pcs_config,
+        prepared_input,
+        .{
+            .include_all_preprocessed_columns = include_all_preprocessed_columns,
+            .recorder = recorder,
+        },
+    );
 }
 
 pub fn requiredTwiddleCircleLog(
@@ -622,6 +534,67 @@ const WideFibonacciComponent = struct {
     }
 };
 
+const ProvingSpec = struct {
+    pub const Statement = trace_input.Statement;
+    pub const PreparedInput = trace_input.PreparedInput;
+    pub const max_components: usize = 1;
+
+    pub const ProverContext = struct {
+        statement_value: trace_input.Statement,
+        component: WideFibonacciComponent,
+    };
+
+    pub fn validateRequest(request: trace_input.Statement) Error!void {
+        if (request.log_n_rows == 0 or request.log_n_rows >= 31)
+            return error.InvalidLogSize;
+        if (request.sequence_len < 2) return error.InvalidSequenceLength;
+    }
+
+    pub fn validatePrepared(prepared: *const trace_input.PreparedInput) Error!void {
+        const preprocessed = prepared.trace.preprocessed.columns orelse
+            return error.PreparedInputConsumed;
+        const main = prepared.trace.main.columns orelse
+            return error.PreparedInputConsumed;
+        if (preprocessed.len != 0) return error.InvalidPreparedGeometry;
+        if (main.len != @as(usize, prepared.request.sequence_len))
+            return error.InvalidSequenceLength;
+        for (main) |column| {
+            if (column.log_size != prepared.request.log_n_rows)
+                return error.InvalidPreparedGeometry;
+        }
+    }
+
+    pub fn compositionLog(request: trace_input.Statement) Error!u32 {
+        return std.math.add(u32, request.log_n_rows, 1) catch
+            return error.InvalidLogSize;
+    }
+
+    pub fn initProverContext(
+        out: *ProverContext,
+        channel: *Channel,
+        request: trace_input.Statement,
+    ) !void {
+        mixStatement(channel, request);
+        out.* = .{
+            .statement_value = request,
+            .component = .{ .statement = request },
+        };
+    }
+
+    pub fn statement(context: *const ProverContext) trace_input.Statement {
+        return context.statement_value;
+    }
+
+    pub fn proverComponents(
+        context: *const ProverContext,
+        out: []prover_component.ComponentProver,
+    ) ![]const prover_component.ComponentProver {
+        if (out.len < max_components) return error.InvalidProofShape;
+        out[0] = context.component.asProverComponent();
+        return out[0..1];
+    }
+};
+
 fn compositionEval(statement: Statement) QM31 {
     return QM31.fromM31(
         M31.fromU64(statement.log_n_rows),
@@ -668,6 +641,8 @@ test "examples wide_fibonacci: trace generation follows recurrence" {
 test "examples wide_fibonacci: generic CPU engine owns the proving transaction" {
     const CountingEngine = struct {
         pub const Scheme = CpuProverEngine.Scheme;
+        pub const Channel = CpuProverEngine.Channel;
+        pub const ExtendedProof = CpuProverEngine.ExtendedProof;
         var init_calls: usize = 0;
         var commit_calls: usize = 0;
         var prove_calls: usize = 0;
@@ -698,7 +673,7 @@ test "examples wide_fibonacci: generic CPU engine owns the proving transaction" 
             channel: anytype,
             scheme: Scheme,
             options: prover_engine.ProveOptions,
-        ) !ExtendedProof {
+        ) !CpuProverEngine.ExtendedProof {
             prove_calls += 1;
             return CpuProverEngine.prove(allocator, components, channel, scheme, options);
         }

@@ -61,6 +61,15 @@ test "wide Fibonacci session: sequential proofs match compatibility path exactly
 
     try std.testing.expectEqualSlices(u8, expected, first_bytes);
     try std.testing.expectEqualSlices(u8, expected, second_bytes);
+    try std.testing.expectEqual(@as(usize, 8543), expected.len);
+    var digest: [std.crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(expected, &digest, .{});
+    try std.testing.expectEqualSlices(u8, &[_]u8{
+        0x4e, 0xa2, 0x9a, 0x03, 0x88, 0x41, 0x5b, 0xad,
+        0xcb, 0xb2, 0x36, 0x1a, 0x35, 0xfe, 0x9d, 0xf9,
+        0xd7, 0x84, 0x48, 0x0f, 0x8b, 0x8e, 0xf3, 0x3b,
+        0xe7, 0xa0, 0xf8, 0x81, 0x2a, 0x0f, 0xaa, 0xcc,
+    }, &digest);
     try std.testing.expectEqual(@as(u64, 1), session.constructionTelemetry().tower_build_count);
 }
 

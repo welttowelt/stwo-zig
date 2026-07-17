@@ -8,5 +8,8 @@ pub const wide_fibonacci = @import("wide_fibonacci.zig");
 pub const xor = @import("xor.zig");
 
 comptime {
-    if (builtin.is_test) _ = @import("wide_fibonacci/session_test.zig");
+    if (builtin.is_test) {
+        _ = @import("common/prover_transaction_test.zig");
+        _ = @import("wide_fibonacci/session_test.zig");
+    }
 }
