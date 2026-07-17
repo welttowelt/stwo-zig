@@ -4519,7 +4519,7 @@ fn runOne(
                 const layout = try proof_bundle.Layout.init(
                     interaction_claim_words,
                     sampled_value_words,
-                    8,
+                    bindings.decommit_fri_trees.len,
                     std.math.cast(usize, (try transcriptInputBinding(bindings, 30)).size_bytes / 4) orelse
                         return error.InvalidProofLayout,
                     decommitment_capacity_words,

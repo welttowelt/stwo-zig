@@ -31,6 +31,42 @@ and derived compact statement for the duration of one call. Backend-specific
 device resources, caches, schedules, and command graphs remain behind the
 backend implementation.
 
+## Concrete development adapters
+
+The public contract has two concrete process adapters:
+
+- `integrations.cairo_metal.process_backend.MetalBackend` authenticates the
+  arena runner, schedule, composition program, preprocessed evaluations, and
+  tree-zero Merkle object once at initialization. Each proof rechecks their
+  file identities, invokes `metal-arena-plan` with direct argv, validates the
+  reference-free runner report, and publishes the raw resident proof as an
+  `STWZCVE/1` envelope.
+- `frontends.cairo.rust_oracle.RustOracle` authenticates the isolated Rust
+  verifier executable and exact `Cargo.lock`, invokes it with direct argv and
+  an empty environment, and accepts only its bounded, exact-schema result.
+
+The Metal child inherits a scrubbed environment. Every `STWO_ZIG_*` variable
+is removed before the backend installs its explicit proving configuration.
+The backend API has no field for a target proof, transcript, quotient,
+decommitment, component limit, or diagnostic reference. Runner evidence must
+show self-derived statement construction, proof assembly, resident proof
+verification, quotient/FRI/decommitment execution, valid final FRI degree, and
+no parity fixture or legacy transcript bootstrap.
+
+Runtime proof geometry is not fixed to SN2. The adapter derives the maximum
+degree, FRI tree count, decommitment record count, and all four trace-tree
+column counts from the authenticated program composition and fixed identities.
+The runner proof decoder uses that same runtime FRI count, so a Fib-like
+21-degree program carries seven FRI roots while the 24-degree SN2 layout carries
+eight. The runner's emitted compact statement must exactly equal the statement
+prepared by the frontend before its proof bytes can be enveloped.
+
+The current adapter deliberately uses the one-shot arena process. The existing
+long-lived session still owns an SN2-specific envelope boundary; routing a
+runtime Cairo proof through it would mislabel non-SN2 geometry. Session reuse
+can replace the one-shot boundary only after it returns or wraps proofs under
+the same authenticated runtime protocol contract.
+
 ## Admission status
 
 Semantic-pack version 1 is selected using a Rust reference proof. It is useful
