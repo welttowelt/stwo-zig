@@ -8,6 +8,7 @@ const quotient_ops = @import("../pcs/quotient_ops.zig");
 const secure_column = @import("../secure_column.zig");
 const decommit_mod = @import("decommit.zig");
 const columns_mod = @import("columns.zig");
+const layers_mod = @import("layers.zig");
 const parameters = @import("parameters.zig");
 
 const M31 = m31.M31;
@@ -25,11 +26,11 @@ pub fn MerkleProverLifted(comptime H: type) type {
         layer_allocator: std.mem.Allocator,
 
         const Self = @This();
-        const NodeSeed = if (@hasDecl(H, "nodeSeed")) @TypeOf(H.nodeSeed()) else H;
+        const LayerOps = layers_mod.Operations(H);
+        const LayerExecutor = LayerOps.Executor;
         const parallel_min_nodes = parameters.parallel_min_nodes;
         const parallel_min_nodes_per_worker = parameters.parallel_min_nodes_per_worker;
         const max_parallel_workers = parameters.max_parallel_workers;
-        const merkle_worker_stack_size = parameters.merkle_worker_stack_size;
         const leaf_tile_len = parameters.leaf_tile_len;
         const max_leaf_scratch_bytes = parameters.max_leaf_scratch_bytes;
         const default_leaf_batch_size = parameters.default_leaf_batch_size;
@@ -38,94 +39,10 @@ pub fn MerkleProverLifted(comptime H: type) type {
         const merkleWorkerOverride = parameters.merkleWorkerOverride;
         const leafBatchSizeOverride = parameters.leafBatchSizeOverride;
         const merklePoolReuseEnabled = parameters.merklePoolReuseEnabled;
-        const parallelWorkersForLayer = parameters.parallelWorkersForLayer;
         const ThreadPool = std.Thread.Pool;
         const WaitGroup = std.Thread.WaitGroup;
-        const SharedPoolState = struct {
-            mutex: std.Thread.Mutex = .{},
-            pool: ThreadPool = undefined,
-            pool_initialized: bool = false,
-            failed: bool = false,
-        };
-        var shared_pool_state: SharedPoolState = .{};
 
         pub const DecommitmentResult = decommit_mod.DecommitmentResult(H);
-
-        const LayerExecutor = struct {
-            enabled: bool = false,
-            max_workers: usize = 1,
-            owns_pool: bool = false,
-            owned_pool: ThreadPool = undefined,
-            pool_ptr: ?*ThreadPool = null,
-
-            fn init(self: *LayerExecutor, max_workers: usize, reuse_pool: bool) void {
-                self.* = .{
-                    .enabled = false,
-                    .max_workers = max_workers,
-                    .owns_pool = false,
-                    .pool_ptr = null,
-                };
-                if (builtin.single_threaded or max_workers <= 1) return;
-
-                if (reuse_pool) {
-                    if (sharedThreadPool()) |shared_pool| {
-                        self.pool_ptr = shared_pool;
-                        self.enabled = true;
-                        return;
-                    }
-                }
-
-                self.owned_pool.init(.{
-                    // Keep pool task allocation decoupled from caller allocators
-                    // (including test allocators) to avoid cross-thread contention.
-                    .allocator = std.heap.page_allocator,
-                    // Previous implementation used one caller worker + N-1 spawned workers.
-                    .n_jobs = max_workers - 1,
-                    .stack_size = merkle_worker_stack_size,
-                }) catch return;
-                self.owns_pool = true;
-                self.pool_ptr = &self.owned_pool;
-                self.enabled = true;
-            }
-
-            fn deinit(self: *LayerExecutor) void {
-                if (self.enabled and self.owns_pool) {
-                    self.owned_pool.deinit();
-                }
-                self.* = undefined;
-            }
-
-            fn pool(self: *LayerExecutor) *ThreadPool {
-                return self.pool_ptr orelse unreachable;
-            }
-
-            fn sharedThreadPool() ?*ThreadPool {
-                // Prefer the unified global work pool so Merkle hashing and
-                // FFT don't create competing thread pools.
-                if (work_pool_mod.getGlobalPool()) |global_pool| {
-                    return &global_pool.pool;
-                }
-
-                // Fallback: create our own pool (test builds, single-threaded,
-                // or if the global pool failed to initialise).
-                shared_pool_state.mutex.lock();
-                defer shared_pool_state.mutex.unlock();
-
-                if (shared_pool_state.failed) return null;
-                if (!shared_pool_state.pool_initialized) {
-                    shared_pool_state.pool.init(.{
-                        .allocator = std.heap.page_allocator,
-                        .n_jobs = max_parallel_workers - 1,
-                        .stack_size = merkle_worker_stack_size,
-                    }) catch {
-                        shared_pool_state.failed = true;
-                        return null;
-                    };
-                    shared_pool_state.pool_initialized = true;
-                }
-                return &shared_pool_state.pool;
-            }
-        };
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
             for (self.layers) |layer| self.layer_allocator.free(layer);
@@ -183,14 +100,15 @@ pub fn MerkleProverLifted(comptime H: type) type {
                 const max_out_len = domain_size >> 1;
                 var executor: LayerExecutor = undefined;
                 executor.init(
-                    parallelWorkersForLayer(max_out_len, merkleWorkerOverride(allocator)),
+                    max_out_len,
+                    merkleWorkerOverride(allocator),
                     merklePoolReuseEnabled(allocator),
                 );
                 defer executor.deinit();
 
                 var i: usize = 0;
                 while (i < log_size) : (i += 1) {
-                    const next_layer = try buildNextLayer(
+                    const next_layer = try LayerOps.buildNextLayer(
                         layer_alloc,
                         layers_bottom_up.items[layers_bottom_up.items.len - 1],
                         &executor,
@@ -311,13 +229,13 @@ pub fn MerkleProverLifted(comptime H: type) type {
                 const max_log_size = std.math.log2_int(usize, leaves.len);
                 const max_out_len = leaves.len >> 1;
                 var executor: LayerExecutor = undefined;
-                executor.init(parallelWorkersForLayer(max_out_len, worker_override), reuse_pool);
+                executor.init(max_out_len, worker_override, reuse_pool);
                 defer executor.deinit();
 
                 var i: usize = 0;
                 while (i < max_log_size) : (i += 1) {
                     const prev_idx = layers_bottom_up.items.len - 1;
-                    const next_layer = try buildNextLayer(
+                    const next_layer = try LayerOps.buildNextLayer(
                         layer_alloc,
                         layers_bottom_up.items[prev_idx],
                         &executor,
@@ -763,7 +681,7 @@ pub fn MerkleProverLifted(comptime H: type) type {
                 if (work_pool_mod.getGlobalPool()) |global_pool| {
                     break :blk &global_pool.pool;
                 }
-                break :blk LayerExecutor.sharedThreadPool() orelse {
+                break :blk LayerOps.sharedThreadPool() orelse {
                     for (hashers, 0..) |*h, i| out[i] = h.finalize();
                     return;
                 };
@@ -916,219 +834,6 @@ pub fn MerkleProverLifted(comptime H: type) type {
             }
         }
 
-        fn buildNextLayer(
-            allocator: std.mem.Allocator,
-            prev_layer: []const H.Hash,
-            executor: *LayerExecutor,
-            worker_override: ?usize,
-        ) ![]H.Hash {
-            std.debug.assert(prev_layer.len > 1 and std.math.isPowerOfTwo(prev_layer.len));
-            const out = try allocator.alloc(H.Hash, prev_layer.len >> 1);
-            const workers = parallelWorkersForLayer(out.len, worker_override);
-
-            if (workers > 1 and executor.enabled) {
-                if (comptime @hasDecl(H, "nodeSeed") and @hasDecl(H, "hashChildrenWithSeed")) {
-                    const seed = H.nodeSeed();
-                    if (buildNextLayerSeededParallel(out, prev_layer, seed, workers, executor)) |_| {
-                        return out;
-                    } else |_| {}
-                } else {
-                    if (buildNextLayerBasicParallel(out, prev_layer, workers, executor)) |_| {
-                        return out;
-                    } else |_| {}
-                }
-            }
-
-            if (comptime @hasDecl(H, "nodeSeed") and @hasDecl(H, "hashChildrenWithSeed")) {
-                const seed = H.nodeSeed();
-                var i_seeded: usize = 0;
-                if (comptime @hasDecl(H, "hashChildrenWithSeed4")) {
-                    while (i_seeded + 4 <= out.len) : (i_seeded += 4) {
-                        const children: *const [8]H.Hash = @ptrCast(&prev_layer[2 * i_seeded]);
-                        const hashes = H.hashChildrenWithSeed4(seed, children);
-                        inline for (0..4) |lane| out[i_seeded + lane] = hashes[lane];
-                    }
-                }
-                while (i_seeded + 4 <= out.len) : (i_seeded += 4) {
-                    out[i_seeded] = H.hashChildrenWithSeed(seed, .{
-                        .left = prev_layer[2 * i_seeded],
-                        .right = prev_layer[2 * i_seeded + 1],
-                    });
-                    out[i_seeded + 1] = H.hashChildrenWithSeed(seed, .{
-                        .left = prev_layer[2 * (i_seeded + 1)],
-                        .right = prev_layer[2 * (i_seeded + 1) + 1],
-                    });
-                    out[i_seeded + 2] = H.hashChildrenWithSeed(seed, .{
-                        .left = prev_layer[2 * (i_seeded + 2)],
-                        .right = prev_layer[2 * (i_seeded + 2) + 1],
-                    });
-                    out[i_seeded + 3] = H.hashChildrenWithSeed(seed, .{
-                        .left = prev_layer[2 * (i_seeded + 3)],
-                        .right = prev_layer[2 * (i_seeded + 3) + 1],
-                    });
-                }
-                while (i_seeded < out.len) : (i_seeded += 1) {
-                    out[i_seeded] = H.hashChildrenWithSeed(seed, .{
-                        .left = prev_layer[2 * i_seeded],
-                        .right = prev_layer[2 * i_seeded + 1],
-                    });
-                }
-                return out;
-            }
-
-            var i: usize = 0;
-            while (i + 4 <= out.len) : (i += 4) {
-                out[i] = H.hashChildren(.{
-                    .left = prev_layer[2 * i],
-                    .right = prev_layer[2 * i + 1],
-                });
-                out[i + 1] = H.hashChildren(.{
-                    .left = prev_layer[2 * (i + 1)],
-                    .right = prev_layer[2 * (i + 1) + 1],
-                });
-                out[i + 2] = H.hashChildren(.{
-                    .left = prev_layer[2 * (i + 2)],
-                    .right = prev_layer[2 * (i + 2) + 1],
-                });
-                out[i + 3] = H.hashChildren(.{
-                    .left = prev_layer[2 * (i + 3)],
-                    .right = prev_layer[2 * (i + 3) + 1],
-                });
-            }
-            while (i < out.len) : (i += 1) {
-                out[i] = H.hashChildren(.{
-                    .left = prev_layer[2 * i],
-                    .right = prev_layer[2 * i + 1],
-                });
-            }
-            return out;
-        }
-
-        const SeededRangeCtx = struct {
-            out: []H.Hash,
-            prev_layer: []const H.Hash,
-            start: usize,
-            end: usize,
-            seed: NodeSeed,
-        };
-
-        fn hashSeededRange(ctx: *const SeededRangeCtx) void {
-            var i = ctx.start;
-            if (comptime @hasDecl(H, "hashChildrenWithSeed4")) {
-                while (i + 4 <= ctx.end) : (i += 4) {
-                    const children: *const [8]H.Hash = @ptrCast(&ctx.prev_layer[2 * i]);
-                    const hashes = H.hashChildrenWithSeed4(ctx.seed, children);
-                    inline for (0..4) |lane| ctx.out[i + lane] = hashes[lane];
-                }
-            }
-            while (i < ctx.end) : (i += 1) {
-                ctx.out[i] = H.hashChildrenWithSeed(ctx.seed, .{
-                    .left = ctx.prev_layer[2 * i],
-                    .right = ctx.prev_layer[2 * i + 1],
-                });
-            }
-        }
-
-        fn hashSeededRangeThread(ctx: *const SeededRangeCtx) void {
-            hashSeededRange(ctx);
-        }
-
-        fn buildNextLayerSeededParallel(
-            out: []H.Hash,
-            prev_layer: []const H.Hash,
-            seed: NodeSeed,
-            worker_count: usize,
-            executor: *LayerExecutor,
-        ) !void {
-            std.debug.assert(worker_count > 1);
-            std.debug.assert(worker_count <= max_parallel_workers);
-            std.debug.assert(executor.enabled);
-            var contexts: [max_parallel_workers]SeededRangeCtx = undefined;
-
-            const chunk_len = (out.len + worker_count - 1) / worker_count;
-            var actual_workers: usize = 0;
-            var start: usize = 0;
-            while (start < out.len and actual_workers < worker_count) : (actual_workers += 1) {
-                const end = @min(out.len, start + chunk_len);
-                contexts[actual_workers] = SeededRangeCtx{
-                    .out = out,
-                    .prev_layer = prev_layer,
-                    .start = start,
-                    .end = end,
-                    .seed = seed,
-                };
-                start = end;
-            }
-            if (actual_workers <= 1) {
-                hashSeededRange(&contexts[0]);
-                return;
-            }
-
-            var wait_group: WaitGroup = .{};
-            for (1..actual_workers) |i| {
-                executor.pool().spawnWg(&wait_group, hashSeededRangeThread, .{&contexts[i]});
-            }
-            hashSeededRange(&contexts[0]);
-            wait_group.wait();
-        }
-
-        const BasicRangeCtx = struct {
-            out: []H.Hash,
-            prev_layer: []const H.Hash,
-            start: usize,
-            end: usize,
-        };
-
-        fn hashBasicRange(ctx: *const BasicRangeCtx) void {
-            var i = ctx.start;
-            while (i < ctx.end) : (i += 1) {
-                ctx.out[i] = H.hashChildren(.{
-                    .left = ctx.prev_layer[2 * i],
-                    .right = ctx.prev_layer[2 * i + 1],
-                });
-            }
-        }
-
-        fn hashBasicRangeThread(ctx: *const BasicRangeCtx) void {
-            hashBasicRange(ctx);
-        }
-
-        fn buildNextLayerBasicParallel(
-            out: []H.Hash,
-            prev_layer: []const H.Hash,
-            worker_count: usize,
-            executor: *LayerExecutor,
-        ) !void {
-            std.debug.assert(worker_count > 1);
-            std.debug.assert(worker_count <= max_parallel_workers);
-            std.debug.assert(executor.enabled);
-            var contexts: [max_parallel_workers]BasicRangeCtx = undefined;
-
-            const chunk_len = (out.len + worker_count - 1) / worker_count;
-            var actual_workers: usize = 0;
-            var start: usize = 0;
-            while (start < out.len and actual_workers < worker_count) : (actual_workers += 1) {
-                const end = @min(out.len, start + chunk_len);
-                contexts[actual_workers] = BasicRangeCtx{
-                    .out = out,
-                    .prev_layer = prev_layer,
-                    .start = start,
-                    .end = end,
-                };
-                start = end;
-            }
-            if (actual_workers <= 1) {
-                hashBasicRange(&contexts[0]);
-                return;
-            }
-
-            var wait_group: WaitGroup = .{};
-            for (1..actual_workers) |i| {
-                executor.pool().spawnWg(&wait_group, hashBasicRangeThread, .{&contexts[i]});
-            }
-            hashBasicRange(&contexts[0]);
-            wait_group.wait();
-        }
         /// Streaming committer that builds a Merkle tree incrementally from column
         /// batches.  Each batch's column data is consumed and can be freed before
         /// the next batch is fed, reducing peak memory.
@@ -1304,12 +1009,12 @@ pub fn MerkleProverLifted(comptime H: type) type {
                     const max_log_size = std.math.log2_int(usize, leaves.len);
                     const max_out_len = leaves.len >> 1;
                     var executor: LayerExecutor = undefined;
-                    executor.init(parallelWorkersForLayer(max_out_len, worker_override), reuse_pool);
+                    executor.init(max_out_len, worker_override, reuse_pool);
                     defer executor.deinit();
 
                     var i: usize = 0;
                     while (i < max_log_size) : (i += 1) {
-                        const next_layer = try buildNextLayer(
+                        const next_layer = try LayerOps.buildNextLayer(
                             layer_alloc,
                             layers_bottom_up.items[layers_bottom_up.items.len - 1],
                             &executor,
