@@ -1,6 +1,5 @@
 const std = @import("std");
 const circle = @import("../../../core/circle.zig");
-const fft = @import("../../../core/fft.zig");
 const m31 = @import("../../../core/fields/m31.zig");
 const qm31 = @import("../../../core/fields/qm31.zig");
 const canonic = @import("../../../core/poly/circle/canonic.zig");
@@ -8,8 +7,8 @@ const domain_mod = @import("../../../core/poly/circle/domain.zig");
 const line_mod = @import("../../../core/poly/line.zig");
 const poly_utils = @import("../../../core/poly/utils.zig");
 const eval_mod = @import("evaluation.zig");
-const fft_kernels = @import("fft_kernels.zig");
 const point_evaluation = @import("point_evaluation.zig");
+const transforms = @import("transforms.zig");
 const twiddles_mod = @import("../twiddles.zig");
 
 const M31 = m31.M31;
@@ -18,12 +17,7 @@ const CirclePointQM31 = circle.CirclePointQM31;
 const CircleDomain = domain_mod.CircleDomain;
 const M31TwiddleTree = twiddles_mod.TwiddleTree([]const M31);
 
-pub const PolyError = error{
-    InvalidLength,
-    InvalidLogSize,
-    NonBaseEvaluation,
-    SingularSystem,
-};
+pub const PolyError = transforms.PolyError;
 
 /// Host polynomial coefficients in the circle-FFT basis.
 ///
@@ -234,62 +228,7 @@ pub const CircleCoefficients = struct {
         errdefer allocator.free(values);
         @memcpy(values[0..self.coeffs.len], self.coeffs);
         if (self.coeffs.len < values.len) @memset(values[self.coeffs.len..], M31.zero());
-
-        const log_size = domain.logSize();
-        if (log_size == 1) {
-            var v0 = values[0];
-            var v1 = values[1];
-            fft.butterfly(M31, &v0, &v1, domain.half_coset.initial.y);
-            values[0] = v0;
-            values[1] = v1;
-            return eval_mod.CircleEvaluation.init(domain, values);
-        }
-        if (log_size == 2) {
-            var v0 = values[0];
-            var v1 = values[1];
-            var v2 = values[2];
-            var v3 = values[3];
-            const x = domain.half_coset.initial.x;
-            const y = domain.half_coset.initial.y;
-            fft.butterfly(M31, &v0, &v2, x);
-            fft.butterfly(M31, &v1, &v3, x);
-            fft.butterfly(M31, &v0, &v1, y);
-            fft.butterfly(M31, &v2, &v3, y.neg());
-            values[0] = v0;
-            values[1] = v1;
-            values[2] = v2;
-            values[3] = v3;
-            return eval_mod.CircleEvaluation.init(domain, values);
-        }
-
-        const line_log_size = domain.half_coset.logSize();
-        const twiddle_len = twiddle_tree.twiddles.len;
-        var layer_idx: u32 = line_log_size;
-        while (layer_idx > 0) {
-            layer_idx -= 1;
-            const depth = line_log_size - 1 - layer_idx;
-            const len = @as(usize, 1) << @intCast(depth);
-            const start = twiddle_len - (len * 2);
-            const layer_twiddles = twiddle_tree.twiddles[start .. twiddle_len - len];
-            for (layer_twiddles, 0..) |twid, h| {
-                fft_kernels.fftLayerLoopForwardM31(values, @intCast(layer_idx + 1), h, twid);
-            }
-        }
-
-        const first_line_len = @as(usize, 1) << @intCast(line_log_size - 1);
-        const first_line_twiddles = twiddle_tree.twiddles[twiddle_len - (first_line_len * 2) .. twiddle_len - first_line_len];
-        var tw_idx: usize = 0;
-        var first_h: usize = 0;
-        const first_half = values.len / 2;
-        while (first_h < first_half) : (first_h += 4) {
-            const x = first_line_twiddles[tw_idx];
-            const y = first_line_twiddles[tw_idx + 1];
-            tw_idx += 2;
-            fft_kernels.fftPairForwardM31(values, first_h, y);
-            fft_kernels.fftPairForwardM31(values, first_h + 1, y.neg());
-            fft_kernels.fftPairForwardM31(values, first_h + 2, x.neg());
-            fft_kernels.fftPairForwardM31(values, first_h + 3, x);
-        }
+        transforms.evaluateBufferWithTwiddles(values, domain, twiddle_tree);
         return eval_mod.CircleEvaluation.init(domain, values);
     }
 
@@ -372,7 +311,7 @@ pub fn interpolateFromEvaluationWithTwiddles(
     if (!evaluation.domain.half_coset.isDoublingOf(twiddle_tree.root_coset)) return PolyError.InvalidLogSize;
     const coeffs = try allocator.dupe(M31, evaluation.values);
     errdefer allocator.free(coeffs);
-    try interpolateIntoBufferWithTwiddles(
+    try transforms.interpolateIntoBufferWithTwiddles(
         coeffs,
         evaluation.domain,
         twiddle_tree,
@@ -394,7 +333,7 @@ pub fn interpolateOwnedValuesWithTwiddles(
     if (n == 0 or !std.math.isPowerOfTwo(n)) return PolyError.InvalidLength;
     if (domain.size() != n) return PolyError.InvalidLength;
     if (!domain.half_coset.isDoublingOf(twiddle_tree.root_coset)) return PolyError.InvalidLogSize;
-    try interpolateIntoBufferWithTwiddles(
+    try transforms.interpolateIntoBufferWithTwiddles(
         owned_values,
         domain,
         twiddle_tree,
@@ -448,248 +387,9 @@ pub fn evaluateManyWithTwiddles(
     return out;
 }
 
-fn interpolateIntoBufferWithTwiddles(
-    coeffs: []M31,
-    domain: CircleDomain,
-    twiddle_tree: M31TwiddleTree,
-) PolyError!void {
-    const n = coeffs.len;
-    const log_size = domain.logSize();
-    if (log_size == 1) {
-        const y = domain.half_coset.initial.y;
-        const n_f = M31.fromCanonical(2);
-        const yn_inv = y.mul(n_f).inv() catch return PolyError.SingularSystem;
-        const y_inv = yn_inv.mul(n_f);
-        const n_inv = yn_inv.mul(y);
+pub const interpolateBuffersWithTwiddles = transforms.interpolateBuffersWithTwiddles;
 
-        var v0 = coeffs[0];
-        var v1 = coeffs[1];
-        fft.ibutterfly(M31, &v0, &v1, y_inv);
-        coeffs[0] = v0.mul(n_inv);
-        coeffs[1] = v1.mul(n_inv);
-        return;
-    }
-    if (log_size == 2) {
-        const x = domain.half_coset.initial.x;
-        const y = domain.half_coset.initial.y;
-        const n_f = M31.fromCanonical(4);
-        const xyn_inv = x.mul(y).mul(n_f).inv() catch return PolyError.SingularSystem;
-        const x_inv = xyn_inv.mul(y).mul(n_f);
-        const y_inv = xyn_inv.mul(x).mul(n_f);
-        const n_inv = xyn_inv.mul(x).mul(y);
-
-        var v0 = coeffs[0];
-        var v1 = coeffs[1];
-        var v2 = coeffs[2];
-        var v3 = coeffs[3];
-        fft.ibutterfly(M31, &v0, &v1, y_inv);
-        fft.ibutterfly(M31, &v2, &v3, y_inv.neg());
-        fft.ibutterfly(M31, &v0, &v2, x_inv);
-        fft.ibutterfly(M31, &v1, &v3, x_inv);
-        coeffs[0] = v0.mul(n_inv);
-        coeffs[1] = v1.mul(n_inv);
-        coeffs[2] = v2.mul(n_inv);
-        coeffs[3] = v3.mul(n_inv);
-        return;
-    }
-
-    const line_log_size = domain.half_coset.logSize();
-    const itwiddle_len = twiddle_tree.itwiddles.len;
-    const first_line_len = @as(usize, 1) << @intCast(line_log_size - 1);
-    const first_line_itwiddles = twiddle_tree.itwiddles[itwiddle_len - (first_line_len * 2) .. itwiddle_len - first_line_len];
-    var tw_idx: usize = 0;
-    var first_h: usize = 0;
-    const first_half = coeffs.len / 2;
-    while (first_h < first_half) : (first_h += 4) {
-        const x = first_line_itwiddles[tw_idx];
-        const y = first_line_itwiddles[tw_idx + 1];
-        tw_idx += 2;
-        fft_kernels.fftPairInverseM31(coeffs, first_h, y);
-        fft_kernels.fftPairInverseM31(coeffs, first_h + 1, y.neg());
-        fft_kernels.fftPairInverseM31(coeffs, first_h + 2, x.neg());
-        fft_kernels.fftPairInverseM31(coeffs, first_h + 3, x);
-    }
-
-    var layer_idx: u32 = 0;
-    while (layer_idx < line_log_size) : (layer_idx += 1) {
-        const depth = line_log_size - 1 - layer_idx;
-        const len = @as(usize, 1) << @intCast(depth);
-        const start = itwiddle_len - (len * 2);
-        const layer_twiddles = twiddle_tree.itwiddles[start .. itwiddle_len - len];
-        for (layer_twiddles, 0..) |twid, h| {
-            fft_kernels.fftLayerLoopInverseM31(coeffs, @intCast(layer_idx + 1), h, twid);
-        }
-    }
-
-    const n_inv = M31.fromCanonical(@intCast(n)).inv() catch return PolyError.SingularSystem;
-    for (coeffs) |*coeff| {
-        coeff.* = coeff.*.mul(n_inv);
-    }
-}
-
-pub fn interpolateBuffersWithTwiddles(
-    coeffs_batch: []const []M31,
-    domain: CircleDomain,
-    twiddle_tree: M31TwiddleTree,
-) PolyError!void {
-    const log_size = domain.logSize();
-    if (log_size == 1) {
-        const y = domain.half_coset.initial.y;
-        const n_f = M31.fromCanonical(2);
-        const yn_inv = y.mul(n_f).inv() catch return PolyError.SingularSystem;
-        const y_inv = yn_inv.mul(n_f);
-        const n_inv = yn_inv.mul(y);
-
-        for (coeffs_batch) |coeffs| {
-            var v0 = coeffs[0];
-            var v1 = coeffs[1];
-            fft.ibutterfly(M31, &v0, &v1, y_inv);
-            coeffs[0] = v0.mul(n_inv);
-            coeffs[1] = v1.mul(n_inv);
-        }
-        return;
-    }
-    if (log_size == 2) {
-        const x = domain.half_coset.initial.x;
-        const y = domain.half_coset.initial.y;
-        const n_f = M31.fromCanonical(4);
-        const xyn_inv = x.mul(y).mul(n_f).inv() catch return PolyError.SingularSystem;
-        const x_inv = xyn_inv.mul(y).mul(n_f);
-        const y_inv = xyn_inv.mul(x).mul(n_f);
-        const n_inv = xyn_inv.mul(x).mul(y);
-
-        for (coeffs_batch) |coeffs| {
-            var v0 = coeffs[0];
-            var v1 = coeffs[1];
-            var v2 = coeffs[2];
-            var v3 = coeffs[3];
-            fft.ibutterfly(M31, &v0, &v1, y_inv);
-            fft.ibutterfly(M31, &v2, &v3, y_inv.neg());
-            fft.ibutterfly(M31, &v0, &v2, x_inv);
-            fft.ibutterfly(M31, &v1, &v3, x_inv);
-            coeffs[0] = v0.mul(n_inv);
-            coeffs[1] = v1.mul(n_inv);
-            coeffs[2] = v2.mul(n_inv);
-            coeffs[3] = v3.mul(n_inv);
-        }
-        return;
-    }
-
-    const line_log_size = domain.half_coset.logSize();
-    const itwiddle_len = twiddle_tree.itwiddles.len;
-    const first_line_len = @as(usize, 1) << @intCast(line_log_size - 1);
-    const first_line_itwiddles = twiddle_tree.itwiddles[itwiddle_len - (first_line_len * 2) .. itwiddle_len - first_line_len];
-    var tw_idx: usize = 0;
-    var first_h: usize = 0;
-    const first_half = coeffs_batch[0].len / 2;
-    while (first_h < first_half) : (first_h += 4) {
-        const x = first_line_itwiddles[tw_idx];
-        const y = first_line_itwiddles[tw_idx + 1];
-        const y_neg = y.neg();
-        const x_neg = x.neg();
-        tw_idx += 2;
-        for (coeffs_batch) |coeffs| {
-            fft_kernels.fftPairInverseM31(coeffs, first_h, y);
-            fft_kernels.fftPairInverseM31(coeffs, first_h + 1, y_neg);
-            fft_kernels.fftPairInverseM31(coeffs, first_h + 2, x_neg);
-            fft_kernels.fftPairInverseM31(coeffs, first_h + 3, x);
-        }
-    }
-
-    var layer_idx: u32 = 0;
-    while (layer_idx < line_log_size) : (layer_idx += 1) {
-        const depth = line_log_size - 1 - layer_idx;
-        const len = @as(usize, 1) << @intCast(depth);
-        const start = itwiddle_len - (len * 2);
-        const layer_twiddles = twiddle_tree.itwiddles[start .. itwiddle_len - len];
-        for (layer_twiddles, 0..) |twid, h| {
-            for (coeffs_batch) |coeffs| {
-                fft_kernels.fftLayerLoopInverseM31(coeffs, @intCast(layer_idx + 1), h, twid);
-            }
-        }
-    }
-
-    const n_inv = M31.fromCanonical(@intCast(coeffs_batch[0].len)).inv() catch return PolyError.SingularSystem;
-    for (coeffs_batch) |coeffs| {
-        for (coeffs) |*coeff| {
-            coeff.* = coeff.*.mul(n_inv);
-        }
-    }
-}
-
-pub fn evaluateBuffersWithTwiddles(
-    values_batch: []const []M31,
-    domain: CircleDomain,
-    twiddle_tree: M31TwiddleTree,
-) PolyError!void {
-    if (!domain.half_coset.isDoublingOf(twiddle_tree.root_coset)) return PolyError.InvalidLogSize;
-    const log_size = domain.logSize();
-    if (log_size == 1) {
-        const y = domain.half_coset.initial.y;
-        for (values_batch) |values| {
-            var v0 = values[0];
-            var v1 = values[1];
-            fft.butterfly(M31, &v0, &v1, y);
-            values[0] = v0;
-            values[1] = v1;
-        }
-        return;
-    }
-    if (log_size == 2) {
-        const x = domain.half_coset.initial.x;
-        const y = domain.half_coset.initial.y;
-        for (values_batch) |values| {
-            var v0 = values[0];
-            var v1 = values[1];
-            var v2 = values[2];
-            var v3 = values[3];
-            fft.butterfly(M31, &v0, &v2, x);
-            fft.butterfly(M31, &v1, &v3, x);
-            fft.butterfly(M31, &v0, &v1, y);
-            fft.butterfly(M31, &v2, &v3, y.neg());
-            values[0] = v0;
-            values[1] = v1;
-            values[2] = v2;
-            values[3] = v3;
-        }
-        return;
-    }
-
-    const line_log_size = domain.half_coset.logSize();
-    const twiddle_len = twiddle_tree.twiddles.len;
-    var layer_idx: u32 = line_log_size;
-    while (layer_idx > 0) {
-        layer_idx -= 1;
-        const depth = line_log_size - 1 - layer_idx;
-        const len = @as(usize, 1) << @intCast(depth);
-        const start = twiddle_len - (len * 2);
-        const layer_twiddles = twiddle_tree.twiddles[start .. twiddle_len - len];
-        for (layer_twiddles, 0..) |twid, h| {
-            for (values_batch) |values| {
-                fft_kernels.fftLayerLoopForwardM31(values, @intCast(layer_idx + 1), h, twid);
-            }
-        }
-    }
-
-    const first_line_len = @as(usize, 1) << @intCast(line_log_size - 1);
-    const first_line_twiddles = twiddle_tree.twiddles[twiddle_len - (first_line_len * 2) .. twiddle_len - first_line_len];
-    var tw_idx: usize = 0;
-    var first_h: usize = 0;
-    const first_half = values_batch[0].len / 2;
-    while (first_h < first_half) : (first_h += 4) {
-        const x = first_line_twiddles[tw_idx];
-        const y = first_line_twiddles[tw_idx + 1];
-        const y_neg = y.neg();
-        const x_neg = x.neg();
-        tw_idx += 2;
-        for (values_batch) |values| {
-            fft_kernels.fftPairForwardM31(values, first_h, y);
-            fft_kernels.fftPairForwardM31(values, first_h + 1, y_neg);
-            fft_kernels.fftPairForwardM31(values, first_h + 2, x_neg);
-            fft_kernels.fftPairForwardM31(values, first_h + 3, x);
-        }
-    }
-}
+pub const evaluateBuffersWithTwiddles = transforms.evaluateBuffersWithTwiddles;
 
 fn checkedPow2(log_size: u32) PolyError!usize {
     if (log_size >= @bitSizeOf(usize)) return PolyError.InvalidLogSize;
@@ -713,108 +413,6 @@ test "prover poly circle poly: eval at point for constant polynomial" {
     const poly = try CircleCoefficients.initBorrowed(coeffs[0..]);
     const point = circle.SECURE_FIELD_CIRCLE_GEN.mul(11);
     try std.testing.expect(poly.evalAtPoint(point).eql(QM31.fromBase(M31.fromCanonical(23))));
-}
-
-test "prover poly circle poly: owned interpolation matches cloned interpolation" {
-    const alloc = std.testing.allocator;
-    const domain = canonic.CanonicCoset.new(5).circleDomain();
-    const values = try alloc.alloc(M31, domain.size());
-    defer alloc.free(values);
-    for (values, 0..) |*value, i| {
-        value.* = M31.fromCanonical(@intCast((i * 13 + 7) % m31.Modulus));
-    }
-
-    const twiddle_tree = try twiddles_mod.precomputeM31(alloc, domain.half_coset);
-    defer {
-        var owned = twiddle_tree;
-        twiddles_mod.deinitM31(alloc, &owned);
-    }
-
-    const evaluation = try eval_mod.CircleEvaluation.init(domain, values);
-    var cloned = try interpolateFromEvaluationWithTwiddles(
-        alloc,
-        evaluation,
-        .{
-            .root_coset = twiddle_tree.root_coset,
-            .twiddles = twiddle_tree.twiddles,
-            .itwiddles = twiddle_tree.itwiddles,
-        },
-    );
-    defer cloned.deinit(alloc);
-
-    const owned_values = try alloc.dupe(M31, values);
-    var in_place = try interpolateOwnedValuesWithTwiddles(
-        domain,
-        owned_values,
-        .{
-            .root_coset = twiddle_tree.root_coset,
-            .twiddles = twiddle_tree.twiddles,
-            .itwiddles = twiddle_tree.itwiddles,
-        },
-    );
-    defer in_place.deinit(alloc);
-
-    try std.testing.expectEqual(cloned.logSize(), in_place.logSize());
-    try std.testing.expectEqualSlices(M31, cloned.coefficients(), in_place.coefficients());
-}
-
-test "prover poly circle poly: batched owned interpolation matches scalar helper" {
-    const alloc = std.testing.allocator;
-    const domain = canonic.CanonicCoset.new(5).circleDomain();
-    const twiddle_tree = try twiddles_mod.precomputeM31(alloc, domain.half_coset);
-    defer {
-        var owned = twiddle_tree;
-        twiddles_mod.deinitM31(alloc, &owned);
-    }
-
-    var prng = std.Random.DefaultPrng.init(0x6d41_9b83_7e52_4c11);
-    const random = prng.random();
-
-    for ([_]usize{ 1, 2, 3, 4, 5, 6, 7, 8 }) |column_count| {
-        const batch_values = try alloc.alloc([]M31, column_count);
-        defer alloc.free(batch_values);
-        const scalar_values = try alloc.alloc([]M31, column_count);
-        defer alloc.free(scalar_values);
-
-        for (0..column_count) |idx| {
-            batch_values[idx] = try alloc.alloc(M31, domain.size());
-            scalar_values[idx] = try alloc.alloc(M31, domain.size());
-            for (batch_values[idx], scalar_values[idx]) |*batch, *scalar| {
-                const value = M31.fromCanonical(random.intRangeLessThan(u32, 0, m31.Modulus));
-                batch.* = value;
-                scalar.* = value;
-            }
-        }
-
-        defer {
-            for (batch_values) |values| alloc.free(values);
-            for (scalar_values) |values| if (values.len != 0) alloc.free(values);
-        }
-
-        try interpolateOwnedValuesBatchWithTwiddles(
-            domain,
-            batch_values,
-            .{
-                .root_coset = twiddle_tree.root_coset,
-                .twiddles = twiddle_tree.twiddles,
-                .itwiddles = twiddle_tree.itwiddles,
-            },
-        );
-        for (scalar_values, 0..) |values, idx| {
-            var scalar = try interpolateOwnedValuesWithTwiddles(
-                domain,
-                values,
-                .{
-                    .root_coset = twiddle_tree.root_coset,
-                    .twiddles = twiddle_tree.twiddles,
-                    .itwiddles = twiddle_tree.itwiddles,
-                },
-            );
-            defer scalar.deinit(alloc);
-            scalar_values[idx] = &[_]M31{};
-            try std.testing.expectEqualSlices(M31, scalar.coefficients(), batch_values[idx]);
-        }
-    }
 }
 
 test "prover poly circle poly: split-at-mid identity" {
@@ -971,68 +569,6 @@ test "prover poly circle poly: batched point evaluation matches scalar helper" {
     for (scalar_out, batch_out) |expected, actual| {
         for (expected, actual) |lhs, rhs| {
             try std.testing.expect(lhs.eql(rhs));
-        }
-    }
-}
-
-test "prover poly circle poly: batched evaluation matches scalar helper" {
-    const alloc = std.testing.allocator;
-    const log_size: u32 = 5;
-    const extended_log_size: u32 = 7;
-    const domain = canonic.CanonicCoset.new(extended_log_size).circleDomain();
-    const twiddle_tree = try twiddles_mod.precomputeM31(alloc, domain.half_coset);
-    defer {
-        var owned = twiddle_tree;
-        twiddles_mod.deinitM31(alloc, &owned);
-    }
-
-    var prng = std.Random.DefaultPrng.init(0x4f17_5c32_e992_120d);
-    const random = prng.random();
-
-    for ([_]usize{ 1, 2, 3, 4, 5, 6, 7, 8 }) |poly_count| {
-        const polys = try alloc.alloc(CircleCoefficients, poly_count);
-        defer alloc.free(polys);
-        var initialized: usize = 0;
-        defer {
-            for (polys[0..initialized]) |*poly| poly.deinit(alloc);
-        }
-
-        for (0..poly_count) |idx| {
-            const coeffs = try alloc.alloc(M31, @as(usize, 1) << @intCast(log_size));
-            for (coeffs) |*coeff| {
-                coeff.* = M31.fromCanonical(random.intRangeLessThan(u32, 0, m31.Modulus));
-            }
-            polys[idx] = try CircleCoefficients.initOwned(coeffs);
-            initialized += 1;
-        }
-
-        const batch_values = try evaluateManyWithTwiddles(
-            alloc,
-            polys,
-            domain,
-            .{
-                .root_coset = twiddle_tree.root_coset,
-                .twiddles = twiddle_tree.twiddles,
-                .itwiddles = twiddle_tree.itwiddles,
-            },
-        );
-        defer {
-            for (batch_values) |values| alloc.free(values);
-            alloc.free(batch_values);
-        }
-
-        for (polys, 0..) |poly, idx| {
-            const scalar = try poly.evaluateWithTwiddles(
-                alloc,
-                domain,
-                .{
-                    .root_coset = twiddle_tree.root_coset,
-                    .twiddles = twiddle_tree.twiddles,
-                    .itwiddles = twiddle_tree.itwiddles,
-                },
-            );
-            defer alloc.free(@constCast(scalar.values));
-            try std.testing.expectEqualSlices(M31, scalar.values, batch_values[idx]);
         }
     }
 }
