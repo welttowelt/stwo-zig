@@ -94,6 +94,21 @@ def pipeline_cache() -> dict[str, int | float]:
     return cache
 
 
+def archive_store() -> dict[str, int | float]:
+    store = {
+        **{key: 0 for key in MODULE.ARCHIVE_STORE_COUNTER_KEYS},
+        MODULE.ARCHIVE_STORE_SECONDS_KEY: 0.0,
+    }
+    store.update({
+        "archive_disk_entry_limit": 128,
+        "archive_disk_byte_limit": 512 * 1024 * 1024,
+        "archive_per_entry_byte_limit": 128 * 1024 * 1024,
+        "archive_quarantine_entry_limit": 8,
+        "archive_quarantine_byte_limit": 64 * 1024 * 1024,
+    })
+    return store
+
+
 def backend_counters(dispatches: int = 4, fallbacks: int = 1) -> dict[str, int]:
     counters = {key: 0 for key in MODULE.BACKEND_COUNTER_KEYS}
     counters["metal_circle_lde_dispatches"] = dispatches
@@ -108,6 +123,7 @@ def telemetry_delta(dispatches: int = 4, fallbacks: int = 1) -> dict[str, object
         "cpu_fallbacks": fallbacks,
         "counters": backend_counters(dispatches, fallbacks),
         "pipeline_cache": pipeline_cache(),
+        "archive_store": archive_store(),
     }
 
 
@@ -214,6 +230,7 @@ def make_report(
         telemetry = {
             "scope": "verified_proof_request",
             "post_warmup_pipeline_cache": pipeline_cache(),
+            "post_warmup_archive_store": archive_store(),
             "warmups": [telemetry_delta() for _ in range(warmups)],
             "samples": [telemetry_delta() for _ in range(samples)],
             "total_metal_dispatches": 4 * (warmups + samples),
@@ -238,7 +255,7 @@ def make_report(
             "exchange_mode": EXCHANGE_MODE,
         }
     return {
-        "schema_version": 5,
+        "schema_version": MODULE.REPORT_SCHEMA_VERSION,
         "backend": "cpu_native" if lane == "cpu" else "metal_hybrid",
         "evidence_class": evidence_class,
         "profiled": False,

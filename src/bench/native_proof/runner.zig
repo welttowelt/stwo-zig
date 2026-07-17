@@ -199,9 +199,9 @@ fn executeExample(
         elapsed.* = outcome.sample.timing.request_seconds;
         if (comptime backend == .metal_hybrid) warmup_telemetry[index] = outcome.telemetry.?;
     }
-    const post_warmup_pipeline_cache: ?report_mod.PipelineCacheDelta = if (backend == .metal_hybrid) blk: {
+    const post_warmup_telemetry: ?telemetry.WarmupSnapshot = if (backend == .metal_hybrid) blk: {
         const snapshot = try Engine.telemetrySnapshot();
-        break :blk telemetry.pipelineCache(snapshot.pipeline_cache);
+        break :blk telemetry.postWarmup(snapshot);
     } else null;
 
     const samples = try allocator.alloc(report_mod.Sample, args.samples);
@@ -447,7 +447,8 @@ fn executeExample(
         },
         .runtime_admission = runtime_admission,
         .backend_telemetry = if (backend == .metal_hybrid) .{
-            .post_warmup_pipeline_cache = post_warmup_pipeline_cache.?,
+            .post_warmup_pipeline_cache = post_warmup_telemetry.?.pipeline_cache,
+            .post_warmup_archive_store = post_warmup_telemetry.?.archive_store,
             .warmups = warmup_telemetry,
             .samples = sample_telemetry,
             .total_metal_dispatches = telemetry_totals.metal_dispatches,

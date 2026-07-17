@@ -3,7 +3,7 @@ const stwo = @import("stwo");
 const config = @import("config.zig");
 const statistics = @import("statistics.zig");
 
-pub const SCHEMA_VERSION: u32 = 5;
+pub const SCHEMA_VERSION: u32 = 6;
 
 pub const EnvironmentOverride = struct {
     name: []const u8,
@@ -161,17 +161,46 @@ pub const PipelineCacheDelta = struct {
     pipeline_cache_byte_limit: u64 = 0,
 };
 
+pub const ArchiveStoreDelta = struct {
+    archive_disk_hits: u64 = 0,
+    archive_disk_misses: u64 = 0,
+    archive_disk_evictions: u64 = 0,
+    archive_disk_rebuilds: u64 = 0,
+    archive_disk_rejections: u64 = 0,
+    archive_disk_quarantines: u64 = 0,
+    archive_lock_acquisitions: u64 = 0,
+    archive_lock_contentions: u64 = 0,
+    archive_lock_timeouts: u64 = 0,
+    archive_publication_successes: u64 = 0,
+    archive_publication_failures: u64 = 0,
+    archive_bytes_published: u64 = 0,
+    archive_bytes_evicted: u64 = 0,
+    archive_persistence_bypasses: u64 = 0,
+    archive_lock_wait_seconds: f64 = 0,
+    archive_disk_entries: u64 = 0,
+    archive_disk_bytes: u64 = 0,
+    archive_disk_entry_limit: u64 = 0,
+    archive_disk_byte_limit: u64 = 0,
+    archive_per_entry_byte_limit: u64 = 0,
+    archive_quarantine_entries: u64 = 0,
+    archive_quarantine_bytes: u64 = 0,
+    archive_quarantine_entry_limit: u64 = 0,
+    archive_quarantine_byte_limit: u64 = 0,
+};
+
 pub const BackendTelemetryDelta = struct {
     classification: []const u8,
     metal_dispatches: u64,
     cpu_fallbacks: u64,
     counters: BackendCounterDelta,
     pipeline_cache: PipelineCacheDelta,
+    archive_store: ArchiveStoreDelta,
 };
 
 pub const BackendTelemetry = struct {
     scope: []const u8 = "verified_proof_request",
     post_warmup_pipeline_cache: PipelineCacheDelta,
+    post_warmup_archive_store: ArchiveStoreDelta,
     warmups: []const BackendTelemetryDelta,
     samples: []const BackendTelemetryDelta,
     total_metal_dispatches: u64,
@@ -428,6 +457,15 @@ test "native proof report: Metal telemetry includes post-warmup cache evidence" 
             .pipeline_cache_entry_limit = 64,
             .pipeline_cache_byte_limit = 16 * 1024 * 1024,
         },
+        .post_warmup_archive_store = .{
+            .archive_disk_hits = 1,
+            .archive_disk_entries = 2,
+            .archive_disk_entry_limit = 128,
+            .archive_disk_byte_limit = 512 * 1024 * 1024,
+            .archive_per_entry_byte_limit = 128 * 1024 * 1024,
+            .archive_quarantine_entry_limit = 8,
+            .archive_quarantine_byte_limit = 64 * 1024 * 1024,
+        },
         .warmups = &.{},
         .samples = &.{},
         .total_metal_dispatches = 0,
@@ -443,4 +481,7 @@ test "native proof report: Metal telemetry includes post-warmup cache evidence" 
     try std.testing.expectEqual(@as(f64, 0.25), cache.get("library_preparation_seconds").?.float);
     try std.testing.expectEqual(@as(i64, 2), cache.get("library_cache_entries").?.integer);
     try std.testing.expectEqual(@as(i64, 8), cache.get("library_cache_entry_limit").?.integer);
+    const archive = parsed.value.object.get("post_warmup_archive_store").?.object;
+    try std.testing.expectEqual(@as(i64, 1), archive.get("archive_disk_hits").?.integer);
+    try std.testing.expectEqual(@as(i64, 128), archive.get("archive_disk_entry_limit").?.integer);
 }

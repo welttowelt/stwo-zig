@@ -18,6 +18,8 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from native_proof_matrix_lib import (  # noqa: E402
+    ARCHIVE_STORE_COUNTER_KEYS,
+    ARCHIVE_STORE_SECONDS_KEY,
     BACKEND_COUNTER_KEYS,
     DEFAULT_COOLDOWN_SECONDS,
     DEFAULT_PROTOCOL,
@@ -30,6 +32,7 @@ from native_proof_matrix_lib import (  # noqa: E402
     MatrixError,
     PIPELINE_CACHE_COUNTER_KEYS,
     PIPELINE_CACHE_SECONDS_KEY,
+    REPORT_SCHEMA_VERSION,
     SUMMARY_PROTOCOL,
     Workload,
     atomic_write_bytes,

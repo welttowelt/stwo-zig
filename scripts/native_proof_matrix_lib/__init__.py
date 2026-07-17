@@ -13,6 +13,8 @@ from .contract import validate_pair, validate_proof_artifact, validate_report
 from .controller import run_matrix
 from .evidence import MIN_FORMAL_MEASURED_PROOFS, SUMMARY_PROTOCOL
 from .model import (
+    ARCHIVE_STORE_COUNTER_KEYS,
+    ARCHIVE_STORE_SECONDS_KEY,
     BACKEND_COUNTER_KEYS,
     DEFAULT_COOLDOWN_SECONDS,
     DEFAULT_PROTOCOL,
@@ -24,6 +26,7 @@ from .model import (
     MatrixError,
     PIPELINE_CACHE_COUNTER_KEYS,
     PIPELINE_CACHE_SECONDS_KEY,
+    REPORT_SCHEMA_VERSION,
     RUST_ORACLE_SHA256,
     RUNTIME_ADMISSION_KEYS,
     SESSION_KEYS,
@@ -34,6 +37,8 @@ from .model import (
 )
 
 __all__ = [
+    "ARCHIVE_STORE_COUNTER_KEYS",
+    "ARCHIVE_STORE_SECONDS_KEY",
     "BACKEND_COUNTER_KEYS",
     "DEFAULT_COOLDOWN_SECONDS",
     "DEFAULT_PROTOCOL",
@@ -46,6 +51,7 @@ __all__ = [
     "MatrixError",
     "PIPELINE_CACHE_COUNTER_KEYS",
     "PIPELINE_CACHE_SECONDS_KEY",
+    "REPORT_SCHEMA_VERSION",
     "RUST_ORACLE_SHA256",
     "RUNTIME_ADMISSION_KEYS",
     "SESSION_KEYS",

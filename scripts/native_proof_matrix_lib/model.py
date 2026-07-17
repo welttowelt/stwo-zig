@@ -7,7 +7,7 @@ import hashlib
 from dataclasses import dataclass
 
 
-REPORT_SCHEMA_VERSION = 5
+REPORT_SCHEMA_VERSION = 6
 
 INTEROP_ARTIFACT_SCHEMA_VERSION = 1
 INTEROP_UPSTREAM_COMMIT = "a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2"
@@ -136,6 +136,32 @@ PIPELINE_CACHE_COUNTER_KEYS = {
 }
 PIPELINE_CACHE_SECONDS_KEY = "pipeline_preparation_seconds"
 LIBRARY_PREPARATION_SECONDS_KEY = "library_preparation_seconds"
+ARCHIVE_STORE_COUNTER_KEYS = {
+    "archive_disk_hits",
+    "archive_disk_misses",
+    "archive_disk_evictions",
+    "archive_disk_rebuilds",
+    "archive_disk_rejections",
+    "archive_disk_quarantines",
+    "archive_lock_acquisitions",
+    "archive_lock_contentions",
+    "archive_lock_timeouts",
+    "archive_publication_successes",
+    "archive_publication_failures",
+    "archive_bytes_published",
+    "archive_bytes_evicted",
+    "archive_persistence_bypasses",
+    "archive_disk_entries",
+    "archive_disk_bytes",
+    "archive_disk_entry_limit",
+    "archive_disk_byte_limit",
+    "archive_per_entry_byte_limit",
+    "archive_quarantine_entries",
+    "archive_quarantine_bytes",
+    "archive_quarantine_entry_limit",
+    "archive_quarantine_byte_limit",
+}
+ARCHIVE_STORE_SECONDS_KEY = "archive_lock_wait_seconds"
 ACCELERATED_CLASSIFICATIONS = {
     "accelerated_with_fallbacks",
     "accelerated_without_fallbacks",

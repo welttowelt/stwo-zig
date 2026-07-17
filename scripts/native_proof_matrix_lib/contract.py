@@ -9,6 +9,8 @@ from typing import Any
 
 from .model import (
     ACCELERATED_CLASSIFICATIONS,
+    ARCHIVE_STORE_COUNTER_KEYS,
+    ARCHIVE_STORE_SECONDS_KEY,
     BACKEND_COUNTER_KEYS,
     EXPECTED_BACKENDS,
     HEADLINE_REQUIREMENT_KEYS,
@@ -28,6 +30,16 @@ from .model import (
     MatrixError,
     Workload,
     workload_descriptor_sha256,
+)
+from .validation import (
+    require_bool,
+    require_digest,
+    require_exact_keys,
+    require_int,
+    require_list,
+    require_number,
+    require_object,
+    require_string,
 )
 
 
@@ -84,12 +96,13 @@ ARTIFACT_BINDING_KEYS = {
     "upstream_commit", "exchange_mode",
 }
 TELEMETRY_KEYS = {
-    "scope", "post_warmup_pipeline_cache", "warmups", "samples",
+    "scope", "post_warmup_pipeline_cache", "post_warmup_archive_store",
+    "warmups", "samples",
     "total_metal_dispatches", "total_cpu_fallbacks", "valid",
 }
 TELEMETRY_DELTA_KEYS = {
     "classification", "metal_dispatches", "cpu_fallbacks", "counters",
-    "pipeline_cache",
+    "pipeline_cache", "archive_store",
 }
 
 # The outer request timer encloses four nanosecond-resolution phase timers. One
@@ -100,67 +113,6 @@ REQUEST_PHASE_RELATIVE_TOLERANCE = 1e-12
 ORDERED_PROVE_DRIFT_MIN_SAMPLES = 5
 ORDERED_PROVE_DRIFT_MAX_RELATIVE = 0.05
 M31_MODULUS = (1 << 31) - 1
-
-
-def require_exact_keys(value: dict[str, Any], expected: set[str], context: str) -> None:
-    actual = set(value)
-    if actual != expected:
-        raise MatrixError(
-            f"{context} has the wrong schema; "
-            f"missing={sorted(expected - actual)}, extra={sorted(actual - expected)}"
-        )
-
-
-def require_object(parent: dict[str, Any], key: str, context: str) -> dict[str, Any]:
-    value = parent.get(key)
-    if not isinstance(value, dict):
-        raise MatrixError(f"{context}.{key} must be an object")
-    return value
-
-
-def require_list(parent: dict[str, Any], key: str, context: str) -> list[Any]:
-    value = parent.get(key)
-    if not isinstance(value, list):
-        raise MatrixError(f"{context}.{key} must be an array")
-    return value
-
-
-def require_number(value: Any, context: str, *, positive: bool = False) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise MatrixError(f"{context} must be numeric")
-    result = float(value)
-    if not math.isfinite(result) or (positive and result <= 0):
-        raise MatrixError(f"{context} must be {'positive and ' if positive else ''}finite")
-    return result
-
-
-def require_bool(value: Any, context: str) -> bool:
-    if not isinstance(value, bool):
-        raise MatrixError(f"{context} must be boolean")
-    return value
-
-
-def require_int(value: Any, context: str, *, positive: bool = False) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise MatrixError(f"{context} must be an integer")
-    if value < (1 if positive else 0):
-        qualifier = "positive" if positive else "nonnegative"
-        raise MatrixError(f"{context} must be {qualifier}")
-    return value
-
-
-def require_string(value: Any, context: str, *, nonempty: bool = False) -> str:
-    if not isinstance(value, str) or (nonempty and not value):
-        raise MatrixError(f"{context} must be {'nonempty ' if nonempty else ''}text")
-    return value
-
-
-def require_digest(value: Any, context: str) -> str:
-    if not isinstance(value, str) or len(value) != 64:
-        raise MatrixError(f"{context} must be a lowercase SHA-256 digest")
-    if any(character not in "0123456789abcdef" for character in value):
-        raise MatrixError(f"{context} must be a lowercase SHA-256 digest")
-    return value
 
 
 def _close(actual: float, expected: float) -> bool:
@@ -367,6 +319,32 @@ def validate_pipeline_cache(value: Any, context: str) -> None:
             raise MatrixError(f"{context}.{kind}_cache byte bounds are inconsistent")
 
 
+def validate_archive_store(value: Any, context: str) -> None:
+    if not isinstance(value, dict):
+        raise MatrixError(f"{context} must be an object")
+    require_exact_keys(
+        value,
+        ARCHIVE_STORE_COUNTER_KEYS | {ARCHIVE_STORE_SECONDS_KEY},
+        context,
+    )
+    for key in ARCHIVE_STORE_COUNTER_KEYS:
+        require_int(value[key], f"{context}.{key}")
+    if require_number(value[ARCHIVE_STORE_SECONDS_KEY], f"{context}.{ARCHIVE_STORE_SECONDS_KEY}") < 0:
+        raise MatrixError(f"{context}.{ARCHIVE_STORE_SECONDS_KEY} must be nonnegative")
+    for prefix in ("archive_disk", "archive_quarantine"):
+        entries = value[f"{prefix}_entries"]
+        entry_limit = value[f"{prefix}_entry_limit"]
+        byte_count = value[f"{prefix}_bytes"]
+        byte_limit = value[f"{prefix}_byte_limit"]
+        if entry_limit <= 0 or byte_limit <= 0:
+            raise MatrixError(f"{context}.{prefix} limits must be positive")
+        if entries > entry_limit or byte_count > byte_limit:
+            raise MatrixError(f"{context}.{prefix} bounds are inconsistent")
+    per_entry_limit = value["archive_per_entry_byte_limit"]
+    if per_entry_limit <= 0 or per_entry_limit > value["archive_disk_byte_limit"]:
+        raise MatrixError(f"{context}.archive_per_entry_byte_limit is inconsistent")
+
+
 def metal_dispatch_total(counters: dict[str, int]) -> int:
     return sum(counters[key] for key in (
         "resident_merkle_commits", "metal_quotient_dispatches",
@@ -404,6 +382,24 @@ def pipeline_preparation_occurred(value: dict[str, Any]) -> bool:
     )
 
 
+def archive_preparation_occurred(value: dict[str, Any]) -> bool:
+    return any(
+        value[key] > 0
+        for key in ARCHIVE_STORE_COUNTER_KEYS
+        if key not in {
+            "archive_disk_entries",
+            "archive_disk_bytes",
+            "archive_disk_entry_limit",
+            "archive_disk_byte_limit",
+            "archive_per_entry_byte_limit",
+            "archive_quarantine_entries",
+            "archive_quarantine_bytes",
+            "archive_quarantine_entry_limit",
+            "archive_quarantine_byte_limit",
+        }
+    ) or value[ARCHIVE_STORE_SECONDS_KEY] > 0
+
+
 def validate_metal_telemetry(report: dict[str, Any], warmups: int, samples: int) -> bool:
     telemetry = report.get("backend_telemetry")
     if not isinstance(telemetry, dict):
@@ -412,6 +408,7 @@ def validate_metal_telemetry(report: dict[str, Any], warmups: int, samples: int)
     if require_string(telemetry["scope"], "metal.backend_telemetry.scope") != "verified_proof_request":
         raise MatrixError("metal telemetry has the wrong scope")
     validate_pipeline_cache(telemetry["post_warmup_pipeline_cache"], "metal.backend_telemetry.post_warmup_pipeline_cache")
+    validate_archive_store(telemetry["post_warmup_archive_store"], "metal.backend_telemetry.post_warmup_archive_store")
     records_by_group = {"warmups": telemetry["warmups"], "samples": telemetry["samples"]}
     if not all(isinstance(records, list) for records in records_by_group.values()):
         raise MatrixError("metal telemetry request groups must be arrays")
@@ -428,8 +425,10 @@ def validate_metal_telemetry(report: dict[str, Any], warmups: int, samples: int)
             require_exact_keys(record, TELEMETRY_DELTA_KEYS, context)
             counters = validate_counter_object(record["counters"], f"{context}.counters")
             validate_pipeline_cache(record["pipeline_cache"], f"{context}.pipeline_cache")
-            if group == "samples" and pipeline_preparation_occurred(
-                record["pipeline_cache"]
+            validate_archive_store(record["archive_store"], f"{context}.archive_store")
+            if group == "samples" and (
+                pipeline_preparation_occurred(record["pipeline_cache"])
+                or archive_preparation_occurred(record["archive_store"])
             ):
                 measured_pipeline_warm = False
             dispatches = metal_dispatch_total(counters)

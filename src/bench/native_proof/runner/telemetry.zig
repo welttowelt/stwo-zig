@@ -9,6 +9,18 @@ pub const Totals = struct {
     cpu_fallbacks: u64 = 0,
 };
 
+pub const WarmupSnapshot = struct {
+    pipeline_cache: report.PipelineCacheDelta,
+    archive_store: report.ArchiveStoreDelta,
+};
+
+pub fn postWarmup(snapshot: anytype) WarmupSnapshot {
+    return .{
+        .pipeline_cache = pipelineCache(snapshot.pipeline_cache),
+        .archive_store = archiveStore(snapshot.archive_store),
+    };
+}
+
 pub fn request(delta: anytype) report.BackendTelemetryDelta {
     const counters = delta.counters;
     return .{
@@ -34,6 +46,36 @@ pub fn request(delta: anytype) report.BackendTelemetryDelta {
             .cpu_small_circle_ldes = counters.cpu_small_circle_ldes,
         },
         .pipeline_cache = pipelineCache(delta.pipeline_cache),
+        .archive_store = archiveStore(delta.archive_store),
+    };
+}
+
+pub fn archiveStore(stats: anytype) report.ArchiveStoreDelta {
+    return .{
+        .archive_disk_hits = stats.archive_disk_hits,
+        .archive_disk_misses = stats.archive_disk_misses,
+        .archive_disk_evictions = stats.archive_disk_evictions,
+        .archive_disk_rebuilds = stats.archive_disk_rebuilds,
+        .archive_disk_rejections = stats.archive_disk_rejections,
+        .archive_disk_quarantines = stats.archive_disk_quarantines,
+        .archive_lock_acquisitions = stats.archive_lock_acquisitions,
+        .archive_lock_contentions = stats.archive_lock_contentions,
+        .archive_lock_timeouts = stats.archive_lock_timeouts,
+        .archive_publication_successes = stats.archive_publication_successes,
+        .archive_publication_failures = stats.archive_publication_failures,
+        .archive_bytes_published = stats.archive_bytes_published,
+        .archive_bytes_evicted = stats.archive_bytes_evicted,
+        .archive_persistence_bypasses = stats.archive_persistence_bypasses,
+        .archive_lock_wait_seconds = stats.archive_lock_wait_seconds,
+        .archive_disk_entries = stats.archive_disk_entries,
+        .archive_disk_bytes = stats.archive_disk_bytes,
+        .archive_disk_entry_limit = stats.archive_disk_entry_limit,
+        .archive_disk_byte_limit = stats.archive_disk_byte_limit,
+        .archive_per_entry_byte_limit = stats.archive_per_entry_byte_limit,
+        .archive_quarantine_entries = stats.archive_quarantine_entries,
+        .archive_quarantine_bytes = stats.archive_quarantine_bytes,
+        .archive_quarantine_entry_limit = stats.archive_quarantine_entry_limit,
+        .archive_quarantine_byte_limit = stats.archive_quarantine_byte_limit,
     };
 }
 
@@ -77,10 +119,30 @@ pub fn valid(
     if (comptime backend == .cpu_native) return warmups.len == 0 and samples.len == 0;
     for (warmups) |delta| if (delta.metal_dispatches == 0) return false;
     for (samples) |delta| {
-        if (delta.metal_dispatches == 0 or pipelinePreparationOccurred(delta.pipeline_cache))
+        if (delta.metal_dispatches == 0 or
+            pipelinePreparationOccurred(delta.pipeline_cache) or
+            archivePreparationOccurred(delta.archive_store))
             return false;
     }
     return true;
+}
+
+fn archivePreparationOccurred(store: report.ArchiveStoreDelta) bool {
+    return store.archive_disk_hits > 0 or
+        store.archive_disk_misses > 0 or
+        store.archive_disk_evictions > 0 or
+        store.archive_disk_rebuilds > 0 or
+        store.archive_disk_rejections > 0 or
+        store.archive_disk_quarantines > 0 or
+        store.archive_lock_acquisitions > 0 or
+        store.archive_lock_contentions > 0 or
+        store.archive_lock_timeouts > 0 or
+        store.archive_publication_successes > 0 or
+        store.archive_publication_failures > 0 or
+        store.archive_bytes_published > 0 or
+        store.archive_bytes_evicted > 0 or
+        store.archive_persistence_bypasses > 0 or
+        store.archive_lock_wait_seconds > 0;
 }
 
 pub fn sum(
@@ -117,6 +179,7 @@ test "every Metal request needs a dispatch" {
         .cpu_fallbacks = 0,
         .counters = .{},
         .pipeline_cache = .{},
+        .archive_store = .{},
     };
     var host_only = accelerated;
     host_only.metal_dispatches = 0;
@@ -124,6 +187,9 @@ test "every Metal request needs a dispatch" {
     try std.testing.expect(!valid(.metal_hybrid, &.{accelerated}, &.{host_only}));
     var cold = accelerated;
     cold.pipeline_cache.direct_compiles = 1;
+    try std.testing.expect(!valid(.metal_hybrid, &.{accelerated}, &.{cold}));
+    cold = accelerated;
+    cold.archive_store.archive_disk_hits = 1;
     try std.testing.expect(!valid(.metal_hybrid, &.{accelerated}, &.{cold}));
     try std.testing.expect(valid(.cpu_native, &.{}, &.{}));
 }

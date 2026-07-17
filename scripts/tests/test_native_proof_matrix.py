@@ -377,6 +377,10 @@ class NativeProofMatrixTests(unittest.TestCase):
                 "cache_peak_bytes",
                 lambda report: report["backend_telemetry"]["post_warmup_pipeline_cache"].__setitem__("pipeline_cache_peak_bytes", 16 * 1024 * 1024 + 1),
             ),
+            (
+                "archive_entries",
+                lambda report: report["backend_telemetry"]["post_warmup_archive_store"].__setitem__("archive_disk_entries", 129),
+            ),
         )
         for name, mutate in mutations:
             report = make_report("metal", workload)
@@ -391,6 +395,13 @@ class NativeProofMatrixTests(unittest.TestCase):
         report["backend_telemetry"]["valid"] = True
         with self.assertRaisesRegex(MODULE.MatrixError, "pipeline warmth"):
             MODULE.validate_report(report, "metal", workload, args())
+
+        report = make_report("metal", workload, cold_pipeline=True)
+        report["backend_telemetry"]["samples"][0]["pipeline_cache"]["direct_compiles"] = 0
+        report["backend_telemetry"]["samples"][0]["pipeline_cache"]["pipeline_preparation_seconds"] = 0.0
+        report["backend_telemetry"]["samples"][0]["archive_store"]["archive_disk_hits"] = 1
+        _, blockers = MODULE.validate_report(report, "metal", workload, args())
+        self.assertIn("metal_requirement_backend_telemetry_valid", blockers)
 
         report = make_report("metal", workload)
         report["backend_telemetry"]["samples"] = report["backend_telemetry"][
