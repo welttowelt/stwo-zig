@@ -60,6 +60,20 @@ pub fn fusedKernelHash(parts: []const FusedPart) !u64 {
     return fusedGroupHash(parts);
 }
 
+pub fn fusionSliceKernelName(
+    allocator: std.mem.Allocator,
+    parts: []const FusedPart,
+    slice: FusionSlice,
+) ![]u8 {
+    if (slice.start >= slice.end or slice.end > parts.len)
+        return error.InvalidFusionGroup;
+    const group = parts[slice.start..slice.end];
+    return if (group.len == 1)
+        kernelName(allocator, group[0].program.header.semantic_hash)
+    else
+        fusedKernelName(allocator, group);
+}
+
 pub fn instructionCount(program: eval.Program) usize {
     return program.base_insts.len + program.ext_insts.len;
 }

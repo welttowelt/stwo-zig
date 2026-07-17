@@ -6,6 +6,7 @@ const Error = @import("../errors.zig").Error;
 
 const enable_fusion_env = "STWO_ZIG_SN2_ENABLE_COMPOSITION_PART_FUSION";
 const fusion_cap_env = "STWO_ZIG_SN2_COMPOSITION_FUSION_CAP";
+const fusion_mode_env = "STWO_ZIG_SN2_COMPOSITION_FUSION_MODE";
 const source_env = "STWO_ZIG_SN2_COMPOSITION_SOURCE";
 const component_limit_env = "STWO_ZIG_SN2_COMPOSITION_COMPONENT_LIMIT";
 const diagnostic_component_env = "STWO_ZIG_SN2_LOG_COMPOSITION_PART_COMPONENT";
@@ -15,10 +16,16 @@ pub const LibrarySelection = union(enum) {
     source: []u8,
 };
 
+pub const FusionMode = enum {
+    capped,
+    experimental_hybrid_source_diagnostic,
+};
+
 /// Configuration resolved before selecting and loading the evaluator library.
 pub const LibraryConfig = struct {
     fusion_requested: bool,
     fusion_instruction_cap: usize,
+    fusion_mode: FusionMode,
     library: LibrarySelection,
 
     pub fn fromProcess(allocator: std.mem.Allocator) !LibraryConfig {
@@ -26,16 +33,32 @@ pub const LibraryConfig = struct {
         const source_artifact_present = std.process.hasEnvVarConstant(source_env);
         try validateFusionSource(fusion_requested, source_artifact_present);
 
-        const fusion_instruction_cap = if (std.process.getEnvVarOwned(
+        const encoded_mode = std.process.getEnvVarOwned(
             allocator,
-            fusion_cap_env,
-        )) |encoded_cap| cap: {
-            defer allocator.free(encoded_cap);
-            break :cap try fusionInstructionCap(fusion_requested, encoded_cap);
-        } else |err| switch (err) {
-            error.EnvironmentVariableNotFound => try fusionInstructionCap(fusion_requested, null),
+            fusion_mode_env,
+        ) catch |err| switch (err) {
+            error.EnvironmentVariableNotFound => null,
             else => return err,
         };
+        defer if (encoded_mode) |value| allocator.free(value);
+        const fusion_mode = try parseFusionMode(encoded_mode);
+        const encoded_cap = std.process.getEnvVarOwned(
+            allocator,
+            fusion_cap_env,
+        ) catch |err| switch (err) {
+            error.EnvironmentVariableNotFound => null,
+            else => return err,
+        };
+        defer if (encoded_cap) |value| allocator.free(value);
+        try validateFusionMode(
+            fusion_requested,
+            fusion_mode,
+            encoded_cap != null,
+        );
+        const fusion_instruction_cap = try fusionInstructionCap(
+            fusion_requested,
+            encoded_cap,
+        );
         const library: LibrarySelection = if (std.process.getEnvVarOwned(
             allocator,
             source_env,
@@ -48,6 +71,7 @@ pub const LibraryConfig = struct {
         return .{
             .fusion_requested = fusion_requested,
             .fusion_instruction_cap = fusion_instruction_cap,
+            .fusion_mode = fusion_mode,
             .library = library,
         };
     }
@@ -105,6 +129,23 @@ fn validateFusionSource(fusion_requested: bool, source_artifact_present: bool) !
         return error.FusedCompositionRequiresSourceArtifact;
 }
 
+fn parseFusionMode(encoded: ?[]const u8) !FusionMode {
+    const text = encoded orelse return .capped;
+    if (std.mem.eql(u8, text, "experimental-hybrid-source-diagnostic"))
+        return .experimental_hybrid_source_diagnostic;
+    return error.InvalidFusionMode;
+}
+
+fn validateFusionMode(
+    fusion_requested: bool,
+    fusion_mode: FusionMode,
+    fusion_cap_present: bool,
+) !void {
+    if (fusion_mode != .experimental_hybrid_source_diagnostic) return;
+    if (!fusion_requested) return error.HybridFusionRequiresFusedComposition;
+    if (fusion_cap_present) return error.HybridFusionConflictsWithCap;
+}
+
 fn fusionInstructionCap(fusion_requested: bool, encoded: ?[]const u8) !usize {
     const text = encoded orelse return eval_codegen.default_fused_instruction_cap;
     if (!fusion_requested) return error.FusionCapRequiresFusedComposition;
@@ -133,9 +174,30 @@ fn fusionEnabled(fusion_requested: bool, diagnostic_component: ?usize) bool {
 test "composition config keeps production environment names stable" {
     try std.testing.expectEqualStrings("STWO_ZIG_SN2_ENABLE_COMPOSITION_PART_FUSION", enable_fusion_env);
     try std.testing.expectEqualStrings("STWO_ZIG_SN2_COMPOSITION_FUSION_CAP", fusion_cap_env);
+    try std.testing.expectEqualStrings("STWO_ZIG_SN2_COMPOSITION_FUSION_MODE", fusion_mode_env);
     try std.testing.expectEqualStrings("STWO_ZIG_SN2_COMPOSITION_SOURCE", source_env);
     try std.testing.expectEqualStrings("STWO_ZIG_SN2_COMPOSITION_COMPONENT_LIMIT", component_limit_env);
     try std.testing.expectEqualStrings("STWO_ZIG_SN2_LOG_COMPOSITION_PART_COMPONENT", diagnostic_component_env);
+}
+
+test "composition config keeps hybrid fusion explicit and unambiguous" {
+    try std.testing.expectEqual(FusionMode.capped, try parseFusionMode(null));
+    try std.testing.expectEqual(
+        FusionMode.experimental_hybrid_source_diagnostic,
+        try parseFusionMode("experimental-hybrid-source-diagnostic"),
+    );
+    try std.testing.expectError(error.InvalidFusionMode, parseFusionMode("hybrid"));
+    try validateFusionMode(true, .capped, false);
+    try validateFusionMode(true, .capped, true);
+    try validateFusionMode(true, .experimental_hybrid_source_diagnostic, false);
+    try std.testing.expectError(
+        error.HybridFusionRequiresFusedComposition,
+        validateFusionMode(false, .experimental_hybrid_source_diagnostic, false),
+    );
+    try std.testing.expectError(
+        error.HybridFusionConflictsWithCap,
+        validateFusionMode(true, .experimental_hybrid_source_diagnostic, true),
+    );
 }
 
 test "composition config validates fusion source and cap" {

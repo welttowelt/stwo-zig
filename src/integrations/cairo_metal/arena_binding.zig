@@ -1230,6 +1230,7 @@ fn prepareCompositionRecipe(
     defer if (library_config_live) library_config.deinit(allocator);
     const fusion_requested = library_config.fusion_requested;
     const fusion_instruction_cap = library_config.fusion_instruction_cap;
+    const fusion_mode = library_config.fusion_mode;
     var library = switch (library_config.library) {
         .source => |source_path| source: {
             const source_bytes = try std.fs.cwd().readFileAlloc(allocator, source_path, 64 * 1024 * 1024);
@@ -1405,21 +1406,43 @@ fn prepareCompositionRecipe(
             .program = part.program,
             .rc_base = part.rc_base,
         };
+        var hybrid_partition: ?eval_codegen.FusionPartition = null;
+        defer if (hybrid_partition) |*partition| partition.deinit();
+        if (fusion_enabled and fusion_mode == .experimental_hybrid_source_diagnostic)
+            hybrid_partition = try eval_codegen.hybridFusionPartition(
+                allocator,
+                fused_parts,
+                .{},
+            );
         var part_start: usize = 0;
+        var hybrid_slice_index: usize = 0;
         while (part_start < component.parts.len) {
-            const part_end = if (fusion_enabled)
-                try eval_codegen.fusionGroupEnd(
+            const part_end = if (!fusion_enabled)
+                part_start + 1
+            else switch (fusion_mode) {
+                .capped => try eval_codegen.fusionGroupEnd(
                     fused_parts,
                     part_start,
                     fusion_instruction_cap,
-                )
-            else
-                part_start + 1;
+                ),
+                .experimental_hybrid_source_diagnostic => end: {
+                    const slice = hybrid_partition.?.slices[hybrid_slice_index];
+                    if (slice.start != part_start) return Error.InvalidCardinality;
+                    hybrid_slice_index += 1;
+                    break :end slice.end;
+                },
+            };
             const part = component.parts[part_start];
-            const name = if (part_end - part_start > 1)
-                try eval_codegen.fusedKernelName(allocator, fused_parts[part_start..part_end])
-            else
-                try eval_codegen.kernelName(allocator, part.semantic_hash);
+            const name = try eval_codegen.fusionSliceKernelName(
+                allocator,
+                fused_parts,
+                .{
+                    .start = part_start,
+                    .end = part_end,
+                    .operations = 0,
+                    .source_bytes = 0,
+                },
+            );
             defer allocator.free(name);
             var slice_operations: usize = 0;
             for (fused_parts[part_start..part_end]) |fused|
@@ -1468,15 +1491,19 @@ fn prepareCompositionRecipe(
             plans_initialized += 1;
             part_start = part_end;
         }
+        if (hybrid_partition) |partition|
+            if (hybrid_slice_index != partition.slices.len)
+                return Error.InvalidCardinality;
         composition_dispatch_slices += plans_initialized;
         eval_batches[component_index] = try metal.prepareEvalBatch(plans[0..plans_initialized]);
         initialized_batches += 1;
     }
 
     if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_LOG_STAGE_TIMINGS")) std.debug.print(
-        "composition_fusion enabled={} instruction_cap={} original_parts={} dispatch_slices={}\n",
+        "composition_fusion enabled={} mode={s} instruction_cap={} original_parts={} dispatch_slices={}\n",
         .{
             fusion_enabled,
+            @tagName(fusion_mode),
             if (fusion_enabled) fusion_instruction_cap else @as(usize, 0),
             composition_original_parts,
             composition_dispatch_slices,
