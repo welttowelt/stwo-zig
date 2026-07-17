@@ -5,7 +5,7 @@ const m31 = @import("../../../core/fields/m31.zig");
 const canonic = @import("../../../core/poly/circle/canonic.zig");
 const prover_circle = @import("../../poly/circle/mod.zig");
 const stage_profile = @import("../../stage_profile.zig");
-const twiddles_mod = @import("../../poly/twiddles.zig");
+const twiddle_source_mod = @import("../../poly/twiddle_source.zig");
 const commitment_tree = @import("../commitment_tree.zig");
 const circle_transforms = @import("circle_transforms.zig");
 const column_storage = @import("storage.zig");
@@ -14,6 +14,7 @@ const M31 = m31.M31;
 const ColumnEvaluation = commitment_tree.ColumnEvaluation;
 const CoefficientRetentionPolicy = column_storage.CoefficientRetentionPolicy;
 const PreparedCommitmentColumns = column_storage.PreparedCommitmentColumns;
+const TwiddleSource = twiddle_source_mod.TwiddleSource;
 
 pub fn columnEvaluationsAreConstant(columns: []const ColumnEvaluation) bool {
     if (columns.len == 0) return false;
@@ -79,7 +80,7 @@ pub fn prepareColumnsForCommitBorrowedForBackend(
     columns: []const ColumnEvaluation,
     log_blowup_factor: u32,
     retention_policy: CoefficientRetentionPolicy,
-    twiddle_cache: *std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)),
+    twiddle_source: *TwiddleSource,
 ) !PreparedCommitmentColumns {
     const owned = try allocator.alloc(ColumnEvaluation, columns.len);
     errdefer allocator.free(owned);
@@ -104,7 +105,7 @@ pub fn prepareColumnsForCommitBorrowedForBackend(
         owned,
         log_blowup_factor,
         retention_policy,
-        twiddle_cache,
+        twiddle_source,
         null,
     );
 }
@@ -115,7 +116,7 @@ pub fn prepareColumnsForCommitOwnedForBackend(
     owned_columns: []ColumnEvaluation,
     log_blowup_factor: u32,
     retention_policy: CoefficientRetentionPolicy,
-    twiddle_cache: *std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)),
+    twiddle_source: *TwiddleSource,
     recorder: ?*stage_profile.Recorder,
 ) !PreparedCommitmentColumns {
     const retain_coefficients = column_storage.shouldRetainCoefficients(owned_columns, retention_policy);
@@ -133,7 +134,7 @@ pub fn prepareColumnsForCommitOwnedForBackend(
             owned_columns,
             log_blowup_factor,
             retain_coefficients,
-            twiddle_cache,
+            twiddle_source,
         );
     }
 
@@ -145,7 +146,7 @@ pub fn prepareColumnsForCommitOwnedForBackend(
                 "Interpolate columns",
             );
             defer interpolate_stage.end();
-            const result = try circle_transforms.interpolateCoefficientColumns(allocator, owned_columns, twiddle_cache);
+            const result = try circle_transforms.interpolateCoefficientColumns(allocator, owned_columns, twiddle_source);
             return .{
                 .columns = owned_columns,
                 .coefficients = result.coefficients,
@@ -161,7 +162,7 @@ pub fn prepareColumnsForCommitOwnedForBackend(
             "Interpolate columns",
         );
         defer interpolate_stage.end();
-        break :blk try circle_transforms.interpolateOwnedColumnsForExtensionForBackend(B, allocator, owned_columns, twiddle_cache);
+        break :blk try circle_transforms.interpolateOwnedColumnsForExtensionForBackend(B, allocator, owned_columns, twiddle_source);
     };
     errdefer column_storage.deinitOwnedCoefficientColumns(allocator, coeffs);
     allocator.free(owned_columns);
@@ -178,7 +179,7 @@ pub fn prepareColumnsForCommitOwnedForBackend(
             allocator,
             coeffs,
             log_blowup_factor,
-            twiddle_cache,
+            twiddle_source,
         );
     };
 
@@ -202,7 +203,7 @@ fn prepareColumnsCombinedForBackend(
     owned_columns: []ColumnEvaluation,
     log_blowup_factor: u32,
     retain_coefficients: bool,
-    twiddle_cache: *std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)),
+    twiddle_source: *TwiddleSource,
 ) !PreparedCommitmentColumns {
     const extended = try allocator.alloc(ColumnEvaluation, owned_columns.len);
     for (extended) |*column| column.* = .{ .log_size = 0, .values = &.{} };
@@ -228,8 +229,8 @@ fn prepareColumnsCombinedForBackend(
             return error.ShapeMismatch;
         const base_domain = canonic.CanonicCoset.new(group.log_size).circleDomain();
         const extended_domain = canonic.CanonicCoset.new(extended_log_size).circleDomain();
-        const base_twiddles = try circle_transforms.getCachedTwiddleTree(allocator, twiddle_cache, group.log_size);
-        const extended_twiddles = try circle_transforms.getCachedTwiddleTree(allocator, twiddle_cache, extended_log_size);
+        const base_twiddles = try twiddle_source.get(allocator, group.log_size);
+        const extended_twiddles = try twiddle_source.get(allocator, extended_log_size);
 
         const base_buffer = try allocator.alloc(M31, group.indices.items.len * base_domain.size());
         try coefficient_buffers.append(allocator, base_buffer);
@@ -256,9 +257,9 @@ fn prepareColumnsCombinedForBackend(
             base_values,
             extended_values,
             base_domain,
-            circle_transforms.twiddleTreeConst(base_twiddles),
+            base_twiddles,
             extended_domain,
-            circle_transforms.twiddleTreeConst(extended_twiddles),
+            extended_twiddles,
         );
 
         for (group.indices.items, base_values) |column_index, base| {

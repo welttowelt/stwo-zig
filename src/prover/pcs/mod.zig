@@ -10,8 +10,8 @@ const vcs_verifier = @import("../../core/vcs_lifted/verifier.zig");
 const canonic = @import("../../core/poly/circle/canonic.zig");
 const component_prover = @import("../air/component_prover.zig");
 const prover_circle = @import("../poly/circle/mod.zig");
+const twiddle_source_mod = @import("../poly/twiddle_source.zig");
 const stage_profile = @import("../stage_profile.zig");
-const twiddles_mod = @import("../poly/twiddles.zig");
 const prover_fri = @import("../fri.zig");
 const commitment_tree = @import("commitment_tree.zig");
 const circle_transforms = @import("columns/circle_transforms.zig");
@@ -29,6 +29,7 @@ const CirclePointQM31 = circle.CirclePointQM31;
 const PcsConfig = pcs_core.PcsConfig;
 const TreeVec = pcs_core.TreeVec;
 const PREPROCESSED_TRACE_IDX = verifier_types.PREPROCESSED_TRACE_IDX;
+const TwiddleSource = twiddle_source_mod.TwiddleSource;
 
 pub const CommitmentSchemeError = error{
     ShapeMismatch,
@@ -69,7 +70,7 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
         trees: std.ArrayListUnmanaged(BackendCommitmentTree),
         config: PcsConfig,
         coefficient_retention_policy: CoefficientRetentionPolicy,
-        twiddle_cache: std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)),
+        twiddle_source: TwiddleSource,
 
         const Self = @This();
 
@@ -78,14 +79,14 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                 .trees = .{},
                 .config = config,
                 .coefficient_retention_policy = .always,
-                .twiddle_cache = std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)).init(allocator),
+                .twiddle_source = TwiddleSource.initOwned(allocator),
             };
         }
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
             for (self.trees.items) |*tree| tree.deinit(allocator);
             self.trees.deinit(allocator);
-            circle_transforms.deinitTwiddleCache(allocator, &self.twiddle_cache);
+            self.twiddle_source.deinit(allocator);
             self.* = undefined;
         }
 
@@ -105,7 +106,7 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                 columns,
                 self.config.fri_config.log_blowup_factor,
                 self.coefficient_retention_policy,
-                &self.twiddle_cache,
+                &self.twiddle_source,
             );
             errdefer prepared.deinit(allocator);
 
@@ -188,7 +189,7 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                 owned_columns,
                 self.config.fri_config.log_blowup_factor,
                 self.coefficient_retention_policy,
-                &self.twiddle_cache,
+                &self.twiddle_source,
                 recorder,
             );
             errdefer prepared.deinit(allocator);
@@ -232,7 +233,7 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                 allocator,
                 polys,
                 blowup,
-                &self.twiddle_cache,
+                &self.twiddle_source,
             );
             errdefer column_storage.freeOwnedColumnEvaluations(allocator, columns);
 

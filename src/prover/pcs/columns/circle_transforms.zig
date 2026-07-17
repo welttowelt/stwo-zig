@@ -5,6 +5,7 @@ const builtin = @import("builtin");
 const m31 = @import("../../../core/fields/m31.zig");
 const canonic = @import("../../../core/poly/circle/canonic.zig");
 const prover_circle = @import("../../poly/circle/mod.zig");
+const twiddle_source_mod = @import("../../poly/twiddle_source.zig");
 const twiddles_mod = @import("../../poly/twiddles.zig");
 const work_pool_mod = @import("../../work_pool.zig");
 const commitment_tree = @import("../commitment_tree.zig");
@@ -12,6 +13,7 @@ const column_storage = @import("storage.zig");
 
 const M31 = m31.M31;
 const ColumnEvaluation = commitment_tree.ColumnEvaluation;
+const TwiddleSource = twiddle_source_mod.TwiddleSource;
 const fft_batch_target_bytes: usize = 256 * 1024;
 
 pub const InterpolatedCoefficients = struct {
@@ -35,7 +37,7 @@ pub const InterpolatedCoefficients = struct {
 pub fn interpolateCoefficientColumns(
     allocator: std.mem.Allocator,
     columns: []const ColumnEvaluation,
-    twiddle_cache: *std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)),
+    twiddle_source: *TwiddleSource,
 ) !InterpolatedCoefficients {
     const out = try allocator.alloc(prover_circle.CircleCoefficients, columns.len);
 
@@ -78,7 +80,7 @@ pub fn interpolateCoefficientColumns(
     var total_columns: usize = 0;
 
     for (groups.items, 0..) |group, group_idx| {
-        const twiddle_tree = try getCachedTwiddleTree(allocator, twiddle_cache, group.log_size);
+        const twiddle_tree = try twiddle_source.get(allocator, group.log_size);
         const domain = canonic.CanonicCoset.new(group.log_size).circleDomain();
         const batch_len = preferredFftBatchLen(domain.size());
         var batch_start: usize = 0;
@@ -113,7 +115,7 @@ pub fn interpolateCoefficientColumns(
             try work_items.append(allocator, .{
                 .values = batch_values,
                 .domain = domain,
-                .twiddle_tree = twiddleTreeConst(twiddle_tree),
+                .twiddle_tree = twiddle_tree,
             });
             try work_meta.append(allocator, .{
                 .group_indices_start = batch_start,
@@ -168,7 +170,7 @@ pub fn interpolateOwnedColumnsForExtensionForBackend(
     comptime B: type,
     allocator: std.mem.Allocator,
     owned_columns: []ColumnEvaluation,
-    twiddle_cache: *std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)),
+    twiddle_source: *TwiddleSource,
 ) ![]prover_circle.CircleCoefficients {
     const out = try allocator.alloc(prover_circle.CircleCoefficients, owned_columns.len);
     errdefer allocator.free(out);
@@ -205,7 +207,7 @@ pub fn interpolateOwnedColumnsForExtensionForBackend(
     var total_columns: usize = 0;
 
     for (groups.items, 0..) |group, group_idx| {
-        const twiddle_tree = try getCachedTwiddleTree(allocator, twiddle_cache, group.log_size);
+        const twiddle_tree = try twiddle_source.get(allocator, group.log_size);
         const domain = canonic.CanonicCoset.new(group.log_size).circleDomain();
         const batch_len = if (comptime @hasDecl(B, "interpolateCircleBuffers"))
             group.indices.items.len
@@ -228,7 +230,7 @@ pub fn interpolateOwnedColumnsForExtensionForBackend(
             try work_items.append(allocator, .{
                 .values = batch_values,
                 .domain = domain,
-                .twiddle_tree = twiddleTreeConst(twiddle_tree),
+                .twiddle_tree = twiddle_tree,
             });
             try work_meta.append(allocator, .{
                 .group_indices_start = batch_start,
@@ -332,7 +334,7 @@ pub fn extendCoefficientColumnsByGroupForBackend(
     allocator: std.mem.Allocator,
     coeffs: []const prover_circle.CircleCoefficients,
     log_blowup_factor: u32,
-    twiddle_cache: *std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)),
+    twiddle_source: *TwiddleSource,
 ) ![]ColumnEvaluation {
     const out = try allocator.alloc(ColumnEvaluation, coeffs.len);
     errdefer allocator.free(out);
@@ -372,7 +374,7 @@ pub fn extendCoefficientColumnsByGroupForBackend(
     for (groups.items) |group| {
         const extended_log_size = std.math.add(u32, group.log_size, log_blowup_factor) catch
             return error.ShapeMismatch;
-        const twiddle_tree = try getCachedTwiddleTree(allocator, twiddle_cache, extended_log_size);
+        const twiddle_tree = try twiddle_source.get(allocator, extended_log_size);
         const domain = canonic.CanonicCoset.new(extended_log_size).circleDomain();
         const domain_size = domain.size();
 
@@ -406,7 +408,7 @@ pub fn extendCoefficientColumnsByGroupForBackend(
             try work_items.append(allocator, .{
                 .values = batch_values,
                 .domain = domain,
-                .twiddle_tree = twiddleTreeConst(twiddle_tree),
+                .twiddle_tree = twiddle_tree,
             });
         }
     }
@@ -446,29 +448,29 @@ pub fn extendCoefficientColumnsByGroupForBackend(
 fn interpolateSingleCoefficientColumn(
     allocator: std.mem.Allocator,
     column: ColumnEvaluation,
-    twiddle_cache: *std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)),
+    twiddle_source: *TwiddleSource,
 ) !prover_circle.CircleCoefficients {
     const domain = canonic.CanonicCoset.new(column.log_size).circleDomain();
-    const twiddle_tree = try getCachedTwiddleTree(allocator, twiddle_cache, column.log_size);
+    const twiddle_tree = try twiddle_source.get(allocator, column.log_size);
     const evaluation = try prover_circle.CircleEvaluation.init(domain, column.values);
     return prover_circle.poly.interpolateFromEvaluationWithTwiddles(
         allocator,
         evaluation,
-        twiddleTreeConst(twiddle_tree),
+        twiddle_tree,
     );
 }
 
 fn interpolateOwnedSingleCoefficientColumn(
     allocator: std.mem.Allocator,
     column: ColumnEvaluation,
-    twiddle_cache: *std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)),
+    twiddle_source: *TwiddleSource,
 ) !prover_circle.CircleCoefficients {
     const domain = canonic.CanonicCoset.new(column.log_size).circleDomain();
-    const twiddle_tree = try getCachedTwiddleTree(allocator, twiddle_cache, column.log_size);
+    const twiddle_tree = try twiddle_source.get(allocator, column.log_size);
     return prover_circle.poly.interpolateOwnedValuesWithTwiddles(
         domain,
         @constCast(column.values),
-        twiddleTreeConst(twiddle_tree),
+        twiddle_tree,
     );
 }
 
@@ -534,38 +536,6 @@ pub fn deinitLogSizeGroups(
 ) void {
     for (groups.items) |*group| group.deinit(allocator);
     groups.deinit(allocator);
-}
-
-pub fn twiddleTreeConst(tree: twiddles_mod.TwiddleTree([]M31)) twiddles_mod.TwiddleTree([]const M31) {
-    return .{
-        .root_coset = tree.root_coset,
-        .twiddles = tree.twiddles,
-        .itwiddles = tree.itwiddles,
-    };
-}
-
-pub fn getCachedTwiddleTree(
-    allocator: std.mem.Allocator,
-    cache: *std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)),
-    log_size: u32,
-) !twiddles_mod.TwiddleTree([]M31) {
-    const gop = try cache.getOrPut(log_size);
-    if (!gop.found_existing) {
-        gop.value_ptr.* = try twiddles_mod.precomputeM31(
-            allocator,
-            canonic.CanonicCoset.new(log_size).circleDomain().half_coset,
-        );
-    }
-    return gop.value_ptr.*;
-}
-
-pub fn deinitTwiddleCache(
-    allocator: std.mem.Allocator,
-    cache: *std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)),
-) void {
-    var it = cache.valueIterator();
-    while (it.next()) |tree| twiddles_mod.deinitM31(allocator, tree);
-    cache.deinit();
 }
 
 fn preferredFftBatchLen(value_len: usize) usize {

@@ -228,7 +228,7 @@ test "prover pcs: commit polys applies blowup and stores coefficients" {
     try std.testing.expectEqual(@as(usize, 1), scheme.trees.items[0].coefficients.?.len);
 }
 
-test "prover pcs: commit polys supports mixed log sizes with twiddle cache" {
+test "prover pcs: commit polys reuses mixed log sizes through twiddle source" {
     const Hasher = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
     const MerkleChannel = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
     const Channel = @import("../../../core/channel/blake2s.zig").Blake2sChannel;
@@ -282,6 +282,20 @@ test "prover pcs: commit polys supports mixed log sizes with twiddle cache" {
     for (scheme.trees.items[0].columns[1].values) |value| {
         try std.testing.expect(value.eql(M31.fromCanonical(11)));
     }
+
+    const cold = scheme.twiddle_source.telemetry();
+    try std.testing.expectEqual(@as(u64, 2), cold.tree_build_count);
+    try std.testing.expectEqual(@as(usize, 2), cold.retained_tree_count);
+
+    try scheme.commitPolys(
+        alloc,
+        &[_]prover_circle.CircleCoefficients{ poly0, poly1 },
+        &channel,
+    );
+    const warm = scheme.twiddle_source.telemetry();
+    try std.testing.expectEqual(cold.tree_build_count, warm.tree_build_count);
+    try std.testing.expectEqual(cold.cache_hit_count + 2, warm.cache_hit_count);
+    try std.testing.expectEqual(cold.retained_bytes, warm.retained_bytes);
 }
 
 test "prover pcs: build query positions tree applies preprocessed mapping" {

@@ -80,7 +80,7 @@ pub fn TreeBuilder(comptime B: type, comptime H: type, comptime MC: type, compti
                 base_columns,
                 self.commitment_scheme.config.fri_config.log_blowup_factor,
                 self.commitment_scheme.coefficient_retention_policy,
-                &self.commitment_scheme.twiddle_cache,
+                &self.commitment_scheme.twiddle_source,
                 null,
             );
             errdefer prepared.deinit(self.allocator);
@@ -225,7 +225,7 @@ pub fn StreamingTreeBuilder(comptime B: type, comptime H: type, comptime MC: typ
                 owned_batch,
                 log_blowup,
                 if (batch_retain) CoefficientRetentionPolicy.always else CoefficientRetentionPolicy.never,
-                &self.commitment_scheme.twiddle_cache,
+                &self.commitment_scheme.twiddle_source,
                 recorder,
             ) catch |err| {
                 column_storage.freeOwnedColumnEvaluations(self.allocator, owned_batch);
