@@ -55,6 +55,9 @@ The first migration pass has established these boundaries without changing proof
 - Metal resource layouts, prepared-plan ownership, destructor bindings, and environment policy now
   live in `backends/metal/runtime/resource_plans.zig`. The runtime facade retains all 31 public
   names while dispatch, allocation, and the Objective-C ABI remain unchanged.
+- FRI folding, quotient, transcript, and sparse-opening Objective-C declarations now live in
+  `backends/metal/runtime/opening_bindings.zig`. The facade retains its call sites through exact
+  private aliases, with shared ABI parameter types checked in the canonical Metal test graph.
 - Cairo resident interaction execution and witness-input seeding have focused owners below
   `integrations/cairo_metal/resident/`; the arena-binding facade retains the stable public names.
 - Cairo commitment ordering now has a focused resident owner for canonical AIR reconstruction,
