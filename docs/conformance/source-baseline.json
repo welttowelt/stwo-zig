@@ -55,12 +55,6 @@
       "max_lines": 3347
     },
     {
-      "key": "file-size:interop_cli.zig",
-      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
-      "plan": "docs/design/2026-07-17-source-conformance.md",
-      "max_lines": 1186
-    },
-    {
       "key": "file-size:metal_arena_plan_cli.zig",
       "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
       "plan": "docs/design/2026-07-17-source-conformance.md",
@@ -77,11 +71,6 @@
       "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
       "plan": "docs/design/2026-07-17-source-conformance.md",
       "max_lines": 2984
-    },
-    {
-      "key": "root-source:interop_cli.zig",
-      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
-      "plan": "docs/design/2026-07-17-source-conformance.md"
     },
     {
       "key": "root-source:metal_arena_plan_cli.zig",

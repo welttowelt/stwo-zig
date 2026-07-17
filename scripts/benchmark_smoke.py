@@ -19,13 +19,18 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 import re
 
+try:
+    from interop_cli_command import build_command, installed_binary
+except ModuleNotFoundError:
+    from scripts.interop_cli_command import build_command, installed_binary
+
 
 ROOT = Path(__file__).resolve().parent.parent
 REPORT_DEFAULT = ROOT / "vectors" / "reports" / "benchmark_smoke_report.json"
 
 RUST_MANIFEST = ROOT / "tools" / "stwo-interop-rs" / "Cargo.toml"
 RUST_BIN = ROOT / "tools" / "stwo-interop-rs" / "target" / "release" / "stwo-interop-rs"
-ZIG_BIN = ROOT / "vectors" / ".bench.zig_interop"
+ZIG_BIN = installed_binary(ROOT)
 ARTIFACT_DIR = ROOT / "vectors" / ".bench_artifacts"
 
 RUST_TOOLCHAIN_DEFAULT = "nightly-2025-07-14"
@@ -384,17 +389,7 @@ def ensure_binaries(rust_toolchain: str, zig_opt_mode: str, zig_cpu: str) -> Non
             str(RUST_MANIFEST),
         ]
     )
-    zig_cmd = [
-        "zig",
-        "build-exe",
-        "src/interop_cli.zig",
-        "-O",
-        zig_opt_mode,
-        "-femit-bin=" + str(ZIG_BIN),
-    ]
-    if zig_cpu != "baseline":
-        zig_cmd.append("-mcpu=" + zig_cpu)
-    run(zig_cmd)
+    run(build_command(zig_opt_mode, zig_cpu))
 
 
 def runtime_cmd(runtime: str) -> List[str]:

@@ -20,6 +20,11 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
+try:
+    from interop_cli_command import run_command
+except ModuleNotFoundError:
+    from scripts.interop_cli_command import run_command
+
 
 ROOT = Path(__file__).resolve().parent.parent
 REPORT_DEFAULT = ROOT / "vectors" / "reports" / "e2e_interop_report.json"
@@ -300,32 +305,24 @@ def run_example_case(
 
     run_step(
         name=f"{example}_rust_to_zig_verify",
-        cmd=[
-            "zig",
-            "run",
-            "src/interop_cli.zig",
-            "--",
+        cmd=run_command(
             "--mode",
             "verify",
             "--artifact",
             str(rust_artifact),
-        ],
+        ),
         steps=all_steps,
     )
 
     tamper_statement(rust_artifact, rust_statement_tampered, example=example)
     rust_to_zig_statement_tamper_step = run_step(
         name=f"{example}_rust_to_zig_statement_tamper_reject",
-        cmd=[
-            "zig",
-            "run",
-            "src/interop_cli.zig",
-            "--",
+        cmd=run_command(
             "--mode",
             "verify",
             "--artifact",
             str(rust_statement_tampered),
-        ],
+        ),
         steps=all_steps,
         expect_failure=True,
         required_rejection_class=REJECTION_CLASS_VERIFIER,
@@ -334,16 +331,12 @@ def run_example_case(
     tamper_proof_bytes_hex(rust_artifact, rust_tampered)
     rust_to_zig_tamper_step = run_step(
         name=f"{example}_rust_to_zig_tamper_reject",
-        cmd=[
-            "zig",
-            "run",
-            "src/interop_cli.zig",
-            "--",
+        cmd=run_command(
             "--mode",
             "verify",
             "--artifact",
             str(rust_tampered),
-        ],
+        ),
         steps=all_steps,
         expect_failure=True,
         required_rejection_class=REJECTION_CLASS_VERIFIER,
@@ -355,16 +348,12 @@ def run_example_case(
     )
     rust_to_zig_commit_tamper_step = run_step(
         name=f"{example}_rust_to_zig_commit_tamper_reject",
-        cmd=[
-            "zig",
-            "run",
-            "src/interop_cli.zig",
-            "--",
+        cmd=run_command(
             "--mode",
             "verify",
             "--artifact",
             str(rust_commit_tampered),
-        ],
+        ),
         steps=all_steps,
         expect_failure=True,
         required_rejection_class=REJECTION_CLASS_METADATA,
@@ -372,16 +361,12 @@ def run_example_case(
     tamper_metadata(rust_artifact, rust_generator_tampered, generator="invalid-generator")
     rust_to_zig_generator_tamper_step = run_step(
         name=f"{example}_rust_to_zig_generator_tamper_reject",
-        cmd=[
-            "zig",
-            "run",
-            "src/interop_cli.zig",
-            "--",
+        cmd=run_command(
             "--mode",
             "verify",
             "--artifact",
             str(rust_generator_tampered),
-        ],
+        ),
         steps=all_steps,
         expect_failure=True,
         required_rejection_class=REJECTION_CLASS_METADATA,
@@ -389,18 +374,14 @@ def run_example_case(
 
     run_step(
         name=f"{example}_zig_generate",
-        cmd=[
-            "zig",
-            "run",
-            "src/interop_cli.zig",
-            "--",
+        cmd=run_command(
             "--mode",
             "generate",
             "--example",
             example,
             "--artifact",
             str(zig_artifact),
-        ],
+        ),
         steps=all_steps,
     )
     assert_artifact_metadata(zig_artifact, expected_generator="zig", example=example)

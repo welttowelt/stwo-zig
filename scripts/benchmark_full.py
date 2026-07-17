@@ -13,6 +13,11 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+try:
+    from interop_cli_command import build_command, installed_binary
+except ModuleNotFoundError:
+    from scripts.interop_cli_command import build_command, installed_binary
+
 
 ROOT = Path(__file__).resolve().parent.parent
 REPORT_DEFAULT = ROOT / "vectors" / "reports" / "benchmark_full_report.json"
@@ -20,7 +25,7 @@ ARTIFACT_DIR = ROOT / "vectors" / ".bench_full_artifacts"
 
 RUST_MANIFEST = ROOT / "tools" / "stwo-interop-rs" / "Cargo.toml"
 RUST_BIN = ROOT / "tools" / "stwo-interop-rs" / "target" / "release" / "stwo-interop-rs"
-ZIG_BIN = ROOT / "vectors" / ".bench_full.zig_interop"
+ZIG_BIN = installed_binary(ROOT)
 
 RUST_TOOLCHAIN_DEFAULT = "nightly-2025-07-14"
 SUPPORTED_BENCH_PROOF_CODECS = ("json", "binary")
@@ -335,16 +340,7 @@ def ensure_binaries(rust_toolchain: str) -> None:
     if rust_build.returncode != 0:
         raise RuntimeError(f"rust benchmark binary build failed:\n{rust_build.stderr}")
 
-    zig_build = run(
-        [
-            "zig",
-            "build-exe",
-            "src/interop_cli.zig",
-            "-O",
-            "ReleaseFast",
-            "-femit-bin=" + str(ZIG_BIN),
-        ]
-    )
+    zig_build = run(build_command("ReleaseFast"))
     if zig_build.returncode != 0:
         raise RuntimeError(f"zig benchmark binary build failed:\n{zig_build.stderr}")
 

@@ -50,6 +50,10 @@ The first migration pass has established these boundaries without changing proof
   independent modules. Metal execution remains outside the pure scheduling layer.
 - Metal commitment, compaction, EC-op, and recovery benchmarks live under `src/bench/metal/` and
   consume the public `stwo` module while preserving their installed executable contracts.
+- The proof interoperability CLI is split by process lifecycle, argument policy, artifact I/O,
+  example dispatch, and benchmark reporting under `src/tools/interop/`. Build and Python harnesses
+  share that owned entry point; the 1,186-line root implementation and its compatibility facade are
+  removed.
 - `scripts/check_source_conformance.py` provides a blocking ratchet for dependency direction,
   root-source placement, generated-file declarations, and the 850-line ceiling across Zig, Metal,
   and Objective-C source. Oversized exceptions cannot grow beyond their checked-in line budgets,
@@ -57,8 +61,8 @@ The first migration pass has established these boundaries without changing proof
 - `scripts/ci.py` is the shared local and hosted CI entrypoint. Versioned pre-commit and pre-push
   hooks provide bounded local feedback without running hardware Metal or large SN PIE workloads.
 
-The checked-in enforcement baseline contains 20 explained legacy findings: 1 dependency edge,
-12 oversized manually maintained files, and 7 misplaced root sources. Each size exception records
+The checked-in enforcement baseline contains 18 explained legacy findings: 1 dependency edge,
+11 oversized manually maintained files, and 6 misplaced root sources. Each size exception records
 an immutable line budget and a repository-local decomposition plan. New findings, oversized-file
 growth, missing plans, and stale baseline entries fail the check. Removing a violation therefore
 requires removing its baseline entry in the same change.

@@ -12,6 +12,20 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const interop_cli_module = b.createModule(.{
+        .root_source_file = b.path("src/tools/interop/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    interop_cli_module.addImport("stwo", stwo_module);
+    const interop_cli = b.addExecutable(.{
+        .name = "interop_cli",
+        .root_module = interop_cli_module,
+    });
+    const install_interop_cli = b.addInstallArtifact(interop_cli, .{});
+    const interop_cli_build_step = b.step("interop-cli", "Build the proof interoperability CLI");
+    interop_cli_build_step.dependOn(&install_interop_cli.step);
+
     const native_proof_runner_module = b.createModule(.{
         .root_source_file = b.path("src/bench/native_proof/runner.zig"),
         .target = target,

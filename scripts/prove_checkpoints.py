@@ -22,6 +22,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+try:
+    from interop_cli_command import run_command
+except ModuleNotFoundError:
+    from scripts.interop_cli_command import run_command
+
 
 ROOT = Path(__file__).resolve().parent.parent
 RUST_MANIFEST = ROOT / "tools" / "stwo-interop-rs" / "Cargo.toml"
@@ -396,16 +401,12 @@ def rust_verify_cmd(*, toolchain: str, artifact_path: Path) -> list[str]:
 
 
 def zig_verify_cmd(*, artifact_path: Path) -> list[str]:
-    return [
-        "zig",
-        "run",
-        "src/interop_cli.zig",
-        "--",
+    return run_command(
         "--mode",
         "verify",
         "--artifact",
         str(artifact_path),
-    ]
+    )
 
 
 def main() -> int:

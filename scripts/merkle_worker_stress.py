@@ -18,9 +18,14 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List
 
+try:
+    from interop_cli_command import build_command, installed_binary
+except ModuleNotFoundError:
+    from scripts.interop_cli_command import build_command, installed_binary
+
 
 ROOT = Path(__file__).resolve().parent.parent
-ZIG_BIN = ROOT / "vectors" / ".merkle_stress.zig_interop"
+ZIG_BIN = installed_binary(ROOT)
 REPORT_DEFAULT = ROOT / "vectors" / "reports" / "merkle_worker_stress_report.json"
 ARTIFACT_DIR_DEFAULT = ROOT / "vectors" / "reports" / "merkle_worker_stress_artifacts"
 
@@ -150,14 +155,7 @@ def artifact_proof_hex(path: Path) -> str:
 def ensure_binary(steps: List[Dict[str, Any]]) -> None:
     run_step(
         name="build_zig_interop_binary",
-        cmd=[
-            "zig",
-            "build-exe",
-            "src/interop_cli.zig",
-            "-O",
-            "ReleaseFast",
-            "-femit-bin=" + str(ZIG_BIN),
-        ],
+        cmd=build_command("ReleaseFast"),
         steps=steps,
     )
 

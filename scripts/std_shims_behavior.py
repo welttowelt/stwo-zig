@@ -16,6 +16,11 @@ import time
 from pathlib import Path
 from typing import Any
 
+try:
+    from interop_cli_command import run_command
+except ModuleNotFoundError:
+    from scripts.interop_cli_command import run_command
+
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CHECKPOINTS = ROOT / "vectors" / "reports" / "prove_checkpoints_report.json"
@@ -89,16 +94,12 @@ def classify_rejection(stdout_tail: str, stderr_tail: str) -> str:
 
 
 def run_verify(mode: str, artifact: Path) -> dict[str, Any]:
-    cmd = [
-        "zig",
-        "run",
-        "src/interop_cli.zig",
-        "--",
+    cmd = run_command(
         "--mode",
         mode,
         "--artifact",
         str(artifact),
-    ]
+    )
     started = time.perf_counter()
     proc = subprocess.run(
         cmd,
