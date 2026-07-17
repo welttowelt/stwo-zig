@@ -1,6 +1,7 @@
 const std = @import("std");
-const arena = @import("backends/metal/arena_plan.zig");
-const recovery = @import("backend/recovery.zig");
+const stwo = @import("stwo");
+const arena = stwo.backends.metal.arena_plan;
+const recovery = stwo.backend.recovery;
 
 pub fn main() !void {
     var debug_allocator = std.heap.DebugAllocator(.{}).init;

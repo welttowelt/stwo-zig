@@ -1,6 +1,7 @@
 const std = @import("std");
-const metal = @import("backends/metal/runtime.zig");
-const blake2_merkle = @import("core/vcs_lifted/blake2_merkle.zig");
+const stwo = @import("stwo");
+const metal = stwo.backends.metal.runtime;
+const blake2_merkle = stwo.core.vcs_lifted.blake2_merkle;
 
 const Hasher = blake2_merkle.Blake2sMerkleHasher;
 

@@ -252,10 +252,11 @@ pub fn build(b: *std.Build) void {
         metal_arena_session_step.dependOn(&install_metal_arena_session.step);
 
         const metal_recovery_bench_module = b.createModule(.{
-            .root_source_file = b.path("src/metal_recovery_bench_cli.zig"),
+            .root_source_file = b.path("src/bench/metal/recovery.zig"),
             .target = target,
             .optimize = optimize,
         });
+        metal_recovery_bench_module.addImport("stwo", stwo_module);
         const metal_recovery_bench = b.addExecutable(.{
             .name = "metal-recovery-bench",
             .root_module = metal_recovery_bench_module,
@@ -265,10 +266,11 @@ pub fn build(b: *std.Build) void {
         metal_recovery_bench_step.dependOn(&metal_recovery_bench.step);
 
         const metal_ec_op_bench_module = b.createModule(.{
-            .root_source_file = b.path("src/metal_ec_op_bench_cli.zig"),
+            .root_source_file = b.path("src/bench/metal/ec_op.zig"),
             .target = target,
             .optimize = optimize,
         });
+        metal_ec_op_bench_module.addImport("stwo", stwo_module);
         const metal_ec_op_bench = b.addExecutable(.{
             .name = "metal-ec-op-bench",
             .root_module = metal_ec_op_bench_module,
@@ -286,10 +288,11 @@ pub fn build(b: *std.Build) void {
         metal_ec_op_bench_step.dependOn(&metal_ec_op_bench.step);
 
         const metal_compact_bench_module = b.createModule(.{
-            .root_source_file = b.path("src/metal_compact_bench_cli.zig"),
+            .root_source_file = b.path("src/bench/metal/compaction.zig"),
             .target = target,
             .optimize = optimize,
         });
+        metal_compact_bench_module.addImport("stwo", stwo_module);
         const metal_compact_bench = b.addExecutable(.{
             .name = "metal-compact-bench",
             .root_module = metal_compact_bench_module,
@@ -429,10 +432,11 @@ pub fn build(b: *std.Build) void {
         metal_check_step.dependOn(&metal_tests.step);
 
         const metal_bench_module = b.createModule(.{
-            .root_source_file = b.path("src/metal_bench_cli.zig"),
+            .root_source_file = b.path("src/bench/metal/commitment.zig"),
             .target = target,
             .optimize = optimize,
         });
+        metal_bench_module.addImport("stwo", stwo_module);
         const metal_bench = b.addExecutable(.{
             .name = "metal-bench",
             .root_module = metal_bench_module,

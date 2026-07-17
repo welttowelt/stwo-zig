@@ -1,5 +1,6 @@
 const std = @import("std");
-const metal = @import("backends/metal/runtime.zig");
+const stwo = @import("stwo");
+const metal = stwo.backends.metal.runtime;
 
 pub fn main() !void {
     var gpa = std.heap.DebugAllocator(.{}).init;

@@ -1,7 +1,8 @@
 const std = @import("std");
-const metal = @import("backends/metal/runtime.zig");
-const adapted_input = @import("frontends/cairo/adapter/adapted_input.zig");
-const cairo_adapter = @import("frontends/cairo/adapter/mod.zig");
+const stwo = @import("stwo");
+const metal = stwo.backends.metal.runtime;
+const cairo_adapter = stwo.frontends.cairo.adapter;
+const adapted_input = cairo_adapter.adapted_input;
 
 const OutputMode = enum { base, lookup, all };
 
