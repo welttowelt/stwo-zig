@@ -1,6 +1,6 @@
 # Native Backend Proof Suite
 
-Status: proposed
+Status: implementation; shared transaction and XOR vertical slice accepted
 
 Date: 2026-07-17
 
@@ -464,3 +464,20 @@ For migration-only changes, an unchanged workload median regressing by more than
 in two clean alternating 21-sample A/B repetitions blocks acceptance unless the
 regression is explained and explicitly approved. Correctness, oracle acceptance,
 and fail-closed evidence are never traded for throughput.
+
+## Accepted XOR vertical slice
+
+Commit `ec288e7` moves XOR onto the same backend-neutral transaction as wide
+Fibonacci. It owns its prepared preprocessed and main trees explicitly, exposes
+engine and reusable-session entrypoints, checks the required twiddle circle log,
+and keeps the XOR transcript and component construction inside the example spec.
+Compatibility, prepared-engine, and two sequential session proofs are byte
+identical. Allocation-failure and malformed-geometry tests cover the ownership
+contract, and one reused session constructs exactly one twiddle tower.
+
+The exact committed smoke artifact is 7,796 bytes with SHA-256
+`0b5ca7fb7ceeb110f996dec508b939ac5eb4239526a5f244de21a25e93180504`.
+It was generated from clean commit `ec288e7` for `log_size=5`, `log_step=2`, and
+`offset=3`, then accepted by the pinned Rust Stwo oracle at
+`a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2`. The next suite stage is report
+version 3 and one tagged runner/matrix path shared by wide Fibonacci and XOR.

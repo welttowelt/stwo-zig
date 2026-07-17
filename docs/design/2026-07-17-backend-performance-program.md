@@ -207,6 +207,18 @@ below the measured resident-Merkle policy threshold, and the production SN strea
 different compact-leaf sequence. That graph is the next adoption target; its acceptance requires a
 real command-profile reduction plus the unchanged full formal and Rust-oracle gates.
 
+### Native mixed-AIR transaction
+
+Commit `ec288e7` moves XOR onto the shared prepared-input, engine, and reusable-session proving
+transaction without changing its transcript or verifier. The compatibility path, a prepared CPU
+engine proof, and two sequential session proofs emit the same 7,796-byte canonical proof with
+SHA-256 `0b5ca7fb7ceeb110f996dec508b939ac5eb4239526a5f244de21a25e93180504`.
+The pinned Rust Stwo oracle accepted that exact Zig artifact.
+
+This is correctness and architecture evidence, not a throughput result. It establishes a narrow,
+nonempty-preprocessed-tree workload for the common CPU/Metal suite. Report version 3 and tagged
+Wide Fibonacci/XOR execution must land before cross-workload performance comparisons are published.
+
 ## Benchmark Matrix
 
 The checked-in driver will use stable workload identifiers and immutable protocol settings.
