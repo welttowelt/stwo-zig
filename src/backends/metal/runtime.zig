@@ -26,6 +26,12 @@ extern fn stwo_zig_metal_runtime_create(
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
+extern fn stwo_zig_metal_runtime_create_from_metallib(
+    path: [*]const u8,
+    path_len: usize,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
 extern fn stwo_zig_metal_runtime_destroy(runtime: ?*anyopaque) void;
 extern fn stwo_zig_metal_pipeline_cache_stats(
     runtime: *anyopaque,
@@ -657,6 +663,21 @@ pub const Runtime = struct {
         var message: [1024]u8 = [_]u8{0} ** 1024;
         const handle = stwo_zig_metal_runtime_create(kernel_source.ptr, &message, message.len) orelse {
             std.log.err("Metal initialization failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.RuntimeInitializationFailed;
+        };
+        return .{ .handle = handle };
+    }
+
+    pub fn initFromMetallib(path: []const u8) MetalError!Runtime {
+        if (path.len == 0) return MetalError.RuntimeInitializationFailed;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        const handle = stwo_zig_metal_runtime_create_from_metallib(
+            path.ptr,
+            path.len,
+            &message,
+            message.len,
+        ) orelse {
+            std.log.err("Metal AOT initialization failed: {s}", .{std.mem.sliceTo(&message, 0)});
             return MetalError.RuntimeInitializationFailed;
         };
         return .{ .handle = handle };

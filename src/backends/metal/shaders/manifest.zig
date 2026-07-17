@@ -310,6 +310,79 @@ test "metal shader manifest exactly covers source and runtime exports" {
     }
 }
 
+test "source and AOT core runtimes share one fail-closed pipeline initializer" {
+    const runtime_source = @embedFile("../runtime.m");
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        std.mem.count(u8, runtime_source, "static StwoZigMetalRuntime *create_runtime_from_library("),
+    );
+    try std.testing.expectEqual(
+        @as(usize, 2),
+        std.mem.count(u8, runtime_source, "StwoZigMetalRuntime *runtime = create_runtime_from_library("),
+    );
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        std.mem.count(u8, runtime_source, "stwo_zig_metal_runtime_create_from_metallib("),
+    );
+    const initializer_start = std.mem.indexOf(
+        u8,
+        runtime_source,
+        "static StwoZigMetalRuntime *create_runtime_from_library(",
+    ) orelse return error.MissingMetalRuntimeInitializer;
+    const initializer_end = std.mem.indexOfPos(
+        u8,
+        runtime_source,
+        initializer_start,
+        "void *stwo_zig_metal_runtime_create(",
+    ) orelse return error.MalformedMetalRuntimeInitializer;
+    const initializer = runtime_source[initializer_start..initializer_end];
+    const aot_start = std.mem.indexOfPos(
+        u8,
+        runtime_source,
+        initializer_end,
+        "void *stwo_zig_metal_runtime_create_from_metallib(",
+    ) orelse return error.MissingMetalAotRuntimeInitializer;
+    const aot_end = std.mem.indexOfPos(
+        u8,
+        runtime_source,
+        aot_start,
+        "bool stwo_zig_metal_pipeline_cache_stats(",
+    ) orelse return error.MalformedMetalAotRuntimeInitializer;
+    const source_constructor = runtime_source[initializer_end..aot_start];
+    const aot_constructor = runtime_source[aot_start..aot_end];
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        std.mem.count(u8, source_constructor, "newLibraryWithSource:source options:options"),
+    );
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        std.mem.count(u8, aot_constructor, "newLibraryWithURL:[NSURL fileURLWithPath:canonical_path]"),
+    );
+
+    var assignments = initializer;
+    var assignment_count: usize = 0;
+    const assignment_marker = " = make_pipeline(";
+    while (std.mem.indexOf(u8, assignments, assignment_marker)) |marker_index| {
+        const property_marker = "runtime.";
+        const property_start = (std.mem.lastIndexOf(
+            u8,
+            assignments[0..marker_index],
+            property_marker,
+        ) orelse return error.MalformedMetalPipelineAssignment) + property_marker.len;
+        const property = assignments[property_start..marker_index];
+        var validation_buffer: [180]u8 = undefined;
+        const validation = try std.fmt.bufPrint(
+            &validation_buffer,
+            "runtime.{s} == nil",
+            .{property},
+        );
+        try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, initializer, validation));
+        assignment_count += 1;
+        assignments = assignments[marker_index + assignment_marker.len ..];
+    }
+    try std.testing.expectEqual(exports.len, assignment_count);
+}
+
 test "commitment shader bindings match core ABI version 2" {
     try std.testing.expectEqual(@as(u32, 2), core_shader_abi);
     const bindings = [_]struct { kernel: []const u8, argument: []const u8 }{
