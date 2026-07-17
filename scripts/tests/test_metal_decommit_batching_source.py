@@ -6,7 +6,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 RUNTIME = ROOT / "src/backends/metal/runtime.m"
 RECIPES = ROOT / "src/backends/metal/protocol_recipes.zig"
-ARENA_BINDING = ROOT / "src/frontends/cairo/witness/arena_binding.zig"
+ARENA_BINDING = ROOT / "src/integrations/cairo_metal/arena_binding.zig"
 
 
 def function_body(source: str, name: str, next_name: str) -> str:

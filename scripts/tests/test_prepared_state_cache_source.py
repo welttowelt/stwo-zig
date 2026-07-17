@@ -4,7 +4,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 ARENA_CLI = ROOT / "src" / "metal_arena_plan_cli.zig"
-ARENA_BINDING = ROOT / "src" / "frontends" / "cairo" / "witness" / "arena_binding.zig"
+ARENA_BINDING = ROOT / "src" / "integrations" / "cairo_metal" / "arena_binding.zig"
 SESSION_CLI = ROOT / "src" / "metal_prover_session_cli.zig"
 
 

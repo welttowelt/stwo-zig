@@ -1,27 +1,29 @@
+//! Cairo proving orchestration over the resident Metal arena.
+
 const std = @import("std");
-const arena_plan = @import("../../../backends/metal/arena_plan.zig");
-const metal_runtime = @import("../../../backends/metal/runtime.zig");
-const protocol_recipes = @import("../../../backends/metal/protocol_recipes.zig");
-const transcript_fixture = @import("../../../backends/metal/cairo/diagnostics/transcript_fixture.zig");
-const composition_bundle_mod = @import("composition_bundle.zig");
-const fixed_table_bundle_mod = @import("fixed_table_bundle.zig");
-const feed_bundle_mod = @import("feed_bundle.zig");
-const relation_bundle_mod = @import("relation_bundle.zig");
-const witness_bundle_mod = @import("bundle.zig");
-const witness_program_mod = @import("program.zig");
-const witness_codegen = @import("../../../backends/metal/witness_codegen.zig");
-const eval_codegen = @import("../../../backends/metal/eval_codegen.zig");
-const cairo_adapter = @import("../adapter/mod.zig");
-const cairo_opcodes = @import("../adapter/opcodes.zig");
-const cairo_proof_plan = @import("../proof_plan.zig");
-const witness_scheduler = @import("../witness_scheduler.zig");
-const M31 = @import("../../../core/fields/m31.zig").M31;
-const QM31 = @import("../../../core/fields/qm31.zig").QM31;
-const twiddles_mod = @import("../../../prover/poly/twiddles.zig");
-const circle_poly_mod = @import("../../../prover/poly/circle/poly.zig");
-const circle_eval_mod = @import("../../../prover/poly/circle/evaluation.zig");
-const canonic_circle_mod = @import("../../../core/poly/circle/canonic.zig");
-const circle_mod = @import("../../../core/circle.zig");
+const arena_plan = @import("../../backends/metal/arena_plan.zig");
+const metal_runtime = @import("../../backends/metal/runtime.zig");
+const protocol_recipes = @import("../../backends/metal/protocol_recipes.zig");
+const transcript_fixture = @import("../../backends/metal/cairo/diagnostics/transcript_fixture.zig");
+const composition_bundle_mod = @import("../../frontends/cairo/witness/composition_bundle.zig");
+const fixed_table_bundle_mod = @import("../../frontends/cairo/witness/fixed_table_bundle.zig");
+const feed_bundle_mod = @import("../../frontends/cairo/witness/feed_bundle.zig");
+const relation_bundle_mod = @import("../../frontends/cairo/witness/relation_bundle.zig");
+const witness_bundle_mod = @import("../../frontends/cairo/witness/bundle.zig");
+const witness_program_mod = @import("../../frontends/cairo/witness/program.zig");
+const witness_codegen = @import("../../backends/metal/witness_codegen.zig");
+const eval_codegen = @import("../../backends/metal/eval_codegen.zig");
+const cairo_adapter = @import("../../frontends/cairo/adapter/mod.zig");
+const cairo_opcodes = @import("../../frontends/cairo/adapter/opcodes.zig");
+const cairo_proof_plan = @import("../../frontends/cairo/proof_plan.zig");
+const witness_scheduler = @import("../../frontends/cairo/witness_scheduler.zig");
+const M31 = @import("../../core/fields/m31.zig").M31;
+const QM31 = @import("../../core/fields/qm31.zig").QM31;
+const twiddles_mod = @import("../../prover/poly/twiddles.zig");
+const circle_poly_mod = @import("../../prover/poly/circle/poly.zig");
+const circle_eval_mod = @import("../../prover/poly/circle/evaluation.zig");
+const canonic_circle_mod = @import("../../core/poly/circle/canonic.zig");
+const circle_mod = @import("../../core/circle.zig");
 
 pub const Error = error{
     InvalidSchedule,
@@ -4012,7 +4014,7 @@ fn logLookupRelationCpuClaim(
                     use[3]
                 else
                     words[source_word_offset + (use[1] + word) * row_count + row];
-                if (source_word >= @import("../../../core/fields/m31.zig").Modulus)
+                if (source_word >= @import("../../core/fields/m31.zig").Modulus)
                     return Error.InvalidCardinality;
                 const alpha = loadQm31(words, alpha_word_offset + @as(usize, word) * 4);
                 accumulator = accumulator.add(alpha.mulM31(M31.fromCanonical(source_word)));
@@ -4032,7 +4034,7 @@ fn logLookupRelationCpuClaim(
                 2 => words[source_word_offset + use[5] * row_count + row],
                 else => return Error.InvalidCardinality,
             };
-            if (raw >= @import("../../../core/fields/m31.zig").Modulus)
+            if (raw >= @import("../../core/fields/m31.zig").Modulus)
                 return Error.InvalidCardinality;
             const value = M31.fromCanonical(raw);
             return if (use[6] != 0) value.neg() else value;
