@@ -5,10 +5,9 @@ const qm31 = @import("../../core/fields/qm31.zig");
 const quotients = @import("../../core/pcs/quotients.zig");
 const pcs_utils = @import("../../core/pcs/utils.zig");
 const canonic = @import("../../core/poly/circle/canonic.zig");
-const core_utils = @import("../../core/utils.zig");
+const row_executor = @import("quotient_row_executor.zig");
 const secure_column = @import("../secure_column.zig");
 const work_pool_mod = @import("../work_pool.zig");
-const CircleDomain = @import("../../core/poly/circle/domain.zig").CircleDomain;
 
 const circle_mod = @import("../../core/circle.zig");
 const circle_domain = @import("../../core/poly/circle/domain.zig");
@@ -33,18 +32,8 @@ pub const QuotientOpsError = error{
     InvalidColumnLength,
 };
 
-const LiftingColumnView = struct {
-    values: []const M31,
-    shift_amt: std.math.Log2Int(usize),
-    is_direct: bool,
-};
-
-const CombinedContributionView = struct {
-    coordinates: [qm31.SECURE_EXTENSION_DEGREE][]M31,
-    batch_index: usize,
-    shift_amt: std.math.Log2Int(usize),
-    is_direct: bool,
-};
+const LiftingColumnView = row_executor.LiftingColumnView;
+const CombinedContributionView = row_executor.CombinedContributionView;
 
 const CombinedContributionPlan = struct {
     views: []CombinedContributionView,
@@ -58,15 +47,8 @@ const CombinedContributionPlan = struct {
     }
 };
 
-const ColumnContribution = struct {
-    batch_index: usize,
-    value_coeff: QM31,
-};
-
-const ColumnContributionRange = struct {
-    start: usize,
-    len: usize,
-};
+const ColumnContribution = row_executor.ColumnContribution;
+const ColumnContributionRange = row_executor.ColumnContributionRange;
 
 const ColumnContributionPlan = struct {
     active_column_indices: []usize,
@@ -134,6 +116,8 @@ pub const LazyQuotientProvider = struct {
     combined_views: []CombinedContributionView,
     raw_columns: []ColumnEvaluation,
     workspace: quotients.RowQuotientWorkspace,
+    chunk_scratch: ?row_executor.Scratch,
+    allow_parallel_scalar: bool,
     domain: circle_domain.CircleDomain,
     lifting_log_size: u32,
     domain_size: usize,
@@ -217,9 +201,23 @@ pub const LazyQuotientProvider = struct {
             );
             combined_views = combined_plan.views;
         }
+        errdefer if (!use_raw_columns) {
+            var combined_plan = CombinedContributionPlan{ .views = combined_views };
+            combined_plan.deinit(allocator);
+        };
 
         var workspace = try quotients.RowQuotientWorkspace.init(allocator, prepared.sample_batches);
         errdefer workspace.deinit(allocator);
+        var chunk_scratch: ?row_executor.Scratch = null;
+        if (!use_raw_columns) {
+            chunk_scratch = try row_executor.initScratchOrScalarFallback(
+                allocator,
+                prepared.sample_batches.len,
+                LAZY_QUOTIENT_CHUNK_SIZE,
+                domain_size,
+            );
+        }
+        errdefer if (chunk_scratch) |*scratch| scratch.deinit(allocator);
 
         const domain = canonic.CanonicCoset.new(lifting_log_size).circleDomain();
 
@@ -231,6 +229,8 @@ pub const LazyQuotientProvider = struct {
                 break :blk &.{};
             },
             .workspace = workspace,
+            .chunk_scratch = chunk_scratch,
+            .allow_parallel_scalar = !use_raw_columns and !row_executor.shouldBatchDomain(domain_size),
             .domain = domain,
             .lifting_log_size = lifting_log_size,
             .domain_size = domain_size,
@@ -238,6 +238,7 @@ pub const LazyQuotientProvider = struct {
     }
 
     pub fn deinit(self: *LazyQuotientProvider, allocator: std.mem.Allocator) void {
+        if (self.chunk_scratch) |*scratch| scratch.deinit(allocator);
         self.workspace.deinit(allocator);
         var combined_plan = CombinedContributionPlan{ .views = self.combined_views };
         combined_plan.deinit(allocator);
@@ -256,43 +257,26 @@ pub const LazyQuotientProvider = struct {
         chunk_len: usize,
         out_coords: *[qm31.SECURE_EXTENSION_DEGREE][]M31,
     ) !void {
-        std.debug.assert(chunk_start + chunk_len <= self.domain_size);
+        const chunk_end = std.math.add(usize, chunk_start, chunk_len) catch
+            return QuotientOpsError.ShapeMismatch;
+        if (chunk_end > self.domain_size) return QuotientOpsError.ShapeMismatch;
         for (out_coords) |coord_buf| {
-            std.debug.assert(coord_buf.len >= chunk_len);
+            if (coord_buf.len < chunk_len) return QuotientOpsError.ShapeMismatch;
         }
 
-        for (0..chunk_len) |local_idx| {
-            const position = chunk_start + local_idx;
-            const domain_point = self.domain.at(core_utils.bitReverseIndex(position, self.lifting_log_size));
-            try self.workspace.beginRow(domain_point);
-
-            for (self.combined_views) |view| {
-                const idx = if (view.is_direct)
-                    position
-                else blk: {
-                    break :blk ((position >> view.shift_amt) << 1) + (position & 1);
-                };
-                const value = QM31.fromM31(
-                    view.coordinates[0][idx],
-                    view.coordinates[1][idx],
-                    view.coordinates[2][idx],
-                    view.coordinates[3][idx],
-                );
-                self.workspace.batch_numerators[view.batch_index] =
-                    self.workspace.batch_numerators[view.batch_index].add(value);
-            }
-
-            const quotient_value = try quotients.finalizeRowQuotients(
-                &self.prepared.quotient_constants,
-                domain_point.y,
-                self.workspace.batch_numerators,
-                self.workspace.denominator_inverses,
-            );
-            const coords = quotient_value.toM31Array();
-            inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coord| {
-                out_coords[coord][local_idx] = coords[coord];
-            }
-        }
+        const work = row_executor.StreamingWork{
+            .out_columns = out_coords.*,
+            .start = chunk_start,
+            .end = chunk_end,
+            .output_start = chunk_start,
+            .workspace = &self.workspace,
+            .scratch = if (self.chunk_scratch) |*scratch| scratch else null,
+            .domain = self.domain,
+            .combined_views = self.combined_views,
+            .quotient_constants = &self.prepared.quotient_constants,
+            .lifting_log_size = self.lifting_log_size,
+        };
+        try row_executor.executeStreaming(&work);
     }
 
     /// Materialize the full quotient column, splitting disjoint domain ranges
@@ -325,6 +309,8 @@ pub const LazyQuotientProvider = struct {
         allocator: std.mem.Allocator,
         out: *SecureColumnByCoords,
     ) !bool {
+        const use_batched_inversion = self.chunk_scratch != null;
+        if (!use_batched_inversion and !self.allow_parallel_scalar) return false;
         const pool = work_pool_mod.getGlobalPool() orelse return false;
         const n_workers = @min(pool.workerCount(), self.domain_size / MIN_POSITIONS_PER_WORKER);
         if (n_workers <= 1) return false;
@@ -338,15 +324,38 @@ pub const LazyQuotientProvider = struct {
             initialized += 1;
         }
 
-        var work_items: [work_pool_mod.MAX_WORKERS]StreamingChunkWork = undefined;
-        const chunk_len = (self.domain_size + n_workers - 1) / n_workers;
+        const worker_span = try row_executor.workerSpan(self.domain_size, n_workers);
+        var scratches: ?[]row_executor.Scratch = null;
+        var scratch_initialized: usize = 0;
+        defer if (scratches) |values| {
+            for (values[0..scratch_initialized]) |*scratch| scratch.deinit(allocator);
+            allocator.free(values);
+        };
+        if (use_batched_inversion) {
+            scratches = try allocator.alloc(row_executor.Scratch, n_workers);
+            for (scratches.?) |*scratch| {
+                scratch.* = row_executor.initParallelScratch(
+                    allocator,
+                    self.prepared.sample_batches.len,
+                    @min(worker_span, row_executor.MAX_ROWS),
+                    self.domain_size,
+                ) catch |err| switch (err) {
+                    error.ParallelUnavailable => return false,
+                    else => return err,
+                };
+                scratch_initialized += 1;
+            }
+        }
+
+        var work_items: [work_pool_mod.MAX_WORKERS]row_executor.StreamingWork = undefined;
         for (0..n_workers) |worker| {
-            const start = worker * chunk_len;
+            const worker_range = try row_executor.workerRange(self.domain_size, worker_span, worker);
             work_items[worker] = .{
                 .out_columns = out.columns,
-                .start = start,
-                .end = @min(self.domain_size, start + chunk_len),
+                .start = worker_range.start,
+                .end = worker_range.end,
                 .workspace = &workspaces[worker],
+                .scratch = if (scratches) |values| &values[worker] else null,
                 .domain = self.domain,
                 .combined_views = self.combined_views,
                 .quotient_constants = &self.prepared.quotient_constants,
@@ -356,10 +365,13 @@ pub const LazyQuotientProvider = struct {
 
         var wait_group: std.Thread.WaitGroup = .{};
         for (work_items[1..n_workers]) |*item| {
-            pool.spawnWg(&wait_group, streamingChunkWorker, .{@as(*const StreamingChunkWork, item)});
+            pool.spawnWg(&wait_group, row_executor.streamingWorker, .{item});
         }
-        streamingChunkWorker(&work_items[0]);
+        row_executor.streamingWorker(&work_items[0]);
         wait_group.wait();
+        for (work_items[0..n_workers]) |item| {
+            if (item.failure) |err| return err;
+        }
         return true;
     }
 };
@@ -484,26 +496,32 @@ fn computeFriQuotientsWithStrategy(
             &prepared,
             lifting_log_size,
             domain_size,
-        ) catch computeMaterializedFriQuotients(
-            allocator,
-            flat_columns,
-            &prepared,
-            lifting_log_size,
-            domain_size,
-        ),
+        ) catch |err| switch (err) {
+            error.ParallelUnavailable => computeMaterializedFriQuotients(
+                allocator,
+                flat_columns,
+                &prepared,
+                lifting_log_size,
+                domain_size,
+            ),
+            else => return err,
+        },
         .streaming => computeStreamingFriQuotientsParallel(
             allocator,
             flat_columns,
             &prepared,
             lifting_log_size,
             domain_size,
-        ) catch computeStreamingFriQuotients(
-            allocator,
-            flat_columns,
-            &prepared,
-            lifting_log_size,
-            domain_size,
-        ),
+        ) catch |err| switch (err) {
+            error.ParallelUnavailable => computeStreamingFriQuotients(
+                allocator,
+                flat_columns,
+                &prepared,
+                lifting_log_size,
+                domain_size,
+            ),
+            else => return err,
+        },
     };
 }
 
@@ -881,32 +899,31 @@ fn computeMaterializedFriQuotients(
 
     var workspace = try quotients.RowQuotientWorkspace.init(allocator, prepared.sample_batches);
     defer workspace.deinit(allocator);
+    var scratch = try row_executor.initScratchOrScalarFallback(
+        allocator,
+        prepared.sample_batches.len,
+        @min(domain_size, row_executor.MAX_ROWS),
+        domain_size,
+    );
+    defer if (scratch) |*value| value.deinit(allocator);
 
     var out = try SecureColumnByCoords.uninitialized(allocator, domain_size);
     errdefer out.deinit(allocator);
 
-    for (0..domain_size) |position| {
-        const domain_point = domain.at(core_utils.bitReverseIndex(position, lifting_log_size));
-        try workspace.beginRow(domain_point);
-        for (lifted_columns.columns, prepared.contribution_plan.ranges) |lifted_column, contribution_range| {
-            // Small-big multiplication: use QM31.mulM31(M31) (4 base-field muls)
-            // instead of QM31.fromBase(M31).mul(QM31) (9 muls via Karatsuba
-            // with wasted zero-operand multiplications).
-            const base_value = lifted_column[position];
-            for (prepared.contribution_plan.contributions[contribution_range.start .. contribution_range.start + contribution_range.len]) |contribution| {
-                workspace.batch_numerators[contribution.batch_index] = workspace.batch_numerators[contribution.batch_index].add(
-                    contribution.value_coeff.mulM31(base_value),
-                );
-            }
-        }
-        try writeQuotientRow(
-            &out,
-            position,
-            &prepared.quotient_constants,
-            domain_point.y,
-            &workspace,
-        );
-    }
+    const item = row_executor.MaterializedWork{
+        .out_columns = out.columns,
+        .start = 0,
+        .end = domain_size,
+        .workspace = &workspace,
+        .scratch = if (scratch) |*value| value else null,
+        .domain = domain,
+        .lifted_columns = lifted_columns.columns,
+        .contribution_plan_ranges = prepared.contribution_plan.ranges,
+        .contributions = prepared.contribution_plan.contributions,
+        .quotient_constants = &prepared.quotient_constants,
+        .lifting_log_size = lifting_log_size,
+    };
+    try row_executor.executeMaterialized(&item);
 
     return out;
 }
@@ -937,140 +954,31 @@ fn computeStreamingFriQuotients(
 
     var workspace = try quotients.RowQuotientWorkspace.init(allocator, prepared.sample_batches);
     defer workspace.deinit(allocator);
+    var scratch = try row_executor.initScratchOrScalarFallback(
+        allocator,
+        prepared.sample_batches.len,
+        @min(domain_size, row_executor.MAX_ROWS),
+        domain_size,
+    );
+    defer if (scratch) |*value| value.deinit(allocator);
 
     var out = try SecureColumnByCoords.uninitialized(allocator, domain_size);
     errdefer out.deinit(allocator);
 
-    for (0..domain_size) |position| {
-        const domain_point = domain.at(core_utils.bitReverseIndex(position, lifting_log_size));
-        try workspace.beginRow(domain_point);
-        for (combined_plan.views) |view| {
-            const idx = if (view.is_direct)
-                position
-            else blk: {
-                break :blk ((position >> view.shift_amt) << 1) + (position & 1);
-            };
-            const value = QM31.fromM31(
-                view.coordinates[0][idx],
-                view.coordinates[1][idx],
-                view.coordinates[2][idx],
-                view.coordinates[3][idx],
-            );
-            workspace.batch_numerators[view.batch_index] = workspace.batch_numerators[view.batch_index].add(value);
-        }
-        try writeQuotientRow(
-            &out,
-            position,
-            &prepared.quotient_constants,
-            domain_point.y,
-            &workspace,
-        );
-    }
+    const item = row_executor.StreamingWork{
+        .out_columns = out.columns,
+        .start = 0,
+        .end = domain_size,
+        .workspace = &workspace,
+        .scratch = if (scratch) |*value| value else null,
+        .domain = domain,
+        .combined_views = combined_plan.views,
+        .quotient_constants = &prepared.quotient_constants,
+        .lifting_log_size = lifting_log_size,
+    };
+    try row_executor.executeStreaming(&item);
 
     return out;
-}
-
-// ---------------------------------------------------------------------------
-// Parallel quotient computation
-// ---------------------------------------------------------------------------
-
-/// Work item for a single chunk of domain positions (materialized path).
-const MaterializedChunkWork = struct {
-    out_columns: [qm31.SECURE_EXTENSION_DEGREE][]M31,
-    start: usize,
-    end: usize,
-    workspace: *quotients.RowQuotientWorkspace,
-    domain: CircleDomain,
-    lifted_columns: []const []M31,
-    contribution_plan_ranges: []const ColumnContributionRange,
-    contributions: []const ColumnContribution,
-    quotient_constants: *const quotients.QuotientConstants,
-    lifting_log_size: u32,
-};
-
-fn materializedChunkWorker(item: *const MaterializedChunkWork) void {
-    const ws = item.workspace;
-    for (item.start..item.end) |position| {
-        const domain_point = item.domain.at(core_utils.bitReverseIndex(position, item.lifting_log_size));
-        ws.beginRow(domain_point) catch return;
-        for (item.lifted_columns, item.contribution_plan_ranges) |lifted_column, contribution_range| {
-            const base_value = lifted_column[position];
-            for (item.contributions[contribution_range.start .. contribution_range.start + contribution_range.len]) |contribution| {
-                ws.batch_numerators[contribution.batch_index] = ws.batch_numerators[contribution.batch_index].add(
-                    contribution.value_coeff.mulM31(base_value),
-                );
-            }
-        }
-        writeQuotientRowNoError(
-            item.out_columns,
-            position,
-            item.quotient_constants,
-            domain_point.y,
-            ws,
-        );
-    }
-}
-
-/// Work item for a single chunk of domain positions (streaming path).
-const StreamingChunkWork = struct {
-    out_columns: [qm31.SECURE_EXTENSION_DEGREE][]M31,
-    start: usize,
-    end: usize,
-    workspace: *quotients.RowQuotientWorkspace,
-    domain: CircleDomain,
-    combined_views: []const CombinedContributionView,
-    quotient_constants: *const quotients.QuotientConstants,
-    lifting_log_size: u32,
-};
-
-fn streamingChunkWorker(item: *const StreamingChunkWork) void {
-    const ws = item.workspace;
-    for (item.start..item.end) |position| {
-        const domain_point = item.domain.at(core_utils.bitReverseIndex(position, item.lifting_log_size));
-        ws.beginRow(domain_point) catch return;
-        for (item.combined_views) |view| {
-            const idx = if (view.is_direct)
-                position
-            else blk: {
-                break :blk ((position >> view.shift_amt) << 1) + (position & 1);
-            };
-            const value = QM31.fromM31(
-                view.coordinates[0][idx],
-                view.coordinates[1][idx],
-                view.coordinates[2][idx],
-                view.coordinates[3][idx],
-            );
-            ws.batch_numerators[view.batch_index] = ws.batch_numerators[view.batch_index].add(value);
-        }
-        writeQuotientRowNoError(
-            item.out_columns,
-            position,
-            item.quotient_constants,
-            domain_point.y,
-            ws,
-        );
-    }
-}
-
-/// Write a quotient row without returning an error (for use in worker threads).
-/// Silently skips if finalizeRowQuotients fails (should not happen with valid data).
-fn writeQuotientRowNoError(
-    out_columns: [qm31.SECURE_EXTENSION_DEGREE][]M31,
-    position: usize,
-    quotient_constants: *const quotients.QuotientConstants,
-    domain_y: M31,
-    workspace: *const quotients.RowQuotientWorkspace,
-) void {
-    const quotient_value = quotients.finalizeRowQuotients(
-        quotient_constants,
-        domain_y,
-        workspace.batch_numerators,
-        workspace.denominator_inverses,
-    ) catch return;
-    const coords = quotient_value.toM31Array();
-    inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coord| {
-        out_columns[coord][position] = coords[coord];
-    }
 }
 
 /// Parallel version of `computeMaterializedFriQuotients`.
@@ -1087,6 +995,12 @@ fn computeMaterializedFriQuotientsParallel(
 
     const n_workers = @min(pool.workerCount(), domain_size / MIN_POSITIONS_PER_WORKER);
     if (n_workers <= 1) return error.ParallelUnavailable;
+    const worker_span = try row_executor.workerSpan(domain_size, n_workers);
+    const use_batched_inversion = try row_executor.prepareParallelScratchPolicy(
+        prepared.sample_batches.len,
+        @min(worker_span, row_executor.MAX_ROWS),
+        domain_size,
+    );
 
     const domain = canonic.CanonicCoset.new(lifting_log_size).circleDomain();
 
@@ -1108,21 +1022,38 @@ fn computeMaterializedFriQuotientsParallel(
         ws_initialized += 1;
     }
 
+    var scratches: ?[]row_executor.Scratch = null;
+    var scratch_initialized: usize = 0;
+    defer if (scratches) |values| {
+        for (values[0..scratch_initialized]) |*scratch| scratch.deinit(allocator);
+        allocator.free(values);
+    };
+    if (use_batched_inversion) {
+        scratches = try allocator.alloc(row_executor.Scratch, n_workers);
+        for (scratches.?) |*scratch| {
+            scratch.* = try row_executor.initParallelScratch(
+                allocator,
+                prepared.sample_batches.len,
+                @min(worker_span, row_executor.MAX_ROWS),
+                domain_size,
+            );
+            scratch_initialized += 1;
+        }
+    }
+
     var out = try SecureColumnByCoords.uninitialized(allocator, domain_size);
     errdefer out.deinit(allocator);
 
-    const chunk_size = domain_size / n_workers;
-
     // Build work items on the stack (bounded by MAX_WORKERS).
-    var work_items: [work_pool_mod.MAX_WORKERS]MaterializedChunkWork = undefined;
+    var work_items: [work_pool_mod.MAX_WORKERS]row_executor.MaterializedWork = undefined;
     for (0..n_workers) |w| {
-        const start = w * chunk_size;
-        const end = if (w == n_workers - 1) domain_size else start + chunk_size;
+        const worker_range = try row_executor.workerRange(domain_size, worker_span, w);
         work_items[w] = .{
             .out_columns = out.columns,
-            .start = start,
-            .end = end,
+            .start = worker_range.start,
+            .end = worker_range.end,
             .workspace = &workspaces[w],
+            .scratch = if (scratches) |values| &values[w] else null,
             .domain = domain,
             .lifted_columns = lifted_columns.columns,
             .contribution_plan_ranges = prepared.contribution_plan.ranges,
@@ -1135,10 +1066,13 @@ fn computeMaterializedFriQuotientsParallel(
     // Dispatch workers: all but the first to the pool, first on this thread.
     var wait_group: std.Thread.WaitGroup = .{};
     for (work_items[1..n_workers]) |*item| {
-        pool.spawnWg(&wait_group, materializedChunkWorker, .{@as(*const MaterializedChunkWork, item)});
+        pool.spawnWg(&wait_group, row_executor.materializedWorker, .{item});
     }
-    materializedChunkWorker(&work_items[0]);
+    row_executor.materializedWorker(&work_items[0]);
     wait_group.wait();
+    for (work_items[0..n_workers]) |item| {
+        if (item.failure) |err| return err;
+    }
 
     return out;
 }
@@ -1157,6 +1091,12 @@ fn computeStreamingFriQuotientsParallel(
 
     const n_workers = @min(pool.workerCount(), domain_size / MIN_POSITIONS_PER_WORKER);
     if (n_workers <= 1) return error.ParallelUnavailable;
+    const worker_span = try row_executor.workerSpan(domain_size, n_workers);
+    const use_batched_inversion = try row_executor.prepareParallelScratchPolicy(
+        prepared.sample_batches.len,
+        @min(worker_span, row_executor.MAX_ROWS),
+        domain_size,
+    );
 
     const domain = canonic.CanonicCoset.new(lifting_log_size).circleDomain();
 
@@ -1184,21 +1124,38 @@ fn computeStreamingFriQuotientsParallel(
         ws_initialized += 1;
     }
 
+    var scratches: ?[]row_executor.Scratch = null;
+    var scratch_initialized: usize = 0;
+    defer if (scratches) |values| {
+        for (values[0..scratch_initialized]) |*scratch| scratch.deinit(allocator);
+        allocator.free(values);
+    };
+    if (use_batched_inversion) {
+        scratches = try allocator.alloc(row_executor.Scratch, n_workers);
+        for (scratches.?) |*scratch| {
+            scratch.* = try row_executor.initParallelScratch(
+                allocator,
+                prepared.sample_batches.len,
+                @min(worker_span, row_executor.MAX_ROWS),
+                domain_size,
+            );
+            scratch_initialized += 1;
+        }
+    }
+
     var out = try SecureColumnByCoords.uninitialized(allocator, domain_size);
     errdefer out.deinit(allocator);
 
-    const chunk_size = domain_size / n_workers;
-
     // Build work items on the stack (bounded by MAX_WORKERS).
-    var work_items: [work_pool_mod.MAX_WORKERS]StreamingChunkWork = undefined;
+    var work_items: [work_pool_mod.MAX_WORKERS]row_executor.StreamingWork = undefined;
     for (0..n_workers) |w| {
-        const start = w * chunk_size;
-        const end = if (w == n_workers - 1) domain_size else start + chunk_size;
+        const worker_range = try row_executor.workerRange(domain_size, worker_span, w);
         work_items[w] = .{
             .out_columns = out.columns,
-            .start = start,
-            .end = end,
+            .start = worker_range.start,
+            .end = worker_range.end,
             .workspace = &workspaces[w],
+            .scratch = if (scratches) |values| &values[w] else null,
             .domain = domain,
             .combined_views = combined_plan.views,
             .quotient_constants = &prepared.quotient_constants,
@@ -1209,31 +1166,15 @@ fn computeStreamingFriQuotientsParallel(
     // Dispatch workers: all but the first to the pool, first on this thread.
     var wait_group: std.Thread.WaitGroup = .{};
     for (work_items[1..n_workers]) |*item| {
-        pool.spawnWg(&wait_group, streamingChunkWorker, .{@as(*const StreamingChunkWork, item)});
+        pool.spawnWg(&wait_group, row_executor.streamingWorker, .{item});
     }
-    streamingChunkWorker(&work_items[0]);
+    row_executor.streamingWorker(&work_items[0]);
     wait_group.wait();
+    for (work_items[0..n_workers]) |item| {
+        if (item.failure) |err| return err;
+    }
 
     return out;
-}
-
-fn writeQuotientRow(
-    out: *SecureColumnByCoords,
-    position: usize,
-    quotient_constants: *const quotients.QuotientConstants,
-    domain_y: M31,
-    workspace: *const quotients.RowQuotientWorkspace,
-) !void {
-    const quotient_value = try quotients.finalizeRowQuotients(
-        quotient_constants,
-        domain_y,
-        workspace.batch_numerators,
-        workspace.denominator_inverses,
-    );
-    const coords = quotient_value.toM31Array();
-    inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coord| {
-        out.columns[coord][position] = coords[coord];
-    }
 }
 
 fn validateSampleBatchColumnIndices(
@@ -1320,6 +1261,49 @@ fn borrowColumnsForTest(
     errdefer allocator.free(out);
     for (columns.items, 0..) |tree_columns, i| out[i] = tree_columns;
     return TreeVec([]const ColumnEvaluation).initOwned(out);
+}
+
+fn checkLazyProviderAllocationFailureCleanup(
+    allocator: std.mem.Allocator,
+    columns: TreeVec([]const ColumnEvaluation),
+    sampled_points: TreeVec([][]CirclePointQM31),
+    sampled_values: TreeVec([][]QM31),
+) !void {
+    var provider = try LazyQuotientProvider.init(
+        allocator,
+        columns,
+        sampled_points,
+        sampled_values,
+        QM31.fromU32Unchecked(3, 0, 1, 0),
+        13,
+    );
+    defer provider.deinit(allocator);
+}
+
+test "prover pcs lazy quotient provider releases moved views on allocation failure" {
+    const column_values = [_]M31{M31.one()} ** (1 << 13);
+    var tree_columns = [_]ColumnEvaluation{.{
+        .log_size = 13,
+        .values = column_values[0..],
+    }};
+    var column_trees = [_][]const ColumnEvaluation{tree_columns[0..]};
+    const columns = TreeVec([]const ColumnEvaluation).initOwned(column_trees[0..]);
+
+    var column_points = [_]CirclePointQM31{circle_mod.SECURE_FIELD_CIRCLE_GEN.mul(7)};
+    var tree_points = [_][]CirclePointQM31{column_points[0..]};
+    var point_trees = [_][][]CirclePointQM31{tree_points[0..]};
+    const sampled_points = TreeVec([][]CirclePointQM31).initOwned(point_trees[0..]);
+
+    var column_samples = [_]QM31{QM31.fromU32Unchecked(9, 10, 11, 12)};
+    var tree_samples = [_][]QM31{column_samples[0..]};
+    var sample_trees = [_][][]QM31{tree_samples[0..]};
+    const sampled_values = TreeVec([][]QM31).initOwned(sample_trees[0..]);
+
+    try std.testing.checkAllAllocationFailures(
+        std.testing.allocator,
+        checkLazyProviderAllocationFailureCleanup,
+        .{ columns, sampled_points, sampled_values },
+    );
 }
 
 test "prover pcs quotient ops: compute fri quotients matches direct fri answers for legacy point-sample fixtures" {

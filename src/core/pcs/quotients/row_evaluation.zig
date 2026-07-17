@@ -200,6 +200,37 @@ pub const RowQuotientWorkspace = struct {
         );
         @memset(self.batch_numerators, QM31.zero());
     }
+
+    /// Computes row-major denominator inverses for several domain points with
+    /// one batch inversion. The caller owns the bounded chunk storage.
+    pub fn prepareDenominatorInversesForRows(
+        self: *const RowQuotientWorkspace,
+        domain_points: []const CirclePointM31,
+        denominators: []CM31,
+        denominator_inverses: []CM31,
+    ) !void {
+        const cell_count = std.math.mul(
+            usize,
+            domain_points.len,
+            self.sample_point_components.len,
+        ) catch return error.ScratchSizeOverflow;
+        if (denominators.len != cell_count) return error.ShapeMismatch;
+        if (denominator_inverses.len != cell_count) return error.ShapeMismatch;
+
+        for (domain_points, 0..) |domain_point, row| {
+            const start = row * self.sample_point_components.len;
+            denominatorValuesIntoFromComponents(
+                self.sample_point_components,
+                domain_point,
+                denominators[start..][0..self.sample_point_components.len],
+            );
+        }
+        try batchInverseIntoCM31(denominators, denominator_inverses);
+    }
+
+    pub inline fn resetNumerators(self: *RowQuotientWorkspace) void {
+        @memset(self.batch_numerators, QM31.zero());
+    }
 };
 
 fn denominatorInversesIntoFromComponents(
@@ -211,14 +242,23 @@ fn denominatorInversesIntoFromComponents(
     if (denominators.len != sample_point_components.len) return error.ShapeMismatch;
     if (denominator_inverses.len != sample_point_components.len) return error.ShapeMismatch;
 
+    denominatorValuesIntoFromComponents(sample_point_components, domain_point, denominators);
+
+    try batchInverseIntoCM31(denominators, denominator_inverses);
+}
+
+fn denominatorValuesIntoFromComponents(
+    sample_point_components: []const SamplePointComponents,
+    domain_point: CirclePointM31,
+    denominators: []CM31,
+) void {
+    std.debug.assert(denominators.len == sample_point_components.len);
     const domain_x = CM31.fromBase(domain_point.x);
     const domain_y = CM31.fromBase(domain_point.y);
 
     for (sample_point_components, 0..) |sample, i| {
         denominators[i] = sample.prx.sub(domain_x).mul(sample.piy).sub(sample.pry.sub(domain_y).mul(sample.pix));
     }
-
-    try batchInverseIntoCM31(denominators, denominator_inverses);
 }
 
 fn batchInverseIntoCM31(values: []const CM31, out: []CM31) !void {
