@@ -148,6 +148,104 @@ One PR description claim needs qualification. The combined commitment path still
 IFFT and again after the RFFT-plus-Merkle chain. It is substantially batched, but it is not one
 uninterrupted command buffer for the complete commitment.
 
+### Exact peer FRI scheduler
+
+The reusable part of PR #6 is the generic prover hook and pending-tree scheduler, not its ownership
+model. `commit_inner_layers()` in `prover/fri.rs` carries a `pending_tree` into the next transcript
+round. `fold_line_and_packed_tree()` in `prover/vcs_lifted/ops.rs` is the backend boundary. The Metal
+implementation in `backend/metal/fri.rs` encodes the fold and the next tree together, while
+`backend/metal/blake2s.rs` hashes four packed secure-field coordinates across four rows directly as
+one Blake block.
+
+```text
+consume or commit tree_r
+  -> mix root_r into the channel
+  -> draw alpha_r
+  -> backend.fold_line_and_packed_tree(evaluation_r, alpha_r)
+       -> fold evaluation_r into evaluation_(r+1)
+       -> hash packed leaves_(r+1) directly
+       -> build all parent layers_(r+1)
+  -> pending_tree = tree_(r+1)
+  -> next iteration consumes pending_tree
+```
+
+This removes the fold-to-host-to-tree boundary and makes the next commitment ready before the next
+channel interaction. It still maps complete tree layers as host-visible `Vec` storage so the Rust
+CPU decommitter can consume them later. stwo-zig should adopt the scheduler and typed result
+`{ evaluation, tree }`, but retain private/resident tree ownership and selective GPU decommitment.
+
+The peer's tier-2 argument buffers are primarily an AIR constraint and OOD mechanism. They are not
+the reason its FRI/Merkle path is fast, and they should not be presented as a prerequisite for the
+fold-tree chain.
+
+## Local FRI Call Graphs
+
+### Raw Stwo generic prover
+
+The generic path already has the correct prover-level abstraction boundaries, but independently
+submits coordinate conversion, tree construction, and every fold step:
+
+```text
+src/prover/fri.zig::commitInnerLayers
+  -> secureColumnForMerkle
+       -> backends/metal/commit_backend.zig::secureColumnForMerkle
+       -> secureColumnFromLine
+       -> submit coordinate conversion; wait
+  -> B.commitMerkle
+       -> backends/metal/commit_backend.zig::commitMerkle
+       -> backends/metal/merkle_tree.zig::commit
+       -> runtime.commitColumns / stwo_zig_metal_merkle_commit
+       -> submit packed leaves and all parents; wait
+  -> MC.mixRoot + channel.drawSecureFelt on the host
+  -> B.foldLineEvaluationN
+       -> runtime.foldFriLine once per fold step
+       -> submit and wait for every step
+```
+
+`InnerLayerProver` retains the evaluation and tree needed for later queries. The Metal tree already
+keeps private resident layers, reads only the 32-byte root during commitment, and batches only the
+requested authentication data during decommitment. The missing operation is therefore a generic,
+optional backend hook equivalent to the peer hook:
+
+```text
+foldLineAndCommitNext(evaluation_r, alpha_r, parameters)
+  -> { evaluation_(r+1), resident_tree_(r+1) }
+```
+
+Its native implementation must chain AoS QM31 fold output into direct packed leaf hashing and a
+private parent chain without a full-layer readback. The generic prover can carry the returned tree
+as `pending_tree`; it can continue to mix roots and draw challenges on the host until the channel
+also becomes resident.
+
+### Cairo prepared resident prover
+
+The prepared Cairo path is further along because all FRI arrays and trees are planned in one arena,
+but it still creates a completion boundary for every operation:
+
+```text
+src/metal_arena_plan_cli.zig
+  for each round r:
+    FriRecipe.commitTree(r)
+      -> Runtime.friTreePrepared
+      -> packed leaves + parent chain in one command buffer; wait
+    copy root_r to host
+    TranscriptRecipe.friLayer(root_r)
+      -> publishInput(root_r)
+      -> transcriptMix; submit and wait
+      -> transcriptDrawSecure; submit and wait
+      -> copy alpha_r to fri_challenges
+    FriRecipe.foldRound(r)
+      -> Runtime.friRoundPrepared
+      -> resident inverse twiddles + fused fold2/fold3; submit and wait
+  FriRecipe.finalize
+    -> Runtime.friFinalPrepared; submit and wait
+```
+
+For the SN2 fixture with `R = 8`, `FriRecipe` alone currently performs 17 compute waits: eight tree
+waits, eight fold waits, and one final-polynomial wait. Including transcript work and the last-layer
+mix, the FRI region has approximately 34 host-visible completion boundaries. The arena data is
+already resident; synchronization, not data dependency, is forcing the round trips.
+
 ## Current stwo-zig Hot Path
 
 The bounded `ReleaseFast --profiled` log-18 Metal sample reports:
@@ -190,10 +288,28 @@ select the same protocol without global mutable state.
 
 ### 2. Resident FRI fold-tree chains
 
-For each FRI layer, keep four QM31 coordinates resident, fold into the next evaluations, hash the
-packed coordinate leaves directly, build parents, and expose only the next transcript root. One
-command buffer should own the complete fold-plus-tree dependency chain for a layer. No packed-leaf
-buffer or host Merkle tree should be materialized.
+Deliver this in stages so every reduction in host synchronization remains attributable and
+oracle-checked.
+
+**Stage A: peer-parity scheduling.** Extend `command_epoch.zig` and the prepared runtime so one
+command buffer encodes `fold_r -> direct packed leaves_(r+1) -> all parents_(r+1)`. Keep the initial
+tree, final fold, and final polynomial explicit. The Cairo SN2 target is 10 waits for eight rounds:
+one initial tree, seven fold-tree pairs, one final fold, and one final polynomial. Add the same
+optional `{ evaluation, tree }` hook to the raw generic backend and carry a pending tree through
+`commitInnerLayers()`.
+
+**Stage B: resident channel boundary.** Encode transcript root absorption and secure challenge
+drawing into the same ordered command epoch. Feed the resident challenge directly to the next fold;
+copy roots and challenges only after completion for proof reporting and oracle diagnostics.
+
+**Stage C: complete resident FRI graph.** In production mode, encode
+`tree_0 -> mix/draw/fold/tree -> ... -> final fold -> final polynomial -> last-layer mix` into one
+command buffer and wait once. Preserve a diagnostic/reference mode that observes every root,
+challenge, evaluation, and tree layer for parity localization.
+
+At every stage, keep four QM31 coordinates resident, hash packed coordinate leaves directly, and
+avoid a packed-leaf materialization or host tree. Command-buffer completion is the synchronization
+primitive; do not insert CPU waits between encoders on the same ordered queue.
 
 Acceptance:
 
@@ -239,9 +355,85 @@ Thresholds apply to complete transactions, not individual kernels. The selection
 rows, width, field coordinates, buffer residency, expected command buffers, fallback count, and
 current pipeline readiness. Every decision and fallback is emitted in proof telemetry.
 
+## Buffer Ownership And Synchronization Contract
+
+The performance architecture depends on explicit ownership; a fused shader without this contract
+will merely move waits around.
+
+- The admitted arena owns evaluation, challenge, packed-leaf scratch, tree-layer, root, and final
+  polynomial bindings through proof construction and decommitment.
+- Prepared plan objects own immutable geometry, offsets, kernel variants, transcript parameters,
+  and retained native plan handles. They do not own per-proof values.
+- A command epoch owns the active command buffer and retains every referenced plan and buffer until
+  completion. Encoders in an epoch rely on ordered-queue dependencies rather than host waits.
+- A transcript operation may consume a root only after its producing encoder in the same epoch. A
+  fold may consume a challenge only after the draw encoder. The staged host-channel path may read a
+  root only after the fold-tree command buffer completes.
+- Production commitment never exposes full tree layers to the host. Root reporting is 32 bytes per
+  tree; decommitment transfers only requested witnesses and authentication nodes.
+- Arena and plan reuse is mandatory across a streaming queue. No proof may mutate geometry-level
+  state or retain aliases after its epoch completes.
+
+## Correctness And Decommitment Gates
+
+Optimization is admitted only after the smallest relevant oracle gate passes. The Rust Stwo pin is
+the final authority for raw proofs; the corresponding Stwo-Cairo Rust pin is the final authority for
+Cairo proofs.
+
+1. Check fold2 and fold3 outputs for boundary sizes and large resident sizes, for both plain and
+   64-byte-prefixed lifted Blake protocol selections.
+2. Compare direct packed leaf digests, every parent layer, and every root with CPU and the applicable
+   Rust oracle before removing diagnostic readbacks.
+3. For every FRI round, compare the root, drawn challenge, folded evaluations, and final polynomial
+   coefficients. A cumulative per-component oracle remains the fastest mismatch-localization loop.
+4. Preserve `DecommitQueryRecipe.executeFriRound` semantics. Compare query positions, sampled
+   witnesses, sibling nodes, and final decommitment assembly, not only the committed root.
+5. Require deterministic canonical proof-byte equality between Zig SIMD and Metal when they select
+   the same protocol and serialization, successful Zig verification, and successful pinned Rust
+   verification. Different protocol versions are never compared by proof hash.
+6. Run the raw interop matrix through `scripts/e2e_interop.py`; run the Cairo matrix through the
+   pinned Rust Stwo-Cairo verifier before publishing performance.
+
+The diagnostic path may expose intermediate layers solely for parity work. Production telemetry
+must prove that those readbacks and their staging allocations are absent.
+
+## Telemetry Acceptance
+
+Every proof report must expose `command_buffers`, `wait_count`, `intermediate_wait_count`,
+`compute_encoders`, `dispatches`, `gpu_ms`, `wall_ms`, `root_readback_bytes`,
+`full_layer_readback_bytes`, CPU fallback count, and pipeline-compile count. Counters must be split
+by transaction so a lower total cannot conceal a new FRI or commitment regression.
+
+The staged acceptance targets are:
+
+| Gate | Required result |
+| --- | --- |
+| Cairo peer-parity FRI | `R + 2` waits; SN2 `R = 8` therefore reports 10 |
+| Complete resident FRI | one command buffer, one completion wait, zero intermediate waits |
+| Tree residency | zero full-layer host readback; roots and queried authentication data only |
+| Warm streaming | zero direct source compile after admitted pipelines and geometry are warm |
+| Correctness | 100/100 interleaved proofs pass Zig and pinned Rust verification |
+| Sustained latency | final-quartile p50 no worse than 5% above first-quartile p50 |
+| Large-trace FRI | at least 15% lower FRI wall time on raw wide Fibonacci and SN PIE geometry |
+| Whole proof | at least 3% lower wall time with no p95 regression in any benchmark class |
+
+Performance gates are directional admission floors, not the end target. Report trace-row MHz,
+committed-cell throughput, full request wall time, peak resident bytes, and cold versus warm timing.
+Use a cooled single sample for very large geometries and a randomized persistent queue for sustained
+measurements.
+
 ## What Not To Copy
 
 - A manual AIR-specific MSL string as the general compiler interface.
+- `TypeId`-based specialization inside a nominal CPU backend as the long-term backend boundary.
+- Host-visible `Vec` storage for every FRI tree layer; keep the local resident tree and sparse GPU
+  decommit path.
+- Per-thread FRI point construction and Fermat inversion where resident inverse twiddles and the
+  existing fused fold2/fold3 path already remove that work.
+- Bindless argument buffers as an explanation for FRI/Merkle speedups where the peer does not use
+  them for that path.
+- The peer `air_shape` result as a Metal column benchmark; its `SimdBackend` does not route through
+  the Metal lane.
 - Runtime source JIT as the production path.
 - Silent GPU fallback with no dispatch evidence.
 - Per-module mutexes held while waiting for command-buffer completion.
@@ -254,14 +446,20 @@ current pipeline readiness. Every decision and fallback is emitted in proof tele
 
 1. Restore raw-Stwo pinned Rust parity with explicit prefixed and plain lifted-Blake protocols.
 2. Add exact cross-Rust CPU/Metal proof gates to the native proof matrix.
-3. Extend telemetry with command-buffer, wait, host-Merkle, and per-transaction fallback counts.
-4. Implement direct packed FRI leaves and a fold-plus-tree command chain.
-5. Fuse coefficient zero-extension into the resident RFFT first pass.
-6. Batch complete commitments to transcript observation boundaries.
-7. Move immutable column/GPU-address descriptors into admitted prepared state.
-8. Profile log-18 width-100 with Metal System Trace and encoder counters.
-9. Run ten verified mixed proofs over logs 14, 16, and 18 in one persistent process.
-10. Only then raise the memory guard for a cooled, one-sample log-19 or log-20 crossover check.
+3. Land the telemetry schema above before changing scheduling so each removed wait is measurable.
+4. Add the raw generic `{ evaluation, tree }` backend hook and pending-tree scheduler with CPU,
+   Metal, decommitment, and Rust-oracle tests.
+5. Add Cairo Stage A fold-tree command epochs and meet the SN2 17-to-10 wait target.
+6. Move transcript mix/draw into admitted resident state and feed challenges directly into folds.
+7. Encode the complete production FRI graph as one epoch while retaining diagnostic checkpoints.
+8. Fuse coefficient zero-extension into the resident RFFT first pass and batch commitments to their
+   transcript observation boundary.
+9. Move immutable column/GPU-address descriptors into admitted prepared state.
+10. Profile log-18 width-100 and representative SN PIE geometry with Metal System Trace, GPU
+    counters, and transaction telemetry.
+11. Run 100 verified randomized proofs over admitted raw, Cairo, and SN PIE geometries in one
+    persistent process and enforce the streaming gates.
+12. Only then raise the memory guard for a cooled, one-sample log-19 or log-20 crossover check.
 
 The first performance milestone is not a target MHz chosen in isolation. It is elimination of the
 19 host Merkle fallbacks while preserving canonical proof bytes and pinned Rust verification. The
