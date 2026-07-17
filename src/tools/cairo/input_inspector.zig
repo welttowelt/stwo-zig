@@ -1,6 +1,10 @@
+//! CLI boundary for inspecting an adapted Cairo prover input.
+
 const std = @import("std");
-const adapted_input = @import("frontends/cairo/adapter/adapted_input.zig");
-const OpcodeTag = @import("frontends/cairo/adapter/opcodes.zig").OpcodeTag;
+const stwo = @import("stwo");
+
+const adapted_input = stwo.frontends.cairo.adapter.adapted_input;
+const OpcodeTag = stwo.frontends.cairo.adapter.opcodes.OpcodeTag;
 
 pub fn main() !void {
     const allocator = std.heap.smp_allocator;

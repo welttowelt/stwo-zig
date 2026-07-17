@@ -80,10 +80,11 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_metal_session_protocol_tests.step);
 
     const cairo_input_module = b.createModule(.{
-        .root_source_file = b.path("src/cairo_input_cli.zig"),
+        .root_source_file = b.path("src/tools/cairo/input_inspector.zig"),
         .target = target,
         .optimize = optimize,
     });
+    cairo_input_module.addImport("stwo", stwo_module);
     const cairo_input_cli = b.addExecutable(.{
         .name = "cairo-input",
         .root_module = cairo_input_module,
