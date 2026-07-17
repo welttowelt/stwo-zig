@@ -38,7 +38,7 @@ def rust_verifier_evidence(proof: bytes = b"proof") -> dict[str, object]:
         "envelope_abi": "STWZCVE/1",
         "adapter_version": "0.1.0",
         "verification_mode": "compact_metal_proof_v1",
-        "protocol_digest": MODULE._compact_protocol_digest(TEST_PROOF_LAYOUT).hex(),
+        "protocol_digest": "44" * 32,
         "statement_digest": "11" * 32,
         "proof_digest": hashlib.sha256(proof).hexdigest(),
         "provenance_digest": "22" * 32,
@@ -304,7 +304,6 @@ class SnPieMetalSessionTest(unittest.TestCase):
 
         def drift_protocol_digest(response, report):
             response["rust_verifier"]["protocol_digest"] = "66" * 32
-            report["rust_verifier"]["protocol_digest"] = "66" * 32
 
         def false_success(response, report):
             response["rust_verifier"]["verified"] = False

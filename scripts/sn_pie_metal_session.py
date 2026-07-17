@@ -303,65 +303,6 @@ def _canonical_protocol_digest() -> bytes:
     return hashlib.sha256(encoded).digest()
 
 
-def _compact_protocol_digest(value: object, label: str = "compact proof layout") -> bytes:
-    layout = _mapping(value, label)
-    _exact_keys(
-        layout,
-        {
-            "interaction_claim_words",
-            "sampled_value_words",
-            "decommitment_capacity_words",
-        },
-        set(),
-        label,
-    )
-    interaction_words = _positive_integer(
-        layout["interaction_claim_words"], f"{label}.interaction_claim_words"
-    )
-    sampled_words = _positive_integer(
-        layout["sampled_value_words"], f"{label}.sampled_value_words"
-    )
-    decommitment_words = _positive_integer(
-        layout["decommitment_capacity_words"],
-        f"{label}.decommitment_capacity_words",
-    )
-    if interaction_words % 4 or not 1 <= interaction_words // 4 <= 83:
-        raise SessionProtocolError(f"{label} has invalid interaction claim geometry")
-    if sampled_words % 4 or decommitment_words < 340:
-        raise SessionProtocolError(f"{label} has invalid proof geometry")
-    encoded = bytearray(112)
-    encoded[:8] = b"STWZCP1\0"
-    struct.pack_into("<HH", encoded, 8, 1, 112)
-    values = {
-        16: 1,
-        20: 1,
-        24: 1,
-        28: 0,
-        32: 26,
-        36: 1,
-        40: 70,
-        44: 0,
-        48: 3,
-        52: 0xFFFFFFFF,
-        56: 24,
-        60: 4,
-        64: 4,
-        68: 8,
-        72: 1,
-        76: 12,
-        80: interaction_words // 4,
-        84: sampled_words,
-        88: decommitment_words,
-        92: 161,
-        96: 3449,
-        100: 2268,
-        104: 8,
-    }
-    for offset, word in values.items():
-        struct.pack_into("<I", encoded, offset, word)
-    return hashlib.sha256(encoded).digest()
-
-
 def _sha256_bytes(value: object, label: str) -> bytes:
     if not isinstance(value, str) or SHA256_PATTERN.fullmatch(value) is None:
         raise SessionProtocolError(f"{label} must be lowercase SHA-256")
@@ -1239,14 +1180,11 @@ def validate_verified_result(
         raise SessionProtocolError(
             "committed benchmark Rust verifier evidence does not match the response"
         )
-    compact_protocol_digest = _compact_protocol_digest(
-        cli_report.get("proof_layout"),
-        "committed benchmark compact proof layout",
-    ).hex()
-    if rust_verifier["protocol_digest"] != compact_protocol_digest:
-        raise SessionProtocolError(
-            "Rust verifier protocol_digest does not match the runner proof layout"
-        )
+    # The trusted session executable constructs the compact protocol from the
+    # authenticated composition/fixed-table geometry and requires the pinned
+    # Rust verifier to return the exact envelope digest before publication.
+    # Reconstructing it here from proof-layout sizes alone is invalid for
+    # projected Cairo programs because their trace widths and degree bounds vary.
     manifest = _validated_artifact_manifest(
         report.get("artifact_manifest"), artifact_manifest_digest
     )

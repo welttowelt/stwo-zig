@@ -36,9 +36,7 @@ def rust_verifier_evidence(proof: bytes = b"proof") -> dict[str, object]:
         "envelope_abi": "STWZCVE/1",
         "adapter_version": "0.1.0",
         "verification_mode": "compact_metal_proof_v1",
-        "protocol_digest": MODULE.SESSION_PROTOCOL._compact_protocol_digest(
-            TEST_PROOF_LAYOUT
-        ).hex(),
+        "protocol_digest": "44" * 32,
         "statement_digest": "11" * 32,
         "proof_digest": hashlib.sha256(proof).hexdigest(),
         "provenance_digest": "22" * 32,
