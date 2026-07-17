@@ -1,0 +1,440 @@
+use crate::cli::{
+    pcs_config_from_cli, pcs_config_from_wire, pcs_config_to_wire, prove_mode_from_str,
+    prove_mode_to_str,
+};
+use crate::model::{
+    BenchReport, BenchTiming, BlakeStatement, Cli, Example, InteropArtifact, PlonkStatement,
+    PoseidonStatement, ProofWire, WideFibonacciStatement, XorStatement, EXCHANGE_MODE,
+    SCHEMA_VERSION,
+};
+use crate::profile::{time_stage, write_stage_profile};
+use crate::proving::{
+    blake_prove, blake_verify, plonk_prove, plonk_verify, poseidon_prove, poseidon_verify,
+    proof_metrics_from_proof, prove_example, state_machine_prove, state_machine_verify,
+    verify_example, wide_fibonacci_prove, wide_fibonacci_prove_profiled, wide_fibonacci_verify,
+    xor_prove, xor_verify,
+};
+use crate::wire::{
+    blake_statement_from_wire, blake_statement_to_wire, checked_m31, plonk_statement_from_wire,
+    plonk_statement_to_wire, poseidon_statement_from_wire, poseidon_statement_to_wire,
+    proof_to_wire, state_machine_statement_from_wire, state_machine_statement_to_wire,
+    wide_fibonacci_statement_from_wire, wide_fibonacci_statement_to_wire, wire_to_proof,
+    xor_statement_from_wire, xor_statement_to_wire,
+};
+use crate::UPSTREAM_COMMIT;
+use anyhow::{anyhow, bail, Context, Result};
+use std::fs;
+
+pub(crate) fn run_generate(cli: &Cli) -> Result<()> {
+    let example = cli
+        .example
+        .ok_or_else(|| anyhow!("--example is required for generate mode"))?;
+    if cli.stage_profile_out.is_some() && example != Example::WideFibonacci {
+        bail!("--stage-profile-out is only supported for wide_fibonacci generate runs");
+    }
+    let config = pcs_config_from_cli(cli)?;
+
+    let artifact = match example {
+        Example::Blake => {
+            let statement = BlakeStatement {
+                log_n_rows: cli.blake_log_n_rows,
+                n_rounds: cli.blake_n_rounds,
+            };
+            let (statement, proof) = blake_prove(
+                config,
+                statement,
+                cli.prove_mode,
+                cli.include_all_preprocessed_columns,
+            )?;
+            let proof_bytes = serde_json::to_vec(&proof_to_wire(&proof)?)?;
+            InteropArtifact {
+                schema_version: SCHEMA_VERSION,
+                upstream_commit: UPSTREAM_COMMIT.to_string(),
+                exchange_mode: EXCHANGE_MODE.to_string(),
+                generator: "rust".to_string(),
+                example: "blake".to_string(),
+                prove_mode: Some(prove_mode_to_str(cli.prove_mode).to_string()),
+                pcs_config: pcs_config_to_wire(config),
+                blake_statement: Some(blake_statement_to_wire(statement)),
+                plonk_statement: None,
+                poseidon_statement: None,
+                state_machine_statement: None,
+                wide_fibonacci_statement: None,
+                xor_statement: None,
+                proof_bytes_hex: hex::encode(proof_bytes),
+            }
+        }
+        Example::Plonk => {
+            let statement = PlonkStatement {
+                log_n_rows: cli.plonk_log_n_rows,
+            };
+            let (statement, proof) = plonk_prove(
+                config,
+                statement,
+                cli.prove_mode,
+                cli.include_all_preprocessed_columns,
+            )?;
+            let proof_bytes = serde_json::to_vec(&proof_to_wire(&proof)?)?;
+            InteropArtifact {
+                schema_version: SCHEMA_VERSION,
+                upstream_commit: UPSTREAM_COMMIT.to_string(),
+                exchange_mode: EXCHANGE_MODE.to_string(),
+                generator: "rust".to_string(),
+                example: "plonk".to_string(),
+                prove_mode: Some(prove_mode_to_str(cli.prove_mode).to_string()),
+                pcs_config: pcs_config_to_wire(config),
+                blake_statement: None,
+                plonk_statement: Some(plonk_statement_to_wire(statement)),
+                poseidon_statement: None,
+                state_machine_statement: None,
+                wide_fibonacci_statement: None,
+                xor_statement: None,
+                proof_bytes_hex: hex::encode(proof_bytes),
+            }
+        }
+        Example::Poseidon => {
+            let statement = PoseidonStatement {
+                log_n_instances: cli.poseidon_log_n_instances,
+            };
+            let (statement, proof) = poseidon_prove(
+                config,
+                statement,
+                cli.prove_mode,
+                cli.include_all_preprocessed_columns,
+            )?;
+            let proof_bytes = serde_json::to_vec(&proof_to_wire(&proof)?)?;
+            InteropArtifact {
+                schema_version: SCHEMA_VERSION,
+                upstream_commit: UPSTREAM_COMMIT.to_string(),
+                exchange_mode: EXCHANGE_MODE.to_string(),
+                generator: "rust".to_string(),
+                example: "poseidon".to_string(),
+                prove_mode: Some(prove_mode_to_str(cli.prove_mode).to_string()),
+                pcs_config: pcs_config_to_wire(config),
+                blake_statement: None,
+                plonk_statement: None,
+                poseidon_statement: Some(poseidon_statement_to_wire(statement)),
+                state_machine_statement: None,
+                wide_fibonacci_statement: None,
+                xor_statement: None,
+                proof_bytes_hex: hex::encode(proof_bytes),
+            }
+        }
+        Example::StateMachine => {
+            let initial_state = [
+                checked_m31(cli.sm_initial_0)?,
+                checked_m31(cli.sm_initial_1)?,
+            ];
+            let (statement, proof) = state_machine_prove(
+                config,
+                cli.sm_log_n_rows,
+                initial_state,
+                cli.prove_mode,
+                cli.include_all_preprocessed_columns,
+            )?;
+            let proof_bytes = serde_json::to_vec(&proof_to_wire(&proof)?)?;
+            InteropArtifact {
+                schema_version: SCHEMA_VERSION,
+                upstream_commit: UPSTREAM_COMMIT.to_string(),
+                exchange_mode: EXCHANGE_MODE.to_string(),
+                generator: "rust".to_string(),
+                example: "state_machine".to_string(),
+                prove_mode: Some(prove_mode_to_str(cli.prove_mode).to_string()),
+                pcs_config: pcs_config_to_wire(config),
+                blake_statement: None,
+                plonk_statement: None,
+                poseidon_statement: None,
+                state_machine_statement: Some(state_machine_statement_to_wire(statement)),
+                wide_fibonacci_statement: None,
+                xor_statement: None,
+                proof_bytes_hex: hex::encode(proof_bytes),
+            }
+        }
+        Example::WideFibonacci => {
+            let statement = WideFibonacciStatement {
+                log_n_rows: cli.wf_log_n_rows,
+                sequence_len: cli.wf_sequence_len,
+            };
+            if let Some(stage_profile_out) = &cli.stage_profile_out {
+                let (proved, mut stages) = wide_fibonacci_prove_profiled(
+                    config,
+                    statement,
+                    cli.prove_mode,
+                    cli.include_all_preprocessed_columns,
+                )?;
+                let (proof_bytes, proof_encode_stage) =
+                    time_stage("proof_wire_encode", "Proof wire encode", || {
+                        serde_json::to_vec(&proof_to_wire(&proved.1)?).map_err(Into::into)
+                    })?;
+                stages.push(proof_encode_stage);
+                let artifact = InteropArtifact {
+                    schema_version: SCHEMA_VERSION,
+                    upstream_commit: UPSTREAM_COMMIT.to_string(),
+                    exchange_mode: EXCHANGE_MODE.to_string(),
+                    generator: "rust".to_string(),
+                    example: "wide_fibonacci".to_string(),
+                    prove_mode: Some(prove_mode_to_str(cli.prove_mode).to_string()),
+                    pcs_config: pcs_config_to_wire(config),
+                    blake_statement: None,
+                    plonk_statement: None,
+                    poseidon_statement: None,
+                    state_machine_statement: None,
+                    wide_fibonacci_statement: Some(wide_fibonacci_statement_to_wire(proved.0)),
+                    xor_statement: None,
+                    proof_bytes_hex: hex::encode(proof_bytes),
+                };
+                let (_unit, artifact_write_stage) =
+                    time_stage("artifact_write", "Artifact write", || {
+                        let rendered = serde_json::to_string_pretty(&artifact)?;
+                        fs::write(&cli.artifact, format!("{rendered}\n"))
+                            .with_context(|| format!("failed writing artifact {}", cli.artifact))?;
+                        Ok(())
+                    })?;
+                stages.push(artifact_write_stage);
+                write_stage_profile(stage_profile_out, stages)?;
+                return Ok(());
+            }
+
+            let (statement, proof) = wide_fibonacci_prove(
+                config,
+                statement,
+                cli.prove_mode,
+                cli.include_all_preprocessed_columns,
+            )?;
+            let proof_bytes = serde_json::to_vec(&proof_to_wire(&proof)?)?;
+            InteropArtifact {
+                schema_version: SCHEMA_VERSION,
+                upstream_commit: UPSTREAM_COMMIT.to_string(),
+                exchange_mode: EXCHANGE_MODE.to_string(),
+                generator: "rust".to_string(),
+                example: "wide_fibonacci".to_string(),
+                prove_mode: Some(prove_mode_to_str(cli.prove_mode).to_string()),
+                pcs_config: pcs_config_to_wire(config),
+                blake_statement: None,
+                plonk_statement: None,
+                poseidon_statement: None,
+                state_machine_statement: None,
+                wide_fibonacci_statement: Some(wide_fibonacci_statement_to_wire(statement)),
+                xor_statement: None,
+                proof_bytes_hex: hex::encode(proof_bytes),
+            }
+        }
+        Example::Xor => {
+            let statement = XorStatement {
+                log_size: cli.xor_log_size,
+                log_step: cli.xor_log_step,
+                offset: cli.xor_offset,
+            };
+            let (statement, proof) = xor_prove(
+                config,
+                statement,
+                cli.prove_mode,
+                cli.include_all_preprocessed_columns,
+            )?;
+            let proof_bytes = serde_json::to_vec(&proof_to_wire(&proof)?)?;
+            InteropArtifact {
+                schema_version: SCHEMA_VERSION,
+                upstream_commit: UPSTREAM_COMMIT.to_string(),
+                exchange_mode: EXCHANGE_MODE.to_string(),
+                generator: "rust".to_string(),
+                example: "xor".to_string(),
+                prove_mode: Some(prove_mode_to_str(cli.prove_mode).to_string()),
+                pcs_config: pcs_config_to_wire(config),
+                blake_statement: None,
+                plonk_statement: None,
+                poseidon_statement: None,
+                state_machine_statement: None,
+                wide_fibonacci_statement: None,
+                xor_statement: Some(xor_statement_to_wire(statement)?),
+                proof_bytes_hex: hex::encode(proof_bytes),
+            }
+        }
+    };
+
+    let rendered = serde_json::to_string_pretty(&artifact)?;
+    fs::write(&cli.artifact, format!("{rendered}\n"))
+        .with_context(|| format!("failed writing artifact {}", cli.artifact))?;
+    Ok(())
+}
+
+pub(crate) fn run_verify(cli: &Cli) -> Result<()> {
+    let raw = fs::read_to_string(&cli.artifact)
+        .with_context(|| format!("failed reading artifact {}", cli.artifact))?;
+    let artifact: InteropArtifact = serde_json::from_str(&raw)?;
+
+    if artifact.schema_version != SCHEMA_VERSION {
+        bail!("unsupported schema version {}", artifact.schema_version);
+    }
+    if artifact.exchange_mode != EXCHANGE_MODE {
+        bail!("unsupported exchange mode {}", artifact.exchange_mode);
+    }
+    if artifact.upstream_commit != UPSTREAM_COMMIT {
+        bail!("unsupported upstream commit {}", artifact.upstream_commit);
+    }
+    if artifact.generator != "rust" && artifact.generator != "zig" {
+        bail!("unsupported generator {}", artifact.generator);
+    }
+    if let Some(mode) = &artifact.prove_mode {
+        if prove_mode_from_str(mode).is_none() {
+            bail!("unsupported prove mode {}", mode);
+        }
+    }
+
+    let config = pcs_config_from_wire(&artifact.pcs_config)?;
+    let proof_bytes = hex::decode(&artifact.proof_bytes_hex)?;
+    let proof_wire: ProofWire = serde_json::from_slice(&proof_bytes)?;
+    let proof = wire_to_proof(proof_wire)?;
+
+    match artifact.example.as_str() {
+        "blake" => {
+            let statement_wire = artifact
+                .blake_statement
+                .as_ref()
+                .ok_or_else(|| anyhow!("missing blake_statement"))?;
+            let statement = blake_statement_from_wire(statement_wire)?;
+            blake_verify(config, statement, proof)?;
+        }
+        "plonk" => {
+            let statement_wire = artifact
+                .plonk_statement
+                .as_ref()
+                .ok_or_else(|| anyhow!("missing plonk_statement"))?;
+            let statement = plonk_statement_from_wire(statement_wire)?;
+            plonk_verify(config, statement, proof)?;
+        }
+        "poseidon" => {
+            let statement_wire = artifact
+                .poseidon_statement
+                .as_ref()
+                .ok_or_else(|| anyhow!("missing poseidon_statement"))?;
+            let statement = poseidon_statement_from_wire(statement_wire)?;
+            poseidon_verify(config, statement, proof)?;
+        }
+        "state_machine" => {
+            let statement_wire = artifact
+                .state_machine_statement
+                .as_ref()
+                .ok_or_else(|| anyhow!("missing state_machine_statement"))?;
+            let statement = state_machine_statement_from_wire(statement_wire)?;
+            state_machine_verify(config, statement, proof)?;
+        }
+        "wide_fibonacci" => {
+            let statement_wire = artifact
+                .wide_fibonacci_statement
+                .as_ref()
+                .ok_or_else(|| anyhow!("missing wide_fibonacci_statement"))?;
+            let statement = wide_fibonacci_statement_from_wire(statement_wire)?;
+            wide_fibonacci_verify(config, statement, proof)?;
+        }
+        "xor" => {
+            let statement_wire = artifact
+                .xor_statement
+                .as_ref()
+                .ok_or_else(|| anyhow!("missing xor_statement"))?;
+            let statement = xor_statement_from_wire(statement_wire)?;
+            xor_verify(config, statement, proof)?;
+        }
+        other => bail!("unknown example {other}"),
+    }
+
+    Ok(())
+}
+
+pub(crate) fn run_bench(cli: &Cli) -> Result<()> {
+    let example = cli
+        .example
+        .ok_or_else(|| anyhow!("--example is required for bench mode"))?;
+    if cli.bench_repeats == 0 {
+        bail!("--bench-repeats must be positive");
+    }
+    let config = pcs_config_from_cli(cli)?;
+    let total_runs = cli.bench_warmups + cli.bench_repeats;
+
+    let mut prove_samples = Vec::with_capacity(cli.bench_repeats);
+    for i in 0..total_runs {
+        let start = std::time::Instant::now();
+        let (_, proof) = prove_example(
+            config,
+            example,
+            cli,
+            cli.prove_mode,
+            cli.include_all_preprocessed_columns,
+        )?;
+        let _encoded = serde_json::to_vec(&proof_to_wire(&proof)?)?;
+        let elapsed = start.elapsed().as_secs_f64();
+        drop(proof);
+        if i >= cli.bench_warmups {
+            prove_samples.push(elapsed);
+        }
+    }
+
+    let (statement, baseline_proof) = prove_example(
+        config,
+        example,
+        cli,
+        cli.prove_mode,
+        cli.include_all_preprocessed_columns,
+    )?;
+    let proof_metrics = proof_metrics_from_proof(&baseline_proof)?;
+    let baseline_wire = proof_to_wire(&baseline_proof)?;
+    let baseline_wire_bytes = serde_json::to_vec(&baseline_wire)?;
+
+    let mut verify_samples = Vec::with_capacity(cli.bench_repeats);
+    for i in 0..total_runs {
+        let start = std::time::Instant::now();
+        let decoded_wire: ProofWire = serde_json::from_slice(&baseline_wire_bytes)?;
+        let decoded_proof = wire_to_proof(decoded_wire)?;
+        verify_example(config, statement, decoded_proof)?;
+        let elapsed = start.elapsed().as_secs_f64();
+        if i >= cli.bench_warmups {
+            verify_samples.push(elapsed);
+        }
+    }
+
+    let report = BenchReport {
+        runtime: "rust".to_string(),
+        example: match example {
+            Example::Blake => "blake",
+            Example::Plonk => "plonk",
+            Example::Poseidon => "poseidon",
+            Example::StateMachine => "state_machine",
+            Example::WideFibonacci => "wide_fibonacci",
+            Example::Xor => "xor",
+        }
+        .to_string(),
+        prove_mode: prove_mode_to_str(cli.prove_mode).to_string(),
+        include_all_preprocessed_columns: cli.include_all_preprocessed_columns,
+        prove: summarize_timing(cli.bench_warmups, cli.bench_repeats, prove_samples)?,
+        verify: summarize_timing(cli.bench_warmups, cli.bench_repeats, verify_samples)?,
+        proof_metrics,
+    };
+
+    println!("{}", serde_json::to_string(&report)?);
+    Ok(())
+}
+
+pub(crate) fn summarize_timing(
+    warmups: usize,
+    repeats: usize,
+    samples: Vec<f64>,
+) -> Result<BenchTiming> {
+    if samples.is_empty() {
+        bail!("benchmark samples are empty");
+    }
+    let mut min_seconds = samples[0];
+    let mut max_seconds = samples[0];
+    let mut total = 0.0f64;
+    for sample in &samples {
+        min_seconds = min_seconds.min(*sample);
+        max_seconds = max_seconds.max(*sample);
+        total += *sample;
+    }
+    Ok(BenchTiming {
+        warmups,
+        repeats,
+        avg_seconds: total / samples.len() as f64,
+        min_seconds,
+        max_seconds,
+        samples_seconds: samples,
+    })
+}
