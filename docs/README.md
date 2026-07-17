@@ -6,8 +6,7 @@ context. Root-level project entry points are limited to `README.md` and `CONTRIB
 ## Normative Contracts
 
 - [`design/2026-07-17-pre-optimization-conformance-goal.md`](design/2026-07-17-pre-optimization-conformance-goal.md):
-  active repository-wide correctness, production-admission, structure, and optimization-unlock
-  goal.
+  active shared Stwo, Native CPU/Metal, repository-structure, and optimization-readiness goal.
 - [`conformance/contract.md`](conformance/contract.md): release and parity requirements.
 - [`conformance/upstream.md`](conformance/upstream.md): exact Rust Stwo compatibility pin and upgrade
   policy. The pinned Rust implementation is the final correctness oracle.
@@ -23,6 +22,14 @@ context. Root-level project entry points are limited to `README.md` and `CONTRIB
   phased migration of source ownership, dependency direction, tests, and delivery automation.
 - [`design/2026-07-17-native-backend-suite.md`](design/2026-07-17-native-backend-suite.md): complete
   six-example real-AIR Native CPU/Metal acceptance architecture and evidence contract.
+- [`design/2026-07-17-metal-shader-library-decomposition.md`](design/2026-07-17-metal-shader-library-decomposition.md):
+  Metal source-family, stable ABI, linked-metallib, and AOT/JIT migration contract.
+
+## Deferred TODO Tracks
+
+The following documents preserve planned Cairo, SN PIE, streaming, and RISC-V work. They are not
+active optimization-readiness blockers.
+
 - [`design/2026-07-17-cairo-program-matrix.md`](design/2026-07-17-cairo-program-matrix.md):
   human projection of the exact 27-cell
   [`cairo_program_matrix.json`](../vectors/cairo/cairo_program_matrix.json) authority and the general
@@ -36,8 +43,6 @@ context. Root-level project entry points are limited to `README.md` and `CONTRIB
 - [`sn-pie-streaming.md`](sn-pie-streaming.md): streaming proof-service design and extraction notes.
 - [`sn-pie-persistent-session.md`](sn-pie-persistent-session.md): persistent JSONL session MVP.
 - [`cairo-zig-adapter.md`](cairo-zig-adapter.md): Cairo ingestion and Zig prover boundary.
-- [`design/2026-07-17-metal-shader-library-decomposition.md`](design/2026-07-17-metal-shader-library-decomposition.md):
-  Metal source-family, stable ABI, linked-metallib, and AOT/JIT migration contract.
 - [`design/2026-07-17-cairo-metal-arena-binding-decomposition.md`](design/2026-07-17-cairo-metal-arena-binding-decomposition.md):
   Cairo-Metal phase ownership and arena-facade migration contract.
 - [`design/2026-07-17-cairo-arena-schedule-decomposition.md`](design/2026-07-17-cairo-arena-schedule-decomposition.md):
@@ -46,8 +51,8 @@ context. Root-level project entry points are limited to `README.md` and `CONTRIB
 ## Performance And Profiling
 
 - [`design/2026-07-17-backend-performance-program.md`](design/2026-07-17-backend-performance-program.md):
-  normative profiler-led Native and Cairo optimization program; aggressive execution is blocked by
-  the pre-optimization conformance goal.
+  normative profiler-led Native optimization program; deferred frontend work remains documented
+  for later, and aggressive execution is blocked by the pre-optimization conformance goal.
 - [`metal-profiling.md`](metal-profiling.md): profiling controls and safe collection procedure.
 - [`metal-backend-progress.md`](metal-backend-progress.md): implementation and measured-progress
   summary.
