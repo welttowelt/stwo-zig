@@ -4,6 +4,8 @@ const stwo = @import("stwo");
 const config = @import("config.zig");
 const examples = @import("examples.zig");
 const report_mod = @import("report.zig");
+const provenance = @import("runner/provenance.zig");
+const telemetry = @import("runner/telemetry.zig");
 const statistics = @import("statistics.zig");
 
 const examples_artifact = stwo.interop.examples_artifact;
@@ -12,16 +14,6 @@ const stage_profile = stwo.prover.stage_profile;
 const blake2_hash = stwo.core.vcs.blake2_hash;
 const M31_PACK_WIDTH = stwo.core.fields.m31.PACK_WIDTH;
 const HOST_TWIDDLE_BUDGET_BYTES: usize = 256 * 1024 * 1024;
-
-const OVERRIDE_NAMES = [_][]const u8{
-    "STWO_ZIG_WORKERS",
-    "STWO_ZIG_POW_WORKERS",
-    "STWO_ZIG_MERKLE_WORKERS",
-    "STWO_ZIG_LEAF_BATCH_SIZE",
-    "STWO_ZIG_MERKLE_POOL_REUSE",
-    "STWO_ZIG_METAL_RADIX4_RFFT",
-    "STWO_ZIG_METAL_CACHE_DIR",
-};
 
 fn SampleOutcome(comptime Statement: type) type {
     return struct {
@@ -44,18 +36,6 @@ fn GatedSampleOutcome(comptime Statement: type) type {
         telemetry: ?report_mod.BackendTelemetryDelta,
     };
 }
-
-const OwnedProvenance = struct {
-    git_commit: []u8,
-    environment_overrides: []report_mod.EnvironmentOverride,
-
-    fn deinit(self: *OwnedProvenance, allocator: std.mem.Allocator) void {
-        allocator.free(self.git_commit);
-        for (self.environment_overrides) |entry| allocator.free(entry.value);
-        allocator.free(self.environment_overrides);
-        self.* = undefined;
-    }
-};
 
 pub fn main(comptime Engine: type, comptime backend: config.Backend) !void {
     const allocator = std.heap.smp_allocator;
@@ -221,7 +201,7 @@ fn executeExample(
     }
     const post_warmup_pipeline_cache: ?report_mod.PipelineCacheDelta = if (backend == .metal_hybrid) blk: {
         const snapshot = try Engine.telemetrySnapshot();
-        break :blk pipelineCacheReport(snapshot.pipeline_cache);
+        break :blk telemetry.pipelineCache(snapshot.pipeline_cache);
     } else null;
 
     const samples = try allocator.alloc(report_mod.Sample, args.samples);
@@ -350,9 +330,9 @@ fn executeExample(
     const workload_digest = examples.descriptorDigest(workload, args.protocol);
     var workload_digest_hex = std.fmt.bytesToHex(workload_digest, .lower);
 
-    var provenance_owned = try collectProvenance(allocator);
+    var provenance_owned = try provenance.collect(allocator);
     defer provenance_owned.deinit(allocator);
-    const dirty_output = try runCommand(allocator, &.{ "git", "status", "--porcelain", "--untracked-files=normal" });
+    const dirty_output = try provenance.collectGitStatus(allocator);
     defer allocator.free(dirty_output);
     const overrides = provenance_owned.environment_overrides;
 
@@ -372,7 +352,7 @@ fn executeExample(
     const evidence_class = args.evidenceClass(meets_sampling_contract);
     const git_dirty = dirty_output.len != 0;
     const provenance_complete = overrides.len == 0;
-    const telemetry_valid = backendTelemetryValid(backend, warmup_telemetry, sample_telemetry);
+    const telemetry_valid = telemetry.valid(backend, warmup_telemetry, sample_telemetry);
     const byte_identical_verified_samples =
         args.samples == proof_records.len and all_samples_byte_identical;
     const headline_requirements = report_mod.HeadlineRequirements{
@@ -386,7 +366,7 @@ fn executeExample(
         .backend_telemetry_valid = telemetry_valid,
     };
     const headline_eligible = headlineRequirementsMet(headline_requirements);
-    const telemetry_totals = sumTelemetry(warmup_telemetry, sample_telemetry);
+    const telemetry_totals = telemetry.sum(warmup_telemetry, sample_telemetry);
     var runtime_source_hex: [64]u8 = undefined;
     var runtime_manifest_hex: [64]u8 = undefined;
     var runtime_metallib_hex: [64]u8 = undefined;
@@ -534,7 +514,7 @@ fn runGatedSample(
         const after = try Engine.telemetrySnapshot();
         const delta = after.delta(before);
         try delta.requireMetalDispatch();
-        return .{ .sample = sample, .telemetry = telemetryReport(delta) };
+        return .{ .sample = sample, .telemetry = telemetry.request(delta) };
     }
     return .{
         .sample = try runSample(
@@ -620,156 +600,11 @@ fn runSample(
     };
 }
 
-fn telemetryReport(delta: anytype) report_mod.BackendTelemetryDelta {
-    const counters = delta.counters;
-    const pipeline_cache = delta.pipeline_cache;
-    return .{
-        .classification = @tagName(delta.classification()),
-        .metal_dispatches = counters.metalDispatchTotal(),
-        .cpu_fallbacks = counters.cpuFallbackTotal(),
-        .counters = .{
-            .host_merkle_commits = counters.host_merkle_commits,
-            .resident_merkle_commits = counters.resident_merkle_commits,
-            .metal_quotient_dispatches = counters.metal_quotient_dispatches,
-            .metal_sampled_value_dispatches = counters.metal_sampled_value_dispatches,
-            .metal_circle_transform_dispatches = counters.metal_circle_transform_dispatches,
-            .metal_circle_lde_dispatches = counters.metal_circle_lde_dispatches,
-            .metal_fri_circle_fold_dispatches = counters.metal_fri_circle_fold_dispatches,
-            .metal_fri_line_fold_dispatches = counters.metal_fri_line_fold_dispatches,
-            .metal_fri_fold_commit_epochs = counters.metal_fri_fold_commit_epochs,
-            .metal_qm31_coordinate_dispatches = counters.metal_qm31_coordinate_dispatches,
-            .cpu_small_merkle_commits = counters.cpu_small_merkle_commits,
-            .cpu_streaming_merkle_commits = counters.cpu_streaming_merkle_commits,
-            .cpu_sampled_value_evaluations = counters.cpu_sampled_value_evaluations,
-            .cpu_small_circle_interpolations = counters.cpu_small_circle_interpolations,
-            .cpu_small_circle_evaluations = counters.cpu_small_circle_evaluations,
-            .cpu_small_circle_ldes = counters.cpu_small_circle_ldes,
-        },
-        .pipeline_cache = pipelineCacheReport(pipeline_cache),
-    };
-}
-
-fn pipelineCacheReport(stats: anytype) report_mod.PipelineCacheDelta {
-    return .{
-        .library_cache_hits = stats.library_cache_hits,
-        .library_cache_misses = stats.library_cache_misses,
-        .pipeline_cache_hits = stats.pipeline_cache_hits,
-        .binary_archive_hits = stats.binary_archive_hits,
-        .binary_archive_misses = stats.binary_archive_misses,
-        .direct_compiles = stats.direct_compiles,
-        .archive_populations = stats.archive_populations,
-        .archive_serializations = stats.archive_serializations,
-        .pipeline_preparation_seconds = stats.pipeline_preparation_seconds,
-        .library_preparation_seconds = stats.library_preparation_seconds,
-        .library_cache_entries = stats.library_cache_entries,
-        .library_cache_bytes = stats.library_cache_bytes,
-        .library_cache_peak_entries = stats.library_cache_peak_entries,
-        .library_cache_peak_bytes = stats.library_cache_peak_bytes,
-        .library_cache_evictions = stats.library_cache_evictions,
-        .library_cache_rejections = stats.library_cache_rejections,
-        .pipeline_cache_entries = stats.pipeline_cache_entries,
-        .pipeline_cache_bytes = stats.pipeline_cache_bytes,
-        .pipeline_cache_peak_entries = stats.pipeline_cache_peak_entries,
-        .pipeline_cache_peak_bytes = stats.pipeline_cache_peak_bytes,
-        .pipeline_cache_evictions = stats.pipeline_cache_evictions,
-        .pipeline_cache_invalidations = stats.pipeline_cache_invalidations,
-        .pipeline_cache_rejections = stats.pipeline_cache_rejections,
-        .library_cache_entry_limit = stats.library_cache_entry_limit,
-        .library_cache_byte_limit = stats.library_cache_byte_limit,
-        .pipeline_cache_entry_limit = stats.pipeline_cache_entry_limit,
-        .pipeline_cache_byte_limit = stats.pipeline_cache_byte_limit,
-    };
-}
-
-fn backendTelemetryValid(
-    comptime backend: config.Backend,
-    warmups: []const report_mod.BackendTelemetryDelta,
-    samples: []const report_mod.BackendTelemetryDelta,
-) bool {
-    if (comptime backend == .cpu_native) return warmups.len == 0 and samples.len == 0;
-    for (warmups) |delta| if (delta.metal_dispatches == 0) return false;
-    for (samples) |delta| {
-        if (delta.metal_dispatches == 0 or pipelinePreparationOccurred(delta.pipeline_cache))
-            return false;
-    }
-    return true;
-}
-
-fn pipelinePreparationOccurred(cache: report_mod.PipelineCacheDelta) bool {
-    // Cache-hit lookup time is still accumulated; counters identify samples
-    // that actually create or load library or pipeline state after warmup.
-    return cache.library_cache_misses > 0 or
-        cache.binary_archive_hits > 0 or
-        cache.binary_archive_misses > 0 or
-        cache.direct_compiles > 0 or
-        cache.archive_populations > 0 or
-        cache.archive_serializations > 0;
-}
-
-const TelemetryTotals = struct {
-    metal_dispatches: u64 = 0,
-    cpu_fallbacks: u64 = 0,
-};
-
-fn sumTelemetry(
-    warmups: []const report_mod.BackendTelemetryDelta,
-    samples: []const report_mod.BackendTelemetryDelta,
-) TelemetryTotals {
-    var result: TelemetryTotals = .{};
-    for (warmups) |delta| {
-        result.metal_dispatches +|= delta.metal_dispatches;
-        result.cpu_fallbacks +|= delta.cpu_fallbacks;
-    }
-    for (samples) |delta| {
-        result.metal_dispatches +|= delta.metal_dispatches;
-        result.cpu_fallbacks +|= delta.cpu_fallbacks;
-    }
-    return result;
-}
-
 fn headlineRequirementsMet(requirements: report_mod.HeadlineRequirements) bool {
     inline for (std.meta.fields(report_mod.HeadlineRequirements)) |field| {
         if (!@field(requirements, field.name)) return false;
     }
     return true;
-}
-
-fn collectProvenance(allocator: std.mem.Allocator) !OwnedProvenance {
-    const git_commit = try runCommand(allocator, &.{ "git", "rev-parse", "HEAD" });
-    errdefer allocator.free(git_commit);
-    if (git_commit.len != 40) return error.InvalidGitCommit;
-
-    var overrides = std.ArrayList(report_mod.EnvironmentOverride).empty;
-    errdefer {
-        for (overrides.items) |entry| allocator.free(entry.value);
-        overrides.deinit(allocator);
-    }
-    for (OVERRIDE_NAMES) |name| {
-        const value = std.process.getEnvVarOwned(allocator, name) catch |err| switch (err) {
-            error.EnvironmentVariableNotFound => continue,
-            else => return err,
-        };
-        try overrides.append(allocator, .{ .name = name, .value = value });
-    }
-    return .{
-        .git_commit = git_commit,
-        .environment_overrides = try overrides.toOwnedSlice(allocator),
-    };
-}
-
-fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) ![]u8 {
-    const result = try std.process.Child.run(.{
-        .allocator = allocator,
-        .argv = argv,
-        .max_output_bytes = 1024 * 1024,
-    });
-    defer allocator.free(result.stdout);
-    defer allocator.free(result.stderr);
-    switch (result.term) {
-        .Exited => |code| if (code != 0) return error.ProvenanceCommandFailed,
-        else => return error.ProvenanceCommandFailed,
-    }
-    return allocator.dupe(u8, std.mem.trim(u8, result.stdout, " \t\r\n"));
 }
 
 fn nsToSeconds(ns: u64) f64 {
@@ -800,36 +635,6 @@ test "native proof runner: headline requirements fail closed" {
     try std.testing.expect(headlineRequirementsMet(requirements));
     requirements.clean_complete_provenance = false;
     try std.testing.expect(!headlineRequirementsMet(requirements));
-}
-
-test "native proof runner: every Metal request needs a dispatch" {
-    const valid = report_mod.BackendTelemetryDelta{
-        .classification = "accelerated_without_fallbacks",
-        .metal_dispatches = 1,
-        .cpu_fallbacks = 0,
-        .counters = .{},
-        .pipeline_cache = .{},
-    };
-    var invalid = valid;
-    invalid.metal_dispatches = 0;
-    try std.testing.expect(backendTelemetryValid(.metal_hybrid, &.{valid}, &.{valid}));
-    try std.testing.expect(!backendTelemetryValid(.metal_hybrid, &.{valid}, &.{invalid}));
-    var cold = valid;
-    cold.pipeline_cache.direct_compiles = 1;
-    try std.testing.expect(!backendTelemetryValid(.metal_hybrid, &.{valid}, &.{cold}));
-    try std.testing.expect(backendTelemetryValid(.cpu_native, &.{}, &.{}));
-}
-
-test "native proof runner: library misses are cold but hit timing is warm" {
-    var cache = report_mod.PipelineCacheDelta{};
-    cache.library_cache_misses = 1;
-    try std.testing.expect(pipelinePreparationOccurred(cache));
-
-    cache = .{};
-    cache.library_cache_hits = 1;
-    cache.pipeline_preparation_seconds = 0.125;
-    cache.library_preparation_seconds = 0.25;
-    try std.testing.expect(!pipelinePreparationOccurred(cache));
 }
 
 test "native proof runner: oracle artifact wraps exact canonical bytes" {
