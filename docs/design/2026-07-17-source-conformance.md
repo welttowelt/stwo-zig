@@ -11,9 +11,10 @@ and backend boundaries are stable.
 
 The pinned Rust Stwo revision remains the final correctness oracle throughout the migration.
 
-## Baseline
+## Initial Baseline
 
-The 2026-07-17 inventory found:
+The first 2026-07-17 inventory found the following conditions. These numbers describe the migration
+entry point and are retained to show the direction of travel; they are not a statement about HEAD:
 
 - 258 Zig source files and about 113,000 total source lines;
 - 24 tracked Zig files above the 850-line manual-source ceiling;
@@ -88,6 +89,22 @@ The checked-in enforcement baseline contains 16 explained legacy findings: 1 dep
 an immutable line budget and a repository-local decomposition plan. New findings, oversized-file
 growth, missing plans, and stale baseline entries fail the check. Removing a violation therefore
 requires removing its baseline entry in the same change.
+
+## Current Ratchet State
+
+After the Phase-0 restoration on 2026-07-17, HEAD contains 455 Zig files and 128,034 Zig source
+lines. Ten manually maintained Zig, Metal, or Objective-C files remain above 850 lines. The source
+baseline still contains 16 findings: 10 size exceptions, five misplaced roots, and one forbidden
+RISC-V dependency edge.
+
+Four legacy owners had grown past their immutable caps during later Cairo/AOT work. Their focused
+protocol-admission, runtime-initialization, and retained-Merkle storage responsibilities have now
+been extracted without raising a cap. `python3 scripts/check_source_conformance.py` is green again
+and reports no new violations.
+
+This is restored ratchet compliance, not migration completion. Native and Cairo/Metal work must
+remove the seven non-RISC-V findings. The final RISC-V phase removes the remaining nine findings,
+leaving `docs/conformance/source-baseline.json` empty before the optimization lock can open.
 
 ## Invariants
 
@@ -213,8 +230,8 @@ having no intended semantic change.
 The migration is complete only when:
 
 - all dependency invariants are mechanically enforced;
-- no manually maintained Zig or Metal file exceeds 850 lines without a documented, reviewed
-  exception;
+- no manually maintained Zig, Metal, or Objective-C file exceeds 850 lines;
+- `docs/conformance/source-baseline.json` has no legacy findings;
 - Native Stwo and Cairo ownership boundaries match the target responsibilities;
 - public APIs pass the parity ledger and pinned Rust oracle gates;
 - the same checked-in CI entrypoint passes locally and in hosted CI;
