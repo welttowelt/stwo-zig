@@ -217,6 +217,16 @@ dispatches. These are artifact-size and compile-work reductions, not warm proof
 speed claims; each cap still requires cumulative-accumulator Rust-oracle parity
 and a verified A/B/A profile before production selection.
 
+For the diagnostic parity loop, `--component-limit N` restricts the generated
+artifact to the same leading component prefix selected by
+`STWO_ZIG_SN2_COMPOSITION_COMPONENT_LIMIT=N`. At cap 2,048, the one-component
+artifact is one 45,948-byte fused kernel instead of the full 4,244,856-byte
+selected library; eight components require nine functions and 289,638 bytes.
+This makes cumulative Rust-versus-Metal accumulator bisection practical without
+compiling every Cairo component before the first checkpoint. A limited artifact
+is diagnostic-only and must never be admitted as a production composition
+program.
+
 The exact planner gate consumes `sn_pie_2_composition.bin`, checks the 58
 component instances and 279 parts against every trace span, preprocessed index,
 extension-parameter extent, twiddle table, 100,662,912-word accumulator slab,

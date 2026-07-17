@@ -9,19 +9,37 @@ pub fn main() !void {
     const allocator = gpa.allocator();
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
-    if (args.len < 3 or args.len > 5) return error.InvalidArguments;
-    const fusion_cap = if (args.len >= 4)
-        try std.fmt.parseUnsigned(usize, args[3], 10)
-    else
-        codegen.default_fused_instruction_cap;
+    if (args.len < 3) return error.InvalidArguments;
+    var fusion_cap = codegen.default_fused_instruction_cap;
+    var selected_only = false;
+    var component_limit_override: ?usize = null;
+    var argument_index: usize = 3;
+    if (argument_index < args.len and !std.mem.startsWith(u8, args[argument_index], "--")) {
+        fusion_cap = try std.fmt.parseUnsigned(usize, args[argument_index], 10);
+        argument_index += 1;
+    }
     if (fusion_cap == 0 or fusion_cap > codegen.max_fused_instruction_cap)
         return error.InvalidFusionInstructionCap;
-    const selected_only = if (args.len == 5)
-        if (std.mem.eql(u8, args[4], "--selected-only")) true else return error.InvalidArguments
-    else
-        false;
+    while (argument_index < args.len) : (argument_index += 1) {
+        const argument = args[argument_index];
+        if (std.mem.eql(u8, argument, "--selected-only")) {
+            if (selected_only) return error.InvalidArguments;
+            selected_only = true;
+        } else if (std.mem.eql(u8, argument, "--component-limit")) {
+            if (component_limit_override != null or argument_index + 1 >= args.len)
+                return error.InvalidArguments;
+            argument_index += 1;
+            component_limit_override = try std.fmt.parseUnsigned(usize, args[argument_index], 10);
+            if (component_limit_override.? == 0) return error.InvalidComponentLimit;
+        } else {
+            return error.InvalidArguments;
+        }
+    }
     var bundle = try composition.Bundle.readFile(allocator, args[1]);
     defer bundle.deinit();
+    const component_limit = component_limit_override orelse bundle.components.len;
+    if (component_limit > bundle.components.len) return error.InvalidComponentLimit;
+    const components = bundle.components[0..component_limit];
     var output = try std.fs.cwd().createFile(args[2], .{});
     defer output.close();
     var buffer: [64 * 1024]u8 = undefined;
@@ -37,7 +55,7 @@ pub fn main() !void {
     var baseline_dispatches: u32 = 0;
     var fused_dispatches: u32 = 0;
     if (!selected_only) {
-        for (bundle.components) |component| for (component.parts) |part| {
+        for (components) |component| for (component.parts) |part| {
             const entry = try seen.getOrPut(part.semantic_hash);
             if (entry.found_existing) continue;
             const source = try codegen.generateKernel(allocator, part.program, false);
@@ -46,7 +64,7 @@ pub fn main() !void {
             programs += 1;
         };
     }
-    for (bundle.components) |component| {
+    for (components) |component| {
         baseline_dispatches += @intCast(component.parts.len);
         const fused_parts = try allocator.alloc(codegen.FusedPart, component.parts.len);
         defer allocator.free(fused_parts);
@@ -82,7 +100,17 @@ pub fn main() !void {
     }
     try writer.flush();
     std.debug.print(
-        "emitted {} unique Metal programs and {} fused programs for plan {x:0>16}; fusion_cap={} dispatches={}->{} selected_only={}\n",
-        .{ programs, fused_programs, bundle.plan_hash, fusion_cap, baseline_dispatches, fused_dispatches, selected_only },
+        "emitted {} unique Metal programs and {} fused programs for plan {x:0>16}; components={}/{} fusion_cap={} dispatches={}->{} selected_only={}\n",
+        .{
+            programs,
+            fused_programs,
+            bundle.plan_hash,
+            component_limit,
+            bundle.components.len,
+            fusion_cap,
+            baseline_dispatches,
+            fused_dispatches,
+            selected_only,
+        },
     );
 }
