@@ -71,7 +71,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_cross_module_tests.step);
 
     const metal_session_protocol_test_module = b.createModule(.{
-        .root_source_file = b.path("src/metal_prover_session_protocol.zig"),
+        .root_source_file = b.path("src/tools/metal_session/protocol.zig"),
         .target = target,
         .optimize = optimize,
     });

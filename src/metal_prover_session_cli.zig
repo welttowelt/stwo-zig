@@ -9,7 +9,7 @@ const compact_interchange = @import("frontends/cairo/compact_verifier_interchang
 const composition_bundle = @import("frontends/cairo/witness/composition_bundle.zig");
 const fixed_table_bundle = @import("frontends/cairo/witness/fixed_table_bundle.zig");
 const one_shot = @import("metal_arena_plan_cli.zig");
-const protocol = @import("metal_prover_session_protocol.zig");
+const protocol = @import("tools/metal_session/protocol.zig");
 
 const persistent_report_schema_version: u32 = 3;
 const in_process_runner_linkage = "in_process";

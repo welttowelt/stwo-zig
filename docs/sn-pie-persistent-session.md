@@ -6,7 +6,7 @@ resource, command-graph, dataflow, and queue architecture is
 
 ## Protocol v4
 
-`scripts/sn_pie_metal_session.py` and `src/metal_prover_session_protocol.zig`
+`scripts/sn_pie_metal_session.py` and `src/tools/metal_session/protocol.zig`
 implement strict `stwo-zig-metal-prover-session` protocol version 4. Exactly one
 proof may be in flight. Sequences are monotonic, request IDs are unique, frames
 are exact-key and exact-type checked, and every prior wire version fails closed.
