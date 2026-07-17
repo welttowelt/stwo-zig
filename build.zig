@@ -10,6 +10,12 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const native_proof_runner_module = b.createModule(.{
+        .root_source_file = b.path("src/bench/native_proof/runner.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    native_proof_runner_module.addImport("stwo", stwo_module);
 
     // Unit tests.
     const test_module = b.createModule(.{
@@ -24,6 +30,16 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_tests.step);
+
+    const native_proof_runner_test_module = b.createModule(.{
+        .root_source_file = b.path("src/bench/native_proof/runner.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    native_proof_runner_test_module.addImport("stwo", stwo_module);
+    const native_proof_runner_tests = b.addTest(.{ .root_module = native_proof_runner_test_module });
+    const run_native_proof_runner_tests = b.addRunArtifact(native_proof_runner_tests);
+    test_step.dependOn(&run_native_proof_runner_tests.step);
 
     const pcs_test_module = b.createModule(.{
         .root_source_file = b.path("src/stwo_deep.zig"),
@@ -133,10 +149,54 @@ pub fn build(b: *std.Build) void {
     const riscv_bench_step = b.step("riscv-bench", "Build RISC-V benchmark CLI");
     riscv_bench_step.dependOn(&install_riscv_bench.step);
 
+    const native_proof_cpu_module = b.createModule(.{
+        .root_source_file = b.path("src/tools/native_proof_bench/cpu.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    native_proof_cpu_module.addImport("stwo", stwo_module);
+    native_proof_cpu_module.addImport("native_proof_runner", native_proof_runner_module);
+    const native_proof_cpu = b.addExecutable(.{
+        .name = "native-proof-bench-cpu",
+        .root_module = native_proof_cpu_module,
+    });
+    const install_native_proof_cpu = b.addInstallArtifact(native_proof_cpu, .{});
+    const native_proof_cpu_step = b.step(
+        "native-proof-bench-cpu",
+        "Build the machine-readable native CPU full-proof benchmark with SIMD hot paths",
+    );
+    native_proof_cpu_step.dependOn(&install_native_proof_cpu.step);
+
     // -----------------------------------------------------------------
     // Metal resident backend (macOS)
     // -----------------------------------------------------------------
     if (target.result.os.tag == .macos) {
+        const native_proof_metal_module = b.createModule(.{
+            .root_source_file = b.path("src/tools/native_proof_bench/metal.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        native_proof_metal_module.addImport("stwo", stwo_module);
+        native_proof_metal_module.addImport("native_proof_runner", native_proof_runner_module);
+        const native_proof_metal = b.addExecutable(.{
+            .name = "native-proof-bench-metal",
+            .root_module = native_proof_metal_module,
+        });
+        native_proof_metal.addCSourceFile(.{
+            .file = b.path("src/backends/metal/runtime.m"),
+            .flags = &.{ "-fobjc-arc", "-fblocks" },
+        });
+        native_proof_metal.linkLibC();
+        native_proof_metal.linkFramework("Foundation");
+        native_proof_metal.linkFramework("Metal");
+        native_proof_metal.linkSystemLibrary("objc");
+        const install_native_proof_metal = b.addInstallArtifact(native_proof_metal, .{});
+        const native_proof_metal_step = b.step(
+            "native-proof-bench-metal",
+            "Build the machine-readable hybrid Metal full-proof benchmark",
+        );
+        native_proof_metal_step.dependOn(&install_native_proof_metal.step);
+
         const metal_arena_plan_module = b.createModule(.{
             .root_source_file = b.path("src/metal_arena_plan_cli.zig"),
             .target = target,

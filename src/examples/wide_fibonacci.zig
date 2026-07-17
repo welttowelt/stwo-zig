@@ -58,6 +58,18 @@ pub const ProveExOutput = struct {
     proof: ExtendedProof,
 };
 
+/// Backend-neutral trace input consumed by a proving transaction.
+pub const PreparedInput = struct {
+    statement: Statement,
+    columns: []prover_pcs.ColumnEvaluation,
+
+    pub fn deinit(self: *PreparedInput, allocator: std.mem.Allocator) void {
+        for (self.columns) |column| allocator.free(column.values);
+        allocator.free(self.columns);
+        self.* = undefined;
+    }
+};
+
 pub const Error = error{
     InvalidLogSize,
     InvalidSequenceLength,
@@ -132,6 +144,17 @@ pub fn genTrace(
 pub fn deinitTrace(allocator: std.mem.Allocator, trace: [][]M31) void {
     for (trace) |col| allocator.free(col);
     allocator.free(trace);
+}
+
+pub fn prepareInput(
+    allocator: std.mem.Allocator,
+    statement: Statement,
+) (std.mem.Allocator.Error || Error)!PreparedInput {
+    const trace = try genTrace(allocator, statement);
+    return .{
+        .statement = statement,
+        .columns = try traceIntoOwnedColumns(allocator, statement.log_n_rows, trace),
+    };
 }
 
 pub fn prove(
@@ -259,6 +282,46 @@ pub fn proveExWithEngine(
     );
 }
 
+/// Proves a pre-generated trace and consumes `prepared` on success or failure.
+pub fn provePreparedWithEngine(
+    comptime Engine: type,
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    prepared: PreparedInput,
+    recorder: ?*stage_profile.Recorder,
+) anyerror!ProveOutput {
+    var prove_ex_output = try provePreparedExWithEngine(
+        Engine,
+        allocator,
+        pcs_config,
+        prepared,
+        false,
+        recorder,
+    );
+    const proof = prove_ex_output.proof.proof;
+    prove_ex_output.proof.aux.deinit(allocator);
+    return .{ .statement = prove_ex_output.statement, .proof = proof };
+}
+
+/// Extended proof route for a pre-generated trace. Consumes `prepared`.
+pub fn provePreparedExWithEngine(
+    comptime Engine: type,
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    prepared: PreparedInput,
+    include_all_preprocessed_columns: bool,
+    recorder: ?*stage_profile.Recorder,
+) anyerror!ProveExOutput {
+    return provePreparedExImpl(
+        Engine,
+        allocator,
+        pcs_config,
+        prepared,
+        include_all_preprocessed_columns,
+        recorder,
+    );
+}
+
 fn proveExImpl(
     comptime Engine: type,
     allocator: std.mem.Allocator,
@@ -267,9 +330,41 @@ fn proveExImpl(
     include_all_preprocessed_columns: bool,
     recorder: ?*stage_profile.Recorder,
 ) anyerror!ProveExOutput {
+    const prepared = blk: {
+        var trace_generation_stage = try stage_profile.StageScope.begin(
+            recorder,
+            "trace_generation",
+            "Trace generation",
+        );
+        defer trace_generation_stage.end();
+        break :blk try prepareInput(allocator, statement);
+    };
+    return provePreparedExImpl(
+        Engine,
+        allocator,
+        pcs_config,
+        prepared,
+        include_all_preprocessed_columns,
+        recorder,
+    );
+}
+
+fn provePreparedExImpl(
+    comptime Engine: type,
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    prepared_input: PreparedInput,
+    include_all_preprocessed_columns: bool,
+    recorder: ?*stage_profile.Recorder,
+) anyerror!ProveExOutput {
     comptime prover_engine.assertProverEngine(Engine);
+    var prepared = prepared_input;
+    var prepared_owned = true;
+    errdefer if (prepared_owned) prepared.deinit(allocator);
+    const statement = prepared_input.statement;
     if (statement.log_n_rows == 0 or statement.log_n_rows >= 31) return Error.InvalidLogSize;
-    if (statement.sequence_len < 2) return Error.InvalidSequenceLength;
+    if (statement.sequence_len < 2 or prepared_input.columns.len != @as(usize, statement.sequence_len))
+        return Error.InvalidSequenceLength;
 
     const Initialized = struct {
         channel: Channel,
@@ -304,16 +399,6 @@ fn proveExImpl(
         try Engine.commit(&scheme, allocator, preprocessed, recorder, &channel);
     }
 
-    const owned_columns = blk: {
-        var trace_generation_stage = try stage_profile.StageScope.begin(
-            recorder,
-            "trace_generation",
-            "Trace generation",
-        );
-        defer trace_generation_stage.end();
-        const trace = try genTrace(allocator, statement);
-        break :blk try traceIntoOwnedColumns(allocator, statement.log_n_rows, trace);
-    };
     {
         var main_trace_stage = try stage_profile.StageScope.begin(
             recorder,
@@ -321,7 +406,8 @@ fn proveExImpl(
             "Main trace commit",
         );
         defer main_trace_stage.end();
-        try Engine.commit(&scheme, allocator, owned_columns, recorder, &channel);
+        prepared_owned = false;
+        try Engine.commit(&scheme, allocator, prepared.columns, recorder, &channel);
     }
 
     {
@@ -671,17 +757,18 @@ test "examples wide_fibonacci: generic CPU engine owns the proving transaction" 
     try verify(std.testing.allocator, config, output.statement, output.proof);
 }
 
-test "examples wide_fibonacci: CPU backend selection route verifies" {
+test "examples wide_fibonacci: prepared CPU backend route verifies" {
     const config = pcs_core.PcsConfig{
         .pow_bits = 0,
         .fri_config = try @import("../core/fri.zig").FriConfig.init(0, 1, 3),
     };
     const statement = Statement{ .log_n_rows = 5, .sequence_len = 8 };
-    const output = try proveWithBackend(
-        CpuBackend,
+    const prepared = try prepareInput(std.testing.allocator, statement);
+    const output = try provePreparedWithEngine(
+        ProverEngineForBackend(CpuBackend),
         std.testing.allocator,
         config,
-        statement,
+        prepared,
         null,
     );
     try verify(std.testing.allocator, config, output.statement, output.proof);

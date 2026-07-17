@@ -1,0 +1,602 @@
+const std = @import("std");
+const builtin = @import("builtin");
+const stwo = @import("stwo");
+const config = @import("config.zig");
+const report_mod = @import("report.zig");
+const statistics = @import("statistics.zig");
+
+const wide_fibonacci = stwo.examples.wide_fibonacci;
+const proof_wire = stwo.interop.proof_wire;
+const stage_profile = stwo.prover.stage_profile;
+const M31_PACK_WIDTH = stwo.core.fields.m31.PACK_WIDTH;
+
+const OVERRIDE_NAMES = [_][]const u8{
+    "STWO_ZIG_WORKERS",
+    "STWO_ZIG_POW_WORKERS",
+    "STWO_ZIG_MERKLE_WORKERS",
+    "STWO_ZIG_LEAF_BATCH_SIZE",
+    "STWO_ZIG_MERKLE_POOL_REUSE",
+    "STWO_ZIG_METAL_RADIX4_RFFT",
+};
+
+const SampleOutcome = struct {
+    timing: report_mod.Sample,
+    canonical_proof: []u8,
+    stage_profile: ?report_mod.StageProfile,
+
+    fn deinit(self: *SampleOutcome, allocator: std.mem.Allocator) void {
+        allocator.free(self.canonical_proof);
+        if (self.stage_profile) |*profile| profile.deinit(allocator);
+        self.* = undefined;
+    }
+};
+
+const GatedSampleOutcome = struct {
+    sample: SampleOutcome,
+    telemetry: ?report_mod.BackendTelemetryDelta,
+};
+
+const OwnedProvenance = struct {
+    git_commit: []u8,
+    environment_overrides: []report_mod.EnvironmentOverride,
+
+    fn deinit(self: *OwnedProvenance, allocator: std.mem.Allocator) void {
+        allocator.free(self.git_commit);
+        for (self.environment_overrides) |entry| allocator.free(entry.value);
+        allocator.free(self.environment_overrides);
+        self.* = undefined;
+    }
+};
+
+pub fn main(comptime Engine: type, comptime backend: config.Backend) !void {
+    const allocator = std.heap.smp_allocator;
+    const process_args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, process_args);
+
+    const parsed = parse: {
+        const result = config.parseArgs(process_args[1..]) catch |err| {
+            try config.writeUsage(std.fs.File.stderr().deprecatedWriter());
+            return err;
+        };
+        break :parse result;
+    };
+    switch (parsed) {
+        .help => return config.writeUsage(std.fs.File.stdout().deprecatedWriter()),
+        .run => |args| try execute(Engine, backend, allocator, args),
+    }
+}
+
+fn execute(
+    comptime Engine: type,
+    comptime backend: config.Backend,
+    allocator: std.mem.Allocator,
+    args: config.Args,
+) !void {
+    const protocol_parameters = args.protocol.parameters();
+    var fri_config = try stwo.core.fri.FriConfig.init(
+        protocol_parameters.log_last_layer_degree_bound,
+        protocol_parameters.log_blowup_factor,
+        protocol_parameters.n_queries,
+    );
+    fri_config.fold_step = protocol_parameters.fold_step;
+    const pcs_config = stwo.core.pcs.PcsConfig{
+        .pow_bits = protocol_parameters.pow_bits,
+        .fri_config = fri_config,
+    };
+    const statement = wide_fibonacci.Statement{
+        .log_n_rows = args.log_rows,
+        .sequence_len = args.sequence_len,
+    };
+    const rows = @as(u64, 1) << @intCast(args.log_rows);
+    const committed_cells = try std.math.mul(u64, rows, args.sequence_len);
+
+    var init_timer = try std.time.Timer.start();
+    if (comptime @hasDecl(Engine, "warmup")) try Engine.warmup();
+    const backend_init_seconds = nsToSeconds(init_timer.read());
+    const post_warmup_pipeline_cache: ?report_mod.PipelineCacheDelta = if (backend == .metal_hybrid) blk: {
+        const snapshot = try Engine.telemetrySnapshot();
+        break :blk pipelineCacheReport(snapshot.pipeline_cache);
+    } else null;
+
+    const warmup_seconds = try allocator.alloc(f64, args.warmups);
+    defer allocator.free(warmup_seconds);
+    const warmup_telemetry = try allocator.alloc(
+        report_mod.BackendTelemetryDelta,
+        if (backend == .metal_hybrid) args.warmups else 0,
+    );
+    defer allocator.free(warmup_telemetry);
+    for (warmup_seconds, 0..) |*elapsed, index| {
+        var outcome = try runGatedSample(
+            Engine,
+            backend,
+            allocator,
+            pcs_config,
+            statement,
+            rows,
+            committed_cells,
+            false,
+        );
+        defer outcome.sample.deinit(allocator);
+        elapsed.* = outcome.sample.timing.request_seconds;
+        if (comptime backend == .metal_hybrid) warmup_telemetry[index] = outcome.telemetry.?;
+    }
+
+    const samples = try allocator.alloc(report_mod.Sample, args.samples);
+    defer allocator.free(samples);
+    const input_values = try allocator.alloc(f64, args.samples);
+    defer allocator.free(input_values);
+    const prove_values = try allocator.alloc(f64, args.samples);
+    defer allocator.free(prove_values);
+    const encode_values = try allocator.alloc(f64, args.samples);
+    defer allocator.free(encode_values);
+    const verify_values = try allocator.alloc(f64, args.samples);
+    defer allocator.free(verify_values);
+    const request_values = try allocator.alloc(f64, args.samples);
+    defer allocator.free(request_values);
+    const row_rates = try allocator.alloc(f64, args.samples);
+    defer allocator.free(row_rates);
+    const cell_rates = try allocator.alloc(f64, args.samples);
+    defer allocator.free(cell_rates);
+    const proof_records = try allocator.alloc(report_mod.CanonicalProof, args.samples);
+    defer allocator.free(proof_records);
+    const proof_digest_hexes = try allocator.alloc([64]u8, args.samples);
+    defer allocator.free(proof_digest_hexes);
+    const sample_telemetry = try allocator.alloc(
+        report_mod.BackendTelemetryDelta,
+        if (backend == .metal_hybrid) args.samples else 0,
+    );
+    defer allocator.free(sample_telemetry);
+    const sample_stage_profiles = try allocator.alloc(
+        report_mod.StageProfile,
+        if (args.profiled) args.samples else 0,
+    );
+    var initialized_stage_profiles: usize = 0;
+    defer {
+        for (sample_stage_profiles[0..initialized_stage_profiles]) |*profile| profile.deinit(allocator);
+        allocator.free(sample_stage_profiles);
+    }
+
+    var canonical_proof: ?[]u8 = null;
+    defer if (canonical_proof) |bytes| allocator.free(bytes);
+    var all_samples_byte_identical = true;
+    for (samples, 0..) |*sample, index| {
+        const gated = try runGatedSample(
+            Engine,
+            backend,
+            allocator,
+            pcs_config,
+            statement,
+            rows,
+            committed_cells,
+            args.profiled,
+        );
+        var outcome = gated.sample;
+        var outcome_owned = true;
+        defer {
+            if (outcome_owned) allocator.free(outcome.canonical_proof);
+            if (outcome.stage_profile) |*profile| profile.deinit(allocator);
+        }
+        if (comptime backend == .metal_hybrid) sample_telemetry[index] = gated.telemetry.?;
+        if (args.profiled) {
+            sample_stage_profiles[index] = outcome.stage_profile.?;
+            outcome.stage_profile = null;
+            initialized_stage_profiles += 1;
+        }
+
+        var proof_digest: [std.crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
+        std.crypto.hash.sha2.Sha256.hash(outcome.canonical_proof, &proof_digest, .{});
+        proof_digest_hexes[index] = std.fmt.bytesToHex(proof_digest, .lower);
+        proof_records[index] = .{
+            .bytes = outcome.canonical_proof.len,
+            .sha256 = &proof_digest_hexes[index],
+        };
+        if (canonical_proof) |expected| {
+            all_samples_byte_identical = all_samples_byte_identical and
+                std.mem.eql(u8, expected, outcome.canonical_proof);
+        } else {
+            canonical_proof = outcome.canonical_proof;
+            outcome_owned = false;
+        }
+        sample.* = outcome.timing;
+        input_values[index] = sample.input_seconds;
+        prove_values[index] = sample.prove_seconds;
+        encode_values[index] = sample.proof_encode_seconds;
+        verify_values[index] = sample.verify_seconds;
+        request_values[index] = sample.request_seconds;
+        row_rates[index] = sample.row_mhz;
+        cell_rates[index] = sample.committed_mcells_per_second;
+    }
+
+    const workload_digest = workloadDigest(args, protocol_parameters);
+    var workload_digest_hex = std.fmt.bytesToHex(workload_digest, .lower);
+
+    var provenance_owned = try collectProvenance(allocator);
+    defer provenance_owned.deinit(allocator);
+    const dirty_output = try runCommand(allocator, &.{ "git", "status", "--porcelain", "--untracked-files=normal" });
+    defer allocator.free(dirty_output);
+    const overrides = provenance_owned.environment_overrides;
+
+    const input_summary = try statistics.summarize(allocator, input_values);
+    const prove_summary = try statistics.summarize(allocator, prove_values);
+    const encode_summary = try statistics.summarize(allocator, encode_values);
+    const verify_summary = try statistics.summarize(allocator, verify_values);
+    const request_summary = try statistics.summarize(allocator, request_values);
+    const row_summary = try statistics.summarize(allocator, row_rates);
+    const cell_summary = try statistics.summarize(allocator, cell_rates);
+    const minimum_samples: usize = if (prove_summary.median < 1.0) 5 else 3;
+    const meets_sampling_contract = args.warmups >= 1 and args.samples >= minimum_samples;
+    const evidence_class = args.evidenceClass(meets_sampling_contract);
+    const git_dirty = dirty_output.len != 0;
+    const provenance_complete = true;
+    const telemetry_valid = backendTelemetryValid(backend, warmup_telemetry, sample_telemetry);
+    const byte_identical_verified_samples =
+        args.samples == proof_records.len and all_samples_byte_identical;
+    const headline_requirements = report_mod.HeadlineRequirements{
+        .verified_unprofiled = evidence_class == .verified_unprofiled,
+        .sampling_contract = meets_sampling_contract,
+        .functional_protocol = args.protocol == .functional,
+        .release_fast = builtin.mode == .ReleaseFast,
+        .clean_complete_provenance = provenance_complete and !git_dirty,
+        .thread_parallelism_enabled = !builtin.single_threaded,
+        .byte_identical_verified_samples = byte_identical_verified_samples,
+        .backend_telemetry_valid = telemetry_valid,
+    };
+    const headline_eligible = headlineRequirementsMet(headline_requirements);
+    const telemetry_totals = sumTelemetry(warmup_telemetry, sample_telemetry);
+
+    const report = report_mod.Report{
+        .backend = backend,
+        .evidence_class = evidence_class,
+        .profiled = args.profiled,
+        .provenance = .{
+            .git_commit = provenance_owned.git_commit,
+            .git_dirty = git_dirty,
+            .zig_version = builtin.zig_version_string,
+            .optimization = @tagName(builtin.mode),
+            .target_os = @tagName(builtin.os.tag),
+            .target_arch = @tagName(builtin.cpu.arch),
+            .cpu_count = try std.Thread.getCpuCount(),
+            .simd_pack_width = M31_PACK_WIDTH,
+            .single_threaded = builtin.single_threaded,
+            .thread_parallelism_enabled = !builtin.single_threaded,
+            .environment_overrides = overrides,
+            .complete = provenance_complete,
+        },
+        .protocol = .{
+            .name = args.protocol,
+            .pow_bits = protocol_parameters.pow_bits,
+            .log_blowup_factor = protocol_parameters.log_blowup_factor,
+            .log_last_layer_degree_bound = protocol_parameters.log_last_layer_degree_bound,
+            .n_queries = protocol_parameters.n_queries,
+            .fold_step = protocol_parameters.fold_step,
+        },
+        .workload = .{
+            .name = "wide_fibonacci",
+            .descriptor_sha256 = &workload_digest_hex,
+            .log_rows = args.log_rows,
+            .rows = rows,
+            .sequence_len = args.sequence_len,
+            .committed_trace_cells = committed_cells,
+        },
+        .proof = .{
+            .samples = proof_records,
+            .verified_samples = args.samples,
+            .all_samples_byte_identical = all_samples_byte_identical,
+        },
+        .backend_telemetry = if (backend == .metal_hybrid) .{
+            .post_warmup_pipeline_cache = post_warmup_pipeline_cache.?,
+            .warmups = warmup_telemetry,
+            .samples = sample_telemetry,
+            .total_metal_dispatches = telemetry_totals.metal_dispatches,
+            .total_cpu_fallbacks = telemetry_totals.cpu_fallbacks,
+            .valid = telemetry_valid,
+        } else null,
+        .timing = .{
+            .backend_init_seconds = backend_init_seconds,
+            .warmup_request_seconds = warmup_seconds,
+            .samples = samples,
+            .stage_profiles = if (args.profiled) sample_stage_profiles else null,
+            .input_seconds = input_summary,
+            .prove_seconds = prove_summary,
+            .proof_encode_seconds = encode_summary,
+            .verify_seconds = verify_summary,
+            .request_seconds = request_summary,
+        },
+        .throughput = .{
+            .headline_eligible = headline_eligible,
+            .headline_row_mhz = if (headline_eligible) row_summary else null,
+            .diagnostic_row_mhz = if (evidence_class == .profiled_diagnostic) row_summary else null,
+            .headline_committed_mcells_per_second = if (headline_eligible) cell_summary else null,
+            .diagnostic_committed_mcells_per_second = if (evidence_class == .profiled_diagnostic) cell_summary else null,
+            .headline_requirements = headline_requirements,
+        },
+    };
+    const encoded = try report_mod.encodeAlloc(allocator, report);
+    defer allocator.free(encoded);
+    const stdout = std.fs.File.stdout().deprecatedWriter();
+    try stdout.writeAll(encoded);
+    try stdout.writeByte('\n');
+}
+
+fn runGatedSample(
+    comptime Engine: type,
+    comptime backend: config.Backend,
+    allocator: std.mem.Allocator,
+    pcs_config: stwo.core.pcs.PcsConfig,
+    statement: wide_fibonacci.Statement,
+    rows: u64,
+    committed_cells: u64,
+    profiled: bool,
+) !GatedSampleOutcome {
+    if (comptime backend == .metal_hybrid) {
+        const before = try Engine.telemetrySnapshot();
+        var sample = try runSample(
+            Engine,
+            allocator,
+            pcs_config,
+            statement,
+            rows,
+            committed_cells,
+            profiled,
+        );
+        errdefer sample.deinit(allocator);
+        const after = try Engine.telemetrySnapshot();
+        const delta = after.delta(before);
+        try delta.requireMetalDispatch();
+        return .{ .sample = sample, .telemetry = telemetryReport(delta) };
+    }
+    return .{
+        .sample = try runSample(
+            Engine,
+            allocator,
+            pcs_config,
+            statement,
+            rows,
+            committed_cells,
+            profiled,
+        ),
+        .telemetry = null,
+    };
+}
+
+fn runSample(
+    comptime Engine: type,
+    allocator: std.mem.Allocator,
+    pcs_config: stwo.core.pcs.PcsConfig,
+    statement: wide_fibonacci.Statement,
+    rows: u64,
+    committed_cells: u64,
+    profiled: bool,
+) !SampleOutcome {
+    var recorder = stage_profile.Recorder.init(allocator, @tagName(builtin.mode), "wide_fibonacci");
+    defer recorder.deinit();
+
+    var request_timer = try std.time.Timer.start();
+    var input_timer = try std.time.Timer.start();
+    const prepared = try wide_fibonacci.prepareInput(allocator, statement);
+    const input_seconds = nsToSeconds(input_timer.read());
+    var prepared_owned = true;
+    errdefer if (prepared_owned) {
+        var owned = prepared;
+        owned.deinit(allocator);
+    };
+    var prove_timer = try std.time.Timer.start();
+    prepared_owned = false;
+    const output = try wide_fibonacci.provePreparedWithEngine(
+        Engine,
+        allocator,
+        pcs_config,
+        prepared,
+        if (profiled) &recorder else null,
+    );
+    const prove_seconds = nsToSeconds(prove_timer.read());
+    var proof_owned = true;
+    defer if (proof_owned) {
+        var proof = output.proof;
+        proof.deinit(allocator);
+    };
+
+    var encode_timer = try std.time.Timer.start();
+    const canonical = try proof_wire.encodeProofBytes(allocator, output.proof);
+    errdefer allocator.free(canonical);
+    const encode_seconds = nsToSeconds(encode_timer.read());
+
+    var verify_timer = try std.time.Timer.start();
+    proof_owned = false;
+    try wide_fibonacci.verify(allocator, pcs_config, output.statement, output.proof);
+    const verify_seconds = nsToSeconds(verify_timer.read());
+    const request_seconds = nsToSeconds(request_timer.read());
+    return .{
+        .timing = .{
+            .input_seconds = input_seconds,
+            .prove_seconds = prove_seconds,
+            .proof_encode_seconds = encode_seconds,
+            .verify_seconds = verify_seconds,
+            .request_seconds = request_seconds,
+            .row_mhz = @as(f64, @floatFromInt(rows)) / prove_seconds / 1_000_000.0,
+            .committed_mcells_per_second = @as(f64, @floatFromInt(committed_cells)) / prove_seconds / 1_000_000.0,
+        },
+        .canonical_proof = canonical,
+        .stage_profile = if (profiled) try recorder.snapshot(allocator) else null,
+    };
+}
+
+fn telemetryReport(delta: anytype) report_mod.BackendTelemetryDelta {
+    const counters = delta.counters;
+    const pipeline_cache = delta.pipeline_cache;
+    return .{
+        .classification = @tagName(delta.classification()),
+        .metal_dispatches = counters.metalDispatchTotal(),
+        .cpu_fallbacks = counters.cpuFallbackTotal(),
+        .counters = .{
+            .host_merkle_commits = counters.host_merkle_commits,
+            .resident_merkle_commits = counters.resident_merkle_commits,
+            .metal_quotient_dispatches = counters.metal_quotient_dispatches,
+            .metal_sampled_value_dispatches = counters.metal_sampled_value_dispatches,
+            .metal_circle_transform_dispatches = counters.metal_circle_transform_dispatches,
+            .metal_circle_lde_dispatches = counters.metal_circle_lde_dispatches,
+            .metal_fri_circle_fold_dispatches = counters.metal_fri_circle_fold_dispatches,
+            .metal_fri_line_fold_dispatches = counters.metal_fri_line_fold_dispatches,
+            .metal_qm31_coordinate_dispatches = counters.metal_qm31_coordinate_dispatches,
+            .cpu_small_merkle_commits = counters.cpu_small_merkle_commits,
+            .cpu_streaming_merkle_commits = counters.cpu_streaming_merkle_commits,
+            .cpu_sampled_value_evaluations = counters.cpu_sampled_value_evaluations,
+            .cpu_small_circle_interpolations = counters.cpu_small_circle_interpolations,
+            .cpu_small_circle_evaluations = counters.cpu_small_circle_evaluations,
+            .cpu_small_circle_ldes = counters.cpu_small_circle_ldes,
+        },
+        .pipeline_cache = pipelineCacheReport(pipeline_cache),
+    };
+}
+
+fn pipelineCacheReport(stats: anytype) report_mod.PipelineCacheDelta {
+    return .{
+        .library_cache_hits = stats.library_cache_hits,
+        .library_cache_misses = stats.library_cache_misses,
+        .pipeline_cache_hits = stats.pipeline_cache_hits,
+        .binary_archive_hits = stats.binary_archive_hits,
+        .binary_archive_misses = stats.binary_archive_misses,
+        .direct_compiles = stats.direct_compiles,
+        .archive_populations = stats.archive_populations,
+        .archive_serializations = stats.archive_serializations,
+        .pipeline_preparation_seconds = stats.pipeline_preparation_seconds,
+    };
+}
+
+fn backendTelemetryValid(
+    comptime backend: config.Backend,
+    warmups: []const report_mod.BackendTelemetryDelta,
+    samples: []const report_mod.BackendTelemetryDelta,
+) bool {
+    if (comptime backend == .cpu_native) return warmups.len == 0 and samples.len == 0;
+    for (warmups) |delta| if (delta.metal_dispatches == 0) return false;
+    for (samples) |delta| if (delta.metal_dispatches == 0) return false;
+    return true;
+}
+
+const TelemetryTotals = struct {
+    metal_dispatches: u64 = 0,
+    cpu_fallbacks: u64 = 0,
+};
+
+fn sumTelemetry(
+    warmups: []const report_mod.BackendTelemetryDelta,
+    samples: []const report_mod.BackendTelemetryDelta,
+) TelemetryTotals {
+    var result: TelemetryTotals = .{};
+    for (warmups) |delta| {
+        result.metal_dispatches +|= delta.metal_dispatches;
+        result.cpu_fallbacks +|= delta.cpu_fallbacks;
+    }
+    for (samples) |delta| {
+        result.metal_dispatches +|= delta.metal_dispatches;
+        result.cpu_fallbacks +|= delta.cpu_fallbacks;
+    }
+    return result;
+}
+
+fn headlineRequirementsMet(requirements: report_mod.HeadlineRequirements) bool {
+    inline for (std.meta.fields(report_mod.HeadlineRequirements)) |field| {
+        if (!@field(requirements, field.name)) return false;
+    }
+    return true;
+}
+
+fn collectProvenance(allocator: std.mem.Allocator) !OwnedProvenance {
+    const git_commit = try runCommand(allocator, &.{ "git", "rev-parse", "HEAD" });
+    errdefer allocator.free(git_commit);
+    if (git_commit.len != 40) return error.InvalidGitCommit;
+
+    var overrides = std.ArrayList(report_mod.EnvironmentOverride).empty;
+    errdefer {
+        for (overrides.items) |entry| allocator.free(entry.value);
+        overrides.deinit(allocator);
+    }
+    for (OVERRIDE_NAMES) |name| {
+        const value = std.process.getEnvVarOwned(allocator, name) catch |err| switch (err) {
+            error.EnvironmentVariableNotFound => continue,
+            else => return err,
+        };
+        try overrides.append(allocator, .{ .name = name, .value = value });
+    }
+    return .{
+        .git_commit = git_commit,
+        .environment_overrides = try overrides.toOwnedSlice(allocator),
+    };
+}
+
+fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) ![]u8 {
+    const result = try std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = argv,
+        .max_output_bytes = 1024 * 1024,
+    });
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+    switch (result.term) {
+        .Exited => |code| if (code != 0) return error.ProvenanceCommandFailed,
+        else => return error.ProvenanceCommandFailed,
+    }
+    return allocator.dupe(u8, std.mem.trim(u8, result.stdout, " \t\r\n"));
+}
+
+fn workloadDigest(args: config.Args, protocol: config.ProtocolParameters) [32]u8 {
+    var description: [256]u8 = undefined;
+    const bytes = std.fmt.bufPrint(
+        &description,
+        "wide_fibonacci|log_rows={d}|sequence_len={d}|pow_bits={d}|blowup={d}|last={d}|queries={d}|fold={d}",
+        .{
+            args.log_rows,
+            args.sequence_len,
+            protocol.pow_bits,
+            protocol.log_blowup_factor,
+            protocol.log_last_layer_degree_bound,
+            protocol.n_queries,
+            protocol.fold_step,
+        },
+    ) catch unreachable;
+    var digest: [32]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(bytes, &digest, .{});
+    return digest;
+}
+
+fn nsToSeconds(ns: u64) f64 {
+    return @as(f64, @floatFromInt(ns)) / std.time.ns_per_s;
+}
+
+test {
+    _ = config;
+    _ = report_mod;
+    _ = statistics;
+}
+
+test "native proof runner: headline requirements fail closed" {
+    var requirements = report_mod.HeadlineRequirements{
+        .verified_unprofiled = true,
+        .sampling_contract = true,
+        .functional_protocol = true,
+        .release_fast = true,
+        .clean_complete_provenance = true,
+        .thread_parallelism_enabled = true,
+        .byte_identical_verified_samples = true,
+        .backend_telemetry_valid = true,
+    };
+    try std.testing.expect(headlineRequirementsMet(requirements));
+    requirements.clean_complete_provenance = false;
+    try std.testing.expect(!headlineRequirementsMet(requirements));
+}
+
+test "native proof runner: every Metal request needs a dispatch" {
+    const valid = report_mod.BackendTelemetryDelta{
+        .classification = "accelerated_without_fallbacks",
+        .metal_dispatches = 1,
+        .cpu_fallbacks = 0,
+        .counters = .{},
+        .pipeline_cache = .{},
+    };
+    var invalid = valid;
+    invalid.metal_dispatches = 0;
+    try std.testing.expect(backendTelemetryValid(.metal_hybrid, &.{valid}, &.{valid}));
+    try std.testing.expect(!backendTelemetryValid(.metal_hybrid, &.{valid}, &.{invalid}));
+    try std.testing.expect(backendTelemetryValid(.cpu_native, &.{}, &.{}));
+}
