@@ -14,13 +14,32 @@ const M31 = m31.M31;
 
 pub const ColumnEvaluation = quotient_ops.ColumnEvaluation;
 
+const HostMerkleBackend = struct {
+    pub fn MerkleTree(comptime H: type) type {
+        return vcs_lifted_prover.MerkleProverLifted(H);
+    }
+
+    pub fn commitMerkle(
+        comptime H: type,
+        allocator: std.mem.Allocator,
+        columns: []const []const M31,
+    ) !MerkleTree(H) {
+        return MerkleTree(H).commit(allocator, columns);
+    }
+};
+
 pub fn CommitmentTreeProver(comptime H: type) type {
+    return CommitmentTreeProverForBackend(HostMerkleBackend, H);
+}
+
+pub fn CommitmentTreeProverForBackend(comptime B: type, comptime H: type) type {
+    comptime backend_merkle.assertMerkleOps(B, H);
     return struct {
         columns: []ColumnEvaluation,
         coefficients: ?[]prover_circle.CircleCoefficients,
         column_backing_buffers: ?[][]M31 = null,
         coefficient_backing_buffers: ?[][]M31 = null,
-        commitment: vcs_lifted_prover.MerkleProverLifted(H),
+        commitment: B.MerkleTree(H),
 
         const Self = @This();
 
@@ -45,8 +64,7 @@ pub fn CommitmentTreeProver(comptime H: type) type {
             owned_columns: []ColumnEvaluation,
             owned_coefficients: ?[]prover_circle.CircleCoefficients,
         ) !Self {
-            return initOwnedWithBackingFor(
-                void,
+            return initOwnedWithBacking(
                 allocator,
                 owned_columns,
                 owned_coefficients,
@@ -55,49 +73,13 @@ pub fn CommitmentTreeProver(comptime H: type) type {
             );
         }
 
-        pub fn initOwnedWithCoefficientsForBackend(
-            comptime B: type,
-            allocator: std.mem.Allocator,
-            owned_columns: []ColumnEvaluation,
-            owned_coefficients: ?[]prover_circle.CircleCoefficients,
-        ) !Self {
-            return initOwnedWithBackingForBackend(
-                B,
-                allocator,
-                owned_columns,
-                owned_coefficients,
-                null,
-                null,
-            );
-        }
-
-        pub fn initOwnedWithBackingForBackend(
-            comptime B: type,
+        pub fn initOwnedWithBacking(
             allocator: std.mem.Allocator,
             owned_columns: []ColumnEvaluation,
             owned_coefficients: ?[]prover_circle.CircleCoefficients,
             column_backing_buffers: ?[][]M31,
             coefficient_backing_buffers: ?[][]M31,
         ) !Self {
-            return initOwnedWithBackingFor(
-                B,
-                allocator,
-                owned_columns,
-                owned_coefficients,
-                column_backing_buffers,
-                coefficient_backing_buffers,
-            );
-        }
-
-        fn initOwnedWithBackingFor(
-            comptime B: type,
-            allocator: std.mem.Allocator,
-            owned_columns: []ColumnEvaluation,
-            owned_coefficients: ?[]prover_circle.CircleCoefficients,
-            column_backing_buffers: ?[][]M31,
-            coefficient_backing_buffers: ?[][]M31,
-        ) !Self {
-            if (comptime B != void) backend_merkle.assertMerkleOps(B, H);
             for (owned_columns) |column| try column.validate();
             if (owned_coefficients) |coeffs| {
                 if (coeffs.len != owned_columns.len) return error.ShapeMismatch;
@@ -109,10 +91,7 @@ pub fn CommitmentTreeProver(comptime H: type) type {
                 column_refs[i] = column.values;
             }
 
-            var commitment = if (comptime B != void)
-                try B.commitMerkle(H, allocator, column_refs)
-            else
-                try vcs_lifted_prover.MerkleProverLifted(H).commit(allocator, column_refs);
+            var commitment = try B.commitMerkle(H, allocator, column_refs);
             errdefer commitment.deinit(allocator);
 
             return .{

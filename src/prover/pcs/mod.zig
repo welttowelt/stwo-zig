@@ -70,8 +70,9 @@ pub fn TreeDecommitmentResult(comptime H: type) type {
 
 pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: type) type {
     comptime backend_merkle.assertMerkleOps(B, H);
+    const BackendCommitmentTree = commitment_tree.CommitmentTreeProverForBackend(B, H);
     return struct {
-        trees: std.ArrayListUnmanaged(CommitmentTreeProver(H)),
+        trees: std.ArrayListUnmanaged(BackendCommitmentTree),
         config: PcsConfig,
         coefficient_retention_policy: CoefficientRetentionPolicy,
         twiddle_cache: std.AutoHashMap(u32, twiddles_mod.TwiddleTree([]M31)),
@@ -113,8 +114,7 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
             );
             errdefer prepared.deinit(allocator);
 
-            var tree = try CommitmentTreeProver(H).initOwnedWithBackingForBackend(
-                B,
+            var tree = try BackendCommitmentTree.initOwnedWithBacking(
                 allocator,
                 prepared.columns,
                 prepared.coefficients,
@@ -164,8 +164,7 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                 );
                 errdefer prepared.deinit(allocator);
 
-                var tree = try CommitmentTreeProver(H).initOwnedWithCoefficientsForBackend(
-                    B,
+                var tree = try BackendCommitmentTree.initOwnedWithCoefficients(
                     allocator,
                     prepared.columns,
                     prepared.coefficients,
@@ -205,8 +204,7 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                 "Merkle commit",
             );
             defer merkle_commit_stage.end();
-            var tree = try CommitmentTreeProver(H).initOwnedWithBackingForBackend(
-                B,
+            var tree = try BackendCommitmentTree.initOwnedWithBacking(
                 allocator,
                 prepared.columns,
                 prepared.coefficients,
@@ -263,8 +261,7 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                 stored_coefficients = coeffs;
             }
 
-            var tree = try CommitmentTreeProver(H).initOwnedWithCoefficientsForBackend(
-                B,
+            var tree = try BackendCommitmentTree.initOwnedWithCoefficients(
                 allocator,
                 columns,
                 stored_coefficients,
@@ -779,7 +776,7 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
         fn appendCommittedTree(
             self: *Self,
             allocator: std.mem.Allocator,
-            tree: CommitmentTreeProver(H),
+            tree: BackendCommitmentTree,
             channel: anytype,
         ) !void {
             try self.trees.append(allocator, tree);
@@ -859,7 +856,7 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                     allocator,
                     lifting_log_size,
                 )) {
-                    releaseTreeCoefficients(H, self.trees.items, allocator);
+                    releaseTreeCoefficients(B, H, self.trees.items, allocator);
                     return TreeVec([][]QM31).initOwned(out);
                 }
             }
@@ -898,7 +895,7 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                 if (work_pool_mod.getGlobalPool()) |pool| {
                     // Build per-tree worker contexts.
                     const worker_ctxs = try allocator.alloc(
-                        SampledValueWorkerCtx(H),
+                        SampledValueWorkerCtx(B, H),
                         num_trees,
                     );
                     defer allocator.free(worker_ctxs);
@@ -942,11 +939,11 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                         if (tree_idx == primary_tree) continue;
                         pool.spawnWg(
                             &wait_group,
-                            SampledValueWorkerCtx(H).run,
+                            SampledValueWorkerCtx(B, H).run,
                             .{wctx},
                         );
                     }
-                    SampledValueWorkerCtx(H).run(&worker_ctxs[primary_tree]);
+                    SampledValueWorkerCtx(B, H).run(&worker_ctxs[primary_tree]);
                     wait_group.wait();
 
                     // Check for worker failures.
@@ -956,6 +953,7 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                 } else {
                     // Pool not available — fall back to sequential.
                     try evaluateTreesSequential(
+                        B,
                         H,
                         self.trees.items,
                         sampled_points.items,
@@ -967,6 +965,7 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                 }
             } else {
                 try evaluateTreesSequential(
+                    B,
                     H,
                     self.trees.items,
                     sampled_points.items,
@@ -980,7 +979,7 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
             // --- Phase 4 (sequential): Release coefficient memory ---
             // Coefficient data was allocated by the main allocator, so must
             // be freed on the main thread regardless of evaluation path.
-            releaseTreeCoefficients(H, self.trees.items, allocator);
+            releaseTreeCoefficients(B, H, self.trees.items, allocator);
 
             return TreeVec([][]QM31).initOwned(out);
         }
@@ -1037,8 +1036,7 @@ pub fn TreeBuilder(comptime B: type, comptime H: type, comptime MC: type) type {
             );
             errdefer prepared.deinit(self.allocator);
 
-            var tree = try CommitmentTreeProver(H).initOwnedWithBackingForBackend(
-                B,
+            var tree = try commitment_tree.CommitmentTreeProverForBackend(B, H).initOwnedWithBacking(
                 self.allocator,
                 prepared.columns,
                 prepared.coefficients,
@@ -1049,6 +1047,20 @@ pub fn TreeBuilder(comptime B: type, comptime H: type, comptime MC: type) type {
             try self.commitment_scheme.appendCommittedTree(self.allocator, tree, channel);
         }
     };
+}
+
+fn adoptStreamingCommitment(
+    comptime B: type,
+    comptime H: type,
+    host_tree: vcs_lifted_prover.MerkleProverLifted(H),
+) !B.MerkleTree(H) {
+    if (comptime B.MerkleTree(H) == vcs_lifted_prover.MerkleProverLifted(H)) {
+        return host_tree;
+    }
+    if (comptime @hasDecl(B, "adoptHostMerkle")) {
+        return B.adoptHostMerkle(H, host_tree);
+    }
+    @compileError("Backend-specific Merkle trees require `adoptHostMerkle` for streaming PCS commits.");
 }
 
 /// A streaming tree builder that commits columns in configurable batches,
@@ -1262,10 +1274,11 @@ pub fn StreamingTreeBuilder(comptime B: type, comptime H: type, comptime MC: typ
                 }
             }
 
-            const tree = CommitmentTreeProver(H){
+            const BackendCommitmentTree = commitment_tree.CommitmentTreeProverForBackend(B, H);
+            const tree = BackendCommitmentTree{
                 .columns = columns,
                 .coefficients = coefficients,
-                .commitment = merkle,
+                .commitment = try adoptStreamingCommitment(B, H, merkle),
             };
             try self.commitment_scheme.appendCommittedTree(self.allocator, tree, channel);
         }
@@ -2552,9 +2565,9 @@ fn coefficientsAreZero(coefficients: prover_circle.CircleCoefficients) bool {
 /// Worker context for parallel per-tree sampled-value evaluation.
 /// Each worker operates on a single tree, using thread-safe page_allocator
 /// for its own scratch allocations and read-only shared barycentric contexts.
-fn SampledValueWorkerCtx(comptime H: type) type {
+fn SampledValueWorkerCtx(comptime B: type, comptime H: type) type {
     return struct {
-        tree: *CommitmentTreeProver(H),
+        tree: *commitment_tree.CommitmentTreeProverForBackend(B, H),
         tree_points: [][]CirclePointQM31,
         tree_values: [][]QM31,
         lifting_log_size: u32,
@@ -2640,8 +2653,9 @@ fn SampledValueWorkerCtx(comptime H: type) type {
 /// Sequential evaluation fallback for when the thread pool is unavailable
 /// or there is only a single tree.
 fn evaluateTreesSequential(
+    comptime B: type,
     comptime H: type,
-    trees: []CommitmentTreeProver(H),
+    trees: []commitment_tree.CommitmentTreeProverForBackend(B, H),
     tree_points_list: [][][]CirclePointQM31,
     out: [][][]QM31,
     allocator: std.mem.Allocator,
@@ -2724,7 +2738,7 @@ fn evaluateTreesSequential(
 fn evaluateCoefficientTreesWithBackend(
     comptime B: type,
     comptime H: type,
-    trees: []CommitmentTreeProver(H),
+    trees: []commitment_tree.CommitmentTreeProverForBackend(B, H),
     tree_points_list: [][][]CirclePointQM31,
     out: [][][]QM31,
     allocator: std.mem.Allocator,
@@ -2761,8 +2775,9 @@ fn evaluateCoefficientTreesWithBackend(
 /// Release coefficient memory for all trees. Called on the main thread
 /// after evaluation (parallel or sequential) has completed.
 fn releaseTreeCoefficients(
+    comptime B: type,
     comptime H: type,
-    trees: []CommitmentTreeProver(H),
+    trees: []commitment_tree.CommitmentTreeProverForBackend(B, H),
     allocator: std.mem.Allocator,
 ) void {
     for (trees) |*tree| {
