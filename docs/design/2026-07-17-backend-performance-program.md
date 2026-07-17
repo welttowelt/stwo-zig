@@ -156,6 +156,28 @@ the performance gates; its worst observed movement was -1.84 percent on Metal `l
 proofs now use the canonical digests recorded in
 `docs/design/2026-07-17-deterministic-parallel-pow.md`.
 
+### Post-session CPU profile
+
+A clean ReleaseFast `log12x16` diagnostic at `a641082` used 21 profiled samples, emitted one exact
+32,853-byte proof digest throughout, and passed the pinned Rust verifier. Median profiled prove time
+was 6.332 ms. The ranked leaf stages were:
+
+| Stage | Median (ms) | Share of prove |
+| --- | ---: | ---: |
+| FRI quotient construction and commitment | 3.577 | 56.49% |
+| Main-trace Merkle commitment | 1.039 | 16.41% |
+| Sampled-value evaluation | 0.443 | 7.00% |
+| Main-trace interpolation | 0.304 | 4.80% |
+| Composition commitment | 0.258 | 4.07% |
+| Proof of work | 0.223 | 3.52% |
+| Extended-domain evaluation | 0.224 | 3.54% |
+
+The complete profiled time is within 0.62 percent of the earlier 101-sample quotient-batching
+diagnostic, while main-trace interpolation fell from 0.486 to 0.304 ms after session reuse. The
+deterministic PoW increment adds only about 0.018 ms in this diagnostic. Quotient plus the main
+Merkle commitment now account for 72.9 percent of proof time, so the next CPU architecture target
+is a bounded quotient-to-Merkle tile pipeline, not further proof-of-work or twiddle tuning.
+
 ## Benchmark Matrix
 
 The checked-in driver will use stable workload identifiers and immutable protocol settings.
