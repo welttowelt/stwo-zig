@@ -1384,6 +1384,12 @@ pub const BoundWitnessFeed = struct {
     destination_offsets: []u32,
     destination_bindings: []arena_plan.Binding,
 
+    fn isRuntimeSizedPrimary(e: []const u32) bool {
+        const none = std.math.maxInt(u32);
+        return e[11] == 1 or
+            (e[11] == 0 and e[1] == 1 and e[2] == 31 and e[9] == none and e[12] == @as(u32, @bitCast(@as(i32, -1))));
+    }
+
     pub fn init(
         allocator: std.mem.Allocator,
         source_columns: []const arena_plan.Binding,
@@ -1446,23 +1452,26 @@ pub const BoundWitnessFeed = struct {
             const primary = destination_columns[e[10]].columns;
             const primary_columns: u32 = if (e[11] == 3) 16 else e[7] + 1;
             if (primary.len < primary_columns) return recovery.RecoveryError.BindingSizeMismatch;
+            if (primary[0].size_bytes % @sizeOf(u32) != 0)
+                return recovery.RecoveryError.BindingSizeMismatch;
+            const primary_capacity = std.math.cast(u32, primary[0].size_bytes / @sizeOf(u32)) orelse
+                return recovery.RecoveryError.BindingSizeMismatch;
             if (e[11] == 1) {
                 if (e[13] >= destination_columns.len) return recovery.RecoveryError.BindingSizeMismatch;
                 const secondary = destination_columns[e[13]].columns;
                 if (secondary.len <= e[7] or
-                    primary[0].size_bytes % @sizeOf(u32) != 0 or
                     secondary[e[7]].size_bytes % @sizeOf(u32) != 0)
-                    return recovery.RecoveryError.BindingSizeMismatch;
-                const primary_capacity = std.math.cast(u32, primary[0].size_bytes / @sizeOf(u32)) orelse
                     return recovery.RecoveryError.BindingSizeMismatch;
                 const secondary_capacity = std.math.cast(u32, secondary[e[7]].size_bytes / @sizeOf(u32)) orelse
                     return recovery.RecoveryError.BindingSizeMismatch;
-                if (primary_capacity < e[8] or secondary_capacity < e[12])
-                    return recovery.RecoveryError.BindingSizeMismatch;
-                e[8] = primary_capacity;
                 e[12] = secondary_capacity;
             }
-            for (primary[0..primary_columns]) |binding| if (binding.size_bytes < @as(u64, e[8]) * 4)
+            if (isRuntimeSizedPrimary(e)) {
+                e[8] = primary_capacity;
+            } else if (primary_capacity != e[8]) {
+                return recovery.RecoveryError.BindingSizeMismatch;
+            }
+            for (primary[0..primary_columns]) |binding| if (binding.size_bytes != @as(u64, e[8]) * 4)
                 return recovery.RecoveryError.BindingSizeMismatch;
             e[10] = destination_bases[e[10]];
             if (e[11] == 1) {
@@ -3641,7 +3650,7 @@ test "Metal protocol recovery: witness feed binds sparse source and destination 
     try std.testing.expectEqual(@as(u32, 0), bound.descriptors[10]);
 }
 
-test "metal: protocol recovery retargets widened memory destinations" {
+test "metal: protocol recovery retargets runtime-sized memory destinations" {
     const binding = struct {
         fn make(id: u32, offset: u64, size: u64) arena_plan.Binding {
             return .{
@@ -3658,7 +3667,8 @@ test "metal: protocol recovery retargets widened memory destinations" {
     const canonical_big_words = @as(u32, 1) << 18;
     const canonical_small_words = @as(u32, 1) << 21;
     const widened_small_words = @as(u32, 1) << 22;
-    const big = [_]arena_plan.Binding{binding(2, 8192, @as(u64, canonical_big_words) * 4)};
+    const narrowed_big_words = @as(u32, 1) << 15;
+    const big = [_]arena_plan.Binding{binding(2, 8192, @as(u64, narrowed_big_words) * 4)};
     const small = [_]arena_plan.Binding{binding(3, 12288, @as(u64, widened_small_words) * 4)};
     const destinations = [_]DestinationColumns{
         .{ .columns = &big },
@@ -3672,16 +3682,52 @@ test "metal: protocol recovery retargets widened memory destinations" {
     defer bound.deinit();
 
     var expected = descriptor;
+    expected[8] = narrowed_big_words;
     expected[12] = widened_small_words;
     try std.testing.expectEqualSlices(u32, &expected, bound.descriptors);
 
-    const narrow_big = [_]arena_plan.Binding{binding(2, 8192, @as(u64, canonical_big_words - 1) * 4)};
-    const narrow_destinations = [_]DestinationColumns{
-        .{ .columns = &narrow_big },
-        .{ .columns = &small },
+    const address_descriptor = [_]u32{
+        0, 1,                   31,                   0, 0, 0,                      0,
+        0, canonical_big_words, std.math.maxInt(u32), 0, 0, @bitCast(@as(i32, -1)), 0,
+    };
+    const address_destinations = [_]DestinationColumns{.{ .columns = &big }};
+    var address_bound = try BoundWitnessFeed.init(
+        std.testing.allocator,
+        &sources,
+        &address_destinations,
+        &address_descriptor,
+        &.{},
+        8,
+    );
+    defer address_bound.deinit();
+    try std.testing.expectEqual(narrowed_big_words, address_bound.descriptors[8]);
+}
+
+test "metal: protocol recovery rejects resized fixed feed destinations" {
+    const occupied = [_]u64{0} ** (arena_plan.max_ticks / 64);
+    const source = [_]arena_plan.Binding{.{
+        .logical_id = 1,
+        .slot = 1,
+        .offset_bytes = 4096,
+        .size_bytes = 32,
+        .materialization = .recompute,
+        .occupied = occupied,
+    }};
+    const destination = [_]arena_plan.Binding{.{
+        .logical_id = 2,
+        .slot = 2,
+        .offset_bytes = 8192,
+        .size_bytes = 32,
+        .materialization = .recompute,
+        .occupied = occupied,
+    }};
+    const destinations = [_]DestinationColumns{.{ .columns = &destination }};
+    const descriptor = [_]u32{
+        0, 1,  8,                    0, 0, 0, 0,
+        0, 16, std.math.maxInt(u32), 0, 0, 0, 0,
     };
     try std.testing.expectError(
         recovery.RecoveryError.BindingSizeMismatch,
-        BoundWitnessFeed.init(std.testing.allocator, &sources, &narrow_destinations, &descriptor, &.{}, 8),
+        BoundWitnessFeed.init(std.testing.allocator, &source, &destinations, &descriptor, &.{}, 8),
     );
 }
