@@ -8,6 +8,7 @@
 
 const std = @import("std");
 const adapter = @import("adapter/mod.zig");
+const claim_registry = @import("claim_registry.zig");
 const memory_mod = @import("common/memory.zig");
 const composition_bundle = @import("witness/composition_bundle.zig");
 const M31 = @import("../../core/fields/m31.zig").M31;
@@ -47,6 +48,7 @@ pub const ScheduledStatementBootstrapInput = struct {
 pub const Error = error{
     ClaimLengthOverflow,
     InvalidClaimWord,
+    InvalidClaimGeometry,
     DuplicateClaimComponent,
     InvalidMemoryId,
     InvalidOutputSegment,
@@ -56,81 +58,6 @@ pub const Error = error{
     MemoryAddressMissing,
     SegmentPointerOverflow,
     UnknownClaimComponent,
-};
-
-const MEMORY_ID_TO_BIG_SLOTS: usize = 16;
-
-const CLAIM_COMPONENTS_BEFORE_MEMORY_BIG = [_][]const u8{
-    "add_opcode",
-    "add_opcode_small",
-    "add_ap_opcode",
-    "assert_eq_opcode",
-    "assert_eq_opcode_imm",
-    "assert_eq_opcode_double_deref",
-    "blake_compress_opcode",
-    "call_opcode_abs",
-    "call_opcode_rel_imm",
-    "generic_opcode",
-    "jnz_opcode_non_taken",
-    "jnz_opcode_taken",
-    "jump_opcode_abs",
-    "jump_opcode_double_deref",
-    "jump_opcode_rel",
-    "jump_opcode_rel_imm",
-    "mul_opcode",
-    "mul_opcode_small",
-    "qm_31_add_mul_opcode",
-    "ret_opcode",
-    "verify_instruction",
-    "blake_round",
-    "blake_g",
-    "blake_round_sigma",
-    "triple_xor_32",
-    "verify_bitwise_xor_12",
-    "add_mod_builtin",
-    "bitwise_builtin",
-    "mul_mod_builtin",
-    "pedersen_builtin",
-    "pedersen_builtin_narrow_windows",
-    "poseidon_builtin",
-    "range_check96_builtin",
-    "range_check_builtin",
-    "ec_op_builtin",
-    "partial_ec_mul_generic",
-    "pedersen_aggregator_window_bits_18",
-    "partial_ec_mul_window_bits_18",
-    "pedersen_points_table_window_bits_18",
-    "pedersen_aggregator_window_bits_9",
-    "partial_ec_mul_window_bits_9",
-    "pedersen_points_table_window_bits_9",
-    "poseidon_aggregator",
-    "poseidon_3_partial_rounds_chain",
-    "poseidon_full_round_chain",
-    "cube_252",
-    "poseidon_round_keys",
-    "range_check_252_width_27",
-    "memory_address_to_id",
-};
-
-const CLAIM_COMPONENTS_AFTER_MEMORY_BIG = [_][]const u8{
-    "memory_id_to_small",
-    "range_check_6",
-    "range_check_8",
-    "range_check_11",
-    "range_check_12",
-    "range_check_18",
-    "range_check_20",
-    "range_check_4_3",
-    "range_check_4_4",
-    "range_check_9_9",
-    "range_check_7_2_5",
-    "range_check_3_6_6_3",
-    "range_check_4_4_4_4",
-    "range_check_3_3_3_3_3",
-    "verify_bitwise_xor_4",
-    "verify_bitwise_xor_7",
-    "verify_bitwise_xor_8",
-    "verify_bitwise_xor_9",
 };
 
 pub const OwnedFlatClaimGeometry = struct {
@@ -144,6 +71,82 @@ pub const OwnedFlatClaimGeometry = struct {
         self.* = undefined;
     }
 };
+
+/// One active field from the canonical Rust `CairoClaim`. Dynamic fields carry
+/// their claim log. Fixed fields may omit it; when present it must equal the
+/// version-pinned registry value. `instance` is nonzero only for the contiguous
+/// `memory_id_to_big` prefix.
+pub const CanonicalClaimComponent = struct {
+    name: []const u8,
+    instance: u32 = 0,
+    log_size: ?u32 = null,
+};
+
+/// Reconstructs Rust `CairoClaim::flatten_claim` from canonical active fields.
+/// This is the diagnostic import boundary for a Rust-derived claim and the
+/// production boundary for the eventual Zig claim generator.
+pub fn deriveFlatClaimGeometryFromCanonical(
+    allocator: std.mem.Allocator,
+    components: []const CanonicalClaimComponent,
+) (Error || std.mem.Allocator.Error)!OwnedFlatClaimGeometry {
+    const enable_bits = try allocator.alloc(bool, claim_registry.enable_slot_count);
+    errdefer allocator.free(enable_bits);
+    @memset(enable_bits, false);
+    const log_sizes = try allocator.alloc(u32, components.len);
+    errdefer allocator.free(log_sizes);
+    const consumed = try allocator.alloc(bool, components.len);
+    defer allocator.free(consumed);
+    @memset(consumed, false);
+
+    var log_cursor: usize = 0;
+    var memory_prefix_ended = false;
+    for (claim_registry.enable_slots) |slot| {
+        const field = claim_registry.claim_fields[slot.claim_field_index];
+        var found: ?usize = null;
+        for (components, 0..) |component, component_index| {
+            if (!std.mem.eql(u8, component.name, field.name) or
+                component.instance != slot.field_slot_index)
+                continue;
+            if (found != null) return Error.DuplicateClaimComponent;
+            found = component_index;
+        }
+
+        if (slot.log_size_shape == .special_dynamic_prefix) {
+            if (found == null) {
+                memory_prefix_ended = true;
+            } else if (memory_prefix_ended) {
+                return Error.InvalidClaimGeometry;
+            }
+        }
+        const component_index = found orelse continue;
+        if (consumed[component_index]) return Error.DuplicateClaimComponent;
+        const component = components[component_index];
+        const log_size = switch (slot.log_size_shape) {
+            .dynamic, .special_dynamic_prefix => component.log_size orelse return Error.InvalidClaimGeometry,
+            .fixed => fixed: {
+                const expected = slot.fixed_log_size orelse
+                    return Error.InvalidClaimGeometry;
+                if (component.log_size) |actual| {
+                    if (actual != expected) return Error.InvalidClaimGeometry;
+                }
+                break :fixed expected;
+            },
+        };
+        try validateClaimWord(log_size);
+        consumed[component_index] = true;
+        enable_bits[slot.enable_slot] = true;
+        log_sizes[log_cursor] = log_size;
+        log_cursor += 1;
+    }
+    for (consumed) |was_consumed| if (!was_consumed) return Error.UnknownClaimComponent;
+    if (log_cursor != log_sizes.len) return Error.InvalidClaimGeometry;
+
+    return .{
+        .allocator = allocator,
+        .component_enable_bits = enable_bits,
+        .component_log_sizes = log_sizes,
+    };
+}
 
 /// Owns all statement transcript inputs emitted by `init`.
 pub const OwnedStatementBootstrap = struct {
@@ -334,89 +337,16 @@ pub fn deriveFlatClaimGeometry(
     allocator: std.mem.Allocator,
     bundle: *const composition_bundle.Bundle,
 ) (Error || std.mem.Allocator.Error)!OwnedFlatClaimGeometry {
-    const enable_count = CLAIM_COMPONENTS_BEFORE_MEMORY_BIG.len +
-        MEMORY_ID_TO_BIG_SLOTS + CLAIM_COMPONENTS_AFTER_MEMORY_BIG.len;
-    comptime std.debug.assert(enable_count == 83);
-    if (bundle.components.len > enable_count) return Error.UnknownClaimComponent;
-
-    const enable_bits = try allocator.alloc(bool, enable_count);
-    errdefer allocator.free(enable_bits);
-    @memset(enable_bits, false);
-    const log_sizes = try allocator.alloc(u32, bundle.components.len);
-    errdefer allocator.free(log_sizes);
-    const consumed = try allocator.alloc(bool, bundle.components.len);
-    defer allocator.free(consumed);
-    @memset(consumed, false);
-
-    var log_cursor: usize = 0;
-    for (CLAIM_COMPONENTS_BEFORE_MEMORY_BIG, 0..) |label, bit_index| {
-        if (try takeFixedComponent(bundle, consumed, label)) |component| {
-            enable_bits[bit_index] = true;
-            log_sizes[log_cursor] = component.trace_log_size;
-            log_cursor += 1;
-        }
+    const components = try allocator.alloc(CanonicalClaimComponent, bundle.components.len);
+    defer allocator.free(components);
+    for (bundle.components, components) |component, *canonical| {
+        canonical.* = .{
+            .name = component.label,
+            .instance = component.instance,
+            .log_size = component.trace_log_size,
+        };
     }
-
-    const memory_bit_base = CLAIM_COMPONENTS_BEFORE_MEMORY_BIG.len;
-    var memory_instance: usize = 0;
-    while (memory_instance < MEMORY_ID_TO_BIG_SLOTS) : (memory_instance += 1) {
-        if (try takeComponentInstance(bundle, consumed, "memory_id_to_big", @intCast(memory_instance))) |component| {
-            enable_bits[memory_bit_base + memory_instance] = true;
-            log_sizes[log_cursor] = component.trace_log_size;
-            log_cursor += 1;
-        } else {
-            break;
-        }
-    }
-    // Rust requires the memory big instances to occupy a contiguous prefix.
-    while (memory_instance < MEMORY_ID_TO_BIG_SLOTS) : (memory_instance += 1) {
-        if (try takeComponentInstance(bundle, consumed, "memory_id_to_big", @intCast(memory_instance)) != null)
-            return Error.UnknownClaimComponent;
-    }
-
-    const suffix_bit_base = memory_bit_base + MEMORY_ID_TO_BIG_SLOTS;
-    for (CLAIM_COMPONENTS_AFTER_MEMORY_BIG, 0..) |label, suffix_index| {
-        if (try takeFixedComponent(bundle, consumed, label)) |component| {
-            enable_bits[suffix_bit_base + suffix_index] = true;
-            log_sizes[log_cursor] = component.trace_log_size;
-            log_cursor += 1;
-        }
-    }
-    for (consumed) |was_consumed| if (!was_consumed) return Error.UnknownClaimComponent;
-    if (log_cursor != log_sizes.len) return Error.UnknownClaimComponent;
-    for (log_sizes) |log_size| try validateClaimWord(log_size);
-
-    return .{
-        .allocator = allocator,
-        .component_enable_bits = enable_bits,
-        .component_log_sizes = log_sizes,
-    };
-}
-
-fn takeFixedComponent(
-    bundle: *const composition_bundle.Bundle,
-    consumed: []bool,
-    label: []const u8,
-) Error!?composition_bundle.Component {
-    return takeComponentInstance(bundle, consumed, label, 0);
-}
-
-fn takeComponentInstance(
-    bundle: *const composition_bundle.Bundle,
-    consumed: []bool,
-    label: []const u8,
-    instance: u32,
-) Error!?composition_bundle.Component {
-    var found: ?usize = null;
-    for (bundle.components, 0..) |component, index| {
-        if (!std.mem.eql(u8, component.label, label) or component.instance != instance) continue;
-        if (found != null) return Error.DuplicateClaimComponent;
-        found = index;
-    }
-    const index = found orelse return null;
-    if (consumed[index]) return Error.DuplicateClaimComponent;
-    consumed[index] = true;
-    return bundle.components[index];
+    return deriveFlatClaimGeometryFromCanonical(allocator, components);
 }
 
 const PublicStatement = struct {
@@ -818,6 +748,83 @@ test "statement bootstrap derives flat claim order from shuffled schedule" {
     try std.testing.expectEqualSlices(u32, &.{ 7, 18, 19, 20, 8 }, flat.component_log_sizes);
 }
 
+test "statement bootstrap imports canonical Fib25k claim geometry" {
+    const components = [_]CanonicalClaimComponent{
+        .{ .name = "memory_id_to_small", .log_size = 16 },
+        .{ .name = "range_check_9_9" },
+        .{ .name = "add_opcode", .log_size = 15 },
+        .{ .name = "verify_bitwise_xor_9" },
+        .{ .name = "add_opcode_small", .log_size = 16 },
+        .{ .name = "add_ap_opcode", .log_size = 4 },
+        .{ .name = "assert_eq_opcode", .log_size = 15 },
+        .{ .name = "assert_eq_opcode_imm", .log_size = 4 },
+        .{ .name = "call_opcode_rel_imm", .log_size = 15 },
+        .{ .name = "jnz_opcode_non_taken", .log_size = 4 },
+        .{ .name = "jnz_opcode_taken", .log_size = 15 },
+        .{ .name = "ret_opcode", .log_size = 15 },
+        .{ .name = "verify_instruction", .log_size = 5 },
+        .{ .name = "memory_address_to_id", .log_size = 14 },
+        .{ .name = "memory_id_to_big", .log_size = 15 },
+        .{ .name = "range_check_6" },
+        .{ .name = "range_check_8" },
+        .{ .name = "range_check_11" },
+        .{ .name = "range_check_12" },
+        .{ .name = "range_check_18" },
+        .{ .name = "range_check_20" },
+        .{ .name = "range_check_4_3" },
+        .{ .name = "range_check_4_4" },
+        .{ .name = "range_check_7_2_5" },
+        .{ .name = "range_check_3_6_6_3" },
+        .{ .name = "range_check_4_4_4_4" },
+        .{ .name = "range_check_3_3_3_3_3" },
+        .{ .name = "verify_bitwise_xor_4" },
+        .{ .name = "verify_bitwise_xor_7" },
+        .{ .name = "verify_bitwise_xor_8" },
+    };
+    var flat = try deriveFlatClaimGeometryFromCanonical(std.testing.allocator, &components);
+    defer flat.deinit();
+
+    try std.testing.expectEqual(@as(usize, 83), flat.component_enable_bits.len);
+    try std.testing.expectEqual(@as(usize, 30), std.mem.count(
+        bool,
+        flat.component_enable_bits,
+        &.{true},
+    ));
+    try std.testing.expect(!flat.component_enable_bits[7]);
+    try std.testing.expect(flat.component_enable_bits[8]);
+    try std.testing.expect(flat.component_enable_bits[49]);
+    try std.testing.expect(!flat.component_enable_bits[50]);
+    try std.testing.expectEqualSlices(u32, &.{
+        15, 16, 4,  15, 4,  15, 4,  15, 15, 5,
+        14, 15, 16, 6,  8,  11, 12, 18, 20, 7,
+        8,  18, 14, 18, 16, 15, 8,  14, 16, 18,
+    }, flat.component_log_sizes);
+}
+
+test "statement bootstrap rejects noncanonical imported claim geometry" {
+    const missing_dynamic_log = [_]CanonicalClaimComponent{.{ .name = "add_opcode" }};
+    try std.testing.expectError(
+        Error.InvalidClaimGeometry,
+        deriveFlatClaimGeometryFromCanonical(std.testing.allocator, &missing_dynamic_log),
+    );
+
+    const wrong_fixed_log = [_]CanonicalClaimComponent{
+        .{ .name = "range_check_8", .log_size = 7 },
+    };
+    try std.testing.expectError(
+        Error.InvalidClaimGeometry,
+        deriveFlatClaimGeometryFromCanonical(std.testing.allocator, &wrong_fixed_log),
+    );
+
+    const memory_gap = [_]CanonicalClaimComponent{
+        .{ .name = "memory_id_to_big", .instance = 1, .log_size = 15 },
+    };
+    try std.testing.expectError(
+        Error.InvalidClaimGeometry,
+        deriveFlatClaimGeometryFromCanonical(std.testing.allocator, &memory_gap),
+    );
+}
+
 test "statement bootstrap rejects ambiguous claim schedules" {
     var duplicate_components = [_]composition_bundle.Component{
         claimComponent("add_opcode", 0, 7),
@@ -834,7 +841,7 @@ test "statement bootstrap rejects ambiguous claim schedules" {
     };
     var gap_bundle = claimBundle(&gap_components);
     try std.testing.expectError(
-        Error.UnknownClaimComponent,
+        Error.InvalidClaimGeometry,
         deriveFlatClaimGeometry(std.testing.allocator, &gap_bundle),
     );
 
