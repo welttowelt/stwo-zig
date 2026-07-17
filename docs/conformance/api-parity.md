@@ -761,6 +761,18 @@ This ledger maps every public export in the Zig root/module API surface to the p
       "rust_path": "crates/stwo/src/lib.rs",
       "source": "src/prover/poly/mod.zig"
     },
+    "stwo.prover.poly.twiddle_source": {
+      "kind": "const",
+      "rationale": "Zig ownership boundary for selecting a standalone exact-log cache or a session-borrowed canonical tower; field values remain checked against pinned Rust Stwo twiddles.",
+      "rust_path": null,
+      "source": "src/prover/poly/mod.zig"
+    },
+    "stwo.prover.poly.twiddle_tower": {
+      "kind": "const",
+      "rationale": "Zig bounded reuse architecture that serves exact canonical suffix views; every view is tested against the pinned Rust-compatible exact-log twiddle construction.",
+      "rust_path": null,
+      "source": "src/prover/poly/mod.zig"
+    },
     "stwo.prover.poly.twiddles": {
       "kind": "const",
       "rationale": null,
