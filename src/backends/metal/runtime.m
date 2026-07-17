@@ -403,12 +403,25 @@
 
 @interface StwoZigMetalTree : NSObject
 @property(nonatomic, strong) NSArray<id<MTLBuffer>> *layers;
+@property(nonatomic, strong) NSData *layerWordOffsets;
+@property(nonatomic, strong) NSData *layerWordLengths;
 @property(nonatomic, strong) id<MTLBuffer> rootReadback;
 @property(nonatomic, assign) uint32_t logSize;
 @property(nonatomic, assign) double gpuMilliseconds;
 @end
 @implementation StwoZigMetalTree
 @end
+
+static uint32_t tree_layer_word_offset(StwoZigMetalTree *tree, NSUInteger level) {
+    if (tree.layerWordOffsets == nil) return 0u;
+    return ((const uint32_t *)tree.layerWordOffsets.bytes)[level];
+}
+
+static uint32_t tree_layer_word_length(StwoZigMetalTree *tree, NSUInteger level) {
+    if (tree.layerWordLengths == nil)
+        return (uint32_t)(tree.layers[level].length / sizeof(uint32_t));
+    return ((const uint32_t *)tree.layerWordLengths.bytes)[level];
+}
 
 typedef struct {
     uint64_t command_buffers;
@@ -5175,10 +5188,22 @@ bool stwo_zig_metal_compute_quotients(
     const uint32_t *domain_y,
     uint32_t row_count,
     uint32_t *output,
+    void *resident_output_ptr,
+    const uint32_t *leaf_seed,
+    const uint32_t *node_seed,
+    void **tree_out,
     double *gpu_milliseconds,
     char *error_message, size_t error_message_len
 ) {
+    if (runtime_ptr == NULL || views == NULL || sample_components == NULL ||
+        linear_terms == NULL || domain_x == NULL || domain_y == NULL ||
+        output == NULL || row_count == 0u || tree_out == NULL)
+        return false;
     @autoreleasepool {
+        *tree_out = NULL;
+        bool commit_tree = resident_output_ptr != NULL || leaf_seed != NULL || node_seed != NULL;
+        if (commit_tree && (resident_output_ptr == NULL || leaf_seed == NULL || node_seed == NULL))
+            return false;
         StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
         NSUInteger view_word_count = raw_views ? 9u : 5u;
         id<MTLBuffer> flat_buffer;
@@ -5221,16 +5246,94 @@ bool stwo_zig_metal_compute_quotients(
         size_t output_bytes = (size_t)row_count * 4u * sizeof(uint32_t);
         size_t page_size = (size_t)getpagesize();
         bool direct_output = ((uintptr_t)output % page_size) == 0u && (output_bytes % page_size) == 0u;
-        id<MTLBuffer> output_buffer = direct_output
-            ? [runtime.device newBufferWithBytesNoCopy:output
-                                                length:output_bytes
-                                               options:MTLResourceStorageModeShared
-                                           deallocator:nil]
-            : [runtime.device newBufferWithLength:output_bytes options:MTLResourceStorageModeShared];
+        id<MTLBuffer> output_buffer = resident_output_ptr != NULL
+            ? (__bridge id<MTLBuffer>)resident_output_ptr
+            : (direct_output
+                ? [runtime.device newBufferWithBytesNoCopy:output
+                                                    length:output_bytes
+                                                   options:MTLResourceStorageModeShared
+                                               deallocator:nil]
+                : [runtime.device newBufferWithLength:output_bytes options:MTLResourceStorageModeShared]);
+        if (resident_output_ptr != NULL &&
+            (output_buffer.length != output_bytes || output_buffer.contents != output)) {
+            write_error(error_message, error_message_len, @"Resident quotient output shape mismatch");
+            return false;
+        }
         if (flat_buffer == nil || view_buffer == nil || sample_buffer == nil ||
             linear_buffer == nil || x_buffer == nil || y_buffer == nil || output_buffer == nil) {
             write_error(error_message, error_message_len, @"Metal quotient allocation failed");
             return false;
+        }
+
+        NSMutableArray<id<MTLBuffer>> *layers = nil;
+        id<MTLBuffer> hash_arena = nil;
+        id<MTLBuffer> root_readback = nil;
+        id<MTLBuffer> column_offsets = nil;
+        id<MTLBuffer> column_logs = nil;
+        id<MTLBuffer> leaf_seed_buffer = nil;
+        StwoZigMerkleParentChain *parent_plan = nil;
+        NSData *layer_word_offsets_data = nil;
+        NSData *layer_word_lengths_data = nil;
+        uint32_t layer_word_offsets[31] = { 0u };
+        uint32_t layer_word_lengths[31] = { 0u };
+        uint32_t lifting_log_size = 0u;
+        if (commit_tree) {
+            if (row_count > UINT32_MAX / 4u || (row_count & (row_count - 1u)) != 0u) {
+                write_error(error_message, error_message_len, @"Resident quotient row count is invalid");
+                return false;
+            }
+            lifting_log_size = 31u - (uint32_t)__builtin_clz(row_count);
+            uint32_t offsets[4] = { 0u, row_count, 2u * row_count, 3u * row_count };
+            uint32_t logs[4] = { lifting_log_size, lifting_log_size, lifting_log_size, lifting_log_size };
+            column_offsets = [runtime.device newBufferWithBytes:offsets length:sizeof(offsets)
+                                                       options:MTLResourceStorageModeShared];
+            column_logs = [runtime.device newBufferWithBytes:logs length:sizeof(logs)
+                                                    options:MTLResourceStorageModeShared];
+            leaf_seed_buffer = [runtime.device newBufferWithBytes:leaf_seed length:8u * sizeof(uint32_t)
+                                                        options:MTLResourceStorageModeShared];
+            layers = [NSMutableArray arrayWithCapacity:lifting_log_size + 1u];
+            uint32_t layer_count = row_count;
+            uint64_t arena_words = 0u;
+            for (uint32_t level = 0u; level <= lifting_log_size; ++level) {
+                arena_words = (arena_words + 63u) & ~UINT64_C(63);
+                uint64_t length_words = (uint64_t)layer_count * 8u;
+                if (arena_words > UINT32_MAX || length_words > UINT32_MAX ||
+                    arena_words + length_words > UINT32_MAX) {
+                    write_error(error_message, error_message_len, @"Resident quotient Merkle arena exceeds word offsets");
+                    return false;
+                }
+                layer_word_offsets[level] = (uint32_t)arena_words;
+                layer_word_lengths[level] = (uint32_t)length_words;
+                arena_words += length_words;
+                layer_count >>= 1u;
+            }
+            hash_arena = [runtime.device newBufferWithLength:(NSUInteger)arena_words * sizeof(uint32_t)
+                                                     options:MTLResourceStorageModePrivate];
+            root_readback = [runtime.device newBufferWithLength:32u options:MTLResourceStorageModeShared];
+            for (uint32_t level = 0u; level <= lifting_log_size; ++level) [layers addObject:hash_arena];
+            layer_word_offsets_data = [NSData dataWithBytes:layer_word_offsets
+                                                    length:(NSUInteger)(lifting_log_size + 1u) * sizeof(uint32_t)];
+            layer_word_lengths_data = [NSData dataWithBytes:layer_word_lengths
+                                                    length:(NSUInteger)(lifting_log_size + 1u) * sizeof(uint32_t)];
+
+            uint32_t child_offsets[30] = { 0u };
+            uint32_t destination_offsets[30] = { 0u };
+            uint32_t parent_counts[30] = { 0u };
+            for (uint32_t level = 0u; level < lifting_log_size; ++level) {
+                child_offsets[level] = layer_word_offsets[level];
+                destination_offsets[level] = layer_word_offsets[level + 1u];
+                parent_counts[level] = row_count >> (level + 1u);
+            }
+            void *parent_plan_ptr = stwo_zig_metal_merkle_parent_chain_prepare(
+                runtime_ptr, child_offsets, destination_offsets, parent_counts,
+                lifting_log_size, node_seed, error_message, error_message_len);
+            if (parent_plan_ptr != NULL)
+                parent_plan = (__bridge_transfer StwoZigMerkleParentChain *)parent_plan_ptr;
+            if (column_offsets == nil || column_logs == nil || leaf_seed_buffer == nil ||
+                hash_arena == nil || root_readback == nil || parent_plan == nil) {
+                write_error(error_message, error_message_len, @"Resident quotient Merkle metadata allocation failed");
+                return false;
+            }
         }
 
         id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
@@ -5338,6 +5441,43 @@ bool stwo_zig_metal_compute_quotients(
                     threadsPerThreadgroup:MTLSizeMake(width, 1, 1)];
             [encoder endEncoding];
         }
+        if (commit_tree) {
+            uint32_t column_count = 4u;
+            id<MTLComputeCommandEncoder> leaves = [command computeCommandEncoder];
+            if (leaves == nil) {
+                write_error(error_message, error_message_len, @"Resident quotient leaf encoder allocation failed");
+                return false;
+            }
+            [leaves setComputePipelineState:runtime.leaves];
+            [leaves setBuffer:output_buffer offset:0 atIndex:0];
+            [leaves setBuffer:column_offsets offset:0 atIndex:1];
+            [leaves setBuffer:column_logs offset:0 atIndex:2];
+            [leaves setBuffer:hash_arena
+                         offset:(NSUInteger)layer_word_offsets[0] * sizeof(uint32_t) atIndex:3];
+            [leaves setBytes:&column_count length:sizeof(column_count) atIndex:4];
+            [leaves setBytes:&lifting_log_size length:sizeof(lifting_log_size) atIndex:5];
+            [leaves setBuffer:leaf_seed_buffer offset:0 atIndex:6];
+            NSUInteger leaf_width = MIN(runtime.leaves.maxTotalThreadsPerThreadgroup,
+                                        runtime.leaves.threadExecutionWidth * 8u);
+            [leaves dispatchThreads:MTLSizeMake(row_count, 1u, 1u)
+                  threadsPerThreadgroup:MTLSizeMake(leaf_width, 1u, 1u)];
+            [leaves endEncoding];
+            uint64_t parent_encoders = 0u, parent_dispatches = 0u;
+            if (!encode_merkle_parent_chain_prepared(runtime, hash_arena, parent_plan, command,
+                                                      &parent_encoders, &parent_dispatches)) {
+                write_error(error_message, error_message_len, @"Resident quotient parent-chain encoding failed");
+                return false;
+            }
+            id<MTLBlitCommandEncoder> root_copy = [command blitCommandEncoder];
+            if (root_copy == nil) {
+                write_error(error_message, error_message_len, @"Resident quotient root encoder allocation failed");
+                return false;
+            }
+            [root_copy copyFromBuffer:hash_arena
+                         sourceOffset:(NSUInteger)layer_word_offsets[lifting_log_size] * sizeof(uint32_t)
+                             toBuffer:root_readback destinationOffset:0u size:32u];
+            [root_copy endEncoding];
+        }
         [command commit];
         [command waitUntilCompleted];
         if (command.status == MTLCommandBufferStatusError) {
@@ -5345,9 +5485,20 @@ bool stwo_zig_metal_compute_quotients(
                         command.error.localizedDescription ?: @"Metal quotient execution failed");
             return false;
         }
-        if (!direct_output) memcpy(output, output_buffer.contents, output_bytes);
+        if (resident_output_ptr == NULL && !direct_output)
+            memcpy(output, output_buffer.contents, output_bytes);
         if (gpu_milliseconds != NULL) {
             *gpu_milliseconds = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
+        }
+        if (commit_tree) {
+            StwoZigMetalTree *tree = [StwoZigMetalTree new];
+            tree.layers = layers;
+            tree.layerWordOffsets = layer_word_offsets_data;
+            tree.layerWordLengths = layer_word_lengths_data;
+            tree.rootReadback = root_readback;
+            tree.logSize = lifting_log_size;
+            tree.gpuMilliseconds = gpu_milliseconds != NULL ? *gpu_milliseconds : 0.0;
+            *tree_out = (__bridge_retained void *)tree;
         }
         return true;
     }
@@ -5581,10 +5732,13 @@ bool stwo_zig_metal_tree_copy_layers(
         id<MTLBlitCommandEncoder> blit = [command blitCommandEncoder];
         size_t offset = 0;
         for (NSInteger level = (NSInteger)tree.logSize; level >= 0; --level) {
-            id<MTLBuffer> layer = tree.layers[(NSUInteger)level];
-            [blit copyFromBuffer:layer sourceOffset:0 toBuffer:readback
-               destinationOffset:offset size:layer.length];
-            offset += layer.length;
+            NSUInteger layer_index = (NSUInteger)level;
+            id<MTLBuffer> layer = tree.layers[layer_index];
+            NSUInteger source_offset = (NSUInteger)tree_layer_word_offset(tree, layer_index) * sizeof(uint32_t);
+            NSUInteger layer_length = (NSUInteger)tree_layer_word_length(tree, layer_index) * sizeof(uint32_t);
+            [blit copyFromBuffer:layer sourceOffset:source_offset toBuffer:readback
+               destinationOffset:offset size:layer_length];
+            offset += layer_length;
         }
         [blit endEncoding];
         [command commit];
@@ -5625,7 +5779,9 @@ bool stwo_zig_metal_tree_copy_hashes(
             }
         }
 
-        id<MTLBuffer> source = tree.layers[(NSUInteger)(tree.logSize - layer_log_size)];
+        NSUInteger layer_index = (NSUInteger)(tree.logSize - layer_log_size);
+        id<MTLBuffer> source = tree.layers[layer_index];
+        NSUInteger layer_offset = (NSUInteger)tree_layer_word_offset(tree, layer_index) * sizeof(uint32_t);
         id<MTLBuffer> readback = [runtime.device newBufferWithLength:(NSUInteger)index_count * 32u
                                                             options:MTLResourceStorageModeShared];
         if (readback == nil) {
@@ -5635,7 +5791,7 @@ bool stwo_zig_metal_tree_copy_hashes(
         id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
         id<MTLBlitCommandEncoder> blit = [command blitCommandEncoder];
         for (uint32_t i = 0; i < index_count; ++i) {
-            [blit copyFromBuffer:source sourceOffset:(NSUInteger)indices[i] * 32u
+            [blit copyFromBuffer:source sourceOffset:layer_offset + (NSUInteger)indices[i] * 32u
                        toBuffer:readback destinationOffset:(NSUInteger)i * 32u size:32u];
         }
         [blit endEncoding];
@@ -5707,9 +5863,11 @@ bool stwo_zig_metal_tree_copy_hashes_batch(
 
         size_t destination_hash = 0u;
         for (uint32_t request = 0u; request < request_count; ++request) {
-            id<MTLBuffer> source = tree.layers[(NSUInteger)(tree.logSize - layer_log_sizes[request])];
+            NSUInteger layer_index = (NSUInteger)(tree.logSize - layer_log_sizes[request]);
+            id<MTLBuffer> source = tree.layers[layer_index];
+            NSUInteger layer_offset = (NSUInteger)tree_layer_word_offset(tree, layer_index) * sizeof(uint32_t);
             for (uint32_t index = 0u; index < index_counts[request]; ++index) {
-                [blit copyFromBuffer:source sourceOffset:(NSUInteger)indices[request][index] * 32u
+                [blit copyFromBuffer:source sourceOffset:layer_offset + (NSUInteger)indices[request][index] * 32u
                            toBuffer:readback destinationOffset:(NSUInteger)destination_hash * 32u size:32u];
                 destination_hash += 1u;
             }

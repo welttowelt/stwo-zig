@@ -1133,6 +1133,10 @@ extern fn stwo_zig_metal_compute_quotients(
     domain_y: [*]const u32,
     row_count: u32,
     output: [*]u32,
+    resident_output: ?*anyopaque,
+    leaf_seed: ?*const [8]u32,
+    node_seed: ?*const [8]u32,
+    tree: *?*anyopaque,
     gpu_milliseconds: *f64,
     error_message: [*]u8,
     error_message_len: usize,
@@ -1232,6 +1236,22 @@ test "pipeline cache stats zero value" {
     try std.testing.expectEqual(@as(u64, 0), stats.archive_serializations);
     try std.testing.expectEqual(@as(f64, 0), stats.pipeline_preparation_seconds);
 }
+
+const QuotientCommitConfig = struct {
+    resident_output: *anyopaque,
+    leaf_seed: [8]u32,
+    node_seed: [8]u32,
+};
+
+const QuotientComputeResult = struct {
+    gpu_ms: f64,
+    tree: ?Tree,
+};
+
+pub const QuotientCommitResult = struct {
+    gpu_ms: f64,
+    tree: Tree,
+};
 
 pub const Runtime = struct {
     handle: *anyopaque,
@@ -3376,6 +3396,47 @@ pub const Runtime = struct {
         provider: anytype,
         out: anytype,
     ) (MetalError || std.mem.Allocator.Error)!f64 {
+        const result = try self.computeQuotientsConfigured(
+            allocator,
+            provider,
+            out,
+            null,
+        );
+        return result.gpu_ms;
+    }
+
+    pub fn computeQuotientsAndCommit(
+        self: *Runtime,
+        allocator: std.mem.Allocator,
+        provider: anytype,
+        out: anytype,
+        leaf_seed: [8]u32,
+        node_seed: [8]u32,
+    ) (MetalError || std.mem.Allocator.Error)!QuotientCommitResult {
+        const storage = out.resident_storage orelse return MetalError.QuotientFailed;
+        const result = try self.computeQuotientsConfigured(
+            allocator,
+            provider,
+            out,
+            .{
+                .resident_output = storage.handle,
+                .leaf_seed = leaf_seed,
+                .node_seed = node_seed,
+            },
+        );
+        return .{
+            .gpu_ms = result.gpu_ms,
+            .tree = result.tree orelse return MetalError.CommitmentFailed,
+        };
+    }
+
+    fn computeQuotientsConfigured(
+        self: *Runtime,
+        allocator: std.mem.Allocator,
+        provider: anytype,
+        out: anytype,
+        commitment: ?QuotientCommitConfig,
+    ) (MetalError || std.mem.Allocator.Error)!QuotientComputeResult {
         var total_timer = try std.time.Timer.start();
         const raw_views = provider.raw_columns.len != 0;
         const view_count = if (raw_views)
@@ -3495,7 +3556,11 @@ pub const Runtime = struct {
         const output = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(out.columns[0].ptr[0 .. row_count * 4]));
         const prepared_ns = total_timer.lap();
         var gpu_ms: f64 = 0;
+        var tree_handle: ?*anyopaque = null;
         var message: [1024]u8 = [_]u8{0} ** 1024;
+        const resident_output = if (commitment) |config| config.resident_output else null;
+        const leaf_seed = if (commitment) |*config| &config.leaf_seed else null;
+        const node_seed = if (commitment) |*config| &config.node_seed else null;
         if (!stwo_zig_metal_compute_quotients(
             self.handle,
             flat.ptr,
@@ -3513,6 +3578,10 @@ pub const Runtime = struct {
             domain_y.ptr,
             @intCast(row_count),
             output.ptr,
+            resident_output,
+            leaf_seed,
+            node_seed,
+            &tree_handle,
             &gpu_ms,
             &message,
             message.len,
@@ -3529,7 +3598,14 @@ pub const Runtime = struct {
                 @as(f64, @floatFromInt(dispatch_and_copy_ns)) / std.time.ns_per_ms,
             },
         );
-        return gpu_ms;
+        return .{
+            .gpu_ms = gpu_ms,
+            .tree = if (tree_handle) |handle| .{
+                .handle = handle,
+                .runtime_handle = self.handle,
+                .log_size = provider.lifting_log_size,
+            } else null,
+        };
     }
 
     pub fn evaluateCoefficientPlans(

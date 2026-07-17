@@ -59,6 +59,10 @@ test "metal: FRI commitment policy shares the exact secure-column boundary" {
     try std.testing.expect(
         metal_commit_policy.secureColumnUsesResidentMerkle(std.math.maxInt(usize)),
     );
+
+    const quotient_log = metal_commit_policy.quotient_resident_merkle_log_threshold;
+    try std.testing.expect(!metal_commit_policy.quotientUsesResidentMerkle(quotient_log - 1));
+    try std.testing.expect(metal_commit_policy.quotientUsesResidentMerkle(quotient_log));
 }
 
 test {

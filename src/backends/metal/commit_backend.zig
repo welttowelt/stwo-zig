@@ -164,6 +164,38 @@ pub const MetalCommitBackend = struct {
         std.log.debug("Metal quotient kernel: {d:.3}ms", .{gpu_ms});
     }
 
+    /// Produces the first FRI quotient column and its lifted Merkle tree in one
+    /// command buffer. The caller retains the resident column independently;
+    /// the returned tree owns only its hash layers after the terminal wait.
+    pub fn commitLazyMerkle(
+        comptime H: type,
+        allocator: std.mem.Allocator,
+        provider: anytype,
+        out: anytype,
+    ) !MerkleTree(H) {
+        if (!commit_policy.quotientUsesResidentMerkle(provider.lifting_log_size)) {
+            try computeLazyQuotients(allocator, provider, out);
+            const columns = [_][]const @import("../../core/fields/m31.zig").M31{
+                out.columns[0],
+                out.columns[1],
+                out.columns[2],
+                out.columns[3],
+            };
+            return commitMerkle(H, allocator, columns[0..]);
+        }
+        const result = try (try runtime()).computeQuotientsAndCommit(
+            allocator,
+            provider,
+            out,
+            H.leafSeed(),
+            H.nodeSeed(),
+        );
+        telemetry.record(.metal_quotient_dispatch);
+        telemetry.record(.resident_merkle_commit);
+        std.log.debug("Metal quotient + Merkle epoch: {d:.3}ms", .{result.gpu_ms});
+        return MerkleTree(H).fromResident(result.tree);
+    }
+
     pub fn evaluateCoefficientPlans(
         allocator: std.mem.Allocator,
         coefficients: anytype,

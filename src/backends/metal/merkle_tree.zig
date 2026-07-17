@@ -72,6 +72,23 @@ pub fn MetalMerkleTree(comptime H: type) type {
             return .{ .storage = .{ .host = tree } };
         }
 
+        pub fn fromResident(tree: runtime_mod.Tree) !Self {
+            errdefer {
+                var owned = tree;
+                owned.deinit();
+            }
+            const root_result = try tree.root();
+            if (@sizeOf(H.Hash) != @sizeOf(@TypeOf(root_result.hash))) {
+                return error.UnsupportedMetalHash;
+            }
+            return .{
+                .storage = .{ .resident = .{
+                    .tree = tree,
+                    .root_hash = @bitCast(root_result.hash),
+                } },
+            };
+        }
+
         pub fn commit(
             runtime: *runtime_mod.Runtime,
             allocator: std.mem.Allocator,
@@ -93,7 +110,7 @@ pub fn MetalMerkleTree(comptime H: type) type {
                 word_columns[index] = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(column));
             }
 
-            var tree = try runtime.commitColumns(
+            const tree = try runtime.commitColumns(
                 allocator,
                 word_columns,
                 log_sizes,
@@ -101,18 +118,8 @@ pub fn MetalMerkleTree(comptime H: type) type {
                 H.leafSeed(),
                 H.nodeSeed(),
             );
-            errdefer tree.deinit();
 
-            const root_result = try tree.root();
-            if (@sizeOf(H.Hash) != @sizeOf(@TypeOf(root_result.hash))) {
-                return error.UnsupportedMetalHash;
-            }
-            return .{
-                .storage = .{ .resident = .{
-                    .tree = tree,
-                    .root_hash = @bitCast(root_result.hash),
-                } },
-            };
+            return fromResident(tree);
         }
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
