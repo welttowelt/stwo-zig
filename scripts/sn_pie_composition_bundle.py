@@ -28,12 +28,18 @@ def u32(data: bytes | bytearray, offset: int) -> int:
     return struct.unpack_from("<I", data, offset)[0]
 
 
-def trace_logs(proof_path: Path) -> dict[str, int]:
+def active_components_and_trace_logs(
+    proof_path: Path,
+) -> tuple[set[str], dict[str, int]]:
     claim = json.loads(proof_path.read_text())["claim"]
+    active: set[str] = set()
     result: dict[str, int] = {}
     for label, value in claim.items():
         if label == "public_data" or value is None:
             continue
+        if not isinstance(value, dict):
+            raise ValueError(f"{label} has unsupported claim shape")
+        active.add(label)
         if "log_size" in value:
             result[label] = int(value["log_size"])
         elif label == "memory_id_to_big":
@@ -41,7 +47,13 @@ def trace_logs(proof_path: Path) -> dict[str, int]:
             if len(logs) != 1:
                 raise ValueError(f"{label} has unsupported instances: {logs}")
             result[label] = int(logs[0])
-    return result
+        elif value:
+            raise ValueError(f"{label} has unsupported fixed claim shape")
+    return active, result
+
+
+def trace_logs(proof_path: Path) -> dict[str, int]:
+    return active_components_and_trace_logs(proof_path)[1]
 
 
 def public_segment_starts(proof_path: Path) -> dict[str, int]:
@@ -161,9 +173,10 @@ def retarget(
     data = bytearray(template_path.read_bytes())
     if data[:8] != BUNDLE_MAGIC or u32(data, 8) != BUNDLE_VERSION:
         raise ValueError("unsupported composition bundle")
-    logs = trace_logs(proof_path)
+    active_components, logs = active_components_and_trace_logs(proof_path)
     component_count = u32(data, 28)
     offset = 40
+    template_components: list[str] = []
     changed: dict[str, tuple[int, int]] = {}
     preprocessed_changes: dict[str, list[dict[str, object]]] = {}
     max_evaluation_log = 0
@@ -190,6 +203,7 @@ def retarget(
         part_count = u32(data, offset + 40)
         offset += 44
         label = data[offset : offset + label_len].decode()
+        template_components.append(label)
         offset += label_len
 
         target_log = logs.get(label, trace_log)
@@ -256,6 +270,16 @@ def retarget(
 
     if offset != len(data):
         raise ValueError("trailing composition bundle data")
+    template_set = set(template_components)
+    if len(template_set) != len(template_components):
+        raise ValueError("composition bundle contains duplicate component labels")
+    if active_components != template_set:
+        inactive = sorted(template_set - active_components)
+        missing = sorted(active_components - template_set)
+        raise ValueError(
+            "target proof changes the active component set; component projection "
+            f"is required (inactive_template={inactive}, missing_template={missing})"
+        )
     struct.pack_into("<I", data, 24, max_evaluation_log)
     output_path.write_bytes(data)
     return {

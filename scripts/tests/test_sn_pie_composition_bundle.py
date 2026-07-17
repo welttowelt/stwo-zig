@@ -91,13 +91,19 @@ def components(data: bytes | bytearray):
         }
 
 
-def write_proof(path: Path, logs: dict[str, int]) -> None:
+def write_proof(
+    path: Path,
+    logs: dict[str, int],
+    fixed_components: set[str] | None = None,
+) -> None:
     claim = {}
     for label, log_size in logs.items():
         if label == "memory_id_to_big":
             claim[label] = {"big_log_sizes": [log_size]}
         else:
             claim[label] = {"log_size": log_size}
+    for label in fixed_components or set():
+        claim[label] = {}
     path.write_text(json.dumps({"claim": claim}))
 
 
@@ -134,7 +140,8 @@ class SnPieCompositionBundleTest(unittest.TestCase):
             root = Path(directory)
             proof = root / "sn1-proof.json"
             output = root / "composition.bin"
-            write_proof(proof, SN1_LOGS)
+            template_labels = {item["label"] for item in components(TEMPLATE.read_bytes())}
+            write_proof(proof, SN1_LOGS, template_labels - SN1_LOGS.keys())
             result = MODULE.retarget(TEMPLATE, proof, output)
             completed = subprocess.run(
                 [runner, output, METALLIB],
@@ -151,6 +158,23 @@ class SnPieCompositionBundleTest(unittest.TestCase):
         self.assertEqual(loaded["programs"], 279)
         self.assertEqual(loaded["source_bytes"], 0)
         self.assertTrue(loaded["all_programs_compiled"])
+
+    def test_component_set_change_requires_explicit_projection(self):
+        template_data = TEMPLATE.read_bytes()
+        first = next(components(template_data))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            proof = root / "small-program-proof.json"
+            output = root / "composition.bin"
+            write_proof(proof, {first["label"]: first["trace_log"]})
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "target proof changes the active component set; component projection is required",
+            ):
+                MODULE.retarget(TEMPLATE, proof, output)
+
+            self.assertFalse(output.exists())
 
     def test_unsupported_headers_fail_without_output(self):
         template_data = TEMPLATE.read_bytes()
