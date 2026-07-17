@@ -23,6 +23,7 @@ pub const common = @import("common/mod.zig");
 pub const prover = @import("prover.zig");
 pub const prove_trace = @import("prove_trace.zig");
 pub const proof_plan = @import("proof_plan.zig");
+pub const claim_generator = @import("claim_generator.zig");
 pub const claim_registry = @import("claim_registry.zig");
 pub const statement_bootstrap = @import("statement_bootstrap.zig");
 pub const compact_verifier_interchange = @import("compact_verifier_interchange.zig");
