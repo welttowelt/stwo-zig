@@ -4,7 +4,15 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 ARENA_CLI = ROOT / "src" / "metal_arena_plan_cli.zig"
-ARENA_BINDING = ROOT / "src" / "integrations" / "cairo_metal" / "arena_binding.zig"
+MULTIPLICITY_FEEDS = (
+    ROOT
+    / "src"
+    / "integrations"
+    / "cairo_metal"
+    / "resident"
+    / "lookups"
+    / "multiplicity_feeds.zig"
+)
 SESSION_CLI = ROOT / "src" / "metal_prover_session_cli.zig"
 
 
@@ -21,7 +29,7 @@ class PreparedStateCacheSourceContractTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.arena_source = ARENA_CLI.read_text()
-        cls.binding_source = ARENA_BINDING.read_text()
+        cls.feed_source = MULTIPLICITY_FEEDS.read_text()
         cls.session_source = SESSION_CLI.read_text()
 
     def test_admission_covers_miss_commit_hit_key_switch_and_poison_recovery(self):
@@ -100,15 +108,15 @@ class PreparedStateCacheSourceContractTest(unittest.TestCase):
 
     def test_cached_feed_producer_names_are_owned(self):
         ordered(
-            self.binding_source,
+            self.feed_source,
             "const producers = try allocator.alloc([]const u8, bundle.feeds.len);",
             "allocator.dupe(u8, bundle.feeds[producers_initialized].producer)",
             ".producers = producers,",
         )
-        deinit_start = self.binding_source.index("pub const MultiplicityFeedBatch")
-        deinit_start = self.binding_source.index("    pub fn deinit(", deinit_start)
-        deinit_end = self.binding_source.index("\n    }", deinit_start)
-        deinit = self.binding_source[deinit_start:deinit_end]
+        deinit_start = self.feed_source.index("pub const MultiplicityFeedBatch")
+        deinit_start = self.feed_source.index("    pub fn deinit(", deinit_start)
+        deinit_end = self.feed_source.index("\n    }", deinit_start)
+        deinit = self.feed_source[deinit_start:deinit_end]
         ordered(
             deinit,
             "for (self.producers) |producer| self.allocator.free(producer);",

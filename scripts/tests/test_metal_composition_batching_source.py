@@ -4,7 +4,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE_PATH = ROOT / "src/backends/metal/runtime.m"
-RECIPE_PATH = ROOT / "src/backends/metal/protocol_recipes.zig"
+RECIPE_PATH = ROOT / "src/backends/metal/recipes/composition.zig"
 
 
 def function_body(source: str, name: str, next_name: str) -> str:
@@ -82,9 +82,8 @@ class MetalCompositionBatchingSourceTest(unittest.TestCase):
 
     def test_composition_recipe_uses_the_combined_graph(self):
         recipe = RECIPE_PATH.read_text()
-        start = recipe.index("pub const CompositionRecipe = struct")
-        end = recipe.index("pub const ZeroRecipe = struct", start)
-        body = recipe[start:end]
+        start = recipe.index("pub const Recipe = struct")
+        body = recipe[start:]
         self.assertIn("self.metal.compositionPrepared(", body)
         self.assertNotIn("self.metal.compositionFrontPrepared(", body)
         self.assertNotIn("self.metal.compositionFinalizePrepared(", body)
