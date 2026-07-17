@@ -537,6 +537,8 @@ measurements.
 3. [x] Land scheduler and transaction telemetry before removing waits.
 4. [x] Add the raw generic pending-tree hook and default single-fold Metal transaction.
 5. [ ] Generate packed SIMD and Metal constraint evaluators from authenticated AIR semantics.
+   The Metal multi-part path can now emit a selected-only source artifact, removing unreferenced
+   legacy kernels from fused builds; SIMD generation and production cap selection remain open.
 6. [ ] Add multi-fold packed leaf semantics and the corresponding resident transaction.
 7. [ ] Add Cairo Stage A fold-tree command epochs and meet the SN2 17-to-10 wait target.
 8. [ ] Move transcript mix/draw into admitted resident state and feed challenges directly into folds.

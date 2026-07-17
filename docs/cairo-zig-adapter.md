@@ -206,6 +206,17 @@ splits them into eight quotient coefficient columns in one command buffer.
 Both boundaries have CPU parity tests. One coalesced recovery recipe owns the
 eight outputs with no compatibility readback.
 
+The composition source generator has two explicit artifact modes. Compatibility
+mode emits every individual AIR kernel plus every selected fused kernel.
+`metal-eval-source <bundle> <output> <cap> --selected-only` instead emits only
+the singleton and fused functions reachable from that cap's execution schedule.
+For SN2 at the 2,048-operation cap, this preserves the 279-to-105 dispatch plan
+while reducing the source from 332 to 97 unique functions and from 8,212,204 to
+4,244,856 bytes (48.3%). At the 4,096 cap it emits 69 unique functions for 77
+dispatches. These are artifact-size and compile-work reductions, not warm proof
+speed claims; each cap still requires cumulative-accumulator Rust-oracle parity
+and a verified A/B/A profile before production selection.
+
 The exact planner gate consumes `sn_pie_2_composition.bin`, checks the 58
 component instances and 279 parts against every trace span, preprocessed index,
 extension-parameter extent, twiddle table, 100,662,912-word accumulator slab,

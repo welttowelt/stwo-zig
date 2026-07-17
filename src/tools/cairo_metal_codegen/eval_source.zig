@@ -9,13 +9,17 @@ pub fn main() !void {
     const allocator = gpa.allocator();
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
-    if (args.len < 3 or args.len > 4) return error.InvalidArguments;
-    const fusion_cap = if (args.len == 4)
+    if (args.len < 3 or args.len > 5) return error.InvalidArguments;
+    const fusion_cap = if (args.len >= 4)
         try std.fmt.parseUnsigned(usize, args[3], 10)
     else
         codegen.default_fused_instruction_cap;
     if (fusion_cap == 0 or fusion_cap > codegen.max_fused_instruction_cap)
         return error.InvalidFusionInstructionCap;
+    const selected_only = if (args.len == 5)
+        if (std.mem.eql(u8, args[4], "--selected-only")) true else return error.InvalidArguments
+    else
+        false;
     var bundle = try composition.Bundle.readFile(allocator, args[1]);
     defer bundle.deinit();
     var output = try std.fs.cwd().createFile(args[2], .{});
@@ -32,14 +36,16 @@ pub fn main() !void {
     var fused_programs: u32 = 0;
     var baseline_dispatches: u32 = 0;
     var fused_dispatches: u32 = 0;
-    for (bundle.components) |component| for (component.parts) |part| {
-        const entry = try seen.getOrPut(part.semantic_hash);
-        if (entry.found_existing) continue;
-        const source = try codegen.generateKernel(allocator, part.program, false);
-        defer allocator.free(source);
-        try writer.writeAll(source);
-        programs += 1;
-    };
+    if (!selected_only) {
+        for (bundle.components) |component| for (component.parts) |part| {
+            const entry = try seen.getOrPut(part.semantic_hash);
+            if (entry.found_existing) continue;
+            const source = try codegen.generateKernel(allocator, part.program, false);
+            defer allocator.free(source);
+            try writer.writeAll(source);
+            programs += 1;
+        };
+    }
     for (bundle.components) |component| {
         baseline_dispatches += @intCast(component.parts.len);
         const fused_parts = try allocator.alloc(codegen.FusedPart, component.parts.len);
@@ -61,13 +67,22 @@ pub fn main() !void {
                     try writer.writeAll(source);
                     fused_programs += 1;
                 }
+            } else if (selected_only) {
+                const part = component.parts[start];
+                const entry = try seen.getOrPut(part.semantic_hash);
+                if (!entry.found_existing) {
+                    const source = try codegen.generateKernel(allocator, part.program, false);
+                    defer allocator.free(source);
+                    try writer.writeAll(source);
+                    programs += 1;
+                }
             }
             start = end;
         }
     }
     try writer.flush();
     std.debug.print(
-        "emitted {} unique Metal programs and {} fused programs for plan {x:0>16}; fusion_cap={} dispatches={}->{}\n",
-        .{ programs, fused_programs, bundle.plan_hash, fusion_cap, baseline_dispatches, fused_dispatches },
+        "emitted {} unique Metal programs and {} fused programs for plan {x:0>16}; fusion_cap={} dispatches={}->{} selected_only={}\n",
+        .{ programs, fused_programs, bundle.plan_hash, fusion_cap, baseline_dispatches, fused_dispatches, selected_only },
     );
 }
