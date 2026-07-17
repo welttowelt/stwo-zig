@@ -445,6 +445,12 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                     polys[col_idx] = .{
                         .log_size = column.log_size,
                         .values = column.values,
+                        .coefficients = if (tree.coefficients) |coefficients|
+                            try prover_circle.CircleCoefficients.initBorrowed(
+                                coefficients[col_idx].coefficients(),
+                            )
+                        else
+                            null,
                     };
                 }
             }

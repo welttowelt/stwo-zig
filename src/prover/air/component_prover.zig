@@ -6,6 +6,7 @@ const m31 = @import("../../core/fields/m31.zig");
 const qm31 = @import("../../core/fields/qm31.zig");
 const pcs = @import("../../core/pcs/mod.zig");
 const accumulation = @import("accumulation.zig");
+const prover_circle = @import("../poly/circle/mod.zig");
 const secure_column = @import("../secure_column.zig");
 const work_pool_mod = @import("../work_pool.zig");
 
@@ -20,10 +21,17 @@ pub const ComponentProverError = error{
     InvalidColumnLength,
 };
 
-/// Trace column polynomial represented by its evaluation values.
+/// Trace column retained by the commitment scheme.
+///
+/// `log_size` and `values` describe the committed LDE column, not the base
+/// trace degree. `coefficients`, when present, is a non-owning view of the
+/// minimal trace polynomial in the circle FFT basis.
 pub const Poly = struct {
     log_size: u32,
     values: []const M31,
+    /// Constraint evaluators use these to evaluate on domains other than the
+    /// committed LDE. The commitment tree remains the owner.
+    coefficients: ?prover_circle.CircleCoefficients = null,
 
     pub fn validate(self: Poly) ComponentProverError!void {
         const expected = try checkedPow2(self.log_size);

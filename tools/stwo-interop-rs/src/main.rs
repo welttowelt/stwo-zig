@@ -7,6 +7,7 @@ use stwo::core::air::accumulation::PointEvaluationAccumulator;
 use stwo::core::air::Component;
 use stwo::core::channel::{Blake2sChannel, Channel};
 use stwo::core::circle::CirclePoint;
+use stwo::core::constraints::coset_vanishing;
 use stwo::core::fields::m31::{M31, P};
 use stwo::core::fields::qm31::{SecureField, QM31};
 use stwo::core::fields::FieldExpOps;
@@ -16,7 +17,7 @@ use stwo::core::pcs::{CommitmentSchemeVerifier, PcsConfig, TreeVec};
 use stwo::core::poly::circle::CanonicCoset;
 use stwo::core::poly::line::LinePoly;
 use stwo::core::proof::StarkProof;
-use stwo::core::utils::{bit_reverse_index, coset_index_to_circle_domain_index};
+use stwo::core::utils::{bit_reverse, bit_reverse_index, coset_index_to_circle_domain_index};
 use stwo::core::vcs::blake2_hash::Blake2sHash;
 use stwo::core::vcs_lifted::blake2_merkle::{Blake2sMerkleChannel, Blake2sMerkleHasher};
 use stwo::core::vcs_lifted::verifier::MerkleDecommitmentLifted;
@@ -1592,6 +1593,7 @@ fn wide_fibonacci_prove(
     );
     let mut scheme =
         CommitmentSchemeProver::<CpuBackend, Blake2sMerkleChannel>::new(config, &twiddles);
+    scheme.set_store_polynomials_coefficients();
 
     let mut builder = scheme.tree_builder();
     builder.extend_evals(vec![]);
@@ -1655,6 +1657,7 @@ fn wide_fibonacci_prove_profiled(
     );
     let mut scheme =
         CommitmentSchemeProver::<CpuBackend, Blake2sMerkleChannel>::new(config, &twiddles);
+    scheme.set_store_polynomials_coefficients();
     stages.push(StageNode {
         id: "channel_and_scheme_init".to_string(),
         label: "Channel and scheme init".to_string(),
@@ -2523,15 +2526,6 @@ fn mix_state_machine_stmt1(
     channel.mix_felts(&[x_claim, y_claim]);
 }
 
-fn wide_fibonacci_composition_eval(statement: WideFibonacciStatement) -> SecureField {
-    SecureField::from_m31(
-        M31::from(statement.log_n_rows),
-        M31::from(statement.sequence_len),
-        M31::zero(),
-        M31::one(),
-    )
-}
-
 fn mix_wide_fibonacci_statement(channel: &mut Blake2sChannel, statement: WideFibonacciStatement) {
     channel.mix_u32s(&[statement.log_n_rows, statement.sequence_len]);
 }
@@ -2644,7 +2638,7 @@ impl ComponentProver<CpuBackend> for StateMachineComponent {
 
 impl Component for WideFibonacciComponent {
     fn n_constraints(&self) -> usize {
-        1
+        self.statement.sequence_len as usize - 2
     }
 
     fn max_constraint_log_degree_bound(&self) -> u32 {
@@ -2675,26 +2669,68 @@ impl Component for WideFibonacciComponent {
 
     fn evaluate_constraint_quotients_at_point(
         &self,
-        _point: CirclePoint<SecureField>,
-        _mask: &TreeVec<Vec<Vec<SecureField>>>,
+        point: CirclePoint<SecureField>,
+        mask: &TreeVec<Vec<Vec<SecureField>>>,
         evaluation_accumulator: &mut PointEvaluationAccumulator,
         _max_log_degree_bound: u32,
     ) {
-        evaluation_accumulator.accumulate(wide_fibonacci_composition_eval(self.statement));
+        let main = &mask[1];
+        assert_eq!(main.len(), self.statement.sequence_len as usize);
+        assert!(main.iter().all(|column| column.len() == 1));
+
+        let denominator_inv =
+            coset_vanishing(CanonicCoset::new(self.statement.log_n_rows).coset, point).inverse();
+
+        let mut a = main[0][0];
+        let mut b = main[1][0];
+        for column in &main[2..] {
+            let c = column[0];
+            evaluation_accumulator.accumulate((c - (a.square() + b.square())) * denominator_inv);
+            a = b;
+            b = c;
+        }
     }
 }
 
 impl ComponentProver<CpuBackend> for WideFibonacciComponent {
     fn evaluate_constraint_quotients_on_domain(
         &self,
-        _trace: &Trace<'_, CpuBackend>,
+        trace: &Trace<'_, CpuBackend>,
         evaluation_accumulator: &mut DomainEvaluationAccumulator<CpuBackend>,
     ) {
-        let composition_eval = wide_fibonacci_composition_eval(self.statement);
-        let [mut col] = evaluation_accumulator.columns([(self.statement.log_n_rows + 1, 1)]);
-        let domain_size = 1usize << (self.statement.log_n_rows + 1);
-        for i in 0..domain_size {
-            col.accumulate(i, composition_eval);
+        let n_constraints = self.n_constraints();
+        let trace_domain = CanonicCoset::new(self.statement.log_n_rows);
+        let eval_domain = CanonicCoset::new(self.statement.log_n_rows + 1).circle_domain();
+        let twiddles = CpuBackend::precompute_twiddles(eval_domain.half_coset);
+        let trace_cols = trace.polys[1]
+            .iter()
+            .map(|poly| poly.get_evaluation_on_domain(eval_domain, &twiddles))
+            .collect::<Vec<_>>();
+        assert_eq!(trace_cols.len(), self.statement.sequence_len as usize);
+
+        let mut denominator_inv = (0..2)
+            .map(|i| coset_vanishing(trace_domain.coset, eval_domain.at(i)).inverse())
+            .collect::<Vec<_>>();
+        bit_reverse(&mut denominator_inv);
+
+        let [mut col] =
+            evaluation_accumulator.columns([(self.statement.log_n_rows + 1, n_constraints)]);
+        for row in 0..eval_domain.size() {
+            let mut a = trace_cols[0][row];
+            let mut b = trace_cols[1][row];
+            let mut row_evaluation = SecureField::zero();
+            for (constraint_index, column) in trace_cols[2..].iter().enumerate() {
+                let c = column[row];
+                let constraint = c - (a.square() + b.square());
+                row_evaluation +=
+                    col.random_coeff_powers[n_constraints - 1 - constraint_index] * constraint;
+                a = b;
+                b = c;
+            }
+            col.accumulate(
+                row,
+                row_evaluation * denominator_inv[row >> self.statement.log_n_rows],
+            );
         }
     }
 }

@@ -1,29 +1,24 @@
 const std = @import("std");
-const core_air_accumulation = @import("../core/air/accumulation.zig");
 const core_air_components = @import("../core/air/components.zig");
-const core_air_derive = @import("../core/air/derive.zig");
 const core_air_utils = @import("../core/air/utils.zig");
 const channel_blake2s = @import("../core/channel/blake2s.zig");
 const m31 = @import("../core/fields/m31.zig");
-const qm31 = @import("../core/fields/qm31.zig");
 const pcs_core = @import("../core/pcs/mod.zig");
 const pcs_verifier = @import("../core/pcs/verifier.zig");
 const core_proof = @import("../core/proof.zig");
 const core_verifier = @import("../core/verifier.zig");
 const blake2_merkle = @import("../core/vcs_lifted/blake2_merkle.zig");
-const prover_air_accumulation = @import("../prover/air/accumulation.zig");
 const prover_component = @import("../prover/air/component_prover.zig");
 const prover_engine = @import("../prover/engine.zig");
 const prover_pcs = @import("../prover/pcs/mod.zig");
 const stage_profile = @import("../prover/stage_profile.zig");
-const secure_column = @import("../prover/secure_column.zig");
 const prover_transaction = @import("common/prover_transaction.zig");
+const component_mod = @import("wide_fibonacci/component.zig");
 const trace_input = @import("wide_fibonacci/trace.zig");
 const CpuBackend = @import("../backends/cpu_scalar/mod.zig").CpuBackend;
 
 const M31 = m31.M31;
-const QM31 = qm31.QM31;
-const CirclePointQM31 = @import("../core/circle.zig").CirclePointQM31;
+const WideFibonacciComponent = component_mod.Component;
 
 pub const Hasher = blake2_merkle.Blake2sPrefixedMerkleHasher;
 pub const MerkleChannel = blake2_merkle.Blake2sPrefixedMerkleChannel;
@@ -429,111 +424,6 @@ pub fn verify(
     );
 }
 
-const WideFibonacciComponent = struct {
-    statement: Statement,
-
-    const Adapter = core_air_derive.ComponentAdapter(
-        @This(),
-        prover_component.ComponentProver,
-        prover_component.Trace,
-        prover_air_accumulation.DomainEvaluationAccumulator,
-    );
-
-    fn asVerifierComponent(self: *const @This()) core_air_components.Component {
-        return Adapter.asVerifierComponent(self);
-    }
-
-    fn asProverComponent(self: *const @This()) prover_component.ComponentProver {
-        return Adapter.asProverComponent(self);
-    }
-
-    pub fn nConstraints(self: *const @This()) usize {
-        _ = self;
-        return 1;
-    }
-
-    pub fn maxConstraintLogDegreeBound(self: *const @This()) u32 {
-        return self.statement.log_n_rows + 1;
-    }
-
-    pub fn traceLogDegreeBounds(
-        self: *const @This(),
-        allocator: std.mem.Allocator,
-    ) !core_air_components.TraceLogDegreeBounds {
-        const preprocessed = try allocator.alloc(u32, 0);
-        const main = try allocator.alloc(u32, @intCast(self.statement.sequence_len));
-        @memset(main, self.statement.log_n_rows);
-
-        return core_air_components.TraceLogDegreeBounds.initOwned(
-            try allocator.dupe([]u32, &[_][]u32{ preprocessed, main }),
-        );
-    }
-
-    pub fn maskPoints(
-        self: *const @This(),
-        allocator: std.mem.Allocator,
-        point: CirclePointQM31,
-        _: u32,
-    ) !core_air_components.MaskPoints {
-        const preprocessed_cols = try allocator.alloc([]CirclePointQM31, 0);
-
-        const n_cols: usize = @intCast(self.statement.sequence_len);
-        const main_cols = try allocator.alloc([]CirclePointQM31, n_cols);
-        errdefer {
-            for (main_cols) |col| allocator.free(col);
-            allocator.free(main_cols);
-        }
-
-        for (main_cols) |*col| {
-            col.* = try allocator.alloc(CirclePointQM31, 1);
-            col.*[0] = point;
-        }
-
-        return core_air_components.MaskPoints.initOwned(
-            try allocator.dupe([][]CirclePointQM31, &[_][][]CirclePointQM31{
-                preprocessed_cols,
-                main_cols,
-            }),
-        );
-    }
-
-    pub fn preprocessedColumnIndices(
-        _: *const @This(),
-        allocator: std.mem.Allocator,
-    ) ![]usize {
-        return allocator.alloc(usize, 0);
-    }
-
-    pub fn evaluateConstraintQuotientsAtPoint(
-        self: *const @This(),
-        _: CirclePointQM31,
-        _: *const core_air_components.MaskValues,
-        evaluation_accumulator: *core_air_accumulation.PointEvaluationAccumulator,
-        _: u32,
-    ) !void {
-        evaluation_accumulator.accumulate(compositionEval(self.statement));
-    }
-
-    pub fn evaluateConstraintQuotientsOnDomain(
-        self: *const @This(),
-        _: *const prover_component.Trace,
-        evaluation_accumulator: *prover_air_accumulation.DomainEvaluationAccumulator,
-    ) !void {
-        const composition_eval = compositionEval(self.statement);
-        const domain_size = @as(usize, 1) << @intCast(self.statement.log_n_rows + 1);
-        const values = try evaluation_accumulator.allocator.alloc(QM31, domain_size);
-        defer evaluation_accumulator.allocator.free(values);
-        @memset(values, composition_eval);
-
-        var col = try secure_column.SecureColumnByCoords.fromSecureSlice(
-            evaluation_accumulator.allocator,
-            values,
-        );
-        defer col.deinit(evaluation_accumulator.allocator);
-        try evaluation_accumulator.accumulateColumn(self.statement.log_n_rows + 1, &col);
-    }
-};
-
 const ProvingSpec = struct {
     pub const Statement = trace_input.Statement;
     pub const PreparedInput = trace_input.PreparedInput;
@@ -594,15 +484,6 @@ const ProvingSpec = struct {
         return out[0..1];
     }
 };
-
-fn compositionEval(statement: Statement) QM31 {
-    return QM31.fromM31(
-        M31.fromU64(statement.log_n_rows),
-        M31.fromU64(statement.sequence_len),
-        M31.zero(),
-        M31.one(),
-    );
-}
 
 fn mixStatement(channel: *Channel, statement: Statement) void {
     channel.mixU32s(&[_]u32{ statement.log_n_rows, statement.sequence_len });
@@ -719,6 +600,35 @@ test "examples wide_fibonacci: prepared CPU backend route verifies" {
     try verify(std.testing.allocator, config, output.statement, output.proof);
 }
 
+test "examples wide_fibonacci: corrupted recurrence trace is rejected" {
+    const config = pcs_core.PcsConfig{
+        .pow_bits = 0,
+        .fri_config = try @import("../core/fri.zig").FriConfig.init(0, 1, 3),
+    };
+    const statement = Statement{ .log_n_rows = 5, .sequence_len = 8 };
+    const prepared = try prepareInput(std.testing.allocator, statement);
+    const main = prepared.trace.main.columns.?;
+    const corrupted = @constCast(main[2].values);
+    corrupted[0] = corrupted[0].add(M31.one());
+
+    if (provePreparedWithEngine(
+        ProverEngineForBackend(CpuBackend),
+        std.testing.allocator,
+        config,
+        prepared,
+        null,
+    )) |output| {
+        var proof = output.proof;
+        proof.deinit(std.testing.allocator);
+        try std.testing.expect(false);
+    } else |err| {
+        try std.testing.expectEqual(
+            @import("../prover/prove.zig").ProvingError.ConstraintsNotSatisfied,
+            err,
+        );
+    }
+}
+
 test "examples wide_fibonacci: prove/verify wrapper roundtrip" {
     const alloc = std.testing.allocator;
     const config = pcs_core.PcsConfig{
@@ -747,6 +657,55 @@ test "examples wide_fibonacci: prove/verify wrapper roundtrip" {
     try std.testing.expectEqualSlices(u8, prove_bytes, prove_ex_bytes);
 }
 
+test "examples wide_fibonacci: coefficient fallback verifies with two-bit blowup" {
+    const config = pcs_core.PcsConfig{
+        .pow_bits = 0,
+        .fri_config = try @import("../core/fri.zig").FriConfig.init(0, 2, 3),
+    };
+    const output = try prove(
+        std.testing.allocator,
+        config,
+        .{ .log_n_rows = 5, .sequence_len = 8 },
+    );
+    try verify(std.testing.allocator, config, output.statement, output.proof);
+}
+
+test "examples wide_fibonacci: two-column trace has zero constraints" {
+    const config = pcs_core.PcsConfig{
+        .pow_bits = 0,
+        .fri_config = try @import("../core/fri.zig").FriConfig.init(0, 1, 3),
+    };
+    const output = try prove(
+        std.testing.allocator,
+        config,
+        .{ .log_n_rows = 5, .sequence_len = 2 },
+    );
+    try verify(std.testing.allocator, config, output.statement, output.proof);
+}
+
+test "examples wide_fibonacci: traces narrower than two columns are rejected" {
+    const config = pcs_core.PcsConfig{
+        .pow_bits = 0,
+        .fri_config = try @import("../core/fri.zig").FriConfig.init(0, 1, 3),
+    };
+    try std.testing.expectError(
+        error.InvalidSequenceLength,
+        prove(
+            std.testing.allocator,
+            config,
+            .{ .log_n_rows = 5, .sequence_len = 0 },
+        ),
+    );
+    try std.testing.expectError(
+        error.InvalidSequenceLength,
+        prove(
+            std.testing.allocator,
+            config,
+            .{ .log_n_rows = 5, .sequence_len = 1 },
+        ),
+    );
+}
+
 test "examples wide_fibonacci: verify wrapper rejects statement mismatch" {
     const config = pcs_core.PcsConfig{
         .pow_bits = 0,
@@ -769,7 +728,9 @@ test "examples wide_fibonacci: verify wrapper rejects statement mismatch" {
         try std.testing.expect(
             err == verification_error.OodsNotMatching or
                 err == verification_error.InvalidStructure or
-                err == verification_error.ShapeMismatch,
+                err == verification_error.ShapeMismatch or
+                err == verification_error.ColumnIndexOutOfBounds or
+                err == Error.InvalidProofShape,
         );
     }
 }

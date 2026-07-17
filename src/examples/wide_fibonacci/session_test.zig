@@ -61,14 +61,14 @@ test "wide Fibonacci session: sequential proofs match compatibility path exactly
 
     try std.testing.expectEqualSlices(u8, expected, first_bytes);
     try std.testing.expectEqualSlices(u8, expected, second_bytes);
-    try std.testing.expectEqual(@as(usize, 8543), expected.len);
+    try std.testing.expectEqual(@as(usize, 8912), expected.len);
     var digest: [std.crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
     std.crypto.hash.sha2.Sha256.hash(expected, &digest, .{});
     try std.testing.expectEqualSlices(u8, &[_]u8{
-        0x4e, 0xa2, 0x9a, 0x03, 0x88, 0x41, 0x5b, 0xad,
-        0xcb, 0xb2, 0x36, 0x1a, 0x35, 0xfe, 0x9d, 0xf9,
-        0xd7, 0x84, 0x48, 0x0f, 0x8b, 0x8e, 0xf3, 0x3b,
-        0xe7, 0xa0, 0xf8, 0x81, 0x2a, 0x0f, 0xaa, 0xcc,
+        0x2c, 0x90, 0x68, 0x4b, 0x49, 0x38, 0x78, 0x04,
+        0xfd, 0x51, 0xbe, 0xf3, 0xe2, 0x86, 0x20, 0x1e,
+        0x4b, 0x0b, 0x43, 0xa9, 0x6b, 0x42, 0x20, 0x0a,
+        0x7b, 0x68, 0x12, 0xa5, 0xa1, 0x1e, 0x31, 0x7d,
     }, &digest);
     try std.testing.expectEqual(@as(u64, 1), session.constructionTelemetry().tower_build_count);
 }
@@ -87,7 +87,7 @@ test "wide Fibonacci commitments match pinned raw Stwo oracle order" {
     const expected_hex = [_][]const u8{
         "2a133e150238721921d1ea772882979c810f85f2849099b9d3415a8619d85fad",
         "dfc402b1c9be2a0b32d61bc810f24190b5e549d5d86c41ac2b1b8d01063aeaeb",
-        "6be96c96047fe8c33c2a942fe8b1c4f27419a2b53dae4e66d62620be83ef32ba",
+        "ee5df2e32512551d63a489914903324afccee9670125e3f8783ce19f495854a2",
     };
     for (commitments, expected_hex) |commitment, encoded| {
         var expected: [32]u8 = undefined;
