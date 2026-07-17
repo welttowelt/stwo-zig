@@ -1,6 +1,6 @@
 # Native Backend Proof Suite
 
-Status: active; five-example real-AIR CPU/Metal matrix accepted, Poseidon matrix row open
+Status: complete; six-example real-AIR CPU/Metal correctness matrix accepted
 
 Date: 2026-07-17
 
@@ -23,27 +23,25 @@ oracle. RISC-V is outside this program.
 
 This is an architectural change, not six copies of the wide Fibonacci runner.
 
-## Current gap
+## Accepted scope
 
-Wide Fibonacci, XOR, Plonk, state machine, Blake, and Poseidon now expose the shared
+Wide Fibonacci, XOR, Plonk, state machine, Blake, and Poseidon expose the shared
 `ProverEngine`, reusable-session, prepared-input, and stage-recording transaction.
-The formal report-v3 CPU/Metal matrix currently dispatches Wide Fibonacci, XOR,
-Plonk, state machine, and Blake. Poseidon has focused CPU/Metal engine and session
-coverage but is not yet a tagged matrix workload, so the six-example suite is not
-closed.
+The formal report-v4 CPU/Metal matrix dispatches all six examples at bounded small
+and large geometries through that one transaction.
 
-The latest [committed broad report](../native-proof-backend-benchmark-2026-07-17.md) contains ten
-real-AIR rows across the five
-registered examples. Every CPU and Metal proof has identical canonical bytes and
-is accepted by the pinned Rust oracle. Seven rows satisfy the ordered stability
-gate; three remain diagnostic because at least one compared run drifted. This is
-strong correctness evidence, not yet the stable six-example optimization baseline
-required by this design.
+The latest [committed broad report](../native-proof-backend-benchmark-2026-07-17.md)
+contains 12 real-AIR rows across all six registered examples. Every lane produced
+ten verified byte-identical measured proofs, every CPU/Metal pair has identical
+canonical bytes, and the pinned Rust oracle accepted every artifact. Nine rows
+satisfy the ordered timing gate; three remain timing-diagnostic. Timing drift does
+not change the accepted exact-proof result.
 
-The interoperability artifact supports all six examples. The bidirectional
-interop and prove-checkpoint tools already pin upstream commit
-`a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2`. Those formats and fixtures must be
-reused, not duplicated.
+The bidirectional interoperability and prove-checkpoint tools exercise both Rust
+and Zig proof origins, both verifiers, canonical wire equality, and proof,
+statement, and mode tampering for all six examples. They pin upstream commit
+`a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2`; those formats and fixtures remain the
+single Native proof contract.
 
 ## Repository shape
 

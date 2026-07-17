@@ -1,0 +1,38 @@
+{
+  "archive": {
+    "baseline_artifact": "reports/native_proof_cross_backend_matrix_v3/dc9d9db85c436b6eb1712831d46504d250788685fb2424ebcb2d507246d21971.json",
+    "current_artifact": "reports/native_proof_cross_backend_matrix_v4/4f7a234ffe2d6fde65a01173d12becbb7b9aa8ab4cfcab3c322ba13a78ff353d.json",
+    "delta_artifact": "deltas/benchmark_delta_v1/f0ea216717483515d3af831d40d60e16e060bc51e5a636d3313c334e02efd6c8.json",
+    "delta_representation": "core_delta_without_archive_block",
+    "delta_sha256": "f0ea216717483515d3af831d40d60e16e060bc51e5a636d3313c334e02efd6c8",
+    "directory": "/Users/theodorepender/code/cryptography/stwo-zig/vectors/reports/benchmark_history",
+    "index": "/Users/theodorepender/code/cryptography/stwo-zig/vectors/reports/benchmark_history/index.json"
+  },
+  "comparison_identity": null,
+  "comparison_summary": null,
+  "comparisons": [],
+  "generated_at": "2026-07-17T23:50:00+01:00",
+  "incompatibilities": [
+    "benchmark report protocols differ"
+  ],
+  "normalizations": [],
+  "protocol": "benchmark_delta_v1",
+  "report_kind": "native_proof_cross_backend_matrix_v3->native_proof_cross_backend_matrix_v4",
+  "revisions": null,
+  "schema_version": 1,
+  "sources": {
+    "baseline": {
+      "bytes": 354338,
+      "path": "/Users/theodorepender/code/cryptography/stwo-zig/vectors/reports/benchmark_history/reports/native_proof_cross_backend_matrix_v3/dc9d9db85c436b6eb1712831d46504d250788685fb2424ebcb2d507246d21971.json",
+      "report_protocol": "native_proof_cross_backend_matrix_v3",
+      "sha256": "dc9d9db85c436b6eb1712831d46504d250788685fb2424ebcb2d507246d21971"
+    },
+    "current": {
+      "bytes": 532048,
+      "path": "/private/tmp/stwo-native-v4-formal-756afa46/summary.json",
+      "report_protocol": "native_proof_cross_backend_matrix_v4",
+      "sha256": "4f7a234ffe2d6fde65a01173d12becbb7b9aa8ab4cfcab3c322ba13a78ff353d"
+    }
+  },
+  "status": "incomparable"
+}

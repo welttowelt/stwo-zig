@@ -1,5 +1,9 @@
 {
   "artifacts": {
+    "4f7a234ffe2d6fde65a01173d12becbb7b9aa8ab4cfcab3c322ba13a78ff353d": {
+      "bytes": 532048,
+      "path": "reports/native_proof_cross_backend_matrix_v4/4f7a234ffe2d6fde65a01173d12becbb7b9aa8ab4cfcab3c322ba13a78ff353d.json"
+    },
     "79885f1d6388667541832529aec8970e7b30bdb995a109ffc7cc19c5f15d2012": {
       "bytes": 338064,
       "path": "reports/native_proof_cross_backend_matrix_v3/79885f1d6388667541832529aec8970e7b30bdb995a109ffc7cc19c5f15d2012.json"
@@ -39,12 +43,27 @@
       "id": "debb56dfdf93f88bf80369a2d766056b1e3c0f5af7f865ef48dae28f9e052ba3",
       "report_kind": "native_proof_cross_backend_matrix_v3",
       "status": "incomparable"
+    },
+    {
+      "archived_at": "2026-07-17T23:50:00+01:00",
+      "baseline_sha256": "dc9d9db85c436b6eb1712831d46504d250788685fb2424ebcb2d507246d21971",
+      "comparison_identity_sha256": null,
+      "current_sha256": "4f7a234ffe2d6fde65a01173d12becbb7b9aa8ab4cfcab3c322ba13a78ff353d",
+      "delta_path": "deltas/benchmark_delta_v1/f0ea216717483515d3af831d40d60e16e060bc51e5a636d3313c334e02efd6c8.json",
+      "delta_sha256": "f0ea216717483515d3af831d40d60e16e060bc51e5a636d3313c334e02efd6c8",
+      "id": "aea8e859cbfb3075f22cc157dc08d3fd462e6ee95b45fad126493b12b51b9b84",
+      "report_kind": "native_proof_cross_backend_matrix_v3->native_proof_cross_backend_matrix_v4",
+      "status": "incomparable"
     }
   ],
   "deltas": {
     "49f5cdc7c7c447aa9b7fb932e628f909e4159ed9973bcc54b2386defb4290171": {
       "bytes": 173248,
       "path": "deltas/benchmark_delta_v1/49f5cdc7c7c447aa9b7fb932e628f909e4159ed9973bcc54b2386defb4290171.json"
+    },
+    "f0ea216717483515d3af831d40d60e16e060bc51e5a636d3313c334e02efd6c8": {
+      "bytes": 1128,
+      "path": "deltas/benchmark_delta_v1/f0ea216717483515d3af831d40d60e16e060bc51e5a636d3313c334e02efd6c8.json"
     },
     "fbff06814189e517c1865d0d1cec84c73d47e48148d6223bd793104f93409d3a": {
       "bytes": 1007,
