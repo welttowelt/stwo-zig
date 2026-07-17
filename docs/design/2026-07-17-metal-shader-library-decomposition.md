@@ -87,20 +87,24 @@ target architecture and must not be described as an AOT shader library yet:
 - the relation increment moves all four relation kernels and their private helpers intact into
   `core/relation.metal`. The kernel and helper bodies remain text-identical, and manifest tests
   enforce standalone dependencies, unique ownership, and stable argument fragments;
-- the legacy file is now 2,192 lines. Its remaining 67 exported entry points, the complete
+- the Cairo trace increment moves all six gather, execution/memory trace, count, and public-memory
+  seed kernels intact into `cairo/trace.metal`. The moved block is byte-for-byte equivalent after
+  extraction, and its standalone unit imports only the base shader header;
+- the legacy file is now 2,058 lines. Its remaining 61 exported entry points, the complete
   90-export runtime lookup set, and the one-library source-JIT boundary remain unchanged;
 - Stage 0 remains incomplete until every argument contract is represented in the manifest, Metal
   reflection validates it, and cold compilation/PSO/library counts are captured;
 - Stage 1 support-header decomposition is complete: shared circle, Merkle, decommit, Felt252, EC,
   and generated-witness support have explicit guarded owners. Protocol-family kernels remain in
   the legacy unit until their later family-move stages;
-- Stage 2 is underway: composition, commitments, and relations now have their planned family owners
-  while the other protocol families listed in the target layout remain in the legacy unit;
+- Stage 2 is underway: composition, commitments, relations, and Cairo trace kernels now have their
+  planned family owners while the other protocol families listed in the target layout remain in
+  the legacy unit;
 - AOT AIR compilation/linking and authenticated metallib loading remain Stage 5 work. No current
   source extraction removes runtime compilation or changes warm proving speed.
 
 The Stage 1 support-header boundary is complete and Stage 2 has begun with composition,
-commitments, and relations. Each later family move still requires exact export, ABI,
+commitments, relations, and Cairo trace kernels. Each later family move still requires exact export, ABI,
 runtime-lookup, and dispatch preservation; source-JIT amalgamation resolving helpers by
 concatenation order is not sufficient evidence by itself.
 

@@ -149,6 +149,7 @@ const witness_abi_source = @embedFile("include/witness_abi.metal");
 const witness_tables_source = @embedFile("include/witness_tables.metal");
 const witness_deductions_source = @embedFile("include/witness_deductions.metal");
 const commitments_source = @embedFile("core/commitments.metal");
+const cairo_trace_source = @embedFile("cairo/trace.metal");
 const arena_ops_source = @embedFile("core/arena_ops.metal");
 const transcript_source = @embedFile("core/transcript.metal");
 const composition_source = @embedFile("core/composition.metal");
@@ -174,6 +175,7 @@ pub const support_headers = [_]TranslationUnit{
 pub const translation_units = [_]TranslationUnit{
     .{ .path = "src/backends/metal/shaders/core/commitments.metal", .source = commitments_source },
     .{ .path = "src/backends/metal/kernels.metal", .source = legacy_source },
+    .{ .path = "src/backends/metal/shaders/cairo/trace.metal", .source = cairo_trace_source },
     .{ .path = "src/backends/metal/shaders/core/arena_ops.metal", .source = arena_ops_source },
     .{ .path = "src/backends/metal/shaders/core/transcript.metal", .source = transcript_source },
     .{ .path = "src/backends/metal/shaders/core/composition.metal", .source = composition_source },
@@ -214,6 +216,8 @@ pub const amalgamated_source: [:0]const u8 = "#define STWO_ZIG_AMALGAMATED 1\n" 
     commitments_source ++
     "\n#line 1 \"src/backends/metal/kernels.metal\"\n" ++
     legacy_source ++
+    "\n#line 1 \"src/backends/metal/shaders/cairo/trace.metal\"\n" ++
+    cairo_trace_source ++
     "\n#line 1 \"src/backends/metal/shaders/core/arena_ops.metal\"\n" ++
     arena_ops_source ++
     "\n#line 1 \"src/backends/metal/shaders/core/transcript.metal\"\n" ++
@@ -365,6 +369,36 @@ test "relation kernels are isolated in their owning shader unit with a stable AB
     };
     for (abi_fragments) |fragment| {
         try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, relation_source, fragment));
+    }
+}
+
+test "Cairo trace kernels are isolated in their owning shader unit with a stable ABI" {
+    const names = [_][]const u8{
+        "stwo_zig_witness_input_gather_resident",
+        "stwo_zig_execution_table_split_resident",
+        "stwo_zig_memory_address_base_trace_resident",
+        "stwo_zig_memory_value_base_trace_resident",
+        "stwo_zig_memory_rc99_count_resident",
+        "stwo_zig_public_memory_seed_resident",
+    };
+    for (names) |name| {
+        try std.testing.expectEqual(@as(usize, 0), countKernelDeclarations(legacy_source, name));
+        try std.testing.expectEqual(@as(usize, 1), countKernelDeclarations(cairo_trace_source, name));
+        try std.testing.expectEqual(@as(usize, 1), countKernelDeclarations(amalgamated_source, name));
+    }
+
+    try std.testing.expect(std.mem.indexOf(u8, cairo_trace_source, "#include \"stwo_zig/base.metal\"") != null);
+    const bindings = [_]struct { kernel: []const u8, argument: []const u8 }{
+        .{ .kernel = "stwo_zig_witness_input_gather_resident", .argument = "constant uint &include_iota [[buffer(9)]]" },
+        .{ .kernel = "stwo_zig_execution_table_split_resident", .argument = "constant uint *destination_offsets [[buffer(6)]]" },
+        .{ .kernel = "stwo_zig_memory_address_base_trace_resident", .argument = "constant uint &multiplicity_words [[buffer(4)]]" },
+        .{ .kernel = "stwo_zig_memory_value_base_trace_resident", .argument = "constant uint *output_offsets [[buffer(8)]]" },
+        .{ .kernel = "stwo_zig_memory_rc99_count_resident", .argument = "constant uint &count_offset [[buffer(6)]]" },
+        .{ .kernel = "stwo_zig_public_memory_seed_resident", .argument = "constant uint &small_count_words [[buffer(8)]]" },
+    };
+    for (bindings) |binding| {
+        const declaration = try kernelDeclaration(cairo_trace_source, binding.kernel);
+        try std.testing.expect(std.mem.indexOf(u8, declaration, binding.argument) != null);
     }
 }
 
