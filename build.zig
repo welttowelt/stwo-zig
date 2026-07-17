@@ -800,6 +800,17 @@ pub fn build(b: *std.Build) void {
     const api_parity_step = b.step("api-parity", "Validate API parity ledger coverage");
     api_parity_step.dependOn(&api_parity_cmd.step);
 
+    // Source ownership, dependency direction, and file-size ratchet.
+    const source_conformance_cmd = b.addSystemCommand(&.{
+        "python3",
+        "scripts/check_source_conformance.py",
+    });
+    const source_conformance_step = b.step(
+        "source-conformance",
+        "Reject new source layout, dependency direction, and file-size violations",
+    );
+    source_conformance_step.dependOn(&source_conformance_cmd.step);
+
     // Upstream surface audit for rust_path validity at pinned commit.
     const upstream_surface_cmd = b.addSystemCommand(&.{ "python3", "scripts/check_upstream_surface.py" });
     const upstream_surface_step = b.step(
@@ -817,10 +828,15 @@ pub fn build(b: *std.Build) void {
     roadmap_baseline_step.dependOn(&roadmap_baseline_cmd.step);
 
     // Deterministic release gate sequence:
-    // fmt -> test -> api-parity -> vectors -> interop -> bench-smoke -> profile-smoke
+    // fmt -> source-conformance -> test -> api-parity -> vectors -> interop -> bench-smoke -> profile-smoke
     const rg_fmt = b.addSystemCommand(&.{ "zig", "fmt", "--check", "build.zig", "src", "tools" });
+    const rg_source_conformance = b.addSystemCommand(&.{
+        "python3",
+        "scripts/check_source_conformance.py",
+    });
+    rg_source_conformance.step.dependOn(&rg_fmt.step);
     const rg_test = b.addSystemCommand(&.{ "zig", "test", "src/stwo.zig" });
-    rg_test.step.dependOn(&rg_fmt.step);
+    rg_test.step.dependOn(&rg_source_conformance.step);
     const rg_api_parity = b.addSystemCommand(&.{ "python3", "scripts/check_api_parity.py" });
     rg_api_parity.step.dependOn(&rg_test.step);
     const rg_vectors_fields = b.addSystemCommand(&.{ "python3", "scripts/parity_fields.py", "--skip-zig" });
@@ -846,15 +862,20 @@ pub fn build(b: *std.Build) void {
 
     const release_gate_step = b.step(
         "release-gate",
-        "Run release gate sequence (fmt -> test -> api-parity -> vectors -> interop -> bench-smoke -> profile-smoke)",
+        "Run release gate sequence (fmt -> source-conformance -> test -> api-parity -> vectors -> interop -> bench-smoke -> profile-smoke)",
     );
     release_gate_step.dependOn(&rg_profile.step);
 
     // Strict release gate sequence:
-    // fmt -> test -> api-parity -> deep-gate -> vectors -> interop -> prove-checkpoints -> bench-strict -> profile-smoke -> std-shims-smoke -> std-shims-behavior
+    // fmt -> source-conformance -> test -> api-parity -> deep-gate -> vectors -> interop -> prove-checkpoints -> bench-strict -> profile-smoke -> std-shims-smoke -> std-shims-behavior
     const rgs_fmt = b.addSystemCommand(&.{ "zig", "fmt", "--check", "build.zig", "src", "tools" });
+    const rgs_source_conformance = b.addSystemCommand(&.{
+        "python3",
+        "scripts/check_source_conformance.py",
+    });
+    rgs_source_conformance.step.dependOn(&rgs_fmt.step);
     const rgs_test = b.addSystemCommand(&.{ "zig", "test", "src/stwo.zig" });
-    rgs_test.step.dependOn(&rgs_fmt.step);
+    rgs_test.step.dependOn(&rgs_source_conformance.step);
     const rgs_api_parity = b.addSystemCommand(&.{ "python3", "scripts/check_api_parity.py" });
     rgs_api_parity.step.dependOn(&rgs_test.step);
     const rgs_deep = b.addSystemCommand(&.{ "zig", "test", "src/stwo_deep.zig" });
@@ -912,7 +933,7 @@ pub fn build(b: *std.Build) void {
 
     const release_gate_strict_step = b.step(
         "release-gate-strict",
-        "Run strict release gate sequence (fmt -> test -> api-parity -> deep-gate -> vectors -> interop -> prove-checkpoints -> bench-strict -> profile-smoke -> std-shims-smoke -> std-shims-behavior -> release-evidence)",
+        "Run strict release gate sequence (fmt -> source-conformance -> test -> api-parity -> deep-gate -> vectors -> interop -> prove-checkpoints -> bench-strict -> profile-smoke -> std-shims-smoke -> std-shims-behavior -> release-evidence)",
     );
     release_gate_strict_step.dependOn(&rgs_evidence.step);
 

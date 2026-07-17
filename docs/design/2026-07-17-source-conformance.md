@@ -28,6 +28,28 @@ The 2026-07-17 inventory found:
 Line count is a signal, not the migration objective. Each extraction must reduce the concepts and
 dependency edges a reader needs to understand.
 
+## Progress Checkpoint
+
+The first migration pass has established these boundaries without changing proof formats:
+
+- PCS sampled-value evaluation, column preparation, tree construction, and integration tests now
+  live in separate modules instead of a single prover facade.
+- Lifted VCS columns, tuning parameters, Merkle layer construction, leaf construction, and tests
+  are separate responsibilities. The facade is below the 850-line ceiling.
+- Rust-oracle review found and corrected missing lifted Blake2 leaf and node prefixes in the Zig
+  scalar, SIMD, and Metal paths; parity tests cover the corrected protocol behavior.
+- Cairo witness geometry is owned by the proof plan, and Cairo-to-Metal orchestration is under the
+  integration layer rather than the frontend.
+- Resident arena planning, schedule selection, SN2 decommit geometry, and core FRI geometry have
+  independent modules. Metal execution remains outside the pure scheduling layer.
+- `scripts/check_source_conformance.py` provides a blocking ratchet for dependency direction,
+  root-source placement, generated-file declarations, and the 850-line ceiling.
+
+The checked-in enforcement baseline contains 68 explained legacy findings: 23 dependency edges,
+18 oversized manually maintained files, and 27 misplaced root sources. New findings and stale
+baseline entries fail the check. Removing a violation therefore requires removing its baseline
+entry in the same change.
+
 ## Invariants
 
 1. `core` contains backend-independent mathematics, protocol types, transcripts, and verification.

@@ -1,0 +1,345 @@
+{
+  "version": 1,
+  "findings": [
+    {
+      "key": "dependency:backend/mod.zig->backends/cpu_scalar/mod.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "dependency:backends/metal/eval_codegen.zig->frontends/cairo/witness/eval_program.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "dependency:backends/metal/witness_codegen.zig->frontends/cairo/witness/program.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "dependency:core/vcs/test_utils.zig->prover/vcs/prover.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "dependency:core/vcs_lifted/test_utils.zig->prover/vcs_lifted/prover.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "dependency:frontends/cairo/memory_trace.zig->backends/metal/arena_plan.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "dependency:frontends/cairo/memory_trace.zig->backends/metal/runtime.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "dependency:frontends/cairo/prove_trace.zig->backends/cpu_scalar/mod.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "dependency:frontends/cairo/witness/oods.zig->backends/metal/arena_plan.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "dependency:frontends/cairo/witness/oods.zig->backends/metal/runtime.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "dependency:frontends/cairo/witness/quotient_inputs.zig->backends/metal/arena_plan.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "dependency:frontends/cairo/witness/quotient_inputs.zig->backends/metal/runtime.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "dependency:frontends/cairo/witness/recovery.zig->backends/metal/arena_plan.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "dependency:frontends/cairo/witness/recovery.zig->backends/metal/recovery.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "dependency:frontends/riscv/prover.zig->backends/cpu_scalar/mod.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "dependency:prover/poly/circle/evaluation.zig->backends/cpu_scalar/mod.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "dependency:prover/poly/circle/poly.zig->backends/cpu_scalar/mod.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "dependency:prover/prove.zig->backends/cpu_scalar/mod.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "dependency:prover/secure_column.zig->backends/cpu_scalar/mod.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "dependency:prover/tests/fri.zig->backends/cpu_scalar/mod.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "dependency:prover/tests/pcs/commitment.zig->backends/cpu_scalar/mod.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "dependency:prover/tests/pcs/opening.zig->backends/cpu_scalar/mod.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "dependency:prover/tests/prove.zig->backends/cpu_scalar/mod.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "file-size:backends/metal/protocol_recipes.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "file-size:backends/metal/runtime.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "file-size:frontends/cairo/statement_bootstrap.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "file-size:frontends/cairo/witness/quotient_inputs.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "file-size:frontends/cairo/witness/resident_verifier.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "file-size:frontends/riscv/air/trace_columns.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "file-size:frontends/riscv/infra_trace.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "file-size:frontends/riscv/prover.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "file-size:frontends/riscv/runner/trace.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "file-size:integrations/cairo_metal/arena_binding.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "file-size:interop/parity/vectors.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "file-size:interop_cli.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "file-size:metal_arena_plan_cli.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "file-size:metal_backend_test.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "file-size:metal_prover_session_cli.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "file-size:prover/lookups/gkr_prover.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "file-size:prover/pcs/quotient_ops.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "file-size:prover/poly/circle/poly.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "root-source:artifact_manifest.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "root-source:artifact_store.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "root-source:artifact_views.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "root-source:bench_kernels.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "root-source:cairo_bench_cli.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "root-source:cairo_input_cli.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "root-source:interop_cli.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "root-source:metal_arena_plan_cli.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "root-source:metal_arena_plan_test.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "root-source:metal_backend_test.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "root-source:metal_bench_cli.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "root-source:metal_compact_bench_cli.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "root-source:metal_ec_op_bench_cli.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "root-source:metal_eval_prepare_cli.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "root-source:metal_eval_source_cli.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "root-source:metal_eval_test.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "root-source:metal_prover_session_cli.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "root-source:metal_prover_session_protocol.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "root-source:metal_recovery_bench_cli.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "root-source:metal_witness_source_cli.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "root-source:riscv_bench_cli.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "root-source:riscv_metal_bench_cli.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "root-source:riscv_prover_test.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "root-source:riscv_trace_cli.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "root-source:riscv_trace_test.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "root-source:statement_bootstrap_test.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    },
+    {
+      "key": "root-source:std_shims_freestanding.zig",
+      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+      "plan": "docs/design/2026-07-17-source-conformance.md"
+    }
+  ]
+}
