@@ -17,6 +17,9 @@ const cairo_domain_prefix_bytes = cairo_merkle.domainPrefixBytes();
 
 pub const FriGeometry = fri_geometry.FriGeometry;
 
+/// One circle-to-line or line-to-line FRI fold with every operand resident in
+/// the shared arena. The challenge and inverse-coordinate column are bindings,
+/// so replay never uploads control data or reads the folded column back.
 pub const FriFoldRecipe = struct {
     metal: *runtime.Runtime,
     arena: *arena_plan.ResidentArena,

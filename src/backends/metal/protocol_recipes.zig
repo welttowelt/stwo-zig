@@ -14,6 +14,7 @@ const fixed_tables = @import("recipes/fixed_tables.zig");
 const fri_recipes = @import("recipes/fri.zig");
 const merkle_recipes = @import("recipes/merkle.zig");
 const proof_assembly = @import("recipes/proof_assembly.zig");
+const recovery_primitives = @import("recipes/recovery_primitives.zig");
 const relation = @import("recipes/relation.zig");
 const witness_feed = @import("recipes/witness_feed.zig");
 
@@ -44,6 +45,9 @@ pub const MerkleParentChainRecipe = merkle_recipes.ParentChainRecipe;
 pub const MerkleCommitRecipe = merkle_recipes.CommitRecipe;
 pub const ProofCopy = proof_assembly.ProofCopy;
 pub const ProofAssemblyRecipe = proof_assembly.ProofAssemblyRecipe;
+pub const CopyRecipe = recovery_primitives.CopyRecipe;
+pub const HostCopyRecipe = recovery_primitives.HostCopyRecipe;
+pub const ZeroRecipe = recovery_primitives.ZeroRecipe;
 pub const RelationInstanceBindings = relation.RelationInstanceBindings;
 pub const RelationRecipe = relation.RelationRecipe;
 pub const DestinationColumns = witness_feed.DestinationColumns;
@@ -52,51 +56,6 @@ pub const WitnessFeedRecipe = witness_feed.WitnessFeedRecipe;
 pub const WitnessFeedBatchEntry = witness_feed.WitnessFeedBatchEntry;
 pub const WitnessFeedBatchRecipe = witness_feed.WitnessFeedBatchRecipe;
 
-pub const CopyRecipe = struct {
-    access: recovery.BufferAccess,
-    source: arena_plan.Binding,
-
-    pub fn recipe(self: *CopyRecipe, logical_id: u32) recovery.Recipe {
-        return .{ .logical_id = logical_id, .context = self, .run = run };
-    }
-
-    fn run(raw: *anyopaque, _: u16, _: arena_plan.Binding, destination: []u8) !void {
-        const self: *CopyRecipe = @ptrCast(@alignCast(raw));
-        const source = try self.access.bytes(self.source);
-        if (source.len != destination.len) return recovery.RecoveryError.BindingSizeMismatch;
-        @memcpy(destination, source);
-    }
-};
-
-/// Restores deterministic adapter/witness seeds from compact host ownership.
-/// This is recomputation input, not a second Metal allocation.
-pub const HostCopyRecipe = struct {
-    source: []const u8,
-
-    pub fn recipe(self: *HostCopyRecipe, logical_id: u32) recovery.Recipe {
-        return .{ .logical_id = logical_id, .context = self, .run = run };
-    }
-
-    fn run(raw: *anyopaque, _: u16, _: arena_plan.Binding, destination: []u8) !void {
-        const self: *HostCopyRecipe = @ptrCast(@alignCast(raw));
-        if (self.source.len != destination.len) return recovery.RecoveryError.BindingSizeMismatch;
-        @memcpy(destination, self.source);
-    }
-};
-
-pub const ZeroRecipe = struct {
-    pub fn recipe(logical_id: u32) recovery.Recipe {
-        return .{ .logical_id = logical_id, .context = undefined, .run = run };
-    }
-
-    fn run(_: *anyopaque, _: u16, _: arena_plan.Binding, destination: []u8) !void {
-        @memset(destination, 0);
-    }
-};
-
-/// One circle-to-line or line-to-line FRI fold with every operand resident in
-/// the shared arena. The challenge and inverse-coordinate column are bindings,
-/// so replay never uploads control data or reads the folded column back.
 pub const TranscriptBinding = struct {
     ordinal: u32,
     binding: arena_plan.Binding,
@@ -870,27 +829,3 @@ pub const TranscriptRecipe = struct {
         return std.math.cast(u32, binding.offset_bytes / 4) orelse recovery.RecoveryError.BindingSizeMismatch;
     }
 };
-
-test "Metal protocol recovery: copy recipe writes the destination binding" {
-    const Access = struct {
-        source: []u8,
-        fn bytes(raw: *anyopaque, _: arena_plan.Binding) ![]u8 {
-            const self: *@This() = @ptrCast(@alignCast(raw));
-            return self.source;
-        }
-    };
-    var source = [_]u8{ 1, 2, 3, 4 };
-    var access_context = Access{ .source = &source };
-    const binding = arena_plan.Binding{
-        .logical_id = 1,
-        .slot = 0,
-        .offset_bytes = 0,
-        .size_bytes = 4,
-        .materialization = .resident,
-        .occupied = [_]u64{0} ** (arena_plan.max_ticks / 64),
-    };
-    var copy = CopyRecipe{ .access = .{ .context = &access_context, .bytes_fn = Access.bytes }, .source = binding };
-    var destination = [_]u8{0} ** 4;
-    try copy.recipe(2).run(&copy, 1, binding, &destination);
-    try std.testing.expectEqualSlices(u8, &source, &destination);
-}
