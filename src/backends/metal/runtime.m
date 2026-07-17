@@ -14,6 +14,10 @@
 
 #include "runtime/abi.h"
 
+@class StwoZigEvalLibraryKey;
+@class StwoZigEvalPipelineKey;
+@class StwoZigEvalArchiveKey;
+
 @interface StwoZigMetalRuntime : NSObject
 @property(nonatomic, strong) id<MTLDevice> device;
 @property(nonatomic, strong) id<MTLCommandQueue> queue;
@@ -107,8 +111,8 @@
 @property(nonatomic, strong) id<MTLComputePipelineState> compositionExpand;
 @property(nonatomic, strong) id<MTLComputePipelineState> compositionRandomPowers;
 @property(nonatomic, strong) id<MTLComputePipelineState> compositionExtParams;
-@property(nonatomic, strong) NSMutableDictionary<NSString *, id> *evalLibraries;
-@property(nonatomic, strong) NSMutableDictionary<NSString *, id<MTLComputePipelineState>> *evalPipelines;
+@property(nonatomic, strong) NSMutableDictionary<StwoZigEvalLibraryKey *, id> *evalLibraries;
+@property(nonatomic, strong) NSMutableDictionary<StwoZigEvalPipelineKey *, id<MTLComputePipelineState>> *evalPipelines;
 @property(nonatomic) uint64_t evalLibraryCacheHits;
 @property(nonatomic) uint64_t evalLibraryCacheMisses;
 @property(nonatomic) uint64_t evalPipelineCacheHits;
@@ -271,9 +275,11 @@
 @property(nonatomic, strong) id<MTLLibrary> library;
 @property(nonatomic, strong) id<MTLBinaryArchive> archive;
 @property(nonatomic, strong) NSURL *archiveURL;
-@property(nonatomic, copy) NSString *cacheKey;
+@property(nonatomic, strong) StwoZigEvalLibraryKey *cacheKey;
+@property(nonatomic, strong) StwoZigEvalArchiveKey *archiveKey;
 @property(nonatomic, strong) NSData *sourceBytes;
 @property(nonatomic, weak) StwoZigMetalRuntime *runtimeOwner;
+@property(nonatomic) uint64_t cacheByteCost;
 @property(nonatomic) bool archiveLoaded;
 @property(nonatomic) bool archiveDirty;
 @end
@@ -656,6 +662,7 @@ static StwoZigMetalRuntime *create_runtime_from_library(
 #import "runtime/circle_plans.m"
 #import "runtime/merkle_epochs.m"
 #import "runtime/auxiliary_plans.m"
+#import "runtime/cache_identity.m"
 #import "runtime/dynamic_evaluation.m"
 #import "runtime/composition.m"
 #import "runtime/prepared_auxiliary.m"

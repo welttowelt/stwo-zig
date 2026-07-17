@@ -1,6 +1,16 @@
 const std = @import("std");
 const metal = @import("../../../backends/metal/runtime.zig");
 
+extern fn stwo_zig_metal_eval_prepare_library(
+    runtime: *anyopaque,
+    library: *anyopaque,
+    name: [*]const u8,
+    name_len: usize,
+    arguments: *const [14]u32,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
+
 const library_count = 9;
 const pipeline_count = 65;
 const function_name = "stwo_zig_cache_probe";
@@ -66,6 +76,27 @@ test "metal: dynamic library and pipeline caches are bounded across teardown" {
         var retained_plan = try runtime.prepareEvalFromLibrary(libraries[0], function_name, layout);
         defer retained_plan.deinit();
 
+        var foreign_runtime = try metal.Runtime.init();
+        defer foreign_runtime.deinit();
+        var foreign_arguments = [_]u32{0} ** 14;
+        foreign_arguments[10] = layout.row_count;
+        var foreign_message = [_]u8{0} ** 256;
+        try std.testing.expectEqual(
+            @as(?*anyopaque, null),
+            stwo_zig_metal_eval_prepare_library(
+                foreign_runtime.handle,
+                libraries[0].handle,
+                function_name.ptr,
+                function_name.len,
+                &foreign_arguments,
+                &foreign_message,
+                foreign_message.len,
+            ),
+        );
+        try std.testing.expect(std.mem.indexOf(u8, &foreign_message, "different runtime or device") != null);
+        const foreign_stats = foreign_runtime.pipelineCacheStats();
+        try std.testing.expectEqual(@as(u64, 0), foreign_stats.pipeline_cache_entries);
+
         for (1..library_count) |index| {
             const source = try sourceFor(allocator, index);
             defer allocator.free(source);
@@ -130,4 +161,20 @@ test "metal: dynamic library and pipeline caches are bounded across teardown" {
     try std.testing.expectEqual(@as(u64, 0), fresh.pipeline_cache_peak_entries);
     try std.testing.expect(fresh.library_cache_entry_limit > 0);
     try std.testing.expect(fresh.pipeline_cache_entry_limit > 0);
+
+    const deterministic_source = try sourceFor(allocator, 0);
+    defer allocator.free(deterministic_source);
+    var first_library = try fresh_runtime.compileEvalLibrary(deterministic_source);
+    defer first_library.deinit();
+    var second_library = try fresh_runtime.compileEvalLibrary(deterministic_source);
+    defer second_library.deinit();
+    const after_library_hit = fresh_runtime.pipelineCacheStats();
+    try std.testing.expectEqual(@as(u64, 1), after_library_hit.library_cache_entries);
+    try std.testing.expectEqual(@as(u64, 1), after_library_hit.library_cache_hits);
+
+    var archive_plan = try fresh_runtime.prepareEvalFromLibrary(first_library, function_name, layout);
+    defer archive_plan.deinit();
+    const after_archive_hit = fresh_runtime.pipelineCacheStats();
+    try std.testing.expectEqual(@as(u64, 1), after_archive_hit.binary_archive_hits);
+    try std.testing.expectEqual(@as(u64, 0), after_archive_hit.direct_compiles);
 }

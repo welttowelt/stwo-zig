@@ -4,6 +4,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE_PATHS = (
+    ROOT / "src/backends/metal/runtime/cache_identity.m",
     ROOT / "src/backends/metal/runtime/dynamic_evaluation.m",
     ROOT / "src/backends/metal/runtime/lifecycle_and_tree.m",
     ROOT / "src/backends/metal/runtime.m",
@@ -46,17 +47,19 @@ class MetalPipelineCacheSourceTest(unittest.TestCase):
             "void *stwo_zig_metal_eval_library_compile(",
         )
         self.assertIn("NSDataReadingMappedIfSafe", body)
-        self.assertIn("eval_source_sha256_hex(libraryData.bytes, libraryData.length)", body)
-        self.assertIn('metallib:sha256:%@:%zu', body)
-        self.assertIn("eval_metallib_archive_path(libraryDigest, libraryData.length)", body)
-        self.assertNotIn('stringByAppendingString:@".binarchive"', body)
+        self.assertIn("eval_sha256_hex(libraryData.bytes, libraryData.length)", body)
+        self.assertIn("StwoZigEvalLibraryKindMetallib", body)
+        self.assertIn("result.archiveKey = eval_archive_key(cacheKey)", body)
+        self.assertIn("eval_archive_path(result.archiveKey)", body)
+        self.assertIn("eval_library_from_data(runtime.device, libraryData", body)
+        self.assertNotIn("newLibraryWithURL", body)
         helper = function_body(
             self.source,
-            "static NSString *eval_metallib_archive_path(",
-            "static bool serialize_eval_archive(",
+            "static NSString *eval_archive_path(",
+            "#import <objc/runtime.h>",
         )
         self.assertIn("NSTemporaryDirectory()", helper)
-        self.assertIn("stwo-zig-eval-metallib-sha256-%@-%zu.binarchive", helper)
+        self.assertIn("stwo-zig-eval-cache-v2-%@.binarchive", helper)
 
     def test_archive_hit_is_probed_before_confirmed_miss_population(self):
         body = function_body(
@@ -97,14 +100,12 @@ class MetalPipelineCacheSourceTest(unittest.TestCase):
             "void *stwo_zig_metal_eval_library_compile(",
             "void stwo_zig_metal_eval_library_destroy(",
         )
-        self.assertIn("eval_source_sha256_hex(source_bytes, source_len)", body)
-        self.assertIn(
-            'NSString *cacheKey = [NSString stringWithFormat:@"source:sha256:%@:%zu"',
-            body,
-        )
+        self.assertIn("eval_sha256_hex(source_bytes, source_len)", body)
+        self.assertIn("StwoZigEvalLibraryKindSource", body)
+        self.assertIn("eval_library_key(", body)
         self.assertIn("[cached.sourceBytes isEqualToData:sourceData]", body)
         self.assertIn("Metal source cache identity collision", body)
-        key = body.index("eval_source_sha256_hex(source_bytes, source_len)")
+        key = body.index("eval_sha256_hex(source_bytes, source_len)")
         synchronized = body.index("@synchronized(runtime)", key)
         lookup = body.index("runtime.evalLibraries[cacheKey]", synchronized)
         hit = body.index("runtime.evalLibraryCacheHits += 1u", lookup)
@@ -119,16 +120,16 @@ class MetalPipelineCacheSourceTest(unittest.TestCase):
         self.assertLess(compile_library, insertion)
         self.assertIn("result.cacheKey = cacheKey", body)
         self.assertIn("result.sourceBytes = sourceData", body)
-        self.assertIn("NSTemporaryDirectory()", body)
-        self.assertIn("stwo-zig-eval-sha256-%@-%zu.binarchive", body)
+        self.assertIn("result.archiveKey = eval_archive_key(cacheKey)", body)
+        self.assertIn("eval_archive_path(result.archiveKey)", body)
         self.assertIn("result.archiveLoaded", body)
         self.assertIn("newBinaryArchiveWithDescriptor", body)
 
     def test_source_identity_uses_full_sha256_not_fnv64(self):
         identity = function_body(
             self.source,
-            "static NSString *eval_source_sha256_hex(",
-            "static bool serialize_eval_archive(",
+            "static NSString *eval_sha256_hex(",
+            "static NSString *eval_length_prefixed(",
         )
         self.assertIn("CC_SHA256_Init", identity)
         self.assertIn("CC_SHA256_Update", identity)
@@ -136,6 +137,54 @@ class MetalPipelineCacheSourceTest(unittest.TestCase):
         self.assertIn("CC_SHA256_DIGEST_LENGTH * 2u", identity)
         self.assertNotIn("1099511628211", self.source)
         self.assertNotIn("14695981039346656037", self.source)
+
+    def test_cache_keys_bind_typed_device_os_profile_and_content_identity(self):
+        self.assertIn("@interface StwoZigEvalRuntimeIdentity : NSObject <NSCopying>", self.source)
+        for field in (
+            "registryID",
+            "architectureName",
+            "familySetSha256",
+            "osVersion",
+            "osBuild",
+            "compileProfile",
+        ):
+            self.assertIn(field, self.source)
+        self.assertIn("device.architecture.name", self.source)
+        self.assertIn("supportsFamily:family", self.source)
+        self.assertIn('system[@"ProductBuildVersion"]', self.source)
+        self.assertIn("language=metal3.1;math=safe;minimum-macos=14.0", self.source)
+        self.assertIn("@interface StwoZigEvalLibraryKey : NSObject <NSCopying>", self.source)
+        self.assertIn("contentSha256", self.source)
+        self.assertIn("contentBytes", self.source)
+        self.assertIn("@interface StwoZigEvalPipelineKey : NSObject <NSCopying>", self.source)
+        self.assertIn("functionName", self.source)
+        self.assertIn('functionConstantIdentity = @"none"', self.source)
+        self.assertIn('descriptorContract = @"compute-default-v1"', self.source)
+        self.assertIn("@interface StwoZigEvalArchiveKey : NSObject <NSCopying>", self.source)
+        self.assertIn('pipelineContract = @"compute-default-v1"', self.source)
+        self.assertIn("2001, 2002, 3001, 3002, 3003, 5001, 5002", self.source)
+        self.assertIn("NSMutableDictionary<StwoZigEvalLibraryKey *, id>", self.source)
+        self.assertIn(
+            "NSMutableDictionary<StwoZigEvalPipelineKey *, id<MTLComputePipelineState>>",
+            self.source,
+        )
+
+    def test_pipeline_identity_and_invalidation_use_typed_library_keys(self):
+        resolver = function_body(
+            self.source,
+            "static id<MTLComputePipelineState> resolve_eval_pipeline(",
+            "static id<MTLLibrary> eval_library_from_data(",
+        )
+        self.assertIn("eval_pipeline_key(library.cacheKey, name)", resolver)
+        self.assertIn("library.runtimeOwner != runtime", resolver)
+        self.assertIn("library.library.device != runtime.device", resolver)
+        invalidation = function_body(
+            self.source,
+            "static void invalidate_eval_library_pipelines(",
+            "static void evict_eval_library(",
+        )
+        self.assertIn("[key.libraryKey isEqual:libraryKey]", invalidation)
+        self.assertNotIn("hasPrefix", invalidation)
 
     def test_source_cache_returns_independently_retained_handles(self):
         compile_body = function_body(

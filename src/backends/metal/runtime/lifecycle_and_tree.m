@@ -2,11 +2,11 @@ void stwo_zig_metal_runtime_destroy(void *runtime_ptr) {
     if (runtime_ptr == NULL) return;
     @autoreleasepool {
         StwoZigMetalRuntime *runtime = (__bridge_transfer StwoZigMetalRuntime *)runtime_ptr;
-        NSArray<NSString *> *keys = nil;
+        NSArray<StwoZigEvalLibraryKey *> *keys = nil;
         @synchronized(runtime) {
             keys = [runtime.evalLibraries.allKeys sortedArrayUsingSelector:@selector(compare:)];
         }
-        for (NSString *key in keys) {
+        for (StwoZigEvalLibraryKey *key in keys) {
             StwoZigEvalLibrary *library = runtime.evalLibraries[key];
             if (!library.archiveDirty) continue;
             NSError *error = nil;
