@@ -251,6 +251,17 @@ process was cold. Cold backend initialization, fixture construction, warm reques
 and eventual full-proof throughput remain distinct evidence classes. The sustained callsite result
 validates the command-epoch architecture; it is not a proof-MHz claim.
 
+The first post-epoch encoder profile places seven dependent Merkle parent dispatches at 0.1709 ms,
+about 43 percent of measured encoder GPU time. Each level costs roughly 0.023-0.028 ms even as its
+grid shrinks from 64 hashes to one. Reusing one compute encoder with buffer barriers was rejected:
+it reduced encoder count but regressed profiled parent time from 0.171 to 0.178 ms and command GPU
+time from 0.412 to 0.424 ms. Its unprofiled movement was within noise.
+
+The next Metal experiment is therefore a general multi-level Blake2s parent-tail shader that keeps
+required retained layers while replacing several dependent small-level dispatches with one bounded
+threadgroup reduction. It is accepted only if exact layer/root parity, capacity bounds, fallback,
+and targeted GPU counters pass; encoder-count reduction alone is insufficient.
+
 ### Native mixed-AIR transaction
 
 Commit `ec288e7` moves XOR onto the shared prepared-input, engine, and reusable-session proving

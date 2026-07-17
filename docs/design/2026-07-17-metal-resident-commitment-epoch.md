@@ -273,3 +273,44 @@ This establishes that removal of five submission/wait boundaries materially impr
 production commitment transaction, not just a synthetic encoder test. It does not establish proof
 MHz, block latency, queue throughput, cache bounds, or the next GPU hotspot. Those require a bounded
 full-proof fixture and the report-v3 transaction matrix before any SN PIE escalation.
+
+## Post-Epoch Metal Profile
+
+The accepted production-callsite benchmark was profiled on the Apple M5 Max through the existing
+real `MTLCommandBuffer` and encoder timestamp instrumentation. Encoder counters were enabled; the
+capture reported no command errors, counter overflow, or dropped evidence, and every request
+retained exact CPU Blake2s root and transcript parity.
+
+The unprofiled 2-warmup/11-sample run measured 0.588 ms median request latency and 0.357 ms median
+GPU duration. Counter instrumentation raised those medians to 0.823 and 0.412 ms respectively, so
+profiled latency is diagnostic only. Within the profiled command, encoder intervals sum to
+0.395 ms, leaving 0.0173 ms unattributed. Median CPU encoding was 0.0865 ms and the terminal host
+wait was 0.585 ms.
+
+| Stage | GPU median (ms) | Dispatches |
+| --- | ---: | ---: |
+| Small-group LDE | 0.0573 | 6 |
+| Small-group leaf hash | 0.0456 | 1 |
+| Large-group LDE | 0.0753 | 8 |
+| Leaf-state copy | 0.00571 | 1 blit |
+| Large-group leaf hash | 0.0398 | 1 |
+| Seven Merkle parent levels | 0.1709 | 7 |
+
+The parent chain is about 43 percent of measured encoder GPU time. Its individual medians remain
+nearly flat at 0.0233-0.0284 ms while the output grid shrinks from 64 hashes to one, identifying
+dependent dispatch boundary cost rather than arithmetic volume as the leading measured tail.
+
+One experiment reused a single compute encoder for all seven existing parent dispatches and inserted
+explicit Metal buffer barriers between levels. It reduced total encoders from 24 to 18 and compute
+encoders from 23 to 17, but parent time regressed from 0.171 to 0.178 ms and profiled command GPU
+time regressed from 0.412 to 0.424 ms. The unprofiled movements, 0.588 to 0.567 ms request and 0.357
+to 0.354 ms GPU, were inside noise and contradicted the targeted counters. The experiment was
+reverted.
+
+Encoder reuse is therefore not the next architecture. The next measured experiment is a
+multi-level Blake2s parent-tail shader: one eligible threadgroup reduces several dependent small
+levels through threadgroup memory and barriers while writing every protocol-required retained
+layer. It must preserve the current per-level path as a checked fallback, enforce explicit
+threadgroup-memory and layer-capacity bounds, and demonstrate fewer dispatches plus lower parent
+GPU time before acceptance. This VCS mechanism is below workload selection and applies to Cairo,
+Native/RISC-V, SNIP-36, and SN proofs that use the same lifted Blake2s commitment path.
