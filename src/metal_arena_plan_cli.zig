@@ -4219,35 +4219,42 @@ fn runOne(
             if (execute_composition) {
                 if (requested_commit_tree_count < 4 or commitment_roots[2] == null)
                     return error.CommitmentInputsNotExecuted;
+                if (!composition.isComplete() and
+                    (execute_quotient or std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_OODS")))
+                    return error.PartialCompositionCannotContinue;
                 try composition.execute();
                 composition_gpu_ms = composition.accumulated_gpu_ms;
-                try bindings.populateCommitmentTwiddles(allocator, resident_arena, plan, 3);
-                const committed = try bindings.executeCommitment(
-                    metal,
-                    resident_arena,
-                    schedule,
-                    plan,
-                    3,
-                    blake2_merkle.Blake2sPlainMerkleHasher.leafSeed(),
-                    blake2_merkle.Blake2sPlainMerkleHasher.nodeSeed(),
-                );
-                commitment_gpu_ms += committed.gpu_ms;
-                commitment_lde_gpu_ms += committed.lde_gpu_ms;
-                commitment_leaf_gpu_ms += committed.leaf_gpu_ms;
-                commitment_parent_gpu_ms += committed.parent_gpu_ms;
-                var root: [32]u8 = undefined;
-                @memcpy(&root, (try resident_arena.bytes(committed.root))[0..32]);
-                commitment_roots[3] = root;
-                if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_LOG_STAGE_TIMINGS"))
-                    std.debug.print("composition tree3_root={x}\n", .{root});
-                if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_LOG_STAGE_TIMINGS"))
-                    std.debug.print("composition stage=tree3_commit done\n", .{});
-                try transcript.compositionAndOods();
-                if (transcript_reference) |fixture|
-                    try transcript.expectOutputWords(3, &fixture.expected_output_3);
-                if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_LOG_STAGE_TIMINGS"))
-                    std.debug.print("composition stage=transcript done\n", .{});
-                if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_OODS")) {
+                if (composition.isComplete()) {
+                    try bindings.populateCommitmentTwiddles(allocator, resident_arena, plan, 3);
+                    const committed = try bindings.executeCommitment(
+                        metal,
+                        resident_arena,
+                        schedule,
+                        plan,
+                        3,
+                        blake2_merkle.Blake2sPlainMerkleHasher.leafSeed(),
+                        blake2_merkle.Blake2sPlainMerkleHasher.nodeSeed(),
+                    );
+                    commitment_gpu_ms += committed.gpu_ms;
+                    commitment_lde_gpu_ms += committed.lde_gpu_ms;
+                    commitment_leaf_gpu_ms += committed.leaf_gpu_ms;
+                    commitment_parent_gpu_ms += committed.parent_gpu_ms;
+                    var root: [32]u8 = undefined;
+                    @memcpy(&root, (try resident_arena.bytes(committed.root))[0..32]);
+                    commitment_roots[3] = root;
+                    if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_LOG_STAGE_TIMINGS"))
+                        std.debug.print("composition tree3_root={x}\n", .{root});
+                    if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_LOG_STAGE_TIMINGS"))
+                        std.debug.print("composition stage=tree3_commit done\n", .{});
+                    try transcript.compositionAndOods();
+                    if (transcript_reference) |fixture|
+                        try transcript.expectOutputWords(3, &fixture.expected_output_3);
+                    if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_LOG_STAGE_TIMINGS"))
+                        std.debug.print("composition stage=transcript done\n", .{});
+                } else if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_LOG_STAGE_TIMINGS")) {
+                    std.debug.print("composition stage=partial_front done\n", .{});
+                }
+                if (composition.isComplete() and std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_OODS")) {
                     var oods_input: ?arena.Binding = null;
                     for (bindings.transcript_inputs) |transcript_input| if (transcript_input.ordinal == 25) {
                         oods_input = transcript_input.binding;
@@ -4281,7 +4288,7 @@ fn runOne(
                                 if (transcript_reference != null) "exact" else "unchecked",
                             },
                         );
-                } else if (execute_quotient) {
+                } else if (composition.isComplete() and execute_quotient) {
                     const fixture = transcript_reference orelse return error.MissingTranscriptReference;
                     try transcript.loadInputWords(25, fixture.input_25);
                     try transcript.oodsAndQuotient();
@@ -4292,7 +4299,7 @@ fn runOne(
                             .{fixture.input_25.len / 4},
                         );
                 }
-                transcript_gpu_ms = transcript.accumulated_gpu_ms;
+                if (composition.isComplete()) transcript_gpu_ms = transcript.accumulated_gpu_ms;
             }
             if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_LOG_STAGE_TIMINGS"))
                 std.debug.print("quotient_prepare begin\n", .{});

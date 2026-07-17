@@ -1526,6 +1526,7 @@ fn prepareCompositionRecipe(
         front,
         finalize,
         output_bindings,
+        component_limit == bundle.components.len,
     );
 }
 

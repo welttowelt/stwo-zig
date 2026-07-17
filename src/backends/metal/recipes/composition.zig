@@ -98,6 +98,7 @@ pub const Recipe = struct {
     destinations: []arena_plan.Binding,
     front: runtime.CompositionFrontPlan,
     finalize: runtime.CompositionFinalizePlan,
+    complete: bool,
     last_tick: ?u16 = null,
     accumulated_gpu_ms: f64 = 0,
 
@@ -108,6 +109,7 @@ pub const Recipe = struct {
         front: runtime.CompositionFrontPlan,
         finalize: runtime.CompositionFinalizePlan,
         outputs: [8]arena_plan.Binding,
+        complete: bool,
     ) !Recipe {
         for (outputs) |binding| if (binding.offset_bytes % 4 != 0 or binding.size_bytes == 0)
             return recovery.RecoveryError.BindingSizeMismatch;
@@ -118,6 +120,7 @@ pub const Recipe = struct {
             .destinations = try allocator.dupe(arena_plan.Binding, &outputs),
             .front = front,
             .finalize = finalize,
+            .complete = complete,
         };
     }
 
@@ -129,6 +132,7 @@ pub const Recipe = struct {
     }
 
     pub fn makeRecipes(self: *Recipe, allocator: std.mem.Allocator) ![]recovery.Recipe {
+        if (!self.complete) return recovery.RecoveryError.MissingRecipe;
         const recipes = try allocator.alloc(recovery.Recipe, self.destinations.len);
         for (self.destinations, recipes) |binding, *entry| entry.* = .{
             .logical_id = binding.logical_id,
@@ -139,11 +143,14 @@ pub const Recipe = struct {
     }
 
     pub fn execute(self: *Recipe) !void {
-        self.accumulated_gpu_ms += try self.metal.compositionPrepared(
-            self.arena.buffer,
-            self.front,
-            self.finalize,
-        );
+        self.accumulated_gpu_ms += if (self.complete)
+            try self.metal.compositionPrepared(self.arena.buffer, self.front, self.finalize)
+        else
+            try self.metal.compositionFrontPrepared(self.arena.buffer, self.front);
+    }
+
+    pub fn isComplete(self: Recipe) bool {
+        return self.complete;
     }
 
     fn run(raw: *anyopaque, tick: u16, requested: arena_plan.Binding, _: []u8) !void {
