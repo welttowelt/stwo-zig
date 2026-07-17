@@ -1,6 +1,6 @@
 # Native Backend Proof Suite
 
-Status: implementation; shared transaction and XOR vertical slice accepted
+Status: implementation; tagged report-v3 Wide Fibonacci/XOR matrix accepted
 
 Date: 2026-07-17
 
@@ -357,6 +357,10 @@ because another stage dispatched Metal work.
 The matrix accepts `--rust-oracle-bin`. The binary is required for formal evidence.
 Its source commit is fixed to `a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2`
 and its toolchain remains `nightly-2025-07-14` until deliberately updated.
+Formal execution additionally requires the exact verifier binary SHA-256
+`cbe4d3f107b261285381cd590dbf4b2f86e52eed337843081bd142969f1c4dac`.
+An arbitrary executable that exits successfully is rejected before invocation, and
+both the binary and canonical artifact are rehashed after verification.
 
 After CPU/Metal byte parity is established, the controller verifies the canonical
 row artifact with Rust. The summary records:
@@ -481,3 +485,44 @@ It was generated from clean commit `ec288e7` for `log_size=5`, `log_step=2`, and
 `offset=3`, then accepted by the pinned Rust Stwo oracle at
 `a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2`. The next suite stage is report
 version 3 and one tagged runner/matrix path shared by wide Fibonacci and XOR.
+
+## Accepted Tagged Matrix
+
+Commit `47bc615` implements report schema 3 and aggregate matrix protocol 3. A
+closed tagged workload registry dispatches Wide Fibonacci and XOR through one
+generic prepared-input/session/prove/encode/verify loop on CPU or Metal. Zig and
+Python independently derive and test canonical descriptor hashes, exact geometry,
+workload-native units, trace-row units, and committed-cell numerators. Legacy Wide
+Fibonacci CLI syntax remains a temporary compatibility surface.
+
+The Python controller recomputes the sampling contract, evidence class, all eight
+headline requirements, throughput summaries, request-phase enclosure, Metal
+pipeline warmth, proof fingerprints, artifact statements, and CPU/Metal parity.
+Formal mode requires the exact pinned Rust binary hash above. Atomic artifact
+publication, locks, subprocess failures/timeouts/output bounds, telemetry
+cardinality, dirty provenance, cold measured pipelines, artifact mutation, and
+formal exit behavior have focused regression tests.
+
+A clean detached ReleaseFast matrix at `0b2eb10` used the functional protocol, one
+warmup, five samples per lane, alternating lane order, and a 0.25-second bounded
+cooldown. Both rows were headline-eligible with no blockers:
+
+| Workload | CPU prove (ms) | CPU native MHz | CPU request (ms) | Metal prove (ms) | Metal native MHz | Metal request (ms) | Metal/CPU prove |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Wide Fibonacci `log10x8` | 3.483625 | 0.293947 | 3.764916 | 6.083750 | 0.168317 | 6.243125 | 0.573x |
+| XOR `log10/step2/off3` | 4.142583 | 0.247189 | 4.441167 | 8.024709 | 0.127606 | 8.220208 | 0.516x |
+
+CPU and Metal emitted the same canonical artifact in every sample:
+
+| Workload | Proof bytes | Canonical proof SHA-256 |
+| --- | ---: | --- |
+| Wide Fibonacci | 23,569 | `1beb388cda4e2941e5a65c11653d78de3116ae95a686538105312c29ff9f6f0c` |
+| XOR | 23,505 | `574b4d698125fb6049e6c5f87293f5c755c4029b28cf2a6839d49af1f720831f` |
+
+The pinned Rust Stwo oracle accepted both exact CPU/Metal-identical artifacts.
+The CPU and Metal benchmark binary hashes were
+`30f2e147cee56fdaa980dc5674ef1a10e11c7332e32eb3f83abb7e3097fa6648`
+and `b12f77cc1faaaa046c1ade2fd627c505420732eea1c7f72f5066a58b8537170e`.
+The matrix establishes a trustworthy complete-proof baseline, not a Metal win:
+these bounded rows still favor CPU materially, so the next Metal work must target
+measured complete-transaction residency and fallback boundaries.

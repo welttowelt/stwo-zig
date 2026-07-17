@@ -290,6 +290,22 @@ This is correctness and architecture evidence, not a throughput result. It estab
 nonempty-preprocessed-tree workload for the common CPU/Metal suite. Report version 3 and tagged
 Wide Fibonacci/XOR execution must land before cross-workload performance comparisons are published.
 
+### Tagged Native report-v3 baseline
+
+Commit `47bc615` lands report schema 3, aggregate matrix protocol 3, exact tagged Wide Fibonacci/XOR
+geometry, and mandatory formal verification by the pinned Rust binary SHA-256
+`cbe4d3f107b261285381cd590dbf4b2f86e52eed337843081bd142969f1c4dac`. The controller independently
+recomputes sampling, headline requirements, request-phase enclosure, rates, pipeline warmth,
+artifact binding, and cross-backend proof equality rather than trusting report declarations.
+
+A clean detached ReleaseFast run at `0b2eb10` used one warmup and five functional samples per lane.
+Both rows were headline-eligible and Rust-accepted. Wide `log10x8` measured CPU/Metal prove medians
+of 3.483625/6.083750 ms and native rates of 0.293947/0.168317 MHz. XOR log10 measured
+4.142583/8.024709 ms and 0.247189/0.127606 MHz. Metal therefore delivered 0.573x and 0.516x CPU prove
+throughput on these bounded complete proofs. Exact proof digests were `1beb388c...9f6f0c` and
+`574b4d69...20831f`. This is the formal baseline for complete-transaction profiling; compact
+commitment-stage speedups are not extrapolated over it.
+
 ## Benchmark Matrix
 
 The checked-in driver will use stable workload identifiers and immutable protocol settings.
