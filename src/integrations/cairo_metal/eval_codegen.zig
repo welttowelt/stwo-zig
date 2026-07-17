@@ -4,10 +4,46 @@ const eval = @import("../../frontends/cairo/witness/eval_program.zig");
 pub const codegen_version: u64 = 2;
 pub const default_fused_instruction_cap: usize = 512;
 pub const max_fused_instruction_cap: usize = 4096;
+pub const hybrid_fusion_source_cap: usize = 90 * 1024;
 
 pub const FusedPart = struct {
     program: eval.Program,
     rc_base: u32,
+};
+
+pub const HybridFusionPolicy = struct {
+    baseline_operation_cap: usize = 2048,
+    maximum_operation_cap: usize = max_fused_instruction_cap,
+    maximum_source_bytes: usize = hybrid_fusion_source_cap,
+
+    fn validate(self: HybridFusionPolicy) !void {
+        if (self.baseline_operation_cap == 0 or
+            self.baseline_operation_cap > self.maximum_operation_cap or
+            self.maximum_operation_cap > max_fused_instruction_cap or
+            self.maximum_source_bytes == 0)
+            return error.InvalidFusionPolicy;
+    }
+};
+
+pub const FusionSlice = struct {
+    start: usize,
+    end: usize,
+    operations: usize,
+    source_bytes: usize,
+};
+
+const FusionCandidate = struct {
+    source_bytes: usize,
+};
+
+pub const FusionPartition = struct {
+    allocator: std.mem.Allocator,
+    slices: []FusionSlice,
+
+    pub fn deinit(self: *FusionPartition) void {
+        self.allocator.free(self.slices);
+        self.* = undefined;
+    }
 };
 
 pub fn kernelName(allocator: std.mem.Allocator, semantic_hash: u64) ![]u8 {
@@ -54,6 +90,236 @@ pub fn fusionGroupEnd(parts: []const FusedPart, start: usize, instruction_cap: u
     }
     if (end == start) return error.InvalidFusionGroup;
     return end;
+}
+
+/// Finds an exact-size bounded partition without changing the existing greedy
+/// cap policy. Groups above the baseline are admitted only when their emitted
+/// MSL function fits both hybrid bounds.
+pub fn hybridFusionPartition(
+    allocator: std.mem.Allocator,
+    parts: []const FusedPart,
+    policy: HybridFusionPolicy,
+) !FusionPartition {
+    try policy.validate();
+    try validatePartSequence(parts);
+
+    const candidate_count = std.math.mul(usize, parts.len, parts.len) catch
+        return error.InvalidFusionGroup;
+    const candidates = try allocator.alloc(?FusionCandidate, candidate_count);
+    defer allocator.free(candidates);
+    @memset(candidates, null);
+    for (0..parts.len) |start| {
+        var operations: usize = 0;
+        for (start..parts.len) |last| {
+            operations = std.math.add(
+                usize,
+                operations,
+                fusionOperationCount(parts[last].program),
+            ) catch return error.InvalidFusionGroup;
+            const part_count = last + 1 - start;
+            if (part_count > 1 and operations > policy.maximum_operation_cap) break;
+
+            const source_bytes = try emittedKernelSourceBytes(allocator, parts[start .. last + 1]);
+            if (part_count > 1 and operations > policy.baseline_operation_cap and
+                source_bytes > policy.maximum_source_bytes)
+                continue;
+            candidates[start * parts.len + last] = .{ .source_bytes = source_bytes };
+        }
+    }
+
+    const minimum_counts = try minimumSliceCounts(allocator, candidates, parts.len, null);
+    defer allocator.free(minimum_counts);
+    const slice_count = minimum_counts[0] orelse return error.NoFusionPartition;
+    const maximum_sources = try minimumMaximumSources(
+        allocator,
+        candidates,
+        parts.len,
+        minimum_counts,
+    );
+    defer allocator.free(maximum_sources);
+    const maximum_source = maximum_sources[0] orelse return error.NoFusionPartition;
+    const bounded_counts = try minimumSliceCounts(
+        allocator,
+        candidates,
+        parts.len,
+        maximum_source,
+    );
+    defer allocator.free(bounded_counts);
+    if (bounded_counts[0] == null or bounded_counts[0].? != slice_count)
+        return error.NoFusionPartition;
+    const next_ends = try minimumSquaredSourcePartition(
+        allocator,
+        candidates,
+        parts.len,
+        bounded_counts,
+        maximum_source,
+    );
+    defer allocator.free(next_ends);
+    const hybrid_slices = try materializePartition(
+        allocator,
+        parts,
+        next_ends,
+        slice_count,
+    );
+    var admitted_above_baseline = false;
+    for (hybrid_slices) |slice| {
+        admitted_above_baseline = admitted_above_baseline or
+            slice.end - slice.start > 1 and slice.operations > policy.baseline_operation_cap;
+    }
+    if (admitted_above_baseline)
+        return .{ .allocator = allocator, .slices = hybrid_slices };
+
+    allocator.free(hybrid_slices);
+    const baseline_slices = try greedyPartition(allocator, parts, policy.baseline_operation_cap);
+    return .{ .allocator = allocator, .slices = baseline_slices };
+}
+
+fn minimumSliceCounts(
+    allocator: std.mem.Allocator,
+    candidates: []const ?FusionCandidate,
+    part_count: usize,
+    maximum_source: ?usize,
+) ![]?usize {
+    const counts = try allocator.alloc(?usize, part_count + 1);
+    @memset(counts, null);
+    counts[part_count] = 0;
+    var start = part_count;
+    while (start > 0) {
+        start -= 1;
+        for (start..part_count) |last| {
+            const candidate = candidates[start * part_count + last] orelse continue;
+            if (maximum_source) |limit| if (candidate.source_bytes > limit) continue;
+            const suffix = counts[last + 1] orelse continue;
+            const count = suffix + 1;
+            if (counts[start] == null or count < counts[start].?) counts[start] = count;
+        }
+    }
+    return counts;
+}
+
+fn minimumMaximumSources(
+    allocator: std.mem.Allocator,
+    candidates: []const ?FusionCandidate,
+    part_count: usize,
+    minimum_counts: []const ?usize,
+) ![]?usize {
+    const maxima = try allocator.alloc(?usize, part_count + 1);
+    @memset(maxima, null);
+    maxima[part_count] = 0;
+    var start = part_count;
+    while (start > 0) {
+        start -= 1;
+        const count = minimum_counts[start] orelse continue;
+        for (start..part_count) |last| {
+            const candidate = candidates[start * part_count + last] orelse continue;
+            const suffix_count = minimum_counts[last + 1] orelse continue;
+            if (suffix_count + 1 != count) continue;
+            const suffix_maximum = maxima[last + 1] orelse continue;
+            const maximum = @max(candidate.source_bytes, suffix_maximum);
+            if (maxima[start] == null or maximum < maxima[start].?) maxima[start] = maximum;
+        }
+    }
+    return maxima;
+}
+
+fn minimumSquaredSourcePartition(
+    allocator: std.mem.Allocator,
+    candidates: []const ?FusionCandidate,
+    part_count: usize,
+    minimum_counts: []const ?usize,
+    maximum_source: usize,
+) ![]usize {
+    const sums = try allocator.alloc(?u128, part_count + 1);
+    defer allocator.free(sums);
+    @memset(sums, null);
+    sums[part_count] = 0;
+    const next_ends = try allocator.alloc(usize, part_count);
+    errdefer allocator.free(next_ends);
+    var start = part_count;
+    while (start > 0) {
+        start -= 1;
+        const count = minimum_counts[start] orelse continue;
+        for (start..part_count) |last| {
+            const candidate = candidates[start * part_count + last] orelse continue;
+            if (candidate.source_bytes > maximum_source) continue;
+            const suffix_count = minimum_counts[last + 1] orelse continue;
+            const suffix_sum = sums[last + 1] orelse continue;
+            if (suffix_count + 1 != count) continue;
+            const source: u128 = candidate.source_bytes;
+            const squared = std.math.mul(u128, source, source) catch
+                return error.FusionPartitionCostOverflow;
+            const sum = std.math.add(u128, squared, suffix_sum) catch
+                return error.FusionPartitionCostOverflow;
+            if (sums[start] == null or sum < sums[start].?) {
+                sums[start] = sum;
+                next_ends[start] = last + 1;
+            }
+        }
+    }
+    if (sums[0] == null) return error.NoFusionPartition;
+    return next_ends;
+}
+
+fn materializePartition(
+    allocator: std.mem.Allocator,
+    parts: []const FusedPart,
+    next_ends: []const usize,
+    slice_count: usize,
+) ![]FusionSlice {
+    const slices = try allocator.alloc(FusionSlice, slice_count);
+    errdefer allocator.free(slices);
+    var start: usize = 0;
+    for (slices) |*slice| {
+        const end = next_ends[start];
+        slice.* = try describeSlice(allocator, parts, start, end);
+        start = end;
+    }
+    if (start != parts.len) return error.NoFusionPartition;
+    return slices;
+}
+
+fn greedyPartition(
+    allocator: std.mem.Allocator,
+    parts: []const FusedPart,
+    operation_cap: usize,
+) ![]FusionSlice {
+    var slices = std.ArrayList(FusionSlice).empty;
+    errdefer slices.deinit(allocator);
+    var start: usize = 0;
+    while (start < parts.len) {
+        const end = try fusionGroupEnd(parts, start, operation_cap);
+        try slices.append(allocator, try describeSlice(allocator, parts, start, end));
+        start = end;
+    }
+    return slices.toOwnedSlice(allocator);
+}
+
+fn describeSlice(
+    allocator: std.mem.Allocator,
+    parts: []const FusedPart,
+    start: usize,
+    end: usize,
+) !FusionSlice {
+    var operations: usize = 0;
+    for (parts[start..end]) |part| {
+        operations = std.math.add(usize, operations, fusionOperationCount(part.program)) catch
+            return error.InvalidFusionGroup;
+    }
+    return .{
+        .start = start,
+        .end = end,
+        .operations = operations,
+        .source_bytes = try emittedKernelSourceBytes(allocator, parts[start..end]),
+    };
+}
+
+fn emittedKernelSourceBytes(allocator: std.mem.Allocator, parts: []const FusedPart) !usize {
+    const source = if (parts.len == 1)
+        try generateKernel(allocator, parts[0].program, false)
+    else
+        try generateFusedKernel(allocator, parts, false);
+    defer allocator.free(source);
+    return source.len;
 }
 
 pub fn cacheKey(semantic_hash: u64) u64 {
@@ -208,8 +474,18 @@ fn emitProgramBody(
 
 fn validateFusionGroup(parts: []const FusedPart) !void {
     if (parts.len < 2) return error.InvalidFusionGroup;
-    const first = parts[0];
+    try validatePartSequence(parts);
     var instruction_count: usize = 0;
+    for (parts) |part| {
+        instruction_count = std.math.add(usize, instruction_count, fusionOperationCount(part.program)) catch
+            return error.InvalidFusionGroup;
+    }
+    if (instruction_count > max_fused_instruction_cap) return error.FusionGroupTooLarge;
+}
+
+fn validatePartSequence(parts: []const FusedPart) !void {
+    if (parts.len == 0) return error.InvalidFusionGroup;
+    const first = parts[0];
     var expected_rc_base = first.rc_base;
     for (parts) |part| {
         try part.program.validate();
@@ -221,10 +497,7 @@ fn validateFusionGroup(parts: []const FusedPart) !void {
             return error.InvalidFusionGroup;
         expected_rc_base = std.math.add(u32, expected_rc_base, part.program.header.n_constraints) catch
             return error.InvalidFusionGroup;
-        instruction_count = std.math.add(usize, instruction_count, fusionOperationCount(part.program)) catch
-            return error.InvalidFusionGroup;
     }
-    if (instruction_count > max_fused_instruction_cap) return error.FusionGroupTooLarge;
 }
 
 fn fusedGroupHash(parts: []const FusedPart) u64 {
