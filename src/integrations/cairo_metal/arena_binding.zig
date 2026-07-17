@@ -247,7 +247,15 @@ pub const PreparedProofBindings = struct {
         errdefer allocator.free(fri_merkle_layers);
         const assembly = try collectAssembly(allocator, schedule, plan);
         errdefer allocator.free(assembly);
-        const proof_copies = try buildProofCopies(allocator, schedule, plan);
+        const proof_copies = try buildProofCopies(
+            allocator,
+            schedule,
+            plan,
+            if (geometry) |runtime_geometry|
+                runtime_geometry.fri_trees.len
+            else
+                Sn2Counts.decommit_fri_trees,
+        );
         errdefer allocator.free(proof_copies);
         const transcript_inputs = try collectOrdinals(allocator, schedule, plan, "TranscriptInput");
         errdefer allocator.free(transcript_inputs);
@@ -1052,7 +1060,8 @@ pub const PreparedProofBindings = struct {
         try validateDisjointBindings(self.inverse_twiddles, self.composition_accumulators);
         if (self.decommit_values.size_bytes == 0 or self.decommit_assembly.size_bytes == 0 or
             self.decommit_trace_lde_tile.size_bytes == 0 or self.proof_bytes.size_bytes == 0 or
-            self.assembly.len == 0 or self.proof_copies.len == 0 or
+            self.assembly.len == 0 or
+            self.proof_copies.len != geometry.fri_trees.len + 10 or
             self.transcript_inputs.len == 0 or self.transcript_outputs.len == 0)
             return Error.InvalidBindingSize;
         var cursor: u64 = 0;
@@ -6329,7 +6338,10 @@ fn buildProofCopies(
     allocator: std.mem.Allocator,
     schedule: []const std.json.Value,
     plan: arena_plan.Plan,
+    fri_round_count: usize,
 ) ![]ProofCopy {
+    const transcript_ordinals = try proofCopyTranscriptOrdinals(allocator, fri_round_count);
+    defer allocator.free(transcript_ordinals);
     var copies = std.ArrayList(ProofCopy).empty;
     errdefer copies.deinit(allocator);
     var cursor: u32 = 0;
@@ -6341,22 +6353,50 @@ fn buildProofCopies(
             position.* = std.math.add(u32, position.*, words) catch return Error.InvalidBindingSize;
         }
     }.binding;
-    for ([_]u32{ 3, 20, 23, 24 }) |input| try append(&copies, allocator, &cursor, try oneOrdinal(schedule, plan, "TranscriptInput", input));
-    try append(&copies, allocator, &cursor, try oneOrdinal(schedule, plan, "TranscriptInput", 22));
-    try append(&copies, allocator, &cursor, try oneOrdinal(schedule, plan, "TranscriptInput", 21));
-    try append(&copies, allocator, &cursor, try oneOrdinal(schedule, plan, "TranscriptInput", 25));
-    for (0..8) |tree| {
-        try append(&copies, allocator, &cursor, try oneOrdinal(
-            schedule,
-            plan,
-            "TranscriptInput",
-            65536 + @as(u32, @intCast(tree)) * 4,
-        ));
-    }
-    try append(&copies, allocator, &cursor, try oneOrdinal(schedule, plan, "TranscriptInput", 30));
-    try append(&copies, allocator, &cursor, try oneOrdinal(schedule, plan, "TranscriptInput", 31));
+    for (transcript_ordinals) |input| try append(
+        &copies,
+        allocator,
+        &cursor,
+        try oneOrdinal(schedule, plan, "TranscriptInput", input),
+    );
     try append(&copies, allocator, &cursor, try one(schedule, plan, "DecommitAssembly"));
     return copies.toOwnedSlice(allocator);
+}
+
+fn proofCopyTranscriptOrdinals(
+    allocator: std.mem.Allocator,
+    fri_round_count: usize,
+) ![]u32 {
+    if (fri_round_count == 0 or fri_round_count > 31) return Error.InvalidCardinality;
+    const ordinals = try allocator.alloc(u32, fri_round_count + 9);
+    const prefix = [_]u32{ 3, 20, 23, 24, 22, 21, 25 };
+    @memcpy(ordinals[0..prefix.len], &prefix);
+    for (0..fri_round_count) |round| {
+        ordinals[prefix.len + round] = 65536 + @as(u32, @intCast(round)) * 4;
+    }
+    ordinals[ordinals.len - 2] = 30;
+    ordinals[ordinals.len - 1] = 31;
+    return ordinals;
+}
+
+test "Cairo proof assembly uses seven runtime FRI roots" {
+    const ordinals = try proofCopyTranscriptOrdinals(std.testing.allocator, 7);
+    defer std.testing.allocator.free(ordinals);
+    try std.testing.expectEqualSlices(u32, &.{
+        3,     20,    23,    24,    22,    21,    25,
+        65536, 65540, 65544, 65548, 65552, 65556, 65560,
+        30,    31,
+    }, ordinals);
+}
+
+test "Cairo proof assembly preserves eight-root SN2 order" {
+    const ordinals = try proofCopyTranscriptOrdinals(std.testing.allocator, 8);
+    defer std.testing.allocator.free(ordinals);
+    try std.testing.expectEqualSlices(u32, &.{
+        3,     20,    23,    24,    22,    21,    25,
+        65536, 65540, 65544, 65548, 65552, 65556, 65560,
+        65564, 30,    31,
+    }, ordinals);
 }
 
 test "Cairo preprocessed SIMD coefficient blocks are canonicalized" {
