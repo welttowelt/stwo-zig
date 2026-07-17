@@ -1,4 +1,5 @@
 const std = @import("std");
+const metal_core_aot = @import("build_support/metal_core_aot.zig");
 const metal_products = @import("build_support/metal_products.zig");
 
 pub fn build(b: *std.Build) void {
@@ -54,37 +55,13 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    const metal_core_aot_module = b.createModule(.{
-        .root_source_file = b.path("src/tools/metal_core_aot/main.zig"),
+    metal_core_aot.addProducts(.{
+        .b = b,
         .target = target,
         .optimize = optimize,
+        .shader_manifest_module = shader_manifest_module,
+        .test_step = test_step,
     });
-    metal_core_aot_module.addImport("shader_manifest", shader_manifest_module);
-    const metal_core_aot = b.addExecutable(.{
-        .name = "metal-core-aot",
-        .root_module = metal_core_aot_module,
-    });
-    const install_metal_core_aot = b.addInstallArtifact(metal_core_aot, .{});
-    const metal_core_aot_step = b.step(
-        "metal-core-aot",
-        "Build the deterministic, fail-closed core Metal AOT tool",
-    );
-    metal_core_aot_step.dependOn(&install_metal_core_aot.step);
-
-    const metal_core_aot_test_module = b.createModule(.{
-        .root_source_file = b.path("src/tools/metal_core_aot/main.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    metal_core_aot_test_module.addImport("shader_manifest", shader_manifest_module);
-    const metal_core_aot_tests = b.addTest(.{ .root_module = metal_core_aot_test_module });
-    const run_metal_core_aot_tests = b.addRunArtifact(metal_core_aot_tests);
-    test_step.dependOn(&run_metal_core_aot_tests.step);
-    const metal_core_aot_test_step = b.step(
-        "test-metal-core-aot",
-        "Run deterministic core Metal AOT tooling tests without compiling shaders",
-    );
-    metal_core_aot_test_step.dependOn(&run_metal_core_aot_tests.step);
 
     const native_proof_runner_test_module = b.createModule(.{
         .root_source_file = b.path("src/bench/native_proof/runner.zig"),

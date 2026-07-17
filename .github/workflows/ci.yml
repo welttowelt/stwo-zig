@@ -62,8 +62,8 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.gate == 'strict'
         run: python3 scripts/ci.py --strict
 
-  metal-compile:
-    name: Metal compile and link
+  metal-acceptance:
+    name: Metal AOT acceptance
     runs-on: macos-14
     timeout-minutes: 20
     steps:
@@ -75,5 +75,8 @@ jobs:
         with:
           version: 0.15.2
 
-      - name: Compile Metal test graph without execution
+      - name: Build and inspect authenticated Native core metallib
+        run: zig build metal-core-aot-acceptance -Doptimize=ReleaseSafe
+
+      - name: Compile broader Metal test graph without execution
         run: zig build metal-check -Doptimize=ReleaseSafe

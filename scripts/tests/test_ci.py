@@ -37,10 +37,28 @@ class CiTests(unittest.TestCase):
             build,
         )
 
-    def test_hosted_metal_gate_is_compile_only(self) -> None:
+    def test_hosted_metal_gate_accepts_aot_core_and_compiles_broader_graph(self) -> None:
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        self.assertIn(
+            "run: zig build metal-core-aot-acceptance -Doptimize=ReleaseSafe",
+            workflow,
+        )
         self.assertIn("run: zig build metal-check -Doptimize=ReleaseSafe", workflow)
         self.assertNotIn("run: zig build metal-test", workflow)
+
+        aot_products = (ROOT / "build_support/metal_core_aot.zig").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('"metal-core-aot-acceptance"', aot_products)
+        self.assertIn('build_bundle.addArgs(&.{ "build", "--output-dir" });', aot_products)
+        self.assertIn('run_probe.addArg("--trust-anchor");', aot_products)
+
+        probe = (ROOT / "src/tools/metal_core_aot/probe.m").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("library.functionNames", probe)
+        self.assertIn("actual.count != expected_count", probe)
+        self.assertIn("function.functionConstantsDictionary.count != 0u", probe)
 
         metal_products = (ROOT / "build_support/metal_products.zig").read_text(
             encoding="utf-8"
