@@ -1,23 +1,21 @@
 const std = @import("std");
 const cpu = @import("../cpu_scalar/mod.zig").CpuBackend;
 const commit_policy = @import("commit_policy.zig");
-const runtime_mod = @import("runtime.zig");
 const merkle = @import("../../prover/vcs_lifted/prover.zig");
 const metal_merkle = @import("merkle_tree.zig");
+const shared_runtime = @import("shared_runtime.zig");
 const telemetry = @import("telemetry.zig");
-
-var runtime_mutex: std.Thread.Mutex = .{};
-var shared_runtime: ?runtime_mod.Runtime = null;
-
-fn runtime() !*runtime_mod.Runtime {
-    runtime_mutex.lock();
-    defer runtime_mutex.unlock();
-    if (shared_runtime == null) shared_runtime = try runtime_mod.Runtime.init();
-    return &shared_runtime.?;
-}
 
 pub fn warmup() !void {
     return MetalCommitBackend.warmup();
+}
+
+pub fn runtimeLifecycleSnapshot() MetalCommitBackend.RuntimeLifecycleSnapshot {
+    return MetalCommitBackend.runtimeLifecycleSnapshot();
+}
+
+pub fn shutdown() MetalCommitBackend.ShutdownError!void {
+    return MetalCommitBackend.shutdown();
 }
 
 /// CPU-compatible prover backend whose commitment constructor is Metal.
@@ -29,22 +27,37 @@ pub const MetalCommitBackend = struct {
     pub const TelemetrySnapshot = telemetry.Snapshot;
     pub const TelemetryDelta = telemetry.Delta;
     pub const TelemetryError = error{RuntimeNotInitialized};
+    pub const ShutdownError = shared_runtime.ShutdownError;
+    pub const RuntimeLifecycleSnapshot = shared_runtime.LifecycleSnapshot;
     /// Streaming commitment currently owns a CPU leaf-hasher state machine.
     /// Materialize the prepared LDE columns once so Metal can consume the
     /// complete tree in a single command buffer.
     pub const preferMonolithicCommit = true;
 
     pub fn warmup() !void {
-        _ = try runtime();
+        var lease = try shared_runtime.acquire();
+        defer lease.deinit();
     }
 
     /// Reads counters and cache statistics from the one shared backend
     /// runtime. Snapshotting before warmup fails instead of creating a device.
     pub fn telemetrySnapshot() TelemetryError!TelemetrySnapshot {
-        runtime_mutex.lock();
-        defer runtime_mutex.unlock();
-        const active_runtime = if (shared_runtime) |*value| value else return error.RuntimeNotInitialized;
-        return telemetry.capture(active_runtime.pipelineCacheStats());
+        var lease = try shared_runtime.acquireExisting();
+        defer lease.deinit();
+        return telemetry.capture(lease.runtime.pipelineCacheStats());
+    }
+
+    /// Reports process-wide runtime ownership without creating a Metal device.
+    pub fn runtimeLifecycleSnapshot() RuntimeLifecycleSnapshot {
+        return shared_runtime.lifecycleSnapshot();
+    }
+
+    /// Releases the process-wide runtime at a quiescent request boundary.
+    ///
+    /// In-flight calls and live Metal-backed columns, trees, or buffers make
+    /// this fail closed rather than invalidating their runtime or device.
+    pub fn shutdown() ShutdownError!void {
+        return shared_runtime.shutdown();
     }
 
     pub fn recordSampledValueFallback() void {
@@ -58,18 +71,22 @@ pub const MetalCommitBackend = struct {
     pub fn allocateSecureColumn(column_len: usize) !@import("../../prover/secure_column.zig").SecureColumnByCoords {
         const M31 = @import("../../core/fields/m31.zig").M31;
         const DEGREE = @import("../../core/fields/qm31.zig").SECURE_EXTENSION_DEGREE;
-        var buffer = try (try runtime()).allocateResidentBuffer(column_len * DEGREE * @sizeOf(M31));
+        var lease = try shared_runtime.acquire();
+        defer lease.deinit();
+        var buffer = try lease.runtime.allocateResidentBuffer(column_len * DEGREE * @sizeOf(M31));
         errdefer buffer.deinit();
         const values: [*]M31 = @ptrCast(@alignCast(buffer.contents));
         var columns: [DEGREE][]M31 = undefined;
         for (0..DEGREE) |coordinate| {
             columns[coordinate] = values[coordinate * column_len .. (coordinate + 1) * column_len];
         }
+        shared_runtime.retainResidentResource();
+        errdefer shared_runtime.releaseResidentResource();
         return @import("../../prover/secure_column.zig").SecureColumnByCoords.initResident(
             columns,
             .{
                 .handle = buffer.handle,
-                .destroyFn = runtime_mod.ResidentBuffer.destroyOpaque,
+                .destroyFn = shared_runtime.destroyResidentBuffer,
             },
         );
     }
@@ -78,15 +95,19 @@ pub const MetalCommitBackend = struct {
         domain: @import("../../core/poly/line.zig").LineDomain,
     ) !@import("../../prover/line.zig").LineEvaluation {
         const QM31 = @import("../../core/fields/qm31.zig").QM31;
-        var buffer = try (try runtime()).allocateResidentBuffer(domain.size() * @sizeOf(QM31));
+        var lease = try shared_runtime.acquire();
+        defer lease.deinit();
+        var buffer = try lease.runtime.allocateResidentBuffer(domain.size() * @sizeOf(QM31));
         errdefer buffer.deinit();
         const values: [*]QM31 = @ptrCast(@alignCast(buffer.contents));
+        shared_runtime.retainResidentResource();
+        errdefer shared_runtime.releaseResidentResource();
         return @import("../../prover/line.zig").LineEvaluation.initResident(
             domain,
             values[0..domain.size()],
             .{
                 .handle = buffer.handle,
-                .destroyFn = runtime_mod.ResidentBuffer.destroyOpaque,
+                .destroyFn = shared_runtime.destroyResidentBuffer,
             },
         );
     }
@@ -101,7 +122,9 @@ pub const MetalCommitBackend = struct {
             u32,
             std.mem.sliceAsBytes(column.columns[0].ptr[0 .. evaluation.len() * 4]),
         );
-        const gpu_ms = try (try runtime()).qm31ToCoordinates(
+        var lease = try shared_runtime.acquire();
+        defer lease.deinit();
+        const gpu_ms = try lease.runtime.qm31ToCoordinates(
             source.ptr,
             @intCast(evaluation.len()),
             destination.ptr,
@@ -140,7 +163,9 @@ pub const MetalCommitBackend = struct {
             telemetry.record(.cpu_small_merkle_commit);
             return MerkleTree(H).fromHost(host_tree);
         }
-        const resident_tree = try MerkleTree(H).commit(try runtime(), allocator, columns);
+        var lease = try shared_runtime.acquire();
+        defer lease.deinit();
+        const resident_tree = try MerkleTree(H).commitShared(lease.runtime, allocator, columns);
         telemetry.record(.resident_merkle_commit);
         return resident_tree;
     }
@@ -159,7 +184,9 @@ pub const MetalCommitBackend = struct {
         provider: anytype,
         out: anytype,
     ) !void {
-        const gpu_ms = try (try runtime()).computeQuotients(allocator, provider, out);
+        var lease = try shared_runtime.acquire();
+        defer lease.deinit();
+        const gpu_ms = try lease.runtime.computeQuotients(allocator, provider, out);
         telemetry.record(.metal_quotient_dispatch);
         std.log.debug("Metal quotient kernel: {d:.3}ms", .{gpu_ms});
     }
@@ -183,7 +210,9 @@ pub const MetalCommitBackend = struct {
             };
             return commitMerkle(H, allocator, columns[0..]);
         }
-        const result = try (try runtime()).computeQuotientsAndCommit(
+        var lease = try shared_runtime.acquire();
+        defer lease.deinit();
+        const result = try lease.runtime.computeQuotientsAndCommit(
             allocator,
             provider,
             out,
@@ -194,7 +223,7 @@ pub const MetalCommitBackend = struct {
         telemetry.record(.metal_quotient_dispatch);
         telemetry.record(.resident_merkle_commit);
         std.log.debug("Metal quotient + Merkle epoch: {d:.3}ms", .{result.gpu_ms});
-        return MerkleTree(H).fromResident(result.tree);
+        return MerkleTree(H).fromSharedRuntime(result.tree);
     }
 
     pub fn evaluateCoefficientPlans(
@@ -204,7 +233,9 @@ pub const MetalCommitBackend = struct {
         plans: anytype,
     ) !void {
         if (plans.len == 0) return;
-        const gpu_ms = try (try runtime()).evaluateCoefficientPlans(
+        var lease = try shared_runtime.acquire();
+        defer lease.deinit();
+        const gpu_ms = try lease.runtime.evaluateCoefficientPlans(
             allocator,
             coefficients,
             tree_values,
@@ -225,7 +256,9 @@ pub const MetalCommitBackend = struct {
             telemetry.record(.cpu_small_circle_interpolation);
             return;
         }
-        _ = try (try runtime()).transformCircle(
+        var lease = try shared_runtime.acquire();
+        defer lease.deinit();
+        _ = try lease.runtime.transformCircle(
             allocator,
             values,
             twiddle_tree.itwiddles,
@@ -246,7 +279,9 @@ pub const MetalCommitBackend = struct {
             telemetry.record(.cpu_small_circle_evaluation);
             return;
         }
-        _ = try (try runtime()).transformCircle(
+        var lease = try shared_runtime.acquire();
+        defer lease.deinit();
+        _ = try lease.runtime.transformCircle(
             allocator,
             values,
             twiddle_tree.twiddles,
@@ -285,7 +320,9 @@ pub const MetalCommitBackend = struct {
             telemetry.record(.cpu_small_circle_lde);
             return;
         }
-        const gpu_ms = try (try runtime()).transformCircleLde(
+        var lease = try shared_runtime.acquire();
+        defer lease.deinit();
+        const gpu_ms = try lease.runtime.transformCircleLde(
             allocator,
             source_values,
             base_values,
@@ -328,7 +365,9 @@ pub const MetalCommitBackend = struct {
         const source_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(src_columns[0].ptr[0 .. src_columns[0].len * 4]));
         const destination_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(dst));
         const inverse_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(inverse_y));
-        const gpu_ms = try (try runtime()).foldFriCircle(
+        var lease = try shared_runtime.acquire();
+        defer lease.deinit();
+        const gpu_ms = try lease.runtime.foldFriCircle(
             source_words.ptr,
             @intCast(src_columns[0].len),
             inverse_words,
@@ -372,7 +411,9 @@ pub const MetalCommitBackend = struct {
             const inverse_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(inverse_x));
             const alpha_coords = current_alpha.toM31Array();
             const alpha_words = [4]u32{ alpha_coords[0].v, alpha_coords[1].v, alpha_coords[2].v, alpha_coords[3].v };
-            const gpu_ms = try (try runtime()).foldFriLine(
+            var lease = try shared_runtime.acquire();
+            defer lease.deinit();
+            const gpu_ms = try lease.runtime.foldFriLine(
                 source_words.ptr,
                 @intCast(current.len()),
                 inverse_words,
@@ -482,7 +523,9 @@ pub const MetalCommitBackend = struct {
         const destination_storage = folded.resident_storage orelse return error.InvalidColumns;
         const coordinate_storage = coordinates.resident_storage orelse return error.InvalidColumns;
         const inverse_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(inverse_values));
-        const result = try (try runtime()).foldFriLineAndCommit(
+        var lease = try shared_runtime.acquire();
+        defer lease.deinit();
+        const result = try lease.runtime.foldFriLineAndCommit(
             source_storage.?.handle,
             @intCast(evaluation.len()),
             inverse_words,
@@ -493,7 +536,7 @@ pub const MetalCommitBackend = struct {
             H.nodeSeed(),
             H.domainPrefixBytes(),
         );
-        const tree = try MerkleTree(H).fromResident(result.tree);
+        const tree = try MerkleTree(H).fromSharedRuntime(result.tree);
         telemetry.record(.metal_fri_fold_commit_epoch);
         telemetry.record(.resident_merkle_commit);
         std.log.debug(
@@ -521,4 +564,15 @@ test "Metal commit backend exposes telemetry without constructing a runtime" {
     _ = MetalCommitBackend.TelemetryDelta;
     _ = &MetalCommitBackend.telemetrySnapshot;
     _ = &MetalCommitBackend.recordSampledValueFallback;
+    _ = MetalCommitBackend.RuntimeLifecycleSnapshot;
+    _ = MetalCommitBackend.ShutdownError;
+    _ = &MetalCommitBackend.runtimeLifecycleSnapshot;
+    _ = &MetalCommitBackend.shutdown;
+
+    const lifecycle = MetalCommitBackend.runtimeLifecycleSnapshot();
+    try std.testing.expect(lifecycle.initialization_count >= lifecycle.shutdown_count);
+    try std.testing.expectEqual(
+        lifecycle.initialized,
+        lifecycle.initialization_count > lifecycle.shutdown_count,
+    );
 }

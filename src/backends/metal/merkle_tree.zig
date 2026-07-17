@@ -9,6 +9,7 @@ const m31 = @import("../../core/fields/m31.zig");
 const decommit_mod = @import("../../prover/vcs_lifted/decommit.zig");
 const host_merkle = @import("../../prover/vcs_lifted/prover.zig");
 const runtime_mod = @import("runtime.zig");
+const shared_runtime = @import("shared_runtime.zig");
 
 const M31 = m31.M31;
 
@@ -21,6 +22,7 @@ pub fn MetalMerkleTree(comptime H: type) type {
         const ResidentTree = struct {
             tree: runtime_mod.Tree,
             root_hash: H.Hash,
+            tracks_shared_runtime: bool,
         };
         const ResidentBatchReader = struct {
             tree: runtime_mod.Tree,
@@ -73,6 +75,14 @@ pub fn MetalMerkleTree(comptime H: type) type {
         }
 
         pub fn fromResident(tree: runtime_mod.Tree) !Self {
+            return fromResidentOwned(tree, false);
+        }
+
+        pub fn fromSharedRuntime(tree: runtime_mod.Tree) !Self {
+            return fromResidentOwned(tree, true);
+        }
+
+        fn fromResidentOwned(tree: runtime_mod.Tree, tracks_shared_runtime: bool) !Self {
             errdefer {
                 var owned = tree;
                 owned.deinit();
@@ -81,10 +91,12 @@ pub fn MetalMerkleTree(comptime H: type) type {
             if (@sizeOf(H.Hash) != @sizeOf(@TypeOf(root_result.hash))) {
                 return error.UnsupportedMetalHash;
             }
+            if (tracks_shared_runtime) shared_runtime.retainResidentResource();
             return .{
                 .storage = .{ .resident = .{
                     .tree = tree,
                     .root_hash = @bitCast(root_result.hash),
+                    .tracks_shared_runtime = tracks_shared_runtime,
                 } },
             };
         }
@@ -93,6 +105,23 @@ pub fn MetalMerkleTree(comptime H: type) type {
             runtime: *runtime_mod.Runtime,
             allocator: std.mem.Allocator,
             columns: []const []const M31,
+        ) !Self {
+            return commitOwned(runtime, allocator, columns, false);
+        }
+
+        pub fn commitShared(
+            runtime: *runtime_mod.Runtime,
+            allocator: std.mem.Allocator,
+            columns: []const []const M31,
+        ) !Self {
+            return commitOwned(runtime, allocator, columns, true);
+        }
+
+        fn commitOwned(
+            runtime: *runtime_mod.Runtime,
+            allocator: std.mem.Allocator,
+            columns: []const []const M31,
+            tracks_shared_runtime: bool,
         ) !Self {
             const log_sizes = try allocator.alloc(u32, columns.len);
             defer allocator.free(log_sizes);
@@ -120,7 +149,7 @@ pub fn MetalMerkleTree(comptime H: type) type {
                 H.domainPrefixBytes(),
             );
 
-            return fromResident(tree);
+            return fromResidentOwned(tree, tracks_shared_runtime);
         }
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
@@ -132,6 +161,7 @@ pub fn MetalMerkleTree(comptime H: type) type {
                 .resident => |resident_value| {
                     var resident = resident_value;
                     resident.tree.deinit();
+                    if (resident.tracks_shared_runtime) shared_runtime.releaseResidentResource();
                 },
             }
             self.* = undefined;
