@@ -4,6 +4,7 @@
 #import "runtime_profile.m"
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -470,6 +471,23 @@ typedef struct {
 typedef struct {
     uint32_t coefficient_offset, coefficient_length, basis_offset, log_size, output_index;
 } StwoZigPolynomialEvalTask;
+typedef struct {
+    uint32_t factor_offset, log_size, basis_offset, basis_length;
+} StwoZigPolynomialBasisTask;
+
+_Static_assert(sizeof(StwoZigPolynomialEvalTask) == 5u * sizeof(uint32_t),
+               "StwoZigPolynomialEvalTask ABI");
+_Static_assert(offsetof(StwoZigPolynomialEvalTask, coefficient_offset) == 0u, "coefficient_offset ABI");
+_Static_assert(offsetof(StwoZigPolynomialEvalTask, coefficient_length) == 4u, "coefficient_length ABI");
+_Static_assert(offsetof(StwoZigPolynomialEvalTask, basis_offset) == 8u, "basis_offset ABI");
+_Static_assert(offsetof(StwoZigPolynomialEvalTask, log_size) == 12u, "log_size ABI");
+_Static_assert(offsetof(StwoZigPolynomialEvalTask, output_index) == 16u, "output_index ABI");
+_Static_assert(sizeof(StwoZigPolynomialBasisTask) == 4u * sizeof(uint32_t),
+               "StwoZigPolynomialBasisTask ABI");
+_Static_assert(offsetof(StwoZigPolynomialBasisTask, factor_offset) == 0u, "factor_offset ABI");
+_Static_assert(offsetof(StwoZigPolynomialBasisTask, log_size) == 4u, "basis log_size ABI");
+_Static_assert(offsetof(StwoZigPolynomialBasisTask, basis_offset) == 8u, "basis_offset ABI");
+_Static_assert(offsetof(StwoZigPolynomialBasisTask, basis_length) == 12u, "basis_length ABI");
 
 typedef struct {
     uint64_t unique_base, unique_count_base;

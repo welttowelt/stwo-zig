@@ -35,6 +35,33 @@ class SourceConformanceTests(unittest.TestCase):
             )
             self.assertEqual([], scan(repo))
 
+    def test_metal_size_and_repository_include_rules_are_enforced(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary)
+            shader_root = repo / "src/backends/metal/shaders"
+            include_root = shader_root / "include"
+            include_root.mkdir(parents=True)
+            (include_root / "m31.metal").write_text("inline uint m31_add(uint a, uint b);\n", encoding="utf-8")
+            (shader_root / "valid.metal").write_text(
+                '#include <metal_stdlib>\n#include "stwo_zig/m31.metal"\n',
+                encoding="utf-8",
+            )
+            (shader_root / "oversized.metal").write_text("\n" * 851, encoding="utf-8")
+            (shader_root / "escape.metal").write_text(
+                '#include "../../outside.metal"\n',
+                encoding="utf-8",
+            )
+            keys = {finding.key for finding in scan(repo)}
+            self.assertIn("file-size:backends/metal/shaders/oversized.metal", keys)
+            self.assertIn(
+                "shader-include:backends/metal/shaders/escape.metal->../../outside.metal",
+                keys,
+            )
+            self.assertNotIn(
+                "shader-include:backends/metal/shaders/valid.metal->stwo_zig/m31.metal",
+                keys,
+            )
+
     def test_deliberate_module_roots_are_allowed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             repo = Path(temporary)

@@ -1,7 +1,8 @@
 const std = @import("std");
 const command_epoch = @import("command_epoch.zig");
+const shader_manifest = @import("shaders/manifest.zig");
 
-const kernel_source: [:0]const u8 = @embedFile("kernels.metal") ++ "\x00";
+const kernel_source = shader_manifest.amalgamated_source;
 
 pub const CommandEpoch = command_epoch.CommandEpoch;
 pub const CommandEpochStats = command_epoch.Stats;

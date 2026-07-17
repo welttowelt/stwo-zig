@@ -14,6 +14,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BASELINE = ROOT / "docs/conformance/source-baseline.json"
 IMPORT_RE = re.compile(r'@import\("([^"\n]+)"\)')
+MSL_INCLUDE_RE = re.compile(r'^\s*#\s*include\s*"([^"\n]+)"', re.MULTILINE)
+MSL_INCLUDE_PREFIX = "stwo_zig/"
 ROOT_ALLOWLIST = frozenset({
     "std_shims_freestanding.zig",
     "stwo.zig",
@@ -52,8 +54,10 @@ def is_generated(text: str) -> bool:
 
 def scan(repo: Path) -> list[Finding]:
     src_root = repo / "src"
+    shader_include_root = src_root / "backends/metal/shaders/include"
     findings: list[Finding] = []
-    for source in sorted(src_root.rglob("*.zig")):
+    sources = sorted((*src_root.rglob("*.zig"), *src_root.rglob("*.metal")))
+    for source in sources:
         relative = source.relative_to(src_root)
         text = source.read_text(encoding="utf-8")
         line_count = len(text.splitlines())
@@ -62,6 +66,30 @@ def scan(repo: Path) -> list[Finding]:
                 f"file-size:{relative.as_posix()}",
                 f"{relative}: {line_count} lines exceeds the 850-line manual-source ceiling",
             ))
+
+        if source.suffix == ".metal":
+            for imported in MSL_INCLUDE_RE.findall(text):
+                if not imported.startswith(MSL_INCLUDE_PREFIX):
+                    findings.append(Finding(
+                        f"shader-include:{relative.as_posix()}->{imported}",
+                        f'{relative}: repository shader includes must use "{MSL_INCLUDE_PREFIX}..." ({imported})',
+                    ))
+                    continue
+                target = (shader_include_root / imported[len(MSL_INCLUDE_PREFIX):]).resolve()
+                try:
+                    target.relative_to(shader_include_root.resolve())
+                except ValueError:
+                    findings.append(Finding(
+                        f"shader-include:{relative.as_posix()}->{imported}",
+                        f"{relative}: shader include escapes the declared include root ({imported})",
+                    ))
+                    continue
+                if not target.is_file():
+                    findings.append(Finding(
+                        f"shader-include:{relative.as_posix()}->{imported}",
+                        f"{relative}: shader include is not a declared repository header ({imported})",
+                    ))
+            continue
 
         if len(relative.parts) == 1 and relative.name not in ROOT_ALLOWLIST:
             findings.append(Finding(
@@ -116,7 +144,11 @@ def write_baseline(path: Path, findings: list[Finding]) -> None:
             {
                 "key": finding.key,
                 "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
-                "plan": "docs/design/2026-07-17-source-conformance.md",
+                "plan": (
+                    "docs/design/2026-07-17-metal-shader-library-decomposition.md"
+                    if ".metal" in finding.key
+                    else "docs/design/2026-07-17-source-conformance.md"
+                ),
             }
             for finding in findings
         ],

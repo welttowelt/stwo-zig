@@ -1,0 +1,74 @@
+const std = @import("std");
+const runtime_mod = @import("../runtime.zig");
+const circle = @import("../../../core/circle.zig");
+const m31 = @import("../../../core/fields/m31.zig");
+const qm31 = @import("../../../core/fields/qm31.zig");
+const circle_poly = @import("../../../prover/poly/circle/poly.zig");
+
+const M31 = m31.M31;
+const QM31 = qm31.QM31;
+
+const EvalPlan = struct {
+    coeff_log_size: u32,
+    normalized_points: []const circle.CirclePointQM31,
+    flat_factors: []const QM31,
+    column_indices: std.ArrayList(usize),
+};
+
+test "metal: polynomial evaluation shader unit matches scalar circle evaluation" {
+    const allocator = std.testing.allocator;
+    var runtime = try runtime_mod.Runtime.init();
+    defer runtime.deinit();
+
+    const first_coefficients = [_]M31{
+        M31.fromCanonical(3),
+        M31.fromCanonical(5),
+        M31.fromCanonical(8),
+        M31.fromCanonical(13),
+        M31.fromCanonical(21),
+        M31.fromCanonical(34),
+        M31.fromCanonical(55),
+        M31.fromCanonical(89),
+    };
+    const second_coefficients = [_]M31{
+        M31.fromCanonical(144),
+        M31.fromCanonical(233),
+        M31.fromCanonical(377),
+        M31.fromCanonical(610),
+        M31.fromCanonical(987),
+        M31.fromCanonical(1597),
+        M31.fromCanonical(2584),
+        M31.fromCanonical(4181),
+    };
+    const coefficients = [_]circle_poly.CircleCoefficients{
+        try circle_poly.CircleCoefficients.initBorrowed(&first_coefficients),
+        try circle_poly.CircleCoefficients.initBorrowed(&second_coefficients),
+    };
+    const points = [_]circle.CirclePointQM31{
+        circle.SECURE_FIELD_CIRCLE_GEN.mul(17),
+        circle.SECURE_FIELD_CIRCLE_GEN.mul(29),
+    };
+    var factors: [points.len * 3]QM31 = undefined;
+    circle_poly.fillEvalFactorsForPointsFolded(&points, 0, 3, &factors);
+
+    var column_indices = std.ArrayList(usize).empty;
+    defer column_indices.deinit(allocator);
+    try column_indices.appendSlice(allocator, &.{ 0, 1 });
+    const plans = [_]EvalPlan{.{
+        .coeff_log_size = 3,
+        .normalized_points = &points,
+        .flat_factors = &factors,
+        .column_indices = column_indices,
+    }};
+    var first_output: [points.len]QM31 = undefined;
+    var second_output: [points.len]QM31 = undefined;
+    const outputs = [_][]QM31{ &first_output, &second_output };
+
+    _ = try runtime.evaluateCoefficientPlans(allocator, &coefficients, &outputs, &plans);
+
+    for (coefficients, outputs) |polynomial, output| {
+        for (points, output) |point, actual| {
+            try std.testing.expect(polynomial.evalAtPoint(point).eql(actual));
+        }
+    }
+}
