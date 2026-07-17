@@ -30,6 +30,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BASELINE = ROOT / "docs/conformance/source-baseline.json"
 BASELINE_VERSION = 3
+BASELINE_TRACKS = ("active_native_backend", "deferred_todo")
+DEFAULT_BASELINE_TRACK = "active_native_backend"
 IMPORT_RE = re.compile(r'@import\("([^"\n]+)"\)')
 MSL_INCLUDE_RE = re.compile(r'^\s*#\s*include\s*"([^"\n]+)"', re.MULTILINE)
 MSL_INCLUDE_PREFIX = "stwo_zig/"
@@ -219,18 +221,29 @@ def load_baseline(path: Path) -> dict[str, dict[str, object]]:
     for entry in payload["findings"]:
         if not isinstance(entry, dict):
             raise ValueError(f"invalid baseline finding in {path}")
-        allowed_fields = {"key", "owner", "reason", "next_extraction", "plan", "max_lines"}
+        allowed_fields = {
+            "key",
+            "owner",
+            "reason",
+            "next_extraction",
+            "plan",
+            "track",
+            "max_lines",
+        }
         if not set(entry).issubset(allowed_fields):
             raise ValueError(f"baseline finding has unknown fields in {path}")
         key = entry.get("key")
         owner = entry.get("owner")
         reason = entry.get("reason")
         plan = entry.get("plan")
+        track = entry.get("track")
         next_extraction = entry.get("next_extraction")
         if not isinstance(key, str) or not key:
             raise ValueError(f"invalid baseline finding in {path}")
         if not isinstance(owner, str) or OWNER_RE.fullmatch(owner) is None:
             raise ValueError(f"baseline finding lacks a valid owner: {key}")
+        if track not in BASELINE_TRACKS:
+            raise ValueError(f"baseline finding lacks a valid track: {key}")
         if (
             not isinstance(reason, str)
             or not reason.strip()
@@ -252,11 +265,19 @@ def load_baseline(path: Path) -> dict[str, dict[str, object]]:
     return result
 
 
-def write_baseline(path: Path, findings: list[Finding]) -> None:
+def write_baseline(
+    path: Path,
+    findings: list[Finding],
+    track: str = DEFAULT_BASELINE_TRACK,
+) -> None:
+    if track not in BASELINE_TRACKS:
+        raise ValueError(f"invalid source conformance baseline track: {track}")
+
     def entry_for(finding: Finding) -> dict[str, object]:
         entry: dict[str, object] = {
             "key": finding.key,
             "owner": "source-conformance",
+            "track": track,
             "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
             "next_extraction": "Classify and extract the next responsibility named by the remediation plan.",
             "plan": (
@@ -282,7 +303,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repo", type=Path, default=ROOT)
     parser.add_argument("--baseline", type=Path, default=DEFAULT_BASELINE)
     parser.add_argument("--update-baseline", action="store_true")
-    parser.add_argument("--strict", action="store_true", help="reject baseline findings as well as new findings")
+    strict_group = parser.add_mutually_exclusive_group()
+    strict_group.add_argument(
+        "--strict",
+        action="store_true",
+        help="reject baseline findings from every track as well as new findings",
+    )
+    strict_group.add_argument(
+        "--strict-track",
+        choices=BASELINE_TRACKS,
+        help=(
+            "reject baseline findings assigned to one track; optimization-readiness command: "
+            "python3 scripts/check_source_conformance.py --strict-track active_native_backend"
+        ),
+    )
     args = parser.parse_args(argv)
 
     repo = args.repo.resolve()
@@ -339,14 +373,43 @@ def main(argv: list[str] | None = None) -> int:
     for key in invalid_plan_keys:
         print(f"error: baseline decomposition plan is missing or outside the repository: {key}", file=sys.stderr)
 
-    if args.strict and current:
+    strict_keys = (
+        set(current)
+        if args.strict
+        else {
+            key
+            for key in current.keys() & baseline.keys()
+            if baseline[key]["track"] == args.strict_track
+        }
+        if args.strict_track is not None
+        else set()
+    )
+    if strict_keys:
         for finding in findings:
-            if finding.key not in new_keys:
+            if finding.key in strict_keys and finding.key not in new_keys:
                 print(f"error: {finding.message}", file=sys.stderr)
+        if args.strict_track is not None:
+            print(
+                f"error: strict source track {args.strict_track} contains "
+                f"{len(strict_keys)} finding(s)",
+                file=sys.stderr,
+            )
         return 1
     if new_keys or stale_keys or grown_keys or invalid_plan_keys:
         return 1
-    print(f"source conformance: {len(findings)} explained legacy findings, no new violations")
+    track_counts = {
+        track: sum(
+            1
+            for key in current.keys() & baseline.keys()
+            if baseline[key]["track"] == track
+        )
+        for track in BASELINE_TRACKS
+    }
+    counts = ", ".join(f"{track_counts[track]} {track}" for track in BASELINE_TRACKS)
+    print(
+        f"source conformance: {len(findings)} explained legacy findings "
+        f"({counts}), no new violations"
+    )
     return 0
 
 

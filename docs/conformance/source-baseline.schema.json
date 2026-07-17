@@ -26,6 +26,7 @@
       "required": [
         "key",
         "owner",
+        "track",
         "reason",
         "next_extraction",
         "plan"
@@ -38,6 +39,13 @@
         "owner": {
           "type": "string",
           "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "track": {
+          "type": "string",
+          "enum": [
+            "active_native_backend",
+            "deferred_todo"
+          ]
         },
         "reason": {
           "type": "string",

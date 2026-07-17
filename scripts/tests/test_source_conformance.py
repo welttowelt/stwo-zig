@@ -6,7 +6,9 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 from scripts.check_source_conformance import (
+    BASELINE_TRACKS,
     BASELINE_VERSION,
+    DEFAULT_BASELINE_TRACK,
     ROOT_ALLOWLIST,
     Finding,
     inventory,
@@ -23,6 +25,7 @@ class SourceConformanceTests(unittest.TestCase):
         entry: dict[str, object] = {
             "key": key,
             "owner": "test-owner",
+            "track": DEFAULT_BASELINE_TRACK,
             "reason": "legacy test debt",
             "plan": "plan.md",
             "next_extraction": "Extract the test responsibility.",
@@ -170,6 +173,7 @@ class SourceConformanceTests(unittest.TestCase):
             loaded = load_baseline(path)
             self.assertIn("file-size:a.zig", loaded)
             self.assertEqual("source-conformance", loaded["file-size:a.zig"]["owner"])
+            self.assertEqual(DEFAULT_BASELINE_TRACK, loaded["file-size:a.zig"]["track"])
             self.assertIn("next_extraction", loaded["file-size:a.zig"])
             path.write_text(json.dumps({
                 "version": BASELINE_VERSION,
@@ -200,6 +204,8 @@ class SourceConformanceTests(unittest.TestCase):
             path = Path(temporary) / "baseline.json"
             invalid_entries = (
                 self.baseline_entry("dependency:a->b", owner="Team Name"),
+                self.baseline_entry("dependency:a->b", track="unclassified"),
+                self.baseline_entry("dependency:a->b", track=None),
                 self.baseline_entry("dependency:a->b", next_extraction=""),
                 self.baseline_entry("dependency:a->b", max_lines=900),
             )
@@ -219,8 +225,12 @@ class SourceConformanceTests(unittest.TestCase):
         self.assertEqual(BASELINE_VERSION, schema["properties"]["version"]["const"])
         finding = schema["$defs"]["finding"]
         self.assertEqual(
-            {"key", "owner", "reason", "next_extraction", "plan"},
+            {"key", "owner", "track", "reason", "next_extraction", "plan"},
             set(finding["required"]),
+        )
+        self.assertEqual(
+            list(BASELINE_TRACKS),
+            finding["properties"]["track"]["enum"],
         )
         self.assertEqual(850, finding["properties"]["max_lines"]["exclusiveMinimum"])
         self.assertFalse(finding["additionalProperties"])
@@ -284,6 +294,49 @@ class SourceConformanceTests(unittest.TestCase):
                 self.assertEqual(0, main(["--repo", str(repo), "--baseline", str(baseline)]))
 
             source.write_text("\n" * 901, encoding="utf-8")
+            with redirect_stderr(io.StringIO()):
+                self.assertEqual(1, main(["--repo", str(repo), "--baseline", str(baseline)]))
+
+    def test_strict_track_rejects_only_the_selected_legacy_track(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary)
+            source = repo / "src/core/legacy.zig"
+            source.parent.mkdir(parents=True)
+            source.write_text("\n" * 900, encoding="utf-8")
+            plan = repo / "docs/design/2026-07-17-source-conformance.md"
+            plan.parent.mkdir(parents=True)
+            plan.write_text("# Plan\n", encoding="utf-8")
+            baseline = repo / "baseline.json"
+            write_baseline(baseline, scan(repo), track="deferred_todo")
+
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(0, main(["--repo", str(repo), "--baseline", str(baseline)]))
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(0, main([
+                    "--repo",
+                    str(repo),
+                    "--baseline",
+                    str(baseline),
+                    "--strict-track",
+                    "active_native_backend",
+                ]))
+
+            errors = io.StringIO()
+            with redirect_stderr(errors):
+                self.assertEqual(1, main([
+                    "--repo",
+                    str(repo),
+                    "--baseline",
+                    str(baseline),
+                    "--strict-track",
+                    "deferred_todo",
+                ]))
+            self.assertIn("strict source track deferred_todo contains 1 finding(s)", errors.getvalue())
+
+            source.write_text("\n" * 901, encoding="utf-8")
+            with redirect_stderr(io.StringIO()):
+                self.assertEqual(1, main(["--repo", str(repo), "--baseline", str(baseline)]))
+            source.unlink()
             with redirect_stderr(io.StringIO()):
                 self.assertEqual(1, main(["--repo", str(repo), "--baseline", str(baseline)]))
 

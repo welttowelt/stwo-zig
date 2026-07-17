@@ -5,9 +5,11 @@ Status: active
 ## Purpose
 
 Bring `src/` into conformance with [`CONTRIBUTING.md`](../../CONTRIBUTING.md) without changing
-Stwo protocol behavior, proof formats, security parameters, or benchmark semantics. The migration
-prioritizes Native Stwo and Cairo. RISC-V-specific restructuring follows only after shared proof
-and backend boundaries are stable.
+Stwo protocol behavior, proof formats, security parameters, or benchmark semantics. The active
+optimization-readiness track is Native Stwo, shared prover code, CPU and Metal backends, the build,
+Native benchmark evidence, general Metal tests, and shared Stwo interop/vector tools. Cairo,
+Cairo-Metal integration, RISC-V/Stark-V, SN PIE/streaming, Cairo verifier tooling, and arena-plan
+CLI or SNIP-36 restructuring remain explicit deferred TODO work.
 
 The pinned Rust Stwo revision remains the final correctness oracle throughout the migration.
 
@@ -84,27 +86,39 @@ The first migration pass has established these boundaries without changing proof
 - `scripts/ci.py` is the shared local and hosted CI entrypoint. Versioned pre-commit and pre-push
   hooks provide bounded local feedback without running hardware Metal or large SN PIE workloads.
 
-The checked-in enforcement baseline contains 16 explained legacy findings: 1 dependency edge,
-10 oversized manually maintained files, and 5 misplaced root sources. Each size exception records
-an immutable line budget and a repository-local decomposition plan. New findings, oversized-file
-growth, missing plans, and stale baseline entries fail the check. Removing a violation therefore
-requires removing its baseline entry in the same change.
+The checked-in enforcement baseline contains 30 explained legacy findings: 1 dependency edge,
+24 oversized manually maintained files, and 5 misplaced root sources. Every entry has a required,
+machine-validated `track`: 10 findings are `active_native_backend` and 20 are `deferred_todo`.
+Each size exception records an immutable line budget and a repository-local decomposition plan.
+New findings, oversized-file growth, missing plans, invalid tracks, and stale baseline entries fail
+the global check. Removing a violation therefore requires removing its baseline entry in the same
+change.
 
 ## Current Ratchet State
 
-After the Phase-0 restoration on 2026-07-17, HEAD contains 455 Zig files and 128,034 Zig source
-lines. Ten manually maintained Zig, Metal, or Objective-C files remain above 850 lines. The source
-baseline still contains 16 findings: 10 size exceptions, five misplaced roots, and one forbidden
-RISC-V dependency edge.
+At this checkpoint on 2026-07-17, HEAD contains 473 inventoried Zig files and 134,371 Zig source
+lines. Twenty-four manually maintained files remain above 850 lines. The source baseline contains
+30 findings: 24 size exceptions, five misplaced roots, and one forbidden RISC-V dependency edge.
 
 Four legacy owners had grown past their immutable caps during later Cairo/AOT work. Their focused
 protocol-admission, runtime-initialization, and retained-Merkle storage responsibilities have now
 been extracted without raising a cap. `python3 scripts/check_source_conformance.py` is green again
 and reports no new violations.
 
-This is restored ratchet compliance, not migration completion. Native and Cairo/Metal work must
-remove the seven non-RISC-V findings. The final RISC-V phase removes the remaining nine findings,
-leaving `docs/conformance/source-baseline.json` empty before the optimization lock can open.
+This is restored global ratchet compliance, not migration completion. Native optimization remains
+locked until the 10 `active_native_backend` findings are removed. The 20 `deferred_todo` findings
+remain fully subject to no-growth, valid-plan, and stale-entry enforcement, but do not block Native
+CPU/Metal performance work.
+
+Because `build.zig` is already at its immutable 1,176-line cap, the focused unlock gate is exposed
+directly by the checker instead of adding another build declaration:
+
+```bash
+python3 scripts/check_source_conformance.py --strict-track active_native_backend
+```
+
+The ordinary `python3 scripts/check_source_conformance.py` command remains the repository-wide
+ratchet across both tracks. `--strict` remains the final migration gate across all baseline debt.
 
 ## Invariants
 
@@ -168,7 +182,7 @@ the hosted source graph. Keep algorithms and reusable declarations out of this f
 - Keep field arithmetic and proof/transcript order unchanged, with Rust-bound vectors covering each
   extraction.
 
-### 2. Cairo boundaries
+### 2. Cairo boundaries (deferred TODO)
 
 - Separate statement binding, input adaptation, trace geometry, witness construction, proof plans,
   and resident execution.
@@ -192,7 +206,7 @@ the hosted source graph. Keep algorithms and reusable declarations out of this f
   source split into new runtime libraries, dispatches, or cache dimensions.
 - Record temporary size exceptions with owners and next extraction boundaries.
 
-### 4. RISC-V
+### 4. RISC-V (deferred TODO)
 
 Apply the same frontend split after shared prover and backend APIs settle. RISC-V must not drive a
 shared abstraction unless Native Stwo or Cairo also needs it.
@@ -227,7 +241,15 @@ having no intended semantic change.
 
 ## Completion Criteria
 
-The migration is complete only when:
+The active Native CPU/Metal optimization-readiness track is complete when:
+
+- `python3 scripts/check_source_conformance.py --strict-track active_native_backend` passes;
+- shared Native Stwo, backend, build, evidence, test, interop, and vector ownership matches the
+  target responsibilities;
+- public APIs pass the parity ledger and pinned Rust oracle gates; and
+- the same checked-in CI entrypoint passes locally and in hosted CI.
+
+The full migration, including deferred TODO tracks, is complete only when:
 
 - all dependency invariants are mechanically enforced;
 - no manually maintained Zig, Metal, or Objective-C file exceeds 850 lines;

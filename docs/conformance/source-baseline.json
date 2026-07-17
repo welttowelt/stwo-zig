@@ -4,6 +4,7 @@
     {
       "key": "dependency:frontends/riscv/prover.zig->backends/cpu_scalar/mod.zig",
       "owner": "riscv-frontend",
+      "track": "deferred_todo",
       "reason": "The legacy RISC-V prover still selects a concrete CPU backend instead of depending on the backend-neutral prover contract.",
       "next_extraction": "Move backend selection to the RISC-V tool boundary and leave the frontend dependent only on backend-neutral proof interfaces.",
       "plan": "docs/design/2026-07-17-source-conformance.md"
@@ -11,6 +12,7 @@
     {
       "key": "file-size:backends/metal/kernels.metal",
       "owner": "metal-shader-library",
+      "track": "active_native_backend",
       "reason": "The legacy Metal shader monolith is retained only for the staged, ABI-preserving library migration.",
       "next_extraction": "Move the next kernel family into the linked shader library without adding a runtime library or dispatch boundary.",
       "plan": "docs/design/2026-07-17-metal-shader-library-decomposition.md",
@@ -19,6 +21,7 @@
     {
       "key": "file-size:backends/metal/runtime.m",
       "owner": "metal-runtime",
+      "track": "active_native_backend",
       "reason": "The Objective-C Metal runtime still combines several ABI and device-resource families behind one implementation unit.",
       "next_extraction": "Extract the next cohesive ABI implementation family behind the existing stable headers and resource ownership contracts.",
       "plan": "docs/design/2026-07-17-metal-shader-library-decomposition.md",
@@ -27,6 +30,7 @@
     {
       "key": "file-size:backends/metal/runtime.zig",
       "owner": "metal-runtime",
+      "track": "active_native_backend",
       "reason": "The Zig Metal runtime facade still owns legacy dispatch and orchestration responsibilities that have not reached focused modules.",
       "next_extraction": "Move the next independently testable runtime responsibility behind the existing facade without changing its public ABI.",
       "plan": "docs/design/2026-07-17-source-conformance.md",
@@ -35,6 +39,7 @@
     {
       "key": "file-size:build.zig",
       "owner": "build-system",
+      "track": "active_native_backend",
       "reason": "The root build graph declares the repository's full executable, test, vector, and conformance surface in one file.",
       "next_extraction": "Move one cohesive build-product family into build support with explicit inputs while keeping build.zig as the visible graph root.",
       "plan": "docs/design/2026-07-17-source-conformance.md",
@@ -43,6 +48,7 @@
     {
       "key": "file-size:frontends/riscv/air/trace_columns.zig",
       "owner": "riscv-frontend",
+      "track": "deferred_todo",
       "reason": "The RISC-V trace-column module retains legacy AIR layout and construction responsibilities in one file.",
       "next_extraction": "Separate the next stable trace-layout responsibility from trace population after shared Cairo and prover boundaries settle.",
       "plan": "docs/design/2026-07-17-source-conformance.md",
@@ -51,6 +57,7 @@
     {
       "key": "file-size:frontends/riscv/infra_trace.zig",
       "owner": "riscv-frontend",
+      "track": "deferred_todo",
       "reason": "The RISC-V infrastructure trace retains multiple legacy construction stages in one module.",
       "next_extraction": "Extract the next independently specified infrastructure table with component-level tests in the RISC-V migration phase.",
       "plan": "docs/design/2026-07-17-source-conformance.md",
@@ -59,6 +66,7 @@
     {
       "key": "file-size:frontends/riscv/prover.zig",
       "owner": "riscv-frontend",
+      "track": "deferred_todo",
       "reason": "The legacy RISC-V prover combines frontend planning, backend selection, and proof orchestration.",
       "next_extraction": "Move concrete backend selection out first, then split frontend planning from backend-neutral proof orchestration.",
       "plan": "docs/design/2026-07-17-source-conformance.md",
@@ -67,6 +75,7 @@
     {
       "key": "file-size:frontends/riscv/runner/trace.zig",
       "owner": "riscv-frontend",
+      "track": "deferred_todo",
       "reason": "The RISC-V runner trace module retains several legacy execution-to-witness transformations.",
       "next_extraction": "Separate the next witness table transformation behind an explicit runner trace contract.",
       "plan": "docs/design/2026-07-17-source-conformance.md",
@@ -75,6 +84,7 @@
     {
       "key": "file-size:integrations/cairo_metal/arena_binding.zig",
       "owner": "cairo-metal-integration",
+      "track": "deferred_todo",
       "reason": "The Cairo-to-Metal facade still contains legacy proving-stage bindings not yet moved to their resident owners.",
       "next_extraction": "Move the next complete proving stage under integrations/cairo_metal/resident while preserving facade names and protocol order.",
       "plan": "docs/design/2026-07-17-source-conformance.md",
@@ -83,6 +93,7 @@
     {
       "key": "file-size:metal_arena_plan_cli.zig",
       "owner": "metal-arena-tooling",
+      "track": "deferred_todo",
       "reason": "The compatibility facade still contains legacy arena-plan command and diagnostic responsibilities.",
       "next_extraction": "Move the next command family into src/tools/metal_arena_plan and reduce the facade without adding policy to the arena.",
       "plan": "docs/design/2026-07-17-source-conformance.md",
@@ -91,6 +102,7 @@
     {
       "key": "file-size:scripts/benchmark_delta.py",
       "owner": "benchmark-evidence",
+      "track": "active_native_backend",
       "reason": "Benchmark parsing, matching, statistical comparison, and report publication are still combined in one maintained script.",
       "next_extraction": "Move the stable result model and comparison engine into a focused benchmark_delta package, leaving the script as CLI orchestration.",
       "plan": "docs/design/2026-07-17-source-conformance.md",
@@ -99,6 +111,7 @@
     {
       "key": "file-size:scripts/compare_optimization.py",
       "owner": "optimization-reporting",
+      "track": "active_native_backend",
       "reason": "Optimization evidence discovery, validation, comparison, and presentation remain in one maintained script.",
       "next_extraction": "Separate evidence validation and comparison from command-line presentation using the existing benchmark report contracts.",
       "plan": "docs/design/2026-07-17-source-conformance.md",
@@ -107,6 +120,7 @@
     {
       "key": "file-size:scripts/sn_pie_arena_schedule.py",
       "owner": "sn-pie-scheduling",
+      "track": "deferred_todo",
       "reason": "SN PIE schedule construction, validation, serialization, and CLI policy remain combined in one maintained script.",
       "next_extraction": "Move the validated schedule model and pure construction stages into a package, retaining a thin artifact-producing CLI.",
       "plan": "docs/design/2026-07-17-source-conformance.md",
@@ -115,6 +129,7 @@
     {
       "key": "file-size:scripts/sn_pie_metal_queue.py",
       "owner": "sn-pie-streaming",
+      "track": "deferred_todo",
       "reason": "Queue configuration, process control, proof publication, and sustained-run reporting remain combined in one maintained script.",
       "next_extraction": "Separate the deterministic queue model and proof-result publication from process lifecycle orchestration.",
       "plan": "docs/design/2026-07-17-source-conformance.md",
@@ -123,6 +138,7 @@
     {
       "key": "file-size:scripts/sn_pie_metal_session.py",
       "owner": "sn-pie-streaming",
+      "track": "deferred_todo",
       "reason": "Persistent Metal session lifecycle, protocol I/O, artifact policy, and reporting remain combined in one maintained script.",
       "next_extraction": "Move session protocol types and artifact validation into focused modules while keeping one lifecycle owner.",
       "plan": "docs/design/2026-07-17-source-conformance.md",
@@ -131,6 +147,7 @@
     {
       "key": "file-size:scripts/tests/test_native_proof_matrix.py",
       "owner": "native-proof-tooling",
+      "track": "active_native_backend",
       "reason": "The native proof matrix regression suite covers several evidence and controller responsibilities in one legacy test file.",
       "next_extraction": "Mirror the native_proof_matrix_lib ownership modules with focused test files while retaining end-to-end contract coverage.",
       "plan": "docs/design/2026-07-17-source-conformance.md",
@@ -139,6 +156,7 @@
     {
       "key": "file-size:scripts/tests/test_sn_pie_metal_queue.py",
       "owner": "sn-pie-streaming",
+      "track": "deferred_todo",
       "reason": "The SN PIE queue test suite combines model, lifecycle, failure, and publication scenarios in one legacy file.",
       "next_extraction": "Mirror the queue responsibilities as they are extracted, preserving shared fixtures and end-to-end streaming coverage.",
       "plan": "docs/design/2026-07-17-source-conformance.md",
@@ -147,6 +165,7 @@
     {
       "key": "file-size:scripts/tests/test_sn_pie_metal_session.py",
       "owner": "sn-pie-streaming",
+      "track": "deferred_todo",
       "reason": "The persistent-session test suite combines protocol, cache, lifecycle, and failure scenarios in one legacy file.",
       "next_extraction": "Mirror the session protocol and lifecycle modules with focused tests while retaining end-to-end restart coverage.",
       "plan": "docs/design/2026-07-17-source-conformance.md",
@@ -155,6 +174,7 @@
     {
       "key": "file-size:tests/metal/backend_test.zig",
       "owner": "metal-backend-tests",
+      "track": "active_native_backend",
       "reason": "The legacy Metal backend test graph combines many independent runtime and kernel families in one file.",
       "next_extraction": "Move the next kernel or runtime family into a mirrored focused test module without reducing shared integration coverage.",
       "plan": "docs/design/2026-07-17-source-conformance.md",
@@ -163,6 +183,7 @@
     {
       "key": "file-size:tools/stark-v-trace-dump/src/main.rs",
       "owner": "riscv-oracle-tooling",
+      "track": "deferred_todo",
       "reason": "The Rust trace-dump tool combines artifact decoding, runner integration, trace projection, and CLI publication.",
       "next_extraction": "Move trace artifact types and deterministic projection into a library module, leaving main.rs as command orchestration.",
       "plan": "docs/design/2026-07-17-source-conformance.md",
@@ -171,6 +192,7 @@
     {
       "key": "file-size:tools/stwo-cairo-verifier-rs/src/compact_codec.rs",
       "owner": "cairo-rust-oracle",
+      "track": "deferred_todo",
       "reason": "The compact Cairo proof codec contains the complete legacy wire schema and validation implementation in one module.",
       "next_extraction": "Separate schema types, bounded decoding, and encoding while preserving byte-for-byte fixtures and rejection behavior.",
       "plan": "docs/design/2026-07-17-source-conformance.md",
@@ -179,6 +201,7 @@
     {
       "key": "file-size:tools/stwo-cairo-verifier-rs/src/lib.rs",
       "owner": "cairo-rust-oracle",
+      "track": "deferred_todo",
       "reason": "The Rust Cairo verifier library combines oracle pinning, proof adaptation, verification, and diagnostic publication.",
       "next_extraction": "Move the next stable adaptation or diagnostic boundary into a private module without weakening pinned-oracle provenance.",
       "plan": "docs/design/2026-07-17-source-conformance.md",
@@ -187,6 +210,7 @@
     {
       "key": "file-size:tools/stwo-interop-rs/src/main.rs",
       "owner": "rust-interop",
+      "track": "active_native_backend",
       "reason": "The Rust interoperability command combines multiple proof families, codecs, verification paths, and CLI reporting.",
       "next_extraction": "Move shared artifact codecs and one proof-family command at a time into library modules with existing cross-language fixtures.",
       "plan": "docs/design/2026-07-17-source-conformance.md",
@@ -195,6 +219,7 @@
     {
       "key": "file-size:tools/stwo-vector-gen/src/main.rs",
       "owner": "rust-vector-generation",
+      "track": "active_native_backend",
       "reason": "The Rust vector generator combines field, PCS, FRI, proof, and example vector families in one command root.",
       "next_extraction": "Move each vector family behind a typed generator module while preserving deterministic schemas and pinned provenance.",
       "plan": "docs/design/2026-07-17-source-conformance.md",
@@ -203,6 +228,7 @@
     {
       "key": "root-source:metal_arena_plan_cli.zig",
       "owner": "metal-arena-tooling",
+      "track": "deferred_todo",
       "reason": "The legacy arena-plan compatibility facade remains at the src root while its command families are extracted.",
       "next_extraction": "Remove the root facade after all consumers use the owned src/tools/metal_arena_plan entry point.",
       "plan": "docs/design/2026-07-17-source-conformance.md"
@@ -210,6 +236,7 @@
     {
       "key": "root-source:riscv_bench_cli.zig",
       "owner": "riscv-frontend",
+      "track": "deferred_todo",
       "reason": "A legacy RISC-V benchmark executable remains in the src root instead of its responsibility directory.",
       "next_extraction": "Move the executable root under src/tools/riscv during the RISC-V migration and preserve its installed command contract.",
       "plan": "docs/design/2026-07-17-source-conformance.md"
@@ -217,6 +244,7 @@
     {
       "key": "root-source:riscv_metal_bench_cli.zig",
       "owner": "riscv-frontend",
+      "track": "deferred_todo",
       "reason": "A legacy RISC-V Metal benchmark executable remains in the src root instead of its responsibility directory.",
       "next_extraction": "Move the executable root under src/tools/riscv and keep Metal selection at the integration boundary.",
       "plan": "docs/design/2026-07-17-source-conformance.md"
@@ -224,6 +252,7 @@
     {
       "key": "root-source:riscv_prover_test.zig",
       "owner": "riscv-frontend",
+      "track": "deferred_todo",
       "reason": "A legacy RISC-V prover test root remains mixed with library entry points in src.",
       "next_extraction": "Move the test root under src/tests/riscv and preserve backend differential coverage.",
       "plan": "docs/design/2026-07-17-source-conformance.md"
@@ -231,6 +260,7 @@
     {
       "key": "root-source:riscv_trace_cli.zig",
       "owner": "riscv-frontend",
+      "track": "deferred_todo",
       "reason": "A legacy RISC-V trace executable remains in the src root instead of its responsibility directory.",
       "next_extraction": "Move the executable root under src/tools/riscv with trace artifact policy isolated from the frontend.",
       "plan": "docs/design/2026-07-17-source-conformance.md"
