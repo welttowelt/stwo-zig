@@ -791,6 +791,12 @@ This ledger maps every public export in the Zig root/module API surface to the p
       "rust_path": "crates/stwo/src/lib.rs",
       "source": "src/prover/mod.zig"
     },
+    "stwo.prover.session": {
+      "kind": "const",
+      "rationale": "Zig bounded service-lifetime ownership for reusable immutable prover resources; protocol behavior remains checked by the pinned Rust Stwo verifier.",
+      "rust_path": null,
+      "source": "src/prover/mod.zig"
+    },
     "stwo.prover.stage_profile": {
       "kind": "const",
       "rationale": "Zig-specific opt-in stage telemetry; it does not alter proof semantics.",
