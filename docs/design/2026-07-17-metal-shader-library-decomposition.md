@@ -675,7 +675,7 @@ profile and lands separately.
 The shader-library migration is complete only when:
 
 - `kernels.metal` is removed;
-- all 90 current entry points have one manifest owner and unchanged ABI version 1 signatures;
+- all 90 current entry points have one manifest owner and unchanged ABI version 2 signatures;
 - no manually maintained MSL file exceeds 850 lines or has a transferred legacy exception;
 - witness codegen no longer slices implementation source by sentinel strings;
 - source-JIT and one linked AOT metallib pass the same export/reflection and family parity gates;
