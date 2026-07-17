@@ -49,8 +49,9 @@ The first migration pass has established these boundaries without changing proof
 - Resident arena planning, schedule selection, SN2 decommit geometry, and core FRI geometry have
   independent modules. Metal execution remains outside the pure scheduling layer.
 - Arena-plan admission now delegates epoch/address-width policy and schedule coverage/shape checks
-  to focused host-only modules. The one-shot runner consumes the shared `stwo` module rather than
-  privately owning a second copy of the Cairo and Metal source graph.
+  to focused host-only modules. Transcript fixtures, proof-layout derivation, and opt-in diagnostics
+  also have focused owners under `tools/metal_arena_plan/`. The one-shot runner consumes the shared
+  `stwo` module rather than privately owning a second copy of the Cairo and Metal source graph.
 - Metal resource layouts, prepared-plan ownership, destructor bindings, and environment policy now
   live in `backends/metal/runtime/resource_plans.zig`. The runtime facade retains all 31 public
   names while dispatch, allocation, and the Objective-C ABI remain unchanged.
