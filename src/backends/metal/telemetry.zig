@@ -87,6 +87,7 @@ pub const PipelineCacheDelta = struct {
     archive_populations: u64 = 0,
     archive_serializations: u64 = 0,
     pipeline_preparation_seconds: f64 = 0,
+    library_preparation_seconds: f64 = 0,
 
     pub fn between(
         after: runtime.PipelineCacheStats,
@@ -104,6 +105,10 @@ pub const PipelineCacheDelta = struct {
             .pipeline_preparation_seconds = @max(
                 @as(f64, 0),
                 after.pipeline_preparation_seconds - before.pipeline_preparation_seconds,
+            ),
+            .library_preparation_seconds = @max(
+                @as(f64, 0),
+                after.library_preparation_seconds - before.library_preparation_seconds,
             ),
         };
     }
@@ -232,6 +237,7 @@ test "Metal telemetry delta is monotonic and includes pipeline cache evidence" {
     after_cache.pipeline_cache_hits = 17;
     after_cache.direct_compiles = 3;
     after_cache.pipeline_preparation_seconds = 0.75;
+    after_cache.library_preparation_seconds = 0.25;
     const after = Snapshot{
         .counters = .{
             .host_merkle_commits = 3,
@@ -247,6 +253,7 @@ test "Metal telemetry delta is monotonic and includes pipeline cache evidence" {
     try std.testing.expectEqual(@as(u64, 6), result.pipeline_cache.pipeline_cache_hits);
     try std.testing.expectEqual(@as(u64, 3), result.pipeline_cache.direct_compiles);
     try std.testing.expectEqual(@as(f64, 0.75), result.pipeline_cache.pipeline_preparation_seconds);
+    try std.testing.expectEqual(@as(f64, 0.25), result.pipeline_cache.library_preparation_seconds);
 }
 
 test "Metal telemetry classification fails closed" {

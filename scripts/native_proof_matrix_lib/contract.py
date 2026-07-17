@@ -15,6 +15,7 @@ from .model import (
     INTEROP_ARTIFACT_SCHEMA_VERSION,
     INTEROP_EXCHANGE_MODE,
     INTEROP_UPSTREAM_COMMIT,
+    LIBRARY_PREPARATION_SECONDS_KEY,
     MIN_HEADLINE_WARMUPS,
     PIPELINE_CACHE_COUNTER_KEYS,
     PIPELINE_CACHE_SECONDS_KEY,
@@ -340,12 +341,14 @@ def validate_counter_object(value: Any, context: str) -> dict[str, int]:
 def validate_pipeline_cache(value: Any, context: str) -> None:
     if not isinstance(value, dict):
         raise MatrixError(f"{context} must be an object")
-    require_exact_keys(value, PIPELINE_CACHE_COUNTER_KEYS | {PIPELINE_CACHE_SECONDS_KEY}, context)
+    seconds_keys = {PIPELINE_CACHE_SECONDS_KEY, LIBRARY_PREPARATION_SECONDS_KEY}
+    require_exact_keys(value, PIPELINE_CACHE_COUNTER_KEYS | seconds_keys, context)
     for key in PIPELINE_CACHE_COUNTER_KEYS:
         if isinstance(value[key], bool) or not isinstance(value[key], int) or value[key] < 0:
             raise MatrixError(f"{context}.{key} must be a nonnegative integer")
-    if require_number(value[PIPELINE_CACHE_SECONDS_KEY], f"{context}.{PIPELINE_CACHE_SECONDS_KEY}") < 0:
-        raise MatrixError(f"{context}.{PIPELINE_CACHE_SECONDS_KEY} must be nonnegative")
+    for key in seconds_keys:
+        if require_number(value[key], f"{context}.{key}") < 0:
+            raise MatrixError(f"{context}.{key} must be nonnegative")
 
 
 def metal_dispatch_total(counters: dict[str, int]) -> int:
@@ -372,8 +375,8 @@ def telemetry_classification(dispatches: int, fallbacks: int) -> str:
 
 
 def pipeline_preparation_occurred(value: dict[str, Any]) -> bool:
-    # Cache-hit lookup time is still accumulated in pipeline_preparation_seconds;
-    # only counters that create/load pipeline state distinguish a cold sample.
+    # Cache-hit lookup time is still accumulated; only counters that create or
+    # load library/pipeline state distinguish a cold sample.
     return (
         value["library_cache_misses"] > 0
         or value["binary_archive_hits"] > 0

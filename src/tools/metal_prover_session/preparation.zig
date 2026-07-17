@@ -250,6 +250,7 @@ pub fn cacheDelta(
         .archive_populations = after.archive_populations - before.archive_populations,
         .archive_serializations = after.archive_serializations - before.archive_serializations,
         .pipeline_preparation_seconds = after.pipeline_preparation_seconds - before.pipeline_preparation_seconds,
+        .library_preparation_seconds = after.library_preparation_seconds - before.library_preparation_seconds,
     };
 }
 

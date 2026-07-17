@@ -37,8 +37,11 @@ PIPELINE_CACHE_COUNTER_FIELDS = (
     "archive_populations",
     "archive_serializations",
 )
-PIPELINE_CACHE_SECONDS_FIELD = "pipeline_preparation_seconds"
-PIPELINE_CACHE_FIELDS = frozenset((*PIPELINE_CACHE_COUNTER_FIELDS, PIPELINE_CACHE_SECONDS_FIELD))
+PIPELINE_CACHE_SECONDS_FIELDS = (
+    "pipeline_preparation_seconds",
+    "library_preparation_seconds",
+)
+PIPELINE_CACHE_FIELDS = frozenset((*PIPELINE_CACHE_COUNTER_FIELDS, *PIPELINE_CACHE_SECONDS_FIELDS))
 PROTOCOL_PARAMETERS = {
     "channel": "blake2s",
     "channel_salt": 0,
@@ -854,10 +857,11 @@ def _pipeline_cache_delta(value: object) -> dict[str, int | float] | None:
         if not isinstance(counter, int) or isinstance(counter, bool) or counter < 0:
             return None
         counters[field] = counter
-    seconds = _nonnegative_number(value[PIPELINE_CACHE_SECONDS_FIELD])
-    if seconds is None:
-        return None
-    counters[PIPELINE_CACHE_SECONDS_FIELD] = seconds
+    for field in PIPELINE_CACHE_SECONDS_FIELDS:
+        seconds = _nonnegative_number(value[field])
+        if seconds is None:
+            return None
+        counters[field] = seconds
     return counters
 
 
@@ -1192,11 +1196,12 @@ def _aggregate_pipeline_cache_delta(
             field: sum(int(delta[field]) for delta in deltas if isinstance(delta, dict))
             for field in PIPELINE_CACHE_COUNTER_FIELDS
         },
-        PIPELINE_CACHE_SECONDS_FIELD: sum(
-            float(delta[PIPELINE_CACHE_SECONDS_FIELD])
-            for delta in deltas
-            if isinstance(delta, dict)
-        ),
+        **{
+            field: sum(
+                float(delta[field]) for delta in deltas if isinstance(delta, dict)
+            )
+            for field in PIPELINE_CACHE_SECONDS_FIELDS
+        },
     }
 
 

@@ -606,6 +606,7 @@ fn pipelineCacheReport(stats: anytype) report_mod.PipelineCacheDelta {
         .archive_populations = stats.archive_populations,
         .archive_serializations = stats.archive_serializations,
         .pipeline_preparation_seconds = stats.pipeline_preparation_seconds,
+        .library_preparation_seconds = stats.library_preparation_seconds,
     };
 }
 
@@ -624,8 +625,8 @@ fn backendTelemetryValid(
 }
 
 fn pipelinePreparationOccurred(cache: report_mod.PipelineCacheDelta) bool {
-    // A pipeline cache hit still accrues lookup time; these counters identify
-    // samples that actually create or load pipeline state after warmup.
+    // Cache-hit lookup time is still accumulated; counters identify samples
+    // that actually create or load library or pipeline state after warmup.
     return cache.library_cache_misses > 0 or
         cache.binary_archive_hits > 0 or
         cache.binary_archive_misses > 0 or
@@ -746,6 +747,18 @@ test "native proof runner: every Metal request needs a dispatch" {
     cold.pipeline_cache.direct_compiles = 1;
     try std.testing.expect(!backendTelemetryValid(.metal_hybrid, &.{valid}, &.{cold}));
     try std.testing.expect(backendTelemetryValid(.cpu_native, &.{}, &.{}));
+}
+
+test "native proof runner: library misses are cold but hit timing is warm" {
+    var cache = report_mod.PipelineCacheDelta{};
+    cache.library_cache_misses = 1;
+    try std.testing.expect(pipelinePreparationOccurred(cache));
+
+    cache = .{};
+    cache.library_cache_hits = 1;
+    cache.pipeline_preparation_seconds = 0.125;
+    cache.library_preparation_seconds = 0.25;
+    try std.testing.expect(!pipelinePreparationOccurred(cache));
 }
 
 test "native proof runner: oracle artifact wraps exact canonical bytes" {

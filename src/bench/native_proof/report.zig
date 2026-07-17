@@ -123,6 +123,7 @@ pub const PipelineCacheDelta = struct {
     archive_populations: u64 = 0,
     archive_serializations: u64 = 0,
     pipeline_preparation_seconds: f64 = 0,
+    library_preparation_seconds: f64 = 0,
 };
 
 pub const BackendTelemetryDelta = struct {
@@ -352,6 +353,7 @@ test "native proof report: Metal telemetry includes post-warmup cache evidence" 
             .library_cache_hits = 2,
             .direct_compiles = 1,
             .pipeline_preparation_seconds = 0.125,
+            .library_preparation_seconds = 0.25,
         },
         .warmups = &.{},
         .samples = &.{},
@@ -365,4 +367,5 @@ test "native proof report: Metal telemetry includes post-warmup cache evidence" 
     defer parsed.deinit();
     const cache = parsed.value.object.get("post_warmup_pipeline_cache").?.object;
     try std.testing.expectEqual(@as(i64, 1), cache.get("direct_compiles").?.integer);
+    try std.testing.expectEqual(@as(f64, 0.25), cache.get("library_preparation_seconds").?.float);
 }

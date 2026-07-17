@@ -19,6 +19,7 @@ const ProofResult = state.ProofResult;
 const RunnerArtifacts = state.RunnerArtifacts;
 const ViewCache = state.ViewCache;
 const adaptedGeometry = preparation.adaptedGeometry;
+const cacheDelta = preparation.cacheDelta;
 const immutableObject = preparation.immutableObject;
 const isSessionScrubbedRunnerEnvironment = preparation.isSessionScrubbedRunnerEnvironment;
 const referenceEnvironment = preparation.referenceEnvironment;
@@ -36,6 +37,16 @@ const TestPerProofShape = struct {
     public_count: usize = 0,
     ec_op_span: ?TestBuiltinSpan = null,
 };
+
+test "session cache delta includes library preparation time" {
+    const before = stwo.backends.metal.runtime.PipelineCacheStats.zero();
+    var after = before;
+    after.library_cache_misses = 1;
+    after.library_preparation_seconds = 0.25;
+    const delta = cacheDelta(after, before);
+    try std.testing.expectEqual(@as(u64, 1), delta.library_cache_misses);
+    try std.testing.expectEqual(@as(f64, 0.25), delta.library_preparation_seconds);
+}
 
 fn testAdaptedInputBytes(
     allocator: std.mem.Allocator,
@@ -505,6 +516,7 @@ test "verified result frame promotes normalized provenance" {
         .artifact_objects = testArtifactObjects(),
         .prepared_state_cache_hit = false,
     };
+    result.pipeline_cache_delta.library_preparation_seconds = 0.25;
     var encoded: [4096]u8 = undefined;
     var writer = std.Io.Writer.fixed(&encoded);
     try writeVerifiedResultFrame(&writer, request, result);
@@ -543,6 +555,10 @@ test "verified result frame promotes normalized provenance" {
     );
     try std.testing.expect(!object.get("reuse").?.object.get("resident_arena").?.bool);
     try std.testing.expect(!object.get("reuse").?.object.get("preprocessed_state").?.bool);
+    try std.testing.expectEqual(
+        @as(f64, 0.25),
+        object.get("pipeline_cache_delta").?.object.get("library_preparation_seconds").?.float,
+    );
     try std.testing.expectEqualStrings(
         "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
         object.get("artifact_objects").?.object.get("adapted_input").?.object.get("object_id").?.string,

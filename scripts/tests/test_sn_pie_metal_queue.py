@@ -158,6 +158,7 @@ class FakeExecutor:
                     "archive_populations": 7,
                     "archive_serializations": 8,
                     "pipeline_preparation_seconds": 0.125,
+                    "library_preparation_seconds": 0.25,
                 },
             },
         )
@@ -485,6 +486,7 @@ while True:
             "archive_populations": 7,
             "archive_serializations": 8,
             "pipeline_preparation_seconds": 0.125,
+            "library_preparation_seconds": 0.25,
         }},
     }}
     report_temporary.write_text(json.dumps(report))
@@ -900,6 +902,7 @@ while True:
                     "archive_populations": 14,
                     "archive_serializations": 16,
                     "pipeline_preparation_seconds": 0.25,
+                    "library_preparation_seconds": 0.5,
                 },
             )
             self.assertTrue(all(block["self_contained"] for block in document["blocks"]))

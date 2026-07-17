@@ -117,6 +117,7 @@
 @property(nonatomic) uint64_t evalArchivePopulations;
 @property(nonatomic) uint64_t evalArchiveSerializations;
 @property(nonatomic) double evalPipelinePreparationSeconds;
+@property(nonatomic) double evalLibraryPreparationSeconds;
 @end
 
 @interface StwoZigWitnessFeedPlan : NSObject
@@ -667,6 +668,7 @@ bool stwo_zig_metal_pipeline_cache_stats(
             stats->archive_populations = runtime.evalArchivePopulations;
             stats->archive_serializations = runtime.evalArchiveSerializations;
             stats->pipeline_preparation_seconds = runtime.evalPipelinePreparationSeconds;
+            stats->library_preparation_seconds = runtime.evalLibraryPreparationSeconds;
         }
         return true;
     }
@@ -3422,6 +3424,7 @@ void *stwo_zig_metal_eval_library_load(
 ) {
     if (runtime_ptr == NULL || path_bytes == NULL || path_len == 0u) return NULL;
     @autoreleasepool {
+        CFAbsoluteTime prepareStart = CFAbsoluteTimeGetCurrent();
         StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
         NSString *path = [[NSString alloc] initWithBytes:path_bytes length:path_len encoding:NSUTF8StringEncoding];
         if (path == nil) { write_error(error_message, error_message_len, @"Invalid metallib path encoding"); return NULL; }
@@ -3448,31 +3451,34 @@ void *stwo_zig_metal_eval_library_load(
                 return (__bridge_retained void *)cached;
             }
             runtime.evalLibraryCacheMisses += 1u;
-
-            id<MTLLibrary> metalLibrary =
-                [runtime.device newLibraryWithURL:[NSURL fileURLWithPath:canonicalPath] error:&error];
-            if (metalLibrary == nil) {
-                write_error(error_message, error_message_len,
-                            error.localizedDescription ?: @"Failed to load Metal evaluation library");
-                return NULL;
+            @try {
+                id<MTLLibrary> metalLibrary =
+                    [runtime.device newLibraryWithURL:[NSURL fileURLWithPath:canonicalPath] error:&error];
+                if (metalLibrary == nil) {
+                    write_error(error_message, error_message_len,
+                                error.localizedDescription ?: @"Failed to load Metal evaluation library");
+                    return NULL;
+                }
+                StwoZigEvalLibrary *result = [StwoZigEvalLibrary new];
+                result.library = metalLibrary;
+                result.cacheKey = cacheKey;
+                result.runtimeOwner = runtime;
+                NSString *archivePath = eval_metallib_archive_path(libraryDigest, libraryData.length);
+                result.archiveURL = [NSURL fileURLWithPath:archivePath];
+                result.archiveLoaded = [[NSFileManager defaultManager] fileExistsAtPath:archivePath];
+                MTLBinaryArchiveDescriptor *archiveDescriptor = [MTLBinaryArchiveDescriptor new];
+                if (result.archiveLoaded) archiveDescriptor.url = result.archiveURL;
+                result.archive = [runtime.device newBinaryArchiveWithDescriptor:archiveDescriptor error:&error];
+                if (result.archive == nil) {
+                    write_error(error_message, error_message_len,
+                                error.localizedDescription ?: @"Failed to load Metal binary archive");
+                    return NULL;
+                }
+                runtime.evalLibraries[cacheKey] = result;
+                return (__bridge_retained void *)result;
+            } @finally {
+                runtime.evalLibraryPreparationSeconds += CFAbsoluteTimeGetCurrent() - prepareStart;
             }
-            StwoZigEvalLibrary *result = [StwoZigEvalLibrary new];
-            result.library = metalLibrary;
-            result.cacheKey = cacheKey;
-            result.runtimeOwner = runtime;
-            NSString *archivePath = eval_metallib_archive_path(libraryDigest, libraryData.length);
-            result.archiveURL = [NSURL fileURLWithPath:archivePath];
-            result.archiveLoaded = [[NSFileManager defaultManager] fileExistsAtPath:archivePath];
-            MTLBinaryArchiveDescriptor *archiveDescriptor = [MTLBinaryArchiveDescriptor new];
-            if (result.archiveLoaded) archiveDescriptor.url = result.archiveURL;
-            result.archive = [runtime.device newBinaryArchiveWithDescriptor:archiveDescriptor error:&error];
-            if (result.archive == nil) {
-                write_error(error_message, error_message_len,
-                            error.localizedDescription ?: @"Failed to load Metal binary archive");
-                return NULL;
-            }
-            runtime.evalLibraries[cacheKey] = result;
-            return (__bridge_retained void *)result;
         }
     }
 }
@@ -3483,6 +3489,7 @@ void *stwo_zig_metal_eval_library_compile(
 ) {
     if (runtime_ptr == NULL || source_bytes == NULL || source_len == 0u) return NULL;
     @autoreleasepool {
+        CFAbsoluteTime prepareStart = CFAbsoluteTimeGetCurrent();
         StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
         NSString *source = [[NSString alloc] initWithBytes:source_bytes length:source_len encoding:NSUTF8StringEncoding];
         if (source == nil) {
@@ -3507,36 +3514,39 @@ void *stwo_zig_metal_eval_library_compile(
                 return (__bridge_retained void *)cached;
             }
             runtime.evalLibraryCacheMisses += 1u;
-
-            MTLCompileOptions *options = [MTLCompileOptions new];
-            options.mathMode = MTLMathModeSafe;
-            NSError *error = nil;
-            id<MTLLibrary> library = [runtime.device newLibraryWithSource:source options:options error:&error];
-            if (library == nil) {
-                write_error(error_message, error_message_len,
-                            error.localizedDescription ?: @"Failed to compile Metal source library");
-                return NULL;
+            @try {
+                MTLCompileOptions *options = [MTLCompileOptions new];
+                options.mathMode = MTLMathModeSafe;
+                NSError *error = nil;
+                id<MTLLibrary> library = [runtime.device newLibraryWithSource:source options:options error:&error];
+                if (library == nil) {
+                    write_error(error_message, error_message_len,
+                                error.localizedDescription ?: @"Failed to compile Metal source library");
+                    return NULL;
+                }
+                StwoZigEvalLibrary *result = [StwoZigEvalLibrary new];
+                result.library = library;
+                result.cacheKey = cacheKey;
+                result.sourceBytes = sourceData;
+                result.runtimeOwner = runtime;
+                NSString *archiveName = [NSString stringWithFormat:@"stwo-zig-eval-sha256-%@-%zu.binarchive",
+                    sourceDigest, source_len];
+                NSString *archivePath = [NSTemporaryDirectory() stringByAppendingPathComponent:archiveName];
+                result.archiveURL = [NSURL fileURLWithPath:archivePath];
+                result.archiveLoaded = [[NSFileManager defaultManager] fileExistsAtPath:archivePath];
+                MTLBinaryArchiveDescriptor *archiveDescriptor = [MTLBinaryArchiveDescriptor new];
+                if (result.archiveLoaded) archiveDescriptor.url = result.archiveURL;
+                result.archive = [runtime.device newBinaryArchiveWithDescriptor:archiveDescriptor error:&error];
+                if (result.archive == nil) {
+                    write_error(error_message, error_message_len,
+                                error.localizedDescription ?: @"Failed to load Metal source binary archive");
+                    return NULL;
+                }
+                runtime.evalLibraries[cacheKey] = result;
+                return (__bridge_retained void *)result;
+            } @finally {
+                runtime.evalLibraryPreparationSeconds += CFAbsoluteTimeGetCurrent() - prepareStart;
             }
-            StwoZigEvalLibrary *result = [StwoZigEvalLibrary new];
-            result.library = library;
-            result.cacheKey = cacheKey;
-            result.sourceBytes = sourceData;
-            result.runtimeOwner = runtime;
-            NSString *archiveName = [NSString stringWithFormat:@"stwo-zig-eval-sha256-%@-%zu.binarchive",
-                sourceDigest, source_len];
-            NSString *archivePath = [NSTemporaryDirectory() stringByAppendingPathComponent:archiveName];
-            result.archiveURL = [NSURL fileURLWithPath:archivePath];
-            result.archiveLoaded = [[NSFileManager defaultManager] fileExistsAtPath:archivePath];
-            MTLBinaryArchiveDescriptor *archiveDescriptor = [MTLBinaryArchiveDescriptor new];
-            if (result.archiveLoaded) archiveDescriptor.url = result.archiveURL;
-            result.archive = [runtime.device newBinaryArchiveWithDescriptor:archiveDescriptor error:&error];
-            if (result.archive == nil) {
-                write_error(error_message, error_message_len,
-                            error.localizedDescription ?: @"Failed to load Metal source binary archive");
-                return NULL;
-            }
-            runtime.evalLibraries[cacheKey] = result;
-            return (__bridge_retained void *)result;
         }
     }
 }

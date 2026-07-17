@@ -107,6 +107,7 @@ PIPELINE_CACHE_COUNTER_KEYS = {
     "archive_serializations",
 }
 PIPELINE_CACHE_SECONDS_KEY = "pipeline_preparation_seconds"
+LIBRARY_PREPARATION_SECONDS_KEY = "library_preparation_seconds"
 ACCELERATED_CLASSIFICATIONS = {
     "accelerated_with_fallbacks",
     "accelerated_without_fallbacks",

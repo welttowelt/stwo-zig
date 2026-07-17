@@ -66,6 +66,7 @@ typedef struct {
     uint64_t archive_populations;
     uint64_t archive_serializations;
     double pipeline_preparation_seconds;
+    double library_preparation_seconds;
 } StwoZigPipelineCacheStats;
 
 typedef struct {
@@ -106,8 +107,9 @@ _Static_assert(offsetof(StwoZigDecommitFriRoundParams, max_queries) == 104u, "FR
 _Static_assert(sizeof(StwoZigDecommitTraceGroupParams) == 128u, "StwoZigDecommitTraceGroupParams ABI");
 _Static_assert(offsetof(StwoZigDecommitTraceGroupParams, domain_prefix_bytes) == 92u, "trace domain_prefix_bytes ABI");
 _Static_assert(offsetof(StwoZigDecommitTraceGroupParams, leaf_seed) == 96u, "trace leaf_seed ABI");
-_Static_assert(sizeof(StwoZigPipelineCacheStats) == 72u, "StwoZigPipelineCacheStats ABI");
+_Static_assert(sizeof(StwoZigPipelineCacheStats) == 80u, "StwoZigPipelineCacheStats ABI");
 _Static_assert(offsetof(StwoZigPipelineCacheStats, pipeline_preparation_seconds) == 64u, "pipeline stats ABI");
+_Static_assert(offsetof(StwoZigPipelineCacheStats, library_preparation_seconds) == 72u, "library stats ABI");
 _Static_assert(sizeof(StwoZigQuotientCoefficientTerm) == 32u, "StwoZigQuotientCoefficientTerm ABI");
 _Static_assert(offsetof(StwoZigQuotientCoefficientTerm, value_coefficients) == 12u, "quotient coefficients ABI");
 _Static_assert(sizeof(StwoZigArenaCopyRange) == 24u, "StwoZigArenaCopyRange ABI");

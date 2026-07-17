@@ -21,6 +21,8 @@ MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(MODULE)
 
+from native_proof_matrix_lib.contract import pipeline_preparation_occurred
+
 PROOF_WIRE_BYTES = json.dumps(
     {
         "config": {},
@@ -86,6 +88,7 @@ def pipeline_cache() -> dict[str, int | float]:
     return {
         **{key: 0 for key in MODULE.PIPELINE_CACHE_COUNTER_KEYS},
         MODULE.PIPELINE_CACHE_SECONDS_KEY: 0.0,
+        MODULE.LIBRARY_PREPARATION_SECONDS_KEY: 0.0,
     }
 
 
@@ -333,6 +336,17 @@ def lane_args(timeout_seconds: float = 2.0) -> argparse.Namespace:
 
 
 class NativeProofMatrixTests(unittest.TestCase):
+    def test_library_miss_is_cold_but_hit_timing_alone_is_warm(self) -> None:
+        cache = pipeline_cache()
+        cache["library_cache_misses"] = 1
+        self.assertTrue(pipeline_preparation_occurred(cache))
+
+        cache = pipeline_cache()
+        cache["library_cache_hits"] = 1
+        cache["pipeline_preparation_seconds"] = 0.125
+        cache["library_preparation_seconds"] = 0.25
+        self.assertFalse(pipeline_preparation_occurred(cache))
+
     def test_atomic_output_and_lock_boundaries(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

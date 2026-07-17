@@ -54,6 +54,7 @@ pub const PipelineCacheStats = extern struct {
     archive_populations: u64,
     archive_serializations: u64,
     pipeline_preparation_seconds: f64,
+    library_preparation_seconds: f64,
 
     pub fn zero() PipelineCacheStats {
         return std.mem.zeroes(PipelineCacheStats);
@@ -99,9 +100,10 @@ comptime {
         .{ "domain_prefix_bytes", 92 },
         .{ "leaf_seed", 96 },
     });
-    assertLayout(PipelineCacheStats, 72, &.{
+    assertLayout(PipelineCacheStats, 80, &.{
         .{ "library_cache_hits", 0 },
         .{ "pipeline_preparation_seconds", 64 },
+        .{ "library_preparation_seconds", 72 },
     });
     assertLayout(ArenaCopyRange, 24, &.{
         .{ "source_word_offset", 0 },

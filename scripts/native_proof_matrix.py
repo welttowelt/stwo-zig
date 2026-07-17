@@ -24,6 +24,7 @@ from native_proof_matrix_lib import (  # noqa: E402
     DEFAULT_SAMPLES,
     DEFAULT_WARMUPS,
     DEFAULT_WORKLOADS,
+    LIBRARY_PREPARATION_SECONDS_KEY,
     MAX_COMMITTED_TRACE_CELLS,
     MIN_HEADLINE_WARMUPS,
     MatrixError,

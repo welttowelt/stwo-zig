@@ -189,6 +189,14 @@ class MetalPipelineCacheSourceTest(unittest.TestCase):
         )
         self.assertIn("runtime.evalLibraryCacheHits += 1u", compile_library)
         self.assertIn("runtime.evalLibraryCacheMisses += 1u", compile_library)
+        for body in (load, compile_library):
+            miss = body.index("runtime.evalLibraryCacheMisses += 1u")
+            timed = body.index("@try", miss)
+            finished = body.index("@finally", timed)
+            accumulated = body.index("runtime.evalLibraryPreparationSeconds +=", finished)
+            self.assertLess(miss, timed)
+            self.assertLess(timed, finished)
+            self.assertLess(finished, accumulated)
         self.assertIn("runtime.evalPipelineCacheHits += 1u", resolve)
         self.assertIn("if (pipeline != nil) runtime.evalBinaryArchiveHits += 1u", resolve)
         self.assertLess(
@@ -216,6 +224,7 @@ class MetalPipelineCacheSourceTest(unittest.TestCase):
             "archive_populations",
             "archive_serializations",
             "pipeline_preparation_seconds",
+            "library_preparation_seconds",
         )
         for field in fields:
             self.assertIn(field, self.source)
