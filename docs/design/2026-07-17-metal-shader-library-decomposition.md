@@ -62,35 +62,38 @@ target architecture and must not be described as an AOT shader library yet:
 - the field-support increment moves the exact M31, CM31, and QM31 definitions into guarded
   `m31.metal` and `extension_fields.metal` headers. Generated witness kernels consume the same M31
   authority under codegen version 5 rather than scraping M31 arithmetic from `kernels.metal`;
-- the legacy file is now 3,270 lines. Its 90 exported entry points, the runtime lookup set, and the
+- the Felt252/EC witness-support increment extracts guarded `felt252.metal`, `ec.metal`,
+  `witness_abi.metal`, `witness_tables.metal`, and `witness_deductions.metal` headers. Both the
+  deterministic core amalgamation and generated witness programs now consume these explicit
+  owners; generated witness code no longer embeds or slices `kernels.metal`, and codegen support
+  version 6 owns the resulting cache-identity change;
+- the legacy file is now 2,767 lines. Its 90 exported entry points, the runtime lookup set, and the
   one-library source-JIT boundary remain unchanged;
 - Stage 0 remains incomplete until every argument contract is represented in the manifest, Metal
   reflection validates it, and cold compilation/PSO/library counts are captured;
-- Stage 1 remains incomplete: Felt252, EC, circle, Merkle, and decommit support still belongs to
-  `kernels.metal`. Witness codegen still extracts its Felt252/EC and witness-table fragments by
-  sentinel while that support bundle is being made explicit;
+- Stage 1 remains incomplete: circle, Merkle, and decommit support still belongs to
+  `kernels.metal`; Felt252, EC, and generated-witness support now have explicit guarded owners;
 - AOT AIR compilation/linking and authenticated metallib loading remain Stage 5 work. No current
   source extraction removes runtime compilation or changes warm proving speed.
 
-The next support-header slice is the Felt252/EC and witness-ABI boundary that removes the remaining
-generated-witness sentinel coupling. Protocol families must not move ahead of their Stage 1
-support-header boundary merely because the source-JIT amalgamation can resolve helpers by
-concatenation order.
+The next support-header slices are the remaining circle, Merkle, and decommit boundaries. Protocol
+families must not move ahead of their Stage 1 support-header boundary merely because the source-JIT
+amalgamation can resolve helpers by concatenation order.
 
 The problem is wider than file length:
 
-- `runtime.zig` embeds the complete file and `runtime.m` source-JIT compiles it for every new core
-  runtime before eagerly resolving the core pipelines;
-- `witness_codegen.zig` locates helper ranges by searching for kernel-name sentinel strings, then
-  copies slices of this implementation file into generated witness programs;
-- shared field and hash helpers have no explicit public/private shader boundary;
+- `runtime.zig` embeds the deterministic manifest amalgamation and `runtime.m` source-JIT compiles
+  it for every new core runtime before eagerly resolving the core pipelines;
+- generated witness support is now header-owned, versioned, and independent of legacy kernel-name
+  placement; the same headers also feed the deterministic core amalgamation;
+- circle, Merkle, and decommit helpers still have no explicit public/private shader boundary;
 - `runtime.m` repeats string literals for kernel lookup rather than consuming an authoritative ABI
   manifest;
 - an edit to one family changes the source identity of every core pipeline and invalidates the
   complete source/library cache identity;
 - review cannot isolate a proof-stage change from shared arithmetic or unrelated entry points;
-- manually shared structs and kernel argument positions are not described by a versioned host/MSL
-  ABI contract.
+- shared task structs have initial layout assertions, but most kernel argument positions are not yet
+  described by a complete versioned host/MSL ABI contract.
 
 ## Non-Negotiable Invariants
 

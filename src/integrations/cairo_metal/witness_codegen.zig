@@ -1,11 +1,19 @@
 const std = @import("std");
 const witness = @import("../../frontends/cairo/witness/program.zig");
+const shader_manifest = @import("../../backends/metal/shaders/manifest.zig");
 
-pub const codegen_version: u64 = 5;
+pub const codegen_version: u64 = shader_manifest.witness_codegen_support_version;
 
 const base_support = @embedFile("../../backends/metal/shaders/include/base.metal");
 const m31_support = @embedFile("../../backends/metal/shaders/include/m31.metal");
+const felt252_support = @embedFile("../../backends/metal/shaders/include/felt252.metal");
+const ec_support = @embedFile("../../backends/metal/shaders/include/ec.metal");
+const witness_abi_support = @embedFile("../../backends/metal/shaders/include/witness_abi.metal");
+const witness_tables_support = @embedFile("../../backends/metal/shaders/include/witness_tables.metal");
+const witness_deductions_support = @embedFile("../../backends/metal/shaders/include/witness_deductions.metal");
 const generated_support = "#define STWO_ZIG_AMALGAMATED 1\n" ++ base_support ++ m31_support;
+const common_witness_support = witness_abi_support ++ witness_tables_support;
+const deduction_witness_support = felt252_support ++ ec_support ++ witness_deductions_support;
 
 pub const KernelMode = enum {
     all,
@@ -16,15 +24,10 @@ pub const KernelMode = enum {
 };
 
 pub fn preambleParts() [3][]const u8 {
-    const source = @embedFile("../../backends/metal/kernels.metal");
-    const felt_start = std.mem.indexOf(u8, source, "struct Felt252Metal") orelse unreachable;
-    const support_end = std.mem.indexOf(u8, source, "kernel void stwo_zig_witness_input_gather_resident") orelse unreachable;
-    const helpers_start = std.mem.indexOf(u8, source, "inline uint witness_table_limb") orelse unreachable;
-    const helpers_end = std.mem.indexOf(u8, source, "kernel void stwo_zig_felt252_oracle") orelse unreachable;
     return .{
         generated_support,
-        source[felt_start..support_end],
-        source[helpers_start..helpers_end],
+        common_witness_support,
+        deduction_witness_support,
     };
 }
 
@@ -41,16 +44,11 @@ pub fn preamblePartsForProgram(program: witness.Program) [5][]const u8 {
         return .{ full[0], full[1], full[2], "", "" };
     }
 
-    const source = @embedFile("../../backends/metal/kernels.metal");
-    const args_start = std.mem.indexOf(u8, source, "struct WitnessArgs") orelse unreachable;
-    const args_end = std.mem.indexOf(u8, source, "kernel void stwo_zig_witness_input_gather_resident") orelse unreachable;
-    const table_start = std.mem.indexOf(u8, source, "inline uint witness_table_limb") orelse unreachable;
-    const table_end = std.mem.indexOf(u8, source, "inline Felt252Metal witness_from_w27") orelse unreachable;
     return .{
         "#define STWO_ZIG_AMALGAMATED 1\n" ++ base_support,
         m31_support,
-        source[args_start..args_end],
-        source[table_start..table_end],
+        witness_abi_support,
+        witness_tables_support,
         "",
     };
 }
@@ -495,7 +493,7 @@ test "Metal witness codegen specializes base and interaction outputs" {
 
     const base_lookup = try generateKernelForMode(std.testing.allocator, program, program.semanticHash(), .base_lookup);
     defer std.testing.allocator.free(base_lookup);
-    try std.testing.expect(std.mem.indexOf(u8, base_lookup, "_base_lookup_v5") != null);
+    try std.testing.expect(std.mem.indexOf(u8, base_lookup, "_base_lookup_v6") != null);
     try std.testing.expect(std.mem.indexOf(u8, base_lookup, "args.output_offsets") != null);
     try std.testing.expect(std.mem.indexOf(u8, base_lookup, "args.sub_words") != null);
     try std.testing.expect(std.mem.indexOf(u8, base_lookup, "args.lookup_words") != null);
@@ -513,7 +511,7 @@ test "Metal witness codegen specializes base and interaction outputs" {
         .interaction_subwords,
     );
     defer std.testing.allocator.free(interaction_subwords);
-    try std.testing.expect(std.mem.indexOf(u8, interaction_subwords, "_interaction_subwords_v5") != null);
+    try std.testing.expect(std.mem.indexOf(u8, interaction_subwords, "_interaction_subwords_v6") != null);
     try std.testing.expect(std.mem.indexOf(u8, interaction_subwords, "args.output_offsets") == null);
     try std.testing.expect(std.mem.indexOf(u8, interaction_subwords, "args.lookup_words") == null);
     try std.testing.expect(std.mem.indexOf(u8, interaction_subwords, "args.sub_words") != null);
@@ -567,7 +565,7 @@ test "Metal witness codegen combines per-entry mode specializations" {
     defer std.testing.allocator.free(source);
     try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, source, "#include <metal_stdlib>"));
     try std.testing.expect(std.mem.indexOf(u8, source, "stwo_zig_witness_0000000000000001_base") != null);
-    try std.testing.expect(std.mem.indexOf(u8, source, "stwo_zig_witness_0000000000000002_base_lookup_v5") != null);
+    try std.testing.expect(std.mem.indexOf(u8, source, "stwo_zig_witness_0000000000000002_base_lookup_v6") != null);
 }
 
 test "Metal witness preamble excludes unrelated backend kernels" {
@@ -593,4 +591,22 @@ test "Metal witness preamble omits Felt252 helpers without deductions" {
     try std.testing.expect(std.mem.indexOf(u8, parts[1], "m31_mul") != null);
     try std.testing.expect(std.mem.indexOf(u8, parts[2], "struct WitnessArgs") != null);
     try std.testing.expect(std.mem.indexOf(u8, parts[3], "witness_table_limb") != null);
+}
+
+test "Metal witness codegen consumes only explicit support headers" {
+    const implementation = @embedFile("witness_codegen.zig");
+    try std.testing.expectEqual(shader_manifest.witness_codegen_support_version, codegen_version);
+    try std.testing.expectEqual(@as(u64, 6), codegen_version);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        implementation,
+        "@embedFile(\"../../backends/metal/kernels.metal\")",
+    ) == null);
+
+    const full = preambleParts();
+    try std.testing.expect(std.mem.indexOf(u8, full[1], "struct WitnessArgs") != null);
+    try std.testing.expect(std.mem.indexOf(u8, full[1], "witness_table_limb") != null);
+    try std.testing.expect(std.mem.indexOf(u8, full[2], "struct Felt252Metal") != null);
+    try std.testing.expect(std.mem.indexOf(u8, full[2], "struct EcPointMetal") != null);
+    try std.testing.expect(std.mem.indexOf(u8, full[2], "witness_deduce_11") != null);
 }

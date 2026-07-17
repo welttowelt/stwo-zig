@@ -1,6 +1,7 @@
 const std = @import("std");
 
 pub const core_shader_abi: u32 = 2;
+pub const witness_codegen_support_version: u64 = 6;
 
 pub const CompileProfile = struct {
     math_mode: []const u8,
@@ -139,6 +140,11 @@ const blake2s_source = @embedFile("include/blake2s.metal");
 const m31_source = @embedFile("include/m31.metal");
 const extension_fields_source = @embedFile("include/extension_fields.metal");
 const abi_types_source = @embedFile("include/abi_types.metal");
+const felt252_source = @embedFile("include/felt252.metal");
+const ec_source = @embedFile("include/ec.metal");
+const witness_abi_source = @embedFile("include/witness_abi.metal");
+const witness_tables_source = @embedFile("include/witness_tables.metal");
+const witness_deductions_source = @embedFile("include/witness_deductions.metal");
 const arena_ops_source = @embedFile("core/arena_ops.metal");
 const transcript_source = @embedFile("core/transcript.metal");
 const polynomial_eval_source = @embedFile("core/polynomial_eval.metal");
@@ -149,6 +155,11 @@ pub const support_headers = [_]TranslationUnit{
     .{ .path = "src/backends/metal/shaders/include/m31.metal", .source = m31_source },
     .{ .path = "src/backends/metal/shaders/include/extension_fields.metal", .source = extension_fields_source },
     .{ .path = "src/backends/metal/shaders/include/abi_types.metal", .source = abi_types_source },
+    .{ .path = "src/backends/metal/shaders/include/felt252.metal", .source = felt252_source },
+    .{ .path = "src/backends/metal/shaders/include/ec.metal", .source = ec_source },
+    .{ .path = "src/backends/metal/shaders/include/witness_abi.metal", .source = witness_abi_source },
+    .{ .path = "src/backends/metal/shaders/include/witness_tables.metal", .source = witness_tables_source },
+    .{ .path = "src/backends/metal/shaders/include/witness_deductions.metal", .source = witness_deductions_source },
 };
 
 pub const translation_units = [_]TranslationUnit{
@@ -171,6 +182,16 @@ pub const amalgamated_source: [:0]const u8 = "#define STWO_ZIG_AMALGAMATED 1\n" 
     extension_fields_source ++
     "\n#line 1 \"src/backends/metal/shaders/include/abi_types.metal\"\n" ++
     abi_types_source ++
+    "\n#line 1 \"src/backends/metal/shaders/include/felt252.metal\"\n" ++
+    felt252_source ++
+    "\n#line 1 \"src/backends/metal/shaders/include/ec.metal\"\n" ++
+    ec_source ++
+    "\n#line 1 \"src/backends/metal/shaders/include/witness_abi.metal\"\n" ++
+    witness_abi_source ++
+    "\n#line 1 \"src/backends/metal/shaders/include/witness_tables.metal\"\n" ++
+    witness_tables_source ++
+    "\n#line 1 \"src/backends/metal/shaders/include/witness_deductions.metal\"\n" ++
+    witness_deductions_source ++
     "\n#line 1 \"src/backends/metal/kernels.metal\"\n" ++
     legacy_source ++
     "\n#line 1 \"src/backends/metal/shaders/core/arena_ops.metal\"\n" ++
@@ -287,10 +308,53 @@ test "legacy shader unit declares extracted support dependencies" {
         "#include \"stwo_zig/blake2s.metal\"",
         "#include \"stwo_zig/m31.metal\"",
         "#include \"stwo_zig/extension_fields.metal\"",
+        "#include \"stwo_zig/felt252.metal\"",
+        "#include \"stwo_zig/ec.metal\"",
+        "#include \"stwo_zig/witness_abi.metal\"",
+        "#include \"stwo_zig/witness_tables.metal\"",
+        "#include \"stwo_zig/witness_deductions.metal\"",
     };
     for (dependencies) |dependency| {
         try std.testing.expect(std.mem.indexOf(u8, legacy_source, dependency) != null);
     }
+}
+
+test "Felt252 EC and witness support have explicit header ownership" {
+    const owned_definitions = [_]struct {
+        source: []const u8,
+        definition: []const u8,
+    }{
+        .{ .source = felt252_source, .definition = "struct Felt252Metal" },
+        .{ .source = ec_source, .definition = "struct EcPointMetal" },
+        .{ .source = ec_source, .definition = "struct EcProjectiveMetal" },
+        .{ .source = witness_abi_source, .definition = "struct WitnessArgs" },
+        .{ .source = witness_tables_source, .definition = "inline uint witness_table_limb" },
+        .{ .source = witness_deductions_source, .definition = "void witness_deduce_11" },
+    };
+    for (owned_definitions) |owned| {
+        try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, owned.source, owned.definition));
+        try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, amalgamated_source, owned.definition));
+        try std.testing.expectEqual(@as(usize, 0), std.mem.count(u8, legacy_source, owned.definition));
+    }
+
+    const headers = [_][]const u8{
+        felt252_source,
+        ec_source,
+        witness_abi_source,
+        witness_tables_source,
+        witness_deductions_source,
+    };
+    for (headers) |header| {
+        try std.testing.expect(std.mem.startsWith(u8, header, "#ifndef STWO_ZIG_"));
+        try std.testing.expectEqual(@as(usize, 0), std.mem.count(u8, header, "kernel void stwo_zig_"));
+    }
+}
+
+test "witness support version owns the generated-library cache boundary" {
+    try std.testing.expectEqual(@as(u64, 6), witness_codegen_support_version);
+    try std.testing.expect(std.mem.indexOf(u8, witness_abi_source, "struct WitnessArgs") != null);
+    try std.testing.expect(std.mem.indexOf(u8, witness_tables_source, "witness_table_limb") != null);
+    try std.testing.expect(std.mem.indexOf(u8, witness_deductions_source, "witness_deduce_11") != null);
 }
 
 test "transcript is isolated in its owning shader unit with a stable ABI" {
