@@ -7,26 +7,6 @@
       "plan": "docs/design/2026-07-17-source-conformance.md"
     },
     {
-      "key": "dependency:prover/tests/fri.zig->backends/cpu_scalar/mod.zig",
-      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
-      "plan": "docs/design/2026-07-17-source-conformance.md"
-    },
-    {
-      "key": "dependency:prover/tests/pcs/commitment.zig->backends/cpu_scalar/mod.zig",
-      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
-      "plan": "docs/design/2026-07-17-source-conformance.md"
-    },
-    {
-      "key": "dependency:prover/tests/pcs/opening.zig->backends/cpu_scalar/mod.zig",
-      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
-      "plan": "docs/design/2026-07-17-source-conformance.md"
-    },
-    {
-      "key": "dependency:prover/tests/prove.zig->backends/cpu_scalar/mod.zig",
-      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
-      "plan": "docs/design/2026-07-17-source-conformance.md"
-    },
-    {
       "key": "file-size:backends/metal/kernels.metal",
       "reason": "Legacy Metal shader monolith retained only for the staged, ABI-preserving library migration.",
       "plan": "docs/design/2026-07-17-metal-shader-library-decomposition.md"

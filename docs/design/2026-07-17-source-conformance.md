@@ -51,7 +51,7 @@ The first migration pass has established these boundaries without changing proof
 - `scripts/ci.py` is the shared local and hosted CI entrypoint. Versioned pre-commit and pre-push
   hooks provide bounded local feedback without running hardware Metal or large SN PIE workloads.
 
-The checked-in enforcement baseline contains 36 explained legacy findings: 5 dependency edges,
+The checked-in enforcement baseline contains 32 explained legacy findings: 1 dependency edge,
 16 oversized manually maintained files, and 15 misplaced root sources. New findings and stale
 baseline entries fail the check. Removing a violation therefore requires removing its baseline
 entry in the same change.

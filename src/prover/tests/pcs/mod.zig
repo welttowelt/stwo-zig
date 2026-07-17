@@ -2,5 +2,4 @@
 
 test {
     _ = @import("commitment.zig");
-    _ = @import("opening.zig");
 }

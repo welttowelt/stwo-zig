@@ -15,6 +15,7 @@ test {
     _ = @import("integrations/cairo_metal/quotient_reference.zig");
     _ = @import("integrations/cairo_metal/schedule_bindings.zig");
     _ = @import("prover/tests/mod.zig");
+    _ = @import("tests/native/prover/mod.zig");
     _ = @import("interop/parity/mod.zig");
     std.testing.refAllDecls(stwo);
     std.testing.refAllDeclsRecursive(stwo.core);
