@@ -1,6 +1,6 @@
 const std = @import("std");
 const stwo = @import("stwo");
-const codegen = stwo.integrations.cairo_metal.witness_codegen;
+const witness_aot = stwo.integrations.cairo_metal.witness_aot;
 const bundle_mod = stwo.frontends.cairo.witness.bundle;
 
 pub fn main() !void {
@@ -17,7 +17,7 @@ pub fn main() !void {
     var buffer: [64 * 1024]u8 = undefined;
     var file_writer = output.writer(&buffer);
     const writer = &file_writer.interface;
-    const source = try codegen.generateSpecializedBatch(allocator, bundle.entries);
+    const source = try witness_aot.generateSource(allocator, bundle);
     defer allocator.free(source);
     try writer.writeAll(source);
     try writer.flush();

@@ -1122,6 +1122,8 @@ pub const MultiplicityFeedBatch = multiplicity_feeds.MultiplicityFeedBatch;
 pub const prepareEcOpWitness = witness_prepare.prepareEcOpWitness;
 pub const prepareAotWitnessBatch = witness_prepare.prepareAotWitnessBatch;
 pub const prepareAotInteractionBatch = witness_prepare.prepareAotInteractionBatch;
+pub const AuthenticatedAotWitnessBatches = witness_prepare.AuthenticatedAotWitnessBatches;
+pub const prepareAuthenticatedAotWitnessBatches = witness_prepare.prepareAuthenticatedAotWitnessBatches;
 
 pub const prepareMultiplicityFeedBatch = multiplicity_feeds.prepareMultiplicityFeedBatch;
 

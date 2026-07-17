@@ -5,10 +5,10 @@ const arena_plan = @import("../../../../backends/metal/arena_plan.zig");
 const metal_runtime = @import("../../../../backends/metal/runtime.zig");
 const protocol_recipes = @import("../../../../backends/metal/protocol_recipes.zig");
 const cairo_adapter = @import("../../../../frontends/cairo/adapter/mod.zig");
-const cairo_proof_plan = @import("../../../../frontends/cairo/proof_plan.zig");
 const fixed_table_bundle_mod = @import("../../../../frontends/cairo/witness/fixed_table_bundle.zig");
 const witness_bundle_mod = @import("../../../../frontends/cairo/witness/bundle.zig");
 const witness_program_mod = @import("../../../../frontends/cairo/witness/program.zig");
+const witness_aot = @import("../../witness_aot.zig");
 const witness_codegen = @import("../../witness_codegen.zig");
 const recipe_requirements = @import("../../recipe_requirements.zig");
 const schedule_bindings = @import("../../schedule_bindings.zig");
@@ -149,6 +149,7 @@ pub fn prepareAotWitnessBatch(
         witness_bundle,
         fixed_bundle,
         .base,
+        .source_jit,
     );
 }
 
@@ -173,12 +174,72 @@ pub fn prepareAotInteractionBatch(
         witness_bundle,
         fixed_bundle,
         .interaction,
+        .source_jit,
     );
+}
+
+pub const AuthenticatedAotWitnessBatches = struct {
+    base: protocol_recipes.AotWitnessBatchRecipe,
+    interaction: protocol_recipes.AotWitnessBatchRecipe,
+
+    pub fn deinit(self: *AuthenticatedAotWitnessBatches) void {
+        self.interaction.deinit();
+        self.base.deinit();
+        self.* = undefined;
+    }
+};
+
+/// Admits one generated witness metallib and resolves the complete base and
+/// interaction pipeline set. This explicit API never falls back to source JIT.
+pub fn prepareAuthenticatedAotWitnessBatches(
+    allocator: std.mem.Allocator,
+    metal: *metal_runtime.Runtime,
+    resident_arena: *arena_plan.ResidentArena,
+    schedule: []const std.json.Value,
+    plan: arena_plan.Plan,
+    witness_bundle: witness_bundle_mod.Bundle,
+    fixed_bundle: fixed_table_bundle_mod.Bundle,
+    program: witness_aot.AuthenticatedMetallib,
+) !AuthenticatedAotWitnessBatches {
+    try program.authenticate(allocator, witness_bundle);
+    var base = try prepareAotWitnessBatchForMode(
+        allocator,
+        metal,
+        resident_arena,
+        schedule,
+        plan,
+        witness_bundle,
+        fixed_bundle,
+        .base,
+        .{ .metallib = program.path },
+    );
+    errdefer base.deinit();
+
+    // Re-authenticate immediately before the second library acquisition. The
+    // caller must still provide an immutable admitted path for the load itself.
+    try program.authenticate(allocator, witness_bundle);
+    const interaction = try prepareAotWitnessBatchForMode(
+        allocator,
+        metal,
+        resident_arena,
+        schedule,
+        plan,
+        witness_bundle,
+        fixed_bundle,
+        .interaction,
+        .{ .metallib = program.path },
+    );
+    return .{ .base = base, .interaction = interaction };
 }
 
 const FixedDeductionRequirements = struct {
     pedersen: bool = false,
     poseidon: bool = false,
+};
+
+const WitnessProgram = union(enum) {
+    source_jit,
+    metallib: []const u8,
 };
 
 fn fixedDeductionRequirements(bundle: witness_bundle_mod.Bundle) FixedDeductionRequirements {
@@ -205,6 +266,7 @@ fn prepareAotWitnessBatchForMode(
     witness_bundle: witness_bundle_mod.Bundle,
     fixed_bundle: fixed_table_bundle_mod.Bundle,
     mode: witness_codegen.KernelMode,
+    program: WitnessProgram,
 ) !protocol_recipes.AotWitnessBatchRecipe {
     if (mode == .all) return Error.InvalidCardinality;
     const table_pointers_planned = try one(schedule, plan, "ExecutionTablePointers");
@@ -378,13 +440,11 @@ fn prepareAotWitnessBatchForMode(
         if (lookup.size_bytes != @as(u64, row_count) * entry.program.n_lookup_words * 4 or
             sub.size_bytes != @as(u64, row_count) * entry.program.n_sub_words * 4)
             return Error.InvalidBindingSize;
-        const retain_lookup = cairo_proof_plan.retainsLookupInputs(entry.label);
-        kernel_mode.* = if (mode == .base and retain_lookup)
-            .base_lookup
-        else if (mode == .interaction and cairo_proof_plan.retainedLookupReplaysSubwords(entry.label))
-            .interaction_subwords
-        else
-            mode;
+        kernel_mode.* = switch (mode) {
+            .base => witness_aot.kernelMode(entry.label, .base),
+            .interaction => witness_aot.kernelMode(entry.label, .interaction),
+            .all, .base_lookup, .interaction_subwords => unreachable,
+        };
         const destination_count: usize = switch (mode) {
             .base => outputs.len + 1 + @intFromBool(kernel_mode.* == .base_lookup),
             .interaction => if (kernel_mode.* == .interaction_subwords) 1 else 2,
@@ -452,15 +512,26 @@ fn prepareAotWitnessBatchForMode(
             .workspace_writes = workspace_storage.*,
         };
     }
-    const source = try witness_codegen.generateBatchForModes(allocator, witness_bundle.entries, kernel_modes);
-    defer allocator.free(source);
-    return protocol_recipes.AotWitnessBatchRecipe.initSource(
-        allocator,
-        metal,
-        resident_arena,
-        source,
-        invocations,
-    );
+    return switch (program) {
+        .source_jit => source_blk: {
+            const source = try witness_codegen.generateBatchForModes(allocator, witness_bundle.entries, kernel_modes);
+            defer allocator.free(source);
+            break :source_blk protocol_recipes.AotWitnessBatchRecipe.initSource(
+                allocator,
+                metal,
+                resident_arena,
+                source,
+                invocations,
+            );
+        },
+        .metallib => |path| protocol_recipes.AotWitnessBatchRecipe.init(
+            allocator,
+            metal,
+            resident_arena,
+            path,
+            invocations,
+        ),
+    };
 }
 
 test "Cairo AOT witness narrow addresses validate the complete binding extent" {
