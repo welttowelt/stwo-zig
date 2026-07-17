@@ -1,12 +1,18 @@
 # Backend Performance Program
 
-Status: active
+Status: normative; aggressive execution blocked by
+`2026-07-17-pre-optimization-conformance-goal.md`
 
 ## Objective
 
 Drive verified proving throughput upward across the Zig CPU and Metal backends without specializing
 the prover for one trace. Native Stwo and Cairo are the primary workloads. RISC-V joins the matrix
 only after its AIR and Rust-oracle correctness obligations are complete.
+
+Historical measurements and bounded diagnostics remain valid evidence. New arithmetic, fusion,
+residency, and benchmark-throughput optimization begins only after the pre-optimization goal's
+readiness gates close. The release-performance targets in `docs/conformance/contract.md` remain
+post-unlock release gates rather than circular prerequisites for opening this program.
 
 Performance changes are accepted from profiler evidence, not intuition. The pinned Rust Stwo
 revision is the final protocol correctness oracle. A fast proof that is not accepted by the Zig

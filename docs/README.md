@@ -21,19 +21,33 @@ context. Root-level project entry points are limited to `README.md` and `CONTRIB
 
 - [`design/2026-07-17-source-conformance.md`](design/2026-07-17-source-conformance.md): active,
   phased migration of source ownership, dependency direction, tests, and delivery automation.
+- [`design/2026-07-17-native-backend-suite.md`](design/2026-07-17-native-backend-suite.md): complete
+  six-example real-AIR Native CPU/Metal acceptance architecture and evidence contract.
 - [`design/2026-07-17-cairo-program-matrix.md`](design/2026-07-17-cairo-program-matrix.md):
-  nine-program Cairo benchmark contract and general Zig proof critical path.
+  human projection of the exact 27-cell
+  [`cairo_program_matrix.json`](../vectors/cairo/cairo_program_matrix.json) authority and the general
+  Zig proof critical path.
+- [`cairo-zig-prover-entrypoint.md`](cairo-zig-prover-entrypoint.md): general Cairo orchestration,
+  production-admission boundary, and final `verify_cairo` publication gate.
+- [`design/2026-07-17-cairo-fib25k-input-checkpoint.md`](design/2026-07-17-cairo-fib25k-input-checkpoint.md):
+  authenticated Fib25k bring-up input and base/diagnostic-interaction trace receipts.
 - [`sn-pie-metal-production-architecture.md`](sn-pie-metal-production-architecture.md): normative
   production architecture and delivery plan for the Cairo SN PIE Metal prover.
 - [`sn-pie-streaming.md`](sn-pie-streaming.md): streaming proof-service design and extraction notes.
 - [`sn-pie-persistent-session.md`](sn-pie-persistent-session.md): persistent JSONL session MVP.
-- [`metal-resident-prover-design.md`](metal-resident-prover-design.md): original resident-prover
-  architecture.
 - [`cairo-zig-adapter.md`](cairo-zig-adapter.md): Cairo ingestion and Zig prover boundary.
-- [`gpu-backend-design.md`](gpu-backend-design.md): earlier generic GPU/RISC-V backend design.
+- [`design/2026-07-17-metal-shader-library-decomposition.md`](design/2026-07-17-metal-shader-library-decomposition.md):
+  Metal source-family, stable ABI, linked-metallib, and AOT/JIT migration contract.
+- [`design/2026-07-17-cairo-metal-arena-binding-decomposition.md`](design/2026-07-17-cairo-metal-arena-binding-decomposition.md):
+  Cairo-Metal phase ownership and arena-facade migration contract.
+- [`design/2026-07-17-cairo-arena-schedule-decomposition.md`](design/2026-07-17-cairo-arena-schedule-decomposition.md):
+  pure runtime schedule ownership and decomposition contract.
 
 ## Performance And Profiling
 
+- [`design/2026-07-17-backend-performance-program.md`](design/2026-07-17-backend-performance-program.md):
+  normative profiler-led Native and Cairo optimization program; aggressive execution is blocked by
+  the pre-optimization conformance goal.
 - [`metal-profiling.md`](metal-profiling.md): profiling controls and safe collection procedure.
 - [`metal-backend-progress.md`](metal-backend-progress.md): implementation and measured-progress
   summary.
@@ -49,6 +63,10 @@ Machine-readable benchmark and parity evidence is stored under `vectors/reports/
 
 ## Historical Context
 
+- [`metal-resident-prover-design.md`](metal-resident-prover-design.md): superseded original
+  resident-prover architecture, retained for design provenance.
+- [`gpu-backend-design.md`](gpu-backend-design.md): superseded generic GPU/RISC-V design, retained
+  for design provenance.
 - [`history/metal-handover-2026-07-15.md`](history/metal-handover-2026-07-15.md): chronological Metal
   implementation and evidence ledger.
 - [`history/milestone-0.1-spec.md`](history/milestone-0.1-spec.md): superseded initial milestone.
