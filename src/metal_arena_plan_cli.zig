@@ -2911,13 +2911,35 @@ fn runOne(
             else => return err,
         };
         defer if (restored_preprocessed_path) |path| allocator.free(path);
+        const staged_preprocessed_path = std.process.getEnvVarOwned(
+            allocator,
+            "STWO_ZIG_SN2_PREPROCESSED_EVALUATIONS_OUTPUT",
+        ) catch |err| switch (err) {
+            error.EnvironmentVariableNotFound => null,
+            else => return err,
+        };
+        defer if (staged_preprocessed_path) |path| allocator.free(path);
+        if (restored_preprocessed_path != null and staged_preprocessed_path != null)
+            return error.ConflictingPreprocessedPaths;
         const restoring_tree0 = restored_preprocessed_path != null;
         const staged_tree0 = !restoring_tree0 and requested_commit_tree_count > 0 and
             std.process.hasEnvVarConstant("STWO_ZIG_SN2_EXECUTE_PREPROCESSED") and
             std.process.hasEnvVarConstant("STWO_ZIG_SN2_PREPROCESSED_COEFFS");
-        const preprocessed_spill_path = restored_preprocessed_path orelse "/tmp/stwo-zig-sn2-preprocessed-evaluations.spill";
+        const preprocessed_spill_path = restored_preprocessed_path orelse
+            staged_preprocessed_path orelse
+            "/tmp/stwo-zig-sn2-preprocessed-evaluations.spill";
         const tree0_merkle_path = try std.fmt.allocPrint(allocator, "{s}.tree0-merkle", .{preprocessed_spill_path});
         defer allocator.free(tree0_merkle_path);
+        if (staged_tree0) {
+            for ([_][]const u8{ preprocessed_spill_path, tree0_merkle_path }) |output_path| {
+                if (std.fs.accessAbsolute(output_path, .{})) |_| {
+                    return error.PreprocessedOutputAlreadyExists;
+                } else |err| switch (err) {
+                    error.FileNotFound => {},
+                    else => return err,
+                }
+            }
+        }
         var staged_tree0_root: ?[32]u8 = null;
         if (restoring_tree0) {
             const root_hex = try std.process.getEnvVarOwned(allocator, "STWO_ZIG_SN2_TREE0_ROOT_HEX");
