@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from .catalog import PROGRAMS, ProgramSpec
+from .catalog import CORPUS_SHA256, PROGRAMS, ProgramSpec
 
 
 COMPILE_MANIFEST_SCHEMA = 1
@@ -34,12 +34,7 @@ def sha256_file(path: Path) -> str:
 
 
 def _catalog_sha256() -> str:
-    encoded = json.dumps(
-        [program.as_record() for program in PROGRAMS],
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode()
-    return hashlib.sha256(encoded).hexdigest()
+    return CORPUS_SHA256
 
 
 def atomic_write_json(path: Path, document: dict[str, Any]) -> None:

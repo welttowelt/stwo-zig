@@ -1,13 +1,32 @@
-"""Canonical Cairo program benchmark catalog and bounded size parsing."""
+"""Typed catalog projected from the canonical Cairo acceptance corpus."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
 
+from .matrix import MATRIX, MATRIX_SHA256, TIER_NAMES
 
-MAX_CASES = 9
+
+MAX_CASES = len(MATRIX["programs"])
 MAX_SIZES_PER_PROGRAM = 16
+CORPUS_SHA256 = MATRIX_SHA256
+COMPILER = MATRIX["compiler"]
+SOURCE_REPOSITORY = MATRIX["source_repository"]
+
+
+@dataclass(frozen=True)
+class ProgramTier:
+    name: str
+    size: int
+    expected_cycles: int
+
+    def as_record(self) -> dict[str, object]:
+        return {
+            "tier": self.name,
+            "size": self.size,
+            "expected_cycles": self.expected_cycles,
+        }
 
 
 @dataclass(frozen=True)
@@ -15,16 +34,24 @@ class ProgramSpec:
     slug: str
     display_name: str
     source_relative: Path
+    source_sha256: str
     size_unit: str
     size_semantics: str
-    default_sizes: tuple[int, ...]
+    primary_stress: str
     maximum_size: int
-    size_multiple: int = 1
-    exact_cycle_rule: str | None = None
+    size_multiple: int
+    exact_cycle_rule: str | None
+    tiers: tuple[ProgramTier, ...]
 
     @property
     def artifact_relative(self) -> Path:
         return self.source_relative.parent / "compiled.json"
+
+    @property
+    def default_sizes(self) -> tuple[int, ...]:
+        """Return exactly the canonical small, medium, and large sizes."""
+
+        return tuple(tier.size for tier in self.tiers)
 
     def validate_size(self, value: int) -> None:
         if value <= 0:
@@ -41,6 +68,9 @@ class ProgramSpec:
 
     def expected_cycle_count(self, value: int) -> int | None:
         self.validate_size(value)
+        for tier in self.tiers:
+            if tier.size == value:
+                return tier.expected_cycles
         if self.exact_cycle_rule == "7*n+16":
             return 7 * value + 16
         return None
@@ -50,103 +80,53 @@ class ProgramSpec:
             "slug": self.slug,
             "display_name": self.display_name,
             "source_relative": self.source_relative.as_posix(),
+            "source_sha256": self.source_sha256,
             "artifact_relative": self.artifact_relative.as_posix(),
             "size_unit": self.size_unit,
             "size_semantics": self.size_semantics,
+            "primary_stress": self.primary_stress,
             "size_multiple": self.size_multiple,
             "maximum_size": self.maximum_size,
             "exact_cycle_rule": self.exact_cycle_rule,
+            "tiers": [tier.as_record() for tier in self.tiers],
         }
 
 
-PROGRAMS = (
-    ProgramSpec(
-        slug="fib",
-        display_name="Fibonacci",
-        source_relative=Path("fib/fibonacci.cairo"),
-        size_unit="iterations",
-        size_semantics="recursive Fibonacci iterations",
-        default_sizes=(25_000, 100_000, 500_000, 2_000_000),
-        maximum_size=4_194_304,
-        exact_cycle_rule="7*n+16",
-    ),
-    ProgramSpec(
-        slug="sha2",
-        display_name="SHA-256",
-        source_relative=Path("sha2/sha256.cairo"),
-        size_unit="input_bytes",
-        size_semantics="bytes hashed by one SHA-256 invocation",
-        default_sizes=(64, 1_024, 16_384),
-        maximum_size=4_194_304,
-        size_multiple=4,
-    ),
-    ProgramSpec(
-        slug="sha2-chain",
-        display_name="SHA-256 chain",
-        source_relative=Path("sha2-chain/sha256_chain.cairo"),
-        size_unit="hashes",
-        size_semantics="chained SHA-256 invocations over 32-byte states",
-        default_sizes=(8, 64, 256),
-        maximum_size=16_384,
-    ),
-    ProgramSpec(
-        slug="sha3",
-        display_name="Keccak",
-        source_relative=Path("sha3/cairo_keccak.cairo"),
-        size_unit="input_bytes",
-        size_semantics="bytes hashed by one Cairo Keccak invocation",
-        default_sizes=(64, 1_024, 16_384),
-        maximum_size=4_194_304,
-        size_multiple=8,
-    ),
-    ProgramSpec(
-        slug="sha3-chain",
-        display_name="Keccak chain",
-        source_relative=Path("sha3-chain/keccak_chain.cairo"),
-        size_unit="hashes",
-        size_semantics="chained Keccak invocations",
-        default_sizes=(8, 64, 256),
-        maximum_size=16_384,
-    ),
-    ProgramSpec(
-        slug="blake",
-        display_name="Blake precompile",
-        source_relative=Path("blake-precompile/blake.cairo"),
-        size_unit="input_bytes",
-        size_semantics="bytes processed by the Cairo Blake opcode",
-        default_sizes=(64, 1_024, 16_384),
-        maximum_size=4_194_304,
-        size_multiple=4,
-    ),
-    ProgramSpec(
-        slug="blake-chain",
-        display_name="Blake chain",
-        source_relative=Path("blake-chain-precompile/blake_chain.cairo"),
-        size_unit="hashes",
-        size_semantics="chained Blake opcode invocations",
-        default_sizes=(8, 64, 256),
-        maximum_size=16_384,
-    ),
-    ProgramSpec(
-        slug="mat-mul",
-        display_name="Matrix multiplication",
-        source_relative=Path("mat_mul/mat_mul.cairo"),
-        size_unit="matrix_dimension",
-        size_semantics="dimension N of an N by N matrix product",
-        default_sizes=(16, 32, 64),
-        maximum_size=128,
-    ),
-    ProgramSpec(
-        slug="ec",
-        display_name="secp256k1 doubling",
-        source_relative=Path("ec/ec_add.cairo"),
-        size_unit="point_doublings",
-        size_semantics="repeated secp256k1 point doublings",
-        default_sizes=(64, 256, 1_024),
-        maximum_size=4_096,
-    ),
-)
+def _programs_from_matrix() -> tuple[ProgramSpec, ...]:
+    cases_by_program: dict[str, dict[str, dict[str, object]]] = {}
+    for case in MATRIX["cases"]:
+        cases_by_program.setdefault(case["program"], {})[case["tier"]] = case
 
+    programs: list[ProgramSpec] = []
+    for record in MATRIX["programs"]:
+        tier_records = cases_by_program[record["slug"]]
+        tiers = tuple(
+            ProgramTier(
+                name=name,
+                size=tier_records[name]["size"],
+                expected_cycles=tier_records[name]["expected_cycles"],
+            )
+            for name in TIER_NAMES
+        )
+        programs.append(
+            ProgramSpec(
+                slug=record["slug"],
+                display_name=record["display_name"],
+                source_relative=Path(record["source_relative"]),
+                source_sha256=record["source_sha256"],
+                size_unit=record["size_unit"],
+                size_semantics=record["size_semantics"],
+                primary_stress=record["primary_stress"],
+                maximum_size=record["maximum_size"],
+                size_multiple=record["size_multiple"],
+                exact_cycle_rule=record["exact_cycle_rule"],
+                tiers=tiers,
+            )
+        )
+    return tuple(programs)
+
+
+PROGRAMS = _programs_from_matrix()
 PROGRAM_BY_SLUG = {program.slug: program for program in PROGRAMS}
 
 

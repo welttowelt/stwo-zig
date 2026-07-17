@@ -36,20 +36,28 @@ passes the pinned Rust `verify_cairo` oracle.
 
 ## Program corpus
 
-The canonical Cairo 0 corpus is compiled with Cairo `0.14.0.1` and `--proof_mode`.
-Every program reads `program_input['iterations']`, but the parameter has different domain meaning.
+[`vectors/cairo/cairo_program_matrix.json`](../../vectors/cairo/cairo_program_matrix.json) is the
+single machine-readable authority for the acceptance corpus. It fixes the nine canonical slugs,
+three geometry tiers, 27 program/tier identities, source paths and hashes, compiler profile, input
+units, and expected Cairo cycles. The tables in this document are a human-readable projection of
+that manifest and are checked against it by deterministic tests.
 
-| Program | Input meaning | Primary stress |
-| :--- | :--- | :--- |
-| `fib` | recursive iterations | control flow, opcode transitions |
-| `sha2` | input bytes | memory, bitwise and range-check work |
-| `sha2-chain` | chained 32-byte hashes | repeated SHA-256 arithmetic |
-| `sha3` | input bytes | Keccak builtin and memory traffic |
-| `sha3-chain` | chained hashes | repeated Keccak state transitions |
-| `blake-precompile` | input bytes | Blake builtin throughput |
-| `blake-chain-precompile` | chained operations | repeated Blake builtin transitions |
-| `mat_mul` | matrix dimension | cubic arithmetic and memory growth |
-| `ec` | secp256k1 doublings | large-integer and EC component pressure |
+The sources are rooted at `stwo/` in `https://github.com/zksecurity/zkvm-benchmarks.git`, pinned to
+commit `6d9d1e5e5a8086e6b3a52b03017421159f65ee6e`. The canonical Cairo 0 corpus is compiled with
+`cairo-compile` `0.14.0.1` and `--proof_mode`. Every program reads
+`program_input['iterations']`, but the parameter has different domain meaning.
+
+| Program | Size unit | Input meaning | Primary stress |
+| :--- | :--- | :--- | :--- |
+| `fib` | `iterations` | recursive Fibonacci iterations | control flow, opcode transitions |
+| `sha2` | `input_bytes` | bytes hashed by one SHA-256 invocation | memory, bitwise and range-check work |
+| `sha2-chain` | `hashes` | chained SHA-256 invocations over 32-byte states | repeated SHA-256 arithmetic |
+| `sha3` | `input_bytes` | bytes hashed by one Cairo Keccak invocation | Keccak builtin and memory traffic |
+| `sha3-chain` | `hashes` | chained Keccak invocations | repeated Keccak state transitions |
+| `blake-precompile` | `input_bytes` | bytes processed by the Cairo Blake opcode | Blake builtin throughput |
+| `blake-chain-precompile` | `hashes` | chained Blake opcode invocations | repeated Blake builtin transitions |
+| `mat_mul` | `matrix_dimension` | dimension N of an N by N matrix product | cubic arithmetic and memory growth |
+| `ec` | `point_doublings` | repeated secp256k1 point doublings | large-integer and EC component pressure |
 
 The compiled JSON files total about 42 MiB and are build artifacts. Reports bind their hashes, but
 the files are not source-controlled.
@@ -74,6 +82,9 @@ during suite planning. They are geometry evidence only.
 
 Larger saturation tiers may be added after the large tier is stable. They must not replace these
 tiers or silently change a program's input semantics.
+
+Fib25k is a separate implementation bring-up checkpoint. It is not a fourth corpus tier and must
+not appear in the 27-cell acceptance matrix or in the benchmark harness's default cases.
 
 ## Evidence contract
 
@@ -160,8 +171,8 @@ necessary but not sufficient; pinned `verify_cairo` is final.
 
 ### 7. Acceptance sequence
 
-1. Fib25k: 30 active AIR components, 10 recorded witness components, trace trees
-   `[105, 396, 324, 8]`, and seven FRI commitments.
+1. The separate Fib25k bring-up checkpoint: 30 active AIR components, 10 recorded witness
+   components, trace trees `[105, 396, 324, 8]`, and seven FRI commitments.
 2. All three Fib geometry tiers.
 3. SHA2 chain, matrix multiplication, and EC large tiers.
 4. The complete nine-program, three-tier matrix.

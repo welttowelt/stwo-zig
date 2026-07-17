@@ -158,9 +158,9 @@ class CatalogTests(unittest.TestCase):
                 "sha2-chain",
                 "sha3",
                 "sha3-chain",
-                "blake",
-                "blake-chain",
-                "mat-mul",
+                "blake-precompile",
+                "blake-chain-precompile",
+                "mat_mul",
                 "ec",
             ],
         )
@@ -168,7 +168,7 @@ class CatalogTests(unittest.TestCase):
     def test_program_specific_size_semantics_are_not_conflated(self) -> None:
         self.assertEqual(PROGRAM_BY_SLUG["sha2"].size_unit, "input_bytes")
         self.assertEqual(PROGRAM_BY_SLUG["sha2-chain"].size_unit, "hashes")
-        self.assertEqual(PROGRAM_BY_SLUG["mat-mul"].size_unit, "matrix_dimension")
+        self.assertEqual(PROGRAM_BY_SLUG["mat_mul"].size_unit, "matrix_dimension")
         self.assertEqual(PROGRAM_BY_SLUG["ec"].size_unit, "point_doublings")
 
     def test_case_parser_enforces_program_specific_alignment(self) -> None:
