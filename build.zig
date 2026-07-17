@@ -1,4 +1,5 @@
 const std = @import("std");
+const metal_products = @import("build_support/metal_products.zig");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -42,7 +43,7 @@ pub fn build(b: *std.Build) void {
     const tests = b.addTest(.{
         .root_module = test_module,
     });
-    if (target.result.os.tag == .macos) linkMetalRuntime(b, tests);
+    if (target.result.os.tag == .macos) metal_products.linkRuntime(b, tests);
     const run_tests = b.addRunArtifact(tests);
 
     const test_step = b.step("test", "Run unit tests");
@@ -117,7 +118,7 @@ pub fn build(b: *std.Build) void {
     cross_module_test_options.addOption(bool, "metal_only", false);
     cross_module_test_module.addOptions("test_options", cross_module_test_options);
     const cross_module_tests = b.addTest(.{ .root_module = cross_module_test_module });
-    if (target.result.os.tag == .macos) linkMetalRuntime(b, cross_module_tests);
+    if (target.result.os.tag == .macos) metal_products.linkRuntime(b, cross_module_tests);
     const run_cross_module_tests = b.addRunArtifact(cross_module_tests);
     test_step.dependOn(&run_cross_module_tests.step);
 
@@ -161,9 +162,7 @@ pub fn build(b: *std.Build) void {
     const cairo_input_step = b.step("cairo-input", "Build adapted Cairo input inspector");
     cairo_input_step.dependOn(&install_cairo_input_cli.step);
 
-    // -----------------------------------------------------------------
     // RISC-V trace dumper CLI for cross-verification
-    // -----------------------------------------------------------------
     const riscv_trace_module = b.createModule(.{
         .root_source_file = b.path("src/riscv_trace_cli.zig"),
         .target = target,
@@ -207,9 +206,7 @@ pub fn build(b: *std.Build) void {
     const riscv_prover_test_step = b.step("test-riscv-prover", "Run RISC-V prover tests (prove+verify)");
     riscv_prover_test_step.dependOn(&run_riscv_prover_tests.step);
 
-    // -----------------------------------------------------------------
     // RISC-V benchmark CLI (execute, prove, verify, hosted mode)
-    // -----------------------------------------------------------------
     const riscv_bench_module = b.createModule(.{
         .root_source_file = b.path("src/riscv_bench_cli.zig"),
         .target = target,
@@ -242,328 +239,16 @@ pub fn build(b: *std.Build) void {
     );
     native_proof_cpu_step.dependOn(&install_native_proof_cpu.step);
 
-    // -----------------------------------------------------------------
-    // Metal resident backend (macOS)
-    // -----------------------------------------------------------------
+    // Metal products are platform-specific; their internal graph lives with the backend.
     if (target.result.os.tag == .macos) {
-        const native_proof_metal_module = b.createModule(.{
-            .root_source_file = b.path("src/tools/native_proof_bench/metal.zig"),
+        metal_products.addProducts(.{
+            .b = b,
             .target = target,
             .optimize = optimize,
+            .stwo_module = stwo_module,
+            .native_proof_runner_module = native_proof_runner_module,
+            .test_step = test_step,
         });
-        native_proof_metal_module.addImport("stwo", stwo_module);
-        native_proof_metal_module.addImport("native_proof_runner", native_proof_runner_module);
-        const native_proof_metal = b.addExecutable(.{
-            .name = "native-proof-bench-metal",
-            .root_module = native_proof_metal_module,
-        });
-        native_proof_metal.addCSourceFile(.{
-            .file = b.path("src/backends/metal/runtime.m"),
-            .flags = &.{ "-fobjc-arc", "-fblocks" },
-        });
-        native_proof_metal.linkLibC();
-        native_proof_metal.linkFramework("Foundation");
-        native_proof_metal.linkFramework("Metal");
-        native_proof_metal.linkSystemLibrary("objc");
-        const install_native_proof_metal = b.addInstallArtifact(native_proof_metal, .{});
-        const native_proof_metal_step = b.step(
-            "native-proof-bench-metal",
-            "Build the machine-readable hybrid Metal full-proof benchmark",
-        );
-        native_proof_metal_step.dependOn(&install_native_proof_metal.step);
-
-        const metal_arena_plan_module = b.createModule(.{
-            .root_source_file = b.path("src/metal_arena_plan_cli.zig"),
-            .target = target,
-            .optimize = optimize,
-        });
-        metal_arena_plan_module.addImport("stwo", stwo_module);
-        const metal_arena_plan = b.addExecutable(.{
-            .name = "metal-arena-plan",
-            .root_module = metal_arena_plan_module,
-        });
-        metal_arena_plan.addCSourceFile(.{
-            .file = b.path("src/backends/metal/runtime.m"),
-            .flags = &.{ "-fobjc-arc", "-fblocks" },
-        });
-        metal_arena_plan.linkLibC();
-        metal_arena_plan.linkFramework("Foundation");
-        metal_arena_plan.linkFramework("Metal");
-        metal_arena_plan.linkSystemLibrary("objc");
-        const install_metal_arena_plan = b.addInstallArtifact(metal_arena_plan, .{});
-        b.getInstallStep().dependOn(&install_metal_arena_plan.step);
-        const metal_arena_plan_step = b.step("metal-arena-plan", "Build sparse Metal arena planner");
-        metal_arena_plan_step.dependOn(&install_metal_arena_plan.step);
-
-        const metal_arena_session_module = b.createModule(.{
-            .root_source_file = b.path("src/tools/metal_prover_session/main.zig"),
-            .target = target,
-            .optimize = optimize,
-        });
-        metal_arena_session_module.addImport("stwo", stwo_module);
-        metal_arena_session_module.addImport("one_shot", metal_arena_plan_module);
-        const metal_arena_session = b.addExecutable(.{
-            .name = "metal-arena-session",
-            .root_module = metal_arena_session_module,
-        });
-        metal_arena_session.linkLibC();
-        metal_arena_session.linkFramework("Foundation");
-        metal_arena_session.linkFramework("Metal");
-        metal_arena_session.linkSystemLibrary("objc");
-        const install_metal_arena_session = b.addInstallArtifact(metal_arena_session, .{});
-        b.getInstallStep().dependOn(&install_metal_arena_session.step);
-        const metal_arena_session_step = b.step(
-            "metal-arena-session",
-            "Build persistent Metal SN PIE prover session",
-        );
-        metal_arena_session_step.dependOn(&install_metal_arena_session.step);
-
-        const metal_arena_session_test_module = b.createModule(.{
-            .root_source_file = b.path("src/tools/metal_prover_session/main.zig"),
-            .target = target,
-            .optimize = optimize,
-        });
-        metal_arena_session_test_module.addImport("stwo", stwo_module);
-        metal_arena_session_test_module.addImport("one_shot", metal_arena_plan_module);
-        const metal_arena_session_tests = b.addTest(.{
-            .root_module = metal_arena_session_test_module,
-        });
-        metal_arena_session_tests.linkLibC();
-        metal_arena_session_tests.linkFramework("Foundation");
-        metal_arena_session_tests.linkFramework("Metal");
-        metal_arena_session_tests.linkSystemLibrary("objc");
-        const run_metal_arena_session_tests = b.addRunArtifact(metal_arena_session_tests);
-        const metal_arena_session_test_step = b.step(
-            "metal-prover-session-test",
-            "Run persistent Metal prover-session unit tests",
-        );
-        metal_arena_session_test_step.dependOn(&run_metal_arena_session_tests.step);
-        test_step.dependOn(&run_metal_arena_session_tests.step);
-
-        const metal_recovery_bench_module = b.createModule(.{
-            .root_source_file = b.path("src/bench/metal/recovery.zig"),
-            .target = target,
-            .optimize = optimize,
-        });
-        metal_recovery_bench_module.addImport("stwo", stwo_module);
-        const metal_recovery_bench = b.addExecutable(.{
-            .name = "metal-recovery-bench",
-            .root_module = metal_recovery_bench_module,
-        });
-        b.installArtifact(metal_recovery_bench);
-        const metal_recovery_bench_step = b.step("metal-recovery-bench", "Build Metal recovery storage benchmark");
-        metal_recovery_bench_step.dependOn(&metal_recovery_bench.step);
-
-        const metal_ec_op_bench_module = b.createModule(.{
-            .root_source_file = b.path("src/bench/metal/ec_op.zig"),
-            .target = target,
-            .optimize = optimize,
-        });
-        metal_ec_op_bench_module.addImport("stwo", stwo_module);
-        const metal_ec_op_bench = b.addExecutable(.{
-            .name = "metal-ec-op-bench",
-            .root_module = metal_ec_op_bench_module,
-        });
-        metal_ec_op_bench.addCSourceFile(.{
-            .file = b.path("src/backends/metal/runtime.m"),
-            .flags = &.{ "-fobjc-arc", "-fblocks" },
-        });
-        metal_ec_op_bench.linkLibC();
-        metal_ec_op_bench.linkFramework("Foundation");
-        metal_ec_op_bench.linkFramework("Metal");
-        metal_ec_op_bench.linkSystemLibrary("objc");
-        b.installArtifact(metal_ec_op_bench);
-        const metal_ec_op_bench_step = b.step("metal-ec-op-bench", "Build resident Metal EC-op benchmark");
-        metal_ec_op_bench_step.dependOn(&metal_ec_op_bench.step);
-
-        const metal_compact_bench_module = b.createModule(.{
-            .root_source_file = b.path("src/bench/metal/compaction.zig"),
-            .target = target,
-            .optimize = optimize,
-        });
-        metal_compact_bench_module.addImport("stwo", stwo_module);
-        const metal_compact_bench = b.addExecutable(.{
-            .name = "metal-compact-bench",
-            .root_module = metal_compact_bench_module,
-        });
-        metal_compact_bench.addCSourceFile(.{
-            .file = b.path("src/backends/metal/runtime.m"),
-            .flags = &.{ "-fobjc-arc", "-fblocks" },
-        });
-        metal_compact_bench.linkLibC();
-        metal_compact_bench.linkFramework("Foundation");
-        metal_compact_bench.linkFramework("Metal");
-        metal_compact_bench.linkSystemLibrary("objc");
-        b.installArtifact(metal_compact_bench);
-        const metal_compact_bench_step = b.step("metal-compact-bench", "Build resident Metal compaction benchmark");
-        metal_compact_bench_step.dependOn(&metal_compact_bench.step);
-
-        const cairo_streaming_commitment_bench_module = b.createModule(.{
-            .root_source_file = b.path("src/bench/cairo_metal/streaming_commitment.zig"),
-            .target = target,
-            .optimize = optimize,
-        });
-        cairo_streaming_commitment_bench_module.addImport("stwo", stwo_module);
-        const cairo_streaming_commitment_bench = b.addExecutable(.{
-            .name = "cairo-streaming-commitment-bench",
-            .root_module = cairo_streaming_commitment_bench_module,
-        });
-        cairo_streaming_commitment_bench.addCSourceFile(.{
-            .file = b.path("src/backends/metal/runtime.m"),
-            .flags = &.{ "-fobjc-arc", "-fblocks" },
-        });
-        cairo_streaming_commitment_bench.linkLibC();
-        cairo_streaming_commitment_bench.linkFramework("Foundation");
-        cairo_streaming_commitment_bench.linkFramework("Metal");
-        cairo_streaming_commitment_bench.linkSystemLibrary("objc");
-        const install_cairo_streaming_commitment_bench = b.addInstallArtifact(cairo_streaming_commitment_bench, .{});
-        const cairo_streaming_commitment_bench_step = b.step(
-            "cairo-streaming-commitment-bench",
-            "Build bounded production-callsite Cairo Metal commitment benchmark",
-        );
-        cairo_streaming_commitment_bench_step.dependOn(&install_cairo_streaming_commitment_bench.step);
-        const cairo_streaming_commitment_test_module = b.createModule(.{
-            .root_source_file = b.path("src/bench/cairo_metal/streaming_commitment.zig"),
-            .target = target,
-            .optimize = optimize,
-        });
-        cairo_streaming_commitment_test_module.addImport("stwo", stwo_module);
-        const cairo_streaming_commitment_tests = b.addTest(.{ .root_module = cairo_streaming_commitment_test_module });
-        cairo_streaming_commitment_tests.addCSourceFile(.{
-            .file = b.path("src/backends/metal/runtime.m"),
-            .flags = &.{ "-fobjc-arc", "-fblocks" },
-        });
-        cairo_streaming_commitment_tests.linkLibC();
-        cairo_streaming_commitment_tests.linkFramework("Foundation");
-        cairo_streaming_commitment_tests.linkFramework("Metal");
-        cairo_streaming_commitment_tests.linkSystemLibrary("objc");
-        const run_cairo_streaming_commitment_tests = b.addRunArtifact(cairo_streaming_commitment_tests);
-        const cairo_streaming_commitment_test_step = b.step(
-            "cairo-streaming-commitment-test",
-            "Run bounded production-callsite Cairo Metal commitment parity test",
-        );
-        cairo_streaming_commitment_test_step.dependOn(&run_cairo_streaming_commitment_tests.step);
-
-        const metal_eval_prepare_module = b.createModule(.{
-            .root_source_file = b.path("src/tools/cairo_metal_codegen/eval_prepare.zig"),
-            .target = target,
-            .optimize = optimize,
-        });
-        metal_eval_prepare_module.addImport("stwo", stwo_module);
-        const metal_eval_prepare = b.addExecutable(.{
-            .name = "metal-eval-prepare",
-            .root_module = metal_eval_prepare_module,
-        });
-        metal_eval_prepare.addCSourceFile(.{
-            .file = b.path("src/backends/metal/runtime.m"),
-            .flags = &.{ "-fobjc-arc", "-fblocks" },
-        });
-        metal_eval_prepare.linkLibC();
-        metal_eval_prepare.linkFramework("Foundation");
-        metal_eval_prepare.linkFramework("Metal");
-        metal_eval_prepare.linkSystemLibrary("objc");
-        b.installArtifact(metal_eval_prepare);
-        const metal_eval_prepare_step = b.step("metal-eval-prepare", "Compile exact SN Cairo AIR programs for Metal");
-        metal_eval_prepare_step.dependOn(&metal_eval_prepare.step);
-
-        const metal_eval_source_module = b.createModule(.{
-            .root_source_file = b.path("src/tools/cairo_metal_codegen/eval_source.zig"),
-            .target = target,
-            .optimize = optimize,
-        });
-        metal_eval_source_module.addImport("stwo", stwo_module);
-        const metal_eval_source = b.addExecutable(.{
-            .name = "metal-eval-source",
-            .root_module = metal_eval_source_module,
-        });
-        b.installArtifact(metal_eval_source);
-
-        const metal_witness_source_module = b.createModule(.{
-            .root_source_file = b.path("src/tools/cairo_metal_codegen/witness_source.zig"),
-            .target = target,
-            .optimize = optimize,
-        });
-        metal_witness_source_module.addImport("stwo", stwo_module);
-        const metal_witness_source = b.addExecutable(.{
-            .name = "metal-witness-source",
-            .root_module = metal_witness_source_module,
-        });
-        b.installArtifact(metal_witness_source);
-
-        const metal_test_module = b.createModule(.{
-            .root_source_file = b.path("src/tests.zig"),
-            .target = target,
-            .optimize = optimize,
-        });
-        const metal_test_options = b.addOptions();
-        metal_test_options.addOption(bool, "riscv_only", false);
-        metal_test_options.addOption(bool, "metal_only", true);
-        metal_test_module.addOptions("test_options", metal_test_options);
-        const metal_tests = b.addTest(.{
-            .root_module = metal_test_module,
-            .filters = &.{"metal:"},
-        });
-        metal_tests.addCSourceFile(.{
-            .file = b.path("src/backends/metal/runtime.m"),
-            .flags = &.{ "-fobjc-arc", "-fblocks" },
-        });
-        metal_tests.linkLibC();
-        metal_tests.linkFramework("Foundation");
-        metal_tests.linkFramework("Metal");
-        metal_tests.linkSystemLibrary("objc");
-        const run_metal_tests = b.addRunArtifact(metal_tests);
-        const metal_test_step = b.step("metal-test", "Run resident Metal backend parity tests");
-        metal_test_step.dependOn(&run_metal_tests.step);
-        const metal_check_step = b.step(
-            "metal-check",
-            "Compile and link resident Metal backend tests without executing them",
-        );
-        metal_check_step.dependOn(&metal_tests.step);
-
-        const metal_bench_module = b.createModule(.{
-            .root_source_file = b.path("src/bench/metal/commitment.zig"),
-            .target = target,
-            .optimize = optimize,
-        });
-        metal_bench_module.addImport("stwo", stwo_module);
-        const metal_bench = b.addExecutable(.{
-            .name = "metal-bench",
-            .root_module = metal_bench_module,
-        });
-        metal_bench.addCSourceFile(.{
-            .file = b.path("src/backends/metal/runtime.m"),
-            .flags = &.{ "-fobjc-arc", "-fblocks" },
-        });
-        metal_bench.linkLibC();
-        metal_bench.linkFramework("Foundation");
-        metal_bench.linkFramework("Metal");
-        metal_bench.linkSystemLibrary("objc");
-        const install_metal_bench = b.addInstallArtifact(metal_bench, .{});
-        b.getInstallStep().dependOn(&install_metal_bench.step);
-        const metal_bench_step = b.step("metal-bench", "Build resident Metal commitment benchmark");
-        metal_bench_step.dependOn(&install_metal_bench.step);
-
-        const riscv_metal_module = b.createModule(.{
-            .root_source_file = b.path("src/riscv_metal_bench_cli.zig"),
-            .target = target,
-            .optimize = optimize,
-        });
-        const riscv_metal_bench = b.addExecutable(.{
-            .name = "riscv-metal-bench",
-            .root_module = riscv_metal_module,
-        });
-        riscv_metal_bench.addCSourceFile(.{
-            .file = b.path("src/backends/metal/runtime.m"),
-            .flags = &.{ "-fobjc-arc", "-fblocks" },
-        });
-        riscv_metal_bench.linkLibC();
-        riscv_metal_bench.linkFramework("Foundation");
-        riscv_metal_bench.linkFramework("Metal");
-        riscv_metal_bench.linkSystemLibrary("objc");
-        const install_riscv_metal_bench = b.addInstallArtifact(riscv_metal_bench, .{});
-        b.getInstallStep().dependOn(&install_riscv_metal_bench.step);
-        const riscv_metal_step = b.step("riscv-metal-bench", "Build RISC-V prover with Metal commitments");
-        riscv_metal_step.dependOn(&install_riscv_metal_bench.step);
     }
 
     // -----------------------------------------------------------------
@@ -1162,15 +847,4 @@ pub fn build(b: *std.Build) void {
         "Audit CONFORMANCE section-15 closure status (requires all rows Complete)",
     );
     roadmap_audit_step.dependOn(&roadmap_audit_cmd.step);
-}
-
-fn linkMetalRuntime(b: *std.Build, artifact: *std.Build.Step.Compile) void {
-    artifact.addCSourceFile(.{
-        .file = b.path("src/backends/metal/runtime.m"),
-        .flags = &.{ "-fobjc-arc", "-fblocks" },
-    });
-    artifact.linkLibC();
-    artifact.linkFramework("Foundation");
-    artifact.linkFramework("Metal");
-    artifact.linkSystemLibrary("objc");
 }
