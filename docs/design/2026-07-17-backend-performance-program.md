@@ -192,7 +192,29 @@ the quotient stage by 10.2 to 19.4 percent across two orderings.
 
 The clean formal matrix retained exact CPU/Metal proof bytes, one session tower per lane, and
 headline eligibility. All six artifacts passed pinned Rust Stwo. Complete-column combined
-intermediate storage is intentionally still reported and remains the next CPU pipeline stage.
+intermediate storage was intentionally retained by this commit and measured separately below.
+
+### CPU bounded quotient inputs
+
+Commit `9a56af9` removes complete-column combined-coordinate construction from the medium and wide
+CPU quotient path. Compact borrowed column views and contribution ranges feed 256-row worker-local
+SoA numerator planes directly into the accepted quotient-to-leaf pipeline. The shape policy selects
+bounded inputs from lifting log 13, retains the compatibility path below that boundary, and never
+branches on workload identity.
+
+The exact component fixture reduces retained working state from 172,544 to 18,432 bytes per worker,
+an 89.32 percent reduction, while reporting zero complete-column combined bytes and zero
+post-compute leaf passes. Against the immutable `653cccd` ReleaseFast baseline, prove time improved
+4.58 percent on `log12x16` and 16.16 percent on `log14x32`; the compatibility `log10x8` row moved
+1.25 percent slower, inside the 2 percent gate. Candidate row rates were 0.545237, 0.766880, and
+1.296758 MHz. A separate medium profile reduced quotient time by 14.43 percent and complete proof
+time by 8.32 percent.
+
+Every row retained its exact canonical proof digest. Component tests cover all quotient
+coordinates, every Merkle layer/root, deterministic repeated workers, forced compatibility, bounds,
+overflow, and allocation cleanup. The medium artifact passed the pinned Rust Stwo oracle. A
+numerator-plane pointer-hoisting experiment was rejected after reversed profiled medians regressed;
+the next CPU increment starts from a fresh post-change profile.
 
 ### Metal command-epoch core
 

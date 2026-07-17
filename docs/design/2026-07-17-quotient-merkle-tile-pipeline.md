@@ -1,6 +1,6 @@
 # Quotient-To-Merkle Tile Pipeline
 
-Status: implementation; quotient-to-leaf fusion accepted
+Status: implementation; quotient-to-leaf fusion and bounded inputs accepted
 
 ## Performance Hypothesis
 
@@ -190,6 +190,7 @@ pub const ExecutionStats = struct {
     tile_count: usize,
     peak_scratch_bytes_per_worker: usize,
     total_scratch_bytes: usize,
+    bounded_numerator_tile_bytes_per_worker: usize,
     complete_column_combined_intermediate_bytes: usize,
     post_compute_leaf_pass_count: usize,
 };
@@ -247,13 +248,13 @@ The provider declares an explicit mode:
 
 ```zig
 pub const InputMode = enum {
-    tiled_cpu,
+    bounded_cpu,
     combined_compatibility,
     raw_backend,
 };
 ```
 
-- `tiled_cpu` uses the new bounded executor.
+- `bounded_cpu` uses the new bounded executor.
 - `combined_compatibility` preserves the current implementation for controlled A/B, small-shape
   crossover, and rollback.
 - `raw_backend` preserves Metal's current `rawQuotientInputs` contract.
@@ -266,7 +267,7 @@ default.
 The first implementation preserves the existing nonzero-column classification so compute-to-leaf
 fusion can be measured without also changing sparse-column work. The second implementation stage
 moves contribution accumulation into bounded numerator tiles and deletes complete-column combined
-coordinate allocation from `tiled_cpu`. Moving or eliminating the nonzero scan requires separate
+coordinate allocation from `bounded_cpu`. Moving or eliminating the nonzero scan requires separate
 evidence, because sparse Cairo traces may benefit from it.
 
 ### `src/prover/vcs_lifted/first_layer_sink.zig`
@@ -640,3 +641,57 @@ The geometric-mean prove-time gain is 6.43 percent. The clean formal CPU/Metal m
 headline-eligible with one session tower per lane and exact backend parity. The pinned Rust Stwo
 verifier accepted all six artifacts. Removing complete-column combined coordinates is the next
 separately measured stage; its acceptance must preserve this leaf-fusion baseline.
+
+## Accepted Bounded-Input Evidence
+
+Commit `9a56af9` implements stage 3. The CPU provider now retains compact borrowed column views and
+contribution ranges, accumulates `[sample_batch][secure_coordinate][tile_row]` numerator planes in
+bounded worker-local SoA scratch, and passes each completed 256-row tile into the accepted
+first-layer writer. It does not construct complete-column combined-coordinate arrays for the
+bounded path. The raw backend contract is unchanged, and the compatibility implementation remains
+directly selectable for parity and crossover measurements.
+
+The automatic policy is based only on lifting geometry: lifting logs below 13 retain the
+compatibility path, while lifting logs 13 and above select bounded inputs. It does not inspect the
+example, frontend, AIR, or PIE identity. A richer active-column/contribution policy remains stage 4
+work and requires a broader shape sweep before it can replace this measured boundary.
+
+The exact component fixture reports 8,192 bytes of numerator planes and 18,432 bytes of total peak
+scratch per worker, with zero complete-column combined-coordinate bytes and zero post-compute leaf
+passes. The compatibility path reports 40,960 bytes of worker scratch plus 131,584 bytes of
+complete-column coordinates, or 172,544 bytes of retained working state. The bounded path therefore
+reduces that fixture's retained working state by 89.32 percent.
+
+An immutable `653cccd` ReleaseFast binary and the candidate were compared with identical Native
+wide-Fibonacci descriptors. The small row explicitly exercised compatibility mode; the medium and
+wide rows exercised bounded mode.
+
+| Workload | Input mode | Before prove (ms) | After prove (ms) | After row MHz | Change |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `log10x8` | compatibility | 1.854917 | 1.878083 | 0.545237 | -1.25% |
+| `log12x16` | bounded | 5.597292 | 5.341125 | 0.766880 | +4.58% |
+| `log14x32` | bounded | 15.069250 | 12.634583 | 1.296758 | +16.16% |
+
+The small compatibility movement remains inside the 2 percent affected-row gate. A separate
+profiled `log12x16` A/B reduced the quotient stage from 3.367 to 2.881 ms, or 14.43 percent, and
+reduced complete profiled proof time from 6.339459 to 5.811958 ms, or 8.32 percent.
+
+Every repeated candidate artifact was byte deterministic and matched the immutable baseline:
+
+| Workload | Proof bytes | Canonical proof SHA-256 |
+| --- | ---: | --- |
+| `log10x8` | 23,569 | `1beb388cda4e2941e5a65c11653d78de3116ae95a686538105312c29ff9f6f0c` |
+| `log12x16` | 32,853 | `2e5d5b3847d3231073f9bcf5a6e89da2b2c8f847f52d73b7de5aa2899598e6e8` |
+| `log14x32` | 44,225 | `9446656c07382cdc196304883693b51afe9603bfd149a602c8757db4bed4bbec` |
+
+Tests compare every quotient coordinate, every Merkle layer and root, forced compatibility output,
+and repeated worker output. Allocation-failure injection covers partial bounded-provider state and
+worker scratch. The medium candidate artifact was accepted by the pinned Rust Stwo verifier at
+`a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2`; Zig tests, API parity, source conformance, formatting,
+and diff checks also passed.
+
+One attempted inner-loop change hoisted numerator-plane slices outside the row loop. It improved a
+single unprofiled pair by roughly 0.8 percent, but reversed profiled medians regressed the quotient
+stage from 2.700 to 2.713 ms and the complete proof from 5.343 to 5.429 ms. It was reverted. The
+next CPU change must start from a fresh profile of `9a56af9`; this stage does not justify speculative
+inner-loop rewrites.
