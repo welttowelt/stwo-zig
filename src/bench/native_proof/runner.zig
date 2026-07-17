@@ -491,6 +491,8 @@ fn runSample(
         var proof = output.proof;
         proof.deinit(allocator);
     };
+    if (!std.meta.eql(request, output.statement))
+        return error.ProverStatementMismatch;
 
     var encode_timer = try std.time.Timer.start();
     const canonical = try proof_wire.encodeProofBytes(allocator, output.proof);

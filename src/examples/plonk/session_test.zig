@@ -66,6 +66,29 @@ test "Plonk session: compatibility, prepared, and sequential proofs match exactl
     );
     defer second.proof.deinit(allocator);
 
+    const extended_engine_input = try subject.prepareInput(allocator, statement);
+    var extended_engine = try subject.provePreparedExWithEngine(
+        subject.CpuProverEngine,
+        allocator,
+        config,
+        extended_engine_input,
+        false,
+        null,
+    );
+    defer extended_engine.proof.deinit(allocator);
+
+    const extended_session_input = try subject.prepareInput(allocator, statement);
+    var extended_session = try subject.provePreparedExWithSessionAndEngine(
+        subject.CpuProverEngine,
+        &session,
+        allocator,
+        config,
+        extended_session_input,
+        true,
+        null,
+    );
+    defer extended_session.proof.deinit(allocator);
+
     const expected = try proof_wire.encodeProofBytes(allocator, compatibility.proof);
     defer allocator.free(expected);
     const prepared_bytes = try proof_wire.encodeProofBytes(allocator, prepared_engine.proof);
@@ -74,10 +97,22 @@ test "Plonk session: compatibility, prepared, and sequential proofs match exactl
     defer allocator.free(first_bytes);
     const second_bytes = try proof_wire.encodeProofBytes(allocator, second.proof);
     defer allocator.free(second_bytes);
+    const extended_engine_bytes = try proof_wire.encodeProofBytes(
+        allocator,
+        extended_engine.proof.proof,
+    );
+    defer allocator.free(extended_engine_bytes);
+    const extended_session_bytes = try proof_wire.encodeProofBytes(
+        allocator,
+        extended_session.proof.proof,
+    );
+    defer allocator.free(extended_session_bytes);
 
     try std.testing.expectEqualSlices(u8, expected, prepared_bytes);
     try std.testing.expectEqualSlices(u8, expected, first_bytes);
     try std.testing.expectEqualSlices(u8, expected, second_bytes);
+    try std.testing.expectEqualSlices(u8, expected, extended_engine_bytes);
+    try std.testing.expectEqualSlices(u8, expected, extended_session_bytes);
     try std.testing.expectEqual(@as(usize, 9399), expected.len);
 
     var digest: [std.crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
