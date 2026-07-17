@@ -183,6 +183,71 @@ class ArenaScheduleTests(unittest.TestCase):
         self.assertEqual(folds, [3] * 8)
         self.assertEqual(sum(log_size + 1 for log_size in leaves), 108)
 
+        evaluations, folds, leaves = schedule_tool.fri_geometry(21)
+        self.assertEqual(evaluations, [21, 18, 15, 12, 9, 6, 3])
+        self.assertEqual(folds, [3, 3, 3, 3, 3, 3, 2])
+        self.assertEqual(len(leaves), 7)
+
+    def test_domain_geometry_removes_fri_rounds_above_target_degree(self) -> None:
+        schedule: list[dict[str, object]] = []
+
+        def add(purpose: str, words: int, ordinal: int = 0) -> None:
+            schedule.append(entry(len(schedule), purpose, words, ordinal=ordinal))
+
+        add("QuotientTile", 1)
+        for tree in range(4):
+            add("CommitLdeTile", 1, tree << 20)
+            add("DecommitTraceRetainedPointers", 1, tree << 16)
+        add("DecommitTraceLdeTile", 1)
+        for round_index in range(8):
+            if round_index > 0:
+                add("FriRetainedEvaluation", 1, round_index)
+                add("FriRetainedCoordinatePointers", 1, round_index)
+            add("FriFoldingChallenge", 4, round_index)
+            add("FriMerkleLayer", 8, round_index << 16)
+            add("DecommitFriCoordinatePointers", 8, (4 + round_index) << 16)
+            add("DecommitFriRetainedPointers", 1, (4 + round_index) << 16)
+            add(
+                "TranscriptInput",
+                8,
+                schedule_tool.FRI_TRANSCRIPT_ORDINAL_BASE
+                + round_index * schedule_tool.FRI_TRANSCRIPT_ORDINAL_STRIDE,
+            )
+            add(
+                "TranscriptOutput",
+                4,
+                schedule_tool.FRI_TRANSCRIPT_ORDINAL_BASE
+                + 1
+                + round_index * schedule_tool.FRI_TRANSCRIPT_ORDINAL_STRIDE,
+            )
+
+        rebuilt, _changed = schedule_tool.update_domain_geometry(schedule, 21)
+        self.assertEqual(
+            {
+                int(value["ordinal"])
+                for value in rebuilt
+                if value["purpose"] == "FriFoldingChallenge"
+            },
+            set(range(7)),
+        )
+        self.assertEqual(
+            {
+                (int(value["ordinal"]) >> 16) - 4
+                for value in rebuilt
+                if value["purpose"] == "DecommitFriRetainedPointers"
+            },
+            set(range(7)),
+        )
+        self.assertFalse(
+            any(
+                int(value["ordinal"])
+                == schedule_tool.FRI_TRANSCRIPT_ORDINAL_BASE
+                + 7 * schedule_tool.FRI_TRANSCRIPT_ORDINAL_STRIDE
+                for value in rebuilt
+                if value["purpose"] == "TranscriptInput"
+            )
+        )
+
     def test_quotient_geometry_reads_fixture_header_and_partial_logs(self) -> None:
         partial_logs = [4, 6]
         data = bytearray(b"STWZQI01")
@@ -222,7 +287,14 @@ class ArenaScheduleTests(unittest.TestCase):
         schedule = [
             entry(index, "TranscriptInput", 8, ordinal=ordinal)
             for index, ordinal in enumerate(
-                schedule_tool.PROOF_TRANSCRIPT_INPUT_ORDINALS
+                (
+                    *schedule_tool.PROOF_FIXED_TRANSCRIPT_INPUT_ORDINALS,
+                    *(
+                        schedule_tool.FRI_TRANSCRIPT_ORDINAL_BASE
+                        + round_index * schedule_tool.FRI_TRANSCRIPT_ORDINAL_STRIDE
+                        for round_index in range(7)
+                    ),
+                )
             )
         ]
         schedule.extend(
@@ -236,7 +308,7 @@ class ArenaScheduleTests(unittest.TestCase):
         proof = next(value for value in schedule if value["purpose"] == "ProofBytes")
         self.assertEqual(
             int(proof["len_words"]),
-            100 + 8 * len(schedule_tool.PROOF_TRANSCRIPT_INPUT_ORDINALS),
+            100 + 8 * (len(schedule_tool.PROOF_FIXED_TRANSCRIPT_INPUT_ORDINALS) + 7),
         )
 
     def test_generic_relation_bundle_parser_preserves_canonical_order(self) -> None:

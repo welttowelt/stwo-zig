@@ -46,11 +46,10 @@ OPCODE_COUNT = 20
 BUILTIN_SEGMENT_COUNT = 9
 PEDERSEN_SEGMENT_INDEX = 4
 POSEIDON_SEGMENT_INDEX = 5
-FRI_ROUNDS = 8
 FRI_FOLD_STEP = 3
 FRI_FINAL_LOG = 1
 FRI_PACKED_LOG = 2
-PROOF_TRANSCRIPT_INPUT_ORDINALS = (
+PROOF_FIXED_TRANSCRIPT_INPUT_ORDINALS = (
     3,
     20,
     23,
@@ -58,17 +57,11 @@ PROOF_TRANSCRIPT_INPUT_ORDINALS = (
     22,
     21,
     25,
-    65536,
-    65540,
-    65544,
-    65548,
-    65552,
-    65556,
-    65560,
-    65564,
     30,
     31,
 )
+FRI_TRANSCRIPT_ORDINAL_BASE = 1 << 16
+FRI_TRANSCRIPT_ORDINAL_STRIDE = 4
 
 
 def proof_rows(path: Path) -> dict[str, list[int]]:
@@ -496,9 +489,22 @@ def update_proof_geometry(schedule: list[dict[str, object]]) -> int:
         entry["purpose"] == "TranscriptInput" for entry in schedule
     ):
         raise ValueError("duplicate transcript input ordinal")
+    fri_root_ordinals = sorted(
+        ordinal
+        for ordinal in transcript_inputs
+        if ordinal >= FRI_TRANSCRIPT_ORDINAL_BASE
+        and (ordinal - FRI_TRANSCRIPT_ORDINAL_BASE) % FRI_TRANSCRIPT_ORDINAL_STRIDE == 0
+    )
+    expected_fri_roots = [
+        FRI_TRANSCRIPT_ORDINAL_BASE + round_index * FRI_TRANSCRIPT_ORDINAL_STRIDE
+        for round_index in range(len(fri_root_ordinals))
+    ]
+    if fri_root_ordinals != expected_fri_roots:
+        raise ValueError("proof FRI transcript input ordinals are not contiguous")
+    proof_ordinals = (*PROOF_FIXED_TRANSCRIPT_INPUT_ORDINALS, *fri_root_ordinals)
     missing = [
         ordinal
-        for ordinal in PROOF_TRANSCRIPT_INPUT_ORDINALS
+        for ordinal in proof_ordinals
         if ordinal not in transcript_inputs
     ]
     if missing:
@@ -510,7 +516,7 @@ def update_proof_geometry(schedule: list[dict[str, object]]) -> int:
         raise ValueError("schedule must contain one DecommitAssembly and one ProofBytes")
     target = int(decommit[0]["len_words"]) + sum(
         int(transcript_inputs[ordinal]["len_words"])
-        for ordinal in PROOF_TRANSCRIPT_INPUT_ORDINALS
+        for ordinal in proof_ordinals
     )
     old = int(proof[0]["len_words"])
     proof[0]["len_words"] = target
@@ -601,16 +607,14 @@ def fri_geometry(start_log: int) -> tuple[list[int], list[int], list[int]]:
     fold_steps: list[int] = []
     leaf_logs: list[int] = []
     evaluation_log = start_log
-    for _round in range(FRI_ROUNDS):
-        if evaluation_log <= FRI_FINAL_LOG or evaluation_log < FRI_PACKED_LOG:
-            raise ValueError(f"FRI geometry reaches the final layer before {FRI_ROUNDS} rounds")
+    while evaluation_log > FRI_FINAL_LOG:
+        if evaluation_log < FRI_PACKED_LOG:
+            raise ValueError("FRI evaluation log is too small for a packed leaf")
         evaluation_logs.append(evaluation_log)
         leaf_logs.append(evaluation_log - FRI_PACKED_LOG)
         fold_step = min(FRI_FOLD_STEP, evaluation_log - FRI_FINAL_LOG)
         fold_steps.append(fold_step)
         evaluation_log -= fold_step
-    if evaluation_log != FRI_FINAL_LOG:
-        raise ValueError(f"FRI geometry does not finish at log {FRI_FINAL_LOG}: {evaluation_log}")
     return evaluation_logs, fold_steps, leaf_logs
 
 
@@ -618,6 +622,7 @@ def update_domain_geometry(
     schedule: list[dict[str, object]], start_log: int
 ) -> tuple[list[dict[str, object]], int]:
     evaluation_logs, _fold_steps, leaf_logs = fri_geometry(start_log)
+    fri_rounds = len(evaluation_logs)
     changed = 0
 
     retained_evaluations = {
@@ -625,9 +630,9 @@ def update_domain_geometry(
         for entry in schedule
         if entry["purpose"] == "FriRetainedEvaluation"
     }
-    if set(retained_evaluations) != set(range(1, FRI_ROUNDS)):
+    if not set(range(1, fri_rounds)).issubset(retained_evaluations):
         raise ValueError("unexpected FRI retained-evaluation ordinals")
-    for round_index in range(1, FRI_ROUNDS):
+    for round_index in range(1, fri_rounds):
         entry = retained_evaluations[round_index]
         target = 4 << evaluation_logs[round_index]
         changed += int(entry["len_words"]) != target
@@ -680,7 +685,7 @@ def update_domain_geometry(
         for entry in schedule
         if entry["purpose"] == "DecommitFriRetainedPointers"
     }
-    if set(fri_pointers) != set(range(FRI_ROUNDS)):
+    if not set(range(fri_rounds)).issubset(fri_pointers):
         raise ValueError("unexpected FRI retained-pointer ordinals")
     for round_index, leaf_log in enumerate(leaf_logs):
         target = (leaf_log + 1) * 2
@@ -693,7 +698,7 @@ def update_domain_geometry(
             [entry for entry in fri_layers if int(entry["ordinal"]) >> 16 == round_index],
             key=lambda entry: int(entry["ordinal"]) & 0xFFFF,
         )
-        for round_index in range(FRI_ROUNDS)
+        for round_index in range(fri_rounds)
     }
     rebuilt_layers: list[dict[str, object]] = []
     for round_index, leaf_log in enumerate(leaf_logs):
@@ -714,7 +719,38 @@ def update_domain_geometry(
             entry["len_words"] = target_words
         rebuilt_layers.extend(reversed(templates))
 
-    result = [entry for entry in schedule if entry["purpose"] != "FriMerkleLayer"]
+    def retained_round(entry: dict[str, object]) -> int | None:
+        purpose = str(entry["purpose"])
+        ordinal = int(entry["ordinal"])
+        if purpose in {
+            "FriRetainedEvaluation",
+            "FriRetainedCoordinatePointers",
+            "FriFoldingChallenge",
+        }:
+            return ordinal
+        if purpose == "FriMerkleLayer":
+            return ordinal >> 16
+        if purpose in {"DecommitFriCoordinatePointers", "DecommitFriRetainedPointers"}:
+            return (ordinal >> 16) - 4
+        if purpose == "TranscriptInput" and ordinal >= FRI_TRANSCRIPT_ORDINAL_BASE:
+            delta = ordinal - FRI_TRANSCRIPT_ORDINAL_BASE
+            if delta % FRI_TRANSCRIPT_ORDINAL_STRIDE == 0:
+                return delta // FRI_TRANSCRIPT_ORDINAL_STRIDE
+        if purpose == "TranscriptOutput" and ordinal >= FRI_TRANSCRIPT_ORDINAL_BASE + 1:
+            delta = ordinal - FRI_TRANSCRIPT_ORDINAL_BASE - 1
+            if delta % FRI_TRANSCRIPT_ORDINAL_STRIDE == 0:
+                return delta // FRI_TRANSCRIPT_ORDINAL_STRIDE
+        return None
+
+    result = []
+    for entry in schedule:
+        if entry["purpose"] == "FriMerkleLayer":
+            continue
+        round_index = retained_round(entry)
+        if round_index is not None and round_index >= fri_rounds:
+            changed += 1
+            continue
+        result.append(entry)
     result.extend(rebuilt_layers)
     for index, entry in enumerate(result):
         entry["id"] = index
