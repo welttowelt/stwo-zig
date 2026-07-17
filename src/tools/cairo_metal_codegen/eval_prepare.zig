@@ -21,7 +21,7 @@ pub fn main() !void {
         return error.InvalidArguments;
     var bundle = try composition.Bundle.readFile(allocator, path);
     defer bundle.deinit();
-    var runtime = try metal.Runtime.init();
+    var runtime = try metal.Runtime.initFull();
     defer runtime.deinit();
     if (args.len == 3 or verify_warm) {
         const evidence = try composition_prewarm.prewarm(.{

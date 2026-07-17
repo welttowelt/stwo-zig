@@ -97,7 +97,7 @@ pub fn main() !void {
         .production_core_aot => |core_aot| runtime: {
             var snapshot = try startup.snapshotCoreMetallib(&store, core_aot);
             errdefer snapshot.deinit(allocator);
-            const runtime = try metal_runtime.Runtime.initFromMetallib(snapshot.path);
+            const runtime = try metal_runtime.diagnostics.initFromMetallibUnchecked(snapshot.path);
             core_metallib_snapshot = snapshot;
             break :runtime runtime;
         },

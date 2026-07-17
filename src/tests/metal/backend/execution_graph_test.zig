@@ -195,7 +195,7 @@ test "metal: proof assembly recipe executes prepared resident copies" {
 }
 
 test "metal: witness edge gather preserves producer and packed padding order" {
-    var runtime = try metal.Runtime.init();
+    var runtime = try metal.Runtime.initFull();
     defer runtime.deinit();
     var arena = try runtime.allocateResidentBuffer(16 * 1024);
     defer arena.deinit();

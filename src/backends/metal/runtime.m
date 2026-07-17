@@ -1,6 +1,7 @@
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
 #import <CommonCrypto/CommonDigest.h>
+#import <dispatch/dispatch.h>
 #import "runtime_profile.m"
 
 #include <stdbool.h>
@@ -489,6 +490,7 @@ static id<MTLBuffer> alias_shared_buffer(id<MTLDevice> device, void *bytes, size
 static StwoZigMetalRuntime *create_runtime_from_library(
     id<MTLDevice> device,
     id<MTLLibrary> library,
+    bool include_deferred,
     char *error_message,
     size_t error_message_len
 ) {
@@ -546,13 +548,6 @@ static StwoZigMetalRuntime *create_runtime_from_library(
         runtime.decommitSparseLeafGroupResident = make_pipeline(device, library, @"stwo_zig_decommit_sparse_leaf_group_resident", error_message, error_message_len);
         runtime.decommitAssembleTraceResident = make_pipeline(device, library, @"stwo_zig_decommit_assemble_trace_resident", error_message, error_message_len);
         runtime.qm31ToCoordinates = make_pipeline(device, library, @"stwo_zig_qm31_to_coordinates", error_message, error_message_len);
-        runtime.witnessFeedCounts = make_pipeline(device, library, @"stwo_zig_witness_feed_counts", error_message, error_message_len);
-        runtime.witnessInputGatherResident = make_pipeline(device, library, @"stwo_zig_witness_input_gather_resident", error_message, error_message_len);
-        runtime.executionTableSplitResident = make_pipeline(device, library, @"stwo_zig_execution_table_split_resident", error_message, error_message_len);
-        runtime.memoryAddressBaseTraceResident = make_pipeline(device, library, @"stwo_zig_memory_address_base_trace_resident", error_message, error_message_len);
-        runtime.memoryValueBaseTraceResident = make_pipeline(device, library, @"stwo_zig_memory_value_base_trace_resident", error_message, error_message_len);
-        runtime.memoryRc99CountResident = make_pipeline(device, library, @"stwo_zig_memory_rc99_count_resident", error_message, error_message_len);
-        runtime.publicMemorySeedResident = make_pipeline(device, library, @"stwo_zig_public_memory_seed_resident", error_message, error_message_len);
         runtime.leafAbsorbResident = make_pipeline(device, library, @"stwo_zig_blake2s_leaf_absorb_resident", error_message, error_message_len);
         runtime.leafAbsorbCompactResident = make_pipeline(device, library, @"stwo_zig_blake2s_leaf_absorb_compact_resident", error_message, error_message_len);
         runtime.parentsPlainSparse = make_pipeline(device, library, @"stwo_zig_blake2s_parents_plain_sparse", error_message, error_message_len);
@@ -572,13 +567,8 @@ static StwoZigMetalRuntime *create_runtime_from_library(
         runtime.relationBlockScan = make_pipeline(device, library, @"stwo_zig_relation_block_scan", error_message, error_message_len);
         runtime.relationScanBlocks = make_pipeline(device, library, @"stwo_zig_relation_scan_blocks", error_message, error_message_len);
         runtime.relationScanFinalize = make_pipeline(device, library, @"stwo_zig_relation_scan_finalize", error_message, error_message_len);
-        runtime.fixedTableLookup = make_pipeline(device, library, @"stwo_zig_fixed_table_lookup_sparse", error_message, error_message_len);
         runtime.parentsSparse = make_pipeline(device, library, @"stwo_zig_blake2s_parents_sparse", error_message, error_message_len);
         runtime.parentTailSparse = make_pipeline(device, library, @"stwo_zig_blake2s_parent_tail_sparse", error_message, error_message_len);
-        runtime.felt252Oracle = make_pipeline(device, library, @"stwo_zig_felt252_oracle", error_message, error_message_len);
-        runtime.ecOpWitness = make_pipeline(device, library, @"stwo_zig_ec_op_witness", error_message, error_message_len);
-        runtime.ecOpLookup = make_pipeline(device, library, @"stwo_zig_ec_op_lookup", error_message, error_message_len);
-        runtime.ecOpBaseFinalize = make_pipeline(device, library, @"stwo_zig_ec_op_base_finalize", error_message, error_message_len);
         runtime.compactGather = make_pipeline(device, library, @"stwo_zig_compact_gather", error_message, error_message_len);
         runtime.compactRadixHistogram = make_pipeline(device, library, @"stwo_zig_compact_radix_histogram", error_message, error_message_len);
         runtime.compactRadixPrefix = make_pipeline(device, library, @"stwo_zig_compact_radix_prefix", error_message, error_message_len);
@@ -613,12 +603,7 @@ static StwoZigMetalRuntime *create_runtime_from_library(
             runtime.decommitAssembleFriResident == nil ||
             runtime.decommitSparseParentResident == nil || runtime.decommitAssembleTraceResident == nil ||
             runtime.decommitSparseLeavesResident == nil ||
-            runtime.decommitSparseLeafGroupResident == nil ||
-            runtime.witnessFeedCounts == nil || runtime.clearArenaSpans == nil ||
-            runtime.witnessInputGatherResident == nil ||
-            runtime.executionTableSplitResident == nil ||
-            runtime.memoryAddressBaseTraceResident == nil || runtime.memoryValueBaseTraceResident == nil ||
-            runtime.memoryRc99CountResident == nil || runtime.publicMemorySeedResident == nil ||
+            runtime.decommitSparseLeafGroupResident == nil || runtime.clearArenaSpans == nil ||
             runtime.leafAbsorbResident == nil || runtime.leafAbsorbCompactResident == nil ||
             runtime.parentsPlainSparse == nil ||
             runtime.circleExpandSparse == nil || runtime.circleCopySparse == nil || runtime.circleIfftFirstSparse == nil ||
@@ -627,15 +612,34 @@ static StwoZigMetalRuntime *create_runtime_from_library(
             runtime.circleRfftLastSparse == nil || runtime.circleRfftFusedSparse == nil ||
             runtime.circleRfftLayerSparseWide == nil || runtime.circleRfftLastSparseWide == nil) return NULL;
         if (runtime.relationFused == nil || runtime.relationBlockScan == nil ||
-            runtime.relationScanBlocks == nil || runtime.relationScanFinalize == nil || runtime.fixedTableLookup == nil ||
-            runtime.parentsSparse == nil || runtime.parentTailSparse == nil || runtime.felt252Oracle == nil || runtime.ecOpWitness == nil ||
-            runtime.ecOpLookup == nil || runtime.ecOpBaseFinalize == nil ||
+            runtime.relationScanBlocks == nil || runtime.relationScanFinalize == nil ||
+            runtime.parentsSparse == nil || runtime.parentTailSparse == nil ||
             runtime.compactGather == nil || runtime.compactRadixHistogram == nil || runtime.compactRadixPrefix == nil ||
             runtime.compactRadixScatter == nil || runtime.compactHeads == nil || runtime.compactScanLocal == nil ||
             runtime.compactScanBlocks == nil || runtime.compactScanAdd == nil || runtime.compactClearOutputs == nil ||
             runtime.compactScatter == nil || runtime.compactFinalize == nil || runtime.compositionLift == nil ||
             runtime.compositionSplit == nil || runtime.compositionExpand == nil || runtime.compositionRandomPowers == nil ||
             runtime.compositionExtParams == nil) return NULL;
+        if (include_deferred) {
+            runtime.witnessFeedCounts = make_pipeline(device, library, @"stwo_zig_witness_feed_counts", error_message, error_message_len);
+            runtime.witnessInputGatherResident = make_pipeline(device, library, @"stwo_zig_witness_input_gather_resident", error_message, error_message_len);
+            runtime.executionTableSplitResident = make_pipeline(device, library, @"stwo_zig_execution_table_split_resident", error_message, error_message_len);
+            runtime.memoryAddressBaseTraceResident = make_pipeline(device, library, @"stwo_zig_memory_address_base_trace_resident", error_message, error_message_len);
+            runtime.memoryValueBaseTraceResident = make_pipeline(device, library, @"stwo_zig_memory_value_base_trace_resident", error_message, error_message_len);
+            runtime.memoryRc99CountResident = make_pipeline(device, library, @"stwo_zig_memory_rc99_count_resident", error_message, error_message_len);
+            runtime.publicMemorySeedResident = make_pipeline(device, library, @"stwo_zig_public_memory_seed_resident", error_message, error_message_len);
+            runtime.fixedTableLookup = make_pipeline(device, library, @"stwo_zig_fixed_table_lookup_sparse", error_message, error_message_len);
+            runtime.felt252Oracle = make_pipeline(device, library, @"stwo_zig_felt252_oracle", error_message, error_message_len);
+            runtime.ecOpWitness = make_pipeline(device, library, @"stwo_zig_ec_op_witness", error_message, error_message_len);
+            runtime.ecOpLookup = make_pipeline(device, library, @"stwo_zig_ec_op_lookup", error_message, error_message_len);
+            runtime.ecOpBaseFinalize = make_pipeline(device, library, @"stwo_zig_ec_op_base_finalize", error_message, error_message_len);
+            if (runtime.witnessFeedCounts == nil || runtime.witnessInputGatherResident == nil ||
+                runtime.executionTableSplitResident == nil || runtime.memoryAddressBaseTraceResident == nil ||
+                runtime.memoryValueBaseTraceResident == nil || runtime.memoryRc99CountResident == nil ||
+                runtime.publicMemorySeedResident == nil || runtime.fixedTableLookup == nil ||
+                runtime.felt252Oracle == nil || runtime.ecOpWitness == nil ||
+                runtime.ecOpLookup == nil || runtime.ecOpBaseFinalize == nil) return NULL;
+        }
         return runtime;
     }
 }

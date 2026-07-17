@@ -48,7 +48,7 @@ fn testResidentBinding(logical_id: u32, offset_words: u32, word_count: u32) aren
 }
 
 test "metal: Felt252 Montgomery multiplication and inversion match scalar vectors" {
-    var runtime = try metal.Runtime.init();
+    var runtime = try metal.Runtime.initFull();
     defer runtime.deinit();
     const inputs = [_]u32{
         3,          0,          0,          0,          0,          0,          0,  0,          5,          0,          0,          0,          0,          0,          0,  0,
@@ -110,7 +110,7 @@ test "metal: resident EC-op matches canonical Rust witness ABI" {
     cursor += partial_rows * 127 * 4;
     try std.testing.expectEqual(bytes.len, cursor);
 
-    var runtime = try metal.Runtime.init();
+    var runtime = try metal.Runtime.initFull();
     defer runtime.deinit();
     var arena = try runtime.allocateResidentBuffer(12 * 1024 * 1024);
     defer arena.deinit();
@@ -281,7 +281,7 @@ test "metal: resident EC-op finalizes canonical padding across threadgroups" {
     const total_words = address_count + @as(usize, n_big) * 28 + @as(usize, n_small) * 8 +
         @as(usize, rows) * (273 + 488) + partial_rows * 127 +
         address_count + @as(usize, n_big) + @as(usize, n_small) + 256 + 1;
-    var runtime = try metal.Runtime.init();
+    var runtime = try metal.Runtime.initFull();
     defer runtime.deinit();
     var arena = try runtime.allocateResidentBuffer(total_words * 4);
     defer arena.deinit();
@@ -474,7 +474,7 @@ test "metal: resident compact writer matches canonical multiset ordering" {
 }
 
 test "metal: resident witness feed matches scalar histogram" {
-    var runtime = try metal.Runtime.init();
+    var runtime = try metal.Runtime.initFull();
     defer runtime.deinit();
     var arena = try runtime.allocateResidentBuffer(16 * 1024);
     defer arena.deinit();
@@ -498,7 +498,7 @@ test "metal: resident witness feed matches scalar histogram" {
 }
 
 test "metal: witness feed batch clears shared consumers once" {
-    var runtime = try metal.Runtime.init();
+    var runtime = try metal.Runtime.initFull();
     defer runtime.deinit();
     var arena = try runtime.allocateResidentBuffer(16 * 1024);
     defer arena.deinit();

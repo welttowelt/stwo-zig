@@ -196,7 +196,7 @@ test "metal: sparse LDE matches Rust seq_4 reference" {
 }
 
 test "metal: execution tables split compact little-endian values into 9-bit columns" {
-    var runtime = try metal.Runtime.init();
+    var runtime = try metal.Runtime.initFull();
     defer runtime.deinit();
     const rows: u32 = 16;
     const source_offset: u32 = 0;

@@ -234,7 +234,7 @@ pub fn main() !void {
     const args = try parseArgs(allocator);
 
     var init_timer = try std.time.Timer.start();
-    var metal = try metal_runtime.Runtime.init();
+    var metal = try metal_runtime.Runtime.initFull();
     defer metal.deinit();
     const backend_init_seconds = seconds(init_timer.read());
     var fixture_timer = try std.time.Timer.start();
@@ -366,7 +366,7 @@ fn seconds(nanoseconds: u64) f64 {
 }
 
 test "metal: bounded Cairo benchmark reaches the production streaming commitment" {
-    var metal = try metal_runtime.Runtime.init();
+    var metal = try metal_runtime.Runtime.initFull();
     defer metal.deinit();
     var fixture = try Fixture.init(std.testing.allocator, &metal);
     defer fixture.deinit();

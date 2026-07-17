@@ -92,7 +92,8 @@ pub const Runtime = struct {
     handle: *anyopaque,
 
     pub const init = session_ops.init;
-    pub const initFromMetallib = session_ops.initFromMetallib;
+    pub const initFull = session_ops.initFull;
+    pub const initFromAotBundle = session_ops.initFromAotBundle;
     pub const deinit = session_ops.deinit;
     pub const pipelineCacheStats = session_ops.pipelineCacheStats;
     pub const maxBufferLength = session_ops.maxBufferLength;
@@ -195,6 +196,11 @@ pub const Runtime = struct {
     pub const transformCircle = polynomial_ops.transformCircle;
     pub const transformCircleResident = polynomial_ops.transformCircleResident;
     pub const transformCircleLde = polynomial_ops.transformCircleLde;
+};
+
+/// Deferred compatibility hooks that deliberately bypass production admission.
+pub const diagnostics = struct {
+    pub const initFromMetallibUnchecked = session_ops.initFromMetallibUnchecked;
 };
 
 const resident_data_bindings = @import("runtime/resident_data.zig");

@@ -485,7 +485,7 @@ test "metal: exact Cairo transcript controller binds resident ordinals" {
 }
 
 test "metal: prepared fixed-table lookup batch matches scalar materialization" {
-    var runtime = try metal.Runtime.init();
+    var runtime = try metal.Runtime.initFull();
     defer runtime.deinit();
     var arena = try runtime.allocateResidentBuffer(32 * 1024);
     defer arena.deinit();

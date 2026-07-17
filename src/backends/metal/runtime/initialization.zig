@@ -7,9 +7,20 @@ extern fn stwo_zig_metal_runtime_create(
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
+extern fn stwo_zig_metal_runtime_create_full(
+    source: [*:0]const u8,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
 extern fn stwo_zig_metal_runtime_create_from_metallib(
     path: [*]const u8,
     path_len: usize,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
+extern fn stwo_zig_metal_runtime_create_from_metallib_data(
+    bytes: [*]const u8,
+    byte_len: usize,
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
@@ -24,6 +35,14 @@ pub fn Initialization(comptime MetalError: type) type {
             };
         }
 
+        pub fn fromFullSource(source: [*:0]const u8) MetalError!*anyopaque {
+            var message: [1024]u8 = [_]u8{0} ** 1024;
+            return stwo_zig_metal_runtime_create_full(source, &message, message.len) orelse {
+                std.log.err("Full Metal initialization failed: {s}", .{std.mem.sliceTo(&message, 0)});
+                return MetalError.RuntimeInitializationFailed;
+            };
+        }
+
         pub fn fromMetallib(path: []const u8) MetalError!*anyopaque {
             if (path.len == 0) return MetalError.RuntimeInitializationFailed;
             var message: [1024]u8 = [_]u8{0} ** 1024;
@@ -34,6 +53,20 @@ pub fn Initialization(comptime MetalError: type) type {
                 message.len,
             ) orelse {
                 std.log.err("Metal AOT initialization failed: {s}", .{std.mem.sliceTo(&message, 0)});
+                return MetalError.RuntimeInitializationFailed;
+            };
+        }
+
+        pub fn fromMetallibData(bytes: []const u8) MetalError!*anyopaque {
+            if (bytes.len == 0) return MetalError.RuntimeInitializationFailed;
+            var message: [1024]u8 = [_]u8{0} ** 1024;
+            return stwo_zig_metal_runtime_create_from_metallib_data(
+                bytes.ptr,
+                bytes.len,
+                &message,
+                message.len,
+            ) orelse {
+                std.log.err("Metal AOT data initialization failed: {s}", .{std.mem.sliceTo(&message, 0)});
                 return MetalError.RuntimeInitializationFailed;
             };
         }

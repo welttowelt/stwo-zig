@@ -73,7 +73,7 @@ pub fn main() !void {
 
     const total_words = @as(usize, n_addresses) + @as(usize, n_big) * 28 + @as(usize, n_small) * 8 +
         @as(usize, rows) * (273 + 488 + 127 * 256) + n_addresses + n_big + n_small + 256 + 1;
-    var runtime = try metal.Runtime.init();
+    var runtime = try metal.Runtime.initFull();
     defer runtime.deinit();
     var arena = try runtime.allocateResidentBuffer(total_words * 4);
     defer arena.deinit();

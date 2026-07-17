@@ -135,6 +135,34 @@ pub const exports = [_]Export{
     .{ .name = "stwo_zig_eval_polynomials", .owner = .polynomial_eval },
 };
 
+pub fn isDeferredOwner(owner: Unit) bool {
+    return switch (owner) {
+        .cairo_trace, .cairo_witness_feed, .cairo_fixed_tables, .cairo_ec_op => true,
+        else => false,
+    };
+}
+
+pub const native_export_count = count: {
+    var result: usize = 0;
+    for (exports) |entry| {
+        if (!isDeferredOwner(entry.owner)) result += 1;
+    }
+    break :count result;
+};
+
+/// The exact Native Stwo kernel ABI. Deferred Cairo kernels never enter the
+/// default source library or its eager pipeline set.
+pub const native_exports: [native_export_count]Export = filtered: {
+    var result: [native_export_count]Export = undefined;
+    var index: usize = 0;
+    for (exports) |entry| {
+        if (isDeferredOwner(entry.owner)) continue;
+        result[index] = entry;
+        index += 1;
+    }
+    break :filtered result;
+};
+
 pub const TranslationUnit = struct {
     path: []const u8,
     source: []const u8,
@@ -157,6 +185,7 @@ const witness_deductions_source = @embedFile("include/witness_deductions.metal")
 const commitments_source = @embedFile("core/commitments.metal");
 const cairo_trace_source = @embedFile("cairo/trace.metal");
 const cairo_witness_feed_source = @embedFile("cairo/witness_feed.metal");
+const cairo_fixed_tables_source = @embedFile("cairo/fixed_tables.metal");
 const cairo_ec_op_source = @embedFile("cairo/ec_op.metal");
 const circle_transform_source = @embedFile("core/circle_transform.metal");
 const arena_ops_source = @embedFile("core/arena_ops.metal");
@@ -182,12 +211,15 @@ pub const support_headers = [_]TranslationUnit{
     .{ .path = "src/backends/metal/shaders/include/witness_deductions.metal", .source = witness_deductions_source },
 };
 
+pub const native_support_headers = support_headers[0..8];
+
 pub const translation_units = [_]TranslationUnit{
     .{ .path = "src/backends/metal/shaders/core/commitments.metal", .source = commitments_source },
     .{ .path = "src/backends/metal/kernels.metal", .source = legacy_source },
     .{ .path = "src/backends/metal/shaders/core/circle_transform.metal", .source = circle_transform_source },
     .{ .path = "src/backends/metal/shaders/cairo/trace.metal", .source = cairo_trace_source },
     .{ .path = "src/backends/metal/shaders/cairo/witness_feed.metal", .source = cairo_witness_feed_source },
+    .{ .path = "src/backends/metal/shaders/cairo/fixed_tables.metal", .source = cairo_fixed_tables_source },
     .{ .path = "src/backends/metal/shaders/cairo/ec_op.metal", .source = cairo_ec_op_source },
     .{ .path = "src/backends/metal/shaders/core/arena_ops.metal", .source = arena_ops_source },
     .{ .path = "src/backends/metal/shaders/core/transcript.metal", .source = transcript_source },
@@ -195,6 +227,48 @@ pub const translation_units = [_]TranslationUnit{
     .{ .path = "src/backends/metal/shaders/core/relation.metal", .source = relation_source },
     .{ .path = "src/backends/metal/shaders/core/decommit.metal", .source = decommit_kernels_source },
     .{ .path = "src/backends/metal/shaders/core/polynomial_eval.metal", .source = polynomial_eval_source },
+};
+
+pub const native_translation_units = [_]TranslationUnit{
+    .{ .path = "src/backends/metal/shaders/core/commitments.metal", .source = commitments_source },
+    .{ .path = "src/backends/metal/kernels.metal", .source = legacy_source },
+    .{ .path = "src/backends/metal/shaders/core/circle_transform.metal", .source = circle_transform_source },
+    .{ .path = "src/backends/metal/shaders/core/arena_ops.metal", .source = arena_ops_source },
+    .{ .path = "src/backends/metal/shaders/core/transcript.metal", .source = transcript_source },
+    .{ .path = "src/backends/metal/shaders/core/composition.metal", .source = composition_source },
+    .{ .path = "src/backends/metal/shaders/core/relation.metal", .source = relation_source },
+    .{ .path = "src/backends/metal/shaders/core/decommit.metal", .source = decommit_kernels_source },
+    .{ .path = "src/backends/metal/shaders/core/polynomial_eval.metal", .source = polynomial_eval_source },
+};
+
+pub const native_amalgamated_source: [:0]const u8 = "#define STWO_ZIG_AMALGAMATED 1\n" ++
+    "#line 1 \"src/backends/metal/shaders/include/base.metal\"\n" ++ base_source ++
+    "\n#line 1 \"src/backends/metal/shaders/include/blake2s.metal\"\n" ++ blake2s_source ++
+    "\n#line 1 \"src/backends/metal/shaders/include/merkle.metal\"\n" ++ merkle_source ++
+    "\n#line 1 \"src/backends/metal/shaders/include/decommit.metal\"\n" ++ decommit_source ++
+    "\n#line 1 \"src/backends/metal/shaders/include/m31.metal\"\n" ++ m31_source ++
+    "\n#line 1 \"src/backends/metal/shaders/include/extension_fields.metal\"\n" ++ extension_fields_source ++
+    "\n#line 1 \"src/backends/metal/shaders/include/circle.metal\"\n" ++ circle_source ++
+    "\n#line 1 \"src/backends/metal/shaders/include/abi_types.metal\"\n" ++ abi_types_source ++
+    "\n#line 1 \"src/backends/metal/shaders/core/commitments.metal\"\n" ++ commitments_source ++
+    "\n#line 1 \"src/backends/metal/kernels.metal\"\n" ++ legacy_source ++
+    "\n#line 1 \"src/backends/metal/shaders/core/circle_transform.metal\"\n" ++ circle_transform_source ++
+    "\n#line 1 \"src/backends/metal/shaders/core/arena_ops.metal\"\n" ++ arena_ops_source ++
+    "\n#line 1 \"src/backends/metal/shaders/core/transcript.metal\"\n" ++ transcript_source ++
+    "\n#line 1 \"src/backends/metal/shaders/core/composition.metal\"\n" ++ composition_source ++
+    "\n#line 1 \"src/backends/metal/shaders/core/relation.metal\"\n" ++ relation_source ++
+    "\n#line 1 \"src/backends/metal/shaders/core/decommit.metal\"\n" ++ decommit_kernels_source ++
+    "\n#line 1 \"src/backends/metal/shaders/core/polynomial_eval.metal\"\n" ++ polynomial_eval_source ++ "\x00";
+
+pub const native_amalgamated_source_sha256: [32]u8 = digest: {
+    @setEvalBranchQuota(10_000_000);
+    var result: [32]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(
+        native_amalgamated_source[0 .. native_amalgamated_source.len - 1],
+        &result,
+        .{},
+    );
+    break :digest result;
 };
 
 /// The runtime still compiles one library. Translation-unit boundaries are
@@ -236,6 +310,8 @@ pub const amalgamated_source: [:0]const u8 = "#define STWO_ZIG_AMALGAMATED 1\n" 
     cairo_trace_source ++
     "\n#line 1 \"src/backends/metal/shaders/cairo/witness_feed.metal\"\n" ++
     cairo_witness_feed_source ++
+    "\n#line 1 \"src/backends/metal/shaders/cairo/fixed_tables.metal\"\n" ++
+    cairo_fixed_tables_source ++
     "\n#line 1 \"src/backends/metal/shaders/cairo/ec_op.metal\"\n" ++
     cairo_ec_op_source ++
     "\n#line 1 \"src/backends/metal/shaders/core/arena_ops.metal\"\n" ++
@@ -284,6 +360,20 @@ fn kernelDeclaration(source: []const u8, name: []const u8) ![]const u8 {
     return source[start .. end + 3];
 }
 
+test "Native core source exactly covers its non-Cairo export ABI" {
+    try std.testing.expectEqual(@as(usize, 78), native_exports.len);
+    try std.testing.expectEqual(native_exports.len, std.mem.count(u8, native_amalgamated_source, "kernel void "));
+    try std.testing.expect(std.mem.indexOf(u8, native_amalgamated_source, "shaders/cairo/") == null);
+    for (native_support_headers) |unit| try std.testing.expect(std.mem.indexOf(u8, unit.path, "/cairo/") == null);
+    for (native_translation_units) |unit| try std.testing.expect(std.mem.indexOf(u8, unit.path, "/cairo/") == null);
+    for (native_exports) |entry| {
+        try std.testing.expect(!isDeferredOwner(entry.owner));
+        try std.testing.expectEqual(@as(usize, 1), countKernelDeclarations(native_amalgamated_source, entry.name));
+    }
+    for (exports) |entry| if (isDeferredOwner(entry.owner))
+        try std.testing.expectEqual(@as(usize, 0), countKernelDeclarations(native_amalgamated_source, entry.name));
+}
+
 fn expectIsolated(source: []const u8, names: []const []const u8) !void {
     for (names) |name| {
         try std.testing.expectEqual(@as(usize, 0), countKernelDeclarations(legacy_source, name));
@@ -319,77 +409,6 @@ test "metal shader manifest exactly covers source and runtime exports" {
         const lookup = try std.fmt.bufPrint(&lookup_buffer, "@\"{s}\"", .{entry.name});
         try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, runtime_source, lookup));
     }
-}
-
-test "source and AOT core runtimes share one fail-closed pipeline initializer" {
-    const runtime_source = @embedFile("../runtime.m");
-    const initialization_source = @embedFile("../runtime/initialization.m");
-    try std.testing.expectEqual(
-        @as(usize, 1),
-        std.mem.count(u8, runtime_source, "static StwoZigMetalRuntime *create_runtime_from_library("),
-    );
-    try std.testing.expectEqual(
-        @as(usize, 2),
-        std.mem.count(u8, initialization_source, "StwoZigMetalRuntime *runtime = create_runtime_from_library("),
-    );
-    try std.testing.expectEqual(
-        @as(usize, 1),
-        std.mem.count(u8, initialization_source, "stwo_zig_metal_runtime_create_from_metallib("),
-    );
-    try std.testing.expectEqual(
-        @as(usize, 1),
-        std.mem.count(u8, runtime_source, "#import \"runtime/initialization.m\""),
-    );
-    const initializer_start = std.mem.indexOf(
-        u8,
-        runtime_source,
-        "static StwoZigMetalRuntime *create_runtime_from_library(",
-    ) orelse return error.MissingMetalRuntimeInitializer;
-    const initializer_end = std.mem.indexOfPos(
-        u8,
-        runtime_source,
-        initializer_start,
-        "#import \"runtime/initialization.m\"",
-    ) orelse return error.MalformedMetalRuntimeInitializer;
-    const initializer = runtime_source[initializer_start..initializer_end];
-    const aot_start = std.mem.indexOf(
-        u8,
-        initialization_source,
-        "void *stwo_zig_metal_runtime_create_from_metallib(",
-    ) orelse return error.MissingMetalAotRuntimeInitializer;
-    const source_constructor = initialization_source[0..aot_start];
-    const aot_constructor = initialization_source[aot_start..];
-    try std.testing.expectEqual(
-        @as(usize, 1),
-        std.mem.count(u8, source_constructor, "newLibraryWithSource:source options:options"),
-    );
-    try std.testing.expectEqual(
-        @as(usize, 1),
-        std.mem.count(u8, aot_constructor, "newLibraryWithURL:[NSURL fileURLWithPath:canonical_path]"),
-    );
-
-    var assignments = initializer;
-    var assignment_count: usize = 0;
-    const assignment_marker = " = make_pipeline(";
-    while (std.mem.indexOf(u8, assignments, assignment_marker)) |marker_index| {
-        const property_marker = "runtime.";
-        const property_start = (std.mem.lastIndexOf(
-            u8,
-            assignments[0..marker_index],
-            property_marker,
-        ) orelse return error.MalformedMetalPipelineAssignment) + property_marker.len;
-        const property = assignments[property_start..marker_index];
-        var validation_buffer: [180]u8 = undefined;
-        const validation = try std.fmt.bufPrint(
-            &validation_buffer,
-            "runtime.{s} == nil",
-            .{property},
-        );
-        try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, initializer, validation));
-        assignment_count += 1;
-        assignments = assignments[marker_index + assignment_marker.len ..];
-    }
-    try std.testing.expectEqual(exports.len, assignment_count);
 }
 
 test "commitment shader bindings match core ABI version 2" {

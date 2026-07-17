@@ -2865,7 +2865,7 @@ fn runOne(
         if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_LOG_STAGE_TIMINGS"))
             std.debug.print("resident_plan bytes={} peak_live_bytes={}\n", .{ plan.total_bytes, plan.peak_live_bytes });
         var owned_metal: ?metal_runtime.Runtime = if (external_runtime == null)
-            try metal_runtime.Runtime.init()
+            try metal_runtime.Runtime.initFull()
         else
             null;
         defer if (owned_metal) |*value| value.deinit();

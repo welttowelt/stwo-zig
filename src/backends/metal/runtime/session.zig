@@ -52,16 +52,37 @@ const Tree = runtime.Tree;
 const validDomainPrefixBytes = protocol_mode.validDomainPrefixBytes;
 const resource_plans = @import("resource_plans.zig").ResourcePlans(MetalError);
 const evalArguments = resource_plans.evalArguments;
+const core_aot = @import("../core_aot.zig");
 const shader_manifest = @import("../shaders/manifest.zig");
-const kernel_source = shader_manifest.amalgamated_source;
 const runtime_initialization = @import("initialization.zig").Initialization(MetalError);
 
 pub fn init() MetalError!Runtime {
-    return .{ .handle = try runtime_initialization.fromSource(kernel_source.ptr) };
+    return .{ .handle = try runtime_initialization.fromSource(shader_manifest.native_amalgamated_source.ptr) };
 }
 
-pub fn initFromMetallib(path: []const u8) MetalError!Runtime {
+/// Compatibility path for deferred Cairo integrations that still share this runtime ABI.
+pub fn initFull() MetalError!Runtime {
+    return .{ .handle = try runtime_initialization.fromFullSource(shader_manifest.amalgamated_source.ptr) };
+}
+
+/// Deferred diagnostic escape hatch. Native production callers must use `initFromAotBundle`.
+pub fn initFromMetallibUnchecked(path: []const u8) MetalError!Runtime {
     return .{ .handle = try runtime_initialization.fromMetallib(path) };
+}
+
+/// Loads only after the complete Native AOT bundle matches the compiled-in authority.
+pub fn initFromAotBundle(
+    allocator: std.mem.Allocator,
+    bundle_path: []const u8,
+    expected_manifest_sha256: [32]u8,
+) MetalError!Runtime {
+    var admission = core_aot.admit(allocator, bundle_path, expected_manifest_sha256) catch |err| {
+        std.log.err("Metal core AOT admission failed: {s}", .{@errorName(err)});
+        return MetalError.RuntimeInitializationFailed;
+    };
+    defer admission.deinit();
+
+    return .{ .handle = try runtime_initialization.fromMetallibData(admission.metallib_bytes) };
 }
 
 pub fn deinit(self: *Runtime) void {
