@@ -56,17 +56,26 @@ target architecture and must not be described as an AOT shader library yet:
 - the transcript increment moves its four kernels and two private helpers intact into
   `core/transcript.metal`, reducing the legacy file from 3,533 to 3,436 lines while preserving the
   runtime's single source-JIT library and existing dispatches;
+- commit `a48d2fe` moved arena clearing into `core/arena_ops.metal`, and commit `5b1f062` established
+  guarded `base.metal` and `blake2s.metal` support headers consumed by both the deterministic core
+  amalgamation and standalone shader units;
+- the field-support increment moves the exact M31, CM31, and QM31 definitions into guarded
+  `m31.metal` and `extension_fields.metal` headers. Generated witness kernels consume the same M31
+  authority under codegen version 5 rather than scraping M31 arithmetic from `kernels.metal`;
+- the legacy file is now 3,270 lines. Its 90 exported entry points, the runtime lookup set, and the
+  one-library source-JIT boundary remain unchanged;
 - Stage 0 remains incomplete until every argument contract is represented in the manifest, Metal
   reflection validates it, and cold compilation/PSO/library counts are captured;
-- Stage 1 remains incomplete: shared hash and field helpers still belong to `kernels.metal`, so the
-  extracted leaf sources compile through the deterministic amalgamation but are not independently
-  compilable AIR translation units;
+- Stage 1 remains incomplete: Felt252, EC, circle, Merkle, and decommit support still belongs to
+  `kernels.metal`. Witness codegen still extracts its Felt252/EC and witness-table fragments by
+  sentinel while that support bundle is being made explicit;
 - AOT AIR compilation/linking and authenticated metallib loading remain Stage 5 work. No current
   source extraction removes runtime compilation or changes warm proving speed.
 
-The next extraction after transcript is `arena_ops.metal`, but its independent-AIR gate requires
-the base include first. Further protocol families must not move ahead of the Stage 1 support-header
-boundary merely because the source-JIT amalgamation can resolve helpers by concatenation order.
+The next support-header slice is the Felt252/EC and witness-ABI boundary that removes the remaining
+generated-witness sentinel coupling. Protocol families must not move ahead of their Stage 1
+support-header boundary merely because the source-JIT amalgamation can resolve helpers by
+concatenation order.
 
 The problem is wider than file length:
 

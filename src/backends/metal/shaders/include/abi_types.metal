@@ -1,3 +1,10 @@
+#ifndef STWO_ZIG_ABI_TYPES_METAL
+#define STWO_ZIG_ABI_TYPES_METAL
+
+#ifndef STWO_ZIG_AMALGAMATED
+#include "stwo_zig/base.metal"
+#endif
+
 struct PolynomialEvalTask {
     uint coefficient_offset, coefficient_length, basis_offset, log_size, output_index;
 };
@@ -8,3 +15,5 @@ struct PolynomialBasisTask {
 
 static_assert(sizeof(PolynomialEvalTask) == 5u * sizeof(uint), "PolynomialEvalTask ABI");
 static_assert(sizeof(PolynomialBasisTask) == 4u * sizeof(uint), "PolynomialBasisTask ABI");
+
+#endif

@@ -1,3 +1,10 @@
+#ifndef STWO_ZIG_AMALGAMATED
+#include "stwo_zig/base.metal"
+#include "stwo_zig/m31.metal"
+#include "stwo_zig/extension_fields.metal"
+#include "stwo_zig/abi_types.metal"
+#endif
+
 kernel void stwo_zig_eval_basis(
     device const uint *factors [[buffer(0)]],
     device const PolynomialBasisTask *tasks [[buffer(1)]],

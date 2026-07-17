@@ -1,7 +1,11 @@
 const std = @import("std");
 const witness = @import("../../frontends/cairo/witness/program.zig");
 
-pub const codegen_version: u64 = 4;
+pub const codegen_version: u64 = 5;
+
+const base_support = @embedFile("../../backends/metal/shaders/include/base.metal");
+const m31_support = @embedFile("../../backends/metal/shaders/include/m31.metal");
+const generated_support = "#define STWO_ZIG_AMALGAMATED 1\n" ++ base_support ++ m31_support;
 
 pub const KernelMode = enum {
     all,
@@ -13,13 +17,13 @@ pub const KernelMode = enum {
 
 pub fn preambleParts() [3][]const u8 {
     const source = @embedFile("../../backends/metal/kernels.metal");
-    const arithmetic_start = std.mem.indexOf(u8, source, "inline uint m31_reduce") orelse unreachable;
-    const arithmetic_end = std.mem.indexOf(u8, source, "kernel void stwo_zig_witness_input_gather_resident") orelse unreachable;
+    const felt_start = std.mem.indexOf(u8, source, "struct Felt252Metal") orelse unreachable;
+    const support_end = std.mem.indexOf(u8, source, "kernel void stwo_zig_witness_input_gather_resident") orelse unreachable;
     const helpers_start = std.mem.indexOf(u8, source, "inline uint witness_table_limb") orelse unreachable;
     const helpers_end = std.mem.indexOf(u8, source, "kernel void stwo_zig_felt252_oracle") orelse unreachable;
     return .{
-        "#include <metal_stdlib>\nusing namespace metal;\n\n",
-        source[arithmetic_start..arithmetic_end],
+        generated_support,
+        source[felt_start..support_end],
         source[helpers_start..helpers_end],
     };
 }
@@ -38,15 +42,13 @@ pub fn preamblePartsForProgram(program: witness.Program) [5][]const u8 {
     }
 
     const source = @embedFile("../../backends/metal/kernels.metal");
-    const m31_start = std.mem.indexOf(u8, source, "inline uint m31_reduce") orelse unreachable;
-    const felt_start = std.mem.indexOf(u8, source, "struct Felt252Metal") orelse unreachable;
     const args_start = std.mem.indexOf(u8, source, "struct WitnessArgs") orelse unreachable;
     const args_end = std.mem.indexOf(u8, source, "kernel void stwo_zig_witness_input_gather_resident") orelse unreachable;
     const table_start = std.mem.indexOf(u8, source, "inline uint witness_table_limb") orelse unreachable;
     const table_end = std.mem.indexOf(u8, source, "inline Felt252Metal witness_from_w27") orelse unreachable;
     return .{
-        "#include <metal_stdlib>\nusing namespace metal;\n\n",
-        source[m31_start..felt_start],
+        "#define STWO_ZIG_AMALGAMATED 1\n" ++ base_support,
+        m31_support,
         source[args_start..args_end],
         source[table_start..table_end],
         "",
@@ -493,7 +495,7 @@ test "Metal witness codegen specializes base and interaction outputs" {
 
     const base_lookup = try generateKernelForMode(std.testing.allocator, program, program.semanticHash(), .base_lookup);
     defer std.testing.allocator.free(base_lookup);
-    try std.testing.expect(std.mem.indexOf(u8, base_lookup, "_base_lookup_v4") != null);
+    try std.testing.expect(std.mem.indexOf(u8, base_lookup, "_base_lookup_v5") != null);
     try std.testing.expect(std.mem.indexOf(u8, base_lookup, "args.output_offsets") != null);
     try std.testing.expect(std.mem.indexOf(u8, base_lookup, "args.sub_words") != null);
     try std.testing.expect(std.mem.indexOf(u8, base_lookup, "args.lookup_words") != null);
@@ -511,7 +513,7 @@ test "Metal witness codegen specializes base and interaction outputs" {
         .interaction_subwords,
     );
     defer std.testing.allocator.free(interaction_subwords);
-    try std.testing.expect(std.mem.indexOf(u8, interaction_subwords, "_interaction_subwords_v4") != null);
+    try std.testing.expect(std.mem.indexOf(u8, interaction_subwords, "_interaction_subwords_v5") != null);
     try std.testing.expect(std.mem.indexOf(u8, interaction_subwords, "args.output_offsets") == null);
     try std.testing.expect(std.mem.indexOf(u8, interaction_subwords, "args.lookup_words") == null);
     try std.testing.expect(std.mem.indexOf(u8, interaction_subwords, "args.sub_words") != null);
@@ -565,7 +567,7 @@ test "Metal witness codegen combines per-entry mode specializations" {
     defer std.testing.allocator.free(source);
     try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, source, "#include <metal_stdlib>"));
     try std.testing.expect(std.mem.indexOf(u8, source, "stwo_zig_witness_0000000000000001_base") != null);
-    try std.testing.expect(std.mem.indexOf(u8, source, "stwo_zig_witness_0000000000000002_base_lookup_v4") != null);
+    try std.testing.expect(std.mem.indexOf(u8, source, "stwo_zig_witness_0000000000000002_base_lookup_v5") != null);
 }
 
 test "Metal witness preamble excludes unrelated backend kernels" {

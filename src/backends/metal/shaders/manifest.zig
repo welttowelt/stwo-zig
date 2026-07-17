@@ -136,6 +136,8 @@ pub const TranslationUnit = struct {
 const legacy_source = @embedFile("../kernels.metal");
 const base_source = @embedFile("include/base.metal");
 const blake2s_source = @embedFile("include/blake2s.metal");
+const m31_source = @embedFile("include/m31.metal");
+const extension_fields_source = @embedFile("include/extension_fields.metal");
 const abi_types_source = @embedFile("include/abi_types.metal");
 const arena_ops_source = @embedFile("core/arena_ops.metal");
 const transcript_source = @embedFile("core/transcript.metal");
@@ -144,6 +146,8 @@ const polynomial_eval_source = @embedFile("core/polynomial_eval.metal");
 pub const support_headers = [_]TranslationUnit{
     .{ .path = "src/backends/metal/shaders/include/base.metal", .source = base_source },
     .{ .path = "src/backends/metal/shaders/include/blake2s.metal", .source = blake2s_source },
+    .{ .path = "src/backends/metal/shaders/include/m31.metal", .source = m31_source },
+    .{ .path = "src/backends/metal/shaders/include/extension_fields.metal", .source = extension_fields_source },
     .{ .path = "src/backends/metal/shaders/include/abi_types.metal", .source = abi_types_source },
 };
 
@@ -161,14 +165,18 @@ pub const amalgamated_source: [:0]const u8 = "#define STWO_ZIG_AMALGAMATED 1\n" 
     base_source ++
     "\n#line 1 \"src/backends/metal/shaders/include/blake2s.metal\"\n" ++
     blake2s_source ++
+    "\n#line 1 \"src/backends/metal/shaders/include/m31.metal\"\n" ++
+    m31_source ++
+    "\n#line 1 \"src/backends/metal/shaders/include/extension_fields.metal\"\n" ++
+    extension_fields_source ++
+    "\n#line 1 \"src/backends/metal/shaders/include/abi_types.metal\"\n" ++
+    abi_types_source ++
     "\n#line 1 \"src/backends/metal/kernels.metal\"\n" ++
     legacy_source ++
     "\n#line 1 \"src/backends/metal/shaders/core/arena_ops.metal\"\n" ++
     arena_ops_source ++
     "\n#line 1 \"src/backends/metal/shaders/core/transcript.metal\"\n" ++
     transcript_source ++
-    "\n#line 1 \"src/backends/metal/shaders/include/abi_types.metal\"\n" ++
-    abi_types_source ++
     "\n#line 1 \"src/backends/metal/shaders/core/polynomial_eval.metal\"\n" ++
     polynomial_eval_source ++ "\x00";
 
@@ -256,6 +264,33 @@ test "polynomial evaluation is isolated in its owning shader unit" {
     try std.testing.expect(std.mem.indexOf(u8, abi_types_source, "struct PolynomialEvalTask") != null);
     try std.testing.expect(std.mem.indexOf(u8, abi_types_source, "struct PolynomialBasisTask") != null);
     try std.testing.expect(std.mem.indexOf(u8, polynomial_eval_source, "struct PolynomialEvalTask") == null);
+}
+
+test "polynomial evaluation declares standalone field and ABI dependencies" {
+    const dependencies = [_][]const u8{
+        "#include \"stwo_zig/base.metal\"",
+        "#include \"stwo_zig/m31.metal\"",
+        "#include \"stwo_zig/extension_fields.metal\"",
+        "#include \"stwo_zig/abi_types.metal\"",
+    };
+    for (dependencies) |dependency| {
+        try std.testing.expect(std.mem.indexOf(u8, polynomial_eval_source, dependency) != null);
+    }
+    try std.testing.expectEqual(@as(usize, 0), std.mem.count(u8, legacy_source, "inline uint m31_reduce"));
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, m31_source, "inline uint m31_reduce"));
+    try std.testing.expectEqual(@as(usize, 0), std.mem.count(u8, legacy_source, "inline Qm31Value qm_mul("));
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, extension_fields_source, "inline Qm31Value qm_mul("));
+}
+
+test "legacy shader unit declares extracted support dependencies" {
+    const dependencies = [_][]const u8{
+        "#include \"stwo_zig/blake2s.metal\"",
+        "#include \"stwo_zig/m31.metal\"",
+        "#include \"stwo_zig/extension_fields.metal\"",
+    };
+    for (dependencies) |dependency| {
+        try std.testing.expect(std.mem.indexOf(u8, legacy_source, dependency) != null);
+    }
 }
 
 test "transcript is isolated in its owning shader unit with a stable ABI" {
