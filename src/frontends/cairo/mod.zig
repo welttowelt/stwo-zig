@@ -1,15 +1,14 @@
 //! stwo-cairo-zig: Cairo execution trace prover frontend.
 //!
-//! Implements a Cairo STARK prover in Zig, equivalent to the Rust
-//! `stwo-cairo` crate. Converts Cairo VM execution traces into
-//! STARK proofs using the stwo prover backend.
+//! Converts authenticated Cairo executions and program-specific semantic
+//! artifacts into Rust-oracle-accepted STARK proofs.
 //!
 //! ## Architecture
 //!
 //! ```
 //! Cairo Program → cairo-vm → raw trace
-//!   → adapter.ProverInput
-//!   → prover.proveCairo(B, H, MC, input) → StarkProof(H)
+//!   → authenticated semantic pack
+//!   → prover.proveCairo(Backend, RustOracle, request) → ProofReceipt
 //! ```
 //!
 //! ## Submodules

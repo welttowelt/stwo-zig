@@ -4,6 +4,7 @@ pub const bundle = @import("bundle.zig");
 pub const feed_bundle = @import("feed_bundle.zig");
 pub const relation_bundle = @import("relation_bundle.zig");
 pub const fixed_table_bundle = @import("fixed_table_bundle.zig");
+pub const semantic_pack = @import("semantic_pack.zig");
 pub const eval_program = @import("eval_program.zig");
 pub const composition_bundle = @import("composition_bundle.zig");
 pub const quotient_geometry = @import("quotient_geometry.zig");
@@ -13,6 +14,7 @@ pub const proof_plan = @import("../proof_plan.zig");
 pub const witness_scheduler = @import("../witness_scheduler.zig");
 
 test {
+    _ = semantic_pack;
     _ = eval_program;
     _ = composition_bundle;
     _ = quotient_geometry;

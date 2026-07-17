@@ -5,7 +5,8 @@
 //! - Trace generation logic
 //! - A prove/verify orchestration function
 //!
-//! Frontends are parameterized by backend: `proveCairo(CpuBackend, ...)`.
+//! Frontends dispatch explicit backend implementations behind authenticated
+//! program inputs and backend-independent proof acceptance contracts.
 //!
 //! ## Available frontends
 //!
