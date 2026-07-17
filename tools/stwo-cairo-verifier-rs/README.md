@@ -84,12 +84,13 @@ never treated as verified proofs.
 ## Compact Metal validation codec
 
 `compact_codec.rs` defines version-1 little-endian protocol and statement
-payloads. The 112-byte protocol header fixes Blake2s, the canonical
-preprocessed trace, salt, blowup 1, 70 queries, PoW 24/26, fold step 3, no
-lifting, last-layer degree bound 0, four commitments, four sampled trees,
-eight FRI trees, one final QM31 coefficient, twelve decommit records, and trace
-tree widths `161/3449/2268/8`. It authenticates the variable interaction-sum,
-sampled-value, and decommit-capacity word counts used to split the raw proof.
+payloads. The 112-byte protocol header fixes Blake2s and assigns stable wire
+tags `1`, `2`, and `3` to `Canonical`, `CanonicalWithoutPedersen`, and
+`CanonicalSmall`. The matching trace-tree-0 widths are exactly `161`, `105`,
+and `156`; unknown tags and tag/width mismatches are rejected. The header also
+authenticates salt, PCS geometry, all four trace-tree widths, and the variable
+interaction-sum, sampled-value, and decommit-capacity word counts used to split
+the raw proof.
 
 The statement header is followed by eleven fixed-order segment records,
 complete program/output `(id,[u32;8])` entries, exactly 83 `u32` enable bits,

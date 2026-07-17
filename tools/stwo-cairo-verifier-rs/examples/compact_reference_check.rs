@@ -53,18 +53,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .component_enable_bits
         .try_into()
         .map_err(|bits: Vec<bool>| format!("expected 83 component slots, found {}", bits.len()))?;
-
-    if reference.preprocessed_trace_variant
-        != stwo_cairo_common::preprocessed_columns::preprocessed_trace::PreProcessedTraceVariant::Canonical
-    {
-        return Err("compact v1 requires the canonical preprocessed trace".into());
-    }
-    let protocol = CompactProtocolV1::sn2(
+    let trace_tree_column_counts: [u32; 4] = reference
+        .stark_proof
+        .0
+        .sampled_values
+        .iter()
+        .map(|tree| u32::try_from(tree.len()))
+        .collect::<Result<Vec<_>, _>>()?
+        .try_into()
+        .map_err(|counts: Vec<u32>| {
+            format!("expected four sampled trace trees, found {}", counts.len())
+        })?;
+    let protocol = CompactProtocolV1::sn2_for_preprocessed_trace(
+        reference.preprocessed_trace_variant,
         reference.channel_salt,
         interaction_sum_count.try_into()?,
         sampled_value_words.try_into()?,
         decommitment_capacity_words.try_into()?,
-        [161, 3449, 2268, 8],
+        trace_tree_column_counts,
     );
     let statement = CompactStatementV1 {
         public_data: reference.claim.public_data,

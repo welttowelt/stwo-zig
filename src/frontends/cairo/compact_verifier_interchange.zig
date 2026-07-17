@@ -1,6 +1,7 @@
 //! Authenticated compact Metal proof interchange for the pinned Rust verifier.
 const std = @import("std");
 const compact_geometry = @import("compact_protocol_geometry.zig");
+const envelope = @import("compact_verifier_envelope.zig");
 
 pub const RuntimeProtocolGeometryV1 = compact_geometry.RuntimeProtocolGeometryV1;
 
@@ -10,17 +11,39 @@ pub const protocol_header_bytes: usize = 112;
 pub const component_enable_count: u32 = 83;
 pub const trace_tree_column_counts = [4]u32{ 161, 3449, 2268, 8 };
 
-pub const envelope_magic = [_]u8{ 'S', 'T', 'W', 'Z', 'C', 'V', 'E', 0 };
-pub const envelope_version: u16 = 1;
-pub const envelope_header_bytes: usize = 32;
-pub const section_header_bytes: usize = 48;
-pub const section_count: u32 = 4;
-pub const section_flag_mandatory: u16 = 1;
-pub const max_envelope_bytes: u64 = 1 << 30;
+pub const PreprocessedTraceVariantV1 = enum(u32) {
+    canonical = 1,
+    canonical_without_pedersen = 2,
+    canonical_small = 3,
 
-pub const compact_provenance_source = "metal_prover_service_v1";
-pub const compact_proof_serialization = "resident_sn2_bundle_v1";
-pub const compact_provenance_bytes: usize = 728;
+    pub fn fromTraceTree0ColumnCount(count: u32) Error!PreprocessedTraceVariantV1 {
+        return switch (count) {
+            161 => .canonical,
+            105 => .canonical_without_pedersen,
+            156 => .canonical_small,
+            else => Error.InvalidPreprocessedTraceGeometry,
+        };
+    }
+
+    pub fn traceTree0ColumnCount(self: PreprocessedTraceVariantV1) u32 {
+        return switch (self) {
+            .canonical => 161,
+            .canonical_without_pedersen => 105,
+            .canonical_small => 156,
+        };
+    }
+};
+
+pub const envelope_magic = envelope.envelope_magic;
+pub const envelope_version = envelope.envelope_version;
+pub const envelope_header_bytes = envelope.envelope_header_bytes;
+pub const section_header_bytes = envelope.section_header_bytes;
+pub const section_count = envelope.section_count;
+pub const section_flag_mandatory = envelope.section_flag_mandatory;
+pub const max_envelope_bytes = envelope.max_envelope_bytes;
+pub const compact_provenance_source = envelope.compact_provenance_source;
+pub const compact_proof_serialization = envelope.compact_proof_serialization;
+pub const compact_provenance_bytes = envelope.compact_provenance_bytes;
 
 const trace_tree_count = compact_geometry.trace_tree_count;
 const legacy_max_log_degree_bound = compact_geometry.legacy_max_log_degree_bound;
@@ -33,6 +56,7 @@ pub const Error = error{
     InvalidSampledValueWordCount,
     InvalidDecommitmentCapacity,
     InvalidTraceTreeColumnCounts,
+    InvalidPreprocessedTraceGeometry,
     InvalidProtocolGeometry,
     InvalidIdentityDigest,
     EmptyStatement,
@@ -68,7 +92,11 @@ pub const CompactProofLayoutV1 = struct {
         if (self.interaction_claim_words == 0 or self.interaction_claim_words % 4 != 0)
             return Error.InvalidInteractionClaimWordCount;
         try geometry.validate();
+        const preprocessed_variant = try PreprocessedTraceVariantV1.fromTraceTree0ColumnCount(
+            trace_columns[0],
+        );
         const result = CompactProtocolV1{
+            .preprocessed_variant = preprocessed_variant,
             .channel_salt = channel_salt,
             .query_pow_bits = geometry.query_pow_bits,
             .log_blowup_factor = geometry.log_blowup_factor,
@@ -95,6 +123,7 @@ pub const CompactProofLayoutV1 = struct {
 
 /// The exact bounded protocol accepted by Rust `CompactProtocolV1::decode`.
 pub const CompactProtocolV1 = struct {
+    preprocessed_variant: PreprocessedTraceVariantV1 = .canonical,
     channel_salt: u32 = 0,
     query_pow_bits: u32 = 26,
     log_blowup_factor: u32 = 1,
@@ -144,6 +173,14 @@ pub const CompactProtocolV1 = struct {
             return Error.InvalidDecommitmentCapacity;
         for (self.trace_columns) |count| if (count == 0)
             return Error.InvalidTraceTreeColumnCounts;
+        const derived_variant = try PreprocessedTraceVariantV1.fromTraceTree0ColumnCount(
+            self.trace_columns[0],
+        );
+        if (derived_variant != self.preprocessed_variant or
+            self.trace_columns[0] != self.preprocessed_variant.traceTree0ColumnCount())
+        {
+            return Error.InvalidPreprocessedTraceGeometry;
+        }
         const maximum_coefficients: u32 = @as(u32, 1) << @intCast(self.log_last_layer_degree_bound);
         if (self.final_line_coefficient_count == 0 or
             self.final_line_coefficient_count > maximum_coefficients)
@@ -175,7 +212,7 @@ pub const CompactProtocolV1 = struct {
         putU16(&bytes, 10, protocol_header_bytes);
         putU32(&bytes, 16, 1); // Blake2s channel.
         putU32(&bytes, 20, 1); // resident_sn2_bundle_v1 serialization.
-        putU32(&bytes, 24, 1); // Canonical preprocessed trace.
+        putU32(&bytes, 24, @intFromEnum(self.preprocessed_variant));
         putU32(&bytes, 28, self.channel_salt);
         putU32(&bytes, 32, self.query_pow_bits);
         putU32(&bytes, 36, self.log_blowup_factor);
@@ -208,37 +245,10 @@ pub const CompactProtocolV1 = struct {
     }
 };
 
-/// Hex digests have no defaults by design: the production service must supply
-/// the identities measured for the request that produced this proof.
-pub const CompactProvenanceIdentities = struct {
-    adapted_input_sha256: []const u8,
-    artifact_manifest_sha256: []const u8,
-    runner_executable_sha256: []const u8,
-    backend_executable_sha256: []const u8,
+pub const CompactProvenanceIdentities = envelope.CompactProvenanceIdentities;
+pub const EnvelopeSummary = envelope.EnvelopeSummary;
+pub const encodeCompactProvenanceV1 = envelope.encodeCompactProvenanceV1;
 
-    pub fn validate(self: CompactProvenanceIdentities) Error!void {
-        inline for (.{
-            self.adapted_input_sha256,
-            self.artifact_manifest_sha256,
-            self.runner_executable_sha256,
-            self.backend_executable_sha256,
-        }) |digest| {
-            if (!isLowerSha256(digest)) return Error.InvalidIdentityDigest;
-        }
-    }
-};
-
-pub const EnvelopeSummary = struct {
-    total_bytes: u64,
-    protocol_sha256: [32]u8,
-    statement_sha256: [32]u8,
-    proof_sha256: [32]u8,
-    provenance_sha256: [32]u8,
-};
-
-/// Writes one complete envelope without allocating a second proof-sized buffer.
-/// All sizes, caller identities, section digests, and provenance are validated
-/// before the first byte is written. The caller owns flushing and publication.
 pub fn writeEnvelopeV1(
     writer: *std.Io.Writer,
     protocol: CompactProtocolV1,
@@ -246,59 +256,9 @@ pub fn writeEnvelopeV1(
     proof: []const u8,
     identities: CompactProvenanceIdentities,
 ) !EnvelopeSummary {
-    const protocol_bytes = try protocol.encode();
-    if (statement.len == 0) return Error.EmptyStatement;
-    if (proof.len != try protocol.proofByteCount()) return Error.ProofLengthMismatch;
-    try identities.validate();
-    try validateSectionLength(.protocol, protocol_bytes.len);
-    try validateSectionLength(.statement, statement.len);
-    try validateSectionLength(.proof, proof.len);
-
-    const protocol_digest = sha256(&protocol_bytes);
-    const statement_digest = sha256(statement);
-    const proof_digest = sha256(proof);
-    const provenance = try encodeCompactProvenanceV1(
-        protocol_digest,
-        statement_digest,
-        proof_digest,
-        identities,
-    );
-    try validateSectionLength(.provenance, provenance.len);
-    const provenance_digest = sha256(&provenance);
-
-    var total_bytes: u64 = envelope_header_bytes;
-    inline for (.{ protocol_bytes.len, statement.len, proof.len, provenance.len }) |payload_len| {
-        total_bytes = try addLengthU64(total_bytes, section_header_bytes);
-        total_bytes = try addLengthU64(total_bytes, payload_len);
-    }
-    if (total_bytes > max_envelope_bytes) return Error.EnvelopeTooLarge;
-
-    var header = [_]u8{0} ** envelope_header_bytes;
-    @memcpy(header[0..envelope_magic.len], &envelope_magic);
-    putU16(&header, 8, envelope_version);
-    putU16(&header, 10, envelope_header_bytes);
-    putU32(&header, 16, section_count);
-    putU64(&header, 24, total_bytes);
-
-    try writer.writeAll(&header);
-    try writeSection(writer, .protocol, &protocol_bytes, protocol_digest);
-    try writeSection(writer, .statement, statement, statement_digest);
-    try writeSection(writer, .proof, proof, proof_digest);
-    try writeSection(writer, .provenance, &provenance, provenance_digest);
-
-    return .{
-        .total_bytes = total_bytes,
-        .protocol_sha256 = protocol_digest,
-        .statement_sha256 = statement_digest,
-        .proof_sha256 = proof_digest,
-        .provenance_sha256 = provenance_digest,
-    };
+    return envelope.writeEnvelopeV1(writer, protocol, statement, proof, identities);
 }
 
-/// File-backed variant for the production runner, whose compact proof is
-/// already published to a temporary path. It measures the file before output,
-/// then streams and hashes it a second time instead of allocating proof bytes.
-/// On any returned error the caller must discard its envelope temporary file.
 pub fn writeEnvelopeFromProofPathV1(
     writer: *std.Io.Writer,
     protocol: CompactProtocolV1,
@@ -306,111 +266,7 @@ pub fn writeEnvelopeFromProofPathV1(
     proof_path: []const u8,
     identities: CompactProvenanceIdentities,
 ) !EnvelopeSummary {
-    const protocol_bytes = try protocol.encode();
-    if (statement.len == 0) return Error.EmptyStatement;
-    try identities.validate();
-    try validateSectionLength(.protocol, protocol_bytes.len);
-    try validateSectionLength(.statement, statement.len);
-
-    const proof_file = try openReadOnly(proof_path);
-    defer proof_file.close();
-    const initial_stat = try proof_file.stat();
-    if (initial_stat.kind != .file) return Error.InvalidProofFile;
-    const expected_proof_bytes = try protocol.proofByteCount();
-    if (initial_stat.size != expected_proof_bytes) return Error.ProofLengthMismatch;
-    try validateSectionLength(.proof, expected_proof_bytes);
-
-    var proof_hasher = std.crypto.hash.sha2.Sha256.init(.{});
-    var measured_bytes: u64 = 0;
-    var scratch: [64 * 1024]u8 = undefined;
-    while (true) {
-        const count = try proof_file.read(&scratch);
-        if (count == 0) break;
-        proof_hasher.update(scratch[0..count]);
-        measured_bytes = try addLengthU64(measured_bytes, count);
-    }
-    const measured_stat = try proof_file.stat();
-    if (measured_bytes != initial_stat.size or !sameFileIdentity(initial_stat, measured_stat))
-        return Error.ProofFileChanged;
-    const proof_digest = proof_hasher.finalResult();
-    const protocol_digest = sha256(&protocol_bytes);
-    const statement_digest = sha256(statement);
-    const provenance = try encodeCompactProvenanceV1(
-        protocol_digest,
-        statement_digest,
-        proof_digest,
-        identities,
-    );
-    try validateSectionLength(.provenance, provenance.len);
-    const provenance_digest = sha256(&provenance);
-
-    var total_bytes: u64 = envelope_header_bytes;
-    inline for (.{ protocol_bytes.len, statement.len, expected_proof_bytes, provenance.len }) |payload_len| {
-        total_bytes = try addLengthU64(total_bytes, section_header_bytes);
-        total_bytes = try addLengthU64(total_bytes, payload_len);
-    }
-    if (total_bytes > max_envelope_bytes) return Error.EnvelopeTooLarge;
-    if (!sameFileIdentity(initial_stat, try proof_file.stat())) return Error.ProofFileChanged;
-
-    try writeEnvelopeHeader(writer, total_bytes);
-    try writeSection(writer, .protocol, &protocol_bytes, protocol_digest);
-    try writeSection(writer, .statement, statement, statement_digest);
-    try writeSectionHeader(writer, .proof, expected_proof_bytes, proof_digest);
-    try proof_file.seekTo(0);
-    var streamed_hasher = std.crypto.hash.sha2.Sha256.init(.{});
-    var streamed_bytes: u64 = 0;
-    while (true) {
-        const count = try proof_file.read(&scratch);
-        if (count == 0) break;
-        try writer.writeAll(scratch[0..count]);
-        streamed_hasher.update(scratch[0..count]);
-        streamed_bytes = try addLengthU64(streamed_bytes, count);
-    }
-    const final_stat = try proof_file.stat();
-    if (streamed_bytes != initial_stat.size or
-        !sameFileIdentity(initial_stat, final_stat) or
-        !std.mem.eql(u8, &proof_digest, &streamed_hasher.finalResult()))
-    {
-        return Error.ProofFileChanged;
-    }
-    try writeSection(writer, .provenance, &provenance, provenance_digest);
-
-    return .{
-        .total_bytes = total_bytes,
-        .protocol_sha256 = protocol_digest,
-        .statement_sha256 = statement_digest,
-        .proof_sha256 = proof_digest,
-        .provenance_sha256 = provenance_digest,
-    };
-}
-
-/// Convenience for the runner's exclusive compact-statement output. Only the
-/// much smaller statement is snapshotted; the proof remains double-pass
-/// streamed by `writeEnvelopeFromProofPathV1`.
-pub fn writeEnvelopeFromPathsV1(
-    allocator: std.mem.Allocator,
-    writer: *std.Io.Writer,
-    protocol: CompactProtocolV1,
-    statement_path: []const u8,
-    proof_path: []const u8,
-    identities: CompactProvenanceIdentities,
-) !EnvelopeSummary {
-    const statement_file = try openReadOnly(statement_path);
-    defer statement_file.close();
-    const initial_stat = try statement_file.stat();
-    if (initial_stat.kind != .file) return Error.InvalidStatementFile;
-    if (initial_stat.size == 0) return Error.EmptyStatement;
-    try validateSectionLength(.statement, std.math.cast(usize, initial_stat.size) orelse
-        return Error.SectionTooLarge);
-    const statement_len = std.math.cast(usize, initial_stat.size) orelse
-        return Error.SectionTooLarge;
-    const statement = try allocator.alloc(u8, statement_len);
-    defer allocator.free(statement);
-    const bytes_read = try statement_file.readAll(statement);
-    const final_stat = try statement_file.stat();
-    if (bytes_read != statement.len or !sameFileIdentity(initial_stat, final_stat))
-        return Error.StatementFileChanged;
-    return writeEnvelopeFromProofPathV1(
+    return envelope.writeEnvelopeFromProofPathV1(
         writer,
         protocol,
         statement,
@@ -419,122 +275,28 @@ pub fn writeEnvelopeFromPathsV1(
     );
 }
 
-pub fn encodeCompactProvenanceV1(
-    protocol_sha256: [32]u8,
-    statement_sha256: [32]u8,
-    proof_sha256: [32]u8,
+pub fn writeEnvelopeFromPathsV1(
+    allocator: std.mem.Allocator,
+    writer: *std.Io.Writer,
+    protocol: CompactProtocolV1,
+    statement_path: []const u8,
+    proof_path: []const u8,
     identities: CompactProvenanceIdentities,
-) ![compact_provenance_bytes]u8 {
-    try identities.validate();
-    const protocol_hex = std.fmt.bytesToHex(protocol_sha256, .lower);
-    const statement_hex = std.fmt.bytesToHex(statement_sha256, .lower);
-    const proof_hex = std.fmt.bytesToHex(proof_sha256, .lower);
-    var bytes: [compact_provenance_bytes]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&bytes);
-    try writer.writeAll("{\"schema_version\":1,\"source\":\"");
-    try writer.writeAll(compact_provenance_source);
-    try writer.writeAll("\",\"proof_serialization\":\"");
-    try writer.writeAll(compact_proof_serialization);
-    try writer.writeAll("\",\"protocol_sha256\":\"");
-    try writer.writeAll(&protocol_hex);
-    try writer.writeAll("\",\"statement_sha256\":\"");
-    try writer.writeAll(&statement_hex);
-    try writer.writeAll("\",\"proof_sha256\":\"");
-    try writer.writeAll(&proof_hex);
-    try writer.writeAll("\",\"adapted_input_sha256\":\"");
-    try writer.writeAll(identities.adapted_input_sha256);
-    try writer.writeAll("\",\"artifact_manifest_sha256\":\"");
-    try writer.writeAll(identities.artifact_manifest_sha256);
-    try writer.writeAll("\",\"runner_executable_sha256\":\"");
-    try writer.writeAll(identities.runner_executable_sha256);
-    try writer.writeAll("\",\"backend_executable_sha256\":\"");
-    try writer.writeAll(identities.backend_executable_sha256);
-    try writer.writeAll("\"}");
-    if (writer.buffered().len != compact_provenance_bytes)
-        return Error.NoncanonicalProvenanceLength;
-    return bytes;
-}
-
-const SectionKind = enum(u16) {
-    protocol = 1,
-    statement = 2,
-    proof = 3,
-    provenance = 4,
-};
-
-fn writeSection(
-    writer: *std.Io.Writer,
-    kind: SectionKind,
-    payload: []const u8,
-    digest: [32]u8,
-) !void {
-    try writeSectionHeader(writer, kind, payload.len, digest);
-    try writer.writeAll(payload);
-}
-
-fn writeSectionHeader(
-    writer: *std.Io.Writer,
-    kind: SectionKind,
-    payload_len: usize,
-    digest: [32]u8,
-) !void {
-    var header = [_]u8{0} ** section_header_bytes;
-    putU16(&header, 0, @intFromEnum(kind));
-    putU16(&header, 2, section_flag_mandatory);
-    putU64(&header, 8, @intCast(payload_len));
-    @memcpy(header[16..48], &digest);
-    try writer.writeAll(&header);
-}
-
-fn writeEnvelopeHeader(writer: *std.Io.Writer, total_bytes: u64) !void {
-    var header = [_]u8{0} ** envelope_header_bytes;
-    @memcpy(header[0..envelope_magic.len], &envelope_magic);
-    putU16(&header, 8, envelope_version);
-    putU16(&header, 10, envelope_header_bytes);
-    putU32(&header, 16, section_count);
-    putU64(&header, 24, total_bytes);
-    try writer.writeAll(&header);
-}
-
-fn validateSectionLength(kind: SectionKind, len: usize) Error!void {
-    if (len == 0) return switch (kind) {
-        .statement => Error.EmptyStatement,
-        else => Error.SectionTooLarge,
-    };
-    const maximum: u64 = switch (kind) {
-        .protocol => 4 << 20,
-        .statement => 256 << 20,
-        .proof => 512 << 20,
-        .provenance => 16 << 20,
-    };
-    if (len > maximum) return Error.SectionTooLarge;
+) !EnvelopeSummary {
+    return envelope.writeEnvelopeFromPathsV1(
+        allocator,
+        writer,
+        protocol,
+        statement_path,
+        proof_path,
+        identities,
+    );
 }
 
 fn sha256(payload: []const u8) [32]u8 {
     var digest: [32]u8 = undefined;
     std.crypto.hash.sha2.Sha256.hash(payload, &digest, .{});
     return digest;
-}
-
-fn openReadOnly(path: []const u8) !std.fs.File {
-    if (std.fs.path.isAbsolute(path)) return std.fs.openFileAbsolute(path, .{});
-    return std.fs.cwd().openFile(path, .{});
-}
-
-fn sameFileIdentity(left: std.fs.File.Stat, right: std.fs.File.Stat) bool {
-    return left.inode == right.inode and
-        left.size == right.size and
-        left.mtime == right.mtime and
-        left.ctime == right.ctime;
-}
-
-fn isLowerSha256(value: []const u8) bool {
-    if (value.len != 64) return false;
-    for (value) |byte| switch (byte) {
-        '0'...'9', 'a'...'f' => {},
-        else => return false,
-    };
-    return true;
 }
 
 fn addLength(left: anytype, right: anytype) Error!usize {
@@ -548,21 +310,12 @@ fn mulLength(left: anytype, right: anytype) Error!usize {
     return std.math.mul(usize, left_usize, right_usize) catch Error.LengthOverflow;
 }
 
-fn addLengthU64(left: u64, right: anytype) Error!u64 {
-    const right_u64 = std.math.cast(u64, right) orelse return Error.LengthOverflow;
-    return std.math.add(u64, left, right_u64) catch Error.LengthOverflow;
-}
-
 fn putU16(bytes: []u8, offset: usize, value: anytype) void {
     std.mem.writeInt(u16, bytes[offset..][0..2], @intCast(value), .little);
 }
 
 fn putU32(bytes: []u8, offset: usize, value: u32) void {
     std.mem.writeInt(u32, bytes[offset..][0..4], value, .little);
-}
-
-fn putU64(bytes: []u8, offset: usize, value: u64) void {
-    std.mem.writeInt(u64, bytes[offset..][0..8], value, .little);
 }
 
 fn digestFromHex(encoded: []const u8) ![32]u8 {
@@ -595,7 +348,7 @@ test "compact protocol matches the Rust-accepted SN2 golden bytes" {
     try std.testing.expectEqual(@as(usize, 8_410_304), try protocol.proofByteCount());
 }
 
-test "compact protocol encodes Fib-like four plus seven runtime geometry" {
+test "compact protocol encodes Fib-like runtime geometry and preprocessed variant" {
     var geometry = RuntimeProtocolGeometryV1.sn2();
     geometry.max_log_degree_bound = 21;
     geometry.fri_tree_count = 7;
@@ -608,21 +361,23 @@ test "compact protocol encodes Fib-like four plus seven runtime geometry" {
         .interaction_claim_words = 8,
         .sampled_value_words = 32,
         .decommitment_capacity_words = decommitment_words,
-    }).protocolRuntime(9, geometry, .{ 5, 7, 3, 8 });
+    }).protocolRuntime(9, geometry, .{ 105, 7, 3, 8 });
     const encoded = try protocol.encode();
     const encoded_hex = std.fmt.bytesToHex(encoded, .lower);
     try std.testing.expectEqualStrings(
-        "5354575a43503100010070000000000001000000010000000100000009000000" ++
+        "5354575a43503100010070000000000001000000010000000200000009000000" ++
             "1a00000001000000460000000000000003000000ffffffff1800000004000000" ++
-            "0400000007000000010000000b00000002000000200000004401000005000000" ++
+            "0400000007000000010000000b00000002000000200000004401000069000000" ++
             "07000000030000000800000015000000",
         &encoded_hex,
     );
     const digest_hex = std.fmt.bytesToHex(sha256(&encoded), .lower);
     try std.testing.expectEqualStrings(
-        "4dba531f8ccdffb1c816543390fecd8ba776b9ee18c37b6de8d087027603d068",
+        "52abcf6c1c62a8768ce8536f9e5a7a071ee232167cf5ac560029500b6330e65a",
         &digest_hex,
     );
+    try std.testing.expectEqual(PreprocessedTraceVariantV1.canonical_without_pedersen, protocol.preprocessed_variant);
+    try std.testing.expectEqual(@as(u32, 2), std.mem.readInt(u32, encoded[24..28], .little));
     try std.testing.expectEqual(@as(u32, 4), std.mem.readInt(u32, encoded[60..64], .little));
     try std.testing.expectEqual(@as(u32, 7), std.mem.readInt(u32, encoded[68..72], .little));
     try std.testing.expectEqual(@as(u32, 11), std.mem.readInt(u32, encoded[76..80], .little));
@@ -636,8 +391,52 @@ test "compact protocol encodes Fib-like four plus seven runtime geometry" {
             .interaction_claim_words = 8,
             .sampled_value_words = 32,
             .decommitment_capacity_words = decommitment_words,
-        }).protocolRuntime(9, geometry, .{ 5, 7, 3, 8 }),
+        }).protocolRuntime(9, geometry, .{ 105, 7, 3, 8 }),
     );
+}
+
+test "compact protocol derives stable preprocessed tags from tree zero width" {
+    const cases = [_]struct {
+        variant: PreprocessedTraceVariantV1,
+        tree_zero_columns: u32,
+        tag: u32,
+    }{
+        .{ .variant = .canonical, .tree_zero_columns = 161, .tag = 1 },
+        .{ .variant = .canonical_without_pedersen, .tree_zero_columns = 105, .tag = 2 },
+        .{ .variant = .canonical_small, .tree_zero_columns = 156, .tag = 3 },
+    };
+    const layout = CompactProofLayoutV1{
+        .interaction_claim_words = 4,
+        .sampled_value_words = 4,
+        .decommitment_capacity_words = minimum_decommitment_words,
+    };
+    for (cases) |case| {
+        const protocol = try layout.protocolRuntime(
+            0,
+            .sn2(),
+            .{ case.tree_zero_columns, 1, 1, 1 },
+        );
+        try std.testing.expectEqual(case.variant, protocol.preprocessed_variant);
+        const encoded = try protocol.encode();
+        try std.testing.expectEqual(case.tag, std.mem.readInt(u32, encoded[24..28], .little));
+        try std.testing.expectEqual(case.tree_zero_columns, std.mem.readInt(u32, encoded[92..96], .little));
+    }
+}
+
+test "compact protocol rejects unknown or mismatched preprocessed geometry" {
+    const layout = CompactProofLayoutV1{
+        .interaction_claim_words = 4,
+        .sampled_value_words = 4,
+        .decommitment_capacity_words = minimum_decommitment_words,
+    };
+    try std.testing.expectError(
+        Error.InvalidPreprocessedTraceGeometry,
+        layout.protocolRuntime(0, .sn2(), .{ 160, 1, 1, 1 }),
+    );
+
+    var protocol = try layout.protocolRuntime(0, .sn2(), .{ 105, 1, 1, 1 });
+    protocol.preprocessed_variant = .canonical;
+    try std.testing.expectError(Error.InvalidPreprocessedTraceGeometry, protocol.encode());
 }
 
 test "runner proof layout rejects a partial interaction sum" {

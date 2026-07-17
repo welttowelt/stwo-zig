@@ -50,6 +50,8 @@ pub const DECOMMIT_AUX_NODE_WORDS: usize = 10;
 const BLAKE2S_CHANNEL: u32 = 1;
 const RESIDENT_SN2_BUNDLE_V1: u32 = 1;
 const PREPROCESSED_CANONICAL: u32 = 1;
+const PREPROCESSED_CANONICAL_WITHOUT_PEDERSEN: u32 = 2;
+const PREPROCESSED_CANONICAL_SMALL: u32 = 3;
 #[cfg(test)]
 const EXPECTED_TRACE_COLUMNS: [u32; 4] = [161, 3449, 2268, 8];
 const TRACE_TREE_COUNT: u32 = 4;
@@ -186,8 +188,26 @@ impl CompactProtocolV1 {
         decommitment_capacity_words: u32,
         trace_tree_column_counts: [u32; 4],
     ) -> Self {
+        Self::sn2_for_preprocessed_trace(
+            PreProcessedTraceVariant::Canonical,
+            channel_salt,
+            interaction_sum_count,
+            sampled_value_words,
+            decommitment_capacity_words,
+            trace_tree_column_counts,
+        )
+    }
+
+    pub fn sn2_for_preprocessed_trace(
+        preprocessed_trace_variant: PreProcessedTraceVariant,
+        channel_salt: u32,
+        interaction_sum_count: u32,
+        sampled_value_words: u32,
+        decommitment_capacity_words: u32,
+        trace_tree_column_counts: [u32; 4],
+    ) -> Self {
         Self {
-            preprocessed_trace_variant: PreProcessedTraceVariant::Canonical,
+            preprocessed_trace_variant,
             channel_salt,
             query_pow_bits: 26,
             log_blowup_factor: 1,
@@ -219,7 +239,8 @@ impl CompactProtocolV1 {
         expect_u32(bytes, 12, 0, "protocol flags")?;
         expect_u32(bytes, 16, BLAKE2S_CHANNEL, "channel")?;
         expect_u32(bytes, 20, RESIDENT_SN2_BUNDLE_V1, "proof serialization")?;
-        expect_u32(bytes, 24, PREPROCESSED_CANONICAL, "preprocessed variant")?;
+        let preprocessed_trace_variant =
+            decode_preprocessed_trace_variant(read_u32(bytes, 24, "preprocessed variant")?)?;
         let lifting_word = read_u32(bytes, 52, "FRI lifting log size")?;
         let max_log_word = read_u32(bytes, 108, "maximum log degree bound")?;
 
@@ -241,7 +262,7 @@ impl CompactProtocolV1 {
             *value = read_u32(bytes, 92 + index * 4, "trace tree column count")?;
         }
         let protocol = Self {
-            preprocessed_trace_variant: PreProcessedTraceVariant::Canonical,
+            preprocessed_trace_variant,
             channel_salt: read_u32(bytes, 28, "channel salt")?,
             query_pow_bits: read_u32(bytes, 32, "query PoW bits")?,
             log_blowup_factor: read_u32(bytes, 36, "log blowup factor")?,
@@ -274,9 +295,14 @@ impl CompactProtocolV1 {
     }
 
     pub fn validate_geometry(&self) -> Result<(), CompactCodecError> {
-        if self.preprocessed_trace_variant != PreProcessedTraceVariant::Canonical {
+        let expected_preprocessed_columns =
+            preprocessed_trace_column_count(self.preprocessed_trace_variant);
+        if self.trace_tree_column_counts[0] != expected_preprocessed_columns {
             return Err(invalid_protocol(
-                "compact protocol v1 requires the canonical preprocessed trace",
+                format!(
+                    "preprocessed trace variant requires {expected_preprocessed_columns} trace-tree-0 columns, found {}",
+                    self.trace_tree_column_counts[0]
+                ),
             ));
         }
         if self.query_pow_bits > 64 || self.interaction_pow_bits > 64 {
@@ -405,7 +431,10 @@ impl CompactProtocolV1 {
         for (offset, value) in [
             (16, BLAKE2S_CHANNEL),
             (20, RESIDENT_SN2_BUNDLE_V1),
-            (24, PREPROCESSED_CANONICAL),
+            (
+                24,
+                encode_preprocessed_trace_variant(self.preprocessed_trace_variant),
+            ),
             (28, self.channel_salt),
             (32, self.query_pow_bits),
             (36, self.log_blowup_factor),
@@ -439,6 +468,39 @@ impl CompactProtocolV1 {
         }
         Self::decode(&bytes)?;
         Ok(bytes)
+    }
+}
+
+fn decode_preprocessed_trace_variant(
+    tag: u32,
+) -> Result<PreProcessedTraceVariant, CompactCodecError> {
+    match tag {
+        PREPROCESSED_CANONICAL => Ok(PreProcessedTraceVariant::Canonical),
+        PREPROCESSED_CANONICAL_WITHOUT_PEDERSEN => {
+            Ok(PreProcessedTraceVariant::CanonicalWithoutPedersen)
+        }
+        PREPROCESSED_CANONICAL_SMALL => Ok(PreProcessedTraceVariant::CanonicalSmall),
+        _ => Err(invalid_protocol(format!(
+            "unknown preprocessed trace variant tag {tag}"
+        ))),
+    }
+}
+
+fn encode_preprocessed_trace_variant(variant: PreProcessedTraceVariant) -> u32 {
+    match variant {
+        PreProcessedTraceVariant::Canonical => PREPROCESSED_CANONICAL,
+        PreProcessedTraceVariant::CanonicalWithoutPedersen => {
+            PREPROCESSED_CANONICAL_WITHOUT_PEDERSEN
+        }
+        PreProcessedTraceVariant::CanonicalSmall => PREPROCESSED_CANONICAL_SMALL,
+    }
+}
+
+fn preprocessed_trace_column_count(variant: PreProcessedTraceVariant) -> u32 {
+    match variant {
+        PreProcessedTraceVariant::Canonical => 161,
+        PreProcessedTraceVariant::CanonicalWithoutPedersen => 105,
+        PreProcessedTraceVariant::CanonicalSmall => 156,
     }
 }
 
@@ -1780,6 +1842,18 @@ mod tests {
         bytes
     }
 
+    fn real_fib_tag_two_protocol() -> Vec<u8> {
+        let mut bytes = protocol(30, 3564, 2_077_800);
+        put_u32(&mut bytes, 24, PREPROCESSED_CANONICAL_WITHOUT_PEDERSEN);
+        put_u32(&mut bytes, 68, 7);
+        put_u32(&mut bytes, 76, 11);
+        for (offset, columns) in [(92, 105), (96, 396), (100, 324), (104, 8)] {
+            put_u32(&mut bytes, offset, columns);
+        }
+        put_u32(&mut bytes, 108, 20);
+        bytes
+    }
+
     fn statement(active: usize) -> Vec<u8> {
         let len = STATEMENT_HEADER_LEN as usize
             + PUBLIC_SEGMENT_COUNT * 5 * 4
@@ -1909,7 +1983,14 @@ mod tests {
     }
 
     fn fib_like_protocol() -> CompactProtocolV1 {
-        let mut protocol = CompactProtocolV1::sn2(9, 2, 32, 324, [5, 7, 3, 8]);
+        let mut protocol = CompactProtocolV1::sn2_for_preprocessed_trace(
+            PreProcessedTraceVariant::CanonicalWithoutPedersen,
+            9,
+            2,
+            32,
+            400,
+            [105, 7, 3, 8],
+        );
         protocol.max_log_degree_bound = 21;
         protocol.fri_tree_count = 7;
         protocol.decommitment_record_count = 11;
@@ -1939,6 +2020,89 @@ mod tests {
         );
         assert_eq!(validated.protocol.encode().unwrap(), protocol_bytes);
         assert_eq!(validated.statement.encode().unwrap(), statement_bytes);
+    }
+
+    #[test]
+    fn preprocessed_trace_variants_have_stable_tags_and_exact_tree_widths() {
+        for (variant, wire_tag, preprocessed_columns) in [
+            (PreProcessedTraceVariant::Canonical, 1, 161),
+            (PreProcessedTraceVariant::CanonicalWithoutPedersen, 2, 105),
+            (PreProcessedTraceVariant::CanonicalSmall, 3, 156),
+        ] {
+            let protocol = CompactProtocolV1::sn2_for_preprocessed_trace(
+                variant,
+                9,
+                2,
+                4,
+                4000,
+                [preprocessed_columns, 3449, 2268, 8],
+            );
+            let encoded = protocol.encode().unwrap();
+            assert_eq!(
+                read_u32(&encoded, 24, "preprocessed variant").unwrap(),
+                wire_tag
+            );
+            assert_eq!(
+                read_u32(&encoded, 92, "trace-tree-0 columns").unwrap(),
+                preprocessed_columns
+            );
+            assert_eq!(CompactProtocolV1::decode(&encoded).unwrap(), protocol);
+        }
+    }
+
+    #[test]
+    fn decodes_real_fib_tag_two_protocol_geometry() {
+        use sha2::{Digest, Sha256};
+
+        let bytes = real_fib_tag_two_protocol();
+        assert_eq!(
+            format!("{:x}", Sha256::digest(&bytes)),
+            "52921cfab4fde413abc484a6c39d363b88dd729c19acef620670af60c6da9286"
+        );
+        let protocol = CompactProtocolV1::decode(&bytes).unwrap();
+        assert_eq!(
+            protocol.preprocessed_trace_variant,
+            PreProcessedTraceVariant::CanonicalWithoutPedersen
+        );
+        assert_eq!(protocol.trace_tree_column_counts, [105, 396, 324, 8]);
+        assert_eq!(protocol.interaction_sum_count, 30);
+        assert_eq!(protocol.sampled_value_words, 3564);
+        assert_eq!(protocol.decommitment_capacity_words, 2_077_800);
+        assert_eq!(protocol.max_log_degree_bound, 20);
+        assert_eq!(protocol.encode().unwrap(), bytes);
+    }
+
+    #[test]
+    fn preprocessed_trace_variants_reject_unknown_and_mismatched_geometry() {
+        let canonical = protocol(2, 4, 4000);
+        for unknown_tag in [0, 4, u32::MAX] {
+            let mut bytes = canonical.clone();
+            put_u32(&mut bytes, 24, unknown_tag);
+            let error = CompactProtocolV1::decode(&bytes).unwrap_err();
+            assert_eq!(error.code, "invalid_compact_protocol");
+            assert!(error
+                .message
+                .contains("unknown preprocessed trace variant tag"));
+        }
+
+        for (wire_tag, wrong_columns) in [(1, 105), (2, 156), (3, 161)] {
+            let mut bytes = canonical.clone();
+            put_u32(&mut bytes, 24, wire_tag);
+            put_u32(&mut bytes, 92, wrong_columns);
+            let error = CompactProtocolV1::decode(&bytes).unwrap_err();
+            assert_eq!(error.code, "invalid_compact_protocol");
+            assert!(error.message.contains("trace-tree-0 columns"));
+        }
+
+        let mismatched = CompactProtocolV1::sn2_for_preprocessed_trace(
+            PreProcessedTraceVariant::CanonicalSmall,
+            9,
+            2,
+            4,
+            4000,
+            EXPECTED_TRACE_COLUMNS,
+        );
+        assert!(mismatched.encode().is_err());
     }
 
     #[test]
@@ -2099,15 +2263,15 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             encoded_hex,
-            "5354575a43503100010070000000000001000000010000000100000009000000\
+            "5354575a43503100010070000000000001000000010000000200000009000000\
              1a00000001000000460000000000000003000000ffffffff1800000004000000\
-             0400000007000000010000000b00000002000000200000004401000005000000\
+             0400000007000000010000000b00000002000000200000009001000069000000\
              07000000030000000800000015000000"
                 .replace(' ', "")
         );
         assert_eq!(
             format!("{:x}", Sha256::digest(&encoded)),
-            "4dba531f8ccdffb1c816543390fecd8ba776b9ee18c37b6de8d087027603d068"
+            "44f37eec259ba8bc9a33e992a756b8cc244f5e90def386d4fa2df1d5b6a162d3"
         );
         assert_eq!(read_u32(&encoded, 68, "FRI trees").unwrap(), 7);
         assert_eq!(read_u32(&encoded, 76, "decommit records").unwrap(), 11);
@@ -2127,7 +2291,7 @@ mod tests {
         .unwrap();
         assert_eq!(stark.0.commitments.len(), 4);
         assert_eq!(stark.0.fri_proof.inner_layers.len(), 6);
-        assert_eq!(stark.0.queried_values[0].len(), 5);
+        assert_eq!(stark.0.queried_values[0].len(), 105);
         assert_eq!(stark.0.queried_values[1].len(), 7);
         assert_eq!(stark.0.queried_values[2].len(), 3);
         assert_eq!(stark.0.queried_values[3].len(), 8);
