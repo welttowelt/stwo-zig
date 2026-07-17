@@ -3265,7 +3265,9 @@ fn prepareAotWitnessBatchForMode(
             },
             .all, .base_lookup, .interaction_subwords => unreachable,
         }
-        const workspace_count: usize = 5 + @intFromBool(pedersen_entry != null) + @intFromBool(poseidon_entry != null);
+        const workspace_count: usize = 5 +
+            @as(usize, @intFromBool(pedersen_entry != null)) +
+            @as(usize, @intFromBool(poseidon_entry != null));
         workspace_storage.* = try allocator.alloc(protocol_recipes.AotWorkspaceWrite, workspace_count);
         workspaces_initialized += 1;
         var workspace_index: usize = 0;
