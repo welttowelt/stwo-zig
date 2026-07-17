@@ -15,6 +15,34 @@ const CirclePointQM31 = circle.CirclePointQM31;
 const QM31 = qm31_mod.QM31;
 const TreeVec = pcs_utils.TreeVec;
 
+const PointBatchContext = struct {
+    pub fn hash(_: PointBatchContext, point: CirclePointQM31) u64 {
+        var state: u64 = 0xcbf29ce484222325;
+        hashSecureField(&state, point.x);
+        hashSecureField(&state, point.y);
+        return state;
+    }
+
+    pub fn eql(_: PointBatchContext, lhs: CirclePointQM31, rhs: CirclePointQM31) bool {
+        return lhs.eql(rhs);
+    }
+
+    fn hashSecureField(state: *u64, value: QM31) void {
+        const limbs = value.toM31Array();
+        for (limbs) |limb| {
+            state.* ^= limb.toU32();
+            state.* *%= 0x100000001b3;
+        }
+    }
+};
+
+const PointBatchMap = std.HashMap(
+    CirclePointQM31,
+    usize,
+    PointBatchContext,
+    std.hash_map.default_max_load_percentage,
+);
+
 /// A sample of one column at one secure-field circle point.
 pub const PointSample = struct {
     point: CirclePointQM31,
@@ -61,7 +89,7 @@ pub const ColumnSampleBatch = struct {
     ) ![]ColumnSampleBatch {
         var grouped = std.ArrayList(MutableColumnSampleBatch).empty;
         defer deinitMutableColumnSampleBatches(allocator, &grouped);
-        var batch_indices = std.AutoHashMap(CirclePointQM31, usize).init(allocator);
+        var batch_indices = PointBatchMap.init(allocator);
         defer batch_indices.deinit();
 
         for (samples_with_rand, 0..) |column_samples, column_index| {
@@ -95,7 +123,7 @@ fn deinitMutableColumnSampleBatches(
 fn ensureMutableBatchForPoint(
     allocator: std.mem.Allocator,
     grouped: *std.ArrayList(MutableColumnSampleBatch),
-    batch_indices: *std.AutoHashMap(CirclePointQM31, usize),
+    batch_indices: *PointBatchMap,
     point: CirclePointQM31,
 ) !usize {
     const gop = try batch_indices.getOrPut(point);
@@ -227,7 +255,7 @@ pub fn buildColumnSampleBatchesFromParallelInputs(
 
     var grouped = std.ArrayList(MutableColumnSampleBatch).empty;
     defer deinitMutableColumnSampleBatches(allocator, &grouped);
-    var batch_indices = std.AutoHashMap(CirclePointQM31, usize).init(allocator);
+    var batch_indices = PointBatchMap.init(allocator);
     defer batch_indices.deinit();
 
     var random_pow = QM31.one();
@@ -300,4 +328,51 @@ fn freeTreeSamplesWithRandomness(
 ) void {
     for (tree_samples) |column_samples| allocator.free(column_samples);
     allocator.free(tree_samples);
+}
+
+test "quotient sample grouping uses explicit secure-circle equality" {
+    const lifting_log_size: u32 = 13;
+    const column_log_size: u32 = 4;
+    const point_from_trace = circle.SECURE_FIELD_CIRCLE_GEN.mul(7);
+    const sampled_point = circle.SECURE_FIELD_CIRCLE_GEN.mul(19);
+    const period_generator = canonic.CanonicCoset.new(lifting_log_size)
+        .step()
+        .repeatedDouble(column_log_size);
+    const point_from_periodicity = sampled_point.add(pointM31IntoQM31(period_generator));
+    try std.testing.expect(!point_from_trace.eql(point_from_periodicity));
+    const trace_limbs_x = point_from_trace.x.toM31Array();
+    const trace_limbs_y = point_from_trace.y.toM31Array();
+    const point_from_limbs = CirclePointQM31{
+        .x = QM31.fromM31Array(trace_limbs_x),
+        .y = QM31.fromM31Array(trace_limbs_y),
+    };
+    try std.testing.expect(point_from_trace.eql(point_from_limbs));
+
+    var grouped = std.ArrayList(MutableColumnSampleBatch).empty;
+    defer deinitMutableColumnSampleBatches(std.testing.allocator, &grouped);
+    var batch_indices = PointBatchMap.init(std.testing.allocator);
+    defer batch_indices.deinit();
+
+    const trace_index = try ensureMutableBatchForPoint(
+        std.testing.allocator,
+        &grouped,
+        &batch_indices,
+        point_from_trace,
+    );
+    const periodic_index = try ensureMutableBatchForPoint(
+        std.testing.allocator,
+        &grouped,
+        &batch_indices,
+        point_from_periodicity,
+    );
+    const copied_index = try ensureMutableBatchForPoint(
+        std.testing.allocator,
+        &grouped,
+        &batch_indices,
+        point_from_limbs,
+    );
+    try std.testing.expectEqual(trace_index, copied_index);
+    try std.testing.expect(trace_index != periodic_index);
+    try std.testing.expectEqual(@as(usize, 2), grouped.items.len);
+    try std.testing.expectEqual(@as(u32, 2), batch_indices.count());
 }

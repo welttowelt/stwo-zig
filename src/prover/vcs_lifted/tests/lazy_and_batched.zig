@@ -166,8 +166,8 @@ test "MerkleProverLifted: commitWithLazyQuotients produces same root as standard
     );
     try std.testing.expect(tiled_stats.bounded_numerator_tile_bytes_per_worker > 0);
     try std.testing.expect(tiled_stats.peak_scratch_bytes_per_worker <= 8 * 1024 * 1024);
-    try std.testing.expectEqual(@as(usize, 8_192), tiled_stats.bounded_numerator_tile_bytes_per_worker);
-    try std.testing.expectEqual(@as(usize, 18_432), tiled_stats.peak_scratch_bytes_per_worker);
+    try std.testing.expectEqual(@as(usize, 12_288), tiled_stats.bounded_numerator_tile_bytes_per_worker);
+    try std.testing.expectEqual(@as(usize, 26_624), tiled_stats.peak_scratch_bytes_per_worker);
     try std.testing.expect(
         tiled_stats.bounded_numerator_tile_bytes_per_worker <=
             tiled_stats.peak_scratch_bytes_per_worker,
@@ -208,10 +208,10 @@ test "MerkleProverLifted: commitWithLazyQuotients produces same root as standard
     try std.testing.expectEqual(@as(usize, 0), legacy_stats.post_compute_leaf_pass_count);
     try std.testing.expect(legacy_stats.complete_column_combined_intermediate_bytes > 0);
     try std.testing.expectEqual(
-        @as(usize, 131_584),
+        @as(usize, 131_840),
         legacy_stats.complete_column_combined_intermediate_bytes,
     );
-    try std.testing.expectEqual(@as(usize, 40_960), legacy_stats.peak_scratch_bytes_per_worker);
+    try std.testing.expectEqual(@as(usize, 57_344), legacy_stats.peak_scratch_bytes_per_worker);
     try std.testing.expectEqual(
         @as(usize, 0),
         legacy_stats.bounded_numerator_tile_bytes_per_worker,
