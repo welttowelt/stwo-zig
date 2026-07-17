@@ -28,13 +28,15 @@ execution contract. Do not call a hybrid result resident merely because some ker
 
 ### Committed measurement and correctness path
 
-The current evidence is bound to commit `402628c` and the following committed controls:
+The architectural baseline is bound to commit `402628c`; the latest accepted CPU optimization is
+commit `09ed7ef`. The committed controls are:
 
 - `fa2f8e4` added the verified, backend-neutral Native proof benchmark;
 - `a14d1c7` added the fail-closed CPU/Metal matrix controller;
 - `68637cf` exported the exact proof from each timed lane;
 - `0f98bde` bound each report to its oracle artifact;
-- `402628c` removed host-bound conversions between Metal FRI folds.
+- `402628c` removed host-bound conversions between Metal FRI folds;
+- `09ed7ef` batched CPU quotient denominator inversions in bounded row tiles.
 
 The controller alternates lane order, hashes its binaries and artifacts, requires ReleaseFast,
 records setup and request timing separately, verifies every sample in Zig, and rejects a Metal lane
@@ -94,6 +96,34 @@ row and 11.65 percent on the wide row, with exact proof parity. The measured com
 the gap between GPU execution and host wait support the next architectural experiment. They do not
 by themselves prove that command count is the only cause, that the same gain will hold for Cairo or
 SN PIEs, or that a fully resident design will reach a particular MHz target.
+
+### CPU quotient row batching
+
+The CPU sample profile identified `M31.powPMinus2` as the second-largest non-idle self stack and
+placed quotient construction and commitment at 4.015 ms of a 7.133 ms `log12x16` proof. Commit
+`09ed7ef` replaces one CM31 denominator inversion per row with one batch inversion per bounded row
+tile. The executor uses at most 1,024 rows and 8 MiB of scratch per worker, enables batching from
+8,192 domain rows, and retains the scalar path for small, Metal-raw, and over-budget inputs.
+
+The identical 101-sample profiled diagnostic after the change measured the quotient stage at
+3.388 ms and the complete proof at 6.293 ms. That is a 15.62 percent targeted-stage reduction and
+an 11.78 percent profiled prove-time reduction. These values diagnose the mechanism; they are not
+headline MHz.
+
+A separate unprofiled ReleaseFast A/B used two warmups and 21 samples per workload after a shorter
+run exposed a roughly ten-sample process warm-up ramp. Proof bytes were identical in every sample.
+
+| Workload | Before prove (ms) | After prove (ms) | After row MHz | Prove-time gain |
+| --- | ---: | ---: | ---: | ---: |
+| `log10x8` | 2.429250 | 2.389625 | 0.428519 | 1.66% |
+| `log12x16` | 6.397041 | 6.350084 | 0.645031 | 0.74% |
+| `log14x32` | 16.139708 | 15.704834 | 1.043246 | 2.77% |
+
+The clean formal matrix on `09ed7ef` then alternated CPU and Metal for all three rows. Every row
+was headline-eligible, all samples verified, CPU and Metal emitted the canonical digests above, and
+the pinned Rust Stwo verifier accepted all six exact timed artifacts. The formal matrix is the
+correctness and non-regression gate here; its five-sample Metal timings are not presented as a
+Metal improvement because this commit does not change the Metal execution path.
 
 ## Benchmark Matrix
 
