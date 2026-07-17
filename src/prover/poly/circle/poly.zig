@@ -8,6 +8,7 @@ const domain_mod = @import("../../../core/poly/circle/domain.zig");
 const line_mod = @import("../../../core/poly/line.zig");
 const poly_utils = @import("../../../core/poly/utils.zig");
 const eval_mod = @import("evaluation.zig");
+const point_evaluation = @import("point_evaluation.zig");
 const twiddles_mod = @import("../twiddles.zig");
 
 const M31 = m31.M31;
@@ -78,7 +79,7 @@ pub const CircleCoefficients = struct {
     ) QM31 {
         std.debug.assert(factors.len == self.log_size);
         if (self.log_size == 0) return QM31.fromBase(self.coeffs[0]);
-        return evalAtPointIterative(
+        return point_evaluation.evalAtPointIterative(
             self.coeffs,
             factors,
             self.log_size,
@@ -139,7 +140,7 @@ pub const CircleCoefficients = struct {
 
         var factor_at: usize = 0;
         for (out) |*value| {
-            value.* = evalAtPointIterative(
+            value.* = point_evaluation.evalAtPointIterative(
                 self.coeffs,
                 flat_factors[factor_at .. factor_at + self.log_size],
                 self.log_size,
@@ -176,7 +177,7 @@ pub const CircleCoefficients = struct {
         for (0..point_count) |point_idx| {
             const point_factors = flat_factors[factor_at .. factor_at + log_size];
             for (polys, out_batch) |poly, out| {
-                out[point_idx] = evalAtPointIterative(
+                out[point_idx] = point_evaluation.evalAtPointIterative(
                     poly.coeffs,
                     point_factors,
                     log_size,
@@ -694,78 +695,6 @@ fn checkedPow2(log_size: u32) PolyError!usize {
     return @as(usize, 1) << @intCast(log_size);
 }
 
-fn evalAtPointRecursive(
-    coeffs: []const M31,
-    factors: []const QM31,
-    bits_left: u32,
-) QM31 {
-    std.debug.assert(coeffs.len == (@as(usize, 1) << @intCast(bits_left)));
-    if (bits_left == 0) return QM31.fromBase(coeffs[0]);
-
-    const mid = coeffs.len / 2;
-    const left = evalAtPointRecursive(coeffs[0..mid], factors, bits_left - 1);
-    const right = evalAtPointRecursive(coeffs[mid..], factors, bits_left - 1);
-    return left.add(right.mul(factors[bits_left - 1]));
-}
-
-inline fn evalAtPointIterative(
-    coeffs: []const M31,
-    factors: []const QM31,
-    log_size: u32,
-) QM31 {
-    std.debug.assert(coeffs.len == (@as(usize, 1) << @intCast(log_size)));
-    std.debug.assert(factors.len == log_size);
-
-    if (log_size == 0) return QM31.fromBase(coeffs[0]);
-
-    var pending: [circle.M31_CIRCLE_LOG_ORDER + 1]QM31 = undefined;
-
-    for (coeffs, 0..) |coeff, coeff_idx| {
-        var value = QM31.fromBase(coeff);
-        var level: usize = @as(usize, @intCast(@ctz(~coeff_idx)));
-        if (level > @as(usize, @intCast(log_size))) level = @as(usize, @intCast(log_size));
-        var merge_level: usize = 0;
-        while (merge_level < level) : (merge_level += 1) {
-            value = pending[merge_level].add(value.mul(factors[merge_level]));
-        }
-        pending[level] = value;
-    }
-
-    return pending[log_size];
-}
-
-fn evalAtPointReference(self: CircleCoefficients, point: CirclePointQM31) QM31 {
-    if (self.log_size == 0) return QM31.fromBase(self.coeffs[0]);
-
-    var mappings: [circle.M31_CIRCLE_LOG_ORDER]QM31 = undefined;
-    mappings[self.log_size - 1] = point.y;
-    if (self.log_size > 1) {
-        var x = point.x;
-        var i: usize = self.log_size - 1;
-        while (i > 0) {
-            i -= 1;
-            mappings[i] = x;
-            x = circle.CirclePoint(QM31).doubleX(x);
-        }
-    }
-
-    var acc = QM31.zero();
-    for (self.coeffs, 0..) |coeff, idx| {
-        var twiddle = QM31.one();
-        var bit_idx: usize = 0;
-        var bit_words = idx;
-        while (bit_idx < self.log_size and bit_words != 0) : (bit_idx += 1) {
-            if ((bit_words & 1) == 1) {
-                const mapping_idx = self.log_size - 1 - bit_idx;
-                twiddle = twiddle.mul(mappings[mapping_idx]);
-            }
-            bit_words >>= 1;
-        }
-        acc = acc.add(QM31.fromBase(coeff).mul(twiddle));
-    }
-    return acc;
-}
-
 fn pointM31IntoQM31(point: circle.CirclePointM31) CirclePointQM31 {
     return .{
         .x = QM31.fromBase(point.x),
@@ -773,67 +702,10 @@ fn pointM31IntoQM31(point: circle.CirclePointM31) CirclePointQM31 {
     };
 }
 
-inline fn repeatedDoubleOnCircleQM31(point: CirclePointQM31, n: u32) CirclePointQM31 {
-    var x = point.x;
-    var y = point.y;
-    var i: u32 = 0;
-    while (i < n) : (i += 1) {
-        const xx = x.square();
-        const xy = x.mul(y);
-        x = xx.add(xx).sub(QM31.one());
-        y = xy.add(xy);
-    }
-    return .{ .x = x, .y = y };
-}
+const repeatedDoubleOnCircleQM31 = point_evaluation.repeatedDoubleOnCircleQM31;
 
-inline fn fillEvalFactors(
-    point: CirclePointQM31,
-    log_size: u32,
-    out: *[circle.M31_CIRCLE_LOG_ORDER]QM31,
-) void {
-    const max_log_size = circle.M31_CIRCLE_LOG_ORDER;
-    std.debug.assert(log_size <= max_log_size);
-    if (log_size == 0) return;
-
-    out[0] = point.y;
-    if (log_size > 1) {
-        var x = point.x;
-        out[1] = x;
-        var bit: u32 = 2;
-        while (bit < log_size) : (bit += 1) {
-            x = circle.CirclePoint(QM31).doubleX(x);
-            out[bit] = x;
-        }
-    }
-}
-
-pub fn fillEvalFactorsForPoint(
-    point: CirclePointQM31,
-    log_size: u32,
-    out: *[circle.M31_CIRCLE_LOG_ORDER]QM31,
-) []const QM31 {
-    fillEvalFactors(point, log_size, out);
-    return out[0..log_size];
-}
-
-pub fn fillEvalFactorsForPointsFolded(
-    points: []const CirclePointQM31,
-    fold_count: u32,
-    log_size: u32,
-    out: []QM31,
-) void {
-    std.debug.assert(log_size == 0 or out.len == points.len * log_size);
-    if (log_size == 0) return;
-
-    var at: usize = 0;
-    var factors: [circle.M31_CIRCLE_LOG_ORDER]QM31 = undefined;
-    for (points) |point| {
-        const folded_point = if (fold_count == 0) point else repeatedDoubleOnCircleQM31(point, fold_count);
-        fillEvalFactors(folded_point, log_size, &factors);
-        @memcpy(out[at .. at + log_size], factors[0..log_size]);
-        at += log_size;
-    }
-}
+pub const fillEvalFactorsForPoint = point_evaluation.fillEvalFactorsForPoint;
+pub const fillEvalFactorsForPointsFolded = point_evaluation.fillEvalFactorsForPointsFolded;
 
 inline fn fftLayerLoopForwardM31(
     values: []M31,
@@ -1163,70 +1035,6 @@ test "prover poly circle poly: batched owned interpolation matches scalar helper
             defer scalar.deinit(alloc);
             scalar_values[idx] = &[_]M31{};
             try std.testing.expectEqualSlices(M31, scalar.coefficients(), batch_values[idx]);
-        }
-    }
-}
-
-test "prover poly circle poly: eval at point fast path matches reference" {
-    const alloc = std.testing.allocator;
-    const log_sizes = [_]u32{ 1, 2, 3, 4, 5, 6, 7, 8 };
-
-    var prng = std.Random.DefaultPrng.init(0x97d8_114a_3f61_55cc);
-    const random = prng.random();
-
-    for (log_sizes) |log_size| {
-        const n = @as(usize, 1) << @intCast(log_size);
-        const coeffs = try alloc.alloc(M31, n);
-        defer alloc.free(coeffs);
-        for (coeffs) |*coeff| {
-            coeff.* = M31.fromCanonical(random.intRangeLessThan(u32, 0, m31.Modulus));
-        }
-
-        const poly = try CircleCoefficients.initBorrowed(coeffs);
-        var sample_idx: usize = 0;
-        while (sample_idx < 24) : (sample_idx += 1) {
-            const point = circle.SECURE_FIELD_CIRCLE_GEN.mul(@as(u64, random.int(u32)) + 11);
-            const fast = poly.evalAtPoint(point);
-            const reference = evalAtPointReference(poly, point);
-            try std.testing.expect(fast.eql(reference));
-        }
-    }
-}
-
-test "prover poly circle poly: eval at point iterative matches recursive oracle" {
-    const alloc = std.testing.allocator;
-    const log_sizes = [_]u32{ 1, 2, 3, 4, 5, 6, 7, 8 };
-
-    var prng = std.Random.DefaultPrng.init(0x8a3f_77de_13cc_59e1);
-    const random = prng.random();
-
-    for (log_sizes) |log_size| {
-        const n = @as(usize, 1) << @intCast(log_size);
-        const coeffs = try alloc.alloc(M31, n);
-        defer alloc.free(coeffs);
-        for (coeffs) |*coeff| {
-            coeff.* = M31.fromCanonical(random.intRangeLessThan(u32, 0, m31.Modulus));
-        }
-
-        var sample_idx: usize = 0;
-        while (sample_idx < 24) : (sample_idx += 1) {
-            const point = circle.SECURE_FIELD_CIRCLE_GEN.mul(@as(u64, random.int(u32)) + 29);
-
-            var factors: [circle.M31_CIRCLE_LOG_ORDER]QM31 = undefined;
-            factors[0] = point.y;
-            if (log_size > 1) {
-                var x = point.x;
-                factors[1] = x;
-                var bit: u32 = 2;
-                while (bit < log_size) : (bit += 1) {
-                    x = circle.CirclePoint(QM31).doubleX(x);
-                    factors[bit] = x;
-                }
-            }
-
-            const iterative = evalAtPointIterative(coeffs, factors[0..log_size], log_size);
-            const recursive = evalAtPointRecursive(coeffs, factors[0..log_size], log_size);
-            try std.testing.expect(iterative.eql(recursive));
         }
     }
 }
