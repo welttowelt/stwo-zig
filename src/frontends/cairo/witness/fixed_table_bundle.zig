@@ -1,7 +1,10 @@
 const std = @import("std");
 
 pub const magic = "STWZFIX\x00".*;
+pub const version: u32 = 1;
+pub const projected_version: u32 = 2;
 pub const expected_graph_hash: u64 = 0x7383de8a8df6398b;
+const projected_plan_hash_offset = 28;
 
 pub const Entry = struct {
     component: []u8,
@@ -24,18 +27,30 @@ pub const Bundle = struct {
     entries: []Entry,
 
     pub fn readFile(allocator: std.mem.Allocator, path: []const u8) !Bundle {
+        const encoded = try std.fs.cwd().readFileAlloc(allocator, path, 64 * 1024 * 1024);
+        defer allocator.free(encoded);
         const file = try std.fs.cwd().openFile(path, .{});
         defer file.close();
         var buffer: [64 * 1024]u8 = undefined;
         var reader = file.reader(&buffer);
         const in = &reader.interface;
         if (!std.mem.eql(u8, try in.takeArray(8), &magic)) return error.InvalidMagic;
-        if (try in.takeInt(u32, .little) != 1) return error.UnsupportedVersion;
+        const encoded_version = try in.takeInt(u32, .little);
+        if (encoded_version != version and encoded_version != projected_version)
+            return error.UnsupportedVersion;
         const graph_hash = try in.takeInt(u64, .little);
         if (graph_hash != expected_graph_hash) return error.GraphHashMismatch;
         const identity_count = try in.takeInt(u32, .little);
         const entry_count = try in.takeInt(u32, .little);
-        if (identity_count != 161 or entry_count != 22) return error.InvalidCount;
+        if (encoded_version == version) {
+            if (identity_count != 161 or entry_count != 22) return error.InvalidCount;
+        } else {
+            const plan_hash = try in.takeInt(u64, .little);
+            if (identity_count == 0 or identity_count > 4096 or entry_count == 0 or
+                entry_count > 256)
+                return error.InvalidCount;
+            if (plan_hash != projectedPlanHash(encoded)) return error.InvalidPlanHash;
+        }
         const identities = try allocator.alloc([]u8, identity_count);
         var identities_initialized: usize = 0;
         errdefer {
@@ -118,6 +133,18 @@ pub const Bundle = struct {
     }
 };
 
+fn projectedPlanHash(bytes: []const u8) u64 {
+    var hash: u64 = 0xcbf29ce484222325;
+    for (bytes, 0..) |byte, index| {
+        hash ^= if (index >= projected_plan_hash_offset and index < projected_plan_hash_offset + 8)
+            0
+        else
+            byte;
+        hash *%= 0x100000001b3;
+    }
+    return hash;
+}
+
 fn readString(allocator: std.mem.Allocator, in: *std.Io.Reader) ![]u8 {
     const length = try in.takeInt(u16, .little);
     if (try in.takeInt(u16, .little) != 0 or length == 0) return error.InvalidEntry;
@@ -175,4 +202,41 @@ test "Cairo fixed-table bundle: canonical graph loads" {
     var lookup_outputs: usize = 0;
     for (bundle.entries) |entry| lookup_outputs += entry.lookupCount();
     try std.testing.expectEqual(@as(usize, 381), lookup_outputs);
+}
+
+test "Cairo fixed-table bundle: projected cardinalities require an authenticated encoding" {
+    const allocator = std.testing.allocator;
+    var encoded = [_]u8{0} ** 98;
+    @memcpy(encoded[0..8], &magic);
+    std.mem.writeInt(u32, encoded[8..12], projected_version, .little);
+    std.mem.writeInt(u64, encoded[12..20], expected_graph_hash, .little);
+    std.mem.writeInt(u32, encoded[20..24], 1, .little);
+    std.mem.writeInt(u32, encoded[24..28], 1, .little);
+    std.mem.writeInt(u16, encoded[36..38], 5, .little);
+    @memcpy(encoded[40..45], "seq_4");
+    std.mem.writeInt(u16, encoded[45..47], 1, .little);
+    std.mem.writeInt(u32, encoded[49..53], 0, .little);
+    std.mem.writeInt(u32, encoded[53..57], 1, .little);
+    std.mem.writeInt(u32, encoded[57..61], 1, .little);
+    std.mem.writeInt(u32, encoded[61..65], 1, .little);
+    std.mem.writeInt(u32, encoded[65..69], 0, .little);
+    std.mem.writeInt(u32, encoded[69..73], 1, .little);
+    std.mem.writeInt(u32, encoded[73..77], 4, .little);
+    encoded[77] = 'x';
+    std.mem.writeInt(u32, encoded[78..82], 0, .little);
+    std.mem.writeInt(u64, encoded[28..36], projectedPlanHash(&encoded), .little);
+
+    var temporary = std.testing.tmpDir(.{});
+    defer temporary.cleanup();
+    try temporary.dir.writeFile(.{ .sub_path = "projected.bin", .data = &encoded });
+    const path = try temporary.dir.realpathAlloc(allocator, "projected.bin");
+    defer allocator.free(path);
+    var bundle = try Bundle.readFile(allocator, path);
+    try std.testing.expectEqual(@as(usize, 1), bundle.preprocessed_identities.len);
+    try std.testing.expectEqual(@as(usize, 1), bundle.entries.len);
+    bundle.deinit();
+
+    encoded[28] ^= 1;
+    try temporary.dir.writeFile(.{ .sub_path = "projected.bin", .data = &encoded });
+    try std.testing.expectError(error.InvalidPlanHash, Bundle.readFile(allocator, path));
 }
