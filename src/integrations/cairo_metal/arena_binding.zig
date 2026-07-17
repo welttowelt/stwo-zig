@@ -3033,6 +3033,26 @@ pub fn prepareAotInteractionBatch(
     );
 }
 
+const FixedDeductionRequirements = struct {
+    pedersen: bool = false,
+    poseidon: bool = false,
+};
+
+fn fixedDeductionRequirements(bundle: witness_bundle_mod.Bundle) FixedDeductionRequirements {
+    var result = FixedDeductionRequirements{};
+    for (bundle.entries) |entry| {
+        for (entry.program.insts) |inst| {
+            if (@as(witness_program_mod.Op, @enumFromInt(inst.op)) != .deduce_call) continue;
+            switch (inst.imm) {
+                2, 3 => result.pedersen = true,
+                8, 10, 11 => result.poseidon = true,
+                else => {},
+            }
+        }
+    }
+    return result;
+}
+
 fn prepareAotWitnessBatchForMode(
     allocator: std.mem.Allocator,
     metal: *metal_runtime.Runtime,
@@ -3066,22 +3086,41 @@ fn prepareAotWitnessBatchForMode(
         @intCast(small[0].size_bytes / 4),
     };
 
-    const pedersen_entry = fixed_bundle.find("pedersen_points_table_window_bits_18") orelse return Error.MissingBinding;
-    const poseidon_entry = fixed_bundle.find("poseidon_round_keys") orelse return Error.MissingBinding;
-    const pedersen_pointers_planned = try oneComponent(schedule, plan, "FixedTableSourcePointers", pedersen_entry.component);
-    const poseidon_pointers_planned = try oneComponent(schedule, plan, "FixedTableSourcePointers", poseidon_entry.component);
-    const pedersen_pointers = pedersen_pointers_planned;
-    const poseidon_pointers = poseidon_pointers_planned;
-    const pedersen_sources = try collectPreprocessedBindings(allocator, schedule, plan, fixed_bundle, pedersen_entry.preprocessed_sources);
+    const deduction_requirements = fixedDeductionRequirements(witness_bundle);
+    const pedersen_entry = if (deduction_requirements.pedersen)
+        fixed_bundle.find("pedersen_points_table_window_bits_18") orelse return Error.MissingBinding
+    else
+        null;
+    const poseidon_entry = if (deduction_requirements.poseidon)
+        fixed_bundle.find("poseidon_round_keys") orelse return Error.MissingBinding
+    else
+        null;
+    const pedersen_pointers = if (pedersen_entry) |entry|
+        try oneComponent(schedule, plan, "FixedTableSourcePointers", entry.component)
+    else
+        table_pointers;
+    const poseidon_pointers = if (poseidon_entry) |entry|
+        try oneComponent(schedule, plan, "FixedTableSourcePointers", entry.component)
+    else
+        table_pointers;
+    const pedersen_sources = if (pedersen_entry) |entry|
+        try collectPreprocessedBindings(allocator, schedule, plan, fixed_bundle, entry.preprocessed_sources)
+    else
+        try allocator.alloc(arena_plan.Binding, 0);
     defer allocator.free(pedersen_sources);
-    const poseidon_sources = try collectPreprocessedBindings(allocator, schedule, plan, fixed_bundle, poseidon_entry.preprocessed_sources);
+    const poseidon_sources = if (poseidon_entry) |entry|
+        try collectPreprocessedBindings(allocator, schedule, plan, fixed_bundle, entry.preprocessed_sources)
+    else
+        try allocator.alloc(arena_plan.Binding, 0);
     defer allocator.free(poseidon_sources);
 
     var high_bindings: usize = 0;
     recordAotHighBinding(&high_bindings, "shared", "ExecutionTablePointers", table_pointers);
     recordAotHighBinding(&high_bindings, "shared", "ExecutionTableStrides", table_strides);
-    recordAotHighBinding(&high_bindings, "shared", "PedersenSourcePointers", pedersen_pointers);
-    recordAotHighBinding(&high_bindings, "shared", "PoseidonSourcePointers", poseidon_pointers);
+    if (pedersen_entry != null)
+        recordAotHighBinding(&high_bindings, "shared", "PedersenSourcePointers", pedersen_pointers);
+    if (poseidon_entry != null)
+        recordAotHighBinding(&high_bindings, "shared", "PoseidonSourcePointers", poseidon_pointers);
     for (execution_tables.items) |binding|
         recordAotHighBinding(&high_bindings, "shared", "ExecutionTable", binding);
     for (pedersen_sources) |binding|
@@ -3226,15 +3265,27 @@ fn prepareAotWitnessBatchForMode(
             },
             .all, .base_lookup, .interaction_subwords => unreachable,
         }
-        workspace_storage.* = try allocator.alloc(protocol_recipes.AotWorkspaceWrite, 7);
+        const workspace_count: usize = 5 + @intFromBool(pedersen_entry != null) + @intFromBool(poseidon_entry != null);
+        workspace_storage.* = try allocator.alloc(protocol_recipes.AotWorkspaceWrite, workspace_count);
         workspaces_initialized += 1;
-        workspace_storage.*[0] = .{ .destination = table_pointers, .binding_offsets = execution_tables.items };
-        workspace_storage.*[1] = .{ .destination = table_strides, .words = &strides };
-        workspace_storage.*[2] = .{ .destination = pedersen_pointers, .binding_offsets = pedersen_sources };
-        workspace_storage.*[3] = .{ .destination = poseidon_pointers, .binding_offsets = poseidon_sources };
-        workspace_storage.*[4] = .{ .destination = input_pointers, .binding_offsets = inputs };
-        workspace_storage.*[5] = .{ .destination = output_pointers, .binding_offsets = outputs };
-        workspace_storage.*[6] = .{ .destination = multiplicity_pointers };
+        var workspace_index: usize = 0;
+        workspace_storage.*[workspace_index] = .{ .destination = table_pointers, .binding_offsets = execution_tables.items };
+        workspace_index += 1;
+        workspace_storage.*[workspace_index] = .{ .destination = table_strides, .words = &strides };
+        workspace_index += 1;
+        if (pedersen_entry != null) {
+            workspace_storage.*[workspace_index] = .{ .destination = pedersen_pointers, .binding_offsets = pedersen_sources };
+            workspace_index += 1;
+        }
+        if (poseidon_entry != null) {
+            workspace_storage.*[workspace_index] = .{ .destination = poseidon_pointers, .binding_offsets = poseidon_sources };
+            workspace_index += 1;
+        }
+        workspace_storage.*[workspace_index] = .{ .destination = input_pointers, .binding_offsets = inputs };
+        workspace_index += 1;
+        workspace_storage.*[workspace_index] = .{ .destination = output_pointers, .binding_offsets = outputs };
+        workspace_index += 1;
+        workspace_storage.*[workspace_index] = .{ .destination = multiplicity_pointers };
         name.* = try witness_codegen.kernelNameForMode(allocator, entry.semantic_hash, kernel_mode.*);
         names_initialized += 1;
         invocation.* = .{
@@ -3249,7 +3300,7 @@ fn prepareAotWitnessBatchForMode(
                 .sub_words = try wordOffset(sub),
                 .row_count = row_count,
                 .pedersen_offsets = try wordOffset(pedersen_pointers) + 1,
-                .pedersen_rows = pedersen_entry.row_count,
+                .pedersen_rows = if (pedersen_entry) |fixed_entry| fixed_entry.row_count else 1,
                 .poseidon_keys = try wordOffset(poseidon_pointers) + 1,
             },
             .destinations = owned.*,
@@ -6957,4 +7008,25 @@ test "Cairo AOT witness narrow addresses validate the complete binding extent" {
     invalid = last_word;
     invalid.offset_bytes -= 1;
     try std.testing.expect(!aotBindingFitsNarrowAddress(invalid));
+}
+
+test "Cairo AOT fixed-table requirements follow witness bytecode capabilities" {
+    var bundle = try witness_bundle_mod.Bundle.readFile(
+        std.testing.allocator,
+        "vectors/cairo/sn_pie_2_witness_programs.bin",
+    );
+    defer bundle.deinit();
+
+    const complete = fixedDeductionRequirements(bundle);
+    try std.testing.expect(complete.pedersen);
+    try std.testing.expect(complete.poseidon);
+
+    const add_ap = bundle.find("add_ap_opcode") orelse return error.MissingBinding;
+    const arithmetic_only = witness_bundle_mod.Bundle{
+        .allocator = std.testing.allocator,
+        .entries = @constCast(add_ap)[0..1],
+    };
+    const reduced = fixedDeductionRequirements(arithmetic_only);
+    try std.testing.expect(!reduced.pedersen);
+    try std.testing.expect(!reduced.poseidon);
 }
