@@ -195,6 +195,12 @@ def _text_pins(ledger: PinLedger) -> tuple[TextPin, ...]:
             native,
         ),
         TextPin(
+            "scripts/prove_checkpoints.py",
+            "Native UPSTREAM_COMMIT",
+            rf'^UPSTREAM_COMMIT = "({REVISION_RE})"$',
+            native,
+        ),
+        TextPin(
             "scripts/native_proof_matrix_lib/model.py",
             "Native INTEROP_UPSTREAM_COMMIT",
             rf'^INTEROP_UPSTREAM_COMMIT = "({REVISION_RE})"$',

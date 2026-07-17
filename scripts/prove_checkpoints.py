@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Deterministic prove/prove_ex checkpoint harness.
 
-Checks performed per case:
-1. Rust-generated artifact verifies in Zig.
-2. Rust-generated artifact verifies in Rust.
-3. prove and prove_ex emit identical proof bytes for same statement/config.
+Checks performed per case and generator:
+1. Rust- and Zig-generated artifacts verify in both runtimes.
+2. prove and prove_ex emit identical proof bytes for the same runtime.
+3. Rust and Zig emit the same canonical proof wire.
 4. Tampered proof bytes and tampered statements are rejected semantically.
 5. Invalid prove_mode metadata is rejected by both verifiers.
 
@@ -33,6 +33,9 @@ RUST_MANIFEST = ROOT / "tools" / "stwo-interop-rs" / "Cargo.toml"
 REPORT_DEFAULT = ROOT / "vectors" / "reports" / "prove_checkpoints_report.json"
 ARTIFACT_DIR_DEFAULT = ROOT / "vectors" / "reports" / "prove_checkpoints_artifacts"
 RUST_TOOLCHAIN_DEFAULT = "nightly-2025-07-14"
+UPSTREAM_COMMIT = "a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2"
+SCHEMA_VERSION = 1
+EXCHANGE_MODE = "proof_exchange_json_wire_v1"
 M31_MODULUS = 2147483647
 
 REJECTION_CLASS_VERIFIER = "verifier_semantic"
@@ -291,6 +294,46 @@ def write_artifact(path: Path, artifact: dict[str, Any]) -> None:
         f.write("\n")
 
 
+def assert_artifact_metadata(
+    artifact: dict[str, Any], *, generator: str, example: str, prove_mode: str
+) -> None:
+    expected = {
+        "schema_version": SCHEMA_VERSION,
+        "exchange_mode": EXCHANGE_MODE,
+        "upstream_commit": UPSTREAM_COMMIT,
+        "generator": generator,
+        "example": example,
+        "prove_mode": prove_mode,
+    }
+    for key, value in expected.items():
+        if artifact.get(key) != value:
+            raise RuntimeError(
+                f"artifact {key} mismatch: expected {value!r}, got {artifact.get(key)!r}"
+            )
+
+
+def canonical_proof_wire(artifact: dict[str, Any]) -> dict[str, Any]:
+    proof_hex = artifact.get("proof_bytes_hex")
+    if not isinstance(proof_hex, str):
+        raise RuntimeError("artifact is missing proof_bytes_hex")
+    proof_wire = json.loads(bytes.fromhex(proof_hex).decode("utf-8"))
+    if not isinstance(proof_wire, dict):
+        raise RuntimeError("proof wire root is not an object")
+
+    config = proof_wire.get("config")
+    if not isinstance(config, dict):
+        raise RuntimeError("proof wire is missing config")
+    fri_config = config.get("fri_config")
+    if not isinstance(fri_config, dict):
+        raise RuntimeError("proof wire is missing config.fri_config")
+
+    # The pinned Rust wire predates these Zig wire fields. Their Zig defaults
+    # are the exact semantics used by that Rust revision.
+    fri_config.setdefault("fold_step", 1)
+    config.setdefault("lifting_log_size", None)
+    return proof_wire
+
+
 def tamper_statement(artifact_path: Path, out_path: Path, example: str) -> None:
     artifact = parse_artifact(artifact_path)
     if example == "blake":
@@ -356,21 +399,16 @@ def tamper_prove_mode(artifact_path: Path, out_path: Path) -> None:
     write_artifact(out_path, artifact)
 
 
-def rust_generate_cmd(
+def generate_cmd(
     *,
+    generator: str,
     toolchain: str,
     example: str,
     artifact_path: Path,
     prove_mode: str,
     args: dict[str, str],
 ) -> list[str]:
-    cmd = [
-        "cargo",
-        f"+{toolchain}",
-        "run",
-        "--manifest-path",
-        str(RUST_MANIFEST),
-        "--",
+    arguments = [
         "--mode",
         "generate",
         "--example",
@@ -381,8 +419,20 @@ def rust_generate_cmd(
         prove_mode,
     ]
     for key, value in args.items():
-        cmd.extend([f"--{key}", value])
-    return cmd
+        arguments.extend([f"--{key}", value])
+    if generator == "rust":
+        return [
+            "cargo",
+            f"+{toolchain}",
+            "run",
+            "--manifest-path",
+            str(RUST_MANIFEST),
+            "--",
+            *arguments,
+        ]
+    if generator == "zig":
+        return run_command(*arguments)
+    raise ValueError(f"unsupported checkpoint generator {generator}")
 
 
 def rust_verify_cmd(*, toolchain: str, artifact_path: Path) -> list[str]:
@@ -409,6 +459,67 @@ def zig_verify_cmd(*, artifact_path: Path) -> list[str]:
     )
 
 
+def verify_with_both(
+    *,
+    name: str,
+    artifact_path: Path,
+    rust_toolchain: str,
+    steps: list[dict[str, Any]],
+) -> None:
+    run_step(
+        name=f"{name}_verify_zig",
+        cmd=zig_verify_cmd(artifact_path=artifact_path),
+        steps=steps,
+    )
+    run_step(
+        name=f"{name}_verify_rust",
+        cmd=rust_verify_cmd(toolchain=rust_toolchain, artifact_path=artifact_path),
+        steps=steps,
+    )
+
+
+def tamper_checks(
+    *,
+    case: Case,
+    generator: str,
+    prove_ex_artifact: Path,
+    artifact_dir: Path,
+    rust_toolchain: str,
+    steps: list[dict[str, Any]],
+) -> dict[str, Path]:
+    prefix = f"{case.case_id}_{generator}_prove_ex"
+    outputs = {
+        "tampered_proof": artifact_dir / f"{prefix}_tampered.json",
+        "tampered_statement": artifact_dir / f"{prefix}_statement_tampered.json",
+        "tampered_mode": artifact_dir / f"{prefix}_mode_tampered.json",
+    }
+    tamper_proof_bytes_hex(prove_ex_artifact, outputs["tampered_proof"])
+    tamper_statement(prove_ex_artifact, outputs["tampered_statement"], case.example)
+    tamper_prove_mode(prove_ex_artifact, outputs["tampered_mode"])
+
+    for tamper_name, rejection_class in (
+        ("tampered_proof", REJECTION_CLASS_VERIFIER),
+        ("tampered_statement", REJECTION_CLASS_VERIFIER),
+        ("tampered_mode", REJECTION_CLASS_METADATA),
+    ):
+        artifact_path = outputs[tamper_name]
+        run_step(
+            name=f"{case.case_id}_{generator}_{tamper_name}_reject_zig",
+            cmd=zig_verify_cmd(artifact_path=artifact_path),
+            steps=steps,
+            expect_failure=True,
+            required_rejection_class=rejection_class,
+        )
+        run_step(
+            name=f"{case.case_id}_{generator}_{tamper_name}_reject_rust",
+            cmd=rust_verify_cmd(toolchain=rust_toolchain, artifact_path=artifact_path),
+            steps=steps,
+            expect_failure=True,
+            required_rejection_class=rejection_class,
+        )
+    return outputs
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="prove/prove_ex checkpoint harness")
     parser.add_argument("--rust-toolchain", default=RUST_TOOLCHAIN_DEFAULT)
@@ -424,111 +535,72 @@ def main() -> int:
     case_reports: list[dict[str, Any]] = []
 
     for case in CASES:
-        prove_artifact = artifact_dir / f"{case.case_id}_prove_rust.json"
-        prove_ex_artifact = artifact_dir / f"{case.case_id}_prove_ex_rust.json"
+        rust_prove = artifact_dir / f"{case.case_id}_prove_rust.json"
+        rust_prove_ex = artifact_dir / f"{case.case_id}_prove_ex_rust.json"
+        zig_prove = artifact_dir / f"{case.case_id}_prove_zig.json"
+        zig_prove_ex = artifact_dir / f"{case.case_id}_prove_ex_zig.json"
 
-        run_step(
-            name=f"{case.case_id}_prove_generate_rust",
-            cmd=rust_generate_cmd(
-                toolchain=args.rust_toolchain,
-                example=case.example,
-                artifact_path=prove_artifact,
-                prove_mode="prove",
-                args=case.args,
-            ),
-            steps=steps,
-        )
-        run_step(
-            name=f"{case.case_id}_prove_ex_generate_rust",
-            cmd=rust_generate_cmd(
-                toolchain=args.rust_toolchain,
-                example=case.example,
-                artifact_path=prove_ex_artifact,
-                prove_mode="prove_ex",
-                args=case.args,
-            ),
-            steps=steps,
-        )
+        artifacts = {
+            "rust": {"prove": rust_prove, "prove_ex": rust_prove_ex},
+            "zig": {"prove": zig_prove, "prove_ex": zig_prove_ex},
+        }
+        parsed: dict[str, dict[str, dict[str, Any]]] = {}
+        for generator, generator_artifacts in artifacts.items():
+            parsed[generator] = {}
+            for prove_mode, artifact_path in generator_artifacts.items():
+                run_step(
+                    name=f"{case.case_id}_{generator}_{prove_mode}_generate",
+                    cmd=generate_cmd(
+                        generator=generator,
+                        toolchain=args.rust_toolchain,
+                        example=case.example,
+                        artifact_path=artifact_path,
+                        prove_mode=prove_mode,
+                        args=case.args,
+                    ),
+                    steps=steps,
+                )
+                artifact = parse_artifact(artifact_path)
+                assert_artifact_metadata(
+                    artifact,
+                    generator=generator,
+                    example=case.example,
+                    prove_mode=prove_mode,
+                )
+                parsed[generator][prove_mode] = artifact
+                verify_with_both(
+                    name=f"{case.case_id}_{generator}_{prove_mode}",
+                    artifact_path=artifact_path,
+                    rust_toolchain=args.rust_toolchain,
+                    steps=steps,
+                )
 
-        run_step(
-            name=f"{case.case_id}_prove_verify_zig",
-            cmd=zig_verify_cmd(artifact_path=prove_artifact),
-            steps=steps,
-        )
-        run_step(
-            name=f"{case.case_id}_prove_verify_rust",
-            cmd=rust_verify_cmd(toolchain=args.rust_toolchain, artifact_path=prove_artifact),
-            steps=steps,
-        )
-        run_step(
-            name=f"{case.case_id}_prove_ex_verify_zig",
-            cmd=zig_verify_cmd(artifact_path=prove_ex_artifact),
-            steps=steps,
-        )
-        run_step(
-            name=f"{case.case_id}_prove_ex_verify_rust",
-            cmd=rust_verify_cmd(toolchain=args.rust_toolchain, artifact_path=prove_ex_artifact),
-            steps=steps,
-        )
+        rust_prove_wire = canonical_proof_wire(parsed["rust"]["prove"])
+        rust_prove_ex_wire = canonical_proof_wire(parsed["rust"]["prove_ex"])
+        zig_prove_wire = canonical_proof_wire(parsed["zig"]["prove"])
+        zig_prove_ex_wire = canonical_proof_wire(parsed["zig"]["prove_ex"])
+        if rust_prove_wire != rust_prove_ex_wire:
+            raise RuntimeError(f"{case.case_id} Rust prove/prove_ex proof wire diverged")
+        if zig_prove_wire != zig_prove_ex_wire:
+            raise RuntimeError(f"{case.case_id} Zig prove/prove_ex proof wire diverged")
+        if rust_prove_wire != zig_prove_wire:
+            raise RuntimeError(f"{case.case_id} Rust/Zig canonical proof wire diverged")
 
-        prove_json = parse_artifact(prove_artifact)
-        prove_ex_json = parse_artifact(prove_ex_artifact)
-        prove_hex = prove_json.get("proof_bytes_hex")
-        prove_ex_hex = prove_ex_json.get("proof_bytes_hex")
-        if not isinstance(prove_hex, str) or not isinstance(prove_ex_hex, str):
-            raise RuntimeError(f"{case.case_id} missing proof bytes")
-        if prove_hex != prove_ex_hex:
-            raise RuntimeError(f"{case.case_id} prove/prove_ex proof bytes diverged")
-
-        proof_tampered = artifact_dir / f"{case.case_id}_prove_ex_tampered.json"
-        statement_tampered = artifact_dir / f"{case.case_id}_prove_ex_statement_tampered.json"
-        prove_mode_tampered = artifact_dir / f"{case.case_id}_prove_ex_mode_tampered.json"
-
-        tamper_proof_bytes_hex(prove_ex_artifact, proof_tampered)
-        tamper_statement(prove_ex_artifact, statement_tampered, case.example)
-        tamper_prove_mode(prove_ex_artifact, prove_mode_tampered)
-
-        run_step(
-            name=f"{case.case_id}_tampered_proof_reject_zig",
-            cmd=zig_verify_cmd(artifact_path=proof_tampered),
+        rust_tampers = tamper_checks(
+            case=case,
+            generator="rust",
+            prove_ex_artifact=rust_prove_ex,
+            artifact_dir=artifact_dir,
+            rust_toolchain=args.rust_toolchain,
             steps=steps,
-            expect_failure=True,
-            required_rejection_class=REJECTION_CLASS_VERIFIER,
         )
-        run_step(
-            name=f"{case.case_id}_tampered_proof_reject_rust",
-            cmd=rust_verify_cmd(toolchain=args.rust_toolchain, artifact_path=proof_tampered),
+        zig_tampers = tamper_checks(
+            case=case,
+            generator="zig",
+            prove_ex_artifact=zig_prove_ex,
+            artifact_dir=artifact_dir,
+            rust_toolchain=args.rust_toolchain,
             steps=steps,
-            expect_failure=True,
-            required_rejection_class=REJECTION_CLASS_VERIFIER,
-        )
-        run_step(
-            name=f"{case.case_id}_tampered_statement_reject_zig",
-            cmd=zig_verify_cmd(artifact_path=statement_tampered),
-            steps=steps,
-            expect_failure=True,
-            required_rejection_class=REJECTION_CLASS_VERIFIER,
-        )
-        run_step(
-            name=f"{case.case_id}_tampered_statement_reject_rust",
-            cmd=rust_verify_cmd(toolchain=args.rust_toolchain, artifact_path=statement_tampered),
-            steps=steps,
-            expect_failure=True,
-            required_rejection_class=REJECTION_CLASS_VERIFIER,
-        )
-        run_step(
-            name=f"{case.case_id}_tampered_mode_reject_zig",
-            cmd=zig_verify_cmd(artifact_path=prove_mode_tampered),
-            steps=steps,
-            expect_failure=True,
-            required_rejection_class=REJECTION_CLASS_METADATA,
-        )
-        run_step(
-            name=f"{case.case_id}_tampered_mode_reject_rust",
-            cmd=rust_verify_cmd(toolchain=args.rust_toolchain, artifact_path=prove_mode_tampered),
-            steps=steps,
-            expect_failure=True,
-            required_rejection_class=REJECTION_CLASS_METADATA,
         )
 
         case_reports.append(
@@ -537,18 +609,27 @@ def main() -> int:
                 "example": case.example,
                 "args": case.args,
                 "artifacts": {
-                    "prove": rel(prove_artifact),
-                    "prove_ex": rel(prove_ex_artifact),
-                    "tampered_proof": rel(proof_tampered),
-                    "tampered_statement": rel(statement_tampered),
-                    "tampered_mode": rel(prove_mode_tampered),
+                    "prove": rel(rust_prove),
+                    "prove_ex": rel(rust_prove_ex),
+                    "tampered_proof": rel(rust_tampers["tampered_proof"]),
+                    "tampered_statement": rel(rust_tampers["tampered_statement"]),
+                    "tampered_mode": rel(rust_tampers["tampered_mode"]),
+                    "zig_prove": rel(zig_prove),
+                    "zig_prove_ex": rel(zig_prove_ex),
+                    "zig_tampered_proof": rel(zig_tampers["tampered_proof"]),
+                    "zig_tampered_statement": rel(zig_tampers["tampered_statement"]),
+                    "zig_tampered_mode": rel(zig_tampers["tampered_mode"]),
                 },
                 "prove_vs_prove_ex_equal": True,
+                "rust_prove_vs_prove_ex_equal": True,
+                "zig_prove_vs_prove_ex_equal": True,
+                "rust_vs_zig_canonical_proof_equal": True,
             }
         )
 
     report: dict[str, Any] = {
         "status": "ok",
+        "upstream_commit": UPSTREAM_COMMIT,
         "toolchain": {
             "rust_toolchain": args.rust_toolchain,
         },
@@ -556,7 +637,8 @@ def main() -> int:
         "summary": {
             "case_count": len(case_reports),
             "step_count": len(steps),
-            "tamper_checks_per_case": 6,
+            "positive_verifications_per_case": 8,
+            "tamper_checks_per_case": 12,
         },
         "steps": steps,
     }
