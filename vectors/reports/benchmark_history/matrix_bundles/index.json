@@ -1,0 +1,13 @@
+{
+  "bundles": {
+    "955abe0990cea4a35c9207fe99cc03cff60a4738d569e4be2949d7a5713c7738": {
+      "artifact_bytes": 4329748,
+      "artifact_files": 72,
+      "bundle_sha256": "955abe0990cea4a35c9207fe99cc03cff60a4738d569e4be2949d7a5713c7738",
+      "path": "matrix_bundles/native_proof_matrix_bundle_v1/955abe0990cea4a35c9207fe99cc03cff60a4738d569e4be2949d7a5713c7738",
+      "report_sha256": "19cc8a5631e04aa2ea72242ff2ccac4d36320d04afbae05a161606995dd6a71f",
+      "schema": "native_proof_matrix_bundle_v1"
+    }
+  },
+  "schema_version": 1
+}
