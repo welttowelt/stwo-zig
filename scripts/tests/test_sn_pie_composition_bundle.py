@@ -142,6 +142,35 @@ def components(data: bytes | bytearray):
         }
 
 
+def program_constant_fields(
+    data: bytes | bytearray, program_range: tuple[int, int]
+) -> list[tuple[int, int]]:
+    program_offset, program_len = program_range
+    section_count = MODULE.u32(data, program_offset + 8)
+    payload_start = (
+        program_offset
+        + MODULE.PROGRAM_HEADER_BYTES
+        + section_count * MODULE.PROGRAM_SECTION_BYTES
+    )
+    for index in range(section_count):
+        descriptor = program_offset + MODULE.PROGRAM_HEADER_BYTES + index * 24
+        kind, elem_size, relative_offset, count = struct.unpack_from(
+            "<IIQQ", data, descriptor
+        )
+        if kind != MODULE.PROGRAM_BASE_INSTRUCTIONS:
+            continue
+        if elem_size != 16:
+            raise ValueError("unexpected base instruction size")
+        start = payload_start + relative_offset
+        fields = []
+        for instruction_index in range(count):
+            instruction = start + instruction_index * elem_size
+            if data[instruction] == MODULE.PROGRAM_BASE_CONSTANT_OPCODE:
+                fields.append((instruction + 4, MODULE.u32(data, instruction + 4)))
+        return fields
+    raise ValueError(f"base instructions missing from {program_offset}:{program_len}")
+
+
 def write_proof(
     path: Path,
     logs: dict[str, int],
@@ -235,6 +264,19 @@ def latest_metal_eval_prepare() -> Path | None:
 
 
 class SnPieCompositionBundleTest(unittest.TestCase):
+    def test_memory_address_stride_substitutions_follow_trace_domain(self):
+        self.assertEqual(
+            MODULE.memory_address_stride_substitutions("memory_address_to_id", 20, 14),
+            {chunk << 20: chunk << 14 for chunk in range(1, 16)},
+        )
+        self.assertEqual(
+            MODULE.memory_address_stride_substitutions("add_opcode", 20, 14), {}
+        )
+        with self.assertRaisesRegex(
+            ValueError, "unsupported memory_address_to_id target log"
+        ):
+            MODULE.memory_address_stride_substitutions("memory_address_to_id", 20, 28)
+
     def test_sn2_identity_retarget_is_byte_identical(self):
         template_data = TEMPLATE.read_bytes()
         logs = {item["label"]: item["trace_log"] for item in components(template_data)}
@@ -335,6 +377,7 @@ class SnPieCompositionBundleTest(unittest.TestCase):
         self.assertEqual([component["label"] for component in projected], fib_labels)
         self.assertEqual(result["changed_components"], 13)
         self.assertEqual(result["changed_preprocessed_components"], 3)
+        self.assertEqual(result["changed_domain_constant_components"], 1)
 
         next_constraint = 0
         span_ends = {1: 0, 2: 0}
@@ -353,10 +396,22 @@ class SnPieCompositionBundleTest(unittest.TestCase):
             for source_program, target_program in zip(
                 source["program_ranges"], component["program_ranges"], strict=True
             ):
-                self.assertEqual(
-                    MODULE.semantic_program_payload(template_data, *source_program),
-                    MODULE.semantic_program_payload(projected_data, *target_program),
-                )
+                source_payload = MODULE.semantic_program_payload(template_data, *source_program)
+                target_payload = MODULE.semantic_program_payload(projected_data, *target_program)
+                if component["label"] == "memory_address_to_id":
+                    self.assertNotEqual(source_payload, target_payload)
+                    source_constants = [
+                        value for _, value in program_constant_fields(template_data, source_program)
+                    ]
+                    target_constants = [
+                        value for _, value in program_constant_fields(projected_data, target_program)
+                    ]
+                    for chunk in range(1, 16):
+                        self.assertIn(chunk << 20, source_constants)
+                        self.assertIn(chunk << 14, target_constants)
+                        self.assertNotIn(chunk << 20, target_constants)
+                else:
+                    self.assertEqual(source_payload, target_payload)
         self.assertEqual(next_constraint, 186)
         self.assertEqual(span_ends, {1: 396, 2: 324})
         self.assertEqual(
@@ -372,11 +427,86 @@ class SnPieCompositionBundleTest(unittest.TestCase):
             },
         )
         self.assertEqual(manifest["format"], MODULE.PROJECTION_MANIFEST_FORMAT)
+        self.assertEqual(manifest["version"], 2)
         self.assertEqual(manifest["target"]["tree_columns"], [105, 396, 324, 8])
         self.assertEqual(
             int(manifest["target"]["plan_hash"], 16),
             MODULE.projection_plan_hash(projected_data),
         )
+        memory_manifest = next(
+            component
+            for component in manifest["components"]
+            if component["label"] == "memory_address_to_id"
+        )
+        self.assertNotEqual(
+            memory_manifest["source_semantic_program_sha256"],
+            memory_manifest["semantic_program_sha256"],
+        )
+        self.assertEqual(
+            result["domain_constant_changes"]["memory_address_to_id"][0]["constants"],
+            [
+                {"from": chunk << 20, "to": chunk << 14}
+                for chunk in range(1, 16)
+            ],
+        )
+
+    def test_memory_address_stride_projection_rejects_missing_source_constant(self):
+        template_data = bytearray(TEMPLATE.read_bytes())
+        memory = next(
+            component
+            for component in components(template_data)
+            if component["label"] == "memory_address_to_id"
+        )
+        constant_offset = next(
+            offset
+            for offset, value in program_constant_fields(
+                template_data, memory["program_ranges"][0]
+            )
+            if value == 1 << 20
+        )
+        struct.pack_into("<I", template_data, constant_offset, (1 << 20) + 1)
+
+        template_components = list(components(template_data))
+        template_logs = {
+            component["label"]: component["trace_log"]
+            for component in template_components
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            malformed_template = root / "composition.bin"
+            template_proof = root / "sn2-proof.json"
+            target_proof = root / "fib-25k-proof.json"
+            preprocessed = root / "canonical.stwzppc"
+            output = root / "projected.bin"
+            manifest = root / "projection.json"
+            malformed_template.write_bytes(template_data)
+            write_projection_proof(
+                template_proof, template_logs, [], [161, 3449, 2268, 8], "canonical"
+            )
+            write_projection_proof(
+                target_proof,
+                FIB_25K_LOGS,
+                FIB_25K_FIXED,
+                [105, 396, 324, 8],
+                "canonical_without_pedersen",
+            )
+            write_canonical_preprocessed(preprocessed)
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "unexpected memory_address_to_id stride constants",
+            ):
+                MODULE.retarget(
+                    malformed_template,
+                    target_proof,
+                    output,
+                    preprocessed,
+                    template_proof,
+                    True,
+                    manifest,
+                )
+            self.assertFalse(output.exists())
+            self.assertFalse(manifest.exists())
 
     def test_projection_geometry_mismatch_fails_without_artifacts(self):
         template_data = TEMPLATE.read_bytes()

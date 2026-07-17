@@ -33,8 +33,14 @@ must agree exactly. Sampled and queried tree widths must agree in both proofs.
 The source bundle must encode contiguous, complete base and interaction spans.
 Their totals must match the source proof. Retained span widths must match the
 target proof after compaction. Preprocessed indices are mapped by identity,
-never by ordinal inference. Evaluator semantic sections are compared before
-and after retargeting and must remain byte-identical.
+never by ordinal inference.
+
+Evaluator semantic sections remain byte-identical except for explicit,
+pinned-AIR-derived transforms. The only supported transform is
+`memory_address_to_id`: when its log size changes, the fifteen encoded address
+offsets are retargeted from `i * 2^source_log` to `i * 2^target_log`. Projection
+requires every expected source constant exactly once and rejects any missing,
+duplicate, conflicting, or additional evaluator rewrite.
 
 ## Output contract
 
@@ -45,11 +51,12 @@ FNV-1a over the complete encoded bundle with header bytes `32..40` treated as
 zero. The Zig loader recomputes it and rejects any mismatch.
 
 The sidecar JSON uses format
-`stwo-zig-cairo-composition-projection`, version `1`. It binds the source bundle
+`stwo-zig-cairo-composition-projection`, version `2`. It binds the source bundle
 and both proof files by SHA-256 and records source/target variants, proof tree
 widths, output SHA-256 and plan hash, every component span mapping,
-preprocessed identity mapping, constraint offset, and semantic evaluator
-payload hashes.
+preprocessed identity mapping, constraint offset, and source and target
+semantic evaluator payload hashes. The retarget result also records exact
+domain-dependent constants and their old and new semantic hashes.
 
 ```sh
 python3 scripts/sn_pie_composition_bundle.py \
@@ -70,6 +77,6 @@ preprocessed variant come from a Rust-verified proof. Proof parity remains the
 release gate; successful parsing or Metal kernel loading is not evidence of
 proof correctness.
 
-Supporting programs whose retained evaluator instructions differ from the
-source pack requires a Rust semantic-pack exporter. Python projection will not
-synthesize or rewrite those instructions.
+Any evaluator change beyond the narrowly checked `memory_address_to_id` stride
+transform requires a Rust semantic-pack exporter. Python projection does not
+infer or accept arbitrary evaluator instructions.

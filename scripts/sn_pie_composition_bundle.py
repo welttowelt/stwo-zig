@@ -15,7 +15,7 @@ BUNDLE_MAGIC = b"STWZEVA\0"
 BUNDLE_VERSION = 1
 PROJECTED_BUNDLE_VERSION = 2
 PROJECTION_MANIFEST_FORMAT = "stwo-zig-cairo-composition-projection"
-PROJECTION_MANIFEST_VERSION = 1
+PROJECTION_MANIFEST_VERSION = 2
 PROGRAM_MAGIC = 0x31505453
 PROGRAM_HEADER_BYTES = 96
 PROGRAM_SECTION_BYTES = 24
@@ -23,6 +23,9 @@ PROGRAM_DOMAIN_LOG_OFFSET = 60
 PROGRAM_SEMANTIC_HASH_OFFSET = 16
 PROGRAM_BASE_INSTRUCTIONS = 3
 PROGRAM_BASE_CONSTANT_OPCODE = 3
+M31_PRIME = 0x7FFFFFFF
+MEMORY_ADDRESS_TO_ID = "memory_address_to_id"
+MEMORY_ADDRESS_TO_ID_SPLIT = 16
 
 
 class ComponentRecord(NamedTuple):
@@ -198,6 +201,22 @@ def retarget_program_constants(
     return old_hash, new_hash, replacements
 
 
+def memory_address_stride_substitutions(
+    label: str, source_log: int, target_log: int
+) -> dict[int, int]:
+    if label != MEMORY_ADDRESS_TO_ID or source_log == target_log:
+        return {}
+    source_stride = 1 << source_log
+    target_stride = 1 << target_log
+    maximum_address_offset = (MEMORY_ADDRESS_TO_ID_SPLIT - 1) * target_stride
+    if maximum_address_offset >= M31_PRIME:
+        raise ValueError(f"unsupported {label} target log {target_log}")
+    return {
+        chunk * source_stride: chunk * target_stride
+        for chunk in range(1, MEMORY_ADDRESS_TO_ID_SPLIT)
+    }
+
+
 def preprocessed_identities(path: Path) -> list[str]:
     with path.open("rb") as stream:
         if stream.read(8) != b"STWZPPC\0":
@@ -302,6 +321,7 @@ def project_components(
     source_proof_path: Path,
     target_proof_path: Path,
     source_identities: list[str],
+    changed_programs: set[tuple[str, int]],
 ) -> tuple[bytearray, dict[str, object]]:
     source_proof_bytes = source_proof_path.read_bytes()
     target_proof_bytes = target_proof_path.read_bytes()
@@ -388,15 +408,19 @@ def project_components(
                 }
             )
 
-        program_hashes: list[str] = []
-        for program_offset, program_len in record.program_ranges:
+        source_program_hashes: list[str] = []
+        target_program_hashes: list[str] = []
+        for part_index, (program_offset, program_len) in enumerate(record.program_ranges):
             source_payload = semantic_program_payload(source_data, program_offset, program_len)
             target_payload = semantic_program_payload(retargeted_data, program_offset, program_len)
-            if source_payload != target_payload:
+            expected_change = (record.label, part_index) in changed_programs
+            if (source_payload != target_payload) != expected_change:
                 raise ValueError(
-                    f"projection would rewrite evaluator instructions for {record.label}"
+                    f"projection evaluator rewrite authentication failed for "
+                    f"{record.label} part {part_index}"
                 )
-            program_hashes.append(sha256_bytes(source_payload))
+            source_program_hashes.append(sha256_bytes(source_payload))
+            target_program_hashes.append(sha256_bytes(target_payload))
         component_manifest.append(
             {
                 "label": record.label,
@@ -404,7 +428,8 @@ def project_components(
                 "constraints": record.n_constraints,
                 "spans": mapped_spans,
                 "preprocessed": preprocessed_mapping,
-                "semantic_program_sha256": program_hashes,
+                "source_semantic_program_sha256": source_program_hashes,
+                "semantic_program_sha256": target_program_hashes,
             }
         )
         projected_records.append(bytes(component))
@@ -479,6 +504,8 @@ def retarget(
         else {}
     )
     statement_changes: dict[str, list[dict[str, object]]] = {}
+    domain_constant_changes: dict[str, list[dict[str, object]]] = {}
+    changed_programs: set[tuple[str, int]] = set()
 
     for _ in range(component_count):
         component_offset = offset
@@ -550,18 +577,59 @@ def retarget(
                 raise ValueError(f"invalid evaluation program for {label}")
             program_ranges.append((program_offset, program_len))
             struct.pack_into("<I", data, program_offset + PROGRAM_DOMAIN_LOG_OFFSET, target_log)
-            old_hash, new_hash, replacements = retarget_program_constants(
-                data, program_offset, program_len, substitutions
+            domain_substitutions = memory_address_stride_substitutions(
+                label, trace_log, target_log
             )
+            program_substitutions = dict(substitutions)
+            for old, new in domain_substitutions.items():
+                previous = program_substitutions.setdefault(old, new)
+                if previous != new:
+                    raise ValueError(
+                        f"conflicting constant retarget for {label}: "
+                        f"{old} -> {previous} or {new}"
+                    )
+            old_hash, new_hash, replacements = retarget_program_constants(
+                data, program_offset, program_len, program_substitutions
+            )
+            domain_replacements = [
+                replacement for replacement in replacements if replacement[0] in domain_substitutions
+            ]
+            if sorted(domain_replacements) != sorted(domain_substitutions.items()):
+                raise ValueError(
+                    f"unexpected {label} stride constants in evaluator part {part_index}"
+                )
             if replacements:
                 struct.pack_into("<Q", data, part_offset + 8, new_hash)
+                changed_programs.add((label, part_index))
+            statement_replacements = [
+                replacement
+                for replacement in replacements
+                if replacement[0] in substitutions
+                and replacement[0] not in domain_substitutions
+            ]
+            if statement_replacements:
                 statement_changes.setdefault(label, []).append(
                     {
                         "part": part_index,
                         "from_semantic_hash": f"{old_hash:016x}",
                         "to_semantic_hash": f"{new_hash:016x}",
                         "constants": [
-                            {"from": old, "to": new} for old, new in sorted(set(replacements))
+                            {"from": old, "to": new}
+                            for old, new in sorted(set(statement_replacements))
+                        ],
+                    }
+                )
+            if domain_replacements:
+                domain_constant_changes.setdefault(label, []).append(
+                    {
+                        "part": part_index,
+                        "source_log_size": trace_log,
+                        "target_log_size": target_log,
+                        "from_semantic_hash": f"{old_hash:016x}",
+                        "to_semantic_hash": f"{new_hash:016x}",
+                        "constants": [
+                            {"from": old, "to": new}
+                            for old, new in sorted(domain_replacements)
                         ],
                     }
                 )
@@ -612,6 +680,7 @@ def retarget(
             template_proof_path,
             proof_path,
             identities or [],
+            changed_programs,
         )
         changed = {label: value for label, value in changed.items() if label in active_set}
         preprocessed_changes = {
@@ -619,6 +688,11 @@ def retarget(
         }
         statement_changes = {
             label: value for label, value in statement_changes.items() if label in active_set
+        }
+        domain_constant_changes = {
+            label: value
+            for label, value in domain_constant_changes.items()
+            if label in active_set
         }
         max_evaluation_log = u32(data, 24)
         component_count = u32(data, 28)
@@ -637,10 +711,12 @@ def retarget(
         "changed_components": len(changed),
         "changed_preprocessed_components": len(preprocessed_changes),
         "changed_statement_components": len(statement_changes),
+        "changed_domain_constant_components": len(domain_constant_changes),
         "max_evaluation_log_size": max_evaluation_log,
         "changes": {label: {"from": old, "to": new} for label, (old, new) in changed.items()},
         "preprocessed_changes": preprocessed_changes,
         "statement_changes": statement_changes,
+        "domain_constant_changes": domain_constant_changes,
     }
     if projection_manifest is not None:
         result["projection"] = projection_manifest["target"]

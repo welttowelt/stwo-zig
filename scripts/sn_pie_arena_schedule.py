@@ -299,7 +299,7 @@ def validate_projection_manifest(
     target_components: list[str],
 ) -> None:
     manifest = json.loads(path.read_text())
-    if manifest.get("format") != COMPOSITION_PROJECTION_FORMAT or manifest.get("version") != 1:
+    if manifest.get("format") != COMPOSITION_PROJECTION_FORMAT or manifest.get("version") != 2:
         raise ValueError("unsupported composition projection manifest")
 
     def sha256(file_path: Path) -> str:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -38,6 +39,50 @@ def entry(
 
 
 class ArenaScheduleTests(unittest.TestCase):
+    def test_projection_manifest_requires_authenticated_version_two(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            template_proof = root / "template-proof.json"
+            target_proof = root / "target-proof.json"
+            composition = root / "composition.bin"
+            manifest_path = root / "projection.json"
+            template_proof.write_bytes(b"template proof")
+            target_proof.write_bytes(b"target proof")
+            composition.write_bytes(b"composition")
+            manifest = {
+                "format": schedule_tool.COMPOSITION_PROJECTION_FORMAT,
+                "version": 2,
+                "source": {
+                    "proof_sha256": hashlib.sha256(template_proof.read_bytes()).hexdigest()
+                },
+                "target": {
+                    "proof_sha256": hashlib.sha256(target_proof.read_bytes()).hexdigest(),
+                    "bundle_sha256": hashlib.sha256(composition.read_bytes()).hexdigest(),
+                },
+                "components": [{"label": "memory_address_to_id"}],
+            }
+            manifest_path.write_text(json.dumps(manifest))
+
+            schedule_tool.validate_projection_manifest(
+                manifest_path,
+                template_proof,
+                target_proof,
+                composition,
+                ["memory_address_to_id"],
+            )
+            manifest["version"] = 1
+            manifest_path.write_text(json.dumps(manifest))
+            with self.assertRaisesRegex(
+                ValueError, "unsupported composition projection manifest"
+            ):
+                schedule_tool.validate_projection_manifest(
+                    manifest_path,
+                    template_proof,
+                    target_proof,
+                    composition,
+                    ["memory_address_to_id"],
+                )
+
     def test_adapted_input_derives_exact_compact_and_raw_geometry(self) -> None:
         address_ids = list(range(64))
         pedersen_begin = 1
