@@ -408,3 +408,30 @@ test "interaction receipt rejects semantic and structural mutations" {
         .{ .input_sha256 = [_]u8{0} ** 32 },
     ));
 }
+
+test "committed Fib25k interaction receipt authenticates the Rust checkpoint" {
+    var input_digest: checkpoint.Digest = undefined;
+    _ = try std.fmt.hexToBytes(
+        &input_digest,
+        "3e5f076f30efbf9f295803ac7198750879267ba78d1e98c820742de08255e366",
+    );
+    var expected_accumulator: checkpoint.Digest = undefined;
+    _ = try std.fmt.hexToBytes(
+        &expected_accumulator,
+        "536c927621cfc55712d7650ad774d2bb8a7c23d4d0c64f2989c6350366190d5a",
+    );
+    var loaded = try readFile(
+        std.testing.allocator,
+        "vectors/cairo/checkpoints/fib_25000_interaction_trace.json",
+        .{ .input_sha256 = input_digest },
+    );
+    defer loaded.deinit();
+
+    var column_count: usize = 0;
+    for (loaded.components) |component| column_count += component.columns.len;
+    try std.testing.expectEqual(@as(usize, 30), loaded.components.len);
+    try std.testing.expectEqual(@as(usize, 324), column_count);
+    try std.testing.expectEqualStrings("add_opcode", loaded.components[0].label);
+    try std.testing.expectEqualStrings("verify_bitwise_xor_9", loaded.components[29].label);
+    try std.testing.expectEqual(expected_accumulator, loaded.final_accumulator);
+}

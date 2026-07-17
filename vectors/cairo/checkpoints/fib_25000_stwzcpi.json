@@ -121,6 +121,18 @@
     "generator": "tools/stwo-cairo-trace-oracle",
     "evidence_class": "local_differential_checkpoint"
   },
+  "interaction_trace_receipt": {
+    "schema": "stwo-cairo-interaction-trace-checkpoint-v1",
+    "path": "vectors/cairo/checkpoints/fib_25000_interaction_trace.json",
+    "sha256": "12ef00fea1055d746f0d22bc61e15307829c808066da378e31d024632c47124a",
+    "component_count": 30,
+    "column_count": 324,
+    "final_accumulator_sha256": "536c927621cfc55712d7650ad774d2bb8a7c23d4d0c64f2989c6350366190d5a",
+    "lookup_elements_sha256": "c74885eaf1a19905938559496c6fa73ff21776abc2c5bc578307c1c7f4d7e319",
+    "generator": "tools/stwo-cairo-trace-oracle interaction",
+    "evidence_class": "local_differential_diagnostic_checkpoint",
+    "is_proof_transcript": false
+  },
   "negative_cases": [
     "artifact digest mutation",
     "truncated opcode state column",
@@ -130,6 +142,6 @@
   ],
   "blockers": [
     "The STWZCPI exporter is a content-identified local modification at the pinned Stwo-Cairo revision, not a committed upstream source file.",
-    "The committed base-trace receipt is differential evidence only; it is not a complete proof or final verify_cairo acceptance receipt."
+    "The committed base- and interaction-trace receipts are differential evidence only; the fixed interaction challenges are not proof-transcript challenges, and neither receipt is a complete proof or final verify_cairo acceptance receipt."
   ]
 }
