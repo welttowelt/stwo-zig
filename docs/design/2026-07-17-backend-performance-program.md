@@ -194,6 +194,19 @@ The clean formal matrix retained exact CPU/Metal proof bytes, one session tower 
 headline eligibility. All six artifacts passed pinned Rust Stwo. Complete-column combined
 intermediate storage is intentionally still reported and remains the next CPU pipeline stage.
 
+### Metal command-epoch core
+
+Commit `b7c2c0f` establishes caller-owned Metal submission across prepared IFFT, LDE, and resident
+Merkle operations. A bounded hardware test encodes the complete three-stage commitment into one
+command buffer, submits once, waits once, and matches CPU coefficients, extended evaluations, and
+Merkle root exactly. The old synchronous operations call the extracted encoders, so there is one
+kernel implementation rather than a second resident-only path.
+
+This is structural acceptance, not a full-proof performance claim. The normal Native matrix remains
+below the measured resident-Merkle policy threshold, and the production SN streaming graph uses a
+different compact-leaf sequence. That graph is the next adoption target; its acceptance requires a
+real command-profile reduction plus the unchanged full formal and Rust-oracle gates.
+
 ## Benchmark Matrix
 
 The checked-in driver will use stable workload identifiers and immutable protocol settings.

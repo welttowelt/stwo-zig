@@ -1,6 +1,6 @@
 # Metal Resident Commitment Epoch
 
-Status: implementation
+Status: implementation; command-epoch core accepted
 
 ## Performance Hypothesis
 
@@ -197,3 +197,25 @@ performance increment.
 - Retained and peak bytes remain within configured session and request-slot budgets.
 - The affected-class geometric-mean proof time improves, no normal row regresses above 2 percent,
   and no row crosses the program's 5 percent hard bound.
+
+## Accepted Command-Epoch Core
+
+Commit `b7c2c0f` extracts encode-only implementations from the prepared circle IFFT, circle LDE, and
+resident Merkle runtime operations. Their existing synchronous entrypoints now call those same
+encoders and retain compatibility behavior. `CommandEpoch` owns one Objective-C command buffer,
+retains its runtime, arena, and plans, rejects empty or duplicate submission, exposes one terminal
+wait, and reports command-buffer, wait, encoder, dispatch, and GPU-duration statistics through a
+checked Zig/C ABI.
+
+The bounded real-hardware test uses two columns at circle log 10, extends them to log 11, and encodes
+IFFT, LDE, leaf hashing, and every parent layer before one submit. It records exactly one command
+buffer, one wait, zero intermediate waits, and zero blit encoders. CPU parity covers both coefficient
+columns, both extended-evaluation columns, and the final lifted Merkle root. Lifecycle, empty-epoch,
+telemetry-ABI, synchronous-wrapper regression, full Metal, source-conformance, and API-parity tests
+pass.
+
+No production policy or `2^24` resident-Merkle crossover changed, so this commit makes no whole-proof
+speed claim. The current SN streaming commitment graph uses composition LDE, compact leaf
+absorption, arena copies, and a parent-chain plan rather than this three-plan layout. The next Metal
+stage must route that production graph through the same submission owner, prove a measured command
+and wait reduction, and only then publish a backend MHz change.
