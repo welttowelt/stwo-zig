@@ -1,5 +1,5 @@
 const std = @import("std");
-const arena_plan = @import("../../backends/metal/arena_plan.zig");
+const arena_plan = @import("../../backend/arena_plan.zig");
 const proof_plan = @import("proof_plan.zig");
 
 pub const BufferRole = enum {
