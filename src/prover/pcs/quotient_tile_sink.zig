@@ -64,6 +64,7 @@ pub const ExecutionStats = struct {
     tile_count: usize,
     peak_scratch_bytes_per_worker: usize,
     total_scratch_bytes: usize,
+    bounded_numerator_tile_bytes_per_worker: usize,
     complete_column_combined_intermediate_bytes: usize,
     post_compute_leaf_pass_count: usize,
 };

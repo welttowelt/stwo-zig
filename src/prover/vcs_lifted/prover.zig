@@ -140,6 +140,7 @@ pub fn MerkleProverLifted(comptime H: type) type {
                         .tile_count = 0,
                         .peak_scratch_bytes_per_worker = 0,
                         .total_scratch_bytes = 0,
+                        .bounded_numerator_tile_bytes_per_worker = 0,
                         .complete_column_combined_intermediate_bytes = try provider.combinedIntermediateBytes(),
                         .post_compute_leaf_pass_count = 1,
                     };

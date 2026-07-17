@@ -6,6 +6,7 @@ const quotients = @import("../../core/pcs/quotients.zig");
 const pcs_utils = @import("../../core/pcs/utils.zig");
 const canonic = @import("../../core/poly/circle/canonic.zig");
 const row_executor = @import("quotient_row_executor.zig");
+const tile_executor = @import("quotient_tile_executor.zig");
 const tile_sink = @import("quotient_tile_sink.zig");
 const secure_column = @import("../secure_column.zig");
 const work_pool_mod = @import("../work_pool.zig");
@@ -50,6 +51,12 @@ const CombinedContributionPlan = struct {
 
 const ColumnContribution = row_executor.ColumnContribution;
 const ColumnContributionRange = row_executor.ColumnContributionRange;
+
+pub const InputMode = enum {
+    bounded_cpu,
+    combined_compatibility,
+    raw_backend,
+};
 
 const ColumnContributionPlan = struct {
     active_column_indices: []usize,
@@ -114,10 +121,13 @@ const MaterializedLiftedColumns = struct {
 ///   3. `deinit()` — release internal scratch memory.
 pub const LazyQuotientProvider = struct {
     prepared: PreparedQuotientContext,
+    input_mode: InputMode,
     combined_views: []CombinedContributionView,
+    direct_plan: tile_executor.DirectContributionPlan,
     raw_columns: []ColumnEvaluation,
     workspace: quotients.RowQuotientWorkspace,
     chunk_scratch: ?row_executor.Scratch,
+    direct_chunk_scratch: ?tile_executor.Scratch,
     allow_parallel_scalar: bool,
     domain: circle_domain.CircleDomain,
     lifting_log_size: u32,
@@ -131,7 +141,30 @@ pub const LazyQuotientProvider = struct {
         random_coeff: QM31,
         lifting_log_size: u32,
     ) !LazyQuotientProvider {
-        return initForBackend(
+        return initWithMode(
+            allocator,
+            columns,
+            sampled_points,
+            sampled_values,
+            random_coeff,
+            lifting_log_size,
+            if (tile_executor.shouldUseBoundedInput(lifting_log_size))
+                .bounded_cpu
+            else
+                .combined_compatibility,
+        );
+    }
+
+    pub fn initWithMode(
+        allocator: std.mem.Allocator,
+        columns: TreeVec([]const ColumnEvaluation),
+        sampled_points: TreeVec([][]CirclePointQM31),
+        sampled_values: TreeVec([][]QM31),
+        random_coeff: QM31,
+        lifting_log_size: u32,
+        input_mode: InputMode,
+    ) !LazyQuotientProvider {
+        return initForBackendWithMode(
             void,
             allocator,
             columns,
@@ -139,6 +172,7 @@ pub const LazyQuotientProvider = struct {
             sampled_values,
             random_coeff,
             lifting_log_size,
+            input_mode,
         );
     }
 
@@ -150,6 +184,34 @@ pub const LazyQuotientProvider = struct {
         sampled_values: TreeVec([][]QM31),
         random_coeff: QM31,
         lifting_log_size: u32,
+    ) !LazyQuotientProvider {
+        const backend_raw = comptime B != void and @hasDecl(B, "rawQuotientInputs") and B.rawQuotientInputs;
+        return initForBackendWithMode(
+            B,
+            allocator,
+            columns,
+            sampled_points,
+            sampled_values,
+            random_coeff,
+            lifting_log_size,
+            if (backend_raw)
+                .raw_backend
+            else if (tile_executor.shouldUseBoundedInput(lifting_log_size))
+                .bounded_cpu
+            else
+                .combined_compatibility,
+        );
+    }
+
+    pub fn initForBackendWithMode(
+        comptime B: type,
+        allocator: std.mem.Allocator,
+        columns: TreeVec([]const ColumnEvaluation),
+        sampled_points: TreeVec([][]CirclePointQM31),
+        sampled_values: TreeVec([][]QM31),
+        random_coeff: QM31,
+        lifting_log_size: u32,
+        input_mode: InputMode,
     ) !LazyQuotientProvider {
         if (columns.items.len != sampled_points.items.len) return QuotientOpsError.ShapeMismatch;
         if (columns.items.len != sampled_values.items.len) return QuotientOpsError.ShapeMismatch;
@@ -188,29 +250,43 @@ pub const LazyQuotientProvider = struct {
         );
         defer allocator.free(nonzero_columns);
 
-        const use_raw_columns = comptime B != void and @hasDecl(B, "rawQuotientInputs") and B.rawQuotientInputs;
+        const backend_raw = comptime B != void and @hasDecl(B, "rawQuotientInputs") and B.rawQuotientInputs;
+        if ((input_mode == .raw_backend) != backend_raw) return error.InvalidQuotientInputMode;
         var combined_views: []CombinedContributionView = &.{};
-        if (!use_raw_columns) {
-            const combined_plan = try buildCombinedContributionPlan(
+        var direct_plan = tile_executor.DirectContributionPlan{ .views = &.{}, .ranges = &.{} };
+        switch (input_mode) {
+            .combined_compatibility => {
+                const combined_plan = try buildCombinedContributionPlan(
+                    allocator,
+                    flat_columns,
+                    prepared.contribution_plan.active_column_indices,
+                    prepared.contribution_plan.ranges,
+                    prepared.contribution_plan.contributions,
+                    nonzero_columns,
+                    lifting_log_size,
+                );
+                combined_views = combined_plan.views;
+            },
+            .bounded_cpu => direct_plan = try tile_executor.buildDirectContributionPlan(
                 allocator,
                 flat_columns,
                 prepared.contribution_plan.active_column_indices,
                 prepared.contribution_plan.ranges,
-                prepared.contribution_plan.contributions,
                 nonzero_columns,
                 lifting_log_size,
-            );
-            combined_views = combined_plan.views;
+            ),
+            .raw_backend => {},
         }
-        errdefer if (!use_raw_columns) {
+        errdefer {
             var combined_plan = CombinedContributionPlan{ .views = combined_views };
             combined_plan.deinit(allocator);
-        };
+            direct_plan.deinit(allocator);
+        }
 
         var workspace = try quotients.RowQuotientWorkspace.init(allocator, prepared.sample_batches);
         errdefer workspace.deinit(allocator);
         var chunk_scratch: ?row_executor.Scratch = null;
-        if (!use_raw_columns) {
+        if (input_mode == .combined_compatibility) {
             chunk_scratch = try row_executor.initScratchOrScalarFallback(
                 allocator,
                 prepared.sample_batches.len,
@@ -219,19 +295,32 @@ pub const LazyQuotientProvider = struct {
             );
         }
         errdefer if (chunk_scratch) |*scratch| scratch.deinit(allocator);
+        var direct_chunk_scratch: ?tile_executor.Scratch = null;
+        if (input_mode == .bounded_cpu) {
+            direct_chunk_scratch = try tile_executor.initScratchOrScalarFallback(
+                allocator,
+                prepared.sample_batches.len,
+                tile_sink.DEFAULT_TILE_ROWS,
+                domain_size,
+            );
+        }
+        errdefer if (direct_chunk_scratch) |*scratch| scratch.deinit(allocator);
 
         const domain = canonic.CanonicCoset.new(lifting_log_size).circleDomain();
 
         return .{
             .prepared = prepared,
+            .input_mode = input_mode,
             .combined_views = combined_views,
-            .raw_columns = if (use_raw_columns) flat_columns else blk: {
+            .direct_plan = direct_plan,
+            .raw_columns = if (input_mode == .raw_backend) flat_columns else blk: {
                 allocator.free(flat_columns);
                 break :blk &.{};
             },
             .workspace = workspace,
             .chunk_scratch = chunk_scratch,
-            .allow_parallel_scalar = !use_raw_columns and !row_executor.shouldBatchDomain(domain_size),
+            .direct_chunk_scratch = direct_chunk_scratch,
+            .allow_parallel_scalar = input_mode != .raw_backend and !row_executor.shouldBatchDomain(domain_size),
             .domain = domain,
             .lifting_log_size = lifting_log_size,
             .domain_size = domain_size,
@@ -239,10 +328,12 @@ pub const LazyQuotientProvider = struct {
     }
 
     pub fn deinit(self: *LazyQuotientProvider, allocator: std.mem.Allocator) void {
+        if (self.direct_chunk_scratch) |*scratch| scratch.deinit(allocator);
         if (self.chunk_scratch) |*scratch| scratch.deinit(allocator);
         self.workspace.deinit(allocator);
         var combined_plan = CombinedContributionPlan{ .views = self.combined_views };
         combined_plan.deinit(allocator);
+        self.direct_plan.deinit(allocator);
         if (self.raw_columns.len != 0) allocator.free(self.raw_columns);
         self.prepared.deinit(allocator);
         self.* = undefined;
@@ -265,19 +356,41 @@ pub const LazyQuotientProvider = struct {
             if (coord_buf.len < chunk_len) return QuotientOpsError.ShapeMismatch;
         }
 
-        var work = row_executor.StreamingWork{
-            .out_columns = out_coords.*,
-            .start = chunk_start,
-            .end = chunk_end,
-            .output_start = chunk_start,
-            .workspace = &self.workspace,
-            .scratch = if (self.chunk_scratch) |*scratch| scratch else null,
-            .domain = self.domain,
-            .combined_views = self.combined_views,
-            .quotient_constants = &self.prepared.quotient_constants,
-            .lifting_log_size = self.lifting_log_size,
-        };
-        try row_executor.executeStreaming(&work);
+        switch (self.input_mode) {
+            .bounded_cpu => {
+                var work = tile_executor.Work{
+                    .out_columns = out_coords.*,
+                    .start = chunk_start,
+                    .end = chunk_end,
+                    .output_start = chunk_start,
+                    .workspace = &self.workspace,
+                    .scratch = if (self.direct_chunk_scratch) |*scratch| scratch else null,
+                    .domain = self.domain,
+                    .column_views = self.direct_plan.views,
+                    .contribution_ranges = self.direct_plan.ranges,
+                    .contributions = self.prepared.contribution_plan.contributions,
+                    .quotient_constants = &self.prepared.quotient_constants,
+                    .lifting_log_size = self.lifting_log_size,
+                };
+                try tile_executor.execute(&work);
+            },
+            .combined_compatibility => {
+                var work = row_executor.StreamingWork{
+                    .out_columns = out_coords.*,
+                    .start = chunk_start,
+                    .end = chunk_end,
+                    .output_start = chunk_start,
+                    .workspace = &self.workspace,
+                    .scratch = if (self.chunk_scratch) |*scratch| scratch else null,
+                    .domain = self.domain,
+                    .combined_views = self.combined_views,
+                    .quotient_constants = &self.prepared.quotient_constants,
+                    .lifting_log_size = self.lifting_log_size,
+                };
+                try row_executor.executeStreaming(&work);
+            },
+            .raw_backend => return error.UnsupportedQuotientInputMode,
+        }
     }
 
     /// Materialize the full quotient column, splitting disjoint domain ranges
@@ -320,28 +433,61 @@ pub const LazyQuotientProvider = struct {
         }
 
         const writer = try factory.prepareWriter(0, .{ .start = 0, .end = self.domain_size });
-        var work = row_executor.StreamingWork{
-            .out_columns = out.columns,
-            .start = 0,
-            .end = self.domain_size,
-            .workspace = &self.workspace,
-            .scratch = if (self.chunk_scratch) |*scratch| scratch else null,
-            .domain = self.domain,
-            .combined_views = self.combined_views,
-            .quotient_constants = &self.prepared.quotient_constants,
-            .lifting_log_size = self.lifting_log_size,
-            .tile_writer = writer,
-        };
-        try row_executor.executeStreaming(&work);
+        var tile_count: usize = 0;
+        switch (self.input_mode) {
+            .bounded_cpu => {
+                var work = tile_executor.Work{
+                    .out_columns = out.columns,
+                    .start = 0,
+                    .end = self.domain_size,
+                    .workspace = &self.workspace,
+                    .scratch = if (self.direct_chunk_scratch) |*scratch| scratch else null,
+                    .domain = self.domain,
+                    .column_views = self.direct_plan.views,
+                    .contribution_ranges = self.direct_plan.ranges,
+                    .contributions = self.prepared.contribution_plan.contributions,
+                    .quotient_constants = &self.prepared.quotient_constants,
+                    .lifting_log_size = self.lifting_log_size,
+                    .tile_writer = writer,
+                };
+                try tile_executor.execute(&work);
+                tile_count = work.completed_tiles;
+            },
+            .combined_compatibility => {
+                var work = row_executor.StreamingWork{
+                    .out_columns = out.columns,
+                    .start = 0,
+                    .end = self.domain_size,
+                    .workspace = &self.workspace,
+                    .scratch = if (self.chunk_scratch) |*scratch| scratch else null,
+                    .domain = self.domain,
+                    .combined_views = self.combined_views,
+                    .quotient_constants = &self.prepared.quotient_constants,
+                    .lifting_log_size = self.lifting_log_size,
+                    .tile_writer = writer,
+                };
+                try row_executor.executeStreaming(&work);
+                tile_count = work.completed_tiles;
+            },
+            .raw_backend => return error.UnsupportedQuotientInputMode,
+        }
         try factory.finishWriters(1);
-        const scratch_bytes = if (self.chunk_scratch) |scratch| scratch.retainedBytes() else 0;
+        const scratch_bytes = switch (self.input_mode) {
+            .bounded_cpu => if (self.direct_chunk_scratch) |scratch| scratch.retainedBytes() else 0,
+            .combined_compatibility => if (self.chunk_scratch) |scratch| scratch.retainedBytes() else 0,
+            .raw_backend => 0,
+        };
         return .{
             .tile_pipeline_selected = true,
             .worker_count = 1,
             .tile_row_limit = tile_sink.DEFAULT_TILE_ROWS,
-            .tile_count = work.completed_tiles,
+            .tile_count = tile_count,
             .peak_scratch_bytes_per_worker = scratch_bytes,
             .total_scratch_bytes = scratch_bytes,
+            .bounded_numerator_tile_bytes_per_worker = if (self.direct_chunk_scratch) |scratch|
+                scratch.numeratorBytes()
+            else
+                0,
             .complete_column_combined_intermediate_bytes = try self.combinedIntermediateBytes(),
             .post_compute_leaf_pass_count = 0,
         };
@@ -366,6 +512,11 @@ pub const LazyQuotientProvider = struct {
         out: *SecureColumnByCoords,
         factory: ?tile_sink.Factory,
     ) !?tile_sink.ExecutionStats {
+        switch (self.input_mode) {
+            .bounded_cpu => return self.computeAllParallelDirect(allocator, out, factory),
+            .combined_compatibility => {},
+            .raw_backend => return null,
+        }
         const use_batched_inversion = self.chunk_scratch != null;
         if (!use_batched_inversion and !self.allow_parallel_scalar) return null;
         const pool = work_pool_mod.getGlobalPool() orelse return null;
@@ -458,12 +609,35 @@ pub const LazyQuotientProvider = struct {
             .tile_count = tile_count,
             .peak_scratch_bytes_per_worker = peak_scratch_bytes,
             .total_scratch_bytes = total_scratch_bytes,
+            .bounded_numerator_tile_bytes_per_worker = 0,
             .complete_column_combined_intermediate_bytes = if (factory != null)
                 try self.combinedIntermediateBytes()
             else
                 0,
             .post_compute_leaf_pass_count = if (factory == null) 1 else 0,
         };
+    }
+
+    fn computeAllParallelDirect(
+        self: *const LazyQuotientProvider,
+        allocator: std.mem.Allocator,
+        out: *SecureColumnByCoords,
+        factory: ?tile_sink.Factory,
+    ) !?tile_sink.ExecutionStats {
+        return tile_executor.executeParallel(allocator, .{
+            .out_columns = out.columns,
+            .domain_size = self.domain_size,
+            .sample_batches = self.prepared.sample_batches,
+            .use_batched_inversion = self.direct_chunk_scratch != null,
+            .allow_parallel_scalar = self.allow_parallel_scalar,
+            .domain = self.domain,
+            .column_views = self.direct_plan.views,
+            .contribution_ranges = self.direct_plan.ranges,
+            .contributions = self.prepared.contribution_plan.contributions,
+            .quotient_constants = &self.prepared.quotient_constants,
+            .lifting_log_size = self.lifting_log_size,
+            .factory = factory,
+        });
     }
 };
 
@@ -1360,18 +1534,19 @@ fn checkLazyProviderAllocationFailureCleanup(
     sampled_points: TreeVec([][]CirclePointQM31),
     sampled_values: TreeVec([][]QM31),
 ) !void {
-    var provider = try LazyQuotientProvider.init(
+    var provider = try LazyQuotientProvider.initWithMode(
         allocator,
         columns,
         sampled_points,
         sampled_values,
         QM31.fromU32Unchecked(3, 0, 1, 0),
         13,
+        .bounded_cpu,
     );
     defer provider.deinit(allocator);
 }
 
-test "prover pcs lazy quotient provider releases moved views on allocation failure" {
+test "prover pcs bounded quotient provider releases partial state on allocation failure" {
     const column_values = [_]M31{M31.one()} ** (1 << 13);
     var tree_columns = [_]ColumnEvaluation{.{
         .log_size = 13,

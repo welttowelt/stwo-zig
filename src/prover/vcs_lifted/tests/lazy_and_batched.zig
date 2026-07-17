@@ -24,7 +24,7 @@ test "MerkleProverLifted: commitWithLazyQuotients produces same root as standard
     const Hasher = blake2_merkle.Blake2sMerkleHasher;
     const Prover = MerkleProverLifted(Hasher);
 
-    const lifting_log_size: u32 = 9;
+    const lifting_log_size: u32 = 13;
     const domain_size = @as(usize, 1) << @intCast(lifting_log_size);
 
     // Build test trace columns.
@@ -160,7 +160,18 @@ test "MerkleProverLifted: commitWithLazyQuotients produces same root as standard
     try std.testing.expect(tiled_stats.tile_pipeline_selected);
     try std.testing.expect(tiled_stats.tile_count >= 2);
     try std.testing.expectEqual(@as(usize, 0), tiled_stats.post_compute_leaf_pass_count);
-    try std.testing.expect(tiled_stats.complete_column_combined_intermediate_bytes > 0);
+    try std.testing.expectEqual(
+        @as(usize, 0),
+        tiled_stats.complete_column_combined_intermediate_bytes,
+    );
+    try std.testing.expect(tiled_stats.bounded_numerator_tile_bytes_per_worker > 0);
+    try std.testing.expect(tiled_stats.peak_scratch_bytes_per_worker <= 8 * 1024 * 1024);
+    try std.testing.expectEqual(@as(usize, 8_192), tiled_stats.bounded_numerator_tile_bytes_per_worker);
+    try std.testing.expectEqual(@as(usize, 18_432), tiled_stats.peak_scratch_bytes_per_worker);
+    try std.testing.expect(
+        tiled_stats.bounded_numerator_tile_bytes_per_worker <=
+            tiled_stats.peak_scratch_bytes_per_worker,
+    );
     try std.testing.expectEqual(standard_tree.layers.len, lazy_tree.layers.len);
     for (standard_tree.layers, lazy_tree.layers) |standard_layer, lazy_layer| {
         try std.testing.expectEqualSlices(Hasher.Hash, standard_layer, lazy_layer);
@@ -171,13 +182,14 @@ test "MerkleProverLifted: commitWithLazyQuotients produces same root as standard
     for (columns.items, 0..) |tree_columns_for_provider, i| {
         borrowed_items3[i] = tree_columns_for_provider;
     }
-    var legacy_provider = try quotient_ops.LazyQuotientProvider.init(
+    var legacy_provider = try quotient_ops.LazyQuotientProvider.initWithMode(
         alloc,
         TreeVec([]const ColumnEvaluation).initOwned(borrowed_items3),
         sampled_points,
         sampled_values,
         alpha,
         lifting_log_size,
+        .combined_compatibility,
     );
     defer legacy_provider.deinit(alloc);
     var legacy_column = try SecureColumnByCoords.uninitialized(alloc, domain_size);
@@ -187,20 +199,69 @@ test "MerkleProverLifted: commitWithLazyQuotients produces same root as standard
         alloc,
         &legacy_provider,
         &legacy_column,
-        .legacy,
+        .tiled,
         &legacy_stats,
     );
     defer legacy_tree.deinit(alloc);
 
-    try std.testing.expect(!legacy_stats.tile_pipeline_selected);
-    try std.testing.expectEqual(@as(usize, 1), legacy_stats.post_compute_leaf_pass_count);
-    try std.testing.expectEqual(tiled_stats.complete_column_combined_intermediate_bytes, legacy_stats.complete_column_combined_intermediate_bytes);
+    try std.testing.expect(legacy_stats.tile_pipeline_selected);
+    try std.testing.expectEqual(@as(usize, 0), legacy_stats.post_compute_leaf_pass_count);
+    try std.testing.expect(legacy_stats.complete_column_combined_intermediate_bytes > 0);
+    try std.testing.expectEqual(
+        @as(usize, 131_584),
+        legacy_stats.complete_column_combined_intermediate_bytes,
+    );
+    try std.testing.expectEqual(@as(usize, 40_960), legacy_stats.peak_scratch_bytes_per_worker);
+    try std.testing.expectEqual(
+        @as(usize, 0),
+        legacy_stats.bounded_numerator_tile_bytes_per_worker,
+    );
+    try std.testing.expect(
+        tiled_stats.peak_scratch_bytes_per_worker <
+            legacy_stats.peak_scratch_bytes_per_worker +
+                legacy_stats.complete_column_combined_intermediate_bytes,
+    );
     for (0..domain_size) |i| {
         try std.testing.expect(lazy_column.at(i).eql(legacy_column.at(i)));
     }
     try std.testing.expectEqual(lazy_tree.layers.len, legacy_tree.layers.len);
     for (lazy_tree.layers, legacy_tree.layers) |tiled_layer, legacy_layer| {
         try std.testing.expectEqualSlices(Hasher.Hash, tiled_layer, legacy_layer);
+    }
+
+    const repeat_borrowed_items = try alloc.alloc([]const ColumnEvaluation, columns.items.len);
+    defer alloc.free(repeat_borrowed_items);
+    for (columns.items, 0..) |tree_columns_for_provider, i| {
+        repeat_borrowed_items[i] = tree_columns_for_provider;
+    }
+    var repeat_provider = try quotient_ops.LazyQuotientProvider.init(
+        alloc,
+        TreeVec([]const ColumnEvaluation).initOwned(repeat_borrowed_items),
+        sampled_points,
+        sampled_values,
+        alpha,
+        lifting_log_size,
+    );
+    defer repeat_provider.deinit(alloc);
+    var repeat_column = try SecureColumnByCoords.uninitialized(alloc, domain_size);
+    defer repeat_column.deinit(alloc);
+    var repeat_stats: Prover.LazyQuotientCommitStats = undefined;
+    var repeat_tree = try Prover.commitWithLazyQuotientsMode(
+        alloc,
+        &repeat_provider,
+        &repeat_column,
+        .tiled,
+        &repeat_stats,
+    );
+    defer repeat_tree.deinit(alloc);
+
+    try std.testing.expectEqual(tiled_stats.tile_count, repeat_stats.tile_count);
+    for (0..domain_size) |i| {
+        try std.testing.expect(lazy_column.at(i).eql(repeat_column.at(i)));
+    }
+    try std.testing.expectEqual(lazy_tree.layers.len, repeat_tree.layers.len);
+    for (lazy_tree.layers, repeat_tree.layers) |expected_layer, repeat_layer| {
+        try std.testing.expectEqualSlices(Hasher.Hash, expected_layer, repeat_layer);
     }
 }
 
