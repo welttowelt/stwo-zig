@@ -29,7 +29,8 @@ const cairo_arena_binding = @import("integrations/cairo_metal/arena_binding.zig"
 const cairo_proof_plan = @import("frontends/cairo/proof_plan.zig");
 const cairo_witness_bundle = @import("frontends/cairo/witness/bundle.zig");
 const cairo_oods = @import("integrations/cairo_metal/oods.zig");
-const cairo_quotient_inputs = @import("frontends/cairo/witness/quotient_inputs.zig");
+const cairo_quotient_inputs = @import("integrations/cairo_metal/quotient_inputs.zig");
+const cairo_quotient_reference = @import("integrations/cairo_metal/quotient_reference.zig");
 
 const M31 = m31.M31;
 const Hasher = blake2_merkle.Blake2sMerkleHasher;
@@ -50,6 +51,7 @@ test {
     std.testing.refAllDecls(cairo_arena_binding);
     std.testing.refAllDecls(cairo_oods);
     std.testing.refAllDecls(cairo_quotient_inputs);
+    std.testing.refAllDecls(cairo_quotient_reference);
 }
 
 test "metal: prepared state restore preserves immutable ranges and clears mutable bytes" {

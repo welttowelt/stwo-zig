@@ -6,6 +6,8 @@ test {
     _ = @import("core/fields/tests/m31.zig");
     _ = @import("core/pcs/quotients/tests.zig");
     _ = @import("integrations/cairo_metal/oods.zig");
+    _ = @import("integrations/cairo_metal/quotient_inputs.zig");
+    _ = @import("integrations/cairo_metal/quotient_reference.zig");
     _ = @import("integrations/cairo_metal/schedule_bindings.zig");
     _ = @import("prover/tests/mod.zig");
     _ = @import("interop/parity/mod.zig");

@@ -3,11 +3,15 @@
 pub const arena_binding = @import("arena_binding.zig");
 pub const memory_trace = @import("memory_trace.zig");
 pub const oods = @import("oods.zig");
+pub const quotient_inputs = @import("quotient_inputs.zig");
+pub const quotient_reference = @import("quotient_reference.zig");
 pub const eval_codegen = @import("eval_codegen.zig");
 pub const witness_codegen = @import("witness_codegen.zig");
 
 test {
     _ = oods;
+    _ = quotient_inputs;
+    _ = quotient_reference;
     _ = eval_codegen;
     _ = witness_codegen;
 }

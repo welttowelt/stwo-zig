@@ -6,7 +6,8 @@ const relation_bundle_mod = @import("frontends/cairo/witness/relation_bundle.zig
 const fixed_table_bundle_mod = @import("frontends/cairo/witness/fixed_table_bundle.zig");
 const composition_bundle_mod = @import("frontends/cairo/witness/composition_bundle.zig");
 const cairo_oods = @import("integrations/cairo_metal/oods.zig");
-const cairo_quotient_inputs = @import("frontends/cairo/witness/quotient_inputs.zig");
+const cairo_quotient_inputs = @import("integrations/cairo_metal/quotient_inputs.zig");
+const cairo_quotient_reference = @import("integrations/cairo_metal/quotient_reference.zig");
 const arena_binding_mod = @import("integrations/cairo_metal/arena_binding.zig");
 const metal_runtime = @import("backends/metal/runtime.zig");
 const protocol_recipes = @import("backends/metal/protocol_recipes.zig");
@@ -4253,8 +4254,8 @@ fn runOne(
                     bindings.quotient_first_linear_terms,
                     bindings.forward_twiddles,
                 );
-                const reference: ?cairo_quotient_inputs.ReferenceValidation = if (quotient_reference_path) |path|
-                    try cairo_quotient_inputs.validateReferenceFixture(
+                const reference: ?cairo_quotient_reference.ReferenceValidation = if (quotient_reference_path) |path|
+                    try cairo_quotient_reference.validateReferenceFixture(
                         allocator,
                         resident_arena,
                         composition_bundle.?,

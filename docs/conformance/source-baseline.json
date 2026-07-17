@@ -2,16 +2,6 @@
   "version": 1,
   "findings": [
     {
-      "key": "dependency:frontends/cairo/witness/quotient_inputs.zig->backends/metal/arena_plan.zig",
-      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
-      "plan": "docs/design/2026-07-17-source-conformance.md"
-    },
-    {
-      "key": "dependency:frontends/cairo/witness/quotient_inputs.zig->backends/metal/runtime.zig",
-      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
-      "plan": "docs/design/2026-07-17-source-conformance.md"
-    },
-    {
       "key": "dependency:frontends/riscv/prover.zig->backends/cpu_scalar/mod.zig",
       "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
       "plan": "docs/design/2026-07-17-source-conformance.md"
@@ -48,11 +38,6 @@
     },
     {
       "key": "file-size:frontends/cairo/statement_bootstrap.zig",
-      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
-      "plan": "docs/design/2026-07-17-source-conformance.md"
-    },
-    {
-      "key": "file-size:frontends/cairo/witness/quotient_inputs.zig",
       "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
       "plan": "docs/design/2026-07-17-source-conformance.md"
     },
