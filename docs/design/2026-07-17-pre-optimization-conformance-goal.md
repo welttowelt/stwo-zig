@@ -471,16 +471,22 @@ identity, setup attribution, or repository ownership.
 - [x] Metal shader families and runtime responsibilities are compartmentalized behind stable ABI.
 - [ ] The deterministic shared/Native core metallib passes manifest, export, ABI, AOT/JIT parity,
       authentication, cache, and release-admission gates.
-- [ ] CPU scalar/SIMD dispatch has exact capability ownership and differential tests.
-- [ ] CPU and selected Metal capability pass the complete six-example Native suite in Zig.
-- [ ] Zig-to-Rust and Rust-to-Zig Native proof interchange and the negative matrix pass.
-- [ ] Metal evidence proves device work and reports an exact `metal_hybrid` or `metal_resident`
+- [x] CPU scalar/SIMD dispatch has exact capability ownership and differential tests.
+- [x] CPU and selected Metal capability pass the complete six-example Native suite in Zig.
+- [x] Zig-to-Rust and Rust-to-Zig Native proof interchange and the negative matrix pass.
+- [x] Metal evidence proves device work and reports an exact `metal_hybrid` or `metal_resident`
       identity with all host stages and fallback counters.
-- [ ] Resource, cache, failure, teardown, and repeated-request tests show bounded ownership.
-- [ ] Local hooks and hosted CI invoke the same checked-in gate definitions.
-- [ ] A clean broad Native CPU/Metal benchmark and profiler baseline, raw samples, and delta history
+- [x] Resource, cache, failure, teardown, and repeated-request tests show bounded ownership.
+- [x] Local hooks and hosted CI invoke the same checked-in gate definitions.
+- [x] A clean broad Native CPU/Metal benchmark and profiler baseline, raw samples, and delta history
       are committed.
-- [ ] The working tree is clean and all generated build/evidence artifacts are reproducible.
+- [x] The working tree is clean and all generated build/evidence artifacts are reproducible.
+
+The remaining core-metallib item is an external hosted execution gate. Local manifest, admission,
+probe, ABI, cache, and AOT/JIT transcript tests pass, but this checkout resolves only
+`/Library/Developer/CommandLineTools`; `xcrun` cannot find `metal` or `metallib`. The checked-in
+macOS CI job runs `metal-core-aot-acceptance` with full Xcode. Keep the item open until that job
+produces a passing receipt for the final commit.
 
 Any unchecked item keeps aggressive optimization locked. Deferred Cairo, SN PIE, streaming,
 RISC-V, and SNIP-36 semantic or structural items do not appear in this checklist and cannot be
