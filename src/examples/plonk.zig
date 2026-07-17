@@ -12,9 +12,11 @@ const core_verifier = @import("../core/verifier.zig");
 const blake2_merkle = @import("../core/vcs_lifted/blake2_merkle.zig");
 const prover_air_accumulation = @import("../prover/air/accumulation.zig");
 const prover_component = @import("../prover/air/component_prover.zig");
-const prover_pcs = @import("../prover/pcs/mod.zig");
-const prover_prove = @import("../prover/prove.zig");
+const prover_engine = @import("../prover/engine.zig");
+const stage_profile = @import("../prover/stage_profile.zig");
 const secure_column = @import("../prover/secure_column.zig");
+const prover_transaction = @import("common/prover_transaction.zig");
+const trace_input = @import("plonk/input.zig");
 const CpuBackend = @import("../backends/cpu_scalar/mod.zig").CpuBackend;
 
 const M31 = m31.M31;
@@ -26,86 +28,45 @@ pub const MerkleChannel = blake2_merkle.Blake2sMerkleChannel;
 pub const Channel = channel_blake2s.Blake2sChannel;
 pub const Proof = core_proof.StarkProof(Hasher);
 pub const ExtendedProof = core_proof.ExtendedStarkProof(Hasher);
+pub const CpuProverEngine = prover_engine.ProverEngine(
+    CpuBackend,
+    Hasher,
+    MerkleChannel,
+    Channel,
+);
 
-pub const Statement = struct {
-    log_n_rows: u32,
-};
+pub fn ProverEngineForBackend(comptime Backend: type) type {
+    return prover_engine.ProverEngine(Backend, Hasher, MerkleChannel, Channel);
+}
+
+comptime {
+    prover_engine.assertProverEngine(CpuProverEngine);
+}
+
+pub const Statement = trace_input.Statement;
+pub const Trace = trace_input.Trace;
+pub const PreparedInput = trace_input.PreparedInput;
+pub const prepareInput = trace_input.prepare;
+pub const genTrace = trace_input.genTrace;
+pub const deinitTrace = trace_input.deinitTrace;
 
 pub const ProveOutput = struct {
     statement: Statement,
     proof: Proof,
 };
 
-pub const ProveExOutput = struct {
-    statement: Statement,
-    proof: ExtendedProof,
-};
+pub const ProveExOutput = prover_transaction.Output(Statement, ExtendedProof);
 
-pub const Trace = struct {
-    preprocessed: [4][]M31,
-    main: [4][]M31,
-};
-
-pub const Error = error{
-    InvalidLogSize,
+pub const Error = trace_input.Error || error{
     InvalidProofShape,
 };
-
-pub fn genTrace(
-    allocator: std.mem.Allocator,
-    statement: Statement,
-) (std.mem.Allocator.Error || Error)!Trace {
-    if (statement.log_n_rows == 0 or statement.log_n_rows >= 31) return Error.InvalidLogSize;
-    const n = checkedPow2(statement.log_n_rows) catch return Error.InvalidLogSize;
-
-    var preprocessed = try allocColumnSet(allocator, n);
-    errdefer freeColumnSet(allocator, preprocessed);
-    var main = try allocColumnSet(allocator, n);
-    errdefer freeColumnSet(allocator, main);
-
-    var fib = try allocator.alloc(M31, n + 2);
-    defer allocator.free(fib);
-    fib[0] = M31.one();
-    fib[1] = M31.one();
-    for (2..fib.len) |i| {
-        fib[i] = fib[i - 1].add(fib[i - 2]);
-    }
-
-    for (0..n) |i| {
-        preprocessed[0][i] = M31.fromU64(i);
-        preprocessed[1][i] = M31.fromU64(i + 1);
-        preprocessed[2][i] = M31.fromU64(i + 2);
-        preprocessed[3][i] = M31.one();
-
-        main[0][i] = M31.one();
-        main[1][i] = fib[i];
-        main[2][i] = fib[i + 1];
-        main[3][i] = fib[i + 2];
-    }
-
-    if (n >= 2) {
-        main[0][n - 1] = M31.zero();
-        main[0][n - 2] = M31.one();
-    }
-
-    return .{ .preprocessed = preprocessed, .main = main };
-}
-
-pub fn deinitTrace(allocator: std.mem.Allocator, trace: *Trace) void {
-    freeColumnSet(allocator, trace.preprocessed);
-    freeColumnSet(allocator, trace.main);
-    trace.* = undefined;
-}
 
 pub fn prove(
     allocator: std.mem.Allocator,
     pcs_config: pcs_core.PcsConfig,
     statement: Statement,
 ) anyerror!ProveOutput {
-    var output = try proveEx(allocator, pcs_config, statement, false);
-    const proof = output.proof.proof;
-    output.proof.aux.deinit(allocator);
-    return .{ .statement = output.statement, .proof = proof };
+    return proveWithEngine(CpuProverEngine, allocator, pcs_config, statement, null);
 }
 
 pub fn proveEx(
@@ -114,63 +75,253 @@ pub fn proveEx(
     statement: Statement,
     include_all_preprocessed_columns: bool,
 ) anyerror!ProveExOutput {
-    if (statement.log_n_rows == 0 or statement.log_n_rows >= 31) return Error.InvalidLogSize;
-
-    var channel = Channel{};
-    pcs_config.mixInto(&channel);
-
-    var scheme = try prover_pcs.CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel).init(
+    return proveExWithEngine(
+        CpuProverEngine,
         allocator,
         pcs_config,
-    );
-
-    const trace = try genTrace(allocator, statement);
-    var preprocessed_moved = false;
-    var main_moved = false;
-    defer {
-        if (!preprocessed_moved) freeColumnSet(allocator, trace.preprocessed);
-        if (!main_moved) freeColumnSet(allocator, trace.main);
-    }
-
-    const preprocessed_owned = try allocator.alloc(prover_pcs.ColumnEvaluation, trace.preprocessed.len);
-    errdefer allocator.free(preprocessed_owned);
-    for (trace.preprocessed, 0..) |col, i| {
-        preprocessed_owned[i] = .{
-            .log_size = statement.log_n_rows,
-            .values = col,
-        };
-    }
-    preprocessed_moved = true;
-    try scheme.commitOwned(allocator, preprocessed_owned, &channel);
-
-    const main_owned = try allocator.alloc(prover_pcs.ColumnEvaluation, trace.main.len);
-    errdefer allocator.free(main_owned);
-    for (trace.main, 0..) |col, i| {
-        main_owned[i] = .{
-            .log_size = statement.log_n_rows,
-            .values = col,
-        };
-    }
-    main_moved = true;
-    try scheme.commitOwned(allocator, main_owned, &channel);
-
-    mixStatement(&channel, statement);
-
-    const component = PlonkComponent{ .statement = statement };
-    const components = [_]prover_component.ComponentProver{component.asProverComponent()};
-
-    const proof = try prover_prove.proveEx(
-        CpuBackend,
-        Hasher,
-        MerkleChannel,
-        allocator,
-        components[0..],
-        &channel,
-        scheme,
+        statement,
         include_all_preprocessed_columns,
+        null,
     );
+}
 
-    return .{ .statement = statement, .proof = proof };
+pub fn proveProfiled(
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    statement: Statement,
+    recorder: *stage_profile.Recorder,
+) anyerror!ProveOutput {
+    return proveWithEngine(CpuProverEngine, allocator, pcs_config, statement, recorder);
+}
+
+pub fn proveExProfiled(
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    statement: Statement,
+    include_all_preprocessed_columns: bool,
+    recorder: *stage_profile.Recorder,
+) anyerror!ProveExOutput {
+    return proveExWithEngine(
+        CpuProverEngine,
+        allocator,
+        pcs_config,
+        statement,
+        include_all_preprocessed_columns,
+        recorder,
+    );
+}
+
+pub fn proveWithBackend(
+    comptime Backend: type,
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    statement: Statement,
+    recorder: ?*stage_profile.Recorder,
+) anyerror!ProveOutput {
+    return proveWithEngine(
+        ProverEngineForBackend(Backend),
+        allocator,
+        pcs_config,
+        statement,
+        recorder,
+    );
+}
+
+pub fn proveExWithBackend(
+    comptime Backend: type,
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    statement: Statement,
+    include_all_preprocessed_columns: bool,
+    recorder: ?*stage_profile.Recorder,
+) anyerror!ProveExOutput {
+    return proveExWithEngine(
+        ProverEngineForBackend(Backend),
+        allocator,
+        pcs_config,
+        statement,
+        include_all_preprocessed_columns,
+        recorder,
+    );
+}
+
+pub fn proveWithEngine(
+    comptime Engine: type,
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    statement: Statement,
+    recorder: ?*stage_profile.Recorder,
+) anyerror!ProveOutput {
+    var output = try proveExWithEngine(
+        Engine,
+        allocator,
+        pcs_config,
+        statement,
+        false,
+        recorder,
+    );
+    const proof = output.proof.proof;
+    output.proof.aux.deinit(allocator);
+    return .{ .statement = output.statement, .proof = proof };
+}
+
+pub fn proveExWithEngine(
+    comptime Engine: type,
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    statement: Statement,
+    include_all_preprocessed_columns: bool,
+    recorder: ?*stage_profile.Recorder,
+) anyerror!ProveExOutput {
+    const prepared = blk: {
+        var stage = try stage_profile.StageScope.begin(
+            recorder,
+            "trace_generation",
+            "Trace generation",
+        );
+        defer stage.end();
+        break :blk try prepareInput(allocator, statement);
+    };
+    return provePreparedExImpl(
+        Engine,
+        false,
+        {},
+        allocator,
+        pcs_config,
+        prepared,
+        include_all_preprocessed_columns,
+        recorder,
+    );
+}
+
+/// Proves a prepared Plonk trace and consumes it on success or failure.
+pub fn provePreparedWithEngine(
+    comptime Engine: type,
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    prepared: PreparedInput,
+    recorder: ?*stage_profile.Recorder,
+) anyerror!ProveOutput {
+    var output = try provePreparedExImpl(
+        Engine,
+        false,
+        {},
+        allocator,
+        pcs_config,
+        prepared,
+        false,
+        recorder,
+    );
+    const proof = output.proof.proof;
+    output.proof.aux.deinit(allocator);
+    return .{ .statement = output.statement, .proof = proof };
+}
+
+pub fn provePreparedExWithEngine(
+    comptime Engine: type,
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    prepared: PreparedInput,
+    include_all_preprocessed_columns: bool,
+    recorder: ?*stage_profile.Recorder,
+) anyerror!ProveExOutput {
+    return provePreparedExImpl(
+        Engine,
+        false,
+        {},
+        allocator,
+        pcs_config,
+        prepared,
+        include_all_preprocessed_columns,
+        recorder,
+    );
+}
+
+/// Proves with immutable twiddles borrowed from `session`.
+pub fn provePreparedWithSessionAndEngine(
+    comptime Engine: type,
+    session: *const Engine.Session,
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    prepared: PreparedInput,
+    recorder: ?*stage_profile.Recorder,
+) anyerror!ProveOutput {
+    var output = try provePreparedExImpl(
+        Engine,
+        true,
+        session,
+        allocator,
+        pcs_config,
+        prepared,
+        false,
+        recorder,
+    );
+    const proof = output.proof.proof;
+    output.proof.aux.deinit(allocator);
+    return .{ .statement = output.statement, .proof = proof };
+}
+
+pub fn provePreparedExWithSessionAndEngine(
+    comptime Engine: type,
+    session: *const Engine.Session,
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    prepared: PreparedInput,
+    include_all_preprocessed_columns: bool,
+    recorder: ?*stage_profile.Recorder,
+) anyerror!ProveExOutput {
+    return provePreparedExImpl(
+        Engine,
+        true,
+        session,
+        allocator,
+        pcs_config,
+        prepared,
+        include_all_preprocessed_columns,
+        recorder,
+    );
+}
+
+fn provePreparedExImpl(
+    comptime Engine: type,
+    comptime use_session: bool,
+    session: if (use_session) *const Engine.Session else void,
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    prepared: PreparedInput,
+    include_all_preprocessed_columns: bool,
+    recorder: ?*stage_profile.Recorder,
+) anyerror!ProveExOutput {
+    return prover_transaction.provePreparedEx(
+        Engine,
+        ProvingSpec,
+        use_session,
+        session,
+        allocator,
+        pcs_config,
+        prepared,
+        .{
+            .include_all_preprocessed_columns = include_all_preprocessed_columns,
+            .recorder = recorder,
+        },
+    );
+}
+
+pub fn requiredTwiddleCircleLog(
+    statement: Statement,
+    pcs_config: pcs_core.PcsConfig,
+) Error!u32 {
+    const composition_log = std.math.add(u32, statement.log_n_rows, 1) catch
+        return error.InvalidLogSize;
+    const commitment_log = std.math.add(
+        u32,
+        statement.log_n_rows,
+        pcs_config.fri_config.log_blowup_factor,
+    ) catch return error.InvalidLogSize;
+    return @max(
+        @max(composition_log, commitment_log),
+        pcs_config.lifting_log_size orelse 0,
+    );
 }
 
 pub fn verify(
@@ -343,6 +494,68 @@ const PlonkComponent = struct {
     }
 };
 
+const ProvingSpec = struct {
+    pub const Statement = trace_input.Statement;
+    pub const PreparedInput = trace_input.PreparedInput;
+    pub const max_components: usize = 1;
+
+    pub const ProverContext = struct {
+        statement_value: trace_input.Statement,
+        component: PlonkComponent,
+    };
+
+    pub fn validateRequest(request: trace_input.Statement) Error!void {
+        try trace_input.validate(request);
+    }
+
+    pub fn validatePrepared(prepared: *const trace_input.PreparedInput) Error!void {
+        const preprocessed = prepared.trace.preprocessed.columns orelse
+            return error.PreparedInputConsumed;
+        const main = prepared.trace.main.columns orelse
+            return error.PreparedInputConsumed;
+        if (preprocessed.len != 4 or main.len != 4)
+            return error.InvalidPreparedGeometry;
+        for (preprocessed) |column| {
+            if (column.log_size != prepared.request.log_n_rows)
+                return error.InvalidPreparedGeometry;
+        }
+        for (main) |column| {
+            if (column.log_size != prepared.request.log_n_rows)
+                return error.InvalidPreparedGeometry;
+        }
+    }
+
+    pub fn compositionLog(request: trace_input.Statement) Error!u32 {
+        return std.math.add(u32, request.log_n_rows, 1) catch
+            return error.InvalidLogSize;
+    }
+
+    pub fn initProverContext(
+        out: *ProverContext,
+        channel: *Channel,
+        request: trace_input.Statement,
+    ) !void {
+        mixStatement(channel, request);
+        out.* = .{
+            .statement_value = request,
+            .component = .{ .statement = request },
+        };
+    }
+
+    pub fn statement(context: *const ProverContext) trace_input.Statement {
+        return context.statement_value;
+    }
+
+    pub fn proverComponents(
+        context: *const ProverContext,
+        out: []prover_component.ComponentProver,
+    ) ![]const prover_component.ComponentProver {
+        if (out.len < max_components) return error.InvalidProofShape;
+        out[0] = context.component.asProverComponent();
+        return out[0..1];
+    }
+};
+
 fn compositionEval(statement: Statement) QM31 {
     return QM31.fromM31(
         M31.fromCanonical(statement.log_n_rows),
@@ -354,30 +567,6 @@ fn compositionEval(statement: Statement) QM31 {
 
 fn mixStatement(channel: *Channel, statement: Statement) void {
     channel.mixU32s(&[_]u32{statement.log_n_rows});
-}
-
-fn checkedPow2(log_size: u32) Error!usize {
-    if (log_size >= @bitSizeOf(usize)) return Error.InvalidLogSize;
-    return @as(usize, 1) << @intCast(log_size);
-}
-
-fn allocColumnSet(allocator: std.mem.Allocator, n: usize) ![4][]M31 {
-    var cols: [4][]M31 = undefined;
-    var init_count: usize = 0;
-    errdefer {
-        var i: usize = 0;
-        while (i < init_count) : (i += 1) allocator.free(cols[i]);
-    }
-    for (&cols) |*col| {
-        col.* = try allocator.alloc(M31, n);
-        @memset(col.*, M31.zero());
-        init_count += 1;
-    }
-    return cols;
-}
-
-fn freeColumnSet(allocator: std.mem.Allocator, cols: [4][]M31) void {
-    for (cols) |col| allocator.free(col);
 }
 
 fn allocMaskCols(
