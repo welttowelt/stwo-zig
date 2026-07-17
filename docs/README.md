@@ -5,6 +5,9 @@ context. Root-level project entry points are limited to `README.md` and `CONTRIB
 
 ## Normative Contracts
 
+- [`design/2026-07-17-pre-optimization-conformance-goal.md`](design/2026-07-17-pre-optimization-conformance-goal.md):
+  active repository-wide correctness, production-admission, structure, and optimization-unlock
+  goal.
 - [`conformance/contract.md`](conformance/contract.md): release and parity requirements.
 - [`conformance/upstream.md`](conformance/upstream.md): exact Rust Stwo compatibility pin and upgrade
   policy. The pinned Rust implementation is the final correctness oracle.
