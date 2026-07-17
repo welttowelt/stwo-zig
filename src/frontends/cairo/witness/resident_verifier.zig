@@ -1,68 +1,52 @@
+//! Cairo resident-proof transcript replay and generic verifier orchestration.
+
 const std = @import("std");
 const air_accumulation = @import("../../../core/air/accumulation.zig");
 const air_components = @import("../../../core/air/components.zig");
 const circle = @import("../../../core/circle.zig");
 const constraints = @import("../../../core/constraints.zig");
-const channel_blake2s = @import("../../../core/channel/blake2s.zig");
-const fri = @import("../../../core/fri.zig");
-const m31 = @import("../../../core/fields/m31.zig");
-const qm31 = @import("../../../core/fields/qm31.zig");
 const pcs = @import("../../../core/pcs/mod.zig");
 const pcs_verifier = @import("../../../core/pcs/verifier.zig");
-const line = @import("../../../core/poly/line.zig");
 const canonic = @import("../../../core/poly/circle/canonic.zig");
-const proof_mod = @import("../../../core/proof.zig");
 const core_verifier = @import("../../../core/verifier.zig");
-const blake2_merkle = @import("../../../core/vcs_lifted/blake2_merkle.zig");
 const vcs_verifier = @import("../../../core/vcs_lifted/verifier.zig");
 const composition_bundle = @import("composition_bundle.zig");
 const eval_program = @import("eval_program.zig");
 const proof_bundle = @import("proof_bundle.zig");
+const geometry = @import("resident_geometry.zig");
+const proof_reconstruction = @import("resident_proof.zig");
+const types = @import("resident_types.zig");
 
-const M31 = m31.M31;
-const QM31 = qm31.QM31;
+const M31 = types.M31;
+const QM31 = types.QM31;
 const Point = circle.CirclePointQM31;
 
-pub const Hasher = blake2_merkle.Blake2sMerkleHasher;
-pub const Proof = proof_mod.StarkProof(Hasher);
-pub const Channel = channel_blake2s.Blake2sChannel;
-pub const MerkleChannel = blake2_merkle.Blake2sMerkleChannel;
+pub const Hasher = types.Hasher;
+pub const Proof = types.Proof;
+pub const Channel = types.Channel;
+pub const MerkleChannel = types.MerkleChannel;
+pub const sn2_pow_bits = types.sn2_pow_bits;
+pub const sn2_interaction_pow_bits = types.sn2_interaction_pow_bits;
+pub const sn2_query_count = types.sn2_query_count;
+pub const sn2_fold_step = types.sn2_fold_step;
+pub const Error = types.Error;
+pub const SampleShape = types.SampleShape;
+pub const TranscriptInput = types.TranscriptInput;
+pub const VerifyInput = types.VerifyInput;
+pub const decodeProof = proof_reconstruction.decodeProof;
+pub const sampleShape = geometry.sampleShape;
+pub const freeSampleShape = geometry.freeSampleShape;
 
-pub const sn2_pow_bits: u32 = 26;
-pub const sn2_interaction_pow_bits: u32 = 24;
-pub const sn2_query_count: usize = 70;
-pub const sn2_fold_step: u32 = 3;
-
-pub const Error = error{
-    InvalidProofShape,
-    InvalidSampleShape,
-    InvalidTraceShape,
-    InvalidFriShape,
-    InvalidComponentShape,
-    InvalidProgram,
-    NonCanonicalM31,
-    MissingMaskValue,
-};
-
-pub const SampleShape = struct {
-    /// Per tree, per column, number of OODS samples in transcript order.
-    trees: []const []const usize,
-};
-
-pub const TranscriptInput = struct {
-    ordinal: u32,
-    words: []const u32,
-};
-
-pub const VerifyInput = struct {
-    bundle: proof_bundle.ProofBundle,
-    composition: composition_bundle.Bundle,
-    /// Degree logs for the preprocessed, base, and interaction trees.
-    tree_logs: [3][]const u32,
-    /// Direct-PIE statement transcript prefix. Roots and proof payloads are
-    /// cross-checked against the resident bundle before they are absorbed.
-    transcript_inputs: []const TranscriptInput,
-};
+const qm31FromWords = types.qm31FromWords;
+const qm31Words = types.qm31Words;
+const validateMaximumDegreeLog = geometry.validateMaximumDegreeLog;
+const componentSpan = geometry.componentSpan;
+const spanLength = geometry.spanLength;
+const componentOffsets = geometry.componentOffsets;
+const freeOffsetLists = geometry.freeOffsetLists;
+const pointsFromOffsets = geometry.pointsFromOffsets;
+const freePointTree = geometry.freePointTree;
+const offsetIndex = geometry.offsetIndex;
 
 /// Replays the direct Cairo transcript and runs the generic AIR/PCS/FRI
 /// verifier. Success is the only state a caller may expose as `verified`.
@@ -230,263 +214,6 @@ fn transcriptWords(inputs: []const TranscriptInput, ordinal: u32) ?[]const u32 {
 fn hashWordsEqual(candidate: ?[]const u32, expected: []const u32) bool {
     const words = candidate orelse return false;
     return words.len == proof_bundle.hash_words and std.mem.eql(u32, words, expected);
-}
-
-/// Converts the compact resident SN2 serialization into the verifier's owned
-/// generic proof type. AIR sample cardinalities are deliberately supplied by
-/// the caller: they are statement metadata and must not be inferred from the
-/// untrusted flattened sample payload.
-pub fn decodeProof(
-    allocator: std.mem.Allocator,
-    bundle: proof_bundle.ProofBundle,
-    sample_shape: SampleShape,
-) !Proof {
-    if (sample_shape.trees.len != 4 or bundle.decommitment.trees.len != 12)
-        return Error.InvalidProofShape;
-
-    const commitments = try decodeCommitments(allocator, bundle);
-    errdefer allocator.free(commitments);
-    const sampled_values = try decodeSampledValues(allocator, bundle, sample_shape);
-    errdefer {
-        var values = sampled_values;
-        values.deinitDeep(allocator);
-    }
-    const trace = try decodeTraceOpenings(allocator, bundle);
-    errdefer {
-        var decommitments = trace.decommitments;
-        for (decommitments.items) |*decommitment| decommitment.deinit(allocator);
-        decommitments.deinit(allocator);
-        var queried_values = trace.queried_values;
-        queried_values.deinitDeep(allocator);
-    }
-    const fri_proof = try decodeFriProof(allocator, bundle);
-    errdefer {
-        var proof = fri_proof;
-        proof.deinit(allocator);
-    }
-
-    var fri_config = try fri.FriConfig.init(0, 1, sn2_query_count);
-    fri_config.fold_step = sn2_fold_step;
-    return .{
-        .commitment_scheme_proof = .{
-            .config = .{
-                .pow_bits = sn2_pow_bits,
-                .fri_config = fri_config,
-                .lifting_log_size = null,
-            },
-            .commitments = pcs.TreeVec(Hasher.Hash).initOwned(commitments),
-            .sampled_values = sampled_values,
-            .decommitments = trace.decommitments,
-            .queried_values = trace.queried_values,
-            .proof_of_work = bundle.queryNonce(),
-            .fri_proof = fri_proof,
-        },
-    };
-}
-
-const TraceOpenings = struct {
-    decommitments: pcs.TreeVec(vcs_verifier.MerkleDecommitmentLifted(Hasher)),
-    queried_values: pcs.TreeVec([][]M31),
-};
-
-fn decodeCommitments(allocator: std.mem.Allocator, bundle: proof_bundle.ProofBundle) ![]Hasher.Hash {
-    const words = bundle.words[bundle.layout.commitments.start..bundle.layout.commitments.end];
-    if (words.len != 4 * proof_bundle.hash_words) return Error.InvalidProofShape;
-    const out = try allocator.alloc(Hasher.Hash, 4);
-    for (out, 0..) |*hash, index| {
-        @memcpy(hash, std.mem.sliceAsBytes(words[index * proof_bundle.hash_words ..][0..proof_bundle.hash_words]));
-    }
-    return out;
-}
-
-fn decodeSampledValues(
-    allocator: std.mem.Allocator,
-    bundle: proof_bundle.ProofBundle,
-    shape: SampleShape,
-) !pcs.TreeVec([][]QM31) {
-    const words = bundle.words[bundle.layout.sampled_values.start..bundle.layout.sampled_values.end];
-    if (words.len % 4 != 0) return Error.InvalidSampleShape;
-    var expected: usize = 0;
-    for (shape.trees) |tree| for (tree) |count| {
-        expected = std.math.add(usize, expected, count) catch return Error.InvalidSampleShape;
-    };
-    if (expected * 4 != words.len) return Error.InvalidSampleShape;
-
-    const trees = try allocator.alloc([][]QM31, shape.trees.len);
-    errdefer allocator.free(trees);
-    var initialized: usize = 0;
-    errdefer for (trees[0..initialized]) |tree| freeQm31Tree(allocator, tree);
-    var cursor: usize = 0;
-    for (shape.trees, 0..) |tree_shape, tree_index| {
-        const columns = try allocator.alloc([]QM31, tree_shape.len);
-        errdefer allocator.free(columns);
-        var columns_initialized: usize = 0;
-        errdefer for (columns[0..columns_initialized]) |column| allocator.free(column);
-        for (tree_shape, columns) |count, *column| {
-            column.* = try allocator.alloc(QM31, count);
-            for (column.*) |*value| {
-                value.* = try qm31FromWords(words[cursor..][0..4]);
-                cursor += 4;
-            }
-            columns_initialized += 1;
-        }
-        trees[tree_index] = columns;
-        initialized += 1;
-    }
-    return pcs.TreeVec([][]QM31).initOwned(trees);
-}
-
-fn decodeTraceOpenings(allocator: std.mem.Allocator, bundle: proof_bundle.ProofBundle) !TraceOpenings {
-    const decommitments = try allocator.alloc(vcs_verifier.MerkleDecommitmentLifted(Hasher), 4);
-    errdefer allocator.free(decommitments);
-    const queried_values = try allocator.alloc([][]M31, 4);
-    errdefer allocator.free(queried_values);
-    var initialized: usize = 0;
-    errdefer {
-        for (decommitments[0..initialized]) |*decommitment| decommitment.deinit(allocator);
-        for (queried_values[0..initialized]) |tree| freeM31Tree(allocator, tree);
-    }
-
-    for (0..4) |tree_index| {
-        const meta = bundle.decommitment.trees[tree_index];
-        if (meta.kind != 0 or meta.role != tree_index or meta.query_count == 0 or
-            meta.values_count % meta.query_count != 0 or meta.fri_witness_count != 0)
-            return Error.InvalidTraceShape;
-        const column_count = meta.values_count / meta.query_count;
-        const values_words = treeWords(bundle, meta.values_offset, meta.values_count) catch
-            return Error.InvalidTraceShape;
-        const columns = try allocator.alloc([]M31, column_count);
-        errdefer allocator.free(columns);
-        var columns_initialized: usize = 0;
-        errdefer for (columns[0..columns_initialized]) |column| allocator.free(column);
-        for (columns, 0..) |*column, column_index| {
-            column.* = try allocator.alloc(M31, meta.query_count);
-            for (column.*, 0..) |*value, query_index| {
-                value.* = try m31FromWord(values_words[column_index * meta.query_count + query_index]);
-            }
-            columns_initialized += 1;
-        }
-        queried_values[tree_index] = columns;
-        decommitments[tree_index] = .{
-            .hash_witness = try decodeHashes(allocator, bundle, meta.hash_witness_offset, meta.hash_witness_count),
-        };
-        initialized += 1;
-    }
-
-    return .{
-        .decommitments = pcs.TreeVec(vcs_verifier.MerkleDecommitmentLifted(Hasher)).initOwned(decommitments),
-        .queried_values = pcs.TreeVec([][]M31).initOwned(queried_values),
-    };
-}
-
-fn decodeFriProof(allocator: std.mem.Allocator, bundle: proof_bundle.ProofBundle) !fri.FriProof(Hasher) {
-    const layers = try allocator.alloc(fri.FriLayerProof(Hasher), 8);
-    defer allocator.free(layers);
-    var initialized: usize = 0;
-    errdefer for (layers[0..initialized]) |*layer| layer.deinit(allocator);
-    const roots = bundle.words[bundle.layout.fri_commitments.start..bundle.layout.fri_commitments.end];
-    if (roots.len != 8 * proof_bundle.hash_words) return Error.InvalidFriShape;
-
-    for (0..8) |round| {
-        const meta = bundle.decommitment.trees[4 + round];
-        if (meta.kind != 1 or meta.role != 4 + round or meta.values_count != 0)
-            return Error.InvalidFriShape;
-        const witness_words = treeWords(
-            bundle,
-            meta.fri_witness_offset,
-            meta.fri_witness_count * 4,
-        ) catch return Error.InvalidFriShape;
-        const witness = try allocator.alloc(QM31, meta.fri_witness_count);
-        errdefer allocator.free(witness);
-        for (witness, 0..) |*value, index| value.* = try qm31FromWords(witness_words[index * 4 ..][0..4]);
-        var commitment: Hasher.Hash = undefined;
-        @memcpy(
-            &commitment,
-            std.mem.sliceAsBytes(roots[round * proof_bundle.hash_words ..][0..proof_bundle.hash_words]),
-        );
-        layers[round] = .{
-            .fri_witness = witness,
-            .decommitment = .{
-                .hash_witness = try decodeHashes(
-                    allocator,
-                    bundle,
-                    meta.hash_witness_offset,
-                    meta.hash_witness_count,
-                ),
-            },
-            .commitment = commitment,
-        };
-        initialized += 1;
-    }
-
-    const inner = try allocator.alloc(fri.FriLayerProof(Hasher), 7);
-    errdefer allocator.free(inner);
-    @memcpy(inner, layers[1..8]);
-    const final_words = bundle.words[bundle.layout.final_line_poly.start..bundle.layout.final_line_poly.end];
-    if (final_words.len % 4 != 0) return Error.InvalidFriShape;
-    const coefficients = try allocator.alloc(QM31, final_words.len / 4);
-    errdefer allocator.free(coefficients);
-    for (coefficients, 0..) |*coefficient, index| {
-        coefficient.* = try qm31FromWords(final_words[index * 4 ..][0..4]);
-    }
-    initialized = 0;
-    return .{
-        .first_layer = layers[0],
-        .inner_layers = inner,
-        .last_layer_poly = line.LinePoly.initOwned(coefficients),
-    };
-}
-
-fn decodeHashes(
-    allocator: std.mem.Allocator,
-    bundle: proof_bundle.ProofBundle,
-    offset: usize,
-    count: usize,
-) ![]Hasher.Hash {
-    const words = treeWords(bundle, offset, count * proof_bundle.hash_words) catch
-        return Error.InvalidProofShape;
-    const hashes = try allocator.alloc(Hasher.Hash, count);
-    for (hashes, 0..) |*hash, index| {
-        @memcpy(hash, std.mem.sliceAsBytes(words[index * proof_bundle.hash_words ..][0..proof_bundle.hash_words]));
-    }
-    return hashes;
-}
-
-fn treeWords(bundle: proof_bundle.ProofBundle, offset: usize, count: usize) ![]const u32 {
-    const words = bundle.decommitment.words;
-    const end = std.math.add(usize, offset, count) catch return Error.InvalidProofShape;
-    if (end > words.len) return Error.InvalidProofShape;
-    return words[offset..end];
-}
-
-fn m31FromWord(word: u32) Error!M31 {
-    if (word >= m31.Modulus) return Error.NonCanonicalM31;
-    return M31.fromCanonical(word);
-}
-
-fn qm31FromWords(words: []const u32) Error!QM31 {
-    if (words.len != 4) return Error.InvalidProofShape;
-    return QM31.fromM31(
-        try m31FromWord(words[0]),
-        try m31FromWord(words[1]),
-        try m31FromWord(words[2]),
-        try m31FromWord(words[3]),
-    );
-}
-
-fn qm31Words(value: QM31) [4]u32 {
-    const coordinates = value.toM31Array();
-    return .{ coordinates[0].v, coordinates[1].v, coordinates[2].v, coordinates[3].v };
-}
-
-fn freeQm31Tree(allocator: std.mem.Allocator, tree: [][]QM31) void {
-    for (tree) |column| allocator.free(column);
-    allocator.free(tree);
-}
-
-fn freeM31Tree(allocator: std.mem.Allocator, tree: [][]M31) void {
-    for (tree) |column| allocator.free(column);
-    allocator.free(tree);
 }
 
 /// Verifier-side wrapper for one captured Cairo AIR component. The captured
@@ -792,156 +519,6 @@ pub const RuntimeComponent = struct {
     }
 };
 
-fn validateMaximumDegreeLog(lifting_log_size: u32, max_log_degree_bound: u32) !void {
-    if (lifting_log_size == 0 or max_log_degree_bound != lifting_log_size - 1)
-        return Error.InvalidComponentShape;
-}
-
-const Span = struct { start: usize, end: usize };
-
-fn componentSpan(component: composition_bundle.Component, tree: u32) !Span {
-    var found: ?Span = null;
-    for (component.trace_spans) |span| {
-        if (span.tree != tree) continue;
-        if (found != null or span.start > span.end) return Error.InvalidComponentShape;
-        found = .{ .start = span.start, .end = span.end };
-    }
-    return found orelse Error.InvalidComponentShape;
-}
-
-fn spanLength(component: composition_bundle.Component, tree: u32) !usize {
-    const span = try componentSpan(component, tree);
-    return span.end - span.start;
-}
-
-fn componentOffsets(
-    allocator: std.mem.Allocator,
-    component: composition_bundle.Component,
-    tree: u32,
-) ![]std.ArrayList(i32) {
-    const offsets = try allocator.alloc(std.ArrayList(i32), try spanLength(component, tree));
-    for (offsets) |*list| list.* = .empty;
-    errdefer freeOffsetLists(allocator, offsets);
-    for (component.parts) |part| for (part.program.base_insts) |instruction| {
-        if (instruction.op != .trace_col or instruction.interaction != tree) continue;
-        if (instruction.a >= offsets.len) return Error.InvalidComponentShape;
-        var exists = false;
-        for (offsets[instruction.a].items) |existing| exists = exists or existing == instruction.imm;
-        if (!exists) try offsets[instruction.a].append(allocator, instruction.imm);
-    };
-    for (offsets) |list| if (list.items.len == 0) return Error.InvalidComponentShape;
-    return offsets;
-}
-
-fn freeOffsetLists(allocator: std.mem.Allocator, lists: []std.ArrayList(i32)) void {
-    for (lists) |*list| list.deinit(allocator);
-    allocator.free(lists);
-}
-
-fn pointsFromOffsets(
-    allocator: std.mem.Allocator,
-    offsets: []const std.ArrayList(i32),
-    point: Point,
-    step: Point,
-) ![][]Point {
-    const columns = try allocator.alloc([]Point, offsets.len);
-    errdefer allocator.free(columns);
-    var initialized: usize = 0;
-    errdefer for (columns[0..initialized]) |column| allocator.free(column);
-    for (offsets, columns) |column_offsets, *column| {
-        column.* = try allocator.alloc(Point, column_offsets.items.len);
-        for (column_offsets.items, column.*) |offset, *sample_point| {
-            sample_point.* = point.add(step.mulSigned(offset));
-        }
-        initialized += 1;
-    }
-    return columns;
-}
-
-fn freePointTree(allocator: std.mem.Allocator, tree: [][]Point) void {
-    for (tree) |column| allocator.free(column);
-    allocator.free(tree);
-}
-
-fn offsetIndex(offsets: []const i32, wanted: i32) ?usize {
-    for (offsets, 0..) |offset, index| if (offset == wanted) return index;
-    return null;
-}
-
-/// Derives the exact sampled-value tree shape from the captured programs.
-/// The returned slices are owned and can be passed directly to `decodeProof`.
-pub fn sampleShape(
-    allocator: std.mem.Allocator,
-    bundle: composition_bundle.Bundle,
-    tree_column_counts: [3]usize,
-) ![][]usize {
-    const used_preprocessed = try allocator.alloc(bool, tree_column_counts[0]);
-    defer allocator.free(used_preprocessed);
-    @memset(used_preprocessed, false);
-    const base_counts = try allocator.alloc(usize, tree_column_counts[1]);
-    defer allocator.free(base_counts);
-    @memset(base_counts, 0);
-    const interaction_counts = try allocator.alloc(usize, tree_column_counts[2]);
-    defer allocator.free(interaction_counts);
-    @memset(interaction_counts, 0);
-
-    for (bundle.components) |component| {
-        for (component.preprocessed_indices) |index| {
-            if (index >= used_preprocessed.len) return Error.InvalidComponentShape;
-        }
-        const base_span = try componentSpan(component, 1);
-        const interaction_span = try componentSpan(component, 2);
-        const base_offsets = try componentOffsets(allocator, component, 1);
-        defer freeOffsetLists(allocator, base_offsets);
-        const interaction_offsets = try componentOffsets(allocator, component, 2);
-        defer freeOffsetLists(allocator, interaction_offsets);
-        for (component.parts) |part| for (part.program.base_insts) |instruction| switch (instruction.op) {
-            .preprocessed_col => {
-                if (instruction.a >= component.preprocessed_indices.len) return Error.InvalidComponentShape;
-                used_preprocessed[component.preprocessed_indices[instruction.a]] = true;
-            },
-            .trace_col => switch (instruction.interaction) {
-                0 => {
-                    if (instruction.a >= component.preprocessed_indices.len) return Error.InvalidComponentShape;
-                    used_preprocessed[component.preprocessed_indices[instruction.a]] = true;
-                },
-                else => {},
-            },
-            else => {},
-        };
-        if (base_span.end > base_counts.len or interaction_span.end > interaction_counts.len)
-            return Error.InvalidComponentShape;
-        for (base_offsets, 0..) |offsets, local| base_counts[base_span.start + local] = offsets.items.len;
-        for (interaction_offsets, 0..) |offsets, local| interaction_counts[interaction_span.start + local] = offsets.items.len;
-    }
-
-    const trees = try allocator.alloc([]usize, 4);
-    errdefer allocator.free(trees);
-    var initialized: usize = 0;
-    errdefer for (trees[0..initialized]) |tree| allocator.free(tree);
-    trees[0] = try allocator.alloc(usize, used_preprocessed.len);
-    initialized += 1;
-    for (used_preprocessed, trees[0]) |used, *count| count.* = @intFromBool(used);
-    trees[1] = try allocator.dupe(usize, base_counts);
-    initialized += 1;
-    trees[2] = try allocator.dupe(usize, interaction_counts);
-    initialized += 1;
-    trees[3] = try allocator.dupe(usize, &[_]usize{1} ** 8);
-    return trees;
-}
-
-pub fn freeSampleShape(allocator: std.mem.Allocator, shape: [][]usize) void {
-    for (shape) |tree| allocator.free(tree);
-    allocator.free(shape);
-}
-
-test "resident verifier accepts runtime lifting logs 24 and 25" {
-    try validateMaximumDegreeLog(24, 23);
-    try validateMaximumDegreeLog(25, 24);
-    try std.testing.expectError(Error.InvalidComponentShape, validateMaximumDegreeLog(24, 24));
-    try std.testing.expectError(Error.InvalidComponentShape, validateMaximumDegreeLog(0, 0));
-}
-
 test "resident verifier evaluates secure OODS trace samples in QM31" {
     const allocator = std.testing.allocator;
     var label = [_]u8{'t'};
@@ -1045,135 +622,4 @@ test "resident verifier evaluates secure OODS trace samples in QM31" {
         &accumulator,
     );
     try std.testing.expect(accumulator.finalize().eql(QM31.fromPartialEvals(values)));
-}
-
-test "resident verifier derives exact SN2 OODS shape" {
-    const allocator = std.testing.allocator;
-    var captured = try composition_bundle.Bundle.readFile(
-        allocator,
-        "vectors/cairo/sn_pie_2_composition.bin",
-    );
-    defer captured.deinit();
-    if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_LOG_CAPTURED_PARTS")) {
-        const component = captured.components[0];
-        for (component.parts, 0..) |part, part_index| {
-            std.debug.print(
-                "captured_part index={} rc_base={} constraints={} base_insts={} ext_insts={} roots={any}\n",
-                .{
-                    part_index,
-                    part.rc_base,
-                    part.program.header.n_constraints,
-                    part.program.base_insts.len,
-                    part.program.ext_insts.len,
-                    part.program.constraint_roots,
-                },
-            );
-        }
-    }
-    const shape = try sampleShape(allocator, captured, .{ 161, 3449, 2268 });
-    defer freeSampleShape(allocator, shape);
-    try std.testing.expectEqual(@as(usize, 4), shape.len);
-    try std.testing.expectEqual(@as(usize, 161), shape[0].len);
-    try std.testing.expectEqual(@as(usize, 3449), shape[1].len);
-    try std.testing.expectEqual(@as(usize, 2268), shape[2].len);
-    try std.testing.expectEqual(@as(usize, 8), shape[3].len);
-    var samples: usize = 0;
-    for (shape) |tree| {
-        for (tree) |count| samples += count;
-    }
-    try std.testing.expectEqual(@as(usize, 6110), samples);
-}
-
-test "resident verifier decodes a Merkle opening and rejects a witness mutation" {
-    const allocator = std.testing.allocator;
-    const layout = try proof_bundle.Layout.init(4, 16, 8, 4, 512);
-    const words = try allocator.alloc(u32, layout.total_words);
-    defer allocator.free(words);
-    @memset(words, 0);
-
-    var queried_hasher = Hasher.defaultWithInitialState();
-    queried_hasher.updateLeaf(&[_]M31{M31.fromCanonical(10)});
-    const queried_hash = queried_hasher.finalize();
-    var sibling_hasher = Hasher.defaultWithInitialState();
-    sibling_hasher.updateLeaf(&[_]M31{M31.fromCanonical(9)});
-    const sibling_hash = sibling_hasher.finalize();
-    const root = Hasher.hashChildren(.{ .left = sibling_hash, .right = queried_hash });
-    @memcpy(
-        std.mem.sliceAsBytes(words[layout.commitments.start..][0..proof_bundle.hash_words]),
-        &root,
-    );
-
-    const decommit = words[layout.decommitment.start..layout.decommitment.end];
-    decommit[0] = proof_bundle.decommit_magic;
-    decommit[1] = proof_bundle.decommit_version;
-    decommit[2] = 12;
-    decommit[3] = 1;
-    decommit[4] = 1;
-    decommit[5] = 200;
-    decommit[6] = 201;
-    decommit[200] = 1;
-    decommit[201] = 1;
-    var cursor: usize = 202;
-    var first_hash_offset: usize = 0;
-    for (0..12) |tree_index| {
-        const meta = decommit[proof_bundle.decommit_header_words +
-            tree_index * proof_bundle.decommit_tree_meta_words ..][0..proof_bundle.decommit_tree_meta_words];
-        const tree_start = cursor;
-        meta[0] = if (tree_index < 4) 0 else 1;
-        meta[1] = @intCast(tree_index);
-        meta[2] = @intCast(cursor);
-        meta[3] = 1;
-        decommit[cursor] = 1;
-        cursor += 1;
-        if (tree_index < 4) {
-            meta[4] = @intCast(cursor);
-            meta[5] = 1;
-            decommit[cursor] = 10;
-            cursor += 1;
-        }
-        if (tree_index == 0) {
-            first_hash_offset = cursor;
-            meta[8] = @intCast(cursor);
-            meta[9] = 1;
-            @memcpy(std.mem.sliceAsBytes(decommit[cursor..][0..proof_bundle.hash_words]), &sibling_hash);
-            cursor += proof_bundle.hash_words;
-        }
-        meta[14] = 1;
-        meta[15] = @intCast(cursor - tree_start);
-    }
-    decommit[7] = @intCast(cursor);
-
-    const tree0_shape = [_]usize{1};
-    const tree1_shape = [_]usize{1};
-    const tree2_shape = [_]usize{1};
-    const tree3_shape = [_]usize{1};
-    const shape = [_][]const usize{ &tree0_shape, &tree1_shape, &tree2_shape, &tree3_shape };
-
-    var structural = try proof_bundle.ProofBundle.decode(allocator, words, layout);
-    defer structural.deinit(allocator);
-    var proof = try decodeProof(allocator, structural, .{ .trees = &shape });
-    defer proof.deinit(allocator);
-    var verifier = try vcs_verifier.MerkleVerifierLifted(Hasher).init(allocator, root, &[_]u32{1});
-    defer verifier.deinit(allocator);
-    try verifier.verify(
-        allocator,
-        &[_]usize{1},
-        proof.commitment_scheme_proof.queried_values.items[0],
-        proof.commitment_scheme_proof.decommitments.items[0],
-    );
-
-    proof.deinit(allocator);
-    structural.deinit(allocator);
-    decommit[first_hash_offset] ^= 1;
-    structural = try proof_bundle.ProofBundle.decode(allocator, words, layout);
-    proof = try decodeProof(allocator, structural, .{ .trees = &shape });
-    try std.testing.expectError(
-        vcs_verifier.MerkleVerificationError.RootMismatch,
-        verifier.verify(
-            allocator,
-            &[_]usize{1},
-            proof.commitment_scheme_proof.queried_values.items[0],
-            proof.commitment_scheme_proof.decommitments.items[0],
-        ),
-    );
 }
