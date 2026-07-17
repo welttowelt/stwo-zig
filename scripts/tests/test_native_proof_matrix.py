@@ -86,7 +86,23 @@ def write_proof_artifact(
         "wide_fibonacci_statement": None,
         "xor_statement": None,
     }
-    statements[f"{workload.name}_statement"] = workload.parameters
+    if workload.name == "state_machine":
+        parameters = workload.parameters
+        log_n_rows = parameters["log_n_rows"]
+        initial = [parameters["initial_x"], parameters["initial_y"]]
+        statements["state_machine_statement"] = {
+            "public_input": [
+                initial,
+                [initial[0] + (1 << log_n_rows), initial[1] + (1 << (log_n_rows - 1))],
+            ],
+            "stmt0": {"n": log_n_rows, "m": log_n_rows - 1},
+            "stmt1": {
+                "x_axis_claimed_sum": [1, 2, 3, 4],
+                "y_axis_claimed_sum": [5, 6, 7, 8],
+            },
+        }
+    else:
+        statements[f"{workload.name}_statement"] = workload.parameters
     document = {
         "schema_version": 1,
         "upstream_commit": UPSTREAM_COMMIT,
@@ -323,6 +339,14 @@ class NativeProofMatrixTests(unittest.TestCase):
                 8192,
                 "8e22d72f97cfe01bdb3fdf94e362160418ca16022db7cdaccacf073e2ef67cee",
             ),
+            (
+                MODULE.parse_workload(
+                    "state_machine:initial_y=3,log_n_rows=10,initial_x=9"
+                ),
+                3,
+                3072,
+                "2aef739c7447cb192da8648b7a4b539ccb86c1f532de7de986287cb89844b8a7",
+            ),
         )
         for workload, columns, cells, descriptor in vectors:
             with self.subTest(workload=workload.name):
@@ -349,6 +373,10 @@ class NativeProofMatrixTests(unittest.TestCase):
             "plonk:log_n_rows=0",
             "plonk:log_n_rows=23",
             "plonk:log_size=10",
+            "state_machine:log_n_rows=0,initial_x=9,initial_y=3",
+            "state_machine:log_n_rows=10,initial_x=-1,initial_y=3",
+            "state_machine:log_n_rows=10,initial_x=2147483647,initial_y=3",
+            "state_machine:log_n_rows=10,initial_x=9",
         )
         for encoded in invalid:
             with self.subTest(encoded=encoded):
@@ -358,7 +386,10 @@ class NativeProofMatrixTests(unittest.TestCase):
     def test_controller_bounds_and_formal_oracle_are_checked_during_parse(self) -> None:
         diagnostic = MODULE.parse_args(["--allow-non-headline"])
         self.assertFalse(diagnostic.formal)
-        self.assertEqual([row.name for row in diagnostic.workloads], ["wide_fibonacci", "xor", "plonk"])
+        self.assertEqual(
+            [row.name for row in diagnostic.workloads],
+            ["wide_fibonacci", "xor", "plonk", "state_machine"],
+        )
         self.assertEqual(diagnostic.warmups, MODULE.MIN_HEADLINE_WARMUPS)
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             MODULE.parse_args([])
@@ -390,12 +421,24 @@ class NativeProofMatrixTests(unittest.TestCase):
             lane_command(Path("cpu"), MODULE.Workload.plonk(10), 10, 2, "functional", artifact),
             ["cpu", "--example", "plonk", "--log-n-rows", "10", "--warmups", "10", "--samples", "2", "--protocol", "functional", "--proof-artifact-out", "/tmp/proof.json"],
         )
+        self.assertEqual(
+            lane_command(
+                Path("metal"),
+                MODULE.Workload.state_machine(10, 9, 3),
+                10,
+                2,
+                "functional",
+                artifact,
+            ),
+            ["metal", "--example", "state_machine", "--log-n-rows", "10", "--initial-x", "9", "--initial-y", "3", "--warmups", "10", "--samples", "2", "--protocol", "functional", "--proof-artifact-out", "/tmp/proof.json"],
+        )
 
     def test_reports_and_artifacts_validate_for_both_examples_and_lanes(self) -> None:
         workloads = (
             MODULE.Workload.wide_fibonacci(10, 8),
             MODULE.Workload.xor(10, 2, 3),
             MODULE.Workload.plonk(10),
+            MODULE.Workload.state_machine(10, 9, 3),
         )
         with tempfile.TemporaryDirectory() as directory:
             for workload in workloads:
@@ -553,6 +596,44 @@ class NativeProofMatrixTests(unittest.TestCase):
                 MODULE.validate_proof_artifact(
                     report, "cpu", workload, args(), mutated, fingerprint
                 )
+
+    def test_state_machine_artifact_binds_the_derived_statement(self) -> None:
+        workload = MODULE.Workload.state_machine(10, 9, 3)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "state-machine.json"
+            write_proof_artifact(path, workload)
+            report = make_report("cpu", workload, artifact_path=path)
+            fingerprint, _ = MODULE.validate_report(report, "cpu", workload, args())
+
+            artifact = MODULE.load_proof_artifact(path, "cpu")
+            MODULE.validate_proof_artifact(
+                report, "cpu", workload, args(), artifact, fingerprint
+            )
+            for mutation in (
+                "initial",
+                "final",
+                "stmt0",
+                "claim_negative",
+                "claim_noncanonical",
+            ):
+                artifact = MODULE.load_proof_artifact(path, "cpu")
+                statement = artifact["document"]["state_machine_statement"]
+                if mutation == "initial":
+                    statement["public_input"][0][0] += 1
+                elif mutation == "final":
+                    statement["public_input"][1][1] += 1
+                elif mutation == "stmt0":
+                    statement["stmt0"]["m"] += 1
+                elif mutation == "claim_negative":
+                    statement["stmt1"]["x_axis_claimed_sum"][0] = -1
+                else:
+                    statement["stmt1"]["x_axis_claimed_sum"][0] = (1 << 31) - 1
+                with self.subTest(mutation=mutation), self.assertRaises(
+                    MODULE.MatrixError
+                ):
+                    MODULE.validate_proof_artifact(
+                        report, "cpu", workload, args(), artifact, fingerprint
+                    )
             write_proof_artifact(path, workload, PROOF_WIRE_BYTES + b" ")
             mutated = MODULE.load_proof_artifact(path, "cpu")
             with self.assertRaisesRegex(MODULE.MatrixError, "bytes disagree"):
@@ -711,6 +792,7 @@ class NativeProofMatrixTests(unittest.TestCase):
             MODULE.Workload.wide_fibonacci(10, 8),
             MODULE.Workload.xor(10, 2, 3),
             MODULE.Workload.plonk(10),
+            MODULE.Workload.state_machine(10, 9, 3),
         ]
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -774,11 +856,16 @@ class NativeProofMatrixTests(unittest.TestCase):
                 return_value=oracle_evidence,
             ) as oracle:
                 document = MODULE.run_matrix(matrix_args)
-            self.assertEqual(oracle.call_count, 3)
+            self.assertEqual(oracle.call_count, 4)
             self.assertTrue(document["summary"]["all_rust_oracles_verified"])
             self.assertEqual(
                 [row["lane_order"] for row in document["rows"]],
-                [["cpu", "metal"], ["metal", "cpu"], ["cpu", "metal"]],
+                [
+                    ["cpu", "metal"],
+                    ["metal", "cpu"],
+                    ["cpu", "metal"],
+                    ["metal", "cpu"],
+                ],
             )
             self.assertTrue(all(row["rust_oracle"] for row in document["rows"]))
 

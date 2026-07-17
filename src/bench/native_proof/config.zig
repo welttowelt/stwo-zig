@@ -8,7 +8,7 @@ pub const EvidenceClass = enum {
     correctness_only,
 };
 
-pub const Example = enum { wide_fibonacci, xor, plonk };
+pub const Example = enum { wide_fibonacci, xor, plonk, state_machine };
 
 pub const WideFibonacciParameters = struct {
     log_n_rows: u32 = 12,
@@ -25,10 +25,17 @@ pub const PlonkParameters = struct {
     log_n_rows: u32 = 10,
 };
 
+pub const StateMachineParameters = struct {
+    log_n_rows: u32 = 10,
+    initial_x: u32 = 9,
+    initial_y: u32 = 3,
+};
+
 pub const Workload = union(Example) {
     wide_fibonacci: WideFibonacciParameters,
     xor: XorParameters,
     plonk: PlonkParameters,
+    state_machine: StateMachineParameters,
 };
 
 pub const Protocol = enum {
@@ -56,6 +63,7 @@ pub const Args = struct {
     wide_fibonacci: WideFibonacciParameters = .{},
     xor: XorParameters = .{},
     plonk: PlonkParameters = .{},
+    state_machine: StateMachineParameters = .{},
     protocol: Protocol = .functional,
     warmups: usize = MIN_HEADLINE_WARMUPS,
     samples: usize = 5,
@@ -67,6 +75,7 @@ pub const Args = struct {
             .wide_fibonacci => .{ .wide_fibonacci = self.wide_fibonacci },
             .xor => .{ .xor = self.xor },
             .plonk => .{ .plonk = self.plonk },
+            .state_machine => .{ .state_machine = self.state_machine },
         };
     }
 
@@ -81,6 +90,7 @@ pub const ParseResult = union(enum) { run: Args, help };
 const MAX_LOG_ROWS: u32 = 22;
 const MAX_SEQUENCE_LEN: u32 = 512;
 const MAX_XOR_OFFSET: usize = (1 << 31) - 1;
+const M31_MODULUS: u32 = 0x7fffffff;
 const MAX_COMMITTED_CELLS: u64 = 1 << 25;
 pub const MIN_HEADLINE_WARMUPS: usize = 10;
 pub const MAX_WARMUPS: usize = 10;
@@ -89,6 +99,7 @@ pub fn parseArgs(argv: []const []const u8) !ParseResult {
     var result = Args{};
     var saw_wide_parameter = false;
     var saw_xor_parameter = false;
+    var saw_state_machine_parameter = false;
     var log_n_rows_override: ?u32 = null;
     var index: usize = 0;
     while (index < argv.len) : (index += 1) {
@@ -121,6 +132,12 @@ pub fn parseArgs(argv: []const []const u8) !ParseResult {
         } else if (std.mem.eql(u8, arg, "--offset")) {
             result.xor.offset = try std.fmt.parseInt(usize, value, 10);
             saw_xor_parameter = true;
+        } else if (std.mem.eql(u8, arg, "--initial-x")) {
+            result.state_machine.initial_x = try std.fmt.parseInt(u32, value, 10);
+            saw_state_machine_parameter = true;
+        } else if (std.mem.eql(u8, arg, "--initial-y")) {
+            result.state_machine.initial_y = try std.fmt.parseInt(u32, value, 10);
+            saw_state_machine_parameter = true;
         } else if (std.mem.eql(u8, arg, "--protocol")) {
             result.protocol = std.meta.stringToEnum(Protocol, value) orelse
                 return error.InvalidProtocol;
@@ -137,13 +154,17 @@ pub fn parseArgs(argv: []const []const u8) !ParseResult {
     if (log_n_rows_override) |log_n_rows| switch (result.example) {
         .wide_fibonacci => result.wide_fibonacci.log_n_rows = log_n_rows,
         .plonk => result.plonk.log_n_rows = log_n_rows,
+        .state_machine => result.state_machine.log_n_rows = log_n_rows,
         .xor => return error.IrrelevantWorkloadParameter,
     };
-    if (result.example == .wide_fibonacci and saw_xor_parameter)
+    if (result.example == .wide_fibonacci and (saw_xor_parameter or saw_state_machine_parameter))
         return error.IrrelevantWorkloadParameter;
-    if (result.example == .xor and saw_wide_parameter)
+    if (result.example == .xor and (saw_wide_parameter or saw_state_machine_parameter))
         return error.IrrelevantWorkloadParameter;
-    if (result.example == .plonk and (saw_wide_parameter or saw_xor_parameter))
+    if (result.example == .plonk and
+        (saw_wide_parameter or saw_xor_parameter or saw_state_machine_parameter))
+        return error.IrrelevantWorkloadParameter;
+    if (result.example == .state_machine and (saw_wide_parameter or saw_xor_parameter))
         return error.IrrelevantWorkloadParameter;
     try validate(result);
     return .{ .run = result };
@@ -175,6 +196,14 @@ fn validate(args: Args) !void {
             const rows = @as(u64, 1) << @intCast(parameters.log_n_rows);
             break :blk try std.math.mul(u64, rows, 8);
         },
+        .state_machine => |parameters| blk: {
+            if (parameters.log_n_rows == 0 or parameters.log_n_rows > MAX_LOG_ROWS)
+                return error.InvalidLogRows;
+            if (parameters.initial_x >= M31_MODULUS or parameters.initial_y >= M31_MODULUS)
+                return error.InvalidInitialState;
+            const rows = @as(u64, 1) << @intCast(parameters.log_n_rows);
+            break :blk try std.math.mul(u64, rows, 3);
+        },
     };
     if (committed_cells > MAX_COMMITTED_CELLS) return error.TooManyCommittedCells;
     if (args.warmups > MAX_WARMUPS) return error.TooManyWarmups;
@@ -187,13 +216,15 @@ pub fn writeUsage(writer: anytype) !void {
     try writer.writeAll(
         \\Usage: native-proof-bench-{cpu|metal} [options]
         \\
-        \\  --example NAME       wide_fibonacci, xor, or plonk (default: wide_fibonacci)
-        \\  --log-n-rows N       Wide Fibonacci or Plonk log2 rows
+        \\  --example NAME       wide_fibonacci, xor, plonk, or state_machine
+        \\  --log-n-rows N       Wide Fibonacci, Plonk, or State Machine log2 rows
         \\  --log-rows N         Legacy Wide Fibonacci log2 rows alias
         \\  --sequence-len N     Wide Fibonacci trace column count
         \\  --log-size N         XOR log2 rows
         \\  --log-step N         XOR periodic-indicator log2 step
         \\  --offset N           XOR periodic-indicator offset
+        \\  --initial-x N        State Machine initial x coordinate
+        \\  --initial-y N        State Machine initial y coordinate
         \\  --protocol NAME      smoke or functional (default: functional)
         \\  --warmups N          Verified untimed warmups (headline minimum: 10)
         \\  --samples N          Verified timed samples (maximum: 21)
@@ -221,6 +252,14 @@ test "native proof config: parses tagged workloads and legacy wide requests" {
     const plonk = (try parseArgs(&.{ "--log-n-rows", "8", "--example", "plonk" })).run;
     try std.testing.expectEqual(Example.plonk, plonk.example);
     try std.testing.expectEqual(@as(u32, 8), plonk.plonk.log_n_rows);
+
+    const state = (try parseArgs(&.{
+        "--example",   "state_machine", "--log-n-rows", "8",
+        "--initial-x", "17",            "--initial-y",  "19",
+    })).run;
+    try std.testing.expectEqual(Example.state_machine, state.example);
+    try std.testing.expectEqual(@as(u32, 17), state.state_machine.initial_x);
+    try std.testing.expectEqual(@as(u32, 19), state.state_machine.initial_y);
 }
 
 test "native proof config: bounds and tags fail closed" {
@@ -229,6 +268,8 @@ test "native proof config: bounds and tags fail closed" {
     try std.testing.expectError(error.InvalidOffset, parseArgs(&.{ "--example", "xor", "--offset", "4" }));
     try std.testing.expectError(error.IrrelevantWorkloadParameter, parseArgs(&.{ "--example", "xor", "--log-rows", "5" }));
     try std.testing.expectError(error.IrrelevantWorkloadParameter, parseArgs(&.{ "--example", "plonk", "--sequence-len", "4" }));
+    try std.testing.expectError(error.InvalidInitialState, parseArgs(&.{ "--example", "state_machine", "--initial-x", "2147483647" }));
+    try std.testing.expectError(error.IrrelevantWorkloadParameter, parseArgs(&.{ "--example", "state_machine", "--offset", "1" }));
     try std.testing.expectError(error.InvalidExample, parseArgs(&.{ "--example", "poseidon" }));
     try std.testing.expectError(error.MissingArgumentValue, parseArgs(&.{"--log-rows"}));
 }

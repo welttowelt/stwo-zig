@@ -76,6 +76,7 @@ pub const InteropArtifact = struct {
 
 pub const NativeStatement = union(enum) {
     plonk: plonk.Statement,
+    state_machine: state_machine.PreparedStatement,
     wide_fibonacci: wide_fibonacci.Statement,
     xor: xor.Statement,
 };
@@ -127,6 +128,10 @@ pub fn writeNativeProofArtifact(
         .plonk => |value| {
             artifact.example = "plonk";
             artifact.plonk_statement = plonkStatementToWire(value);
+        },
+        .state_machine => |value| {
+            artifact.example = "state_machine";
+            artifact.state_machine_statement = stateMachineStatementToWire(value);
         },
         .wide_fibonacci => |value| {
             artifact.example = "wide_fibonacci";
@@ -367,6 +372,22 @@ test "interop artifact: plonk statement wire roundtrip" {
     const wire = plonkStatementToWire(statement);
     const decoded = try plonkStatementFromWire(wire);
     try std.testing.expectEqual(statement.log_n_rows, decoded.log_n_rows);
+}
+
+test "interop artifact: state machine derived statement wire roundtrip" {
+    const statement = state_machine.PreparedStatement{
+        .public_input = .{
+            .{ M31.fromCanonical(9), M31.fromCanonical(3) },
+            .{ M31.fromCanonical(41), M31.fromCanonical(19) },
+        },
+        .stmt0 = .{ .n = 5, .m = 4 },
+        .stmt1 = .{
+            .x_axis_claimed_sum = QM31.fromU32Unchecked(1, 2, 3, 4),
+            .y_axis_claimed_sum = QM31.fromU32Unchecked(5, 6, 7, 8),
+        },
+    };
+    const decoded = try stateMachineStatementFromWire(stateMachineStatementToWire(statement));
+    try std.testing.expect(std.meta.eql(statement, decoded));
 }
 
 test "interop artifact: poseidon statement wire roundtrip" {

@@ -8,6 +8,7 @@ const report = @import("report.zig");
 const artifacts = stwo.interop.examples_artifact;
 const stage_profile = stwo.prover.stage_profile;
 const plonk = stwo.examples.plonk;
+const state_machine = stwo.examples.state_machine;
 const wide_fibonacci = stwo.examples.wide_fibonacci;
 const xor = stwo.examples.xor;
 
@@ -26,6 +27,7 @@ pub fn name(workload: config.Workload) []const u8 {
         .wide_fibonacci => "wide_fibonacci",
         .xor => "xor",
         .plonk => "plonk",
+        .state_machine => "state_machine",
     };
 }
 
@@ -34,6 +36,7 @@ pub fn parameters(workload: config.Workload) report.WorkloadParameters {
         .wide_fibonacci => |value| .{ .wide_fibonacci = value },
         .xor => |value| .{ .xor = value },
         .plonk => |value| .{ .plonk = value },
+        .state_machine => |value| .{ .state_machine = value },
     };
 }
 
@@ -72,6 +75,17 @@ pub fn geometry(workload: config.Workload) !Geometry {
                 .native_units = rows,
             };
         },
+        .state_machine => |value| blk: {
+            const rows = @as(u64, 1) << @intCast(value.log_n_rows);
+            break :blk .{
+                .trace_log_rows = value.log_n_rows,
+                .trace_rows = rows,
+                .committed_columns = 3,
+                .committed_trace_cells = try std.math.mul(u64, rows, 3),
+                .native_unit = "state_transitions",
+                .native_units = rows,
+            };
+        },
     };
 }
 
@@ -96,6 +110,11 @@ pub fn descriptorDigest(
             &buffer,
             "native-proof-workload-v3|example=plonk|log_n_rows={d}",
             .{value.log_n_rows},
+        ) catch unreachable,
+        .state_machine => |value| std.fmt.bufPrint(
+            &buffer,
+            "native-proof-workload-v3|example=state_machine|log_n_rows={d}|initial_x={d}|initial_y={d}",
+            .{ value.log_n_rows, value.initial_x, value.initial_y },
         ) catch unreachable,
     };
     const description = std.fmt.bufPrint(
@@ -151,6 +170,10 @@ pub const WideFibonacciSpec = struct {
             prepared,
             recorder,
         );
+    }
+
+    pub fn validateOutputStatement(value: Request, statement: Statement) !void {
+        if (!std.meta.eql(value, statement)) return error.ProverStatementMismatch;
     }
 
     pub fn verify(
@@ -218,6 +241,10 @@ pub const XorSpec = struct {
         );
     }
 
+    pub fn validateOutputStatement(value: Request, statement: Statement) !void {
+        if (!std.meta.eql(value, statement)) return error.ProverStatementMismatch;
+    }
+
     pub fn verify(
         allocator: std.mem.Allocator,
         pcs_config: stwo.core.pcs.PcsConfig,
@@ -283,6 +310,10 @@ pub const PlonkSpec = struct {
         );
     }
 
+    pub fn validateOutputStatement(value: Request, statement: Statement) !void {
+        if (!std.meta.eql(value, statement)) return error.ProverStatementMismatch;
+    }
+
     pub fn verify(
         allocator: std.mem.Allocator,
         pcs_config: stwo.core.pcs.PcsConfig,
@@ -310,16 +341,109 @@ pub const PlonkSpec = struct {
     }
 };
 
+pub const StateMachineSpec = struct {
+    pub const Request = state_machine.Request;
+    pub const PreparedInput = state_machine.PreparedInput;
+    pub const Statement = state_machine.PreparedStatement;
+    pub const Proof = state_machine.Proof;
+    pub const ProveOutput = state_machine.ProveOutput;
+    pub const example_name = "state_machine";
+
+    pub fn request(value: config.StateMachineParameters) Request {
+        return .{
+            .log_n_rows = value.log_n_rows,
+            .initial_state = .{
+                stwo.core.fields.m31.M31.fromCanonical(value.initial_x),
+                stwo.core.fields.m31.M31.fromCanonical(value.initial_y),
+            },
+        };
+    }
+
+    pub fn prepareInput(allocator: std.mem.Allocator, value: Request) !PreparedInput {
+        return state_machine.prepareInput(allocator, value);
+    }
+
+    pub fn requiredCircleLog(value: Request, pcs_config: stwo.core.pcs.PcsConfig) !u32 {
+        return state_machine.requiredTwiddleCircleLog(value, pcs_config);
+    }
+
+    pub fn provePrepared(
+        comptime Engine: type,
+        session: *const Engine.Session,
+        allocator: std.mem.Allocator,
+        pcs_config: stwo.core.pcs.PcsConfig,
+        prepared: PreparedInput,
+        recorder: ?*stage_profile.Recorder,
+    ) !ProveOutput {
+        return state_machine.provePreparedWithSessionAndEngine(
+            Engine,
+            session,
+            allocator,
+            pcs_config,
+            prepared,
+            recorder,
+        );
+    }
+
+    pub fn validateOutputStatement(value: Request, statement: Statement) !void {
+        if (statement.stmt0.n != value.log_n_rows or
+            statement.stmt0.m != value.log_n_rows - 1 or
+            !std.meta.eql(statement.public_input[0], value.initial_state))
+        {
+            return error.ProverStatementMismatch;
+        }
+        const transitions = try state_machine.transitionStates(
+            value.log_n_rows,
+            value.initial_state,
+        );
+        if (!std.meta.eql(statement.public_input[1], transitions.final))
+            return error.ProverStatementMismatch;
+    }
+
+    pub fn verify(
+        allocator: std.mem.Allocator,
+        pcs_config: stwo.core.pcs.PcsConfig,
+        statement: Statement,
+        proof: Proof,
+    ) !void {
+        return state_machine.verify(allocator, pcs_config, statement, proof);
+    }
+
+    pub fn writeArtifact(
+        allocator: std.mem.Allocator,
+        path: []const u8,
+        pcs_config: stwo.core.pcs.PcsConfig,
+        statement: Statement,
+        proof_bytes: []const u8,
+    ) !void {
+        return artifacts.writeNativeProofArtifact(
+            allocator,
+            path,
+            pcs_config,
+            "prove",
+            .{ .state_machine = statement },
+            proof_bytes,
+        );
+    }
+};
+
 test "native proof examples: geometry and descriptors are tagged" {
     const wide: config.Workload = .{ .wide_fibonacci = .{ .log_n_rows = 5, .sequence_len = 8 } };
     const xor_workload: config.Workload = .{ .xor = .{ .log_size = 5, .log_step = 2, .offset = 3 } };
     const plonk_workload: config.Workload = .{ .plonk = .{ .log_n_rows = 5 } };
+    const state_workload: config.Workload = .{ .state_machine = .{
+        .log_n_rows = 5,
+        .initial_x = 9,
+        .initial_y = 3,
+    } };
     const wide_geometry = try geometry(wide);
     const xor_geometry = try geometry(xor_workload);
     const plonk_geometry = try geometry(plonk_workload);
+    const state_geometry = try geometry(state_workload);
     try std.testing.expectEqual(@as(u64, 256), wide_geometry.committed_trace_cells);
     try std.testing.expectEqual(@as(u64, 96), xor_geometry.committed_trace_cells);
     try std.testing.expectEqual(@as(u64, 256), plonk_geometry.committed_trace_cells);
+    try std.testing.expectEqual(@as(u64, 96), state_geometry.committed_trace_cells);
     try std.testing.expect(!std.mem.eql(
         u8,
         &descriptorDigest(wide, .smoke),
@@ -331,9 +455,15 @@ test "native proof examples: descriptor digests match independent fixed vectors"
     const wide: config.Workload = .{ .wide_fibonacci = .{ .log_n_rows = 10, .sequence_len = 8 } };
     const xor_workload: config.Workload = .{ .xor = .{ .log_size = 10, .log_step = 2, .offset = 3 } };
     const plonk_workload: config.Workload = .{ .plonk = .{ .log_n_rows = 10 } };
+    const state_workload: config.Workload = .{ .state_machine = .{
+        .log_n_rows = 10,
+        .initial_x = 9,
+        .initial_y = 3,
+    } };
     var expected_wide: [32]u8 = undefined;
     var expected_xor: [32]u8 = undefined;
     var expected_plonk: [32]u8 = undefined;
+    var expected_state: [32]u8 = undefined;
     _ = try std.fmt.hexToBytes(
         &expected_wide,
         "8586bce9ae8c0673453803b3b65ca8d4fc677638d53e5933e7692af4dd38586f",
@@ -346,7 +476,12 @@ test "native proof examples: descriptor digests match independent fixed vectors"
         &expected_plonk,
         "8e22d72f97cfe01bdb3fdf94e362160418ca16022db7cdaccacf073e2ef67cee",
     );
+    _ = try std.fmt.hexToBytes(
+        &expected_state,
+        "2aef739c7447cb192da8648b7a4b539ccb86c1f532de7de986287cb89844b8a7",
+    );
     try std.testing.expectEqualSlices(u8, &expected_wide, &descriptorDigest(wide, .functional));
     try std.testing.expectEqualSlices(u8, &expected_xor, &descriptorDigest(xor_workload, .functional));
     try std.testing.expectEqualSlices(u8, &expected_plonk, &descriptorDigest(plonk_workload, .functional));
+    try std.testing.expectEqualSlices(u8, &expected_state, &descriptorDigest(state_workload, .functional));
 }

@@ -38,12 +38,14 @@ pub const WorkloadParameters = union(enum) {
     wide_fibonacci: config.WideFibonacciParameters,
     xor: config.XorParameters,
     plonk: config.PlonkParameters,
+    state_machine: config.StateMachineParameters,
 
     pub fn jsonStringify(self: WorkloadParameters, writer: anytype) !void {
         switch (self) {
             .wide_fibonacci => |parameters| try writer.write(parameters),
             .xor => |parameters| try writer.write(parameters),
             .plonk => |parameters| try writer.write(parameters),
+            .state_machine => |parameters| try writer.write(parameters),
         }
     }
 };

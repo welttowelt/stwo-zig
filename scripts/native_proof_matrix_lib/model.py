@@ -21,6 +21,7 @@ DEFAULT_WORKLOADS = (
     "wide_fibonacci:log_n_rows=10,sequence_len=8",
     "xor:log_size=10,log_step=2,offset=3",
     "plonk:log_n_rows=10",
+    "state_machine:log_n_rows=10,initial_x=9,initial_y=3",
 )
 DEFAULT_WARMUPS = 10
 DEFAULT_SAMPLES = 5
@@ -32,6 +33,7 @@ MIN_HEADLINE_WARMUPS = 10
 MAX_LOG_ROWS = 22
 MAX_SEQUENCE_LEN = 512
 MAX_XOR_OFFSET = (1 << 31) - 1
+M31_MODULUS = (1 << 31) - 1
 MAX_COMMITTED_TRACE_CELLS = 1 << 25
 MAX_WARMUPS = 10
 MAX_SAMPLES = 21
@@ -114,11 +116,13 @@ PARAMETER_ORDER = {
     "wide_fibonacci": ("log_n_rows", "sequence_len"),
     "xor": ("log_size", "log_step", "offset"),
     "plonk": ("log_n_rows",),
+    "state_machine": ("log_n_rows", "initial_x", "initial_y"),
 }
 NATIVE_UNITS = {
     "wide_fibonacci": "trace_rows",
     "xor": "xor_rows",
     "plonk": "plonk_rows",
+    "state_machine": "state_transitions",
 }
 
 
@@ -149,6 +153,19 @@ class Workload:
     def plonk(cls, log_n_rows: int) -> "Workload":
         return cls("plonk", (("log_n_rows", log_n_rows),))
 
+    @classmethod
+    def state_machine(
+        cls, log_n_rows: int, initial_x: int, initial_y: int
+    ) -> "Workload":
+        return cls(
+            "state_machine",
+            (
+                ("log_n_rows", log_n_rows),
+                ("initial_x", initial_x),
+                ("initial_y", initial_y),
+            ),
+        )
+
     @property
     def parameters(self) -> dict[str, int]:
         return dict(self.parameter_items)
@@ -165,7 +182,9 @@ class Workload:
     def committed_columns(self) -> int:
         if self.name == "wide_fibonacci":
             return self.parameters["sequence_len"]
-        return 3 if self.name == "xor" else 8
+        if self.name in ("xor", "state_machine"):
+            return 3
+        return 8
 
     @property
     def committed_trace_cells(self) -> int:
@@ -266,6 +285,12 @@ def validate_workload(workload: Workload) -> None:
             raise ValueError(f"XOR offset must be in [0, {MAX_XOR_OFFSET}]")
         if values["offset"] >= 1 << log_step:
             raise ValueError("XOR offset must be smaller than 2^log_step")
+    elif workload.name == "state_machine":
+        for coordinate in ("initial_x", "initial_y"):
+            if values[coordinate] < 0 or values[coordinate] >= M31_MODULUS:
+                raise ValueError(
+                    f"State Machine {coordinate} must be a canonical M31 value"
+                )
     if workload.committed_trace_cells > MAX_COMMITTED_TRACE_CELLS:
         raise ValueError(
             "workload exceeds committed trace cell limit "

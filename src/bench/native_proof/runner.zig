@@ -21,22 +21,27 @@ const OVERRIDE_NAMES = [_][]const u8{
     "STWO_ZIG_METAL_RADIX4_RFFT",
 };
 
-const SampleOutcome = struct {
-    timing: report_mod.Sample,
-    canonical_proof: []u8,
-    stage_profile: ?report_mod.StageProfile,
+fn SampleOutcome(comptime Statement: type) type {
+    return struct {
+        timing: report_mod.Sample,
+        statement: Statement,
+        canonical_proof: []u8,
+        stage_profile: ?report_mod.StageProfile,
 
-    fn deinit(self: *SampleOutcome, allocator: std.mem.Allocator) void {
-        allocator.free(self.canonical_proof);
-        if (self.stage_profile) |*profile| profile.deinit(allocator);
-        self.* = undefined;
-    }
-};
+        fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+            allocator.free(self.canonical_proof);
+            if (self.stage_profile) |*profile| profile.deinit(allocator);
+            self.* = undefined;
+        }
+    };
+}
 
-const GatedSampleOutcome = struct {
-    sample: SampleOutcome,
-    telemetry: ?report_mod.BackendTelemetryDelta,
-};
+fn GatedSampleOutcome(comptime Statement: type) type {
+    return struct {
+        sample: SampleOutcome(Statement),
+        telemetry: ?report_mod.BackendTelemetryDelta,
+    };
+}
 
 const OwnedProvenance = struct {
     git_commit: []u8,
@@ -102,6 +107,15 @@ fn execute(
             args.workload(),
             examples.PlonkSpec.request(parameters),
         ),
+        .state_machine => |parameters| executeExample(
+            Engine,
+            backend,
+            examples.StateMachineSpec,
+            allocator,
+            args,
+            args.workload(),
+            examples.StateMachineSpec.request(parameters),
+        ),
     };
 }
 
@@ -147,6 +161,7 @@ fn executeExample(
         if (backend == .metal_hybrid) args.warmups else 0,
     );
     defer allocator.free(warmup_telemetry);
+    var observed_statement: ?Spec.Statement = null;
     for (warmup_seconds, 0..) |*elapsed, index| {
         var outcome = try runGatedSample(
             Engine,
@@ -160,6 +175,12 @@ fn executeExample(
             false,
         );
         defer outcome.sample.deinit(allocator);
+        if (observed_statement) |expected| {
+            if (!std.meta.eql(expected, outcome.sample.statement))
+                return error.ProverStatementMismatch;
+        } else {
+            observed_statement = outcome.sample.statement;
+        }
         elapsed.* = outcome.sample.timing.request_seconds;
         if (comptime backend == .metal_hybrid) warmup_telemetry[index] = outcome.telemetry.?;
     }
@@ -211,6 +232,7 @@ fn executeExample(
 
     var canonical_proof: ?[]u8 = null;
     defer if (canonical_proof) |bytes| allocator.free(bytes);
+    var canonical_statement: ?Spec.Statement = null;
     var all_samples_byte_identical = true;
     for (samples, 0..) |*sample, index| {
         const gated = try runGatedSample(
@@ -236,6 +258,12 @@ fn executeExample(
             outcome.stage_profile = null;
             initialized_stage_profiles += 1;
         }
+        if (observed_statement) |expected| {
+            if (!std.meta.eql(expected, outcome.statement))
+                return error.ProverStatementMismatch;
+        } else {
+            observed_statement = outcome.statement;
+        }
 
         var proof_digest: [std.crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
         std.crypto.hash.sha2.Sha256.hash(outcome.canonical_proof, &proof_digest, .{});
@@ -249,6 +277,7 @@ fn executeExample(
                 std.mem.eql(u8, expected, outcome.canonical_proof);
         } else {
             canonical_proof = outcome.canonical_proof;
+            canonical_statement = outcome.statement;
             outcome_owned = false;
         }
         sample.* = outcome.timing;
@@ -265,7 +294,13 @@ fn executeExample(
     }
 
     const proof_artifact_binding: ?report_mod.ProofArtifactBinding = if (args.proof_artifact_out) |path| blk: {
-        try Spec.writeArtifact(allocator, path, pcs_config, request, canonical_proof.?);
+        try Spec.writeArtifact(
+            allocator,
+            path,
+            pcs_config,
+            canonical_statement.?,
+            canonical_proof.?,
+        );
         break :blk .{
             .path = path,
             .sample_index = 0,
@@ -419,7 +454,7 @@ fn runGatedSample(
     request: Spec.Request,
     workload_geometry: examples.Geometry,
     profiled: bool,
-) !GatedSampleOutcome {
+) !GatedSampleOutcome(Spec.Statement) {
     if (comptime backend == .metal_hybrid) {
         const before = try Engine.telemetrySnapshot();
         var sample = try runSample(
@@ -462,7 +497,7 @@ fn runSample(
     request: Spec.Request,
     workload_geometry: examples.Geometry,
     profiled: bool,
-) !SampleOutcome {
+) !SampleOutcome(Spec.Statement) {
     var recorder = stage_profile.Recorder.init(allocator, @tagName(builtin.mode), Spec.example_name);
     defer recorder.deinit();
 
@@ -491,8 +526,7 @@ fn runSample(
         var proof = output.proof;
         proof.deinit(allocator);
     };
-    if (!std.meta.eql(request, output.statement))
-        return error.ProverStatementMismatch;
+    try Spec.validateOutputStatement(request, output.statement);
 
     var encode_timer = try std.time.Timer.start();
     const canonical = try proof_wire.encodeProofBytes(allocator, output.proof);
@@ -517,6 +551,7 @@ fn runSample(
             .request_trace_row_mhz = rate(workload_geometry.trace_rows, request_seconds),
             .committed_mcells_per_second = rate(workload_geometry.committed_trace_cells, prove_seconds),
         },
+        .statement = output.statement,
         .canonical_proof = canonical,
         .stage_profile = if (profiled) try recorder.snapshot(allocator) else null,
     };

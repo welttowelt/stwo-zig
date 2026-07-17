@@ -93,6 +93,7 @@ TELEMETRY_DELTA_KEYS = {
 # from rejecting an otherwise exact decomposition.
 REQUEST_PHASE_ABSOLUTE_TOLERANCE_SECONDS = 1e-9
 REQUEST_PHASE_RELATIVE_TOLERANCE = 1e-12
+M31_MODULUS = (1 << 31) - 1
 
 
 def require_exact_keys(value: dict[str, Any], expected: set[str], context: str) -> None:
@@ -213,6 +214,52 @@ def proof_fingerprint(report: dict[str, Any], lane: str, samples: int) -> tuple[
     return fingerprints[0]
 
 
+def validate_state_machine_statement(
+    value: Any, workload: Workload, context: str
+) -> None:
+    if not isinstance(value, dict):
+        raise MatrixError(f"{context} must be an object")
+    require_exact_keys(value, {"public_input", "stmt0", "stmt1"}, context)
+    parameters = workload.parameters
+    log_n_rows = parameters["log_n_rows"]
+    initial = [parameters["initial_x"], parameters["initial_y"]]
+    final = [
+        (initial[0] + (1 << log_n_rows)) % M31_MODULUS,
+        (initial[1] + (1 << (log_n_rows - 1))) % M31_MODULUS,
+    ]
+    if value["public_input"] != [initial, final]:
+        raise MatrixError(f"{context}.public_input does not match the request")
+
+    stmt0 = value["stmt0"]
+    if not isinstance(stmt0, dict):
+        raise MatrixError(f"{context}.stmt0 must be an object")
+    require_exact_keys(stmt0, {"n", "m"}, f"{context}.stmt0")
+    if stmt0 != {"n": log_n_rows, "m": log_n_rows - 1}:
+        raise MatrixError(f"{context}.stmt0 does not match the request")
+
+    stmt1 = value["stmt1"]
+    if not isinstance(stmt1, dict):
+        raise MatrixError(f"{context}.stmt1 must be an object")
+    require_exact_keys(
+        stmt1,
+        {"x_axis_claimed_sum", "y_axis_claimed_sum"},
+        f"{context}.stmt1",
+    )
+    for name in ("x_axis_claimed_sum", "y_axis_claimed_sum"):
+        coordinates = stmt1[name]
+        if not isinstance(coordinates, list) or len(coordinates) != 4:
+            raise MatrixError(f"{context}.stmt1.{name} must have four coordinates")
+        for index, coordinate in enumerate(coordinates):
+            canonical = require_int(
+                coordinate,
+                f"{context}.stmt1.{name}[{index}]",
+            )
+            if canonical >= M31_MODULUS:
+                raise MatrixError(
+                    f"{context}.stmt1.{name}[{index}] is not canonical M31"
+                )
+
+
 def validate_proof_artifact(
     report: dict[str, Any],
     lane: str,
@@ -262,9 +309,14 @@ def validate_proof_artifact(
     }
     if document["pcs_config"] != expected_pcs:
         raise MatrixError(f"{lane} proof artifact PCS config does not match request")
-    expected_statement = workload.parameters
     statement_key = f"{workload.name}_statement"
-    if document[statement_key] != expected_statement:
+    if workload.name == "state_machine":
+        validate_state_machine_statement(
+            document[statement_key],
+            workload,
+            f"{lane}.proof_artifact.{statement_key}",
+        )
+    elif document[statement_key] != workload.parameters:
         raise MatrixError(f"{lane} proof artifact statement does not match request")
     for key in ARTIFACT_KEYS:
         if key.endswith("_statement") and key != statement_key and document[key] is not None:
