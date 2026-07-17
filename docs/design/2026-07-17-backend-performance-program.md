@@ -24,6 +24,77 @@ Use these names in reports:
 Do not call `cpu_native` a distinct Zig SIMD backend until it has a separate capability type and
 execution contract. Do not call a hybrid result resident merely because some kernels use Metal.
 
+## Current Evidence
+
+### Committed measurement and correctness path
+
+The current evidence is bound to commit `402628c` and the following committed controls:
+
+- `fa2f8e4` added the verified, backend-neutral Native proof benchmark;
+- `a14d1c7` added the fail-closed CPU/Metal matrix controller;
+- `68637cf` exported the exact proof from each timed lane;
+- `0f98bde` bound each report to its oracle artifact;
+- `402628c` removed host-bound conversions between Metal FRI folds.
+
+The controller alternates lane order, hashes its binaries and artifacts, requires ReleaseFast,
+records setup and request timing separately, verifies every sample in Zig, and rejects a Metal lane
+with no device dispatch. The matrix below used the `functional` protocol, one warmup and five timed
+post-warmup samples per lane. All three rows were formally headline-eligible. `metal_hybrid` still
+reported CPU Merkle fallbacks, so these numbers are not resident-backend claims.
+
+### Formal post-change baseline
+
+All values are medians. Row MHz is trace rows divided by complete `prove_seconds`; request time also
+includes prepared-input adaptation, canonical proof encoding, and verification.
+
+| Workload | Committed cells | CPU prove (ms) | CPU row MHz | CPU request (ms) | Metal prove (ms) | Metal row MHz | Metal request (ms) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `log10x8` | 8,192 | 3.987000 | 0.256835 | 4.227917 | 8.778542 | 0.116648 | 8.996958 |
+| `log12x16` | 65,536 | 8.722167 | 0.469608 | 9.109458 | 11.865291 | 0.345209 | 12.217875 |
+| `log14x32` | 524,288 | 17.025958 | 0.962295 | 18.104208 | 20.535833 | 0.797825 | 21.599333 |
+
+Every timed sample verified and was byte-identical within its lane. CPU and Metal produced the
+same canonical proof bytes for every row:
+
+| Workload | Proof bytes | Canonical proof SHA-256 |
+| --- | ---: | --- |
+| `log10x8` | 20,959 | `5024501a068416f9ee6a06c694128bc06fb47163ac89fb3d23a81228314a3911` |
+| `log12x16` | 34,273 | `f30b6b6cb071bf26b43c29b8c49ac523360a204d04f4fca9f8bd7e50bdadb8d4` |
+| `log14x32` | 44,290 | `d46859524df8df0b9ef2b36feacf3c48a3496423533b571b9b3afe3b22d12912` |
+
+The pinned Rust Stwo oracle at `a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2` accepted all six
+exact artifacts: CPU and Metal for each of the three rows. This establishes Rust acceptance of the
+bytes actually timed, rather than acceptance of a separately regenerated proof.
+
+### Measured profiler evidence
+
+The CPU diagnostic used `log12x16`, the functional protocol, and 101 profiled samples. It is not a
+headline result. Median prove time was 7.133 ms, or 0.574199 row MHz. Median root-stage time was
+5.261 ms in `core_prove` and 1.862 ms in `main_trace_commit`. Within `core_prove`, the largest
+measured stages were quotient construction and commitment at 4.015 ms, sampled-value evaluation at
+0.437 ms, composition commitment at 0.242 ms, and proof of work at 0.219 ms. Within main-trace
+commitment, Merkle commitment cost 1.116 ms, interpolation 0.506 ms, and extended-domain evaluation
+0.238 ms.
+
+The non-idle top self stacks from `/usr/bin/sample`, expressed as sample hits rather than elapsed
+time, were Blake2s rounds (232), `M31.powPMinus2` (90), circle evaluate-many (72),
+`compressParallel4` (69), `CirclePointIndex.toPoint` (42), combined-contribution planning (29), FFT
+evaluation (25), IFFT (24), and CPU Merkle commitment (20). Idle `__ulock_wait2` dominated the
+all-thread capture and is deliberately excluded from prover-cost ranking.
+
+The bounded Metal command profile before the FRI conversion change recorded 28 command buffers,
+10.332 ms of host wait, and 1.567 ms of GPU execution. The identical diagnostic after the change
+recorded 17 command buffers, 9.690 ms of host wait, and 1.476 ms of GPU execution. In the latter,
+polynomial evaluation consumed 0.849 ms (57.55 percent of GPU time), eleven line folds consumed
+0.259 ms (17.56 percent), and circle LDE consumed 0.163 ms (11.05 percent). These are profiled
+diagnostics, not headline latency.
+
+The unprofiled, parity-gated A/B showed conservative prove-time gains of 2.43 percent on the small
+row and 11.65 percent on the wide row, with exact proof parity. The measured command reduction and
+the gap between GPU execution and host wait support the next architectural experiment. They do not
+by themselves prove that command count is the only cause, that the same gain will hold for Cairo or
+SN PIEs, or that a fully resident design will reach a particular MHz target.
+
 ## Benchmark Matrix
 
 The checked-in driver will use stable workload identifiers and immutable protocol settings.
@@ -152,56 +223,94 @@ smallest geometry that preserves its column width, transform depth, and dispatch
 
 ## Architecture Priorities
 
-Optimization proceeds in this order unless evidence changes the ranking.
+The following is the ranked implementation plan derived from the current audits and measurements.
+Items described here are hypotheses and planned contracts until their acceptance gates pass.
 
-### 1. Persistent proving context
+### 1. Long-lived prover session and canonical twiddles
 
-One context owns the device, queues, compiled libraries, semantic pipeline cache, twiddles,
-immutable tables, bounded scratch pools, and telemetry. A proof request supplies typed input and
-receives an owned proof; it does not reconstruct runtime infrastructure. Cache keys contain every
-code-generation and geometry fact that can change executable behavior.
+Introduce `ProverSession(PcsConfig, max_circle_log, host_byte_budget)`. It owns immutable tables,
+bounded scratch storage, telemetry, and one canonical max-log twiddle tower whose suffix views serve
+smaller domains. `Engine` and `Scheme` gain `initWithSession`; the existing initializer remains a
+local compatibility path. Composition and FRI geometry borrow the same tower. Reads are lock-free,
+all shape and byte bounds fail closed, callers join outstanding work before deinitialization, and no
+proof may retain a view beyond the session lifetime.
 
-### 2. Transaction command graph
+The Metal specialization additionally owns the device, queues, compiled libraries, semantic
+pipeline cache, and an immutable device twiddle bank in the session instead of the global runtime.
+This is the first shared CPU/Metal change because it removes repeated geometry construction while
+establishing explicit ownership for streaming requests.
 
-Encode dependent stages into a small number of command buffers. Replace interior
-`waitUntilCompleted` calls with command-buffer ordering, fences, shared events, and completion
-handlers. Host reads occur only at transcript or proof boundaries that actually require them.
-Command count and CPU blocked time are regression metrics.
+### 2. Give LDE output directly to Merkle commitment
 
-### 3. Device residency and lifetime planning
+Replace the host-owned LDE result followed by restaging with a typed resident polynomial handle.
+Circle transform, LDE, leaf packing, and lifted Merkle levels consume compatible views of the same
+allocation. The commitment interface returns the root plus an owned decommitment handle; it does
+not force materialization of every column on the host. An arena plan records lifetimes and permits
+aliasing only for disjoint ranges. Transcript roots, requested openings, recovery, and explicit
+spill are the only host-transfer edges.
 
-Trace, transformed columns, composition, quotient, FRI layers, and decommit work remain in typed
-resident allocations across stages. The arena planner derives lifetimes and aliases only disjoint
-ranges. Transfers are explicit edges with measured bytes. Recovery, spill, and recomputation are
-capabilities, not frontend policy.
+This work must reduce measured host transfer and wait time without changing roots, opened values,
+decommitments, canonical proof bytes, or CPU fallback behavior that remains intentionally enabled.
 
-### 4. Geometry batching
+### 3. Batch resident FRI at transcript barriers
 
-Group columns and components by log size, field representation, and operation. One batch performs
-many transforms, hashes, or folds. The schedule is built once into typed descriptors; proving does
-not repeatedly scan JSON, resolve strings, or rebuild bindings.
+`fold_step=1` means a generic `foldLineN` wrapper saves no work. Add an optional backend operation,
+`commitFriInnerBatch`, with a CPU fallback. After the CPU mixes the first FRI root, upload channel
+state once; one Metal command graph draws alpha, folds, planarizes, performs standard lifted Merkle
+commitment, and mixes each root across all inner layers. Wait once at the transcript barrier before
+the CPU last layer. This is a high-risk semantic batch, not a mechanical kernel fusion.
 
-### 5. Semantic fusion
+The current hypothesis is approximately 17 command buffers to 6 by removing eleven interior waits.
+Acceptance requires exact parity for every FRI root, retained layer, channel state, last-layer
+evaluation, decommitment, injected command failure, full Zig proof, and pinned-Rust verification.
 
-Fuse producer and consumer kernels when an intermediate would otherwise be written to and read
-from device memory and when the combined kernel retains acceptable occupancy. Candidate boundaries
-include interpolation plus extension, leaf packing plus first Merkle levels, quotient evaluation
-plus accumulation, and adjacent FRI folds. Each fusion records saved dispatches and bytes alongside
-register and threadgroup-memory costs.
+### 4. Bound shape caches and streaming request slots
 
-### 6. CPU data-oriented execution
+Cache immutable work by a complete semantic key: protocol parameters, maximum circle log, field and
+layout representation, kernel specialization, and device identity. Compile geometry descriptors
+once and group columns/components by log size and operation. Use fixed-capacity request slots with
+typed resident arenas and backpressure; cache and arena exhaustion are explicit errors, never an
+unbounded allocation path. Queue execution may overlap CPU witness work, transfers, and GPU work
+only after the single-request ownership model is correct.
 
-Use contiguous structure-of-arrays or measured AoSoA layouts, stable alignment, bounded arenas,
-explicit vector-width kernels, and one scalar tail. State aliasing and padding assumptions in types
-or assertions. Batch inversions, transforms, hashing, and accumulation across independent columns.
-Parallel work uses persistent pools and coarse deterministic shards; do not create threads per
-stage or per column.
+Acceptance includes cold and warm accounting, retained-byte reporting, deterministic shuffled
+10- and 100-request queues, bounded peak memory, no cache growth after warmup, failure recovery, and
+proof delivery in input order. Sustained throughput and tail latency are reported separately from
+single-proof MHz.
 
-### 7. Overlap
+### 5. Execute the CPU stage program explicitly
 
-After residency and batching are correct, overlap independent CPU witness work, transfers, and GPU
-stages with bounded queues. Double buffering is justified only by a timeline showing useful
-concurrency and a memory budget showing sustainable stream depth.
+Optimize measured stages rather than treating CPU work as one residual bucket. In order: quotient
+construction/commitment and sampled-value inversion; FRI geometry and folding; canonical twiddle
+reuse; Blake2s/Merkle `compressParallel4`; circle interpolation/evaluation; then FFT/IFFT layout and
+sharding. Evaluate batch inversion before more `powPMinus2`, reuse point and contribution plans,
+and keep field data in contiguous SoA or measured AoSoA layouts with stable alignment and one
+scalar tail. Persistent workers use coarse deterministic shards; no stage creates ad hoc threads.
+
+Each change needs stage-level before/after evidence and the formal cross-backend matrix. Explicit
+SIMD is accepted only when disassembly or counters show the intended vector width and the scalar
+tail, aliasing, alignment, and overflow contracts are tested.
+
+### 6. Fuse and overlap only after ownership is stable
+
+Later candidates include interpolation plus extension, leaf packing plus early Merkle levels, and
+quotient evaluation plus accumulation. A fusion is accepted only when saved dispatches and bytes
+outweigh measured occupancy, register, and threadgroup-memory costs. Double buffering or CPU/GPU
+overlap additionally requires a command timeline showing real concurrency and a memory budget that
+supports the chosen stream depth.
+
+### Next acceptance sequence
+
+1. Land the session and twiddle-tower contract with construction-count telemetry, unchanged proof
+   bytes, the formal three-row matrix, and all six pinned-Rust artifact checks.
+2. Land LDE-to-Merkle ownership only after root/opening/decommitment parity tests and a profile show
+   fewer transferred bytes or less host wait with no matrix regression.
+3. Land resident inner FRI only after its layer-by-layer and failure tests pass, the command profile
+   approaches the predicted one-wait graph, and every formal proof remains Rust-accepted.
+4. Run deterministic 10- and 100-request mixed queues through bounded slots; publish retained and
+   peak bytes, median and tail latency, sustained proofs/s, and sustained workload-native MHz.
+5. Take CPU quotient/FRI/Merkle/FFT work one measured increment at a time; require stage improvement,
+   formal matrix non-regression, exact Metal parity, and Rust acceptance before the next increment.
 
 ## Acceptance Gates
 
