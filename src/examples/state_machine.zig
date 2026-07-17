@@ -2,7 +2,6 @@ const std = @import("std");
 const core_air_accumulation = @import("../core/air/accumulation.zig");
 const core_air_components = @import("../core/air/components.zig");
 const core_air_derive = @import("../core/air/derive.zig");
-const core_air_utils = @import("../core/air/utils.zig");
 const channel_blake2s = @import("../core/channel/blake2s.zig");
 const m31 = @import("../core/fields/m31.zig");
 const qm31 = @import("../core/fields/qm31.zig");
@@ -13,251 +12,70 @@ const core_verifier = @import("../core/verifier.zig");
 const blake2_merkle = @import("../core/vcs_lifted/blake2_merkle.zig");
 const prover_air_accumulation = @import("../prover/air/accumulation.zig");
 const prover_component = @import("../prover/air/component_prover.zig");
-const prover_pcs = @import("../prover/pcs/mod.zig");
-const prover_prove = @import("../prover/prove.zig");
+const prover_engine = @import("../prover/engine.zig");
+const stage_profile = @import("../prover/stage_profile.zig");
 const secure_column = @import("../prover/secure_column.zig");
+const prover_transaction = @import("common/prover_transaction.zig");
+const trace_input = @import("state_machine/input.zig");
+const statement_impl = @import("state_machine/statement.zig");
 const CpuBackend = @import("../backends/cpu_scalar/mod.zig").CpuBackend;
 
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
 const CirclePointQM31 = @import("../core/circle.zig").CirclePointQM31;
 
-pub const State = [2]M31;
+pub const State = trace_input.State;
 pub const Hasher = blake2_merkle.Blake2sMerkleHasher;
 pub const MerkleChannel = blake2_merkle.Blake2sMerkleChannel;
 pub const Channel = channel_blake2s.Blake2sChannel;
 pub const Proof = core_proof.StarkProof(Hasher);
 pub const ExtendedProof = core_proof.ExtendedStarkProof(Hasher);
+pub const CpuProverEngine = prover_engine.ProverEngine(
+    CpuBackend,
+    Hasher,
+    MerkleChannel,
+    Channel,
+);
 
-pub const Error = error{
-    InvalidIncIndex,
-    InvalidLogSize,
-    DegenerateDenominator,
-    DivisionByZero,
-    NonBaseField,
-    StatementNotSatisfied,
+pub fn ProverEngineForBackend(comptime Backend: type) type {
+    return prover_engine.ProverEngine(Backend, Hasher, MerkleChannel, Channel);
+}
+
+comptime {
+    prover_engine.assertProverEngine(CpuProverEngine);
+}
+
+pub const Request = trace_input.Request;
+pub const PreparedInput = trace_input.PreparedInput;
+pub const prepareInput = trace_input.prepare;
+pub const genTrace = trace_input.genTrace;
+pub const deinitTrace = trace_input.deinitTrace;
+
+pub const Error = trace_input.Error || statement_impl.Error || error{
     InvalidProofShape,
 };
 
-/// Generates two trace columns in bit-reversed circle-domain order.
-///
-/// Semantics match upstream `examples/state_machine/gen.rs::gen_trace`.
-pub fn genTrace(
-    allocator: std.mem.Allocator,
-    log_size: u32,
-    initial_state: State,
-    inc_index: usize,
-) (std.mem.Allocator.Error || Error)![2][]M31 {
-    if (inc_index >= 2) return Error.InvalidIncIndex;
-    const n = checkedPow2(log_size) catch return Error.InvalidLogSize;
-
-    const col0 = try allocator.alloc(M31, n);
-    errdefer allocator.free(col0);
-    const col1 = try allocator.alloc(M31, n);
-    errdefer allocator.free(col1);
-
-    @memset(col0, M31.zero());
-    @memset(col1, M31.zero());
-
-    var curr_state = initial_state;
-    for (0..n) |i| {
-        const bit_rev_index = core_air_utils.circleBitReversedIndex(log_size, i) catch {
-            return Error.InvalidLogSize;
-        };
-        col0[bit_rev_index] = curr_state[0];
-        col1[bit_rev_index] = curr_state[1];
-        curr_state[inc_index] = curr_state[inc_index].add(M31.one());
-    }
-
-    return .{ col0, col1 };
-}
-
-pub fn deinitTrace(allocator: std.mem.Allocator, trace: *[2][]M31) void {
-    allocator.free(trace[0]);
-    allocator.free(trace[1]);
-    trace.* = undefined;
-}
-
-pub const TransitionStates = struct {
-    intermediate: State,
-    final: State,
-};
-
-pub const Statement0 = struct {
-    n: u32,
-    m: u32,
-};
-
-pub const Statement1 = struct {
-    x_axis_claimed_sum: QM31,
-    y_axis_claimed_sum: QM31,
-};
-
-pub const PreparedStatement = struct {
-    public_input: [2]State,
-    stmt0: Statement0,
-    stmt1: Statement1,
-};
-
-/// State-machine lookup elements (`z`, `alpha`) used for relation combination.
-pub const Elements = struct {
-    z: QM31,
-    alpha: QM31,
-
-    pub fn draw(channel: anytype) Elements {
-        return .{
-            .z = channel.drawSecureFelt(),
-            .alpha = channel.drawSecureFelt(),
-        };
-    }
-
-    /// Combines a state as `state[0] + alpha * state[1] - z`.
-    pub fn combine(self: Elements, state: State) QM31 {
-        return QM31.fromBase(state[0])
-            .add(self.alpha.mul(QM31.fromBase(state[1])))
-            .sub(self.z);
-    }
-};
-
-/// Computes intermediate/final public states used by state-machine example.
-///
-/// Semantics match upstream `examples/state_machine/mod.rs::prove_state_machine`.
-pub fn transitionStates(log_n_rows: u32, initial_state: State) Error!TransitionStates {
-    if (log_n_rows == 0 or log_n_rows >= 31) return Error.InvalidLogSize;
-
-    var intermediate = initial_state;
-    intermediate[0] = intermediate[0].add(M31.fromCanonical(@as(u32, 1) << @intCast(log_n_rows)));
-
-    var final = intermediate;
-    final[1] = final[1].add(M31.fromCanonical(@as(u32, 1) << @intCast(log_n_rows - 1)));
-
-    return .{
-        .intermediate = intermediate,
-        .final = final,
-    };
-}
-
-/// Computes the interaction claimed sum by direct row-wise accumulation.
-///
-/// This matches upstream state-machine interaction numerator/denominator terms:
-/// `(output_denom - input_denom) / (input_denom * output_denom)`.
-pub fn claimedSumFromInitial(
-    log_size: u32,
-    initial_state: State,
-    inc_index: usize,
-    elements: Elements,
-) Error!QM31 {
-    if (inc_index >= 2) return Error.InvalidIncIndex;
-    const n = checkedPow2(log_size) catch return Error.InvalidLogSize;
-
-    var curr_state = initial_state;
-    var sum = QM31.zero();
-    for (0..n) |_| {
-        const input_denom = elements.combine(curr_state);
-        curr_state[inc_index] = curr_state[inc_index].add(M31.one());
-        const output_denom = elements.combine(curr_state);
-        if (input_denom.isZero() or output_denom.isZero()) return Error.DegenerateDenominator;
-
-        const numerator = output_denom.sub(input_denom);
-        const denominator = input_denom.mul(output_denom);
-        sum = sum.add(try numerator.div(denominator));
-    }
-
-    return sum;
-}
-
-/// Computes the same claimed sum via telescoping:
-/// `combine(first)^-1 - combine(last)^-1`.
-pub fn claimedSumTelescoping(
-    log_size: u32,
-    initial_state: State,
-    inc_index: usize,
-    elements: Elements,
-) Error!QM31 {
-    if (inc_index >= 2) return Error.InvalidIncIndex;
-    const n = checkedPow2(log_size) catch return Error.InvalidLogSize;
-
-    const first = elements.combine(initial_state);
-
-    var last_state = initial_state;
-    last_state[inc_index] = last_state[inc_index].add(
-        M31.fromU64(@intCast(n)),
-    );
-    const last = elements.combine(last_state);
-
-    if (first.isZero() or last.isZero()) return Error.DegenerateDenominator;
-    const first_inv = first.inv() catch unreachable;
-    const last_inv = last.inv() catch unreachable;
-    return first_inv.sub(last_inv);
-}
-
-/// Validates the upstream state-machine claimed-sum statement:
-/// `(x_claim + y_claim) * combine(initial) * combine(final) == combine(final) - combine(initial)`.
-pub fn claimsSatisfyStatement(
-    initial_state: State,
-    final_state: State,
-    x_axis_claimed_sum: QM31,
-    y_axis_claimed_sum: QM31,
-    elements: Elements,
-) Error!bool {
-    const initial_comb = elements.combine(initial_state);
-    const final_comb = elements.combine(final_state);
-    if (initial_comb.isZero() or final_comb.isZero()) return Error.DegenerateDenominator;
-
-    const lhs = x_axis_claimed_sum
-        .add(y_axis_claimed_sum)
-        .mul(initial_comb)
-        .mul(final_comb);
-    const rhs = final_comb.sub(initial_comb);
-    return lhs.eql(rhs);
-}
-
-/// Builds the public state-machine statements used by proving/verifying entrypoints.
-pub fn prepareStatement(
-    log_n_rows: u32,
-    initial_state: State,
-    elements: Elements,
-) Error!PreparedStatement {
-    const transitions = try transitionStates(log_n_rows, initial_state);
-    const x_axis_claimed_sum = try claimedSumTelescoping(log_n_rows, initial_state, 0, elements);
-    const y_axis_claimed_sum = try claimedSumTelescoping(
-        log_n_rows - 1,
-        transitions.intermediate,
-        1,
-        elements,
-    );
-
-    return .{
-        .public_input = .{ initial_state, transitions.final },
-        .stmt0 = .{ .n = log_n_rows, .m = log_n_rows - 1 },
-        .stmt1 = .{
-            .x_axis_claimed_sum = x_axis_claimed_sum,
-            .y_axis_claimed_sum = y_axis_claimed_sum,
-        },
-    };
-}
-
-/// Verifies that the prepared statement satisfies the claimed-sum equation.
-pub fn verifyStatement(statement: PreparedStatement, elements: Elements) Error!void {
-    const ok = try claimsSatisfyStatement(
-        statement.public_input[0],
-        statement.public_input[1],
-        statement.stmt1.x_axis_claimed_sum,
-        statement.stmt1.y_axis_claimed_sum,
-        elements,
-    );
-    if (!ok) return Error.StatementNotSatisfied;
-}
+pub const TransitionStates = statement_impl.TransitionStates;
+pub const Statement0 = statement_impl.Statement0;
+pub const Statement1 = statement_impl.Statement1;
+pub const PreparedStatement = statement_impl.PreparedStatement;
+pub const Elements = statement_impl.Elements;
+pub const transitionStates = statement_impl.transitionStates;
+pub const claimedSumFromInitial = statement_impl.claimedSumFromInitial;
+pub const claimedSumTelescoping = statement_impl.claimedSumTelescoping;
+pub const claimsSatisfyStatement = statement_impl.claimsSatisfyStatement;
+pub const prepareStatement = statement_impl.prepare;
+pub const verifyStatement = statement_impl.verify;
+const mixStatement0 = statement_impl.mixStatement0;
+const mixPublicInput = statement_impl.mixPublicInput;
+const mixStatement1 = statement_impl.mixStatement1;
 
 pub const ProveOutput = struct {
     statement: PreparedStatement,
     proof: Proof,
 };
 
-pub const ProveExOutput = struct {
-    statement: PreparedStatement,
-    proof: ExtendedProof,
-};
+pub const ProveExOutput = prover_transaction.Output(PreparedStatement, ExtendedProof);
 
 /// Proves the state-machine statement using the shared component-driven prover flow.
 ///
@@ -278,14 +96,13 @@ pub fn prove(
     log_n_rows: u32,
     initial_state: State,
 ) anyerror!ProveOutput {
-    const output = try proveEx(allocator, pcs_config, log_n_rows, initial_state, false);
-    var ext_proof = output.proof;
-    const proof = ext_proof.proof;
-    ext_proof.aux.deinit(allocator);
-    return .{
-        .statement = output.statement,
-        .proof = proof,
-    };
+    return proveWithEngine(
+        CpuProverEngine,
+        allocator,
+        pcs_config,
+        .{ .log_n_rows = log_n_rows, .initial_state = initial_state },
+        null,
+    );
 }
 
 /// Extended proving wrapper over `prover.proveEx`.
@@ -296,74 +113,225 @@ pub fn proveEx(
     initial_state: State,
     include_all_preprocessed_columns: bool,
 ) anyerror!ProveExOutput {
-    if (log_n_rows == 0 or log_n_rows >= 31) return Error.InvalidLogSize;
-
-    var channel = Channel{};
-    pcs_config.mixInto(&channel);
-
-    var scheme = try prover_pcs.CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel).init(
+    return proveExWithEngine(
+        CpuProverEngine,
         allocator,
         pcs_config,
-    );
-
-    const preprocessed = try genIsFirst(allocator, log_n_rows);
-    var preprocessed_moved = false;
-    defer if (!preprocessed_moved) allocator.free(preprocessed);
-
-    const preprocessed_owned = try allocator.alloc(prover_pcs.ColumnEvaluation, 1);
-    errdefer allocator.free(preprocessed_owned);
-    preprocessed_owned[0] = .{
-        .log_size = log_n_rows,
-        .values = preprocessed,
-    };
-    preprocessed_moved = true;
-    try scheme.commitOwned(allocator, preprocessed_owned, &channel);
-
-    var trace = try genTrace(allocator, log_n_rows, initial_state, 0);
-    var trace_moved = false;
-    defer if (!trace_moved) deinitTrace(allocator, &trace);
-    const trace_owned = try allocator.alloc(prover_pcs.ColumnEvaluation, trace.len);
-    errdefer allocator.free(trace_owned);
-    for (trace, 0..) |column, i| {
-        trace_owned[i] = .{
-            .log_size = log_n_rows,
-            .values = column,
-        };
-    }
-    trace_moved = true;
-    try scheme.commitOwned(allocator, trace_owned, &channel);
-
-    mixStatement0(&channel, .{
-        .n = log_n_rows,
-        .m = log_n_rows - 1,
-    });
-    const elements = Elements.draw(&channel);
-    const statement = try prepareStatement(log_n_rows, initial_state, elements);
-    mixPublicInput(&channel, statement.public_input);
-    mixStatement1(&channel, statement.stmt1);
-
-    const component = ExampleStateMachineComponent{
-        .trace_log_size = log_n_rows,
-        .composition_eval = statement.stmt1.x_axis_claimed_sum.add(statement.stmt1.y_axis_claimed_sum),
-    };
-    const components = [_]prover_component.ComponentProver{
-        component.asProverComponent(),
-    };
-
-    const proof = try prover_prove.proveEx(
-        CpuBackend,
-        Hasher,
-        MerkleChannel,
-        allocator,
-        components[0..],
-        &channel,
-        scheme,
+        .{ .log_n_rows = log_n_rows, .initial_state = initial_state },
         include_all_preprocessed_columns,
+        null,
     );
-    return .{
-        .statement = statement,
-        .proof = proof,
+}
+
+pub fn proveProfiled(
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    log_n_rows: u32,
+    initial_state: State,
+    recorder: *stage_profile.Recorder,
+) anyerror!ProveOutput {
+    return proveWithEngine(
+        CpuProverEngine,
+        allocator,
+        pcs_config,
+        .{ .log_n_rows = log_n_rows, .initial_state = initial_state },
+        recorder,
+    );
+}
+
+pub fn proveWithBackend(
+    comptime Backend: type,
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    request: Request,
+    recorder: ?*stage_profile.Recorder,
+) anyerror!ProveOutput {
+    return proveWithEngine(
+        ProverEngineForBackend(Backend),
+        allocator,
+        pcs_config,
+        request,
+        recorder,
+    );
+}
+
+pub fn proveWithEngine(
+    comptime Engine: type,
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    request: Request,
+    recorder: ?*stage_profile.Recorder,
+) anyerror!ProveOutput {
+    var output = try proveExWithEngine(
+        Engine,
+        allocator,
+        pcs_config,
+        request,
+        false,
+        recorder,
+    );
+    const proof = output.proof.proof;
+    output.proof.aux.deinit(allocator);
+    return .{ .statement = output.statement, .proof = proof };
+}
+
+pub fn proveExWithEngine(
+    comptime Engine: type,
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    request: Request,
+    include_all_preprocessed_columns: bool,
+    recorder: ?*stage_profile.Recorder,
+) anyerror!ProveExOutput {
+    const prepared = blk: {
+        var stage = try stage_profile.StageScope.begin(
+            recorder,
+            "trace_generation",
+            "Trace generation",
+        );
+        defer stage.end();
+        break :blk try prepareInput(allocator, request);
     };
+    return provePreparedExImpl(
+        Engine,
+        false,
+        {},
+        allocator,
+        pcs_config,
+        prepared,
+        include_all_preprocessed_columns,
+        recorder,
+    );
+}
+
+/// Proves a prepared State Machine trace and consumes it on every path.
+pub fn provePreparedWithEngine(
+    comptime Engine: type,
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    prepared: PreparedInput,
+    recorder: ?*stage_profile.Recorder,
+) anyerror!ProveOutput {
+    var output = try provePreparedExImpl(
+        Engine,
+        false,
+        {},
+        allocator,
+        pcs_config,
+        prepared,
+        false,
+        recorder,
+    );
+    const proof = output.proof.proof;
+    output.proof.aux.deinit(allocator);
+    return .{ .statement = output.statement, .proof = proof };
+}
+
+pub fn provePreparedExWithEngine(
+    comptime Engine: type,
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    prepared: PreparedInput,
+    include_all_preprocessed_columns: bool,
+    recorder: ?*stage_profile.Recorder,
+) anyerror!ProveExOutput {
+    return provePreparedExImpl(
+        Engine,
+        false,
+        {},
+        allocator,
+        pcs_config,
+        prepared,
+        include_all_preprocessed_columns,
+        recorder,
+    );
+}
+
+pub fn provePreparedWithSessionAndEngine(
+    comptime Engine: type,
+    session: *const Engine.Session,
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    prepared: PreparedInput,
+    recorder: ?*stage_profile.Recorder,
+) anyerror!ProveOutput {
+    var output = try provePreparedExImpl(
+        Engine,
+        true,
+        session,
+        allocator,
+        pcs_config,
+        prepared,
+        false,
+        recorder,
+    );
+    const proof = output.proof.proof;
+    output.proof.aux.deinit(allocator);
+    return .{ .statement = output.statement, .proof = proof };
+}
+
+pub fn provePreparedExWithSessionAndEngine(
+    comptime Engine: type,
+    session: *const Engine.Session,
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    prepared: PreparedInput,
+    include_all_preprocessed_columns: bool,
+    recorder: ?*stage_profile.Recorder,
+) anyerror!ProveExOutput {
+    return provePreparedExImpl(
+        Engine,
+        true,
+        session,
+        allocator,
+        pcs_config,
+        prepared,
+        include_all_preprocessed_columns,
+        recorder,
+    );
+}
+
+fn provePreparedExImpl(
+    comptime Engine: type,
+    comptime use_session: bool,
+    session: if (use_session) *const Engine.Session else void,
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    prepared: PreparedInput,
+    include_all_preprocessed_columns: bool,
+    recorder: ?*stage_profile.Recorder,
+) anyerror!ProveExOutput {
+    return prover_transaction.provePreparedEx(
+        Engine,
+        ProvingSpec,
+        use_session,
+        session,
+        allocator,
+        pcs_config,
+        prepared,
+        .{
+            .include_all_preprocessed_columns = include_all_preprocessed_columns,
+            .recorder = recorder,
+        },
+    );
+}
+
+pub fn requiredTwiddleCircleLog(
+    request: Request,
+    pcs_config: pcs_core.PcsConfig,
+) Error!u32 {
+    try trace_input.validate(request);
+    const composition_log = std.math.add(u32, request.log_n_rows, 1) catch
+        return error.InvalidLogSize;
+    const commitment_log = std.math.add(
+        u32,
+        request.log_n_rows,
+        pcs_config.fri_config.log_blowup_factor,
+    ) catch return error.InvalidLogSize;
+    return @max(
+        @max(composition_log, commitment_log),
+        pcs_config.lifting_log_size orelse 0,
+    );
 }
 
 /// Verifies a state-machine proof generated by `prove`.
@@ -551,39 +519,84 @@ const ExampleStateMachineComponent = struct {
     }
 };
 
-fn genIsFirst(allocator: std.mem.Allocator, log_size: u32) (std.mem.Allocator.Error || Error)![]M31 {
-    const n = checkedPow2(log_size) catch return Error.InvalidLogSize;
-    const col = try allocator.alloc(M31, n);
-    @memset(col, M31.zero());
-    col[0] = M31.one();
-    return col;
-}
+const ProvingSpec = struct {
+    pub const Statement = PreparedStatement;
+    pub const PreparedInput = trace_input.PreparedInput;
+    pub const max_components: usize = 1;
 
-fn mixStatement0(channel: *Channel, stmt0: Statement0) void {
-    channel.mixU32s(&[_]u32{ stmt0.n, stmt0.m });
-}
-
-fn mixPublicInput(channel: *Channel, public_input: [2]State) void {
-    const data = [_]u32{
-        public_input[0][0].toU32(),
-        public_input[0][1].toU32(),
-        public_input[1][0].toU32(),
-        public_input[1][1].toU32(),
+    pub const ProverContext = struct {
+        statement_value: PreparedStatement,
+        component: ExampleStateMachineComponent,
     };
-    channel.mixU32s(data[0..]);
-}
 
-fn mixStatement1(channel: *Channel, stmt1: Statement1) void {
-    channel.mixFelts(&[_]QM31{
-        stmt1.x_axis_claimed_sum,
-        stmt1.y_axis_claimed_sum,
-    });
-}
+    pub fn validateRequest(request: Request) Error!void {
+        try trace_input.validate(request);
+    }
 
-fn checkedPow2(log_size: u32) Error!usize {
-    if (log_size >= @bitSizeOf(usize)) return Error.InvalidLogSize;
-    return @as(usize, 1) << @intCast(log_size);
-}
+    pub fn validatePrepared(prepared: *const trace_input.PreparedInput) Error!void {
+        const preprocessed = prepared.trace.preprocessed.columns orelse
+            return error.PreparedInputConsumed;
+        const main = prepared.trace.main.columns orelse
+            return error.PreparedInputConsumed;
+        if (preprocessed.len != 1 or main.len != 2)
+            return error.InvalidPreparedGeometry;
+        for (preprocessed) |column| {
+            if (column.log_size != prepared.request.log_n_rows)
+                return error.InvalidPreparedGeometry;
+        }
+        for (main) |column| {
+            if (column.log_size != prepared.request.log_n_rows)
+                return error.InvalidPreparedGeometry;
+        }
+    }
+
+    pub fn compositionLog(request: Request) Error!u32 {
+        return std.math.add(u32, request.log_n_rows, 1) catch
+            return error.InvalidLogSize;
+    }
+
+    pub fn initProverContext(
+        out: *ProverContext,
+        channel: *Channel,
+        request: Request,
+    ) !void {
+        mixStatement0(channel, .{
+            .n = request.log_n_rows,
+            .m = request.log_n_rows - 1,
+        });
+        const elements = Elements.draw(channel);
+        const prepared_statement = try prepareStatement(
+            request.log_n_rows,
+            request.initial_state,
+            elements,
+        );
+        mixPublicInput(channel, prepared_statement.public_input);
+        mixStatement1(channel, prepared_statement.stmt1);
+
+        out.* = .{
+            .statement_value = prepared_statement,
+            .component = .{
+                .trace_log_size = request.log_n_rows,
+                .composition_eval = prepared_statement.stmt1.x_axis_claimed_sum.add(
+                    prepared_statement.stmt1.y_axis_claimed_sum,
+                ),
+            },
+        };
+    }
+
+    pub fn statement(context: *const ProverContext) PreparedStatement {
+        return context.statement_value;
+    }
+
+    pub fn proverComponents(
+        context: *const ProverContext,
+        out: []prover_component.ComponentProver,
+    ) ![]const prover_component.ComponentProver {
+        if (out.len < max_components) return error.InvalidProofShape;
+        out[0] = context.component.asProverComponent();
+        return out[0..1];
+    }
+};
 
 test "examples state_machine: trace generation increments selected coordinate" {
     const alloc = std.testing.allocator;
