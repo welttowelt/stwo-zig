@@ -42,18 +42,12 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const cross_module_test_options = b.addOptions();
+    cross_module_test_options.addOption(bool, "riscv_only", false);
+    cross_module_test_module.addOptions("test_options", cross_module_test_options);
     const cross_module_tests = b.addTest(.{ .root_module = cross_module_test_module });
     const run_cross_module_tests = b.addRunArtifact(cross_module_tests);
     test_step.dependOn(&run_cross_module_tests.step);
-
-    const arena_plan_test_module = b.createModule(.{
-        .root_source_file = b.path("src/metal_arena_plan_test.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const arena_plan_tests = b.addTest(.{ .root_module = arena_plan_test_module });
-    const run_arena_plan_tests = b.addRunArtifact(arena_plan_tests);
-    test_step.dependOn(&run_arena_plan_tests.step);
 
     const metal_session_protocol_test_module = b.createModule(.{
         .root_source_file = b.path("src/metal_prover_session_protocol.zig"),
@@ -102,12 +96,15 @@ pub fn build(b: *std.Build) void {
     const riscv_trace_step = b.step("riscv-trace-dump", "Build RISC-V trace dumper CLI");
     riscv_trace_step.dependOn(&riscv_trace_cli.step);
 
-    // RISC-V runner tests (including trace_dump).
+    // RISC-V runner tests use the src-wide test root for nested source access.
     const riscv_test_module = b.createModule(.{
-        .root_source_file = b.path("src/riscv_trace_test.zig"),
+        .root_source_file = b.path("src/tests.zig"),
         .target = target,
         .optimize = optimize,
     });
+    const riscv_test_options = b.addOptions();
+    riscv_test_options.addOption(bool, "riscv_only", true);
+    riscv_test_module.addOptions("test_options", riscv_test_options);
     const riscv_tests = b.addTest(.{
         .root_module = riscv_test_module,
     });
