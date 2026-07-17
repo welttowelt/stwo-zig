@@ -45,6 +45,29 @@ The file's current families are:
 The family count above treats `stwo_zig_witness_feed_counts` separately from the earlier Cairo
 trace region. The exact exported total is 90.
 
+### Migration ledger (2026-07-17)
+
+The audit table records the original monolith. The live migration state is narrower than the
+target architecture and must not be described as an AOT shader library yet:
+
+- commit `111d631` added the authoritative 90-export owner map, exact source/runtime export checks,
+  initial shared ABI layout assertions, deterministic one-library source amalgamation, `.metal`
+  source-conformance enforcement, and the first extracted leaf (`polynomial_eval.metal`);
+- the transcript increment moves its four kernels and two private helpers intact into
+  `core/transcript.metal`, reducing the legacy file from 3,533 to 3,436 lines while preserving the
+  runtime's single source-JIT library and existing dispatches;
+- Stage 0 remains incomplete until every argument contract is represented in the manifest, Metal
+  reflection validates it, and cold compilation/PSO/library counts are captured;
+- Stage 1 remains incomplete: shared hash and field helpers still belong to `kernels.metal`, so the
+  extracted leaf sources compile through the deterministic amalgamation but are not independently
+  compilable AIR translation units;
+- AOT AIR compilation/linking and authenticated metallib loading remain Stage 5 work. No current
+  source extraction removes runtime compilation or changes warm proving speed.
+
+The next extraction after transcript is `arena_ops.metal`, but its independent-AIR gate requires
+the base include first. Further protocol families must not move ahead of the Stage 1 support-header
+boundary merely because the source-JIT amalgamation can resolve helpers by concatenation order.
+
 The problem is wider than file length:
 
 - `runtime.zig` embeds the complete file and `runtime.m` source-JIT compiles it for every new core

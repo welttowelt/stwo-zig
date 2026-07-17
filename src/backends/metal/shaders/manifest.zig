@@ -135,6 +135,7 @@ pub const TranslationUnit = struct {
 
 const legacy_source = @embedFile("../kernels.metal");
 const abi_types_source = @embedFile("include/abi_types.metal");
+const transcript_source = @embedFile("core/transcript.metal");
 const polynomial_eval_source = @embedFile("core/polynomial_eval.metal");
 
 pub const support_headers = [_]TranslationUnit{
@@ -143,12 +144,15 @@ pub const support_headers = [_]TranslationUnit{
 
 pub const translation_units = [_]TranslationUnit{
     .{ .path = "src/backends/metal/kernels.metal", .source = legacy_source },
+    .{ .path = "src/backends/metal/shaders/core/transcript.metal", .source = transcript_source },
     .{ .path = "src/backends/metal/shaders/core/polynomial_eval.metal", .source = polynomial_eval_source },
 };
 
 /// The runtime still compiles one library. Translation-unit boundaries are
 /// explicit here so AOT compilation can consume the same ordered manifest.
 pub const amalgamated_source: [:0]const u8 = legacy_source ++
+    "\n#line 1 \"src/backends/metal/shaders/core/transcript.metal\"\n" ++
+    transcript_source ++
     "\n#line 1 \"src/backends/metal/shaders/include/abi_types.metal\"\n" ++
     abi_types_source ++
     "\n#line 1 \"src/backends/metal/shaders/core/polynomial_eval.metal\"\n" ++
@@ -214,4 +218,33 @@ test "polynomial evaluation is isolated in its owning shader unit" {
     try std.testing.expect(std.mem.indexOf(u8, abi_types_source, "struct PolynomialEvalTask") != null);
     try std.testing.expect(std.mem.indexOf(u8, abi_types_source, "struct PolynomialBasisTask") != null);
     try std.testing.expect(std.mem.indexOf(u8, polynomial_eval_source, "struct PolynomialEvalTask") == null);
+}
+
+test "transcript is isolated in its owning shader unit with a stable ABI" {
+    const transcript_exports = [_][]const u8{
+        "stwo_zig_transcript_init_resident",
+        "stwo_zig_transcript_mix_resident",
+        "stwo_zig_transcript_draw_secure_resident",
+        "stwo_zig_transcript_draw_queries_resident",
+    };
+    for (transcript_exports) |name| {
+        try std.testing.expectEqual(@as(usize, 0), countKernelDeclarations(legacy_source, name));
+        try std.testing.expectEqual(@as(usize, 1), countKernelDeclarations(transcript_source, name));
+    }
+
+    const AbiFragment = struct { source: []const u8, count: usize };
+    const abi_fragments = [_]AbiFragment{
+        .{ .source = "device uint *arena [[buffer(0)]], constant uint &state_base [[buffer(1)]]", .count = 4 },
+        .{ .source = "constant uint &source_base [[buffer(2)]], constant uint &source_words [[buffer(3)]]", .count = 1 },
+        .{ .source = "constant uint &destination_base [[buffer(2)]], constant uint &felt_count [[buffer(3)]]", .count = 1 },
+        .{ .source = "constant uint &destination_base [[buffer(2)]], constant uint &log_domain_size [[buffer(3)]]", .count = 1 },
+        .{ .source = "constant uint &query_count [[buffer(4)]], uint lane [[thread_position_in_grid]]", .count = 1 },
+    };
+    for (abi_fragments) |fragment| {
+        try std.testing.expectEqual(fragment.count, std.mem.count(u8, transcript_source, fragment.source));
+    }
+    try std.testing.expectEqual(
+        @as(usize, 4),
+        std.mem.count(u8, transcript_source, "uint lane [[thread_position_in_grid]]"),
+    );
 }
