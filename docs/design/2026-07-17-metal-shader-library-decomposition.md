@@ -78,18 +78,23 @@ target architecture and must not be described as an AOT shader library yet:
   deterministic core amalgamation and generated witness programs now consume these explicit
   owners; generated witness code no longer embeds or slices `kernels.metal`, and codegen support
   version 6 owns the resulting cache-identity change;
-- the legacy file is now 2,657 lines. Its 90 exported entry points, the runtime lookup set, and the
-  one-library source-JIT boundary remain unchanged;
+- the first Stage 2 protocol-family increment moves all five composition kernels intact into
+  `core/composition.metal`. The standalone unit declares only base-field and extension-field
+  dependencies; no helper, dispatch, allocation, or synchronization boundary changes;
+- the legacy file is now 2,582 lines. Its remaining 78 exported entry points, the complete
+  90-export runtime lookup set, and the one-library source-JIT boundary remain unchanged;
 - Stage 0 remains incomplete until every argument contract is represented in the manifest, Metal
   reflection validates it, and cold compilation/PSO/library counts are captured;
 - Stage 1 support-header decomposition is complete: shared circle, Merkle, decommit, Felt252, EC,
   and generated-witness support have explicit guarded owners. Protocol-family kernels remain in
   the legacy unit until their later family-move stages;
+- Stage 2 is underway: composition now has its planned family owner while the other protocol
+  families listed in the target layout remain in the legacy unit;
 - AOT AIR compilation/linking and authenticated metallib loading remain Stage 5 work. No current
   source extraction removes runtime compilation or changes warm proving speed.
 
-The Stage 1 support-header boundary is complete. Protocol families can now move in Stage 2 slices,
-but each move still requires exact export, ABI, runtime-lookup, and dispatch preservation; source-JIT
+The Stage 1 support-header boundary is complete and Stage 2 has begun with composition. Each later
+family move still requires exact export, ABI, runtime-lookup, and dispatch preservation; source-JIT
 amalgamation resolving helpers by concatenation order is not sufficient evidence by itself.
 
 The problem is wider than file length:

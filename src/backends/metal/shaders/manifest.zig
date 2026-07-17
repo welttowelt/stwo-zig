@@ -150,6 +150,7 @@ const witness_tables_source = @embedFile("include/witness_tables.metal");
 const witness_deductions_source = @embedFile("include/witness_deductions.metal");
 const arena_ops_source = @embedFile("core/arena_ops.metal");
 const transcript_source = @embedFile("core/transcript.metal");
+const composition_source = @embedFile("core/composition.metal");
 const polynomial_eval_source = @embedFile("core/polynomial_eval.metal");
 
 pub const support_headers = [_]TranslationUnit{
@@ -172,6 +173,7 @@ pub const translation_units = [_]TranslationUnit{
     .{ .path = "src/backends/metal/kernels.metal", .source = legacy_source },
     .{ .path = "src/backends/metal/shaders/core/arena_ops.metal", .source = arena_ops_source },
     .{ .path = "src/backends/metal/shaders/core/transcript.metal", .source = transcript_source },
+    .{ .path = "src/backends/metal/shaders/core/composition.metal", .source = composition_source },
     .{ .path = "src/backends/metal/shaders/core/polynomial_eval.metal", .source = polynomial_eval_source },
 };
 
@@ -210,6 +212,8 @@ pub const amalgamated_source: [:0]const u8 = "#define STWO_ZIG_AMALGAMATED 1\n" 
     arena_ops_source ++
     "\n#line 1 \"src/backends/metal/shaders/core/transcript.metal\"\n" ++
     transcript_source ++
+    "\n#line 1 \"src/backends/metal/shaders/core/composition.metal\"\n" ++
+    composition_source ++
     "\n#line 1 \"src/backends/metal/shaders/core/polynomial_eval.metal\"\n" ++
     polynomial_eval_source ++ "\x00";
 
@@ -297,6 +301,29 @@ test "polynomial evaluation is isolated in its owning shader unit" {
     try std.testing.expect(std.mem.indexOf(u8, abi_types_source, "struct PolynomialEvalTask") != null);
     try std.testing.expect(std.mem.indexOf(u8, abi_types_source, "struct PolynomialBasisTask") != null);
     try std.testing.expect(std.mem.indexOf(u8, polynomial_eval_source, "struct PolynomialEvalTask") == null);
+}
+
+test "composition kernels are isolated in their owning shader unit" {
+    const names = [_][]const u8{
+        "stwo_zig_composition_expand_sparse",
+        "stwo_zig_composition_lift_accumulate",
+        "stwo_zig_composition_split_coordinates",
+        "stwo_zig_composition_random_powers",
+        "stwo_zig_composition_ext_params",
+    };
+    for (names) |name| {
+        try std.testing.expectEqual(@as(usize, 0), countKernelDeclarations(legacy_source, name));
+        try std.testing.expectEqual(@as(usize, 1), countKernelDeclarations(composition_source, name));
+        try std.testing.expectEqual(@as(usize, 1), countKernelDeclarations(amalgamated_source, name));
+    }
+    const dependencies = [_][]const u8{
+        "#include \"stwo_zig/base.metal\"",
+        "#include \"stwo_zig/m31.metal\"",
+        "#include \"stwo_zig/extension_fields.metal\"",
+    };
+    for (dependencies) |dependency| {
+        try std.testing.expect(std.mem.indexOf(u8, composition_source, dependency) != null);
+    }
 }
 
 test "polynomial evaluation declares standalone field and ABI dependencies" {
