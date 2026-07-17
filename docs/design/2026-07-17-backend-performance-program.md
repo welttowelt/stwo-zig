@@ -239,6 +239,18 @@ The 83.3 percent command/wait reduction is not reported as proof throughput beca
 does not execute this Cairo streaming callsite and no heavy PIE was run. A bounded virtual-SNOS or
 equivalent compact-streaming proof is the next timing gate.
 
+Commit `cc176f5` adds a bounded timing surface around that exact production callsite. A two-group,
+32-column, 30,208-byte fixture verifies the CPU lifted root and transcript after every request and
+truthfully reports `proof_generated = false`. With two warmups and 11 same-process requests, the
+detached `653cccd` graph measured 2.490 ms median request latency and 0.398 ms median GPU duration;
+the `c0fbb7f` epoch measured 0.507 and 0.305 ms respectively. That is a 4.92x request-latency and
+1.30x GPU-duration improvement with exact roots throughout.
+
+A separate alternating-process experiment was rejected for request latency because each one-sample
+process was cold. Cold backend initialization, fixture construction, warm requests, GPU duration,
+and eventual full-proof throughput remain distinct evidence classes. The sustained callsite result
+validates the command-epoch architecture; it is not a proof-MHz claim.
+
 ### Native mixed-AIR transaction
 
 Commit `ec288e7` moves XOR onto the shared prepared-input, engine, and reusable-session proving

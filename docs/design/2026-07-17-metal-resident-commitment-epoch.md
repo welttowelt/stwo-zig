@@ -1,6 +1,6 @@
 # Metal Resident Commitment Epoch
 
-Status: implementation; command-epoch core and compact streaming graph accepted
+Status: implementation; compact streaming graph and bounded callsite timing accepted
 
 ## Performance Hypothesis
 
@@ -239,3 +239,37 @@ bounded Native proof lane does not exercise this Cairo callsite. Therefore these
 are architecture and correctness evidence, not a whole-proof MHz result. The next measured step is a
 bounded virtual-SNOS or equivalent compact-streaming fixture, followed by a full formal parity and
 Rust-oracle gate before any large PIE escalation.
+
+## Accepted Production-Callsite Timing
+
+Commit `cc176f5` adds a bounded benchmark that enters the exact production compact-commitment core
+through an explicit benchmark hook. Its Cairo-shaped fixture has two mixed-log groups, 32 columns,
+and a 30,208-byte resident arena. It verifies the final lifted Blake2s root against the CPU builder
+and separately verifies the transcript copy after every request. The JSON labels its scope
+`cairo_streaming_commitment_only`, sets `proof_generated` to false, and leaves `prove_seconds` null;
+these measurements are not full-proof latency or MHz.
+
+Identical benchmark-only plumbing was applied to detached ReleaseFast revisions `653cccd` and
+`c0fbb7f`. Each process constructed its runtime and fixture once, performed two warmups, and then
+executed 11 timed requests through the same resident fixture:
+
+| Metric | Before epoch | Compact epoch | Improvement |
+| --- | ---: | ---: | ---: |
+| Median request latency | 2.490 ms | 0.507 ms | 4.92x |
+| Median GPU duration | 0.398 ms | 0.305 ms | 1.30x |
+
+Every timed root and transcript matched the CPU oracle. The accepted epoch reports one command
+buffer, one wait, zero intermediate waits, 23 compute encoders and dispatches, and one blit. One
+2.490-ms-baseline sample reached 27.0 ms, but did not affect the median; raw samples are retained as
+the evidence rather than silently trimmed.
+
+A process-level alternating attempt was rejected for request-latency comparison because every
+single-sample process paid a cold Metal start. Its GPU median still favored the epoch, 0.435 to
+0.362 ms, but it is not substituted for the sustained result. Backend initialization, fixture
+construction, warmups, request latency, and GPU duration remain separate fields precisely so cold
+setup cannot be mislabeled as steady-state proving.
+
+This establishes that removal of five submission/wait boundaries materially improves the actual
+production commitment transaction, not just a synthetic encoder test. It does not establish proof
+MHz, block latency, queue throughput, cache bounds, or the next GPU hotspot. Those require a bounded
+full-proof fixture and the report-v3 transaction matrix before any SN PIE escalation.
