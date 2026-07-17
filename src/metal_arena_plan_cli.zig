@@ -4993,6 +4993,20 @@ fn validateEcOpCoverage(schedule: []const std.json.Value) !EcOpCoverage {
         trace_count += 1;
         trace_bytes += words * 4;
     }
+    if (trace_count == 0) {
+        for (schedule) |entry| {
+            const object = entry.object;
+            const purpose = object.get("purpose").?.string;
+            const component = object.get("component") orelse continue;
+            if (component != .string) continue;
+            const is_ec_component = std.mem.eql(u8, component.string, "ec_op_builtin") or
+                std.mem.eql(u8, component.string, "partial_ec_mul_generic");
+            const is_ec_purpose = std.mem.eql(u8, purpose, "EcOpPartialIota") or
+                std.mem.eql(u8, purpose, "EcOpSegmentStart");
+            if (is_ec_component or is_ec_purpose) return error.EcOpShapeMismatch;
+        }
+        return .{ .rows = 0, .output_buffers = 0, .output_bytes = 0 };
+    }
     if (rows < 16 or !std.math.isPowerOfTwo(rows) or trace_count != 273) return error.EcOpShapeMismatch;
     const lookup = findScheduled(schedule, "LookupInputs", "ec_op_builtin", 0) orelse return error.EcOpShapeMismatch;
     if (lookup.get("len_words").?.integer != @as(i64, @intCast(rows * 488))) return error.EcOpShapeMismatch;
