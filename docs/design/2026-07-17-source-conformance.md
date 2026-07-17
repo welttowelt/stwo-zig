@@ -58,6 +58,9 @@ The first migration pass has established these boundaries without changing proof
 - FRI folding, quotient, transcript, and sparse-opening Objective-C declarations now live in
   `backends/metal/runtime/opening_bindings.zig`. The facade retains its call sites through exact
   private aliases, with shared ABI parameter types checked in the canonical Metal test graph.
+- Resident trace materialization and commitment declarations, plus resident buffer and tree
+  ownership, now live in `backends/metal/runtime/resident_data.zig`. Selective readback and resource
+  lifetime semantics remain available through the runtime facade.
 - Cairo resident interaction execution and witness-input seeding have focused owners below
   `integrations/cairo_metal/resident/`; the arena-binding facade retains the stable public names.
 - Cairo commitment ordering now has a focused resident owner for canonical AIR reconstruction,
