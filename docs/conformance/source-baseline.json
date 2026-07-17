@@ -91,12 +91,6 @@
       "max_lines": 2984
     },
     {
-      "key": "file-size:prover/pcs/quotient_ops.zig",
-      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
-      "plan": "docs/design/2026-07-17-source-conformance.md",
-      "max_lines": 1164
-    },
-    {
       "key": "root-source:cairo_bench_cli.zig",
       "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
       "plan": "docs/design/2026-07-17-source-conformance.md"
