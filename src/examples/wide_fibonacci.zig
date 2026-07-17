@@ -17,6 +17,7 @@ const prover_engine = @import("../prover/engine.zig");
 const prover_pcs = @import("../prover/pcs/mod.zig");
 const stage_profile = @import("../prover/stage_profile.zig");
 const secure_column = @import("../prover/secure_column.zig");
+const trace_input = @import("wide_fibonacci/trace.zig");
 const CpuBackend = @import("../backends/cpu_scalar/mod.zig").CpuBackend;
 
 const M31 = m31.M31;
@@ -43,10 +44,7 @@ comptime {
     prover_engine.assertProverEngine(CpuProverEngine);
 }
 
-pub const Statement = struct {
-    log_n_rows: u32,
-    sequence_len: u32,
-};
+pub const Statement = trace_input.Statement;
 
 pub const ProveOutput = struct {
     statement: Statement,
@@ -58,21 +56,9 @@ pub const ProveExOutput = struct {
     proof: ExtendedProof,
 };
 
-/// Backend-neutral trace input consumed by a proving transaction.
-pub const PreparedInput = struct {
-    statement: Statement,
-    columns: []prover_pcs.ColumnEvaluation,
+pub const PreparedInput = trace_input.PreparedInput;
 
-    pub fn deinit(self: *PreparedInput, allocator: std.mem.Allocator) void {
-        for (self.columns) |column| allocator.free(column.values);
-        allocator.free(self.columns);
-        self.* = undefined;
-    }
-};
-
-pub const Error = error{
-    InvalidLogSize,
-    InvalidSequenceLength,
+pub const Error = trace_input.Error || error{
     InvalidProofShape,
 };
 
@@ -80,82 +66,9 @@ pub const Error = error{
 ///
 /// For each row `i`, the sequence starts at `(a, b) = (1, i)` and evolves via
 /// `c = a^2 + b^2`.
-pub fn genTrace(
-    allocator: std.mem.Allocator,
-    statement: Statement,
-) (std.mem.Allocator.Error || Error)![][]M31 {
-    if (statement.log_n_rows == 0 or statement.log_n_rows >= 31) return Error.InvalidLogSize;
-    if (statement.sequence_len < 2) return Error.InvalidSequenceLength;
-
-    const n = checkedPow2(statement.log_n_rows) catch return Error.InvalidLogSize;
-    const n_cols: usize = @intCast(statement.sequence_len);
-
-    const trace = try allocator.alloc([]M31, n_cols);
-    errdefer allocator.free(trace);
-
-    var initialized: usize = 0;
-    errdefer {
-        var i: usize = 0;
-        while (i < initialized) : (i += 1) allocator.free(trace[i]);
-    }
-
-    for (trace) |*col| {
-        col.* = try allocator.alloc(M31, n);
-        initialized += 1;
-    }
-
-    const bit_rev_rows = try allocator.alloc(usize, n);
-    defer allocator.free(bit_rev_rows);
-    for (0..n) |row| {
-        bit_rev_rows[row] = core_air_utils.circleBitReversedIndex(statement.log_n_rows, row) catch {
-            return Error.InvalidLogSize;
-        };
-    }
-
-    const prev = try allocator.alloc(M31, n);
-    defer allocator.free(prev);
-    const curr = try allocator.alloc(M31, n);
-    defer allocator.free(curr);
-
-    for (0..n) |row| {
-        const bit_rev = bit_rev_rows[row];
-        prev[row] = M31.one();
-        curr[row] = M31.fromCanonical(@intCast(row));
-        trace[0][bit_rev] = prev[row];
-        trace[1][bit_rev] = curr[row];
-    }
-
-    var col_idx: usize = 2;
-    while (col_idx < n_cols) : (col_idx += 1) {
-        const column = trace[col_idx];
-        for (0..n) |row| {
-            const a = prev[row];
-            const b = curr[row];
-            const c = a.square().add(b.square());
-            column[bit_rev_rows[row]] = c;
-            prev[row] = b;
-            curr[row] = c;
-        }
-    }
-
-    return trace;
-}
-
-pub fn deinitTrace(allocator: std.mem.Allocator, trace: [][]M31) void {
-    for (trace) |col| allocator.free(col);
-    allocator.free(trace);
-}
-
-pub fn prepareInput(
-    allocator: std.mem.Allocator,
-    statement: Statement,
-) (std.mem.Allocator.Error || Error)!PreparedInput {
-    const trace = try genTrace(allocator, statement);
-    return .{
-        .statement = statement,
-        .columns = try traceIntoOwnedColumns(allocator, statement.log_n_rows, trace),
-    };
-}
+pub const genTrace = trace_input.generate;
+pub const deinitTrace = trace_input.deinit;
+pub const prepareInput = trace_input.prepare;
 
 pub fn prove(
     allocator: std.mem.Allocator,
@@ -290,8 +203,10 @@ pub fn provePreparedWithEngine(
     prepared: PreparedInput,
     recorder: ?*stage_profile.Recorder,
 ) anyerror!ProveOutput {
-    var prove_ex_output = try provePreparedExWithEngine(
+    var prove_ex_output = try provePreparedExImpl(
         Engine,
+        false,
+        {},
         allocator,
         pcs_config,
         prepared,
@@ -314,6 +229,54 @@ pub fn provePreparedExWithEngine(
 ) anyerror!ProveExOutput {
     return provePreparedExImpl(
         Engine,
+        false,
+        {},
+        allocator,
+        pcs_config,
+        prepared,
+        include_all_preprocessed_columns,
+        recorder,
+    );
+}
+
+/// Proves a pre-generated trace with immutable resources borrowed from
+/// `session`. The session must outlive the complete proving transaction.
+pub fn provePreparedWithSessionAndEngine(
+    comptime Engine: type,
+    session: *const Engine.Session,
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    prepared: PreparedInput,
+    recorder: ?*stage_profile.Recorder,
+) anyerror!ProveOutput {
+    var prove_ex_output = try provePreparedExImpl(
+        Engine,
+        true,
+        session,
+        allocator,
+        pcs_config,
+        prepared,
+        false,
+        recorder,
+    );
+    const proof = prove_ex_output.proof.proof;
+    prove_ex_output.proof.aux.deinit(allocator);
+    return .{ .statement = prove_ex_output.statement, .proof = proof };
+}
+
+pub fn provePreparedExWithSessionAndEngine(
+    comptime Engine: type,
+    session: *const Engine.Session,
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    prepared: PreparedInput,
+    include_all_preprocessed_columns: bool,
+    recorder: ?*stage_profile.Recorder,
+) anyerror!ProveExOutput {
+    return provePreparedExImpl(
+        Engine,
+        true,
+        session,
         allocator,
         pcs_config,
         prepared,
@@ -341,6 +304,8 @@ fn proveExImpl(
     };
     return provePreparedExImpl(
         Engine,
+        false,
+        {},
         allocator,
         pcs_config,
         prepared,
@@ -351,6 +316,8 @@ fn proveExImpl(
 
 fn provePreparedExImpl(
     comptime Engine: type,
+    comptime use_session: bool,
+    session: if (use_session) *const Engine.Session else void,
     allocator: std.mem.Allocator,
     pcs_config: pcs_core.PcsConfig,
     prepared_input: PreparedInput,
@@ -365,6 +332,7 @@ fn provePreparedExImpl(
     if (statement.log_n_rows == 0 or statement.log_n_rows >= 31) return Error.InvalidLogSize;
     if (statement.sequence_len < 2 or prepared_input.columns.len != @as(usize, statement.sequence_len))
         return Error.InvalidSequenceLength;
+    const required_circle_log = try requiredTwiddleCircleLog(statement, pcs_config);
 
     const Initialized = struct {
         channel: Channel,
@@ -382,11 +350,16 @@ fn provePreparedExImpl(
         pcs_config.mixInto(&channel);
         break :blk Initialized{
             .channel = channel,
-            .scheme = try Engine.init(allocator, pcs_config),
+            .scheme = if (comptime use_session)
+                try Engine.initWithSession(session, pcs_config, required_circle_log)
+            else
+                try Engine.init(allocator, pcs_config),
         };
     };
     var channel = initialized.channel;
     var scheme = initialized.scheme;
+    var scheme_owned = true;
+    errdefer if (scheme_owned) Engine.deinit(&scheme, allocator);
 
     {
         var preprocessed_stage = try stage_profile.StageScope.begin(
@@ -434,6 +407,7 @@ fn provePreparedExImpl(
             "Core prove",
         );
         defer core_prove_stage.end();
+        scheme_owned = false;
         break :blk try Engine.prove(
             allocator,
             components[0..],
@@ -449,6 +423,23 @@ fn provePreparedExImpl(
         .statement = statement,
         .proof = proof,
     };
+}
+
+pub fn requiredTwiddleCircleLog(
+    statement: Statement,
+    pcs_config: pcs_core.PcsConfig,
+) Error!u32 {
+    const composition_log = std.math.add(u32, statement.log_n_rows, 1) catch
+        return Error.InvalidLogSize;
+    const commitment_log = std.math.add(
+        u32,
+        statement.log_n_rows,
+        pcs_config.fri_config.log_blowup_factor,
+    ) catch return Error.InvalidLogSize;
+    return @max(
+        @max(composition_log, commitment_log),
+        pcs_config.lifting_log_size orelse 0,
+    );
 }
 
 pub fn verify(
@@ -644,31 +635,6 @@ fn mixStatement(channel: *Channel, statement: Statement) void {
     channel.mixU32s(&[_]u32{ statement.log_n_rows, statement.sequence_len });
 }
 
-fn checkedPow2(log_size: u32) Error!usize {
-    if (log_size >= @bitSizeOf(usize)) return Error.InvalidLogSize;
-    return @as(usize, 1) << @intCast(log_size);
-}
-
-fn traceIntoOwnedColumns(
-    allocator: std.mem.Allocator,
-    log_n_rows: u32,
-    trace: [][]M31,
-) ![]prover_pcs.ColumnEvaluation {
-    const columns = allocator.alloc(prover_pcs.ColumnEvaluation, trace.len) catch |err| {
-        deinitTrace(allocator, trace);
-        return err;
-    };
-
-    for (trace, 0..) |column, i| {
-        columns[i] = .{
-            .log_size = log_n_rows,
-            .values = column,
-        };
-    }
-    allocator.free(trace);
-    return columns;
-}
-
 test "examples wide_fibonacci: trace generation follows recurrence" {
     const alloc = std.testing.allocator;
     const statement: Statement = .{
@@ -709,6 +675,10 @@ test "examples wide_fibonacci: generic CPU engine owns the proving transaction" 
         pub fn init(allocator: std.mem.Allocator, config: pcs_core.PcsConfig) !Scheme {
             init_calls += 1;
             return CpuProverEngine.init(allocator, config);
+        }
+
+        pub fn deinit(scheme: *Scheme, allocator: std.mem.Allocator) void {
+            CpuProverEngine.deinit(scheme, allocator);
         }
 
         pub fn commit(

@@ -6,6 +6,7 @@ const proof = @import("../core/proof.zig");
 const component = @import("air/component_prover.zig");
 const pcs = @import("pcs/mod.zig");
 const prove_mod = @import("prove.zig");
+const session_mod = @import("session.zig");
 const stage_profile = @import("stage_profile.zig");
 
 pub const ProveOptions = struct {
@@ -18,6 +19,7 @@ pub fn assertProverEngine(comptime Engine: type) void {
     comptime {
         if (!@hasDecl(Engine, "Scheme")) @compileError("prover engine requires Scheme");
         if (!@hasDecl(Engine, "init")) @compileError("prover engine requires init");
+        if (!@hasDecl(Engine, "deinit")) @compileError("prover engine requires deinit");
         if (!@hasDecl(Engine, "commit")) @compileError("prover engine requires commit");
         if (!@hasDecl(Engine, "prove")) @compileError("prover engine requires prove");
     }
@@ -39,12 +41,40 @@ pub fn ProverEngine(
         pub const MerkleChannel = MC;
         pub const Channel = C;
         pub const Scheme = pcs.CommitmentSchemeProver(B, H, MC);
+        pub const Session = session_mod.ProverSession;
         pub const ExtendedProof = proof.ExtendedStarkProof(H);
         pub const TelemetrySnapshot = if (@hasDecl(B, "TelemetrySnapshot")) B.TelemetrySnapshot else void;
         pub const TelemetryError = if (@hasDecl(B, "TelemetryError")) B.TelemetryError else error{};
 
         pub fn init(allocator: std.mem.Allocator, config: pcs_core.PcsConfig) !Scheme {
             return Scheme.init(allocator, config);
+        }
+
+        pub fn deinit(scheme: *Scheme, allocator: std.mem.Allocator) void {
+            scheme.deinit(allocator);
+        }
+
+        pub fn initSession(
+            allocator: std.mem.Allocator,
+            config: pcs_core.PcsConfig,
+            max_circle_log: u32,
+            host_byte_budget: usize,
+        ) !Session {
+            return Session.init(
+                allocator,
+                config,
+                max_circle_log,
+                host_byte_budget,
+            );
+        }
+
+        pub fn initWithSession(
+            session: *const Session,
+            config: pcs_core.PcsConfig,
+            required_circle_log: u32,
+        ) !Scheme {
+            try session.validateRequest(config, required_circle_log);
+            return Scheme.initWithTwiddleTower(config, &session.twiddle_tower);
         }
 
         pub fn warmup() !void {
