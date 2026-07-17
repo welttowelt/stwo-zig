@@ -420,7 +420,8 @@ const capacity_verify = [_]CapacityFeed{
 const capacity_pedersen = [_]CapacityFeed{.{ .producer = "pedersen_builtin", .instances = 1 }};
 const capacity_poseidon = [_]CapacityFeed{.{ .producer = "poseidon_builtin", .instances = 1 }};
 
-pub fn canonicalProducerEdges(component: []const u8) []const ProducerEdge {
+/// Producer slabs gathered without sorting into one consumer witness input.
+pub fn gatheredProducerEdges(component: []const u8) ?[]const ProducerEdge {
     if (std.mem.eql(u8, component, "blake_round")) return &edge_blake_round;
     if (std.mem.eql(u8, component, "blake_g")) return &edge_blake_g;
     if (std.mem.eql(u8, component, "triple_xor_32")) return &edge_triple_xor;
@@ -429,9 +430,29 @@ pub fn canonicalProducerEdges(component: []const u8) []const ProducerEdge {
     if (std.mem.eql(u8, component, "range_check_252_width_27")) return &edge_range_252;
     if (std.mem.eql(u8, component, "poseidon_full_round_chain")) return &edge_poseidon_full;
     if (std.mem.eql(u8, component, "poseidon_3_partial_rounds_chain")) return &edge_poseidon_partial;
-    if (std.mem.eql(u8, component, "verify_instruction")) return &compact_verify_edges;
-    if (std.mem.eql(u8, component, "pedersen_aggregator_window_bits_18")) return &compact_pedersen_edges;
-    if (std.mem.eql(u8, component, "poseidon_aggregator")) return &compact_poseidon_edges;
+    return null;
+}
+
+/// Geometry for producer tuples that must be gathered, sorted, and compacted.
+pub const CompactGeometry = struct {
+    edges: []const ProducerEdge,
+    tuple_words: u32,
+    key_words: u32,
+    enabler_slot: u32,
+    iota_slot: u32,
+    multiplicity_slot: u32,
+};
+
+pub fn compactGeometry(component: []const u8) ?CompactGeometry {
+    if (std.mem.eql(u8, component, "verify_instruction")) return .{ .edges = &compact_verify_edges, .tuple_words = 7, .key_words = 1, .enabler_slot = 7, .iota_slot = 8, .multiplicity_slot = 9 };
+    if (std.mem.eql(u8, component, "pedersen_aggregator_window_bits_18")) return .{ .edges = &compact_pedersen_edges, .tuple_words = 3, .key_words = 2, .enabler_slot = 3, .iota_slot = 4, .multiplicity_slot = 5 };
+    if (std.mem.eql(u8, component, "poseidon_aggregator")) return .{ .edges = &compact_poseidon_edges, .tuple_words = 6, .key_words = 3, .enabler_slot = 6, .iota_slot = 7, .multiplicity_slot = 8 };
+    return null;
+}
+
+pub fn canonicalProducerEdges(component: []const u8) []const ProducerEdge {
+    if (gatheredProducerEdges(component)) |edges| return edges;
+    if (compactGeometry(component)) |geometry| return geometry.edges;
     return &.{};
 }
 
@@ -507,9 +528,7 @@ fn bundleIndex(bundle: witness_bundle.Bundle, name: []const u8) ?usize {
 }
 
 fn isCompactConsumer(component: []const u8) bool {
-    return std.mem.eql(u8, component, "verify_instruction") or
-        std.mem.eql(u8, component, "pedersen_aggregator_window_bits_18") or
-        std.mem.eql(u8, component, "poseidon_aggregator");
+    return compactGeometry(component) != null;
 }
 
 fn freeComponent(allocator: std.mem.Allocator, component: Component) void {
@@ -652,4 +671,18 @@ test "Cairo proof plan rejects dangling producers" {
         .capacity_feeds = &.{},
     }};
     try std.testing.expectError(Error.DanglingProducer, CairoProofPlan.init(std.testing.allocator, &components));
+}
+
+test "Cairo proof plan classifies gather and compact geometry" {
+    const gather = gatheredProducerEdges("cube_252") orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(usize, 3), gather.len);
+    try std.testing.expectEqualStrings("poseidon_aggregator", gather[0].producer);
+    try std.testing.expect(compactGeometry("cube_252") == null);
+
+    const compact = compactGeometry("verify_instruction") orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(u32, 7), compact.tuple_words);
+    try std.testing.expectEqual(@as(u32, 9), compact.multiplicity_slot);
+    try std.testing.expectEqual(@as(usize, 20), compact.edges.len);
+    try std.testing.expect(gatheredProducerEdges("verify_instruction") == null);
+    try std.testing.expectEqual(compact.edges.len, canonicalProducerEdges("verify_instruction").len);
 }

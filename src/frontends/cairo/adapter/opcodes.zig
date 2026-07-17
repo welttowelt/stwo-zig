@@ -37,6 +37,37 @@ pub const OpcodeTag = enum {
 /// Number of opcode categories.
 pub const N_OPCODES: usize = @typeInfo(OpcodeTag).@"enum".fields.len;
 
+/// One opcode component whose adapted CASM states directly seed a recorded
+/// witness program. `generic_opcode` is intentionally absent: it is not a
+/// direct recorded lane in the Cairo witness bundle.
+pub const DirectWitnessLane = struct {
+    label: []const u8,
+    tag: OpcodeTag,
+    includes_iota: bool = false,
+};
+
+pub const direct_witness_lanes = [_]DirectWitnessLane{
+    .{ .label = "add_ap_opcode", .tag = .add_ap_opcode },
+    .{ .label = "add_opcode", .tag = .add_opcode },
+    .{ .label = "add_opcode_small", .tag = .add_opcode_small },
+    .{ .label = "assert_eq_opcode", .tag = .assert_eq_opcode },
+    .{ .label = "assert_eq_opcode_double_deref", .tag = .assert_eq_opcode_double_deref },
+    .{ .label = "assert_eq_opcode_imm", .tag = .assert_eq_opcode_imm },
+    .{ .label = "call_opcode_abs", .tag = .call_opcode_abs },
+    .{ .label = "call_opcode_rel_imm", .tag = .call_opcode_rel_imm },
+    .{ .label = "jnz_opcode_non_taken", .tag = .jnz_opcode_non_taken },
+    .{ .label = "jnz_opcode_taken", .tag = .jnz_opcode_taken },
+    .{ .label = "jump_opcode_abs", .tag = .jump_opcode_abs },
+    .{ .label = "jump_opcode_double_deref", .tag = .jump_opcode_double_deref },
+    .{ .label = "jump_opcode_rel", .tag = .jump_opcode_rel },
+    .{ .label = "jump_opcode_rel_imm", .tag = .jump_opcode_rel_imm },
+    .{ .label = "mul_opcode", .tag = .mul_opcode },
+    .{ .label = "mul_opcode_small", .tag = .mul_opcode_small },
+    .{ .label = "ret_opcode", .tag = .ret_opcode },
+    .{ .label = "blake_compress_opcode", .tag = .blake_compress_opcode, .includes_iota = true },
+    .{ .label = "qm_31_add_mul_opcode", .tag = .qm_31_add_mul_opcode },
+};
+
 /// CPU states grouped by opcode category.
 pub const CasmStatesByOpcode = struct {
     states: [N_OPCODES]std.ArrayList(CasmState),
@@ -222,4 +253,22 @@ test "opcodes: state_by_opcode total count" {
     try states.get(.add_opcode).append(alloc, s);
 
     try std.testing.expectEqual(@as(usize, 3), states.totalCount());
+}
+
+test "opcodes: direct witness lanes are explicit and unique" {
+    var seen = [_]bool{false} ** N_OPCODES;
+    var iota_lanes: usize = 0;
+    for (direct_witness_lanes) |lane| {
+        const index = @intFromEnum(lane.tag);
+        try std.testing.expect(!seen[index]);
+        seen[index] = true;
+        try std.testing.expectEqualStrings(@tagName(lane.tag), lane.label);
+        if (lane.includes_iota) {
+            iota_lanes += 1;
+            try std.testing.expectEqual(OpcodeTag.blake_compress_opcode, lane.tag);
+        }
+    }
+    try std.testing.expect(!seen[@intFromEnum(OpcodeTag.generic_opcode)]);
+    try std.testing.expectEqual(N_OPCODES - 1, direct_witness_lanes.len);
+    try std.testing.expectEqual(@as(usize, 1), iota_lanes);
 }

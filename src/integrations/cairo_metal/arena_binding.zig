@@ -3105,34 +3105,6 @@ fn prepareAotWitnessBatchForMode(
     );
 }
 
-const CasmLane = struct {
-    label: []const u8,
-    tag: cairo_opcodes.OpcodeTag,
-    iota: bool = false,
-};
-
-const casm_lanes = [_]CasmLane{
-    .{ .label = "add_ap_opcode", .tag = .add_ap_opcode },
-    .{ .label = "add_opcode", .tag = .add_opcode },
-    .{ .label = "add_opcode_small", .tag = .add_opcode_small },
-    .{ .label = "assert_eq_opcode", .tag = .assert_eq_opcode },
-    .{ .label = "assert_eq_opcode_double_deref", .tag = .assert_eq_opcode_double_deref },
-    .{ .label = "assert_eq_opcode_imm", .tag = .assert_eq_opcode_imm },
-    .{ .label = "call_opcode_abs", .tag = .call_opcode_abs },
-    .{ .label = "call_opcode_rel_imm", .tag = .call_opcode_rel_imm },
-    .{ .label = "jnz_opcode_non_taken", .tag = .jnz_opcode_non_taken },
-    .{ .label = "jnz_opcode_taken", .tag = .jnz_opcode_taken },
-    .{ .label = "jump_opcode_abs", .tag = .jump_opcode_abs },
-    .{ .label = "jump_opcode_double_deref", .tag = .jump_opcode_double_deref },
-    .{ .label = "jump_opcode_rel", .tag = .jump_opcode_rel },
-    .{ .label = "jump_opcode_rel_imm", .tag = .jump_opcode_rel_imm },
-    .{ .label = "mul_opcode", .tag = .mul_opcode },
-    .{ .label = "mul_opcode_small", .tag = .mul_opcode_small },
-    .{ .label = "ret_opcode", .tag = .ret_opcode },
-    .{ .label = "blake_compress_opcode", .tag = .blake_compress_opcode, .iota = true },
-    .{ .label = "qm_31_add_mul_opcode", .tag = .qm_31_add_mul_opcode },
-};
-
 /// Materializes the direct adapted-input lanes without an intermediate packed
 /// matrix. Padding repeats row zero exactly as stwo-cairo's `casm_slot_columns`.
 pub fn populateCasmWitnessInputs(
@@ -3144,7 +3116,7 @@ pub fn populateCasmWitnessInputs(
     input: *const cairo_adapter.ProverInput,
 ) !usize {
     var populated: usize = 0;
-    for (casm_lanes) |lane| {
+    for (cairo_opcodes.direct_witness_lanes) |lane| {
         if (witness_bundle.find(lane.label) == null) continue;
         if (!try populateDirectWitnessInput(allocator, resident_arena, schedule, plan, witness_bundle, input, lane.label))
             return Error.MissingBinding;
@@ -3185,13 +3157,13 @@ pub fn populateDirectWitnessInput(
     component: []const u8,
 ) !bool {
     const entry = witness_bundle.find(component) orelse return Error.MissingBinding;
-    for (casm_lanes) |lane| {
+    for (cairo_opcodes.direct_witness_lanes) |lane| {
         if (!std.mem.eql(u8, lane.label, component)) continue;
         const states = input.state_transitions.casm_states_by_opcode.getConst(lane.tag);
         if (states.len == 0) return Error.MissingBinding;
         const bindings = try collectComponent(allocator, schedule, plan, "WitnessInput", component);
         defer allocator.free(bindings);
-        const expected_columns: usize = if (lane.iota) 5 else 4;
+        const expected_columns: usize = if (lane.includes_iota) 5 else 4;
         if (entry.program.n_inputs != expected_columns or bindings.len != expected_columns)
             return Error.InvalidCardinality;
         const row_count = bindings[0].size_bytes / 4;
@@ -3249,64 +3221,7 @@ pub fn populateDirectWitnessInput(
     return true;
 }
 
-pub const WitnessEdge = struct {
-    producer: []const u8,
-    word_base: u32,
-    words_per_instance: u32,
-    instances: u32,
-};
-
-const edge_blake_round = [_]WitnessEdge{.{ .producer = "blake_compress_opcode", .word_base = 110, .words_per_instance = 19, .instances = 10 }};
-const edge_blake_g = [_]WitnessEdge{.{ .producer = "blake_round", .word_base = 81, .words_per_instance = 6, .instances = 8 }};
-const edge_triple_xor = [_]WitnessEdge{.{ .producer = "blake_compress_opcode", .word_base = 300, .words_per_instance = 3, .instances = 8 }};
-const edge_partial_w18 = [_]WitnessEdge{.{ .producer = "pedersen_aggregator_window_bits_18", .word_base = 7, .words_per_instance = 72, .instances = 28 }};
-const edge_cube = [_]WitnessEdge{
-    .{ .producer = "poseidon_aggregator", .word_base = 282, .words_per_instance = 10, .instances = 2 },
-    .{ .producer = "poseidon_3_partial_rounds_chain", .word_base = 1, .words_per_instance = 10, .instances = 3 },
-    .{ .producer = "poseidon_full_round_chain", .word_base = 0, .words_per_instance = 10, .instances = 3 },
-};
-const edge_range_252 = [_]WitnessEdge{
-    .{ .producer = "poseidon_aggregator", .word_base = 262, .words_per_instance = 10, .instances = 2 },
-    .{ .producer = "poseidon_3_partial_rounds_chain", .word_base = 61, .words_per_instance = 10, .instances = 3 },
-};
-const edge_poseidon_full = [_]WitnessEdge{.{ .producer = "poseidon_aggregator", .word_base = 6, .words_per_instance = 32, .instances = 8 }};
-const edge_poseidon_partial = [_]WitnessEdge{.{ .producer = "poseidon_aggregator", .word_base = 342, .words_per_instance = 42, .instances = 27 }};
-const compact_verify_edges = [_]WitnessEdge{
-    .{ .producer = "add_opcode", .word_base = 0, .words_per_instance = 7, .instances = 1 },
-    .{ .producer = "add_opcode_small", .word_base = 0, .words_per_instance = 7, .instances = 1 },
-    .{ .producer = "add_ap_opcode", .word_base = 0, .words_per_instance = 7, .instances = 1 },
-    .{ .producer = "assert_eq_opcode", .word_base = 0, .words_per_instance = 7, .instances = 1 },
-    .{ .producer = "assert_eq_opcode_imm", .word_base = 0, .words_per_instance = 7, .instances = 1 },
-    .{ .producer = "assert_eq_opcode_double_deref", .word_base = 0, .words_per_instance = 7, .instances = 1 },
-    .{ .producer = "blake_compress_opcode", .word_base = 0, .words_per_instance = 7, .instances = 1 },
-    .{ .producer = "call_opcode_abs", .word_base = 0, .words_per_instance = 7, .instances = 1 },
-    .{ .producer = "call_opcode_rel_imm", .word_base = 0, .words_per_instance = 7, .instances = 1 },
-    .{ .producer = "generic_opcode", .word_base = 0, .words_per_instance = 7, .instances = 1 },
-    .{ .producer = "jnz_opcode_non_taken", .word_base = 0, .words_per_instance = 7, .instances = 1 },
-    .{ .producer = "jnz_opcode_taken", .word_base = 0, .words_per_instance = 7, .instances = 1 },
-    .{ .producer = "jump_opcode_abs", .word_base = 0, .words_per_instance = 7, .instances = 1 },
-    .{ .producer = "jump_opcode_double_deref", .word_base = 0, .words_per_instance = 7, .instances = 1 },
-    .{ .producer = "jump_opcode_rel", .word_base = 0, .words_per_instance = 7, .instances = 1 },
-    .{ .producer = "jump_opcode_rel_imm", .word_base = 0, .words_per_instance = 7, .instances = 1 },
-    .{ .producer = "mul_opcode", .word_base = 0, .words_per_instance = 7, .instances = 1 },
-    .{ .producer = "mul_opcode_small", .word_base = 0, .words_per_instance = 7, .instances = 1 },
-    .{ .producer = "qm_31_add_mul_opcode", .word_base = 0, .words_per_instance = 7, .instances = 1 },
-    .{ .producer = "ret_opcode", .word_base = 0, .words_per_instance = 7, .instances = 1 },
-};
-const compact_pedersen_edges = [_]WitnessEdge{.{ .producer = "pedersen_builtin", .word_base = 3, .words_per_instance = 3, .instances = 1 }};
-const compact_poseidon_edges = [_]WitnessEdge{.{ .producer = "poseidon_builtin", .word_base = 6, .words_per_instance = 6, .instances = 1 }};
-
-fn witnessEdges(label: []const u8) ?[]const WitnessEdge {
-    if (std.mem.eql(u8, label, "blake_round")) return &edge_blake_round;
-    if (std.mem.eql(u8, label, "blake_g")) return &edge_blake_g;
-    if (std.mem.eql(u8, label, "triple_xor_32")) return &edge_triple_xor;
-    if (std.mem.eql(u8, label, "partial_ec_mul_window_bits_18")) return &edge_partial_w18;
-    if (std.mem.eql(u8, label, "cube_252")) return &edge_cube;
-    if (std.mem.eql(u8, label, "range_check_252_width_27")) return &edge_range_252;
-    if (std.mem.eql(u8, label, "poseidon_full_round_chain")) return &edge_poseidon_full;
-    if (std.mem.eql(u8, label, "poseidon_3_partial_rounds_chain")) return &edge_poseidon_partial;
-    return null;
-}
+pub const WitnessEdge = cairo_proof_plan.ProducerEdge;
 
 fn gatheredWitnessRealRows(
     schedule: []const std.json.Value,
@@ -3314,7 +3229,7 @@ fn gatheredWitnessRealRows(
     witness_bundle: witness_bundle_mod.Bundle,
     consumer: []const u8,
 ) !u32 {
-    const edges = witnessEdges(consumer) orelse return Error.MissingBinding;
+    const edges = cairo_proof_plan.gatheredProducerEdges(consumer) orelse return Error.MissingBinding;
     var real_rows: u32 = 0;
     for (edges) |edge| {
         const producer = witness_bundle.find(edge.producer) orelse return Error.MissingBinding;
@@ -3329,22 +3244,6 @@ fn gatheredWitnessRealRows(
     return real_rows;
 }
 
-const CompactGeometry = struct {
-    edges: []const WitnessEdge,
-    tuple_words: u32,
-    key_words: u32,
-    enabler_slot: u32,
-    iota_slot: u32,
-    multiplicity_slot: u32,
-};
-
-fn compactGeometry(label: []const u8) ?CompactGeometry {
-    if (std.mem.eql(u8, label, "verify_instruction")) return .{ .edges = &compact_verify_edges, .tuple_words = 7, .key_words = 1, .enabler_slot = 7, .iota_slot = 8, .multiplicity_slot = 9 };
-    if (std.mem.eql(u8, label, "pedersen_aggregator_window_bits_18")) return .{ .edges = &compact_pedersen_edges, .tuple_words = 3, .key_words = 2, .enabler_slot = 3, .iota_slot = 4, .multiplicity_slot = 5 };
-    if (std.mem.eql(u8, label, "poseidon_aggregator")) return .{ .edges = &compact_poseidon_edges, .tuple_words = 6, .key_words = 3, .enabler_slot = 6, .iota_slot = 7, .multiplicity_slot = 8 };
-    return null;
-}
-
 pub fn prepareCompactWitnessInput(
     allocator: std.mem.Allocator,
     metal: *metal_runtime.Runtime,
@@ -3354,7 +3253,7 @@ pub fn prepareCompactWitnessInput(
     witness_bundle: witness_bundle_mod.Bundle,
     consumer: []const u8,
 ) !protocol_recipes.CompactRecipe {
-    const geometry = compactGeometry(consumer) orelse return Error.MissingBinding;
+    const geometry = cairo_proof_plan.compactGeometry(consumer) orelse return Error.MissingBinding;
     const outputs = try collectComponent(allocator, schedule, plan, "WitnessInput", consumer);
     defer allocator.free(outputs);
     if (outputs.len <= geometry.multiplicity_slot) return Error.InvalidCardinality;
@@ -3453,7 +3352,7 @@ pub fn executeRecordedWitnessGraph(
 
     for (witness_bundle.entries, 0..) |entry, index| {
         var direct = false;
-        for (casm_lanes) |lane| direct = direct or std.mem.eql(u8, lane.label, entry.label);
+        for (cairo_opcodes.direct_witness_lanes) |lane| direct = direct or std.mem.eql(u8, lane.label, entry.label);
         direct = direct or std.mem.eql(u8, entry.label, "bitwise_builtin") or
             std.mem.eql(u8, entry.label, "range_check_builtin") or
             std.mem.eql(u8, entry.label, "pedersen_builtin") or
@@ -3471,7 +3370,7 @@ pub fn executeRecordedWitnessGraph(
         progress = false;
         for (witness_bundle.entries, 0..) |entry, index| {
             if (executed[index] or std.mem.eql(u8, entry.label, "partial_ec_mul_generic")) continue;
-            if (compactGeometry(entry.label)) |geometry| {
+            if (cairo_proof_plan.compactGeometry(entry.label)) |geometry| {
                 if (!dependenciesReady(witness_bundle, executed, geometry.edges)) continue;
                 if (std.mem.eql(u8, entry.label, "verify_instruction")) {
                     try compact_verify.execute();
@@ -3486,7 +3385,7 @@ pub fn executeRecordedWitnessGraph(
                     compact_gpu_ms += compact_poseidon.accumulated_gpu_ms;
                     compact_poseidon.accumulated_gpu_ms = 0;
                 }
-            } else if (witnessEdges(entry.label)) |edges| {
+            } else if (cairo_proof_plan.gatheredProducerEdges(entry.label)) |edges| {
                 if (!dependenciesReady(witness_bundle, executed, edges)) continue;
                 gather_gpu_ms += try gatherWitnessInput(allocator, metal, resident_arena, schedule, plan, witness_bundle, entry.label);
             } else continue;
@@ -3799,8 +3698,8 @@ pub fn executeScheduledWitnessGraph(
     for (proof.components, operations, 0..) |component, *operation, index| {
         operation.* = .{
             .component_index = @intCast(index),
-            .gather = if (component.producer_edges.len != 0 and compactGeometry(component.name) == null) hook else null,
-            .compact = if (compactGeometry(component.name) != null) hook else null,
+            .gather = if (component.producer_edges.len != 0 and cairo_proof_plan.compactGeometry(component.name) == null) hook else null,
+            .compact = if (cairo_proof_plan.compactGeometry(component.name) != null) hook else null,
             .writer = hook,
             .interpolate = hook,
             .feed = hook,
@@ -4638,7 +4537,7 @@ fn interactionOperation(
     component_index: u32,
     hook: witness_scheduler.Hook,
 ) witness_scheduler.ComponentOperation {
-    const compact = compactGeometry(component.name) != null;
+    const compact = cairo_proof_plan.compactGeometry(component.name) != null;
     const retained_ec_input = std.mem.eql(u8, component.name, "partial_ec_mul_generic");
     const retained_lookup = cairo_proof_plan.retainsLookupInputs(component.name);
     const skip_writer = retained_lookup and !cairo_proof_plan.retainedLookupReplaysSubwords(component.name);
@@ -4726,7 +4625,7 @@ pub fn gatherWitnessInput(
     witness_bundle: witness_bundle_mod.Bundle,
     consumer: []const u8,
 ) !f64 {
-    const edges = witnessEdges(consumer) orelse return Error.MissingBinding;
+    const edges = cairo_proof_plan.gatheredProducerEdges(consumer) orelse return Error.MissingBinding;
     const consumer_entry = witness_bundle.find(consumer) orelse return Error.MissingBinding;
     const input_width = edges[0].words_per_instance;
     const consumer_bindings = try collectComponent(allocator, schedule, plan, "WitnessInput", consumer);
