@@ -125,6 +125,24 @@ the pinned Rust Stwo verifier accepted all six exact timed artifacts. The formal
 correctness and non-regression gate here; its five-sample Metal timings are not presented as a
 Metal improvement because this commit does not change the Metal execution path.
 
+### Reusable prover session
+
+Commits `3fb41ae` through `fc21ca9` implement the first architecture priority: a bounded session
+owns one canonical maximum-log host twiddle tower, and every per-proof scheme borrows exact suffix
+views for PCS and composition transforms. Session construction is reported separately from proof
+time with its maximum log, host byte budget, retained bytes, and exactly-one-build invariant.
+
+The reversed-order ReleaseFast A/B used five warmups and 101 samples. CPU prove-time gains were
+7.57, 3.31, and 0.36 percent for `log10x8`, `log12x16`, and `log14x32`; Metal gains were 5.66, 3.98,
+and 2.78 percent. The geometric-mean improvements were 3.70 percent for CPU and 4.13 percent for
+Metal. No backend-specific kernel changed, so the result is evidence that explicit immutable
+ownership improves both lanes rather than one benchmark.
+
+The clean formal matrix recorded one tower in every lane, exact CPU/Metal proof parity, and
+headline eligibility for all rows. The pinned Rust Stwo verifier accepted all six emitted
+artifacts. Detailed ownership, failure, memory, and A/B evidence is in
+`docs/design/2026-07-17-prover-session-twiddles.md`.
+
 ## Benchmark Matrix
 
 The checked-in driver will use stable workload identifiers and immutable protocol settings.

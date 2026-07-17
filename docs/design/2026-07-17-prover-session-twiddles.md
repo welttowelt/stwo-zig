@@ -1,6 +1,6 @@
 # Reusable Prover Twiddles
 
-Status: implementation
+Status: accepted
 
 ## Performance Hypothesis
 
@@ -25,7 +25,7 @@ Bytes/operations removed:
   path. At trace log 24 this replaces about 320 MiB of transient twiddle traffic with one retained
   128 MiB log-25 tower.
 Memory cost:
-  Exactly two M31 arrays of 2^max_circle_log elements plus fixed metadata, rejected before
+  Exactly two M31 arrays of 2^(max_circle_log - 1) elements plus fixed metadata, rejected before
   allocation when the configured host byte budget is insufficient.
 Correctness oracle:
   Exact-log tree equivalence, CPU/Metal canonical proof parity, Zig verification, and pinned Rust
@@ -159,17 +159,17 @@ be tracked without hot-path locking.
 
 ## Telemetry
 
-The benchmark report records:
+The benchmark report records the stable construction contract:
 
 - session initialization seconds;
 - maximum circle log and host byte budget;
 - retained host twiddle bytes;
 - tower build count;
-- tower view and rejected-view counts;
-- compatibility-cache build count and retained bytes.
+- exactly one tower build per session.
 
-Warm session samples must report zero new tower or compatibility-cache builds. Session construction
-is included in `backend_init_seconds`; `prove_seconds` begins after the session exists.
+Borrowed-source tests require zero per-scheme tree builds. Session construction is included in
+`backend_init_seconds`; `prove_seconds` begins after the session exists. Per-request view counts
+remain local diagnostic telemetry until request-slot telemetry has an explicit aggregation owner.
 
 ## Staged Delivery
 
@@ -197,3 +197,32 @@ is included in `backend_init_seconds`; `prove_seconds` begins after the session 
   artifact verifications pass.
 - Unprofiled before/after measurement uses identical binaries, workloads, protocol parameters,
   warmup policy, lane ordering, and proof numerators.
+
+## Acceptance Evidence
+
+The accepted implementation is split across `3fb41ae`, `148081a`, `fd4c17f`, `d32e698`,
+`ebac90b`, `7084612`, and `fc21ca9`. It supplies exact canonical suffix views, routes PCS and
+composition transforms through the same source, gives the engine an explicit session boundary,
+and makes the native benchmark reuse one bounded tower across every warm request.
+
+A reversed-order ReleaseFast A/B used five warmups and 101 timed samples per process. The preserved
+pre-session binary and session binary used the same functional protocol and exact workload
+numerators. Values are medians; gains are `before / after - 1`.
+
+| Backend | Workload | Before prove (ms) | Session prove (ms) | Session row MHz | Gain |
+| --- | --- | ---: | ---: | ---: | ---: |
+| CPU | `log10x8` | 2.236667 | 2.079250 | 0.492485 | 7.57% |
+| CPU | `log12x16` | 6.350833 | 6.147333 | 0.666305 | 3.31% |
+| CPU | `log14x32` | 15.483041 | 15.428041 | 1.061962 | 0.36% |
+| Metal | `log10x8` | 4.640584 | 4.392000 | 0.233151 | 5.66% |
+| Metal | `log12x16` | 8.369833 | 8.049834 | 0.508830 | 3.98% |
+| Metal | `log14x32` | 17.093042 | 16.630833 | 0.985158 | 2.78% |
+
+The geometric-mean prove-time gain is 3.70 percent for CPU and 4.13 percent for Metal. The retained
+tower sizes are 8,192, 32,768, and 131,072 bytes respectively, all within the 256 MiB session
+budget, and every report records one construction.
+
+The clean three-row formal matrix was headline-eligible and exact across CPU and Metal. All six
+emitted artifacts were accepted by pinned Rust Stwo commit
+`a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2`. This closes the host-twiddle increment. Device twiddle
+residency, request arenas, and resident commitment epochs remain separate measured changes.
