@@ -177,26 +177,6 @@
       "plan": "docs/design/2026-07-17-source-conformance.md"
     },
     {
-      "key": "root-source:artifact_manifest.zig",
-      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
-      "plan": "docs/design/2026-07-17-source-conformance.md"
-    },
-    {
-      "key": "root-source:artifact_store.zig",
-      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
-      "plan": "docs/design/2026-07-17-source-conformance.md"
-    },
-    {
-      "key": "root-source:artifact_views.zig",
-      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
-      "plan": "docs/design/2026-07-17-source-conformance.md"
-    },
-    {
-      "key": "root-source:bench_kernels.zig",
-      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
-      "plan": "docs/design/2026-07-17-source-conformance.md"
-    },
-    {
       "key": "root-source:cairo_bench_cli.zig",
       "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
       "plan": "docs/design/2026-07-17-source-conformance.md"

@@ -15,7 +15,7 @@ from typing import Any, Dict, List
 
 
 ROOT = Path(__file__).resolve().parent.parent
-RUNNER = ROOT / "src" / "bench_kernels.zig"
+RUNNER = ROOT / "src" / "bench" / "kernels.zig"
 ZIG_BIN = ROOT / "vectors" / ".bench_kernels"
 REPORT_DEFAULT = ROOT / "vectors" / "reports" / "benchmark_kernels_report.json"
 LATEST_REPORT = ROOT / "vectors" / "reports" / "latest_benchmark_kernels_report.json"
@@ -70,9 +70,12 @@ def ensure_binary(zig_opt_mode: str, zig_cpu: str) -> None:
     cmd = [
         "zig",
         "build-exe",
-        str(RUNNER),
         "-O",
         zig_opt_mode,
+        "--dep",
+        "stwo",
+        "-Mroot=" + str(RUNNER),
+        "-Mstwo=" + str(ROOT / "src" / "stwo.zig"),
         "-femit-bin=" + str(ZIG_BIN),
     ]
     if zig_cpu != "baseline":

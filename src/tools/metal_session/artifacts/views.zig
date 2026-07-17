@@ -1,3 +1,5 @@
+//! Validated filesystem views over immutable proving artifacts.
+
 const std = @import("std");
 const builtin = @import("builtin");
 

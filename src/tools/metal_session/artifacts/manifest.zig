@@ -1,3 +1,5 @@
+//! Authenticated artifact identities and proof-protocol manifests.
+
 const std = @import("std");
 
 pub const schema_version: u32 = 1;

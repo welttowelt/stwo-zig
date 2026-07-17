@@ -1,6 +1,8 @@
+//! Content-addressed immutable artifact storage for the Metal proving service.
+
 const std = @import("std");
 const builtin = @import("builtin");
-const artifact_manifest = @import("artifact_manifest.zig");
+const artifact_manifest = @import("manifest.zig");
 
 extern "c" fn fclonefileat(
     source_fd: std.posix.fd_t,
