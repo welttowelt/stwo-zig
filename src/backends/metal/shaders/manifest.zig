@@ -152,6 +152,7 @@ const commitments_source = @embedFile("core/commitments.metal");
 const cairo_trace_source = @embedFile("cairo/trace.metal");
 const cairo_witness_feed_source = @embedFile("cairo/witness_feed.metal");
 const cairo_ec_op_source = @embedFile("cairo/ec_op.metal");
+const circle_transform_source = @embedFile("core/circle_transform.metal");
 const arena_ops_source = @embedFile("core/arena_ops.metal");
 const transcript_source = @embedFile("core/transcript.metal");
 const composition_source = @embedFile("core/composition.metal");
@@ -177,6 +178,7 @@ pub const support_headers = [_]TranslationUnit{
 pub const translation_units = [_]TranslationUnit{
     .{ .path = "src/backends/metal/shaders/core/commitments.metal", .source = commitments_source },
     .{ .path = "src/backends/metal/kernels.metal", .source = legacy_source },
+    .{ .path = "src/backends/metal/shaders/core/circle_transform.metal", .source = circle_transform_source },
     .{ .path = "src/backends/metal/shaders/cairo/trace.metal", .source = cairo_trace_source },
     .{ .path = "src/backends/metal/shaders/cairo/witness_feed.metal", .source = cairo_witness_feed_source },
     .{ .path = "src/backends/metal/shaders/cairo/ec_op.metal", .source = cairo_ec_op_source },
@@ -220,6 +222,8 @@ pub const amalgamated_source: [:0]const u8 = "#define STWO_ZIG_AMALGAMATED 1\n" 
     commitments_source ++
     "\n#line 1 \"src/backends/metal/kernels.metal\"\n" ++
     legacy_source ++
+    "\n#line 1 \"src/backends/metal/shaders/core/circle_transform.metal\"\n" ++
+    circle_transform_source ++
     "\n#line 1 \"src/backends/metal/shaders/cairo/trace.metal\"\n" ++
     cairo_trace_source ++
     "\n#line 1 \"src/backends/metal/shaders/cairo/witness_feed.metal\"\n" ++
@@ -267,6 +271,14 @@ fn kernelDeclaration(source: []const u8, name: []const u8) ![]const u8 {
     const end = std.mem.indexOfPos(u8, source, start, ") {") orelse
         return error.MalformedMetalKernelDeclaration;
     return source[start .. end + 3];
+}
+
+fn expectIsolated(source: []const u8, names: []const []const u8) !void {
+    for (names) |name| {
+        try std.testing.expectEqual(@as(usize, 0), countKernelDeclarations(legacy_source, name));
+        try std.testing.expectEqual(@as(usize, 1), countKernelDeclarations(source, name));
+        try std.testing.expectEqual(@as(usize, 1), countKernelDeclarations(amalgamated_source, name));
+    }
 }
 
 test "metal shader manifest exactly covers source and runtime exports" {
@@ -331,11 +343,7 @@ test "composition kernels are isolated in their owning shader unit" {
         "stwo_zig_composition_random_powers",
         "stwo_zig_composition_ext_params",
     };
-    for (names) |name| {
-        try std.testing.expectEqual(@as(usize, 0), countKernelDeclarations(legacy_source, name));
-        try std.testing.expectEqual(@as(usize, 1), countKernelDeclarations(composition_source, name));
-        try std.testing.expectEqual(@as(usize, 1), countKernelDeclarations(amalgamated_source, name));
-    }
+    try expectIsolated(composition_source, names[0..]);
     const dependencies = [_][]const u8{
         "#include \"stwo_zig/base.metal\"",
         "#include \"stwo_zig/m31.metal\"",
@@ -353,11 +361,7 @@ test "relation kernels are isolated in their owning shader unit with a stable AB
         "stwo_zig_relation_scan_blocks",
         "stwo_zig_relation_scan_finalize",
     };
-    for (names) |name| {
-        try std.testing.expectEqual(@as(usize, 0), countKernelDeclarations(legacy_source, name));
-        try std.testing.expectEqual(@as(usize, 1), countKernelDeclarations(relation_source, name));
-        try std.testing.expectEqual(@as(usize, 1), countKernelDeclarations(amalgamated_source, name));
-    }
+    try expectIsolated(relation_source, names[0..]);
 
     const dependencies = [_][]const u8{
         "#include \"stwo_zig/base.metal\"",
@@ -389,11 +393,7 @@ test "Cairo trace kernels are isolated in their owning shader unit with a stable
         "stwo_zig_memory_rc99_count_resident",
         "stwo_zig_public_memory_seed_resident",
     };
-    for (names) |name| {
-        try std.testing.expectEqual(@as(usize, 0), countKernelDeclarations(legacy_source, name));
-        try std.testing.expectEqual(@as(usize, 1), countKernelDeclarations(cairo_trace_source, name));
-        try std.testing.expectEqual(@as(usize, 1), countKernelDeclarations(amalgamated_source, name));
-    }
+    try expectIsolated(cairo_trace_source, names[0..]);
 
     try std.testing.expect(std.mem.indexOf(u8, cairo_trace_source, "#include \"stwo_zig/base.metal\"") != null);
     const bindings = [_]struct { kernel: []const u8, argument: []const u8 }{
@@ -440,11 +440,7 @@ test "Cairo EC kernels are isolated in their owning shader unit with a stable AB
         "stwo_zig_ec_op_witness",
         "stwo_zig_ec_op_base_finalize",
     };
-    for (names) |name| {
-        try std.testing.expectEqual(@as(usize, 0), countKernelDeclarations(legacy_source, name));
-        try std.testing.expectEqual(@as(usize, 1), countKernelDeclarations(cairo_ec_op_source, name));
-        try std.testing.expectEqual(@as(usize, 1), countKernelDeclarations(amalgamated_source, name));
-    }
+    try expectIsolated(cairo_ec_op_source, names[0..]);
     const dependencies = [_][]const u8{ "base.metal", "felt252.metal", "ec.metal" };
     for (dependencies) |dependency| {
         try std.testing.expect(std.mem.indexOf(u8, cairo_ec_op_source, dependency) != null);
@@ -459,6 +455,25 @@ test "Cairo EC kernels are isolated in their owning shader unit with a stable AB
         const declaration = try kernelDeclaration(cairo_ec_op_source, binding.kernel);
         try std.testing.expect(std.mem.indexOf(u8, declaration, binding.argument) != null);
     }
+}
+
+test "circle transforms are isolated with standalone dependencies and fused ABI" {
+    var owned: usize = 0;
+    for (exports) |entry| {
+        if (entry.owner != .circle_transform) continue;
+        owned += 1;
+        try std.testing.expectEqual(@as(usize, 0), countKernelDeclarations(legacy_source, entry.name));
+        try std.testing.expectEqual(@as(usize, 1), countKernelDeclarations(circle_transform_source, entry.name));
+        try std.testing.expectEqual(@as(usize, 1), countKernelDeclarations(amalgamated_source, entry.name));
+    }
+    try std.testing.expectEqual(@as(usize, 19), owned);
+    const dependencies = [_][]const u8{ "base.metal", "m31.metal", "circle.metal" };
+    for (dependencies) |dependency| {
+        try std.testing.expect(std.mem.indexOf(u8, circle_transform_source, dependency) != null);
+    }
+    const declaration = try kernelDeclaration(circle_transform_source, "stwo_zig_circle_rfft_fused_tail_sparse");
+    try std.testing.expect(std.mem.indexOf(u8, declaration, "uint lane [[thread_index_in_threadgroup]]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, declaration, "uint2 group [[threadgroup_position_in_grid]]") != null);
 }
 
 test "polynomial evaluation declares standalone field and ABI dependencies" {

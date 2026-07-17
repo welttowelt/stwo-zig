@@ -95,23 +95,26 @@ target architecture and must not be described as an AOT shader library yet:
 - the Cairo EC-op increment moves all four Felt252 oracle, EC lookup/witness, and base-finalization
   kernels intact into `cairo/ec_op.metal`. Its guarded dependencies and representative buffer ABI
   fragments are enforced by the manifest;
-- the legacy file is now 1,707 lines. Its remaining 56 exported entry points, the complete
+- the circle-transform increment moves all 19 IFFT, RFFT, sparse-tail, wide, and fused transform
+  kernels intact into `core/circle_transform.metal`. The standalone unit owns explicit base-field
+  and circle dependencies while the manifest retains representative fused launch ABI checks;
+- the legacy file is now 1,239 lines. Its remaining 37 exported entry points, the complete
   90-export runtime lookup set, and the one-library source-JIT boundary remain unchanged;
 - Stage 0 remains incomplete until every argument contract is represented in the manifest, Metal
   reflection validates it, and cold compilation/PSO/library counts are captured;
 - Stage 1 support-header decomposition is complete: shared circle, Merkle, decommit, Felt252, EC,
   and generated-witness support have explicit guarded owners. Protocol-family kernels remain in
   the legacy unit until their later family-move stages;
-- Stage 2 is underway: composition, commitments, relations, Cairo trace, witness-feed, and EC-op
-  kernels now have their planned family owners while the other protocol families listed in the
-  target layout remain in the legacy unit;
+- Stage 2 is underway: circle transforms, composition, commitments, relations, Cairo trace,
+  witness-feed, and EC-op kernels now have their planned family owners while the other protocol
+  families listed in the target layout remain in the legacy unit;
 - AOT AIR compilation/linking and authenticated metallib loading remain Stage 5 work. No current
   source extraction removes runtime compilation or changes warm proving speed.
 
-The Stage 1 support-header boundary is complete and Stage 2 has begun with composition,
-commitments, relations, Cairo trace, witness-feed, and EC-op kernels. Each later family move still
-requires exact export, ABI, runtime-lookup, and dispatch preservation; source-JIT amalgamation
-resolving helpers by concatenation order is not sufficient evidence by itself.
+The Stage 1 support-header boundary is complete and Stage 2 has begun with circle transforms,
+composition, commitments, relations, Cairo trace, witness-feed, and EC-op kernels. Each later
+family move still requires exact export, ABI, runtime-lookup, and dispatch preservation; source-JIT
+amalgamation resolving helpers by concatenation order is not sufficient evidence by itself.
 
 The problem is wider than file length:
 
