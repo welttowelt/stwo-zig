@@ -1,6 +1,6 @@
 //! Backend-neutral reference construction for Cairo lookup interaction traces.
 //!
-//! Relation descriptors and lookup words are borrowed from the caller. The
+//! Relation descriptors and layout-specific source columns are borrowed from the caller. The
 //! evaluator owns only O(relation columns) scratch and can therefore stream
 //! rows into checkpoint digests without materializing the complete trace.
 
@@ -8,45 +8,23 @@ const std = @import("std");
 const m31_mod = @import("../../../core/fields/m31.zig");
 const M31 = m31_mod.M31;
 const QM31 = @import("../../../core/fields/qm31.zig").QM31;
+const interaction_source = @import("interaction_source.zig");
+
+pub const LookupColumns = interaction_source.LookupColumns;
+pub const SparseColumns = interaction_source.SparseColumns;
+pub const SourceView = interaction_source.SourceView;
 
 const descriptor_words = 16;
 const use_words = 7;
 
-pub const Error = error{
+pub const Error = interaction_source.Error || error{
     DivisionByZero,
-    InvalidDescriptor,
-    InvalidRow,
     InvalidRowCount,
-    InvalidSourceShape,
     InvalidTraceShape,
-    NonCanonicalM31,
     OutOfMemory,
 };
 
-/// Column-major lookup words consumed by relation descriptors.
-pub const LookupColumns = struct {
-    words: []const u32,
-    rows: usize,
-    columns: usize,
-
-    pub fn init(words: []const u32, rows: usize) Error!LookupColumns {
-        if (rows == 0 or words.len % rows != 0) return Error.InvalidSourceShape;
-        return .{
-            .words = words,
-            .rows = rows,
-            .columns = words.len / rows,
-        };
-    }
-
-    fn value(self: LookupColumns, column: usize, row: usize) Error!M31 {
-        if (column >= self.columns or row >= self.rows) return Error.InvalidSourceShape;
-        const raw = self.words[column * self.rows + row];
-        if (raw >= m31_mod.Modulus) return Error.NonCanonicalM31;
-        return M31.fromCanonical(raw);
-    }
-};
-
-/// Streaming scalar reference for the relation fractions of one lookup trace.
+/// Streaming scalar reference for the relation fractions of one interaction trace.
 ///
 /// `descriptors`, `source`, and `alpha_powers` remain caller-owned and must
 /// outlive the evaluator. Each descriptor occupies 16 words and represents
@@ -54,7 +32,7 @@ pub const LookupColumns = struct {
 pub const Reference = struct {
     allocator: std.mem.Allocator,
     descriptors: []const u32,
-    source: LookupColumns,
+    source: SourceView,
     z: QM31,
     alpha_powers: []const QM31,
     numerators: []QM31,
@@ -64,11 +42,11 @@ pub const Reference = struct {
     pub fn init(
         allocator: std.mem.Allocator,
         descriptors: []const u32,
-        source: LookupColumns,
+        source: SourceView,
         z: QM31,
         alpha_powers: []const QM31,
     ) Error!Reference {
-        try validateDescriptors(descriptors, source.columns, alpha_powers.len);
+        try validateDescriptors(descriptors, source, alpha_powers.len);
         const columns = descriptors.len / descriptor_words;
         const numerators = try allocator.alloc(QM31, columns);
         errdefer allocator.free(numerators);
@@ -106,7 +84,7 @@ pub const Reference = struct {
         row: usize,
         cumulative_sums: []QM31,
     ) Error!QM31 {
-        if (row >= self.source.rows) return Error.InvalidRow;
+        if (row >= self.source.rows()) return Error.InvalidRow;
         if (cumulative_sums.len != self.columnCount()) return Error.InvalidTraceShape;
 
         var denominator_product = QM31.one();
@@ -155,18 +133,14 @@ pub const Reference = struct {
             const value = if (word == 0)
                 M31.fromCanonical(use[3])
             else
-                try self.source.value(use[1] + word, row);
+                try self.source.relationWord(use[0], use[1], word, row);
             denominator = denominator.add(self.alpha_powers[word].mulM31(value));
         }
         return denominator;
     }
 
     fn multiplicity(self: Reference, row: usize, use: []const u32) Error!M31 {
-        const value = switch (use[4]) {
-            0 => M31.one(),
-            2 => try self.source.value(use[5], row),
-            else => unreachable,
-        };
+        const value = try self.source.multiplicity(use[4], use[5], row);
         return if (use[6] == 0) value else value.neg();
     }
 };
@@ -199,7 +173,7 @@ pub fn circleScanRow(rows: usize, scan_index: usize) Error!usize {
 
 fn validateDescriptors(
     descriptors: []const u32,
-    source_columns: usize,
+    source: SourceView,
     alpha_power_count: usize,
 ) Error!void {
     if (descriptors.len == 0 or descriptors.len % descriptor_words != 0)
@@ -210,15 +184,7 @@ fn validateDescriptors(
         if (descriptor[0] < 1 or descriptor[0] > 2) return Error.InvalidDescriptor;
         for (0..descriptor[0]) |use_index| {
             const use = descriptor[1 + use_index * use_words ..][0..use_words];
-            if (use[0] != 0 or use[2] == 0 or use[2] > alpha_power_count or
-                use[3] >= m31_mod.Modulus or (use[4] != 0 and use[4] != 2) or use[6] > 1)
-                return Error.InvalidDescriptor;
-            if (use[2] > 1) {
-                const last_source = std.math.add(usize, use[1], use[2] - 1) catch
-                    return Error.InvalidDescriptor;
-                if (last_source >= source_columns) return Error.InvalidDescriptor;
-            }
-            if (use[4] == 2 and use[5] >= source_columns) return Error.InvalidDescriptor;
+            try source.validateUse(use, alpha_power_count);
         }
     }
 }
@@ -271,7 +237,13 @@ test "Cairo interaction reference evaluates a dynamic single relation" {
     };
     const z = QM31.fromU32Unchecked(23, 29, 31, 37);
     const descriptor = singleDescriptor(9, 0, 2, 1, false);
-    var reference = try Reference.init(std.testing.allocator, &descriptor, source, z, &alpha_powers);
+    var reference = try Reference.init(
+        std.testing.allocator,
+        &descriptor,
+        try SourceView.lookupWords(source, 2),
+        z,
+        &alpha_powers,
+    );
     defer reference.deinit();
 
     var cumulative: [1]QM31 = undefined;
@@ -297,7 +269,13 @@ test "Cairo interaction reference batches paired fractions and cumulative column
     var descriptors: [descriptor_words * 2]u32 = undefined;
     descriptors[0..descriptor_words].* = first;
     descriptors[descriptor_words..].* = second;
-    var reference = try Reference.init(std.testing.allocator, &descriptors, source, z, &alpha_powers);
+    var reference = try Reference.init(
+        std.testing.allocator,
+        &descriptors,
+        try SourceView.lookupWords(source, 2),
+        z,
+        &alpha_powers,
+    );
     defer reference.deinit();
 
     var cumulative: [2]QM31 = undefined;
@@ -335,20 +313,32 @@ test "Cairo interaction reference rejects malformed geometry and words" {
     descriptor[1] = 1;
     try std.testing.expectError(
         Error.InvalidDescriptor,
-        Reference.init(std.testing.allocator, &descriptor, source, base(5), &alpha_powers),
+        Reference.init(
+            std.testing.allocator,
+            &descriptor,
+            try SourceView.lookupWords(source, 1),
+            base(5),
+            &alpha_powers,
+        ),
     );
     try std.testing.expectError(Error.InvalidRowCount, circleScanRow(3, 0));
 
     descriptor = singleDescriptor(3, 0, 1, 0, false);
     const bad_source_words = [_]u32{m31_mod.Modulus};
     const bad_source = try LookupColumns.init(&bad_source_words, 1);
-    var reference = try Reference.init(std.testing.allocator, &descriptor, bad_source, base(5), &alpha_powers);
+    var reference = try Reference.init(
+        std.testing.allocator,
+        &descriptor,
+        try SourceView.lookupWords(bad_source, 1),
+        base(5),
+        &alpha_powers,
+    );
     defer reference.deinit();
     var cumulative: [1]QM31 = undefined;
     try std.testing.expectError(Error.NonCanonicalM31, reference.evaluateRow(0, &cumulative));
 }
 
-test "Cairo interaction reference accepts every generated lookup template" {
+test "Cairo interaction reference accepts every generated relation template" {
     const relation_bundle = @import("relation_bundle.zig");
     var bundle = try relation_bundle.Bundle.readFile(
         std.testing.allocator,
@@ -356,15 +346,63 @@ test "Cairo interaction reference accepts every generated lookup template" {
     );
     defer bundle.deinit();
     const alpha_powers = [_]QM31{base(1)} ** 128;
-    var lookup_trace_count: usize = 0;
+    const rows: usize = 2;
+    var trace_count: usize = 0;
+    var source_kinds = [_]bool{false} ** 7;
+    var multiplicity_kinds = [_]bool{false} ** 7;
     for (bundle.components) |component| {
         for (component.traces) |trace| {
-            if (trace.layout != .lookup_words) continue;
-            const source_column_count = component.lookup_words orelse return error.MissingLookupGeometry;
-            const source_words = try std.testing.allocator.alloc(u32, source_column_count);
+            const source_column_count: usize = switch (trace.layout) {
+                .lookup_words => component.lookup_words orelse return error.MissingLookupGeometry,
+                .memory_address => @as(usize, trace.layout_arg) * 2,
+                .memory_big, .memory_small => @as(usize, trace.layout_arg) + 1,
+                .bitwise_xor_12 => trace.layout_arg,
+            };
+            const source_words = try std.testing.allocator.alloc(u32, source_column_count * rows);
             defer std.testing.allocator.free(source_words);
             @memset(source_words, 0);
-            const source = try LookupColumns.init(source_words, 1);
+            const sparse = try std.testing.allocator.alloc([]const u32, source_column_count);
+            defer std.testing.allocator.free(sparse);
+            for (sparse, 0..) |*column, column_index|
+                column.* = source_words[column_index * rows ..][0..rows];
+            const source: SourceView = switch (trace.layout) {
+                .lookup_words => try SourceView.lookupWords(
+                    try LookupColumns.init(source_words, rows),
+                    rows,
+                ),
+                .memory_address => try SourceView.memoryAddress(
+                    try SparseColumns.init(sparse, rows),
+                    trace.layout_arg,
+                    rows,
+                ),
+                .memory_big => try SourceView.memoryBig(
+                    try SparseColumns.init(sparse, rows),
+                    trace.layout_arg,
+                    rows,
+                    0,
+                ),
+                .memory_small => try SourceView.memorySmall(
+                    try SparseColumns.init(sparse, rows),
+                    trace.layout_arg,
+                    rows,
+                    0,
+                ),
+                .bitwise_xor_12 => try SourceView.bitwiseXor12(
+                    try SparseColumns.init(sparse, rows),
+                    trace.layout_arg,
+                    rows,
+                ),
+            };
+            try source.validateDeclaration(trace.layout, trace.layout_arg);
+            var descriptor_index: usize = 0;
+            while (descriptor_index < trace.descriptors.len) : (descriptor_index += descriptor_words) {
+                const descriptor = trace.descriptors[descriptor_index..][0..descriptor_words];
+                for (0..descriptor[0]) |use_index| {
+                    const use = descriptor[1 + use_index * use_words ..][0..use_words];
+                    source_kinds[use[0]] = true;
+                    multiplicity_kinds[use[4]] = true;
+                }
+            }
             var reference = try Reference.init(
                 std.testing.allocator,
                 trace.descriptors,
@@ -373,8 +411,12 @@ test "Cairo interaction reference accepts every generated lookup template" {
                 &alpha_powers,
             );
             reference.deinit();
-            lookup_trace_count += 1;
+            trace_count += 1;
         }
     }
-    try std.testing.expectEqual(@as(usize, 64), lookup_trace_count);
+    try std.testing.expectEqual(@as(usize, 68), trace_count);
+    for (source_kinds, 0..) |covered, kind|
+        try std.testing.expectFmt(covered, "generated templates do not cover source kind {}", .{kind});
+    for (multiplicity_kinds, 0..) |covered, kind|
+        try std.testing.expectFmt(covered, "generated templates do not cover multiplicity kind {}", .{kind});
 }

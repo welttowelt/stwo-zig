@@ -63,6 +63,9 @@ pub const Bundle = struct {
                 const layout_arg = try input.takeInt(u32, .little);
                 const output_columns = try input.takeInt(u32, .little);
                 if (layout_arg == 0 or output_columns == 0 or output_columns > 1024) return error.InvalidEntry;
+                if ((layout == .lookup_words and lookup_words_raw != layout_arg) or
+                    (layout != .lookup_words and lookup_words_raw != std.math.maxInt(u32)))
+                    return error.InvalidEntry;
                 const descriptors = try allocator.alloc(u32, @as(usize, output_columns) * 16);
                 for (descriptors) |*word| word.* = input.takeInt(u32, .little) catch |err| {
                     allocator.free(descriptors);
@@ -109,7 +112,8 @@ fn validateDescriptors(descriptors: []const u32, layout: SourceLayout, layout_ar
         if (descriptor[0] < 1 or descriptor[0] > 2) return error.InvalidDescriptor;
         for (0..descriptor[0]) |use_index| {
             const use = descriptor[1 + use_index * 7 ..][0..7];
-            if (use[0] > 6 or use[2] == 0 or use[3] == 0 or use[3] >= 0x7fff_ffff or use[4] > 6 or use[6] > 1)
+            if (use[0] > 6 or use[2] == 0 or use[3] == 0 or use[3] >= 0x7fff_ffff or
+                use[4] > 6 or use[6] > 1)
                 return error.InvalidDescriptor;
             if ((layout == .lookup_words and use[0] != 0) or
                 (layout == .memory_address and use[0] != 1) or
@@ -117,12 +121,42 @@ fn validateDescriptors(descriptors: []const u32, layout: SourceLayout, layout_ar
                 (layout == .memory_small and use[0] != 4 and use[0] != 5) or
                 (layout == .bitwise_xor_12 and use[0] != 6))
                 return error.InvalidDescriptor;
-            if ((layout == .memory_big and use[4] == 4 and use[5] != layout_arg) or
-                (layout == .memory_small and use[4] == 5 and use[5] != layout_arg) or
-                (layout == .bitwise_xor_12 and use[4] == 6 and use[5] >= layout_arg))
+            if (!validSourceBounds(layout, layout_arg, use) or
+                !validMultiplicity(layout, layout_arg, use[4], use[5]))
                 return error.InvalidDescriptor;
         }
     }
+}
+
+fn validSourceBounds(layout: SourceLayout, layout_arg: u32, use: []const u32) bool {
+    if (use[2] == 1) return true;
+    const last_word = @as(u64, use[2]) - 1;
+    return switch (layout) {
+        .lookup_words => @as(u64, use[1]) + last_word < layout_arg,
+        .memory_address => use[1] < layout_arg,
+        .memory_big => switch (use[0]) {
+            2 => @as(u64, use[1]) + last_word - 1 < @as(u64, layout_arg) + 1,
+            3 => use[1] == 0 and (use[2] <= 2 or last_word - 1 < @as(u64, layout_arg) + 1),
+            else => false,
+        },
+        .memory_small => switch (use[0]) {
+            4 => @as(u64, use[1]) + last_word - 1 < @as(u64, layout_arg) + 1,
+            5 => use[1] == 0 and (use[2] <= 2 or last_word - 1 < @as(u64, layout_arg) + 1),
+            else => false,
+        },
+        .bitwise_xor_12 => use[1] < layout_arg,
+    };
+}
+
+fn validMultiplicity(layout: SourceLayout, layout_arg: u32, kind: u32, arg: u32) bool {
+    if (kind <= 1) return true;
+    return switch (layout) {
+        .lookup_words => kind == 2 and arg < layout_arg,
+        .memory_address => kind == 3 and arg < layout_arg,
+        .memory_big => kind == 4 and arg == layout_arg,
+        .memory_small => kind == 5 and arg == layout_arg,
+        .bitwise_xor_12 => kind == 6 and arg < layout_arg,
+    };
 }
 
 fn deinitComponents(allocator: std.mem.Allocator, components: []Component) void {
@@ -144,4 +178,17 @@ test "Cairo relation bundle: generated templates load with canonical identity" {
     const add_ap = bundle.find("add_ap_opcode") orelse return error.MissingTemplate;
     try std.testing.expectEqual(@as(u32, 55), add_ap.lookup_words.?);
     try std.testing.expectEqual(@as(u32, 4), add_ap.traces[0].output_columns);
+}
+
+test "Cairo relation bundle: descriptor validation rejects layout source escapes" {
+    var descriptor = [_]u32{0} ** 16;
+    descriptor[0] = 1;
+    descriptor[1..8].* = .{ 0, 3, 2, 7, 2, 0, 0 };
+    try std.testing.expectError(error.InvalidDescriptor, validateDescriptors(&descriptor, .lookup_words, 4));
+
+    descriptor[1..8].* = .{ 1, 1, 3, 7, 3, 2, 0 };
+    try std.testing.expectError(error.InvalidDescriptor, validateDescriptors(&descriptor, .memory_address, 2));
+
+    descriptor[1..8].* = .{ 6, 16, 4, 7, 6, 0, 0 };
+    try std.testing.expectError(error.InvalidDescriptor, validateDescriptors(&descriptor, .bitwise_xor_12, 16));
 }

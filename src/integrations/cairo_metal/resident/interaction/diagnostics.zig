@@ -204,7 +204,7 @@ pub fn logLookupRelationCpuClaim(
     var reference = try interaction_trace_mod.Reference.init(
         allocator,
         trace.descriptors,
-        source_columns,
+        try interaction_trace_mod.SourceView.lookupWords(source_columns, rows),
         z,
         alpha_powers,
     );
