@@ -1,0 +1,252 @@
+"""Atomic artifact and subprocess boundaries for Native proof matrices."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import subprocess
+import tempfile
+import time
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Iterator
+
+from .model import MatrixError, Workload
+
+
+ROOT = Path(__file__).resolve().parents[2]
+PROFILE_ENV_VARS = (
+    "STWO_ZIG_METAL_PROFILE_OUT",
+    "STWO_ZIG_METAL_PROFILE_ENCODER_COUNTERS",
+    "STWO_ZIG_METAL_PROFILE_MAX_ENCODERS",
+)
+MAX_STDOUT_BYTES = 64 * 1024 * 1024
+MAX_STDERR_BYTES = 64 * 1024 * 1024
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def atomic_write_bytes(path: Path, contents: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            temporary.write(contents)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_path, path)
+    except BaseException:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+        raise
+
+
+def atomic_write_json(path: Path, document: dict[str, Any]) -> bytes:
+    encoded = (json.dumps(document, indent=2, sort_keys=True) + "\n").encode()
+    atomic_write_bytes(path, encoded)
+    return encoded
+
+
+def prepare_output_dir(path: Path) -> None:
+    if path.exists():
+        if not path.is_dir():
+            raise MatrixError(f"output path is not a directory: {path}")
+        if any(path.iterdir()):
+            raise MatrixError(f"output directory is not empty: {path}")
+    else:
+        path.mkdir(parents=True)
+
+
+@contextmanager
+def output_dir_lock(path: Path) -> Iterator[None]:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_name(f".{path.name}.lock")
+    try:
+        descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError as error:
+        raise MatrixError(f"output directory is locked: {path}") from error
+    try:
+        os.write(descriptor, f"pid={os.getpid()}\n".encode())
+        os.fsync(descriptor)
+        yield
+    finally:
+        os.close(descriptor)
+        lock_path.unlink(missing_ok=True)
+
+
+def require_unprofiled_environment(environment: dict[str, str]) -> None:
+    inherited = sorted(name for name in PROFILE_ENV_VARS if name in environment)
+    if inherited:
+        raise MatrixError(
+            "formal matrix refuses inherited Metal profiler environment: "
+            + ", ".join(inherited)
+        )
+
+
+def require_binary(path: Path, lane: str) -> Path:
+    resolved = path.resolve()
+    if not resolved.is_file():
+        raise MatrixError(f"{lane} benchmark binary does not exist: {resolved}")
+    if not os.access(resolved, os.X_OK):
+        raise MatrixError(f"{lane} benchmark binary is not executable: {resolved}")
+    return resolved
+
+
+def as_bytes(value: bytes | str | None) -> bytes:
+    if value is None:
+        return b""
+    return value if isinstance(value, bytes) else value.encode()
+
+
+def publish_capture(
+    temporary: Any,
+    destination: Path,
+    supplemental: bytes | str | None,
+) -> int:
+    extra = as_bytes(supplemental)
+    if extra:
+        temporary.write(extra)
+    temporary.flush()
+    os.fsync(temporary.fileno())
+    size = os.fstat(temporary.fileno()).st_size
+    temporary_path = Path(temporary.name)
+    temporary.close()
+    os.replace(temporary_path, destination)
+    return size
+
+
+def publish_captures(
+    captures: tuple[tuple[Any, Path, bytes | str | None, int], ...],
+) -> None:
+    oversized: list[str] = []
+    failures: list[str] = []
+    for temporary, destination, supplemental, maximum_bytes in captures:
+        try:
+            size = publish_capture(temporary, destination, supplemental)
+        except BaseException as error:
+            temporary.close()
+            Path(temporary.name).unlink(missing_ok=True)
+            failures.append(f"{destination}: {error}")
+            continue
+        if size > maximum_bytes:
+            oversized.append(f"{destination} ({size} > {maximum_bytes})")
+    if failures:
+        raise MatrixError("failed to publish captured streams: " + "; ".join(failures))
+    if oversized:
+        raise MatrixError("captured stream limit exceeded: " + "; ".join(oversized))
+
+
+def decode_report(stdout: bytes, lane: str) -> dict[str, Any]:
+    try:
+        document = json.loads(stdout.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise MatrixError(f"{lane} stdout is not one valid UTF-8 JSON document") from error
+    if not isinstance(document, dict):
+        raise MatrixError(f"{lane} report root must be an object")
+    return document
+
+
+def lane_command(
+    binary: Path,
+    workload: Workload,
+    warmups: int,
+    samples: int,
+    protocol: str,
+) -> list[str]:
+    return [
+        str(binary),
+        "--log-rows",
+        str(workload.log_rows),
+        "--sequence-len",
+        str(workload.sequence_len),
+        "--warmups",
+        str(warmups),
+        "--samples",
+        str(samples),
+        "--protocol",
+        protocol,
+    ]
+
+
+def run_lane(
+    lane: str,
+    binary: Path,
+    workload: Workload,
+    args: argparse.Namespace,
+    artifact_dir: Path,
+) -> dict[str, Any]:
+    command = lane_command(binary, workload, args.warmups, args.samples, args.protocol)
+    stdout_path = artifact_dir / f"{lane}.stdout.json"
+    stderr_path = artifact_dir / f"{lane}.stderr.txt"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    stdout_capture = tempfile.NamedTemporaryFile(
+        dir=artifact_dir,
+        prefix=f".{lane}.stdout.",
+        delete=False,
+    )
+    stderr_capture = tempfile.NamedTemporaryFile(
+        dir=artifact_dir,
+        prefix=f".{lane}.stderr.",
+        delete=False,
+    )
+    started = time.perf_counter()
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=ROOT,
+            stdout=stdout_capture,
+            stderr=stderr_capture,
+            timeout=args.timeout_seconds,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as error:
+        publish_captures(
+            (
+                (stdout_capture, stdout_path, error.stdout, MAX_STDOUT_BYTES),
+                (stderr_capture, stderr_path, error.stderr, MAX_STDERR_BYTES),
+            )
+        )
+        raise MatrixError(
+            f"{lane} benchmark timed out after {args.timeout_seconds} seconds"
+        ) from error
+    except BaseException:
+        stdout_capture.close()
+        stderr_capture.close()
+        Path(stdout_capture.name).unlink(missing_ok=True)
+        Path(stderr_capture.name).unlink(missing_ok=True)
+        raise
+    process_wall_seconds = time.perf_counter() - started
+    publish_captures(
+        (
+            (stdout_capture, stdout_path, completed.stdout, MAX_STDOUT_BYTES),
+            (stderr_capture, stderr_path, completed.stderr, MAX_STDERR_BYTES),
+        )
+    )
+    stdout = stdout_path.read_bytes()
+    stderr = stderr_path.read_bytes()
+    if completed.returncode != 0:
+        tail = stderr[-4000:].decode("utf-8", errors="replace")
+        raise MatrixError(
+            f"{lane} benchmark exited {completed.returncode}; stderr tail:\n{tail}"
+        )
+    return {
+        "lane": lane,
+        "command": command,
+        "process_wall_seconds": process_wall_seconds,
+        "stdout_path": stdout_path,
+        "stderr_path": stderr_path,
+        "report": decode_report(stdout, lane),
+    }
