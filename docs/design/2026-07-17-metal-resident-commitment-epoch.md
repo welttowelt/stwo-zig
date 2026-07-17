@@ -314,3 +314,43 @@ layer. It must preserve the current per-level path as a checked fallback, enforc
 threadgroup-memory and layer-capacity bounds, and demonstrate fewer dispatches plus lower parent
 GPU time before acceptance. This VCS mechanism is below workload selection and applies to Cairo,
 Native/RISC-V, SNIP-36, and SN proofs that use the same lifted Blake2s commitment path.
+
+## Accepted Merkle Parent Tail
+
+Commit `0b2eb10` implements that measured experiment. `stwo_zig_blake2s_parent_tail_sparse` reduces
+an eligible contiguous upper Merkle chain inside one threadgroup and one dispatch. Intermediate
+hashes remain in dynamic threadgroup memory, while every level is also written to its original
+resident-arena destination so openings and decommitments retain the complete protocol-required
+layer set.
+
+Preparation selects the earliest eligible suffix only when it contains at least two levels, its
+first parent count is a power of two, every following count exactly halves, each child offset equals
+the previous destination, destination ranges do not overlap, and the first level fits the minimum
+of 256 threads, the pipeline limit, and available device threadgroup memory at 32 bytes per thread.
+Scratch is therefore capped at 8 KiB. A larger tree keeps its per-level prefix and fuses only the
+eligible tail; an arbitrary or over-budget chain retains the complete per-level fallback. Standalone
+and epoch execution both reject a plan whose checked required arena extent exceeds the resident
+buffer before GPU encoding.
+
+Alternating sustained ReleaseFast A/B used order candidate/baseline/baseline/candidate, two warmups,
+and 11 samples per process for 22 samples per lane. All samples matched the CPU Blake2s root
+`1c5ba1a931eccec31419ac78acb6250b43b7d25fc97c4c288b7b06c685a9d291` and transcript.
+
+| Metric | Per-level tail | Fused tail | Improvement |
+| --- | ---: | ---: | ---: |
+| Request median | 0.571 ms | 0.524 ms | 1.09x |
+| GPU median | 0.351 ms | 0.292 ms | 1.20x |
+| Compute encoders | 23 | 17 | 6 fewer |
+| Dispatches | 23 | 17 | 6 fewer |
+
+The fused GPU range of 0.289-0.300 ms does not overlap the baseline range of 0.308-0.370 ms. A
+separate counter-enabled A/B reduced the parent stage from 0.201 to 0.120 ms, or 1.67x, and complete
+command GPU time from 0.455 to 0.352 ms, or 1.29x. Encoder-interval sum fell from 0.438 to 0.344 ms;
+CPU encode time fell from 0.0984 to 0.0906 ms and terminal wait from 0.652 to 0.531 ms.
+
+Tests compare every fused intermediate layer and root with CPU, destroy a prepared plan before epoch
+submission to exercise retained Objective-C ownership, cover a 512-parent per-level prefix followed
+by a 256-parent fused tail, reject zero parent counts, and reject undersized arenas before FFI. The
+bounded production callsite, all 65 Metal tests, source conformance, and API parity pass. This is a
+measured commitment-stage improvement; full-proof MHz still comes only from the formal transaction
+matrix and not from this isolated fixture.

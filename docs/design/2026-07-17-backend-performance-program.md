@@ -270,6 +270,14 @@ required retained layers while replacing several dependent small-level dispatche
 threadgroup reduction. It is accepted only if exact layer/root parity, capacity bounds, fallback,
 and targeted GPU counters pass; encoder-count reduction alone is insufficient.
 
+Commit `0b2eb10` accepts that shader. An eligible power-of-two upper chain is reduced in one
+threadgroup with at most 256 threads and 8 KiB dynamic memory, while every retained layer is written
+to its original arena range. Larger chains preserve a per-level prefix and arbitrary layouts retain
+the full fallback. Alternating 22-sample-per-lane A/B reduced request median from 0.571 to 0.524 ms,
+GPU median from 0.351 to 0.292 ms, and compute dispatches from 23 to 17. The candidate GPU range did
+not overlap baseline. Counter evidence reduced the targeted parent stage from 0.201 to 0.120 ms.
+All intermediate layers, CPU root, transcript, plan lifetime, and arena-bound gates passed.
+
 ### Native mixed-AIR transaction
 
 Commit `ec288e7` moves XOR onto the shared prepared-input, engine, and reusable-session proving
