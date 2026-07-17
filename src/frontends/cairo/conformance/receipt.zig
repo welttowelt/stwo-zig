@@ -96,7 +96,9 @@ pub fn parse(
     expected: Expected,
 ) !Loaded {
     if (encoded.len == 0 or encoded.len > max_receipt_bytes) return Error.ReceiptTooLarge;
-    var parsed = try std.json.parseFromSlice(WireReceipt, allocator, encoded, .{});
+    var parsed = try std.json.parseFromSlice(WireReceipt, allocator, encoded, .{
+        .allocate = .alloc_always,
+    });
     errdefer parsed.deinit();
     const wire = parsed.value;
     if (!std.mem.eql(u8, wire.schema, schema)) return Error.InvalidSchema;
@@ -212,7 +214,9 @@ test "Cairo checkpoint receipt authenticates the Rust authority and accumulator 
         },
     });
     defer loaded.deinit();
+    @memset(encoded, 'x');
     try std.testing.expectEqual(@as(usize, 1), loaded.components.len);
+    try std.testing.expectEqualStrings("ret_opcode", loaded.components[0].label);
     try std.testing.expect(checkpoint.compare(loaded.components[0], loaded.components[0]) == null);
 }
 
