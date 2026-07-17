@@ -80,12 +80,19 @@ class MetalCompositionBatchingSourceTest(unittest.TestCase):
             self.assertNotIn("[command commit]", node)
             self.assertNotIn("[command waitUntilCompleted]", node)
 
-    def test_composition_recipe_uses_the_combined_graph(self):
+    def test_complete_recipe_uses_combined_graph_and_partial_diagnostic_uses_front(self):
         recipe = RECIPE_PATH.read_text()
         start = recipe.index("pub const Recipe = struct")
         body = recipe[start:]
-        self.assertIn("self.metal.compositionPrepared(", body)
-        self.assertNotIn("self.metal.compositionFrontPrepared(", body)
+        branch = body.index("self.accumulated_gpu_ms += if (self.complete)")
+        combined = body.index("self.metal.compositionPrepared(", branch)
+        diagnostic = body.index("self.metal.compositionFrontPrepared(", combined)
+        self.assertLess(branch, combined)
+        self.assertLess(combined, diagnostic)
+        self.assertIn(
+            "if (!self.complete) return recovery.RecoveryError.MissingRecipe;",
+            body,
+        )
         self.assertNotIn("self.metal.compositionFinalizePrepared(", body)
 
 
