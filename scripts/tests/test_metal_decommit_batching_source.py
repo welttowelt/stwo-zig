@@ -6,7 +6,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 RUNTIME = ROOT / "src/backends/metal/runtime.m"
 RECIPES = ROOT / "src/backends/metal/protocol_recipes.zig"
-ARENA_BINDING = ROOT / "src/integrations/cairo_metal/arena_binding.zig"
+SCHEDULE_BINDINGS = ROOT / "src/integrations/cairo_metal/schedule_bindings.zig"
 
 
 def function_body(source: str, name: str, next_name: str) -> str:
@@ -59,7 +59,7 @@ class MetalDecommitBatchingSourceTest(unittest.TestCase):
         self.assertIn("self.pending_trace_gather = null", sparse)
 
     def test_sn2_schedule_has_370_fused_trace_groups(self):
-        source = ARENA_BINDING.read_text()
+        source = SCHEDULE_BINDINGS.read_text()
         match = re.search(
             r"decommit_trace_groups_by_tree\s*=\s*\[[^]]+\]\w+\{\s*([^}]+)\}",
             source,
