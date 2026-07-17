@@ -1,5 +1,6 @@
 mod checkpoint;
 mod input;
+mod interaction;
 
 use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write};
@@ -8,6 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use stwo::prover::backend::simd::SimdBackend;
 use stwo_cairo_common::preprocessed_columns::preprocessed_trace::PreProcessedTrace;
@@ -15,24 +17,45 @@ use stwo_cairo_prover::witness::base_trace::BaseTrace;
 use stwo_cairo_prover::witness::cairo::create_cairo_claim_generator;
 
 struct Arguments {
+    mode: Mode,
     input: PathBuf,
     output: Option<PathBuf>,
 }
 
+enum Mode {
+    Base,
+    Interaction,
+}
+
 fn arguments() -> Result<Arguments> {
     let mut values = std::env::args_os().skip(1);
-    let input = values
+    let first = values
         .next()
         .map(PathBuf::from)
-        .context("usage: stwo-cairo-trace-oracle INPUT.stwzcpi [OUTPUT.json]")?;
+        .context(
+            "usage: stwo-cairo-trace-oracle INPUT.stwzcpi [OUTPUT.json]\n       stwo-cairo-trace-oracle interaction INPUT.stwzcpi [OUTPUT.json]",
+        )?;
+    let (mode, input) = if first == Path::new("interaction") {
+        let input = values
+            .next()
+            .map(PathBuf::from)
+            .context("interaction mode requires an input path")?;
+        (Mode::Interaction, input)
+    } else {
+        (Mode::Base, first)
+    };
     let output = values.next().map(PathBuf::from);
     if values.next().is_some() {
         bail!("too many arguments");
     }
-    Ok(Arguments { input, output })
+    Ok(Arguments {
+        mode,
+        input,
+        output,
+    })
 }
 
-fn serialize(mut writer: impl Write, checkpoint: &checkpoint::Checkpoint) -> Result<()> {
+fn serialize(mut writer: impl Write, checkpoint: &impl Serialize) -> Result<()> {
     serde_json::to_writer_pretty(&mut writer, checkpoint).context("failed to write checkpoint")?;
     writer.write_all(b"\n")?;
     writer.flush().context("failed to flush checkpoint")
@@ -72,7 +95,7 @@ fn create_pending(output: &Path) -> Result<(PendingFile, File)> {
     bail!("unable to allocate a unique checkpoint temporary file")
 }
 
-fn publish_checkpoint(output: &Path, checkpoint: &checkpoint::Checkpoint) -> Result<()> {
+fn publish_checkpoint(output: &Path, checkpoint: &impl Serialize) -> Result<()> {
     let (pending, file) = create_pending(output)?;
     {
         let writer = BufWriter::new(&file);
@@ -85,7 +108,7 @@ fn publish_checkpoint(output: &Path, checkpoint: &checkpoint::Checkpoint) -> Res
     Ok(())
 }
 
-fn write_checkpoint(output: Option<&Path>, checkpoint: &checkpoint::Checkpoint) -> Result<()> {
+fn write_checkpoint(output: Option<&Path>, checkpoint: &impl Serialize) -> Result<()> {
     match output {
         Some(path) => publish_checkpoint(path, checkpoint),
         None => serialize(BufWriter::new(std::io::stdout().lock()), checkpoint),
@@ -101,12 +124,25 @@ fn main() -> Result<()> {
 
     let preprocessed = Arc::new(PreProcessedTrace::canonical());
     let generator = create_cairo_claim_generator(prover_input, preprocessed);
-    let (trace, claim, _) = generator.write_trace::<SimdBackend>(None, None);
-    let BaseTrace::Evals(evals) = trace else {
-        bail!("oracle unexpectedly received pipelined base polynomials");
-    };
-    let checkpoint = checkpoint::build(input_digest, &claim, evals)?;
-    write_checkpoint(arguments.output.as_deref(), &checkpoint)
+    let (trace, claim, interaction_generator) = generator.write_trace::<SimdBackend>(None, None);
+    match arguments.mode {
+        Mode::Base => {
+            let BaseTrace::Evals(evals) = trace else {
+                bail!("oracle unexpectedly received pipelined base polynomials");
+            };
+            let checkpoint = checkpoint::build(input_digest, &claim, evals)?;
+            write_checkpoint(arguments.output.as_deref(), &checkpoint)
+        }
+        Mode::Interaction => {
+            drop(trace);
+            let (lookup_elements, challenge) = interaction::diagnostic_lookup_elements()?;
+            let (evals, interaction_claim) =
+                interaction_generator.write_interaction_trace(&lookup_elements);
+            let checkpoint =
+                interaction::build(input_digest, &claim, &interaction_claim, evals, challenge)?;
+            write_checkpoint(arguments.output.as_deref(), &checkpoint)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -140,6 +176,36 @@ mod tests {
         std::fs::write(&output, b"original").unwrap();
 
         assert!(publish_checkpoint(&output, &test_checkpoint()).is_err());
+        assert_eq!(std::fs::read(&output).unwrap(), b"original");
+        assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 1);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn interaction_publish_refuses_existing_destination() {
+        let directory = std::env::temp_dir().join(format!(
+            "stwo-cairo-interaction-oracle-test-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("atomic")
+        ));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir(&directory).unwrap();
+        let output = directory.join("interaction.json");
+        std::fs::write(&output, b"original").unwrap();
+        let (_, challenge) = interaction::diagnostic_lookup_elements().unwrap();
+        let checkpoint = interaction::Checkpoint {
+            schema: "stwo-cairo-interaction-trace-checkpoint-v1",
+            input_sha256: "00".repeat(32),
+            authority: Authority {
+                stwo_cairo_revision: "cairo",
+                stwo_revision: "stwo",
+            },
+            challenge,
+            components: Vec::new(),
+            final_accumulator_sha256: "00".repeat(32),
+        };
+
+        assert!(publish_checkpoint(&output, &checkpoint).is_err());
         assert_eq!(std::fs::read(&output).unwrap(), b"original");
         assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 1);
         std::fs::remove_dir_all(directory).unwrap();
