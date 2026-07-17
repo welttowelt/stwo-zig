@@ -1,7 +1,7 @@
 # Metal Backend Peer Review: ClementWalter/stwo PR #6
 
-Status: architecture evidence complete; commitment-geometry timings are clean and sampled, but
-AIR-equivalent wide-Fibonacci measurements are pending the real recurrence evaluator
+Status: real wide-Fibonacci AIR parity and the first resident FRI fold-tree transaction are
+delivered; broader constraint and multi-fold acceleration remain in progress
 
 ## Scope
 
@@ -32,13 +32,37 @@ combined optimized CPU/SIMD plus Metal branch. At `2^22` rows:
 Metal loses to the optimized CPU lane through `2^18` on the published M2 Max campaign and crosses
 over at `2^20`. On this M5 Max reproduction it crosses by `2^18`.
 
-The branch's architectural advantages are nevertheless directly relevant. With the same
-`2^18 x 100` trace and commitment geometry on this machine, it completes the measured execution,
-proof, and verification phases in 88.53 ms. The current stwo-zig request takes 224.80 ms. These
-numbers are not yet an end-to-end prover comparison: the peer evaluates 98 recurrence constraints,
-while the current stwo-zig benchmark evaluates one synthetic constant-composition constraint. The
-commitment-path difference is still large enough that threshold tuning or small kernel fusion
-cannot close it.
+The branch's architectural advantages are nevertheless directly relevant. The historical
+same-geometry campaign below showed a large commitment-path gap, but it used the former synthetic
+Zig AIR and therefore is not an end-to-end peer ranking. Commit `e2658e0` replaces that benchmark
+with the real dynamic recurrence AIR: a width-`w` trace now enforces all `w - 2` constraints
+`c = a^2 + b^2`, and both proof directions pass the pinned Rust oracle.
+
+Commit `fb4a284` delivers the first direct architectural port: the default single-fold FRI path
+folds a resident evaluation, converts its four QM31 coordinate planes, hashes leaves, and builds
+the complete next Merkle tree in one command buffer with one wait. The isolated log-17 transaction
+drops from three submissions and waits to one and is about 2.1x faster in the latest bounded run.
+The conservative production cutoff is a folded output of log 18. At log-19 input, width 8, that
+admits one fused epoch and improved the sampled complete proof median by about 2% while preserving
+canonical proof bytes. No complete-proof gain is claimed below that boundary.
+
+This result validates the scheduling architecture; it does not reproduce the peer's headline.
+Constraint accumulation and the remaining commitment/FRI transactions still dominate the route to
+materially higher whole-suite throughput.
+
+## Implementation Status
+
+| Work item | Status | Evidence |
+| --- | --- | --- |
+| Real dynamic wide-Fibonacci AIR | Delivered | `e2658e0`; width-2 boundary, corruption rejection, and blowup-2 coverage |
+| Zig proof accepted by Rust | Delivered | pinned raw-Stwo verifier accepts current CPU and Metal artifacts |
+| Rust proof accepted by Zig | Delivered | bidirectional proof exchange and tamper matrix pass |
+| Generic pending-tree scheduler | Delivered | `c357673`; backend hook retains the next FRI tree |
+| Retained coordinate planes | Delivered | scheduler consumes the exact coordinate storage used by the pending tree |
+| Single-fold Metal fold-tree epoch | Delivered | `fb4a284`; one command buffer, one terminal wait, resident private tree |
+| Multi-fold packed leaves | Pending | requires explicit next-layer row-packing metadata and oracle coverage |
+| Generated Metal AIR accumulation | Pending | current real evaluator is correct but remains scalar/general-path work |
+| Complete resident FRI graph | Pending | transcript challenge dependencies still create host-visible round boundaries |
 
 ## Evidence Boundary
 
@@ -53,30 +77,32 @@ cannot close it.
 - Correctness: unchanged Rust verifier plus a matching 64-bit `DefaultHasher` value over proof
   debug text
 
-### stwo-zig
+### stwo-zig historical geometry campaign
 
-- Head during clean measurement: `84c4d657c30b8f6012dcc6b307837735ac94146a`
+- Head during the historical clean measurement: `84c4d657c30b8f6012dcc6b307837735ac94146a`
 - Build: Zig `ReleaseFast`
 - Host and protocol: identical to the peer run above
 - Workload geometry: identical rows, columns, and PCS parameters
-- AIR semantics: currently not equivalent; stwo-zig's benchmark and custom Rust oracle encode one
-  synthetic constant-composition constraint rather than the peer's 98 recurrence constraints
+- AIR semantics at that head: not equivalent; the benchmark encoded one synthetic
+  constant-composition constraint rather than the peer's 98 recurrence constraints
 - Sampling: ten verified warmups and eleven verified timed proofs per lane
 - Correctness: Zig CPU and Metal produced byte-identical canonical proofs, passed the Zig verifier,
   and passed the custom oracle built on raw Stwo
 - Metal evidence: per-proof dispatch/fallback telemetry is present
 
-That oracle intentionally mirrors the synthetic stwo-zig component, so this establishes encoding
-and transcript parity for the implemented statement; it does not establish parity with the peer's
-real wide-Fibonacci AIR. Real recurrence evaluation and a corruption-rejection test are required
-before the timings may be promoted to proof-throughput evidence.
+That historical oracle intentionally mirrored the synthetic component. Do not promote the timing
+tables from that campaign to AIR-equivalent proof-throughput evidence. The replacement real AIR and
+corruption-rejection coverage landed in `e2658e0`; it invalidates direct performance comparison with
+the older report while retaining the report as commitment-geometry evidence.
 
 Commit `dcfd1d8` separates the lifted Blake protocols: raw Stwo uses 64-byte leaf/node domain
 prefixes, while the newer Cairo pin uses explicit plain hashing. The clean CPU and Metal artifact
 SHA-256 is `7dc92d7b3dbb0f8d649a9a025f24cb3b343d0cf4d4f980a023da2d87743407e0`;
 its canonical proof SHA-256 is
-`c693d42dc48a2831a7859e2df49e037ea0bfb0dc559f3b34e2f31557d1724442`. The exact Rust verifier
-binary SHA-256 is `cbe4d3f107b261285381cd590dbf4b2f86e52eed337843081bd142969f1c4dac`.
+`c693d42dc48a2831a7859e2df49e037ea0bfb0dc559f3b34e2f31557d1724442`. The historical Rust verifier
+binary SHA-256 is `cbe4d3f107b261285381cd590dbf4b2f86e52eed337843081bd142969f1c4dac`. The
+verifier rebuilt from the current real-AIR source has SHA-256
+`4d223c37e85b96f61dccc684f2897c82d2d55f6c50b59616a69cc5cc70d2ccf8`.
 
 The clean report SHA-256 values are
 `4bb09ca1b7861772f15fd6ae3365ce6c193f8e6d8d22896619730ddf5efb4387` for CPU and
@@ -96,6 +122,34 @@ zig-out/bin/native-proof-bench-metal --example wide_fibonacci --log-n-rows 18 \
 /private/tmp/stwo-rust-oracle-target/release/stwo-interop-rs --mode verify \
   --artifact /private/tmp/clean-wf-l18-metal.proof.json
 ```
+
+### Current real-AIR FRI transaction
+
+The current admitted path is intentionally narrower than the peer implementation. It applies only
+to the protocol's default `fold_step = 1`, resident input, power-of-two output, and folded output
+log size at least 18. All other cases retain the established path. This prevents a fast isolated
+kernel from being enabled where complete-proof measurements show no gain.
+
+The low-level log-17 transaction test is below the production threshold so it can exercise bounded
+memory and exact stage parity:
+
+| Path | Submissions | Waits | Latest wall time | Result |
+| --- | ---: | ---: | ---: | --- |
+| Separate fold, coordinate conversion, tree | 3 | 3 | 2.265 ms | CPU root and values match |
+| Combined fold-tree epoch | 1 | 1 | 1.079 ms | CPU root and values match; 0.605 ms GPU |
+
+Complete-proof A/B at log-18 input did not show a repeatable improvement, so the fused path remains
+disabled there. At log-19 input and width 8, seven-sample medians were:
+
+| Policy | Fused epochs | Proof median | Request median | Relative to disabled |
+| --- | ---: | ---: | ---: | ---: |
+| Disabled | 0 | 241.612 ms | 258.358 ms | - |
+| Folded output log 18 | 1 | 236.934 ms | 253.810 ms | 1.020x proof / 1.018x request |
+
+The production-threshold artifact at `/tmp/stwo-zig-metal-fused-log19-th18.json` has canonical proof
+SHA-256 `46d2418f3a03e8aafdf2ab326765e187bd69c904386a11f333163be51472d1b5` and is accepted by the
+current pinned Rust verifier. This is bounded admission evidence, not a broad-suite performance
+claim; the medians are close enough that future changes must remeasure the complete transaction.
 
 ## Published PR #6 Results
 
@@ -237,18 +291,19 @@ src/prover/fri.zig::commitInnerLayers
 
 `InnerLayerProver` retains the evaluation and tree needed for later queries. The Metal tree already
 keeps private resident layers, reads only the 32-byte root during commitment, and batches only the
-requested authentication data during decommitment. The missing operation is therefore a generic,
-optional backend hook equivalent to the peer hook:
+requested authentication data during decommitment. Commits `c357673` and `fb4a284` add the generic
+optional hook and its first Metal implementation:
 
 ```text
 foldLineAndCommitNext(evaluation_r, alpha_r, parameters)
-  -> { evaluation_(r+1), resident_tree_(r+1) }
+  -> { evaluation_(r+1), coordinate_planes_(r+1), resident_tree_(r+1) }
 ```
 
-Its native implementation must chain AoS QM31 fold output into direct packed leaf hashing and a
-private parent chain without a full-layer readback. The generic prover can carry the returned tree
-as `pending_tree`; it can continue to mix roots and draw challenges on the host until the channel
-also becomes resident.
+The native implementation chains AoS QM31 fold output into planar coordinate conversion, ordinary
+four-coordinate leaf hashing, and a private parent chain without a full-layer readback. The generic
+prover carries both the returned tree and coordinate planes into the next iteration, avoiding a
+second materialization. Multi-fold packing is deliberately excluded until its row-packing contract
+is explicit. The channel still mixes roots and draws challenges on the host.
 
 ### Cairo prepared resident prover
 
@@ -279,7 +334,7 @@ waits, eight fold waits, and one final-polynomial wait. Including transcript wor
 mix, the FRI region has approximately 34 host-visible completion boundaries. The arena data is
 already resident; synchronization, not data dependency, is forcing the round trips.
 
-## Current stwo-zig Hot Path
+## Historical Pre-Port Hot Path
 
 The bounded `ReleaseFast --profiled` log-18 Metal sample reports:
 
@@ -302,9 +357,10 @@ The Metal telemetry is more revealing than the aggregate time:
 - 17 Metal line-FRI folds;
 - only two resident Merkle commits.
 
-The present path accelerates each FRI fold but repeatedly returns to host Merkle work. This is the
-highest-confidence architectural explanation for the 84.6 ms FRI stage and the first target after
-raw-Stwo oracle parity.
+This telemetry identified the first architectural target. The admitted single-fold transaction now
+removes one of these boundaries at sufficiently large layers, but the historical table must not be
+used as a current real-AIR profile. A new complete profile is required before selecting the next
+whole-proof bottleneck.
 
 ## What To Adopt
 
@@ -324,12 +380,11 @@ select the same protocol without global mutable state.
 Deliver this in stages so every reduction in host synchronization remains attributable and
 oracle-checked.
 
-**Stage A: peer-parity scheduling.** Extend `command_epoch.zig` and the prepared runtime so one
-command buffer encodes `fold_r -> direct packed leaves_(r+1) -> all parents_(r+1)`. Keep the initial
-tree, final fold, and final polynomial explicit. The Cairo SN2 target is 10 waits for eight rounds:
-one initial tree, seven fold-tree pairs, one final fold, and one final polynomial. Add the same
-optional `{ evaluation, tree }` hook to the raw generic backend and carry a pending tree through
-`commitInnerLayers()`.
+**Stage A: peer-parity scheduling.** The raw generic single-fold form is delivered: one command
+buffer encodes `fold_r -> coordinate planes_(r+1) -> leaves_(r+1) -> all parents_(r+1)`, and the
+prover carries the result into the next iteration. The Cairo prepared prover and multi-fold packed
+leaf form remain. The Cairo SN2 target is 10 waits for eight rounds: one initial tree, seven
+fold-tree pairs, one final fold, and one final polynomial.
 
 **Stage B: resident channel boundary.** Encode transcript root absorption and secure challenge
 drawing into the same ordered command epoch. Feed the resident challenge directly to the next fold;
@@ -477,24 +532,26 @@ measurements.
 
 ## Concrete Delivery Order
 
-1. Maintain the delivered raw-Stwo/Cairo protocol split and exact pinned-Rust acceptance gates.
-2. Promote the current ad hoc exact cross-Rust CPU/Metal proof check into the native proof matrix.
-3. Land the telemetry schema above before changing scheduling so each removed wait is measurable.
-4. Add the raw generic `{ evaluation, tree }` backend hook and pending-tree scheduler with CPU,
-   Metal, decommitment, and Rust-oracle tests.
-5. Add Cairo Stage A fold-tree command epochs and meet the SN2 17-to-10 wait target.
-6. Move transcript mix/draw into admitted resident state and feed challenges directly into folds.
-7. Encode the complete production FRI graph as one epoch while retaining diagnostic checkpoints.
-8. Fuse coefficient zero-extension into the resident RFFT first pass and batch commitments to their
-   transcript observation boundary.
-9. Move immutable column/GPU-address descriptors into admitted prepared state.
-10. Profile log-18 width-100 and representative SN PIE geometry with Metal System Trace, GPU
-    counters, and transaction telemetry.
-11. Run 100 verified randomized proofs over admitted raw, Cairo, and SN PIE geometries in one
-    persistent process and enforce the streaming gates.
-12. Only then raise the memory guard for a cooled, one-sample log-19 or log-20 crossover check.
+1. [x] Maintain the raw-Stwo/Cairo protocol split and exact pinned-Rust acceptance gates.
+2. [x] Restore the real dynamic wide-Fibonacci AIR and bidirectional Rust proof parity.
+3. [x] Land scheduler and transaction telemetry before removing waits.
+4. [x] Add the raw generic pending-tree hook and default single-fold Metal transaction.
+5. [ ] Generate packed SIMD and Metal constraint evaluators from authenticated AIR semantics.
+6. [ ] Add multi-fold packed leaf semantics and the corresponding resident transaction.
+7. [ ] Add Cairo Stage A fold-tree command epochs and meet the SN2 17-to-10 wait target.
+8. [ ] Move transcript mix/draw into admitted resident state and feed challenges directly into folds.
+9. [ ] Encode the complete production FRI graph as one epoch while retaining diagnostic checkpoints.
+10. [ ] Fuse coefficient zero-extension into the resident RFFT first pass and batch commitments to
+their transcript observation boundary.
+11. [ ] Move immutable column/GPU-address descriptors into admitted prepared state.
+12. [ ] Reprofile real log-18 width-100 and representative SN PIE geometry with Metal System Trace,
+GPU counters, and transaction telemetry.
+13. [ ] Run 100 verified randomized proofs over admitted raw, Cairo, and SN PIE geometries in one
+persistent process and enforce the streaming gates.
+14. [ ] Raise the memory guard only for cooled crossover checks justified by the preceding profile.
 
-The first performance milestone is not a target MHz chosen in isolation. It is elimination of the
-19 host Merkle fallbacks while preserving canonical proof bytes and pinned Rust verification. The
-peer log-18 result shows that this architecture can support roughly 3 trace-row MHz at this width
-on this machine; it does not prove that copying its kernels alone will produce that result.
+The first raw scheduling milestone is complete, but elimination of all 19 historical host Merkle
+fallbacks is not. The next material gain is expected from general constraint accumulation and the
+remaining packed FRI transactions, not from lowering the current single-fold threshold. The peer
+log-18 result shows that its architecture supports roughly 3 trace-row MHz at that width on this
+machine; it does not prove that copying its kernels alone will produce that result.
