@@ -307,6 +307,11 @@ throughput on these bounded complete proofs. Exact proof digests were `1beb388c.
 `574b4d69...20831f`. This is the formal baseline for complete-transaction profiling; compact
 commitment-stage speedups are not extrapolated over it.
 
+This report is now classified as historical synthetic-AIR evidence. Commit `e2658e0` replaced the
+single synthetic Wide Fibonacci constraint with the real recurrence AIR and moved the formal oracle
+pin to `4d223c37e85b96f61dccc684f2897c82d2d55f6c50b59616a69cc5cc70d2ccf8`; deltas must not compare
+the two AIR generations.
+
 ### Sustained Native Wide/XOR/Plonk baseline
 
 Commits `1280ed3`, `77ec02a`, and `541d1cc` migrate Plonk to the common transaction, add it to the

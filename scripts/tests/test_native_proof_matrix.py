@@ -336,6 +336,14 @@ def lane_args(timeout_seconds: float = 2.0) -> argparse.Namespace:
 
 
 class NativeProofMatrixTests(unittest.TestCase):
+    def test_real_wide_fibonacci_oracle_identity_is_pinned(self) -> None:
+        from native_proof_matrix_lib import RUST_ORACLE_SHA256
+
+        self.assertEqual(
+            RUST_ORACLE_SHA256,
+            "4d223c37e85b96f61dccc684f2897c82d2d55f6c50b59616a69cc5cc70d2ccf8",
+        )
+
     def test_library_miss_is_cold_but_hit_timing_alone_is_warm(self) -> None:
         cache = pipeline_cache()
         cache["library_cache_misses"] = 1

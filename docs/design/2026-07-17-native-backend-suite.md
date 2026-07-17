@@ -359,7 +359,10 @@ The matrix accepts `--rust-oracle-bin`. The binary is required for formal eviden
 Its source commit is fixed to `a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2`
 and its toolchain remains `nightly-2025-07-14` until deliberately updated.
 Formal execution additionally requires the exact verifier binary SHA-256
-`cbe4d3f107b261285381cd590dbf4b2f86e52eed337843081bd142969f1c4dac`.
+`4d223c37e85b96f61dccc684f2897c82d2d55f6c50b59616a69cc5cc70d2ccf8`.
+This identity includes the real Wide Fibonacci recurrence AIR introduced by
+`e2658e0`; reports bound to the earlier `cbe4d3f1...` synthetic-AIR oracle are
+retained as historical geometry evidence but are not performance-comparable.
 An arbitrary executable that exits successfully is rejected before invocation, and
 both the binary and canonical artifact are rehashed after verification.
 
