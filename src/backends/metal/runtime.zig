@@ -1105,6 +1105,17 @@ extern fn stwo_zig_metal_tree_copy_hashes(
     error_message: [*]u8,
     error_message_len: usize,
 ) bool;
+extern fn stwo_zig_metal_tree_copy_hashes_batch(
+    runtime: *anyopaque,
+    tree: *anyopaque,
+    layer_log_sizes: [*]const u32,
+    indices: [*]const [*]const u32,
+    index_counts: [*]const u32,
+    destinations: [*]const [*]u8,
+    request_count: u32,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
 extern fn stwo_zig_metal_compute_quotients(
     runtime: *anyopaque,
     flat_views: [*]const u32,
@@ -4216,6 +4227,69 @@ pub const Tree = struct {
             return MetalError.RootReadFailed;
         }
         return output;
+    }
+
+    /// Reads selected hashes from multiple logical layers with one command
+    /// buffer and one wait. Request and index order are preserved exactly.
+    pub fn copyHashesBatch(
+        self: Tree,
+        allocator: std.mem.Allocator,
+        requests: anytype,
+    ) (MetalError || std.mem.Allocator.Error)![][][32]u8 {
+        const request_count = std.math.cast(u32, requests.len) orelse return MetalError.RootReadFailed;
+        const outputs = try allocator.alloc([][32]u8, requests.len);
+        var initialized: usize = 0;
+        errdefer {
+            for (outputs[0..initialized]) |output| allocator.free(output);
+            allocator.free(outputs);
+        }
+        if (requests.len == 0) return outputs;
+
+        const layer_log_sizes = try allocator.alloc(u32, requests.len);
+        defer allocator.free(layer_log_sizes);
+        const index_pointers = try allocator.alloc([*]const u32, requests.len);
+        defer allocator.free(index_pointers);
+        const index_counts = try allocator.alloc(u32, requests.len);
+        defer allocator.free(index_counts);
+        const destinations = try allocator.alloc([*]u8, requests.len);
+        defer allocator.free(destinations);
+
+        var total_hashes: usize = 0;
+        for (requests, 0..) |request, request_index| {
+            if (request.layer_log_size >= 31 or request.layer_log_size > self.log_size)
+                return MetalError.RootReadFailed;
+            const layer_len = @as(usize, 1) << @intCast(request.layer_log_size);
+            for (request.indices) |index| if (index >= layer_len) return MetalError.RootReadFailed;
+            const index_count = std.math.cast(u32, request.indices.len) orelse return MetalError.RootReadFailed;
+            total_hashes = std.math.add(usize, total_hashes, request.indices.len) catch
+                return MetalError.RootReadFailed;
+
+            const output = try allocator.alloc([32]u8, request.indices.len);
+            outputs[request_index] = output;
+            initialized += 1;
+            layer_log_sizes[request_index] = request.layer_log_size;
+            index_pointers[request_index] = request.indices.ptr;
+            index_counts[request_index] = index_count;
+            destinations[request_index] = @ptrCast(output.ptr);
+        }
+        if (total_hashes == 0) return outputs;
+
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        if (!stwo_zig_metal_tree_copy_hashes_batch(
+            self.runtime_handle,
+            self.handle,
+            layer_log_sizes.ptr,
+            index_pointers.ptr,
+            index_counts.ptr,
+            destinations.ptr,
+            request_count,
+            &message,
+            message.len,
+        )) {
+            std.log.err("Metal batched hash readback failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.RootReadFailed;
+        }
+        return outputs;
     }
 
     /// Copies all layers in root-to-leaf order. This is a compatibility path

@@ -5650,3 +5650,86 @@ bool stwo_zig_metal_tree_copy_hashes(
         return true;
     }
 }
+
+bool stwo_zig_metal_tree_copy_hashes_batch(
+    void *runtime_ptr,
+    void *tree_ptr,
+    const uint32_t *layer_log_sizes,
+    const uint32_t *const *indices,
+    const uint32_t *index_counts,
+    uint8_t *const *destinations,
+    uint32_t request_count,
+    char *error_message,
+    size_t error_message_len
+) {
+    if (runtime_ptr == NULL || tree_ptr == NULL || layer_log_sizes == NULL ||
+        indices == NULL || index_counts == NULL || destinations == NULL || request_count == 0u)
+        return false;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        StwoZigMetalTree *tree = (__bridge StwoZigMetalTree *)tree_ptr;
+        size_t total_hashes = 0u;
+        for (uint32_t request = 0u; request < request_count; ++request) {
+            uint32_t layer_log_size = layer_log_sizes[request];
+            uint32_t index_count = index_counts[request];
+            if (layer_log_size >= 31u || layer_log_size > tree.logSize ||
+                (index_count != 0u && (indices[request] == NULL || destinations[request] == NULL))) {
+                write_error(error_message, error_message_len, @"Invalid Metal hash-read batch");
+                return false;
+            }
+            uint32_t layer_count = 1u << layer_log_size;
+            for (uint32_t index = 0u; index < index_count; ++index) {
+                if (indices[request][index] >= layer_count) {
+                    write_error(error_message, error_message_len, @"Invalid Metal batched hash index");
+                    return false;
+                }
+            }
+            if ((size_t)index_count > SIZE_MAX - total_hashes) {
+                write_error(error_message, error_message_len, @"Metal hash-read batch exceeds address space");
+                return false;
+            }
+            total_hashes += (size_t)index_count;
+        }
+        if (total_hashes == 0u) return true;
+        if (total_hashes > SIZE_MAX / 32u) {
+            write_error(error_message, error_message_len, @"Metal hash-read batch exceeds address space");
+            return false;
+        }
+
+        id<MTLBuffer> readback = [runtime.device newBufferWithLength:(NSUInteger)total_hashes * 32u
+                                                             options:MTLResourceStorageModeShared];
+        id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
+        id<MTLBlitCommandEncoder> blit = [command blitCommandEncoder];
+        if (readback == nil || command == nil || blit == nil) {
+            write_error(error_message, error_message_len, @"Metal batched hash-read allocation failed");
+            return false;
+        }
+
+        size_t destination_hash = 0u;
+        for (uint32_t request = 0u; request < request_count; ++request) {
+            id<MTLBuffer> source = tree.layers[(NSUInteger)(tree.logSize - layer_log_sizes[request])];
+            for (uint32_t index = 0u; index < index_counts[request]; ++index) {
+                [blit copyFromBuffer:source sourceOffset:(NSUInteger)indices[request][index] * 32u
+                           toBuffer:readback destinationOffset:(NSUInteger)destination_hash * 32u size:32u];
+                destination_hash += 1u;
+            }
+        }
+        [blit endEncoding];
+        [command commit];
+        [command waitUntilCompleted];
+        if (command.status == MTLCommandBufferStatusError) {
+            write_error(error_message, error_message_len,
+                        command.error.localizedDescription ?: @"Metal batched hash readback failed");
+            return false;
+        }
+
+        const uint8_t *source_bytes = readback.contents;
+        size_t source_hash = 0u;
+        for (uint32_t request = 0u; request < request_count; ++request) {
+            size_t byte_count = (size_t)index_counts[request] * 32u;
+            if (byte_count != 0u) memcpy(destinations[request], source_bytes + source_hash * 32u, byte_count);
+            source_hash += (size_t)index_counts[request];
+        }
+        return true;
+    }
+}

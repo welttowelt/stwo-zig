@@ -2825,6 +2825,45 @@ test "metal: resident lifted Merkle root matches CPU" {
     try std.testing.expectEqualSlices(u8, &cpu_tree.root(), &result.hash);
     try std.testing.expect(result.gpu_ms > 0);
 
+    const duplicate_leaves = [_]u32{ 3, 3, 1023 };
+    const empty_indices = [_]u32{};
+    const duplicate_root = [_]u32{ 0, 0 };
+    const batch_requests = [_]struct {
+        layer_log_size: u32,
+        indices: []const u32,
+    }{
+        .{ .layer_log_size = 10, .indices = &duplicate_leaves },
+        .{ .layer_log_size = 7, .indices = &empty_indices },
+        .{ .layer_log_size = 0, .indices = &duplicate_root },
+    };
+    const batched_hashes = try gpu_tree.copyHashesBatch(allocator, &batch_requests);
+    defer {
+        for (batched_hashes) |hashes| allocator.free(hashes);
+        allocator.free(batched_hashes);
+    }
+    try std.testing.expectEqual(@as(usize, 3), batched_hashes.len);
+    for (batch_requests, batched_hashes) |request, hashes| {
+        const individual = try gpu_tree.copyHashes(allocator, request.layer_log_size, request.indices);
+        defer allocator.free(individual);
+        try std.testing.expectEqualSlices([32]u8, individual, hashes);
+    }
+    const invalid_layer = [_]struct {
+        layer_log_size: u32,
+        indices: []const u32,
+    }{.{ .layer_log_size = 11, .indices = &duplicate_root }};
+    try std.testing.expectError(error.RootReadFailed, gpu_tree.copyHashesBatch(allocator, &invalid_layer));
+    const invalid_shift = [_]struct {
+        layer_log_size: u32,
+        indices: []const u32,
+    }{.{ .layer_log_size = 31, .indices = &duplicate_root }};
+    try std.testing.expectError(error.RootReadFailed, gpu_tree.copyHashesBatch(allocator, &invalid_shift));
+    const invalid_leaf = [_]u32{1024};
+    const invalid_index = [_]struct {
+        layer_log_size: u32,
+        indices: []const u32,
+    }{.{ .layer_log_size = 10, .indices = &invalid_leaf }};
+    try std.testing.expectError(error.RootReadFailed, gpu_tree.copyHashesBatch(allocator, &invalid_index));
+
     const MetalTree = @import("backends/metal/merkle_tree.zig").MetalMerkleTree(Hasher);
     var compatible_tree = try MetalTree.commit(&runtime, allocator, &cpu_columns);
     defer compatible_tree.deinit(allocator);

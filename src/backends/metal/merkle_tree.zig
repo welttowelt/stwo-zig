@@ -22,6 +22,45 @@ pub fn MetalMerkleTree(comptime H: type) type {
             tree: runtime_mod.Tree,
             root_hash: H.Hash,
         };
+        const ResidentBatchReader = struct {
+            tree: runtime_mod.Tree,
+
+            pub fn maxLogSize(self: @This()) u32 {
+                return self.tree.log_size;
+            }
+
+            pub fn readHashesBatch(
+                self: @This(),
+                allocator: std.mem.Allocator,
+                requests: []const decommit_mod.HashReadRequest,
+            ) (std.mem.Allocator.Error || error{InvalidColumnSize})!decommit_mod.HashReadBatch(H) {
+                if (@sizeOf(H.Hash) != @sizeOf([32]u8)) return error.InvalidColumnSize;
+                const packed_layers = self.tree.copyHashesBatch(
+                    allocator,
+                    requests,
+                ) catch |err| switch (err) {
+                    error.OutOfMemory => return error.OutOfMemory,
+                    else => return error.InvalidColumnSize,
+                };
+                defer {
+                    for (packed_layers) |packed_hashes| allocator.free(packed_hashes);
+                    allocator.free(packed_layers);
+                }
+
+                const layers = try allocator.alloc([]H.Hash, packed_layers.len);
+                var initialized: usize = 0;
+                errdefer {
+                    for (layers[0..initialized]) |layer| allocator.free(layer);
+                    allocator.free(layers);
+                }
+                for (packed_layers, layers) |packed_hashes, *layer| {
+                    layer.* = try allocator.alloc(H.Hash, packed_hashes.len);
+                    initialized += 1;
+                    for (packed_hashes, layer.*) |hash, *destination| destination.* = @bitCast(hash);
+                }
+                return .{ .layers = layers };
+            }
+        };
         const Storage = union(enum) {
             host: HostTree,
             resident: ResidentTree,
@@ -139,7 +178,16 @@ pub fn MetalMerkleTree(comptime H: type) type {
             query_positions: []const usize,
             columns: []const []const M31,
         ) (std.mem.Allocator.Error || error{InvalidColumnSize})!DecommitmentResult {
-            return decommit_mod.decommit(H, self, allocator, query_positions, columns);
+            return switch (self.storage) {
+                .host => |tree| decommit_mod.decommit(H, tree, allocator, query_positions, columns),
+                .resident => |resident| decommit_mod.decommit(
+                    H,
+                    ResidentBatchReader{ .tree = resident.tree },
+                    allocator,
+                    query_positions,
+                    columns,
+                ),
+            };
         }
     };
 }
