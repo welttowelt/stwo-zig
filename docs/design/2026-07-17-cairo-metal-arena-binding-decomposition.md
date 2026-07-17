@@ -63,7 +63,7 @@ decommitment, filesystem, diagnostics, and field-arithmetic context.
 
 ### Migration ledger (2026-07-17)
 
-The audit table above is the historical pre-migration inventory. The live facade is now 4,824
+The audit table above is the historical pre-migration inventory. The live facade is now 2,571
 lines and delegates these accepted ownership slices without changing its public names:
 
 - `resident/errors.zig` owns the stable Cairo resident integration error set;
@@ -88,12 +88,15 @@ lines and delegates these accepted ownership slices without changing its public 
   grouping, fixed-trace materialization, and trace/preprocessed interpolation;
 - `resident/trace/diagnostics.zig` owns opt-in base-evaluation digest and dump diagnostics invoked
   directly by native fixed execution.
+- `resident/witness/` owns AOT recipe preparation, input materialization, and scheduled base-witness
+  graph execution; `resident/interaction/` owns interaction execution and parity diagnostics.
+- `resident/commitment/ordering.zig` owns canonical AIR reconstruction, degree-ordered commitment
+  projection, tree-purpose collection, and query-value reordering.
 
-Retained-Merkle spill/restore deliberately remains with the facade until commitment ordering and
-storage move together. It shares canonical tree-purpose ordering with proof binding and commitment
-execution; importing that policy from preprocessed storage or duplicating it would weaken the
-dependency graph. The source-conformance baseline remains in force until the completion criteria
-below are satisfied.
+Retained-Merkle spill/restore deliberately remains with the facade until its storage owner is
+extracted. It consumes the shared commitment-ordering policy rather than importing that policy from
+preprocessed storage or duplicating it. The source-conformance baseline remains in force until the
+completion criteria below are satisfied.
 
 ## Invariants
 
@@ -370,7 +373,7 @@ can produce plausible but invalid field values.
 
 ### Stage 5: commitments and decommitment
 
-1. Extract canonical/degree commitment ordering.
+1. [x] Extract canonical/degree commitment ordering.
 2. Extract the production commitment executor, retaining the exact command-epoch and retained-layer
    behavior. Move benchmark-only synchronous selection afterward.
 3. Extract decommit typed views and pointer population, then ordering, then execution.

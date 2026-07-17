@@ -57,6 +57,8 @@ The first migration pass has established these boundaries without changing proof
   names while dispatch, allocation, and the Objective-C ABI remain unchanged.
 - Cairo resident interaction execution and witness-input seeding have focused owners below
   `integrations/cairo_metal/resident/`; the arena-binding facade retains the stable public names.
+- Cairo commitment ordering now has a focused resident owner for canonical AIR reconstruction,
+  degree-order projection, tree-purpose collection, and query-value reordering.
 - Metal commitment, compaction, EC-op, and recovery benchmarks live under `src/bench/metal/` and
   consume the public `stwo` module while preserving their installed executable contracts.
 - The proof interoperability CLI is split by process lifecycle, argument policy, artifact I/O,
