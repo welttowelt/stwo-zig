@@ -53,6 +53,9 @@ active optimization-readiness blockers.
 - [`design/2026-07-17-backend-performance-program.md`](design/2026-07-17-backend-performance-program.md):
   normative profiler-led Native optimization program; deferred frontend work remains documented
   for later, and aggressive execution is blocked by the pre-optimization conformance goal.
+- [`design/2026-07-17-performance-extraction-playbook.md`](design/2026-07-17-performance-extraction-playbook.md):
+  PR #6 port audit, hardware-limit cost models for high-performance Zig and Metal, and the
+  autoresearch optimization-harness contract; execution remains behind the same lock.
 - [`metal-profiling.md`](metal-profiling.md): profiling controls and safe collection procedure.
 - [`metal-backend-progress.md`](metal-backend-progress.md): implementation and measured-progress
   summary.
