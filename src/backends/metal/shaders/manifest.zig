@@ -135,6 +135,7 @@ pub const TranslationUnit = struct {
 
 const legacy_source = @embedFile("../kernels.metal");
 const abi_types_source = @embedFile("include/abi_types.metal");
+const arena_ops_source = @embedFile("core/arena_ops.metal");
 const transcript_source = @embedFile("core/transcript.metal");
 const polynomial_eval_source = @embedFile("core/polynomial_eval.metal");
 
@@ -144,6 +145,7 @@ pub const support_headers = [_]TranslationUnit{
 
 pub const translation_units = [_]TranslationUnit{
     .{ .path = "src/backends/metal/kernels.metal", .source = legacy_source },
+    .{ .path = "src/backends/metal/shaders/core/arena_ops.metal", .source = arena_ops_source },
     .{ .path = "src/backends/metal/shaders/core/transcript.metal", .source = transcript_source },
     .{ .path = "src/backends/metal/shaders/core/polynomial_eval.metal", .source = polynomial_eval_source },
 };
@@ -151,6 +153,8 @@ pub const translation_units = [_]TranslationUnit{
 /// The runtime still compiles one library. Translation-unit boundaries are
 /// explicit here so AOT compilation can consume the same ordered manifest.
 pub const amalgamated_source: [:0]const u8 = legacy_source ++
+    "\n#line 1 \"src/backends/metal/shaders/core/arena_ops.metal\"\n" ++
+    arena_ops_source ++
     "\n#line 1 \"src/backends/metal/shaders/core/transcript.metal\"\n" ++
     transcript_source ++
     "\n#line 1 \"src/backends/metal/shaders/include/abi_types.metal\"\n" ++
@@ -270,5 +274,15 @@ test "transcript is isolated in its owning shader unit with a stable ABI" {
     try std.testing.expectEqual(
         @as(usize, 4),
         std.mem.count(u8, transcript_source, "uint lane [[thread_position_in_grid]]"),
+    );
+}
+
+test "arena resource operations are isolated in their owning shader unit" {
+    const name = "stwo_zig_clear_arena_spans";
+    try std.testing.expectEqual(@as(usize, 0), countKernelDeclarations(legacy_source, name));
+    try std.testing.expectEqual(@as(usize, 1), countKernelDeclarations(arena_ops_source, name));
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        std.mem.count(u8, arena_ops_source, "device const uint *spans [[buffer(1)]]"),
     );
 }
