@@ -319,17 +319,22 @@ test "metal shader manifest exactly covers source and runtime exports" {
 
 test "source and AOT core runtimes share one fail-closed pipeline initializer" {
     const runtime_source = @embedFile("../runtime.m");
+    const initialization_source = @embedFile("../runtime/initialization.m");
     try std.testing.expectEqual(
         @as(usize, 1),
         std.mem.count(u8, runtime_source, "static StwoZigMetalRuntime *create_runtime_from_library("),
     );
     try std.testing.expectEqual(
         @as(usize, 2),
-        std.mem.count(u8, runtime_source, "StwoZigMetalRuntime *runtime = create_runtime_from_library("),
+        std.mem.count(u8, initialization_source, "StwoZigMetalRuntime *runtime = create_runtime_from_library("),
     );
     try std.testing.expectEqual(
         @as(usize, 1),
-        std.mem.count(u8, runtime_source, "stwo_zig_metal_runtime_create_from_metallib("),
+        std.mem.count(u8, initialization_source, "stwo_zig_metal_runtime_create_from_metallib("),
+    );
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        std.mem.count(u8, runtime_source, "#import \"runtime/initialization.m\""),
     );
     const initializer_start = std.mem.indexOf(
         u8,
@@ -340,23 +345,16 @@ test "source and AOT core runtimes share one fail-closed pipeline initializer" {
         u8,
         runtime_source,
         initializer_start,
-        "void *stwo_zig_metal_runtime_create(",
+        "#import \"runtime/initialization.m\"",
     ) orelse return error.MalformedMetalRuntimeInitializer;
     const initializer = runtime_source[initializer_start..initializer_end];
-    const aot_start = std.mem.indexOfPos(
+    const aot_start = std.mem.indexOf(
         u8,
-        runtime_source,
-        initializer_end,
+        initialization_source,
         "void *stwo_zig_metal_runtime_create_from_metallib(",
     ) orelse return error.MissingMetalAotRuntimeInitializer;
-    const aot_end = std.mem.indexOfPos(
-        u8,
-        runtime_source,
-        aot_start,
-        "bool stwo_zig_metal_pipeline_cache_stats(",
-    ) orelse return error.MalformedMetalAotRuntimeInitializer;
-    const source_constructor = runtime_source[initializer_end..aot_start];
-    const aot_constructor = runtime_source[aot_start..aot_end];
+    const source_constructor = initialization_source[0..aot_start];
+    const aot_constructor = initialization_source[aot_start..];
     try std.testing.expectEqual(
         @as(usize, 1),
         std.mem.count(u8, source_constructor, "newLibraryWithSource:source options:options"),
