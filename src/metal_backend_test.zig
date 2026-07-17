@@ -27,8 +27,6 @@ const arena_plan = @import("backends/metal/arena_plan.zig");
 const secure_column = @import("prover/secure_column.zig");
 const secure_circle_poly = @import("prover/poly/circle/secure_poly.zig");
 const cairo_arena_binding = @import("integrations/cairo_metal/arena_binding.zig");
-const cairo_proof_plan = @import("frontends/cairo/proof_plan.zig");
-const cairo_witness_bundle = @import("frontends/cairo/witness/bundle.zig");
 const cairo_oods = @import("integrations/cairo_metal/oods.zig");
 const cairo_quotient_inputs = @import("integrations/cairo_metal/quotient_inputs.zig");
 const cairo_quotient_reference = @import("integrations/cairo_metal/quotient_reference.zig");
@@ -130,35 +128,6 @@ test "metal: component-local relation APIs fail closed on incomplete layouts" {
             undefined,
             undefined,
             undefined,
-        ),
-    );
-
-    var proof: cairo_proof_plan.CairoProofPlan = undefined;
-    proof.components = &.{};
-    var witness_bundle: cairo_witness_bundle.Bundle = undefined;
-    witness_bundle.entries = &.{};
-    var relation_operations: [0]cairo_arena_binding.RelationComponentOperation = .{};
-    var relations = cairo_arena_binding.PreparedRelationComponents{
-        .allocator = std.testing.allocator,
-        .operations = &relation_operations,
-    };
-    try std.testing.expectError(
-        cairo_arena_binding.Error.MissingBinding,
-        cairo_arena_binding.executeScheduledInteractionGraph(
-            std.testing.allocator,
-            undefined,
-            undefined,
-            &.{},
-            undefined,
-            &proof,
-            witness_bundle,
-            undefined,
-            undefined,
-            undefined,
-            undefined,
-            undefined,
-            undefined,
-            &relations,
         ),
     );
 

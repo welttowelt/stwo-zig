@@ -3659,10 +3659,12 @@ fn runOne(
                     &proof_plan.?,
                     witness_bundle.?,
                     witness,
-                    compact_verify,
-                    compact_pedersen,
-                    compact_poseidon,
-                    &ec_op,
+                    .{
+                        .compact_verify = compact_verify,
+                        .compact_pedersen = compact_pedersen,
+                        .compact_poseidon = compact_poseidon,
+                        .ec_op = &ec_op,
+                    },
                     recorded_interpolation,
                     multiplicity_feeds,
                 );
@@ -3964,10 +3966,12 @@ fn runOne(
                 witness_bundle.?,
                 adapted,
                 interaction_witness,
-                compact_verify,
-                compact_pedersen,
-                compact_poseidon,
-                &ec_lookup,
+                .{
+                    .compact_verify = compact_verify,
+                    .compact_pedersen = compact_pedersen,
+                    .compact_poseidon = compact_poseidon,
+                    .ec_op = &ec_lookup,
+                },
                 &relations,
             );
             interaction_witness_gpu_ms += recorded.writer_gpu_ms + recorded.input_gpu_ms;

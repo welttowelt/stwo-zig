@@ -18,6 +18,7 @@ const cairo_adapter = @import("../../frontends/cairo/adapter/mod.zig");
 const cairo_opcodes = @import("../../frontends/cairo/adapter/opcodes.zig");
 const cairo_proof_plan = @import("../../frontends/cairo/proof_plan.zig");
 const witness_scheduler = @import("../../frontends/cairo/witness_scheduler.zig");
+const recipe_requirements = @import("recipe_requirements.zig");
 const M31 = @import("../../core/fields/m31.zig").M31;
 const QM31 = @import("../../core/fields/qm31.zig").QM31;
 const twiddles_mod = @import("../../prover/poly/twiddles.zig");
@@ -46,6 +47,14 @@ pub const Error = error{
 };
 
 pub const Sn2Counts = schedule_bindings.Sn2Counts;
+pub const WitnessRecipeRequirements = recipe_requirements.Requirements;
+
+pub const WitnessRecipes = struct {
+    compact_verify: ?*protocol_recipes.CompactRecipe = null,
+    compact_pedersen: ?*protocol_recipes.CompactRecipe = null,
+    compact_poseidon: ?*protocol_recipes.CompactRecipe = null,
+    ec_op: ?*protocol_recipes.EcOpRecipe = null,
+};
 
 pub const ProofCopy = struct {
     source: arena_plan.Binding,
@@ -3372,10 +3381,7 @@ pub fn executeScheduledWitnessGraph(
     proof: *const cairo_proof_plan.CairoProofPlan,
     witness_bundle: witness_bundle_mod.Bundle,
     batch: *protocol_recipes.AotWitnessBatchRecipe,
-    compact_verify: *protocol_recipes.CompactRecipe,
-    compact_pedersen: *protocol_recipes.CompactRecipe,
-    compact_poseidon: *protocol_recipes.CompactRecipe,
-    ec_op: *protocol_recipes.EcOpRecipe,
+    recipes: WitnessRecipes,
     interpolation: *RecordedBaseInterpolationBatch,
     feeds: *MultiplicityFeedBatch,
 ) !WitnessExecutionTelemetry {
@@ -3390,10 +3396,7 @@ pub fn executeScheduledWitnessGraph(
         proof: *const cairo_proof_plan.CairoProofPlan,
         witness_bundle: witness_bundle_mod.Bundle,
         batch: *protocol_recipes.AotWitnessBatchRecipe,
-        compact_verify: *protocol_recipes.CompactRecipe,
-        compact_pedersen: *protocol_recipes.CompactRecipe,
-        compact_poseidon: *protocol_recipes.CompactRecipe,
-        ec_op: *protocol_recipes.EcOpRecipe,
+        recipes: WitnessRecipes,
         interpolation: *RecordedBaseInterpolationBatch,
         feeds: *MultiplicityFeedBatch,
         writer_gpu_ms: f64 = 0,
@@ -3448,16 +3451,17 @@ pub fn executeScheduledWitnessGraph(
 
         fn executeCompact(self: *@This(), component: []const u8) !f64 {
             const recipe = if (std.mem.eql(u8, component, "verify_instruction"))
-                self.compact_verify
+                self.recipes.compact_verify
             else if (std.mem.eql(u8, component, "pedersen_aggregator_window_bits_18"))
-                self.compact_pedersen
+                self.recipes.compact_pedersen
             else if (std.mem.eql(u8, component, "poseidon_aggregator"))
-                self.compact_poseidon
+                self.recipes.compact_poseidon
             else
-                return Error.MissingBinding;
-            const initial = recipe.accumulated_gpu_ms;
-            try recipe.execute();
-            return recipe.accumulated_gpu_ms - initial;
+                null;
+            const required = recipe orelse return Error.MissingBinding;
+            const initial = required.accumulated_gpu_ms;
+            try required.execute();
+            return required.accumulated_gpu_ms - initial;
         }
 
         fn executeWriter(self: *@This(), component_index: u32, component: []const u8) !f64 {
@@ -3465,9 +3469,10 @@ pub fn executeScheduledWitnessGraph(
             var writer_gpu_ms: f64 = 0;
             var interpolation_gpu_ms: f64 = 0;
             if (std.mem.eql(u8, component, "partial_ec_mul_generic")) {
-                const ec_initial = self.ec_op.accumulated_gpu_ms;
-                try self.ec_op.execute();
-                writer_gpu_ms += self.ec_op.accumulated_gpu_ms - ec_initial;
+                const ec_op = self.recipes.ec_op orelse return Error.MissingBinding;
+                const ec_initial = ec_op.accumulated_gpu_ms;
+                try ec_op.execute();
+                writer_gpu_ms += ec_op.accumulated_gpu_ms - ec_initial;
                 if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_LOG_BASE_EVAL_DIGESTS"))
                     try logComponentBaseEvalDigests(
                         self.resident_arena,
@@ -3628,10 +3633,7 @@ pub fn executeScheduledWitnessGraph(
         .proof = proof,
         .witness_bundle = witness_bundle,
         .batch = batch,
-        .compact_verify = compact_verify,
-        .compact_pedersen = compact_pedersen,
-        .compact_poseidon = compact_poseidon,
-        .ec_op = ec_op,
+        .recipes = recipes,
         .interpolation = interpolation,
         .feeds = feeds,
     };
@@ -4215,17 +4217,16 @@ pub fn executeScheduledInteractionGraph(
     witness_bundle: witness_bundle_mod.Bundle,
     input: *const cairo_adapter.ProverInput,
     batch: *protocol_recipes.AotWitnessBatchRecipe,
-    compact_verify: *protocol_recipes.CompactRecipe,
-    compact_pedersen: *protocol_recipes.CompactRecipe,
-    compact_poseidon: *protocol_recipes.CompactRecipe,
-    ec_lookup: *protocol_recipes.EcOpRecipe,
+    recipes: WitnessRecipes,
     relations: *PreparedRelationComponents,
 ) !InteractionExecutionTelemetry {
     if (proof.components.len != witness_bundle.entries.len) return Error.InvalidCardinality;
+    const requirements = WitnessRecipeRequirements.fromBundle(witness_bundle);
     for (proof.components) |component| {
         if (try relations.componentIndex(component.name) == null) return Error.MissingBinding;
     }
-    if (try relations.componentIndex("ec_op_builtin") == null) return Error.MissingBinding;
+    if (requirements.ec_op and try relations.componentIndex("ec_op_builtin") == null)
+        return Error.MissingBinding;
     const execution_table_gpu_ms = try populateExecutionTables(
         allocator,
         metal,
@@ -4245,10 +4246,7 @@ pub fn executeScheduledInteractionGraph(
         witness_bundle: witness_bundle_mod.Bundle,
         input: *const cairo_adapter.ProverInput,
         batch: *protocol_recipes.AotWitnessBatchRecipe,
-        compact_verify: *protocol_recipes.CompactRecipe,
-        compact_pedersen: *protocol_recipes.CompactRecipe,
-        compact_poseidon: *protocol_recipes.CompactRecipe,
-        ec_lookup: *protocol_recipes.EcOpRecipe,
+        recipes: WitnessRecipes,
         relations: *PreparedRelationComponents,
         ec_completed: bool = false,
         executed_writers: usize = 0,
@@ -4300,25 +4298,27 @@ pub fn executeScheduledInteractionGraph(
 
         fn executeCompact(self: *@This(), component: []const u8) !f64 {
             const recipe = if (std.mem.eql(u8, component, "verify_instruction"))
-                self.compact_verify
+                self.recipes.compact_verify
             else if (std.mem.eql(u8, component, "pedersen_aggregator_window_bits_18"))
-                self.compact_pedersen
+                self.recipes.compact_pedersen
             else if (std.mem.eql(u8, component, "poseidon_aggregator"))
-                self.compact_poseidon
+                self.recipes.compact_poseidon
             else
-                return Error.MissingBinding;
-            const initial = recipe.accumulated_gpu_ms;
-            try recipe.execute();
-            return recipe.accumulated_gpu_ms - initial;
+                null;
+            const required = recipe orelse return Error.MissingBinding;
+            const initial = required.accumulated_gpu_ms;
+            try required.execute();
+            return required.accumulated_gpu_ms - initial;
         }
 
         fn executeWriter(self: *@This(), component: []const u8) !f64 {
             var gpu_ms: f64 = 0;
             if (std.mem.eql(u8, component, "partial_ec_mul_generic")) {
                 if (self.ec_completed) return Error.InvalidSchedule;
-                const initial = self.ec_lookup.accumulated_gpu_ms;
-                try self.ec_lookup.execute();
-                const ec_gpu_ms = self.ec_lookup.accumulated_gpu_ms - initial;
+                const ec_lookup = self.recipes.ec_op orelse return Error.MissingBinding;
+                const initial = ec_lookup.accumulated_gpu_ms;
+                try ec_lookup.execute();
+                const ec_gpu_ms = ec_lookup.accumulated_gpu_ms - initial;
                 self.writer_gpu_ms += ec_gpu_ms;
                 gpu_ms += ec_gpu_ms;
                 const relation_gpu_ms = try self.executeRelation("ec_op_builtin");
@@ -4441,10 +4441,7 @@ pub fn executeScheduledInteractionGraph(
         .witness_bundle = witness_bundle,
         .input = input,
         .batch = batch,
-        .compact_verify = compact_verify,
-        .compact_pedersen = compact_pedersen,
-        .compact_poseidon = compact_poseidon,
-        .ec_lookup = ec_lookup,
+        .recipes = recipes,
         .relations = relations,
         .input_gpu_ms = execution_table_gpu_ms,
     };
@@ -4461,8 +4458,9 @@ pub fn executeScheduledInteractionGraph(
     for (proof.components) |component|
         expected_writers += @intFromBool(!cairo_proof_plan.retainsLookupInputs(component.name) or
             cairo_proof_plan.retainedLookupReplaysSubwords(component.name));
-    if (!context.ec_completed or context.executed_writers != expected_writers or
-        context.executed_relations != proof.components.len + 1)
+    if (context.ec_completed != requirements.ec_op or
+        context.executed_writers != expected_writers or
+        context.executed_relations != proof.components.len + @intFromBool(requirements.ec_op))
         return Error.InvalidCardinality;
     return .{
         .executed_programs = context.executed_writers,
@@ -6691,35 +6689,4 @@ test "Cairo AOT witness narrow addresses validate the complete binding extent" {
     invalid = last_word;
     invalid.offset_bytes -= 1;
     try std.testing.expect(!aotBindingFitsNarrowAddress(invalid));
-}
-
-test "Cairo scheduled interaction requires the native EC relation" {
-    var proof: cairo_proof_plan.CairoProofPlan = undefined;
-    proof.components = &.{};
-    var witness_bundle: witness_bundle_mod.Bundle = undefined;
-    witness_bundle.entries = &.{};
-    var relation_operations: [0]RelationComponentOperation = .{};
-    var relations = PreparedRelationComponents{
-        .allocator = std.testing.allocator,
-        .operations = &relation_operations,
-    };
-    try std.testing.expectError(
-        Error.MissingBinding,
-        executeScheduledInteractionGraph(
-            std.testing.allocator,
-            undefined,
-            undefined,
-            &.{},
-            undefined,
-            &proof,
-            witness_bundle,
-            undefined,
-            undefined,
-            undefined,
-            undefined,
-            undefined,
-            undefined,
-            &relations,
-        ),
-    );
 }
