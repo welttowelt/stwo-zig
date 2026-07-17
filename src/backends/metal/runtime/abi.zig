@@ -78,6 +78,39 @@ pub const PipelineCacheStats = extern struct {
     }
 };
 
+pub const ArchiveStoreStatsV1 = extern struct {
+    abi_version: u32,
+    struct_size: u32,
+    archive_disk_hits: u64,
+    archive_disk_misses: u64,
+    archive_disk_evictions: u64,
+    archive_disk_rebuilds: u64,
+    archive_disk_rejections: u64,
+    archive_disk_quarantines: u64,
+    archive_lock_acquisitions: u64,
+    archive_lock_contentions: u64,
+    archive_lock_timeouts: u64,
+    archive_publication_successes: u64,
+    archive_publication_failures: u64,
+    archive_bytes_published: u64,
+    archive_bytes_evicted: u64,
+    archive_persistence_bypasses: u64,
+    archive_lock_wait_seconds: f64,
+    archive_disk_entries: u64,
+    archive_disk_bytes: u64,
+    archive_disk_entry_limit: u64,
+    archive_disk_byte_limit: u64,
+    archive_per_entry_byte_limit: u64,
+    archive_quarantine_entries: u64,
+    archive_quarantine_bytes: u64,
+    archive_quarantine_entry_limit: u64,
+    archive_quarantine_byte_limit: u64,
+
+    pub fn zero() ArchiveStoreStatsV1 {
+        return std.mem.zeroes(ArchiveStoreStatsV1);
+    }
+};
+
 pub const ArenaCopyRange = extern struct {
     source_word_offset: u64,
     destination_word_offset: u64,
@@ -125,6 +158,13 @@ comptime {
         .{ "pipeline_cache_entries", 128 },
         .{ "pipeline_cache_byte_limit", 208 },
     });
+    assertLayout(ArchiveStoreStatsV1, 200, &.{
+        .{ "abi_version", 0 },
+        .{ "archive_disk_hits", 8 },
+        .{ "archive_lock_wait_seconds", 120 },
+        .{ "archive_disk_entries", 128 },
+        .{ "archive_quarantine_byte_limit", 192 },
+    });
     assertLayout(ArenaCopyRange, 24, &.{
         .{ "source_word_offset", 0 },
         .{ "destination_word_offset", 8 },
@@ -161,6 +201,13 @@ fn assertLayout(comptime T: type, expected_size: usize, offsets: []const FieldOf
 test "pipeline cache stats zero value" {
     const stats = PipelineCacheStats.zero();
     inline for (@typeInfo(PipelineCacheStats).@"struct".fields) |field| {
+        try std.testing.expectEqual(@as(field.type, 0), @field(stats, field.name));
+    }
+}
+
+test "archive store stats v1 zero value" {
+    const stats = ArchiveStoreStatsV1.zero();
+    inline for (@typeInfo(ArchiveStoreStatsV1).@"struct".fields) |field| {
         try std.testing.expectEqual(@as(field.type, 0), @field(stats, field.name));
     }
 }

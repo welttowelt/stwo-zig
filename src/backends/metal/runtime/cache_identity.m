@@ -188,10 +188,3 @@ static StwoZigEvalArchiveKey *eval_archive_key(StwoZigEvalLibraryKey *libraryKey
     key.canonicalSha256 = eval_sha256_hex(encoded.bytes, encoded.length);
     return key;
 }
-
-static NSString *eval_archive_path(StwoZigEvalArchiveKey *key) {
-    if (key.canonicalSha256.length != CC_SHA256_DIGEST_LENGTH * 2u) return nil;
-    NSString *name = [NSString stringWithFormat:@"stwo-zig-eval-cache-v2-%@.binarchive",
-        key.canonicalSha256];
-    return [NSTemporaryDirectory() stringByAppendingPathComponent:name];
-}

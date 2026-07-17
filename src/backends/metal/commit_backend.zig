@@ -59,7 +59,10 @@ pub const MetalCommitBackend = struct {
     pub fn telemetrySnapshot() TelemetryError!TelemetrySnapshot {
         var lease = try shared_runtime.acquireExisting();
         defer lease.deinit();
-        return telemetry.capture(lease.runtime.pipelineCacheStats());
+        return telemetry.captureWithArchiveStore(
+            lease.runtime.pipelineCacheStats(),
+            lease.runtime.archiveStoreStats(),
+        );
     }
 
     /// Reports process-wide runtime ownership without creating a Metal device.

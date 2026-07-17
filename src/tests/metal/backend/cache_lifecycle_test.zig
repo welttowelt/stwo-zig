@@ -10,10 +10,13 @@ extern fn stwo_zig_metal_eval_prepare_library(
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
+extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
+extern "c" fn unsetenv(name: [*:0]const u8) c_int;
 
 const library_count = 9;
 const pipeline_count = 65;
 const function_name = "stwo_zig_cache_probe";
+const archive_cache_env: [:0]const u8 = "STWO_ZIG_METAL_CACHE_DIR";
 
 const layout: metal.EvalLayout = .{
     .trace_offsets = 0,
@@ -58,8 +61,57 @@ fn pipelineSource(allocator: std.mem.Allocator) ![]u8 {
     return source.toOwnedSlice(allocator);
 }
 
+fn installTemporaryArchiveStore(
+    allocator: std.mem.Allocator,
+    temporary: *std.testing.TmpDir,
+) ![:0]u8 {
+    const root = try temporary.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(root);
+    const cache = try std.fs.path.join(allocator, &.{ root, "archive-store" });
+    defer allocator.free(cache);
+    const cache_z = try allocator.dupeZ(u8, cache);
+    errdefer allocator.free(cache_z);
+    if (setenv(archive_cache_env.ptr, cache_z.ptr, 1) != 0) return error.EnvironmentMutationFailed;
+    return cache_z;
+}
+
+fn archiveDirectory(allocator: std.mem.Allocator, cache: []const u8) ![]u8 {
+    return std.fs.path.join(allocator, &.{ cache, "archives" });
+}
+
+fn onlyArchivePath(allocator: std.mem.Allocator, cache: []const u8) ![]u8 {
+    const directory_path = try archiveDirectory(allocator, cache);
+    defer allocator.free(directory_path);
+    var directory = try std.fs.openDirAbsolute(directory_path, .{ .iterate = true });
+    defer directory.close();
+    var iterator = directory.iterate();
+    var result: ?[]u8 = null;
+    while (try iterator.next()) |entry| {
+        if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, ".binarchive")) continue;
+        if (result != null) return error.UnexpectedArchiveCount;
+        result = try std.fs.path.join(allocator, &.{ directory_path, entry.name });
+    }
+    return result orelse error.MissingArchive;
+}
+
+fn expectNoArchiveTemporaries(allocator: std.mem.Allocator, cache: []const u8) !void {
+    const directory_path = try archiveDirectory(allocator, cache);
+    defer allocator.free(directory_path);
+    var directory = try std.fs.openDirAbsolute(directory_path, .{ .iterate = true });
+    defer directory.close();
+    var iterator = directory.iterate();
+    while (try iterator.next()) |entry| {
+        try std.testing.expect(!std.mem.startsWith(u8, entry.name, ".stwo-zig-"));
+    }
+}
+
 test "metal: dynamic library and pipeline caches are bounded across teardown" {
     const allocator = std.testing.allocator;
+    var temporary = std.testing.tmpDir(.{});
+    defer temporary.cleanup();
+    const cache = try installTemporaryArchiveStore(allocator, &temporary);
+    defer allocator.free(cache);
+    defer _ = unsetenv(archive_cache_env.ptr);
     {
         var runtime = try metal.Runtime.init();
         defer runtime.deinit();
@@ -177,4 +229,188 @@ test "metal: dynamic library and pipeline caches are bounded across teardown" {
     const after_archive_hit = fresh_runtime.pipelineCacheStats();
     try std.testing.expectEqual(@as(u64, 1), after_archive_hit.binary_archive_hits);
     try std.testing.expectEqual(@as(u64, 0), after_archive_hit.direct_compiles);
+    const disk = fresh_runtime.archiveStoreStats();
+    try std.testing.expectEqual(@as(u32, 1), disk.abi_version);
+    try std.testing.expectEqual(@as(u32, @sizeOf(metal.ArchiveStoreStatsV1)), disk.struct_size);
+    try std.testing.expectEqual(@as(u64, 1), disk.archive_disk_hits);
+    try std.testing.expectEqual(@as(u64, 0), disk.archive_disk_misses);
+    try std.testing.expect(disk.archive_disk_entries <= disk.archive_disk_entry_limit);
+    try std.testing.expect(disk.archive_disk_bytes <= disk.archive_disk_byte_limit);
+    try expectNoArchiveTemporaries(allocator, cache);
+}
+
+test "metal: corrupt archive is quarantined and rebuilt without failing proving" {
+    const allocator = std.testing.allocator;
+    var temporary = std.testing.tmpDir(.{});
+    defer temporary.cleanup();
+    const cache = try installTemporaryArchiveStore(allocator, &temporary);
+    defer allocator.free(cache);
+    defer _ = unsetenv(archive_cache_env.ptr);
+
+    const source = try sourceFor(allocator, 71);
+    defer allocator.free(source);
+    {
+        var runtime = try metal.Runtime.init();
+        defer runtime.deinit();
+        var library = try runtime.compileEvalLibrary(source);
+        defer library.deinit();
+        var plan = try runtime.prepareEvalFromLibrary(library, function_name, layout);
+        defer plan.deinit();
+        const stats = runtime.archiveStoreStats();
+        try std.testing.expectEqual(@as(u64, 1), stats.archive_disk_misses);
+        try std.testing.expectEqual(@as(u64, 1), stats.archive_publication_successes);
+    }
+
+    const archive_path = try onlyArchivePath(allocator, cache);
+    defer allocator.free(archive_path);
+    var corrupt = try std.fs.createFileAbsolute(archive_path, .{ .truncate = true });
+    try corrupt.writeAll("not a Metal binary archive");
+    corrupt.close();
+
+    {
+        var runtime = try metal.Runtime.init();
+        defer runtime.deinit();
+        var library = try runtime.compileEvalLibrary(source);
+        defer library.deinit();
+        var plan = try runtime.prepareEvalFromLibrary(library, function_name, layout);
+        defer plan.deinit();
+        const pipeline = runtime.pipelineCacheStats();
+        const store = runtime.archiveStoreStats();
+        try std.testing.expectEqual(@as(u64, 1), pipeline.direct_compiles);
+        try std.testing.expectEqual(@as(u64, 1), store.archive_disk_misses);
+        try std.testing.expectEqual(@as(u64, 1), store.archive_disk_rebuilds);
+        try std.testing.expectEqual(@as(u64, 1), store.archive_disk_quarantines);
+        try std.testing.expectEqual(@as(u64, 1), store.archive_publication_successes);
+        try std.testing.expectEqual(@as(u64, 1), store.archive_quarantine_entries);
+    }
+
+    {
+        var runtime = try metal.Runtime.init();
+        defer runtime.deinit();
+        var library = try runtime.compileEvalLibrary(source);
+        defer library.deinit();
+        var plan = try runtime.prepareEvalFromLibrary(library, function_name, layout);
+        defer plan.deinit();
+        try std.testing.expectEqual(@as(u64, 1), runtime.archiveStoreStats().archive_disk_hits);
+        try std.testing.expectEqual(@as(u64, 1), runtime.pipelineCacheStats().binary_archive_hits);
+        try std.testing.expectEqual(@as(u64, 0), runtime.pipelineCacheStats().direct_compiles);
+    }
+    try expectNoArchiveTemporaries(allocator, cache);
+}
+
+test "metal: stale runtime archives merge before atomic publication" {
+    const allocator = std.testing.allocator;
+    var temporary = std.testing.tmpDir(.{});
+    defer temporary.cleanup();
+    const cache = try installTemporaryArchiveStore(allocator, &temporary);
+    defer allocator.free(cache);
+    defer _ = unsetenv(archive_cache_env.ptr);
+    const source =
+        \\#include <metal_stdlib>
+        \\using namespace metal;
+        \\kernel void cache_merge_a(device uint *out [[buffer(0)]], uint i [[thread_position_in_grid]]) { if (i == 0) out[0] = 1; }
+        \\kernel void cache_merge_b(device uint *out [[buffer(0)]], uint i [[thread_position_in_grid]]) { if (i == 0) out[0] = 2; }
+    ;
+
+    var first = try metal.Runtime.init();
+    defer first.deinit();
+    var second = try metal.Runtime.init();
+    defer second.deinit();
+    var first_library = try first.compileEvalLibrary(source);
+    defer first_library.deinit();
+    var stale_library = try second.compileEvalLibrary(source);
+    defer stale_library.deinit();
+    var plan_a = try first.prepareEvalFromLibrary(first_library, "cache_merge_a", layout);
+    defer plan_a.deinit();
+    var plan_b = try second.prepareEvalFromLibrary(stale_library, "cache_merge_b", layout);
+    defer plan_b.deinit();
+
+    var verifier = try metal.Runtime.init();
+    defer verifier.deinit();
+    var verifier_library = try verifier.compileEvalLibrary(source);
+    defer verifier_library.deinit();
+    var verify_a = try verifier.prepareEvalFromLibrary(verifier_library, "cache_merge_a", layout);
+    defer verify_a.deinit();
+    var verify_b = try verifier.prepareEvalFromLibrary(verifier_library, "cache_merge_b", layout);
+    defer verify_b.deinit();
+    const stats = verifier.pipelineCacheStats();
+    try std.testing.expectEqual(@as(u64, 2), stats.binary_archive_hits);
+    try std.testing.expectEqual(@as(u64, 0), stats.direct_compiles);
+    try std.testing.expectEqual(@as(u64, 1), verifier.archiveStoreStats().archive_disk_hits);
+}
+
+test "metal: archive store enforces deterministic count and byte caps" {
+    const allocator = std.testing.allocator;
+    var temporary = std.testing.tmpDir(.{});
+    defer temporary.cleanup();
+    const cache = try installTemporaryArchiveStore(allocator, &temporary);
+    defer allocator.free(cache);
+    defer _ = unsetenv(archive_cache_env.ptr);
+    const archives = try archiveDirectory(allocator, cache);
+    defer allocator.free(archives);
+    try std.fs.makeDirAbsolute(cache);
+    try std.fs.makeDirAbsolute(archives);
+    const fixed_time: i128 = 1_700_000_000 * std.time.ns_per_s;
+    for (0..130) |index| {
+        const name = try std.fmt.allocPrint(allocator, "stwo-zig-eval-cache-v2-{x:0>64}.binarchive", .{index});
+        defer allocator.free(name);
+        const path = try std.fs.path.join(allocator, &.{ archives, name });
+        defer allocator.free(path);
+        var file = try std.fs.createFileAbsolute(path, .{});
+        try file.writeAll("x");
+        try file.updateTimes(fixed_time, fixed_time);
+        file.close();
+    }
+    const source = try sourceFor(allocator, 91);
+    defer allocator.free(source);
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    var library = try runtime.compileEvalLibrary(source);
+    defer library.deinit();
+    const stats = runtime.archiveStoreStats();
+    try std.testing.expectEqual(stats.archive_disk_entry_limit, stats.archive_disk_entries);
+    try std.testing.expectEqual(@as(u64, 2), stats.archive_disk_evictions);
+    const oldest = try std.fs.path.join(allocator, &.{ archives, "stwo-zig-eval-cache-v2-0000000000000000000000000000000000000000000000000000000000000000.binarchive" });
+    defer allocator.free(oldest);
+    try std.testing.expectError(error.FileNotFound, std.fs.openFileAbsolute(oldest, .{}));
+
+    for (0..5) |index| {
+        const name = try std.fmt.allocPrint(allocator, "stwo-zig-eval-cache-v2-byte-{d}.binarchive", .{index});
+        defer allocator.free(name);
+        const path = try std.fs.path.join(allocator, &.{ archives, name });
+        defer allocator.free(path);
+        var file = try std.fs.createFileAbsolute(path, .{});
+        try file.setEndPos(120 * 1024 * 1024);
+        try file.updateTimes(fixed_time, fixed_time);
+        file.close();
+    }
+    var byte_runtime = try metal.Runtime.init();
+    defer byte_runtime.deinit();
+    const byte_stats = byte_runtime.archiveStoreStats();
+    // The query is side-effect free; compiling forces locked maintenance.
+    var byte_library = try byte_runtime.compileEvalLibrary(source);
+    defer byte_library.deinit();
+    const maintained = byte_runtime.archiveStoreStats();
+    try std.testing.expect(maintained.archive_disk_bytes <= maintained.archive_disk_byte_limit);
+    try std.testing.expect(maintained.archive_disk_evictions > byte_stats.archive_disk_evictions);
+}
+
+test "metal: invalid archive cache override bypasses persistence without failing proving" {
+    const invalid: [:0]const u8 = "relative/cache/path";
+    if (setenv(archive_cache_env.ptr, invalid.ptr, 1) != 0) return error.EnvironmentMutationFailed;
+    defer _ = unsetenv(archive_cache_env.ptr);
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+    const source = try sourceFor(std.testing.allocator, 113);
+    defer std.testing.allocator.free(source);
+    var library = try runtime.compileEvalLibrary(source);
+    defer library.deinit();
+    var plan = try runtime.prepareEvalFromLibrary(library, function_name, layout);
+    defer plan.deinit();
+    const pipeline = runtime.pipelineCacheStats();
+    const store = runtime.archiveStoreStats();
+    try std.testing.expectEqual(@as(u64, 1), pipeline.direct_compiles);
+    try std.testing.expect(store.archive_disk_rejections >= 1);
+    try std.testing.expect(store.archive_persistence_bypasses >= 1);
+    try std.testing.expectEqual(@as(u64, 0), store.archive_publication_successes);
 }

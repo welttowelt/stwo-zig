@@ -104,21 +104,7 @@ void *stwo_zig_metal_eval_prepare(
 }
 
 static bool serialize_eval_archive(StwoZigEvalLibrary *library, NSError **error, bool *didSerialize) {
-    if (didSerialize != NULL) *didSerialize = false;
-    @synchronized(library) {
-        if (library.archive == nil || library.archiveURL == nil) {
-            if (error != NULL) {
-                *error = [NSError errorWithDomain:@"StwoZigMetalRuntime" code:1
-                    userInfo:@{NSLocalizedDescriptionKey: @"Metal library has no binary archive"}];
-            }
-            return false;
-        }
-        if (!library.archiveDirty) return true;
-        if (![library.archive serializeToURL:library.archiveURL error:error]) return false;
-        library.archiveDirty = false;
-        if (didSerialize != NULL) *didSerialize = true;
-        return true;
-    }
+    return eval_archive_store_flush_library(library, error, didSerialize);
 }
 
 static void remove_eval_pipeline(
@@ -284,13 +270,10 @@ static id<MTLComputePipelineState> resolve_eval_pipeline(
 
             NSError *error = nil;
             id<MTLComputePipelineState> pipeline = nil;
-            if (library.archive == nil) {
-                runtime.evalDirectCompiles += 1u;
-                pipeline = [runtime.device newComputePipelineStateWithFunction:function error:&error];
-            } else {
-                @synchronized(library) {
-                    MTLComputePipelineDescriptor *descriptor = [MTLComputePipelineDescriptor new];
-                    descriptor.computeFunction = function;
+            @synchronized(library) {
+                MTLComputePipelineDescriptor *descriptor = [MTLComputePipelineDescriptor new];
+                descriptor.computeFunction = function;
+                if (library.archive != nil) {
                     descriptor.binaryArchives = @[library.archive];
 
                     if (library.archiveLoaded) {
@@ -298,31 +281,22 @@ static id<MTLComputePipelineState> resolve_eval_pipeline(
                             options:MTLPipelineOptionFailOnBinaryArchiveMiss reflection:nil error:&error];
                         if (pipeline != nil) runtime.evalBinaryArchiveHits += 1u;
                     }
-
+                }
+                if (pipeline == nil) {
+                    NSError *archiveLookupError = error;
+                    error = nil;
+                    runtime.evalDirectCompiles += 1u;
+                    pipeline = [runtime.device newComputePipelineStateWithFunction:function error:&error];
                     if (pipeline == nil) {
-                        NSError *archiveLookupError = error;
-                        error = nil;
-                        runtime.evalDirectCompiles += 1u;
-                        pipeline = [runtime.device newComputePipelineStateWithFunction:function error:&error];
-                        if (pipeline == nil) {
-                            write_error(error_message, error_message_len,
-                                error.localizedDescription ?: archiveLookupError.localizedDescription ?:
-                                @"Failed to compile Metal evaluation pipeline");
-                            return nil;
-                        }
-
-                        // A direct compile succeeding distinguishes an archive miss from a real pipeline error.
-                        runtime.evalBinaryArchiveMisses += 1u;
-                        NSError *archiveError = nil;
-                        if (![library.archive addComputePipelineFunctionsWithDescriptor:descriptor error:&archiveError]) {
-                            write_error(error_message, error_message_len,
-                                archiveError.localizedDescription ?: @"Failed to add Metal pipeline to binary archive");
-                            return nil;
-                        }
-                        runtime.evalArchivePopulations += 1u;
-                        library.archiveLoaded = true;
-                        library.archiveDirty = true;
+                        write_error(error_message, error_message_len,
+                            error.localizedDescription ?: archiveLookupError.localizedDescription ?:
+                            @"Failed to compile Metal evaluation pipeline");
+                        return nil;
                     }
+                    if (library.archive != nil) runtime.evalBinaryArchiveMisses += 1u;
+                    // Persistence is best-effort. The directly compiled PSO is already correct;
+                    // archive lock, merge, and publication failures must not fail proving.
+                    (void)eval_archive_store_publish_pipeline(runtime, library, descriptor);
                 }
             }
 
@@ -421,17 +395,7 @@ void *stwo_zig_metal_eval_library_load(
                 result.runtimeOwner = runtime;
                 result.cacheByteCost = (uint64_t)libraryData.length;
                 result.archiveKey = eval_archive_key(cacheKey);
-                NSString *archivePath = eval_archive_path(result.archiveKey);
-                result.archiveURL = [NSURL fileURLWithPath:archivePath];
-                result.archiveLoaded = [[NSFileManager defaultManager] fileExistsAtPath:archivePath];
-                MTLBinaryArchiveDescriptor *archiveDescriptor = [MTLBinaryArchiveDescriptor new];
-                if (result.archiveLoaded) archiveDescriptor.url = result.archiveURL;
-                result.archive = [runtime.device newBinaryArchiveWithDescriptor:archiveDescriptor error:&error];
-                if (result.archive == nil) {
-                    write_error(error_message, error_message_len,
-                                error.localizedDescription ?: @"Failed to load Metal binary archive");
-                    return NULL;
-                }
+                eval_archive_store_prepare_library(runtime, result);
                 cache_eval_library(runtime, result, cacheKey, (uint64_t)libraryData.length);
                 return (__bridge_retained void *)result;
             } @finally {
@@ -499,17 +463,7 @@ void *stwo_zig_metal_eval_library_compile(
                 result.runtimeOwner = runtime;
                 result.cacheByteCost = (uint64_t)sourceData.length;
                 result.archiveKey = eval_archive_key(cacheKey);
-                NSString *archivePath = eval_archive_path(result.archiveKey);
-                result.archiveURL = [NSURL fileURLWithPath:archivePath];
-                result.archiveLoaded = [[NSFileManager defaultManager] fileExistsAtPath:archivePath];
-                MTLBinaryArchiveDescriptor *archiveDescriptor = [MTLBinaryArchiveDescriptor new];
-                if (result.archiveLoaded) archiveDescriptor.url = result.archiveURL;
-                result.archive = [runtime.device newBinaryArchiveWithDescriptor:archiveDescriptor error:&error];
-                if (result.archive == nil) {
-                    write_error(error_message, error_message_len,
-                                error.localizedDescription ?: @"Failed to load Metal source binary archive");
-                    return NULL;
-                }
+                eval_archive_store_prepare_library(runtime, result);
                 cache_eval_library(runtime, result, cacheKey, (uint64_t)sourceData.length);
                 return (__bridge_retained void *)result;
             } @finally {

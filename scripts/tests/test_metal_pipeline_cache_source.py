@@ -5,6 +5,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE_PATHS = (
     ROOT / "src/backends/metal/runtime/cache_identity.m",
+    ROOT / "src/backends/metal/runtime/archive_store.m",
     ROOT / "src/backends/metal/runtime/dynamic_evaluation.m",
     ROOT / "src/backends/metal/runtime/lifecycle_and_tree.m",
     ROOT / "src/backends/metal/runtime.m",
@@ -50,15 +51,15 @@ class MetalPipelineCacheSourceTest(unittest.TestCase):
         self.assertIn("eval_sha256_hex(libraryData.bytes, libraryData.length)", body)
         self.assertIn("StwoZigEvalLibraryKindMetallib", body)
         self.assertIn("result.archiveKey = eval_archive_key(cacheKey)", body)
-        self.assertIn("eval_archive_path(result.archiveKey)", body)
+        self.assertIn("eval_archive_store_prepare_library(runtime, result)", body)
         self.assertIn("eval_library_from_data(runtime.device, libraryData", body)
         self.assertNotIn("newLibraryWithURL", body)
         helper = function_body(
             self.source,
             "static NSString *eval_archive_path(",
-            "#import <objc/runtime.h>",
+            "static id<MTLBinaryArchive> eval_archive_new(",
         )
-        self.assertIn("NSTemporaryDirectory()", helper)
+        self.assertIn("state.archives", helper)
         self.assertIn("stwo-zig-eval-cache-v2-%@.binarchive", helper)
 
     def test_archive_hit_is_probed_before_confirmed_miss_population(self):
@@ -70,12 +71,10 @@ class MetalPipelineCacheSourceTest(unittest.TestCase):
         cache = body.index("runtime.evalPipelines[pipelineKey]")
         probe = body.index("MTLPipelineOptionFailOnBinaryArchiveMiss")
         direct_compile = body.index("newComputePipelineStateWithFunction", probe)
-        populate = body.index("addComputePipelineFunctionsWithDescriptor", direct_compile)
-        dirty = body.index("library.archiveDirty = true", populate)
+        populate = body.index("eval_archive_store_publish_pipeline", direct_compile)
         self.assertLess(cache, probe)
         self.assertLess(probe, direct_compile)
         self.assertLess(direct_compile, populate)
-        self.assertLess(populate, dirty)
         self.assertEqual(self.source.count("addComputePipelineFunctionsWithDescriptor"), 1)
 
     def test_eval_and_witness_prepares_share_pipeline_resolver(self):
@@ -121,9 +120,7 @@ class MetalPipelineCacheSourceTest(unittest.TestCase):
         self.assertIn("result.cacheKey = cacheKey", body)
         self.assertIn("result.sourceBytes = sourceData", body)
         self.assertIn("result.archiveKey = eval_archive_key(cacheKey)", body)
-        self.assertIn("eval_archive_path(result.archiveKey)", body)
-        self.assertIn("result.archiveLoaded", body)
-        self.assertIn("newBinaryArchiveWithDescriptor", body)
+        self.assertIn("eval_archive_store_prepare_library(runtime, result)", body)
 
     def test_source_identity_uses_full_sha256_not_fnv64(self):
         identity = function_body(
@@ -203,7 +200,7 @@ class MetalPipelineCacheSourceTest(unittest.TestCase):
         self.assertIn("CFRelease(library_ptr)", destroy_body)
         self.assertIn("@property(nonatomic, weak) StwoZigMetalRuntime *runtimeOwner", self.source)
 
-    def test_dirty_archives_are_serialized_in_stable_order(self):
+    def test_archive_flush_is_store_owned_and_teardown_order_stays_stable(self):
         serialize = function_body(
             self.source,
             "static bool serialize_eval_archive(",
@@ -214,8 +211,8 @@ class MetalPipelineCacheSourceTest(unittest.TestCase):
             "void stwo_zig_metal_runtime_destroy(",
             "void *stwo_zig_metal_merkle_commit(",
         )
-        self.assertIn("if (!library.archiveDirty) return true", serialize)
-        self.assertIn("library.archiveDirty = false", serialize)
+        self.assertIn("eval_archive_store_flush_library", serialize)
+        self.assertIn("if (!library.archiveDirty) return true", self.source)
         self.assertIn("sortedArrayUsingSelector:@selector(compare:)", destroy)
         self.assertIn("if (!library.archiveDirty) continue", destroy)
         self.assertIn("serialize_eval_archive(library, &error, &didSerialize)", destroy)
@@ -259,15 +256,72 @@ class MetalPipelineCacheSourceTest(unittest.TestCase):
             resolve.index("newComputePipelineStateWithFunction", resolve.index("MTLPipelineOptionFailOnBinaryArchiveMiss")),
             resolve.index("runtime.evalBinaryArchiveMisses += 1u"),
         )
-        self.assertLess(
-            resolve.index("addComputePipelineFunctionsWithDescriptor"),
-            resolve.index("runtime.evalArchivePopulations += 1u"),
-        )
         self.assertIn("runtime.evalDirectCompiles += 1u", resolve)
         self.assertIn("@finally", resolve)
         self.assertIn("runtime.evalPipelinePreparationSeconds +=", resolve)
-        self.assertIn("if (didSerialize && runtimeOwner != nil)", serialize)
-        self.assertIn("runtimeOwner.evalArchiveSerializations += 1u", serialize)
+        publish = function_body(
+            self.source,
+            "static bool eval_archive_store_publish_pipeline(",
+            "static bool eval_archive_store_flush_library(",
+        )
+        self.assertLess(
+            publish.index("addComputePipelineFunctionsWithDescriptor"),
+            publish.index("runtime.evalArchivePopulations += 1u"),
+        )
+        self.assertIn("runtime.evalArchiveSerializations += 1u", publish)
+
+    def test_archive_store_is_owned_bounded_locked_and_atomically_published(self):
+        for token in (
+            "NSCachesDirectory",
+            'STWO_ZIG_METAL_CACHE_DIR',
+            '@"dev.stwo-zig"',
+            '@"eval-archives-v3"',
+            "STWO_ZIG_ARCHIVE_ENTRY_LIMIT",
+            "STWO_ZIG_ARCHIVE_BYTE_LIMIT",
+            "STWO_ZIG_ARCHIVE_PER_ENTRY_BYTE_LIMIT",
+            "STWO_ZIG_ARCHIVE_QUARANTINE_ENTRY_LIMIT",
+            "STWO_ZIG_ARCHIVE_QUARANTINE_BYTE_LIMIT",
+            "O_NOFOLLOW",
+            "flock(descriptor, LOCK_EX | LOCK_NB)",
+            "STWO_ZIG_ARCHIVE_LOCK_TIMEOUT_SECONDS",
+            "fsync(file)",
+            "fsync(directory)",
+            "rename(temporary.fileSystemRepresentation, target.fileSystemRepresentation)",
+        ):
+            self.assertIn(token, self.source)
+        self.assertNotIn("serializeToURL:library.archiveURL", self.source)
+
+    def test_archive_population_reloads_latest_and_never_fails_compiled_pso(self):
+        resolve = function_body(
+            self.source,
+            "static id<MTLComputePipelineState> resolve_eval_pipeline(",
+            "static id<MTLLibrary> eval_library_from_data(",
+        )
+        direct = resolve.index("newComputePipelineStateWithFunction")
+        publish = resolve.index("eval_archive_store_publish_pipeline", direct)
+        self.assertLess(direct, publish)
+        self.assertIn("library.archive != nil", resolve)
+        self.assertIn("(void)eval_archive_store_publish_pipeline", resolve)
+        store = function_body(
+            self.source,
+            "static bool eval_archive_store_publish_pipeline(",
+            "static bool eval_archive_store_flush_library(",
+        )
+        self.assertLess(store.index("eval_archive_new(runtime.device, path, true"),
+                        store.index("addComputePipelineFunctionsWithDescriptor"))
+        self.assertLess(store.index("addComputePipelineFunctionsWithDescriptor"),
+                        store.index("eval_archive_atomic_serialize_locked"))
+
+    def test_corrupt_archive_is_quarantined_and_rebuilt(self):
+        prepare = function_body(
+            self.source,
+            "static void eval_archive_store_prepare_library(",
+            "static bool eval_archive_atomic_serialize_locked(",
+        )
+        self.assertIn("state.diskRebuilds += 1u", prepare)
+        self.assertIn("eval_archive_quarantine_locked", prepare)
+        self.assertIn("eval_archive_new(runtime.device, path, false", prepare)
+        self.assertIn("state.persistenceBypasses += 1u", prepare)
 
     def test_stats_abi_is_read_only_and_zero_initialized_in_zig(self):
         fields = (
@@ -307,6 +361,30 @@ class MetalPipelineCacheSourceTest(unittest.TestCase):
         self.assertIn("pub const PipelineCacheStats = abi.PipelineCacheStats", self.zig_source)
         self.assertIn("pub fn pipelineCacheStats(self: *const Runtime)", self.zig_source)
         self.assertIn('test "pipeline cache stats zero value"', self.zig_abi_source)
+
+    def test_archive_store_stats_use_a_separate_versioned_sized_abi(self):
+        fields = (
+            "archive_disk_hits",
+            "archive_disk_misses",
+            "archive_disk_evictions",
+            "archive_disk_rebuilds",
+            "archive_disk_rejections",
+            "archive_disk_quarantines",
+            "archive_lock_acquisitions",
+            "archive_lock_contentions",
+            "archive_lock_timeouts",
+            "archive_publication_successes",
+            "archive_publication_failures",
+            "archive_disk_entries",
+            "archive_disk_bytes",
+        )
+        self.assertIn("StwoZigArchiveStoreStatsV1", self.source)
+        self.assertIn("ArchiveStoreStatsV1", self.zig_abi_source)
+        self.assertIn("stats_size != sizeof(*stats)", self.source)
+        self.assertIn("_Static_assert(sizeof(StwoZigArchiveStoreStatsV1) == 200", self.source)
+        for field in fields:
+            self.assertIn(field, self.source)
+            self.assertIn(field, self.zig_abi_source)
 
 
 if __name__ == "__main__":

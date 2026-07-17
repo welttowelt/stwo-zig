@@ -148,6 +148,68 @@ pub const PipelineCacheDelta = struct {
     }
 };
 
+pub const ArchiveStoreDelta = struct {
+    archive_disk_hits: u64 = 0,
+    archive_disk_misses: u64 = 0,
+    archive_disk_evictions: u64 = 0,
+    archive_disk_rebuilds: u64 = 0,
+    archive_disk_rejections: u64 = 0,
+    archive_disk_quarantines: u64 = 0,
+    archive_lock_acquisitions: u64 = 0,
+    archive_lock_contentions: u64 = 0,
+    archive_lock_timeouts: u64 = 0,
+    archive_publication_successes: u64 = 0,
+    archive_publication_failures: u64 = 0,
+    archive_bytes_published: u64 = 0,
+    archive_bytes_evicted: u64 = 0,
+    archive_persistence_bypasses: u64 = 0,
+    archive_lock_wait_seconds: f64 = 0,
+    archive_disk_entries: u64 = 0,
+    archive_disk_bytes: u64 = 0,
+    archive_disk_entry_limit: u64 = 0,
+    archive_disk_byte_limit: u64 = 0,
+    archive_per_entry_byte_limit: u64 = 0,
+    archive_quarantine_entries: u64 = 0,
+    archive_quarantine_bytes: u64 = 0,
+    archive_quarantine_entry_limit: u64 = 0,
+    archive_quarantine_byte_limit: u64 = 0,
+
+    pub fn between(
+        after: runtime.ArchiveStoreStatsV1,
+        before: runtime.ArchiveStoreStatsV1,
+    ) ArchiveStoreDelta {
+        return .{
+            .archive_disk_hits = after.archive_disk_hits -| before.archive_disk_hits,
+            .archive_disk_misses = after.archive_disk_misses -| before.archive_disk_misses,
+            .archive_disk_evictions = after.archive_disk_evictions -| before.archive_disk_evictions,
+            .archive_disk_rebuilds = after.archive_disk_rebuilds -| before.archive_disk_rebuilds,
+            .archive_disk_rejections = after.archive_disk_rejections -| before.archive_disk_rejections,
+            .archive_disk_quarantines = after.archive_disk_quarantines -| before.archive_disk_quarantines,
+            .archive_lock_acquisitions = after.archive_lock_acquisitions -| before.archive_lock_acquisitions,
+            .archive_lock_contentions = after.archive_lock_contentions -| before.archive_lock_contentions,
+            .archive_lock_timeouts = after.archive_lock_timeouts -| before.archive_lock_timeouts,
+            .archive_publication_successes = after.archive_publication_successes -| before.archive_publication_successes,
+            .archive_publication_failures = after.archive_publication_failures -| before.archive_publication_failures,
+            .archive_bytes_published = after.archive_bytes_published -| before.archive_bytes_published,
+            .archive_bytes_evicted = after.archive_bytes_evicted -| before.archive_bytes_evicted,
+            .archive_persistence_bypasses = after.archive_persistence_bypasses -| before.archive_persistence_bypasses,
+            .archive_lock_wait_seconds = @max(
+                @as(f64, 0),
+                after.archive_lock_wait_seconds - before.archive_lock_wait_seconds,
+            ),
+            .archive_disk_entries = after.archive_disk_entries,
+            .archive_disk_bytes = after.archive_disk_bytes,
+            .archive_disk_entry_limit = after.archive_disk_entry_limit,
+            .archive_disk_byte_limit = after.archive_disk_byte_limit,
+            .archive_per_entry_byte_limit = after.archive_per_entry_byte_limit,
+            .archive_quarantine_entries = after.archive_quarantine_entries,
+            .archive_quarantine_bytes = after.archive_quarantine_bytes,
+            .archive_quarantine_entry_limit = after.archive_quarantine_entry_limit,
+            .archive_quarantine_byte_limit = after.archive_quarantine_byte_limit,
+        };
+    }
+};
+
 pub const Classification = enum {
     no_backend_work,
     host_only,
@@ -163,11 +225,13 @@ pub const ClassificationError = error{
 pub const Snapshot = struct {
     counters: CounterValues,
     pipeline_cache: runtime.PipelineCacheStats,
+    archive_store: runtime.ArchiveStoreStatsV1 = runtime.ArchiveStoreStatsV1.zero(),
 
     pub fn delta(after: Snapshot, before: Snapshot) Delta {
         return .{
             .counters = CounterValues.delta(after.counters, before.counters),
             .pipeline_cache = PipelineCacheDelta.between(after.pipeline_cache, before.pipeline_cache),
+            .archive_store = ArchiveStoreDelta.between(after.archive_store, before.archive_store),
         };
     }
 };
@@ -175,6 +239,7 @@ pub const Snapshot = struct {
 pub const Delta = struct {
     counters: CounterValues,
     pipeline_cache: PipelineCacheDelta,
+    archive_store: ArchiveStoreDelta = .{},
 
     pub fn classification(self: Delta) Classification {
         const metal_dispatches = self.counters.metalDispatchTotal();
@@ -255,6 +320,15 @@ pub fn capture(pipeline_cache: runtime.PipelineCacheStats) Snapshot {
     return .{ .counters = values, .pipeline_cache = pipeline_cache };
 }
 
+pub fn captureWithArchiveStore(
+    pipeline_cache: runtime.PipelineCacheStats,
+    archive_store: runtime.ArchiveStoreStatsV1,
+) Snapshot {
+    var result = capture(pipeline_cache);
+    result.archive_store = archive_store;
+    return result;
+}
+
 fn snapshot(counters: CounterValues, cache_hits: u64) Snapshot {
     var cache = runtime.PipelineCacheStats.zero();
     cache.pipeline_cache_hits = cache_hits;
@@ -277,6 +351,12 @@ test "Metal telemetry delta is monotonic and includes pipeline cache evidence" {
     after_cache.pipeline_cache_bytes = 512 * 1024;
     after_cache.library_cache_entry_limit = 8;
     after_cache.pipeline_cache_byte_limit = 16 * 1024 * 1024;
+    var after_archive = runtime.ArchiveStoreStatsV1.zero();
+    after_archive.archive_disk_hits = 4;
+    after_archive.archive_disk_rebuilds = 1;
+    after_archive.archive_publication_successes = 2;
+    after_archive.archive_disk_entries = 3;
+    after_archive.archive_disk_entry_limit = 128;
     const after = Snapshot{
         .counters = .{
             .host_merkle_commits = 3,
@@ -284,6 +364,7 @@ test "Metal telemetry delta is monotonic and includes pipeline cache evidence" {
             .metal_quotient_dispatches = 5,
         },
         .pipeline_cache = after_cache,
+        .archive_store = after_archive,
     };
     const result = after.delta(before);
     try std.testing.expectEqual(@as(u64, 0), result.counters.host_merkle_commits);
@@ -298,6 +379,11 @@ test "Metal telemetry delta is monotonic and includes pipeline cache evidence" {
     try std.testing.expectEqual(@as(u64, 512 * 1024), result.pipeline_cache.pipeline_cache_bytes);
     try std.testing.expectEqual(@as(u64, 8), result.pipeline_cache.library_cache_entry_limit);
     try std.testing.expectEqual(@as(u64, 16 * 1024 * 1024), result.pipeline_cache.pipeline_cache_byte_limit);
+    try std.testing.expectEqual(@as(u64, 4), result.archive_store.archive_disk_hits);
+    try std.testing.expectEqual(@as(u64, 1), result.archive_store.archive_disk_rebuilds);
+    try std.testing.expectEqual(@as(u64, 2), result.archive_store.archive_publication_successes);
+    try std.testing.expectEqual(@as(u64, 3), result.archive_store.archive_disk_entries);
+    try std.testing.expectEqual(@as(u64, 128), result.archive_store.archive_disk_entry_limit);
 }
 
 test "Metal telemetry classification fails closed" {

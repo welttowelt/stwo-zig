@@ -3,6 +3,11 @@ static void stwo_zig_metal_dynamic_cache_stats(
     StwoZigPipelineCacheStats *stats
 );
 
+static void stwo_zig_metal_archive_store_stats(
+    StwoZigMetalRuntime *runtime,
+    StwoZigArchiveStoreStatsV1 *stats
+);
+
 bool stwo_zig_metal_pipeline_cache_stats(
     void *runtime_ptr, StwoZigPipelineCacheStats *stats
 ) {
@@ -21,6 +26,20 @@ bool stwo_zig_metal_pipeline_cache_stats(
             stats->pipeline_preparation_seconds = runtime.evalPipelinePreparationSeconds;
             stats->library_preparation_seconds = runtime.evalLibraryPreparationSeconds;
             stwo_zig_metal_dynamic_cache_stats(runtime, stats);
+        }
+        return true;
+    }
+}
+
+bool stwo_zig_metal_archive_store_stats_v1(
+    void *runtime_ptr, StwoZigArchiveStoreStatsV1 *stats, size_t stats_size
+) {
+    if (runtime_ptr == NULL || stats == NULL || stats_size != sizeof(*stats)) return false;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        @synchronized(runtime) {
+            memset(stats, 0, sizeof(*stats));
+            stwo_zig_metal_archive_store_stats(runtime, stats);
         }
         return true;
     }

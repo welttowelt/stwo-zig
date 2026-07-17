@@ -4,6 +4,7 @@ const runtime = @import("../runtime.zig");
 
 const ArenaCopyRange = runtime.ArenaCopyRange;
 const PipelineCacheStats = runtime.PipelineCacheStats;
+const ArchiveStoreStatsV1 = runtime.ArchiveStoreStatsV1;
 const PreparedStateRange = runtime.PreparedStateRange;
 const WitnessLayout = runtime.WitnessLayout;
 
@@ -11,6 +12,11 @@ pub extern fn stwo_zig_metal_runtime_destroy(runtime: ?*anyopaque) void;
 pub extern fn stwo_zig_metal_pipeline_cache_stats(
     runtime: *anyopaque,
     stats: *PipelineCacheStats,
+) bool;
+pub extern fn stwo_zig_metal_archive_store_stats_v1(
+    runtime: *anyopaque,
+    stats: *ArchiveStoreStatsV1,
+    stats_size: usize,
 ) bool;
 pub extern fn stwo_zig_metal_max_buffer_length(runtime: *anyopaque) u64;
 pub extern fn stwo_zig_metal_buffer_create(

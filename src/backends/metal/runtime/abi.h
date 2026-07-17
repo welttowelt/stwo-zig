@@ -87,6 +87,44 @@ typedef struct {
 } StwoZigPipelineCacheStats;
 
 typedef struct {
+    uint32_t abi_version;
+    uint32_t struct_size;
+    uint64_t archive_disk_hits;
+    uint64_t archive_disk_misses;
+    uint64_t archive_disk_evictions;
+    uint64_t archive_disk_rebuilds;
+    uint64_t archive_disk_rejections;
+    uint64_t archive_disk_quarantines;
+    uint64_t archive_lock_acquisitions;
+    uint64_t archive_lock_contentions;
+    uint64_t archive_lock_timeouts;
+    uint64_t archive_publication_successes;
+    uint64_t archive_publication_failures;
+    uint64_t archive_bytes_published;
+    uint64_t archive_bytes_evicted;
+    uint64_t archive_persistence_bypasses;
+    double archive_lock_wait_seconds;
+    uint64_t archive_disk_entries;
+    uint64_t archive_disk_bytes;
+    uint64_t archive_disk_entry_limit;
+    uint64_t archive_disk_byte_limit;
+    uint64_t archive_per_entry_byte_limit;
+    uint64_t archive_quarantine_entries;
+    uint64_t archive_quarantine_bytes;
+    uint64_t archive_quarantine_entry_limit;
+    uint64_t archive_quarantine_byte_limit;
+} StwoZigArchiveStoreStatsV1;
+
+_Static_assert(sizeof(StwoZigArchiveStoreStatsV1) == 200,
+    "Metal archive store stats ABI size drift");
+_Static_assert(offsetof(StwoZigArchiveStoreStatsV1, archive_disk_hits) == 8,
+    "Metal archive store stats ABI hit offset drift");
+_Static_assert(offsetof(StwoZigArchiveStoreStatsV1, archive_lock_wait_seconds) == 120,
+    "Metal archive store stats ABI timing offset drift");
+_Static_assert(offsetof(StwoZigArchiveStoreStatsV1, archive_quarantine_byte_limit) == 192,
+    "Metal archive store stats ABI tail offset drift");
+
+typedef struct {
     uint64_t source_word_offset;
     uint32_t source_word_count;
     uint32_t value_coefficients[4];

@@ -663,6 +663,7 @@ static StwoZigMetalRuntime *create_runtime_from_library(
 #import "runtime/merkle_epochs.m"
 #import "runtime/auxiliary_plans.m"
 #import "runtime/cache_identity.m"
+#import "runtime/archive_store.m"
 #import "runtime/dynamic_evaluation.m"
 #import "runtime/composition.m"
 #import "runtime/prepared_auxiliary.m"

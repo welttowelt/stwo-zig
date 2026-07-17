@@ -11,6 +11,7 @@ const ArenaCopyRange = runtime.ArenaCopyRange;
 const DecommitFriRoundParams = runtime.DecommitFriRoundParams;
 const DecommitTraceGroupParams = runtime.DecommitTraceGroupParams;
 const PipelineCacheStats = runtime.PipelineCacheStats;
+const ArchiveStoreStatsV1 = runtime.ArchiveStoreStatsV1;
 const PreparedStateRange = runtime.PreparedStateRange;
 const QuotientCoefficientTask = runtime.QuotientCoefficientTask;
 const QuotientCoefficientTerm = runtime.QuotientCoefficientTerm;
@@ -98,6 +99,12 @@ pub fn deinit(self: *Runtime) void {
 pub fn pipelineCacheStats(self: *const Runtime) PipelineCacheStats {
     var stats = PipelineCacheStats.zero();
     _ = ffi.stwo_zig_metal_pipeline_cache_stats(self.handle, &stats);
+    return stats;
+}
+
+pub fn archiveStoreStats(self: *const Runtime) ArchiveStoreStatsV1 {
+    var stats = ArchiveStoreStatsV1.zero();
+    _ = ffi.stwo_zig_metal_archive_store_stats_v1(self.handle, &stats, @sizeOf(ArchiveStoreStatsV1));
     return stats;
 }
 
