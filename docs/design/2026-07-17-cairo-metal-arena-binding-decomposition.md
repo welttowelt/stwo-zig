@@ -63,7 +63,7 @@ decommitment, filesystem, diagnostics, and field-arithmetic context.
 
 ### Migration ledger (2026-07-17)
 
-The audit table above is the historical pre-migration inventory. The live facade is now 5,449
+The audit table above is the historical pre-migration inventory. The live facade is now 4,868
 lines and delegates these accepted ownership slices without changing its public names:
 
 - `resident/errors.zig` owns the stable Cairo resident integration error set;
@@ -78,6 +78,10 @@ lines and delegates these accepted ownership slices without changing its public 
   indexing.
 - `resident/lookups/multiplicity_feeds.zig` owns feed lifecycle, authenticated row/destination
   geometry, destination routing, and prepared batch construction.
+- `resident/relations/claims.zig` owns canonical Rust claimed-sum ordering and exact schedule
+  validation;
+- `resident/relations/components.zig` owns relation instance binding, prepared component/recipe
+  lifecycle, component-local interpolation, execution telemetry, and relation diagnostics;
 - `resident/trace/interpolation.zig` owns recorded/native base interpolation lifecycle, component
   grouping, fixed-trace materialization, and trace/preprocessed interpolation;
 - `resident/trace/diagnostics.zig` owns opt-in base-evaluation digest and dump diagnostics invoked
@@ -126,7 +130,9 @@ src/integrations/cairo_metal/
 |   |-- session.zig                   phase ordering over prepared typed views
 |   |-- proof_bindings.zig            authenticated schedule-to-view projection
 |   |-- transcript.zig                transcript recipe and challenge publication
-|   |-- relations.zig                 relation binding, execution, claimed sums
+|   |-- relations/
+|   |   |-- claims.zig                canonical claimed-sum order and validation
+|   |   `-- components.zig            relation binding, preparation, and execution
 |   |-- twiddles.zig                  twiddle-bank layout and materialization
 |   |-- preprocessed/
 |   |   |-- coefficients.zig          load, canonicalization, and evaluation
@@ -211,7 +217,8 @@ change.
 
 | Target | Symbols currently in `arena_binding.zig` |
 | --- | --- |
-| `resident/relations.zig` | `countFixedRelationTraces`, `relationTraceUsesRowEnabler`, `RelationComponentTelemetry`, `RelationComponentOperation`, `PreparedRelationComponents`, `BoundRelationComponent`, `canonicalClaimedSumBindings`, `validateClaimedSumOrder`, `bindRelationComponent`, `prepareRelationComponentBatch`, `prepareRelations`, `prepareRelationComponents`, `logRelationDiagnostics` |
+| `resident/relations/claims.zig` | `canonicalClaimedSumBindings`, `validateClaimedSumOrder` |
+| `resident/relations/components.zig` | `countFixedRelationTraces`, `relationTraceUsesRowEnabler`, `gatheredWitnessRealRows`, `RelationComponentTelemetry`, `RelationComponentOperation`, `PreparedRelationComponents`, `BoundRelationComponent`, `bindRelationComponent`, `prepareRelations`, `prepareRelationComponents`, `logRelationDiagnostics` |
 | `resident/preprocessed/coefficients.zig` | `populateExecutionTables`, `populatePreprocessedCoefficients`, `PreprocessedCoefficientLoad`, `populateUnreconstructedPreprocessedCoefficients`, `PreprocessedCoefficientLoadMode`, `populatePreprocessedCoefficientsMode`, `canonicalizeSimdCoefficientBlocks`, `evaluatePreprocessedCoefficients` |
 | `resident/preprocessed/storage.zig` | `spillPreprocessedEvaluations`, `restorePreprocessedEvaluations`, `restoreFixedTablePreprocessedEvaluations` |
 | `resident/twiddles.zig` | `populateProtocolTwiddles`, `populateForwardTwiddles`, `populateForwardTwiddleBinding`, `twiddleBankBinding`, `populateNamedInverseTwiddles`, `populateQuotientInverseTwiddles`, `populateTwiddlePair`, `populateInverseTwiddles`, `populateSplitSubdomainInverseTwiddles`, `twiddleBindingForLog`, `twiddleOffsetForLog` |
@@ -229,7 +236,7 @@ table dimensions but may not own fixed-table storage policy.
 | Target | Symbols currently in `arena_binding.zig` |
 | --- | --- |
 | `resident/witness/prepare.zig` | `WitnessRecipeRequirements`, `WitnessRecipes`, `aotBindingFitsNarrowAddress`, `recordAotHighBinding`, `prepareEcOpWitness`, `prepareAotWitnessBatch`, `prepareAotInteractionBatch`, `prepareAotWitnessBatchForMode` |
-| `resident/witness/inputs.zig` | `populateCasmWitnessInputs`, `populateBuiltinSeedWitnessInputs`, `populateDirectWitnessInput`, `gatheredWitnessRealRows`, `prepareCompactWitnessInput`, `gatherWitnessInput` |
+| `resident/witness/inputs.zig` | `populateCasmWitnessInputs`, `populateBuiltinSeedWitnessInputs`, `populateDirectWitnessInput`, `prepareCompactWitnessInput`, `gatherWitnessInput` |
 | `resident/witness/execute.zig` | `WitnessEdge`, `WitnessExecutionTelemetry`, `witnessIndex`, `dependenciesReady`, `executeRecordedWitnessGraph`, `executeNativeEcConsumer`, `executeScheduledWitnessGraph` |
 | `resident/interaction/execute.zig` | `InteractionExecutionTelemetry`, `executeScheduledInteractionGraph`, `interactionOperation` |
 | `resident/interaction/diagnostics.zig` | `logInteractionWriterCpuSample`, `logLookupRelationCpuClaim`, `logComponentInteractionDigests`, `logComponentBaseEvalDigests`, `logInteractionCoefficientDigests`, `logLogicalBindingDigest`, `logCpuColumnLdeDigest` |
