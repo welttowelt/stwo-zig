@@ -207,6 +207,16 @@ below the measured resident-Merkle policy threshold, and the production SN strea
 different compact-leaf sequence. That graph is the next adoption target; its acceptance requires a
 real command-profile reduction plus the unchanged full formal and Rust-oracle gates.
 
+Commit `c0fbb7f` completes that production-graph adoption for the default compact commitment path.
+A bounded real-hardware reproduction collapses composition LDE, compact leaf accumulation, one
+arena snapshot, and the Merkle parent chain from six command buffers and waits to one, with zero
+intermediate waits. All 32 mixed-log extended columns and the final CPU lifted root match exactly;
+encoded plans remain alive through completion after their Zig wrappers are released.
+
+The 83.3 percent command/wait reduction is not reported as proof throughput because the Native lane
+does not execute this Cairo streaming callsite and no heavy PIE was run. A bounded virtual-SNOS or
+equivalent compact-streaming proof is the next timing gate.
+
 ### Native mixed-AIR transaction
 
 Commit `ec288e7` moves XOR onto the shared prepared-input, engine, and reusable-session proving

@@ -1,6 +1,6 @@
 # Metal Resident Commitment Epoch
 
-Status: implementation; command-epoch core accepted
+Status: implementation; command-epoch core and compact streaming graph accepted
 
 ## Performance Hypothesis
 
@@ -219,3 +219,23 @@ speed claim. The current SN streaming commitment graph uses composition LDE, com
 absorption, arena copies, and a parent-chain plan rather than this three-plan layout. The next Metal
 stage must route that production graph through the same submission owner, prove a measured command
 and wait reduction, and only then publish a backend MHz change.
+
+## Accepted Compact Streaming Graph
+
+Commit `c0fbb7f` routes the default compact Cairo commitment through one command epoch. Composition
+LDE groups, compact leaf accumulation, leaf-state snapshots, and the complete prepared Merkle parent
+chain are encoded in dependency order before one submit and one terminal wait. Debug and repair
+modes that inspect intermediate host-visible state deliberately retain the synchronous path.
+
+The bounded hardware test uses 32 mixed-log columns in two groups, retains prepared plans after their
+Zig owners are destroyed, and compares every extended evaluation plus the final lifted Merkle root
+with CPU construction. The epoch records one command buffer, one wait, zero intermediate waits, 23
+compute encoders and dispatches, and one blit encoder. The same six prepared operation classes run
+synchronously with six command buffers and six waits, so the accepted graph removes five of six
+submission and wait boundaries (83.3 percent) without changing kernels or proof semantics.
+
+No SN PIE or heavy block run was used for this acceptance, no crossover threshold changed, and the
+bounded Native proof lane does not exercise this Cairo callsite. Therefore these command statistics
+are architecture and correctness evidence, not a whole-proof MHz result. The next measured step is a
+bounded virtual-SNOS or equivalent compact-streaming fixture, followed by a full formal parity and
+Rust-oracle gate before any large PIE escalation.
