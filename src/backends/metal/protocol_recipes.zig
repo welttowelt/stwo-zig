@@ -11,6 +11,9 @@ const runtime = @import("runtime.zig");
 const blake2s_channel = @import("../../core/channel/blake2s.zig");
 const blake2_hash = @import("../../core/vcs/blake2_hash.zig");
 const fri_geometry = @import("../../core/fri/geometry.zig");
+const cairo_merkle = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sPlainMerkleHasher;
+
+const cairo_domain_prefix_bytes = cairo_merkle.domainPrefixBytes();
 
 pub const FriGeometry = fri_geometry.FriGeometry;
 
@@ -718,7 +721,13 @@ pub const MerkleParentChainRecipe = struct {
             destination_offset.* = std.math.cast(u32, destination.offset_bytes / 4) orelse return recovery.RecoveryError.BindingSizeMismatch;
             parent_count.* = std.math.cast(u32, destination.size_bytes / 32) orelse return recovery.RecoveryError.BindingSizeMismatch;
         }
-        var prepared = try metal.prepareMerkleParentChain(child_offsets, destination_offsets, parent_counts, node_seed);
+        var prepared = try metal.prepareMerkleParentChain(
+            child_offsets,
+            destination_offsets,
+            parent_counts,
+            node_seed,
+            cairo_domain_prefix_bytes,
+        );
         errdefer prepared.deinit();
         return .{
             .allocator = allocator,
@@ -835,6 +844,7 @@ pub const MerkleCommitRecipe = struct {
             layer_offsets,
             leaf_seed,
             node_seed,
+            cairo_domain_prefix_bytes,
         );
         errdefer prepared.deinit();
         return .{
@@ -2511,6 +2521,7 @@ pub const FriRecipe = struct {
                 layer_offsets[0..layer_count],
                 leaf_seed,
                 node_seed,
+                cairo_domain_prefix_bytes,
             );
             self.initialized_trees += 1;
             layer_cursor += layer_count;
@@ -2875,6 +2886,7 @@ pub const DecommitQueryRecipe = struct {
             try bindingWordOffset(self.sparse_hashes) + parent_offset * 8,
             count_base + 4 + distance,
             node_seed,
+            cairo_domain_prefix_bytes,
         );
     }
 
@@ -2905,6 +2917,7 @@ pub const DecommitQueryRecipe = struct {
             max_leaf_count,
             try bindingWordOffset(self.sparse_hashes),
             leaf_seed,
+            cairo_domain_prefix_bytes,
         );
     }
 
@@ -2953,6 +2966,7 @@ pub const DecommitQueryRecipe = struct {
                 .stride = pending.stride,
                 .total_columns = total_columns,
                 .max_leaf_count = max_leaf_count,
+                .domain_prefix_bytes = cairo_domain_prefix_bytes,
                 .leaf_seed = leaf_seed,
             },
         );

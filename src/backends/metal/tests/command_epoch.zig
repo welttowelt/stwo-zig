@@ -9,6 +9,7 @@ const merkle_prover = @import("../../../prover/vcs_lifted/prover.zig");
 
 const M31 = m31.M31;
 const Hasher = blake2_merkle.Blake2sMerkleHasher;
+const PlainHasher = blake2_merkle.Blake2sPlainMerkleHasher;
 
 test "metal: resident commitment epoch owns one submit and wait" {
     const allocator = std.testing.allocator;
@@ -121,6 +122,7 @@ test "metal: resident commitment epoch owns one submit and wait" {
         &layer_offsets,
         Hasher.leafSeed(),
         Hasher.nodeSeed(),
+        Hasher.domainPrefixBytes(),
     );
     defer merkle.deinit();
 
@@ -315,7 +317,8 @@ test "metal: compact streaming commitment epoch preserves evaluations and root" 
         &parent_children,
         &parent_destinations,
         &parent_counts,
-        Hasher.nodeSeed(),
+        PlainHasher.nodeSeed(),
+        PlainHasher.domainPrefixBytes(),
     );
     defer parent_chain.deinit();
 
@@ -332,7 +335,7 @@ test "metal: compact streaming commitment epoch preserves evaluations and root" 
         0,
         false,
         0,
-        Hasher.leafSeed(),
+        PlainHasher.leafSeed(),
     );
     try epoch.encodeArenaCopy(snapshot_copy);
     try epoch.encodeCompositionLde(large_lde);
@@ -346,7 +349,7 @@ test "metal: compact streaming commitment epoch preserves evaluations and root" 
         column_group_width,
         true,
         0,
-        Hasher.leafSeed(),
+        PlainHasher.leafSeed(),
     );
     try epoch.encodeMerkleParentChain(parent_chain);
     try epoch.submit();
@@ -376,7 +379,7 @@ test "metal: compact streaming commitment epoch preserves evaluations and root" 
             words[offset .. offset + expected.len],
         );
     }
-    const CpuTree = merkle_prover.MerkleProverLifted(Hasher);
+    const CpuTree = merkle_prover.MerkleProverLifted(PlainHasher);
     var cpu_tree = try CpuTree.commit(allocator, &cpu_columns);
     defer cpu_tree.deinit(allocator);
     const root_words = words[parent_destinations[parent_destinations.len - 1]..][0..8];
@@ -440,6 +443,7 @@ test "metal: fused parent tail retains its plan and materializes every layer" {
         &.{ middle_offset, upper_offset, root_offset },
         &.{ 4, 2, 1 },
         Hasher.nodeSeed(),
+        Hasher.domainPrefixBytes(),
     );
     var plan_live = true;
     defer if (plan_live) plan.deinit();
@@ -488,6 +492,7 @@ test "metal: parent tail capacity preserves a per-level prefix" {
         &.{ level0_offset, level1_offset, level2_offset },
         &.{ 512, 256, 128 },
         Hasher.nodeSeed(),
+        Hasher.domainPrefixBytes(),
     );
     defer plan.deinit();
     var epoch = try runtime.beginCommandEpoch(arena);
@@ -508,12 +513,12 @@ test "metal: parent chain preparation and arena bounds fail closed" {
     defer runtime.deinit();
     try std.testing.expectError(
         runtime_mod.MetalError.CommitmentFailed,
-        runtime.prepareMerkleParentChain(&.{0}, &.{32}, &.{0}, Hasher.nodeSeed()),
+        runtime.prepareMerkleParentChain(&.{0}, &.{32}, &.{0}, Hasher.nodeSeed(), Hasher.domainPrefixBytes()),
     );
 
     var arena = try runtime.allocateResidentBuffer(256);
     defer arena.deinit();
-    var plan = try runtime.prepareMerkleParentChain(&.{48}, &.{0}, &.{4}, Hasher.nodeSeed());
+    var plan = try runtime.prepareMerkleParentChain(&.{48}, &.{0}, &.{4}, Hasher.nodeSeed(), Hasher.domainPrefixBytes());
     defer plan.deinit();
     var epoch = try runtime.beginCommandEpoch(arena);
     defer epoch.deinit();

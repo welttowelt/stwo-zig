@@ -204,6 +204,7 @@
 @property(nonatomic, strong) NSData *parentCounts;
 @property(nonatomic, strong) id<MTLBuffer> nodeSeed;
 @property(nonatomic) uint32_t levelCount;
+@property(nonatomic) uint32_t prefixBytes;
 @property(nonatomic) uint32_t tailStart;
 @property(nonatomic) uint32_t tailThreadgroupWidth;
 @property(nonatomic) NSUInteger tailScratchBytes;
@@ -366,6 +367,7 @@
 @property(nonatomic, strong) id<MTLBuffer> leafSeed;
 @property(nonatomic, strong) id<MTLBuffer> nodeSeed;
 @property(nonatomic) uint32_t evaluationBase, coordinateStride, evaluationSize, logRowsPerLeaf, layerCount;
+@property(nonatomic) uint32_t prefixBytes;
 @end
 @implementation StwoZigFriTreePlan
 @end
@@ -383,6 +385,7 @@
 @property(nonatomic) uint32_t columnCount;
 @property(nonatomic) uint32_t liftingLogSize;
 @property(nonatomic) uint32_t destinationOffset;
+@property(nonatomic) uint32_t prefixBytes;
 @end
 @implementation StwoZigMerkleLeafPlan
 @end
@@ -396,6 +399,7 @@
 @property(nonatomic) uint32_t columnCount;
 @property(nonatomic) uint32_t liftingLogSize;
 @property(nonatomic) uint32_t layerCount;
+@property(nonatomic) uint32_t prefixBytes;
 @end
 @implementation StwoZigResidentMerklePlan
 @end
@@ -505,9 +509,16 @@ typedef struct {
     uint64_t queries, query_count_at, values;
     uint64_t leaf_indices, leaf_count_at, output_hashes;
     uint32_t column_count, lifting_log, max_queries, first_column;
-    uint32_t stride, total_columns, max_leaf_count;
+    uint32_t stride, total_columns, max_leaf_count, domain_prefix_bytes;
     uint32_t leaf_seed[8];
 } StwoZigDecommitTraceGroupParams;
+
+_Static_assert(sizeof(StwoZigDecommitTraceGroupParams) == 128u,
+               "StwoZigDecommitTraceGroupParams ABI");
+_Static_assert(offsetof(StwoZigDecommitTraceGroupParams, domain_prefix_bytes) == 92u,
+               "trace domain_prefix_bytes ABI");
+_Static_assert(offsetof(StwoZigDecommitTraceGroupParams, leaf_seed) == 96u,
+               "trace leaf_seed ABI");
 
 typedef struct {
     uint64_t library_cache_hits;
@@ -1195,15 +1206,18 @@ void *stwo_zig_metal_fri_tree_prepare(
     uint32_t evaluation_size, uint32_t log_rows_per_leaf,
     const uint32_t *layer_offsets, uint32_t layer_count,
     const uint32_t *leaf_seed, const uint32_t *node_seed,
+    uint32_t prefix_bytes,
     char *error_message, size_t error_message_len
 ) {
     if (runtime_ptr == NULL || evaluation_size == 0u || (evaluation_size & (evaluation_size - 1u)) != 0u ||
-        log_rows_per_leaf > 2u || layer_offsets == NULL || layer_count < 2u || leaf_seed == NULL || node_seed == NULL) return NULL;
+        log_rows_per_leaf > 2u || layer_offsets == NULL || layer_count < 2u || leaf_seed == NULL || node_seed == NULL ||
+        (prefix_bytes != 0u && prefix_bytes != 64u)) return NULL;
     @autoreleasepool {
         StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
         StwoZigFriTreePlan *plan = [StwoZigFriTreePlan new];
         plan.evaluationBase = evaluation_base; plan.coordinateStride = coordinate_stride;
         plan.evaluationSize = evaluation_size; plan.logRowsPerLeaf = log_rows_per_leaf; plan.layerCount = layer_count;
+        plan.prefixBytes = prefix_bytes;
         plan.layerOffsets = [NSData dataWithBytes:layer_offsets length:(NSUInteger)layer_count * sizeof(uint32_t)];
         plan.leafSeed = [runtime.device newBufferWithBytes:leaf_seed length:8u * sizeof(uint32_t) options:MTLResourceStorageModeShared];
         plan.nodeSeed = [runtime.device newBufferWithBytes:node_seed length:8u * sizeof(uint32_t) options:MTLResourceStorageModeShared];
@@ -1238,6 +1252,8 @@ bool stwo_zig_metal_fri_tree_prepared(
         [leaf setBytes:&base length:sizeof(base) atIndex:1]; [leaf setBytes:&stride length:sizeof(stride) atIndex:2];
         [leaf setBytes:&size length:sizeof(size) atIndex:3]; [leaf setBytes:&packed length:sizeof(packed) atIndex:4];
         [leaf setBytes:&destination length:sizeof(destination) atIndex:5]; [leaf setBuffer:plan.leafSeed offset:0 atIndex:6];
+        uint32_t prefix_bytes = plan.prefixBytes;
+        [leaf setBytes:&prefix_bytes length:sizeof(prefix_bytes) atIndex:7];
         NSUInteger leaf_width = MIN(runtime.friPackedLeavesResident.maxTotalThreadsPerThreadgroup, runtime.friPackedLeavesResident.threadExecutionWidth * 8u);
         [leaf dispatchThreads:MTLSizeMake(leaves, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(leaf_width, 1u, 1u)];
         [leaf endEncoding];
@@ -1248,6 +1264,7 @@ bool stwo_zig_metal_fri_tree_prepared(
             uint32_t child = layers[level - 1u], output = layers[level];
             [parent setBytes:&child length:sizeof(child) atIndex:1]; [parent setBytes:&output length:sizeof(output) atIndex:2];
             [parent setBytes:&parents length:sizeof(parents) atIndex:3]; [parent setBuffer:plan.nodeSeed offset:0 atIndex:4];
+            [parent setBytes:&prefix_bytes length:sizeof(prefix_bytes) atIndex:5];
             NSUInteger width = MIN(runtime.parentsSparse.maxTotalThreadsPerThreadgroup, runtime.parentsSparse.threadExecutionWidth * 8u);
             [parent dispatchThreads:MTLSizeMake(parents, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
             [parent endEncoding]; parents >>= 1u;
@@ -1652,9 +1669,11 @@ bool stwo_zig_metal_decommit_sparse_parent(
     void *runtime_ptr, void *arena_ptr, uint64_t child_indices, uint64_t child_hashes,
     uint64_t child_count_at, uint32_t max_child_count, uint64_t parent_indices,
     uint64_t parent_hashes, uint64_t parent_count_at, const uint32_t node_seed[8],
+    uint32_t domain_prefix_bytes,
     double *gpu_milliseconds, char *error_message, size_t error_message_len
 ) {
-    if(runtime_ptr==NULL||arena_ptr==NULL||node_seed==NULL||max_child_count<2u)return false;
+    if(runtime_ptr==NULL||arena_ptr==NULL||node_seed==NULL||max_child_count<2u||
+       (domain_prefix_bytes!=0u&&domain_prefix_bytes!=64u))return false;
     @autoreleasepool {
         StwoZigMetalRuntime *runtime=(__bridge StwoZigMetalRuntime *)runtime_ptr; id<MTLBuffer> arena=(__bridge id<MTLBuffer>)arena_ptr;
         NSUInteger words=arena.length/sizeof(uint32_t), parents=max_child_count/2u;
@@ -1666,6 +1685,7 @@ bool stwo_zig_metal_decommit_sparse_parent(
         [encoder setBytes:&child_count_at length:8u atIndex:3]; [encoder setBytes:&max_child_count length:4u atIndex:4];
         [encoder setBytes:&parent_indices length:8u atIndex:5]; [encoder setBytes:&parent_hashes length:8u atIndex:6];
         [encoder setBytes:&parent_count_at length:8u atIndex:7]; [encoder setBytes:node_seed length:32u atIndex:8];
+        [encoder setBytes:&domain_prefix_bytes length:4u atIndex:9];
         [encoder dispatchThreads:MTLSizeMake(parents,1u,1u) threadsPerThreadgroup:MTLSizeMake(MIN(parents,256u),1u,1u)]; [encoder endEncoding]; [command commit]; [command waitUntilCompleted];
         if(command.status==MTLCommandBufferStatusError){write_error(error_message,error_message_len,command.error.localizedDescription);return false;}
         if(gpu_milliseconds)*gpu_milliseconds=(command.GPUEndTime-command.GPUStartTime)*1000.0; return true;
@@ -1676,10 +1696,12 @@ bool stwo_zig_metal_decommit_sparse_leaves(
     void *runtime_ptr, void *arena_ptr, uint64_t column_offsets, uint64_t column_logs,
     uint32_t column_count, uint32_t lifting_log, uint64_t leaf_indices,
     uint64_t leaf_count_at, uint32_t max_leaf_count, uint64_t output_hashes,
-    const uint32_t leaf_seed[8], double *gpu_milliseconds, char *error_message,
+    const uint32_t leaf_seed[8], uint32_t domain_prefix_bytes,
+    double *gpu_milliseconds, char *error_message,
     size_t error_message_len
 ) {
-    if(runtime_ptr==NULL||arena_ptr==NULL||leaf_seed==NULL||column_count==0u||lifting_log>=31u||max_leaf_count==0u)return false;
+    if(runtime_ptr==NULL||arena_ptr==NULL||leaf_seed==NULL||column_count==0u||lifting_log>=31u||max_leaf_count==0u||
+       (domain_prefix_bytes!=0u&&domain_prefix_bytes!=64u))return false;
     @autoreleasepool {
         StwoZigMetalRuntime *runtime=(__bridge StwoZigMetalRuntime *)runtime_ptr; id<MTLBuffer> arena=(__bridge id<MTLBuffer>)arena_ptr;
         NSUInteger words=arena.length/sizeof(uint32_t);
@@ -1692,6 +1714,7 @@ bool stwo_zig_metal_decommit_sparse_leaves(
         [encoder setBytes:&leaf_indices length:8u atIndex:5]; [encoder setBytes:&leaf_count_at length:8u atIndex:6];
         [encoder setBytes:&max_leaf_count length:4u atIndex:7]; [encoder setBytes:&output_hashes length:8u atIndex:8];
         [encoder setBytes:leaf_seed length:32u atIndex:9];
+        [encoder setBytes:&domain_prefix_bytes length:4u atIndex:10];
         [encoder dispatchThreads:MTLSizeMake(max_leaf_count,1u,1u) threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)max_leaf_count,256u),1u,1u)]; [encoder endEncoding]; [command commit]; [command waitUntilCompleted];
         if(command.status==MTLCommandBufferStatusError){write_error(error_message,error_message_len,command.error.localizedDescription);return false;}
         if(gpu_milliseconds)*gpu_milliseconds=(command.GPUEndTime-command.GPUStartTime)*1000.0; return true;
@@ -1703,12 +1726,14 @@ bool stwo_zig_metal_decommit_sparse_leaf_group(
     uint32_t column_count, uint32_t first_column, uint32_t total_columns,
     uint32_t lifting_log, uint64_t leaf_indices, uint64_t leaf_count_at,
     uint32_t max_leaf_count, uint64_t output_hashes, const uint32_t leaf_seed[8],
-    double *gpu_milliseconds, char *error_message, size_t error_message_len
+    uint32_t domain_prefix_bytes, double *gpu_milliseconds,
+    char *error_message, size_t error_message_len
 ) {
     if(runtime_ptr==NULL||arena_ptr==NULL||leaf_seed==NULL||column_count==0u||column_count>16u||
        total_columns==0u||first_column>=total_columns||column_count>total_columns-first_column||
        (first_column&15u)!=0u||(first_column+column_count<total_columns&&(column_count&15u)!=0u)||
-       lifting_log>=31u||max_leaf_count==0u)return false;
+       lifting_log>=31u||max_leaf_count==0u||
+       (domain_prefix_bytes!=0u&&domain_prefix_bytes!=64u))return false;
     @autoreleasepool {
         StwoZigMetalRuntime *runtime=(__bridge StwoZigMetalRuntime *)runtime_ptr; id<MTLBuffer> arena=(__bridge id<MTLBuffer>)arena_ptr;
         NSUInteger words=arena.length/sizeof(uint32_t);
@@ -1723,6 +1748,7 @@ bool stwo_zig_metal_decommit_sparse_leaf_group(
         [encoder setBytes:&leaf_indices length:8u atIndex:7]; [encoder setBytes:&leaf_count_at length:8u atIndex:8];
         [encoder setBytes:&max_leaf_count length:4u atIndex:9]; [encoder setBytes:&output_hashes length:8u atIndex:10];
         [encoder setBytes:leaf_seed length:32u atIndex:11];
+        [encoder setBytes:&domain_prefix_bytes length:4u atIndex:12];
         [encoder dispatchThreads:MTLSizeMake(max_leaf_count,1u,1u) threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)max_leaf_count,256u),1u,1u)]; [encoder endEncoding]; [command commit]; [command waitUntilCompleted];
         if(command.status==MTLCommandBufferStatusError){write_error(error_message,error_message_len,command.error.localizedDescription);return false;}
         if(gpu_milliseconds)*gpu_milliseconds=(command.GPUEndTime-command.GPUStartTime)*1000.0; return true;
@@ -1735,6 +1761,7 @@ bool stwo_zig_metal_decommit_trace_group(
 ) {
     if(runtime_ptr==NULL||arena_ptr==NULL||params==NULL||params->column_count==0u||
        params->column_count>16u||params->max_queries==0u||params->stride<params->max_queries||
+       (params->domain_prefix_bytes!=0u&&params->domain_prefix_bytes!=64u)||
        params->lifting_log>=31u||params->total_columns==0u||params->first_column>=params->total_columns||
        params->column_count>params->total_columns-params->first_column||(params->first_column&15u)!=0u||
        (params->first_column+params->column_count<params->total_columns&&(params->column_count&15u)!=0u)||
@@ -1770,6 +1797,7 @@ bool stwo_zig_metal_decommit_trace_group(
         [leaves setBytes:&params->leaf_indices length:8u atIndex:7]; [leaves setBytes:&params->leaf_count_at length:8u atIndex:8];
         [leaves setBytes:&params->max_leaf_count length:4u atIndex:9]; [leaves setBytes:&params->output_hashes length:8u atIndex:10];
         [leaves setBytes:params->leaf_seed length:32u atIndex:11];
+        [leaves setBytes:&params->domain_prefix_bytes length:4u atIndex:12];
         [leaves dispatchThreads:MTLSizeMake(params->max_leaf_count,1u,1u)
              threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)params->max_leaf_count,256u),1u,1u)];
         [leaves endEncoding];
@@ -2043,6 +2071,8 @@ bool stwo_zig_metal_parent_seeded(
         [encoder setComputePipelineState:runtime.parentsSparse]; [encoder setBuffer:arena offset:0 atIndex:0];
         uint32_t args[]={child_offset,destination_offset,parent_count}; for(NSUInteger i=0;i<3u;++i)[encoder setBytes:&args[i] length:4u atIndex:i+1u];
         [encoder setBytes:node_seed length:32u atIndex:4];
+        uint32_t prefix_bytes = 64u;
+        [encoder setBytes:&prefix_bytes length:sizeof(prefix_bytes) atIndex:5];
         [encoder dispatchThreads:MTLSizeMake(parent_count,1u,1u) threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)parent_count,256u),1u,1u)]; [encoder endEncoding]; [command commit]; [command waitUntilCompleted];
         if(command.status==MTLCommandBufferStatusError){write_error(error_message,error_message_len,command.error.localizedDescription);return false;}
         if(gpu_milliseconds)*gpu_milliseconds=(command.GPUEndTime-command.GPUStartTime)*1000.0; return true;
@@ -2711,10 +2741,12 @@ bool stwo_zig_metal_fixed_table_batch_prepared(
 void *stwo_zig_metal_merkle_leaf_prepare(
     void *runtime_ptr, const uint32_t *column_offsets, const uint32_t *column_log_sizes,
     uint32_t column_count, uint32_t lifting_log_size, uint32_t destination_offset,
-    const uint32_t *leaf_seed, char *error_message, size_t error_message_len
+    const uint32_t *leaf_seed, uint32_t prefix_bytes,
+    char *error_message, size_t error_message_len
 ) {
     if (runtime_ptr == NULL || column_offsets == NULL || column_log_sizes == NULL || column_count == 0u ||
-        lifting_log_size >= 31u || (destination_offset & 63u) != 0u || leaf_seed == NULL) return NULL;
+        lifting_log_size >= 31u || (destination_offset & 63u) != 0u || leaf_seed == NULL ||
+        (prefix_bytes != 0u && prefix_bytes != 64u)) return NULL;
     @autoreleasepool {
         StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
         for (uint32_t column = 0; column < column_count; ++column) if (column_log_sizes[column] > lifting_log_size) return NULL;
@@ -2723,6 +2755,7 @@ void *stwo_zig_metal_merkle_leaf_prepare(
         plan.columnLogSizes = [runtime.device newBufferWithBytes:column_log_sizes length:column_count * sizeof(uint32_t) options:MTLResourceStorageModeShared];
         plan.leafSeed = [runtime.device newBufferWithBytes:leaf_seed length:8u * sizeof(uint32_t) options:MTLResourceStorageModeShared];
         plan.columnCount = column_count; plan.liftingLogSize = lifting_log_size; plan.destinationOffset = destination_offset;
+        plan.prefixBytes = prefix_bytes;
         if (plan.columnOffsets == nil || plan.columnLogSizes == nil || plan.leafSeed == nil) {
             write_error(error_message, error_message_len, @"Metal Merkle leaf plan allocation failed"); return NULL;
         }
@@ -2752,6 +2785,8 @@ bool stwo_zig_metal_merkle_leaf_prepared(
         [encoder setBuffer:arena offset:(NSUInteger)plan.destinationOffset * sizeof(uint32_t) atIndex:3];
         [encoder setBytes:&column_count length:sizeof(column_count) atIndex:4];
         [encoder setBytes:&lifting_log_size length:sizeof(lifting_log_size) atIndex:5]; [encoder setBuffer:plan.leafSeed offset:0 atIndex:6];
+        uint32_t prefix_bytes = plan.prefixBytes;
+        [encoder setBytes:&prefix_bytes length:sizeof(prefix_bytes) atIndex:7];
         NSUInteger width = MIN((NSUInteger)256u, runtime.leaves.maxTotalThreadsPerThreadgroup);
         [encoder dispatchThreads:MTLSizeMake(leaf_count, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
         [encoder endEncoding]; [command commit]; [command waitUntilCompleted];
@@ -2767,11 +2802,13 @@ void *stwo_zig_metal_resident_merkle_prepare(
     void *runtime_ptr, const uint32_t *column_offsets, const uint32_t *column_log_sizes,
     uint32_t column_count, uint32_t lifting_log_size, const uint32_t *layer_offsets,
     uint32_t layer_count, const uint32_t *leaf_seed, const uint32_t *node_seed,
+    uint32_t prefix_bytes,
     char *error_message, size_t error_message_len
 ) {
     if (runtime_ptr == NULL || column_offsets == NULL || column_log_sizes == NULL || column_count == 0u ||
         lifting_log_size >= 31u || layer_offsets == NULL || layer_count < 2u ||
-        layer_count > lifting_log_size + 1u || leaf_seed == NULL || node_seed == NULL) return NULL;
+        layer_count > lifting_log_size + 1u || leaf_seed == NULL || node_seed == NULL ||
+        (prefix_bytes != 0u && prefix_bytes != 64u)) return NULL;
     @autoreleasepool {
         StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
         for (uint32_t column = 0; column < column_count; ++column) {
@@ -2786,6 +2823,7 @@ void *stwo_zig_metal_resident_merkle_prepare(
         plan.leafSeed = [runtime.device newBufferWithBytes:leaf_seed length:8u * sizeof(uint32_t) options:MTLResourceStorageModeShared];
         plan.nodeSeed = [runtime.device newBufferWithBytes:node_seed length:8u * sizeof(uint32_t) options:MTLResourceStorageModeShared];
         plan.columnCount = column_count; plan.liftingLogSize = lifting_log_size; plan.layerCount = layer_count;
+        plan.prefixBytes = prefix_bytes;
         if (plan.columnOffsets == nil || plan.columnLogSizes == nil || plan.layerOffsets == nil ||
             plan.leafSeed == nil || plan.nodeSeed == nil) {
             write_error(error_message, error_message_len, @"Resident Merkle plan allocation failed"); return NULL;
@@ -2813,6 +2851,8 @@ static bool encode_resident_merkle_prepared(
         [leaves setBuffer:arena offset:(NSUInteger)layers[0] * sizeof(uint32_t) atIndex:3];
         [leaves setBytes:&column_count length:sizeof(column_count) atIndex:4];
         [leaves setBytes:&lifting_log_size length:sizeof(lifting_log_size) atIndex:5]; [leaves setBuffer:plan.leafSeed offset:0 atIndex:6];
+        uint32_t prefix_bytes = plan.prefixBytes;
+        [leaves setBytes:&prefix_bytes length:sizeof(prefix_bytes) atIndex:7];
         NSUInteger leaf_width = MIN((NSUInteger)256u, runtime.leaves.maxTotalThreadsPerThreadgroup);
         [leaves dispatchThreads:MTLSizeMake(leaf_count, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(leaf_width, 1u, 1u)];
         [leaves endEncoding];
@@ -2824,6 +2864,7 @@ static bool encode_resident_merkle_prepared(
             [parents setComputePipelineState:runtime.parentsSparse]; [parents setBuffer:arena offset:0 atIndex:0];
             [parents setBytes:&child length:sizeof(child) atIndex:1]; [parents setBytes:&destination length:sizeof(destination) atIndex:2];
             [parents setBytes:&parent_count length:sizeof(parent_count) atIndex:3]; [parents setBuffer:plan.nodeSeed offset:0 atIndex:4];
+            [parents setBytes:&prefix_bytes length:sizeof(prefix_bytes) atIndex:5];
             NSUInteger width = MIN((NSUInteger)256u, runtime.parentsSparse.maxTotalThreadsPerThreadgroup);
             [parents dispatchThreads:MTLSizeMake(parent_count, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
             [parents endEncoding];
@@ -3135,10 +3176,12 @@ static uint32_t merkle_parent_tail_start(
 void *stwo_zig_metal_merkle_parent_chain_prepare(
     void *runtime_ptr, const uint32_t *child_offsets, const uint32_t *destination_offsets,
     const uint32_t *parent_counts, uint32_t level_count, const uint32_t *node_seed,
+    uint32_t prefix_bytes,
     char *error_message, size_t error_message_len
 ) {
     if (runtime_ptr == NULL || child_offsets == NULL || destination_offsets == NULL ||
-        parent_counts == NULL || level_count == 0u || node_seed == NULL) return NULL;
+        parent_counts == NULL || level_count == 0u || node_seed == NULL ||
+        (prefix_bytes != 0u && prefix_bytes != 64u)) return NULL;
     @autoreleasepool {
         StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
         for (uint32_t level = 0; level < level_count; ++level) if (parent_counts[level] == 0u) return NULL;
@@ -3148,6 +3191,7 @@ void *stwo_zig_metal_merkle_parent_chain_prepare(
         plan.parentCounts = [NSData dataWithBytes:parent_counts length:(NSUInteger)level_count * sizeof(uint32_t)];
         plan.nodeSeed = [runtime.device newBufferWithBytes:node_seed length:8u * sizeof(uint32_t) options:MTLResourceStorageModeShared];
         plan.levelCount = level_count;
+        plan.prefixBytes = prefix_bytes;
         if (plan.nodeSeed == nil) { write_error(error_message, error_message_len, @"Metal Merkle parent-chain allocation failed"); return NULL; }
         NSUInteger static_bytes = runtime.parentTailSparse.staticThreadgroupMemoryLength;
         NSUInteger available_bytes = runtime.device.maxThreadgroupMemoryLength > static_bytes ?
@@ -3182,6 +3226,7 @@ static bool encode_merkle_parent_chain_prepared(
         if (child_end > arena_words || destination_end > arena_words) return false;
     }
     NSUInteger width = MIN((NSUInteger)256u, runtime.parentsSparse.maxTotalThreadsPerThreadgroup);
+    uint32_t prefix_bytes = plan.prefixBytes;
     for (uint32_t level = 0; level < plan.tailStart; ++level) {
         uint32_t child = children[level], destination = destinations[level], count = counts[level];
         id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
@@ -3189,6 +3234,7 @@ static bool encode_merkle_parent_chain_prepared(
         [encoder setComputePipelineState:runtime.parentsSparse]; [encoder setBuffer:arena offset:0 atIndex:0];
         [encoder setBytes:&child length:sizeof(child) atIndex:1]; [encoder setBytes:&destination length:sizeof(destination) atIndex:2];
         [encoder setBytes:&count length:sizeof(count) atIndex:3]; [encoder setBuffer:plan.nodeSeed offset:0 atIndex:4];
+        [encoder setBytes:&prefix_bytes length:sizeof(prefix_bytes) atIndex:5];
         [encoder dispatchThreads:MTLSizeMake(count, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
         [encoder endEncoding];
         *compute_encoders += 1u; *dispatches += 1u;
@@ -3204,6 +3250,7 @@ static bool encode_merkle_parent_chain_prepared(
         [encoder setBytes:counts + plan.tailStart length:(NSUInteger)tail_levels * sizeof(uint32_t) atIndex:3];
         [encoder setBytes:&tail_levels length:sizeof(tail_levels) atIndex:4];
         [encoder setBuffer:plan.nodeSeed offset:0 atIndex:5];
+        [encoder setBytes:&prefix_bytes length:sizeof(prefix_bytes) atIndex:6];
         [encoder setThreadgroupMemoryLength:plan.tailScratchBytes atIndex:0];
         [encoder dispatchThreadgroups:MTLSizeMake(1u, 1u, 1u)
                  threadsPerThreadgroup:MTLSizeMake(plan.tailThreadgroupWidth, 1u, 1u)];
@@ -5209,13 +5256,15 @@ bool stwo_zig_metal_compute_quotients(
     void *resident_output_ptr,
     const uint32_t *leaf_seed,
     const uint32_t *node_seed,
+    uint32_t domain_prefix_bytes,
     void **tree_out,
     double *gpu_milliseconds,
     char *error_message, size_t error_message_len
 ) {
     if (runtime_ptr == NULL || views == NULL || sample_components == NULL ||
         linear_terms == NULL || domain_x == NULL || domain_y == NULL ||
-        output == NULL || row_count == 0u || tree_out == NULL)
+        output == NULL || row_count == 0u || tree_out == NULL ||
+        (domain_prefix_bytes != 0u && domain_prefix_bytes != 64u))
         return false;
     @autoreleasepool {
         *tree_out = NULL;
@@ -5344,7 +5393,7 @@ bool stwo_zig_metal_compute_quotients(
             }
             void *parent_plan_ptr = stwo_zig_metal_merkle_parent_chain_prepare(
                 runtime_ptr, child_offsets, destination_offsets, parent_counts,
-                lifting_log_size, node_seed, error_message, error_message_len);
+                lifting_log_size, node_seed, domain_prefix_bytes, error_message, error_message_len);
             if (parent_plan_ptr != NULL)
                 parent_plan = (__bridge_transfer StwoZigMerkleParentChain *)parent_plan_ptr;
             if (column_offsets == nil || column_logs == nil || leaf_seed_buffer == nil ||
@@ -5475,6 +5524,7 @@ bool stwo_zig_metal_compute_quotients(
             [leaves setBytes:&column_count length:sizeof(column_count) atIndex:4];
             [leaves setBytes:&lifting_log_size length:sizeof(lifting_log_size) atIndex:5];
             [leaves setBuffer:leaf_seed_buffer offset:0 atIndex:6];
+            [leaves setBytes:&domain_prefix_bytes length:sizeof(domain_prefix_bytes) atIndex:7];
             NSUInteger leaf_width = MIN(runtime.leaves.maxTotalThreadsPerThreadgroup,
                                         runtime.leaves.threadExecutionWidth * 8u);
             [leaves dispatchThreads:MTLSizeMake(row_count, 1u, 1u)
@@ -5554,12 +5604,14 @@ void *stwo_zig_metal_merkle_commit(
     uint32_t lifting_log_size,
     const uint32_t *leaf_seed,
     const uint32_t *node_seed,
+    uint32_t domain_prefix_bytes,
     char *error_message,
     size_t error_message_len
 ) {
     @autoreleasepool {
         if (runtime_ptr == NULL || columns == NULL || column_lengths == NULL || column_count == 0 ||
-            lifting_log_size >= 31u) {
+            lifting_log_size >= 31u ||
+            (domain_prefix_bytes != 0u && domain_prefix_bytes != 64u)) {
             write_error(error_message, error_message_len, @"Invalid Metal Merkle arguments");
             return NULL;
         }
@@ -5669,6 +5721,7 @@ void *stwo_zig_metal_merkle_commit(
         [leaf_encoder setBytes:&column_count length:sizeof(column_count) atIndex:4];
         [leaf_encoder setBytes:&lifting_log_size length:sizeof(lifting_log_size) atIndex:5];
         [leaf_encoder setBuffer:leaf_seed_buffer offset:0 atIndex:6];
+        [leaf_encoder setBytes:&domain_prefix_bytes length:sizeof(domain_prefix_bytes) atIndex:7];
         NSUInteger leaf_width = MIN(runtime.leaves.maxTotalThreadsPerThreadgroup,
                                     runtime.leaves.threadExecutionWidth * 8u);
         [leaf_encoder dispatchThreads:MTLSizeMake(leaf_count, 1, 1)
@@ -5683,6 +5736,7 @@ void *stwo_zig_metal_merkle_commit(
             [encoder setBuffer:layers[level] offset:0 atIndex:1];
             [encoder setBytes:&parents length:sizeof(parents) atIndex:2];
             [encoder setBuffer:node_seed_buffer offset:0 atIndex:3];
+            [encoder setBytes:&domain_prefix_bytes length:sizeof(domain_prefix_bytes) atIndex:4];
             NSUInteger width = MIN(runtime.parents.maxTotalThreadsPerThreadgroup,
                                    runtime.parents.threadExecutionWidth * 8u);
             [encoder dispatchThreads:MTLSizeMake(parents, 1, 1)

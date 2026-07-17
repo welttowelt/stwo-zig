@@ -25,8 +25,8 @@ const QM31 = qm31.QM31;
 const CirclePointQM31 = @import("../core/circle.zig").CirclePointQM31;
 
 pub const State = trace_input.State;
-pub const Hasher = blake2_merkle.Blake2sMerkleHasher;
-pub const MerkleChannel = blake2_merkle.Blake2sMerkleChannel;
+pub const Hasher = blake2_merkle.Blake2sPrefixedMerkleHasher;
+pub const MerkleChannel = blake2_merkle.Blake2sPrefixedMerkleChannel;
 pub const Channel = channel_blake2s.Blake2sChannel;
 pub const Proof = core_proof.StarkProof(Hasher);
 pub const ExtendedProof = core_proof.ExtendedStarkProof(Hasher);

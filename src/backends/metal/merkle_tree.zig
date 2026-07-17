@@ -117,6 +117,7 @@ pub fn MetalMerkleTree(comptime H: type) type {
                 max_log_size,
                 H.leafSeed(),
                 H.nodeSeed(),
+                H.domainPrefixBytes(),
             );
 
             return fromResident(tree);

@@ -189,6 +189,7 @@ pub const MetalCommitBackend = struct {
             out,
             H.leafSeed(),
             H.nodeSeed(),
+            H.domainPrefixBytes(),
         );
         telemetry.record(.metal_quotient_dispatch);
         telemetry.record(.resident_merkle_commit);

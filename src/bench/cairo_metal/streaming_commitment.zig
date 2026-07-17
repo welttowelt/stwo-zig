@@ -13,7 +13,7 @@ const twiddles = stwo.prover.poly.twiddles;
 const merkle_prover = stwo.prover.vcs_lifted.prover;
 
 const M31 = m31.M31;
-const Hasher = blake2_merkle.Blake2sMerkleHasher;
+const Hasher = blake2_merkle.Blake2sPlainMerkleHasher;
 const small_base_log: u32 = 4;
 const small_eval_log: u32 = 5;
 const large_base_log: u32 = 6;

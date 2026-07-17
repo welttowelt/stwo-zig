@@ -2986,8 +2986,8 @@ fn runOne(
                 schedule,
                 plan,
                 0,
-                blake2_merkle.Blake2sMerkleHasher.leafSeed(),
-                blake2_merkle.Blake2sMerkleHasher.nodeSeed(),
+                blake2_merkle.Blake2sPlainMerkleHasher.leafSeed(),
+                blake2_merkle.Blake2sPlainMerkleHasher.nodeSeed(),
             );
             commitment_gpu_ms += committed.gpu_ms;
             commitment_lde_gpu_ms += committed.lde_gpu_ms;
@@ -3150,8 +3150,8 @@ fn runOne(
                 schedule,
                 plan,
                 0,
-                blake2_merkle.Blake2sMerkleHasher.leafSeed(),
-                blake2_merkle.Blake2sMerkleHasher.nodeSeed(),
+                blake2_merkle.Blake2sPlainMerkleHasher.leafSeed(),
+                blake2_merkle.Blake2sPlainMerkleHasher.nodeSeed(),
             );
             commitment_gpu_ms += committed.gpu_ms;
             commitment_lde_gpu_ms += committed.lde_gpu_ms;
@@ -3821,8 +3821,8 @@ fn runOne(
                 schedule,
                 plan,
                 1,
-                blake2_merkle.Blake2sMerkleHasher.leafSeed(),
-                blake2_merkle.Blake2sMerkleHasher.nodeSeed(),
+                blake2_merkle.Blake2sPlainMerkleHasher.leafSeed(),
+                blake2_merkle.Blake2sPlainMerkleHasher.nodeSeed(),
             );
             commitment_gpu_ms += committed.gpu_ms;
             commitment_lde_gpu_ms += committed.lde_gpu_ms;
@@ -4136,8 +4136,8 @@ fn runOne(
                 schedule,
                 plan,
                 2,
-                blake2_merkle.Blake2sMerkleHasher.leafSeed(),
-                blake2_merkle.Blake2sMerkleHasher.nodeSeed(),
+                blake2_merkle.Blake2sPlainMerkleHasher.leafSeed(),
+                blake2_merkle.Blake2sPlainMerkleHasher.nodeSeed(),
             );
             commitment_gpu_ms += committed.gpu_ms;
             commitment_lde_gpu_ms += committed.lde_gpu_ms;
@@ -4220,8 +4220,8 @@ fn runOne(
                     schedule,
                     plan,
                     3,
-                    blake2_merkle.Blake2sMerkleHasher.leafSeed(),
-                    blake2_merkle.Blake2sMerkleHasher.nodeSeed(),
+                    blake2_merkle.Blake2sPlainMerkleHasher.leafSeed(),
+                    blake2_merkle.Blake2sPlainMerkleHasher.nodeSeed(),
                 );
                 commitment_gpu_ms += committed.gpu_ms;
                 commitment_lde_gpu_ms += committed.lde_gpu_ms;
@@ -4410,8 +4410,8 @@ fn runOne(
             var fri = try bindings.prepareFri(
                 metal,
                 resident_arena,
-                blake2_merkle.Blake2sMerkleHasher.leafSeed(),
-                blake2_merkle.Blake2sMerkleHasher.nodeSeed(),
+                blake2_merkle.Blake2sPlainMerkleHasher.leafSeed(),
+                blake2_merkle.Blake2sPlainMerkleHasher.nodeSeed(),
             );
             defer fri.deinit();
             RunnerPhaseTiming.addInterval(
@@ -4488,8 +4488,8 @@ fn runOne(
                     schedule,
                     plan,
                     &decommit_queries,
-                    blake2_merkle.Blake2sMerkleHasher.leafSeed(),
-                    blake2_merkle.Blake2sMerkleHasher.nodeSeed(),
+                    blake2_merkle.Blake2sPlainMerkleHasher.leafSeed(),
+                    blake2_merkle.Blake2sPlainMerkleHasher.nodeSeed(),
                 );
                 decommit_gpu_ms = decommit_queries.accumulated_gpu_ms;
                 transcript_gpu_ms = transcript.accumulated_gpu_ms;

@@ -4,6 +4,10 @@ const shader_manifest = @import("shaders/manifest.zig");
 
 const kernel_source = shader_manifest.amalgamated_source;
 
+comptime {
+    if (shader_manifest.core_shader_abi != 2) @compileError("Metal core shader ABI drift");
+}
+
 pub const CommandEpoch = command_epoch.CommandEpoch;
 pub const CommandEpochStats = command_epoch.Stats;
 
@@ -195,6 +199,7 @@ extern fn stwo_zig_metal_merkle_parent_chain_prepare(
     parent_counts: [*]const u32,
     level_count: u32,
     node_seed: *const [8]u32,
+    prefix_bytes: u32,
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
@@ -206,6 +211,7 @@ extern fn stwo_zig_metal_merkle_leaf_prepare(
     lifting_log_size: u32,
     destination_offset: u32,
     leaf_seed: *const [8]u32,
+    domain_prefix_bytes: u32,
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
@@ -228,6 +234,7 @@ extern fn stwo_zig_metal_resident_merkle_prepare(
     layer_count: u32,
     leaf_seed: *const [8]u32,
     node_seed: *const [8]u32,
+    domain_prefix_bytes: u32,
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
@@ -604,6 +611,7 @@ extern fn stwo_zig_metal_fri_tree_prepare(
     layer_count: u32,
     leaf_seed: *const [8]u32,
     node_seed: *const [8]u32,
+    domain_prefix_bytes: u32,
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
@@ -817,8 +825,16 @@ pub const DecommitTraceGroupParams = extern struct {
     stride: u32,
     total_columns: u32,
     max_leaf_count: u32,
+    domain_prefix_bytes: u32,
     leaf_seed: [8]u32,
 };
+
+comptime {
+    if (@sizeOf(DecommitTraceGroupParams) != 128 or
+        @offsetOf(DecommitTraceGroupParams, "domain_prefix_bytes") != 92 or
+        @offsetOf(DecommitTraceGroupParams, "leaf_seed") != 96)
+        @compileError("Metal trace decommitment ABI drift");
+}
 
 extern fn stwo_zig_metal_decommit_fri_round(
     runtime: *anyopaque,
@@ -839,6 +855,7 @@ extern fn stwo_zig_metal_decommit_sparse_parent(
     parent_hashes: u64,
     parent_count_at: u64,
     node_seed: *const [8]u32,
+    domain_prefix_bytes: u32,
     gpu_milliseconds: *f64,
     error_message: [*]u8,
     error_message_len: usize,
@@ -855,6 +872,7 @@ extern fn stwo_zig_metal_decommit_sparse_leaves(
     max_leaf_count: u32,
     output_hashes: u64,
     leaf_seed: *const [8]u32,
+    domain_prefix_bytes: u32,
     gpu_milliseconds: *f64,
     error_message: [*]u8,
     error_message_len: usize,
@@ -873,6 +891,7 @@ extern fn stwo_zig_metal_decommit_sparse_leaf_group(
     max_leaf_count: u32,
     output_hashes: u64,
     leaf_seed: *const [8]u32,
+    domain_prefix_bytes: u32,
     gpu_milliseconds: *f64,
     error_message: [*]u8,
     error_message_len: usize,
@@ -1079,6 +1098,7 @@ extern fn stwo_zig_metal_merkle_commit(
     lifting_log_size: u32,
     leaf_seed: *const [8]u32,
     node_seed: *const [8]u32,
+    domain_prefix_bytes: u32,
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
@@ -1137,6 +1157,7 @@ extern fn stwo_zig_metal_compute_quotients(
     resident_output: ?*anyopaque,
     leaf_seed: ?*const [8]u32,
     node_seed: ?*const [8]u32,
+    domain_prefix_bytes: u32,
     tree: *?*anyopaque,
     gpu_milliseconds: *f64,
     error_message: [*]u8,
@@ -1204,6 +1225,21 @@ pub const MetalError = error{
     CommandEpochFailed,
 };
 
+const plain_domain_prefix_bytes: u32 = 0;
+const prefixed_domain_prefix_bytes: u32 = 64;
+
+fn validDomainPrefixBytes(value: u32) bool {
+    return value == plain_domain_prefix_bytes or value == prefixed_domain_prefix_bytes;
+}
+
+test "Metal lifted Merkle protocol mode accepts only supported encodings" {
+    try std.testing.expect(validDomainPrefixBytes(plain_domain_prefix_bytes));
+    try std.testing.expect(validDomainPrefixBytes(prefixed_domain_prefix_bytes));
+    try std.testing.expect(!validDomainPrefixBytes(1));
+    try std.testing.expect(!validDomainPrefixBytes(63));
+    try std.testing.expect(!validDomainPrefixBytes(65));
+}
+
 pub const PipelineCacheStats = extern struct {
     library_cache_hits: u64,
     library_cache_misses: u64,
@@ -1242,6 +1278,7 @@ const QuotientCommitConfig = struct {
     resident_output: *anyopaque,
     leaf_seed: [8]u32,
     node_seed: [8]u32,
+    domain_prefix_bytes: u32,
 };
 
 const QuotientComputeResult = struct {
@@ -1754,10 +1791,12 @@ pub const Runtime = struct {
         destination_offsets: []const u32,
         parent_counts: []const u32,
         node_seed: [8]u32,
+        domain_prefix_bytes: u32,
     ) MetalError!MerkleParentChainPlan {
         if (child_offsets.len == 0 or child_offsets.len > std.math.maxInt(u32) or
             child_offsets.len != destination_offsets.len or child_offsets.len != parent_counts.len)
             return MetalError.CommitmentFailed;
+        if (!validDomainPrefixBytes(domain_prefix_bytes)) return MetalError.CommitmentFailed;
         var required_words: u64 = 0;
         for (child_offsets, destination_offsets, parent_counts) |child, destination, count| {
             if (count == 0) return MetalError.CommitmentFailed;
@@ -1781,6 +1820,7 @@ pub const Runtime = struct {
             parent_counts.ptr,
             @intCast(child_offsets.len),
             &node_seed,
+            domain_prefix_bytes,
             &message,
             message.len,
         ) orelse {
@@ -1797,10 +1837,12 @@ pub const Runtime = struct {
         lifting_log_size: u32,
         destination_offset: u32,
         leaf_seed: [8]u32,
+        domain_prefix_bytes: u32,
     ) MetalError!MerkleLeafPlan {
         if (column_offsets.len == 0 or column_offsets.len != column_log_sizes.len or lifting_log_size >= 31 or
             destination_offset % 64 != 0)
             return MetalError.CommitmentFailed;
+        if (!validDomainPrefixBytes(domain_prefix_bytes)) return MetalError.CommitmentFailed;
         for (column_log_sizes, 0..) |log_size, index| {
             if (log_size > lifting_log_size or (index != 0 and column_log_sizes[index - 1] > log_size))
                 return MetalError.CommitmentFailed;
@@ -1814,6 +1856,7 @@ pub const Runtime = struct {
             lifting_log_size,
             destination_offset,
             &leaf_seed,
+            domain_prefix_bytes,
             &message,
             message.len,
         ) orelse {
@@ -1841,10 +1884,12 @@ pub const Runtime = struct {
         layer_offsets: []const u32,
         leaf_seed: [8]u32,
         node_seed: [8]u32,
+        domain_prefix_bytes: u32,
     ) MetalError!ResidentMerklePlan {
         if (column_offsets.len == 0 or column_offsets.len != column_log_sizes.len or lifting_log_size >= 31 or
             layer_offsets.len < 2 or layer_offsets.len > lifting_log_size + 1)
             return MetalError.CommitmentFailed;
+        if (!validDomainPrefixBytes(domain_prefix_bytes)) return MetalError.CommitmentFailed;
         for (column_log_sizes, 0..) |log_size, index| {
             if (log_size > lifting_log_size or (index != 0 and column_log_sizes[index - 1] > log_size))
                 return MetalError.CommitmentFailed;
@@ -1861,6 +1906,7 @@ pub const Runtime = struct {
             @intCast(layer_offsets.len),
             &leaf_seed,
             &node_seed,
+            domain_prefix_bytes,
             &message,
             message.len,
         ) orelse {
@@ -2581,8 +2627,10 @@ pub const Runtime = struct {
         layer_offsets: []const u32,
         leaf_seed: [8]u32,
         node_seed: [8]u32,
+        domain_prefix_bytes: u32,
     ) MetalError!FriTreePlan {
         if (layer_offsets.len < 2) return MetalError.CommitmentFailed;
+        if (!validDomainPrefixBytes(domain_prefix_bytes)) return MetalError.CommitmentFailed;
         var message: [1024]u8 = [_]u8{0} ** 1024;
         const handle = stwo_zig_metal_fri_tree_prepare(
             self.handle,
@@ -2594,6 +2642,7 @@ pub const Runtime = struct {
             @intCast(layer_offsets.len),
             &leaf_seed,
             &node_seed,
+            domain_prefix_bytes,
             &message,
             message.len,
         ) orelse {
@@ -2832,7 +2881,9 @@ pub const Runtime = struct {
         parent_hashes: u64,
         parent_count_at: u64,
         node_seed: [8]u32,
+        domain_prefix_bytes: u32,
     ) MetalError!f64 {
+        if (!validDomainPrefixBytes(domain_prefix_bytes)) return MetalError.CommitmentFailed;
         var gpu_ms: f64 = 0;
         var message: [1024]u8 = [_]u8{0} ** 1024;
         if (!stwo_zig_metal_decommit_sparse_parent(
@@ -2846,6 +2897,7 @@ pub const Runtime = struct {
             parent_hashes,
             parent_count_at,
             &node_seed,
+            domain_prefix_bytes,
             &gpu_ms,
             &message,
             message.len,
@@ -2868,7 +2920,9 @@ pub const Runtime = struct {
         max_leaf_count: u32,
         output_hashes: u64,
         leaf_seed: [8]u32,
+        domain_prefix_bytes: u32,
     ) MetalError!f64 {
+        if (!validDomainPrefixBytes(domain_prefix_bytes)) return MetalError.CommitmentFailed;
         var gpu_ms: f64 = 0;
         var message: [1024]u8 = [_]u8{0} ** 1024;
         if (!stwo_zig_metal_decommit_sparse_leaves(
@@ -2883,6 +2937,7 @@ pub const Runtime = struct {
             max_leaf_count,
             output_hashes,
             &leaf_seed,
+            domain_prefix_bytes,
             &gpu_ms,
             &message,
             message.len,
@@ -2907,7 +2962,9 @@ pub const Runtime = struct {
         max_leaf_count: u32,
         output_hashes: u64,
         leaf_seed: [8]u32,
+        domain_prefix_bytes: u32,
     ) MetalError!f64 {
+        if (!validDomainPrefixBytes(domain_prefix_bytes)) return MetalError.CommitmentFailed;
         var gpu_ms: f64 = 0;
         var message: [1024]u8 = [_]u8{0} ** 1024;
         if (!stwo_zig_metal_decommit_sparse_leaf_group(
@@ -2924,6 +2981,7 @@ pub const Runtime = struct {
             max_leaf_count,
             output_hashes,
             &leaf_seed,
+            domain_prefix_bytes,
             &gpu_ms,
             &message,
             message.len,
@@ -2939,6 +2997,7 @@ pub const Runtime = struct {
         arena: ResidentBuffer,
         params: DecommitTraceGroupParams,
     ) MetalError!f64 {
+        if (!validDomainPrefixBytes(params.domain_prefix_bytes)) return MetalError.CommitmentFailed;
         var gpu_ms: f64 = 0;
         var message: [1024]u8 = [_]u8{0} ** 1024;
         if (!stwo_zig_metal_decommit_trace_group(
@@ -3338,8 +3397,10 @@ pub const Runtime = struct {
         lifting_log_size: u32,
         leaf_seed: [8]u32,
         node_seed: [8]u32,
+        domain_prefix_bytes: u32,
     ) (MetalError || std.mem.Allocator.Error)!Tree {
         if (columns.len == 0 or columns.len != log_sizes.len) return MetalError.InvalidColumns;
+        if (!validDomainPrefixBytes(domain_prefix_bytes)) return MetalError.InvalidColumns;
 
         const order = try allocator.alloc(usize, columns.len);
         defer allocator.free(order);
@@ -3382,6 +3443,7 @@ pub const Runtime = struct {
             lifting_log_size,
             &leaf_seed,
             &node_seed,
+            domain_prefix_bytes,
             &message,
             message.len,
         ) orelse {
@@ -3413,7 +3475,9 @@ pub const Runtime = struct {
         out: anytype,
         leaf_seed: [8]u32,
         node_seed: [8]u32,
+        domain_prefix_bytes: u32,
     ) (MetalError || std.mem.Allocator.Error)!QuotientCommitResult {
+        if (!validDomainPrefixBytes(domain_prefix_bytes)) return MetalError.QuotientFailed;
         const storage = out.resident_storage orelse return MetalError.QuotientFailed;
         const result = try self.computeQuotientsConfigured(
             allocator,
@@ -3423,6 +3487,7 @@ pub const Runtime = struct {
                 .resident_output = storage.handle,
                 .leaf_seed = leaf_seed,
                 .node_seed = node_seed,
+                .domain_prefix_bytes = domain_prefix_bytes,
             },
         );
         return .{
@@ -3562,6 +3627,7 @@ pub const Runtime = struct {
         const resident_output = if (commitment) |config| config.resident_output else null;
         const leaf_seed = if (commitment) |*config| &config.leaf_seed else null;
         const node_seed = if (commitment) |*config| &config.node_seed else null;
+        const domain_prefix_bytes = if (commitment) |config| config.domain_prefix_bytes else 0;
         if (!stwo_zig_metal_compute_quotients(
             self.handle,
             flat.ptr,
@@ -3582,6 +3648,7 @@ pub const Runtime = struct {
             resident_output,
             leaf_seed,
             node_seed,
+            domain_prefix_bytes,
             &tree_handle,
             &gpu_ms,
             &message,

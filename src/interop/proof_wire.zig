@@ -11,7 +11,8 @@ const blake2_merkle = @import("../core/vcs_lifted/blake2_merkle.zig");
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
 
-pub const Hasher = blake2_merkle.Blake2sMerkleHasher;
+/// The JSON/binary exchange format targets pinned raw Stwo `a8fcf4bd`.
+pub const Hasher = blake2_merkle.Blake2sPrefixedMerkleHasher;
 pub const Proof = proof_mod.StarkProof(Hasher);
 const MerkleDecommitment = vcs_verifier.MerkleDecommitmentLifted(Hasher);
 

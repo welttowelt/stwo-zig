@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub const core_shader_abi: u32 = 1;
+pub const core_shader_abi: u32 = 2;
 
 pub const CompileProfile = struct {
     math_mode: []const u8,
@@ -181,6 +181,15 @@ fn countKernelDeclarations(source: []const u8, name: []const u8) usize {
     return std.mem.count(u8, source, pattern);
 }
 
+fn kernelDeclaration(source: []const u8, name: []const u8) ![]const u8 {
+    var pattern_buffer: [160]u8 = undefined;
+    const pattern = try std.fmt.bufPrint(&pattern_buffer, "kernel void {s}(", .{name});
+    const start = std.mem.indexOf(u8, source, pattern) orelse return error.MissingMetalKernelDeclaration;
+    const end = std.mem.indexOfPos(u8, source, start, ") {") orelse
+        return error.MalformedMetalKernelDeclaration;
+    return source[start .. end + 3];
+}
+
 test "metal shader manifest exactly covers source and runtime exports" {
     const runtime_source = @embedFile("../runtime.m");
     try std.testing.expectEqual(@as(usize, 90), exports.len);
@@ -207,6 +216,21 @@ test "metal shader manifest exactly covers source and runtime exports" {
         var lookup_buffer: [160]u8 = undefined;
         const lookup = try std.fmt.bufPrint(&lookup_buffer, "@\"{s}\"", .{entry.name});
         try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, runtime_source, lookup));
+    }
+}
+
+test "commitment shader bindings match core ABI version 2" {
+    try std.testing.expectEqual(@as(u32, 2), core_shader_abi);
+    const bindings = [_]struct { kernel: []const u8, argument: []const u8 }{
+        .{ .kernel = "stwo_zig_blake2s_leaves", .argument = "prefix_bytes [[buffer(7)]]" },
+        .{ .kernel = "stwo_zig_blake2s_parents", .argument = "prefix_bytes [[buffer(4)]]" },
+        .{ .kernel = "stwo_zig_blake2s_parents_sparse", .argument = "prefix_bytes [[buffer(5)]]" },
+        .{ .kernel = "stwo_zig_blake2s_parent_tail_sparse", .argument = "prefix_bytes [[buffer(6)]]" },
+        .{ .kernel = "stwo_zig_fri_packed_leaves_resident", .argument = "prefix_bytes [[buffer(7)]]" },
+    };
+    for (bindings) |binding| {
+        const declaration = try kernelDeclaration(amalgamated_source, binding.kernel);
+        try std.testing.expect(std.mem.indexOf(u8, declaration, binding.argument) != null);
     }
 }
 

@@ -4,11 +4,11 @@ const blake2_merkle = @import("../../core/vcs_lifted/blake2_merkle.zig");
 const prover_engine = @import("../../prover/engine.zig");
 const MetalCommitBackend = @import("commit_backend.zig").MetalCommitBackend;
 
-const Hasher = blake2_merkle.Blake2sMerkleHasher;
-const MerkleChannel = blake2_merkle.Blake2sMerkleChannel;
+const Hasher = blake2_merkle.Blake2sPrefixedMerkleHasher;
+const MerkleChannel = blake2_merkle.Blake2sPrefixedMerkleChannel;
 const Channel = channel_blake2s.Blake2sChannel;
 
-/// Complete prover composition with Metal commitments and the shared protocol.
+/// Raw-Stwo prover composition pinned to the domain-prefixed lifted protocol.
 pub const MetalProverEngine = prover_engine.ProverEngine(
     MetalCommitBackend,
     Hasher,
@@ -16,8 +16,17 @@ pub const MetalProverEngine = prover_engine.ProverEngine(
     Channel,
 );
 
+/// Explicit plain-hash composition for newer protocols such as Stwo-Cairo.
+pub const PlainMetalProverEngine = prover_engine.ProverEngine(
+    MetalCommitBackend,
+    blake2_merkle.Blake2sPlainMerkleHasher,
+    blake2_merkle.Blake2sPlainMerkleChannel,
+    Channel,
+);
+
 comptime {
     prover_engine.assertProverEngine(MetalProverEngine);
+    prover_engine.assertProverEngine(PlainMetalProverEngine);
 }
 
 test "Metal prover engine satisfies the shared transaction contract" {

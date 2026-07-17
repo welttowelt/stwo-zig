@@ -25,6 +25,9 @@ const QM31 = @import("../../core/fields/qm31.zig").QM31;
 const circle_poly_mod = @import("../../prover/poly/circle/poly.zig");
 const circle_eval_mod = @import("../../prover/poly/circle/evaluation.zig");
 const canonic_circle_mod = @import("../../core/poly/circle/canonic.zig");
+const CairoMerkleHasher = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sPlainMerkleHasher;
+
+const cairo_domain_prefix_bytes = CairoMerkleHasher.domainPrefixBytes();
 
 pub const Error = error{
     InvalidSchedule,
@@ -6114,6 +6117,7 @@ fn executeStreamingCommitmentWithMode(
             destination_offsets.items,
             parent_counts.items,
             node_seed,
+            cairo_domain_prefix_bytes,
         );
         defer parent_chain.deinit();
         const elapsed_parent_gpu_ms = if (command_epoch) |*epoch| epoch_time: {
@@ -6124,7 +6128,13 @@ fn executeStreamingCommitmentWithMode(
         parent_gpu_ms += elapsed_parent_gpu_ms;
     } else {
         for (child_offsets.items, destination_offsets.items, parent_counts.items, retained_copy_targets.items) |child, destination, count, copy_target| {
-            var parent_level = try metal.prepareMerkleParentChain(&.{child}, &.{destination}, &.{count}, node_seed);
+            var parent_level = try metal.prepareMerkleParentChain(
+                &.{child},
+                &.{destination},
+                &.{count},
+                node_seed,
+                cairo_domain_prefix_bytes,
+            );
             defer parent_level.deinit();
             const elapsed_parent_gpu_ms = if (command_epoch) |*epoch| epoch_time: {
                 try epoch.encodeMerkleParentChain(parent_level);

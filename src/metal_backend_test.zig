@@ -33,6 +33,7 @@ const cairo_quotient_reference = @import("integrations/cairo_metal/quotient_refe
 
 const M31 = m31.M31;
 const Hasher = blake2_merkle.Blake2sMerkleHasher;
+const PlainHasher = blake2_merkle.Blake2sPlainMerkleHasher;
 const QM31 = qm31.QM31;
 
 fn testResidentBinding(logical_id: u32, offset_words: u32, word_count: u32) arena_plan.Binding {
@@ -1552,6 +1553,7 @@ test "metal: packed resident FRI tree matches lifted Blake2 root" {
         &layers,
         Hasher.leafSeed(),
         Hasher.nodeSeed(),
+        Hasher.domainPrefixBytes(),
     );
     defer prepared.deinit();
     try std.testing.expect(try runtime.friTreePrepared(arena, prepared) > 0);
@@ -1808,7 +1810,8 @@ test "metal: resident decommit query preparation matches canonical mapping" {
             .stride = raw.len,
             .total_columns = 2,
             .max_leaf_count = raw.len << 2,
-            .leaf_seed = Hasher.leafSeed(),
+            .domain_prefix_bytes = PlainHasher.domainPrefixBytes(),
+            .leaf_seed = PlainHasher.leafSeed(),
         },
     );
     for (words[tree_base .. tree_base + words[tree_count_base]], 0..) |query, index| {
@@ -1940,10 +1943,11 @@ test "metal: trace sparse parents and assembly are resident and fail closed" {
         counts + 4,
         2,
         sparse_hashes,
-        Hasher.leafSeed(),
+        PlainHasher.leafSeed(),
+        PlainHasher.domainPrefixBytes(),
     );
     for (0..2) |row| {
-        var leaf = Hasher.defaultWithInitialState();
+        var leaf = PlainHasher.defaultWithInitialState();
         leaf.updateLeaf(&.{ M31.fromCanonical(@intCast(10 + row)), M31.fromCanonical(@intCast(20 + row)) });
         const expected = leaf.finalize();
         try std.testing.expectEqualSlices(
@@ -1975,7 +1979,8 @@ test "metal: trace sparse parents and assembly are resident and fail closed" {
         counts + 4,
         2,
         streamed_hashes,
-        Hasher.leafSeed(),
+        PlainHasher.leafSeed(),
+        PlainHasher.domainPrefixBytes(),
     );
     _ = try runtime.decommitSparseLeafGroup(
         arena,
@@ -1989,7 +1994,8 @@ test "metal: trace sparse parents and assembly are resident and fail closed" {
         counts + 4,
         2,
         streamed_hashes,
-        Hasher.leafSeed(),
+        PlainHasher.leafSeed(),
+        PlainHasher.domainPrefixBytes(),
     );
     _ = try runtime.decommitSparseLeafGroup(
         arena,
@@ -2003,12 +2009,13 @@ test "metal: trace sparse parents and assembly are resident and fail closed" {
         counts + 4,
         2,
         streamed_hashes,
-        Hasher.leafSeed(),
+        PlainHasher.leafSeed(),
+        PlainHasher.domainPrefixBytes(),
     );
     for (0..2) |row| {
         var evaluations: [33]M31 = undefined;
         for (&evaluations, 0..) |*value, column| value.* = M31.fromCanonical(@intCast(100 + column * 10 + row));
-        var leaf = Hasher.defaultWithInitialState();
+        var leaf = PlainHasher.defaultWithInitialState();
         leaf.updateLeaf(&evaluations);
         const expected = leaf.finalize();
         try std.testing.expectEqualSlices(
@@ -2067,7 +2074,8 @@ test "metal: trace sparse parents and assembly are resident and fail closed" {
         parent_indices,
         parent_hashes,
         counts + 5,
-        Hasher.nodeSeed(),
+        PlainHasher.nodeSeed(),
+        PlainHasher.domainPrefixBytes(),
     );
     try std.testing.expectEqual(@as(u32, 2), words[counts + 5]);
     try std.testing.expectEqualSlices(u32, &.{ 0, 1 }, words[parent_indices .. parent_indices + 2]);
@@ -2668,7 +2676,7 @@ test "metal: prepared sparse Merkle parent chain matches CPU" {
     for (&middle, 0..) |*hash, index| hash.* = Hasher.hashChildrenWithSeed(Hasher.nodeSeed(), .{ .left = children[index * 2], .right = children[index * 2 + 1] });
     var roots: [4]Hasher.Hash = undefined;
     for (&roots, 0..) |*hash, index| hash.* = Hasher.hashChildrenWithSeed(Hasher.nodeSeed(), .{ .left = middle[index * 2], .right = middle[index * 2 + 1] });
-    var plan = try runtime.prepareMerkleParentChain(&.{ child_offset, middle_offset }, &.{ middle_offset, root_offset }, &.{ 8, 4 }, Hasher.nodeSeed());
+    var plan = try runtime.prepareMerkleParentChain(&.{ child_offset, middle_offset }, &.{ middle_offset, root_offset }, &.{ 8, 4 }, Hasher.nodeSeed(), Hasher.domainPrefixBytes());
     defer plan.deinit();
     _ = try runtime.merkleParentChainPrepared(arena, plan);
     try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&middle), std.mem.sliceAsBytes(words[middle_offset .. middle_offset + 8 * 8]));
@@ -2792,6 +2800,7 @@ test "metal: resident lifted Merkle root matches CPU" {
         10,
         Hasher.leafSeed(),
         Hasher.nodeSeed(),
+        Hasher.domainPrefixBytes(),
     );
     defer gpu_tree.deinit();
     const result = try gpu_tree.root();
@@ -2891,11 +2900,11 @@ test "metal: incremental leaf absorption matches monolithic lifted leaves" {
     }
     const monolithic: u32 = 4096;
     const incremental: u32 = monolithic + rows * 8;
-    var leaves = try runtime.prepareMerkleLeaves(&offsets, &logs, lifting_log, monolithic, Hasher.leafSeed());
+    var leaves = try runtime.prepareMerkleLeaves(&offsets, &logs, lifting_log, monolithic, Hasher.leafSeed(), Hasher.domainPrefixBytes());
     defer leaves.deinit();
     _ = try runtime.merkleLeavesPrepared(arena, leaves);
-    _ = try runtime.leafAbsorb(arena, offsets[0..16], logs[0..16], incremental, lifting_log, 0, false, 0, Hasher.leafSeed());
-    _ = try runtime.leafAbsorb(arena, offsets[16..20], logs[16..20], incremental, lifting_log, 16, true, 0, Hasher.leafSeed());
+    _ = try runtime.leafAbsorb(arena, offsets[0..16], logs[0..16], incremental, lifting_log, 0, false, Hasher.domainPrefixBytes(), Hasher.leafSeed());
+    _ = try runtime.leafAbsorb(arena, offsets[16..20], logs[16..20], incremental, lifting_log, 16, true, Hasher.domainPrefixBytes(), Hasher.leafSeed());
     try std.testing.expectEqualSlices(u32, words[monolithic .. monolithic + rows * 8], words[incremental .. incremental + rows * 8]);
 }
 
@@ -2926,11 +2935,11 @@ test "metal: compact leaf absorption expands mixed logs and preserves the Merkle
     const full_state: u32 = 8192;
     const compact_state: u32 = full_state + rows * 8;
     const snapshot: u32 = compact_state + rows * 8;
-    _ = try runtime.leafAbsorb(arena, offsets[0..8], logs[0..8], full_state, lifting_log, 0, false, 0, Hasher.leafSeed());
-    _ = try runtime.leafAbsorb(arena, offsets[8..16], logs[8..16], full_state, lifting_log, 8, false, 0, Hasher.leafSeed());
-    _ = try runtime.leafAbsorb(arena, offsets[16..24], logs[16..24], full_state, lifting_log, 16, true, 0, Hasher.leafSeed());
+    _ = try runtime.leafAbsorb(arena, offsets[0..8], logs[0..8], full_state, lifting_log, 0, false, Hasher.domainPrefixBytes(), Hasher.leafSeed());
+    _ = try runtime.leafAbsorb(arena, offsets[8..16], logs[8..16], full_state, lifting_log, 8, false, Hasher.domainPrefixBytes(), Hasher.leafSeed());
+    _ = try runtime.leafAbsorb(arena, offsets[16..24], logs[16..24], full_state, lifting_log, 16, true, Hasher.domainPrefixBytes(), Hasher.leafSeed());
 
-    _ = try runtime.leafAbsorbCompact(arena, offsets[0..8], logs[0..8], compact_state, 5, compact_state, 5, 0, false, 0, Hasher.leafSeed());
+    _ = try runtime.leafAbsorbCompact(arena, offsets[0..8], logs[0..8], compact_state, 5, compact_state, 5, 0, false, Hasher.domainPrefixBytes(), Hasher.leafSeed());
     {
         var copy = try runtime.prepareArenaCopies(&.{.{
             .source_word_offset = compact_state,
@@ -2940,7 +2949,7 @@ test "metal: compact leaf absorption expands mixed logs and preserves the Merkle
         defer copy.deinit();
         _ = try runtime.arenaCopyPrepared(arena, copy);
     }
-    _ = try runtime.leafAbsorbCompact(arena, offsets[8..16], logs[8..16], snapshot, 5, compact_state, 7, 8, false, 0, Hasher.leafSeed());
+    _ = try runtime.leafAbsorbCompact(arena, offsets[8..16], logs[8..16], snapshot, 5, compact_state, 7, 8, false, Hasher.domainPrefixBytes(), Hasher.leafSeed());
     {
         var copy = try runtime.prepareArenaCopies(&.{.{
             .source_word_offset = compact_state,
@@ -2950,7 +2959,7 @@ test "metal: compact leaf absorption expands mixed logs and preserves the Merkle
         defer copy.deinit();
         _ = try runtime.arenaCopyPrepared(arena, copy);
     }
-    _ = try runtime.leafAbsorbCompact(arena, offsets[16..24], logs[16..24], snapshot, 7, compact_state, lifting_log, 16, true, 0, Hasher.leafSeed());
+    _ = try runtime.leafAbsorbCompact(arena, offsets[16..24], logs[16..24], snapshot, 7, compact_state, lifting_log, 16, true, Hasher.domainPrefixBytes(), Hasher.leafSeed());
     try std.testing.expectEqualSlices(u32, words[full_state .. full_state + rows * 8], words[compact_state .. compact_state + rows * 8]);
 
     var full_children: [8]u32 = undefined;
@@ -2971,9 +2980,9 @@ test "metal: compact leaf absorption expands mixed logs and preserves the Merkle
         compact_parent_cursor += parent_count * 8;
         parent_count /= 2;
     }
-    var full_chain = try runtime.prepareMerkleParentChain(&full_children, &full_destinations, &parent_counts, Hasher.nodeSeed());
+    var full_chain = try runtime.prepareMerkleParentChain(&full_children, &full_destinations, &parent_counts, Hasher.nodeSeed(), Hasher.domainPrefixBytes());
     defer full_chain.deinit();
-    var compact_chain = try runtime.prepareMerkleParentChain(&compact_children, &compact_destinations, &parent_counts, Hasher.nodeSeed());
+    var compact_chain = try runtime.prepareMerkleParentChain(&compact_children, &compact_destinations, &parent_counts, Hasher.nodeSeed(), Hasher.domainPrefixBytes());
     defer compact_chain.deinit();
     _ = try runtime.merkleParentChainPrepared(arena, full_chain);
     _ = try runtime.merkleParentChainPrepared(arena, compact_chain);
@@ -3005,9 +3014,9 @@ test "metal: compact leaf absorption expands a partial final group to the full d
     const full_state: u32 = 4096;
     const compact_state: u32 = full_state + rows * 8;
     const snapshot: u32 = compact_state + rows * 8;
-    _ = try runtime.leafAbsorb(arena, offsets[0..8], logs[0..8], full_state, lifting_log, 0, false, 0, Hasher.leafSeed());
-    _ = try runtime.leafAbsorb(arena, offsets[8..16], logs[8..16], full_state, lifting_log, 8, true, 0, Hasher.leafSeed());
-    _ = try runtime.leafAbsorbCompact(arena, offsets[0..8], logs[0..8], compact_state, 5, compact_state, 5, 0, false, 0, Hasher.leafSeed());
+    _ = try runtime.leafAbsorb(arena, offsets[0..8], logs[0..8], full_state, lifting_log, 0, false, Hasher.domainPrefixBytes(), Hasher.leafSeed());
+    _ = try runtime.leafAbsorb(arena, offsets[8..16], logs[8..16], full_state, lifting_log, 8, true, Hasher.domainPrefixBytes(), Hasher.leafSeed());
+    _ = try runtime.leafAbsorbCompact(arena, offsets[0..8], logs[0..8], compact_state, 5, compact_state, 5, 0, false, Hasher.domainPrefixBytes(), Hasher.leafSeed());
     var copy = try runtime.prepareArenaCopies(&.{.{
         .source_word_offset = compact_state,
         .destination_word_offset = snapshot,
@@ -3015,7 +3024,7 @@ test "metal: compact leaf absorption expands a partial final group to the full d
     }});
     defer copy.deinit();
     _ = try runtime.arenaCopyPrepared(arena, copy);
-    _ = try runtime.leafAbsorbCompact(arena, offsets[8..16], logs[8..16], snapshot, 5, compact_state, lifting_log, 8, true, 0, Hasher.leafSeed());
+    _ = try runtime.leafAbsorbCompact(arena, offsets[8..16], logs[8..16], snapshot, 5, compact_state, lifting_log, 8, true, Hasher.domainPrefixBytes(), Hasher.leafSeed());
     try std.testing.expectEqualSlices(u32, words[full_state .. full_state + rows * 8], words[compact_state .. compact_state + rows * 8]);
 }
 
@@ -3346,7 +3355,15 @@ test "metal: prepared sparse Merkle leaves match committed tree" {
         gpu_columns[column_index] = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(column));
         total_words += @intCast(column.len);
     }
-    var reference = try runtime.commitColumns(allocator, &gpu_columns, &log_sizes, 10, Hasher.leafSeed(), Hasher.nodeSeed());
+    var reference = try runtime.commitColumns(
+        allocator,
+        &gpu_columns,
+        &log_sizes,
+        10,
+        Hasher.leafSeed(),
+        Hasher.nodeSeed(),
+        Hasher.domainPrefixBytes(),
+    );
     defer reference.deinit();
     const reference_layers = try reference.copyLayers(&runtime, allocator, 10);
     defer allocator.free(reference_layers);
@@ -3376,7 +3393,7 @@ test "metal: prepared sparse Merkle leaves match committed tree" {
         sorted_offsets[destination] = column_offsets[source];
         sorted_logs[destination] = log_sizes[source];
     }
-    var plan = try runtime.prepareMerkleLeaves(&sorted_offsets, &sorted_logs, 10, destination_offset, Hasher.leafSeed());
+    var plan = try runtime.prepareMerkleLeaves(&sorted_offsets, &sorted_logs, 10, destination_offset, Hasher.leafSeed(), Hasher.domainPrefixBytes());
     defer plan.deinit();
     const gpu_ms = try runtime.merkleLeavesPrepared(arena, plan);
     try std.testing.expect(gpu_ms > 0);
@@ -3394,6 +3411,7 @@ test "metal: prepared sparse Merkle leaves match committed tree" {
         &layer_offsets,
         Hasher.leafSeed(),
         Hasher.nodeSeed(),
+        Hasher.domainPrefixBytes(),
     );
     defer resident.deinit();
     _ = try runtime.residentMerklePrepared(arena, resident);

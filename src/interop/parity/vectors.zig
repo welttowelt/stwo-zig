@@ -1509,6 +1509,7 @@ test "field vectors: vcs lifted prover parity" {
     var parsed = try parseVectors(alloc);
     defer parsed.deinit();
 
+    try std.testing.expectEqual(@as(u32, 64), Hasher.domainPrefixBytes());
     try std.testing.expect(parsed.value.vcs_lifted_prover.len > 0);
     for (parsed.value.vcs_lifted_prover) |v| {
         const columns = try alloc.alloc([]const M31, v.columns.len);

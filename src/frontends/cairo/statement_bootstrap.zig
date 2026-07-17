@@ -13,7 +13,7 @@ const memory_mod = @import("common/memory.zig");
 const composition_bundle = @import("witness/composition_bundle.zig");
 const M31 = @import("../../core/fields/m31.zig").M31;
 const M31_MODULUS = @import("../../core/fields/m31.zig").Modulus;
-const Blake2sMerkleHasher = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+const Blake2sMerkleHasher = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sPlainMerkleHasher;
 
 pub const ORDINALS = [_]u32{ 1, 2, 10, 11, 12, 13, 14, 15, 16 };
 pub const compact_statement_magic = "STWZCS1\x00".*;

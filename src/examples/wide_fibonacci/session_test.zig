@@ -61,16 +61,39 @@ test "wide Fibonacci session: sequential proofs match compatibility path exactly
 
     try std.testing.expectEqualSlices(u8, expected, first_bytes);
     try std.testing.expectEqualSlices(u8, expected, second_bytes);
-    try std.testing.expectEqual(@as(usize, 8559), expected.len);
+    try std.testing.expectEqual(@as(usize, 8543), expected.len);
     var digest: [std.crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
     std.crypto.hash.sha2.Sha256.hash(expected, &digest, .{});
     try std.testing.expectEqualSlices(u8, &[_]u8{
-        0x51, 0x46, 0x46, 0x89, 0xc8, 0xb2, 0x99, 0x4e,
-        0x08, 0x4b, 0x93, 0x00, 0x74, 0x50, 0xac, 0x54,
-        0xfb, 0xdc, 0xb7, 0x2c, 0x37, 0x2c, 0xc1, 0x60,
-        0x62, 0x20, 0x13, 0xa3, 0xef, 0x6d, 0xd6, 0x63,
+        0x4e, 0xa2, 0x9a, 0x03, 0x88, 0x41, 0x5b, 0xad,
+        0xcb, 0xb2, 0x36, 0x1a, 0x35, 0xfe, 0x9d, 0xf9,
+        0xd7, 0x84, 0x48, 0x0f, 0x8b, 0x8e, 0xf3, 0x3b,
+        0xe7, 0xa0, 0xf8, 0x81, 0x2a, 0x0f, 0xaa, 0xcc,
     }, &digest);
     try std.testing.expectEqual(@as(u64, 1), session.constructionTelemetry().tower_build_count);
+}
+
+test "wide Fibonacci commitments match pinned raw Stwo oracle order" {
+    const allocator = std.testing.allocator;
+    var output = try subject.prove(
+        allocator,
+        try testConfig(),
+        .{ .log_n_rows = 5, .sequence_len = 16 },
+    );
+    defer output.proof.deinit(allocator);
+
+    const commitments = output.proof.commitment_scheme_proof.commitments.items;
+    try std.testing.expectEqual(@as(usize, 3), commitments.len);
+    const expected_hex = [_][]const u8{
+        "2a133e150238721921d1ea772882979c810f85f2849099b9d3415a8619d85fad",
+        "dfc402b1c9be2a0b32d61bc810f24190b5e549d5d86c41ac2b1b8d01063aeaeb",
+        "6be96c96047fe8c33c2a942fe8b1c4f27419a2b53dae4e66d62620be83ef32ba",
+    };
+    for (commitments, expected_hex) |commitment, encoded| {
+        var expected: [32]u8 = undefined;
+        _ = try std.fmt.hexToBytes(&expected, encoded);
+        try std.testing.expectEqualSlices(u8, &expected, &commitment);
+    }
 }
 
 test "wide Fibonacci session: request geometry is rejected before proving" {

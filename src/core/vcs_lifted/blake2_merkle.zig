@@ -8,17 +8,46 @@ const M31 = m31.M31;
 
 pub const LEAF_PREFIX = makePrefix("leaf");
 pub const NODE_PREFIX = makePrefix("node");
+pub const DOMAIN_PREFIX_BYTES: u32 = 64;
 
+pub const HashProtocol = enum(u32) {
+    plain = 0,
+    domain_prefixed = DOMAIN_PREFIX_BYTES,
+};
+
+/// Compatibility aliases for pinned raw Stwo `a8fcf4bd`.
 pub const Blake2sMerkleHasher = Blake2sMerkleHasherGeneric(false);
 pub const Blake2sM31MerkleHasher = Blake2sMerkleHasherGeneric(true);
+pub const Blake2sPrefixedMerkleHasher = Blake2sMerkleHasher;
+pub const Blake2sPrefixedM31MerkleHasher = Blake2sM31MerkleHasher;
+
+/// Explicit plain-hash protocol used by the newer pinned Stwo-Cairo oracle.
+pub const Blake2sPlainMerkleHasher = Blake2sPlainMerkleHasherGeneric(false);
+pub const Blake2sPlainM31MerkleHasher = Blake2sPlainMerkleHasherGeneric(true);
 
 pub fn Blake2sMerkleHasherGeneric(comptime is_m31_output: bool) type {
+    return Blake2sMerkleHasherProtocolGeneric(is_m31_output, .domain_prefixed);
+}
+
+pub fn Blake2sPrefixedMerkleHasherGeneric(comptime is_m31_output: bool) type {
+    return Blake2sMerkleHasherGeneric(is_m31_output);
+}
+
+pub fn Blake2sPlainMerkleHasherGeneric(comptime is_m31_output: bool) type {
+    return Blake2sMerkleHasherProtocolGeneric(is_m31_output, .plain);
+}
+
+fn Blake2sMerkleHasherProtocolGeneric(
+    comptime is_m31_output: bool,
+    comptime hash_protocol: HashProtocol,
+) type {
     const InnerHasher = blake2_hash.Blake2sHasherGeneric(is_m31_output);
     const pack_chunk_elems = 32;
     return struct {
         inner: InnerHasher,
         pub const Hash = blake2_hash.Blake2sHash;
         pub const NodeSeed = InnerHasher.Fixed64Seed;
+        pub const protocol = hash_protocol;
 
         const Self = @This();
 
@@ -27,11 +56,23 @@ pub fn Blake2sMerkleHasherGeneric(comptime is_m31_output: bool) type {
         }
 
         pub fn defaultWithInitialState() Self {
-            return Self.init();
+            var hasher = Self.init();
+            if (comptime hash_protocol == .domain_prefixed) hasher.inner.update(LEAF_PREFIX[0..]);
+            return hasher;
         }
 
         pub fn hashChildren(children: struct { left: Hash, right: Hash }) Hash {
+            if (comptime hash_protocol == .domain_prefixed) {
+                var payload: [64]u8 = undefined;
+                @memcpy(payload[0..32], children.left[0..]);
+                @memcpy(payload[32..64], children.right[0..]);
+                return InnerHasher.hashFinal64FromSeed(nodeSeed(), &payload);
+            }
             return InnerHasher.concatAndHash(children.left, children.right);
+        }
+
+        pub fn domainPrefixBytes() u32 {
+            return @intFromEnum(hash_protocol);
         }
 
         /// Pre-hashed node-domain separator state used to avoid reprocessing
@@ -45,12 +86,24 @@ pub fn Blake2sMerkleHasherGeneric(comptime is_m31_output: bool) type {
         }
 
         pub fn hashChildrenWithSeed(seed: NodeSeed, children: struct { left: Hash, right: Hash }) Hash {
-            _ = seed;
+            if (comptime hash_protocol == .domain_prefixed) {
+                var payload: [64]u8 = undefined;
+                @memcpy(payload[0..32], children.left[0..]);
+                @memcpy(payload[32..64], children.right[0..]);
+                return InnerHasher.hashFinal64FromSeed(seed, &payload);
+            }
             return InnerHasher.concatAndHash(children.left, children.right);
         }
 
         pub fn hashChildrenWithSeed4(seed: NodeSeed, children: *const [8]Hash) [4]Hash {
-            _ = seed;
+            if (comptime hash_protocol == .domain_prefixed) {
+                var payloads: [4][64]u8 = undefined;
+                for (&payloads, 0..) |*payload, lane| {
+                    @memcpy(payload[0..32], children[2 * lane][0..]);
+                    @memcpy(payload[32..64], children[2 * lane + 1][0..]);
+                }
+                return InnerHasher.hashFinal64FromSeed4(seed, &payloads);
+            }
             var out: [4]Hash = undefined;
             for (&out, 0..) |*digest, lane| digest.* = InnerHasher.concatAndHash(
                 children[2 * lane],
@@ -60,7 +113,7 @@ pub fn Blake2sMerkleHasherGeneric(comptime is_m31_output: bool) type {
         }
 
         pub fn hashPackedLeavesWithSeed4(seed: NodeSeed, messages: *const [4][]const u8) [4]Hash {
-            _ = seed;
+            if (comptime hash_protocol == .domain_prefixed) return InnerHasher.hashEqualFromSeed4(seed, messages);
             var out: [4]Hash = undefined;
             for (&out, messages) |*digest, message| digest.* = InnerHasher.hash(message);
             return out;
@@ -122,6 +175,10 @@ pub fn Blake2sMerkleChannelGeneric(comptime is_m31_output: bool) type {
 
 pub const Blake2sMerkleChannel = Blake2sMerkleChannelGeneric(false);
 pub const Blake2sM31MerkleChannel = Blake2sMerkleChannelGeneric(true);
+pub const Blake2sPrefixedMerkleChannel = Blake2sMerkleChannel;
+pub const Blake2sPrefixedM31MerkleChannel = Blake2sM31MerkleChannel;
+pub const Blake2sPlainMerkleChannel = Blake2sMerkleChannel;
+pub const Blake2sPlainM31MerkleChannel = Blake2sM31MerkleChannel;
 
 fn makePrefix(comptime tag: []const u8) [64]u8 {
     var out: [64]u8 = [_]u8{0} ** 64;
@@ -144,7 +201,7 @@ test "vcs_lifted blake2: mix root changes channel digest" {
     try std.testing.expect(!std.mem.eql(u8, before[0..], channel.digestBytes()[0..]));
 }
 
-test "vcs_lifted blake2: updateLeaf matches plain explicit byte packing" {
+test "vcs_lifted blake2: plain updateLeaf matches explicit byte packing" {
     var prng = std.Random.DefaultPrng.init(0x5ca1_ab1e_1234_5678);
     const rng = prng.random();
     var values: [65]M31 = undefined;
@@ -152,7 +209,7 @@ test "vcs_lifted blake2: updateLeaf matches plain explicit byte packing" {
         value.* = M31.fromU64(rng.int(u32));
     }
 
-    var lifted = Blake2sMerkleHasher.defaultWithInitialState();
+    var lifted = Blake2sPlainMerkleHasher.defaultWithInitialState();
     lifted.updateLeaf(values[0..]);
     const digest = lifted.finalize();
 
@@ -165,13 +222,13 @@ test "vcs_lifted blake2: updateLeaf matches plain explicit byte packing" {
     try std.testing.expect(std.mem.eql(u8, digest[0..], expected[0..]));
 }
 
-test "vcs_lifted blake2: pinned Rust oracle uses plain leaf and parent hashes" {
+test "vcs_lifted blake2: pinned Cairo Rust oracle uses plain leaf and parent hashes" {
     const values = [_]M31{
         M31.fromCanonical(1),
         M31.fromCanonical(2),
         M31.fromCanonical(3),
     };
-    var leaf_hasher = Blake2sMerkleHasher.defaultWithInitialState();
+    var leaf_hasher = Blake2sPlainMerkleHasher.defaultWithInitialState();
     leaf_hasher.updateLeaf(&values);
     const leaf_hex = std.fmt.bytesToHex(leaf_hasher.finalize(), .lower);
     try std.testing.expectEqualStrings(
@@ -179,7 +236,7 @@ test "vcs_lifted blake2: pinned Rust oracle uses plain leaf and parent hashes" {
         &leaf_hex,
     );
 
-    const parent = Blake2sMerkleHasher.hashChildren(.{
+    const parent = Blake2sPlainMerkleHasher.hashChildren(.{
         .left = [_]u8{0x01} ** 32,
         .right = [_]u8{0x02} ** 32,
     });
@@ -188,6 +245,27 @@ test "vcs_lifted blake2: pinned Rust oracle uses plain leaf and parent hashes" {
         "280569932378c99f448df37e893f062fab951bea53515634b7875ae51e1954e7",
         &parent_hex,
     );
+}
+
+test "vcs_lifted blake2: pinned raw Stwo oracle uses domain-prefixed hashes" {
+    var empty_leaf = Blake2sPrefixedMerkleHasher.defaultWithInitialState();
+    const empty_hex = std.fmt.bytesToHex(empty_leaf.finalize(), .lower);
+    try std.testing.expectEqualStrings(
+        "2a133e150238721921d1ea772882979c810f85f2849099b9d3415a8619d85fad",
+        &empty_hex,
+    );
+
+    const parent = Blake2sPrefixedMerkleHasher.hashChildren(.{
+        .left = [_]u8{0x01} ** 32,
+        .right = [_]u8{0x02} ** 32,
+    });
+    const parent_hex = std.fmt.bytesToHex(parent, .lower);
+    try std.testing.expectEqualStrings(
+        "24c36247c66cc7b145aee79ccff9d5e3e596a8e13e86d13942f61464364fa53c",
+        &parent_hex,
+    );
+    try std.testing.expectEqual(DOMAIN_PREFIX_BYTES, Blake2sMerkleHasher.domainPrefixBytes());
+    try std.testing.expectEqual(@as(u32, 0), Blake2sPlainMerkleHasher.domainPrefixBytes());
 }
 
 test "vcs_lifted blake2: updateLeafPackedBytes matches updateLeaf" {

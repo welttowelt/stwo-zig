@@ -13,10 +13,10 @@ const proof_bundle = @import("proof_bundle.zig");
 pub const M31 = m31.M31;
 pub const QM31 = qm31.QM31;
 
-pub const Hasher = blake2_merkle.Blake2sMerkleHasher;
+pub const Hasher = blake2_merkle.Blake2sPlainMerkleHasher;
 pub const Proof = proof_mod.StarkProof(Hasher);
 pub const Channel = channel_blake2s.Blake2sChannel;
-pub const MerkleChannel = blake2_merkle.Blake2sMerkleChannel;
+pub const MerkleChannel = blake2_merkle.Blake2sPlainMerkleChannel;
 
 pub const sn2_pow_bits: u32 = 26;
 pub const sn2_interaction_pow_bits: u32 = 24;

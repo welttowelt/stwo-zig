@@ -61,6 +61,7 @@ pub fn main() !void {
             log_size,
             Hasher.leafSeed(),
             Hasher.nodeSeed(),
+            Hasher.domainPrefixBytes(),
         );
         const result = try tree.root();
         const wall_ms = @as(f64, @floatFromInt(timer.read())) / std.time.ns_per_ms;
