@@ -22,8 +22,11 @@ pub const Error = error{
 };
 
 /// One recorded program projected into the pinned Rust base-trace order.
-/// `bundle_entry_index` remains the authority for the program and semantic
-/// hash; several `memory_id_to_big` instances may intentionally share it.
+/// `ordinal` counts every active resolved Cairo claim component, including
+/// native or fixed components absent from the witness bundle. Width offsets
+/// count only the recorded-program projection because unrecorded widths are not
+/// represented by `Bundle`. `bundle_entry_index` remains the program authority;
+/// several `memory_id_to_big` instances may intentionally share it.
 pub const Component = struct {
     ordinal: u32,
     enable_slot: u8,
@@ -35,14 +38,15 @@ pub const Component = struct {
     /// Base witness-program name used for bundle lookup.
     name: []const u8,
     log_size: u32,
-    first_column: u64,
+    projected_first_column: u64,
     column_count: u32,
 };
 
 pub const Layout = struct {
     allocator: std.mem.Allocator,
     components: []Component,
-    total_columns: u64,
+    active_component_count: u32,
+    projected_total_columns: u64,
 
     pub fn deinit(self: *Layout) void {
         self.allocator.free(self.components);
@@ -93,34 +97,36 @@ pub fn fromBundle(
 
     var components = std.ArrayList(Component).empty;
     errdefer components.deinit(allocator);
-    var total_columns: u64 = 0;
+    var projected_total_columns: u64 = 0;
+    var active_ordinal: u32 = 0;
     var mapped_fields = [_]bool{false} ** claim_registry.claim_field_count;
     for (claim_registry.enable_slots) |slot| {
         const component_geometry = geometry_by_slot[slot.enable_slot] orelse continue;
-        const entry_index = bundle_by_field[slot.claim_field_index] orelse continue;
-        const entry = bundle.entries[entry_index];
-        const column_count = entry.program.n_cols;
-        if (column_count == 0) return Error.InvalidColumnCount;
-        total_columns = std.math.add(u64, total_columns, column_count) catch
-            return Error.ColumnCountOverflow;
-        const log_size = switch (component_geometry.log_size) {
-            .known => |value| value,
-            .deferred => unreachable,
-        };
-        try components.append(allocator, .{
-            .ordinal = std.math.cast(u32, components.items.len) orelse
-                return Error.ColumnCountOverflow,
-            .enable_slot = slot.enable_slot,
-            .claim_field_index = slot.claim_field_index,
-            .instance = slot.field_slot_index,
-            .bundle_entry_index = entry_index,
-            .label = slot.name,
-            .name = entry.label,
-            .log_size = log_size,
-            .first_column = total_columns - column_count,
-            .column_count = column_count,
-        });
-        mapped_fields[slot.claim_field_index] = true;
+        if (bundle_by_field[slot.claim_field_index]) |entry_index| {
+            const entry = bundle.entries[entry_index];
+            const column_count = entry.program.n_cols;
+            if (column_count == 0) return Error.InvalidColumnCount;
+            projected_total_columns = std.math.add(u64, projected_total_columns, column_count) catch
+                return Error.ColumnCountOverflow;
+            const log_size = switch (component_geometry.log_size) {
+                .known => |value| value,
+                .deferred => unreachable,
+            };
+            try components.append(allocator, .{
+                .ordinal = active_ordinal,
+                .enable_slot = slot.enable_slot,
+                .claim_field_index = slot.claim_field_index,
+                .instance = slot.field_slot_index,
+                .bundle_entry_index = entry_index,
+                .label = slot.name,
+                .name = entry.label,
+                .log_size = log_size,
+                .projected_first_column = projected_total_columns - column_count,
+                .column_count = column_count,
+            });
+            mapped_fields[slot.claim_field_index] = true;
+        }
+        active_ordinal += 1;
     }
     for (bundle_by_field, mapped_fields) |entry_index, mapped| {
         if (entry_index != null and !mapped) return Error.MissingGeometry;
@@ -129,7 +135,8 @@ pub fn fromBundle(
     return .{
         .allocator = allocator,
         .components = try components.toOwnedSlice(allocator),
-        .total_columns = total_columns,
+        .active_component_count = active_ordinal,
+        .projected_total_columns = projected_total_columns,
     };
 }
 
@@ -193,8 +200,9 @@ test "Cairo base trace layout: bundle order projects to pinned Rust order" {
     try std.testing.expectEqualStrings("add_opcode", layout.components[0].name);
     try std.testing.expectEqualStrings("add_ap_opcode", layout.components[1].name);
     try std.testing.expectEqualStrings("ret_opcode", layout.components[2].name);
-    try std.testing.expectEqual(@as(u64, 120), layout.components[2].first_column);
-    try std.testing.expectEqual(@as(u64, 136), layout.total_columns);
+    try std.testing.expectEqual(@as(u64, 120), layout.components[2].projected_first_column);
+    try std.testing.expectEqual(@as(u32, 4), layout.active_component_count);
+    try std.testing.expectEqual(@as(u64, 136), layout.projected_total_columns);
     try std.testing.expectEqual(@as(u32, 12), layout.find("add_opcode", 0).?.log_size);
 }
 
@@ -214,8 +222,25 @@ test "Cairo base trace layout: memory big instances share one program in prefix 
     try std.testing.expectEqual(@as(u32, 0), layout.components[2].bundle_entry_index);
     try std.testing.expectEqualStrings("memory_id_to_big[2]", layout.components[2].label);
     try std.testing.expectEqualStrings("memory_id_to_big", layout.components[2].name);
-    try std.testing.expectEqual(@as(u64, 58), layout.components[2].first_column);
-    try std.testing.expectEqual(@as(u64, 87), layout.total_columns);
+    try std.testing.expectEqual(@as(u64, 58), layout.components[2].projected_first_column);
+    try std.testing.expectEqual(@as(u64, 87), layout.projected_total_columns);
+}
+
+test "Cairo base trace layout: Rust ordinal includes preceding unrecorded components" {
+    var entries = [_]witness_bundle.Entry{testEntry(@constCast("ret_opcode"), 16)};
+    const bundle = witness_bundle.Bundle{ .allocator = std.testing.allocator, .entries = &entries };
+    const geometry = [_]claim_generator.ComponentGeometry{
+        .{ .name = "add_opcode", .log_size = .{ .known = 12 } },
+        .{ .name = "ret_opcode", .log_size = .{ .known = 9 } },
+    };
+
+    var layout = try fromBundle(std.testing.allocator, &bundle, &geometry);
+    defer layout.deinit();
+    try std.testing.expectEqual(@as(usize, 1), layout.components.len);
+    try std.testing.expectEqual(@as(u32, 2), layout.active_component_count);
+    try std.testing.expectEqual(@as(u32, 1), layout.components[0].ordinal);
+    try std.testing.expectEqual(@as(u64, 0), layout.components[0].projected_first_column);
+    try std.testing.expectEqual(@as(u64, 16), layout.projected_total_columns);
 }
 
 test "Cairo base trace layout: recorded SN2 programs have complete registry geometry" {
@@ -236,7 +261,7 @@ test "Cairo base trace layout: recorded SN2 programs have complete registry geom
     var layout = try fromBundle(std.testing.allocator, &bundle, geometry);
     defer layout.deinit();
     try std.testing.expectEqual(@as(usize, 33), layout.components.len);
-    try std.testing.expectEqual(@as(u64, 3_054), layout.total_columns);
+    try std.testing.expectEqual(@as(u64, 3_054), layout.projected_total_columns);
     try std.testing.expectEqualStrings("add_opcode", layout.components[0].name);
     try std.testing.expectEqualStrings(
         "range_check_252_width_27",
