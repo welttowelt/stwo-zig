@@ -123,7 +123,7 @@ test "compact protocol geometry derives SN2 and Fib-like FRI counts" {
     try std.testing.expectEqual(@as(u32, 340), try minimumDecommitmentWords(12, 70));
 
     var fib = sn2;
-    fib.max_log_degree_bound = 21;
+    fib.max_log_degree_bound = 20;
     fib.fri_tree_count = 7;
     fib.decommitment_record_count = 11;
     try fib.validate();
@@ -134,7 +134,7 @@ test "compact runtime geometry accepts the resident decoder contract" {
     const ResidentGeometry = struct {
         trace_tree_count: usize = 4,
         fri_layer_count: usize = 7,
-        max_log_degree_bound: u32 = 21,
+        max_log_degree_bound: u32 = 20,
         query_pow_bits: u32 = 26,
         interaction_pow_bits: u32 = 24,
         log_blowup_factor: u32 = 1,
@@ -149,5 +149,5 @@ test "compact runtime geometry accepts the resident decoder contract" {
     try std.testing.expectEqual(@as(u32, 4), converted.commitment_count);
     try std.testing.expectEqual(@as(u32, 7), converted.fri_tree_count);
     try std.testing.expectEqual(@as(u32, 11), converted.decommitment_record_count);
-    try std.testing.expectEqual(@as(u32, 21), converted.max_log_degree_bound);
+    try std.testing.expectEqual(@as(u32, 20), converted.max_log_degree_bound);
 }

@@ -226,8 +226,8 @@ fn assertUnchanged(path: []const u8, expected: artifact_manifest.Measurement) !v
 
 fn protocolGeometry(bundle: composition_bundle.Bundle) !compact.RuntimeProtocolGeometryV1 {
     var geometry = compact.RuntimeProtocolGeometryV1.sn2();
-    geometry.max_log_degree_bound = bundle.max_evaluation_log_size;
-    if (geometry.max_log_degree_bound == 0) return error.InvalidCairoProtocolGeometry;
+    geometry.max_log_degree_bound = bundle.verifierMaxLogDegreeBound() catch
+        return error.InvalidCairoProtocolGeometry;
     geometry.fri_tree_count = 1 + (geometry.max_log_degree_bound - 1) / geometry.fri_fold_step;
     geometry.decommitment_record_count = std.math.add(
         u32,
@@ -385,11 +385,19 @@ test "Cairo Metal backend derives SN2 runtime protocol and trace columns" {
 }
 
 test "Cairo Metal backend derives Fib-like seven-round protocol" {
-    var geometry = compact.RuntimeProtocolGeometryV1.sn2();
-    geometry.max_log_degree_bound = 21;
-    geometry.fri_tree_count = 7;
-    geometry.decommitment_record_count = 11;
-    try geometry.validate();
+    const composition = composition_bundle.Bundle{
+        .allocator = undefined,
+        .format_version = composition_bundle.projected_version,
+        .max_kernel_instructions = 1,
+        .total_constraints = 1,
+        .max_evaluation_log_size = 21,
+        .plan_hash = 1,
+        .components = &.{},
+    };
+    const geometry = try protocolGeometry(composition);
+    try std.testing.expectEqual(@as(u32, 20), geometry.max_log_degree_bound);
+    try std.testing.expectEqual(@as(u32, 7), geometry.fri_tree_count);
+    try std.testing.expectEqual(@as(u32, 11), geometry.decommitment_record_count);
 }
 
 test {

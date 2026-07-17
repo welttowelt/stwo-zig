@@ -1991,7 +1991,7 @@ mod tests {
             400,
             [105, 7, 3, 8],
         );
-        protocol.max_log_degree_bound = 21;
+        protocol.max_log_degree_bound = 20;
         protocol.fri_tree_count = 7;
         protocol.decommitment_record_count = 11;
         protocol.validate_geometry().unwrap();
@@ -2266,16 +2266,16 @@ mod tests {
             "5354575a43503100010070000000000001000000010000000200000009000000\
              1a00000001000000460000000000000003000000ffffffff1800000004000000\
              0400000007000000010000000b00000002000000200000009001000069000000\
-             07000000030000000800000015000000"
+             07000000030000000800000014000000"
                 .replace(' ', "")
         );
         assert_eq!(
             format!("{:x}", Sha256::digest(&encoded)),
-            "44f37eec259ba8bc9a33e992a756b8cc244f5e90def386d4fa2df1d5b6a162d3"
+            "4dae06a01beaa037e0c051ad6d83eff2f2c28fa259e44fef8cdecdc5101cc334"
         );
         assert_eq!(read_u32(&encoded, 68, "FRI trees").unwrap(), 7);
         assert_eq!(read_u32(&encoded, 76, "decommit records").unwrap(), 11);
-        assert_eq!(read_u32(&encoded, 108, "maximum degree").unwrap(), 21);
+        assert_eq!(read_u32(&encoded, 108, "maximum degree").unwrap(), 20);
         let decoded = CompactProtocolV1::decode(&encoded).unwrap();
         assert_eq!(decoded, protocol);
 

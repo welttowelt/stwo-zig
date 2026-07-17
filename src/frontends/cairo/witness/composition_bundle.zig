@@ -37,11 +37,29 @@ pub const Component = struct {
 
 pub const Bundle = struct {
     allocator: std.mem.Allocator,
+    format_version: u32 = version,
     max_kernel_instructions: u32,
     total_constraints: u64,
     max_evaluation_log_size: u32,
     plan_hash: u64,
     components: []Component,
+
+    /// Returns the verifier's exact maximum log-degree bound. Version 1
+    /// records that bound directly; projected version 2 records the unsplit
+    /// composition evaluation log, one above the verifier bound.
+    pub fn verifierMaxLogDegreeBound(self: Bundle) !u32 {
+        const bound = switch (self.format_version) {
+            version => self.max_evaluation_log_size,
+            projected_version => std.math.sub(
+                u32,
+                self.max_evaluation_log_size,
+                1,
+            ) catch return error.InvalidVerifierMaxLogDegreeBound,
+            else => return error.UnsupportedVersion,
+        };
+        if (bound == 0 or bound > 31) return error.InvalidVerifierMaxLogDegreeBound;
+        return bound;
+    }
 
     pub fn readFile(allocator: std.mem.Allocator, path: []const u8) !Bundle {
         const bytes = try std.fs.cwd().readFileAlloc(allocator, path, 512 * 1024 * 1024);
@@ -186,6 +204,7 @@ pub const Bundle = struct {
         if (next_constraint != total_constraints or found_max_log != max_eval_log) return error.InvalidHeader;
         return .{
             .allocator = allocator,
+            .format_version = encoded_version,
             .max_kernel_instructions = max_instructions,
             .total_constraints = total_constraints,
             .max_evaluation_log_size = max_eval_log,
@@ -252,8 +271,10 @@ test "Cairo composition bundle: exact SN2 AIR programs load and validate" {
     var bundle = try Bundle.readFile(std.testing.allocator, "vectors/cairo/sn_pie_2_composition.bin");
     defer bundle.deinit();
     try std.testing.expectEqual(@as(u32, 512), bundle.max_kernel_instructions);
+    try std.testing.expectEqual(version, bundle.format_version);
     try std.testing.expectEqual(@as(u64, 1325), bundle.total_constraints);
     try std.testing.expectEqual(@as(u32, 24), bundle.max_evaluation_log_size);
+    try std.testing.expectEqual(@as(u32, 24), try bundle.verifierMaxLogDegreeBound());
     try std.testing.expectEqual(@as(usize, 58), bundle.components.len);
     try std.testing.expectEqual(@as(u64, 10359646181791462711), bundle.plan_hash);
     var parts: usize = 0;
@@ -274,7 +295,34 @@ test "Cairo composition bundle: projected plans authenticate their complete enco
     std.mem.writeInt(u64, bytes[32..40], projectedPlanHash(bytes), .little);
 
     var bundle = try Bundle.parse(allocator, bytes);
+    try std.testing.expectEqual(projected_version, bundle.format_version);
+    try std.testing.expectEqual(@as(u32, 23), try bundle.verifierMaxLogDegreeBound());
     bundle.deinit();
     bytes[32] ^= 1;
     try std.testing.expectError(error.InvalidPlanHash, Bundle.parse(allocator, bytes));
+}
+
+test "Cairo composition bundle: format version owns verifier degree semantics" {
+    const base = Bundle{
+        .allocator = undefined,
+        .max_kernel_instructions = 1,
+        .total_constraints = 1,
+        .max_evaluation_log_size = 24,
+        .plan_hash = 1,
+        .components = &.{},
+    };
+    try std.testing.expectEqual(@as(u32, 24), try base.verifierMaxLogDegreeBound());
+
+    var projected = base;
+    projected.format_version = projected_version;
+    projected.max_evaluation_log_size = 21;
+    try std.testing.expectEqual(@as(u32, 20), try projected.verifierMaxLogDegreeBound());
+
+    projected.max_evaluation_log_size = 1;
+    try std.testing.expectError(
+        error.InvalidVerifierMaxLogDegreeBound,
+        projected.verifierMaxLogDegreeBound(),
+    );
+    projected.format_version = 3;
+    try std.testing.expectError(error.UnsupportedVersion, projected.verifierMaxLogDegreeBound());
 }

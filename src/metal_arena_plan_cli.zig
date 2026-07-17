@@ -51,6 +51,20 @@ pub const canonical_protocol = CanonicalProtocol{
     .fri_log_last_layer_degree_bound = 0,
 };
 
+fn runtimeVerifierGeometry(
+    config_words: []const u32,
+    composition: composition_bundle_mod.Bundle,
+) !resident_verifier.ProtocolGeometry {
+    const max_log_degree_bound = composition.verifierMaxLogDegreeBound() catch
+        return error.InvalidProtocolGeometry;
+    return resident_verifier.ProtocolGeometry.fromConfigWords(
+        config_words,
+        canonical_protocol.interaction_pow_bits,
+        4,
+        max_log_degree_bound,
+    );
+}
+
 /// Checks the serialized proof protocol without JSON number coercions. This is
 /// shared by the persistent daemon so it cannot promote a drifting runner.
 pub fn protocolObjectIsCanonical(value: ?std.json.Value) bool {
@@ -4545,10 +4559,12 @@ fn runOne(
                 if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_VERIFY_PROOF")) {
                     const verify_ordinals = [_]u32{ 1, 2, 3, 10, 11, 12, 13, 14, 15, 16, 20 };
                     var verify_inputs: [verify_ordinals.len]resident_verifier.TranscriptInput = undefined;
+                    var verifier_config_words: ?[]const u32 = null;
                     for (verify_ordinals, &verify_inputs) |ordinal, *verify_input| {
                         const binding = try transcriptInputBinding(bindings, ordinal);
                         const bytes: []align(4) u8 = @alignCast(try resident_arena.bytes(binding));
                         verify_input.* = .{ .ordinal = ordinal, .words = std.mem.bytesAsSlice(u32, bytes) };
+                        if (ordinal == 2) verifier_config_words = verify_input.words;
                     }
                     const preprocessed_logs = try bindingDegreeLogs(allocator, bindings.preprocessed_coefficients);
                     defer allocator.free(preprocessed_logs);
@@ -4556,12 +4572,16 @@ fn runOne(
                     defer allocator.free(base_logs);
                     const interaction_logs = try bindingDegreeLogs(allocator, bindings.canonical_interaction_coefficients);
                     defer allocator.free(interaction_logs);
-                    try resident_verifier.verify(allocator, .{
+                    const verifier_geometry = try runtimeVerifierGeometry(
+                        verifier_config_words orelse return error.MissingTranscriptInput,
+                        composition_bundle.?,
+                    );
+                    try resident_verifier.verifyRuntime(allocator, .{
                         .bundle = decoded,
                         .composition = composition_bundle.?,
                         .tree_logs = .{ preprocessed_logs, base_logs, interaction_logs },
                         .transcript_inputs = &verify_inputs,
-                    });
+                    }, verifier_geometry);
                     proof_verified = true;
                     const prove_elapsed_ns = if (prove_timer) |*timer|
                         timer.read()
@@ -5852,6 +5872,41 @@ test "resident composition requires preprocessed coefficients" {
     try std.testing.expectError(
         error.MissingPreprocessedCoefficients,
         requireResidentPreprocessedCoefficients(true, false),
+    );
+}
+
+test "runtime verifier geometry follows projected composition degree" {
+    const config_words = [_]u32{ 26, 1, 70, 0, 3, 0, 0, 0 };
+    var composition = composition_bundle_mod.Bundle{
+        .allocator = undefined,
+        .format_version = composition_bundle_mod.projected_version,
+        .max_kernel_instructions = 1,
+        .total_constraints = 1,
+        .max_evaluation_log_size = 21,
+        .plan_hash = 1,
+        .components = &.{},
+    };
+    const fib = try runtimeVerifierGeometry(&config_words, composition);
+    try std.testing.expectEqual(@as(usize, 4), fib.trace_tree_count);
+    try std.testing.expectEqual(@as(usize, 7), fib.fri_layer_count);
+    try std.testing.expectEqual(@as(u32, 20), fib.max_log_degree_bound);
+    try std.testing.expect(fib.matchesTranscript(&config_words));
+
+    composition.format_version = composition_bundle_mod.version;
+    composition.max_evaluation_log_size = 24;
+    const sn2 = try runtimeVerifierGeometry(&config_words, composition);
+    try std.testing.expectEqual(@as(usize, 8), sn2.fri_layer_count);
+    try std.testing.expectEqual(@as(u32, 24), sn2.max_log_degree_bound);
+    try std.testing.expectError(
+        error.InvalidProtocolGeometry,
+        runtimeVerifierGeometry(&config_words, .{
+            .allocator = undefined,
+            .max_kernel_instructions = 1,
+            .total_constraints = 1,
+            .max_evaluation_log_size = 0,
+            .plan_hash = 1,
+            .components = &.{},
+        }),
     );
 }
 

@@ -87,7 +87,8 @@ pub fn populate(
 ) !Telemetry {
     if (composition.len != 8 or challenge.size_bytes < 16 or destination.size_bytes % 16 != 0)
         return error.InvalidOodsShape;
-    const max_log_degree_bound = try maxLogDegreeBound(bundle.max_evaluation_log_size);
+    const max_log_degree_bound = bundle.verifierMaxLogDegreeBound() catch
+        return error.InvalidOodsShape;
 
     const challenge_words = try bindingWords(resident_arena, challenge);
     const parameter = QM31.fromU32Unchecked(
@@ -427,12 +428,6 @@ fn appendTask(
     output_cursor.* += sample_points.len;
 }
 
-fn maxLogDegreeBound(lifting_log_size: u32) !u32 {
-    if (lifting_log_size == 0 or lifting_log_size > circle.M31_CIRCLE_LOG_ORDER)
-        return error.InvalidOodsShape;
-    return lifting_log_size - 1;
-}
-
 fn oodsFoldCount(max_log_degree_bound: u32, coefficient_log_size: u32) !u32 {
     if (coefficient_log_size > max_log_degree_bound) return error.InvalidOodsShape;
     return max_log_degree_bound - coefficient_log_size;
@@ -487,14 +482,12 @@ test "metal: SN2 captured programs reconstruct the exact OODS sample cardinality
 }
 
 test "metal: OODS folds coefficient domains to the maximum degree bound" {
-    try std.testing.expectEqual(@as(u32, 23), try maxLogDegreeBound(24));
-    try std.testing.expectEqual(@as(u32, 24), try maxLogDegreeBound(25));
-    try std.testing.expectEqual(@as(u32, 0), try oodsFoldCount(23, 23));
-    try std.testing.expectEqual(@as(u32, 7), try oodsFoldCount(23, 16));
+    // Legacy v1 commits the split composition at log 23 under verifier max 24.
     try std.testing.expectEqual(@as(u32, 1), try oodsFoldCount(24, 23));
-    try std.testing.expectEqual(@as(u32, 0), try oodsFoldCount(24, 24));
-    try std.testing.expectError(error.InvalidOodsShape, oodsFoldCount(23, 24));
-    try std.testing.expectError(error.InvalidOodsShape, maxLogDegreeBound(0));
+    // Projected v2 Fib commits log-20 coefficients under verifier max 20.
+    try std.testing.expectEqual(@as(u32, 0), try oodsFoldCount(20, 20));
+    try std.testing.expectEqual(@as(u32, 8), try oodsFoldCount(24, 16));
+    try std.testing.expectError(error.InvalidOodsShape, oodsFoldCount(20, 21));
 }
 
 test "metal: OODS plans preserve grouped multi-point output order and scalar parity" {

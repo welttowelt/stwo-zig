@@ -350,7 +350,7 @@ test "compact protocol matches the Rust-accepted SN2 golden bytes" {
 
 test "compact protocol encodes Fib-like runtime geometry and preprocessed variant" {
     var geometry = RuntimeProtocolGeometryV1.sn2();
-    geometry.max_log_degree_bound = 21;
+    geometry.max_log_degree_bound = 20;
     geometry.fri_tree_count = 7;
     geometry.decommitment_record_count = 11;
     const decommitment_words = try minimumDecommitmentWords(
@@ -368,12 +368,12 @@ test "compact protocol encodes Fib-like runtime geometry and preprocessed varian
         "5354575a43503100010070000000000001000000010000000200000009000000" ++
             "1a00000001000000460000000000000003000000ffffffff1800000004000000" ++
             "0400000007000000010000000b00000002000000200000004401000069000000" ++
-            "07000000030000000800000015000000",
+            "07000000030000000800000014000000",
         &encoded_hex,
     );
     const digest_hex = std.fmt.bytesToHex(sha256(&encoded), .lower);
     try std.testing.expectEqualStrings(
-        "52abcf6c1c62a8768ce8536f9e5a7a071ee232167cf5ac560029500b6330e65a",
+        "95fb7e321bdc9c4ac69c87921d0f274654ff3597a642ed247b5c6d0f07a812bd",
         &digest_hex,
     );
     try std.testing.expectEqual(PreprocessedTraceVariantV1.canonical_without_pedersen, protocol.preprocessed_variant);
@@ -381,7 +381,7 @@ test "compact protocol encodes Fib-like runtime geometry and preprocessed varian
     try std.testing.expectEqual(@as(u32, 4), std.mem.readInt(u32, encoded[60..64], .little));
     try std.testing.expectEqual(@as(u32, 7), std.mem.readInt(u32, encoded[68..72], .little));
     try std.testing.expectEqual(@as(u32, 11), std.mem.readInt(u32, encoded[76..80], .little));
-    try std.testing.expectEqual(@as(u32, 21), std.mem.readInt(u32, encoded[108..112], .little));
+    try std.testing.expectEqual(@as(u32, 20), std.mem.readInt(u32, encoded[108..112], .little));
     try std.testing.expectEqual(@as(usize, 460), try protocol.proofWordCount());
 
     geometry.decommitment_record_count = 12;

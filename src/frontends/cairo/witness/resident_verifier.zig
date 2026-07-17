@@ -80,8 +80,9 @@ fn verifyWithGeometry(
     if (input.tree_logs[0].len == 0 or input.tree_logs[1].len == 0 or
         input.tree_logs[2].len == 0 or input.composition.components.len == 0)
         return Error.InvalidTraceShape;
-    if (input.composition.max_evaluation_log_size == 0 or
-        protocol_geometry.max_log_degree_bound != input.composition.max_evaluation_log_size - 1 or
+    const verifier_max_log_degree_bound = input.composition.verifierMaxLogDegreeBound() catch
+        return Error.InvalidProtocolGeometry;
+    if (protocol_geometry.max_log_degree_bound != verifier_max_log_degree_bound or
         protocol_geometry.trace_tree_count != 4)
         return Error.InvalidProtocolGeometry;
     const config_words = transcriptWords(input.transcript_inputs, 2) orelse

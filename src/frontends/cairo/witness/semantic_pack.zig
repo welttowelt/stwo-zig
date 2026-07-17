@@ -135,10 +135,7 @@ pub fn load(allocator: std.mem.Allocator, files: Files) !Loaded {
     errdefer composition.deinit();
     if (composition.plan_hash != expectations.composition_plan_hash)
         return error.CompositionPlanHashMismatch;
-    try validateVerifierGeometry(
-        composition.max_evaluation_log_size,
-        expectations.verifier_max_log_degree_bound,
-    );
+    try validateVerifierGeometry(composition, expectations.verifier_max_log_degree_bound);
     try validateActiveComponents(root, composition.components);
 
     var witness_programs = try witness_bundle.Bundle.readFile(allocator, files.witness_programs);
@@ -286,8 +283,13 @@ fn verifierMaxLogDegreeBound(composition: std.json.ObjectMap) !u32 {
     return @intCast(value);
 }
 
-fn validateVerifierGeometry(max_evaluation_log_size: u32, verifier_max_log_degree_bound: u32) !void {
-    if (max_evaluation_log_size != verifier_max_log_degree_bound + 1)
+fn validateVerifierGeometry(
+    composition: composition_bundle.Bundle,
+    verifier_max_log_degree_bound: u32,
+) !void {
+    const actual = composition.verifierMaxLogDegreeBound() catch
+        return error.InvalidVerifierGeometry;
+    if (actual != verifier_max_log_degree_bound)
         return error.VerifierGeometryMismatch;
 }
 
@@ -485,8 +487,20 @@ test "semantic pack: verifier maximum log authority is required and bounded" {
     var valid = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, "{\"verifier_max_log_degree_bound\":20}", .{});
     defer valid.deinit();
     try std.testing.expectEqual(@as(u32, 20), try verifierMaxLogDegreeBound(valid.value.object));
-    try validateVerifierGeometry(21, 20);
-    try std.testing.expectError(error.VerifierGeometryMismatch, validateVerifierGeometry(20, 20));
+    const projected = composition_bundle.Bundle{
+        .allocator = undefined,
+        .format_version = composition_bundle.projected_version,
+        .max_kernel_instructions = 1,
+        .total_constraints = 1,
+        .max_evaluation_log_size = 21,
+        .plan_hash = 1,
+        .components = &.{},
+    };
+    try validateVerifierGeometry(projected, 20);
+    try std.testing.expectError(
+        error.VerifierGeometryMismatch,
+        validateVerifierGeometry(projected, 19),
+    );
 }
 
 test "semantic pack: projection verifier geometry drift is rejected" {
