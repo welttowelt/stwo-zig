@@ -5,6 +5,7 @@ const qm31 = @import("../../core/fields/qm31.zig");
 const quotients = @import("../../core/pcs/quotients.zig");
 const pcs_utils = @import("../../core/pcs/utils.zig");
 const canonic = @import("../../core/poly/circle/canonic.zig");
+const column_geometry = @import("quotient_column_geometry.zig");
 const row_executor = @import("quotient_row_executor.zig");
 const tile_executor = @import("quotient_tile_executor.zig");
 const tile_sink = @import("quotient_tile_sink.zig");
@@ -28,11 +29,14 @@ const MIN_POSITIONS_PER_WORKER: usize = 256;
 /// Chosen to amortize function-call overhead while keeping chunk memory bounded.
 pub const LAZY_QUOTIENT_CHUNK_SIZE: usize = 1024;
 
-pub const QuotientOpsError = error{
-    ShapeMismatch,
-    InvalidColumnLogSize,
-    InvalidColumnLength,
-};
+pub const QuotientOpsError = column_geometry.QuotientOpsError;
+
+/// One committed trace/evaluation column.
+///
+/// Invariants:
+/// - `values.len == 2^log_size`.
+/// - `values` are in bit-reversed order, matching Stwo prover conventions.
+pub const ColumnEvaluation = column_geometry.ColumnEvaluation;
 
 const LiftingColumnView = row_executor.LiftingColumnView;
 const CombinedContributionView = row_executor.CombinedContributionView;
@@ -225,11 +229,11 @@ pub const LazyQuotientProvider = struct {
             }
         }
 
-        var column_log_sizes = try buildColumnLogSizes(allocator, columns);
+        var column_log_sizes = try column_geometry.buildColumnLogSizes(allocator, columns);
         defer column_log_sizes.deinitDeep(allocator);
 
-        const domain_size = try checkedPow2(lifting_log_size);
-        const flat_columns = try flattenColumnsBorrowed(allocator, columns);
+        const domain_size = try column_geometry.checkedPow2(lifting_log_size);
+        const flat_columns = try column_geometry.flattenColumnsBorrowed(allocator, columns);
         errdefer allocator.free(flat_columns);
 
         var prepared = try prepareQuotientContext(
@@ -641,43 +645,6 @@ pub const LazyQuotientProvider = struct {
     }
 };
 
-/// One committed trace/evaluation column.
-///
-/// Invariants:
-/// - `values.len == 2^log_size`.
-/// - `values` are in bit-reversed order, matching Stwo prover conventions.
-pub const ColumnEvaluation = struct {
-    log_size: u32,
-    values: []const M31,
-
-    pub fn validate(self: ColumnEvaluation) QuotientOpsError!void {
-        const expected_len = try checkedPow2(self.log_size);
-        if (self.values.len != expected_len) return QuotientOpsError.InvalidColumnLength;
-    }
-
-    /// Returns the value at lifted-domain position `position` where the maximal
-    /// domain has log size `lifting_log_size`.
-    pub fn valueAtLiftingPosition(
-        self: ColumnEvaluation,
-        lifting_log_size: u32,
-        position: usize,
-    ) QuotientOpsError!M31 {
-        try self.validate();
-        if (self.log_size > lifting_log_size) return QuotientOpsError.InvalidColumnLogSize;
-
-        const lifting_domain_size = try checkedPow2(lifting_log_size);
-        if (position >= lifting_domain_size) return QuotientOpsError.ShapeMismatch;
-
-        const log_shift = lifting_log_size - self.log_size;
-        if (log_shift >= @bitSizeOf(usize)) return QuotientOpsError.InvalidColumnLogSize;
-        const shift_amt: std.math.Log2Int(usize) = @intCast(log_shift + 1);
-
-        const idx = ((position >> shift_amt) << 1) + (position & 1);
-        if (idx >= self.values.len) return QuotientOpsError.InvalidColumnLength;
-        return self.values[idx];
-    }
-};
-
 /// Computes FRI quotient evaluations for all points in the lifted domain.
 ///
 /// Inputs:
@@ -732,11 +699,11 @@ fn computeFriQuotientsWithStrategy(
         }
     }
 
-    var column_log_sizes = try buildColumnLogSizes(allocator, columns);
+    var column_log_sizes = try column_geometry.buildColumnLogSizes(allocator, columns);
     defer column_log_sizes.deinitDeep(allocator);
 
-    const domain_size = try checkedPow2(lifting_log_size);
-    const flat_columns = try flattenColumnsBorrowed(allocator, columns);
+    const domain_size = try column_geometry.checkedPow2(lifting_log_size);
+    const flat_columns = try column_geometry.flattenColumnsBorrowed(allocator, columns);
     defer allocator.free(flat_columns);
 
     var prepared = try prepareQuotientContext(
@@ -788,26 +755,6 @@ fn computeFriQuotientsWithStrategy(
             else => return err,
         },
     };
-}
-
-fn checkedPow2(log_size: u32) QuotientOpsError!usize {
-    if (log_size >= @bitSizeOf(usize)) return QuotientOpsError.InvalidColumnLogSize;
-    return @as(usize, 1) << @intCast(log_size);
-}
-
-fn flattenColumnsBorrowed(
-    allocator: std.mem.Allocator,
-    columns: TreeVec([]const ColumnEvaluation),
-) ![]ColumnEvaluation {
-    const out = try allocator.alloc(ColumnEvaluation, countColumns(columns));
-    var at: usize = 0;
-    for (columns.items) |tree_columns| {
-        for (tree_columns) |column| {
-            out[at] = column;
-            at += 1;
-        }
-    }
-    return out;
 }
 
 fn prepareQuotientContext(
@@ -920,35 +867,6 @@ fn buildColumnContributionPlan(
     };
 }
 
-fn buildColumnLogSizes(
-    allocator: std.mem.Allocator,
-    columns: TreeVec([]const ColumnEvaluation),
-) !TreeVec([]u32) {
-    const out = try allocator.alloc([]u32, columns.items.len);
-    errdefer allocator.free(out);
-
-    var initialized: usize = 0;
-    errdefer {
-        for (out[0..initialized]) |tree_sizes| allocator.free(tree_sizes);
-    }
-
-    for (columns.items, 0..) |tree_columns, tree_idx| {
-        out[tree_idx] = try allocator.alloc(u32, tree_columns.len);
-        initialized += 1;
-        for (tree_columns, 0..) |column, col_idx| {
-            out[tree_idx][col_idx] = column.log_size;
-        }
-    }
-
-    return TreeVec([]u32).initOwned(out);
-}
-
-fn countColumns(columns: TreeVec([]const ColumnEvaluation)) usize {
-    var total: usize = 0;
-    for (columns.items) |tree_columns| total += tree_columns.len;
-    return total;
-}
-
 fn chooseQuotientConstructionStrategy(
     active_column_count: usize,
     domain_size: usize,
@@ -997,7 +915,7 @@ fn markNonzeroColumnsAndSamples(
     columns: TreeVec([]const ColumnEvaluation),
     sampled_values: TreeVec([][]QM31),
 ) ![]bool {
-    const nonzero = try allocator.alloc(bool, countColumns(columns));
+    const nonzero = try allocator.alloc(bool, column_geometry.countColumns(columns));
     errdefer allocator.free(nonzero);
 
     var flat_idx: usize = 0;
@@ -1109,7 +1027,7 @@ fn materializeActiveLiftedColumns(
     active_column_indices: []const usize,
     lifting_log_size: u32,
 ) !MaterializedLiftedColumns {
-    const domain_size = try checkedPow2(lifting_log_size);
+    const domain_size = try column_geometry.checkedPow2(lifting_log_size);
     const total_cells = std.math.mul(usize, active_column_indices.len, domain_size) catch return QuotientOpsError.ShapeMismatch;
     const storage = try allocator.alloc(M31, total_cells);
     errdefer allocator.free(storage);
