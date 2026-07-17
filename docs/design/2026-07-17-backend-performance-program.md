@@ -143,6 +143,19 @@ headline eligibility for all rows. The pinned Rust Stwo verifier accepted all si
 artifacts. Detailed ownership, failure, memory, and A/B evidence is in
 `docs/design/2026-07-17-prover-session-twiddles.md`.
 
+### Deterministic parallel proof of work
+
+Longer repeated sampling exposed a pre-existing source of canonical-proof variance: the parallel
+Blake2s proof-of-work grinder returned the first worker result, so scheduling selected the nonce and
+therefore the later FRI query set. Commit `9c52a9d` makes workers converge on the global minimum
+valid nonce and safely completes residue classes whose thread failed to spawn.
+
+The post-fix 101-sample CPU and Metal rows were byte-identical, CPU/Metal proof bytes matched, and
+all six clean-matrix artifacts passed the pinned Rust verifier. The semantic change stayed within
+the performance gates; its worst observed movement was -1.84 percent on Metal `log14x32`. Exact
+proofs now use the canonical digests recorded in
+`docs/design/2026-07-17-deterministic-parallel-pow.md`.
+
 ## Benchmark Matrix
 
 The checked-in driver will use stable workload identifiers and immutable protocol settings.
