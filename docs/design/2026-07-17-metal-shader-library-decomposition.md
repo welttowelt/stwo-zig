@@ -69,23 +69,28 @@ target architecture and must not be described as an AOT shader library yet:
 - the Merkle-support increment moves the commitment and sparse-opening lifted-index mappings into
   guarded `merkle.metal` without merging their existing arithmetic forms. No Blake2s state,
   exported commitment kernel, or decommitment entry point moves with them;
+- the decommit-support increment moves query canonicalization and mapping, wide arena-offset
+  decoding, sorted membership, bounded assembly reservation, hash copying, and sparse trace-node
+  lookup intact into guarded `decommit.metal`. All ten exported decommitment entry points remain in
+  the legacy unit;
 - the Felt252/EC witness-support increment extracts guarded `felt252.metal`, `ec.metal`,
   `witness_abi.metal`, `witness_tables.metal`, and `witness_deductions.metal` headers. Both the
   deterministic core amalgamation and generated witness programs now consume these explicit
   owners; generated witness code no longer embeds or slices `kernels.metal`, and codegen support
   version 6 owns the resulting cache-identity change;
-- the legacy file is now 2,729 lines. Its 90 exported entry points, the runtime lookup set, and the
+- the legacy file is now 2,657 lines. Its 90 exported entry points, the runtime lookup set, and the
   one-library source-JIT boundary remain unchanged;
 - Stage 0 remains incomplete until every argument contract is represented in the manifest, Metal
   reflection validates it, and cold compilation/PSO/library counts are captured;
-- Stage 1 remains incomplete: decommit support still belongs to `kernels.metal`; circle, Merkle,
-  Felt252, EC, and generated-witness support now have explicit guarded owners;
+- Stage 1 support-header decomposition is complete: shared circle, Merkle, decommit, Felt252, EC,
+  and generated-witness support have explicit guarded owners. Protocol-family kernels remain in
+  the legacy unit until their later family-move stages;
 - AOT AIR compilation/linking and authenticated metallib loading remain Stage 5 work. No current
   source extraction removes runtime compilation or changes warm proving speed.
 
-The next support-header slice is the remaining decommit boundary. Protocol
-families must not move ahead of their Stage 1 support-header boundary merely because the source-JIT
-amalgamation can resolve helpers by concatenation order.
+The Stage 1 support-header boundary is complete. Protocol families can now move in Stage 2 slices,
+but each move still requires exact export, ABI, runtime-lookup, and dispatch preservation; source-JIT
+amalgamation resolving helpers by concatenation order is not sufficient evidence by itself.
 
 The problem is wider than file length:
 
@@ -93,7 +98,8 @@ The problem is wider than file length:
   it for every new core runtime before eagerly resolving the core pipelines;
 - generated witness support is now header-owned, versioned, and independent of legacy kernel-name
   placement; the same headers also feed the deterministic core amalgamation;
-- decommit helpers still have no explicit public/private shader boundary;
+- shared decommit helpers now have an explicit guarded owner while exported decommit kernels remain
+  in the legacy family unit;
 - `runtime.m` repeats string literals for kernel lookup rather than consuming an authoritative ABI
   manifest;
 - an edit to one family changes the source identity of every core pipeline and invalidates the

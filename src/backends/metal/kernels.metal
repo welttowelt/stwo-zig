@@ -4,6 +4,7 @@ using namespace metal;
 #ifndef STWO_ZIG_AMALGAMATED
 #include "stwo_zig/blake2s.metal"
 #include "stwo_zig/merkle.metal"
+#include "stwo_zig/decommit.metal"
 #include "stwo_zig/m31.metal"
 #include "stwo_zig/extension_fields.metal"
 #include "stwo_zig/circle.metal"
@@ -2247,22 +2248,6 @@ kernel void stwo_zig_fri_final_line_resident(
     arena[degree_error] = (c1.a | c1.b | c1.c | c1.d) != 0u ? 1u : 0u;
 }
 
-inline uint decommit_sort_unique(device uint *values, uint count) {
-    for (uint i = 1u; i < count; ++i) {
-        uint value = values[i], j = i;
-        while (j != 0u && values[j - 1u] > value) {
-            values[j] = values[j - 1u];
-            --j;
-        }
-        values[j] = value;
-    }
-    uint unique = 0u;
-    for (uint i = 0u; i < count; ++i) {
-        if (unique == 0u || values[i] != values[unique - 1u]) values[unique++] = values[i];
-    }
-    return unique;
-}
-
 /// Canonicalizes the transcript's raw query positions once. Query counts are
 /// protocol constants, so a serial insertion sort is faster than allocating a
 /// device radix-sort workspace and keeps the prepared graph pointer-stable.
@@ -2337,11 +2322,6 @@ kernel void stwo_zig_decommit_prepare_fri_queries_resident(
     arena[walk_count_base] = decommit_sort_unique(arena + walk_base, out);
 }
 
-inline uint decommit_map_query_log(uint position, uint source_log, uint target_log) {
-    if (source_log < target_log) return ((position >> 1u) << (target_log - source_log + 1u)) | (position & 1u);
-    return ((position >> (source_log - target_log + 1u)) << 1u) | (position & 1u);
-}
-
 kernel void stwo_zig_decommit_prepare_trace_queries_resident(
     device uint *arena [[buffer(0)]],
     constant ulong &unique_base [[buffer(1)]],
@@ -2376,15 +2356,6 @@ kernel void stwo_zig_decommit_prepare_trace_queries_resident(
     }
     arena[leaf_count_base] = decommit_sort_unique(arena + leaf_indices_base, leaves);
     (void)leaf_log;
-}
-
-inline ulong decommit_join_word_offset(uint low, uint high) {
-    return ulong(low) | (ulong(high) << 32u);
-}
-
-inline ulong decommit_wide_word_offset(device uint *arena, ulong base, uint index) {
-    ulong entry = base + 2ul * ulong(index);
-    return decommit_join_word_offset(arena[entry], arena[entry + 1u]);
 }
 
 kernel void stwo_zig_decommit_gather_trace_values_resident(
@@ -2428,30 +2399,6 @@ kernel void stwo_zig_decommit_gather_fri_values_resident(
         uint value = arena[source + ulong(position)];
         arena[values_base + 4u * index + coordinate] = value < 0x7fffffffu ? value : value % 0x7fffffffu;
     }
-}
-
-inline bool decommit_contains_sorted(device uint *arena, ulong base, uint count, uint target) {
-    uint lo = 0u, hi = count;
-    while (lo < hi) {
-        uint mid = lo + ((hi - lo) >> 1u);
-        if (arena[base + mid] < target) lo = mid + 1u; else hi = mid;
-    }
-    return lo < count && arena[base + lo] == target;
-}
-
-inline bool decommit_reserve(device uint *arena, ulong assembly, uint capacity, uint count, thread uint &offset) {
-    uint cursor = arena[assembly + 7u];
-    if (cursor > capacity || count > capacity - cursor) {
-        arena[assembly + 7u] = 0u;
-        return false;
-    }
-    offset = cursor;
-    arena[assembly + 7u] = cursor + count;
-    return true;
-}
-
-inline void decommit_copy_hash(device uint *arena, ulong destination, ulong source) {
-    for (uint word = 0u; word < 8u; ++word) arena[destination + word] = arena[source + ulong(word)];
 }
 
 kernel void stwo_zig_decommit_sparse_parent_resident(
@@ -2549,25 +2496,6 @@ kernel void stwo_zig_decommit_sparse_leaf_group_resident(
         blake2s_compress(state, message, total_bytes, true);
     }
     for (uint i = 0u; i < 8u; ++i) arena[output_hashes + sparse_index * 8u + i] = state[i];
-}
-
-inline ulong decommit_trace_node_hash(
-    device uint *arena, uint level, uint index, uint leaf_log, uint first_retained_log,
-    ulong retained_offsets, ulong sparse_indices, ulong sparse_hashes,
-    ulong sparse_offsets, ulong sparse_counts, uint sparse_level_count
-) {
-    if (level <= first_retained_log)
-        return decommit_wide_word_offset(arena, retained_offsets, level) + ulong(index) * 8ul;
-    uint distance = leaf_log - level;
-    if (distance >= sparse_level_count) return 0xfffffffffffffffful;
-    uint offset = arena[sparse_offsets + distance], lo = 0u, hi = arena[sparse_counts + distance];
-    while (lo < hi) {
-        uint mid = lo + ((hi - lo) >> 1u), current = arena[sparse_indices + offset + mid];
-        if (current < index) lo = mid + 1u; else hi = mid;
-    }
-    if (lo >= arena[sparse_counts + distance] || arena[sparse_indices + offset + lo] != index)
-        return 0xfffffffffffffffful;
-    return sparse_hashes + ulong(offset + lo) * 8ul;
 }
 
 kernel void stwo_zig_decommit_assemble_trace_resident(
