@@ -6,6 +6,7 @@ const report_mod = @import("report.zig");
 const statistics = @import("statistics.zig");
 
 const wide_fibonacci = stwo.examples.wide_fibonacci;
+const examples_artifact = stwo.interop.examples_artifact;
 const proof_wire = stwo.interop.proof_wire;
 const stage_profile = stwo.prover.stage_profile;
 const M31_PACK_WIDTH = stwo.core.fields.m31.PACK_WIDTH;
@@ -207,6 +208,19 @@ fn execute(
         cell_rates[index] = sample.committed_mcells_per_second;
     }
 
+    const proof_artifact_binding: ?report_mod.ProofArtifactBinding = if (args.proof_artifact_out) |path| blk: {
+        try writeProofArtifact(allocator, path, pcs_config, statement, canonical_proof.?);
+        break :blk .{
+            .path = path,
+            .sample_index = 0,
+            .bytes = proof_records[0].bytes,
+            .sha256 = proof_records[0].sha256,
+            .artifact_schema_version = examples_artifact.SCHEMA_VERSION,
+            .upstream_commit = examples_artifact.UPSTREAM_COMMIT,
+            .exchange_mode = examples_artifact.EXCHANGE_MODE,
+        };
+    } else null;
+
     const workload_digest = workloadDigest(args, protocol_parameters);
     var workload_digest_hex = std.fmt.bytesToHex(workload_digest, .lower);
 
@@ -282,6 +296,7 @@ fn execute(
             .samples = proof_records,
             .verified_samples = args.samples,
             .all_samples_byte_identical = all_samples_byte_identical,
+            .artifact = proof_artifact_binding,
         },
         .backend_telemetry = if (backend == .metal_hybrid) .{
             .post_warmup_pipeline_cache = post_warmup_pipeline_cache.?,
@@ -316,6 +331,28 @@ fn execute(
     const stdout = std.fs.File.stdout().deprecatedWriter();
     try stdout.writeAll(encoded);
     try stdout.writeByte('\n');
+}
+
+fn writeProofArtifact(
+    allocator: std.mem.Allocator,
+    path: []const u8,
+    pcs_config: stwo.core.pcs.PcsConfig,
+    statement: wide_fibonacci.Statement,
+    canonical_proof: []const u8,
+) !void {
+    const proof_bytes_hex = try examples_artifact.bytesToHexAlloc(allocator, canonical_proof);
+    defer allocator.free(proof_bytes_hex);
+    try examples_artifact.writeArtifact(allocator, path, .{
+        .schema_version = examples_artifact.SCHEMA_VERSION,
+        .upstream_commit = examples_artifact.UPSTREAM_COMMIT,
+        .exchange_mode = examples_artifact.EXCHANGE_MODE,
+        .generator = "zig",
+        .example = "wide_fibonacci",
+        .prove_mode = "prove",
+        .pcs_config = examples_artifact.pcsConfigToWire(pcs_config),
+        .wide_fibonacci_statement = examples_artifact.wideFibonacciStatementToWire(statement),
+        .proof_bytes_hex = proof_bytes_hex,
+    });
 }
 
 fn runGatedSample(
@@ -599,4 +636,34 @@ test "native proof runner: every Metal request needs a dispatch" {
     try std.testing.expect(backendTelemetryValid(.metal_hybrid, &.{valid}, &.{valid}));
     try std.testing.expect(!backendTelemetryValid(.metal_hybrid, &.{valid}, &.{invalid}));
     try std.testing.expect(backendTelemetryValid(.cpu_native, &.{}, &.{}));
+}
+
+test "native proof runner: oracle artifact wraps exact canonical bytes" {
+    var temporary = std.testing.tmpDir(.{});
+    defer temporary.cleanup();
+    const root = try temporary.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(root);
+    const path = try std.fs.path.join(std.testing.allocator, &.{ root, "proof.json" });
+    defer std.testing.allocator.free(path);
+
+    const pcs_config = stwo.core.pcs.PcsConfig{
+        .pow_bits = 10,
+        .fri_config = try stwo.core.fri.FriConfig.init(0, 1, 3),
+    };
+    const statement = wide_fibonacci.Statement{ .log_n_rows = 12, .sequence_len = 16 };
+    const canonical = [_]u8{ 0, 1, 2, 127, 128, 255 };
+    try writeProofArtifact(std.testing.allocator, path, pcs_config, statement, &canonical);
+
+    var parsed = try examples_artifact.readArtifact(std.testing.allocator, path);
+    defer parsed.deinit();
+    const artifact = parsed.value;
+    try std.testing.expectEqualStrings(examples_artifact.UPSTREAM_COMMIT, artifact.upstream_commit);
+    try std.testing.expectEqualStrings("zig", artifact.generator);
+    try std.testing.expectEqualStrings("wide_fibonacci", artifact.example);
+    try std.testing.expectEqual(@as(u32, 10), artifact.pcs_config.pow_bits);
+    try std.testing.expectEqual(@as(u32, 12), artifact.wide_fibonacci_statement.?.log_n_rows);
+    try std.testing.expectEqual(@as(u32, 16), artifact.wide_fibonacci_statement.?.sequence_len);
+    const decoded = try examples_artifact.hexToBytesAlloc(std.testing.allocator, artifact.proof_bytes_hex);
+    defer std.testing.allocator.free(decoded);
+    try std.testing.expectEqualSlices(u8, &canonical, decoded);
 }

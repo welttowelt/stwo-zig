@@ -48,10 +48,21 @@ pub const CanonicalProof = struct {
     sha256: []const u8,
 };
 
+pub const ProofArtifactBinding = struct {
+    path: []const u8,
+    sample_index: usize,
+    bytes: usize,
+    sha256: []const u8,
+    artifact_schema_version: u32,
+    upstream_commit: []const u8,
+    exchange_mode: []const u8,
+};
+
 pub const ProofEvidence = struct {
     samples: []const CanonicalProof,
     verified_samples: usize,
     all_samples_byte_identical: bool,
+    artifact: ?ProofArtifactBinding = null,
 };
 
 pub const BackendCounterDelta = struct {
@@ -238,7 +249,33 @@ test "native proof report: diagnostic evidence cannot populate headline rates" {
     try std.testing.expect(throughput.get("headline_row_mhz").? == .null);
     try std.testing.expect(throughput.get("diagnostic_row_mhz").? == .object);
     try std.testing.expect(object.get("backend_telemetry").? == .null);
+    try std.testing.expect(object.get("proof").?.object.get("artifact").? == .null);
     try std.testing.expectEqual(@as(usize, 1), object.get("timing").?.object.get("stage_profiles").?.array.items.len);
+}
+
+test "native proof report: proof artifact binds sample zero" {
+    const evidence = ProofEvidence{
+        .samples = &.{.{ .bytes = 42, .sha256 = "abc" }},
+        .verified_samples = 1,
+        .all_samples_byte_identical = true,
+        .artifact = .{
+            .path = "/tmp/proof.json",
+            .sample_index = 0,
+            .bytes = 42,
+            .sha256 = "abc",
+            .artifact_schema_version = 1,
+            .upstream_commit = "pinned",
+            .exchange_mode = "proof_exchange_json_wire_v1",
+        },
+    };
+    const encoded = try std.json.Stringify.valueAlloc(std.testing.allocator, evidence, .{});
+    defer std.testing.allocator.free(encoded);
+    var parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, encoded, .{});
+    defer parsed.deinit();
+    const artifact = parsed.value.object.get("artifact").?.object;
+    try std.testing.expectEqual(@as(i64, 0), artifact.get("sample_index").?.integer);
+    try std.testing.expectEqualStrings("/tmp/proof.json", artifact.get("path").?.string);
+    try std.testing.expectEqualStrings("abc", artifact.get("sha256").?.string);
 }
 
 test "native proof report: Metal telemetry includes post-warmup cache evidence" {

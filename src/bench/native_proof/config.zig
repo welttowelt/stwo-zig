@@ -38,6 +38,7 @@ pub const Args = struct {
     warmups: usize = 1,
     samples: usize = 5,
     profiled: bool = false,
+    proof_artifact_out: ?[]const u8 = null,
 
     pub fn evidenceClass(self: Args, meets_sampling_contract: bool) EvidenceClass {
         if (self.profiled) return .profiled_diagnostic;
@@ -73,6 +74,8 @@ pub fn parseArgs(argv: []const []const u8) !ParseResult {
             result.warmups = try std.fmt.parseInt(usize, value, 10);
         } else if (std.mem.eql(u8, arg, "--samples")) {
             result.samples = try std.fmt.parseInt(usize, value, 10);
+        } else if (std.mem.eql(u8, arg, "--proof-artifact-out")) {
+            result.proof_artifact_out = value;
         } else {
             return error.UnknownArgument;
         }
@@ -86,6 +89,9 @@ fn validate(args: Args) !void {
     if (args.sequence_len < 2) return error.InvalidSequenceLength;
     if (args.warmups > 100) return error.TooManyWarmups;
     if (args.samples == 0 or args.samples > 101) return error.InvalidSampleCount;
+    if (args.proof_artifact_out) |path| {
+        if (path.len == 0) return error.InvalidProofArtifactPath;
+    }
 }
 
 pub fn writeUsage(writer: anytype) !void {
@@ -97,6 +103,8 @@ pub fn writeUsage(writer: anytype) !void {
         \\  --protocol NAME    smoke or functional (default: functional)
         \\  --warmups N        Verified untimed warmups (default: 1)
         \\  --samples N        Verified timed samples (default: 5)
+        \\  --proof-artifact-out PATH
+        \\                     Write sample 0 for pinned Rust verification
         \\  --profiled         Diagnostic instrumentation; never headline MHz
         \\  -h, --help         Show this help
         \\
@@ -105,8 +113,9 @@ pub fn writeUsage(writer: anytype) !void {
 
 test "native proof config: parses a complete benchmark request" {
     const parsed = try parseArgs(&.{
-        "--log-rows", "8", "--sequence-len", "32", "--protocol", "smoke",
-        "--warmups",  "0", "--samples",      "5",  "--profiled",
+        "--log-rows", "8", "--sequence-len", "32", "--protocol",           "smoke",
+        "--warmups",  "0", "--samples",      "5",  "--proof-artifact-out", "/tmp/proof.json",
+        "--profiled",
     });
     const args = parsed.run;
     try std.testing.expectEqual(@as(u32, 8), args.log_rows);
@@ -114,6 +123,7 @@ test "native proof config: parses a complete benchmark request" {
     try std.testing.expectEqual(Protocol.smoke, args.protocol);
     try std.testing.expectEqual(@as(usize, 0), args.warmups);
     try std.testing.expectEqual(@as(usize, 5), args.samples);
+    try std.testing.expectEqualStrings("/tmp/proof.json", args.proof_artifact_out.?);
     try std.testing.expectEqual(EvidenceClass.profiled_diagnostic, args.evidenceClass(true));
 }
 
@@ -123,9 +133,11 @@ test "native proof config: rejects invalid and incomplete requests" {
     try std.testing.expectError(error.InvalidProtocol, parseArgs(&.{ "--protocol", "production" }));
     try std.testing.expectError(error.MissingArgumentValue, parseArgs(&.{"--log-rows"}));
     try std.testing.expectError(error.UnknownArgument, parseArgs(&.{ "--other", "1" }));
+    try std.testing.expectError(error.InvalidProofArtifactPath, parseArgs(&.{ "--proof-artifact-out", "" }));
 }
 
 test "native proof config: undersampled unprofiled runs are correctness-only" {
     const args = (try parseArgs(&.{ "--warmups", "0", "--samples", "1" })).run;
+    try std.testing.expect(args.proof_artifact_out == null);
     try std.testing.expectEqual(EvidenceClass.correctness_only, args.evidenceClass(false));
 }
