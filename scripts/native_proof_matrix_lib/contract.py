@@ -93,6 +93,8 @@ TELEMETRY_DELTA_KEYS = {
 # from rejecting an otherwise exact decomposition.
 REQUEST_PHASE_ABSOLUTE_TOLERANCE_SECONDS = 1e-9
 REQUEST_PHASE_RELATIVE_TOLERANCE = 1e-12
+ORDERED_PROVE_DRIFT_MIN_SAMPLES = 5
+ORDERED_PROVE_DRIFT_MAX_RELATIVE = 0.05
 M31_MODULUS = (1 << 31) - 1
 
 
@@ -529,6 +531,17 @@ def headline_blockers(report: dict[str, Any], lane: str) -> list[str]:
     return blockers
 
 
+def ordered_prove_time_drift(samples: list[dict[str, Any]]) -> float | None:
+    """Compare early and late prove-time medians without discarding sample order."""
+    if len(samples) < ORDERED_PROVE_DRIFT_MIN_SAMPLES:
+        return None
+    prove_seconds = [float(sample["prove_seconds"]) for sample in samples]
+    window = max(2, len(prove_seconds) // 3)
+    first = statistics.median(prove_seconds[:window])
+    last = statistics.median(prove_seconds[-window:])
+    return abs(first - last) / min(first, last)
+
+
 def validate_report(
     report: dict[str, Any], lane: str, workload: Workload, args: argparse.Namespace
 ) -> tuple[tuple[str, int], list[str]]:
@@ -686,6 +699,13 @@ def validate_report(
             raise MatrixError(f"{lane}.throughput.{diagnostic_field} must be null")
 
     blockers = headline_blockers(report, lane)
+    ordered_drift = ordered_prove_time_drift(samples)
+    if (
+        headline_eligible
+        and ordered_drift is not None
+        and ordered_drift > ORDERED_PROVE_DRIFT_MAX_RELATIVE
+    ):
+        blockers.append(f"{lane}_ordered_prove_time_drift")
     return fingerprint, blockers
 
 

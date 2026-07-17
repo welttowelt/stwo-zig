@@ -7,6 +7,7 @@ import hashlib
 import importlib.util
 import json
 import io
+import statistics
 import subprocess
 import tempfile
 import unittest
@@ -47,6 +48,38 @@ FUNCTIONAL_PROTOCOL = {
 
 def summary(value: float) -> dict[str, float]:
     return {"median": value, "min": value, "max": value, "mad": 0.0}
+
+
+def values_summary(values: list[float]) -> dict[str, float]:
+    median = statistics.median(values)
+    return {
+        "median": median,
+        "min": min(values),
+        "max": max(values),
+        "mad": statistics.median(abs(value - median) for value in values),
+    }
+
+
+def set_prove_times(
+    report: dict[str, object], workload: MODULE.Workload, values: list[float]
+) -> None:
+    samples = report["timing"]["samples"]
+    for sample, prove_seconds in zip(samples, values, strict=True):
+        sample["prove_seconds"] = prove_seconds
+        sample["native_mhz"] = workload.native_units / prove_seconds / 1_000_000
+        sample["trace_row_mhz"] = workload.trace_rows / prove_seconds / 1_000_000
+        sample["committed_mcells_per_second"] = (
+            workload.committed_trace_cells / prove_seconds / 1_000_000
+        )
+    report["timing"]["prove_seconds"] = values_summary(values)
+    for summary_field, sample_field in (
+        ("headline_native_mhz", "native_mhz"),
+        ("headline_trace_row_mhz", "trace_row_mhz"),
+        ("headline_committed_mcells_per_second", "committed_mcells_per_second"),
+    ):
+        report["throughput"][summary_field] = values_summary(
+            [sample[sample_field] for sample in samples]
+        )
 
 
 def pipeline_cache() -> dict[str, int | float]:
@@ -549,6 +582,21 @@ class NativeProofMatrixTests(unittest.TestCase):
                     workload,
                     args(samples=samples, warmups=warmups),
                 )
+
+    def test_ordered_prove_time_drift_blocks_unstable_headline_data(self) -> None:
+        workload = MODULE.Workload.wide_fibonacci(10, 8)
+        stable = make_report("cpu", workload)
+        _, stable_blockers = MODULE.validate_report(
+            stable, "cpu", workload, args()
+        )
+        self.assertNotIn("cpu_ordered_prove_time_drift", stable_blockers)
+
+        drifting = make_report("cpu", workload)
+        set_prove_times(drifting, workload, [2.2, 2.2, 2.0, 2.0, 2.0])
+        _, drifting_blockers = MODULE.validate_report(
+            drifting, "cpu", workload, args()
+        )
+        self.assertIn("cpu_ordered_prove_time_drift", drifting_blockers)
 
     def test_descriptor_session_protocol_and_telemetry_fail_closed(self) -> None:
         workload = MODULE.Workload.xor(10, 2, 3)
