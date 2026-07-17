@@ -220,18 +220,3 @@ test "Metal shared runtime policy identity matching is exact" {
     }, aot));
     try std.testing.expect(!policyMatchesIdentity(.source_jit, aot));
 }
-
-test "Metal shared runtime rejects shutdown while resident resources are live" {
-    const before = lifecycleSnapshot().live_resident_resources;
-    retainResidentResource();
-    defer releaseResidentResource();
-
-    try std.testing.expectEqual(before + 1, lifecycleSnapshot().live_resident_resources);
-    try std.testing.expectError(error.ResidentResourcesLive, shutdown());
-}
-
-test "Metal shared runtime rejects shutdown while a call holds the read lock" {
-    runtime_lock.lockShared();
-    defer runtime_lock.unlockShared();
-    try std.testing.expectError(error.RuntimeBusy, shutdown());
-}

@@ -1,5 +1,6 @@
 const std = @import("std");
 const metal = @import("../../../backends/metal/runtime.zig");
+const shared_runtime = @import("../../../backends/metal/shared_runtime.zig");
 
 extern fn stwo_zig_metal_eval_prepare_library(
     runtime: *anyopaque,
@@ -103,6 +104,32 @@ fn expectNoArchiveTemporaries(allocator: std.mem.Allocator, cache: []const u8) !
     while (try iterator.next()) |entry| {
         try std.testing.expect(!std.mem.startsWith(u8, entry.name, ".stwo-zig-"));
     }
+}
+
+test "metal: shared runtime rejects shutdown while resident resources are live" {
+    const before = shared_runtime.lifecycleSnapshot().live_resident_resources;
+    shared_runtime.retainResidentResource();
+    defer shared_runtime.releaseResidentResource();
+
+    try std.testing.expectEqual(
+        before + 1,
+        shared_runtime.lifecycleSnapshot().live_resident_resources,
+    );
+    try std.testing.expectError(error.ResidentResourcesLive, shared_runtime.shutdown());
+}
+
+test "metal: shared runtime rejects shutdown while a call holds a lease" {
+    try shared_runtime.initialize(std.testing.allocator, .source_jit);
+    var lease = try shared_runtime.acquireExisting();
+    var lease_active = true;
+    defer {
+        if (lease_active) lease.deinit();
+        shared_runtime.shutdown() catch unreachable;
+    }
+
+    try std.testing.expectError(error.RuntimeBusy, shared_runtime.shutdown());
+    lease.deinit();
+    lease_active = false;
 }
 
 test "metal: dynamic library and pipeline caches are bounded across teardown" {

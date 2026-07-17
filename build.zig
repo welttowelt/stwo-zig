@@ -258,7 +258,7 @@ pub fn build(b: *std.Build) void {
     }
 
     // Expanded compile/test graph gate.
-    const deep_gate_cmd = b.addSystemCommand(&.{ "zig", "test", "src/stwo_deep.zig" });
+    const deep_gate_cmd = b.addSystemCommand(&.{ "zig", "test", "src/stwo_deep.zig", zig_optimize_arg });
     const deep_gate_step = b.step("deep-gate", "Run expanded deep graph coverage");
     deep_gate_step.dependOn(&deep_gate_cmd.step);
 

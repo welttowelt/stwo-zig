@@ -36,6 +36,12 @@ class CiTests(unittest.TestCase):
             'b.addSystemCommand(&.{ "zig", "test", "src/stwo_deep.zig", zig_optimize_arg })',
             build,
         )
+        self.assertEqual(
+            2,
+            build.count(
+                'b.addSystemCommand(&.{ "zig", "test", "src/stwo_deep.zig", zig_optimize_arg })'
+            ),
+        )
 
     def test_hosted_metal_gate_accepts_aot_core_and_compiles_broader_graph(self) -> None:
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")

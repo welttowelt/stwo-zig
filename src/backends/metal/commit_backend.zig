@@ -580,12 +580,14 @@ pub const MetalCommitBackend = struct {
 test "Metal commit backend exposes telemetry without constructing a runtime" {
     _ = MetalCommitBackend.TelemetrySnapshot;
     _ = MetalCommitBackend.TelemetryDelta;
-    _ = &MetalCommitBackend.telemetrySnapshot;
-    _ = &MetalCommitBackend.recordSampledValueFallback;
     _ = MetalCommitBackend.RuntimeLifecycleSnapshot;
     _ = MetalCommitBackend.ShutdownError;
-    _ = &MetalCommitBackend.runtimeLifecycleSnapshot;
-    _ = &MetalCommitBackend.shutdown;
+    comptime {
+        _ = @TypeOf(MetalCommitBackend.telemetrySnapshot);
+        _ = @TypeOf(MetalCommitBackend.recordSampledValueFallback);
+        _ = @TypeOf(MetalCommitBackend.runtimeLifecycleSnapshot);
+        _ = @TypeOf(MetalCommitBackend.shutdown);
+    }
 
     const lifecycle = MetalCommitBackend.runtimeLifecycleSnapshot();
     try std.testing.expect(lifecycle.initialization_count >= lifecycle.shutdown_count);
