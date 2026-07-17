@@ -16,9 +16,10 @@ GPU synchronization. The resident arena is a shared lifetime mechanism, not a re
 to own every proving stage.
 
 This document is the required decomposition plan for the existing baseline entry
-`file-size:integrations/cairo_metal/arena_binding.zig`. It is intentionally parallel to, not part
-of, the immediate Stwo-Cairo parity change. In particular, the multiplicity-feed code must not be
-moved while its runtime geometry is being corrected.
+`file-size:integrations/cairo_metal/arena_binding.zig`. It was intentionally parallel to, not part
+of, the immediate Stwo-Cairo parity change. The multiplicity-feed code remained in place until its
+runtime geometry was corrected and accepted by the Rust-oracle parity gate; the ledger below
+records its later behavior-preserving move.
 
 ## Audit
 
@@ -62,7 +63,7 @@ decommitment, filesystem, diagnostics, and field-arithmetic context.
 
 ### Migration ledger (2026-07-17)
 
-The audit table above is the historical pre-migration inventory. The live facade is now 6,604
+The audit table above is the historical pre-migration inventory. The live facade is now 6,336
 lines and delegates these accepted ownership slices without changing its public names:
 
 - `resident/errors.zig` owns the stable Cairo resident integration error set;
@@ -72,6 +73,8 @@ lines and delegates these accepted ownership slices without changing its public 
   fixed-table-selective restore;
 - `resident/lookups/fixed_tables.zig` owns fixed-table recipe preparation and active schedule
   indexing.
+- `resident/lookups/multiplicity_feeds.zig` owns feed lifecycle, authenticated row/destination
+  geometry, destination routing, and prepared batch construction.
 
 Retained-Merkle spill/restore deliberately remains with the facade until commitment ordering and
 storage move together. It shares canonical tree-purpose ordering with proof binding and commitment
@@ -202,10 +205,10 @@ change.
 | --- | --- |
 | `resident/relations.zig` | `countFixedRelationTraces`, `relationTraceUsesRowEnabler`, `RelationComponentTelemetry`, `RelationComponentOperation`, `PreparedRelationComponents`, `BoundRelationComponent`, `canonicalClaimedSumBindings`, `validateClaimedSumOrder`, `bindRelationComponent`, `prepareRelationComponentBatch`, `prepareRelations`, `prepareRelationComponents`, `logRelationDiagnostics` |
 | `resident/preprocessed/coefficients.zig` | `populateExecutionTables`, `populatePreprocessedCoefficients`, `PreprocessedCoefficientLoad`, `populateUnreconstructedPreprocessedCoefficients`, `PreprocessedCoefficientLoadMode`, `populatePreprocessedCoefficientsMode`, `canonicalizeSimdCoefficientBlocks`, `evaluatePreprocessedCoefficients` |
-| `resident/preprocessed/storage.zig` | `spillPreprocessedEvaluations`, `spillRetainedMerkleLayers`, `restoreRetainedMerkleLayers`, `restorePreprocessedEvaluations`, `restoreFixedTablePreprocessedEvaluations` |
+| `resident/preprocessed/storage.zig` | `spillPreprocessedEvaluations`, `restorePreprocessedEvaluations`, `restoreFixedTablePreprocessedEvaluations` |
 | `resident/twiddles.zig` | `populateProtocolTwiddles`, `populateForwardTwiddles`, `populateForwardTwiddleBinding`, `twiddleBankBinding`, `populateNamedInverseTwiddles`, `populateQuotientInverseTwiddles`, `populateTwiddlePair`, `populateInverseTwiddles`, `populateSplitSubdomainInverseTwiddles`, `twiddleBindingForLog`, `twiddleOffsetForLog` |
-| `resident/lookups/fixed_tables.zig` | `prepareFixedTableBatch`, `fixedLookupIndex`, `clearFixedMultiplicities`, `multiplicityDestination` |
-| `resident/lookups/multiplicity_feeds.zig` | `MultiplicityFeedBatch`, `runtimeFeedRowCount`, `runtimeFeedDestinationColumnBytes`, `recordFeedDestinationWidth`, `aotBindingFitsNarrowAddress`, `recordAotHighBinding`, `prepareMultiplicityFeedBatch` |
+| `resident/lookups/fixed_tables.zig` | `prepareFixedTableBatch`, `fixedLookupIndex`, `clearFixedMultiplicities` |
+| `resident/lookups/multiplicity_feeds.zig` | `MultiplicityFeedBatch`, `runtimeFeedRowCount`, `runtimeFeedDestinationColumnBytes`, `recordFeedDestinationWidth`, `prepareMultiplicityFeedBatch`, `multiplicityDestination` |
 | `resident/interpolation/batches.zig` | `RecordedBaseInterpolationBatch`, `FixedBaseTraceOperation`, `NativeBaseInterpolationBatch`, `prepareRecordedBaseInterpolation`, `prepareNativeBaseInterpolation` |
 | `resident/interpolation/columns.zig` | `prepareComponentInterpolation`, `prepareComponentInterpolationGroups`, `prepareComponentInterpolationGroupsForPurposes`, `interpolateTraceColumns`, `interpolateAvailablePreprocessedColumns` |
 
@@ -217,7 +220,7 @@ table dimensions but may not own fixed-table storage policy.
 
 | Target | Symbols currently in `arena_binding.zig` |
 | --- | --- |
-| `resident/witness/prepare.zig` | `WitnessRecipeRequirements`, `WitnessRecipes`, `prepareEcOpWitness`, `prepareAotWitnessBatch`, `prepareAotInteractionBatch`, `prepareAotWitnessBatchForMode` |
+| `resident/witness/prepare.zig` | `WitnessRecipeRequirements`, `WitnessRecipes`, `aotBindingFitsNarrowAddress`, `recordAotHighBinding`, `prepareEcOpWitness`, `prepareAotWitnessBatch`, `prepareAotInteractionBatch`, `prepareAotWitnessBatchForMode` |
 | `resident/witness/inputs.zig` | `populateCasmWitnessInputs`, `populateBuiltinSeedWitnessInputs`, `populateDirectWitnessInput`, `gatheredWitnessRealRows`, `prepareCompactWitnessInput`, `gatherWitnessInput` |
 | `resident/witness/execute.zig` | `WitnessEdge`, `WitnessExecutionTelemetry`, `witnessIndex`, `dependenciesReady`, `executeRecordedWitnessGraph`, `executeNativeEcConsumer`, `executeScheduledWitnessGraph` |
 | `resident/interaction/execute.zig` | `InteractionExecutionTelemetry`, `executeScheduledInteractionGraph`, `interactionOperation` |
