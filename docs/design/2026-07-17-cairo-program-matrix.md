@@ -20,11 +20,14 @@ Reference rows and Zig rows must never share an ambiguous `Metal` or `SIMD` labe
 
 The current general Zig Cairo path is incomplete:
 
-- `frontends/cairo/prover.zig::proveCairo` is a stub that returns `ProvingFailed`.
+- `frontends/cairo/prover.zig::proveCairo` is now an authenticated orchestration boundary with an
+  exact Rust `verify_cairo` acceptance step, but its available semantic pack is proof-derived and
+  the entrypoint therefore rejects it in production admission mode;
 - `frontends/cairo/prove_trace.zig` commits `pc`, `ap`, and `fp` under a constant demonstration
   AIR. It is not a sound Cairo execution proof and is excluded from this matrix.
-- the resident Cairo Metal path has sound SN2 machinery, but its semantic artifacts and compact
-  proof geometry are still SN2-shaped;
+- the concrete development backend is Metal-only, reopens authenticated artifact paths in a
+  one-shot process, and still consumes SN2-shaped semantic artifacts and preprocessed state;
+- no program-agnostic Zig CPU/SIMD Cairo backend consumes the same authenticated frontend product;
 - general `STWZCPI` ingestion is implemented and is an input-parity gate, not a proof result.
 
 Consequently, the existing Cairo Fib table is explicitly a Rust `stwo-cairo` reference table.
