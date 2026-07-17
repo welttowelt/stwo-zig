@@ -3,13 +3,13 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE_PATH = ROOT / "src/backends/metal/runtime.m"
+SOURCE_PATH = ROOT / "src/backends/metal/runtime/composition.m"
 RECIPE_PATH = ROOT / "src/backends/metal/recipes/composition.zig"
 
 
-def function_body(source: str, name: str, next_name: str) -> str:
+def function_body(source: str, name: str, next_name: str | None = None) -> str:
     start = source.index(name)
-    end = source.index(next_name, start)
+    end = source.index(next_name, start) if next_name is not None else len(source)
     return source[start:end]
 
 
@@ -26,7 +26,6 @@ class MetalCompositionBatchingSourceTest(unittest.TestCase):
         cls.graph = function_body(
             source,
             "bool stwo_zig_metal_composition_prepared(",
-            "bool stwo_zig_metal_eval_prepared(",
         )
 
     def test_standalone_finalize_has_one_production_and_two_diagnostic_waits(self):

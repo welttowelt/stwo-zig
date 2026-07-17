@@ -4,7 +4,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
-RUNTIME = ROOT / "src/backends/metal/runtime.m"
+RUNTIME = ROOT / "src/backends/metal/runtime/transcript_decommitment.m"
 RECIPES = ROOT / "src/backends/metal/protocol_recipes.zig"
 SCHEDULE_BINDINGS = ROOT / "src/integrations/cairo_metal/schedule_bindings.zig"
 
