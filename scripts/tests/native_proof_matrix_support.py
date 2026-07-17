@@ -80,11 +80,18 @@ def set_prove_times(
 
 
 def pipeline_cache() -> dict[str, int | float]:
-    return {
+    cache = {
         **{key: 0 for key in MODULE.PIPELINE_CACHE_COUNTER_KEYS},
         MODULE.PIPELINE_CACHE_SECONDS_KEY: 0.0,
         MODULE.LIBRARY_PREPARATION_SECONDS_KEY: 0.0,
     }
+    cache.update({
+        "library_cache_entry_limit": 8,
+        "library_cache_byte_limit": 64 * 1024 * 1024,
+        "pipeline_cache_entry_limit": 64,
+        "pipeline_cache_byte_limit": 16 * 1024 * 1024,
+    })
+    return cache
 
 
 def backend_counters(dispatches: int = 4, fallbacks: int = 1) -> dict[str, int]:

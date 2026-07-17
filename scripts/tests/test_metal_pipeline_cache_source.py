@@ -3,8 +3,15 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE_PATH = ROOT / "src/backends/metal/runtime.m"
+SOURCE_PATHS = (
+    ROOT / "src/backends/metal/runtime/dynamic_evaluation.m",
+    ROOT / "src/backends/metal/runtime/lifecycle_and_tree.m",
+    ROOT / "src/backends/metal/runtime.m",
+    ROOT / "src/backends/metal/runtime/runtime_queries.m",
+    ROOT / "src/backends/metal/runtime/abi.h",
+)
 ZIG_SOURCE_PATH = ROOT / "src/backends/metal/runtime.zig"
+ZIG_SESSION_PATH = ROOT / "src/backends/metal/runtime/session.zig"
 ZIG_ABI_SOURCE_PATH = ROOT / "src/backends/metal/runtime/abi.zig"
 
 
@@ -17,8 +24,8 @@ def function_body(source: str, name: str, next_name: str) -> str:
 class MetalPipelineCacheSourceTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.source = SOURCE_PATH.read_text()
-        cls.zig_source = ZIG_SOURCE_PATH.read_text()
+        cls.source = "\n".join(path.read_text() for path in SOURCE_PATHS)
+        cls.zig_source = ZIG_SOURCE_PATH.read_text() + ZIG_SESSION_PATH.read_text()
         cls.zig_abi_source = ZIG_ABI_SOURCE_PATH.read_text()
 
     def test_file_backed_libraries_use_canonical_runtime_cache(self):
@@ -103,7 +110,7 @@ class MetalPipelineCacheSourceTest(unittest.TestCase):
         hit = body.index("runtime.evalLibraryCacheHits += 1u", lookup)
         miss = body.index("runtime.evalLibraryCacheMisses += 1u", hit)
         compile_library = body.index("newLibraryWithSource", miss)
-        insertion = body.index("runtime.evalLibraries[cacheKey] = result", compile_library)
+        insertion = body.index("cache_eval_library(runtime, result, cacheKey", compile_library)
         self.assertLess(key, synchronized)
         self.assertLess(synchronized, lookup)
         self.assertLess(lookup, hit)
@@ -143,7 +150,7 @@ class MetalPipelineCacheSourceTest(unittest.TestCase):
         )
         self.assertIn("return (__bridge_retained void *)cached", compile_body)
         self.assertIn("return (__bridge_retained void *)result", compile_body)
-        self.assertIn("runtime.evalLibraries[cacheKey] = result", compile_body)
+        self.assertIn("cache_eval_library(runtime, result, cacheKey", compile_body)
         self.assertIn("CFRelease(library_ptr)", destroy_body)
         self.assertIn("@property(nonatomic, weak) StwoZigMetalRuntime *runtimeOwner", self.source)
 
@@ -225,6 +232,23 @@ class MetalPipelineCacheSourceTest(unittest.TestCase):
             "archive_serializations",
             "pipeline_preparation_seconds",
             "library_preparation_seconds",
+            "library_cache_entries",
+            "library_cache_bytes",
+            "library_cache_peak_entries",
+            "library_cache_peak_bytes",
+            "library_cache_evictions",
+            "library_cache_rejections",
+            "pipeline_cache_entries",
+            "pipeline_cache_bytes",
+            "pipeline_cache_peak_entries",
+            "pipeline_cache_peak_bytes",
+            "pipeline_cache_evictions",
+            "pipeline_cache_invalidations",
+            "pipeline_cache_rejections",
+            "library_cache_entry_limit",
+            "library_cache_byte_limit",
+            "pipeline_cache_entry_limit",
+            "pipeline_cache_byte_limit",
         )
         for field in fields:
             self.assertIn(field, self.source)

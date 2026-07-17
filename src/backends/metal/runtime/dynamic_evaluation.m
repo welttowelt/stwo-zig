@@ -1,3 +1,70 @@
+#import <objc/runtime.h>
+
+static const NSUInteger STWO_ZIG_EVAL_LIBRARY_ENTRY_LIMIT = 8u;
+static const uint64_t STWO_ZIG_EVAL_LIBRARY_BYTE_LIMIT = 64u * 1024u * 1024u;
+static const NSUInteger STWO_ZIG_EVAL_PIPELINE_ENTRY_LIMIT = 64u;
+static const uint64_t STWO_ZIG_EVAL_PIPELINE_BYTE_LIMIT = 16u * 1024u * 1024u;
+// Metal does not expose PSO allocation size. Charge every resident entry a
+// conservative fixed cost so both the count and the accounting budget bound it.
+static const uint64_t STWO_ZIG_EVAL_PIPELINE_ENTRY_BYTES = 256u * 1024u;
+
+@interface StwoZigEvalCacheState : NSObject
+@property(nonatomic, strong) NSMutableArray<NSString *> *libraryLru;
+@property(nonatomic, strong) NSMutableArray<NSString *> *pipelineLru;
+@property(nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *libraryCosts;
+@property(nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *pipelineCosts;
+@property(nonatomic) uint64_t libraryBytes;
+@property(nonatomic) uint64_t pipelineBytes;
+@property(nonatomic) uint64_t libraryPeakEntries;
+@property(nonatomic) uint64_t libraryPeakBytes;
+@property(nonatomic) uint64_t pipelinePeakEntries;
+@property(nonatomic) uint64_t pipelinePeakBytes;
+@property(nonatomic) uint64_t libraryEvictions;
+@property(nonatomic) uint64_t libraryRejections;
+@property(nonatomic) uint64_t pipelineEvictions;
+@property(nonatomic) uint64_t pipelineInvalidations;
+@property(nonatomic) uint64_t pipelineRejections;
+@end
+
+@implementation StwoZigEvalCacheState
+- (instancetype)init {
+    self = [super init];
+    if (self != nil) {
+        _libraryLru = [NSMutableArray array];
+        _pipelineLru = [NSMutableArray array];
+        _libraryCosts = [NSMutableDictionary dictionary];
+        _pipelineCosts = [NSMutableDictionary dictionary];
+    }
+    return self;
+}
+@end
+
+static const void *STWO_ZIG_EVAL_CACHE_STATE_KEY = &STWO_ZIG_EVAL_CACHE_STATE_KEY;
+
+static StwoZigEvalCacheState *eval_cache_state(StwoZigMetalRuntime *runtime) {
+    StwoZigEvalCacheState *state = objc_getAssociatedObject(runtime, STWO_ZIG_EVAL_CACHE_STATE_KEY);
+    if (state == nil) {
+        state = [StwoZigEvalCacheState new];
+        objc_setAssociatedObject(runtime, STWO_ZIG_EVAL_CACHE_STATE_KEY, state,
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    return state;
+}
+
+static void touch_eval_cache_key(NSMutableArray<NSString *> *lru, NSString *key) {
+    [lru removeObject:key];
+    [lru addObject:key];
+}
+
+static void configure_eval_compile_options(MTLCompileOptions *options) {
+    if (@available(macOS 15.0, *)) {
+        options.mathMode = MTLMathModeSafe;
+    } else {
+        options.fastMathEnabled = NO;
+    }
+    options.languageVersion = MTLLanguageVersion3_1;
+}
+
 void *stwo_zig_metal_eval_prepare(
     void *runtime_ptr, const char *source_bytes, size_t source_len,
     const char *name_bytes, size_t name_len, const uint32_t *arguments,
@@ -13,7 +80,7 @@ void *stwo_zig_metal_eval_prepare(
             write_error(error_message, error_message_len, @"Invalid Metal evaluation source encoding"); return NULL;
         }
         MTLCompileOptions *options = [MTLCompileOptions new];
-        options.mathMode = MTLMathModeSafe;
+        configure_eval_compile_options(options);
         NSError *error = nil;
         id<MTLLibrary> library = [runtime.device newLibraryWithSource:source options:options error:&error];
         if (library == nil) {
@@ -75,6 +142,130 @@ static bool serialize_eval_archive(StwoZigEvalLibrary *library, NSError **error,
     }
 }
 
+static void remove_eval_pipeline(
+    StwoZigMetalRuntime *runtime,
+    StwoZigEvalCacheState *state,
+    NSString *key,
+    bool invalidated
+) {
+    NSNumber *cost = state.pipelineCosts[key];
+    if (cost == nil) return;
+    state.pipelineBytes -= cost.unsignedLongLongValue;
+    [state.pipelineCosts removeObjectForKey:key];
+    [state.pipelineLru removeObject:key];
+    [runtime.evalPipelines removeObjectForKey:key];
+    if (invalidated) state.pipelineInvalidations += 1u;
+    else state.pipelineEvictions += 1u;
+}
+
+static void invalidate_eval_library_pipelines(
+    StwoZigMetalRuntime *runtime,
+    StwoZigEvalCacheState *state,
+    NSString *libraryKey
+) {
+    NSString *prefix = [NSString stringWithFormat:@"%lu:%@",
+                        (unsigned long)libraryKey.length, libraryKey];
+    NSArray<NSString *> *keys = [state.pipelineLru copy];
+    for (NSString *key in keys) {
+        if ([key hasPrefix:prefix]) remove_eval_pipeline(runtime, state, key, true);
+    }
+}
+
+static void evict_eval_library(
+    StwoZigMetalRuntime *runtime,
+    StwoZigEvalCacheState *state,
+    NSString *key
+) {
+    StwoZigEvalLibrary *library = runtime.evalLibraries[key];
+    if (library != nil && library.archiveDirty) {
+        NSError *error = nil;
+        bool didSerialize = false;
+        if (!serialize_eval_archive(library, &error, &didSerialize)) {
+            fprintf(stderr, "Failed to serialize evicted Metal binary archive: %s\n",
+                    error.localizedDescription.UTF8String ?: "unknown Metal error");
+        } else if (didSerialize) {
+            runtime.evalArchiveSerializations += 1u;
+        }
+    }
+    invalidate_eval_library_pipelines(runtime, state, key);
+    NSNumber *cost = state.libraryCosts[key];
+    if (cost != nil) state.libraryBytes -= cost.unsignedLongLongValue;
+    [state.libraryCosts removeObjectForKey:key];
+    [state.libraryLru removeObject:key];
+    [runtime.evalLibraries removeObjectForKey:key];
+    state.libraryEvictions += 1u;
+}
+
+static void cache_eval_library(
+    StwoZigMetalRuntime *runtime,
+    StwoZigEvalLibrary *library,
+    NSString *key,
+    uint64_t byteCost
+) {
+    StwoZigEvalCacheState *state = eval_cache_state(runtime);
+    if (byteCost > STWO_ZIG_EVAL_LIBRARY_BYTE_LIMIT) {
+        state.libraryRejections += 1u;
+        return;
+    }
+    while (state.libraryLru.count >= STWO_ZIG_EVAL_LIBRARY_ENTRY_LIMIT ||
+           state.libraryBytes > STWO_ZIG_EVAL_LIBRARY_BYTE_LIMIT - byteCost) {
+        evict_eval_library(runtime, state, state.libraryLru.firstObject);
+    }
+    runtime.evalLibraries[key] = library;
+    state.libraryCosts[key] = @(byteCost);
+    state.libraryBytes += byteCost;
+    touch_eval_cache_key(state.libraryLru, key);
+    state.libraryPeakEntries = MAX(state.libraryPeakEntries, (uint64_t)state.libraryLru.count);
+    state.libraryPeakBytes = MAX(state.libraryPeakBytes, state.libraryBytes);
+}
+
+static void cache_eval_pipeline(
+    StwoZigMetalRuntime *runtime,
+    id<MTLComputePipelineState> pipeline,
+    NSString *key
+) {
+    StwoZigEvalCacheState *state = eval_cache_state(runtime);
+    const uint64_t byteCost = STWO_ZIG_EVAL_PIPELINE_ENTRY_BYTES;
+    if (byteCost > STWO_ZIG_EVAL_PIPELINE_BYTE_LIMIT) {
+        state.pipelineRejections += 1u;
+        return;
+    }
+    while (state.pipelineLru.count >= STWO_ZIG_EVAL_PIPELINE_ENTRY_LIMIT ||
+           state.pipelineBytes > STWO_ZIG_EVAL_PIPELINE_BYTE_LIMIT - byteCost) {
+        remove_eval_pipeline(runtime, state, state.pipelineLru.firstObject, false);
+    }
+    runtime.evalPipelines[key] = pipeline;
+    state.pipelineCosts[key] = @(byteCost);
+    state.pipelineBytes += byteCost;
+    touch_eval_cache_key(state.pipelineLru, key);
+    state.pipelinePeakEntries = MAX(state.pipelinePeakEntries, (uint64_t)state.pipelineLru.count);
+    state.pipelinePeakBytes = MAX(state.pipelinePeakBytes, state.pipelineBytes);
+}
+
+static void stwo_zig_metal_dynamic_cache_stats(
+    StwoZigMetalRuntime *runtime,
+    StwoZigPipelineCacheStats *stats
+) {
+    StwoZigEvalCacheState *state = eval_cache_state(runtime);
+    stats->library_cache_entries = (uint64_t)state.libraryLru.count;
+    stats->library_cache_bytes = state.libraryBytes;
+    stats->library_cache_peak_entries = state.libraryPeakEntries;
+    stats->library_cache_peak_bytes = state.libraryPeakBytes;
+    stats->library_cache_evictions = state.libraryEvictions;
+    stats->library_cache_rejections = state.libraryRejections;
+    stats->pipeline_cache_entries = (uint64_t)state.pipelineLru.count;
+    stats->pipeline_cache_bytes = state.pipelineBytes;
+    stats->pipeline_cache_peak_entries = state.pipelinePeakEntries;
+    stats->pipeline_cache_peak_bytes = state.pipelinePeakBytes;
+    stats->pipeline_cache_evictions = state.pipelineEvictions;
+    stats->pipeline_cache_invalidations = state.pipelineInvalidations;
+    stats->pipeline_cache_rejections = state.pipelineRejections;
+    stats->library_cache_entry_limit = STWO_ZIG_EVAL_LIBRARY_ENTRY_LIMIT;
+    stats->library_cache_byte_limit = STWO_ZIG_EVAL_LIBRARY_BYTE_LIMIT;
+    stats->pipeline_cache_entry_limit = STWO_ZIG_EVAL_PIPELINE_ENTRY_LIMIT;
+    stats->pipeline_cache_byte_limit = STWO_ZIG_EVAL_PIPELINE_BYTE_LIMIT;
+}
+
 static id<MTLComputePipelineState> resolve_eval_pipeline(
     StwoZigMetalRuntime *runtime, StwoZigEvalLibrary *library, NSString *name,
     char *error_message, size_t error_message_len
@@ -84,11 +275,15 @@ static id<MTLComputePipelineState> resolve_eval_pipeline(
         @try {
             NSString *pipelineKey = nil;
             if (library.cacheKey != nil) {
+                if (runtime.evalLibraries[library.cacheKey] == library) {
+                    touch_eval_cache_key(eval_cache_state(runtime).libraryLru, library.cacheKey);
+                }
                 pipelineKey = [NSString stringWithFormat:@"%lu:%@%@",
                     (unsigned long)library.cacheKey.length, library.cacheKey, name];
                 id<MTLComputePipelineState> cached = runtime.evalPipelines[pipelineKey];
                 if (cached != nil) {
                     runtime.evalPipelineCacheHits += 1u;
+                    touch_eval_cache_key(eval_cache_state(runtime).pipelineLru, pipelineKey);
                     return cached;
                 }
             }
@@ -150,7 +345,7 @@ static id<MTLComputePipelineState> resolve_eval_pipeline(
                 return nil;
             }
             stwo_zig_metal_profile_name_pipeline(pipeline, name);
-            if (pipelineKey != nil) runtime.evalPipelines[pipelineKey] = pipeline;
+            if (pipelineKey != nil) cache_eval_pipeline(runtime, pipeline, pipelineKey);
             return pipeline;
         } @finally {
             runtime.evalPipelinePreparationSeconds += CFAbsoluteTimeGetCurrent() - prepareStart;
@@ -188,6 +383,7 @@ void *stwo_zig_metal_eval_library_load(
             StwoZigEvalLibrary *cached = runtime.evalLibraries[cacheKey];
             if (cached != nil) {
                 runtime.evalLibraryCacheHits += 1u;
+                touch_eval_cache_key(eval_cache_state(runtime).libraryLru, cacheKey);
                 return (__bridge_retained void *)cached;
             }
             runtime.evalLibraryCacheMisses += 1u;
@@ -214,7 +410,7 @@ void *stwo_zig_metal_eval_library_load(
                                 error.localizedDescription ?: @"Failed to load Metal binary archive");
                     return NULL;
                 }
-                runtime.evalLibraries[cacheKey] = result;
+                cache_eval_library(runtime, result, cacheKey, (uint64_t)libraryData.length);
                 return (__bridge_retained void *)result;
             } @finally {
                 runtime.evalLibraryPreparationSeconds += CFAbsoluteTimeGetCurrent() - prepareStart;
@@ -251,12 +447,13 @@ void *stwo_zig_metal_eval_library_compile(
                     return NULL;
                 }
                 runtime.evalLibraryCacheHits += 1u;
+                touch_eval_cache_key(eval_cache_state(runtime).libraryLru, cacheKey);
                 return (__bridge_retained void *)cached;
             }
             runtime.evalLibraryCacheMisses += 1u;
             @try {
                 MTLCompileOptions *options = [MTLCompileOptions new];
-                options.mathMode = MTLMathModeSafe;
+                configure_eval_compile_options(options);
                 NSError *error = nil;
                 id<MTLLibrary> library = [runtime.device newLibraryWithSource:source options:options error:&error];
                 if (library == nil) {
@@ -282,7 +479,7 @@ void *stwo_zig_metal_eval_library_compile(
                                 error.localizedDescription ?: @"Failed to load Metal source binary archive");
                     return NULL;
                 }
-                runtime.evalLibraries[cacheKey] = result;
+                cache_eval_library(runtime, result, cacheKey, (uint64_t)sourceData.length);
                 return (__bridge_retained void *)result;
             } @finally {
                 runtime.evalLibraryPreparationSeconds += CFAbsoluteTimeGetCurrent() - prepareStart;
@@ -292,7 +489,22 @@ void *stwo_zig_metal_eval_library_compile(
 }
 
 void stwo_zig_metal_eval_library_destroy(void *library_ptr) {
-    if (library_ptr != NULL) CFRelease(library_ptr);
+    if (library_ptr == NULL) return;
+    StwoZigEvalLibrary *library = (__bridge StwoZigEvalLibrary *)library_ptr;
+    if (library.archiveDirty) {
+        NSError *error = nil;
+        bool didSerialize = false;
+        if (!serialize_eval_archive(library, &error, &didSerialize)) {
+            fprintf(stderr, "Failed to serialize released Metal binary archive: %s\n",
+                    error.localizedDescription.UTF8String ?: "unknown Metal error");
+        } else if (didSerialize) {
+            StwoZigMetalRuntime *runtime = library.runtimeOwner;
+            if (runtime != nil) {
+                @synchronized(runtime) { runtime.evalArchiveSerializations += 1u; }
+            }
+        }
+    }
+    CFRelease(library_ptr);
 }
 
 void *stwo_zig_metal_witness_prepare_library(

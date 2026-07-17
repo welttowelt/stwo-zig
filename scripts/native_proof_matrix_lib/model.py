@@ -104,6 +104,23 @@ PIPELINE_CACHE_COUNTER_KEYS = {
     "direct_compiles",
     "archive_populations",
     "archive_serializations",
+    "library_cache_entries",
+    "library_cache_bytes",
+    "library_cache_peak_entries",
+    "library_cache_peak_bytes",
+    "library_cache_evictions",
+    "library_cache_rejections",
+    "pipeline_cache_entries",
+    "pipeline_cache_bytes",
+    "pipeline_cache_peak_entries",
+    "pipeline_cache_peak_bytes",
+    "pipeline_cache_evictions",
+    "pipeline_cache_invalidations",
+    "pipeline_cache_rejections",
+    "library_cache_entry_limit",
+    "library_cache_byte_limit",
+    "pipeline_cache_entry_limit",
+    "pipeline_cache_byte_limit",
 }
 PIPELINE_CACHE_SECONDS_KEY = "pipeline_preparation_seconds"
 LIBRARY_PREPARATION_SECONDS_KEY = "library_preparation_seconds"

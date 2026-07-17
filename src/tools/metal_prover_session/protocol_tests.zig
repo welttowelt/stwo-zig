@@ -100,6 +100,11 @@ test "warm proof cache gate permits hits and timing only" {
         .{ "direct_compiles", error.UnexpectedDirectCompile },
         .{ "archive_populations", error.UnexpectedArchivePopulation },
         .{ "archive_serializations", error.UnexpectedArchiveSerialization },
+        .{ "library_cache_evictions", error.UnexpectedLibraryCacheEviction },
+        .{ "library_cache_rejections", error.UnexpectedLibraryCacheRejection },
+        .{ "pipeline_cache_evictions", error.UnexpectedPipelineCacheEviction },
+        .{ "pipeline_cache_invalidations", error.UnexpectedPipelineCacheInvalidation },
+        .{ "pipeline_cache_rejections", error.UnexpectedPipelineCacheRejection },
     }) |field| {
         var cold = warm;
         @field(cold, field[0]) = 1;
@@ -579,7 +584,7 @@ test "verified result frame promotes normalized provenance" {
         .prepared_state_cache_hit = false,
     };
     result.pipeline_cache_delta.library_preparation_seconds = 0.25;
-    var encoded: [4096]u8 = undefined;
+    var encoded: [8192]u8 = undefined;
     var writer = std.Io.Writer.fixed(&encoded);
     try writeVerifiedResultFrame(&writer, request, result);
 
@@ -627,7 +632,7 @@ test "verified result frame promotes normalized provenance" {
     );
 
     result.prepared_state_cache_hit = true;
-    var reused_encoded: [4096]u8 = undefined;
+    var reused_encoded: [8192]u8 = undefined;
     var reused_writer = std.Io.Writer.fixed(&reused_encoded);
     try writeVerifiedResultFrame(&reused_writer, request, result);
     var reused = try std.json.parseFromSlice(

@@ -620,6 +620,23 @@ fn pipelineCacheReport(stats: anytype) report_mod.PipelineCacheDelta {
         .archive_serializations = stats.archive_serializations,
         .pipeline_preparation_seconds = stats.pipeline_preparation_seconds,
         .library_preparation_seconds = stats.library_preparation_seconds,
+        .library_cache_entries = stats.library_cache_entries,
+        .library_cache_bytes = stats.library_cache_bytes,
+        .library_cache_peak_entries = stats.library_cache_peak_entries,
+        .library_cache_peak_bytes = stats.library_cache_peak_bytes,
+        .library_cache_evictions = stats.library_cache_evictions,
+        .library_cache_rejections = stats.library_cache_rejections,
+        .pipeline_cache_entries = stats.pipeline_cache_entries,
+        .pipeline_cache_bytes = stats.pipeline_cache_bytes,
+        .pipeline_cache_peak_entries = stats.pipeline_cache_peak_entries,
+        .pipeline_cache_peak_bytes = stats.pipeline_cache_peak_bytes,
+        .pipeline_cache_evictions = stats.pipeline_cache_evictions,
+        .pipeline_cache_invalidations = stats.pipeline_cache_invalidations,
+        .pipeline_cache_rejections = stats.pipeline_cache_rejections,
+        .library_cache_entry_limit = stats.library_cache_entry_limit,
+        .library_cache_byte_limit = stats.library_cache_byte_limit,
+        .pipeline_cache_entry_limit = stats.pipeline_cache_entry_limit,
+        .pipeline_cache_byte_limit = stats.pipeline_cache_byte_limit,
     };
 }
 

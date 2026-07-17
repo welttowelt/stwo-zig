@@ -67,6 +67,23 @@ typedef struct {
     uint64_t archive_serializations;
     double pipeline_preparation_seconds;
     double library_preparation_seconds;
+    uint64_t library_cache_entries;
+    uint64_t library_cache_bytes;
+    uint64_t library_cache_peak_entries;
+    uint64_t library_cache_peak_bytes;
+    uint64_t library_cache_evictions;
+    uint64_t library_cache_rejections;
+    uint64_t pipeline_cache_entries;
+    uint64_t pipeline_cache_bytes;
+    uint64_t pipeline_cache_peak_entries;
+    uint64_t pipeline_cache_peak_bytes;
+    uint64_t pipeline_cache_evictions;
+    uint64_t pipeline_cache_invalidations;
+    uint64_t pipeline_cache_rejections;
+    uint64_t library_cache_entry_limit;
+    uint64_t library_cache_byte_limit;
+    uint64_t pipeline_cache_entry_limit;
+    uint64_t pipeline_cache_byte_limit;
 } StwoZigPipelineCacheStats;
 
 typedef struct {
@@ -107,9 +124,12 @@ _Static_assert(offsetof(StwoZigDecommitFriRoundParams, max_queries) == 104u, "FR
 _Static_assert(sizeof(StwoZigDecommitTraceGroupParams) == 128u, "StwoZigDecommitTraceGroupParams ABI");
 _Static_assert(offsetof(StwoZigDecommitTraceGroupParams, domain_prefix_bytes) == 92u, "trace domain_prefix_bytes ABI");
 _Static_assert(offsetof(StwoZigDecommitTraceGroupParams, leaf_seed) == 96u, "trace leaf_seed ABI");
-_Static_assert(sizeof(StwoZigPipelineCacheStats) == 80u, "StwoZigPipelineCacheStats ABI");
+_Static_assert(sizeof(StwoZigPipelineCacheStats) == 216u, "StwoZigPipelineCacheStats ABI");
 _Static_assert(offsetof(StwoZigPipelineCacheStats, pipeline_preparation_seconds) == 64u, "pipeline stats ABI");
 _Static_assert(offsetof(StwoZigPipelineCacheStats, library_preparation_seconds) == 72u, "library stats ABI");
+_Static_assert(offsetof(StwoZigPipelineCacheStats, library_cache_entries) == 80u, "library cache entries ABI");
+_Static_assert(offsetof(StwoZigPipelineCacheStats, pipeline_cache_entries) == 128u, "pipeline cache entries ABI");
+_Static_assert(offsetof(StwoZigPipelineCacheStats, pipeline_cache_byte_limit) == 208u, "pipeline cache limit ABI");
 _Static_assert(sizeof(StwoZigQuotientCoefficientTerm) == 32u, "StwoZigQuotientCoefficientTerm ABI");
 _Static_assert(offsetof(StwoZigQuotientCoefficientTerm, value_coefficients) == 12u, "quotient coefficients ABI");
 _Static_assert(sizeof(StwoZigArenaCopyRange) == 24u, "StwoZigArenaCopyRange ABI");

@@ -1,3 +1,8 @@
+static void stwo_zig_metal_dynamic_cache_stats(
+    StwoZigMetalRuntime *runtime,
+    StwoZigPipelineCacheStats *stats
+);
+
 bool stwo_zig_metal_pipeline_cache_stats(
     void *runtime_ptr, StwoZigPipelineCacheStats *stats
 ) {
@@ -15,6 +20,7 @@ bool stwo_zig_metal_pipeline_cache_stats(
             stats->archive_serializations = runtime.evalArchiveSerializations;
             stats->pipeline_preparation_seconds = runtime.evalPipelinePreparationSeconds;
             stats->library_preparation_seconds = runtime.evalLibraryPreparationSeconds;
+            stwo_zig_metal_dynamic_cache_stats(runtime, stats);
         }
         return true;
     }

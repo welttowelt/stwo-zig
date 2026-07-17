@@ -88,6 +88,23 @@ pub const PipelineCacheDelta = struct {
     archive_serializations: u64 = 0,
     pipeline_preparation_seconds: f64 = 0,
     library_preparation_seconds: f64 = 0,
+    library_cache_entries: u64 = 0,
+    library_cache_bytes: u64 = 0,
+    library_cache_peak_entries: u64 = 0,
+    library_cache_peak_bytes: u64 = 0,
+    library_cache_evictions: u64 = 0,
+    library_cache_rejections: u64 = 0,
+    pipeline_cache_entries: u64 = 0,
+    pipeline_cache_bytes: u64 = 0,
+    pipeline_cache_peak_entries: u64 = 0,
+    pipeline_cache_peak_bytes: u64 = 0,
+    pipeline_cache_evictions: u64 = 0,
+    pipeline_cache_invalidations: u64 = 0,
+    pipeline_cache_rejections: u64 = 0,
+    library_cache_entry_limit: u64 = 0,
+    library_cache_byte_limit: u64 = 0,
+    pipeline_cache_entry_limit: u64 = 0,
+    pipeline_cache_byte_limit: u64 = 0,
 
     pub fn between(
         after: runtime.PipelineCacheStats,
@@ -110,6 +127,23 @@ pub const PipelineCacheDelta = struct {
                 @as(f64, 0),
                 after.library_preparation_seconds - before.library_preparation_seconds,
             ),
+            .library_cache_entries = after.library_cache_entries,
+            .library_cache_bytes = after.library_cache_bytes,
+            .library_cache_peak_entries = after.library_cache_peak_entries,
+            .library_cache_peak_bytes = after.library_cache_peak_bytes,
+            .library_cache_evictions = after.library_cache_evictions -| before.library_cache_evictions,
+            .library_cache_rejections = after.library_cache_rejections -| before.library_cache_rejections,
+            .pipeline_cache_entries = after.pipeline_cache_entries,
+            .pipeline_cache_bytes = after.pipeline_cache_bytes,
+            .pipeline_cache_peak_entries = after.pipeline_cache_peak_entries,
+            .pipeline_cache_peak_bytes = after.pipeline_cache_peak_bytes,
+            .pipeline_cache_evictions = after.pipeline_cache_evictions -| before.pipeline_cache_evictions,
+            .pipeline_cache_invalidations = after.pipeline_cache_invalidations -| before.pipeline_cache_invalidations,
+            .pipeline_cache_rejections = after.pipeline_cache_rejections -| before.pipeline_cache_rejections,
+            .library_cache_entry_limit = after.library_cache_entry_limit,
+            .library_cache_byte_limit = after.library_cache_byte_limit,
+            .pipeline_cache_entry_limit = after.pipeline_cache_entry_limit,
+            .pipeline_cache_byte_limit = after.pipeline_cache_byte_limit,
         };
     }
 };
@@ -238,6 +272,11 @@ test "Metal telemetry delta is monotonic and includes pipeline cache evidence" {
     after_cache.direct_compiles = 3;
     after_cache.pipeline_preparation_seconds = 0.75;
     after_cache.library_preparation_seconds = 0.25;
+    after_cache.library_cache_entries = 2;
+    after_cache.library_cache_evictions = 1;
+    after_cache.pipeline_cache_bytes = 512 * 1024;
+    after_cache.library_cache_entry_limit = 8;
+    after_cache.pipeline_cache_byte_limit = 16 * 1024 * 1024;
     const after = Snapshot{
         .counters = .{
             .host_merkle_commits = 3,
@@ -254,6 +293,11 @@ test "Metal telemetry delta is monotonic and includes pipeline cache evidence" {
     try std.testing.expectEqual(@as(u64, 3), result.pipeline_cache.direct_compiles);
     try std.testing.expectEqual(@as(f64, 0.75), result.pipeline_cache.pipeline_preparation_seconds);
     try std.testing.expectEqual(@as(f64, 0.25), result.pipeline_cache.library_preparation_seconds);
+    try std.testing.expectEqual(@as(u64, 2), result.pipeline_cache.library_cache_entries);
+    try std.testing.expectEqual(@as(u64, 1), result.pipeline_cache.library_cache_evictions);
+    try std.testing.expectEqual(@as(u64, 512 * 1024), result.pipeline_cache.pipeline_cache_bytes);
+    try std.testing.expectEqual(@as(u64, 8), result.pipeline_cache.library_cache_entry_limit);
+    try std.testing.expectEqual(@as(u64, 16 * 1024 * 1024), result.pipeline_cache.pipeline_cache_byte_limit);
 }
 
 test "Metal telemetry classification fails closed" {

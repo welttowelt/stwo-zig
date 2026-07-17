@@ -5,4 +5,5 @@ test {
     _ = @import("backend/decommitment_test.zig");
     _ = @import("backend/commitment_test.zig");
     _ = @import("backend/circle_pipeline_test.zig");
+    _ = @import("backend/cache_lifecycle_test.zig");
 }

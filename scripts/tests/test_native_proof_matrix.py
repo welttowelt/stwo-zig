@@ -352,6 +352,14 @@ class NativeProofMatrixTests(unittest.TestCase):
             ("protocol", lambda report: report["protocol"].__setitem__("pow_bits", 9)),
             ("session", lambda report: report["session"].__setitem__("tower_build_count", 2)),
             ("telemetry", lambda report: report["backend_telemetry"].__setitem__("total_metal_dispatches", 0)),
+            (
+                "cache_entries",
+                lambda report: report["backend_telemetry"]["post_warmup_pipeline_cache"].__setitem__("library_cache_entries", 9),
+            ),
+            (
+                "cache_peak_bytes",
+                lambda report: report["backend_telemetry"]["post_warmup_pipeline_cache"].__setitem__("pipeline_cache_peak_bytes", 16 * 1024 * 1024 + 1),
+            ),
         )
         for name, mutate in mutations:
             report = make_report("metal", workload)

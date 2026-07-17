@@ -351,6 +351,19 @@ def validate_pipeline_cache(value: Any, context: str) -> None:
     for key in seconds_keys:
         if require_number(value[key], f"{context}.{key}") < 0:
             raise MatrixError(f"{context}.{key} must be nonnegative")
+    for kind in ("library", "pipeline"):
+        entries = value[f"{kind}_cache_entries"]
+        peak_entries = value[f"{kind}_cache_peak_entries"]
+        entry_limit = value[f"{kind}_cache_entry_limit"]
+        byte_count = value[f"{kind}_cache_bytes"]
+        peak_bytes = value[f"{kind}_cache_peak_bytes"]
+        byte_limit = value[f"{kind}_cache_byte_limit"]
+        if entry_limit <= 0 or byte_limit <= 0:
+            raise MatrixError(f"{context}.{kind}_cache limits must be positive")
+        if entries > entry_limit or peak_entries > entry_limit or peak_entries < entries:
+            raise MatrixError(f"{context}.{kind}_cache entry bounds are inconsistent")
+        if byte_count > byte_limit or peak_bytes > byte_limit or peak_bytes < byte_count:
+            raise MatrixError(f"{context}.{kind}_cache byte bounds are inconsistent")
 
 
 def metal_dispatch_total(counters: dict[str, int]) -> int:

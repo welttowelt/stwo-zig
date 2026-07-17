@@ -129,6 +129,23 @@ pub const PipelineCacheDelta = struct {
     archive_serializations: u64 = 0,
     pipeline_preparation_seconds: f64 = 0,
     library_preparation_seconds: f64 = 0,
+    library_cache_entries: u64 = 0,
+    library_cache_bytes: u64 = 0,
+    library_cache_peak_entries: u64 = 0,
+    library_cache_peak_bytes: u64 = 0,
+    library_cache_evictions: u64 = 0,
+    library_cache_rejections: u64 = 0,
+    pipeline_cache_entries: u64 = 0,
+    pipeline_cache_bytes: u64 = 0,
+    pipeline_cache_peak_entries: u64 = 0,
+    pipeline_cache_peak_bytes: u64 = 0,
+    pipeline_cache_evictions: u64 = 0,
+    pipeline_cache_invalidations: u64 = 0,
+    pipeline_cache_rejections: u64 = 0,
+    library_cache_entry_limit: u64 = 0,
+    library_cache_byte_limit: u64 = 0,
+    pipeline_cache_entry_limit: u64 = 0,
+    pipeline_cache_byte_limit: u64 = 0,
 };
 
 pub const BackendTelemetryDelta = struct {
@@ -362,6 +379,12 @@ test "native proof report: Metal telemetry includes post-warmup cache evidence" 
             .direct_compiles = 1,
             .pipeline_preparation_seconds = 0.125,
             .library_preparation_seconds = 0.25,
+            .library_cache_entries = 2,
+            .library_cache_peak_entries = 3,
+            .library_cache_entry_limit = 8,
+            .library_cache_byte_limit = 64 * 1024 * 1024,
+            .pipeline_cache_entry_limit = 64,
+            .pipeline_cache_byte_limit = 16 * 1024 * 1024,
         },
         .warmups = &.{},
         .samples = &.{},
@@ -376,4 +399,6 @@ test "native proof report: Metal telemetry includes post-warmup cache evidence" 
     const cache = parsed.value.object.get("post_warmup_pipeline_cache").?.object;
     try std.testing.expectEqual(@as(i64, 1), cache.get("direct_compiles").?.integer);
     try std.testing.expectEqual(@as(f64, 0.25), cache.get("library_preparation_seconds").?.float);
+    try std.testing.expectEqual(@as(i64, 2), cache.get("library_cache_entries").?.integer);
+    try std.testing.expectEqual(@as(i64, 8), cache.get("library_cache_entry_limit").?.integer);
 }

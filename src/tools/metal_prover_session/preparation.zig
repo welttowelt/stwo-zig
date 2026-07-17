@@ -293,18 +293,35 @@ pub fn cacheDelta(
     after: metal_runtime.PipelineCacheStats,
     before: metal_runtime.PipelineCacheStats,
 ) metal_runtime.PipelineCacheStats {
-    return .{
-        .library_cache_hits = after.library_cache_hits - before.library_cache_hits,
-        .library_cache_misses = after.library_cache_misses - before.library_cache_misses,
-        .pipeline_cache_hits = after.pipeline_cache_hits - before.pipeline_cache_hits,
-        .binary_archive_hits = after.binary_archive_hits - before.binary_archive_hits,
-        .binary_archive_misses = after.binary_archive_misses - before.binary_archive_misses,
-        .direct_compiles = after.direct_compiles - before.direct_compiles,
-        .archive_populations = after.archive_populations - before.archive_populations,
-        .archive_serializations = after.archive_serializations - before.archive_serializations,
-        .pipeline_preparation_seconds = after.pipeline_preparation_seconds - before.pipeline_preparation_seconds,
-        .library_preparation_seconds = after.library_preparation_seconds - before.library_preparation_seconds,
-    };
+    var delta = metal_runtime.PipelineCacheStats.zero();
+    delta.library_cache_hits = after.library_cache_hits - before.library_cache_hits;
+    delta.library_cache_misses = after.library_cache_misses - before.library_cache_misses;
+    delta.pipeline_cache_hits = after.pipeline_cache_hits - before.pipeline_cache_hits;
+    delta.binary_archive_hits = after.binary_archive_hits - before.binary_archive_hits;
+    delta.binary_archive_misses = after.binary_archive_misses - before.binary_archive_misses;
+    delta.direct_compiles = after.direct_compiles - before.direct_compiles;
+    delta.archive_populations = after.archive_populations - before.archive_populations;
+    delta.archive_serializations = after.archive_serializations - before.archive_serializations;
+    delta.pipeline_preparation_seconds = after.pipeline_preparation_seconds - before.pipeline_preparation_seconds;
+    delta.library_preparation_seconds = after.library_preparation_seconds - before.library_preparation_seconds;
+    delta.library_cache_entries = after.library_cache_entries;
+    delta.library_cache_bytes = after.library_cache_bytes;
+    delta.library_cache_peak_entries = after.library_cache_peak_entries;
+    delta.library_cache_peak_bytes = after.library_cache_peak_bytes;
+    delta.library_cache_evictions = after.library_cache_evictions - before.library_cache_evictions;
+    delta.library_cache_rejections = after.library_cache_rejections - before.library_cache_rejections;
+    delta.pipeline_cache_entries = after.pipeline_cache_entries;
+    delta.pipeline_cache_bytes = after.pipeline_cache_bytes;
+    delta.pipeline_cache_peak_entries = after.pipeline_cache_peak_entries;
+    delta.pipeline_cache_peak_bytes = after.pipeline_cache_peak_bytes;
+    delta.pipeline_cache_evictions = after.pipeline_cache_evictions - before.pipeline_cache_evictions;
+    delta.pipeline_cache_invalidations = after.pipeline_cache_invalidations - before.pipeline_cache_invalidations;
+    delta.pipeline_cache_rejections = after.pipeline_cache_rejections - before.pipeline_cache_rejections;
+    delta.library_cache_entry_limit = after.library_cache_entry_limit;
+    delta.library_cache_byte_limit = after.library_cache_byte_limit;
+    delta.pipeline_cache_entry_limit = after.pipeline_cache_entry_limit;
+    delta.pipeline_cache_byte_limit = after.pipeline_cache_byte_limit;
+    return delta;
 }
 
 pub fn requireWarmPipelineCache(delta: metal_runtime.PipelineCacheStats) !void {
@@ -314,6 +331,11 @@ pub fn requireWarmPipelineCache(delta: metal_runtime.PipelineCacheStats) !void {
     if (delta.direct_compiles != 0) return error.UnexpectedDirectCompile;
     if (delta.archive_populations != 0) return error.UnexpectedArchivePopulation;
     if (delta.archive_serializations != 0) return error.UnexpectedArchiveSerialization;
+    if (delta.library_cache_evictions != 0) return error.UnexpectedLibraryCacheEviction;
+    if (delta.library_cache_rejections != 0) return error.UnexpectedLibraryCacheRejection;
+    if (delta.pipeline_cache_evictions != 0) return error.UnexpectedPipelineCacheEviction;
+    if (delta.pipeline_cache_invalidations != 0) return error.UnexpectedPipelineCacheInvalidation;
+    if (delta.pipeline_cache_rejections != 0) return error.UnexpectedPipelineCacheRejection;
 }
 
 pub fn nanosecondsToSeconds(nanoseconds: u64) f64 {
