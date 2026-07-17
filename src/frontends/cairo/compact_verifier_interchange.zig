@@ -1,11 +1,8 @@
-//! Compact Metal proof interchange consumed by the pinned Rust Cairo verifier.
-//!
-//! This module owns only the authenticated wire boundary. The statement and
-//! proof payloads are produced elsewhere; this code encodes the pinned compact
-//! protocol, binds every payload and caller-supplied production identity into
-//! canonical provenance JSON, and streams one strict `STWZCVE/1` envelope.
-
+//! Authenticated compact Metal proof interchange for the pinned Rust verifier.
 const std = @import("std");
+const compact_geometry = @import("compact_protocol_geometry.zig");
+
+pub const RuntimeProtocolGeometryV1 = compact_geometry.RuntimeProtocolGeometryV1;
 
 pub const protocol_magic = [_]u8{ 'S', 'T', 'W', 'Z', 'C', 'P', '1', 0 };
 pub const protocol_version: u16 = 1;
@@ -25,12 +22,10 @@ pub const compact_provenance_source = "metal_prover_service_v1";
 pub const compact_proof_serialization = "resident_sn2_bundle_v1";
 pub const compact_provenance_bytes: usize = 728;
 
-const decommit_header_words: u32 = 8;
-const decommit_tree_meta_words: u32 = 16;
-const decommit_record_count: u32 = 12;
-const query_count: u32 = 70;
-const minimum_decommitment_words: u32 = decommit_header_words +
-    decommit_record_count * decommit_tree_meta_words + query_count * 2;
+const trace_tree_count = compact_geometry.trace_tree_count;
+const legacy_max_log_degree_bound = compact_geometry.legacy_max_log_degree_bound;
+const minimumDecommitmentWords = compact_geometry.minimumDecommitmentWords;
+const minimum_decommitment_words = minimumDecommitmentWords(12, 70) catch unreachable;
 
 pub const Error = error{
     InvalidInteractionClaimWordCount,
@@ -38,6 +33,7 @@ pub const Error = error{
     InvalidSampledValueWordCount,
     InvalidDecommitmentCapacity,
     InvalidTraceTreeColumnCounts,
+    InvalidProtocolGeometry,
     InvalidIdentityDigest,
     EmptyStatement,
     InvalidStatementFile,
@@ -51,20 +47,46 @@ pub const Error = error{
     NoncanonicalProvenanceLength,
 };
 
-/// Names and units match the resident runner's `proof_layout` report.
 pub const CompactProofLayoutV1 = struct {
     interaction_claim_words: u32,
     sampled_value_words: u32,
     decommitment_capacity_words: u32,
+    final_line_coefficient_count: u32 = 1,
 
     pub fn protocol(self: CompactProofLayoutV1, channel_salt: u32) Error!CompactProtocolV1 {
         if (self.interaction_claim_words == 0 or self.interaction_claim_words % 4 != 0)
             return Error.InvalidInteractionClaimWordCount;
+        return self.protocolRuntime(channel_salt, .sn2(), trace_tree_column_counts);
+    }
+
+    pub fn protocolRuntime(
+        self: CompactProofLayoutV1,
+        channel_salt: u32,
+        geometry: RuntimeProtocolGeometryV1,
+        trace_columns: [trace_tree_count]u32,
+    ) Error!CompactProtocolV1 {
+        if (self.interaction_claim_words == 0 or self.interaction_claim_words % 4 != 0)
+            return Error.InvalidInteractionClaimWordCount;
+        try geometry.validate();
         const result = CompactProtocolV1{
             .channel_salt = channel_salt,
+            .query_pow_bits = geometry.query_pow_bits,
+            .log_blowup_factor = geometry.log_blowup_factor,
+            .query_count = geometry.query_count,
+            .log_last_layer_degree_bound = geometry.log_last_layer_degree_bound,
+            .fri_fold_step = geometry.fri_fold_step,
+            .fri_lifting_log_size = geometry.fri_lifting_log_size,
+            .interaction_pow_bits = geometry.interaction_pow_bits,
+            .commitment_count = geometry.commitment_count,
+            .sampled_tree_count = geometry.sampled_tree_count,
+            .fri_tree_count = geometry.fri_tree_count,
+            .final_line_coefficient_count = self.final_line_coefficient_count,
+            .decommitment_record_count = geometry.decommitment_record_count,
+            .max_log_degree_bound = geometry.max_log_degree_bound,
             .interaction_sum_count = self.interaction_claim_words / 4,
             .sampled_value_words = self.sampled_value_words,
             .decommitment_capacity_words = self.decommitment_capacity_words,
+            .trace_columns = trace_columns,
         };
         try result.validate();
         return result;
@@ -74,12 +96,39 @@ pub const CompactProofLayoutV1 = struct {
 /// The exact bounded protocol accepted by Rust `CompactProtocolV1::decode`.
 pub const CompactProtocolV1 = struct {
     channel_salt: u32 = 0,
+    query_pow_bits: u32 = 26,
+    log_blowup_factor: u32 = 1,
+    query_count: u32 = 70,
+    log_last_layer_degree_bound: u32 = 0,
+    fri_fold_step: u32 = 3,
+    fri_lifting_log_size: ?u32 = null,
+    interaction_pow_bits: u32 = 24,
+    commitment_count: u32 = trace_tree_count,
+    sampled_tree_count: u32 = trace_tree_count,
+    fri_tree_count: u32 = 8,
+    final_line_coefficient_count: u32 = 1,
+    decommitment_record_count: u32 = 12,
+    max_log_degree_bound: u32 = legacy_max_log_degree_bound,
     interaction_sum_count: u32,
     sampled_value_words: u32,
     decommitment_capacity_words: u32,
     trace_columns: [4]u32 = trace_tree_column_counts,
 
     pub fn validate(self: CompactProtocolV1) Error!void {
+        try (RuntimeProtocolGeometryV1{
+            .query_pow_bits = self.query_pow_bits,
+            .log_blowup_factor = self.log_blowup_factor,
+            .query_count = self.query_count,
+            .log_last_layer_degree_bound = self.log_last_layer_degree_bound,
+            .fri_fold_step = self.fri_fold_step,
+            .fri_lifting_log_size = self.fri_lifting_log_size,
+            .interaction_pow_bits = self.interaction_pow_bits,
+            .commitment_count = self.commitment_count,
+            .sampled_tree_count = self.sampled_tree_count,
+            .fri_tree_count = self.fri_tree_count,
+            .decommitment_record_count = self.decommitment_record_count,
+            .max_log_degree_bound = self.max_log_degree_bound,
+        }).validate();
         if (self.interaction_sum_count == 0 or
             self.interaction_sum_count > component_enable_count)
         {
@@ -87,20 +136,28 @@ pub const CompactProtocolV1 = struct {
         }
         if (self.sampled_value_words == 0 or self.sampled_value_words % 4 != 0)
             return Error.InvalidSampledValueWordCount;
-        if (self.decommitment_capacity_words < minimum_decommitment_words)
+        const minimum_words = try minimumDecommitmentWords(
+            self.decommitment_record_count,
+            self.query_count,
+        );
+        if (self.decommitment_capacity_words < minimum_words)
             return Error.InvalidDecommitmentCapacity;
-        if (!std.mem.eql(u32, &self.trace_columns, &trace_tree_column_counts))
+        for (self.trace_columns) |count| if (count == 0)
             return Error.InvalidTraceTreeColumnCounts;
+        const maximum_coefficients: u32 = @as(u32, 1) << @intCast(self.log_last_layer_degree_bound);
+        if (self.final_line_coefficient_count == 0 or
+            self.final_line_coefficient_count > maximum_coefficients)
+            return Error.InvalidProtocolGeometry;
     }
 
     pub fn proofWordCount(self: CompactProtocolV1) Error!usize {
         try self.validate();
-        var words: usize = 4 * 8; // Four Blake2s commitments.
+        var words = try mulLength(self.commitment_count, 8);
         words = try addLength(words, try mulLength(self.interaction_sum_count, 4));
         words = try addLength(words, 2); // Interaction PoW nonce.
         words = try addLength(words, self.sampled_value_words);
-        words = try addLength(words, 8 * 8); // Eight FRI commitments.
-        words = try addLength(words, 4); // One QM31 final-line coefficient.
+        words = try addLength(words, try mulLength(self.fri_tree_count, 8));
+        words = try addLength(words, try mulLength(self.final_line_coefficient_count, 4));
         words = try addLength(words, 2); // Query PoW nonce.
         words = try addLength(words, self.decommitment_capacity_words);
         return words;
@@ -120,25 +177,33 @@ pub const CompactProtocolV1 = struct {
         putU32(&bytes, 20, 1); // resident_sn2_bundle_v1 serialization.
         putU32(&bytes, 24, 1); // Canonical preprocessed trace.
         putU32(&bytes, 28, self.channel_salt);
-        putU32(&bytes, 32, 26); // Query PoW bits.
-        putU32(&bytes, 36, 1); // Log blowup factor.
-        putU32(&bytes, 40, query_count);
-        putU32(&bytes, 44, 0); // Last-layer degree bound.
-        putU32(&bytes, 48, 3); // FRI fold step.
-        putU32(&bytes, 52, std.math.maxInt(u32)); // No lifting.
-        putU32(&bytes, 56, 24); // Interaction PoW bits.
-        putU32(&bytes, 60, 4); // Commitment count.
-        putU32(&bytes, 64, 4); // Sampled tree count.
-        putU32(&bytes, 68, 8); // FRI tree count.
-        putU32(&bytes, 72, 1); // Final line coefficient count.
-        putU32(&bytes, 76, decommit_record_count);
+        putU32(&bytes, 32, self.query_pow_bits);
+        putU32(&bytes, 36, self.log_blowup_factor);
+        putU32(&bytes, 40, self.query_count);
+        putU32(&bytes, 44, self.log_last_layer_degree_bound);
+        putU32(&bytes, 48, self.fri_fold_step);
+        putU32(&bytes, 52, self.fri_lifting_log_size orelse std.math.maxInt(u32));
+        putU32(&bytes, 56, self.interaction_pow_bits);
+        putU32(&bytes, 60, self.commitment_count);
+        putU32(&bytes, 64, self.sampled_tree_count);
+        putU32(&bytes, 68, self.fri_tree_count);
+        putU32(&bytes, 72, self.final_line_coefficient_count);
+        putU32(&bytes, 76, self.decommitment_record_count);
         putU32(&bytes, 80, self.interaction_sum_count);
         putU32(&bytes, 84, self.sampled_value_words);
         putU32(&bytes, 88, self.decommitment_capacity_words);
         for (self.trace_columns, 0..) |count, index| {
             putU32(&bytes, 92 + index * 4, count);
         }
-        // Flags at 12 and the reserved word at 108 remain canonical zeroes.
+        putU32(
+            &bytes,
+            108,
+            if (self.max_log_degree_bound == legacy_max_log_degree_bound)
+                0
+            else
+                self.max_log_degree_bound,
+        );
+        // Flags at 12 remain canonical zeroes.
         return bytes;
     }
 };
@@ -528,6 +593,51 @@ test "compact protocol matches the Rust-accepted SN2 golden bytes" {
     );
     try std.testing.expectEqual(@as(usize, 2_102_576), try protocol.proofWordCount());
     try std.testing.expectEqual(@as(usize, 8_410_304), try protocol.proofByteCount());
+}
+
+test "compact protocol encodes Fib-like four plus seven runtime geometry" {
+    var geometry = RuntimeProtocolGeometryV1.sn2();
+    geometry.max_log_degree_bound = 21;
+    geometry.fri_tree_count = 7;
+    geometry.decommitment_record_count = 11;
+    const decommitment_words = try minimumDecommitmentWords(
+        geometry.decommitment_record_count,
+        geometry.query_count,
+    );
+    const protocol = try (CompactProofLayoutV1{
+        .interaction_claim_words = 8,
+        .sampled_value_words = 32,
+        .decommitment_capacity_words = decommitment_words,
+    }).protocolRuntime(9, geometry, .{ 5, 7, 3, 8 });
+    const encoded = try protocol.encode();
+    const encoded_hex = std.fmt.bytesToHex(encoded, .lower);
+    try std.testing.expectEqualStrings(
+        "5354575a43503100010070000000000001000000010000000100000009000000" ++
+            "1a00000001000000460000000000000003000000ffffffff1800000004000000" ++
+            "0400000007000000010000000b00000002000000200000004401000005000000" ++
+            "07000000030000000800000015000000",
+        &encoded_hex,
+    );
+    const digest_hex = std.fmt.bytesToHex(sha256(&encoded), .lower);
+    try std.testing.expectEqualStrings(
+        "4dba531f8ccdffb1c816543390fecd8ba776b9ee18c37b6de8d087027603d068",
+        &digest_hex,
+    );
+    try std.testing.expectEqual(@as(u32, 4), std.mem.readInt(u32, encoded[60..64], .little));
+    try std.testing.expectEqual(@as(u32, 7), std.mem.readInt(u32, encoded[68..72], .little));
+    try std.testing.expectEqual(@as(u32, 11), std.mem.readInt(u32, encoded[76..80], .little));
+    try std.testing.expectEqual(@as(u32, 21), std.mem.readInt(u32, encoded[108..112], .little));
+    try std.testing.expectEqual(@as(usize, 460), try protocol.proofWordCount());
+
+    geometry.decommitment_record_count = 12;
+    try std.testing.expectError(
+        Error.InvalidProtocolGeometry,
+        (CompactProofLayoutV1{
+            .interaction_claim_words = 8,
+            .sampled_value_words = 32,
+            .decommitment_capacity_words = decommitment_words,
+        }).protocolRuntime(9, geometry, .{ 5, 7, 3, 8 }),
+    );
 }
 
 test "runner proof layout rejects a partial interaction sum" {

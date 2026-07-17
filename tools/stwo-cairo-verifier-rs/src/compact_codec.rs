@@ -1909,7 +1909,7 @@ mod tests {
     }
 
     fn fib_like_protocol() -> CompactProtocolV1 {
-        let mut protocol = CompactProtocolV1::sn2(9, 2, 32, 4000, [5, 7, 3, 8]);
+        let mut protocol = CompactProtocolV1::sn2(9, 2, 32, 324, [5, 7, 3, 8]);
         protocol.max_log_degree_bound = 21;
         protocol.fri_tree_count = 7;
         protocol.decommitment_record_count = 11;
@@ -2089,8 +2089,26 @@ mod tests {
 
     #[test]
     fn reconstructs_fib_like_four_plus_seven_geometry() {
+        use sha2::{Digest, Sha256};
+
         let protocol = fib_like_protocol();
         let encoded = protocol.encode().unwrap();
+        let encoded_hex = encoded
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        assert_eq!(
+            encoded_hex,
+            "5354575a43503100010070000000000001000000010000000100000009000000\
+             1a00000001000000460000000000000003000000ffffffff1800000004000000\
+             0400000007000000010000000b00000002000000200000004401000005000000\
+             07000000030000000800000015000000"
+                .replace(' ', "")
+        );
+        assert_eq!(
+            format!("{:x}", Sha256::digest(&encoded)),
+            "4dba531f8ccdffb1c816543390fecd8ba776b9ee18c37b6de8d087027603d068"
+        );
         assert_eq!(read_u32(&encoded, 68, "FRI trees").unwrap(), 7);
         assert_eq!(read_u32(&encoded, 76, "decommit records").unwrap(), 11);
         assert_eq!(read_u32(&encoded, 108, "maximum degree").unwrap(), 21);
