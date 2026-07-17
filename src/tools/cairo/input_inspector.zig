@@ -6,8 +6,10 @@ const stwo = @import("stwo");
 const adapted_input = stwo.frontends.cairo.adapter.adapted_input;
 const OpcodeTag = stwo.frontends.cairo.adapter.opcodes.OpcodeTag;
 const witness_bundle = stwo.frontends.cairo.witness.bundle;
+const feed_bundle = stwo.frontends.cairo.witness.feed_bundle;
 const receipt = stwo.frontends.cairo.conformance.receipt;
 const direct_trace = stwo.frontends.cairo.conformance.direct_trace;
+const memory_trace = stwo.frontends.cairo.conformance.memory_trace;
 
 pub fn main() !void {
     const allocator = std.heap.smp_allocator;
@@ -17,11 +19,60 @@ pub fn main() !void {
     if (args.len == 5 and std.mem.eql(u8, args[1], "compare-direct")) {
         return compareDirect(allocator, args[2], args[3], args[4]);
     }
+    if (args.len == 6 and std.mem.eql(u8, args[1], "compare-memory")) {
+        return compareMemory(allocator, args[2], args[3], args[4], args[5]);
+    }
     std.debug.print(
-        "usage:\n  cairo-input <adapted-input.stwzcpi>\n  cairo-input compare-direct <adapted-input.stwzcpi> <witness.bin> <rust-receipt.json>\n",
+        "usage:\n  cairo-input <adapted-input.stwzcpi>\n  cairo-input compare-direct <adapted-input.stwzcpi> <witness.bin> <rust-receipt.json>\n  cairo-input compare-memory <adapted-input.stwzcpi> <witness.bin> <feeds.bin> <rust-receipt.json>\n",
         .{},
     );
     return error.InvalidArgument;
+}
+
+fn compareMemory(
+    allocator: std.mem.Allocator,
+    input_path: []const u8,
+    witness_path: []const u8,
+    feeds_path: []const u8,
+    receipt_path: []const u8,
+) !void {
+    const input_sha256 = try hashFile(input_path);
+    var expected = try receipt.readFile(allocator, receipt_path, .{
+        .input_sha256 = input_sha256,
+        .authority = direct_trace.trace_oracle_authority,
+    });
+    defer expected.deinit();
+    var input = try adapted_input.readFile(allocator, input_path);
+    defer input.deinit(allocator);
+    var witness = try witness_bundle.Bundle.readFile(allocator, witness_path);
+    defer witness.deinit();
+    var feeds = try feed_bundle.Bundle.readFile(allocator, feeds_path);
+    defer feeds.deinit();
+
+    const report = try memory_trace.compare(
+        allocator,
+        &input,
+        &witness,
+        &feeds,
+        expected.components,
+    );
+    for (report.matches[0..report.match_count]) |matched| std.debug.print(
+        "match component={d} label={s} rows={d} columns={d}\n",
+        .{ matched.ordinal, matched.label, matched.row_count, matched.column_count },
+    );
+    if (report.mismatch) |mismatch| {
+        std.debug.print(
+            "mismatch component={d} label={s} kind={s}",
+            .{ mismatch.component_ordinal, mismatch.component_label, @tagName(mismatch.kind) },
+        );
+        if (mismatch.column_ordinal) |column| std.debug.print(" column={d}", .{column});
+        std.debug.print(
+            " expected_sha256={x} actual_sha256={x}\n",
+            .{ mismatch.expected_digest, mismatch.actual_digest },
+        );
+        return error.CairoMemoryTraceMismatch;
+    }
+    std.debug.print("memory trace parity: {d} matched\n", .{report.match_count});
 }
 
 fn inspect(allocator: std.mem.Allocator, input_path: []const u8) !void {
