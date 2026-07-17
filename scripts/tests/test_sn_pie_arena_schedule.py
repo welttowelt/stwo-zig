@@ -249,6 +249,47 @@ class ArenaScheduleTests(unittest.TestCase):
             [65, 24, 20, 32, 128, 128],
         )
 
+    def test_compact_workspace_geometry_follows_active_producer_rows(self) -> None:
+        purposes = {
+            "WitnessInputCompactSourcePointers": 34,
+            "WitnessInputCompactDescriptors": 85,
+            "WitnessInputCompactTupleScratch": 7,
+            "WitnessInputCompactSortKey": 1,
+            "WitnessInputCompactSortIndex": 1,
+            "WitnessInputCompactRunHeads": 1,
+            "WitnessInputCompactRunPositions": 1,
+            "WitnessInputCompactUniqueCount": 1,
+            "WitnessInputCompactSortTemp": 1,
+            "WitnessInputCompactScanTemp": 1,
+        }
+        schedule = [
+            entry(index, purpose, words, "verify_instruction")
+            for index, (purpose, words) in enumerate(purposes.items())
+        ]
+        pairs = {
+            "verify_instruction": [(16, 32)],
+            "add_opcode": [(16, 32768)],
+            "add_ap_opcode": [(16, 16)],
+            "ret_opcode": [(16, 32768)],
+        }
+        schedule_tool.rebuild_compact_workspace_geometry(schedule, pairs)
+        expected = {
+            "WitnessInputCompactSourcePointers": 6,
+            "WitnessInputCompactDescriptors": 15,
+            "WitnessInputCompactTupleScratch": 7 * 131072,
+            "WitnessInputCompactSortKey": 131072,
+            "WitnessInputCompactSortIndex": 131072,
+            "WitnessInputCompactRunHeads": 131072,
+            "WitnessInputCompactRunPositions": 131072,
+            "WitnessInputCompactUniqueCount": 1,
+            "WitnessInputCompactSortTemp": 8 * 131072 + 4096,
+            "WitnessInputCompactScanTemp": 2 * 131072 + 1024,
+        }
+        self.assertEqual(
+            {str(value["purpose"]): int(value["len_words"]) for value in schedule},
+            expected,
+        )
+
     def test_composition_geometry_uses_unique_evaluation_logs(self) -> None:
         label = b"component"
         header = bytearray(40)

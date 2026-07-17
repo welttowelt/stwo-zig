@@ -34,6 +34,41 @@ COMPACT_SOURCE_COMPONENTS = {
     "pedersen_aggregator_window_bits_18": "pedersen_builtin",
     "poseidon_aggregator": "poseidon_builtin",
 }
+COMPACT_GEOMETRY = {
+    "verify_instruction": {
+        "tuple_words": 7,
+        "edges": (
+            "add_opcode",
+            "add_opcode_small",
+            "add_ap_opcode",
+            "assert_eq_opcode",
+            "assert_eq_opcode_imm",
+            "assert_eq_opcode_double_deref",
+            "blake_compress_opcode",
+            "call_opcode_abs",
+            "call_opcode_rel_imm",
+            "generic_opcode",
+            "jnz_opcode_non_taken",
+            "jnz_opcode_taken",
+            "jump_opcode_abs",
+            "jump_opcode_double_deref",
+            "jump_opcode_rel",
+            "jump_opcode_rel_imm",
+            "mul_opcode",
+            "mul_opcode_small",
+            "qm_31_add_mul_opcode",
+            "ret_opcode",
+        ),
+    },
+    "pedersen_aggregator_window_bits_18": {
+        "tuple_words": 3,
+        "edges": ("pedersen_builtin",),
+    },
+    "poseidon_aggregator": {
+        "tuple_words": 6,
+        "edges": ("poseidon_builtin",),
+    },
+}
 COEFFICIENT_PURPOSES = (
     "BaseCoefficients",
     "InteractionCoefficients",
@@ -503,6 +538,50 @@ def scale_component_entries(
             raise ValueError(f"unexpected RuntimeMultiplicity geometry for {component}:{ordinal}")
         entry["len_words"] = target_rows
         changed += source_rows != target_rows
+    return changed
+
+
+def rebuild_compact_workspace_geometry(
+    schedule: list[dict[str, object]],
+    row_pairs: dict[str, list[tuple[int, int]]],
+) -> int:
+    changed = 0
+    for consumer, geometry in COMPACT_GEOMETRY.items():
+        if consumer not in row_pairs:
+            continue
+        active_edges = [producer for producer in geometry["edges"] if producer in row_pairs]
+        if not active_edges:
+            raise ValueError(f"compact consumer {consumer} has no active producers")
+        if any(len(row_pairs[producer]) != 1 for producer in active_edges):
+            raise ValueError(f"compact consumer {consumer} has grouped producer rows")
+        total_rows = sum(row_pairs[producer][0][1] for producer in active_edges)
+        sort_rows = 1 << (total_rows - 1).bit_length()
+        targets = {
+            "WitnessInputCompactSourcePointers": len(active_edges) * 2,
+            "WitnessInputCompactDescriptors": len(active_edges) * 5,
+            "WitnessInputCompactTupleScratch": sort_rows * int(geometry["tuple_words"]),
+            "WitnessInputCompactSortKey": sort_rows,
+            "WitnessInputCompactSortIndex": sort_rows,
+            "WitnessInputCompactRunHeads": sort_rows,
+            "WitnessInputCompactRunPositions": sort_rows,
+            "WitnessInputCompactUniqueCount": 1,
+            "WitnessInputCompactSortTemp": sort_rows * 8 + 4096,
+            "WitnessInputCompactScanTemp": sort_rows * 2 + 1024,
+        }
+        found: set[str] = set()
+        for entry in schedule:
+            if entry.get("component") != consumer:
+                continue
+            purpose = str(entry["purpose"])
+            target = targets.get(purpose)
+            if target is None:
+                continue
+            found.add(purpose)
+            changed += int(entry["len_words"]) != target
+            entry["len_words"] = target
+        if found != set(targets):
+            missing = sorted(set(targets) - found)
+            raise ValueError(f"compact consumer {consumer} is missing workspace purposes: {missing}")
     return changed
 
 
@@ -1495,6 +1574,7 @@ def retarget(
     )
     pairs = source_target_rows(schedule, proof_rows(proof_path))
     component_changes = scale_component_entries(schedule, pairs)
+    compact_workspace_changes = rebuild_compact_workspace_geometry(schedule, pairs)
     pedersen_source_rows = (
         pairs["pedersen_builtin"][0][1] if "pedersen_builtin" in pairs else None
     )
@@ -1572,6 +1652,7 @@ def retarget(
         "preprocessed_entries_changed": preprocessed_changes,
         "trace_group_entries_changed": trace_group_changes,
         "component_entries_changed": component_changes,
+        "compact_workspace_entries_changed": compact_workspace_changes,
         "execution_entries_changed": execution_changes,
         "fixed_table_entries_rebuilt": fixed_table_changes,
         "fixed_table_components": fixed_table_components,
