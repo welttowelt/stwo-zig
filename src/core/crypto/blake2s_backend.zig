@@ -400,6 +400,7 @@ fn compressScalar(h: *[8]u32, m: *const [16]u32, t0: u32, t1: u32, f0: u32) void
 
 const V4 = @Vector(4, u32);
 const Shift4 = @Vector(4, u5);
+const V16u8 = @Vector(16, u8);
 
 fn transpose4x4(rows: [4]V4) [4]V4 {
     const ab_low = @shuffle(u32, rows[0], rows[1], @Vector(4, i32){ 0, -1, 1, -2 });
@@ -414,7 +415,25 @@ fn transpose4x4(rows: [4]V4) [4]V4 {
     };
 }
 
-fn rotr32x4(x: V4, bits: u5) V4 {
+fn rotr32x4(x: V4, comptime bits: u5) V4 {
+    if (comptime builtin.cpu.arch.endian() == .little) {
+        const bytes: V16u8 = @bitCast(x);
+        switch (bits) {
+            8 => return @bitCast(@shuffle(u8, bytes, bytes, @Vector(16, i32){
+                1,  2,  3,  0,
+                5,  6,  7,  4,
+                9,  10, 11, 8,
+                13, 14, 15, 12,
+            })),
+            16 => return @bitCast(@shuffle(u8, bytes, bytes, @Vector(16, i32){
+                2,  3,  0,  1,
+                6,  7,  4,  5,
+                10, 11, 8,  9,
+                14, 15, 12, 13,
+            })),
+            else => {},
+        }
+    }
     const left_bits: u5 = @intCast((@as(u6, 32) - @as(u6, bits)) & 31);
     const r: Shift4 = @splat(bits);
     const l: Shift4 = @splat(left_bits);
