@@ -10,17 +10,15 @@ const composition_bundle_mod = @import("../../frontends/cairo/witness/compositio
 const fixed_table_bundle_mod = @import("../../frontends/cairo/witness/fixed_table_bundle.zig");
 const relation_bundle_mod = @import("../../frontends/cairo/witness/relation_bundle.zig");
 const witness_bundle_mod = @import("../../frontends/cairo/witness/bundle.zig");
-const witness_program_mod = @import("../../frontends/cairo/witness/program.zig");
-const witness_codegen = @import("witness_codegen.zig");
 const eval_codegen = @import("eval_codegen.zig");
 const cairo_adapter = @import("../../frontends/cairo/adapter/mod.zig");
 const cairo_opcodes = @import("../../frontends/cairo/adapter/opcodes.zig");
 const cairo_proof_plan = @import("../../frontends/cairo/proof_plan.zig");
 const witness_scheduler = @import("../../frontends/cairo/witness_scheduler.zig");
-const recipe_requirements = @import("recipe_requirements.zig");
 const commitment_telemetry = @import("resident/commitment/telemetry.zig");
 const fixed_tables = @import("resident/lookups/fixed_tables.zig");
 const multiplicity_feeds = @import("resident/lookups/multiplicity_feeds.zig");
+const preprocessed_bindings = @import("resident/preprocessed/bindings.zig");
 const preprocessed_coefficients_mod = @import("resident/preprocessed/coefficients.zig");
 const preprocessed_storage = @import("resident/preprocessed/storage.zig");
 const relation_claims = @import("resident/relations/claims.zig");
@@ -32,6 +30,7 @@ const trace_diagnostics = @import("resident/trace/diagnostics.zig");
 const trace_interpolation = @import("resident/trace/interpolation.zig");
 const transcript_operations = @import("resident/transcript/operations.zig");
 const resident_twiddles = @import("resident/twiddles.zig");
+const witness_prepare = @import("resident/witness/prepare.zig");
 const M31 = @import("../../core/fields/m31.zig").M31;
 const QM31 = @import("../../core/fields/qm31.zig").QM31;
 const circle_poly_mod = @import("../../prover/poly/circle/poly.zig");
@@ -43,27 +42,8 @@ const cairo_domain_prefix_bytes = CairoMerkleHasher.domainPrefixBytes();
 pub const Error = resident_errors.Error;
 
 pub const Sn2Counts = schedule_bindings.Sn2Counts;
-pub const WitnessRecipeRequirements = recipe_requirements.Requirements;
-
-pub const WitnessRecipes = struct {
-    compact_verify: ?*protocol_recipes.CompactRecipe = null,
-    compact_pedersen: ?*protocol_recipes.CompactRecipe = null,
-    compact_poseidon: ?*protocol_recipes.CompactRecipe = null,
-    ec_op: ?*protocol_recipes.EcOpRecipe = null,
-
-    pub fn validate(self: WitnessRecipes, required: WitnessRecipeRequirements) Error!void {
-        if (required.verify_instruction and self.compact_verify == null or
-            required.pedersen and self.compact_pedersen == null or
-            required.poseidon and self.compact_poseidon == null or
-            required.ec_op and self.ec_op == null)
-            return Error.MissingBinding;
-        if (!required.verify_instruction and self.compact_verify != null or
-            !required.pedersen and self.compact_pedersen != null or
-            !required.poseidon and self.compact_poseidon != null or
-            !required.ec_op and self.ec_op != null)
-            return Error.InvalidSchedule;
-    }
-};
+pub const WitnessRecipeRequirements = witness_prepare.WitnessRecipeRequirements;
+pub const WitnessRecipes = witness_prepare.WitnessRecipes;
 
 pub const ProofCopy = struct {
     source: arena_plan.Binding,
@@ -114,6 +94,7 @@ const collectNamed = schedule_bindings.collectNamed;
 const namedGroupRanges = schedule_bindings.namedGroupRanges;
 
 const canonicalClaimedSumBindings = relation_claims.canonicalClaimedSumBindings;
+const collectPreprocessedBindings = preprocessed_bindings.collect;
 
 /// Exact logical-to-physical binding set consumed by the prepared composition,
 /// quotient, FRI and compact proof-assembly stages. This is deliberately built
@@ -1131,36 +1112,9 @@ pub const prepareFixedTableBatch = fixed_tables.prepareFixedTableBatch;
 pub const fixedLookupIndex = fixed_tables.fixedLookupIndex;
 
 pub const MultiplicityFeedBatch = multiplicity_feeds.MultiplicityFeedBatch;
-
-const aot_narrow_address_limit_bytes = (@as(u64, std.math.maxInt(u32)) + 1) * @sizeOf(u32);
-
-fn aotBindingFitsNarrowAddress(binding: arena_plan.Binding) bool {
-    if (binding.offset_bytes % @sizeOf(u32) != 0 or binding.size_bytes % @sizeOf(u32) != 0)
-        return false;
-    return binding.offset_bytes <= aot_narrow_address_limit_bytes and
-        binding.size_bytes <= aot_narrow_address_limit_bytes - binding.offset_bytes;
-}
-
-fn recordAotHighBinding(
-    high_count: *usize,
-    component: []const u8,
-    binding_purpose: []const u8,
-    binding: arena_plan.Binding,
-) void {
-    if (aotBindingFitsNarrowAddress(binding)) return;
-    high_count.* += 1;
-    std.debug.print(
-        "aot_high_binding component={s} purpose={s} id={} offset={} end={} words={}\n",
-        .{
-            component,
-            binding_purpose,
-            binding.logical_id,
-            binding.offset_bytes,
-            binding.offset_bytes + binding.size_bytes,
-            binding.size_bytes / @sizeOf(u32),
-        },
-    );
-}
+pub const prepareEcOpWitness = witness_prepare.prepareEcOpWitness;
+pub const prepareAotWitnessBatch = witness_prepare.prepareAotWitnessBatch;
+pub const prepareAotInteractionBatch = witness_prepare.prepareAotInteractionBatch;
 
 pub const prepareMultiplicityFeedBatch = multiplicity_feeds.prepareMultiplicityFeedBatch;
 
@@ -1192,393 +1146,6 @@ pub const prepareNativeBaseInterpolation = trace_interpolation.prepareNativeBase
 const prepareComponentInterpolationGroupsForPurposes = trace_interpolation.prepareComponentInterpolationGroupsForPurposes;
 pub const interpolateTraceColumns = trace_interpolation.interpolateTraceColumns;
 pub const interpolateAvailablePreprocessedColumns = trace_interpolation.interpolateAvailablePreprocessedColumns;
-
-pub fn prepareEcOpWitness(
-    allocator: std.mem.Allocator,
-    metal: *metal_runtime.Runtime,
-    resident_arena: *arena_plan.ResidentArena,
-    schedule: []const std.json.Value,
-    plan: arena_plan.Plan,
-    input: *const cairo_adapter.ProverInput,
-    output_mode: protocol_recipes.EcOpOutputMode,
-) !protocol_recipes.EcOpRecipe {
-    var execution: [37]arena_plan.Binding = undefined;
-    execution[0] = try one(schedule, plan, "ExecutionTableRawAddressToId");
-    const big = try collect(allocator, schedule, plan, "ExecutionTableBigLimb");
-    defer allocator.free(big);
-    const small = try collect(allocator, schedule, plan, "ExecutionTableSmallLimb");
-    defer allocator.free(small);
-    if (big.len != 28 or small.len != 8) return Error.InvalidCardinality;
-    @memcpy(execution[1..29], big);
-    @memcpy(execution[29..37], small);
-
-    const trace = try collectComponent(allocator, schedule, plan, "BaseTrace", "ec_op_builtin");
-    defer allocator.free(trace);
-    const partial = try collectComponent(allocator, schedule, plan, "WitnessInput", "partial_ec_mul_generic");
-    defer allocator.free(partial);
-    if (trace.len != 273 or partial.len != 126) return Error.InvalidCardinality;
-    var trace_columns: [273]arena_plan.Binding = undefined;
-    var partial_columns: [127]arena_plan.Binding = undefined;
-    @memcpy(&trace_columns, trace);
-    @memcpy(partial_columns[0..126], partial);
-    const partial_iota = try oneComponent(schedule, plan, "EcOpPartialIota", "ec_op_builtin");
-    partial_columns[126] = partial_iota;
-    const segment_start = try oneComponent(schedule, plan, "EcOpSegmentStart", "ec_op_builtin");
-    const ec_segment = input.builtin_segments.ec_op_builtin orelse return Error.MissingBinding;
-    if (ec_segment.begin_addr > std.math.maxInt(u32)) return Error.InvalidBindingSize;
-    const segment_bytes = try resident_arena.bytes(segment_start);
-    const segment_aligned: *align(4) u32 = @ptrCast(@alignCast(segment_bytes.ptr));
-    segment_aligned.* = @intCast(ec_segment.begin_addr);
-    const row_count = std.math.cast(u32, trace[0].size_bytes / 4) orelse return Error.InvalidBindingSize;
-    const multiplicities = [4]arena_plan.Binding{
-        try oneComponentOrdinal(schedule, plan, "RuntimeMultiplicity", "memory_address_to_id", 21),
-        try oneComponentOrdinal(schedule, plan, "RuntimeMultiplicity", "memory_id_to_big", 22),
-        try oneComponentOrdinal(schedule, plan, "RuntimeMultiplicity", "memory_id_to_big", 23),
-        try oneComponentOrdinal(schedule, plan, "FixedMultiplicity", "range_check_8", 0),
-    };
-    return protocol_recipes.EcOpRecipe.init(allocator, metal, resident_arena, .{
-        .execution_columns = execution,
-        .trace_columns = trace_columns,
-        .partial_columns = partial_columns,
-        .multiplicities = multiplicities,
-        .lookup = try oneComponent(schedule, plan, "LookupInputs", "ec_op_builtin"),
-        .segment_start = segment_start,
-        .scratch = partial_iota,
-        .row_count = row_count,
-    }, output_mode);
-}
-
-pub fn prepareAotWitnessBatch(
-    allocator: std.mem.Allocator,
-    metal: *metal_runtime.Runtime,
-    resident_arena: *arena_plan.ResidentArena,
-    schedule: []const std.json.Value,
-    plan: arena_plan.Plan,
-    witness_bundle: witness_bundle_mod.Bundle,
-    fixed_bundle: fixed_table_bundle_mod.Bundle,
-) !protocol_recipes.AotWitnessBatchRecipe {
-    return prepareAotWitnessBatchForMode(
-        allocator,
-        metal,
-        resident_arena,
-        schedule,
-        plan,
-        witness_bundle,
-        fixed_bundle,
-        .base,
-    );
-}
-
-/// Prepares lookup-only witness replay for the interaction epoch. Generated
-/// kernels suppress base columns and multiplicities, but retain subcomponent
-/// words so the proof-plan DAG can reconstruct gathered and compacted inputs.
-pub fn prepareAotInteractionBatch(
-    allocator: std.mem.Allocator,
-    metal: *metal_runtime.Runtime,
-    resident_arena: *arena_plan.ResidentArena,
-    schedule: []const std.json.Value,
-    plan: arena_plan.Plan,
-    witness_bundle: witness_bundle_mod.Bundle,
-    fixed_bundle: fixed_table_bundle_mod.Bundle,
-) !protocol_recipes.AotWitnessBatchRecipe {
-    return prepareAotWitnessBatchForMode(
-        allocator,
-        metal,
-        resident_arena,
-        schedule,
-        plan,
-        witness_bundle,
-        fixed_bundle,
-        .interaction,
-    );
-}
-
-const FixedDeductionRequirements = struct {
-    pedersen: bool = false,
-    poseidon: bool = false,
-};
-
-fn fixedDeductionRequirements(bundle: witness_bundle_mod.Bundle) FixedDeductionRequirements {
-    var result = FixedDeductionRequirements{};
-    for (bundle.entries) |entry| {
-        for (entry.program.insts) |inst| {
-            if (@as(witness_program_mod.Op, @enumFromInt(inst.op)) != .deduce_call) continue;
-            switch (inst.imm) {
-                2, 3 => result.pedersen = true,
-                8, 10, 11 => result.poseidon = true,
-                else => {},
-            }
-        }
-    }
-    return result;
-}
-
-fn prepareAotWitnessBatchForMode(
-    allocator: std.mem.Allocator,
-    metal: *metal_runtime.Runtime,
-    resident_arena: *arena_plan.ResidentArena,
-    schedule: []const std.json.Value,
-    plan: arena_plan.Plan,
-    witness_bundle: witness_bundle_mod.Bundle,
-    fixed_bundle: fixed_table_bundle_mod.Bundle,
-    mode: witness_codegen.KernelMode,
-) !protocol_recipes.AotWitnessBatchRecipe {
-    if (mode == .all) return Error.InvalidCardinality;
-    const table_pointers_planned = try one(schedule, plan, "ExecutionTablePointers");
-    const table_strides_planned = try one(schedule, plan, "ExecutionTableStrides");
-    const table_pointers = table_pointers_planned;
-    const table_strides = table_strides_planned;
-    var execution_tables = std.ArrayList(arena_plan.Binding).empty;
-    defer execution_tables.deinit(allocator);
-    try execution_tables.append(allocator, try one(schedule, plan, "ExecutionTableRawAddressToId"));
-    const big = try collect(allocator, schedule, plan, "ExecutionTableBigLimb");
-    defer allocator.free(big);
-    const small = try collect(allocator, schedule, plan, "ExecutionTableSmallLimb");
-    defer allocator.free(small);
-    if (big.len != 28 or small.len != 8) return Error.InvalidCardinality;
-    try execution_tables.appendSlice(allocator, big);
-    try execution_tables.appendSlice(allocator, small);
-    const stride_bytes = try resident_arena.bytes(table_strides);
-    if (stride_bytes.len != 12) return Error.InvalidBindingSize;
-    const strides = [3]u32{
-        @intCast(execution_tables.items[0].size_bytes / 4),
-        @intCast(big[0].size_bytes / 4),
-        @intCast(small[0].size_bytes / 4),
-    };
-
-    const deduction_requirements = fixedDeductionRequirements(witness_bundle);
-    const pedersen_entry = if (deduction_requirements.pedersen)
-        fixed_bundle.find("pedersen_points_table_window_bits_18") orelse return Error.MissingBinding
-    else
-        null;
-    const poseidon_entry = if (deduction_requirements.poseidon)
-        fixed_bundle.find("poseidon_round_keys") orelse return Error.MissingBinding
-    else
-        null;
-    const pedersen_pointers = if (pedersen_entry) |entry|
-        try oneComponent(schedule, plan, "FixedTableSourcePointers", entry.component)
-    else
-        table_pointers;
-    const poseidon_pointers = if (poseidon_entry) |entry|
-        try oneComponent(schedule, plan, "FixedTableSourcePointers", entry.component)
-    else
-        table_pointers;
-    const pedersen_sources = if (pedersen_entry) |entry|
-        try collectPreprocessedBindings(allocator, schedule, plan, fixed_bundle, entry.preprocessed_sources)
-    else
-        try allocator.alloc(arena_plan.Binding, 0);
-    defer allocator.free(pedersen_sources);
-    const poseidon_sources = if (poseidon_entry) |entry|
-        try collectPreprocessedBindings(allocator, schedule, plan, fixed_bundle, entry.preprocessed_sources)
-    else
-        try allocator.alloc(arena_plan.Binding, 0);
-    defer allocator.free(poseidon_sources);
-
-    var high_bindings: usize = 0;
-    recordAotHighBinding(&high_bindings, "shared", "ExecutionTablePointers", table_pointers);
-    recordAotHighBinding(&high_bindings, "shared", "ExecutionTableStrides", table_strides);
-    if (pedersen_entry != null)
-        recordAotHighBinding(&high_bindings, "shared", "PedersenSourcePointers", pedersen_pointers);
-    if (poseidon_entry != null)
-        recordAotHighBinding(&high_bindings, "shared", "PoseidonSourcePointers", poseidon_pointers);
-    for (execution_tables.items) |binding|
-        recordAotHighBinding(&high_bindings, "shared", "ExecutionTable", binding);
-    for (pedersen_sources) |binding|
-        recordAotHighBinding(&high_bindings, "shared", "PedersenSource", binding);
-    for (poseidon_sources) |binding|
-        recordAotHighBinding(&high_bindings, "shared", "PoseidonSource", binding);
-    for (witness_bundle.entries) |entry| {
-        const inputs = try collectComponent(allocator, schedule, plan, "WitnessInput", entry.label);
-        defer allocator.free(inputs);
-        const outputs = try collectComponent(allocator, schedule, plan, "BaseTrace", entry.label);
-        defer allocator.free(outputs);
-        for (inputs) |binding| recordAotHighBinding(&high_bindings, entry.label, "WitnessInput", binding);
-        for (outputs) |binding| recordAotHighBinding(&high_bindings, entry.label, "BaseTrace", binding);
-        recordAotHighBinding(
-            &high_bindings,
-            entry.label,
-            "LookupInputs",
-            try oneComponent(schedule, plan, "LookupInputs", entry.label),
-        );
-        recordAotHighBinding(
-            &high_bindings,
-            entry.label,
-            "SubcomponentInputs",
-            try oneComponent(schedule, plan, "SubcomponentInputs", entry.label),
-        );
-        recordAotHighBinding(
-            &high_bindings,
-            entry.label,
-            "WitnessInputPointers",
-            try oneComponent(schedule, plan, "WitnessInputPointers", entry.label),
-        );
-        recordAotHighBinding(
-            &high_bindings,
-            entry.label,
-            "WitnessOutputPointers",
-            try oneComponent(schedule, plan, "WitnessOutputPointers", entry.label),
-        );
-        recordAotHighBinding(
-            &high_bindings,
-            entry.label,
-            "WitnessMultiplicityPointers",
-            try oneComponent(schedule, plan, "WitnessMultiplicityPointers", entry.label),
-        );
-    }
-    if (high_bindings != 0) {
-        std.debug.print("aot_high_binding_summary count={} limit_bytes={}\n", .{ high_bindings, aot_narrow_address_limit_bytes });
-        return Error.InvalidBindingSize;
-    }
-
-    const invocations = try allocator.alloc(protocol_recipes.AotWitnessInvocation, witness_bundle.entries.len);
-    defer allocator.free(invocations);
-    const names = try allocator.alloc([]u8, witness_bundle.entries.len);
-    var names_initialized: usize = 0;
-    defer {
-        for (names[0..names_initialized]) |name| allocator.free(name);
-        allocator.free(names);
-    }
-    const owned_destinations = try allocator.alloc([]arena_plan.Binding, witness_bundle.entries.len);
-    var destinations_initialized: usize = 0;
-    defer {
-        for (owned_destinations[0..destinations_initialized]) |destinations| allocator.free(destinations);
-        allocator.free(owned_destinations);
-    }
-    const owned_inputs = try allocator.alloc([]arena_plan.Binding, witness_bundle.entries.len);
-    var inputs_initialized: usize = 0;
-    defer {
-        for (owned_inputs[0..inputs_initialized]) |inputs| allocator.free(inputs);
-        allocator.free(owned_inputs);
-    }
-    const owned_trace_outputs = try allocator.alloc([]arena_plan.Binding, witness_bundle.entries.len);
-    var trace_outputs_initialized: usize = 0;
-    defer {
-        for (owned_trace_outputs[0..trace_outputs_initialized]) |outputs| allocator.free(outputs);
-        allocator.free(owned_trace_outputs);
-    }
-    const owned_workspaces = try allocator.alloc([]protocol_recipes.AotWorkspaceWrite, witness_bundle.entries.len);
-    var workspaces_initialized: usize = 0;
-    defer {
-        for (owned_workspaces[0..workspaces_initialized]) |writes| allocator.free(writes);
-        allocator.free(owned_workspaces);
-    }
-    const kernel_modes = try allocator.alloc(witness_codegen.KernelMode, witness_bundle.entries.len);
-    defer allocator.free(kernel_modes);
-
-    for (witness_bundle.entries, invocations, names, owned_destinations, owned_inputs, owned_trace_outputs, owned_workspaces, kernel_modes) |entry, *invocation, *name, *owned, *input_storage, *output_storage, *workspace_storage, *kernel_mode| {
-        const inputs = try collectComponent(allocator, schedule, plan, "WitnessInput", entry.label);
-        input_storage.* = inputs;
-        inputs_initialized += 1;
-        const outputs = try collectComponent(allocator, schedule, plan, "BaseTrace", entry.label);
-        output_storage.* = outputs;
-        trace_outputs_initialized += 1;
-        if (inputs.len != entry.program.n_inputs or outputs.len != entry.program.n_cols or outputs.len == 0)
-            return Error.InvalidCardinality;
-        const row_count = std.math.cast(u32, outputs[0].size_bytes / 4) orelse return Error.InvalidBindingSize;
-        if (row_count == 0 or !std.math.isPowerOfTwo(row_count)) return Error.InvalidBindingSize;
-        for (inputs) |binding| if (binding.size_bytes != @as(u64, row_count) * 4) return Error.InvalidBindingSize;
-        for (outputs) |binding| if (binding.size_bytes != @as(u64, row_count) * 4) return Error.InvalidBindingSize;
-
-        const input_pointers_planned = try oneComponent(schedule, plan, "WitnessInputPointers", entry.label);
-        const output_pointers_planned = try oneComponent(schedule, plan, "WitnessOutputPointers", entry.label);
-        const multiplicity_pointers_planned = try oneComponent(schedule, plan, "WitnessMultiplicityPointers", entry.label);
-        if (input_pointers_planned.size_bytes > 2048 or output_pointers_planned.size_bytes > 8192 or
-            multiplicity_pointers_planned.size_bytes > 2048)
-            return Error.InvalidBindingSize;
-        if (entry.program.n_mult_tables != 0) return Error.InvalidCardinality;
-        const input_pointers = input_pointers_planned;
-        const output_pointers = output_pointers_planned;
-        const multiplicity_pointers = multiplicity_pointers_planned;
-
-        const lookup = try oneComponent(schedule, plan, "LookupInputs", entry.label);
-        const sub = try oneComponent(schedule, plan, "SubcomponentInputs", entry.label);
-        if (lookup.size_bytes != @as(u64, row_count) * entry.program.n_lookup_words * 4 or
-            sub.size_bytes != @as(u64, row_count) * entry.program.n_sub_words * 4)
-            return Error.InvalidBindingSize;
-        const retain_lookup = cairo_proof_plan.retainsLookupInputs(entry.label);
-        kernel_mode.* = if (mode == .base and retain_lookup)
-            .base_lookup
-        else if (mode == .interaction and cairo_proof_plan.retainedLookupReplaysSubwords(entry.label))
-            .interaction_subwords
-        else
-            mode;
-        const destination_count: usize = switch (mode) {
-            .base => outputs.len + 1 + @intFromBool(kernel_mode.* == .base_lookup),
-            .interaction => if (kernel_mode.* == .interaction_subwords) 1 else 2,
-            .all, .base_lookup, .interaction_subwords => unreachable,
-        };
-        owned.* = try allocator.alloc(arena_plan.Binding, destination_count);
-        destinations_initialized += 1;
-        switch (mode) {
-            .base => {
-                @memcpy(owned.*[0..outputs.len], outputs);
-                owned.*[outputs.len] = sub;
-                if (kernel_mode.* == .base_lookup) owned.*[outputs.len + 1] = lookup;
-            },
-            .interaction => {
-                if (kernel_mode.* == .interaction_subwords) {
-                    owned.*[0] = sub;
-                } else {
-                    owned.*[0] = lookup;
-                    owned.*[1] = sub;
-                }
-            },
-            .all, .base_lookup, .interaction_subwords => unreachable,
-        }
-        const workspace_count: usize = 5 +
-            @as(usize, @intFromBool(pedersen_entry != null)) +
-            @as(usize, @intFromBool(poseidon_entry != null));
-        workspace_storage.* = try allocator.alloc(protocol_recipes.AotWorkspaceWrite, workspace_count);
-        workspaces_initialized += 1;
-        var workspace_index: usize = 0;
-        workspace_storage.*[workspace_index] = .{ .destination = table_pointers, .binding_offsets = execution_tables.items };
-        workspace_index += 1;
-        workspace_storage.*[workspace_index] = .{ .destination = table_strides, .words = &strides };
-        workspace_index += 1;
-        if (pedersen_entry != null) {
-            workspace_storage.*[workspace_index] = .{ .destination = pedersen_pointers, .binding_offsets = pedersen_sources };
-            workspace_index += 1;
-        }
-        if (poseidon_entry != null) {
-            workspace_storage.*[workspace_index] = .{ .destination = poseidon_pointers, .binding_offsets = poseidon_sources };
-            workspace_index += 1;
-        }
-        workspace_storage.*[workspace_index] = .{ .destination = input_pointers, .binding_offsets = inputs };
-        workspace_index += 1;
-        workspace_storage.*[workspace_index] = .{ .destination = output_pointers, .binding_offsets = outputs };
-        workspace_index += 1;
-        workspace_storage.*[workspace_index] = .{ .destination = multiplicity_pointers };
-        name.* = try witness_codegen.kernelNameForMode(allocator, entry.semantic_hash, kernel_mode.*);
-        names_initialized += 1;
-        invocation.* = .{
-            .kernel_name = name.*,
-            .layout = .{
-                .input_offsets = try wordOffset(input_pointers),
-                .table_offsets = try wordOffset(table_pointers),
-                .table_strides = try wordOffset(table_strides),
-                .output_offsets = try wordOffset(output_pointers),
-                .multiplicity_offsets = try wordOffset(multiplicity_pointers),
-                .lookup_words = try wordOffset(lookup),
-                .sub_words = try wordOffset(sub),
-                .row_count = row_count,
-                .pedersen_offsets = try wordOffset(pedersen_pointers) + 1,
-                .pedersen_rows = if (pedersen_entry) |fixed_entry| fixed_entry.row_count else 1,
-                .poseidon_keys = try wordOffset(poseidon_pointers) + 1,
-            },
-            .destinations = owned.*,
-            .workspace_writes = workspace_storage.*,
-        };
-    }
-    const source = try witness_codegen.generateBatchForModes(allocator, witness_bundle.entries, kernel_modes);
-    defer allocator.free(source);
-    return protocol_recipes.AotWitnessBatchRecipe.initSource(
-        allocator,
-        metal,
-        resident_arena,
-        source,
-        invocations,
-    );
-}
 
 /// Materializes the direct adapted-input lanes without an intermediate packed
 /// matrix. Padding repeats row zero exactly as stwo-cairo's `casm_slot_columns`.
@@ -3063,22 +2630,6 @@ fn writePreprocessedOffsets(
     try writeBindingOffsets(resident_arena, destination, sources);
 }
 
-fn collectPreprocessedBindings(
-    allocator: std.mem.Allocator,
-    schedule: []const std.json.Value,
-    plan: arena_plan.Plan,
-    fixed_bundle: fixed_table_bundle_mod.Bundle,
-    identities: []const []u8,
-) ![]arena_plan.Binding {
-    const sources = try allocator.alloc(arena_plan.Binding, identities.len);
-    errdefer allocator.free(sources);
-    for (identities, sources) |identity, *source| {
-        const wanted = fixed_bundle.identityOrdinal(identity) orelse return Error.MissingBinding;
-        source.* = try oneOrdinal(schedule, plan, "PreprocessedEvaluations", wanted);
-    }
-    return sources;
-}
-
 fn bindingWords(
     resident_arena: *arena_plan.ResidentArena,
     binding: arena_plan.Binding,
@@ -4319,47 +3870,4 @@ test "Cairo component-local relation preparation rejects an empty claim layout" 
             undefined,
         ),
     );
-}
-
-test "Cairo AOT witness narrow addresses validate the complete binding extent" {
-    const last_word = arena_plan.Binding{
-        .logical_id = 0,
-        .slot = 0,
-        .offset_bytes = aot_narrow_address_limit_bytes - @sizeOf(u32),
-        .size_bytes = @sizeOf(u32),
-        .materialization = .resident,
-        .occupied = [_]u64{0} ** 16,
-    };
-    try std.testing.expect(aotBindingFitsNarrowAddress(last_word));
-
-    var invalid = last_word;
-    invalid.size_bytes += @sizeOf(u32);
-    try std.testing.expect(!aotBindingFitsNarrowAddress(invalid));
-    invalid = last_word;
-    invalid.offset_bytes = aot_narrow_address_limit_bytes;
-    try std.testing.expect(!aotBindingFitsNarrowAddress(invalid));
-    invalid = last_word;
-    invalid.offset_bytes -= 1;
-    try std.testing.expect(!aotBindingFitsNarrowAddress(invalid));
-}
-
-test "Cairo AOT fixed-table requirements follow witness bytecode capabilities" {
-    var bundle = try witness_bundle_mod.Bundle.readFile(
-        std.testing.allocator,
-        "vectors/cairo/sn_pie_2_witness_programs.bin",
-    );
-    defer bundle.deinit();
-
-    const complete = fixedDeductionRequirements(bundle);
-    try std.testing.expect(complete.pedersen);
-    try std.testing.expect(complete.poseidon);
-
-    const add_ap = bundle.find("add_ap_opcode") orelse return error.MissingBinding;
-    const arithmetic_only = witness_bundle_mod.Bundle{
-        .allocator = std.testing.allocator,
-        .entries = @constCast(add_ap)[0..1],
-    };
-    const reduced = fixedDeductionRequirements(arithmetic_only);
-    try std.testing.expect(!reduced.pedersen);
-    try std.testing.expect(!reduced.poseidon);
 }
