@@ -14,6 +14,7 @@ const eval_codegen = @import("eval_codegen.zig");
 const cairo_proof_plan = @import("../../frontends/cairo/proof_plan.zig");
 const commitment_ordering = @import("resident/commitment/ordering.zig");
 const commitment_telemetry = @import("resident/commitment/telemetry.zig");
+const composition_config = @import("resident/composition/config.zig");
 const fixed_tables = @import("resident/lookups/fixed_tables.zig");
 const multiplicity_feeds = @import("resident/lookups/multiplicity_feeds.zig");
 const preprocessed_bindings = @import("resident/preprocessed/bindings.zig");
@@ -1224,58 +1225,30 @@ fn prepareCompositionRecipe(
         }
     }.get;
 
-    const fusion_requested = std.process.hasEnvVarConstant("STWO_ZIG_SN2_ENABLE_COMPOSITION_PART_FUSION");
-    const source_artifact_present = std.process.hasEnvVarConstant("STWO_ZIG_SN2_COMPOSITION_SOURCE");
-    if (fusion_requested and !source_artifact_present)
-        return error.FusedCompositionRequiresSourceArtifact;
-    const fusion_instruction_cap = if (std.process.getEnvVarOwned(
-        allocator,
-        "STWO_ZIG_SN2_COMPOSITION_FUSION_CAP",
-    )) |encoded_cap| cap: {
-        defer allocator.free(encoded_cap);
-        if (!fusion_requested) return error.FusionCapRequiresFusedComposition;
-        const value = try std.fmt.parseUnsigned(usize, encoded_cap, 10);
-        if (value == 0 or value > eval_codegen.max_fused_instruction_cap)
-            return error.InvalidFusionInstructionCap;
-        break :cap value;
-    } else |err| switch (err) {
-        error.EnvironmentVariableNotFound => eval_codegen.default_fused_instruction_cap,
-        else => return err,
+    var library_config = try composition_config.LibraryConfig.fromProcess(allocator);
+    var library_config_live = true;
+    defer if (library_config_live) library_config.deinit(allocator);
+    const fusion_requested = library_config.fusion_requested;
+    const fusion_instruction_cap = library_config.fusion_instruction_cap;
+    var library = switch (library_config.library) {
+        .source => |source_path| source: {
+            const source_bytes = try std.fs.cwd().readFileAlloc(allocator, source_path, 64 * 1024 * 1024);
+            defer allocator.free(source_bytes);
+            break :source try metal.compileEvalLibrary(source_bytes);
+        },
+        .metallib => try metal.loadEvalLibrary(metallib_path),
     };
-    var library = if (std.process.getEnvVarOwned(
-        allocator,
-        "STWO_ZIG_SN2_COMPOSITION_SOURCE",
-    )) |source_path| source: {
-        defer allocator.free(source_path);
-        const source_bytes = try std.fs.cwd().readFileAlloc(allocator, source_path, 64 * 1024 * 1024);
-        defer allocator.free(source_bytes);
-        break :source try metal.compileEvalLibrary(source_bytes);
-    } else |err| switch (err) {
-        error.EnvironmentVariableNotFound => try metal.loadEvalLibrary(metallib_path),
-        else => return err,
-    };
+    library_config.deinit(allocator);
+    library_config_live = false;
     defer library.deinit();
-    const component_limit = if (std.process.getEnvVarOwned(
+    const execution_config = try composition_config.ExecutionConfig.fromProcess(
         allocator,
-        "STWO_ZIG_SN2_COMPOSITION_COMPONENT_LIMIT",
-    )) |encoded_limit| limit: {
-        defer allocator.free(encoded_limit);
-        break :limit try compositionComponentLimit(bundle.components.len, encoded_limit);
-    } else |err| switch (err) {
-        error.EnvironmentVariableNotFound => try compositionComponentLimit(bundle.components.len, null),
-        else => return err,
-    };
-    const diagnostic_component: ?usize = if (std.process.getEnvVarOwned(
-        allocator,
-        "STWO_ZIG_SN2_LOG_COMPOSITION_PART_COMPONENT",
-    )) |encoded_component| component: {
-        defer allocator.free(encoded_component);
-        break :component try std.fmt.parseUnsigned(usize, encoded_component, 10);
-    } else |err| switch (err) {
-        error.EnvironmentVariableNotFound => null,
-        else => return err,
-    };
-    const fusion_enabled = fusion_requested and diagnostic_component == null;
+        bundle.components.len,
+        fusion_requested,
+    );
+    const component_limit = execution_config.component_limit;
+    const diagnostic_component = execution_config.diagnostic_component;
+    const fusion_enabled = execution_config.fusion_enabled;
     const descriptor_bytes = try resident_arena.bytes(bindings.composition_descriptors);
     const descriptor_aligned: []align(4) u8 = @alignCast(descriptor_bytes);
     const descriptor_words = std.mem.bytesAsSlice(u32, descriptor_aligned);
@@ -1563,14 +1536,6 @@ fn descriptorWordOffset(binding: arena_plan.Binding, relative: usize) !u32 {
 
 fn compositionRandomCoefficientBase(component_offset: u32, part_offset: u32) !u32 {
     return std.math.add(u32, component_offset, part_offset) catch Error.InvalidBindingSize;
-}
-
-fn compositionComponentLimit(total: usize, encoded: ?[]const u8) !usize {
-    if (total == 0) return Error.InvalidCardinality;
-    const text = encoded orelse return total;
-    const value = std.fmt.parseInt(usize, text, 10) catch return Error.InvalidCardinality;
-    if (value == 0 or value > total) return Error.InvalidCardinality;
-    return value;
 }
 
 const wordOffset = resident_binding.wordOffset;
@@ -2498,17 +2463,6 @@ test "Cairo composition parts address global random coefficient powers" {
         Error.InvalidBindingSize,
         compositionRandomCoefficientBase(std.math.maxInt(u32), 1),
     );
-}
-
-test "Cairo diagnostic composition component limit is bounded" {
-    try std.testing.expectEqual(@as(usize, 58), try compositionComponentLimit(58, null));
-    try std.testing.expectEqual(@as(usize, 7), try compositionComponentLimit(58, "7"));
-    try std.testing.expectEqual(@as(usize, 58), try compositionComponentLimit(58, "58"));
-    try std.testing.expectError(Error.InvalidCardinality, compositionComponentLimit(0, null));
-    try std.testing.expectError(Error.InvalidCardinality, compositionComponentLimit(58, ""));
-    try std.testing.expectError(Error.InvalidCardinality, compositionComponentLimit(58, "0"));
-    try std.testing.expectError(Error.InvalidCardinality, compositionComponentLimit(58, "59"));
-    try std.testing.expectError(Error.InvalidCardinality, compositionComponentLimit(58, "not-a-number"));
 }
 
 test "Cairo composition workspace rejects inverse twiddle aliases" {

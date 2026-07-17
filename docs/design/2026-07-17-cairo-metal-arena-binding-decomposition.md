@@ -63,7 +63,7 @@ decommitment, filesystem, diagnostics, and field-arithmetic context.
 
 ### Migration ledger (2026-07-17)
 
-The audit table above is the historical pre-migration inventory. The live facade is now 2,571
+The audit table above is the historical pre-migration inventory. The live facade is now 2,525
 lines and delegates these accepted ownership slices without changing its public names:
 
 - `resident/errors.zig` owns the stable Cairo resident integration error set;
@@ -92,6 +92,8 @@ lines and delegates these accepted ownership slices without changing its public 
   graph execution; `resident/interaction/` owns interaction execution and parity diagnostics.
 - `resident/commitment/ordering.zig` owns canonical AIR reconstruction, degree-ordered commitment
   projection, tree-purpose collection, and query-value reordering.
+- `resident/composition/config.zig` owns fusion/source selection, cap and component-limit policy,
+  diagnostic selection, and evaluator-library configuration with the existing environment ABI.
 
 Retained-Merkle spill/restore deliberately remains with the facade until its storage owner is
 extracted. It consumes the shared commitment-ordering policy rather than importing that policy from
@@ -256,7 +258,7 @@ if it reduces concepts without hiding base-versus-interaction stage policy.
 
 | Target | Symbols currently in `arena_binding.zig` |
 | --- | --- |
-| `resident/composition/config.zig` | Parsing and validation now embedded in `prepareCompositionRecipe`: fusion request/cap, source/library selection, component limit, diagnostic component |
+| `resident/composition/config.zig` | Extracted: fusion request/cap, source/library selection, component limit, diagnostic component |
 | `resident/composition/prepare.zig` | `prepareComposition`, descriptor construction from `prepareCompositionRecipe`, `descriptorWordOffset`, `compositionRandomCoefficientBase`, `compositionComponentLimit` |
 | `resident/decommit/bindings.zig` | `DecommitTraceCoefficientBindings`, `DecommitTraceGroupBindings`, `DecommitTraceTreeBindings`, `DecommitFriTreeBindings`, `TraceTreeRole`, `TraceTreeGeometry`, `FriTreeGeometry`, `ProofDecommitGeometry`, `prepareDecommitQueries`, `decommitTraceTree`, `decommitFriTree`, `writeBindingOffsets`, `writeWideWordOffset`, `writeWideBindingOffsets`, `writePreprocessedOffsets`, `collectPreprocessedBindings`, `bindingWords`, `populateTraceRetainedPointers`, `populateFriRetainedPointers`, `populateFriCoordinatePointers`, `populateSparseOffsets` |
 | `resident/decommit/ordering.zig` | `reorderTraceQueryValues`, `reorderColumnMajorValues` |
@@ -364,7 +366,7 @@ until a separate design demonstrates a smaller interface and unchanged profiler 
 ### Stage 4: relations and composition
 
 1. Move the complete relation component binding/operation lifecycle with claimed-sum order tests.
-2. Separate composition configuration parsing from recipe construction without changing current
+2. [x] Separate composition configuration parsing from recipe construction without changing current
    defaults or environment compatibility.
 3. Move composition descriptor construction and its random-coefficient addressing tests.
 
