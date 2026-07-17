@@ -30,6 +30,7 @@ const PcsConfig = pcs_core.PcsConfig;
 const TreeVec = pcs_core.TreeVec;
 const PREPROCESSED_TRACE_IDX = verifier_types.PREPROCESSED_TRACE_IDX;
 const TwiddleSource = twiddle_source_mod.TwiddleSource;
+const M31TwiddleTower = @import("../poly/twiddle_tower.zig").M31TwiddleTower;
 
 pub const CommitmentSchemeError = error{
     ShapeMismatch,
@@ -75,11 +76,17 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
         const Self = @This();
 
         pub fn init(allocator: std.mem.Allocator, config: PcsConfig) !Self {
+            return initWithTwiddleSource(config, TwiddleSource.initOwned(allocator));
+        }
+        pub fn initWithTwiddleTower(config: PcsConfig, tower: *const M31TwiddleTower) Self {
+            return initWithTwiddleSource(config, TwiddleSource.initBorrowed(tower));
+        }
+        fn initWithTwiddleSource(config: PcsConfig, twiddle_source: TwiddleSource) Self {
             return .{
                 .trees = .{},
                 .config = config,
                 .coefficient_retention_policy = .always,
-                .twiddle_source = TwiddleSource.initOwned(allocator),
+                .twiddle_source = twiddle_source,
             };
         }
 
@@ -575,6 +582,9 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
             channel: anytype,
         ) !pcs_core.ExtendedCommitmentSchemeProof(H) {
             var scheme = self;
+            var owns_scheme = true;
+            errdefer if (owns_scheme) scheme.deinit(allocator);
+
             const lifting_log_size = try scheme.maxTreeLogSize();
             const sampled_values = blk: {
                 var sampled_value_eval_stage = try stage_profile.StageScope.begin(
@@ -589,6 +599,9 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                     lifting_log_size,
                 );
             };
+
+            // The downstream method consumes the scheme on both success and error.
+            owns_scheme = false;
             return scheme.proveValuesFromSamplesWithRecorder(
                 allocator,
                 sampled_points,

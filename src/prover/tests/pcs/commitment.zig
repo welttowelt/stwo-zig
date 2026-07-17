@@ -1,6 +1,7 @@
 //! PCS commitment construction, decommitment, and streaming tests.
 
 const std = @import("std");
+const circle = @import("../../../core/circle.zig");
 const m31 = @import("../../../core/fields/m31.zig");
 const pcs_core = @import("../../../core/pcs/mod.zig");
 const pcs_utils = @import("../../../core/pcs/utils.zig");
@@ -9,6 +10,7 @@ const prover_circle = @import("../../poly/circle/mod.zig");
 const pcs_prover = @import("../../pcs/mod.zig");
 
 const M31 = m31.M31;
+const CirclePointQM31 = circle.CirclePointQM31;
 const PcsConfig = pcs_core.PcsConfig;
 const TreeVec = pcs_core.TreeVec;
 const ColumnEvaluation = pcs_prover.ColumnEvaluation;
@@ -296,6 +298,62 @@ test "prover pcs: commit polys reuses mixed log sizes through twiddle source" {
     try std.testing.expectEqual(cold.tree_build_count, warm.tree_build_count);
     try std.testing.expectEqual(cold.cache_hit_count + 2, warm.cache_hit_count);
     try std.testing.expectEqual(cold.retained_bytes, warm.retained_bytes);
+}
+
+test "prover pcs: borrowed twiddle tower initializer leaves tower ownership external" {
+    const Hasher = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const MerkleChannel = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
+    const CpuBackend = @import("../../../backends/cpu_scalar/mod.zig").CpuBackend;
+    const M31TwiddleTower = @import("../../poly/twiddle_tower.zig").M31TwiddleTower;
+    const TwiddleSource = @import("../../poly/twiddle_source.zig").TwiddleSource;
+    const Scheme = CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel);
+    const alloc = std.testing.allocator;
+
+    var tower = try M31TwiddleTower.init(alloc, 8, std.math.maxInt(usize));
+    defer tower.deinit(alloc);
+
+    var scheme = Scheme.initWithTwiddleTower(PcsConfig.default(), &tower);
+    defer scheme.deinit(alloc);
+
+    _ = try scheme.twiddle_source.get(alloc, 6);
+    const stats = scheme.twiddle_source.telemetry();
+    try std.testing.expectEqual(TwiddleSource.Mode.borrowed_tower, stats.mode);
+    try std.testing.expectEqual(@as(u64, 0), stats.tree_build_count);
+    try std.testing.expectEqual(tower.retainedBytes(), stats.retained_bytes);
+}
+
+test "prover pcs: prove values deinitializes scheme before sample transfer" {
+    const Hasher = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const MerkleChannel = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
+    const Channel = @import("../../../core/channel/blake2s.zig").Blake2sChannel;
+    const CpuBackend = @import("../../../backends/cpu_scalar/mod.zig").CpuBackend;
+    const Scheme = CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel);
+    const alloc = std.testing.allocator;
+
+    var scheme = try Scheme.init(alloc, PcsConfig.default());
+    _ = try scheme.twiddle_source.get(alloc, 6);
+    var channel = Channel{};
+    const column_values = [_]M31{
+        M31.fromCanonical(1),
+        M31.fromCanonical(2),
+        M31.fromCanonical(3),
+        M31.fromCanonical(4),
+    };
+    try scheme.commit(
+        alloc,
+        &[_]ColumnEvaluation{.{ .log_size = 2, .values = column_values[0..] }},
+        &channel,
+    );
+
+    var sampled_points = TreeVec([][]CirclePointQM31).initOwned(
+        try alloc.alloc([][]CirclePointQM31, 0),
+    );
+    defer sampled_points.deinitDeep(alloc);
+
+    try std.testing.expectError(
+        error.ShapeMismatch,
+        scheme.proveValues(alloc, sampled_points, &channel),
+    );
 }
 
 test "prover pcs: build query positions tree applies preprocessed mapping" {

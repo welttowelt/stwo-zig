@@ -158,9 +158,13 @@ fn proveExSampledPointsWithRecorder(
     sampled_points: TreeVec([][]CirclePointQM31),
     recorder: ?*stage_profile.Recorder,
 ) !proof_mod.ExtendedStarkProof(H) {
-    if (commitment_scheme.trees.items.len == 0) return ProvingError.MissingPreprocessedTree;
+    var scheme = commitment_scheme;
+    if (scheme.trees.items.len == 0) {
+        scheme.deinit(allocator);
+        return ProvingError.MissingPreprocessedTree;
+    }
 
-    const commitment_proof = try commitment_scheme.proveValuesWithRecorder(
+    const commitment_proof = try scheme.proveValuesWithRecorder(
         allocator,
         sampled_points,
         recorder,
@@ -214,6 +218,8 @@ fn proveExComponentsWithRecorder(
     recorder: ?*stage_profile.Recorder,
 ) !proof_mod.ExtendedStarkProof(H) {
     var scheme = commitment_scheme;
+    var owns_scheme = true;
+    errdefer if (owns_scheme) scheme.deinit(allocator);
 
     if (scheme.trees.items.len <= PREPROCESSED_TRACE_IDX) {
         return ProvingError.MissingPreprocessedTree;
@@ -272,10 +278,15 @@ fn proveExComponentsWithRecorder(
                 "Composition interpolate and split",
             );
             defer composition_interpolate_stage.end();
-            break :blk try prover_circle.secure_poly.interpolateAndSplitFromEvaluation(
+            const composition_twiddles = try scheme.twiddle_source.get(
+                allocator,
+                composition_log_size,
+            );
+            break :blk try prover_circle.secure_poly.interpolateAndSplitFromEvaluationWithTwiddles(
                 allocator,
                 canonic.CanonicCoset.new(composition_log_size).circleDomain(),
                 &composition_eval,
+                composition_twiddles,
             );
         };
         defer composition_split.deinit(allocator);
@@ -330,6 +341,8 @@ fn proveExComponentsWithRecorder(
     };
     const sample_points = oods_sampling.sample_points;
 
+    // Sampled-points proving consumes the scheme on both success and error.
+    owns_scheme = false;
     var ext_proof = try proveExSampledPointsWithRecorder(
         B,
         H,
@@ -340,6 +353,7 @@ fn proveExComponentsWithRecorder(
         sample_points,
         recorder,
     );
+    errdefer ext_proof.deinit(allocator);
 
     {
         var constraint_stage = try stage_profile.StageScope.begin(

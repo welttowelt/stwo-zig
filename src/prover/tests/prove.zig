@@ -22,6 +22,52 @@ const TreeVec = pcs_core.TreeVec;
 const prove = prove_mod.prove;
 const proveEx = prove_mod.proveEx;
 
+test "prover prove: early component and sampled-point errors consume schemes" {
+    const Hasher = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const MerkleChannel = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
+    const Channel = @import("../../core/channel/blake2s.zig").Blake2sChannel;
+    const CpuBackend = @import("../../backends/cpu_scalar/mod.zig").CpuBackend;
+    const Scheme = pcs_prover.CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel);
+    const alloc = std.testing.allocator;
+
+    var components_scheme = try Scheme.init(alloc, pcs_core.PcsConfig.default());
+    _ = try components_scheme.twiddle_source.get(alloc, 6);
+    var components_channel = Channel{};
+    try std.testing.expectError(
+        prove_mod.ProvingError.MissingPreprocessedTree,
+        proveEx(
+            CpuBackend,
+            Hasher,
+            MerkleChannel,
+            alloc,
+            &.{},
+            &components_channel,
+            components_scheme,
+            false,
+        ),
+    );
+
+    var sampled_scheme = try Scheme.init(alloc, pcs_core.PcsConfig.default());
+    _ = try sampled_scheme.twiddle_source.get(alloc, 6);
+    var sampled_points = TreeVec([][]CirclePointQM31).initOwned(
+        try alloc.alloc([][]CirclePointQM31, 0),
+    );
+    defer sampled_points.deinitDeep(alloc);
+    var sampled_channel = Channel{};
+    try std.testing.expectError(
+        prove_mod.ProvingError.MissingPreprocessedTree,
+        prove_mod.testing.sampledPoints(
+            CpuBackend,
+            Hasher,
+            MerkleChannel,
+            alloc,
+            &sampled_channel,
+            sampled_scheme,
+            sampled_points,
+        ),
+    );
+}
+
 test "prover prove: prove_ex components slice verifies with core verifier" {
     const Hasher = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
     const MerkleChannel = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
