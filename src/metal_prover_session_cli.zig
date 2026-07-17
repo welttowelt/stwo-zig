@@ -6,6 +6,8 @@ const metal_runtime = @import("backends/metal/runtime.zig");
 const cairo_adapted_input = @import("frontends/cairo/adapter/adapted_input.zig");
 const cairo_opcodes = @import("frontends/cairo/adapter/opcodes.zig");
 const compact_interchange = @import("frontends/cairo/compact_verifier_interchange.zig");
+const composition_bundle = @import("frontends/cairo/witness/composition_bundle.zig");
+const fixed_table_bundle = @import("frontends/cairo/witness/fixed_table_bundle.zig");
 const one_shot = @import("metal_arena_plan_cli.zig");
 const protocol = @import("metal_prover_session_protocol.zig");
 
@@ -976,8 +978,15 @@ fn proveRequest(
     proof_file.close();
     const proof_digest = try hashFile(allocator, verifier_scratch.proof);
     const proof_sha256 = std.fmt.bytesToHex(proof_digest, .lower);
-    const compact_protocol = try (try cliProofLayout(cli_object)).protocol(
+    const runtime_protocol = try compactRuntimeProtocolFromArtifacts(
+        allocator,
+        runner_request.artifacts.composition,
+        runner_request.artifacts.fixed_tables,
+    );
+    const compact_protocol = try (try cliProofLayout(cli_object)).protocolRuntime(
         one_shot.canonical_protocol.channel_salt,
+        runtime_protocol.geometry,
+        runtime_protocol.trace_columns,
     );
     var envelope_summary: compact_interchange.EnvelopeSummary = undefined;
     {
@@ -1663,6 +1672,138 @@ fn cliProofLayout(object: std.json.ObjectMap) !compact_interchange.CompactProofL
             try positiveIntegerField(layout, "decommitment_capacity_words"),
         ) orelse return error.InvalidProofLayout,
     };
+}
+
+const CompactRuntimeProtocol = struct {
+    geometry: compact_interchange.RuntimeProtocolGeometryV1,
+    trace_columns: [4]u32,
+};
+
+fn compactRuntimeProtocolFromArtifacts(
+    allocator: std.mem.Allocator,
+    composition_path: []const u8,
+    fixed_tables_path: []const u8,
+) !CompactRuntimeProtocol {
+    var composition = try composition_bundle.Bundle.readFile(allocator, composition_path);
+    defer composition.deinit();
+    var fixed_tables = try fixed_table_bundle.Bundle.readFile(allocator, fixed_tables_path);
+    defer fixed_tables.deinit();
+    const max_log_degree_bound = composition.verifierMaxLogDegreeBound() catch
+        return error.InvalidCompactProtocolGeometry;
+    return compactRuntimeProtocolFromComponents(
+        composition.components,
+        fixed_tables.preprocessed_identities.len,
+        max_log_degree_bound,
+    );
+}
+
+fn compactRuntimeProtocolFromComponents(
+    components: anytype,
+    preprocessed_count: usize,
+    max_log_degree_bound: u32,
+) !CompactRuntimeProtocol {
+    const preprocessed_columns = std.math.cast(u32, preprocessed_count) orelse
+        return error.InvalidCompactProtocolGeometry;
+    var trace_columns = [4]u32{ preprocessed_columns, 0, 0, 8 };
+    for (components) |component| {
+        if (component.trace_spans.len != 3) return error.InvalidCompactProtocolGeometry;
+        for (component.trace_spans, 0..) |span, tree_index| {
+            if (span.tree != @as(u32, @intCast(tree_index)))
+                return error.InvalidCompactProtocolGeometry;
+            switch (tree_index) {
+                0 => if (span.start != 0 or span.end != 0)
+                    return error.InvalidCompactProtocolGeometry,
+                1, 2 => {
+                    if (span.start != trace_columns[tree_index] or span.end < span.start)
+                        return error.InvalidCompactProtocolGeometry;
+                    trace_columns[tree_index] = span.end;
+                },
+                else => unreachable,
+            }
+        }
+    }
+    if (max_log_degree_bound == 0 or trace_columns[0] == 0 or
+        trace_columns[1] == 0 or trace_columns[2] == 0)
+        return error.InvalidCompactProtocolGeometry;
+
+    var geometry = compact_interchange.RuntimeProtocolGeometryV1.sn2();
+    geometry.max_log_degree_bound = max_log_degree_bound;
+    const folds = geometry.max_log_degree_bound - geometry.log_last_layer_degree_bound;
+    if (geometry.fri_fold_step == 0 or folds < geometry.fri_fold_step)
+        return error.InvalidCompactProtocolGeometry;
+    geometry.fri_tree_count = 1 + (folds - 1) / geometry.fri_fold_step;
+    geometry.decommitment_record_count = std.math.add(
+        u32,
+        geometry.commitment_count,
+        geometry.fri_tree_count,
+    ) catch return error.InvalidCompactProtocolGeometry;
+    geometry.validate() catch return error.InvalidCompactProtocolGeometry;
+    _ = compact_interchange.PreprocessedTraceVariantV1.fromTraceTree0ColumnCount(
+        trace_columns[0],
+    ) catch return error.InvalidCompactProtocolGeometry;
+    return .{ .geometry = geometry, .trace_columns = trace_columns };
+}
+
+test "session compact protocol derives checked-in SN2 artifact geometry" {
+    const runtime = try compactRuntimeProtocolFromArtifacts(
+        std.testing.allocator,
+        "vectors/cairo/sn_pie_2_composition.bin",
+        "vectors/cairo/cairo_fixed_tables.bin",
+    );
+    try std.testing.expectEqual(@as(u32, 24), runtime.geometry.max_log_degree_bound);
+    try std.testing.expectEqual(@as(u32, 8), runtime.geometry.fri_tree_count);
+    try std.testing.expectEqual(@as(u32, 12), runtime.geometry.decommitment_record_count);
+    try std.testing.expectEqual([4]u32{ 161, 3449, 2268, 8 }, runtime.trace_columns);
+}
+
+test "session compact protocol derives projected Fib geometry from authenticated bound" {
+    const Component = struct { trace_spans: []const composition_bundle.TraceSpan };
+    const first_spans = [_]composition_bundle.TraceSpan{
+        .{ .tree = 0, .start = 0, .end = 0 },
+        .{ .tree = 1, .start = 0, .end = 200 },
+        .{ .tree = 2, .start = 0, .end = 100 },
+    };
+    const second_spans = [_]composition_bundle.TraceSpan{
+        .{ .tree = 0, .start = 0, .end = 0 },
+        .{ .tree = 1, .start = 200, .end = 396 },
+        .{ .tree = 2, .start = 100, .end = 324 },
+    };
+    const components = [_]Component{
+        .{ .trace_spans = &first_spans },
+        .{ .trace_spans = &second_spans },
+    };
+    const runtime = try compactRuntimeProtocolFromComponents(&components, 105, 20);
+    try std.testing.expectEqual(@as(u32, 20), runtime.geometry.max_log_degree_bound);
+    try std.testing.expectEqual(@as(u32, 7), runtime.geometry.fri_tree_count);
+    try std.testing.expectEqual(@as(u32, 11), runtime.geometry.decommitment_record_count);
+    try std.testing.expectEqual([4]u32{ 105, 396, 324, 8 }, runtime.trace_columns);
+
+    const compact_protocol = try (compact_interchange.CompactProofLayoutV1{
+        .interaction_claim_words = 4,
+        .sampled_value_words = 4,
+        .decommitment_capacity_words = 324,
+    }).protocolRuntime(0, runtime.geometry, runtime.trace_columns);
+    const encoded = try compact_protocol.encode();
+    try std.testing.expectEqual(@as(u32, 2), std.mem.readInt(u32, encoded[24..28], .little));
+    try std.testing.expectEqual(@as(u32, 20), std.mem.readInt(u32, encoded[108..112], .little));
+}
+
+test "session compact protocol rejects unauthenticated trace geometry" {
+    const Component = struct { trace_spans: []const composition_bundle.TraceSpan };
+    const spans = [_]composition_bundle.TraceSpan{
+        .{ .tree = 0, .start = 0, .end = 0 },
+        .{ .tree = 1, .start = 1, .end = 2 },
+        .{ .tree = 2, .start = 0, .end = 1 },
+    };
+    const components = [_]Component{.{ .trace_spans = &spans }};
+    try std.testing.expectError(
+        error.InvalidCompactProtocolGeometry,
+        compactRuntimeProtocolFromComponents(&components, 105, 20),
+    );
+    try std.testing.expectError(
+        error.InvalidCompactProtocolGeometry,
+        compactRuntimeProtocolFromComponents(&components, 160, 20),
+    );
 }
 
 const VerifierWatchdog = struct {
