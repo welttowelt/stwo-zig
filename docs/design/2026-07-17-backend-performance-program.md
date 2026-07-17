@@ -216,6 +216,14 @@ overflow, and allocation cleanup. The medium artifact passed the pinned Rust Stw
 numerator-plane pointer-hoisting experiment was rejected after reversed profiled medians regressed;
 the next CPU increment starts from a fresh post-change profile.
 
+Commit `684b5dd` then applies the existing four-lane seeded Blake2s leaf primitive to quotient
+first-layer writers after a fresh profile placed 93 of 120 captured quotient-stack samples in their
+scalar rounds. It preserves generic-hasher fallback, scalar tails, canonical byte packing, and the
+existing disjoint writer ownership with no allocation. Profiled quotient time improved 3.64 percent.
+Unprofiled `log10x8`, `log12x16`, and `log14x32` prove time improved 3.07, 2.74, and 1.01 percent,
+for a 2.28 percent geometric-mean gain and row rates of 0.570328, 0.784875, and 1.317232 MHz. Proof
+bytes remained exact and the medium artifact passed the pinned Rust oracle.
+
 ### Metal command-epoch core
 
 Commit `b7c2c0f` establishes caller-owned Metal submission across prepared IFFT, LDE, and resident

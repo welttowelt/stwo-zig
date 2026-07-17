@@ -695,3 +695,28 @@ single unprofiled pair by roughly 0.8 percent, but reversed profiled medians reg
 stage from 2.700 to 2.713 ms and the complete proof from 5.343 to 5.429 ms. It was reverted. The
 next CPU change must start from a fresh profile of `9a56af9`; this stage does not justify speculative
 inner-loop rewrites.
+
+## Accepted Four-Leaf SIMD Evidence
+
+A fresh ReleaseFast profile of the bounded-input path attributed 93 of 120 captured quotient-stack
+samples to scalar Blake2s rounds in `FirstLayerLeafSink.WriterState.absorbErased`. The generic trace
+leaf builder already used `hashPackedLeavesWithSeed4`; the quotient first-layer writer did not.
+Commit `684b5dd` routes groups of four equal 16-byte quotient leaf messages through that existing
+seeded `compressParallel4` implementation. It retains canonical little-endian packing, scalar tails,
+and automatic fallback for generic hashers without the four-lane capability. The writer adds no
+allocation or synchronization and uses at most 320 bytes of fixed worker-local stack state.
+
+The profiled `log12x16` quotient stage fell from 3.163 to 3.048 ms, or 3.64 percent, and complete
+profiled proof time fell from 6.222625 to 6.116375 ms, or 1.71 percent. Stabilized unprofiled
+ReleaseFast A/B results against the saved `cc176f5` binary were:
+
+| Workload | Before prove (ms) | SIMD prove (ms) | SIMD row MHz | Gain |
+| --- | ---: | ---: | ---: | ---: |
+| `log10x8` | 1.852375 | 1.795458 | 0.570328 | 3.07% |
+| `log12x16` | 5.365458 | 5.218667 | 0.784875 | 2.74% |
+| `log14x32` | 12.565375 | 12.438208 | 1.317232 | 1.01% |
+
+The affected-row geometric-mean prove-time gain is 2.28 percent. Every sample retained the exact
+23,569-, 32,853-, and 44,225-byte canonical artifacts recorded above. A nonsymmetric eight-leaf
+test covers one four-lane group plus scalar tails, the existing parity fixture covers every quotient
+coordinate and Merkle layer, and the medium artifact passed the pinned Rust Stwo verifier.
