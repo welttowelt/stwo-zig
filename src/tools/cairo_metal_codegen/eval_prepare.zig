@@ -1,7 +1,8 @@
 const std = @import("std");
-const metal = @import("backends/metal/runtime.zig");
-const codegen = @import("integrations/cairo_metal/eval_codegen.zig");
-const composition = @import("frontends/cairo/witness/composition_bundle.zig");
+const stwo = @import("stwo");
+const metal = stwo.backends.metal.runtime;
+const codegen = stwo.integrations.cairo_metal.eval_codegen;
+const composition = stwo.frontends.cairo.witness.composition_bundle;
 
 pub fn main() !void {
     var gpa = std.heap.DebugAllocator(.{}).init;

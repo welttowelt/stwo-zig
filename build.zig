@@ -5,7 +5,7 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     // Library module (importable by downstream packages).
-    _ = b.addModule("stwo", .{
+    const stwo_module = b.addModule("stwo", .{
         .root_source_file = b.path("src/stwo.zig"),
         .target = target,
         .optimize = optimize,
@@ -57,15 +57,6 @@ pub fn build(b: *std.Build) void {
     const metal_session_protocol_tests = b.addTest(.{ .root_module = metal_session_protocol_test_module });
     const run_metal_session_protocol_tests = b.addRunArtifact(metal_session_protocol_tests);
     test_step.dependOn(&run_metal_session_protocol_tests.step);
-
-    const metal_eval_test_module = b.createModule(.{
-        .root_source_file = b.path("src/metal_eval_test.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const metal_eval_tests = b.addTest(.{ .root_module = metal_eval_test_module });
-    const run_metal_eval_tests = b.addRunArtifact(metal_eval_tests);
-    test_step.dependOn(&run_metal_eval_tests.step);
 
     const cairo_input_module = b.createModule(.{
         .root_source_file = b.path("src/cairo_input_cli.zig"),
@@ -249,10 +240,11 @@ pub fn build(b: *std.Build) void {
         metal_compact_bench_step.dependOn(&metal_compact_bench.step);
 
         const metal_eval_prepare_module = b.createModule(.{
-            .root_source_file = b.path("src/metal_eval_prepare_cli.zig"),
+            .root_source_file = b.path("src/tools/cairo_metal_codegen/eval_prepare.zig"),
             .target = target,
             .optimize = optimize,
         });
+        metal_eval_prepare_module.addImport("stwo", stwo_module);
         const metal_eval_prepare = b.addExecutable(.{
             .name = "metal-eval-prepare",
             .root_module = metal_eval_prepare_module,
@@ -270,10 +262,11 @@ pub fn build(b: *std.Build) void {
         metal_eval_prepare_step.dependOn(&metal_eval_prepare.step);
 
         const metal_eval_source_module = b.createModule(.{
-            .root_source_file = b.path("src/metal_eval_source_cli.zig"),
+            .root_source_file = b.path("src/tools/cairo_metal_codegen/eval_source.zig"),
             .target = target,
             .optimize = optimize,
         });
+        metal_eval_source_module.addImport("stwo", stwo_module);
         const metal_eval_source = b.addExecutable(.{
             .name = "metal-eval-source",
             .root_module = metal_eval_source_module,
@@ -281,10 +274,11 @@ pub fn build(b: *std.Build) void {
         b.installArtifact(metal_eval_source);
 
         const metal_witness_source_module = b.createModule(.{
-            .root_source_file = b.path("src/metal_witness_source_cli.zig"),
+            .root_source_file = b.path("src/tools/cairo_metal_codegen/witness_source.zig"),
             .target = target,
             .optimize = optimize,
         });
+        metal_witness_source_module.addImport("stwo", stwo_module);
         const metal_witness_source = b.addExecutable(.{
             .name = "metal-witness-source",
             .root_module = metal_witness_source_module,

@@ -11,6 +11,7 @@ test {
         _ = @import("tests/cairo/statement_bootstrap_test.zig");
         _ = @import("tests/metal/arena_plan_test.zig");
         _ = @import("tests/metal/cairo_transcript_fixture_test.zig");
+        _ = @import("tests/metal/eval_codegen_test.zig");
         _ = @import("tools/metal_session/artifacts/manifest.zig");
         _ = @import("tools/metal_session/artifacts/store.zig");
         _ = @import("tools/metal_session/artifacts/views.zig");

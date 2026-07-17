@@ -1,6 +1,7 @@
 const std = @import("std");
-const codegen = @import("integrations/cairo_metal/witness_codegen.zig");
-const bundle_mod = @import("frontends/cairo/witness/bundle.zig");
+const stwo = @import("stwo");
+const codegen = stwo.integrations.cairo_metal.witness_codegen;
+const bundle_mod = stwo.frontends.cairo.witness.bundle;
 
 pub fn main() !void {
     var debug_allocator = std.heap.DebugAllocator(.{}).init;
