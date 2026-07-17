@@ -1,6 +1,10 @@
 const std = @import("std");
+const command_epoch = @import("command_epoch.zig");
 
 const kernel_source: [:0]const u8 = @embedFile("kernels.metal") ++ "\x00";
+
+pub const CommandEpoch = command_epoch.CommandEpoch;
+pub const CommandEpochStats = command_epoch.Stats;
 
 pub const lifted_merkle_prefix_bytes: u32 = 64;
 
@@ -1181,6 +1185,7 @@ pub const MetalError = error{
     PolynomialEvaluationFailed,
     CircleTransformFailed,
     WitnessFeedFailed,
+    CommandEpochFailed,
 };
 
 pub const PipelineCacheStats = extern struct {
@@ -1263,6 +1268,13 @@ pub const Runtime = struct {
             return MetalError.RuntimeInitializationFailed;
         };
         return .{ .handle = handle, .contents = contents, .byte_length = byte_length };
+    }
+
+    pub fn beginCommandEpoch(self: *Runtime, arena: ResidentBuffer) MetalError!CommandEpoch {
+        return CommandEpoch.init(
+            self.handle,
+            arena.handle,
+        ) catch MetalError.CommandEpochFailed;
     }
 
     pub fn prepareArenaCopies(self: *Runtime, ranges: []const ArenaCopyRange) MetalError!ArenaCopyPlan {

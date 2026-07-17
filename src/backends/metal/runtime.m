@@ -407,6 +407,35 @@
 @end
 
 typedef struct {
+    uint64_t command_buffers;
+    uint64_t wait_count;
+    uint64_t intermediate_wait_count;
+    uint64_t compute_encoders;
+    uint64_t blit_encoders;
+    uint64_t dispatches;
+    double gpu_milliseconds;
+} StwoZigCommandEpochStats;
+
+typedef NS_ENUM(uint32_t, StwoZigCommandEpochState) {
+    StwoZigCommandEpochStateEncoding = 0u,
+    StwoZigCommandEpochStateSubmitted = 1u,
+    StwoZigCommandEpochStateCompleted = 2u,
+    StwoZigCommandEpochStateFailed = 3u,
+};
+
+@interface StwoZigCommandEpoch : NSObject
+@property(nonatomic, strong) StwoZigMetalRuntime *runtime;
+@property(nonatomic, strong) id<MTLBuffer> arena;
+@property(nonatomic, strong) id<MTLCommandBuffer> command;
+@property(nonatomic, strong) NSMutableArray *retainedPlans;
+@property(nonatomic) StwoZigCommandEpochState state;
+@property(nonatomic) uint64_t computeEncoders;
+@property(nonatomic) uint64_t dispatches;
+@end
+@implementation StwoZigCommandEpoch
+@end
+
+typedef struct {
     uint32_t offset, length, batch, shift, direct;
     uint32_t coeff_a, coeff_b, coeff_c, coeff_d;
 } StwoZigRawQuotientView;
@@ -2351,6 +2380,51 @@ void stwo_zig_metal_circle_lde_plan_destroy(void *plan_ptr) {
     if (plan_ptr != NULL) CFRelease(plan_ptr);
 }
 
+static bool encode_circle_lde_prepared(
+    StwoZigMetalRuntime *runtime, id<MTLBuffer> arena, StwoZigCircleLdePlan *plan,
+    id<MTLCommandBuffer> command, uint64_t *compute_encoders, uint64_t *dispatches
+) {
+        if (runtime == nil || arena == nil || plan == nil || command == nil) return false;
+        uint32_t column_count = plan.columnCount, base_log_size = plan.baseLogSize, extended_log_size = plan.extendedLogSize;
+        uint32_t extended_len = 1u << extended_log_size, extended_pairs = extended_len >> 1u;
+        id<MTLComputeCommandEncoder> expand = [command computeCommandEncoder];
+        if (expand == nil) return false;
+        [expand setComputePipelineState:runtime.circleExpandSparse];
+        [expand setBuffer:arena offset:0 atIndex:0]; [expand setBuffer:plan.sourceOffsets offset:0 atIndex:1];
+        [expand setBuffer:plan.destinationOffsets offset:0 atIndex:2]; [expand setBytes:&base_log_size length:sizeof(base_log_size) atIndex:3];
+        [expand setBytes:&extended_log_size length:sizeof(extended_log_size) atIndex:4]; [expand setBytes:&column_count length:sizeof(column_count) atIndex:5];
+        NSUInteger expand_width = MIN((NSUInteger)256u, runtime.circleExpandSparse.maxTotalThreadsPerThreadgroup);
+        [expand dispatchThreads:MTLSizeMake(extended_len, column_count, 1u) threadsPerThreadgroup:MTLSizeMake(expand_width, 1u, 1u)];
+        [expand endEncoding];
+        *compute_encoders += 1u; *dispatches += 1u;
+        MTLSize grid = MTLSizeMake(extended_pairs, column_count, 1u);
+        for (uint32_t layer = extended_log_size - 1u; layer > 0u; --layer) {
+            uint32_t twiddle_offset = extended_pairs - (1u << (extended_log_size - layer));
+            id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
+            if (encoder == nil) return false;
+            [encoder setComputePipelineState:runtime.circleRfftLayerSparseWide];
+            [encoder setBuffer:arena offset:0 atIndex:0]; [encoder setBuffer:plan.destinationOffsets offset:0 atIndex:1];
+            [encoder setBuffer:arena offset:plan.twiddleByteOffset atIndex:2]; [encoder setBytes:&extended_log_size length:sizeof(extended_log_size) atIndex:3];
+            [encoder setBytes:&layer length:sizeof(layer) atIndex:4]; [encoder setBytes:&twiddle_offset length:sizeof(twiddle_offset) atIndex:5];
+            [encoder setBytes:&column_count length:sizeof(column_count) atIndex:6];
+            NSUInteger width = MIN((NSUInteger)256u, runtime.circleRfftLayerSparseWide.maxTotalThreadsPerThreadgroup);
+            [encoder dispatchThreads:grid threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+            [encoder endEncoding];
+            *compute_encoders += 1u; *dispatches += 1u;
+        }
+        id<MTLComputeCommandEncoder> last = [command computeCommandEncoder];
+        if (last == nil) return false;
+        [last setComputePipelineState:runtime.circleRfftLastSparseWide];
+        [last setBuffer:arena offset:0 atIndex:0]; [last setBuffer:plan.destinationOffsets offset:0 atIndex:1];
+        [last setBuffer:arena offset:plan.twiddleByteOffset atIndex:2]; [last setBytes:&extended_log_size length:sizeof(extended_log_size) atIndex:3];
+        [last setBytes:&column_count length:sizeof(column_count) atIndex:4];
+        NSUInteger last_width = MIN((NSUInteger)256u, runtime.circleRfftLastSparseWide.maxTotalThreadsPerThreadgroup);
+        [last dispatchThreads:grid threadsPerThreadgroup:MTLSizeMake(last_width, 1u, 1u)];
+        [last endEncoding];
+        *compute_encoders += 1u; *dispatches += 1u;
+        return true;
+}
+
 bool stwo_zig_metal_circle_lde_prepared(
     void *runtime_ptr, void *arena_ptr, void *plan_ptr,
     double *gpu_milliseconds, char *error_message, size_t error_message_len
@@ -2360,38 +2434,12 @@ bool stwo_zig_metal_circle_lde_prepared(
         StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
         id<MTLBuffer> arena = (__bridge id<MTLBuffer>)arena_ptr;
         StwoZigCircleLdePlan *plan = (__bridge StwoZigCircleLdePlan *)plan_ptr;
-        uint32_t column_count = plan.columnCount, base_log_size = plan.baseLogSize, extended_log_size = plan.extendedLogSize;
-        uint32_t extended_len = 1u << extended_log_size, extended_pairs = extended_len >> 1u;
         id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
-        id<MTLComputeCommandEncoder> expand = [command computeCommandEncoder];
-        [expand setComputePipelineState:runtime.circleExpandSparse];
-        [expand setBuffer:arena offset:0 atIndex:0]; [expand setBuffer:plan.sourceOffsets offset:0 atIndex:1];
-        [expand setBuffer:plan.destinationOffsets offset:0 atIndex:2]; [expand setBytes:&base_log_size length:sizeof(base_log_size) atIndex:3];
-        [expand setBytes:&extended_log_size length:sizeof(extended_log_size) atIndex:4]; [expand setBytes:&column_count length:sizeof(column_count) atIndex:5];
-        NSUInteger expand_width = MIN((NSUInteger)256u, runtime.circleExpandSparse.maxTotalThreadsPerThreadgroup);
-        [expand dispatchThreads:MTLSizeMake(extended_len, column_count, 1u) threadsPerThreadgroup:MTLSizeMake(expand_width, 1u, 1u)];
-        [expand endEncoding];
-        MTLSize grid = MTLSizeMake(extended_pairs, column_count, 1u);
-        for (uint32_t layer = extended_log_size - 1u; layer > 0u; --layer) {
-            uint32_t twiddle_offset = extended_pairs - (1u << (extended_log_size - layer));
-            id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
-            [encoder setComputePipelineState:runtime.circleRfftLayerSparseWide];
-            [encoder setBuffer:arena offset:0 atIndex:0]; [encoder setBuffer:plan.destinationOffsets offset:0 atIndex:1];
-            [encoder setBuffer:arena offset:plan.twiddleByteOffset atIndex:2]; [encoder setBytes:&extended_log_size length:sizeof(extended_log_size) atIndex:3];
-            [encoder setBytes:&layer length:sizeof(layer) atIndex:4]; [encoder setBytes:&twiddle_offset length:sizeof(twiddle_offset) atIndex:5];
-            [encoder setBytes:&column_count length:sizeof(column_count) atIndex:6];
-            NSUInteger width = MIN((NSUInteger)256u, runtime.circleRfftLayerSparseWide.maxTotalThreadsPerThreadgroup);
-            [encoder dispatchThreads:grid threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
-            [encoder endEncoding];
+        uint64_t compute_encoders = 0u, dispatches = 0u;
+        if (!encode_circle_lde_prepared(runtime, arena, plan, command, &compute_encoders, &dispatches)) {
+            write_error(error_message, error_message_len, @"Metal sparse circle LDE encoding failed"); return false;
         }
-        id<MTLComputeCommandEncoder> last = [command computeCommandEncoder];
-        [last setComputePipelineState:runtime.circleRfftLastSparseWide];
-        [last setBuffer:arena offset:0 atIndex:0]; [last setBuffer:plan.destinationOffsets offset:0 atIndex:1];
-        [last setBuffer:arena offset:plan.twiddleByteOffset atIndex:2]; [last setBytes:&extended_log_size length:sizeof(extended_log_size) atIndex:3];
-        [last setBytes:&column_count length:sizeof(column_count) atIndex:4];
-        NSUInteger last_width = MIN((NSUInteger)256u, runtime.circleRfftLastSparseWide.maxTotalThreadsPerThreadgroup);
-        [last dispatchThreads:grid threadsPerThreadgroup:MTLSizeMake(last_width, 1u, 1u)];
-        [last endEncoding]; [command commit]; [command waitUntilCompleted];
+        [command commit]; [command waitUntilCompleted];
         if (command.status == MTLCommandBufferStatusError) { write_error(error_message, error_message_len, command.error.localizedDescription); return false; }
         if (gpu_milliseconds) *gpu_milliseconds = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
         return true;
@@ -2424,6 +2472,67 @@ void stwo_zig_metal_circle_ifft_plan_destroy(void *plan_ptr) {
     if (plan_ptr != NULL) CFRelease(plan_ptr);
 }
 
+static bool encode_circle_ifft_prepared(
+    StwoZigMetalRuntime *runtime, id<MTLBuffer> arena, StwoZigCircleIfftPlan *plan,
+    id<MTLCommandBuffer> command, uint64_t *compute_encoders, uint64_t *dispatches
+) {
+        if (runtime == nil || arena == nil || plan == nil || command == nil) return false;
+        uint32_t column_count = plan.columnCount, log_size = plan.logSize;
+        uint32_t length = 1u << log_size, pair_count = length >> 1u;
+        MTLSize values_grid = MTLSizeMake(length, column_count, 1u);
+        MTLSize pairs_grid = MTLSizeMake(pair_count, column_count, 1u);
+
+        id<MTLComputeCommandEncoder> copy = [command computeCommandEncoder];
+        if (copy == nil) return false;
+        [copy setComputePipelineState:runtime.circleCopySparse];
+        [copy setBuffer:arena offset:0 atIndex:0]; [copy setBuffer:plan.sourceOffsets offset:0 atIndex:1];
+        [copy setBuffer:plan.destinationOffsets offset:0 atIndex:2]; [copy setBytes:&log_size length:sizeof(log_size) atIndex:3];
+        [copy setBytes:&column_count length:sizeof(column_count) atIndex:4];
+        NSUInteger copy_width = MIN((NSUInteger)256u, runtime.circleCopySparse.maxTotalThreadsPerThreadgroup);
+        [copy dispatchThreads:values_grid threadsPerThreadgroup:MTLSizeMake(copy_width, 1u, 1u)];
+        [copy endEncoding];
+        *compute_encoders += 1u; *dispatches += 1u;
+
+        id<MTLComputeCommandEncoder> first = [command computeCommandEncoder];
+        if (first == nil) return false;
+        [first setComputePipelineState:runtime.circleIfftFirstSparse];
+        [first setBuffer:arena offset:0 atIndex:0]; [first setBuffer:plan.destinationOffsets offset:0 atIndex:1];
+        [first setBuffer:arena offset:plan.twiddleByteOffset atIndex:2]; [first setBytes:&log_size length:sizeof(log_size) atIndex:3];
+        [first setBytes:&column_count length:sizeof(column_count) atIndex:4];
+        NSUInteger first_width = MIN((NSUInteger)256u, runtime.circleIfftFirstSparse.maxTotalThreadsPerThreadgroup);
+        [first dispatchThreads:pairs_grid threadsPerThreadgroup:MTLSizeMake(first_width, 1u, 1u)];
+        [first endEncoding];
+        *compute_encoders += 1u; *dispatches += 1u;
+
+        for (uint32_t layer = 1u; layer < log_size; ++layer) {
+            uint32_t twiddle_offset = pair_count - (1u << (log_size - layer));
+            id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
+            if (encoder == nil) return false;
+            [encoder setComputePipelineState:runtime.circleIfftLayerSparse];
+            [encoder setBuffer:arena offset:0 atIndex:0]; [encoder setBuffer:plan.destinationOffsets offset:0 atIndex:1];
+            [encoder setBuffer:arena offset:plan.twiddleByteOffset atIndex:2]; [encoder setBytes:&log_size length:sizeof(log_size) atIndex:3];
+            [encoder setBytes:&layer length:sizeof(layer) atIndex:4]; [encoder setBytes:&twiddle_offset length:sizeof(twiddle_offset) atIndex:5];
+            [encoder setBytes:&column_count length:sizeof(column_count) atIndex:6];
+            NSUInteger width = MIN((NSUInteger)256u, runtime.circleIfftLayerSparse.maxTotalThreadsPerThreadgroup);
+            [encoder dispatchThreads:pairs_grid threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+            [encoder endEncoding];
+            *compute_encoders += 1u; *dispatches += 1u;
+        }
+
+        uint32_t scale_factor = plan.scaleFactor;
+        id<MTLComputeCommandEncoder> rescale = [command computeCommandEncoder];
+        if (rescale == nil) return false;
+        [rescale setComputePipelineState:runtime.circleRescaleSparse];
+        [rescale setBuffer:arena offset:0 atIndex:0]; [rescale setBuffer:plan.destinationOffsets offset:0 atIndex:1];
+        [rescale setBytes:&log_size length:sizeof(log_size) atIndex:2]; [rescale setBytes:&column_count length:sizeof(column_count) atIndex:3];
+        [rescale setBytes:&scale_factor length:sizeof(scale_factor) atIndex:4];
+        NSUInteger rescale_width = MIN((NSUInteger)256u, runtime.circleRescaleSparse.maxTotalThreadsPerThreadgroup);
+        [rescale dispatchThreads:values_grid threadsPerThreadgroup:MTLSizeMake(rescale_width, 1u, 1u)];
+        [rescale endEncoding];
+        *compute_encoders += 1u; *dispatches += 1u;
+        return true;
+}
+
 bool stwo_zig_metal_circle_ifft_prepared(
     void *runtime_ptr, void *arena_ptr, void *plan_ptr,
     double *gpu_milliseconds, char *error_message, size_t error_message_len
@@ -2433,52 +2542,12 @@ bool stwo_zig_metal_circle_ifft_prepared(
         StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
         id<MTLBuffer> arena = (__bridge id<MTLBuffer>)arena_ptr;
         StwoZigCircleIfftPlan *plan = (__bridge StwoZigCircleIfftPlan *)plan_ptr;
-        uint32_t column_count = plan.columnCount, log_size = plan.logSize;
-        uint32_t length = 1u << log_size, pair_count = length >> 1u;
-        MTLSize values_grid = MTLSizeMake(length, column_count, 1u);
-        MTLSize pairs_grid = MTLSizeMake(pair_count, column_count, 1u);
         id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
-
-        id<MTLComputeCommandEncoder> copy = [command computeCommandEncoder];
-        [copy setComputePipelineState:runtime.circleCopySparse];
-        [copy setBuffer:arena offset:0 atIndex:0]; [copy setBuffer:plan.sourceOffsets offset:0 atIndex:1];
-        [copy setBuffer:plan.destinationOffsets offset:0 atIndex:2]; [copy setBytes:&log_size length:sizeof(log_size) atIndex:3];
-        [copy setBytes:&column_count length:sizeof(column_count) atIndex:4];
-        NSUInteger copy_width = MIN((NSUInteger)256u, runtime.circleCopySparse.maxTotalThreadsPerThreadgroup);
-        [copy dispatchThreads:values_grid threadsPerThreadgroup:MTLSizeMake(copy_width, 1u, 1u)];
-        [copy endEncoding];
-
-        id<MTLComputeCommandEncoder> first = [command computeCommandEncoder];
-        [first setComputePipelineState:runtime.circleIfftFirstSparse];
-        [first setBuffer:arena offset:0 atIndex:0]; [first setBuffer:plan.destinationOffsets offset:0 atIndex:1];
-        [first setBuffer:arena offset:plan.twiddleByteOffset atIndex:2]; [first setBytes:&log_size length:sizeof(log_size) atIndex:3];
-        [first setBytes:&column_count length:sizeof(column_count) atIndex:4];
-        NSUInteger first_width = MIN((NSUInteger)256u, runtime.circleIfftFirstSparse.maxTotalThreadsPerThreadgroup);
-        [first dispatchThreads:pairs_grid threadsPerThreadgroup:MTLSizeMake(first_width, 1u, 1u)];
-        [first endEncoding];
-
-        for (uint32_t layer = 1u; layer < log_size; ++layer) {
-            uint32_t twiddle_offset = pair_count - (1u << (log_size - layer));
-            id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
-            [encoder setComputePipelineState:runtime.circleIfftLayerSparse];
-            [encoder setBuffer:arena offset:0 atIndex:0]; [encoder setBuffer:plan.destinationOffsets offset:0 atIndex:1];
-            [encoder setBuffer:arena offset:plan.twiddleByteOffset atIndex:2]; [encoder setBytes:&log_size length:sizeof(log_size) atIndex:3];
-            [encoder setBytes:&layer length:sizeof(layer) atIndex:4]; [encoder setBytes:&twiddle_offset length:sizeof(twiddle_offset) atIndex:5];
-            [encoder setBytes:&column_count length:sizeof(column_count) atIndex:6];
-            NSUInteger width = MIN((NSUInteger)256u, runtime.circleIfftLayerSparse.maxTotalThreadsPerThreadgroup);
-            [encoder dispatchThreads:pairs_grid threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
-            [encoder endEncoding];
+        uint64_t compute_encoders = 0u, dispatches = 0u;
+        if (!encode_circle_ifft_prepared(runtime, arena, plan, command, &compute_encoders, &dispatches)) {
+            write_error(error_message, error_message_len, @"Metal sparse circle IFFT encoding failed"); return false;
         }
-
-        uint32_t scale_factor = plan.scaleFactor;
-        id<MTLComputeCommandEncoder> rescale = [command computeCommandEncoder];
-        [rescale setComputePipelineState:runtime.circleRescaleSparse];
-        [rescale setBuffer:arena offset:0 atIndex:0]; [rescale setBuffer:plan.destinationOffsets offset:0 atIndex:1];
-        [rescale setBytes:&log_size length:sizeof(log_size) atIndex:2]; [rescale setBytes:&column_count length:sizeof(column_count) atIndex:3];
-        [rescale setBytes:&scale_factor length:sizeof(scale_factor) atIndex:4];
-        NSUInteger rescale_width = MIN((NSUInteger)256u, runtime.circleRescaleSparse.maxTotalThreadsPerThreadgroup);
-        [rescale dispatchThreads:values_grid threadsPerThreadgroup:MTLSizeMake(rescale_width, 1u, 1u)];
-        [rescale endEncoding]; [command commit]; [command waitUntilCompleted];
+        [command commit]; [command waitUntilCompleted];
         if (command.status == MTLCommandBufferStatusError) { write_error(error_message, error_message_len, command.error.localizedDescription); return false; }
         if (gpu_milliseconds) *gpu_milliseconds = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
         return true;
@@ -2650,6 +2719,40 @@ void stwo_zig_metal_resident_merkle_destroy(void *plan_ptr) {
     if (plan_ptr != NULL) CFRelease(plan_ptr);
 }
 
+static bool encode_resident_merkle_prepared(
+    StwoZigMetalRuntime *runtime, id<MTLBuffer> arena, StwoZigResidentMerklePlan *plan,
+    id<MTLCommandBuffer> command, uint64_t *compute_encoders, uint64_t *dispatches
+) {
+        if (runtime == nil || arena == nil || plan == nil || command == nil) return false;
+        const uint32_t *layers = plan.layerOffsets.bytes;
+        uint32_t leaf_count = 1u << plan.liftingLogSize;
+        uint32_t column_count = plan.columnCount, lifting_log_size = plan.liftingLogSize;
+        id<MTLComputeCommandEncoder> leaves = [command computeCommandEncoder];
+        if (leaves == nil) return false;
+        [leaves setComputePipelineState:runtime.leaves]; [leaves setBuffer:arena offset:0 atIndex:0];
+        [leaves setBuffer:plan.columnOffsets offset:0 atIndex:1]; [leaves setBuffer:plan.columnLogSizes offset:0 atIndex:2];
+        [leaves setBuffer:arena offset:(NSUInteger)layers[0] * sizeof(uint32_t) atIndex:3];
+        [leaves setBytes:&column_count length:sizeof(column_count) atIndex:4];
+        [leaves setBytes:&lifting_log_size length:sizeof(lifting_log_size) atIndex:5]; [leaves setBuffer:plan.leafSeed offset:0 atIndex:6];
+        NSUInteger leaf_width = MIN((NSUInteger)256u, runtime.leaves.maxTotalThreadsPerThreadgroup);
+        [leaves dispatchThreads:MTLSizeMake(leaf_count, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(leaf_width, 1u, 1u)];
+        [leaves endEncoding];
+        *compute_encoders += 1u; *dispatches += 1u;
+        for (uint32_t level = 1u; level < plan.layerCount; ++level) {
+            uint32_t child = layers[level - 1u], destination = layers[level], parent_count = leaf_count >> level;
+            id<MTLComputeCommandEncoder> parents = [command computeCommandEncoder];
+            if (parents == nil) return false;
+            [parents setComputePipelineState:runtime.parentsSparse]; [parents setBuffer:arena offset:0 atIndex:0];
+            [parents setBytes:&child length:sizeof(child) atIndex:1]; [parents setBytes:&destination length:sizeof(destination) atIndex:2];
+            [parents setBytes:&parent_count length:sizeof(parent_count) atIndex:3]; [parents setBuffer:plan.nodeSeed offset:0 atIndex:4];
+            NSUInteger width = MIN((NSUInteger)256u, runtime.parentsSparse.maxTotalThreadsPerThreadgroup);
+            [parents dispatchThreads:MTLSizeMake(parent_count, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+            [parents endEncoding];
+            *compute_encoders += 1u; *dispatches += 1u;
+        }
+        return true;
+}
+
 bool stwo_zig_metal_resident_merkle_prepared(
     void *runtime_ptr, void *arena_ptr, void *plan_ptr,
     double *gpu_milliseconds, char *error_message, size_t error_message_len
@@ -2659,34 +2762,169 @@ bool stwo_zig_metal_resident_merkle_prepared(
         StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
         id<MTLBuffer> arena = (__bridge id<MTLBuffer>)arena_ptr;
         StwoZigResidentMerklePlan *plan = (__bridge StwoZigResidentMerklePlan *)plan_ptr;
-        const uint32_t *layers = plan.layerOffsets.bytes;
-        uint32_t leaf_count = 1u << plan.liftingLogSize;
-        uint32_t column_count = plan.columnCount, lifting_log_size = plan.liftingLogSize;
         id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
-        id<MTLComputeCommandEncoder> leaves = [command computeCommandEncoder];
-        [leaves setComputePipelineState:runtime.leaves]; [leaves setBuffer:arena offset:0 atIndex:0];
-        [leaves setBuffer:plan.columnOffsets offset:0 atIndex:1]; [leaves setBuffer:plan.columnLogSizes offset:0 atIndex:2];
-        [leaves setBuffer:arena offset:(NSUInteger)layers[0] * sizeof(uint32_t) atIndex:3];
-        [leaves setBytes:&column_count length:sizeof(column_count) atIndex:4];
-        [leaves setBytes:&lifting_log_size length:sizeof(lifting_log_size) atIndex:5]; [leaves setBuffer:plan.leafSeed offset:0 atIndex:6];
-        NSUInteger leaf_width = MIN((NSUInteger)256u, runtime.leaves.maxTotalThreadsPerThreadgroup);
-        [leaves dispatchThreads:MTLSizeMake(leaf_count, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(leaf_width, 1u, 1u)];
-        [leaves endEncoding];
-        for (uint32_t level = 1u; level < plan.layerCount; ++level) {
-            uint32_t child = layers[level - 1u], destination = layers[level], parent_count = leaf_count >> level;
-            id<MTLComputeCommandEncoder> parents = [command computeCommandEncoder];
-            [parents setComputePipelineState:runtime.parentsSparse]; [parents setBuffer:arena offset:0 atIndex:0];
-            [parents setBytes:&child length:sizeof(child) atIndex:1]; [parents setBytes:&destination length:sizeof(destination) atIndex:2];
-            [parents setBytes:&parent_count length:sizeof(parent_count) atIndex:3]; [parents setBuffer:plan.nodeSeed offset:0 atIndex:4];
-            NSUInteger width = MIN((NSUInteger)256u, runtime.parentsSparse.maxTotalThreadsPerThreadgroup);
-            [parents dispatchThreads:MTLSizeMake(parent_count, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
-            [parents endEncoding];
+        uint64_t compute_encoders = 0u, dispatches = 0u;
+        if (!encode_resident_merkle_prepared(runtime, arena, plan, command, &compute_encoders, &dispatches)) {
+            write_error(error_message, error_message_len, @"Metal resident Merkle encoding failed"); return false;
         }
         [command commit]; [command waitUntilCompleted];
         if (command.status == MTLCommandBufferStatusError) {
             write_error(error_message, error_message_len, command.error.localizedDescription); return false;
         }
         if (gpu_milliseconds) *gpu_milliseconds = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
+        return true;
+    }
+}
+
+void *stwo_zig_metal_command_epoch_create(
+    void *runtime_ptr, void *arena_ptr, char *error_message, size_t error_message_len
+) {
+    if (runtime_ptr == NULL || arena_ptr == NULL) return NULL;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        id<MTLBuffer> arena = (__bridge id<MTLBuffer>)arena_ptr;
+        id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
+        if (command == nil) {
+            write_error(error_message, error_message_len, @"Metal command epoch allocation failed");
+            return NULL;
+        }
+        StwoZigCommandEpoch *epoch = [StwoZigCommandEpoch new];
+        epoch.runtime = runtime;
+        epoch.arena = arena;
+        epoch.command = command;
+        epoch.retainedPlans = [NSMutableArray array];
+        epoch.state = StwoZigCommandEpochStateEncoding;
+        return (__bridge_retained void *)epoch;
+    }
+}
+
+void stwo_zig_metal_command_epoch_destroy(void *epoch_ptr) {
+    if (epoch_ptr == NULL) return;
+    @autoreleasepool {
+        StwoZigCommandEpoch *epoch = (__bridge_transfer StwoZigCommandEpoch *)epoch_ptr;
+        if (epoch.state == StwoZigCommandEpochStateSubmitted) {
+            [epoch.command waitUntilCompleted];
+        }
+    }
+}
+
+static bool command_epoch_can_encode(
+    StwoZigCommandEpoch *epoch, char *error_message, size_t error_message_len
+) {
+    if (epoch == nil || epoch.state != StwoZigCommandEpochStateEncoding) {
+        write_error(error_message, error_message_len, @"Metal command epoch is not encoding");
+        return false;
+    }
+    return true;
+}
+
+bool stwo_zig_metal_command_epoch_encode_circle_ifft(
+    void *epoch_ptr, void *plan_ptr, char *error_message, size_t error_message_len
+) {
+    if (epoch_ptr == NULL || plan_ptr == NULL) return false;
+    @autoreleasepool {
+        StwoZigCommandEpoch *epoch = (__bridge StwoZigCommandEpoch *)epoch_ptr;
+        if (!command_epoch_can_encode(epoch, error_message, error_message_len)) return false;
+        StwoZigCircleIfftPlan *plan = (__bridge StwoZigCircleIfftPlan *)plan_ptr;
+        uint64_t compute_encoders = epoch.computeEncoders, dispatches = epoch.dispatches;
+        if (!encode_circle_ifft_prepared(epoch.runtime, epoch.arena, plan, epoch.command,
+                                         &compute_encoders, &dispatches)) {
+            epoch.state = StwoZigCommandEpochStateFailed;
+            write_error(error_message, error_message_len, @"Metal command epoch IFFT encoding failed");
+            return false;
+        }
+        epoch.computeEncoders = compute_encoders; epoch.dispatches = dispatches;
+        [epoch.retainedPlans addObject:plan];
+        return true;
+    }
+}
+
+bool stwo_zig_metal_command_epoch_encode_circle_lde(
+    void *epoch_ptr, void *plan_ptr, char *error_message, size_t error_message_len
+) {
+    if (epoch_ptr == NULL || plan_ptr == NULL) return false;
+    @autoreleasepool {
+        StwoZigCommandEpoch *epoch = (__bridge StwoZigCommandEpoch *)epoch_ptr;
+        if (!command_epoch_can_encode(epoch, error_message, error_message_len)) return false;
+        StwoZigCircleLdePlan *plan = (__bridge StwoZigCircleLdePlan *)plan_ptr;
+        uint64_t compute_encoders = epoch.computeEncoders, dispatches = epoch.dispatches;
+        if (!encode_circle_lde_prepared(epoch.runtime, epoch.arena, plan, epoch.command,
+                                        &compute_encoders, &dispatches)) {
+            epoch.state = StwoZigCommandEpochStateFailed;
+            write_error(error_message, error_message_len, @"Metal command epoch LDE encoding failed");
+            return false;
+        }
+        epoch.computeEncoders = compute_encoders; epoch.dispatches = dispatches;
+        [epoch.retainedPlans addObject:plan];
+        return true;
+    }
+}
+
+bool stwo_zig_metal_command_epoch_encode_resident_merkle(
+    void *epoch_ptr, void *plan_ptr, char *error_message, size_t error_message_len
+) {
+    if (epoch_ptr == NULL || plan_ptr == NULL) return false;
+    @autoreleasepool {
+        StwoZigCommandEpoch *epoch = (__bridge StwoZigCommandEpoch *)epoch_ptr;
+        if (!command_epoch_can_encode(epoch, error_message, error_message_len)) return false;
+        StwoZigResidentMerklePlan *plan = (__bridge StwoZigResidentMerklePlan *)plan_ptr;
+        uint64_t compute_encoders = epoch.computeEncoders, dispatches = epoch.dispatches;
+        if (!encode_resident_merkle_prepared(epoch.runtime, epoch.arena, plan, epoch.command,
+                                              &compute_encoders, &dispatches)) {
+            epoch.state = StwoZigCommandEpochStateFailed;
+            write_error(error_message, error_message_len, @"Metal command epoch Merkle encoding failed");
+            return false;
+        }
+        epoch.computeEncoders = compute_encoders; epoch.dispatches = dispatches;
+        [epoch.retainedPlans addObject:plan];
+        return true;
+    }
+}
+
+bool stwo_zig_metal_command_epoch_submit(
+    void *epoch_ptr, char *error_message, size_t error_message_len
+) {
+    if (epoch_ptr == NULL) return false;
+    @autoreleasepool {
+        StwoZigCommandEpoch *epoch = (__bridge StwoZigCommandEpoch *)epoch_ptr;
+        if (epoch.state != StwoZigCommandEpochStateEncoding || epoch.computeEncoders == 0u) {
+            write_error(error_message, error_message_len, @"Metal command epoch cannot be submitted");
+            return false;
+        }
+        [epoch.command commit];
+        epoch.state = StwoZigCommandEpochStateSubmitted;
+        return true;
+    }
+}
+
+bool stwo_zig_metal_command_epoch_wait(
+    void *epoch_ptr, StwoZigCommandEpochStats *stats,
+    char *error_message, size_t error_message_len
+) {
+    if (epoch_ptr == NULL || stats == NULL) return false;
+    @autoreleasepool {
+        StwoZigCommandEpoch *epoch = (__bridge StwoZigCommandEpoch *)epoch_ptr;
+        if (epoch.state != StwoZigCommandEpochStateSubmitted) {
+            write_error(error_message, error_message_len, @"Metal command epoch is not submitted");
+            return false;
+        }
+        [epoch.command waitUntilCompleted];
+        if (epoch.command.status == MTLCommandBufferStatusError) {
+            epoch.state = StwoZigCommandEpochStateFailed;
+            write_error(error_message, error_message_len,
+                        epoch.command.error.localizedDescription ?: @"Metal command epoch failed");
+            return false;
+        }
+        epoch.state = StwoZigCommandEpochStateCompleted;
+        *stats = (StwoZigCommandEpochStats){
+            .command_buffers = 1u,
+            .wait_count = 1u,
+            .intermediate_wait_count = 0u,
+            .compute_encoders = epoch.computeEncoders,
+            .blit_encoders = 0u,
+            .dispatches = epoch.dispatches,
+            .gpu_milliseconds = (epoch.command.GPUEndTime - epoch.command.GPUStartTime) * 1000.0,
+        };
         return true;
     }
 }
