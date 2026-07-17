@@ -388,6 +388,125 @@ pub const MetalCommitBackend = struct {
         }
         return current;
     }
+
+    /// Folds a production-size single-fold evaluation and commits the next FRI
+    /// layer in one Metal submission. Small, non-resident, and multi-fold
+    /// inputs retain the established fallback until the scheduler supplies
+    /// explicit next-layer packing metadata.
+    pub fn foldLineAndCommitNext(
+        comptime H: type,
+        allocator: std.mem.Allocator,
+        evaluation: @import("../../prover/line.zig").LineEvaluation,
+        alpha: @import("../../core/fields/qm31.zig").QM31,
+        workspace: *@import("../../core/fri.zig").FoldLineWorkspace,
+        n_folds: u32,
+    ) !@import("../../backend/fri_ops.zig").FoldLineAndCommitResult(MerkleTree(H)) {
+        const M31 = @import("../../core/fields/m31.zig").M31;
+        const core_utils = @import("../../core/utils.zig");
+        const fields = @import("../../core/fields/mod.zig");
+        const secure_column = @import("../../prover/secure_column.zig");
+        if (n_folds == 0 or n_folds >= @bitSizeOf(usize) or
+            evaluation.len() >> @intCast(n_folds) == 0)
+        {
+            return error.InvalidColumns;
+        }
+
+        const final_count = evaluation.len() >> @intCast(n_folds);
+        const source_storage = evaluation.resident_storage;
+        if (source_storage == null or !commit_policy.friFoldCommitUsesResidentMerkle(final_count, n_folds)) {
+            const folded = try foldLineEvaluationN(allocator, evaluation, alpha, workspace, n_folds);
+            errdefer {
+                var owned = folded;
+                owned.deinit(allocator);
+            }
+            var coordinates = if (comptime @hasDecl(@This(), "secureColumnForMerkle"))
+                try secureColumnForMerkle(allocator, folded)
+            else
+                try secure_column.SecureColumnByCoords.fromSecureSlice(allocator, folded.values);
+            errdefer coordinates.deinit(allocator);
+            const columns = [_][]const M31{
+                coordinates.columns[0],
+                coordinates.columns[1],
+                coordinates.columns[2],
+                coordinates.columns[3],
+            };
+            const tree = try commitMerkle(H, allocator, columns[0..]);
+            return .{ .evaluation = folded, .column = coordinates, .tree = tree };
+        }
+
+        var final_domain = evaluation.domain();
+        var inverse_count: usize = 0;
+        var stage_count = evaluation.len();
+        for (0..n_folds) |_| {
+            stage_count >>= 1;
+            inverse_count = try std.math.add(usize, inverse_count, stage_count);
+            final_domain = final_domain.double();
+        }
+        const inverse_values = try allocator.alloc(M31, inverse_count);
+        defer allocator.free(inverse_values);
+        const alphas = try allocator.alloc([4]u32, n_folds);
+        defer allocator.free(alphas);
+
+        var inverse_cursor: usize = 0;
+        var current_count = evaluation.len();
+        var current_domain = evaluation.domain();
+        var current_alpha = alpha;
+        for (0..n_folds) |step| {
+            const destination_count = current_count >> 1;
+            try workspace.ensureCapacity(allocator, destination_count);
+            const x = workspace.x_values[0..destination_count];
+            const inverse_x = workspace.inv_x_values[0..destination_count];
+            const log_size = current_domain.logSize();
+            for (x, 0..) |*value, index| {
+                value.* = current_domain.at(core_utils.bitReverseIndex(index << 1, log_size));
+            }
+            try fields.batchInverseInPlace(M31, x, inverse_x);
+            @memcpy(inverse_values[inverse_cursor .. inverse_cursor + destination_count], inverse_x);
+            inverse_cursor += destination_count;
+            const alpha_coordinates = current_alpha.toM31Array();
+            alphas[step] = .{
+                alpha_coordinates[0].v,
+                alpha_coordinates[1].v,
+                alpha_coordinates[2].v,
+                alpha_coordinates[3].v,
+            };
+            current_count = destination_count;
+            current_domain = current_domain.double();
+            current_alpha = current_alpha.square();
+        }
+
+        var folded = try allocateLineEvaluation(final_domain);
+        errdefer folded.deinit(allocator);
+        var coordinates = try allocateSecureColumn(final_count);
+        errdefer coordinates.deinit(allocator);
+        const destination_storage = folded.resident_storage orelse return error.InvalidColumns;
+        const coordinate_storage = coordinates.resident_storage orelse return error.InvalidColumns;
+        const inverse_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(inverse_values));
+        const result = try (try runtime()).foldFriLineAndCommit(
+            source_storage.?.handle,
+            @intCast(evaluation.len()),
+            inverse_words,
+            alphas,
+            destination_storage.handle,
+            coordinate_storage.handle,
+            H.leafSeed(),
+            H.nodeSeed(),
+            H.domainPrefixBytes(),
+        );
+        const tree = try MerkleTree(H).fromResident(result.tree);
+        telemetry.record(.metal_fri_fold_commit_epoch);
+        telemetry.record(.resident_merkle_commit);
+        std.log.debug(
+            "Metal FRI fold + Merkle epoch: {d:.3}ms, {} dispatches, {} command buffer, {} wait",
+            .{
+                result.stats.gpu_milliseconds,
+                result.stats.dispatches,
+                result.stats.command_buffers,
+                result.stats.wait_count,
+            },
+        );
+        return .{ .evaluation = folded, .column = coordinates, .tree = tree };
+    }
     pub const foldLine = cpu.foldLine;
     pub const foldLineN = cpu.foldLineN;
     pub const accumulateQuotients = cpu.accumulateQuotients;

@@ -62,10 +62,17 @@ test "metal: FRI commitment policy shares the exact secure-column boundary" {
     const quotient_log = metal_commit_policy.quotient_resident_merkle_log_threshold;
     try std.testing.expect(!metal_commit_policy.quotientUsesResidentMerkle(quotient_log - 1));
     try std.testing.expect(metal_commit_policy.quotientUsesResidentMerkle(quotient_log));
+
+    const fri_log = metal_commit_policy.fri_fold_commit_log_threshold;
+    const fri_value_threshold = @as(usize, 1) << @intCast(fri_log);
+    try std.testing.expect(!metal_commit_policy.friFoldCommitUsesResidentMerkle(fri_value_threshold - 1, 1));
+    try std.testing.expect(metal_commit_policy.friFoldCommitUsesResidentMerkle(fri_value_threshold, 1));
+    try std.testing.expect(!metal_commit_policy.friFoldCommitUsesResidentMerkle(fri_value_threshold, 2));
 }
 
 test {
     _ = @import("backends/metal/tests/command_epoch.zig");
+    _ = @import("backends/metal/tests/fri_fold_commit.zig");
     _ = @import("backends/metal/tests/polynomial_eval.zig");
     std.testing.refAllDecls(cairo_arena_binding);
     std.testing.refAllDecls(cairo_oods);

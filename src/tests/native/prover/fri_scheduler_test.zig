@@ -87,16 +87,18 @@ const FoldTreeTestBackend = struct {
             allocator,
             folded.values,
         );
-        defer coords.deinit(allocator);
+        errdefer coords.deinit(allocator);
         const columns = [_][]const M31{
             coords.columns[0],
             coords.columns[1],
             coords.columns[2],
             coords.columns[3],
         };
-        const tree = try CpuBackend.commitMerkle(H, allocator, columns[0..]);
+        var tree = try CpuBackend.commitMerkle(H, allocator, columns[0..]);
+        errdefer tree.deinit(allocator);
         return .{
             .evaluation = try prover_line.LineEvaluation.initOwned(folded.domain, folded.values),
+            .column = coords,
             .tree = tree,
         };
     }

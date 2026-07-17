@@ -527,6 +527,23 @@ extern fn stwo_zig_metal_fri_fold_line(
     error_message: [*]u8,
     error_message_len: usize,
 ) bool;
+extern fn stwo_zig_metal_fri_fold_line_and_commit(
+    runtime: *anyopaque,
+    source: *anyopaque,
+    source_count: u32,
+    inverse_x: [*]const u32,
+    inverse_x_count: u32,
+    alphas: [*]const u32,
+    fold_count: u32,
+    destination: *anyopaque,
+    coordinates: *anyopaque,
+    leaf_seed: *const [8]u32,
+    node_seed: *const [8]u32,
+    domain_prefix_bytes: u32,
+    stats: *CommandEpochStats,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
 extern fn stwo_zig_metal_fri_fold_prepare(
     runtime: *anyopaque,
     source_offset_words: u32,
@@ -1211,6 +1228,11 @@ const QuotientComputeResult = struct {
 
 pub const QuotientCommitResult = struct {
     gpu_ms: f64,
+    tree: Tree,
+};
+
+pub const FriFoldCommitResult = struct {
+    stats: CommandEpochStats,
     tree: Tree,
 };
 
@@ -2361,6 +2383,70 @@ pub const Runtime = struct {
             return MetalError.CircleTransformFailed;
         }
         return gpu_ms;
+    }
+
+    /// Folds a resident interleaved QM31 evaluation and commits its final
+    /// coordinate planes without an intermediate submission or host copy.
+    pub fn foldFriLineAndCommit(
+        self: *Runtime,
+        source: *anyopaque,
+        source_count: u32,
+        inverse_x: []const u32,
+        alphas: []const [4]u32,
+        destination: *anyopaque,
+        coordinates: *anyopaque,
+        leaf_seed: [8]u32,
+        node_seed: [8]u32,
+        domain_prefix_bytes: u32,
+    ) MetalError!FriFoldCommitResult {
+        if (source_count < 2 or alphas.len == 0 or alphas.len >= 31 or
+            source_count & (source_count - 1) != 0 or
+            !validDomainPrefixBytes(domain_prefix_bytes))
+        {
+            return MetalError.InvalidColumns;
+        }
+        const fold_count = std.math.cast(u32, alphas.len) orelse return MetalError.InvalidColumns;
+        const destination_count = source_count >> @intCast(fold_count);
+        if (destination_count == 0) return MetalError.InvalidColumns;
+        var expected_inverse_count: u64 = 0;
+        var count = source_count;
+        for (0..alphas.len) |_| {
+            count >>= 1;
+            expected_inverse_count += count;
+        }
+        if (inverse_x.len != expected_inverse_count or inverse_x.len > std.math.maxInt(u32))
+            return MetalError.InvalidColumns;
+
+        var stats: CommandEpochStats = undefined;
+        var message: [1024]u8 = [_]u8{0} ** 1024;
+        const tree = stwo_zig_metal_fri_fold_line_and_commit(
+            self.handle,
+            source,
+            source_count,
+            inverse_x.ptr,
+            @intCast(inverse_x.len),
+            @ptrCast(alphas.ptr),
+            fold_count,
+            destination,
+            coordinates,
+            &leaf_seed,
+            &node_seed,
+            domain_prefix_bytes,
+            &stats,
+            &message,
+            message.len,
+        ) orelse {
+            std.log.err("Metal FRI fold + commitment failed: {s}", .{std.mem.sliceTo(&message, 0)});
+            return MetalError.CommitmentFailed;
+        };
+        return .{
+            .stats = stats,
+            .tree = .{
+                .handle = tree,
+                .runtime_handle = self.handle,
+                .log_size = std.math.log2_int(u32, destination_count),
+            },
+        };
     }
 
     pub fn prepareFriFold(

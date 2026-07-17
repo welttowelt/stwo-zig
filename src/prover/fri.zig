@@ -490,9 +490,11 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
             defer fold_workspace.deinit(allocator);
             const last_layer_log_size = std.math.log2_int(usize, config.lastLayerDomainSize());
             var pending_tree: ?B.MerkleTree(H) = null;
+            var pending_column: ?SecureColumnByCoords = null;
             errdefer if (pending_tree) |*tree| tree.deinit(allocator);
+            errdefer if (pending_column) |*column| column.deinit(allocator);
             while (layer_evaluation.len() > config.lastLayerDomainSize()) {
-                var secure_values = if (comptime @hasDecl(B, "secureColumnForMerkle"))
+                var secure_values = pending_column orelse if (comptime @hasDecl(B, "secureColumnForMerkle"))
                     try B.secureColumnForMerkle(allocator, layer_evaluation)
                 else if (comptime @hasDecl(B, "secureColumnFromLine"))
                     try B.secureColumnFromLine(layer_evaluation)
@@ -501,6 +503,7 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
                         allocator,
                         layer_evaluation.values,
                     );
+                pending_column = null;
                 var layer_appended = false;
                 errdefer if (!layer_appended) secure_values.deinit(allocator);
 
@@ -543,6 +546,7 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
                         layer_evaluation.deinit(allocator);
                         layer_evaluation = folded.evaluation;
                         pending_tree = folded.tree;
+                        pending_column = folded.column;
                         continue;
                     }
                 }

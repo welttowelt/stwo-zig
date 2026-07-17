@@ -103,6 +103,7 @@ pub const BackendCounterDelta = struct {
     metal_circle_lde_dispatches: u64 = 0,
     metal_fri_circle_fold_dispatches: u64 = 0,
     metal_fri_line_fold_dispatches: u64 = 0,
+    metal_fri_fold_commit_epochs: u64 = 0,
     metal_qm31_coordinate_dispatches: u64 = 0,
     cpu_small_merkle_commits: u64 = 0,
     cpu_streaming_merkle_commits: u64 = 0,

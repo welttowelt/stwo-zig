@@ -582,6 +582,7 @@ fn telemetryReport(delta: anytype) report_mod.BackendTelemetryDelta {
             .metal_circle_lde_dispatches = counters.metal_circle_lde_dispatches,
             .metal_fri_circle_fold_dispatches = counters.metal_fri_circle_fold_dispatches,
             .metal_fri_line_fold_dispatches = counters.metal_fri_line_fold_dispatches,
+            .metal_fri_fold_commit_epochs = counters.metal_fri_fold_commit_epochs,
             .metal_qm31_coordinate_dispatches = counters.metal_qm31_coordinate_dispatches,
             .cpu_small_merkle_commits = counters.cpu_small_merkle_commits,
             .cpu_streaming_merkle_commits = counters.cpu_streaming_merkle_commits,

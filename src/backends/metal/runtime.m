@@ -824,6 +824,8 @@ bool stwo_zig_metal_fri_fold_line(
     }
 }
 
+#import "runtime/fri_fold_commit.m"
+
 void *stwo_zig_metal_fri_fold_prepare(
     void *runtime_ptr, uint32_t source_offset_words, uint32_t inverse_offset_words,
     uint32_t alpha_offset_words, uint32_t destination_offset_words,

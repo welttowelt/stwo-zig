@@ -11,6 +11,10 @@ pub const merkle_cell_threshold: usize = 1 << 24;
 /// 13; smaller quotient trees retain the CPU commitment path.
 pub const quotient_resident_merkle_log_threshold: u32 = 13;
 
+/// PR #6 begins Metal folds at log 16. Local complete-proof A/B keeps the
+/// combined fold-plus-tree transaction conservative at log 18.
+pub const fri_fold_commit_log_threshold: u32 = 18;
+
 pub fn usesResidentMerkle(cell_count: usize) bool {
     return cell_count >= merkle_cell_threshold;
 }
@@ -29,4 +33,9 @@ pub fn secureColumnUsesResidentMerkle(value_count: usize) bool {
 
 pub fn quotientUsesResidentMerkle(lifting_log_size: u32) bool {
     return lifting_log_size >= quotient_resident_merkle_log_threshold;
+}
+
+pub fn friFoldCommitUsesResidentMerkle(value_count: usize, fold_count: u32) bool {
+    if (fold_count != 1 or value_count == 0 or !std.math.isPowerOfTwo(value_count)) return false;
+    return std.math.log2_int(usize, value_count) >= fri_fold_commit_log_threshold;
 }

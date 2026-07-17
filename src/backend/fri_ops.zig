@@ -3,10 +3,15 @@
 //! A backend must provide circle-to-line and line-to-line folding.
 
 const prover_line = @import("../prover/line.zig");
+const secure_column = @import("../prover/secure_column.zig");
 
 pub fn FoldLineAndCommitResult(comptime Tree: type) type {
     return struct {
         evaluation: prover_line.LineEvaluation,
+        /// Coordinate planes already used for the pending tree. A scheduler
+        /// that consumes the hook must move this into the next layer instead
+        /// of materializing the evaluation a second time.
+        column: ?secure_column.SecureColumnByCoords = null,
         tree: Tree,
     };
 }
