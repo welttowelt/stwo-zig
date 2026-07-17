@@ -228,6 +228,26 @@ pub fn encodeCompactStatementV1(
 ) (Error || std.mem.Allocator.Error)![]u8 {
     var flat = try deriveFlatClaimGeometry(allocator, composition);
     defer flat.deinit();
+    return encodeCompactStatementFromFlatClaimV1(allocator, .{
+        .component_enable_bits = flat.component_enable_bits,
+        .component_log_sizes = flat.component_log_sizes,
+    }, prover_input);
+}
+
+pub const FlatClaimGeometryView = struct {
+    component_enable_bits: []const bool,
+    component_log_sizes: []const u32,
+};
+
+/// Serializes a runtime-generated claim without importing a composition
+/// schedule or a target proof. The caller must resolve witness-fed component
+/// logs before constructing this view.
+pub fn encodeCompactStatementFromFlatClaimV1(
+    allocator: std.mem.Allocator,
+    flat: FlatClaimGeometryView,
+    prover_input: *const adapter.ProverInput,
+) (Error || std.mem.Allocator.Error)![]u8 {
+    try validateFlatClaimGeometry(flat);
     const public = try derivePublicStatement(allocator, prover_input);
     defer allocator.free(public.public_claim);
     const segments = try extractPublicSegments(prover_input);
@@ -444,6 +464,29 @@ fn validateConfig(config: PcsConfig) Error!void {
 
 fn validateClaimWord(word: u32) Error!void {
     if (word >= M31_MODULUS) return Error.InvalidClaimWord;
+}
+
+fn validateFlatClaimGeometry(flat: FlatClaimGeometryView) Error!void {
+    if (flat.component_enable_bits.len != claim_registry.enable_slot_count)
+        return Error.InvalidClaimGeometry;
+    var log_cursor: usize = 0;
+    var memory_prefix_ended = false;
+    for (claim_registry.enable_slots) |slot| {
+        const enabled = flat.component_enable_bits[slot.enable_slot];
+        if (slot.log_size_shape == .special_dynamic_prefix) {
+            if (enabled and memory_prefix_ended) return Error.InvalidClaimGeometry;
+            if (!enabled) memory_prefix_ended = true;
+        }
+        if (!enabled) continue;
+        if (log_cursor >= flat.component_log_sizes.len) return Error.InvalidClaimGeometry;
+        const log_size = flat.component_log_sizes[log_cursor];
+        try validateClaimWord(log_size);
+        if (slot.fixed_log_size) |fixed| {
+            if (log_size != fixed) return Error.InvalidClaimGeometry;
+        }
+        log_cursor += 1;
+    }
+    if (log_cursor != flat.component_log_sizes.len) return Error.InvalidClaimGeometry;
 }
 
 fn paddedLength(len: usize) Error!usize {
@@ -925,6 +968,14 @@ test "compact statement v1 serializes the transcript's authoritative public data
     var composition = claimBundle(&components);
     const encoded = try encodeCompactStatementV1(allocator, &composition, &prover_input);
     defer allocator.free(encoded);
+    var flat = try deriveFlatClaimGeometry(allocator, &composition);
+    defer flat.deinit();
+    const runtime_encoded = try encodeCompactStatementFromFlatClaimV1(allocator, .{
+        .component_enable_bits = flat.component_enable_bits,
+        .component_log_sizes = flat.component_log_sizes,
+    }, &prover_input);
+    defer allocator.free(runtime_encoded);
+    try std.testing.expectEqualSlices(u8, encoded, runtime_encoded);
 
     try std.testing.expectEqualSlices(u8, &compact_statement_magic, encoded[0..8]);
     try std.testing.expectEqual(compact_statement_version, std.mem.readInt(u16, encoded[8..10], .little));
@@ -945,6 +996,33 @@ test "compact statement v1 serializes the transcript's authoritative public data
         const offset = first_program + index * 4;
         try std.testing.expectEqual(expected, std.mem.readInt(u32, encoded[offset..][0..4], .little));
     }
+}
+
+test "compact statement v1 rejects noncanonical runtime flat geometry" {
+    const allocator = std.testing.allocator;
+    var prover_input = try syntheticInput(allocator);
+    defer prover_input.deinit(allocator);
+    var enable_bits = [_]bool{false} ** claim_registry.enable_slot_count;
+    enable_bits[67] = true;
+    const wrong_fixed_log = [_]u32{7};
+    try std.testing.expectError(
+        Error.InvalidClaimGeometry,
+        encodeCompactStatementFromFlatClaimV1(allocator, .{
+            .component_enable_bits = &enable_bits,
+            .component_log_sizes = &wrong_fixed_log,
+        }, &prover_input),
+    );
+
+    var memory_gap = [_]bool{false} ** claim_registry.enable_slot_count;
+    memory_gap[50] = true;
+    const memory_log = [_]u32{15};
+    try std.testing.expectError(
+        Error.InvalidClaimGeometry,
+        encodeCompactStatementFromFlatClaimV1(allocator, .{
+            .component_enable_bits = &memory_gap,
+            .component_log_sizes = &memory_log,
+        }, &prover_input),
+    );
 }
 
 test "compact statement v1 matches an independently encoded SN2 statement" {
