@@ -151,12 +151,11 @@ pub fn Blake2sChannelGeneric(comptime is_m31_output: bool) type {
             return trailingZeroBits(out[0..16]) >= n_bits;
         }
 
-        /// Grind for a valid PoW nonce with prefix caching and parallel search.
-        /// Spawns N threads, each searching a strided nonce range.
-        /// First thread to find a valid nonce signals all others to stop.
+        /// Grind for the lowest valid PoW nonce with prefix caching and parallel search.
+        /// Each worker searches one strided residue class and atomically lowers the
+        /// shared upper bound, making the result independent of thread scheduling.
         pub fn grind(self: Self, n_bits: u32) u64 {
             if (n_bits == 0) return 0;
-            const prefix = self.computePowPrefix(n_bits);
 
             // Determine thread count from env or CPU count.
             const n_threads: usize = blk: {
@@ -168,8 +167,27 @@ pub fn Blake2sChannelGeneric(comptime is_m31_output: bool) type {
                 defer std.heap.page_allocator.free(env_val);
                 break :blk std.fmt.parseInt(usize, env_val, 10) catch 1;
             };
+            return self.grindWithWorkerCount(n_bits, n_threads);
+        }
 
-            if (n_threads <= 1) {
+        fn grindWithWorkerCount(self: Self, n_bits: u32, n_workers: usize) u64 {
+            return self.grindWithWorkerCountAndSpawnLimit(
+                n_bits,
+                n_workers,
+                std.math.maxInt(usize),
+            );
+        }
+
+        fn grindWithWorkerCountAndSpawnLimit(
+            self: Self,
+            n_bits: u32,
+            n_workers: usize,
+            spawn_limit: usize,
+        ) u64 {
+            if (n_bits == 0) return 0;
+            const prefix = self.computePowPrefix(n_bits);
+
+            if (n_workers <= 1) {
                 // Single-threaded path.
                 var nonce: u64 = 0;
                 while (true) : (nonce += 1) {
@@ -180,15 +198,33 @@ pub fn Blake2sChannelGeneric(comptime is_m31_output: bool) type {
             // Multi-threaded grinding: each thread searches nonce ≡ thread_id (mod n_threads).
             var found = std.atomic.Value(u64).init(std.math.maxInt(u64));
             var threads: [64]std.Thread = undefined;
-            const actual_threads = @min(n_threads, 64);
+            var failed_starts: [64]u64 = undefined;
+            var spawned_count: usize = 0;
+            var failed_count: usize = 0;
+            const actual_threads = @min(n_workers, threads.len);
 
             for (0..actual_threads) |tid| {
-                threads[tid] = std.Thread.spawn(.{}, grindWorker, .{
+                if (spawned_count == spawn_limit) {
+                    failed_starts[failed_count] = @intCast(tid);
+                    failed_count += 1;
+                    continue;
+                }
+                const thread = std.Thread.spawn(.{}, grindWorker, .{
                     prefix, n_bits, @as(u64, tid), @as(u64, actual_threads), &found,
-                }) catch continue;
+                }) catch {
+                    failed_starts[failed_count] = @intCast(tid);
+                    failed_count += 1;
+                    continue;
+                };
+                threads[spawned_count] = thread;
+                spawned_count += 1;
             }
-            for (0..actual_threads) |tid| {
-                threads[tid].join();
+            for (threads[0..spawned_count]) |thread| thread.join();
+
+            // A failed spawn leaves a residue class unsearched. Complete those
+            // classes synchronously under the best bound found by other workers.
+            for (failed_starts[0..failed_count]) |start| {
+                grindWorker(prefix, n_bits, start, @intCast(actual_threads), &found);
             }
             return found.load(.acquire);
         }
@@ -201,17 +237,12 @@ pub fn Blake2sChannelGeneric(comptime is_m31_output: bool) type {
             found: *std.atomic.Value(u64),
         ) void {
             var nonce = start;
-            while (found.load(.monotonic) == std.math.maxInt(u64)) {
+            while (nonce < found.load(.monotonic)) {
                 if (verifyNonceWithPrefix(prefix, nonce, n_bits)) {
-                    _ = found.cmpxchgStrong(
-                        std.math.maxInt(u64),
-                        nonce,
-                        .release,
-                        .monotonic,
-                    );
+                    _ = found.fetchMin(nonce, .release);
                     return;
                 }
-                nonce +%= stride;
+                nonce = std.math.add(u64, nonce, stride) catch return;
             }
         }
 
@@ -373,4 +404,45 @@ test "blake2s channel: mix_u32s upstream digest bytes" {
         0xa0, 0xff, 0xc2, 0x94, 0xcb, 0xf9, 0xa1, 0xc7,
     };
     try std.testing.expect(std.mem.eql(u8, channel.digestBytes()[0..], expected[0..]));
+}
+
+test "blake2s channel: parallel grinding returns the lowest valid nonce" {
+    const channel = Blake2sChannel{};
+    const n_bits = 10;
+    const expected = channel.grindWithWorkerCount(n_bits, 1);
+
+    try std.testing.expect(channel.verifyPowNonce(n_bits, expected));
+    for (0..expected) |nonce| {
+        try std.testing.expect(!channel.verifyPowNonce(n_bits, @intCast(nonce)));
+    }
+
+    for ([_]usize{ 2, 4, 16 }) |worker_count| {
+        for (0..4) |_| {
+            try std.testing.expectEqual(
+                expected,
+                channel.grindWithWorkerCount(n_bits, worker_count),
+            );
+        }
+    }
+}
+
+test "blake2s channel: zero-bit grinding is independent of worker count" {
+    const channel = Blake2sChannel{};
+    try std.testing.expectEqual(@as(u64, 0), channel.grindWithWorkerCount(0, 1));
+    try std.testing.expectEqual(@as(u64, 0), channel.grindWithWorkerCount(0, 16));
+}
+
+test "blake2s channel: failed worker residues are completed synchronously" {
+    const channel = Blake2sChannel{};
+    const n_bits = 10;
+    const expected = channel.grindWithWorkerCount(n_bits, 1);
+
+    try std.testing.expectEqual(
+        expected,
+        channel.grindWithWorkerCountAndSpawnLimit(n_bits, 16, 0),
+    );
+    try std.testing.expectEqual(
+        expected,
+        channel.grindWithWorkerCountAndSpawnLimit(n_bits, 16, 3),
+    );
 }
