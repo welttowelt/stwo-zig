@@ -84,6 +84,18 @@ pub fn build(b: *std.Build) void {
     const run_cross_module_tests = b.addRunArtifact(cross_module_tests);
     test_step.dependOn(&run_cross_module_tests.step);
 
+    inline for ([_][]const u8{ "schedule_addressing.zig", "schedule_coverage.zig" }) |filename| {
+        const arena_schedule_test_module = b.createModule(.{
+            .root_source_file = b.path(b.fmt("src/tools/metal_arena_plan/{s}", .{filename})),
+            .target = target,
+            .optimize = optimize,
+        });
+        arena_schedule_test_module.addImport("stwo", stwo_module);
+        const arena_schedule_tests = b.addTest(.{ .root_module = arena_schedule_test_module });
+        const run_arena_schedule_tests = b.addRunArtifact(arena_schedule_tests);
+        test_step.dependOn(&run_arena_schedule_tests.step);
+    }
+
     const metal_session_protocol_test_module = b.createModule(.{
         .root_source_file = b.path("src/tools/metal_session/protocol.zig"),
         .target = target,
@@ -223,6 +235,7 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
         });
+        metal_arena_plan_module.addImport("stwo", stwo_module);
         const metal_arena_plan = b.addExecutable(.{
             .name = "metal-arena-plan",
             .root_module = metal_arena_plan_module,
@@ -241,17 +254,15 @@ pub fn build(b: *std.Build) void {
         metal_arena_plan_step.dependOn(&install_metal_arena_plan.step);
 
         const metal_arena_session_module = b.createModule(.{
-            .root_source_file = b.path("src/metal_prover_session_cli.zig"),
+            .root_source_file = b.path("src/tools/metal_prover_session/main.zig"),
             .target = target,
             .optimize = optimize,
         });
+        metal_arena_session_module.addImport("stwo", stwo_module);
+        metal_arena_session_module.addImport("one_shot", metal_arena_plan_module);
         const metal_arena_session = b.addExecutable(.{
             .name = "metal-arena-session",
             .root_module = metal_arena_session_module,
-        });
-        metal_arena_session.addCSourceFile(.{
-            .file = b.path("src/backends/metal/runtime.m"),
-            .flags = &.{ "-fobjc-arc", "-fblocks" },
         });
         metal_arena_session.linkLibC();
         metal_arena_session.linkFramework("Foundation");
@@ -264,6 +275,28 @@ pub fn build(b: *std.Build) void {
             "Build persistent Metal SN PIE prover session",
         );
         metal_arena_session_step.dependOn(&install_metal_arena_session.step);
+
+        const metal_arena_session_test_module = b.createModule(.{
+            .root_source_file = b.path("src/tools/metal_prover_session/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        metal_arena_session_test_module.addImport("stwo", stwo_module);
+        metal_arena_session_test_module.addImport("one_shot", metal_arena_plan_module);
+        const metal_arena_session_tests = b.addTest(.{
+            .root_module = metal_arena_session_test_module,
+        });
+        metal_arena_session_tests.linkLibC();
+        metal_arena_session_tests.linkFramework("Foundation");
+        metal_arena_session_tests.linkFramework("Metal");
+        metal_arena_session_tests.linkSystemLibrary("objc");
+        const run_metal_arena_session_tests = b.addRunArtifact(metal_arena_session_tests);
+        const metal_arena_session_test_step = b.step(
+            "metal-prover-session-test",
+            "Run persistent Metal prover-session unit tests",
+        );
+        metal_arena_session_test_step.dependOn(&run_metal_arena_session_tests.step);
+        test_step.dependOn(&run_metal_arena_session_tests.step);
 
         const metal_recovery_bench_module = b.createModule(.{
             .root_source_file = b.path("src/bench/metal/recovery.zig"),

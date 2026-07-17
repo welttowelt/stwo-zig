@@ -581,6 +581,12 @@ This ledger maps every public export in the Zig root/module API surface to the p
       "rust_path": null,
       "source": "src/interop/mod.zig"
     },
+    "stwo.metal_session": {
+      "kind": "const",
+      "rationale": "Zig-only persistent Metal session protocol and artifact namespace; produced proofs remain correctness-gated against the pinned Rust Stwo oracle.",
+      "rust_path": null,
+      "source": "src/stwo.zig"
+    },
     "stwo.prover": {
       "kind": "const",
       "rationale": null,

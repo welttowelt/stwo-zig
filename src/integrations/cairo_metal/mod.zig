@@ -5,6 +5,7 @@ pub const memory_trace = @import("memory_trace.zig");
 pub const oods = @import("oods.zig");
 pub const quotient_inputs = @import("quotient_inputs.zig");
 pub const quotient_reference = @import("quotient_reference.zig");
+pub const runtime_decommit_geometry = @import("runtime_decommit_geometry.zig");
 pub const eval_codegen = @import("eval_codegen.zig");
 pub const witness_codegen = @import("witness_codegen.zig");
 pub const process_backend = @import("process/backend.zig");

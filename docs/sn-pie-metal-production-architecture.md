@@ -967,11 +967,7 @@ python3 -m unittest discover -s scripts/tests -p 'test_*.py'
 # Ran 195 tests ... OK
 
 PATH="/tmp/zig-xcrun:$PATH" mise x zig@0.15.2 -- \
-  zig test src/metal_prover_session_cli.zig -OReleaseFast \
-  --test-filter 'metal_prover_session_cli.test' \
-  -cflags -fobjc-arc -fblocks -- src/backends/metal/runtime.m \
-  -framework Foundation -framework Metal -lc -lobjc
-# 19/19 passed
+  zig build metal-prover-session-test -Doptimize=ReleaseFast
 
 PATH="/tmp/zig-xcrun:$PATH" mise x zig@0.15.2 -- \
   zig build metal-arena-plan metal-arena-session -Doptimize=ReleaseFast
@@ -3464,7 +3460,7 @@ integration work does not delay reference-free direct SN PIE proofs.
 | --- | --- | --- | --- |
 | Raw identity/adaptation | `scripts/sn_pie_adapter.py` | `artifact_manifest.zig`, `BlockExecutor` | M0/M2: mutation, source-chain, raw-to-adapted digest tests |
 | Queue/benchmark evidence | `sn_pie_metal_queue.py`, `sn_pie_metal_benchmark.py` | Service `BlockReport`, thin report adapters | M0/M8: fail-closed schema and 10/100 queue tests |
-| Session transport | `sn_pie_metal_session.py`, `metal_prover_session_{protocol,cli}.zig`, `artifact_store.zig`, `artifact_views.zig` | JSONL adapter over `prover_service.zig` | M1/M3: protocol-v4 object/view/verifier gates, ordering, cancellation, shutdown tests |
+| Session transport | `sn_pie_metal_session.py`, `tools/metal_session/protocol.zig`, `tools/metal_prover_session/`, `artifact_store.zig`, `artifact_views.zig` | JSONL adapter over `prover_service.zig` | M1/M3: protocol-v4 object/view/verifier gates, ordering, cancellation, shutdown tests |
 | Statement/transcript | `statement_bootstrap.zig`, `protocol_recipes.zig` | Authoritative `StatementSerializer`, `TranscriptEngine` | M1/M4: ordinal parity, self-PoW, nonce and transcript tests |
 | One-shot orchestration | `metal_arena_plan_cli.zig` | Temporary service client | M1-M3: reference-free SN1-SN4, then no semantic ownership |
 | Geometry/liveness | `proof_plan.zig`, `staged_arena_planner.zig`, `arena_lifetime.zig` | `PreparedGeometry`, `command_graph.zig` | M2-M4: raw derivation, graph hazards, reset A/B/A |
@@ -3553,7 +3549,7 @@ Repository evidence and companion documents:
 - `docs/metal-backend-progress.md`
 - `docs/cairo-zig-adapter.md`
 - `src/metal_arena_plan_cli.zig`
-- `src/metal_prover_session_cli.zig`
+- `src/tools/metal_prover_session/`
 - `src/backends/metal/runtime.m`
 - `src/backends/metal/runtime_profile.m`
 - `src/backends/metal/protocol_recipes.zig`

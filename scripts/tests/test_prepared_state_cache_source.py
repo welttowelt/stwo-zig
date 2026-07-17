@@ -13,7 +13,7 @@ MULTIPLICITY_FEEDS = (
     / "lookups"
     / "multiplicity_feeds.zig"
 )
-SESSION_CLI = ROOT / "src" / "metal_prover_session_cli.zig"
+SESSION_CLI = ROOT / "src" / "tools" / "metal_prover_session" / "app.zig"
 
 
 def ordered(source: str, *fragments: str) -> None:
