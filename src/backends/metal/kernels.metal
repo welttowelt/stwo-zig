@@ -194,11 +194,11 @@ kernel void stwo_zig_blake2s_leaves(
     if (row >= row_count) return;
 
     uint state[8];
-    blake2s_init_seeded(state, leaf_seed);
+    blake2s_init_hash(state);
 
     uint message[16];
     uint in_block = 0u;
-    uint total_bytes = 64u;
+    uint total_bytes = 0u;
     for (uint column = 0; column < column_count; ++column) {
         uint log_size = column_log_sizes[column];
         uint source = lifted_index(row, lifting_log_size - log_size);
@@ -279,9 +279,9 @@ kernel void stwo_zig_blake2s_parents(
     if (parent >= parent_count) return;
     uint state[8];
     uint message[16];
-    blake2s_init_seeded(state, node_seed);
+    blake2s_init_hash(state);
     for (uint i = 0; i < 16u; ++i) message[i] = children[parent * 16u + i];
-    blake2s_compress(state, message, 128u, true);
+    blake2s_compress(state, message, 64u, true);
     for (uint i = 0; i < 8u; ++i) destination[parent * 8u + i] = state[i];
 }
 
@@ -292,9 +292,9 @@ kernel void stwo_zig_blake2s_parents_sparse(
 ) {
     if (parent >= parent_count) return;
     uint state[8], message[16];
-    blake2s_init_seeded(state, node_seed);
+    blake2s_init_hash(state);
     for (uint i = 0; i < 16u; ++i) message[i] = arena[child_offset + parent * 16u + i];
-    blake2s_compress(state, message, 128u, true);
+    blake2s_compress(state, message, 64u, true);
     for (uint i = 0; i < 8u; ++i) arena[destination_offset + parent * 8u + i] = state[i];
 }
 
@@ -319,8 +319,8 @@ kernel void stwo_zig_blake2s_parent_tail_sparse(
         threadgroup_barrier(mem_flags::mem_threadgroup);
         if (thread_index < parent_count) {
             uint state[8];
-            blake2s_init_seeded(state, node_seed);
-            blake2s_compress(state, message, 128u, true);
+            blake2s_init_hash(state);
+            blake2s_compress(state, message, 64u, true);
             uint destination = destination_offsets[level] + thread_index * 8u;
             for (uint i = 0u; i < 8u; ++i) {
                 hashes[thread_index * 8u + i] = state[i];
@@ -3009,12 +3009,12 @@ kernel void stwo_zig_fri_packed_leaves_resident(
     uint leaf_count = evaluation_size >> log_rows_per_leaf;
     if (leaf >= leaf_count) return;
     uint state[8], message[16];
-    blake2s_init_seeded(state, leaf_seed);
+    blake2s_init_hash(state);
     for (uint i = 0u; i < 16u; ++i) message[i] = 0u;
     if (log_rows_per_leaf == 0u) {
         for (uint coordinate = 0u; coordinate < 4u; ++coordinate)
             message[coordinate] = arena[evaluation_base + coordinate * coordinate_stride + leaf];
-        blake2s_compress(state, message, 80u, true);
+        blake2s_compress(state, message, 16u, true);
     } else {
         for (uint offset = 0u; offset < 4u; ++offset) {
             for (uint coordinate = 0u; coordinate < 4u; ++coordinate) {
@@ -3022,7 +3022,7 @@ kernel void stwo_zig_fri_packed_leaves_resident(
                     arena[evaluation_base + coordinate * coordinate_stride + 4u * leaf + offset];
             }
         }
-        blake2s_compress(state, message, 128u, true);
+        blake2s_compress(state, message, 64u, true);
     }
     for (uint i = 0u; i < 8u; ++i) arena[destination_base + leaf * 8u + i] = state[i];
 }
@@ -3277,9 +3277,9 @@ kernel void stwo_zig_decommit_sparse_parent_resident(
     uint left = 2u * parent;
     arena[parent_indices + parent] = arena[child_indices + left] >> 1u;
     uint state[8], message[16];
-    blake2s_init_seeded(state, node_seed);
+    blake2s_init_hash(state);
     for (uint i = 0u; i < 16u; ++i) message[i] = arena[child_hashes + left * 8u + i];
-    blake2s_compress(state, message, 128u, true);
+    blake2s_compress(state, message, 64u, true);
     for (uint i = 0u; i < 8u; ++i) arena[parent_hashes + parent * 8u + i] = state[i];
 }
 
@@ -3294,8 +3294,8 @@ kernel void stwo_zig_decommit_sparse_leaves_resident(
     uint count = min(arena[leaf_count_at], max_leaf_count);
     if (sparse_index >= count) return;
     uint position = arena[leaf_indices + sparse_index];
-    uint state[8], message[16], in_block = 0u, total_bytes = 64u;
-    blake2s_init_seeded(state, leaf_seed);
+    uint state[8], message[16], in_block = 0u, total_bytes = 0u;
+    blake2s_init_hash(state);
     for (uint column = 0u; column < column_count; ++column) {
         uint log_size = arena[column_logs + column];
         uint row = decommit_lifted_index(position, lifting_log, log_size);
@@ -3332,11 +3332,11 @@ kernel void stwo_zig_decommit_sparse_leaf_group_resident(
     uint position = arena[leaf_indices + sparse_index];
     uint state[8], message[16], in_block = 0u;
     if (first_column == 0u) {
-        blake2s_init_seeded(state, leaf_seed);
+        blake2s_init_hash(state);
     } else {
         for (uint i = 0u; i < 8u; ++i) state[i] = arena[output_hashes + sparse_index * 8u + i];
     }
-    uint total_bytes = 64u + first_column * 4u;
+    uint total_bytes = first_column * 4u;
     for (uint column = 0u; column < column_count; ++column) {
         uint log_size = arena[column_logs + column];
         uint row = decommit_lifted_index(position, lifting_log, log_size);

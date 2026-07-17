@@ -6100,7 +6100,7 @@ fn executeStreamingCommitmentWithMode(
                     destination_log,
                     @intCast(coefficient_cursor),
                     is_final,
-                    metal_runtime.lifted_merkle_prefix_bytes,
+                    0,
                     leaf_seed,
                 );
                 break :epoch_time 0;
@@ -6114,7 +6114,7 @@ fn executeStreamingCommitmentWithMode(
                 destination_log,
                 @intCast(coefficient_cursor),
                 is_final,
-                metal_runtime.lifted_merkle_prefix_bytes,
+                0,
                 leaf_seed,
             );
             leaf_state_log = destination_log;
@@ -6127,7 +6127,7 @@ fn executeStreamingCommitmentWithMode(
             lifting_log,
             @intCast(coefficient_cursor),
             is_final,
-            metal_runtime.lifted_merkle_prefix_bytes,
+            0,
             leaf_seed,
         );
         gpu_ms += elapsed_leaf_gpu_ms;

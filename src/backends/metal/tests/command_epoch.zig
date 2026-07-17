@@ -331,7 +331,7 @@ test "metal: compact streaming commitment epoch preserves evaluations and root" 
         small_eval_log,
         0,
         false,
-        runtime_mod.lifted_merkle_prefix_bytes,
+        0,
         Hasher.leafSeed(),
     );
     try epoch.encodeArenaCopy(snapshot_copy);
@@ -345,7 +345,7 @@ test "metal: compact streaming commitment epoch preserves evaluations and root" 
         large_eval_log,
         column_group_width,
         true,
-        runtime_mod.lifted_merkle_prefix_bytes,
+        0,
         Hasher.leafSeed(),
     );
     try epoch.encodeMerkleParentChain(parent_chain);

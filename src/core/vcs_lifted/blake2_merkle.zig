@@ -27,16 +27,11 @@ pub fn Blake2sMerkleHasherGeneric(comptime is_m31_output: bool) type {
         }
 
         pub fn defaultWithInitialState() Self {
-            var hasher = Self.init();
-            hasher.inner.update(LEAF_PREFIX[0..]);
-            return hasher;
+            return Self.init();
         }
 
         pub fn hashChildren(children: struct { left: Hash, right: Hash }) Hash {
-            var payload: [64]u8 = undefined;
-            @memcpy(payload[0..32], children.left[0..]);
-            @memcpy(payload[32..64], children.right[0..]);
-            return InnerHasher.hashFinal64FromSeed(nodeSeed(), &payload);
+            return InnerHasher.concatAndHash(children.left, children.right);
         }
 
         /// Pre-hashed node-domain separator state used to avoid reprocessing
@@ -50,23 +45,25 @@ pub fn Blake2sMerkleHasherGeneric(comptime is_m31_output: bool) type {
         }
 
         pub fn hashChildrenWithSeed(seed: NodeSeed, children: struct { left: Hash, right: Hash }) Hash {
-            var payload: [64]u8 = undefined;
-            @memcpy(payload[0..32], children.left[0..]);
-            @memcpy(payload[32..64], children.right[0..]);
-            return InnerHasher.hashFinal64FromSeed(seed, &payload);
+            _ = seed;
+            return InnerHasher.concatAndHash(children.left, children.right);
         }
 
         pub fn hashChildrenWithSeed4(seed: NodeSeed, children: *const [8]Hash) [4]Hash {
-            var payloads: [4][64]u8 = undefined;
-            for (&payloads, 0..) |*payload, lane| {
-                @memcpy(payload[0..32], children[2 * lane][0..]);
-                @memcpy(payload[32..64], children[2 * lane + 1][0..]);
-            }
-            return InnerHasher.hashFinal64FromSeed4(seed, &payloads);
+            _ = seed;
+            var out: [4]Hash = undefined;
+            for (&out, 0..) |*digest, lane| digest.* = InnerHasher.concatAndHash(
+                children[2 * lane],
+                children[2 * lane + 1],
+            );
+            return out;
         }
 
         pub fn hashPackedLeavesWithSeed4(seed: NodeSeed, messages: *const [4][]const u8) [4]Hash {
-            return InnerHasher.hashEqualFromSeed4(seed, messages);
+            _ = seed;
+            var out: [4]Hash = undefined;
+            for (&out, messages) |*digest, message| digest.* = InnerHasher.hash(message);
+            return out;
         }
 
         pub fn updateLeaf(self: *Self, column_values: []const M31) void {
@@ -160,13 +157,37 @@ test "vcs_lifted blake2: updateLeaf matches plain explicit byte packing" {
     const digest = lifted.finalize();
 
     var manual = blake2_hash.Blake2sHasher.init();
-    manual.update(LEAF_PREFIX[0..]);
     for (values[0..]) |value| {
         const encoded = value.toBytesLe();
         manual.update(encoded[0..]);
     }
     const expected = manual.finalize();
     try std.testing.expect(std.mem.eql(u8, digest[0..], expected[0..]));
+}
+
+test "vcs_lifted blake2: pinned Rust oracle uses plain leaf and parent hashes" {
+    const values = [_]M31{
+        M31.fromCanonical(1),
+        M31.fromCanonical(2),
+        M31.fromCanonical(3),
+    };
+    var leaf_hasher = Blake2sMerkleHasher.defaultWithInitialState();
+    leaf_hasher.updateLeaf(&values);
+    const leaf_hex = std.fmt.bytesToHex(leaf_hasher.finalize(), .lower);
+    try std.testing.expectEqualStrings(
+        "9549ce18083a73c794b0fe338635a4ab0950333ecb2e3f1945adf7db5f0ef4d0",
+        &leaf_hex,
+    );
+
+    const parent = Blake2sMerkleHasher.hashChildren(.{
+        .left = [_]u8{0x01} ** 32,
+        .right = [_]u8{0x02} ** 32,
+    });
+    const parent_hex = std.fmt.bytesToHex(parent, .lower);
+    try std.testing.expectEqualStrings(
+        "280569932378c99f448df37e893f062fab951bea53515634b7875ae51e1954e7",
+        &parent_hex,
+    );
 }
 
 test "vcs_lifted blake2: updateLeafPackedBytes matches updateLeaf" {

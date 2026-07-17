@@ -2893,8 +2893,8 @@ test "metal: incremental leaf absorption matches monolithic lifted leaves" {
     var leaves = try runtime.prepareMerkleLeaves(&offsets, &logs, lifting_log, monolithic, Hasher.leafSeed());
     defer leaves.deinit();
     _ = try runtime.merkleLeavesPrepared(arena, leaves);
-    _ = try runtime.leafAbsorb(arena, offsets[0..16], logs[0..16], incremental, lifting_log, 0, false, metal.lifted_merkle_prefix_bytes, Hasher.leafSeed());
-    _ = try runtime.leafAbsorb(arena, offsets[16..20], logs[16..20], incremental, lifting_log, 16, true, metal.lifted_merkle_prefix_bytes, Hasher.leafSeed());
+    _ = try runtime.leafAbsorb(arena, offsets[0..16], logs[0..16], incremental, lifting_log, 0, false, 0, Hasher.leafSeed());
+    _ = try runtime.leafAbsorb(arena, offsets[16..20], logs[16..20], incremental, lifting_log, 16, true, 0, Hasher.leafSeed());
     try std.testing.expectEqualSlices(u32, words[monolithic .. monolithic + rows * 8], words[incremental .. incremental + rows * 8]);
 }
 
@@ -2925,11 +2925,11 @@ test "metal: compact leaf absorption expands mixed logs and preserves the Merkle
     const full_state: u32 = 8192;
     const compact_state: u32 = full_state + rows * 8;
     const snapshot: u32 = compact_state + rows * 8;
-    _ = try runtime.leafAbsorb(arena, offsets[0..8], logs[0..8], full_state, lifting_log, 0, false, metal.lifted_merkle_prefix_bytes, Hasher.leafSeed());
-    _ = try runtime.leafAbsorb(arena, offsets[8..16], logs[8..16], full_state, lifting_log, 8, false, metal.lifted_merkle_prefix_bytes, Hasher.leafSeed());
-    _ = try runtime.leafAbsorb(arena, offsets[16..24], logs[16..24], full_state, lifting_log, 16, true, metal.lifted_merkle_prefix_bytes, Hasher.leafSeed());
+    _ = try runtime.leafAbsorb(arena, offsets[0..8], logs[0..8], full_state, lifting_log, 0, false, 0, Hasher.leafSeed());
+    _ = try runtime.leafAbsorb(arena, offsets[8..16], logs[8..16], full_state, lifting_log, 8, false, 0, Hasher.leafSeed());
+    _ = try runtime.leafAbsorb(arena, offsets[16..24], logs[16..24], full_state, lifting_log, 16, true, 0, Hasher.leafSeed());
 
-    _ = try runtime.leafAbsorbCompact(arena, offsets[0..8], logs[0..8], compact_state, 5, compact_state, 5, 0, false, metal.lifted_merkle_prefix_bytes, Hasher.leafSeed());
+    _ = try runtime.leafAbsorbCompact(arena, offsets[0..8], logs[0..8], compact_state, 5, compact_state, 5, 0, false, 0, Hasher.leafSeed());
     {
         var copy = try runtime.prepareArenaCopies(&.{.{
             .source_word_offset = compact_state,
@@ -2939,7 +2939,7 @@ test "metal: compact leaf absorption expands mixed logs and preserves the Merkle
         defer copy.deinit();
         _ = try runtime.arenaCopyPrepared(arena, copy);
     }
-    _ = try runtime.leafAbsorbCompact(arena, offsets[8..16], logs[8..16], snapshot, 5, compact_state, 7, 8, false, metal.lifted_merkle_prefix_bytes, Hasher.leafSeed());
+    _ = try runtime.leafAbsorbCompact(arena, offsets[8..16], logs[8..16], snapshot, 5, compact_state, 7, 8, false, 0, Hasher.leafSeed());
     {
         var copy = try runtime.prepareArenaCopies(&.{.{
             .source_word_offset = compact_state,
@@ -2949,7 +2949,7 @@ test "metal: compact leaf absorption expands mixed logs and preserves the Merkle
         defer copy.deinit();
         _ = try runtime.arenaCopyPrepared(arena, copy);
     }
-    _ = try runtime.leafAbsorbCompact(arena, offsets[16..24], logs[16..24], snapshot, 7, compact_state, lifting_log, 16, true, metal.lifted_merkle_prefix_bytes, Hasher.leafSeed());
+    _ = try runtime.leafAbsorbCompact(arena, offsets[16..24], logs[16..24], snapshot, 7, compact_state, lifting_log, 16, true, 0, Hasher.leafSeed());
     try std.testing.expectEqualSlices(u32, words[full_state .. full_state + rows * 8], words[compact_state .. compact_state + rows * 8]);
 
     var full_children: [8]u32 = undefined;
@@ -3004,9 +3004,9 @@ test "metal: compact leaf absorption expands a partial final group to the full d
     const full_state: u32 = 4096;
     const compact_state: u32 = full_state + rows * 8;
     const snapshot: u32 = compact_state + rows * 8;
-    _ = try runtime.leafAbsorb(arena, offsets[0..8], logs[0..8], full_state, lifting_log, 0, false, metal.lifted_merkle_prefix_bytes, Hasher.leafSeed());
-    _ = try runtime.leafAbsorb(arena, offsets[8..16], logs[8..16], full_state, lifting_log, 8, true, metal.lifted_merkle_prefix_bytes, Hasher.leafSeed());
-    _ = try runtime.leafAbsorbCompact(arena, offsets[0..8], logs[0..8], compact_state, 5, compact_state, 5, 0, false, metal.lifted_merkle_prefix_bytes, Hasher.leafSeed());
+    _ = try runtime.leafAbsorb(arena, offsets[0..8], logs[0..8], full_state, lifting_log, 0, false, 0, Hasher.leafSeed());
+    _ = try runtime.leafAbsorb(arena, offsets[8..16], logs[8..16], full_state, lifting_log, 8, true, 0, Hasher.leafSeed());
+    _ = try runtime.leafAbsorbCompact(arena, offsets[0..8], logs[0..8], compact_state, 5, compact_state, 5, 0, false, 0, Hasher.leafSeed());
     var copy = try runtime.prepareArenaCopies(&.{.{
         .source_word_offset = compact_state,
         .destination_word_offset = snapshot,
@@ -3014,7 +3014,7 @@ test "metal: compact leaf absorption expands a partial final group to the full d
     }});
     defer copy.deinit();
     _ = try runtime.arenaCopyPrepared(arena, copy);
-    _ = try runtime.leafAbsorbCompact(arena, offsets[8..16], logs[8..16], snapshot, 5, compact_state, lifting_log, 8, true, metal.lifted_merkle_prefix_bytes, Hasher.leafSeed());
+    _ = try runtime.leafAbsorbCompact(arena, offsets[8..16], logs[8..16], snapshot, 5, compact_state, lifting_log, 8, true, 0, Hasher.leafSeed());
     try std.testing.expectEqualSlices(u32, words[full_state .. full_state + rows * 8], words[compact_state .. compact_state + rows * 8]);
 }
 
