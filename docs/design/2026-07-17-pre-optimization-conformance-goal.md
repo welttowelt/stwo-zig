@@ -170,17 +170,17 @@ completion.
 | Area | Current position | Required closure |
 | --- | --- | --- |
 | Native Stwo | Broad CPU/Metal proof artifacts are byte-identical and accepted by the pinned Native Rust oracle | Re-run the full clean, strict, bidirectional, negative, and backend matrix against the recorded pin |
-| General Cairo | Input adaptation and a development oracle-parity entrypoint exist; the program matrix explicitly says the general Zig proof path is incomplete | Produce complete program-agnostic Cairo proofs accepted by pinned `verify_cairo` |
+| General Cairo | A pinned Fib25k input and 30-component Rust base-trace receipt exist; Zig CPU matches all nine directly seeded components, while compact, memory, fixed, interaction, and proof closure remain open | Produce complete program-agnostic Cairo proofs accepted by pinned `verify_cairo` |
 | SN PIE Metal | SN1-SN4 have verified diagnostic evidence; some paths remain prepared-input or proof-derived | Derive all production inputs and semantic artifacts from raw PIE/source inputs and pass the live protocol gate |
 | Metal compilation | Source-JIT and partial authenticated AOT infrastructure exist | Build, authenticate, and admit current core and witness metallibs; production must reject JIT and fallback |
 | Streaming | Persistent and queue machinery exists around diagnostic artifacts | Pass mixed-input reset, cache-key, verification, bounded-memory, failure, and ordered-publication gates |
-| Repository structure | Many boundaries have been extracted and a blocking checker exists | Remove all unexplained debt, close planned facade splits, and make the checker green |
+| Repository structure | The blocking ratchet is green with 16 explained legacy findings and no new violations | Remove every baseline exception and close the planned facade splits |
 | CI and hooks | Shared CI, hosted workflows, and versioned hooks exist | Make all required conformance gates authoritative and reproducible on their supported platforms |
 
-### 5.1 Immediate Red Gate
+### 5.1 Initial Red Gate: Closed
 
-On 2026-07-17, `python3 scripts/check_source_conformance.py` fails because four files exceed their
-checked-in legacy ceilings:
+At adoption on 2026-07-17, `python3 scripts/check_source_conformance.py` failed because four files
+exceeded their checked-in legacy ceilings:
 
 | File | Current lines | Recorded ceiling |
 | --- | ---: | ---: |
@@ -189,17 +189,18 @@ checked-in legacy ceilings:
 | `src/integrations/cairo_metal/arena_binding.zig` | 2,555 | 2,525 |
 | `src/metal_arena_plan_cli.zig` | 4,942 | 4,935 |
 
-This must be repaired first by extracting coherent owned responsibilities or, where the excess is
-unavoidably transitional, by moving the implementation into its already planned owner. Raising a
-baseline to legalize growth is prohibited. Until the checker is green, feature and optimization
-commits are out of policy.
+That immediate gate is closed. Focused responsibility extractions reduced the files to 5,869,
+3,410, 2,502, and 4,887 lines respectively without raising a ceiling. The checker now reports
+`16 explained legacy findings, no new violations`. This permits conformance implementation to
+continue; it does not satisfy the final empty-baseline gate.
 
-The complete checked-in baseline currently contains 16 legacy findings: 10 oversized source
-files, five misplaced root sources, and one forbidden dependency. After Native and Cairo/Metal
-closure, the only permitted temporary findings are the nine explicitly RISC-V-owned items. The
-final optimization unlock requires an empty baseline: the four RISC-V root files move under
-`src/tools/riscv/` or `src/tests/riscv/`, the four oversized RISC-V frontend files are decomposed,
-and the RISC-V frontend no longer imports the concrete CPU backend.
+The complete checked-in baseline still contains 16 legacy findings: 10 oversized source files,
+five misplaced root sources, and one forbidden dependency. Every finding remains debt, even when
+the ratchet explains it. After Native and Cairo/Metal closure, the only permitted temporary
+findings are the nine explicitly RISC-V-owned items. The final optimization unlock requires an
+empty baseline: the four RISC-V root files move under `src/tools/riscv/` or `src/tests/riscv/`, the
+four oversized RISC-V frontend files are decomposed, and the RISC-V frontend no longer imports the
+concrete CPU backend.
 
 ## 6. Target Repository Architecture
 
