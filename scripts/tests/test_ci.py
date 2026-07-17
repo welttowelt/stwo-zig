@@ -42,9 +42,15 @@ class CiTests(unittest.TestCase):
         self.assertIn("run: zig build metal-check -Doptimize=ReleaseSafe", workflow)
         self.assertNotIn("run: zig build metal-test", workflow)
 
-        build = (ROOT / "build.zig").read_text(encoding="utf-8")
-        self.assertIn("metal_check_step.dependOn(&metal_tests.step);", build)
-        self.assertNotIn("metal_check_step.dependOn(&run_metal_tests.step);", build)
+        metal_products = (ROOT / "build_support/metal_products.zig").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "metal_check_step.dependOn(&metal_tests.step);", metal_products
+        )
+        self.assertNotIn(
+            "metal_check_step.dependOn(&run_metal_tests.step);", metal_products
+        )
 
     def test_all_hosted_actions_are_commit_pinned(self) -> None:
         workflows = sorted((ROOT / ".github/workflows").glob("*.yml"))
