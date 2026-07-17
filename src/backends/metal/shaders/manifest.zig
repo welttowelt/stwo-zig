@@ -134,12 +134,16 @@ pub const TranslationUnit = struct {
 };
 
 const legacy_source = @embedFile("../kernels.metal");
+const base_source = @embedFile("include/base.metal");
+const blake2s_source = @embedFile("include/blake2s.metal");
 const abi_types_source = @embedFile("include/abi_types.metal");
 const arena_ops_source = @embedFile("core/arena_ops.metal");
 const transcript_source = @embedFile("core/transcript.metal");
 const polynomial_eval_source = @embedFile("core/polynomial_eval.metal");
 
 pub const support_headers = [_]TranslationUnit{
+    .{ .path = "src/backends/metal/shaders/include/base.metal", .source = base_source },
+    .{ .path = "src/backends/metal/shaders/include/blake2s.metal", .source = blake2s_source },
     .{ .path = "src/backends/metal/shaders/include/abi_types.metal", .source = abi_types_source },
 };
 
@@ -152,7 +156,13 @@ pub const translation_units = [_]TranslationUnit{
 
 /// The runtime still compiles one library. Translation-unit boundaries are
 /// explicit here so AOT compilation can consume the same ordered manifest.
-pub const amalgamated_source: [:0]const u8 = legacy_source ++
+pub const amalgamated_source: [:0]const u8 = "#define STWO_ZIG_AMALGAMATED 1\n" ++
+    "#line 1 \"src/backends/metal/shaders/include/base.metal\"\n" ++
+    base_source ++
+    "\n#line 1 \"src/backends/metal/shaders/include/blake2s.metal\"\n" ++
+    blake2s_source ++
+    "\n#line 1 \"src/backends/metal/kernels.metal\"\n" ++
+    legacy_source ++
     "\n#line 1 \"src/backends/metal/shaders/core/arena_ops.metal\"\n" ++
     arena_ops_source ++
     "\n#line 1 \"src/backends/metal/shaders/core/transcript.metal\"\n" ++
@@ -275,6 +285,13 @@ test "transcript is isolated in its owning shader unit with a stable ABI" {
         @as(usize, 4),
         std.mem.count(u8, transcript_source, "uint lane [[thread_position_in_grid]]"),
     );
+}
+
+test "transcript declares only its standalone Blake support dependencies" {
+    try std.testing.expectEqual(@as(usize, 0), std.mem.count(u8, legacy_source, "inline void blake2s_compress"));
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, blake2s_source, "inline void blake2s_compress"));
+    try std.testing.expect(std.mem.indexOf(u8, transcript_source, "#include \"stwo_zig/base.metal\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, transcript_source, "#include \"stwo_zig/blake2s.metal\"") != null);
 }
 
 test "arena resource operations are isolated in their owning shader unit" {

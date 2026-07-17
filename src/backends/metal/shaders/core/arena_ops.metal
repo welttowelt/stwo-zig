@@ -1,3 +1,7 @@
+#ifndef STWO_ZIG_AMALGAMATED
+#include "stwo_zig/base.metal"
+#endif
+
 // Prepared feeds flatten variable-sized clear ranges into exact linear work.
 // Each span is {arena_offset, length, linear_prefix}; binary search maps the
 // compact dispatch back to its physical arena range.

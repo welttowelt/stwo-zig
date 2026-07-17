@@ -1,3 +1,8 @@
+#ifndef STWO_ZIG_AMALGAMATED
+#include "stwo_zig/base.metal"
+#include "stwo_zig/blake2s.metal"
+#endif
+
 inline void transcript_hash_digest_words(
     device uint *arena, uint state_base, uint source_base, uint source_words
 ) {
