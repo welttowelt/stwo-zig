@@ -2,6 +2,7 @@ const std = @import("std");
 const stwo = @import("stwo.zig");
 
 test {
+    _ = @import("backends/metal/telemetry.zig");
     _ = @import("core/fri/tests.zig");
     _ = @import("core/fields/tests/m31.zig");
     _ = @import("core/pcs/quotients/tests.zig");

@@ -3,6 +3,7 @@ const cpu = @import("../cpu_scalar/mod.zig").CpuBackend;
 const runtime_mod = @import("runtime.zig");
 const merkle = @import("../../prover/vcs_lifted/prover.zig");
 const metal_merkle = @import("merkle_tree.zig");
+const telemetry = @import("telemetry.zig");
 
 var runtime_mutex: std.Thread.Mutex = .{};
 var shared_runtime: ?runtime_mod.Runtime = null;
@@ -24,6 +25,9 @@ pub fn warmup() !void {
 /// backend until their transaction-level Metal replacements are resident.
 pub const MetalCommitBackend = struct {
     pub const rawQuotientInputs = true;
+    pub const TelemetrySnapshot = telemetry.Snapshot;
+    pub const TelemetryDelta = telemetry.Delta;
+    pub const TelemetryError = error{RuntimeNotInitialized};
     /// Streaming commitment currently owns a CPU leaf-hasher state machine.
     /// Materialize the prepared LDE columns once so Metal can consume the
     /// complete tree in a single command buffer.
@@ -31,6 +35,19 @@ pub const MetalCommitBackend = struct {
 
     pub fn warmup() !void {
         _ = try runtime();
+    }
+
+    /// Reads counters and cache statistics from the one shared backend
+    /// runtime. Snapshotting before warmup fails instead of creating a device.
+    pub fn telemetrySnapshot() TelemetryError!TelemetrySnapshot {
+        runtime_mutex.lock();
+        defer runtime_mutex.unlock();
+        const active_runtime = if (shared_runtime) |*value| value else return error.RuntimeNotInitialized;
+        return telemetry.capture(active_runtime.pipelineCacheStats());
+    }
+
+    pub fn recordSampledValueFallback() void {
+        telemetry.record(.cpu_sampled_value_evaluation);
     }
 
     pub fn MerkleTree(comptime H: type) type {
@@ -88,6 +105,7 @@ pub const MetalCommitBackend = struct {
             @intCast(evaluation.len()),
             destination.ptr,
         );
+        telemetry.record(.metal_qm31_coordinate_dispatch);
         std.log.debug("Metal QM31 coordinate conversion: {d:.3}ms", .{gpu_ms});
         return column;
     }
@@ -100,17 +118,22 @@ pub const MetalCommitBackend = struct {
         var cells: usize = 0;
         for (columns) |column| cells = try std.math.add(usize, cells, column.len);
         if (cells < (1 << 24)) {
-            return MerkleTree(H).fromHost(
-                try merkle.MerkleProverLifted(H).commit(allocator, columns),
-            );
+            const host_tree = try merkle.MerkleProverLifted(H).commit(allocator, columns);
+            telemetry.record(.host_merkle_commit);
+            telemetry.record(.cpu_small_merkle_commit);
+            return MerkleTree(H).fromHost(host_tree);
         }
-        return MerkleTree(H).commit(try runtime(), allocator, columns);
+        const resident_tree = try MerkleTree(H).commit(try runtime(), allocator, columns);
+        telemetry.record(.resident_merkle_commit);
+        return resident_tree;
     }
 
     pub fn adoptHostMerkle(
         comptime H: type,
         tree: merkle.MerkleProverLifted(H),
     ) MerkleTree(H) {
+        telemetry.record(.host_merkle_commit);
+        telemetry.record(.cpu_streaming_merkle_commit);
         return MerkleTree(H).fromHost(tree);
     }
 
@@ -120,6 +143,7 @@ pub const MetalCommitBackend = struct {
         out: anytype,
     ) !void {
         const gpu_ms = try (try runtime()).computeQuotients(allocator, provider, out);
+        telemetry.record(.metal_quotient_dispatch);
         std.log.debug("Metal quotient kernel: {d:.3}ms", .{gpu_ms});
     }
 
@@ -136,6 +160,7 @@ pub const MetalCommitBackend = struct {
             tree_values,
             plans,
         );
+        telemetry.record(.metal_sampled_value_dispatch);
         std.log.debug("Metal sampled-value kernel: {d:.3}ms", .{gpu_ms});
     }
 
@@ -146,7 +171,9 @@ pub const MetalCommitBackend = struct {
         twiddle_tree: @import("../../prover/poly/twiddles.zig").TwiddleTree([]const @import("../../core/fields/m31.zig").M31),
     ) !void {
         if (domain.logSize() < 3) {
-            return @import("../../prover/poly/circle/poly.zig").interpolateBuffersWithTwiddles(values, domain, twiddle_tree);
+            try @import("../../prover/poly/circle/poly.zig").interpolateBuffersWithTwiddles(values, domain, twiddle_tree);
+            telemetry.record(.cpu_small_circle_interpolation);
+            return;
         }
         _ = try (try runtime()).transformCircle(
             allocator,
@@ -155,6 +182,7 @@ pub const MetalCommitBackend = struct {
             domain.logSize(),
             true,
         );
+        telemetry.record(.metal_circle_transform_dispatch);
     }
 
     pub fn evaluateCircleBuffers(
@@ -164,7 +192,9 @@ pub const MetalCommitBackend = struct {
         twiddle_tree: @import("../../prover/poly/twiddles.zig").TwiddleTree([]const @import("../../core/fields/m31.zig").M31),
     ) !void {
         if (domain.logSize() < 3) {
-            return @import("../../prover/poly/circle/poly.zig").evaluateBuffersWithTwiddles(values, domain, twiddle_tree);
+            try @import("../../prover/poly/circle/poly.zig").evaluateBuffersWithTwiddles(values, domain, twiddle_tree);
+            telemetry.record(.cpu_small_circle_evaluation);
+            return;
         }
         _ = try (try runtime()).transformCircle(
             allocator,
@@ -173,6 +203,7 @@ pub const MetalCommitBackend = struct {
             domain.logSize(),
             false,
         );
+        telemetry.record(.metal_circle_transform_dispatch);
     }
 
     pub fn interpolateAndEvaluateCircleBuffers(
@@ -196,11 +227,13 @@ pub const MetalCommitBackend = struct {
                 @memcpy(extended[0..base.len], base);
                 @memset(extended[base.len..], @import("../../core/fields/m31.zig").M31.zero());
             }
-            return @import("../../prover/poly/circle/poly.zig").evaluateBuffersWithTwiddles(
+            try @import("../../prover/poly/circle/poly.zig").evaluateBuffersWithTwiddles(
                 extended_values,
                 extended_domain,
                 extended_twiddles,
             );
+            telemetry.record(.cpu_small_circle_lde);
+            return;
         }
         const gpu_ms = try (try runtime()).transformCircleLde(
             allocator,
@@ -212,6 +245,7 @@ pub const MetalCommitBackend = struct {
             base_domain.logSize(),
             extended_domain.logSize(),
         );
+        telemetry.record(.metal_circle_lde_dispatch);
         std.log.debug("Metal circle IFFT+RFFT: {d:.3}ms", .{gpu_ms});
     }
 
@@ -251,6 +285,7 @@ pub const MetalCommitBackend = struct {
             alpha_words,
             destination_words.ptr,
         );
+        telemetry.record(.metal_fri_circle_fold_dispatch);
         std.log.debug("Metal FRI circle fold: {d:.3}ms", .{gpu_ms});
     }
 
@@ -294,6 +329,7 @@ pub const MetalCommitBackend = struct {
                 alpha_words,
                 destination_words.ptr,
             );
+            telemetry.record(.metal_fri_line_fold_dispatch);
             std.log.debug("Metal FRI line fold: {d:.3}ms", .{gpu_ms});
             if (owns_current) current.deinit(allocator);
             current = next;
@@ -310,3 +346,10 @@ pub const MetalCommitBackend = struct {
     pub const nextLayer = cpu.nextLayer;
     pub const sumAsPolyInFirstVariable = cpu.sumAsPolyInFirstVariable;
 };
+
+test "Metal commit backend exposes telemetry without constructing a runtime" {
+    _ = MetalCommitBackend.TelemetrySnapshot;
+    _ = MetalCommitBackend.TelemetryDelta;
+    _ = &MetalCommitBackend.telemetrySnapshot;
+    _ = &MetalCommitBackend.recordSampledValueFallback;
+}

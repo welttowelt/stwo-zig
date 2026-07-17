@@ -80,6 +80,10 @@ pub fn evaluateAndRelease(
         }
     }
 
+    if (comptime @hasDecl(B, "recordSampledValueFallback")) {
+        B.recordSampledValueFallback();
+    }
+
     var barycentric_cache = std.AutoHashMap(u32, prover_circle_eval.BarycentricContext).init(allocator);
     defer {
         var iterator = barycentric_cache.valueIterator();

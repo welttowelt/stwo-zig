@@ -23,4 +23,6 @@ comptime {
 test "Metal prover engine satisfies the shared transaction contract" {
     comptime prover_engine.assertProverEngine(MetalProverEngine);
     std.testing.refAllDecls(MetalProverEngine);
+    _ = MetalProverEngine.TelemetrySnapshot;
+    _ = &MetalProverEngine.telemetrySnapshot;
 }

@@ -40,6 +40,8 @@ pub fn ProverEngine(
         pub const Channel = C;
         pub const Scheme = pcs.CommitmentSchemeProver(B, H, MC);
         pub const ExtendedProof = proof.ExtendedStarkProof(H);
+        pub const TelemetrySnapshot = if (@hasDecl(B, "TelemetrySnapshot")) B.TelemetrySnapshot else void;
+        pub const TelemetryError = if (@hasDecl(B, "TelemetryError")) B.TelemetryError else error{};
 
         pub fn init(allocator: std.mem.Allocator, config: pcs_core.PcsConfig) !Scheme {
             return Scheme.init(allocator, config);
@@ -47,6 +49,10 @@ pub fn ProverEngine(
 
         pub fn warmup() !void {
             if (comptime @hasDecl(B, "warmup")) try B.warmup();
+        }
+
+        pub fn telemetrySnapshot() TelemetryError!TelemetrySnapshot {
+            if (comptime @hasDecl(B, "telemetrySnapshot")) return B.telemetrySnapshot();
         }
 
         pub fn commit(
