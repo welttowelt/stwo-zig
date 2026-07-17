@@ -1,5 +1,21 @@
 #!/usr/bin/env python3
-"""Ratchet source ownership and layout rules from CONTRIBUTING.md."""
+"""Ratchet source ownership and layout rules from CONTRIBUTING.md.
+
+Inventory scope:
+
+* Zig, Metal, Objective-C, and C headers under ``src/``;
+* the root ``build.zig`` and Zig/Python support under ``build/`` or
+  ``build_support/``;
+* maintained Python under ``scripts/``; and
+* Rust sources under repository-owned ``tools/`` crates.
+
+Generated, vendored, cache, and build-output directories are excluded. Dependency
+direction is deliberately narrower than the inventory: relative Zig ``@import``
+edges under ``src/`` and quoted Metal includes under ``src/`` are the only edges
+resolved today. Python imports, Cargo dependencies, Rust module paths, and the
+``build.zig`` graph are inventoried for source hygiene but are not inferred by
+this checker.
+"""
 
 from __future__ import annotations
 
@@ -13,12 +29,27 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BASELINE = ROOT / "docs/conformance/source-baseline.json"
-BASELINE_VERSION = 2
+BASELINE_VERSION = 3
 IMPORT_RE = re.compile(r'@import\("([^"\n]+)"\)')
 MSL_INCLUDE_RE = re.compile(r'^\s*#\s*include\s*"([^"\n]+)"', re.MULTILINE)
 MSL_INCLUDE_PREFIX = "stwo_zig/"
-SOURCE_SUFFIXES = frozenset({".zig", ".metal", ".m", ".h"})
+SRC_SOURCE_SUFFIXES = frozenset({".zig", ".metal", ".m", ".h"})
+BUILD_SUPPORT_SUFFIXES = frozenset({".zig", ".py"})
+EXCLUDED_DIRECTORY_NAMES = frozenset({
+    ".cache",
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".zig-cache",
+    "__pycache__",
+    "generated",
+    "target",
+    "vendor",
+    "zig-out",
+})
 MANUAL_SOURCE_CEILING = 850
+OWNER_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 ROOT_ALLOWLIST = frozenset({
     "std_shims_freestanding.zig",
     "stwo.zig",
@@ -39,6 +70,50 @@ class Finding:
     key: str
     message: str
     line_count: int | None = None
+
+
+@dataclass(frozen=True, order=True)
+class OwnedSource:
+    path: Path
+    display_path: Path
+    category: str
+
+
+def iter_tree_sources(root: Path, suffixes: frozenset[str]) -> list[Path]:
+    if not root.is_dir():
+        return []
+    return sorted(
+        path
+        for path in root.rglob("*")
+        if path.is_file()
+        and path.suffix in suffixes
+        and not EXCLUDED_DIRECTORY_NAMES.intersection(path.relative_to(root).parts[:-1])
+    )
+
+
+def inventory(repo: Path) -> list[OwnedSource]:
+    """Return the explicit, repository-owned manual-source inventory."""
+    sources: list[OwnedSource] = []
+    src_root = repo / "src"
+    for path in iter_tree_sources(src_root, SRC_SOURCE_SUFFIXES):
+        sources.append(OwnedSource(path, path.relative_to(src_root), "src"))
+
+    build_file = repo / "build.zig"
+    if build_file.is_file():
+        sources.append(OwnedSource(build_file, Path("build.zig"), "build"))
+    for directory in ("build", "build_support"):
+        root = repo / directory
+        for path in iter_tree_sources(root, BUILD_SUPPORT_SUFFIXES):
+            sources.append(OwnedSource(path, path.relative_to(repo), "build"))
+
+    scripts_root = repo / "scripts"
+    for path in iter_tree_sources(scripts_root, frozenset({".py"})):
+        sources.append(OwnedSource(path, path.relative_to(repo), "python"))
+
+    tools_root = repo / "tools"
+    for path in iter_tree_sources(tools_root, frozenset({".rs"})):
+        sources.append(OwnedSource(path, path.relative_to(repo), "rust-tool"))
+    return sorted(set(sources))
 
 
 def relative_import(source: Path, imported: str, src_root: Path) -> Path | None:
@@ -64,9 +139,9 @@ def scan(repo: Path) -> list[Finding]:
     src_root = repo / "src"
     shader_include_root = src_root / "backends/metal/shaders/include"
     findings: list[Finding] = []
-    sources = sorted(path for path in src_root.rglob("*") if path.suffix in SOURCE_SUFFIXES)
-    for source in sources:
-        relative = source.relative_to(src_root)
+    for owned_source in inventory(repo):
+        source = owned_source.path
+        relative = owned_source.display_path
         text = source.read_text(encoding="utf-8")
         line_count = len(text.splitlines())
         if line_count > MANUAL_SOURCE_CEILING and not is_generated(text):
@@ -76,7 +151,7 @@ def scan(repo: Path) -> list[Finding]:
                 line_count,
             ))
 
-        if source.suffix == ".metal":
+        if owned_source.category == "src" and source.suffix == ".metal":
             for imported in MSL_INCLUDE_RE.findall(text):
                 if not imported.startswith(MSL_INCLUDE_PREFIX):
                     findings.append(Finding(
@@ -100,12 +175,18 @@ def scan(repo: Path) -> list[Finding]:
                     ))
             continue
 
-        if len(relative.parts) == 1 and relative.name not in ROOT_ALLOWLIST:
+        if (
+            owned_source.category == "src"
+            and len(relative.parts) == 1
+            and relative.name not in ROOT_ALLOWLIST
+        ):
             findings.append(Finding(
                 f"root-source:{relative.name}",
                 f"{relative}: executable, test, or implementation source belongs in a responsibility directory",
             ))
 
+        if owned_source.category != "src" or source.suffix != ".zig":
+            continue
         source_layer = relative.parts[0] if len(relative.parts) > 1 else None
         forbidden = FORBIDDEN_TARGETS.get(source_layer, frozenset())
         if not forbidden:
@@ -123,27 +204,48 @@ def scan(repo: Path) -> list[Finding]:
     return sorted(set(findings))
 
 
-def load_baseline(path: Path) -> dict[str, dict[str, str]]:
+def load_baseline(path: Path) -> dict[str, dict[str, object]]:
     if not path.exists():
         return {}
     payload = json.loads(path.read_text(encoding="utf-8"))
-    if payload.get("version") != BASELINE_VERSION or not isinstance(payload.get("findings"), list):
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != {"version", "findings"}
+        or payload.get("version") != BASELINE_VERSION
+        or not isinstance(payload.get("findings"), list)
+    ):
         raise ValueError(f"invalid source conformance baseline: {path}")
-    result: dict[str, dict[str, str]] = {}
+    result: dict[str, dict[str, object]] = {}
     for entry in payload["findings"]:
         if not isinstance(entry, dict):
             raise ValueError(f"invalid baseline finding in {path}")
+        allowed_fields = {"key", "owner", "reason", "next_extraction", "plan", "max_lines"}
+        if not set(entry).issubset(allowed_fields):
+            raise ValueError(f"baseline finding has unknown fields in {path}")
         key = entry.get("key")
+        owner = entry.get("owner")
         reason = entry.get("reason")
         plan = entry.get("plan")
+        next_extraction = entry.get("next_extraction")
         if not isinstance(key, str) or not key:
             raise ValueError(f"invalid baseline finding in {path}")
-        if not isinstance(reason, str) or not reason or not isinstance(plan, str) or not plan:
-            raise ValueError(f"baseline finding lacks reason/plan: {key}")
+        if not isinstance(owner, str) or OWNER_RE.fullmatch(owner) is None:
+            raise ValueError(f"baseline finding lacks a valid owner: {key}")
+        if (
+            not isinstance(reason, str)
+            or not reason.strip()
+            or not isinstance(plan, str)
+            or not plan.strip()
+            or not isinstance(next_extraction, str)
+            or not next_extraction.strip()
+        ):
+            raise ValueError(f"baseline finding lacks reason/plan/next_extraction: {key}")
         if key.startswith("file-size:"):
             max_lines = entry.get("max_lines")
             if not isinstance(max_lines, int) or isinstance(max_lines, bool) or max_lines <= MANUAL_SOURCE_CEILING:
                 raise ValueError(f"file-size baseline finding lacks a valid max_lines budget: {key}")
+        elif "max_lines" in entry:
+            raise ValueError(f"non-file-size baseline finding has max_lines: {key}")
         if key in result:
             raise ValueError(f"duplicate baseline finding: {key}")
         result[key] = entry
@@ -154,7 +256,9 @@ def write_baseline(path: Path, findings: list[Finding]) -> None:
     def entry_for(finding: Finding) -> dict[str, object]:
         entry: dict[str, object] = {
             "key": finding.key,
+            "owner": "source-conformance",
             "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
+            "next_extraction": "Classify and extract the next responsibility named by the remediation plan.",
             "plan": (
                 "docs/design/2026-07-17-metal-shader-library-decomposition.md"
                 if ".metal" in finding.key

@@ -9,6 +9,7 @@ from scripts.check_source_conformance import (
     BASELINE_VERSION,
     ROOT_ALLOWLIST,
     Finding,
+    inventory,
     load_baseline,
     main,
     scan,
@@ -17,6 +18,18 @@ from scripts.check_source_conformance import (
 
 
 class SourceConformanceTests(unittest.TestCase):
+    @staticmethod
+    def baseline_entry(key: str, **overrides: object) -> dict[str, object]:
+        entry: dict[str, object] = {
+            "key": key,
+            "owner": "test-owner",
+            "reason": "legacy test debt",
+            "plan": "plan.md",
+            "next_extraction": "Extract the test responsibility.",
+        }
+        entry.update(overrides)
+        return entry
+
     def test_detects_dependency_size_and_root_violations(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             repo = Path(temporary)
@@ -50,6 +63,60 @@ class SourceConformanceTests(unittest.TestCase):
                 encoding="utf-8",
             )
             self.assertIn("file-size:core/generated.zig", {finding.key for finding in scan(repo)})
+
+    def test_inventories_owned_source_outside_src_and_excludes_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary)
+            sources = {
+                "build.zig": "build",
+                "build_support/options.py": "build",
+                "scripts/report.py": "python",
+                "tools/oracle/src/main.rs": "rust-tool",
+            }
+            for relative, _ in sources.items():
+                path = repo / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("\n" * 851, encoding="utf-8")
+
+            excluded = (
+                "scripts/__pycache__/cached.py",
+                "scripts/generated/schema.py",
+                "scripts/vendor/library.py",
+                "tools/oracle/target/debug/build.rs",
+                "tools/oracle/vendor/dependency.rs",
+                "ethereum-guest/src/main.rs",
+            )
+            for relative in excluded:
+                path = repo / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("\n" * 851, encoding="utf-8")
+
+            owned = {source.display_path.as_posix(): source.category for source in inventory(repo)}
+            self.assertEqual(sources, owned)
+            keys = {finding.key for finding in scan(repo)}
+            self.assertEqual({f"file-size:{relative}" for relative in sources}, keys)
+
+    def test_dependency_enforcement_is_limited_to_src(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary)
+            (repo / "src/core").mkdir(parents=True)
+            (repo / "src/backends/metal").mkdir(parents=True)
+            (repo / "src/backends/metal/mod.zig").write_text("", encoding="utf-8")
+            (repo / "build.zig").write_text(
+                'const metal = @import("src/backends/metal/mod.zig");\n',
+                encoding="utf-8",
+            )
+            (repo / "src/core/bad.zig").write_text(
+                'const metal = @import("../backends/metal/mod.zig");\n',
+                encoding="utf-8",
+            )
+            dependencies = {
+                finding.key for finding in scan(repo) if finding.key.startswith("dependency:")
+            }
+            self.assertEqual(
+                {"dependency:core/bad.zig->backends/metal/mod.zig"},
+                dependencies,
+            )
 
     def test_objective_c_manual_source_uses_the_same_size_ceiling(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -100,11 +167,14 @@ class SourceConformanceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "baseline.json"
             write_baseline(path, [Finding("file-size:a.zig", "too large", 900)])
-            self.assertIn("file-size:a.zig", load_baseline(path))
+            loaded = load_baseline(path)
+            self.assertIn("file-size:a.zig", loaded)
+            self.assertEqual("source-conformance", loaded["file-size:a.zig"]["owner"])
+            self.assertIn("next_extraction", loaded["file-size:a.zig"])
             path.write_text(json.dumps({
                 "version": BASELINE_VERSION,
                 "findings": [
-                    {"key": "file-size:a.zig", "reason": "legacy", "plan": "plan.md"},
+                    self.baseline_entry("file-size:a.zig"),
                 ],
             }), encoding="utf-8")
             with self.assertRaises(ValueError):
@@ -118,12 +188,42 @@ class SourceConformanceTests(unittest.TestCase):
             path.write_text(json.dumps({
                 "version": BASELINE_VERSION,
                 "findings": [
-                    {"key": "duplicate", "reason": "legacy", "plan": "plan.md"},
-                    {"key": "duplicate", "reason": "legacy", "plan": "plan.md"},
+                    self.baseline_entry("duplicate"),
+                    self.baseline_entry("duplicate"),
                 ],
             }), encoding="utf-8")
             with self.assertRaises(ValueError):
                 load_baseline(path)
+
+    def test_baseline_requires_owner_next_extraction_and_applicable_cap(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "baseline.json"
+            invalid_entries = (
+                self.baseline_entry("dependency:a->b", owner="Team Name"),
+                self.baseline_entry("dependency:a->b", next_extraction=""),
+                self.baseline_entry("dependency:a->b", max_lines=900),
+            )
+            for entry in invalid_entries:
+                path.write_text(
+                    json.dumps({"version": BASELINE_VERSION, "findings": [entry]}),
+                    encoding="utf-8",
+                )
+                with self.assertRaises(ValueError):
+                    load_baseline(path)
+
+    def test_checked_in_schema_matches_enforced_baseline_contract(self) -> None:
+        repo = Path(__file__).resolve().parents[2]
+        schema = json.loads(
+            (repo / "docs/conformance/source-baseline.schema.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(BASELINE_VERSION, schema["properties"]["version"]["const"])
+        finding = schema["$defs"]["finding"]
+        self.assertEqual(
+            {"key", "owner", "reason", "next_extraction", "plan"},
+            set(finding["required"]),
+        )
+        self.assertEqual(850, finding["properties"]["max_lines"]["exclusiveMinimum"])
+        self.assertFalse(finding["additionalProperties"])
 
     def test_update_accepts_baseline_outside_repo(self) -> None:
         with tempfile.TemporaryDirectory() as repo_temporary, tempfile.TemporaryDirectory() as output_temporary:
