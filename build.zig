@@ -61,6 +61,7 @@ pub fn build(b: *std.Build) void {
     });
     const cross_module_test_options = b.addOptions();
     cross_module_test_options.addOption(bool, "riscv_only", false);
+    cross_module_test_options.addOption(bool, "metal_only", false);
     cross_module_test_module.addOptions("test_options", cross_module_test_options);
     const cross_module_tests = b.addTest(.{ .root_module = cross_module_test_module });
     if (target.result.os.tag == .macos) linkMetalRuntime(b, cross_module_tests);
@@ -113,6 +114,7 @@ pub fn build(b: *std.Build) void {
     });
     const riscv_test_options = b.addOptions();
     riscv_test_options.addOption(bool, "riscv_only", true);
+    riscv_test_options.addOption(bool, "metal_only", false);
     riscv_test_module.addOptions("test_options", riscv_test_options);
     const riscv_tests = b.addTest(.{
         .root_module = riscv_test_module,
@@ -394,10 +396,14 @@ pub fn build(b: *std.Build) void {
         b.installArtifact(metal_witness_source);
 
         const metal_test_module = b.createModule(.{
-            .root_source_file = b.path("src/metal_backend_test.zig"),
+            .root_source_file = b.path("src/tests.zig"),
             .target = target,
             .optimize = optimize,
         });
+        const metal_test_options = b.addOptions();
+        metal_test_options.addOption(bool, "riscv_only", false);
+        metal_test_options.addOption(bool, "metal_only", true);
+        metal_test_module.addOptions("test_options", metal_test_options);
         const metal_tests = b.addTest(.{
             .root_module = metal_test_module,
             .filters = &.{"metal:"},

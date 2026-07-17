@@ -1,35 +1,35 @@
 const std = @import("std");
-const metal = @import("backends/metal/runtime.zig");
-const m31 = @import("core/fields/m31.zig");
-const blake2_merkle = @import("core/vcs_lifted/blake2_merkle.zig");
-const blake2_hash = @import("core/vcs/blake2_hash.zig");
-const merkle_prover = @import("prover/vcs_lifted/prover.zig");
-const riscv_prover = @import("frontends/riscv/prover.zig");
-const trace_mod = @import("frontends/riscv/runner/trace.zig");
-const pcs_core = @import("core/pcs/mod.zig");
-const MetalProverEngine = @import("backends/metal/prover_engine.zig").MetalProverEngine;
-const canonic = @import("core/poly/circle/canonic.zig");
-const circle_poly = @import("prover/poly/circle/poly.zig");
-const twiddles = @import("prover/poly/twiddles.zig");
-const core_fri = @import("core/fri.zig");
-const qm31 = @import("core/fields/qm31.zig");
-const line = @import("core/poly/line.zig");
-const prover_line = @import("prover/line.zig");
-const MetalBackend = @import("backends/metal/commit_backend.zig").MetalCommitBackend;
-const metal_commit_policy = @import("backends/metal/commit_policy.zig");
-const eval_program = @import("frontends/cairo/witness/eval_program.zig");
-const eval_codegen = @import("integrations/cairo_metal/eval_codegen.zig");
-const circle_core = @import("core/circle.zig");
-const core_utils = @import("core/utils.zig");
-const blake2s_channel = @import("core/channel/blake2s.zig");
-const protocol_recipes = @import("backends/metal/protocol_recipes.zig");
-const arena_plan = @import("backends/metal/arena_plan.zig");
-const secure_column = @import("prover/secure_column.zig");
-const secure_circle_poly = @import("prover/poly/circle/secure_poly.zig");
-const cairo_arena_binding = @import("integrations/cairo_metal/arena_binding.zig");
-const cairo_oods = @import("integrations/cairo_metal/oods.zig");
-const cairo_quotient_inputs = @import("integrations/cairo_metal/quotient_inputs.zig");
-const cairo_quotient_reference = @import("integrations/cairo_metal/quotient_reference.zig");
+const metal = @import("../../backends/metal/runtime.zig");
+const m31 = @import("../../core/fields/m31.zig");
+const blake2_merkle = @import("../../core/vcs_lifted/blake2_merkle.zig");
+const blake2_hash = @import("../../core/vcs/blake2_hash.zig");
+const merkle_prover = @import("../../prover/vcs_lifted/prover.zig");
+const riscv_prover = @import("../../frontends/riscv/prover.zig");
+const trace_mod = @import("../../frontends/riscv/runner/trace.zig");
+const pcs_core = @import("../../core/pcs/mod.zig");
+const MetalProverEngine = @import("../../backends/metal/prover_engine.zig").MetalProverEngine;
+const canonic = @import("../../core/poly/circle/canonic.zig");
+const circle_poly = @import("../../prover/poly/circle/poly.zig");
+const twiddles = @import("../../prover/poly/twiddles.zig");
+const core_fri = @import("../../core/fri.zig");
+const qm31 = @import("../../core/fields/qm31.zig");
+const line = @import("../../core/poly/line.zig");
+const prover_line = @import("../../prover/line.zig");
+const MetalBackend = @import("../../backends/metal/commit_backend.zig").MetalCommitBackend;
+const metal_commit_policy = @import("../../backends/metal/commit_policy.zig");
+const eval_program = @import("../../frontends/cairo/witness/eval_program.zig");
+const eval_codegen = @import("../../integrations/cairo_metal/eval_codegen.zig");
+const circle_core = @import("../../core/circle.zig");
+const core_utils = @import("../../core/utils.zig");
+const blake2s_channel = @import("../../core/channel/blake2s.zig");
+const protocol_recipes = @import("../../backends/metal/protocol_recipes.zig");
+const arena_plan = @import("../../backends/metal/arena_plan.zig");
+const secure_column = @import("../../prover/secure_column.zig");
+const secure_circle_poly = @import("../../prover/poly/circle/secure_poly.zig");
+const cairo_arena_binding = @import("../../integrations/cairo_metal/arena_binding.zig");
+const cairo_oods = @import("../../integrations/cairo_metal/oods.zig");
+const cairo_quotient_inputs = @import("../../integrations/cairo_metal/quotient_inputs.zig");
+const cairo_quotient_reference = @import("../../integrations/cairo_metal/quotient_reference.zig");
 
 const M31 = m31.M31;
 const Hasher = blake2_merkle.Blake2sMerkleHasher;
@@ -71,9 +71,9 @@ test "metal: FRI commitment policy shares the exact secure-column boundary" {
 }
 
 test {
-    _ = @import("backends/metal/tests/command_epoch.zig");
-    _ = @import("backends/metal/tests/fri_fold_commit.zig");
-    _ = @import("backends/metal/tests/polynomial_eval.zig");
+    _ = @import("../../backends/metal/tests/command_epoch.zig");
+    _ = @import("../../backends/metal/tests/fri_fold_commit.zig");
+    _ = @import("../../backends/metal/tests/polynomial_eval.zig");
     std.testing.refAllDecls(cairo_arena_binding);
     std.testing.refAllDecls(cairo_oods);
     std.testing.refAllDecls(cairo_quotient_inputs);
@@ -1068,7 +1068,7 @@ test "metal: resident FRI folds and coordinate conversion match CPU" {
         }
     }
     const alpha = QM31.fromU32Unchecked(7, 11, 13, 17);
-    const line_domain = try line.LineDomain.init(@import("core/circle.zig").Coset.halfOdds(log_size - 1));
+    const line_domain = try line.LineDomain.init(@import("../../core/circle.zig").Coset.halfOdds(log_size - 1));
 
     const expected = try allocator.alloc(QM31, line_domain.size());
     defer allocator.free(expected);
@@ -2854,7 +2854,7 @@ test "metal: resident lifted Merkle root matches CPU" {
     }{.{ .layer_log_size = 10, .indices = &invalid_leaf }};
     try std.testing.expectError(error.RootReadFailed, gpu_tree.copyHashesBatch(allocator, &invalid_index));
 
-    const MetalTree = @import("backends/metal/merkle_tree.zig").MetalMerkleTree(Hasher);
+    const MetalTree = @import("../../backends/metal/merkle_tree.zig").MetalMerkleTree(Hasher);
     var compatible_tree = try MetalTree.commit(&runtime, allocator, &cpu_columns);
     defer compatible_tree.deinit(allocator);
     try std.testing.expectEqualSlices(u8, &cpu_tree.root(), &compatible_tree.root());
