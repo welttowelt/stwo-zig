@@ -50,7 +50,12 @@ pub const DECOMMIT_AUX_NODE_WORDS: usize = 10;
 const BLAKE2S_CHANNEL: u32 = 1;
 const RESIDENT_SN2_BUNDLE_V1: u32 = 1;
 const PREPROCESSED_CANONICAL: u32 = 1;
+#[cfg(test)]
 const EXPECTED_TRACE_COLUMNS: [u32; 4] = [161, 3449, 2268, 8];
+const TRACE_TREE_COUNT: u32 = 4;
+const LEGACY_MAX_LOG_DEGREE_BOUND: u32 = 24;
+const MAX_RUNTIME_LOG_DEGREE_BOUND: u32 = 31;
+const MAX_QUERY_COUNT: u32 = 1 << 20;
 
 // Pinned to cairo-air's CairoClaim field order at STWO_CAIRO_REVISION. The
 // compact statement stores the flattened 83-slot representation, so this is
@@ -154,6 +159,19 @@ impl std::error::Error for CompactCodecError {}
 pub struct CompactProtocolV1 {
     pub preprocessed_trace_variant: PreProcessedTraceVariant,
     pub channel_salt: u32,
+    pub query_pow_bits: u32,
+    pub log_blowup_factor: u32,
+    pub query_count: u32,
+    pub log_last_layer_degree_bound: u32,
+    pub fri_fold_step: u32,
+    pub fri_lifting_log_size: Option<u32>,
+    pub interaction_pow_bits: u32,
+    pub commitment_count: u32,
+    pub sampled_tree_count: u32,
+    pub fri_tree_count: u32,
+    pub final_line_coefficient_count: u32,
+    pub decommitment_record_count: u32,
+    pub max_log_degree_bound: u32,
     pub interaction_sum_count: u32,
     pub sampled_value_words: u32,
     pub decommitment_capacity_words: u32,
@@ -161,6 +179,36 @@ pub struct CompactProtocolV1 {
 }
 
 impl CompactProtocolV1 {
+    pub fn sn2(
+        channel_salt: u32,
+        interaction_sum_count: u32,
+        sampled_value_words: u32,
+        decommitment_capacity_words: u32,
+        trace_tree_column_counts: [u32; 4],
+    ) -> Self {
+        Self {
+            preprocessed_trace_variant: PreProcessedTraceVariant::Canonical,
+            channel_salt,
+            query_pow_bits: 26,
+            log_blowup_factor: 1,
+            query_count: 70,
+            log_last_layer_degree_bound: 0,
+            fri_fold_step: 3,
+            fri_lifting_log_size: None,
+            interaction_pow_bits: 24,
+            commitment_count: TRACE_TREE_COUNT,
+            sampled_tree_count: TRACE_TREE_COUNT,
+            fri_tree_count: 8,
+            final_line_coefficient_count: 1,
+            decommitment_record_count: 12,
+            max_log_degree_bound: LEGACY_MAX_LOG_DEGREE_BOUND,
+            interaction_sum_count,
+            sampled_value_words,
+            decommitment_capacity_words,
+            trace_tree_column_counts,
+        }
+    }
+
     pub fn decode(bytes: &[u8]) -> Result<Self, CompactCodecError> {
         require_exact_len(bytes, usize::from(PROTOCOL_HEADER_LEN), "protocol")?;
         if bytes[..8] != PROTOCOL_MAGIC {
@@ -172,19 +220,8 @@ impl CompactProtocolV1 {
         expect_u32(bytes, 16, BLAKE2S_CHANNEL, "channel")?;
         expect_u32(bytes, 20, RESIDENT_SN2_BUNDLE_V1, "proof serialization")?;
         expect_u32(bytes, 24, PREPROCESSED_CANONICAL, "preprocessed variant")?;
-        expect_u32(bytes, 32, 26, "query PoW bits")?;
-        expect_u32(bytes, 36, 1, "log blowup factor")?;
-        expect_u32(bytes, 40, 70, "query count")?;
-        expect_u32(bytes, 44, 0, "last-layer degree bound")?;
-        expect_u32(bytes, 48, 3, "FRI fold step")?;
-        expect_u32(bytes, 52, u32::MAX, "FRI lifting sentinel")?;
-        expect_u32(bytes, 56, 24, "interaction PoW bits")?;
-        expect_u32(bytes, 60, 4, "commitment count")?;
-        expect_u32(bytes, 64, 4, "sampled tree count")?;
-        expect_u32(bytes, 68, 8, "FRI tree count")?;
-        expect_u32(bytes, 72, 1, "final line coefficient count")?;
-        expect_u32(bytes, 76, 12, "decommitment record count")?;
-        expect_u32(bytes, 108, 0, "protocol reserved field")?;
+        let lifting_word = read_u32(bytes, 52, "FRI lifting log size")?;
+        let max_log_word = read_u32(bytes, 108, "maximum log degree bound")?;
 
         let interaction_sum_count = read_u32(bytes, 80, "interaction sum count")?;
         if interaction_sum_count == 0 || interaction_sum_count > COMPONENT_ENABLE_COUNT as u32 {
@@ -199,42 +236,155 @@ impl CompactProtocolV1 {
             ));
         }
         let decommitment_capacity_words = read_u32(bytes, 88, "decommitment words")?;
-        let minimum_decommit_words = DECOMMIT_HEADER_WORDS + 12 * DECOMMIT_TREE_META_WORDS + 70 * 2;
-        if decommitment_capacity_words < minimum_decommit_words as u32 {
-            return Err(invalid_protocol(format!(
-                "decommitment capacity is smaller than the v1 metadata/query minimum {minimum_decommit_words}"
-            )));
-        }
         let mut trace_tree_column_counts = [0_u32; 4];
         for (index, value) in trace_tree_column_counts.iter_mut().enumerate() {
             *value = read_u32(bytes, 92 + index * 4, "trace tree column count")?;
         }
-        if trace_tree_column_counts != EXPECTED_TRACE_COLUMNS {
-            return Err(invalid_protocol(format!(
-                "v1 trace tree columns must be {EXPECTED_TRACE_COLUMNS:?}, found {trace_tree_column_counts:?}"
-            )));
-        }
-
-        Ok(Self {
+        let protocol = Self {
             preprocessed_trace_variant: PreProcessedTraceVariant::Canonical,
             channel_salt: read_u32(bytes, 28, "channel salt")?,
+            query_pow_bits: read_u32(bytes, 32, "query PoW bits")?,
+            log_blowup_factor: read_u32(bytes, 36, "log blowup factor")?,
+            query_count: read_u32(bytes, 40, "query count")?,
+            log_last_layer_degree_bound: read_u32(bytes, 44, "last-layer degree bound")?,
+            fri_fold_step: read_u32(bytes, 48, "FRI fold step")?,
+            fri_lifting_log_size: if lifting_word == u32::MAX {
+                None
+            } else {
+                Some(lifting_word)
+            },
+            interaction_pow_bits: read_u32(bytes, 56, "interaction PoW bits")?,
+            commitment_count: read_u32(bytes, 60, "commitment count")?,
+            sampled_tree_count: read_u32(bytes, 64, "sampled tree count")?,
+            fri_tree_count: read_u32(bytes, 68, "FRI tree count")?,
+            final_line_coefficient_count: read_u32(bytes, 72, "final line coefficient count")?,
+            decommitment_record_count: read_u32(bytes, 76, "decommitment record count")?,
+            max_log_degree_bound: if max_log_word == 0 {
+                LEGACY_MAX_LOG_DEGREE_BOUND
+            } else {
+                max_log_word
+            },
             interaction_sum_count,
             sampled_value_words,
             decommitment_capacity_words,
             trace_tree_column_counts,
-        })
+        };
+        protocol.validate_geometry()?;
+        Ok(protocol)
+    }
+
+    pub fn validate_geometry(&self) -> Result<(), CompactCodecError> {
+        if self.preprocessed_trace_variant != PreProcessedTraceVariant::Canonical {
+            return Err(invalid_protocol(
+                "compact protocol v1 requires the canonical preprocessed trace",
+            ));
+        }
+        if self.query_pow_bits > 64 || self.interaction_pow_bits > 64 {
+            return Err(invalid_protocol(
+                "proof-of-work bits exceed the nonce width",
+            ));
+        }
+        if !(1..=16).contains(&self.log_blowup_factor)
+            || self.query_count == 0
+            || self.query_count > MAX_QUERY_COUNT
+            || self.log_last_layer_degree_bound > 10
+            || self.max_log_degree_bound > MAX_RUNTIME_LOG_DEGREE_BOUND
+            || self.max_log_degree_bound <= self.log_last_layer_degree_bound
+        {
+            return Err(invalid_protocol(
+                "PCS runtime geometry is outside supported bounds",
+            ));
+        }
+        if let Some(log_size) = self.fri_lifting_log_size {
+            if log_size == 0 || log_size > MAX_RUNTIME_LOG_DEGREE_BOUND {
+                return Err(invalid_protocol("FRI lifting log size is outside 1..=31"));
+            }
+        }
+        let expected_fri_layers = fri_layer_count(
+            self.max_log_degree_bound,
+            self.log_last_layer_degree_bound,
+            self.fri_fold_step,
+        )?;
+        if self.commitment_count != TRACE_TREE_COUNT
+            || self.sampled_tree_count != TRACE_TREE_COUNT
+            || self.fri_tree_count != expected_fri_layers
+            || self.decommitment_record_count
+                != self
+                    .commitment_count
+                    .checked_add(self.fri_tree_count)
+                    .ok_or_else(length_overflow)?
+        {
+            return Err(invalid_protocol(
+                "commitment, sampled, FRI, and decommitment counts are inconsistent",
+            ));
+        }
+        let maximum_coefficients = 1_u32 << self.log_last_layer_degree_bound;
+        if self.final_line_coefficient_count == 0
+            || self.final_line_coefficient_count > maximum_coefficients
+        {
+            return Err(invalid_protocol(
+                "final-line coefficient count exceeds its authenticated degree bound",
+            ));
+        }
+        if self
+            .trace_tree_column_counts
+            .iter()
+            .any(|&count| count == 0)
+        {
+            return Err(invalid_protocol("trace tree column counts must be nonzero"));
+        }
+        let minimum_decommit_words = DECOMMIT_HEADER_WORDS
+            .checked_add(
+                usize::try_from(self.decommitment_record_count)
+                    .map_err(|_| length_overflow())?
+                    .checked_mul(DECOMMIT_TREE_META_WORDS)
+                    .ok_or_else(length_overflow)?,
+            )
+            .and_then(|value| {
+                value.checked_add(usize::try_from(self.query_count).ok()?.checked_mul(2)?)
+            })
+            .ok_or_else(length_overflow)?;
+        if usize::try_from(self.decommitment_capacity_words).map_err(|_| length_overflow())?
+            < minimum_decommit_words
+        {
+            return Err(invalid_protocol(format!(
+                "decommitment capacity is smaller than the authenticated minimum {minimum_decommit_words}"
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn validate_max_log_degree_bound(&self, derived: u32) -> Result<(), CompactCodecError> {
+        self.validate_geometry()?;
+        if derived != self.max_log_degree_bound {
+            return Err(invalid_protocol(format!(
+                "AIR maximum log degree bound {derived} does not match authenticated value {}",
+                self.max_log_degree_bound
+            )));
+        }
+        Ok(())
     }
 
     pub fn proof_word_count(&self) -> Result<usize, CompactCodecError> {
+        self.validate_geometry()?;
         let terms = [
-            4 * HASH_WORDS,
+            usize_from_u32(self.commitment_count, "commitment count")?
+                .checked_mul(HASH_WORDS)
+                .ok_or_else(length_overflow)?,
             usize_from_u32(self.interaction_sum_count, "interaction sum count")?
                 .checked_mul(4)
                 .ok_or_else(length_overflow)?,
             NONCE_WORDS,
             usize_from_u32(self.sampled_value_words, "sampled value words")?,
-            8 * HASH_WORDS,
-            4,
+            usize_from_u32(self.fri_tree_count, "FRI tree count")?
+                .checked_mul(HASH_WORDS)
+                .ok_or_else(length_overflow)?,
+            usize_from_u32(
+                self.final_line_coefficient_count,
+                "final line coefficient count",
+            )?
+            .checked_mul(4)
+            .ok_or_else(length_overflow)?,
             NONCE_WORDS,
             usize_from_u32(
                 self.decommitment_capacity_words,
@@ -247,11 +397,7 @@ impl CompactProtocolV1 {
     }
 
     pub fn encode(&self) -> Result<Vec<u8>, CompactCodecError> {
-        if self.preprocessed_trace_variant != PreProcessedTraceVariant::Canonical {
-            return Err(invalid_protocol(
-                "compact protocol v1 requires the canonical preprocessed trace",
-            ));
-        }
+        self.validate_geometry()?;
         let mut bytes = vec![0_u8; usize::from(PROTOCOL_HEADER_LEN)];
         bytes[..8].copy_from_slice(&PROTOCOL_MAGIC);
         write_u16(&mut bytes, 8, CODEC_VERSION);
@@ -261,18 +407,18 @@ impl CompactProtocolV1 {
             (20, RESIDENT_SN2_BUNDLE_V1),
             (24, PREPROCESSED_CANONICAL),
             (28, self.channel_salt),
-            (32, 26),
-            (36, 1),
-            (40, 70),
-            (44, 0),
-            (48, 3),
-            (52, u32::MAX),
-            (56, 24),
-            (60, 4),
-            (64, 4),
-            (68, 8),
-            (72, 1),
-            (76, 12),
+            (32, self.query_pow_bits),
+            (36, self.log_blowup_factor),
+            (40, self.query_count),
+            (44, self.log_last_layer_degree_bound),
+            (48, self.fri_fold_step),
+            (52, self.fri_lifting_log_size.unwrap_or(u32::MAX)),
+            (56, self.interaction_pow_bits),
+            (60, self.commitment_count),
+            (64, self.sampled_tree_count),
+            (68, self.fri_tree_count),
+            (72, self.final_line_coefficient_count),
+            (76, self.decommitment_record_count),
             (80, self.interaction_sum_count),
             (84, self.sampled_value_words),
             (88, self.decommitment_capacity_words),
@@ -280,12 +426,37 @@ impl CompactProtocolV1 {
             (96, self.trace_tree_column_counts[1]),
             (100, self.trace_tree_column_counts[2]),
             (104, self.trace_tree_column_counts[3]),
+            (
+                108,
+                if self.max_log_degree_bound == LEGACY_MAX_LOG_DEGREE_BOUND {
+                    0
+                } else {
+                    self.max_log_degree_bound
+                },
+            ),
         ] {
             write_u32(&mut bytes, offset, value);
         }
         Self::decode(&bytes)?;
         Ok(bytes)
     }
+}
+
+fn fri_layer_count(
+    max_log_degree_bound: u32,
+    final_log: u32,
+    fold_step: u32,
+) -> Result<u32, CompactCodecError> {
+    let folds = max_log_degree_bound
+        .checked_sub(final_log)
+        .filter(|&value| value > 0)
+        .ok_or_else(|| invalid_protocol("FRI degree bound does not exceed the final layer"))?;
+    if fold_step == 0 || fold_step > folds {
+        return Err(invalid_protocol(
+            "FRI fold step is outside the folding range",
+        ));
+    }
+    Ok(1 + (folds - 1) / fold_step)
 }
 
 /// Statement geometry plus the actual pinned Rust verifier `PublicData` type.
@@ -743,7 +914,7 @@ pub fn reconstruct_claims_v1(
 
 /// Translates the compact proof payload into Stwo's exact pinned proof type.
 /// `sample_shape` is authenticated statement/AIR metadata: one sample count per
-/// column in each of the four commitment trees. Callers must derive it from the
+/// column in each authenticated commitment tree. Callers must derive it from the
 /// canonical Cairo component graph, never from the flattened proof payload.
 pub fn reconstruct_stark_proof_v1(
     proof_bytes: &[u8],
@@ -755,11 +926,11 @@ pub fn reconstruct_stark_proof_v1(
     validate_sample_shape(protocol, sample_shape)?;
     let offsets = compact_proof_offsets(protocol);
 
-    let commitments = (0..4)
+    let commitments = (0..protocol.commitment_count as usize)
         .map(|index| read_hash(proof_bytes, index * HASH_WORDS))
         .collect::<Result<Vec<_>, _>>()?;
 
-    let mut sampled_values = Vec::with_capacity(4);
+    let mut sampled_values = Vec::with_capacity(protocol.sampled_tree_count as usize);
     let mut sample_word = offsets.sampled_start;
     for tree in sample_shape {
         let mut columns = Vec::with_capacity(tree.len());
@@ -779,9 +950,9 @@ pub fn reconstruct_stark_proof_v1(
         ));
     }
 
-    let mut decommitments = Vec::with_capacity(4);
-    let mut queried_values = Vec::with_capacity(4);
-    for tree_index in 0..4 {
+    let mut decommitments = Vec::with_capacity(protocol.commitment_count as usize);
+    let mut queried_values = Vec::with_capacity(protocol.commitment_count as usize);
+    for tree_index in 0..protocol.commitment_count as usize {
         let meta = read_decommit_meta(proof_bytes, offsets.decommitment_start, tree_index)?;
         let expected_columns = protocol.trace_tree_column_counts[tree_index] as usize;
         if meta.values_count != meta.query_count * expected_columns {
@@ -813,9 +984,13 @@ pub fn reconstruct_stark_proof_v1(
         });
     }
 
-    let mut fri_layers = Vec::with_capacity(8);
-    for round in 0..8 {
-        let meta = read_decommit_meta(proof_bytes, offsets.decommitment_start, 4 + round)?;
+    let mut fri_layers = Vec::with_capacity(protocol.fri_tree_count as usize);
+    for round in 0..protocol.fri_tree_count as usize {
+        let meta = read_decommit_meta(
+            proof_bytes,
+            offsets.decommitment_start,
+            protocol.commitment_count as usize + round,
+        )?;
         let mut fri_witness = Vec::with_capacity(meta.fri_witness_count);
         for index in 0..meta.fri_witness_count {
             fri_witness.push(read_decommit_qm31(
@@ -841,15 +1016,27 @@ pub fn reconstruct_stark_proof_v1(
         });
     }
     let first_layer = fri_layers.remove(0);
-    let last_layer_poly = LinePoly::new(vec![read_qm31(proof_bytes, offsets.final_line_start)?]);
+    let mut final_coefficients = Vec::with_capacity(protocol.final_line_coefficient_count as usize);
+    for index in 0..protocol.final_line_coefficient_count as usize {
+        final_coefficients.push(read_qm31(
+            proof_bytes,
+            offsets.final_line_start + index * 4,
+        )?);
+    }
+    let last_layer_poly = LinePoly::new(final_coefficients);
     let proof_of_work = read_proof_word(proof_bytes, offsets.query_pow_start)? as u64
         | (read_proof_word(proof_bytes, offsets.query_pow_start + 1)? as u64) << 32;
 
     Ok(StarkProof(CommitmentSchemeProof {
         config: PcsConfig {
-            pow_bits: 26,
-            fri_config: FriConfig::new(0, 1, 70, 3),
-            lifting_log_size: None,
+            pow_bits: protocol.query_pow_bits,
+            fri_config: FriConfig::new(
+                protocol.log_last_layer_degree_bound,
+                protocol.log_blowup_factor,
+                protocol.query_count as usize,
+                protocol.fri_fold_step,
+            ),
+            lifting_log_size: protocol.fri_lifting_log_size,
         },
         commitments: TreeVec::new(commitments),
         sampled_values: TreeVec::new(sampled_values),
@@ -897,7 +1084,8 @@ pub fn derive_sample_shape_v1(
         .into_iter()
         .map(|tree| tree.into_iter().map(|samples| samples.len()).collect())
         .collect();
-    shape.push(vec![1; 8]);
+    protocol.validate_max_log_degree_bound(max_log_degree_bound)?;
+    shape.push(vec![1; protocol.trace_tree_column_counts[3] as usize]);
     validate_sample_shape(protocol, &shape)?;
     Ok(shape)
 }
@@ -932,19 +1120,14 @@ fn validate_sample_shape(
     protocol: &CompactProtocolV1,
     sample_shape: &[Vec<usize>],
 ) -> Result<(), CompactCodecError> {
-    if sample_shape.len() != 4 {
+    if sample_shape.len() != protocol.sampled_tree_count as usize {
         return Err(invalid_statement(
-            "sample shape must contain exactly four trees",
+            "sample shape tree count does not match the authenticated protocol",
         ));
     }
-    let expected_columns = [
-        protocol.trace_tree_column_counts[0] as usize,
-        protocol.trace_tree_column_counts[1] as usize,
-        protocol.trace_tree_column_counts[2] as usize,
-        8,
-    ];
     let mut samples = 0_usize;
-    for (tree_index, (tree, expected)) in sample_shape.iter().zip(expected_columns).enumerate() {
+    for (tree_index, tree) in sample_shape.iter().enumerate() {
+        let expected = protocol.trace_tree_column_counts[tree_index] as usize;
         if tree.len() != expected {
             return Err(invalid_statement(format!(
                 "sample tree {tree_index} has {} columns, expected {expected}",
@@ -965,12 +1148,12 @@ fn validate_sample_shape(
 }
 
 fn compact_proof_offsets(protocol: &CompactProtocolV1) -> CompactProofOffsetsV1 {
-    let interaction_start = 4 * HASH_WORDS;
+    let interaction_start = protocol.commitment_count as usize * HASH_WORDS;
     let interaction_pow_start = interaction_start + protocol.interaction_sum_count as usize * 4;
     let sampled_start = interaction_pow_start + NONCE_WORDS;
     let fri_commitments_start = sampled_start + protocol.sampled_value_words as usize;
-    let final_line_start = fri_commitments_start + 8 * HASH_WORDS;
-    let query_pow_start = final_line_start + 4;
+    let final_line_start = fri_commitments_start + protocol.fri_tree_count as usize * HASH_WORDS;
+    let query_pow_start = final_line_start + protocol.final_line_coefficient_count as usize * 4;
     CompactProofOffsetsV1 {
         interaction_start,
         interaction_pow_start,
@@ -1097,7 +1280,7 @@ fn read_qm31(bytes: &[u8], word_index: usize) -> Result<QM31, CompactCodecError>
     ))
 }
 
-/// Validates raw `resident_sn2_bundle_v1` words against authenticated geometry.
+/// Validates compact resident bundle words against authenticated geometry.
 pub fn validate_compact_proof_v1(
     bytes: &[u8],
     protocol: &CompactProtocolV1,
@@ -1113,12 +1296,14 @@ pub fn validate_compact_proof_v1(
     require_exact_len(bytes, expected_bytes, "proof")
         .map_err(|error| CompactCodecError::invalid("invalid_compact_proof", error.message))?;
 
-    let interaction_start = 4 * HASH_WORDS;
+    let offsets = compact_proof_offsets(protocol);
+    let interaction_start = offsets.interaction_start;
     let interaction_words = protocol.interaction_sum_count as usize * 4;
     let sampled_start = interaction_start + interaction_words + NONCE_WORDS;
     let sampled_words = protocol.sampled_value_words as usize;
-    let final_line_start = sampled_start + sampled_words + 8 * HASH_WORDS;
-    let decommitment_offset = final_line_start + 4 + NONCE_WORDS;
+    let final_line_start = offsets.final_line_start;
+    let final_line_words = protocol.final_line_coefficient_count as usize * 4;
+    let decommitment_offset = offsets.decommitment_start;
     validate_canonical_m31(
         bytes,
         interaction_start,
@@ -1126,25 +1311,44 @@ pub fn validate_compact_proof_v1(
         "interaction claim",
     )?;
     validate_canonical_m31(bytes, sampled_start, sampled_words, "sampled values")?;
-    validate_canonical_m31(bytes, final_line_start, 4, "final line polynomial")?;
+    validate_canonical_m31(
+        bytes,
+        final_line_start,
+        final_line_words,
+        "final line polynomial",
+    )?;
 
     let capacity = protocol.decommitment_capacity_words as usize;
     let word = |index: usize| read_proof_word(bytes, decommitment_offset + index);
     if word(0)? != DECOMMIT_MAGIC || word(1)? != DECOMMIT_VERSION {
         return Err(invalid_proof("invalid versioned decommitment header"));
     }
-    if word(2)? != 12 {
-        return Err(invalid_proof("decommitment tree count is not exactly 12"));
+    if word(2)? != protocol.decommitment_record_count {
+        return Err(invalid_proof(format!(
+            "decommitment tree count {} does not match authenticated count {}",
+            word(2)?,
+            protocol.decommitment_record_count
+        )));
     }
     let raw_query_count = word(3)?;
     let unique_query_count = word(4)?;
-    if raw_query_count != 70 || unique_query_count == 0 || unique_query_count > raw_query_count {
+    if raw_query_count != protocol.query_count
+        || unique_query_count == 0
+        || unique_query_count > raw_query_count
+    {
         return Err(invalid_proof(
-            "decommitment query counts are not a canonical subset of 70 queries",
+            "decommitment query counts do not match the authenticated query geometry",
         ));
     }
     let used = word(7)? as usize;
-    let metadata_end = DECOMMIT_HEADER_WORDS + 12 * DECOMMIT_TREE_META_WORDS;
+    let record_count = protocol.decommitment_record_count as usize;
+    let metadata_end = DECOMMIT_HEADER_WORDS
+        .checked_add(
+            record_count
+                .checked_mul(DECOMMIT_TREE_META_WORDS)
+                .ok_or_else(length_overflow)?,
+        )
+        .ok_or_else(length_overflow)?;
     if used < metadata_end || used > capacity {
         return Err(invalid_proof(
             "decommitment used-word count is outside its authenticated capacity",
@@ -1163,11 +1367,11 @@ pub fn validate_compact_proof_v1(
         "unique queries",
     )?;
 
-    for index in 0..12_usize {
+    for index in 0..record_count {
         let base = DECOMMIT_HEADER_WORDS + index * DECOMMIT_TREE_META_WORDS;
         let kind = word(base)?;
         let role = word(base + 1)?;
-        let expected_kind = u32::from(index >= 4);
+        let expected_kind = u32::from(index >= protocol.commitment_count as usize);
         if kind != expected_kind || role != index as u32 {
             return Err(invalid_proof(format!(
                 "decommitment record {index} has kind/role {kind}/{role}, expected {expected_kind}/{index}"
@@ -1186,12 +1390,17 @@ pub fn validate_compact_proof_v1(
                 "decommitment record {index} has invalid query/log/used geometry"
             )));
         }
-        if index >= 4 && word(base + 5)? != 0 {
+        if index >= protocol.commitment_count as usize && word(base + 5)? != 0 {
             return Err(invalid_proof(format!(
                 "FRI decommitment record {index} unexpectedly contains trace values"
             )));
         }
-        if index < 4 {
+        if index < protocol.commitment_count as usize {
+            if word(base + 7)? != 0 {
+                return Err(invalid_proof(format!(
+                    "trace decommitment record {index} unexpectedly contains FRI witnesses"
+                )));
+            }
             let expected_values = query_count
                 .checked_mul(protocol.trace_tree_column_counts[index] as usize)
                 .ok_or_else(length_overflow)?;
@@ -1520,16 +1729,9 @@ pub(crate) mod tests_support {
     use super::*;
 
     pub fn protocol_bytes_for_lib_tests() -> Vec<u8> {
-        CompactProtocolV1 {
-            preprocessed_trace_variant: PreProcessedTraceVariant::Canonical,
-            channel_salt: 0,
-            interaction_sum_count: 2,
-            sampled_value_words: 4,
-            decommitment_capacity_words: 4000,
-            trace_tree_column_counts: EXPECTED_TRACE_COLUMNS,
-        }
-        .encode()
-        .unwrap()
+        CompactProtocolV1::sn2(0, 2, 4, 4000, EXPECTED_TRACE_COLUMNS)
+            .encode()
+            .unwrap()
     }
 }
 
@@ -1611,26 +1813,38 @@ mod tests {
         let set = |bytes: &mut [u8], index: usize, value: u32| put_u32(bytes, index * 4, value);
         set(&mut bytes, decommit, DECOMMIT_MAGIC);
         set(&mut bytes, decommit + 1, DECOMMIT_VERSION);
-        set(&mut bytes, decommit + 2, 12);
-        set(&mut bytes, decommit + 3, 70);
-        set(&mut bytes, decommit + 4, 70);
+        set(&mut bytes, decommit + 2, protocol.decommitment_record_count);
+        set(&mut bytes, decommit + 3, protocol.query_count);
+        set(&mut bytes, decommit + 4, protocol.query_count);
         set(&mut bytes, decommit + 5, 200);
-        set(&mut bytes, decommit + 6, 270);
-        set(&mut bytes, decommit + 7, 4000);
-        for index in 0..12 {
+        set(&mut bytes, decommit + 6, 200 + protocol.query_count);
+        set(
+            &mut bytes,
+            decommit + 7,
+            protocol.decommitment_capacity_words,
+        );
+        for index in 0..protocol.decommitment_record_count as usize {
             let base = decommit + 8 + index * 16;
-            set(&mut bytes, base, u32::from(index >= 4));
+            set(
+                &mut bytes,
+                base,
+                u32::from(index >= protocol.commitment_count as usize),
+            );
             set(&mut bytes, base + 1, index as u32);
             set(&mut bytes, base + 2, 200);
             set(&mut bytes, base + 3, 1);
-            if index < 4 {
+            if index < protocol.commitment_count as usize {
                 set(
                     &mut bytes,
                     base + 5,
                     protocol.trace_tree_column_counts[index],
                 );
             }
-            set(&mut bytes, base + 14, (12 - index) as u32);
+            set(
+                &mut bytes,
+                base + 14,
+                protocol.decommitment_record_count - index as u32,
+            );
             set(&mut bytes, base + 15, 1);
         }
         bytes
@@ -1646,38 +1860,61 @@ mod tests {
         }
         set(&mut bytes, decommit, DECOMMIT_MAGIC);
         set(&mut bytes, decommit + 1, DECOMMIT_VERSION);
-        set(&mut bytes, decommit + 2, 12);
-        set(&mut bytes, decommit + 3, 70);
+        set(&mut bytes, decommit + 2, protocol.decommitment_record_count);
+        set(&mut bytes, decommit + 3, protocol.query_count);
         set(&mut bytes, decommit + 4, 1);
         set(&mut bytes, decommit + 5, 200);
         set(&mut bytes, decommit + 6, 201);
         set(&mut bytes, decommit + 200, 7);
         set(&mut bytes, decommit + 201, 7);
         let mut cursor = 202_usize;
-        for index in 0..12 {
+        for index in 0..protocol.decommitment_record_count as usize {
             let base = decommit + DECOMMIT_HEADER_WORDS + index * DECOMMIT_TREE_META_WORDS;
             let tree_start = cursor;
-            set(&mut bytes, base, u32::from(index >= 4));
+            set(
+                &mut bytes,
+                base,
+                u32::from(index >= protocol.commitment_count as usize),
+            );
             set(&mut bytes, base + 1, index as u32);
             set(&mut bytes, base + 2, 201);
             set(&mut bytes, base + 3, 1);
-            if index < 4 {
+            if index < protocol.commitment_count as usize {
                 let count = protocol.trace_tree_column_counts[index] as usize;
                 set(&mut bytes, base + 4, cursor as u32);
                 set(&mut bytes, base + 5, count as u32);
                 cursor += count;
             }
-            set(&mut bytes, base + 14, (12 - index) as u32);
+            set(
+                &mut bytes,
+                base + 14,
+                protocol.decommitment_record_count - index as u32,
+            );
             set(&mut bytes, base + 15, (cursor - tree_start).max(1) as u32);
         }
-        set(&mut bytes, decommit + 7, cursor as u32);
+        let used = cursor.max(200 + protocol.query_count as usize);
+        set(&mut bytes, decommit + 7, used as u32);
         set(&mut bytes, offsets.query_pow_start, 0x7654_3210);
         set(&mut bytes, offsets.query_pow_start + 1, 0xfedc_ba98);
         bytes
     }
 
-    fn composition_only_sample_shape() -> Vec<Vec<usize>> {
-        vec![vec![0; 161], vec![0; 3449], vec![0; 2268], vec![1; 8]]
+    fn composition_only_sample_shape(protocol: &CompactProtocolV1) -> Vec<Vec<usize>> {
+        vec![
+            vec![0; protocol.trace_tree_column_counts[0] as usize],
+            vec![0; protocol.trace_tree_column_counts[1] as usize],
+            vec![0; protocol.trace_tree_column_counts[2] as usize],
+            vec![1; protocol.trace_tree_column_counts[3] as usize],
+        ]
+    }
+
+    fn fib_like_protocol() -> CompactProtocolV1 {
+        let mut protocol = CompactProtocolV1::sn2(9, 2, 32, 4000, [5, 7, 3, 8]);
+        protocol.max_log_degree_bound = 21;
+        protocol.fri_tree_count = 7;
+        protocol.decommitment_record_count = 11;
+        protocol.validate_geometry().unwrap();
+        protocol
     }
 
     #[test]
@@ -1830,7 +2067,7 @@ mod tests {
             &proof,
             &protocol,
             &statement,
-            &composition_only_sample_shape(),
+            &composition_only_sample_shape(&protocol),
         )
         .unwrap();
 
@@ -1851,11 +2088,39 @@ mod tests {
     }
 
     #[test]
+    fn reconstructs_fib_like_four_plus_seven_geometry() {
+        let protocol = fib_like_protocol();
+        let encoded = protocol.encode().unwrap();
+        assert_eq!(read_u32(&encoded, 68, "FRI trees").unwrap(), 7);
+        assert_eq!(read_u32(&encoded, 76, "decommit records").unwrap(), 11);
+        assert_eq!(read_u32(&encoded, 108, "maximum degree").unwrap(), 21);
+        let decoded = CompactProtocolV1::decode(&encoded).unwrap();
+        assert_eq!(decoded, protocol);
+
+        let statement = CompactStatementV1::decode(&statement(2)).unwrap();
+        let proof = structurally_decodable_proof(&decoded);
+        validate_compact_proof_v1(&proof, &decoded, &statement).unwrap();
+        let stark = reconstruct_stark_proof_v1(
+            &proof,
+            &decoded,
+            &statement,
+            &composition_only_sample_shape(&decoded),
+        )
+        .unwrap();
+        assert_eq!(stark.0.commitments.len(), 4);
+        assert_eq!(stark.0.fri_proof.inner_layers.len(), 6);
+        assert_eq!(stark.0.queried_values[0].len(), 5);
+        assert_eq!(stark.0.queried_values[1].len(), 7);
+        assert_eq!(stark.0.queried_values[2].len(), 3);
+        assert_eq!(stark.0.queried_values[3].len(), 8);
+    }
+
+    #[test]
     fn stark_reconstruction_rejects_shape_and_decommitment_field_drift() {
         let protocol = CompactProtocolV1::decode(&protocol(2, 32, 8000)).unwrap();
         let statement = CompactStatementV1::decode(&statement(2)).unwrap();
         let mut proof = structurally_decodable_proof(&protocol);
-        let mut shape = composition_only_sample_shape();
+        let mut shape = composition_only_sample_shape(&protocol);
         shape[3][0] = 0;
         assert!(reconstruct_stark_proof_v1(&proof, &protocol, &statement, &shape).is_err());
 
@@ -1865,7 +2130,7 @@ mod tests {
             &proof,
             &protocol,
             &statement,
-            &composition_only_sample_shape()
+            &composition_only_sample_shape(&protocol)
         )
         .is_err());
     }
@@ -1929,10 +2194,10 @@ mod tests {
             (0, 1),
             (8, 2),
             (12, 1),
-            (40, 69),
+            (40, 0),
             (68, 7),
             (76, 11),
-            (92, 160),
+            (92, 0),
             (108, 1),
         ] {
             let mut bytes = protocol(2, 4, 4000);

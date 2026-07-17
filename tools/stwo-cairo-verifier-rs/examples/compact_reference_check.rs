@@ -54,14 +54,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .try_into()
         .map_err(|bits: Vec<bool>| format!("expected 83 component slots, found {}", bits.len()))?;
 
-    let protocol = CompactProtocolV1 {
-        preprocessed_trace_variant: reference.preprocessed_trace_variant,
-        channel_salt: reference.channel_salt,
-        interaction_sum_count: interaction_sum_count.try_into()?,
-        sampled_value_words: sampled_value_words.try_into()?,
-        decommitment_capacity_words: decommitment_capacity_words.try_into()?,
-        trace_tree_column_counts: [161, 3449, 2268, 8],
-    };
+    if reference.preprocessed_trace_variant
+        != stwo_cairo_common::preprocessed_columns::preprocessed_trace::PreProcessedTraceVariant::Canonical
+    {
+        return Err("compact v1 requires the canonical preprocessed trace".into());
+    }
+    let protocol = CompactProtocolV1::sn2(
+        reference.channel_salt,
+        interaction_sum_count.try_into()?,
+        sampled_value_words.try_into()?,
+        decommitment_capacity_words.try_into()?,
+        [161, 3449, 2268, 8],
+    );
     let statement = CompactStatementV1 {
         public_data: reference.claim.public_data,
         component_enable_bits,
