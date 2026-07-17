@@ -116,6 +116,15 @@ fn execute(
             args.workload(),
             examples.StateMachineSpec.request(parameters),
         ),
+        .blake => |parameters| executeExample(
+            Engine,
+            backend,
+            examples.BlakeSpec,
+            allocator,
+            args,
+            args.workload(),
+            examples.BlakeSpec.request(parameters),
+        ),
     };
 }
 

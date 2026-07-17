@@ -8,7 +8,7 @@ pub const EvidenceClass = enum {
     correctness_only,
 };
 
-pub const Example = enum { wide_fibonacci, xor, plonk, state_machine };
+pub const Example = enum { wide_fibonacci, xor, plonk, state_machine, blake };
 
 pub const WideFibonacciParameters = struct {
     log_n_rows: u32 = 12,
@@ -31,11 +31,17 @@ pub const StateMachineParameters = struct {
     initial_y: u32 = 3,
 };
 
+pub const BlakeParameters = struct {
+    log_n_rows: u32 = 8,
+    n_rounds: u32 = 2,
+};
+
 pub const Workload = union(Example) {
     wide_fibonacci: WideFibonacciParameters,
     xor: XorParameters,
     plonk: PlonkParameters,
     state_machine: StateMachineParameters,
+    blake: BlakeParameters,
 };
 
 pub const Protocol = enum {
@@ -64,6 +70,7 @@ pub const Args = struct {
     xor: XorParameters = .{},
     plonk: PlonkParameters = .{},
     state_machine: StateMachineParameters = .{},
+    blake: BlakeParameters = .{},
     protocol: Protocol = .functional,
     warmups: usize = MIN_HEADLINE_WARMUPS,
     samples: usize = 5,
@@ -76,6 +83,7 @@ pub const Args = struct {
             .xor => .{ .xor = self.xor },
             .plonk => .{ .plonk = self.plonk },
             .state_machine => .{ .state_machine = self.state_machine },
+            .blake => .{ .blake = self.blake },
         };
     }
 
@@ -89,6 +97,7 @@ pub const ParseResult = union(enum) { run: Args, help };
 
 const MAX_LOG_ROWS: u32 = 22;
 const MAX_SEQUENCE_LEN: u32 = 512;
+const MAX_BLAKE_ROUNDS: u32 = 32;
 const MAX_XOR_OFFSET: usize = (1 << 31) - 1;
 const M31_MODULUS: u32 = 0x7fffffff;
 const MAX_COMMITTED_CELLS: u64 = 1 << 25;
@@ -100,6 +109,7 @@ pub fn parseArgs(argv: []const []const u8) !ParseResult {
     var saw_wide_parameter = false;
     var saw_xor_parameter = false;
     var saw_state_machine_parameter = false;
+    var saw_blake_parameter = false;
     var log_n_rows_override: ?u32 = null;
     var index: usize = 0;
     while (index < argv.len) : (index += 1) {
@@ -138,6 +148,9 @@ pub fn parseArgs(argv: []const []const u8) !ParseResult {
         } else if (std.mem.eql(u8, arg, "--initial-y")) {
             result.state_machine.initial_y = try std.fmt.parseInt(u32, value, 10);
             saw_state_machine_parameter = true;
+        } else if (std.mem.eql(u8, arg, "--n-rounds")) {
+            result.blake.n_rounds = try std.fmt.parseInt(u32, value, 10);
+            saw_blake_parameter = true;
         } else if (std.mem.eql(u8, arg, "--protocol")) {
             result.protocol = std.meta.stringToEnum(Protocol, value) orelse
                 return error.InvalidProtocol;
@@ -155,16 +168,23 @@ pub fn parseArgs(argv: []const []const u8) !ParseResult {
         .wide_fibonacci => result.wide_fibonacci.log_n_rows = log_n_rows,
         .plonk => result.plonk.log_n_rows = log_n_rows,
         .state_machine => result.state_machine.log_n_rows = log_n_rows,
+        .blake => result.blake.log_n_rows = log_n_rows,
         .xor => return error.IrrelevantWorkloadParameter,
     };
-    if (result.example == .wide_fibonacci and (saw_xor_parameter or saw_state_machine_parameter))
+    if (result.example == .wide_fibonacci and
+        (saw_xor_parameter or saw_state_machine_parameter or saw_blake_parameter))
         return error.IrrelevantWorkloadParameter;
-    if (result.example == .xor and (saw_wide_parameter or saw_state_machine_parameter))
+    if (result.example == .xor and
+        (saw_wide_parameter or saw_state_machine_parameter or saw_blake_parameter))
         return error.IrrelevantWorkloadParameter;
     if (result.example == .plonk and
-        (saw_wide_parameter or saw_xor_parameter or saw_state_machine_parameter))
+        (saw_wide_parameter or saw_xor_parameter or saw_state_machine_parameter or saw_blake_parameter))
         return error.IrrelevantWorkloadParameter;
-    if (result.example == .state_machine and (saw_wide_parameter or saw_xor_parameter))
+    if (result.example == .state_machine and
+        (saw_wide_parameter or saw_xor_parameter or saw_blake_parameter))
+        return error.IrrelevantWorkloadParameter;
+    if (result.example == .blake and
+        (saw_wide_parameter or saw_xor_parameter or saw_state_machine_parameter))
         return error.IrrelevantWorkloadParameter;
     try validate(result);
     return .{ .run = result };
@@ -204,6 +224,15 @@ fn validate(args: Args) !void {
             const rows = @as(u64, 1) << @intCast(parameters.log_n_rows);
             break :blk try std.math.mul(u64, rows, 3);
         },
+        .blake => |parameters| blk: {
+            if (parameters.log_n_rows == 0 or parameters.log_n_rows > MAX_LOG_ROWS)
+                return error.InvalidLogRows;
+            if (parameters.n_rounds == 0 or parameters.n_rounds > MAX_BLAKE_ROUNDS)
+                return error.InvalidRoundCount;
+            const rows = @as(u64, 1) << @intCast(parameters.log_n_rows);
+            const columns = try std.math.mul(u64, parameters.n_rounds, 96);
+            break :blk try std.math.mul(u64, rows, columns);
+        },
     };
     if (committed_cells > MAX_COMMITTED_CELLS) return error.TooManyCommittedCells;
     if (args.warmups > MAX_WARMUPS) return error.TooManyWarmups;
@@ -216,8 +245,8 @@ pub fn writeUsage(writer: anytype) !void {
     try writer.writeAll(
         \\Usage: native-proof-bench-{cpu|metal} [options]
         \\
-        \\  --example NAME       wide_fibonacci, xor, plonk, or state_machine
-        \\  --log-n-rows N       Wide Fibonacci, Plonk, or State Machine log2 rows
+        \\  --example NAME       wide_fibonacci, xor, plonk, state_machine, or blake
+        \\  --log-n-rows N       Wide Fibonacci, Plonk, State Machine, or Blake log2 rows
         \\  --log-rows N         Legacy Wide Fibonacci log2 rows alias
         \\  --sequence-len N     Wide Fibonacci trace column count
         \\  --log-size N         XOR log2 rows
@@ -225,6 +254,7 @@ pub fn writeUsage(writer: anytype) !void {
         \\  --offset N           XOR periodic-indicator offset
         \\  --initial-x N        State Machine initial x coordinate
         \\  --initial-y N        State Machine initial y coordinate
+        \\  --n-rounds N         Blake round count (maximum: 32)
         \\  --protocol NAME      smoke or functional (default: functional)
         \\  --warmups N          Verified untimed warmups (headline minimum: 10)
         \\  --samples N          Verified timed samples (maximum: 21)
@@ -260,6 +290,13 @@ test "native proof config: parses tagged workloads and legacy wide requests" {
     try std.testing.expectEqual(Example.state_machine, state.example);
     try std.testing.expectEqual(@as(u32, 17), state.state_machine.initial_x);
     try std.testing.expectEqual(@as(u32, 19), state.state_machine.initial_y);
+
+    const blake = (try parseArgs(&.{
+        "--example", "blake", "--log-n-rows", "7", "--n-rounds", "3",
+    })).run;
+    try std.testing.expectEqual(Example.blake, blake.example);
+    try std.testing.expectEqual(@as(u32, 7), blake.blake.log_n_rows);
+    try std.testing.expectEqual(@as(u32, 3), blake.blake.n_rounds);
 }
 
 test "native proof config: bounds and tags fail closed" {
@@ -270,6 +307,10 @@ test "native proof config: bounds and tags fail closed" {
     try std.testing.expectError(error.IrrelevantWorkloadParameter, parseArgs(&.{ "--example", "plonk", "--sequence-len", "4" }));
     try std.testing.expectError(error.InvalidInitialState, parseArgs(&.{ "--example", "state_machine", "--initial-x", "2147483647" }));
     try std.testing.expectError(error.IrrelevantWorkloadParameter, parseArgs(&.{ "--example", "state_machine", "--offset", "1" }));
+    try std.testing.expectError(error.InvalidRoundCount, parseArgs(&.{ "--example", "blake", "--n-rounds", "0" }));
+    try std.testing.expectError(error.InvalidRoundCount, parseArgs(&.{ "--example", "blake", "--n-rounds", "33" }));
+    try std.testing.expectError(error.TooManyCommittedCells, parseArgs(&.{ "--example", "blake", "--log-n-rows", "18", "--n-rounds", "2" }));
+    try std.testing.expectError(error.IrrelevantWorkloadParameter, parseArgs(&.{ "--example", "plonk", "--n-rounds", "2" }));
     try std.testing.expectError(error.InvalidExample, parseArgs(&.{ "--example", "poseidon" }));
     try std.testing.expectError(error.MissingArgumentValue, parseArgs(&.{"--log-rows"}));
 }

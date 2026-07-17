@@ -7,6 +7,7 @@ const report = @import("report.zig");
 
 const artifacts = stwo.interop.examples_artifact;
 const stage_profile = stwo.prover.stage_profile;
+const blake = stwo.examples.blake;
 const plonk = stwo.examples.plonk;
 const state_machine = stwo.examples.state_machine;
 const wide_fibonacci = stwo.examples.wide_fibonacci;
@@ -28,6 +29,7 @@ pub fn name(workload: config.Workload) []const u8 {
         .xor => "xor",
         .plonk => "plonk",
         .state_machine => "state_machine",
+        .blake => "blake",
     };
 }
 
@@ -37,6 +39,7 @@ pub fn parameters(workload: config.Workload) report.WorkloadParameters {
         .xor => |value| .{ .xor = value },
         .plonk => |value| .{ .plonk = value },
         .state_machine => |value| .{ .state_machine = value },
+        .blake => |value| .{ .blake = value },
     };
 }
 
@@ -86,6 +89,18 @@ pub fn geometry(workload: config.Workload) !Geometry {
                 .native_units = rows,
             };
         },
+        .blake => |value| blk: {
+            const rows = @as(u64, 1) << @intCast(value.log_n_rows);
+            const columns = try std.math.mul(u64, value.n_rounds, 96);
+            break :blk .{
+                .trace_log_rows = value.log_n_rows,
+                .trace_rows = rows,
+                .committed_columns = columns,
+                .committed_trace_cells = try std.math.mul(u64, rows, columns),
+                .native_unit = "blake_round_instances",
+                .native_units = try std.math.mul(u64, rows, value.n_rounds),
+            };
+        },
     };
 }
 
@@ -115,6 +130,11 @@ pub fn descriptorDigest(
             &buffer,
             "native-proof-workload-v3|example=state_machine|log_n_rows={d}|initial_x={d}|initial_y={d}",
             .{ value.log_n_rows, value.initial_x, value.initial_y },
+        ) catch unreachable,
+        .blake => |value| std.fmt.bufPrint(
+            &buffer,
+            "native-proof-workload-v3|example=blake|log_n_rows={d}|n_rounds={d}",
+            .{ value.log_n_rows, value.n_rounds },
         ) catch unreachable,
     };
     const description = std.fmt.bufPrint(
@@ -427,6 +447,75 @@ pub const StateMachineSpec = struct {
     }
 };
 
+pub const BlakeSpec = struct {
+    pub const Request = blake.Statement;
+    pub const PreparedInput = blake.PreparedInput;
+    pub const Statement = blake.Statement;
+    pub const Proof = blake.Proof;
+    pub const ProveOutput = blake.ProveOutput;
+    pub const example_name = "blake";
+
+    pub fn request(value: config.BlakeParameters) Request {
+        return .{ .log_n_rows = value.log_n_rows, .n_rounds = value.n_rounds };
+    }
+
+    pub fn prepareInput(allocator: std.mem.Allocator, value: Request) !PreparedInput {
+        return blake.prepareInput(allocator, value);
+    }
+
+    pub fn requiredCircleLog(value: Request, pcs_config: stwo.core.pcs.PcsConfig) !u32 {
+        return blake.requiredTwiddleCircleLog(value, pcs_config);
+    }
+
+    pub fn provePrepared(
+        comptime Engine: type,
+        session: *const Engine.Session,
+        allocator: std.mem.Allocator,
+        pcs_config: stwo.core.pcs.PcsConfig,
+        prepared: PreparedInput,
+        recorder: ?*stage_profile.Recorder,
+    ) !ProveOutput {
+        return blake.provePreparedWithSessionAndEngine(
+            Engine,
+            session,
+            allocator,
+            pcs_config,
+            prepared,
+            recorder,
+        );
+    }
+
+    pub fn validateOutputStatement(value: Request, statement: Statement) !void {
+        if (!std.meta.eql(value, statement)) return error.ProverStatementMismatch;
+    }
+
+    pub fn verify(
+        allocator: std.mem.Allocator,
+        pcs_config: stwo.core.pcs.PcsConfig,
+        statement: Statement,
+        proof: Proof,
+    ) !void {
+        return blake.verify(allocator, pcs_config, statement, proof);
+    }
+
+    pub fn writeArtifact(
+        allocator: std.mem.Allocator,
+        path: []const u8,
+        pcs_config: stwo.core.pcs.PcsConfig,
+        statement: Statement,
+        proof_bytes: []const u8,
+    ) !void {
+        return artifacts.writeNativeProofArtifact(
+            allocator,
+            path,
+            pcs_config,
+            "prove",
+            .{ .blake = statement },
+            proof_bytes,
+        );
+    }
+};
+
 test "native proof examples: geometry and descriptors are tagged" {
     const wide: config.Workload = .{ .wide_fibonacci = .{ .log_n_rows = 5, .sequence_len = 8 } };
     const xor_workload: config.Workload = .{ .xor = .{ .log_size = 5, .log_step = 2, .offset = 3 } };
@@ -436,14 +525,22 @@ test "native proof examples: geometry and descriptors are tagged" {
         .initial_x = 9,
         .initial_y = 3,
     } };
+    const blake_workload: config.Workload = .{ .blake = .{
+        .log_n_rows = 5,
+        .n_rounds = 2,
+    } };
     const wide_geometry = try geometry(wide);
     const xor_geometry = try geometry(xor_workload);
     const plonk_geometry = try geometry(plonk_workload);
     const state_geometry = try geometry(state_workload);
+    const blake_geometry = try geometry(blake_workload);
     try std.testing.expectEqual(@as(u64, 256), wide_geometry.committed_trace_cells);
     try std.testing.expectEqual(@as(u64, 96), xor_geometry.committed_trace_cells);
     try std.testing.expectEqual(@as(u64, 256), plonk_geometry.committed_trace_cells);
     try std.testing.expectEqual(@as(u64, 96), state_geometry.committed_trace_cells);
+    try std.testing.expectEqual(@as(u64, 6_144), blake_geometry.committed_trace_cells);
+    try std.testing.expectEqual(@as(u64, 64), blake_geometry.native_units);
+    try std.testing.expectEqualStrings("blake_round_instances", blake_geometry.native_unit);
     try std.testing.expect(!std.mem.eql(
         u8,
         &descriptorDigest(wide, .smoke),
@@ -460,10 +557,15 @@ test "native proof examples: descriptor digests match independent fixed vectors"
         .initial_x = 9,
         .initial_y = 3,
     } };
+    const blake_workload: config.Workload = .{ .blake = .{
+        .log_n_rows = 8,
+        .n_rounds = 2,
+    } };
     var expected_wide: [32]u8 = undefined;
     var expected_xor: [32]u8 = undefined;
     var expected_plonk: [32]u8 = undefined;
     var expected_state: [32]u8 = undefined;
+    var expected_blake: [32]u8 = undefined;
     _ = try std.fmt.hexToBytes(
         &expected_wide,
         "8586bce9ae8c0673453803b3b65ca8d4fc677638d53e5933e7692af4dd38586f",
@@ -480,8 +582,25 @@ test "native proof examples: descriptor digests match independent fixed vectors"
         &expected_state,
         "2aef739c7447cb192da8648b7a4b539ccb86c1f532de7de986287cb89844b8a7",
     );
+    _ = try std.fmt.hexToBytes(
+        &expected_blake,
+        "bee0efa41b40d2f61fbecccb2096af92ff2bcf6fbbc253a852077d4c95a1830e",
+    );
     try std.testing.expectEqualSlices(u8, &expected_wide, &descriptorDigest(wide, .functional));
     try std.testing.expectEqualSlices(u8, &expected_xor, &descriptorDigest(xor_workload, .functional));
     try std.testing.expectEqualSlices(u8, &expected_plonk, &descriptorDigest(plonk_workload, .functional));
     try std.testing.expectEqualSlices(u8, &expected_state, &descriptorDigest(state_workload, .functional));
+    try std.testing.expectEqualSlices(u8, &expected_blake, &descriptorDigest(blake_workload, .functional));
+}
+
+test "native proof examples: Blake output statement is bound to the request" {
+    const request_value = BlakeSpec.request(.{ .log_n_rows = 8, .n_rounds = 2 });
+    try BlakeSpec.validateOutputStatement(request_value, request_value);
+
+    var wrong_rounds = request_value;
+    wrong_rounds.n_rounds += 1;
+    try std.testing.expectError(
+        error.ProverStatementMismatch,
+        BlakeSpec.validateOutputStatement(request_value, wrong_rounds),
+    );
 }
