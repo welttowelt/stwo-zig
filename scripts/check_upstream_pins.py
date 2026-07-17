@@ -1,0 +1,395 @@
+#!/usr/bin/env python3
+"""Validate every live Rust-oracle pin carrier against the upstream ledger."""
+
+from __future__ import annotations
+
+import argparse
+import dataclasses
+import re
+import sys
+import tomllib
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_LEDGER = ROOT / "docs" / "conformance" / "upstream.md"
+REVISION_RE = r"[0-9a-f]{40}"
+
+
+class PinLedgerError(ValueError):
+    """The checked-in upstream ledger is missing or ambiguous."""
+
+
+@dataclasses.dataclass(frozen=True)
+class PinLedger:
+    native_repository: str
+    native_revision: str
+    cairo_repository: str
+    cairo_revision: str
+    cairo_stwo_repository: str
+    cairo_stwo_revision: str
+
+
+@dataclasses.dataclass(frozen=True)
+class TextPin:
+    path: str
+    label: str
+    pattern: str
+    expected: str
+
+
+def _single_field(text: str, pattern: str, label: str) -> str:
+    matches = re.findall(pattern, text, flags=re.MULTILINE)
+    if len(matches) != 1:
+        raise PinLedgerError(f"expected exactly one {label}, found {len(matches)}")
+    return matches[0]
+
+
+def parse_ledger(path: Path = DEFAULT_LEDGER) -> PinLedger:
+    text = path.read_text(encoding="utf-8")
+    return PinLedger(
+        native_repository=_single_field(
+            text, r"^- Upstream repository: `([^`]+)`$", "Native Stwo repository"
+        ),
+        native_revision=_single_field(
+            text, rf"^- Pinned commit: `({REVISION_RE})`$", "Native Stwo revision"
+        ),
+        cairo_repository=_single_field(
+            text, r"^- Stwo-Cairo repository: `([^`]+)`$", "Cairo Stwo-Cairo repository"
+        ),
+        cairo_revision=_single_field(
+            text,
+            rf"^- Pinned Stwo-Cairo commit: `({REVISION_RE})`$",
+            "Cairo Stwo-Cairo revision",
+        ),
+        cairo_stwo_repository=_single_field(
+            text, r"^- Stwo repository: `([^`]+)`$", "Cairo Stwo repository"
+        ),
+        cairo_stwo_revision=_single_field(
+            text,
+            rf"^- Pinned Cairo Stwo commit: `({REVISION_RE})`$",
+            "Cairo Stwo revision",
+        ),
+    )
+
+
+def _check_text_pin(root: Path, pin: TextPin) -> list[str]:
+    path = root / pin.path
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as error:
+        return [f"{pin.path}: unable to read {pin.label}: {error}"]
+    matches = re.findall(pin.pattern, text, flags=re.MULTILINE)
+    if len(matches) != 1:
+        return [f"{pin.path}: expected exactly one {pin.label}, found {len(matches)}"]
+    if matches[0] != pin.expected:
+        return [f"{pin.path}: {pin.label} is {matches[0]!r}, expected {pin.expected!r}"]
+    return []
+
+
+def _load_toml(path: Path) -> dict:
+    with path.open("rb") as handle:
+        return tomllib.load(handle)
+
+
+def _check_manifest_dependency(
+    root: Path,
+    relative_path: str,
+    dependency: str,
+    repository: str,
+    revision: str,
+) -> list[str]:
+    try:
+        manifest = _load_toml(root / relative_path)
+    except (OSError, tomllib.TOMLDecodeError) as error:
+        return [f"{relative_path}: unable to parse manifest: {error}"]
+    value = manifest.get("dependencies", {}).get(dependency)
+    if not isinstance(value, dict):
+        return [f"{relative_path}: missing table dependency {dependency!r}"]
+    errors: list[str] = []
+    for field, expected in (("git", repository), ("rev", revision)):
+        if value.get(field) != expected:
+            errors.append(
+                f"{relative_path}: dependency {dependency!r} {field} is "
+                f"{value.get(field)!r}, expected {expected!r}"
+            )
+    return errors
+
+
+def _check_cairo_manifest(root: Path, ledger: PinLedger) -> list[str]:
+    relative_path = "tools/stwo-cairo-verifier-rs/Cargo.toml"
+    try:
+        manifest = _load_toml(root / relative_path)
+    except (OSError, tomllib.TOMLDecodeError) as error:
+        return [f"{relative_path}: unable to parse manifest: {error}"]
+
+    metadata = manifest.get("package", {}).get("metadata", {}).get("canonical-verifier", {})
+    expected_metadata = {
+        "stwo-cairo-repository": ledger.cairo_repository,
+        "stwo-cairo-revision": ledger.cairo_revision,
+        "stwo-repository": ledger.cairo_stwo_repository,
+        "stwo-revision": ledger.cairo_stwo_revision,
+    }
+    errors = [
+        f"{relative_path}: metadata {key!r} is {metadata.get(key)!r}, expected {expected!r}"
+        for key, expected in expected_metadata.items()
+        if metadata.get(key) != expected
+    ]
+    for dependency in ("cairo-air", "stwo-cairo-common"):
+        errors.extend(
+            _check_manifest_dependency(
+                root,
+                relative_path,
+                dependency,
+                ledger.cairo_repository,
+                ledger.cairo_revision,
+            )
+        )
+    errors.extend(
+        _check_manifest_dependency(
+            root,
+            relative_path,
+            "stwo",
+            ledger.cairo_stwo_repository,
+            ledger.cairo_stwo_revision,
+        )
+    )
+    return errors
+
+
+def _check_lock_sources(
+    root: Path, relative_path: str, repository: str, revision: str
+) -> list[str]:
+    try:
+        lock = _load_toml(root / relative_path)
+    except (OSError, tomllib.TOMLDecodeError) as error:
+        return [f"{relative_path}: unable to parse lockfile: {error}"]
+    prefix = f"git+{repository}?"
+    sources = {
+        package.get("source")
+        for package in lock.get("package", [])
+        if isinstance(package, dict)
+        and isinstance(package.get("source"), str)
+        and package["source"].startswith(prefix)
+    }
+    expected = f"git+{repository}?rev={revision}#{revision}"
+    if not sources:
+        return [f"{relative_path}: no locked package found for {repository}"]
+    if sources != {expected}:
+        return [
+            f"{relative_path}: locked sources for {repository} are {sorted(sources)!r}, "
+            f"expected only {expected!r}"
+        ]
+    return []
+
+
+def _text_pins(ledger: PinLedger) -> tuple[TextPin, ...]:
+    native = ledger.native_revision
+    cairo = ledger.cairo_revision
+    cairo_stwo = ledger.cairo_stwo_revision
+    return (
+        TextPin(
+            "scripts/e2e_interop.py",
+            "Native UPSTREAM_COMMIT",
+            rf'^UPSTREAM_COMMIT = "({REVISION_RE})"$',
+            native,
+        ),
+        TextPin(
+            "scripts/native_proof_matrix_lib/model.py",
+            "Native INTEROP_UPSTREAM_COMMIT",
+            rf'^INTEROP_UPSTREAM_COMMIT = "({REVISION_RE})"$',
+            native,
+        ),
+        TextPin(
+            "src/interop/examples_artifact.zig",
+            "Native UPSTREAM_COMMIT",
+            rf'^pub const UPSTREAM_COMMIT: \[\]const u8 = "({REVISION_RE})";$',
+            native,
+        ),
+        TextPin(
+            "tools/stwo-interop-rs/src/main.rs",
+            "Native UPSTREAM_COMMIT",
+            rf'^const UPSTREAM_COMMIT: &str = "({REVISION_RE})";$',
+            native,
+        ),
+        TextPin(
+            "tools/stwo-vector-gen/src/main.rs",
+            "Native UPSTREAM_COMMIT",
+            rf'^const UPSTREAM_COMMIT: &str = "({REVISION_RE})";$',
+            native,
+        ),
+        TextPin(
+            "tools/stwo-cf-vector-gen/src/main.rs",
+            "Native UPSTREAM_COMMIT",
+            rf'^const UPSTREAM_COMMIT: &str = "({REVISION_RE})";$',
+            native,
+        ),
+        TextPin(
+            "tools/stwo-cairo-verifier-rs/src/lib.rs",
+            "Stwo-Cairo repository",
+            r'^pub const STWO_CAIRO_REPOSITORY: &str = "([^"]+)";$',
+            ledger.cairo_repository,
+        ),
+        TextPin(
+            "tools/stwo-cairo-verifier-rs/src/lib.rs",
+            "Stwo-Cairo revision",
+            rf'^pub const STWO_CAIRO_REVISION: &str = "({REVISION_RE})";$',
+            cairo,
+        ),
+        TextPin(
+            "tools/stwo-cairo-verifier-rs/src/lib.rs",
+            "Cairo Stwo repository",
+            r'^pub const STWO_REPOSITORY: &str = "([^"]+)";$',
+            ledger.cairo_stwo_repository,
+        ),
+        TextPin(
+            "tools/stwo-cairo-verifier-rs/src/lib.rs",
+            "Cairo Stwo revision",
+            rf'^pub const STWO_REVISION: &str = "({REVISION_RE})";$',
+            cairo_stwo,
+        ),
+        TextPin(
+            "scripts/generate_cairo_claim_registry.py",
+            "claim-generator Stwo-Cairo revision",
+            rf'^PINNED_STWO_CAIRO_REVISION = "({REVISION_RE})"$',
+            cairo,
+        ),
+        TextPin(
+            "scripts/generate_cairo_claim_registry.py",
+            "claim-generator Stwo revision",
+            rf'^PINNED_STWO_REVISION = "({REVISION_RE})"$',
+            cairo_stwo,
+        ),
+        TextPin(
+            "scripts/sn_pie_metal_session.py",
+            "session Stwo-Cairo revision",
+            rf'^RUST_VERIFIER_STWO_CAIRO_REVISION = "({REVISION_RE})"$',
+            cairo,
+        ),
+        TextPin(
+            "scripts/sn_pie_metal_session.py",
+            "session Stwo revision",
+            rf'^RUST_VERIFIER_STWO_REVISION = "({REVISION_RE})"$',
+            cairo_stwo,
+        ),
+        TextPin(
+            "src/tools/metal_prover_session/state.zig",
+            "resident session Stwo-Cairo revision",
+            rf'^pub const rust_verifier_stwo_cairo_revision = "({REVISION_RE})";$',
+            cairo,
+        ),
+        TextPin(
+            "src/tools/metal_prover_session/state.zig",
+            "resident session Stwo revision",
+            rf'^pub const rust_verifier_stwo_revision = "({REVISION_RE})";$',
+            cairo_stwo,
+        ),
+        TextPin(
+            "src/frontends/cairo/prover.zig",
+            "Cairo prover Stwo-Cairo revision",
+            rf'^pub const pinned_stwo_cairo_revision = "({REVISION_RE})";$',
+            cairo,
+        ),
+        TextPin(
+            "src/frontends/cairo/prover.zig",
+            "Cairo prover Stwo revision",
+            rf'^pub const pinned_stwo_revision = "({REVISION_RE})";$',
+            cairo_stwo,
+        ),
+        TextPin(
+            "src/frontends/cairo/claim_registry.zig",
+            "generated claim-registry Stwo-Cairo revision",
+            rf'^    \.stwo_cairo = "({REVISION_RE})",$',
+            cairo,
+        ),
+        TextPin(
+            "src/frontends/cairo/claim_registry.zig",
+            "generated claim-registry Stwo revision",
+            rf'^    \.stwo = "({REVISION_RE})",$',
+            cairo_stwo,
+        ),
+        TextPin(
+            ".github/workflows/ci.yml",
+            "hosted Cairo checkout revision",
+            rf'^          STWO_CAIRO_REVISION: ({REVISION_RE})$',
+            cairo,
+        ),
+        TextPin(
+            ".github/workflows/ci.yml",
+            "hosted Cairo checkout repository",
+            r"^          git -C \"\$STWO_CAIRO_RUST_ROOT\" remote add origin (\S+)$",
+            ledger.cairo_repository,
+        ),
+    )
+
+
+def validate_repository(root: Path = ROOT, ledger_path: Path | None = None) -> list[str]:
+    path = ledger_path or root / "docs" / "conformance" / "upstream.md"
+    try:
+        ledger = parse_ledger(path)
+    except (OSError, PinLedgerError) as error:
+        return [f"{path}: {error}"]
+
+    errors: list[str] = []
+    for pin in _text_pins(ledger):
+        errors.extend(_check_text_pin(root, pin))
+
+    native_manifests = {
+        "tools/stwo-interop-rs/Cargo.toml": ("stwo",),
+        "tools/stwo-vector-gen/Cargo.toml": ("stwo",),
+        "tools/stwo-cf-vector-gen/Cargo.toml": ("stwo", "stwo-constraint-framework"),
+    }
+    for manifest, dependencies in native_manifests.items():
+        for dependency in dependencies:
+            errors.extend(
+                _check_manifest_dependency(
+                    root,
+                    manifest,
+                    dependency,
+                    ledger.native_repository,
+                    ledger.native_revision,
+                )
+            )
+        errors.extend(
+            _check_lock_sources(
+                root,
+                str(Path(manifest).with_name("Cargo.lock")),
+                ledger.native_repository,
+                ledger.native_revision,
+            )
+        )
+
+    errors.extend(_check_cairo_manifest(root, ledger))
+    cairo_lock = "tools/stwo-cairo-verifier-rs/Cargo.lock"
+    errors.extend(
+        _check_lock_sources(root, cairo_lock, ledger.cairo_repository, ledger.cairo_revision)
+    )
+    errors.extend(
+        _check_lock_sources(
+            root,
+            cairo_lock,
+            ledger.cairo_stwo_repository,
+            ledger.cairo_stwo_revision,
+        )
+    )
+    return errors
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", type=Path, default=ROOT, help="repository root")
+    parser.add_argument("--ledger", type=Path, help="override ledger path")
+    args = parser.parse_args(argv)
+
+    errors = validate_repository(args.root.resolve(), args.ledger)
+    if errors:
+        print("upstream pin validation failed:", file=sys.stderr)
+        for error in errors:
+            print(f"- {error}", file=sys.stderr)
+        return 1
+    print("upstream pin ledger matches all Native and Cairo carriers")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

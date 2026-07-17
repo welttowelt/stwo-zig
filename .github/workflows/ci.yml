@@ -50,7 +50,7 @@ jobs:
           STWO_CAIRO_REVISION: dcd5834565b7a26a27a614e353c9c60109ebc1d9
         run: |
           git init "$STWO_CAIRO_RUST_ROOT"
-          git -C "$STWO_CAIRO_RUST_ROOT" remote add origin https://github.com/starkware-libs/stwo-cairo.git
+          git -C "$STWO_CAIRO_RUST_ROOT" remote add origin https://github.com/teddyjfpender/stwo-cairo
           git -C "$STWO_CAIRO_RUST_ROOT" fetch --depth=1 origin "$STWO_CAIRO_REVISION"
           git -C "$STWO_CAIRO_RUST_ROOT" checkout --detach FETCH_HEAD
 

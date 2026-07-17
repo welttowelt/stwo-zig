@@ -3,6 +3,8 @@
 This file is the single source-pin ledger for the repository's independent Rust correctness
 oracles. A revision applies only to the compatibility lane that names it. Native Stwo acceptance
 does not establish Cairo acceptance, and Cairo acceptance does not establish Native Stwo parity.
+`python3 scripts/check_upstream_pins.py` rejects drift in manifests, lockfiles, source constants,
+generated registries, persistent sessions, prover boundaries, and hosted CI checkout metadata.
 
 ## Native Stwo Lane
 
