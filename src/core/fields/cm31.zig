@@ -100,10 +100,14 @@ pub const CM31 = struct {
         // imag = (a+b)(c+d) - ac - bd
         const ac = lhs.a.mul(rhs.a);
         const bd = lhs.b.mul(rhs.b);
-        const cross = lhs.a.add(lhs.b).mul(rhs.a.add(rhs.b));
+        const lhs_sum = lhs.a.add(lhs.b);
+        const rhs_sum = rhs.a.add(rhs.b);
+        const cross = lhs_sum.mul(rhs_sum);
+        var imaginary = cross.sub(ac);
+        imaginary = imaginary.sub(bd);
         return .{
             .a = ac.sub(bd),
-            .b = cross.sub(ac).sub(bd),
+            .b = imaginary,
         };
     }
 

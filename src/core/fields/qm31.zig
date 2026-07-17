@@ -89,9 +89,9 @@ pub const QM31 = struct {
     }
 
     pub inline fn eql(lhs: QM31, rhs: QM31) bool {
-        comptime std.debug.assert(@sizeOf(QM31) == SECURE_EXTENSION_DEGREE * @sizeOf(M31));
-        // Canonical, padding-free limb bytes avoid an aggregate comparison miscompile in Zig 0.15.2.
-        return std.mem.eql(u8, std.mem.asBytes(&lhs), std.mem.asBytes(&rhs));
+        // Compare field limbs explicitly. Aggregate equality and byte views of
+        // optimized by-value stack copies both miscompile under Zig 0.15.2.
+        return lhs.c0.eql(rhs.c0) and lhs.c1.eql(rhs.c1);
     }
 
     pub inline fn add(lhs: QM31, rhs: QM31) QM31 {
@@ -134,9 +134,14 @@ pub const QM31 = struct {
         // (a + bu) * (c + du) = (ac + rbd) + ((a+b)(c+d)-ac-bd)u.
         const ac = lhs.c0.mul(rhs.c0);
         const bd = lhs.c1.mul(rhs.c1);
-        const cross = lhs.c0.add(lhs.c1).mul(rhs.c0.add(rhs.c1)).sub(ac).sub(bd);
+        const lhs_sum = lhs.c0.add(lhs.c1);
+        const rhs_sum = rhs.c0.add(rhs.c1);
+        var cross = lhs_sum.mul(rhs_sum);
+        cross = cross.sub(ac);
+        cross = cross.sub(bd);
+        const rbd = mulByR(bd);
         return .{
-            .c0 = ac.add(mulByR(bd)),
+            .c0 = ac.add(rbd),
             .c1 = cross,
         };
     }
@@ -174,13 +179,16 @@ pub const QM31 = struct {
 
         // (a + bu)^-1 = (a - bu) / (a^2 - (2+i)b^2).
         const b2 = self.c1.square();
-        const ib2 = mulByI(b2);
-        const denom = self.c0.square().sub(b2.add(b2).add(ib2));
+        var r_b2 = b2.add(b2);
+        r_b2 = r_b2.add(mulByI(b2));
+        const a2 = self.c0.square();
+        const denom = a2.sub(r_b2);
         if (denom.isZero()) return Error.DivisionByZero;
         const denom_inverse = denom.invUncheckedNonZero();
+        const negative_b = self.c1.neg();
         return .{
             .c0 = self.c0.mul(denom_inverse),
-            .c1 = self.c1.neg().mul(denom_inverse),
+            .c1 = negative_b.mul(denom_inverse),
         };
     }
 
@@ -271,7 +279,8 @@ test "qm31: mul and square match schoolbook reference" {
 }
 
 test "qm31: inverse" {
-    const x = QM31.fromU32Unchecked(1, 2, 3, 4);
+    var x = QM31.fromU32Unchecked(1, 2, 3, 4);
+    std.mem.doNotOptimizeAway(&x);
     const inv_x = try x.inv();
     try std.testing.expect(x.mul(inv_x).eql(QM31.one()));
 
