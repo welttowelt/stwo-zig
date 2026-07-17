@@ -19,13 +19,12 @@ const cairo_opcodes = @import("../../frontends/cairo/adapter/opcodes.zig");
 const cairo_proof_plan = @import("../../frontends/cairo/proof_plan.zig");
 const witness_scheduler = @import("../../frontends/cairo/witness_scheduler.zig");
 const recipe_requirements = @import("recipe_requirements.zig");
+const resident_twiddles = @import("resident/twiddles.zig");
 const M31 = @import("../../core/fields/m31.zig").M31;
 const QM31 = @import("../../core/fields/qm31.zig").QM31;
-const twiddles_mod = @import("../../prover/poly/twiddles.zig");
 const circle_poly_mod = @import("../../prover/poly/circle/poly.zig");
 const circle_eval_mod = @import("../../prover/poly/circle/evaluation.zig");
 const canonic_circle_mod = @import("../../core/poly/circle/canonic.zig");
-const circle_mod = @import("../../core/circle.zig");
 
 pub const Error = error{
     InvalidSchedule,
@@ -1960,123 +1959,20 @@ pub fn restoreFixedTablePreprocessedEvaluations(
     if (try reader.readSliceShort(&trailing) != 0) return Error.InvalidSchedule;
 }
 
-pub fn populateProtocolTwiddles(
-    allocator: std.mem.Allocator,
-    resident_arena: *arena_plan.ResidentArena,
-    schedule: []const std.json.Value,
-    plan: arena_plan.Plan,
-) !void {
-    const forward = try one(schedule, plan, "ForwardTwiddles");
-    const preprocessed_inverse = try one(schedule, plan, "PreprocessedInverseTwiddles");
-    if (forward.size_bytes != preprocessed_inverse.size_bytes) return Error.InvalidBindingSize;
-    try populateTwiddlePair(allocator, resident_arena, forward, preprocessed_inverse);
-    const inverse = try one(schedule, plan, "InverseTwiddles");
-    try populateInverseTwiddles(allocator, resident_arena, inverse);
-    const quotient_inverse = try one(schedule, plan, "QuotientInverseTwiddles");
-    try populateSplitSubdomainInverseTwiddles(allocator, resident_arena, quotient_inverse);
-}
+pub const populateProtocolTwiddles = resident_twiddles.populateProtocolTwiddles;
+pub const populateForwardTwiddles = resident_twiddles.populateForwardTwiddles;
+pub const populateNamedInverseTwiddles = resident_twiddles.populateNamedInverseTwiddles;
+pub const populateQuotientInverseTwiddles = resident_twiddles.populateQuotientInverseTwiddles;
 
-pub fn populateForwardTwiddles(
-    allocator: std.mem.Allocator,
-    resident_arena: *arena_plan.ResidentArena,
-    schedule: []const std.json.Value,
-    plan: arena_plan.Plan,
-) !void {
-    try populateForwardTwiddleBinding(allocator, resident_arena, try one(schedule, plan, "ForwardTwiddles"));
-}
-
-fn populateForwardTwiddleBinding(
-    allocator: std.mem.Allocator,
-    resident_arena: *arena_plan.ResidentArena,
-    forward: arena_plan.Binding,
-) !void {
-    if (forward.size_bytes == 0 or forward.size_bytes % 4 != 0 or !std.math.isPowerOfTwo(forward.size_bytes / 4))
-        return Error.InvalidBindingSize;
-    const log_words: u32 = std.math.log2_int(u64, forward.size_bytes / 4);
-    var tree = try twiddles_mod.precomputeM31(allocator, circle_mod.Coset.halfOdds(log_words));
-    defer twiddles_mod.deinitM31(allocator, &tree);
-    @memcpy(try resident_arena.bytes(forward), std.mem.sliceAsBytes(tree.twiddles));
-}
-
-fn twiddleBankBinding(storage: arena_plan.Binding, log_size: u32) arena_plan.Binding {
-    std.debug.assert(log_size >= 4);
-    return storage;
-}
-
-pub fn populateNamedInverseTwiddles(
-    allocator: std.mem.Allocator,
-    resident_arena: *arena_plan.ResidentArena,
-    schedule: []const std.json.Value,
-    plan: arena_plan.Plan,
-    purpose_name: []const u8,
-) !void {
-    try populateInverseTwiddles(allocator, resident_arena, try one(schedule, plan, purpose_name));
-}
-
-pub fn populateQuotientInverseTwiddles(
-    allocator: std.mem.Allocator,
-    resident_arena: *arena_plan.ResidentArena,
-    schedule: []const std.json.Value,
-    plan: arena_plan.Plan,
-) !void {
-    try populateSplitSubdomainInverseTwiddles(
-        allocator,
-        resident_arena,
-        try one(schedule, plan, "QuotientInverseTwiddles"),
-    );
-}
+const populateInverseTwiddles = resident_twiddles.populateInverseTwiddles;
+const populateForwardTwiddleBinding = resident_twiddles.populateForwardTwiddleBinding;
+const twiddleBankBinding = resident_twiddles.twiddleBankBinding;
+const twiddleBindingForLog = resident_twiddles.twiddleBindingForLog;
+const twiddleOffsetForLog = resident_twiddles.twiddleOffsetForLog;
 
 pub const TranscriptBootstrapValidationOptions = transcript_fixture.TranscriptBootstrapValidationOptions;
 pub const validateTranscriptBootstrap = transcript_fixture.validateTranscriptBootstrap;
 pub const restoreTranscriptBootstrap = transcript_fixture.restoreTranscriptBootstrap;
-
-fn populateTwiddlePair(
-    allocator: std.mem.Allocator,
-    resident_arena: *arena_plan.ResidentArena,
-    forward: arena_plan.Binding,
-    inverse: arena_plan.Binding,
-) !void {
-    if (forward.size_bytes == 0 or forward.size_bytes % 4 != 0 or !std.math.isPowerOfTwo(forward.size_bytes / 4))
-        return Error.InvalidBindingSize;
-    const log_words: u32 = std.math.log2_int(u64, forward.size_bytes / 4);
-    var tree = try twiddles_mod.precomputeM31(allocator, circle_mod.Coset.halfOdds(log_words));
-    defer twiddles_mod.deinitM31(allocator, &tree);
-    @memcpy(try resident_arena.bytes(forward), std.mem.sliceAsBytes(tree.twiddles));
-    @memcpy(try resident_arena.bytes(inverse), std.mem.sliceAsBytes(tree.itwiddles));
-}
-
-fn populateInverseTwiddles(
-    allocator: std.mem.Allocator,
-    resident_arena: *arena_plan.ResidentArena,
-    inverse: arena_plan.Binding,
-) !void {
-    if (inverse.size_bytes == 0 or inverse.size_bytes % 4 != 0 or !std.math.isPowerOfTwo(inverse.size_bytes / 4))
-        return Error.InvalidBindingSize;
-    const log_words: u32 = std.math.log2_int(u64, inverse.size_bytes / 4);
-    var tree = try twiddles_mod.precomputeM31(allocator, circle_mod.Coset.halfOdds(log_words));
-    defer twiddles_mod.deinitM31(allocator, &tree);
-    @memcpy(try resident_arena.bytes(inverse), std.mem.sliceAsBytes(tree.itwiddles));
-}
-
-fn populateSplitSubdomainInverseTwiddles(
-    allocator: std.mem.Allocator,
-    resident_arena: *arena_plan.ResidentArena,
-    inverse: arena_plan.Binding,
-) !void {
-    if (inverse.size_bytes == 0 or inverse.size_bytes % 4 != 0 or
-        !std.math.isPowerOfTwo(inverse.size_bytes / 4))
-        return Error.InvalidBindingSize;
-    const half_coset_log: u32 = std.math.log2_int(u64, inverse.size_bytes / 4);
-    const subdomain_log = half_coset_log + 1;
-    var split = try canonic_circle_mod.CanonicCoset.new(subdomain_log + 1)
-        .circleDomain().split(allocator, 1);
-    defer split.deinit(allocator);
-    var tree = try twiddles_mod.precomputeM31(allocator, split.subdomain.half_coset);
-    defer twiddles_mod.deinitM31(allocator, &tree);
-    if (tree.itwiddles.len * @sizeOf(M31) != inverse.size_bytes)
-        return Error.InvalidBindingSize;
-    @memcpy(try resident_arena.bytes(inverse), std.mem.sliceAsBytes(tree.itwiddles));
-}
 
 pub fn prepareFixedTableBatch(
     allocator: std.mem.Allocator,
@@ -2832,14 +2728,6 @@ fn prepareComponentInterpolationGroupsForPurposes(
         );
     }
     return recipes;
-}
-
-fn twiddleBindingForLog(storage: arena_plan.Binding, log_size: u32) !arena_plan.Binding {
-    const offset_words = try twiddleOffsetForLog(storage, log_size);
-    var result = storage;
-    result.offset_bytes = @as(u64, offset_words) * 4;
-    result.size_bytes = (@as(u64, 1) << @intCast(log_size - 1)) * 4;
-    return result;
 }
 
 pub fn interpolateTraceColumns(
@@ -5284,15 +5172,6 @@ fn compositionComponentLimit(total: usize, encoded: ?[]const u8) !usize {
 fn wordOffset(binding: arena_plan.Binding) !u32 {
     if (binding.offset_bytes % 4 != 0) return Error.InvalidBindingSize;
     return std.math.cast(u32, binding.offset_bytes / 4) orelse Error.InvalidBindingSize;
-}
-
-fn twiddleOffsetForLog(binding: arena_plan.Binding, transform_log: u32) !u32 {
-    if (transform_log == 0 or binding.offset_bytes % 4 != 0 or binding.size_bytes % 4 != 0)
-        return Error.InvalidBindingSize;
-    const required_words = @as(u64, 1) << @intCast(transform_log - 1);
-    const available_words = binding.size_bytes / 4;
-    if (required_words > available_words) return Error.InvalidBindingSize;
-    return std.math.cast(u32, binding.offset_bytes / 4 + available_words - required_words) orelse Error.InvalidBindingSize;
 }
 
 fn writeBindingOffsets(
