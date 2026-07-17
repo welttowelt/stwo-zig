@@ -30,6 +30,7 @@ const schedule_coverage = @import("tools/metal_arena_plan/schedule_coverage.zig"
 const arena_diagnostics = @import("tools/metal_arena_plan/diagnostics.zig");
 const proof_layout_support = @import("tools/metal_arena_plan/proof_layout.zig");
 const transcript_fixture = @import("tools/metal_arena_plan/transcript_fixture.zig");
+const canonical_protocol_support = @import("tools/metal_arena_plan/canonical_protocol.zig");
 
 const aotNarrowAddressPurpose = schedule_addressing.aotNarrowAddressPurpose;
 const buildMerkleCommitCoverage = schedule_coverage.buildMerkleCommitCoverage;
@@ -64,29 +65,8 @@ const dumpAddOpcodeCoefficients = arena_diagnostics.dumpAddOpcodeCoefficients;
 const prove_timing_scope_name = "recorded_witness_start_to_verified_proof";
 const pow_timing_scope_name = "cpu_nonce_search_or_fixture_validation_only";
 
-pub const CanonicalProtocol = struct {
-    channel: []const u8,
-    channel_salt: u32,
-    log_blowup_factor: u32,
-    n_queries: u32,
-    interaction_pow_bits: u32,
-    query_pow_bits: u32,
-    fri_fold_step: u32,
-    fri_lifting: ?u32,
-    fri_log_last_layer_degree_bound: u32,
-};
-
-pub const canonical_protocol = CanonicalProtocol{
-    .channel = "blake2s",
-    .channel_salt = 0,
-    .log_blowup_factor = 1,
-    .n_queries = @intCast(resident_verifier.sn2_query_count),
-    .interaction_pow_bits = resident_verifier.sn2_interaction_pow_bits,
-    .query_pow_bits = resident_verifier.sn2_pow_bits,
-    .fri_fold_step = resident_verifier.sn2_fold_step,
-    .fri_lifting = null,
-    .fri_log_last_layer_degree_bound = 0,
-};
+pub const CanonicalProtocol = canonical_protocol_support.CanonicalProtocol;
+pub const canonical_protocol = canonical_protocol_support.canonical_protocol;
 
 fn runtimeVerifierGeometry(
     config_words: []const u32,
@@ -102,42 +82,7 @@ fn runtimeVerifierGeometry(
     );
 }
 
-/// Checks the serialized proof protocol without JSON number coercions. This is
-/// shared by the persistent daemon so it cannot promote a drifting runner.
-pub fn protocolObjectIsCanonical(value: ?std.json.Value) bool {
-    const object = switch (value orelse return false) {
-        .object => |object| object,
-        else => return false,
-    };
-    if (object.count() != 9) return false;
-    return jsonStringEquals(object.get("channel"), canonical_protocol.channel) and
-        jsonIntegerEquals(object.get("channel_salt"), canonical_protocol.channel_salt) and
-        jsonIntegerEquals(object.get("log_blowup_factor"), canonical_protocol.log_blowup_factor) and
-        jsonIntegerEquals(object.get("n_queries"), canonical_protocol.n_queries) and
-        jsonIntegerEquals(object.get("interaction_pow_bits"), canonical_protocol.interaction_pow_bits) and
-        jsonIntegerEquals(object.get("query_pow_bits"), canonical_protocol.query_pow_bits) and
-        jsonIntegerEquals(object.get("fri_fold_step"), canonical_protocol.fri_fold_step) and
-        jsonNull(object.get("fri_lifting")) and
-        jsonIntegerEquals(
-            object.get("fri_log_last_layer_degree_bound"),
-            canonical_protocol.fri_log_last_layer_degree_bound,
-        );
-}
-
-fn jsonStringEquals(value: ?std.json.Value, expected: []const u8) bool {
-    const actual = value orelse return false;
-    return actual == .string and std.mem.eql(u8, actual.string, expected);
-}
-
-fn jsonIntegerEquals(value: ?std.json.Value, expected: u32) bool {
-    const actual = value orelse return false;
-    return actual == .integer and actual.integer >= 0 and actual.integer == expected;
-}
-
-fn jsonNull(value: ?std.json.Value) bool {
-    const actual = value orelse return false;
-    return actual == .null;
-}
+pub const protocolObjectIsCanonical = canonical_protocol_support.objectIsCanonical;
 
 const Prepared = struct {
     ranges: [12]arena.LiveRange = [_]arena.LiveRange{.{ .first = 0, .last = 0 }} ** 12,
