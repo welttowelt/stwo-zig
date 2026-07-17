@@ -227,11 +227,15 @@ compiling every Cairo component before the first checkpoint. A limited artifact
 executes only the composition front, reports its cumulative accumulators, and
 does not finalize or commit the intentionally partial composition polynomial.
 It is diagnostic-only and must never be admitted as a production composition
-program. The SN2 prefixes of one and eight components pass the pinned Rust
-oracle at all 4 and 32 cumulative coordinates respectively. First-use pipeline
-creation remains the dominant cold cost: the two large fused kernels in
-component six took 7.63 and 9.33 seconds locally, while an already cached fused
-kernel was recreated in 0.612 milliseconds.
+program. SN2 prefixes of 1, 8, 16, and 28 components pass the pinned Rust oracle
+at all 4, 32, 64, and 112 cumulative coordinates respectively. First-use
+pipeline creation remains the dominant cold cost: large 2,048-operation fused
+kernels took 7.21-12.52 seconds locally, while cached kernels resolved in
+0.18-2.82 milliseconds. The corresponding cold composition preparation totals
+were 12.65 seconds for the eight new components in the 16-prefix run and 46.02
+seconds for the twelve new components in the 28-prefix run. Source JIT remains
+a diagnostic path; admitted streaming service must use an authenticated AOT
+metallib and a prewarmed persistent runtime.
 
 The exact planner gate consumes `sn_pie_2_composition.bin`, checks the 58
 component instances and 279 parts against every trace span, preprocessed index,

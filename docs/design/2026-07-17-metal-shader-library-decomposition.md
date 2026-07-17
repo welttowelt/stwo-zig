@@ -447,7 +447,7 @@ Metal pipeline reflection on supported hardware verifies argument indices/types 
 manifest. The library acceptance test compares `MTLLibrary.functionNames` with the complete expected
 90-name set and rejects a missing, duplicate, or unexpected core export.
 
-The initial version is `core_shader_abi = 1`. Moving code does not bump it. Renaming an entry point,
+The current version is `core_shader_abi = 2`. Moving code does not bump it. Renaming an entry point,
 changing a signature or shared layout, adding a function constant, or changing grid semantics is a
 separate ABI proposal and version bump. Internal helper names and translation-unit ownership are
 not ABI.

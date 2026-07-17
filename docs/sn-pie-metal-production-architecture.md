@@ -1,6 +1,6 @@
 # SN PIE Metal Production Prover Architecture
 
-Status: normative implementation plan and current-state ledger, 2026-07-16
+Status: normative implementation plan and current-state ledger, 2026-07-17
 
 This document is the authoritative architecture and delivery plan for the
 Stwo Zig/Metal Cairo prover. It consolidates the verified SN PIE results, the
@@ -879,6 +879,68 @@ preparation. The repeated request had three library hits, 345 pipeline hits,
 zero archive work or direct compilation, and 0.268 ms preparation. A complete
 read-only production shader manifest for the remaining generated families is
 still open.
+
+#### 4.4.1 Fused AIR parity and cold-cache evidence
+
+The 2026-07-17 SN2 component-oracle sequence established exact cumulative
+accumulator parity through all 28 exercised components: 112 of 112 extension
+coordinates matched the canonical Rust oracle. The bounded prefixes also
+matched at 32 of 32 and 64 of 64 coordinates. This is an evaluation-parity
+gate, not yet a complete-proof or throughput result.
+
+| Prefix | Parity | Source bytes | Dispatch slices | PSO resolution | Already-seen prefix | New suffix | Diagnostic process wall |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| N=8 | 32/32 | 289,638 | 9 | 19,862.213 ms | not isolated | not isolated | 37.13 s |
+| N=16 | 64/64 | 602,074 | 19 | 10,740.033 ms | 11.257 ms for N=8 | 10,728.776 ms | 28.48 s |
+| N=28 | 112/112 | 1,046,953 | 33 | 42,431.619 ms | 8.089 ms for N=16 | 42,423.530 ms | 62.52 s |
+
+These timings are deliberately not labelled simply `cold` and `warm`. Each
+prefix emitted a different whole source artifact and therefore received a new
+explicit library and binary-archive identity. The SHA-256 identities were
+`20951f48...7557` for N=8, `03b93b8a...346d` for N=16, and
+`f724aa5c...cc4e` for N=28. The corresponding newly populated archives were
+8,720,432, 15,642,848, and 28,992,768 bytes. The very small already-seen-prefix
+times in the later requests demonstrate Metal compiler/driver reuse of
+same-named functions across libraries; they are not hits in the prover's
+content-keyed library or binary archive.
+
+The current source lane keys its in-process library by the hash and length of
+the entire generated source. A fresh process still calls
+`newLibraryWithSource`, even when an archive exists. The binary archive can
+avoid pipeline-state compilation; it cannot replace MSL parsing and library
+compilation. Source subsets, per-PIE emission, component prefixes, fusion-cap
+changes, and support-source changes therefore fragment the explicit cache.
+The per-slice PSO timers above begin after source-library creation, so they also
+exclude that compilation interval. Process wall includes compilation and other
+diagnostic work and must not be used as prove-only MHz.
+
+Production consequently requires this minimum cold/warm architecture:
+
+1. Build an authenticated `stwo_zig_core.metallib` and one deterministic,
+   full-union Cairo AIR/evaluation metallib offline. Component-limited and
+   per-PIE source artifacts remain diagnostic-only; production never silently
+   falls back from a missing metallib to source JIT.
+2. Bind each metallib digest and export manifest to the core shader ABI or AIR
+   codegen ABI, generated support digest, compiler profile, and proof bundle.
+3. Load both libraries once into the persistent proving service, resolve and
+   prewarm the manifest-required PSOs before admitting blocks, and retain the
+   libraries, pipelines, recipes, and runtime across the block queue.
+4. Admit a warm block only when its required pipeline set is complete. Every
+   admitted block must report zero source compiles, archive misses, archive
+   population, direct PSO compiles, and archive serialization.
+5. Store archives in a durable private cache, not a temporary directory. Its
+   identity includes metallib SHA-256 and length, shader/codegen ABI and support
+   digest, compiler/SDK/Metal-language/deployment/math-mode profile, device
+   registry ID and GPU family, OS build, exact function name, function
+   constants or specialization state, and relevant pipeline descriptor state.
+   Population uses inter-process locking and atomic publication; the service
+   opens a complete admitted archive read-only.
+
+The two-library requirement is the smallest migration because the runtime
+already separates core and generated evaluation libraries. Combining them
+later is optional. AOT of only the generated AIR library is insufficient:
+the current core runtime still source-compiles its library and creates roughly
+90 pipeline states once per process outside the evaluation-cache telemetry.
 
 ### 4.5 Reproduce the current reference-free SN2 gate
 
