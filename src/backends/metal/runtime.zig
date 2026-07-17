@@ -1,4 +1,5 @@
 const std = @import("std");
+const abi = @import("runtime/abi.zig");
 const command_epoch = @import("command_epoch.zig");
 const shader_manifest = @import("shaders/manifest.zig");
 
@@ -10,6 +11,13 @@ comptime {
 
 pub const CommandEpoch = command_epoch.CommandEpoch;
 pub const CommandEpochStats = command_epoch.Stats;
+pub const ArenaCopyRange = abi.ArenaCopyRange;
+pub const DecommitFriRoundParams = abi.DecommitFriRoundParams;
+pub const DecommitTraceGroupParams = abi.DecommitTraceGroupParams;
+pub const PipelineCacheStats = abi.PipelineCacheStats;
+pub const PreparedStateRange = abi.PreparedStateRange;
+pub const QuotientCoefficientTask = abi.QuotientCoefficientTask;
+pub const QuotientCoefficientTerm = abi.QuotientCoefficientTerm;
 
 pub const lifted_merkle_prefix_bytes: u32 = 64;
 
@@ -785,57 +793,6 @@ extern fn stwo_zig_metal_decommit_assemble_fri(
     error_message: [*]u8,
     error_message_len: usize,
 ) bool;
-pub const DecommitFriRoundParams = extern struct {
-    unique_base: u64,
-    unique_count_base: u64,
-    tree_queries_base: u64,
-    tree_count_base: u64,
-    expanded_base: u64,
-    expanded_count_base: u64,
-    walk_base: u64,
-    walk_count_base: u64,
-    coordinate_bases: u64,
-    values_base: u64,
-    walk_scratch_base: u64,
-    retained_offsets: u64,
-    assembly_base: u64,
-    max_queries: u32,
-    cumulative_fold: u32,
-    fold_step: u32,
-    packed_log: u32,
-    max_positions: u32,
-    tree_index: u32,
-    leaf_log: u32,
-    assembly_capacity: u32,
-};
-
-pub const DecommitTraceGroupParams = extern struct {
-    column_offsets: u64,
-    column_logs: u64,
-    queries: u64,
-    query_count_at: u64,
-    values: u64,
-    leaf_indices: u64,
-    leaf_count_at: u64,
-    output_hashes: u64,
-    column_count: u32,
-    lifting_log: u32,
-    max_queries: u32,
-    first_column: u32,
-    stride: u32,
-    total_columns: u32,
-    max_leaf_count: u32,
-    domain_prefix_bytes: u32,
-    leaf_seed: [8]u32,
-};
-
-comptime {
-    if (@sizeOf(DecommitTraceGroupParams) != 128 or
-        @offsetOf(DecommitTraceGroupParams, "domain_prefix_bytes") != 92 or
-        @offsetOf(DecommitTraceGroupParams, "leaf_seed") != 96)
-        @compileError("Metal trace decommitment ABI drift");
-}
-
 extern fn stwo_zig_metal_decommit_fri_round(
     runtime: *anyopaque,
     arena: *anyopaque,
@@ -1238,40 +1195,6 @@ test "Metal lifted Merkle protocol mode accepts only supported encodings" {
     try std.testing.expect(!validDomainPrefixBytes(1));
     try std.testing.expect(!validDomainPrefixBytes(63));
     try std.testing.expect(!validDomainPrefixBytes(65));
-}
-
-pub const PipelineCacheStats = extern struct {
-    library_cache_hits: u64,
-    library_cache_misses: u64,
-    pipeline_cache_hits: u64,
-    binary_archive_hits: u64,
-    binary_archive_misses: u64,
-    direct_compiles: u64,
-    archive_populations: u64,
-    archive_serializations: u64,
-    pipeline_preparation_seconds: f64,
-
-    pub fn zero() PipelineCacheStats {
-        return std.mem.zeroes(PipelineCacheStats);
-    }
-};
-
-comptime {
-    if (@sizeOf(PipelineCacheStats) != 8 * @sizeOf(u64) + @sizeOf(f64))
-        @compileError("Metal pipeline cache stats ABI drift");
-}
-
-test "pipeline cache stats zero value" {
-    const stats = PipelineCacheStats.zero();
-    try std.testing.expectEqual(@as(u64, 0), stats.library_cache_hits);
-    try std.testing.expectEqual(@as(u64, 0), stats.library_cache_misses);
-    try std.testing.expectEqual(@as(u64, 0), stats.pipeline_cache_hits);
-    try std.testing.expectEqual(@as(u64, 0), stats.binary_archive_hits);
-    try std.testing.expectEqual(@as(u64, 0), stats.binary_archive_misses);
-    try std.testing.expectEqual(@as(u64, 0), stats.direct_compiles);
-    try std.testing.expectEqual(@as(u64, 0), stats.archive_populations);
-    try std.testing.expectEqual(@as(u64, 0), stats.archive_serializations);
-    try std.testing.expectEqual(@as(f64, 0), stats.pipeline_preparation_seconds);
 }
 
 const QuotientCommitConfig = struct {
@@ -3943,33 +3866,6 @@ pub const Runtime = struct {
         }
         return gpu_ms;
     }
-};
-
-pub const ArenaCopyRange = extern struct {
-    source_word_offset: u64,
-    destination_word_offset: u64,
-    word_count: u32,
-    reserved: u32 = 0,
-};
-
-pub const PreparedStateRange = extern struct {
-    arena_byte_offset: u64,
-    snapshot_byte_offset: u64,
-    byte_count: u64,
-};
-
-pub const QuotientCoefficientTerm = extern struct {
-    source_word_offset: u64,
-    source_word_count: u32,
-    value_coefficients: [4]u32,
-};
-
-pub const QuotientCoefficientTask = extern struct {
-    term_start: u32,
-    term_count: u32,
-    destination_word_offsets: [4]u32,
-    row_count: u32,
-    constant_terms: [4]u32,
 };
 
 pub const ArenaCopyPlan = struct {

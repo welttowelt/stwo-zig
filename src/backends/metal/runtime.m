@@ -11,6 +11,8 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "runtime/abi.h"
+
 @interface StwoZigMetalRuntime : NSObject
 @property(nonatomic, strong) id<MTLDevice> device;
 @property(nonatomic, strong) id<MTLCommandQueue> queue;
@@ -428,23 +430,6 @@ static uint32_t tree_layer_word_length(StwoZigMetalTree *tree, NSUInteger level)
     return ((const uint32_t *)tree.layerWordLengths.bytes)[level];
 }
 
-typedef struct {
-    uint64_t command_buffers;
-    uint64_t wait_count;
-    uint64_t intermediate_wait_count;
-    uint64_t compute_encoders;
-    uint64_t blit_encoders;
-    uint64_t dispatches;
-    double gpu_milliseconds;
-} StwoZigCommandEpochStats;
-
-typedef NS_ENUM(uint32_t, StwoZigCommandEpochState) {
-    StwoZigCommandEpochStateEncoding = 0u,
-    StwoZigCommandEpochStateSubmitted = 1u,
-    StwoZigCommandEpochStateCompleted = 2u,
-    StwoZigCommandEpochStateFailed = 3u,
-};
-
 @interface StwoZigCommandEpoch : NSObject
 @property(nonatomic, strong) StwoZigMetalRuntime *runtime;
 @property(nonatomic, strong) id<MTLBuffer> arena;
@@ -467,70 +452,6 @@ static bool encode_merkle_parent_chain_prepared(
     StwoZigMetalRuntime *runtime, id<MTLBuffer> arena, StwoZigMerkleParentChain *plan,
     id<MTLCommandBuffer> command, uint64_t *compute_encoders, uint64_t *dispatches
 );
-
-typedef struct {
-    uint32_t offset, length, batch, shift, direct;
-    uint32_t coeff_a, coeff_b, coeff_c, coeff_d;
-} StwoZigRawQuotientView;
-typedef struct {
-    uint32_t coefficient_offset, coefficient_length, basis_offset, log_size, output_index;
-} StwoZigPolynomialEvalTask;
-typedef struct {
-    uint32_t factor_offset, log_size, basis_offset, basis_length;
-} StwoZigPolynomialBasisTask;
-
-_Static_assert(sizeof(StwoZigPolynomialEvalTask) == 5u * sizeof(uint32_t),
-               "StwoZigPolynomialEvalTask ABI");
-_Static_assert(offsetof(StwoZigPolynomialEvalTask, coefficient_offset) == 0u, "coefficient_offset ABI");
-_Static_assert(offsetof(StwoZigPolynomialEvalTask, coefficient_length) == 4u, "coefficient_length ABI");
-_Static_assert(offsetof(StwoZigPolynomialEvalTask, basis_offset) == 8u, "basis_offset ABI");
-_Static_assert(offsetof(StwoZigPolynomialEvalTask, log_size) == 12u, "log_size ABI");
-_Static_assert(offsetof(StwoZigPolynomialEvalTask, output_index) == 16u, "output_index ABI");
-_Static_assert(sizeof(StwoZigPolynomialBasisTask) == 4u * sizeof(uint32_t),
-               "StwoZigPolynomialBasisTask ABI");
-_Static_assert(offsetof(StwoZigPolynomialBasisTask, factor_offset) == 0u, "factor_offset ABI");
-_Static_assert(offsetof(StwoZigPolynomialBasisTask, log_size) == 4u, "basis log_size ABI");
-_Static_assert(offsetof(StwoZigPolynomialBasisTask, basis_offset) == 8u, "basis_offset ABI");
-_Static_assert(offsetof(StwoZigPolynomialBasisTask, basis_length) == 12u, "basis_length ABI");
-
-typedef struct {
-    uint64_t unique_base, unique_count_base;
-    uint64_t tree_queries_base, tree_count_base;
-    uint64_t expanded_base, expanded_count_base;
-    uint64_t walk_base, walk_count_base;
-    uint64_t coordinate_bases, values_base, walk_scratch_base;
-    uint64_t retained_offsets, assembly_base;
-    uint32_t max_queries, cumulative_fold, fold_step, packed_log;
-    uint32_t max_positions, tree_index, leaf_log, assembly_capacity;
-} StwoZigDecommitFriRoundParams;
-
-typedef struct {
-    uint64_t column_offsets, column_logs;
-    uint64_t queries, query_count_at, values;
-    uint64_t leaf_indices, leaf_count_at, output_hashes;
-    uint32_t column_count, lifting_log, max_queries, first_column;
-    uint32_t stride, total_columns, max_leaf_count, domain_prefix_bytes;
-    uint32_t leaf_seed[8];
-} StwoZigDecommitTraceGroupParams;
-
-_Static_assert(sizeof(StwoZigDecommitTraceGroupParams) == 128u,
-               "StwoZigDecommitTraceGroupParams ABI");
-_Static_assert(offsetof(StwoZigDecommitTraceGroupParams, domain_prefix_bytes) == 92u,
-               "trace domain_prefix_bytes ABI");
-_Static_assert(offsetof(StwoZigDecommitTraceGroupParams, leaf_seed) == 96u,
-               "trace leaf_seed ABI");
-
-typedef struct {
-    uint64_t library_cache_hits;
-    uint64_t library_cache_misses;
-    uint64_t pipeline_cache_hits;
-    uint64_t binary_archive_hits;
-    uint64_t binary_archive_misses;
-    uint64_t direct_compiles;
-    uint64_t archive_populations;
-    uint64_t archive_serializations;
-    double pipeline_preparation_seconds;
-} StwoZigPipelineCacheStats;
 
 static void write_error(char *destination, size_t length, NSString *message) {
     if (destination == NULL || length == 0) return;
@@ -997,12 +918,6 @@ void *stwo_zig_metal_quotient_combine_prepare(
 void stwo_zig_metal_quotient_combine_plan_destroy(void *plan_ptr) {
     if (plan_ptr != NULL) CFRelease(plan_ptr);
 }
-
-typedef struct {
-    uint64_t source_word_offset;
-    uint32_t source_word_count;
-    uint32_t value_coefficients[4];
-} StwoZigQuotientCoefficientTerm;
 
 bool stwo_zig_metal_quotient_coefficients_resident(
     void *runtime_ptr, void *arena_ptr,
@@ -2160,19 +2075,6 @@ bool stwo_zig_metal_clear_arena_ranges(
         return true;
     }
 }
-
-typedef struct {
-    uint64_t source_word_offset;
-    uint64_t destination_word_offset;
-    uint32_t word_count;
-    uint32_t reserved;
-} StwoZigArenaCopyRange;
-
-typedef struct {
-    uint64_t arena_byte_offset;
-    uint64_t snapshot_byte_offset;
-    uint64_t byte_count;
-} StwoZigPreparedStateRange;
 
 void *stwo_zig_metal_arena_copy_prepare(
     void *runtime_ptr, const StwoZigArenaCopyRange *ranges, uint32_t range_count,

@@ -5,6 +5,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE_PATH = ROOT / "src/backends/metal/runtime.m"
 ZIG_SOURCE_PATH = ROOT / "src/backends/metal/runtime.zig"
+ZIG_ABI_SOURCE_PATH = ROOT / "src/backends/metal/runtime/abi.zig"
 
 
 def function_body(source: str, name: str, next_name: str) -> str:
@@ -18,6 +19,7 @@ class MetalPipelineCacheSourceTest(unittest.TestCase):
     def setUpClass(cls):
         cls.source = SOURCE_PATH.read_text()
         cls.zig_source = ZIG_SOURCE_PATH.read_text()
+        cls.zig_abi_source = ZIG_ABI_SOURCE_PATH.read_text()
 
     def test_file_backed_libraries_use_canonical_runtime_cache(self):
         body = function_body(
@@ -217,11 +219,12 @@ class MetalPipelineCacheSourceTest(unittest.TestCase):
         )
         for field in fields:
             self.assertIn(field, self.source)
-            self.assertIn(field, self.zig_source)
-        self.assertIn("pub const PipelineCacheStats = extern struct", self.zig_source)
-        self.assertIn("return std.mem.zeroes(PipelineCacheStats)", self.zig_source)
+            self.assertIn(field, self.zig_abi_source)
+        self.assertIn("pub const PipelineCacheStats = extern struct", self.zig_abi_source)
+        self.assertIn("return std.mem.zeroes(PipelineCacheStats)", self.zig_abi_source)
+        self.assertIn("pub const PipelineCacheStats = abi.PipelineCacheStats", self.zig_source)
         self.assertIn("pub fn pipelineCacheStats(self: *const Runtime)", self.zig_source)
-        self.assertIn('test "pipeline cache stats zero value"', self.zig_source)
+        self.assertIn('test "pipeline cache stats zero value"', self.zig_abi_source)
 
 
 if __name__ == "__main__":
