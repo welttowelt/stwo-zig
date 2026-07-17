@@ -5,9 +5,11 @@ const qm31 = @import("../../core/fields/qm31.zig");
 const lifted_merkle_hasher = @import("../../core/vcs_lifted/merkle_hasher.zig");
 const work_pool_mod = @import("../work_pool.zig");
 const quotient_ops = @import("../pcs/quotient_ops.zig");
+const quotient_tile_sink = @import("../pcs/quotient_tile_sink.zig");
 const secure_column = @import("../secure_column.zig");
 const decommit_mod = @import("decommit.zig");
 const columns_mod = @import("columns.zig");
+const first_layer_sink = @import("first_layer_sink.zig");
 const leaves_mod = @import("leaves.zig");
 const layers_mod = @import("layers.zig");
 const parameters = @import("parameters.zig");
@@ -40,6 +42,8 @@ pub fn MerkleProverLifted(comptime H: type) type {
         const WaitGroup = std.Thread.WaitGroup;
 
         pub const DecommitmentResult = decommit_mod.DecommitmentResult(H);
+        pub const LazyQuotientCommitStats = quotient_tile_sink.ExecutionStats;
+        pub const LazyQuotientCommitMode = enum { tiled, legacy };
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
             for (self.layers) |layer| self.layer_allocator.free(layer);
@@ -73,16 +77,86 @@ pub fn MerkleProverLifted(comptime H: type) type {
             provider: *quotient_ops.LazyQuotientProvider,
             out_column: *SecureColumnByCoords,
         ) !Self {
+            var stats: LazyQuotientCommitStats = undefined;
+            return commitWithLazyQuotientsMode(
+                allocator,
+                provider,
+                out_column,
+                .tiled,
+                &stats,
+            );
+        }
+
+        pub fn commitWithLazyQuotientsLegacy(
+            allocator: std.mem.Allocator,
+            provider: *quotient_ops.LazyQuotientProvider,
+            out_column: *SecureColumnByCoords,
+        ) !Self {
+            var stats: LazyQuotientCommitStats = undefined;
+            return commitWithLazyQuotientsMode(
+                allocator,
+                provider,
+                out_column,
+                .legacy,
+                &stats,
+            );
+        }
+
+        pub fn commitWithLazyQuotientsMode(
+            allocator: std.mem.Allocator,
+            provider: *quotient_ops.LazyQuotientProvider,
+            out_column: *SecureColumnByCoords,
+            mode: LazyQuotientCommitMode,
+            stats: *LazyQuotientCommitStats,
+        ) !Self {
             const domain_size = provider.domain_size;
             if (domain_size < 2 or !std.math.isPowerOfTwo(domain_size)) return error.InvalidColumnSize;
             const log_size: u32 = @intCast(std.math.log2_int(usize, domain_size));
-
-            try provider.computeAll(allocator, out_column);
-
             const layer_alloc = layerAllocator(allocator);
-            const leaves = try layer_alloc.alloc(H.Hash, domain_size);
-            errdefer layer_alloc.free(leaves);
-            hashLazyQuotientLeaves(out_column, leaves);
+
+            const leaves = switch (mode) {
+                .tiled => blk: {
+                    var sink = try first_layer_sink.FirstLayerLeafSink(H).init(
+                        layer_alloc,
+                        domain_size,
+                    );
+                    defer sink.deinit();
+                    stats.* = try provider.computeAllWithTileSink(
+                        allocator,
+                        out_column,
+                        sink.factory(),
+                    );
+                    break :blk try sink.takeLeaves();
+                },
+                .legacy => blk: {
+                    try provider.computeAll(allocator, out_column);
+                    const owned_leaves = try layer_alloc.alloc(H.Hash, domain_size);
+                    errdefer layer_alloc.free(owned_leaves);
+                    hashLazyQuotientLeaves(out_column, owned_leaves);
+                    stats.* = .{
+                        .tile_pipeline_selected = false,
+                        .worker_count = 0,
+                        .tile_row_limit = 0,
+                        .tile_count = 0,
+                        .peak_scratch_bytes_per_worker = 0,
+                        .total_scratch_bytes = 0,
+                        .complete_column_combined_intermediate_bytes = try provider.combinedIntermediateBytes(),
+                        .post_compute_leaf_pass_count = 1,
+                    };
+                    break :blk owned_leaves;
+                },
+            };
+            return buildTreeFromOwnedLeaves(allocator, layer_alloc, leaves, log_size);
+        }
+
+        fn buildTreeFromOwnedLeaves(
+            allocator: std.mem.Allocator,
+            layer_alloc: std.mem.Allocator,
+            leaves: []H.Hash,
+            log_size: u32,
+        ) !Self {
+            var leaves_appended = false;
+            errdefer if (!leaves_appended) layer_alloc.free(leaves);
 
             // Build internal Merkle layers from the leaves upward.
             var layers_bottom_up = std.ArrayList([]H.Hash).empty;
@@ -91,10 +165,12 @@ pub fn MerkleProverLifted(comptime H: type) type {
                 for (layers_bottom_up.items) |layer| layer_alloc.free(layer);
             }
 
-            try layers_bottom_up.append(allocator, leaves);
+            try layers_bottom_up.ensureUnusedCapacity(allocator, 1);
+            layers_bottom_up.appendAssumeCapacity(leaves);
+            leaves_appended = true;
 
-            if (domain_size > 1) {
-                const max_out_len = domain_size >> 1;
+            if (leaves.len > 1) {
+                const max_out_len = leaves.len >> 1;
                 var executor: LayerExecutor = undefined;
                 executor.init(
                     max_out_len,
@@ -105,13 +181,14 @@ pub fn MerkleProverLifted(comptime H: type) type {
 
                 var i: usize = 0;
                 while (i < log_size) : (i += 1) {
+                    try layers_bottom_up.ensureUnusedCapacity(allocator, 1);
                     const next_layer = try LayerOps.buildNextLayer(
                         layer_alloc,
                         layers_bottom_up.items[layers_bottom_up.items.len - 1],
                         &executor,
                         merkleWorkerOverride(allocator),
                     );
-                    try layers_bottom_up.append(allocator, next_layer);
+                    layers_bottom_up.appendAssumeCapacity(next_layer);
                 }
             }
 
@@ -543,6 +620,20 @@ pub fn MerkleProverLifted(comptime H: type) type {
                 batch_size: usize,
             ) ![]H.Hash {
                 return LeafOps.buildBatched(allocator, layer_alloc, sorted_columns, batch_size);
+            }
+
+            pub fn buildTreeFromOwnedLeaves(
+                allocator: std.mem.Allocator,
+                layer_alloc: std.mem.Allocator,
+                leaves: []H.Hash,
+                log_size: u32,
+            ) !Self {
+                return Self.buildTreeFromOwnedLeaves(
+                    allocator,
+                    layer_alloc,
+                    leaves,
+                    log_size,
+                );
             }
         } else struct {};
     };

@@ -24,7 +24,7 @@ test "MerkleProverLifted: commitWithLazyQuotients produces same root as standard
     const Hasher = blake2_merkle.Blake2sMerkleHasher;
     const Prover = MerkleProverLifted(Hasher);
 
-    const lifting_log_size: u32 = 6;
+    const lifting_log_size: u32 = 9;
     const domain_size = @as(usize, 1) << @intCast(lifting_log_size);
 
     // Build test trace columns.
@@ -138,7 +138,14 @@ test "MerkleProverLifted: commitWithLazyQuotients produces same root as standard
     var lazy_column = try SecureColumnByCoords.uninitialized(alloc, domain_size);
     defer lazy_column.deinit(alloc);
 
-    var lazy_tree = try Prover.commitWithLazyQuotients(alloc, &provider, &lazy_column);
+    var tiled_stats: Prover.LazyQuotientCommitStats = undefined;
+    var lazy_tree = try Prover.commitWithLazyQuotientsMode(
+        alloc,
+        &provider,
+        &lazy_column,
+        .tiled,
+        &tiled_stats,
+    );
     defer lazy_tree.deinit(alloc);
     const lazy_root = lazy_tree.root();
 
@@ -149,6 +156,79 @@ test "MerkleProverLifted: commitWithLazyQuotients produces same root as standard
     for (0..domain_size) |i| {
         try std.testing.expect(quotients_column.at(i).eql(lazy_column.at(i)));
     }
+
+    try std.testing.expect(tiled_stats.tile_pipeline_selected);
+    try std.testing.expect(tiled_stats.tile_count >= 2);
+    try std.testing.expectEqual(@as(usize, 0), tiled_stats.post_compute_leaf_pass_count);
+    try std.testing.expect(tiled_stats.complete_column_combined_intermediate_bytes > 0);
+    try std.testing.expectEqual(standard_tree.layers.len, lazy_tree.layers.len);
+    for (standard_tree.layers, lazy_tree.layers) |standard_layer, lazy_layer| {
+        try std.testing.expectEqualSlices(Hasher.Hash, standard_layer, lazy_layer);
+    }
+
+    const borrowed_items3 = try alloc.alloc([]const ColumnEvaluation, columns.items.len);
+    defer alloc.free(borrowed_items3);
+    for (columns.items, 0..) |tree_columns_for_provider, i| {
+        borrowed_items3[i] = tree_columns_for_provider;
+    }
+    var legacy_provider = try quotient_ops.LazyQuotientProvider.init(
+        alloc,
+        TreeVec([]const ColumnEvaluation).initOwned(borrowed_items3),
+        sampled_points,
+        sampled_values,
+        alpha,
+        lifting_log_size,
+    );
+    defer legacy_provider.deinit(alloc);
+    var legacy_column = try SecureColumnByCoords.uninitialized(alloc, domain_size);
+    defer legacy_column.deinit(alloc);
+    var legacy_stats: Prover.LazyQuotientCommitStats = undefined;
+    var legacy_tree = try Prover.commitWithLazyQuotientsMode(
+        alloc,
+        &legacy_provider,
+        &legacy_column,
+        .legacy,
+        &legacy_stats,
+    );
+    defer legacy_tree.deinit(alloc);
+
+    try std.testing.expect(!legacy_stats.tile_pipeline_selected);
+    try std.testing.expectEqual(@as(usize, 1), legacy_stats.post_compute_leaf_pass_count);
+    try std.testing.expectEqual(tiled_stats.complete_column_combined_intermediate_bytes, legacy_stats.complete_column_combined_intermediate_bytes);
+    for (0..domain_size) |i| {
+        try std.testing.expect(lazy_column.at(i).eql(legacy_column.at(i)));
+    }
+    try std.testing.expectEqual(lazy_tree.layers.len, legacy_tree.layers.len);
+    for (lazy_tree.layers, legacy_tree.layers) |tiled_layer, legacy_layer| {
+        try std.testing.expectEqualSlices(Hasher.Hash, tiled_layer, legacy_layer);
+    }
+}
+
+fn buildOwnedLeafTree(allocator: std.mem.Allocator) !void {
+    const Hasher = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Prover = MerkleProverLifted(Hasher);
+    const leaves = try allocator.alloc(Hasher.Hash, 8);
+    var leaves_owned = true;
+    defer if (leaves_owned) allocator.free(leaves);
+    for (leaves, 0..) |*leaf, index| @memset(leaf, @intCast(index + 1));
+
+    // The tree builder consumes the leaf allocation on both success and error.
+    leaves_owned = false;
+    var tree = try Prover.testing.buildTreeFromOwnedLeaves(
+        allocator,
+        allocator,
+        leaves,
+        3,
+    );
+    defer tree.deinit(allocator);
+}
+
+test "prover vcs_lifted: owned leaf tree releases every failed allocation" {
+    try std.testing.checkAllAllocationFailures(
+        std.testing.allocator,
+        buildOwnedLeafTree,
+        .{},
+    );
 }
 
 test "prover vcs_lifted: batched leaf building matches original for uniform columns" {

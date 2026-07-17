@@ -8,6 +8,7 @@ const qm31 = @import("../../core/fields/qm31.zig");
 const quotients = @import("../../core/pcs/quotients.zig");
 const canonic = @import("../../core/poly/circle/canonic.zig");
 const core_utils = @import("../../core/utils.zig");
+const tile_sink = @import("quotient_tile_sink.zig");
 
 const CircleDomain = @import("../../core/poly/circle/domain.zig").CircleDomain;
 const CirclePointM31 = circle.CirclePointM31;
@@ -112,6 +113,12 @@ pub const Scratch = struct {
         const start = std.math.mul(usize, row, self.batch_count) catch
             return error.ScratchSizeOverflow;
         return self.denominator_inverses[start..][0..self.batch_count];
+    }
+
+    pub fn retainedBytes(self: Scratch) usize {
+        return self.domain_points.len * @sizeOf(CirclePointM31) +
+            self.denominators.len * @sizeOf(CM31) +
+            self.denominator_inverses.len * @sizeOf(CM31);
     }
 };
 
@@ -289,10 +296,12 @@ pub const StreamingWork = struct {
     combined_views: []const CombinedContributionView,
     quotient_constants: *const quotients.QuotientConstants,
     lifting_log_size: u32,
+    tile_writer: ?tile_sink.Writer = null,
+    completed_tiles: usize = 0,
     failure: ?anyerror = null,
 };
 
-pub fn executeStreaming(item: *const StreamingWork) !void {
+pub fn executeStreaming(item: *StreamingWork) !void {
     if (item.output_start > item.start) return error.ShapeMismatch;
     const output_end = item.end - item.output_start;
     for (item.out_columns) |column| {
@@ -312,10 +321,45 @@ pub fn executeStreaming(item: *const StreamingWork) !void {
         }
         try scratch.prepare(workspace, row_count);
 
-        for (0..row_count) |row| {
-            const position = chunk_start + row;
-            const domain_point = scratch.domain_points[row];
-            workspace.resetNumerators();
+        var tile_row_start: usize = 0;
+        while (tile_row_start < row_count) {
+            const tile_row_end = @min(
+                row_count,
+                tile_row_start + tile_sink.DEFAULT_TILE_ROWS,
+            );
+            for (tile_row_start..tile_row_end) |row| {
+                const position = chunk_start + row;
+                const domain_point = scratch.domain_points[row];
+                workspace.resetNumerators();
+                accumulateStreamingNumerators(workspace, item.combined_views, position);
+                try writeQuotientRow(
+                    item.out_columns,
+                    position - item.output_start,
+                    item.quotient_constants,
+                    domain_point.y,
+                    workspace.batch_numerators,
+                    try scratch.inversesForRow(row),
+                );
+            }
+            try emitCompletedTile(
+                item,
+                chunk_start + tile_row_start,
+                chunk_start + tile_row_end,
+            );
+            tile_row_start = tile_row_end;
+        }
+        chunk_start += row_count;
+    }
+}
+
+fn executeStreamingScalar(item: *StreamingWork) !void {
+    const workspace = item.workspace;
+    var tile_start = item.start;
+    while (tile_start < item.end) {
+        const tile_end = @min(item.end, tile_start + tile_sink.DEFAULT_TILE_ROWS);
+        for (tile_start..tile_end) |position| {
+            const domain_point = item.domain.at(core_utils.bitReverseIndex(position, item.lifting_log_size));
+            try workspace.beginRow(domain_point);
             accumulateStreamingNumerators(workspace, item.combined_views, position);
             try writeQuotientRow(
                 item.out_columns,
@@ -323,28 +367,25 @@ pub fn executeStreaming(item: *const StreamingWork) !void {
                 item.quotient_constants,
                 domain_point.y,
                 workspace.batch_numerators,
-                try scratch.inversesForRow(row),
+                workspace.denominator_inverses,
             );
         }
-        chunk_start += row_count;
+        try emitCompletedTile(item, tile_start, tile_end);
+        tile_start = tile_end;
     }
 }
 
-fn executeStreamingScalar(item: *const StreamingWork) !void {
-    const workspace = item.workspace;
-    for (item.start..item.end) |position| {
-        const domain_point = item.domain.at(core_utils.bitReverseIndex(position, item.lifting_log_size));
-        try workspace.beginRow(domain_point);
-        accumulateStreamingNumerators(workspace, item.combined_views, position);
-        try writeQuotientRow(
-            item.out_columns,
-            position - item.output_start,
-            item.quotient_constants,
-            domain_point.y,
-            workspace.batch_numerators,
-            workspace.denominator_inverses,
-        );
+fn emitCompletedTile(item: *StreamingWork, start: usize, end: usize) !void {
+    const writer = item.tile_writer orelse return;
+    if (start < item.output_start or end <= start) return error.ShapeMismatch;
+    const output_start = start - item.output_start;
+    const output_end = end - item.output_start;
+    var coordinates: [qm31.SECURE_EXTENSION_DEGREE][]const M31 = undefined;
+    inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+        coordinates[coordinate] = item.out_columns[coordinate][output_start..output_end];
     }
+    try writer.absorb(.{ .start = start, .coordinates = coordinates });
+    item.completed_tiles += 1;
 }
 
 fn accumulateStreamingNumerators(

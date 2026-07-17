@@ -6,6 +6,7 @@ const quotients = @import("../../core/pcs/quotients.zig");
 const pcs_utils = @import("../../core/pcs/utils.zig");
 const canonic = @import("../../core/poly/circle/canonic.zig");
 const row_executor = @import("quotient_row_executor.zig");
+const tile_sink = @import("quotient_tile_sink.zig");
 const secure_column = @import("../secure_column.zig");
 const work_pool_mod = @import("../work_pool.zig");
 
@@ -264,7 +265,7 @@ pub const LazyQuotientProvider = struct {
             if (coord_buf.len < chunk_len) return QuotientOpsError.ShapeMismatch;
         }
 
-        const work = row_executor.StreamingWork{
+        var work = row_executor.StreamingWork{
             .out_columns = out_coords.*,
             .start = chunk_start,
             .end = chunk_end,
@@ -289,7 +290,7 @@ pub const LazyQuotientProvider = struct {
         if (out.len() != self.domain_size) return QuotientOpsError.ShapeMismatch;
 
         if (!builtin.single_threaded) {
-            if (try self.computeAllParallel(allocator, out)) return;
+            if (try self.computeAllParallel(allocator, out, null) != null) return;
         }
 
         var chunk_start: usize = 0;
@@ -304,16 +305,72 @@ pub const LazyQuotientProvider = struct {
         }
     }
 
+    /// Computes the retained quotient column and emits each completed row tile
+    /// to a worker-local sink before its output cache lines are reused.
+    pub fn computeAllWithTileSink(
+        self: *LazyQuotientProvider,
+        allocator: std.mem.Allocator,
+        out: *SecureColumnByCoords,
+        factory: tile_sink.Factory,
+    ) !tile_sink.ExecutionStats {
+        if (out.len() != self.domain_size) return QuotientOpsError.ShapeMismatch;
+
+        if (!builtin.single_threaded) {
+            if (try self.computeAllParallel(allocator, out, factory)) |stats| return stats;
+        }
+
+        const writer = try factory.prepareWriter(0, .{ .start = 0, .end = self.domain_size });
+        var work = row_executor.StreamingWork{
+            .out_columns = out.columns,
+            .start = 0,
+            .end = self.domain_size,
+            .workspace = &self.workspace,
+            .scratch = if (self.chunk_scratch) |*scratch| scratch else null,
+            .domain = self.domain,
+            .combined_views = self.combined_views,
+            .quotient_constants = &self.prepared.quotient_constants,
+            .lifting_log_size = self.lifting_log_size,
+            .tile_writer = writer,
+        };
+        try row_executor.executeStreaming(&work);
+        try factory.finishWriters(1);
+        const scratch_bytes = if (self.chunk_scratch) |scratch| scratch.retainedBytes() else 0;
+        return .{
+            .tile_pipeline_selected = true,
+            .worker_count = 1,
+            .tile_row_limit = tile_sink.DEFAULT_TILE_ROWS,
+            .tile_count = work.completed_tiles,
+            .peak_scratch_bytes_per_worker = scratch_bytes,
+            .total_scratch_bytes = scratch_bytes,
+            .complete_column_combined_intermediate_bytes = try self.combinedIntermediateBytes(),
+            .post_compute_leaf_pass_count = 0,
+        };
+    }
+
+    pub fn combinedIntermediateBytes(self: *const LazyQuotientProvider) !usize {
+        var bytes: usize = 0;
+        for (self.combined_views) |view| {
+            for (view.coordinates) |coordinate| {
+                const coordinate_bytes = std.math.mul(usize, coordinate.len, @sizeOf(M31)) catch
+                    return error.ScratchSizeOverflow;
+                bytes = std.math.add(usize, bytes, coordinate_bytes) catch
+                    return error.ScratchSizeOverflow;
+            }
+        }
+        return bytes;
+    }
+
     fn computeAllParallel(
         self: *const LazyQuotientProvider,
         allocator: std.mem.Allocator,
         out: *SecureColumnByCoords,
-    ) !bool {
+        factory: ?tile_sink.Factory,
+    ) !?tile_sink.ExecutionStats {
         const use_batched_inversion = self.chunk_scratch != null;
-        if (!use_batched_inversion and !self.allow_parallel_scalar) return false;
-        const pool = work_pool_mod.getGlobalPool() orelse return false;
+        if (!use_batched_inversion and !self.allow_parallel_scalar) return null;
+        const pool = work_pool_mod.getGlobalPool() orelse return null;
         const n_workers = @min(pool.workerCount(), self.domain_size / MIN_POSITIONS_PER_WORKER);
-        if (n_workers <= 1) return false;
+        if (n_workers <= 1) return null;
 
         const workspaces = try allocator.alloc(quotients.RowQuotientWorkspace, n_workers);
         defer allocator.free(workspaces);
@@ -340,7 +397,7 @@ pub const LazyQuotientProvider = struct {
                     @min(worker_span, row_executor.MAX_ROWS),
                     self.domain_size,
                 ) catch |err| switch (err) {
-                    error.ParallelUnavailable => return false,
+                    error.ParallelUnavailable => return null,
                     else => return err,
                 };
                 scratch_initialized += 1;
@@ -350,6 +407,13 @@ pub const LazyQuotientProvider = struct {
         var work_items: [work_pool_mod.MAX_WORKERS]row_executor.StreamingWork = undefined;
         for (0..n_workers) |worker| {
             const worker_range = try row_executor.workerRange(self.domain_size, worker_span, worker);
+            const writer = if (factory) |active|
+                try active.prepareWriter(worker, .{
+                    .start = worker_range.start,
+                    .end = worker_range.end,
+                })
+            else
+                null;
             work_items[worker] = .{
                 .out_columns = out.columns,
                 .start = worker_range.start,
@@ -360,6 +424,7 @@ pub const LazyQuotientProvider = struct {
                 .combined_views = self.combined_views,
                 .quotient_constants = &self.prepared.quotient_constants,
                 .lifting_log_size = self.lifting_log_size,
+                .tile_writer = writer,
             };
         }
 
@@ -372,7 +437,33 @@ pub const LazyQuotientProvider = struct {
         for (work_items[0..n_workers]) |item| {
             if (item.failure) |err| return err;
         }
-        return true;
+        if (factory) |active| try active.finishWriters(n_workers);
+
+        var tile_count: usize = 0;
+        for (work_items[0..n_workers]) |item| tile_count += item.completed_tiles;
+        var total_scratch_bytes: usize = 0;
+        var peak_scratch_bytes: usize = 0;
+        if (scratches) |values| {
+            for (values) |scratch| {
+                const retained = scratch.retainedBytes();
+                total_scratch_bytes = std.math.add(usize, total_scratch_bytes, retained) catch
+                    return error.ScratchSizeOverflow;
+                peak_scratch_bytes = @max(peak_scratch_bytes, retained);
+            }
+        }
+        return .{
+            .tile_pipeline_selected = factory != null,
+            .worker_count = n_workers,
+            .tile_row_limit = tile_sink.DEFAULT_TILE_ROWS,
+            .tile_count = tile_count,
+            .peak_scratch_bytes_per_worker = peak_scratch_bytes,
+            .total_scratch_bytes = total_scratch_bytes,
+            .complete_column_combined_intermediate_bytes = if (factory != null)
+                try self.combinedIntermediateBytes()
+            else
+                0,
+            .post_compute_leaf_pass_count = if (factory == null) 1 else 0,
+        };
     }
 };
 
@@ -965,7 +1056,7 @@ fn computeStreamingFriQuotients(
     var out = try SecureColumnByCoords.uninitialized(allocator, domain_size);
     errdefer out.deinit(allocator);
 
-    const item = row_executor.StreamingWork{
+    var item = row_executor.StreamingWork{
         .out_columns = out.columns,
         .start = 0,
         .end = domain_size,
