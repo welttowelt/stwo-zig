@@ -1,0 +1,277 @@
+use anyhow::{ensure, Context, Result};
+use cairo_air::claims::CairoClaim;
+use serde::Serialize;
+use sha2::{Digest, Sha256};
+use stwo::core::fields::m31::BaseField;
+use stwo::prover::backend::simd::SimdBackend;
+use stwo::prover::backend::Column;
+use stwo::prover::poly::circle::CircleEvaluation;
+use stwo::prover::poly::BitReversedOrder;
+
+const COLUMN_DOMAIN: &[u8] = b"STWO_CAIRO_BASE_COLUMN_V1\0";
+const ACCUMULATOR_DOMAIN: &[u8] = b"STWO_CAIRO_BASE_ACCUMULATOR_V1\0";
+
+#[derive(Serialize)]
+pub struct Authority {
+    pub stwo_cairo_revision: &'static str,
+    pub stwo_revision: &'static str,
+}
+
+#[derive(Serialize)]
+pub struct ColumnCheckpoint {
+    pub ordinal: u32,
+    pub row_count: u64,
+    pub sha256: String,
+}
+
+#[derive(Serialize)]
+pub struct ComponentCheckpoint {
+    pub ordinal: u32,
+    pub label: String,
+    pub columns: Vec<ColumnCheckpoint>,
+    pub accumulator_sha256: String,
+}
+
+#[derive(Serialize)]
+pub struct Checkpoint {
+    pub schema: &'static str,
+    pub input_sha256: String,
+    pub authority: Authority,
+    pub components: Vec<ComponentCheckpoint>,
+    pub final_accumulator_sha256: String,
+}
+
+struct ComponentLayout {
+    label: String,
+    log_sizes: Vec<u32>,
+}
+
+fn layouts(claim: &CairoClaim) -> Vec<ComponentLayout> {
+    let mut result = Vec::new();
+    macro_rules! add {
+        ($field:ident) => {
+            if let Some(component) = claim.$field.as_ref() {
+                result.push(ComponentLayout {
+                    label: stringify!($field).to_owned(),
+                    log_sizes: component.log_sizes().0[0].clone(),
+                });
+            }
+        };
+    }
+
+    add!(add_opcode);
+    add!(add_opcode_small);
+    add!(add_ap_opcode);
+    add!(assert_eq_opcode);
+    add!(assert_eq_opcode_imm);
+    add!(assert_eq_opcode_double_deref);
+    add!(blake_compress_opcode);
+    add!(call_opcode_abs);
+    add!(call_opcode_rel_imm);
+    add!(generic_opcode);
+    add!(jnz_opcode_non_taken);
+    add!(jnz_opcode_taken);
+    add!(jump_opcode_abs);
+    add!(jump_opcode_double_deref);
+    add!(jump_opcode_rel);
+    add!(jump_opcode_rel_imm);
+    add!(mul_opcode);
+    add!(mul_opcode_small);
+    add!(qm_31_add_mul_opcode);
+    add!(ret_opcode);
+    add!(verify_instruction);
+    add!(blake_round);
+    add!(blake_g);
+    add!(blake_round_sigma);
+    add!(triple_xor_32);
+    add!(verify_bitwise_xor_12);
+    add!(add_mod_builtin);
+    add!(bitwise_builtin);
+    add!(mul_mod_builtin);
+    add!(pedersen_builtin);
+    add!(pedersen_builtin_narrow_windows);
+    add!(poseidon_builtin);
+    add!(range_check96_builtin);
+    add!(range_check_builtin);
+    add!(ec_op_builtin);
+    add!(partial_ec_mul_generic);
+    add!(pedersen_aggregator_window_bits_18);
+    add!(partial_ec_mul_window_bits_18);
+    add!(pedersen_points_table_window_bits_18);
+    add!(pedersen_aggregator_window_bits_9);
+    add!(partial_ec_mul_window_bits_9);
+    add!(pedersen_points_table_window_bits_9);
+    add!(poseidon_aggregator);
+    add!(poseidon_3_partial_rounds_chain);
+    add!(poseidon_full_round_chain);
+    add!(cube_252);
+    add!(poseidon_round_keys);
+    add!(range_check_252_width_27);
+    add!(memory_address_to_id);
+    if let Some(component) = claim.memory_id_to_big.as_ref() {
+        for (index, &log_size) in component.big_log_sizes.iter().enumerate() {
+            result.push(ComponentLayout {
+                label: format!("memory_id_to_big[{index}]"),
+                log_sizes: vec![log_size; cairo_air::components::memory_id_to_big::BIG_N_COLUMNS],
+            });
+        }
+    }
+    add!(memory_id_to_small);
+    add!(range_check_6);
+    add!(range_check_8);
+    add!(range_check_11);
+    add!(range_check_12);
+    add!(range_check_18);
+    add!(range_check_20);
+    add!(range_check_4_3);
+    add!(range_check_4_4);
+    add!(range_check_9_9);
+    add!(range_check_7_2_5);
+    add!(range_check_3_6_6_3);
+    add!(range_check_4_4_4_4);
+    add!(range_check_3_3_3_3_3);
+    add!(verify_bitwise_xor_4);
+    add!(verify_bitwise_xor_7);
+    add!(verify_bitwise_xor_8);
+    add!(verify_bitwise_xor_9);
+    result
+}
+
+fn update_label(hasher: &mut Sha256, label: &str) -> Result<()> {
+    let length = u32::try_from(label.len()).context("component label exceeds u32")?;
+    hasher.update(length.to_le_bytes());
+    hasher.update(label.as_bytes());
+    Ok(())
+}
+
+fn column_digest(
+    component_ordinal: u32,
+    label: &str,
+    column_ordinal: u32,
+    values: &[BaseField],
+) -> Result<[u8; 32]> {
+    let mut hasher = Sha256::new();
+    hasher.update(COLUMN_DOMAIN);
+    hasher.update(component_ordinal.to_le_bytes());
+    update_label(&mut hasher, label)?;
+    hasher.update(column_ordinal.to_le_bytes());
+    hasher.update(u64::try_from(values.len())?.to_le_bytes());
+    for value in values {
+        hasher.update(value.0.to_le_bytes());
+    }
+    Ok(hasher.finalize().into())
+}
+
+fn accumulator_digest(
+    previous: [u8; 32],
+    component_ordinal: u32,
+    label: &str,
+    columns: &[(u64, [u8; 32])],
+) -> Result<[u8; 32]> {
+    let mut hasher = Sha256::new();
+    hasher.update(ACCUMULATOR_DOMAIN);
+    hasher.update(previous);
+    hasher.update(component_ordinal.to_le_bytes());
+    update_label(&mut hasher, label)?;
+    hasher.update(u32::try_from(columns.len())?.to_le_bytes());
+    for (ordinal, (row_count, digest)) in columns.iter().enumerate() {
+        hasher.update(u32::try_from(ordinal)?.to_le_bytes());
+        hasher.update(row_count.to_le_bytes());
+        hasher.update(digest);
+    }
+    Ok(hasher.finalize().into())
+}
+
+pub fn build(
+    input_sha256: [u8; 32],
+    claim: &CairoClaim,
+    evals: Vec<CircleEvaluation<SimdBackend, BaseField, BitReversedOrder>>,
+) -> Result<Checkpoint> {
+    let layouts = layouts(claim);
+    let expected_log_sizes = claim.log_sizes().0[0].clone();
+    let layout_log_sizes = layouts
+        .iter()
+        .flat_map(|layout| layout.log_sizes.iter().copied())
+        .collect::<Vec<_>>();
+    ensure!(
+        layout_log_sizes == expected_log_sizes,
+        "component layout diverges from CairoClaim::log_sizes"
+    );
+    ensure!(
+        evals.len() == expected_log_sizes.len(),
+        "base trace column count does not match CairoClaim"
+    );
+
+    let mut evals = evals.into_iter();
+    let mut accumulator = [0; 32];
+    let mut components = Vec::with_capacity(layouts.len());
+    for (component_index, layout) in layouts.into_iter().enumerate() {
+        let component_ordinal = u32::try_from(component_index)?;
+        let mut columns = Vec::with_capacity(layout.log_sizes.len());
+        let mut digest_inputs = Vec::with_capacity(layout.log_sizes.len());
+        for (column_index, log_size) in layout.log_sizes.into_iter().enumerate() {
+            let eval = evals.next().context("base trace ended within component")?;
+            ensure!(
+                eval.domain.log_size() == log_size,
+                "base trace log size mismatch"
+            );
+            let values = eval.values.to_cpu();
+            ensure!(
+                values.len() == 1usize << log_size,
+                "base trace row count mismatch"
+            );
+            let column_ordinal = u32::try_from(column_index)?;
+            let digest = column_digest(component_ordinal, &layout.label, column_ordinal, &values)?;
+            let row_count = u64::try_from(values.len())?;
+            digest_inputs.push((row_count, digest));
+            columns.push(ColumnCheckpoint {
+                ordinal: column_ordinal,
+                row_count,
+                sha256: hex::encode(digest),
+            });
+        }
+        accumulator = accumulator_digest(
+            accumulator,
+            component_ordinal,
+            &layout.label,
+            &digest_inputs,
+        )?;
+        components.push(ComponentCheckpoint {
+            ordinal: component_ordinal,
+            label: layout.label,
+            columns,
+            accumulator_sha256: hex::encode(accumulator),
+        });
+    }
+    ensure!(evals.next().is_none(), "unassigned base trace columns");
+
+    Ok(Checkpoint {
+        schema: "stwo-cairo-base-trace-checkpoint-v1",
+        input_sha256: hex::encode(input_sha256),
+        authority: Authority {
+            stwo_cairo_revision: "dcd5834565b7a26a27a614e353c9c60109ebc1d9",
+            stwo_revision: "3fe684648ff31e55b71525ad689fab7dfbd88880",
+        },
+        components,
+        final_accumulator_sha256: hex::encode(accumulator),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn digest_contract_is_domain_separated_and_chained() {
+        let values = [BaseField::from(1), BaseField::from(2)];
+        let column = column_digest(3, "ret_opcode", 0, &values).unwrap();
+        let first = accumulator_digest([0; 32], 3, "ret_opcode", &[(2, column)]).unwrap();
+        let second = accumulator_digest(first, 4, "memory", &[]).unwrap();
+        assert_ne!(column, first);
+        assert_ne!(first, second);
+        assert_ne!(
+            second,
+            accumulator_digest([0; 32], 4, "memory", &[]).unwrap()
+        );
+    }
+}
