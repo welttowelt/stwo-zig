@@ -1,6 +1,7 @@
 const std = @import("std");
 const circle = @import("../core/circle.zig");
 const core_fri = @import("../core/fri.zig");
+const backend_fri = @import("../backend/fri_ops.zig");
 const backend_merkle = @import("../backend/merkle_ops.zig");
 const m31 = @import("../core/fields/m31.zig");
 const qm31 = @import("../core/fields/qm31.zig");
@@ -11,16 +12,13 @@ const vcs_lifted_verifier = @import("../core/vcs_lifted/verifier.zig");
 const prover_line = @import("line.zig");
 const quotient_ops = @import("pcs/quotient_ops.zig");
 const secure_column = @import("secure_column.zig");
-
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
 const SecureColumnByCoords = secure_column.SecureColumnByCoords;
-
 pub const FriDecommitError = error{
     QueryOutOfRange,
     FoldStepTooLarge,
 };
-
 pub const FriProverError = error{
     NotCanonicDomain,
     ShapeMismatch,
@@ -28,7 +26,7 @@ pub const FriProverError = error{
     InvalidLastLayerDegree,
     InvalidColumnSize,
 };
-
+pub const FoldLineAndCommitResult = backend_fri.FoldLineAndCommitResult;
 pub const ValueEntry = struct {
     position: usize,
     value: QM31,
@@ -490,11 +488,9 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
                 layer_evaluation.len() / 2,
             );
             defer fold_workspace.deinit(allocator);
-
-            // Compute the fold schedule: at most FOLD_STEP per layer, with a
-            // potentially smaller final step if the remaining log-size is not
-            // divisible by FOLD_STEP.
             const last_layer_log_size = std.math.log2_int(usize, config.lastLayerDomainSize());
+            var pending_tree: ?B.MerkleTree(H) = null;
+            errdefer if (pending_tree) |*tree| tree.deinit(allocator);
             while (layer_evaluation.len() > config.lastLayerDomainSize()) {
                 var secure_values = if (comptime @hasDecl(B, "secureColumnForMerkle"))
                     try B.secureColumnForMerkle(allocator, layer_evaluation)
@@ -505,7 +501,8 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
                         allocator,
                         layer_evaluation.values,
                     );
-                errdefer secure_values.deinit(allocator);
+                var layer_appended = false;
+                errdefer if (!layer_appended) secure_values.deinit(allocator);
 
                 const coord_refs = [_][]const M31{
                     secure_values.columns[0],
@@ -513,14 +510,14 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
                     secure_values.columns[2],
                     secure_values.columns[3],
                 };
-                var merkle_tree = try B.commitMerkle(H, allocator, coord_refs[0..]);
-                errdefer merkle_tree.deinit(allocator);
+                var merkle_tree = pending_tree orelse
+                    try B.commitMerkle(H, allocator, coord_refs[0..]);
+                pending_tree = null;
+                errdefer if (!layer_appended) merkle_tree.deinit(allocator);
 
                 MC.mixRoot(channel, merkle_tree.root());
                 const fold_alpha = channel.drawSecureFelt();
 
-                // Determine fold count for this layer: normally FOLD_STEP,
-                // but clamped so we don't overshoot the last-layer size.
                 const current_log_size = std.math.log2_int(usize, layer_evaluation.len());
                 const remaining_folds = current_log_size - last_layer_log_size;
                 const this_fold_step: u32 = @intCast(@min(config.fold_step, remaining_folds));
@@ -532,7 +529,23 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
                     .fold_step = this_fold_step,
                 };
                 try layers.append(allocator, layer);
-
+                layer_appended = true;
+                if (comptime @hasDecl(B, "foldLineAndCommitNext")) {
+                    if (remaining_folds > this_fold_step) {
+                        const folded = try B.foldLineAndCommitNext(
+                            H,
+                            allocator,
+                            layer_evaluation,
+                            fold_alpha,
+                            &fold_workspace,
+                            this_fold_step,
+                        );
+                        layer_evaluation.deinit(allocator);
+                        layer_evaluation = folded.evaluation;
+                        pending_tree = folded.tree;
+                        continue;
+                    }
+                }
                 if (comptime @hasDecl(B, "foldLineEvaluationN")) {
                     const folded_evaluation = try B.foldLineEvaluationN(
                         allocator,
