@@ -14,9 +14,7 @@ const Hasher = types.Hasher;
 const Proof = types.Proof;
 const Error = types.Error;
 const SampleShape = types.SampleShape;
-const sn2_pow_bits = types.sn2_pow_bits;
-const sn2_query_count = types.sn2_query_count;
-const sn2_fold_step = types.sn2_fold_step;
+const ProtocolGeometry = types.ProtocolGeometry;
 const m31FromWord = types.m31FromWord;
 const qm31FromWords = types.qm31FromWords;
 
@@ -29,17 +27,33 @@ pub fn decodeProof(
     bundle: proof_bundle.ProofBundle,
     sample_shape: SampleShape,
 ) !Proof {
-    if (sample_shape.trees.len != 4 or bundle.decommitment.trees.len != 12)
+    return decodeProofWithGeometry(allocator, bundle, sample_shape, ProtocolGeometry.sn2());
+}
+
+/// Reconstructs a proof using protocol geometry bound into the verifier
+/// transcript. Counts in the compact layout and decommitment assembly must
+/// agree exactly; no proof-controlled count is used to infer protocol shape.
+pub fn decodeProofWithGeometry(
+    allocator: std.mem.Allocator,
+    bundle: proof_bundle.ProofBundle,
+    sample_shape: SampleShape,
+    geometry: ProtocolGeometry,
+) !Proof {
+    try geometry.validate();
+    if (sample_shape.trees.len != geometry.trace_tree_count or
+        bundle.layout.commitment_tree_count != geometry.trace_tree_count or
+        bundle.layout.fri_tree_count != geometry.fri_layer_count or
+        bundle.decommitment.trees.len != geometry.trace_tree_count + geometry.fri_layer_count)
         return Error.InvalidProofShape;
 
-    const commitments = try decodeCommitments(allocator, bundle);
+    const commitments = try decodeCommitments(allocator, bundle, geometry.trace_tree_count);
     errdefer allocator.free(commitments);
     const sampled_values = try decodeSampledValues(allocator, bundle, sample_shape);
     errdefer {
         var values = sampled_values;
         values.deinitDeep(allocator);
     }
-    const trace = try decodeTraceOpenings(allocator, bundle);
+    const trace = try decodeTraceOpenings(allocator, bundle, geometry.trace_tree_count);
     errdefer {
         var decommitments = trace.decommitments;
         for (decommitments.items) |*decommitment| decommitment.deinit(allocator);
@@ -47,20 +61,18 @@ pub fn decodeProof(
         var queried_values = trace.queried_values;
         queried_values.deinitDeep(allocator);
     }
-    const fri_proof = try decodeFriProof(allocator, bundle);
+    const fri_proof = try decodeFriProof(allocator, bundle, geometry);
     errdefer {
         var proof = fri_proof;
         proof.deinit(allocator);
     }
 
-    var fri_config = try fri.FriConfig.init(0, 1, sn2_query_count);
-    fri_config.fold_step = sn2_fold_step;
     return .{
         .commitment_scheme_proof = .{
             .config = .{
-                .pow_bits = sn2_pow_bits,
-                .fri_config = fri_config,
-                .lifting_log_size = null,
+                .pow_bits = geometry.query_pow_bits,
+                .fri_config = try geometry.friConfig(),
+                .lifting_log_size = geometry.lifting_log_size,
             },
             .commitments = pcs.TreeVec(Hasher.Hash).initOwned(commitments),
             .sampled_values = sampled_values,
@@ -77,10 +89,16 @@ const TraceOpenings = struct {
     queried_values: pcs.TreeVec([][]M31),
 };
 
-fn decodeCommitments(allocator: std.mem.Allocator, bundle: proof_bundle.ProofBundle) ![]Hasher.Hash {
+fn decodeCommitments(
+    allocator: std.mem.Allocator,
+    bundle: proof_bundle.ProofBundle,
+    tree_count: usize,
+) ![]Hasher.Hash {
     const words = bundle.words[bundle.layout.commitments.start..bundle.layout.commitments.end];
-    if (words.len != 4 * proof_bundle.hash_words) return Error.InvalidProofShape;
-    const out = try allocator.alloc(Hasher.Hash, 4);
+    const expected_words = std.math.mul(usize, tree_count, proof_bundle.hash_words) catch
+        return Error.InvalidProofShape;
+    if (words.len != expected_words) return Error.InvalidProofShape;
+    const out = try allocator.alloc(Hasher.Hash, tree_count);
     for (out, 0..) |*hash, index| {
         @memcpy(hash, std.mem.sliceAsBytes(words[index * proof_bundle.hash_words ..][0..proof_bundle.hash_words]));
     }
@@ -98,7 +116,8 @@ fn decodeSampledValues(
     for (shape.trees) |tree| for (tree) |count| {
         expected = std.math.add(usize, expected, count) catch return Error.InvalidSampleShape;
     };
-    if (expected * 4 != words.len) return Error.InvalidSampleShape;
+    const expected_words = std.math.mul(usize, expected, 4) catch return Error.InvalidSampleShape;
+    if (expected_words != words.len) return Error.InvalidSampleShape;
 
     const trees = try allocator.alloc([][]QM31, shape.trees.len);
     errdefer allocator.free(trees);
@@ -124,10 +143,14 @@ fn decodeSampledValues(
     return pcs.TreeVec([][]QM31).initOwned(trees);
 }
 
-fn decodeTraceOpenings(allocator: std.mem.Allocator, bundle: proof_bundle.ProofBundle) !TraceOpenings {
-    const decommitments = try allocator.alloc(vcs_verifier.MerkleDecommitmentLifted(Hasher), 4);
+fn decodeTraceOpenings(
+    allocator: std.mem.Allocator,
+    bundle: proof_bundle.ProofBundle,
+    tree_count: usize,
+) !TraceOpenings {
+    const decommitments = try allocator.alloc(vcs_verifier.MerkleDecommitmentLifted(Hasher), tree_count);
     errdefer allocator.free(decommitments);
-    const queried_values = try allocator.alloc([][]M31, 4);
+    const queried_values = try allocator.alloc([][]M31, tree_count);
     errdefer allocator.free(queried_values);
     var initialized: usize = 0;
     errdefer {
@@ -135,7 +158,7 @@ fn decodeTraceOpenings(allocator: std.mem.Allocator, bundle: proof_bundle.ProofB
         for (queried_values[0..initialized]) |tree| freeM31Tree(allocator, tree);
     }
 
-    for (0..4) |tree_index| {
+    for (0..tree_count) |tree_index| {
         const meta = bundle.decommitment.trees[tree_index];
         if (meta.kind != 0 or meta.role != tree_index or meta.query_count == 0 or
             meta.values_count % meta.query_count != 0 or meta.fri_witness_count != 0)
@@ -167,22 +190,34 @@ fn decodeTraceOpenings(allocator: std.mem.Allocator, bundle: proof_bundle.ProofB
     };
 }
 
-fn decodeFriProof(allocator: std.mem.Allocator, bundle: proof_bundle.ProofBundle) !fri.FriProof(Hasher) {
-    const layers = try allocator.alloc(fri.FriLayerProof(Hasher), 8);
+fn decodeFriProof(
+    allocator: std.mem.Allocator,
+    bundle: proof_bundle.ProofBundle,
+    geometry: ProtocolGeometry,
+) !fri.FriProof(Hasher) {
+    const layers = try allocator.alloc(fri.FriLayerProof(Hasher), geometry.fri_layer_count);
     defer allocator.free(layers);
     var initialized: usize = 0;
     errdefer for (layers[0..initialized]) |*layer| layer.deinit(allocator);
     const roots = bundle.words[bundle.layout.fri_commitments.start..bundle.layout.fri_commitments.end];
-    if (roots.len != 8 * proof_bundle.hash_words) return Error.InvalidFriShape;
+    const expected_root_words = std.math.mul(
+        usize,
+        geometry.fri_layer_count,
+        proof_bundle.hash_words,
+    ) catch return Error.InvalidFriShape;
+    if (roots.len != expected_root_words) return Error.InvalidFriShape;
 
-    for (0..8) |round| {
-        const meta = bundle.decommitment.trees[4 + round];
-        if (meta.kind != 1 or meta.role != 4 + round or meta.values_count != 0)
+    for (0..geometry.fri_layer_count) |round| {
+        const tree_index = geometry.trace_tree_count + round;
+        const meta = bundle.decommitment.trees[tree_index];
+        if (meta.kind != 1 or meta.role != tree_index or meta.values_count != 0)
+            return Error.InvalidFriShape;
+        const witness_word_count = std.math.mul(usize, meta.fri_witness_count, 4) catch
             return Error.InvalidFriShape;
         const witness_words = treeWords(
             bundle,
             meta.fri_witness_offset,
-            meta.fri_witness_count * 4,
+            witness_word_count,
         ) catch return Error.InvalidFriShape;
         const witness = try allocator.alloc(QM31, meta.fri_witness_count);
         errdefer allocator.free(witness);
@@ -207,12 +242,16 @@ fn decodeFriProof(allocator: std.mem.Allocator, bundle: proof_bundle.ProofBundle
         initialized += 1;
     }
 
-    const inner = try allocator.alloc(fri.FriLayerProof(Hasher), 7);
+    const inner = try allocator.alloc(fri.FriLayerProof(Hasher), geometry.fri_layer_count - 1);
     errdefer allocator.free(inner);
-    @memcpy(inner, layers[1..8]);
+    @memcpy(inner, layers[1..]);
     const final_words = bundle.words[bundle.layout.final_line_poly.start..bundle.layout.final_line_poly.end];
     if (final_words.len % 4 != 0) return Error.InvalidFriShape;
-    const coefficients = try allocator.alloc(QM31, final_words.len / 4);
+    const coefficient_count = final_words.len / 4;
+    const max_coefficients = @as(usize, 1) << @intCast(geometry.log_last_layer_degree_bound);
+    if (coefficient_count == 0 or coefficient_count > max_coefficients)
+        return Error.InvalidFriShape;
+    const coefficients = try allocator.alloc(QM31, coefficient_count);
     errdefer allocator.free(coefficients);
     for (coefficients, 0..) |*coefficient, index| {
         coefficient.* = try qm31FromWords(final_words[index * 4 ..][0..4]);
@@ -231,7 +270,9 @@ fn decodeHashes(
     offset: usize,
     count: usize,
 ) ![]Hasher.Hash {
-    const words = treeWords(bundle, offset, count * proof_bundle.hash_words) catch
+    const word_count = std.math.mul(usize, count, proof_bundle.hash_words) catch
+        return Error.InvalidProofShape;
+    const words = treeWords(bundle, offset, word_count) catch
         return Error.InvalidProofShape;
     const hashes = try allocator.alloc(Hasher.Hash, count);
     for (hashes, 0..) |*hash, index| {
@@ -256,6 +297,75 @@ fn freeM31Tree(allocator: std.mem.Allocator, tree: [][]M31) void {
     for (tree) |column| allocator.free(column);
     allocator.free(tree);
 }
+
+test "resident proof decoder accepts runtime trace and FRI counts" {
+    const allocator = std.testing.allocator;
+    const config_words = [_]u32{ 0, 1, 1, 0, 3, 0, 0, 0 };
+    const protocol_geometry = try ProtocolGeometry.fromConfigWords(&config_words, 0, 2, 8);
+    try std.testing.expectEqual(@as(usize, 3), protocol_geometry.fri_layer_count);
+    const layout = try proof_bundle.Layout.initRuntime(2, 4, 8, 3, 4, 200);
+    const words = try allocator.alloc(u32, layout.total_words);
+    defer allocator.free(words);
+    @memset(words, 0);
+
+    const decommit = words[layout.decommitment.start..layout.decommitment.end];
+    decommit[0] = proof_bundle.decommit_magic;
+    decommit[1] = proof_bundle.decommit_version;
+    decommit[2] = 5;
+    decommit[3] = 1;
+    decommit[4] = 1;
+    decommit[5] = 88;
+    decommit[6] = 89;
+    decommit[88] = 0;
+    decommit[89] = 0;
+    var cursor: usize = 90;
+    for (0..5) |tree_index| {
+        const meta = decommit[proof_bundle.decommit_header_words +
+            tree_index * proof_bundle.decommit_tree_meta_words ..][0..proof_bundle.decommit_tree_meta_words];
+        meta[0] = if (tree_index < 2) 0 else 1;
+        meta[1] = @intCast(tree_index);
+        meta[2] = 88;
+        meta[3] = 1;
+        if (tree_index < 2) {
+            meta[4] = @intCast(cursor);
+            meta[5] = 1;
+            decommit[cursor] = @intCast(tree_index + 1);
+            cursor += 1;
+        }
+        meta[15] = 1;
+    }
+    decommit[7] = @intCast(cursor);
+
+    const tree0_shape = [_]usize{1};
+    const tree1_shape = [_]usize{1};
+    const shape = [_][]const usize{ &tree0_shape, &tree1_shape };
+    var bundle = try proof_bundle.ProofBundle.decode(allocator, words, layout);
+    defer bundle.deinit(allocator);
+    try std.testing.expectError(
+        Error.InvalidProofShape,
+        decodeProof(allocator, bundle, .{ .trees = &shape }),
+    );
+    var proof = try decodeProofWithGeometry(
+        allocator,
+        bundle,
+        .{ .trees = &shape },
+        protocol_geometry,
+    );
+    defer proof.deinit(allocator);
+    try std.testing.expectEqual(
+        @as(usize, 2),
+        proof.commitment_scheme_proof.commitments.items.len,
+    );
+    try std.testing.expectEqual(
+        @as(usize, 2),
+        proof.commitment_scheme_proof.fri_proof.inner_layers.len,
+    );
+    try std.testing.expectEqual(
+        @as(usize, 2),
+        proof.commitment_scheme_proof.decommitments.items.len,
+    );
+}
+
 test "resident verifier decodes a Merkle opening and rejects a witness mutation" {
     const allocator = std.testing.allocator;
     const layout = try proof_bundle.Layout.init(4, 16, 8, 4, 512);

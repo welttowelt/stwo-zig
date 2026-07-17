@@ -31,9 +31,11 @@ pub const sn2_query_count = types.sn2_query_count;
 pub const sn2_fold_step = types.sn2_fold_step;
 pub const Error = types.Error;
 pub const SampleShape = types.SampleShape;
+pub const ProtocolGeometry = types.ProtocolGeometry;
 pub const TranscriptInput = types.TranscriptInput;
 pub const VerifyInput = types.VerifyInput;
 pub const decodeProof = proof_reconstruction.decodeProof;
+pub const decodeProofWithGeometry = proof_reconstruction.decodeProofWithGeometry;
 pub const sampleShape = geometry.sampleShape;
 pub const freeSampleShape = geometry.freeSampleShape;
 
@@ -51,15 +53,44 @@ const offsetIndex = geometry.offsetIndex;
 /// Replays the direct Cairo transcript and runs the generic AIR/PCS/FRI
 /// verifier. Success is the only state a caller may expose as `verified`.
 pub fn verify(allocator: std.mem.Allocator, input: VerifyInput) !void {
+    const protocol_geometry = ProtocolGeometry.sn2();
+    const config_words = transcriptWords(input.transcript_inputs, 2) orelse
+        return Error.InvalidProofShape;
+    if (!protocol_geometry.matchesTranscript(config_words)) return Error.InvalidProtocolGeometry;
+    return verifyWithGeometry(allocator, input, protocol_geometry);
+}
+
+/// Verifies a Cairo proof against caller-authenticated runtime PCS geometry.
+/// Ordinal 2 must encode the same geometry and is mixed into the transcript;
+/// proof-controlled parameters can therefore neither drift nor downgrade it.
+pub fn verifyRuntime(
+    allocator: std.mem.Allocator,
+    input: VerifyInput,
+    protocol_geometry: ProtocolGeometry,
+) !void {
+    return verifyWithGeometry(allocator, input, protocol_geometry);
+}
+
+fn verifyWithGeometry(
+    allocator: std.mem.Allocator,
+    input: VerifyInput,
+    protocol_geometry: ProtocolGeometry,
+) !void {
+    try protocol_geometry.validate();
     if (input.tree_logs[0].len == 0 or input.tree_logs[1].len == 0 or
         input.tree_logs[2].len == 0 or input.composition.components.len == 0)
         return Error.InvalidTraceShape;
+    if (input.composition.max_evaluation_log_size == 0 or
+        protocol_geometry.max_log_degree_bound != input.composition.max_evaluation_log_size - 1 or
+        protocol_geometry.trace_tree_count != 4)
+        return Error.InvalidProtocolGeometry;
     const config_words = transcriptWords(input.transcript_inputs, 2) orelse
         return Error.InvalidProofShape;
-    const expected_config = [_]u32{ sn2_pow_bits, 1, sn2_query_count, 0, sn2_fold_step, 0, 0, 0 };
-    if (!std.mem.eql(u32, config_words, &expected_config)) return Error.InvalidProofShape;
+    if (!protocol_geometry.matchesTranscript(config_words)) return Error.InvalidProtocolGeometry;
 
     const commitment_words = input.bundle.words[input.bundle.layout.commitments.start..input.bundle.layout.commitments.end];
+    if (commitment_words.len != protocol_geometry.trace_tree_count * proof_bundle.hash_words)
+        return Error.InvalidProofShape;
     if (!hashWordsEqual(transcriptWords(input.transcript_inputs, 3), commitment_words[0..8]) or
         !hashWordsEqual(transcriptWords(input.transcript_inputs, 20), commitment_words[8..16]))
         return Error.InvalidProofShape;
@@ -69,7 +100,7 @@ pub fn verify(allocator: std.mem.Allocator, input: VerifyInput) !void {
         channel.mixU32s(transcriptWords(input.transcript_inputs, ordinal) orelse
             return Error.InvalidProofShape);
     }
-    if (!channel.verifyPowNonce(sn2_interaction_pow_bits, input.bundle.interactionNonce()))
+    if (!channel.verifyPowNonce(protocol_geometry.interaction_pow_bits, input.bundle.interactionNonce()))
         return error.ProofOfWork;
     channel.mixU64(input.bundle.interactionNonce());
     const lookup_challenges = try channel.drawSecureFelts(allocator, 2);
@@ -143,7 +174,12 @@ pub fn verify(allocator: std.mem.Allocator, input: VerifyInput) !void {
         input.tree_logs[2].len,
     });
     defer freeSampleShape(allocator, shape);
-    var proof = try decodeProof(allocator, input.bundle, .{ .trees = shape });
+    var proof = try decodeProofWithGeometry(
+        allocator,
+        input.bundle,
+        .{ .trees = shape },
+        protocol_geometry,
+    );
     var proof_moved = false;
     defer if (!proof_moved) proof.deinit(allocator);
     if (diagnostic_point) |point| {

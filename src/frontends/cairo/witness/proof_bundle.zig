@@ -21,6 +21,8 @@ pub const Error = error{
 pub const Range = struct { start: usize, end: usize };
 
 pub const Layout = struct {
+    commitment_tree_count: usize,
+    fri_tree_count: usize,
     commitments: Range,
     interaction_claim: Range,
     interaction_pow: Range,
@@ -38,7 +40,26 @@ pub const Layout = struct {
         final_line_poly_words: usize,
         decommitment_words: usize,
     ) !Layout {
-        if (interaction_claim_words == 0 or interaction_claim_words % 4 != 0 or
+        return initRuntime(
+            4,
+            interaction_claim_words,
+            sampled_value_words,
+            fri_tree_count,
+            final_line_poly_words,
+            decommitment_words,
+        );
+    }
+
+    pub fn initRuntime(
+        commitment_tree_count: usize,
+        interaction_claim_words: usize,
+        sampled_value_words: usize,
+        fri_tree_count: usize,
+        final_line_poly_words: usize,
+        decommitment_words: usize,
+    ) !Layout {
+        if (commitment_tree_count == 0 or
+            interaction_claim_words == 0 or interaction_claim_words % 4 != 0 or
             sampled_value_words == 0 or sampled_value_words % 4 != 0 or fri_tree_count == 0 or
             final_line_poly_words == 0 or final_line_poly_words % 4 != 0 or decommitment_words == 0)
             return Error.InvalidLayout;
@@ -50,15 +71,17 @@ pub const Layout = struct {
                 return .{ .start = start, .end = position.* };
             }
         }.run;
-        const commitments = try take(&cursor, 4 * hash_words);
+        const commitments = try take(&cursor, try checkedMul(commitment_tree_count, hash_words));
         const interaction_claim = try take(&cursor, interaction_claim_words);
         const interaction_pow = try take(&cursor, nonce_words);
         const sampled_values = try take(&cursor, sampled_value_words);
-        const fri_commitments = try take(&cursor, fri_tree_count * hash_words);
+        const fri_commitments = try take(&cursor, try checkedMul(fri_tree_count, hash_words));
         const final_line_poly = try take(&cursor, final_line_poly_words);
         const query_pow = try take(&cursor, nonce_words);
         const decommitment = try take(&cursor, decommitment_words);
-        return .{
+        const layout = Layout{
+            .commitment_tree_count = commitment_tree_count,
+            .fri_tree_count = fri_tree_count,
             .commitments = commitments,
             .interaction_claim = interaction_claim,
             .interaction_pow = interaction_pow,
@@ -69,6 +92,43 @@ pub const Layout = struct {
             .decommitment = decommitment,
             .total_words = cursor,
         };
+        try layout.validate();
+        return layout;
+    }
+
+    pub fn validate(self: Layout) !void {
+        if (self.commitment_tree_count == 0 or self.fri_tree_count == 0 or
+            self.interaction_claim.end -| self.interaction_claim.start == 0 or
+            (self.interaction_claim.end -| self.interaction_claim.start) % 4 != 0 or
+            self.sampled_values.end -| self.sampled_values.start == 0 or
+            (self.sampled_values.end -| self.sampled_values.start) % 4 != 0 or
+            self.final_line_poly.end -| self.final_line_poly.start == 0 or
+            (self.final_line_poly.end -| self.final_line_poly.start) % 4 != 0 or
+            self.decommitment.end -| self.decommitment.start == 0)
+            return Error.InvalidLayout;
+        const commitment_words = try checkedMul(self.commitment_tree_count, hash_words);
+        const fri_words = try checkedMul(self.fri_tree_count, hash_words);
+        const ranges = [_]Range{
+            self.commitments,
+            self.interaction_claim,
+            self.interaction_pow,
+            self.sampled_values,
+            self.fri_commitments,
+            self.final_line_poly,
+            self.query_pow,
+            self.decommitment,
+        };
+        var cursor: usize = 0;
+        for (ranges) |range| {
+            if (range.start != cursor or range.end < range.start) return Error.InvalidLayout;
+            cursor = range.end;
+        }
+        if (self.commitments.end - self.commitments.start != commitment_words or
+            self.interaction_pow.end - self.interaction_pow.start != nonce_words or
+            self.fri_commitments.end - self.fri_commitments.start != fri_words or
+            self.query_pow.end - self.query_pow.start != nonce_words or
+            cursor != self.total_words)
+            return Error.InvalidLayout;
     }
 };
 
@@ -106,8 +166,11 @@ pub const DecommitAssembly = struct {
         const raw_offset: usize = capacity[5];
         const unique_offset: usize = capacity[6];
         const used: usize = capacity[7];
-        if (used < decommit_header_words or used > capacity.len or
-            decommit_header_words + tree_count * decommit_tree_meta_words > used)
+        const metadata_words = checkedMul(tree_count, decommit_tree_meta_words) catch
+            return Error.InvalidDecommitHeader;
+        const metadata_end = std.math.add(usize, decommit_header_words, metadata_words) catch
+            return Error.InvalidDecommitHeader;
+        if (used < decommit_header_words or used > capacity.len or metadata_end > used)
             return Error.InvalidDecommitHeader;
         const words = capacity[0..used];
         const raw_queries = try checkedSlice(words, raw_offset, raw_count);
@@ -137,10 +200,10 @@ pub const DecommitAssembly = struct {
             if (tree.kind > 1 or tree.used_words == 0) return Error.InvalidTreeMetadata;
             _ = try checkedSlice(words, tree.query_offset, tree.query_count);
             _ = try checkedSlice(words, tree.values_offset, tree.values_count);
-            _ = try checkedSlice(words, tree.fri_witness_offset, tree.fri_witness_count * 4);
-            _ = try checkedSlice(words, tree.hash_witness_offset, tree.hash_witness_count * hash_words);
-            _ = try checkedSlice(words, tree.aux_offset, tree.aux_count * decommit_aux_node_words);
-            _ = try checkedSlice(words, tree.all_values_offset, tree.all_values_count * 5);
+            _ = try checkedSlice(words, tree.fri_witness_offset, try checkedMul(tree.fri_witness_count, 4));
+            _ = try checkedSlice(words, tree.hash_witness_offset, try checkedMul(tree.hash_witness_count, hash_words));
+            _ = try checkedSlice(words, tree.aux_offset, try checkedMul(tree.aux_count, decommit_aux_node_words));
+            _ = try checkedSlice(words, tree.all_values_offset, try checkedMul(tree.all_values_count, 5));
         }
         return .{ .words = words, .raw_queries = raw_queries, .unique_queries = unique_queries, .trees = trees };
     }
@@ -157,14 +220,31 @@ pub const ProofBundle = struct {
     decommitment: DecommitAssembly,
 
     pub fn decode(allocator: std.mem.Allocator, words: []const u32, layout: Layout) !ProofBundle {
+        try layout.validate();
         if (words.len != layout.total_words) return Error.InvalidWordCount;
         try canonical(words[layout.interaction_claim.start..layout.interaction_claim.end]);
         try canonical(words[layout.sampled_values.start..layout.sampled_values.end]);
         try canonical(words[layout.final_line_poly.start..layout.final_line_poly.end]);
+        var decommitment = try DecommitAssembly.decode(
+            allocator,
+            words[layout.decommitment.start..layout.decommitment.end],
+        );
+        errdefer decommitment.deinit(allocator);
+        const expected_tree_count = std.math.add(
+            usize,
+            layout.commitment_tree_count,
+            layout.fri_tree_count,
+        ) catch return Error.InvalidLayout;
+        if (decommitment.trees.len != expected_tree_count) return Error.InvalidTreeMetadata;
+        for (decommitment.trees, 0..) |tree, index| {
+            const expected_kind: u32 = if (index < layout.commitment_tree_count) 0 else 1;
+            if (tree.kind != expected_kind or tree.role != index)
+                return Error.InvalidTreeMetadata;
+        }
         return .{
             .words = words,
             .layout = layout,
-            .decommitment = try DecommitAssembly.decode(allocator, words[layout.decommitment.start..layout.decommitment.end]),
+            .decommitment = decommitment,
         };
     }
 
@@ -191,6 +271,10 @@ fn checkedSlice(words: []const u32, offset: usize, count: usize) ![]const u32 {
     return words[offset..end];
 }
 
+fn checkedMul(lhs: usize, rhs: usize) !usize {
+    return std.math.mul(usize, lhs, rhs) catch Error.InvalidLayout;
+}
+
 fn canonical(words: []const u32) !void {
     if (words.len % 4 != 0) return Error.InvalidLayout;
     for (words) |word| if (word >= m31_prime) return Error.NonCanonicalM31;
@@ -198,27 +282,61 @@ fn canonical(words: []const u32) !void {
 
 test "resident proof bundle rejects unfinished and noncanonical output" {
     const allocator = std.testing.allocator;
-    const layout = try Layout.init(4, 4, 1, 4, 64);
+    const layout = try Layout.init(4, 4, 1, 4, 160);
     const words = try allocator.alloc(u32, layout.total_words);
     defer allocator.free(words);
     @memset(words, 0);
     const decommit = words[layout.decommitment.start..layout.decommitment.end];
     decommit[0] = decommit_magic;
     decommit[1] = decommit_version;
-    decommit[2] = 1;
+    decommit[2] = 5;
     decommit[3] = 1;
     decommit[4] = 1;
-    decommit[5] = 24;
-    decommit[6] = 25;
-    decommit[7] = 26;
-    decommit[8] = 0;
-    decommit[10] = 24;
-    decommit[11] = 1;
-    decommit[23] = 1;
-    decommit[24] = 7;
-    decommit[25] = 7;
+    decommit[5] = 88;
+    decommit[6] = 89;
+    decommit[7] = 90;
+    for (0..5) |index| {
+        const meta = decommit[decommit_header_words + index * decommit_tree_meta_words ..][0..decommit_tree_meta_words];
+        meta[0] = if (index < 4) 0 else 1;
+        meta[1] = @intCast(index);
+        meta[15] = 1;
+    }
+    decommit[88] = 7;
+    decommit[89] = 7;
     var decoded = try ProofBundle.decode(allocator, words, layout);
     decoded.deinit(allocator);
     words[layout.sampled_values.start] = m31_prime;
     try std.testing.expectError(Error.NonCanonicalM31, ProofBundle.decode(allocator, words, layout));
+}
+
+test "resident proof bundle rejects tree count and role drift" {
+    const allocator = std.testing.allocator;
+    const layout = try Layout.initRuntime(2, 4, 4, 2, 4, 128);
+    const words = try allocator.alloc(u32, layout.total_words);
+    defer allocator.free(words);
+    @memset(words, 0);
+    const decommit = words[layout.decommitment.start..layout.decommitment.end];
+    decommit[0] = decommit_magic;
+    decommit[1] = decommit_version;
+    decommit[2] = 3;
+    decommit[7] = 56;
+    for (0..3) |index| {
+        const meta = decommit[decommit_header_words + index * decommit_tree_meta_words ..][0..decommit_tree_meta_words];
+        meta[0] = if (index < 2) 0 else 1;
+        meta[1] = @intCast(index);
+        meta[15] = 1;
+    }
+    try std.testing.expectError(Error.InvalidTreeMetadata, ProofBundle.decode(allocator, words, layout));
+
+    decommit[2] = 4;
+    decommit[7] = 72;
+    const final_meta = decommit[decommit_header_words + 3 * decommit_tree_meta_words ..][0..decommit_tree_meta_words];
+    final_meta[0] = 1;
+    final_meta[1] = 2;
+    final_meta[15] = 1;
+    try std.testing.expectError(Error.InvalidTreeMetadata, ProofBundle.decode(allocator, words, layout));
+
+    var malformed_layout = layout;
+    malformed_layout.fri_commitments.end -= 1;
+    try std.testing.expectError(Error.InvalidLayout, ProofBundle.decode(allocator, words, malformed_layout));
 }
