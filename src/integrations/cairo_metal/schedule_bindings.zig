@@ -3,6 +3,7 @@
 const std = @import("std");
 const arena_plan = @import("../../backend/arena_plan.zig");
 const fri_geometry = @import("../../core/fri/geometry.zig");
+const decommit_geometry = @import("decommit_geometry.zig");
 
 pub const Error = error{
     InvalidSchedule,
@@ -11,6 +12,11 @@ pub const Error = error{
     InvalidCardinality,
     InvalidBindingSize,
 };
+
+pub const TraceTreeRole = decommit_geometry.TraceTreeRole;
+pub const TraceTreeGeometry = decommit_geometry.TraceTreeGeometry;
+pub const FriTreeGeometry = decommit_geometry.FriTreeGeometry;
+pub const ProofDecommitGeometry = decommit_geometry.ProofDecommitGeometry;
 
 pub const Sn2Counts = struct {
     pub const composition_coefficients = 8;
@@ -42,6 +48,7 @@ pub const DecommitTraceGroupBindings = struct {
 };
 
 pub const DecommitTraceTreeBindings = struct {
+    role: TraceTreeRole,
     tree_index: u32,
     source_log: u32,
     tree_log: u32,
@@ -54,6 +61,7 @@ pub const DecommitTraceTreeBindings = struct {
 };
 
 pub const DecommitFriTreeBindings = struct {
+    role: u32,
     round: u32,
     tree_index: u32,
     leaf_log: u32,
@@ -61,16 +69,20 @@ pub const DecommitFriTreeBindings = struct {
     retained_pointers: arena_plan.Binding,
 };
 
-pub const OwnedSn2DecommitBindings = struct {
+pub const OwnedDecommitBindings = struct {
     trace_groups: []DecommitTraceGroupBindings,
-    trace_trees: [Sn2Counts.decommit_trace_trees]DecommitTraceTreeBindings,
-    fri_trees: [Sn2Counts.decommit_fri_trees]DecommitFriTreeBindings,
+    trace_trees: []DecommitTraceTreeBindings,
+    fri_trees: []DecommitFriTreeBindings,
 
-    pub fn deinit(self: *OwnedSn2DecommitBindings, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *OwnedDecommitBindings, allocator: std.mem.Allocator) void {
         allocator.free(self.trace_groups);
+        allocator.free(self.trace_trees);
+        allocator.free(self.fri_trees);
         self.* = undefined;
     }
 };
+
+pub const OwnedSn2DecommitBindings = OwnedDecommitBindings;
 
 pub const OrdinalBinding = struct {
     ordinal: u32,
@@ -352,13 +364,13 @@ pub fn namedGroupRanges(
     return groups.toOwnedSlice(allocator);
 }
 
-pub fn collectSn2DecommitBindings(
+pub fn collectDecommitBindings(
     allocator: std.mem.Allocator,
     schedule: []const std.json.Value,
     plan: arena_plan.Plan,
-) !OwnedSn2DecommitBindings {
-    const fri_start_log = try friStartLog(try one(schedule, plan, "QuotientTile"));
-    const geometry = fri_geometry.FriGeometry.init(fri_start_log) catch return Error.InvalidBindingSize;
+    geometry: ProofDecommitGeometry,
+) !OwnedDecommitBindings {
+    const trace_group_count = try geometry.traceGroupCount();
     const evaluation_pointers = try collectOrdinals(allocator, schedule, plan, "DecommitTraceEvaluationPointers");
     defer allocator.free(evaluation_pointers);
     const evaluation_logs = try collectOrdinals(allocator, schedule, plan, "DecommitTraceEvaluationLogs");
@@ -378,16 +390,15 @@ pub fn collectSn2DecommitBindings(
     const fri_retained_pointers = try collectOrdinals(allocator, schedule, plan, "DecommitFriRetainedPointers");
     defer allocator.free(fri_retained_pointers);
 
-    if (evaluation_pointers.len != Sn2Counts.decommit_trace_groups or
+    if (evaluation_pointers.len != trace_group_count or
         evaluation_logs.len != evaluation_pointers.len or
-        coefficient_pointers.len == 0 or
-        coefficient_pointers.len > Sn2Counts.decommit_trace_coefficient_groups or
+        coefficient_pointers.len > evaluation_pointers.len or
         coefficient_sizes.len != coefficient_pointers.len or
         lde_output_pointers.len != coefficient_pointers.len or
-        trace_retained_pointers.len != Sn2Counts.decommit_trace_trees or
-        trace_sparse_offsets.len != Sn2Counts.decommit_trace_trees or
-        fri_coordinate_pointers.len != Sn2Counts.decommit_fri_trees or
-        fri_retained_pointers.len != Sn2Counts.decommit_fri_trees)
+        trace_retained_pointers.len != geometry.trace_trees.len or
+        trace_sparse_offsets.len != geometry.trace_trees.len or
+        fri_coordinate_pointers.len != geometry.fri_trees.len or
+        fri_retained_pointers.len != geometry.fri_trees.len)
         return Error.InvalidCardinality;
 
     for (coefficient_pointers, coefficient_sizes, lde_output_pointers) |pointers, sizes, outputs| {
@@ -397,18 +408,17 @@ pub fn collectSn2DecommitBindings(
 
     const groups = try allocator.alloc(DecommitTraceGroupBindings, evaluation_pointers.len);
     errdefer allocator.free(groups);
-    const trace_tree_logs = [Sn2Counts.decommit_trace_trees]u32{ 26, fri_start_log, fri_start_log, fri_start_log };
-    const trace_leaf_logs = trace_tree_logs;
-    var trace_trees: [Sn2Counts.decommit_trace_trees]DecommitTraceTreeBindings = undefined;
+    const trace_trees = try allocator.alloc(DecommitTraceTreeBindings, geometry.trace_trees.len);
+    errdefer allocator.free(trace_trees);
     var group_cursor: usize = 0;
     var coefficient_cursor: usize = 0;
-    for (0..Sn2Counts.decommit_trace_trees) |tree_index| {
+    for (geometry.trace_trees, trace_trees) |tree_geometry, *tree| {
         const group_start = group_cursor;
         var column_count: u32 = 0;
-        for (0..Sn2Counts.decommit_trace_groups_by_tree[tree_index]) |group_index| {
+        for (0..tree_geometry.groupCount()) |group_index| {
             const pointers = evaluation_pointers[group_cursor];
             const logs = evaluation_logs[group_cursor];
-            const expected_ordinal = (@as(u32, @intCast(tree_index)) << 16) | @as(u32, @intCast(group_index));
+            const expected_ordinal = (tree_geometry.tree_index << 16) | @as(u32, @intCast(group_index));
             if (pointers.ordinal != expected_ordinal or logs.ordinal != expected_ordinal or
                 logs.binding.size_bytes == 0 or logs.binding.size_bytes % 4 != 0 or
                 pointers.binding.size_bytes != logs.binding.size_bytes * 2)
@@ -435,30 +445,33 @@ pub fn collectSn2DecommitBindings(
                 }
             }
             groups[group_cursor] = .{
-                .tree_index = @intCast(tree_index),
+                .tree_index = tree_geometry.tree_index,
                 .group_index = @intCast(group_index),
                 .column_count = group_columns,
                 .evaluation_pointers = pointers.binding,
                 .evaluation_logs = logs.binding,
                 .coefficients = coefficients,
             };
-            column_count += group_columns;
-            group_cursor += 1;
+            column_count = std.math.add(u32, column_count, group_columns) catch
+                return Error.InvalidCardinality;
+            group_cursor = std.math.add(usize, group_cursor, 1) catch
+                return Error.InvalidCardinality;
         }
-        if (column_count != Sn2Counts.decommit_trace_columns_by_tree[tree_index]) return Error.InvalidCardinality;
-        const retained = trace_retained_pointers[tree_index];
-        const sparse = trace_sparse_offsets[tree_index];
-        const tree_ordinal = @as(u32, @intCast(tree_index)) << 16;
+        if (column_count != tree_geometry.column_count) return Error.InvalidCardinality;
+        const retained = trace_retained_pointers[tree_geometry.tree_index];
+        const sparse = trace_sparse_offsets[tree_geometry.tree_index];
+        const tree_ordinal = tree_geometry.tree_index << 16;
         if (retained.ordinal != tree_ordinal or sparse.ordinal != tree_ordinal or
-            retained.binding.size_bytes != @as(u64, trace_leaf_logs[tree_index] + 1) * 2 * 4 or
-            sparse.binding.size_bytes != 4 * 4)
+            retained.binding.size_bytes != @as(u64, tree_geometry.leaf_log + 1) * 2 * 4 or
+            sparse.binding.size_bytes != @as(u64, tree_geometry.unretained) * 4)
             return Error.InvalidBindingSize;
-        trace_trees[tree_index] = .{
-            .tree_index = @intCast(tree_index),
-            .source_log = fri_start_log,
-            .tree_log = trace_tree_logs[tree_index],
-            .leaf_log = trace_leaf_logs[tree_index],
-            .unretained = 4,
+        tree.* = .{
+            .role = tree_geometry.role,
+            .tree_index = tree_geometry.tree_index,
+            .source_log = tree_geometry.source_log,
+            .tree_log = tree_geometry.tree_log,
+            .leaf_log = tree_geometry.leaf_log,
+            .unretained = tree_geometry.unretained,
             .column_count = column_count,
             .groups = groups[group_start..group_cursor],
             .retained_pointers = retained.binding,
@@ -468,26 +481,56 @@ pub fn collectSn2DecommitBindings(
     if (group_cursor != groups.len or coefficient_cursor != coefficient_pointers.len)
         return Error.InvalidCardinality;
 
-    var fri_trees: [Sn2Counts.decommit_fri_trees]DecommitFriTreeBindings = undefined;
-    for (0..Sn2Counts.decommit_fri_trees) |round| {
-        const fri_leaf_log = try geometry.leafLog(round);
-        const tree_index = round + Sn2Counts.decommit_trace_trees;
-        const expected_ordinal = @as(u32, @intCast(tree_index)) << 16;
-        const coordinates = fri_coordinate_pointers[round];
-        const retained = fri_retained_pointers[round];
+    const fri_trees = try allocator.alloc(DecommitFriTreeBindings, geometry.fri_trees.len);
+    errdefer allocator.free(fri_trees);
+    for (geometry.fri_trees, fri_trees) |tree_geometry, *tree| {
+        const expected_ordinal = tree_geometry.tree_index << 16;
+        const coordinates = fri_coordinate_pointers[tree_geometry.round];
+        const retained = fri_retained_pointers[tree_geometry.round];
         if (coordinates.ordinal != expected_ordinal or retained.ordinal != expected_ordinal or
             coordinates.binding.size_bytes != 4 * 2 * 4 or
-            retained.binding.size_bytes != @as(u64, fri_leaf_log + 1) * 2 * 4)
+            retained.binding.size_bytes != @as(u64, tree_geometry.leaf_log + 1) * 2 * 4)
             return Error.InvalidBindingSize;
-        fri_trees[round] = .{
-            .round = @intCast(round),
-            .tree_index = @intCast(tree_index),
-            .leaf_log = fri_leaf_log,
+        tree.* = .{
+            .role = tree_geometry.role,
+            .round = tree_geometry.round,
+            .tree_index = tree_geometry.tree_index,
+            .leaf_log = tree_geometry.leaf_log,
             .coordinate_pointers = coordinates.binding,
             .retained_pointers = retained.binding,
         };
     }
     return .{ .trace_groups = groups, .trace_trees = trace_trees, .fri_trees = fri_trees };
+}
+
+/// Compatibility wrapper for the canonical SN2 4-trace/8-FRI proof shape.
+pub fn collectSn2DecommitBindings(
+    allocator: std.mem.Allocator,
+    schedule: []const std.json.Value,
+    plan: arena_plan.Plan,
+) !OwnedSn2DecommitBindings {
+    const fri_start_log = try friStartLog(try one(schedule, plan, "QuotientTile"));
+    const fri = fri_geometry.FriGeometry.init(fri_start_log) catch return Error.InvalidBindingSize;
+    const trace_trees = [_]TraceTreeGeometry{
+        .{ .role = .preprocessed, .tree_index = 0, .source_log = fri_start_log, .tree_log = 26, .leaf_log = 26, .unretained = 4, .column_count = 161 },
+        .{ .role = .base, .tree_index = 1, .source_log = fri_start_log, .tree_log = fri_start_log, .leaf_log = fri_start_log, .unretained = 4, .column_count = 3449 },
+        .{ .role = .interaction, .tree_index = 2, .source_log = fri_start_log, .tree_log = fri_start_log, .leaf_log = fri_start_log, .unretained = 4, .column_count = 2268 },
+        .{ .role = .composition, .tree_index = 3, .source_log = fri_start_log, .tree_log = fri_start_log, .leaf_log = fri_start_log, .unretained = 4, .column_count = 8 },
+    };
+    var fri_trees: [Sn2Counts.decommit_fri_trees]FriTreeGeometry = undefined;
+    for (&fri_trees, 0..) |*tree, round| {
+        const tree_index = Sn2Counts.decommit_trace_trees + round;
+        tree.* = .{
+            .role = @intCast(tree_index),
+            .round = @intCast(round),
+            .tree_index = @intCast(tree_index),
+            .leaf_log = try fri.leafLog(round),
+        };
+    }
+    return collectDecommitBindings(allocator, schedule, plan, .{
+        .trace_trees = &trace_trees,
+        .fri_trees = &fri_trees,
+    });
 }
 
 pub fn friStartLog(quotient: arena_plan.Binding) !u32 {

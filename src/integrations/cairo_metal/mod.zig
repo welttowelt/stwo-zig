@@ -9,6 +9,10 @@ pub const eval_codegen = @import("eval_codegen.zig");
 pub const witness_codegen = @import("witness_codegen.zig");
 
 test {
+    _ = @import("schedule_bindings_test.zig");
+}
+
+test {
     _ = oods;
     _ = quotient_inputs;
     _ = quotient_reference;

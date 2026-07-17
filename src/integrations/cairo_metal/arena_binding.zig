@@ -91,7 +91,12 @@ pub const DecommitTraceCoefficientBindings = schedule_bindings.DecommitTraceCoef
 pub const DecommitTraceGroupBindings = schedule_bindings.DecommitTraceGroupBindings;
 pub const DecommitTraceTreeBindings = schedule_bindings.DecommitTraceTreeBindings;
 pub const DecommitFriTreeBindings = schedule_bindings.DecommitFriTreeBindings;
+pub const TraceTreeRole = schedule_bindings.TraceTreeRole;
+pub const TraceTreeGeometry = schedule_bindings.TraceTreeGeometry;
+pub const FriTreeGeometry = schedule_bindings.FriTreeGeometry;
+pub const ProofDecommitGeometry = schedule_bindings.ProofDecommitGeometry;
 
+const collectDecommitBindings = schedule_bindings.collectDecommitBindings;
 const collectSn2DecommitBindings = schedule_bindings.collectSn2DecommitBindings;
 const friStartLog = schedule_bindings.friStartLog;
 
@@ -192,8 +197,8 @@ pub const PreparedProofBindings = struct {
     decommit_assembly: arena_plan.Binding,
     decommit_trace_lde_tile: arena_plan.Binding,
     decommit_trace_groups: []DecommitTraceGroupBindings,
-    decommit_trace_trees: [Sn2Counts.decommit_trace_trees]DecommitTraceTreeBindings,
-    decommit_fri_trees: [Sn2Counts.decommit_fri_trees]DecommitFriTreeBindings,
+    decommit_trace_trees: []DecommitTraceTreeBindings,
+    decommit_fri_trees: []DecommitFriTreeBindings,
     proof_bytes: arena_plan.Binding,
     proof_copies: []ProofCopy,
     assembly: []arena_plan.Binding,
@@ -204,6 +209,31 @@ pub const PreparedProofBindings = struct {
         plan: arena_plan.Plan,
         composition_bundle: composition_bundle_mod.Bundle,
         relation_bundle: relation_bundle_mod.Bundle,
+    ) !PreparedProofBindings {
+        return initInternal(allocator, schedule, plan, composition_bundle, relation_bundle, null);
+    }
+
+    /// Binds the schedule to authenticated runtime proof geometry. The caller
+    /// must supply the exact tree metadata committed by its proof bundle.
+    pub fn init(
+        allocator: std.mem.Allocator,
+        schedule: []const std.json.Value,
+        plan: arena_plan.Plan,
+        composition_bundle: composition_bundle_mod.Bundle,
+        relation_bundle: relation_bundle_mod.Bundle,
+        geometry: ProofDecommitGeometry,
+    ) !PreparedProofBindings {
+        try geometry.validate();
+        return initInternal(allocator, schedule, plan, composition_bundle, relation_bundle, geometry);
+    }
+
+    fn initInternal(
+        allocator: std.mem.Allocator,
+        schedule: []const std.json.Value,
+        plan: arena_plan.Plan,
+        composition_bundle: composition_bundle_mod.Bundle,
+        relation_bundle: relation_bundle_mod.Bundle,
+        geometry: ?ProofDecommitGeometry,
     ) !PreparedProofBindings {
         const composition_coefficients = try collect(allocator, schedule, plan, "CompositionCoefficients");
         errdefer allocator.free(composition_coefficients);
@@ -262,7 +292,10 @@ pub const PreparedProofBindings = struct {
             relation_claimed_sums,
         );
         errdefer allocator.free(canonical_claimed_sums);
-        var decommit_bindings = try collectSn2DecommitBindings(allocator, schedule, plan);
+        var decommit_bindings = if (geometry) |runtime_geometry|
+            try collectDecommitBindings(allocator, schedule, plan, runtime_geometry)
+        else
+            try collectSn2DecommitBindings(allocator, schedule, plan);
         errdefer decommit_bindings.deinit(allocator);
         var result = PreparedProofBindings{
             .allocator = allocator,
@@ -322,7 +355,10 @@ pub const PreparedProofBindings = struct {
             .proof_copies = proof_copies,
             .assembly = assembly,
         };
-        try result.validateSn2();
+        if (geometry) |runtime_geometry|
+            try result.validate(runtime_geometry)
+        else
+            try result.validateSn2();
         return result;
     }
 
@@ -346,6 +382,8 @@ pub const PreparedProofBindings = struct {
         self.allocator.free(self.relation_claimed_sums);
         self.allocator.free(self.canonical_claimed_sums);
         self.allocator.free(self.decommit_trace_groups);
+        self.allocator.free(self.decommit_trace_trees);
+        self.allocator.free(self.decommit_fri_trees);
         self.allocator.free(self.assembly);
         self.* = undefined;
     }
@@ -445,6 +483,8 @@ pub const PreparedProofBindings = struct {
         metal: *metal_runtime.Runtime,
         resident_arena: *arena_plan.ResidentArena,
     ) !protocol_recipes.DecommitQueryRecipe {
+        const tree_count = std.math.add(usize, self.decommit_trace_trees.len, self.decommit_fri_trees.len) catch
+            return Error.InvalidCardinality;
         return protocol_recipes.DecommitQueryRecipe.init(
             metal,
             resident_arena,
@@ -458,7 +498,7 @@ pub const PreparedProofBindings = struct {
             self.decommit_sparse_hashes,
             self.decommit_counts,
             self.decommit_assembly,
-            12,
+            std.math.cast(u32, tree_count) orelse return Error.InvalidCardinality,
             try friStartLog(self.quotient_tile),
         );
     }
@@ -466,14 +506,17 @@ pub const PreparedProofBindings = struct {
     pub fn decommitTraceTree(self: PreparedProofBindings, tree_index: u32) !DecommitTraceTreeBindings {
         if (tree_index >= self.decommit_trace_trees.len) return Error.InvalidCardinality;
         const tree = self.decommit_trace_trees[tree_index];
-        if (tree.tree_index != tree_index) return Error.InvalidSchedule;
+        if (tree.tree_index != tree_index or @intFromEnum(tree.role) != tree_index)
+            return Error.InvalidSchedule;
         return tree;
     }
 
     pub fn decommitFriTree(self: PreparedProofBindings, round: u32) !DecommitFriTreeBindings {
         if (round >= self.decommit_fri_trees.len) return Error.InvalidCardinality;
         const tree = self.decommit_fri_trees[round];
-        if (tree.round != round or tree.tree_index != round + Sn2Counts.decommit_trace_trees)
+        const tree_index = std.math.add(usize, self.decommit_trace_trees.len, round) catch
+            return Error.InvalidCardinality;
+        if (tree.round != round or tree.tree_index != tree_index or tree.role != tree_index)
             return Error.InvalidSchedule;
         return tree;
     }
@@ -493,23 +536,48 @@ pub const PreparedProofBindings = struct {
         leaf_seed: [8]u32,
         node_seed: [8]u32,
     ) !f64 {
+        if (self.decommit_trace_trees.len != Sn2Counts.decommit_trace_trees or
+            self.decommit_fri_trees.len != Sn2Counts.decommit_fri_trees)
+            return Error.InvalidCardinality;
+        return self.executeDecommit(
+            allocator,
+            metal,
+            resident_arena,
+            schedule,
+            plan,
+            recipe,
+            leaf_seed,
+            node_seed,
+        );
+    }
+
+    /// Executes trace and FRI openings in authenticated runtime tree order.
+    pub fn executeDecommit(
+        self: PreparedProofBindings,
+        allocator: std.mem.Allocator,
+        metal: *metal_runtime.Runtime,
+        resident_arena: *arena_plan.ResidentArena,
+        schedule: []const std.json.Value,
+        plan: arena_plan.Plan,
+        recipe: *protocol_recipes.DecommitQueryRecipe,
+        leaf_seed: [8]u32,
+        node_seed: [8]u32,
+    ) !f64 {
         var lde_gpu_ms: f64 = 0;
         try recipe.normalize();
-        for (0..Sn2Counts.decommit_trace_trees) |tree_index| {
+        for (0..self.decommit_trace_trees.len) |tree_index| {
             const tree = try self.decommitTraceTree(@intCast(tree_index));
-            const coefficients: []const arena_plan.Binding = switch (tree_index) {
-                0 => self.preprocessed_coefficients,
-                1 => self.base_coefficients,
-                2 => self.interaction_coefficients,
-                3 => self.composition_coefficients,
-                else => unreachable,
+            const coefficients: []const arena_plan.Binding = switch (tree.role) {
+                .preprocessed => self.preprocessed_coefficients,
+                .base => self.base_coefficients,
+                .interaction => self.interaction_coefficients,
+                .composition => self.composition_coefficients,
             };
-            const canonical_coefficients: []const arena_plan.Binding = switch (tree_index) {
-                0 => self.preprocessed_coefficients,
-                1 => self.canonical_base_coefficients,
-                2 => self.canonical_interaction_coefficients,
-                3 => self.composition_coefficients,
-                else => unreachable,
+            const canonical_coefficients: []const arena_plan.Binding = switch (tree.role) {
+                .preprocessed => self.preprocessed_coefficients,
+                .base => self.canonical_base_coefficients,
+                .interaction => self.canonical_interaction_coefficients,
+                .composition => self.composition_coefficients,
             };
             if (coefficients.len != tree.column_count) return Error.InvalidCardinality;
             const retained = try collectTreePurpose(
@@ -517,7 +585,7 @@ pub const PreparedProofBindings = struct {
                 schedule,
                 plan,
                 "RetainedMerkleLayers",
-                @intCast(tree_index),
+                tree.tree_index,
             );
             defer allocator.free(retained);
             try populateTraceRetainedPointers(resident_arena, tree, retained);
@@ -588,7 +656,7 @@ pub const PreparedProofBindings = struct {
             );
             try recipe.assembleTrace(
                 tree.tree_index,
-                tree.tree_index,
+                @intFromEnum(tree.role),
                 tree.leaf_log,
                 tree.unretained,
                 tree.column_count,
@@ -598,8 +666,10 @@ pub const PreparedProofBindings = struct {
             );
         }
 
+        if (self.fri_retained_evaluations.len + 1 != self.decommit_fri_trees.len)
+            return Error.InvalidCardinality;
         var fri_layer_cursor: usize = 0;
-        for (0..Sn2Counts.decommit_fri_trees) |round| {
+        for (0..self.decommit_fri_trees.len) |round| {
             const tree = try self.decommitFriTree(@intCast(round));
             const evaluation = if (round == 0) self.quotient_tile else self.fri_retained_evaluations[round - 1];
             try populateFriCoordinatePointers(resident_arena, tree, evaluation);
@@ -623,8 +693,10 @@ pub const PreparedProofBindings = struct {
         if (fri_layer_cursor != self.fri_merkle_layers.len) return Error.InvalidCardinality;
         const assembly_bytes: []align(4) u8 = @alignCast(try resident_arena.bytes(self.decommit_assembly));
         const assembly_words = std.mem.bytesAsSlice(u32, assembly_bytes);
+        const tree_count = std.math.cast(u32, self.decommit_trace_trees.len + self.decommit_fri_trees.len) orelse
+            return Error.InvalidCardinality;
         if (assembly_words.len < 8 or assembly_words[0] != 0x4457_5453 or assembly_words[1] != 1 or
-            assembly_words[2] != 12 or assembly_words[7] == 0 or assembly_words[7] > assembly_words.len)
+            assembly_words[2] != tree_count or assembly_words[7] == 0 or assembly_words[7] > assembly_words.len)
             return Error.InvalidBindingSize;
         return lde_gpu_ms;
     }
@@ -910,6 +982,70 @@ pub const PreparedProofBindings = struct {
         return self.relation_scan_scratch;
     }
 
+    fn validate(self: PreparedProofBindings, geometry: ProofDecommitGeometry) !void {
+        try geometry.validate();
+        if (self.decommit_trace_trees.len != geometry.trace_trees.len or
+            self.decommit_fri_trees.len != geometry.fri_trees.len or
+            self.decommit_trace_groups.len != try geometry.traceGroupCount())
+            return Error.InvalidCardinality;
+        if (self.fri_challenges.len != geometry.fri_trees.len) return Error.InvalidFriChallengeCount;
+        if (self.fri_retained_evaluations.len + 1 != geometry.fri_trees.len)
+            return Error.InvalidFriRetainedCount;
+        if (self.fri_merkle_layers.len != try geometry.friLayerCount()) return Error.InvalidFriLayerCount;
+
+        var group_cursor: usize = 0;
+        for (self.decommit_trace_trees, geometry.trace_trees) |tree, expected| {
+            if (tree.role != expected.role or tree.tree_index != expected.tree_index or
+                tree.source_log != expected.source_log or tree.tree_log != expected.tree_log or
+                tree.leaf_log != expected.leaf_log or tree.unretained != expected.unretained or
+                tree.column_count != expected.column_count or tree.groups.len != expected.groupCount())
+                return Error.InvalidCardinality;
+            const coefficients: []const arena_plan.Binding = switch (tree.role) {
+                .preprocessed => self.preprocessed_coefficients,
+                .base => self.base_coefficients,
+                .interaction => self.interaction_coefficients,
+                .composition => self.composition_coefficients,
+            };
+            if (coefficients.len != tree.column_count) return Error.InvalidCardinality;
+            var column_count: usize = 0;
+            for (tree.groups, 0..) |group, group_index| {
+                if (group_cursor >= self.decommit_trace_groups.len or
+                    group.tree_index != tree.tree_index or group.group_index != group_index or
+                    group.column_count == 0 or group.column_count > 16)
+                    return Error.InvalidSchedule;
+                column_count = std.math.add(usize, column_count, group.column_count) catch
+                    return Error.InvalidCardinality;
+                group_cursor += 1;
+            }
+            if (column_count != tree.column_count) return Error.InvalidCardinality;
+        }
+        if (group_cursor != self.decommit_trace_groups.len) return Error.InvalidCardinality;
+        for (self.decommit_fri_trees, geometry.fri_trees) |tree, expected| {
+            if (tree.role != expected.role or tree.round != expected.round or
+                tree.tree_index != expected.tree_index or tree.leaf_log != expected.leaf_log)
+                return Error.InvalidCardinality;
+        }
+        if (self.canonical_base_coefficients.len != self.base_coefficients.len or
+            self.canonical_interaction_coefficients.len != self.interaction_coefficients.len)
+            return Error.InvalidCardinality;
+        if (self.inverse_twiddles.size_bytes == 0 or
+            !std.math.isPowerOfTwo(self.inverse_twiddles.size_bytes / @sizeOf(u32)))
+            return Error.InvalidBindingSize;
+        try validateDisjointBindings(self.inverse_twiddles, self.composition_accumulators);
+        if (self.decommit_values.size_bytes == 0 or self.decommit_assembly.size_bytes == 0 or
+            self.decommit_trace_lde_tile.size_bytes == 0 or self.proof_bytes.size_bytes == 0 or
+            self.assembly.len == 0 or self.proof_copies.len == 0 or
+            self.transcript_inputs.len == 0 or self.transcript_outputs.len == 0)
+            return Error.InvalidBindingSize;
+        var cursor: u64 = 0;
+        for (self.proof_copies) |copy| {
+            if (copy.destination_word_offset != cursor or copy.source.size_bytes < @as(u64, copy.word_count) * 4)
+                return Error.InvalidBindingSize;
+            cursor = std.math.add(u64, cursor, copy.word_count) catch return Error.InvalidBindingSize;
+        }
+        if (cursor * 4 != self.proof_bytes.size_bytes) return Error.InvalidBindingSize;
+    }
+
     fn validateSn2(self: PreparedProofBindings) !void {
         if (self.composition_coefficients.len != Sn2Counts.composition_coefficients) return Error.InvalidCompositionCount;
         if (self.quotient_partials.len == 0 or self.quotient_partials.len % 4 != 0)
@@ -954,12 +1090,17 @@ pub const PreparedProofBindings = struct {
             self.proof_bytes.size_bytes == 0 or self.assembly.len == 0 or
             self.proof_copies.len != 18)
             return Error.InvalidBindingSize;
+        if (self.decommit_trace_trees.len != Sn2Counts.decommit_trace_trees or
+            self.decommit_fri_trees.len != Sn2Counts.decommit_fri_trees)
+            return Error.InvalidCardinality;
         for (self.decommit_trace_trees, Sn2Counts.decommit_trace_groups_by_tree, Sn2Counts.decommit_trace_columns_by_tree, 0..) |tree, group_count, column_count, tree_index| {
-            if (tree.tree_index != tree_index or tree.groups.len != group_count or tree.column_count != column_count)
+            if (tree.tree_index != tree_index or @intFromEnum(tree.role) != tree_index or
+                tree.groups.len != group_count or tree.column_count != column_count)
                 return Error.InvalidCardinality;
         }
         for (self.decommit_fri_trees, 0..) |tree, round| {
-            if (tree.round != round or tree.tree_index != round + Sn2Counts.decommit_trace_trees)
+            if (tree.round != round or tree.tree_index != round + Sn2Counts.decommit_trace_trees or
+                tree.role != tree.tree_index)
                 return Error.InvalidCardinality;
         }
         var cursor: u64 = 0;
