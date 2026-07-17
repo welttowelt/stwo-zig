@@ -18,6 +18,8 @@ context. Root-level project entry points are limited to `README.md` and `CONTRIB
 
 - [`design/2026-07-17-source-conformance.md`](design/2026-07-17-source-conformance.md): active,
   phased migration of source ownership, dependency direction, tests, and delivery automation.
+- [`design/2026-07-17-cairo-program-matrix.md`](design/2026-07-17-cairo-program-matrix.md):
+  nine-program Cairo benchmark contract and general Zig proof critical path.
 - [`sn-pie-metal-production-architecture.md`](sn-pie-metal-production-architecture.md): normative
   production architecture and delivery plan for the Cairo SN PIE Metal prover.
 - [`sn-pie-streaming.md`](sn-pie-streaming.md): streaming proof-service design and extraction notes.
@@ -32,8 +34,8 @@ context. Root-level project entry points are limited to `README.md` and `CONTRIB
 - [`metal-profiling.md`](metal-profiling.md): profiling controls and safe collection procedure.
 - [`metal-backend-progress.md`](metal-backend-progress.md): implementation and measured-progress
   summary.
-- [`cairo-fib-resident-metal-vs-simd.md`](cairo-fib-resident-metal-vs-simd.md): current resident Cairo
-  Fib comparison.
+- [`cairo-fib-resident-metal-vs-simd.md`](cairo-fib-resident-metal-vs-simd.md): Rust Stwo-Cairo
+  resident Fib reference comparison.
 - [`raw-stwo-wide-fibonacci-metal-vs-simd.md`](raw-stwo-wide-fibonacci-metal-vs-simd.md): raw Stwo
   wide-Fibonacci comparison and scope limitations.
 - [`riscv-fib-metal-vs-zig.md`](riscv-fib-metal-vs-zig.md): RISC-V Metal versus Zig CPU comparison.
