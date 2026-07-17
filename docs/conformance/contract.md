@@ -162,11 +162,12 @@ Production conformance for this port is reached only when all items below pass:
 CI MUST run in this order and fail fast:
 
 1. format and static checks
-2. unit tests
-3. property/law tests
-4. parity vector validation
-5. interoperability tests
-6. benchmark smoke and regression checks
+2. upstream pin and source-conformance checks
+3. unit tests
+4. property/law tests
+5. API, upstream-surface, and parity vector validation
+6. interoperability tests
+7. benchmark smoke and regression checks
 
 No stage may be skipped for release branches.
 

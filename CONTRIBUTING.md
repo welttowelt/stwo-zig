@@ -1079,6 +1079,8 @@ Run the gates relevant to the change. The baseline is:
 
 ```bash
 zig build fmt
+zig build upstream-pins
+zig build source-conformance
 zig build test
 python3 -m unittest discover -s scripts/tests -p 'test_*.py'
 ```
