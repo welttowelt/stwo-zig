@@ -40,8 +40,9 @@ commit `09ed7ef`. The committed controls are:
 
 The controller alternates lane order, hashes its binaries and artifacts, requires ReleaseFast,
 records setup and request timing separately, verifies every sample in Zig, and rejects a Metal lane
-with no device dispatch. The matrix below used the `functional` protocol, one warmup and five timed
-post-warmup samples per lane. All three rows were formally headline-eligible. `metal_hybrid` still
+with no device dispatch. The historical matrix below used the `functional` protocol, one warmup and
+five timed post-warmup samples per lane. It satisfied the report contract active at the time, but
+the current contract classifies fewer than ten warmups as correctness-only. `metal_hybrid` still
 reported CPU Merkle fallbacks, so these numbers are not resident-backend claims.
 
 ### Formal post-change baseline
@@ -305,6 +306,26 @@ of 3.483625/6.083750 ms and native rates of 0.293947/0.168317 MHz. XOR log10 mea
 throughput on these bounded complete proofs. Exact proof digests were `1beb388c...9f6f0c` and
 `574b4d69...20831f`. This is the formal baseline for complete-transaction profiling; compact
 commitment-stage speedups are not extrapolated over it.
+
+### Sustained Native Wide/XOR/Plonk baseline
+
+Commits `1280ed3`, `77ec02a`, and `541d1cc` migrate Plonk to the common transaction, add it to the
+closed report-v3 registry, require ten headline warmups, and bind artifacts to the exact statement
+returned by the prover. A clean detached ReleaseFast run at `541d1cc` used ten warmups and five
+functional samples per lane. All rows were headline-eligible, byte-identical across CPU and Metal,
+and accepted by the pinned Rust oracle.
+
+| Workload | CPU prove (ms) | CPU native MHz | CPU request (ms) | Metal prove (ms) | Metal native MHz | Metal request (ms) | Metal/CPU prove |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Wide Fibonacci `log10x8` | 1.935792 | 0.528982 | 2.109166 | 5.737333 | 0.178480 | 5.899958 | 0.337x |
+| XOR `log10/step2/off3` | 2.705125 | 0.378541 | 2.886166 | 5.090667 | 0.201152 | 5.237125 | 0.531x |
+| Plonk `log10` | 2.797875 | 0.365992 | 3.010958 | 7.549375 | 0.135640 | 7.751042 | 0.371x |
+
+The exact proof sizes and SHA-256 values are 23,569 bytes and `1beb388c...9f6f0c` for Wide,
+23,505 bytes and `574b4d69...20831f` for XOR, and 26,642 bytes and `72eff960...4b2f4f` for Plonk.
+This is now the authoritative bounded complete-proof baseline. It reinforces the profiler result:
+small hybrid Metal proofs are dominated by command waits and host/device boundaries rather than GPU
+arithmetic, so optimization must reduce proof-wide synchronization and residency transitions.
 
 ### Complete Native profile after report v3
 

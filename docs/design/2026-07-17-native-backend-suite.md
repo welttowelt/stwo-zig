@@ -1,6 +1,6 @@
 # Native Backend Proof Suite
 
-Status: implementation; tagged report-v3 Wide Fibonacci/XOR matrix accepted
+Status: implementation; tagged report-v3 Wide Fibonacci/XOR/Plonk matrix accepted
 
 Date: 2026-07-17
 
@@ -25,11 +25,12 @@ This is an architectural change, not six copies of the wide Fibonacci runner.
 
 ## Existing gap
 
-Wide Fibonacci already supports `ProverEngine`, reusable sessions, prepared input,
-stage recording, CPU/Metal execution, and the formal matrix. The other examples
-still initialize the CPU PCS directly, generate input inside `proveEx`, and call the
-concrete prover. Consequently they cannot use Metal through the same transaction,
-cannot reuse session twiddles, and cannot report input and proof time separately.
+Wide Fibonacci, XOR, and Plonk support `ProverEngine`, reusable sessions, prepared
+input, stage recording, CPU/Metal execution, and the formal matrix. State machine,
+Blake, and Poseidon still initialize the CPU PCS directly, generate input inside
+`proveEx`, and call the concrete prover. Consequently those remaining examples
+cannot use Metal through the same transaction, cannot reuse session twiddles, and
+cannot report input and proof time separately.
 
 The interoperability artifact already supports all six examples. The bidirectional
 interop and prove-checkpoint tools already pin upstream commit
@@ -229,7 +230,7 @@ and committed Mcells/s remains the common bandwidth-normalized measure.
 | --- | ---: | ---: | ---: | --- | ---: | ---: |
 | Wide Fibonacci | 0 | `sequence_len` | `2^log_n_rows` | `trace_rows` | `rows` | `rows * sequence_len` |
 | XOR | 2 | 1 | `2^log_size` | `xor_rows` | `rows` | `3 * rows` |
-| Plonk | 4 | 4 | `2^log_n_rows` | `constraint_rows` | `rows` | `8 * rows` |
+| Plonk | 4 | 4 | `2^log_n_rows` | `plonk_rows` | `rows` | `8 * rows` |
 | State machine | 1 | 2 | `2^log_n_rows` | `state_transitions` | `rows` | `3 * rows` |
 | Blake | 0 | `96 * n_rounds` | `2^log_n_rows` | `blake_round_instances` | `rows * n_rounds` | `96 * native_units` |
 | Poseidon | 0 | 1264 | `2^(log_n_instances - 3)` | `poseidon_instances` | `2^log_n_instances` | `1264 * rows`, or `158 * native_units` |
@@ -395,6 +396,7 @@ Formal runs enforce these initial limits:
 - at most `2^25` committed trace cells per row;
 - at most `2^30` committed trace cells across all warmup and sample requests;
 - at most 10 warmups and 21 measured samples per lane;
+- at least 10 warmups for headline evidence; shorter runs are correctness-only;
 - at most 21 profiled samples, with 5 preferred for wide-column diagnostics;
 - at most 300 seconds cooldown and 3600 seconds per lane request;
 - a 256 MiB host twiddle budget unless a separately reviewed profile changes it;
@@ -505,7 +507,8 @@ formal exit behavior have focused regression tests.
 
 A clean detached ReleaseFast matrix at `0b2eb10` used the functional protocol, one
 warmup, five samples per lane, alternating lane order, and a 0.25-second bounded
-cooldown. Both rows were headline-eligible with no blockers:
+cooldown. Both rows satisfied the original report contract, but are now historical
+correctness evidence because the accepted sustained contract requires ten warmups:
 
 | Workload | CPU prove (ms) | CPU native MHz | CPU request (ms) | Metal prove (ms) | Metal native MHz | Metal request (ms) | Metal/CPU prove |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -534,3 +537,40 @@ Merkle commit; FRI quotient construction/commitment is the dominant stage. LDE i
 already batched into one Wide command and two XOR commands. The next Metal gate is
 therefore a controlled resident-small-tree crossover and producer-to-commit residency,
 not speculative LDE or leaf-kernel work.
+
+## Accepted Plonk and sustained baseline
+
+Commit `1280ed3` moves Plonk onto the backend-neutral prepared-input and reusable-session
+transaction. Its four preprocessed and four main columns are owned and consumed through the same
+laws as Wide Fibonacci and XOR. Compatibility, prepared-engine, sequential-session, and extended
+proof entrypoints retain exact proof bytes. Commit `77ec02a` adds tagged Plonk geometry, descriptor,
+CLI dispatch, artifact construction, controller validation, and the ten-warmup headline minimum.
+Commit `541d1cc` additionally fails a benchmark request if the prover returns a statement different
+from the requested statement before proof encoding or artifact publication.
+
+A clean detached ReleaseFast matrix at `541d1cc` used the functional protocol, ten warmups, five
+samples per lane, alternating lane order, and a one-second cooldown. All three rows were
+headline-eligible with no blockers:
+
+| Workload | CPU prove (ms) | CPU native MHz | CPU request (ms) | Metal prove (ms) | Metal native MHz | Metal request (ms) | Metal/CPU prove |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Wide Fibonacci `log10x8` | 1.935792 | 0.528982 | 2.109166 | 5.737333 | 0.178480 | 5.899958 | 0.337x |
+| XOR `log10/step2/off3` | 2.705125 | 0.378541 | 2.886166 | 5.090667 | 0.201152 | 5.237125 | 0.531x |
+| Plonk `log10` | 2.797875 | 0.365992 | 3.010958 | 7.549375 | 0.135640 | 7.751042 | 0.371x |
+
+Every measured proof verified locally, every sample within each lane was byte-identical, and CPU
+and Metal emitted the same canonical proof for each workload. The pinned Rust Stwo oracle accepted
+all three artifacts:
+
+| Workload | Proof bytes | Canonical proof SHA-256 |
+| --- | ---: | --- |
+| Wide Fibonacci | 23,569 | `1beb388cda4e2941e5a65c11653d78de3116ae95a686538105312c29ff9f6f0c` |
+| XOR | 23,505 | `574b4d698125fb6049e6c5f87293f5c755c4029b28cf2a6839d49af1f720831f` |
+| Plonk | 26,642 | `72eff9606d8c6fd374c7ba5364212fba5dc80db092c9abd3d8f8c471344b2f4f` |
+
+The CPU and Metal binary SHA-256 values were
+`bc4555baad27568a72797b57618925f9d1f0f34ebd6c989d2089fe85a3f2366f` and
+`90b35d5e798aba04193e9fa9e0555dab09373a9d08f8f3508c0b807bb855b092`.
+The complete summary is retained outside the repository at
+`/private/tmp/stwo-formal-results-541d1cc/summary.json`. These values are the authoritative bounded
+suite baseline; they do not claim that the current hybrid Metal transaction is faster than CPU.
