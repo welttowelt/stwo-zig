@@ -24,25 +24,8 @@ pub fn MerkleProverLifted(comptime H: type) type {
         /// (MADV_SEQUENTIAL hint for streaming hash reads). The outer
         /// `layers` array itself is always freed with the caller's allocator.
         layer_allocator: std.mem.Allocator,
-        /// Present for Metal commitments. The complete tree remains device
-        /// resident and only queried authentication nodes are read back.
-        resident_tree: ?ResidentTree = null,
-        metal_root: ?H.Hash = null,
-        metal_log_size: u32 = 0,
 
         const Self = @This();
-        const ResidentTree = struct {
-            handle: *anyopaque,
-            runtime_handle: *anyopaque,
-            destroy: *const fn (*anyopaque) void,
-            copy_hashes: *const fn (
-                *anyopaque,
-                *anyopaque,
-                std.mem.Allocator,
-                u32,
-                []const u32,
-            ) anyerror![][32]u8,
-        };
         const NodeSeed = if (@hasDecl(H, "nodeSeed")) @TypeOf(H.nodeSeed()) else H;
         const parallel_min_nodes: usize = 1 << 13;
         const parallel_min_nodes_per_worker: usize = 1 << 12;
@@ -147,17 +130,12 @@ pub fn MerkleProverLifted(comptime H: type) type {
         };
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
-            if (self.resident_tree) |tree| {
-                tree.destroy(tree.handle);
-            } else {
-                for (self.layers) |layer| self.layer_allocator.free(layer);
-                allocator.free(self.layers);
-            }
+            for (self.layers) |layer| self.layer_allocator.free(layer);
+            allocator.free(self.layers);
             self.* = undefined;
         }
 
         pub fn root(self: Self) H.Hash {
-            if (self.metal_root) |root_hash| return root_hash;
             return self.layers[0][0];
         }
 
@@ -171,60 +149,6 @@ pub fn MerkleProverLifted(comptime H: type) type {
                 merkleWorkerOverride(allocator),
                 merklePoolReuseEnabled(allocator),
             );
-        }
-
-        /// Metal commitment constructor used by transaction-oriented engines.
-        ///
-        /// Hashing and all parent reductions execute in one Metal command
-        /// buffer. The layer readback exists only to satisfy the current CPU
-        /// decommitment representation; a fully resident engine retains the
-        /// returned Metal tree and gathers queried siblings on device.
-        pub fn commitMetal(
-            runtime: *@import("../../backends/metal/runtime.zig").Runtime,
-            allocator: std.mem.Allocator,
-            columns: []const []const M31,
-        ) !Self {
-            if (columns.len == 0) return commit(allocator, columns);
-
-            const log_sizes = try allocator.alloc(u32, columns.len);
-            defer allocator.free(log_sizes);
-            const word_columns = try allocator.alloc([]const u32, columns.len);
-            defer allocator.free(word_columns);
-            var max_log_size: u32 = 0;
-            for (columns, 0..) |column, index| {
-                if (column.len < 2 or !std.math.isPowerOfTwo(column.len)) return error.InvalidColumnSize;
-                const log_size: u32 = @intCast(std.math.log2_int(usize, column.len));
-                log_sizes[index] = log_size;
-                max_log_size = @max(max_log_size, log_size);
-                word_columns[index] = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(column));
-            }
-
-            var metal_tree = try runtime.commitColumns(
-                allocator,
-                word_columns,
-                log_sizes,
-                max_log_size,
-                H.leafSeed(),
-                H.nodeSeed(),
-            );
-            errdefer metal_tree.deinit();
-            const root_result = try metal_tree.root();
-            if (@sizeOf(H.Hash) != @sizeOf(@TypeOf(root_result.hash))) {
-                return error.UnsupportedMetalHash;
-            }
-            const root_hash: H.Hash = @bitCast(root_result.hash);
-            return .{
-                .layers = &.{},
-                .layer_allocator = allocator,
-                .resident_tree = .{
-                    .handle = metal_tree.handle,
-                    .runtime_handle = metal_tree.runtime_handle,
-                    .destroy = @import("../../backends/metal/runtime.zig").Tree.destroyOpaque,
-                    .copy_hashes = @import("../../backends/metal/runtime.zig").Tree.copyHashesOpaque,
-                },
-                .metal_root = root_hash,
-                .metal_log_size = max_log_size,
-            };
         }
 
         /// Builds a Merkle tree by computing quotient values lazily from the
@@ -519,10 +443,7 @@ pub fn MerkleProverLifted(comptime H: type) type {
         }
 
         pub fn maxLogSize(self: Self) u32 {
-            return if (self.resident_tree != null)
-                self.metal_log_size
-            else
-                @intCast(self.layers.len - 1);
+            return @intCast(self.layers.len - 1);
         }
 
         pub fn readHashes(
@@ -531,24 +452,6 @@ pub fn MerkleProverLifted(comptime H: type) type {
             layer_log_size: u32,
             indices: []const u32,
         ) ![]H.Hash {
-            if (self.resident_tree) |tree| {
-                if (@sizeOf(H.Hash) != @sizeOf([32]u8)) return error.UnsupportedMetalHash;
-                const packed_hashes = tree.copy_hashes(
-                    tree.runtime_handle,
-                    tree.handle,
-                    allocator,
-                    layer_log_size,
-                    indices,
-                ) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    else => return error.InvalidColumnSize,
-                };
-                defer allocator.free(packed_hashes);
-                const out = try allocator.alloc(H.Hash, packed_hashes.len);
-                for (packed_hashes, out) |hash, *destination| destination.* = @bitCast(hash);
-                return out;
-            }
-
             const layer = self.layers[layer_log_size];
             const out = try allocator.alloc(H.Hash, indices.len);
             for (indices, out) |index, *destination| destination.* = layer[index];

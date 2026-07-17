@@ -2788,9 +2788,37 @@ test "metal: resident lifted Merkle root matches CPU" {
     try std.testing.expectEqualSlices(u8, &cpu_tree.root(), &result.hash);
     try std.testing.expect(result.gpu_ms > 0);
 
-    var compatible_tree = try CpuTree.commitMetal(&runtime, allocator, &cpu_columns);
+    const MetalTree = @import("backends/metal/merkle_tree.zig").MetalMerkleTree(Hasher);
+    var compatible_tree = try MetalTree.commit(&runtime, allocator, &cpu_columns);
     defer compatible_tree.deinit(allocator);
     try std.testing.expectEqualSlices(u8, &cpu_tree.root(), &compatible_tree.root());
+
+    const query_positions = [_]usize{ 3, 255, 510 };
+    var cpu_decommitment = try cpu_tree.decommit(allocator, &query_positions, &cpu_columns);
+    defer cpu_decommitment.deinit(allocator);
+    var metal_decommitment = try compatible_tree.decommit(allocator, &query_positions, &cpu_columns);
+    defer metal_decommitment.deinit(allocator);
+
+    for (cpu_decommitment.queried_values, metal_decommitment.queried_values) |cpu_values, metal_values| {
+        try std.testing.expectEqualSlices(M31, cpu_values, metal_values);
+    }
+    const cpu_witness = cpu_decommitment.decommitment.decommitment.hash_witness;
+    const metal_witness = metal_decommitment.decommitment.decommitment.hash_witness;
+    try std.testing.expectEqual(cpu_witness.len, metal_witness.len);
+    for (cpu_witness, metal_witness) |cpu_hash, metal_hash| {
+        try std.testing.expectEqualSlices(u8, &cpu_hash, &metal_hash);
+    }
+
+    const cpu_layers = cpu_decommitment.decommitment.aux.all_node_values;
+    const metal_layers = metal_decommitment.decommitment.aux.all_node_values;
+    try std.testing.expectEqual(cpu_layers.len, metal_layers.len);
+    for (cpu_layers, metal_layers) |cpu_layer, metal_layer| {
+        try std.testing.expectEqual(cpu_layer.len, metal_layer.len);
+        for (cpu_layer, metal_layer) |cpu_node, metal_node| {
+            try std.testing.expectEqual(cpu_node.index, metal_node.index);
+            try std.testing.expectEqualSlices(u8, &cpu_node.hash, &metal_node.hash);
+        }
+    }
 }
 
 test "metal: incremental leaf absorption matches monolithic lifted leaves" {

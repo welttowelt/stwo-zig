@@ -4140,25 +4140,6 @@ pub const Tree = struct {
         self.* = undefined;
     }
 
-    pub fn destroyOpaque(handle: *anyopaque) void {
-        stwo_zig_metal_tree_destroy(handle);
-    }
-
-    pub fn copyHashesOpaque(
-        runtime_handle: *anyopaque,
-        handle: *anyopaque,
-        allocator: std.mem.Allocator,
-        layer_log_size: u32,
-        indices: []const u32,
-    ) anyerror![][32]u8 {
-        const tree = Tree{
-            .handle = handle,
-            .runtime_handle = runtime_handle,
-            .log_size = layer_log_size,
-        };
-        return tree.copyHashes(allocator, layer_log_size, indices);
-    }
-
     pub fn root(self: Tree) MetalError!struct { hash: [32]u8, gpu_ms: f64 } {
         var hash: [32]u8 = undefined;
         var gpu_ms: f64 = 0;

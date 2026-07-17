@@ -2,6 +2,7 @@ const std = @import("std");
 const cpu = @import("../cpu_scalar/mod.zig").CpuBackend;
 const runtime_mod = @import("runtime.zig");
 const merkle = @import("../../prover/vcs_lifted/prover.zig");
+const metal_merkle = @import("merkle_tree.zig");
 
 var runtime_mutex: std.Thread.Mutex = .{};
 var shared_runtime: ?runtime_mod.Runtime = null;
@@ -29,7 +30,7 @@ pub const MetalCommitBackend = struct {
     pub const preferMonolithicCommit = true;
 
     pub fn MerkleTree(comptime H: type) type {
-        return merkle.MerkleProverLifted(H);
+        return metal_merkle.MetalMerkleTree(H);
     }
 
     pub fn allocateSecureColumn(column_len: usize) !@import("../../prover/secure_column.zig").SecureColumnByCoords {
@@ -93,9 +94,20 @@ pub const MetalCommitBackend = struct {
         columns: []const []const @import("../../core/fields/m31.zig").M31,
     ) !MerkleTree(H) {
         var cells: usize = 0;
-        for (columns) |column| cells += column.len;
-        if (cells < (1 << 24)) return merkle.MerkleProverLifted(H).commit(allocator, columns);
-        return merkle.MerkleProverLifted(H).commitMetal(try runtime(), allocator, columns);
+        for (columns) |column| cells = try std.math.add(usize, cells, column.len);
+        if (cells < (1 << 24)) {
+            return MerkleTree(H).fromHost(
+                try merkle.MerkleProverLifted(H).commit(allocator, columns),
+            );
+        }
+        return MerkleTree(H).commit(try runtime(), allocator, columns);
+    }
+
+    pub fn adoptHostMerkle(
+        comptime H: type,
+        tree: merkle.MerkleProverLifted(H),
+    ) MerkleTree(H) {
+        return MerkleTree(H).fromHost(tree);
     }
 
     pub fn computeLazyQuotients(

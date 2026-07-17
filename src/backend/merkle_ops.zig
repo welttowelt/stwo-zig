@@ -15,7 +15,8 @@ const M31 = m31.M31;
 /// - `MerkleTree(comptime H: type) type`
 /// - `commitMerkle(comptime H: type, allocator, columns) !MerkleTree(H)`
 ///
-/// The associated tree must expose `root`, `deinit`, and `decommit`.
+/// The associated tree must expose ownership, root access, selective reads,
+/// and backend-neutral decommitment traversal.
 pub fn assertMerkleOps(comptime B: type, comptime H: type) void {
     comptime {
         if (!@hasDecl(B, "MerkleTree")) {
@@ -34,6 +35,12 @@ pub fn assertMerkleOps(comptime B: type, comptime H: type) void {
         }
         if (!@hasDecl(Tree, "decommit")) {
             @compileError("Backend Merkle tree must declare `decommit`.");
+        }
+        if (!@hasDecl(Tree, "maxLogSize")) {
+            @compileError("Backend Merkle tree must declare `maxLogSize`.");
+        }
+        if (!@hasDecl(Tree, "readHashes")) {
+            @compileError("Backend Merkle tree must declare `readHashes`.");
         }
 
         const CommitResult = @TypeOf(B.commitMerkle(

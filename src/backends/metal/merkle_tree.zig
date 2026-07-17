@@ -1,0 +1,145 @@
+//! Metal-owned lifted Merkle tree storage.
+//!
+//! Small commitments retain the reference host tree. Large commitments keep
+//! every hash layer device-resident and read back only queried authentication
+//! nodes. The generic prover sees the same typed reader interface in both cases.
+
+const std = @import("std");
+const m31 = @import("../../core/fields/m31.zig");
+const decommit_mod = @import("../../prover/vcs_lifted/decommit.zig");
+const host_merkle = @import("../../prover/vcs_lifted/prover.zig");
+const runtime_mod = @import("runtime.zig");
+
+const M31 = m31.M31;
+
+pub fn MetalMerkleTree(comptime H: type) type {
+    const HostTree = host_merkle.MerkleProverLifted(H);
+    return struct {
+        storage: Storage,
+
+        const Self = @This();
+        const ResidentTree = struct {
+            tree: runtime_mod.Tree,
+            root_hash: H.Hash,
+        };
+        const Storage = union(enum) {
+            host: HostTree,
+            resident: ResidentTree,
+        };
+
+        pub const DecommitmentResult = decommit_mod.DecommitmentResult(H);
+
+        pub fn fromHost(tree: HostTree) Self {
+            return .{ .storage = .{ .host = tree } };
+        }
+
+        pub fn commit(
+            runtime: *runtime_mod.Runtime,
+            allocator: std.mem.Allocator,
+            columns: []const []const M31,
+        ) !Self {
+            const log_sizes = try allocator.alloc(u32, columns.len);
+            defer allocator.free(log_sizes);
+            const word_columns = try allocator.alloc([]const u32, columns.len);
+            defer allocator.free(word_columns);
+
+            var max_log_size: u32 = 0;
+            for (columns, 0..) |column, index| {
+                if (column.len < 2 or !std.math.isPowerOfTwo(column.len)) {
+                    return error.InvalidColumnSize;
+                }
+                const log_size: u32 = @intCast(std.math.log2_int(usize, column.len));
+                log_sizes[index] = log_size;
+                max_log_size = @max(max_log_size, log_size);
+                word_columns[index] = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(column));
+            }
+
+            var tree = try runtime.commitColumns(
+                allocator,
+                word_columns,
+                log_sizes,
+                max_log_size,
+                H.leafSeed(),
+                H.nodeSeed(),
+            );
+            errdefer tree.deinit();
+
+            const root_result = try tree.root();
+            if (@sizeOf(H.Hash) != @sizeOf(@TypeOf(root_result.hash))) {
+                return error.UnsupportedMetalHash;
+            }
+            return .{
+                .storage = .{ .resident = .{
+                    .tree = tree,
+                    .root_hash = @bitCast(root_result.hash),
+                } },
+            };
+        }
+
+        pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+            switch (self.storage) {
+                .host => |tree_value| {
+                    var tree = tree_value;
+                    tree.deinit(allocator);
+                },
+                .resident => |resident_value| {
+                    var resident = resident_value;
+                    resident.tree.deinit();
+                },
+            }
+            self.* = undefined;
+        }
+
+        pub fn root(self: Self) H.Hash {
+            return switch (self.storage) {
+                .host => |tree| tree.root(),
+                .resident => |resident| resident.root_hash,
+            };
+        }
+
+        pub fn maxLogSize(self: Self) u32 {
+            return switch (self.storage) {
+                .host => |tree| tree.maxLogSize(),
+                .resident => |resident| resident.tree.log_size,
+            };
+        }
+
+        pub fn readHashes(
+            self: Self,
+            allocator: std.mem.Allocator,
+            layer_log_size: u32,
+            indices: []const u32,
+        ) (std.mem.Allocator.Error || error{InvalidColumnSize})![]H.Hash {
+            return switch (self.storage) {
+                .host => |tree| tree.readHashes(allocator, layer_log_size, indices),
+                .resident => |resident| blk: {
+                    if (@sizeOf(H.Hash) != @sizeOf([32]u8)) {
+                        return error.InvalidColumnSize;
+                    }
+                    const packed_hashes = resident.tree.copyHashes(
+                        allocator,
+                        layer_log_size,
+                        indices,
+                    ) catch |err| switch (err) {
+                        error.OutOfMemory => return error.OutOfMemory,
+                        else => return error.InvalidColumnSize,
+                    };
+                    defer allocator.free(packed_hashes);
+
+                    const hashes = try allocator.alloc(H.Hash, packed_hashes.len);
+                    for (packed_hashes, hashes) |hash, *destination| destination.* = @bitCast(hash);
+                    break :blk hashes;
+                },
+            };
+        }
+
+        pub fn decommit(
+            self: Self,
+            allocator: std.mem.Allocator,
+            query_positions: []const usize,
+            columns: []const []const M31,
+        ) (std.mem.Allocator.Error || error{InvalidColumnSize})!DecommitmentResult {
+            return decommit_mod.decommit(H, self, allocator, query_positions, columns);
+        }
+    };
+}
