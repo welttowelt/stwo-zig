@@ -63,7 +63,7 @@ decommitment, filesystem, diagnostics, and field-arithmetic context.
 
 ### Migration ledger (2026-07-17)
 
-The audit table above is the historical pre-migration inventory. The live facade is now 4,868
+The audit table above is the historical pre-migration inventory. The live facade is now 4,824
 lines and delegates these accepted ownership slices without changing its public names:
 
 - `resident/errors.zig` owns the stable Cairo resident integration error set;
@@ -82,6 +82,8 @@ lines and delegates these accepted ownership slices without changing its public 
   validation;
 - `resident/relations/components.zig` owns relation instance binding, prepared component/recipe
   lifecycle, component-local interpolation, execution telemetry, and relation diagnostics;
+- `resident/transcript/operations.zig` owns transcript recipe construction, commitment-root
+  restoration, relation challenge materialization, and interaction-claim publication;
 - `resident/trace/interpolation.zig` owns recorded/native base interpolation lifecycle, component
   grouping, fixed-trace materialization, and trace/preprocessed interpolation;
 - `resident/trace/diagnostics.zig` owns opt-in base-evaluation digest and dump diagnostics invoked
@@ -129,7 +131,8 @@ src/integrations/cairo_metal/
 |   |-- binding.zig                   validated resident binding address conversion
 |   |-- session.zig                   phase ordering over prepared typed views
 |   |-- proof_bindings.zig            authenticated schedule-to-view projection
-|   |-- transcript.zig                transcript recipe and challenge publication
+|   |-- transcript/
+|   |   `-- operations.zig            transcript recipe and challenge publication
 |   |-- relations/
 |   |   |-- claims.zig                canonical claimed-sum order and validation
 |   |   `-- components.zig            relation binding, preparation, and execution
@@ -185,7 +188,8 @@ wrappers are temporary compatibility aids, not final ownership.
 | `resident/errors.zig` | `Error` |
 | `resident/proof_bindings.zig` | `PreparedProofBindings.initSn2`, `init`, `initInternal`, `deinit`, `validate`, `validateSn2`; `validateDisjointBindings`, `validateDisjointActiveBindings`, `bindingHasActiveTick`; proof-wide typed binding fields |
 | `resident/session.zig` | Compatibility methods that order or delegate proving phases; no schedule scanning, Metal encoding, or protocol arithmetic |
-| `resident/transcript.zig` | `prepareTranscript`, `restoreCommitmentRoot`, `materializeRelationChallenges`, `restoreRelationChallenges`, `publishInteractionClaim`, `TranscriptBootstrapValidationOptions`, `validateTranscriptBootstrap`, `restoreTranscriptBootstrap` |
+| `resident/transcript/operations.zig` | `prepareTranscript`, `restoreCommitmentRoot`, `materializeRelationChallenges`, `restoreRelationChallenges`, `publishInteractionClaim` |
+| `backends/metal/cairo/diagnostics/transcript_fixture.zig` | `TranscriptBootstrapValidationOptions`, `validateTranscriptBootstrap`, `restoreTranscriptBootstrap` |
 | `resident/quotient.zig` | `prepareQuotient` and its `QuotientBindings` view |
 | `resident/fri.zig` | `prepareFri`, `runtimeFriGeometry` and its `FriBindings` view |
 | `resident/proof_assembly.zig` | `ProofCopy`, `prepareProofAssembly`, `buildProofCopies`, `proofCopyTranscriptOrdinals`, `collectAssembly` |
