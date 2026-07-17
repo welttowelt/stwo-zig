@@ -43,12 +43,45 @@ const RunnerArtifacts = state.RunnerArtifacts;
 const RunnerRequest = state.RunnerRequest;
 const ViewCache = state.ViewCache;
 
+pub const CompositionProgramPolicy = union(enum) {
+    diagnostic,
+    approved_metallib: [32]u8,
+};
+
+pub fn compositionProgramPolicy(encoded_digest: ?[]const u8) !CompositionProgramPolicy {
+    const encoded = encoded_digest orelse return .diagnostic;
+    if (encoded.len != 64) return error.InvalidCompositionMetallibDigest;
+    var digest: [32]u8 = undefined;
+    _ = std.fmt.hexToBytes(&digest, encoded) catch
+        return error.InvalidCompositionMetallibDigest;
+    const canonical = std.fmt.bytesToHex(digest, .lower);
+    if (!std.mem.eql(u8, encoded, &canonical))
+        return error.InvalidCompositionMetallibDigest;
+    return .{ .approved_metallib = digest };
+}
+
+pub fn authorizeCompositionProgram(
+    policy: CompositionProgramPolicy,
+    kind: std.meta.Tag(artifact_views.CompositionProgram),
+    object_id: [32]u8,
+) !void {
+    switch (policy) {
+        .diagnostic => {},
+        .approved_metallib => |approved| {
+            if (kind != .metallib) return error.CompositionSourceForbidden;
+            if (!std.mem.eql(u8, &approved, &object_id))
+                return error.UnapprovedCompositionMetallib;
+        },
+    }
+}
+
 pub fn prepareArtifacts(
     allocator: std.mem.Allocator,
     store: *artifact_store.Store,
     views: *ViewCache,
     request: protocol.Request,
     executable_measurement: artifact_manifest.Measurement,
+    composition_policy: CompositionProgramPolicy,
 ) !PreparedArtifacts {
     var prepared = PreparedArtifacts{};
     errdefer prepared.deinit(allocator);
@@ -80,9 +113,15 @@ pub fn prepareArtifacts(
     var expected_tree0_root: [32]u8 = undefined;
     _ = std.fmt.hexToBytes(&expected_tree0_root, request.expected_tree0_root_hex) catch
         return error.InvalidTreeRoot;
-    const composition_program: artifact_views.CompositionProgram = switch (try compositionProgramKind(
+    const composition_program_kind = try compositionProgramKind(
         request.artifacts.composition_program.diagnosticPath(),
-    )) {
+    );
+    try authorizeCompositionProgram(
+        composition_policy,
+        composition_program_kind,
+        prepared.snapshot(.composition_program).object_id,
+    );
+    const composition_program: artifact_views.CompositionProgram = switch (composition_program_kind) {
         .metal => .{ .metal = immutableObject(prepared.snapshot(.composition_program)) },
         .metallib => .{ .metallib = immutableObject(prepared.snapshot(.composition_program)) },
     };
@@ -254,6 +293,15 @@ pub fn cacheDelta(
     };
 }
 
+pub fn requireWarmPipelineCache(delta: metal_runtime.PipelineCacheStats) !void {
+    if (delta.library_cache_misses != 0) return error.UnexpectedLibraryCacheMiss;
+    if (delta.binary_archive_hits != 0) return error.UnexpectedBinaryArchiveHit;
+    if (delta.binary_archive_misses != 0) return error.UnexpectedBinaryArchiveMiss;
+    if (delta.direct_compiles != 0) return error.UnexpectedDirectCompile;
+    if (delta.archive_populations != 0) return error.UnexpectedArchivePopulation;
+    if (delta.archive_serializations != 0) return error.UnexpectedArchiveSerialization;
+}
+
 pub fn nanosecondsToSeconds(nanoseconds: u64) f64 {
     return @as(f64, @floatFromInt(nanoseconds)) /
         @as(f64, @floatFromInt(std.time.ns_per_s));
@@ -276,6 +324,7 @@ pub fn configureEnvironment(
     const log_composition_digests = environment.get("STWO_ZIG_SN2_LOG_COMPOSITION_DIGESTS") != null;
     const log_composition_part_component = environment.get("STWO_ZIG_SN2_LOG_COMPOSITION_PART_COMPONENT");
     const composition_fusion_cap = environment.get("STWO_ZIG_SN2_COMPOSITION_FUSION_CAP");
+    const composition_fusion_mode = environment.get("STWO_ZIG_SN2_COMPOSITION_FUSION_MODE");
     var iterator = environment.iterator();
     while (iterator.next()) |entry| {
         if (!isSessionScrubbedRunnerEnvironment(entry.key_ptr.*)) continue;
@@ -286,6 +335,8 @@ pub fn configureEnvironment(
     if (!std.mem.endsWith(u8, request.artifacts.composition, ".bin"))
         return error.InvalidCompositionArtifact;
     const program_kind = try compositionProgramKind(request.artifacts.composition_program);
+    if (composition_fusion_mode != null and program_kind != .metal)
+        return error.CompositionFusionModeRequiresSourceArtifact;
 
     const values = [_]struct { []const u8, []const u8 }{
         .{ "STWO_ZIG_SN2_POPULATE_INPUT", canonical_adapted_input },
@@ -341,6 +392,12 @@ pub fn configureEnvironment(
             try setEnvironmentValue(allocator, .{
                 .name = "STWO_ZIG_SN2_COMPOSITION_FUSION_CAP",
                 .value = cap,
+            });
+        }
+        if (composition_fusion_mode) |mode| {
+            try setEnvironmentValue(allocator, .{
+                .name = "STWO_ZIG_SN2_COMPOSITION_FUSION_MODE",
+                .value = mode,
             });
         }
     }

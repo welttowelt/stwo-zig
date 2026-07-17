@@ -40,6 +40,7 @@ const RunnerRequest = state.RunnerRequest;
 const ViewCache = state.ViewCache;
 
 const prepareArtifacts = preparation.prepareArtifacts;
+const compositionProgramPolicy = preparation.compositionProgramPolicy;
 const compositionProgramKind = preparation.compositionProgramKind;
 const canonicalProofProtocolDigest = preparation.canonicalProofProtocolDigest;
 const preparedStateKey = preparation.preparedStateKey;
@@ -72,11 +73,13 @@ pub fn main() !void {
     const allocator = debug_allocator.allocator();
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
-    if (args.len != 6 or
+    if ((args.len != 6 and args.len != 8) or
         !std.mem.eql(u8, args[1], "--jsonl") or
         !std.mem.eql(u8, args[2], "--rust-verifier") or
-        !std.mem.eql(u8, args[4], "--rust-verifier-lockfile"))
+        !std.mem.eql(u8, args[4], "--rust-verifier-lockfile") or
+        (args.len == 8 and !std.mem.eql(u8, args[6], "--composition-metallib-sha256")))
         return error.InvalidArguments;
+    const composition_policy = try compositionProgramPolicy(if (args.len == 8) args[7] else null);
     const executable_identity = try measureExecutableIdentity(allocator);
 
     var runtime = try metal_runtime.Runtime.init();
@@ -168,6 +171,7 @@ pub fn main() !void {
                     request,
                     executable_identity,
                     rust_verifier,
+                    composition_policy,
                 ) catch |err| {
                     try writeFrame(writer, .{
                         .protocol = protocol.protocol_name,
@@ -198,6 +202,7 @@ fn proveRequest(
     request: protocol.Request,
     executable_identity: ExecutableIdentity,
     rust_verifier: RustVerifierConfig,
+    composition_policy: preparation.CompositionProgramPolicy,
 ) !ProofResult {
     var block_timer = try std.time.Timer.start();
     const pipeline_cache_before = runtime.pipelineCacheStats();
@@ -206,7 +211,14 @@ fn proveRequest(
         request.artifacts.adapted_input.diagnosticPath(),
     );
     defer allocator.free(diagnostic_adapted_input);
-    var prepared = try prepareArtifacts(allocator, store, views, request, executable_identity.measurement);
+    var prepared = try prepareArtifacts(
+        allocator,
+        store,
+        views,
+        request,
+        executable_identity.measurement,
+        composition_policy,
+    );
     defer prepared.deinit(allocator);
     const artifact_admission_wall_s = nanosecondsToSeconds(block_timer.read());
     const artifact_objects = prepared.artifactObjects(request.artifacts);

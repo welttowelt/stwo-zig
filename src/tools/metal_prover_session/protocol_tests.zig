@@ -20,8 +20,11 @@ const RunnerArtifacts = state.RunnerArtifacts;
 const ViewCache = state.ViewCache;
 const adaptedGeometry = preparation.adaptedGeometry;
 const cacheDelta = preparation.cacheDelta;
+const authorizeCompositionProgram = preparation.authorizeCompositionProgram;
+const compositionProgramPolicy = preparation.compositionProgramPolicy;
 const immutableObject = preparation.immutableObject;
 const isSessionScrubbedRunnerEnvironment = preparation.isSessionScrubbedRunnerEnvironment;
+const requireWarmPipelineCache = preparation.requireWarmPipelineCache;
 const referenceEnvironment = preparation.referenceEnvironment;
 const writeVerifiedResultFrame = preparation.writeVerifiedResultFrame;
 const cliProvenance = verification.cliProvenance;
@@ -38,6 +41,40 @@ const TestPerProofShape = struct {
     ec_op_span: ?TestBuiltinSpan = null,
 };
 
+test "production composition policy pins an AOT metallib digest" {
+    const digest = [_]u8{0xab} ** 32;
+    const encoded = std.fmt.bytesToHex(digest, .lower);
+    const production = try compositionProgramPolicy(&encoded);
+    try authorizeCompositionProgram(production, .metallib, digest);
+
+    var other = digest;
+    other[0] ^= 1;
+    try std.testing.expectError(
+        error.UnapprovedCompositionMetallib,
+        authorizeCompositionProgram(production, .metallib, other),
+    );
+    try std.testing.expectError(
+        error.CompositionSourceForbidden,
+        authorizeCompositionProgram(production, .metal, digest),
+    );
+    try authorizeCompositionProgram(.diagnostic, .metal, other);
+}
+
+test "production composition policy rejects noncanonical digests" {
+    try std.testing.expectError(
+        error.InvalidCompositionMetallibDigest,
+        compositionProgramPolicy("ab"),
+    );
+    try std.testing.expectError(
+        error.InvalidCompositionMetallibDigest,
+        compositionProgramPolicy("ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB"),
+    );
+    try std.testing.expectError(
+        error.InvalidCompositionMetallibDigest,
+        compositionProgramPolicy("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"),
+    );
+}
+
 test "session cache delta includes library preparation time" {
     const before = stwo.backends.metal.runtime.PipelineCacheStats.zero();
     var after = before;
@@ -46,6 +83,31 @@ test "session cache delta includes library preparation time" {
     const delta = cacheDelta(after, before);
     try std.testing.expectEqual(@as(u64, 1), delta.library_cache_misses);
     try std.testing.expectEqual(@as(f64, 0.25), delta.library_preparation_seconds);
+}
+
+test "warm proof cache gate permits hits and timing only" {
+    var warm = stwo.backends.metal.runtime.PipelineCacheStats.zero();
+    warm.library_cache_hits = 1;
+    warm.pipeline_cache_hits = 58;
+    warm.pipeline_preparation_seconds = 0.25;
+    warm.library_preparation_seconds = 0.125;
+    try requireWarmPipelineCache(warm);
+
+    inline for (.{
+        .{ "library_cache_misses", error.UnexpectedLibraryCacheMiss },
+        .{ "binary_archive_hits", error.UnexpectedBinaryArchiveHit },
+        .{ "binary_archive_misses", error.UnexpectedBinaryArchiveMiss },
+        .{ "direct_compiles", error.UnexpectedDirectCompile },
+        .{ "archive_populations", error.UnexpectedArchivePopulation },
+        .{ "archive_serializations", error.UnexpectedArchiveSerialization },
+    }) |field| {
+        var cold = warm;
+        @field(cold, field[0]) = 1;
+        try std.testing.expectError(
+            field[1],
+            requireWarmPipelineCache(cold),
+        );
+    }
 }
 
 fn testAdaptedInputBytes(
