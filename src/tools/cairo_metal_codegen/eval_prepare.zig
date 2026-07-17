@@ -12,12 +12,18 @@ pub fn main() !void {
     const allocator = gpa.allocator();
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
-    const path = if (args.len == 1) "vectors/cairo/sn_pie_2_composition.bin" else if (args.len <= 3) args[1] else return error.InvalidArguments;
+    const verify_warm = args.len == 4 and std.mem.eql(u8, args[3], "--verify-warm");
+    const path = if (args.len == 1)
+        "vectors/cairo/sn_pie_2_composition.bin"
+    else if (args.len <= 3 or verify_warm)
+        args[1]
+    else
+        return error.InvalidArguments;
     var bundle = try composition.Bundle.readFile(allocator, path);
     defer bundle.deinit();
     var runtime = try metal.Runtime.init();
     defer runtime.deinit();
-    if (args.len == 3) {
+    if (args.len == 3 or verify_warm) {
         const evidence = try composition_prewarm.prewarm(.{
             .allocator = allocator,
             .runtime = &runtime,
@@ -35,6 +41,19 @@ pub fn main() !void {
             .metal_compile_ms = nanosecondsToMilliseconds(evidence.plan_preparation_ns),
             .all_programs_compiled = evidence.resolved_plan_count == evidence.expected_plan_count,
             .pipeline_cache_delta = evidence.cache_delta,
+            .warm_verification = if (verify_warm) warm: {
+                const second = try composition_prewarm.prewarm(.{
+                    .allocator = allocator,
+                    .runtime = &runtime,
+                    .bundle = &bundle,
+                    .metallib_path = args[2],
+                });
+                try composition_prewarm.validateSecondPass(second);
+                break :warm .{
+                    .passed = true,
+                    .pipeline_cache_delta = second.cache_delta,
+                };
+            } else null,
         });
     }
 
@@ -89,6 +108,7 @@ pub fn main() !void {
             runtime.pipelineCacheStats(),
             cache_before,
         ),
+        .warm_verification = null,
     });
 }
 
@@ -102,6 +122,12 @@ const Result = struct {
     codegen_ms: f64,
     metal_compile_ms: f64,
     all_programs_compiled: bool,
+    pipeline_cache_delta: metal_telemetry.PipelineCacheDelta,
+    warm_verification: ?WarmVerification,
+};
+
+const WarmVerification = struct {
+    passed: bool,
     pipeline_cache_delta: metal_telemetry.PipelineCacheDelta,
 };
 
