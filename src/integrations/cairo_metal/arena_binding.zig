@@ -59,6 +59,7 @@ pub const CommitmentTelemetry = struct {
     leaf_gpu_ms: f64,
     parent_gpu_ms: f64,
     root: arena_plan.Binding,
+    command_epoch_stats: ?metal_runtime.CommandEpochStats = null,
 };
 
 pub const OrdinalBinding = schedule_bindings.OrdinalBinding;
@@ -5526,6 +5527,66 @@ fn executeStreamingCommitment(
     leaf_seed: [8]u32,
     node_seed: [8]u32,
 ) !CommitmentTelemetry {
+    return executeStreamingCommitmentWithMode(
+        allocator,
+        metal,
+        resident_arena,
+        schedule,
+        plan,
+        coefficients,
+        twiddles,
+        tree_index,
+        leaf_seed,
+        node_seed,
+        .automatic,
+    );
+}
+
+pub const StreamingCommitmentBenchmarkMode = enum { automatic, synchronous };
+
+/// Bounded benchmark hook for the exact production commitment graph. Normal
+/// proving always enters through executeStreamingCommitment in automatic mode.
+pub fn executeStreamingCommitmentBenchmark(
+    allocator: std.mem.Allocator,
+    metal: *metal_runtime.Runtime,
+    resident_arena: *arena_plan.ResidentArena,
+    schedule: []const std.json.Value,
+    plan: arena_plan.Plan,
+    coefficients: []const arena_plan.Binding,
+    twiddles: arena_plan.Binding,
+    tree_index: u32,
+    leaf_seed: [8]u32,
+    node_seed: [8]u32,
+    mode: StreamingCommitmentBenchmarkMode,
+) !CommitmentTelemetry {
+    return executeStreamingCommitmentWithMode(
+        allocator,
+        metal,
+        resident_arena,
+        schedule,
+        plan,
+        coefficients,
+        twiddles,
+        tree_index,
+        leaf_seed,
+        node_seed,
+        mode,
+    );
+}
+
+fn executeStreamingCommitmentWithMode(
+    allocator: std.mem.Allocator,
+    metal: *metal_runtime.Runtime,
+    resident_arena: *arena_plan.ResidentArena,
+    schedule: []const std.json.Value,
+    plan: arena_plan.Plan,
+    coefficients: []const arena_plan.Binding,
+    twiddles: arena_plan.Binding,
+    tree_index: u32,
+    leaf_seed: [8]u32,
+    node_seed: [8]u32,
+    mode: StreamingCommitmentBenchmarkMode,
+) !CommitmentTelemetry {
     const group_descriptors = try collectTreePurpose(allocator, schedule, plan, "CommitColumnLogSizes", tree_index);
     defer allocator.free(group_descriptors);
     const tile_items = try collectTreePurpose(allocator, schedule, plan, "CommitLdeTile", tree_index);
@@ -5558,13 +5619,14 @@ fn executeStreamingCommitment(
         std.process.hasEnvVarConstant("STWO_ZIG_SN2_LOG_COMMIT_STEPS") or
         std.process.hasEnvVarConstant("STWO_ZIG_SN2_REPEAT_COMMIT_LDE") or
         std.process.hasEnvVarConstant("STWO_ZIG_SN2_REPAIR_COLUMN_613_LDE");
-    var command_epoch: ?metal_runtime.CommandEpoch = if (use_compact_leaf_state and !requires_intermediate_visibility)
+    var command_epoch: ?metal_runtime.CommandEpoch = if (mode == .automatic and use_compact_leaf_state and !requires_intermediate_visibility)
         try metal.beginCommandEpoch(resident_arena.buffer)
     else
         null;
     defer if (command_epoch) |*epoch| epoch.deinit();
     var previous_group_log: ?u32 = null;
     var leaf_state_log: ?u32 = null;
+    var command_epoch_stats: ?metal_runtime.CommandEpochStats = null;
     for (group_descriptors, 0..) |descriptor, group_index| {
         const width = std.math.cast(usize, descriptor.size_bytes / 4) orelse return Error.InvalidBindingSize;
         if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_LOG_STAGE_TIMINGS") and group_index % 32 == 0)
@@ -5943,6 +6005,7 @@ fn executeStreamingCommitment(
     if (command_epoch) |*epoch| {
         try epoch.submit();
         const epoch_stats = try epoch.wait();
+        command_epoch_stats = epoch_stats;
         gpu_ms += epoch_stats.gpu_milliseconds;
     }
     if (std.process.hasEnvVarConstant("STWO_ZIG_SN2_LOG_STAGE_TIMINGS"))
@@ -5961,6 +6024,7 @@ fn executeStreamingCommitment(
         .leaf_gpu_ms = leaf_gpu_ms,
         .parent_gpu_ms = parent_gpu_ms,
         .root = root,
+        .command_epoch_stats = command_epoch_stats,
     };
 }
 

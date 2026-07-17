@@ -299,6 +299,52 @@ pub fn build(b: *std.Build) void {
         const metal_compact_bench_step = b.step("metal-compact-bench", "Build resident Metal compaction benchmark");
         metal_compact_bench_step.dependOn(&metal_compact_bench.step);
 
+        const cairo_streaming_commitment_bench_module = b.createModule(.{
+            .root_source_file = b.path("src/bench/cairo_metal/streaming_commitment.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        cairo_streaming_commitment_bench_module.addImport("stwo", stwo_module);
+        const cairo_streaming_commitment_bench = b.addExecutable(.{
+            .name = "cairo-streaming-commitment-bench",
+            .root_module = cairo_streaming_commitment_bench_module,
+        });
+        cairo_streaming_commitment_bench.addCSourceFile(.{
+            .file = b.path("src/backends/metal/runtime.m"),
+            .flags = &.{ "-fobjc-arc", "-fblocks" },
+        });
+        cairo_streaming_commitment_bench.linkLibC();
+        cairo_streaming_commitment_bench.linkFramework("Foundation");
+        cairo_streaming_commitment_bench.linkFramework("Metal");
+        cairo_streaming_commitment_bench.linkSystemLibrary("objc");
+        const install_cairo_streaming_commitment_bench = b.addInstallArtifact(cairo_streaming_commitment_bench, .{});
+        const cairo_streaming_commitment_bench_step = b.step(
+            "cairo-streaming-commitment-bench",
+            "Build bounded production-callsite Cairo Metal commitment benchmark",
+        );
+        cairo_streaming_commitment_bench_step.dependOn(&install_cairo_streaming_commitment_bench.step);
+        const cairo_streaming_commitment_test_module = b.createModule(.{
+            .root_source_file = b.path("src/bench/cairo_metal/streaming_commitment.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        cairo_streaming_commitment_test_module.addImport("stwo", stwo_module);
+        const cairo_streaming_commitment_tests = b.addTest(.{ .root_module = cairo_streaming_commitment_test_module });
+        cairo_streaming_commitment_tests.addCSourceFile(.{
+            .file = b.path("src/backends/metal/runtime.m"),
+            .flags = &.{ "-fobjc-arc", "-fblocks" },
+        });
+        cairo_streaming_commitment_tests.linkLibC();
+        cairo_streaming_commitment_tests.linkFramework("Foundation");
+        cairo_streaming_commitment_tests.linkFramework("Metal");
+        cairo_streaming_commitment_tests.linkSystemLibrary("objc");
+        const run_cairo_streaming_commitment_tests = b.addRunArtifact(cairo_streaming_commitment_tests);
+        const cairo_streaming_commitment_test_step = b.step(
+            "cairo-streaming-commitment-test",
+            "Run bounded production-callsite Cairo Metal commitment parity test",
+        );
+        cairo_streaming_commitment_test_step.dependOn(&run_cairo_streaming_commitment_tests.step);
+
         const metal_eval_prepare_module = b.createModule(.{
             .root_source_file = b.path("src/tools/cairo_metal_codegen/eval_prepare.zig"),
             .target = target,
