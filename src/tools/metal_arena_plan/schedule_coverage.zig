@@ -75,6 +75,7 @@ pub fn validateFixedTableCoverage(
     destinations: *std.StringHashMap(void),
 ) !FixedTableCoverage {
     var preprocessed_coefficients: usize = 0;
+    var scheduled_components: usize = 0;
     var components: usize = 0;
     var lookup_buffers: usize = 0;
     var lookup_bytes: u64 = 0;
@@ -119,14 +120,25 @@ pub fn validateFixedTableCoverage(
         lookup_bytes += lookup_words * 4;
     }
     for (schedule) |scheduled| {
-        if (std.mem.eql(
-            u8,
-            scheduled.object.get("purpose").?.string,
-            "PreprocessedCoefficients",
-        )) preprocessed_coefficients += 1;
+        const object = scheduled.object;
+        const purpose = object.get("purpose").?.string;
+        if (std.mem.eql(u8, purpose, "PreprocessedCoefficients")) {
+            preprocessed_coefficients += 1;
+            continue;
+        }
+        if (!std.mem.eql(u8, purpose, "FixedTableLookupDescriptors")) continue;
+        const component = object.get("component") orelse return error.FixedTableCoverageMismatch;
+        if (component != .string or bundle.find(component.string) == null)
+            return error.FixedTableCoverageMismatch;
+        scheduled_components += 1;
     }
-    if (components != bundle.entries.len or
-        lookup_buffers != bundle.entries.len or
+    const entries_complete = switch (bundle.format_version) {
+        fixed_table_bundle_mod.version => true,
+        fixed_table_bundle_mod.projected_version => components == bundle.entries.len,
+        else => return error.UnsupportedVersion,
+    };
+    if (!entries_complete or components == 0 or lookup_buffers != components or
+        scheduled_components != components or
         preprocessed_coefficients != bundle.preprocessed_identities.len)
         return error.FixedTableCoverageMismatch;
     return .{ .components = components, .lookup_buffers = lookup_buffers, .lookup_bytes = lookup_bytes };
@@ -607,6 +619,117 @@ fn countFixedTraces(traces: []const relation_bundle_mod.Trace) usize {
         count += 1;
     };
     return count;
+}
+
+const fixed_table_test_identities = [_][]u8{
+    @constCast("identity_a"),
+    @constCast("identity_b"),
+};
+const fixed_table_test_source_a = [_][]u8{@constCast("identity_a")};
+const fixed_table_test_source_b = [_][]u8{@constCast("identity_b")};
+const fixed_table_test_trace_columns = [_]u32{0};
+const fixed_table_test_descriptors = [_]u32{ 0, 7, 0, 0 };
+const fixed_table_test_entries = [_]fixed_table_bundle_mod.Entry{
+    .{
+        .component = @constCast("table_a"),
+        .log_size = 3,
+        .row_count = 8,
+        .multiplicity_columns = 1,
+        .trace_multiplicity_columns = @constCast(fixed_table_test_trace_columns[0..]),
+        .preprocessed_sources = @constCast(fixed_table_test_source_a[0..]),
+        .lookup_descriptors = @constCast(fixed_table_test_descriptors[0..]),
+    },
+    .{
+        .component = @constCast("table_b"),
+        .log_size = 3,
+        .row_count = 8,
+        .multiplicity_columns = 1,
+        .trace_multiplicity_columns = @constCast(fixed_table_test_trace_columns[0..]),
+        .preprocessed_sources = @constCast(fixed_table_test_source_b[0..]),
+        .lookup_descriptors = @constCast(fixed_table_test_descriptors[0..]),
+    },
+};
+
+fn fixedTableTestBundle(format_version: u32) fixed_table_bundle_mod.Bundle {
+    return .{
+        .allocator = std.testing.allocator,
+        .format_version = format_version,
+        .graph_hash = fixed_table_bundle_mod.expected_graph_hash,
+        .preprocessed_identities = @constCast(fixed_table_test_identities[0..]),
+        .entries = @constCast(fixed_table_test_entries[0..]),
+    };
+}
+
+const fixed_table_active_schedule =
+    \\[
+    \\  {"id":0,"purpose":"LookupInputs","component":"table_a","ordinal":0,"len_words":8},
+    \\  {"id":1,"purpose":"FixedMultiplicity","component":"table_a","ordinal":0,"len_words":8},
+    \\  {"id":2,"purpose":"BaseTrace","component":"table_a","ordinal":0,"len_words":8},
+    \\  {"id":3,"purpose":"PreprocessedEvaluations","ordinal":0,"len_words":8},
+    \\  {"id":4,"purpose":"FixedTableLookupDescriptors","component":"table_a","ordinal":0,"len_words":4},
+    \\  {"id":5,"purpose":"FixedTableSourcePointers","component":"table_a","ordinal":0,"len_words":2},
+    \\  {"id":6,"purpose":"FixedTableMultiplicityPointers","component":"table_a","ordinal":0,"len_words":2},
+    \\  {"id":7,"purpose":"FixedTableLookupOutputPointers","component":"table_a","ordinal":0,"len_words":2},
+    \\  {"id":8,"purpose":"PreprocessedCoefficients","ordinal":0,"len_words":8},
+    \\  {"id":9,"purpose":"PreprocessedEvaluations","ordinal":1,"len_words":8},
+    \\  {"id":10,"purpose":"PreprocessedCoefficients","ordinal":1,"len_words":8}
+    \\]
+;
+
+test "canonical fixed-table bundle may cover an active subset" {
+    var parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, fixed_table_active_schedule, .{});
+    defer parsed.deinit();
+    var destinations = std.StringHashMap(void).init(std.testing.allocator);
+    defer destinations.deinit();
+
+    const coverage = try validateFixedTableCoverage(
+        parsed.value.array.items,
+        fixedTableTestBundle(fixed_table_bundle_mod.version),
+        &destinations,
+    );
+    try std.testing.expectEqual(@as(usize, 1), coverage.components);
+    try std.testing.expectEqual(@as(usize, 1), coverage.lookup_buffers);
+    try std.testing.expect(destinations.contains("table_a"));
+    try std.testing.expect(!destinations.contains("table_b"));
+}
+
+test "projected fixed-table bundle rejects incomplete coverage" {
+    var parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, fixed_table_active_schedule, .{});
+    defer parsed.deinit();
+    var destinations = std.StringHashMap(void).init(std.testing.allocator);
+    defer destinations.deinit();
+
+    try std.testing.expectError(
+        error.FixedTableCoverageMismatch,
+        validateFixedTableCoverage(
+            parsed.value.array.items,
+            fixedTableTestBundle(fixed_table_bundle_mod.projected_version),
+            &destinations,
+        ),
+    );
+}
+
+test "fixed-table coverage rejects an unknown scheduled descriptor component" {
+    var parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, fixed_table_active_schedule, .{});
+    defer parsed.deinit();
+    var unknown = try std.json.parseFromSlice(
+        std.json.Value,
+        std.testing.allocator,
+        "{\"id\":11,\"purpose\":\"FixedTableLookupDescriptors\",\"component\":\"unknown\",\"ordinal\":0,\"len_words\":4}",
+        .{},
+    );
+    defer unknown.deinit();
+    var schedule = std.ArrayList(std.json.Value).empty;
+    defer schedule.deinit(std.testing.allocator);
+    try schedule.appendSlice(std.testing.allocator, parsed.value.array.items);
+    try schedule.append(std.testing.allocator, unknown.value);
+    var destinations = std.StringHashMap(void).init(std.testing.allocator);
+    defer destinations.deinit();
+
+    try std.testing.expectError(
+        error.FixedTableCoverageMismatch,
+        validateFixedTableCoverage(schedule.items, fixedTableTestBundle(fixed_table_bundle_mod.version), &destinations),
+    );
 }
 
 test "empty schedule has no optional coverage" {

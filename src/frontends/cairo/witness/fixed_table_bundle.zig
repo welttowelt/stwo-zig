@@ -22,6 +22,7 @@ pub const Entry = struct {
 
 pub const Bundle = struct {
     allocator: std.mem.Allocator,
+    format_version: u32 = version,
     graph_hash: u64,
     preprocessed_identities: [][]u8,
     entries: []Entry,
@@ -114,7 +115,13 @@ pub const Bundle = struct {
         }
         var trailing: [1]u8 = undefined;
         if (try in.readSliceShort(&trailing) != 0) return error.TrailingData;
-        return .{ .allocator = allocator, .graph_hash = graph_hash, .preprocessed_identities = identities, .entries = entries };
+        return .{
+            .allocator = allocator,
+            .format_version = encoded_version,
+            .graph_hash = graph_hash,
+            .preprocessed_identities = identities,
+            .entries = entries,
+        };
     }
 
     pub fn deinit(self: *Bundle) void {
@@ -197,6 +204,7 @@ fn deinitStrings(allocator: std.mem.Allocator, strings: []const []u8) void {
 test "Cairo fixed-table bundle: canonical graph loads" {
     var bundle = try Bundle.readFile(std.testing.allocator, "vectors/cairo/cairo_fixed_tables.bin");
     defer bundle.deinit();
+    try std.testing.expectEqual(version, bundle.format_version);
     try std.testing.expectEqual(@as(usize, 22), bundle.entries.len);
     try std.testing.expectEqual(@as(usize, 161), bundle.preprocessed_identities.len);
     var lookup_outputs: usize = 0;
@@ -232,6 +240,7 @@ test "Cairo fixed-table bundle: projected cardinalities require an authenticated
     const path = try temporary.dir.realpathAlloc(allocator, "projected.bin");
     defer allocator.free(path);
     var bundle = try Bundle.readFile(allocator, path);
+    try std.testing.expectEqual(projected_version, bundle.format_version);
     try std.testing.expectEqual(@as(usize, 1), bundle.preprocessed_identities.len);
     try std.testing.expectEqual(@as(usize, 1), bundle.entries.len);
     bundle.deinit();
