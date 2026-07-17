@@ -32,300 +32,300 @@ pub const PolyError = error{
 pub fn CircleCoefficientsGeneric(comptime B: type) type {
     _ = B;
     return struct {
-    coeffs: []const M31,
-    log_size: u32,
-    owns_coeffs: bool,
-
-    pub fn initBorrowed(coeffs: []const M31) PolyError!CircleCoefficients {
-        if (coeffs.len == 0 or !std.math.isPowerOfTwo(coeffs.len)) {
-            return PolyError.InvalidLength;
-        }
-        return .{
-            .coeffs = coeffs,
-            .log_size = @intCast(std.math.log2_int(usize, coeffs.len)),
-            .owns_coeffs = false,
-        };
-    }
-
-    pub fn initOwned(coeffs: []M31) PolyError!CircleCoefficients {
-        var out = try initBorrowed(coeffs);
-        out.owns_coeffs = true;
-        return out;
-    }
-
-    pub fn deinit(self: *CircleCoefficients, allocator: std.mem.Allocator) void {
-        if (self.owns_coeffs) allocator.free(@constCast(self.coeffs));
-        self.* = undefined;
-    }
-
-    pub fn logSize(self: CircleCoefficients) u32 {
-        return self.log_size;
-    }
-
-    pub fn coefficients(self: CircleCoefficients) []const M31 {
-        return self.coeffs;
-    }
-
-    /// Evaluates the polynomial at one secure-field point.
-    pub fn evalAtPoint(self: CircleCoefficients, point: CirclePointQM31) QM31 {
-        if (self.log_size == 0) return QM31.fromBase(self.coeffs[0]);
-
-        var factors: [circle.M31_CIRCLE_LOG_ORDER]QM31 = undefined;
-        return self.evalAtPointWithFactors(
-            fillEvalFactorsForPoint(point, self.log_size, &factors),
-        );
-    }
-
-    pub fn evalAtPointWithFactors(
-        self: CircleCoefficients,
-        factors: []const QM31,
-    ) QM31 {
-        std.debug.assert(factors.len == self.log_size);
-        if (self.log_size == 0) return QM31.fromBase(self.coeffs[0]);
-        return evalAtPointIterative(
-            self.coeffs,
-            factors,
-            self.log_size,
-        );
-    }
-
-    pub fn evalAtPointsFolded(
-        self: CircleCoefficients,
-        points: []const CirclePointQM31,
-        fold_count: u32,
-        out: []QM31,
-    ) void {
-        std.debug.assert(points.len == out.len);
-        var flat_factors: [32 * circle.M31_CIRCLE_LOG_ORDER]QM31 = undefined;
-        if (points.len <= 32) {
-            fillEvalFactorsForPointsFolded(
-                points,
-                fold_count,
-                self.log_size,
-                flat_factors[0 .. points.len * self.log_size],
-            );
-            self.evalAtPointsWithFlatFactors(
-                flat_factors[0 .. points.len * self.log_size],
-                out,
-            );
-            return;
-        }
-
-        const chunk_points: usize = 32;
-        var at: usize = 0;
-        while (at < points.len) {
-            const chunk_len = @min(chunk_points, points.len - at);
-            fillEvalFactorsForPointsFolded(
-                points[at .. at + chunk_len],
-                fold_count,
-                self.log_size,
-                flat_factors[0 .. chunk_len * self.log_size],
-            );
-            self.evalAtPointsWithFlatFactors(
-                flat_factors[0 .. chunk_len * self.log_size],
-                out[at .. at + chunk_len],
-            );
-            at += chunk_len;
-        }
-    }
-
-    pub fn evalAtPointsWithFlatFactors(
-        self: CircleCoefficients,
-        flat_factors: []const QM31,
-        out: []QM31,
-    ) void {
-        std.debug.assert(self.log_size == 0 or flat_factors.len == out.len * self.log_size);
-        if (self.log_size == 0) {
-            const constant = QM31.fromBase(self.coeffs[0]);
-            @memset(out, constant);
-            return;
-        }
-
-        var factor_at: usize = 0;
-        for (out) |*value| {
-            value.* = evalAtPointIterative(
-                self.coeffs,
-                flat_factors[factor_at .. factor_at + self.log_size],
-                self.log_size,
-            );
-            factor_at += self.log_size;
-        }
-    }
-
-    pub fn evalManyAtPointsWithFlatFactors(
-        polys: []const CircleCoefficients,
-        flat_factors: []const QM31,
-        out_batch: []const []QM31,
-    ) void {
-        std.debug.assert(polys.len == out_batch.len);
-        if (polys.len == 0) return;
-
-        const log_size = polys[0].log_size;
-        if (log_size == 0) {
-            for (polys, out_batch) |poly, out| {
-                const constant = QM31.fromBase(poly.coeffs[0]);
-                @memset(out, constant);
-            }
-            return;
-        }
-
-        const point_count = out_batch[0].len;
-        std.debug.assert(flat_factors.len == point_count * log_size);
-        for (polys, out_batch) |poly, out| {
-            std.debug.assert(poly.log_size == log_size);
-            std.debug.assert(out.len == point_count);
-        }
-
-        var factor_at: usize = 0;
-        for (0..point_count) |point_idx| {
-            const point_factors = flat_factors[factor_at .. factor_at + log_size];
-            for (polys, out_batch) |poly, out| {
-                out[point_idx] = evalAtPointIterative(
-                    poly.coeffs,
-                    point_factors,
-                    log_size,
-                );
-            }
-            factor_at += log_size;
-        }
-    }
-
-    pub fn extend(
-        self: CircleCoefficients,
-        allocator: std.mem.Allocator,
+        coeffs: []const M31,
         log_size: u32,
-    ) (std.mem.Allocator.Error || PolyError)!CircleCoefficients {
-        if (log_size < self.log_size) return PolyError.InvalidLogSize;
-        const new_len = checkedPow2(log_size) catch return PolyError.InvalidLogSize;
-        const out = try allocator.alloc(M31, new_len);
-        @memset(out, M31.zero());
-        @memcpy(out[0..self.coeffs.len], self.coeffs);
-        return CircleCoefficients.initOwned(out);
-    }
+        owns_coeffs: bool,
 
-    pub fn evaluate(
-        self: CircleCoefficients,
-        allocator: std.mem.Allocator,
-        domain: CircleDomain,
-    ) (std.mem.Allocator.Error || PolyError || eval_mod.EvaluationError)!eval_mod.CircleEvaluation {
-        var twiddle_tree_owned = twiddles_mod.precomputeM31(allocator, domain.half_coset) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            error.SingularTwiddle => return PolyError.SingularSystem,
-        };
-        defer twiddles_mod.deinitM31(allocator, &twiddle_tree_owned);
-        return self.evaluateWithTwiddles(
-            allocator,
-            domain,
-            .{
-                .root_coset = twiddle_tree_owned.root_coset,
-                .twiddles = twiddle_tree_owned.twiddles,
-                .itwiddles = twiddle_tree_owned.itwiddles,
-            },
-        );
-    }
-
-    pub fn evaluateWithTwiddles(
-        self: CircleCoefficients,
-        allocator: std.mem.Allocator,
-        domain: CircleDomain,
-        twiddle_tree: M31TwiddleTree,
-    ) (std.mem.Allocator.Error || PolyError || eval_mod.EvaluationError)!eval_mod.CircleEvaluation {
-        if (domain.logSize() < self.log_size) return PolyError.InvalidLogSize;
-        if (!domain.half_coset.isDoublingOf(twiddle_tree.root_coset)) return PolyError.InvalidLogSize;
-        const values = try allocator.alloc(M31, domain.size());
-        errdefer allocator.free(values);
-        @memcpy(values[0..self.coeffs.len], self.coeffs);
-        if (self.coeffs.len < values.len) @memset(values[self.coeffs.len..], M31.zero());
-
-        const log_size = domain.logSize();
-        if (log_size == 1) {
-            var v0 = values[0];
-            var v1 = values[1];
-            fft.butterfly(M31, &v0, &v1, domain.half_coset.initial.y);
-            values[0] = v0;
-            values[1] = v1;
-            return eval_mod.CircleEvaluation.init(domain, values);
-        }
-        if (log_size == 2) {
-            var v0 = values[0];
-            var v1 = values[1];
-            var v2 = values[2];
-            var v3 = values[3];
-            const x = domain.half_coset.initial.x;
-            const y = domain.half_coset.initial.y;
-            fft.butterfly(M31, &v0, &v2, x);
-            fft.butterfly(M31, &v1, &v3, x);
-            fft.butterfly(M31, &v0, &v1, y);
-            fft.butterfly(M31, &v2, &v3, y.neg());
-            values[0] = v0;
-            values[1] = v1;
-            values[2] = v2;
-            values[3] = v3;
-            return eval_mod.CircleEvaluation.init(domain, values);
-        }
-
-        const line_log_size = domain.half_coset.logSize();
-        const twiddle_len = twiddle_tree.twiddles.len;
-        var layer_idx: u32 = line_log_size;
-        while (layer_idx > 0) {
-            layer_idx -= 1;
-            const depth = line_log_size - 1 - layer_idx;
-            const len = @as(usize, 1) << @intCast(depth);
-            const start = twiddle_len - (len * 2);
-            const layer_twiddles = twiddle_tree.twiddles[start .. twiddle_len - len];
-            for (layer_twiddles, 0..) |twid, h| {
-                fftLayerLoopForwardM31(values, @intCast(layer_idx + 1), h, twid);
+        pub fn initBorrowed(coeffs: []const M31) PolyError!CircleCoefficients {
+            if (coeffs.len == 0 or !std.math.isPowerOfTwo(coeffs.len)) {
+                return PolyError.InvalidLength;
             }
+            return .{
+                .coeffs = coeffs,
+                .log_size = @intCast(std.math.log2_int(usize, coeffs.len)),
+                .owns_coeffs = false,
+            };
         }
 
-        const first_line_len = @as(usize, 1) << @intCast(line_log_size - 1);
-        const first_line_twiddles = twiddle_tree.twiddles[twiddle_len - (first_line_len * 2) .. twiddle_len - first_line_len];
-        var tw_idx: usize = 0;
-        var first_h: usize = 0;
-        const first_half = values.len / 2;
-        while (first_h < first_half) : (first_h += 4) {
-            const x = first_line_twiddles[tw_idx];
-            const y = first_line_twiddles[tw_idx + 1];
-            tw_idx += 2;
-            fftPairForwardM31(values, first_h, y);
-            fftPairForwardM31(values, first_h + 1, y.neg());
-            fftPairForwardM31(values, first_h + 2, x.neg());
-            fftPairForwardM31(values, first_h + 3, x);
+        pub fn initOwned(coeffs: []M31) PolyError!CircleCoefficients {
+            var out = try initBorrowed(coeffs);
+            out.owns_coeffs = true;
+            return out;
         }
-        return eval_mod.CircleEvaluation.init(domain, values);
-    }
 
-    pub const SplitPair = struct {
-        left: CircleCoefficients,
-        right: CircleCoefficients,
-
-        pub fn deinit(self: *SplitPair, allocator: std.mem.Allocator) void {
-            self.left.deinit(allocator);
-            self.right.deinit(allocator);
+        pub fn deinit(self: *CircleCoefficients, allocator: std.mem.Allocator) void {
+            if (self.owns_coeffs) allocator.free(@constCast(self.coeffs));
             self.* = undefined;
         }
-    };
 
-    /// Splits the coefficient vector in the middle.
-    ///
-    /// Returns `(left, right)` such that:
-    /// `p(z) = left(z) + pi^{L-2}(z.x) * right(z)`, where `L = log2(coeffs.len)`.
-    pub fn splitAtMid(
-        self: CircleCoefficients,
-        allocator: std.mem.Allocator,
-    ) (std.mem.Allocator.Error || PolyError)!SplitPair {
-        if (self.log_size == 0) return PolyError.InvalidLogSize;
-        const mid = self.coeffs.len / 2;
-        const left = try allocator.dupe(M31, self.coeffs[0..mid]);
-        errdefer allocator.free(left);
-        const right = try allocator.dupe(M31, self.coeffs[mid..]);
-        errdefer allocator.free(right);
+        pub fn logSize(self: CircleCoefficients) u32 {
+            return self.log_size;
+        }
 
-        return .{
-            .left = try CircleCoefficients.initOwned(left),
-            .right = try CircleCoefficients.initOwned(right),
+        pub fn coefficients(self: CircleCoefficients) []const M31 {
+            return self.coeffs;
+        }
+
+        /// Evaluates the polynomial at one secure-field point.
+        pub fn evalAtPoint(self: CircleCoefficients, point: CirclePointQM31) QM31 {
+            if (self.log_size == 0) return QM31.fromBase(self.coeffs[0]);
+
+            var factors: [circle.M31_CIRCLE_LOG_ORDER]QM31 = undefined;
+            return self.evalAtPointWithFactors(
+                fillEvalFactorsForPoint(point, self.log_size, &factors),
+            );
+        }
+
+        pub fn evalAtPointWithFactors(
+            self: CircleCoefficients,
+            factors: []const QM31,
+        ) QM31 {
+            std.debug.assert(factors.len == self.log_size);
+            if (self.log_size == 0) return QM31.fromBase(self.coeffs[0]);
+            return evalAtPointIterative(
+                self.coeffs,
+                factors,
+                self.log_size,
+            );
+        }
+
+        pub fn evalAtPointsFolded(
+            self: CircleCoefficients,
+            points: []const CirclePointQM31,
+            fold_count: u32,
+            out: []QM31,
+        ) void {
+            std.debug.assert(points.len == out.len);
+            var flat_factors: [32 * circle.M31_CIRCLE_LOG_ORDER]QM31 = undefined;
+            if (points.len <= 32) {
+                fillEvalFactorsForPointsFolded(
+                    points,
+                    fold_count,
+                    self.log_size,
+                    flat_factors[0 .. points.len * self.log_size],
+                );
+                self.evalAtPointsWithFlatFactors(
+                    flat_factors[0 .. points.len * self.log_size],
+                    out,
+                );
+                return;
+            }
+
+            const chunk_points: usize = 32;
+            var at: usize = 0;
+            while (at < points.len) {
+                const chunk_len = @min(chunk_points, points.len - at);
+                fillEvalFactorsForPointsFolded(
+                    points[at .. at + chunk_len],
+                    fold_count,
+                    self.log_size,
+                    flat_factors[0 .. chunk_len * self.log_size],
+                );
+                self.evalAtPointsWithFlatFactors(
+                    flat_factors[0 .. chunk_len * self.log_size],
+                    out[at .. at + chunk_len],
+                );
+                at += chunk_len;
+            }
+        }
+
+        pub fn evalAtPointsWithFlatFactors(
+            self: CircleCoefficients,
+            flat_factors: []const QM31,
+            out: []QM31,
+        ) void {
+            std.debug.assert(self.log_size == 0 or flat_factors.len == out.len * self.log_size);
+            if (self.log_size == 0) {
+                const constant = QM31.fromBase(self.coeffs[0]);
+                @memset(out, constant);
+                return;
+            }
+
+            var factor_at: usize = 0;
+            for (out) |*value| {
+                value.* = evalAtPointIterative(
+                    self.coeffs,
+                    flat_factors[factor_at .. factor_at + self.log_size],
+                    self.log_size,
+                );
+                factor_at += self.log_size;
+            }
+        }
+
+        pub fn evalManyAtPointsWithFlatFactors(
+            polys: []const CircleCoefficients,
+            flat_factors: []const QM31,
+            out_batch: []const []QM31,
+        ) void {
+            std.debug.assert(polys.len == out_batch.len);
+            if (polys.len == 0) return;
+
+            const log_size = polys[0].log_size;
+            if (log_size == 0) {
+                for (polys, out_batch) |poly, out| {
+                    const constant = QM31.fromBase(poly.coeffs[0]);
+                    @memset(out, constant);
+                }
+                return;
+            }
+
+            const point_count = out_batch[0].len;
+            std.debug.assert(flat_factors.len == point_count * log_size);
+            for (polys, out_batch) |poly, out| {
+                std.debug.assert(poly.log_size == log_size);
+                std.debug.assert(out.len == point_count);
+            }
+
+            var factor_at: usize = 0;
+            for (0..point_count) |point_idx| {
+                const point_factors = flat_factors[factor_at .. factor_at + log_size];
+                for (polys, out_batch) |poly, out| {
+                    out[point_idx] = evalAtPointIterative(
+                        poly.coeffs,
+                        point_factors,
+                        log_size,
+                    );
+                }
+                factor_at += log_size;
+            }
+        }
+
+        pub fn extend(
+            self: CircleCoefficients,
+            allocator: std.mem.Allocator,
+            log_size: u32,
+        ) (std.mem.Allocator.Error || PolyError)!CircleCoefficients {
+            if (log_size < self.log_size) return PolyError.InvalidLogSize;
+            const new_len = checkedPow2(log_size) catch return PolyError.InvalidLogSize;
+            const out = try allocator.alloc(M31, new_len);
+            @memset(out, M31.zero());
+            @memcpy(out[0..self.coeffs.len], self.coeffs);
+            return CircleCoefficients.initOwned(out);
+        }
+
+        pub fn evaluate(
+            self: CircleCoefficients,
+            allocator: std.mem.Allocator,
+            domain: CircleDomain,
+        ) (std.mem.Allocator.Error || PolyError || eval_mod.EvaluationError)!eval_mod.CircleEvaluation {
+            var twiddle_tree_owned = twiddles_mod.precomputeM31(allocator, domain.half_coset) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.SingularTwiddle => return PolyError.SingularSystem,
+            };
+            defer twiddles_mod.deinitM31(allocator, &twiddle_tree_owned);
+            return self.evaluateWithTwiddles(
+                allocator,
+                domain,
+                .{
+                    .root_coset = twiddle_tree_owned.root_coset,
+                    .twiddles = twiddle_tree_owned.twiddles,
+                    .itwiddles = twiddle_tree_owned.itwiddles,
+                },
+            );
+        }
+
+        pub fn evaluateWithTwiddles(
+            self: CircleCoefficients,
+            allocator: std.mem.Allocator,
+            domain: CircleDomain,
+            twiddle_tree: M31TwiddleTree,
+        ) (std.mem.Allocator.Error || PolyError || eval_mod.EvaluationError)!eval_mod.CircleEvaluation {
+            if (domain.logSize() < self.log_size) return PolyError.InvalidLogSize;
+            if (!domain.half_coset.isDoublingOf(twiddle_tree.root_coset)) return PolyError.InvalidLogSize;
+            const values = try allocator.alloc(M31, domain.size());
+            errdefer allocator.free(values);
+            @memcpy(values[0..self.coeffs.len], self.coeffs);
+            if (self.coeffs.len < values.len) @memset(values[self.coeffs.len..], M31.zero());
+
+            const log_size = domain.logSize();
+            if (log_size == 1) {
+                var v0 = values[0];
+                var v1 = values[1];
+                fft.butterfly(M31, &v0, &v1, domain.half_coset.initial.y);
+                values[0] = v0;
+                values[1] = v1;
+                return eval_mod.CircleEvaluation.init(domain, values);
+            }
+            if (log_size == 2) {
+                var v0 = values[0];
+                var v1 = values[1];
+                var v2 = values[2];
+                var v3 = values[3];
+                const x = domain.half_coset.initial.x;
+                const y = domain.half_coset.initial.y;
+                fft.butterfly(M31, &v0, &v2, x);
+                fft.butterfly(M31, &v1, &v3, x);
+                fft.butterfly(M31, &v0, &v1, y);
+                fft.butterfly(M31, &v2, &v3, y.neg());
+                values[0] = v0;
+                values[1] = v1;
+                values[2] = v2;
+                values[3] = v3;
+                return eval_mod.CircleEvaluation.init(domain, values);
+            }
+
+            const line_log_size = domain.half_coset.logSize();
+            const twiddle_len = twiddle_tree.twiddles.len;
+            var layer_idx: u32 = line_log_size;
+            while (layer_idx > 0) {
+                layer_idx -= 1;
+                const depth = line_log_size - 1 - layer_idx;
+                const len = @as(usize, 1) << @intCast(depth);
+                const start = twiddle_len - (len * 2);
+                const layer_twiddles = twiddle_tree.twiddles[start .. twiddle_len - len];
+                for (layer_twiddles, 0..) |twid, h| {
+                    fftLayerLoopForwardM31(values, @intCast(layer_idx + 1), h, twid);
+                }
+            }
+
+            const first_line_len = @as(usize, 1) << @intCast(line_log_size - 1);
+            const first_line_twiddles = twiddle_tree.twiddles[twiddle_len - (first_line_len * 2) .. twiddle_len - first_line_len];
+            var tw_idx: usize = 0;
+            var first_h: usize = 0;
+            const first_half = values.len / 2;
+            while (first_h < first_half) : (first_h += 4) {
+                const x = first_line_twiddles[tw_idx];
+                const y = first_line_twiddles[tw_idx + 1];
+                tw_idx += 2;
+                fftPairForwardM31(values, first_h, y);
+                fftPairForwardM31(values, first_h + 1, y.neg());
+                fftPairForwardM31(values, first_h + 2, x.neg());
+                fftPairForwardM31(values, first_h + 3, x);
+            }
+            return eval_mod.CircleEvaluation.init(domain, values);
+        }
+
+        pub const SplitPair = struct {
+            left: CircleCoefficients,
+            right: CircleCoefficients,
+
+            pub fn deinit(self: *SplitPair, allocator: std.mem.Allocator) void {
+                self.left.deinit(allocator);
+                self.right.deinit(allocator);
+                self.* = undefined;
+            }
         };
-    }
+
+        /// Splits the coefficient vector in the middle.
+        ///
+        /// Returns `(left, right)` such that:
+        /// `p(z) = left(z) + pi^{L-2}(z.x) * right(z)`, where `L = log2(coeffs.len)`.
+        pub fn splitAtMid(
+            self: CircleCoefficients,
+            allocator: std.mem.Allocator,
+        ) (std.mem.Allocator.Error || PolyError)!SplitPair {
+            if (self.log_size == 0) return PolyError.InvalidLogSize;
+            const mid = self.coeffs.len / 2;
+            const left = try allocator.dupe(M31, self.coeffs[0..mid]);
+            errdefer allocator.free(left);
+            const right = try allocator.dupe(M31, self.coeffs[mid..]);
+            errdefer allocator.free(right);
+
+            return .{
+                .left = try CircleCoefficients.initOwned(left),
+                .right = try CircleCoefficients.initOwned(right),
+            };
+        }
     };
 }
 

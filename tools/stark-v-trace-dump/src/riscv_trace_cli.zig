@@ -15,11 +15,14 @@ pub fn main() !void {
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
         if (std.mem.eql(u8, args[i], "--elf") and i + 1 < args.len) {
-            i += 1; elf_path = args[i];
+            i += 1;
+            elf_path = args[i];
         } else if (std.mem.eql(u8, args[i], "--output") and i + 1 < args.len) {
-            i += 1; output_path = args[i];
+            i += 1;
+            output_path = args[i];
         } else if (std.mem.eql(u8, args[i], "--max-steps") and i + 1 < args.len) {
-            i += 1; max_steps = try std.fmt.parseInt(usize, args[i], 10);
+            i += 1;
+            max_steps = try std.fmt.parseInt(usize, args[i], 10);
         }
     }
     if (elf_path == null) {

@@ -241,7 +241,6 @@ pub fn Blake2sChannelGeneric(comptime is_m31_output: bool) type {
             hasher.update(data);
             return hasher.finalize();
         }
-
     };
 }
 

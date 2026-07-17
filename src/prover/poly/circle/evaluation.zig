@@ -235,79 +235,79 @@ fn barycentricWeightsReference(
 pub fn CircleEvaluationGeneric(comptime B: type) type {
     _ = B;
     return struct {
-    domain: CircleDomain,
-    values: []const M31,
+        domain: CircleDomain,
+        values: []const M31,
 
-    pub fn init(domain: CircleDomain, values: []const M31) EvaluationError!CircleEvaluation {
-        if (domain.size() != values.len) return EvaluationError.ShapeMismatch;
-        return .{
-            .domain = domain,
-            .values = values,
-        };
-    }
-
-    /// Computes barycentric weights for a sampled point outside the canonic coset.
-    ///
-    /// Failure modes:
-    /// - `PointOnDomain` when `point` lies on the domain.
-    pub fn barycentricWeights(
-        allocator: std.mem.Allocator,
-        coset: CanonicCoset,
-        point: CirclePointQM31,
-    ) (std.mem.Allocator.Error || EvaluationError)![]QM31 {
-        return barycentricWeightsReference(
-            allocator,
-            CanonicCoset.new(coset.logSize()),
-            point,
-        );
-    }
-
-    pub fn barycentricEvalAtPointWithWeights(
-        self: CircleEvaluation,
-        weights: []const QM31,
-    ) EvaluationError!QM31 {
-        if (self.values.len != weights.len) return EvaluationError.ShapeMismatch;
-
-        var acc = QM31.zero();
-        for (self.values, weights) |value, weight| {
-            acc = acc.add(weight.mulM31(value));
+        pub fn init(domain: CircleDomain, values: []const M31) EvaluationError!CircleEvaluation {
+            if (domain.size() != values.len) return EvaluationError.ShapeMismatch;
+            return .{
+                .domain = domain,
+                .values = values,
+            };
         }
-        return acc;
-    }
 
-    pub fn barycentricEvalAtPoint(
-        self: CircleEvaluation,
-        allocator: std.mem.Allocator,
-        point: CirclePointQM31,
-    ) (std.mem.Allocator.Error || EvaluationError)!QM31 {
-        var context = try BarycentricContext.init(allocator, self.domain.logSize());
-        defer context.deinit(allocator);
+        /// Computes barycentric weights for a sampled point outside the canonic coset.
+        ///
+        /// Failure modes:
+        /// - `PointOnDomain` when `point` lies on the domain.
+        pub fn barycentricWeights(
+            allocator: std.mem.Allocator,
+            coset: CanonicCoset,
+            point: CirclePointQM31,
+        ) (std.mem.Allocator.Error || EvaluationError)![]QM31 {
+            return barycentricWeightsReference(
+                allocator,
+                CanonicCoset.new(coset.logSize()),
+                point,
+            );
+        }
 
-        var workspace = BarycentricWorkspace.init();
-        defer workspace.deinit(allocator);
+        pub fn barycentricEvalAtPointWithWeights(
+            self: CircleEvaluation,
+            weights: []const QM31,
+        ) EvaluationError!QM31 {
+            if (self.values.len != weights.len) return EvaluationError.ShapeMismatch;
 
-        return self.barycentricEvalAtPointWithContext(allocator, &context, &workspace, point);
-    }
+            var acc = QM31.zero();
+            for (self.values, weights) |value, weight| {
+                acc = acc.add(weight.mulM31(value));
+            }
+            return acc;
+        }
 
-    pub fn barycentricEvalAtPointWithContext(
-        self: CircleEvaluation,
-        allocator: std.mem.Allocator,
-        context: *const BarycentricContext,
-        workspace: *BarycentricWorkspace,
-        point: CirclePointQM31,
-    ) (std.mem.Allocator.Error || EvaluationError)!QM31 {
-        if (context.log_size != self.domain.logSize()) return EvaluationError.ShapeMismatch;
-        const weights = try context.computeWeights(allocator, workspace, point);
-        return self.barycentricEvalAtPointWithWeights(weights);
-    }
+        pub fn barycentricEvalAtPoint(
+            self: CircleEvaluation,
+            allocator: std.mem.Allocator,
+            point: CirclePointQM31,
+        ) (std.mem.Allocator.Error || EvaluationError)!QM31 {
+            var context = try BarycentricContext.init(allocator, self.domain.logSize());
+            defer context.deinit(allocator);
 
-    pub fn evalAtPoint(
-        self: CircleEvaluation,
-        allocator: std.mem.Allocator,
-        point: CirclePointQM31,
-    ) (std.mem.Allocator.Error || EvaluationError)!QM31 {
-        return self.barycentricEvalAtPoint(allocator, point);
-    }
+            var workspace = BarycentricWorkspace.init();
+            defer workspace.deinit(allocator);
+
+            return self.barycentricEvalAtPointWithContext(allocator, &context, &workspace, point);
+        }
+
+        pub fn barycentricEvalAtPointWithContext(
+            self: CircleEvaluation,
+            allocator: std.mem.Allocator,
+            context: *const BarycentricContext,
+            workspace: *BarycentricWorkspace,
+            point: CirclePointQM31,
+        ) (std.mem.Allocator.Error || EvaluationError)!QM31 {
+            if (context.log_size != self.domain.logSize()) return EvaluationError.ShapeMismatch;
+            const weights = try context.computeWeights(allocator, workspace, point);
+            return self.barycentricEvalAtPointWithWeights(weights);
+        }
+
+        pub fn evalAtPoint(
+            self: CircleEvaluation,
+            allocator: std.mem.Allocator,
+            point: CirclePointQM31,
+        ) (std.mem.Allocator.Error || EvaluationError)!QM31 {
+            return self.barycentricEvalAtPoint(allocator, point);
+        }
     };
 }
 
