@@ -1,4 +1,5 @@
 pub const program = @import("program.zig");
+pub const direct_inputs = @import("direct_inputs.zig");
 pub const recovery = @import("recovery.zig");
 pub const bundle = @import("bundle.zig");
 pub const feed_bundle = @import("feed_bundle.zig");
@@ -14,6 +15,7 @@ pub const proof_plan = @import("../proof_plan.zig");
 pub const witness_scheduler = @import("../witness_scheduler.zig");
 
 test {
+    _ = direct_inputs;
     _ = semantic_pack;
     _ = eval_program;
     _ = composition_bundle;
