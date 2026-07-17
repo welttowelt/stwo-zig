@@ -178,6 +178,22 @@ deterministic PoW increment adds only about 0.018 ms in this diagnostic. Quotien
 Merkle commitment now account for 72.9 percent of proof time, so the next CPU architecture target
 is a bounded quotient-to-Merkle tile pipeline, not further proof-of-work or twiddle tuning.
 
+### CPU quotient-to-leaf fusion
+
+Commit `7301925` removes the post-compute full-column leaf-hash pass. Each quotient worker emits
+bounded output tiles directly to a disjoint first-layer writer; parent layers begin only after every
+worker joins. The compatibility path and exact per-layer parity tests remain available, and
+allocation failures cannot leak an unappended leaf or parent layer.
+
+A reversed-order 101-sample ReleaseFast A/B improved CPU prove time by 8.48 percent on `log10x8`,
+8.36 percent on `log12x16`, and 2.56 percent on `log14x32`, for a 6.43 percent geometric-mean gain.
+Fused row rates were 0.544729, 0.730087, and 1.091266 MHz. A separate profiled medium A/B reduced
+the quotient stage by 10.2 to 19.4 percent across two orderings.
+
+The clean formal matrix retained exact CPU/Metal proof bytes, one session tower per lane, and
+headline eligibility. All six artifacts passed pinned Rust Stwo. Complete-column combined
+intermediate storage is intentionally still reported and remains the next CPU pipeline stage.
+
 ## Benchmark Matrix
 
 The checked-in driver will use stable workload identifiers and immutable protocol settings.

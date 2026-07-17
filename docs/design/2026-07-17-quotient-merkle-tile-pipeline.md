@@ -1,6 +1,6 @@
 # Quotient-To-Merkle Tile Pipeline
 
-Status: proposed
+Status: implementation; quotient-to-leaf fusion accepted
 
 ## Performance Hypothesis
 
@@ -606,3 +606,37 @@ This architecture therefore advances the whole prover rather than one benchmark.
 producer and consumer at their ownership boundary, keeps the mathematical protocol unchanged, and
 leaves both CPU SIMD and Metal residency as backend-specific implementations of one measured
 commitment transaction.
+
+## Accepted Leaf-Fusion Evidence
+
+Commit `7301925` implements stages 1 and 2 without yet replacing the complete-column combined
+coordinates. Quotient workers emit completed 256-row output views to worker-local first-layer
+writers before those cache lines cool. The leaf sink owns one preallocated layer, validates an
+ordered disjoint worker partition, and transfers the layer only after every writer covers its exact
+range. Internal Merkle layers retain their existing executor and transcript boundary. A forced
+legacy mode remains available for exact component A/B tests.
+
+Allocation-failure checks cover the sink and owned-leaf tree builder. The tree builder reserves list
+capacity before allocating each layer, so an append failure cannot strand an unowned layer. Tests
+compare all four quotient coordinates, every Merkle layer, and the root across standard, fused, and
+legacy construction. Tiled telemetry reports zero post-compute leaf passes while explicitly
+reporting that complete-column combined intermediates still remain for the next stage.
+
+A reversed-order ReleaseFast `log12x16` profile used three warmups and 11 samples. Two repetitions
+measured quotient-stage reductions from 3.957 to 3.313 ms and from 3.762 to 3.413 ms, or 19.4 and
+10.2 percent. Profiled whole-proof gains were 8.5 and 4.2 percent. A separate five-warmup,
+21-sample unprofiled repetition improved from 6.124 to 5.708 ms and from 6.333 to 5.705 ms, or 7.29
+and 11.01 percent. Every sample emitted the deterministic canonical digest.
+
+The longer 101-sample three-row A/B then measured:
+
+| Workload | Legacy prove (ms) | Fused prove (ms) | Fused row MHz | Gain |
+| --- | ---: | ---: | ---: | ---: |
+| `log10x8` | 2.039208 | 1.879833 | 0.544729 | 8.48% |
+| `log12x16` | 6.079459 | 5.610291 | 0.730087 | 8.36% |
+| `log14x32` | 15.397833 | 15.013750 | 1.091266 | 2.56% |
+
+The geometric-mean prove-time gain is 6.43 percent. The clean formal CPU/Metal matrix remained
+headline-eligible with one session tower per lane and exact backend parity. The pinned Rust Stwo
+verifier accepted all six artifacts. Removing complete-column combined coordinates is the next
+separately measured stage; its acceptance must preserve this leaf-fusion baseline.
