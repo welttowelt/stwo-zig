@@ -1042,61 +1042,8 @@ pub const populateUnreconstructedPreprocessedCoefficients = preprocessed_coeffic
 pub const evaluatePreprocessedCoefficients = preprocessed_coefficients_mod.evaluatePreprocessedCoefficients;
 
 pub const spillPreprocessedEvaluations = preprocessed_storage.spillPreprocessedEvaluations;
-
-pub fn spillRetainedMerkleLayers(
-    allocator: std.mem.Allocator,
-    resident_arena: *arena_plan.ResidentArena,
-    schedule: []const std.json.Value,
-    plan: arena_plan.Plan,
-    tree_index: u32,
-    path: []const u8,
-) !void {
-    const layers = try collectTreePurpose(allocator, schedule, plan, "RetainedMerkleLayers", tree_index);
-    defer allocator.free(layers);
-    const file = try std.fs.cwd().createFile(path, .{ .truncate = true });
-    defer file.close();
-    var buffer: [1 << 20]u8 = undefined;
-    var file_writer = file.writer(&buffer);
-    const writer = &file_writer.interface;
-    try writer.writeAll("STWZMRK\x00");
-    try writer.writeInt(u32, 1, .little);
-    try writer.writeInt(u32, tree_index, .little);
-    try writer.writeInt(u32, @intCast(layers.len), .little);
-    for (layers) |binding| {
-        try writer.writeInt(u64, binding.size_bytes, .little);
-        try writer.writeAll(try resident_arena.bytes(binding));
-    }
-    try writer.flush();
-}
-
-pub fn restoreRetainedMerkleLayers(
-    allocator: std.mem.Allocator,
-    resident_arena: *arena_plan.ResidentArena,
-    schedule: []const std.json.Value,
-    plan: arena_plan.Plan,
-    tree_index: u32,
-    path: []const u8,
-) !void {
-    const layers = try collectTreePurpose(allocator, schedule, plan, "RetainedMerkleLayers", tree_index);
-    defer allocator.free(layers);
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
-    var buffer: [1 << 20]u8 = undefined;
-    var file_reader = file.reader(&buffer);
-    const reader = &file_reader.interface;
-    if (!std.mem.eql(u8, try reader.takeArray(8), "STWZMRK\x00") or
-        try reader.takeInt(u32, .little) != 1 or
-        try reader.takeInt(u32, .little) != tree_index or
-        try reader.takeInt(u32, .little) != layers.len)
-        return Error.InvalidSchedule;
-    for (layers) |binding| {
-        if (try reader.takeInt(u64, .little) != binding.size_bytes) return Error.InvalidBindingSize;
-        try reader.readSliceAll(try resident_arena.bytes(binding));
-    }
-    var trailing: [1]u8 = undefined;
-    if (try reader.readSliceShort(&trailing) != 0) return Error.InvalidSchedule;
-}
-
+pub const spillRetainedMerkleLayers = preprocessed_storage.spillRetainedMerkleLayers;
+pub const restoreRetainedMerkleLayers = preprocessed_storage.restoreRetainedMerkleLayers;
 pub const restorePreprocessedEvaluations = preprocessed_storage.restorePreprocessedEvaluations;
 pub const restoreFixedTablePreprocessedEvaluations = preprocessed_storage.restoreFixedTablePreprocessedEvaluations;
 
