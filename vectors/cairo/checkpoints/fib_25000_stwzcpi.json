@@ -111,6 +111,16 @@
       "ec_op_builtin": null
     }
   },
+  "base_trace_receipt": {
+    "schema": "stwo-cairo-base-trace-checkpoint-v1",
+    "path": "vectors/cairo/checkpoints/fib_25000_base_trace.json",
+    "sha256": "fca68639b3c8a5c7b498f1961118f4ea8c7af157a65267a3d00adbeef2ef9972",
+    "component_count": 30,
+    "column_count": 396,
+    "final_accumulator_sha256": "8a75a4dbf68a1ad36680d4e62dc539e41ce539109043c4d4d5645096ebb99fa3",
+    "generator": "tools/stwo-cairo-trace-oracle",
+    "evidence_class": "local_differential_checkpoint"
+  },
   "negative_cases": [
     "artifact digest mutation",
     "truncated opcode state column",
@@ -120,6 +130,6 @@
   ],
   "blockers": [
     "The STWZCPI exporter is a content-identified local modification at the pinned Stwo-Cairo revision, not a committed upstream source file.",
-    "This fixture authenticates Cairo execution and adaptation only; the Rust per-component base-trace exporter remains a separate conformance deliverable."
+    "The committed base-trace receipt is differential evidence only; it is not a complete proof or final verify_cairo acceptance receipt."
   ]
 }

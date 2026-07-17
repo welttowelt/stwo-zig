@@ -76,6 +76,23 @@ class CairoInputCheckpointTests(unittest.TestCase):
             manifest["oracle"]["prover_stwo_revision"],
             "3fe684648ff31e55b71525ad689fab7dfbd88880",
         )
+        trace = manifest["base_trace_receipt"]
+        trace_path = ROOT / trace["path"]
+        self.assertEqual(
+            hashlib.sha256(trace_path.read_bytes()).hexdigest(),
+            "fca68639b3c8a5c7b498f1961118f4ea8c7af157a65267a3d00adbeef2ef9972",
+        )
+        receipt = json.loads(trace_path.read_text(encoding="utf-8"))
+        self.assertEqual(receipt["schema"], trace["schema"])
+        self.assertEqual(receipt["input_sha256"], manifest["artifact"]["sha256"])
+        self.assertEqual(receipt["authority"]["stwo_cairo_revision"], manifest["oracle"]["stwo_cairo_revision"])
+        self.assertEqual(receipt["authority"]["stwo_revision"], manifest["oracle"]["prover_stwo_revision"])
+        self.assertEqual(len(receipt["components"]), trace["component_count"])
+        self.assertEqual(
+            sum(len(component["columns"]) for component in receipt["components"]),
+            trace["column_count"],
+        )
+        self.assertEqual(receipt["final_accumulator_sha256"], trace["final_accumulator_sha256"])
 
     def test_inspector_accepts_canonical_structure(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
