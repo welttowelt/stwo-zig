@@ -687,6 +687,17 @@ class NativeProofMatrixTests(unittest.TestCase):
                     report, "cpu", workload, args(), mutated, fingerprint
                 )
 
+    def test_fri_fold_commit_epochs_are_counted_as_metal_dispatches(self) -> None:
+        workload = MODULE.Workload.wide_fibonacci(10, 8)
+        report = make_report("metal", workload)
+        for delta in (
+            report["backend_telemetry"]["warmups"]
+            + report["backend_telemetry"]["samples"]
+        ):
+            delta["counters"]["metal_circle_lde_dispatches"] = 0
+            delta["counters"]["metal_fri_fold_commit_epochs"] = 4
+        MODULE.validate_report(report, "metal", workload, args())
+
     def test_state_machine_artifact_binds_the_derived_statement(self) -> None:
         workload = MODULE.Workload.state_machine(10, 9, 3)
         with tempfile.TemporaryDirectory() as directory:

@@ -356,7 +356,8 @@ def metal_dispatch_total(counters: dict[str, int]) -> int:
         "resident_merkle_commits", "metal_quotient_dispatches",
         "metal_sampled_value_dispatches", "metal_circle_transform_dispatches",
         "metal_circle_lde_dispatches", "metal_fri_circle_fold_dispatches",
-        "metal_fri_line_fold_dispatches", "metal_qm31_coordinate_dispatches",
+        "metal_fri_line_fold_dispatches", "metal_fri_fold_commit_epochs",
+        "metal_qm31_coordinate_dispatches",
     ))
 
 

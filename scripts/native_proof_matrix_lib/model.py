@@ -88,6 +88,7 @@ BACKEND_COUNTER_KEYS = {
     "metal_circle_lde_dispatches",
     "metal_fri_circle_fold_dispatches",
     "metal_fri_line_fold_dispatches",
+    "metal_fri_fold_commit_epochs",
     "metal_qm31_coordinate_dispatches",
     "cpu_small_merkle_commits",
     "cpu_streaming_merkle_commits",
