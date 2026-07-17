@@ -38,6 +38,8 @@ The first migration pass has established these boundaries without changing proof
   are separate responsibilities. The facade is below the 850-line ceiling.
 - Rust-oracle review found and corrected missing lifted Blake2 leaf and node prefixes in the Zig
   scalar, SIMD, and Metal paths; parity tests cover the corrected protocol behavior.
+- Rust-generated parity vectors are split into field, PCS/FRI, proof/VCS, and example families
+  behind one test root; all 27 oracle tests retain their names and shared schemas have one owner.
 - Cairo witness geometry is owned by the proof plan, and Cairo-to-Metal orchestration is under the
   integration layer rather than the frontend.
 - The 3,604-line, 90-entry-point Metal shader monolith has an explicit
@@ -53,8 +55,8 @@ The first migration pass has established these boundaries without changing proof
 - `scripts/ci.py` is the shared local and hosted CI entrypoint. Versioned pre-commit and pre-push
   hooks provide bounded local feedback without running hardware Metal or large SN PIE workloads.
 
-The checked-in enforcement baseline contains 25 explained legacy findings: 1 dependency edge,
-13 oversized manually maintained files, and 11 misplaced root sources. Each size exception records
+The checked-in enforcement baseline contains 24 explained legacy findings: 1 dependency edge,
+12 oversized manually maintained files, and 11 misplaced root sources. Each size exception records
 an immutable line budget and a repository-local decomposition plan. New findings, oversized-file
 growth, missing plans, and stale baseline entries fail the check. Removing a violation therefore
 requires removing its baseline entry in the same change.
