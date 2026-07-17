@@ -440,9 +440,10 @@ pub const PreparedProofBindings = struct {
         leaf_seed: [8]u32,
         node_seed: [8]u32,
     ) !protocol_recipes.FriRecipe {
-        return protocol_recipes.FriRecipe.init(
+        return protocol_recipes.FriRecipe.initWithGeometry(
             metal,
             resident_arena,
+            try self.runtimeFriGeometry(),
             self.quotient_tile,
             self.fri_retained_evaluations,
             self.fri_challenges,
@@ -485,7 +486,7 @@ pub const PreparedProofBindings = struct {
     ) !protocol_recipes.DecommitQueryRecipe {
         const tree_count = std.math.add(usize, self.decommit_trace_trees.len, self.decommit_fri_trees.len) catch
             return Error.InvalidCardinality;
-        return protocol_recipes.DecommitQueryRecipe.init(
+        return protocol_recipes.DecommitQueryRecipe.initWithGeometry(
             metal,
             resident_arena,
             self.decommit_raw_queries,
@@ -499,7 +500,7 @@ pub const PreparedProofBindings = struct {
             self.decommit_counts,
             self.decommit_assembly,
             std.math.cast(u32, tree_count) orelse return Error.InvalidCardinality,
-            try friStartLog(self.quotient_tile),
+            try self.runtimeFriGeometry(),
         );
     }
 
@@ -982,8 +983,25 @@ pub const PreparedProofBindings = struct {
         return self.relation_scan_scratch;
     }
 
+    fn runtimeFriGeometry(self: PreparedProofBindings) !protocol_recipes.FriGeometry {
+        const geometry = protocol_recipes.FriGeometry.initRuntime(
+            try friStartLog(self.quotient_tile),
+            .{
+                .round_count = self.decommit_fri_trees.len,
+                .fold_step = protocol_recipes.FriGeometry.fold_step,
+                .final_log = protocol_recipes.FriGeometry.final_log,
+                .packed_log = protocol_recipes.FriGeometry.packed_log,
+            },
+        ) catch return Error.InvalidBindingSize;
+        for (self.decommit_fri_trees, 0..) |tree, round| {
+            if (tree.leaf_log != try geometry.leafLog(round)) return Error.InvalidBindingSize;
+        }
+        return geometry;
+    }
+
     fn validate(self: PreparedProofBindings, geometry: ProofDecommitGeometry) !void {
         try geometry.validate();
+        _ = try self.runtimeFriGeometry();
         if (self.decommit_trace_trees.len != geometry.trace_trees.len or
             self.decommit_fri_trees.len != geometry.fri_trees.len or
             self.decommit_trace_groups.len != try geometry.traceGroupCount())

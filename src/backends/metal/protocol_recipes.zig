@@ -2322,6 +2322,60 @@ pub const QuotientRecipe = struct {
     }
 };
 
+fn validateFriCardinalities(
+    geometry: FriGeometry,
+    retained_count: usize,
+    challenge_count: usize,
+    merkle_layer_count: usize,
+) !void {
+    const round_count = std.math.add(usize, retained_count, 1) catch
+        return recovery.RecoveryError.BindingSizeMismatch;
+    if (round_count != geometry.roundCount() or
+        challenge_count != geometry.roundCount() or
+        merkle_layer_count != geometry.totalLayerCount() or
+        geometry.terminalLog() != geometry.finalLog())
+        return recovery.RecoveryError.BindingSizeMismatch;
+}
+
+fn validateFriOpeningRound(geometry: FriGeometry, round: usize, leaf_log: u32) !void {
+    if (round >= geometry.roundCount() or leaf_log != try geometry.leafLog(round))
+        return recovery.RecoveryError.BindingSizeMismatch;
+}
+
+test "Metal FRI cardinalities accept seven-round Fib and eight-round SN2 geometry" {
+    const sn2 = try FriGeometry.init(24);
+    try validateFriCardinalities(sn2, 7, 8, 100);
+    try std.testing.expectError(
+        recovery.RecoveryError.BindingSizeMismatch,
+        validateFriCardinalities(sn2, 6, 8, 100),
+    );
+
+    const fib = try FriGeometry.initRuntime(21, .{
+        .round_count = 7,
+        .fold_step = 3,
+        .final_log = 1,
+        .packed_log = 2,
+    });
+    try validateFriCardinalities(fib, 6, 7, 77);
+    for (0..fib.roundCount()) |round| try validateFriOpeningRound(fib, round, try fib.leafLog(round));
+    try std.testing.expectError(
+        recovery.RecoveryError.BindingSizeMismatch,
+        validateFriCardinalities(fib, 6, 8, 77),
+    );
+    try std.testing.expectError(
+        recovery.RecoveryError.BindingSizeMismatch,
+        validateFriCardinalities(fib, 6, 7, 78),
+    );
+    try std.testing.expectError(
+        recovery.RecoveryError.BindingSizeMismatch,
+        validateFriOpeningRound(fib, 6, 2),
+    );
+    try std.testing.expectError(
+        recovery.RecoveryError.BindingSizeMismatch,
+        validateFriOpeningRound(fib, 7, 0),
+    );
+}
+
 /// Exact STWO FRI bottom with planar secure evaluations and four rows per leaf.
 /// Transcript control calls
 /// `commitTree` and `foldRound` alternately so each device root can be mixed
@@ -2334,10 +2388,11 @@ pub const FriRecipe = struct {
 
     metal: *runtime.Runtime,
     arena: *arena_plan.ResidentArena,
-    rounds: [8]runtime.FriRoundPlan,
-    trees: [8]runtime.FriTreePlan,
+    rounds: [FriGeometry.max_round_count]runtime.FriRoundPlan,
+    trees: [FriGeometry.max_round_count]runtime.FriTreePlan,
     final: runtime.FriFinalPlan,
-    roots: [8]arena_plan.Binding,
+    roots: [FriGeometry.max_round_count]arena_plan.Binding,
+    round_count: usize = FriGeometry.round_count,
     initialized_rounds: usize,
     initialized_trees: usize,
     initialized_final: bool,
@@ -2363,9 +2418,45 @@ pub const FriRecipe = struct {
             !std.math.isPowerOfTwo(quotient.size_bytes / 16))
             return recovery.RecoveryError.BindingSizeMismatch;
         const geometry = try FriGeometry.init(std.math.log2_int(u64, quotient.size_bytes / 16));
-        if (retained.len != FriGeometry.round_count - 1 or challenges.len != FriGeometry.round_count or
-            merkle_layers_root_first.len != geometry.totalLayerCount() or
-            inverse_twiddles.offset_bytes % 4 != 0 or inverse_twiddles.size_bytes != geometry.inverseTwiddleWords() * 4)
+        return initWithGeometry(
+            metal,
+            resident_arena,
+            geometry,
+            quotient,
+            retained,
+            challenges,
+            inverse_twiddles,
+            final_evaluation,
+            final_coefficients,
+            final_degree_error,
+            merkle_layers_root_first,
+            leaf_seed,
+            node_seed,
+        );
+    }
+
+    pub fn initWithGeometry(
+        metal: *runtime.Runtime,
+        resident_arena: *arena_plan.ResidentArena,
+        geometry: FriGeometry,
+        quotient: arena_plan.Binding,
+        retained: []const arena_plan.Binding,
+        challenges: []const arena_plan.Binding,
+        inverse_twiddles: arena_plan.Binding,
+        final_evaluation: arena_plan.Binding,
+        final_coefficients: arena_plan.Binding,
+        final_degree_error: arena_plan.Binding,
+        merkle_layers_root_first: []const arena_plan.Binding,
+        leaf_seed: [8]u32,
+        node_seed: [8]u32,
+    ) !FriRecipe {
+        if (quotient.offset_bytes % 4 != 0 or quotient.size_bytes < 16 or quotient.size_bytes % 16 != 0 or
+            !std.math.isPowerOfTwo(quotient.size_bytes / 16) or
+            std.math.log2_int(u64, quotient.size_bytes / 16) != geometry.startLog() or
+            geometry.finalLog() != 1 or geometry.packedLog() != 2)
+            return recovery.RecoveryError.BindingSizeMismatch;
+        try validateFriCardinalities(geometry, retained.len, challenges.len, merkle_layers_root_first.len);
+        if (inverse_twiddles.offset_bytes % 4 != 0 or inverse_twiddles.size_bytes != geometry.inverseTwiddleWords() * 4)
             return recovery.RecoveryError.BindingSizeMismatch;
         var self = FriRecipe{
             .metal = metal,
@@ -2374,6 +2465,7 @@ pub const FriRecipe = struct {
             .trees = undefined,
             .final = undefined,
             .roots = undefined,
+            .round_count = geometry.roundCount(),
             .initialized_rounds = 0,
             .initialized_trees = 0,
             .initialized_final = false,
@@ -2381,11 +2473,11 @@ pub const FriRecipe = struct {
         };
         errdefer self.deinitInitialized();
 
-        var evaluations: [8]arena_plan.Binding = undefined;
+        var evaluations: [FriGeometry.max_round_count]arena_plan.Binding = undefined;
         evaluations[0] = quotient;
-        @memcpy(evaluations[1..], retained);
+        @memcpy(evaluations[1..geometry.roundCount()], retained);
         var layer_cursor: usize = 0;
-        for (evaluations, 0..) |evaluation, tree| {
+        for (evaluations[0..geometry.roundCount()], 0..) |evaluation, tree| {
             const log_size = try geometry.evaluationLog(tree);
             const layer_count = try geometry.layerCount(tree);
             const rows = @as(u64, 1) << @intCast(log_size);
@@ -2418,11 +2510,11 @@ pub const FriRecipe = struct {
         const twiddle_base = std.math.cast(u32, inverse_twiddles.offset_bytes / 4) orelse
             return recovery.RecoveryError.BindingSizeMismatch;
         const twiddle_words: u32 = @intCast(inverse_twiddles.size_bytes / 4);
-        for (0..FriGeometry.round_count) |round| {
+        for (0..geometry.roundCount()) |round| {
             const source = evaluations[round];
             const source_rows = @as(u32, 1) << @intCast(try geometry.evaluationLog(round));
             const fold_count = try geometry.roundFold(round);
-            const output = if (round == FriGeometry.round_count - 1) final_evaluation else evaluations[round + 1];
+            const output = if (round + 1 == geometry.roundCount()) final_evaluation else evaluations[round + 1];
             const output_rows = source_rows >> @intCast(fold_count);
             if (challenges[round].offset_bytes % 4 != 0 or challenges[round].size_bytes < 16 or
                 output.offset_bytes % 4 != 0 or output.size_bytes < @as(u64, output_rows) * 16)
@@ -2469,13 +2561,13 @@ pub const FriRecipe = struct {
     }
 
     pub fn commitTree(self: *FriRecipe, tree: usize) !arena_plan.Binding {
-        if (tree >= self.trees.len) return recovery.RecoveryError.BindingSizeMismatch;
+        if (tree >= self.round_count) return recovery.RecoveryError.BindingSizeMismatch;
         self.accumulated_gpu_ms += try self.metal.friTreePrepared(self.arena.buffer, self.trees[tree]);
         return self.roots[tree];
     }
 
     pub fn foldRound(self: *FriRecipe, round: usize) !void {
-        if (round >= self.rounds.len) return recovery.RecoveryError.BindingSizeMismatch;
+        if (round >= self.round_count) return recovery.RecoveryError.BindingSizeMismatch;
         self.accumulated_gpu_ms += try self.metal.friRoundPrepared(self.arena.buffer, self.rounds[round]);
     }
 
@@ -2515,9 +2607,9 @@ const PendingTraceGather = struct {
     values: u64,
 };
 
-/// Query-normalization and FRI coset preparation for the canonical Cairo
-/// opening schedule. All eight FRI trees reuse the same epoch-local workspaces;
-/// only their cumulative fold differs.
+/// Query-normalization and FRI coset preparation for a validated Cairo opening
+/// schedule. All FRI trees reuse the same epoch-local workspaces; only their
+/// authenticated cumulative fold differs.
 pub const DecommitQueryRecipe = struct {
     metal: *runtime.Runtime,
     arena: *arena_plan.ResidentArena,
@@ -2552,6 +2644,40 @@ pub const DecommitQueryRecipe = struct {
         tree_count: u32,
         fri_start_log: u32,
     ) !DecommitQueryRecipe {
+        return initWithGeometry(
+            metal,
+            resident_arena,
+            raw_queries,
+            unique_queries,
+            mapped_queries,
+            expanded_positions,
+            walk_queries,
+            walk_scratch,
+            sparse_indices,
+            sparse_hashes,
+            counts,
+            assembly,
+            tree_count,
+            try FriGeometry.init(fri_start_log),
+        );
+    }
+
+    pub fn initWithGeometry(
+        metal: *runtime.Runtime,
+        resident_arena: *arena_plan.ResidentArena,
+        raw_queries: arena_plan.Binding,
+        unique_queries: arena_plan.Binding,
+        mapped_queries: arena_plan.Binding,
+        expanded_positions: arena_plan.Binding,
+        walk_queries: arena_plan.Binding,
+        walk_scratch: arena_plan.Binding,
+        sparse_indices: arena_plan.Binding,
+        sparse_hashes: arena_plan.Binding,
+        counts: arena_plan.Binding,
+        assembly: arena_plan.Binding,
+        tree_count: u32,
+        geometry: FriGeometry,
+    ) !DecommitQueryRecipe {
         for ([_]arena_plan.Binding{ raw_queries, unique_queries, mapped_queries, expanded_positions, walk_queries, walk_scratch, sparse_indices, sparse_hashes, counts }) |binding| {
             if (binding.offset_bytes % 4 != 0) return recovery.RecoveryError.BindingSizeMismatch;
         }
@@ -2574,7 +2700,7 @@ pub const DecommitQueryRecipe = struct {
             .counts = counts,
             .assembly = assembly,
             .tree_count = tree_count,
-            .fri_geometry = try FriGeometry.init(fri_start_log),
+            .fri_geometry = geometry,
         };
     }
 
@@ -2595,7 +2721,7 @@ pub const DecommitQueryRecipe = struct {
     }
 
     pub fn prepareFri(self: *DecommitQueryRecipe, round: usize) !void {
-        if (self.pending_trace_gather != null or round >= FriGeometry.round_count)
+        if (self.pending_trace_gather != null or round >= self.fri_geometry.roundCount())
             return recovery.RecoveryError.BindingSizeMismatch;
         const count_base = try bindingWordOffset(self.counts);
         self.accumulated_gpu_ms += try self.metal.decommitPrepareFriQueries(
@@ -2605,7 +2731,7 @@ pub const DecommitQueryRecipe = struct {
             70,
             try self.fri_geometry.cumulativeFold(round),
             try self.fri_geometry.roundFold(round),
-            FriGeometry.packed_log,
+            self.fri_geometry.packedLog(),
             try bindingWordOffset(self.mapped_queries),
             count_base + 1,
             try bindingWordOffset(self.expanded_positions),
@@ -2628,7 +2754,8 @@ pub const DecommitQueryRecipe = struct {
         values: arena_plan.Binding,
     ) !void {
         if (self.pending_trace_gather != null) return recovery.RecoveryError.BindingSizeMismatch;
-        if (round >= FriGeometry.round_count or coordinate_offsets.size_bytes < 8 * @sizeOf(u32) or
+        try validateFriOpeningRound(self.fri_geometry, round, leaf_log);
+        if (coordinate_offsets.size_bytes < 8 * @sizeOf(u32) or
             retained_offsets.size_bytes < @as(u64, leaf_log + 1) * 2 * @sizeOf(u32) or
             values.size_bytes < self.expanded_positions.size_bytes * 4)
             return recovery.RecoveryError.BindingSizeMismatch;
@@ -2652,7 +2779,7 @@ pub const DecommitQueryRecipe = struct {
                 .max_queries = 70,
                 .cumulative_fold = try self.fri_geometry.cumulativeFold(round),
                 .fold_step = try self.fri_geometry.roundFold(round),
-                .packed_log = FriGeometry.packed_log,
+                .packed_log = self.fri_geometry.packedLog(),
                 .max_positions = @intCast(self.expanded_positions.size_bytes / @sizeOf(u32)),
                 .tree_index = tree_index,
                 .leaf_log = leaf_log,
