@@ -55,16 +55,20 @@ increment. They may join the session later through separately bounded resources.
 `log <= max_circle_log`. Its view is:
 
 ```text
-requested_length = 2^log
-suffix_start     = 2^max_circle_log - requested_length
-requested_root   = maximum_root.repeatedDouble(max_circle_log - log)
+requested_length = 2^(log - 1)
+maximum_length   = 2^(max_circle_log - 1)
+suffix_start     = maximum_length - requested_length
+requested_root   = CanonicCoset.new(log).circleDomain().half_coset
 forward          = maximum_forward[suffix_start..]
 inverse          = maximum_inverse[suffix_start..]
 ```
 
 The view must equal an independently precomputed exact-log tree element for element, including the
-root coset. The tower never grows or reallocates. A returned view is borrowed and valid only while
-the tower is alive.
+root coset.
+The exact canonical root is reconstructed instead of repeatedly doubling the maximum root: those
+roots generate the same required suffix values but are not structurally identical under the Coset
+metadata contract. The tower never grows or reallocates. A returned view is borrowed and valid only
+while the tower is alive.
 
 ## Dataflow
 
