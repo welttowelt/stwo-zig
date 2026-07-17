@@ -1,4 +1,4 @@
-"""Fail-closed report-v4, proof-artifact, telemetry, and parity validation."""
+"""Fail-closed report-v5, proof-artifact, telemetry, and parity validation."""
 
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ from .model import (
     RATE_ABSOLUTE_TOLERANCE,
     RATE_RELATIVE_TOLERANCE,
     REPORT_SCHEMA_VERSION,
+    RUNTIME_ADMISSION_KEYS,
     SESSION_KEYS,
     MatrixError,
     Workload,
@@ -32,7 +33,7 @@ from .model import (
 
 REPORT_KEYS = {
     "schema_version", "backend", "evidence_class", "profiled", "provenance",
-    "protocol", "workload", "session", "proof", "backend_telemetry", "timing",
+    "protocol", "workload", "session", "runtime_admission", "proof", "backend_telemetry", "timing",
     "throughput",
 }
 PROVENANCE_KEYS = {
@@ -525,6 +526,61 @@ def validate_session(report: dict[str, Any], lane: str, workload: Workload, prot
         raise MatrixError(f"{lane}.session retained twiddles exceed budget or are empty")
 
 
+def validate_runtime_admission(
+    report: dict[str, Any], lane: str, args: argparse.Namespace
+) -> None:
+    admission = report["runtime_admission"]
+    if lane == "cpu":
+        if admission is not None:
+            raise MatrixError("CPU report must not claim a Metal runtime admission")
+        return
+    if not isinstance(admission, dict):
+        raise MatrixError("metal.runtime_admission must be an object")
+    require_exact_keys(admission, RUNTIME_ADMISSION_KEYS, "metal.runtime_admission")
+    if require_bool(admission["initialized"], "metal.runtime_admission.initialized") is not True:
+        raise MatrixError("metal.runtime_admission must be initialized")
+    origin = require_string(admission["origin"], "metal.runtime_admission.origin")
+    if origin not in {"diagnostic_source_jit", "authenticated_core_aot"}:
+        raise MatrixError("metal.runtime_admission.origin is unsupported")
+    require_digest(admission["source_sha256"], "metal.runtime_admission.source_sha256")
+    for field in (
+        "active_call_leases",
+        "live_resident_resources",
+        "initialization_count",
+        "shutdown_count",
+    ):
+        require_int(admission[field], f"metal.runtime_admission.{field}")
+    if admission["initialization_count"] != admission["shutdown_count"] + 1:
+        raise MatrixError("metal.runtime_admission lifecycle counts are inconsistent")
+    if admission["active_call_leases"] != 0:
+        raise MatrixError("metal.runtime_admission was captured with an active call lease")
+    requested = getattr(args, "metal_runtime", "source-jit")
+    expected_origin = {
+        "source-jit": "diagnostic_source_jit",
+        "authenticated-aot": "authenticated_core_aot",
+    }.get(requested)
+    if expected_origin is None or origin != expected_origin:
+        raise MatrixError("metal.runtime_admission does not match the controller request")
+    if requested == "source-jit":
+        if any(admission[field] is not None for field in (
+            "manifest_sha256", "metallib_sha256", "metallib_bytes"
+        )):
+            raise MatrixError("source JIT must not claim authenticated AOT identity")
+        return
+    manifest_sha256 = require_digest(
+        admission["manifest_sha256"], "metal.runtime_admission.manifest_sha256"
+    )
+    expected_manifest_sha256 = getattr(args, "metal_aot_manifest_sha256", None)
+    if manifest_sha256 != expected_manifest_sha256:
+        raise MatrixError("metal.runtime_admission manifest does not match the controller request")
+    require_digest(admission["metallib_sha256"], "metal.runtime_admission.metallib_sha256")
+    require_int(
+        admission["metallib_bytes"],
+        "metal.runtime_admission.metallib_bytes",
+        positive=True,
+    )
+
+
 def headline_blockers(report: dict[str, Any], lane: str) -> list[str]:
     blockers: list[str] = []
     provenance = report["provenance"]
@@ -620,7 +676,7 @@ def validate_report(
     )
     if single_threaded == parallel:
         raise MatrixError(f"{lane} provenance threading flags disagree")
-    require_bool(provenance["complete"], f"{lane}.provenance.complete")
+    complete = require_bool(provenance["complete"], f"{lane}.provenance.complete")
     overrides = provenance["environment_overrides"]
     if not isinstance(overrides, list) or any(
         not isinstance(item, dict)
@@ -631,6 +687,8 @@ def validate_report(
         for item in overrides
     ):
         raise MatrixError(f"{lane}.provenance.environment_overrides has invalid schema")
+    if complete != (len(overrides) == 0):
+        raise MatrixError(f"{lane}.provenance.complete disagrees with overrides")
     protocol = require_object(report, "protocol", lane)
     require_exact_keys(protocol, PROTOCOL_KEYS, f"{lane}.protocol")
     if protocol != PROTOCOL_PRESETS[args.protocol]:
@@ -645,6 +703,7 @@ def validate_report(
     if require_digest(reported_workload["descriptor_sha256"], f"{lane}.workload.descriptor_sha256") != workload_descriptor_sha256(workload, args.protocol):
         raise MatrixError(f"{lane} workload descriptor digest is inconsistent")
     validate_session(report, lane, workload, protocol)
+    validate_runtime_admission(report, lane, args)
 
     timing = require_object(report, "timing", lane)
     require_exact_keys(timing, TIMING_KEYS, f"{lane}.timing")
@@ -701,7 +760,9 @@ def validate_report(
         "functional_protocol": report["protocol"]["name"] == "functional",
         "release_fast": provenance["optimization"] == "ReleaseFast",
         "clean_complete_provenance": (
-            provenance["complete"] is True and provenance["git_dirty"] is False
+            provenance["complete"] is True
+            and provenance["git_dirty"] is False
+            and not overrides
         ),
         "thread_parallelism_enabled": parallel,
         "byte_identical_verified_samples": True,

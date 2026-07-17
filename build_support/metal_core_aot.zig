@@ -48,12 +48,18 @@ pub fn addProducts(context: Context) void {
 
 fn addHostedAcceptance(context: Context, tool: *std.Build.Step.Compile) void {
     const b = context.b;
+    const host_transcript_module = b.createModule(.{
+        .root_source_file = b.path("src/tools/metal_core_aot/host_transcript.zig"),
+        .target = context.target,
+        .optimize = context.optimize,
+    });
     const probe_module = b.createModule(.{
         .root_source_file = b.path("src/tools/metal_core_aot/probe.zig"),
         .target = context.target,
         .optimize = context.optimize,
     });
     probe_module.addImport("shader_manifest", context.shader_manifest_module);
+    probe_module.addImport("host_transcript", host_transcript_module);
     const probe = b.addExecutable(.{
         .name = "metal-core-aot-probe",
         .root_module = probe_module,
@@ -72,6 +78,7 @@ fn addHostedAcceptance(context: Context, tool: *std.Build.Step.Compile) void {
         .optimize = context.optimize,
     });
     probe_test_module.addImport("shader_manifest", context.shader_manifest_module);
+    probe_test_module.addImport("host_transcript", host_transcript_module);
     const probe_tests = b.addTest(.{ .root_module = probe_test_module });
     linkProbe(b, probe_tests);
     const run_probe_tests = b.addRunArtifact(probe_tests);

@@ -1,4 +1,5 @@
 const std = @import("std");
+const host_transcript = @import("host_transcript");
 const shader_manifest = @import("shader_manifest");
 
 const core_aot = shader_manifest.core_aot;
@@ -10,6 +11,14 @@ const usage =
 extern fn stwo_zig_metal_core_probe(
     metallib_bytes: [*]const u8,
     metallib_len: usize,
+    source_bytes: [*]const u8,
+    source_len: usize,
+    transcript_source: [*]const u32,
+    transcript_source_len: usize,
+    expected_secure: [*]const u32,
+    expected_secure_len: usize,
+    expected_queries: [*]const u32,
+    expected_queries_len: usize,
     expected_names: [*]const [*:0]const u8,
     expected_count: usize,
     error_message: [*]u8,
@@ -50,10 +59,20 @@ fn run() !void {
         name_pointers[index] = owned_names[index].ptr;
     }
 
+    const transcript = host_transcript.canonical;
+
     var error_buffer: [1024]u8 = @splat(0);
     if (!stwo_zig_metal_core_probe(
         admission.metallib_bytes.ptr,
         admission.metallib_bytes.len,
+        shader_manifest.native_amalgamated_source.ptr,
+        shader_manifest.native_amalgamated_source.len - 1,
+        &transcript.source,
+        transcript.source.len,
+        &transcript.secure,
+        transcript.secure.len,
+        &transcript.queries,
+        transcript.queries.len,
         name_pointers[0..].ptr,
         name_pointers.len,
         &error_buffer,
@@ -64,7 +83,7 @@ fn run() !void {
         return error.CompiledMetalLibraryRejected;
     }
     std.debug.print(
-        "Native core metallib accepted: {d} exact kernel exports, zero function constants\n",
+        "Native core metallib accepted: {d} exact kernel exports, zero function constants, AOT/JIT kernel parity\n",
         .{kernel_abi.len},
     );
 }

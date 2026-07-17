@@ -319,6 +319,11 @@ def _run_matrix_locked(
         },
         "configuration": {
             "proof_protocol": args.protocol,
+            "blake2_backend": getattr(args, "blake2_backend", "auto"),
+            "metal_runtime": getattr(args, "metal_runtime", "source-jit"),
+            "metal_aot_manifest_sha256": getattr(
+                args, "metal_aot_manifest_sha256", None
+            ),
             "warmups_per_lane": args.warmups,
             "samples_per_lane": args.samples,
             "cooldown_seconds": args.cooldown_seconds,

@@ -7,7 +7,7 @@ import hashlib
 from dataclasses import dataclass
 
 
-REPORT_SCHEMA_VERSION = 4
+REPORT_SCHEMA_VERSION = 5
 
 INTEROP_ARTIFACT_SCHEMA_VERSION = 1
 INTEROP_UPSTREAM_COMMIT = "a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2"
@@ -76,6 +76,18 @@ SESSION_KEYS = {
     "host_byte_budget",
     "retained_host_twiddle_bytes",
     "tower_build_count",
+}
+RUNTIME_ADMISSION_KEYS = {
+    "initialized",
+    "origin",
+    "source_sha256",
+    "manifest_sha256",
+    "metallib_sha256",
+    "metallib_bytes",
+    "active_call_leases",
+    "live_resident_resources",
+    "initialization_count",
+    "shutdown_count",
 }
 BACKEND_COUNTER_KEYS = {
     "host_merkle_commits",

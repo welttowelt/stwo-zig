@@ -94,6 +94,7 @@ pub const Runtime = struct {
     pub const init = session_ops.init;
     pub const initFull = session_ops.initFull;
     pub const initFromAotBundle = session_ops.initFromAotBundle;
+    pub const initFromAotAdmission = session_ops.initFromAotAdmission;
     pub const deinit = session_ops.deinit;
     pub const pipelineCacheStats = session_ops.pipelineCacheStats;
     pub const maxBufferLength = session_ops.maxBufferLength;

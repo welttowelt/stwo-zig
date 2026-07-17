@@ -98,6 +98,15 @@ def validate_controller_args(
     parser: argparse.ArgumentParser,
 ) -> None:
     args.formal = not args.allow_non_headline
+    if args.metal_runtime == "source-jit":
+        if args.metal_aot_bundle is not None or args.metal_aot_manifest_sha256 is not None:
+            parser.error("AOT bundle options require --metal-runtime authenticated-aot")
+    else:
+        if args.metal_aot_bundle is None or args.metal_aot_manifest_sha256 is None:
+            parser.error("authenticated AOT requires bundle and manifest SHA-256")
+        digest = args.metal_aot_manifest_sha256
+        if len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
+            parser.error("Metal AOT manifest SHA-256 must be 64 lowercase hex characters")
     if args.formal and args.rust_oracle_bin is None:
         parser.error("formal mode requires --rust-oracle-bin")
     if args.formal and args.samples < MIN_FORMAL_MEASURED_PROOFS:
@@ -161,6 +170,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         choices=("smoke", "functional"),
         default=DEFAULT_PROTOCOL,
     )
+    parser.add_argument(
+        "--blake2-backend",
+        choices=("auto", "scalar", "simd"),
+        default="auto",
+    )
+    parser.add_argument(
+        "--metal-runtime",
+        choices=("source-jit", "authenticated-aot"),
+        default="source-jit",
+    )
+    parser.add_argument("--metal-aot-bundle", type=Path)
+    parser.add_argument("--metal-aot-manifest-sha256")
     parser.add_argument(
         "--cooldown-seconds",
         type=float,

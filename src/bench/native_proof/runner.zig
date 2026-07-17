@@ -20,6 +20,7 @@ const OVERRIDE_NAMES = [_][]const u8{
     "STWO_ZIG_LEAF_BATCH_SIZE",
     "STWO_ZIG_MERKLE_POOL_REUSE",
     "STWO_ZIG_METAL_RADIX4_RFFT",
+    "STWO_ZIG_METAL_CACHE_DIR",
 };
 
 fn SampleOutcome(comptime Statement: type) type {
@@ -62,14 +63,14 @@ pub fn main(comptime Engine: type, comptime backend: config.Backend) !void {
     defer std.process.argsFree(allocator, process_args);
 
     const parsed = parse: {
-        const result = config.parseArgs(process_args[1..]) catch |err| {
-            try config.writeUsage(std.fs.File.stderr().deprecatedWriter());
+        const result = config.parseArgs(backend, process_args[1..]) catch |err| {
+            try config.writeUsage(std.fs.File.stderr().deprecatedWriter(), backend);
             return err;
         };
         break :parse result;
     };
     switch (parsed) {
-        .help => return config.writeUsage(std.fs.File.stdout().deprecatedWriter()),
+        .help => return config.writeUsage(std.fs.File.stdout().deprecatedWriter(), backend),
         .run => |args| try execute(Engine, backend, allocator, args),
     }
 }
@@ -80,6 +81,11 @@ fn execute(
     allocator: std.mem.Allocator,
     args: config.Args,
 ) !void {
+    blake2_hash.setBackendMode(switch (args.blake2_backend) {
+        .auto => .auto,
+        .scalar => .scalar,
+        .simd => .simd,
+    });
     return switch (args.workload()) {
         .wide_fibonacci => |parameters| executeExample(
             Engine,
@@ -162,6 +168,16 @@ fn executeExample(
     const max_circle_log = try Spec.requiredCircleLog(request, pcs_config);
 
     var init_timer = try std.time.Timer.start();
+    if (comptime backend == .metal_hybrid) {
+        const policy: Engine.RuntimeInitializationPolicy = switch (args.metal_runtime.mode) {
+            .source_jit => .source_jit,
+            .authenticated_aot => .{ .authenticated_aot = .{
+                .bundle_path = args.metal_runtime.aot_bundle.?,
+                .manifest_sha256 = args.metal_runtime.manifest_sha256.?,
+            } },
+        };
+        try Engine.initializeRuntime(allocator, policy);
+    }
     if (comptime @hasDecl(Engine, "warmup")) try Engine.warmup();
     var session = try Engine.initSession(
         allocator,
@@ -355,7 +371,7 @@ fn executeExample(
         args.samples >= minimum_samples;
     const evidence_class = args.evidenceClass(meets_sampling_contract);
     const git_dirty = dirty_output.len != 0;
-    const provenance_complete = true;
+    const provenance_complete = overrides.len == 0;
     const telemetry_valid = backendTelemetryValid(backend, warmup_telemetry, sample_telemetry);
     const byte_identical_verified_samples =
         args.samples == proof_records.len and all_samples_byte_identical;
@@ -371,6 +387,30 @@ fn executeExample(
     };
     const headline_eligible = headlineRequirementsMet(headline_requirements);
     const telemetry_totals = sumTelemetry(warmup_telemetry, sample_telemetry);
+    var runtime_source_hex: [64]u8 = undefined;
+    var runtime_manifest_hex: [64]u8 = undefined;
+    var runtime_metallib_hex: [64]u8 = undefined;
+    const runtime_admission: ?report_mod.RuntimeAdmission = if (comptime backend == .metal_hybrid) blk: {
+        const lifecycle = Engine.runtimeLifecycleSnapshot();
+        const identity = lifecycle.identity orelse return error.MetalRuntimeIdentityMissing;
+        runtime_source_hex = std.fmt.bytesToHex(identity.source_sha256, .lower);
+        if (identity.manifest_sha256) |digest|
+            runtime_manifest_hex = std.fmt.bytesToHex(digest, .lower);
+        if (identity.metallib_sha256) |digest|
+            runtime_metallib_hex = std.fmt.bytesToHex(digest, .lower);
+        break :blk .{
+            .initialized = lifecycle.initialized,
+            .origin = @tagName(identity.origin),
+            .source_sha256 = &runtime_source_hex,
+            .manifest_sha256 = if (identity.manifest_sha256 != null) &runtime_manifest_hex else null,
+            .metallib_sha256 = if (identity.metallib_sha256 != null) &runtime_metallib_hex else null,
+            .metallib_bytes = identity.metallib_bytes,
+            .active_call_leases = lifecycle.active_call_leases,
+            .live_resident_resources = lifecycle.live_resident_resources,
+            .initialization_count = lifecycle.initialization_count,
+            .shutdown_count = lifecycle.shutdown_count,
+        };
+    } else null;
 
     const report = report_mod.Report{
         .backend = backend,
@@ -425,6 +465,7 @@ fn executeExample(
             .retained_host_twiddle_bytes = session_construction.retained_twiddle_bytes,
             .tower_build_count = session_construction.tower_build_count,
         },
+        .runtime_admission = runtime_admission,
         .backend_telemetry = if (backend == .metal_hybrid) .{
             .post_warmup_pipeline_cache = post_warmup_pipeline_cache.?,
             .warmups = warmup_telemetry,

@@ -174,10 +174,30 @@ class NativeProofMatrixTests(unittest.TestCase):
             ["wide_fibonacci", "xor", "plonk", "state_machine", "blake", "poseidon"],
         )
         self.assertEqual(diagnostic.warmups, MODULE.MIN_HEADLINE_WARMUPS)
+        self.assertEqual(diagnostic.blake2_backend, "auto")
+        self.assertEqual(diagnostic.metal_runtime, "source-jit")
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             MODULE.parse_args([])
         formal = MODULE.parse_args(["--rust-oracle-bin", "/tmp/oracle"])
         self.assertTrue(formal.formal)
+        aot = MODULE.parse_args([
+            "--allow-non-headline",
+            "--metal-runtime",
+            "authenticated-aot",
+            "--metal-aot-bundle",
+            "/tmp/native-core",
+            "--metal-aot-manifest-sha256",
+            "ab" * 32,
+        ])
+        self.assertEqual(aot.metal_aot_manifest_sha256, "ab" * 32)
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            MODULE.parse_args([
+                "--allow-non-headline",
+                "--metal-runtime",
+                "authenticated-aot",
+                "--metal-aot-bundle",
+                "/tmp/native-core",
+            ])
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             MODULE.parse_args(
                 [
@@ -405,6 +425,38 @@ class NativeProofMatrixTests(unittest.TestCase):
         unsupported["provenance"]["blake2s_requested_backend"] = "gpu"
         with self.assertRaisesRegex(MODULE.MatrixError, "is unsupported"):
             MODULE.validate_report(unsupported, "cpu", workload, args())
+
+        overridden = make_report("cpu", workload)
+        overridden["provenance"]["environment_overrides"] = [
+            {"name": "STWO_ZIG_METAL_CACHE_DIR", "value": "/tmp/cache"}
+        ]
+        with self.assertRaisesRegex(MODULE.MatrixError, "disagrees with overrides"):
+            MODULE.validate_report(overridden, "cpu", workload, args())
+
+    def test_runtime_admission_is_bound_to_controller_request(self) -> None:
+        workload = MODULE.Workload.wide_fibonacci(10, 8)
+        source = make_report("metal", workload)
+        MODULE.validate_report(source, "metal", workload, args())
+
+        substituted_origin = make_report("metal", workload)
+        substituted_origin["runtime_admission"]["origin"] = "authenticated_core_aot"
+        with self.assertRaisesRegex(MODULE.MatrixError, "controller request"):
+            MODULE.validate_report(substituted_origin, "metal", workload, args())
+
+        aot_args = args()
+        aot_args.metal_runtime = "authenticated-aot"
+        aot_args.metal_aot_manifest_sha256 = "ab" * 32
+        aot = make_report("metal", workload)
+        aot["runtime_admission"].update({
+            "origin": "authenticated_core_aot",
+            "manifest_sha256": "ab" * 32,
+            "metallib_sha256": "cd" * 32,
+            "metallib_bytes": 4096,
+        })
+        MODULE.validate_report(aot, "metal", workload, aot_args)
+        aot["runtime_admission"]["manifest_sha256"] = "ef" * 32
+        with self.assertRaisesRegex(MODULE.MatrixError, "manifest"):
+            MODULE.validate_report(aot, "metal", workload, aot_args)
 
     def test_artifact_statement_and_cross_backend_proofs_must_match(self) -> None:
         workload = MODULE.Workload.xor(10, 2, 3)

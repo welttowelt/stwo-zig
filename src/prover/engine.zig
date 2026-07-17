@@ -45,6 +45,14 @@ pub fn ProverEngine(
         pub const ExtendedProof = proof.ExtendedStarkProof(H);
         pub const TelemetrySnapshot = if (@hasDecl(B, "TelemetrySnapshot")) B.TelemetrySnapshot else void;
         pub const TelemetryError = if (@hasDecl(B, "TelemetryError")) B.TelemetryError else error{};
+        pub const RuntimeInitializationPolicy = if (@hasDecl(B, "RuntimeInitializationPolicy"))
+            B.RuntimeInitializationPolicy
+        else
+            void;
+        pub const RuntimeLifecycleSnapshot = if (@hasDecl(B, "RuntimeLifecycleSnapshot"))
+            B.RuntimeLifecycleSnapshot
+        else
+            void;
 
         pub fn init(allocator: std.mem.Allocator, config: pcs_core.PcsConfig) !Scheme {
             return Scheme.init(allocator, config);
@@ -79,6 +87,19 @@ pub fn ProverEngine(
 
         pub fn warmup() !void {
             if (comptime @hasDecl(B, "warmup")) try B.warmup();
+        }
+
+        pub fn initializeRuntime(
+            allocator: std.mem.Allocator,
+            policy: RuntimeInitializationPolicy,
+        ) !void {
+            if (comptime @hasDecl(B, "initializeRuntime"))
+                try B.initializeRuntime(allocator, policy);
+        }
+
+        pub fn runtimeLifecycleSnapshot() RuntimeLifecycleSnapshot {
+            if (comptime @hasDecl(B, "runtimeLifecycleSnapshot"))
+                return B.runtimeLifecycleSnapshot();
         }
 
         pub fn telemetrySnapshot() TelemetryError!TelemetrySnapshot {

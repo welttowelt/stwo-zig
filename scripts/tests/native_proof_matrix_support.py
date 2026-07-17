@@ -238,7 +238,7 @@ def make_report(
             "exchange_mode": EXCHANGE_MODE,
         }
     return {
-        "schema_version": 4,
+        "schema_version": 5,
         "backend": "cpu_native" if lane == "cpu" else "metal_hybrid",
         "evidence_class": evidence_class,
         "profiled": False,
@@ -272,6 +272,22 @@ def make_report(
             "retained_host_twiddle_bytes": 4096,
             "tower_build_count": 1,
         },
+        "runtime_admission": (
+            None
+            if lane == "cpu"
+            else {
+                "initialized": True,
+                "origin": "diagnostic_source_jit",
+                "source_sha256": "a1" * 32,
+                "manifest_sha256": None,
+                "metallib_sha256": None,
+                "metallib_bytes": None,
+                "active_call_leases": 0,
+                "live_resident_resources": 0,
+                "initialization_count": 1,
+                "shutdown_count": 0,
+            }
+        ),
         "proof": {
             "samples": [
                 {"bytes": proof_bytes, "sha256": digest} for _ in range(samples)

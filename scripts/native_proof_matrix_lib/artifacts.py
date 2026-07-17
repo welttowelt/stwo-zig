@@ -255,8 +255,13 @@ def lane_command(
     samples: int,
     protocol: str,
     proof_artifact_path: Path,
+    *,
+    blake2_backend: str | None = None,
+    metal_runtime: str | None = None,
+    metal_aot_bundle: Path | None = None,
+    metal_aot_manifest_sha256: str | None = None,
 ) -> list[str]:
-    return [
+    command = [
         str(binary),
         *workload.native_flags(),
         "--warmups",
@@ -265,9 +270,22 @@ def lane_command(
         str(samples),
         "--protocol",
         protocol,
-        "--proof-artifact-out",
-        str(proof_artifact_path),
     ]
+    if blake2_backend is not None:
+        command.extend(("--blake2-backend", blake2_backend))
+    if metal_runtime is not None:
+        command.extend(("--metal-runtime", metal_runtime))
+        if metal_runtime == "authenticated-aot":
+            if metal_aot_bundle is None or metal_aot_manifest_sha256 is None:
+                raise MatrixError("authenticated AOT lane command is incomplete")
+            command.extend((
+                "--metal-aot-bundle",
+                str(metal_aot_bundle),
+                "--metal-aot-manifest-sha256",
+                metal_aot_manifest_sha256,
+            ))
+    command.extend(("--proof-artifact-out", str(proof_artifact_path)))
+    return command
 
 
 def run_rust_oracle(
@@ -348,6 +366,10 @@ def run_lane(
         args.samples,
         args.protocol,
         proof_artifact_path,
+        blake2_backend=getattr(args, "blake2_backend", "auto"),
+        metal_runtime=getattr(args, "metal_runtime", "source-jit") if lane == "metal" else None,
+        metal_aot_bundle=getattr(args, "metal_aot_bundle", None),
+        metal_aot_manifest_sha256=getattr(args, "metal_aot_manifest_sha256", None),
     )
     measured_command, resource_measurement = resource_measurement_command(command)
     stdout_capture = tempfile.NamedTemporaryFile(

@@ -19,6 +19,17 @@ pub const FELTS_PER_HASH: usize = 8;
 pub const Blake2sChannel = Blake2sChannelGeneric(false);
 pub const Blake2sM31Channel = Blake2sChannelGeneric(true);
 
+const metal_aot_transcript_secure = [_]u32{
+    0x2de3_3d85, 0x1867_60f3, 0x016d_fb8f, 0x5526_159e,
+    0x033d_fdd3, 0x5743_5736, 0x76ae_db39, 0x79a6_e4ab,
+    0x5f39_484b, 0x7350_5dbc, 0x310d_05c0, 0x4581_f67d,
+};
+const metal_aot_transcript_queries = [_]u32{
+    0x48606d, 0x3b1f59, 0xec55d9, 0xa6ea6c, 0x9bceba,
+    0x7fc92c, 0xdb979b, 0x92cb97, 0x8192ec, 0xe06454,
+    0x7faf73, 0x006ed0, 0x4577cb,
+};
+
 pub fn Blake2sChannelGeneric(comptime is_m31_output: bool) type {
     const Hasher = blake2_hash.Blake2sHasherGeneric(is_m31_output);
 
@@ -374,6 +385,36 @@ test "blake2s channel: mix_felts changes digest" {
     };
     channel.mixFelts(felts[0..]);
     try std.testing.expect(!std.mem.eql(u8, before[0..], channel.digestBytes()[0..]));
+}
+
+test "blake2s channel: compiled Metal transcript vector remains canonical" {
+    const source = [_]QM31{
+        QM31.fromU32Unchecked(1, 2, 3, 4),
+        QM31.fromU32Unchecked(5, 6, 7, 8),
+        QM31.fromU32Unchecked(9, 10, 11, 12),
+    };
+    var channel = Blake2sChannel{};
+    channel.mixFelts(&source);
+    const secure = try channel.drawSecureFelts(std.testing.allocator, 3);
+    defer std.testing.allocator.free(secure);
+    var secure_words: [12]u32 = undefined;
+    for (secure, 0..) |felt, felt_index| {
+        for (felt.toM31Array(), 0..) |coordinate, coordinate_index|
+            secure_words[felt_index * 4 + coordinate_index] = coordinate.v;
+    }
+    try std.testing.expectEqualSlices(u32, &metal_aot_transcript_secure, &secure_words);
+
+    var queries: [13]u32 = undefined;
+    var produced: usize = 0;
+    while (produced < queries.len) {
+        const draw = channel.drawU32s();
+        for (draw) |word| {
+            queries[produced] = word & ((@as(u32, 1) << 24) - 1);
+            produced += 1;
+            if (produced == queries.len) break;
+        }
+    }
+    try std.testing.expectEqualSlices(u32, &metal_aot_transcript_queries, &queries);
 }
 
 test "blake2s channel: mix_u64 matches mix_u32s and upstream digest bytes" {

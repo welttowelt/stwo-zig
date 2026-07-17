@@ -82,6 +82,11 @@ pub fn initFromAotBundle(
     };
     defer admission.deinit();
 
+    return initFromAotAdmission(&admission);
+}
+
+/// Constructs a runtime from bytes already admitted by the process owner.
+pub fn initFromAotAdmission(admission: *const core_aot.Admission) MetalError!Runtime {
     return .{ .handle = try runtime_initialization.fromMetallibData(admission.metallib_bytes) };
 }
 

@@ -3,7 +3,7 @@ const stwo = @import("stwo");
 const config = @import("config.zig");
 const statistics = @import("statistics.zig");
 
-pub const SCHEMA_VERSION: u32 = 4;
+pub const SCHEMA_VERSION: u32 = 5;
 
 pub const EnvironmentOverride = struct {
     name: []const u8,
@@ -75,6 +75,19 @@ pub const Session = struct {
     host_byte_budget: usize,
     retained_host_twiddle_bytes: usize,
     tower_build_count: u64,
+};
+
+pub const RuntimeAdmission = struct {
+    initialized: bool,
+    origin: []const u8,
+    source_sha256: []const u8,
+    manifest_sha256: ?[]const u8,
+    metallib_sha256: ?[]const u8,
+    metallib_bytes: ?u64,
+    active_call_leases: u64,
+    live_resident_resources: u64,
+    initialization_count: u64,
+    shutdown_count: u64,
 };
 
 pub const CanonicalProof = struct {
@@ -228,6 +241,7 @@ pub const Report = struct {
     protocol: Protocol,
     workload: Workload,
     session: Session,
+    runtime_admission: ?RuntimeAdmission,
     proof: ProofEvidence,
     backend_telemetry: ?BackendTelemetry,
     timing: Timing,
@@ -290,6 +304,7 @@ test "native proof report: diagnostic evidence cannot populate headline rates" {
             .retained_host_twiddle_bytes = 4096,
             .tower_build_count = 1,
         },
+        .runtime_admission = null,
         .proof = .{ .samples = &.{.{ .bytes = 42, .sha256 = "def" }}, .verified_samples = 1, .all_samples_byte_identical = true },
         .backend_telemetry = null,
         .timing = .{
@@ -345,6 +360,33 @@ test "native proof report: diagnostic evidence cannot populate headline rates" {
     try std.testing.expectEqual(@as(i64, 1 << 20), session.get("host_byte_budget").?.integer);
     try std.testing.expectEqual(@as(i64, 4096), session.get("retained_host_twiddle_bytes").?.integer);
     try std.testing.expectEqual(@as(i64, 1), session.get("tower_build_count").?.integer);
+    try std.testing.expect(object.get("runtime_admission").? == .null);
+}
+
+test "native proof report: authenticated runtime identity is explicit" {
+    const identity = RuntimeAdmission{
+        .initialized = true,
+        .origin = "authenticated_core_aot",
+        .source_sha256 = "11" ** 32,
+        .manifest_sha256 = "22" ** 32,
+        .metallib_sha256 = "33" ** 32,
+        .metallib_bytes = 4096,
+        .active_call_leases = 0,
+        .live_resident_resources = 0,
+        .initialization_count = 1,
+        .shutdown_count = 0,
+    };
+    const encoded = try std.json.Stringify.valueAlloc(std.testing.allocator, identity, .{});
+    defer std.testing.allocator.free(encoded);
+    var parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, encoded, .{});
+    defer parsed.deinit();
+    const object = parsed.value.object;
+    try std.testing.expectEqualStrings(
+        "authenticated_core_aot",
+        object.get("origin").?.string,
+    );
+    try std.testing.expectEqualStrings("22" ** 32, object.get("manifest_sha256").?.string);
+    try std.testing.expectEqual(@as(i64, 4096), object.get("metallib_bytes").?.integer);
 }
 
 test "native proof report: proof artifact binds sample zero" {

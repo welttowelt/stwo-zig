@@ -2,6 +2,19 @@ const std = @import("std");
 
 pub const Backend = enum { cpu_native, metal_hybrid };
 
+pub const Blake2Backend = enum { auto, scalar, simd };
+
+pub const MetalRuntimeMode = enum {
+    source_jit,
+    authenticated_aot,
+};
+
+pub const MetalRuntimeSelection = struct {
+    mode: MetalRuntimeMode = .source_jit,
+    aot_bundle: ?[]const u8 = null,
+    manifest_sha256: ?[32]u8 = null,
+};
+
 pub const EvidenceClass = enum {
     verified_unprofiled,
     profiled_diagnostic,
@@ -82,6 +95,8 @@ pub const Args = struct {
     samples: usize = 5,
     profiled: bool = false,
     proof_artifact_out: ?[]const u8 = null,
+    blake2_backend: Blake2Backend = .auto,
+    metal_runtime: MetalRuntimeSelection = .{},
 
     pub fn workload(self: Args) Workload {
         return switch (self.example) {
@@ -113,7 +128,7 @@ const MAX_COMMITTED_CELLS: u64 = 1 << 25;
 pub const MIN_HEADLINE_WARMUPS: usize = 10;
 pub const MAX_WARMUPS: usize = 10;
 
-pub fn parseArgs(argv: []const []const u8) !ParseResult {
+pub fn parseArgs(backend: Backend, argv: []const []const u8) !ParseResult {
     var result = Args{};
     var saw_wide_parameter = false;
     var saw_xor_parameter = false;
@@ -173,6 +188,19 @@ pub fn parseArgs(argv: []const []const u8) !ParseResult {
             result.samples = try std.fmt.parseInt(usize, value, 10);
         } else if (std.mem.eql(u8, arg, "--proof-artifact-out")) {
             result.proof_artifact_out = value;
+        } else if (std.mem.eql(u8, arg, "--blake2-backend")) {
+            result.blake2_backend = std.meta.stringToEnum(Blake2Backend, value) orelse
+                return error.InvalidBlake2Backend;
+        } else if (std.mem.eql(u8, arg, "--metal-runtime")) {
+            if (backend == .cpu_native) return error.MetalOptionRequiresMetalBackend;
+            result.metal_runtime.mode = parseMetalRuntimeMode(value) orelse
+                return error.InvalidMetalRuntimeMode;
+        } else if (std.mem.eql(u8, arg, "--metal-aot-bundle")) {
+            if (backend == .cpu_native) return error.MetalOptionRequiresMetalBackend;
+            result.metal_runtime.aot_bundle = value;
+        } else if (std.mem.eql(u8, arg, "--metal-aot-manifest-sha256")) {
+            if (backend == .cpu_native) return error.MetalOptionRequiresMetalBackend;
+            result.metal_runtime.manifest_sha256 = try parseSha256(value);
         } else {
             return error.UnknownArgument;
         }
@@ -204,6 +232,21 @@ pub fn parseArgs(argv: []const []const u8) !ParseResult {
         return error.IrrelevantWorkloadParameter;
     try validate(result);
     return .{ .run = result };
+}
+
+fn parseMetalRuntimeMode(value: []const u8) ?MetalRuntimeMode {
+    if (std.mem.eql(u8, value, "source-jit")) return .source_jit;
+    if (std.mem.eql(u8, value, "authenticated-aot")) return .authenticated_aot;
+    return null;
+}
+
+fn parseSha256(encoded: []const u8) ![32]u8 {
+    if (encoded.len != 64) return error.InvalidSha256;
+    var digest: [32]u8 = undefined;
+    _ = std.fmt.hexToBytes(&digest, encoded) catch return error.InvalidSha256;
+    const canonical = std.fmt.bytesToHex(digest, .lower);
+    if (!std.mem.eql(u8, encoded, &canonical)) return error.InvalidSha256;
+    return digest;
 }
 
 fn validate(args: Args) !void {
@@ -263,9 +306,20 @@ fn validate(args: Args) !void {
     if (args.samples == 0 or args.samples > 21) return error.InvalidSampleCount;
     if (args.proof_artifact_out) |path| if (path.len == 0)
         return error.InvalidProofArtifactPath;
+    switch (args.metal_runtime.mode) {
+        .source_jit => if (args.metal_runtime.aot_bundle != null or
+            args.metal_runtime.manifest_sha256 != null)
+            return error.InvalidMetalRuntimeConfiguration,
+        .authenticated_aot => {
+            const bundle = args.metal_runtime.aot_bundle orelse
+                return error.InvalidMetalRuntimeConfiguration;
+            if (bundle.len == 0 or args.metal_runtime.manifest_sha256 == null)
+                return error.InvalidMetalRuntimeConfiguration;
+        },
+    }
 }
 
-pub fn writeUsage(writer: anytype) !void {
+pub fn writeUsage(writer: anytype, backend: Backend) !void {
     try writer.writeAll(
         \\Usage: native-proof-bench-{cpu|metal} [options]
         \\
@@ -284,14 +338,22 @@ pub fn writeUsage(writer: anytype) !void {
         \\  --warmups N          Verified untimed warmups (headline minimum: 10)
         \\  --samples N          Verified timed samples (maximum: 21)
         \\  --proof-artifact-out PATH
+        \\  --blake2-backend MODE  auto, scalar, or simd (default: auto)
         \\  --profiled           Diagnostic instrumentation; never headline MHz
+    );
+    if (backend == .metal_hybrid) try writer.writeAll(
+        \\  --metal-runtime MODE  source-jit or authenticated-aot
+        \\  --metal-aot-bundle PATH
+        \\  --metal-aot-manifest-sha256 HEX
+    );
+    try writer.writeAll(
         \\  -h, --help           Show this help
         \\
     );
 }
 
 test "native proof config: parses tagged workloads and legacy wide requests" {
-    const xor_args = (try parseArgs(&.{
+    const xor_args = (try parseArgs(.cpu_native, &.{
         "--example", "xor", "--log-size",           "8",               "--log-step", "3",
         "--offset",  "5",   "--protocol",           "smoke",           "--warmups",  "0",
         "--samples", "5",   "--proof-artifact-out", "/tmp/proof.json",
@@ -300,15 +362,15 @@ test "native proof config: parses tagged workloads and legacy wide requests" {
     try std.testing.expectEqual(@as(u32, 8), xor_args.xor.log_size);
     try std.testing.expectEqual(@as(usize, 5), xor_args.xor.offset);
 
-    const wide = (try parseArgs(&.{ "--log-rows", "7", "--sequence-len", "9" })).run;
+    const wide = (try parseArgs(.cpu_native, &.{ "--log-rows", "7", "--sequence-len", "9" })).run;
     try std.testing.expectEqual(@as(u32, 7), wide.wide_fibonacci.log_n_rows);
     try std.testing.expectEqual(@as(u32, 9), wide.wide_fibonacci.sequence_len);
 
-    const plonk = (try parseArgs(&.{ "--log-n-rows", "8", "--example", "plonk" })).run;
+    const plonk = (try parseArgs(.cpu_native, &.{ "--log-n-rows", "8", "--example", "plonk" })).run;
     try std.testing.expectEqual(Example.plonk, plonk.example);
     try std.testing.expectEqual(@as(u32, 8), plonk.plonk.log_n_rows);
 
-    const state = (try parseArgs(&.{
+    const state = (try parseArgs(.cpu_native, &.{
         "--example",   "state_machine", "--log-n-rows", "8",
         "--initial-x", "17",            "--initial-y",  "19",
     })).run;
@@ -316,14 +378,14 @@ test "native proof config: parses tagged workloads and legacy wide requests" {
     try std.testing.expectEqual(@as(u32, 17), state.state_machine.initial_x);
     try std.testing.expectEqual(@as(u32, 19), state.state_machine.initial_y);
 
-    const blake = (try parseArgs(&.{
+    const blake = (try parseArgs(.cpu_native, &.{
         "--example", "blake", "--log-n-rows", "7", "--n-rounds", "3",
     })).run;
     try std.testing.expectEqual(Example.blake, blake.example);
     try std.testing.expectEqual(@as(u32, 7), blake.blake.log_n_rows);
     try std.testing.expectEqual(@as(u32, 3), blake.blake.n_rounds);
 
-    const poseidon = (try parseArgs(&.{
+    const poseidon = (try parseArgs(.cpu_native, &.{
         "--example", "poseidon", "--log-n-instances", "13",
     })).run;
     try std.testing.expectEqual(Example.poseidon, poseidon.example);
@@ -331,32 +393,70 @@ test "native proof config: parses tagged workloads and legacy wide requests" {
 }
 
 test "native proof config: bounds and tags fail closed" {
-    try std.testing.expectError(error.InvalidSampleCount, parseArgs(&.{ "--samples", "0" }));
-    try std.testing.expectError(error.InvalidStep, parseArgs(&.{ "--example", "xor", "--log-step", "11" }));
-    try std.testing.expectError(error.InvalidOffset, parseArgs(&.{ "--example", "xor", "--offset", "4" }));
-    try std.testing.expectError(error.IrrelevantWorkloadParameter, parseArgs(&.{ "--example", "xor", "--log-rows", "5" }));
-    try std.testing.expectError(error.IrrelevantWorkloadParameter, parseArgs(&.{ "--example", "plonk", "--sequence-len", "4" }));
-    try std.testing.expectError(error.InvalidInitialState, parseArgs(&.{ "--example", "state_machine", "--initial-x", "2147483647" }));
-    try std.testing.expectError(error.IrrelevantWorkloadParameter, parseArgs(&.{ "--example", "state_machine", "--offset", "1" }));
-    try std.testing.expectError(error.InvalidRoundCount, parseArgs(&.{ "--example", "blake", "--n-rounds", "0" }));
-    try std.testing.expectError(error.InvalidRoundCount, parseArgs(&.{ "--example", "blake", "--n-rounds", "33" }));
-    try std.testing.expectError(error.TooManyCommittedCells, parseArgs(&.{ "--example", "blake", "--log-n-rows", "18", "--n-rounds", "2" }));
-    try std.testing.expectError(error.IrrelevantWorkloadParameter, parseArgs(&.{ "--example", "plonk", "--n-rounds", "2" }));
-    try std.testing.expectError(error.InvalidLogNInstances, parseArgs(&.{ "--example", "poseidon", "--log-n-instances", "3" }));
-    try std.testing.expectError(error.TooManyCommittedCells, parseArgs(&.{ "--example", "poseidon", "--log-n-instances", "18" }));
-    try std.testing.expectError(error.IrrelevantWorkloadParameter, parseArgs(&.{ "--example", "poseidon", "--log-n-rows", "8" }));
-    try std.testing.expectError(error.IrrelevantWorkloadParameter, parseArgs(&.{ "--example", "blake", "--log-n-instances", "8" }));
-    try std.testing.expectError(error.MissingArgumentValue, parseArgs(&.{"--log-rows"}));
+    try std.testing.expectError(error.InvalidSampleCount, parseArgs(.cpu_native, &.{ "--samples", "0" }));
+    try std.testing.expectError(error.InvalidStep, parseArgs(.cpu_native, &.{ "--example", "xor", "--log-step", "11" }));
+    try std.testing.expectError(error.InvalidOffset, parseArgs(.cpu_native, &.{ "--example", "xor", "--offset", "4" }));
+    try std.testing.expectError(error.IrrelevantWorkloadParameter, parseArgs(.cpu_native, &.{ "--example", "xor", "--log-rows", "5" }));
+    try std.testing.expectError(error.IrrelevantWorkloadParameter, parseArgs(.cpu_native, &.{ "--example", "plonk", "--sequence-len", "4" }));
+    try std.testing.expectError(error.InvalidInitialState, parseArgs(.cpu_native, &.{ "--example", "state_machine", "--initial-x", "2147483647" }));
+    try std.testing.expectError(error.IrrelevantWorkloadParameter, parseArgs(.cpu_native, &.{ "--example", "state_machine", "--offset", "1" }));
+    try std.testing.expectError(error.InvalidRoundCount, parseArgs(.cpu_native, &.{ "--example", "blake", "--n-rounds", "0" }));
+    try std.testing.expectError(error.InvalidRoundCount, parseArgs(.cpu_native, &.{ "--example", "blake", "--n-rounds", "33" }));
+    try std.testing.expectError(error.TooManyCommittedCells, parseArgs(.cpu_native, &.{ "--example", "blake", "--log-n-rows", "18", "--n-rounds", "2" }));
+    try std.testing.expectError(error.IrrelevantWorkloadParameter, parseArgs(.cpu_native, &.{ "--example", "plonk", "--n-rounds", "2" }));
+    try std.testing.expectError(error.InvalidLogNInstances, parseArgs(.cpu_native, &.{ "--example", "poseidon", "--log-n-instances", "3" }));
+    try std.testing.expectError(error.TooManyCommittedCells, parseArgs(.cpu_native, &.{ "--example", "poseidon", "--log-n-instances", "18" }));
+    try std.testing.expectError(error.IrrelevantWorkloadParameter, parseArgs(.cpu_native, &.{ "--example", "poseidon", "--log-n-rows", "8" }));
+    try std.testing.expectError(error.IrrelevantWorkloadParameter, parseArgs(.cpu_native, &.{ "--example", "blake", "--log-n-instances", "8" }));
+    try std.testing.expectError(error.MissingArgumentValue, parseArgs(.cpu_native, &.{"--log-rows"}));
 }
 
 test "native proof config: headline warmup floor defaults to ten" {
-    const defaults = (try parseArgs(&.{})).run;
+    const defaults = (try parseArgs(.cpu_native, &.{})).run;
     try std.testing.expectEqual(MIN_HEADLINE_WARMUPS, defaults.warmups);
 
-    const diagnostic = (try parseArgs(&.{ "--warmups", "1" })).run;
+    const diagnostic = (try parseArgs(.cpu_native, &.{ "--warmups", "1" })).run;
     try std.testing.expectEqual(@as(usize, 1), diagnostic.warmups);
     try std.testing.expectEqual(
         EvidenceClass.correctness_only,
         diagnostic.evidenceClass(false),
+    );
+}
+
+test "native proof config: backend selectors are explicit and fail closed" {
+    const selected = (try parseArgs(.metal_hybrid, &.{
+        "--blake2-backend",            "scalar",
+        "--metal-runtime",             "authenticated-aot",
+        "--metal-aot-bundle",          "/tmp/native-core",
+        "--metal-aot-manifest-sha256", "ab" ** 32,
+    })).run;
+    try std.testing.expectEqual(Blake2Backend.scalar, selected.blake2_backend);
+    try std.testing.expectEqual(MetalRuntimeMode.authenticated_aot, selected.metal_runtime.mode);
+    try std.testing.expectEqualStrings("/tmp/native-core", selected.metal_runtime.aot_bundle.?);
+    try std.testing.expectEqual([_]u8{0xab} ** 32, selected.metal_runtime.manifest_sha256.?);
+
+    try std.testing.expectError(
+        error.MetalOptionRequiresMetalBackend,
+        parseArgs(.cpu_native, &.{ "--metal-runtime", "source-jit" }),
+    );
+    try std.testing.expectError(
+        error.MetalOptionRequiresMetalBackend,
+        parseArgs(.cpu_native, &.{ "--metal-aot-manifest-sha256", "not-a-digest" }),
+    );
+    try std.testing.expectError(
+        error.InvalidMetalRuntimeConfiguration,
+        parseArgs(.metal_hybrid, &.{ "--metal-runtime", "authenticated-aot" }),
+    );
+    try std.testing.expectError(
+        error.InvalidMetalRuntimeConfiguration,
+        parseArgs(.metal_hybrid, &.{ "--metal-aot-bundle", "/tmp/native-core" }),
+    );
+    try std.testing.expectError(
+        error.InvalidSha256,
+        parseArgs(.metal_hybrid, &.{ "--metal-aot-manifest-sha256", "AB" ** 32 }),
+    );
+    try std.testing.expectError(
+        error.InvalidBlake2Backend,
+        parseArgs(.cpu_native, &.{ "--blake2-backend", "vector" }),
     );
 }

@@ -5,10 +5,12 @@
 //! instead of invalidating buffers or trees that outlive a call.
 
 const std = @import("std");
+const core_aot = @import("core_aot.zig");
 const runtime_mod = @import("runtime.zig");
 
 var runtime_lock: std.Thread.RwLock = .{};
 var shared_runtime: ?runtime_mod.Runtime = null;
+var shared_identity: ?RuntimeIdentity = null;
 var runtime_initializations: std.atomic.Value(u64) = .init(0);
 var runtime_shutdowns: std.atomic.Value(u64) = .init(0);
 var active_call_leases: std.atomic.Value(u64) = .init(0);
@@ -16,10 +18,32 @@ var live_resident_resources: std.atomic.Value(u64) = .init(0);
 
 pub const LifecycleSnapshot = struct {
     initialized: bool,
+    identity: ?RuntimeIdentity,
     active_call_leases: u64,
     live_resident_resources: u64,
     initialization_count: u64,
     shutdown_count: u64,
+};
+
+pub const RuntimeOrigin = enum {
+    diagnostic_source_jit,
+    authenticated_core_aot,
+};
+
+pub const RuntimeIdentity = struct {
+    origin: RuntimeOrigin,
+    source_sha256: [32]u8,
+    manifest_sha256: ?[32]u8 = null,
+    metallib_sha256: ?[32]u8 = null,
+    metallib_bytes: ?u64 = null,
+};
+
+pub const InitializationPolicy = union(enum) {
+    source_jit,
+    authenticated_aot: struct {
+        bundle_path: []const u8,
+        manifest_sha256: [32]u8,
+    },
 };
 
 pub const ShutdownError = error{
@@ -36,6 +60,42 @@ pub const CallLease = struct {
     }
 };
 
+/// Admits and initializes the process runtime exactly once. A conflicting
+/// policy fails closed, and authenticated AOT never falls back to source JIT.
+pub fn initialize(allocator: std.mem.Allocator, policy: InitializationPolicy) !void {
+    runtime_lock.lock();
+    defer runtime_lock.unlock();
+
+    if (shared_runtime != null) {
+        if (policyMatchesIdentity(policy, shared_identity.?)) return;
+        return error.RuntimePolicyConflict;
+    }
+
+    switch (policy) {
+        .source_jit => {
+            shared_runtime = try runtime_mod.Runtime.init();
+            shared_identity = sourceIdentity();
+        },
+        .authenticated_aot => |aot| {
+            var admission = try core_aot.admit(
+                allocator,
+                aot.bundle_path,
+                aot.manifest_sha256,
+            );
+            defer admission.deinit();
+            shared_runtime = try runtime_mod.Runtime.initFromAotAdmission(&admission);
+            shared_identity = .{
+                .origin = .authenticated_core_aot,
+                .source_sha256 = core_aot.sourceDigest(),
+                .manifest_sha256 = aot.manifest_sha256,
+                .metallib_sha256 = admission.metallib.sha256,
+                .metallib_bytes = admission.metallib.bytes,
+            };
+        },
+    }
+    _ = runtime_initializations.fetchAdd(1, .monotonic);
+}
+
 pub fn acquire() !CallLease {
     while (true) {
         runtime_lock.lockShared();
@@ -49,6 +109,7 @@ pub fn acquire() !CallLease {
         defer runtime_lock.unlock();
         if (shared_runtime == null) {
             shared_runtime = try runtime_mod.Runtime.init();
+            shared_identity = sourceIdentity();
             _ = runtime_initializations.fetchAdd(1, .monotonic);
         }
     }
@@ -84,6 +145,7 @@ pub fn lifecycleSnapshot() LifecycleSnapshot {
     defer runtime_lock.unlockShared();
     return .{
         .initialized = shared_runtime != null,
+        .identity = shared_identity,
         .active_call_leases = active_call_leases.load(.monotonic),
         .live_resident_resources = live_resident_resources.load(.monotonic),
         .initialization_count = runtime_initializations.load(.monotonic),
@@ -102,8 +164,25 @@ pub fn shutdown() ShutdownError!void {
     if (shared_runtime) |*active_runtime| {
         active_runtime.deinit();
         shared_runtime = null;
+        shared_identity = null;
         _ = runtime_shutdowns.fetchAdd(1, .monotonic);
     }
+}
+
+fn sourceIdentity() RuntimeIdentity {
+    return .{
+        .origin = .diagnostic_source_jit,
+        .source_sha256 = core_aot.sourceDigest(),
+    };
+}
+
+fn policyMatchesIdentity(policy: InitializationPolicy, identity: RuntimeIdentity) bool {
+    return switch (policy) {
+        .source_jit => identity.origin == .diagnostic_source_jit,
+        .authenticated_aot => |aot| identity.origin == .authenticated_core_aot and
+            identity.manifest_sha256 != null and
+            std.meta.eql(identity.manifest_sha256.?, aot.manifest_sha256),
+    };
 }
 
 test "Metal shared runtime lifecycle observation does not initialize a device" {
@@ -113,6 +192,33 @@ test "Metal shared runtime lifecycle observation does not initialize a device" {
         lifecycle.initialized,
         lifecycle.initialization_count > lifecycle.shutdown_count,
     );
+    try std.testing.expectEqual(lifecycle.initialized, lifecycle.identity != null);
+}
+
+test "Metal shared runtime policy identity matching is exact" {
+    const source = sourceIdentity();
+    try std.testing.expect(policyMatchesIdentity(.source_jit, source));
+    try std.testing.expect(!policyMatchesIdentity(.{
+        .authenticated_aot = .{
+            .bundle_path = "/ignored",
+            .manifest_sha256 = [_]u8{1} ** 32,
+        },
+    }, source));
+
+    const aot = RuntimeIdentity{
+        .origin = .authenticated_core_aot,
+        .source_sha256 = [_]u8{2} ** 32,
+        .manifest_sha256 = [_]u8{3} ** 32,
+        .metallib_sha256 = [_]u8{4} ** 32,
+        .metallib_bytes = 4096,
+    };
+    try std.testing.expect(policyMatchesIdentity(.{
+        .authenticated_aot = .{
+            .bundle_path = "/same-authority",
+            .manifest_sha256 = [_]u8{3} ** 32,
+        },
+    }, aot));
+    try std.testing.expect(!policyMatchesIdentity(.source_jit, aot));
 }
 
 test "Metal shared runtime rejects shutdown while resident resources are live" {

@@ -10,6 +10,13 @@ pub fn warmup() !void {
     return MetalCommitBackend.warmup();
 }
 
+pub fn initializeRuntime(
+    allocator: std.mem.Allocator,
+    policy: MetalCommitBackend.RuntimeInitializationPolicy,
+) !void {
+    return MetalCommitBackend.initializeRuntime(allocator, policy);
+}
+
 pub fn runtimeLifecycleSnapshot() MetalCommitBackend.RuntimeLifecycleSnapshot {
     return MetalCommitBackend.runtimeLifecycleSnapshot();
 }
@@ -29,6 +36,7 @@ pub const MetalCommitBackend = struct {
     pub const TelemetryError = error{RuntimeNotInitialized};
     pub const ShutdownError = shared_runtime.ShutdownError;
     pub const RuntimeLifecycleSnapshot = shared_runtime.LifecycleSnapshot;
+    pub const RuntimeInitializationPolicy = shared_runtime.InitializationPolicy;
     /// Streaming commitment currently owns a CPU leaf-hasher state machine.
     /// Materialize the prepared LDE columns once so Metal can consume the
     /// complete tree in a single command buffer.
@@ -37,6 +45,13 @@ pub const MetalCommitBackend = struct {
     pub fn warmup() !void {
         var lease = try shared_runtime.acquire();
         defer lease.deinit();
+    }
+
+    pub fn initializeRuntime(
+        allocator: std.mem.Allocator,
+        policy: RuntimeInitializationPolicy,
+    ) !void {
+        return shared_runtime.initialize(allocator, policy);
     }
 
     /// Reads counters and cache statistics from the one shared backend
