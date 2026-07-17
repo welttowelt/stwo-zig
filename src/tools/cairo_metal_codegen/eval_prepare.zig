@@ -1,6 +1,7 @@
 const std = @import("std");
 const stwo = @import("stwo");
 const metal = stwo.backends.metal.runtime;
+const metal_telemetry = stwo.backends.metal.telemetry;
 const codegen = stwo.integrations.cairo_metal.eval_codegen;
 const composition = stwo.frontends.cairo.witness.composition_bundle;
 const composition_prewarm = stwo.integrations.cairo_metal.composition_prewarm;
@@ -33,9 +34,11 @@ pub fn main() !void {
             .codegen_ms = 0,
             .metal_compile_ms = nanosecondsToMilliseconds(evidence.plan_preparation_ns),
             .all_programs_compiled = evidence.resolved_plan_count == evidence.expected_plan_count,
+            .pipeline_cache_delta = evidence.cache_delta,
         });
     }
 
+    const cache_before = runtime.pipelineCacheStats();
     var timer = try std.time.Timer.start();
     var codegen_ns: u64 = 0;
     var compile_ns: u64 = 0;
@@ -82,6 +85,10 @@ pub fn main() !void {
         .codegen_ms = nanosecondsToMilliseconds(codegen_ns),
         .metal_compile_ms = nanosecondsToMilliseconds(compile_ns),
         .all_programs_compiled = true,
+        .pipeline_cache_delta = metal_telemetry.PipelineCacheDelta.between(
+            runtime.pipelineCacheStats(),
+            cache_before,
+        ),
     });
 }
 
@@ -95,6 +102,7 @@ const Result = struct {
     codegen_ms: f64,
     metal_compile_ms: f64,
     all_programs_compiled: bool,
+    pipeline_cache_delta: metal_telemetry.PipelineCacheDelta,
 };
 
 fn instructionCount(bundle: composition.Bundle) u64 {
