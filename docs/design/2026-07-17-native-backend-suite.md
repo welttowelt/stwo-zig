@@ -1,6 +1,6 @@
 # Native Backend Proof Suite
 
-Status: implementation; tagged report-v3 Wide Fibonacci/XOR/Plonk matrix accepted
+Status: active; five-example real-AIR CPU/Metal matrix accepted, Poseidon matrix row open
 
 Date: 2026-07-17
 
@@ -23,16 +23,24 @@ oracle. RISC-V is outside this program.
 
 This is an architectural change, not six copies of the wide Fibonacci runner.
 
-## Existing gap
+## Current gap
 
-Wide Fibonacci, XOR, and Plonk support `ProverEngine`, reusable sessions, prepared
-input, stage recording, CPU/Metal execution, and the formal matrix. State machine,
-Blake, and Poseidon still initialize the CPU PCS directly, generate input inside
-`proveEx`, and call the concrete prover. Consequently those remaining examples
-cannot use Metal through the same transaction, cannot reuse session twiddles, and
-cannot report input and proof time separately.
+Wide Fibonacci, XOR, Plonk, state machine, Blake, and Poseidon now expose the shared
+`ProverEngine`, reusable-session, prepared-input, and stage-recording transaction.
+The formal report-v3 CPU/Metal matrix currently dispatches Wide Fibonacci, XOR,
+Plonk, state machine, and Blake. Poseidon has focused CPU/Metal engine and session
+coverage but is not yet a tagged matrix workload, so the six-example suite is not
+closed.
 
-The interoperability artifact already supports all six examples. The bidirectional
+The latest [committed broad report](../native-proof-backend-benchmark-2026-07-17.md) contains ten
+real-AIR rows across the five
+registered examples. Every CPU and Metal proof has identical canonical bytes and
+is accepted by the pinned Rust oracle. Seven rows satisfy the ordered stability
+gate; three remain diagnostic because at least one compared run drifted. This is
+strong correctness evidence, not yet the stable six-example optimization baseline
+required by this design.
+
+The interoperability artifact supports all six examples. The bidirectional
 interop and prove-checkpoint tools already pin upstream commit
 `a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2`. Those formats and fixtures must be
 reused, not duplicated.
