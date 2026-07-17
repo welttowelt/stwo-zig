@@ -4,4 +4,5 @@ test {
     _ = @import("fri.zig");
     _ = @import("pcs/mod.zig");
     _ = @import("prove.zig");
+    _ = @import("../vcs_lifted/tests/mod.zig");
 }
