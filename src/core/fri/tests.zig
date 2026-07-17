@@ -1,5 +1,6 @@
 const std = @import("std");
 const fri = @import("../fri.zig");
+const geometry = @import("geometry.zig");
 const circle = @import("../circle.zig");
 const fft = @import("../fft.zig");
 const fields = @import("../fields/mod.zig");
@@ -38,6 +39,10 @@ const foldCircleIntoLine = fri.foldCircleIntoLine;
 const foldCircleIntoLineWithWorkspace = fri.foldCircleIntoLineWithWorkspace;
 const foldCircleColumnsIntoLineWithWorkspace = fri.foldCircleColumnsIntoLineWithWorkspace;
 const accumulateLine = fri.accumulateLine;
+
+test {
+    std.testing.refAllDecls(geometry);
+}
 
 test "fri config: security bits" {
     const config = try FriConfig.init(10, 10, 70);
