@@ -77,6 +77,7 @@ pub const InteropArtifact = struct {
 pub const NativeStatement = union(enum) {
     blake: blake.Statement,
     plonk: plonk.Statement,
+    poseidon: poseidon.Statement,
     state_machine: state_machine.PreparedStatement,
     wide_fibonacci: wide_fibonacci.Statement,
     xor: xor.Statement,
@@ -133,6 +134,10 @@ pub fn writeNativeProofArtifact(
         .plonk => |value| {
             artifact.example = "plonk";
             artifact.plonk_statement = plonkStatementToWire(value);
+        },
+        .poseidon => |value| {
+            artifact.example = "poseidon";
+            artifact.poseidon_statement = poseidonStatementToWire(value);
         },
         .state_machine => |value| {
             artifact.example = "state_machine";

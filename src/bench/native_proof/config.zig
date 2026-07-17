@@ -8,7 +8,7 @@ pub const EvidenceClass = enum {
     correctness_only,
 };
 
-pub const Example = enum { wide_fibonacci, xor, plonk, state_machine, blake };
+pub const Example = enum { wide_fibonacci, xor, plonk, state_machine, blake, poseidon };
 
 pub const WideFibonacciParameters = struct {
     log_n_rows: u32 = 12,
@@ -36,12 +36,17 @@ pub const BlakeParameters = struct {
     n_rounds: u32 = 2,
 };
 
+pub const PoseidonParameters = struct {
+    log_n_instances: u32 = 13,
+};
+
 pub const Workload = union(Example) {
     wide_fibonacci: WideFibonacciParameters,
     xor: XorParameters,
     plonk: PlonkParameters,
     state_machine: StateMachineParameters,
     blake: BlakeParameters,
+    poseidon: PoseidonParameters,
 };
 
 pub const Protocol = enum {
@@ -71,6 +76,7 @@ pub const Args = struct {
     plonk: PlonkParameters = .{},
     state_machine: StateMachineParameters = .{},
     blake: BlakeParameters = .{},
+    poseidon: PoseidonParameters = .{},
     protocol: Protocol = .functional,
     warmups: usize = MIN_HEADLINE_WARMUPS,
     samples: usize = 5,
@@ -84,6 +90,7 @@ pub const Args = struct {
             .plonk => .{ .plonk = self.plonk },
             .state_machine => .{ .state_machine = self.state_machine },
             .blake => .{ .blake = self.blake },
+            .poseidon => .{ .poseidon = self.poseidon },
         };
     }
 
@@ -98,6 +105,8 @@ pub const ParseResult = union(enum) { run: Args, help };
 const MAX_LOG_ROWS: u32 = 22;
 const MAX_SEQUENCE_LEN: u32 = 512;
 const MAX_BLAKE_ROUNDS: u32 = 32;
+const POSEIDON_LOG_INSTANCES_PER_ROW: u32 = 3;
+const POSEIDON_COLUMNS: u64 = 1264;
 const MAX_XOR_OFFSET: usize = (1 << 31) - 1;
 const M31_MODULUS: u32 = 0x7fffffff;
 const MAX_COMMITTED_CELLS: u64 = 1 << 25;
@@ -110,6 +119,7 @@ pub fn parseArgs(argv: []const []const u8) !ParseResult {
     var saw_xor_parameter = false;
     var saw_state_machine_parameter = false;
     var saw_blake_parameter = false;
+    var saw_poseidon_parameter = false;
     var log_n_rows_override: ?u32 = null;
     var index: usize = 0;
     while (index < argv.len) : (index += 1) {
@@ -151,6 +161,9 @@ pub fn parseArgs(argv: []const []const u8) !ParseResult {
         } else if (std.mem.eql(u8, arg, "--n-rounds")) {
             result.blake.n_rounds = try std.fmt.parseInt(u32, value, 10);
             saw_blake_parameter = true;
+        } else if (std.mem.eql(u8, arg, "--log-n-instances")) {
+            result.poseidon.log_n_instances = try std.fmt.parseInt(u32, value, 10);
+            saw_poseidon_parameter = true;
         } else if (std.mem.eql(u8, arg, "--protocol")) {
             result.protocol = std.meta.stringToEnum(Protocol, value) orelse
                 return error.InvalidProtocol;
@@ -169,22 +182,25 @@ pub fn parseArgs(argv: []const []const u8) !ParseResult {
         .plonk => result.plonk.log_n_rows = log_n_rows,
         .state_machine => result.state_machine.log_n_rows = log_n_rows,
         .blake => result.blake.log_n_rows = log_n_rows,
-        .xor => return error.IrrelevantWorkloadParameter,
+        .xor, .poseidon => return error.IrrelevantWorkloadParameter,
     };
     if (result.example == .wide_fibonacci and
-        (saw_xor_parameter or saw_state_machine_parameter or saw_blake_parameter))
+        (saw_xor_parameter or saw_state_machine_parameter or saw_blake_parameter or saw_poseidon_parameter))
         return error.IrrelevantWorkloadParameter;
     if (result.example == .xor and
-        (saw_wide_parameter or saw_state_machine_parameter or saw_blake_parameter))
+        (saw_wide_parameter or saw_state_machine_parameter or saw_blake_parameter or saw_poseidon_parameter))
         return error.IrrelevantWorkloadParameter;
     if (result.example == .plonk and
-        (saw_wide_parameter or saw_xor_parameter or saw_state_machine_parameter or saw_blake_parameter))
+        (saw_wide_parameter or saw_xor_parameter or saw_state_machine_parameter or saw_blake_parameter or saw_poseidon_parameter))
         return error.IrrelevantWorkloadParameter;
     if (result.example == .state_machine and
-        (saw_wide_parameter or saw_xor_parameter or saw_blake_parameter))
+        (saw_wide_parameter or saw_xor_parameter or saw_blake_parameter or saw_poseidon_parameter))
         return error.IrrelevantWorkloadParameter;
     if (result.example == .blake and
-        (saw_wide_parameter or saw_xor_parameter or saw_state_machine_parameter))
+        (saw_wide_parameter or saw_xor_parameter or saw_state_machine_parameter or saw_poseidon_parameter))
+        return error.IrrelevantWorkloadParameter;
+    if (result.example == .poseidon and
+        (saw_wide_parameter or saw_xor_parameter or saw_state_machine_parameter or saw_blake_parameter))
         return error.IrrelevantWorkloadParameter;
     try validate(result);
     return .{ .run = result };
@@ -233,6 +249,14 @@ fn validate(args: Args) !void {
             const columns = try std.math.mul(u64, parameters.n_rounds, 96);
             break :blk try std.math.mul(u64, rows, columns);
         },
+        .poseidon => |parameters| blk: {
+            if (parameters.log_n_instances <= POSEIDON_LOG_INSTANCES_PER_ROW or
+                parameters.log_n_instances > MAX_LOG_ROWS + POSEIDON_LOG_INSTANCES_PER_ROW)
+                return error.InvalidLogNInstances;
+            const log_n_rows = parameters.log_n_instances - POSEIDON_LOG_INSTANCES_PER_ROW;
+            const rows = @as(u64, 1) << @intCast(log_n_rows);
+            break :blk try std.math.mul(u64, rows, POSEIDON_COLUMNS);
+        },
     };
     if (committed_cells > MAX_COMMITTED_CELLS) return error.TooManyCommittedCells;
     if (args.warmups > MAX_WARMUPS) return error.TooManyWarmups;
@@ -245,7 +269,7 @@ pub fn writeUsage(writer: anytype) !void {
     try writer.writeAll(
         \\Usage: native-proof-bench-{cpu|metal} [options]
         \\
-        \\  --example NAME       wide_fibonacci, xor, plonk, state_machine, or blake
+        \\  --example NAME       wide_fibonacci, xor, plonk, state_machine, blake, or poseidon
         \\  --log-n-rows N       Wide Fibonacci, Plonk, State Machine, or Blake log2 rows
         \\  --log-rows N         Legacy Wide Fibonacci log2 rows alias
         \\  --sequence-len N     Wide Fibonacci trace column count
@@ -255,6 +279,7 @@ pub fn writeUsage(writer: anytype) !void {
         \\  --initial-x N        State Machine initial x coordinate
         \\  --initial-y N        State Machine initial y coordinate
         \\  --n-rounds N         Blake round count (maximum: 32)
+        \\  --log-n-instances N  Poseidon log2 instance count
         \\  --protocol NAME      smoke or functional (default: functional)
         \\  --warmups N          Verified untimed warmups (headline minimum: 10)
         \\  --samples N          Verified timed samples (maximum: 21)
@@ -297,6 +322,12 @@ test "native proof config: parses tagged workloads and legacy wide requests" {
     try std.testing.expectEqual(Example.blake, blake.example);
     try std.testing.expectEqual(@as(u32, 7), blake.blake.log_n_rows);
     try std.testing.expectEqual(@as(u32, 3), blake.blake.n_rounds);
+
+    const poseidon = (try parseArgs(&.{
+        "--example", "poseidon", "--log-n-instances", "13",
+    })).run;
+    try std.testing.expectEqual(Example.poseidon, poseidon.example);
+    try std.testing.expectEqual(@as(u32, 13), poseidon.poseidon.log_n_instances);
 }
 
 test "native proof config: bounds and tags fail closed" {
@@ -311,7 +342,10 @@ test "native proof config: bounds and tags fail closed" {
     try std.testing.expectError(error.InvalidRoundCount, parseArgs(&.{ "--example", "blake", "--n-rounds", "33" }));
     try std.testing.expectError(error.TooManyCommittedCells, parseArgs(&.{ "--example", "blake", "--log-n-rows", "18", "--n-rounds", "2" }));
     try std.testing.expectError(error.IrrelevantWorkloadParameter, parseArgs(&.{ "--example", "plonk", "--n-rounds", "2" }));
-    try std.testing.expectError(error.InvalidExample, parseArgs(&.{ "--example", "poseidon" }));
+    try std.testing.expectError(error.InvalidLogNInstances, parseArgs(&.{ "--example", "poseidon", "--log-n-instances", "3" }));
+    try std.testing.expectError(error.TooManyCommittedCells, parseArgs(&.{ "--example", "poseidon", "--log-n-instances", "18" }));
+    try std.testing.expectError(error.IrrelevantWorkloadParameter, parseArgs(&.{ "--example", "poseidon", "--log-n-rows", "8" }));
+    try std.testing.expectError(error.IrrelevantWorkloadParameter, parseArgs(&.{ "--example", "blake", "--log-n-instances", "8" }));
     try std.testing.expectError(error.MissingArgumentValue, parseArgs(&.{"--log-rows"}));
 }
 

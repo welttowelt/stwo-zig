@@ -125,6 +125,15 @@ fn execute(
             args.workload(),
             examples.BlakeSpec.request(parameters),
         ),
+        .poseidon => |parameters| executeExample(
+            Engine,
+            backend,
+            examples.PoseidonSpec,
+            allocator,
+            args,
+            args.workload(),
+            examples.PoseidonSpec.request(parameters),
+        ),
     };
 }
 

@@ -23,6 +23,7 @@ DEFAULT_WORKLOADS = (
     "plonk:log_n_rows=10",
     "state_machine:log_n_rows=10,initial_x=9,initial_y=3",
     "blake:log_n_rows=8,n_rounds=2",
+    "poseidon:log_n_instances=13",
 )
 DEFAULT_WARMUPS = 10
 DEFAULT_SAMPLES = 5
@@ -122,6 +123,7 @@ PARAMETER_ORDER = {
     "plonk": ("log_n_rows",),
     "state_machine": ("log_n_rows", "initial_x", "initial_y"),
     "blake": ("log_n_rows", "n_rounds"),
+    "poseidon": ("log_n_instances",),
 }
 NATIVE_UNITS = {
     "wide_fibonacci": "trace_rows",
@@ -129,6 +131,7 @@ NATIVE_UNITS = {
     "plonk": "plonk_rows",
     "state_machine": "state_transitions",
     "blake": "blake_round_instances",
+    "poseidon": "poseidon_instances",
 }
 
 
@@ -179,13 +182,21 @@ class Workload:
             (("log_n_rows", log_n_rows), ("n_rounds", n_rounds)),
         )
 
+    @classmethod
+    def poseidon(cls, log_n_instances: int) -> "Workload":
+        return cls("poseidon", (("log_n_instances", log_n_instances),))
+
     @property
     def parameters(self) -> dict[str, int]:
         return dict(self.parameter_items)
 
     @property
     def trace_log_rows(self) -> int:
-        return self.parameters["log_size" if self.name == "xor" else "log_n_rows"]
+        if self.name == "xor":
+            return self.parameters["log_size"]
+        if self.name == "poseidon":
+            return self.parameters["log_n_instances"] - 3
+        return self.parameters["log_n_rows"]
 
     @property
     def trace_rows(self) -> int:
@@ -195,6 +206,8 @@ class Workload:
     def committed_columns(self) -> int:
         if self.name == "blake":
             return self.parameters["n_rounds"] * 96
+        if self.name == "poseidon":
+            return 1264
         if self.name == "wide_fibonacci":
             return self.parameters["sequence_len"]
         if self.name in ("xor", "state_machine"):
@@ -213,6 +226,8 @@ class Workload:
     def native_units(self) -> int:
         if self.name == "blake":
             return self.trace_rows * self.parameters["n_rounds"]
+        if self.name == "poseidon":
+            return 1 << self.parameters["log_n_instances"]
         return self.trace_rows
 
     @property

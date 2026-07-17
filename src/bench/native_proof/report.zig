@@ -40,6 +40,7 @@ pub const WorkloadParameters = union(enum) {
     plonk: config.PlonkParameters,
     state_machine: config.StateMachineParameters,
     blake: config.BlakeParameters,
+    poseidon: config.PoseidonParameters,
 
     pub fn jsonStringify(self: WorkloadParameters, writer: anytype) !void {
         switch (self) {
@@ -48,6 +49,7 @@ pub const WorkloadParameters = union(enum) {
             .plonk => |parameters| try writer.write(parameters),
             .state_machine => |parameters| try writer.write(parameters),
             .blake => |parameters| try writer.write(parameters),
+            .poseidon => |parameters| try writer.write(parameters),
         }
     }
 };
