@@ -40,6 +40,10 @@ COEFFICIENT_PURPOSES = (
     "CompositionCoefficients",
 )
 RELATION_MAGIC = b"STWZREL\0"
+FIXED_MAGIC = b"STWZFIX\0"
+FIXED_PROJECTED_VERSION = 2
+FIXED_GRAPH_HASH = 0x7383DE8A8DF6398B
+FIXED_PLAN_HASH_OFFSET = 28
 COMPOSITION_MAGIC = b"STWZEVA\0"
 COMPOSITION_VERSIONS = (1, 2)
 ADAPTED_INPUT_MAGIC = b"STWZCPI\0"
@@ -535,6 +539,232 @@ def update_execution_table_geometry(
         entry["len_words"] = target
         changed += old != target
     return changed
+
+
+def fnv64_with_zero_range(data: bytes, start: int, end: int) -> int:
+    result = 0xCBF29CE484222325
+    for index, byte in enumerate(data):
+        result ^= 0 if start <= index < end else byte
+        result = (result * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
+    return result
+
+
+def read_fixed_table_geometry(
+    path: Path, expected_identity_count: int
+) -> tuple[list[str], list[dict[str, object]]]:
+    data = path.read_bytes()
+    if (
+        data[:8] != FIXED_MAGIC
+        or struct.unpack_from("<I", data, 8)[0] != FIXED_PROJECTED_VERSION
+        or struct.unpack_from("<Q", data, 12)[0] != FIXED_GRAPH_HASH
+    ):
+        raise ValueError("unsupported projected fixed-table bundle")
+    identity_count, entry_count = struct.unpack_from("<II", data, 20)
+    if identity_count != expected_identity_count or entry_count == 0:
+        raise ValueError("projected fixed-table cardinality mismatch")
+    expected_plan_hash = struct.unpack_from("<Q", data, FIXED_PLAN_HASH_OFFSET)[0]
+    actual_plan_hash = fnv64_with_zero_range(
+        data, FIXED_PLAN_HASH_OFFSET, FIXED_PLAN_HASH_OFFSET + 8
+    )
+    if expected_plan_hash != actual_plan_hash:
+        raise ValueError("invalid projected fixed-table plan hash")
+
+    offset = 36
+
+    def read_string() -> str:
+        nonlocal offset
+        if offset + 4 > len(data):
+            raise ValueError("truncated fixed-table identity")
+        length, reserved = struct.unpack_from("<HH", data, offset)
+        offset += 4
+        end = offset + length
+        if reserved != 0 or length == 0 or end > len(data):
+            raise ValueError("invalid fixed-table identity")
+        value = data[offset:end].decode()
+        offset = end
+        return value
+
+    identities = [read_string() for _ in range(identity_count)]
+    if len(set(identities)) != len(identities):
+        raise ValueError("duplicate fixed-table identity")
+    identity_set = set(identities)
+    entries: list[dict[str, object]] = []
+    for _ in range(entry_count):
+        if offset + 32 > len(data):
+            raise ValueError("truncated fixed-table entry")
+        (
+            component_len,
+            reserved,
+            log_size,
+            row_count,
+            multiplicity_columns,
+            trace_columns,
+            source_count,
+            lookup_count,
+            descriptor_words,
+        ) = struct.unpack_from("<HHIIIIIII", data, offset)
+        offset += 32
+        component_end = offset + component_len
+        if (
+            reserved != 0
+            or component_len == 0
+            or component_end > len(data)
+            or log_size >= 31
+            or row_count != 1 << log_size
+            or multiplicity_columns == 0
+            or trace_columns == 0
+            or trace_columns > multiplicity_columns
+            or source_count > identity_count
+            or lookup_count == 0
+            or descriptor_words != lookup_count * 4
+        ):
+            raise ValueError("invalid fixed-table entry")
+        component = data[offset:component_end].decode()
+        offset = component_end
+        trace_end = offset + trace_columns * 4
+        if trace_end > len(data):
+            raise ValueError("truncated fixed-table trace columns")
+        trace_multiplicities = list(
+            struct.unpack_from(f"<{trace_columns}I", data, offset)
+        )
+        offset = trace_end
+        if any(value >= multiplicity_columns for value in trace_multiplicities):
+            raise ValueError("invalid fixed-table trace multiplicity")
+        sources = [read_string() for _ in range(source_count)]
+        if any(source not in identity_set for source in sources):
+            raise ValueError("fixed-table source is absent from projected identities")
+        descriptor_end = offset + descriptor_words * 4
+        if descriptor_end > len(data):
+            raise ValueError("truncated fixed-table descriptors")
+        offset = descriptor_end
+        entries.append(
+            {
+                "component": component,
+                "row_count": row_count,
+                "multiplicity_columns": multiplicity_columns,
+                "trace_columns": trace_columns,
+                "sources": sources,
+                "lookup_count": lookup_count,
+                "descriptor_words": descriptor_words,
+            }
+        )
+    if offset != len(data):
+        raise ValueError("trailing fixed-table bundle data")
+    components = [str(entry["component"]) for entry in entries]
+    if len(set(components)) != len(components):
+        raise ValueError("duplicate projected fixed-table component")
+    return identities, entries
+
+
+def rebuild_fixed_table_geometry(
+    schedule: list[dict[str, object]],
+    fixed_path: Path,
+    expected_identity_count: int,
+) -> tuple[list[dict[str, object]], int, int]:
+    identities, fixed_entries = read_fixed_table_geometry(
+        fixed_path, expected_identity_count
+    )
+    evaluations = {
+        int(entry["ordinal"]): entry
+        for entry in schedule
+        if entry["purpose"] == "PreprocessedEvaluations"
+    }
+    if len(evaluations) != sum(
+        entry["purpose"] == "PreprocessedEvaluations" for entry in schedule
+    ):
+        raise ValueError("duplicate preprocessed evaluation ordinal")
+    identity_ordinals = {identity: ordinal for ordinal, identity in enumerate(identities)}
+
+    purposes = (
+        "FixedMultiplicity",
+        "FixedTableLookupDescriptors",
+        "FixedTableSourcePointers",
+        "FixedTableMultiplicityPointers",
+        "FixedTableLookupOutputPointers",
+    )
+    templates = {
+        purpose: next(
+            (entry for entry in schedule if entry["purpose"] == purpose), None
+        )
+        for purpose in purposes
+    }
+    if any(template is None for template in templates.values()):
+        raise ValueError("schedule is missing fixed-table geometry templates")
+    rebuilt: dict[str, list[dict[str, object]]] = {
+        purpose: [] for purpose in purposes
+    }
+    lookup_updates = 0
+    for fixed in fixed_entries:
+        component = str(fixed["component"])
+        rows = int(fixed["row_count"])
+        multiplicity_columns = int(fixed["multiplicity_columns"])
+        trace_columns = int(fixed["trace_columns"])
+        sources = list(fixed["sources"])
+        lookup_count = int(fixed["lookup_count"])
+        component_lookups = [
+            entry
+            for entry in schedule
+            if entry["purpose"] == "LookupInputs"
+            and entry.get("component") == component
+        ]
+        if len(component_lookups) != 1:
+            raise ValueError(f"expected one fixed lookup destination for {component}")
+        lookup_words = rows * lookup_count
+        lookup_updates += int(component_lookups[0]["len_words"]) != lookup_words
+        component_lookups[0]["len_words"] = lookup_words
+
+        traces = [
+            entry
+            for entry in schedule
+            if entry["purpose"] == "BaseTrace" and entry.get("component") == component
+        ]
+        if len(traces) != trace_columns or sorted(
+            int(entry["ordinal"]) for entry in traces
+        ) != list(range(trace_columns)):
+            raise ValueError(f"fixed trace columns disagree for {component}")
+        if any(int(entry["len_words"]) != rows for entry in traces):
+            raise ValueError(f"fixed trace rows disagree for {component}")
+        for source in sources:
+            ordinal = identity_ordinals[source]
+            evaluation = evaluations.get(ordinal)
+            if evaluation is None or int(evaluation["len_words"]) != rows:
+                raise ValueError(f"fixed source evaluation disagrees for {component}")
+
+        target_words = {
+            "FixedMultiplicity": rows * multiplicity_columns,
+            "FixedTableLookupDescriptors": int(fixed["descriptor_words"]),
+            "FixedTableSourcePointers": len(sources) * 2,
+            "FixedTableMultiplicityPointers": multiplicity_columns * 2,
+            "FixedTableLookupOutputPointers": lookup_count * 2,
+        }
+        for purpose in purposes:
+            if purpose == "FixedTableSourcePointers" and not sources:
+                continue
+            support = copy.deepcopy(templates[purpose])
+            support["component"] = component
+            support["ordinal"] = 0
+            support["len_words"] = target_words[purpose]
+            rebuilt[purpose].append(support)
+
+    result: list[dict[str, object]] = []
+    inserted: set[str] = set()
+    removed = 0
+    for entry in schedule:
+        purpose = str(entry["purpose"])
+        replacements = rebuilt.get(purpose)
+        if replacements is None:
+            result.append(entry)
+            continue
+        removed += 1
+        if purpose not in inserted:
+            result.extend(replacements)
+            inserted.add(purpose)
+    if inserted != set(purposes):
+        raise ValueError("schedule fixed-table geometry replacement is incomplete")
+    for index, entry in enumerate(result):
+        entry["id"] = index
+    changed = removed + sum(map(len, rebuilt.values())) + lookup_updates
+    return result, changed, len(fixed_entries)
 
 
 def read_relation_components(
@@ -1237,6 +1467,7 @@ def retarget(
     composition_path: Path,
     quotient_path: Path,
     relation_path: Path,
+    fixed_path: Path,
     transcript_path: Path,
     composition_projection_manifest_path: Path,
     output_path: Path,
@@ -1274,6 +1505,9 @@ def retarget(
         input_path, pedersen_source_rows, poseidon_source_rows
     )
     execution_changes = update_execution_table_geometry(schedule, pairs, input_metadata)
+    schedule, fixed_table_changes, fixed_table_components = rebuild_fixed_table_geometry(
+        schedule, fixed_path, target_tree_columns[0]
+    )
     schedule, relation_changes, relation_instances = rebuild_relation_geometry(
         schedule, relation_path, target_components
     )
@@ -1339,6 +1573,8 @@ def retarget(
         "trace_group_entries_changed": trace_group_changes,
         "component_entries_changed": component_changes,
         "execution_entries_changed": execution_changes,
+        "fixed_table_entries_rebuilt": fixed_table_changes,
+        "fixed_table_components": fixed_table_components,
         "relation_entries_rebuilt": relation_changes,
         "relation_instances": relation_instances,
         "transcript_entries_changed": transcript_changes,
@@ -1373,6 +1609,7 @@ def main() -> int:
     parser.add_argument("--composition", type=Path, required=True)
     parser.add_argument("--quotient", type=Path, required=True)
     parser.add_argument("--relations", type=Path, required=True)
+    parser.add_argument("--fixed-tables", type=Path, required=True)
     parser.add_argument("--transcript", type=Path, required=True)
     parser.add_argument("--composition-projection-manifest", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
@@ -1392,6 +1629,7 @@ def main() -> int:
         args.composition,
         args.quotient,
         args.relations,
+        args.fixed_tables,
         args.transcript,
         args.composition_projection_manifest,
         args.output,

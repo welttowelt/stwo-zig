@@ -4843,6 +4843,7 @@ fn validateFixedTableCoverage(
     bundle: fixed_table_bundle_mod.Bundle,
     destinations: *std.StringHashMap(void),
 ) !FixedTableCoverage {
+    var preprocessed_coefficients: usize = 0;
     var components: usize = 0;
     var lookup_buffers: usize = 0;
     var lookup_bytes: u64 = 0;
@@ -4886,7 +4887,17 @@ fn validateFixedTableCoverage(
         lookup_buffers += 1;
         lookup_bytes += lookup_words * 4;
     }
-    if (components != 21 or lookup_buffers != 21) return error.FixedTableCoverageMismatch;
+    for (schedule) |scheduled| {
+        if (std.mem.eql(
+            u8,
+            scheduled.object.get("purpose").?.string,
+            "PreprocessedCoefficients",
+        )) preprocessed_coefficients += 1;
+    }
+    if (components != bundle.entries.len or
+        lookup_buffers != bundle.entries.len or
+        preprocessed_coefficients != bundle.preprocessed_identities.len)
+        return error.FixedTableCoverageMismatch;
     return .{ .components = components, .lookup_buffers = lookup_buffers, .lookup_bytes = lookup_bytes };
 }
 

@@ -516,6 +516,90 @@ class ArenaScheduleTests(unittest.TestCase):
             self.assertEqual([value["len_words"] for value in entries], words)
             self.assertEqual([value["ordinal"] for value in entries], [0, 1, 2])
 
+    def test_fixed_table_geometry_is_rebuilt_from_authenticated_projection(self) -> None:
+        identities = ["seq_4", "seq_5", "seq_6"]
+        fixed = bytearray(schedule_tool.FIXED_MAGIC)
+        fixed.extend(
+            struct.pack(
+                "<IQIIQ",
+                schedule_tool.FIXED_PROJECTED_VERSION,
+                schedule_tool.FIXED_GRAPH_HASH,
+                len(identities),
+                1,
+                0,
+            )
+        )
+
+        def add_string(value: str) -> None:
+            encoded = value.encode()
+            fixed.extend(struct.pack("<HH", len(encoded), 0))
+            fixed.extend(encoded)
+
+        for identity in identities:
+            add_string(identity)
+        component = b"fixed_component"
+        fixed.extend(
+            struct.pack(
+                "<HHIIIIIII",
+                len(component),
+                0,
+                4,
+                16,
+                2,
+                2,
+                1,
+                3,
+                12,
+            )
+        )
+        fixed.extend(component)
+        fixed.extend(struct.pack("<II", 0, 1))
+        add_string("seq_4")
+        fixed.extend(bytes(12 * 4))
+        plan_hash = schedule_tool.fnv64_with_zero_range(
+            fixed,
+            schedule_tool.FIXED_PLAN_HASH_OFFSET,
+            schedule_tool.FIXED_PLAN_HASH_OFFSET + 8,
+        )
+        struct.pack_into("<Q", fixed, schedule_tool.FIXED_PLAN_HASH_OFFSET, plan_hash)
+
+        schedule = [
+            entry(0, "PreprocessedEvaluations", 16, ordinal=0),
+            entry(1, "LookupInputs", 1, "fixed_component"),
+            entry(2, "BaseTrace", 16, "fixed_component", 0),
+            entry(3, "BaseTrace", 16, "fixed_component", 1),
+        ]
+        for purpose in (
+            "FixedMultiplicity",
+            "FixedTableLookupDescriptors",
+            "FixedTableSourcePointers",
+            "FixedTableMultiplicityPointers",
+            "FixedTableLookupOutputPointers",
+        ):
+            schedule.append(entry(len(schedule), purpose, 999, "source"))
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "fixed.bin"
+            path.write_bytes(fixed)
+            rebuilt, _changed, components = schedule_tool.rebuild_fixed_table_geometry(
+                schedule, path, len(identities)
+            )
+
+        self.assertEqual(components, 1)
+        expected = {
+            "LookupInputs": 48,
+            "FixedMultiplicity": 32,
+            "FixedTableLookupDescriptors": 12,
+            "FixedTableSourcePointers": 2,
+            "FixedTableMultiplicityPointers": 4,
+            "FixedTableLookupOutputPointers": 6,
+        }
+        for purpose, words in expected.items():
+            entries = [value for value in rebuilt if value["purpose"] == purpose]
+            self.assertEqual(len(entries), 1)
+            self.assertEqual(entries[0]["component"], "fixed_component")
+            self.assertEqual(entries[0]["len_words"], words)
+
     def test_retention_sources_are_materialized_in_coefficient_order(self) -> None:
         schedule: list[dict[str, object]] = []
         for index in range(16):
