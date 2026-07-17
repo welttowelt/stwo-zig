@@ -12,6 +12,7 @@ comptime {
         _ = @import("blake/session_test.zig");
         _ = @import("common/prover_transaction_test.zig");
         _ = @import("plonk/session_test.zig");
+        _ = @import("poseidon/session_test.zig");
         _ = @import("state_machine/session_test.zig");
         _ = @import("wide_fibonacci/session_test.zig");
         _ = @import("xor/session_test.zig");
