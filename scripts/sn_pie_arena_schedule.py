@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import json
 import math
 import mmap
@@ -63,6 +64,14 @@ PROOF_FIXED_TRANSCRIPT_INPUT_ORDINALS = (
 )
 FRI_TRANSCRIPT_ORDINAL_BASE = 1 << 16
 FRI_TRANSCRIPT_ORDINAL_STRIDE = 4
+COMPONENT_ORDINAL_PURPOSES = {
+    "CompositionExtParams",
+    "RelationClaimedSum",
+    "RelationDenominators",
+    "RelationOutputPointers",
+    "RelationSourcePointers",
+}
+COMPOSITION_PROJECTION_FORMAT = "stwo-zig-cairo-composition-projection"
 
 
 def proof_rows(path: Path) -> dict[str, list[int]]:
@@ -81,8 +90,88 @@ def proof_rows(path: Path) -> dict[str, list[int]]:
     return rows
 
 
+def proof_components(path: Path) -> list[str]:
+    claim = json.loads(path.read_text())["claim"]
+    return [
+        label
+        for label, value in claim.items()
+        if label != "public_data" and value is not None
+    ]
+
+
+def schedule_component_set(proof_component_order: list[str]) -> set[str]:
+    result = set(proof_component_order)
+    if "memory_id_to_small" in result:
+        result.add("memory_id_to_big")
+    return result
+
+
+def validate_projection_manifest(
+    path: Path,
+    template_proof_path: Path,
+    target_proof_path: Path,
+    composition_path: Path,
+    target_components: list[str],
+) -> None:
+    manifest = json.loads(path.read_text())
+    if manifest.get("format") != COMPOSITION_PROJECTION_FORMAT or manifest.get("version") != 1:
+        raise ValueError("unsupported composition projection manifest")
+
+    def sha256(file_path: Path) -> str:
+        return hashlib.sha256(file_path.read_bytes()).hexdigest()
+
+    if manifest.get("source", {}).get("proof_sha256") != sha256(template_proof_path):
+        raise ValueError("composition projection source proof mismatch")
+    target = manifest.get("target", {})
+    if target.get("proof_sha256") != sha256(target_proof_path):
+        raise ValueError("composition projection target proof mismatch")
+    if target.get("bundle_sha256") != sha256(composition_path):
+        raise ValueError("composition projection bundle mismatch")
+    manifest_components = [component.get("label") for component in manifest.get("components", [])]
+    if manifest_components != target_components:
+        raise ValueError("composition projection component order mismatch")
+
+
+def project_component_geometry(
+    schedule: list[dict[str, object]],
+    source_components: list[str],
+    target_components: list[str],
+) -> tuple[list[dict[str, object]], int]:
+    source_positions = {name: index for index, name in enumerate(source_components)}
+    if len(source_positions) != len(source_components):
+        raise ValueError("source proof has duplicate components")
+    if any(name not in source_positions for name in target_components):
+        raise ValueError("target proof has components absent from the template proof")
+    if [name for name in source_components if name in set(target_components)] != target_components:
+        raise ValueError("target component order is not a projection of the template proof")
+
+    retained_source_ordinals = {
+        source_positions[name]: target_index
+        for target_index, name in enumerate(target_components)
+    }
+    retained_schedule_components = schedule_component_set(target_components)
+    projected: list[dict[str, object]] = []
+    removed = 0
+    for entry in schedule:
+        component = entry.get("component")
+        if component is not None and str(component) not in retained_schedule_components:
+            removed += 1
+            continue
+        if entry["purpose"] in COMPONENT_ORDINAL_PURPOSES:
+            source_ordinal = int(entry["ordinal"])
+            target_ordinal = retained_source_ordinals.get(source_ordinal)
+            if target_ordinal is None:
+                removed += 1
+                continue
+            entry["ordinal"] = target_ordinal
+        projected.append(entry)
+    for index, entry in enumerate(projected):
+        entry["id"] = index
+    return projected, removed
+
+
 def adapted_input_metadata(
-    path: Path, pedersen_rows: int, poseidon_rows: int
+    path: Path, pedersen_rows: int | None, poseidon_rows: int | None
 ) -> dict[str, int]:
     with path.open("rb") as file:
         with mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_READ) as data:
@@ -124,7 +213,9 @@ def adapted_input_metadata(
             if offset != len(data):
                 raise ValueError("trailing adapted input data")
 
-            def unique_id_tuples(segment_index: int, rows: int, width: int) -> int:
+            def unique_id_tuples(segment_index: int, rows: int | None, width: int) -> int:
+                if rows is None:
+                    return 0
                 segment = segments[segment_index]
                 if segment is None:
                     raise ValueError(f"required builtin segment {segment_index} is absent")
@@ -595,14 +686,20 @@ def update_quotient_geometry(
 
 
 def update_composition_geometry(schedule: list[dict[str, object]], path: Path) -> int:
+    data = path.read_bytes()
+    validate_composition_encoding(data)
     logs = composition_logs(path)
     max_log = max(logs)
+    constraint_count = struct.unpack_from("<Q", data, 16)[0]
+    if constraint_count == 0 or constraint_count > 1 << 32:
+        raise ValueError("invalid composition constraint count")
     accumulator_words = sum(4 << log_size for log_size in set(logs))
     output_words = 1 << (max_log - 1)
     values = {
         "CompositionAccumulators": accumulator_words,
         "CompositionCoefficients": output_words,
         "CompositionLdeTile": composition_lde_words(path),
+        "CompositionRandomCoefficientPowers": constraint_count * 4,
         "InverseTwiddles": output_words,
     }
     changed = 0
@@ -906,21 +1003,39 @@ def rebuild_retention(
 
 def retarget(
     template_path: Path,
+    template_proof_path: Path,
     proof_path: Path,
     input_path: Path,
     composition_path: Path,
     quotient_path: Path,
     relation_path: Path,
     transcript_path: Path,
+    composition_projection_manifest_path: Path,
     output_path: Path,
     retained_evaluation_bytes: int,
 ) -> dict[str, object]:
     document = copy.deepcopy(json.loads(template_path.read_text()))
     schedule = document["arena"]["logical_buffer_schedule"]
+    source_components = proof_components(template_proof_path)
+    target_components = proof_components(proof_path)
+    validate_projection_manifest(
+        composition_projection_manifest_path,
+        template_proof_path,
+        proof_path,
+        composition_path,
+        target_components,
+    )
+    schedule, removed_component_entries = project_component_geometry(
+        schedule, source_components, target_components
+    )
     pairs = source_target_rows(schedule, proof_rows(proof_path))
     component_changes = scale_component_entries(schedule, pairs)
-    pedersen_source_rows = pairs["pedersen_builtin"][0][1]
-    poseidon_source_rows = pairs["poseidon_builtin"][0][1]
+    pedersen_source_rows = (
+        pairs["pedersen_builtin"][0][1] if "pedersen_builtin" in pairs else None
+    )
+    poseidon_source_rows = (
+        pairs["poseidon_builtin"][0][1] if "poseidon_builtin" in pairs else None
+    )
     input_metadata = adapted_input_metadata(
         input_path, pedersen_source_rows, poseidon_source_rows
     )
@@ -940,11 +1055,13 @@ def retarget(
     schedule, domain_changes = update_domain_geometry(schedule, composition_log)
     proof_changes = update_proof_geometry(schedule)
     document["arena"]["logical_buffer_schedule"] = schedule
-    compact_rows = {
-        "pedersen_aggregator_window_bits_18": input_metadata["pedersen_compact_rows"],
-        "poseidon_aggregator": input_metadata["poseidon_compact_rows"],
-        "verify_instruction": input_metadata["pc_count"],
-    }
+    compact_rows = {"verify_instruction": input_metadata["pc_count"]}
+    if "pedersen_aggregator_window_bits_18" in pairs:
+        compact_rows["pedersen_aggregator_window_bits_18"] = input_metadata[
+            "pedersen_compact_rows"
+        ]
+    if "poseidon_aggregator" in pairs:
+        compact_rows["poseidon_aggregator"] = input_metadata["poseidon_compact_rows"]
     document["compacted_consumer_rows"] = [
         {
             "component": component,
@@ -965,6 +1082,7 @@ def retarget(
     return {
         "output": str(output_path),
         "logical_buffers": len(schedule),
+        "component_entries_removed": removed_component_entries,
         "component_entries_changed": component_changes,
         "execution_entries_changed": execution_changes,
         "relation_denominators_changed": relation_changes,
@@ -993,12 +1111,14 @@ def retarget(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--template", type=Path, required=True)
+    parser.add_argument("--template-proof", type=Path, required=True)
     parser.add_argument("--proof", type=Path, required=True)
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--composition", type=Path, required=True)
     parser.add_argument("--quotient", type=Path, required=True)
     parser.add_argument("--relations", type=Path, required=True)
     parser.add_argument("--transcript", type=Path, required=True)
+    parser.add_argument("--composition-projection-manifest", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
         "--retained-evaluation-bytes",
@@ -1009,12 +1129,14 @@ def main() -> int:
     args = parser.parse_args()
     result = retarget(
         args.template,
+        args.template_proof,
         args.proof,
         args.input,
         args.composition,
         args.quotient,
         args.relations,
         args.transcript,
+        args.composition_projection_manifest,
         args.output,
         args.retained_evaluation_bytes,
     )

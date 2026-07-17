@@ -78,12 +78,51 @@ class ArenaScheduleTests(unittest.TestCase):
             path = Path(directory) / "input.stwzcpi"
             path.write_bytes(data)
             metadata = schedule_tool.adapted_input_metadata(path, 4, 4)
+            metadata_without_builtins = schedule_tool.adapted_input_metadata(
+                path, None, None
+            )
         self.assertEqual(metadata["pc_count"], 17)
         self.assertEqual(metadata["address_count"], 64)
         self.assertEqual(metadata["f252_count"], 1)
         self.assertEqual(metadata["small_count"], 1)
         self.assertEqual(metadata["pedersen_compact_rows"], 3)
         self.assertEqual(metadata["poseidon_compact_rows"], 3)
+        self.assertEqual(metadata_without_builtins["pedersen_compact_rows"], 0)
+        self.assertEqual(metadata_without_builtins["poseidon_compact_rows"], 0)
+
+    def test_component_projection_filters_tagged_and_indexed_entries(self) -> None:
+        schedule = [
+            entry(0, "BaseTrace", 8, "add_opcode"),
+            entry(1, "BaseTrace", 8, "pedersen_builtin"),
+            entry(2, "BaseTrace", 8, "memory_id_to_big"),
+            entry(3, "CompositionExtParams", 4, ordinal=0),
+            entry(4, "CompositionExtParams", 4, ordinal=1),
+            entry(5, "CompositionExtParams", 4, ordinal=2),
+            entry(6, "RelationClaimedSum", 4, ordinal=0),
+            entry(7, "RelationClaimedSum", 4, ordinal=1),
+            entry(8, "RelationClaimedSum", 4, ordinal=2),
+        ]
+        projected, removed = schedule_tool.project_component_geometry(
+            schedule,
+            ["add_opcode", "pedersen_builtin", "memory_id_to_small"],
+            ["add_opcode", "memory_id_to_small"],
+        )
+        self.assertEqual(removed, 3)
+        self.assertEqual([int(value["id"]) for value in projected], list(range(6)))
+        self.assertEqual(
+            [
+                int(value["ordinal"])
+                for value in projected
+                if value["purpose"] == "CompositionExtParams"
+            ],
+            [0, 1],
+        )
+        self.assertTrue(
+            any(value.get("component") == "memory_id_to_big" for value in projected)
+        )
+        self.assertFalse(
+            any(value.get("component") == "pedersen_builtin" for value in projected)
+        )
 
     def test_proof_rows_includes_memory_small_as_second_memory_group(self) -> None:
         proof = {
@@ -145,6 +184,7 @@ class ArenaScheduleTests(unittest.TestCase):
         header = bytearray(40)
         header[:8] = schedule_tool.COMPOSITION_MAGIC
         struct.pack_into("<I", header, 8, 1)
+        struct.pack_into("<Q", header, 16, 3)
         struct.pack_into("<I", header, 28, 2)
         components = bytearray()
         for evaluation_log in (7, 9):
@@ -164,6 +204,7 @@ class ArenaScheduleTests(unittest.TestCase):
                 entry(2, "InverseTwiddles", 1),
                 entry(3, "ForwardTwiddles", 4096),
                 entry(4, "CompositionLdeTile", 1),
+                entry(5, "CompositionRandomCoefficientPowers", 1),
             ]
             schedule_tool.update_composition_geometry(schedule, path)
         self.assertEqual(int(schedule[0]["len_words"]), (4 << 7) + (4 << 9))
@@ -171,6 +212,7 @@ class ArenaScheduleTests(unittest.TestCase):
         self.assertEqual(int(schedule[2]["len_words"]), 1 << 8)
         self.assertEqual(int(schedule[3]["len_words"]), 4096)
         self.assertEqual(int(schedule[4]["len_words"]), 1 << 9)
+        self.assertEqual(int(schedule[5]["len_words"]), 12)
 
     def test_projected_composition_geometry_rejects_plan_hash_mismatch(self) -> None:
         data = bytearray(40)
