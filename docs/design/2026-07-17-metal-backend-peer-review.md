@@ -1,7 +1,7 @@
 # Metal Backend Peer Review: ClementWalter/stwo PR #6
 
-Status: architecture evidence complete; stwo-zig performance rows remain diagnostic until the
-raw-Stwo Rust-oracle root mismatch is fixed
+Status: architecture evidence complete; raw-Stwo CPU and Metal rows are clean, sampled, and
+accepted by the pinned Rust oracle
 
 ## Scope
 
@@ -34,7 +34,7 @@ over at `2^20`. On this M5 Max reproduction it crosses by `2^18`.
 
 The branch's architectural advantages are nevertheless directly relevant. At the identical
 `2^18 x 100` workload on this machine it completes the measured execution, proof, and verification
-phases in 88.53 ms. The current stwo-zig request takes 253.58 ms. The difference is large enough
+phases in 88.53 ms. The current stwo-zig request takes 224.80 ms. The difference is large enough
 that threshold tuning or small kernel fusion cannot close it.
 
 ## Evidence Boundary
@@ -52,20 +52,40 @@ that threshold tuning or small kernel fusion cannot close it.
 
 ### stwo-zig
 
-- Head during measurement: `5843df9`
+- Head during clean measurement: `84c4d657c30b8f6012dcc6b307837735ac94146a`
 - Build: Zig `ReleaseFast`
 - Host and protocol: identical to the peer run above
 - Workload geometry: identical rows, columns, recurrence, and PCS parameters
-- Correctness: Zig CPU and Metal produced equal canonical proof bytes and both passed the Zig
-  verifier
+- Sampling: ten verified warmups and eleven verified timed proofs per lane
+- Correctness: Zig CPU and Metal produced byte-identical canonical proofs, passed the Zig verifier,
+  and passed raw Stwo `a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2`
 - Metal evidence: per-proof dispatch/fallback telemetry is present
 
-The stwo-zig rows are not acceptance results. The raw-Stwo oracle pinned at
-`a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2` rejects the current artifact at the first Merkle root.
-The proof is using the unprefixed lifted Blake protocol required by the newer Cairo pin, while the
-raw-Stwo pin requires domain-separated leaf and node hashes. Performance evidence cannot be
-promoted until the repository supports both authenticated protocol versions and the raw proof
-passes the pinned Rust verifier.
+Commit `dcfd1d8` separates the lifted Blake protocols: raw Stwo uses 64-byte leaf/node domain
+prefixes, while the newer Cairo pin uses explicit plain hashing. The clean CPU and Metal artifact
+SHA-256 is `7dc92d7b3dbb0f8d649a9a025f24cb3b343d0cf4d4f980a023da2d87743407e0`;
+its canonical proof SHA-256 is
+`c693d42dc48a2831a7859e2df49e037ea0bfb0dc559f3b34e2f31557d1724442`. The exact Rust verifier
+binary SHA-256 is `cbe4d3f107b261285381cd590dbf4b2f86e52eed337843081bd142969f1c4dac`.
+
+The clean report SHA-256 values are
+`4bb09ca1b7861772f15fd6ae3365ce6c193f8e6d8d22896619730ddf5efb4387` for CPU and
+`f783a158a8757c390b169a803f40e5950bd808f74c3b1712b14e82ffd11ca8bc` for Metal. Reproduce the
+campaign with:
+
+```bash
+zig build native-proof-bench-cpu native-proof-bench-metal -Doptimize=ReleaseFast
+zig-out/bin/native-proof-bench-cpu --example wide_fibonacci --log-n-rows 18 \
+  --sequence-len 100 --warmups 10 --samples 11 --protocol functional \
+  --proof-artifact-out /private/tmp/clean-wf-l18-cpu.proof.json \
+  > /private/tmp/clean-wf-l18-cpu.report.json
+zig-out/bin/native-proof-bench-metal --example wide_fibonacci --log-n-rows 18 \
+  --sequence-len 100 --warmups 10 --samples 11 --protocol functional \
+  --proof-artifact-out /private/tmp/clean-wf-l18-metal.proof.json \
+  > /private/tmp/clean-wf-l18-metal.report.json
+/private/tmp/stwo-rust-oracle-target/release/stwo-interop-rs --mode verify \
+  --artifact /private/tmp/clean-wf-l18-metal.proof.json
+```
 
 ## Published PR #6 Results
 
@@ -95,8 +115,8 @@ equal, while the warm official test process favors CPU because Metal setup domin
 | --- | --- | ---: | ---: | --- |
 | Peer Rust | optimized CPU | 47.13 ms | 0.348 | verified |
 | Peer Rust | Metal hybrid | 47.88 ms | 0.342 | verified, same hash |
-| stwo-zig | CPU | 28.41 ms | 0.577 | Zig verified |
-| stwo-zig | Metal hybrid | 34.71 ms | 0.472 | Zig verified, same bytes |
+| stwo-zig | CPU | 31.87 ms | 0.514 | Zig + pinned Rust verified |
+| stwo-zig | Metal hybrid | 38.21 ms | 0.429 | Zig + pinned Rust verified, same bytes |
 
 These timing boundaries are close but not exact. The peer phase sum includes per-proof twiddle
 precompute; stwo-zig constructs its session twiddles before request timing. The row is evidence of
@@ -105,23 +125,25 @@ fixed-cost behavior, not a ranking.
 ### `2^18 x 100`
 
 This is the largest exact shared geometry allowed by the current stwo-zig `2^25` committed-cell
-guard. One proof per lane was used to avoid a heavy sweep.
+guard. The stwo-zig rows are clean medians after ten verified warmups and across eleven verified
+timed proofs. The peer rows remain a bounded instrumented reproduction.
 
 | Implementation | Lane | Proof stage | Full request/phase sum | Direct Metal uplift |
 | --- | --- | ---: | ---: | ---: |
 | Peer Rust | optimized CPU | 59.55 ms core | 106.91 ms | - |
 | Peer Rust | Metal hybrid | 49.68 ms core | 88.53 ms | 1.208x total |
-| stwo-zig | CPU | 229.12 ms | 314.76 ms | - |
-| stwo-zig | Metal hybrid | 167.71 ms | 253.58 ms | 1.241x request |
+| stwo-zig | CPU | 186.30 ms | 272.41 ms | - |
+| stwo-zig | Metal hybrid | 138.76 ms | 224.80 ms | 1.343x proof / 1.212x request |
 
 The stwo-zig CPU and Metal canonical proof SHA-256 is
-`9a3508b867048340edce3f70b0009da0314e3c42341f5a82edead312a10b51ba`.
+`c693d42dc48a2831a7859e2df49e037ea0bfb0dc559f3b34e2f31557d1724442`.
 The peer CPU and Metal regression hash is `47b863fcc71b4c8c`. These hashes use different encodings
 and are not comparable with each other.
 
 The peer phase sum delivers 2.961 trace-row MHz and about 296 committed Mcells/s. stwo-zig Metal
-delivers 1.563 trace-row MHz within its proof timer and 1.034 trace-row MHz over the complete
-request. Different timing boundaries are intentionally kept visible.
+delivers 1.889 trace-row MHz within its proof timer, 1.166 trace-row MHz over the complete request,
+and 188.9 committed Mcells/s. Different timing boundaries are intentionally kept visible. On the
+closest full-request comparison, the peer remains 2.54x faster.
 
 ## Peer Architecture
 
@@ -277,7 +299,7 @@ raw-Stwo oracle parity.
 
 ### 1. Versioned Merkle protocol authority
 
-Before performance work, separate the lifted Blake protocols:
+Delivered in `dcfd1d8`: the lifted Blake protocols are separate and explicit:
 
 - raw Stwo `a8fcf4bd`: 64-byte `leaf` and `node` domain prefixes;
 - Cairo Stwo `9d7e3d6`: plain leaf bytes and plain child concatenation.
@@ -444,8 +466,8 @@ measurements.
 
 ## Concrete Delivery Order
 
-1. Restore raw-Stwo pinned Rust parity with explicit prefixed and plain lifted-Blake protocols.
-2. Add exact cross-Rust CPU/Metal proof gates to the native proof matrix.
+1. Maintain the delivered raw-Stwo/Cairo protocol split and exact pinned-Rust acceptance gates.
+2. Promote the current ad hoc exact cross-Rust CPU/Metal proof check into the native proof matrix.
 3. Land the telemetry schema above before changing scheduling so each removed wait is measurable.
 4. Add the raw generic `{ evaluation, tree }` backend hook and pending-tree scheduler with CPU,
    Metal, decommitment, and Rust-oracle tests.
