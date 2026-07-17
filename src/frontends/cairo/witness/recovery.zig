@@ -1,7 +1,7 @@
 const std = @import("std");
 const program_mod = @import("program.zig");
-const arena_plan = @import("../../../backends/metal/arena_plan.zig");
-const metal_recovery = @import("../../../backends/metal/recovery.zig");
+const arena_plan = @import("../../../backend/arena_plan.zig");
+const recovery = @import("../../../backend/recovery.zig");
 
 /// Shared execution state for every output column of one recorded Cairo
 /// witness program. The epoch runner is serial at this boundary, so one scratch
@@ -50,16 +50,16 @@ pub const ColumnRecipe = struct {
     state: *ProgramState,
     column_index: u32,
 
-    pub fn recipe(self: *ColumnRecipe, logical_id: u32) metal_recovery.Recipe {
+    pub fn recipe(self: *ColumnRecipe, logical_id: u32) recovery.Recipe {
         return .{ .logical_id = logical_id, .context = self, .run = run };
     }
 
     fn run(raw: *anyopaque, _: u16, binding: arena_plan.Binding, destination_bytes: []u8) !void {
         const self: *ColumnRecipe = @ptrCast(@alignCast(raw));
-        if (destination_bytes.len % @sizeOf(u32) != 0) return metal_recovery.RecoveryError.BindingSizeMismatch;
+        if (destination_bytes.len % @sizeOf(u32) != 0) return recovery.RecoveryError.BindingSizeMismatch;
         const aligned: []align(@alignOf(u32)) u8 = @alignCast(destination_bytes);
         const destination = std.mem.bytesAsSlice(u32, aligned);
-        if (binding.size_bytes != destination_bytes.len) return metal_recovery.RecoveryError.BindingSizeMismatch;
+        if (binding.size_bytes != destination_bytes.len) return recovery.RecoveryError.BindingSizeMismatch;
         try program_mod.executeColumn(
             self.state.program,
             self.state.input_columns,
@@ -79,7 +79,7 @@ pub const ColumnRecipe = struct {
 pub const ComponentRecipe = struct {
     allocator: std.mem.Allocator,
     state: *ProgramState,
-    access: metal_recovery.BufferAccess,
+    access: recovery.BufferAccess,
     output_bindings: []const arena_plan.Binding,
     lookup_binding: ?arena_plan.Binding,
     sub_binding: ?arena_plan.Binding,
@@ -91,7 +91,7 @@ pub const ComponentRecipe = struct {
     pub fn init(
         allocator: std.mem.Allocator,
         state: *ProgramState,
-        access: metal_recovery.BufferAccess,
+        access: recovery.BufferAccess,
         output_bindings: []const arena_plan.Binding,
     ) !ComponentRecipe {
         return initWithAux(allocator, state, access, output_bindings, null, null, &.{});
@@ -100,7 +100,7 @@ pub const ComponentRecipe = struct {
     pub fn initWithAux(
         allocator: std.mem.Allocator,
         state: *ProgramState,
-        access: metal_recovery.BufferAccess,
+        access: recovery.BufferAccess,
         output_bindings: []const arena_plan.Binding,
         lookup_binding: ?arena_plan.Binding,
         sub_binding: ?arena_plan.Binding,
@@ -133,10 +133,10 @@ pub const ComponentRecipe = struct {
         self.* = undefined;
     }
 
-    pub fn makeRecipes(self: *ComponentRecipe, allocator: std.mem.Allocator) ![]metal_recovery.Recipe {
+    pub fn makeRecipes(self: *ComponentRecipe, allocator: std.mem.Allocator) ![]recovery.Recipe {
         const count = self.output_bindings.len + @intFromBool(self.lookup_binding != null) +
             @intFromBool(self.sub_binding != null) + self.multiplicity_bindings.len;
-        const recipes = try allocator.alloc(metal_recovery.Recipe, count);
+        const recipes = try allocator.alloc(recovery.Recipe, count);
         var index: usize = 0;
         for (self.output_bindings) |binding| {
             recipes[index] = .{ .logical_id = binding.logical_id, .context = self, .run = run };
@@ -166,14 +166,14 @@ pub const ComponentRecipe = struct {
             requested_found = requested_found or binding.logical_id == requested.logical_id;
             const bytes = try self.access.bytes(binding);
             if (bytes.len != binding.size_bytes or bytes.len % @sizeOf(u32) != 0)
-                return metal_recovery.RecoveryError.BindingSizeMismatch;
+                return recovery.RecoveryError.BindingSizeMismatch;
             const aligned: []align(@alignOf(u32)) u8 = @alignCast(bytes);
             destination.* = std.mem.bytesAsSlice(u32, aligned);
         }
         if (self.lookup_binding) |binding| requested_found = requested_found or binding.logical_id == requested.logical_id;
         if (self.sub_binding) |binding| requested_found = requested_found or binding.logical_id == requested.logical_id;
         for (self.multiplicity_bindings) |binding| requested_found = requested_found or binding.logical_id == requested.logical_id;
-        if (!requested_found) return metal_recovery.RecoveryError.MissingRecipe;
+        if (!requested_found) return recovery.RecoveryError.MissingRecipe;
         var lookup_words: []u32 = @constCast(&[_]u32{});
         if (self.lookup_binding) |binding| lookup_words = try words(self.access, binding);
         var sub_words: []u32 = @constCast(&[_]u32{});
@@ -199,10 +199,10 @@ pub const ComponentRecipe = struct {
         self.last_tick = tick;
     }
 
-    fn words(access: metal_recovery.BufferAccess, binding: arena_plan.Binding) ![]u32 {
+    fn words(access: recovery.BufferAccess, binding: arena_plan.Binding) ![]u32 {
         const bytes = try access.bytes(binding);
         if (bytes.len != binding.size_bytes or bytes.len % @sizeOf(u32) != 0)
-            return metal_recovery.RecoveryError.BindingSizeMismatch;
+            return recovery.RecoveryError.BindingSizeMismatch;
         const aligned: []align(@alignOf(u32)) u8 = @alignCast(bytes);
         return std.mem.bytesAsSlice(u32, aligned);
     }
@@ -221,7 +221,7 @@ test "Cairo recovery: recorded witness column refills its arena binding" {
     var state = try ProgramState.init(std.testing.allocator, program, &input_columns, .zero(), .unsupported());
     defer state.deinit();
     var column_recipe = ColumnRecipe{ .state = &state, .column_index = 0 };
-    var registry = try metal_recovery.RecipeRegistry.init(std.testing.allocator, &.{column_recipe.recipe(41)});
+    var registry = try recovery.RecipeRegistry.init(std.testing.allocator, &.{column_recipe.recipe(41)});
     defer registry.deinit();
     var destination align(16) = [_]u32{0} ** input.len;
     const binding = arena_plan.Binding{
@@ -273,7 +273,7 @@ test "Cairo recovery: grouped recipe executes once for every component column" {
     defer grouped.deinit();
     const recipes = try grouped.makeRecipes(std.testing.allocator);
     defer std.testing.allocator.free(recipes);
-    var registry = try metal_recovery.RecipeRegistry.init(std.testing.allocator, recipes);
+    var registry = try recovery.RecipeRegistry.init(std.testing.allocator, recipes);
     defer registry.deinit();
     try registry.execute(7, bindings[0], std.mem.sliceAsBytes(storage[0..4]));
     try registry.execute(7, bindings[1], std.mem.sliceAsBytes(storage[4..8]));

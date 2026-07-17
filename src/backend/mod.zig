@@ -40,6 +40,7 @@ pub const quotient_ops = @import("quotient_ops.zig");
 pub const accumulation_ops = @import("accumulation_ops.zig");
 pub const gkr_ops = @import("gkr_ops.zig");
 pub const merkle_ops = @import("merkle_ops.zig");
+pub const recovery = @import("recovery.zig");
 
 /// Convenience re-export: backend-specific column type.
 pub const Column = column.Column;
@@ -77,4 +78,5 @@ test "backend: contract modules compile" {
     _ = accumulation_ops;
     _ = gkr_ops;
     _ = merkle_ops;
+    _ = recovery;
 }
