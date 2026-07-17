@@ -6,6 +6,7 @@ pub const recovery = @import("recovery.zig");
 pub const bundle = @import("bundle.zig");
 pub const feed_bundle = @import("feed_bundle.zig");
 pub const relation_bundle = @import("relation_bundle.zig");
+pub const interaction_trace = @import("interaction_trace.zig");
 pub const fixed_table_bundle = @import("fixed_table_bundle.zig");
 pub const semantic_pack = @import("semantic_pack.zig");
 pub const eval_program = @import("eval_program.zig");
@@ -22,6 +23,7 @@ test {
     _ = execution_tables;
     _ = verify_instruction_inputs;
     _ = direct_inputs;
+    _ = interaction_trace;
     _ = semantic_pack;
     _ = eval_program;
     _ = composition_bundle;

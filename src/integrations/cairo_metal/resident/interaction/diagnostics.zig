@@ -6,6 +6,7 @@ const circle_poly_mod = @import("../../../../prover/poly/circle/poly.zig");
 const circle_eval_mod = @import("../../../../prover/poly/circle/evaluation.zig");
 const canonic_circle_mod = @import("../../../../core/poly/circle/canonic.zig");
 const relation_bundle_mod = @import("../../../../frontends/cairo/witness/relation_bundle.zig");
+const interaction_trace_mod = @import("../../../../frontends/cairo/witness/interaction_trace.zig");
 const witness_bundle_mod = @import("../../../../frontends/cairo/witness/bundle.zig");
 const witness_program_mod = @import("../../../../frontends/cairo/witness/program.zig");
 const schedule_bindings = @import("../../schedule_bindings.zig");
@@ -155,12 +156,8 @@ pub fn logLookupRelationCpuClaim(
         return Error.InvalidCardinality;
     const trace = relation_component.traces[0];
     const column_count = trace.descriptors.len / 16;
-    const numerators = try allocator.alloc(QM31, column_count);
-    defer allocator.free(numerators);
-    const denominators = try allocator.alloc(QM31, column_count);
-    defer allocator.free(denominators);
-    const prefixes = try allocator.alloc(QM31, column_count);
-    defer allocator.free(prefixes);
+    const cumulative_sums = try allocator.alloc(QM31, column_count);
+    defer allocator.free(cumulative_sums);
     const last_column_values = if (output_bindings != null)
         try allocator.alloc(QM31, rows)
     else
@@ -179,57 +176,39 @@ pub fn logLookupRelationCpuClaim(
     const z_binding = try one(schedule, plan, "RelationZ");
     const alpha_offset = try wordOffset(alpha_binding);
     const z_offset = try wordOffset(z_binding);
-    const alpha_count = alpha_binding.size_bytes / 16;
-    const Field = struct {
-        fn loadQm31(words: []const u32, offset: usize) QM31 {
-            return QM31.fromU32Unchecked(words[offset], words[offset + 1], words[offset + 2], words[offset + 3]);
-        }
-
-        fn combine(
-            words: []const u32,
-            source_word_offset: u32,
-            row_count: u32,
-            row: u32,
-            use: []const u32,
-            alpha_word_offset: u32,
-            alpha_power_count: u64,
-            z: QM31,
-        ) !QM31 {
-            if (use[0] != 0 or use[2] > alpha_power_count) return Error.InvalidCardinality;
-            var accumulator = z.neg();
-            var word: u32 = 0;
-            while (word < use[2]) : (word += 1) {
-                const source_word = if (word == 0)
-                    use[3]
-                else
-                    words[source_word_offset + (use[1] + word) * row_count + row];
-                if (source_word >= @import("../../../../core/fields/m31.zig").Modulus)
-                    return Error.InvalidCardinality;
-                const alpha = loadQm31(words, alpha_word_offset + @as(usize, word) * 4);
-                accumulator = accumulator.add(alpha.mulM31(M31.fromCanonical(source_word)));
-            }
-            return accumulator;
-        }
-
-        fn multiplicity(
-            words: []const u32,
-            source_word_offset: u32,
-            row_count: u32,
-            row: u32,
-            use: []const u32,
-        ) !M31 {
-            const raw = switch (use[4]) {
-                0 => 1,
-                2 => words[source_word_offset + use[5] * row_count + row],
-                else => return Error.InvalidCardinality,
-            };
-            if (raw >= @import("../../../../core/fields/m31.zig").Modulus)
-                return Error.InvalidCardinality;
-            const value = M31.fromCanonical(raw);
-            return if (use[6] != 0) value.neg() else value;
-        }
-    };
-    const z = Field.loadQm31(arena_words, z_offset);
+    if (alpha_binding.size_bytes % 16 != 0 or z_binding.size_bytes < 16 or source.size_bytes % 4 != 0)
+        return Error.InvalidBindingSize;
+    const alpha_count: usize = @intCast(alpha_binding.size_bytes / 16);
+    const alpha_powers = try allocator.alloc(QM31, alpha_count);
+    defer allocator.free(alpha_powers);
+    for (alpha_powers, 0..) |*alpha, index| {
+        const offset = alpha_offset + index * 4;
+        alpha.* = QM31.fromU32Unchecked(
+            arena_words[offset],
+            arena_words[offset + 1],
+            arena_words[offset + 2],
+            arena_words[offset + 3],
+        );
+    }
+    const z = QM31.fromU32Unchecked(
+        arena_words[z_offset],
+        arena_words[z_offset + 1],
+        arena_words[z_offset + 2],
+        arena_words[z_offset + 3],
+    );
+    const source_word_count: usize = @intCast(source.size_bytes / 4);
+    const source_columns = try interaction_trace_mod.LookupColumns.init(
+        arena_words[source_offset..][0..source_word_count],
+        rows,
+    );
+    var reference = try interaction_trace_mod.Reference.init(
+        allocator,
+        trace.descriptors,
+        source_columns,
+        z,
+        alpha_powers,
+    );
+    defer reference.deinit();
     var total = QM31.zero();
     var raw_mismatch_count: usize = 0;
     var first_raw_mismatch: [4]usize = .{ 0, 0, 0, 0 };
@@ -238,39 +217,10 @@ pub fn logLookupRelationCpuClaim(
     var timer = try std.time.Timer.start();
     for (0..rows) |row_usize| {
         const row: u32 = @intCast(row_usize);
-        var product = QM31.one();
-        var descriptor_index: usize = 0;
-        while (descriptor_index < trace.descriptors.len) : (descriptor_index += 16) {
-            const descriptor = trace.descriptors[descriptor_index..][0..16];
-            const column = descriptor_index / 16;
-            const a = descriptor[1..8];
-            const da = try Field.combine(arena_words, source_offset, rows, row, a, alpha_offset, alpha_count, z);
-            const ma = try Field.multiplicity(arena_words, source_offset, rows, row, a);
-            if (descriptor[0] == 2) {
-                const b = descriptor[8..15];
-                const db = try Field.combine(arena_words, source_offset, rows, row, b, alpha_offset, alpha_count, z);
-                const mb = try Field.multiplicity(arena_words, source_offset, rows, row, b);
-                numerators[column] = da.mulM31(mb).add(db.mulM31(ma));
-                denominators[column] = da.mul(db);
-            } else {
-                numerators[column] = QM31.fromBase(ma);
-                denominators[column] = da;
-            }
-            prefixes[column] = product;
-            product = product.mul(denominators[column]);
-        }
-        var running_inverse = try product.inv();
-        var column = column_count;
-        while (column != 0) {
-            column -= 1;
-            numerators[column] = numerators[column].mul(running_inverse.mul(prefixes[column]));
-            running_inverse = running_inverse.mul(denominators[column]);
-        }
-        var row_total = QM31.zero();
-        for (numerators, 0..) |fraction, relation_column| {
-            row_total = row_total.add(fraction);
+        const row_total = try reference.evaluateRow(row, cumulative_sums);
+        for (cumulative_sums, 0..) |sum, relation_column| {
             if (output_bindings) |outputs| if (relation_column + 1 < column_count) {
-                const coordinates = row_total.toM31Array();
+                const coordinates = sum.toM31Array();
                 for (0..4) |coordinate| {
                     const output_offset = try wordOffset(outputs[relation_column * 4 + coordinate]);
                     const actual = arena_words[output_offset + row];
@@ -293,23 +243,14 @@ pub fn logLookupRelationCpuClaim(
         .{ component, rows, @as(f64, @floatFromInt(timer.read())) / std.time.ns_per_ms, coordinates[0].v, coordinates[1].v, coordinates[2].v, coordinates[3].v },
     );
     if (output_bindings) |outputs| {
-        const row_count_inverse = M31.fromCanonical(rows).inv() catch return Error.InvalidCardinality;
-        const shift = total.mulM31(row_count_inverse);
-        var prefix = QM31.zero();
+        _ = try interaction_trace_mod.scanLastColumnInPlace(last_column_values.?, total);
         var scan_mismatch_count: usize = 0;
         var first_scan_mismatch: [4]usize = .{ 0, 0, 0, 0 };
         var first_scan_expected: u32 = 0;
         var first_scan_actual: u32 = 0;
-        const log_rows = std.math.log2_int(u32, rows);
         for (0..rows) |scan_index| {
-            const circle_index = if ((scan_index & 1) == 0)
-                scan_index / 2
-            else
-                rows - 1 - scan_index / 2;
-            const row = @bitReverse(@as(u32, @intCast(circle_index))) >>
-                @intCast(@as(u32, 32) - @as(u32, log_rows));
-            prefix = prefix.add(last_column_values.?[row]).sub(shift);
-            const expected = prefix.toM31Array();
+            const row = try interaction_trace_mod.circleScanRow(rows, scan_index);
+            const expected = last_column_values.?[row].toM31Array();
             for (0..4) |coordinate| {
                 const output_offset = try wordOffset(outputs[(column_count - 1) * 4 + coordinate]);
                 const actual = arena_words[output_offset + row];
