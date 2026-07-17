@@ -164,27 +164,12 @@ pub const Blake2sHasher = struct {
         data: *const [4][64]u8,
     ) [4]Blake2sHash {
         var messages: [16]V4 = undefined;
-        for (0..16) |word_index| {
-            const byte_index = word_index * 4;
-            messages[word_index] = .{
-                readU32LeFromFixed(&data[0], byte_index),
-                readU32LeFromFixed(&data[1], byte_index),
-                readU32LeFromFixed(&data[2], byte_index),
-                readU32LeFromFixed(&data[3], byte_index),
-            };
-        }
+        loadParallelBlock4(data, &messages);
 
         var states: [8]V4 = undefined;
         for (0..8) |word_index| states[word_index] = @splat(seed[word_index]);
         compressParallel4(&states, &messages, 128, 0, 0xFFFF_FFFF);
-
-        var out: [4]Blake2sHash = undefined;
-        for (0..4) |lane| {
-            var lane_state: [8]u32 = undefined;
-            for (0..8) |word_index| lane_state[word_index] = states[word_index][lane];
-            out[lane] = stateToDigest(lane_state);
-        }
-        return out;
+        return parallelStatesToDigests(&states);
     }
 
     pub fn hashEqualFromSeed4(
@@ -217,13 +202,7 @@ pub const Blake2sHasher = struct {
         counter +%= @intCast(remaining);
         compressParallel4(&states, &final_messages, counter, 0, 0xFFFF_FFFF);
 
-        var out: [4]Blake2sHash = undefined;
-        for (0..4) |lane| {
-            var lane_state: [8]u32 = undefined;
-            for (0..8) |word_index| lane_state[word_index] = states[word_index][lane];
-            out[lane] = stateToDigest(lane_state);
-        }
-        return out;
+        return parallelStatesToDigests(&states);
     }
 
     fn addCounter(self: *Self, inc: u32) void {
@@ -314,14 +293,45 @@ fn readU32LeFromFixed(data: *const [64]u8, at: usize) u32 {
 }
 
 fn loadParallelBlock4(data: *const [4][64]u8, out: *[16]V4) void {
-    for (0..16) |word_index| {
-        const byte_index = word_index * 4;
-        out[word_index] = .{
-            readU32LeFromFixed(&data[0], byte_index),
-            readU32LeFromFixed(&data[1], byte_index),
-            readU32LeFromFixed(&data[2], byte_index),
-            readU32LeFromFixed(&data[3], byte_index),
-        };
+    if (comptime builtin.cpu.arch.endian() == .little) {
+        const words: [4][4]V4 = @bitCast(data.*);
+        inline for (0..4) |group| {
+            const transposed = transpose4x4(.{
+                words[0][group],
+                words[1][group],
+                words[2][group],
+                words[3][group],
+            });
+            inline for (0..4) |word| out[group * 4 + word] = transposed[word];
+        }
+    } else {
+        for (0..16) |word_index| {
+            const byte_index = word_index * 4;
+            out[word_index] = .{
+                readU32LeFromFixed(&data[0], byte_index),
+                readU32LeFromFixed(&data[1], byte_index),
+                readU32LeFromFixed(&data[2], byte_index),
+                readU32LeFromFixed(&data[3], byte_index),
+            };
+        }
+    }
+}
+
+fn parallelStatesToDigests(states: *const [8]V4) [4]Blake2sHash {
+    if (comptime builtin.cpu.arch.endian() == .little) {
+        const low = transpose4x4(.{ states[0], states[1], states[2], states[3] });
+        const high = transpose4x4(.{ states[4], states[5], states[6], states[7] });
+        var words: [4][2]V4 = undefined;
+        inline for (0..4) |lane| words[lane] = .{ low[lane], high[lane] };
+        return @bitCast(words);
+    } else {
+        var out: [4]Blake2sHash = undefined;
+        for (0..4) |lane| {
+            var lane_state: [8]u32 = undefined;
+            for (0..8) |word_index| lane_state[word_index] = states[word_index][lane];
+            out[lane] = stateToDigest(lane_state);
+        }
+        return out;
     }
 }
 
@@ -390,6 +400,19 @@ fn compressScalar(h: *[8]u32, m: *const [16]u32, t0: u32, t1: u32, f0: u32) void
 
 const V4 = @Vector(4, u32);
 const Shift4 = @Vector(4, u5);
+
+fn transpose4x4(rows: [4]V4) [4]V4 {
+    const ab_low = @shuffle(u32, rows[0], rows[1], @Vector(4, i32){ 0, -1, 1, -2 });
+    const ab_high = @shuffle(u32, rows[0], rows[1], @Vector(4, i32){ 2, -3, 3, -4 });
+    const cd_low = @shuffle(u32, rows[2], rows[3], @Vector(4, i32){ 0, -1, 1, -2 });
+    const cd_high = @shuffle(u32, rows[2], rows[3], @Vector(4, i32){ 2, -3, 3, -4 });
+    return .{
+        @shuffle(u32, ab_low, cd_low, @Vector(4, i32){ 0, 1, -1, -2 }),
+        @shuffle(u32, ab_low, cd_low, @Vector(4, i32){ 2, 3, -3, -4 }),
+        @shuffle(u32, ab_high, cd_high, @Vector(4, i32){ 0, 1, -1, -2 }),
+        @shuffle(u32, ab_high, cd_high, @Vector(4, i32){ 2, 3, -3, -4 }),
+    };
+}
 
 fn rotr32x4(x: V4, bits: u5) V4 {
     const left_bits: u5 = @intCast((@as(u6, 32) - @as(u6, bits)) & 31);
@@ -491,7 +514,7 @@ fn compressParallel4(h: *[8]V4, m: *const [16]V4, t0: u32, t1: u32, f0: u32) voi
     v[13] ^= @as(V4, @splat(t1));
     v[14] ^= @as(V4, @splat(f0));
 
-    for (BLAKE2S_SIGMA) |s| {
+    inline for (BLAKE2S_SIGMA) |s| {
         g4(&v[0], &v[4], &v[8], &v[12], m[s[0]], m[s[1]]);
         g4(&v[1], &v[5], &v[9], &v[13], m[s[2]], m[s[3]]);
         g4(&v[2], &v[6], &v[10], &v[14], m[s[4]], m[s[5]]);
