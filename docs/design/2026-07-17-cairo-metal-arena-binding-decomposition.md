@@ -63,7 +63,7 @@ decommitment, filesystem, diagnostics, and field-arithmetic context.
 
 ### Migration ledger (2026-07-17)
 
-The audit table above is the historical pre-migration inventory. The live facade is now 5,709
+The audit table above is the historical pre-migration inventory. The live facade is now 5,449
 lines and delegates these accepted ownership slices without changing its public names:
 
 - `resident/errors.zig` owns the stable Cairo resident integration error set;
@@ -72,6 +72,8 @@ lines and delegates these accepted ownership slices without changing its public 
 - `resident/commitment/telemetry.zig` owns the five opt-in commitment digest/sample operations;
 - `resident/preprocessed/storage.zig` owns preprocessed-evaluation spill, complete restore, and
   fixed-table-selective restore;
+- `resident/preprocessed/coefficients.zig` owns execution-table splitting, versioned coefficient
+  loading, SIMD-block canonicalization, selective reconstruction, and prepared Metal evaluation;
 - `resident/lookups/fixed_tables.zig` owns fixed-table recipe preparation and active schedule
   indexing.
 - `resident/lookups/multiplicity_feeds.zig` owns feed lifecycle, authenticated row/destination
