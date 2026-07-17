@@ -163,6 +163,7 @@ const arena_ops_source = @embedFile("core/arena_ops.metal");
 const transcript_source = @embedFile("core/transcript.metal");
 const composition_source = @embedFile("core/composition.metal");
 const relation_source = @embedFile("core/relation.metal");
+const decommit_kernels_source = @embedFile("core/decommit.metal");
 const polynomial_eval_source = @embedFile("core/polynomial_eval.metal");
 
 pub const support_headers = [_]TranslationUnit{
@@ -192,6 +193,7 @@ pub const translation_units = [_]TranslationUnit{
     .{ .path = "src/backends/metal/shaders/core/transcript.metal", .source = transcript_source },
     .{ .path = "src/backends/metal/shaders/core/composition.metal", .source = composition_source },
     .{ .path = "src/backends/metal/shaders/core/relation.metal", .source = relation_source },
+    .{ .path = "src/backends/metal/shaders/core/decommit.metal", .source = decommit_kernels_source },
     .{ .path = "src/backends/metal/shaders/core/polynomial_eval.metal", .source = polynomial_eval_source },
 };
 
@@ -244,6 +246,8 @@ pub const amalgamated_source: [:0]const u8 = "#define STWO_ZIG_AMALGAMATED 1\n" 
     composition_source ++
     "\n#line 1 \"src/backends/metal/shaders/core/relation.metal\"\n" ++
     relation_source ++
+    "\n#line 1 \"src/backends/metal/shaders/core/decommit.metal\"\n" ++
+    decommit_kernels_source ++
     "\n#line 1 \"src/backends/metal/shaders/core/polynomial_eval.metal\"\n" ++
     polynomial_eval_source ++ "\x00";
 
@@ -573,19 +577,45 @@ test "polynomial evaluation declares standalone field and ABI dependencies" {
 test "legacy shader unit declares extracted support dependencies" {
     const dependencies = [_][]const u8{
         "#include \"stwo_zig/blake2s.metal\"",
-        "#include \"stwo_zig/merkle.metal\"",
-        "#include \"stwo_zig/decommit.metal\"",
         "#include \"stwo_zig/m31.metal\"",
         "#include \"stwo_zig/extension_fields.metal\"",
         "#include \"stwo_zig/circle.metal\"",
-        "#include \"stwo_zig/felt252.metal\"",
-        "#include \"stwo_zig/ec.metal\"",
-        "#include \"stwo_zig/witness_abi.metal\"",
-        "#include \"stwo_zig/witness_tables.metal\"",
-        "#include \"stwo_zig/witness_deductions.metal\"",
     };
     for (dependencies) |dependency| {
         try std.testing.expect(std.mem.indexOf(u8, legacy_source, dependency) != null);
+    }
+}
+
+test "decommit kernels are isolated with standalone dependencies and a stable ABI" {
+    var owned: usize = 0;
+    for (exports) |entry| {
+        if (entry.owner != .decommit) continue;
+        owned += 1;
+        try std.testing.expectEqual(@as(usize, 0), countKernelDeclarations(legacy_source, entry.name));
+        try std.testing.expectEqual(@as(usize, 1), countKernelDeclarations(decommit_kernels_source, entry.name));
+        try std.testing.expectEqual(@as(usize, 1), countKernelDeclarations(amalgamated_source, entry.name));
+    }
+    try std.testing.expectEqual(@as(usize, 10), owned);
+
+    const dependencies = [_][]const u8{
+        "#include \"stwo_zig/base.metal\"",
+        "#include \"stwo_zig/blake2s.metal\"",
+        "#include \"stwo_zig/merkle.metal\"",
+        "#include \"stwo_zig/decommit.metal\"",
+    };
+    for (dependencies) |dependency| {
+        try std.testing.expect(std.mem.indexOf(u8, decommit_kernels_source, dependency) != null);
+    }
+
+    const bindings = [_]struct { kernel: []const u8, argument: []const u8 }{
+        .{ .kernel = "stwo_zig_decommit_normalize_queries_resident", .argument = "constant uint &assembly_capacity [[buffer(8)]]" },
+        .{ .kernel = "stwo_zig_decommit_sparse_leaf_group_resident", .argument = "constant uint &prefix_bytes [[buffer(12)]]" },
+        .{ .kernel = "stwo_zig_decommit_assemble_trace_resident", .argument = "constant uint &capacity [[buffer(20)]]" },
+        .{ .kernel = "stwo_zig_decommit_assemble_fri_resident", .argument = "constant uint &capacity [[buffer(13)]]" },
+    };
+    for (bindings) |binding| {
+        const declaration = try kernelDeclaration(decommit_kernels_source, binding.kernel);
+        try std.testing.expect(std.mem.indexOf(u8, declaration, binding.argument) != null);
     }
 }
 
