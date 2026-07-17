@@ -465,28 +465,40 @@ identity, setup attribution, or repository ownership.
       grown findings.
 - [x] No manually maintained source in the active Native/backend scope exceeds the repository
       ceiling without a checked generated-file exemption.
-- [x] The active Native/backend target tree and dependency direction are mechanically true.
-- [x] Active `build.zig`, executable roots, test roots, performance controllers, and Native Rust
+- [ ] The active Native/backend target tree and dependency direction are mechanically true.
+- [ ] Active `build.zig`, executable roots, test roots, performance controllers, and Native Rust
       tools are thin owners.
 - [x] Metal shader families and runtime responsibilities are compartmentalized behind stable ABI.
 - [ ] The deterministic shared/Native core metallib passes manifest, export, ABI, AOT/JIT parity,
       authentication, cache, and release-admission gates.
-- [x] CPU scalar/SIMD dispatch has exact capability ownership and differential tests.
+- [ ] CPU scalar/SIMD dispatch has exact capability ownership and differential tests.
 - [x] CPU and selected Metal capability pass the complete six-example Native suite in Zig.
-- [x] Zig-to-Rust and Rust-to-Zig Native proof interchange and the negative matrix pass.
-- [x] Metal evidence proves device work and reports an exact `metal_hybrid` or `metal_resident`
+- [ ] Zig-to-Rust and Rust-to-Zig Native proof interchange and the negative matrix pass.
+- [ ] Metal evidence proves device work and reports an exact `metal_hybrid` or `metal_resident`
       identity with all host stages and fallback counters.
 - [x] Resource, cache, failure, teardown, and repeated-request tests show bounded ownership.
-- [x] Local hooks and hosted CI invoke the same checked-in gate definitions.
-- [x] A clean broad Native CPU/Metal benchmark and profiler baseline, raw samples, and delta history
+- [ ] Local hooks and hosted CI invoke the same checked-in gate definitions.
+- [ ] A clean broad Native CPU/Metal benchmark and profiler baseline, raw samples, and delta history
       are committed.
-- [x] The working tree is clean and all generated build/evidence artifacts are reproducible.
+- [ ] The working tree is clean and all generated build/evidence artifacts are reproducible.
 
-The remaining core-metallib item is an external hosted execution gate. Local manifest, admission,
-probe, ABI, cache, and AOT/JIT transcript tests pass, but this checkout resolves only
-`/Library/Developer/CommandLineTools`; `xcrun` cannot find `metal` or `metallib`. The checked-in
-macOS CI job runs `metal-core-aot-acceptance` with full Xcode. Keep the item open until that job
-produces a passing receipt for the final commit.
+The unchecked items reflect the following audited gaps:
+
+- dependency checks do not yet cover every claimed Python, Cargo/Rust, or build-graph edge, and the
+  largest build/performance owners need an explicit thin-owner rule or further decomposition;
+- CPU SIMD tests do not yet establish the complete alignment, tail, aliasing, scratch, and dispatch
+  contract;
+- the current bidirectional Rust receipt is ignored local output, and its negative cases do not yet
+  name every transcript, Merkle/opening, FRI, PoW, and protocol-parameter mutation class;
+- Metal reports prove device dispatch and fallback identity but do not yet preserve every host-stage
+  timing required by the evidence contract;
+- local pre-push and hosted CI currently select different gate sequences;
+- the content-addressed broad summary does not preserve its raw proof/lane artifacts, complete
+  provenance, or a full six-example CPU/Metal profiler set with attributed Metal encoder timing;
+  and
+- this checkout resolves only `/Library/Developer/CommandLineTools`, so the final deterministic
+  metallib, AOT/JIT, authentication, and release-admission receipt still requires a full-Xcode
+  hosted run and durable checked-in receipt.
 
 Any unchecked item keeps aggressive optimization locked. Deferred Cairo, SN PIE, streaming,
 RISC-V, and SNIP-36 semantic or structural items do not appear in this checklist and cannot be
