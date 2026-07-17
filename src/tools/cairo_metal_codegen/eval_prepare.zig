@@ -3,6 +3,7 @@ const stwo = @import("stwo");
 const metal = stwo.backends.metal.runtime;
 const codegen = stwo.integrations.cairo_metal.eval_codegen;
 const composition = stwo.frontends.cairo.witness.composition_bundle;
+const composition_prewarm = stwo.integrations.cairo_metal.composition_prewarm;
 
 pub fn main() !void {
     var gpa = std.heap.DebugAllocator(.{}).init;
@@ -15,8 +16,26 @@ pub fn main() !void {
     defer bundle.deinit();
     var runtime = try metal.Runtime.init();
     defer runtime.deinit();
-    var library: ?metal.EvalLibrary = if (args.len == 3) try runtime.loadEvalLibrary(args[2]) else null;
-    defer if (library) |*loaded| loaded.deinit();
+    if (args.len == 3) {
+        const evidence = try composition_prewarm.prewarm(.{
+            .allocator = allocator,
+            .runtime = &runtime,
+            .bundle = &bundle,
+            .metallib_path = args[2],
+        });
+        return writeResult(.{
+            .components = bundle.components.len,
+            .programs = evidence.resolved_plan_count,
+            .constraints = bundle.total_constraints,
+            .instructions = instructionCount(bundle),
+            .source_bytes = 0,
+            .largest_source_bytes = 0,
+            .codegen_ms = 0,
+            .metal_compile_ms = nanosecondsToMilliseconds(evidence.plan_preparation_ns),
+            .all_programs_compiled = evidence.resolved_plan_count == evidence.expected_plan_count,
+        });
+    }
+
     var timer = try std.time.Timer.start();
     var codegen_ns: u64 = 0;
     var compile_ns: u64 = 0;
@@ -28,7 +47,6 @@ pub fn main() !void {
         const name = try codegen.kernelName(allocator, part.semantic_hash);
         defer allocator.free(name);
         instruction_count += part.program.base_insts.len + part.program.ext_insts.len;
-        timer.reset();
         const layout: metal.EvalLayout = .{
             .trace_offsets = 0,
             .interaction_offsets = 0,
@@ -42,34 +60,56 @@ pub fn main() !void {
             .domain_log_size = part.program.header.domain_log_size,
             .rc_base = part.rc_base,
         };
-        var plan = if (library) |loaded|
-            try runtime.prepareEvalFromLibrary(loaded, name, layout)
-        else blk: {
-            timer.reset();
-            const source = try codegen.generate(allocator, part.program);
-            codegen_ns += timer.read();
-            defer allocator.free(source);
-            source_bytes += source.len;
-            largest_source = @max(largest_source, source.len);
-            timer.reset();
-            break :blk try runtime.prepareEval(source, name, layout);
-        };
+        timer.reset();
+        const source = try codegen.generate(allocator, part.program);
+        codegen_ns += timer.read();
+        defer allocator.free(source);
+        source_bytes += source.len;
+        largest_source = @max(largest_source, source.len);
+        timer.reset();
+        var plan = try runtime.prepareEval(source, name, layout);
         compile_ns += timer.read();
         plan.deinit();
         program_count += 1;
     };
-    if (library) |loaded| try loaded.serialize();
-    const result = .{
+    try writeResult(.{
         .components = bundle.components.len,
         .programs = program_count,
         .constraints = bundle.total_constraints,
         .instructions = instruction_count,
         .source_bytes = source_bytes,
         .largest_source_bytes = largest_source,
-        .codegen_ms = @as(f64, @floatFromInt(codegen_ns)) / std.time.ns_per_ms,
-        .metal_compile_ms = @as(f64, @floatFromInt(compile_ns)) / std.time.ns_per_ms,
+        .codegen_ms = nanosecondsToMilliseconds(codegen_ns),
+        .metal_compile_ms = nanosecondsToMilliseconds(compile_ns),
         .all_programs_compiled = true,
+    });
+}
+
+const Result = struct {
+    components: usize,
+    programs: u64,
+    constraints: u64,
+    instructions: u64,
+    source_bytes: u64,
+    largest_source_bytes: usize,
+    codegen_ms: f64,
+    metal_compile_ms: f64,
+    all_programs_compiled: bool,
+};
+
+fn instructionCount(bundle: composition.Bundle) u64 {
+    var count: u64 = 0;
+    for (bundle.components) |component| for (component.parts) |part| {
+        count += part.program.base_insts.len + part.program.ext_insts.len;
     };
+    return count;
+}
+
+fn nanosecondsToMilliseconds(nanoseconds: u64) f64 {
+    return @as(f64, @floatFromInt(nanoseconds)) / std.time.ns_per_ms;
+}
+
+fn writeResult(result: Result) !void {
     var buffer: [4096]u8 = undefined;
     var writer = std.fs.File.stdout().writer(&buffer);
     try std.json.Stringify.value(result, .{ .whitespace = .indent_2 }, &writer.interface);
