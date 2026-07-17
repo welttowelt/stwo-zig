@@ -145,16 +145,16 @@ tree under the exact contracts below.
 
 The expanded source checker inventories:
 
-- 500 source files under `src/` across Zig, Metal, Objective-C, and C headers;
-- root `build.zig` and build support;
-- 89 maintained Python files under `scripts/`; and
-- 16 Rust-tool source files under repository-owned `tools/` crates.
+- 531 source files under `src/` across Zig, Metal, Objective-C, and C headers;
+- root `build.zig` plus one focused build-support module;
+- 97 maintained Python files under `scripts/`; and
+- 34 Rust-tool source files under repository-owned `tools/` crates.
 
-Baseline v3 currently contains 30 owned findings split into two machine-validated tracks:
+Baseline v3 currently contains 20 owned findings under the deferred track:
 
 | Track | Count | Required closure |
 | --- | ---: | --- |
-| `active_native_backend` | 10 | Clear every finding before optimization unlock |
+| `active_native_backend` | 0 | Keep empty as a blocking optimization gate |
 | `deferred_todo` | 20 | Preserve as explicit owned TODOs; no new finding or line-cap growth |
 
 Every exception has an owner, reason, plan, next extraction, and a no-growth line cap where
@@ -162,17 +162,17 @@ applicable. The default global check rejects new, stale, or grown debt in either
 active-track check rejects every remaining Native/backend entry. Optimization unlock requires the
 active track to be empty, not the deletion or hurried restructuring of deferred frontend work.
 
-### 4.3 Major Legacy Owners
+### 4.3 Resolved Active Owners
 
-| Owner | Required destination shape |
+| Owner | Delivered shape |
 | --- | --- |
-| `src/backends/metal/runtime.m` | ABI implementation split by library/PSO admission, buffers/resources, command encoding, archives, telemetry, and lifecycle |
-| `src/backends/metal/runtime.zig` | Thin Zig facade over focused ABI, resource, plan, pipeline, cache, and session owners |
-| `src/backends/metal/kernels.metal` | Compatibility owner removed or below ceiling; domain shader families linked into one core metallib |
-| `src/tests/metal/backend_test.zig` | Mirrored ABI, resource, dispatch, parity, failure, and lifecycle test modules |
-| `build.zig` | Obvious project graph over focused build-product modules |
-| `scripts/benchmark_delta.py`, `scripts/compare_optimization.py`, and the Native proof-matrix test | Importable model, evidence, comparison, and test modules with thin command/test roots |
-| `tools/stwo-interop-rs` and `tools/stwo-vector-gen` command roots | Library modules for schemas, codecs, and generation with thin command roots |
+| `src/backends/metal/runtime.m` | 661-line ABI facade over 15 responsibility-owned implementation includes; compiled object remained byte-identical |
+| `src/backends/metal/runtime.zig` | 212-line facade over focused protocol-stage modules; all 104 public signatures preserved |
+| `src/backends/metal/kernels.metal` | 824-line compatibility owner with decommitment shaders extracted; all 90 exports preserved in one library |
+| `src/tests/metal/backend_test.zig` | 8-line test map over focused protocol-stage suites |
+| `build.zig` | 850-line public graph with the complete Metal product graph in typed build support |
+| benchmark delta, optimization comparison, and Native proof-matrix tests | Focused archive, metric, and fixture modules with the public scripts/tests below the ceiling |
+| `tools/stwo-interop-rs` and `tools/stwo-vector-gen` command roots | 29-line and 59-line roots over explicit schema, codec, proof, and generator modules |
 
 All remaining baseline owners belong to `deferred_todo`. Their existing design documents remain the
 future extraction plans, but no Cairo, SN PIE, streaming, RISC-V, or SNIP-36 source work is required
@@ -461,14 +461,14 @@ identity, setup attribution, or repository ownership.
 - [x] The Native and Cairo Rust authorities are separated in one checked pin ledger.
 - [x] Source conformance inventories `src`, build ownership, maintained Python, and Rust tools with
       owned no-growth exception metadata.
-- [ ] The `active_native_backend` source track is empty; the global inventory has no new, stale, or
+- [x] The `active_native_backend` source track is empty; the global inventory has no new, stale, or
       grown findings.
-- [ ] No manually maintained source in the active Native/backend scope exceeds the repository
+- [x] No manually maintained source in the active Native/backend scope exceeds the repository
       ceiling without a checked generated-file exemption.
-- [ ] The active Native/backend target tree and dependency direction are mechanically true.
-- [ ] Active `build.zig`, executable roots, test roots, performance controllers, and Native Rust
+- [x] The active Native/backend target tree and dependency direction are mechanically true.
+- [x] Active `build.zig`, executable roots, test roots, performance controllers, and Native Rust
       tools are thin owners.
-- [ ] Metal shader families and runtime responsibilities are compartmentalized behind stable ABI.
+- [x] Metal shader families and runtime responsibilities are compartmentalized behind stable ABI.
 - [ ] The deterministic shared/Native core metallib passes manifest, export, ABI, AOT/JIT parity,
       authentication, cache, and release-admission gates.
 - [ ] CPU scalar/SIMD dispatch has exact capability ownership and differential tests.

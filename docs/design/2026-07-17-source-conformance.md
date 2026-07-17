@@ -86,9 +86,9 @@ The first migration pass has established these boundaries without changing proof
 - `scripts/ci.py` is the shared local and hosted CI entrypoint. Versioned pre-commit and pre-push
   hooks provide bounded local feedback without running hardware Metal or large SN PIE workloads.
 
-The checked-in enforcement baseline contains 30 explained legacy findings: 1 dependency edge,
-24 oversized manually maintained files, and 5 misplaced root sources. Every entry has a required,
-machine-validated `track`: 10 findings are `active_native_backend` and 20 are `deferred_todo`.
+The checked-in enforcement baseline contains 20 explained deferred findings: 1 dependency edge,
+14 oversized manually maintained files, and 5 misplaced root sources. Every entry has the required,
+machine-validated `deferred_todo` track; the `active_native_backend` track is empty.
 Each size exception records an immutable line budget and a repository-local decomposition plan.
 New findings, oversized-file growth, missing plans, invalid tracks, and stale baseline entries fail
 the global check. Removing a violation therefore requires removing its baseline entry in the same
@@ -96,22 +96,14 @@ change.
 
 ## Current Ratchet State
 
-At this checkpoint on 2026-07-17, HEAD contains 473 inventoried Zig files and 134,371 Zig source
-lines. Twenty-four manually maintained files remain above 850 lines. The source baseline contains
-30 findings: 24 size exceptions, five misplaced roots, and one forbidden RISC-V dependency edge.
+At this checkpoint on 2026-07-17, the checker inventories 664 maintained sources: 531 under `src/`,
+2 build-graph sources, 97 Python sources, and 34 Rust-tool sources. The 10 active findings have been
+resolved without raising a cap: Metal shader/runtime/test owners, build ownership, benchmark tools,
+the Native proof-matrix test, and both Native Rust command roots now satisfy the 850-line ceiling.
 
-Four legacy owners had grown past their immutable caps during later Cairo/AOT work. Their focused
-protocol-admission, runtime-initialization, and retained-Merkle storage responsibilities have now
-been extracted without raising a cap. `python3 scripts/check_source_conformance.py` is green again
-and reports no new violations.
-
-This is restored global ratchet compliance, not migration completion. Native optimization remains
-locked until the 10 `active_native_backend` findings are removed. The 20 `deferred_todo` findings
-remain fully subject to no-growth, valid-plan, and stale-entry enforcement, but do not block Native
-CPU/Metal performance work.
-
-Because `build.zig` is already at its immutable 1,176-line cap, the focused unlock gate is exposed
-directly by the checker instead of adding another build declaration:
+The 20 `deferred_todo` findings remain fully subject to no-growth, valid-plan, and stale-entry
+enforcement, but do not block Native CPU/Metal performance work. Both the global ratchet and the
+focused unlock gate are green:
 
 ```bash
 python3 scripts/check_source_conformance.py --strict-track active_native_backend
