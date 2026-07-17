@@ -10,7 +10,7 @@ enough to regenerate before per-component base-trace comparisons without running
 
 The fixture is governed by:
 
-- `docs/conformance/upstream.md` for the Cairo Stwo-Cairo and Stwo revision pair;
+- `docs/conformance/upstream.md` for the Cairo verifier and prover revision tuples;
 - `docs/design/2026-07-17-pre-optimization-conformance-goal.md` for the Fib25k-first acceptance
   sequence and content-addressed evidence requirements;
 - `docs/design/2026-07-17-cairo-program-matrix.md` for the program-agnostic Cairo matrix; and
@@ -87,8 +87,11 @@ and trailing data.
 ## Provenance Limitation
 
 The canonical bytes are reproducible now, but the `STWZCPI` exporter is a content-identified local
-modification at the pinned Stwo-Cairo revision. It is not a committed file at that revision. The
-manifest therefore marks this fixture `local_checkpoint_only` and pins all of the following:
+modification at the pinned Stwo-Cairo revision. It is not a committed file at that revision. Its
+generator dependency graph also predates the repository-owned clean prover oracle, so the binary
+and lockfile digests remain the authority for these particular bytes. The manifest therefore marks
+this fixture `local_checkpoint_only`, names both current Cairo Stwo sub-lanes, and pins all of the
+following:
 
 - exporter source SHA-256;
 - exporter patch SHA-256 relative to the pinned revision;

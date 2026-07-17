@@ -30,6 +30,8 @@ class UpstreamPinTests(unittest.TestCase):
             "tools/stwo-cairo-verifier-rs/src/lib.rs",
             "tools/stwo-cairo-verifier-rs/Cargo.toml",
             "tools/stwo-cairo-verifier-rs/Cargo.lock",
+            "tools/stwo-cairo-trace-oracle/Cargo.toml",
+            "tools/stwo-cairo-trace-oracle/Cargo.lock",
             ".github/workflows/ci.yml",
             "scripts/generate_cairo_claim_registry.py",
             "scripts/sn_pie_metal_session.py",
@@ -38,6 +40,20 @@ class UpstreamPinTests(unittest.TestCase):
             "src/frontends/cairo/claim_registry.zig",
         ):
             self.assertIn(carrier, joined)
+
+    def test_cairo_prover_stwo_drift_reaches_trace_manifest_and_lock(self) -> None:
+        drifted = LEDGER.read_text(encoding="utf-8").replace(
+            "3fe684648ff31e55b71525ad689fab7dfbd88880",
+            "2" * 40,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "upstream.md"
+            path.write_text(drifted, encoding="utf-8")
+            errors = validate_repository(ROOT, path)
+
+        joined = "\n".join(errors)
+        self.assertIn("tools/stwo-cairo-trace-oracle/Cargo.toml", joined)
+        self.assertIn("tools/stwo-cairo-trace-oracle/Cargo.lock", joined)
 
     def test_native_ledger_drift_reaches_source_manifests_and_locks(self) -> None:
         drifted = LEDGER.read_text(encoding="utf-8").replace(

@@ -68,6 +68,14 @@ class CairoInputCheckpointTests(unittest.TestCase):
             "3e5f076f30efbf9f295803ac7198750879267ba78d1e98c820742de08255e366",
         )
         self.assertEqual(manifest["oracle"]["stwo_cairo_revision"], "dcd5834565b7a26a27a614e353c9c60109ebc1d9")
+        self.assertEqual(
+            manifest["oracle"]["verifier_stwo_revision"],
+            "9d7e3d6fa0fc64a0d143a8b2fcb8ee952f4de8f2",
+        )
+        self.assertEqual(
+            manifest["oracle"]["prover_stwo_revision"],
+            "3fe684648ff31e55b71525ad689fab7dfbd88880",
+        )
 
     def test_inspector_accepts_canonical_structure(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

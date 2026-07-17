@@ -18,18 +18,28 @@ checkers.
 
 ## Cairo Lane
 
-This lane governs Cairo AIR, statement, proof, and canonical `verify_cairo` acceptance. Its oracle
-is a composition of two exact Git revisions, so every Cairo proof envelope, verifier receipt,
-benchmark report, and generated semantic artifact must bind both revisions.
+This lane governs Cairo AIR, witness generation, statement, proof, and canonical `verify_cairo`
+acceptance. Stwo-Cairo commit `dcd58345` has two deliberately distinct Stwo authorities: the
+verifier-compatible revision declared by the source tree, and the clean companion revision needed
+to compile its complete prover and witness surface. Evidence must name the applicable sub-lane;
+the revisions are not interchangeable.
 
 - Stwo-Cairo repository: `https://github.com/teddyjfpender/stwo-cairo`
 - Pinned Stwo-Cairo commit: `dcd5834565b7a26a27a614e353c9c60109ebc1d9`
 - Stwo repository: `https://github.com/teddyjfpender/stwo`
-- Pinned Cairo Stwo commit: `9d7e3d6fa0fc64a0d143a8b2fcb8ee952f4de8f2`
+- Pinned Cairo verifier Stwo commit: `9d7e3d6fa0fc64a0d143a8b2fcb8ee952f4de8f2`
+- Pinned Cairo prover Stwo commit: `3fe684648ff31e55b71525ad689fab7dfbd88880`
 
 The Cairo lane is accepted only by the canonical Rust `verify_cairo` implementation built from
-that exact revision pair. Zig scalar, SIMD, Metal, or Zig-verifier agreement cannot override its
-rejection.
+the Stwo-Cairo and verifier-Stwo pair. Zig scalar, SIMD, Metal, trace-oracle, or Zig-verifier
+agreement cannot override its rejection. Base-trace and witness receipts are authoritative only
+when generated from the Stwo-Cairo and prover-Stwo pair, without path dependencies or dirty source.
+
+The pinned Stwo-Cairo manifest itself contains a `LOCAL-ONLY` absolute-path patch and does not
+compile its full prover against its declared verifier Stwo revision. Repository-owned Rust prover
+tools must therefore isolate the crate in their own workspace and replace every affected Stwo
+package with the exact prover revision above. The pin checker validates that complete replacement
+graph and its lockfile; inheriting the upstream absolute path is forbidden.
 
 ## Native Stwo Parity Slice
 
@@ -69,7 +79,8 @@ The current Native Stwo increment targets:
 ## Upgrade Policy
 
 1. Name the compatibility lane being upgraded; never reuse evidence from another lane.
-2. Bump every exact revision that composes that lane's Rust oracle in this ledger.
+2. Bump every exact revision that composes that lane's Rust oracle in this ledger. For Cairo,
+   state whether the verifier sub-lane, prover sub-lane, or both change.
 3. Update manifests, lockfiles, constants, proof envelopes, receipts, and generated artifacts that
    carry those revisions.
 4. Re-run vector generation for all committed fixtures in the affected lane.

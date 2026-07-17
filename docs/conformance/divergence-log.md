@@ -9,6 +9,22 @@ roadmap audit consumes its closed-divergence signoff. Metal/Cairo implementation
 - Pin: `a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2`
 - Contract: `docs/conformance/contract.md` (strict parity + gated delivery)
 
+## Active Cairo Oracle Split
+
+Pinned Stwo-Cairo `dcd58345` declares Stwo `9d7e3d6f`, which remains the final
+`verify_cairo` authority, but its complete prover source does not compile against that revision.
+The same Stwo-Cairo source compiles cleanly against companion Stwo `3fe68464`; this exact tuple is
+the Rust witness and base-trace oracle. The repository therefore treats these as separate,
+non-substitutable sub-lanes:
+
+- final proof acceptance: Stwo-Cairo `dcd58345` + Stwo `9d7e3d6f`;
+- witness and trace checkpoints: Stwo-Cairo `dcd58345` + Stwo `3fe68464`.
+
+The source-pin checker validates both lock graphs. The trace tool must replace every affected Stwo
+crate with the clean companion revision and may not inherit Stwo-Cairo's committed absolute local
+path patch. This divergence closes only when a single clean upstream tuple provides both complete
+prover compilation and final verifier acceptance and all Cairo evidence is regenerated against it.
+
 ## Latest Slice (Roadmap-Closure Instrumentation + air-utils Trace Surface)
 
 ### New Closure Instrumentation
