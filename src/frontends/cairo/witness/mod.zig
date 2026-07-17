@@ -1,4 +1,5 @@
 pub const program = @import("program.zig");
+pub const execution_tables = @import("execution_tables.zig");
 pub const direct_inputs = @import("direct_inputs.zig");
 pub const recovery = @import("recovery.zig");
 pub const bundle = @import("bundle.zig");
@@ -17,6 +18,7 @@ pub const checkpoint = @import("../conformance/checkpoint.zig");
 pub const checkpoint_receipt = @import("../conformance/receipt.zig");
 
 test {
+    _ = execution_tables;
     _ = direct_inputs;
     _ = semantic_pack;
     _ = eval_program;
