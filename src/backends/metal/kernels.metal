@@ -5,6 +5,7 @@ using namespace metal;
 #include "stwo_zig/blake2s.metal"
 #include "stwo_zig/m31.metal"
 #include "stwo_zig/extension_fields.metal"
+#include "stwo_zig/circle.metal"
 #include "stwo_zig/felt252.metal"
 #include "stwo_zig/ec.metal"
 #include "stwo_zig/witness_abi.metal"
@@ -617,16 +618,6 @@ kernel void stwo_zig_ec_op_base_finalize(
         for (uint index = pad; index < 256u * rows; index += padding_rows) {
             arena[partial_offsets[126] + index] = index;
         }
-    }
-}
-
-inline uint circle_twiddle(device const uint *twiddles, uint index) {
-    uint pair = index >> 2u;
-    switch (index & 3u) {
-        case 0u: return twiddles[2u * pair + 1u];
-        case 1u: return m31_neg(twiddles[2u * pair + 1u]);
-        case 2u: return m31_neg(twiddles[2u * pair]);
-        default: return twiddles[2u * pair];
     }
 }
 
@@ -1925,26 +1916,6 @@ kernel void stwo_zig_quotient_finalize(
     output[row_count + row] = accumulator.b;
     output[2u * row_count + row] = accumulator.c;
     output[3u * row_count + row] = accumulator.d;
-}
-
-struct CircleM31Value { uint x, y; };
-
-inline CircleM31Value circle_mul(CircleM31Value lhs, CircleM31Value rhs) {
-    return {
-        m31_sub(m31_mul(lhs.x, rhs.x), m31_mul(lhs.y, rhs.y)),
-        m31_add(m31_mul(lhs.x, rhs.y), m31_mul(lhs.y, rhs.x)),
-    };
-}
-
-inline CircleM31Value circle_pow(uint exponent) {
-    CircleM31Value result = { 1u, 0u };
-    CircleM31Value base = { 2u, 1268011823u };
-    while (exponent != 0u) {
-        if ((exponent & 1u) != 0u) result = circle_mul(result, base);
-        base = circle_mul(base, base);
-        exponent >>= 1u;
-    }
-    return result;
 }
 
 inline CircleM31Value quotient_domain_point(

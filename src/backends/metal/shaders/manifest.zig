@@ -139,6 +139,7 @@ const base_source = @embedFile("include/base.metal");
 const blake2s_source = @embedFile("include/blake2s.metal");
 const m31_source = @embedFile("include/m31.metal");
 const extension_fields_source = @embedFile("include/extension_fields.metal");
+const circle_source = @embedFile("include/circle.metal");
 const abi_types_source = @embedFile("include/abi_types.metal");
 const felt252_source = @embedFile("include/felt252.metal");
 const ec_source = @embedFile("include/ec.metal");
@@ -154,6 +155,7 @@ pub const support_headers = [_]TranslationUnit{
     .{ .path = "src/backends/metal/shaders/include/blake2s.metal", .source = blake2s_source },
     .{ .path = "src/backends/metal/shaders/include/m31.metal", .source = m31_source },
     .{ .path = "src/backends/metal/shaders/include/extension_fields.metal", .source = extension_fields_source },
+    .{ .path = "src/backends/metal/shaders/include/circle.metal", .source = circle_source },
     .{ .path = "src/backends/metal/shaders/include/abi_types.metal", .source = abi_types_source },
     .{ .path = "src/backends/metal/shaders/include/felt252.metal", .source = felt252_source },
     .{ .path = "src/backends/metal/shaders/include/ec.metal", .source = ec_source },
@@ -180,6 +182,8 @@ pub const amalgamated_source: [:0]const u8 = "#define STWO_ZIG_AMALGAMATED 1\n" 
     m31_source ++
     "\n#line 1 \"src/backends/metal/shaders/include/extension_fields.metal\"\n" ++
     extension_fields_source ++
+    "\n#line 1 \"src/backends/metal/shaders/include/circle.metal\"\n" ++
+    circle_source ++
     "\n#line 1 \"src/backends/metal/shaders/include/abi_types.metal\"\n" ++
     abi_types_source ++
     "\n#line 1 \"src/backends/metal/shaders/include/felt252.metal\"\n" ++
@@ -308,6 +312,7 @@ test "legacy shader unit declares extracted support dependencies" {
         "#include \"stwo_zig/blake2s.metal\"",
         "#include \"stwo_zig/m31.metal\"",
         "#include \"stwo_zig/extension_fields.metal\"",
+        "#include \"stwo_zig/circle.metal\"",
         "#include \"stwo_zig/felt252.metal\"",
         "#include \"stwo_zig/ec.metal\"",
         "#include \"stwo_zig/witness_abi.metal\"",
@@ -317,6 +322,24 @@ test "legacy shader unit declares extracted support dependencies" {
     for (dependencies) |dependency| {
         try std.testing.expect(std.mem.indexOf(u8, legacy_source, dependency) != null);
     }
+}
+
+test "circle support has one guarded helper owner and no exported kernels" {
+    const owned_definitions = [_][]const u8{
+        "struct CircleM31Value",
+        "inline uint circle_twiddle(",
+        "inline CircleM31Value circle_mul(",
+        "inline CircleM31Value circle_pow(",
+    };
+    for (owned_definitions) |definition| {
+        try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, circle_source, definition));
+        try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, amalgamated_source, definition));
+        try std.testing.expectEqual(@as(usize, 0), std.mem.count(u8, legacy_source, definition));
+    }
+    try std.testing.expect(std.mem.startsWith(u8, circle_source, "#ifndef STWO_ZIG_CIRCLE_METAL"));
+    try std.testing.expectEqual(@as(usize, 0), std.mem.count(u8, circle_source, "kernel void stwo_zig_"));
+    try std.testing.expect(std.mem.indexOf(u8, circle_source, "#include \"stwo_zig/base.metal\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, circle_source, "#include \"stwo_zig/m31.metal\"") != null);
 }
 
 test "Felt252 EC and witness support have explicit header ownership" {
