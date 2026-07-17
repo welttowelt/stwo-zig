@@ -150,6 +150,7 @@ const witness_tables_source = @embedFile("include/witness_tables.metal");
 const witness_deductions_source = @embedFile("include/witness_deductions.metal");
 const commitments_source = @embedFile("core/commitments.metal");
 const cairo_trace_source = @embedFile("cairo/trace.metal");
+const cairo_witness_feed_source = @embedFile("cairo/witness_feed.metal");
 const arena_ops_source = @embedFile("core/arena_ops.metal");
 const transcript_source = @embedFile("core/transcript.metal");
 const composition_source = @embedFile("core/composition.metal");
@@ -176,6 +177,7 @@ pub const translation_units = [_]TranslationUnit{
     .{ .path = "src/backends/metal/shaders/core/commitments.metal", .source = commitments_source },
     .{ .path = "src/backends/metal/kernels.metal", .source = legacy_source },
     .{ .path = "src/backends/metal/shaders/cairo/trace.metal", .source = cairo_trace_source },
+    .{ .path = "src/backends/metal/shaders/cairo/witness_feed.metal", .source = cairo_witness_feed_source },
     .{ .path = "src/backends/metal/shaders/core/arena_ops.metal", .source = arena_ops_source },
     .{ .path = "src/backends/metal/shaders/core/transcript.metal", .source = transcript_source },
     .{ .path = "src/backends/metal/shaders/core/composition.metal", .source = composition_source },
@@ -218,6 +220,8 @@ pub const amalgamated_source: [:0]const u8 = "#define STWO_ZIG_AMALGAMATED 1\n" 
     legacy_source ++
     "\n#line 1 \"src/backends/metal/shaders/cairo/trace.metal\"\n" ++
     cairo_trace_source ++
+    "\n#line 1 \"src/backends/metal/shaders/cairo/witness_feed.metal\"\n" ++
+    cairo_witness_feed_source ++
     "\n#line 1 \"src/backends/metal/shaders/core/arena_ops.metal\"\n" ++
     arena_ops_source ++
     "\n#line 1 \"src/backends/metal/shaders/core/transcript.metal\"\n" ++
@@ -399,6 +403,29 @@ test "Cairo trace kernels are isolated in their owning shader unit with a stable
     for (bindings) |binding| {
         const declaration = try kernelDeclaration(cairo_trace_source, binding.kernel);
         try std.testing.expect(std.mem.indexOf(u8, declaration, binding.argument) != null);
+    }
+}
+
+test "Cairo witness feed is isolated in its owning shader unit with a stable ABI" {
+    const name = "stwo_zig_witness_feed_counts";
+    try std.testing.expectEqual(@as(usize, 0), countKernelDeclarations(legacy_source, name));
+    try std.testing.expectEqual(@as(usize, 1), countKernelDeclarations(cairo_witness_feed_source, name));
+    try std.testing.expectEqual(@as(usize, 1), countKernelDeclarations(amalgamated_source, name));
+    try std.testing.expect(std.mem.indexOf(u8, cairo_witness_feed_source, "#include \"stwo_zig/base.metal\"") != null);
+
+    const declaration = try kernelDeclaration(cairo_witness_feed_source, name);
+    const arguments = [_][]const u8{
+        "device atomic_uint *arena [[buffer(0)]]",
+        "device const uint *descriptors [[buffer(1)]]",
+        "device const uint *luts [[buffer(2)]]",
+        "device const uint *destination_offsets [[buffer(3)]]",
+        "device const uint *source_offsets [[buffer(4)]]",
+        "constant uint &column_length [[buffer(5)]]",
+        "constant uint &descriptor_count [[buffer(6)]]",
+        "uint row [[thread_position_in_grid]]",
+    };
+    for (arguments) |argument| {
+        try std.testing.expect(std.mem.indexOf(u8, declaration, argument) != null);
     }
 }
 
