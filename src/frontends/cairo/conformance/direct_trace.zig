@@ -1,4 +1,4 @@
-//! CPU differential runner for directly seeded Cairo base-trace components.
+//! CPU differential runner for source-derived Cairo base-trace components.
 
 const std = @import("std");
 const adapter = @import("../adapter/mod.zig");
@@ -6,6 +6,7 @@ const claim_registry = @import("../claim_registry.zig");
 const witness_bundle = @import("../witness/bundle.zig");
 const direct_inputs = @import("../witness/direct_inputs.zig");
 const execution_tables = @import("../witness/execution_tables.zig");
+const verify_instruction_inputs = @import("../witness/verify_instruction_inputs.zig");
 const program = @import("../witness/program.zig");
 const checkpoint = @import("checkpoint.zig");
 const receipt = @import("receipt.zig");
@@ -60,8 +61,8 @@ pub const Error = error{
     AllocationSizeOverflow,
 };
 
-/// Compares only components whose inputs are derived directly from the adapted
-/// execution. Receipt order is authoritative; bundle order is never observed
+/// Compares directly seeded components and the compacted `verify_instruction`
+/// consumer. Receipt order is authoritative; bundle order is never observed
 /// except to locate a program by label.
 pub fn compare(
     allocator: std.mem.Allocator,
@@ -74,12 +75,25 @@ pub fn compare(
     var skipped_components: usize = 0;
 
     for (expected_components) |expected| {
+        if (std.mem.eql(u8, expected.label, "verify_instruction")) {
+            var compact = try verify_instruction_inputs.gather(allocator, input);
+            defer compact.deinit();
+            if (try compareComponent(allocator, input, try entryProgram(bundle, expected.label), compact, expected)) |mismatch| {
+                return .{
+                    .allocator = allocator,
+                    .matches = try matches.toOwnedSlice(allocator),
+                    .skipped_components = skipped_components,
+                    .mismatch = mismatch,
+                };
+            }
+            try appendMatch(allocator, &matches, expected);
+            continue;
+        }
         const direct = try direct_inputs.resolve(input, expected.label) orelse {
             skipped_components += 1;
             continue;
         };
-        const entry = bundle.find(expected.label) orelse return Error.MissingWitnessProgram;
-        if (try compareComponent(allocator, input, entry.program, direct, expected)) |mismatch| {
+        if (try compareComponent(allocator, input, try entryProgram(bundle, expected.label), direct, expected)) |mismatch| {
             return .{
                 .allocator = allocator,
                 .matches = try matches.toOwnedSlice(allocator),
@@ -87,12 +101,7 @@ pub fn compare(
                 .mismatch = mismatch,
             };
         }
-        try matches.append(allocator, .{
-            .ordinal = expected.ordinal,
-            .label = expected.label,
-            .row_count = expected.columns[0].row_count,
-            .column_count = @intCast(expected.columns.len),
-        });
+        try appendMatch(allocator, &matches, expected);
     }
 
     return .{
@@ -103,14 +112,28 @@ pub fn compare(
     };
 }
 
+fn entryProgram(bundle: *const witness_bundle.Bundle, label: []const u8) Error!program.Program {
+    const entry = bundle.find(label) orelse return Error.MissingWitnessProgram;
+    return entry.program;
+}
+
+fn appendMatch(allocator: std.mem.Allocator, matches: *std.ArrayList(Match), expected: checkpoint.Component) !void {
+    try matches.append(allocator, .{
+        .ordinal = expected.ordinal,
+        .label = expected.label,
+        .row_count = expected.columns[0].row_count,
+        .column_count = @intCast(expected.columns.len),
+    });
+}
+
 fn compareComponent(
     allocator: std.mem.Allocator,
     input: *const adapter.ProverInput,
     witness_program: program.Program,
-    direct: direct_inputs.DirectInput,
+    source: anytype,
     expected: checkpoint.Component,
 ) !?Mismatch {
-    if (witness_program.n_inputs != direct.columnCount())
+    if (witness_program.n_inputs != source.columnCount())
         return Error.WitnessInputCountMismatch;
     if (expected.columns.len != witness_program.n_cols) return .{
         .kind = .column_count,
@@ -126,20 +149,20 @@ fn compareComponent(
         if (column.ordinal != column_index or column.row_count != row_count)
             return Error.InvalidReceiptGeometry;
     }
-    direct.validateRowCount(row_count) catch return Error.InvalidReceiptGeometry;
+    source.validateRowCount(row_count) catch return Error.InvalidReceiptGeometry;
 
-    const input_words = std.math.mul(usize, direct.columnCount(), row_count) catch
+    const input_words = std.math.mul(usize, source.columnCount(), row_count) catch
         return Error.AllocationSizeOverflow;
     const output_words = std.math.mul(usize, witness_program.n_cols, row_count) catch
         return Error.AllocationSizeOverflow;
     const input_storage = try allocator.alloc(u32, input_words);
     defer allocator.free(input_storage);
-    const input_columns = try allocator.alloc([]const u32, direct.columnCount());
+    const input_columns = try allocator.alloc([]const u32, source.columnCount());
     defer allocator.free(input_columns);
     for (input_columns, 0..) |*column, column_index| {
         const start = column_index * row_count;
         const values = input_storage[start .. start + row_count];
-        try direct.writeColumn(column_index, values);
+        try source.writeColumn(column_index, values);
         column.* = values;
     }
 
