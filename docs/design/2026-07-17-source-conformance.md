@@ -40,6 +40,10 @@ The first migration pass has established these boundaries without changing proof
   scalar, SIMD, and Metal paths; parity tests cover the corrected protocol behavior.
 - Cairo witness geometry is owned by the proof plan, and Cairo-to-Metal orchestration is under the
   integration layer rather than the frontend.
+- The 3,604-line, 90-entry-point Metal shader monolith has an explicit
+  [shader-library decomposition plan](2026-07-17-metal-shader-library-decomposition.md). The plan
+  preserves one linked core metallib and stable exported ABI while separating shader families and
+  replacing source-sentinel codegen coupling.
 - Resident arena planning, schedule selection, SN2 decommit geometry, and core FRI geometry have
   independent modules. Metal execution remains outside the pure scheduling layer.
 - `scripts/check_source_conformance.py` provides a blocking ratchet for dependency direction,
@@ -132,6 +136,10 @@ the hosted source graph. Keep algorithms and reusable declarations out of this f
 - Keep `mod.zig` files as explicit public maps, not implementation warehouses.
 - Add module docs to ownership boundaries and remove broad convenience exports that leak
   representation.
+- Extend source conformance to manually maintained `.metal` files and enforce shader include
+  direction, exported-symbol ownership, generated-file markers, and the 850-line ceiling. Follow
+  the staged [Metal shader plan](2026-07-17-metal-shader-library-decomposition.md); do not turn a
+  source split into new runtime libraries, dispatches, or cache dimensions.
 - Record temporary size exceptions with owners and next extraction boundaries.
 
 ### 4. RISC-V
@@ -172,7 +180,8 @@ having no intended semantic change.
 The migration is complete only when:
 
 - all dependency invariants are mechanically enforced;
-- no manually maintained file exceeds 850 lines without a documented, reviewed exception;
+- no manually maintained Zig or Metal file exceeds 850 lines without a documented, reviewed
+  exception;
 - Native Stwo and Cairo ownership boundaries match the target responsibilities;
 - public APIs pass the parity ledger and pinned Rust oracle gates;
 - the same checked-in CI entrypoint passes locally and in hosted CI;
