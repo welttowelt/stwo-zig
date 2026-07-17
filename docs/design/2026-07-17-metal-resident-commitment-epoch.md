@@ -354,3 +354,37 @@ by a 256-parent fused tail, reject zero parent counts, and reject undersized are
 bounded production callsite, all 65 Metal tests, source conformance, and API parity pass. This is a
 measured commitment-stage improvement; full-proof MHz still comes only from the formal transaction
 matrix and not from this isolated fixture.
+
+## Accepted Batched Resident Decommit Readback
+
+Commit `a8968f8` replaces one synchronous selective hash read per Merkle layer with one checked
+multi-layer blit and one wait per resident tree. The backend-neutral decommitter first derives the
+exact child-index sequence for every layer. Host trees retain the original sequential traversal with
+no new planner or allocation. A resident tree passes all layer requests to `Tree.copyHashesBatch`,
+which validates request count, shift bounds, layer bounds, index bounds, and total byte arithmetic
+in Zig and Objective-C before encoding. Duplicate indices, empty layer requests, and request order
+are preserved exactly.
+
+The production resident threshold remains `1 << 24`; forcing smaller trees onto Metal was used only
+to expose the synchronization architecture. Under that bounded forced mode, the result was:
+
+| Metric | Wide before | Wide batched | XOR before | XOR batched |
+| --- | ---: | ---: | ---: | ---: |
+| Selective read commands/proof | 87 | 12 | 98 | 13 |
+| Total Metal commands/proof | 123 | 48 | 137 | 52 |
+| Selective read wait/proof | 15.658 ms | 2.481 ms | 17.692 ms | 2.429 ms |
+| FRI decommit | 16.580 ms | 2.738 ms | 16.630 ms | 2.519 ms |
+| Trace decommit | 5.160 ms | 0.571 ms | 7.295 ms | 0.802 ms |
+| Complete prove | 36.789 ms | 17.351 ms | 39.005 ms | 17.355 ms |
+
+Normal-policy 15-sample XOR medians remained flat at 5.279 versus 5.274 ms prove time and 5.424
+versus 5.417 ms request time. Wide also showed no regression, but its faster same-machine movement
+was treated conservatively as system-sensitive rather than attributed to an inactive resident path.
+Both forced Wide and XOR proofs retained their exact established SHA-256 values and were accepted
+by the pinned Rust Stwo oracle. Direct tests cover duplicate and empty requests plus invalid layer,
+index, and shift bounds.
+
+This is resident infrastructure, not evidence that staging a small host trace into Metal is faster.
+Even after the readback reduction, forced-resident proofs remain slower than the production CPU
+small-tree policy. The result removes the decommit synchronization penalty required before an LDE
+or quotient producer can hand an already-resident allocation directly to Merkle commitment.
