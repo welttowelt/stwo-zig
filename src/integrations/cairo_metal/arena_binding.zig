@@ -3487,7 +3487,12 @@ pub fn prepareCompactWitnessInput(
         total_rows = std.math.add(u32, total_rows, std.math.mul(u32, producer_rows, edge.instances) catch return Error.InvalidBindingSize) catch return Error.InvalidBindingSize;
     }
     const descriptor_binding = try oneComponent(schedule, plan, "WitnessInputCompactDescriptors", consumer);
-    if (descriptor_binding.size_bytes != descriptors.items.len * 4) return Error.InvalidCardinality;
+    const descriptor_bytes = std.math.mul(u64, descriptors.items.len, @sizeOf(u32)) catch
+        return Error.InvalidCardinality;
+    if (descriptor_bytes == 0 or descriptor_binding.size_bytes < descriptor_bytes)
+        return Error.InvalidCardinality;
+    var descriptor_destination = descriptor_binding;
+    descriptor_destination.size_bytes = descriptor_bytes;
     const key_a = try oneComponentOrdinal(schedule, plan, "WitnessInputCompactSortKey", consumer, 0);
     const key_b = try oneComponentOrdinal(schedule, plan, "WitnessInputCompactSortKey", consumer, 1);
     const index_a = try oneComponentOrdinal(schedule, plan, "WitnessInputCompactSortIndex", consumer, 0);
@@ -3496,7 +3501,7 @@ pub fn prepareCompactWitnessInput(
     return protocol_recipes.CompactRecipe.init(allocator, metal, resident_arena, .{
         .sources = sources.items,
         .descriptors = descriptors.items,
-        .descriptor_destination = descriptor_binding,
+        .descriptor_destination = descriptor_destination,
         .outputs = outputs,
         .tuple_words = geometry.tuple_words,
         .key_words = geometry.key_words,
