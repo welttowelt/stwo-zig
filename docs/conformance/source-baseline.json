@@ -255,11 +255,6 @@
       "key": "root-source:riscv_trace_cli.zig",
       "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
       "plan": "docs/design/2026-07-17-source-conformance.md"
-    },
-    {
-      "key": "root-source:std_shims_freestanding.zig",
-      "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
-      "plan": "docs/design/2026-07-17-source-conformance.md"
     }
   ]
 }

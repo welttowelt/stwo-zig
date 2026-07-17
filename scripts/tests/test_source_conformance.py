@@ -5,7 +5,7 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
-from scripts.check_source_conformance import Finding, load_baseline, main, scan, write_baseline
+from scripts.check_source_conformance import ROOT_ALLOWLIST, Finding, load_baseline, main, scan, write_baseline
 
 
 class SourceConformanceTests(unittest.TestCase):
@@ -33,6 +33,14 @@ class SourceConformanceTests(unittest.TestCase):
                 "// Generated file. Generator: tools/example.zig\n" + "\n" * 900,
                 encoding="utf-8",
             )
+            self.assertEqual([], scan(repo))
+
+    def test_deliberate_module_roots_are_allowed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary)
+            (repo / "src").mkdir()
+            for name in ROOT_ALLOWLIST:
+                (repo / "src" / name).write_text("pub const marker = true;\n", encoding="utf-8")
             self.assertEqual([], scan(repo))
 
     def test_baseline_round_trip_requires_explanations(self) -> None:

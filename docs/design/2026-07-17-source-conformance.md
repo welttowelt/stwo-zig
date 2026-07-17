@@ -72,6 +72,7 @@ entry in the same change.
 ```text
 src/
 |-- stwo.zig
+|-- std_shims_freestanding.zig  alternate freestanding verifier build root
 |-- core/                       protocol, fields, verifier
 |-- backend/                    backend capability contracts
 |-- prover/                     generic proving algorithms
@@ -93,6 +94,11 @@ src/
 
 The layout is introduced only where an ownership boundary is ready. Empty scaffolding and shallow
 forwarders are not acceptable.
+
+`std_shims_freestanding.zig` is an intentional build root rather than misplaced implementation
+code. It contains only the declarations needed to establish the freestanding verifier's Zig module
+boundary; moving it below a directory changes relative import ownership and makes the verifier pull
+the hosted source graph. Keep algorithms and reusable declarations out of this file.
 
 ## Migration Sequence
 

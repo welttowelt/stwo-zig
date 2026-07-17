@@ -348,6 +348,10 @@ request traverses all of them.
 Avoid wildcard namespace injection and broad re-export trees. Import the defining module and use a
 qualified name when it adds useful context.
 
+The `src/` root may also contain a minimal build entry point when Zig's module-root semantics
+require one. `src/std_shims_freestanding.zig` is the deliberate example: it establishes the
+freestanding verifier import boundary and must not accumulate reusable implementation code.
+
 ### No junk drawers
 
 Do not add `utils.zig`, `helpers.zig`, `common.zig`, or `manager.zig` unless the name describes a

@@ -14,7 +14,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BASELINE = ROOT / "docs/conformance/source-baseline.json"
 IMPORT_RE = re.compile(r'@import\("([^"\n]+)"\)')
-ROOT_ALLOWLIST = frozenset({"stwo.zig", "stwo_deep.zig", "tests.zig"})
+ROOT_ALLOWLIST = frozenset({
+    "std_shims_freestanding.zig",
+    "stwo.zig",
+    "stwo_deep.zig",
+    "tests.zig",
+})
 FORBIDDEN_TARGETS = {
     "core": frozenset({"backend", "backends", "prover", "frontends", "integrations", "examples", "bench", "tools"}),
     "backend": frozenset({"backends", "frontends", "integrations", "examples", "tools"}),
