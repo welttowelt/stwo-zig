@@ -152,6 +152,7 @@ const commitments_source = @embedFile("core/commitments.metal");
 const arena_ops_source = @embedFile("core/arena_ops.metal");
 const transcript_source = @embedFile("core/transcript.metal");
 const composition_source = @embedFile("core/composition.metal");
+const relation_source = @embedFile("core/relation.metal");
 const polynomial_eval_source = @embedFile("core/polynomial_eval.metal");
 
 pub const support_headers = [_]TranslationUnit{
@@ -176,6 +177,7 @@ pub const translation_units = [_]TranslationUnit{
     .{ .path = "src/backends/metal/shaders/core/arena_ops.metal", .source = arena_ops_source },
     .{ .path = "src/backends/metal/shaders/core/transcript.metal", .source = transcript_source },
     .{ .path = "src/backends/metal/shaders/core/composition.metal", .source = composition_source },
+    .{ .path = "src/backends/metal/shaders/core/relation.metal", .source = relation_source },
     .{ .path = "src/backends/metal/shaders/core/polynomial_eval.metal", .source = polynomial_eval_source },
 };
 
@@ -218,6 +220,8 @@ pub const amalgamated_source: [:0]const u8 = "#define STWO_ZIG_AMALGAMATED 1\n" 
     transcript_source ++
     "\n#line 1 \"src/backends/metal/shaders/core/composition.metal\"\n" ++
     composition_source ++
+    "\n#line 1 \"src/backends/metal/shaders/core/relation.metal\"\n" ++
+    relation_source ++
     "\n#line 1 \"src/backends/metal/shaders/core/polynomial_eval.metal\"\n" ++
     polynomial_eval_source ++ "\x00";
 
@@ -327,6 +331,40 @@ test "composition kernels are isolated in their owning shader unit" {
     };
     for (dependencies) |dependency| {
         try std.testing.expect(std.mem.indexOf(u8, composition_source, dependency) != null);
+    }
+}
+
+test "relation kernels are isolated in their owning shader unit with a stable ABI" {
+    const names = [_][]const u8{
+        "stwo_zig_relation_fused",
+        "stwo_zig_relation_block_scan",
+        "stwo_zig_relation_scan_blocks",
+        "stwo_zig_relation_scan_finalize",
+    };
+    for (names) |name| {
+        try std.testing.expectEqual(@as(usize, 0), countKernelDeclarations(legacy_source, name));
+        try std.testing.expectEqual(@as(usize, 1), countKernelDeclarations(relation_source, name));
+        try std.testing.expectEqual(@as(usize, 1), countKernelDeclarations(amalgamated_source, name));
+    }
+
+    const dependencies = [_][]const u8{
+        "#include \"stwo_zig/base.metal\"",
+        "#include \"stwo_zig/m31.metal\"",
+        "#include \"stwo_zig/extension_fields.metal\"",
+    };
+    for (dependencies) |dependency| {
+        try std.testing.expect(std.mem.indexOf(u8, relation_source, dependency) != null);
+    }
+
+    const abi_fragments = [_][]const u8{
+        "device const Qm31Value *z_ptr [[buffer(6)]], constant uint &instance_count [[buffer(7)]]",
+        "constant uint &instance_count [[buffer(4)]], uint lane [[thread_index_in_threadgroup]]",
+        "uint group [[threadgroup_position_in_grid]]",
+        "device Qm31Value *block_sums [[buffer(2)]], constant uint &instance_count [[buffer(3)]]",
+        "device const Qm31Value *block_sums [[buffer(3)]],\n    constant uint &instance_count [[buffer(4)]], uint index [[thread_position_in_grid]]",
+    };
+    for (abi_fragments) |fragment| {
+        try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, relation_source, fragment));
     }
 }
 
