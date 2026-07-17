@@ -19,7 +19,7 @@ from .artifacts import (
     run_lane,
     sha256_file,
 )
-from .contract import validate_pair, validate_report
+from .contract import validate_pair, validate_proof_artifact, validate_report
 from .model import (
     LANES,
     MAX_COMMITTED_TRACE_CELLS,
@@ -105,6 +105,7 @@ def summarize_lane(
     workload: Workload,
 ) -> dict[str, Any]:
     report = execution["report"]
+    artifact = execution["proof_artifact"]
     return {
         "display_name": "Zig CPU/SIMD" if execution["lane"] == "cpu" else "Zig Metal",
         "backend": report["backend"],
@@ -119,6 +120,13 @@ def summarize_lane(
             "bytes": fingerprint[1],
             "verified_samples": report["proof"]["verified_samples"],
             "all_samples_byte_identical": report["proof"]["all_samples_byte_identical"],
+        },
+        "proof_artifact": {
+            "path": relative_to_output(artifact["path"], output_dir),
+            "bytes": artifact["bytes"],
+            "sha256": artifact["sha256"],
+            "proof_bytes": artifact["proof_bytes"],
+            "proof_sha256": artifact["proof_sha256"],
         },
         "metrics": lane_metrics(report, workload),
         "backend_telemetry": report.get("backend_telemetry"),
@@ -178,6 +186,14 @@ def _run_matrix_locked(
             )
             fingerprints[lane] = fingerprint
             blockers.extend(lane_blockers)
+            validate_proof_artifact(
+                executions[lane]["report"],
+                lane,
+                workload,
+                args,
+                executions[lane]["proof_artifact"],
+                fingerprint,
+            )
         validate_pair(
             executions["cpu"]["report"],
             executions["metal"]["report"],

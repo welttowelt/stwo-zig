@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import copy
+import hashlib
 import importlib.util
 import io
 import json
@@ -19,6 +20,62 @@ SPEC = importlib.util.spec_from_file_location("native_proof_matrix", MODULE_PATH
 MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(MODULE)
+
+
+PROOF_WIRE_BYTES = json.dumps(
+    {
+        "config": {},
+        "commitments": [],
+        "sampled_values": [],
+        "decommitments": [],
+        "queried_values": [],
+        "proof_of_work": 0,
+        "fri_proof": {},
+    },
+    separators=(",", ":"),
+).encode()
+PROOF_WIRE_SHA256 = hashlib.sha256(PROOF_WIRE_BYTES).hexdigest()
+INTEROP_UPSTREAM_COMMIT = "a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2"
+INTEROP_EXCHANGE_MODE = "proof_exchange_json_wire_v1"
+
+
+def write_proof_artifact(
+    path: Path,
+    workload: MODULE.Workload,
+    proof_bytes: bytes = PROOF_WIRE_BYTES,
+    *,
+    upstream_commit: str = INTEROP_UPSTREAM_COMMIT,
+) -> None:
+    document = {
+        "schema_version": 1,
+        "upstream_commit": upstream_commit,
+        "exchange_mode": INTEROP_EXCHANGE_MODE,
+        "generator": "zig",
+        "example": "wide_fibonacci",
+        "prove_mode": "prove",
+        "pcs_config": {
+            "pow_bits": 10,
+            "fri_config": {
+                "log_blowup_factor": 1,
+                "log_last_layer_degree_bound": 0,
+                "n_queries": 3,
+                "fold_step": 1,
+            },
+            "lifting_log_size": None,
+        },
+        "blake_statement": None,
+        "plonk_statement": None,
+        "poseidon_statement": None,
+        "state_machine_statement": None,
+        "wide_fibonacci_statement": {
+            "log_n_rows": workload.log_rows,
+            "sequence_len": workload.sequence_len,
+        },
+        "xor_statement": None,
+        "proof_bytes_hex": proof_bytes.hex(),
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(document) + "\n")
 
 
 def pipeline_cache() -> dict[str, int | float]:
@@ -54,6 +111,8 @@ def make_report(
     digest: str = "a" * 64,
     dirty: bool = False,
     telemetry_valid: bool = True,
+    artifact_path: Path | None = None,
+    proof_bytes: int = 128,
 ) -> dict[str, object]:
     prove_seconds = 2.0 if lane == "cpu" else 1.0
     request_seconds = 2.5 if lane == "cpu" else 1.25
@@ -100,6 +159,23 @@ def make_report(
             "total_cpu_fallbacks": warmups + samples,
             "valid": telemetry_valid,
         }
+    proof = {
+        "samples": [
+            {"bytes": proof_bytes, "sha256": digest} for _ in range(samples)
+        ],
+        "verified_samples": samples,
+        "all_samples_byte_identical": True,
+    }
+    if artifact_path is not None:
+        proof["artifact"] = {
+            "path": str(artifact_path),
+            "sample_index": 0,
+            "bytes": proof_bytes,
+            "sha256": digest,
+            "artifact_schema_version": 1,
+            "upstream_commit": INTEROP_UPSTREAM_COMMIT,
+            "exchange_mode": INTEROP_EXCHANGE_MODE,
+        }
     return {
         "schema_version": 1,
         "backend": "cpu_native" if lane == "cpu" else "metal_hybrid",
@@ -135,13 +211,7 @@ def make_report(
             ),
             **workload.as_dict(),
         },
-        "proof": {
-            "samples": [
-                {"bytes": 128, "sha256": digest} for _ in range(samples)
-            ],
-            "verified_samples": samples,
-            "all_samples_byte_identical": True,
-        },
+        "proof": proof,
         "backend_telemetry": telemetry,
         "timing": {
             "backend_init_seconds": 0.1,
@@ -271,9 +341,17 @@ class NativeProofMatrixTests(unittest.TestCase):
                 calls.append(lane)
                 log_rows = int(command[command.index("--log-rows") + 1])
                 sequence_len = int(command[command.index("--sequence-len") + 1])
+                artifact_path = Path(
+                    command[command.index("--proof-artifact-out") + 1]
+                )
+                workload = MODULE.Workload(log_rows, sequence_len)
+                write_proof_artifact(artifact_path, workload)
                 report = make_report(
                     lane,
-                    MODULE.Workload(log_rows, sequence_len),
+                    workload,
+                    digest=PROOF_WIRE_SHA256,
+                    artifact_path=artifact_path,
+                    proof_bytes=len(PROOF_WIRE_BYTES),
                 )
                 return subprocess.CompletedProcess(
                     command,
@@ -321,6 +399,10 @@ class NativeProofMatrixTests(unittest.TestCase):
                 len(document["rows"][0]["lanes"]["cpu"]["stdout_sha256"]),
                 64,
             )
+            artifact_summary = document["rows"][0]["lanes"]["cpu"]["proof_artifact"]
+            self.assertEqual(artifact_summary["proof_sha256"], PROOF_WIRE_SHA256)
+            self.assertEqual(artifact_summary["proof_bytes"], len(PROOF_WIRE_BYTES))
+            self.assertEqual(len(artifact_summary["sha256"]), 64)
             self.assertEqual(
                 document["correctness_scope"]["classification"],
                 "zig_cross_backend_parity",
@@ -435,6 +517,73 @@ class NativeProofMatrixTests(unittest.TestCase):
                     MODULE.run_lane("cpu", binary, workload, args, artifact_dir)
             self.assertEqual((artifact_dir / "cpu.stdout.json").read_bytes(), b"partial stdout")
             self.assertEqual((artifact_dir / "cpu.stderr.txt").read_bytes(), b"fatal stderr")
+
+    def test_success_without_requested_proof_artifact_is_fatal(self):
+        workload = MODULE.Workload(8, 4)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            binary = root / "native-proof-bench-cpu"
+            binary.write_bytes(b"fixture")
+            binary.chmod(0o755)
+            args = make_args(root / "out", binary, binary, [workload])
+            completed = subprocess.CompletedProcess(
+                [str(binary)],
+                0,
+                stdout=json.dumps(make_report("cpu", workload)).encode(),
+                stderr=b"",
+            )
+            with mock.patch.object(MODULE.subprocess, "run", return_value=completed):
+                with self.assertRaisesRegex(MODULE.MatrixError, "was not produced"):
+                    MODULE.run_lane("cpu", binary, workload, args, root / "out/row")
+
+    def test_mutated_report_artifact_binding_is_fatal(self):
+        workload = MODULE.Workload(8, 4)
+        args = argparse.Namespace(samples=2, warmups=1, protocol="functional")
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "proof.json"
+            write_proof_artifact(path, workload)
+            artifact = MODULE.load_proof_artifact(path, "cpu")
+            report = make_report(
+                "cpu",
+                workload,
+                digest=PROOF_WIRE_SHA256,
+                artifact_path=path,
+                proof_bytes=len(PROOF_WIRE_BYTES),
+            )
+            fingerprint, _ = MODULE.validate_report(report, "cpu", workload, args)
+            report["proof"]["artifact"]["sample_index"] = 1
+            with self.assertRaisesRegex(MODULE.MatrixError, "binding does not match"):
+                MODULE.validate_proof_artifact(
+                    report, "cpu", workload, args, artifact, fingerprint
+                )
+
+    def test_mutated_artifact_proof_and_pinned_metadata_are_fatal(self):
+        workload = MODULE.Workload(8, 4)
+        args = argparse.Namespace(samples=2, warmups=1, protocol="functional")
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "proof.json"
+            report = make_report(
+                "cpu",
+                workload,
+                digest=PROOF_WIRE_SHA256,
+                artifact_path=path,
+                proof_bytes=len(PROOF_WIRE_BYTES),
+            )
+            fingerprint, _ = MODULE.validate_report(report, "cpu", workload, args)
+
+            write_proof_artifact(path, workload, PROOF_WIRE_BYTES + b" ")
+            artifact = MODULE.load_proof_artifact(path, "cpu")
+            with self.assertRaisesRegex(MODULE.MatrixError, r"(byte length|digest) disagrees"):
+                MODULE.validate_proof_artifact(
+                    report, "cpu", workload, args, artifact, fingerprint
+                )
+
+            write_proof_artifact(path, workload, upstream_commit="0" * 40)
+            artifact = MODULE.load_proof_artifact(path, "cpu")
+            with self.assertRaisesRegex(MODULE.MatrixError, "invalid upstream_commit"):
+                MODULE.validate_proof_artifact(
+                    report, "cpu", workload, args, artifact, fingerprint
+                )
 
     def test_oversized_stdout_still_publishes_stderr(self):
         workload = MODULE.Workload(8, 4)

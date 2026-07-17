@@ -3,11 +3,12 @@
 from .artifacts import (
     atomic_write_bytes,
     atomic_write_json,
+    load_proof_artifact,
     output_dir_lock,
     require_unprofiled_environment,
     run_lane,
 )
-from .contract import validate_pair, validate_report
+from .contract import validate_pair, validate_proof_artifact, validate_report
 from .controller import run_matrix
 from .model import (
     BACKEND_COUNTER_KEYS,
@@ -42,12 +43,14 @@ __all__ = [
     "Workload",
     "atomic_write_bytes",
     "atomic_write_json",
+    "load_proof_artifact",
     "output_dir_lock",
     "parse_workload",
     "run_lane",
     "run_matrix",
     "require_unprofiled_environment",
     "validate_pair",
+    "validate_proof_artifact",
     "validate_report",
     "validate_workload",
     "workload_descriptor_sha256",

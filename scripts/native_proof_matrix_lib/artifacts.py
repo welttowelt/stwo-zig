@@ -24,6 +24,7 @@ PROFILE_ENV_VARS = (
 )
 MAX_STDOUT_BYTES = 64 * 1024 * 1024
 MAX_STDERR_BYTES = 64 * 1024 * 1024
+MAX_PROOF_ARTIFACT_BYTES = 64 * 1024 * 1024
 
 
 def sha256_file(path: Path) -> str:
@@ -159,12 +160,56 @@ def decode_report(stdout: bytes, lane: str) -> dict[str, Any]:
     return document
 
 
+def load_proof_artifact(path: Path, lane: str) -> dict[str, Any]:
+    try:
+        with path.open("rb") as source:
+            raw = source.read(MAX_PROOF_ARTIFACT_BYTES + 1)
+    except FileNotFoundError as error:
+        raise MatrixError(f"{lane} proof artifact was not produced: {path}") from error
+    if len(raw) > MAX_PROOF_ARTIFACT_BYTES:
+        raise MatrixError(
+            f"{lane} proof artifact exceeds {MAX_PROOF_ARTIFACT_BYTES} byte limit"
+        )
+    try:
+        document = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise MatrixError(f"{lane} proof artifact is not valid UTF-8 JSON") from error
+    if not isinstance(document, dict):
+        raise MatrixError(f"{lane} proof artifact root must be an object")
+
+    proof_hex = document.get("proof_bytes_hex")
+    if (
+        not isinstance(proof_hex, str)
+        or len(proof_hex) == 0
+        or len(proof_hex) % 2 != 0
+        or any(character not in "0123456789abcdef" for character in proof_hex)
+    ):
+        raise MatrixError(f"{lane} proof artifact has noncanonical proof_bytes_hex")
+    proof_bytes = bytes.fromhex(proof_hex)
+    try:
+        proof_wire = json.loads(proof_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise MatrixError(f"{lane} artifact proof bytes are not JSON wire data") from error
+    if not isinstance(proof_wire, dict):
+        raise MatrixError(f"{lane} artifact proof wire root must be an object")
+
+    return {
+        "path": path,
+        "bytes": len(raw),
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "document": document,
+        "proof_bytes": len(proof_bytes),
+        "proof_sha256": hashlib.sha256(proof_bytes).hexdigest(),
+    }
+
+
 def lane_command(
     binary: Path,
     workload: Workload,
     warmups: int,
     samples: int,
     protocol: str,
+    proof_artifact_path: Path,
 ) -> list[str]:
     return [
         str(binary),
@@ -178,6 +223,8 @@ def lane_command(
         str(samples),
         "--protocol",
         protocol,
+        "--proof-artifact-out",
+        str(proof_artifact_path),
     ]
 
 
@@ -188,10 +235,20 @@ def run_lane(
     args: argparse.Namespace,
     artifact_dir: Path,
 ) -> dict[str, Any]:
-    command = lane_command(binary, workload, args.warmups, args.samples, args.protocol)
     stdout_path = artifact_dir / f"{lane}.stdout.json"
     stderr_path = artifact_dir / f"{lane}.stderr.txt"
+    proof_artifact_path = artifact_dir / f"{lane}.proof-artifact.json"
     artifact_dir.mkdir(parents=True, exist_ok=True)
+    if proof_artifact_path.exists():
+        raise MatrixError(f"refusing to overwrite proof artifact: {proof_artifact_path}")
+    command = lane_command(
+        binary,
+        workload,
+        args.warmups,
+        args.samples,
+        args.protocol,
+        proof_artifact_path,
+    )
     stdout_capture = tempfile.NamedTemporaryFile(
         dir=artifact_dir,
         prefix=f".{lane}.stdout.",
@@ -249,4 +306,5 @@ def run_lane(
         "stdout_path": stdout_path,
         "stderr_path": stderr_path,
         "report": decode_report(stdout, lane),
+        "proof_artifact": load_proof_artifact(proof_artifact_path, lane),
     }

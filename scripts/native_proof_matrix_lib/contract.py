@@ -11,6 +11,9 @@ from .model import (
     BACKEND_COUNTER_KEYS,
     EXPECTED_BACKENDS,
     HEADLINE_REQUIREMENT_KEYS,
+    INTEROP_ARTIFACT_SCHEMA_VERSION,
+    INTEROP_EXCHANGE_MODE,
+    INTEROP_UPSTREAM_COMMIT,
     PIPELINE_CACHE_COUNTER_KEYS,
     PIPELINE_CACHE_SECONDS_KEY,
     PROTOCOL_PRESETS,
@@ -21,6 +24,33 @@ from .model import (
     Workload,
     workload_descriptor_sha256,
 )
+
+
+ARTIFACT_KEYS = {
+    "schema_version",
+    "upstream_commit",
+    "exchange_mode",
+    "generator",
+    "example",
+    "prove_mode",
+    "pcs_config",
+    "blake_statement",
+    "plonk_statement",
+    "poseidon_statement",
+    "state_machine_statement",
+    "wide_fibonacci_statement",
+    "xor_statement",
+    "proof_bytes_hex",
+}
+ARTIFACT_BINDING_KEYS = {
+    "path",
+    "sample_index",
+    "bytes",
+    "sha256",
+    "artifact_schema_version",
+    "upstream_commit",
+    "exchange_mode",
+}
 
 
 def require_object(parent: dict[str, Any], key: str, context: str) -> dict[str, Any]:
@@ -90,6 +120,78 @@ def proof_fingerprint(report: dict[str, Any], lane: str, samples: int) -> tuple[
     if len(set(fingerprints)) != 1:
         raise MatrixError(f"{lane} proof fingerprints disagree despite byte-identity claim")
     return fingerprints[0]
+
+
+def validate_proof_artifact(
+    report: dict[str, Any],
+    lane: str,
+    workload: Workload,
+    args: argparse.Namespace,
+    artifact: dict[str, Any],
+    fingerprint: tuple[str, int],
+) -> None:
+    proof = require_object(report, "proof", lane)
+    binding = require_object(proof, "artifact", f"{lane}.proof")
+    require_exact_keys(binding, ARTIFACT_BINDING_KEYS, f"{lane}.proof.artifact")
+    expected_binding = {
+        "path": str(artifact["path"]),
+        "sample_index": 0,
+        "bytes": fingerprint[1],
+        "sha256": fingerprint[0],
+        "artifact_schema_version": INTEROP_ARTIFACT_SCHEMA_VERSION,
+        "upstream_commit": INTEROP_UPSTREAM_COMMIT,
+        "exchange_mode": INTEROP_EXCHANGE_MODE,
+    }
+    if binding != expected_binding:
+        raise MatrixError(f"{lane} proof artifact binding does not match sample 0")
+
+    document = artifact["document"]
+    if not isinstance(document, dict):
+        raise MatrixError(f"{lane} proof artifact root must be an object")
+    require_exact_keys(document, ARTIFACT_KEYS, f"{lane}.proof_artifact")
+    expected_headers = {
+        "schema_version": INTEROP_ARTIFACT_SCHEMA_VERSION,
+        "upstream_commit": INTEROP_UPSTREAM_COMMIT,
+        "exchange_mode": INTEROP_EXCHANGE_MODE,
+        "generator": "zig",
+        "example": "wide_fibonacci",
+        "prove_mode": "prove",
+    }
+    for key, expected in expected_headers.items():
+        if document.get(key) != expected:
+            raise MatrixError(f"{lane} proof artifact has invalid {key}")
+
+    protocol = PROTOCOL_PRESETS[args.protocol]
+    expected_pcs_config = {
+        "pow_bits": protocol["pow_bits"],
+        "fri_config": {
+            "log_blowup_factor": protocol["log_blowup_factor"],
+            "log_last_layer_degree_bound": protocol["log_last_layer_degree_bound"],
+            "n_queries": protocol["n_queries"],
+            "fold_step": protocol["fold_step"],
+        },
+        "lifting_log_size": None,
+    }
+    if document.get("pcs_config") != expected_pcs_config:
+        raise MatrixError(f"{lane} proof artifact PCS config does not match request")
+    if document.get("wide_fibonacci_statement") != {
+        "log_n_rows": workload.log_rows,
+        "sequence_len": workload.sequence_len,
+    }:
+        raise MatrixError(f"{lane} proof artifact statement does not match request")
+    for key in (
+        "blake_statement",
+        "plonk_statement",
+        "poseidon_statement",
+        "state_machine_statement",
+        "xor_statement",
+    ):
+        if document.get(key) is not None:
+            raise MatrixError(f"{lane} proof artifact has unexpected {key}")
+    if artifact["proof_bytes"] != fingerprint[1]:
+        raise MatrixError(f"{lane} proof artifact byte length disagrees with sample 0")
+    if artifact["proof_sha256"] != fingerprint[0]:
+        raise MatrixError(f"{lane} proof artifact digest disagrees with sample 0")
 
 
 def validate_counter_object(value: Any, context: str) -> dict[str, int]:
