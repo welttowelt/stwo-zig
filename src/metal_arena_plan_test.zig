@@ -9,6 +9,7 @@ const relation_bundle = @import("frontends/cairo/witness/relation_bundle.zig");
 const fixed_table_bundle = @import("frontends/cairo/witness/fixed_table_bundle.zig");
 const resident_verifier = @import("frontends/cairo/witness/resident_verifier.zig");
 const arena_lifetime = @import("frontends/cairo/arena_lifetime.zig");
+const schedule_bindings = @import("integrations/cairo_metal/schedule_bindings.zig");
 
 test {
     std.testing.refAllDecls(recovery);
@@ -19,6 +20,7 @@ test {
     std.testing.refAllDecls(relation_bundle);
     std.testing.refAllDecls(fixed_table_bundle);
     std.testing.refAllDecls(resident_verifier);
+    std.testing.refAllDecls(schedule_bindings);
 }
 
 test "sparse Metal plan enforces budget and aliases disjoint epochs" {

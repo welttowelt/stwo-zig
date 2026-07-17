@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const arena_plan = @import("../../backends/metal/arena_plan.zig");
+const schedule_bindings = @import("schedule_bindings.zig");
 const metal_runtime = @import("../../backends/metal/runtime.zig");
 const protocol_recipes = @import("../../backends/metal/protocol_recipes.zig");
 const transcript_fixture = @import("../../backends/metal/cairo/diagnostics/transcript_fixture.zig");
@@ -70,16 +71,8 @@ pub const CommitmentTelemetry = struct {
     root: arena_plan.Binding,
 };
 
-pub const OrdinalBinding = struct {
-    ordinal: u32,
-    binding: arena_plan.Binding,
-};
-
-pub const NamedBinding = struct {
-    component: []const u8,
-    ordinal: u32,
-    binding: arena_plan.Binding,
-};
+pub const OrdinalBinding = schedule_bindings.OrdinalBinding;
+pub const NamedBinding = schedule_bindings.NamedBinding;
 
 pub const DecommitTraceCoefficientBindings = struct {
     pointers: arena_plan.Binding,
@@ -129,23 +122,22 @@ const OwnedSn2DecommitBindings = struct {
     }
 };
 
-const NamedGroupRange = struct { start: usize, len: usize };
-
-fn namedGroupRanges(allocator: std.mem.Allocator, items: []const NamedBinding) ![]NamedGroupRange {
-    if (items.len == 0) return allocator.alloc(NamedGroupRange, 0);
-    var groups = std.ArrayList(NamedGroupRange).empty;
-    errdefer groups.deinit(allocator);
-    var start: usize = 0;
-    while (start < items.len) {
-        if (items[start].ordinal != 0) return Error.InvalidSchedule;
-        var end = start + 1;
-        while (end < items.len and items[end].ordinal != 0) : (end += 1) {}
-        for (items[start..end], 0..) |item, expected| if (item.ordinal != expected) return Error.InvalidSchedule;
-        try groups.append(allocator, .{ .start = start, .len = end - start });
-        start = end;
-    }
-    return groups.toOwnedSlice(allocator);
-}
+const NamedGroupRange = schedule_bindings.NamedGroupRange;
+const purpose = schedule_bindings.purpose;
+const logicalId = schedule_bindings.logicalId;
+const ordinal = schedule_bindings.ordinal;
+const componentName = schedule_bindings.componentName;
+const one = schedule_bindings.one;
+const oneOrdinal = schedule_bindings.oneOrdinal;
+const oneComponent = schedule_bindings.oneComponent;
+const oneComponentOrdinal = schedule_bindings.oneComponentOrdinal;
+const collect = schedule_bindings.collect;
+const collectOrdinals = schedule_bindings.collectOrdinals;
+const collectScheduleOrder = schedule_bindings.collectScheduleOrder;
+const collectComponent = schedule_bindings.collectComponent;
+const collectComponentBindingGroups = schedule_bindings.collectComponentBindingGroups;
+const collectNamed = schedule_bindings.collectNamed;
+const namedGroupRanges = schedule_bindings.namedGroupRanges;
 
 fn countFixedRelationTraces(traces: []const relation_bundle_mod.Trace) usize {
     var count: usize = 0;
@@ -1775,7 +1767,7 @@ pub fn restoreFixedTablePreprocessedEvaluations(
     var wanted = [_]bool{false} ** 161;
     for (fixed_bundle.entries) |entry| {
         const lookups = collectComponent(allocator, schedule, plan, "LookupInputs", entry.component) catch |err| switch (err) {
-            Error.MissingBinding => continue,
+            schedule_bindings.Error.MissingBinding => continue,
             else => return err,
         };
         allocator.free(lookups);
@@ -1957,7 +1949,7 @@ pub fn prepareFixedTableBatch(
     }
     for (fixed_bundle.entries) |entry| {
         const destination = oneComponent(schedule, plan, "LookupInputs", entry.component) catch |err| switch (err) {
-            Error.MissingBinding => continue,
+            schedule_bindings.Error.MissingBinding => continue,
             else => return err,
         };
         const sources = try allocator.alloc(arena_plan.Binding, entry.preprocessed_sources.len);
@@ -2014,7 +2006,7 @@ pub fn fixedLookupIndex(
     var found: ?usize = null;
     for (fixed_bundle.entries) |entry| {
         _ = oneComponent(schedule, plan, "LookupInputs", entry.component) catch |err| switch (err) {
-            Error.MissingBinding => continue,
+            schedule_bindings.Error.MissingBinding => continue,
             else => return err,
         };
         if (std.mem.eql(u8, entry.component, component)) {
@@ -2512,7 +2504,7 @@ pub fn prepareNativeBaseInterpolation(
     }
     for (fixed_bundle.entries) |entry| {
         const traces = collectComponent(allocator, schedule, plan, "BaseTrace", entry.component) catch |err| switch (err) {
-            Error.MissingBinding => continue,
+            schedule_bindings.Error.MissingBinding => continue,
             else => return err,
         };
         defer allocator.free(traces);
@@ -5070,19 +5062,6 @@ fn compositionComponentLimit(total: usize, encoded: ?[]const u8) !usize {
     return value;
 }
 
-fn purpose(entry: std.json.Value) ![]const u8 {
-    if (entry != .object) return Error.InvalidSchedule;
-    const value = entry.object.get("purpose") orelse return Error.InvalidSchedule;
-    if (value != .string) return Error.InvalidSchedule;
-    return value.string;
-}
-
-fn logicalId(entry: std.json.Value) !u32 {
-    const value = entry.object.get("id") orelse return Error.InvalidSchedule;
-    if (value != .integer or value.integer < 0 or value.integer > std.math.maxInt(u32)) return Error.InvalidSchedule;
-    return @intCast(value.integer);
-}
-
 fn wordOffset(binding: arena_plan.Binding) !u32 {
     if (binding.offset_bytes % 4 != 0) return Error.InvalidBindingSize;
     return std.math.cast(u32, binding.offset_bytes / 4) orelse Error.InvalidBindingSize;
@@ -5142,101 +5121,6 @@ test "Cairo decommit pointer entries preserve word offsets above 16 GiB" {
     try std.testing.expectEqual(@as(u32, 1), words[3]);
 }
 
-fn oneComponent(
-    schedule: []const std.json.Value,
-    plan: arena_plan.Plan,
-    name: []const u8,
-    component: []const u8,
-) !arena_plan.Binding {
-    var found: ?arena_plan.Binding = null;
-    for (schedule) |entry| {
-        if (!std.mem.eql(u8, try purpose(entry), name) or
-            !std.mem.eql(u8, try componentName(entry), component)) continue;
-        if (found != null) return Error.DuplicateBinding;
-        found = plan.binding(try logicalId(entry)) catch return Error.MissingBinding;
-    }
-    return found orelse Error.MissingBinding;
-}
-
-fn oneComponentOrdinal(
-    schedule: []const std.json.Value,
-    plan: arena_plan.Plan,
-    name: []const u8,
-    component: []const u8,
-    wanted_ordinal: u32,
-) !arena_plan.Binding {
-    var found: ?arena_plan.Binding = null;
-    for (schedule) |entry| {
-        if (!std.mem.eql(u8, try purpose(entry), name) or
-            !std.mem.eql(u8, try componentName(entry), component) or
-            try ordinal(entry) != wanted_ordinal) continue;
-        if (found != null) return Error.DuplicateBinding;
-        found = plan.binding(try logicalId(entry)) catch return Error.MissingBinding;
-    }
-    return found orelse Error.MissingBinding;
-}
-
-fn collectComponent(
-    allocator: std.mem.Allocator,
-    schedule: []const std.json.Value,
-    plan: arena_plan.Plan,
-    name: []const u8,
-    component: []const u8,
-) ![]arena_plan.Binding {
-    var ordered = std.ArrayList(OrderedBinding).empty;
-    defer ordered.deinit(allocator);
-    for (schedule) |entry| {
-        if (!std.mem.eql(u8, try purpose(entry), name) or
-            !std.mem.eql(u8, try componentName(entry), component)) continue;
-        try ordered.append(allocator, .{
-            .ordinal = try ordinal(entry),
-            .binding = plan.binding(try logicalId(entry)) catch return Error.MissingBinding,
-        });
-    }
-    if (ordered.items.len == 0) return Error.MissingBinding;
-    std.mem.sortUnstable(OrderedBinding, ordered.items, {}, struct {
-        fn lessThan(_: void, lhs: OrderedBinding, rhs: OrderedBinding) bool {
-            return lhs.ordinal < rhs.ordinal;
-        }
-    }.lessThan);
-    for (ordered.items, 0..) |item, index| if (item.ordinal != index) return Error.InvalidSchedule;
-    const result = try allocator.alloc(arena_plan.Binding, ordered.items.len);
-    for (ordered.items, result) |item, *binding| binding.* = item.binding;
-    return result;
-}
-
-fn collectComponentBindingGroups(
-    allocator: std.mem.Allocator,
-    schedule: []const std.json.Value,
-    plan: arena_plan.Plan,
-    name: []const u8,
-    component: []const u8,
-) ![][]arena_plan.Binding {
-    var groups = std.ArrayList([]arena_plan.Binding).empty;
-    errdefer {
-        for (groups.items) |group| allocator.free(group);
-        groups.deinit(allocator);
-    }
-    var current = std.ArrayList(arena_plan.Binding).empty;
-    defer current.deinit(allocator);
-    var expected_ordinal: u32 = 0;
-    for (schedule) |entry| {
-        if (!std.mem.eql(u8, try purpose(entry), name) or
-            !std.mem.eql(u8, try componentName(entry), component)) continue;
-        const entry_ordinal = try ordinal(entry);
-        if (entry_ordinal == 0 and current.items.len != 0) {
-            try groups.append(allocator, try current.toOwnedSlice(allocator));
-            expected_ordinal = 0;
-        }
-        if (entry_ordinal != expected_ordinal) return Error.InvalidSchedule;
-        try current.append(allocator, plan.binding(try logicalId(entry)) catch return Error.MissingBinding);
-        expected_ordinal += 1;
-    }
-    if (current.items.len != 0) try groups.append(allocator, try current.toOwnedSlice(allocator));
-    if (groups.items.len == 0) return Error.MissingBinding;
-    return groups.toOwnedSlice(allocator);
-}
-
 fn writePreprocessedOffsets(
     resident_arena: *arena_plan.ResidentArena,
     schedule: []const std.json.Value,
@@ -5264,43 +5148,6 @@ fn collectPreprocessedBindings(
         source.* = try oneOrdinal(schedule, plan, "PreprocessedEvaluations", wanted);
     }
     return sources;
-}
-
-fn ordinal(entry: std.json.Value) !u32 {
-    const value = entry.object.get("ordinal") orelse return 0;
-    if (value != .integer or value.integer < 0 or value.integer > std.math.maxInt(u32)) return Error.InvalidSchedule;
-    return @intCast(value.integer);
-}
-
-fn one(schedule: []const std.json.Value, plan: arena_plan.Plan, name: []const u8) !arena_plan.Binding {
-    var found: ?arena_plan.Binding = null;
-    for (schedule) |entry| {
-        if (!std.mem.eql(u8, try purpose(entry), name)) continue;
-        if (found != null) return Error.DuplicateBinding;
-        found = plan.binding(try logicalId(entry)) catch return Error.MissingBinding;
-    }
-    return found orelse Error.MissingBinding;
-}
-
-const OrderedBinding = struct { ordinal: u32, binding: arena_plan.Binding };
-
-fn collectOrdinals(
-    allocator: std.mem.Allocator,
-    schedule: []const std.json.Value,
-    plan: arena_plan.Plan,
-    name: []const u8,
-) ![]OrdinalBinding {
-    const bindings = try collect(allocator, schedule, plan, name);
-    errdefer allocator.free(bindings);
-    var ordinals = std.ArrayList(u32).empty;
-    defer ordinals.deinit(allocator);
-    for (schedule) |entry| if (std.mem.eql(u8, try purpose(entry), name)) try ordinals.append(allocator, try ordinal(entry));
-    std.mem.sortUnstable(u32, ordinals.items, {}, std.sort.asc(u32));
-    if (ordinals.items.len != bindings.len) return Error.InvalidCardinality;
-    const result = try allocator.alloc(OrdinalBinding, bindings.len);
-    for (bindings, ordinals.items, result) |binding, binding_ordinal, *item| item.* = .{ .ordinal = binding_ordinal, .binding = binding };
-    allocator.free(bindings);
-    return result;
 }
 
 fn collectSn2DecommitBindings(
@@ -5609,22 +5456,6 @@ fn executeDecommitTraceLdeGroup(
     return gpu_ms;
 }
 
-fn collectScheduleOrder(
-    allocator: std.mem.Allocator,
-    schedule: []const std.json.Value,
-    plan: arena_plan.Plan,
-    name: []const u8,
-) ![]arena_plan.Binding {
-    var result = std.ArrayList(arena_plan.Binding).empty;
-    errdefer result.deinit(allocator);
-    for (schedule) |entry| {
-        if (std.mem.eql(u8, try purpose(entry), name))
-            try result.append(allocator, plan.binding(try logicalId(entry)) catch return Error.MissingBinding);
-    }
-    if (result.items.len == 0) return Error.MissingBinding;
-    return result.toOwnedSlice(allocator);
-}
-
 fn collectCommitmentOrder(
     allocator: std.mem.Allocator,
     schedule: []const std.json.Value,
@@ -5748,36 +5579,6 @@ fn reorderColumnMajorValues(
     @memcpy(values, reordered);
 }
 
-fn componentName(entry: std.json.Value) ![]const u8 {
-    if (entry != .object) return Error.InvalidSchedule;
-    const value = entry.object.get("component") orelse return Error.InvalidSchedule;
-    if (value != .string or value.string.len == 0) return Error.InvalidSchedule;
-    return value.string;
-}
-
-/// Preserve capture order here. Several Cairo component families have multiple
-/// instances whose column ordinals restart at zero, and the capture records
-/// those instances consecutively under the same component label.
-fn collectNamed(
-    allocator: std.mem.Allocator,
-    schedule: []const std.json.Value,
-    plan: arena_plan.Plan,
-    name: []const u8,
-) ![]NamedBinding {
-    var result = std.ArrayList(NamedBinding).empty;
-    errdefer result.deinit(allocator);
-    for (schedule) |entry| {
-        if (!std.mem.eql(u8, try purpose(entry), name)) continue;
-        try result.append(allocator, .{
-            .component = try componentName(entry),
-            .ordinal = try ordinal(entry),
-            .binding = plan.binding(try logicalId(entry)) catch return Error.MissingBinding,
-        });
-    }
-    if (result.items.len == 0) return Error.MissingBinding;
-    return result.toOwnedSlice(allocator);
-}
-
 fn canonicalTraceTree(
     allocator: std.mem.Allocator,
     bundle: composition_bundle_mod.Bundle,
@@ -5862,36 +5663,6 @@ fn canonicalTraceTree(
     return result;
 }
 
-fn collect(
-    allocator: std.mem.Allocator,
-    schedule: []const std.json.Value,
-    plan: arena_plan.Plan,
-    name: []const u8,
-) ![]arena_plan.Binding {
-    var ordered = std.ArrayList(OrderedBinding).empty;
-    defer ordered.deinit(allocator);
-    for (schedule) |entry| {
-        if (!std.mem.eql(u8, try purpose(entry), name)) continue;
-        try ordered.append(allocator, .{
-            .ordinal = try ordinal(entry),
-            .binding = plan.binding(try logicalId(entry)) catch return Error.MissingBinding,
-        });
-    }
-    if (ordered.items.len == 0) return Error.MissingBinding;
-    std.mem.sortUnstable(OrderedBinding, ordered.items, {}, struct {
-        fn lessThan(_: void, lhs: OrderedBinding, rhs: OrderedBinding) bool {
-            if (lhs.ordinal != rhs.ordinal) return lhs.ordinal < rhs.ordinal;
-            return lhs.binding.logical_id < rhs.binding.logical_id;
-        }
-    }.lessThan);
-    for (ordered.items[1..], ordered.items[0 .. ordered.items.len - 1]) |current, previous| {
-        if (current.ordinal == previous.ordinal) return Error.DuplicateBinding;
-    }
-    const result = try allocator.alloc(arena_plan.Binding, ordered.items.len);
-    for (ordered.items, result) |item, *binding| binding.* = item.binding;
-    return result;
-}
-
 fn collectAssembly(
     allocator: std.mem.Allocator,
     schedule: []const std.json.Value,
@@ -5909,21 +5680,6 @@ fn collectAssembly(
     }
     if (result.items.len == 0) return Error.MissingBinding;
     return result.toOwnedSlice(allocator);
-}
-
-fn oneOrdinal(
-    schedule: []const std.json.Value,
-    plan: arena_plan.Plan,
-    name: []const u8,
-    wanted_ordinal: u32,
-) !arena_plan.Binding {
-    var found: ?arena_plan.Binding = null;
-    for (schedule) |entry| {
-        if (!std.mem.eql(u8, try purpose(entry), name) or try ordinal(entry) != wanted_ordinal) continue;
-        if (found != null) return Error.DuplicateBinding;
-        found = plan.binding(try logicalId(entry)) catch return Error.MissingBinding;
-    }
-    return found orelse Error.MissingBinding;
 }
 
 fn collectTreePurpose(
