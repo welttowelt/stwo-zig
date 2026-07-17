@@ -1,7 +1,7 @@
 # Metal Backend Peer Review: ClementWalter/stwo PR #6
 
-Status: architecture evidence complete; raw-Stwo CPU and Metal rows are clean, sampled, and
-accepted by the pinned Rust oracle
+Status: architecture evidence complete; commitment-geometry timings are clean and sampled, but
+AIR-equivalent wide-Fibonacci measurements are pending the real recurrence evaluator
 
 ## Scope
 
@@ -32,10 +32,13 @@ combined optimized CPU/SIMD plus Metal branch. At `2^22` rows:
 Metal loses to the optimized CPU lane through `2^18` on the published M2 Max campaign and crosses
 over at `2^20`. On this M5 Max reproduction it crosses by `2^18`.
 
-The branch's architectural advantages are nevertheless directly relevant. At the identical
-`2^18 x 100` workload on this machine it completes the measured execution, proof, and verification
-phases in 88.53 ms. The current stwo-zig request takes 224.80 ms. The difference is large enough
-that threshold tuning or small kernel fusion cannot close it.
+The branch's architectural advantages are nevertheless directly relevant. With the same
+`2^18 x 100` trace and commitment geometry on this machine, it completes the measured execution,
+proof, and verification phases in 88.53 ms. The current stwo-zig request takes 224.80 ms. These
+numbers are not yet an end-to-end prover comparison: the peer evaluates 98 recurrence constraints,
+while the current stwo-zig benchmark evaluates one synthetic constant-composition constraint. The
+commitment-path difference is still large enough that threshold tuning or small kernel fusion
+cannot close it.
 
 ## Evidence Boundary
 
@@ -55,11 +58,18 @@ that threshold tuning or small kernel fusion cannot close it.
 - Head during clean measurement: `84c4d657c30b8f6012dcc6b307837735ac94146a`
 - Build: Zig `ReleaseFast`
 - Host and protocol: identical to the peer run above
-- Workload geometry: identical rows, columns, recurrence, and PCS parameters
+- Workload geometry: identical rows, columns, and PCS parameters
+- AIR semantics: currently not equivalent; stwo-zig's benchmark and custom Rust oracle encode one
+  synthetic constant-composition constraint rather than the peer's 98 recurrence constraints
 - Sampling: ten verified warmups and eleven verified timed proofs per lane
 - Correctness: Zig CPU and Metal produced byte-identical canonical proofs, passed the Zig verifier,
-  and passed raw Stwo `a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2`
+  and passed the custom oracle built on raw Stwo
 - Metal evidence: per-proof dispatch/fallback telemetry is present
+
+That oracle intentionally mirrors the synthetic stwo-zig component, so this establishes encoding
+and transcript parity for the implemented statement; it does not establish parity with the peer's
+real wide-Fibonacci AIR. Real recurrence evaluation and a corruption-rejection test are required
+before the timings may be promoted to proof-throughput evidence.
 
 Commit `dcfd1d8` separates the lifted Blake protocols: raw Stwo uses 64-byte leaf/node domain
 prefixes, while the newer Cairo pin uses explicit plain hashing. The clean CPU and Metal artifact
@@ -104,7 +114,7 @@ The source data is the PR's
 The harness measures a fresh Rust test process at 10 ms resolution. This is useful campaign
 evidence but too coarse for small proofs or stage-level decisions.
 
-## Same-Machine Bounded Reproduction
+## Same-Machine Commitment-Geometry Reproduction
 
 ### `2^14 x 100`
 
@@ -118,15 +128,16 @@ equal, while the warm official test process favors CPU because Metal setup domin
 | stwo-zig | CPU | 31.87 ms | 0.514 | Zig + pinned Rust verified |
 | stwo-zig | Metal hybrid | 38.21 ms | 0.429 | Zig + pinned Rust verified, same bytes |
 
-These timing boundaries are close but not exact. The peer phase sum includes per-proof twiddle
+These are not AIR-equivalent proof times. Their timing boundaries are also close but not exact. The
+peer phase sum includes per-proof twiddle
 precompute; stwo-zig constructs its session twiddles before request timing. The row is evidence of
 fixed-cost behavior, not a ranking.
 
 ### `2^18 x 100`
 
-This is the largest exact shared geometry allowed by the current stwo-zig `2^25` committed-cell
-guard. The stwo-zig rows are clean medians after ten verified warmups and across eleven verified
-timed proofs. The peer rows remain a bounded instrumented reproduction.
+This is the largest shared trace and commitment geometry allowed by the current stwo-zig `2^25`
+committed-cell guard. The stwo-zig rows are clean medians after ten verified warmups and across
+eleven verified timed proofs. The peer rows remain a bounded instrumented reproduction.
 
 | Implementation | Lane | Proof stage | Full request/phase sum | Direct Metal uplift |
 | --- | --- | ---: | ---: | ---: |
@@ -142,8 +153,8 @@ and are not comparable with each other.
 
 The peer phase sum delivers 2.961 trace-row MHz and about 296 committed Mcells/s. stwo-zig Metal
 delivers 1.889 trace-row MHz within its proof timer, 1.166 trace-row MHz over the complete request,
-and 188.9 committed Mcells/s. Different timing boundaries are intentionally kept visible. On the
-closest full-request comparison, the peer remains 2.54x faster.
+and 188.9 committed Mcells/s. Different timing boundaries are intentionally kept visible. The
+2.54x phase-sum ratio is a geometry-level architecture signal, not a peer AIR prover-speed ratio.
 
 ## Peer Architecture
 
