@@ -27,7 +27,9 @@ def proof_wire() -> dict[str, Any]:
                 "log_blowup_factor": 1,
                 "log_last_layer_degree_bound": 0,
                 "n_queries": 3,
+                "fold_step": 1,
             },
+            "lifting_log_size": None,
         },
         "commitments": [digest],
         "sampled_values": [[[[1, 2, 3, 4]]]],
@@ -92,7 +94,9 @@ def artifact(example: str) -> dict[str, Any]:
                 "log_blowup_factor": 1,
                 "log_last_layer_degree_bound": 0,
                 "n_queries": 3,
+                "fold_step": 1,
             },
+            "lifting_log_size": None,
         },
         **statements,
         "proof_bytes_hex": wire.hex(),
@@ -154,6 +158,8 @@ class InteropMutationTests(unittest.TestCase):
         self.assertEqual(len(ids), len(set(ids)))
         self.assertIn("pow_nonce", ids)
         self.assertIn("proof_pcs_config", ids)
+        self.assertIn("outer_fold_step", ids)
+        self.assertIn("outer_lifting_log_size", ids)
         self.assertIn("transcript_bound_sampled_value", ids)
 
     def test_coverage_names_all_required_and_not_applicable_surfaces(self) -> None:

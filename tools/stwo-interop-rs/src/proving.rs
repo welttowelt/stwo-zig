@@ -448,6 +448,15 @@ pub(crate) fn wide_fibonacci_verify(
     if proof.0.commitments.len() < 2 {
         bail!("invalid proof shape: expected at least 2 commitments");
     }
+    let main_sampled_columns = proof
+        .0
+        .sampled_values
+        .0
+        .get(1)
+        .ok_or_else(|| anyhow!("invalid proof shape: missing wide_fibonacci main samples"))?;
+    if main_sampled_columns.len() != statement.sequence_len as usize {
+        bail!("invalid proof shape: wide_fibonacci statement/sample width mismatch");
+    }
 
     let mut channel = Blake2sChannel::default();
     config.mix_into(&mut channel);

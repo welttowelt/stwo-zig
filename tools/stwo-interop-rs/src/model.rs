@@ -83,12 +83,20 @@ pub(crate) struct FriConfigWire {
     pub(crate) log_blowup_factor: u32,
     pub(crate) log_last_layer_degree_bound: u32,
     pub(crate) n_queries: u64,
+    #[serde(default = "default_fold_step")]
+    pub(crate) fold_step: u32,
+}
+
+fn default_fold_step() -> u32 {
+    1
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct PcsConfigWire {
     pub(crate) pow_bits: u32,
     pub(crate) fri_config: FriConfigWire,
+    #[serde(default)]
+    pub(crate) lifting_log_size: Option<u32>,
 }
 
 pub(crate) type HashWire = [u8; 32];

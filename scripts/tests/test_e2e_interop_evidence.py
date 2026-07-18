@@ -59,6 +59,26 @@ def report(artifact_path: Path, artifact_sha256: str) -> dict:
 
 
 class InteropEvidenceTests(unittest.TestCase):
+    def test_archive_rejects_accepted_receipt_from_dirty_repository(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "proof.json"
+            write_artifact(artifact)
+            record = register_artifact(
+                artifact,
+                example="xor",
+                direction="rust_to_zig",
+                role="accepted_proof",
+            )
+            with self.assertRaisesRegex(EvidenceError, "clean repository"):
+                archive_receipt(
+                    archive_dir=root / "archive",
+                    report=report(artifact, record["artifact_sha256"]),
+                    artifact_records=[record],
+                    provenance={"repository": {"clean": False}},
+                    path_replacements={},
+                )
+
     def test_archive_preserves_exact_bytes_and_is_path_normalized(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -84,7 +104,7 @@ class InteropEvidenceTests(unittest.TestCase):
                     archive_dir=archive,
                     report=report(artifact, record["artifact_sha256"]),
                     artifact_records=[record],
-                    provenance={"oracle": "pinned"},
+                    provenance={"repository": {"clean": True}, "oracle": "pinned"},
                     path_replacements={str(artifact.parent.resolve()): "$ARTIFACT_DIR"},
                 )
                 receipts.append(result)
@@ -114,7 +134,7 @@ class InteropEvidenceTests(unittest.TestCase):
                     archive_dir=root / "archive",
                     report=report(artifact, record["artifact_sha256"]),
                     artifact_records=[record],
-                    provenance={},
+                    provenance={"repository": {"clean": True}},
                     path_replacements={},
                 )
 
@@ -142,7 +162,7 @@ class InteropEvidenceTests(unittest.TestCase):
                     archive_dir=root / "archive",
                     report=report(artifact, record["artifact_sha256"]),
                     artifact_records=[record],
-                    provenance={},
+                    provenance={"repository": {"clean": True}},
                     path_replacements={},
                 )
 
@@ -163,7 +183,7 @@ class InteropEvidenceTests(unittest.TestCase):
                         archive_dir=root / "archive",
                         report=report(artifact, record["artifact_sha256"]),
                         artifact_records=[record],
-                        provenance={},
+                        provenance={"repository": {"clean": True}},
                         path_replacements={},
                     )
 

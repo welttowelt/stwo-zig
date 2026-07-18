@@ -194,19 +194,24 @@ pub fn pcsConfigToWire(config: pcs.PcsConfig) PcsConfigWire {
             .log_blowup_factor = config.fri_config.log_blowup_factor,
             .log_last_layer_degree_bound = config.fri_config.log_last_layer_degree_bound,
             .n_queries = config.fri_config.n_queries,
+            .fold_step = config.fri_config.fold_step,
         },
+        .lifting_log_size = config.lifting_log_size,
     };
 }
 
 pub fn pcsConfigFromWire(wire: PcsConfigWire) !pcs.PcsConfig {
     if (wire.fri_config.n_queries > std.math.maxInt(usize)) return ArtifactError.ValueOutOfRange;
+    var fri_config = try fri.FriConfig.init(
+        wire.fri_config.log_last_layer_degree_bound,
+        wire.fri_config.log_blowup_factor,
+        @intCast(wire.fri_config.n_queries),
+    );
+    fri_config.fold_step = wire.fri_config.fold_step;
     return .{
         .pow_bits = wire.pow_bits,
-        .fri_config = try fri.FriConfig.init(
-            wire.fri_config.log_last_layer_degree_bound,
-            wire.fri_config.log_blowup_factor,
-            @intCast(wire.fri_config.n_queries),
-        ),
+        .fri_config = fri_config,
+        .lifting_log_size = wire.lifting_log_size,
     };
 }
 
@@ -399,6 +404,22 @@ test "interop artifact: proof and artifact configs require exact equality" {
         if (comptime std.mem.eql(u8, field, "lifting_log_size")) actual.lifting_log_size = 4;
         try std.testing.expect(!pcsConfigsEqual(expected, actual));
     }
+}
+
+test "interop artifact: PCS wire preserves fold and lifting configuration" {
+    const config = try pcsConfigFromWire(.{
+        .pow_bits = 3,
+        .fri_config = .{
+            .log_blowup_factor = 2,
+            .log_last_layer_degree_bound = 1,
+            .n_queries = 5,
+            .fold_step = 2,
+        },
+        .lifting_log_size = 7,
+    });
+    const wire = pcsConfigToWire(config);
+    const decoded = try pcsConfigFromWire(wire);
+    try std.testing.expect(pcsConfigsEqual(config, decoded));
 }
 
 test "interop artifact: wide fibonacci statement wire roundtrip" {

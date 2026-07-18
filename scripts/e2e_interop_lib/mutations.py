@@ -123,6 +123,18 @@ def _outer_config(artifact: dict[str, Any], _example: str) -> None:
     fri["n_queries"] = int(fri.get("n_queries", 0)) + 1
 
 
+def _outer_fold_step(artifact: dict[str, Any], _example: str) -> None:
+    config = _object(artifact.get("pcs_config"), "pcs_config")
+    fri = _object(config.get("fri_config"), "pcs_config.fri_config")
+    fri["fold_step"] = int(fri.get("fold_step", 1)) + 1
+
+
+def _outer_lifting_log_size(artifact: dict[str, Any], _example: str) -> None:
+    config = _object(artifact.get("pcs_config"), "pcs_config")
+    lifting = config.get("lifting_log_size")
+    config["lifting_log_size"] = 4 if lifting is None else int(lifting) + 1
+
+
 def _wire_mutation(
     mutation: Callable[[dict[str, Any]], None],
 ) -> Callable[[dict[str, Any], str], None]:
@@ -244,6 +256,8 @@ ACTIVE_MUTATIONS = (
     MutationSpec("fri_last_layer_polynomial", "fri", "proof.fri_proof.last_layer_poly[0][0]", REJECTION_CLASS_VERIFIER, _wire_mutation(_fri_last_layer)),
     MutationSpec("pow_nonce", "proof_of_work", "proof.proof_of_work", REJECTION_CLASS_VERIFIER, _wire_mutation(_pow_nonce)),
     MutationSpec("artifact_pcs_config", "protocol_config", "pcs_config.fri_config.n_queries", REJECTION_CLASS_VERIFIER, _outer_config),
+    MutationSpec("outer_fold_step", "protocol_config", "pcs_config.fri_config.fold_step", REJECTION_CLASS_VERIFIER, _outer_fold_step),
+    MutationSpec("outer_lifting_log_size", "protocol_config", "pcs_config.lifting_log_size", REJECTION_CLASS_VERIFIER, _outer_lifting_log_size),
     MutationSpec("proof_pcs_config", "protocol_config", "proof.config.fri_config.n_queries", REJECTION_CLASS_VERIFIER, _wire_mutation(_proof_config)),
 )
 

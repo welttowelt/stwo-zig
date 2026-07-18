@@ -167,11 +167,19 @@ pub(crate) fn pcs_config_to_wire(config: PcsConfig) -> PcsConfigWire {
             log_blowup_factor: config.fri_config.log_blowup_factor,
             log_last_layer_degree_bound: config.fri_config.log_last_layer_degree_bound,
             n_queries: config.fri_config.n_queries as u64,
+            fold_step: 1,
         },
+        lifting_log_size: None,
     }
 }
 
 pub(crate) fn pcs_config_from_wire(wire: &PcsConfigWire) -> Result<PcsConfig> {
+    if wire.fri_config.fold_step != 1 {
+        bail!("unsupported PCS fold_step {}", wire.fri_config.fold_step);
+    }
+    if let Some(value) = wire.lifting_log_size {
+        bail!("unsupported PCS lifting_log_size {value}");
+    }
     let n_queries: usize = wire
         .fri_config
         .n_queries
@@ -185,4 +193,40 @@ pub(crate) fn pcs_config_from_wire(wire: &PcsConfigWire) -> Result<PcsConfig> {
             n_queries,
         ),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pcs_config_from_wire;
+    use crate::model::{FriConfigWire, PcsConfigWire};
+
+    fn config_wire() -> PcsConfigWire {
+        PcsConfigWire {
+            pow_bits: 0,
+            fri_config: FriConfigWire {
+                log_blowup_factor: 1,
+                log_last_layer_degree_bound: 0,
+                n_queries: 3,
+                fold_step: 1,
+            },
+            lifting_log_size: None,
+        }
+    }
+
+    #[test]
+    fn rejects_unsupported_outer_pcs_fields() {
+        let mut fold_step = config_wire();
+        fold_step.fri_config.fold_step = 2;
+        assert!(pcs_config_from_wire(&fold_step)
+            .unwrap_err()
+            .to_string()
+            .contains("fold_step"));
+
+        let mut lifting = config_wire();
+        lifting.lifting_log_size = Some(4);
+        assert!(pcs_config_from_wire(&lifting)
+            .unwrap_err()
+            .to_string()
+            .contains("lifting_log_size"));
+    }
 }

@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -97,6 +99,47 @@ class ComputeSummaryTests(unittest.TestCase):
                 self.mod.REJECTION_CLASS_OTHER: 1,
                 self.mod.REJECTION_CLASS_VERIFIER: 1,
             },
+        )
+
+    def test_panics_and_signals_are_robustness_failures(self) -> None:
+        panic = self.mod.classify_rejection(
+            "",
+            "thread 'main' panicked at verifier.rs:1: index out of bounds",
+            return_code=101,
+        )
+        signal = self.mod.classify_rejection("", "", return_code=-6)
+        self.assertEqual(panic, self.mod.REJECTION_CLASS_ROBUSTNESS)
+        self.assertEqual(signal, self.mod.REJECTION_CLASS_ROBUSTNESS)
+
+    def test_controlled_verifier_error_remains_semantic_rejection(self) -> None:
+        rejection = self.mod.classify_rejection(
+            "",
+            "Error: malformed proof rejected at verifier safety boundary",
+            return_code=1,
+        )
+        self.assertEqual(rejection, self.mod.REJECTION_CLASS_VERIFIER)
+
+    def test_run_step_refuses_to_accept_a_verifier_panic(self) -> None:
+        steps = []
+        process = subprocess.CompletedProcess(
+            ["verifier"],
+            101,
+            stdout="",
+            stderr="thread 'main' panicked at verifier.rs:1: index out of bounds",
+        )
+        with mock.patch.object(self.mod.subprocess, "run", return_value=process):
+            with self.assertRaisesRegex(RuntimeError, "expected non-zero exit code"):
+                self.mod.run_step(
+                    name="panic_is_not_rejection",
+                    cmd=["verifier"],
+                    steps=steps,
+                    expect_failure=True,
+                    required_rejection_class=self.mod.REJECTION_CLASS_VERIFIER,
+                )
+        self.assertEqual(steps[0]["status"], "failed")
+        self.assertEqual(
+            steps[0]["rejection_class"],
+            self.mod.REJECTION_CLASS_ROBUSTNESS,
         )
 
 

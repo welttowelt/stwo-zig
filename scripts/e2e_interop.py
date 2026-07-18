@@ -58,6 +58,7 @@ SUPPORTED_EXAMPLES = ("blake", "plonk", "poseidon", "xor", "state_machine", "wid
 REJECTION_CLASS_VERIFIER = "verifier_semantic"
 REJECTION_CLASS_PARSER = "parser"
 REJECTION_CLASS_METADATA = "metadata_policy"
+REJECTION_CLASS_ROBUSTNESS = "verifier_robustness"
 REJECTION_CLASS_OTHER = "other"
 
 
@@ -107,8 +108,15 @@ def run_step(
         "stderr_sha256": hashlib.sha256(proc.stderr.encode("utf-8")).hexdigest(),
     }
     if expect_failure:
-        step["rejection_class"] = classify_rejection(step["stdout_tail"], step["stderr_tail"])
+        step["rejection_class"] = classify_rejection(
+            step["stdout_tail"],
+            step["stderr_tail"],
+            return_code=proc.returncode,
+        )
         step["required_rejection_class"] = required_rejection_class
+        if step["rejection_class"] == REJECTION_CLASS_ROBUSTNESS:
+            succeeded = False
+            step["status"] = "failed"
     steps.append(step)
     if succeeded:
         if required_rejection_class and step.get("rejection_class") != required_rejection_class:
@@ -124,8 +132,26 @@ def run_step(
     )
 
 
-def classify_rejection(stdout_tail: str, stderr_tail: str) -> str:
+def classify_rejection(
+    stdout_tail: str,
+    stderr_tail: str,
+    *,
+    return_code: int | None = None,
+) -> str:
     combined = f"{stdout_tail}\n{stderr_tail}".lower()
+
+    crash_markers = (
+        "panicked at",
+        "index out of bounds",
+        "called `option::unwrap()` on a `none` value",
+        "segmentation fault",
+        "abort trap",
+        "stack overflow",
+    )
+    if return_code is not None and (return_code < 0 or return_code == 101):
+        return REJECTION_CLASS_ROBUSTNESS
+    if any(marker in combined for marker in crash_markers):
+        return REJECTION_CLASS_ROBUSTNESS
 
     parser_markers = (
         "syntaxerror",
@@ -163,8 +189,9 @@ def classify_rejection(stdout_tail: str, stderr_tail: str) -> str:
         "witnesstooshort",
         "merkleverificationerror",
         "fri verification",
-        "index out of bounds",
-        "panicked at",
+        "verifier safety boundary",
+        "unsupported pcs fold_step",
+        "unsupported pcs lifting_log_size",
     )
     if any(marker in combined for marker in verifier_markers):
         return REJECTION_CLASS_VERIFIER
@@ -535,6 +562,8 @@ def main() -> int:
             rust_binary=RUST_BINARY,
             gate_sources=gate_sources,
         )
+        if not provenance["repository"]["clean"]:
+            raise RuntimeError("formal interop evidence requires a clean repository")
         for example in args.examples:
             case = run_example_case(
                 example=example,

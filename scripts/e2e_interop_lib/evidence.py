@@ -236,6 +236,12 @@ def archive_receipt(
     provenance: dict[str, Any],
     path_replacements: dict[str, str],
 ) -> dict[str, Any]:
+    repository = provenance.get("repository")
+    if report.get("status") == "ok" and (
+        not isinstance(repository, dict) or repository.get("clean") is not True
+    ):
+        raise EvidenceError("accepted interop receipts require a clean repository")
+
     total_bytes = sum(int(record["artifact_bytes"]) for record in artifact_records)
     if total_bytes > MAX_ARCHIVED_RUN_BYTES:
         raise EvidenceError(
