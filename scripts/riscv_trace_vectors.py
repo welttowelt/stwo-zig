@@ -37,6 +37,17 @@ VECTOR_FILE = VECTOR_DIR / "trace_vectors.json"
 # ---------------------------------------------------------------------------
 
 CODE_VADDR = 0x0001_0000
+INPUT_START = 0x0010_0000
+INPUT_END = INPUT_START
+HALT_FLAG = 0x0010_0000
+OUTPUT_LEN = 0x0010_0004
+OUTPUT_DATA = 0x0010_0008
+STACK_BOTTOM = 0x001F_FC00
+STACK_TOP = 0x0020_0000
+GLOBAL_POINTER = 0x0020_0800
+OUTPUT_END = STACK_BOTTOM
+MULTI_SHARD_LOOP_ITERATIONS = 65_536
+MULTI_SHARD_ADDI_ROWS = MULTI_SHARD_LOOP_ITERATIONS + 2
 
 
 def _mask(value: int, bits: int) -> int:
@@ -319,7 +330,7 @@ def build_elf_with_symbols(instructions: list[int], symbols: dict[str, int]) -> 
 
 
 def build_elf(instructions: list[int]) -> bytes:
-    """Minimal RV32 ELF: 52-byte header + one PT_LOAD phdr + code at 0x10000.
+    """Legacy no-symbol RV32 ELF, retained only for a negative diagnostic.
 
     Byte-compatible with the historical alu_test.elf fixture layout.
     """
@@ -362,21 +373,48 @@ def build_elf(instructions: list[int]) -> bytes:
     return header + phdr + code
 
 
+def release_symbols(instructions: list[int]) -> dict[str, int]:
+    """Explicit Stark-V linker contract for a release-corpus program."""
+    return {
+        "__text_start": CODE_VADDR,
+        "__text_len": len(instructions) * 4,
+        "__data_start": STACK_TOP,
+        "__data_len": 0,
+        "__global_pointer$": GLOBAL_POINTER,
+        "__stack_bottom": STACK_BOTTOM,
+        "__stack_top": STACK_TOP,
+        "__input_start": INPUT_START,
+        "__input_end": INPUT_END,
+        "__halt_flag": HALT_FLAG,
+        "__output_len": OUTPUT_LEN,
+        "__output_data": OUTPUT_DATA,
+        "__output_end": OUTPUT_END,
+    }
+
+
+def build_release_elf(instructions: list[int]) -> bytes:
+    """Build a symbol-bearing ELF whose complete text and I/O ABI are declared."""
+    return build_elf_with_symbols(instructions, release_symbols(instructions))
+
+
 # ---------------------------------------------------------------------------
-# Vector programs — RV32IM coverage matrix, each halts via ECALL
+# Vector programs — RV32IM coverage matrix, each halts via __halt_flag
 # ---------------------------------------------------------------------------
 
 
 def SENTINEL() -> int:
-    """Stark-V halt sentinel: `jal x0, 0` — both runners halt without tracing it."""
+    """Legacy self-loop sentinel, retained only for a negative diagnostic."""
     return JAL(0, 0)
 
 
 def EPILOGUE() -> list[int]:
-    """SDK-conforming halt: write the zero output-length word (the pinned
-    oracle's PublicData builder requires the output-len address to have been
-    accessed), then the sentinel."""
-    return [LUI(31, 0x00100000), SW(0, 31, 4), SENTINEL()]
+    """Publish zero output bytes, then halt before the next instruction fetch."""
+    return [LUI(31, HALT_FLAG), SW(0, 31, 4), ADDI(30, 0, 1), SW(30, 31, 0)]
+
+
+def LEGACY_SENTINEL_EPILOGUE() -> list[int]:
+    """Historical termination shape that leaves the halt flag unset."""
+    return [LUI(31, HALT_FLAG), SW(0, 31, 4), SENTINEL()]
 
 
 def prog_alu_basic() -> list[int]:
@@ -479,37 +517,45 @@ def prog_jal_jalr() -> list[int]:
 
 
 def prog_declared_region() -> list[int]:
-    # Same ALU body, but with a DECLARED text region so program tuples,
-    # program roots, and Poseidon2 hashing become non-trivial oracle surfaces.
+    # Retained as a named program-root fixture; every positive vector now has a
+    # declared text region and explicit I/O symbols.
     return [ADDI(1, 0, 10), ADDI(2, 0, 20), ADD(3, 1, 2), SUB(4, 2, 1)] + EPILOGUE()
 
 
 def prog_multi_shard_addi() -> list[int]:
-    """Two base-ALU-immediate shards with no control-flow special cases."""
-    return [ADDI(1, 1, 1)] * 65_537 + [SENTINEL()]
-
-
-SYMBOL_PROGRAMS: dict[str, tuple[list[int], dict[str, int]]] = {
-    "declared_region": (
-        prog_declared_region(),
-        {
-            "__text_start": CODE_VADDR,
-            "__text_len": (4 + 3) * 4,
-            "__global_pointer$": 0x0020_0800,
-            "__stack_top": 0x0020_0000,
-        },
-    ),
-}
+    """Compact loop that produces more than one base-ALU-immediate shard."""
+    return [
+        ADDI(1, 0, 0),
+        LUI(2, MULTI_SHARD_LOOP_ITERATIONS),
+        ADDI(1, 1, 1),
+        BLT(1, 2, -4),
+    ] + EPILOGUE()
 
 
 PROGRAMS: dict[str, list[int]] = {
     "alu_test": prog_alu_basic(),
     "branch_fib": prog_branch_fib(),
+    "declared_region": prog_declared_region(),
     "mul_div": prog_mul_div(),
     "mem_ls": prog_mem_ls(),
     "multi_shard_addi": prog_multi_shard_addi(),
     "shift_logic": prog_shift_logic(),
     "jal_jalr": prog_jal_jalr(),
+}
+
+
+NEGATIVE_FIXTURES: dict[str, tuple[bytes, str]] = {
+    "undeclared_program": (
+        build_elf(prog_alu_basic()),
+        "missing_declared_program_symbols",
+    ),
+    "self_loop_sentinel": (
+        build_release_elf(
+            [ADDI(1, 0, 10), ADDI(2, 0, 20), ADD(3, 1, 2), SUB(4, 2, 1)]
+            + LEGACY_SENTINEL_EPILOGUE()
+        ),
+        "self_loop_terminates_without_setting_halt_flag",
+    ),
 }
 
 
@@ -550,13 +596,13 @@ def dump_trace(dumper: Path, elf_path: Path, out_path: Path) -> bytes:
 
 def update(scratch: Path) -> int:
     VECTOR_DIR.mkdir(parents=True, exist_ok=True)
+    negative_dir = VECTOR_DIR / "negative"
+    negative_dir.mkdir(parents=True, exist_ok=True)
     dumper = build_trace_dumper()
     vectors = []
-    all_programs: dict[str, bytes] = {
-        name: build_elf(program) for name, program in PROGRAMS.items()
+    all_programs = {
+        name: build_release_elf(program) for name, program in PROGRAMS.items()
     }
-    for name, (program, symbols) in SYMBOL_PROGRAMS.items():
-        all_programs[name] = build_elf_with_symbols(program, symbols)
     for name in sorted(all_programs):
         elf_bytes = all_programs[name]
         elf_path = VECTOR_DIR / f"{name}.elf"
@@ -573,17 +619,32 @@ def update(scratch: Path) -> int:
                 "final_pc": trace["final_pc"],
             }
         )
+    negative_vectors = []
+    for name in sorted(NEGATIVE_FIXTURES):
+        elf_bytes, reason = NEGATIVE_FIXTURES[name]
+        elf_path = negative_dir / f"{name}.elf"
+        elf_path.write_bytes(elf_bytes)
+        negative_vectors.append(
+            {
+                "name": name,
+                "elf": f"vectors/riscv_elfs/negative/{name}.elf",
+                "elf_sha256": _sha256(elf_bytes),
+                "expected": "diagnostic_only_not_release_eligible",
+                "reason": reason,
+            }
+        )
     payload = {
         "stark_v_commit": pinned_stark_v_commit(),
         "captured_by": "scripts/riscv_trace_vectors.py --update",
         "cross_verification": {
             "tool": "scripts/riscv_equivalence.py --run",
             "status": "zig-only",
-            "note": "digests captured from the Zig runner; rerun the equivalence "
+            "note": "positive-vector digests captured from the Zig runner; rerun the equivalence "
             "tool against a Stark-V dumper built at the pinned commit to "
             "escalate provenance",
         },
         "vectors": vectors,
+        "negative_vectors": negative_vectors,
     }
     VECTOR_FILE.write_text(json.dumps(payload, indent=1) + "\n", encoding="utf-8")
     print(f"wrote {VECTOR_FILE} with {len(vectors)} vectors")
@@ -599,7 +660,7 @@ def gate(scratch: Path) -> int:
     if payload.get("stark_v_commit") != pinned_stark_v_commit():
         errors.append("vector provenance commit does not match the pinned Stark-V commit")
     recorded = {v["name"] for v in payload.get("vectors", [])}
-    expected = set(PROGRAMS) | set(SYMBOL_PROGRAMS)
+    expected = set(PROGRAMS)
     if recorded != expected:
         errors.append(f"vector set mismatch: recorded {sorted(recorded)} expected {sorted(expected)}")
 
@@ -607,19 +668,14 @@ def gate(scratch: Path) -> int:
     for vector in payload.get("vectors", []):
         name = vector["name"]
         program = PROGRAMS.get(name)
-        symbol_entry = SYMBOL_PROGRAMS.get(name)
-        if program is None and symbol_entry is None:
+        if program is None:
             continue
         elf_path = ROOT / vector["elf"]
         if not elf_path.exists():
             errors.append(f"{name}: committed ELF missing at {vector['elf']}")
             continue
         committed = elf_path.read_bytes()
-        regenerated = (
-            build_elf(program)
-            if program is not None
-            else build_elf_with_symbols(symbol_entry[0], symbol_entry[1])
-        )
+        regenerated = build_release_elf(program)
         if committed != regenerated:
             errors.append(f"{name}: committed ELF is not byte-identical to the generator output")
             continue
@@ -638,12 +694,39 @@ def gate(scratch: Path) -> int:
         if trace["final_pc"] != vector["final_pc"]:
             errors.append(f"{name}: final pc {trace['final_pc']} != recorded {vector['final_pc']}")
 
+    recorded_negative = {v["name"] for v in payload.get("negative_vectors", [])}
+    if recorded_negative != set(NEGATIVE_FIXTURES):
+        errors.append(
+            "negative vector set mismatch: recorded "
+            f"{sorted(recorded_negative)} expected {sorted(NEGATIVE_FIXTURES)}"
+        )
+    for vector in payload.get("negative_vectors", []):
+        name = vector["name"]
+        fixture = NEGATIVE_FIXTURES.get(name)
+        if fixture is None:
+            continue
+        regenerated, reason = fixture
+        elf_path = ROOT / vector["elf"]
+        if not elf_path.exists():
+            errors.append(f"{name}: committed negative ELF missing at {vector['elf']}")
+            continue
+        committed = elf_path.read_bytes()
+        if committed != regenerated:
+            errors.append(f"{name}: negative ELF is not byte-identical to generator output")
+        if _sha256(committed) != vector.get("elf_sha256"):
+            errors.append(f"{name}: negative ELF digest drift")
+        if vector.get("expected") != "diagnostic_only_not_release_eligible":
+            errors.append(f"{name}: negative fixture is not marked diagnostic-only")
+        if vector.get("reason") != reason:
+            errors.append(f"{name}: negative fixture reason drift")
+
     if errors:
         for error in errors:
             print(f"riscv trace vectors: {error}", file=sys.stderr)
         return 1
     print(
-        f"riscv trace vectors: {len(payload['vectors'])} vectors verified against "
+        f"riscv trace vectors: {len(payload['vectors'])} positive and "
+        f"{len(payload['negative_vectors'])} negative vectors verified against "
         f"stark-v {payload['stark_v_commit'][:8]}"
     )
     return 0
@@ -719,9 +802,10 @@ def attest_rust(
         "fields": ["steps", "final_pc", "final_regs", "total_steps"],
         "rust_source_commit": source_commit,
         "rust_binary_sha256": binary_sha256,
-        "note": "every committed ELF produced identical canonical bytes in "
+        "note": "every positive release-corpus ELF produced identical canonical bytes in "
         "Zig and the Stark-V runner adapter; instruction clocks are one-based "
-        "to match the pinned oracle",
+        "to match the pinned oracle; negative diagnostic ELFs are intentionally "
+        "excluded from positive parity claims",
     }
     VECTOR_FILE.write_text(json.dumps(payload, indent=1) + "\n", encoding="utf-8")
     print(f"provenance escalated in {VECTOR_FILE}")

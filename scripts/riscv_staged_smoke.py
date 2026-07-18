@@ -21,8 +21,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 ELF = "vectors/riscv_elfs/branch_fib.elf"
-MULTI_SHARD_INSTRUCTIONS = 65_537
-MULTI_SHARD_ELF_SHA256 = "3a65a4ad336fdef2f566472b74c738ce6671f0121e22f9a9f32f2a393a4893a8"
+MULTI_SHARD_TOTAL_STEPS = 131_078
+MULTI_SHARD_ADDI_ROWS = 65_538
+MULTI_SHARD_PROGRAM_WORDS = 8
+MULTI_SHARD_ELF_SHA256 = "06d217624c13bed63beecbc15127b1fbcd098ee520ac11a20d864cb38d7577a0"
 WITNESS_LAYOUT_SHA256 = "8896dea17812761ba2246e07508c6d11d455f08519984c0512ce9e7093143b79"
 
 
@@ -30,9 +32,7 @@ def write_multi_shard_elf(path: Path) -> None:
     sys.path.insert(0, str(ROOT / "scripts"))
     import riscv_trace_vectors as vectors  # pylint: disable=import-outside-toplevel
 
-    elf = vectors.build_elf(
-        [vectors.ADDI(1, 1, 1)] * MULTI_SHARD_INSTRUCTIONS
-    )
+    elf = vectors.build_release_elf(vectors.prog_multi_shard_addi())
     digest = hashlib.sha256(elf).hexdigest()
     if digest != MULTI_SHARD_ELF_SHA256:
         raise RuntimeError(f"multi-shard ELF digest drift: {digest}")
@@ -199,7 +199,7 @@ def main() -> int:
         for component in payload["statement"]["components"]:
             family = component["family"]
             family_counts[family] = family_counts.get(family, 0) + 1
-        if report_payload["total_steps"] != MULTI_SHARD_INSTRUCTIONS or \
+        if report_payload["total_steps"] != MULTI_SHARD_TOTAL_STEPS or \
                 max(family_counts.values(), default=0) < 2:
             print("riscv staged smoke: installed CLI proof did not cross a family shard",
                   file=sys.stderr)
@@ -303,9 +303,10 @@ def main() -> int:
                 "schema": "riscv_cli_evidence_v1",
                 "phase": args.phase,
                 "release_status": expected_status,
-                "generator": "scripts/riscv_trace_vectors.py::build_elf",
-                "multi_shard_instruction": "ADDI x1,x1,1",
-                "multi_shard_instruction_count": MULTI_SHARD_INSTRUCTIONS,
+                "generator": "scripts/riscv_trace_vectors.py::build_release_elf",
+                "multi_shard_program": "declared ADDI/BLT loop with halt-flag epilogue",
+                "multi_shard_program_words": MULTI_SHARD_PROGRAM_WORDS,
+                "multi_shard_addi_rows": MULTI_SHARD_ADDI_ROWS,
                 "multi_shard_elf_sha256": MULTI_SHARD_ELF_SHA256,
                 "total_steps": report_payload["total_steps"],
                 "n_components": report_payload["n_components"],

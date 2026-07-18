@@ -12,73 +12,89 @@
    "total_steps"
   ],
   "rust_source_commit": "d478f783055aa0d73a93768a433a3c6c31c91d1c",
-  "rust_binary_sha256": "19b68cad8402a4e7dbf2e3dc037e8395d1bccc76b484e3fc0c09a8fe3bf179e6",
-  "note": "every committed ELF produced identical canonical bytes in Zig and the Stark-V runner adapter; instruction clocks are one-based to match the pinned oracle"
+  "rust_binary_sha256": "7e734c6745e1ab15fa687cab999a2cfd0e79b4cb149fc4cecd53493bc558b1a4",
+  "note": "every positive release-corpus ELF produced identical canonical bytes in Zig and the Stark-V runner adapter; instruction clocks are one-based to match the pinned oracle; negative diagnostic ELFs are intentionally excluded from positive parity claims"
  },
  "vectors": [
   {
    "name": "alu_test",
    "elf": "vectors/riscv_elfs/alu_test.elf",
-   "elf_sha256": "86ee90ce13ec5f79af84df543df6dfbe50cbe7005293acbc392920bfe839bb06",
-   "trace_sha256": "d2a9376cadaf1da2ed07b7a88f1d9bd65bf1a029476a8da608dc6756eaf97637",
-   "total_steps": 6,
-   "final_pc": 65560
+   "elf_sha256": "d2b41fe78881aeee2883a134db22e4054701f42a6773acf7b7f218f3a47a793f",
+   "trace_sha256": "d81b2ee8a7eeb014b168e0a6c7cd8adade087842becfb7017e117031b3ad0920",
+   "total_steps": 8,
+   "final_pc": 65568
   },
   {
    "name": "branch_fib",
    "elf": "vectors/riscv_elfs/branch_fib.elf",
-   "elf_sha256": "8c795ec42ed83b544e153c4f9402cbd4c270e0bc1343a01bf2b4f598e372064a",
-   "trace_sha256": "bc3f139b0634c1a2840a2a562b0c053d66313088f3277ec374e1bf442d0b946b",
-   "total_steps": 128,
-   "final_pc": 65588
+   "elf_sha256": "fb8533da02ca7c10c53b4a09f748d112f338f7433b597262d874a0ac4ba338b2",
+   "trace_sha256": "56a77e3d1aa13457f5be8ff42c3cc251ce31b103caa530a97ab3e315e4ca6c46",
+   "total_steps": 130,
+   "final_pc": 65596
   },
   {
    "name": "declared_region",
    "elf": "vectors/riscv_elfs/declared_region.elf",
-   "elf_sha256": "c79bbd13c940a90b2c99fe5effc26dde4302278d721cb276362d14e664c8b74a",
-   "trace_sha256": "d2a9376cadaf1da2ed07b7a88f1d9bd65bf1a029476a8da608dc6756eaf97637",
-   "total_steps": 6,
-   "final_pc": 65560
+   "elf_sha256": "d2b41fe78881aeee2883a134db22e4054701f42a6773acf7b7f218f3a47a793f",
+   "trace_sha256": "d81b2ee8a7eeb014b168e0a6c7cd8adade087842becfb7017e117031b3ad0920",
+   "total_steps": 8,
+   "final_pc": 65568
   },
   {
    "name": "jal_jalr",
    "elf": "vectors/riscv_elfs/jal_jalr.elf",
-   "elf_sha256": "83a1acdff2e2e266ce5edba7046820767273be0f393471846e4957e2e964b653",
-   "trace_sha256": "2eb91e9b420435fbd31181d20ebbc4c314bba53b328d52990cc6d95b864ac499",
-   "total_steps": 9,
-   "final_pc": 65572
+   "elf_sha256": "75ffceb907ed06b1cfdfffab44bea5e765b50c37b653cf23cb992da1fc33555e",
+   "trace_sha256": "5b7477a915854db639390bae68ce361e96209f630cdca252d7d57543d2c1a286",
+   "total_steps": 11,
+   "final_pc": 65580
   },
   {
    "name": "mem_ls",
    "elf": "vectors/riscv_elfs/mem_ls.elf",
-   "elf_sha256": "db228dc79a675bf0b5251ae835db93496918dd14353cbb31317a2849d7df356b",
-   "trace_sha256": "75b578bed8fdc525c051e446905ed0ef44277d3418357cbf6d808790c32cca6d",
-   "total_steps": 16,
-   "final_pc": 65600
+   "elf_sha256": "3f2ce9e1fd1136053b274ce6fca02e118c3bc4348cb968a73407466ce923e2be",
+   "trace_sha256": "4c4291a23908b95080d7c6ac87e03ddda638d309f8d29abccb3c0c1f15a7ac9d",
+   "total_steps": 18,
+   "final_pc": 65608
   },
   {
    "name": "mul_div",
    "elf": "vectors/riscv_elfs/mul_div.elf",
-   "elf_sha256": "de6d9ff80481ade4df1243e638ff87bee3bfeb213d2b9e2bceeedac21ac5ed52",
-   "trace_sha256": "dbaa2cd6e5fce74c06f1de19bf234119bfd0435a3ba80487377390dec9a42a85",
-   "total_steps": 19,
-   "final_pc": 65612
+   "elf_sha256": "58bde51588e8dadd36dfe851b524519079bbc7e1dfbd5531446162f3568428be",
+   "trace_sha256": "9bbf1523b019e409605d966de87e2138ad23b65c08bd1aedff62f88dba850f36",
+   "total_steps": 21,
+   "final_pc": 65620
   },
   {
    "name": "multi_shard_addi",
    "elf": "vectors/riscv_elfs/multi_shard_addi.elf",
-   "elf_sha256": "f21275b235d8b7251cdc8e86166f1b1c2b048e84691c1fdb494e0b6adf105460",
-   "trace_sha256": "479aa31e05a0843ee7af848d7144a610c6d93730d03f4236bcb5d93022c984c4",
-   "total_steps": 65537,
-   "final_pc": 327684
+   "elf_sha256": "06d217624c13bed63beecbc15127b1fbcd098ee520ac11a20d864cb38d7577a0",
+   "trace_sha256": "3979a686d811e18eddef23fda883a625b7c489540ad2ed86822fe03b71e4924e",
+   "total_steps": 131078,
+   "final_pc": 65568
   },
   {
    "name": "shift_logic",
    "elf": "vectors/riscv_elfs/shift_logic.elf",
-   "elf_sha256": "1e7943e1857c12a14b371cea44a10ec4653a80895cfe82e5d1403bd7e3aac0d4",
-   "trace_sha256": "a04262724c4d534d0eede9f094679549236cca8600885906d2cb6b36da541a6b",
-   "total_steps": 21,
-   "final_pc": 65620
+   "elf_sha256": "8cd5492e6434949ca541efba2c817f0fb65b9cd7cab874edff5e3c8417d1c9c1",
+   "trace_sha256": "513b148af08abbb98c981f2517854ef9acff330932ab11504a9f9cb281bf87fe",
+   "total_steps": 23,
+   "final_pc": 65628
+  }
+ ],
+ "negative_vectors": [
+  {
+   "name": "self_loop_sentinel",
+   "elf": "vectors/riscv_elfs/negative/self_loop_sentinel.elf",
+   "elf_sha256": "87d50357b54037c695c558f533ef2e98b8c385efa873569cf2614911b1e3a198",
+   "expected": "diagnostic_only_not_release_eligible",
+   "reason": "self_loop_terminates_without_setting_halt_flag"
+  },
+  {
+   "name": "undeclared_program",
+   "elf": "vectors/riscv_elfs/negative/undeclared_program.elf",
+   "elf_sha256": "9b654a408cf44cab02fd7bf472cb64510d1116fbb198525c26487e0342a351a8",
+   "expected": "diagnostic_only_not_release_eligible",
+   "reason": "missing_declared_program_symbols"
   }
  ]
 }

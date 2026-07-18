@@ -17,15 +17,26 @@ def load_trace_vectors(root: Path, pinned: str, receipt: dict) -> dict:
 
     digest = hashlib.sha256()
     digest.update(manifest_bytes)
-    for vector in vectors["vectors"]:
-        elf = root / vector["elf"]
-        elf_bytes = elf.read_bytes()
-        actual = hashlib.sha256(elf_bytes).hexdigest()
-        if actual != vector["elf_sha256"]:
-            raise SystemExit(f"ELF digest mismatch for {vector['name']}: {actual}")
-        digest.update(vector["name"].encode())
-        digest.update(b"\0")
-        digest.update(elf_bytes)
+    for group in ("vectors", "negative_vectors"):
+        entries = vectors.get(group)
+        if not isinstance(entries, list):
+            raise SystemExit(f"trace vector manifest has no {group} list")
+        for vector in entries:
+            if group == "negative_vectors" and vector.get("expected") != \
+                    "diagnostic_only_not_release_eligible":
+                raise SystemExit(
+                    f"negative ELF is not diagnostic-only: {vector.get('name')}"
+                )
+            elf = root / vector["elf"]
+            elf_bytes = elf.read_bytes()
+            actual = hashlib.sha256(elf_bytes).hexdigest()
+            if actual != vector["elf_sha256"]:
+                raise SystemExit(f"ELF digest mismatch for {vector['name']}: {actual}")
+            digest.update(group.encode())
+            digest.update(b"\0")
+            digest.update(vector["name"].encode())
+            digest.update(b"\0")
+            digest.update(elf_bytes)
     receipt["corpus_digest_sha256"] = digest.hexdigest()
     return vectors
 

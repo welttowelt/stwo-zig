@@ -1,6 +1,7 @@
 """Encoder and fixture-identity tests for the riscv trace-vector gate."""
 
 import json
+import struct
 import sys
 import unittest
 from pathlib import Path
@@ -9,6 +10,30 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import riscv_trace_vectors as rtv
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def elf_symbols(elf: bytes) -> dict[str, int]:
+    """Read the minimal ELF32 symbol table emitted by the fixture builder."""
+    section_offset = struct.unpack_from("<I", elf, 32)[0]
+    section_size = struct.unpack_from("<H", elf, 46)[0]
+    section_count = struct.unpack_from("<H", elf, 48)[0]
+    sections = [
+        elf[section_offset + index * section_size:section_offset + (index + 1) * section_size]
+        for index in range(section_count)
+    ]
+    symbol_section = next(section for section in sections if struct.unpack_from("<I", section, 4)[0] == 2)
+    symbols_offset, symbols_size = struct.unpack_from("<II", symbol_section, 16)
+    strings_index = struct.unpack_from("<I", symbol_section, 24)[0]
+    symbol_size = struct.unpack_from("<I", symbol_section, 36)[0]
+    strings_offset, strings_size = struct.unpack_from("<II", sections[strings_index], 16)
+    strings = elf[strings_offset:strings_offset + strings_size]
+
+    result = {}
+    for offset in range(symbols_offset + symbol_size, symbols_offset + symbols_size, symbol_size):
+        name_offset, value = struct.unpack_from("<II", elf, offset)
+        name_end = strings.index(0, name_offset)
+        result[strings[name_offset:name_end].decode()] = value
+    return result
 
 
 class EncoderTest(unittest.TestCase):
@@ -59,8 +84,8 @@ class EncoderTest(unittest.TestCase):
 
 class FixtureIdentityTest(unittest.TestCase):
     def test_historical_ecall_fixture_layout_still_reproduces(self):
-        # The pre-restoration alu_test.elf (ECALL-terminated) pins the ELF
-        # layout contract; the committed vector now ends with the sentinel.
+        # The pre-restoration no-symbol ELF layout remains reproducible only so
+        # its missing declared-program contract can be tested diagnostically.
         historical = [
             rtv.ADDI(1, 0, 10), rtv.ADDI(2, 0, 20), rtv.ADD(3, 1, 2),
             rtv.SUB(4, 2, 1), rtv.ECALL(),
@@ -69,11 +94,48 @@ class FixtureIdentityTest(unittest.TestCase):
         self.assertEqual(len(elf), 104)
         self.assertEqual(elf[0x18:0x1C], (0x00010000).to_bytes(4, "little"))
 
-    def test_every_program_halts_with_the_oracle_sentinel(self):
+    def test_every_release_program_sets_the_nonzero_halt_flag(self):
         for name, program in rtv.PROGRAMS.items():
-            self.assertEqual(program[-1], rtv.SENTINEL(), name)
-        for name, (program, _symbols) in rtv.SYMBOL_PROGRAMS.items():
-            self.assertEqual(program[-1], rtv.SENTINEL(), name)
+            self.assertEqual(program[-len(rtv.EPILOGUE()):], rtv.EPILOGUE(), name)
+            self.assertNotEqual(program[-1], rtv.SENTINEL(), name)
+
+    def test_every_release_elf_declares_text_and_io_contract(self):
+        required = {
+            "__text_start", "__text_len", "__data_start", "__data_len",
+            "__global_pointer$", "__stack_bottom", "__stack_top",
+            "__input_start", "__input_end", "__halt_flag", "__output_len",
+            "__output_data", "__output_end",
+        }
+        for name, program in rtv.PROGRAMS.items():
+            symbols = elf_symbols(rtv.build_release_elf(program))
+            self.assertEqual(set(symbols), required, name)
+            self.assertEqual(symbols, rtv.release_symbols(program), name)
+            self.assertEqual(symbols["__text_len"], len(program) * 4, name)
+
+    def test_multi_shard_addi_is_a_compact_declared_loop(self):
+        program = rtv.prog_multi_shard_addi()
+        self.assertEqual(len(program), 8)
+        self.assertEqual(program.count(rtv.ADDI(1, 1, 1)), 1)
+        self.assertIn(rtv.BLT(1, 2, -4), program)
+        self.assertGreater(rtv.MULTI_SHARD_ADDI_ROWS, 65_536)
+        self.assertEqual(
+            elf_symbols(rtv.build_release_elf(program))["__text_len"],
+            len(program) * 4,
+        )
+
+    def test_legacy_shapes_are_explicit_negative_diagnostics(self):
+        undeclared, undeclared_reason = rtv.NEGATIVE_FIXTURES["undeclared_program"]
+        self.assertEqual(struct.unpack_from("<I", undeclared, 32)[0], 0)
+        self.assertEqual(undeclared_reason, "missing_declared_program_symbols")
+
+        self_loop, self_loop_reason = rtv.NEGATIVE_FIXTURES["self_loop_sentinel"]
+        text_len = elf_symbols(self_loop)["__text_len"]
+        last_word_offset = 84 + text_len - 4
+        self.assertEqual(struct.unpack_from("<I", self_loop, last_word_offset)[0], rtv.SENTINEL())
+        self.assertEqual(
+            self_loop_reason,
+            "self_loop_terminates_without_setting_halt_flag",
+        )
 
     def test_vector_file_covers_every_program(self):
         payload = json.loads(
@@ -81,8 +143,16 @@ class FixtureIdentityTest(unittest.TestCase):
         )
         self.assertEqual(
             {v["name"] for v in payload["vectors"]},
-            set(rtv.PROGRAMS) | set(rtv.SYMBOL_PROGRAMS),
+            set(rtv.PROGRAMS),
         )
+        self.assertEqual(
+            {v["name"] for v in payload["negative_vectors"]},
+            set(rtv.NEGATIVE_FIXTURES),
+        )
+        self.assertTrue(all(
+            vector["expected"] == "diagnostic_only_not_release_eligible"
+            for vector in payload["negative_vectors"]
+        ))
         self.assertEqual(payload["stark_v_commit"], rtv.pinned_stark_v_commit())
 
 
