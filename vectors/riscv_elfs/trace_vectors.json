@@ -2,57 +2,62 @@
  "stark_v_commit": "d478f783055aa0d73a93768a433a3c6c31c91d1c",
  "captured_by": "scripts/riscv_trace_vectors.py --update",
  "cross_verification": {
-  "tool": "scripts/riscv_equivalence.py --run",
-  "status": "zig-only",
-  "note": "digests captured from the Zig runner; rerun the equivalence tool against a Stark-V dumper built at the pinned commit to escalate provenance"
+  "tool": "scripts/riscv_trace_vectors.py --attest-rust",
+  "status": "rust-cross-verified",
+  "fields": [
+   "total_steps",
+   "final_pc",
+   "final_regs"
+  ],
+  "note": "every committed ELF executed by the Stark-V runner at the pinned commit; per-step trace digests remain Zig-canonical"
  },
  "vectors": [
   {
    "name": "alu_test",
    "elf": "vectors/riscv_elfs/alu_test.elf",
-   "elf_sha256": "7b1ec8d8f1b8ae949b7f4cdc088b590613b2db053350ddbb852382a9c690dc71",
-   "trace_sha256": "6230513142697bdaa86ecad2a76c5d796f4f6abf8bc3f7fc6fbe3a778c0aabc7",
-   "total_steps": 5,
+   "elf_sha256": "5f9306d90eb4a2aa1d713635d2bb75ef44e51ecba38f09f2538aac987b0531a8",
+   "trace_sha256": "369339f0b411d2ed49331c4f3163a103464204936bc16b5b32d68b62a355c4c6",
+   "total_steps": 4,
    "final_pc": 65552
   },
   {
    "name": "branch_fib",
    "elf": "vectors/riscv_elfs/branch_fib.elf",
-   "elf_sha256": "f2460ee35305c3ba21cac095d340dd1ce34b29be9493a770ae441c26ce6ee1ae",
-   "trace_sha256": "fd0d438b823f848d08718153ea5aa620c4bdc569a0a4b3bc8fda17790c799c46",
-   "total_steps": 127,
+   "elf_sha256": "bc17f540ae357a7f38bf6af92491d557671907dbf877953d52d582d896842e81",
+   "trace_sha256": "5447156eb2578f95777f7a9653c52f078eb803bbc70939ad77f1bfa3a02d1941",
+   "total_steps": 126,
    "final_pc": 65580
   },
   {
    "name": "jal_jalr",
    "elf": "vectors/riscv_elfs/jal_jalr.elf",
-   "elf_sha256": "304808a4c44ccef025f9edd37c0232c10ddb70c5e5088b0287c6bb50023c81d0",
-   "trace_sha256": "296bd22ade59bff5d5ca077ecafde4f157d079928c33c788347efaeee128854d",
-   "total_steps": 8,
+   "elf_sha256": "b1f1036a63b470f5e8dedb44052ed1af3edc0bcb2f7c37580898eeca13be3fb3",
+   "trace_sha256": "c3c64846ed426103aabbf950957c37ebf74c8368408fc9ecaa03c70dffa4efb4",
+   "total_steps": 7,
    "final_pc": 65564
   },
   {
    "name": "mem_ls",
    "elf": "vectors/riscv_elfs/mem_ls.elf",
-   "elf_sha256": "dcf8dba15e10338f61b719697a6d20e474b0ab2e69b52925be33828fc589efda",
-   "trace_sha256": "a62f55da5af06ba36fca99e41cae0b37e61acb2ee454e33730d44c349bfb80a8",
-   "total_steps": 15,
+   "elf_sha256": "5894d4f1941c33fefa7981b04cac70b77905e437380c86962097866b662604f8",
+   "trace_sha256": "b6333270481ab716edc1f9eb3ec27ce3fcf62a4b47f37b76daee0075229fea35",
+   "total_steps": 14,
    "final_pc": 65592
   },
   {
    "name": "mul_div",
    "elf": "vectors/riscv_elfs/mul_div.elf",
-   "elf_sha256": "46c9a8ccea28aa0d993109a1489ba8c59a6fbfc2787929e53a0068f324135501",
-   "trace_sha256": "a3a19f46f07048cfa78ce2734e49c774f35cd812be5b7e43262875a36ab8b9e8",
-   "total_steps": 18,
+   "elf_sha256": "30a01a4fb76f6a4adc83a8557c7edace4380fe8129634c8a4345d65fc58d7402",
+   "trace_sha256": "fbe7f91a555393fc67f25a82987285753f224d1eb07e2def689f900cecb441b6",
+   "total_steps": 17,
    "final_pc": 65604
   },
   {
    "name": "shift_logic",
    "elf": "vectors/riscv_elfs/shift_logic.elf",
-   "elf_sha256": "f4929a53552e3074ad91b8f9c84ea07f5d6af7b86684664a8909974d6e44e375",
-   "trace_sha256": "bb161a9fe884d9dcefa081026633122b251dca487167fd8bd0a60112b483f31c",
-   "total_steps": 20,
+   "elf_sha256": "1730c9d0ebb185c438b2422bb6a8a32b6071afa2f9041678c8bd9a9ef13a0a64",
+   "trace_sha256": "1801323fdfa40fc74eae95499390b39d7b436b886965073cae81321d590be09e",
+   "total_steps": 19,
    "final_pc": 65612
   }
  ]

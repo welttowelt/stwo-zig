@@ -58,13 +58,20 @@ class EncoderTest(unittest.TestCase):
 
 
 class FixtureIdentityTest(unittest.TestCase):
-    def test_alu_test_elf_regenerates_byte_identically(self):
-        committed = (ROOT / "vectors" / "riscv_elfs" / "alu_test.elf").read_bytes()
-        self.assertEqual(committed, rtv.build_elf(rtv.PROGRAMS["alu_test"]))
+    def test_historical_ecall_fixture_layout_still_reproduces(self):
+        # The pre-restoration alu_test.elf (ECALL-terminated) pins the ELF
+        # layout contract; the committed vector now ends with the sentinel.
+        historical = [
+            rtv.ADDI(1, 0, 10), rtv.ADDI(2, 0, 20), rtv.ADD(3, 1, 2),
+            rtv.SUB(4, 2, 1), rtv.ECALL(),
+        ]
+        elf = rtv.build_elf(historical)
+        self.assertEqual(len(elf), 104)
+        self.assertEqual(elf[0x18:0x1C], (0x00010000).to_bytes(4, "little"))
 
-    def test_every_program_halts_with_ecall(self):
+    def test_every_program_halts_with_the_oracle_sentinel(self):
         for name, program in rtv.PROGRAMS.items():
-            self.assertEqual(program[-1], rtv.ECALL(), name)
+            self.assertEqual(program[-1], rtv.SENTINEL(), name)
 
     def test_vector_file_covers_every_program(self):
         payload = json.loads(

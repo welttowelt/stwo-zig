@@ -86,9 +86,12 @@ fn runConfigured(
     defer mem.deinit();
 
     const elf_info = try elf_loader.loadElf(elf_bytes, &mem);
-    const default_stack: u32 = 0x7FFF_0000;
+    // Register defaults follow the pinned Stark-V oracle: __stack_top falls
+    // back to 0x0020_0000 and __global_pointer$ to 0x0020_0800.
+    const default_stack: u32 = 0x0020_0000;
+    const default_gp: u32 = 0x0020_0800;
     var rv_cpu = Cpu.init(elf_info.entry_point, elf_info.stack_pointer orelse default_stack);
-    if (elf_info.global_pointer) |gp| rv_cpu.writeReg(3, gp);
+    rv_cpu.writeReg(3, elf_info.global_pointer orelse default_gp);
     if (input.len != 0) {
         const input_start = elf_info.input_start orelse return error.MissingInputRegion;
         const input_end = elf_info.input_end orelse return error.MissingInputRegion;
@@ -113,6 +116,16 @@ fn runConfigured(
         // Capture pre-execution register values.
         const rs1_val = rv_cpu.readReg(inst.rs1);
         const rs2_val = rv_cpu.readReg(inst.rs2);
+
+        // Halt on the Stark-V self-loop sentinel without tracing it, exactly
+        // like the pinned oracle: `jal x0, 0`, or `jalr x0` targeting itself.
+        const is_self_loop = switch (inst.opcode) {
+            .JAL => inst.rd == 0 and inst.imm == 0,
+            .JALR => inst.rd == 0 and
+                ((rs1_val +% @as(u32, @bitCast(inst.imm))) & ~@as(u32, 1)) == pc_before,
+            else => false,
+        };
+        if (is_self_loop) break;
 
         // Capture memory address and value for load/store instructions
         // BEFORE execution modifies CPU state.
@@ -212,6 +225,13 @@ fn runConfigured(
 
         if (halted) {
             steps += 1; // Count the halting instruction.
+            break;
+        }
+
+        // Backup infinite-loop halt matching the pinned oracle: the traced
+        // instruction left the PC unchanged.
+        if (rv_cpu.pc == pc_before) {
+            steps += 1;
             break;
         }
     }

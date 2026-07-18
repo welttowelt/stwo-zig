@@ -152,9 +152,10 @@ pub fn build(b: *std.Build) void {
         .name = "riscv-trace-dump",
         .root_module = riscv_trace_module,
     });
-    b.installArtifact(riscv_trace_cli);
+    const install_riscv_trace_cli = b.addInstallArtifact(riscv_trace_cli, .{});
+    b.getInstallStep().dependOn(&install_riscv_trace_cli.step);
     const riscv_trace_step = b.step("riscv-trace-dump", "Build RISC-V trace dumper CLI");
-    riscv_trace_step.dependOn(&riscv_trace_cli.step);
+    riscv_trace_step.dependOn(&install_riscv_trace_cli.step);
 
     // RISC-V runner tests use the src-wide test root for nested source access.
     const riscv_test_module = b.createModule(.{
