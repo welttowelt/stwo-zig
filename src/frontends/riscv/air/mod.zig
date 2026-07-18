@@ -5,6 +5,7 @@
 
 pub const claims = @import("claims.zig");
 pub const interaction = @import("interaction.zig");
+pub const memory_commitment = @import("memory_commitment/mod.zig");
 pub const memory_logup = @import("memory_logup.zig");
 pub const public_data = @import("public_data.zig");
 pub const public_logup = @import("public_logup.zig");
