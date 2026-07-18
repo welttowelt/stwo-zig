@@ -1,6 +1,6 @@
 ---
 name: match-algorithmic-problems
-description: Match algorithm-design tasks to canonical problems, computational models, known complexity and parameterized results, published algorithms, and maintained implementations before coding. Use before creating or replacing an algorithm for optimization, decision, search, counting, enumeration, scheduling, allocation, routing, packing, graph or constraint work, algebraic or numerical transforms, and data-structure or query problems; when considering a greedy method, dynamic program, heuristic, branch-and-bound search, solver formulation, or asymptotic performance change; or when inherited bespoke logic may duplicate a known method. Do not use for purely mechanical refactors or constant-factor tuning with no algorithmic choice.
+description: Match algorithm-design work to canonical problems, computational models, complexity and parameterized results, published algorithms, and maintained implementations before coding. Use before creating or replacing algorithms for optimization, decision, search, counting, scheduling, allocation, graph or constraint, algebraic or numerical transform, and data-structure or query tasks; when proposing greedy, dynamic-programming, heuristic, branch-and-bound, solver, or asymptotic changes; or when bespoke code may duplicate a known method. Do not use for purely mechanical refactors or constant-factor tuning without an algorithmic choice.
 ---
 
 # Match algorithmic problems before coding
@@ -20,18 +20,23 @@ Produce this before editing algorithmic code:
 
 ```text
 Task and required semantics:
-Inputs, scale, encoding, and computational model:
-Constraints, promises, and exploitable structure:
-Candidate matches, relationship, and confidence:
+Inputs, measured scale/provenance, encoding, and computational model:
+Constraints, promises, invariants, and exploitable structure:
+Candidate matches, relationship, and evidence status:
 Chosen canonical problem and exact variant:
 Project -> canonical mapping and solution recovery:
-Complexity/limits, parameters, and sources:
+Complexity/limits, named parameters, and citations:
 Prior algorithms, solvers, and implementations:
-Selected transfer and rejected alternatives:
-Predicted advantage, crossover, and falsifier:
+Selected transfer, integration boundary, and rejected alternatives:
+End-to-end prediction, crossover, and falsifier:
 Correctness and benchmark plan:
 Open uncertainty:
 ```
+
+For a material choice, compare candidates in a small table with columns for
+relationship, guarantee/complexity, fit at measured parameters, reusable
+implementation/license, and risk. Mark material claims as **sourced**,
+**derived**, or **hypothesis**; confidence without evidence is not useful.
 
 For durable autoresearch findings, save the brief with
 `stwo-perf notes add --title <title> --note-file <brief>`. Carry the essential
@@ -44,11 +49,15 @@ Formalize independently of the current implementation:
 - Specify whether the output is a decision, witness, optimum, count,
   enumeration, sample, approximation, or data structure supporting operations.
 - Name the inputs, objective, feasibility conditions, observable semantics, and
-  invariants that an implementation must preserve.
-- Give production ranges for every parameter, not only one aggregate `n`.
-  Record encoding size, sparsity, bounds, ordering, geometry, repetition,
-  static/dynamic and online/offline behavior, and adversarial versus typical
-  distributions.
+  invariants that an implementation must preserve, including tie-breaking,
+  canonical output, determinism, and security or leakage constraints when
+  relevant.
+- Derive production ranges from call sites, manifests, fixtures, traces, or
+  benchmarks; cite that evidence. If a material range is unknown, measure it or
+  keep the decision conditional instead of inventing one. Record every relevant
+  parameter, not only one aggregate `n`, plus encoding size, sparsity, bounds,
+  ordering, geometry, repetition, static/dynamic and online/offline behavior,
+  and adversarial versus typical inputs.
 - Choose the relevant cost model: bit or word-RAM complexity, comparisons,
   field/arithmetic operations, I/O or cache transfers, preprocessing/query
   tradeoffs, parallel work/span, numerical precision/stability, or wall time.
@@ -84,7 +93,8 @@ Label each candidate relationship:
 Test the mapping on small boundary cases and try to construct a counterexample.
 Preserve special structure: a hard general problem may become polynomial,
 pseudopolynomial, approximable, or fixed-parameter tractable under the actual
-bounds.
+bounds. If the whole task has no clean match, decompose it into canonical
+subproblems and identify the cost and correctness burden of the remaining glue.
 
 ## 3. Classify without category or reduction errors
 
@@ -112,7 +122,8 @@ both membership and hardness established. When transferring such a result,
 describe the corresponding optimization form as NP-hard rather than
 NP-complete; use #P terminology for counting only when supported. Distinguish
 weak from strong NP-hardness and pseudopolynomial time from polynomial time in
-the input bit length.
+the input bit length. Name the parameter in every parameterized claim; “FPT”
+without the parameter and its observed range is not actionable.
 
 Do not force every task into P/NP terminology. For transforms, data structures,
 streaming, parallel, or numerical problems, the useful result may instead be a
@@ -128,6 +139,8 @@ the vocabulary, then verify material complexity and algorithm claims in
 original papers or official documentation. Record direct links and distinguish
 established results from inference. Search exact variants, synonyms, special
 parameters, “survey,” “state of the art,” and implementation or library names.
+Treat search snippets, unsourced summaries, and problem-name resemblance only
+as leads.
 
 For each serious candidate, compare:
 
@@ -137,13 +150,22 @@ For each serious candidate, compare:
 - transferable mechanism: full algorithm, reduction, decomposition, pruning
   rule, data structure, batching strategy, or implementation technique;
 - maintained implementations, language boundary, API fit, license, provenance,
-  and testing evidence.
+  auditability, and testing evidence;
+- end-to-end overhead from conversion, preprocessing, solver startup, FFI,
+  allocation, and solution recovery.
 
 Check specialized algorithms before defaulting to a generic solver. For a hard
 problem, compare exact exponential or parameterized methods at the real bounds,
 solver formulations, proven approximations, and heuristics with an explicit
 quality baseline. Worst-case hardness does not make every project instance
 hard; a polynomial label does not make an algorithm practical.
+
+Stop when the decision is stable, not when the literature is exhausted: require
+a supported match, evidence for the selected method, and at least one credible
+alternative for a material choice. Continue searching if a key assumption or
+complexity claim still rests only on memory. Do not copy implementation code
+without verifying compatible license and provenance. Review other intellectual
+property constraints when applicable.
 
 ## 5. Select a transfer, then implement
 
@@ -152,6 +174,11 @@ enter the codebase, which local invariants adapt it, and why alternatives lose
 at the actual scale. Make a falsifiable prediction such as an operation-count
 change, asymptotic crossover, memory reduction, approximation bound, or solver
 quality/runtime target.
+
+Allow the evidence to recommend a specialized algorithm, solver reduction,
+maintained dependency, decomposition, requirement change, or no implementation.
+Do not silently weaken exactness, determinism, security, or output semantics to
+make a known method fit; obtain authorization for any such contract change.
 
 If no match survives scrutiny, record the search and implement the simplest
 correct baseline that can serve as an oracle or benchmark; do not manufacture a
@@ -165,7 +192,9 @@ Validate with:
 - property, boundary, adversarial, and mapping-counterexample tests;
 - differential tests against an existing implementation when available;
 - benchmarks across representative parameters, predicted crossover points, and
-  structures likely to defeat the chosen method.
+  structures likely to defeat the chosen method;
+- applicable determinism, numerical-error, side-channel, dependency, and
+  supply-chain checks at the integration boundary.
 
 After selection, use the Zig or Metal profiling skill for implementation-level
 optimization. If measurements falsify the brief, revise the model or selection

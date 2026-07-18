@@ -10,6 +10,10 @@ generic kernel runner in `tools/metal-prof-runner/`. It answers the two
 questions every Metal change must answer: what does the kernel actually
 cost on-device, and is the kernel even the problem?
 
+Pair this evidence skill with `../metal-performance-design/SKILL.md` when the
+task needs architecture, host-code, shader, synchronization, or render-pass
+changes. Profile first, apply the relevant design pattern, then profile again.
+
 ## The loop
 
 ```bash
