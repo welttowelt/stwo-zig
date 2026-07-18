@@ -862,7 +862,9 @@ Required behavior:
   domain geometry, main-column count, and the exact family-dependent interaction
   batch count. Infrastructure records bind canonical kind/order/geometry and the
   exact claim widths: program `3`, memory `4`, Merkle `3`, Poseidon2 `2`, each of
-  the six lookup tables `1`, and clock update `0`.
+  the six lookup tables `1`, and clock update `1`. The clock-update claim is the
+  cumulative sum of its four interaction columns; an artifact that omits it
+  cannot reconstruct the production verifier claim.
 - The wire stores each opcode batch claim and each infrastructure component claim
   separately. It never collapses them to a total. Indices are unique, contiguous,
   canonical, and parallel to the committed manifest.
