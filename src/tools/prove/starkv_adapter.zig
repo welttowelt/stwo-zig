@@ -319,12 +319,145 @@ const WireArena = struct {
     }
 };
 
-/// Recognizes and structurally validates the staged artifact before refusing
-/// cryptographic acceptance. This prevents malformed or provenance-drifted
-/// envelopes from being mislabeled as merely pending the release gate.
+/// Cryptographically verifies a staged artifact: structural validation,
+/// statement/claim/proof reconstruction from the wire, then the full
+/// verifier including global LogUp cancellation. Acceptance is reported
+/// with the artifact's own release status so staged verification can never
+/// be mistaken for promotion.
 pub fn verifyArtifact(allocator: std.mem.Allocator, path: []const u8) !void {
-    try stwo.interop.riscv_artifact.validatePath(allocator, path);
-    return error.AdapterNotReleaseGated;
+    const artifact_mod = stwo.interop.riscv_artifact;
+    const prover = stwo.frontends.riscv.prover_mod;
+    const riscv_cpu = stwo.integrations.riscv_cpu;
+
+    var parsed = try artifact_mod.readArtifact(allocator, path);
+    defer parsed.deinit();
+    const artifact = parsed.value;
+    try artifact_mod.validate(artifact);
+
+    const wire_statement = artifact.statement;
+    if (wire_statement.components.len > prover.MAX_COMPONENTS or
+        wire_statement.infrastructure.len > prover.MAX_INFRA_COMPONENTS)
+        return error.InvalidArtifact;
+
+    var statement: prover.RiscVStatement = undefined;
+    statement.n_components = @intCast(wire_statement.components.len);
+    statement.n_infra = @intCast(wire_statement.infrastructure.len);
+    statement.initial_pc = wire_statement.initial_pc;
+    statement.final_pc = wire_statement.final_pc;
+    statement.total_steps = wire_statement.total_steps;
+    for (wire_statement.components, 0..) |wire, i| {
+        statement.component_descs[i] = .{
+            .family = std.meta.intToEnum(
+                @TypeOf(statement.component_descs[0].family),
+                wire.family,
+            ) catch return error.InvalidArtifact,
+            .log_size = wire.log_size,
+            .n_rows = wire.n_rows,
+            .n_columns = wire.n_columns,
+        };
+    }
+    for (wire_statement.infrastructure, 0..) |wire, i| {
+        statement.infra_descs[i] = .{
+            .kind = std.meta.intToEnum(
+                @TypeOf(statement.infra_descs[0].kind),
+                wire.kind,
+            ) catch return error.InvalidArtifact,
+            .log_size = wire.log_size,
+            .n_rows = wire.n_rows,
+            .n_columns = wire.n_columns,
+        };
+    }
+
+    const wire_public = wire_statement.public_data;
+    const output_words = try allocator.alloc(
+        @TypeOf(statement.public_data.io_entries.output_words[0]),
+        wire_public.output_words.len,
+    );
+    defer allocator.free(output_words);
+    for (output_words, wire_public.output_words) |*word, wire| {
+        word.* = .{ .addr = wire.addr, .value = wire.value, .clock = wire.clock };
+    }
+    statement.public_data = .{
+        .initial_pc = wire_public.initial_pc,
+        .final_pc = wire_public.final_pc,
+        .clock = wire_public.clock,
+        .initial_regs = wire_public.initial_regs,
+        .final_regs = wire_public.final_regs,
+        .reg_last_clock = wire_public.reg_last_clock,
+        .program_root = wire_public.program_root,
+        .initial_rw_root = wire_public.initial_rw_root,
+        .final_rw_root = wire_public.final_rw_root,
+        .io_entries = .{
+            .input_start = wire_public.input_start,
+            .input_len = wire_public.input_len,
+            .input_words = wire_public.input_words,
+            .output_len = wire_public.output_len,
+            .output_len_addr = wire_public.output_len_addr,
+            .output_data_addr = wire_public.output_data_addr,
+            .output_words = output_words,
+        },
+    };
+
+    const wire_claim = artifact.interaction_claim;
+    if (wire_claim.state_claims.len != statement.n_components or
+        wire_claim.program_claims.len != statement.n_components or
+        wire_claim.opcode_memory_claims.len != statement.n_components or
+        wire_claim.memory_claims.len != statement.n_infra)
+        return error.InvalidArtifact;
+    var claim = prover.RiscVInteractionClaim.initZero();
+    claim.n_components = statement.n_components;
+    claim.interaction_pow = wire_claim.interaction_pow;
+    claim.rom_claim = qm31FromWire(wire_claim.rom_claim);
+    for (0..statement.n_components) |i| {
+        claim.state_claims[i] = qm31FromWire(wire_claim.state_claims[i]);
+        claim.prog_claims[i] = qm31FromWire(wire_claim.program_claims[i]);
+        for (wire_claim.opcode_memory_claims[i], 0..) |value, j| {
+            claim.opcode_memory_claims[i][j] = qm31FromWire(value);
+        }
+    }
+    for (0..statement.n_infra) |i| {
+        for (wire_claim.memory_claims[i], 0..) |value, j| {
+            claim.memory_claims[i][j] = qm31FromWire(value);
+        }
+    }
+
+    if (artifact.proof_bytes_hex.len % 2 != 0) return error.InvalidArtifact;
+    const proof_raw = try allocator.alloc(u8, artifact.proof_bytes_hex.len / 2);
+    defer allocator.free(proof_raw);
+    _ = std.fmt.hexToBytes(proof_raw, artifact.proof_bytes_hex) catch
+        return error.InvalidArtifact;
+    var stream = std.io.fixedBufferStream(proof_raw);
+    const proof = try stwo.interop.postcard.deserializeProof(
+        prover.Hasher,
+        allocator,
+        stream.reader(),
+    );
+
+    const config = @TypeOf(stagedPcsConfig(.secure)){
+        .pow_bits = artifact.pcs_config.pow_bits,
+        .fri_config = .{
+            .log_blowup_factor = artifact.pcs_config.fri_config.log_blowup_factor,
+            .log_last_layer_degree_bound = artifact.pcs_config.fri_config.log_last_layer_degree_bound,
+            .n_queries = artifact.pcs_config.fri_config.n_queries,
+        },
+    };
+    try riscv_cpu.verifyRiscV(allocator, config, statement, proof, claim);
+
+    try writeVerifyLine(artifact.release_status);
+}
+
+fn qm31FromWire(wire: stwo.interop.riscv_artifact.Qm31Wire) stwo.core.fields.qm31.QM31 {
+    return stwo.core.fields.qm31.QM31.fromU32Unchecked(wire[0], wire[1], wire[2], wire[3]);
+}
+
+fn writeVerifyLine(release_status: []const u8) !void {
+    var buffer: [128]u8 = undefined;
+    const line = try std.fmt.bufPrint(
+        &buffer,
+        "riscv artifact: proof VERIFIED (status: {s})\n",
+        .{release_status},
+    );
+    try std.fs.File.stdout().writeAll(line);
 }
 
 test "adapter preserves the complete sampled benchmark contract while gated" {
