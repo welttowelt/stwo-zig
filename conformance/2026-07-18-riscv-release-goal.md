@@ -340,6 +340,10 @@ python3 scripts/check_api_parity.py
 python3 scripts/check_riscv_release_contract.py --structure
 ```
 
+The `--structure` selector is a required CP-13 checker deliverable. Until it
+exists and emits named repository-boundary evidence (or `--all` proves the
+equivalent sub-check explicitly), CP-01 remains `IN_PROGRESS`.
+
 The gate must report no unexplained finding. Existing baseline entries touched by
 this work must shrink or disappear; moving code without improving dependency or
 ownership boundaries is not closure.
@@ -549,16 +553,19 @@ Required behavior:
 - Merkle path direction, address bits, siblings, parents, leaf encoding, and root
   placement are constrained.
 - The exact pinned Poseidon2 permutation, constants, round schedule, field
-  representation, and `poseidon2`/`poseidon2_io` relations are active.
+  representation, and narrow `poseidon2` Merkle relation are active. The
+  `poseidon2_io` challenge pair is still drawn in schema order but its RV32IM
+  contribution is canonically zero unless a future pinned statement adds a
+  component that explicitly uses it.
 - Any generic placeholder hash is removed from the active RISC-V root path.
 - Bitwise and all five range-check table domains are populated and constrained;
   opcode components cannot claim a range/bitwise lookup without the matching
   table multiplicity.
 - Memory and hashing high-water allocations are bounded and freed on every error
   path.
-- Every Poseidon2 permutation binds input and output atomically through
-  `poseidon2_io`; every internal round is constrained on-domain and OODS; inactive
-  and padding rows contribute zero.
+- Every Merkle permutation binds its two child inputs and lane-0 parent output
+  through the pinned narrow `poseidon2` relation; every internal round is
+  constrained on-domain and OODS; inactive and padding rows contribute zero.
 
 Gate:
 
@@ -839,6 +846,7 @@ zig fmt --check build.zig src tools
 python3 scripts/check_upstream_pins.py
 python3 scripts/check_source_conformance.py
 python3 scripts/check_riscv_release_contract.py --all --phase candidate
+python3 -m unittest discover -s scripts/tests -p 'test_*.py'
 zig build test -Doptimize=ReleaseFast
 zig build test-riscv -Doptimize=ReleaseFast
 zig build test-riscv-prover -Doptimize=ReleaseFast
@@ -856,6 +864,7 @@ python3 scripts/riscv_release_oracle.py validate \
 python3 scripts/riscv_release_evidence.py \
   --receipt zig-out/release-evidence/riscv/oracle-receipt.json \
   --candidate "$(git rev-parse HEAD)"
+zig build riscv-release-gate -Doptimize=ReleaseFast
 test -z "$(git status --porcelain=v1 --untracked-files=all)"
 ```
 
@@ -922,6 +931,10 @@ python3 scripts/check_source_conformance.py
 python3 scripts/check_riscv_release_contract.py --core-purity
 ```
 
+The `--core-purity` selector is a required CP-13 checker deliverable. Until it
+exists and is exercised independently (or `--all` emits equivalent named
+evidence), BA-01 must be rerun and cannot support RF-01 on the promoted revision.
+
 The evidence records the candidate commit, complete dependency-edge inventory,
 and zero unbaselined core-to-frontend or core-to-concrete-backend imports.
 
@@ -940,6 +953,10 @@ Gate:
 ```sh
 python3 scripts/check_riscv_release_contract.py --frontend-layering
 ```
+
+The `--frontend-layering` selector is a required CP-13 checker deliverable. The
+current `--all --phase` surface does not by itself prove that this named audit
+was implemented rather than omitted.
 
 The checker must reject concrete backend construction/imports, CLI dependencies,
 artifact serialization, benchmark reporting, active `legacy`/`placeholder`/
@@ -970,6 +987,11 @@ python3 scripts/check_autoresearch_activation.py \
   --board riscv \
   --github-settings-receipt "$GITHUB_SETTINGS_RECEIPT"
 ```
+
+`scripts/check_autoresearch_activation.py` is a required BA-03 deliverable and
+does not exist at the accepted baseline. BA-03 therefore remains explicitly
+non-passing until the checker, its adversarial tests, and the settings receipt
+validation are implemented.
 
 The settings receipt must be obtained through an authenticated repository API,
 name the repository and default branch, carry an immutable observation time and

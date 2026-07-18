@@ -252,17 +252,12 @@ The only pinned consumer of `poseidon2_io` is the separate recursion
 (`crates/recursion/src/channel_replay.rs:104-118`). That component is not in the
 RV32IM component registry listed in `crates/prover/src/components/mod.rs:6-37`.
 
-This conflicts with CP-06's current statement that every RV32IM Poseidon2
-permutation must bind atomically through `poseidon2_io`. Exact parity with the
-pinned RV32IM proof requires narrow `poseidon2` mode instead. The release goal
-must resolve this explicitly before implementation:
-
-- Oracle-parity resolution: keep RV32IM Merkle hashes in narrow mode, draw the
-  `poseidon2_io` challenge in schema order, require its sum to be zero, and test
-  it non-vacuously only in the recursion lane.
-- Protocol-divergence resolution: add an RV32IM atomic-I/O consumer and record a
-  reviewed divergence, accepting that interaction placement and proof bytes no
-  longer match the pinned oracle.
+The release goal now resolves the earlier conflict in favor of oracle parity:
+RV32IM Merkle hashes remain in narrow `poseidon2` mode, the `poseidon2_io`
+challenge is drawn in schema order, and its RV32IM relation sum must be zero.
+Non-vacuous `poseidon2_io` coverage belongs to the recursion lane. Adding an
+RV32IM atomic-I/O consumer would be a protocol divergence and is not part of
+this release goal.
 
 Silently setting `io=true` only on the Poseidon row leaves an unbalanced positive
 `poseidon2_io` claim and is invalid.
