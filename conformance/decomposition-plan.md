@@ -21,3 +21,6 @@ is the operative ledger.
 | `src/integrations/cairo_metal/arena_binding.zig` | phase facade split per the archived arena-binding plan (Cairo work resumes with stwo-cairo) |
 | Cairo-deferred trees (`src/frontends/cairo/`, `src/tests/cairo/`, tooling) | untouched until the stwo-cairo effort restarts; entries stay frozen |
 | Rust support crates over the size ceiling | reduce when the pinned oracle next changes; never edited casually |
+| `src/frontends/riscv/prover.zig` | move concrete backend selection to the tool boundary, then split frontend planning from backend-neutral orchestration (budget carries a +4-line engine-contract `deinit` shim from the 2026-07-18 restoration) |
+| RISC-V oversized trace sources (`air/trace_columns.zig`, `infra_trace.zig`, `runner/trace.zig`) | decompose alongside the Stark-V adapter completion (cross-shard LogUp placement + public I/O binding); entries stay frozen until that work resumes |
+| Root RISC-V sources (`riscv_*_cli.zig`, `riscv_prover_test.zig`) | move into `src/tools/riscv/` when the adapter work resumes; restored at their pre-cleanup paths to keep history legible |

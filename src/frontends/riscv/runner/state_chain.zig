@@ -1,0 +1,258 @@
+//! Clock-ordered memory and register access chain tracking.
+//!
+//! For each address (memory or register), maintains the last access clock.
+//! When re-accessed, records the previous clock. Generates gap-filling
+//! records when the clock difference exceeds MAX_CLOCK_DIFF.
+
+const std = @import("std");
+const M31 = @import("../../../core/fields/m31.zig").M31;
+
+/// Maximum clock difference before gap-filling is required (2^20 - 1).
+pub const MAX_CLOCK_DIFF: u32 = (1 << 20) - 1;
+
+/// A recorded access to memory or a register.
+pub const Access = struct {
+    /// 0 = register, 1 = memory.
+    addr_space: u1,
+    addr: u32,
+    clk: u32,
+    /// Byte-decomposed u32 value as four M31 limbs.
+    value_limbs: [4]M31,
+    /// Clock of the previous access to the same address.
+    clk_prev: u32,
+};
+
+/// A clock gap-filling record (inserted when clk - clk_prev > MAX_CLOCK_DIFF).
+pub const ClockUpdate = struct {
+    addr_space: u1,
+    addr: u32,
+    /// The synthetic clock value.
+    clk: u32,
+    clk_prev: u32,
+    /// Value is unchanged from the previous access.
+    value_limbs: [4]M31,
+};
+
+/// Tracks access chains for both registers and memory.
+pub const StateChainTracker = struct {
+    /// Last access clock per register (32 registers).
+    reg_last_clk: [32]u32,
+    /// Last access clock per memory address.
+    mem_last_clk: std.AutoHashMap(u32, u32),
+    /// Recorded accesses (one per register read/write or memory access).
+    accesses: std.ArrayList(Access),
+    /// Clock gap-filling records for memory accesses.
+    clock_updates_mem: std.ArrayList(ClockUpdate),
+    /// Clock gap-filling records for register accesses.
+    clock_updates_reg: std.ArrayList(ClockUpdate),
+    allocator: std.mem.Allocator,
+
+    pub fn init(allocator: std.mem.Allocator) StateChainTracker {
+        return .{
+            .reg_last_clk = .{0} ** 32,
+            .mem_last_clk = std.AutoHashMap(u32, u32).init(allocator),
+            .accesses = .{},
+            .clock_updates_mem = .{},
+            .clock_updates_reg = .{},
+            .allocator = allocator,
+        };
+    }
+
+    pub fn deinit(self: *StateChainTracker) void {
+        self.mem_last_clk.deinit();
+        self.accesses.deinit(self.allocator);
+        self.clock_updates_mem.deinit(self.allocator);
+        self.clock_updates_reg.deinit(self.allocator);
+        self.* = undefined;
+    }
+
+    /// Record a register access at the given clock.
+    pub fn recordRegAccess(self: *StateChainTracker, reg: u5, clk: u32, value: u32) !void {
+        const prev_clk = self.reg_last_clk[reg];
+        const limbs = decomposeU32(value);
+
+        // Generate clock gap-filling if needed.
+        try self.fillClockGap(0, @as(u32, reg), prev_clk, clk, limbs);
+
+        try self.accesses.append(self.allocator, .{
+            .addr_space = 0,
+            .addr = @as(u32, reg),
+            .clk = clk,
+            .value_limbs = limbs,
+            .clk_prev = prev_clk,
+        });
+        self.reg_last_clk[reg] = clk;
+    }
+
+    /// Record a memory access at the given clock.
+    pub fn recordMemAccess(self: *StateChainTracker, addr: u32, clk: u32, value: u32) !void {
+        const prev_clk = self.mem_last_clk.get(addr) orelse 0;
+        const limbs = decomposeU32(value);
+
+        try self.fillClockGap(1, addr, prev_clk, clk, limbs);
+
+        try self.accesses.append(self.allocator, .{
+            .addr_space = 1,
+            .addr = addr,
+            .clk = clk,
+            .value_limbs = limbs,
+            .clk_prev = prev_clk,
+        });
+        try self.mem_last_clk.put(addr, clk);
+    }
+
+    /// Fill clock gaps with intermediate records.
+    fn fillClockGap(
+        self: *StateChainTracker,
+        addr_space: u1,
+        addr: u32,
+        prev_clk: u32,
+        clk: u32,
+        value_limbs: [4]M31,
+    ) !void {
+        var current = prev_clk;
+        while (clk - current > MAX_CLOCK_DIFF) {
+            const next = current + MAX_CLOCK_DIFF;
+            const update = ClockUpdate{
+                .addr_space = addr_space,
+                .addr = addr,
+                .clk = next,
+                .clk_prev = current,
+                .value_limbs = value_limbs,
+            };
+            if (addr_space == 0) {
+                try self.clock_updates_reg.append(self.allocator, update);
+            } else {
+                try self.clock_updates_mem.append(self.allocator, update);
+            }
+            current = next;
+        }
+    }
+
+    /// Decompose a u32 value into 4 byte-sized M31 limbs (little-endian).
+    pub fn decomposeU32(value: u32) [4]M31 {
+        return .{
+            M31.fromCanonical(value & 0xFF),
+            M31.fromCanonical((value >> 8) & 0xFF),
+            M31.fromCanonical((value >> 16) & 0xFF),
+            M31.fromCanonical((value >> 24) & 0xFF),
+        };
+    }
+
+    /// Total number of memory access records.
+    pub fn memAccessCount(self: *const StateChainTracker) usize {
+        var count: usize = 0;
+        for (self.accesses.items) |a| {
+            if (a.addr_space == 1) count += 1;
+        }
+        return count;
+    }
+
+    /// Total number of register access records.
+    pub fn regAccessCount(self: *const StateChainTracker) usize {
+        var count: usize = 0;
+        for (self.accesses.items) |a| {
+            if (a.addr_space == 0) count += 1;
+        }
+        return count;
+    }
+};
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+test "state_chain: register access tracking" {
+    const alloc = std.testing.allocator;
+    var tracker = StateChainTracker.init(alloc);
+    defer tracker.deinit();
+
+    try tracker.recordRegAccess(1, 0, 42);
+    try tracker.recordRegAccess(1, 2, 43);
+
+    try std.testing.expectEqual(@as(usize, 2), tracker.regAccessCount());
+    // Second access should have clk_prev = 0 (first access was at clock 0).
+    try std.testing.expectEqual(@as(u32, 0), tracker.accesses.items[1].clk_prev);
+}
+
+test "state_chain: clock gap filling" {
+    const alloc = std.testing.allocator;
+    var tracker = StateChainTracker.init(alloc);
+    defer tracker.deinit();
+
+    // Access at clock 0, then at clock 2_000_000 (> MAX_CLOCK_DIFF).
+    try tracker.recordRegAccess(1, 0, 42);
+    try tracker.recordRegAccess(1, 2_000_000, 43);
+
+    // Should have generated gap-filling records.
+    try std.testing.expect(tracker.clock_updates_reg.items.len > 0);
+}
+
+test "state_chain: decomposeU32" {
+    const limbs = StateChainTracker.decomposeU32(0xDEADBEEF);
+    try std.testing.expectEqual(@as(u32, 0xEF), limbs[0].v);
+    try std.testing.expectEqual(@as(u32, 0xBE), limbs[1].v);
+    try std.testing.expectEqual(@as(u32, 0xAD), limbs[2].v);
+    try std.testing.expectEqual(@as(u32, 0xDE), limbs[3].v);
+}
+
+test "state_chain: memory access tracking" {
+    const alloc = std.testing.allocator;
+    var tracker = StateChainTracker.init(alloc);
+    defer tracker.deinit();
+
+    try tracker.recordMemAccess(0x1000, 4, 0xFF);
+    try tracker.recordMemAccess(0x1000, 8, 0xAB);
+
+    try std.testing.expectEqual(@as(usize, 2), tracker.memAccessCount());
+    // Second access should chain back to clock 4.
+    try std.testing.expectEqual(@as(u32, 4), tracker.accesses.items[1].clk_prev);
+}
+
+test "state_chain: mixed register and memory accesses" {
+    const alloc = std.testing.allocator;
+    var tracker = StateChainTracker.init(alloc);
+    defer tracker.deinit();
+
+    try tracker.recordRegAccess(1, 0, 10);
+    try tracker.recordMemAccess(0x100, 2, 20);
+    try tracker.recordRegAccess(2, 4, 30);
+    try tracker.recordMemAccess(0x200, 6, 40);
+
+    try std.testing.expectEqual(@as(usize, 2), tracker.regAccessCount());
+    try std.testing.expectEqual(@as(usize, 2), tracker.memAccessCount());
+    try std.testing.expectEqual(@as(usize, 4), tracker.accesses.items.len);
+}
+
+test "state_chain: no gap filling when within MAX_CLOCK_DIFF" {
+    const alloc = std.testing.allocator;
+    var tracker = StateChainTracker.init(alloc);
+    defer tracker.deinit();
+
+    try tracker.recordRegAccess(1, 0, 42);
+    try tracker.recordRegAccess(1, MAX_CLOCK_DIFF, 43);
+
+    // Exactly at the boundary: no gap-filling needed.
+    try std.testing.expectEqual(@as(usize, 0), tracker.clock_updates_reg.items.len);
+}
+
+test "state_chain: gap filling generates correct chain" {
+    const alloc = std.testing.allocator;
+    var tracker = StateChainTracker.init(alloc);
+    defer tracker.deinit();
+
+    // Access at clock 0, then at 2 * MAX_CLOCK_DIFF + 1 to force exactly 2 gap records.
+    const target_clk: u32 = 2 * MAX_CLOCK_DIFF + 1;
+    try tracker.recordRegAccess(5, 0, 99);
+    try tracker.recordRegAccess(5, target_clk, 100);
+
+    try std.testing.expectEqual(@as(usize, 2), tracker.clock_updates_reg.items.len);
+
+    // First gap record: clk_prev=0, clk=MAX_CLOCK_DIFF.
+    try std.testing.expectEqual(@as(u32, 0), tracker.clock_updates_reg.items[0].clk_prev);
+    try std.testing.expectEqual(MAX_CLOCK_DIFF, tracker.clock_updates_reg.items[0].clk);
+
+    // Second gap record: clk_prev=MAX_CLOCK_DIFF, clk=2*MAX_CLOCK_DIFF.
+    try std.testing.expectEqual(MAX_CLOCK_DIFF, tracker.clock_updates_reg.items[1].clk_prev);
+    try std.testing.expectEqual(2 * MAX_CLOCK_DIFF, tracker.clock_updates_reg.items[1].clk);
+}

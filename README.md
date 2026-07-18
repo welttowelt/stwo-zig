@@ -39,6 +39,7 @@ and the Cairo frontend (stwo-cairo in Zig) when that effort resumes.
 | :--- | :--- |
 | **Native Stwo** | Blake, Poseidon, Plonk, state-machine, wide-Fibonacci, and XOR AIRs |
 | **Cairo** | Versioned PIE ingestion and SN2-specialized resident proof machinery, parked until the stwo-cairo effort resumes; the general Cairo proof path is not release-gated |
+| **RISC-V** | Experimental Stark-V adapter (`src/frontends/riscv/`): RV32IM executor, sharded opcode/memory AIR components, CPU and Metal proving CLIs. Not release-gated — the complete cross-shard LogUp placement and guest public I/O binding are outstanding |
 
 ## Quick Start
 
@@ -72,9 +73,26 @@ zig-out/bin/stwo-zig verify --artifact proof.json
 
 > [!NOTE]
 > [Stark-V](https://github.com/ClementWalter/stark-v) produces an RV32IM ELF, not a self-describing
-> Stwo trace. Its adapter remains deferred until the complete RV32IM AIR and guest public I/O
-> binding are release-gated. A Native wide-Fibonacci proof establishes the Fibonacci AIR relation;
+> Stwo trace. The experimental adapter lives in `src/frontends/riscv/` and remains outside this
+> CLI until the complete RV32IM AIR (cross-shard LogUp placement) and guest public I/O binding
+> are release-gated. A Native wide-Fibonacci proof establishes the Fibonacci AIR relation;
 > it does not claim to prove execution of a Stark-V ELF.
+
+## RISC-V frontend (experimental)
+
+The Stark-V adapter proves RV32IM execution traces through the same PCS/FRI core, with the Rust
+[stark-v](https://github.com/ClementWalter/stark-v) implementation as its reference. Its unit and
+prove/verify suites run in every release gate so the frontend cannot rot silently, but its proofs
+are diagnostic: the AIR omits interaction columns a sound proof requires, so throughput numbers
+are not proof-system parity claims.
+
+```sh
+zig build test-riscv -Doptimize=ReleaseFast         # runner + trace suites
+zig build test-riscv-prover -Doptimize=ReleaseFast  # prove + verify roundtrips
+zig build riscv-bench -Doptimize=ReleaseFast        # CPU benchmark CLI
+zig build riscv-metal-bench -Doptimize=ReleaseFast  # Metal commitments CLI (macOS)
+zig build riscv-trace-dump -Doptimize=ReleaseFast   # trace dumper for equivalence runs
+```
 
 Run the same standard gate used by hosted CI:
 

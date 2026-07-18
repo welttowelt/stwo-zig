@@ -214,6 +214,7 @@ pub fn addProducts(context: Context) void {
     });
     const metal_test_options = b.addOptions();
     metal_test_options.addOption(bool, "metal_only", true);
+    metal_test_options.addOption(bool, "riscv_only", false);
     metal_test_module.addOptions("test_options", metal_test_options);
     const metal_tests = b.addTest(.{
         .root_module = metal_test_module,
@@ -244,6 +245,21 @@ pub fn addProducts(context: Context) void {
     b.getInstallStep().dependOn(&install_metal_bench.step);
     const metal_bench_step = b.step("metal-bench", "Build resident Metal commitment benchmark");
     metal_bench_step.dependOn(&install_metal_bench.step);
+
+    const riscv_metal_module = b.createModule(.{
+        .root_source_file = b.path("src/riscv_metal_bench_cli.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const riscv_metal_bench = b.addExecutable(.{
+        .name = "riscv-metal-bench",
+        .root_module = riscv_metal_module,
+    });
+    linkRuntime(b, riscv_metal_bench);
+    const install_riscv_metal_bench = b.addInstallArtifact(riscv_metal_bench, .{});
+    b.getInstallStep().dependOn(&install_riscv_metal_bench.step);
+    const riscv_metal_step = b.step("riscv-metal-bench", "Build RISC-V prover with Metal commitments");
+    riscv_metal_step.dependOn(&install_riscv_metal_bench.step);
 }
 
 pub fn linkRuntime(b: *std.Build, artifact: *std.Build.Step.Compile) void {

@@ -6,6 +6,8 @@ const test_options = @import("test_options");
 test {
     if (test_options.metal_only) {
         _ = @import("tests/metal/backend_test.zig");
+    } else if (test_options.riscv_only) {
+        _ = @import("tests/riscv/trace_test.zig");
     } else {
         _ = @import("tests/cairo/prove_trace_test.zig");
         _ = @import("tests/cairo/prover_test.zig");
