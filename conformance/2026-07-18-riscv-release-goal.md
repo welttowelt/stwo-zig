@@ -955,9 +955,9 @@ python3 scripts/check_source_conformance.py
 python3 scripts/check_riscv_release_contract.py --core-purity
 ```
 
-The `--core-purity` selector is a required CP-13 checker deliverable. Until it
-exists and is exercised independently (or `--all` emits equivalent named
-evidence), BA-01 must be rerun and cannot support RF-01 on the promoted revision.
+The `--core-purity` selector is implemented through `75a74318` and passes on
+that revision. It must be rerun by CP-13 against the final candidate and again
+against the promoted revision; an earlier passing receipt cannot support RF-01.
 
 The evidence records the candidate commit, complete dependency-edge inventory,
 and zero unbaselined core-to-frontend or core-to-concrete-backend imports.
@@ -978,9 +978,10 @@ Gate:
 python3 scripts/check_riscv_release_contract.py --frontend-layering
 ```
 
-The `--frontend-layering` selector is a required CP-13 checker deliverable. The
-current `--all --phase` surface does not by itself prove that this named audit
-was implemented rather than omitted.
+The `--frontend-layering` selector is implemented through `75a74318` and fails
+closed on the current active `silent` paths and oversized frontend files. Those
+findings are release blockers, not baselined exceptions. The named selector must
+pass independently in CP-13 against the final candidate and promoted revisions.
 
 The checker must reject concrete backend construction/imports, CLI dependencies,
 artifact serialization, benchmark reporting, active `legacy`/`placeholder`/
@@ -1059,7 +1060,7 @@ remains `IN_PROGRESS`.
 | Checkpoint | Status | Evidence baseline | Required closure evidence |
 | --- | --- | --- | --- |
 | CP-00 Fail closed | IN_PROGRESS | Typed candidate-only `--experimental`, closed registry, and negative phase admission through `9af6fe2b` | Complete unsupported decoder/backend matrix; preserve closed release and autoresearch registries |
-| CP-01 Structure | IN_PROGRESS | Core-purity audit passes; frontend debt remains | Backend-neutral frontend; RISC-V structure checker clean; touched source debt reduced |
+| CP-01 Structure | IN_PROGRESS | Mechanical core-purity gate passes through `75a74318`; frontend-layering gate correctly fails on active `silent` paths and oversized files | Backend-neutral frontend; RISC-V frontend-layering checker clean; touched source debt reduced |
 | CP-02 Execute | IN_PROGRESS | Live decode and execution boundaries pass at `30bc24ec`; two-shard ADDI corpus case is committed at `8e5be3c3` | Exact 45-opcode manifest, complete edge corpus, and corrected signed-MULH oracle |
 | CP-03 Witness | IN_PROGRESS | Production-buffer per-family rows and ordered accesses pass live Rust comparison at `30bc24ec` | Complete schema/edge corpus and bind the layout digest into final candidate evidence |
 | CP-04 Semantic AIR | IN_PROGRESS | Honest roundtrip and partial mutation matrix through `88870d2c` | All accepted opcodes proof-integrated on-domain/OODS and malicious-witness tested |
@@ -1071,10 +1072,10 @@ remains `IN_PROGRESS`.
 | CP-10 Artifact | IN_PROGRESS | Staged schema, atomic path, owned statement, external expected digest, and security-policy checks through `9af6fe2b` | Complete hostile decoding coverage and pass candidate/promoted clean evidence |
 | CP-11 Rust oracle | FAIL | Fresh `30bc24ec` receipt is 9/11 | Exact `relation_tuples` and per-component cumulative `relation_sums` pass with candidate-bound strict evidence |
 | CP-12 Adversarial fleet | IN_PROGRESS | Committed partial matrix at `88870d2c` | Full production malicious-witness and cross-shard forgery matrix complete |
-| CP-13 Release gate | IN_PROGRESS | Phase-aware fail-closed controller through `0374679e`; final evidence not accepted | Strict candidate and promoted controllers pass locally and in clean CI |
+| CP-13 Release gate | IN_PROGRESS | Phase-aware controller through `0374679e` and named structure/core/frontend selectors through `75a74318`; final evidence not accepted | Strict candidate and promoted controllers pass locally and in clean CI |
 | RF-01 Registry flip | NOT_STARTED | None | Atomic promotion commit and post-flip gate |
-| BA-01 Core purity | IN_PROGRESS | Audit `c0720031` found the current core boundary clean | Add the named mechanical checker/evidence and preserve it on the promoted revision |
-| BA-02 Frontend layering | FAIL | Audit `c0720031` | Concrete backend removed and checker clean |
+| BA-01 Core purity | IN_PROGRESS | Named mechanical checker passes through `75a74318` | Preserve and rerun it in candidate and promoted CP-13 evidence |
+| BA-02 Frontend layering | FAIL | Named mechanical checker through `75a74318` rejects active `silent` paths and oversized frontend files | Remove active incomplete paths, decompose touched debt, and rerun the checker clean |
 | BA-03 Autoresearch | FAIL | Correctly disabled at `c0720031` | Keep disabled, or satisfy independent activation gates |
 
 ## Definition of done
