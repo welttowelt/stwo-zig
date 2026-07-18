@@ -11,6 +11,7 @@ test {
     // AIR-layer suites are gated here so they can never silently rot.
     _ = @import("../../frontends/riscv/air/logup.zig");
     _ = @import("../../frontends/riscv/air/interaction.zig");
+    _ = @import("../../frontends/riscv/air/program/mod.zig");
     _ = @import("../../frontends/riscv/air/relations.zig");
     _ = @import("../../frontends/riscv/air/semantics/mod.zig");
 }
