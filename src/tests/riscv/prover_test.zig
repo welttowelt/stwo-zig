@@ -3,7 +3,6 @@
 const std = @import("std");
 const riscv_cpu = @import("../../integrations/riscv_cpu/mod.zig");
 const prover = @import("../../frontends/riscv/prover.zig");
-const logup = @import("../../frontends/riscv/air/logup.zig");
 const runner_mod = @import("../../frontends/riscv/runner/mod.zig");
 const memory_state = @import("../../frontends/riscv/runner/memory_state.zig");
 const trace_mod = @import("../../frontends/riscv/runner/trace.zig");
@@ -819,7 +818,7 @@ test "riscv prover: public clock mutation is rejected" {
     ));
 }
 
-test "riscv prover: program-bus claims cancel without a boundary term" {
+test "riscv prover: exact program component exposes three paired claims" {
     const alloc = std.testing.allocator;
     var exec_trace = try testAddiTrace(alloc, 4);
     defer exec_trace.deinit();
@@ -829,10 +828,9 @@ test "riscv prover: program-bus claims cancel without a boundary term" {
 
     const claim = output.interaction_claim;
     try std.testing.expectEqual(output.statement.n_components, claim.n_components);
-    // The program bus balances on its own; the state chain needs the public
-    // boundary, which verifyRiscV recomputes from the drawn lookup elements.
-    try logup.verifyGlobalCancellation(
-        &.{ claim.prog_claims[0], claim.rom_claim },
-        QM31.zero(),
-    );
+    try std.testing.expectEqual(output.statement.n_infra, claim.n_infra);
+    const expected = claim.program_claims[0][0]
+        .add(claim.program_claims[0][1])
+        .add(claim.program_claims[0][2]);
+    try std.testing.expect((try claim.infraClaimTotal(.program, 0)).eql(expected));
 }

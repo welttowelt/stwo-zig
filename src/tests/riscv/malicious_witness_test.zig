@@ -15,6 +15,8 @@ const postcard = @import("../../interop/postcard.zig");
 const runner_mod = @import("../../frontends/riscv/runner/mod.zig");
 const public_data_mod = @import("../../frontends/riscv/air/public_data.zig");
 const opcode_memory = @import("../../frontends/riscv/air/opcode_memory.zig");
+const merkle_node = @import("../../frontends/riscv/air/memory_commitment/merkle_node.zig");
+const poseidon2_air = @import("../../frontends/riscv/air/memory_commitment/poseidon2_air.zig");
 const pcs_core = @import("../../core/pcs/mod.zig");
 const qm31 = @import("../../core/fields/qm31.zig");
 
@@ -224,11 +226,11 @@ test "riscv prover: malicious-witness matrix rejects every claim and boundary mu
         }
     }
 
-    // -- Interaction-claim families: ROM and RW-memory infrastructure sums. --
-    {
+    // -- Interaction-claim families: exact infrastructure sums. --
+    for (0..matrix.claim.program_claims[0].len) |j| {
         var claim = matrix.claim;
-        claim.rom_claim = bump(claim.rom_claim);
-        try matrix.expectClaimRejected("rom_claim", 0, 0, claim);
+        claim.program_claims[0][j] = bump(claim.program_claims[0][j]);
+        try matrix.expectClaimRejected("program_claims", 0, j, claim);
     }
     var n_memory_infra: usize = 0;
     for (0..matrix.statement.n_infra) |i| {
@@ -241,6 +243,31 @@ test "riscv prover: malicious-witness matrix rejects every claim and boundary mu
         }
     }
     try std.testing.expect(n_memory_infra >= 1);
+    var n_merkle_infra: usize = 0;
+    var n_poseidon_infra: usize = 0;
+    for (0..matrix.statement.n_infra) |i| {
+        switch (matrix.statement.infra_descs[i].kind) {
+            .merkle => {
+                n_merkle_infra += 1;
+                for (0..merkle_node.N_SUMS) |j| {
+                    var claim = matrix.claim;
+                    claim.merkle_claims[i][j] = bump(claim.merkle_claims[i][j]);
+                    try matrix.expectClaimRejected("merkle_claims", i, j, claim);
+                }
+            },
+            .poseidon2 => {
+                n_poseidon_infra += 1;
+                for (0..poseidon2_air.N_SUMS) |j| {
+                    var claim = matrix.claim;
+                    claim.poseidon_claims[i][j] = bump(claim.poseidon_claims[i][j]);
+                    try matrix.expectClaimRejected("poseidon_claims", i, j, claim);
+                }
+            },
+            else => {},
+        }
+    }
+    try std.testing.expectEqual(@as(usize, 1), n_merkle_infra);
+    try std.testing.expectEqual(@as(usize, 1), n_poseidon_infra);
 
     // -- Interaction-claim envelope: PoW nonce and component count. --
     {
@@ -252,6 +279,11 @@ test "riscv prover: malicious-witness matrix rejects every claim and boundary mu
         var claim = matrix.claim;
         claim.n_components += 1;
         try matrix.expectClaimRejected("claim.n_components", 0, 0, claim);
+    }
+    {
+        var claim = matrix.claim;
+        claim.n_infra += 1;
+        try matrix.expectClaimRejected("claim.n_infra", 0, 0, claim);
     }
 
     // -- Statement PC/step boundary fields. Lone mutations must fail the
@@ -309,9 +341,11 @@ test "riscv prover: malicious-witness matrix rejects every claim and boundary mu
     // The matrix is exhaustive over the families above: every attempt must
     // have run and been rejected.
     const expected_rejections = n_components * (2 + opcode_memory.N_ACCESSES) +
-        1 + // rom_claim
+        matrix.claim.program_claims[0].len + // program claims
         n_memory_infra * 4 + // memory_claims entries
-        2 + // interaction_pow, claim.n_components
+        n_merkle_infra * merkle_node.N_SUMS +
+        n_poseidon_infra * poseidon2_air.N_SUMS +
+        3 + // interaction_pow, claim.n_components, claim.n_infra
         6 + // initial_pc/final_pc/total_steps, lone and coordinated
         matrix.statement.public_data.reg_last_clock.len + // reg_last_clock entries
         output_words.len * 3 + // output word value/clock/addr

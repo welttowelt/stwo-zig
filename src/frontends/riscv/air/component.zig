@@ -31,6 +31,8 @@ const interaction_gen = @import("interaction_gen.zig");
 const logup = @import("logup.zig");
 const memory_interaction = @import("memory_commitment/interaction.zig");
 const opcode_memory = @import("opcode_memory.zig");
+const program_commitment = @import("program/commitment.zig");
+const program_interaction = @import("program/interaction.zig");
 const relation_challenges = @import("relation_challenges.zig");
 const semantic_eval = @import("semantic_eval.zig");
 const trace_mod = @import("../runner/trace.zig");
@@ -54,7 +56,7 @@ pub const Kind = enum { opcode, program, memory, silent };
 pub fn nInteractionCols(kind: Kind) u32 {
     return switch (kind) {
         .opcode => @intCast(interaction_gen.OPCODE_INTERACTION_COLS),
-        .program => @intCast(interaction_gen.PROGRAM_INTERACTION_COLS),
+        .program => @intCast(program_interaction.N_COLUMNS),
         .memory => @intCast(memory_interaction.N_COLUMNS),
         .silent => 0,
     };
@@ -79,7 +81,8 @@ pub const RiscVTraceComponent = struct {
     interaction_col_offset: usize = 0,
     state_claim: QM31 = QM31.zero(),
     prog_claim: QM31 = QM31.zero(),
-    rom_claim: QM31 = QM31.zero(),
+    program_claims: [program_interaction.N_SUMS]QM31 =
+        .{QM31.zero()} ** program_interaction.N_SUMS,
     opcode_memory_claims: [opcode_memory.N_ACCESSES]QM31 =
         .{QM31.zero()} ** opcode_memory.N_ACCESSES,
     memory_claims: [memory_interaction.N_SUMS]QM31 =
@@ -91,7 +94,8 @@ pub const RiscVTraceComponent = struct {
     s_prog_prev: [4][]const M31 = EMPTY_PREV,
     s_opcode_memory_prev: [opcode_memory.N_ACCESSES][4][]const M31 =
         .{EMPTY_PREV} ** opcode_memory.N_ACCESSES,
-    s_rom_prev: [4][]const M31 = EMPTY_PREV,
+    s_program_prev: [program_interaction.N_SUMS][4][]const M31 =
+        .{EMPTY_PREV} ** program_interaction.N_SUMS,
     s_memory_prev: [memory_interaction.N_SUMS][4][]const M31 = EMPTY_MEMORY_PREV,
 
     const Adapter = core_air_derive.ComponentAdapter(
@@ -115,7 +119,7 @@ pub const RiscVTraceComponent = struct {
                 semantic_eval.constraintCount(self.desc.family)
             else
                 0,
-            .program => 2,
+            .program => program_interaction.N_CONSTRAINTS,
             .memory => memory_interaction.N_CONSTRAINTS,
             .silent => 1,
         };
@@ -334,33 +338,29 @@ pub const RiscVTraceComponent = struct {
                 }
             },
             .program => {
-                const main_o = self.main_col_offset;
-                const enabler = main[main_o][0];
-                const pc = main[main_o + 1][0];
-                const opcode_id = main[main_o + 2][0];
-                const value_1 = main[main_o + 3][0];
-                const value_2 = main[main_o + 4][0];
-                const value_3 = main[main_o + 5][0];
-                const mult = main[main_o + 6][0].mul(is_active);
-                const s_rom = try sampledSecure(inter, o, 0);
-                const s_rom_prev = try sampledSecure(inter, o, 1);
-
-                const rom_pair = logup.programEmit(
+                const sampled = try sampledMainRow(
+                    program_commitment.N_MAIN_COLUMNS,
+                    main,
+                    self.main_col_offset,
+                );
+                var sums: [program_interaction.N_SUMS]QM31 = undefined;
+                var previous: [program_interaction.N_SUMS]QM31 = undefined;
+                for (0..program_interaction.N_SUMS) |index| {
+                    sums[index] = try sampledSecure(inter, o + index * 4, 0);
+                    previous[index] = try sampledSecure(inter, o + index * 4, 1);
+                }
+                const constraints = program_interaction.evaluate(
+                    sampled,
+                    is_active,
+                    is_first,
+                    sums,
+                    previous,
+                    self.program_claims,
                     self.relations,
-                    pc,
-                    opcode_id,
-                    value_1,
-                    value_2,
-                    value_3,
-                    mult,
                 );
-                evaluation_accumulator.accumulate(
-                    logup.pairConstraint(s_rom, s_rom_prev, is_first, self.rom_claim, rom_pair)
-                        .mul(denominator_inv),
-                );
-                evaluation_accumulator.accumulate(
-                    enabler.sub(is_active).mul(denominator_inv),
-                );
+                for (constraints) |constraint| {
+                    evaluation_accumulator.accumulate(constraint.mul(denominator_inv));
+                }
             },
             .memory => {
                 const sampled = try sampledMainRow(8, main, self.main_col_offset);
@@ -425,7 +425,8 @@ pub const RiscVTraceComponent = struct {
         const opcode_main_sources: usize = if (self.kind == .opcode) self.desc.n_columns else 0;
         const n_sources: usize = switch (self.kind) {
             .opcode => 2 + opcode_main_sources + n_inter + 8 + opcode_memory.N_COLUMNS,
-            .program => 2 + 7 + n_inter + 4,
+            .program => 2 + program_commitment.N_MAIN_COLUMNS + n_inter +
+                program_interaction.N_COLUMNS,
             .memory => 2 + 8 + n_inter + memory_interaction.N_COLUMNS,
             .silent => unreachable,
         };
@@ -465,7 +466,7 @@ pub const RiscVTraceComponent = struct {
                     n_polys += 1;
                 }
             } else if (self.kind == .program) {
-                for (0..7) |i| {
+                for (0..program_commitment.N_MAIN_COLUMNS) |i| {
                     polys_buf[n_polys] = main[self.main_col_offset + i];
                     n_polys += 1;
                 }
@@ -499,7 +500,7 @@ pub const RiscVTraceComponent = struct {
                     self.s_opcode_memory_prev[1],
                     self.s_opcode_memory_prev[2],
                 },
-                .program => &.{self.s_rom_prev},
+                .program => &self.s_program_prev,
                 .memory => &self.s_memory_prev,
                 .silent => unreachable,
             };
@@ -663,34 +664,35 @@ pub const RiscVTraceComponent = struct {
                     }
                 },
                 .program => {
-                    const enabler = QM31.fromBase(evaluations[2][row]);
-                    const pc = QM31.fromBase(evaluations[3][row]);
-                    const opcode_id = QM31.fromBase(evaluations[4][row]);
-                    const value_1 = QM31.fromBase(evaluations[5][row]);
-                    const value_2 = QM31.fromBase(evaluations[6][row]);
-                    const value_3 = QM31.fromBase(evaluations[7][row]);
-                    const mult = QM31.fromBase(evaluations[8][row]).mul(is_active);
-                    const s_rom = secureAt(evaluations[9..13], row);
-                    const s_rom_prev = secureAt(evaluations[13..17], row);
-
-                    const c_rom = logup.pairConstraint(
-                        s_rom,
-                        s_rom_prev,
+                    const main_start: usize = 2;
+                    const inter_start = main_start + program_commitment.N_MAIN_COLUMNS;
+                    const prev_start = inter_start + program_interaction.N_COLUMNS;
+                    var sampled: [program_commitment.N_MAIN_COLUMNS]QM31 = undefined;
+                    for (&sampled, 0..) |*value, column| {
+                        value.* = QM31.fromBase(evaluations[main_start + column][row]);
+                    }
+                    var sums: [program_interaction.N_SUMS]QM31 = undefined;
+                    var previous: [program_interaction.N_SUMS]QM31 = undefined;
+                    for (0..program_interaction.N_SUMS) |index| {
+                        sums[index] = secureAt(evaluations[inter_start + index * 4 ..][0..4], row);
+                        previous[index] = secureAt(evaluations[prev_start + index * 4 ..][0..4], row);
+                    }
+                    const constraints = program_interaction.evaluate(
+                        sampled,
+                        is_active,
                         is_first,
-                        self.rom_claim,
-                        logup.programEmit(
-                            self.relations,
-                            pc,
-                            opcode_id,
-                            value_1,
-                            value_2,
-                            value_3,
-                            mult,
-                        ),
+                        sums,
+                        previous,
+                        self.program_claims,
+                        self.relations,
                     );
-                    const c_active = enabler.sub(is_active);
-                    row_evaluation = column_accumulator.random_coeff_powers[1].mul(c_rom)
-                        .add(column_accumulator.random_coeff_powers[0].mul(c_active));
+                    const powers = column_accumulator.random_coeff_powers;
+                    row_evaluation = QM31.zero();
+                    for (constraints, 0..) |constraint, index| {
+                        row_evaluation = row_evaluation.add(
+                            powers[powers.len - 1 - index].mul(constraint),
+                        );
+                    }
                 },
                 .memory => {
                     const main_start: usize = 2;

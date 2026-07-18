@@ -4,6 +4,7 @@ const std = @import("std");
 const M31 = @import("../../../../core/fields/m31.zig").M31;
 const QM31 = @import("../../../../core/fields/qm31.zig").QM31;
 const infra = @import("../../infra_trace.zig");
+const lookup_entry = @import("../lookups/entry.zig");
 const logup = @import("../logup.zig");
 const relations_mod = @import("../relation_challenges.zig");
 const commitment = @import("commitment.zig");
@@ -124,31 +125,57 @@ pub fn rowPairsFromRow(row: commitment.Row, relations: *const relations_mod.Rela
 }
 
 pub fn rowPairs(main: [commitment.N_MAIN_COLUMNS]QM31, relations: *const relations_mod.Relations) [N_SUMS]logup.RowPair {
+    const list = entries(main);
+    return .{
+        list.pair(0, relations) catch unreachable,
+        list.pair(1, relations) catch unreachable,
+        list.pair(2, relations) catch unreachable,
+    };
+}
+
+pub fn entries(main: [commitment.N_MAIN_COLUMNS]QM31) lookup_entry.List {
     const enabler = main[0];
     const addr = main[1];
     const values = main[2..6];
     const root = main[7];
     const depth = base(30);
-    return .{
-        .{
-            .n1 = main[6],
-            .d1 = relations.program_access.combineSecure(.{
-                addr, values[0], values[1], values[2], values[3],
-            }),
-            .n2 = enabler.neg(),
-            .d2 = relations.merkle.combineSecure(.{ addr, depth, values[0], root }),
-        },
-        .{
-            .n1 = enabler.neg(),
-            .d1 = relations.merkle.combineSecure(.{ addr.add(base(1)), depth, values[1], root }),
-            .n2 = enabler.neg(),
-            .d2 = relations.merkle.combineSecure(.{ addr.add(base(2)), depth, values[2], root }),
-        },
-        logup.RowPair.single(
-            enabler.neg(),
-            relations.merkle.combineSecure(.{ addr.add(base(3)), depth, values[3], root }),
-        ),
-    };
+    var list = lookup_entry.List{};
+    append(&list, .program_access, main[6], .{ addr, values[0], values[1], values[2], values[3] });
+    append(&list, .merkle, enabler.neg(), .{ addr, depth, values[0], root });
+    append(&list, .merkle, enabler.neg(), .{ addr.add(base(1)), depth, values[1], root });
+    append(&list, .merkle, enabler.neg(), .{ addr.add(base(2)), depth, values[2], root });
+    append(&list, .merkle, enabler.neg(), .{ addr.add(base(3)), depth, values[3], root });
+    return list;
+}
+
+pub fn diagnosticSum(
+    rows: []const commitment.Row,
+    domain: lookup_entry.Domain,
+    relations: *const relations_mod.Relations,
+) !QM31 {
+    var result = QM31.zero();
+    for (rows) |row| {
+        const list = entriesFromRow(row);
+        for (list.entries[0..list.len]) |item| {
+            if (item.domain != domain or item.numerator.isZero()) continue;
+            const denominator = try item.denominator(relations);
+            result = result.add(item.numerator.mul(try denominator.inv()));
+        }
+    }
+    return result;
+}
+
+fn entriesFromRow(row: commitment.Row) lookup_entry.List {
+    return entries(.{
+        QM31.one(),
+        base(row.addr),
+        base(row.values[0]),
+        base(row.values[1]),
+        base(row.values[2]),
+        base(row.values[3]),
+        base(row.multiplicity),
+        base(row.root),
+    });
 }
 
 pub fn paddingPairs() [N_SUMS]logup.RowPair {
@@ -189,6 +216,12 @@ fn freeColumns(allocator: std.mem.Allocator, columns: []const []M31) void {
 
 fn base(value: u32) QM31 {
     return QM31.fromBase(M31.fromU64(value));
+}
+
+fn append(list: *lookup_entry.List, domain: lookup_entry.Domain, numerator: QM31, values: anytype) void {
+    var item = lookup_entry.Entry{ .domain = domain, .numerator = numerator, .arity = values.len };
+    inline for (values, 0..) |value, index| item.values[index] = value;
+    list.append(item);
 }
 
 test "program interaction: exact declaration order uses three pair columns" {

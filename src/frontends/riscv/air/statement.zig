@@ -2,7 +2,11 @@
 
 const qm31 = @import("../../../core/fields/qm31.zig");
 const component = @import("component.zig");
+const memory_interaction = @import("memory_commitment/interaction.zig");
+const merkle_node = @import("memory_commitment/merkle_node.zig");
 const opcode_memory = @import("opcode_memory.zig");
+const poseidon2_air = @import("memory_commitment/poseidon2_air.zig");
+const program_interaction = @import("program/interaction.zig");
 const public_data = @import("public_data.zig");
 const trace_mod = @import("../runner/trace.zig");
 const transcript_claims = @import("transcript/claims.zig");
@@ -39,10 +43,23 @@ pub const InfraComponentDesc = struct {
 
 pub fn nInteractionColsForInfra(kind: InfraKind) u32 {
     return switch (kind) {
-        .program => component.nInteractionCols(.program),
-        .memory => component.nInteractionCols(.memory),
-        else => 0,
+        .program => program_interaction.N_COLUMNS,
+        .memory => memory_interaction.N_COLUMNS,
+        .poseidon2 => poseidon2_air.N_INTERACTION_COLUMNS,
+        .merkle => merkle_node.N_INTERACTION_COLUMNS,
+        .bitwise,
+        .range_check_20,
+        .range_check_8_11,
+        .range_check_8_8_4,
+        .range_check_8_8,
+        .range_check_m31,
+        => 4,
+        .clock_update => 0,
     };
+}
+
+pub fn nClaimedSumsForInfra(kind: InfraKind) u32 {
+    return nInteractionColsForInfra(kind) / 4;
 }
 
 pub const RiscVStatement = struct {
@@ -180,9 +197,13 @@ pub const RiscVInteractionClaim = struct {
     state_claims: [MAX_COMPONENTS]QM31,
     prog_claims: [MAX_COMPONENTS]QM31,
     opcode_memory_claims: [MAX_COMPONENTS][opcode_memory.N_ACCESSES]QM31,
-    rom_claim: QM31,
-    memory_claims: [MAX_INFRA_COMPONENTS][4]QM31,
+    program_claims: [MAX_INFRA_COMPONENTS][program_interaction.N_SUMS]QM31,
+    memory_claims: [MAX_INFRA_COMPONENTS][memory_interaction.N_SUMS]QM31,
+    merkle_claims: [MAX_INFRA_COMPONENTS][merkle_node.N_SUMS]QM31,
+    poseidon_claims: [MAX_INFRA_COMPONENTS][poseidon2_air.N_SUMS]QM31,
+    lookup_claims: [MAX_INFRA_COMPONENTS]QM31,
     n_components: u32,
+    n_infra: u32,
     interaction_pow: u64,
 
     pub fn initZero() RiscVInteractionClaim {
@@ -190,18 +211,82 @@ pub const RiscVInteractionClaim = struct {
             .state_claims = .{QM31.zero()} ** MAX_COMPONENTS,
             .prog_claims = .{QM31.zero()} ** MAX_COMPONENTS,
             .opcode_memory_claims = .{.{QM31.zero()} ** opcode_memory.N_ACCESSES} ** MAX_COMPONENTS,
-            .rom_claim = QM31.zero(),
-            .memory_claims = .{.{QM31.zero()} ** 4} ** MAX_INFRA_COMPONENTS,
+            .program_claims = .{.{QM31.zero()} ** program_interaction.N_SUMS} ** MAX_INFRA_COMPONENTS,
+            .memory_claims = .{.{QM31.zero()} ** memory_interaction.N_SUMS} ** MAX_INFRA_COMPONENTS,
+            .merkle_claims = .{.{QM31.zero()} ** merkle_node.N_SUMS} ** MAX_INFRA_COMPONENTS,
+            .poseidon_claims = .{.{QM31.zero()} ** poseidon2_air.N_SUMS} ** MAX_INFRA_COMPONENTS,
+            .lookup_claims = .{QM31.zero()} ** MAX_INFRA_COMPONENTS,
             .n_components = 0,
+            .n_infra = 0,
             .interaction_pow = 0,
         };
+    }
+
+    pub fn opcodeClaimTotal(self: *const RiscVInteractionClaim, index: usize) !QM31 {
+        if (index >= self.n_components) return error.InvalidInteractionClaim;
+        var result = self.state_claims[index].add(self.prog_claims[index]);
+        for (self.opcode_memory_claims[index]) |sum| result = result.add(sum);
+        return result;
+    }
+
+    pub fn infraClaim(self: *const RiscVInteractionClaim, kind: InfraKind, index: usize, sum: usize) !QM31 {
+        if (index >= self.n_infra or sum >= nClaimedSumsForInfra(kind))
+            return error.InvalidInteractionClaim;
+        return switch (kind) {
+            .program => self.program_claims[index][sum],
+            .memory => self.memory_claims[index][sum],
+            .merkle => self.merkle_claims[index][sum],
+            .poseidon2 => self.poseidon_claims[index][sum],
+            .bitwise,
+            .range_check_20,
+            .range_check_8_11,
+            .range_check_8_8_4,
+            .range_check_8_8,
+            .range_check_m31,
+            => self.lookup_claims[index],
+            .clock_update => error.InvalidInteractionClaim,
+        };
+    }
+
+    pub fn setInfraClaim(
+        self: *RiscVInteractionClaim,
+        kind: InfraKind,
+        index: usize,
+        sum: usize,
+        value: QM31,
+    ) !void {
+        if (index >= self.n_infra or sum >= nClaimedSumsForInfra(kind))
+            return error.InvalidInteractionClaim;
+        switch (kind) {
+            .program => self.program_claims[index][sum] = value,
+            .memory => self.memory_claims[index][sum] = value,
+            .merkle => self.merkle_claims[index][sum] = value,
+            .poseidon2 => self.poseidon_claims[index][sum] = value,
+            .bitwise,
+            .range_check_20,
+            .range_check_8_11,
+            .range_check_8_8_4,
+            .range_check_8_8,
+            .range_check_m31,
+            => self.lookup_claims[index] = value,
+            .clock_update => return error.InvalidInteractionClaim,
+        }
+    }
+
+    pub fn infraClaimTotal(self: *const RiscVInteractionClaim, kind: InfraKind, index: usize) !QM31 {
+        var result = QM31.zero();
+        for (0..nClaimedSumsForInfra(kind)) |sum| {
+            result = result.add(try self.infraClaim(kind, index, sum));
+        }
+        return result;
     }
 
     pub fn canonical(
         self: *const RiscVInteractionClaim,
         statement: *const RiscVStatement,
     ) !CanonicalInteractionClaim {
-        if (self.n_components != statement.n_components) return error.InvalidInteractionClaim;
+        if (self.n_components != statement.n_components or self.n_infra != statement.n_infra)
+            return error.InvalidInteractionClaim;
         var result = CanonicalInteractionClaim{
             .claimed_sums = .{QM31.zero()} ** transcript_claims.COMPONENT_COUNT,
             .log_sizes = undefined,
@@ -211,10 +296,7 @@ pub const RiscVInteractionClaim = struct {
             const desc = statement.component_descs[i];
             const claim_index = @intFromEnum(componentForFamily(desc.family));
             result.claimed_sums[claim_index] = result.claimed_sums[claim_index]
-                .add(self.state_claims[i]).add(self.prog_claims[i]);
-            for (self.opcode_memory_claims[i]) |sum| {
-                result.claimed_sums[claim_index] = result.claimed_sums[claim_index].add(sum);
-            }
+                .add(try self.opcodeClaimTotal(i));
             for (0..component.nInteractionCols(.opcode)) |_| {
                 if (result.n_log_sizes == result.log_sizes.len) return error.TooManyInteractionColumns;
                 result.log_sizes[result.n_log_sizes] = desc.log_size;
@@ -223,16 +305,9 @@ pub const RiscVInteractionClaim = struct {
         }
         for (0..statement.n_infra) |i| {
             const desc = statement.infra_descs[i];
-            if (desc.kind == .program) {
-                const claim_index = @intFromEnum(transcript_claims.Component.program);
-                result.claimed_sums[claim_index] = result.claimed_sums[claim_index].add(self.rom_claim);
-            }
-            if (desc.kind == .memory) {
-                const claim_index = @intFromEnum(transcript_claims.Component.memory);
-                for (self.memory_claims[i]) |sum| {
-                    result.claimed_sums[claim_index] = result.claimed_sums[claim_index].add(sum);
-                }
-            }
+            const claim_index = @intFromEnum(componentForInfra(desc.kind));
+            result.claimed_sums[claim_index] = result.claimed_sums[claim_index]
+                .add(try self.infraClaimTotal(desc.kind, i));
             for (0..nInteractionColsForInfra(desc.kind)) |_| {
                 if (result.n_log_sizes == result.log_sizes.len) return error.TooManyInteractionColumns;
                 result.log_sizes[result.n_log_sizes] = desc.log_size;

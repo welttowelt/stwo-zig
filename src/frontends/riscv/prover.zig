@@ -54,8 +54,12 @@ const opcode_memory = @import("air/opcode_memory.zig");
 const public_data_mod = @import("air/public_data.zig");
 const public_logup = @import("air/public_logup.zig");
 const memory_boundary = @import("air/memory_commitment/boundary.zig");
-const sparse_merkle = @import("air/memory_commitment/sparse_merkle.zig");
-const program_decode = @import("air/program/decode.zig");
+const hash_component = @import("air/memory_commitment/hash_component.zig");
+const merkle_node = @import("air/memory_commitment/merkle_node.zig");
+const poseidon2_air = @import("air/memory_commitment/poseidon2_air.zig");
+const program_commitment = @import("air/program/commitment.zig");
+const program_interaction = @import("air/program/interaction.zig");
+const program_table = @import("air/program/table.zig");
 const memory_interaction = @import("air/memory_commitment/interaction.zig");
 const memory_trace = @import("air/memory_commitment/trace.zig");
 const riscv_component = @import("air/component.zig");
@@ -64,7 +68,6 @@ const infra = @import("infra_trace.zig");
 const proof_transcript = @import("proof_transcript.zig");
 const state_chain = @import("runner/state_chain.zig");
 const memory_state = @import("runner/memory_state.zig");
-const poseidon2 = @import("common/poseidon2.zig");
 
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
@@ -175,7 +178,7 @@ fn validateStatement(statement: RiscVStatement) ProverError!void {
 
     const program = statement.infra_descs[0];
     if (program.kind != .program or program.n_rows == 0 or
-        program.n_columns != infra.PROGRAM_TRACE_COLS)
+        program.n_columns != program_commitment.N_MAIN_COLUMNS)
         return ProverError.InvalidStatement;
 
     var index: usize = 1;
@@ -188,21 +191,22 @@ fn validateStatement(statement: RiscVStatement) ProverError!void {
         max_non_program_log = @max(max_non_program_log, desc.log_size);
     }
     if (index + 3 != statement.n_infra) return ProverError.InvalidStatement;
-    const clock_update = statement.infra_descs[index];
+    const merkle_desc = statement.infra_descs[index];
     const poseidon_desc = statement.infra_descs[index + 1];
-    const merkle_desc = statement.infra_descs[index + 2];
+    const clock_update = statement.infra_descs[index + 2];
+    if (merkle_desc.kind != .merkle or
+        merkle_desc.n_columns != merkle_node.N_MAIN_COLUMNS or
+        merkle_desc.log_size != @max(@as(u32, 4), computeLogSize(merkle_desc.n_rows)))
+        return ProverError.InvalidStatement;
+    if (poseidon_desc.kind != .poseidon2 or
+        poseidon_desc.n_columns != poseidon2_air.N_MAIN_COLUMNS or
+        poseidon_desc.log_size != @max(@as(u32, 4), computeLogSize(poseidon_desc.n_rows)))
+        return ProverError.InvalidStatement;
     if (clock_update.kind != .clock_update or
         clock_update.n_columns != infra.CLOCK_UPDATE_COLS or
         clock_update.log_size != @max(@as(u32, 4), computeLogSize(clock_update.n_rows)))
         return ProverError.InvalidStatement;
-    if (poseidon_desc.kind != .poseidon2 or
-        poseidon_desc.n_columns != infra.POSEIDON2_TRACE_COLS or
-        poseidon_desc.log_size != @max(@as(u32, 4), computeLogSize(poseidon_desc.n_rows)))
-        return ProverError.InvalidStatement;
-    if (merkle_desc.kind != .merkle or
-        merkle_desc.n_columns != infra.MERKLE_TRACE_COLS or
-        merkle_desc.log_size != @max(@as(u32, 4), computeLogSize(merkle_desc.n_rows)))
-        return ProverError.InvalidStatement;
+    if (poseidon_desc.n_rows != merkle_desc.n_rows) return ProverError.InvalidStatement;
     max_non_program_log = @max(
         max_non_program_log,
         @max(clock_update.log_size, @max(poseidon_desc.log_size, merkle_desc.log_size)),
@@ -251,147 +255,6 @@ fn verifyPreprocessedRoot(
     defer roots.deinit(allocator);
     if (roots.items.len != 1 or !std.meta.eql(roots.items[0], actual))
         return ProverError.InvalidPreprocessedCommitment;
-}
-
-// ---------------------------------------------------------------------------
-// Poseidon2 Merkle tree building
-// ---------------------------------------------------------------------------
-
-/// Result of building a Poseidon2 Merkle tree with trace capture.
-const MerkleTreeResult = struct {
-    hash_traces: []poseidon2.PermuteTrace,
-    n_hashes: usize,
-    root: [8]M31,
-};
-
-/// Build a Poseidon2 Merkle tree from program instruction entries.
-///
-/// Collects unique PCs and their instruction opcodes from the execution trace,
-/// hashes each entry as a leaf, then builds the Merkle tree bottom-up using
-/// `permuteTraced` to capture all intermediate hash states.
-///
-/// Returns the captured hash traces (for Poseidon2 trace columns), the total
-/// number of hash invocations (for Merkle trace columns), and the tree root.
-pub fn buildProgramSparseRoot(
-    allocator: std.mem.Allocator,
-    opt_memory: ?*const memory_state.Snapshot,
-) !?u32 {
-    // Oracle-exact: leaves are the bytes of the DECLARED program region;
-    // an undeclared/empty region yields an ABSENT root (None), which the
-    // transcript distinguishes from a present zero or default root.
-    var leaves: std.ArrayList(sparse_merkle.Leaf) = .{};
-    defer leaves.deinit(allocator);
-    if (opt_memory) |snapshot| {
-        for (snapshot.program_words) |word| {
-            // Oracle-exact leaves: the DECODED per-class tuple, never raw bytes.
-            const values = try program_decode.decodeProgramWord(word.initial_word);
-            for (values, 0..) |value, limb| {
-                try leaves.append(allocator, .{
-                    .index = word.addr + @as(u32, @intCast(limb)),
-                    .value = value,
-                });
-            }
-        }
-    }
-    if (leaves.items.len == 0) return null;
-    var tree = try sparse_merkle.build(allocator, leaves.items);
-    defer tree.deinit(allocator);
-    return tree.root;
-}
-
-fn buildProgramMerkleTree(
-    allocator: std.mem.Allocator,
-    exec_trace: *const trace_mod.Trace,
-) !MerkleTreeResult {
-    // Collect unique PCs with their instruction encoding (opcode enum value).
-    var pc_info = std.AutoHashMap(u32, u32).init(allocator);
-    defer pc_info.deinit();
-
-    for (exec_trace.rows.items) |row| {
-        const gop = try pc_info.getOrPut(row.pc);
-        if (!gop.found_existing) {
-            gop.value_ptr.* = @intFromEnum(row.opcode);
-        }
-    }
-
-    const n_leaves = pc_info.count();
-    if (n_leaves == 0) {
-        // Return a heap-allocated empty slice so the caller can safely free it.
-        const empty = try allocator.alloc(poseidon2.PermuteTrace, 0);
-        return MerkleTreeResult{
-            .hash_traces = empty,
-            .n_hashes = 0,
-            .root = .{M31.zero()} ** 8,
-        };
-    }
-
-    // Pad to next power of two (minimum 2 leaves for a valid tree).
-    var padded_leaves: usize = 2;
-    while (padded_leaves < n_leaves) padded_leaves *= 2;
-
-    // Build leaf digests: hash(addr, value_bytes, 0, 0, 0) for each entry.
-    var leaves = try allocator.alloc([8]M31, padded_leaves);
-    defer allocator.free(leaves);
-    @memset(leaves, .{M31.zero()} ** 8);
-
-    // Collect hash traces in an ArrayList (unmanaged).
-    var traces: std.ArrayList(poseidon2.PermuteTrace) = .{};
-    defer traces.deinit(allocator);
-
-    // Fill leaves from program entries.
-    var leaf_idx: usize = 0;
-    var iter = pc_info.iterator();
-    while (iter.next()) |entry| {
-        const word = entry.value_ptr.*;
-        const limbs = state_chain.StateChainTracker.decomposeU32(word);
-
-        // Hash the leaf data to produce an 8-element digest.
-        var state: poseidon2.State = .{M31.zero()} ** poseidon2.STATE_WIDTH;
-        state[0] = M31.fromCanonical(entry.key_ptr.* & 0x7FFFFFFF); // addr
-        state[1] = limbs[0];
-        state[2] = limbs[1];
-        state[3] = limbs[2];
-        state[4] = limbs[3];
-
-        const trace = poseidon2.permuteTraced(&state);
-        try traces.append(allocator, trace);
-        leaves[leaf_idx] = state[0..8].*;
-        leaf_idx += 1;
-    }
-
-    // Build Merkle tree bottom-up, hashing adjacent pairs.
-    var current_layer = leaves;
-    var owns_current = false; // leaves are freed via `defer allocator.free(leaves)`
-    defer if (owns_current) allocator.free(current_layer);
-
-    while (current_layer.len > 1) {
-        const next_len = current_layer.len / 2;
-        var next_layer = try allocator.alloc([8]M31, next_len);
-
-        for (0..next_len) |i| {
-            var state: poseidon2.State = .{M31.zero()} ** poseidon2.STATE_WIDTH;
-            @memcpy(state[0..8], &current_layer[i * 2]);
-            @memcpy(state[8..16], &current_layer[i * 2 + 1]);
-
-            const trace = poseidon2.permuteTraced(&state);
-            try traces.append(allocator, trace);
-
-            next_layer[i] = state[0..8].*;
-        }
-
-        if (owns_current) allocator.free(current_layer);
-        current_layer = next_layer;
-        owns_current = true;
-    }
-
-    const root = if (current_layer.len > 0) current_layer[0] else .{M31.zero()} ** 8;
-    const n_hashes = traces.items.len;
-
-    return MerkleTreeResult{
-        .hash_traces = try traces.toOwnedSlice(allocator),
-        .n_hashes = n_hashes,
-        .root = root,
-    };
 }
 
 // -- IsFirst column generation --
@@ -446,56 +309,28 @@ fn nCommittedColumnsForFamily(family: trace_mod.OpcodeFamily) u32 {
 
 const OPCODE_BUS_COLS: u32 = 5;
 
-/// Generate M31 columns for a specific opcode family, in bit-reversed
-/// circle-domain order suitable for direct commitment.
-/// Uses family-specific column layouts matching air/trace_columns.zig.
-fn genColumnsForFamily(
-    allocator: std.mem.Allocator,
-    exec_trace: *const trace_mod.Trace,
-    family: trace_mod.OpcodeFamily,
-    log_size: u32,
-) !trace_mod.TraceColumns {
-    const domain_size = @as(usize, 1) << @intCast(log_size);
-    const n_cols = trace_mod.nColumnsForFamily(family);
-
-    var columns: [trace_mod.MAX_FAMILY_COLUMNS][]M31 = undefined;
-    var initialized: usize = 0;
-    errdefer {
-        for (0..initialized) |i| allocator.free(columns[i]);
-    }
-    for (0..n_cols) |i| {
-        columns[i] = try allocator.alloc(M31, domain_size);
-        @memset(columns[i], M31.zero());
-        initialized = i + 1;
-    }
-
-    const table = try infra.BitReversalTable.init(allocator, log_size);
-    defer table.deinit(allocator);
-
-    var row_idx: usize = 0;
-    for (exec_trace.rows.items) |row| {
-        if (trace_mod.opcodeFamily(row.opcode) != family) continue;
-        if (row_idx >= domain_size) break;
-
-        const bit_rev_idx = table.map(row_idx);
-
-        // Fill family-specific columns at the bit-reversed position.
-        trace_mod.fillFamilyColumns(&columns, bit_rev_idx, row, family);
-        row_idx += 1;
-    }
-
-    return .{ .columns = columns, .n_columns = n_cols, .n_real_rows = row_idx };
-}
-
 /// Result of the single-pass column generation for all opcode families.
 const AllComponentColumns = struct {
     components: [MAX_COMPONENTS]trace_mod.TraceColumns,
 };
 
+fn deinitAllComponentColumns(
+    allocator: std.mem.Allocator,
+    statement: RiscVStatement,
+    columns: *AllComponentColumns,
+) void {
+    for (0..statement.n_components) |component_index| {
+        const component_columns = &columns.components[component_index];
+        for (component_columns.columns[0..component_columns.n_columns]) |*values| {
+            if (values.len == 0) continue;
+            allocator.free(values.*);
+            values.* = &.{};
+        }
+    }
+}
+
 /// Generate M31 columns for ALL opcode families in a single pass over the
-/// execution trace. This replaces N_FAMILIES separate calls to
-/// `genColumnsForFamily`, each of which would independently iterate the
-/// entire trace, filtering for one family at a time.
+/// execution trace, avoiding one complete trace scan per family.
 ///
 /// Produces bit-identical output to the per-family approach: each family's
 /// columns are in bit-reversed circle-domain order with its own log_size.
@@ -751,6 +586,61 @@ pub fn proveRiscVWithEngineAndPublicData(
     defer if (boundary_claims) |*claims| claims.deinit(allocator);
     if (boundary_claims) |claims| try claims.validate(allocator);
 
+    const fetches = try allocator.alloc(program_table.Fetch, exec_trace.rows.items.len);
+    defer allocator.free(fetches);
+    for (exec_trace.rows.items, fetches) |row, *fetch| {
+        fetch.* = .{ .pc = row.pc, .word = row.inst_word };
+    }
+    var program = try program_commitment.build(
+        allocator,
+        fetches,
+        if (opt_memory) |snapshot| snapshot.program_words else &.{},
+    );
+    defer program.deinit(allocator);
+
+    // Pinned Stark-V visits Poseidon calls program -> initial RW -> final RW,
+    // while its Merkle table visits initial RW -> final RW -> program.
+    var poseidon_calls_list: std.ArrayList(poseidon2_air.Call) = .{};
+    defer poseidon_calls_list.deinit(allocator);
+    for (program.tree.nodes) |node| {
+        const row = merkle_node.NodeRow.fromNode(node, program.tree.root);
+        try poseidon_calls_list.append(allocator, row.poseidonCall());
+    }
+    if (boundary_claims) |claims| {
+        if (claims.initial_tree) |tree| {
+            for (tree.nodes) |node| {
+                const row = merkle_node.NodeRow.fromNode(node, tree.root);
+                try poseidon_calls_list.append(allocator, row.poseidonCall());
+            }
+        }
+        if (claims.final_tree) |tree| {
+            for (tree.nodes) |node| {
+                const row = merkle_node.NodeRow.fromNode(node, tree.root);
+                try poseidon_calls_list.append(allocator, row.poseidonCall());
+            }
+        }
+    }
+    const poseidon_calls = poseidon_calls_list.items;
+
+    var merkle_rows_list: std.ArrayList(merkle_node.NodeRow) = .{};
+    defer merkle_rows_list.deinit(allocator);
+    if (boundary_claims) |claims| {
+        if (claims.initial_tree) |tree| {
+            for (tree.nodes) |node| {
+                try merkle_rows_list.append(allocator, merkle_node.NodeRow.fromNode(node, tree.root));
+            }
+        }
+        if (claims.final_tree) |tree| {
+            for (tree.nodes) |node| {
+                try merkle_rows_list.append(allocator, merkle_node.NodeRow.fromNode(node, tree.root));
+            }
+        }
+    }
+    for (program.tree.nodes) |node| {
+        try merkle_rows_list.append(allocator, merkle_node.NodeRow.fromNode(node, program.tree.root));
+    }
+    const merkle_rows = merkle_rows_list.items;
+
     // -- Step 1: Count rows per opcode family. --
     const counts = try exec_trace.groupByOpcodeFamily(allocator);
 
@@ -789,24 +679,13 @@ pub fn proveRiscVWithEngineAndPublicData(
     // -- Step 2b: Build infrastructure component descriptors. --
     statement.n_infra = 0;
 
-    // Count unique PCs for program ROM sizing.
-    var unique_pcs: usize = 0;
-    {
-        var seen = std.AutoHashMap(u32, void).init(allocator);
-        defer seen.deinit();
-        for (exec_trace.rows.items) |row| {
-            const gop = try seen.getOrPut(row.pc);
-            if (!gop.found_existing) unique_pcs += 1;
-        }
-    }
-
-    // Program ROM (8 cols)
-    var program_log_size = computeLogSize(unique_pcs);
+    // Exact sparse decoded-program commitment (8 columns).
+    var program_log_size = computeLogSize(program.rows.len);
     statement.infra_descs[statement.n_infra] = .{
         .kind = .program,
         .log_size = program_log_size,
-        .n_rows = @intCast(unique_pcs),
-        .n_columns = infra.PROGRAM_TRACE_COLS,
+        .n_rows = @intCast(program.rows.len),
+        .n_columns = program_commitment.N_MAIN_COLUMNS,
     };
     statement.n_infra += 1;
 
@@ -834,36 +713,10 @@ pub fn proveRiscVWithEngineAndPublicData(
         }
     }
 
-    // Unified clock update (8 cols) — current stark-v layout.
-    var clock_update_log: u32 = 4;
-    if (opt_chain) |chain| {
-        const n_updates = chain.clock_updates_mem.items.len + chain.clock_updates_reg.items.len;
-        if (n_updates > 0) clock_update_log = @max(computeLogSize(n_updates), 4);
-    }
-    statement.infra_descs[statement.n_infra] = .{
-        .kind = .clock_update,
-        .log_size = clock_update_log,
-        .n_rows = if (opt_chain) |chain| @intCast(
-            chain.clock_updates_mem.items.len + chain.clock_updates_reg.items.len,
-        ) else 0,
-        .n_columns = infra.CLOCK_UPDATE_COLS,
-    };
-    statement.n_infra += 1;
-
-    // Build real Poseidon2 Merkle trees and capture hash traces.
-    const prog_merkle = try buildProgramMerkleTree(allocator, exec_trace);
-    defer allocator.free(prog_merkle.hash_traces);
-    // The PUBLIC program root uses the pinned oracle's construction: a
-    // byte-addressed sparse Poseidon2 tree over the instruction words at
-    // pc + limb — the same tree family whose RW roots already match the
-    // oracle. The legacy dense trace above still feeds the Poseidon2
-    // component until the Merkle bus closes (CP-06).
-    const computed_program_root = try buildProgramSparseRoot(allocator, opt_memory);
     if (statement.public_data.program_root) |root| {
-        const computed = computed_program_root orelse return ProverError.InvalidStatement;
-        if (root != computed) return ProverError.InvalidStatement;
+        if (root != program.tree.root) return ProverError.InvalidStatement;
     }
-    statement.public_data.program_root = computed_program_root;
+    statement.public_data.program_root = program.tree.root;
 
     if (boundary_claims) |claims| {
         const initial_root = if (claims.initial_tree) |tree| tree.root else null;
@@ -876,37 +729,55 @@ pub fn proveRiscVWithEngineAndPublicData(
         }
         statement.public_data.initial_rw_root = initial_root;
         statement.public_data.final_rw_root = final_root;
+    } else if (statement.public_data.initial_rw_root != null or
+        statement.public_data.final_rw_root != null)
+    {
+        return ProverError.InvalidStatement;
     }
 
-    // RW roots use the exact sparse-memory permutation. They are deliberately
-    // excluded from the legacy placeholder Poseidon trace until that AIR is
-    // replaced; the memory Merkle claim therefore remains fail-closed.
-    const total_hashes = prog_merkle.hash_traces.len;
+    const total_hashes = poseidon_calls.len;
 
-    // Compute Poseidon2 log_size from actual hash count (minimum 4 = 16 rows).
-    const poseidon_log_size: u32 = if (total_hashes > 0)
-        @max(4, computeLogSize(total_hashes))
-    else
-        4;
-    statement.infra_descs[statement.n_infra] = .{
-        .kind = .poseidon2,
-        .log_size = poseidon_log_size,
-        .n_rows = @intCast(total_hashes),
-        .n_columns = infra.POSEIDON2_TRACE_COLS,
-    };
-    statement.n_infra += 1;
-
-    // Merkle node count = total internal hash calls (one per internal node).
-    const total_merkle_nodes = total_hashes;
+    // Merkle and Poseidon2 follow the pinned component registry order.
+    const total_merkle_nodes = merkle_rows.len;
     const merkle_log_size: u32 = if (total_merkle_nodes > 0)
         @max(4, computeLogSize(total_merkle_nodes))
     else
         4;
-    statement.infra_descs[statement.n_infra] = .{
+    const merkle_infra_index = statement.n_infra;
+    statement.infra_descs[merkle_infra_index] = .{
         .kind = .merkle,
         .log_size = merkle_log_size,
         .n_rows = @intCast(total_merkle_nodes),
-        .n_columns = infra.MERKLE_TRACE_COLS,
+        .n_columns = merkle_node.N_MAIN_COLUMNS,
+    };
+    statement.n_infra += 1;
+
+    const poseidon_log_size: u32 = if (total_hashes > 0)
+        @max(4, computeLogSize(total_hashes))
+    else
+        4;
+    const poseidon_infra_index = statement.n_infra;
+    statement.infra_descs[poseidon_infra_index] = .{
+        .kind = .poseidon2,
+        .log_size = poseidon_log_size,
+        .n_rows = @intCast(total_hashes),
+        .n_columns = poseidon2_air.N_MAIN_COLUMNS,
+    };
+    statement.n_infra += 1;
+
+    // Unified clock update follows Poseidon2 in the pinned registry.
+    var clock_update_log: u32 = 4;
+    if (opt_chain) |chain| {
+        const n_updates = chain.clock_updates_mem.items.len + chain.clock_updates_reg.items.len;
+        if (n_updates > 0) clock_update_log = @max(computeLogSize(n_updates), 4);
+    }
+    statement.infra_descs[statement.n_infra] = .{
+        .kind = .clock_update,
+        .log_size = clock_update_log,
+        .n_rows = if (opt_chain) |chain| @intCast(
+            chain.clock_updates_mem.items.len + chain.clock_updates_reg.items.len,
+        ) else 0,
+        .n_columns = infra.CLOCK_UPDATE_COLS,
     };
     statement.n_infra += 1;
 
@@ -933,6 +804,8 @@ pub fn proveRiscVWithEngineAndPublicData(
     statement.public_data.mixInto(&channel);
 
     var scheme = try Engine.init(allocator, pcs_config);
+    var scheme_owned = true;
+    errdefer if (scheme_owned) Engine.deinit(&scheme, allocator);
 
     // Empty state chain for fallback when opt_chain is null.
     var empty_chain = state_chain.StateChainTracker.init(allocator);
@@ -944,23 +817,34 @@ pub fn proveRiscVWithEngineAndPublicData(
         var stage = try stage_profile.StageScope.begin(recorder, "riscv_preprocessed_commit", "RISC-V preprocessed trace commit");
         defer stage.end();
         const preprocessed = try allocator.alloc(prover_pcs.ColumnEvaluation, n_preproc);
+        var initialized: usize = 0;
+        var moved = false;
+        errdefer if (!moved) {
+            for (preprocessed[0..initialized]) |column| allocator.free(@constCast(column.values));
+            allocator.free(preprocessed);
+        };
         for (0..statement.n_components) |i| {
             const ls = statement.component_descs[i].log_size;
             preprocessed[2 * i] = .{ .log_size = ls, .values = try genIsFirstColumn(allocator, ls) };
+            initialized += 1;
             preprocessed[2 * i + 1] = .{
                 .log_size = ls,
                 .values = try genIsActiveColumn(allocator, ls, statement.component_descs[i].n_rows),
             };
+            initialized += 1;
         }
         for (0..statement.n_infra) |i| {
             const ls = statement.infra_descs[i].log_size;
             const base = 2 * (statement.n_components + i);
             preprocessed[base] = .{ .log_size = ls, .values = try genIsFirstColumn(allocator, ls) };
+            initialized += 1;
             preprocessed[base + 1] = .{
                 .log_size = ls,
                 .values = try genIsActiveColumn(allocator, ls, statement.infra_descs[i].n_rows),
             };
+            initialized += 1;
         }
+        moved = true;
         try Engine.commit(&scheme, allocator, preprocessed, recorder, &channel);
     }
 
@@ -969,6 +853,19 @@ pub fn proveRiscVWithEngineAndPublicData(
     const n_infra_main = statement.nInfraColumns();
     const n_main = n_opcode_main + n_infra_main;
     const main_columns = try allocator.alloc(prover_pcs.ColumnEvaluation, n_main);
+    const main_initialized = allocator.alloc(bool, n_main) catch |err| {
+        allocator.free(main_columns);
+        return err;
+    };
+    defer allocator.free(main_initialized);
+    @memset(main_initialized, false);
+    var main_columns_moved = false;
+    errdefer if (!main_columns_moved) {
+        for (main_columns, main_initialized) |column, initialized| {
+            if (initialized) allocator.free(@constCast(column.values));
+        }
+        allocator.free(main_columns);
+    };
     const OpcodeGenerationWork = struct {
         allocator: std.mem.Allocator,
         exec_trace: *const trace_mod.Trace,
@@ -998,22 +895,34 @@ pub fn proveRiscVWithEngineAndPublicData(
     defer if (opcode_thread) |thread| {
         if (!opcode_joined) thread.join();
     };
+    errdefer {
+        if (opcode_thread) |thread| {
+            if (!opcode_joined) {
+                thread.join();
+                opcode_joined = true;
+            }
+        }
+        if (opcode_work.err == null) {
+            deinitAllComponentColumns(allocator, statement, &opcode_work.result);
+        }
+    }
     if (opcode_thread == null) OpcodeGenerationWork.run(&opcode_work);
 
     var col_offset: usize = n_opcode_main;
 
     var infrastructure_stage = try stage_profile.StageScope.begin(recorder, "riscv_infrastructure_trace_generation", "RISC-V infrastructure trace generation");
     // Infrastructure columns.
-    // Program ROM (8 cols)
+    // Exact sparse decoded-program commitment.
     {
-        const prog_cols = try infra.genProgramColumns(allocator, exec_trace, program_log_size);
-        for (0..infra.PROGRAM_TRACE_COLS) |c| {
+        const prog_cols = try program_commitment.generateMain(allocator, program.rows, program_log_size);
+        for (0..program_commitment.N_MAIN_COLUMNS) |c| {
             main_columns[col_offset + c] = .{
                 .log_size = program_log_size,
-                .values = prog_cols.columns[c],
+                .values = prog_cols.values[c],
             };
+            main_initialized[col_offset + c] = true;
         }
-        col_offset += infra.PROGRAM_TRACE_COLS;
+        col_offset += program_commitment.N_MAIN_COLUMNS;
     }
 
     // Exact ordinary RW-memory boundary table.
@@ -1028,10 +937,37 @@ pub fn proveRiscVWithEngineAndPublicData(
             );
             for (generated.values) |values| {
                 main_columns[col_offset] = .{ .log_size = log_size, .values = values };
+                main_initialized[col_offset] = true;
                 col_offset += 1;
             }
             row_start += shard_len;
         }
+    }
+
+    // Exact sparse Merkle rows: initial RW, final RW, then program.
+    {
+        const mkl_cols = try merkle_node.generateMain(allocator, merkle_rows, merkle_log_size);
+        for (0..merkle_node.N_MAIN_COLUMNS) |c| {
+            main_columns[col_offset + c] = .{
+                .log_size = merkle_log_size,
+                .values = mkl_cols.values[c],
+            };
+            main_initialized[col_offset + c] = true;
+        }
+        col_offset += merkle_node.N_MAIN_COLUMNS;
+    }
+
+    // Exact narrow Poseidon2 permutation calls, one per sparse Merkle node.
+    {
+        const p2_cols = try poseidon2_air.generateMain(allocator, poseidon_calls, poseidon_log_size);
+        for (0..poseidon2_air.N_MAIN_COLUMNS) |c| {
+            main_columns[col_offset + c] = .{
+                .log_size = poseidon_log_size,
+                .values = p2_cols.values[c],
+            };
+            main_initialized[col_offset + c] = true;
+        }
+        col_offset += poseidon2_air.N_MAIN_COLUMNS;
     }
 
     // Unified register + memory clock update (8 cols).
@@ -1043,40 +979,9 @@ pub fn proveRiscVWithEngineAndPublicData(
                 .log_size = clock_update_log,
                 .values = cu_cols.columns[c],
             };
+            main_initialized[col_offset + c] = true;
         }
         col_offset += infra.CLOCK_UPDATE_COLS;
-    }
-
-    // Poseidon2 (443 cols) -- real traces from Merkle tree building
-    {
-        // The active legacy path contains program traces only. Exact sparse
-        // RW-memory calls must not be mixed into its placeholder permutation.
-        const merged_traces = try allocator.alloc(poseidon2.PermuteTrace, total_hashes);
-        defer allocator.free(merged_traces);
-        if (prog_merkle.hash_traces.len > 0) {
-            @memcpy(merged_traces[0..prog_merkle.hash_traces.len], prog_merkle.hash_traces);
-        }
-
-        const p2_cols = try infra.genPoseidon2Columns(allocator, merged_traces, poseidon_log_size);
-        for (0..infra.POSEIDON2_TRACE_COLS) |c| {
-            main_columns[col_offset + c] = .{
-                .log_size = poseidon_log_size,
-                .values = p2_cols.columns[c],
-            };
-        }
-        col_offset += infra.POSEIDON2_TRACE_COLS;
-    }
-
-    // Merkle (10 cols) -- real node count from Merkle tree building
-    {
-        const mkl_cols = try infra.genMerkleColumns(allocator, total_merkle_nodes, merkle_log_size);
-        for (0..infra.MERKLE_TRACE_COLS) |c| {
-            main_columns[col_offset + c] = .{
-                .log_size = merkle_log_size,
-                .values = mkl_cols.columns[c],
-            };
-        }
-        col_offset += infra.MERKLE_TRACE_COLS;
     }
     infrastructure_stage.end();
 
@@ -1108,6 +1013,8 @@ pub fn proveRiscVWithEngineAndPublicData(
                 .log_size = desc.log_size,
                 .values = values,
             };
+            main_initialized[opcode_col_offset + committed_column] = true;
+            opcode_work.result.components[comp_idx].columns[column] = &.{};
             committed_column += 1;
         }
         std.debug.assert(committed_column + OPCODE_BUS_COLS == desc.n_columns);
@@ -1125,6 +1032,7 @@ pub fn proveRiscVWithEngineAndPublicData(
                 .log_size = desc.log_size,
                 .values = values,
             };
+            main_initialized[opcode_col_offset + committed_column] = true;
             committed_column += 1;
         }
         family_bus_cursor[fi] = end;
@@ -1137,12 +1045,13 @@ pub fn proveRiscVWithEngineAndPublicData(
     {
         var stage = try stage_profile.StageScope.begin(recorder, "riscv_main_trace_commit", "RISC-V main trace commit");
         defer stage.end();
+        main_columns_moved = true;
         try Engine.commit(&scheme, allocator, main_columns, recorder, &channel);
     }
 
-    // Tree 2 carries CPU/program and opcode/RW-memory boundary claims. The
-    // memory-access domain closes below; Merkle/Poseidon and range-table
-    // emitters remain release blockers.
+    // Tree 2 carries the transitional opcode buses and the exact program,
+    // memory, Merkle, and Poseidon2 interactions. Exact opcode/table placement
+    // and canonical global cancellation remain release blockers.
     const n_interaction = statement.nInteractionColumns();
 
     std.log.info("Columns: opcode={d} infra={d} total tree1={d} interaction={d}", .{
@@ -1151,7 +1060,7 @@ pub fn proveRiscVWithEngineAndPublicData(
         n_main,
         n_interaction,
     });
-    std.log.info("Poseidon2 Merkle: {d} legacy program hash traces, poseidon_log_size={d}, merkle_log_size={d}", .{
+    std.log.info("Poseidon2 Merkle: {d} exact sparse-node calls, poseidon_log_size={d}, merkle_log_size={d}", .{
         total_hashes,
         poseidon_log_size,
         merkle_log_size,
@@ -1163,20 +1072,32 @@ pub fn proveRiscVWithEngineAndPublicData(
 
     var interaction_claim = RiscVInteractionClaim.initZero();
     interaction_claim.n_components = statement.n_components;
+    interaction_claim.n_infra = statement.n_infra;
     interaction_claim.interaction_pow = transcript_prefix.interaction_pow;
 
     // Uncommitted trace-order-shifted S columns ([0] state, [1] prog per
     // opcode component; rom for the program component), kept alive for the
     // on-domain constraint evaluation inside Engine.prove.
     const opcode_prev = try allocator.alloc([2][4][]M31, statement.n_components);
+    var opcode_prev_transferred = false;
+    errdefer if (!opcode_prev_transferred) allocator.free(opcode_prev);
     for (opcode_prev) |*prev| prev.* = .{ .{ &.{}, &.{}, &.{}, &.{} }, .{ &.{}, &.{}, &.{}, &.{} } };
     const opcode_memory_prev = try allocator.alloc(opcode_memory.Previous, statement.n_components);
+    var opcode_memory_prev_transferred = false;
+    errdefer if (!opcode_memory_prev_transferred) allocator.free(opcode_memory_prev);
     for (opcode_memory_prev) |*prev| {
         prev.* = .{.{ &.{}, &.{}, &.{}, &.{} }} ** opcode_memory.N_ACCESSES;
     }
-    var rom_prev: [4][]M31 = .{ &.{}, &.{}, &.{}, &.{} };
+    var program_prev: program_interaction.Previous =
+        .{.{ &.{}, &.{}, &.{}, &.{} }} ** program_interaction.N_SUMS;
+    var merkle_prev: merkle_node.Previous =
+        .{.{ &.{}, &.{}, &.{}, &.{} }} ** merkle_node.N_SUMS;
+    var poseidon_prev: poseidon2_air.Previous =
+        .{.{ &.{}, &.{}, &.{}, &.{} }} ** poseidon2_air.N_SUMS;
     const memory_prev = try allocator.alloc(memory_interaction.Previous, statement.n_infra);
     for (memory_prev) |*prev| prev.* = .{.{ &.{}, &.{}, &.{}, &.{} }} ** memory_interaction.N_SUMS;
+    opcode_prev_transferred = true;
+    opcode_memory_prev_transferred = true;
     defer {
         for (opcode_prev) |prev| {
             for (prev) |set| interaction_gen.freeColumns(allocator, &set);
@@ -1186,7 +1107,9 @@ pub fn proveRiscVWithEngineAndPublicData(
             for (prev) |set| interaction_gen.freeColumns(allocator, &set);
         }
         allocator.free(opcode_memory_prev);
-        interaction_gen.freeColumns(allocator, &rom_prev);
+        for (&program_prev) |*set| interaction_gen.freeColumns(allocator, set);
+        for (&merkle_prev) |*set| interaction_gen.freeColumns(allocator, set);
+        for (&poseidon_prev) |*set| interaction_gen.freeColumns(allocator, set);
         for (0..statement.n_infra) |i| {
             if (statement.infra_descs[i].kind != .memory) continue;
             for (&memory_prev[i]) |*set| interaction_gen.freeColumns(allocator, set);
@@ -1210,11 +1133,14 @@ pub fn proveRiscVWithEngineAndPublicData(
 
         const interaction_columns = try allocator.alloc(prover_pcs.ColumnEvaluation, n_interaction);
         var inter_col_idx: usize = 0;
+        var interaction_columns_moved = false;
         errdefer {
-            for (interaction_columns[0..inter_col_idx]) |column| {
-                allocator.free(@constCast(column.values));
+            if (!interaction_columns_moved) {
+                for (interaction_columns[0..inter_col_idx]) |column| {
+                    allocator.free(@constCast(column.values));
+                }
+                allocator.free(interaction_columns);
             }
-            allocator.free(interaction_columns);
         }
 
         var family_cursor: [trace_mod.N_FAMILIES]usize = .{0} ** trace_mod.N_FAMILIES;
@@ -1242,14 +1168,14 @@ pub fn proveRiscVWithEngineAndPublicData(
             std.debug.assert(family_cursor[fi] == family_rows[fi].items.len);
         }
 
-        const rom = try interaction_gen.genProgramInteraction(
+        const rom = try program_interaction.generate(
             allocator,
-            exec_trace.rows.items,
+            program.rows,
             program_log_size,
             &relations,
         );
-        interaction_claim.rom_claim = rom.rom_claim;
-        rom_prev = rom.prev_rom;
+        interaction_claim.program_claims[0] = rom.claims.sums;
+        program_prev = rom.previous;
         for (rom.columns) |values| {
             interaction_columns[inter_col_idx] = .{ .log_size = program_log_size, .values = values };
             inter_col_idx += 1;
@@ -1277,15 +1203,44 @@ pub fn proveRiscVWithEngineAndPublicData(
             }
             std.debug.assert(row_start == claims.rows.len);
         }
+
+        const merkle_interaction = try merkle_node.generateInteraction(
+            allocator,
+            merkle_rows,
+            merkle_log_size,
+            &relations,
+        );
+        interaction_claim.merkle_claims[merkle_infra_index] = merkle_interaction.claims.sums;
+        merkle_prev = merkle_interaction.previous;
+        for (merkle_interaction.columns) |values| {
+            interaction_columns[inter_col_idx] = .{ .log_size = merkle_log_size, .values = values };
+            inter_col_idx += 1;
+        }
+
+        const poseidon_interaction = try poseidon2_air.generateInteraction(
+            allocator,
+            poseidon_calls,
+            poseidon_log_size,
+            &relations,
+        );
+        interaction_claim.poseidon_claims[poseidon_infra_index] = poseidon_interaction.claims.sums;
+        poseidon_prev = poseidon_interaction.previous;
+        for (poseidon_interaction.columns) |values| {
+            interaction_columns[inter_col_idx] = .{ .log_size = poseidon_log_size, .values = values };
+            inter_col_idx += 1;
+        }
         std.debug.assert(inter_col_idx == n_interaction);
 
         try proof_transcript.mixInteractionClaim(&channel, &statement, &interaction_claim);
+        interaction_columns_moved = true;
         try Engine.commit(&scheme, allocator, interaction_columns, recorder, &channel);
     }
 
     // -- Step 6: Create per-family components and prove. --
     const total_components = statement.n_components + statement.n_infra;
     var component_storage: [MAX_COMPONENTS + MAX_INFRA_COMPONENTS]RiscVTraceComponent = undefined;
+    var hash_storage: [2]hash_component.HashComponent = undefined;
+    var n_hash_components: usize = 0;
     var components_arr: [MAX_COMPONENTS + MAX_INFRA_COMPONENTS]prover_component.ComponentProver = undefined;
 
     var main_offset: usize = 0;
@@ -1326,6 +1281,29 @@ pub fn proveRiscVWithEngineAndPublicData(
             .memory => .memory,
             else => .silent,
         };
+        if (statement.infra_descs[i].kind == .poseidon2 or
+            statement.infra_descs[i].kind == .merkle)
+        {
+            hash_storage[n_hash_components] = .{
+                .kind = if (statement.infra_descs[i].kind == .poseidon2) .poseidon2 else .merkle,
+                .log_size = statement.infra_descs[i].log_size,
+                .n_rows = statement.infra_descs[i].n_rows,
+                .is_first_col_idx = 2 * idx,
+                .is_active_col_idx = 2 * idx + 1,
+                .main_col_offset = main_offset,
+                .interaction_col_offset = interaction_offset,
+                .relations = &relations,
+                .merkle_claims = interaction_claim.merkle_claims[i],
+                .poseidon_claims = interaction_claim.poseidon_claims[i],
+                .s_merkle_prev = constMerklePrev(merkle_prev),
+                .s_poseidon_prev = constPoseidonPrev(poseidon_prev),
+            };
+            components_arr[idx] = hash_storage[n_hash_components].asProverComponent();
+            n_hash_components += 1;
+            main_offset += statement.infra_descs[i].n_columns;
+            interaction_offset += statement_mod.nInteractionColsForInfra(statement.infra_descs[i].kind);
+            continue;
+        }
         component_storage[idx] = .{
             .desc = .{
                 .family = .base_alu_reg, // placeholder family for infra
@@ -1341,16 +1319,17 @@ pub fn proveRiscVWithEngineAndPublicData(
             .kind = kind,
             .relations = &relations,
             .interaction_col_offset = interaction_offset,
-            .rom_claim = interaction_claim.rom_claim,
-            .s_rom_prev = constPrev(rom_prev),
+            .program_claims = interaction_claim.program_claims[i],
+            .s_program_prev = constProgramPrev(program_prev),
             .memory_claims = interaction_claim.memory_claims[i],
             .s_memory_prev = constMemoryPrev(memory_prev[i]),
         };
         components_arr[idx] = component_storage[idx].asProverComponent();
         main_offset += statement.infra_descs[i].n_columns;
-        interaction_offset += riscv_component.nInteractionCols(kind);
+        interaction_offset += statement_mod.nInteractionColsForInfra(statement.infra_descs[i].kind);
     }
 
+    scheme_owned = false;
     var extended = try Engine.prove(
         allocator,
         components_arr[0..total_components],
@@ -1370,6 +1349,24 @@ fn constPrev(bufs: [4][]M31) [4][]const M31 {
 
 fn constMemoryPrev(bufs: memory_interaction.Previous) [memory_interaction.N_SUMS][4][]const M31 {
     var result: [memory_interaction.N_SUMS][4][]const M31 = undefined;
+    for (&result, bufs) |*dst, src| dst.* = constPrev(src);
+    return result;
+}
+
+fn constProgramPrev(bufs: program_interaction.Previous) [program_interaction.N_SUMS][4][]const M31 {
+    var result: [program_interaction.N_SUMS][4][]const M31 = undefined;
+    for (&result, bufs) |*dst, src| dst.* = constPrev(src);
+    return result;
+}
+
+fn constMerklePrev(bufs: merkle_node.Previous) [merkle_node.N_SUMS][4][]const M31 {
+    var result: [merkle_node.N_SUMS][4][]const M31 = undefined;
+    for (&result, bufs) |*dst, src| dst.* = constPrev(src);
+    return result;
+}
+
+fn constPoseidonPrev(bufs: poseidon2_air.Previous) [poseidon2_air.N_SUMS][4][]const M31 {
+    var result: [poseidon2_air.N_SUMS][4][]const M31 = undefined;
     for (&result, bufs) |*dst, src| dst.* = constPrev(src);
     return result;
 }
@@ -1507,39 +1504,18 @@ pub fn verifyRiscVWithEngine(
         &statement.public_data,
         &relations,
     );
-    const memory_boundary_sum = try public_logup.memoryAccessSum(
-        &statement.public_data,
-        &relations,
-    );
     const state_claims = try allocator.alloc(QM31, statement.n_components);
     defer allocator.free(state_claims);
-    const program_claims = try allocator.alloc(QM31, statement.n_components + 1);
-    defer allocator.free(program_claims);
     for (0..statement.n_components) |i| {
         state_claims[i] = claim.state_claims[i];
-        program_claims[i] = claim.prog_claims[i];
     }
-    program_claims[statement.n_components] = claim.rom_claim;
     try logup.verifyGlobalCancellation(state_claims, state_boundary);
-    try logup.verifyGlobalCancellation(program_claims, QM31.zero());
-    var memory_claims: [MAX_COMPONENTS * opcode_memory.N_ACCESSES + MAX_INFRA_COMPONENTS]QM31 = undefined;
-    var n_memory_claims: usize = 0;
-    for (0..statement.n_components) |i| {
-        for (claim.opcode_memory_claims[i]) |memory_claim| {
-            memory_claims[n_memory_claims] = memory_claim;
-            n_memory_claims += 1;
-        }
-    }
-    for (0..statement.n_infra) |i| {
-        if (statement.infra_descs[i].kind != .memory) continue;
-        memory_claims[n_memory_claims] = claim.memory_claims[i][0];
-        n_memory_claims += 1;
-    }
-    try memory_logup.verifyCancellation(memory_claims[0..n_memory_claims], memory_boundary_sum);
 
     // Reconstruct per-family + infrastructure verifier components.
     const total_v_components = statement.n_components + statement.n_infra;
     var component_storage: [MAX_COMPONENTS + MAX_INFRA_COMPONENTS]RiscVTraceComponent = undefined;
+    var hash_storage: [2]hash_component.HashComponent = undefined;
+    var n_hash_components: usize = 0;
     var verifier_components: [MAX_COMPONENTS + MAX_INFRA_COMPONENTS]core_air_components.Component = undefined;
 
     var verifier_col_offset: usize = 0;
@@ -1570,6 +1546,27 @@ pub fn verifyRiscVWithEngine(
             .memory => .memory,
             else => .silent,
         };
+        if (statement.infra_descs[i].kind == .poseidon2 or
+            statement.infra_descs[i].kind == .merkle)
+        {
+            hash_storage[n_hash_components] = .{
+                .kind = if (statement.infra_descs[i].kind == .poseidon2) .poseidon2 else .merkle,
+                .log_size = statement.infra_descs[i].log_size,
+                .n_rows = statement.infra_descs[i].n_rows,
+                .is_first_col_idx = 2 * idx,
+                .is_active_col_idx = 2 * idx + 1,
+                .main_col_offset = verifier_col_offset,
+                .interaction_col_offset = verifier_inter_offset,
+                .relations = &relations,
+                .merkle_claims = claim.merkle_claims[i],
+                .poseidon_claims = claim.poseidon_claims[i],
+            };
+            verifier_components[idx] = hash_storage[n_hash_components].asVerifierComponent();
+            n_hash_components += 1;
+            verifier_col_offset += statement.infra_descs[i].n_columns;
+            verifier_inter_offset += statement_mod.nInteractionColsForInfra(statement.infra_descs[i].kind);
+            continue;
+        }
         component_storage[idx] = .{
             .desc = .{
                 .family = .base_alu_reg,
@@ -1585,12 +1582,12 @@ pub fn verifyRiscVWithEngine(
             .kind = kind,
             .relations = &relations,
             .interaction_col_offset = verifier_inter_offset,
-            .rom_claim = claim.rom_claim,
+            .program_claims = claim.program_claims[i],
             .memory_claims = claim.memory_claims[i],
         };
         verifier_components[idx] = component_storage[idx].asVerifierComponent();
         verifier_col_offset += statement.infra_descs[i].n_columns;
-        verifier_inter_offset += riscv_component.nInteractionCols(kind);
+        verifier_inter_offset += statement_mod.nInteractionColsForInfra(statement.infra_descs[i].kind);
     }
 
     proof_moved = true;

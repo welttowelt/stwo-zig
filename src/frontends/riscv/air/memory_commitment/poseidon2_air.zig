@@ -8,6 +8,7 @@ const std = @import("std");
 const M31 = @import("../../../../core/fields/m31.zig").M31;
 const QM31 = @import("../../../../core/fields/qm31.zig").QM31;
 const infra = @import("../../infra_trace.zig");
+const lookup_entry = @import("../lookups/entry.zig");
 const logup = @import("../logup.zig");
 const relations_mod = @import("../relation_challenges.zig");
 const constants = @import("poseidon2_constants.zig");
@@ -16,8 +17,9 @@ const permutation = @import("poseidon2.zig");
 pub const WIDTH: usize = 16;
 pub const N_TEMPORARIES: usize = 426;
 pub const N_MAIN_COLUMNS: usize = 1 + WIDTH + N_TEMPORARIES + 2;
-pub const N_PERMUTATION_CONSTRAINTS: usize = N_TEMPORARIES;
-pub const N_FLAG_CONSTRAINTS: usize = 4;
+pub const N_MATERIALIZATION_CONSTRAINTS: usize = N_TEMPORARIES;
+pub const N_PERMUTATION_CONSTRAINTS: usize = 1 + N_MATERIALIZATION_CONSTRAINTS;
+pub const N_FLAG_CONSTRAINTS: usize = 3;
 pub const N_CONSTRAINTS: usize = N_PERMUTATION_CONSTRAINTS + N_FLAG_CONSTRAINTS;
 pub const N_SUMS: usize = 2;
 pub const N_INTERACTION_COLUMNS: usize = N_SUMS * 4;
@@ -27,11 +29,10 @@ const INPUT_START: usize = 1;
 const TEMP_START: usize = INPUT_START + WIDTH;
 const WIDE_COLUMN: usize = TEMP_START + N_TEMPORARIES;
 const IO_COLUMN: usize = WIDE_COLUMN + 1;
-const FULL_ROUND_WIDTH: usize = 3 * WIDTH;
+const FIRST_FULL_ROUND_WIDTH: usize = 2 * WIDTH;
+const MATERIALIZED_FULL_ROUND_WIDTH: usize = 3 * WIDTH;
 const PARTIAL_ROUND_WIDTH: usize = 3;
-const LAST_FULL_START: usize = TEMP_START + 4 * FULL_ROUND_WIDTH +
-    constants.INTERNAL_ROUND.len * PARTIAL_ROUND_WIDTH;
-const OUTPUT_START: usize = LAST_FULL_START + 3 * FULL_ROUND_WIDTH + 2 * WIDTH;
+const OUTPUT_START: usize = TEMP_START + N_TEMPORARIES - WIDTH;
 
 pub const Call = struct {
     input: [WIDTH]u32,
@@ -108,11 +109,26 @@ pub fn fill(call: Call) [N_MAIN_COLUMNS]M31 {
 
     externalMatrixM31(&state);
     var cursor: usize = TEMP_START;
-    for (constants.EXTERNAL_ROUND[0..4]) |round| fillFullRound(&row, &cursor, &state, round);
-    for (constants.INTERNAL_ROUND, 0..) |round_constant, round| {
-        fillPartialRound(&row, &cursor, &state, round_constant, constants.INTERNAL_MATRIX, round);
+    fillFirstFullRound(&row, &cursor, &state, constants.EXTERNAL_ROUND[0]);
+    for (constants.EXTERNAL_ROUND[1..4]) |round| {
+        fillMaterializedFullRound(&row, &cursor, &state, round);
     }
-    for (constants.EXTERNAL_ROUND[4..8]) |round| fillFullRound(&row, &cursor, &state, round);
+    for (constants.INTERNAL_ROUND) |round_constant| {
+        fillMaterializedPartialRound(
+            &row,
+            &cursor,
+            &state,
+            round_constant,
+            constants.INTERNAL_MATRIX,
+        );
+    }
+    for (constants.EXTERNAL_ROUND[4..8]) |round| {
+        fillMaterializedFullRound(&row, &cursor, &state, round);
+    }
+    for (state) |value| {
+        row[cursor] = value;
+        cursor += 1;
+    }
     std.debug.assert(cursor == WIDE_COLUMN);
     row[WIDE_COLUMN] = M31.fromU64(@intFromBool(call.wide));
     row[IO_COLUMN] = M31.fromU64(@intFromBool(call.io));
@@ -123,21 +139,40 @@ pub fn output(row: [N_MAIN_COLUMNS]M31) [WIDTH]M31 {
     return row[OUTPUT_START..][0..WIDTH].*;
 }
 
-/// Degree-three AIR constraints. Each degree-two round equation is activated
-/// by the committed enabler, which is itself pinned to the public selector.
-pub fn evaluate(main: [N_MAIN_COLUMNS]QM31, is_active: QM31) [N_CONSTRAINTS]QM31 {
+/// Exact degree-three constraint order emitted by pinned Stark-V's felt AIR
+/// compiler: enabler boolean, 426 materializations, then three flag checks.
+pub fn evaluate(main: [N_MAIN_COLUMNS]QM31) [N_CONSTRAINTS]QM31 {
     const enabler = main[0];
     var state = main[INPUT_START..][0..WIDTH].*;
     externalMatrixSecure(&state);
     var result: [N_CONSTRAINTS]QM31 = undefined;
-    var constraint: usize = 0;
+    var constraint: usize = 1;
     var cursor: usize = TEMP_START;
+    const one = QM31.one();
+    result[0] = enabler.mul(one.sub(enabler));
 
-    for (constants.EXTERNAL_ROUND[0..4]) |round| {
-        evaluateFullRound(main, &cursor, &state, round, enabler, &result, &constraint);
+    evaluateFirstFullRound(
+        main,
+        &cursor,
+        &state,
+        constants.EXTERNAL_ROUND[0],
+        enabler,
+        &result,
+        &constraint,
+    );
+    for (constants.EXTERNAL_ROUND[1..4]) |round| {
+        evaluateMaterializedFullRound(
+            main,
+            &cursor,
+            &state,
+            round,
+            enabler,
+            &result,
+            &constraint,
+        );
     }
     for (constants.INTERNAL_ROUND) |round_constant| {
-        evaluatePartialRound(
+        evaluateMaterializedPartialRound(
             main,
             &cursor,
             &state,
@@ -149,18 +184,30 @@ pub fn evaluate(main: [N_MAIN_COLUMNS]QM31, is_active: QM31) [N_CONSTRAINTS]QM31
         );
     }
     for (constants.EXTERNAL_ROUND[4..8]) |round| {
-        evaluateFullRound(main, &cursor, &state, round, enabler, &result, &constraint);
+        evaluateMaterializedFullRound(
+            main,
+            &cursor,
+            &state,
+            round,
+            enabler,
+            &result,
+            &constraint,
+        );
     }
+    for (state, 0..) |expected, lane| {
+        const actual = main[cursor + lane];
+        result[constraint] = enabler.mul(actual.sub(expected));
+        constraint += 1;
+    }
+    cursor += WIDTH;
     std.debug.assert(cursor == WIDE_COLUMN);
     std.debug.assert(constraint == N_PERMUTATION_CONSTRAINTS);
 
-    const one = QM31.one();
     const wide = main[WIDE_COLUMN];
     const io = main[IO_COLUMN];
-    result[constraint] = enabler.sub(is_active);
-    result[constraint + 1] = wide.mul(one.sub(wide));
-    result[constraint + 2] = io.mul(one.sub(io));
-    result[constraint + 3] = wide.mul(io);
+    result[constraint] = wide.mul(one.sub(wide));
+    result[constraint + 1] = io.mul(one.sub(io));
+    result[constraint + 2] = wide.mul(io);
     return result;
 }
 
@@ -244,6 +291,14 @@ pub fn rowPairsFromCall(call: Call, relations: *const relations_mod.Relations) [
 }
 
 pub fn rowPairs(main: [N_MAIN_COLUMNS]QM31, relations: *const relations_mod.Relations) [N_SUMS]logup.RowPair {
+    const list = entries(main);
+    return .{
+        list.pair(0, relations) catch unreachable,
+        list.pair(1, relations) catch unreachable,
+    };
+}
+
+pub fn entries(main: [N_MAIN_COLUMNS]QM31) lookup_entry.List {
     const enabler = main[0];
     const wide = main[WIDE_COLUMN];
     const io = main[IO_COLUMN];
@@ -257,20 +312,12 @@ pub fn rowPairs(main: [N_MAIN_COLUMNS]QM31, relations: *const relations_mod.Rela
     var io_tuple: [2 * WIDTH]QM31 = undefined;
     @memcpy(io_tuple[0..WIDTH], &input);
     @memcpy(io_tuple[WIDTH..], &out);
-    return .{
-        .{
-            .n1 = enabler.mul(one.sub(io)).neg(),
-            .d1 = relations.poseidon2.combineSecure(input),
-            .n2 = enabler.mul(one.sub(wide).sub(io)),
-            .d2 = relations.poseidon2.combineSecure(narrow),
-        },
-        .{
-            .n1 = enabler.mul(wide),
-            .d1 = relations.poseidon2.combineSecure(wide_output),
-            .n2 = enabler.mul(io),
-            .d2 = relations.poseidon2_io.combineSecure(io_tuple),
-        },
-    };
+    var list = lookup_entry.List{};
+    append(&list, .poseidon2, enabler.mul(one.sub(io)).neg(), input);
+    append(&list, .poseidon2, enabler.mul(one.sub(wide).sub(io)), narrow);
+    append(&list, .poseidon2, enabler.mul(wide), wide_output);
+    append(&list, .poseidon2_io, enabler.mul(io), io_tuple);
+    return list;
 }
 
 pub fn paddingPairs() [N_SUMS]logup.RowPair {
@@ -282,7 +329,7 @@ pub fn paddingPairs() [N_SUMS]logup.RowPair {
     };
 }
 
-fn fillFullRound(
+fn fillFirstFullRound(
     row: *[N_MAIN_COLUMNS]M31,
     cursor: *usize,
     state: *[WIDTH]M31,
@@ -298,31 +345,48 @@ fn fillFullRound(
         sboxed[lane] = x.mul(x4);
     }
     externalMatrixM31(&sboxed);
-    for (sboxed, 0..) |value, lane| row[cursor.* + 2 * WIDTH + lane] = value;
     state.* = sboxed;
-    cursor.* += FULL_ROUND_WIDTH;
+    cursor.* += FIRST_FULL_ROUND_WIDTH;
 }
 
-fn fillPartialRound(
+fn fillMaterializedFullRound(
+    row: *[N_MAIN_COLUMNS]M31,
+    cursor: *usize,
+    state: *[WIDTH]M31,
+    round: [WIDTH]u32,
+) void {
+    for (state, round, 0..) |*value, constant, lane| {
+        const x = value.add(M31.fromCanonical(constant));
+        const x2 = x.square();
+        const x4 = x2.square();
+        row[cursor.* + 3 * lane] = x;
+        row[cursor.* + 3 * lane + 1] = x2;
+        row[cursor.* + 3 * lane + 2] = x4;
+        value.* = x.mul(x4);
+    }
+    externalMatrixM31(state);
+    cursor.* += MATERIALIZED_FULL_ROUND_WIDTH;
+}
+
+fn fillMaterializedPartialRound(
     row: *[N_MAIN_COLUMNS]M31,
     cursor: *usize,
     state: *[WIDTH]M31,
     round_constant: u32,
     diagonal: [WIDTH]u32,
-    _: usize,
 ) void {
     const x = state[0].add(M31.fromCanonical(round_constant));
     const x2 = x.square();
     const x4 = x2.square();
+    row[cursor.*] = x;
+    row[cursor.* + 1] = x2;
+    row[cursor.* + 2] = x4;
     state[0] = x.mul(x4);
-    row[cursor.*] = x2;
-    row[cursor.* + 1] = x4;
     internalMatrixM31(state, diagonal);
-    row[cursor.* + 2] = state[0];
     cursor.* += PARTIAL_ROUND_WIDTH;
 }
 
-fn evaluateFullRound(
+fn evaluateFirstFullRound(
     main: [N_MAIN_COLUMNS]QM31,
     cursor: *usize,
     state: *[WIDTH]QM31,
@@ -343,16 +407,36 @@ fn evaluateFullRound(
         sboxed[lane] = x.mul(x4);
     }
     externalMatrixSecure(&sboxed);
-    for (sboxed, 0..) |expected, lane| {
-        const actual = main[cursor.* + 2 * WIDTH + lane];
-        result[constraint.*] = enabler.mul(actual.sub(expected));
-        constraint.* += 1;
-        state[lane] = actual;
-    }
-    cursor.* += FULL_ROUND_WIDTH;
+    state.* = sboxed;
+    cursor.* += FIRST_FULL_ROUND_WIDTH;
 }
 
-fn evaluatePartialRound(
+fn evaluateMaterializedFullRound(
+    main: [N_MAIN_COLUMNS]QM31,
+    cursor: *usize,
+    state: *[WIDTH]QM31,
+    round: [WIDTH]u32,
+    enabler: QM31,
+    result: *[N_CONSTRAINTS]QM31,
+    constraint: *usize,
+) void {
+    for (state, round, 0..) |*value, constant, lane| {
+        const x = main[cursor.* + 3 * lane];
+        const x2 = main[cursor.* + 3 * lane + 1];
+        const x4 = main[cursor.* + 3 * lane + 2];
+        result[constraint.*] = enabler.mul(x.sub(value.add(baseSecure(constant))));
+        constraint.* += 1;
+        result[constraint.*] = enabler.mul(x2.sub(x.square()));
+        constraint.* += 1;
+        result[constraint.*] = enabler.mul(x4.sub(x2.square()));
+        constraint.* += 1;
+        value.* = x.mul(x4);
+    }
+    externalMatrixSecure(state);
+    cursor.* += MATERIALIZED_FULL_ROUND_WIDTH;
+}
+
+fn evaluateMaterializedPartialRound(
     main: [N_MAIN_COLUMNS]QM31,
     cursor: *usize,
     state: *[WIDTH]QM31,
@@ -362,19 +446,17 @@ fn evaluatePartialRound(
     result: *[N_CONSTRAINTS]QM31,
     constraint: *usize,
 ) void {
-    const x = state[0].add(baseSecure(round_constant));
-    const x2 = main[cursor.*];
-    const x4 = main[cursor.* + 1];
+    const x = main[cursor.*];
+    const x2 = main[cursor.* + 1];
+    const x4 = main[cursor.* + 2];
+    result[constraint.*] = enabler.mul(x.sub(state[0].add(baseSecure(round_constant))));
+    constraint.* += 1;
     result[constraint.*] = enabler.mul(x2.sub(x.square()));
     constraint.* += 1;
     result[constraint.*] = enabler.mul(x4.sub(x2.square()));
     constraint.* += 1;
     state[0] = x.mul(x4);
     internalMatrixSecure(state, diagonal);
-    const actual = main[cursor.* + 2];
-    result[constraint.*] = enabler.mul(actual.sub(state[0]));
-    constraint.* += 1;
-    state[0] = actual;
     cursor.* += PARTIAL_ROUND_WIDTH;
 }
 
@@ -474,6 +556,12 @@ fn baseSecure(value: u32) QM31 {
     return QM31.fromBase(M31.fromCanonical(value));
 }
 
+fn append(list: *lookup_entry.List, domain: lookup_entry.Domain, numerator: QM31, values: anytype) void {
+    var item = lookup_entry.Entry{ .domain = domain, .numerator = numerator, .arity = values.len };
+    inline for (values, 0..) |value, index| item.values[index] = value;
+    list.append(item);
+}
+
 fn secureRow(row: [N_MAIN_COLUMNS]M31) [N_MAIN_COLUMNS]QM31 {
     var result: [N_MAIN_COLUMNS]QM31 = undefined;
     for (&result, row) |*dst, value| dst.* = QM31.fromBase(value);
@@ -488,7 +576,46 @@ test "poseidon2 AIR: exact narrow pair matches the pinned permutation" {
     const row = fill(Call.narrow(1, 2));
     try std.testing.expectEqual(@as(u32, 1975699496), output(row)[0].toU32());
     try std.testing.expectEqual(permutation.hashPair(1, 2), output(row)[0].toU32());
-    try expectAllZero(&evaluate(secureRow(row), QM31.one()));
+    try expectAllZero(&evaluate(secureRow(row)));
+}
+
+test "poseidon2 AIR: generated column schedule matches pinned Rust" {
+    const row = fill(Call.narrow(1, 2));
+    const expected = [_]struct { column: usize, value: u32 }{
+        .{ .column = 0, .value = 1 },
+        .{ .column = 16, .value = 0 },
+        .{ .column = 17, .value = 888382669 },
+        .{ .column = 48, .value = 1245644797 },
+        .{ .column = 49, .value = 1900086922 },
+        .{ .column = 80, .value = 2142961709 },
+        .{ .column = 128, .value = 125143133 },
+        .{ .column = 176, .value = 1759109891 },
+        .{ .column = 218, .value = 572377586 },
+        .{ .column = 266, .value = 1621981814 },
+        .{ .column = 314, .value = 1610989476 },
+        .{ .column = 362, .value = 738050654 },
+        .{ .column = 409, .value = 260539998 },
+        .{ .column = 410, .value = 59563392 },
+        .{ .column = 425, .value = 1888574172 },
+        .{ .column = 426, .value = 1886810401 },
+        .{ .column = 441, .value = 23371529 },
+        .{ .column = 442, .value = 369091567 },
+        .{ .column = 443, .value = 0 },
+        .{ .column = 444, .value = 0 },
+    };
+    for (expected) |item| {
+        try std.testing.expectEqual(item.value, row[item.column].toU32());
+    }
+}
+
+test "poseidon2 AIR: arbitrary canonical narrow pairs satisfy every constraint" {
+    var prng = std.Random.DefaultPrng.init(0x506f736569646f6e);
+    const random = prng.random();
+    for (0..64) |_| {
+        const lhs = random.int(u32) % @import("../../../../core/fields/m31.zig").Modulus;
+        const rhs = random.int(u32) % @import("../../../../core/fields/m31.zig").Modulus;
+        try expectAllZero(&evaluate(secureRow(fill(Call.narrow(lhs, rhs)))));
+    }
 }
 
 test "poseidon2 AIR: input, intermediate, output, and conflicting flags fail" {
@@ -496,7 +623,7 @@ test "poseidon2 AIR: input, intermediate, output, and conflicting flags fail" {
     inline for (.{ INPUT_START, TEMP_START, OUTPUT_START }) |column| {
         var mutated = honest;
         mutated[column] = mutated[column].add(M31.one());
-        const constraints = evaluate(secureRow(mutated), QM31.one());
+        const constraints = evaluate(secureRow(mutated));
         var nonzero = false;
         for (constraints) |value| nonzero = nonzero or !value.isZero();
         try std.testing.expect(nonzero);
@@ -504,17 +631,17 @@ test "poseidon2 AIR: input, intermediate, output, and conflicting flags fail" {
     var conflicting_flags = honest;
     conflicting_flags[WIDE_COLUMN] = M31.one();
     conflicting_flags[IO_COLUMN] = M31.one();
-    const flag_constraints = evaluate(secureRow(conflicting_flags), QM31.one());
+    const flag_constraints = evaluate(secureRow(conflicting_flags));
     try std.testing.expect(!flag_constraints[N_CONSTRAINTS - 1].isZero());
 }
 
-test "poseidon2 AIR: inactive padding is constrained to the zero selector" {
+test "poseidon2 AIR: padding is zero and the enabler is boolean" {
     const padding = [_]QM31{QM31.zero()} ** N_MAIN_COLUMNS;
-    try expectAllZero(&evaluate(padding, QM31.zero()));
-    var enabled = padding;
-    enabled[0] = QM31.one();
-    const constraints = evaluate(enabled, QM31.zero());
-    try std.testing.expect(!constraints[N_PERMUTATION_CONSTRAINTS].isZero());
+    try expectAllZero(&evaluate(padding));
+    var non_boolean = padding;
+    non_boolean[0] = QM31.fromBase(M31.fromU64(2));
+    const constraints = evaluate(non_boolean);
+    try std.testing.expect(!constraints[0].isZero());
 }
 
 test "poseidon2 AIR: Merkle input and narrow output cancel exactly" {

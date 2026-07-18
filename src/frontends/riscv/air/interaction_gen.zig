@@ -6,7 +6,7 @@
 //! Layouts (M31 columns, committed bit-reversed circle-domain order):
 //!  - Opcode component (20): [0..4) S_state, [4..8) S_program,
 //!    [8..20) three S_memory_access columns.
-//!  - Program component (4): [0..4) S_rom.
+//!  - Program component (12): three declaration-order paired LogUp columns.
 //!
 //! Every relation tuple input lives in the main tree, which is committed
 //! before the lookup challenge is drawn. Tree 2 contains cumulative secure
@@ -22,7 +22,9 @@ const qm31 = @import("../../../core/fields/qm31.zig");
 const infra = @import("../infra_trace.zig");
 const logup = @import("logup.zig");
 const opcode_memory = @import("opcode_memory.zig");
+const program_commitment = @import("program/commitment.zig");
 const program_decode = @import("program/decode.zig");
+const program_interaction = @import("program/interaction.zig");
 const program_table = @import("program/table.zig");
 const relation_challenges = @import("relation_challenges.zig");
 const trace_mod = @import("../runner/trace.zig");
@@ -33,7 +35,7 @@ const QM31 = qm31.QM31;
 /// M31 interaction columns committed per opcode component.
 pub const OPCODE_INTERACTION_COLS: usize = 8 + opcode_memory.N_COLUMNS;
 /// M31 interaction columns committed for the program ROM component.
-pub const PROGRAM_INTERACTION_COLS: usize = 4;
+pub const PROGRAM_INTERACTION_COLS: usize = program_interaction.N_COLUMNS;
 
 fn qFromU32(v: u32) QM31 {
     return QM31.fromBase(M31.fromU64(v & 0x7FFFFFFF));
@@ -199,19 +201,7 @@ pub fn genOpcodeInteraction(
     };
 }
 
-/// Interaction columns for the program ROM component.
-pub const ProgramInteraction = struct {
-    columns: [PROGRAM_INTERACTION_COLS][]M31,
-    /// Trace-order shift of the S_rom coordinates, committed order.
-    prev_rom: [4][]M31,
-    rom_claim: QM31,
-
-    pub fn deinit(self: *ProgramInteraction, allocator: std.mem.Allocator) void {
-        freeColumns(allocator, &self.columns);
-        freeColumns(allocator, &self.prev_rom);
-        self.* = undefined;
-    }
-};
+pub const ProgramInteraction = program_interaction.Result;
 
 /// Generate the ROM side of the program bus.
 ///
@@ -225,61 +215,12 @@ pub fn genProgramInteraction(
     log_size: u32,
     relations: *const relation_challenges.Relations,
 ) !ProgramInteraction {
-    const n = @as(usize, 1) << @intCast(log_size);
     const fetches = try allocator.alloc(program_table.Fetch, exec_rows.len);
     defer allocator.free(fetches);
     for (exec_rows, fetches) |row, *fetch| fetch.* = .{ .pc = row.pc, .word = row.inst_word };
-    var decoded_table = try program_table.generate(allocator, fetches);
-    defer decoded_table.deinit();
-    if (decoded_table.rows.len > n) return error.InvalidTraceShape;
-
-    const pairs = try allocator.alloc(logup.RowPair, n);
-    defer allocator.free(pairs);
-    for (0..n) |i| {
-        if (i < decoded_table.rows.len) {
-            const entry = decoded_table.rows[i];
-            const values = entry.relationValues();
-            pairs[i] = logup.programEmit(
-                relations,
-                qFromU32(values[0]),
-                qFromU32(values[1]),
-                qFromU32(values[2]),
-                qFromU32(values[3]),
-                qFromU32(values[4]),
-                QM31.fromBase(M31.fromU64(entry.multiplicity)),
-            );
-        } else {
-            const zero = QM31.zero();
-            pairs[i] = logup.programEmit(relations, zero, zero, zero, zero, zero, zero);
-        }
-    }
-
-    var col_rom = try logup.cumulativeColumn(allocator, pairs);
-    defer col_rom.deinit(allocator);
-
-    const placement_table = try infra.BitReversalTable.init(allocator, log_size);
-    defer placement_table.deinit(allocator);
-
-    var columns = try allocColumns(allocator, PROGRAM_INTERACTION_COLS, n);
-    errdefer freeColumns(allocator, &columns);
-    var prev_rom = try allocColumns(allocator, 4, n);
-    errdefer freeColumns(allocator, &prev_rom);
-
-    for (0..n) |i| {
-        const dst = placement_table.map(i);
-        const s = col_rom.sums[i].toM31Array();
-        const s_prev = col_rom.sums[(i + n - 1) % n].toM31Array();
-        for (0..4) |c| {
-            columns[c][dst] = s[c];
-            prev_rom[c][dst] = s_prev[c];
-        }
-    }
-
-    return .{
-        .columns = columns,
-        .prev_rom = prev_rom,
-        .rom_claim = col_rom.claimed,
-    };
+    var commitment = try program_commitment.build(allocator, fetches, &.{});
+    defer commitment.deinit(allocator);
+    return program_interaction.generate(allocator, commitment.rows, log_size, relations);
 }
 
 // ---------------------------------------------------------------------------
@@ -338,9 +279,22 @@ test "interaction_gen: claims telescope across shards and the program bus balanc
         boundary,
     );
 
-    // Program bus: consumes + ROM emissions cancel exactly on their own.
+    const fetches = try allocator.alloc(program_table.Fetch, rows.len);
+    defer allocator.free(fetches);
+    for (rows, fetches) |row, *fetch| fetch.* = .{ .pc = row.pc, .word = row.inst_word };
+    var commitment = try program_commitment.build(allocator, fetches, &.{});
+    defer commitment.deinit(allocator);
+    const program_sum = try program_interaction.diagnosticSum(
+        commitment.rows,
+        .program_access,
+        &relations,
+    );
+
+    // Program-access entries cancel. The table's committed columns deliberately
+    // batch these entries with Merkle entries, so relation-specific diagnostics
+    // must be derived from the production entry list rather than claim slots.
     try logup.verifyGlobalCancellation(
-        &.{ shard_a.prog_claim, shard_b.prog_claim, rom.rom_claim },
+        &.{ shard_a.prog_claim, shard_b.prog_claim, program_sum },
         QM31.zero(),
     );
 
@@ -402,7 +356,7 @@ test "interaction_gen: columns are placed in committed order with wrapped shift"
     try std.testing.expect(s_last.eql(gen.state_claim));
 }
 
-test "interaction_gen: program cumulative column closes the ROM claim" {
+test "interaction_gen: program cumulative columns close all exact claims" {
     const allocator = std.testing.allocator;
     const relations = testRelations();
 
@@ -419,13 +373,16 @@ test "interaction_gen: program cumulative column closes the ROM claim" {
     defer table.deinit(allocator);
 
     const last = table.map(3);
-    const claimed = QM31.fromM31(
-        rom.columns[0][last],
-        rom.columns[1][last],
-        rom.columns[2][last],
-        rom.columns[3][last],
-    );
-    try std.testing.expect(claimed.eql(rom.rom_claim));
+    for (0..program_interaction.N_SUMS) |sum_index| {
+        const start = 4 * sum_index;
+        const claimed = QM31.fromM31(
+            rom.columns[start][last],
+            rom.columns[start + 1][last],
+            rom.columns[start + 2][last],
+            rom.columns[start + 3][last],
+        );
+        try std.testing.expect(claimed.eql(rom.claims.sums[sum_index]));
+    }
 }
 
 test "interaction_gen: one program counter cannot name two instruction words" {

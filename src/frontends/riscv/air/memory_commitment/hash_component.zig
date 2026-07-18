@@ -22,6 +22,9 @@ const poseidon2_air = @import("poseidon2_air.zig");
 
 const CirclePointQM31 = circle.CirclePointQM31;
 const EMPTY_PREV: [4][]const M31 = .{ &.{}, &.{}, &.{}, &.{} };
+const N_POSEIDON_SHELL_CONSTRAINTS: usize = 1;
+const N_POSEIDON_COMPONENT_CONSTRAINTS: usize =
+    poseidon2_air.N_CONSTRAINTS + N_POSEIDON_SHELL_CONSTRAINTS + poseidon2_air.N_SUMS;
 
 pub const Kind = enum { merkle, poseidon2 };
 
@@ -59,12 +62,15 @@ pub const HashComponent = struct {
     pub fn nConstraints(self: *const @This()) usize {
         return switch (self.kind) {
             .merkle => merkle_node.N_CONSTRAINTS,
-            .poseidon2 => poseidon2_air.N_CONSTRAINTS + poseidon2_air.N_SUMS,
+            .poseidon2 => N_POSEIDON_COMPONENT_CONSTRAINTS,
         };
     }
 
     pub fn maxConstraintLogDegreeBound(self: *const @This()) u32 {
-        return self.log_size + 1;
+        return self.log_size + switch (self.kind) {
+            .merkle => @as(u32, 1),
+            .poseidon2 => @as(u32, 1),
+        };
     }
 
     pub fn traceLogDegreeBounds(
@@ -72,9 +78,12 @@ pub const HashComponent = struct {
         allocator: std.mem.Allocator,
     ) !core_air_components.TraceLogDegreeBounds {
         const preprocessed = try allocator.dupe(u32, &[_]u32{ self.log_size, self.log_size });
+        errdefer allocator.free(preprocessed);
         const main = try allocator.alloc(u32, nMainColumns(self.kind));
+        errdefer allocator.free(main);
         @memset(main, self.log_size);
         const interaction = try allocator.alloc(u32, nInteractionColumns(self.kind));
+        errdefer allocator.free(interaction);
         @memset(interaction, self.log_size);
         return core_air_components.TraceLogDegreeBounds.initOwned(
             try allocator.dupe([]u32, &[_][]u32{ preprocessed, main, interaction }),
@@ -87,16 +96,18 @@ pub const HashComponent = struct {
         point: CirclePointQM31,
         max_log_degree_bound: u32,
     ) !core_air_components.MaskPoints {
-        const first = try allocator.dupe(CirclePointQM31, &.{point});
-        const active = try allocator.dupe(CirclePointQM31, &.{point});
-        const preprocessed = try allocator.dupe([]CirclePointQM31, &.{ first, active });
-        const main = try allocator.alloc([]CirclePointQM31, nMainColumns(self.kind));
-        for (main) |*column| column.* = try allocator.dupe(CirclePointQM31, &.{point});
+        const preprocessed = try currentPointColumns(allocator, 2, point);
+        errdefer freePointColumns(allocator, preprocessed);
+        const main = try currentPointColumns(allocator, nMainColumns(self.kind), point);
+        errdefer freePointColumns(allocator, main);
         const previous_point = logup.prevRowPoint(max_log_degree_bound, point);
-        const interaction = try allocator.alloc([]CirclePointQM31, nInteractionColumns(self.kind));
-        for (interaction) |*column| {
-            column.* = try allocator.dupe(CirclePointQM31, &.{ point, previous_point });
-        }
+        const interaction = try currentAndPreviousPointColumns(
+            allocator,
+            nInteractionColumns(self.kind),
+            point,
+            previous_point,
+        );
+        errdefer freePointColumns(allocator, interaction);
         return core_air_components.MaskPoints.initOwned(
             try allocator.dupe([][]CirclePointQM31, &.{ preprocessed, main, interaction }),
         );
@@ -171,10 +182,6 @@ pub const HashComponent = struct {
                     main_mask,
                     self.main_col_offset,
                 );
-                const permutation_constraints = poseidon2_air.evaluate(main, is_active);
-                for (permutation_constraints) |constraint| {
-                    accumulator.accumulate(constraint.mul(denominator_inv));
-                }
                 var sums: [poseidon2_air.N_SUMS]QM31 = undefined;
                 var previous: [poseidon2_air.N_SUMS]QM31 = undefined;
                 try sampleInteraction(
@@ -184,15 +191,16 @@ pub const HashComponent = struct {
                     &sums,
                     &previous,
                 );
-                const interaction_constraints = poseidon2_air.interactionConstraints(
+                const constraints = poseidonConstraints(
                     main,
+                    is_active,
                     is_first,
                     sums,
                     previous,
                     self.poseidon_claims,
                     self.relations,
                 );
-                for (interaction_constraints) |constraint| {
+                for (constraints) |constraint| {
                     accumulator.accumulate(constraint.mul(denominator_inv));
                 }
             },
@@ -206,7 +214,7 @@ pub const HashComponent = struct {
     ) !void {
         if (trace.polys.items.len < 3) return error.InvalidProofShape;
         const allocator = accumulator.allocator;
-        const eval_log_size = self.log_size + 1;
+        const eval_log_size = self.maxConstraintLogDegreeBound();
         const eval_domain = canonic.CanonicCoset.new(eval_log_size).circleDomain();
         const eval_size = eval_domain.size();
         const n_main = nMainColumns(self.kind);
@@ -224,6 +232,11 @@ pub const HashComponent = struct {
 
         const evaluations = try allocator.alloc([]const M31, n_sources);
         defer allocator.free(evaluations);
+        var extension_buffers = std.ArrayList([]M31).empty;
+        defer {
+            for (extension_buffers.items) |values| allocator.free(values);
+            extension_buffers.deinit(allocator);
+        }
         var source: usize = 0;
         const committed = try allocator.alloc(prover_component.Poly, n_committed);
         defer allocator.free(committed);
@@ -235,15 +248,20 @@ pub const HashComponent = struct {
         }
         for (committed) |poly| {
             try poly.validate();
-            if (poly.log_size != eval_log_size) return error.InvalidProofShape;
-            evaluations[source] = poly.values;
+            if (poly.log_size == eval_log_size) {
+                evaluations[source] = poly.values;
+            } else {
+                const coefficients = poly.coefficients orelse return error.InvalidProofShape;
+                if (coefficients.logSize() != self.log_size) return error.InvalidProofShape;
+                const extended = try allocator.alloc(M31, eval_size);
+                errdefer allocator.free(extended);
+                const values = coefficients.coefficients();
+                @memcpy(extended[0..values.len], values);
+                @memset(extended[values.len..], M31.zero());
+                try extension_buffers.append(allocator, extended);
+                evaluations[source] = extended;
+            }
             source += 1;
-        }
-
-        var extension_buffers = std.ArrayList([]M31).empty;
-        defer {
-            for (extension_buffers.items) |values| allocator.free(values);
-            extension_buffers.deinit(allocator);
         }
         var trace_twiddles = try prover_twiddles.precomputeM31(
             allocator,
@@ -294,12 +312,14 @@ pub const HashComponent = struct {
         );
 
         const trace_coset = canonic.CanonicCoset.new(self.log_size).coset();
-        var denominator_inv: [2]M31 = undefined;
-        for (&denominator_inv, 0..) |*inverse, index| {
+        const extension_bits: u5 = @intCast(eval_log_size - self.log_size);
+        var denominator_inv: [4]M31 = undefined;
+        const denominator_count = @as(usize, 1) << extension_bits;
+        for (denominator_inv[0..denominator_count], 0..) |*inverse, index| {
             inverse.* = try core_constraints.cosetVanishing(
                 M31,
                 trace_coset,
-                eval_domain.at(index),
+                eval_domain.at(utils.bitReverseIndex(index, extension_bits)),
             ).inv();
         }
         var accumulators = try accumulator.columns(
@@ -350,11 +370,6 @@ pub const HashComponent = struct {
                         evaluations[main_start..][0..poseidon2_air.N_MAIN_COLUMNS],
                         row,
                     );
-                    const permutation_constraints = poseidon2_air.evaluate(main, is_active);
-                    row_evaluation = combineConstraints(
-                        column_accumulator.random_coeff_powers,
-                        &permutation_constraints,
-                    );
                     var sums: [poseidon2_air.N_SUMS]QM31 = undefined;
                     var previous: [poseidon2_air.N_SUMS]QM31 = undefined;
                     readInteraction(
@@ -366,26 +381,24 @@ pub const HashComponent = struct {
                         &sums,
                         &previous,
                     );
-                    const interaction_constraints = poseidon2_air.interactionConstraints(
+                    const constraints = poseidonConstraints(
                         main,
+                        is_active,
                         is_first,
                         sums,
                         previous,
                         self.poseidon_claims,
                         self.relations,
                     );
-                    for (interaction_constraints, 0..) |constraint, index| {
-                        const power_index = column_accumulator.random_coeff_powers.len -
-                            1 - poseidon2_air.N_CONSTRAINTS - index;
-                        row_evaluation = row_evaluation.add(
-                            column_accumulator.random_coeff_powers[power_index].mul(constraint),
-                        );
-                    }
+                    row_evaluation = combineConstraints(
+                        column_accumulator.random_coeff_powers,
+                        &constraints,
+                    );
                 },
             }
             column_accumulator.accumulate(
                 row,
-                row_evaluation.mulM31(denominator_inv[row >> self.log_size]),
+                row_evaluation.mulM31(denominator_inv[row >> @intCast(self.log_size)]),
             );
         }
     }
@@ -403,6 +416,76 @@ pub fn nInteractionColumns(kind: Kind) usize {
         .merkle => merkle_node.N_INTERACTION_COLUMNS,
         .poseidon2 => poseidon2_air.N_INTERACTION_COLUMNS,
     };
+}
+
+fn poseidonConstraints(
+    main: [poseidon2_air.N_MAIN_COLUMNS]QM31,
+    is_active: QM31,
+    is_first: QM31,
+    sums: [poseidon2_air.N_SUMS]QM31,
+    previous: [poseidon2_air.N_SUMS]QM31,
+    claims: [poseidon2_air.N_SUMS]QM31,
+    relations: *const relations_mod.Relations,
+) [N_POSEIDON_COMPONENT_CONSTRAINTS]QM31 {
+    const air_constraints = poseidon2_air.evaluate(main);
+    const interaction_constraints = poseidon2_air.interactionConstraints(
+        main,
+        is_first,
+        sums,
+        previous,
+        claims,
+        relations,
+    );
+    var constraints: [N_POSEIDON_COMPONENT_CONSTRAINTS]QM31 = undefined;
+    @memcpy(constraints[0..poseidon2_air.N_CONSTRAINTS], &air_constraints);
+    constraints[poseidon2_air.N_CONSTRAINTS] = main[0].sub(is_active);
+    @memcpy(
+        constraints[poseidon2_air.N_CONSTRAINTS + N_POSEIDON_SHELL_CONSTRAINTS ..],
+        &interaction_constraints,
+    );
+    return constraints;
+}
+
+fn currentPointColumns(
+    allocator: std.mem.Allocator,
+    count: usize,
+    point: CirclePointQM31,
+) ![][]CirclePointQM31 {
+    const result = try allocator.alloc([]CirclePointQM31, count);
+    var initialized: usize = 0;
+    errdefer {
+        for (result[0..initialized]) |column| allocator.free(column);
+        allocator.free(result);
+    }
+    for (result) |*column| {
+        column.* = try allocator.dupe(CirclePointQM31, &.{point});
+        initialized += 1;
+    }
+    return result;
+}
+
+fn currentAndPreviousPointColumns(
+    allocator: std.mem.Allocator,
+    count: usize,
+    point: CirclePointQM31,
+    previous: CirclePointQM31,
+) ![][]CirclePointQM31 {
+    const result = try allocator.alloc([]CirclePointQM31, count);
+    var initialized: usize = 0;
+    errdefer {
+        for (result[0..initialized]) |column| allocator.free(column);
+        allocator.free(result);
+    }
+    for (result) |*column| {
+        column.* = try allocator.dupe(CirclePointQM31, &.{ point, previous });
+        initialized += 1;
+    }
+    return result;
+}
+
+fn freePointColumns(allocator: std.mem.Allocator, columns: [][]CirclePointQM31) void {
+    for (columns) |column| allocator.free(column);
+    allocator.free(columns);
 }
 
 fn sampleMain(
@@ -512,4 +595,74 @@ test "hash component: exact shapes remain pinned" {
     try std.testing.expectEqual(@as(usize, 8), nInteractionColumns(.poseidon2));
     try std.testing.expectEqual(@as(usize, 10), nMainColumns(.merkle));
     try std.testing.expectEqual(@as(usize, 12), nInteractionColumns(.merkle));
+}
+
+test "hash component: Poseidon shell binds enabler after pinned AIR constraints" {
+    const row = poseidon2_air.fill(poseidon2_air.Call.narrow(1, 2));
+    var main: [poseidon2_air.N_MAIN_COLUMNS]QM31 = undefined;
+    for (&main, row) |*dst, value| dst.* = QM31.fromBase(value);
+    const zeros = [_]QM31{QM31.zero()} ** poseidon2_air.N_SUMS;
+    const relations = relations_mod.Relations.dummy();
+    const honest = poseidonConstraints(
+        main,
+        QM31.one(),
+        QM31.one(),
+        zeros,
+        zeros,
+        zeros,
+        &relations,
+    );
+    for (honest[0..poseidon2_air.N_CONSTRAINTS]) |constraint| {
+        try std.testing.expect(constraint.isZero());
+    }
+    try std.testing.expect(honest[poseidon2_air.N_CONSTRAINTS].isZero());
+
+    const inactive = poseidonConstraints(
+        main,
+        QM31.zero(),
+        QM31.one(),
+        zeros,
+        zeros,
+        zeros,
+        &relations,
+    );
+    for (inactive[0..poseidon2_air.N_CONSTRAINTS], honest[0..poseidon2_air.N_CONSTRAINTS]) |actual, expected| {
+        try std.testing.expect(actual.eql(expected));
+    }
+    try std.testing.expect(!inactive[poseidon2_air.N_CONSTRAINTS].isZero());
+}
+
+fn allocateHashMetadata(
+    allocator: std.mem.Allocator,
+    component: *const HashComponent,
+) !void {
+    var bounds = try component.traceLogDegreeBounds(allocator);
+    defer bounds.deinitDeep(allocator);
+    var masks = try component.maskPoints(
+        allocator,
+        circle.SECURE_FIELD_CIRCLE_GEN,
+        component.maxConstraintLogDegreeBound(),
+    );
+    defer masks.deinitDeep(allocator);
+    const indices = try component.preprocessedColumnIndices(allocator);
+    defer allocator.free(indices);
+}
+
+test "hash component: metadata allocations roll back completely" {
+    const relations = relations_mod.Relations.dummy();
+    const component = HashComponent{
+        .kind = .poseidon2,
+        .log_size = 4,
+        .n_rows = 1,
+        .is_first_col_idx = 0,
+        .is_active_col_idx = 1,
+        .main_col_offset = 0,
+        .interaction_col_offset = 0,
+        .relations = &relations,
+    };
+    try std.testing.checkAllAllocationFailures(
+        std.testing.allocator,
+        allocateHashMetadata,
+        .{&component},
+    );
 }

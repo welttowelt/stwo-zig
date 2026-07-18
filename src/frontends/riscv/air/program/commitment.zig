@@ -68,6 +68,10 @@ pub fn build(
     if (program_words.len != 0) {
         for (program_words) |word| {
             if ((word.addr & 3) != 0) return error.MisalignedProgramWord;
+            // Pinned Stark-V omits zero words from the declared program table.
+            // Fetched words were decoded above, so an executed zero instruction
+            // still fails closed before this source-level omission is applied.
+            if (word.initial_word == 0) continue;
             const values = try decode.decodeProgramWord(word.initial_word);
             const multiplicity = if (fetch_by_addr.fetchRemove(word.addr)) |entry| blk: {
                 if (!std.meta.eql(entry.value.values, values)) return error.ProgramWordChanged;
@@ -103,8 +107,10 @@ pub fn build(
     var tree = try sparse_merkle.build(allocator, leaves.items);
     errdefer tree.deinit(allocator);
     for (pending.items) |*row| row.root = tree.root;
+    const rows = try pending.toOwnedSlice(allocator);
+    errdefer allocator.free(rows);
     const result = Commitment{
-        .rows = try pending.toOwnedSlice(allocator),
+        .rows = rows,
         .tree = tree,
     };
     try result.validate(allocator);
@@ -164,6 +170,47 @@ test "program commitment: fetched word must belong to declared program" {
     const fetches = [_]table.Fetch{.{ .pc = 0x1004, .word = 0x002081b3 }};
     try std.testing.expectError(
         error.FetchedProgramWordMissing,
+        build(std.testing.allocator, &fetches, &words),
+    );
+}
+
+test "program commitment: declared zero gaps do not affect rows roots or multiplicities" {
+    const nonzero_words = [_]memory_state.WordState{
+        .{ .addr = 0x1000, .initial_word = 0x00100093, .final_word = 0x00100093, .final_clock = 0 },
+        .{ .addr = 0x1008, .initial_word = 0x002081b3, .final_word = 0x002081b3, .final_clock = 0 },
+    };
+    const words_with_gap = [_]memory_state.WordState{
+        nonzero_words[0],
+        .{ .addr = 0x1004, .initial_word = 0, .final_word = 0, .final_clock = 0 },
+        nonzero_words[1],
+    };
+    const fetches = [_]table.Fetch{
+        .{ .pc = 0x1000, .word = 0x00100093 },
+        .{ .pc = 0x1000, .word = 0x00100093 },
+    };
+
+    var compact = try build(std.testing.allocator, &fetches, &nonzero_words);
+    defer compact.deinit(std.testing.allocator);
+    var gapped = try build(std.testing.allocator, &fetches, &words_with_gap);
+    defer gapped.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(@as(usize, 2), gapped.rows.len);
+    try std.testing.expectEqual(@as(u32, 0x1000), gapped.rows[0].addr);
+    try std.testing.expectEqual(@as(u32, 2), gapped.rows[0].multiplicity);
+    try std.testing.expectEqual(@as(u32, 0x1008), gapped.rows[1].addr);
+    try std.testing.expectEqual(@as(u32, 0), gapped.rows[1].multiplicity);
+    try std.testing.expectEqual(compact.tree.root, gapped.tree.root);
+    try std.testing.expectEqualSlices(sparse_merkle.Leaf, compact.tree.leaves, gapped.tree.leaves);
+    try std.testing.expectEqualSlices(sparse_merkle.Node, compact.tree.nodes, gapped.tree.nodes);
+}
+
+test "program commitment: fetched zero instruction fails closed" {
+    const words = [_]memory_state.WordState{
+        .{ .addr = 0x1000, .initial_word = 0, .final_word = 0, .final_clock = 0 },
+    };
+    const fetches = [_]table.Fetch{.{ .pc = 0x1000, .word = 0 }};
+    try std.testing.expectError(
+        error.InvalidInstruction,
         build(std.testing.allocator, &fetches, &words),
     );
 }

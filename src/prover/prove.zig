@@ -333,6 +333,7 @@ fn proveExComponentsWithRecorder(
             max_log_degree_bound,
             include_all_preprocessed_columns,
         );
+        errdefer sample_points.deinitDeep(allocator);
         try appendCompositionMaskTree(allocator, &sample_points, oods_point);
         break :blk OodsSampling{
             .point = oods_point,

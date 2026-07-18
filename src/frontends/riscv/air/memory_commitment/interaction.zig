@@ -4,6 +4,7 @@ const std = @import("std");
 const M31 = @import("../../../../core/fields/m31.zig").M31;
 const QM31 = @import("../../../../core/fields/qm31.zig").QM31;
 const infra = @import("../../infra_trace.zig");
+const lookup_entry = @import("../lookups/entry.zig");
 const logup = @import("../logup.zig");
 const relations_mod = @import("../relation_challenges.zig");
 const boundary = @import("boundary.zig");
@@ -14,18 +15,6 @@ pub const Previous = [N_SUMS][4][]M31;
 
 pub const Claims = struct {
     sums: [N_SUMS]QM31,
-
-    pub fn memoryAccess(self: Claims) QM31 {
-        return self.sums[0];
-    }
-
-    pub fn merkle(self: Claims) QM31 {
-        return self.sums[1].add(self.sums[2]);
-    }
-
-    pub fn rangeCheck(self: Claims) QM31 {
-        return self.sums[3];
-    }
 
     pub fn total(self: Claims) QM31 {
         var result = QM31.zero();
@@ -102,33 +91,34 @@ pub fn generate(
 }
 
 pub fn rowPairs(row: boundary.Row, relations: *const relations_mod.Relations) [N_SUMS]logup.RowPair {
-    const active = QM31.one();
+    const list = entriesFromRow(row);
+    return .{
+        list.pair(0, relations) catch unreachable,
+        list.pair(1, relations) catch unreachable,
+        list.pair(2, relations) catch unreachable,
+        list.pair(3, relations) catch unreachable,
+    };
+}
+
+pub fn entriesFromRow(row: boundary.Row) lookup_entry.List {
     const addr = base(row.addr);
     const root = base(row.root);
-    return .{
-        logup.RowPair.single(
-            QM31.fromBase(row.multiplicity),
-            relations.memory_access.combineBase(row.memoryTuple()),
-        ),
-        .{
-            .n1 = active.neg(),
-            .d1 = relations.merkle.combineSecure(.{ addr, base(30), base(row.value[0]), root }),
-            .n2 = active.neg(),
-            .d2 = relations.merkle.combineSecure(.{ addr.add(base(1)), base(30), base(row.value[1]), root }),
-        },
-        .{
-            .n1 = active.neg(),
-            .d1 = relations.merkle.combineSecure(.{ addr.add(base(2)), base(30), base(row.value[2]), root }),
-            .n2 = active.neg(),
-            .d2 = relations.merkle.combineSecure(.{ addr.add(base(3)), base(30), base(row.value[3]), root }),
-        },
-        .{
-            .n1 = active.neg(),
-            .d1 = relations.range_check_8_8.combineSecure(.{ base(row.value[0]), base(row.value[1]) }),
-            .n2 = active.neg(),
-            .d2 = relations.range_check_8_8.combineSecure(.{ base(row.value[2]), base(row.value[3]) }),
-        },
+    const values = [4]QM31{
+        base(row.value[0]),
+        base(row.value[1]),
+        base(row.value[2]),
+        base(row.value[3]),
     };
+    return entries(.{
+        addr,
+        base(row.clock),
+        values[0],
+        values[1],
+        values[2],
+        values[3],
+        QM31.fromBase(row.multiplicity),
+        root,
+    }, QM31.one());
 }
 
 pub fn paddingPairs(relations: *const relations_mod.Relations) [N_SUMS]logup.RowPair {
@@ -159,31 +149,12 @@ pub fn evaluate(
     const values = main[2..6];
     const multiplicity = main[6];
     const root = main[7];
+    const list = entries(.{ addr, clock, values[0], values[1], values[2], values[3], multiplicity, root }, is_active);
     const pairs = [N_SUMS]logup.RowPair{
-        logup.RowPair.single(
-            multiplicity,
-            relations.memory_access.combineSecure(.{
-                QM31.one(), addr, clock, values[0], values[1], values[2], values[3],
-            }),
-        ),
-        .{
-            .n1 = is_active.neg(),
-            .d1 = relations.merkle.combineSecure(.{ addr, base(30), values[0], root }),
-            .n2 = is_active.neg(),
-            .d2 = relations.merkle.combineSecure(.{ addr.add(base(1)), base(30), values[1], root }),
-        },
-        .{
-            .n1 = is_active.neg(),
-            .d1 = relations.merkle.combineSecure(.{ addr.add(base(2)), base(30), values[2], root }),
-            .n2 = is_active.neg(),
-            .d2 = relations.merkle.combineSecure(.{ addr.add(base(3)), base(30), values[3], root }),
-        },
-        .{
-            .n1 = is_active.neg(),
-            .d1 = relations.range_check_8_8.combineSecure(.{ values[0], values[1] }),
-            .n2 = is_active.neg(),
-            .d2 = relations.range_check_8_8.combineSecure(.{ values[2], values[3] }),
-        },
+        list.pair(0, relations) catch unreachable,
+        list.pair(1, relations) catch unreachable,
+        list.pair(2, relations) catch unreachable,
+        list.pair(3, relations) catch unreachable,
     };
     var result: [N_CONSTRAINTS]QM31 = undefined;
     for (0..N_SUMS) |index| {
@@ -199,6 +170,49 @@ pub fn evaluate(
     result[N_SUMS] = multiplicity.mul(multiplicity_squared.sub(QM31.one()));
     result[N_SUMS + 1] = multiplicity_squared.sub(is_active);
     return result;
+}
+
+pub fn entries(main: [8]QM31, enabler: QM31) lookup_entry.List {
+    const addr = main[0];
+    const clock = main[1];
+    const values = main[2..6];
+    const multiplicity = main[6];
+    const root = main[7];
+    const depth = base(30);
+    var list = lookup_entry.List{};
+    append(&list, .range_check_8_8, enabler.neg(), .{ values[0], values[1] });
+    append(&list, .range_check_8_8, enabler.neg(), .{ values[2], values[3] });
+    append(&list, .memory_access, multiplicity, .{
+        QM31.one(), addr, clock, values[0], values[1], values[2], values[3],
+    });
+    append(&list, .merkle, enabler.neg(), .{ addr, depth, values[0], root });
+    append(&list, .merkle, enabler.neg(), .{ addr.add(base(1)), depth, values[1], root });
+    append(&list, .merkle, enabler.neg(), .{ addr.add(base(2)), depth, values[2], root });
+    append(&list, .merkle, enabler.neg(), .{ addr.add(base(3)), depth, values[3], root });
+    return list;
+}
+
+pub fn diagnosticSum(
+    rows: []const boundary.Row,
+    domain: lookup_entry.Domain,
+    relations: *const relations_mod.Relations,
+) !QM31 {
+    var result = QM31.zero();
+    for (rows) |row| {
+        const list = entriesFromRow(row);
+        for (list.entries[0..list.len]) |item| {
+            if (item.domain != domain or item.numerator.isZero()) continue;
+            const denominator = try item.denominator(relations);
+            result = result.add(item.numerator.mul(try denominator.inv()));
+        }
+    }
+    return result;
+}
+
+fn append(list: *lookup_entry.List, domain: lookup_entry.Domain, numerator: QM31, values: anytype) void {
+    var item = lookup_entry.Entry{ .domain = domain, .numerator = numerator, .arity = values.len };
+    inline for (values, 0..) |value, index| item.values[index] = value;
+    list.append(item);
 }
 
 fn allocateColumns(allocator: std.mem.Allocator, comptime n: usize, len: usize) ![n][]M31 {
@@ -244,7 +258,7 @@ test "memory boundary interaction is padding invariant" {
     defer compact.deinit(std.testing.allocator);
     var padded = try generate(std.testing.allocator, &.{row}, 3, &relations);
     defer padded.deinit(std.testing.allocator);
-    try std.testing.expect(compact.claims.memoryAccess().eql(padded.claims.memoryAccess()));
-    try std.testing.expect(compact.claims.merkle().eql(padded.claims.merkle()));
-    try std.testing.expect(compact.claims.rangeCheck().eql(padded.claims.rangeCheck()));
+    for (compact.claims.sums, padded.claims.sums) |actual, expected| {
+        try std.testing.expect(actual.eql(expected));
+    }
 }

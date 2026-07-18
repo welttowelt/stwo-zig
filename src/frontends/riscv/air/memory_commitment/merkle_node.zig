@@ -9,6 +9,7 @@ const std = @import("std");
 const M31 = @import("../../../../core/fields/m31.zig").M31;
 const QM31 = @import("../../../../core/fields/qm31.zig").QM31;
 const infra = @import("../../infra_trace.zig");
+const lookup_entry = @import("../lookups/entry.zig");
 const logup = @import("../logup.zig");
 const relations_mod = @import("../relation_challenges.zig");
 const poseidon2_air = @import("poseidon2_air.zig");
@@ -195,6 +196,15 @@ pub fn rowPairsFromNode(row: NodeRow, relations: *const relations_mod.Relations)
 }
 
 pub fn rowPairs(main: [N_MAIN_COLUMNS]QM31, relations: *const relations_mod.Relations) [N_SUMS]logup.RowPair {
+    const list = entries(main);
+    return .{
+        list.pair(0, relations) catch unreachable,
+        list.pair(1, relations) catch unreachable,
+        list.pair(2, relations) catch unreachable,
+    };
+}
+
+pub fn entries(main: [N_MAIN_COLUMNS]QM31) lookup_entry.List {
     const enabler = main[0];
     const index = main[1];
     const depth = main[2];
@@ -208,26 +218,13 @@ pub fn rowPairs(main: [N_MAIN_COLUMNS]QM31, relations: *const relations_mod.Rela
     poseidon_input[1] = rhs;
     var poseidon_output = [_]QM31{QM31.zero()} ** poseidon2_air.WIDTH;
     poseidon_output[0] = cur;
-    return .{
-        .{
-            .n1 = main[6],
-            .d1 = relations.merkle.combineSecure(.{ index, depth, lhs, root }),
-            .n2 = main[7],
-            .d2 = relations.merkle.combineSecure(.{ index.add(one), depth, rhs, root }),
-        },
-        .{
-            .n1 = main[8].neg(),
-            .d1 = relations.merkle.combineSecure(.{
-                index.mul(INV2), depth.sub(one), cur, root,
-            }),
-            .n2 = enabler,
-            .d2 = relations.poseidon2.combineSecure(poseidon_input),
-        },
-        logup.RowPair.single(
-            enabler.neg(),
-            relations.poseidon2.combineSecure(poseidon_output),
-        ),
-    };
+    var list = lookup_entry.List{};
+    append(&list, .merkle, main[6], .{ index, depth, lhs, root });
+    append(&list, .merkle, main[7], .{ index.add(one), depth, rhs, root });
+    append(&list, .merkle, main[8].neg(), .{ index.mul(INV2), depth.sub(one), cur, root });
+    append(&list, .poseidon2, enabler, poseidon_input);
+    append(&list, .poseidon2, enabler.neg(), poseidon_output);
+    return list;
 }
 
 pub fn paddingPairs() [N_SUMS]logup.RowPair {
@@ -309,6 +306,12 @@ fn freeColumns(allocator: std.mem.Allocator, columns: []const []M31) void {
     for (columns) |column| allocator.free(column);
 }
 
+fn append(list: *lookup_entry.List, domain: lookup_entry.Domain, numerator: QM31, values: anytype) void {
+    var item = lookup_entry.Entry{ .domain = domain, .numerator = numerator, .arity = values.len };
+    inline for (values, 0..) |value, index| item.values[index] = value;
+    list.append(item);
+}
+
 fn rootEmit(tree: sparse_merkle.Tree, relations: *const relations_mod.Relations) !QM31 {
     const root = QM31.fromBase(M31.fromU64(tree.root));
     return try relations.merkle.combineSecure(.{ QM31.zero(), QM31.zero(), root, root }).inv();
@@ -372,10 +375,15 @@ test "Merkle node AIR: leaves, nodes, hashes, and public root cancel" {
         &relations,
     );
     defer leaves.deinit(std.testing.allocator);
+    const leaf_claim = try memory_interaction.diagnosticSum(
+        boundary_claims.rows[0..1],
+        .merkle,
+        &relations,
+    );
     try verifyCancellation(
         nodes.claims,
         hashes.claims,
-        leaves.claims.merkle(),
+        leaf_claim,
         try rootEmit(tree, &relations),
     );
 
@@ -390,7 +398,7 @@ test "Merkle node AIR: leaves, nodes, hashes, and public root cancel" {
         try expectCancellationFails(
             bad_rows,
             hash_calls,
-            leaves.claims.merkle(),
+            leaf_claim,
             try rootEmit(tree, &relations),
             &relations,
         );

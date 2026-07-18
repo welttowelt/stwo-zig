@@ -502,8 +502,10 @@ const WireArena = struct {
         );
         errdefer allocator.free(self.memory_claims);
         for (0..n_infra) |i| {
-            for (claim.memory_claims[i], 0..) |value, j| {
-                self.memory_claims[i][j] = qm31Wire(value);
+            self.memory_claims[i] = .{.{ 0, 0, 0, 0 }} ** 4;
+            const kind = statement.infra_descs[i].kind;
+            for (0..stwo.frontends.riscv.air.statement.nClaimedSumsForInfra(kind)) |sum| {
+                self.memory_claims[i][sum] = qm31Wire(try claim.infraClaim(kind, i, sum));
             }
         }
         self.statement = .{
@@ -536,7 +538,9 @@ const WireArena = struct {
             .state_claims = self.state_claims,
             .program_claims = self.program_claims,
             .opcode_memory_claims = self.opcode_memory,
-            .rom_claim = qm31Wire(claim.rom_claim),
+            // Reserved by the staged v2 envelope; the exact program component
+            // now occupies its descriptor-indexed infrastructure slots.
+            .rom_claim = .{ 0, 0, 0, 0 },
             .memory_claims = self.memory_claims,
         };
         return self;
@@ -654,8 +658,10 @@ pub fn verifyArtifact(
         return error.InvalidArtifact;
     var claim = prover.RiscVInteractionClaim.initZero();
     claim.n_components = statement.n_components;
+    claim.n_infra = statement.n_infra;
     claim.interaction_pow = wire_claim.interaction_pow;
-    claim.rom_claim = qm31FromWire(wire_claim.rom_claim);
+    const zero_wire: stwo.interop.riscv_artifact.Qm31Wire = .{ 0, 0, 0, 0 };
+    if (!std.mem.eql(u32, &wire_claim.rom_claim, &zero_wire)) return error.InvalidArtifact;
     for (0..statement.n_components) |i| {
         claim.state_claims[i] = qm31FromWire(wire_claim.state_claims[i]);
         claim.prog_claims[i] = qm31FromWire(wire_claim.program_claims[i]);
@@ -664,8 +670,13 @@ pub fn verifyArtifact(
         }
     }
     for (0..statement.n_infra) |i| {
-        for (wire_claim.memory_claims[i], 0..) |value, j| {
-            claim.memory_claims[i][j] = qm31FromWire(value);
+        const kind = statement.infra_descs[i].kind;
+        const n_sums = stwo.frontends.riscv.air.statement.nClaimedSumsForInfra(kind);
+        for (wire_claim.memory_claims[i][0..n_sums], 0..) |value, sum| {
+            try claim.setInfraClaim(kind, i, sum, qm31FromWire(value));
+        }
+        for (wire_claim.memory_claims[i][n_sums..]) |padding| {
+            if (!std.mem.eql(u32, &padding, &zero_wire)) return error.InvalidArtifact;
         }
     }
 
@@ -680,6 +691,10 @@ pub fn verifyArtifact(
         allocator,
         stream.reader(),
     );
+    if (stream.pos != proof_raw.len) {
+        proof.deinit(allocator);
+        return error.InvalidArtifact;
+    }
 
     const config = @TypeOf(stagedPcsConfig(.secure)){
         .pow_bits = artifact.pcs_config.pow_bits,
