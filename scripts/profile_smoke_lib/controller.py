@@ -28,6 +28,25 @@ try:
 except ModuleNotFoundError:
     from scripts.interop_cli_lib.command import build_command, installed_binary
 
+try:
+    from process_resources_lib import (
+        WALL_CLOCK_MEASUREMENT,
+        collector_label,
+        measurement_command,
+        measurement_environment,
+        measurement_for_platform,
+        parse_process_resources,
+    )
+except ModuleNotFoundError:
+    from scripts.process_resources_lib import (
+        WALL_CLOCK_MEASUREMENT,
+        collector_label,
+        measurement_command,
+        measurement_environment,
+        measurement_for_platform,
+        parse_process_resources,
+    )
+
 
 ROOT = Path(__file__).resolve().parents[2]
 REPORT_DEFAULT = ROOT / "vectors" / "reports" / "profile_smoke_report.json"
@@ -39,13 +58,8 @@ ARTIFACT_DIR = ROOT / "vectors" / ".profile_artifacts"
 SAMPLE_DIR = ROOT / "vectors" / ".profile_samples"
 
 RUST_TOOLCHAIN_DEFAULT = "nightly-2025-07-14"
-TIME_BIN = Path("/usr/bin/time")
 SAMPLE_BIN = Path("/usr/bin/sample")
 
-RSS_RE = re.compile(r"^\s*(\d+)\s+maximum resident set size\s*$", re.MULTILINE)
-INSTR_RE = re.compile(r"^\s*(\d+)\s+instructions retired\s*$", re.MULTILINE)
-CYCLES_RE = re.compile(r"^\s*(\d+)\s+cycles elapsed\s*$", re.MULTILINE)
-PEAK_FOOTPRINT_RE = re.compile(r"^\s*(\d+)\s+peak memory footprint\s*$", re.MULTILINE)
 HOTSPOT_LINE_RE = re.compile(r"^\s*(.+?)\s+\(in [^)]+\)\s+(\d+)\s*$")
 
 def merged_env(extra_env: Optional[Dict[str, str]]) -> Optional[Dict[str, str]]:
@@ -102,33 +116,25 @@ def runtime_cmd(runtime: str) -> List[str]:
     raise ValueError(f"unknown runtime {runtime}")
 
 
-def parse_time_metrics(stderr: str) -> Dict[str, Any]:
-    rss = RSS_RE.search(stderr)
-    instructions = INSTR_RE.search(stderr)
-    cycles = CYCLES_RE.search(stderr)
-    peak_footprint = PEAK_FOOTPRINT_RE.search(stderr)
-    return {
-        "peak_rss_kb": int(rss.group(1)) if rss else None,
-        "instructions_retired": int(instructions.group(1)) if instructions else None,
-        "cycles_elapsed": int(cycles.group(1)) if cycles else None,
-        "peak_memory_footprint_bytes": int(peak_footprint.group(1))
-        if peak_footprint
-        else None,
-    }
-
-
 def run_profiled_once(cmd: List[str], env: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     start = time.perf_counter()
-    if TIME_BIN.exists():
+    measured_cmd, measurement = measurement_command(cmd)
+    if measurement != WALL_CLOCK_MEASUREMENT:
         proc = subprocess.run(
-            [str(TIME_BIN), "-l", *cmd],
+            measured_cmd,
             cwd=ROOT,
             text=True,
             capture_output=True,
             check=True,
-            env=merged_env(env),
+            env=measurement_environment(env),
         )
-        metrics = parse_time_metrics(proc.stderr)
+        resources = parse_process_resources(proc.stderr, measurement)
+        metrics = {
+            "peak_rss_kb": resources["peak_rss_kib"],
+            "instructions_retired": resources["instructions_retired"],
+            "cycles_elapsed": resources["cycles_elapsed"],
+            "peak_memory_footprint_bytes": resources["peak_memory_footprint_bytes"],
+        }
     else:
         subprocess.run(cmd, cwd=ROOT, check=True, env=merged_env(env))
         proc = None
@@ -464,7 +470,10 @@ def main() -> int:
         settings["include_long"] = True
     settings_hash = canonical_hash(
         {
-            "collector": "time -l + sample" if SAMPLE_BIN.exists() else "time -l",
+            "collector": collector_label(
+                measurement_for_platform(),
+                sample=SAMPLE_BIN.exists(),
+            ),
             "common_config_args": COMMON_CONFIG_ARGS,
             "workloads": workloads,
             "settings": settings,
@@ -475,7 +484,10 @@ def main() -> int:
         "schema_version": 2,
         "generated_at_unix": int(time.time()),
         "status": status,
-        "collector": "time -l + sample" if SAMPLE_BIN.exists() else "time -l",
+        "collector": collector_label(
+            measurement_for_platform(),
+            sample=SAMPLE_BIN.exists(),
+        ),
         "settings_hash": settings_hash,
         "workload_matrix_hash": canonical_hash(workload_matrix(workloads)),
         "settings": settings,

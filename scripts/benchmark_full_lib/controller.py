@@ -6,8 +6,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
-import sys
 import shutil
 import subprocess
 from pathlib import Path
@@ -19,6 +17,21 @@ try:
     from interop_cli_lib.command import build_command, installed_binary
 except ModuleNotFoundError:
     from scripts.interop_cli_lib.command import build_command, installed_binary
+
+try:
+    from process_resources_lib import (
+        WALL_CLOCK_MEASUREMENT,
+        measurement_command,
+        measurement_environment,
+        parse_process_resources,
+    )
+except ModuleNotFoundError:
+    from scripts.process_resources_lib import (
+        WALL_CLOCK_MEASUREMENT,
+        measurement_command,
+        measurement_environment,
+        parse_process_resources,
+    )
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -32,8 +45,6 @@ ZIG_BIN = installed_binary(ROOT)
 RUST_TOOLCHAIN_DEFAULT = "nightly-2025-07-14"
 SUPPORTED_BENCH_PROOF_CODECS = ("json", "binary")
 FAMILY_RUNNER = ROOT / "src" / "bench" / "full_runner.zig"
-TIME_BIN = Path("/usr/bin/time")
-RSS_RE = re.compile(r"^\s*(\d+)\s+maximum resident set size\s*$", re.MULTILINE)
 
 def merged_env(extra_env: dict[str, str] | None) -> dict[str, str] | None:
     if not extra_env:
@@ -54,28 +65,22 @@ def run(cmd: list[str], env: dict[str, str] | None = None) -> subprocess.Complet
     )
 
 
-def maxrss_to_kb(raw_maxrss: int) -> int:
-    # `/usr/bin/time -l` reports max RSS in bytes on Darwin.
-    if sys.platform == "darwin":
-        return int(round(raw_maxrss / 1024.0))
-    return raw_maxrss
-
-
 def run_timed(
     cmd: list[str],
     env: dict[str, str] | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], int | None]:
-    if TIME_BIN.exists():
+    measured_cmd, measurement = measurement_command(cmd)
+    if measurement != WALL_CLOCK_MEASUREMENT:
         proc = subprocess.run(
-            [str(TIME_BIN), "-l", *cmd],
+            measured_cmd,
             cwd=ROOT,
             text=True,
             capture_output=True,
             check=False,
-            env=merged_env(env),
+            env=measurement_environment(env),
         )
-        match = RSS_RE.search(proc.stderr)
-        peak_rss_kb = maxrss_to_kb(int(match.group(1))) if match else None
+        resources = parse_process_resources(proc.stderr, measurement)
+        peak_rss_kb = resources["peak_rss_kib"]
         return proc, peak_rss_kb
     proc = run(cmd, env=env)
     return proc, None
