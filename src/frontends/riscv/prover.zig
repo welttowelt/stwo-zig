@@ -69,7 +69,7 @@ const QM31 = qm31.QM31;
 const CirclePointQM31 = circle.CirclePointQM31;
 pub const PublicData = public_data_mod.PublicData;
 
-const Hasher = blake2_merkle.Blake2sMerkleHasher;
+pub const Hasher = blake2_merkle.Blake2sMerkleHasher;
 const MerkleChannel = blake2_merkle.Blake2sMerkleChannel;
 const Channel = channel_blake2s.Blake2sChannel;
 

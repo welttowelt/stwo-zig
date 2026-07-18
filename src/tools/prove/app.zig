@@ -216,11 +216,13 @@ fn writeLine(writer: anytype, bytes: []const u8) !void {
     try writer.writeByte('\n');
 }
 
-test "stark-v adapter seam fails closed until the release gate flips" {
-    try std.testing.expectError(error.AdapterNotReleaseGated, starkv_adapter.run(
+test "stark-v adapter: staged prove is live, everything else fails closed" {
+    // Prove mode reaches real execution: a missing ELF surfaces as a file
+    // error, proving the staged path is wired rather than gated.
+    try std.testing.expectError(error.FileNotFound, starkv_adapter.run(
         std.testing.allocator,
-        "guest.elf",
-        "input.bin",
+        "definitely-missing-guest.elf",
+        null,
         .{
             .backend = .cpu,
             .protocol = .secure,
@@ -231,6 +233,34 @@ test "stark-v adapter seam fails closed until the release gate flips" {
             .proof_report_path = "proof.json",
         },
     ));
+    // Device backends and bench mode remain gated until promotion.
+    for ([_]starkv_adapter.Options{
+        .{
+            .backend = .metal_hybrid,
+            .protocol = .secure,
+            .blake2_backend = .auto,
+            .metal_runtime = .{},
+            .mode = .prove,
+            .proof_temporary = "proof.tmp",
+            .proof_report_path = "proof.json",
+        },
+        .{
+            .backend = .cpu,
+            .protocol = .secure,
+            .blake2_backend = .auto,
+            .metal_runtime = .{},
+            .mode = .{ .bench = .{ .warmups = 1, .samples = 3, .profiled = false } },
+            .proof_temporary = "proof.tmp",
+            .proof_report_path = "proof.json",
+        },
+    }) |options| {
+        try std.testing.expectError(error.AdapterNotReleaseGated, starkv_adapter.run(
+            std.testing.allocator,
+            "guest.elf",
+            null,
+            options,
+        ));
+    }
 }
 
 test "publication rolls back its proof when a competing report wins" {
