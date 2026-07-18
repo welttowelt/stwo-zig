@@ -1,0 +1,35 @@
+# Copy into .github/workflows/. On merge to main, the promotion bot appends
+# the judged result to the append-only ledger. Only this identity appends.
+name: autoresearch-promote
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "autoresearch/submissions/**"
+
+concurrency:
+  group: stwo-promote
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Refresh to the true main tip (queued promotions race the push SHA)
+        run: |
+          git fetch origin main
+          git reset --hard origin/main
+      - name: Append judged ledger row (signature-verified)
+        env:
+          JUDGE_HMAC_SECRET: ${{ secrets.JUDGE_HMAC_SECRET }}
+        run: |
+          git config user.name "stwo-perf-judge"
+          git config user.email "judge@users.noreply.github.com"
+          python3 autoresearch/bots/promote_action.py
+          git push origin main

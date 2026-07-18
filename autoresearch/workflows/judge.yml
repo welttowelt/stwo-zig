@@ -1,0 +1,75 @@
+# Copy into .github/workflows/. Judged runs execute ONLY on the designated
+# self-hosted macOS runner (label: stwo-judge) — Metal and the timing contract
+# require controlled Apple hardware; hosted runners are never judges.
+#
+# The signed verdict is published to the judge-only `judge-verdicts` branch,
+# NEVER to the searcher's PR branch (no TOCTOU window). Make this workflow a
+# required branch-protection check alongside autoresearch-validate.
+name: autoresearch-judge
+
+on:
+  pull_request:
+    types: [labeled, synchronize]
+    branches: [main]
+
+concurrency:
+  group: stwo-judge          # one judgment at a time, host-wide
+  cancel-in-progress: false
+
+jobs:
+  judge:
+    if: contains(github.event.pull_request.labels.*.name, 'submission')
+    runs-on: [self-hosted, macOS, stwo-judge]
+    timeout-minutes: 90
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Judge the submission (paired against the base)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          JUDGE_HMAC_SECRET: ${{ secrets.JUDGE_HMAC_SECRET }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python3 autoresearch/bots/judge_action.py
+      - name: Publish the signed verdict to the judge-verdicts branch
+        run: |
+          set -euo pipefail
+          git config user.name "stwo-perf-judge"
+          git config user.email "judge@users.noreply.github.com"
+          # Verdict files live outside the worktree during the branch switch.
+          STAGING=$(mktemp -d)
+          cp judge-out/*.json "$STAGING"/
+          if git fetch origin judge-verdicts; then
+            git branch -D judge-verdicts 2>/dev/null || true
+            git checkout -b judge-verdicts origin/judge-verdicts
+          else
+            git branch -D judge-verdicts 2>/dev/null || true
+            git switch --orphan judge-verdicts
+          fi
+          mkdir -p verdicts
+          cp "$STAGING"/*.json verdicts/
+          git add verdicts/
+          git diff --cached --quiet || git commit -m "Judge: signed verdict"
+          git push origin judge-verdicts
+      - name: Gate the required check on the judged outcome
+        run: |
+          python3 - <<'EOF'
+          import json, sys
+          from pathlib import Path
+          latest = max(Path("judge-out").glob("*.json"), key=lambda p: p.stat().st_mtime)
+          v = json.loads(latest.read_text())
+          gates_ok = all(g["pass"] for g in v["gates"].values())
+          # Confirmed-neutral may merge (it records a neutral ledger row and
+          # does not move the frontier); only gate failures and non-significant
+          # non-neutral results block the required check.
+          ok = gates_ok and (v["score"]["significant"] or v["score"]["neutral"])
+          label = ("promotable" if v["score"]["significant"] else "neutral") if ok else "blocked"
+          print("judged outcome:", label)
+          sys.exit(0 if ok else 1)
+          EOF

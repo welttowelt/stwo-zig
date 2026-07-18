@@ -1,0 +1,172 @@
+# stwo-perf: the autoresearch harness
+
+Implementation of the harness contract in
+[`docs/design/2026-07-17-performance-extraction-playbook.md`](../docs/design/2026-07-17-performance-extraction-playbook.md),
+Part F. One CLI governs the optimization search from workspace creation to
+submission; the judge — never the searcher — decides scores; and this git
+repository is the source of truth: promoted efforts are merged commits whose
+submission directories carry the note, claimed and judged verdicts, deltas,
+and redacted agent transcripts, with the append-only ledger deriving the
+Pareto frontier.
+
+Standalone by design: nothing in here modifies or is imported by the prover
+implementation. Python 3.11+ stdlib only; no packages to install.
+
+```text
+autoresearch/
+  MANIFEST.json        editable paths + rung map, locked paths, workload
+                       registry, gate policy — the machine-readable contract
+  README.md            this file
+  schema/              submission dir, verdict JSON, and ledger row schemas
+  ledger/              promotions.tsv (append-only) + epochs.json
+  submissions/         one directory per submission, landed by PR
+  notes/               standalone working notes (searchable via the CLI)
+  cli/                 the stwo-perf CLI (bin shim + stwo_perf package)
+  backend/             optional API-key/leaderboard service (GitHub-verified)
+  bots/                validate / judge / promote automation entrypoints
+  workflows/           GitHub Actions to copy into .github/workflows/
+  tests/               unit tests (python3 -m unittest discover -s autoresearch/tests)
+```
+
+## Quickstart (searcher)
+
+```bash
+alias stwo-perf="$PWD/autoresearch/cli/stwo-perf"
+
+stwo-perf benchmark                # the fixed suite, gates, ledger state
+stwo-perf frontier                 # promotions ledger + Pareto frontier
+stwo-perf clone ../ws-quotient     # your workspace (git worktree)
+cd ../ws-quotient && stwo-perf setup
+
+# iterate inside editable paths only (MANIFEST.json), then score paired:
+stwo-perf run --scope s3 --class small --dimension time \
+  --predecessor /path/to/promoted-head-worktree
+
+# package: schema-checked note + claimed verdict + redacted transcripts
+stwo-perf submit --slug quotient-batching \
+  --note-file note.md --verdict autoresearch/.runs/latest/verdict.json \
+  --transcripts ./transcripts --model "Claude Fable 5"
+
+# then: commit the submission dir + your diff on a branch, open a PR
+# labeled `submission`. The judge re-runs; your verdict is advisory.
+stwo-perf submissions              # pending / promoted / rejected
+stwo-perf sync                     # jump back to the promoted frontier
+stwo-perf notes add --title "tile size sweep" --note-file findings.md
+```
+
+The CLI output is fully formatted for terminals (colors honor `NO_COLOR` and
+disappear when piped).
+
+## The trust model
+
+| actor | may do | may never do |
+| --- | --- | --- |
+| searcher (human or agent) | edit `editable_paths`, run claimed evaluations, submit, write notes | touch locked paths in a submission PR, mint `kind: judged`, append the ledger |
+| judge (self-hosted runner) | paired judged runs under the host lock, comment verdicts, publish **HMAC-signed** verdicts to the `judge-verdicts` branch | edit source, edit existing ledger rows, write into the PR branch |
+| promotion bot (CI on merge) | fetch the signed verdict, verify the signature, append one outcome row | append anything unsigned; anything else |
+
+Enforced mechanically, three times: `stwo-perf submit` refuses locally;
+`bots/validate_action.py` re-checks every PR in CI (locked paths on submission
+PRs, append-only ledger byte-prefix check, note schema, transcript hashes,
+secret scan, and a forgery guard that rejects any in-tree judged-verdict
+material on every PR); and `bots/promote_action.py` refuses any verdict whose
+`JUDGE_HMAC_SECRET` signature does not verify. Governance PRs (anchor freeze,
+`epochs.json`, workflow updates, harness fixes) pass validation and are
+governed by human review instead — that is the deliberate exception.
+
+## Scoring (playbook F.1, condensed)
+
+- Both arms are **rebuilt and interleaved** (ABBA rounds) in one session —
+  frozen reports are provenance, never a denominator.
+- Ratio estimate: Hodges-Lehmann over paired round ratios; 95% bootstrap CI
+  (seeded, deterministic).
+- Promotion needs the declared-objective CI entirely below `1 − θ`, where
+  `θ = max(floor, 2 × per-class A/A dispersion)` from `ledger/epochs.json`.
+  Inside the band → confirmed-neutral: recorded, not promoted.
+- Gates G1–G5 reject rather than score; per-gate detail is diagnostic only.
+- Regression budgets are charged against the **frozen anchor**
+  (`MANIFEST.json → harness.anchor_commit`), never the predecessor.
+
+**v1 honesty notes** — recorded here so nobody mistakes scope: (1) pairing is
+at round level because the bench schema exposes medians, not raw samples;
+(2) G3 mechanism binding is declared in the note but its telemetry
+verification awaits playbook F.8 item 2 (wait/dispatch counters in the native
+report); (3) `native_mhz`/`peak_rss_mib` ledger cells are `0.0` in v1 — the
+per-dimension medians live in the verdict evidence, and wiring them into rows
+is a small follow-up; (4) judged promotion stays disabled until the anchor is
+frozen and A/A dispersion is measured (`stwo-perf run --aa`, recorded in
+`epochs.json` by reviewed PR) — exactly the playbook's own precondition;
+(5) the near-threshold winner's-curse confirmation re-run (F.1) is not yet
+automated — the judge workflow must be re-dispatched manually for CIs landing
+within theta/2 of the bar.
+
+## GitHub as the source of truth
+
+A promoted effort is, permanently and in one place:
+
+1. the **merged commit** with the editable-path diff;
+2. its **submission directory** — `note.md` (public reasoning), `verdict.json`
+   (claimed, advisory), `delta.json` (predecessor + file/transcript digests),
+   `transcripts/` (redacted sessions);
+3. the **signed judged verdict** on the `judge-verdicts` branch — the one that
+   counts, HMAC-signed by the judge runner and verified before any append;
+4. its **ledger row** (with `outcome` promoted/neutral/rejected) appended by
+   the promotion bot, from which `stwo-perf frontier` recomputes the Pareto
+   frontier and anchor drift.
+
+Reading the repo history *is* reading the research record; `sync`/`reset`
+reconstruct any promoted state. Because ledger rows and `sync` reference the
+judged PR-head commit, `main` must use **merge commits** (disable squash and
+rebase merging) so those SHAs stay reachable forever.
+
+## Installing the automation
+
+```bash
+cp autoresearch/workflows/*.yml .github/workflows/     # commit via normal review
+```
+
+- `validate.yml` — every PR; hosted runner; invariants + unit tests.
+- `judge.yml` — PRs labeled `submission`; **self-hosted macOS runner labeled
+  `stwo-judge` only** (the timing contract requires controlled Apple
+  hardware); one judgment at a time via the concurrency group + host lock.
+  Note the concurrency queue keeps only one pending run: if several PRs are
+  labeled while a judgment executes, re-trigger the skipped ones (re-label or
+  push) after it finishes.
+- `promote.yml` — on merge; verifies the signature and appends the outcome
+  row; pushes with `[skip ci]`.
+
+Branch protection expected on `main`: require `autoresearch-validate` **and**
+`autoresearch-judge` (an unlabeled PR reports the judge check as skipped,
+which satisfies it), require review, forbid force pushes, allow only merge
+commits, and add the promote workflow identity to the required-pull-request
+**bypass list** — without that exemption the bot's ledger push is rejected
+and no row ever lands. Secrets required: `JUDGE_HMAC_SECRET` (same value for
+judge and promote workflows).
+
+## Backend (optional)
+
+The repo works with no backend. Run it when you want GitHub-verified API keys
+for bots/CI and JSON leaderboard/frontier endpoints:
+
+```bash
+STWO_PERF_HMAC_SECRET=$(openssl rand -hex 32) GITHUB_CLIENT_ID=<oauth app id> \
+  python3 autoresearch/backend/server.py --repo . --port 8787
+```
+
+Endpoints: `POST /v1/keys` (GitHub bearer token → HMAC key, stateless verify,
+key-id revocation list), `POST /v1/keys/verify`, `GET /v1/leaderboard`,
+`GET /v1/frontier/<class>`, `GET /v1/client-id`, `GET /v1/health`. Binds
+127.0.0.1; front with TLS in real deployments. `stwo-perf login` uses the
+GitHub device flow; tokens live in `~/.config/stwo-perf/` with mode 600.
+
+## Activation checklist (in order)
+
+1. Freeze the anchor: set `harness.anchor_commit` + `anchor_report` in
+   `MANIFEST.json` (human-reviewed commit, after the conformance goal's
+   baseline-freeze phase).
+2. Measure A/A dispersion per class on the judge host; record in
+   `ledger/epochs.json`.
+3. Install workflows; add the `stwo-judge` self-hosted runner; protect `main`.
+4. First promotion follows the quickstart above end to end.
+
+Until 1–2 are done every verdict is claimed/advisory — by design, not by gap.

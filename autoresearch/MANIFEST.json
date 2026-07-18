@@ -1,0 +1,89 @@
+{
+  "manifest_version": 1,
+  "harness": {
+    "name": "stwo-perf",
+    "contract": "docs/design/2026-07-17-performance-extraction-playbook.md#part-f-the-autoresearch-harness",
+    "anchor_commit": null,
+    "anchor_report": null,
+    "anchor_prove_ms": { "small": null, "wide": null, "deep": null },
+    "anchor_note": "Set both fields in one human-reviewed commit when the conformance goal's baseline-freeze phase produces the frozen pre-optimization baseline. Null anchor means drift budgets cannot be evaluated and judged promotion is disabled."
+  },
+  "editable_paths": [
+    { "glob": "src/backends/cpu_scalar/**", "min_rung": "s3" },
+    { "glob": "src/backends/metal/**", "min_rung": "s3" },
+    { "glob": "src/core/fields/**", "min_rung": "s3" },
+    { "glob": "src/core/crypto/**", "min_rung": "s3" },
+    { "glob": "src/core/fri/**", "min_rung": "s3" },
+    { "glob": "src/core/pcs/**", "min_rung": "s3" },
+    { "glob": "src/prover/poly/**", "min_rung": "s3" },
+    { "glob": "src/prover/pcs/**", "min_rung": "s3" },
+    { "glob": "src/prover/vcs_lifted/**", "min_rung": "s3" },
+    { "glob": "src/prover/air/**", "min_rung": "s3" },
+    { "glob": "src/prover/fri.zig", "min_rung": "s3" },
+    { "glob": "src/prover/session.zig", "min_rung": "s4" },
+    { "glob": "src/prover/work_pool.zig", "min_rung": "s4" },
+    { "glob": "src/prover/fft_pool.zig", "min_rung": "s4" },
+    { "glob": "src/prover/resident_storage.zig", "min_rung": "s4" }
+  ],
+  "locked_paths": [
+    "autoresearch/**",
+    "scripts/**",
+    "vectors/**",
+    "docs/conformance/**",
+    "build.zig",
+    "build.zig.zon",
+    "build/**",
+    "src/bench/**",
+    "src/tests/**",
+    "src/interop/**",
+    ".github/**"
+  ],
+  "workload_registry": {
+    "note": "Command templates are data so flag drift is a manifest edit, not a code change. The runner prepends the built bench binary; {warmups}/{samples} come from gates policy; report schema is the checked-in native_proof schema v4.",
+    "build_step": "zig build native-proof-bench-cpu -Doptimize=ReleaseFast",
+    "binary": "zig-out/bin/native-proof-bench-cpu",
+    "workloads": {
+      "wf_log10x8": {
+        "class": "small",
+        "args": "--example wide_fibonacci --log-n-rows 10 --sequence-len 8 --warmups {warmups} --samples {samples} --protocol functional",
+        "native_unit": "trace rows"
+      },
+      "wf_log14x32": {
+        "class": "wide",
+        "args": "--example wide_fibonacci --log-n-rows 14 --sequence-len 32 --warmups {warmups} --samples {samples} --protocol functional",
+        "native_unit": "trace rows"
+      },
+      "plonk_log14": {
+        "class": "deep",
+        "args": "--example plonk --log-n-rows 14 --warmups {warmups} --samples {samples} --protocol functional",
+        "native_unit": "gates"
+      }
+    },
+    "holdout_generator": {
+      "note": "Judged runs draw one extra hold-out per class by jittering log_n_rows/sequence_len within class bounds; seed is recorded in the ledger row. Results publish as pass/fail only.",
+      "small": { "log_n_rows": [9, 11], "sequence_len": [4, 16] },
+      "wide": { "log_n_rows": [13, 15], "sequence_len": [16, 48] },
+      "deep": { "log_n_rows": [13, 15], "sequence_len": null }
+    }
+  },
+  "gates_policy": {
+    "ci_level": 0.95,
+    "theta_floor": 0.01,
+    "dispersion_multiplier": 2.0,
+    "targeted_class_budget": 1.02,
+    "matrix_row_budget": 1.05,
+    "warmups": 10,
+    "samples_per_round": 3,
+    "min_rounds": 7,
+    "max_rounds": 15,
+    "wall_clock_cap_seconds": { "small": 240, "wide": 600, "deep": 600 },
+    "neutral_band_note": "Promotion requires the declared-objective CI entirely below 1 - theta, where theta = max(theta_floor, dispersion_multiplier x per-class A/A dispersion recorded in the ledger epoch)."
+  },
+  "scopes": {
+    "s1": "kernel/function microbench (counters primary; wall time secondary)",
+    "s2": "stage subtree via stage profiles (diagnostic only)",
+    "s3": "complete proof transaction; acceptance floor for every submission",
+    "s4": "process lifecycle: cold vs warm, sessions, pools, caches",
+    "s5": "sustained queue (gates not yet green; s4 substitutes until then)"
+  }
+}

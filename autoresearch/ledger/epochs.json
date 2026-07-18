@@ -1,0 +1,16 @@
+{
+  "epochs": [
+    {
+      "epoch": 1,
+      "opened_utc": "2026-07-18T00:00:00Z",
+      "reason": "initial harness installation",
+      "harness_commit": null,
+      "aa_dispersion": {
+        "note": "Per-class A/A paired-ratio CI half-widths, measured by `stwo-perf run --aa` on the designated judge host and recorded here by the judge. Null means theta falls back to the manifest floor and judged promotion is disabled until measured.",
+        "small": null,
+        "wide": null,
+        "deep": null
+      }
+    }
+  ]
+}
