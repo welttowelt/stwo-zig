@@ -110,9 +110,16 @@ test "riscv prover: end-to-end ELF prove and verify" {
         },
     };
 
-    const statement = try riscv_cpu.proveAndVerifyElf(alloc, &elf_buf, 1000, config);
+    var owned_statement = try riscv_cpu.proveAndVerifyElf(alloc, &elf_buf, 1000, config);
+    defer owned_statement.deinit(alloc);
+    const statement = owned_statement.statement;
     try std.testing.expect(statement.n_components > 1);
     try std.testing.expectEqual(@as(u32, 4), statement.public_data.io_entries.output_len);
+    try std.testing.expect(statement.public_data.io_entries.output_words.len >= 2);
+    try std.testing.expectEqual(
+        @as(u32, 42),
+        statement.public_data.io_entries.output_words[1].value,
+    );
 }
 
 test "riscv prover: prove and verify synthetic trace" {

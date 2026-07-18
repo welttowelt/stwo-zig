@@ -93,6 +93,7 @@ pub const ElfRun = struct {
     protocol: Protocol,
     blake2_backend: Blake2Backend,
     metal_runtime: MetalRuntime,
+    experimental: bool,
 };
 
 pub const ProveElf = struct {
@@ -113,6 +114,7 @@ pub const BenchElf = struct {
 pub const Verify = struct {
     artifact: []const u8,
     protocol: Protocol,
+    expected_statement_digest: ?[32]u8,
 };
 
 pub const Parsed = union(enum) {
@@ -162,6 +164,8 @@ const Flag = enum {
     elf,
     input,
     profiled,
+    experimental,
+    expect_statement_digest,
     count,
 };
 
@@ -195,6 +199,8 @@ const Scratch = struct {
     elf: ?[]const u8 = null,
     input: ?[]const u8 = null,
     profiled: bool = false,
+    experimental: bool = false,
+    expected_statement_digest: ?[32]u8 = null,
 
     fn mark(self: *Scratch, flag: Flag) !void {
         const index = @intFromEnum(flag);
@@ -228,8 +234,9 @@ pub fn parse(argv: []const []const u8) !Parsed {
         const flag = parseFlag(name) orelse return error.UnknownArgument;
         try scratch.mark(flag);
         index += 1;
-        if (flag == .profiled) {
-            scratch.profiled = true;
+        if (flag == .profiled or flag == .experimental) {
+            if (flag == .profiled) scratch.profiled = true;
+            if (flag == .experimental) scratch.experimental = true;
             continue;
         }
         if (index == argv.len) return error.MissingArgumentValue;
@@ -268,6 +275,7 @@ pub fn parse(argv: []const []const u8) !Parsed {
         .verify => .{ .verify = .{
             .artifact = try requiredPath(scratch.artifact, error.MissingArtifact),
             .protocol = scratch.protocol,
+            .expected_statement_digest = scratch.expected_statement_digest,
         } },
         .applications => unreachable,
     };
@@ -276,6 +284,7 @@ pub fn parse(argv: []const []const u8) !Parsed {
 fn rejectElfConflicts(scratch: Scratch) !void {
     if (!scratch.has(.elf)) {
         if (scratch.has(.input)) return error.InputRequiresElf;
+        if (scratch.has(.experimental)) return error.ExperimentalRequiresElf;
         return;
     }
     if (scratch.has(.air)) return error.ElfExcludesAir;
@@ -312,7 +321,8 @@ fn assign(scratch: *Scratch, flag: Flag, value: []const u8) !void {
         .metal_aot_manifest_sha256 => scratch.metal_runtime.manifest_sha256 = try parseSha256(value),
         .elf => scratch.elf = value,
         .input => scratch.input = value,
-        .profiled => unreachable,
+        .expect_statement_digest => scratch.expected_statement_digest = try parseSha256(value),
+        .profiled, .experimental => unreachable,
         .count => unreachable,
     }
 }
@@ -339,6 +349,7 @@ fn makeElfRun(scratch: Scratch) !ElfRun {
         .protocol = scratch.protocol,
         .blake2_backend = scratch.blake2_backend,
         .metal_runtime = scratch.metal_runtime,
+        .experimental = scratch.experimental,
     };
 }
 
@@ -463,11 +474,11 @@ fn rejectIrrelevant(command: Command, scratch: Scratch) !void {
         if (!scratch.seen[index]) continue;
         const flag: Flag = @enumFromInt(index);
         const allowed = switch (command) {
-            .prove => isRunFlag(flag) or contains(&.{ .output, .report_out, .elf, .input }, flag),
+            .prove => isRunFlag(flag) or contains(&.{ .output, .report_out, .elf, .input, .experimental }, flag),
             .bench => isRunFlag(flag) or contains(&.{
-                .report_out, .proof_out, .warmups, .samples, .profiled, .elf, .input,
+                .report_out, .proof_out, .warmups, .samples, .profiled, .elf, .input, .experimental,
             }, flag),
-            .verify => flag == .artifact or flag == .protocol,
+            .verify => contains(&.{ .artifact, .protocol, .expect_statement_digest }, flag),
             .applications => false,
         };
         if (!allowed) return error.IrrelevantArgument;
@@ -523,6 +534,8 @@ fn parseFlag(value: []const u8) ?Flag {
         .{ "--elf", Flag.elf },
         .{ "--input", Flag.input },
         .{ "--profiled", Flag.profiled },
+        .{ "--experimental", Flag.experimental },
+        .{ "--expect-statement-digest", Flag.expect_statement_digest },
     };
     inline for (entries) |entry| if (std.mem.eql(u8, value, entry[0])) return entry[1];
     return null;
@@ -595,6 +608,7 @@ pub fn writeUsage(writer: anytype, command: ?Command) !void {
             \\  --report-out PATH  Write the machine-readable proving report
             \\  --elf PATH         Prove a Stark-V RV32IM guest ELF instead of --air
             \\  --input PATH       Guest input bytes (requires --elf)
+            \\  --experimental     Admit the staged Stark-V adapter before its release gate
         ),
         .bench => try writer.writeAll(
             \\Usage: stwo-zig bench --air NAME --backend NAME [run options] [benchmark options]
@@ -608,9 +622,11 @@ pub fn writeUsage(writer: anytype, command: ?Command) !void {
             \\  --profiled        Enable diagnostic stage instrumentation
             \\  --elf PATH         Benchmark a Stark-V RV32IM guest ELF instead of --air
             \\  --input PATH       Guest input bytes (requires --elf)
+            \\  --experimental     Admit the staged Stark-V adapter before its release gate
         ),
         .verify => return writer.writeAll(
             \\Usage: stwo-zig verify --artifact PATH [--protocol secure|functional|smoke]
+            \\       [--expect-statement-digest SHA256]
             \\
         ),
         .applications => return writer.writeAll(
@@ -713,6 +729,11 @@ test "bounds paths verification and help fail closed" {
     try std.testing.expectError(error.InvalidPath, parse(&.{ "verify", "--artifact", "" }));
     const verify = (try parse(&.{ "verify", "--artifact", "proof.json" })).verify;
     try std.testing.expectEqual(Protocol.secure, verify.protocol);
+    try std.testing.expect(verify.expected_statement_digest == null);
+    const bound = (try parse(&.{
+        "verify", "--artifact", "proof.json", "--expect-statement-digest", "ab" ** 32,
+    })).verify;
+    try std.testing.expectEqualSlices(u8, &([_]u8{0xab} ** 32), &bound.expected_statement_digest.?);
     try std.testing.expectError(error.InvalidSampleCount, parse(&.{
         "bench", "--air", "plonk", "--backend", "cpu", "--samples", "0",
     }));
@@ -731,13 +752,14 @@ test "bounds paths verification and help fail closed" {
 test "elf runs parse guest inputs and stay mutually exclusive with air" {
     const result = (try parse(&.{
         "prove",    "--elf",      "guest.elf", "--backend", "cpu",
-        "--output", "proof.json", "--input",   "input.bin",
+        "--output", "proof.json", "--input",   "input.bin", "--experimental",
     })).prove_elf;
     try std.testing.expectEqual(Backend.cpu, result.run.backend);
     try std.testing.expectEqual(Protocol.secure, result.run.protocol);
     try std.testing.expectEqualStrings("guest.elf", result.run.elf_path);
     try std.testing.expectEqualStrings("input.bin", result.run.input_path.?);
     try std.testing.expectEqualStrings("proof.json", result.output);
+    try std.testing.expect(result.run.experimental);
 
     try std.testing.expectError(error.ElfExcludesAir, parse(&.{
         "prove",     "--elf", "guest.elf", "--air",      "plonk",
@@ -746,6 +768,12 @@ test "elf runs parse guest inputs and stay mutually exclusive with air" {
     try std.testing.expectError(error.InputRequiresElf, parse(&.{
         "prove",   "--air",     "plonk", "--backend", "cpu", "--output", "proof.json",
         "--input", "input.bin",
+    }));
+    try std.testing.expectError(error.ExperimentalRequiresElf, parse(&.{
+        "prove", "--air", "plonk", "--backend", "cpu", "--output", "proof.json", "--experimental",
+    }));
+    try std.testing.expectError(error.IrrelevantArgument, parse(&.{
+        "verify", "--artifact", "proof.json", "--experimental",
     }));
     try std.testing.expectError(error.MissingBackend, parse(&.{
         "prove", "--elf", "guest.elf", "--output", "proof.json",

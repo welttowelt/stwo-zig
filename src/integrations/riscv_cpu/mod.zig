@@ -90,7 +90,7 @@ pub fn proveAndVerifyElf(
     elf_bytes: []const u8,
     max_steps: usize,
     pcs_config: pcs_core.PcsConfig,
-) !prover_mod.RiscVStatement {
+) !prover_mod.OwnedRiscVStatement {
     return prover_mod.proveAndVerifyElfWithEngine(
         CpuProverEngine,
         allocator,

@@ -25,6 +25,8 @@ pub const Qm31Wire = [4]u32;
 pub const MemoryClaimsWire = [4]Qm31Wire;
 pub const OpcodeMemoryClaimsWire = [3]Qm31Wire;
 
+pub const SecurityPolicy = enum { secure, functional, smoke };
+
 pub const FriConfigWire = struct {
     log_blowup_factor: u32,
     log_last_layer_degree_bound: u32,
@@ -155,6 +157,77 @@ pub fn validatePath(allocator: std.mem.Allocator, path: []const u8) !void {
     var parsed = try readArtifact(allocator, path);
     defer parsed.deinit();
     try validate(parsed.value);
+}
+
+/// Validates both the artifact's claimed profile and the verifier's requested
+/// minimum security policy. A functional artifact must not pass a default
+/// secure verification merely because it self-identifies as functional.
+pub fn validateForPolicy(artifact: Artifact, policy: SecurityPolicy) !void {
+    try validate(artifact);
+    try validatePcsConfig(@tagName(policy), artifact.pcs_config);
+}
+
+/// Canonical binary digest of the externally asserted execution statement.
+/// Every integer is encoded little-endian in declaration order; sequence
+/// lengths precede their elements and optional roots include a presence word.
+pub fn statementDigest(statement: StatementWire) [32]u8 {
+    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    const mix = struct {
+        fn word(h: *std.crypto.hash.sha2.Sha256, value: u32) void {
+            var encoded: [4]u8 = undefined;
+            std.mem.writeInt(u32, &encoded, value, .little);
+            h.update(&encoded);
+        }
+
+        fn optional(h: *std.crypto.hash.sha2.Sha256, value: ?u32) void {
+            word(h, @intFromBool(value != null));
+            word(h, value orelse 0);
+        }
+    };
+
+    mix.word(&hasher, statement.initial_pc);
+    mix.word(&hasher, statement.final_pc);
+    mix.word(&hasher, statement.total_steps);
+    mix.word(&hasher, @intCast(statement.components.len));
+    for (statement.components) |component| {
+        mix.word(&hasher, component.family);
+        mix.word(&hasher, component.log_size);
+        mix.word(&hasher, component.n_rows);
+        mix.word(&hasher, component.n_columns);
+    }
+    mix.word(&hasher, @intCast(statement.infrastructure.len));
+    for (statement.infrastructure) |component| {
+        mix.word(&hasher, component.kind);
+        mix.word(&hasher, component.log_size);
+        mix.word(&hasher, component.n_rows);
+        mix.word(&hasher, component.n_columns);
+    }
+
+    const public = statement.public_data;
+    mix.word(&hasher, public.initial_pc);
+    mix.word(&hasher, public.final_pc);
+    mix.word(&hasher, public.clock);
+    for (public.initial_regs) |value| mix.word(&hasher, value);
+    for (public.final_regs) |value| mix.word(&hasher, value);
+    for (public.reg_last_clock) |value| mix.word(&hasher, value);
+    mix.optional(&hasher, public.program_root);
+    mix.optional(&hasher, public.initial_rw_root);
+    mix.optional(&hasher, public.final_rw_root);
+    mix.word(&hasher, public.input_start);
+    mix.word(&hasher, public.input_len);
+    mix.word(&hasher, @intCast(public.input_words.len));
+    for (public.input_words) |value| mix.word(&hasher, value);
+    mix.word(&hasher, public.output_len);
+    mix.word(&hasher, public.output_len_addr);
+    mix.word(&hasher, public.output_data_addr);
+    mix.word(&hasher, @intCast(public.output_words.len));
+    for (public.output_words) |word| {
+        mix.word(&hasher, word.addr);
+        mix.word(&hasher, word.value);
+        mix.word(&hasher, word.clock);
+    }
+
+    return hasher.finalResult();
 }
 
 pub fn writeArtifact(
@@ -415,6 +488,35 @@ test "RISC-V artifact rejects statement and interaction ambiguity" {
     artifact = fixture();
     artifact.pcs_config.pow_bits = 9;
     try std.testing.expectError(error.InsufficientSecurityPolicy, validate(artifact));
+}
+
+test "RISC-V artifact enforces the verifier requested security policy" {
+    const functional = fixture();
+    try validateForPolicy(functional, .functional);
+    try validateForPolicy(functional, .smoke);
+    try std.testing.expectError(
+        error.InsufficientSecurityPolicy,
+        validateForPolicy(functional, .secure),
+    );
+
+    var secure = fixture();
+    secure.protocol = "secure";
+    secure.pcs_config.pow_bits = 26;
+    secure.pcs_config.fri_config.n_queries = 70;
+    try validateForPolicy(secure, .secure);
+}
+
+test "RISC-V statement digest binds public data and component geometry" {
+    var artifact = fixture();
+    const expected = statementDigest(artifact.statement);
+    artifact.statement.public_data.final_regs[7] = 9;
+    try std.testing.expect(!std.mem.eql(u8, &expected, &statementDigest(artifact.statement)));
+
+    artifact = fixture();
+    var components = [_]ComponentWire{artifact.statement.components[0]};
+    components[0].n_columns += 1;
+    artifact.statement.components = &components;
+    try std.testing.expect(!std.mem.eql(u8, &expected, &statementDigest(artifact.statement)));
 }
 
 test "RISC-V artifact publication is exclusive and format detection is exact" {

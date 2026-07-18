@@ -90,6 +90,7 @@ const MAX_MEMORY_SHARD_ROWS: usize = @as(usize, 1) << MAX_MEMORY_SHARD_LOG_SIZE;
 
 pub const Proof = core_proof.StarkProof(Hasher);
 pub const ExtendedProof = core_proof.ExtendedStarkProof(Hasher);
+pub const OwnedRiscVStatement = @import("owned_statement.zig").OwnedRiscVStatement;
 
 pub const ProveOutput = struct {
     statement: RiscVStatement,
@@ -1605,23 +1606,21 @@ pub fn verifyRiscVWithEngine(
 }
 
 /// Run a RISC-V ELF, prove execution, and verify the proof.
-/// Note: verification takes ownership of the proof. The returned statement
-/// can be inspected, but the proof field should not be accessed after this
-/// call.
+/// Verification consumes the proof; the returned public-I/O slices are owned.
 pub fn proveAndVerifyElfWithEngine(
     comptime Engine: type,
     allocator: std.mem.Allocator,
     elf_bytes: []const u8,
     max_steps: usize,
     pcs_config: pcs_core.PcsConfig,
-) !RiscVStatement {
+) !OwnedRiscVStatement {
     var run_result = try runner_mod.run(allocator, elf_bytes, max_steps);
     defer run_result.deinit();
 
     const input_words = try public_data_mod.packInputWords(allocator, run_result.input);
-    defer allocator.free(input_words);
+    errdefer allocator.free(input_words);
     const output_words = try allocator.alloc(public_data_mod.OutputWord, run_result.output_words.len);
-    defer allocator.free(output_words);
+    errdefer allocator.free(output_words);
     for (run_result.output_words, 0..) |word, i| output_words[i] = .{
         .addr = word.addr,
         .value = word.value,
@@ -1668,5 +1667,5 @@ pub fn proveAndVerifyElfWithEngine(
         output.interaction_claim,
     );
 
-    return output.statement;
+    return OwnedRiscVStatement.init(output.statement, input_words, output_words);
 }

@@ -69,6 +69,7 @@ fn runElf(
         .blake2_backend = run.blake2_backend,
         .metal_runtime = run.metal_runtime,
         .mode = mode,
+        .experimental = run.experimental,
         .proof_temporary = proof_temporary,
         .proof_report_path = proof_output,
     }) catch |err| switch (err) {
@@ -162,8 +163,12 @@ fn publishReport(
 
 fn verifyArtifact(allocator: std.mem.Allocator, request: cli.Verify) !void {
     if (try stwo.interop.riscv_artifact.isRiscVArtifactPath(allocator, request.artifact)) {
-        return starkv_adapter.verifyArtifact(allocator, request.artifact);
+        const expected = request.expected_statement_digest orelse
+            return error.MissingExpectedStatementDigest;
+        return starkv_adapter.verifyArtifact(allocator, request.artifact, request.protocol, expected);
     }
+    if (request.expected_statement_digest != null)
+        return error.ExpectedStatementDigestRequiresRiscVArtifact;
     const verified = try artifact_verifier.verifyPath(
         allocator,
         request.artifact,
@@ -216,7 +221,7 @@ fn writeLine(writer: anytype, bytes: []const u8) !void {
     try writer.writeByte('\n');
 }
 
-test "stark-v adapter: staged prove is live, everything else fails closed" {
+test "stark-v adapter: staged CPU path is live while device backends fail closed" {
     // Prove mode reaches real execution: a missing ELF surfaces as a file
     // error, proving the staged path is wired rather than gated.
     try std.testing.expectError(error.FileNotFound, starkv_adapter.run(
@@ -229,38 +234,27 @@ test "stark-v adapter: staged prove is live, everything else fails closed" {
             .blake2_backend = .auto,
             .metal_runtime = .{},
             .mode = .prove,
+            .experimental = !registry.RISCV_ADAPTER_RELEASE_GATED,
             .proof_temporary = "proof.tmp",
             .proof_report_path = "proof.json",
         },
     ));
-    // Device backends and bench mode remain gated until promotion.
-    for ([_]starkv_adapter.Options{
+    // Device backends remain gated until a device-native RISC-V engine lands.
+    try std.testing.expectError(error.AdapterNotReleaseGated, starkv_adapter.run(
+        std.testing.allocator,
+        "guest.elf",
+        null,
         .{
             .backend = .metal_hybrid,
             .protocol = .secure,
             .blake2_backend = .auto,
             .metal_runtime = .{},
             .mode = .prove,
+            .experimental = !registry.RISCV_ADAPTER_RELEASE_GATED,
             .proof_temporary = "proof.tmp",
             .proof_report_path = "proof.json",
         },
-        .{
-            .backend = .cpu,
-            .protocol = .secure,
-            .blake2_backend = .auto,
-            .metal_runtime = .{},
-            .mode = .{ .bench = .{ .warmups = 1, .samples = 3, .profiled = false } },
-            .proof_temporary = "proof.tmp",
-            .proof_report_path = "proof.json",
-        },
-    }) |options| {
-        try std.testing.expectError(error.AdapterNotReleaseGated, starkv_adapter.run(
-            std.testing.allocator,
-            "guest.elf",
-            null,
-            options,
-        ));
-    }
+    ));
 }
 
 test "publication rolls back its proof when a competing report wins" {
