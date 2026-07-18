@@ -30,6 +30,7 @@ const prover_twiddles = @import("../../../prover/poly/twiddles.zig");
 const interaction = @import("interaction.zig");
 const interaction_gen = @import("interaction_gen.zig");
 const logup = @import("logup.zig");
+const semantics = @import("semantics/mod.zig");
 const trace_mod = @import("../runner/trace.zig");
 
 const M31 = m31.M31;
@@ -98,7 +99,11 @@ pub const RiscVTraceComponent = struct {
 
     pub fn nConstraints(self: *const @This()) usize {
         return switch (self.kind) {
-            .opcode => 2,
+            .opcode => 2 + switch (self.desc.family) {
+                .base_alu_reg => semantics.base_alu_reg.N_CONSTRAINTS,
+                .base_alu_imm => semantics.base_alu_imm.N_CONSTRAINTS,
+                else => 0,
+            },
             .program => 2,
             .silent => 1,
         };
@@ -190,6 +195,20 @@ pub const RiscVTraceComponent = struct {
         return QM31.fromPartialEvals(coords);
     }
 
+    fn sampledMainRow(
+        comptime n: usize,
+        main: [][]QM31,
+        offset: usize,
+    ) ![n]QM31 {
+        if (main.len < offset + n) return error.InvalidProofShape;
+        var row: [n]QM31 = undefined;
+        for (&row, main[offset .. offset + n]) |*value, column| {
+            if (column.len < 1) return error.InvalidProofShape;
+            value.* = column[0];
+        }
+        return row;
+    }
+
     pub fn evaluateConstraintQuotientsAtPoint(
         self: *const @This(),
         point: CirclePointQM31,
@@ -256,6 +275,33 @@ pub const RiscVTraceComponent = struct {
                     logup.pairConstraint(s_prog, s_prog_prev, is_first, self.prog_claim, prog_pair)
                         .mul(denominator_inv),
                 );
+                switch (self.desc.family) {
+                    .base_alu_reg => {
+                        const sampled = try sampledMainRow(
+                            semantics.base_alu_reg.N_MAIN_COLUMNS,
+                            main,
+                            self.main_col_offset,
+                        );
+                        const row = try semantics.base_alu_reg.Row.fromMainColumns(&sampled);
+                        const constraints = semantics.base_alu_reg.evaluate(row, is_active);
+                        for (constraints.values) |constraint| {
+                            evaluation_accumulator.accumulate(constraint.mul(denominator_inv));
+                        }
+                    },
+                    .base_alu_imm => {
+                        const sampled = try sampledMainRow(
+                            semantics.base_alu_imm.N_MAIN_COLUMNS,
+                            main,
+                            self.main_col_offset,
+                        );
+                        const row = try semantics.base_alu_imm.Row.fromMainColumns(&sampled);
+                        const constraints = semantics.base_alu_imm.evaluate(row, is_active);
+                        for (constraints.values) |constraint| {
+                            evaluation_accumulator.accumulate(constraint.mul(denominator_inv));
+                        }
+                    },
+                    else => {},
+                }
             },
             .program => {
                 const main_o = self.main_col_offset;
@@ -314,8 +360,16 @@ pub const RiscVTraceComponent = struct {
 
         // Source order is selectors, relation inputs from the pre-challenge
         // main tree, cumulative interaction columns, then shifted S columns.
+        const has_direct_semantics = self.kind == .opcode and switch (self.desc.family) {
+            .base_alu_reg, .base_alu_imm => true,
+            else => false,
+        };
+        const opcode_main_sources: usize = if (has_direct_semantics)
+            self.desc.n_columns
+        else
+            5;
         const n_sources: usize = switch (self.kind) {
-            .opcode => 2 + 2 + 3 + n_inter + 8,
+            .opcode => 2 + opcode_main_sources + n_inter + 8,
             .program => 2 + 7 + n_inter + 4,
             .silent => unreachable,
         };
@@ -343,21 +397,28 @@ pub const RiscVTraceComponent = struct {
         // Committed polynomials: deterministic selectors, relation inputs
         // from main, and cumulative columns from interaction.
         {
-            var polys_buf: [17]prover_component.Poly = undefined;
+            var polys_buf: [96]prover_component.Poly = undefined;
             var n_polys: usize = 0;
             polys_buf[n_polys] = pp[self.is_first_col_idx];
             n_polys += 1;
             polys_buf[n_polys] = pp[self.is_active_col_idx];
             n_polys += 1;
             if (self.kind == .opcode) {
-                polys_buf[n_polys] = main[self.main_col_offset + 0]; // clk
-                n_polys += 1;
-                polys_buf[n_polys] = main[self.main_col_offset + 1]; // pc
-                n_polys += 1;
-                const bus = self.main_col_offset + self.desc.n_columns - 3;
-                for (0..3) |i| {
-                    polys_buf[n_polys] = main[bus + i];
+                if (has_direct_semantics) {
+                    for (0..self.desc.n_columns) |i| {
+                        polys_buf[n_polys] = main[self.main_col_offset + i];
+                        n_polys += 1;
+                    }
+                } else {
+                    polys_buf[n_polys] = main[self.main_col_offset + 0]; // clk
                     n_polys += 1;
+                    polys_buf[n_polys] = main[self.main_col_offset + 1]; // pc
+                    n_polys += 1;
+                    const bus = self.main_col_offset + self.desc.n_columns - 3;
+                    for (0..3) |i| {
+                        polys_buf[n_polys] = main[bus + i];
+                        n_polys += 1;
+                    }
                 }
             } else {
                 for (0..7) |i| {
@@ -459,15 +520,22 @@ pub const RiscVTraceComponent = struct {
             var row_evaluation: QM31 = undefined;
             switch (self.kind) {
                 .opcode => {
-                    const clk = QM31.fromBase(evaluations[2][row]);
-                    const pc = QM31.fromBase(evaluations[3][row]);
-                    const next_pc = QM31.fromBase(evaluations[4][row]);
-                    const inst_lo = QM31.fromBase(evaluations[5][row]);
-                    const inst_hi = QM31.fromBase(evaluations[6][row]);
-                    const s_state = secureAt(evaluations[7..11], row);
-                    const s_prog = secureAt(evaluations[11..15], row);
-                    const s_state_prev = secureAt(evaluations[15..19], row);
-                    const s_prog_prev = secureAt(evaluations[19..23], row);
+                    const main_start: usize = 2;
+                    const inter_start = main_start + opcode_main_sources;
+                    const prev_start = inter_start + n_inter;
+                    const clk = QM31.fromBase(evaluations[main_start][row]);
+                    const pc = QM31.fromBase(evaluations[main_start + 1][row]);
+                    const bus = if (has_direct_semantics)
+                        main_start + self.desc.n_columns - 3
+                    else
+                        main_start + 2;
+                    const next_pc = QM31.fromBase(evaluations[bus][row]);
+                    const inst_lo = QM31.fromBase(evaluations[bus + 1][row]);
+                    const inst_hi = QM31.fromBase(evaluations[bus + 2][row]);
+                    const s_state = secureAt(evaluations[inter_start .. inter_start + 4], row);
+                    const s_prog = secureAt(evaluations[inter_start + 4 .. inter_start + 8], row);
+                    const s_state_prev = secureAt(evaluations[prev_start .. prev_start + 4], row);
+                    const s_prog_prev = secureAt(evaluations[prev_start + 4 .. prev_start + 8], row);
 
                     const c_state = logup.pairConstraint(
                         s_state,
@@ -483,8 +551,35 @@ pub const RiscVTraceComponent = struct {
                         self.prog_claim,
                         logup.programConsume(self.lookup, pc, inst_lo, inst_hi, is_active),
                     );
-                    row_evaluation = column_accumulator.random_coeff_powers[1].mul(c_state)
-                        .add(column_accumulator.random_coeff_powers[0].mul(c_prog));
+                    const powers = column_accumulator.random_coeff_powers;
+                    row_evaluation = powers[powers.len - 1].mul(c_state)
+                        .add(powers[powers.len - 2].mul(c_prog));
+                    if (self.desc.family == .base_alu_reg) {
+                        var sampled: [semantics.base_alu_reg.N_MAIN_COLUMNS]QM31 = undefined;
+                        for (&sampled, 0..) |*value, column| {
+                            value.* = QM31.fromBase(evaluations[main_start + column][row]);
+                        }
+                        const semantic_row = try semantics.base_alu_reg.Row.fromMainColumns(&sampled);
+                        const constraints = semantics.base_alu_reg.evaluate(semantic_row, is_active);
+                        for (constraints.values, 0..) |constraint, index| {
+                            row_evaluation = row_evaluation.add(
+                                powers[powers.len - 3 - index].mul(constraint),
+                            );
+                        }
+                    }
+                    if (self.desc.family == .base_alu_imm) {
+                        var sampled: [semantics.base_alu_imm.N_MAIN_COLUMNS]QM31 = undefined;
+                        for (&sampled, 0..) |*value, column| {
+                            value.* = QM31.fromBase(evaluations[main_start + column][row]);
+                        }
+                        const semantic_row = try semantics.base_alu_imm.Row.fromMainColumns(&sampled);
+                        const constraints = semantics.base_alu_imm.evaluate(semantic_row, is_active);
+                        for (constraints.values, 0..) |constraint, index| {
+                            row_evaluation = row_evaluation.add(
+                                powers[powers.len - 3 - index].mul(constraint),
+                            );
+                        }
+                    }
                 },
                 .program => {
                     const enabler = QM31.fromBase(evaluations[2][row]);

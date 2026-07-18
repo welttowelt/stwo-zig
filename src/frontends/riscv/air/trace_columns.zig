@@ -72,9 +72,9 @@ pub const BaseAluImmColumns = struct {
     is_xori: M31,
     is_ori: M31,
     is_andi: M31,
-    imm: M31,
-    imm_sign: M31,
-    enabler: M31,
+    imm_0: M31,
+    imm_1: M31,
+    imm_msb: M31,
     // rd access (10)
     rd_addr: M31,
     rd_prev_0: M31,

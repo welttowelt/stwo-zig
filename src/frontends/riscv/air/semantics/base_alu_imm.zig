@@ -1,11 +1,7 @@
 //! Exact direct semantics for the base ALU immediate family.
 //!
-//! The current main trace commits one signed `imm` field. That is not
-//! enough for a sound byte-carry ADDI constraint in M31: word-level equations
-//! admit aliases separated by the field modulus. The pinned Stark-V AIR uses
-//! `imm_0` and `imm_1` alongside the sign bit. This module makes those missing
-//! witnesses explicit so integration cannot silently accept the incomplete
-//! current layout.
+//! The committed trace carries Stark-V's exact 12-bit decomposition so byte
+//! carries cannot alias through the M31 modulus.
 
 const std = @import("std");
 const QM31 = @import("../../../../core/fields/qm31.zig").QM31;
@@ -14,17 +10,7 @@ const common = @import("common.zig");
 /// Full 29-column family trace followed by the three current instruction-bus
 /// columns `(next_pc, inst_lo, inst_hi)`.
 pub const N_MAIN_COLUMNS: usize = 32;
-pub const N_CONSTRAINTS: usize = 14;
-
-/// Required additions to the committed base-ALU-immediate trace. `imm_0`
-/// must be range checked to 8 bits and `imm_1` to 3 bits. Carries remain
-/// derived expressions and do not require committed columns.
-pub const ImmediateWitness = struct {
-    imm_0: QM31,
-    imm_1: QM31,
-};
-
-pub const missing_current_main_columns = [_][]const u8{ "imm_0", "imm_1" };
+pub const N_CONSTRAINTS: usize = 11;
 
 pub const Row = struct {
     clk: QM31,
@@ -33,9 +19,9 @@ pub const Row = struct {
     is_xori: QM31,
     is_ori: QM31,
     is_andi: QM31,
-    signed_imm: QM31,
-    imm_sign: QM31,
-    enabler: QM31,
+    imm_0: QM31,
+    imm_1: QM31,
+    imm_msb: QM31,
     rd: common.Access,
     rs1: common.Access,
     next_pc: QM31,
@@ -51,9 +37,9 @@ pub const Row = struct {
             .is_xori = columns[3],
             .is_ori = columns[4],
             .is_andi = columns[5],
-            .signed_imm = columns[6],
-            .imm_sign = columns[7],
-            .enabler = columns[8],
+            .imm_0 = columns[6],
+            .imm_1 = columns[7],
+            .imm_msb = columns[8],
             .rd = .{
                 .addr = columns[9],
                 .previous = columns[10..14].*,
@@ -79,28 +65,22 @@ pub const Row = struct {
 
 pub const Constraints = common.ConstraintSet(N_CONSTRAINTS);
 
-fn immediateLimbs(witness: ImmediateWitness, sign: QM31) [4]QM31 {
+fn immediateLimbs(row: Row) [4]QM31 {
     // Sign extension of `[imm_0:8, imm_1:3, sign:1]` to four bytes.
-    const limb_1 = witness.imm_1.add(sign.mul(common.q(248)));
-    const fill = sign.mul(common.q(255));
-    return .{ witness.imm_0, limb_1, fill, fill };
+    const limb_1 = row.imm_1.add(row.imm_msb.mul(common.q(248)));
+    const fill = row.imm_msb.mul(common.q(255));
+    return .{ row.imm_0, limb_1, fill, fill };
 }
 
-pub fn unsignedImmediate(witness: ImmediateWitness, sign: QM31) QM31 {
-    return witness.imm_0
-        .add(witness.imm_1.mul(common.q(1 << 8)))
-        .add(sign.mul(common.q(1 << 11)));
+pub fn unsignedImmediate(row: Row) QM31 {
+    return row.imm_0
+        .add(row.imm_1.mul(common.q(1 << 8)))
+        .add(row.imm_msb.mul(common.q(1 << 11)));
 }
 
-pub fn signedImmediate(witness: ImmediateWitness, sign: QM31) QM31 {
-    return witness.imm_0
-        .add(witness.imm_1.mul(common.q(1 << 8)))
-        .sub(sign.mul(common.q(1 << 11)));
-}
-
-/// Exact direct constraints, conditional on the documented range lookups for
-/// `ImmediateWitness` and all register byte limbs.
-pub fn evaluate(row: Row, witness: ImmediateWitness, is_active: QM31) Constraints {
+/// Exact direct constraints, conditional on the documented immediate and
+/// register-limb range lookups.
+pub fn evaluate(row: Row, is_active: QM31) Constraints {
     var out: [N_CONSTRAINTS]QM31 = undefined;
     var i: usize = 0;
 
@@ -109,20 +89,14 @@ pub fn evaluate(row: Row, witness: ImmediateWitness, is_active: QM31) Constraint
         out[i] = common.bit(flag);
         i += 1;
     }
-    out[i] = common.bit(row.imm_sign);
+    out[i] = common.bit(row.imm_msb);
     i += 1;
-    out[i] = common.bit(row.enabler);
-    i += 1;
-    out[i] = row.enabler.sub(row.active());
-    i += 1;
-    out[i] = row.enabler.sub(is_active);
+    out[i] = row.active().sub(is_active);
     i += 1;
     out[i] = common.selected(is_active, row.next_pc.sub(row.pc).sub(common.q(4)));
     i += 1;
-    out[i] = common.selected(is_active, row.signed_imm.sub(signedImmediate(witness, row.imm_sign)));
-    i += 1;
 
-    const imm = immediateLimbs(witness, row.imm_sign);
+    const imm = immediateLimbs(row);
     var carry = QM31.zero();
     for (0..4) |limb| {
         const numerator = row.rs1.next[limb].add(imm[limb]).add(carry).sub(row.rd.next[limb]);
@@ -134,7 +108,7 @@ pub fn evaluate(row: Row, witness: ImmediateWitness, is_active: QM31) Constraint
     return .{ .values = out };
 }
 
-pub fn programLookup(row: Row, witness: ImmediateWitness) common.ProgramTuple {
+pub fn programLookup(row: Row) common.ProgramTuple {
     const opcode_id = row.is_addi.mul(common.q(10))
         .add(row.is_xori.mul(common.q(13)))
         .add(row.is_ori.mul(common.q(14)))
@@ -144,13 +118,13 @@ pub fn programLookup(row: Row, witness: ImmediateWitness) common.ProgramTuple {
         .opcode_id = opcode_id,
         .rd = row.rd.addr,
         .rs1 = row.rs1.addr,
-        .operand = unsignedImmediate(witness, row.imm_sign),
+        .operand = unsignedImmediate(row),
     };
 }
 
-pub fn bitwiseLookups(row: Row, witness: ImmediateWitness) [4]common.BitwiseTuple {
+pub fn bitwiseLookups(row: Row) [4]common.BitwiseTuple {
     const operation_id = row.is_xori.mul(common.q(2)).add(row.is_ori);
-    const imm = immediateLimbs(witness, row.imm_sign);
+    const imm = immediateLimbs(row);
     var tuples: [4]common.BitwiseTuple = undefined;
     for (&tuples, 0..) |*tuple, i| {
         tuple.* = .{
@@ -165,8 +139,8 @@ pub fn bitwiseLookups(row: Row, witness: ImmediateWitness) [4]common.BitwiseTupl
 
 /// Inputs for the upstream `range_check_8_11` immediate lookup. The second
 /// coordinate is shifted by eight bits exactly as in the pinned schema.
-pub fn immediateRangeLookup(witness: ImmediateWitness) [2]QM31 {
-    return .{ witness.imm_0, witness.imm_1.mul(common.q(1 << 8)) };
+pub fn immediateRangeLookup(row: Row) [2]QM31 {
+    return .{ row.imm_0, row.imm_1.mul(common.q(1 << 8)) };
 }
 
 pub fn registerRangeCheckPairs(row: Row) [4][2]QM31 {
@@ -204,9 +178,9 @@ fn zeroRow() Row {
         .is_xori = QM31.zero(),
         .is_ori = QM31.zero(),
         .is_andi = QM31.zero(),
-        .signed_imm = QM31.zero(),
-        .imm_sign = QM31.zero(),
-        .enabler = QM31.zero(),
+        .imm_0 = QM31.zero(),
+        .imm_1 = QM31.zero(),
+        .imm_msb = QM31.zero(),
         .rd = zero_access,
         .rs1 = zero_access,
         .next_pc = QM31.zero(),
@@ -220,11 +194,9 @@ test "base alu imm semantics: exact ADDI accepts an honest row" {
     row.pc = common.q(0x1000);
     row.next_pc = common.q(0x1004);
     row.is_addi = QM31.one();
-    row.enabler = QM31.one();
-    row.signed_imm = common.q(1);
+    row.imm_0 = common.q(1);
     row.rd.next[0] = common.q(1);
-    const witness = ImmediateWitness{ .imm_0 = common.q(1), .imm_1 = QM31.zero() };
-    try std.testing.expect(evaluate(row, witness, QM31.one()).allZero());
+    try std.testing.expect(evaluate(row, QM31.one()).allZero());
 }
 
 test "base alu imm semantics: exact ADDI rejects known impossible witness" {
@@ -232,14 +204,12 @@ test "base alu imm semantics: exact ADDI rejects known impossible witness" {
     row.pc = common.q(0x1000);
     row.next_pc = common.q(0x1004);
     row.is_addi = QM31.one();
-    row.enabler = QM31.one();
-    row.signed_imm = common.q(1);
+    row.imm_0 = common.q(1);
     // The pre-existing prover test claimed ADDI x1,x1,1 while rs1 remained 0
     // and rd advanced to 2. The byte carry constraint must reject that row.
     row.rs1.next[0] = common.q(0);
     row.rd.next[0] = common.q(2);
-    const witness = ImmediateWitness{ .imm_0 = common.q(1), .imm_1 = QM31.zero() };
-    try std.testing.expect(!evaluate(row, witness, QM31.one()).allZero());
+    try std.testing.expect(!evaluate(row, QM31.one()).allZero());
 }
 
 test "base alu imm semantics: byte carries reject M31 word alias" {
@@ -247,13 +217,11 @@ test "base alu imm semantics: byte carries reject M31 word alias" {
     row.pc = common.q(0x1000);
     row.next_pc = common.q(0x1004);
     row.is_addi = QM31.one();
-    row.enabler = QM31.one();
     // 0x7fffffff is the M31 modulus, so a single reconstructed word equation
     // would confuse this forged result with zero. Per-byte carries do not.
     row.rd.next = .{ common.q(255), common.q(255), common.q(255), common.q(127) };
-    const witness = ImmediateWitness{ .imm_0 = QM31.zero(), .imm_1 = QM31.zero() };
     try std.testing.expect(common.composeU32(row.rd.next).isZero());
-    try std.testing.expect(!evaluate(row, witness, QM31.one()).allZero());
+    try std.testing.expect(!evaluate(row, QM31.one()).allZero());
 }
 
 test "base alu imm semantics: negative immediate sign extends by bytes" {
@@ -261,15 +229,14 @@ test "base alu imm semantics: negative immediate sign extends by bytes" {
     row.pc = common.q(0x1000);
     row.next_pc = common.q(0x1004);
     row.is_addi = QM31.one();
-    row.enabler = QM31.one();
-    row.imm_sign = QM31.one();
-    row.signed_imm = common.q(1).neg();
+    row.imm_0 = common.q(255);
+    row.imm_1 = common.q(7);
+    row.imm_msb = QM31.one();
     row.rs1.next = .{QM31.zero()} ** 4;
     row.rd.next = .{ common.q(255), common.q(255), common.q(255), common.q(255) };
-    const witness = ImmediateWitness{ .imm_0 = common.q(255), .imm_1 = common.q(7) };
-    try std.testing.expect(evaluate(row, witness, QM31.one()).allZero());
+    try std.testing.expect(evaluate(row, QM31.one()).allZero());
 
-    const tuple = programLookup(row, witness);
+    const tuple = programLookup(row);
     try std.testing.expect(tuple.opcode_id.eql(common.q(10)));
     try std.testing.expect(tuple.operand.eql(common.q(4095)));
 }

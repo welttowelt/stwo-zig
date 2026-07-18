@@ -243,6 +243,8 @@ pub fn fillFamilyColumns(
         .base_alu_imm => {
             // BaseAluImmColumns: 9 common + rd(10) + rs1(10) = 29
             var c: usize = 0;
+            const unsigned_imm: u32 = @bitCast(row.imm);
+            const imm_12 = unsigned_imm & 0xfff;
             columns[c][row_idx] = u32ToM31(row.clk);
             c += 1;
             columns[c][row_idx] = u32ToM31(row.pc);
@@ -255,11 +257,11 @@ pub fn fillFamilyColumns(
             c += 1;
             columns[c][row_idx] = if (row.opcode == .ANDI) M31.one() else M31.zero();
             c += 1;
-            columns[c][row_idx] = immToM31(row.imm);
+            columns[c][row_idx] = u32ToM31(imm_12 & 0xff); // imm_0
             c += 1;
-            columns[c][row_idx] = if (row.imm < 0) M31.one() else M31.zero();
+            columns[c][row_idx] = u32ToM31((imm_12 >> 8) & 0x7); // imm_1
             c += 1;
-            columns[c][row_idx] = M31.one(); // enabler
+            columns[c][row_idx] = u32ToM31(imm_12 >> 11); // imm_msb
             c += 1;
             access_columns.writeRd(columns, row_idx, c, row);
             c += 10;
