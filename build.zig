@@ -25,6 +25,7 @@ pub fn build(b: *std.Build) void {
         .name = "interop_cli",
         .root_module = interop_cli_module,
     });
+    interop_cli.linkLibC();
     const install_interop_cli = b.addInstallArtifact(interop_cli, .{});
     const interop_cli_build_step = b.step("interop-cli", "Build the proof interoperability CLI");
     interop_cli_build_step.dependOn(&install_interop_cli.step);

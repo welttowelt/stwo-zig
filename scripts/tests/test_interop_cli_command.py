@@ -32,6 +32,7 @@ class InteropCliCommandTests(unittest.TestCase):
         self.assertEqual(Path("/repo/zig-out/bin/interop_cli"), installed_binary(Path("/repo")))
         command = run_command("--mode", "verify", "--artifact", "proof.json")
         self.assertEqual("zig", command[0])
+        self.assertIn("-lc", command)
         self.assertIn("-Mroot=src/tools/interop/main.zig", command)
         self.assertIn("-Mstwo=src/stwo.zig", command)
         self.assertEqual(["--mode", "verify", "--artifact", "proof.json"], command[-4:])

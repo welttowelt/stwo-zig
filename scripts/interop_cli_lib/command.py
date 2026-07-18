@@ -21,6 +21,7 @@ def run_command(*arguments: str) -> list[str]:
     return [
         "zig",
         "run",
+        "-lc",
         "--dep",
         "stwo",
         "-Mroot=src/tools/interop/main.zig",
