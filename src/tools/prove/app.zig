@@ -182,3 +182,30 @@ test "publication never replaces a competing report or deletes its verified proo
     defer std.testing.allocator.free(report);
     try std.testing.expectEqualStrings("existing", report);
 }
+
+test "production transaction proves and verifies a bounded Native workload" {
+    var temporary = std.testing.tmpDir(.{});
+    defer temporary.cleanup();
+    const root = try temporary.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(root);
+    const proof_path = try std.fs.path.join(std.testing.allocator, &.{ root, "proof.json" });
+    defer std.testing.allocator.free(proof_path);
+
+    const report = try native_dispatch.run(std.testing.allocator, .{
+        .backend = .cpu,
+        .protocol = .smoke,
+        .workload = .{ .wide_fibonacci = .{ .log_n_rows = 5, .sequence_len = 8 } },
+        .blake2_backend = .auto,
+        .metal_runtime = .{},
+    }, .{
+        .warmups = 0,
+        .samples = 1,
+        .profiled = false,
+        .proof_temporary = proof_path,
+        .proof_report_path = proof_path,
+    });
+    defer std.testing.allocator.free(report);
+    const verified = try artifact_verifier.verifyPath(std.testing.allocator, proof_path, .smoke);
+    try std.testing.expectEqual(artifact_verifier.Example.wide_fibonacci, verified.example);
+    try std.testing.expect(verified.proof_bytes > 0);
+}
