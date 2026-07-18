@@ -38,7 +38,7 @@ class NativeProofMatrixTests(unittest.TestCase):
 
         self.assertEqual(
             RUST_ORACLE_SHA256,
-            "395c5549f383052e4e37ac29ae77923a5422f51cb310cfc7f9ef1281cd03819a",
+            "b8b8d824fa54db7091d77918f2f72c470b5fa372d65e9d5a9c91638536b57697",
         )
 
     def test_library_miss_is_cold_but_hit_timing_alone_is_warm(self) -> None:

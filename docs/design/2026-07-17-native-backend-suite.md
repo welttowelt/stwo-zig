@@ -365,15 +365,18 @@ The matrix accepts `--rust-oracle-bin`. The binary is required for formal eviden
 Its source commit is fixed to `a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2`
 and its toolchain remains `nightly-2025-07-14` until deliberately updated.
 Formal execution additionally requires the exact verifier binary SHA-256
-`395c5549f383052e4e37ac29ae77923a5422f51cb310cfc7f9ef1281cd03819a`.
+`b8b8d824fa54db7091d77918f2f72c470b5fa372d65e9d5a9c91638536b57697`.
 This binary includes the fail-closed outer-versus-embedded PCS configuration
-check introduced by `518c77b2`; it is reproducibly built from the pinned
-toolchain, lockfile, upstream Stwo revision, and repository-owned oracle wrapper.
+check, complete outer PCS field binding, proof-shape prevalidation, and the
+controlled verifier unwind boundary introduced by `518c77b2` and `d76d98df`.
+It is reproducibly built from the pinned toolchain, lockfile, upstream Stwo
+revision, and repository-owned oracle wrapper.
 This identity includes the real Wide Fibonacci recurrence AIR introduced by
 `e2658e0`; reports bound to the earlier `cbe4d3f1...` synthetic-AIR oracle are
 retained as historical geometry evidence but are not performance-comparable.
-The preceding `4d223c37...` real-AIR binary remains historical evidence but is
-not accepted for new formal runs because it predates that boundary check.
+The preceding `4d223c37...` and `395c5549...` real-AIR binaries remain historical
+evidence but are not accepted for new formal runs because they predate part or
+all of that fail-closed verifier boundary.
 An arbitrary executable that exits successfully is rejected before invocation, and
 both the binary and canonical artifact are rehashed after verification.
 

@@ -12,6 +12,10 @@ ORACLE_BINARY_TRANSITIONS = {
         "4d223c37e85b96f61dccc684f2897c82d2d55f6c50b59616a69cc5cc70d2ccf8",
         "395c5549f383052e4e37ac29ae77923a5422f51cb310cfc7f9ef1281cd03819a",
     ): "fail_closed_outer_embedded_pcs_config_check_outside_timed_lanes",
+    (
+        "4d223c37e85b96f61dccc684f2897c82d2d55f6c50b59616a69cc5cc70d2ccf8",
+        "b8b8d824fa54db7091d77918f2f72c470b5fa372d65e9d5a9c91638536b57697",
+    ): "fail_closed_pcs_schema_and_verifier_safety_checks_outside_timed_lanes",
 }
 
 

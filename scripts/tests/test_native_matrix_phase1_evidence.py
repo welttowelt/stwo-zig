@@ -242,7 +242,7 @@ class NativeMatrixPhase1EvidenceTests(unittest.TestCase):
                 "4d223c37e85b96f61dccc684f2897c82d2d55f6c50b59616a69cc5cc70d2ccf8"
             )
             current["rows"][0]["rust_oracle"]["binary_sha256"] = (
-                "395c5549f383052e4e37ac29ae77923a5422f51cb310cfc7f9ef1281cd03819a"
+                "b8b8d824fa54db7091d77918f2f72c470b5fa372d65e9d5a9c91638536b57697"
             )
             baseline_path = root / "baseline.json"
             current_path = root / "current.json"
@@ -255,6 +255,10 @@ class NativeMatrixPhase1EvidenceTests(unittest.TestCase):
             transition = delta["comparison_identity"]["oracle_binary_transition"]
             self.assertEqual("none", transition["timed_lane_impact"])
             self.assertTrue(transition["proof_identity_required"])
+            self.assertEqual(
+                "fail_closed_pcs_schema_and_verifier_safety_checks_outside_timed_lanes",
+                transition["reason"],
+            )
 
             current["rows"][0]["rust_oracle"]["binary_sha256"] = "9" * 64
             write_json(current_path, current)
