@@ -81,14 +81,20 @@ pub const Store = struct {
         errdefer allocator.free(owned_root);
         try std.posix.mkdir(owned_root, 0o700);
         errdefer std.fs.deleteTreeAbsolute(owned_root) catch {};
-        var root = try std.fs.openDirAbsolute(owned_root, .{ .no_follow = true });
+        var root = try std.fs.openDirAbsolute(owned_root, .{
+            .iterate = true,
+            .no_follow = true,
+        });
         defer root.close();
         try root.chmod(0o700);
 
         const objects_path = try std.fs.path.join(allocator, &.{ owned_root, "objects" });
         errdefer allocator.free(objects_path);
         try std.posix.mkdir(objects_path, 0o700);
-        var objects = try std.fs.openDirAbsolute(objects_path, .{ .no_follow = true });
+        var objects = try std.fs.openDirAbsolute(objects_path, .{
+            .iterate = true,
+            .no_follow = true,
+        });
         defer objects.close();
         try objects.chmod(0o700);
         try syncDirectory(objects);
@@ -237,7 +243,7 @@ pub const Store = struct {
             error.FileNotFound => {},
             else => return err,
         };
-        var objects = try std.fs.openDirAbsolute(self.objects_path, .{});
+        var objects = try std.fs.openDirAbsolute(self.objects_path, .{ .iterate = true });
         defer objects.close();
         try syncDirectory(objects);
 

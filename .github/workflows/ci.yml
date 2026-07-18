@@ -64,7 +64,7 @@ jobs:
         run: python3 scripts/ci.py --strict
 
   metal-acceptance:
-    name: Metal AOT acceptance
+    name: Metal AOT reproducible build
     runs-on: macos-14
     timeout-minutes: 20
     steps:
@@ -76,24 +76,30 @@ jobs:
         with:
           version: 0.15.2
 
-      - name: Build and inspect authenticated Native core metallib
-        run: zig build metal-core-aot-acceptance -Doptimize=ReleaseSafe
-
-      - name: Capture reproducible authenticated AOT receipt
+      - name: Require full Xcode offline Metal tools
         run: |
-          zig build metal-core-aot metal-core-aot-probe -Doptimize=ReleaseSafe
-          python3 scripts/metal_core_aot_receipt.py \
+          xcode-select --print-path | grep -q '^/Applications/Xcode'
+          xcrun --sdk macosx --find metal
+          xcrun --sdk macosx --find metallib
+
+      - name: Capture reproducible Full-Xcode AOT build receipt
+        run: |
+          zig build metal-core-aot -Doptimize=ReleaseSafe
+          python3 scripts/metal_core_aot_receipt.py build \
             --builder zig-out/bin/metal-core-aot \
-            --probe zig-out/bin/metal-core-aot-probe \
             --output-dir "$RUNNER_TEMP/native-metal-core-aot-acceptance" \
             --receipt-out "$RUNNER_TEMP/native-metal-core-aot-acceptance/receipt.json" \
             --commit "$GITHUB_SHA"
 
-      - name: Retain authenticated AOT receipt and exact bundles
+      - name: Retain AOT build receipt and both exact bundles
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: native-metal-core-aot-${{ github.sha }}
-          path: ${{ runner.temp }}/native-metal-core-aot-acceptance
+          path: |
+            ${{ runner.temp }}/native-metal-core-aot-acceptance/receipt.json
+            ${{ runner.temp }}/native-metal-core-aot-acceptance/receipt.json.sha256
+            ${{ runner.temp }}/native-metal-core-aot-acceptance/build-a
+            ${{ runner.temp }}/native-metal-core-aot-acceptance/build-b
           if-no-files-found: error
           retention-days: 30
 

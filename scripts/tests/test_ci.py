@@ -24,6 +24,7 @@ class CiTests(unittest.TestCase):
 
     def test_hosted_ci_exposes_standard_and_strict_shared_entrypoints(self) -> None:
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        self.assertIn("name: Metal AOT reproducible build", workflow)
         self.assertIn("run: python3 scripts/ci.py\n", workflow)
         self.assertIn("run: python3 scripts/ci.py --strict\n", workflow)
         self.assertIn("inputs.gate == 'strict'", workflow)
@@ -59,34 +60,48 @@ class CiTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         self.assertIn("run: python3 scripts/ci.py\n", workflow)
 
-    def test_hosted_metal_gate_accepts_aot_core_and_compiles_broader_graph(self) -> None:
+    def test_hosted_metal_gate_builds_reproducible_aot_and_compiles_broader_graph(
+        self,
+    ) -> None:
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         self.assertIn(
-            "run: zig build metal-core-aot-acceptance -Doptimize=ReleaseSafe",
+            "xcode-select --print-path | grep -q '^/Applications/Xcode'",
+            workflow,
+        )
+        self.assertIn("xcrun --sdk macosx --find metal", workflow)
+        self.assertIn("xcrun --sdk macosx --find metallib", workflow)
+        self.assertIn(
+            "zig build metal-core-aot -Doptimize=ReleaseSafe",
             workflow,
         )
         self.assertIn("run: zig build metal-check -Doptimize=ReleaseSafe", workflow)
         self.assertNotIn("run: zig build metal-test", workflow)
-        self.assertIn("python3 scripts/metal_core_aot_receipt.py", workflow)
+        self.assertIn("python3 scripts/metal_core_aot_receipt.py build", workflow)
+        self.assertIn("--builder zig-out/bin/metal-core-aot", workflow)
+        self.assertIn("--output-dir \"$RUNNER_TEMP/native-metal-core-aot-acceptance\"", workflow)
+        self.assertIn(
+            '--receipt-out "$RUNNER_TEMP/native-metal-core-aot-acceptance/receipt.json"',
+            workflow,
+        )
+        self.assertIn('--commit "$GITHUB_SHA"', workflow)
+        self.assertNotIn("--probe", workflow)
+        self.assertNotIn("metal-core-aot-probe", workflow)
+        self.assertNotIn("metal-core-aot-acceptance -Doptimize", workflow)
         self.assertIn(
             "uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4",
             workflow,
         )
+        for artifact in (
+            "receipt.json",
+            "receipt.json.sha256",
+            "build-a",
+            "build-b",
+        ):
+            self.assertIn(
+                f"${{{{ runner.temp }}}}/native-metal-core-aot-acceptance/{artifact}",
+                workflow,
+            )
         self.assertIn("if-no-files-found: error", workflow)
-
-        aot_products = (ROOT / "build_support/metal_core_aot.zig").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn('"metal-core-aot-acceptance"', aot_products)
-        self.assertIn('build_bundle.addArgs(&.{ "build", "--output-dir" });', aot_products)
-        self.assertIn('run_probe.addArg("--trust-anchor");', aot_products)
-
-        probe = (ROOT / "src/tools/metal_core_aot/probe.m").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("library.functionNames", probe)
-        self.assertIn("actual.count != expected_count", probe)
-        self.assertIn("function.functionConstantsDictionary.count != 0u", probe)
 
         metal_products = (ROOT / "build_support/metal_products.zig").read_text(
             encoding="utf-8"

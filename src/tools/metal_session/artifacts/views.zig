@@ -96,9 +96,15 @@ pub fn create(
     var directory_created = true;
     errdefer if (directory_created) std.fs.deleteTreeAbsolute(directory) catch {};
 
-    var view_directory = try std.fs.openDirAbsolute(directory, .{ .no_follow = true });
+    var view_directory = try std.fs.openDirAbsolute(directory, .{
+        .iterate = true,
+        .no_follow = true,
+    });
     defer view_directory.close();
-    var parent = try std.fs.openDirAbsolute(parent_directory, .{ .no_follow = true });
+    var parent = try std.fs.openDirAbsolute(parent_directory, .{
+        .iterate = true,
+        .no_follow = true,
+    });
     defer parent.close();
     try syncDirectory(parent);
 
