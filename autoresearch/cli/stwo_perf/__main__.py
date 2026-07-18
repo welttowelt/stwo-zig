@@ -337,7 +337,28 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--set", metavar="KEY=VALUE")
     sub.add_parser("install-workflows",
                    help="copy autoresearch/workflows/*.yml into .github/workflows/")
+    p = sub.add_parser("feed", help="compile the deterministic site feed (repo->website contract)")
+    p.add_argument("--out", help="output path (default autoresearch/site/feed.json)")
     return parser
+
+
+def cmd_feed(args) -> int:
+    from . import feed
+    m = manifest_mod.load()
+    out = feed.write_feed(m, Path(args.out) if args.out else None)
+    data = json.loads(out.read_text())
+    latest = data.get("latest_matrix") or {}
+    print(f"{ansi.OK} feed written: {out.relative_to(m.root)}")
+    print(ansi.kv_panel("feed", [
+        ("schema", str(data["feed_schema_version"])),
+        ("commit", str(data["provenance"]["repo_commit"])),
+        ("boards", str(sum(1 for b in data["boards"].values() if b["entries"]))
+                   + f"/{len(data['boards'])} populated"),
+        ("latest matrix", str(latest.get("run_id", "none"))),
+        ("matrix rows", str(len(latest.get("rows", [])))),
+        ("submissions", str(len(data["submissions"]))),
+    ]))
+    return 0
 
 
 def cmd_install_workflows(_args) -> int:
@@ -361,7 +382,7 @@ HANDLERS = {
     "submissions": cmd_submissions, "submission-note": cmd_submission_note,
     "notes": cmd_notes, "sync": cmd_sync, "reset": cmd_reset,
     "login": cmd_login, "apikey": cmd_apikey, "config": cmd_config,
-    "install-workflows": cmd_install_workflows,
+    "install-workflows": cmd_install_workflows, "feed": cmd_feed,
 }
 
 

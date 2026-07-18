@@ -1,0 +1,558 @@
+{
+ "anchor": {
+  "commit": null,
+  "frozen": false,
+  "prove_ms": {
+   "deep": null,
+   "small": null,
+   "wide": null
+  }
+ },
+ "boards": {
+  "core_cpu": {
+   "entries": [],
+   "frontier_by_class": {
+    "deep": {
+     "frontier": [],
+     "head": null
+    },
+    "small": {
+     "frontier": [],
+     "head": null
+    },
+    "wide": {
+     "frontier": [],
+     "head": null
+    }
+   }
+  },
+  "core_hybrid": {
+   "entries": [],
+   "frontier_by_class": {
+    "deep": {
+     "frontier": [],
+     "head": null
+    },
+    "small": {
+     "frontier": [],
+     "head": null
+    },
+    "wide": {
+     "frontier": [],
+     "head": null
+    }
+   }
+  },
+  "core_metal": {
+   "entries": [],
+   "frontier_by_class": {
+    "deep": {
+     "frontier": [],
+     "head": null
+    },
+    "small": {
+     "frontier": [],
+     "head": null
+    },
+    "wide": {
+     "frontier": [],
+     "head": null
+    }
+   }
+  },
+  "heavy_cairo": {
+   "entries": [],
+   "frontier_by_class": {
+    "deep": {
+     "frontier": [],
+     "head": null
+    },
+    "small": {
+     "frontier": [],
+     "head": null
+    },
+    "wide": {
+     "frontier": [],
+     "head": null
+    }
+   }
+  },
+  "heavy_native": {
+   "entries": [],
+   "frontier_by_class": {
+    "deep": {
+     "frontier": [],
+     "head": null
+    },
+    "small": {
+     "frontier": [],
+     "head": null
+    },
+    "wide": {
+     "frontier": [],
+     "head": null
+    }
+   }
+  },
+  "stream": {
+   "entries": [],
+   "frontier_by_class": {
+    "deep": {
+     "frontier": [],
+     "head": null
+    },
+    "small": {
+     "frontier": [],
+     "head": null
+    },
+    "wide": {
+     "frontier": [],
+     "head": null
+    }
+   }
+  }
+ },
+ "epoch": {
+  "aa_dispersion": {
+   "deep": null,
+   "note": "Per-class A/A paired-ratio CI half-widths, measured by `stwo-perf run --aa` on the designated judge host and recorded here by the judge. Null means theta falls back to the manifest floor and judged promotion is disabled until measured.",
+   "small": null,
+   "wide": null
+  },
+  "number": 1
+ },
+ "feed_schema_version": 1,
+ "history": {
+  "comparisons": 6,
+  "runs": [
+   {
+    "bundle": false,
+    "kind": "native_proof_cross_backend_matrix_v3",
+    "report_sha256": "79885f1d6388667541832529aec8970e7b30bdb995a109ffc7cc19c5f15d2012",
+    "run_id": "2026-07-17-064520-matrix-v3-370f8ef8"
+   },
+   {
+    "bundle": false,
+    "kind": "native_proof_cross_backend_matrix_v3",
+    "report_sha256": "a9c1b5e189712e9b512d2fcc566b718155938f69e67401604d74882adee5964a",
+    "run_id": "2026-07-17-190241-matrix-v3-e2613ba5"
+   },
+   {
+    "bundle": false,
+    "kind": "native_proof_cross_backend_matrix_v3",
+    "report_sha256": "fafc8ece59527351aa6a09045044ede36c338e840053abfe9646737a99d0971a",
+    "run_id": "2026-07-17-192025-matrix-v3-b6f3a533"
+   },
+   {
+    "bundle": false,
+    "kind": "native_proof_cross_backend_matrix_v3",
+    "report_sha256": "dc9d9db85c436b6eb1712831d46504d250788685fb2424ebcb2d507246d21971",
+    "run_id": "2026-07-17-192118-matrix-v3-e2613ba5"
+   },
+   {
+    "bundle": false,
+    "kind": "native_proof_cross_backend_matrix_v4",
+    "report_sha256": "4f7a234ffe2d6fde65a01173d12becbb7b9aa8ab4cfcab3c322ba13a78ff353d",
+    "run_id": "2026-07-17-204301-matrix-v4-756afa46"
+   },
+   {
+    "bundle": true,
+    "kind": "native_proof_cross_backend_matrix_v4",
+    "report_sha256": "19cc8a5631e04aa2ea72242ff2ccac4d36320d04afbae05a161606995dd6a71f",
+    "run_id": "2026-07-17-232833-matrix-v4-b0cfbc62"
+   },
+   {
+    "bundle": true,
+    "kind": "native_proof_cross_backend_matrix_v5",
+    "report_sha256": "3e3cf347fe958b822558e7c614b5f11317187f321d412fbd4a834d551b81d78b",
+    "run_id": "2026-07-18-004844-matrix-v5-44a81457"
+   },
+   {
+    "bundle": true,
+    "kind": "native_proof_cross_backend_matrix_v5",
+    "report_sha256": "8da5fae41d077ae897b44b024a4b3d2956a57daff2c0678a0441b26ec6643768",
+    "run_id": "2026-07-18-064334-matrix-v5-789feb4c"
+   }
+  ]
+ },
+ "latest_matrix": {
+  "generated_at": "2026-07-18T06:43:34.232047+00:00",
+  "protocol": "native_proof_cross_backend_matrix_v5",
+  "repo_commit": "789feb4cf06842fbbdfe41e369cb18dadb1803f6",
+  "rows": [
+   {
+    "committed_trace_cells": 524288,
+    "headline_eligible": true,
+    "lanes": {
+     "cpu": {
+      "native_mhz": 0.8888080487523838,
+      "peak_rss_mib": 24.62,
+      "prove_ms": 18.433729,
+      "request_ms": 19.540354
+     },
+     "metal": {
+      "cpu_fallbacks_per_proof": 16,
+      "metal_dispatches_per_proof": 20,
+      "native_mhz": 0.7514886532086167,
+      "peak_rss_mib": 41.73,
+      "prove_ms": 21.802083,
+      "request_ms": 22.857479
+     }
+    },
+    "name": "wide_fibonacci",
+    "native_unit": "trace_rows",
+    "native_units": 16384,
+    "parameters": {
+     "log_n_rows": 14,
+     "sequence_len": 32
+    },
+    "proof_bytes": 41840,
+    "proof_parity": true
+   },
+   {
+    "committed_trace_cells": 4194304,
+    "headline_eligible": false,
+    "lanes": {
+     "cpu": {
+      "native_mhz": 0.6640612482253825,
+      "peak_rss_mib": 83.16,
+      "prove_ms": 98.708896,
+      "request_ms": 113.332604
+     },
+     "metal": {
+      "cpu_fallbacks_per_proof": 18,
+      "metal_dispatches_per_proof": 22,
+      "native_mhz": 0.5718513228602529,
+      "peak_rss_mib": 133.55,
+      "prove_ms": 114.603771,
+      "request_ms": 127.549291
+     }
+    },
+    "name": "wide_fibonacci",
+    "native_unit": "trace_rows",
+    "native_units": 65536,
+    "parameters": {
+     "log_n_rows": 16,
+     "sequence_len": 64
+    },
+    "proof_bytes": 60249,
+    "proof_parity": true
+   },
+   {
+    "committed_trace_cells": 49152,
+    "headline_eligible": true,
+    "lanes": {
+     "cpu": {
+      "native_mhz": 1.2894806014106348,
+      "peak_rss_mib": 22.97,
+      "prove_ms": 12.705917,
+      "request_ms": 13.023395
+     },
+     "metal": {
+      "cpu_fallbacks_per_proof": 16,
+      "metal_dispatches_per_proof": 22,
+      "native_mhz": 0.9503900163702512,
+      "peak_rss_mib": 36.38,
+      "prove_ms": 17.240229,
+      "request_ms": 17.547979
+     }
+    },
+    "name": "xor",
+    "native_unit": "xor_rows",
+    "native_units": 16384,
+    "parameters": {
+     "log_size": 14,
+     "log_step": 2,
+     "offset": 3
+    },
+    "proof_bytes": 46446,
+    "proof_parity": true
+   },
+   {
+    "committed_trace_cells": 196608,
+    "headline_eligible": true,
+    "lanes": {
+     "cpu": {
+      "native_mhz": 2.1202768681015858,
+      "peak_rss_mib": 63.14,
+      "prove_ms": 30.909458,
+      "request_ms": 31.444333
+     },
+     "metal": {
+      "cpu_fallbacks_per_proof": 18,
+      "metal_dispatches_per_proof": 24,
+      "native_mhz": 1.5872823613984157,
+      "peak_rss_mib": 67.11,
+      "prove_ms": 41.288313,
+      "request_ms": 41.894604
+     }
+    },
+    "name": "xor",
+    "native_unit": "xor_rows",
+    "native_units": 65536,
+    "parameters": {
+     "log_size": 16,
+     "log_step": 2,
+     "offset": 3
+    },
+    "proof_bytes": 54848,
+    "proof_parity": true
+   },
+   {
+    "committed_trace_cells": 131072,
+    "headline_eligible": true,
+    "lanes": {
+     "cpu": {
+      "native_mhz": 1.2412156733519837,
+      "peak_rss_mib": 23.41,
+      "prove_ms": 13.200021,
+      "request_ms": 13.574958
+     },
+     "metal": {
+      "cpu_fallbacks_per_proof": 16,
+      "metal_dispatches_per_proof": 22,
+      "native_mhz": 0.931702745752915,
+      "peak_rss_mib": 38.14,
+      "prove_ms": 17.585208,
+      "request_ms": 17.950521
+     }
+    },
+    "name": "plonk",
+    "native_unit": "plonk_rows",
+    "native_units": 16384,
+    "parameters": {
+     "log_n_rows": 14
+    },
+    "proof_bytes": 45200,
+    "proof_parity": true
+   },
+   {
+    "committed_trace_cells": 524288,
+    "headline_eligible": true,
+    "lanes": {
+     "cpu": {
+      "native_mhz": 2.0275332714393572,
+      "peak_rss_mib": 62.19,
+      "prove_ms": 32.323021,
+      "request_ms": 32.923041
+     },
+     "metal": {
+      "cpu_fallbacks_per_proof": 18,
+      "metal_dispatches_per_proof": 24,
+      "native_mhz": 1.5756842360739576,
+      "peak_rss_mib": 71.62,
+      "prove_ms": 41.59225,
+      "request_ms": 42.196396
+     }
+    },
+    "name": "plonk",
+    "native_unit": "plonk_rows",
+    "native_units": 65536,
+    "parameters": {
+     "log_n_rows": 16
+    },
+    "proof_bytes": 55401,
+    "proof_parity": true
+   },
+   {
+    "committed_trace_cells": 49152,
+    "headline_eligible": true,
+    "lanes": {
+     "cpu": {
+      "native_mhz": 1.2857509789855976,
+      "peak_rss_mib": 24.09,
+      "prove_ms": 12.74275,
+      "request_ms": 13.032312
+     },
+     "metal": {
+      "cpu_fallbacks_per_proof": 16,
+      "metal_dispatches_per_proof": 22,
+      "native_mhz": 0.951844524272508,
+      "peak_rss_mib": 37.16,
+      "prove_ms": 17.212895,
+      "request_ms": 17.537625
+     }
+    },
+    "name": "state_machine",
+    "native_unit": "state_transitions",
+    "native_units": 16384,
+    "parameters": {
+     "initial_x": 9,
+     "initial_y": 3,
+     "log_n_rows": 14
+    },
+    "proof_bytes": 40082,
+    "proof_parity": true
+   },
+   {
+    "committed_trace_cells": 196608,
+    "headline_eligible": true,
+    "lanes": {
+     "cpu": {
+      "native_mhz": 1.9873620205233242,
+      "peak_rss_mib": 60.73,
+      "prove_ms": 32.976396,
+      "request_ms": 33.679834
+     },
+     "metal": {
+      "cpu_fallbacks_per_proof": 18,
+      "metal_dispatches_per_proof": 24,
+      "native_mhz": 1.6000553640018016,
+      "peak_rss_mib": 67.14,
+      "prove_ms": 40.958667,
+      "request_ms": 41.657833
+     }
+    },
+    "name": "state_machine",
+    "native_unit": "state_transitions",
+    "native_units": 65536,
+    "parameters": {
+     "initial_x": 9,
+     "initial_y": 3,
+     "log_n_rows": 16
+    },
+    "proof_bytes": 60502,
+    "proof_parity": true
+   },
+   {
+    "committed_trace_cells": 983040,
+    "headline_eligible": true,
+    "lanes": {
+     "cpu": {
+      "native_mhz": 0.26939851231756595,
+      "peak_rss_mib": 36.84,
+      "prove_ms": 38.010604,
+      "request_ms": 42.023604
+     },
+     "metal": {
+      "cpu_fallbacks_per_proof": 13,
+      "metal_dispatches_per_proof": 15,
+      "native_mhz": 0.25273134030944766,
+      "peak_rss_mib": 52.22,
+      "prove_ms": 40.517417,
+      "request_ms": 44.537854
+     }
+    },
+    "name": "blake",
+    "native_unit": "blake_round_instances",
+    "native_units": 10240,
+    "parameters": {
+     "log_n_rows": 10,
+     "n_rounds": 10
+    },
+    "proof_bytes": 97973,
+    "proof_parity": true
+   },
+   {
+    "committed_trace_cells": 6291456,
+    "headline_eligible": true,
+    "lanes": {
+     "cpu": {
+      "native_mhz": 0.5655612715331448,
+      "peak_rss_mib": 232.09,
+      "prove_ms": 115.878,
+      "request_ms": 146.978438
+     },
+     "metal": {
+      "cpu_fallbacks_per_proof": 14,
+      "metal_dispatches_per_proof": 18,
+      "native_mhz": 0.5483056221488387,
+      "peak_rss_mib": 186.48,
+      "prove_ms": 119.567417,
+      "request_ms": 150.241792
+     }
+    },
+    "name": "blake",
+    "native_unit": "blake_round_instances",
+    "native_units": 65536,
+    "parameters": {
+     "log_n_rows": 12,
+     "n_rounds": 16
+    },
+    "proof_bytes": 152455,
+    "proof_parity": true
+   },
+   {
+    "committed_trace_cells": 161792,
+    "headline_eligible": false,
+    "lanes": {
+     "cpu": {
+      "native_mhz": 0.1467083719600274,
+      "peak_rss_mib": 21.38,
+      "prove_ms": 6.979833,
+      "request_ms": 8.393125
+     },
+     "metal": {
+      "cpu_fallbacks_per_proof": 10,
+      "metal_dispatches_per_proof": 12,
+      "native_mhz": 0.10067846877630926,
+      "peak_rss_mib": 38.34,
+      "prove_ms": 10.173792,
+      "request_ms": 11.588312
+     }
+    },
+    "name": "poseidon",
+    "native_unit": "poseidon_instances",
+    "native_units": 1024,
+    "parameters": {
+     "log_n_instances": 10
+    },
+    "proof_bytes": 112834,
+    "proof_parity": true
+   },
+   {
+    "committed_trace_cells": 1294336,
+    "headline_eligible": false,
+    "lanes": {
+     "cpu": {
+      "native_mhz": 0.17444817959394354,
+      "peak_rss_mib": 57.08,
+      "prove_ms": 46.965646,
+      "request_ms": 54.473813
+     },
+     "metal": {
+      "cpu_fallbacks_per_proof": 13,
+      "metal_dispatches_per_proof": 15,
+      "native_mhz": 0.17175464697941306,
+      "peak_rss_mib": 69.06,
+      "prove_ms": 47.696104,
+      "request_ms": 54.882542
+     }
+    },
+    "name": "poseidon",
+    "native_unit": "poseidon_instances",
+    "native_units": 8192,
+    "parameters": {
+     "log_n_instances": 13
+    },
+    "proof_bytes": 124194,
+    "proof_parity": true
+   }
+  ],
+  "run_id": "2026-07-18-064334-matrix-v5-789feb4c"
+ },
+ "metal_resident_progress": {
+  "cpu_fallbacks_per_proof_median": 16,
+  "rows_total": 12,
+  "rows_with_zero_fallbacks": 0
+ },
+ "notes_count": 1,
+ "project": {
+  "contract": "docs/design/2026-07-17-performance-extraction-playbook.md#part-f-the-autoresearch-harness",
+  "harness": "stwo-perf",
+  "name": "Stwo in Zig with Metal",
+  "slug": "stwo-zig"
+ },
+ "provenance": {
+  "determinism": "same commit + same inputs => byte-identical feed",
+  "inputs_sha256": {
+   "autoresearch/MANIFEST.json": "64b1dee6555bf2994af2cbbe1a4b7c2cabdc6e90e73db73b8d45913385326260",
+   "autoresearch/ledger/epochs.json": "57dc8223f69d09c9c16385e1ac65e5310ee8d1c2b044b6772e69655ea7749d7d",
+   "autoresearch/ledger/promotions.tsv": "d3ab2dd042280735865b61c184c9c81d860724563850ba05c7ee31342f5d989e",
+   "vectors/reports/benchmark_history/index.json": "356ab43ca2a23cf5fa9b2771c5d8f4b036d6e6e41b10724fb4c9db6e9f6fc74a"
+  },
+  "repo_commit": "b409de249949",
+  "repo_commit_time": "2026-07-18T10:09:02+01:00"
+ },
+ "submissions": []
+}
