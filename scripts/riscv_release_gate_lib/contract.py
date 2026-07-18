@@ -43,6 +43,10 @@ GENERATED_CORPUS_KEYS = {
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 MAX_RECEIPT_AGE_SECONDS = 24 * 60 * 60
+ZIG_IMPORT_RE = re.compile(r'@import\("([^"\n]+)"\)')
+ZIG_NON_CODE_RE = re.compile(r'//[^\n]*|/\*.*?\*/|"(?:\\.|[^"\\])*"', re.DOTALL)
+ACTIVE_PLACEHOLDER_RE = re.compile(r"\b(?:legacy|placeholder|silent)\b")
+MANUAL_SOURCE_CEILING = 850
 
 
 def _contains_assignment(source: str, name: str, value: str) -> bool:
@@ -115,6 +119,81 @@ def repository_contract_errors(root: Path, phase: str) -> list[str]:
         elif riscv.get("enabled") is not False or not str(riscv.get("disabled_reason", "")).strip():
             errors.append("autoresearch RISC-V workload group must remain disabled through RF-01")
     return errors
+
+
+def _zig_sources(directory: Path) -> list[Path]:
+    if not directory.is_dir():
+        return []
+    return sorted(
+        path
+        for path in directory.rglob("*.zig")
+        if path.is_file()
+        and not {".zig-cache", "generated", "vendor", "zig-out"}.intersection(path.parts)
+    )
+
+
+def _resolved_src_import(source: Path, imported: str, src_root: Path) -> Path | None:
+    if not imported.startswith(".") or not imported.endswith(".zig"):
+        return None
+    target = (source.parent / imported).resolve()
+    try:
+        relative = target.relative_to(src_root.resolve())
+    except ValueError:
+        return None
+    return relative if target.is_file() else None
+
+
+def _generated_zig(source: str) -> bool:
+    header = "\n".join(source.splitlines()[:8]).lower()
+    return "generated" in header and "generator:" in header and "regenerate:" in header
+
+
+def core_purity_errors(root: Path) -> list[str]:
+    """Reject core dependencies on a frontend or concrete backend owner."""
+    src_root = root / "src"
+    errors: list[str] = []
+    forbidden = {"backends", "frontends", "integrations"}
+    for source in _zig_sources(src_root / "core"):
+        text = source.read_text(encoding="utf-8")
+        for imported in ZIG_IMPORT_RE.findall(text):
+            target = _resolved_src_import(source, imported, src_root)
+            if target is not None and target.parts and target.parts[0] in forbidden:
+                display = source.relative_to(root).as_posix()
+                errors.append(f"core purity: {display} imports {target.as_posix()}")
+    return errors
+
+
+def frontend_layering_errors(root: Path) -> list[str]:
+    """Enforce the backend-neutral RISC-V frontend ownership boundary."""
+    src_root = root / "src"
+    frontend_root = src_root / "frontends" / "riscv"
+    errors: list[str] = []
+    forbidden_layers = {"backends", "bench", "examples", "integrations", "interop", "tools"}
+    for source in _zig_sources(frontend_root):
+        text = source.read_text(encoding="utf-8")
+        display = source.relative_to(root).as_posix()
+        for imported in ZIG_IMPORT_RE.findall(text):
+            target = _resolved_src_import(source, imported, src_root)
+            if target is not None and target.parts and target.parts[0] in forbidden_layers:
+                errors.append(f"frontend layering: {display} imports {target.as_posix()}")
+        line_count = len(text.splitlines())
+        if line_count > MANUAL_SOURCE_CEILING and not _generated_zig(text):
+            errors.append(
+                f"frontend layering: {display} has {line_count} lines "
+                f"(manual ceiling {MANUAL_SOURCE_CEILING})"
+            )
+        code = ZIG_NON_CODE_RE.sub(" ", text)
+        markers = sorted(set(ACTIVE_PLACEHOLDER_RE.findall(code)))
+        if markers:
+            errors.append(
+                f"frontend layering: {display} contains active placeholder markers: "
+                + ", ".join(markers)
+            )
+    return errors
+
+
+def structure_errors(root: Path) -> list[str]:
+    return core_purity_errors(root) + frontend_layering_errors(root)
 
 
 def _sha(value: Any, label: str, errors: list[str]) -> None:

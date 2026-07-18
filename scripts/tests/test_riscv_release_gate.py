@@ -11,6 +11,8 @@ from scripts.riscv_release_gate_lib.contract import (
     BOUNDARIES,
     ORACLE_REPOSITORY,
     PINNED_ORACLE,
+    core_purity_errors,
+    frontend_layering_errors,
     phase_errors,
     receipt_errors,
     expected_case_result_keys,
@@ -112,6 +114,53 @@ class PhaseContractTests(unittest.TestCase):
         self.assertTrue(any("RELEASE_STATUS" in error for error in mixed))
 
 
+class LayeringContractTests(unittest.TestCase):
+    @staticmethod
+    def write(root: Path, relative: str, source: str) -> None:
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(source, encoding="utf-8")
+
+    def test_core_purity_resolves_and_rejects_concrete_dependency_edges(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write(root, "src/frontends/riscv/air.zig", "pub const ok = true;\n")
+            self.write(
+                root,
+                "src/core/protocol.zig",
+                'const air = @import("../frontends/riscv/air.zig");\n',
+            )
+            errors = core_purity_errors(root)
+            self.assertEqual(1, len(errors))
+            self.assertIn("src/core/protocol.zig imports frontends/riscv/air.zig", errors[0])
+
+    def test_frontend_layering_rejects_cli_backend_placeholders_and_giant_files(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write(root, "src/tools/prove/cli.zig", "pub const ok = true;\n")
+            self.write(
+                root,
+                "src/frontends/riscv/prover.zig",
+                'const cli = @import("../../tools/prove/cli.zig");\n'
+                "const Mode = enum { silent };\n"
+                + "const value = 0;\n" * 850,
+            )
+            errors = frontend_layering_errors(root)
+            self.assertTrue(any("imports tools/prove/cli.zig" in error for error in errors))
+            self.assertTrue(any("manual ceiling 850" in error for error in errors))
+            self.assertTrue(any("active placeholder markers: silent" in error for error in errors))
+
+    def test_comments_and_strings_do_not_create_placeholder_findings(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write(
+                root,
+                "src/frontends/riscv/air.zig",
+                '// legacy placeholder silent\nconst label = "silent";\n',
+            )
+            self.assertEqual([], frontend_layering_errors(root))
+
+
 class ReceiptContractTests(unittest.TestCase):
     def test_receipt_json_rejects_duplicate_fields_at_every_depth(self) -> None:
         with self.assertRaisesRegex(ValueError, "duplicate JSON field: status"):
@@ -173,6 +222,9 @@ class CommandPlanTests(unittest.TestCase):
         )
         rendered = [" ".join(command) for command in plan]
         self.assertTrue(any("check_riscv_release_contract.py --all --phase candidate" in row for row in rendered))
+        self.assertTrue(any("check_riscv_release_contract.py --structure" in row for row in rendered))
+        self.assertTrue(any("check_riscv_release_contract.py --core-purity" in row for row in rendered))
+        self.assertTrue(any("check_riscv_release_contract.py --frontend-layering" in row for row in rendered))
         self.assertTrue(any("riscv_staged_smoke.py --phase candidate" in row for row in rendered))
         self.assertTrue(any("unittest scripts.tests.test_riscv_release_gate" in row for row in rendered))
         self.assertFalse(any("riscv_release_oracle.py" in row for row in rendered))

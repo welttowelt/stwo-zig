@@ -39,6 +39,9 @@ def command_plan(
         [python, "scripts/check_upstream_pins.py"],
         [python, "scripts/check_source_conformance.py"],
         [python, "scripts/check_riscv_release_contract.py", "--all", "--phase", phase],
+        [python, "scripts/check_riscv_release_contract.py", "--structure"],
+        [python, "scripts/check_riscv_release_contract.py", "--core-purity"],
+        [python, "scripts/check_riscv_release_contract.py", "--frontend-layering"],
         [
             python,
             "-m",
