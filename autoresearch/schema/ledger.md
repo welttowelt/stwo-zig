@@ -14,6 +14,7 @@ Columns (tab-separated, one judged submission per row):
 | judged_at_utc | ISO-8601 UTC of the judged run |
 | commit | promoted repository commit |
 | scope | acceptance rung (s3..s5) |
+| board | scoring board (schema/scoring.md): core_cpu / core_hybrid / core_metal / heavy_native / heavy_cairo / stream |
 | workload_class | small / wide / deep |
 | outcome | `promoted` / `neutral` / `rejected` — only promoted rows shape the frontier |
 | judged_r | geometric-mean paired ratio (<1 improves) |

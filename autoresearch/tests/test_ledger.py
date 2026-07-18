@@ -12,7 +12,7 @@ def row_line(**overrides) -> str:
     values = {
         "schema_version": "1", "harness_commit": "abc123", "epoch": "1",
         "judged_at_utc": "2026-07-18T01:00:00Z", "commit": "deadbeef",
-        "scope": "s3", "workload_class": "small", "outcome": "promoted",
+        "scope": "s3", "board": "core_cpu", "workload_class": "small", "outcome": "promoted",
         "judged_r": "0.97", "ci_low": "0.96", "ci_high": "0.98", "prove_ms": "3.9",
         "native_mhz": "0.26", "peak_rss_mib": "24.9", "waits": "", "dispatches": "",
         "energy_j": "", "gates": "G1..G5:pass", "holdout": "pass;seed=1",

@@ -293,6 +293,7 @@ def evaluate(
     scope: str,
     judged: bool,
     out_dir: Path,
+    board: str = "core_cpu",
 ) -> dict:
     """Run the full paired evaluation and assemble a verdict dict.
 
@@ -353,7 +354,11 @@ def evaluate(
         "repo_commit": _git(repo_root, "rev-parse", "HEAD")[:12],
         "predecessor_commit": _git(predecessor_root, "rev-parse", "HEAD")[:12],
         "scope": scope,
-        "declared_objective": {"workload_class": workload_class, "dimension": dimension},
+        "declared_objective": {
+            "board": board,
+            "workload_class": workload_class,
+            "dimension": dimension,
+        },
         "environment": environment_block(repo_root, judged),
         "gates": gates,
         "score": {

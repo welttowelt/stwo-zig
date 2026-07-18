@@ -1,1 +1,1 @@
-schema_version	harness_commit	epoch	judged_at_utc	commit	scope	workload_class	outcome	judged_r	ci_low	ci_high	prove_ms	native_mhz	peak_rss_mib	waits	dispatches	energy_j	gates	holdout	submission_id	predecessor	supersedes
+schema_version	harness_commit	epoch	judged_at_utc	commit	scope	board	workload_class	outcome	judged_r	ci_low	ci_high	prove_ms	native_mhz	peak_rss_mib	waits	dispatches	energy_j	gates	holdout	submission_id	predecessor	supersedes

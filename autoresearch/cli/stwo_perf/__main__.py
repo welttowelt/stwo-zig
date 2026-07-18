@@ -88,7 +88,7 @@ def cmd_run(args) -> int:
         # minted exclusively by the judge bot, which signs them (signing.py).
         verdict = runner.evaluate(
             m.root, predecessor, m, args.workload_class, args.dimension,
-            args.scope, judged=False, out_dir=out_dir,
+            args.scope, judged=False, out_dir=out_dir, board=args.board,
         )
     except runner.RunError as exc:
         return _fail(str(exc))
@@ -290,6 +290,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--class", dest="workload_class", choices=["small", "wide", "deep"],
                    default="small")
     p.add_argument("--dimension", choices=["time", "rss", "energy"], default="time")
+    p.add_argument("--board", default="core_cpu",
+                   choices=["core_cpu", "core_hybrid", "core_metal",
+                            "heavy_native", "heavy_cairo", "stream"],
+                   help="scoring board (schema/scoring.md); kernels are never boards")
     p.add_argument("--predecessor", help="worktree of the paired A arm (required)")
     p.add_argument("--aa", action="store_true",
                    help="A/A dispersion measurement (both arms = this tree)")

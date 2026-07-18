@@ -10,12 +10,18 @@ SCHEMA_VERSION = 1
 
 COLUMNS = [
     "schema_version", "harness_commit", "epoch", "judged_at_utc", "commit",
-    "scope", "workload_class", "outcome", "judged_r", "ci_low", "ci_high",
-    "prove_ms", "native_mhz", "peak_rss_mib", "waits", "dispatches", "energy_j",
-    "gates", "holdout", "submission_id", "predecessor", "supersedes",
+    "scope", "board", "workload_class", "outcome", "judged_r", "ci_low",
+    "ci_high", "prove_ms", "native_mhz", "peak_rss_mib", "waits", "dispatches",
+    "energy_j", "gates", "holdout", "submission_id", "predecessor", "supersedes",
 ]
 
 OUTCOMES = ("promoted", "neutral", "rejected")
+
+# Scoring boards (schema/scoring.md). Kernel results never enter the ledger.
+BOARDS = (
+    "core_cpu", "core_hybrid", "core_metal",
+    "heavy_native", "heavy_cairo", "stream",
+)
 
 _FLOAT_COLS = {"judged_r", "ci_low", "ci_high", "prove_ms", "native_mhz", "peak_rss_mib"}
 _OPT_FLOAT_COLS = {"waits", "dispatches", "energy_j"}
@@ -105,6 +111,8 @@ def append(repo_root: Path, values: dict) -> None:
         raise LedgerError("appends must use the current schema_version")
     if values.get("outcome") not in OUTCOMES:
         raise LedgerError(f"outcome must be one of {OUTCOMES}")
+    if values.get("board") not in BOARDS:
+        raise LedgerError(f"board must be one of {BOARDS}")
     epochs = known_epochs(repo_root)
     if int(values["epoch"]) not in epochs:
         raise LedgerError(f"unknown epoch {values['epoch']}; open it in epochs.json first")
