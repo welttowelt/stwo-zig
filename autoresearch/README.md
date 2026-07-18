@@ -16,12 +16,14 @@ implementation. Python 3.11+ stdlib only; no packages to install.
 autoresearch/
   MANIFEST.json        editable paths + rung map, locked paths, workload
                        registry, gate policy — the machine-readable contract
+  skills/              agent skills: zig-profiling and metal-profiling
+                       (methodology + the stwo-prof command reference)
   README.md            this file
   schema/              submission dir, verdict JSON, and ledger row schemas
   ledger/              promotions.tsv (append-only) + epochs.json
   submissions/         one directory per submission, landed by PR
   notes/               standalone working notes (searchable via the CLI)
-  cli/                 the stwo-perf CLI (bin shim + stwo_perf package)
+  cli/                 stwo-perf (harness) and stwo-prof (profiling) CLIs
   backend/             optional API-key/leaderboard service (GitHub-verified)
   bots/                validate / judge / promote automation entrypoints
   workflows/           GitHub Actions to copy into .github/workflows/
@@ -56,6 +58,25 @@ stwo-perf feed                     # compile site/feed.json — the repo->websit
                                    # contract (schema/site-feed.md); refuses
                                    # dirty inputs
 ```
+
+### Profiling inner loop (S1)
+
+`stwo-prof` isolates code outside the repo and measures it with in-process
+hardware counters — the S1 rung of the scope ladder and the start of F.8
+item 1:
+
+```bash
+stwo-prof zig isolate mykernel      # scratch harness in ~/.cache/stwo-prof
+stwo-prof zig run mykernel          # instructions/op, cycles/op, IPC, energy
+stwo-prof zig asm mykernel          # codegen: NEON share, branches, memory ops
+stwo-prof zig compare base cand     # ABBA A/B with bootstrap CI
+stwo-prof metal run mydemo --entry k --grid 1048576   # real GPU ms + reflection
+stwo-prof metal trace -- <command>  # Metal System Trace capture
+```
+
+Methodology and reading guides live in `skills/zig-profiling` and
+`skills/metal-profiling`; kernel-scope results are diagnostics and never
+enter the promotions ledger.
 
 The CLI output is fully formatted for terminals (colors honor `NO_COLOR` and
 disappear when piped).
