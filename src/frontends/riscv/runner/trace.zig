@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const decode = @import("decode.zig");
+const opcode_manifest = @import("../opcode_manifest.zig");
 const M31 = @import("../../../core/fields/m31.zig").M31;
 const layouts = @import("../air/trace_columns.zig");
 const base_witness = @import("witness/base.zig");
@@ -65,7 +66,7 @@ pub const Trace = struct {
 
     pub fn groupByOpcodeFamily(self: *const Trace, _: std.mem.Allocator) !OpcodeFamilyCounts {
         var counts = OpcodeFamilyCounts{};
-        for (self.rows.items) |row| counts.increment(opcodeFamily(row.opcode));
+        for (self.rows.items) |row| counts.increment(try proofOpcodeFamily(row.opcode));
         return counts;
     }
 
@@ -87,7 +88,7 @@ pub const Trace = struct {
         }
         var index: usize = 0;
         for (self.rows.items) |row| {
-            if (opcodeFamily(row.opcode) != family) continue;
+            if (try proofOpcodeFamily(row.opcode) != family) continue;
             if (index == size) break;
             fillFamilyColumns(&columns, index, row, family);
             index += 1;
@@ -156,46 +157,18 @@ pub fn fillFamilyColumns(
     }
 }
 
-pub const OpcodeFamily = enum(u8) {
-    base_alu_reg,
-    base_alu_imm,
-    shifts_reg,
-    shifts_imm,
-    lt_reg,
-    lt_imm,
-    branch_eq,
-    branch_lt,
-    lui,
-    auipc,
-    jalr,
-    jal,
-    load_store,
-    mul,
-    mulh,
-    div,
-};
+pub const OpcodeFamily = opcode_manifest.Family;
 
 pub const N_FAMILIES: usize = @typeInfo(OpcodeFamily).@"enum".fields.len;
 
+pub fn proofOpcodeFamily(opcode: Opcode) decode.ProofOpcodeError!OpcodeFamily {
+    return opcode_manifest.family(try decode.proofOpcode(opcode));
+}
+
+/// Compatibility for prover internals that run only after `groupByOpcodeFamily`
+/// has rejected unsupported execution opcodes.
 pub fn opcodeFamily(opcode: Opcode) OpcodeFamily {
-    return switch (opcode) {
-        .ADD, .SUB, .XOR, .OR, .AND, .ECALL, .EBREAK, .FENCE => .base_alu_reg,
-        .ADDI, .XORI, .ORI, .ANDI => .base_alu_imm,
-        .SLL, .SRL, .SRA => .shifts_reg,
-        .SLLI, .SRLI, .SRAI => .shifts_imm,
-        .SLT, .SLTU => .lt_reg,
-        .SLTI, .SLTIU => .lt_imm,
-        .BEQ, .BNE => .branch_eq,
-        .BLT, .BGE, .BLTU, .BGEU => .branch_lt,
-        .LUI => .lui,
-        .AUIPC => .auipc,
-        .JALR => .jalr,
-        .JAL => .jal,
-        .LB, .LBU, .LH, .LHU, .LW, .SB, .SH, .SW, .LR_W, .SC_W, .AMOSWAP_W, .AMOADD_W, .AMOAND_W, .AMOOR_W, .AMOXOR_W, .AMOMIN_W, .AMOMAX_W, .AMOMINU_W, .AMOMAXU_W => .load_store,
-        .MUL => .mul,
-        .MULH, .MULHSU, .MULHU => .mulh,
-        .DIV, .DIVU, .REM, .REMU => .div,
-    };
+    return proofOpcodeFamily(opcode) catch unreachable;
 }
 
 pub const OpcodeFamilyCounts = struct {
@@ -217,11 +190,25 @@ pub const OpcodeFamilyCounts = struct {
 };
 
 test "trace groups opcode families" {
-    try std.testing.expectEqual(OpcodeFamily.base_alu_reg, opcodeFamily(.ADD));
-    try std.testing.expectEqual(OpcodeFamily.shifts_imm, opcodeFamily(.SRAI));
-    try std.testing.expectEqual(OpcodeFamily.branch_lt, opcodeFamily(.BGEU));
-    try std.testing.expectEqual(OpcodeFamily.load_store, opcodeFamily(.SW));
-    try std.testing.expectEqual(OpcodeFamily.div, opcodeFamily(.REMU));
+    try std.testing.expectEqual(OpcodeFamily.base_alu_reg, try proofOpcodeFamily(.ADD));
+    try std.testing.expectEqual(OpcodeFamily.shifts_imm, try proofOpcodeFamily(.SRAI));
+    try std.testing.expectEqual(OpcodeFamily.branch_lt, try proofOpcodeFamily(.BGEU));
+    try std.testing.expectEqual(OpcodeFamily.load_store, try proofOpcodeFamily(.SW));
+    try std.testing.expectEqual(OpcodeFamily.div, try proofOpcodeFamily(.REMU));
+    try std.testing.expectError(error.UnsupportedForProof, proofOpcodeFamily(.ECALL));
+    try std.testing.expectError(error.UnsupportedForProof, proofOpcodeFamily(.LR_W));
+    try std.testing.expectError(error.UnsupportedForProof, proofOpcodeFamily(.FENCE));
+}
+
+test "trace rejects execution-only opcodes before family witness generation" {
+    var trace = Trace.init(std.testing.allocator);
+    defer trace.deinit();
+    try trace.append(testRow(.ECALL));
+    try std.testing.expectError(error.UnsupportedForProof, trace.groupByOpcodeFamily(std.testing.allocator));
+    try std.testing.expectError(
+        error.UnsupportedForProof,
+        trace.columnsForFamily(std.testing.allocator, .base_alu_reg, 0),
+    );
 }
 
 fn testRow(opcode: Opcode) TraceRow {

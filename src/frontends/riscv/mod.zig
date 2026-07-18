@@ -5,6 +5,7 @@
 
 pub const runner = @import("runner/mod.zig");
 pub const air = @import("air/mod.zig");
+pub const opcode_manifest = @import("opcode_manifest.zig");
 pub const prover_mod = @import("prover.zig");
 pub const infra_trace = @import("infra_trace.zig");
 pub const host = @import("host/mod.zig");

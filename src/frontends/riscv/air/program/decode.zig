@@ -6,6 +6,7 @@
 
 const std = @import("std");
 const m31 = @import("../../../../core/fields/m31.zig");
+const opcode_manifest = @import("../../opcode_manifest.zig");
 const opcode_mod = @import("opcode.zig");
 
 pub const Opcode = opcode_mod.Opcode;
@@ -117,30 +118,12 @@ pub fn decodeInstruction(word: u32) Error!DecodedInstruction {
 pub fn decodeProgramWord(word: u32) Error!ProgramValues {
     const inst = try decodeInstruction(word);
     const id = inst.opcode.protocolId();
-    return switch (inst.opcode) {
-        .add,
-        .sub,
-        .sll,
-        .slt,
-        .sltu,
-        .xor,
-        .srl,
-        .sra,
-        .@"or",
-        .@"and",
-        .mul,
-        .mulh,
-        .mulhsu,
-        .mulhu,
-        .div,
-        .divu,
-        .rem,
-        .remu,
-        => .{ id, inst.rd, inst.rs1, inst.rs2 },
-        .sb, .sh, .sw => .{ id, inst.rs1, inst.rs2, immediateToFelt(inst.imm) },
-        .lb, .lh, .lw, .lbu, .lhu => .{ id, inst.rs1, inst.rd, immediateToFelt(inst.imm) },
-        .slli, .srli, .srai => .{ id, inst.rd, inst.rs1, @as(u32, @bitCast(inst.imm)) & 0x1f },
-        .addi, .slti, .sltiu, .xori, .ori, .andi => .{
+    return switch (opcode_manifest.entry(inst.opcode).program_shape) {
+        .register => .{ id, inst.rd, inst.rs1, inst.rs2 },
+        .store => .{ id, inst.rs1, inst.rs2, immediateToFelt(inst.imm) },
+        .load => .{ id, inst.rs1, inst.rd, immediateToFelt(inst.imm) },
+        .shift_immediate => .{ id, inst.rd, inst.rs1, @as(u32, @bitCast(inst.imm)) & 0x1f },
+        .immediate => .{
             id,
             inst.rd,
             inst.rs1,
@@ -149,7 +132,7 @@ pub fn decodeProgramWord(word: u32) Error!ProgramValues {
         .jalr => .{ id, inst.rd, inst.rs1, immediateToFelt(inst.imm) },
         .lui => .{ id, inst.rd, (word >> 12) & 0xfffff, 0 },
         .auipc, .jal => .{ id, inst.rd, immediateToFelt(inst.imm), 0 },
-        .beq, .bne, .blt, .bge, .bltu, .bgeu => .{
+        .branch => .{
             id,
             inst.rs1,
             inst.rs2,

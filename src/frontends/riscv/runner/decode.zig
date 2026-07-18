@@ -5,6 +5,7 @@
 //! instructions (37 RV32I base + 8 RV32M multiply/divide).
 
 const std = @import("std");
+const opcode_manifest = @import("../opcode_manifest.zig");
 
 /// All RV32IM opcodes.
 pub const Opcode = enum(u8) {
@@ -87,6 +88,78 @@ pub const Opcode = enum(u8) {
     EBREAK,
     FENCE,
 };
+
+pub const ProofOpcodeError = error{UnsupportedForProof};
+
+/// Convert an execution opcode into the canonical Stark-V proof opcode.
+///
+/// The exhaustive switch is a compile-time coverage check over the runner's
+/// instruction set. RV32A, SYSTEM, and FENCE remain executable but fail closed
+/// at the proof boundary.
+pub fn proofOpcode(opcode: Opcode) ProofOpcodeError!opcode_manifest.Opcode {
+    return switch (opcode) {
+        .ADD => .add,
+        .SUB => .sub,
+        .SLL => .sll,
+        .SLT => .slt,
+        .SLTU => .sltu,
+        .XOR => .xor,
+        .SRL => .srl,
+        .SRA => .sra,
+        .OR => .@"or",
+        .AND => .@"and",
+        .ADDI => .addi,
+        .SLTI => .slti,
+        .SLTIU => .sltiu,
+        .XORI => .xori,
+        .ORI => .ori,
+        .ANDI => .andi,
+        .SLLI => .slli,
+        .SRLI => .srli,
+        .SRAI => .srai,
+        .LB => .lb,
+        .LH => .lh,
+        .LW => .lw,
+        .LBU => .lbu,
+        .LHU => .lhu,
+        .SB => .sb,
+        .SH => .sh,
+        .SW => .sw,
+        .BEQ => .beq,
+        .BNE => .bne,
+        .BLT => .blt,
+        .BGE => .bge,
+        .BLTU => .bltu,
+        .BGEU => .bgeu,
+        .JAL => .jal,
+        .JALR => .jalr,
+        .LUI => .lui,
+        .AUIPC => .auipc,
+        .MUL => .mul,
+        .MULH => .mulh,
+        .MULHSU => .mulhsu,
+        .MULHU => .mulhu,
+        .DIV => .div,
+        .DIVU => .divu,
+        .REM => .rem,
+        .REMU => .remu,
+        .LR_W,
+        .SC_W,
+        .AMOSWAP_W,
+        .AMOADD_W,
+        .AMOAND_W,
+        .AMOOR_W,
+        .AMOXOR_W,
+        .AMOMIN_W,
+        .AMOMAX_W,
+        .AMOMINU_W,
+        .AMOMAXU_W,
+        .ECALL,
+        .EBREAK,
+        .FENCE,
+        => error.UnsupportedForProof,
+    };
+}
 
 /// A fully-decoded RV32IM instruction.
 pub const DecodedInst = struct {
@@ -417,6 +490,29 @@ test "decode MUL x1, x2, x3 (0x023100B3)" {
 test "decode ECALL (0x00000073)" {
     const inst = try DecodedInst.decode(0x00000073);
     try std.testing.expectEqual(Opcode.ECALL, inst.opcode);
+}
+
+test "proof opcode conversion covers exact Stark-V ids and rejects execution-only opcodes" {
+    var seen: [opcode_manifest.entries.len]bool = .{false} ** opcode_manifest.entries.len;
+    var supported: usize = 0;
+    inline for (@typeInfo(Opcode).@"enum".fields) |field| {
+        const opcode: Opcode = @enumFromInt(field.value);
+        if (proofOpcode(opcode)) |proof_opcode| {
+            const id = proof_opcode.protocolId();
+            try std.testing.expect(!seen[id]);
+            seen[id] = true;
+            supported += 1;
+        } else |err| {
+            try std.testing.expectEqual(error.UnsupportedForProof, err);
+        }
+    }
+    try std.testing.expectEqual(opcode_manifest.entries.len, supported);
+    for (seen) |present| try std.testing.expect(present);
+    try std.testing.expectEqual(@as(u32, 0), (try proofOpcode(.ADD)).protocolId());
+    try std.testing.expectEqual(@as(u32, 44), (try proofOpcode(.REMU)).protocolId());
+    try std.testing.expectError(error.UnsupportedForProof, proofOpcode(.ECALL));
+    try std.testing.expectError(error.UnsupportedForProof, proofOpcode(.LR_W));
+    try std.testing.expectError(error.UnsupportedForProof, proofOpcode(.FENCE));
 }
 
 test "decode SUB x1, x2, x3 (0x403100B3)" {

@@ -157,6 +157,40 @@ pub fn build(b: *std.Build) void {
     const riscv_trace_step = b.step("riscv-trace-dump", "Build RISC-V trace dumper CLI");
     riscv_trace_step.dependOn(&install_riscv_trace_cli.step);
 
+    // Canonical Stark-V opcode policy dump and mechanical coverage check.
+    const riscv_opcode_manifest_module = b.createModule(.{
+        .root_source_file = b.path("src/tools/riscv_opcode_manifest/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    riscv_opcode_manifest_module.addImport("stwo", stwo_module);
+    const riscv_opcode_manifest_cli = b.addExecutable(.{
+        .name = "riscv-opcode-manifest",
+        .root_module = riscv_opcode_manifest_module,
+    });
+    const run_riscv_opcode_manifest = b.addRunArtifact(riscv_opcode_manifest_cli);
+    run_riscv_opcode_manifest.addArg("dump");
+    const riscv_opcode_manifest_step = b.step(
+        "riscv-opcode-manifest",
+        "Dump the canonical Stark-V opcode and proof-family policy as JSON",
+    );
+    riscv_opcode_manifest_step.dependOn(&run_riscv_opcode_manifest.step);
+    const check_riscv_opcode_manifest = b.addRunArtifact(riscv_opcode_manifest_cli);
+    check_riscv_opcode_manifest.addArg("check");
+    const riscv_opcode_manifest_check_step = b.step(
+        "riscv-opcode-manifest-check",
+        "Validate exact Stark-V opcode IDs and execution-only classifications",
+    );
+    riscv_opcode_manifest_check_step.dependOn(&check_riscv_opcode_manifest.step);
+    const riscv_opcode_manifest_test_module = b.createModule(.{
+        .root_source_file = b.path("src/tools/riscv_opcode_manifest/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    riscv_opcode_manifest_test_module.addImport("stwo", stwo_module);
+    const riscv_opcode_manifest_tests = b.addTest(.{ .root_module = riscv_opcode_manifest_test_module });
+    test_step.dependOn(&b.addRunArtifact(riscv_opcode_manifest_tests).step);
+
     // RISC-V runner tests use the src-wide test root for nested source access.
     const riscv_test_module = b.createModule(.{
         .root_source_file = b.path("src/tests.zig"),
