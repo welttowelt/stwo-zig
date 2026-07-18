@@ -36,7 +36,9 @@ fn suffix(columns: anytype, index: usize, start: usize, row: anytype, amount: u5
     const left = row.opcode == .SLL or row.opcode == .SLLI;
     const arithmetic = row.opcode == .SRA or row.opcode == .SRAI;
     const witness = compute(row.rs1_val, amount, left, arithmetic);
-    const multiplier = @as(u32, 1) << @truncate(amount);
+    // The multiplier column is 2^bit_shift (the sub-byte component only);
+    // the limb component is carried by the hot-one limb markers.
+    const multiplier = @as(u32, 1) << @as(u3, @truncate(amount));
     w.set(columns, index, start, w.u(witness.sign));
     w.set(columns, index, start + 1, w.bit(left));
     w.set(columns, index, start + 2, w.bit(!left and !arithmetic));
@@ -67,7 +69,7 @@ pub fn immediate(columns: anytype, index: usize, row: anytype) void {
     const left = row.opcode == .SLLI;
     const arithmetic = row.opcode == .SRAI;
     const witness = compute(row.rs1_val, amount, left, arithmetic);
-    const multiplier = @as(u32, 1) << @truncate(amount);
+    const multiplier = @as(u32, 1) << @as(u3, @truncate(amount));
     w.set(columns, index, 24, w.bit(left));
     w.set(columns, index, 25, w.bit(!left and !arithmetic));
     w.set(columns, index, 26, w.bit(arithmetic));
@@ -76,4 +78,53 @@ pub fn immediate(columns: anytype, index: usize, row: anytype) void {
     for (witness.bit_markers, 0..) |marker, i| w.set(columns, index, 29 + i, w.u(marker));
     for (witness.limb_markers, 0..) |marker, i| w.set(columns, index, 37 + i, w.u(marker));
     for (witness.carries, 0..) |carry, i| w.set(columns, index, 41 + i, w.u(carry));
+}
+
+const std_probe = @import("std");
+const M31_probe = @import("../../../../core/fields/m31.zig").M31;
+const QM31_probe = @import("../../../../core/fields/qm31.zig").QM31;
+const shifts_imm_semantics = @import("../../air/semantics/shifts_imm.zig");
+
+test "shift witness: SLLI by 8 satisfies pinned semantics" {
+    const n = shifts_imm_semantics.N_ORACLE_COLUMNS;
+    var storage: [n][1]M31_probe = .{.{M31_probe.zero()}} ** n;
+    var columns: [n][]M31_probe = undefined;
+    for (&columns, &storage) |*column, *values| column.* = values;
+
+    const TestRow = struct {
+        clk: u32 = 1,
+        pc: u32 = 0x1000,
+        opcode: @import("../decode.zig").Opcode = .SLLI,
+        rd: u5 = 6,
+        rs1: u5 = 1,
+        rs2: u5 = 0,
+        imm: i32 = 8,
+        rs1_val: u32 = 0xF0F0_F0F0,
+        rs1_prev_clk: u32 = 0,
+        rs2_val: u32 = 0,
+        rs2_prev_clk: u32 = 0,
+        rd_prev_val: u32 = 0,
+        rd_prev_clk: u32 = 0,
+        rd_val: u32 = 0xF0F0_F000,
+        mem_addr: u32 = 0,
+        mem_prev_word: u32 = 0,
+        mem_prev_clk: u32 = 0,
+        mem_next_word: u32 = 0,
+        is_load: bool = false,
+        is_store: bool = false,
+    };
+    immediate(&columns, 0, TestRow{});
+
+    var sampled: [n]QM31_probe = undefined;
+    for (&sampled, columns) |*value, column| value.* = QM31_probe.fromBase(column[0]);
+    const row = try shifts_imm_semantics.Row.fromOracleColumns(&sampled);
+    const constraints = shifts_imm_semantics.evaluate(row);
+    var failing: usize = 0;
+    for (constraints.values, 0..) |value, i| {
+        if (!value.eql(QM31_probe.zero())) {
+            std_probe.debug.print("SLLI8 constraint {d} nonzero\n", .{i});
+            failing += 1;
+        }
+    }
+    try std_probe.testing.expectEqual(@as(usize, 0), failing);
 }
