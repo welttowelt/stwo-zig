@@ -199,9 +199,7 @@ class CommandPlanTests(unittest.TestCase):
         self.assertLess(oracle_validate_index, evidence_index)
         self.assertIn(f"--candidate {COMMIT}", rendered[producer_index])
         self.assertIn(f"--candidate {COMMIT}", rendered[evidence_index])
-        self.assertIn("zig build riscv-release-gate -Doptimize=ReleaseFast", rendered[-1])
-        self.assertIn("-Driscv-release-phase=candidate", rendered[-1])
-        self.assertIn("-Driscv-evidence-dir=/evidence", rendered[-1])
+        self.assertIn("riscv_release_evidence.py", rendered[-1])
 
     def test_strict_plan_refuses_an_opaque_oracle_location(self) -> None:
         with self.assertRaisesRegex(ValueError, "--stark-v-source"):

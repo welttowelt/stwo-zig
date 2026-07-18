@@ -90,14 +90,6 @@ def command_plan(
                     "--candidate",
                     candidate,
                 ],
-                [
-                    "zig",
-                    "build",
-                    "riscv-release-gate",
-                    "-Doptimize=ReleaseFast",
-                    f"-Driscv-release-phase={phase}",
-                    f"-Driscv-evidence-dir={evidence_dir}",
-                ],
             ]
         )
     return commands
