@@ -6,6 +6,7 @@ const common = @import("common.zig");
 const shift = @import("shift_common.zig");
 
 pub const N_ORACLE_COLUMNS: usize = 54;
+pub const N_CONSTRAINTS: usize = shift.N_CONSTRAINTS;
 pub const CURRENT_TRACE_COMPATIBLE = true;
 
 pub const Row = struct {
@@ -45,6 +46,10 @@ pub const Constraints = shift.Constraints;
 
 pub fn evaluate(row: Row) Constraints {
     return shift.evaluate(row.semantic);
+}
+
+pub fn placementConstraint(row: Row, is_active: QM31) QM31 {
+    return row.semantic.active().sub(is_active);
 }
 
 pub fn programLookup(row: Row) common.ProgramTuple {

@@ -123,6 +123,10 @@ pub fn evaluate(row: Row) Constraints {
     return .{ .values = out };
 }
 
+pub fn placementConstraint(row: Row, is_active: QM31) QM31 {
+    return row.active().sub(is_active);
+}
+
 pub fn programLookup(row: Row) common.ProgramTuple {
     const d = derive(row);
     return .{

@@ -193,6 +193,10 @@ pub fn evaluate(row: Row) Constraints {
     return .{ .values = out };
 }
 
+pub fn placementConstraint(row: Row, is_active: QM31) QM31 {
+    return row.active().sub(is_active);
+}
+
 pub fn programLookup(row: Row) common.ProgramTuple {
     const opcode_id = row.is_lb.mul(common.q(19)).add(row.is_lh.mul(common.q(20)))
         .add(row.is_lw.mul(common.q(21))).add(row.is_lbu.mul(common.q(22)))
