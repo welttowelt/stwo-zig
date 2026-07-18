@@ -231,6 +231,39 @@ class NativeMatrixPhase1EvidenceTests(unittest.TestCase):
             delta["report_kind"],
         )
 
+    def test_v4_to_v5_allows_only_the_pinned_verifier_boundary_transition(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            baseline = native_v4_report("a" * 40, "3", 2048)
+            current = native_v4_report("b" * 40, "4", 1024)
+            current["schema_version"] = 5
+            current["protocol"] = benchmark_delta.NATIVE_PROTOCOL_V5
+            baseline["rows"][0]["rust_oracle"]["binary_sha256"] = (
+                "4d223c37e85b96f61dccc684f2897c82d2d55f6c50b59616a69cc5cc70d2ccf8"
+            )
+            current["rows"][0]["rust_oracle"]["binary_sha256"] = (
+                "395c5549f383052e4e37ac29ae77923a5422f51cb310cfc7f9ef1281cd03819a"
+            )
+            baseline_path = root / "baseline.json"
+            current_path = root / "current.json"
+            write_json(baseline_path, baseline)
+            write_json(current_path, current)
+
+            delta, _, _ = benchmark_delta.compare_reports(
+                baseline_path, current_path, "2026-07-18T12:00:00Z"
+            )
+            transition = delta["comparison_identity"]["oracle_binary_transition"]
+            self.assertEqual("none", transition["timed_lane_impact"])
+            self.assertTrue(transition["proof_identity_required"])
+
+            current["rows"][0]["rust_oracle"]["binary_sha256"] = "9" * 64
+            write_json(current_path, current)
+            rejected, _, _ = benchmark_delta.compare_reports(
+                baseline_path, current_path, "2026-07-18T12:00:00Z"
+            )
+            self.assertEqual("incomparable", rejected["status"])
+            self.assertIn("binary_sha256", rejected["incompatibilities"][0])
+
 
 if __name__ == "__main__":
     unittest.main()

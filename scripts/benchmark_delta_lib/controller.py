@@ -29,6 +29,10 @@ from benchmark_delta_lib.common import (  # noqa: E402
     require_list,
     require_object,
 )
+from benchmark_delta_lib.native_oracle import (  # noqa: E402
+    classify_transition,
+    oracle_binary_pair,
+)
 
 
 DELTA_SCHEMA_VERSION = 1
@@ -577,6 +581,7 @@ def compare_native(
         raise IncompatibleReports("native matrix row counts differ")
     comparisons: list[dict[str, Any]] = []
     workload_keys: list[dict[str, Any]] = []
+    oracle_binary_pairs: set[tuple[str, str]] = set()
     for index, (baseline_value, current_value) in enumerate(
         zip(baseline_rows, current_rows, strict=True)
     ):
@@ -608,11 +613,7 @@ def compare_native(
                 raise IncompatibleReports(
                     f"{context} Rust oracle did not verify row {index}"
                 )
-        for field in ("toolchain", "upstream_commit", "binary_sha256"):
-            if base_rust.get(field) != curr_rust.get(field):
-                raise IncompatibleReports(
-                    f"native Rust oracle contract differs at row {index}: {field}"
-                )
+        oracle_binary_pairs.add(oracle_binary_pair(base_rust, curr_rust, index))
         workload_key = {
             "descriptor_sha256": descriptor,
             "workload": base_row.get("workload"),
@@ -660,6 +661,13 @@ def compare_native(
                 }
             )
 
+    oracle_transition = classify_transition(
+        oracle_binary_pairs,
+        protocols,
+        NATIVE_PROTOCOL_V4,
+        NATIVE_PROTOCOL_V5,
+    )
+
     identity = {
         "report_protocol": (
             baseline_protocol
@@ -669,6 +677,7 @@ def compare_native(
         "settings": base_settings,
         "host_execution": base_host,
         "correctness_scope": base_oracle,
+        "oracle_binary_transition": oracle_transition,
         "ordered_workloads": workload_keys,
     }
     revisions = {
