@@ -5,7 +5,7 @@
 **Created:** 2026-07-18
 
 **Last reconciled:** 2026-07-18 against committed implementation baseline
-`a54333b6` and the explicitly unaccepted working-tree slices described below.
+`92456745` and the explicitly unaccepted working-tree slices described below.
 
 **Authority:** This is the operative delivery contract for the Stark-V RV32IM
 lane. It may be replaced only by a reviewed document that names every changed
@@ -179,7 +179,7 @@ authorize RF-01 by itself.
 
 ### Current implementation snapshot
 
-The accepted implementation baseline is `a54333b6`. It contains:
+The current committed implementation baseline is `92456745`. It contains:
 
 - exact six-domain lookup schemas and signed counters through `a5b68b28`;
 - a generic lookup-table AIR component through `dee14997`;
@@ -191,19 +191,29 @@ The accepted implementation baseline is `a54333b6`. It contains:
 - explicit opcode/table interaction ownership and exact table-source ingestion
   through `788ac426`; and
 - canonical component ordering and bounded table-interaction scratch memory
-  through `a54333b6`.
+  through `a54333b6`;
+- production opcode semantic constraint placement through `52315ef1`;
+- proof-integrated clock-update relations through `ffb4013d`;
+- exact predecessor chaining across synthetic register and memory clock-gap rows
+  through `e454dafb`; and
+- central variable-width claims, exact six-table preprocessed tuples and
+  multiplicities, committed-buffer relation provenance, canonical component
+  assembly, and mirrored prover/verifier interaction consumption through
+  `92456745`.
 
-These are necessary building blocks, not proof of global placement. The exact
-opcode component is not yet the sole production consumer of the committed
-family columns, all six table components are not yet in the production proof,
-and the canonical aggregate is not yet verifier-enforced.
+The latest committed integration is diagnostic progress, not accepted release
+evidence. Focused component tests and one serial production ELF proof/verify
+roundtrip passed after it landed, but that fixture produced no synthetic
+clock-gap rows and the run was not a clean-candidate CP-13 receipt. CP-04 through
+CP-06 therefore remain `IN_PROGRESS`; the required multi-shard, non-vacuous
+relation-domain closure, malicious-witness fleet, and clean pinned-Rust evidence
+have not been replaced by that roundtrip.
 
-At this reconciliation point, the working tree contains an unaccepted central
-integration slice for variable-width statement claims, exact preprocessed table
-tuples, table multiplicity columns, committed-column interaction provenance,
-and prover/verifier component assembly. It must be reviewed, decomposed where
-required, committed, and exercised by the named gates before it changes a
-checkpoint status.
+At this reconciliation point, the working tree contains unaccepted public-data
+validation and schema-v3 CLI/artifact slices. These must pass focused review,
+hostile decoding, independent-process verification, production statement
+binding, and the named clean-candidate gates before they alter CP-07, CP-09, or
+CP-10. Uncommitted code and output from it remain diagnostic by definition.
 
 The pinned Rust and Zig narrow-Poseidon2 witness generators have reached exact
 445-column parity for the focused `Call.narrow(1, 2)` row, and the committed
@@ -213,10 +223,13 @@ Merkle/Poseidon mutations, complete table and memory closure, and clean
 candidate evidence pass. Focused parity or a green local suite is never accepted
 as release evidence by itself.
 
-The staged proof artifact is still schema v2 and mirrors transitional claim
-fields. Production placement requires schema v3 after the internal claim shape
-stabilizes. Until that migration and independent reconstruction pass, CP-09 and
-CP-10 remain `IN_PROGRESS` even when an older staged smoke passes.
+The last accepted staged proof artifact is schema v2 and mirrors transitional
+claim fields. A schema-v3 implementation is under review, but production
+placement requires it to land with single-read classification, bounded hostile
+decoding, exact claim reconstruction, caller-expected statement enforcement,
+and independent-process verification. Until those gates pass, CP-09 and CP-10
+remain `IN_PROGRESS` even when an older staged smoke or an uncommitted v3 smoke
+passes.
 
 ### Required work packages
 
@@ -1204,9 +1217,9 @@ remains `IN_PROGRESS`.
 | CP-01 Structure | IN_PROGRESS | Mechanical core-purity gate passes through `75a74318`; frontend-layering gate correctly fails on active `silent` paths and oversized files | Backend-neutral frontend; RISC-V frontend-layering checker clean; touched source debt reduced |
 | CP-02 Execute | IN_PROGRESS | Live decode and execution boundaries pass at `30bc24ec`; two-shard ADDI corpus case is committed at `8e5be3c3` | Exact 45-opcode manifest, complete edge corpus, and corrected signed-MULH oracle |
 | CP-03 Witness | IN_PROGRESS | Production-buffer per-family rows and ordered accesses pass live Rust comparison at `30bc24ec` | Complete schema/edge corpus and bind the layout digest into final candidate evidence |
-| CP-04 Semantic AIR | IN_PROGRESS | Honest roundtrip and partial mutation matrix through `88870d2c` | All accepted opcodes proof-integrated on-domain/OODS and malicious-witness tested |
-| CP-05 Cross-shard LogUp | IN_PROGRESS | Exact opcode batching/constraints through `b6ce38de`, interaction ownership and source ingestion through `788ac426`, canonical component order through `1a29dbf2`, and fail-closed relation evidence through `f63ae1cf`; production global placement remains open | Make exact consumers canonical, place every infrastructure source/table, enforce non-vacuous 12-domain closure, and obtain cumulative Rust parity |
-| CP-06 Memory/hash/tables | IN_PROGRESS | Live roots, exact lookup-table building blocks, exact Rust/Zig 445-column parity, and production HashComponent integration are committed through `cb793596`; bounded table scratch is committed through `a54333b6` | Enforce proof-level Merkle/Poseidon mutations, canonical-zero `poseidon2_io`, all six tables, and complete memory closure |
+| CP-04 Semantic AIR | IN_PROGRESS | Production opcode semantic placement is committed through `52315ef1`; exact synthetic clock-gap predecessor chaining is committed through `e454dafb`; a focused roundtrip is diagnostic only | Complete accepted-opcode on-domain/OODS coverage, nonempty long-gap proof coverage, the full malicious-witness matrix, and corrected signed-MULH oracle evidence |
+| CP-05 Cross-shard LogUp | IN_PROGRESS | Exact opcode batching/constraints, ownership, canonical order, clock relations, and the central 27-component interaction assembly are committed through `92456745`; production tuple/sum oracle boundaries remain open | Prove one-, two-, and many-shard non-vacuous closure for all 12 domains; reject omission, duplication, reorder, tuple, multiplicity, padding, and boundary mutations; obtain cumulative Rust parity |
+| CP-06 Memory/hash/tables | IN_PROGRESS | Live roots, exact lookup-table building blocks, exact Rust/Zig 445-column parity, production HashComponent integration, six fixed-table placement, multiplicity derivation, and memory boundary range sources are committed through `92456745` | Enforce proof-level Merkle/Poseidon/table/memory mutations, canonical-zero `poseidon2_io`, and complete memory closure on a clean candidate |
 | CP-07 Public I/O | IN_PROGRESS | Public values pass live; standalone field audit exists | Every field, segment role, expected statement, and public relation term constrained |
 | CP-08 Transcript | IN_PROGRESS | Shared public-data prefix passes at `88870d2c` | Exact full event order, shard divergence declaration, byte tracer, and mutation probes |
 | CP-09 CLI | IN_PROGRESS | Installed candidate prove, independent verify, verified benchmark, two-shard smoke, and failure matrix through `9af6fe2b`; current adapter still projects transitional claims | Migrate to the stabilized exact claim model/schema v3, preserve candidate behavior, and pass the post-RF-01 promoted matrix |
