@@ -20,7 +20,7 @@ pub const composition_metallib_name = "composition.metallib";
 
 /// A reference returned by the authenticated, service-owned artifact store.
 /// This layer deliberately does not rehash multi-gigabyte objects. It verifies
-/// the content-addressed name, size, type, and read-only mode before cloning.
+/// the content-addressed name, size, type, and read-only mode before publishing.
 pub const ImmutableObject = struct {
     path: []const u8,
     object_id: [32]u8,
@@ -154,8 +154,8 @@ pub fn deriveTree0Root(path: []const u8) ![32]u8 {
 
 /// Strictly parses an authenticated STWZMRK v1 object without retaining any
 /// non-root layer. The caller must obtain ImmutableObject from its artifact
-/// Store; this layer preserves that object by APFS clone and treats the final
-/// retained layer as authoritative.
+/// Store; this layer preserves that object by APFS clone or an exclusive copy
+/// fallback and treats the final retained layer as authoritative.
 pub fn deriveTree0RootWithLimits(path: []const u8, limits: TreeLimits) ![32]u8 {
     if (!std.fs.path.isAbsolute(path)) return error.InvalidMerkleObjectPath;
     if (limits.max_layers == 0 or limits.max_file_bytes == 0 or limits.max_layer_bytes == 0)
@@ -224,7 +224,22 @@ fn cloneObject(object: ImmutableObject, destination: []const u8) !void {
     if (source_stat.kind != .file or source_stat.size != object.bytes or source_stat.mode & 0o222 != 0)
         return error.InvalidImmutableObject;
 
-    if (comptime builtin.os.tag != .macos) return error.ArtifactCloneUnsupported;
+    const cloned = if (comptime builtin.os.tag == .macos)
+        try cloneObjectApfs(source, destination)
+    else
+        false;
+    if (!cloned) try copyObject(source, source_stat, destination);
+
+    const published = try std.fs.openFileAbsolute(destination, .{});
+    defer published.close();
+    const published_stat = try published.stat();
+    if (published_stat.kind != .file or published_stat.inode == source_stat.inode or
+        published_stat.size != source_stat.size or published_stat.mode & 0o222 != 0)
+        return error.ImmutableObjectChanged;
+    try published.sync();
+}
+
+fn cloneObjectApfs(source: std.fs.File, destination: []const u8) !bool {
     const destination_z = try std.posix.toPosixPath(destination);
     const result = fclonefileat(
         source.handle,
@@ -232,10 +247,10 @@ fn cloneObject(object: ImmutableObject, destination: []const u8) !void {
         &destination_z,
         clone_no_owner_copy,
     );
-    switch (std.posix.errno(result)) {
-        .SUCCESS => {},
+    return switch (std.posix.errno(result)) {
+        .SUCCESS => true,
         .EXIST => return error.ArtifactViewConflict,
-        .XDEV, .OPNOTSUPP => return error.ArtifactCloneUnsupported,
+        .XDEV, .OPNOTSUPP => false,
         .ACCES, .PERM => return error.AccessDenied,
         .NOSPC, .DQUOT => return error.NoSpaceLeft,
         .IO => return error.InputOutput,
@@ -243,14 +258,37 @@ fn cloneObject(object: ImmutableObject, destination: []const u8) !void {
         .NAMETOOLONG => return error.NameTooLong,
         .NOENT => return error.FileNotFound,
         else => |err| return std.posix.unexpectedErrno(err),
+    };
+}
+
+fn copyObject(source: std.fs.File, source_stat: std.fs.File.Stat, destination: []const u8) !void {
+    try source.seekTo(0);
+    const output = std.fs.createFileAbsolute(destination, .{
+        .read = true,
+        .exclusive = true,
+        .mode = 0o600,
+    }) catch |err| switch (err) {
+        error.PathAlreadyExists => return error.ArtifactViewConflict,
+        else => return err,
+    };
+    defer output.close();
+    errdefer std.fs.deleteFileAbsolute(destination) catch {};
+
+    var buffer: [256 * 1024]u8 = undefined;
+    var bytes: u64 = 0;
+    while (true) {
+        const count = try source.read(&buffer);
+        if (count == 0) break;
+        try output.writeAll(buffer[0..count]);
+        bytes = std.math.add(u64, bytes, count) catch return error.InvalidImmutableObject;
     }
-    const cloned = try std.fs.openFileAbsolute(destination, .{});
-    defer cloned.close();
-    const cloned_stat = try cloned.stat();
-    if (cloned_stat.kind != .file or cloned_stat.inode == source_stat.inode or
-        cloned_stat.size != source_stat.size or cloned_stat.mode & 0o222 != 0)
+    const source_after = try source.stat();
+    if (bytes != source_stat.size or source_after.inode != source_stat.inode or
+        source_after.size != source_stat.size or source_after.mode != source_stat.mode or
+        source_after.mtime != source_stat.mtime or source_after.ctime != source_stat.ctime)
         return error.ImmutableObjectChanged;
-    try cloned.sync();
+    try output.chmod(0o400);
+    try output.sync();
 }
 
 fn syncDirectory(directory: std.fs.Dir) !void {
