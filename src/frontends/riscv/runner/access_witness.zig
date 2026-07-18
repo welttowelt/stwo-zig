@@ -25,11 +25,19 @@ pub const Witness = struct {
         clock: u32,
         rs1_value: u32,
         rs2_value: u32,
+        rd_previous_value: u32,
         rd_value: u32,
     ) !void {
         if (self.plan.reads_rs1) try tracker.recordRegAccess(inst.rs1, clock, rs1_value);
         if (self.plan.reads_rs2) try tracker.recordRegAccess(inst.rs2, clock, rs2_value);
-        if (self.plan.writes_rd) try tracker.recordRegAccess(inst.rd, clock, rd_value);
+        if (self.plan.writes_rd) {
+            try tracker.recordRegTransition(
+                inst.rd,
+                clock,
+                rd_previous_value,
+                rd_value,
+            );
+        }
     }
 };
 
@@ -41,16 +49,25 @@ pub fn capture(
     clock: u32,
 ) Witness {
     const plan = planFor(inst.opcode);
-    const rs1_prev = tracker.reg_last_clk[inst.rs1];
+    const rs1_prev = state_chain.StateChainTracker.effectivePreviousClock(
+        tracker.reg_last_clk[inst.rs1],
+        clock,
+    );
     const rs2_prev = if (plan.reads_rs1 and inst.rs2 == inst.rs1)
         clock
     else
-        tracker.reg_last_clk[inst.rs2];
+        state_chain.StateChainTracker.effectivePreviousClock(
+            tracker.reg_last_clk[inst.rs2],
+            clock,
+        );
     const rd_prev = if ((plan.reads_rs1 and inst.rd == inst.rs1) or
         (plan.reads_rs2 and inst.rd == inst.rs2))
         clock
     else
-        tracker.reg_last_clk[inst.rd];
+        state_chain.StateChainTracker.effectivePreviousClock(
+            tracker.reg_last_clk[inst.rd],
+            clock,
+        );
     return .{
         .rs1_prev_clock = rs1_prev,
         .rs2_prev_clock = rs2_prev,
@@ -146,7 +163,7 @@ test "access witness: aliased ADDI chains source before destination" {
     const witness = capture(&tracker, inst, 8);
     try std.testing.expectEqual(@as(u32, 7), witness.rs1_prev_clock);
     try std.testing.expectEqual(@as(u32, 8), witness.rd_prev_clock);
-    try witness.recordRegisters(&tracker, inst, 8, 5, 0, 6);
+    try witness.recordRegisters(&tracker, inst, 8, 5, 0, 5, 6);
     try std.testing.expectEqual(@as(usize, 2), tracker.accesses.items.len);
     try std.testing.expectEqual(@as(u32, 8), tracker.accesses.items[1].clk_prev);
 }
@@ -158,7 +175,7 @@ test "access witness: store reads two sources and does not write rd" {
 
     const inst = try DecodedInst.decode(0x0011_2023); // SW x1, 0(x2)
     const witness = capture(&tracker, inst, 3);
-    try witness.recordRegisters(&tracker, inst, 3, 0x100, 0x55, 0);
+    try witness.recordRegisters(&tracker, inst, 3, 0x100, 0x55, 0, 0);
     try std.testing.expectEqual(@as(usize, 2), tracker.accesses.items.len);
     try std.testing.expectEqual(@as(u32, 2), tracker.accesses.items[0].addr);
     try std.testing.expectEqual(@as(u32, 1), tracker.accesses.items[1].addr);

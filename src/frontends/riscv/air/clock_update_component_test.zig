@@ -10,6 +10,8 @@ const prover_component = @import("../../../prover/air/component_prover.zig");
 const ClockUpdateComponent = @import("clock_update_component.zig").ClockUpdateComponent;
 const interaction = @import("clock_update_interaction.zig");
 const infra = @import("../infra_trace.zig");
+const access_witness = @import("../runner/access_witness.zig");
+const DecodedInst = @import("../runner/decode.zig").DecodedInst;
 const state_chain = @import("../runner/state_chain.zig");
 const counter = @import("lookups/tables/counter.zig");
 const relations_mod = @import("relation_challenges.zig");
@@ -45,6 +47,52 @@ fn q(value: u32) QM31 {
     return QM31.fromBase(M31.fromU64(value));
 }
 
+fn rowForClockUpdate(update: state_chain.ClockUpdate) interaction.Row {
+    return .{
+        .enabler = QM31.one(),
+        .addr_space = q(update.addr_space),
+        .addr = q(update.addr),
+        .clock_prev = q(update.clk_prev),
+        .value = .{
+            QM31.fromBase(update.value_limbs[0]),
+            QM31.fromBase(update.value_limbs[1]),
+            QM31.fromBase(update.value_limbs[2]),
+            QM31.fromBase(update.value_limbs[3]),
+        },
+    };
+}
+
+fn expectMemoryTuple(
+    relation_entry: @import("lookups/entry.zig").Entry,
+    addr_space: u32,
+    addr: u32,
+    clock: u32,
+    value_limbs: [4]M31,
+) !void {
+    try std.testing.expectEqual(
+        @import("lookups/entry.zig").Domain.memory_access,
+        relation_entry.domain,
+    );
+    try std.testing.expectEqual(@as(u8, 7), relation_entry.arity);
+    try std.testing.expect(relation_entry.values[0].eql(q(addr_space)));
+    try std.testing.expect(relation_entry.values[1].eql(q(addr)));
+    try std.testing.expect(relation_entry.values[2].eql(q(clock)));
+    for (value_limbs, relation_entry.values[3..7]) |limb, actual| {
+        try std.testing.expect(actual.eql(QM31.fromBase(limb)));
+    }
+}
+
+fn expectSameMemoryTuple(
+    lhs: @import("lookups/entry.zig").Entry,
+    rhs: @import("lookups/entry.zig").Entry,
+) !void {
+    try std.testing.expectEqual(lhs.domain, rhs.domain);
+    try std.testing.expectEqual(lhs.arity, rhs.arity);
+    for (lhs.values[0..lhs.arity], rhs.values[0..rhs.arity]) |left, right| {
+        try std.testing.expect(left.eql(right));
+    }
+}
+
 fn secureAt(columns: []const []const M31, row: usize) QM31 {
     return QM31.fromM31(columns[0][row], columns[1][row], columns[2][row], columns[3][row]);
 }
@@ -78,6 +126,110 @@ test "clock update exposes the exact memory pair and no range20 source" {
         error.InvalidRelationDomain,
         interaction.registerRangeCheck20Counter(&wrong),
     );
+}
+
+test "long register gaps compose clock rows into opcode access witnesses" {
+    const allocator = std.testing.allocator;
+    var tracker = state_chain.StateChainTracker.init(allocator);
+    defer tracker.deinit();
+
+    const source_reg: u5 = 2;
+    const destination_reg: u5 = 1;
+    const source_raw_clock: u32 = 3;
+    const destination_raw_clock: u32 = 5;
+    const clock: u32 = 2 * state_chain.MAX_CLOCK_DIFF + 10;
+    const source_value: u32 = 0x1122_3344;
+    const destination_previous: u32 = 0x5566_7788;
+    const destination_next: u32 = 0x99aa_bbcc;
+    tracker.reg_last_clk[source_reg] = source_raw_clock;
+    tracker.reg_last_clk[destination_reg] = destination_raw_clock;
+
+    const inst = try DecodedInst.decode(0x0011_0093); // ADDI x1, x2, 1
+    const witness = access_witness.capture(&tracker, inst, clock);
+    const expected_source_previous = source_raw_clock + 2 * state_chain.MAX_CLOCK_DIFF;
+    const expected_destination_previous = destination_raw_clock + 2 * state_chain.MAX_CLOCK_DIFF;
+    try std.testing.expectEqual(expected_source_previous, witness.rs1_prev_clock);
+    try std.testing.expectEqual(expected_destination_previous, witness.rd_prev_clock);
+
+    try witness.recordRegisters(
+        &tracker,
+        inst,
+        clock,
+        source_value,
+        0,
+        destination_previous,
+        destination_next,
+    );
+    try std.testing.expectEqual(@as(usize, 4), tracker.clock_updates_reg.items.len);
+    try std.testing.expectEqual(@as(usize, 2), tracker.accesses.items.len);
+
+    const source_limbs = state_chain.StateChainTracker.decomposeU32(source_value);
+    const destination_previous_limbs = state_chain.StateChainTracker.decomposeU32(
+        destination_previous,
+    );
+    const destination_next_limbs = state_chain.StateChainTracker.decomposeU32(destination_next);
+    const expected_regs = [_]u5{ source_reg, destination_reg };
+    const expected_raw_clocks = [_]u32{ source_raw_clock, destination_raw_clock };
+    const expected_previous_clocks = [_]u32{
+        expected_source_previous,
+        expected_destination_previous,
+    };
+    const previous_values = [_][4]M31{ source_limbs, destination_previous_limbs };
+
+    for (0..2) |chain_index| {
+        var previous_positive: ?@import("lookups/entry.zig").Entry = null;
+        for (0..2) |update_index| {
+            const update = tracker.clock_updates_reg.items[chain_index * 2 + update_index];
+            const expected_prev = expected_raw_clocks[chain_index] +
+                @as(u32, @intCast(update_index)) * state_chain.MAX_CLOCK_DIFF;
+            const expected_next = expected_prev + state_chain.MAX_CLOCK_DIFF;
+            try std.testing.expectEqual(@as(u1, 0), update.addr_space);
+            try std.testing.expectEqual(@as(u32, expected_regs[chain_index]), update.addr);
+            try std.testing.expectEqual(expected_prev, update.clk_prev);
+            try std.testing.expectEqual(expected_next, update.clk);
+            try std.testing.expectEqual(previous_values[chain_index], update.value_limbs);
+
+            const entries = interaction.orderedEntries(rowForClockUpdate(update));
+            try std.testing.expect(entries.entries[0].numerator.eql(QM31.one().neg()));
+            try std.testing.expect(entries.entries[1].numerator.eql(QM31.one()));
+            try expectMemoryTuple(
+                entries.entries[0],
+                0,
+                expected_regs[chain_index],
+                expected_prev,
+                previous_values[chain_index],
+            );
+            try expectMemoryTuple(
+                entries.entries[1],
+                0,
+                expected_regs[chain_index],
+                expected_next,
+                previous_values[chain_index],
+            );
+            if (previous_positive) |prior| try expectSameMemoryTuple(prior, entries.entries[0]);
+            previous_positive = entries.entries[1];
+        }
+
+        const access = tracker.accesses.items[chain_index];
+        try std.testing.expectEqual(@as(u1, 0), access.addr_space);
+        try std.testing.expectEqual(@as(u32, expected_regs[chain_index]), access.addr);
+        try std.testing.expectEqual(clock, access.clk);
+        try std.testing.expectEqual(expected_previous_clocks[chain_index], access.clk_prev);
+        try std.testing.expect(clock - access.clk_prev <= state_chain.MAX_CLOCK_DIFF);
+        const final_update_entries = interaction.orderedEntries(rowForClockUpdate(
+            tracker.clock_updates_reg.items[chain_index * 2 + 1],
+        ));
+        try expectMemoryTuple(
+            final_update_entries.entries[1],
+            0,
+            expected_regs[chain_index],
+            access.clk_prev,
+            previous_values[chain_index],
+        );
+    }
+
+    try std.testing.expectEqual(source_limbs, tracker.accesses.items[0].value_limbs);
+    try std.testing.expectEqual(destination_next_limbs, tracker.accesses.items[1].value_limbs);
 }
 
 test "clock update component owns exact bounds and aliases both selectors" {

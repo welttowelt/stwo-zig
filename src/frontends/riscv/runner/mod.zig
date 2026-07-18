@@ -157,7 +157,10 @@ fn runConfigured(
             mem_addr = rs1_val +% @as(u32, @bitCast(inst.imm));
             const aligned_addr = mem_addr & ~@as(u32, 3);
             mem_prev_word = mem.readU32(aligned_addr);
-            mem_prev_clk = chain_tracker.mem_last_clk.get(aligned_addr) orelse 0;
+            mem_prev_clk = state_chain.StateChainTracker.effectivePreviousClock(
+                chain_tracker.mem_last_clk.get(aligned_addr) orelse 0,
+                access_clk,
+            );
             if (is_load) {
                 mem_val = switch (inst.opcode) {
                     .LB, .LBU => @as(u32, mem.readByte(mem_addr)),
@@ -258,6 +261,7 @@ fn runConfigured(
             access_clk,
             rs1_val,
             rs2_val,
+            rd_prev_val,
             rd_val,
         );
         if (is_load or is_store) {
