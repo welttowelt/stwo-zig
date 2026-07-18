@@ -17,6 +17,7 @@ test {
     _ = @import("../../frontends/riscv/air/relation_export.zig");
     _ = @import("../../frontends/riscv/air/relation_export_test.zig");
     _ = @import("../../frontends/riscv/air/relations.zig");
+    _ = @import("../../frontends/riscv/air/semantic_component_test.zig");
     _ = @import("../../frontends/riscv/air/semantics/mod.zig");
     _ = @import("../../frontends/riscv/air/transcript/mod.zig");
 }

@@ -15,6 +15,7 @@ pub const public_logup = @import("public_logup.zig");
 pub const program = @import("program/mod.zig");
 pub const relation_challenges = @import("relation_challenges.zig");
 pub const relations = @import("relations.zig");
+pub const semantic_component = @import("semantic_component.zig");
 pub const semantic_eval = @import("semantic_eval.zig");
 pub const semantics = @import("semantics/mod.zig");
 pub const statement = @import("statement.zig");
