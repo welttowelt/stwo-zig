@@ -4,19 +4,23 @@
  "cross_verification": {
   "tool": "scripts/riscv_trace_vectors.py --attest-rust",
   "status": "rust-cross-verified",
+  "comparison": "canonical-json-byte-identical",
   "fields": [
-   "total_steps",
+   "steps",
    "final_pc",
-   "final_regs"
+   "final_regs",
+   "total_steps"
   ],
-  "note": "every committed ELF executed by the Stark-V runner at the pinned commit; per-step trace digests remain Zig-canonical"
+  "rust_source_commit": "d478f783055aa0d73a93768a433a3c6c31c91d1c",
+  "rust_binary_sha256": "2243674f7232f609110556cacd4ad213f1f8c1a1a1f8cf6f29fd65bf48b0db68",
+  "note": "every committed ELF produced identical canonical bytes in Zig and the Stark-V runner adapter; instruction clocks are one-based to match the pinned oracle"
  },
  "vectors": [
   {
    "name": "alu_test",
    "elf": "vectors/riscv_elfs/alu_test.elf",
    "elf_sha256": "5f9306d90eb4a2aa1d713635d2bb75ef44e51ecba38f09f2538aac987b0531a8",
-   "trace_sha256": "369339f0b411d2ed49331c4f3163a103464204936bc16b5b32d68b62a355c4c6",
+   "trace_sha256": "c82d590ba34277669990394fb6f24cb5f13fb907f0d417b6d061922fde924044",
    "total_steps": 4,
    "final_pc": 65552
   },
@@ -24,7 +28,7 @@
    "name": "branch_fib",
    "elf": "vectors/riscv_elfs/branch_fib.elf",
    "elf_sha256": "bc17f540ae357a7f38bf6af92491d557671907dbf877953d52d582d896842e81",
-   "trace_sha256": "5447156eb2578f95777f7a9653c52f078eb803bbc70939ad77f1bfa3a02d1941",
+   "trace_sha256": "f0a46f830ecdca68bbae2fc424b93ca124117de26c6dcfb7b08abc10ceeec055",
    "total_steps": 126,
    "final_pc": 65580
   },
@@ -32,7 +36,7 @@
    "name": "jal_jalr",
    "elf": "vectors/riscv_elfs/jal_jalr.elf",
    "elf_sha256": "b1f1036a63b470f5e8dedb44052ed1af3edc0bcb2f7c37580898eeca13be3fb3",
-   "trace_sha256": "c3c64846ed426103aabbf950957c37ebf74c8368408fc9ecaa03c70dffa4efb4",
+   "trace_sha256": "822132f50aad4dc8b26e68edee596e55095bc97f334745c2aa717bb855a0fa0f",
    "total_steps": 7,
    "final_pc": 65564
   },
@@ -40,7 +44,7 @@
    "name": "mem_ls",
    "elf": "vectors/riscv_elfs/mem_ls.elf",
    "elf_sha256": "5894d4f1941c33fefa7981b04cac70b77905e437380c86962097866b662604f8",
-   "trace_sha256": "b6333270481ab716edc1f9eb3ec27ce3fcf62a4b47f37b76daee0075229fea35",
+   "trace_sha256": "6d6779046bf141ca1c8ae4caf2fd7e8c73c8273cfe3fd3680e9cadb1318e87cd",
    "total_steps": 14,
    "final_pc": 65592
   },
@@ -48,7 +52,7 @@
    "name": "mul_div",
    "elf": "vectors/riscv_elfs/mul_div.elf",
    "elf_sha256": "30a01a4fb76f6a4adc83a8557c7edace4380fe8129634c8a4345d65fc58d7402",
-   "trace_sha256": "fbe7f91a555393fc67f25a82987285753f224d1eb07e2def689f900cecb441b6",
+   "trace_sha256": "6b48c4522225312e3daed52b3ec2e0d2d99c8a8f74016d1c9e95ccfc3dd3da6e",
    "total_steps": 17,
    "final_pc": 65604
   },
@@ -56,7 +60,7 @@
    "name": "shift_logic",
    "elf": "vectors/riscv_elfs/shift_logic.elf",
    "elf_sha256": "1730c9d0ebb185c438b2422bb6a8a32b6071afa2f9041678c8bd9a9ef13a0a64",
-   "trace_sha256": "1801323fdfa40fc74eae95499390b39d7b436b886965073cae81321d590be09e",
+   "trace_sha256": "90e3000c552eede4941154966e867cd8cf02a03a8e07c47d5cbf8c4b75a22a78",
    "total_steps": 19,
    "final_pc": 65612
   }

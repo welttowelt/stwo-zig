@@ -12,9 +12,10 @@ Modes:
   python3 scripts/riscv_trace_vectors.py            # gate (default)
   python3 scripts/riscv_trace_vectors.py --update   # regenerate fixtures
 
-Cross-verification provenance against the Rust Stark-V trace dumper at the
-pinned revision is recorded in the vector file; `riscv_equivalence.py --run`
-performs that comparison when a Rust binary is available.
+Cross-verification provenance against the Rust Stark-V runner at the pinned
+revision is recorded in the vector file. The attestation mode requires an
+exact, clean Stark-V source checkout and byte-compares its adapter output with
+the Zig runner's canonical trace JSON.
 """
 
 from __future__ import annotations
@@ -563,36 +564,73 @@ def gate(scratch: Path) -> int:
     return 0
 
 
-def attest_rust(rust_dumper: Path, scratch: Path) -> int:
-    """Cross-run every vector against a Stark-V dumper and, on full agreement
-    of the equivalence contract (total_steps, final_pc, final_regs), escalate
-    the recorded provenance. The dumper must be built at the pinned commit —
-    that responsibility is the operator's and is named in the provenance."""
+def validate_rust_source(rust_source: Path) -> str:
+    """Require a clean Stark-V checkout at the repository's exact pin."""
+    try:
+        head = subprocess.run(
+            ["git", "-C", str(rust_source), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        status = subprocess.run(
+            ["git", "-C", str(rust_source), "status", "--porcelain"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    except subprocess.CalledProcessError as error:
+        raise SystemExit(f"cannot inspect Stark-V source checkout: {error}") from error
+
+    expected = pinned_stark_v_commit()
+    if head != expected:
+        raise SystemExit(f"Stark-V source is at {head}, expected exact pin {expected}")
+    if status:
+        raise SystemExit("Stark-V source checkout is dirty; refusing oracle attestation")
+    return head
+
+
+def attest_rust(rust_dumper: Path, rust_source: Path, scratch: Path) -> int:
+    """Cross-run every vector and require identical canonical trace bytes."""
+    source_commit = validate_rust_source(rust_source)
+    rust_dumper = rust_dumper.resolve(strict=True)
+    binary_sha256 = _sha256(rust_dumper.read_bytes())
     payload = json.loads(VECTOR_FILE.read_text(encoding="utf-8"))
     dumper = build_trace_dumper()
     for vector in payload["vectors"]:
         elf_path = ROOT / vector["elf"]
-        zig_trace = json.loads(dump_trace(dumper, elf_path, scratch / "z.json"))
+        zig_bytes = dump_trace(dumper, elf_path, scratch / f"{vector['name']}.zig.json")
         rust_out = subprocess.run(
             [str(rust_dumper), "--elf", str(elf_path)],
-            cwd=ROOT, check=True, capture_output=True, text=True,
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
         )
-        rust_trace = json.loads(rust_out.stdout)
-        for field in ("total_steps", "final_pc", "final_regs"):
-            if rust_trace[field] != zig_trace[field]:
-                print(
-                    f"riscv trace vectors: {vector['name']}: {field} disagrees "
-                    f"(rust {rust_trace[field]!r} vs zig {zig_trace[field]!r})",
-                    file=sys.stderr,
-                )
-                return 1
-        print(f"{vector['name']}: rust/zig agree on the equivalence contract")
+        if rust_out.stdout != zig_bytes:
+            print(
+                f"riscv trace vectors: {vector['name']}: canonical bytes disagree "
+                f"(rust {_sha256(rust_out.stdout)} vs zig {_sha256(zig_bytes)})",
+                file=sys.stderr,
+            )
+            return 1
+        if _sha256(zig_bytes) != vector["trace_sha256"]:
+            print(
+                f"riscv trace vectors: {vector['name']}: byte-identical oracle "
+                "output disagrees with the committed digest",
+                file=sys.stderr,
+            )
+            return 1
+        print(f"{vector['name']}: rust/zig canonical trace bytes are identical")
     payload["cross_verification"] = {
         "tool": "scripts/riscv_trace_vectors.py --attest-rust",
         "status": "rust-cross-verified",
-        "fields": ["total_steps", "final_pc", "final_regs"],
-        "note": "every committed ELF executed by the Stark-V runner at the "
-        "pinned commit; per-step trace digests remain Zig-canonical",
+        "comparison": "canonical-json-byte-identical",
+        "fields": ["steps", "final_pc", "final_regs", "total_steps"],
+        "rust_source_commit": source_commit,
+        "rust_binary_sha256": binary_sha256,
+        "note": "every committed ELF produced identical canonical bytes in "
+        "Zig and the Stark-V runner adapter; instruction clocks are one-based "
+        "to match the pinned oracle",
     }
     VECTOR_FILE.write_text(json.dumps(payload, indent=1) + "\n", encoding="utf-8")
     print(f"provenance escalated in {VECTOR_FILE}")
@@ -605,6 +643,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--attest-rust", type=Path, default=None, metavar="RUST_DUMPER",
                         help="cross-run vectors against a Stark-V dumper built at the "
                              "pinned commit and escalate provenance on agreement")
+    parser.add_argument("--rust-source", type=Path, default=None, metavar="STARK_V_CHECKOUT",
+                        help="clean Stark-V checkout at the exact pin (required with "
+                             "--attest-rust)")
     parser.add_argument("--scratch", type=Path, default=None, help="working dir for trace output")
     args = parser.parse_args(argv)
     import tempfile
@@ -613,7 +654,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.update:
             return update(scratch)
         if args.attest_rust is not None:
-            return attest_rust(args.attest_rust, scratch)
+            if args.rust_source is None:
+                parser.error("--rust-source is required with --attest-rust")
+            return attest_rust(args.attest_rust, args.rust_source, scratch)
         return gate(scratch)
 
     if args.scratch is not None:
