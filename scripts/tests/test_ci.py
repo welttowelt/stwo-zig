@@ -28,6 +28,10 @@ class CiTests(unittest.TestCase):
         self.assertIn("run: python3 scripts/ci.py --strict\n", workflow)
         self.assertIn("inputs.gate == 'strict'", workflow)
 
+    def test_hosted_ci_accepts_exact_commit_aot_evidence_tags(self) -> None:
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        self.assertIn('tags: ["aot-evidence-*"]', workflow)
+
     def test_release_gates_run_the_complete_test_graph_in_requested_mode(self) -> None:
         build = (ROOT / "build.zig").read_text(encoding="utf-8")
         verification_products = (
