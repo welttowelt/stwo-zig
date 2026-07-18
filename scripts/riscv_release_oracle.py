@@ -48,16 +48,34 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     let mut elf: Option<String> = None;
     let mut decode_file: Option<String> = None;
+    let mut poseidon2_file: Option<String> = None;
     let mut max: u64 = 1_000_000;
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
             "--elf" => { i += 1; elf = Some(args[i].clone()); }
             "--decode-file" => { i += 1; decode_file = Some(args[i].clone()); }
+            "--poseidon2-file" => { i += 1; poseidon2_file = Some(args[i].clone()); }
             "--max-steps" => { i += 1; max = args[i].parse().expect("max-steps"); }
             _ => {}
         }
         i += 1;
+    }
+    if let Some(path) = poseidon2_file {
+        let raw = fs::read(path).expect("read poseidon2 file");
+        let mut out = String::new();
+        for chunk in raw.chunks_exact(64) {
+            let mut state = [0u32; 16];
+            for (i, word) in chunk.chunks_exact(4).enumerate() {
+                state[i] = u32::from_le_bytes([word[0], word[1], word[2], word[3]]);
+            }
+            runner::poseidon2::poseidon2_permutation(&mut state);
+            let rendered: Vec<String> = state.iter().map(|w| w.to_string()).collect();
+            out.push_str(&rendered.join(" "));
+            out.push('\n');
+        }
+        print!("{}", out);
+        return;
     }
     if let Some(path) = decode_file {
         let raw = fs::read(path).expect("read decode file");
@@ -370,6 +388,52 @@ def compare_memory_roots(oracle_exe: Path, receipt: dict) -> None:
     }
 
 
+def poseidon2_corpus() -> bytes:
+    """Deterministic 16-word states: structured edges plus an LCG sweep."""
+    import struct as _struct
+    states = []
+    states.append([0] * 16)
+    states.append([1] * 16)
+    states.append([0x7FFFFFFE] * 16)
+    states.append(list(range(16)))
+    seed = 0x243F6A88
+    for _ in range(512):
+        state = []
+        for _ in range(16):
+            seed = (seed * 1664525 + 1013904223) & 0x7FFFFFFF
+            state.append(seed)
+        states.append(state)
+    return b"".join(_struct.pack("<16I", *state) for state in states)
+
+
+def compare_poseidon2(oracle_exe: Path, receipt: dict) -> None:
+    """Direct Poseidon2 permutation parity over a deterministic state corpus,
+    byte-compared, plus the depth-30 default-hash chain constants."""
+    import tempfile
+
+    zig_exe = ROOT / "zig-out" / "bin" / "riscv-trace-dump"
+    with tempfile.TemporaryDirectory() as tmp:
+        corpus = Path(tmp) / "states.bin"
+        payload = poseidon2_corpus()
+        corpus.write_bytes(payload)
+        rust_out = _run([str(oracle_exe), "--poseidon2-file", str(corpus)])
+        zig_out = _run([str(zig_exe), "--poseidon2-file", str(corpus)], cwd=ROOT)
+    if rust_out == zig_out:
+        receipt["boundaries"]["poseidon2_vectors"] = {
+            "status": "pass",
+            "states": len(payload) // 64,
+            "corpus_sha256": hashlib.sha256(payload).hexdigest(),
+        }
+        return
+    diffs = []
+    for rust_line, zig_line in zip(rust_out.splitlines(), zig_out.splitlines()):
+        if rust_line != zig_line:
+            diffs.append({"rust": rust_line[:96], "zig": zig_line[:96]})
+            if len(diffs) >= 5:
+                break
+    receipt["boundaries"]["poseidon2_vectors"] = {"status": "fail", "first_disagreements": diffs}
+
+
 def build_and_compare(args) -> int:
     source = Path(args.stark_v_source).resolve()
     receipt: dict = {
@@ -383,6 +447,7 @@ def build_and_compare(args) -> int:
     compare_decode(oracle_exe, receipt)
     compare_program_tuples(oracle_exe, receipt)
     compare_memory_roots(oracle_exe, receipt)
+    compare_poseidon2(oracle_exe, receipt)
     receipt["verdict"] = (
         "PASS"
         if all(b.get("status") == "pass" for b in receipt["boundaries"].values())

@@ -25,6 +25,7 @@ pub fn main() !void {
     var output_path: ?[]const u8 = null;
     var decode_file: ?[]const u8 = null;
     var program_tuples: ?[]const u8 = null;
+    var poseidon2_file: ?[]const u8 = null;
     var max_steps: usize = 1_000_000;
 
     var i: usize = 1;
@@ -41,6 +42,9 @@ pub fn main() !void {
         } else if (std.mem.eql(u8, args[i], "--program-tuples") and i + 1 < args.len) {
             i += 1;
             program_tuples = args[i];
+        } else if (std.mem.eql(u8, args[i], "--poseidon2-file") and i + 1 < args.len) {
+            i += 1;
+            poseidon2_file = args[i];
         } else if (std.mem.eql(u8, args[i], "--max-steps") and i + 1 < args.len) {
             i += 1;
             max_steps = try std.fmt.parseInt(usize, args[i], 10);
@@ -57,6 +61,11 @@ pub fn main() !void {
 
     if (program_tuples) |path| {
         try dumpProgramTuples(allocator, path);
+        return;
+    }
+
+    if (poseidon2_file) |path| {
+        try dumpPoseidon2(allocator, path);
         return;
     }
 
@@ -161,6 +170,35 @@ fn dumpProgramTuples(allocator: std.mem.Allocator, path: []const u8) !void {
         try writer.print("{x:0>8} {d} {d} {d} {d}\n", .{
             addr, values[0], values[1], values[2], values[3],
         });
+    }
+    const stdout = std.fs.File{ .handle = std.posix.STDOUT_FILENO };
+    try stdout.writeAll(out.items);
+}
+
+/// Poseidon2 permutation parity mode: 16-word LE states in, permuted states
+/// out, byte-compared with the pinned oracle over the same corpus.
+fn dumpPoseidon2(allocator: std.mem.Allocator, path: []const u8) !void {
+    const poseidon2 = @import("frontends/riscv/air/memory_commitment/poseidon2.zig");
+    const M31 = @import("core/fields/m31.zig").M31;
+
+    const raw = try std.fs.cwd().readFileAlloc(allocator, path, 64 * 1024 * 1024);
+    defer allocator.free(raw);
+    var out: std.ArrayList(u8) = .{};
+    defer out.deinit(allocator);
+    const writer = out.writer(allocator);
+    var offset: usize = 0;
+    while (offset + 64 <= raw.len) : (offset += 64) {
+        var state: poseidon2.State = undefined;
+        for (0..16) |i| {
+            const word = std.mem.readInt(u32, raw[offset + i * 4 ..][0..4], .little);
+            state[i] = M31.fromU64(word);
+        }
+        poseidon2.permute(&state);
+        for (state, 0..) |value, i| {
+            if (i > 0) try writer.writeByte(' ');
+            try writer.print("{d}", .{value.v});
+        }
+        try writer.writeByte('\n');
     }
     const stdout = std.fs.File{ .handle = std.posix.STDOUT_FILENO };
     try stdout.writeAll(out.items);
