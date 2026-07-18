@@ -105,13 +105,9 @@ def scan(repo: Path) -> list[Finding]:
                 source_package,
                 *policy.PYTHON_LIBRARY_DEPENDENCIES.get(source_package, frozenset()),
             }
-            allowed_targets = policy.PYTHON_LIBRARY_TARGETS.get(
-                source_package, frozenset()
-            )
             if (
                 source_layer == "library"
                 and target_package not in allowed_packages
-                and target_display.as_posix() not in allowed_targets
             ):
                 findings.append(Finding(
                     f"python-dependency:{display.as_posix()}->{target_display.as_posix()}",

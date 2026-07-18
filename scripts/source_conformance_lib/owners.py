@@ -122,7 +122,10 @@ def scan_python(repo: Path) -> list[Finding]:
             for node in tree.body
             if isinstance(node, ast.ImportFrom)
             and node.module is not None
-            and node.module.endswith("_lib.controller")
+            and (
+                node.module.endswith("_lib")
+                or node.module.endswith("_lib.controller")
+            )
             for alias in node.names
             if alias.name == "main" and alias.asname in {None, "main"}
         ]

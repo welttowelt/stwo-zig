@@ -19,10 +19,10 @@ ACTIVE_PERFORMANCE_ROOTS = (
 )
 # Higher-level evidence packages may consume these stable lower-level contracts.
 PYTHON_LIBRARY_DEPENDENCIES = {
-    "native_profile_capture_lib": frozenset({"native_proof_matrix_lib"}),
-}
-PYTHON_LIBRARY_TARGETS = {
-    "native_profile_capture_lib": frozenset({"scripts/metal_profile_report.py"}),
+    "native_profile_capture_lib": frozenset({
+        "metal_profile_report_lib",
+        "native_proof_matrix_lib",
+    }),
 }
 DEFERRED_PREFIXES = (
     "src/bench/cairo_metal/",

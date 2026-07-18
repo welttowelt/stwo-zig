@@ -184,9 +184,9 @@ class SourceConformanceTests(unittest.TestCase):
                 "scripts/native_profile_capture_lib/evidence.py": (
                     "from native_proof_matrix_lib.model import VALUE\n"
                 ),
-                "scripts/metal_profile_report.py": "VALUE = 4\n",
+                "scripts/metal_profile_report_lib/__init__.py": "VALUE = 4\n",
                 "scripts/native_profile_capture_lib/contract.py": (
-                    "from metal_profile_report import VALUE\n"
+                    "from metal_profile_report_lib import VALUE\n"
                 ),
                 "scripts/tests/test_consumer.py": "import active_command\n",
             }
@@ -223,7 +223,7 @@ class SourceConformanceTests(unittest.TestCase):
             )
             self.assertNotIn(
                 "python-dependency:scripts/native_profile_capture_lib/contract.py"
-                "->scripts/metal_profile_report.py",
+                "->scripts/metal_profile_report_lib/__init__.py",
                 keys,
             )
 
