@@ -243,3 +243,33 @@ test "public LogUp: final clock overflow fails closed" {
     data.clock = std.math.maxInt(u32);
     try std.testing.expectError(error.ClockOverflow, sum(&data, &relations));
 }
+
+test "public LogUp: relation domains are independent and total is their sum" {
+    const relations = relation_challenges.Relations.dummy();
+    var data = emptyPublicData();
+    data.initial_pc = 0x1000;
+    data.final_pc = 0x1010;
+    data.clock = 4;
+    data.program_root = 77;
+    data.final_regs[5] = 9;
+    data.reg_last_clock[5] = 3;
+
+    const sums = try relationSums(&data, &relations);
+    // Every domain must be individually nonzero for this statement, and no
+    // domain may absorb another: the total is exactly their field sum.
+    try std.testing.expect(!sums.registers_state.eql(QM31.zero()));
+    try std.testing.expect(!sums.merkle.eql(QM31.zero()));
+    try std.testing.expect(!sums.memory_access.eql(QM31.zero()));
+    try std.testing.expect(sums.total().eql(
+        sums.registers_state.add(sums.merkle).add(sums.memory_access),
+    ));
+    try std.testing.expect((try sum(&data, &relations)).eql(sums.total()));
+
+    // A forged register boundary moves ONLY the memory-access domain.
+    var forged = data;
+    forged.final_regs[5] = 10;
+    const forged_sums = try relationSums(&forged, &relations);
+    try std.testing.expect(forged_sums.registers_state.eql(sums.registers_state));
+    try std.testing.expect(forged_sums.merkle.eql(sums.merkle));
+    try std.testing.expect(!forged_sums.memory_access.eql(sums.memory_access));
+}
