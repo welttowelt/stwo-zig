@@ -304,6 +304,7 @@ pub fn mainWithEngine(comptime Engine: type) !void {
         config,
         &run_result.execution_trace,
         &run_result.state_chain_tracker,
+        &run_result.rw_memory,
         if (profile_enabled) &recorder else null,
     );
     const prove_ms = t_prove.elapsedMs();

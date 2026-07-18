@@ -65,6 +65,7 @@ pub fn proveEthereumBlockWithEngine(
         pcs_config,
         &run_result.execution_trace,
         &run_result.state_chain_tracker,
+        &run_result.rw_memory,
         null,
     );
 

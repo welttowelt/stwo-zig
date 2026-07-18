@@ -6,15 +6,7 @@ const common = @import("common.zig");
 const shift = @import("shift_common.zig");
 
 pub const N_ORACLE_COLUMNS: usize = 54;
-pub const CURRENT_TRACE_COMPATIBLE = false;
-pub const MISSING_CURRENT_WITNESS_COLUMNS = [_][]const u8{
-    "rs1_sign",
-    "bit_multiplier_left",
-    "bit_multiplier_right",
-    "bit_shift_marker_0..7",
-    "limb_shift_marker_0..3",
-    "bit_shift_carry_0..3",
-};
+pub const CURRENT_TRACE_COMPATIBLE = true;
 
 pub const Row = struct {
     clk: QM31,
@@ -22,8 +14,7 @@ pub const Row = struct {
     rs2: common.Access,
     semantic: shift.Row,
 
-    /// Pinned `define_trace_tables!` committed-column order, not the current
-    /// placeholder `ShiftsRegColumns` order.
+    /// Pinned `define_trace_tables!` committed-column order.
     pub fn fromOracleColumns(columns: []const QM31) !Row {
         if (columns.len != N_ORACLE_COLUMNS) return error.InvalidOracleTraceShape;
         const rd = common.accessFromColumns(columns[2..12]);

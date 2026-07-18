@@ -7,6 +7,7 @@ const prover_mod = @import("../../frontends/riscv/prover.zig");
 const public_data_mod = @import("../../frontends/riscv/air/public_data.zig");
 const trace_mod = @import("../../frontends/riscv/runner/trace.zig");
 const state_chain = @import("../../frontends/riscv/runner/state_chain.zig");
+const memory_state = @import("../../frontends/riscv/runner/memory_state.zig");
 const prove_block = @import("../../frontends/riscv/host/prove_block.zig");
 const BlockInput = @import("../../frontends/riscv/host/block_input.zig").BlockInput;
 const stage_profile = @import("../../prover/stage_profile.zig");
@@ -22,8 +23,9 @@ pub fn proveRiscV(
     pcs_config: pcs_core.PcsConfig,
     exec_trace: *const trace_mod.Trace,
     opt_chain: ?*const state_chain.StateChainTracker,
+    opt_memory: ?*const memory_state.Snapshot,
 ) !prover_mod.ProveOutput {
-    return proveRiscVWithRecorder(allocator, pcs_config, exec_trace, opt_chain, null);
+    return proveRiscVWithRecorder(allocator, pcs_config, exec_trace, opt_chain, opt_memory, null);
 }
 
 pub fn proveRiscVWithRecorder(
@@ -31,6 +33,7 @@ pub fn proveRiscVWithRecorder(
     pcs_config: pcs_core.PcsConfig,
     exec_trace: *const trace_mod.Trace,
     opt_chain: ?*const state_chain.StateChainTracker,
+    opt_memory: ?*const memory_state.Snapshot,
     recorder: ?*stage_profile.Recorder,
 ) !prover_mod.ProveOutput {
     return prover_mod.proveRiscVWithEngine(
@@ -39,6 +42,7 @@ pub fn proveRiscVWithRecorder(
         pcs_config,
         exec_trace,
         opt_chain,
+        opt_memory,
         recorder,
     );
 }
@@ -48,6 +52,7 @@ pub fn proveRiscVWithPublicData(
     pcs_config: pcs_core.PcsConfig,
     exec_trace: *const trace_mod.Trace,
     opt_chain: ?*const state_chain.StateChainTracker,
+    opt_memory: ?*const memory_state.Snapshot,
     recorder: ?*stage_profile.Recorder,
     public_data: public_data_mod.PublicData,
 ) !prover_mod.ProveOutput {
@@ -57,6 +62,7 @@ pub fn proveRiscVWithPublicData(
         pcs_config,
         exec_trace,
         opt_chain,
+        opt_memory,
         recorder,
         public_data,
     );

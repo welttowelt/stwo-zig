@@ -6,14 +6,7 @@ const common = @import("common.zig");
 
 pub const N_ORACLE_COLUMNS: usize = 42;
 pub const N_CONSTRAINTS: usize = 20;
-pub const CURRENT_TRACE_COMPATIBLE = false;
-pub const MISSING_CURRENT_WITNESS_COLUMNS = [_][]const u8{
-    "cmp_result",
-    "rs1_msl_felt",
-    "rs2_msl_felt",
-    "diff_marker_0..3",
-    "diff_val",
-};
+pub const CURRENT_TRACE_COMPATIBLE = true;
 
 pub const Row = struct {
     clk: QM31,

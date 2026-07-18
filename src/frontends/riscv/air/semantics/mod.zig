@@ -19,6 +19,9 @@ pub const auipc = @import("auipc.zig");
 pub const jalr = @import("jalr.zig");
 pub const jal = @import("jal.zig");
 pub const load_store = @import("load_store.zig");
+pub const mul = @import("mul.zig");
+pub const mulh = @import("mulh.zig");
+pub const div = @import("div.zig");
 
 test {
     @import("std").testing.refAllDeclsRecursive(@This());

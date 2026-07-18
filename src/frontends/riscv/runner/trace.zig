@@ -1,66 +1,47 @@
-//! Trace capture for RISC-V execution.
-//!
-//! Records per-instruction state snapshots during execution for use
-//! by the STARK prover. Each trace row captures the CPU state before
-//! and after instruction execution, plus the decoded instruction fields.
+//! RISC-V execution capture and pinned Stark-V family trace generation.
 
 const std = @import("std");
-const cpu_mod = @import("cpu.zig");
-const decode_mod = @import("decode.zig");
+const decode = @import("decode.zig");
 const M31 = @import("../../../core/fields/m31.zig").M31;
-const trace_columns = @import("../air/trace_columns.zig");
-const access_columns = @import("access_columns.zig");
+const layouts = @import("../air/trace_columns.zig");
+const base_witness = @import("witness/base.zig");
+const compare_witness = @import("witness/compare.zig");
+const control_witness = @import("witness/control.zig");
+const shift_witness = @import("witness/shift.zig");
+const load_store_witness = @import("witness/load_store.zig");
+const m_extension_witness = @import("witness/m_extension.zig");
+const QM31 = @import("../../../core/fields/qm31.zig").QM31;
+const semantics = @import("../air/semantics/mod.zig");
 
-const Cpu = cpu_mod.Cpu;
-const Opcode = decode_mod.Opcode;
-const DecodedInst = decode_mod.DecodedInst;
+const Opcode = decode.Opcode;
 
-/// A single trace row recording one instruction's execution.
 pub const TraceRow = struct {
-    /// Clock cycle (step number).
     clk: u32,
-    /// Program counter before execution.
     pc: u32,
-    /// Decoded opcode.
     opcode: Opcode,
-    /// Destination register index.
     rd: u5,
-    /// Source register 1 index.
     rs1: u5,
-    /// Source register 2 index.
     rs2: u5,
-    /// Immediate value.
     imm: i32,
-    /// Register values before execution.
     rs1_val: u32,
     rs2_val: u32,
     rs1_prev_clk: u32 = 0,
     rs2_prev_clk: u32 = 0,
-    /// Destination value and access clock before the instruction write.
     rd_prev_val: u32 = 0,
     rd_prev_clk: u32 = 0,
-    /// Register value written (rd_val after execution).
     rd_val: u32,
-    /// Memory address accessed (0 if no memory access).
     mem_addr: u32,
-    /// Memory value read/written (0 if no memory access).
     mem_val: u32,
     mem_prev_word: u32 = 0,
     mem_next_word: u32 = 0,
     mem_prev_clk: u32 = 0,
-    /// Whether this was a memory load.
     is_load: bool,
-    /// Whether this was a memory store.
     is_store: bool,
-    /// Whether a branch was taken.
     branch_taken: bool,
-    /// PC after execution (next_pc).
     next_pc: u32,
-    /// Raw 32-bit instruction word (defaults to 0 for synthetic test rows).
     inst_word: u32 = 0,
 };
 
-/// Accumulated execution trace.
 pub const Trace = struct {
     rows: std.ArrayList(TraceRow),
     allocator: std.mem.Allocator,
@@ -69,13 +50,7 @@ pub const Trace = struct {
     step_count: usize,
 
     pub fn init(allocator: std.mem.Allocator) Trace {
-        return .{
-            .rows = .{},
-            .allocator = allocator,
-            .initial_pc = 0,
-            .final_pc = 0,
-            .step_count = 0,
-        };
+        return .{ .rows = .{}, .allocator = allocator, .initial_pc = 0, .final_pc = 0, .step_count = 0 };
     }
 
     pub fn deinit(self: *Trace) void {
@@ -83,59 +58,45 @@ pub const Trace = struct {
         self.* = undefined;
     }
 
-    /// Append a trace row.
     pub fn append(self: *Trace, row: TraceRow) !void {
         try self.rows.append(self.allocator, row);
         self.step_count = self.rows.items.len;
     }
 
-    /// Group trace rows by opcode family for per-component trace generation.
-    pub fn groupByOpcodeFamily(self: *const Trace, allocator: std.mem.Allocator) !OpcodeFamilyCounts {
+    pub fn groupByOpcodeFamily(self: *const Trace, _: std.mem.Allocator) !OpcodeFamilyCounts {
         var counts = OpcodeFamilyCounts{};
-        for (self.rows.items) |row| {
-            counts.increment(opcodeFamily(row.opcode));
-        }
-        _ = allocator;
+        for (self.rows.items) |row| counts.increment(opcodeFamily(row.opcode));
         return counts;
     }
 
-    /// Generate M31 columns for a specific opcode family.
-    /// Returns columns in the order: clk, pc, rd, rs1, rs2, rs1_val, rs2_val, rd_val, ...flags
     pub fn columnsForFamily(
         self: *const Trace,
         allocator: std.mem.Allocator,
         family: OpcodeFamily,
         log_size: u32,
     ) !TraceColumns {
-        const domain_size = @as(usize, 1) << @intCast(log_size);
-        const n_cols = nColumnsForFamily(family);
-
+        const size = @as(usize, 1) << @intCast(log_size);
+        const count = nColumnsForFamily(family);
         var columns: [MAX_FAMILY_COLUMNS][]M31 = undefined;
         var initialized: usize = 0;
-        errdefer {
-            for (0..initialized) |i| allocator.free(columns[i]);
+        errdefer for (columns[0..initialized]) |column| allocator.free(column);
+        for (0..count) |column| {
+            columns[column] = try allocator.alloc(M31, size);
+            @memset(columns[column], M31.zero());
+            initialized += 1;
         }
-        for (0..n_cols) |i| {
-            columns[i] = try allocator.alloc(M31, domain_size);
-            @memset(columns[i], M31.zero());
-            initialized = i + 1;
-        }
-
-        var row_idx: usize = 0;
+        var index: usize = 0;
         for (self.rows.items) |row| {
             if (opcodeFamily(row.opcode) != family) continue;
-            if (row_idx >= domain_size) break;
-
-            fillFamilyColumns(&columns, row_idx, row, family);
-            row_idx += 1;
+            if (index == size) break;
+            fillFamilyColumns(&columns, index, row, family);
+            index += 1;
         }
-
-        return .{ .columns = columns, .n_columns = n_cols, .n_real_rows = row_idx };
+        return .{ .columns = columns, .n_columns = count, .n_real_rows = index };
     }
 };
 
-/// Maximum number of columns across all opcode families.
-pub const MAX_FAMILY_COLUMNS: usize = 65; // DivColumns has the most
+pub const MAX_FAMILY_COLUMNS: usize = 65;
 
 pub const TraceColumns = struct {
     columns: [MAX_FAMILY_COLUMNS][]M31,
@@ -143,681 +104,58 @@ pub const TraceColumns = struct {
     n_real_rows: usize,
 
     pub fn deinit(self: *TraceColumns, allocator: std.mem.Allocator) void {
-        for (0..self.n_columns) |i| allocator.free(self.columns[i]);
+        for (self.columns[0..self.n_columns]) |column| allocator.free(column);
         self.* = undefined;
     }
 };
 
-/// Return the number of trace columns for a given opcode family,
-/// matching the column layout defined in air/trace_columns.zig.
 pub fn nColumnsForFamily(family: OpcodeFamily) u32 {
     return switch (family) {
-        .base_alu_reg => trace_columns.BaseAluRegColumns.N_COLUMNS,
-        .base_alu_imm => trace_columns.BaseAluImmColumns.N_COLUMNS,
-        .shifts_reg => trace_columns.ShiftsRegColumns.N_COLUMNS,
-        .shifts_imm => trace_columns.ShiftsImmColumns.N_COLUMNS,
-        .lt_reg => trace_columns.LtRegColumns.N_COLUMNS,
-        .lt_imm => trace_columns.LtImmColumns.N_COLUMNS,
-        .branch_eq => trace_columns.BranchEqColumns.N_COLUMNS,
-        .branch_lt => trace_columns.BranchLtColumns.N_COLUMNS,
-        .lui => trace_columns.LuiColumns.N_COLUMNS,
-        .auipc => trace_columns.AuipcColumns.N_COLUMNS,
-        .jalr => trace_columns.JalrColumns.N_COLUMNS,
-        .jal => trace_columns.JalColumns.N_COLUMNS,
-        .load_store => trace_columns.LoadStoreColumns.N_COLUMNS,
-        .mul => trace_columns.MulColumns.N_COLUMNS,
-        .mulh => trace_columns.MulhColumns.N_COLUMNS,
-        .div => trace_columns.DivColumns.N_COLUMNS,
+        .base_alu_reg => layouts.BaseAluRegColumns.N_COLUMNS,
+        .base_alu_imm => layouts.BaseAluImmColumns.N_COLUMNS,
+        .shifts_reg => layouts.ShiftsRegColumns.N_COLUMNS,
+        .shifts_imm => layouts.ShiftsImmColumns.N_COLUMNS,
+        .lt_reg => layouts.LtRegColumns.N_COLUMNS,
+        .lt_imm => layouts.LtImmColumns.N_COLUMNS,
+        .branch_eq => layouts.BranchEqColumns.N_COLUMNS,
+        .branch_lt => layouts.BranchLtColumns.N_COLUMNS,
+        .lui => layouts.LuiColumns.N_COLUMNS,
+        .auipc => layouts.AuipcColumns.N_COLUMNS,
+        .jalr => layouts.JalrColumns.N_COLUMNS,
+        .jal => layouts.JalColumns.N_COLUMNS,
+        .load_store => layouts.LoadStoreColumns.N_COLUMNS,
+        .mul => layouts.MulColumns.N_COLUMNS,
+        .mulh => layouts.MulhColumns.N_COLUMNS,
+        .div => layouts.DivColumns.N_COLUMNS,
     };
 }
 
-/// Cast a signed imm to M31; negatives map to P - |imm| (modular negation).
-fn immToM31(imm: i32) M31 {
-    if (imm >= 0) {
-        return M31.fromU64(@intCast(imm));
-    } else {
-        const abs: u32 = @intCast(-@as(i64, imm));
-        return M31.zero().sub(M31.fromU64(abs));
-    }
-}
-
-/// Convert a u32 RISC-V value to M31 with proper modular reduction.
-inline fn u32ToM31(v: u32) M31 {
-    return M31.fromU64(v);
-}
-
-/// Decompose a u32 value into 4 byte limbs and write to columns[start..start+4].
-fn writeU32Limbs(columns: *[MAX_FAMILY_COLUMNS][]M31, row_idx: usize, start: usize, val: u32) void {
-    columns[start][row_idx] = u32ToM31(val & 0xFF);
-    columns[start + 1][row_idx] = u32ToM31((val >> 8) & 0xFF);
-    columns[start + 2][row_idx] = u32ToM31((val >> 16) & 0xFF);
-    columns[start + 3][row_idx] = u32ToM31((val >> 24) & 0xFF);
-}
-
-fn writeZero(columns: *[MAX_FAMILY_COLUMNS][]M31, row_idx: usize, column: usize) void {
-    // Protocol-implicit zero columns are represented by an empty slice in the
-    // optimized trace generator and are neither materialized nor committed.
-    if (columns[column].len != 0) columns[column][row_idx] = M31.zero();
-}
-
-/// Write a 10-column register access block at columns[start..start+10].
-/// Layout: addr, prev_0..3, clk_prev, next_0..3
-/// State chain data (prev values, clk_prev) is placeholder (zero) for now.
-/// Fill family-specific column data for a single trace row at the given index.
-/// Column ordering must match the struct field order in air/trace_columns.zig.
-/// All u32 values from the execution trace are reduced modulo P via u32ToM31.
-///
-/// Register access columns use placeholder values for state chain data
-/// (prev limbs and clk_prev are zero). The next limbs are the byte
-/// decomposition of the register value from the trace row.
 pub fn fillFamilyColumns(
     columns: *[MAX_FAMILY_COLUMNS][]M31,
-    row_idx: usize,
+    index: usize,
     row: TraceRow,
     family: OpcodeFamily,
 ) void {
     switch (family) {
-        .base_alu_reg => {
-            // BaseAluRegColumns: 7 common + rd(10) + rs1(10) + rs2(10) = 37
-            var c: usize = 0;
-            columns[c][row_idx] = u32ToM31(row.clk);
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.pc);
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .ADD) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .SUB) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .XOR) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .OR) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .AND) M31.one() else M31.zero();
-            c += 1;
-            access_columns.writeRd(columns, row_idx, c, row);
-            c += 10;
-            access_columns.writeRs1(columns, row_idx, c, row);
-            c += 10;
-            access_columns.writeRs2(columns, row_idx, c, row);
-        },
-        .base_alu_imm => {
-            // BaseAluImmColumns: 9 common + rd(10) + rs1(10) = 29
-            var c: usize = 0;
-            const unsigned_imm: u32 = @bitCast(row.imm);
-            const imm_12 = unsigned_imm & 0xfff;
-            columns[c][row_idx] = u32ToM31(row.clk);
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.pc);
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .ADDI) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .XORI) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .ORI) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .ANDI) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = u32ToM31(imm_12 & 0xff); // imm_0
-            c += 1;
-            columns[c][row_idx] = u32ToM31((imm_12 >> 8) & 0x7); // imm_1
-            c += 1;
-            columns[c][row_idx] = u32ToM31(imm_12 >> 11); // imm_msb
-            c += 1;
-            access_columns.writeRd(columns, row_idx, c, row);
-            c += 10;
-            access_columns.writeRs1(columns, row_idx, c, row);
-        },
-        .shifts_reg => {
-            // ShiftsRegColumns: 6 common + 18 shift decomp + rd(10) + rs1(10) + rs2(10) = 54
-            const shamt: u5 = @truncate(row.rs2_val);
-            var c: usize = 0;
-            columns[c][row_idx] = u32ToM31(row.clk);
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.pc);
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .SLL) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .SRL) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .SRA) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = M31.one(); // enabler
-            c += 1;
-            // shift decomposition (18 cols)
-            columns[c][row_idx] = u32ToM31(@as(u32, shamt)); // shift_amount
-            c += 1;
-            columns[c][row_idx] = u32ToM31(32 - @as(u32, shamt)); // shift_amount_bound
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.rd_val & 0xFFFF); // shifted_lo
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.rd_val >> 16); // shifted_hi
-            c += 1;
-            // shift_bit_0..4: individual bits of shamt
-            columns[c][row_idx] = u32ToM31(@as(u32, shamt) & 1);
-            c += 1;
-            columns[c][row_idx] = u32ToM31((@as(u32, shamt) >> 1) & 1);
-            c += 1;
-            columns[c][row_idx] = u32ToM31((@as(u32, shamt) >> 2) & 1);
-            c += 1;
-            columns[c][row_idx] = u32ToM31((@as(u32, shamt) >> 3) & 1);
-            c += 1;
-            columns[c][row_idx] = u32ToM31((@as(u32, shamt) >> 4) & 1);
-            c += 1;
-            // shift_mask_lo, shift_mask_hi, sign_bit, sign_extend_lo, sign_extend_hi
-            columns[c][row_idx] = M31.zero(); // shift_mask_lo (placeholder)
-            c += 1;
-            columns[c][row_idx] = M31.zero(); // shift_mask_hi (placeholder)
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.rs1_val >> 31); // sign_bit
-            c += 1;
-            columns[c][row_idx] = M31.zero(); // sign_extend_lo (placeholder)
-            c += 1;
-            columns[c][row_idx] = M31.zero(); // sign_extend_hi (placeholder)
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.rd_val & 0xFFFF); // result_lo
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.rd_val >> 16); // result_hi
-            c += 1;
-            columns[c][row_idx] = M31.zero(); // carry (placeholder)
-            c += 1;
-            columns[c][row_idx] = M31.zero(); // overflow (placeholder)
-            c += 1;
-            access_columns.writeRd(columns, row_idx, c, row);
-            c += 10;
-            access_columns.writeRs1(columns, row_idx, c, row);
-            c += 10;
-            access_columns.writeRs2(columns, row_idx, c, row);
-        },
-        .shifts_imm => {
-            // ShiftsImmColumns: 7 common + 18 shift decomp + rd(10) + rs1(10) = 45
-            const shamt: u5 = @truncate(@as(u32, @bitCast(row.imm)));
-            var c: usize = 0;
-            columns[c][row_idx] = u32ToM31(row.clk);
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.pc);
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .SLLI) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .SRLI) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .SRAI) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = M31.one(); // enabler
-            c += 1;
-            columns[c][row_idx] = immToM31(row.imm); // imm
-            c += 1;
-            // shift decomposition (18 cols)
-            columns[c][row_idx] = u32ToM31(@as(u32, shamt));
-            c += 1;
-            columns[c][row_idx] = u32ToM31(32 - @as(u32, shamt));
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.rd_val & 0xFFFF);
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.rd_val >> 16);
-            c += 1;
-            columns[c][row_idx] = u32ToM31(@as(u32, shamt) & 1);
-            c += 1;
-            columns[c][row_idx] = u32ToM31((@as(u32, shamt) >> 1) & 1);
-            c += 1;
-            columns[c][row_idx] = u32ToM31((@as(u32, shamt) >> 2) & 1);
-            c += 1;
-            columns[c][row_idx] = u32ToM31((@as(u32, shamt) >> 3) & 1);
-            c += 1;
-            columns[c][row_idx] = u32ToM31((@as(u32, shamt) >> 4) & 1);
-            c += 1;
-            columns[c][row_idx] = M31.zero(); // shift_mask_lo
-            c += 1;
-            columns[c][row_idx] = M31.zero(); // shift_mask_hi
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.rs1_val >> 31); // sign_bit
-            c += 1;
-            columns[c][row_idx] = M31.zero(); // sign_extend_lo
-            c += 1;
-            columns[c][row_idx] = M31.zero(); // sign_extend_hi
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.rd_val & 0xFFFF); // result_lo
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.rd_val >> 16); // result_hi
-            c += 1;
-            columns[c][row_idx] = M31.zero(); // carry
-            c += 1;
-            columns[c][row_idx] = M31.zero(); // overflow
-            c += 1;
-            access_columns.writeRd(columns, row_idx, c, row);
-            c += 10;
-            access_columns.writeRs1(columns, row_idx, c, row);
-        },
-        .lt_reg => {
-            // LtRegColumns: 5 common + 7 comparison + rd(10) + rs1(10) + rs2(10) = 42
-            const diff = row.rs1_val -% row.rs2_val;
-            const is_lt: bool = switch (row.opcode) {
-                .SLT => @as(i32, @bitCast(row.rs1_val)) < @as(i32, @bitCast(row.rs2_val)),
-                .SLTU => row.rs1_val < row.rs2_val,
-                else => false,
-            };
-            var c: usize = 0;
-            columns[c][row_idx] = u32ToM31(row.clk);
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.pc);
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .SLT) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .SLTU) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = M31.one(); // enabler
-            c += 1;
-            // comparison decomposition (7)
-            columns[c][row_idx] = u32ToM31(diff & 0xFFFF); // diff_lo
-            c += 1;
-            columns[c][row_idx] = u32ToM31(diff >> 16); // diff_hi
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.rs1_val >> 31); // rs1_sign
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.rs2_val >> 31); // rs2_sign
-            c += 1;
-            columns[c][row_idx] = if (is_lt) M31.one() else M31.zero(); // is_less_than
-            c += 1;
-            columns[c][row_idx] = M31.zero(); // borrow (placeholder)
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.rd_val); // result
-            c += 1;
-            access_columns.writeRd(columns, row_idx, c, row);
-            c += 10;
-            access_columns.writeRs1(columns, row_idx, c, row);
-            c += 10;
-            access_columns.writeRs2(columns, row_idx, c, row);
-        },
-        .lt_imm => {
-            // LtImmColumns: 7 common + 7 comparison + rd(10) + rs1(10) = 34
-            const imm_u32: u32 = @bitCast(row.imm);
-            const diff = row.rs1_val -% imm_u32;
-            const is_lt: bool = switch (row.opcode) {
-                .SLTI => @as(i32, @bitCast(row.rs1_val)) < row.imm,
-                .SLTIU => row.rs1_val < imm_u32,
-                else => false,
-            };
-            var c: usize = 0;
-            columns[c][row_idx] = u32ToM31(row.clk);
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.pc);
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .SLTI) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .SLTIU) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = M31.one(); // enabler
-            c += 1;
-            columns[c][row_idx] = immToM31(row.imm); // imm
-            c += 1;
-            columns[c][row_idx] = if (row.imm < 0) M31.one() else M31.zero(); // imm_sign
-            c += 1;
-            // comparison decomposition (7)
-            columns[c][row_idx] = u32ToM31(diff & 0xFFFF); // diff_lo
-            c += 1;
-            columns[c][row_idx] = u32ToM31(diff >> 16); // diff_hi
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.rs1_val >> 31); // rs1_sign
-            c += 1;
-            columns[c][row_idx] = if (is_lt) M31.one() else M31.zero(); // is_less_than
-            c += 1;
-            columns[c][row_idx] = M31.zero(); // borrow (placeholder)
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.rd_val); // result
-            c += 1;
-            columns[c][row_idx] = M31.zero(); // imm_ext (placeholder)
-            c += 1;
-            access_columns.writeRd(columns, row_idx, c, row);
-            c += 10;
-            access_columns.writeRs1(columns, row_idx, c, row);
-        },
-        .branch_eq => {
-            // BranchEqColumns: 10 common + rs1(10) + rs2(10) = 30
-            const rs1m = u32ToM31(row.rs1_val);
-            const rs2m = u32ToM31(row.rs2_val);
-            const diff_m31 = rs1m.sub(rs2m);
-            const is_eq: bool = (row.rs1_val == row.rs2_val);
-            const target: u32 = @bitCast(@as(i32, @bitCast(row.pc)) +% row.imm);
-            var c: usize = 0;
-            columns[c][row_idx] = u32ToM31(row.clk);
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.pc);
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .BEQ) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .BNE) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = M31.one(); // enabler
-            c += 1;
-            columns[c][row_idx] = u32ToM31(target); // branch_target
-            c += 1;
-            columns[c][row_idx] = diff_m31; // diff
-            c += 1;
-            columns[c][row_idx] = if (!diff_m31.isZero()) diff_m31.invUncheckedNonZero() else M31.zero(); // diff_inv
-            c += 1;
-            columns[c][row_idx] = if (is_eq) M31.one() else M31.zero(); // is_equal
-            c += 1;
-            columns[c][row_idx] = M31.zero(); // branch_target_aux (placeholder)
-            c += 1;
-            access_columns.writeRs1(columns, row_idx, c, row);
-            c += 10;
-            access_columns.writeRs2(columns, row_idx, c, row);
-        },
-        .branch_lt => {
-            // BranchLtColumns: 8 common + 9 decomp + rs1(10) + rs2(10) = 37
-            const diff = row.rs1_val -% row.rs2_val;
-            const target_val: u32 = @bitCast(@as(i32, @bitCast(row.pc)) +% row.imm);
-            const is_lt: bool = switch (row.opcode) {
-                .BLT => @as(i32, @bitCast(row.rs1_val)) < @as(i32, @bitCast(row.rs2_val)),
-                .BLTU => row.rs1_val < row.rs2_val,
-                .BGE => @as(i32, @bitCast(row.rs1_val)) < @as(i32, @bitCast(row.rs2_val)),
-                .BGEU => row.rs1_val < row.rs2_val,
-                else => false,
-            };
-            var c: usize = 0;
-            columns[c][row_idx] = u32ToM31(row.clk);
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.pc);
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .BLT) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .BLTU) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .BGE) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .BGEU) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = M31.one(); // enabler
-            c += 1;
-            columns[c][row_idx] = u32ToM31(target_val); // branch_target
-            c += 1;
-            // comparison/branch decomposition (9)
-            columns[c][row_idx] = u32ToM31(diff & 0xFFFF); // diff_lo
-            c += 1;
-            columns[c][row_idx] = u32ToM31(diff >> 16); // diff_hi
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.rs1_val >> 31); // rs1_sign
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.rs2_val >> 31); // rs2_sign
-            c += 1;
-            columns[c][row_idx] = if (is_lt) M31.one() else M31.zero(); // is_less_than
-            c += 1;
-            writeZero(columns, row_idx, c); // borrow (placeholder)
-            c += 1;
-            columns[c][row_idx] = u32ToM31(target_val & 0xFFFF); // branch_target_lo
-            c += 1;
-            columns[c][row_idx] = u32ToM31(target_val >> 16); // branch_target_hi
-            c += 1;
-            writeZero(columns, row_idx, c); // branch_target_aux (placeholder)
-            c += 1;
-            access_columns.writeRs1(columns, row_idx, c, row);
-            c += 10;
-            access_columns.writeRs2(columns, row_idx, c, row);
-        },
-        .lui => {
-            // LuiColumns: 6 common + rd(10) = 16
-            const result_val = row.rd_val;
-            var c: usize = 0;
-            columns[c][row_idx] = u32ToM31(row.clk);
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.pc);
-            c += 1;
-            columns[c][row_idx] = u32ToM31(result_val >> 12); // imm_u
-            c += 1;
-            columns[c][row_idx] = M31.one(); // enabler
-            c += 1;
-            columns[c][row_idx] = u32ToM31(result_val & 0xFFFF); // result_lo
-            c += 1;
-            columns[c][row_idx] = u32ToM31(result_val >> 16); // result_hi
-            c += 1;
-            access_columns.writeRd(columns, row_idx, c, row);
-        },
-        .auipc => {
-            // AuipcColumns: 4 common + rd(10) = 14
-            const result_val = row.rd_val;
-            const imm_bits: u32 = @bitCast(@as(i32, @bitCast(result_val)) -% @as(i32, @bitCast(row.pc)));
-            var c: usize = 0;
-            columns[c][row_idx] = u32ToM31(row.clk);
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.pc);
-            c += 1;
-            columns[c][row_idx] = u32ToM31(imm_bits); // imm_u
-            c += 1;
-            columns[c][row_idx] = M31.one(); // enabler
-            c += 1;
-            access_columns.writeRd(columns, row_idx, c, row);
-        },
-        .jalr => {
-            // JalrColumns: 6 common + rd(10) + rs1(10) = 26
-            const target_val = row.next_pc;
-            var c: usize = 0;
-            columns[c][row_idx] = u32ToM31(row.clk);
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.pc);
-            c += 1;
-            columns[c][row_idx] = immToM31(row.imm); // imm
-            c += 1;
-            columns[c][row_idx] = M31.one(); // enabler
-            c += 1;
-            columns[c][row_idx] = u32ToM31(target_val & 0xFFFF); // target_lo
-            c += 1;
-            columns[c][row_idx] = u32ToM31(target_val >> 16); // target_hi
-            c += 1;
-            access_columns.writeRd(columns, row_idx, c, row);
-            c += 10;
-            access_columns.writeRs1(columns, row_idx, c, row);
-        },
-        .jal => {
-            // JalColumns: 4 common + rd(10) = 14
-            var c: usize = 0;
-            columns[c][row_idx] = u32ToM31(row.clk);
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.pc);
-            c += 1;
-            columns[c][row_idx] = immToM31(row.imm); // imm_j
-            c += 1;
-            columns[c][row_idx] = M31.one(); // enabler
-            c += 1;
-            access_columns.writeRd(columns, row_idx, c, row);
-        },
-        .load_store => {
-            // LoadStoreColumns: 20 common + rd(10) + rs1(10) + mem(10) = 50
-            var c: usize = 0;
-            columns[c][row_idx] = u32ToM31(row.clk);
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.pc);
-            c += 1;
-            columns[c][row_idx] = immToM31(row.imm); // imm
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .LB) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .LBU) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .LH) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .LHU) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .LW) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .SB) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .SH) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .SW) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = M31.one(); // enabler
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.mem_val & 0xFF); // byte_0
-            c += 1;
-            columns[c][row_idx] = u32ToM31((row.mem_val >> 8) & 0xFF); // byte_1
-            c += 1;
-            columns[c][row_idx] = u32ToM31((row.mem_val >> 16) & 0xFF); // byte_2
-            c += 1;
-            columns[c][row_idx] = u32ToM31((row.mem_val >> 24) & 0xFF); // byte_3
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.mem_addr); // mem_addr
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.mem_val); // mem_val
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.rs2_val); // rs2_val
-            c += 1;
-            columns[c][row_idx] = M31.zero(); // sign_extend (placeholder)
-            c += 1;
-            // Stark-V models these as generic dst/src accesses: load writes a
-            // register from memory; store writes memory from a register.
-            access_columns.writeLoadStoreDst(columns, row_idx, c, row);
-            c += 10;
-            access_columns.writeRs1(columns, row_idx, c, row);
-            c += 10;
-            access_columns.writeLoadStoreSrc(columns, row_idx, c, row);
-        },
-        .mul => {
-            // MulColumns: 3 common + rd(10) + rs1(10) + rs2(10) = 33
-            var c: usize = 0;
-            columns[c][row_idx] = u32ToM31(row.clk);
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.pc);
-            c += 1;
-            columns[c][row_idx] = M31.one(); // enabler
-            c += 1;
-            access_columns.writeRd(columns, row_idx, c, row);
-            c += 10;
-            access_columns.writeRs1(columns, row_idx, c, row);
-            c += 10;
-            access_columns.writeRs2(columns, row_idx, c, row);
-        },
-        .mulh => {
-            // MulhColumns: 6 common + 5 decomp + rd(10) + rs1(10) + rs2(10) = 41
-            const prod: u64 = @as(u64, row.rs1_val) *% @as(u64, row.rs2_val);
-            var c: usize = 0;
-            columns[c][row_idx] = u32ToM31(row.clk);
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.pc);
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .MULH) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .MULHSU) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .MULHU) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = M31.one(); // enabler
-            c += 1;
-            // product decomposition (5)
-            columns[c][row_idx] = u32ToM31(@truncate(prod & 0xFFFF)); // prod_lo
-            c += 1;
-            columns[c][row_idx] = u32ToM31(@truncate(prod >> 16)); // prod_hi
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.rs1_val >> 31); // rs1_sign
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.rs2_val >> 31); // rs2_sign
-            c += 1;
-            columns[c][row_idx] = u32ToM31(@truncate(prod >> 32)); // carry
-            c += 1;
-            access_columns.writeRd(columns, row_idx, c, row);
-            c += 10;
-            access_columns.writeRs1(columns, row_idx, c, row);
-            c += 10;
-            access_columns.writeRs2(columns, row_idx, c, row);
-        },
-        .div => {
-            // DivColumns: 7 common + 28 decomp + rd(10) + rs1(10) + rs2(10) = 65
-            const q_and_r = computeDivResult(row);
-            var c: usize = 0;
-            columns[c][row_idx] = u32ToM31(row.clk);
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.pc);
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .DIV) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .DIVU) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .REM) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = if (row.opcode == .REMU) M31.one() else M31.zero();
-            c += 1;
-            columns[c][row_idx] = M31.one(); // enabler
-            c += 1;
-            // quotient byte limbs (4)
-            writeU32Limbs(columns, row_idx, c, q_and_r.quotient);
-            c += 4;
-            // remainder byte limbs (4)
-            writeU32Limbs(columns, row_idx, c, q_and_r.remainder);
-            c += 4;
-            columns[c][row_idx] = if (row.rs2_val == 0) M31.one() else M31.zero(); // rs2_is_zero
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.rs1_val >> 31); // rs1_sign
-            c += 1;
-            columns[c][row_idx] = u32ToM31(row.rs2_val >> 31); // rs2_sign
-            c += 1;
-            columns[c][row_idx] = M31.zero(); // quotient_sign (placeholder)
-            c += 1;
-            columns[c][row_idx] = M31.zero(); // remainder_sign (placeholder)
-            c += 1;
-            // abs_rs1 limbs (4)
-            writeU32Limbs(columns, row_idx, c, row.rs1_val);
-            c += 4;
-            // abs_rs2 limbs (4)
-            writeU32Limbs(columns, row_idx, c, row.rs2_val);
-            c += 4;
-            // prod_lo_0, prod_lo_1, prod_hi_0, prod_hi_1 (placeholders)
-            columns[c][row_idx] = M31.zero();
-            c += 1;
-            columns[c][row_idx] = M31.zero();
-            c += 1;
-            columns[c][row_idx] = M31.zero();
-            c += 1;
-            columns[c][row_idx] = M31.zero();
-            c += 1;
-            // carry_0, carry_1, overflow (placeholders)
-            columns[c][row_idx] = M31.zero();
-            c += 1;
-            columns[c][row_idx] = M31.zero();
-            c += 1;
-            columns[c][row_idx] = M31.zero();
-            c += 1;
-            access_columns.writeRd(columns, row_idx, c, row);
-            c += 10;
-            access_columns.writeRs1(columns, row_idx, c, row);
-            c += 10;
-            access_columns.writeRs2(columns, row_idx, c, row);
-        },
+        .base_alu_reg => base_witness.reg(columns, index, row),
+        .base_alu_imm => base_witness.immediate(columns, index, row),
+        .shifts_reg => shift_witness.reg(columns, index, row),
+        .shifts_imm => shift_witness.immediate(columns, index, row),
+        .lt_reg => compare_witness.reg(columns, index, row),
+        .lt_imm => compare_witness.immediate(columns, index, row),
+        .branch_eq => compare_witness.branchEqual(columns, index, row),
+        .branch_lt => compare_witness.branchLess(columns, index, row),
+        .lui => control_witness.lui(columns, index, row),
+        .auipc => control_witness.auipc(columns, index, row),
+        .jalr => control_witness.jalr(columns, index, row),
+        .jal => control_witness.jal(columns, index, row),
+        .load_store => load_store_witness.fill(columns, index, row),
+        .mul => m_extension_witness.mul(columns, index, row),
+        .mulh => m_extension_witness.mulh(columns, index, row),
+        .div => m_extension_witness.div(columns, index, row),
     }
 }
 
-/// Compute quotient and remainder for div family.
-fn computeDivResult(row: TraceRow) struct { quotient: u32, remainder: u32 } {
-    if (row.rs2_val == 0) {
-        return .{ .quotient = 0, .remainder = row.rs1_val };
-    }
-    return switch (row.opcode) {
-        .DIV => blk: {
-            const a: i32 = @bitCast(row.rs1_val);
-            const b: i32 = @bitCast(row.rs2_val);
-            if (a == std.math.minInt(i32) and b == -1) {
-                break :blk .{ .quotient = @bitCast(a), .remainder = 0 };
-            }
-            break :blk .{ .quotient = @bitCast(@divTrunc(a, b)), .remainder = @bitCast(@rem(a, b)) };
-        },
-        .DIVU => .{
-            .quotient = row.rs1_val / row.rs2_val,
-            .remainder = row.rs1_val % row.rs2_val,
-        },
-        .REM => blk: {
-            const a: i32 = @bitCast(row.rs1_val);
-            const b: i32 = @bitCast(row.rs2_val);
-            if (a == std.math.minInt(i32) and b == -1) {
-                break :blk .{ .quotient = @bitCast(a), .remainder = 0 };
-            }
-            break :blk .{ .quotient = @bitCast(@divTrunc(a, b)), .remainder = @bitCast(@rem(a, b)) };
-        },
-        .REMU => .{
-            .quotient = row.rs1_val / row.rs2_val,
-            .remainder = row.rs1_val % row.rs2_val,
-        },
-        else => .{ .quotient = 0, .remainder = 0 },
-    };
-}
-
-/// The 16 stark-v opcode families.
 pub const OpcodeFamily = enum(u8) {
     base_alu_reg,
     base_alu_imm,
@@ -839,10 +177,9 @@ pub const OpcodeFamily = enum(u8) {
 
 pub const N_FAMILIES: usize = @typeInfo(OpcodeFamily).@"enum".fields.len;
 
-/// Map an opcode to its family.
-pub fn opcodeFamily(op: Opcode) OpcodeFamily {
-    return switch (op) {
-        .ADD, .SUB, .XOR, .OR, .AND => .base_alu_reg,
+pub fn opcodeFamily(opcode: Opcode) OpcodeFamily {
+    return switch (opcode) {
+        .ADD, .SUB, .XOR, .OR, .AND, .ECALL, .EBREAK, .FENCE => .base_alu_reg,
         .ADDI, .XORI, .ORI, .ANDI => .base_alu_imm,
         .SLL, .SRL, .SRA => .shifts_reg,
         .SLLI, .SRLI, .SRAI => .shifts_imm,
@@ -854,30 +191,10 @@ pub fn opcodeFamily(op: Opcode) OpcodeFamily {
         .AUIPC => .auipc,
         .JALR => .jalr,
         .JAL => .jal,
-        .LB,
-        .LBU,
-        .LH,
-        .LHU,
-        .LW,
-        .SB,
-        .SH,
-        .SW,
-        .LR_W,
-        .SC_W,
-        .AMOSWAP_W,
-        .AMOADD_W,
-        .AMOAND_W,
-        .AMOOR_W,
-        .AMOXOR_W,
-        .AMOMIN_W,
-        .AMOMAX_W,
-        .AMOMINU_W,
-        .AMOMAXU_W,
-        => .load_store,
+        .LB, .LBU, .LH, .LHU, .LW, .SB, .SH, .SW, .LR_W, .SC_W, .AMOSWAP_W, .AMOADD_W, .AMOAND_W, .AMOOR_W, .AMOXOR_W, .AMOMIN_W, .AMOMAX_W, .AMOMINU_W, .AMOMAXU_W => .load_store,
         .MUL => .mul,
         .MULH, .MULHSU, .MULHU => .mulh,
         .DIV, .DIVU, .REM, .REMU => .div,
-        .ECALL, .EBREAK, .FENCE => .base_alu_reg, // fallback
     };
 }
 
@@ -893,84 +210,199 @@ pub const OpcodeFamilyCounts = struct {
     }
 
     pub fn total(self: *const OpcodeFamilyCounts) usize {
-        var t: usize = 0;
-        for (self.counts) |c| t += c;
-        return t;
+        var result: usize = 0;
+        for (self.counts) |count| result += count;
+        return result;
     }
 };
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
-test "trace: opcodeFamily mapping" {
+test "trace groups opcode families" {
     try std.testing.expectEqual(OpcodeFamily.base_alu_reg, opcodeFamily(.ADD));
-    try std.testing.expectEqual(OpcodeFamily.base_alu_reg, opcodeFamily(.SUB));
-    try std.testing.expectEqual(OpcodeFamily.base_alu_imm, opcodeFamily(.ADDI));
-    try std.testing.expectEqual(OpcodeFamily.shifts_reg, opcodeFamily(.SLL));
-    try std.testing.expectEqual(OpcodeFamily.branch_eq, opcodeFamily(.BEQ));
-    try std.testing.expectEqual(OpcodeFamily.load_store, opcodeFamily(.LW));
+    try std.testing.expectEqual(OpcodeFamily.shifts_imm, opcodeFamily(.SRAI));
+    try std.testing.expectEqual(OpcodeFamily.branch_lt, opcodeFamily(.BGEU));
     try std.testing.expectEqual(OpcodeFamily.load_store, opcodeFamily(.SW));
-    try std.testing.expectEqual(OpcodeFamily.mul, opcodeFamily(.MUL));
-    try std.testing.expectEqual(OpcodeFamily.div, opcodeFamily(.DIV));
-    try std.testing.expectEqual(OpcodeFamily.jal, opcodeFamily(.JAL));
-    try std.testing.expectEqual(OpcodeFamily.lui, opcodeFamily(.LUI));
+    try std.testing.expectEqual(OpcodeFamily.div, opcodeFamily(.REMU));
 }
 
-test "trace: OpcodeFamilyCounts" {
-    var counts = OpcodeFamilyCounts{};
-    counts.increment(.base_alu_reg);
-    counts.increment(.base_alu_reg);
-    counts.increment(.jal);
-    try std.testing.expectEqual(@as(usize, 2), counts.get(.base_alu_reg));
-    try std.testing.expectEqual(@as(usize, 1), counts.get(.jal));
-    try std.testing.expectEqual(@as(usize, 3), counts.total());
-}
-
-test "trace: Trace append and grouping" {
-    const alloc = std.testing.allocator;
-    var t = Trace.init(alloc);
-    defer t.deinit();
-
-    try t.append(.{
-        .clk = 0,
-        .pc = 0x1000,
-        .opcode = .ADD,
+fn testRow(opcode: Opcode) TraceRow {
+    return .{
+        .clk = 1,
+        .pc = 100,
+        .opcode = opcode,
         .rd = 1,
         .rs1 = 2,
         .rs2 = 3,
         .imm = 0,
-        .rs1_val = 10,
-        .rs2_val = 20,
-        .rd_val = 30,
-        .mem_addr = 0,
-        .mem_val = 0,
-        .is_load = false,
-        .is_store = false,
-        .branch_taken = false,
-        .next_pc = 0x1004,
-    });
-    try t.append(.{
-        .clk = 1,
-        .pc = 0x1004,
-        .opcode = .ADDI,
-        .rd = 4,
-        .rs1 = 1,
-        .rs2 = 0,
-        .imm = 5,
-        .rs1_val = 30,
+        .rs1_val = 0,
         .rs2_val = 0,
-        .rd_val = 35,
+        .rd_val = 0,
         .mem_addr = 0,
         .mem_val = 0,
         .is_load = false,
         .is_store = false,
         .branch_taken = false,
-        .next_pc = 0x1008,
-    });
+        .next_pc = 104,
+    };
+}
 
-    const counts = try t.groupByOpcodeFamily(alloc);
-    try std.testing.expectEqual(@as(usize, 1), counts.get(.base_alu_reg));
-    try std.testing.expectEqual(@as(usize, 1), counts.get(.base_alu_imm));
-    try std.testing.expectEqual(@as(usize, 2), counts.total());
+fn filledRow(comptime n: usize, row: TraceRow, family: OpcodeFamily) [n]QM31 {
+    var storage: [MAX_FAMILY_COLUMNS][1]M31 = .{.{M31.zero()}} ** MAX_FAMILY_COLUMNS;
+    var columns: [MAX_FAMILY_COLUMNS][]M31 = undefined;
+    for (&columns, &storage) |*column, *values| column.* = values;
+    fillFamilyColumns(&columns, 0, row, family);
+    var result: [n]QM31 = undefined;
+    for (&result, columns[0..n]) |*value, column| value.* = QM31.fromBase(column[0]);
+    return result;
+}
+
+test "witness rows satisfy base and shift semantic evaluators" {
+    var row = testRow(.ADD);
+    row.rs1_val = 1;
+    row.rs2_val = 2;
+    row.rd_val = 3;
+    var base_reg_columns = filledRow(semantics.base_alu_reg.N_ORACLE_COLUMNS, row, .base_alu_reg);
+    const base_reg = try semantics.base_alu_reg.Row.fromOracleColumns(&base_reg_columns);
+    try std.testing.expect(semantics.base_alu_reg.evaluate(base_reg).allZero());
+
+    row = testRow(.ADDI);
+    row.imm = -1;
+    row.rs1_val = 1;
+    row.rd_val = 0;
+    var base_imm_columns = filledRow(semantics.base_alu_imm.N_ORACLE_COLUMNS, row, .base_alu_imm);
+    const base_imm = try semantics.base_alu_imm.Row.fromOracleColumns(&base_imm_columns);
+    try std.testing.expect(semantics.base_alu_imm.evaluate(base_imm).allZero());
+
+    row = testRow(.SLL);
+    row.rs1_val = 1;
+    row.rs2_val = 1;
+    row.rd_val = 2;
+    var shift_reg_columns = filledRow(semantics.shifts_reg.N_ORACLE_COLUMNS, row, .shifts_reg);
+    const shift_reg = try semantics.shifts_reg.Row.fromOracleColumns(&shift_reg_columns);
+    try std.testing.expect(semantics.shifts_reg.evaluate(shift_reg).allZero());
+
+    row = testRow(.SRAI);
+    row.imm = 1;
+    row.rs1_val = 0x80000000;
+    row.rd_val = 0xc0000000;
+    var shift_imm_columns = filledRow(semantics.shifts_imm.N_ORACLE_COLUMNS, row, .shifts_imm);
+    const shift_imm = try semantics.shifts_imm.Row.fromOracleColumns(&shift_imm_columns);
+    try std.testing.expect(semantics.shifts_imm.evaluate(shift_imm).allZero());
+}
+
+test "witness rows satisfy comparison and branch semantic evaluators" {
+    var row = testRow(.SLTU);
+    row.rs1_val = 1;
+    row.rs2_val = 2;
+    row.rd_val = 1;
+    var lt_reg_columns = filledRow(semantics.lt_reg.N_ORACLE_COLUMNS, row, .lt_reg);
+    const lt_reg = try semantics.lt_reg.Row.fromOracleColumns(&lt_reg_columns);
+    try std.testing.expect(semantics.lt_reg.evaluate(lt_reg).allZero());
+
+    row = testRow(.SLTI);
+    row.imm = 2;
+    row.rs1_val = 1;
+    row.rd_val = 1;
+    var lt_imm_columns = filledRow(semantics.lt_imm.N_ORACLE_COLUMNS, row, .lt_imm);
+    const lt_imm = try semantics.lt_imm.Row.fromOracleColumns(&lt_imm_columns);
+    try std.testing.expect(semantics.lt_imm.evaluate(lt_imm).allZero());
+
+    row = testRow(.BEQ);
+    row.rs1_val = 7;
+    row.rs2_val = 7;
+    row.imm = 8;
+    row.next_pc = 108;
+    var branch_eq_columns = filledRow(semantics.branch_eq.N_MAIN_COLUMNS, row, .branch_eq);
+    const branch_eq = try semantics.branch_eq.Row.fromMainColumns(&branch_eq_columns);
+    try std.testing.expect(semantics.branch_eq.evaluate(branch_eq).allZero());
+
+    row = testRow(.BLTU);
+    row.rs1_val = 1;
+    row.rs2_val = 2;
+    row.imm = 8;
+    row.next_pc = 108;
+    var branch_lt_columns = filledRow(semantics.branch_lt.N_MAIN_COLUMNS, row, .branch_lt);
+    const branch_lt = try semantics.branch_lt.Row.fromMainColumns(&branch_lt_columns);
+    try std.testing.expect(semantics.branch_lt.evaluate(branch_lt).allZero());
+}
+
+test "witness rows satisfy upper jump and memory semantic evaluators" {
+    var row = testRow(.LUI);
+    row.rd_val = 0x12345000;
+    var lui_columns = filledRow(semantics.lui.N_MAIN_COLUMNS, row, .lui);
+    const lui = try semantics.lui.Row.fromMainColumns(&lui_columns);
+    try std.testing.expect(semantics.lui.evaluate(lui).allZero());
+
+    row = testRow(.AUIPC);
+    row.imm = 20;
+    row.rd_val = 120;
+    var auipc_columns = filledRow(semantics.auipc.N_MAIN_COLUMNS, row, .auipc);
+    const auipc = try semantics.auipc.Row.fromMainColumns(&auipc_columns);
+    try std.testing.expect(semantics.auipc.evaluate(auipc).allZero());
+
+    row = testRow(.JAL);
+    row.imm = 8;
+    row.rd_val = 104;
+    row.next_pc = 108;
+    var jal_columns = filledRow(semantics.jal.N_MAIN_COLUMNS, row, .jal);
+    const jal = try semantics.jal.Row.fromMainColumns(&jal_columns);
+    try std.testing.expect(semantics.jal.evaluate(jal).allZero());
+
+    row = testRow(.JALR);
+    row.imm = 3;
+    row.rs1_val = 100;
+    row.rd_val = 104;
+    row.next_pc = 102;
+    var jalr_columns = filledRow(semantics.jalr.N_MAIN_COLUMNS, row, .jalr);
+    const jalr = try semantics.jalr.Row.fromMainColumns(&jalr_columns);
+    try std.testing.expect(semantics.jalr.evaluate(jalr).allZero());
+
+    row = testRow(.LW);
+    row.rd = 4;
+    row.rs1_val = 100;
+    row.rd_val = 0x04030201;
+    row.mem_addr = 100;
+    row.mem_val = row.rd_val;
+    row.mem_prev_word = row.rd_val;
+    row.mem_next_word = row.rd_val;
+    row.is_load = true;
+    var memory_columns = filledRow(semantics.load_store.N_ORACLE_COLUMNS, row, .load_store);
+    const memory = try semantics.load_store.Row.fromOracleColumns(&memory_columns);
+    try std.testing.expect(semantics.load_store.evaluate(memory).allZero());
+
+    row = testRow(.LB);
+    row.rd = 4;
+    row.rs1_val = 101;
+    row.rd_val = 0xffffff80;
+    row.mem_addr = 101;
+    row.mem_val = 0x80;
+    row.mem_prev_word = 0x00008000;
+    row.mem_next_word = 0x00008000;
+    row.is_load = true;
+    memory_columns = filledRow(semantics.load_store.N_ORACLE_COLUMNS, row, .load_store);
+    const byte_load = try semantics.load_store.Row.fromOracleColumns(&memory_columns);
+    try std.testing.expect(semantics.load_store.evaluate(byte_load).allZero());
+
+    row = testRow(.SH);
+    row.rs1_val = 102;
+    row.rs2_val = 0xbeef;
+    row.mem_addr = 102;
+    row.mem_val = 0xbeef;
+    row.mem_prev_word = 0;
+    row.mem_next_word = 0xbeef0000;
+    row.is_store = true;
+    memory_columns = filledRow(semantics.load_store.N_ORACLE_COLUMNS, row, .load_store);
+    const half_store = try semantics.load_store.Row.fromOracleColumns(&memory_columns);
+    try std.testing.expect(semantics.load_store.evaluate(half_store).allZero());
+}
+
+test "padding rows remain inactive for flag and explicit-enabler families" {
+    const zero = [_]QM31{QM31.zero()} ** semantics.base_alu_reg.N_ORACLE_COLUMNS;
+    const base = try semantics.base_alu_reg.Row.fromOracleColumns(&zero);
+    try std.testing.expect(base.active().isZero());
+    try std.testing.expect(semantics.base_alu_reg.evaluate(base).allZero());
+
+    const control_zero = [_]QM31{QM31.zero()} ** semantics.jal.N_MAIN_COLUMNS;
+    const control = try semantics.jal.Row.fromMainColumns(&control_zero);
+    try std.testing.expect(control.enabler.isZero());
+    try std.testing.expect(semantics.jal.evaluate(control).allZero());
 }

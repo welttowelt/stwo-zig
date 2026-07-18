@@ -22,6 +22,7 @@ pub const MAX_INFRA_COMPONENTS: usize = 512;
 const M31_MODULUS: u32 = 0x7fff_ffff;
 
 pub const Qm31Wire = [4]u32;
+pub const MemoryClaimsWire = [4]Qm31Wire;
 
 pub const FriConfigWire = struct {
     log_blowup_factor: u32,
@@ -100,6 +101,7 @@ pub const InteractionClaimWire = struct {
     state_claims: []const Qm31Wire,
     program_claims: []const Qm31Wire,
     rom_claim: Qm31Wire,
+    memory_claims: []const MemoryClaimsWire,
 };
 
 /// JSON envelope reserved for CPU proofs while the adapter is staged.
@@ -193,7 +195,11 @@ pub fn validate(artifact: Artifact) !void {
     try validateSha256(artifact.source.input_sha256);
     try validatePcsConfig(artifact.protocol, artifact.pcs_config);
     try validateStatement(artifact.statement);
-    try validateClaims(artifact.statement.components.len, artifact.interaction_claim);
+    try validateClaims(
+        artifact.statement.components.len,
+        artifact.statement.infrastructure.len,
+        artifact.interaction_claim,
+    );
     try validateProofHex(artifact.proof_bytes_hex);
 }
 
@@ -253,13 +259,21 @@ fn validateStatement(statement: StatementWire) !void {
     }
 }
 
-fn validateClaims(component_count: usize, claims: InteractionClaimWire) !void {
+fn validateClaims(
+    component_count: usize,
+    infrastructure_count: usize,
+    claims: InteractionClaimWire,
+) !void {
     if (claims.state_claims.len != component_count or
-        claims.program_claims.len != component_count)
+        claims.program_claims.len != component_count or
+        claims.memory_claims.len != infrastructure_count)
         return error.InvalidInteractionClaimCount;
     for (claims.state_claims) |claim| try validateQm31(claim);
     for (claims.program_claims) |claim| try validateQm31(claim);
     try validateQm31(claims.rom_claim);
+    for (claims.memory_claims) |component_claims| {
+        for (component_claims) |claim| try validateQm31(claim);
+    }
 }
 
 fn validateQm31(value: Qm31Wire) !void {
@@ -358,6 +372,12 @@ fn fixture() Artifact {
             .state_claims = &.{.{ 0, 0, 0, 0 }},
             .program_claims = &.{.{ 0, 0, 0, 0 }},
             .rom_claim = .{ 0, 0, 0, 0 },
+            .memory_claims = &.{.{
+                .{ 0, 0, 0, 0 },
+                .{ 0, 0, 0, 0 },
+                .{ 0, 0, 0, 0 },
+                .{ 0, 0, 0, 0 },
+            }},
         },
         .proof_bytes_hex = "00",
     };

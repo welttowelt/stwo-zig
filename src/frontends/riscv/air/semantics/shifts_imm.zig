@@ -7,16 +7,7 @@ const shift = @import("shift_common.zig");
 
 pub const N_ORACLE_COLUMNS: usize = 45;
 pub const N_CONSTRAINTS: usize = shift.N_CONSTRAINTS + 1;
-pub const CURRENT_TRACE_COMPATIBLE = false;
-pub const MISSING_CURRENT_WITNESS_COLUMNS = [_][]const u8{
-    "rs1_sign",
-    "imm_truncated",
-    "bit_multiplier_left",
-    "bit_multiplier_right",
-    "bit_shift_marker_0..7",
-    "limb_shift_marker_0..3",
-    "bit_shift_carry_0..3",
-};
+pub const CURRENT_TRACE_COMPATIBLE = true;
 
 pub const Row = struct {
     clk: QM31,

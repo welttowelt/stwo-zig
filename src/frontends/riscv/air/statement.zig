@@ -13,7 +13,7 @@ pub const PublicData = public_data.PublicData;
 pub const MAX_COMPONENTS: usize = 256;
 pub const MAX_INFRA_COMPONENTS: usize = 512;
 pub const MAX_INTERACTION_COLUMNS: usize =
-    MAX_COMPONENTS * 8 + MAX_INFRA_COMPONENTS * 4;
+    (MAX_COMPONENTS + MAX_INFRA_COMPONENTS) * 16;
 
 pub const InfraKind = enum(u32) {
     program,
@@ -37,7 +37,11 @@ pub const InfraComponentDesc = struct {
 };
 
 pub fn nInteractionColsForInfra(kind: InfraKind) u32 {
-    return if (kind == .program) component.nInteractionCols(.program) else 0;
+    return switch (kind) {
+        .program => component.nInteractionCols(.program),
+        .memory => component.nInteractionCols(.memory),
+        else => 0,
+    };
 }
 
 pub const RiscVStatement = struct {
@@ -175,6 +179,7 @@ pub const RiscVInteractionClaim = struct {
     state_claims: [MAX_COMPONENTS]QM31,
     prog_claims: [MAX_COMPONENTS]QM31,
     rom_claim: QM31,
+    memory_claims: [MAX_INFRA_COMPONENTS][4]QM31,
     n_components: u32,
     interaction_pow: u64,
 
@@ -183,6 +188,7 @@ pub const RiscVInteractionClaim = struct {
             .state_claims = .{QM31.zero()} ** MAX_COMPONENTS,
             .prog_claims = .{QM31.zero()} ** MAX_COMPONENTS,
             .rom_claim = QM31.zero(),
+            .memory_claims = .{.{QM31.zero()} ** 4} ** MAX_INFRA_COMPONENTS,
             .n_components = 0,
             .interaction_pow = 0,
         };
@@ -214,6 +220,12 @@ pub const RiscVInteractionClaim = struct {
             if (desc.kind == .program) {
                 const claim_index = @intFromEnum(transcript_claims.Component.program);
                 result.claimed_sums[claim_index] = result.claimed_sums[claim_index].add(self.rom_claim);
+            }
+            if (desc.kind == .memory) {
+                const claim_index = @intFromEnum(transcript_claims.Component.memory);
+                for (self.memory_claims[i]) |sum| {
+                    result.claimed_sums[claim_index] = result.claimed_sums[claim_index].add(sum);
+                }
             }
             for (0..nInteractionColsForInfra(desc.kind)) |_| {
                 if (result.n_log_sizes == result.log_sizes.len) return error.TooManyInteractionColumns;

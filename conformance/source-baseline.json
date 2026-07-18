@@ -2,15 +2,6 @@
  "version": 3,
  "findings": [
   {
-   "key": "file-size:frontends/riscv/air/trace_columns.zig",
-   "owner": "riscv-frontend",
-   "track": "deferred_todo",
-   "reason": "The RISC-V trace-column module retains legacy AIR layout and construction responsibilities in one file.",
-   "next_extraction": "Separate the next stable trace-layout responsibility from trace population after shared Cairo and prover boundaries settle.",
-   "plan": "conformance/decomposition-plan.md",
-   "max_lines": 935
-  },
-  {
    "key": "file-size:frontends/riscv/infra_trace.zig",
    "owner": "riscv-frontend",
    "track": "deferred_todo",
@@ -27,15 +18,6 @@
    "next_extraction": "Split statement and column planning from proof orchestration behind explicit frontend contracts.",
    "plan": "conformance/decomposition-plan.md",
    "max_lines": 1672
-  },
-  {
-   "key": "file-size:frontends/riscv/runner/trace.zig",
-   "owner": "riscv-frontend",
-   "track": "deferred_todo",
-   "reason": "The RISC-V runner trace module retains several legacy execution-to-witness transformations.",
-   "next_extraction": "Separate the next witness table transformation behind an explicit runner trace contract.",
-   "plan": "conformance/decomposition-plan.md",
-   "max_lines": 985
   },
   {
    "key": "file-size:integrations/cairo_metal/arena_binding.zig",

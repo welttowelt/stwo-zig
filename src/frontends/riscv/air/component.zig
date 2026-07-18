@@ -29,6 +29,7 @@ const prover_poly = @import("../../../prover/poly/circle/poly.zig");
 const prover_twiddles = @import("../../../prover/poly/twiddles.zig");
 const interaction_gen = @import("interaction_gen.zig");
 const logup = @import("logup.zig");
+const memory_interaction = @import("memory_commitment/interaction.zig");
 const relation_challenges = @import("relation_challenges.zig");
 const semantics = @import("semantics/mod.zig");
 const trace_mod = @import("../runner/trace.zig");
@@ -46,18 +47,21 @@ pub const FamilyComponentDesc = struct {
 };
 
 /// Constraint role of a component.
-pub const Kind = enum { opcode, program, silent };
+pub const Kind = enum { opcode, program, memory, silent };
 
 /// Number of committed M31 interaction columns for a component kind.
 pub fn nInteractionCols(kind: Kind) u32 {
     return switch (kind) {
         .opcode => @intCast(interaction_gen.OPCODE_INTERACTION_COLS),
         .program => @intCast(interaction_gen.PROGRAM_INTERACTION_COLS),
+        .memory => @intCast(memory_interaction.N_COLUMNS),
         .silent => 0,
     };
 }
 
 const EMPTY_PREV: [4][]const M31 = .{ &.{}, &.{}, &.{}, &.{} };
+const EMPTY_MEMORY_PREV: [memory_interaction.N_SUMS][4][]const M31 =
+    .{EMPTY_PREV} ** memory_interaction.N_SUMS;
 
 pub const RiscVTraceComponent = struct {
     desc: FamilyComponentDesc,
@@ -75,12 +79,15 @@ pub const RiscVTraceComponent = struct {
     state_claim: QM31 = QM31.zero(),
     prog_claim: QM31 = QM31.zero(),
     rom_claim: QM31 = QM31.zero(),
+    memory_claims: [memory_interaction.N_SUMS]QM31 =
+        .{QM31.zero()} ** memory_interaction.N_SUMS,
     /// Trace-order-shifted S coordinate columns in committed order at
     /// `desc.log_size`. Prover-side only (empty on the verifier); consumed by
     /// the on-domain evaluator as uncommitted column sources.
     s_state_prev: [4][]const M31 = EMPTY_PREV,
     s_prog_prev: [4][]const M31 = EMPTY_PREV,
     s_rom_prev: [4][]const M31 = EMPTY_PREV,
+    s_memory_prev: [memory_interaction.N_SUMS][4][]const M31 = EMPTY_MEMORY_PREV,
 
     const Adapter = core_air_derive.ComponentAdapter(
         @This(),
@@ -100,11 +107,12 @@ pub const RiscVTraceComponent = struct {
     pub fn nConstraints(self: *const @This()) usize {
         return switch (self.kind) {
             .opcode => 2 + switch (self.desc.family) {
-                .base_alu_reg => semantics.base_alu_reg.N_CONSTRAINTS,
-                .base_alu_imm => semantics.base_alu_imm.N_CONSTRAINTS,
+                .base_alu_reg => semantics.base_alu_reg.N_CONSTRAINTS + 1,
+                .base_alu_imm => semantics.base_alu_imm.N_CONSTRAINTS + 1,
                 else => 0,
             },
             .program => 2,
+            .memory => memory_interaction.N_CONSTRAINTS,
             .silent => 1,
         };
     }
@@ -288,27 +296,35 @@ pub const RiscVTraceComponent = struct {
                 switch (self.desc.family) {
                     .base_alu_reg => {
                         const sampled = try sampledMainRow(
-                            semantics.base_alu_reg.N_MAIN_COLUMNS,
+                            semantics.base_alu_reg.N_ORACLE_COLUMNS,
                             main,
                             self.main_col_offset,
                         );
-                        const row = try semantics.base_alu_reg.Row.fromMainColumns(&sampled);
-                        const constraints = semantics.base_alu_reg.evaluate(row, is_active);
+                        const row = try semantics.base_alu_reg.Row.fromOracleColumns(&sampled);
+                        const constraints = semantics.base_alu_reg.evaluate(row);
                         for (constraints.values) |constraint| {
                             evaluation_accumulator.accumulate(constraint.mul(denominator_inv));
                         }
+                        evaluation_accumulator.accumulate(
+                            semantics.base_alu_reg.placementConstraint(row, is_active)
+                                .mul(denominator_inv),
+                        );
                     },
                     .base_alu_imm => {
                         const sampled = try sampledMainRow(
-                            semantics.base_alu_imm.N_MAIN_COLUMNS,
+                            semantics.base_alu_imm.N_ORACLE_COLUMNS,
                             main,
                             self.main_col_offset,
                         );
-                        const row = try semantics.base_alu_imm.Row.fromMainColumns(&sampled);
-                        const constraints = semantics.base_alu_imm.evaluate(row, is_active);
+                        const row = try semantics.base_alu_imm.Row.fromOracleColumns(&sampled);
+                        const constraints = semantics.base_alu_imm.evaluate(row);
                         for (constraints.values) |constraint| {
                             evaluation_accumulator.accumulate(constraint.mul(denominator_inv));
                         }
+                        evaluation_accumulator.accumulate(
+                            semantics.base_alu_imm.placementConstraint(row, is_active)
+                                .mul(denominator_inv),
+                        );
                     },
                     else => {},
                 }
@@ -341,6 +357,27 @@ pub const RiscVTraceComponent = struct {
                 evaluation_accumulator.accumulate(
                     enabler.sub(is_active).mul(denominator_inv),
                 );
+            },
+            .memory => {
+                const sampled = try sampledMainRow(8, main, self.main_col_offset);
+                var sums: [memory_interaction.N_SUMS]QM31 = undefined;
+                var previous: [memory_interaction.N_SUMS]QM31 = undefined;
+                for (0..memory_interaction.N_SUMS) |index| {
+                    sums[index] = try sampledSecure(inter, o + index * 4, 0);
+                    previous[index] = try sampledSecure(inter, o + index * 4, 1);
+                }
+                const constraints = memory_interaction.evaluate(
+                    sampled,
+                    is_active,
+                    is_first,
+                    sums,
+                    previous,
+                    self.memory_claims,
+                    self.relations,
+                );
+                for (constraints) |constraint| {
+                    evaluation_accumulator.accumulate(constraint.mul(denominator_inv));
+                }
             },
             .silent => unreachable,
         }
@@ -390,6 +427,7 @@ pub const RiscVTraceComponent = struct {
         const n_sources: usize = switch (self.kind) {
             .opcode => 2 + opcode_main_sources + n_inter + 8,
             .program => 2 + 7 + n_inter + 4,
+            .memory => 2 + 8 + n_inter + memory_interaction.N_COLUMNS,
             .silent => unreachable,
         };
         const evaluations = try allocator.alloc([]const M31, n_sources);
@@ -439,8 +477,13 @@ pub const RiscVTraceComponent = struct {
                         n_polys += 1;
                     }
                 }
-            } else {
+            } else if (self.kind == .program) {
                 for (0..7) |i| {
+                    polys_buf[n_polys] = main[self.main_col_offset + i];
+                    n_polys += 1;
+                }
+            } else {
+                for (0..8) |i| {
                     polys_buf[n_polys] = main[self.main_col_offset + i];
                     n_polys += 1;
                 }
@@ -464,6 +507,7 @@ pub const RiscVTraceComponent = struct {
             const prev_sets: []const [4][]const M31 = switch (self.kind) {
                 .opcode => &.{ self.s_state_prev, self.s_prog_prev },
                 .program => &.{self.s_rom_prev},
+                .memory => &self.s_memory_prev,
                 .silent => unreachable,
             };
             const trace_domain = canonic.CanonicCoset.new(log_size).circleDomain();
@@ -584,30 +628,40 @@ pub const RiscVTraceComponent = struct {
                     row_evaluation = powers[powers.len - 1].mul(c_state)
                         .add(powers[powers.len - 2].mul(c_prog));
                     if (self.desc.family == .base_alu_reg) {
-                        var sampled: [semantics.base_alu_reg.N_MAIN_COLUMNS]QM31 = undefined;
+                        var sampled: [semantics.base_alu_reg.N_ORACLE_COLUMNS]QM31 = undefined;
                         for (&sampled, 0..) |*value, column| {
                             value.* = QM31.fromBase(evaluations[main_start + column][row]);
                         }
-                        const semantic_row = try semantics.base_alu_reg.Row.fromMainColumns(&sampled);
-                        const constraints = semantics.base_alu_reg.evaluate(semantic_row, is_active);
+                        const semantic_row = try semantics.base_alu_reg.Row.fromOracleColumns(&sampled);
+                        const constraints = semantics.base_alu_reg.evaluate(semantic_row);
                         for (constraints.values, 0..) |constraint, index| {
                             row_evaluation = row_evaluation.add(
                                 powers[powers.len - 3 - index].mul(constraint),
                             );
                         }
+                        row_evaluation = row_evaluation.add(
+                            powers[powers.len - 3 - constraints.values.len].mul(
+                                semantics.base_alu_reg.placementConstraint(semantic_row, is_active),
+                            ),
+                        );
                     }
                     if (self.desc.family == .base_alu_imm) {
-                        var sampled: [semantics.base_alu_imm.N_MAIN_COLUMNS]QM31 = undefined;
+                        var sampled: [semantics.base_alu_imm.N_ORACLE_COLUMNS]QM31 = undefined;
                         for (&sampled, 0..) |*value, column| {
                             value.* = QM31.fromBase(evaluations[main_start + column][row]);
                         }
-                        const semantic_row = try semantics.base_alu_imm.Row.fromMainColumns(&sampled);
-                        const constraints = semantics.base_alu_imm.evaluate(semantic_row, is_active);
+                        const semantic_row = try semantics.base_alu_imm.Row.fromOracleColumns(&sampled);
+                        const constraints = semantics.base_alu_imm.evaluate(semantic_row);
                         for (constraints.values, 0..) |constraint, index| {
                             row_evaluation = row_evaluation.add(
                                 powers[powers.len - 3 - index].mul(constraint),
                             );
                         }
+                        row_evaluation = row_evaluation.add(
+                            powers[powers.len - 3 - constraints.values.len].mul(
+                                semantics.base_alu_imm.placementConstraint(semantic_row, is_active),
+                            ),
+                        );
                     }
                 },
                 .program => {
@@ -639,6 +693,37 @@ pub const RiscVTraceComponent = struct {
                     const c_active = enabler.sub(is_active);
                     row_evaluation = column_accumulator.random_coeff_powers[1].mul(c_rom)
                         .add(column_accumulator.random_coeff_powers[0].mul(c_active));
+                },
+                .memory => {
+                    const main_start: usize = 2;
+                    const inter_start = main_start + 8;
+                    const prev_start = inter_start + memory_interaction.N_COLUMNS;
+                    var sampled: [8]QM31 = undefined;
+                    for (&sampled, 0..) |*value, column| {
+                        value.* = QM31.fromBase(evaluations[main_start + column][row]);
+                    }
+                    var sums: [memory_interaction.N_SUMS]QM31 = undefined;
+                    var previous: [memory_interaction.N_SUMS]QM31 = undefined;
+                    for (0..memory_interaction.N_SUMS) |index| {
+                        sums[index] = secureAt(evaluations[inter_start + index * 4 ..][0..4], row);
+                        previous[index] = secureAt(evaluations[prev_start + index * 4 ..][0..4], row);
+                    }
+                    const constraints = memory_interaction.evaluate(
+                        sampled,
+                        is_active,
+                        is_first,
+                        sums,
+                        previous,
+                        self.memory_claims,
+                        self.relations,
+                    );
+                    const powers = column_accumulator.random_coeff_powers;
+                    row_evaluation = QM31.zero();
+                    for (constraints, 0..) |constraint, index| {
+                        row_evaluation = row_evaluation.add(
+                            powers[powers.len - 1 - index].mul(constraint),
+                        );
+                    }
                 },
                 .silent => unreachable,
             }

@@ -6,17 +6,7 @@ const common = @import("common.zig");
 
 pub const N_ORACLE_COLUMNS: usize = 50;
 pub const N_CONSTRAINTS: usize = 44;
-pub const CURRENT_TRACE_COMPATIBLE = false;
-pub const MISSING_CURRENT_WITNESS_COLUMNS = [_][]const u8{
-    "dst/src role-separated access blocks",
-    "r2_idx",
-    "imm_felt",
-    "src_msb",
-    "shift_amount",
-    "src_addr_selector",
-    "dst_addr_selector",
-    "marker_0..3",
-};
+pub const CURRENT_TRACE_COMPATIBLE = true;
 
 pub const Row = struct {
     clk: QM31,

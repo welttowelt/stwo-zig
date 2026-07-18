@@ -8,61 +8,34 @@ const std = @import("std");
 const QM31 = @import("../../../../core/fields/qm31.zig").QM31;
 const common = @import("common.zig");
 
-/// Full 37-column family trace followed by the exact decoded-program bus
-/// columns `(next_pc, opcode_id, value_1, value_2, value_3)`.
-pub const N_MAIN_COLUMNS: usize = 42;
-pub const N_CONSTRAINTS: usize = 19;
+pub const N_ORACLE_COLUMNS: usize = 37;
+pub const N_CONSTRAINTS: usize = 14;
 
 pub const Row = struct {
     clk: QM31,
     pc: QM31,
+    rd: common.Access,
+    rs1: common.Access,
+    rs2: common.Access,
     is_add: QM31,
     is_sub: QM31,
     is_xor: QM31,
     is_or: QM31,
     is_and: QM31,
-    rd: common.Access,
-    rs1: common.Access,
-    rs2: common.Access,
-    next_pc: QM31,
-    program_opcode: QM31,
-    program_value_1: QM31,
-    program_value_2: QM31,
-    program_value_3: QM31,
 
-    pub fn fromMainColumns(columns: []const QM31) !Row {
-        if (columns.len != N_MAIN_COLUMNS) return error.InvalidMainTraceShape;
+    pub fn fromOracleColumns(columns: []const QM31) !Row {
+        if (columns.len != N_ORACLE_COLUMNS) return error.InvalidOracleTraceShape;
         return .{
             .clk = columns[0],
             .pc = columns[1],
-            .is_add = columns[2],
-            .is_sub = columns[3],
-            .is_xor = columns[4],
-            .is_or = columns[5],
-            .is_and = columns[6],
-            .rd = .{
-                .addr = columns[7],
-                .previous = columns[8..12].*,
-                .previous_clock = columns[12],
-                .next = columns[13..17].*,
-            },
-            .rs1 = .{
-                .addr = columns[17],
-                .previous = columns[18..22].*,
-                .previous_clock = columns[22],
-                .next = columns[23..27].*,
-            },
-            .rs2 = .{
-                .addr = columns[27],
-                .previous = columns[28..32].*,
-                .previous_clock = columns[32],
-                .next = columns[33..37].*,
-            },
-            .next_pc = columns[37],
-            .program_opcode = columns[38],
-            .program_value_1 = columns[39],
-            .program_value_2 = columns[40],
-            .program_value_3 = columns[41],
+            .rd = common.accessFromColumns(columns[2..12]),
+            .rs1 = common.accessFromColumns(columns[12..22]),
+            .rs2 = common.accessFromColumns(columns[22..32]),
+            .is_add = columns[32],
+            .is_sub = columns[33],
+            .is_xor = columns[34],
+            .is_or = columns[35],
+            .is_and = columns[36],
         };
     }
 
@@ -76,31 +49,17 @@ pub const Constraints = common.ConstraintSet(N_CONSTRAINTS);
 /// Direct AIR constraints. The byte-range lookups documented in
 /// `rangeCheckPairs` and the decoded program lookup returned by
 /// `programLookup` must be wired alongside these constraints.
-pub fn evaluate(row: Row, is_active: QM31) Constraints {
+pub fn evaluate(row: Row) Constraints {
     var out: [N_CONSTRAINTS]QM31 = undefined;
     var i: usize = 0;
 
+    out[i] = common.bit(row.active());
+    i += 1;
     const flags = [_]QM31{ row.is_add, row.is_sub, row.is_xor, row.is_or, row.is_and };
     for (flags) |flag| {
         out[i] = common.bit(flag);
         i += 1;
     }
-    out[i] = row.active().sub(is_active);
-    i += 1;
-    out[i] = common.selected(is_active, row.next_pc.sub(row.pc).sub(common.q(4)));
-    i += 1;
-
-    const program = programLookup(row);
-    for ([_]QM31{
-        row.program_opcode.sub(program.opcode_id),
-        row.program_value_1.sub(program.rd),
-        row.program_value_2.sub(program.rs1),
-        row.program_value_3.sub(program.operand),
-    }) |constraint| {
-        out[i] = common.selected(is_active, constraint);
-        i += 1;
-    }
-
     var carry = QM31.zero();
     for (0..4) |limb| {
         const numerator = row.rs1.next[limb].add(row.rs2.next[limb]).add(carry).sub(row.rd.next[limb]);
@@ -118,6 +77,10 @@ pub fn evaluate(row: Row, is_active: QM31) Constraints {
     }
     std.debug.assert(i == out.len);
     return .{ .values = out };
+}
+
+pub fn placementConstraint(row: Row, is_active: QM31) QM31 {
+    return row.active().sub(is_active);
 }
 
 /// The upstream opcode ids are protocol constants, not Zig enum ordinals.
@@ -198,56 +161,37 @@ fn zeroRow() Row {
         .rd = zero_access,
         .rs1 = zero_access,
         .rs2 = zero_access,
-        .next_pc = QM31.zero(),
-        .program_opcode = QM31.zero(),
-        .program_value_1 = QM31.zero(),
-        .program_value_2 = QM31.zero(),
-        .program_value_3 = QM31.zero(),
     };
-}
-
-fn bindProgram(row: *Row) void {
-    const program = programLookup(row.*);
-    row.program_opcode = program.opcode_id;
-    row.program_value_1 = program.rd;
-    row.program_value_2 = program.rs1;
-    row.program_value_3 = program.operand;
 }
 
 test "base alu reg semantics: ADD accepts byte carry chain" {
     var row = zeroRow();
     row.pc = common.q(0x1000);
-    row.next_pc = common.q(0x1004);
     row.is_add = QM31.one();
     row.rs1.next = .{ common.q(255), common.q(255), common.q(0), common.q(0) };
     row.rs2.next = .{ common.q(1), common.q(0), common.q(0), common.q(0) };
     row.rd.next = .{ common.q(0), common.q(0), common.q(1), common.q(0) };
-    bindProgram(&row);
-    try std.testing.expect(evaluate(row, QM31.one()).allZero());
+    try std.testing.expect(evaluate(row).allZero());
 }
 
 test "base alu reg semantics: ADD rejects a forged result" {
     var row = zeroRow();
     row.pc = common.q(0x1000);
-    row.next_pc = common.q(0x1004);
     row.is_add = QM31.one();
     row.rs1.next[0] = common.q(7);
     row.rs2.next[0] = common.q(9);
     row.rd.next[0] = common.q(17);
-    bindProgram(&row);
-    try std.testing.expect(!evaluate(row, QM31.one()).allZero());
+    try std.testing.expect(!evaluate(row).allZero());
 }
 
 test "base alu reg semantics: SUB accepts unsigned wraparound" {
     var row = zeroRow();
     row.pc = common.q(0x1000);
-    row.next_pc = common.q(0x1004);
     row.is_sub = QM31.one();
     row.rs1.next = .{QM31.zero()} ** 4;
     row.rs2.next[0] = common.q(1);
     row.rd.next = .{ common.q(255), common.q(255), common.q(255), common.q(255) };
-    bindProgram(&row);
-    try std.testing.expect(evaluate(row, QM31.one()).allZero());
+    try std.testing.expect(evaluate(row).allZero());
 }
 
 test "base alu reg semantics: decoded tuple uses pinned Stark-V ids" {
@@ -275,25 +219,21 @@ test "base alu reg semantics: access lookups consume previous and emit at row cl
     try std.testing.expect(chain.clock_gap.eql(common.q(8)));
 }
 
-test "base alu reg semantics: full main-column adapter preserves access blocks" {
-    var columns = [_]QM31{QM31.zero()} ** N_MAIN_COLUMNS;
-    columns[7] = common.q(1);
-    columns[8] = common.q(2);
-    columns[12] = common.q(3);
-    columns[13] = common.q(4);
-    columns[17] = common.q(5);
-    columns[22] = common.q(6);
-    columns[23] = common.q(7);
-    columns[27] = common.q(8);
-    columns[32] = common.q(9);
-    columns[33] = common.q(10);
-    columns[37] = common.q(11);
-    columns[38] = common.q(12);
-    columns[39] = common.q(13);
-    columns[40] = common.q(14);
-    columns[41] = common.q(15);
+test "base alu reg semantics: oracle adapter preserves access-first layout" {
+    var columns = [_]QM31{QM31.zero()} ** N_ORACLE_COLUMNS;
+    columns[2] = common.q(1);
+    columns[3] = common.q(2);
+    columns[7] = common.q(3);
+    columns[8] = common.q(4);
+    columns[12] = common.q(5);
+    columns[17] = common.q(6);
+    columns[18] = common.q(7);
+    columns[22] = common.q(8);
+    columns[27] = common.q(9);
+    columns[28] = common.q(10);
+    columns[32] = common.q(11);
 
-    const row = try Row.fromMainColumns(&columns);
+    const row = try Row.fromOracleColumns(&columns);
     try std.testing.expect(row.rd.addr.eql(common.q(1)));
     try std.testing.expect(row.rd.previous[0].eql(common.q(2)));
     try std.testing.expect(row.rd.previous_clock.eql(common.q(3)));
@@ -304,9 +244,5 @@ test "base alu reg semantics: full main-column adapter preserves access blocks" 
     try std.testing.expect(row.rs2.addr.eql(common.q(8)));
     try std.testing.expect(row.rs2.previous_clock.eql(common.q(9)));
     try std.testing.expect(row.rs2.next[0].eql(common.q(10)));
-    try std.testing.expect(row.next_pc.eql(common.q(11)));
-    try std.testing.expect(row.program_opcode.eql(common.q(12)));
-    try std.testing.expect(row.program_value_1.eql(common.q(13)));
-    try std.testing.expect(row.program_value_2.eql(common.q(14)));
-    try std.testing.expect(row.program_value_3.eql(common.q(15)));
+    try std.testing.expect(row.is_add.eql(common.q(11)));
 }
