@@ -4,6 +4,7 @@
 //! and relation definitions for the RV32IM zkVM.
 
 pub const claims = @import("claims.zig");
+pub const component_order = @import("component_order.zig");
 pub const interaction = @import("interaction.zig");
 pub const lookups = @import("lookups/mod.zig");
 pub const memory_commitment = @import("memory_commitment/mod.zig");
