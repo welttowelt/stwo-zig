@@ -282,8 +282,7 @@ fn buildProgramSparseRoot(
     defer leaves.deinit(allocator);
     if (opt_memory) |snapshot| {
         for (snapshot.program_words) |word| {
-            // Oracle-exact leaf values: the DECODED per-class program tuple
-            // (opcode id + class-specific fields), never raw bytes.
+            // Oracle-exact leaves: the DECODED per-class tuple, never raw bytes.
             const values = try program_decode.decodeProgramWord(word.initial_word);
             for (values, 0..) |value, limb| {
                 try leaves.append(allocator, .{

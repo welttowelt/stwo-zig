@@ -72,11 +72,12 @@ algorithms; numerical methods; and parameterized or approximation algorithms.
 
 Label each candidate relationship:
 
-- **Exact/equivalent:** instances and valid solutions preserve all semantics.
+- **Exact/equivalent:** instance and solution mappings preserve feasibility,
+  objectives, and observable semantics.
 - **Special case:** project promises select a narrower known variant.
 - **Algorithmic reduction:** transform a project instance to the canonical
   problem and recover a project solution with stated overhead.
-- **Relaxation/lower bound:** useful for a bound or subroutine, not a complete
+- **Relaxation/bound:** useful for a bound or subroutine, not a complete
   solution.
 - **Analogy only:** a hypothesis to test, not a classification.
 
@@ -93,8 +94,8 @@ Keep four claims separate:
 - **Complexity/limits:** an upper bound, lower bound, completeness or hardness
   result, parameterized class, query bound, or approximation barrier.
 - **Algorithmic guarantee:** exact, pseudopolynomial, parameterized,
-  approximation-bounded, randomized with an error bound, numerically
-  accuracy-qualified, or heuristic.
+  approximation-bounded, randomized with an error bound, numerically stable
+  with an accuracy bound, or heuristic.
 - **Solver technology:** constraint programming (CP), CP-SAT, SAT/SMT, MIP,
   branch-and-bound, local search, or a specialized library.
 

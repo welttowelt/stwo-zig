@@ -72,13 +72,16 @@ class FixtureIdentityTest(unittest.TestCase):
     def test_every_program_halts_with_the_oracle_sentinel(self):
         for name, program in rtv.PROGRAMS.items():
             self.assertEqual(program[-1], rtv.SENTINEL(), name)
+        for name, (program, _symbols) in rtv.SYMBOL_PROGRAMS.items():
+            self.assertEqual(program[-1], rtv.SENTINEL(), name)
 
     def test_vector_file_covers_every_program(self):
         payload = json.loads(
             (ROOT / "vectors" / "riscv_elfs" / "trace_vectors.json").read_text()
         )
         self.assertEqual(
-            {v["name"] for v in payload["vectors"]}, set(rtv.PROGRAMS)
+            {v["name"] for v in payload["vectors"]},
+            set(rtv.PROGRAMS) | set(rtv.SYMBOL_PROGRAMS),
         )
         self.assertEqual(payload["stark_v_commit"], rtv.pinned_stark_v_commit())
 
