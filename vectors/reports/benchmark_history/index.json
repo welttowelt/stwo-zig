@@ -16,6 +16,10 @@
       "bytes": 338064,
       "path": "reports/native_proof_cross_backend_matrix_v3/79885f1d6388667541832529aec8970e7b30bdb995a109ffc7cc19c5f15d2012.json"
     },
+    "8da5fae41d077ae897b44b024a4b3d2956a57daff2c0678a0441b26ec6643768": {
+      "bytes": 1065111,
+      "path": "reports/native_proof_cross_backend_matrix_v5/8da5fae41d077ae897b44b024a4b3d2956a57daff2c0678a0441b26ec6643768.json"
+    },
     "a9c1b5e189712e9b512d2fcc566b718155938f69e67401604d74882adee5964a": {
       "bytes": 354646,
       "path": "reports/native_proof_cross_backend_matrix_v3/a9c1b5e189712e9b512d2fcc566b718155938f69e67401604d74882adee5964a.json"
@@ -84,9 +88,24 @@
       "id": "f9eb5dfd2aa5873e16c843205e1f62b818541f8d0974d860e49d2a66e6371185",
       "report_kind": "native_proof_cross_backend_matrix_v4->native_proof_cross_backend_matrix_v5",
       "status": "comparable"
+    },
+    {
+      "archived_at": "2026-07-18T06:43:34.232047+00:00",
+      "baseline_sha256": "3e3cf347fe958b822558e7c614b5f11317187f321d412fbd4a834d551b81d78b",
+      "comparison_identity_sha256": "aae655b7b62f6c3aa6c1fd73df4dc71129e35238765d6a5d03e30cd4a7b848a3",
+      "current_sha256": "8da5fae41d077ae897b44b024a4b3d2956a57daff2c0678a0441b26ec6643768",
+      "delta_path": "deltas/benchmark_delta_v1/2f1415615b7c7b131bdac311bec3ddf93b881f887645b9bd97e9e6e0c17ecf70.json",
+      "delta_sha256": "2f1415615b7c7b131bdac311bec3ddf93b881f887645b9bd97e9e6e0c17ecf70",
+      "id": "64514d64d0dd5ec78401cdb5e87f7b1e75d81355bcb600e4bde7e2e9f1a11b42",
+      "report_kind": "native_proof_cross_backend_matrix_v5",
+      "status": "comparable"
     }
   ],
   "deltas": {
+    "2f1415615b7c7b131bdac311bec3ddf93b881f887645b9bd97e9e6e0c17ecf70": {
+      "bytes": 220787,
+      "path": "deltas/benchmark_delta_v1/2f1415615b7c7b131bdac311bec3ddf93b881f887645b9bd97e9e6e0c17ecf70.json"
+    },
     "49f5cdc7c7c447aa9b7fb932e628f909e4159ed9973bcc54b2386defb4290171": {
       "bytes": 173248,
       "path": "deltas/benchmark_delta_v1/49f5cdc7c7c447aa9b7fb932e628f909e4159ed9973bcc54b2386defb4290171.json"
