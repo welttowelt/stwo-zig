@@ -271,7 +271,7 @@ pub const Store = struct {
             "{s}/.ingest-{}-{}-{x}.tmp",
             .{
                 self.objects_path,
-                std.c.getpid(),
+                self.owner_thread_id,
                 self.temporary_counter,
                 std.crypto.random.int(u64),
             },

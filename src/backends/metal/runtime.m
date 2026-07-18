@@ -3,6 +3,7 @@
 #import <CommonCrypto/CommonDigest.h>
 #import <dispatch/dispatch.h>
 #import "runtime_profile.m"
+#import "runtime/compile_options.h"
 
 #include <stdbool.h>
 #include <stddef.h>

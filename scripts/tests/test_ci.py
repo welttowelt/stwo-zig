@@ -98,6 +98,31 @@ class CiTests(unittest.TestCase):
             "metal_check_step.dependOn(&run_metal_tests.step);", metal_products
         )
 
+    def test_safe_metal_math_compiles_with_macos_14_and_15_sdks(self) -> None:
+        policy = (
+            ROOT / "src/backends/metal/runtime/compile_options.h"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && "
+            "__MAC_OS_X_VERSION_MAX_ALLOWED >= 150000",
+            policy,
+        )
+        self.assertIn("options.mathMode = MTLMathModeSafe;", policy)
+        self.assertEqual(2, policy.count("options.fastMathEnabled = NO;"))
+        self.assertIn("options.languageVersion = MTLLanguageVersion3_1;", policy)
+
+        sources = (
+            ROOT / "src/tools/metal_core_aot/probe.m",
+            ROOT / "src/backends/metal/runtime/initialization.m",
+            ROOT / "src/backends/metal/runtime/dynamic_evaluation.m",
+        )
+        for source in sources:
+            text = source.read_text(encoding="utf-8")
+            self.assertIn("stwo_zig_configure_safe_metal_compile_options(options);", text)
+            self.assertNotIn("configure_eval_compile_options", text)
+            self.assertNotIn("options.mathMode", text)
+            self.assertNotIn("options.fastMathEnabled", text)
+
     def test_all_hosted_actions_are_commit_pinned(self) -> None:
         workflows = sorted((ROOT / ".github/workflows").glob("*.yml"))
         self.assertTrue(workflows)

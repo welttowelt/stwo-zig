@@ -12,12 +12,7 @@ static void *create_runtime_from_source(
         }
         NSString *source = [NSString stringWithUTF8String:source_utf8];
         MTLCompileOptions *options = [MTLCompileOptions new];
-        if (@available(macOS 15.0, *)) {
-            options.mathMode = MTLMathModeSafe;
-        } else {
-            options.fastMathEnabled = NO;
-        }
-        options.languageVersion = MTLLanguageVersion3_1;
+        stwo_zig_configure_safe_metal_compile_options(options);
         NSError *error = nil;
         id<MTLLibrary> library = [device newLibraryWithSource:source options:options error:&error];
         if (library == nil) {

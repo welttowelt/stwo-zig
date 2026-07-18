@@ -8,6 +8,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#import "../../backends/metal/runtime/compile_options.h"
+
 static void write_error(char *destination, size_t length, NSString *message) {
     if (destination == NULL || length == 0u) return;
     const char *utf8 = message.UTF8String ?: "Metal core library probe failed";
@@ -127,12 +129,7 @@ static bool verify_kernel_parity(
         return false;
     }
     MTLCompileOptions *options = [MTLCompileOptions new];
-    if (@available(macOS 15.0, *)) {
-        options.mathMode = MTLMathModeSafe;
-    } else {
-        options.fastMathEnabled = NO;
-    }
-    options.languageVersion = MTLLanguageVersion3_1;
+    stwo_zig_configure_safe_metal_compile_options(options);
     NSError *compile_error = nil;
     id<MTLLibrary> jit_library = [device newLibraryWithSource:source
                                                      options:options

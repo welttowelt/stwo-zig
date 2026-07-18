@@ -58,15 +58,6 @@ static void touch_eval_cache_key(NSMutableArray *lru, id key) {
     [lru addObject:key];
 }
 
-static void configure_eval_compile_options(MTLCompileOptions *options) {
-    if (@available(macOS 15.0, *)) {
-        options.mathMode = MTLMathModeSafe;
-    } else {
-        options.fastMathEnabled = NO;
-    }
-    options.languageVersion = MTLLanguageVersion3_1;
-}
-
 void *stwo_zig_metal_eval_prepare(
     void *runtime_ptr, const char *source_bytes, size_t source_len,
     const char *name_bytes, size_t name_len, const uint32_t *arguments,
@@ -82,7 +73,7 @@ void *stwo_zig_metal_eval_prepare(
             write_error(error_message, error_message_len, @"Invalid Metal evaluation source encoding"); return NULL;
         }
         MTLCompileOptions *options = [MTLCompileOptions new];
-        configure_eval_compile_options(options);
+        stwo_zig_configure_safe_metal_compile_options(options);
         NSError *error = nil;
         id<MTLLibrary> library = [runtime.device newLibraryWithSource:source options:options error:&error];
         if (library == nil) {
@@ -448,7 +439,7 @@ void *stwo_zig_metal_eval_library_compile(
             runtime.evalLibraryCacheMisses += 1u;
             @try {
                 MTLCompileOptions *options = [MTLCompileOptions new];
-                configure_eval_compile_options(options);
+                stwo_zig_configure_safe_metal_compile_options(options);
                 NSError *error = nil;
                 id<MTLLibrary> library = [runtime.device newLibraryWithSource:source options:options error:&error];
                 if (library == nil) {
