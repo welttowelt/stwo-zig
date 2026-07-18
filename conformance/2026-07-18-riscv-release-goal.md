@@ -1,0 +1,940 @@
+# RISC-V proving lane release goal
+
+**Status:** ACTIVE
+
+**Created:** 2026-07-18
+
+**Authority:** This is the operative delivery contract for the Stark-V RV32IM
+lane. It may be replaced only by a reviewed document that names every changed
+acceptance condition. Progress notes, passing unit tests, and benchmark reports
+cannot weaken this contract.
+
+**Release decision:** NO-GO until every required checkpoint below is `PASS` on
+one identified commit from a clean checkout.
+
+## Goal
+
+Deliver a production-capable `stwo-zig` CLI path that:
+
+1. accepts a supported RV32IM ELF and explicit public input;
+2. executes it with Stark-V-compatible semantics;
+3. constructs the exact committed witness for every accepted instruction;
+4. proves the execution with active AIR constraints and globally balanced
+   cross-shard LogUp relations;
+5. binds the complete public statement to the proof;
+6. writes a versioned, atomic proof artifact;
+7. cryptographically verifies that artifact through an independent CLI path;
+8. conforms at every shared boundary to the Rust Stark-V oracle pinned in
+   [upstream.md](upstream.md); and
+9. remains backend-neutral above the integration boundary and structurally ready
+   for later performance work.
+
+The delivered system must make a false RISC-V execution harder to accept, not
+merely make an honest execution possible to prove. Zig prove/verify agreement is
+necessary evidence, but the pinned Rust implementation is the final correctness
+oracle wherever the two implementations share semantics.
+
+## Governing documents
+
+The following documents are normative, in this order:
+
+1. [CONTRIBUTING.md](../CONTRIBUTING.md), especially protocol soundness, final
+   Rust-oracle evidence, dependency direction, file-size limits, and fail-closed
+   backend behavior.
+2. [upstream.md](upstream.md), which pins Stark-V commit
+   `d478f783055aa0d73a93768a433a3c6c31c91d1c`.
+3. This goal document.
+4. [divergence-log.md](divergence-log.md), which records intentional differences
+   and whether each difference blocks release.
+5. [2026-07-18-riscv-bias-audit.md](2026-07-18-riscv-bias-audit.md), which records
+   the independent NO-GO baseline and the audit requirements that must be closed.
+6. [decomposition-plan.md](decomposition-plan.md) and
+   [source-baseline.json](source-baseline.json), which govern repository structure
+   and existing source debt.
+
+When documents disagree, the stronger correctness or fail-closed requirement
+wins. An implementation discovery must update the relevant ledger; it must not
+be hidden in code or treated as an oral exception.
+
+## Scope
+
+### Required
+
+- The RV32IM instruction subset explicitly accepted by the decoder.
+- Runner, witness, AIR, interaction trace, public statement, proof, verifier,
+  artifact, registry, and CLI integration.
+- Exact cross-shard placement and cancellation for every relation used by an
+  accepted instruction or public boundary.
+- Exact memory, Merkle, and Poseidon2 semantics required by the pinned statement.
+- A reproducible live comparison against the pinned Rust Stark-V source.
+- CPU proving as the first honest implementation of the production path.
+- Backend selection at an integration boundary, with unsupported RISC-V backend
+  combinations rejected explicitly.
+- Human-readable help and machine-readable output for applications, prove,
+  verify, and benchmark commands.
+- Repository conformance and an updated bias audit.
+
+### Deferred
+
+- Cairo and stwo-cairo parity.
+- Metal acceleration for the RISC-V lane.
+- Streaming or queued RISC-V proof production.
+- RISC-V throughput optimization and autoresearch promotion.
+- RV32A atomics, compressed instructions, privileged instructions, floating
+  point, vector extensions, system calls, and any other ISA surface not named by
+  the release statement.
+- Byte-for-byte Stark-V proof compatibility where the allowed lifted-PCS
+  divergence makes that impossible. Shared semantics before the PCS boundary
+  remain oracle-governed.
+
+Deferred work must be represented as an explicit unsupported capability or a
+tracked TODO outside the active proof path. It must not be approximated, silently
+ignored, or accepted without constraints.
+
+## Non-negotiable invariants
+
+1. **No premature registry flip.** The Stark-V adapter remains
+   `not_release_gated` until CP-00 through CP-13 pass together. Before promotion,
+   an explicit `--experimental` CLI path may exercise the production code, but
+   every artifact and report it creates remains permanently marked
+   `not_release_gated`.
+2. **No premature autoresearch enablement.** The RISC-V workload group remains
+   disabled until BA-03 passes after adapter release.
+3. **No silent instructions.** Every instruction accepted by execution has a
+   complete witness, active constraints, and all required relation entries.
+4. **No witness-only checks.** A host-side assertion or standalone evaluator does
+   not replace an on-domain and out-of-domain AIR constraint.
+5. **No unbound public value.** Every public value is both transcript-bound and
+   algebraically connected to a committed relation or boundary constraint.
+6. **No local-only oracle claim.** Committed Zig vectors cannot substitute for a
+   clean build and live execution of the pinned Rust oracle.
+7. **No shape-only verification.** Artifact verification must decode the proof,
+   reconstruct the statement, and invoke the cryptographic verifier.
+8. **No hidden fallback.** A requested unsupported backend fails before proving.
+   Its output must never be labelled as proof from a different backend.
+9. **No inactive padding contribution.** Padding rows are constrained, disabled,
+   and contribute zero to all relevant buses.
+10. **No release from a dirty or mixed revision.** Final evidence is produced from
+    a clean checkout of one reviewed commit with exact oracle provenance.
+
+## Status vocabulary and evidence rules
+
+Every checkpoint uses exactly one status:
+
+- `NOT_STARTED`: no implementation evidence has been accepted.
+- `IN_PROGRESS`: code exists, but one or more acceptance gates remain open.
+- `BLOCKED`: a named external dependency prevents progress.
+- `FAIL`: the checkpoint was evaluated and one or more requirements failed.
+- `PASS`: every acceptance item passed on the same clean candidate commit.
+
+The current implementation branches and uncommitted working-tree slices are
+`IN_PROGRESS`, not `PASS`. A checkpoint moves to `PASS` only when its evidence:
+
+- names the candidate Git commit and has an empty
+  `git status --porcelain=v1 --untracked-files=all`;
+- records every command and exit status;
+- comes from the release optimization mode unless a gate explicitly says both;
+- contains no skipped required test;
+- records the exact Rust source commit, source-tree state, toolchain, build
+  command, and executable digest where oracle evidence is required; and
+- is reproducible by CI or a repository-owned release-evidence command.
+
+If any accepted opcode, relation, public field, proof message, or artifact field
+changes after a checkpoint passes, every dependent checkpoint is invalidated and
+must be rerun.
+
+## Working-tree intake at goal creation
+
+The following uncommitted slices existed when this goal was written. They are
+implementation input, not accepted release evidence:
+
+- The witness/layout slice reports exact layouts and generated witnesses for 13
+  family groups, decomposed trace/witness modules, `404/404` RISC-V runner tests,
+  `475/475` prover tests, and `945` full-suite passes with two skips. It still
+  requires explicit rejection of system/fence/atomic mappings and schema-driven
+  clock/PC indices for explicit-enabler families.
+- The M-extension slice reports MUL, MULH, and DIV-family evaluators, exact
+  33/41/65-column layouts, and `400/400` RISC-V tests. Those modules explicitly
+  declare the current committed trace incompatible and are not placed in the
+  production proof.
+- The memory-boundary slice reports exact sparse initial/final snapshots, eight
+  main columns, sixteen interaction columns, six active boundary constraints,
+  root mutation coverage, and `469/469` prover tests. Section 19 Merkle-node
+  emission, exact Poseidon2 AIR, and global opcode/public/range cancellation are
+  still open.
+
+These counts came from slice-local runs over a changing shared tree. They must be
+reconciled, committed in focused increments, and rerun together before any
+checkpoint status advances.
+
+## Delivery checkpoints
+
+### CP-00: Fail-closed release boundary
+
+**Initial status:** IN_PROGRESS. The public registry is closed, but unsupported
+instructions are not yet rejected at the required preflight boundary.
+
+Required behavior:
+
+- The registry reports `stark-v-rv32im-elf` as `not_release_gated` with a precise
+  reason.
+- ELF prove and benchmark routes refuse by default while the adapter is staged.
+  They may run only with an explicit `--experimental` flag whose spelling and
+  effect are covered by CLI tests.
+- Verification may cryptographically verify a staged artifact, but it must
+  identify the artifact as non-release-gated and must never emit a release
+  acceptance receipt for it.
+- `riscv_artifact.RELEASE_STATUS` remains `not_release_gated`.
+- The autoresearch RISC-V group remains disabled with a non-empty reason.
+- Every unsupported instruction is rejected during decode or preflight before
+  proof construction.
+- `ECALL`, `EBREAK`, `FENCE`, `FENCE.I`, LR/SC, and AMO instructions either have
+  complete release-sound AIRs or reject deterministically. For this goal, reject
+  them.
+- A Metal request for an ELF workload fails as unsupported until a real RISC-V
+  Metal proving path exists.
+
+Gate:
+
+- Negative CLI tests cover every staged command and unsupported capability.
+- The only staged execution mechanism is the typed `--experimental` flag. It is
+  rejected for non-RISC-V workloads, recorded in the report, and cannot change
+  the artifact release status.
+- Decoder table tests enumerate the accepted subset and all explicit rejections.
+- A repository scan finds no second registry or environment flag that can bypass
+  the staged status.
+
+### CP-01: Repository boundaries and progressive disclosure
+
+**Initial status:** IN_PROGRESS.
+
+Required structure:
+
+- `src/frontends/riscv` owns execution semantics, witness construction, AIR,
+  public statement, and frontend-neutral proof planning.
+- It does not import or construct `cpu_scalar`, Metal, or any concrete backend.
+- `src/integrations/riscv_cpu` owns CPU selection and assembly of the production
+  proving path.
+- CLI modules parse and render; they do not implement AIR, transcript, artifact,
+  or proof semantics.
+- `src/interop/riscv_artifact.zig` owns the versioned external representation.
+- Trace schemas, witnesses, semantic AIRs, component placement, interactions, and
+  statement binding are separate modules with narrow interfaces.
+- Active source files comply with the CONTRIBUTING soft target and 850-line
+  manual-review ceiling. Any justified exception is recorded in the conformance
+  baseline with an owner and extraction plan.
+- No active semantic path is labelled `legacy`, `placeholder`, or `silent`.
+
+Gate:
+
+```sh
+zig fmt --check build.zig src tools
+python3 scripts/check_source_conformance.py
+python3 scripts/check_api_parity.py
+python3 scripts/check_riscv_release_contract.py --structure
+```
+
+The gate must report no unexplained finding. Existing baseline entries touched by
+this work must shrink or disappear; moving code without improving dependency or
+ownership boundaries is not closure.
+
+### CP-02: Decoder and executor parity
+
+**Initial status:** IN_PROGRESS.
+
+Required behavior:
+
+- One typed manifest at `src/frontends/riscv/opcode_manifest.zig` enumerates
+  exactly the pinned 45 opcodes with protocol IDs `0...44`, family, encoding,
+  witness schema, semantic component, and required relation domains. It is the
+  release statement's accepted set and can be emitted as canonical JSON by a
+  repository-owned conformance tool.
+- The manifest covers ADD, SUB, SLL, SLT, SLTU, XOR, SRL, SRA, OR, AND, ADDI,
+  SLTI, SLTIU, XORI, ORI, ANDI, SLLI, SRLI, SRAI, LB, LH, LW, LBU, LHU, SB, SH,
+  SW, BEQ, BNE, BLT, BGE, BLTU, BGEU, JAL, JALR, LUI, AUIPC, MUL, MULH, MULHSU,
+  MULHU, DIV, DIVU, REM, and REMU.
+- The manifest is equal, not merely a subset, across decoder acceptance, executor
+  dispatch, witness dispatch, AIR selector/program tuple, component placement,
+  mutation coverage, and CLI preflight. Removing an opcode is a protocol change
+  requiring this document and the oracle ledger to change.
+- Signed operations, division by zero, signed overflow, branch direction,
+  misalignment policy, sub-word loads, and sub-word stores match the pinned
+  Stark-V runner.
+- `x0` behavior, PC changes, clock changes, register clocks, and memory clocks
+  match the oracle exactly.
+- Unsupported encodings and unsupported ELF properties fail closed.
+- The Stark-V halt sentinel `jal x0, 0` has the pinned termination behavior and is
+  not accidentally committed as an ordinary execution row.
+- Entry PC, maximum-step exhaustion, and cancellation behavior match the oracle;
+  exhaustion cannot publish a partial proof.
+- ELF preflight admits only the exact ELF32, little-endian, `EM_RISCV`, segment,
+  alignment, address-range, flag, and relocation policy declared by the release
+  manifest. Every rejected property has a named diagnostic.
+
+Gate:
+
+- Table-driven edge tests for each opcode.
+- Random differential execution with a fixed, logged seed.
+- Live pinned-Rust comparison of final registers, PC, clocks, public I/O, ordered
+  memory accesses, and committed trace-row digests.
+- Mutation tests cover signedness, zero divisors, overflow, alignment, immediate
+  decoding, and wrong next-PC behavior.
+- Halt, max-step, entry-point, overlapping-segment, truncated-segment,
+  out-of-range-address, unsupported-relocation, and unsupported-flag cases are
+  compared with the live oracle.
+
+### CP-03: Exact witness and trace schemas
+
+**Initial status:** IN_PROGRESS; an unaccepted working-tree slice exists.
+
+Required behavior:
+
+- Every accepted family uses the exact field order, width, enabler convention,
+  and access ordering declared by pinned Stark-V `schema.rs`.
+- Access-first schemas and explicit-enabler schemas are represented deliberately;
+  a generic component must not assume identical clock or PC columns across them.
+- Clock and PC indices for explicit-enabler families are resolved by the schema,
+  not by hard-coded legacy offsets.
+- Witness builders are split by family and do not duplicate decoder policy.
+- Every witness field is range-valid before field conversion.
+- Padding rows have a canonical representation and cannot mimic an active row.
+- Main-trace relation inputs are committed before relation challenges are drawn.
+- Oracle extraction reads the exact production main-trace buffers immediately
+  before the PCS commit. A parallel trace adapter or reconstructed row is not
+  acceptable evidence.
+
+Gate:
+
+- Exact row vectors for every family against the live Rust oracle.
+- Generated-row semantic tests for active and padding rows.
+- Boundary coverage includes signed byte and half-word loads, partial stores,
+  maximum shifts, comparison sign edges, branch taken/not-taken, all M-extension
+  edges, and first/last rows of every component.
+- A schema-layout digest is versioned and checked to prevent accidental column
+  reorder. It covers the ordered generated column names and counts from pinned
+  Rust `*Columns::NAMES`, not only Zig-owned names, and is included in both the
+  proof artifact and Rust-oracle receipt.
+
+### CP-04: Complete opcode semantic AIR
+
+**Initial status:** IN_PROGRESS.
+
+Required behavior:
+
+- Every accepted family has active constraints in the real proof component, not
+  only a standalone evaluator.
+- The same constraints execute through both trace-domain accumulation and the
+  verifier's out-of-domain evaluation.
+- Enablers are boolean, active-row selectors are constrained, and padding is
+  forced inactive.
+- State transition constraints bind current PC/clock to next PC/clock.
+- Register and memory operands are obtained through relation buses, not trusted
+  free witness columns.
+- The decoded program tuple `(pc, opcode, value_1, value_2, value_3)` is consumed
+  by the opcode component.
+- MUL/MULH/DIV modules are made compatible with the committed component layout
+  before placement; `CURRENT_TRACE_COMPATIBLE = false` cannot remain in a
+  release path.
+- There are no zero-constraint or silent components for an accepted family.
+
+Gate:
+
+- Honest generated rows evaluate to zero for every family on-domain and OODS.
+- At least one focused witness mutation per constrained field class evaluates
+  non-zero.
+- Semantic adversarial tests mutate production committed columns through a
+  test-only malicious-witness hook *before* commitment, then recompute an honest
+  proof. Rejection must reach the semantic composition or LogUp check. Flipping
+  bytes in an already-created proof only tests commitment integrity and does not
+  count as semantic mutation coverage.
+- The 45-entry coverage manifest names, per opcode, its selector column, protocol
+  ID, constraint set, relation domains, tuple counts and batching, witness
+  builder, and production component ID. Tests exercise each entry on-domain and
+  OODS.
+- M-extension coverage explicitly includes all MULH/MULHSU/MULHU sign
+  combinations, `INT_MIN * UINT_MAX`, maximum carries, signed and unsigned
+  zero-divisor results, DIV/REM signed overflow, truncation toward zero, remainder
+  sign, and `rd` aliasing `rs1`, `rs2`, and `x0`. Each row class has Rust row
+  parity and malicious-witness rejection.
+
+### CP-05: Cross-shard LogUp placement and global cancellation
+
+**Initial status:** IN_PROGRESS.
+
+All twelve pinned relation domains must be drawn independently in schema order:
+
+1. `registers_state`
+2. `memory_access`
+3. `program_access`
+4. `merkle`
+5. `poseidon2`
+6. `poseidon2_io`
+7. `bitwise`
+8. `range_check_20`
+9. `range_check_8_11`
+10. `range_check_8_8_4`
+11. `range_check_8_8`
+12. `range_check_m31`
+
+Required behavior:
+
+- Each relation uses its own `(z, alpha)` pair and the pinned alpha-power tuple
+  combination. Legacy shared relation-ID challenges are absent from the active
+  RISC-V proof.
+- Every component emits or consumes the exact tuples required by Stark-V.
+- Paired fractions use the exact numerator, sign, batching, and denominator.
+- Component sums, shard claims, infrastructure tables, and public compensation
+  close to zero globally for each relation domain, not only after indiscriminate
+  summation across domains.
+- Every manifest entry has a nonzero expected request count for every required
+  relation when exercised. Signed tuple-multiset counts and digests match the
+  live Rust oracle. Two omitted sides of a bus cannot satisfy this gate.
+- Every generated interaction column is committed, opened, recurrence-constrained,
+  and consumed by the verifier.
+- Shard boundaries are algebraically linked. Tampering with an existing
+  artifact's partition, ordering, duplication, omission, or manifest cannot
+  preserve acceptance. A freshly generated proof may use another legal canonical
+  shard count and must preserve the same public execution result. For each shard
+  count, row-to-shard placement is deterministic.
+- Each relation request has exact-once provenance `(execution_row, family,
+  relation, request_ordinal)` across the selected partition.
+- Empty components and padding contribute a canonical zero claim.
+- The prover and verifier derive identical component order and shard geometry
+  from committed statement data.
+
+Gate:
+
+- Cancellation tests for one shard, two shards, many shards, empty components,
+  and uneven component sizes. Empty shards are rejected unless the statement
+  specification is deliberately changed and oracle-gated.
+- Randomized placement tests with fixed seeds.
+- Proof-level rejection for row deletion, duplication, shard reorder, component
+  reorder, boundary PC/clock tampering, tuple tampering, multiplicity tampering,
+  denominator substitution, and relation-challenge swapping.
+- A per-relation diagnostic reports all twelve final sums in tests and requires
+  each to equal zero independently.
+- The production proof retains Stark-V's canonical randomized aggregate. The
+  per-relation decomposition is required oracle/test instrumentation, and a
+  cross-domain offset attack must still be rejected.
+- Inversion of a zero denominator fails closed in generation and verification.
+- In canonical component order, the Zig cumulative accumulator after each
+  component is compared with the Rust oracle. This component-by-component check
+  is the primary parity loop for locating the first divergent placement.
+
+### CP-06: Memory, Merkle, Poseidon2, range, and bitwise soundness
+
+**Initial status:** IN_PROGRESS; the boundary recurrence exists, but the complete
+Merkle-node and exact Poseidon2 AIR remain release blockers.
+
+Required behavior:
+
+- Ordered CPU memory events enter the `memory_access` bus with exact address,
+  clock, space, and four-byte values.
+- Register address-space events, RW-memory events, clock-gap/update rows, and
+  public input/output boundary terms share the pinned `memory_access` and range
+  domains. No private parallel memory bus is release-valid.
+- Initial and final sparse memory snapshots are bound to public roots.
+- Boundary traces constrain first/last values, monotonic clocks, multiplicities,
+  address transitions, and public compensation.
+- Stark-V Section 19 Merkle-node emission/consumption is active.
+- Decoded program bytes become the exact sparse program-tree leaves, traverse the
+  Section 19 node and Poseidon2 path, and cancel against the mandatory public
+  program root.
+- Merkle path direction, address bits, siblings, parents, leaf encoding, and root
+  placement are constrained.
+- The exact pinned Poseidon2 permutation, constants, round schedule, field
+  representation, and `poseidon2`/`poseidon2_io` relations are active.
+- Any generic placeholder hash is removed from the active RISC-V root path.
+- Bitwise and all five range-check table domains are populated and constrained;
+  opcode components cannot claim a range/bitwise lookup without the matching
+  table multiplicity.
+- Memory and hashing high-water allocations are bounded and freed on every error
+  path.
+- Every Poseidon2 permutation binds input and output atomically through
+  `poseidon2_io`; every internal round is constrained on-domain and OODS; inactive
+  and padding rows contribute zero.
+
+Gate:
+
+- Live Rust root and node vectors for empty, sparse, adjacent, non-adjacent,
+  updated, and restored memory.
+- Exact Poseidon2 known-answer and cross-run vectors.
+- Proof-level rejection for wrong leaf, sibling, path direction, address bit,
+  intermediate node, root, byte, memory clock, access space, table value, and
+  multiplicity.
+- Multi-shard and repeated-address cases close all relation sums independently.
+- Leak and allocator-failure tests cover construction, proof failure, and verify
+  failure paths.
+- Tests distinguish an absent root from a present default/zero root.
+
+### CP-07: Public statement binding
+
+**Initial status:** IN_PROGRESS.
+
+The public statement must name and constrain at least:
+
+- initial and final PC;
+- the pinned execution clock, with initial state at clock `1` and final state at
+  `clock + 1`;
+- initial and final architectural register values and register clocks required by
+  the pinned statement;
+- the exact public program root required by the pinned oracle boundary;
+- initial and final memory roots;
+- public input words, address, and length;
+- public output words, addresses, lengths, and clocks required by Stark-V; and
+- shard manifest and component geometry needed to reconstruct verification; and
+- segment ordinal and first/last role needed to prevent a prover from omitting
+  endpoint I/O compensation.
+
+Required behavior:
+
+- Values are serialized canonically, length-delimited where necessary, and mixed
+  into the Fiat-Shamir channel in one documented order.
+- Each value is also connected to the appropriate state, program, memory,
+  Merkle, or I/O relation exactly once. Transcript binding alone is insufficient.
+- Input and output memory events cannot be substituted with private events.
+- Empty I/O has one canonical representation.
+- Length arithmetic and clock arithmetic reject overflow.
+- The verifier accepts an expected statement from its caller and compares the
+  verified program root, input, and output policy against it. Returning a
+  prover-chosen statement extracted from the artifact is not top-level binding.
+- Segment roles are derived from the committed manifest and verified globally;
+  they are not prover-chosen booleans that can suppress first/last compensation.
+
+Gate:
+
+- An honest proof roundtrip covers empty and non-empty public I/O.
+- A proof-level mutation test rejects each public field independently, including
+  every element and every length/address/clock field of variable-length I/O.
+- Reordering, truncating, extending, or duplicating I/O is rejected.
+- Public LogUp compensation and component claims cancel per relation.
+- Mutations cover the root presence bits, `None` versus `Some(default_root)`, the
+  final partial input/output word, nonzero unused bytes, output-length word,
+  overlapping input/output classification, clock off-by-one, and clock overflow.
+
+### CP-08: Fiat-Shamir and prover/verifier symmetry
+
+**Initial status:** IN_PROGRESS.
+
+Required behavior:
+
+- The normative proof sequence is: public data; preprocessed commitment root;
+  main commitment root; main claim; the allowed Zig shard-manifest extension;
+  PoW nonce; twelve relation-pair draws in schema order; interaction claim;
+  conditional interaction commitment root; then downstream PCS messages.
+- Prover and verifier mix or draw every event in that exact order, with identical
+  domain separators, encodings, lengths, and conditional-presence rules.
+- Interaction inputs are committed before relation challenges are sampled.
+- The Zig shard-manifest mix is an explicit transcript divergence and must have a
+  row in `divergence-log.md`. The last byte-identical Rust transcript event is the
+  main claim immediately before that extension. Rust challenge values after the
+  extension are not claimed equal; their draw count, field encoding, and semantic
+  use remain oracle-governed.
+- The lifted-PCS divergence is isolated after the shared semantic statement and
+  remains covered by its composition self-check.
+- PoW difficulty and all security parameters are artifact-versioned protocol
+  constants. They cannot vary with build mode, environment, or caller input.
+
+Gate:
+
+- A byte-level channel tracer compares prover and verifier after every mix and
+  draw.
+- Shared transcript prefixes compare to the live pinned Rust oracle.
+- Mutation probes reverse one mix, one draw, one shard order, and one folded-point
+  direction; every probe must fail, then be reverted exactly.
+- No verifier value is reconstructed from untrusted artifact data without bounds
+  and consistency validation.
+- Cross-process verification uses an independently built verifier binary and
+  confirms identical PoW/security policy.
+
+### CP-09: Production CLI and visible behavior
+
+**Initial status:** IN_PROGRESS and intentionally fail-closed.
+
+Required commands:
+
+- `applications`: emits schema-versioned JSON containing adapter name, exact
+  status, supported ISA, and available backend.
+- `prove --elf`: executes, proves, verifies before publication, and atomically
+  writes a versioned proof artifact.
+- `verify --expect-statement-digest <hex>`: reads an artifact independently,
+  reconstructs and externally binds the statement, and cryptographically
+  verifies it.
+- `bench --elf`: runs the same production prove/verify path, with explicit warmup
+  and sample counts, and writes a validated `riscv_proof_v1` report.
+
+Required behavior:
+
+- ELF path, backend, public input, output artifact, report path, sample count,
+  warmup count, and machine-readable output have explicit flags.
+- The exact machine-output contract is one JSON object on stdout when
+  `--report-out` is absent, or the same schema written atomically to
+  `--report-out` when present. `--help` and diagnostics are human-readable;
+  diagnostics go to stderr.
+- Before RF-01, `prove --elf` and `bench --elf` require `--experimental` and emit
+  only `not_release_gated` artifacts/reports. After RF-01 the same path works
+  without that flag; the flag becomes an error instead of a hidden mode.
+- Help and errors are concise, deterministic, and identify recovery action.
+- Partial artifacts are never published. Existing output is not destroyed on a
+  failed prove or verify.
+- Benchmark samples count only proofs that immediately verify and are
+  byte-identical for identical deterministic inputs.
+- Reports distinguish execution, witness, proving, verification, and total wall
+  time. Throughput names its numerator.
+
+Visible-result gate:
+
+- Snapshot or golden tests cover `--help`, `applications`, successful staged and
+  promoted prove, successful verify, benchmark summary, unsupported backend,
+  missing/irrelevant `--experimental`, unsupported instruction,
+  malformed ELF, malformed input, corrupt artifact, and failed atomic publish.
+- Before RF-01, the installed-binary gate exercises the staged path. RF-01's
+  mandatory rerun exercises the promoted path and proves that an old staged
+  artifact cannot be relabelled as release-gated.
+- The CLI builds in `ReleaseFast` and is exercised as the installed binary, not
+  only through imported test functions.
+- A fresh user can perform one ELF prove/verify using only the README and CLI
+  help; no repository-internal path is required in the artifact.
+
+### CP-10: Versioned proof artifact
+
+**Initial status:** IN_PROGRESS and staged.
+
+Required behavior:
+
+- The artifact version covers proof bytes, statement, public I/O, roots, clocks,
+  program identity, shard/component manifest, security parameters, backend,
+  Stark-V oracle pin, stwo-zig commit, witness-layout digest, and schema version.
+- Decoding is bounded, rejects duplicate/unknown security-critical fields, and
+  validates all lengths before allocation.
+- Release status is not caller-controlled.
+- Verification does not trust a stored `verified` boolean, digest, timing, or
+  backend label.
+- Encoding is canonical and deterministic.
+- Atomic publication uses a temporary file in the destination filesystem,
+  flushes as required by the platform contract, renames only after successful
+  self-verification, and cleans up every failure path.
+
+Gate:
+
+- Roundtrip, truncation, extension, wrong-version, oversized-length, duplicate,
+  corrupt-proof, wrong-statement, wrong-pin, and unknown-security-parameter tests.
+- Cross-process determinism test for identical input and configuration.
+- Artifact verify is run in a new process without the prover's in-memory state.
+- Release verification requires caller-supplied expected statement values or a
+  caller-supplied expected-statement digest. The copy stored inside the artifact
+  is not accepted as its own external expectation.
+
+### CP-11: Final pinned Rust oracle
+
+**Initial status:** FAIL in the audit baseline.
+
+Required oracle procedure:
+
+1. Check out Stark-V commit
+   `d478f783055aa0d73a93768a433a3c6c31c91d1c` into a clean, isolated directory.
+2. Verify `HEAD`, a clean tree, submodule state, and dependency lockfiles.
+3. Build the repository's actual runner/AIR code with a recorded Rust toolchain
+   and locked dependencies. A duplicated standalone model is not acceptable.
+4. Record repository URL, commit, tree digest, toolchain, build command, build
+   mode, executable SHA-256, host architecture, and operating system.
+5. Run the declared corpus through that executable and the Zig implementation.
+6. Compare every shared boundary: decode, execution, per-family witness rows,
+   program tuples, ordered accesses, public values, memory roots, Poseidon2
+   vectors, relation tuples, relation sums, and shared transcript prefix.
+7. Store a machine-readable receipt and make the release gate validate it.
+
+The required producer command is:
+
+```sh
+python3 scripts/riscv_release_oracle.py build-and-compare \
+  --stark-v-source "$STARK_V_SOURCE" \
+  --candidate "$(git rev-parse HEAD)" \
+  --receipt-out "zig-out/release-evidence/riscv/oracle-receipt.json"
+```
+
+The required validator command is:
+
+```sh
+python3 scripts/riscv_release_oracle.py validate-receipt \
+  --receipt "zig-out/release-evidence/riscv/oracle-receipt.json" \
+  --candidate "$(git rev-parse HEAD)"
+```
+
+Gate:
+
+- The repository owns one non-optional command that performs the procedure or
+  validates a freshly generated CI receipt. An operator-supplied opaque binary is
+  insufficient.
+- Corpus coverage includes every accepted opcode, every semantic edge listed in
+  CP-02/03, multi-shard executions, public I/O, and memory/Merkle cases.
+- Committed vectors are regenerated only from this procedure and carry the exact
+  source and executable identity.
+- The receipt schema includes the witness-layout digest, corpus digest, per-case
+  result digests, creation time, candidate commit, and every provenance field in
+  the procedure. Validation rejects another candidate, stale corpus, stale
+  layout, dirty oracle tree, opaque executable, or expired CI evidence.
+- Every intentional mismatch is present in [divergence-log.md](divergence-log.md)
+  with its last shared boundary, test, and release status.
+- There are zero unexplained shared-boundary mismatches.
+
+### CP-12: Adversarial soundness fleet
+
+**Initial status:** IN_PROGRESS.
+
+The release corpus must include active forgery attempts, not only invalid inputs.
+At minimum it must try to preserve superficial proof shape while changing:
+
+- one opcode selector or decoded program field;
+- one operand, result, sign bit, carry, quotient, remainder, or next PC;
+- one register value or register clock;
+- one memory value, address, access space, byte enable, or memory clock;
+- one range/bitwise lookup value or multiplicity;
+- one Merkle leaf, sibling, direction, node, or root;
+- one public input/output value, length, address, or clock;
+- one component sum, shard claim, shard order, or padding row;
+- one transcript field, relation draw, commitment, or artifact parameter; and
+- one PCS folded-point direction covered by the allowed divergence.
+
+Gate:
+
+- Each mutation reaches the production verifier and is rejected for a
+  cryptographic reason, not only a JSON or host assertion unless the mutation is
+  intentionally a format error.
+- The test names the invariant that rejects it.
+- Multi-shard coverage includes at least one mutation that would pass if shard
+  sums were checked independently but not globally.
+- The suite is deterministic and has no debug-only code path.
+
+### CP-13: Clean-tree release gate and release evidence
+
+**Initial status:** NOT_STARTED for the final candidate.
+
+The repository must provide one enforcing command:
+
+```sh
+python3 scripts/riscv_release_gate.py \
+  --strict \
+  --phase candidate \
+  --stark-v-source "$STARK_V_SOURCE" \
+  --candidate "$(git rev-parse HEAD)"
+```
+
+That command, rather than a prose checklist or static command receipt, must run
+and enforce the following sequence. `--phase candidate` enforces the staged
+registry and explicit `--experimental` behavior; `--phase promoted` enforces the
+release registry and rejects that flag.
+
+```sh
+test -z "$(git status --porcelain=v1 --untracked-files=all)"
+zig fmt --check build.zig src tools
+python3 scripts/check_upstream_pins.py
+python3 scripts/check_source_conformance.py
+python3 scripts/check_riscv_release_contract.py --all
+zig build test -Doptimize=ReleaseFast
+zig build test-riscv -Doptimize=ReleaseFast
+zig build test-riscv-prover -Doptimize=ReleaseFast
+python3 scripts/check_api_parity.py
+python3 scripts/riscv_trace_vectors.py
+zig build release-gate -Doptimize=ReleaseFast
+zig build release-gate-strict -Doptimize=ReleaseFast
+python3 scripts/riscv_release_oracle.py build-and-compare \
+  --stark-v-source "$STARK_V_SOURCE" \
+  --candidate "$(git rev-parse HEAD)" \
+  --receipt-out zig-out/release-evidence/riscv/oracle-receipt.json
+python3 scripts/riscv_release_oracle.py validate-receipt \
+  --receipt zig-out/release-evidence/riscv/oracle-receipt.json \
+  --candidate "$(git rev-parse HEAD)"
+test -z "$(git status --porcelain=v1 --untracked-files=all)"
+```
+
+Additional requirements:
+
+- The first and last dirty-tree assertions fail on any tracked or untracked,
+  non-ignored path.
+- Required tests report zero skipped tests.
+- The live oracle procedure from CP-11 is part of strict release evidence, not an
+  optional local flag.
+- The installed CLI completes a representative multi-shard ELF prove/verify and
+  emits a schema-valid benchmark report.
+- The release-evidence bundle records commands actually executed, exit codes,
+  durations, Git state, compiler versions, oracle receipt, host identity, and
+  artifact digests. A static command list is not execution evidence.
+- CI repeats the gate from a clean checkout. A local pass alone is insufficient.
+
+## Registry flip checkpoint
+
+### RF-01: Atomic promotion commit
+
+This checkpoint is attempted only after CP-00 through CP-13 are all `PASS` for
+the same candidate commit. The promotion is one focused, reviewed commit that:
+
+- changes the adapter registry entry to `release_gated`;
+- changes `riscv_artifact.RELEASE_STATUS` to the matching release state;
+- makes the already-tested adapter the default path and rejects the obsolete
+  `--experimental` flag;
+- updates README command examples and support status;
+- closes or narrows every release-blocking RISC-V row in
+  [divergence-log.md](divergence-log.md);
+- updates the bias audit with the exact evidence commit and a GO/NO-GO result;
+- adds no new semantic implementation; and
+- reruns CP-13 after the flip as:
+
+```sh
+python3 scripts/riscv_release_gate.py \
+  --strict \
+  --phase promoted \
+  --stark-v-source "$STARK_V_SOURCE" \
+  --candidate "$(git rev-parse HEAD)"
+```
+
+If the post-flip gate fails, revert the promotion commit. Do not patch around a
+failing gate by relaxing the registry, artifact, verifier, or CI contract.
+
+## Bias audit and autoresearch checkpoints
+
+Adapter release and autoresearch activation are separate decisions. RF-01 does
+not enable research scoring automatically.
+
+### BA-01: Core purity
+
+- `src/core` imports no frontend or concrete backend.
+- RISC-V implementation types do not enter generic core APIs.
+- RISC-V protocol policy remains in the frontend or interop boundary.
+- The source conformance checker encodes these rules and has no unexplained
+  exception.
+
+Gate:
+
+```sh
+python3 scripts/check_source_conformance.py
+python3 scripts/check_riscv_release_contract.py --core-purity
+```
+
+The evidence records the candidate commit, complete dependency-edge inventory,
+and zero unbaselined core-to-frontend or core-to-concrete-backend imports.
+
+### BA-02: Frontend layering
+
+- RISC-V frontend code depends only on core and backend-neutral prover
+  capabilities.
+- Concrete CPU construction lives in `src/integrations/riscv_cpu`.
+- CLI selection, artifact encoding, and benchmark reporting remain separate from
+  AIR and witness logic.
+- Touched giant files are decomposed and corresponding source-baseline debt is
+  reduced.
+
+Gate:
+
+```sh
+python3 scripts/check_riscv_release_contract.py --frontend-layering
+```
+
+The checker must reject concrete backend construction/imports, CLI dependencies,
+artifact serialization, benchmark reporting, active `legacy`/`placeholder`/
+`silent` paths, and unexplained file-size debt inside the frontend.
+
+### BA-03: Autoresearch exercise validity
+
+Before the RISC-V group may change to `enabled: true`:
+
+- the release-gated CLI produces validated `riscv_proof_v1` reports;
+- the board contains representative small, wide, and deep workloads;
+- a RISC-V-specific held-out generator changes real ELF/program/input dimensions
+  instead of irrelevant native flags;
+- mechanism telemetry for G3 is implemented and capable of failing;
+- judge and promotion workflows are installed under `.github/workflows` and
+  required by branch protection;
+- per-class anchors and A/A dispersion are measured and frozen on the designated
+  judge host;
+- editable paths are deliberately scoped so a candidate cannot weaken the
+  statement, verifier, workload, oracle, or scoring contract; and
+- promotion continues to require verified, deterministic artifacts and exact
+  board ownership.
+
+Gate:
+
+```sh
+python3 scripts/check_autoresearch_activation.py \
+  --board riscv \
+  --github-settings-receipt "$GITHUB_SETTINGS_RECEIPT"
+```
+
+The settings receipt must be obtained through an authenticated repository API,
+name the repository and default branch, carry an immutable observation time and
+digest, and prove that the required judge/promotion checks are branch-protected.
+A checkout-only assertion cannot establish repository settings.
+
+The autoresearch activation commit must be separate from RF-01. Until BA-03
+passes, disabled-with-reason is the correct production state.
+
+## Required implementation order
+
+The critical path is deliberately ordered to prevent downstream work from being
+built on an unsound statement:
+
+1. Complete and continuously preserve CP-00 fail-closed behavior.
+2. Reconcile and land the exact witness/layout, M-extension, and memory-boundary
+   working-tree slices without weakening their individual gates.
+3. Complete CP-01 backend-neutral frontend extraction.
+4. Complete CP-02 and CP-03 executor/witness live-oracle parity.
+5. Integrate every opcode family into the production AIR under CP-04.
+6. Complete all twelve relation domains and cross-shard placement under CP-05.
+7. Complete exact Merkle/Poseidon2/range/bitwise constraints under CP-06.
+8. Bind the complete public statement under CP-07.
+9. Lock transcript symmetry under CP-08.
+10. Finish CLI and artifact behavior under CP-09 and CP-10.
+11. Run the final live oracle and adversarial fleet under CP-11 and CP-12.
+12. Produce clean-tree evidence under CP-13.
+13. Perform RF-01 as a non-semantic promotion commit.
+14. Re-audit BA-01 and BA-02. Leave BA-03 disabled unless its independent gates
+    are also complete.
+
+Performance tuning begins only after RF-01. Measurement instrumentation may be
+added earlier, but no MHz result from the staged lane is a release or optimization
+claim.
+
+## Progress ledger
+
+This table is updated only with accepted evidence. A row with uncommitted code
+remains `IN_PROGRESS`.
+
+| Checkpoint | Status | Evidence baseline | Required closure evidence |
+| --- | --- | --- | --- |
+| CP-00 Fail closed | IN_PROGRESS | Audit `c0720031`; decoder gap found in review | Explicit staged mode plus negative CLI/decoder/registry tests |
+| CP-01 Structure | IN_PROGRESS | Audit `c0720031` | Backend-neutral frontend; RISC-V structure checker clean |
+| CP-02 Execute | IN_PROGRESS | Unaccepted working tree | Exact 45-opcode manifest; live Rust differential |
+| CP-03 Witness | IN_PROGRESS | Unaccepted working tree | Production-buffer schemas and live Rust row vectors |
+| CP-04 Semantic AIR | IN_PROGRESS | Unaccepted working tree | All 45 opcodes proof-integrated and malicious-witness tested |
+| CP-05 Cross-shard LogUp | IN_PROGRESS | Unaccepted working tree | Non-vacuous twelve-domain closure and cumulative Rust parity |
+| CP-06 Memory/hash/tables | IN_PROGRESS | Unaccepted working tree | Exact program/RW Merkle, Poseidon2, range, and bitwise AIR |
+| CP-07 Public I/O | IN_PROGRESS | Standalone module at audit baseline | Every public field, role, and expected statement constrained |
+| CP-08 Transcript | IN_PROGRESS | Committed partial transcript | Exact event order; declared shard boundary; byte tracing |
+| CP-09 CLI | IN_PROGRESS | Fail-closed skeleton | Installed staged and promoted prove/verify/bench gates |
+| CP-10 Artifact | IN_PROGRESS | Staged schema | Versioned, bounded, atomic, externally bound verification |
+| CP-11 Rust oracle | FAIL | Audit `c0720031` | Clean pinned build and reproducible live receipt |
+| CP-12 Adversarial fleet | IN_PROGRESS | Partial mutations | Pre-commit malicious-witness rejection matrix complete |
+| CP-13 Release gate | NOT_STARTED | None | Enforcing RISC-V gate plus standard/strict clean-tree evidence |
+| RF-01 Registry flip | NOT_STARTED | None | Atomic promotion commit and post-flip gate |
+| BA-01 Core purity | PASS | Audit `c0720031` | Preserve on promoted revision |
+| BA-02 Frontend layering | FAIL | Audit `c0720031` | Concrete backend removed and checker clean |
+| BA-03 Autoresearch | FAIL | Correctly disabled at `c0720031` | Keep disabled, or satisfy independent activation gates |
+
+## Definition of done
+
+This goal is complete only when:
+
+- CP-00 through CP-13 pass on one clean candidate revision;
+- RF-01 is committed and its post-flip strict gate passes in CI;
+- BA-01 and BA-02 pass on the promoted revision;
+- BA-03 is either independently passed in a later commit or remains explicitly
+  disabled with its reason intact;
+- every release-blocking divergence is closed;
+- the pinned Rust Stark-V oracle accepts every declared shared-boundary parity
+  check;
+- the installed CLI proves and independently verifies a supported RV32IM ELF;
+- every unsupported operation and backend fails closed; and
+- the final bias audit names the evidence, residual allowed divergence, and GO
+  decision without qualification.
+
+Anything less is progress toward the goal, not completion of the goal.
