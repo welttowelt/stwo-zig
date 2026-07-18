@@ -86,6 +86,30 @@ pub const Bench = struct {
     profiled: bool,
 };
 
+pub const ElfRun = struct {
+    elf_path: []const u8,
+    input_path: ?[]const u8,
+    backend: Backend,
+    protocol: Protocol,
+    blake2_backend: Blake2Backend,
+    metal_runtime: MetalRuntime,
+};
+
+pub const ProveElf = struct {
+    run: ElfRun,
+    output: []const u8,
+    report_out: ?[]const u8,
+};
+
+pub const BenchElf = struct {
+    run: ElfRun,
+    report_out: ?[]const u8,
+    proof_out: ?[]const u8,
+    warmups: usize,
+    samples: usize,
+    profiled: bool,
+};
+
 pub const Verify = struct {
     artifact: []const u8,
     protocol: Protocol,
@@ -94,6 +118,8 @@ pub const Verify = struct {
 pub const Parsed = union(enum) {
     prove: Prove,
     bench: Bench,
+    prove_elf: ProveElf,
+    bench_elf: BenchElf,
     verify: Verify,
     applications: void,
     help: ?Command,
@@ -133,8 +159,15 @@ const Flag = enum {
     metal_runtime,
     metal_aot_bundle,
     metal_aot_manifest_sha256,
+    elf,
+    input,
     profiled,
     count,
+};
+
+const WORKLOAD_FLAGS = [_]Flag{
+    .log_n_rows, .sequence_len, .log_size, .log_step,        .offset,
+    .initial_x,  .initial_y,    .n_rounds, .log_n_instances,
 };
 
 const Scratch = struct {
@@ -159,6 +192,8 @@ const Scratch = struct {
     log_n_instances: u32 = 13,
     blake2_backend: Blake2Backend = .auto,
     metal_runtime: MetalRuntime = .{},
+    elf: ?[]const u8 = null,
+    input: ?[]const u8 = null,
     profiled: bool = false,
 
     fn mark(self: *Scratch, flag: Flag) !void {
@@ -204,13 +239,25 @@ pub fn parse(argv: []const []const u8) !Parsed {
     }
 
     try rejectIrrelevant(command, scratch);
+    try rejectElfConflicts(scratch);
     return switch (command) {
-        .prove => .{ .prove = .{
+        .prove => if (scratch.has(.elf)) .{ .prove_elf = .{
+            .run = try makeElfRun(scratch),
+            .output = try requiredPath(scratch.output, error.MissingOutput),
+            .report_out = try optionalPath(scratch.report_out),
+        } } else .{ .prove = .{
             .run = try makeRun(scratch),
             .output = try requiredPath(scratch.output, error.MissingOutput),
             .report_out = try optionalPath(scratch.report_out),
         } },
-        .bench => .{ .bench = .{
+        .bench => if (scratch.has(.elf)) .{ .bench_elf = .{
+            .run = try makeElfRun(scratch),
+            .report_out = try optionalPath(scratch.report_out),
+            .proof_out = try optionalPath(scratch.proof_out),
+            .warmups = scratch.warmups,
+            .samples = scratch.samples,
+            .profiled = scratch.profiled,
+        } } else .{ .bench = .{
             .run = try makeRun(scratch),
             .report_out = try optionalPath(scratch.report_out),
             .proof_out = try optionalPath(scratch.proof_out),
@@ -224,6 +271,17 @@ pub fn parse(argv: []const []const u8) !Parsed {
         } },
         .applications => unreachable,
     };
+}
+
+fn rejectElfConflicts(scratch: Scratch) !void {
+    if (!scratch.has(.elf)) {
+        if (scratch.has(.input)) return error.InputRequiresElf;
+        return;
+    }
+    if (scratch.has(.air)) return error.ElfExcludesAir;
+    for (WORKLOAD_FLAGS) |flag| {
+        if (scratch.has(flag)) return error.IrrelevantWorkloadArgument;
+    }
 }
 
 fn assign(scratch: *Scratch, flag: Flag, value: []const u8) !void {
@@ -252,6 +310,8 @@ fn assign(scratch: *Scratch, flag: Flag, value: []const u8) !void {
             return error.InvalidMetalRuntime,
         .metal_aot_bundle => scratch.metal_runtime.aot_bundle = value,
         .metal_aot_manifest_sha256 => scratch.metal_runtime.manifest_sha256 = try parseSha256(value),
+        .elf => scratch.elf = value,
+        .input => scratch.input = value,
         .profiled => unreachable,
         .count => unreachable,
     }
@@ -259,13 +319,7 @@ fn assign(scratch: *Scratch, flag: Flag, value: []const u8) !void {
 
 fn makeRun(scratch: Scratch) !Run {
     const air = scratch.air orelse return error.MissingAir;
-    const backend = scratch.backend orelse return error.MissingBackend;
-    if (backend == .cpu and hasAny(scratch, &.{
-        .metal_runtime,
-        .metal_aot_bundle,
-        .metal_aot_manifest_sha256,
-    })) return error.MetalArgumentRequiresMetalBackend;
-    try validateMetalRuntime(scratch.metal_runtime);
+    const backend = try checkedBackend(scratch);
     const workload = try makeWorkload(air, scratch);
     try validateWorkload(workload);
     return .{
@@ -275,6 +329,28 @@ fn makeRun(scratch: Scratch) !Run {
         .blake2_backend = scratch.blake2_backend,
         .metal_runtime = scratch.metal_runtime,
     };
+}
+
+fn makeElfRun(scratch: Scratch) !ElfRun {
+    return .{
+        .elf_path = try requiredPath(scratch.elf, error.MissingElf),
+        .input_path = try optionalPath(scratch.input),
+        .backend = try checkedBackend(scratch),
+        .protocol = scratch.protocol,
+        .blake2_backend = scratch.blake2_backend,
+        .metal_runtime = scratch.metal_runtime,
+    };
+}
+
+fn checkedBackend(scratch: Scratch) !Backend {
+    const backend = scratch.backend orelse return error.MissingBackend;
+    if (backend == .cpu and hasAny(scratch, &.{
+        .metal_runtime,
+        .metal_aot_bundle,
+        .metal_aot_manifest_sha256,
+    })) return error.MetalArgumentRequiresMetalBackend;
+    try validateMetalRuntime(scratch.metal_runtime);
+    return backend;
 }
 
 fn makeWorkload(air: Air, scratch: Scratch) !Workload {
@@ -292,11 +368,7 @@ fn makeWorkload(air: Air, scratch: Scratch) !Workload {
         .blake => &[_]Flag{ .log_n_rows, .n_rounds },
         .poseidon => &[_]Flag{.log_n_instances},
     };
-    const workload_flags = [_]Flag{
-        .log_n_rows, .sequence_len, .log_size, .log_step,        .offset,
-        .initial_x,  .initial_y,    .n_rounds, .log_n_instances,
-    };
-    for (workload_flags) |flag| {
+    for (WORKLOAD_FLAGS) |flag| {
         if (scratch.has(flag) and !contains(relevant, flag)) return error.IrrelevantWorkloadArgument;
     }
     return switch (air) {
@@ -391,9 +463,9 @@ fn rejectIrrelevant(command: Command, scratch: Scratch) !void {
         if (!scratch.seen[index]) continue;
         const flag: Flag = @enumFromInt(index);
         const allowed = switch (command) {
-            .prove => isRunFlag(flag) or flag == .output or flag == .report_out,
+            .prove => isRunFlag(flag) or contains(&.{ .output, .report_out, .elf, .input }, flag),
             .bench => isRunFlag(flag) or contains(&.{
-                .report_out, .proof_out, .warmups, .samples, .profiled,
+                .report_out, .proof_out, .warmups, .samples, .profiled, .elf, .input,
             }, flag),
             .verify => flag == .artifact or flag == .protocol,
             .applications => false,
@@ -448,6 +520,8 @@ fn parseFlag(value: []const u8) ?Flag {
         .{ "--metal-runtime", Flag.metal_runtime },
         .{ "--metal-aot-bundle", Flag.metal_aot_bundle },
         .{ "--metal-aot-manifest-sha256", Flag.metal_aot_manifest_sha256 },
+        .{ "--elf", Flag.elf },
+        .{ "--input", Flag.input },
         .{ "--profiled", Flag.profiled },
     };
     inline for (entries) |entry| if (std.mem.eql(u8, value, entry[0])) return entry[1];
@@ -516,11 +590,15 @@ pub fn writeUsage(writer: anytype, command: ?Command) !void {
     switch (command.?) {
         .prove => try writer.writeAll(
             \\Usage: stwo-zig prove --air NAME --backend NAME --output PATH [run options]
+            \\       stwo-zig prove --elf PATH --backend NAME --output PATH [--input PATH]
             \\
             \\  --report-out PATH  Write the machine-readable proving report
+            \\  --elf PATH         Prove a Stark-V RV32IM guest ELF instead of --air
+            \\  --input PATH       Guest input bytes (requires --elf)
         ),
         .bench => try writer.writeAll(
             \\Usage: stwo-zig bench --air NAME --backend NAME [run options] [benchmark options]
+            \\       stwo-zig bench --elf PATH --backend NAME [--input PATH] [benchmark options]
             \\
             \\Benchmark options:
             \\  --report-out PATH  Write the machine-readable benchmark report
@@ -528,6 +606,8 @@ pub fn writeUsage(writer: anytype, command: ?Command) !void {
             \\  --warmups N        Verified untimed warmups (default: 10, maximum: 10)
             \\  --samples N        Verified timed samples (default: 5, maximum: 21)
             \\  --profiled        Enable diagnostic stage instrumentation
+            \\  --elf PATH         Benchmark a Stark-V RV32IM guest ELF instead of --air
+            \\  --input PATH       Guest input bytes (requires --elf)
         ),
         .verify => return writer.writeAll(
             \\Usage: stwo-zig verify --artifact PATH [--protocol secure|functional|smoke]
@@ -597,7 +677,7 @@ test "commands reject duplicate unknown missing and irrelevant arguments" {
     try std.testing.expectError(error.DuplicateArgument, parse(&.{
         "prove", "--air", "xor", "--air", "plonk",
     }));
-    try std.testing.expectError(error.UnknownArgument, parse(&.{ "verify", "--input", "proof.json" }));
+    try std.testing.expectError(error.UnknownArgument, parse(&.{ "verify", "--payload", "proof.json" }));
     try std.testing.expectError(error.MissingArgumentValue, parse(&.{ "verify", "--artifact" }));
     try std.testing.expectError(error.IrrelevantArgument, parse(&.{ "verify", "--artifact", "proof.json", "--backend", "cpu" }));
     try std.testing.expectError(error.IrrelevantArgument, parse(&.{ "prove", "--warmups", "1" }));
@@ -646,6 +726,64 @@ test "bounds paths verification and help fail closed" {
     }));
     try std.testing.expectEqual(Command.bench, (try parse(&.{ "bench", "--help" })).help.?);
     try std.testing.expect((try parse(&.{"--help"})).help == null);
+}
+
+test "elf runs parse guest inputs and stay mutually exclusive with air" {
+    const result = (try parse(&.{
+        "prove",    "--elf",      "guest.elf", "--backend", "cpu",
+        "--output", "proof.json", "--input",   "input.bin",
+    })).prove_elf;
+    try std.testing.expectEqual(Backend.cpu, result.run.backend);
+    try std.testing.expectEqual(Protocol.secure, result.run.protocol);
+    try std.testing.expectEqualStrings("guest.elf", result.run.elf_path);
+    try std.testing.expectEqualStrings("input.bin", result.run.input_path.?);
+    try std.testing.expectEqualStrings("proof.json", result.output);
+
+    try std.testing.expectError(error.ElfExcludesAir, parse(&.{
+        "prove",     "--elf", "guest.elf", "--air",      "plonk",
+        "--backend", "cpu",   "--output",  "proof.json",
+    }));
+    try std.testing.expectError(error.InputRequiresElf, parse(&.{
+        "prove",   "--air",     "plonk", "--backend", "cpu", "--output", "proof.json",
+        "--input", "input.bin",
+    }));
+    try std.testing.expectError(error.MissingBackend, parse(&.{
+        "prove", "--elf", "guest.elf", "--output", "proof.json",
+    }));
+    try std.testing.expectError(error.MissingOutput, parse(&.{
+        "prove", "--elf", "guest.elf", "--backend", "cpu",
+    }));
+    try std.testing.expectError(error.InvalidPath, parse(&.{
+        "prove", "--elf", "", "--backend", "cpu", "--output", "proof.json",
+    }));
+}
+
+test "bench elf keeps sampling and elf flags stay prove and bench only" {
+    const result = (try parse(&.{
+        "bench",     "--elf", "guest.elf", "--backend", "cpu",
+        "--warmups", "2",     "--samples", "3",
+    })).bench_elf;
+    try std.testing.expectEqualStrings("guest.elf", result.run.elf_path);
+    try std.testing.expect(result.run.input_path == null);
+    try std.testing.expectEqual(@as(usize, 2), result.warmups);
+    try std.testing.expectEqual(@as(usize, 3), result.samples);
+
+    try std.testing.expectError(error.IrrelevantWorkloadArgument, parse(&.{
+        "bench", "--elf", "guest.elf", "--backend", "cpu", "--log-n-rows", "10",
+    }));
+    try std.testing.expectError(error.InputRequiresElf, parse(&.{
+        "bench", "--air", "plonk", "--backend", "cpu", "--input", "input.bin",
+    }));
+    try std.testing.expectError(error.IrrelevantArgument, parse(&.{
+        "verify", "--artifact", "proof.json", "--elf", "guest.elf",
+    }));
+    try std.testing.expectError(error.IrrelevantArgument, parse(&.{
+        "verify", "--artifact", "proof.json", "--input", "input.bin",
+    }));
+    try std.testing.expectError(error.MetalArgumentRequiresMetalBackend, parse(&.{
+        "prove",           "--elf",      "guest.elf", "--backend", "cpu", "--output", "proof.json",
+        "--metal-runtime", "source-jit",
+    }));
 }
 
 test "usage names the explicit backend and artifact contracts" {

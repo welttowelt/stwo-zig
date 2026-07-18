@@ -5,6 +5,7 @@ const stwo = @import("stwo");
 const cli = @import("cli.zig");
 const native_dispatch = @import("native_dispatch.zig");
 const registry = @import("registry.zig");
+const starkv_adapter = @import("starkv_adapter.zig");
 
 const atomic_file = stwo.interop.atomic_file;
 const artifact_verifier = stwo.interop.examples_artifact_verifier;
@@ -23,7 +24,33 @@ pub fn main() !void {
         .verify => |request| try verifyArtifact(allocator, request),
         .prove => |request| try prove(allocator, request),
         .bench => |request| try bench(allocator, request),
+        .prove_elf => |request| try proveElf(allocator, request.run, .{
+            .proof_out = request.output,
+            .report_out = request.report_out,
+        }),
+        .bench_elf => |request| try proveElf(allocator, request.run, .{
+            .proof_out = request.proof_out,
+            .report_out = request.report_out,
+        }),
     }
+}
+
+fn proveElf(
+    allocator: std.mem.Allocator,
+    run: cli.ElfRun,
+    outputs: starkv_adapter.OutputPaths,
+) !void {
+    starkv_adapter.proveElf(allocator, run.elf_path, run.input_path, .{
+        .backend = run.backend,
+        .protocol = run.protocol,
+        .blake2_backend = run.blake2_backend,
+        .metal_runtime = run.metal_runtime,
+    }, outputs) catch |err| switch (err) {
+        error.AdapterNotReleaseGated => {
+            try writeLine(std.fs.File.stderr().deprecatedWriter(), starkv_adapter.PENDING_DIAGNOSTIC);
+            std.process.exit(1);
+        },
+    };
 }
 
 fn prove(allocator: std.mem.Allocator, request: cli.Prove) !void {
@@ -149,6 +176,16 @@ fn requireAbsent(path: []const u8) !void {
 fn writeLine(writer: anytype, bytes: []const u8) !void {
     try writer.writeAll(bytes);
     try writer.writeByte('\n');
+}
+
+test "stark-v adapter seam fails closed until the release gate flips" {
+    try std.testing.expectError(error.AdapterNotReleaseGated, starkv_adapter.proveElf(
+        std.testing.allocator,
+        "guest.elf",
+        "input.bin",
+        .{ .backend = .cpu, .protocol = .secure, .blake2_backend = .auto, .metal_runtime = .{} },
+        .{ .proof_out = "proof.json", .report_out = null },
+    ));
 }
 
 test "publication never replaces a competing report or deletes its verified proof" {
