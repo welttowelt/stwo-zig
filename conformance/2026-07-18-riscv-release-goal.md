@@ -5,7 +5,7 @@
 **Created:** 2026-07-18
 
 **Last reconciled:** 2026-07-18 against committed implementation baseline
-`b6ce38de` and the explicitly unaccepted working-tree slices described below.
+`a54333b6` and the explicitly unaccepted working-tree slices described below.
 
 **Authority:** This is the operative delivery contract for the Stark-V RV32IM
 lane. It may be replaced only by a reviewed document that names every changed
@@ -54,6 +54,49 @@ declared RV32IM statement, reject every known way to alter that statement or its
 execution, and make the same installed CLI path reproducible by a clean release
 controller. Throughput work, Metal support, streaming, Cairo, and autoresearch
 scoring are outside this release decision.
+
+## Executive acceptance matrix
+
+This is the operator-facing checklist for the current goal. It maps the requested
+delivery checkpoints to the detailed contracts below; it does not replace or
+weaken them. A checkpoint is complete only when every referenced checkpoint is
+`PASS` on the same clean candidate revision and the named gate has emitted the
+required evidence.
+
+| Delivery checkpoint | Detailed contract | Required evidence | Unlock condition | Current decision |
+| --- | --- | --- | --- | --- |
+| **1. Complete cross-shard LogUp placement in the RISC-V AIR** | CP-03 through CP-06, CP-11, CP-12 | Canonical component order; exact committed-buffer tuple provenance; all twelve relation domains independently cancel; one-, two-, and many-shard proofs pass; omission, duplication, reorder, tuple, multiplicity, padding, and boundary mutations fail; live Rust cumulative accumulator parity after every component | Unlocks final statement/CLI integration only after semantic, memory, Merkle, Poseidon2, range, and bitwise constraints are active in both on-domain and OODS evaluation | `NO-GO` while any relation source, sink, recurrence, commitment, or verifier consumer is absent |
+| **2. Verify the build and visible CLI result** | CP-09, CP-10, CP-13 | `ReleaseFast` installed binary; stable help and diagnostic snapshots; staged prove, independent verify, and benchmark smoke; deterministic machine JSON; bounded schema-v3 artifact; atomic publication and tamper rejection | Candidate CLI evidence may be collected in parallel, but it cannot authorize promotion before checkpoints 1 and 3 pass | `NO-GO` while the CLI projects transitional claims, relies on in-process state, or emits schema v2 |
+| **3. Add public I/O binding to the RISC-V statement** | CP-07, CP-08, CP-11, CP-12 | Every public field is canonically transcript-bound and algebraically linked to committed execution; caller-supplied expected statement is enforced; prover/verifier channel traces agree; per-field, ordering, length, address, clock, root-presence, and segment-role mutations fail | Unlocks clean candidate evidence only after public compensation closes in the relevant relation domains | `NO-GO` while any public value is prover-chosen, transcript-only, host-asserted, or unconnected to a committed relation |
+| **4. Flip the prove-CLI registry entry and release-gate the adapter** | CP-00 through CP-13, then RF-01 | One clean candidate commit passes the strict candidate controller locally and in clean CI with fresh 11/11 Rust-oracle evidence and zero release-blocking divergences; a separate non-semantic promotion commit passes the strict promoted controller | This is the final release action, never an implementation shortcut. A failure after the flip requires reverting the promotion | `FORBIDDEN` until every prerequisite is `PASS` on one identified candidate |
+| **5. Complete the bias audit** | BA-01 through BA-03 | Mechanical core-purity and frontend-layering gates pass on candidate and promoted revisions; audit records all dependency edges and source-debt findings; autoresearch exercise validity either passes independently or remains disabled with an explicit, tested reason | BA-01 and BA-02 are release requirements. BA-03 does not block adapter release while it remains fail-closed, but it blocks RISC-V autoresearch scoring | `NO-GO` for release on BA-01/BA-02 failure; `NO-GO` for autoresearch activation on BA-03 failure |
+
+The dependency order is **1 -> 3 -> 4**. Checkpoint 2 may progress alongside
+checkpoints 1 and 3, but its final receipt must exercise their production shapes.
+Checkpoint 5 runs throughout implementation and is rerun against both the clean
+candidate and the promoted revision. No passing unit suite, local proof
+roundtrip, benchmark number, committed vector, or Zig prover/verifier
+self-agreement can substitute for a missing gate in this matrix.
+
+### Evidence required at every checkpoint
+
+Each `PASS` entry must name:
+
+- the exact clean stwo-zig commit;
+- the exact pinned Stark-V commit and clean-tree status when oracle evidence is
+  involved;
+- the command, optimization mode, start time, duration, exit code, and output
+  digest;
+- the relevant artifact, corpus, statement, witness-layout, and executable
+  digests;
+- every required test count and the fact that no required test was skipped; and
+- the specific invariant responsible for every expected mutation rejection.
+
+Evidence from an uncommitted tree is diagnostic only. Evidence becomes stale
+after a change to accepted semantics, witness layout, relation placement, public
+statement, transcript, proof wire, verifier, registry, oracle corpus, or release
+controller. Stale evidence must be regenerated; it cannot be carried forward by
+assertion.
 
 ## Governing documents
 
@@ -136,34 +179,39 @@ authorize RF-01 by itself.
 
 ### Current implementation snapshot
 
-The accepted implementation baseline is `b6ce38de`. It contains:
+The accepted implementation baseline is `a54333b6`. It contains:
 
 - exact six-domain lookup schemas and signed counters through `a5b68b28`;
 - a generic lookup-table AIR component through `dee14997`;
-- a fail-closed relation-evidence exporter through `f63ae1cf`; and
+- a fail-closed relation-evidence exporter through `f63ae1cf`;
 - exact variable-width opcode LogUp generation and constraint consumption for
-  all sixteen opcode families through `b6ce38de`.
+  all sixteen opcode families through `b6ce38de`;
+- exact program, sparse-Merkle, and narrow-Poseidon2 AIR integration through
+  `cb793596`;
+- explicit opcode/table interaction ownership and exact table-source ingestion
+  through `788ac426`; and
+- canonical component ordering and bounded table-interaction scratch memory
+  through `a54333b6`.
 
 These are necessary building blocks, not proof of global placement. The exact
 opcode component is not yet the sole production consumer of the committed
-family columns, all six table components are not yet in the proof, and the
-canonical 27-component aggregate is not yet verifier-enforced.
+family columns, all six table components are not yet in the production proof,
+and the canonical aggregate is not yet verifier-enforced.
 
-At this reconciliation point, the working tree also contains two unaccepted
-implementation slices:
-
-- lookup-table source ingestion from committed, padded, bit-reversed opcode
-  columns; and
-- program, sparse-Merkle, and narrow-Poseidon2 production integration.
+At this reconciliation point, the working tree contains an unaccepted central
+integration slice for variable-width statement claims, exact preprocessed table
+tuples, table multiplicity columns, committed-column interaction provenance,
+and prover/verifier component assembly. It must be reviewed, decomposed where
+required, committed, and exercised by the named gates before it changes a
+checkpoint status.
 
 The pinned Rust and Zig narrow-Poseidon2 witness generators have reached exact
-445-column parity for the focused `Call.narrow(1, 2)` row. The full production
-HashComponent roundtrip and `test-riscv-prover -Doptimize=ReleaseFast` also pass
-in the same working-tree slice. CP-06 nevertheless remains `IN_PROGRESS` until
-that slice is reviewed, committed, covered by proof-level malicious
-Merkle/Poseidon mutations, and included in clean candidate evidence. Uncommitted
-code, focused row parity, or a green local suite is never accepted checkpoint
-evidence.
+445-column parity for the focused `Call.narrow(1, 2)` row, and the committed
+production HashComponent roundtrip passed its focused ReleaseFast suite before
+landing. CP-06 nevertheless remains `IN_PROGRESS` until proof-level malicious
+Merkle/Poseidon mutations, complete table and memory closure, and clean
+candidate evidence pass. Focused parity or a green local suite is never accepted
+as release evidence by itself.
 
 The staged proof artifact is still schema v2 and mirrors transitional claim
 fields. Production placement requires schema v3 after the internal claim shape
@@ -1157,8 +1205,8 @@ remains `IN_PROGRESS`.
 | CP-02 Execute | IN_PROGRESS | Live decode and execution boundaries pass at `30bc24ec`; two-shard ADDI corpus case is committed at `8e5be3c3` | Exact 45-opcode manifest, complete edge corpus, and corrected signed-MULH oracle |
 | CP-03 Witness | IN_PROGRESS | Production-buffer per-family rows and ordered accesses pass live Rust comparison at `30bc24ec` | Complete schema/edge corpus and bind the layout digest into final candidate evidence |
 | CP-04 Semantic AIR | IN_PROGRESS | Honest roundtrip and partial mutation matrix through `88870d2c` | All accepted opcodes proof-integrated on-domain/OODS and malicious-witness tested |
-| CP-05 Cross-shard LogUp | IN_PROGRESS | Exact opcode batching/constraints through `b6ce38de` and fail-closed relation evidence through `f63ae1cf`; production global placement remains open | Make exact consumers canonical, place every infrastructure source/table, enforce non-vacuous 12-domain closure, and obtain cumulative Rust parity |
-| CP-06 Memory/hash/tables | IN_PROGRESS | Live roots and exact lookup-table building blocks are committed; exact Rust/Zig 445-column parity and a green production prover suite exist only in an unaccepted slice | Review and land HashComponent; enforce Merkle/Poseidon mutations, canonical-zero `poseidon2_io`, six tables, and memory closure |
+| CP-05 Cross-shard LogUp | IN_PROGRESS | Exact opcode batching/constraints through `b6ce38de`, interaction ownership and source ingestion through `788ac426`, canonical component order through `1a29dbf2`, and fail-closed relation evidence through `f63ae1cf`; production global placement remains open | Make exact consumers canonical, place every infrastructure source/table, enforce non-vacuous 12-domain closure, and obtain cumulative Rust parity |
+| CP-06 Memory/hash/tables | IN_PROGRESS | Live roots, exact lookup-table building blocks, exact Rust/Zig 445-column parity, and production HashComponent integration are committed through `cb793596`; bounded table scratch is committed through `a54333b6` | Enforce proof-level Merkle/Poseidon mutations, canonical-zero `poseidon2_io`, all six tables, and complete memory closure |
 | CP-07 Public I/O | IN_PROGRESS | Public values pass live; standalone field audit exists | Every field, segment role, expected statement, and public relation term constrained |
 | CP-08 Transcript | IN_PROGRESS | Shared public-data prefix passes at `88870d2c` | Exact full event order, shard divergence declaration, byte tracer, and mutation probes |
 | CP-09 CLI | IN_PROGRESS | Installed candidate prove, independent verify, verified benchmark, two-shard smoke, and failure matrix through `9af6fe2b`; current adapter still projects transitional claims | Migrate to the stabilized exact claim model/schema v3, preserve candidate behavior, and pass the post-RF-01 promoted matrix |
