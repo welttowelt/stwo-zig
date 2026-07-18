@@ -4,6 +4,10 @@
       "bytes": 1062371,
       "path": "reports/native_proof_cross_backend_matrix_v4/19cc8a5631e04aa2ea72242ff2ccac4d36320d04afbae05a161606995dd6a71f.json"
     },
+    "3e3cf347fe958b822558e7c614b5f11317187f321d412fbd4a834d551b81d78b": {
+      "bytes": 1064138,
+      "path": "reports/native_proof_cross_backend_matrix_v5/3e3cf347fe958b822558e7c614b5f11317187f321d412fbd4a834d551b81d78b.json"
+    },
     "4f7a234ffe2d6fde65a01173d12becbb7b9aa8ab4cfcab3c322ba13a78ff353d": {
       "bytes": 532048,
       "path": "reports/native_proof_cross_backend_matrix_v4/4f7a234ffe2d6fde65a01173d12becbb7b9aa8ab4cfcab3c322ba13a78ff353d.json"
@@ -69,12 +73,27 @@
       "id": "5a0e48277dc7048888f364f1f19928a567df59213d87b67424fbd32f30b4a5ff",
       "report_kind": "native_proof_cross_backend_matrix_v4",
       "status": "comparable"
+    },
+    {
+      "archived_at": "2026-07-18T00:48:44.271133+00:00",
+      "baseline_sha256": "19cc8a5631e04aa2ea72242ff2ccac4d36320d04afbae05a161606995dd6a71f",
+      "comparison_identity_sha256": "53f30bb70ebcce8d8d94f7aa209288486c9e83e035a3306b9b2a486bcb738fb1",
+      "current_sha256": "3e3cf347fe958b822558e7c614b5f11317187f321d412fbd4a834d551b81d78b",
+      "delta_path": "deltas/benchmark_delta_v1/935452a7f710c885cff681fa6f374c23e9136d1df179adbfa13412491e02ecbd.json",
+      "delta_sha256": "935452a7f710c885cff681fa6f374c23e9136d1df179adbfa13412491e02ecbd",
+      "id": "f9eb5dfd2aa5873e16c843205e1f62b818541f8d0974d860e49d2a66e6371185",
+      "report_kind": "native_proof_cross_backend_matrix_v4->native_proof_cross_backend_matrix_v5",
+      "status": "comparable"
     }
   ],
   "deltas": {
     "49f5cdc7c7c447aa9b7fb932e628f909e4159ed9973bcc54b2386defb4290171": {
       "bytes": 173248,
       "path": "deltas/benchmark_delta_v1/49f5cdc7c7c447aa9b7fb932e628f909e4159ed9973bcc54b2386defb4290171.json"
+    },
+    "935452a7f710c885cff681fa6f374c23e9136d1df179adbfa13412491e02ecbd": {
+      "bytes": 221502,
+      "path": "deltas/benchmark_delta_v1/935452a7f710c885cff681fa6f374c23e9136d1df179adbfa13412491e02ecbd.json"
     },
     "f0ea216717483515d3af831d40d60e16e060bc51e5a636d3313c334e02efd6c8": {
       "bytes": 1128,

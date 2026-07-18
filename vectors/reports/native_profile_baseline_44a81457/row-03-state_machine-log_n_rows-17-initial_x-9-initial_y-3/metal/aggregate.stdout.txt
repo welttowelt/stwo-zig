@@ -1,0 +1,32 @@
+Metal profile: Apple M5 Max
+commands=50 encoders=182 command_gpu=37.867ms encoder_gpu=0.000ms unattributed=37.867ms
+host encode=1.087ms commit=0.298ms wait=65.461ms errors=0 untimed=182 counter_overflows=0 counter_alloc_errors=0 counter_config_errors=0 timing_inconsistent=0
+
+Top command-buffer operations
+GPU ms    Share   Count  p50 ms   p95 ms   Wait ms   Name
+  34.329   90.66%      6    4.706   10.107    37.427  stwo_zig_metal_eval_polynomials
+   1.297    3.43%      4    0.264    0.627     9.723  stwo_zig_metal_circle_lde
+   0.900    2.38%      2    0.450    0.493     2.634  stwo_zig_metal_compute_quotients
+   0.836    2.21%      2    0.418    0.627     2.569  stwo_zig_metal_circle_transform
+   0.413    1.09%     32    0.008    0.032    10.966  stwo_zig_metal_fri_fold_line
+   0.061    0.16%      2    0.030    0.037     1.841  stwo_zig_metal_fri_fold_circle
+   0.030    0.08%      2    0.015    0.016     0.301  stwo_zig_metal_tree_copy_hashes_batch
+
+Encoder/kernel dispatch inventory (GPU timing disabled)
+GPU ms    Share   Count  p50 ms   p95 ms   Dispatches  Max bound  Name
+   0.000    0.00%      8    0.000    0.000           0    16.0MiB  blit
+   0.000    0.00%      2    0.000    0.000           2    20.0MiB  stwo_zig_blake2s_leaves
+   0.000    0.00%      2    0.000    0.000           2    16.0MiB  stwo_zig_blake2s_parent_tail_sparse
+   0.000    0.00%     18    0.000    0.000          18    16.0MiB  stwo_zig_blake2s_parents_sparse
+   0.000    0.00%      4    0.000    0.000           4     3.0MiB  stwo_zig_circle_expand_coefficients
+   0.000    0.00%      4    0.000    0.000           4     1.2MiB  stwo_zig_circle_ifft_fused_tail
+   0.000    0.00%     24    0.000    0.000          24     1.2MiB  stwo_zig_circle_ifft_layer
+   0.000    0.00%      4    0.000    0.000           4     1.0MiB  stwo_zig_circle_rescale
+   0.000    0.00%      4    0.000    0.000           4     2.5MiB  stwo_zig_circle_rfft_fused_tail
+   0.000    0.00%      2    0.000    0.000           2     8.5MiB  stwo_zig_circle_rfft_last
+   0.000    0.00%     62    0.000    0.000          62     8.5MiB  stwo_zig_circle_rfft_layer
+   0.000    0.00%      6    0.000    0.000           6     2.0MiB  stwo_zig_eval_basis
+   0.000    0.00%      6    0.000    0.000           6     6.0MiB  stwo_zig_eval_polynomials
+   0.000    0.00%      2    0.000    0.000           2     6.5MiB  stwo_zig_fri_fold_circle
+   0.000    0.00%     32    0.000    0.000          32     3.2MiB  stwo_zig_fri_fold_line
+   0.000    0.00%      2    0.000    0.000           2    17.0MiB  stwo_zig_quotient_rows_raw

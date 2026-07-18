@@ -1,0 +1,795 @@
+Analysis of sampling native-proof-bench-cpu (pid 16661) every 1 millisecond
+Process:         native-proof-bench-cpu [16661]
+Path:            /private/tmp/*/native-proof-bench-cpu
+Load Address:    0x102bf8000
+Identifier:      native-proof-bench-cpu
+Version:         0
+Code Type:       ARM64
+Platform:        macOS
+Parent Process:  Python [16623]
+Target Type:     live task
+
+Date/Time:       2026-07-18 01:49:05.342 +0100
+Launch Time:     2026-07-18 01:49:05.307 +0100
+OS Version:      macOS 26.5.2 (25F84)
+Report Version:  7
+Analysis Tool:   /usr/bin/sample
+----
+
+Call graph:
+    54 Thread_13225972   DispatchQueue_1: com.apple.main-thread  (serial)
+    + 54 start  (in dyld) + 6992  [0x1818ebe00]
+    +   54 main  (in native-proof-bench-cpu) + 7576  [0x102c1c520]  start.zig:602
+    +     26 runner.executeExample__anon_3127  (in native-proof-bench-cpu) + 3328  [0x102c0f5e4]  runner.zig:261
+    +     ! 20 runner.runGatedSample__anon_6330  (in native-proof-bench-cpu) + 4744  [0x102c1fa00]  runner.zig:529
+    +     ! : 14 prover.prove.proveExComponentsWithRecorder__anon_13301  (in native-proof-bench-cpu) + 25840  [0x102c7cde0]  prove.zig:346
+    +     ! : | 14 prover.pcs.scheme.CommitmentSchemeProver(backends.cpu_scalar.mod.CpuBackend,core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed),core.vcs_lifted.blake2_merkle.Blake2sMerkleChannelGeneric(false)).proveValuesFromSamplesWithRecorder__anon_14189  (in native-proof-bench-cpu) + 3708  [0x102c6f1d4]  scheme.zig:716
+    +     ! : |   6 prover.fri.FriProver(backends.cpu_scalar.mod.CpuBackend,core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed),core.vcs_lifted.blake2_merkle.Blake2sMerkleChannelGeneric(false)).commitLazy__anon_15068  (in native-proof-bench-cpu) + 12644  [0x102c68264]  fri.zig:192
+    +     ! : |   + 4 backends.cpu_scalar.mod.CpuBackend.commitMerkle__anon_11725  (in native-proof-bench-cpu) + 5780  [0x102c40220]  mod.zig:211
+    +     ! : |   + ! 1 prover.vcs_lifted.layers.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).buildNextLayer  (in native-proof-bench-cpu) + 912  [0x102c3dd20]  layers.zig:112
+    +     ! : |   + ! : 1 prover.vcs_lifted.layers.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).hashSeededRange  (in native-proof-bench-cpu) + 84  [0x102c3d898]  layers.zig:200
+    +     ! : |   + ! :   1 core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed).hashChildrenWithSeed4  (in native-proof-bench-cpu) + 1228  [0x102c3e4e4]  blake2_merkle.zig:131
+    +     ! : |   + ! 1 prover.vcs_lifted.layers.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).buildNextLayer  (in native-proof-bench-cpu) + 1156  [0x102c3de14]  layers.zig:128
+    +     ! : |   + ! : 1 core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed).hashChildrenWithSeed4  (in native-proof-bench-cpu) + 1376  [0x102c3e578]  blake2_merkle.zig:131
+    +     ! : |   + ! :   1 core.crypto.blake2s_backend.compressParallel4  (in native-proof-bench-cpu) + 2960  [0x102ca2474]  blake2s_backend.zig:699
+    +     ! : |   + ! 1 prover.vcs_lifted.layers.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).buildNextLayer  (in native-proof-bench-cpu) + 1160  [0x102c3de18]  layers.zig:129
+    +     ! : |   + ! 1 prover.vcs_lifted.layers.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).buildNextLayer  (in native-proof-bench-cpu) + 1604  [0x102c3dfd4]  layers.zig:151
+    +     ! : |   + 1 backends.cpu_scalar.mod.CpuBackend.commitMerkle__anon_11725  (in native-proof-bench-cpu) + 1436  [0x102c3f128]  mod.zig:211
+    +     ! : |   + ! 1 prover.vcs_lifted.leaves.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).updateHashersPacked  (in native-proof-bench-cpu) + 696  [0x102c3ca98]  leaves.zig:498
+    +     ! : |   + !   1 prover.vcs_lifted.leaves.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).updateLeafHashersPackedRange  (in native-proof-bench-cpu) + 1220  [0x102c3cfd4]  leaves.zig:452
+    +     ! : |   + 1 backends.cpu_scalar.mod.CpuBackend.commitMerkle__anon_11725  (in native-proof-bench-cpu) + 5672  [0x102c401b4]  mod.zig:211
+    +     ! : |   +   1 prover.vcs_lifted.layers.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).buildNextLayer  (in native-proof-bench-cpu) + 912  [0x102c3dd20]  layers.zig:112
+    +     ! : |   +     1 prover.vcs_lifted.layers.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).hashSeededRange  (in native-proof-bench-cpu) + 84  [0x102c3d898]  layers.zig:200
+    +     ! : |   +       1 core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed).hashChildrenWithSeed4  (in native-proof-bench-cpu) + 1376  [0x102c3e578]  blake2_merkle.zig:131
+    +     ! : |   +         1 core.crypto.blake2s_backend.compressParallel4  (in native-proof-bench-cpu) + 3596  [0x102ca26f0]  blake2s_backend.zig:693
+    +     ! : |   2 prover.fri.FriProver(backends.cpu_scalar.mod.CpuBackend,core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed),core.vcs_lifted.blake2_merkle.Blake2sMerkleChannelGeneric(false)).commitLazy__anon_15068  (in native-proof-bench-cpu) + 7500  [0x102c66e4c]  fri.zig:192
+    +     ! : |   + 2 core.circle.CirclePointIndex.toPoint  (in native-proof-bench-cpu) + 96,248  [0x102c8d49c,0x102c8d534]  circle.zig:203
+    +     ! : |   2 prover.fri.FriProver(backends.cpu_scalar.mod.CpuBackend,core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed),core.vcs_lifted.blake2_merkle.Blake2sMerkleChannelGeneric(false)).commitLazy__anon_15068  (in native-proof-bench-cpu) + 13992  [0x102c687a8]  fri.zig:192
+    +     ! : |   + 2 backends.cpu_scalar.mod.CpuBackend.foldLineN__anon_15874  (in native-proof-bench-cpu) + 1292,2348  [0x102c64348,0x102c64768]  mod.zig:150
+    +     ! : |   1 prover.fri.FriProver(backends.cpu_scalar.mod.CpuBackend,core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed),core.vcs_lifted.blake2_merkle.Blake2sMerkleChannelGeneric(false)).commitLazy__anon_15068  (in native-proof-bench-cpu) + 5076  [0x102c664d4]  fri.zig:189
+    +     ! : |   + 1 prover.vcs_lifted.layers.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).buildNextLayer  (in native-proof-bench-cpu) + 1156  [0x102c3de14]  layers.zig:128
+    +     ! : |   +   1 core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed).hashChildrenWithSeed4  (in native-proof-bench-cpu) + 1340  [0x102c3e554]  blake2_merkle.zig:131
+    +     ! : |   1 prover.fri.FriProver(backends.cpu_scalar.mod.CpuBackend,core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed),core.vcs_lifted.blake2_merkle.Blake2sMerkleChannelGeneric(false)).commitLazy__anon_15068  (in native-proof-bench-cpu) + 10364  [0x102c6797c]  fri.zig:189
+    +     ! : |   + 1 ???  (in <unknown binary>)  [0x5b0d1e14]
+    +     ! : |   +   1 prover.pcs.quotient_tile_executor.execute  (in native-proof-bench-cpu) + 1084  [0x102c62c14]  quotient_tile_executor.zig:220
+    +     ! : |   1 prover.fri.FriProver(backends.cpu_scalar.mod.CpuBackend,core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed),core.vcs_lifted.blake2_merkle.Blake2sMerkleChannelGeneric(false)).commitLazy__anon_15068  (in native-proof-bench-cpu) + 14200  [0x102c68878]  fri.zig:189
+    +     ! : |   + 1 Thread.ResetEvent.FutexImpl.waitUntilSet  (in native-proof-bench-cpu) + 80  [0x102c9dc18]  ResetEvent.zig:124
+    +     ! : |   +   1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +     ! : |   +     1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    +     ! : |   1 prover.fri.FriProver(backends.cpu_scalar.mod.CpuBackend,core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed),core.vcs_lifted.blake2_merkle.Blake2sMerkleChannelGeneric(false)).commitLazy__anon_15068  (in native-proof-bench-cpu) + 9508  [0x102c67624]  fri.zig:192
+    +     ! : 3 prover.prove.proveExComponentsWithRecorder__anon_13301  (in native-proof-bench-cpu) + 25600  [0x102c7ccf0]  prove.zig:346
+    +     ! : | 3 prover.pcs.sampled_values.evaluateAndRelease__anon_13700  (in native-proof-bench-cpu) + 13400  [0x102c55aa0]  sampled_values.zig:145
+    +     ! : |   3 prover.pcs.sampled_values.SampledValueWorkerCtx(backends.cpu_scalar.mod.CpuBackend,core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).run  (in native-proof-bench-cpu) + 1244  [0x102c56b80]  sampled_values.zig:483
+    +     ! : |     3 prover.pcs.sampled_values.evaluateCoefficientPlans  (in native-proof-bench-cpu) + 1872  [0x102c4fa1c]  sampled_values.zig:409
+    +     ! : |       3 prover.poly.circle.poly.CircleCoefficients.evalManyAtPointsWithFlatFactors  (in native-proof-bench-cpu) + 1156,600  [0x102c50388,0x102c5015c]  poly.zig:175
+    +     ! : 1 prover.prove.proveExComponentsWithRecorder__anon_13301  (in native-proof-bench-cpu) + 2780  [0x102c773cc]  prove.zig:266
+    +     ! : | 1 core.air.derive.ComponentAdapter(examples.plonk.PlonkComponent,prover.air.component_prover.ComponentProver,prover.air.component_prover.Trace,prover.air.accumulation.DomainEvaluationAccumulator).evaluateConstraintQuotientsOnDomain  (in native-proof-bench-cpu) + 1148  [0x102c9cb78]  derive.zig:109
+    +     ! : |   1 prover.air.accumulation.DomainEvaluationAccumulator.accumulateColumn  (in native-proof-bench-cpu) + 1940  [0x102ca5324]  accumulation.zig:151
+    +     ! : 1 prover.prove.proveExComponentsWithRecorder__anon_13301  (in native-proof-bench-cpu) + 16812  [0x102c7aa9c]  prove.zig:301
+    +     ! : | 1 prover.pcs.columns.circle_transforms.extendCoefficientColumnsByGroupForBackend__anon_12892  (in native-proof-bench-cpu) + 1152  [0x102c42f7c]  circle_transforms.zig:396
+    +     ! : |   1 _platform_memmove  (in libsystem_platform.dylib) + 76  [0x181cb33ac]
+    +     ! : 1 prover.prove.proveExComponentsWithRecorder__anon_13301  (in native-proof-bench-cpu) + 17728  [0x102c7ae30]  prove.zig:301
+    +     ! :   1 prover.pcs.commitment_tree.CommitmentTreeProverForBackend(backends.cpu_scalar.mod.CpuBackend,core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).initOwnedWithBacking  (in native-proof-bench-cpu) + 504  [0x102c40ba8]  commitment_tree.zig:94
+    +     ! :     1 backends.cpu_scalar.mod.CpuBackend.commitMerkle__anon_11725  (in native-proof-bench-cpu) + 248  [0x102c3ec84]  mod.zig:211
+    +     ! 3 runner.runGatedSample__anon_6330  (in native-proof-bench-cpu) + 4064  [0x102c1f758]  runner.zig:529
+    +     ! : 2 prover.pcs.scheme.CommitmentSchemeProver(backends.cpu_scalar.mod.CpuBackend,core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed),core.vcs_lifted.blake2_merkle.Blake2sMerkleChannelGeneric(false)).commitOwnedWithRecorder__anon_11868  (in native-proof-bench-cpu) + 360  [0x102c49194]  scheme.zig:213
+    +     ! : | 2 prover.pcs.commitment_tree.CommitmentTreeProverForBackend(backends.cpu_scalar.mod.CpuBackend,core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).initOwnedWithBacking  (in native-proof-bench-cpu) + 504  [0x102c40ba8]  commitment_tree.zig:94
+    +     ! : |   1 backends.cpu_scalar.mod.CpuBackend.commitMerkle__anon_11725  (in native-proof-bench-cpu) + 5640  [0x102c40194]  mod.zig:211
+    +     ! : |   + 1 prover.vcs_lifted.layers.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).Executor.init  (in native-proof-bench-cpu) + 364  [0x102c3e734]  layers.zig:51
+    +     ! : |   +   1 Thread.Pool.init  (in native-proof-bench-cpu) + 1784  [0x102c8bf54]  Pool.zig:58
+    +     ! : |   +     1 _pthread_create  (in libsystem_pthread.dylib) + 1028  [0x181cab3a4]
+    +     ! : |   +       1 __bsdthread_create  (in libsystem_kernel.dylib) + 8  [0x181c69ad8]
+    +     ! : |   1 backends.cpu_scalar.mod.CpuBackend.commitMerkle__anon_11725  (in native-proof-bench-cpu) + 5780  [0x102c40220]  mod.zig:211
+    +     ! : |     1 prover.vcs_lifted.layers.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).buildNextLayer  (in native-proof-bench-cpu) + 1156  [0x102c3de14]  layers.zig:128
+    +     ! : |       1 core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed).hashChildrenWithSeed4  (in native-proof-bench-cpu) + 1376  [0x102c3e578]  blake2_merkle.zig:131
+    +     ! : |         1 core.crypto.blake2s_backend.compressParallel4  (in native-proof-bench-cpu) + 3320  [0x102ca25dc]  blake2s_backend.zig:697
+    +     ! : 1 prover.pcs.scheme.CommitmentSchemeProver(backends.cpu_scalar.mod.CpuBackend,core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed),core.vcs_lifted.blake2_merkle.Blake2sMerkleChannelGeneric(false)).commitOwnedWithRecorder__anon_11868  (in native-proof-bench-cpu) + 220  [0x102c49108]  scheme.zig:196
+    +     ! :   1 prover.pcs.columns.preparation.prepareColumnsForCommitOwnedForBackend__anon_12529  (in native-proof-bench-cpu) + 2720  [0x102c44da8]  preparation.zig:165
+    +     ! :     1 Thread.ResetEvent.FutexImpl.waitUntilSet  (in native-proof-bench-cpu) + 80  [0x102c9dc18]  ResetEvent.zig:124
+    +     ! :       1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +     ! :         1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    +     ! 2 runner.runGatedSample__anon_6330  (in native-proof-bench-cpu) + 3800  [0x102c1f650]  runner.zig:529
+    +     ! : 1 prover.pcs.scheme.CommitmentSchemeProver(backends.cpu_scalar.mod.CpuBackend,core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed),core.vcs_lifted.blake2_merkle.Blake2sMerkleChannelGeneric(false)).commitOwnedWithRecorder__anon_11868  (in native-proof-bench-cpu) + 220  [0x102c49108]  scheme.zig:196
+    +     ! : | 1 prover.pcs.columns.preparation.prepareColumnsForCommitOwnedForBackend__anon_12529  (in native-proof-bench-cpu) + 8112  [0x102c462b8]  preparation.zig:177
+    +     ! : |   1 prover.pcs.columns.circle_transforms.extendCoefficientColumnsByGroupForBackend__anon_12892  (in native-proof-bench-cpu) + 4360  [0x102c43c04]  circle_transforms.zig:434
+    +     ! : |     1 prover.poly.circle.transforms.evaluateBuffersWithTwiddles  (in native-proof-bench-cpu) + 828  [0x102c8cb4c]  transforms.zig:308
+    +     ! : 1 prover.pcs.scheme.CommitmentSchemeProver(backends.cpu_scalar.mod.CpuBackend,core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed),core.vcs_lifted.blake2_merkle.Blake2sMerkleChannelGeneric(false)).commitOwnedWithRecorder__anon_11868  (in native-proof-bench-cpu) + 360  [0x102c49194]  scheme.zig:213
+    +     ! :   1 prover.pcs.commitment_tree.CommitmentTreeProverForBackend(backends.cpu_scalar.mod.CpuBackend,core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).initOwnedWithBacking  (in native-proof-bench-cpu) + 504  [0x102c40ba8]  commitment_tree.zig:94
+    +     ! :     1 backends.cpu_scalar.mod.CpuBackend.commitMerkle__anon_11725  (in native-proof-bench-cpu) + 5780  [0x102c40220]  mod.zig:211
+    +     ! :       1 prover.vcs_lifted.layers.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).buildNextLayer  (in native-proof-bench-cpu) + 912  [0x102c3dd20]  layers.zig:112
+    +     ! :         1 prover.vcs_lifted.layers.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).hashSeededRange  (in native-proof-bench-cpu) + 84  [0x102c3d898]  layers.zig:200
+    +     ! :           1 core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed).hashChildrenWithSeed4  (in native-proof-bench-cpu) + 1376  [0x102c3e578]  blake2_merkle.zig:131
+    +     ! :             1 core.crypto.blake2s_backend.compressParallel4  (in native-proof-bench-cpu) + 3152  [0x102ca2534]  blake2s_backend.zig:694
+    +     ! 1 runner.runGatedSample__anon_6330  (in native-proof-bench-cpu) + 6040  [0x102c1ff10]  runner.zig:529
+    +     !   1 core.verifier.verify__anon_7631  (in native-proof-bench-cpu) + 1888  [0x102c27f34]  verifier.zig:108
+    +     !     1 core.pcs.verifier.CommitmentSchemeVerifier(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed),core.vcs_lifted.blake2_merkle.Blake2sMerkleChannelGeneric(false)).verifyValues__anon_10157  (in native-proof-bench-cpu) + 6536  [0x102c2f264]  verifier.zig:151
+    +     !       1 core.vcs_lifted.verifier.MerkleVerifierLifted(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).verify  (in native-proof-bench-cpu) + 5476  [0x102c84584]  verifier.zig:229
+    +     !         1 core.crypto.blake2s_backend.Blake2sHasher.hashFinal64FromSeedWithMode  (in native-proof-bench-cpu) + 92  [0x102c9de1c]  blake2s_backend.zig:273
+    +     !           1 core.crypto.blake2s_backend.compressSimd  (in native-proof-bench-cpu) + 124  [0x102ca2ff8]  blake2s_backend.zig:647
+    +     15 runner.executeExample__anon_3127  (in native-proof-bench-cpu) + 4780  [0x102c0fb90]  runner.zig:343
+    +     ! 15 runner.provenance.runCommand  (in native-proof-bench-cpu) + 5940  [0x102c01688]  provenance.zig:59
+    +     !   15 poll  (in libsystem_kernel.dylib) + 8  [0x181c6e6f8]
+    +     12 runner.executeExample__anon_3127  (in native-proof-bench-cpu) + 4736  [0x102c0fb64]  runner.zig:341
+    +     ! 12 runner.provenance.collect  (in native-proof-bench-cpu) + 56  [0x102c02534]  provenance.zig:29
+    +     !   11 runner.provenance.runCommand  (in native-proof-bench-cpu) + 5940  [0x102c01688]  provenance.zig:59
+    +     !   : 11 poll  (in libsystem_kernel.dylib) + 8  [0x181c6e6f8]
+    +     !   1 runner.provenance.runCommand  (in native-proof-bench-cpu) + 5280  [0x102c013f4]  provenance.zig:59
+    +     !     1 fork  (in libsystem_c.dylib) + 112  [0x181b5b210]
+    +     !       1 libSystem_atfork_parent  (in libSystem.B.dylib) + 32  [0x191af9218]
+    +     !         1 _malloc_fork_parent  (in libsystem_malloc.dylib) + 108  [0x181aac80c]
+    +     !           1 _xzm_foreach_lock  (in libsystem_malloc.dylib) + 1156  [0x181ac7c14]
+    +     !             1 _xzm_allocation_slots_do_lock_action  (in libsystem_malloc.dylib) + 148  [0x181ad13e0]
+    +     1 runner.executeExample__anon_3127  (in native-proof-bench-cpu) + 648  [0x102c0eb6c]  runner.zig:189
+    +       1 runner.runGatedSample__anon_6330  (in native-proof-bench-cpu) + 6040  [0x102c1ff10]  runner.zig:529
+    +         1 core.verifier.verify__anon_7631  (in native-proof-bench-cpu) + 1888  [0x102c27f34]  verifier.zig:108
+    +           1 core.pcs.verifier.CommitmentSchemeVerifier(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed),core.vcs_lifted.blake2_merkle.Blake2sMerkleChannelGeneric(false)).verifyValues__anon_10157  (in native-proof-bench-cpu) + 17604  [0x102c31da0]  verifier.zig:174
+    +             1 core.vcs_lifted.verifier.MerkleVerifierLifted(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).verify  (in native-proof-bench-cpu) + 5476  [0x102c84584]  verifier.zig:229
+    +               1 core.crypto.blake2s_backend.Blake2sHasher.hashFinal64FromSeedWithMode  (in native-proof-bench-cpu) + 92  [0x102c9de1c]  blake2s_backend.zig:273
+    +                 1 core.crypto.blake2s_backend.compressSimd  (in native-proof-bench-cpu) + 268  [0x102ca3088]  blake2s_backend.zig:655
+    54 Thread_13225975
+    + 54 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   54 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     53 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +     ! 53 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +     !   53 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +     !     53 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 144  [0x102c94dcc]  Thread.zig:781
+    +       1 Thread.Pool.spawnWg__anon_27467.Closure.runFn  (in native-proof-bench-cpu) + 36  [0x102c9e14c]  Pool.zig:118
+    +         1 prover.pcs.quotient_tile_executor.execute  (in native-proof-bench-cpu) + 1632  [0x102c62e38]  quotient_tile_executor.zig:220
+    +           1 prover.vcs_lifted.first_layer_sink.FirstLayerLeafSink(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).WriterState.absorbErased  (in native-proof-bench-cpu) + 564  [0x102c9765c]  first_layer_sink.zig:60
+    +             1 core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed).hashPackedLeavesWithSeed4  (in native-proof-bench-cpu) + 1224  [0x102c953ac]  blake2_merkle.zig:157
+    +               1 core.crypto.blake2s_backend.compressParallel4  (in native-proof-bench-cpu) + 5248  [0x102ca2d64]  blake2s_backend.zig:694
+    54 Thread_13225976
+    + 54 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   54 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     53 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +     ! 53 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +     !   53 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +     !     53 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 144  [0x102c94dcc]  Thread.zig:781
+    +       1 Thread.Pool.spawnWg__anon_27467.Closure.runFn  (in native-proof-bench-cpu) + 36  [0x102c9e14c]  Pool.zig:118
+    +         1 ???  (in <unknown binary>)  [0x1]
+    +           1 prover.pcs.quotient_tile_executor.execute  (in native-proof-bench-cpu) + 1004  [0x102c62bc4]  quotient_tile_executor.zig:220
+    54 Thread_13225977
+    + 54 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   54 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     53 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +     ! 53 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +     !   53 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +     !     53 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 144  [0x102c94dcc]  Thread.zig:781
+    +       1 Thread.Pool.spawnWg__anon_27467.Closure.runFn  (in native-proof-bench-cpu) + 36  [0x102c9e14c]  Pool.zig:118
+    +         1 prover.pcs.quotient_tile_executor.execute  (in native-proof-bench-cpu) + 1632  [0x102c62e38]  quotient_tile_executor.zig:220
+    +           1 prover.vcs_lifted.first_layer_sink.FirstLayerLeafSink(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).WriterState.absorbErased  (in native-proof-bench-cpu) + 564  [0x102c9765c]  first_layer_sink.zig:60
+    +             1 core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed).hashPackedLeavesWithSeed4  (in native-proof-bench-cpu) + 1224  [0x102c953ac]  blake2_merkle.zig:157
+    +               1 core.crypto.blake2s_backend.compressParallel4  (in native-proof-bench-cpu) + 3776  [0x102ca27a4]  blake2s_backend.zig:695
+    54 Thread_13225978
+    + 54 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   54 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     51 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +     ! 51 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +     !   51 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +     !     51 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    +     3 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 144  [0x102c94dcc]  Thread.zig:781
+    +       1 Thread.Pool.spawnWg__anon_12956.Closure.runFn  (in native-proof-bench-cpu) + 44  [0x102c8c774]  Pool.zig:118
+    +       : 1 prover.poly.circle.transforms.evaluateBuffersWithTwiddles  (in native-proof-bench-cpu) + 1744  [0x102c8cee0]  transforms.zig:306
+    +       1 Thread.Pool.spawnWg__anon_27467.Closure.runFn  (in native-proof-bench-cpu) + 36  [0x102c9e14c]  Pool.zig:118
+    +       : 1 ???  (in <unknown binary>)  [0x10]
+    +       :   1 prover.pcs.quotient_tile_executor.execute  (in native-proof-bench-cpu) + 1164  [0x102c62c64]  quotient_tile_executor.zig:220
+    +       1 _os_unfair_lock_unlock_slow  (in libsystem_platform.dylib) + 0  [0x181cb1484]
+    54 Thread_13225979
+    + 54 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   54 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     52 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +     ! 52 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +     !   52 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +     !     52 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    +     2 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 144  [0x102c94dcc]  Thread.zig:781
+    +       1 Thread.Pool.spawnWg__anon_12956.Closure.runFn  (in native-proof-bench-cpu) + 44  [0x102c8c774]  Pool.zig:118
+    +       : 1 prover.poly.circle.transforms.evaluateBuffersWithTwiddles  (in native-proof-bench-cpu) + 1744  [0x102c8cee0]  transforms.zig:306
+    +       1 Thread.Pool.spawnWg__anon_27467.Closure.runFn  (in native-proof-bench-cpu) + 36  [0x102c9e14c]  Pool.zig:118
+    +         1 prover.pcs.quotient_tile_executor.execute  (in native-proof-bench-cpu) + 1632  [0x102c62e38]  quotient_tile_executor.zig:220
+    +           1 prover.pcs.quotient_tile_executor.execute  (in native-proof-bench-cpu) + 480  [0x102c629b8]  quotient_tile_executor.zig:220
+    54 Thread_13225980
+    + 54 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   54 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     50 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +     ! 50 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +     !   50 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +     !     50 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    +     4 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 144  [0x102c94dcc]  Thread.zig:781
+    +       3 Thread.Pool.spawnWg__anon_21284.Closure.runFn  (in native-proof-bench-cpu) + 32  [0x102c9738c]  Pool.zig:118
+    +       : 3 prover.pcs.sampled_values.SampledValueWorkerCtx(backends.cpu_scalar.mod.CpuBackend,core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).run  (in native-proof-bench-cpu) + 1244  [0x102c56b80]  sampled_values.zig:483
+    +       :   3 prover.pcs.sampled_values.evaluateCoefficientPlans  (in native-proof-bench-cpu) + 1872  [0x102c4fa1c]  sampled_values.zig:409
+    +       :     3 prover.poly.circle.poly.CircleCoefficients.evalManyAtPointsWithFlatFactors  (in native-proof-bench-cpu) + 428,672,...  [0x102c500b0,0x102c501a4,...]  poly.zig:175
+    +       1 Thread.Pool.spawnWg__anon_27467.Closure.runFn  (in native-proof-bench-cpu) + 36  [0x102c9e14c]  Pool.zig:118
+    +         1 prover.pcs.quotient_tile_executor.execute  (in native-proof-bench-cpu) + 1632  [0x102c62e38]  quotient_tile_executor.zig:220
+    +           1 prover.pcs.quotient_tile_executor.execute  (in native-proof-bench-cpu) + 544  [0x102c629f8]  quotient_tile_executor.zig:220
+    54 Thread_13225981
+    + 54 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   54 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     51 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +     ! 51 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +     !   51 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +     !     51 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    +     3 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 144  [0x102c94dcc]  Thread.zig:781
+    +       2 Thread.Pool.spawnWg__anon_27467.Closure.runFn  (in native-proof-bench-cpu) + 36  [0x102c9e14c]  Pool.zig:118
+    +       : 2 prover.pcs.quotient_tile_executor.execute  (in native-proof-bench-cpu) + 1632  [0x102c62e38]  quotient_tile_executor.zig:220
+    +       :   1 prover.pcs.quotient_tile_executor.execute  (in native-proof-bench-cpu) + 520  [0x102c629e0]  quotient_tile_executor.zig:220
+    +       :   1 prover.vcs_lifted.first_layer_sink.FirstLayerLeafSink(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).WriterState.absorbErased  (in native-proof-bench-cpu) + 564  [0x102c9765c]  first_layer_sink.zig:60
+    +       :     1 core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed).hashPackedLeavesWithSeed4  (in native-proof-bench-cpu) + 1224  [0x102c953ac]  blake2_merkle.zig:157
+    +       :       1 core.crypto.blake2s_backend.compressParallel4  (in native-proof-bench-cpu) + 2300  [0x102ca21e0]  blake2s_backend.zig:698
+    +       1 Thread.Pool.spawnWg__anon_12811.Closure.runFn  (in native-proof-bench-cpu) + 132  [0x102c8c710]  Pool.zig:123
+    +         1 _os_unfair_lock_lock_slow  (in libsystem_platform.dylib) + 172  [0x181cb13c0]
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    54 Thread_13225982
+    + 54 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   54 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     50 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +     ! 50 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +     !   50 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +     !     50 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    +     4 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 144  [0x102c94dcc]  Thread.zig:781
+    +       2 Thread.Pool.spawnWg__anon_27467.Closure.runFn  (in native-proof-bench-cpu) + 36  [0x102c9e14c]  Pool.zig:118
+    +       : 1 prover.pcs.quotient_tile_executor.execute  (in native-proof-bench-cpu) + 1448  [0x102c62d80]  quotient_tile_executor.zig:220
+    +       : | 1 prover.pcs.quotient_tile_executor.execute  (in native-proof-bench-cpu) + 1340  [0x102c62d14]  quotient_tile_executor.zig:220
+    +       : 1 prover.pcs.quotient_tile_executor.execute  (in native-proof-bench-cpu) + 1632  [0x102c62e38]  quotient_tile_executor.zig:220
+    +       :   1 prover.vcs_lifted.first_layer_sink.FirstLayerLeafSink(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).WriterState.absorbErased  (in native-proof-bench-cpu) + 564  [0x102c9765c]  first_layer_sink.zig:60
+    +       :     1 core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed).hashPackedLeavesWithSeed4  (in native-proof-bench-cpu) + 1224  [0x102c953ac]  blake2_merkle.zig:157
+    +       :       1 core.crypto.blake2s_backend.compressParallel4  (in native-proof-bench-cpu) + 4680  [0x102ca2b2c]  blake2s_backend.zig:693
+    +       1 Thread.Pool.spawnWg__anon_12956.Closure.runFn  (in native-proof-bench-cpu) + 44  [0x102c8c774]  Pool.zig:118
+    +       : 1 prover.poly.circle.transforms.evaluateBuffersWithTwiddles  (in native-proof-bench-cpu) + 1788  [0x102c8cf0c]  transforms.zig:306
+    +       1 Thread.Pool.spawnWg__anon_20675.Closure.runFn  (in native-proof-bench-cpu) + 32  [0x102c95428]  Pool.zig:118
+    +         1 prover.vcs_lifted.leaves.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).updateLeafHashersPackedRange  (in native-proof-bench-cpu) + 1320  [0x102c3d038]  leaves.zig:452
+    54 Thread_13225983
+    + 54 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   54 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     52 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +     ! 52 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +     !   52 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +     !     52 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    +     2 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 144  [0x102c94dcc]  Thread.zig:781
+    +       2 Thread.Pool.spawnWg__anon_27467.Closure.runFn  (in native-proof-bench-cpu) + 36  [0x102c9e14c]  Pool.zig:118
+    +         2 prover.pcs.quotient_tile_executor.execute  (in native-proof-bench-cpu) + 1632  [0x102c62e38]  quotient_tile_executor.zig:220
+    +           1 prover.vcs_lifted.first_layer_sink.FirstLayerLeafSink(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).WriterState.absorbErased  (in native-proof-bench-cpu) + 564  [0x102c9765c]  first_layer_sink.zig:60
+    +           : 1 core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed).hashPackedLeavesWithSeed4  (in native-proof-bench-cpu) + 1224  [0x102c953ac]  blake2_merkle.zig:157
+    +           :   1 core.crypto.blake2s_backend.compressParallel4  (in native-proof-bench-cpu) + 100  [0x102ca1948]  blake2s_backend.zig:692
+    +           1 prover.vcs_lifted.first_layer_sink.FirstLayerLeafSink(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).WriterState.absorbErased  (in native-proof-bench-cpu) + 596  [0x102c9767c]  first_layer_sink.zig:62
+    54 Thread_13225984
+    + 54 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   54 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     52 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +     ! 52 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +     !   52 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +     !     52 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    +     2 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 144  [0x102c94dcc]  Thread.zig:781
+    +       2 Thread.Pool.spawnWg__anon_27467.Closure.runFn  (in native-proof-bench-cpu) + 36  [0x102c9e14c]  Pool.zig:118
+    +         2 prover.pcs.quotient_tile_executor.execute  (in native-proof-bench-cpu) + 1632  [0x102c62e38]  quotient_tile_executor.zig:220
+    +           1 prover.pcs.quotient_tile_executor.execute  (in native-proof-bench-cpu) + 548  [0x102c629fc]  quotient_tile_executor.zig:220
+    +           1 prover.vcs_lifted.first_layer_sink.FirstLayerLeafSink(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).WriterState.absorbErased  (in native-proof-bench-cpu) + 564  [0x102c9765c]  first_layer_sink.zig:60
+    +             1 core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed).hashPackedLeavesWithSeed4  (in native-proof-bench-cpu) + 1224  [0x102c953ac]  blake2_merkle.zig:157
+    +               1 core.crypto.blake2s_backend.compressParallel4  (in native-proof-bench-cpu) + 4636  [0x102ca2b00]  blake2s_backend.zig:692
+    54 Thread_13225985
+    + 54 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   54 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     50 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +     ! 50 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +     !   50 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +     !     50 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    +     4 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 144  [0x102c94dcc]  Thread.zig:781
+    +       3 Thread.Pool.spawnWg__anon_21284.Closure.runFn  (in native-proof-bench-cpu) + 32  [0x102c9738c]  Pool.zig:118
+    +       : 3 prover.pcs.sampled_values.SampledValueWorkerCtx(backends.cpu_scalar.mod.CpuBackend,core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).run  (in native-proof-bench-cpu) + 1244  [0x102c56b80]  sampled_values.zig:483
+    +       :   3 prover.pcs.sampled_values.evaluateCoefficientPlans  (in native-proof-bench-cpu) + 1872  [0x102c4fa1c]  sampled_values.zig:409
+    +       :     3 prover.poly.circle.poly.CircleCoefficients.evalManyAtPointsWithFlatFactors  (in native-proof-bench-cpu) + 672,944,...  [0x102c501a4,0x102c502b4,...]  poly.zig:175
+    +       1 Thread.Pool.spawnWg__anon_27467.Closure.runFn  (in native-proof-bench-cpu) + 36  [0x102c9e14c]  Pool.zig:118
+    +         1 ???  (in <unknown binary>)  [0x38201e1e]
+    +           1 prover.pcs.quotient_tile_executor.execute  (in native-proof-bench-cpu) + 1084  [0x102c62c14]  quotient_tile_executor.zig:220
+    54 Thread_13225986
+    + 54 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   54 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     53 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +     ! 53 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +     !   53 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +     !     53 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 144  [0x102c94dcc]  Thread.zig:781
+    +       1 Thread.Pool.spawnWg__anon_27467.Closure.runFn  (in native-proof-bench-cpu) + 36  [0x102c9e14c]  Pool.zig:118
+    +         1 prover.pcs.quotient_tile_executor.execute  (in native-proof-bench-cpu) + 1632  [0x102c62e38]  quotient_tile_executor.zig:220
+    +           1 prover.pcs.quotient_tile_executor.execute  (in native-proof-bench-cpu) + 476  [0x102c629b4]  quotient_tile_executor.zig:220
+    54 Thread_13225987
+    + 54 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   54 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     53 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +     ! 53 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +     !   53 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +     !     53 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 144  [0x102c94dcc]  Thread.zig:781
+    +       1 Thread.Pool.spawnWg__anon_27467.Closure.runFn  (in native-proof-bench-cpu) + 36  [0x102c9e14c]  Pool.zig:118
+    +         1 prover.pcs.quotient_tile_executor.execute  (in native-proof-bench-cpu) + 1632  [0x102c62e38]  quotient_tile_executor.zig:220
+    +           1 prover.vcs_lifted.first_layer_sink.FirstLayerLeafSink(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).WriterState.absorbErased  (in native-proof-bench-cpu) + 564  [0x102c9765c]  first_layer_sink.zig:60
+    +             1 core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed).hashPackedLeavesWithSeed4  (in native-proof-bench-cpu) + 1224  [0x102c953ac]  blake2_merkle.zig:157
+    +               1 core.crypto.blake2s_backend.compressParallel4  (in native-proof-bench-cpu) + 3612  [0x102ca2700]  blake2s_backend.zig:693
+    54 Thread_13225988
+    + 54 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   54 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     53 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +     ! 53 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +     !   53 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +     !     53 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 144  [0x102c94dcc]  Thread.zig:781
+    +       1 Thread.Pool.spawnWg__anon_27467.Closure.runFn  (in native-proof-bench-cpu) + 36  [0x102c9e14c]  Pool.zig:118
+    +         1 prover.pcs.quotient_tile_executor.execute  (in native-proof-bench-cpu) + 1632  [0x102c62e38]  quotient_tile_executor.zig:220
+    +           1 prover.pcs.quotient_tile_executor.execute  (in native-proof-bench-cpu) + 480  [0x102c629b8]  quotient_tile_executor.zig:220
+    54 Thread_13225989
+    + 54 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   54 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     53 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +     ! 53 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +     !   53 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +     !     53 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 144  [0x102c94dcc]  Thread.zig:781
+    +       1 Thread.Pool.spawnWg__anon_27467.Closure.runFn  (in native-proof-bench-cpu) + 36  [0x102c9e14c]  Pool.zig:118
+    +         1 prover.pcs.quotient_tile_executor.execute  (in native-proof-bench-cpu) + 1632  [0x102c62e38]  quotient_tile_executor.zig:220
+    +           1 prover.vcs_lifted.first_layer_sink.FirstLayerLeafSink(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).WriterState.absorbErased  (in native-proof-bench-cpu) + 596  [0x102c9767c]  first_layer_sink.zig:62
+    1 Thread_13226076
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 144  [0x102c94dcc]  Thread.zig:781
+    +       1 Thread.Pool.spawnWg__anon_12398.Closure.runFn  (in native-proof-bench-cpu) + 32  [0x102c8c5f0]  Pool.zig:118
+    +         1 prover.vcs_lifted.layers.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).hashSeededRange  (in native-proof-bench-cpu) + 84  [0x102c3d898]  layers.zig:200
+    +           1 core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed).hashChildrenWithSeed4  (in native-proof-bench-cpu) + 1376  [0x102c3e578]  blake2_merkle.zig:131
+    +             1 core.crypto.blake2s_backend.compressParallel4  (in native-proof-bench-cpu) + 4960  [0x102ca2c44]  blake2s_backend.zig:697
+    1 Thread_13226077
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 144  [0x102c94dcc]  Thread.zig:781
+    +       1 Thread.Pool.spawnWg__anon_12398.Closure.runFn  (in native-proof-bench-cpu) + 32  [0x102c8c5f0]  Pool.zig:118
+    +         1 prover.vcs_lifted.layers.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).hashSeededRange  (in native-proof-bench-cpu) + 84  [0x102c3d898]  layers.zig:200
+    +           1 core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed).hashChildrenWithSeed4  (in native-proof-bench-cpu) + 1376  [0x102c3e578]  blake2_merkle.zig:131
+    +             1 core.crypto.blake2s_backend.compressParallel4  (in native-proof-bench-cpu) + 3916  [0x102ca2830]  blake2s_backend.zig:697
+    1 Thread_13226078
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226079
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226080
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 144  [0x102c94dcc]  Thread.zig:781
+    +       1 Thread.Pool.spawnWg__anon_12398.Closure.runFn  (in native-proof-bench-cpu) + 32  [0x102c8c5f0]  Pool.zig:118
+    +         1 prover.vcs_lifted.layers.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).hashSeededRange  (in native-proof-bench-cpu) + 84  [0x102c3d898]  layers.zig:200
+    +           1 core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed).hashChildrenWithSeed4  (in native-proof-bench-cpu) + 1376  [0x102c3e578]  blake2_merkle.zig:131
+    +             1 core.crypto.blake2s_backend.compressParallel4  (in native-proof-bench-cpu) + 1448  [0x102ca1e8c]  blake2s_backend.zig:693
+    1 Thread_13226081
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226082
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 144  [0x102c94dcc]  Thread.zig:781
+    +       1 Thread.Pool.spawnWg__anon_12398.Closure.runFn  (in native-proof-bench-cpu) + 32  [0x102c8c5f0]  Pool.zig:118
+    +         1 prover.vcs_lifted.layers.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).hashSeededRange  (in native-proof-bench-cpu) + 84  [0x102c3d898]  layers.zig:200
+    +           1 core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed).hashChildrenWithSeed4  (in native-proof-bench-cpu) + 1228  [0x102c3e4e4]  blake2_merkle.zig:131
+    1 Thread_13226083
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226084
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226085
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 144  [0x102c94dcc]  Thread.zig:781
+    +       1 Thread.Pool.spawnWg__anon_12398.Closure.runFn  (in native-proof-bench-cpu) + 32  [0x102c8c5f0]  Pool.zig:118
+    +         1 prover.vcs_lifted.layers.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).hashSeededRange  (in native-proof-bench-cpu) + 96  [0x102c3d8a4]  layers.zig:201
+    1 Thread_13226086
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226087
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 144  [0x102c94dcc]  Thread.zig:781
+    +       1 Thread.Pool.spawnWg__anon_12398.Closure.runFn  (in native-proof-bench-cpu) + 32  [0x102c8c5f0]  Pool.zig:118
+    +         1 prover.vcs_lifted.layers.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).hashSeededRange  (in native-proof-bench-cpu) + 84  [0x102c3d898]  layers.zig:200
+    +           1 core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed).hashChildrenWithSeed4  (in native-proof-bench-cpu) + 1376  [0x102c3e578]  blake2_merkle.zig:131
+    +             1 core.crypto.blake2s_backend.compressParallel4  (in native-proof-bench-cpu) + 1040  [0x102ca1cf4]  blake2s_backend.zig:695
+    1 Thread_13226088
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226089
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226090
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 144  [0x102c94dcc]  Thread.zig:781
+    +       1 Thread.Pool.spawnWg__anon_12398.Closure.runFn  (in native-proof-bench-cpu) + 32  [0x102c8c5f0]  Pool.zig:118
+    +         1 prover.vcs_lifted.layers.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).hashSeededRange  (in native-proof-bench-cpu) + 84  [0x102c3d898]  layers.zig:200
+    +           1 core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed).hashChildrenWithSeed4  (in native-proof-bench-cpu) + 1376  [0x102c3e578]  blake2_merkle.zig:131
+    +             1 core.crypto.blake2s_backend.compressParallel4  (in native-proof-bench-cpu) + 5008  [0x102ca2c74]  blake2s_backend.zig:698
+    1 Thread_13226091
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226092
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226093
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226094
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226095
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226096
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226097
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226098
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226099
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226100
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226101
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226102
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226103
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226104
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226105
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226106
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226107
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226108
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226109
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226110
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226111
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226112
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226113
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226114
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226115
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226116
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226117
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226118
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226119
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226120
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226121
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226122
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226123
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226124
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 144  [0x102c94dcc]  Thread.zig:781
+    +       1 Thread.Pool.spawnWg__anon_12398.Closure.runFn  (in native-proof-bench-cpu) + 32  [0x102c8c5f0]  Pool.zig:118
+    +         1 prover.vcs_lifted.layers.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).hashSeededRange  (in native-proof-bench-cpu) + 84  [0x102c3d898]  layers.zig:200
+    +           1 core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed).hashChildrenWithSeed4  (in native-proof-bench-cpu) + 1376  [0x102c3e578]  blake2_merkle.zig:131
+    +             1 core.crypto.blake2s_backend.compressParallel4  (in native-proof-bench-cpu) + 3832  [0x102ca27dc]  blake2s_backend.zig:696
+    1 Thread_13226125
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226126
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226127
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+    +       1 Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+    +         1 Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+    +           1 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x181c73c98]
+    1 Thread_13226128
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 144  [0x102c94dcc]  Thread.zig:781
+    +       1 Thread.Pool.spawnWg__anon_12398.Closure.runFn  (in native-proof-bench-cpu) + 32  [0x102c8c5f0]  Pool.zig:118
+    +         1 prover.vcs_lifted.layers.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).hashSeededRange  (in native-proof-bench-cpu) + 96  [0x102c3d8a4]  layers.zig:201
+    1 Thread_13226129
+    + 1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+    +   1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+    +     1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 144  [0x102c94dcc]  Thread.zig:781
+    +       1 Thread.Pool.spawnWg__anon_12398.Closure.runFn  (in native-proof-bench-cpu) + 32  [0x102c8c5f0]  Pool.zig:118
+    +         1 prover.vcs_lifted.layers.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).hashSeededRange  (in native-proof-bench-cpu) + 84  [0x102c3d898]  layers.zig:200
+    +           1 core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed).hashChildrenWithSeed4  (in native-proof-bench-cpu) + 1376  [0x102c3e578]  blake2_merkle.zig:131
+    +             1 core.crypto.blake2s_backend.compressParallel4  (in native-proof-bench-cpu) + 1572  [0x102ca1f08]  blake2s_backend.zig:695
+    1 Thread_13226130
+      1 thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+        1 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+          1 Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 144  [0x102c94dcc]  Thread.zig:781
+            1 Thread.Pool.spawnWg__anon_12398.Closure.runFn  (in native-proof-bench-cpu) + 32  [0x102c8c5f0]  Pool.zig:118
+              1 prover.vcs_lifted.layers.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).hashSeededRange  (in native-proof-bench-cpu) + 84  [0x102c3d898]  layers.zig:200
+                1 core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed).hashChildrenWithSeed4  (in native-proof-bench-cpu) + 1376  [0x102c3e578]  blake2_merkle.zig:131
+                  1 core.crypto.blake2s_backend.compressParallel4  (in native-proof-bench-cpu) + 32  [0x102ca1904]  blake2s_backend.zig:687
+
+Total number in stack (recursive counted multiple, when >=5):
+        70       _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181ca9c58]
+        70       thread_start  (in libsystem_pthread.dylib) + 8  [0x181ca4c1c]
+        62       __ulock_wait2  (in libsystem_kernel.dylib) + 0  [0x181c73c90]
+        61       Thread.Futex.Deadline.wait  (in native-proof-bench-cpu) + 52  [0x102ca181c]  Futex.zig:1045
+        59       Thread.Condition.FutexImpl.wait  (in native-proof-bench-cpu) + 80  [0x102ca5820]  Condition.zig:226
+        59       Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 184  [0x102c94df4]  Thread.zig:781
+        26       Thread.PosixThreadImpl.spawn__anon_24484.Instance.entryFn  (in native-proof-bench-cpu) + 144  [0x102c94dcc]  Thread.zig:781
+        15       Thread.Pool.spawnWg__anon_27467.Closure.runFn  (in native-proof-bench-cpu) + 36  [0x102c9e14c]  Pool.zig:118
+        12       core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed).hashChildrenWithSeed4  (in native-proof-bench-cpu) + 1376  [0x102c3e578]  blake2_merkle.zig:131
+        12       prover.pcs.quotient_tile_executor.execute  (in native-proof-bench-cpu) + 1632  [0x102c62e38]  quotient_tile_executor.zig:220
+        12       prover.vcs_lifted.layers.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).hashSeededRange  (in native-proof-bench-cpu) + 84  [0x102c3d898]  layers.zig:200
+        11       Thread.Pool.spawnWg__anon_12398.Closure.runFn  (in native-proof-bench-cpu) + 32  [0x102c8c5f0]  Pool.zig:118
+        11       prover.pcs.quotient_tile_executor.execute  (in native-proof-bench-cpu) + 0  [0x102c627d8]  quotient_tile_executor.zig:220
+        7       core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed).hashPackedLeavesWithSeed4  (in native-proof-bench-cpu) + 1224  [0x102c953ac]  blake2_merkle.zig:157
+        7       prover.vcs_lifted.first_layer_sink.FirstLayerLeafSink(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).WriterState.absorbErased  (in native-proof-bench-cpu) + 564  [0x102c9765c]  first_layer_sink.zig:60
+
+Sort by top of stack, same collapsed (when >= 5):
+        __ulock_wait2  (in libsystem_kernel.dylib)        826
+        poll  (in libsystem_kernel.dylib)        26
+        core.crypto.blake2s_backend.compressParallel4  (in native-proof-bench-cpu)        19
+        prover.pcs.quotient_tile_executor.execute  (in native-proof-bench-cpu)        11
+        prover.poly.circle.poly.CircleCoefficients.evalManyAtPointsWithFlatFactors  (in native-proof-bench-cpu)        9
+
+Binary Images:
+       0x102bf8000 -        0x102cb8067 +native-proof-bench-cpu (0) <B5521A99-ED19-3799-955A-6C0C2A17FB0B> /tmp/*/native-proof-bench-cpu
+       0x181844000 -        0x181896b4b  libobjc.A.dylib (951.7) <FF1D8AE4-ABEF-35F1-A30A-1183B9CB414F> /usr/lib/libobjc.A.dylib
+       0x181897000 -        0x1818cbd07  libdyld.dylib (1378) <B147D877-D0C2-388F-B38D-D3132E39905F> /usr/lib/system/libdyld.dylib
+       0x1818cc000 -        0x181972217  dyld (1.0.0 - 1378) <F924BDD3-4365-3466-9580-8B1B3FA8F857> /usr/lib/dyld
+       0x181973000 -        0x181976228  libsystem_blocks.dylib (96) <CC947089-488D-316B-A9C7-46DEC0F73145> /usr/lib/system/libsystem_blocks.dylib
+       0x181977000 -        0x1819cb55f  libxpc.dylib (3102.120.13) <C40FCAE8-7A17-3D82-87CB-3DA4802ADEF1> /usr/lib/system/libxpc.dylib
+       0x1819cc000 -        0x1819ec9ff  libsystem_trace.dylib (1861.120.4) <D0FABAB3-5AE7-3F10-8C62-60CBF5D70850> /usr/lib/system/libsystem_trace.dylib
+       0x1819ed000 -        0x181a9b5f7  libcorecrypto.dylib (1922.121.1) <A01A158D-6FE7-3B1C-A2C4-6BCB90D7314A> /usr/lib/system/libcorecrypto.dylib
+       0x181a9c000 -        0x181aec1d7  libsystem_malloc.dylib (812.100.31) <5FAE4807-4D2B-3A95-A63A-DD96D3DA11B4> /usr/lib/system/libsystem_malloc.dylib
+       0x181aed000 -        0x181b3423f  libdispatch.dylib (1542.100.32) <F071EFE4-299F-3089-ACC4-0025B8FFB52A> /usr/lib/system/libdispatch.dylib
+       0x181b35000 -        0x181b37ffb  libsystem_featureflags.dylib (103) <71FCFFBD-85F8-3365-AFE0-BECEA4369122> /usr/lib/system/libsystem_featureflags.dylib
+       0x181b38000 -        0x181bb8d9f  libsystem_c.dylib (1752.120.2) <694B7881-1BF3-3D0F-8F19-B50AE4E8EF8A> /usr/lib/system/libsystem_c.dylib
+       0x181bb9000 -        0x181c49ae7  libc++.1.dylib (2100.43) <5013C0F8-84A9-3B56-9FEB-C353816A750F> /usr/lib/libc++.1.dylib
+       0x181c4a000 -        0x181c6475f  libc++abi.dylib (2100.43) <E482D257-E5A0-3816-BD97-7B39342958DA> /usr/lib/libc++abi.dylib
+       0x181c65000 -        0x181ca22af  libsystem_kernel.dylib (12377.121.10) <FCA53B98-3D6A-38B2-A0EC-DF0F7E05F171> /usr/lib/system/libsystem_kernel.dylib
+       0x181ca3000 -        0x181cafb3b  libsystem_pthread.dylib (539.100.4) <4F33683C-18C8-39A1-800B-2E3BD43BCC13> /usr/lib/system/libsystem_pthread.dylib
+       0x181cb0000 -        0x181cb8963  libsystem_platform.dylib (375.120.2) <160FD864-8D15-36FC-9E97-9725388CFAFE> /usr/lib/system/libsystem_platform.dylib
+       0x181cb9000 -        0x181ce86eb  libsystem_info.dylib (600) <3D62F2D9-F516-31BF-83C7-E203D872300B> /usr/lib/system/libsystem_info.dylib
+       0x185c80000 -        0x185c89e5f  libsystem_darwin.dylib (1752.120.2) <8858F025-745A-388E-9544-080781CC9A69> /usr/lib/system/libsystem_darwin.dylib
+       0x1860eb000 -        0x1860fd1b6  libsystem_notify.dylib (348.120.4) <64D76451-1E0C-369B-A631-54DA3140E083> /usr/lib/system/libsystem_notify.dylib
+       0x1883b8000 -        0x1883d2f7b  libsystem_networkextension.dylib (2226.121.1) <0331EE20-A1FB-3C0D-990A-F65939CFF505> /usr/lib/system/libsystem_networkextension.dylib
+       0x188455000 -        0x18846cfdf  libsystem_asl.dylib (406) <F40838DF-2F15-3F62-970F-DEE25706BF1B> /usr/lib/system/libsystem_asl.dylib
+       0x18a013000 -        0x18a01b387  libsystem_symptoms.dylib (2169.120.7) <F5029F5C-1BF3-31C7-892E-BC8606AC829E> /usr/lib/system/libsystem_symptoms.dylib
+       0x18e2b7000 -        0x18e2ef257  libsystem_containermanager.dylib (725.120.2) <518BE44D-AA31-31E6-B44B-A37AD5E47040> /usr/lib/system/libsystem_containermanager.dylib
+       0x18f6c8000 -        0x18f6cc5d7  libsystem_configuration.dylib (1405.120.5) <0F7BBC1C-3D50-3E59-A31F-E4672A80BCEB> /usr/lib/system/libsystem_configuration.dylib
+       0x18f6cd000 -        0x18f6d38cf  libsystem_sandbox.dylib (2680.120.12) <EC3A75EA-44C0-3A0B-9BF7-71C117B0A9C6> /usr/lib/system/libsystem_sandbox.dylib
+       0x190d27000 -        0x190d2a1fb  libquarantine.dylib (196.120.2) <5849009B-ACA3-3796-94C4-BBDF8D300EBA> /usr/lib/system/libquarantine.dylib
+       0x1914c6000 -        0x1914ccd03  libsystem_coreservices.dylib (191.4.5) <9576143B-C303-35A3-BA63-1FD06EDA2BB1> /usr/lib/system/libsystem_coreservices.dylib
+       0x191a51000 -        0x191a8ea77  libsystem_m.dylib (3312.100.1) <A7E0863C-101A-31A0-922B-ED9B02626151> /usr/lib/system/libsystem_m.dylib
+       0x191a90000 -        0x191a93527  libmacho.dylib (1378) <755441B4-C034-3E3A-8E3C-F424FBB28261> /usr/lib/system/libmacho.dylib
+       0x191aad000 -        0x191aba3a7  libcommonCrypto.dylib (600035) <CE357BB1-2D49-37CC-9FFE-D093936B1475> /usr/lib/system/libcommonCrypto.dylib
+       0x191abb000 -        0x191ac4ca3  libunwind.dylib (2100.2) <FC8F0C4E-6FB0-3E27-ABEF-B0FA720CD5E4> /usr/lib/system/libunwind.dylib
+       0x191acd000 -        0x191ad77ff  libcopyfile.dylib (240) <8ACFAC7A-88E9-3EF4-853F-A9140FF110E5> /usr/lib/system/libcopyfile.dylib
+       0x191ad8000 -        0x191adb987  libcompiler_rt.dylib (103.3) <AA79151F-C19D-3C7C-92F8-B10F04D82C1C> /usr/lib/system/libcompiler_rt.dylib
+       0x191adc000 -        0x191ae078b  libsystem_collections.dylib (1752.120.2) <72DB5BE7-EF78-37D0-8AAD-53E37CFE4287> /usr/lib/system/libsystem_collections.dylib
+       0x191ae1000 -        0x191ae44cf  libsystem_secinit.dylib (168.100.7) <E525C566-CDA4-3D99-B12B-1615FD54A1F3> /usr/lib/system/libsystem_secinit.dylib
+       0x191ae5000 -        0x191ae7bf7  libremovefile.dylib (85.100.6) <635E661D-80A7-340D-A165-3F7D318FDFC9> /usr/lib/system/libremovefile.dylib
+       0x191ae8000 -        0x191ae8f27  libkeymgr.dylib (31) <8C08891A-DF1C-3DCC-AB64-4742FD6BE9BA> /usr/lib/system/libkeymgr.dylib
+       0x191ae9000 -        0x191af1e37  libsystem_dnssd.dylib (2881.120.11) <6F45DF3F-233B-3BC3-BA8C-B43E7DA884BF> /usr/lib/system/libsystem_dnssd.dylib
+       0x191af2000 -        0x191af709b  libcache.dylib (95) <189B576E-6176-3F82-8FA4-5914B0BEAEE7> /usr/lib/system/libcache.dylib
+       0x191af8000 -        0x191af9ce3  libSystem.B.dylib (1356) <BA6A669A-3BB9-3BC7-85E8-8F0C1E68351E> /usr/lib/libSystem.B.dylib
+       0x284db4000 -        0x284dbb349  libRosetta.dylib (367.9) <8651ED4F-6506-3788-B56B-32EE414A85CA> /usr/lib/libRosetta.dylib
+       0x2869d1000 -        0x2869d4a4b  libsystem_darwindirectory.dylib (122) <CF277A2C-C818-3F16-8B3F-3C7B39FCD164> /usr/lib/system/libsystem_darwindirectory.dylib
+       0x2869d5000 -        0x2869de5d3  libsystem_eligibility.dylib (319.121.1) <DDAC0531-0262-3DDC-8EC8-80EB9438847A> /usr/lib/system/libsystem_eligibility.dylib
+       0x2869df000 -        0x2869e688b  libsystem_sanitizers.dylib (26.1) <44C4234F-8B2D-38D3-A774-B4B3C75AF3A7> /usr/lib/system/libsystem_sanitizers.dylib
+       0x2869e7000 -        0x2869e7bb7  libsystem_trial.dylib (474.2.18.2) <68C583BA-AFF5-3916-86AE-6E38BFEF98D6> /usr/lib/system/libsystem_trial.dylib

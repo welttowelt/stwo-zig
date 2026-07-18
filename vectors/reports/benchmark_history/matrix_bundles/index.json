@@ -1,5 +1,13 @@
 {
   "bundles": {
+    "8904754e1be42115f1c14ab86c4f41c646b26a37ce52a1782b58f4c6f7a4fea5": {
+      "artifact_bytes": 4329737,
+      "artifact_files": 72,
+      "bundle_sha256": "8904754e1be42115f1c14ab86c4f41c646b26a37ce52a1782b58f4c6f7a4fea5",
+      "path": "matrix_bundles/native_proof_matrix_bundle_v1/8904754e1be42115f1c14ab86c4f41c646b26a37ce52a1782b58f4c6f7a4fea5",
+      "report_sha256": "3e3cf347fe958b822558e7c614b5f11317187f321d412fbd4a834d551b81d78b",
+      "schema": "native_proof_matrix_bundle_v1"
+    },
     "955abe0990cea4a35c9207fe99cc03cff60a4738d569e4be2949d7a5713c7738": {
       "artifact_bytes": 4329748,
       "artifact_files": 72,

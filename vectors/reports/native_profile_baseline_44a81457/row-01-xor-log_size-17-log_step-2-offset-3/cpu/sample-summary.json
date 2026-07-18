@@ -1,0 +1,51 @@
+{
+  "collector": "macos_usr_bin_sample_v1",
+  "hotspots": [
+    {
+      "samples": 1365,
+      "symbol": "__ulock_wait2"
+    },
+    {
+      "samples": 61,
+      "symbol": "core.crypto.blake2s_backend.compressParallel4"
+    },
+    {
+      "samples": 25,
+      "symbol": "poll"
+    },
+    {
+      "samples": 13,
+      "symbol": "prover.pcs.quotient_tile_executor.execute"
+    },
+    {
+      "samples": 11,
+      "symbol": "prover.poly.circle.transforms.evaluateBuffersWithTwiddles"
+    },
+    {
+      "samples": 8,
+      "symbol": "backends.cpu_scalar.mod.CpuBackend.foldLineN__anon_15874"
+    },
+    {
+      "samples": 8,
+      "symbol": "prover.poly.circle.poly.CircleCoefficients.evalManyAtPointsWithFlatFactors"
+    },
+    {
+      "samples": 7,
+      "symbol": "core.circle.CirclePointIndex.toPoint"
+    },
+    {
+      "samples": 6,
+      "symbol": "prover.vcs_lifted.leaves.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).buildLeavesBatchedRange"
+    },
+    {
+      "samples": 5,
+      "symbol": "_platform_memmove"
+    },
+    {
+      "samples": 5,
+      "symbol": "prover.fri.FriProver(backends.cpu_scalar.mod.CpuBackend,core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed),core.vcs_lifted.blake2_merkle.Blake2sMerkleChannelGeneric(false)).commitLazy__anon_15068"
+    }
+  ],
+  "schema": "stwo-native-cpu-sample-summary-v1",
+  "top_hotspot_samples": 1514
+}

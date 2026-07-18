@@ -1,0 +1,2522 @@
+{
+  "artifacts": {
+    "row-00-wide_fibonacci-log_n_rows-16-sequence_len-64/cpu/cpu.sample.txt": {
+      "bytes": 133711,
+      "sha256": "3d39a1f0705ccf96e7c3ff75c6be13589d9d1a5fe190b0400b00f9ca30ee02b6"
+    },
+    "row-00-wide_fibonacci-log_n_rows-16-sequence_len-64/cpu/proof-artifact.json": {
+      "bytes": 121050,
+      "sha256": "fc3252e30633cd912482a8c5eabeb41cc0f500a9ece899e94d90833bf4889a27"
+    },
+    "row-00-wide_fibonacci-log_n_rows-16-sequence_len-64/cpu/sample-summary.json": {
+      "bytes": 1382,
+      "sha256": "9d1115e00f2ed629bbaad271c4894010145dedd854589a4de5df23fcd520814d"
+    },
+    "row-00-wide_fibonacci-log_n_rows-16-sequence_len-64/cpu/sample.stderr.txt": {
+      "bytes": 293,
+      "sha256": "9d6f780115a6db2d820ac979d8ec08e0886b77baf26d128e7d055797e74aac59"
+    },
+    "row-00-wide_fibonacci-log_n_rows-16-sequence_len-64/cpu/sample.stdout.txt": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "row-00-wide_fibonacci-log_n_rows-16-sequence_len-64/cpu/stderr.txt": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "row-00-wide_fibonacci-log_n_rows-16-sequence_len-64/cpu/stdout.json": {
+      "bytes": 6044,
+      "sha256": "a530c35e441ad6e33e05bbb21aaf2ce5f88150c252a0dbec4358655e3016a864"
+    },
+    "row-00-wide_fibonacci-log_n_rows-16-sequence_len-64/metal/aggregate.stderr.txt": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "row-00-wide_fibonacci-log_n_rows-16-sequence_len-64/metal/aggregate.stdout.txt": {
+      "bytes": 2585,
+      "sha256": "ceff7d72716fb4f6eef25a395471faf87bfc2b127755ebd93fe3ac7ba1df4a81"
+    },
+    "row-00-wide_fibonacci-log_n_rows-16-sequence_len-64/metal/metal-profile-aggregate.json": {
+      "bytes": 12817,
+      "sha256": "ea68ab40645d8223d28e317650fadb6f23930b2adc9e39d309b728840acf5086"
+    },
+    "row-00-wide_fibonacci-log_n_rows-16-sequence_len-64/metal/metal-profile.ndjson": {
+      "bytes": 48212,
+      "sha256": "d2d3dd462b0efe0c7f7a6bf596d06f992967c79d777917eb17c6016b6414b187"
+    },
+    "row-00-wide_fibonacci-log_n_rows-16-sequence_len-64/metal/proof-artifact.json": {
+      "bytes": 121050,
+      "sha256": "fc3252e30633cd912482a8c5eabeb41cc0f500a9ece899e94d90833bf4889a27"
+    },
+    "row-00-wide_fibonacci-log_n_rows-16-sequence_len-64/metal/stderr.txt": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "row-00-wide_fibonacci-log_n_rows-16-sequence_len-64/metal/stdout.json": {
+      "bytes": 11907,
+      "sha256": "92cfbdce9fe10a24820d781c8e358e1582e304a3c7bec63472ccad0ed523079a"
+    },
+    "row-01-xor-log_size-17-log_step-2-offset-3/cpu/cpu.sample.txt": {
+      "bytes": 158653,
+      "sha256": "abe78c52de16a6c242773f938052f0e289e8ab44b53153f24216bf5d3b921b3d"
+    },
+    "row-01-xor-log_size-17-log_step-2-offset-3/cpu/proof-artifact.json": {
+      "bytes": 135145,
+      "sha256": "54775e246f41fad50b78a729ef1044ba45a92ef8d97ff79a05de27b58636e074"
+    },
+    "row-01-xor-log_size-17-log_step-2-offset-3/cpu/sample-summary.json": {
+      "bytes": 1449,
+      "sha256": "c1ec5b20d3e085c24633cf4c2e2716bfa6f2f8c1cc774ad48e725f638ca096c0"
+    },
+    "row-01-xor-log_size-17-log_step-2-offset-3/cpu/sample.stderr.txt": {
+      "bytes": 284,
+      "sha256": "c0161072a0ddd1a990d004ea6831d29820ddad14585bd8e9f741084bf026a1da"
+    },
+    "row-01-xor-log_size-17-log_step-2-offset-3/cpu/sample.stdout.txt": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "row-01-xor-log_size-17-log_step-2-offset-3/cpu/stderr.txt": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "row-01-xor-log_size-17-log_step-2-offset-3/cpu/stdout.json": {
+      "bytes": 5996,
+      "sha256": "cafbb93818e5f9507a27c79f463885084912d8b285ff6d5586e765aaedc2667c"
+    },
+    "row-01-xor-log_size-17-log_step-2-offset-3/metal/aggregate.stderr.txt": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "row-01-xor-log_size-17-log_step-2-offset-3/metal/aggregate.stdout.txt": {
+      "bytes": 2585,
+      "sha256": "35b8ce3b58cb53caa2ba4d4fc12e091cbd922213057cda8581a039a514f155cf"
+    },
+    "row-01-xor-log_size-17-log_step-2-offset-3/metal/metal-profile-aggregate.json": {
+      "bytes": 12812,
+      "sha256": "00667a5f921ac82a83d400160bdc95b19758b6fc88d3e5e64da472183d7e557c"
+    },
+    "row-01-xor-log_size-17-log_step-2-offset-3/metal/metal-profile.ndjson": {
+      "bytes": 61216,
+      "sha256": "95d0536e1fe8679f4fd2d38b66fb492992e4919c6527055c3490f91038edd208"
+    },
+    "row-01-xor-log_size-17-log_step-2-offset-3/metal/proof-artifact.json": {
+      "bytes": 135145,
+      "sha256": "54775e246f41fad50b78a729ef1044ba45a92ef8d97ff79a05de27b58636e074"
+    },
+    "row-01-xor-log_size-17-log_step-2-offset-3/metal/stderr.txt": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "row-01-xor-log_size-17-log_step-2-offset-3/metal/stdout.json": {
+      "bytes": 11866,
+      "sha256": "f0548f8aad536d786e040ccdb24baae6cd187c90da7b9a25a8a8e937a981b25a"
+    },
+    "row-02-plonk-log_n_rows-16/cpu/cpu.sample.txt": {
+      "bytes": 90763,
+      "sha256": "813588388693116d1b2953a194c56876f0ada1c0bbe3eb687ac1d0daa2f8ee84"
+    },
+    "row-02-plonk-log_n_rows-16/cpu/proof-artifact.json": {
+      "bytes": 111327,
+      "sha256": "c58a48bda21b99f937fa63be59d448fd3e0264f82d49e40e332345a36fd3576f"
+    },
+    "row-02-plonk-log_n_rows-16/cpu/sample-summary.json": {
+      "bytes": 586,
+      "sha256": "704a81c7bccb823dd1f02e038ad91afe042fe111ea57303f7d45efb617edc42a"
+    },
+    "row-02-plonk-log_n_rows-16/cpu/sample.stderr.txt": {
+      "bytes": 268,
+      "sha256": "7249a14842927e6f4c322d245b68a9445263b286ddc122c5e983acfffff234bd"
+    },
+    "row-02-plonk-log_n_rows-16/cpu/sample.stdout.txt": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "row-02-plonk-log_n_rows-16/cpu/stderr.txt": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "row-02-plonk-log_n_rows-16/cpu/stdout.json": {
+      "bytes": 5980,
+      "sha256": "ceaf2854392a10c39682a5f6198644d0e3bddc55543e97898f9cc4e674a0a4fc"
+    },
+    "row-02-plonk-log_n_rows-16/metal/aggregate.stderr.txt": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "row-02-plonk-log_n_rows-16/metal/aggregate.stdout.txt": {
+      "bytes": 2585,
+      "sha256": "2b2470a4596626ed7d9504f5020ea0fe5259e0980df53da530b6efe98727e4ef"
+    },
+    "row-02-plonk-log_n_rows-16/metal/metal-profile-aggregate.json": {
+      "bytes": 12802,
+      "sha256": "9e0325ef42e6300790ef0996cedb4ccfa56b47e9a9d4c31efd80497c8b4b040e"
+    },
+    "row-02-plonk-log_n_rows-16/metal/metal-profile.ndjson": {
+      "bytes": 57346,
+      "sha256": "18e25a021ad38c0c89cefdb0cf8812f294cbe8cbd8572b68c77254ff7c456738"
+    },
+    "row-02-plonk-log_n_rows-16/metal/proof-artifact.json": {
+      "bytes": 111327,
+      "sha256": "c58a48bda21b99f937fa63be59d448fd3e0264f82d49e40e332345a36fd3576f"
+    },
+    "row-02-plonk-log_n_rows-16/metal/stderr.txt": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "row-02-plonk-log_n_rows-16/metal/stdout.json": {
+      "bytes": 11841,
+      "sha256": "02d86173353aa43aadc8961b80d1e91c53acde82d7ba646722226ec7a9c40b88"
+    },
+    "row-03-state_machine-log_n_rows-17-initial_x-9-initial_y-3/cpu/cpu.sample.txt": {
+      "bytes": 169231,
+      "sha256": "899cfc6ff2bd5640320039a132eb9f663e4d256560aee2454336d87486537069"
+    },
+    "row-03-state_machine-log_n_rows-17-initial_x-9-initial_y-3/cpu/proof-artifact.json": {
+      "bytes": 135104,
+      "sha256": "5f42183bf32ce4c860168d3264084b11cafc21b95f63a764170ee3e2c3d74fc8"
+    },
+    "row-03-state_machine-log_n_rows-17-initial_x-9-initial_y-3/cpu/sample-summary.json": {
+      "bytes": 1781,
+      "sha256": "3c9d31016b2884d2264afbb385f110d597460d8afc9be69b0822e64f14808c6c"
+    },
+    "row-03-state_machine-log_n_rows-17-initial_x-9-initial_y-3/cpu/sample.stderr.txt": {
+      "bytes": 300,
+      "sha256": "e2cad9c48adb5aa784e261a891ef045cef3c1d080cd78db5c0f1f4957ad55966"
+    },
+    "row-03-state_machine-log_n_rows-17-initial_x-9-initial_y-3/cpu/sample.stdout.txt": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "row-03-state_machine-log_n_rows-17-initial_x-9-initial_y-3/cpu/stderr.txt": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "row-03-state_machine-log_n_rows-17-initial_x-9-initial_y-3/cpu/stdout.json": {
+      "bytes": 6042,
+      "sha256": "d1662c12a298fcd794764dcf903b24425cff7407996fee25c486962dd917e767"
+    },
+    "row-03-state_machine-log_n_rows-17-initial_x-9-initial_y-3/metal/aggregate.stderr.txt": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "row-03-state_machine-log_n_rows-17-initial_x-9-initial_y-3/metal/aggregate.stdout.txt": {
+      "bytes": 2585,
+      "sha256": "fbea972590fdcc256cc44113df217c9b69ef9032939d94677e94080983ed753b"
+    },
+    "row-03-state_machine-log_n_rows-17-initial_x-9-initial_y-3/metal/metal-profile-aggregate.json": {
+      "bytes": 12805,
+      "sha256": "0ea88dd2e46db7aa5649e1f252705803f7b6b4f7a5d0d99204ab97990187844b"
+    },
+    "row-03-state_machine-log_n_rows-17-initial_x-9-initial_y-3/metal/metal-profile.ndjson": {
+      "bytes": 61201,
+      "sha256": "80dd8956d1a7f07b5fd6c2cf93ed6f6a2aef32fb62064d93d91c720dcee5e577"
+    },
+    "row-03-state_machine-log_n_rows-17-initial_x-9-initial_y-3/metal/proof-artifact.json": {
+      "bytes": 135104,
+      "sha256": "5f42183bf32ce4c860168d3264084b11cafc21b95f63a764170ee3e2c3d74fc8"
+    },
+    "row-03-state_machine-log_n_rows-17-initial_x-9-initial_y-3/metal/stderr.txt": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "row-03-state_machine-log_n_rows-17-initial_x-9-initial_y-3/metal/stdout.json": {
+      "bytes": 11928,
+      "sha256": "f42c2cf5c1e666ff458ddf2248ac8c1455731f0bc6250a9ad107b94ec5035345"
+    },
+    "row-04-blake-log_n_rows-12-n_rounds-16/cpu/cpu.sample.txt": {
+      "bytes": 87565,
+      "sha256": "452a60450490dc28aaf4390c90d6ca064abe9e96f8ffdc60207a9c1b32a9a73d"
+    },
+    "row-04-blake-log_n_rows-12-n_rounds-16/cpu/proof-artifact.json": {
+      "bytes": 305449,
+      "sha256": "6a286b74c46a1dcc47cd93604aa0c1860ca1d435de8652961015650a8a68edce"
+    },
+    "row-04-blake-log_n_rows-12-n_rounds-16/cpu/sample-summary.json": {
+      "bytes": 1123,
+      "sha256": "5ed623df7ef6b0b86aa8f0c5c122b7c390b2e0a9b903fdc41218625701090f9b"
+    },
+    "row-04-blake-log_n_rows-12-n_rounds-16/cpu/sample.stderr.txt": {
+      "bytes": 280,
+      "sha256": "225adb6376640d2afd247a6f4eec4d61e601ca417f24deaa4d11f640bcd85b13"
+    },
+    "row-04-blake-log_n_rows-12-n_rounds-16/cpu/sample.stdout.txt": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "row-04-blake-log_n_rows-12-n_rounds-16/cpu/stderr.txt": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "row-04-blake-log_n_rows-12-n_rounds-16/cpu/stdout.json": {
+      "bytes": 10579,
+      "sha256": "05274148e2f221469b05dd484c422698271058aa80ea2988c3dd10b2cd3e3733"
+    },
+    "row-04-blake-log_n_rows-12-n_rounds-16/metal/aggregate.stderr.txt": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "row-04-blake-log_n_rows-12-n_rounds-16/metal/aggregate.stdout.txt": {
+      "bytes": 2555,
+      "sha256": "bf69b1f86f601b9a7ec5638aea695178d658ec30d6bce61bd5551f8d0940031e"
+    },
+    "row-04-blake-log_n_rows-12-n_rounds-16/metal/metal-profile-aggregate.json": {
+      "bytes": 13242,
+      "sha256": "001c683f6fc5a6f6667dd3f5b60ac3a719b7cebd2ea101607123058056a48864"
+    },
+    "row-04-blake-log_n_rows-12-n_rounds-16/metal/metal-profile.ndjson": {
+      "bytes": 38773,
+      "sha256": "4b216edaf7fa07b6f7293e2155d2b42a95058d867e83252150d3bc5fdcd8045c"
+    },
+    "row-04-blake-log_n_rows-12-n_rounds-16/metal/proof-artifact.json": {
+      "bytes": 305449,
+      "sha256": "6a286b74c46a1dcc47cd93604aa0c1860ca1d435de8652961015650a8a68edce"
+    },
+    "row-04-blake-log_n_rows-12-n_rounds-16/metal/stderr.txt": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "row-04-blake-log_n_rows-12-n_rounds-16/metal/stdout.json": {
+      "bytes": 11904,
+      "sha256": "8f47b7fd250fe88db66d94a6fc2ce89bc1c06a510e283c299e36e65f5236236b"
+    },
+    "row-05-poseidon-log_n_instances-14/cpu/cpu.sample.txt": {
+      "bytes": 55540,
+      "sha256": "8761e38285636afab9b7aee061025db42c600b405a86012707b703679c7e4cf8"
+    },
+    "row-05-poseidon-log_n_instances-14/cpu/proof-artifact.json": {
+      "bytes": 247239,
+      "sha256": "ad66850f7bd51c9dc2f6966c9ad421d0499409c338b0dba3d38e4c4c7457c6f8"
+    },
+    "row-05-poseidon-log_n_instances-14/cpu/sample-summary.json": {
+      "bytes": 1113,
+      "sha256": "58036542c3e9f2a38f2f5be43b8633e06db8d886e08e6910dc65307756da6f29"
+    },
+    "row-05-poseidon-log_n_instances-14/cpu/sample.stderr.txt": {
+      "bytes": 276,
+      "sha256": "d7431e9832defe4877a4800ca67b1b11e0c258db77ce32ff06210b726f1b4826"
+    },
+    "row-05-poseidon-log_n_instances-14/cpu/sample.stdout.txt": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "row-05-poseidon-log_n_instances-14/cpu/stderr.txt": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "row-05-poseidon-log_n_instances-14/cpu/stdout.json": {
+      "bytes": 9770,
+      "sha256": "aae3b2aa52b8a71798b9cf149b2ef45736c103a3316f42ec3647f20d256b91c4"
+    },
+    "row-05-poseidon-log_n_instances-14/metal/aggregate.stderr.txt": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "row-05-poseidon-log_n_instances-14/metal/aggregate.stdout.txt": {
+      "bytes": 2102,
+      "sha256": "d2ea09ec65e199c3fef46dbad82b65839cbda2e2677f41d8a40ec7630cd5c7c3"
+    },
+    "row-05-poseidon-log_n_instances-14/metal/metal-profile-aggregate.json": {
+      "bytes": 10264,
+      "sha256": "02dc7413b1d12a92627370d7d4f2f38da439dcb6c2d969b04b658aaaf9391906"
+    },
+    "row-05-poseidon-log_n_instances-14/metal/metal-profile.ndjson": {
+      "bytes": 29577,
+      "sha256": "3e676964b2cc0371ee856ee928f68565a89db93c0e721c8770a719971bebbcdc"
+    },
+    "row-05-poseidon-log_n_instances-14/metal/proof-artifact.json": {
+      "bytes": 247239,
+      "sha256": "ad66850f7bd51c9dc2f6966c9ad421d0499409c338b0dba3d38e4c4c7457c6f8"
+    },
+    "row-05-poseidon-log_n_instances-14/metal/stderr.txt": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "row-05-poseidon-log_n_instances-14/metal/stdout.json": {
+      "bytes": 11898,
+      "sha256": "08d2fdc9832d4ade5153ef26fa62725503fb67ff72f7e8dc493328113efde386"
+    }
+  },
+  "binaries": {
+    "cpu": {
+      "path": "/private/tmp/stwo-native-final-prefix/bin/native-proof-bench-cpu",
+      "sha256": "b45cf2c802d459cb5b9b878fca8755cfdc3dd724e071003d47f40bf6ade539e7"
+    },
+    "metal": {
+      "path": "/private/tmp/stwo-native-final-prefix/bin/native-proof-bench-metal",
+      "sha256": "7a2a3e81f45788e4b06fb2f1477795741cb6d97d8097c79d1398f10e40505d80"
+    }
+  },
+  "captured_at": "2026-07-18T00:49:15.053654+00:00",
+  "evidence_policy": {
+    "evidence_class": "profiled_diagnostic",
+    "execution": "bounded sequential CPU then Metal per workload",
+    "headline_eligible": false,
+    "proof_acceptance": "local verification plus CPU/Metal canonical-byte parity",
+    "timing_scope": "instrumented diagnostic; never substitute for unprofiled benchmark MHz"
+  },
+  "host_environment": {
+    "blockers": [],
+    "complete": true,
+    "hardware": {
+      "chip": "Apple M5 Max",
+      "logical_cpu_count": 18,
+      "machine_model": "Mac17,7",
+      "machine_name": "MacBook Pro",
+      "physical_memory": "64 GB"
+    },
+    "metal_device": {
+      "gpu_cores": "40",
+      "metal_family": "spdisplays_metal4",
+      "name": "Apple M5 Max"
+    },
+    "platform": {
+      "machine": "arm64",
+      "os_build_version": "25F84",
+      "os_product_version": "26.5.2",
+      "release": "25.5.0",
+      "system": "Darwin"
+    },
+    "randomness": {
+      "external_seed": null,
+      "input_policy": "canonical_workload_descriptor_and_fixed_statement",
+      "proof_policy": "deterministic_transcript_no_external_random_seed"
+    },
+    "schema": "native_matrix_host_environment_v1",
+    "toolchain": {
+      "developer_dir": "/Library/Developer/CommandLineTools",
+      "macos_sdk_version": "26.5",
+      "metal_compiler_path": null,
+      "metallib_linker_path": null,
+      "runtime_compiler": "Metal.framework_source_jit_bound_to_os_build",
+      "rust_toolchain": "nightly-2025-07-14",
+      "rust_version": "rustc 1.90.0-nightly (e9182f195 2025-07-13)",
+      "xcode_version": null,
+      "zig_version": "0.15.2"
+    }
+  },
+  "host_load": {
+    "end": {
+      "blockers": [],
+      "captured_at": "2026-07-18T00:49:15.053619+00:00",
+      "complete": true,
+      "load_average": {
+        "fifteen_minutes": 2.12939453125,
+        "five_minutes": 2.017578125,
+        "one_minute": 2.2490234375,
+        "one_minute_per_logical_cpu": 0.12494574652777778
+      },
+      "power_source": "AC Power",
+      "schema": "native_matrix_host_load_v1",
+      "thermal_status": [
+        "Note: No thermal warning level has been recorded",
+        "Note: No performance warning level has been recorded",
+        "Note: No CPU power status has been recorded"
+      ],
+      "timezone": "WEST"
+    },
+    "start": {
+      "blockers": [],
+      "captured_at": "2026-07-18T00:49:00.035666+00:00",
+      "complete": true,
+      "load_average": {
+        "fifteen_minutes": 2.10888671875,
+        "five_minutes": 1.9501953125,
+        "one_minute": 1.93310546875,
+        "one_minute_per_logical_cpu": 0.1073947482638889
+      },
+      "power_source": "AC Power",
+      "schema": "native_matrix_host_load_v1",
+      "thermal_status": [
+        "Note: No thermal warning level has been recorded",
+        "Note: No performance warning level has been recorded",
+        "Note: No CPU power status has been recorded"
+      ],
+      "timezone": "WEST"
+    }
+  },
+  "protocol": "native_profiler_baseline_v1",
+  "reproduction": {
+    "blake2_backend": "auto",
+    "controller_command": [
+      "/opt/homebrew/opt/python@3.14/bin/python3.14",
+      "/Users/theodorepender/code/cryptography/stwo-zig/scripts/native_profile_capture.py",
+      "--output-dir",
+      "/private/tmp/stwo-native-profile-final-44a81457",
+      "--cpu-bin",
+      "/private/tmp/stwo-native-final-prefix/bin/native-proof-bench-cpu",
+      "--metal-bin",
+      "/private/tmp/stwo-native-final-prefix/bin/native-proof-bench-metal",
+      "--warmups",
+      "1",
+      "--sample-duration-seconds",
+      "1",
+      "--cooldown-seconds",
+      "1",
+      "--encoder-counter-workload",
+      "blake",
+      "--metal-max-encoders",
+      "2048"
+    ],
+    "cooldown_seconds": 1.0,
+    "encoder_counter_workload": "blake",
+    "metal_max_encoders": 2048,
+    "metal_runtime": "source-jit",
+    "protocol": "functional",
+    "sample_duration_seconds": 1,
+    "samples": 1,
+    "timeout_seconds": 900.0,
+    "warmups": 1,
+    "working_directory": "/Users/theodorepender/code/cryptography/stwo-zig"
+  },
+  "rows": [
+    {
+      "descriptor_sha256": "362b27b0365343e715b2dbe6c1cb264decec32dde76d1d5b291cbd3e9f26f242",
+      "lanes": {
+        "cpu": {
+          "artifacts": {
+            "proof_artifact": "row-00-wide_fibonacci-log_n_rows-16-sequence_len-64/cpu/proof-artifact.json",
+            "sample": "row-00-wide_fibonacci-log_n_rows-16-sequence_len-64/cpu/cpu.sample.txt",
+            "sample_stderr": "row-00-wide_fibonacci-log_n_rows-16-sequence_len-64/cpu/sample.stderr.txt",
+            "sample_stdout": "row-00-wide_fibonacci-log_n_rows-16-sequence_len-64/cpu/sample.stdout.txt",
+            "sample_summary": "row-00-wide_fibonacci-log_n_rows-16-sequence_len-64/cpu/sample-summary.json",
+            "stderr": "row-00-wide_fibonacci-log_n_rows-16-sequence_len-64/cpu/stderr.txt",
+            "stdout": "row-00-wide_fibonacci-log_n_rows-16-sequence_len-64/cpu/stdout.json"
+          },
+          "command": [
+            "/private/tmp/stwo-native-final-prefix/bin/native-proof-bench-cpu",
+            "--example",
+            "wide_fibonacci",
+            "--log-n-rows",
+            "16",
+            "--sequence-len",
+            "64",
+            "--warmups",
+            "1",
+            "--samples",
+            "1",
+            "--protocol",
+            "functional",
+            "--blake2-backend",
+            "auto",
+            "--proof-artifact-out",
+            "/private/tmp/stwo-native-profile-final-44a81457/row-00-wide_fibonacci-log_n_rows-16-sequence_len-64/cpu/proof-artifact.json",
+            "--profiled"
+          ],
+          "coverage": {
+            "host_timer_ids": [
+              "backend_init_seconds",
+              "input_seconds",
+              "prove_seconds",
+              "proof_encode_seconds",
+              "verify_seconds",
+              "request_seconds"
+            ],
+            "host_timer_scope": {
+              "backend_init_seconds": "backend/session initialization",
+              "input_seconds": "input and trace preparation",
+              "proof_encode_seconds": "canonical proof encoding",
+              "prove_seconds": "prove stage tree",
+              "request_seconds": "complete verified request",
+              "verify_seconds": "local Zig verification"
+            },
+            "stage_tree": {
+              "commit_child_ids": {
+                "main_trace_commit": [
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "merkle_commit"
+                ],
+                "preprocessed_commit": [
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "merkle_commit"
+                ]
+              },
+              "core_stage_ids": [
+                "draw_random_coeff",
+                "composition_trace_extract",
+                "composition_evaluation",
+                "composition_interpolate_and_split",
+                "composition_commit",
+                "oods_point_and_mask_points",
+                "sampled_value_evaluation",
+                "sampled_value_channel_mix",
+                "fri_quotient_build_and_commit",
+                "proof_of_work",
+                "fri_decommit",
+                "trace_decommit",
+                "constraint_check_and_assembly"
+              ],
+              "root_stage_ids": [
+                "channel_and_scheme_init",
+                "preprocessed_commit",
+                "main_trace_commit",
+                "statement_mix",
+                "core_prove"
+              ],
+              "schema_version": 1
+            }
+          },
+          "environment": {},
+          "pid": 16640,
+          "process_wall_seconds": 0.24419687502086163,
+          "proof": {
+            "artifact_sha256": "fc3252e30633cd912482a8c5eabeb41cc0f500a9ece899e94d90833bf4889a27",
+            "proof_bytes": 60249,
+            "proof_sha256": "42086545b7a170c5868afcc390f83d964e06d528e2d1039420fc6bfd7a6aac74"
+          },
+          "sample_command": [
+            "/usr/bin/sample",
+            "16640",
+            "1",
+            "-mayDie",
+            "-file",
+            "/private/tmp/stwo-native-profile-final-44a81457/row-00-wide_fibonacci-log_n_rows-16-sequence_len-64/cpu/cpu.sample.txt"
+          ],
+          "sample_summary": {
+            "collector": "macos_usr_bin_sample_v1",
+            "hotspots": [
+              {
+                "samples": 1473,
+                "symbol": "__ulock_wait2"
+              },
+              {
+                "samples": 54,
+                "symbol": "core.crypto.blake2s_backend.compressParallel4"
+              },
+              {
+                "samples": 50,
+                "symbol": "prover.poly.circle.poly.CircleCoefficients.evalManyAtPointsWithFlatFactors"
+              },
+              {
+                "samples": 38,
+                "symbol": "prover.poly.circle.transforms.evaluateBuffersWithTwiddles"
+              },
+              {
+                "samples": 35,
+                "symbol": "prover.vcs_lifted.leaves.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).buildLeavesBatchedRange"
+              },
+              {
+                "samples": 32,
+                "symbol": "poll"
+              },
+              {
+                "samples": 29,
+                "symbol": "prover.pcs.quotient_tile_executor.execute"
+              },
+              {
+                "samples": 19,
+                "symbol": "core.air.derive.ComponentAdapter(examples.wide_fibonacci.component.Component,prover.air.component_prover.ComponentProver,prover.air.component_prover.Trace,prover.air.accumulation.DomainEvaluationAccumulator).evaluateConstraintQuotientsOnDomain"
+              },
+              {
+                "samples": 18,
+                "symbol": "prover.pcs.columns.circle_transforms.ifftWorker"
+              },
+              {
+                "samples": 10,
+                "symbol": "runner.runGatedSample__anon_3523"
+              }
+            ],
+            "schema": "stwo-native-cpu-sample-summary-v1",
+            "top_hotspot_samples": 1758
+          }
+        },
+        "metal": {
+          "aggregate_command": [
+            "/opt/homebrew/opt/python@3.14/bin/python3.14",
+            "/Users/theodorepender/code/cryptography/stwo-zig/scripts/metal_profile_report.py",
+            "/private/tmp/stwo-native-profile-final-44a81457/row-00-wide_fibonacci-log_n_rows-16-sequence_len-64/metal/metal-profile.ndjson",
+            "--json-out",
+            "/private/tmp/stwo-native-profile-final-44a81457/row-00-wide_fibonacci-log_n_rows-16-sequence_len-64/metal/metal-profile-aggregate.json",
+            "--strict"
+          ],
+          "artifacts": {
+            "aggregate_stderr": "row-00-wide_fibonacci-log_n_rows-16-sequence_len-64/metal/aggregate.stderr.txt",
+            "aggregate_stdout": "row-00-wide_fibonacci-log_n_rows-16-sequence_len-64/metal/aggregate.stdout.txt",
+            "metal_aggregate": "row-00-wide_fibonacci-log_n_rows-16-sequence_len-64/metal/metal-profile-aggregate.json",
+            "metal_ndjson": "row-00-wide_fibonacci-log_n_rows-16-sequence_len-64/metal/metal-profile.ndjson",
+            "proof_artifact": "row-00-wide_fibonacci-log_n_rows-16-sequence_len-64/metal/proof-artifact.json",
+            "stderr": "row-00-wide_fibonacci-log_n_rows-16-sequence_len-64/metal/stderr.txt",
+            "stdout": "row-00-wide_fibonacci-log_n_rows-16-sequence_len-64/metal/stdout.json"
+          },
+          "command": [
+            "/private/tmp/stwo-native-final-prefix/bin/native-proof-bench-metal",
+            "--example",
+            "wide_fibonacci",
+            "--log-n-rows",
+            "16",
+            "--sequence-len",
+            "64",
+            "--warmups",
+            "1",
+            "--samples",
+            "1",
+            "--protocol",
+            "functional",
+            "--blake2-backend",
+            "auto",
+            "--metal-runtime",
+            "source-jit",
+            "--proof-artifact-out",
+            "/private/tmp/stwo-native-profile-final-44a81457/row-00-wide_fibonacci-log_n_rows-16-sequence_len-64/metal/proof-artifact.json",
+            "--profiled"
+          ],
+          "counter_mode": "command-only",
+          "coverage": {
+            "host_timer_ids": [
+              "backend_init_seconds",
+              "input_seconds",
+              "prove_seconds",
+              "proof_encode_seconds",
+              "verify_seconds",
+              "request_seconds"
+            ],
+            "host_timer_scope": {
+              "backend_init_seconds": "backend/session initialization",
+              "input_seconds": "input and trace preparation",
+              "proof_encode_seconds": "canonical proof encoding",
+              "prove_seconds": "prove stage tree",
+              "request_seconds": "complete verified request",
+              "verify_seconds": "local Zig verification"
+            },
+            "metal_backend": {
+              "sample_records": [
+                {
+                  "classification": "accelerated_with_fallbacks",
+                  "counters": {
+                    "cpu_sampled_value_evaluations": 0,
+                    "cpu_small_circle_evaluations": 0,
+                    "cpu_small_circle_interpolations": 0,
+                    "cpu_small_circle_ldes": 0,
+                    "cpu_small_merkle_commits": 18,
+                    "cpu_streaming_merkle_commits": 0,
+                    "host_merkle_commits": 18,
+                    "metal_circle_lde_dispatches": 1,
+                    "metal_circle_transform_dispatches": 1,
+                    "metal_fri_circle_fold_dispatches": 1,
+                    "metal_fri_fold_commit_epochs": 0,
+                    "metal_fri_line_fold_dispatches": 15,
+                    "metal_qm31_coordinate_dispatches": 0,
+                    "metal_quotient_dispatches": 1,
+                    "metal_sampled_value_dispatches": 2,
+                    "resident_merkle_commits": 1
+                  },
+                  "cpu_fallbacks": 18,
+                  "metal_dispatches": 22
+                }
+              ],
+              "telemetry_sha256": "03ae17c3a66d8548b57aff54e497143ce630828c6e87cac165650cbff8c5354e",
+              "total_cpu_fallbacks": 36,
+              "total_metal_dispatches": 44
+            },
+            "stage_tree": {
+              "commit_child_ids": {
+                "main_trace_commit": [
+                  "merkle_commit"
+                ],
+                "preprocessed_commit": [
+                  "merkle_commit"
+                ]
+              },
+              "core_stage_ids": [
+                "draw_random_coeff",
+                "composition_trace_extract",
+                "composition_evaluation",
+                "composition_interpolate_and_split",
+                "composition_commit",
+                "oods_point_and_mask_points",
+                "sampled_value_evaluation",
+                "sampled_value_channel_mix",
+                "fri_quotient_build_and_commit",
+                "proof_of_work",
+                "fri_decommit",
+                "trace_decommit",
+                "constraint_check_and_assembly"
+              ],
+              "root_stage_ids": [
+                "channel_and_scheme_init",
+                "preprocessed_commit",
+                "main_trace_commit",
+                "statement_mix",
+                "core_prove"
+              ],
+              "schema_version": 1
+            }
+          },
+          "environment": {
+            "STWO_ZIG_METAL_PROFILE_ENCODER_COUNTERS": "0",
+            "STWO_ZIG_METAL_PROFILE_MAX_ENCODERS": "2048",
+            "STWO_ZIG_METAL_PROFILE_OUT": "/private/tmp/stwo-native-profile-final-44a81457/row-00-wide_fibonacci-log_n_rows-16-sequence_len-64/metal/metal-profile.ndjson"
+          },
+          "metal_profile": {
+            "command_buffers": 44,
+            "command_gpu_ms": 29.783417,
+            "encoder_gpu_ms": 0.0,
+            "encoders": 132,
+            "kernel_dispatches": 126,
+            "mode": "command-only",
+            "unattributed_gpu_ms": 29.783417
+          },
+          "pid": 16645,
+          "process_wall_seconds": 0.3891277080401778,
+          "proof": {
+            "artifact_sha256": "fc3252e30633cd912482a8c5eabeb41cc0f500a9ece899e94d90833bf4889a27",
+            "proof_bytes": 60249,
+            "proof_sha256": "42086545b7a170c5868afcc390f83d964e06d528e2d1039420fc6bfd7a6aac74"
+          }
+        }
+      },
+      "workload": {
+        "committed_columns": 64,
+        "committed_trace_cells": 4194304,
+        "committed_trees": 2,
+        "name": "wide_fibonacci",
+        "native_unit": "trace_rows",
+        "native_units": 65536,
+        "parameters": {
+          "log_n_rows": 16,
+          "sequence_len": 64
+        },
+        "trace_log_rows": 16,
+        "trace_rows": 65536
+      }
+    },
+    {
+      "descriptor_sha256": "1a4a22dbe4b5cd3b9ae278f9669efbe6d9acbc11db3d77e83415141e5c7d9897",
+      "lanes": {
+        "cpu": {
+          "artifacts": {
+            "proof_artifact": "row-01-xor-log_size-17-log_step-2-offset-3/cpu/proof-artifact.json",
+            "sample": "row-01-xor-log_size-17-log_step-2-offset-3/cpu/cpu.sample.txt",
+            "sample_stderr": "row-01-xor-log_size-17-log_step-2-offset-3/cpu/sample.stderr.txt",
+            "sample_stdout": "row-01-xor-log_size-17-log_step-2-offset-3/cpu/sample.stdout.txt",
+            "sample_summary": "row-01-xor-log_size-17-log_step-2-offset-3/cpu/sample-summary.json",
+            "stderr": "row-01-xor-log_size-17-log_step-2-offset-3/cpu/stderr.txt",
+            "stdout": "row-01-xor-log_size-17-log_step-2-offset-3/cpu/stdout.json"
+          },
+          "command": [
+            "/private/tmp/stwo-native-final-prefix/bin/native-proof-bench-cpu",
+            "--example",
+            "xor",
+            "--log-size",
+            "17",
+            "--log-step",
+            "2",
+            "--offset",
+            "3",
+            "--warmups",
+            "1",
+            "--samples",
+            "1",
+            "--protocol",
+            "functional",
+            "--blake2-backend",
+            "auto",
+            "--proof-artifact-out",
+            "/private/tmp/stwo-native-profile-final-44a81457/row-01-xor-log_size-17-log_step-2-offset-3/cpu/proof-artifact.json",
+            "--profiled"
+          ],
+          "coverage": {
+            "host_timer_ids": [
+              "backend_init_seconds",
+              "input_seconds",
+              "prove_seconds",
+              "proof_encode_seconds",
+              "verify_seconds",
+              "request_seconds"
+            ],
+            "host_timer_scope": {
+              "backend_init_seconds": "backend/session initialization",
+              "input_seconds": "input and trace preparation",
+              "proof_encode_seconds": "canonical proof encoding",
+              "prove_seconds": "prove stage tree",
+              "request_seconds": "complete verified request",
+              "verify_seconds": "local Zig verification"
+            },
+            "stage_tree": {
+              "commit_child_ids": {
+                "main_trace_commit": [
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "merkle_commit"
+                ],
+                "preprocessed_commit": [
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "merkle_commit"
+                ]
+              },
+              "core_stage_ids": [
+                "draw_random_coeff",
+                "composition_trace_extract",
+                "composition_evaluation",
+                "composition_interpolate_and_split",
+                "composition_commit",
+                "oods_point_and_mask_points",
+                "sampled_value_evaluation",
+                "sampled_value_channel_mix",
+                "fri_quotient_build_and_commit",
+                "proof_of_work",
+                "fri_decommit",
+                "trace_decommit",
+                "constraint_check_and_assembly"
+              ],
+              "root_stage_ids": [
+                "channel_and_scheme_init",
+                "preprocessed_commit",
+                "main_trace_commit",
+                "statement_mix",
+                "core_prove"
+              ],
+              "schema_version": 1
+            }
+          },
+          "environment": {},
+          "pid": 16651,
+          "process_wall_seconds": 0.19135108299087733,
+          "proof": {
+            "artifact_sha256": "54775e246f41fad50b78a729ef1044ba45a92ef8d97ff79a05de27b58636e074",
+            "proof_bytes": 67300,
+            "proof_sha256": "dbbba889ff96dbac41cfd53f497ce99631b965baa2c9d167ad50a39ed9876e9a"
+          },
+          "sample_command": [
+            "/usr/bin/sample",
+            "16651",
+            "1",
+            "-mayDie",
+            "-file",
+            "/private/tmp/stwo-native-profile-final-44a81457/row-01-xor-log_size-17-log_step-2-offset-3/cpu/cpu.sample.txt"
+          ],
+          "sample_summary": {
+            "collector": "macos_usr_bin_sample_v1",
+            "hotspots": [
+              {
+                "samples": 1365,
+                "symbol": "__ulock_wait2"
+              },
+              {
+                "samples": 61,
+                "symbol": "core.crypto.blake2s_backend.compressParallel4"
+              },
+              {
+                "samples": 25,
+                "symbol": "poll"
+              },
+              {
+                "samples": 13,
+                "symbol": "prover.pcs.quotient_tile_executor.execute"
+              },
+              {
+                "samples": 11,
+                "symbol": "prover.poly.circle.transforms.evaluateBuffersWithTwiddles"
+              },
+              {
+                "samples": 8,
+                "symbol": "backends.cpu_scalar.mod.CpuBackend.foldLineN__anon_15874"
+              },
+              {
+                "samples": 8,
+                "symbol": "prover.poly.circle.poly.CircleCoefficients.evalManyAtPointsWithFlatFactors"
+              },
+              {
+                "samples": 7,
+                "symbol": "core.circle.CirclePointIndex.toPoint"
+              },
+              {
+                "samples": 6,
+                "symbol": "prover.vcs_lifted.leaves.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).buildLeavesBatchedRange"
+              },
+              {
+                "samples": 5,
+                "symbol": "_platform_memmove"
+              },
+              {
+                "samples": 5,
+                "symbol": "prover.fri.FriProver(backends.cpu_scalar.mod.CpuBackend,core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed),core.vcs_lifted.blake2_merkle.Blake2sMerkleChannelGeneric(false)).commitLazy__anon_15068"
+              }
+            ],
+            "schema": "stwo-native-cpu-sample-summary-v1",
+            "top_hotspot_samples": 1514
+          }
+        },
+        "metal": {
+          "aggregate_command": [
+            "/opt/homebrew/opt/python@3.14/bin/python3.14",
+            "/Users/theodorepender/code/cryptography/stwo-zig/scripts/metal_profile_report.py",
+            "/private/tmp/stwo-native-profile-final-44a81457/row-01-xor-log_size-17-log_step-2-offset-3/metal/metal-profile.ndjson",
+            "--json-out",
+            "/private/tmp/stwo-native-profile-final-44a81457/row-01-xor-log_size-17-log_step-2-offset-3/metal/metal-profile-aggregate.json",
+            "--strict"
+          ],
+          "artifacts": {
+            "aggregate_stderr": "row-01-xor-log_size-17-log_step-2-offset-3/metal/aggregate.stderr.txt",
+            "aggregate_stdout": "row-01-xor-log_size-17-log_step-2-offset-3/metal/aggregate.stdout.txt",
+            "metal_aggregate": "row-01-xor-log_size-17-log_step-2-offset-3/metal/metal-profile-aggregate.json",
+            "metal_ndjson": "row-01-xor-log_size-17-log_step-2-offset-3/metal/metal-profile.ndjson",
+            "proof_artifact": "row-01-xor-log_size-17-log_step-2-offset-3/metal/proof-artifact.json",
+            "stderr": "row-01-xor-log_size-17-log_step-2-offset-3/metal/stderr.txt",
+            "stdout": "row-01-xor-log_size-17-log_step-2-offset-3/metal/stdout.json"
+          },
+          "command": [
+            "/private/tmp/stwo-native-final-prefix/bin/native-proof-bench-metal",
+            "--example",
+            "xor",
+            "--log-size",
+            "17",
+            "--log-step",
+            "2",
+            "--offset",
+            "3",
+            "--warmups",
+            "1",
+            "--samples",
+            "1",
+            "--protocol",
+            "functional",
+            "--blake2-backend",
+            "auto",
+            "--metal-runtime",
+            "source-jit",
+            "--proof-artifact-out",
+            "/private/tmp/stwo-native-profile-final-44a81457/row-01-xor-log_size-17-log_step-2-offset-3/metal/proof-artifact.json",
+            "--profiled"
+          ],
+          "counter_mode": "command-only",
+          "coverage": {
+            "host_timer_ids": [
+              "backend_init_seconds",
+              "input_seconds",
+              "prove_seconds",
+              "proof_encode_seconds",
+              "verify_seconds",
+              "request_seconds"
+            ],
+            "host_timer_scope": {
+              "backend_init_seconds": "backend/session initialization",
+              "input_seconds": "input and trace preparation",
+              "proof_encode_seconds": "canonical proof encoding",
+              "prove_seconds": "prove stage tree",
+              "request_seconds": "complete verified request",
+              "verify_seconds": "local Zig verification"
+            },
+            "metal_backend": {
+              "sample_records": [
+                {
+                  "classification": "accelerated_with_fallbacks",
+                  "counters": {
+                    "cpu_sampled_value_evaluations": 0,
+                    "cpu_small_circle_evaluations": 0,
+                    "cpu_small_circle_interpolations": 0,
+                    "cpu_small_circle_ldes": 0,
+                    "cpu_small_merkle_commits": 19,
+                    "cpu_streaming_merkle_commits": 0,
+                    "host_merkle_commits": 19,
+                    "metal_circle_lde_dispatches": 2,
+                    "metal_circle_transform_dispatches": 1,
+                    "metal_fri_circle_fold_dispatches": 1,
+                    "metal_fri_fold_commit_epochs": 0,
+                    "metal_fri_line_fold_dispatches": 16,
+                    "metal_qm31_coordinate_dispatches": 0,
+                    "metal_quotient_dispatches": 1,
+                    "metal_sampled_value_dispatches": 3,
+                    "resident_merkle_commits": 1
+                  },
+                  "cpu_fallbacks": 19,
+                  "metal_dispatches": 25
+                }
+              ],
+              "telemetry_sha256": "a0767867e1a70890e2feb35e4139dbf653aa6790f2775b191a26250d962e4ae7",
+              "total_cpu_fallbacks": 38,
+              "total_metal_dispatches": 50
+            },
+            "stage_tree": {
+              "commit_child_ids": {
+                "main_trace_commit": [
+                  "merkle_commit"
+                ],
+                "preprocessed_commit": [
+                  "merkle_commit"
+                ]
+              },
+              "core_stage_ids": [
+                "draw_random_coeff",
+                "composition_trace_extract",
+                "composition_evaluation",
+                "composition_interpolate_and_split",
+                "composition_commit",
+                "oods_point_and_mask_points",
+                "sampled_value_evaluation",
+                "sampled_value_channel_mix",
+                "fri_quotient_build_and_commit",
+                "proof_of_work",
+                "fri_decommit",
+                "trace_decommit",
+                "constraint_check_and_assembly"
+              ],
+              "root_stage_ids": [
+                "channel_and_scheme_init",
+                "preprocessed_commit",
+                "main_trace_commit",
+                "statement_mix",
+                "core_prove"
+              ],
+              "schema_version": 1
+            }
+          },
+          "environment": {
+            "STWO_ZIG_METAL_PROFILE_ENCODER_COUNTERS": "0",
+            "STWO_ZIG_METAL_PROFILE_MAX_ENCODERS": "2048",
+            "STWO_ZIG_METAL_PROFILE_OUT": "/private/tmp/stwo-native-profile-final-44a81457/row-01-xor-log_size-17-log_step-2-offset-3/metal/metal-profile.ndjson"
+          },
+          "metal_profile": {
+            "command_buffers": 50,
+            "command_gpu_ms": 31.4275,
+            "encoder_gpu_ms": 0.0,
+            "encoders": 182,
+            "kernel_dispatches": 174,
+            "mode": "command-only",
+            "unattributed_gpu_ms": 31.4275
+          },
+          "pid": 16656,
+          "process_wall_seconds": 0.2680327499983832,
+          "proof": {
+            "artifact_sha256": "54775e246f41fad50b78a729ef1044ba45a92ef8d97ff79a05de27b58636e074",
+            "proof_bytes": 67300,
+            "proof_sha256": "dbbba889ff96dbac41cfd53f497ce99631b965baa2c9d167ad50a39ed9876e9a"
+          }
+        }
+      },
+      "workload": {
+        "committed_columns": 3,
+        "committed_trace_cells": 393216,
+        "committed_trees": 2,
+        "name": "xor",
+        "native_unit": "xor_rows",
+        "native_units": 131072,
+        "parameters": {
+          "log_size": 17,
+          "log_step": 2,
+          "offset": 3
+        },
+        "trace_log_rows": 17,
+        "trace_rows": 131072
+      }
+    },
+    {
+      "descriptor_sha256": "50f3c0b4e5335a64aefa9279cba87a0e8c5fc5f3a7be24570ce37937303d525d",
+      "lanes": {
+        "cpu": {
+          "artifacts": {
+            "proof_artifact": "row-02-plonk-log_n_rows-16/cpu/proof-artifact.json",
+            "sample": "row-02-plonk-log_n_rows-16/cpu/cpu.sample.txt",
+            "sample_stderr": "row-02-plonk-log_n_rows-16/cpu/sample.stderr.txt",
+            "sample_stdout": "row-02-plonk-log_n_rows-16/cpu/sample.stdout.txt",
+            "sample_summary": "row-02-plonk-log_n_rows-16/cpu/sample-summary.json",
+            "stderr": "row-02-plonk-log_n_rows-16/cpu/stderr.txt",
+            "stdout": "row-02-plonk-log_n_rows-16/cpu/stdout.json"
+          },
+          "command": [
+            "/private/tmp/stwo-native-final-prefix/bin/native-proof-bench-cpu",
+            "--example",
+            "plonk",
+            "--log-n-rows",
+            "16",
+            "--warmups",
+            "1",
+            "--samples",
+            "1",
+            "--protocol",
+            "functional",
+            "--blake2-backend",
+            "auto",
+            "--proof-artifact-out",
+            "/private/tmp/stwo-native-profile-final-44a81457/row-02-plonk-log_n_rows-16/cpu/proof-artifact.json",
+            "--profiled"
+          ],
+          "coverage": {
+            "host_timer_ids": [
+              "backend_init_seconds",
+              "input_seconds",
+              "prove_seconds",
+              "proof_encode_seconds",
+              "verify_seconds",
+              "request_seconds"
+            ],
+            "host_timer_scope": {
+              "backend_init_seconds": "backend/session initialization",
+              "input_seconds": "input and trace preparation",
+              "proof_encode_seconds": "canonical proof encoding",
+              "prove_seconds": "prove stage tree",
+              "request_seconds": "complete verified request",
+              "verify_seconds": "local Zig verification"
+            },
+            "stage_tree": {
+              "commit_child_ids": {
+                "main_trace_commit": [
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "merkle_commit"
+                ],
+                "preprocessed_commit": [
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "merkle_commit"
+                ]
+              },
+              "core_stage_ids": [
+                "draw_random_coeff",
+                "composition_trace_extract",
+                "composition_evaluation",
+                "composition_interpolate_and_split",
+                "composition_commit",
+                "oods_point_and_mask_points",
+                "sampled_value_evaluation",
+                "sampled_value_channel_mix",
+                "fri_quotient_build_and_commit",
+                "proof_of_work",
+                "fri_decommit",
+                "trace_decommit",
+                "constraint_check_and_assembly"
+              ],
+              "root_stage_ids": [
+                "channel_and_scheme_init",
+                "preprocessed_commit",
+                "main_trace_commit",
+                "statement_mix",
+                "core_prove"
+              ],
+              "schema_version": 1
+            }
+          },
+          "environment": {},
+          "pid": 16661,
+          "process_wall_seconds": 0.13772400002926588,
+          "proof": {
+            "artifact_sha256": "c58a48bda21b99f937fa63be59d448fd3e0264f82d49e40e332345a36fd3576f",
+            "proof_bytes": 55401,
+            "proof_sha256": "cfb36bf17fb3526bf1bdd9401fb885fd91ca46b9982fee1ca5fad33a1d574b72"
+          },
+          "sample_command": [
+            "/usr/bin/sample",
+            "16661",
+            "1",
+            "-mayDie",
+            "-file",
+            "/private/tmp/stwo-native-profile-final-44a81457/row-02-plonk-log_n_rows-16/cpu/cpu.sample.txt"
+          ],
+          "sample_summary": {
+            "collector": "macos_usr_bin_sample_v1",
+            "hotspots": [
+              {
+                "samples": 826,
+                "symbol": "__ulock_wait2"
+              },
+              {
+                "samples": 26,
+                "symbol": "poll"
+              },
+              {
+                "samples": 19,
+                "symbol": "core.crypto.blake2s_backend.compressParallel4"
+              },
+              {
+                "samples": 11,
+                "symbol": "prover.pcs.quotient_tile_executor.execute"
+              },
+              {
+                "samples": 9,
+                "symbol": "prover.poly.circle.poly.CircleCoefficients.evalManyAtPointsWithFlatFactors"
+              }
+            ],
+            "schema": "stwo-native-cpu-sample-summary-v1",
+            "top_hotspot_samples": 891
+          }
+        },
+        "metal": {
+          "aggregate_command": [
+            "/opt/homebrew/opt/python@3.14/bin/python3.14",
+            "/Users/theodorepender/code/cryptography/stwo-zig/scripts/metal_profile_report.py",
+            "/private/tmp/stwo-native-profile-final-44a81457/row-02-plonk-log_n_rows-16/metal/metal-profile.ndjson",
+            "--json-out",
+            "/private/tmp/stwo-native-profile-final-44a81457/row-02-plonk-log_n_rows-16/metal/metal-profile-aggregate.json",
+            "--strict"
+          ],
+          "artifacts": {
+            "aggregate_stderr": "row-02-plonk-log_n_rows-16/metal/aggregate.stderr.txt",
+            "aggregate_stdout": "row-02-plonk-log_n_rows-16/metal/aggregate.stdout.txt",
+            "metal_aggregate": "row-02-plonk-log_n_rows-16/metal/metal-profile-aggregate.json",
+            "metal_ndjson": "row-02-plonk-log_n_rows-16/metal/metal-profile.ndjson",
+            "proof_artifact": "row-02-plonk-log_n_rows-16/metal/proof-artifact.json",
+            "stderr": "row-02-plonk-log_n_rows-16/metal/stderr.txt",
+            "stdout": "row-02-plonk-log_n_rows-16/metal/stdout.json"
+          },
+          "command": [
+            "/private/tmp/stwo-native-final-prefix/bin/native-proof-bench-metal",
+            "--example",
+            "plonk",
+            "--log-n-rows",
+            "16",
+            "--warmups",
+            "1",
+            "--samples",
+            "1",
+            "--protocol",
+            "functional",
+            "--blake2-backend",
+            "auto",
+            "--metal-runtime",
+            "source-jit",
+            "--proof-artifact-out",
+            "/private/tmp/stwo-native-profile-final-44a81457/row-02-plonk-log_n_rows-16/metal/proof-artifact.json",
+            "--profiled"
+          ],
+          "counter_mode": "command-only",
+          "coverage": {
+            "host_timer_ids": [
+              "backend_init_seconds",
+              "input_seconds",
+              "prove_seconds",
+              "proof_encode_seconds",
+              "verify_seconds",
+              "request_seconds"
+            ],
+            "host_timer_scope": {
+              "backend_init_seconds": "backend/session initialization",
+              "input_seconds": "input and trace preparation",
+              "proof_encode_seconds": "canonical proof encoding",
+              "prove_seconds": "prove stage tree",
+              "request_seconds": "complete verified request",
+              "verify_seconds": "local Zig verification"
+            },
+            "metal_backend": {
+              "sample_records": [
+                {
+                  "classification": "accelerated_with_fallbacks",
+                  "counters": {
+                    "cpu_sampled_value_evaluations": 0,
+                    "cpu_small_circle_evaluations": 0,
+                    "cpu_small_circle_interpolations": 0,
+                    "cpu_small_circle_ldes": 0,
+                    "cpu_small_merkle_commits": 18,
+                    "cpu_streaming_merkle_commits": 0,
+                    "host_merkle_commits": 18,
+                    "metal_circle_lde_dispatches": 2,
+                    "metal_circle_transform_dispatches": 1,
+                    "metal_fri_circle_fold_dispatches": 1,
+                    "metal_fri_fold_commit_epochs": 0,
+                    "metal_fri_line_fold_dispatches": 15,
+                    "metal_qm31_coordinate_dispatches": 0,
+                    "metal_quotient_dispatches": 1,
+                    "metal_sampled_value_dispatches": 3,
+                    "resident_merkle_commits": 1
+                  },
+                  "cpu_fallbacks": 18,
+                  "metal_dispatches": 24
+                }
+              ],
+              "telemetry_sha256": "ff6cfee656e33e0526c1b0769b5b01a264d530984a507bb36fc71fe5262c5f9e",
+              "total_cpu_fallbacks": 36,
+              "total_metal_dispatches": 48
+            },
+            "stage_tree": {
+              "commit_child_ids": {
+                "main_trace_commit": [
+                  "merkle_commit"
+                ],
+                "preprocessed_commit": [
+                  "merkle_commit"
+                ]
+              },
+              "core_stage_ids": [
+                "draw_random_coeff",
+                "composition_trace_extract",
+                "composition_evaluation",
+                "composition_interpolate_and_split",
+                "composition_commit",
+                "oods_point_and_mask_points",
+                "sampled_value_evaluation",
+                "sampled_value_channel_mix",
+                "fri_quotient_build_and_commit",
+                "proof_of_work",
+                "fri_decommit",
+                "trace_decommit",
+                "constraint_check_and_assembly"
+              ],
+              "root_stage_ids": [
+                "channel_and_scheme_init",
+                "preprocessed_commit",
+                "main_trace_commit",
+                "statement_mix",
+                "core_prove"
+              ],
+              "schema_version": 1
+            }
+          },
+          "environment": {
+            "STWO_ZIG_METAL_PROFILE_ENCODER_COUNTERS": "0",
+            "STWO_ZIG_METAL_PROFILE_MAX_ENCODERS": "2048",
+            "STWO_ZIG_METAL_PROFILE_OUT": "/private/tmp/stwo-native-profile-final-44a81457/row-02-plonk-log_n_rows-16/metal/metal-profile.ndjson"
+          },
+          "metal_profile": {
+            "command_buffers": 48,
+            "command_gpu_ms": 21.096917,
+            "encoder_gpu_ms": 0.0,
+            "encoders": 168,
+            "kernel_dispatches": 160,
+            "mode": "command-only",
+            "unattributed_gpu_ms": 21.096917
+          },
+          "pid": 16666,
+          "process_wall_seconds": 0.20645187504123896,
+          "proof": {
+            "artifact_sha256": "c58a48bda21b99f937fa63be59d448fd3e0264f82d49e40e332345a36fd3576f",
+            "proof_bytes": 55401,
+            "proof_sha256": "cfb36bf17fb3526bf1bdd9401fb885fd91ca46b9982fee1ca5fad33a1d574b72"
+          }
+        }
+      },
+      "workload": {
+        "committed_columns": 8,
+        "committed_trace_cells": 524288,
+        "committed_trees": 2,
+        "name": "plonk",
+        "native_unit": "plonk_rows",
+        "native_units": 65536,
+        "parameters": {
+          "log_n_rows": 16
+        },
+        "trace_log_rows": 16,
+        "trace_rows": 65536
+      }
+    },
+    {
+      "descriptor_sha256": "29f302c6e89c0359eb11d536447bc2542f31cc8fa140542dfe7aa59d6c51dd40",
+      "lanes": {
+        "cpu": {
+          "artifacts": {
+            "proof_artifact": "row-03-state_machine-log_n_rows-17-initial_x-9-initial_y-3/cpu/proof-artifact.json",
+            "sample": "row-03-state_machine-log_n_rows-17-initial_x-9-initial_y-3/cpu/cpu.sample.txt",
+            "sample_stderr": "row-03-state_machine-log_n_rows-17-initial_x-9-initial_y-3/cpu/sample.stderr.txt",
+            "sample_stdout": "row-03-state_machine-log_n_rows-17-initial_x-9-initial_y-3/cpu/sample.stdout.txt",
+            "sample_summary": "row-03-state_machine-log_n_rows-17-initial_x-9-initial_y-3/cpu/sample-summary.json",
+            "stderr": "row-03-state_machine-log_n_rows-17-initial_x-9-initial_y-3/cpu/stderr.txt",
+            "stdout": "row-03-state_machine-log_n_rows-17-initial_x-9-initial_y-3/cpu/stdout.json"
+          },
+          "command": [
+            "/private/tmp/stwo-native-final-prefix/bin/native-proof-bench-cpu",
+            "--example",
+            "state_machine",
+            "--log-n-rows",
+            "17",
+            "--initial-x",
+            "9",
+            "--initial-y",
+            "3",
+            "--warmups",
+            "1",
+            "--samples",
+            "1",
+            "--protocol",
+            "functional",
+            "--blake2-backend",
+            "auto",
+            "--proof-artifact-out",
+            "/private/tmp/stwo-native-profile-final-44a81457/row-03-state_machine-log_n_rows-17-initial_x-9-initial_y-3/cpu/proof-artifact.json",
+            "--profiled"
+          ],
+          "coverage": {
+            "host_timer_ids": [
+              "backend_init_seconds",
+              "input_seconds",
+              "prove_seconds",
+              "proof_encode_seconds",
+              "verify_seconds",
+              "request_seconds"
+            ],
+            "host_timer_scope": {
+              "backend_init_seconds": "backend/session initialization",
+              "input_seconds": "input and trace preparation",
+              "proof_encode_seconds": "canonical proof encoding",
+              "prove_seconds": "prove stage tree",
+              "request_seconds": "complete verified request",
+              "verify_seconds": "local Zig verification"
+            },
+            "stage_tree": {
+              "commit_child_ids": {
+                "main_trace_commit": [
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "merkle_commit"
+                ],
+                "preprocessed_commit": [
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "merkle_commit"
+                ]
+              },
+              "core_stage_ids": [
+                "draw_random_coeff",
+                "composition_trace_extract",
+                "composition_evaluation",
+                "composition_interpolate_and_split",
+                "composition_commit",
+                "oods_point_and_mask_points",
+                "sampled_value_evaluation",
+                "sampled_value_channel_mix",
+                "fri_quotient_build_and_commit",
+                "proof_of_work",
+                "fri_decommit",
+                "trace_decommit",
+                "constraint_check_and_assembly"
+              ],
+              "root_stage_ids": [
+                "channel_and_scheme_init",
+                "preprocessed_commit",
+                "main_trace_commit",
+                "statement_mix",
+                "core_prove"
+              ],
+              "schema_version": 1
+            }
+          },
+          "environment": {},
+          "pid": 16672,
+          "process_wall_seconds": 0.19272983400151134,
+          "proof": {
+            "artifact_sha256": "5f42183bf32ce4c860168d3264084b11cafc21b95f63a764170ee3e2c3d74fc8",
+            "proof_bytes": 67193,
+            "proof_sha256": "b6373a9a498e78c0cd17bb2dd06422e1aa56bb8fd2ded6faae07eb38afa33023"
+          },
+          "sample_command": [
+            "/usr/bin/sample",
+            "16672",
+            "1",
+            "-mayDie",
+            "-file",
+            "/private/tmp/stwo-native-profile-final-44a81457/row-03-state_machine-log_n_rows-17-initial_x-9-initial_y-3/cpu/cpu.sample.txt"
+          ],
+          "sample_summary": {
+            "collector": "macos_usr_bin_sample_v1",
+            "hotspots": [
+              {
+                "samples": 1348,
+                "symbol": "__ulock_wait2"
+              },
+              {
+                "samples": 70,
+                "symbol": "core.crypto.blake2s_backend.compressParallel4"
+              },
+              {
+                "samples": 26,
+                "symbol": "poll"
+              },
+              {
+                "samples": 23,
+                "symbol": "prover.pcs.quotient_tile_executor.execute"
+              },
+              {
+                "samples": 16,
+                "symbol": "prover.vcs_lifted.leaves.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).buildLeavesBatchedRange"
+              },
+              {
+                "samples": 11,
+                "symbol": "prover.vcs_lifted.layers.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).hashSeededRange"
+              },
+              {
+                "samples": 10,
+                "symbol": "prover.poly.circle.transforms.evaluateBuffersWithTwiddles"
+              },
+              {
+                "samples": 8,
+                "symbol": "prover.vcs_lifted.leaves.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).updateLeafHashersPackedRange"
+              },
+              {
+                "samples": 7,
+                "symbol": "prover.poly.circle.poly.CircleCoefficients.evalManyAtPointsWithFlatFactors"
+              },
+              {
+                "samples": 6,
+                "symbol": "backends.cpu_scalar.mod.CpuBackend.foldLineN__anon_15874"
+              },
+              {
+                "samples": 5,
+                "symbol": "core.circle.CirclePointIndex.toPoint"
+              },
+              {
+                "samples": 5,
+                "symbol": "prover.fri.FriProver(backends.cpu_scalar.mod.CpuBackend,core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed),core.vcs_lifted.blake2_merkle.Blake2sMerkleChannelGeneric(false)).commitLazy__anon_15068"
+              }
+            ],
+            "schema": "stwo-native-cpu-sample-summary-v1",
+            "top_hotspot_samples": 1535
+          }
+        },
+        "metal": {
+          "aggregate_command": [
+            "/opt/homebrew/opt/python@3.14/bin/python3.14",
+            "/Users/theodorepender/code/cryptography/stwo-zig/scripts/metal_profile_report.py",
+            "/private/tmp/stwo-native-profile-final-44a81457/row-03-state_machine-log_n_rows-17-initial_x-9-initial_y-3/metal/metal-profile.ndjson",
+            "--json-out",
+            "/private/tmp/stwo-native-profile-final-44a81457/row-03-state_machine-log_n_rows-17-initial_x-9-initial_y-3/metal/metal-profile-aggregate.json",
+            "--strict"
+          ],
+          "artifacts": {
+            "aggregate_stderr": "row-03-state_machine-log_n_rows-17-initial_x-9-initial_y-3/metal/aggregate.stderr.txt",
+            "aggregate_stdout": "row-03-state_machine-log_n_rows-17-initial_x-9-initial_y-3/metal/aggregate.stdout.txt",
+            "metal_aggregate": "row-03-state_machine-log_n_rows-17-initial_x-9-initial_y-3/metal/metal-profile-aggregate.json",
+            "metal_ndjson": "row-03-state_machine-log_n_rows-17-initial_x-9-initial_y-3/metal/metal-profile.ndjson",
+            "proof_artifact": "row-03-state_machine-log_n_rows-17-initial_x-9-initial_y-3/metal/proof-artifact.json",
+            "stderr": "row-03-state_machine-log_n_rows-17-initial_x-9-initial_y-3/metal/stderr.txt",
+            "stdout": "row-03-state_machine-log_n_rows-17-initial_x-9-initial_y-3/metal/stdout.json"
+          },
+          "command": [
+            "/private/tmp/stwo-native-final-prefix/bin/native-proof-bench-metal",
+            "--example",
+            "state_machine",
+            "--log-n-rows",
+            "17",
+            "--initial-x",
+            "9",
+            "--initial-y",
+            "3",
+            "--warmups",
+            "1",
+            "--samples",
+            "1",
+            "--protocol",
+            "functional",
+            "--blake2-backend",
+            "auto",
+            "--metal-runtime",
+            "source-jit",
+            "--proof-artifact-out",
+            "/private/tmp/stwo-native-profile-final-44a81457/row-03-state_machine-log_n_rows-17-initial_x-9-initial_y-3/metal/proof-artifact.json",
+            "--profiled"
+          ],
+          "counter_mode": "command-only",
+          "coverage": {
+            "host_timer_ids": [
+              "backend_init_seconds",
+              "input_seconds",
+              "prove_seconds",
+              "proof_encode_seconds",
+              "verify_seconds",
+              "request_seconds"
+            ],
+            "host_timer_scope": {
+              "backend_init_seconds": "backend/session initialization",
+              "input_seconds": "input and trace preparation",
+              "proof_encode_seconds": "canonical proof encoding",
+              "prove_seconds": "prove stage tree",
+              "request_seconds": "complete verified request",
+              "verify_seconds": "local Zig verification"
+            },
+            "metal_backend": {
+              "sample_records": [
+                {
+                  "classification": "accelerated_with_fallbacks",
+                  "counters": {
+                    "cpu_sampled_value_evaluations": 0,
+                    "cpu_small_circle_evaluations": 0,
+                    "cpu_small_circle_interpolations": 0,
+                    "cpu_small_circle_ldes": 0,
+                    "cpu_small_merkle_commits": 19,
+                    "cpu_streaming_merkle_commits": 0,
+                    "host_merkle_commits": 19,
+                    "metal_circle_lde_dispatches": 2,
+                    "metal_circle_transform_dispatches": 1,
+                    "metal_fri_circle_fold_dispatches": 1,
+                    "metal_fri_fold_commit_epochs": 0,
+                    "metal_fri_line_fold_dispatches": 16,
+                    "metal_qm31_coordinate_dispatches": 0,
+                    "metal_quotient_dispatches": 1,
+                    "metal_sampled_value_dispatches": 3,
+                    "resident_merkle_commits": 1
+                  },
+                  "cpu_fallbacks": 19,
+                  "metal_dispatches": 25
+                }
+              ],
+              "telemetry_sha256": "a0767867e1a70890e2feb35e4139dbf653aa6790f2775b191a26250d962e4ae7",
+              "total_cpu_fallbacks": 38,
+              "total_metal_dispatches": 50
+            },
+            "stage_tree": {
+              "commit_child_ids": {
+                "main_trace_commit": [
+                  "merkle_commit"
+                ],
+                "preprocessed_commit": [
+                  "merkle_commit"
+                ]
+              },
+              "core_stage_ids": [
+                "draw_random_coeff",
+                "composition_trace_extract",
+                "composition_evaluation",
+                "composition_interpolate_and_split",
+                "composition_commit",
+                "oods_point_and_mask_points",
+                "sampled_value_evaluation",
+                "sampled_value_channel_mix",
+                "fri_quotient_build_and_commit",
+                "proof_of_work",
+                "fri_decommit",
+                "trace_decommit",
+                "constraint_check_and_assembly"
+              ],
+              "root_stage_ids": [
+                "channel_and_scheme_init",
+                "preprocessed_commit",
+                "main_trace_commit",
+                "statement_mix",
+                "core_prove"
+              ],
+              "schema_version": 1
+            }
+          },
+          "environment": {
+            "STWO_ZIG_METAL_PROFILE_ENCODER_COUNTERS": "0",
+            "STWO_ZIG_METAL_PROFILE_MAX_ENCODERS": "2048",
+            "STWO_ZIG_METAL_PROFILE_OUT": "/private/tmp/stwo-native-profile-final-44a81457/row-03-state_machine-log_n_rows-17-initial_x-9-initial_y-3/metal/metal-profile.ndjson"
+          },
+          "metal_profile": {
+            "command_buffers": 50,
+            "command_gpu_ms": 37.866667,
+            "encoder_gpu_ms": 0.0,
+            "encoders": 182,
+            "kernel_dispatches": 174,
+            "mode": "command-only",
+            "unattributed_gpu_ms": 37.866667
+          },
+          "pid": 16677,
+          "process_wall_seconds": 0.3270760419545695,
+          "proof": {
+            "artifact_sha256": "5f42183bf32ce4c860168d3264084b11cafc21b95f63a764170ee3e2c3d74fc8",
+            "proof_bytes": 67193,
+            "proof_sha256": "b6373a9a498e78c0cd17bb2dd06422e1aa56bb8fd2ded6faae07eb38afa33023"
+          }
+        }
+      },
+      "workload": {
+        "committed_columns": 3,
+        "committed_trace_cells": 393216,
+        "committed_trees": 2,
+        "name": "state_machine",
+        "native_unit": "state_transitions",
+        "native_units": 131072,
+        "parameters": {
+          "initial_x": 9,
+          "initial_y": 3,
+          "log_n_rows": 17
+        },
+        "trace_log_rows": 17,
+        "trace_rows": 131072
+      }
+    },
+    {
+      "descriptor_sha256": "ead85d573c365d66c4b558e0ef9c650613eab08159750e1c91d505410d34c565",
+      "lanes": {
+        "cpu": {
+          "artifacts": {
+            "proof_artifact": "row-04-blake-log_n_rows-12-n_rounds-16/cpu/proof-artifact.json",
+            "sample": "row-04-blake-log_n_rows-12-n_rounds-16/cpu/cpu.sample.txt",
+            "sample_stderr": "row-04-blake-log_n_rows-12-n_rounds-16/cpu/sample.stderr.txt",
+            "sample_stdout": "row-04-blake-log_n_rows-12-n_rounds-16/cpu/sample.stdout.txt",
+            "sample_summary": "row-04-blake-log_n_rows-12-n_rounds-16/cpu/sample-summary.json",
+            "stderr": "row-04-blake-log_n_rows-12-n_rounds-16/cpu/stderr.txt",
+            "stdout": "row-04-blake-log_n_rows-12-n_rounds-16/cpu/stdout.json"
+          },
+          "command": [
+            "/private/tmp/stwo-native-final-prefix/bin/native-proof-bench-cpu",
+            "--example",
+            "blake",
+            "--log-n-rows",
+            "12",
+            "--n-rounds",
+            "16",
+            "--warmups",
+            "1",
+            "--samples",
+            "1",
+            "--protocol",
+            "functional",
+            "--blake2-backend",
+            "auto",
+            "--proof-artifact-out",
+            "/private/tmp/stwo-native-profile-final-44a81457/row-04-blake-log_n_rows-12-n_rounds-16/cpu/proof-artifact.json",
+            "--profiled"
+          ],
+          "coverage": {
+            "host_timer_ids": [
+              "backend_init_seconds",
+              "input_seconds",
+              "prove_seconds",
+              "proof_encode_seconds",
+              "verify_seconds",
+              "request_seconds"
+            ],
+            "host_timer_scope": {
+              "backend_init_seconds": "backend/session initialization",
+              "input_seconds": "input and trace preparation",
+              "proof_encode_seconds": "canonical proof encoding",
+              "prove_seconds": "prove stage tree",
+              "request_seconds": "complete verified request",
+              "verify_seconds": "local Zig verification"
+            },
+            "stage_tree": {
+              "commit_child_ids": {
+                "main_trace_commit": [
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "merkle_commit"
+                ],
+                "preprocessed_commit": [
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "merkle_commit"
+                ]
+              },
+              "core_stage_ids": [
+                "draw_random_coeff",
+                "composition_trace_extract",
+                "composition_evaluation",
+                "composition_interpolate_and_split",
+                "composition_commit",
+                "oods_point_and_mask_points",
+                "sampled_value_evaluation",
+                "sampled_value_channel_mix",
+                "fri_quotient_build_and_commit",
+                "proof_of_work",
+                "fri_decommit",
+                "trace_decommit",
+                "constraint_check_and_assembly"
+              ],
+              "root_stage_ids": [
+                "channel_and_scheme_init",
+                "preprocessed_commit",
+                "main_trace_commit",
+                "statement_mix",
+                "core_prove"
+              ],
+              "schema_version": 1
+            }
+          },
+          "environment": {},
+          "pid": 16682,
+          "process_wall_seconds": 0.39471283298917115,
+          "proof": {
+            "artifact_sha256": "6a286b74c46a1dcc47cd93604aa0c1860ca1d435de8652961015650a8a68edce",
+            "proof_bytes": 152455,
+            "proof_sha256": "70e516957d2d38ed78214bfda5b0b2bdfe41f1c93439fb68e124bfef096fbc9f"
+          },
+          "sample_command": [
+            "/usr/bin/sample",
+            "16682",
+            "1",
+            "-mayDie",
+            "-file",
+            "/private/tmp/stwo-native-profile-final-44a81457/row-04-blake-log_n_rows-12-n_rounds-16/cpu/cpu.sample.txt"
+          ],
+          "sample_summary": {
+            "collector": "macos_usr_bin_sample_v1",
+            "hotspots": [
+              {
+                "samples": 3130,
+                "symbol": "__ulock_wait2"
+              },
+              {
+                "samples": 245,
+                "symbol": "prover.vcs_lifted.leaves.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).updateLeafHashersPackedRange"
+              },
+              {
+                "samples": 143,
+                "symbol": "prover.poly.circle.poly.CircleCoefficients.evalManyAtPointsWithFlatFactors"
+              },
+              {
+                "samples": 87,
+                "symbol": "prover.pcs.quotient_tile_executor.execute"
+              },
+              {
+                "samples": 51,
+                "symbol": "prover.pcs.columns.circle_transforms.ifftWorker"
+              },
+              {
+                "samples": 49,
+                "symbol": "prover.poly.circle.transforms.evaluateBuffersWithTwiddles"
+              },
+              {
+                "samples": 26,
+                "symbol": "poll"
+              },
+              {
+                "samples": 22,
+                "symbol": "runner.runGatedSample__anon_6606"
+              },
+              {
+                "samples": 5,
+                "symbol": "__munmap"
+              },
+              {
+                "samples": 5,
+                "symbol": "_platform_memset"
+              }
+            ],
+            "schema": "stwo-native-cpu-sample-summary-v1",
+            "top_hotspot_samples": 3763
+          }
+        },
+        "metal": {
+          "aggregate_command": [
+            "/opt/homebrew/opt/python@3.14/bin/python3.14",
+            "/Users/theodorepender/code/cryptography/stwo-zig/scripts/metal_profile_report.py",
+            "/private/tmp/stwo-native-profile-final-44a81457/row-04-blake-log_n_rows-12-n_rounds-16/metal/metal-profile.ndjson",
+            "--json-out",
+            "/private/tmp/stwo-native-profile-final-44a81457/row-04-blake-log_n_rows-12-n_rounds-16/metal/metal-profile-aggregate.json",
+            "--strict"
+          ],
+          "artifacts": {
+            "aggregate_stderr": "row-04-blake-log_n_rows-12-n_rounds-16/metal/aggregate.stderr.txt",
+            "aggregate_stdout": "row-04-blake-log_n_rows-12-n_rounds-16/metal/aggregate.stdout.txt",
+            "metal_aggregate": "row-04-blake-log_n_rows-12-n_rounds-16/metal/metal-profile-aggregate.json",
+            "metal_ndjson": "row-04-blake-log_n_rows-12-n_rounds-16/metal/metal-profile.ndjson",
+            "proof_artifact": "row-04-blake-log_n_rows-12-n_rounds-16/metal/proof-artifact.json",
+            "stderr": "row-04-blake-log_n_rows-12-n_rounds-16/metal/stderr.txt",
+            "stdout": "row-04-blake-log_n_rows-12-n_rounds-16/metal/stdout.json"
+          },
+          "command": [
+            "/private/tmp/stwo-native-final-prefix/bin/native-proof-bench-metal",
+            "--example",
+            "blake",
+            "--log-n-rows",
+            "12",
+            "--n-rounds",
+            "16",
+            "--warmups",
+            "1",
+            "--samples",
+            "1",
+            "--protocol",
+            "functional",
+            "--blake2-backend",
+            "auto",
+            "--metal-runtime",
+            "source-jit",
+            "--proof-artifact-out",
+            "/private/tmp/stwo-native-profile-final-44a81457/row-04-blake-log_n_rows-12-n_rounds-16/metal/proof-artifact.json",
+            "--profiled"
+          ],
+          "counter_mode": "encoder-timestamps",
+          "coverage": {
+            "host_timer_ids": [
+              "backend_init_seconds",
+              "input_seconds",
+              "prove_seconds",
+              "proof_encode_seconds",
+              "verify_seconds",
+              "request_seconds"
+            ],
+            "host_timer_scope": {
+              "backend_init_seconds": "backend/session initialization",
+              "input_seconds": "input and trace preparation",
+              "proof_encode_seconds": "canonical proof encoding",
+              "prove_seconds": "prove stage tree",
+              "request_seconds": "complete verified request",
+              "verify_seconds": "local Zig verification"
+            },
+            "metal_backend": {
+              "sample_records": [
+                {
+                  "classification": "accelerated_with_fallbacks",
+                  "counters": {
+                    "cpu_sampled_value_evaluations": 0,
+                    "cpu_small_circle_evaluations": 0,
+                    "cpu_small_circle_interpolations": 0,
+                    "cpu_small_circle_ldes": 0,
+                    "cpu_small_merkle_commits": 14,
+                    "cpu_streaming_merkle_commits": 0,
+                    "host_merkle_commits": 14,
+                    "metal_circle_lde_dispatches": 1,
+                    "metal_circle_transform_dispatches": 1,
+                    "metal_fri_circle_fold_dispatches": 1,
+                    "metal_fri_fold_commit_epochs": 0,
+                    "metal_fri_line_fold_dispatches": 11,
+                    "metal_qm31_coordinate_dispatches": 0,
+                    "metal_quotient_dispatches": 1,
+                    "metal_sampled_value_dispatches": 2,
+                    "resident_merkle_commits": 1
+                  },
+                  "cpu_fallbacks": 14,
+                  "metal_dispatches": 18
+                }
+              ],
+              "telemetry_sha256": "dad46d3f100981010e1e066d58e3829c07dd430021f40b443b40fab93fb8b998",
+              "total_cpu_fallbacks": 28,
+              "total_metal_dispatches": 36
+            },
+            "stage_tree": {
+              "commit_child_ids": {
+                "main_trace_commit": [
+                  "merkle_commit"
+                ],
+                "preprocessed_commit": [
+                  "merkle_commit"
+                ]
+              },
+              "core_stage_ids": [
+                "draw_random_coeff",
+                "composition_trace_extract",
+                "composition_evaluation",
+                "composition_interpolate_and_split",
+                "composition_commit",
+                "oods_point_and_mask_points",
+                "sampled_value_evaluation",
+                "sampled_value_channel_mix",
+                "fri_quotient_build_and_commit",
+                "proof_of_work",
+                "fri_decommit",
+                "trace_decommit",
+                "constraint_check_and_assembly"
+              ],
+              "root_stage_ids": [
+                "channel_and_scheme_init",
+                "preprocessed_commit",
+                "main_trace_commit",
+                "statement_mix",
+                "core_prove"
+              ],
+              "schema_version": 1
+            }
+          },
+          "environment": {
+            "STWO_ZIG_METAL_PROFILE_ENCODER_COUNTERS": "1",
+            "STWO_ZIG_METAL_PROFILE_MAX_ENCODERS": "2048",
+            "STWO_ZIG_METAL_PROFILE_OUT": "/private/tmp/stwo-native-profile-final-44a81457/row-04-blake-log_n_rows-12-n_rounds-16/metal/metal-profile.ndjson"
+          },
+          "metal_profile": {
+            "command_buffers": 36,
+            "command_gpu_ms": 20.088166,
+            "encoder_gpu_ms": 20.068824,
+            "encoders": 92,
+            "kernel_dispatches": 86,
+            "mode": "encoder-timestamps",
+            "unattributed_gpu_ms": 0.023174
+          },
+          "pid": 16688,
+          "process_wall_seconds": 0.4298888749908656,
+          "proof": {
+            "artifact_sha256": "6a286b74c46a1dcc47cd93604aa0c1860ca1d435de8652961015650a8a68edce",
+            "proof_bytes": 152455,
+            "proof_sha256": "70e516957d2d38ed78214bfda5b0b2bdfe41f1c93439fb68e124bfef096fbc9f"
+          }
+        }
+      },
+      "workload": {
+        "committed_columns": 1536,
+        "committed_trace_cells": 6291456,
+        "committed_trees": 2,
+        "name": "blake",
+        "native_unit": "blake_round_instances",
+        "native_units": 65536,
+        "parameters": {
+          "log_n_rows": 12,
+          "n_rounds": 16
+        },
+        "trace_log_rows": 12,
+        "trace_rows": 4096
+      }
+    },
+    {
+      "descriptor_sha256": "38ef71af36d75f3df4891830b0ee0b1da00c0d3f5d50f8289fb7e8aaa6694e67",
+      "lanes": {
+        "cpu": {
+          "artifacts": {
+            "proof_artifact": "row-05-poseidon-log_n_instances-14/cpu/proof-artifact.json",
+            "sample": "row-05-poseidon-log_n_instances-14/cpu/cpu.sample.txt",
+            "sample_stderr": "row-05-poseidon-log_n_instances-14/cpu/sample.stderr.txt",
+            "sample_stdout": "row-05-poseidon-log_n_instances-14/cpu/sample.stdout.txt",
+            "sample_summary": "row-05-poseidon-log_n_instances-14/cpu/sample-summary.json",
+            "stderr": "row-05-poseidon-log_n_instances-14/cpu/stderr.txt",
+            "stdout": "row-05-poseidon-log_n_instances-14/cpu/stdout.json"
+          },
+          "command": [
+            "/private/tmp/stwo-native-final-prefix/bin/native-proof-bench-cpu",
+            "--example",
+            "poseidon",
+            "--log-n-instances",
+            "14",
+            "--warmups",
+            "1",
+            "--samples",
+            "1",
+            "--protocol",
+            "functional",
+            "--blake2-backend",
+            "auto",
+            "--proof-artifact-out",
+            "/private/tmp/stwo-native-profile-final-44a81457/row-05-poseidon-log_n_instances-14/cpu/proof-artifact.json",
+            "--profiled"
+          ],
+          "coverage": {
+            "host_timer_ids": [
+              "backend_init_seconds",
+              "input_seconds",
+              "prove_seconds",
+              "proof_encode_seconds",
+              "verify_seconds",
+              "request_seconds"
+            ],
+            "host_timer_scope": {
+              "backend_init_seconds": "backend/session initialization",
+              "input_seconds": "input and trace preparation",
+              "proof_encode_seconds": "canonical proof encoding",
+              "prove_seconds": "prove stage tree",
+              "request_seconds": "complete verified request",
+              "verify_seconds": "local Zig verification"
+            },
+            "stage_tree": {
+              "commit_child_ids": {
+                "main_trace_commit": [
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "merkle_commit"
+                ],
+                "preprocessed_commit": [
+                  "interpolate_columns",
+                  "evaluate_extended_domain",
+                  "merkle_commit"
+                ]
+              },
+              "core_stage_ids": [
+                "draw_random_coeff",
+                "composition_trace_extract",
+                "composition_evaluation",
+                "composition_interpolate_and_split",
+                "composition_commit",
+                "oods_point_and_mask_points",
+                "sampled_value_evaluation",
+                "sampled_value_channel_mix",
+                "fri_quotient_build_and_commit",
+                "proof_of_work",
+                "fri_decommit",
+                "trace_decommit",
+                "constraint_check_and_assembly"
+              ],
+              "root_stage_ids": [
+                "channel_and_scheme_init",
+                "preprocessed_commit",
+                "main_trace_commit",
+                "statement_mix",
+                "core_prove"
+              ],
+              "schema_version": 1
+            }
+          },
+          "environment": {},
+          "pid": 16693,
+          "process_wall_seconds": 0.29580041591543704,
+          "proof": {
+            "artifact_sha256": "ad66850f7bd51c9dc2f6966c9ad421d0499409c338b0dba3d38e4c4c7457c6f8",
+            "proof_bytes": 123353,
+            "proof_sha256": "ae5aa39842a99819ea29dd8e3531f22708f3dc67b8d34f19bceb7f8e01f26d53"
+          },
+          "sample_command": [
+            "/usr/bin/sample",
+            "16693",
+            "1",
+            "-mayDie",
+            "-file",
+            "/private/tmp/stwo-native-profile-final-44a81457/row-05-poseidon-log_n_instances-14/cpu/cpu.sample.txt"
+          ],
+          "sample_summary": {
+            "collector": "macos_usr_bin_sample_v1",
+            "hotspots": [
+              {
+                "samples": 2514,
+                "symbol": "__ulock_wait2"
+              },
+              {
+                "samples": 85,
+                "symbol": "prover.vcs_lifted.leaves.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).updateLeafHashersPackedRange"
+              },
+              {
+                "samples": 66,
+                "symbol": "prover.poly.circle.poly.CircleCoefficients.evalManyAtPointsWithFlatFactors"
+              },
+              {
+                "samples": 36,
+                "symbol": "prover.poly.circle.transforms.evaluateBuffersWithTwiddles"
+              },
+              {
+                "samples": 24,
+                "symbol": "poll"
+              },
+              {
+                "samples": 21,
+                "symbol": "prover.pcs.quotients.planning.buildCombinedContributionPlan"
+              },
+              {
+                "samples": 15,
+                "symbol": "prover.pcs.columns.circle_transforms.ifftWorker"
+              },
+              {
+                "samples": 10,
+                "symbol": "examples.poseidon.input.applyExternalRound"
+              },
+              {
+                "samples": 6,
+                "symbol": "core.crypto.blake2s_backend.compressSimd"
+              }
+            ],
+            "schema": "stwo-native-cpu-sample-summary-v1",
+            "top_hotspot_samples": 2777
+          }
+        },
+        "metal": {
+          "aggregate_command": [
+            "/opt/homebrew/opt/python@3.14/bin/python3.14",
+            "/Users/theodorepender/code/cryptography/stwo-zig/scripts/metal_profile_report.py",
+            "/private/tmp/stwo-native-profile-final-44a81457/row-05-poseidon-log_n_instances-14/metal/metal-profile.ndjson",
+            "--json-out",
+            "/private/tmp/stwo-native-profile-final-44a81457/row-05-poseidon-log_n_instances-14/metal/metal-profile-aggregate.json",
+            "--strict"
+          ],
+          "artifacts": {
+            "aggregate_stderr": "row-05-poseidon-log_n_instances-14/metal/aggregate.stderr.txt",
+            "aggregate_stdout": "row-05-poseidon-log_n_instances-14/metal/aggregate.stdout.txt",
+            "metal_aggregate": "row-05-poseidon-log_n_instances-14/metal/metal-profile-aggregate.json",
+            "metal_ndjson": "row-05-poseidon-log_n_instances-14/metal/metal-profile.ndjson",
+            "proof_artifact": "row-05-poseidon-log_n_instances-14/metal/proof-artifact.json",
+            "stderr": "row-05-poseidon-log_n_instances-14/metal/stderr.txt",
+            "stdout": "row-05-poseidon-log_n_instances-14/metal/stdout.json"
+          },
+          "command": [
+            "/private/tmp/stwo-native-final-prefix/bin/native-proof-bench-metal",
+            "--example",
+            "poseidon",
+            "--log-n-instances",
+            "14",
+            "--warmups",
+            "1",
+            "--samples",
+            "1",
+            "--protocol",
+            "functional",
+            "--blake2-backend",
+            "auto",
+            "--metal-runtime",
+            "source-jit",
+            "--proof-artifact-out",
+            "/private/tmp/stwo-native-profile-final-44a81457/row-05-poseidon-log_n_instances-14/metal/proof-artifact.json",
+            "--profiled"
+          ],
+          "counter_mode": "command-only",
+          "coverage": {
+            "host_timer_ids": [
+              "backend_init_seconds",
+              "input_seconds",
+              "prove_seconds",
+              "proof_encode_seconds",
+              "verify_seconds",
+              "request_seconds"
+            ],
+            "host_timer_scope": {
+              "backend_init_seconds": "backend/session initialization",
+              "input_seconds": "input and trace preparation",
+              "proof_encode_seconds": "canonical proof encoding",
+              "prove_seconds": "prove stage tree",
+              "request_seconds": "complete verified request",
+              "verify_seconds": "local Zig verification"
+            },
+            "metal_backend": {
+              "sample_records": [
+                {
+                  "classification": "accelerated_with_fallbacks",
+                  "counters": {
+                    "cpu_sampled_value_evaluations": 0,
+                    "cpu_small_circle_evaluations": 0,
+                    "cpu_small_circle_interpolations": 0,
+                    "cpu_small_circle_ldes": 0,
+                    "cpu_small_merkle_commits": 14,
+                    "cpu_streaming_merkle_commits": 0,
+                    "host_merkle_commits": 14,
+                    "metal_circle_lde_dispatches": 1,
+                    "metal_circle_transform_dispatches": 1,
+                    "metal_fri_circle_fold_dispatches": 1,
+                    "metal_fri_fold_commit_epochs": 0,
+                    "metal_fri_line_fold_dispatches": 10,
+                    "metal_qm31_coordinate_dispatches": 0,
+                    "metal_quotient_dispatches": 1,
+                    "metal_sampled_value_dispatches": 2,
+                    "resident_merkle_commits": 0
+                  },
+                  "cpu_fallbacks": 14,
+                  "metal_dispatches": 16
+                }
+              ],
+              "telemetry_sha256": "dd7be72c7b682e67d06ef0b72bd5a86e02a302c3b2e4d259f063e5eda9b9e163",
+              "total_cpu_fallbacks": 28,
+              "total_metal_dispatches": 32
+            },
+            "stage_tree": {
+              "commit_child_ids": {
+                "main_trace_commit": [
+                  "merkle_commit"
+                ],
+                "preprocessed_commit": [
+                  "merkle_commit"
+                ]
+              },
+              "core_stage_ids": [
+                "draw_random_coeff",
+                "composition_trace_extract",
+                "composition_evaluation",
+                "composition_interpolate_and_split",
+                "composition_commit",
+                "oods_point_and_mask_points",
+                "sampled_value_evaluation",
+                "sampled_value_channel_mix",
+                "fri_quotient_build_and_commit",
+                "proof_of_work",
+                "fri_decommit",
+                "trace_decommit",
+                "constraint_check_and_assembly"
+              ],
+              "root_stage_ids": [
+                "channel_and_scheme_init",
+                "preprocessed_commit",
+                "main_trace_commit",
+                "statement_mix",
+                "core_prove"
+              ],
+              "schema_version": 1
+            }
+          },
+          "environment": {
+            "STWO_ZIG_METAL_PROFILE_ENCODER_COUNTERS": "0",
+            "STWO_ZIG_METAL_PROFILE_MAX_ENCODERS": "2048",
+            "STWO_ZIG_METAL_PROFILE_OUT": "/private/tmp/stwo-native-profile-final-44a81457/row-05-poseidon-log_n_instances-14/metal/metal-profile.ndjson"
+          },
+          "metal_profile": {
+            "command_buffers": 32,
+            "command_gpu_ms": 9.840959,
+            "encoder_gpu_ms": 0.0,
+            "encoders": 68,
+            "kernel_dispatches": 66,
+            "mode": "command-only",
+            "unattributed_gpu_ms": 9.840959
+          },
+          "pid": 16698,
+          "process_wall_seconds": 0.33063008403405547,
+          "proof": {
+            "artifact_sha256": "ad66850f7bd51c9dc2f6966c9ad421d0499409c338b0dba3d38e4c4c7457c6f8",
+            "proof_bytes": 123353,
+            "proof_sha256": "ae5aa39842a99819ea29dd8e3531f22708f3dc67b8d34f19bceb7f8e01f26d53"
+          }
+        }
+      },
+      "workload": {
+        "committed_columns": 1264,
+        "committed_trace_cells": 2588672,
+        "committed_trees": 2,
+        "name": "poseidon",
+        "native_unit": "poseidon_instances",
+        "native_units": 16384,
+        "parameters": {
+          "log_n_instances": 14
+        },
+        "trace_log_rows": 11,
+        "trace_rows": 2048
+      }
+    }
+  ],
+  "schema_version": 1,
+  "source_provenance": {
+    "blake2s_effective_backend": "simd",
+    "blake2s_requested_backend": "auto",
+    "blake2s_simd_supported": true,
+    "complete": true,
+    "cpu_count": 18,
+    "environment_overrides": [],
+    "git_commit": "44a8145782da55df325c650f449d90cff78fa604",
+    "git_dirty": false,
+    "optimization": "ReleaseFast",
+    "simd_pack_width": 4,
+    "single_threaded": false,
+    "target_arch": "aarch64",
+    "target_os": "macos",
+    "thread_parallelism_enabled": true,
+    "zig_version": "0.15.2"
+  },
+  "workload_order": [
+    {
+      "committed_columns": 64,
+      "committed_trace_cells": 4194304,
+      "committed_trees": 2,
+      "name": "wide_fibonacci",
+      "native_unit": "trace_rows",
+      "native_units": 65536,
+      "parameters": {
+        "log_n_rows": 16,
+        "sequence_len": 64
+      },
+      "trace_log_rows": 16,
+      "trace_rows": 65536
+    },
+    {
+      "committed_columns": 3,
+      "committed_trace_cells": 393216,
+      "committed_trees": 2,
+      "name": "xor",
+      "native_unit": "xor_rows",
+      "native_units": 131072,
+      "parameters": {
+        "log_size": 17,
+        "log_step": 2,
+        "offset": 3
+      },
+      "trace_log_rows": 17,
+      "trace_rows": 131072
+    },
+    {
+      "committed_columns": 8,
+      "committed_trace_cells": 524288,
+      "committed_trees": 2,
+      "name": "plonk",
+      "native_unit": "plonk_rows",
+      "native_units": 65536,
+      "parameters": {
+        "log_n_rows": 16
+      },
+      "trace_log_rows": 16,
+      "trace_rows": 65536
+    },
+    {
+      "committed_columns": 3,
+      "committed_trace_cells": 393216,
+      "committed_trees": 2,
+      "name": "state_machine",
+      "native_unit": "state_transitions",
+      "native_units": 131072,
+      "parameters": {
+        "initial_x": 9,
+        "initial_y": 3,
+        "log_n_rows": 17
+      },
+      "trace_log_rows": 17,
+      "trace_rows": 131072
+    },
+    {
+      "committed_columns": 1536,
+      "committed_trace_cells": 6291456,
+      "committed_trees": 2,
+      "name": "blake",
+      "native_unit": "blake_round_instances",
+      "native_units": 65536,
+      "parameters": {
+        "log_n_rows": 12,
+        "n_rounds": 16
+      },
+      "trace_log_rows": 12,
+      "trace_rows": 4096
+    },
+    {
+      "committed_columns": 1264,
+      "committed_trace_cells": 2588672,
+      "committed_trees": 2,
+      "name": "poseidon",
+      "native_unit": "poseidon_instances",
+      "native_units": 16384,
+      "parameters": {
+        "log_n_instances": 14
+      },
+      "trace_log_rows": 11,
+      "trace_rows": 2048
+    }
+  ]
+}

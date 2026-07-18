@@ -1,0 +1,43 @@
+{
+  "collector": "macos_usr_bin_sample_v1",
+  "hotspots": [
+    {
+      "samples": 2514,
+      "symbol": "__ulock_wait2"
+    },
+    {
+      "samples": 85,
+      "symbol": "prover.vcs_lifted.leaves.Operations(core.vcs_lifted.blake2_merkle.Blake2sMerkleHasherProtocolGeneric(false,.domain_prefixed)).updateLeafHashersPackedRange"
+    },
+    {
+      "samples": 66,
+      "symbol": "prover.poly.circle.poly.CircleCoefficients.evalManyAtPointsWithFlatFactors"
+    },
+    {
+      "samples": 36,
+      "symbol": "prover.poly.circle.transforms.evaluateBuffersWithTwiddles"
+    },
+    {
+      "samples": 24,
+      "symbol": "poll"
+    },
+    {
+      "samples": 21,
+      "symbol": "prover.pcs.quotients.planning.buildCombinedContributionPlan"
+    },
+    {
+      "samples": 15,
+      "symbol": "prover.pcs.columns.circle_transforms.ifftWorker"
+    },
+    {
+      "samples": 10,
+      "symbol": "examples.poseidon.input.applyExternalRound"
+    },
+    {
+      "samples": 6,
+      "symbol": "core.crypto.blake2s_backend.compressSimd"
+    }
+  ],
+  "schema": "stwo-native-cpu-sample-summary-v1",
+  "top_hotspot_samples": 2777
+}
