@@ -43,12 +43,14 @@ use std::fs;
 // decode matrix mode relies on the air crate re-exported through prover deps.
 use prover as _;
 use air;
+use stwo::core::channel::Channel;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
     let mut elf: Option<String> = None;
     let mut decode_file: Option<String> = None;
     let mut poseidon2_file: Option<String> = None;
+    let mut transcript_prefix = false;
     let mut max: u64 = 1_000_000;
     let mut i = 1;
     while i < args.len() {
@@ -56,6 +58,7 @@ fn main() {
             "--elf" => { i += 1; elf = Some(args[i].clone()); }
             "--decode-file" => { i += 1; decode_file = Some(args[i].clone()); }
             "--poseidon2-file" => { i += 1; poseidon2_file = Some(args[i].clone()); }
+            "--transcript-prefix" => { transcript_prefix = true; }
             "--max-steps" => { i += 1; max = args[i].parse().expect("max-steps"); }
             _ => {}
         }
@@ -98,6 +101,16 @@ fn main() {
     let bytes = fs::read(elf.expect("--elf required")).expect("read elf");
     let result = runner::run(&bytes, max).expect("run");
     let public = prover::public_data::PublicData::new(&result);
+    if transcript_prefix {
+        // Shared-transcript-prefix mode: replay everything prove_rv32im mixes
+        // before the first commitment root (prover.rs step 4) — a default
+        // Blake2s channel driven by the oracle's own PublicData::mix_into —
+        // and print the digest after every mix step.
+        let mut recorder = RecordingChannel::default();
+        println!("init digest={}", digest_hex(&recorder.inner));
+        public.mix_into(&mut recorder);
+        return;
+    }
     let regs: Vec<String> = result.final_regs.iter().map(|r| r.to_string()).collect();
     println!(
         "{{\"trace\":{{\"final_pc\":{},\"final_regs\":[{}],\"total_steps\":{}}},\"public_data\":{}}}",
@@ -106,6 +119,59 @@ fn main() {
         result.cycles,
         serde_json::to_string(&public).expect("serialize public data")
     );
+}
+
+fn digest_hex(channel: &stwo::core::channel::Blake2sChannel) -> String {
+    channel
+        .digest()
+        .as_ref()
+        .iter()
+        .map(|byte| format!("{:02x}", byte))
+        .collect()
+}
+
+/// Blake2s channel wrapper that prints the digest after every mix step. The
+/// oracle's own PublicData::mix_into drives the sequence; this wrapper is
+/// pure instrumentation (no duplicated transcript model).
+#[derive(Default, Clone, Debug)]
+struct RecordingChannel {
+    inner: stwo::core::channel::Blake2sChannel,
+}
+
+impl Channel for RecordingChannel {
+    const BYTES_PER_HASH: usize =
+        <stwo::core::channel::Blake2sChannel as Channel>::BYTES_PER_HASH;
+
+    fn verify_pow_nonce(&self, n_bits: u32, nonce: u64) -> bool {
+        self.inner.verify_pow_nonce(n_bits, nonce)
+    }
+
+    fn mix_u32s(&mut self, data: &[u32]) {
+        self.inner.mix_u32s(data);
+        println!("mix_u32s len={} digest={}", data.len(), digest_hex(&self.inner));
+    }
+
+    fn mix_felts(&mut self, felts: &[stwo::core::fields::qm31::SecureField]) {
+        self.inner.mix_felts(felts);
+        println!("mix_felts len={} digest={}", felts.len(), digest_hex(&self.inner));
+    }
+
+    fn mix_u64(&mut self, value: u64) {
+        self.inner.mix_u64(value);
+        println!("mix_u64 digest={}", digest_hex(&self.inner));
+    }
+
+    fn draw_secure_felt(&mut self) -> stwo::core::fields::qm31::SecureField {
+        self.inner.draw_secure_felt()
+    }
+
+    fn draw_secure_felts(&mut self, n_felts: usize) -> Vec<stwo::core::fields::qm31::SecureField> {
+        self.inner.draw_secure_felts(n_felts)
+    }
+
+    fn draw_u32s(&mut self) -> Vec<u32> {
+        self.inner.draw_u32s()
+    }
 }
 """
 
@@ -434,6 +500,57 @@ def compare_poseidon2(oracle_exe: Path, receipt: dict) -> None:
     receipt["boundaries"]["poseidon2_vectors"] = {"status": "fail", "first_disagreements": diffs}
 
 
+def compare_shared_transcript_prefix(oracle_exe: Path, receipt: dict) -> None:
+    """Shared-transcript-prefix boundary: everything both provers mix into the
+    Fiat-Shamir channel before the first commitment root. The pinned oracle's
+    prove_rv32im defaults to Blake2sMerkleChannel and mixes PublicData into a
+    default Blake2sChannel (prover.rs step 4); the Zig prover seeds the same
+    Blake2s channel with statement.public_data.mixInto in the mirrored field
+    order. Both sides print the channel digest after every mix step and the
+    transcripts are byte-compared per corpus ELF — the channels are
+    structurally compatible, so digest equality is required, fail-closed."""
+    zig_exe = ROOT / "zig-out" / "bin" / "riscv-trace-dump"
+    vectors = json.loads((ROOT / "vectors" / "riscv_elfs" / "trace_vectors.json").read_text())
+    cases = []
+    all_ok = True
+    for vector in vectors["vectors"]:
+        elf = ROOT / vector["elf"]
+        rust_out = _run([str(oracle_exe), "--transcript-prefix", "--elf", str(elf)])
+        zig_out = _run([str(zig_exe), "--transcript-prefix", str(elf)], cwd=ROOT)
+        ok = rust_out == zig_out
+        all_ok = all_ok and ok
+        zig_lines = zig_out.splitlines()
+        case = {
+            "name": vector["name"],
+            "agree": ok,
+            "mix_steps": max(len(zig_lines) - 1, 0),
+            "prefix_digest": zig_lines[-1].rsplit("digest=", 1)[-1] if ok and zig_lines else None,
+        }
+        if not ok:
+            diffs = []
+            for rust_line, zig_line in zip(rust_out.splitlines(), zig_lines):
+                if rust_line != zig_line:
+                    diffs.append({"rust": rust_line, "zig": zig_line})
+                    if len(diffs) >= 5:
+                        break
+            if not diffs:
+                diffs.append({
+                    "rust": f"{len(rust_out.splitlines())} transcript lines",
+                    "zig": f"{len(zig_lines)} transcript lines",
+                })
+            case["first_disagreements"] = diffs
+        cases.append(case)
+    receipt["boundaries"]["shared_transcript_prefix"] = {
+        "status": "pass" if all_ok else "fail",
+        "channel": "blake2s on both sides (pinned prove_rv32im defaults to "
+        "Blake2sMerkleChannel -> Blake2sChannel; Zig prover uses the ported "
+        "stwo Blake2sChannel with upstream digest vectors)",
+        "prefix": "default channel state + PublicData mix_u32s sequence — "
+        "the full pre-commitment transcript; digest recorded after each step",
+        "corpus": cases,
+    }
+
+
 def build_and_compare(args) -> int:
     source = Path(args.stark_v_source).resolve()
     receipt: dict = {
@@ -448,6 +565,7 @@ def build_and_compare(args) -> int:
     compare_program_tuples(oracle_exe, receipt)
     compare_memory_roots(oracle_exe, receipt)
     compare_poseidon2(oracle_exe, receipt)
+    compare_shared_transcript_prefix(oracle_exe, receipt)
     receipt["verdict"] = (
         "PASS"
         if all(b.get("status") == "pass" for b in receipt["boundaries"].values())

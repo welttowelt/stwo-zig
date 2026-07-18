@@ -26,6 +26,7 @@ pub fn main() !void {
     var decode_file: ?[]const u8 = null;
     var program_tuples: ?[]const u8 = null;
     var poseidon2_file: ?[]const u8 = null;
+    var transcript_prefix: ?[]const u8 = null;
     var max_steps: usize = 1_000_000;
 
     var i: usize = 1;
@@ -45,6 +46,9 @@ pub fn main() !void {
         } else if (std.mem.eql(u8, args[i], "--poseidon2-file") and i + 1 < args.len) {
             i += 1;
             poseidon2_file = args[i];
+        } else if (std.mem.eql(u8, args[i], "--transcript-prefix") and i + 1 < args.len) {
+            i += 1;
+            transcript_prefix = args[i];
         } else if (std.mem.eql(u8, args[i], "--max-steps") and i + 1 < args.len) {
             i += 1;
             max_steps = try std.fmt.parseInt(usize, args[i], 10);
@@ -66,6 +70,11 @@ pub fn main() !void {
 
     if (poseidon2_file) |path| {
         try dumpPoseidon2(allocator, path);
+        return;
+    }
+
+    if (transcript_prefix) |path| {
+        try dumpTranscriptPrefix(allocator, path);
         return;
     }
 
@@ -200,6 +209,98 @@ fn dumpPoseidon2(allocator: std.mem.Allocator, path: []const u8) !void {
         }
         try writer.writeByte('\n');
     }
+    const stdout = std.fs.File{ .handle = std.posix.STDOUT_FILENO };
+    try stdout.writeAll(out.items);
+}
+
+/// Blake2s channel wrapper that records `mix_u32s len=N digest=<hex>` lines
+/// after every mix step. `PublicData.mixInto` drives the sequence — this is
+/// pure instrumentation, mirroring the oracle adapter's RecordingChannel.
+/// The channel mix contract is infallible, so recording failures abort
+/// rather than silently truncating the transcript.
+const DigestRecorder = struct {
+    channel: @import("core/channel/blake2s.zig").Blake2sChannel = .{},
+    allocator: std.mem.Allocator,
+    out: *std.ArrayList(u8),
+
+    pub fn mixU32s(self: *DigestRecorder, values: []const u32) void {
+        self.channel.mixU32s(values);
+        const writer = self.out.writer(self.allocator);
+        writer.print("mix_u32s len={d} ", .{values.len}) catch
+            @panic("transcript prefix recording failed");
+        self.appendDigest();
+    }
+
+    fn appendDigest(self: *DigestRecorder) void {
+        const writer = self.out.writer(self.allocator);
+        writer.print("digest=", .{}) catch
+            @panic("transcript prefix recording failed");
+        for (self.channel.digestBytes()) |byte| {
+            writer.print("{x:0>2}", .{byte}) catch
+                @panic("transcript prefix recording failed");
+        }
+        writer.print("\n", .{}) catch
+            @panic("transcript prefix recording failed");
+    }
+};
+
+/// Shared-transcript-prefix mode: run the ELF, build the prover-shaped
+/// public data (with sparse-tree roots, exactly like the staged prover),
+/// then replay the pinned Stark-V pre-commitment Fiat-Shamir prefix — a
+/// default Blake2s channel seeded by `PublicData.mixInto` — printing the
+/// channel digest after every mix step for byte comparison with the oracle.
+fn dumpTranscriptPrefix(allocator: std.mem.Allocator, path: []const u8) !void {
+    const public_data_mod = @import("frontends/riscv/air/public_data.zig");
+    const prover_mod = @import("frontends/riscv/prover.zig");
+    const memory_boundary = @import("frontends/riscv/air/memory_commitment/boundary.zig");
+
+    const elf_bytes = try std.fs.cwd().readFileAlloc(allocator, path, 64 * 1024 * 1024);
+    defer allocator.free(elf_bytes);
+    var run_result = try runner.run(allocator, elf_bytes, 10_000_000);
+    defer run_result.deinit();
+
+    const input_words = try public_data_mod.packInputWords(allocator, run_result.input);
+    defer allocator.free(input_words);
+    const out_words = try allocator.alloc(public_data_mod.OutputWord, run_result.output_words.len);
+    defer allocator.free(out_words);
+    for (run_result.output_words, 0..) |word, i| out_words[i] = .{
+        .addr = word.addr,
+        .value = word.value,
+        .clock = word.clock,
+    };
+    var boundary_claims = try memory_boundary.build(allocator, run_result.rw_memory.words);
+    defer boundary_claims.deinit(allocator);
+    const data = public_data_mod.PublicData{
+        .initial_pc = run_result.initial_pc,
+        .final_pc = run_result.final_pc,
+        .clock = @intCast(run_result.step_count),
+        .initial_regs = run_result.initial_regs,
+        .final_regs = run_result.final_regs,
+        .reg_last_clock = run_result.state_chain_tracker.reg_last_clk,
+        .program_root = try prover_mod.buildProgramSparseRoot(allocator, &run_result.rw_memory),
+        .initial_rw_root = if (boundary_claims.initial_tree) |tree| tree.root else null,
+        .final_rw_root = if (boundary_claims.final_tree) |tree| tree.root else null,
+        .io_entries = .{
+            .input_start = run_result.input_start,
+            .input_len = @intCast(run_result.input.len),
+            .input_words = input_words,
+            .output_len = run_result.output_len,
+            .output_len_addr = run_result.output_len_addr,
+            .output_data_addr = run_result.output_data_addr,
+            .output_words = out_words,
+        },
+    };
+
+    var out: std.ArrayList(u8) = .{};
+    defer out.deinit(allocator);
+    var recorder = DigestRecorder{ .allocator = allocator, .out = &out };
+    {
+        const writer = out.writer(allocator);
+        try writer.print("init ", .{});
+    }
+    recorder.appendDigest();
+    data.mixInto(&recorder);
+
     const stdout = std.fs.File{ .handle = std.posix.STDOUT_FILENO };
     try stdout.writeAll(out.items);
 }
