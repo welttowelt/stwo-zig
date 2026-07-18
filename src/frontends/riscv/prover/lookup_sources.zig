@@ -1,0 +1,109 @@
+//! Derives lookup-table counters from the exact opcode columns being committed.
+
+const std = @import("std");
+const M31 = @import("../../../core/fields/m31.zig").M31;
+const source_ingest = @import("../air/lookups/tables/source_ingest.zig");
+const counter = @import("../air/lookups/tables/counter.zig");
+const table_interaction = @import("../air/lookups/tables/interaction.zig");
+const memory_boundary = @import("../air/memory_commitment/boundary.zig");
+const memory_interaction = @import("../air/memory_commitment/interaction.zig");
+const relations_mod = @import("../air/relation_challenges.zig");
+const statement_mod = @import("../air/statement.zig");
+const trace = @import("../runner/trace.zig");
+const opcode_trace = @import("opcode_trace.zig");
+
+pub fn ingest(
+    allocator: std.mem.Allocator,
+    statement: statement_mod.RiscVStatement,
+    columns: *const opcode_trace.Columns,
+) !source_ingest.Result {
+    var shard_counts = [_]u32{0} ** trace.N_FAMILIES;
+    for (0..statement.n_components) |component_index| {
+        const family_index = @intFromEnum(statement.component_descs[component_index].family);
+        shard_counts[family_index] += 1;
+    }
+
+    var sources: [trace.N_FAMILIES]source_ingest.FamilySource = undefined;
+    var shards: [statement_mod.MAX_COMPONENTS]source_ingest.Shard = undefined;
+    var column_views: [statement_mod.MAX_COMPONENTS][trace.MAX_FAMILY_COLUMNS][]const M31 = undefined;
+    var source_count: usize = 0;
+    var shard_offset: usize = 0;
+    for (0..trace.N_FAMILIES) |family_index| {
+        const count = shard_counts[family_index];
+        if (count == 0) continue;
+        const family: trace.OpcodeFamily = @enumFromInt(family_index);
+        const first_shard = shard_offset;
+        var ordinal: u32 = 0;
+        for (0..statement.n_components) |component_index| {
+            const desc = statement.component_descs[component_index];
+            if (desc.family != family) continue;
+            const component = columns.components[component_index];
+            if (component.n_columns != trace.nColumnsForFamily(family) or
+                component.n_real_rows != desc.n_rows)
+                return error.InvalidShardGeometry;
+            for (
+                component.columns[0..component.n_columns],
+                column_views[shard_offset][0..component.n_columns],
+            ) |values, *view| view.* = values;
+            shards[shard_offset] = .{
+                .ordinal = ordinal,
+                .shard_count = count,
+                .n_real_rows = component.n_real_rows,
+                .committed_columns = column_views[shard_offset][0..component.n_columns],
+                .committed_digest = undefined,
+            };
+            shards[shard_offset].committed_digest = source_ingest.digestShard(
+                family,
+                shards[shard_offset],
+            );
+            ordinal += 1;
+            shard_offset += 1;
+        }
+        if (ordinal != count) return error.InvalidShardCount;
+        sources[source_count] = .{
+            .family = family,
+            .shards = shards[first_shard..shard_offset],
+        };
+        source_count += 1;
+    }
+    if (shard_offset != statement.n_components) return error.InvalidShardCount;
+    return source_ingest.ingest(allocator, sources[0..source_count]);
+}
+
+pub fn registerMemoryBoundary(
+    counters: *counter.Set,
+    rows: []const memory_boundary.Row,
+) !void {
+    for (rows) |row| try counters.registerList(memory_interaction.entriesFromRow(row));
+}
+
+test "lookup sources include both range88 requests from every memory boundary row" {
+    const allocator = std.testing.allocator;
+    const rows = [_]memory_boundary.Row{.{
+        .addr = 0x1000,
+        .clock = 7,
+        .value = .{ 1, 2, 3, 4 },
+        .multiplicity = M31.one().neg(),
+        .root = 99,
+    }};
+    var counters = try counter.Set.init(allocator);
+    defer counters.deinit(allocator);
+    try registerMemoryBoundary(&counters, &rows);
+    try std.testing.expect(
+        counters.get(.range_check_8_8).signedTotal().eql(M31.fromU64(2).neg()),
+    );
+
+    const relations = relations_mod.Relations.dummy();
+    var table = try table_interaction.generate(
+        allocator,
+        counters.get(.range_check_8_8),
+        &relations,
+    );
+    defer table.deinit(allocator);
+    const source = try memory_interaction.diagnosticSum(
+        &rows,
+        .range_check_8_8,
+        &relations,
+    );
+    try std.testing.expect(source.add(table.claim).isZero());
+}

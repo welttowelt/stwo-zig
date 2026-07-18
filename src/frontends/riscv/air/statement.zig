@@ -1,10 +1,15 @@
 //! Public RISC-V proof shape and transcript claims.
 
+const std = @import("std");
 const qm31 = @import("../../../core/fields/qm31.zig");
 const component = @import("component.zig");
 const memory_interaction = @import("memory_commitment/interaction.zig");
 const merkle_node = @import("memory_commitment/merkle_node.zig");
-const opcode_memory = @import("opcode_memory.zig");
+const lookup_entry = @import("lookups/entry.zig");
+const opcode_entries = @import("lookups/opcode_entries.zig");
+const opcode_interaction = @import("lookups/opcode_interaction.zig");
+const table_schema = @import("lookups/tables/schema.zig");
+const clock_update_interaction = @import("clock_update_interaction.zig");
 const poseidon2_air = @import("memory_commitment/poseidon2_air.zig");
 const program_interaction = @import("program/interaction.zig");
 const public_data = @import("public_data.zig");
@@ -18,7 +23,7 @@ pub const PublicData = public_data.PublicData;
 pub const MAX_COMPONENTS: usize = 256;
 pub const MAX_INFRA_COMPONENTS: usize = 512;
 pub const MAX_INTERACTION_COLUMNS: usize =
-    MAX_COMPONENTS * @as(usize, component.nInteractionCols(.opcode)) + MAX_INFRA_COMPONENTS * 16;
+    MAX_COMPONENTS * opcode_interaction.MAX_COLUMNS + MAX_INFRA_COMPONENTS * 16;
 
 pub const InfraKind = enum(u32) {
     program,
@@ -54,12 +59,42 @@ pub fn nInteractionColsForInfra(kind: InfraKind) u32 {
         .range_check_8_8,
         .range_check_m31,
         => 4,
-        .clock_update => 0,
+        .clock_update => clock_update_interaction.N_INTERACTION_COLUMNS,
     };
 }
 
 pub fn nClaimedSumsForInfra(kind: InfraKind) u32 {
     return nInteractionColsForInfra(kind) / 4;
+}
+
+pub fn tableKind(kind: InfraKind) ?table_schema.Kind {
+    return switch (kind) {
+        .bitwise => .bitwise,
+        .range_check_20 => .range_check_20,
+        .range_check_8_11 => .range_check_8_11,
+        .range_check_8_8_4 => .range_check_8_8_4,
+        .range_check_8_8 => .range_check_8_8,
+        .range_check_m31 => .range_check_m31,
+        else => null,
+    };
+}
+
+pub fn infraKindForTable(kind: table_schema.Kind) InfraKind {
+    return switch (kind) {
+        .bitwise => .bitwise,
+        .range_check_20 => .range_check_20,
+        .range_check_8_11 => .range_check_8_11,
+        .range_check_8_8_4 => .range_check_8_8_4,
+        .range_check_8_8 => .range_check_8_8,
+        .range_check_m31 => .range_check_m31,
+    };
+}
+
+pub fn nPreprocessedColumnsForInfra(kind: InfraKind) u32 {
+    return if (tableKind(kind)) |table|
+        @intCast(1 + table_schema.arity(table))
+    else
+        2;
 }
 
 pub const RiscVStatement = struct {
@@ -73,7 +108,20 @@ pub const RiscVStatement = struct {
     infra_descs: [MAX_INFRA_COMPONENTS]InfraComponentDesc = undefined,
 
     pub fn nPreprocessedColumns(self: *const RiscVStatement) u32 {
-        return 2 * (self.n_components + self.n_infra);
+        var total = 2 * self.n_components;
+        for (0..self.n_infra) |index| {
+            total += nPreprocessedColumnsForInfra(self.infra_descs[index].kind);
+        }
+        return total;
+    }
+
+    pub fn preprocessedOffsetForInfra(self: *const RiscVStatement, infra_index: usize) usize {
+        std.debug.assert(infra_index <= self.n_infra);
+        var offset: usize = 2 * self.n_components;
+        for (0..infra_index) |index| {
+            offset += nPreprocessedColumnsForInfra(self.infra_descs[index].kind);
+        }
+        return offset;
     }
 
     pub fn nOpcodeMainColumns(self: *const RiscVStatement) u32 {
@@ -93,7 +141,10 @@ pub const RiscVStatement = struct {
     }
 
     pub fn nInteractionColumns(self: *const RiscVStatement) u32 {
-        var total: u32 = self.n_components * component.nInteractionCols(.opcode);
+        var total: u32 = 0;
+        for (0..self.n_components) |i| {
+            total += @intCast(opcode_interaction.nColumns(self.component_descs[i].family));
+        }
         for (0..self.n_infra) |i| total += nInteractionColsForInfra(self.infra_descs[i].kind);
         return total;
     }
@@ -104,7 +155,8 @@ pub const RiscVStatement = struct {
             total += @as(u64, 2) << @intCast(self.component_descs[i].log_size);
         }
         for (0..self.n_infra) |i| {
-            total += @as(u64, 2) << @intCast(self.infra_descs[i].log_size);
+            total += @as(u64, nPreprocessedColumnsForInfra(self.infra_descs[i].kind)) <<
+                @intCast(self.infra_descs[i].log_size);
         }
         return total;
     }
@@ -125,7 +177,7 @@ pub const RiscVStatement = struct {
     pub fn nInteractionCells(self: *const RiscVStatement) u64 {
         var total: u64 = 0;
         for (0..self.n_components) |i| {
-            total += @as(u64, component.nInteractionCols(.opcode)) <<
+            total += @as(u64, @intCast(opcode_interaction.nColumns(self.component_descs[i].family))) <<
                 @intCast(self.component_descs[i].log_size);
         }
         for (0..self.n_infra) |i| {
@@ -194,13 +246,12 @@ pub const CanonicalInteractionClaim = struct {
 };
 
 pub const RiscVInteractionClaim = struct {
-    state_claims: [MAX_COMPONENTS]QM31,
-    prog_claims: [MAX_COMPONENTS]QM31,
-    opcode_memory_claims: [MAX_COMPONENTS][opcode_memory.N_ACCESSES]QM31,
+    opcode_claims: [MAX_COMPONENTS][lookup_entry.MAX_BATCHES]QM31,
     program_claims: [MAX_INFRA_COMPONENTS][program_interaction.N_SUMS]QM31,
     memory_claims: [MAX_INFRA_COMPONENTS][memory_interaction.N_SUMS]QM31,
     merkle_claims: [MAX_INFRA_COMPONENTS][merkle_node.N_SUMS]QM31,
     poseidon_claims: [MAX_INFRA_COMPONENTS][poseidon2_air.N_SUMS]QM31,
+    clock_claims: [MAX_INFRA_COMPONENTS]QM31,
     lookup_claims: [MAX_INFRA_COMPONENTS]QM31,
     n_components: u32,
     n_infra: u32,
@@ -208,13 +259,12 @@ pub const RiscVInteractionClaim = struct {
 
     pub fn initZero() RiscVInteractionClaim {
         return .{
-            .state_claims = .{QM31.zero()} ** MAX_COMPONENTS,
-            .prog_claims = .{QM31.zero()} ** MAX_COMPONENTS,
-            .opcode_memory_claims = .{.{QM31.zero()} ** opcode_memory.N_ACCESSES} ** MAX_COMPONENTS,
+            .opcode_claims = .{.{QM31.zero()} ** lookup_entry.MAX_BATCHES} ** MAX_COMPONENTS,
             .program_claims = .{.{QM31.zero()} ** program_interaction.N_SUMS} ** MAX_INFRA_COMPONENTS,
             .memory_claims = .{.{QM31.zero()} ** memory_interaction.N_SUMS} ** MAX_INFRA_COMPONENTS,
             .merkle_claims = .{.{QM31.zero()} ** merkle_node.N_SUMS} ** MAX_INFRA_COMPONENTS,
             .poseidon_claims = .{.{QM31.zero()} ** poseidon2_air.N_SUMS} ** MAX_INFRA_COMPONENTS,
+            .clock_claims = .{QM31.zero()} ** MAX_INFRA_COMPONENTS,
             .lookup_claims = .{QM31.zero()} ** MAX_INFRA_COMPONENTS,
             .n_components = 0,
             .n_infra = 0,
@@ -222,10 +272,22 @@ pub const RiscVInteractionClaim = struct {
         };
     }
 
-    pub fn opcodeClaimTotal(self: *const RiscVInteractionClaim, index: usize) !QM31 {
+    pub fn opcodeClaims(
+        self: *const RiscVInteractionClaim,
+        family: trace_mod.OpcodeFamily,
+        index: usize,
+    ) ![]const QM31 {
         if (index >= self.n_components) return error.InvalidInteractionClaim;
-        var result = self.state_claims[index].add(self.prog_claims[index]);
-        for (self.opcode_memory_claims[index]) |sum| result = result.add(sum);
+        return self.opcode_claims[index][0..opcode_entries.batchCount(family)];
+    }
+
+    pub fn opcodeClaimTotal(
+        self: *const RiscVInteractionClaim,
+        family: trace_mod.OpcodeFamily,
+        index: usize,
+    ) !QM31 {
+        var result = QM31.zero();
+        for (try self.opcodeClaims(family, index)) |sum| result = result.add(sum);
         return result;
     }
 
@@ -244,7 +306,7 @@ pub const RiscVInteractionClaim = struct {
             .range_check_8_8,
             .range_check_m31,
             => self.lookup_claims[index],
-            .clock_update => error.InvalidInteractionClaim,
+            .clock_update => self.clock_claims[index],
         };
     }
 
@@ -269,7 +331,7 @@ pub const RiscVInteractionClaim = struct {
             .range_check_8_8,
             .range_check_m31,
             => self.lookup_claims[index] = value,
-            .clock_update => return error.InvalidInteractionClaim,
+            .clock_update => self.clock_claims[index] = value,
         }
     }
 
@@ -296,8 +358,8 @@ pub const RiscVInteractionClaim = struct {
             const desc = statement.component_descs[i];
             const claim_index = @intFromEnum(componentForFamily(desc.family));
             result.claimed_sums[claim_index] = result.claimed_sums[claim_index]
-                .add(try self.opcodeClaimTotal(i));
-            for (0..component.nInteractionCols(.opcode)) |_| {
+                .add(try self.opcodeClaimTotal(desc.family, i));
+            for (0..opcode_interaction.nColumns(desc.family)) |_| {
                 if (result.n_log_sizes == result.log_sizes.len) return error.TooManyInteractionColumns;
                 result.log_sizes[result.n_log_sizes] = desc.log_size;
                 result.n_log_sizes += 1;

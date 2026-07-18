@@ -170,7 +170,7 @@ test "riscv prover: prove and verify synthetic trace" {
         trace_mod.OpcodeFamily.base_alu_imm,
         output.statement.component_descs[0].family,
     );
-    try std.testing.expectEqual(@as(u32, 3), output.statement.component_descs[0].log_size);
+    try std.testing.expectEqual(@as(u32, 4), output.statement.component_descs[0].log_size);
 
     try verifyRiscV(alloc, config, output.statement, output.proof, output.interaction_claim);
 }
@@ -456,13 +456,13 @@ test "riscv prover: multi-family splitting" {
     // Should have 3 components.
     try std.testing.expectEqual(@as(u32, 3), output.statement.n_components);
 
-    // Verify families are in enum order: base_alu_reg, base_alu_imm, branch_eq
+    // Verify families are in pinned transcript order.
     try std.testing.expectEqual(
-        trace_mod.OpcodeFamily.base_alu_reg,
+        trace_mod.OpcodeFamily.base_alu_imm,
         output.statement.component_descs[0].family,
     );
     try std.testing.expectEqual(
-        trace_mod.OpcodeFamily.base_alu_imm,
+        trace_mod.OpcodeFamily.base_alu_reg,
         output.statement.component_descs[1].family,
     );
     try std.testing.expectEqual(
@@ -470,10 +470,10 @@ test "riscv prover: multi-family splitting" {
         output.statement.component_descs[2].family,
     );
 
-    // Verify log_sizes: ADD=4 rows -> log2(4)=2, ADDI=8 -> log2(8)=3, BEQ=4 -> log2(4)=2
-    try std.testing.expectEqual(@as(u32, 2), output.statement.component_descs[0].log_size);
-    try std.testing.expectEqual(@as(u32, 3), output.statement.component_descs[1].log_size);
-    try std.testing.expectEqual(@as(u32, 2), output.statement.component_descs[2].log_size);
+    // Every small opcode family is padded to the minimum log-size 4 domain.
+    try std.testing.expectEqual(@as(u32, 4), output.statement.component_descs[0].log_size);
+    try std.testing.expectEqual(@as(u32, 4), output.statement.component_descs[1].log_size);
+    try std.testing.expectEqual(@as(u32, 4), output.statement.component_descs[2].log_size);
 
     // Verify takes ownership of the proof.
     try verifyRiscV(alloc, config, output.statement, output.proof, output.interaction_claim);
@@ -586,21 +586,21 @@ test "riscv prover: ADDI + ADD + BNE split prove and verify" {
     // Prove with component splitting.
     const output = try proveRiscV(alloc, config, &exec_trace, null, null);
 
-    // Verify statement: 3 components (base_alu_reg, base_alu_imm, branch_eq)
+    // Verify statement: 3 components in pinned transcript order.
     try std.testing.expectEqual(@as(u32, 3), output.statement.n_components);
     try std.testing.expectEqual(@as(u32, 8), output.statement.total_steps);
 
-    // Component 0: base_alu_reg (ADD, 2 rows -> log_size=1)
-    try std.testing.expectEqual(trace_mod.OpcodeFamily.base_alu_reg, output.statement.component_descs[0].family);
-    try std.testing.expectEqual(@as(u32, 1), output.statement.component_descs[0].log_size);
+    // Component 0: base_alu_imm (ADDI, 4 rows, padded to the minimum domain).
+    try std.testing.expectEqual(trace_mod.OpcodeFamily.base_alu_imm, output.statement.component_descs[0].family);
+    try std.testing.expectEqual(@as(u32, 4), output.statement.component_descs[0].log_size);
 
-    // Component 1: base_alu_imm (ADDI, 4 rows -> log_size=2)
-    try std.testing.expectEqual(trace_mod.OpcodeFamily.base_alu_imm, output.statement.component_descs[1].family);
-    try std.testing.expectEqual(@as(u32, 2), output.statement.component_descs[1].log_size);
+    // Component 1: base_alu_reg (ADD, 2 rows, padded to the minimum domain).
+    try std.testing.expectEqual(trace_mod.OpcodeFamily.base_alu_reg, output.statement.component_descs[1].family);
+    try std.testing.expectEqual(@as(u32, 4), output.statement.component_descs[1].log_size);
 
-    // Component 2: branch_eq (BNE, 2 rows -> log_size=1)
+    // Component 2: branch_eq (BNE, 2 rows, padded to the minimum domain).
     try std.testing.expectEqual(trace_mod.OpcodeFamily.branch_eq, output.statement.component_descs[2].family);
-    try std.testing.expectEqual(@as(u32, 1), output.statement.component_descs[2].log_size);
+    try std.testing.expectEqual(@as(u32, 4), output.statement.component_descs[2].log_size);
 
     // Verify the proof (takes ownership).
     try verifyRiscV(alloc, config, output.statement, output.proof, output.interaction_claim);
@@ -655,7 +655,7 @@ test "riscv prover: tampered interaction claim is rejected" {
     const output = try proveRiscV(alloc, TEST_PCS_CONFIG, &exec_trace, null, null);
 
     var tampered = output.interaction_claim;
-    tampered.state_claims[0] = tampered.state_claims[0].add(QM31.one());
+    tampered.opcode_claims[0][0] = tampered.opcode_claims[0][0].add(QM31.one());
 
     // verifyRiscV consumes the proof on failure as well. Either the global
     // cancellation or the OODS check must reject; don't over-specify which.
@@ -677,15 +677,15 @@ test "riscv prover: tampered interaction PoW is rejected before relation draws" 
     );
 }
 
-test "riscv prover: state and memory claims cannot cross-cancel" {
+test "riscv prover: opcode batch claims cannot cross-cancel" {
     const alloc = std.testing.allocator;
     var exec_trace = try testAddiTrace(alloc, 8);
     defer exec_trace.deinit();
 
     const output = try proveRiscV(alloc, TEST_PCS_CONFIG, &exec_trace, null, null);
     var tampered = output.interaction_claim;
-    tampered.state_claims[0] = tampered.state_claims[0].add(QM31.one());
-    tampered.opcode_memory_claims[0][0] = tampered.opcode_memory_claims[0][0].sub(QM31.one());
+    tampered.opcode_claims[0][0] = tampered.opcode_claims[0][0].add(QM31.one());
+    tampered.opcode_claims[0][1] = tampered.opcode_claims[0][1].sub(QM31.one());
     try std.testing.expect(std.meta.isError(verifyRiscV(
         alloc,
         TEST_PCS_CONFIG,

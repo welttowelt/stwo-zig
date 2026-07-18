@@ -45,7 +45,16 @@ const circle = @import("../../core/circle.zig");
 const runner_mod = @import("runner/mod.zig");
 const trace_mod = @import("runner/trace.zig");
 const trace_columns = @import("air/trace_columns.zig");
+const component_order = @import("air/component_order.zig");
+const clock_update_component = @import("air/clock_update_component.zig");
+const clock_update_interaction = @import("air/clock_update_interaction.zig");
 const interaction_gen = @import("air/interaction_gen.zig");
+const opcode_component = @import("air/lookups/opcode_component.zig");
+const opcode_entries = @import("air/lookups/opcode_entries.zig");
+const opcode_interaction = @import("air/lookups/opcode_interaction.zig");
+const lookup_table_component = @import("air/lookups/tables/component.zig");
+const lookup_table_interaction = @import("air/lookups/tables/interaction.zig");
+const lookup_table_schema = @import("air/lookups/tables/schema.zig");
 const logup = @import("air/logup.zig");
 const memory_logup = @import("air/memory_logup.zig");
 const opcode_memory = @import("air/opcode_memory.zig");
@@ -64,7 +73,10 @@ const riscv_component = @import("air/component.zig");
 const statement_mod = @import("air/statement.zig");
 const infra = @import("infra_trace.zig");
 const proof_transcript = @import("proof_transcript.zig");
+const lookup_sources = @import("prover/lookup_sources.zig");
 const opcode_trace = @import("prover/opcode_trace.zig");
+const preprocessed_trace = @import("prover/preprocessed.zig");
+const semantic_component = @import("air/semantic_component.zig");
 const state_chain = @import("runner/state_chain.zig");
 const memory_state = @import("runner/memory_state.zig");
 
@@ -139,10 +151,14 @@ fn computeLogSize(count: usize) u32 {
     return @intCast(std.math.log2_int_ceil(usize, count));
 }
 
+fn computeOpcodeLogSize(count: usize) u32 {
+    return @max(@as(u32, 4), computeLogSize(count));
+}
+
 fn validateStatement(statement: RiscVStatement) ProverError!void {
     if (statement.n_components == 0 or statement.n_components > MAX_COMPONENTS)
         return ProverError.InvalidStatement;
-    if (statement.n_infra < 4 or statement.n_infra > MAX_INFRA_COMPONENTS)
+    if (statement.n_infra < 10 or statement.n_infra > MAX_INFRA_COMPONENTS)
         return ProverError.InvalidStatement;
     if (statement.public_data.initial_pc != statement.initial_pc or
         statement.public_data.final_pc != statement.final_pc or
@@ -152,27 +168,24 @@ fn validateStatement(statement: RiscVStatement) ProverError!void {
         return ProverError.InvalidStatement;
 
     var total_rows: u64 = 0;
-    var previous_family: ?trace_mod.OpcodeFamily = null;
+    var previous_family_index: ?usize = null;
     var previous_rows: u32 = 0;
-    var max_non_program_log: u32 = 0;
     for (0..statement.n_components) |i| {
         const desc = statement.component_descs[i];
         if (desc.log_size == 0 or desc.log_size > MAX_OPCODE_SHARD_LOG_SIZE or
             desc.n_rows == 0 or desc.n_rows > MAX_OPCODE_SHARD_ROWS or
-            desc.log_size != computeLogSize(desc.n_rows) or
-            desc.n_columns != opcode_trace.nCommittedColumnsForFamily(desc.family) +
-                opcode_trace.LEGACY_BUS_COLUMNS)
+            desc.log_size != computeOpcodeLogSize(desc.n_rows) or
+            desc.n_columns != trace_mod.nColumnsForFamily(desc.family))
             return ProverError.InvalidStatement;
-        if (previous_family) |family| {
-            if (@intFromEnum(desc.family) < @intFromEnum(family))
-                return ProverError.InvalidStatement;
-            if (desc.family == family and previous_rows != MAX_OPCODE_SHARD_ROWS)
+        const family_index = component_order.opcodeFamilyIndex(desc.family);
+        if (previous_family_index) |previous| {
+            if (family_index < previous) return ProverError.InvalidStatement;
+            if (family_index == previous and previous_rows != MAX_OPCODE_SHARD_ROWS)
                 return ProverError.InvalidStatement;
         }
-        previous_family = desc.family;
+        previous_family_index = family_index;
         previous_rows = desc.n_rows;
         total_rows += desc.n_rows;
-        max_non_program_log = @max(max_non_program_log, desc.log_size);
     }
     if (total_rows != statement.total_steps) return ProverError.InvalidStatement;
 
@@ -188,9 +201,9 @@ fn validateStatement(statement: RiscVStatement) ProverError!void {
             desc.n_rows > MAX_MEMORY_SHARD_ROWS or
             desc.log_size != @max(@as(u32, 4), computeLogSize(desc.n_rows)))
             return ProverError.InvalidStatement;
-        max_non_program_log = @max(max_non_program_log, desc.log_size);
     }
-    if (index + 3 != statement.n_infra) return ProverError.InvalidStatement;
+    if (index + 3 + component_order.LOOKUP_TABLE_COUNT != statement.n_infra)
+        return ProverError.InvalidStatement;
     const merkle_desc = statement.infra_descs[index];
     const poseidon_desc = statement.infra_descs[index + 1];
     const clock_update = statement.infra_descs[index + 2];
@@ -207,12 +220,19 @@ fn validateStatement(statement: RiscVStatement) ProverError!void {
         clock_update.log_size != @max(@as(u32, 4), computeLogSize(clock_update.n_rows)))
         return ProverError.InvalidStatement;
     if (poseidon_desc.n_rows != merkle_desc.n_rows) return ProverError.InvalidStatement;
-    max_non_program_log = @max(
-        max_non_program_log,
-        @max(clock_update.log_size, @max(poseidon_desc.log_size, merkle_desc.log_size)),
-    );
+    index += 3;
+    for (component_order.lookupTables()) |kind| {
+        const desc = statement.infra_descs[index];
+        if (desc.kind != statement_mod.infraKindForTable(kind) or
+            desc.log_size != lookup_table_schema.logSize(kind) or
+            desc.n_rows != lookup_table_schema.size(kind) or
+            desc.n_columns != 1)
+            return ProverError.InvalidStatement;
+        index += 1;
+    }
+    std.debug.assert(index == statement.n_infra);
     if (program.n_rows > (@as(usize, 1) << @intCast(program.log_size)) or
-        program.log_size != @max(computeLogSize(program.n_rows), max_non_program_log))
+        program.log_size != computeLogSize(program.n_rows))
         return ProverError.InvalidStatement;
 }
 
@@ -223,28 +243,12 @@ fn verifyPreprocessedRoot(
     statement: RiscVStatement,
     actual: Hasher.Hash,
 ) !void {
-    const n_columns = 2 * (statement.n_components + statement.n_infra);
-    const columns = try allocator.alloc(prover_pcs.ColumnEvaluation, n_columns);
-    var initialized: usize = 0;
+    const columns = try preprocessed_trace.generate(allocator, statement);
     var columns_moved = false;
     errdefer if (!columns_moved) {
-        for (columns[0..initialized]) |column| allocator.free(@constCast(column.values));
+        for (columns) |column| allocator.free(@constCast(column.values));
         allocator.free(columns);
     };
-    for (0..statement.n_components) |i| {
-        const desc = statement.component_descs[i];
-        columns[initialized] = .{ .log_size = desc.log_size, .values = try opcode_trace.generateIsFirst(allocator, desc.log_size) };
-        initialized += 1;
-        columns[initialized] = .{ .log_size = desc.log_size, .values = try opcode_trace.generateIsActive(allocator, desc.log_size, desc.n_rows) };
-        initialized += 1;
-    }
-    for (0..statement.n_infra) |i| {
-        const desc = statement.infra_descs[i];
-        columns[initialized] = .{ .log_size = desc.log_size, .values = try opcode_trace.generateIsFirst(allocator, desc.log_size) };
-        initialized += 1;
-        columns[initialized] = .{ .log_size = desc.log_size, .values = try opcode_trace.generateIsActive(allocator, desc.log_size, desc.n_rows) };
-        initialized += 1;
-    }
 
     var scheme = try Engine.init(allocator, pcs_config);
     defer Engine.deinit(&scheme, allocator);
@@ -399,8 +403,7 @@ pub fn proveRiscVWithEngineAndPublicData(
         .public_data = public_data,
     };
 
-    for (0..trace_mod.N_FAMILIES) |fi| {
-        const family: trace_mod.OpcodeFamily = @enumFromInt(fi);
+    for (component_order.opcodeFamilies()) |family| {
         const count = counts.get(family);
         if (count == 0) continue;
 
@@ -410,10 +413,9 @@ pub fn proveRiscVWithEngineAndPublicData(
             const shard_len = @min(remaining, MAX_OPCODE_SHARD_ROWS);
             statement.component_descs[statement.n_components] = .{
                 .family = family,
-                .log_size = computeLogSize(shard_len),
+                .log_size = computeOpcodeLogSize(shard_len),
                 .n_rows = @intCast(shard_len),
-                .n_columns = opcode_trace.nCommittedColumnsForFamily(family) +
-                    opcode_trace.LEGACY_BUS_COLUMNS,
+                .n_columns = trace_mod.nColumnsForFamily(family),
             };
             statement.n_components += 1;
             remaining -= shard_len;
@@ -426,7 +428,7 @@ pub fn proveRiscVWithEngineAndPublicData(
     statement.n_infra = 0;
 
     // Exact sparse decoded-program commitment (8 columns).
-    var program_log_size = computeLogSize(program.rows.len);
+    const program_log_size = computeLogSize(program.rows.len);
     statement.infra_descs[statement.n_infra] = .{
         .kind = .program,
         .log_size = program_log_size,
@@ -517,7 +519,8 @@ pub fn proveRiscVWithEngineAndPublicData(
         const n_updates = chain.clock_updates_mem.items.len + chain.clock_updates_reg.items.len;
         if (n_updates > 0) clock_update_log = @max(computeLogSize(n_updates), 4);
     }
-    statement.infra_descs[statement.n_infra] = .{
+    const clock_infra_index = statement.n_infra;
+    statement.infra_descs[clock_infra_index] = .{
         .kind = .clock_update,
         .log_size = clock_update_log,
         .n_rows = if (opt_chain) |chain| @intCast(
@@ -527,23 +530,17 @@ pub fn proveRiscVWithEngineAndPublicData(
     };
     statement.n_infra += 1;
 
-    // Preprocessed lookup multiplicity tables stay uncommitted: range-check
-    // and bitwise buses are not wired yet.
-
-    // Lift the program ROM to the maximal component size: the interaction
-    // tree (tree 2) must contain a column at the maximal committed log size
-    // because the lifted PCS folds query positions only for tree 0. Padding
-    // ROM rows carry zero multiplicity and do not change the bus balance.
-    var max_component_log: u32 = 0;
-    for (0..statement.n_components) |i| {
-        max_component_log = @max(max_component_log, statement.component_descs[i].log_size);
+    for (component_order.lookupTables()) |kind| {
+        if (statement.n_infra == MAX_INFRA_COMPONENTS)
+            return ProverError.TooManyInfrastructureComponents;
+        statement.infra_descs[statement.n_infra] = .{
+            .kind = statement_mod.infraKindForTable(kind),
+            .log_size = lookup_table_schema.logSize(kind),
+            .n_rows = @intCast(lookup_table_schema.size(kind)),
+            .n_columns = 1,
+        };
+        statement.n_infra += 1;
     }
-    for (0..statement.n_infra) |i| {
-        max_component_log = @max(max_component_log, statement.infra_descs[i].log_size);
-    }
-    program_log_size = @max(program_log_size, max_component_log);
-    std.debug.assert(statement.infra_descs[0].kind == .program);
-    statement.infra_descs[0].log_size = program_log_size;
     try validateStatement(statement);
 
     var channel = Channel{};
@@ -557,39 +554,16 @@ pub fn proveRiscVWithEngineAndPublicData(
     var empty_chain = state_chain.StateChainTracker.init(allocator);
     defer empty_chain.deinit();
 
-    // -- Step 3: Tree 0 -- deterministic IsFirst/IsActive selector pairs. --
-    const n_preproc = 2 * (statement.n_components + statement.n_infra);
+    // -- Step 3: Tree 0 -- selectors and exact lookup-table tuples. --
     {
         var stage = try stage_profile.StageScope.begin(recorder, "riscv_preprocessed_commit", "RISC-V preprocessed trace commit");
         defer stage.end();
-        const preprocessed = try allocator.alloc(prover_pcs.ColumnEvaluation, n_preproc);
-        var initialized: usize = 0;
+        const preprocessed = try preprocessed_trace.generate(allocator, statement);
         var moved = false;
         errdefer if (!moved) {
-            for (preprocessed[0..initialized]) |column| allocator.free(@constCast(column.values));
+            for (preprocessed) |column| allocator.free(@constCast(column.values));
             allocator.free(preprocessed);
         };
-        for (0..statement.n_components) |i| {
-            const ls = statement.component_descs[i].log_size;
-            preprocessed[2 * i] = .{ .log_size = ls, .values = try opcode_trace.generateIsFirst(allocator, ls) };
-            initialized += 1;
-            preprocessed[2 * i + 1] = .{
-                .log_size = ls,
-                .values = try opcode_trace.generateIsActive(allocator, ls, statement.component_descs[i].n_rows),
-            };
-            initialized += 1;
-        }
-        for (0..statement.n_infra) |i| {
-            const ls = statement.infra_descs[i].log_size;
-            const base = 2 * (statement.n_components + i);
-            preprocessed[base] = .{ .log_size = ls, .values = try opcode_trace.generateIsFirst(allocator, ls) };
-            initialized += 1;
-            preprocessed[base + 1] = .{
-                .log_size = ls,
-                .values = try opcode_trace.generateIsActive(allocator, ls, statement.infra_descs[i].n_rows),
-            };
-            initialized += 1;
-        }
         moved = true;
         try Engine.commit(&scheme, allocator, preprocessed, recorder, &channel);
     }
@@ -638,6 +612,7 @@ pub fn proveRiscVWithEngineAndPublicData(
     var opcode_stage = try stage_profile.StageScope.begin(recorder, "riscv_opcode_trace_generation", "RISC-V opcode trace generation (overlapped)");
     const opcode_thread = std.Thread.spawn(.{}, OpcodeGenerationWork.run, .{&opcode_work}) catch null;
     var opcode_joined = false;
+    var opcode_cleanup_on_error = true;
     defer if (opcode_thread) |thread| {
         if (!opcode_joined) thread.join();
     };
@@ -648,7 +623,7 @@ pub fn proveRiscVWithEngineAndPublicData(
                 opcode_joined = true;
             }
         }
-        if (opcode_work.err == null) {
+        if (opcode_cleanup_on_error and opcode_work.err == null) {
             opcode_work.result.deinit(allocator, statement);
         }
     }
@@ -716,14 +691,23 @@ pub fn proveRiscVWithEngineAndPublicData(
         col_offset += poseidon2_air.N_MAIN_COLUMNS;
     }
 
+    var clock_main: [clock_update_interaction.N_MAIN_COLUMNS][]M31 =
+        .{&.{}} ** clock_update_interaction.N_MAIN_COLUMNS;
+    var clock_main_initialized = false;
+    defer if (clock_main_initialized) {
+        for (clock_main) |column| allocator.free(column);
+    };
+
     // Unified register + memory clock update (8 cols).
     {
         const chain_ptr = opt_chain orelse &empty_chain;
         const cu_cols = try infra.genClockUpdateColumns(allocator, chain_ptr, clock_update_log);
+        clock_main = cu_cols.columns;
+        clock_main_initialized = true;
         for (0..infra.CLOCK_UPDATE_COLS) |c| {
             main_columns[col_offset + c] = .{
                 .log_size = clock_update_log,
-                .values = cu_cols.columns[c],
+                .values = try allocator.dupe(M31, clock_main[c]),
             };
             main_initialized[col_offset + c] = true;
         }
@@ -737,52 +721,42 @@ pub fn proveRiscVWithEngineAndPublicData(
     }
     opcode_stage.end();
     if (opcode_work.err) |err| return err;
+    opcode_cleanup_on_error = false;
+    defer opcode_work.result.deinit(allocator, statement);
 
-    var rows_by_family: [trace_mod.N_FAMILIES]std.ArrayList(trace_mod.TraceRow) =
-        .{std.ArrayList(trace_mod.TraceRow).empty} ** trace_mod.N_FAMILIES;
-    defer for (&rows_by_family) |*rows| rows.deinit(allocator);
-    for (exec_trace.rows.items) |row| {
-        try rows_by_family[@intFromEnum(trace_mod.opcodeFamily(row.opcode))].append(allocator, row);
+    // Derive table multiplicities from the exact family buffers that will be
+    // committed below. This keeps both the lookup source and its commitment on
+    // one witness path, including any future pre-commit mutation hook.
+    var lookup_source = try lookup_sources.ingest(allocator, statement, &opcode_work.result);
+    defer lookup_source.deinit(allocator);
+    if (boundary_claims) |claims| {
+        try lookup_sources.registerMemoryBoundary(&lookup_source.counters, claims.rows);
     }
-    var family_bus_cursor: [trace_mod.N_FAMILIES]usize = .{0} ** trace_mod.N_FAMILIES;
+    try clock_update_interaction.registerRangeCheck20Counter(
+        lookup_source.counters.get(.range_check_20),
+    );
+    for (component_order.lookupTables()) |kind| {
+        const counter = &lookup_source.counters.counters[@intFromEnum(kind)];
+        main_columns[col_offset] = .{
+            .log_size = lookup_table_schema.logSize(kind),
+            .values = try counter.committedColumn(allocator),
+        };
+        main_initialized[col_offset] = true;
+        col_offset += 1;
+    }
+
     var opcode_col_offset: usize = 0;
     for (0..statement.n_components) |comp_idx| {
         const desc = statement.component_descs[comp_idx];
-        var committed_column: usize = 0;
-        for (0..opcode_work.result.components[comp_idx].n_columns) |column| {
-            const values = opcode_work.result.components[comp_idx].columns[column];
-            if (!opcode_trace.isCommittedFamilyColumn(desc.family, column)) {
-                std.debug.assert(values.len == 0);
-                continue;
-            }
-            main_columns[opcode_col_offset + committed_column] = .{
+        const generated = &opcode_work.result.components[comp_idx];
+        if (generated.n_columns != desc.n_columns) return ProverError.InvalidStatement;
+        for (generated.columns[0..generated.n_columns], 0..) |values, column| {
+            main_columns[opcode_col_offset + column] = .{
                 .log_size = desc.log_size,
-                .values = values,
+                .values = try allocator.dupe(M31, values),
             };
-            main_initialized[opcode_col_offset + committed_column] = true;
-            opcode_work.result.components[comp_idx].columns[column] = &.{};
-            committed_column += 1;
+            main_initialized[opcode_col_offset + column] = true;
         }
-        std.debug.assert(committed_column + opcode_trace.LEGACY_BUS_COLUMNS == desc.n_columns);
-        const fi = @intFromEnum(desc.family);
-        const start = family_bus_cursor[fi];
-        const end = start + desc.n_rows;
-        if (end > rows_by_family[fi].items.len) return ProverError.InvalidLogSize;
-        const bus = try interaction_gen.genOpcodeBusColumns(
-            allocator,
-            rows_by_family[fi].items[start..end],
-            desc.log_size,
-        );
-        for (bus) |values| {
-            main_columns[opcode_col_offset + committed_column] = .{
-                .log_size = desc.log_size,
-                .values = values,
-            };
-            main_initialized[opcode_col_offset + committed_column] = true;
-            committed_column += 1;
-        }
-        family_bus_cursor[fi] = end;
-        std.debug.assert(committed_column == desc.n_columns);
         opcode_col_offset += desc.n_columns;
     }
     std.debug.assert(opcode_col_offset == n_opcode_main);
@@ -795,9 +769,9 @@ pub fn proveRiscVWithEngineAndPublicData(
         try Engine.commit(&scheme, allocator, main_columns, recorder, &channel);
     }
 
-    // Tree 2 carries the transitional opcode buses and the exact program,
-    // memory, Merkle, and Poseidon2 interactions. Exact opcode/table placement
-    // and canonical global cancellation remain release blockers.
+    // Tree 2 carries exact declaration-order opcode and infrastructure
+    // interactions generated from byte-identical base buffers retained across
+    // the Tree1 commitment.
     const n_interaction = statement.nInteractionColumns();
 
     std.log.info("Columns: opcode={d} infra={d} total tree1={d} interaction={d}", .{
@@ -821,19 +795,16 @@ pub fn proveRiscVWithEngineAndPublicData(
     interaction_claim.n_infra = statement.n_infra;
     interaction_claim.interaction_pow = transcript_prefix.interaction_pow;
 
-    // Uncommitted trace-order-shifted S columns ([0] state, [1] prog per
-    // opcode component; rom for the program component), kept alive for the
-    // on-domain constraint evaluation inside Engine.prove.
-    const opcode_prev = try allocator.alloc([2][4][]M31, statement.n_components);
-    var opcode_prev_transferred = false;
-    errdefer if (!opcode_prev_transferred) allocator.free(opcode_prev);
-    for (opcode_prev) |*prev| prev.* = .{ .{ &.{}, &.{}, &.{}, &.{} }, .{ &.{}, &.{}, &.{}, &.{} } };
-    const opcode_memory_prev = try allocator.alloc(opcode_memory.Previous, statement.n_components);
-    var opcode_memory_prev_transferred = false;
-    errdefer if (!opcode_memory_prev_transferred) allocator.free(opcode_memory_prev);
-    for (opcode_memory_prev) |*prev| {
-        prev.* = .{.{ &.{}, &.{}, &.{}, &.{} }} ** opcode_memory.N_ACCESSES;
-    }
+    // Shifted cumulative columns remain alive through composition evaluation.
+    // Opcode interactions consume the exact values retained by Tree 1.
+    var opcode_results: [MAX_COMPONENTS]opcode_interaction.Result = undefined;
+    var n_opcode_results: usize = 0;
+    defer for (opcode_results[0..n_opcode_results]) |*result| result.deinit(allocator);
+    var table_results: [component_order.LOOKUP_TABLE_COUNT]lookup_table_interaction.Result = undefined;
+    var n_table_results: usize = 0;
+    defer for (table_results[0..n_table_results]) |*result| result.deinit(allocator);
+    var clock_result: ?clock_update_interaction.InteractionTrace = null;
+    defer if (clock_result) |*result| result.deinit(allocator);
     var program_prev: program_interaction.Previous =
         .{.{ &.{}, &.{}, &.{}, &.{} }} ** program_interaction.N_SUMS;
     var merkle_prev: merkle_node.Previous =
@@ -842,17 +813,7 @@ pub fn proveRiscVWithEngineAndPublicData(
         .{.{ &.{}, &.{}, &.{}, &.{} }} ** poseidon2_air.N_SUMS;
     const memory_prev = try allocator.alloc(memory_interaction.Previous, statement.n_infra);
     for (memory_prev) |*prev| prev.* = .{.{ &.{}, &.{}, &.{}, &.{} }} ** memory_interaction.N_SUMS;
-    opcode_prev_transferred = true;
-    opcode_memory_prev_transferred = true;
     defer {
-        for (opcode_prev) |prev| {
-            for (prev) |set| interaction_gen.freeColumns(allocator, &set);
-        }
-        allocator.free(opcode_prev);
-        for (opcode_memory_prev) |prev| {
-            for (prev) |set| interaction_gen.freeColumns(allocator, &set);
-        }
-        allocator.free(opcode_memory_prev);
         for (&program_prev) |*set| interaction_gen.freeColumns(allocator, set);
         for (&merkle_prev) |*set| interaction_gen.freeColumns(allocator, set);
         for (&poseidon_prev) |*set| interaction_gen.freeColumns(allocator, set);
@@ -867,16 +828,6 @@ pub fn proveRiscVWithEngineAndPublicData(
         var stage = try stage_profile.StageScope.begin(recorder, "riscv_interaction_commit", "RISC-V interaction trace generation and commit");
         defer stage.end();
 
-        // Rebuild per-family row lists (execution order) and chunk them by
-        // MAX_OPCODE_SHARD_ROWS, mirroring the descriptor construction.
-        var family_rows: [trace_mod.N_FAMILIES]std.ArrayList(trace_mod.TraceRow) =
-            .{std.ArrayList(trace_mod.TraceRow).empty} ** trace_mod.N_FAMILIES;
-        defer for (&family_rows) |*list| list.deinit(allocator);
-        for (exec_trace.rows.items) |row| {
-            const fi = @intFromEnum(trace_mod.opcodeFamily(row.opcode));
-            try family_rows[fi].append(allocator, row);
-        }
-
         const interaction_columns = try allocator.alloc(prover_pcs.ColumnEvaluation, n_interaction);
         var inter_col_idx: usize = 0;
         var interaction_columns_moved = false;
@@ -889,30 +840,36 @@ pub fn proveRiscVWithEngineAndPublicData(
             }
         }
 
-        var family_cursor: [trace_mod.N_FAMILIES]usize = .{0} ** trace_mod.N_FAMILIES;
+        var opcode_main_offset: usize = 0;
         for (0..statement.n_components) |i| {
             const desc = statement.component_descs[i];
-            const fi = @intFromEnum(desc.family);
-            const remaining = family_rows[fi].items.len - family_cursor[fi];
-            const shard_len = @min(remaining, MAX_OPCODE_SHARD_ROWS);
-            std.debug.assert(shard_len > 0 and computeLogSize(shard_len) == desc.log_size);
-            const shard = family_rows[fi].items[family_cursor[fi]..][0..shard_len];
-            family_cursor[fi] += shard_len;
-
-            const gen = try interaction_gen.genOpcodeInteraction(allocator, shard, desc.log_size, &relations);
-            interaction_claim.state_claims[i] = gen.state_claim;
-            interaction_claim.prog_claims[i] = gen.prog_claim;
-            interaction_claim.opcode_memory_claims[i] = gen.memory_claims;
-            opcode_prev[i] = .{ gen.prev_state, gen.prev_prog };
-            opcode_memory_prev[i] = gen.prev_memory;
-            for (gen.columns) |values| {
+            const n_family_columns: usize = @intCast(desc.n_columns);
+            var family_columns: [trace_mod.MAX_FAMILY_COLUMNS][]const M31 = undefined;
+            for (
+                opcode_work.result.components[i].columns[0..n_family_columns],
+                family_columns[0..n_family_columns],
+            ) |column, *values| values.* = column;
+            opcode_results[n_opcode_results] = try opcode_interaction.generate(
+                allocator,
+                desc.family,
+                family_columns[0..n_family_columns],
+                desc.log_size,
+                &relations,
+            );
+            const generated = &opcode_results[n_opcode_results];
+            n_opcode_results += 1;
+            @memcpy(
+                interaction_claim.opcode_claims[i][0..generated.n_batches],
+                generated.claims[0..generated.n_batches],
+            );
+            const columns = generated.takeColumns();
+            for (columns[0..generated.nColumns()]) |values| {
                 interaction_columns[inter_col_idx] = .{ .log_size = desc.log_size, .values = values };
                 inter_col_idx += 1;
             }
+            opcode_main_offset += n_family_columns;
         }
-        for (0..trace_mod.N_FAMILIES) |fi| {
-            std.debug.assert(family_cursor[fi] == family_rows[fi].items.len);
-        }
+        std.debug.assert(opcode_main_offset == n_opcode_main);
 
         const rom = try program_interaction.generate(
             allocator,
@@ -975,6 +932,45 @@ pub fn proveRiscVWithEngineAndPublicData(
             interaction_columns[inter_col_idx] = .{ .log_size = poseidon_log_size, .values = values };
             inter_col_idx += 1;
         }
+
+        var clock_views: [clock_update_interaction.N_MAIN_COLUMNS][]const M31 = undefined;
+        for (&clock_views, clock_main) |*view, column| view.* = column;
+        clock_result = try clock_update_interaction.generate(
+            allocator,
+            &clock_views,
+            clock_update_log,
+            &relations,
+        );
+        interaction_claim.clock_claims[clock_infra_index] = clock_result.?.claim;
+        const clock_columns = clock_result.?.takeColumns();
+        for (clock_columns) |values| {
+            interaction_columns[inter_col_idx] = .{
+                .log_size = clock_update_log,
+                .values = values,
+            };
+            inter_col_idx += 1;
+        }
+
+        const table_infra_start = statement.n_infra - component_order.LOOKUP_TABLE_COUNT;
+        for (component_order.lookupTables(), 0..) |kind, table_index| {
+            const infra_index = table_infra_start + table_index;
+            table_results[n_table_results] = try lookup_table_interaction.generate(
+                allocator,
+                &lookup_source.counters.counters[@intFromEnum(kind)],
+                &relations,
+            );
+            const generated = &table_results[n_table_results];
+            n_table_results += 1;
+            interaction_claim.lookup_claims[infra_index] = generated.claim;
+            const columns = generated.takeColumns();
+            for (columns) |values| {
+                interaction_columns[inter_col_idx] = .{
+                    .log_size = lookup_table_schema.logSize(kind),
+                    .values = values,
+                };
+                inter_col_idx += 1;
+            }
+        }
         std.debug.assert(inter_col_idx == n_interaction);
 
         try proof_transcript.mixInteractionClaim(&channel, &statement, &interaction_claim);
@@ -982,60 +978,55 @@ pub fn proveRiscVWithEngineAndPublicData(
         try Engine.commit(&scheme, allocator, interaction_columns, recorder, &channel);
     }
 
-    // -- Step 6: Create per-family components and prove. --
-    const total_components = statement.n_components + statement.n_infra;
-    var component_storage: [MAX_COMPONENTS + MAX_INFRA_COMPONENTS]RiscVTraceComponent = undefined;
+    // -- Step 6: Pair semantic owners with exact lookup consumers. --
+    var semantic_storage: [MAX_COMPONENTS]semantic_component.SemanticComponent = undefined;
+    var opcode_lookup_storage: [MAX_COMPONENTS]opcode_component.OpcodeLookupComponent = undefined;
+    var infra_storage: [MAX_INFRA_COMPONENTS]RiscVTraceComponent = undefined;
     var hash_storage: [2]hash_component.HashComponent = undefined;
     var n_hash_components: usize = 0;
-    var components_arr: [MAX_COMPONENTS + MAX_INFRA_COMPONENTS]prover_component.ComponentProver = undefined;
+    var clock_storage: clock_update_component.ClockUpdateComponent = undefined;
+    var table_storage: [component_order.LOOKUP_TABLE_COUNT]lookup_table_component.LookupTableComponent = undefined;
+    var components_arr: [2 * MAX_COMPONENTS + MAX_INFRA_COMPONENTS]prover_component.ComponentProver = undefined;
+    var total_components: usize = 0;
 
     var main_offset: usize = 0;
     var interaction_offset: usize = 0;
-    // Opcode family components
     for (0..statement.n_components) |i| {
-        component_storage[i] = .{
-            .desc = .{
-                .family = statement.component_descs[i].family,
-                .log_size = statement.component_descs[i].log_size,
-                .n_rows = statement.component_descs[i].n_rows,
-                .n_columns = statement.component_descs[i].n_columns,
-            },
-            .initial_pc = statement.initial_pc,
-            .total_steps = statement.total_steps,
-            .is_first_col_idx = 2 * i,
-            .is_active_col_idx = 2 * i + 1,
-            .main_col_offset = main_offset,
-            .kind = .opcode,
-            .relations = &relations,
-            .interaction_col_offset = interaction_offset,
-            .state_claim = interaction_claim.state_claims[i],
-            .prog_claim = interaction_claim.prog_claims[i],
-            .opcode_memory_claims = interaction_claim.opcode_memory_claims[i],
-            .s_state_prev = constPrev(opcode_prev[i][0]),
-            .s_prog_prev = constPrev(opcode_prev[i][1]),
-            .s_opcode_memory_prev = constOpcodeMemoryPrev(opcode_memory_prev[i]),
-        };
-        components_arr[i] = component_storage[i].asProverComponent();
-        main_offset += statement.component_descs[i].n_columns;
-        interaction_offset += riscv_component.nInteractionCols(.opcode);
+        const desc = statement.component_descs[i];
+        semantic_storage[i] = try semantic_component.SemanticComponent.init(
+            desc.family,
+            desc.log_size,
+            2 * i + 1,
+            main_offset,
+        );
+        components_arr[total_components] = semantic_storage[i].asProverComponent();
+        total_components += 1;
+        opcode_lookup_storage[i] = try opcode_component.OpcodeLookupComponent.initProver(
+            desc.family,
+            desc.log_size,
+            2 * i,
+            main_offset,
+            interaction_offset,
+            &relations,
+            try interaction_claim.opcodeClaims(desc.family, i),
+            constOpcodePrev(opcode_results[i].previous),
+        );
+        components_arr[total_components] = opcode_lookup_storage[i].asProverComponent();
+        total_components += 1;
+        main_offset += desc.n_columns;
+        interaction_offset += opcode_interaction.nColumns(desc.family);
     }
-    // Infrastructure components (same RiscVTraceComponent type, different descriptors)
+
     for (0..statement.n_infra) |i| {
-        const idx = statement.n_components + i;
-        const kind: riscv_component.Kind = switch (statement.infra_descs[i].kind) {
-            .program => .program,
-            .memory => .memory,
-            else => .silent,
-        };
-        if (statement.infra_descs[i].kind == .poseidon2 or
-            statement.infra_descs[i].kind == .merkle)
-        {
+        const desc = statement.infra_descs[i];
+        const preprocessed_base = statement.preprocessedOffsetForInfra(i);
+        if (desc.kind == .poseidon2 or desc.kind == .merkle) {
             hash_storage[n_hash_components] = .{
-                .kind = if (statement.infra_descs[i].kind == .poseidon2) .poseidon2 else .merkle,
-                .log_size = statement.infra_descs[i].log_size,
-                .n_rows = statement.infra_descs[i].n_rows,
-                .is_first_col_idx = 2 * idx,
-                .is_active_col_idx = 2 * idx + 1,
+                .kind = if (desc.kind == .poseidon2) .poseidon2 else .merkle,
+                .log_size = desc.log_size,
+                .n_rows = desc.n_rows,
+                .is_first_col_idx = preprocessed_base,
+                .is_active_col_idx = preprocessed_base + 1,
                 .main_col_offset = main_offset,
                 .interaction_col_offset = interaction_offset,
                 .relations = &relations,
@@ -1044,23 +1035,68 @@ pub fn proveRiscVWithEngineAndPublicData(
                 .s_merkle_prev = constMerklePrev(merkle_prev),
                 .s_poseidon_prev = constPoseidonPrev(poseidon_prev),
             };
-            components_arr[idx] = hash_storage[n_hash_components].asProverComponent();
+            components_arr[total_components] = hash_storage[n_hash_components].asProverComponent();
+            total_components += 1;
             n_hash_components += 1;
-            main_offset += statement.infra_descs[i].n_columns;
-            interaction_offset += statement_mod.nInteractionColsForInfra(statement.infra_descs[i].kind);
+            main_offset += desc.n_columns;
+            interaction_offset += statement_mod.nInteractionColsForInfra(desc.kind);
             continue;
         }
-        component_storage[idx] = .{
+        if (statement_mod.tableKind(desc.kind)) |table_kind| {
+            const table_index = component_order.lookupTableIndex(table_kind);
+            var tuple_indices: [lookup_table_schema.MAX_ARITY]usize = undefined;
+            for (tuple_indices[0..lookup_table_schema.arity(table_kind)], 0..) |*index, offset| {
+                index.* = preprocessed_base + 1 + offset;
+            }
+            table_storage[table_index] = try lookup_table_component.LookupTableComponent.initProver(
+                table_kind,
+                preprocessed_base,
+                tuple_indices[0..lookup_table_schema.arity(table_kind)],
+                main_offset,
+                interaction_offset,
+                &relations,
+                interaction_claim.lookup_claims[i],
+                constPrev(table_results[table_index].previous),
+            );
+            components_arr[total_components] = table_storage[table_index].asProverComponent();
+            total_components += 1;
+            main_offset += desc.n_columns;
+            interaction_offset += lookup_table_interaction.N_COLUMNS;
+            continue;
+        }
+        if (desc.kind == .clock_update) {
+            clock_storage = try clock_update_component.ClockUpdateComponent.initProver(
+                desc.log_size,
+                preprocessed_base,
+                preprocessed_base + 1,
+                main_offset,
+                interaction_offset,
+                &relations,
+                interaction_claim.clock_claims[i],
+                constPrev(clock_result.?.previous),
+            );
+            components_arr[total_components] = clock_storage.asProverComponent();
+            total_components += 1;
+            main_offset += desc.n_columns;
+            interaction_offset += clock_update_interaction.N_INTERACTION_COLUMNS;
+            continue;
+        }
+        const kind: riscv_component.Kind = switch (desc.kind) {
+            .program => .program,
+            .memory => .memory,
+            else => return ProverError.InvalidStatement,
+        };
+        infra_storage[i] = .{
             .desc = .{
-                .family = .base_alu_reg, // placeholder family for infra
-                .log_size = statement.infra_descs[i].log_size,
-                .n_rows = statement.infra_descs[i].n_rows,
-                .n_columns = statement.infra_descs[i].n_columns,
+                .family = .base_alu_reg,
+                .log_size = desc.log_size,
+                .n_rows = desc.n_rows,
+                .n_columns = desc.n_columns,
             },
             .initial_pc = statement.initial_pc,
             .total_steps = statement.total_steps,
-            .is_first_col_idx = 2 * idx,
-            .is_active_col_idx = 2 * idx + 1,
+            .is_first_col_idx = preprocessed_base,
+            .is_active_col_idx = preprocessed_base + 1,
             .main_col_offset = main_offset,
             .kind = kind,
             .relations = &relations,
@@ -1070,10 +1106,13 @@ pub fn proveRiscVWithEngineAndPublicData(
             .memory_claims = interaction_claim.memory_claims[i],
             .s_memory_prev = constMemoryPrev(memory_prev[i]),
         };
-        components_arr[idx] = component_storage[idx].asProverComponent();
-        main_offset += statement.infra_descs[i].n_columns;
-        interaction_offset += statement_mod.nInteractionColsForInfra(statement.infra_descs[i].kind);
+        components_arr[total_components] = infra_storage[i].asProverComponent();
+        total_components += 1;
+        main_offset += desc.n_columns;
+        interaction_offset += statement_mod.nInteractionColsForInfra(desc.kind);
     }
+    std.debug.assert(main_offset == n_main);
+    std.debug.assert(interaction_offset == n_interaction);
 
     scheme_owned = false;
     var extended = try Engine.prove(
@@ -1091,6 +1130,14 @@ pub fn proveRiscVWithEngineAndPublicData(
 
 fn constPrev(bufs: [4][]M31) [4][]const M31 {
     return .{ bufs[0], bufs[1], bufs[2], bufs[3] };
+}
+
+fn constOpcodePrev(
+    bufs: [opcode_interaction.MAX_BATCHES][4][]M31,
+) [opcode_interaction.MAX_BATCHES][4][]const M31 {
+    var result: [opcode_interaction.MAX_BATCHES][4][]const M31 = undefined;
+    for (&result, bufs) |*dst, src| dst.* = constPrev(src);
+    return result;
 }
 
 fn constMemoryPrev(bufs: memory_interaction.Previous) [memory_interaction.N_SUMS][4][]const M31 {
@@ -1117,12 +1164,6 @@ fn constPoseidonPrev(bufs: poseidon2_air.Previous) [poseidon2_air.N_SUMS][4][]co
     return result;
 }
 
-fn constOpcodeMemoryPrev(bufs: opcode_memory.Previous) [opcode_memory.N_ACCESSES][4][]const M31 {
-    var result: [opcode_memory.N_ACCESSES][4][]const M31 = undefined;
-    for (&result, bufs) |*dst, src| dst.* = constPrev(src);
-    return result;
-}
-
 /// Verify a RISC-V STARK proof with per-opcode-family components.
 /// Consumes `proof_in` on both success and failure.
 pub fn verifyRiscVWithEngine(
@@ -1139,7 +1180,7 @@ pub fn verifyRiscVWithEngine(
     defer if (!proof_moved) proof.deinit(allocator);
 
     try validateStatement(statement);
-    if (claim.n_components != statement.n_components) {
+    if (claim.n_components != statement.n_components or claim.n_infra != statement.n_infra) {
         return ProverError.InvalidInteractionClaim;
     }
     if (proof.commitment_scheme_proof.commitments.items.len != 4) {
@@ -1162,19 +1203,9 @@ pub fn verifyRiscVWithEngine(
     ).init(allocator, pcs_config);
     defer commitment_scheme.deinit(allocator);
 
-    // Tree 0: deterministic IsFirst/IsActive pairs for every component.
-    const n_preproc_v = 2 * (statement.n_components + statement.n_infra);
-    const preproc_log_sizes = try allocator.alloc(u32, n_preproc_v);
+    // Tree 0: selector pairs plus exact lookup-table tuple columns.
+    const preproc_log_sizes = try preprocessed_trace.logSizes(allocator, statement);
     defer allocator.free(preproc_log_sizes);
-    for (0..statement.n_components) |i| {
-        preproc_log_sizes[2 * i] = statement.component_descs[i].log_size;
-        preproc_log_sizes[2 * i + 1] = statement.component_descs[i].log_size;
-    }
-    for (0..statement.n_infra) |i| {
-        const base = 2 * (statement.n_components + i);
-        preproc_log_sizes[base] = statement.infra_descs[i].log_size;
-        preproc_log_sizes[base + 1] = statement.infra_descs[i].log_size;
-    }
     try commitment_scheme.commit(
         allocator,
         proof.commitment_scheme_proof.commitments.items[0],
@@ -1222,7 +1253,7 @@ pub fn verifyRiscVWithEngine(
     defer allocator.free(interaction_log_sizes);
     var inter_col_offset: usize = 0;
     for (0..statement.n_components) |i| {
-        const n_cols = riscv_component.nInteractionCols(.opcode);
+        const n_cols = opcode_interaction.nColumns(statement.component_descs[i].family);
         for (0..n_cols) |c| {
             interaction_log_sizes[inter_col_offset + c] = statement.component_descs[i].log_size;
         }
@@ -1244,86 +1275,126 @@ pub fn verifyRiscVWithEngine(
         &channel,
     );
 
-    // Relation domains cancel independently; a shifted state claim must not
-    // be repairable by an offsetting program claim.
-    const state_boundary = try public_logup.registersStateSum(
-        &statement.public_data,
-        &relations,
+    const canonical = try claim.canonical(&statement);
+    const canonical_view = canonical.view();
+    try logup.verifyGlobalCancellation(
+        &.{canonical_view.total()},
+        try public_logup.sum(&statement.public_data, &relations),
     );
-    const state_claims = try allocator.alloc(QM31, statement.n_components);
-    defer allocator.free(state_claims);
-    for (0..statement.n_components) |i| {
-        state_claims[i] = claim.state_claims[i];
-    }
-    try logup.verifyGlobalCancellation(state_claims, state_boundary);
 
-    // Reconstruct per-family + infrastructure verifier components.
-    const total_v_components = statement.n_components + statement.n_infra;
-    var component_storage: [MAX_COMPONENTS + MAX_INFRA_COMPONENTS]RiscVTraceComponent = undefined;
+    // Reconstruct the exact prover component ordering and ownership split.
+    var semantic_storage: [MAX_COMPONENTS]semantic_component.SemanticComponent = undefined;
+    var opcode_lookup_storage: [MAX_COMPONENTS]opcode_component.OpcodeLookupComponent = undefined;
+    var infra_storage: [MAX_INFRA_COMPONENTS]RiscVTraceComponent = undefined;
     var hash_storage: [2]hash_component.HashComponent = undefined;
     var n_hash_components: usize = 0;
-    var verifier_components: [MAX_COMPONENTS + MAX_INFRA_COMPONENTS]core_air_components.Component = undefined;
+    var clock_storage: clock_update_component.ClockUpdateComponent = undefined;
+    var table_storage: [component_order.LOOKUP_TABLE_COUNT]lookup_table_component.LookupTableComponent = undefined;
+    var verifier_components: [2 * MAX_COMPONENTS + MAX_INFRA_COMPONENTS]core_air_components.Component = undefined;
+    var total_v_components: usize = 0;
 
     var verifier_col_offset: usize = 0;
     var verifier_inter_offset: usize = 0;
     for (0..statement.n_components) |i| {
-        component_storage[i] = .{
-            .desc = statement.component_descs[i],
-            .initial_pc = statement.initial_pc,
-            .total_steps = statement.total_steps,
-            .is_first_col_idx = 2 * i,
-            .is_active_col_idx = 2 * i + 1,
-            .main_col_offset = verifier_col_offset,
-            .kind = .opcode,
-            .relations = &relations,
-            .interaction_col_offset = verifier_inter_offset,
-            .state_claim = claim.state_claims[i],
-            .prog_claim = claim.prog_claims[i],
-            .opcode_memory_claims = claim.opcode_memory_claims[i],
-        };
-        verifier_components[i] = component_storage[i].asVerifierComponent();
-        verifier_col_offset += statement.component_descs[i].n_columns;
-        verifier_inter_offset += riscv_component.nInteractionCols(.opcode);
+        const desc = statement.component_descs[i];
+        semantic_storage[i] = try semantic_component.SemanticComponent.init(
+            desc.family,
+            desc.log_size,
+            2 * i + 1,
+            verifier_col_offset,
+        );
+        verifier_components[total_v_components] = semantic_storage[i].asVerifierComponent();
+        total_v_components += 1;
+        opcode_lookup_storage[i] = try opcode_component.OpcodeLookupComponent.initVerifier(
+            desc.family,
+            desc.log_size,
+            2 * i,
+            verifier_col_offset,
+            verifier_inter_offset,
+            &relations,
+            try claim.opcodeClaims(desc.family, i),
+        );
+        verifier_components[total_v_components] = opcode_lookup_storage[i].asVerifierComponent();
+        total_v_components += 1;
+        verifier_col_offset += desc.n_columns;
+        verifier_inter_offset += opcode_interaction.nColumns(desc.family);
     }
     for (0..statement.n_infra) |i| {
-        const idx = statement.n_components + i;
-        const kind: riscv_component.Kind = switch (statement.infra_descs[i].kind) {
-            .program => .program,
-            .memory => .memory,
-            else => .silent,
-        };
-        if (statement.infra_descs[i].kind == .poseidon2 or
-            statement.infra_descs[i].kind == .merkle)
-        {
+        const desc = statement.infra_descs[i];
+        const preprocessed_base = statement.preprocessedOffsetForInfra(i);
+        if (desc.kind == .poseidon2 or desc.kind == .merkle) {
             hash_storage[n_hash_components] = .{
-                .kind = if (statement.infra_descs[i].kind == .poseidon2) .poseidon2 else .merkle,
-                .log_size = statement.infra_descs[i].log_size,
-                .n_rows = statement.infra_descs[i].n_rows,
-                .is_first_col_idx = 2 * idx,
-                .is_active_col_idx = 2 * idx + 1,
+                .kind = if (desc.kind == .poseidon2) .poseidon2 else .merkle,
+                .log_size = desc.log_size,
+                .n_rows = desc.n_rows,
+                .is_first_col_idx = preprocessed_base,
+                .is_active_col_idx = preprocessed_base + 1,
                 .main_col_offset = verifier_col_offset,
                 .interaction_col_offset = verifier_inter_offset,
                 .relations = &relations,
                 .merkle_claims = claim.merkle_claims[i],
                 .poseidon_claims = claim.poseidon_claims[i],
             };
-            verifier_components[idx] = hash_storage[n_hash_components].asVerifierComponent();
+            verifier_components[total_v_components] = hash_storage[n_hash_components].asVerifierComponent();
+            total_v_components += 1;
             n_hash_components += 1;
-            verifier_col_offset += statement.infra_descs[i].n_columns;
-            verifier_inter_offset += statement_mod.nInteractionColsForInfra(statement.infra_descs[i].kind);
+            verifier_col_offset += desc.n_columns;
+            verifier_inter_offset += statement_mod.nInteractionColsForInfra(desc.kind);
             continue;
         }
-        component_storage[idx] = .{
+        if (statement_mod.tableKind(desc.kind)) |table_kind| {
+            const table_index = component_order.lookupTableIndex(table_kind);
+            var tuple_indices: [lookup_table_schema.MAX_ARITY]usize = undefined;
+            for (tuple_indices[0..lookup_table_schema.arity(table_kind)], 0..) |*index, offset| {
+                index.* = preprocessed_base + 1 + offset;
+            }
+            table_storage[table_index] = try lookup_table_component.LookupTableComponent.initVerifier(
+                table_kind,
+                preprocessed_base,
+                tuple_indices[0..lookup_table_schema.arity(table_kind)],
+                verifier_col_offset,
+                verifier_inter_offset,
+                &relations,
+                claim.lookup_claims[i],
+            );
+            verifier_components[total_v_components] = table_storage[table_index].asVerifierComponent();
+            total_v_components += 1;
+            verifier_col_offset += desc.n_columns;
+            verifier_inter_offset += lookup_table_interaction.N_COLUMNS;
+            continue;
+        }
+        if (desc.kind == .clock_update) {
+            clock_storage = clock_update_component.ClockUpdateComponent.initVerifier(
+                desc.log_size,
+                preprocessed_base,
+                preprocessed_base + 1,
+                verifier_col_offset,
+                verifier_inter_offset,
+                &relations,
+                claim.clock_claims[i],
+            );
+            verifier_components[total_v_components] = clock_storage.asVerifierComponent();
+            total_v_components += 1;
+            verifier_col_offset += desc.n_columns;
+            verifier_inter_offset += clock_update_interaction.N_INTERACTION_COLUMNS;
+            continue;
+        }
+        const kind: riscv_component.Kind = switch (desc.kind) {
+            .program => .program,
+            .memory => .memory,
+            else => return ProverError.InvalidStatement,
+        };
+        infra_storage[i] = .{
             .desc = .{
                 .family = .base_alu_reg,
-                .log_size = statement.infra_descs[i].log_size,
-                .n_rows = statement.infra_descs[i].n_rows,
-                .n_columns = statement.infra_descs[i].n_columns,
+                .log_size = desc.log_size,
+                .n_rows = desc.n_rows,
+                .n_columns = desc.n_columns,
             },
             .initial_pc = statement.initial_pc,
             .total_steps = statement.total_steps,
-            .is_first_col_idx = 2 * idx,
-            .is_active_col_idx = 2 * idx + 1,
+            .is_first_col_idx = preprocessed_base,
+            .is_active_col_idx = preprocessed_base + 1,
             .main_col_offset = verifier_col_offset,
             .kind = kind,
             .relations = &relations,
@@ -1331,10 +1402,13 @@ pub fn verifyRiscVWithEngine(
             .program_claims = claim.program_claims[i],
             .memory_claims = claim.memory_claims[i],
         };
-        verifier_components[idx] = component_storage[idx].asVerifierComponent();
-        verifier_col_offset += statement.infra_descs[i].n_columns;
-        verifier_inter_offset += statement_mod.nInteractionColsForInfra(statement.infra_descs[i].kind);
+        verifier_components[total_v_components] = infra_storage[i].asVerifierComponent();
+        total_v_components += 1;
+        verifier_col_offset += desc.n_columns;
+        verifier_inter_offset += statement_mod.nInteractionColsForInfra(desc.kind);
     }
+    std.debug.assert(verifier_col_offset == n_main);
+    std.debug.assert(verifier_inter_offset == n_interaction);
 
     proof_moved = true;
     try core_verifier.verify(
