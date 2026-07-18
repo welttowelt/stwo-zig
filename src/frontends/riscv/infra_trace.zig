@@ -11,6 +11,7 @@ const std = @import("std");
 const m31 = @import("../../core/fields/m31.zig");
 const utils = @import("../../core/utils.zig");
 const poseidon2 = @import("common/poseidon2.zig");
+const program_table = @import("air/program/table.zig");
 const trace_mod = @import("runner/trace.zig");
 const state_chain = @import("runner/state_chain.zig");
 const trace_columns = @import("air/trace_columns.zig");
@@ -110,10 +111,10 @@ fn allocZeroColumns(
 
 /// Generate the seven populated columns for the Program ROM component.
 ///
-/// Iterates over execution trace rows, collecting unique PCs and their
-/// instruction words (byte-decomposed).  Each unique PC becomes one row.
+/// Iterates over execution trace rows, collecting unique PCs and their exact
+/// pinned Stark-V decoded program tuples. Each unique PC becomes one row.
 ///
-/// Columns: enabler, addr, value_0..3, multiplicity.
+/// Columns: enabler, pc, opcode_id, value_1, value_2, value_3, multiplicity.
 pub fn genProgramColumns(
     allocator: std.mem.Allocator,
     exec_trace: *const trace_mod.Trace,
@@ -126,45 +127,25 @@ pub fn genProgramColumns(
     const table = try BitReversalTable.init(allocator, log_size);
     defer table.deinit(allocator);
 
-    // Collect unique PCs with multiplicity and the fetched instruction. A PC
-    // may not denote two different words within one execution statement.
-    const PcInfo = struct { mult: u32, inst_word: u32 };
-    var pc_info = std.AutoHashMap(u32, PcInfo).init(allocator);
-    defer pc_info.deinit();
-
-    for (exec_trace.rows.items) |row| {
-        const gop = try pc_info.getOrPut(row.pc);
-        if (!gop.found_existing) {
-            gop.value_ptr.* = .{ .mult = 0, .inst_word = row.inst_word };
-        } else if (gop.value_ptr.inst_word != row.inst_word) {
-            return error.ProgramWordChanged;
-        }
-        gop.value_ptr.mult += 1;
+    const fetches = try allocator.alloc(program_table.Fetch, exec_trace.rows.items.len);
+    defer allocator.free(fetches);
+    for (exec_trace.rows.items, fetches) |row, *fetch| {
+        fetch.* = .{ .pc = row.pc, .word = row.inst_word };
     }
+    var decoded = try program_table.generate(allocator, fetches);
+    defer decoded.deinit();
+    if (decoded.rows.len > domain_size) return error.InvalidTraceShape;
 
-    // Fill columns: iterate over trace rows, only emitting first occurrence.
-    var seen = std.AutoHashMap(u32, void).init(allocator);
-    defer seen.deinit();
-    var row_idx: usize = 0;
-    for (exec_trace.rows.items) |row| {
-        if (row_idx >= domain_size) break;
-        const gop = try seen.getOrPut(row.pc);
-        if (gop.found_existing) continue;
-
-        const info = pc_info.get(row.pc) orelse PcInfo{ .mult = 0, .inst_word = 0 };
-        const word = info.inst_word;
-
+    for (decoded.rows, 0..) |row, row_idx| {
+        const values = row.relationValues();
         placeValue(columns[0], row_idx, table, M31.one()); // enabler
-        placeValue(columns[1], row_idx, table, M31.fromCanonical(row.pc & 0x7FFFFFFF)); // addr
-        placeValue(columns[2], row_idx, table, M31.fromCanonical(word & 0xFF)); // value_0
-        placeValue(columns[3], row_idx, table, M31.fromCanonical((word >> 8) & 0xFF)); // value_1
-        placeValue(columns[4], row_idx, table, M31.fromCanonical((word >> 16) & 0xFF)); // value_2
-        placeValue(columns[5], row_idx, table, M31.fromCanonical((word >> 24) & 0xFF)); // value_3
-        placeValue(columns[6], row_idx, table, M31.fromCanonical(info.mult)); // multiplicity
-        row_idx += 1;
+        for (values, 0..) |value, column| {
+            placeValue(columns[1 + column], row_idx, table, M31.fromU64(value));
+        }
+        placeValue(columns[6], row_idx, table, M31.fromU64(row.multiplicity));
     }
 
-    return .{ .columns = columns, .n_real_rows = row_idx };
+    return .{ .columns = columns, .n_real_rows = decoded.rows.len };
 }
 
 /// Free columns allocated by `genProgramColumns`.
@@ -581,6 +562,7 @@ test "infra_trace: genProgramColumns basic" {
         .is_store = false,
         .branch_taken = false,
         .next_pc = 0x1004,
+        .inst_word = 0x00100093,
     });
     try exec_trace.append(.{
         .clk = 1,
@@ -599,6 +581,7 @@ test "infra_trace: genProgramColumns basic" {
         .is_store = false,
         .branch_taken = false,
         .next_pc = 0x1008,
+        .inst_word = 0x00008133,
     });
 
     var result = try genProgramColumns(allocator, &exec_trace, 4);
@@ -652,7 +635,7 @@ fn makeSmallExecTrace(allocator: std.mem.Allocator) !trace_mod.Trace {
     errdefer t.deinit();
     // Row 0: pc=0x100
     try t.append(.{
-        .clk = 0,
+        .clk = 1,
         .pc = 0x100,
         .opcode = .ADD,
         .rd = 1,
@@ -668,10 +651,11 @@ fn makeSmallExecTrace(allocator: std.mem.Allocator) !trace_mod.Trace {
         .is_store = false,
         .branch_taken = false,
         .next_pc = 0x104,
+        .inst_word = 0x003100b3,
     });
     // Row 1: pc=0x104
     try t.append(.{
-        .clk = 1,
+        .clk = 2,
         .pc = 0x104,
         .opcode = .SUB,
         .rd = 4,
@@ -687,10 +671,11 @@ fn makeSmallExecTrace(allocator: std.mem.Allocator) !trace_mod.Trace {
         .is_store = false,
         .branch_taken = false,
         .next_pc = 0x108,
+        .inst_word = 0x40508233,
     });
     // Row 2: repeat pc=0x100 (multiplicity test)
     try t.append(.{
-        .clk = 2,
+        .clk = 3,
         .pc = 0x100,
         .opcode = .ADD,
         .rd = 1,
@@ -706,6 +691,7 @@ fn makeSmallExecTrace(allocator: std.mem.Allocator) !trace_mod.Trace {
         .is_store = false,
         .branch_taken = false,
         .next_pc = 0x104,
+        .inst_word = 0x003100b3,
     });
     return t;
 }

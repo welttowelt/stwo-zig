@@ -19,8 +19,10 @@ const std = @import("std");
 const m31 = @import("../../../core/fields/m31.zig");
 const qm31 = @import("../../../core/fields/qm31.zig");
 const infra = @import("../infra_trace.zig");
-const interaction = @import("interaction.zig");
 const logup = @import("logup.zig");
+const program_decode = @import("program/decode.zig");
+const program_table = @import("program/table.zig");
+const relation_challenges = @import("relation_challenges.zig");
 const trace_mod = @import("../runner/trace.zig");
 
 const M31 = m31.M31;
@@ -60,18 +62,18 @@ pub fn genOpcodeBusColumns(
     allocator: std.mem.Allocator,
     rows: []const trace_mod.TraceRow,
     log_size: u32,
-) ![3][]M31 {
+) ![5][]M31 {
     const n = @as(usize, 1) << @intCast(log_size);
     if (rows.len > n) return error.InvalidTraceShape;
-    var columns = try allocColumns(allocator, 3, n);
+    var columns = try allocColumns(allocator, 5, n);
     errdefer freeColumns(allocator, &columns);
     const table = try infra.BitReversalTable.init(allocator, log_size);
     defer table.deinit(allocator);
     for (rows, 0..) |row, i| {
         const dst = table.map(i);
+        const values = try program_decode.decodeProgramWord(row.inst_word);
         columns[0][dst] = M31.fromU64(row.next_pc & 0x7FFFFFFF);
-        columns[1][dst] = M31.fromU64(row.inst_word & 0xFFFF);
-        columns[2][dst] = M31.fromU64(row.inst_word >> 16);
+        for (values, 0..) |value, column| columns[1 + column][dst] = M31.fromU64(value);
     }
     return columns;
 }
@@ -103,7 +105,7 @@ pub fn genOpcodeInteraction(
     allocator: std.mem.Allocator,
     rows: []const trace_mod.TraceRow,
     log_size: u32,
-    lookup: *const interaction.LookupElements,
+    relations: *const relation_challenges.Relations,
 ) !OpcodeInteraction {
     const n = @as(usize, 1) << @intCast(log_size);
     std.debug.assert(rows.len <= n);
@@ -116,24 +118,27 @@ pub fn genOpcodeInteraction(
         if (i < rows.len) {
             const row = rows[i];
             const pc = qFromU32(row.pc);
+            const program = try program_decode.decodeProgramWord(row.inst_word);
             pairs_state[i] = logup.stateChainPair(
-                lookup,
+                relations,
                 pc,
                 qFromU32(row.clk),
                 qFromU32(row.next_pc),
                 QM31.one(),
             );
             pairs_prog[i] = logup.programConsume(
-                lookup,
+                relations,
                 pc,
-                qFromU32(row.inst_word & 0xFFFF),
-                qFromU32(row.inst_word >> 16),
+                qFromU32(program[0]),
+                qFromU32(program[1]),
+                qFromU32(program[2]),
+                qFromU32(program[3]),
                 QM31.one(),
             );
         } else {
             const zero = QM31.zero();
-            pairs_state[i] = logup.stateChainPair(lookup, zero, zero, zero, zero);
-            pairs_prog[i] = logup.programConsume(lookup, zero, zero, zero, zero);
+            pairs_state[i] = logup.stateChainPair(relations, zero, zero, zero, zero);
+            pairs_prog[i] = logup.programConsume(relations, zero, zero, zero, zero, zero, zero);
         }
     }
 
@@ -199,55 +204,42 @@ pub fn genProgramInteraction(
     allocator: std.mem.Allocator,
     exec_rows: []const trace_mod.TraceRow,
     log_size: u32,
-    lookup: *const interaction.LookupElements,
+    relations: *const relation_challenges.Relations,
 ) !ProgramInteraction {
     const n = @as(usize, 1) << @intCast(log_size);
-
-    const Entry = struct { pc: u32, inst_word: u32, mult: u32 };
-    var order: std.ArrayList(Entry) = .{};
-    defer order.deinit(allocator);
-    var index_of = std.AutoHashMap(u32, usize).init(allocator);
-    defer index_of.deinit();
-
-    for (exec_rows) |row| {
-        const gop = try index_of.getOrPut(row.pc);
-        if (!gop.found_existing) {
-            gop.value_ptr.* = order.items.len;
-            try order.append(allocator, .{
-                .pc = row.pc,
-                .inst_word = row.inst_word,
-                .mult = 0,
-            });
-        } else if (order.items[gop.value_ptr.*].inst_word != row.inst_word) {
-            return error.ProgramWordChanged;
-        }
-        order.items[gop.value_ptr.*].mult += 1;
-    }
-    const n_real = @min(order.items.len, n);
+    const fetches = try allocator.alloc(program_table.Fetch, exec_rows.len);
+    defer allocator.free(fetches);
+    for (exec_rows, fetches) |row, *fetch| fetch.* = .{ .pc = row.pc, .word = row.inst_word };
+    var decoded_table = try program_table.generate(allocator, fetches);
+    defer decoded_table.deinit();
+    if (decoded_table.rows.len > n) return error.InvalidTraceShape;
 
     const pairs = try allocator.alloc(logup.RowPair, n);
     defer allocator.free(pairs);
     for (0..n) |i| {
-        if (i < n_real) {
-            const entry = order.items[i];
+        if (i < decoded_table.rows.len) {
+            const entry = decoded_table.rows[i];
+            const values = entry.relationValues();
             pairs[i] = logup.programEmit(
-                lookup,
-                qFromU32(entry.pc),
-                qFromU32(entry.inst_word & 0xFFFF),
-                qFromU32(entry.inst_word >> 16),
-                QM31.fromBase(M31.fromU64(entry.mult)),
+                relations,
+                qFromU32(values[0]),
+                qFromU32(values[1]),
+                qFromU32(values[2]),
+                qFromU32(values[3]),
+                qFromU32(values[4]),
+                QM31.fromBase(M31.fromU64(entry.multiplicity)),
             );
         } else {
             const zero = QM31.zero();
-            pairs[i] = logup.programEmit(lookup, zero, zero, zero, zero);
+            pairs[i] = logup.programEmit(relations, zero, zero, zero, zero, zero, zero);
         }
     }
 
     var col_rom = try logup.cumulativeColumn(allocator, pairs);
     defer col_rom.deinit(allocator);
 
-    const table = try infra.BitReversalTable.init(allocator, log_size);
-    defer table.deinit(allocator);
+    const placement_table = try infra.BitReversalTable.init(allocator, log_size);
+    defer placement_table.deinit(allocator);
 
     var columns = try allocColumns(allocator, PROGRAM_INTERACTION_COLS, n);
     errdefer freeColumns(allocator, &columns);
@@ -255,7 +247,7 @@ pub fn genProgramInteraction(
     errdefer freeColumns(allocator, &prev_rom);
 
     for (0..n) |i| {
-        const dst = table.map(i);
+        const dst = placement_table.map(i);
         const s = col_rom.sums[i].toM31Array();
         const s_prev = col_rom.sums[(i + n - 1) % n].toM31Array();
         for (0..4) |c| {
@@ -275,16 +267,8 @@ pub fn genProgramInteraction(
 // Tests
 // ---------------------------------------------------------------------------
 
-fn testLookup() interaction.LookupElements {
-    var elements = [_]QM31{QM31.zero()} ** interaction.LOOKUP_ELEMENTS_SIZE;
-    elements[0] = QM31.fromU32Unchecked(3, 1, 4, 1);
-    elements[1] = QM31.fromU32Unchecked(2, 7, 1, 8);
-    elements[2] = QM31.fromU32Unchecked(34, 55, 89, 144);
-    return interaction.LookupElements.initFromValues(
-        QM31.fromU32Unchecked(9, 8, 7, 6),
-        QM31.fromU32Unchecked(7919, 104729, 1299709, 15485863),
-        elements,
-    );
+fn testRelations() relation_challenges.Relations {
+    return relation_challenges.Relations.dummy();
 }
 
 fn testRow(clk: u32, pc: u32, next_pc: u32, inst_word: u32) trace_mod.TraceRow {
@@ -311,7 +295,7 @@ fn testRow(clk: u32, pc: u32, next_pc: u32, inst_word: u32) trace_mod.TraceRow {
 
 test "interaction_gen: claims telescope across shards and the program bus balances" {
     const allocator = std.testing.allocator;
-    const lookup = testLookup();
+    const relations = testRelations();
 
     // Four-step execution split across two shards; pc 0x1008 repeats.
     const rows = [_]trace_mod.TraceRow{
@@ -321,15 +305,15 @@ test "interaction_gen: claims telescope across shards and the program bus balanc
         testRow(4, 0x1004, 0x100C, 0x01400113),
     };
 
-    var shard_a = try genOpcodeInteraction(allocator, rows[0..2], 1, &lookup);
+    var shard_a = try genOpcodeInteraction(allocator, rows[0..2], 1, &relations);
     defer shard_a.deinit(allocator);
-    var shard_b = try genOpcodeInteraction(allocator, rows[2..4], 1, &lookup);
+    var shard_b = try genOpcodeInteraction(allocator, rows[2..4], 1, &relations);
     defer shard_b.deinit(allocator);
-    var rom = try genProgramInteraction(allocator, rows[0..], 2, &lookup);
+    var rom = try genProgramInteraction(allocator, rows[0..], 2, &relations);
     defer rom.deinit(allocator);
 
     // CPU state chain: shard claims + public boundary cancel exactly.
-    const boundary = try logup.stateBoundary(&lookup, 0x1000, 0x100C, 4);
+    const boundary = try logup.stateBoundary(&relations, 0x1000, 0x100C, 4);
     try logup.verifyGlobalCancellation(
         &.{ shard_a.state_claim, shard_b.state_claim },
         boundary,
@@ -342,7 +326,7 @@ test "interaction_gen: claims telescope across shards and the program bus balanc
     );
 
     // A wrong boundary is rejected.
-    const bad_boundary = try logup.stateBoundary(&lookup, 0x1000, 0x1010, 4);
+    const bad_boundary = try logup.stateBoundary(&relations, 0x1000, 0x1010, 4);
     try std.testing.expectError(error.LogupSumNonZero, logup.verifyGlobalCancellation(
         &.{ shard_a.state_claim, shard_b.state_claim },
         bad_boundary,
@@ -351,7 +335,7 @@ test "interaction_gen: claims telescope across shards and the program bus balanc
 
 test "interaction_gen: columns are placed in committed order with wrapped shift" {
     const allocator = std.testing.allocator;
-    const lookup = testLookup();
+    const relations = testRelations();
 
     const rows = [_]trace_mod.TraceRow{
         testRow(1, 0x1000, 0x1004, 0x00A00093),
@@ -361,7 +345,7 @@ test "interaction_gen: columns are placed in committed order with wrapped shift"
     const log_size: u32 = 2;
     const n: usize = 1 << log_size;
 
-    var gen = try genOpcodeInteraction(allocator, rows[0..], log_size, &lookup);
+    var gen = try genOpcodeInteraction(allocator, rows[0..], log_size, &relations);
     defer gen.deinit(allocator);
     const bus = try genOpcodeBusColumns(allocator, rows[0..], log_size);
     defer freeColumns(allocator, &bus);
@@ -372,9 +356,11 @@ test "interaction_gen: columns are placed in committed order with wrapped shift"
     for (0..n) |i| {
         const dst = table.map(i);
         if (i < rows.len) {
+            const values = try program_decode.decodeProgramWord(rows[i].inst_word);
             try std.testing.expect(bus[0][dst].eql(M31.fromU64(rows[i].next_pc)));
-            try std.testing.expect(bus[1][dst].eql(M31.fromU64(rows[i].inst_word & 0xFFFF)));
-            try std.testing.expect(bus[2][dst].eql(M31.fromU64(rows[i].inst_word >> 16)));
+            for (values, 0..) |value, column| {
+                try std.testing.expect(bus[1 + column][dst].eql(M31.fromU64(value)));
+            }
         } else {
             try std.testing.expect(bus[0][dst].eql(M31.zero()));
         }
@@ -399,15 +385,15 @@ test "interaction_gen: columns are placed in committed order with wrapped shift"
 
 test "interaction_gen: program cumulative column closes the ROM claim" {
     const allocator = std.testing.allocator;
-    const lookup = testLookup();
+    const relations = testRelations();
 
     const rows = [_]trace_mod.TraceRow{
-        testRow(1, 0x2000, 0x2004, 0x11110111),
-        testRow(2, 0x2004, 0x2000, 0x22220222),
-        testRow(3, 0x2000, 0x2008, 0x11110111),
-        testRow(4, 0x2008, 0x200C, 0x33330333),
+        testRow(1, 0x2000, 0x2004, 0x00100093),
+        testRow(2, 0x2004, 0x2000, 0x00200113),
+        testRow(3, 0x2000, 0x2008, 0x00100093),
+        testRow(4, 0x2008, 0x200C, 0x00300193),
     };
-    var rom = try genProgramInteraction(allocator, rows[0..], 2, &lookup);
+    var rom = try genProgramInteraction(allocator, rows[0..], 2, &relations);
     defer rom.deinit(allocator);
 
     const table = try infra.BitReversalTable.init(allocator, 2);
@@ -425,13 +411,13 @@ test "interaction_gen: program cumulative column closes the ROM claim" {
 
 test "interaction_gen: one program counter cannot name two instruction words" {
     const allocator = std.testing.allocator;
-    const lookup = testLookup();
+    const relations = testRelations();
     const rows = [_]trace_mod.TraceRow{
-        testRow(1, 0x2000, 0x2004, 0x1111_0111),
-        testRow(2, 0x2000, 0x2004, 0x2222_0222),
+        testRow(1, 0x2000, 0x2004, 0x0010_0093),
+        testRow(2, 0x2000, 0x2004, 0x0020_0093),
     };
     try std.testing.expectError(
         error.ProgramWordChanged,
-        genProgramInteraction(allocator, &rows, 1, &lookup),
+        genProgramInteraction(allocator, &rows, 1, &relations),
     );
 }

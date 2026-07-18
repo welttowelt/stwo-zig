@@ -27,9 +27,9 @@ const prover_component = @import("../../../prover/air/component_prover.zig");
 const prover_eval = @import("../../../prover/poly/circle/evaluation.zig");
 const prover_poly = @import("../../../prover/poly/circle/poly.zig");
 const prover_twiddles = @import("../../../prover/poly/twiddles.zig");
-const interaction = @import("interaction.zig");
 const interaction_gen = @import("interaction_gen.zig");
 const logup = @import("logup.zig");
+const relation_challenges = @import("relation_challenges.zig");
 const semantics = @import("semantics/mod.zig");
 const trace_mod = @import("../runner/trace.zig");
 
@@ -69,7 +69,7 @@ pub const RiscVTraceComponent = struct {
     /// Offset of this component's first column within tree 1 (main trace).
     main_col_offset: usize,
     kind: Kind,
-    lookup: *const interaction.LookupElements,
+    relations: *const relation_challenges.Relations,
     /// Offset of this component's first column within tree 2 (interaction).
     interaction_col_offset: usize = 0,
     state_claim: QM31 = QM31.zero(),
@@ -256,21 +256,31 @@ pub const RiscVTraceComponent = struct {
             .opcode => {
                 const pc = main[self.main_col_offset + 1][0];
                 const clk = main[self.main_col_offset + 0][0];
-                const bus = self.main_col_offset + self.desc.n_columns - 3;
+                const bus = self.main_col_offset + self.desc.n_columns - 5;
                 const next_pc = main[bus][0];
-                const inst_lo = main[bus + 1][0];
-                const inst_hi = main[bus + 2][0];
+                const opcode_id = main[bus + 1][0];
+                const value_1 = main[bus + 2][0];
+                const value_2 = main[bus + 3][0];
+                const value_3 = main[bus + 4][0];
                 const s_state = try sampledSecure(inter, o, 0);
                 const s_state_prev = try sampledSecure(inter, o, 1);
                 const s_prog = try sampledSecure(inter, o + 4, 0);
                 const s_prog_prev = try sampledSecure(inter, o + 4, 1);
 
-                const state_pair = logup.stateChainPair(self.lookup, pc, clk, next_pc, is_active);
+                const state_pair = logup.stateChainPair(self.relations, pc, clk, next_pc, is_active);
                 evaluation_accumulator.accumulate(
                     logup.pairConstraint(s_state, s_state_prev, is_first, self.state_claim, state_pair)
                         .mul(denominator_inv),
                 );
-                const prog_pair = logup.programConsume(self.lookup, pc, inst_lo, inst_hi, is_active);
+                const prog_pair = logup.programConsume(
+                    self.relations,
+                    pc,
+                    opcode_id,
+                    value_1,
+                    value_2,
+                    value_3,
+                    is_active,
+                );
                 evaluation_accumulator.accumulate(
                     logup.pairConstraint(s_prog, s_prog_prev, is_first, self.prog_claim, prog_pair)
                         .mul(denominator_inv),
@@ -307,14 +317,23 @@ pub const RiscVTraceComponent = struct {
                 const main_o = self.main_col_offset;
                 const enabler = main[main_o][0];
                 const pc = main[main_o + 1][0];
-                const radix = QM31.fromBase(M31.fromCanonical(256));
-                const inst_lo = main[main_o + 2][0].add(main[main_o + 3][0].mul(radix));
-                const inst_hi = main[main_o + 4][0].add(main[main_o + 5][0].mul(radix));
+                const opcode_id = main[main_o + 2][0];
+                const value_1 = main[main_o + 3][0];
+                const value_2 = main[main_o + 4][0];
+                const value_3 = main[main_o + 5][0];
                 const mult = main[main_o + 6][0].mul(is_active);
                 const s_rom = try sampledSecure(inter, o, 0);
                 const s_rom_prev = try sampledSecure(inter, o, 1);
 
-                const rom_pair = logup.programEmit(self.lookup, pc, inst_lo, inst_hi, mult);
+                const rom_pair = logup.programEmit(
+                    self.relations,
+                    pc,
+                    opcode_id,
+                    value_1,
+                    value_2,
+                    value_3,
+                    mult,
+                );
                 evaluation_accumulator.accumulate(
                     logup.pairConstraint(s_rom, s_rom_prev, is_first, self.rom_claim, rom_pair)
                         .mul(denominator_inv),
@@ -367,7 +386,7 @@ pub const RiscVTraceComponent = struct {
         const opcode_main_sources: usize = if (has_direct_semantics)
             self.desc.n_columns
         else
-            5;
+            7;
         const n_sources: usize = switch (self.kind) {
             .opcode => 2 + opcode_main_sources + n_inter + 8,
             .program => 2 + 7 + n_inter + 4,
@@ -414,8 +433,8 @@ pub const RiscVTraceComponent = struct {
                     n_polys += 1;
                     polys_buf[n_polys] = main[self.main_col_offset + 1]; // pc
                     n_polys += 1;
-                    const bus = self.main_col_offset + self.desc.n_columns - 3;
-                    for (0..3) |i| {
+                    const bus = self.main_col_offset + self.desc.n_columns - 5;
+                    for (0..5) |i| {
                         polys_buf[n_polys] = main[bus + i];
                         n_polys += 1;
                     }
@@ -526,12 +545,14 @@ pub const RiscVTraceComponent = struct {
                     const clk = QM31.fromBase(evaluations[main_start][row]);
                     const pc = QM31.fromBase(evaluations[main_start + 1][row]);
                     const bus = if (has_direct_semantics)
-                        main_start + self.desc.n_columns - 3
+                        main_start + self.desc.n_columns - 5
                     else
                         main_start + 2;
                     const next_pc = QM31.fromBase(evaluations[bus][row]);
-                    const inst_lo = QM31.fromBase(evaluations[bus + 1][row]);
-                    const inst_hi = QM31.fromBase(evaluations[bus + 2][row]);
+                    const opcode_id = QM31.fromBase(evaluations[bus + 1][row]);
+                    const value_1 = QM31.fromBase(evaluations[bus + 2][row]);
+                    const value_2 = QM31.fromBase(evaluations[bus + 3][row]);
+                    const value_3 = QM31.fromBase(evaluations[bus + 4][row]);
                     const s_state = secureAt(evaluations[inter_start .. inter_start + 4], row);
                     const s_prog = secureAt(evaluations[inter_start + 4 .. inter_start + 8], row);
                     const s_state_prev = secureAt(evaluations[prev_start .. prev_start + 4], row);
@@ -542,14 +563,22 @@ pub const RiscVTraceComponent = struct {
                         s_state_prev,
                         is_first,
                         self.state_claim,
-                        logup.stateChainPair(self.lookup, pc, clk, next_pc, is_active),
+                        logup.stateChainPair(self.relations, pc, clk, next_pc, is_active),
                     );
                     const c_prog = logup.pairConstraint(
                         s_prog,
                         s_prog_prev,
                         is_first,
                         self.prog_claim,
-                        logup.programConsume(self.lookup, pc, inst_lo, inst_hi, is_active),
+                        logup.programConsume(
+                            self.relations,
+                            pc,
+                            opcode_id,
+                            value_1,
+                            value_2,
+                            value_3,
+                            is_active,
+                        ),
                     );
                     const powers = column_accumulator.random_coeff_powers;
                     row_evaluation = powers[powers.len - 1].mul(c_state)
@@ -584,13 +613,10 @@ pub const RiscVTraceComponent = struct {
                 .program => {
                     const enabler = QM31.fromBase(evaluations[2][row]);
                     const pc = QM31.fromBase(evaluations[3][row]);
-                    const radix = M31.fromCanonical(256);
-                    const inst_lo = QM31.fromBase(
-                        evaluations[4][row].add(evaluations[5][row].mul(radix)),
-                    );
-                    const inst_hi = QM31.fromBase(
-                        evaluations[6][row].add(evaluations[7][row].mul(radix)),
-                    );
+                    const opcode_id = QM31.fromBase(evaluations[4][row]);
+                    const value_1 = QM31.fromBase(evaluations[5][row]);
+                    const value_2 = QM31.fromBase(evaluations[6][row]);
+                    const value_3 = QM31.fromBase(evaluations[7][row]);
                     const mult = QM31.fromBase(evaluations[8][row]).mul(is_active);
                     const s_rom = secureAt(evaluations[9..13], row);
                     const s_rom_prev = secureAt(evaluations[13..17], row);
@@ -600,7 +626,15 @@ pub const RiscVTraceComponent = struct {
                         s_rom_prev,
                         is_first,
                         self.rom_claim,
-                        logup.programEmit(self.lookup, pc, inst_lo, inst_hi, mult),
+                        logup.programEmit(
+                            self.relations,
+                            pc,
+                            opcode_id,
+                            value_1,
+                            value_2,
+                            value_3,
+                            mult,
+                        ),
                     );
                     const c_active = enabler.sub(is_active);
                     row_evaluation = column_accumulator.random_coeff_powers[1].mul(c_rom)

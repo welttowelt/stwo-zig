@@ -157,6 +157,7 @@ test "riscv prover: prove and verify synthetic trace" {
             .is_store = false,
             .branch_taken = false,
             .next_pc = @intCast(0x1000 + (i + 1) * 4),
+            .inst_word = 0x00100093,
         });
     }
     exec_trace.final_pc = 0x1000 + 8 * 4;
@@ -249,6 +250,7 @@ test "riscv prover: transaction engine is the proving substitution point" {
             .is_store = false,
             .branch_taken = false,
             .next_pc = @intCast(0x1000 + (row + 1) * 4),
+            .inst_word = 0x00100093,
         });
     }
     trace.final_pc = 0x1010;
@@ -290,6 +292,7 @@ fn singleAddTrace(allocator: std.mem.Allocator, result: u32) !trace_mod.Trace {
         .is_store = false,
         .branch_taken = false,
         .next_pc = 0x1004,
+        .inst_word = 0x002081b3,
     });
     return trace;
 }
@@ -396,6 +399,7 @@ test "riscv prover: multi-family splitting" {
             .is_store = false,
             .branch_taken = false,
             .next_pc = @intCast(0x1000 + (i + 1) * 4),
+            .inst_word = 0x003100b3,
         });
     }
     // 8 ADDI instructions
@@ -417,6 +421,7 @@ test "riscv prover: multi-family splitting" {
             .is_store = false,
             .branch_taken = false,
             .next_pc = @intCast(0x1010 + (i + 1) * 4),
+            .inst_word = 0x00508213,
         });
     }
     // 4 BEQ instructions
@@ -438,6 +443,7 @@ test "riscv prover: multi-family splitting" {
             .is_store = false,
             .branch_taken = true,
             .next_pc = @intCast(0x1030 + (i + 1) * 4),
+            .inst_word = 0x00208463,
         });
     }
     exec_trace.final_pc = 0x1040;
@@ -510,6 +516,7 @@ test "riscv prover: ADDI + ADD + BNE split prove and verify" {
             .is_store = false,
             .branch_taken = false,
             .next_pc = @intCast(0x1000 + (i + 1) * 4),
+            .inst_word = (@as(u32, @intCast(i + 1)) << 20) | 0x00000093,
         });
     }
     // 2 ADD instructions
@@ -532,6 +539,7 @@ test "riscv prover: ADDI + ADD + BNE split prove and verify" {
             .is_store = false,
             .branch_taken = false,
             .next_pc = @intCast(0x1000 + (step + 1) * 4),
+            .inst_word = 0x002081b3,
         });
     }
     // 2 BNE instructions (branch_eq family). Taken branches jump +8, so each
@@ -556,6 +564,7 @@ test "riscv prover: ADDI + ADD + BNE split prove and verify" {
             .is_store = false,
             .branch_taken = true,
             .next_pc = branch_pc + 8,
+            .inst_word = 0x00209463,
         });
         branch_pc += 8;
     }

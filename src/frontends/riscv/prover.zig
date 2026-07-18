@@ -45,9 +45,9 @@ const circle = @import("../../core/circle.zig");
 const runner_mod = @import("runner/mod.zig");
 const trace_mod = @import("runner/trace.zig");
 const trace_columns = @import("air/trace_columns.zig");
-const interaction = @import("air/interaction.zig");
 const interaction_gen = @import("air/interaction_gen.zig");
 const logup = @import("air/logup.zig");
+const relation_challenges = @import("air/relation_challenges.zig");
 const public_data_mod = @import("air/public_data.zig");
 const riscv_component = @import("air/component.zig");
 const statement_mod = @import("air/statement.zig");
@@ -493,7 +493,7 @@ fn nCommittedColumnsForFamily(family: trace_mod.OpcodeFamily) u32 {
     return count;
 }
 
-const OPCODE_BUS_COLS: u32 = 3;
+const OPCODE_BUS_COLS: u32 = 5;
 
 /// Generate M31 columns for a specific opcode family, in bit-reversed
 /// circle-domain order suitable for direct commitment.
@@ -1238,7 +1238,7 @@ pub fn proveRiscVWithEngineAndPublicData(
     // -- Step 5: LogUp interaction tree (tree 2). --
     // Fiat-Shamir order (verifier must match byte-for-byte): statement, then
     // lookup-element draw, then the tree-2 commitment, then the claims.
-    const lookup = interaction.LookupElements.draw(&channel);
+    const relations = try relation_challenges.Relations.draw(allocator, &channel);
 
     var interaction_claim = RiscVInteractionClaim.initZero();
     interaction_claim.n_components = statement.n_components;
@@ -1290,7 +1290,7 @@ pub fn proveRiscVWithEngineAndPublicData(
             const shard = family_rows[fi].items[family_cursor[fi]..][0..shard_len];
             family_cursor[fi] += shard_len;
 
-            const gen = try interaction_gen.genOpcodeInteraction(allocator, shard, desc.log_size, &lookup);
+            const gen = try interaction_gen.genOpcodeInteraction(allocator, shard, desc.log_size, &relations);
             interaction_claim.state_claims[i] = gen.state_claim;
             interaction_claim.prog_claims[i] = gen.prog_claim;
             opcode_prev[i] = .{ gen.prev_state, gen.prev_prog };
@@ -1307,7 +1307,7 @@ pub fn proveRiscVWithEngineAndPublicData(
             allocator,
             exec_trace.rows.items,
             program_log_size,
-            &lookup,
+            &relations,
         );
         interaction_claim.rom_claim = rom.rom_claim;
         rom_prev = rom.prev_rom;
@@ -1344,7 +1344,7 @@ pub fn proveRiscVWithEngineAndPublicData(
             .is_active_col_idx = 2 * i + 1,
             .main_col_offset = main_offset,
             .kind = .opcode,
-            .lookup = &lookup,
+            .relations = &relations,
             .interaction_col_offset = interaction_offset,
             .state_claim = interaction_claim.state_claims[i],
             .prog_claim = interaction_claim.prog_claims[i],
@@ -1373,7 +1373,7 @@ pub fn proveRiscVWithEngineAndPublicData(
             .is_active_col_idx = 2 * idx + 1,
             .main_col_offset = main_offset,
             .kind = kind,
-            .lookup = &lookup,
+            .relations = &relations,
             .interaction_col_offset = interaction_offset,
             .rom_claim = interaction_claim.rom_claim,
             .s_rom_prev = constPrev(rom_prev),
@@ -1492,7 +1492,7 @@ pub fn verifyRiscVWithEngine(
 
     // LogUp Fiat-Shamir mirror of the prover: draw lookup elements, absorb
     // the tree-2 commitment, then absorb the claims.
-    const lookup = interaction.LookupElements.draw(&channel);
+    const relations = try relation_challenges.Relations.draw(allocator, &channel);
 
     const n_interaction = statement.nInteractionColumns();
     const interaction_log_sizes = try allocator.alloc(u32, n_interaction);
@@ -1525,7 +1525,7 @@ pub fn verifyRiscVWithEngine(
     // Relation domains cancel independently; a shifted state claim must not
     // be repairable by an offsetting program claim.
     const boundary = try logup.stateBoundary(
-        &lookup,
+        &relations,
         statement.initial_pc,
         statement.final_pc,
         statement.total_steps,
@@ -1558,7 +1558,7 @@ pub fn verifyRiscVWithEngine(
             .is_active_col_idx = 2 * i + 1,
             .main_col_offset = verifier_col_offset,
             .kind = .opcode,
-            .lookup = &lookup,
+            .relations = &relations,
             .interaction_col_offset = verifier_inter_offset,
             .state_claim = claim.state_claims[i],
             .prog_claim = claim.prog_claims[i],
@@ -1584,7 +1584,7 @@ pub fn verifyRiscVWithEngine(
             .is_active_col_idx = 2 * idx + 1,
             .main_col_offset = verifier_col_offset,
             .kind = kind,
-            .lookup = &lookup,
+            .relations = &relations,
             .interaction_col_offset = verifier_inter_offset,
             .rom_claim = claim.rom_claim,
         };

@@ -8,9 +8,9 @@
 //!    in-state `(pc, clk)` and emits its out-state `(next_pc, clk + 1)`.
 //!    Sharding is irrelevant to the bus — the multiset telescopes globally,
 //!    with the initial and final CPU states supplied publicly by the verifier.
-//!  - Program lookup (`ProgramLookupRelation`): every executed row consumes
-//!    `(pc, inst_lo, inst_hi)`; the program ROM component emits each unique
-//!    tuple weighted by its execution multiplicity.
+//!  - Program lookup (`program_access`): every executed row consumes the exact
+//!    decoded `(pc, opcode_id, value_1, value_2, value_3)` tuple; the program
+//!    table emits each unique tuple weighted by its execution multiplicity.
 //!
 //! The cumulative-sum column S obeys, over the trace domain,
 //!   [S(x) - S(x·g⁻¹) + is_first(x)·claimed] · d1(x) · d2(x)
@@ -24,8 +24,7 @@ const m31 = @import("../../../core/fields/m31.zig");
 const qm31 = @import("../../../core/fields/qm31.zig");
 const circle = @import("../../../core/circle.zig");
 const canonic = @import("../../../core/poly/circle/canonic.zig");
-const interaction = @import("interaction.zig");
-const relations = @import("relations.zig");
+const relation_challenges = @import("relation_challenges.zig");
 
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
@@ -112,7 +111,7 @@ pub fn pairConstraint(
 /// CPU state-chain pair for one executed row: consume (pc, clk), emit
 /// (next_pc, clk + 1), both gated by the row enabler.
 pub fn stateChainPair(
-    lookup: *const interaction.LookupElements,
+    relations: *const relation_challenges.Relations,
     pc: QM31,
     clk: QM31,
     next_pc: QM31,
@@ -120,74 +119,79 @@ pub fn stateChainPair(
 ) RowPair {
     return .{
         .n1 = enabler,
-        .d1 = stateDenominator(lookup, next_pc, clk.add(QM31.one())),
+        .d1 = stateDenominator(relations, next_pc, clk.add(QM31.one())),
         .n2 = enabler.neg(),
-        .d2 = stateDenominator(lookup, pc, clk),
+        .d2 = stateDenominator(relations, pc, clk),
     };
 }
 
 fn stateDenominator(
-    lookup: *const interaction.LookupElements,
+    relations: *const relation_challenges.Relations,
     pc: QM31,
     clk: QM31,
 ) QM31 {
-    var acc = QM31.fromBase(relations.OpcodeRelation.ID);
-    acc = acc.add(lookup.elements[0].mul(pc));
-    acc = acc.add(lookup.elements[1].mul(clk));
-    return lookup.z.sub(acc);
+    return relations.registers_state.combineSecure(.{ pc, clk });
 }
 
-/// Program-lookup denominator over the tuple (pc, inst_lo, inst_hi).
+/// Program-lookup denominator over Stark-V's decoded five-field tuple.
 pub fn programDenominator(
-    lookup: *const interaction.LookupElements,
+    relations: *const relation_challenges.Relations,
     pc: QM31,
-    inst_lo: QM31,
-    inst_hi: QM31,
+    opcode_id: QM31,
+    value_1: QM31,
+    value_2: QM31,
+    value_3: QM31,
 ) QM31 {
-    var acc = QM31.fromBase(relations.ProgramLookupRelation.ID);
-    acc = acc.add(lookup.elements[0].mul(pc));
-    acc = acc.add(lookup.elements[1].mul(inst_lo));
-    acc = acc.add(lookup.elements[2].mul(inst_hi));
-    return lookup.z.sub(acc);
+    return relations.program_access.combineSecure(.{ pc, opcode_id, value_1, value_2, value_3 });
 }
 
 /// Executed-row side of the program bus: consume the fetched instruction.
 pub fn programConsume(
-    lookup: *const interaction.LookupElements,
+    relations: *const relation_challenges.Relations,
     pc: QM31,
-    inst_lo: QM31,
-    inst_hi: QM31,
+    opcode_id: QM31,
+    value_1: QM31,
+    value_2: QM31,
+    value_3: QM31,
     enabler: QM31,
 ) RowPair {
-    return RowPair.single(enabler.neg(), programDenominator(lookup, pc, inst_lo, inst_hi));
+    return RowPair.single(
+        enabler.neg(),
+        programDenominator(relations, pc, opcode_id, value_1, value_2, value_3),
+    );
 }
 
 /// ROM side of the program bus: emit the tuple with its multiplicity.
 pub fn programEmit(
-    lookup: *const interaction.LookupElements,
+    relations: *const relation_challenges.Relations,
     pc: QM31,
-    inst_lo: QM31,
-    inst_hi: QM31,
+    opcode_id: QM31,
+    value_1: QM31,
+    value_2: QM31,
+    value_3: QM31,
     multiplicity: QM31,
 ) RowPair {
-    return RowPair.single(multiplicity, programDenominator(lookup, pc, inst_lo, inst_hi));
+    return RowPair.single(
+        multiplicity,
+        programDenominator(relations, pc, opcode_id, value_1, value_2, value_3),
+    );
 }
 
 /// Public boundary of the CPU state chain: the verifier emits the initial
 /// state and consumes the final one, closing the global telescope.
 pub fn stateBoundary(
-    lookup: *const interaction.LookupElements,
+    relations: *const relation_challenges.Relations,
     initial_pc: u32,
     final_pc: u32,
     total_steps: u32,
 ) LogupError!QM31 {
     const d_init = stateDenominator(
-        lookup,
+        relations,
         QM31.fromBase(M31.fromU64(initial_pc)),
         QM31.one(),
     );
     const d_final = stateDenominator(
-        lookup,
+        relations,
         QM31.fromBase(M31.fromU64(final_pc)),
         QM31.fromBase(M31.fromU64(total_steps)).add(QM31.one()),
     );
@@ -310,10 +314,7 @@ test "pairConstraint vanishes exactly on honest cumulative columns" {
 
 test "state chain telescopes across shards with the public boundary" {
     // Two shards proving a four-step execution: pc 0x1000 -> 0x1010.
-    var lookup = interaction.LookupElements.initZero();
-    lookup.z = QM31.fromU32Unchecked(7919, 104729, 1299709, 15485863);
-    lookup.elements[0] = QM31.fromU32Unchecked(3, 1, 4, 1);
-    lookup.elements[1] = QM31.fromU32Unchecked(2, 7, 1, 8);
+    const relations = relation_challenges.Relations.dummy();
 
     const allocator = std.testing.allocator;
     const one = QM31.one();
@@ -321,9 +322,9 @@ test "state chain telescopes across shards with the public boundary" {
     // Shard A holds steps 1 and 3; shard B holds steps 2 and 4 — deliberately
     // interleaved to show placement is order-independent.
     const mkRow = struct {
-        fn f(lk: *const interaction.LookupElements, pc: u32, clk: u32, next: u32) RowPair {
+        fn f(rel: *const relation_challenges.Relations, pc: u32, clk: u32, next: u32) RowPair {
             return stateChainPair(
-                lk,
+                rel,
                 QM31.fromBase(M31.fromU64(pc)),
                 QM31.fromBase(M31.fromU64(clk)),
                 QM31.fromBase(M31.fromU64(next)),
@@ -333,19 +334,19 @@ test "state chain telescopes across shards with the public boundary" {
     }.f;
     _ = one;
 
-    const shard_a = [_]RowPair{ mkRow(&lookup, 0x1000, 1, 0x1004), mkRow(&lookup, 0x1008, 3, 0x100C) };
-    const shard_b = [_]RowPair{ mkRow(&lookup, 0x1004, 2, 0x1008), mkRow(&lookup, 0x100C, 4, 0x1010) };
+    const shard_a = [_]RowPair{ mkRow(&relations, 0x1000, 1, 0x1004), mkRow(&relations, 0x1008, 3, 0x100C) };
+    const shard_b = [_]RowPair{ mkRow(&relations, 0x1004, 2, 0x1008), mkRow(&relations, 0x100C, 4, 0x1010) };
 
     var col_a = try cumulativeColumn(allocator, &shard_a);
     defer col_a.deinit(allocator);
     var col_b = try cumulativeColumn(allocator, &shard_b);
     defer col_b.deinit(allocator);
 
-    const boundary = try stateBoundary(&lookup, 0x1000, 0x1010, 4);
+    const boundary = try stateBoundary(&relations, 0x1000, 0x1010, 4);
     try verifyGlobalCancellation(&.{ col_a.claimed, col_b.claimed }, boundary);
 
     // Drop one row's emission (forge the chain) and the cancellation fails.
-    const bad_b = [_]RowPair{ mkRow(&lookup, 0x1004, 2, 0x1008), mkRow(&lookup, 0x100C, 4, 0x1014) };
+    const bad_b = [_]RowPair{ mkRow(&relations, 0x1004, 2, 0x1008), mkRow(&relations, 0x100C, 4, 0x1014) };
     var col_bad = try cumulativeColumn(allocator, &bad_b);
     defer col_bad.deinit(allocator);
     try std.testing.expectError(
@@ -355,27 +356,33 @@ test "state chain telescopes across shards with the public boundary" {
 }
 
 test "program bus balances executed rows against ROM multiplicities" {
-    var lookup = interaction.LookupElements.initZero();
-    lookup.z = QM31.fromU32Unchecked(104651, 2, 3, 5);
-    lookup.elements[0] = QM31.fromU32Unchecked(1, 1, 2, 3);
-    lookup.elements[1] = QM31.fromU32Unchecked(5, 8, 13, 21);
-    lookup.elements[2] = QM31.fromU32Unchecked(34, 55, 89, 144);
+    const relations = relation_challenges.Relations.dummy();
 
     const allocator = std.testing.allocator;
     const pc0 = QM31.fromBase(M31.fromU64(0x1000));
     const pc1 = QM31.fromBase(M31.fromU64(0x1004));
-    const lo = QM31.fromBase(M31.fromU64(0x0093));
-    const hi = QM31.fromBase(M31.fromU64(0x00A0));
+    const addi = [_]QM31{
+        QM31.fromBase(M31.fromU64(10)),
+        QM31.fromBase(M31.fromU64(1)),
+        QM31.zero(),
+        QM31.fromBase(M31.fromU64(10)),
+    };
+    const add = [_]QM31{
+        QM31.zero(),
+        QM31.fromBase(M31.fromU64(3)),
+        QM31.fromBase(M31.fromU64(1)),
+        QM31.fromBase(M31.fromU64(2)),
+    };
 
     // pc0 executed twice (a loop), pc1 once.
     const executed = [_]RowPair{
-        programConsume(&lookup, pc0, lo, hi, QM31.one()),
-        programConsume(&lookup, pc0, lo, hi, QM31.one()),
-        programConsume(&lookup, pc1, hi, lo, QM31.one()),
+        programConsume(&relations, pc0, addi[0], addi[1], addi[2], addi[3], QM31.one()),
+        programConsume(&relations, pc0, addi[0], addi[1], addi[2], addi[3], QM31.one()),
+        programConsume(&relations, pc1, add[0], add[1], add[2], add[3], QM31.one()),
     };
     const rom = [_]RowPair{
-        programEmit(&lookup, pc0, lo, hi, QM31.fromU32Unchecked(2, 0, 0, 0)),
-        programEmit(&lookup, pc1, hi, lo, QM31.one()),
+        programEmit(&relations, pc0, addi[0], addi[1], addi[2], addi[3], QM31.fromU32Unchecked(2, 0, 0, 0)),
+        programEmit(&relations, pc1, add[0], add[1], add[2], add[3], QM31.one()),
     };
 
     var exec_col = try cumulativeColumn(allocator, &executed);
@@ -387,8 +394,8 @@ test "program bus balances executed rows against ROM multiplicities" {
 
     // Wrong multiplicity is caught.
     const rom_bad = [_]RowPair{
-        programEmit(&lookup, pc0, lo, hi, QM31.one()),
-        programEmit(&lookup, pc1, hi, lo, QM31.one()),
+        programEmit(&relations, pc0, addi[0], addi[1], addi[2], addi[3], QM31.one()),
+        programEmit(&relations, pc1, add[0], add[1], add[2], add[3], QM31.one()),
     };
     var rom_bad_col = try cumulativeColumn(allocator, &rom_bad);
     defer rom_bad_col.deinit(allocator);

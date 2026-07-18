@@ -8,10 +8,10 @@ const std = @import("std");
 const QM31 = @import("../../../../core/fields/qm31.zig").QM31;
 const common = @import("common.zig");
 
-/// Full 37-column family trace followed by the three current instruction-bus
-/// columns `(next_pc, inst_lo, inst_hi)`.
-pub const N_MAIN_COLUMNS: usize = 40;
-pub const N_CONSTRAINTS: usize = 15;
+/// Full 37-column family trace followed by the exact decoded-program bus
+/// columns `(next_pc, opcode_id, value_1, value_2, value_3)`.
+pub const N_MAIN_COLUMNS: usize = 42;
+pub const N_CONSTRAINTS: usize = 19;
 
 pub const Row = struct {
     clk: QM31,
@@ -25,8 +25,10 @@ pub const Row = struct {
     rs1: common.Access,
     rs2: common.Access,
     next_pc: QM31,
-    inst_lo: QM31,
-    inst_hi: QM31,
+    program_opcode: QM31,
+    program_value_1: QM31,
+    program_value_2: QM31,
+    program_value_3: QM31,
 
     pub fn fromMainColumns(columns: []const QM31) !Row {
         if (columns.len != N_MAIN_COLUMNS) return error.InvalidMainTraceShape;
@@ -57,8 +59,10 @@ pub const Row = struct {
                 .next = columns[33..37].*,
             },
             .next_pc = columns[37],
-            .inst_lo = columns[38],
-            .inst_hi = columns[39],
+            .program_opcode = columns[38],
+            .program_value_1 = columns[39],
+            .program_value_2 = columns[40],
+            .program_value_3 = columns[41],
         };
     }
 
@@ -85,6 +89,17 @@ pub fn evaluate(row: Row, is_active: QM31) Constraints {
     i += 1;
     out[i] = common.selected(is_active, row.next_pc.sub(row.pc).sub(common.q(4)));
     i += 1;
+
+    const program = programLookup(row);
+    for ([_]QM31{
+        row.program_opcode.sub(program.opcode_id),
+        row.program_value_1.sub(program.rd),
+        row.program_value_2.sub(program.rs1),
+        row.program_value_3.sub(program.operand),
+    }) |constraint| {
+        out[i] = common.selected(is_active, constraint);
+        i += 1;
+    }
 
     var carry = QM31.zero();
     for (0..4) |limb| {
@@ -184,9 +199,19 @@ fn zeroRow() Row {
         .rs1 = zero_access,
         .rs2 = zero_access,
         .next_pc = QM31.zero(),
-        .inst_lo = QM31.zero(),
-        .inst_hi = QM31.zero(),
+        .program_opcode = QM31.zero(),
+        .program_value_1 = QM31.zero(),
+        .program_value_2 = QM31.zero(),
+        .program_value_3 = QM31.zero(),
     };
+}
+
+fn bindProgram(row: *Row) void {
+    const program = programLookup(row.*);
+    row.program_opcode = program.opcode_id;
+    row.program_value_1 = program.rd;
+    row.program_value_2 = program.rs1;
+    row.program_value_3 = program.operand;
 }
 
 test "base alu reg semantics: ADD accepts byte carry chain" {
@@ -197,6 +222,7 @@ test "base alu reg semantics: ADD accepts byte carry chain" {
     row.rs1.next = .{ common.q(255), common.q(255), common.q(0), common.q(0) };
     row.rs2.next = .{ common.q(1), common.q(0), common.q(0), common.q(0) };
     row.rd.next = .{ common.q(0), common.q(0), common.q(1), common.q(0) };
+    bindProgram(&row);
     try std.testing.expect(evaluate(row, QM31.one()).allZero());
 }
 
@@ -208,6 +234,7 @@ test "base alu reg semantics: ADD rejects a forged result" {
     row.rs1.next[0] = common.q(7);
     row.rs2.next[0] = common.q(9);
     row.rd.next[0] = common.q(17);
+    bindProgram(&row);
     try std.testing.expect(!evaluate(row, QM31.one()).allZero());
 }
 
@@ -219,6 +246,7 @@ test "base alu reg semantics: SUB accepts unsigned wraparound" {
     row.rs1.next = .{QM31.zero()} ** 4;
     row.rs2.next[0] = common.q(1);
     row.rd.next = .{ common.q(255), common.q(255), common.q(255), common.q(255) };
+    bindProgram(&row);
     try std.testing.expect(evaluate(row, QM31.one()).allZero());
 }
 
@@ -262,6 +290,8 @@ test "base alu reg semantics: full main-column adapter preserves access blocks" 
     columns[37] = common.q(11);
     columns[38] = common.q(12);
     columns[39] = common.q(13);
+    columns[40] = common.q(14);
+    columns[41] = common.q(15);
 
     const row = try Row.fromMainColumns(&columns);
     try std.testing.expect(row.rd.addr.eql(common.q(1)));
@@ -275,6 +305,8 @@ test "base alu reg semantics: full main-column adapter preserves access blocks" 
     try std.testing.expect(row.rs2.previous_clock.eql(common.q(9)));
     try std.testing.expect(row.rs2.next[0].eql(common.q(10)));
     try std.testing.expect(row.next_pc.eql(common.q(11)));
-    try std.testing.expect(row.inst_lo.eql(common.q(12)));
-    try std.testing.expect(row.inst_hi.eql(common.q(13)));
+    try std.testing.expect(row.program_opcode.eql(common.q(12)));
+    try std.testing.expect(row.program_value_1.eql(common.q(13)));
+    try std.testing.expect(row.program_value_2.eql(common.q(14)));
+    try std.testing.expect(row.program_value_3.eql(common.q(15)));
 }

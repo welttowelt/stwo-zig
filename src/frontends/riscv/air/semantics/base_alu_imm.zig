@@ -7,10 +7,10 @@ const std = @import("std");
 const QM31 = @import("../../../../core/fields/qm31.zig").QM31;
 const common = @import("common.zig");
 
-/// Full 29-column family trace followed by the three current instruction-bus
-/// columns `(next_pc, inst_lo, inst_hi)`.
-pub const N_MAIN_COLUMNS: usize = 32;
-pub const N_CONSTRAINTS: usize = 11;
+/// Full 29-column family trace followed by the exact decoded-program bus
+/// columns `(next_pc, opcode_id, value_1, value_2, value_3)`.
+pub const N_MAIN_COLUMNS: usize = 34;
+pub const N_CONSTRAINTS: usize = 15;
 
 pub const Row = struct {
     clk: QM31,
@@ -25,8 +25,10 @@ pub const Row = struct {
     rd: common.Access,
     rs1: common.Access,
     next_pc: QM31,
-    inst_lo: QM31,
-    inst_hi: QM31,
+    program_opcode: QM31,
+    program_value_1: QM31,
+    program_value_2: QM31,
+    program_value_3: QM31,
 
     pub fn fromMainColumns(columns: []const QM31) !Row {
         if (columns.len != N_MAIN_COLUMNS) return error.InvalidMainTraceShape;
@@ -53,8 +55,10 @@ pub const Row = struct {
                 .next = columns[25..29].*,
             },
             .next_pc = columns[29],
-            .inst_lo = columns[30],
-            .inst_hi = columns[31],
+            .program_opcode = columns[30],
+            .program_value_1 = columns[31],
+            .program_value_2 = columns[32],
+            .program_value_3 = columns[33],
         };
     }
 
@@ -95,6 +99,17 @@ pub fn evaluate(row: Row, is_active: QM31) Constraints {
     i += 1;
     out[i] = common.selected(is_active, row.next_pc.sub(row.pc).sub(common.q(4)));
     i += 1;
+
+    const program = programLookup(row);
+    for ([_]QM31{
+        row.program_opcode.sub(program.opcode_id),
+        row.program_value_1.sub(program.rd),
+        row.program_value_2.sub(program.rs1),
+        row.program_value_3.sub(program.operand),
+    }) |constraint| {
+        out[i] = common.selected(is_active, constraint);
+        i += 1;
+    }
 
     const imm = immediateLimbs(row);
     var carry = QM31.zero();
@@ -184,9 +199,19 @@ fn zeroRow() Row {
         .rd = zero_access,
         .rs1 = zero_access,
         .next_pc = QM31.zero(),
-        .inst_lo = QM31.zero(),
-        .inst_hi = QM31.zero(),
+        .program_opcode = QM31.zero(),
+        .program_value_1 = QM31.zero(),
+        .program_value_2 = QM31.zero(),
+        .program_value_3 = QM31.zero(),
     };
+}
+
+fn bindProgram(row: *Row) void {
+    const program = programLookup(row.*);
+    row.program_opcode = program.opcode_id;
+    row.program_value_1 = program.rd;
+    row.program_value_2 = program.rs1;
+    row.program_value_3 = program.operand;
 }
 
 test "base alu imm semantics: exact ADDI accepts an honest row" {
@@ -196,6 +221,7 @@ test "base alu imm semantics: exact ADDI accepts an honest row" {
     row.is_addi = QM31.one();
     row.imm_0 = common.q(1);
     row.rd.next[0] = common.q(1);
+    bindProgram(&row);
     try std.testing.expect(evaluate(row, QM31.one()).allZero());
 }
 
@@ -209,6 +235,7 @@ test "base alu imm semantics: exact ADDI rejects known impossible witness" {
     // and rd advanced to 2. The byte carry constraint must reject that row.
     row.rs1.next[0] = common.q(0);
     row.rd.next[0] = common.q(2);
+    bindProgram(&row);
     try std.testing.expect(!evaluate(row, QM31.one()).allZero());
 }
 
@@ -220,6 +247,7 @@ test "base alu imm semantics: byte carries reject M31 word alias" {
     // 0x7fffffff is the M31 modulus, so a single reconstructed word equation
     // would confuse this forged result with zero. Per-byte carries do not.
     row.rd.next = .{ common.q(255), common.q(255), common.q(255), common.q(127) };
+    bindProgram(&row);
     try std.testing.expect(common.composeU32(row.rd.next).isZero());
     try std.testing.expect(!evaluate(row, QM31.one()).allZero());
 }
@@ -234,6 +262,7 @@ test "base alu imm semantics: negative immediate sign extends by bytes" {
     row.imm_msb = QM31.one();
     row.rs1.next = .{QM31.zero()} ** 4;
     row.rd.next = .{ common.q(255), common.q(255), common.q(255), common.q(255) };
+    bindProgram(&row);
     try std.testing.expect(evaluate(row, QM31.one()).allZero());
 
     const tuple = programLookup(row);
@@ -271,6 +300,8 @@ test "base alu imm semantics: full main-column adapter preserves access blocks" 
     columns[29] = common.q(9);
     columns[30] = common.q(10);
     columns[31] = common.q(11);
+    columns[32] = common.q(12);
+    columns[33] = common.q(13);
 
     const row = try Row.fromMainColumns(&columns);
     try std.testing.expect(row.rd.addr.eql(common.q(1)));
@@ -282,6 +313,8 @@ test "base alu imm semantics: full main-column adapter preserves access blocks" 
     try std.testing.expect(row.rs1.previous_clock.eql(common.q(7)));
     try std.testing.expect(row.rs1.next[0].eql(common.q(8)));
     try std.testing.expect(row.next_pc.eql(common.q(9)));
-    try std.testing.expect(row.inst_lo.eql(common.q(10)));
-    try std.testing.expect(row.inst_hi.eql(common.q(11)));
+    try std.testing.expect(row.program_opcode.eql(common.q(10)));
+    try std.testing.expect(row.program_value_1.eql(common.q(11)));
+    try std.testing.expect(row.program_value_2.eql(common.q(12)));
+    try std.testing.expect(row.program_value_3.eql(common.q(13)));
 }
