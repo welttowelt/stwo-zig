@@ -483,18 +483,11 @@ fn genIsActiveColumn(
     return values;
 }
 
-fn isCommittedFamilyColumn(family: trace_mod.OpcodeFamily, column: usize) bool {
-    return switch (family) {
-        .base_alu_reg => !((column >= 8 and column <= 12) or
-            (column >= 18 and column <= 22) or
-            (column >= 28 and column <= 32)),
-        .base_alu_imm => !((column >= 10 and column <= 14) or
-            (column >= 20 and column <= 24)),
-        .branch_lt => !(column == 13 or column == 16 or
-            (column >= 18 and column <= 22) or
-            (column >= 28 and column <= 32)),
-        else => true,
-    };
+fn isCommittedFamilyColumn(_: trace_mod.OpcodeFamily, _: usize) bool {
+    // Previous-value and previous-clock fields are part of the MemoryAccess
+    // witness. They cannot remain protocol-implicit zero columns once the
+    // runner supplies real access chains.
+    return true;
 }
 
 fn nCommittedColumnsForFamily(family: trace_mod.OpcodeFamily) u32 {
@@ -1833,7 +1826,7 @@ test "riscv prover: prove and verify synthetic trace" {
     // Add 8 synthetic trace rows -- all ADDI, so one component.
     for (0..8) |i| {
         try exec_trace.append(.{
-            .clk = @intCast(i),
+            .clk = @intCast(i + 1),
             .pc = @intCast(0x1000 + i * 4),
             .opcode = .ADDI,
             .rd = 1,
@@ -1925,7 +1918,7 @@ test "riscv prover: transaction engine is the proving substitution point" {
     trace.initial_pc = 0x1000;
     for (0..4) |row| {
         try trace.append(.{
-            .clk = @intCast(row),
+            .clk = @intCast(row + 1),
             .pc = @intCast(0x1000 + row * 4),
             .opcode = .ADDI,
             .rd = 1,
@@ -1975,7 +1968,7 @@ test "riscv prover: multi-family splitting" {
     // 4 ADD instructions
     for (0..4) |i| {
         try exec_trace.append(.{
-            .clk = @intCast(i),
+            .clk = @intCast(i + 1),
             .pc = @intCast(0x1000 + i * 4),
             .opcode = .ADD,
             .rd = 1,
@@ -1996,7 +1989,7 @@ test "riscv prover: multi-family splitting" {
     // 8 ADDI instructions
     for (0..8) |i| {
         try exec_trace.append(.{
-            .clk = @intCast(4 + i),
+            .clk = @intCast(5 + i),
             .pc = @intCast(0x1010 + i * 4),
             .opcode = .ADDI,
             .rd = 4,
@@ -2017,7 +2010,7 @@ test "riscv prover: multi-family splitting" {
     // 4 BEQ instructions
     for (0..4) |i| {
         try exec_trace.append(.{
-            .clk = @intCast(12 + i),
+            .clk = @intCast(13 + i),
             .pc = @intCast(0x1030 + i * 4),
             .opcode = .BEQ,
             .rd = 0,
@@ -2089,7 +2082,7 @@ test "riscv prover: ADDI + ADD + BNE split prove and verify" {
     // 4 ADDI instructions
     for (0..4) |i| {
         try exec_trace.append(.{
-            .clk = @intCast(i),
+            .clk = @intCast(i + 1),
             .pc = @intCast(0x1000 + i * 4),
             .opcode = .ADDI,
             .rd = 1,
@@ -2111,7 +2104,7 @@ test "riscv prover: ADDI + ADD + BNE split prove and verify" {
     for (0..2) |i| {
         const step = 4 + i;
         try exec_trace.append(.{
-            .clk = @intCast(step),
+            .clk = @intCast(step + 1),
             .pc = @intCast(0x1000 + step * 4),
             .opcode = .ADD,
             .rd = 3,
@@ -2135,7 +2128,7 @@ test "riscv prover: ADDI + ADD + BNE split prove and verify" {
     for (0..2) |i| {
         const step = 6 + i;
         try exec_trace.append(.{
-            .clk = @intCast(step),
+            .clk = @intCast(step + 1),
             .pc = branch_pc,
             .opcode = .BNE,
             .rd = 0,
@@ -2201,7 +2194,7 @@ fn testAddiTrace(alloc: std.mem.Allocator, n: usize) !trace_mod.Trace {
     exec_trace.initial_pc = 0x1000;
     for (0..n) |i| {
         try exec_trace.append(.{
-            .clk = @intCast(i),
+            .clk = @intCast(i + 1),
             .pc = @intCast(0x1000 + i * 4),
             .opcode = .ADDI,
             .rd = 1,

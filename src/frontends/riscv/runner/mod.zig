@@ -12,6 +12,7 @@ pub const elf_loader = @import("elf_loader.zig");
 pub const trace = @import("trace.zig");
 pub const trace_dump = @import("trace_dump.zig");
 pub const state_chain = @import("state_chain.zig");
+const access_witness = @import("access_witness.zig");
 pub const host_mod = @import("../host/mod.zig");
 
 pub const Cpu = cpu.Cpu;
@@ -170,6 +171,9 @@ fn runConfigured(
         // Capture pre-execution register values.
         const rs1_val = rv_cpu.readReg(inst.rs1);
         const rs2_val = rv_cpu.readReg(inst.rs2);
+        const rd_prev_val = rv_cpu.readReg(inst.rd);
+        const access_clk: u32 = @intCast(steps + 1);
+        const access = access_witness.capture(&chain_tracker, inst, access_clk);
 
         // Halt on the Stark-V self-loop sentinel without tracing it, exactly
         // like the pinned oracle: `jal x0, 0`, or `jalr x0` targeting itself.
@@ -188,6 +192,8 @@ fn runConfigured(
         // BEFORE execution modifies CPU state.
         var mem_addr: u32 = 0;
         var mem_val: u32 = 0;
+        var mem_prev_word: u32 = 0;
+        var mem_prev_clk: u32 = 0;
         const is_load = switch (inst.opcode) {
             .LB, .LBU, .LH, .LHU, .LW => true,
             else => false,
@@ -199,6 +205,9 @@ fn runConfigured(
 
         if (is_load or is_store) {
             mem_addr = rs1_val +% @as(u32, @bitCast(inst.imm));
+            const aligned_addr = mem_addr & ~@as(u32, 3);
+            mem_prev_word = mem.readU32(aligned_addr);
+            mem_prev_clk = chain_tracker.mem_last_clk.get(aligned_addr) orelse 0;
             if (is_load) {
                 mem_val = switch (inst.opcode) {
                     .LB, .LBU => @as(u32, mem.readByte(mem_addr)),
@@ -221,9 +230,8 @@ fn runConfigured(
 
                     // Record any memory writes the syscall performed
                     // into the state chain tracker.
-                    const clk: u32 = @intCast(steps * 2);
                     for (h.lastMemoryWrites()) |mw| {
-                        try chain_tracker.recordMemAccess(mw.addr, clk + 1, mw.value);
+                        try chain_tracker.recordMemAccess(mw.addr, access_clk, mw.value);
                     }
 
                     // Record any register writes (a0 return value).
@@ -256,7 +264,7 @@ fn runConfigured(
 
         // Record trace row.
         try exec_trace.append(.{
-            .clk = @intCast(steps),
+            .clk = access_clk,
             .pc = pc_before,
             .opcode = inst.opcode,
             .rd = inst.rd,
@@ -265,9 +273,19 @@ fn runConfigured(
             .imm = inst.imm,
             .rs1_val = rs1_val,
             .rs2_val = rs2_val,
+            .rs1_prev_clk = access.rs1_prev_clock,
+            .rs2_prev_clk = access.rs2_prev_clock,
+            .rd_prev_val = rd_prev_val,
+            .rd_prev_clk = access.rd_prev_clock,
             .rd_val = rd_val,
             .mem_addr = mem_addr,
             .mem_val = mem_val,
+            .mem_prev_word = mem_prev_word,
+            .mem_next_word = if (is_load or is_store)
+                mem.readU32(mem_addr & ~@as(u32, 3))
+            else
+                0,
+            .mem_prev_clk = mem_prev_clk,
             .is_load = is_load,
             .is_store = is_store,
             .branch_taken = (rv_cpu.pc != pc_before + 4),
@@ -276,15 +294,19 @@ fn runConfigured(
         });
 
         // Record state chain accesses.
-        // Clock model: each instruction step is at clock step*2 (even for
-        // reads, odd for writes), matching stark-v's interleaving.
-        const clk: u32 = @intCast(steps * 2);
-        if (inst.rs1 != 0) try chain_tracker.recordRegAccess(inst.rs1, clk, rs1_val);
-        if (inst.rs2 != 0) try chain_tracker.recordRegAccess(inst.rs2, clk, rs2_val);
-        if (inst.rd != 0) try chain_tracker.recordRegAccess(inst.rd, clk + 1, rd_val);
+        // Pinned Stark-V places every operand access for an instruction at
+        // the same one-based execution clock, in source-then-destination order.
+        try access.recordRegisters(
+            &chain_tracker,
+            inst,
+            access_clk,
+            rs1_val,
+            rs2_val,
+            rd_val,
+        );
         if (is_load or is_store) {
             const aligned_addr = mem_addr & ~@as(u32, 3);
-            try chain_tracker.recordMemAccess(aligned_addr, clk, mem.readU32(aligned_addr));
+            try chain_tracker.recordMemAccess(aligned_addr, access_clk, mem.readU32(aligned_addr));
         }
 
         steps += 1;
@@ -526,12 +548,12 @@ test "runner: runWithInput captures Stark-V public IO with access clocks" {
     try std.testing.expectEqual(OutputWord{
         .addr = elf_loader.DEFAULT_OUTPUT_LEN,
         .value = 4,
-        .clock = 4,
+        .clock = 3,
     }, result.output_words[0]);
     try std.testing.expectEqual(OutputWord{
         .addr = elf_loader.DEFAULT_OUTPUT_DATA,
         .value = 42,
-        .clock = 8,
+        .clock = 5,
     }, result.output_words[1]);
 }
 
@@ -638,11 +660,17 @@ test "runner: mem_addr and mem_val captured for load/store" {
     try std.testing.expect(rows[2].is_store);
     try std.testing.expectEqual(@as(u32, 0x100), rows[2].mem_addr);
     try std.testing.expectEqual(@as(u32, 0x55), rows[2].mem_val);
+    try std.testing.expectEqual(@as(u32, 0), rows[2].mem_prev_word);
+    try std.testing.expectEqual(@as(u32, 0x55), rows[2].mem_next_word);
+    try std.testing.expectEqual(@as(u32, 0), rows[2].mem_prev_clk);
 
     // Row 3: LW x3, 0(x2) - load addr=0x100, val=0x55
     try std.testing.expect(rows[3].is_load);
     try std.testing.expectEqual(@as(u32, 0x100), rows[3].mem_addr);
     try std.testing.expectEqual(@as(u32, 0x55), rows[3].mem_val);
+    try std.testing.expectEqual(@as(u32, 0x55), rows[3].mem_prev_word);
+    try std.testing.expectEqual(@as(u32, 0x55), rows[3].mem_next_word);
+    try std.testing.expectEqual(@as(u32, 3), rows[3].mem_prev_clk);
 
     // Verify final register state
     try std.testing.expectEqual(@as(u32, 0x55), result.cpu_final.readReg(3));

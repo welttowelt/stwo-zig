@@ -184,12 +184,12 @@ pub fn stateBoundary(
     const d_init = stateDenominator(
         lookup,
         QM31.fromBase(M31.fromU64(initial_pc)),
-        QM31.zero(),
+        QM31.one(),
     );
     const d_final = stateDenominator(
         lookup,
         QM31.fromBase(M31.fromU64(final_pc)),
-        QM31.fromBase(M31.fromU64(total_steps)),
+        QM31.fromBase(M31.fromU64(total_steps)).add(QM31.one()),
     );
     const init_term = QM31.one().mul((d_init.inv() catch return error.ZeroDenominator));
     const final_term = QM31.one().mul((d_final.inv() catch return error.ZeroDenominator));
@@ -318,7 +318,7 @@ test "state chain telescopes across shards with the public boundary" {
     const allocator = std.testing.allocator;
     const one = QM31.one();
 
-    // Shard A holds steps 0 and 2; shard B holds steps 1 and 3 — deliberately
+    // Shard A holds steps 1 and 3; shard B holds steps 2 and 4 — deliberately
     // interleaved to show placement is order-independent.
     const mkRow = struct {
         fn f(lk: *const interaction.LookupElements, pc: u32, clk: u32, next: u32) RowPair {
@@ -333,8 +333,8 @@ test "state chain telescopes across shards with the public boundary" {
     }.f;
     _ = one;
 
-    const shard_a = [_]RowPair{ mkRow(&lookup, 0x1000, 0, 0x1004), mkRow(&lookup, 0x1008, 2, 0x100C) };
-    const shard_b = [_]RowPair{ mkRow(&lookup, 0x1004, 1, 0x1008), mkRow(&lookup, 0x100C, 3, 0x1010) };
+    const shard_a = [_]RowPair{ mkRow(&lookup, 0x1000, 1, 0x1004), mkRow(&lookup, 0x1008, 3, 0x100C) };
+    const shard_b = [_]RowPair{ mkRow(&lookup, 0x1004, 2, 0x1008), mkRow(&lookup, 0x100C, 4, 0x1010) };
 
     var col_a = try cumulativeColumn(allocator, &shard_a);
     defer col_a.deinit(allocator);
@@ -345,7 +345,7 @@ test "state chain telescopes across shards with the public boundary" {
     try verifyGlobalCancellation(&.{ col_a.claimed, col_b.claimed }, boundary);
 
     // Drop one row's emission (forge the chain) and the cancellation fails.
-    const bad_b = [_]RowPair{ mkRow(&lookup, 0x1004, 1, 0x1008), mkRow(&lookup, 0x100C, 3, 0x1014) };
+    const bad_b = [_]RowPair{ mkRow(&lookup, 0x1004, 2, 0x1008), mkRow(&lookup, 0x100C, 4, 0x1014) };
     var col_bad = try cumulativeColumn(allocator, &bad_b);
     defer col_bad.deinit(allocator);
     try std.testing.expectError(

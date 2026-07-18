@@ -9,6 +9,7 @@ const cpu_mod = @import("cpu.zig");
 const decode_mod = @import("decode.zig");
 const M31 = @import("../../../core/fields/m31.zig").M31;
 const trace_columns = @import("../air/trace_columns.zig");
+const access_columns = @import("access_columns.zig");
 
 const Cpu = cpu_mod.Cpu;
 const Opcode = decode_mod.Opcode;
@@ -33,12 +34,20 @@ pub const TraceRow = struct {
     /// Register values before execution.
     rs1_val: u32,
     rs2_val: u32,
+    rs1_prev_clk: u32 = 0,
+    rs2_prev_clk: u32 = 0,
+    /// Destination value and access clock before the instruction write.
+    rd_prev_val: u32 = 0,
+    rd_prev_clk: u32 = 0,
     /// Register value written (rd_val after execution).
     rd_val: u32,
     /// Memory address accessed (0 if no memory access).
     mem_addr: u32,
     /// Memory value read/written (0 if no memory access).
     mem_val: u32,
+    mem_prev_word: u32 = 0,
+    mem_next_word: u32 = 0,
+    mem_prev_clk: u32 = 0,
     /// Whether this was a memory load.
     is_load: bool,
     /// Whether this was a memory store.
@@ -178,7 +187,7 @@ inline fn u32ToM31(v: u32) M31 {
 }
 
 /// Decompose a u32 value into 4 byte limbs and write to columns[start..start+4].
-inline fn writeU32Limbs(columns: *[MAX_FAMILY_COLUMNS][]M31, row_idx: usize, start: usize, val: u32) void {
+fn writeU32Limbs(columns: *[MAX_FAMILY_COLUMNS][]M31, row_idx: usize, start: usize, val: u32) void {
     columns[start][row_idx] = u32ToM31(val & 0xFF);
     columns[start + 1][row_idx] = u32ToM31((val >> 8) & 0xFF);
     columns[start + 2][row_idx] = u32ToM31((val >> 16) & 0xFF);
@@ -194,25 +203,6 @@ fn writeZero(columns: *[MAX_FAMILY_COLUMNS][]M31, row_idx: usize, column: usize)
 /// Write a 10-column register access block at columns[start..start+10].
 /// Layout: addr, prev_0..3, clk_prev, next_0..3
 /// State chain data (prev values, clk_prev) is placeholder (zero) for now.
-inline fn writeRegAccess(
-    columns: *[MAX_FAMILY_COLUMNS][]M31,
-    row_idx: usize,
-    start: usize,
-    addr: u32,
-    next_val: u32,
-) void {
-    columns[start][row_idx] = u32ToM31(addr); // addr (may be register index or memory address)
-    // prev_0..3: placeholder zeros (state chain data TBD)
-    writeZero(columns, row_idx, start + 1);
-    writeZero(columns, row_idx, start + 2);
-    writeZero(columns, row_idx, start + 3);
-    writeZero(columns, row_idx, start + 4);
-    // clk_prev: placeholder zero
-    writeZero(columns, row_idx, start + 5);
-    // next_0..3: decompose next_val into byte limbs
-    writeU32Limbs(columns, row_idx, start + 6, next_val);
-}
-
 /// Fill family-specific column data for a single trace row at the given index.
 /// Column ordering must match the struct field order in air/trace_columns.zig.
 /// All u32 values from the execution trace are reduced modulo P via u32ToM31.
@@ -244,11 +234,11 @@ pub fn fillFamilyColumns(
             c += 1;
             columns[c][row_idx] = if (row.opcode == .AND) M31.one() else M31.zero();
             c += 1;
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rd), row.rd_val);
+            access_columns.writeRd(columns, row_idx, c, row);
             c += 10;
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rs1), row.rs1_val);
+            access_columns.writeRs1(columns, row_idx, c, row);
             c += 10;
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rs2), row.rs2_val);
+            access_columns.writeRs2(columns, row_idx, c, row);
         },
         .base_alu_imm => {
             // BaseAluImmColumns: 9 common + rd(10) + rs1(10) = 29
@@ -271,9 +261,9 @@ pub fn fillFamilyColumns(
             c += 1;
             columns[c][row_idx] = M31.one(); // enabler
             c += 1;
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rd), row.rd_val);
+            access_columns.writeRd(columns, row_idx, c, row);
             c += 10;
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rs1), row.rs1_val);
+            access_columns.writeRs1(columns, row_idx, c, row);
         },
         .shifts_reg => {
             // ShiftsRegColumns: 6 common + 18 shift decomp + rd(10) + rs1(10) + rs2(10) = 54
@@ -330,11 +320,11 @@ pub fn fillFamilyColumns(
             c += 1;
             columns[c][row_idx] = M31.zero(); // overflow (placeholder)
             c += 1;
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rd), row.rd_val);
+            access_columns.writeRd(columns, row_idx, c, row);
             c += 10;
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rs1), row.rs1_val);
+            access_columns.writeRs1(columns, row_idx, c, row);
             c += 10;
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rs2), row.rs2_val);
+            access_columns.writeRs2(columns, row_idx, c, row);
         },
         .shifts_imm => {
             // ShiftsImmColumns: 7 common + 18 shift decomp + rd(10) + rs1(10) = 45
@@ -391,9 +381,9 @@ pub fn fillFamilyColumns(
             c += 1;
             columns[c][row_idx] = M31.zero(); // overflow
             c += 1;
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rd), row.rd_val);
+            access_columns.writeRd(columns, row_idx, c, row);
             c += 10;
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rs1), row.rs1_val);
+            access_columns.writeRs1(columns, row_idx, c, row);
         },
         .lt_reg => {
             // LtRegColumns: 5 common + 7 comparison + rd(10) + rs1(10) + rs2(10) = 42
@@ -429,11 +419,11 @@ pub fn fillFamilyColumns(
             c += 1;
             columns[c][row_idx] = u32ToM31(row.rd_val); // result
             c += 1;
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rd), row.rd_val);
+            access_columns.writeRd(columns, row_idx, c, row);
             c += 10;
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rs1), row.rs1_val);
+            access_columns.writeRs1(columns, row_idx, c, row);
             c += 10;
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rs2), row.rs2_val);
+            access_columns.writeRs2(columns, row_idx, c, row);
         },
         .lt_imm => {
             // LtImmColumns: 7 common + 7 comparison + rd(10) + rs1(10) = 34
@@ -474,9 +464,9 @@ pub fn fillFamilyColumns(
             c += 1;
             columns[c][row_idx] = M31.zero(); // imm_ext (placeholder)
             c += 1;
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rd), row.rd_val);
+            access_columns.writeRd(columns, row_idx, c, row);
             c += 10;
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rs1), row.rs1_val);
+            access_columns.writeRs1(columns, row_idx, c, row);
         },
         .branch_eq => {
             // BranchEqColumns: 10 common + rs1(10) + rs2(10) = 30
@@ -506,9 +496,9 @@ pub fn fillFamilyColumns(
             c += 1;
             columns[c][row_idx] = M31.zero(); // branch_target_aux (placeholder)
             c += 1;
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rs1), row.rs1_val);
+            access_columns.writeRs1(columns, row_idx, c, row);
             c += 10;
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rs2), row.rs2_val);
+            access_columns.writeRs2(columns, row_idx, c, row);
         },
         .branch_lt => {
             // BranchLtColumns: 8 common + 9 decomp + rs1(10) + rs2(10) = 37
@@ -557,9 +547,9 @@ pub fn fillFamilyColumns(
             c += 1;
             writeZero(columns, row_idx, c); // branch_target_aux (placeholder)
             c += 1;
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rs1), row.rs1_val);
+            access_columns.writeRs1(columns, row_idx, c, row);
             c += 10;
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rs2), row.rs2_val);
+            access_columns.writeRs2(columns, row_idx, c, row);
         },
         .lui => {
             // LuiColumns: 6 common + rd(10) = 16
@@ -577,7 +567,7 @@ pub fn fillFamilyColumns(
             c += 1;
             columns[c][row_idx] = u32ToM31(result_val >> 16); // result_hi
             c += 1;
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rd), row.rd_val);
+            access_columns.writeRd(columns, row_idx, c, row);
         },
         .auipc => {
             // AuipcColumns: 4 common + rd(10) = 14
@@ -592,7 +582,7 @@ pub fn fillFamilyColumns(
             c += 1;
             columns[c][row_idx] = M31.one(); // enabler
             c += 1;
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rd), row.rd_val);
+            access_columns.writeRd(columns, row_idx, c, row);
         },
         .jalr => {
             // JalrColumns: 6 common + rd(10) + rs1(10) = 26
@@ -610,9 +600,9 @@ pub fn fillFamilyColumns(
             c += 1;
             columns[c][row_idx] = u32ToM31(target_val >> 16); // target_hi
             c += 1;
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rd), row.rd_val);
+            access_columns.writeRd(columns, row_idx, c, row);
             c += 10;
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rs1), row.rs1_val);
+            access_columns.writeRs1(columns, row_idx, c, row);
         },
         .jal => {
             // JalColumns: 4 common + rd(10) = 14
@@ -625,7 +615,7 @@ pub fn fillFamilyColumns(
             c += 1;
             columns[c][row_idx] = M31.one(); // enabler
             c += 1;
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rd), row.rd_val);
+            access_columns.writeRd(columns, row_idx, c, row);
         },
         .load_store => {
             // LoadStoreColumns: 20 common + rd(10) + rs1(10) + mem(10) = 50
@@ -670,14 +660,13 @@ pub fn fillFamilyColumns(
             c += 1;
             columns[c][row_idx] = M31.zero(); // sign_extend (placeholder)
             c += 1;
-            // For loads, rd gets the loaded value; for stores, rd is not written
-            // but we still fill the access columns.
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rd), row.rd_val);
+            // Stark-V models these as generic dst/src accesses: load writes a
+            // register from memory; store writes memory from a register.
+            access_columns.writeLoadStoreDst(columns, row_idx, c, row);
             c += 10;
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rs1), row.rs1_val);
+            access_columns.writeRs1(columns, row_idx, c, row);
             c += 10;
-            // memory access (10 cols): addr=mem_addr, next=mem_val decomposed
-            writeRegAccess(columns, row_idx, c, row.mem_addr, row.mem_val);
+            access_columns.writeLoadStoreSrc(columns, row_idx, c, row);
         },
         .mul => {
             // MulColumns: 3 common + rd(10) + rs1(10) + rs2(10) = 33
@@ -688,11 +677,11 @@ pub fn fillFamilyColumns(
             c += 1;
             columns[c][row_idx] = M31.one(); // enabler
             c += 1;
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rd), row.rd_val);
+            access_columns.writeRd(columns, row_idx, c, row);
             c += 10;
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rs1), row.rs1_val);
+            access_columns.writeRs1(columns, row_idx, c, row);
             c += 10;
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rs2), row.rs2_val);
+            access_columns.writeRs2(columns, row_idx, c, row);
         },
         .mulh => {
             // MulhColumns: 6 common + 5 decomp + rd(10) + rs1(10) + rs2(10) = 41
@@ -721,11 +710,11 @@ pub fn fillFamilyColumns(
             c += 1;
             columns[c][row_idx] = u32ToM31(@truncate(prod >> 32)); // carry
             c += 1;
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rd), row.rd_val);
+            access_columns.writeRd(columns, row_idx, c, row);
             c += 10;
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rs1), row.rs1_val);
+            access_columns.writeRs1(columns, row_idx, c, row);
             c += 10;
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rs2), row.rs2_val);
+            access_columns.writeRs2(columns, row_idx, c, row);
         },
         .div => {
             // DivColumns: 7 common + 28 decomp + rd(10) + rs1(10) + rs2(10) = 65
@@ -783,11 +772,11 @@ pub fn fillFamilyColumns(
             c += 1;
             columns[c][row_idx] = M31.zero();
             c += 1;
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rd), row.rd_val);
+            access_columns.writeRd(columns, row_idx, c, row);
             c += 10;
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rs1), row.rs1_val);
+            access_columns.writeRs1(columns, row_idx, c, row);
             c += 10;
-            writeRegAccess(columns, row_idx, c, @as(u32, row.rs2), row.rs2_val);
+            access_columns.writeRs2(columns, row_idx, c, row);
         },
     }
 }

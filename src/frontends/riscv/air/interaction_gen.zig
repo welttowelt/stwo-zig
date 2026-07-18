@@ -315,10 +315,10 @@ test "interaction_gen: claims telescope across shards and the program bus balanc
 
     // Four-step execution split across two shards; pc 0x1008 repeats.
     const rows = [_]trace_mod.TraceRow{
-        testRow(0, 0x1000, 0x1004, 0x00A00093),
-        testRow(1, 0x1004, 0x1008, 0x01400113),
-        testRow(2, 0x1008, 0x1004, 0x002081B3),
-        testRow(3, 0x1004, 0x100C, 0x01400113),
+        testRow(1, 0x1000, 0x1004, 0x00A00093),
+        testRow(2, 0x1004, 0x1008, 0x01400113),
+        testRow(3, 0x1008, 0x1004, 0x002081B3),
+        testRow(4, 0x1004, 0x100C, 0x01400113),
     };
 
     var shard_a = try genOpcodeInteraction(allocator, rows[0..2], 1, &lookup);
@@ -354,9 +354,9 @@ test "interaction_gen: columns are placed in committed order with wrapped shift"
     const lookup = testLookup();
 
     const rows = [_]trace_mod.TraceRow{
-        testRow(0, 0x1000, 0x1004, 0x00A00093),
-        testRow(1, 0x1004, 0x1008, 0x01400113),
-        testRow(2, 0x1008, 0x100C, 0x002081B3),
+        testRow(1, 0x1000, 0x1004, 0x00A00093),
+        testRow(2, 0x1004, 0x1008, 0x01400113),
+        testRow(3, 0x1008, 0x100C, 0x002081B3),
     };
     const log_size: u32 = 2;
     const n: usize = 1 << log_size;
@@ -402,10 +402,10 @@ test "interaction_gen: program cumulative column closes the ROM claim" {
     const lookup = testLookup();
 
     const rows = [_]trace_mod.TraceRow{
-        testRow(0, 0x2000, 0x2004, 0x11110111),
-        testRow(1, 0x2004, 0x2000, 0x22220222),
-        testRow(2, 0x2000, 0x2008, 0x11110111),
-        testRow(3, 0x2008, 0x200C, 0x33330333),
+        testRow(1, 0x2000, 0x2004, 0x11110111),
+        testRow(2, 0x2004, 0x2000, 0x22220222),
+        testRow(3, 0x2000, 0x2008, 0x11110111),
+        testRow(4, 0x2008, 0x200C, 0x33330333),
     };
     var rom = try genProgramInteraction(allocator, rows[0..], 2, &lookup);
     defer rom.deinit(allocator);
@@ -427,8 +427,8 @@ test "interaction_gen: one program counter cannot name two instruction words" {
     const allocator = std.testing.allocator;
     const lookup = testLookup();
     const rows = [_]trace_mod.TraceRow{
-        testRow(0, 0x2000, 0x2004, 0x1111_0111),
-        testRow(1, 0x2000, 0x2004, 0x2222_0222),
+        testRow(1, 0x2000, 0x2004, 0x1111_0111),
+        testRow(2, 0x2000, 0x2004, 0x2222_0222),
     };
     try std.testing.expectError(
         error.ProgramWordChanged,
