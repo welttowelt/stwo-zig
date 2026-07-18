@@ -6,18 +6,32 @@ BUILD_ROOT_CEILING = 500
 BUILD_SUPPORT_CEILING = 500
 PYTHON_ROOT_CEILING = 350
 PYTHON_ENTRYPOINT_CEILING = 100
+PYTHON_CONTROLLER_CEILING = 850
 ZIG_OWNER_CEILING = 300
 ZIG_ENTRYPOINT_CEILING = 200
 RUST_ENTRYPOINT_CEILING = 100
 ACTIVE_NATIVE_RUST_CRATES = frozenset({"stwo-interop-rs", "stwo-vector-gen"})
-ACTIVE_PERFORMANCE_ROOTS = (
+ACTIVE_FORMAL_EVIDENCE_ROOTS = (
+    "scripts/archive_native_matrix.py",
     "scripts/benchmark_delta.py",
+    "scripts/benchmark_full.py",
+    "scripts/benchmark_smoke.py",
     "scripts/compare_optimization.py",
+    "scripts/e2e_interop.py",
+    "scripts/metal_core_aot_receipt.py",
     "scripts/metal_profile_report.py",
     "scripts/native_profile_capture.py",
     "scripts/native_proof_matrix.py",
+    "scripts/profile_smoke.py",
 )
-# Higher-level evidence packages may consume these stable lower-level contracts.
+# Every active evidence package may consume the stable interop command contract.
+PYTHON_FOUNDATION_LIBRARIES = frozenset({"interop_cli_lib"})
+# Controller packages with historical executable names that are not a direct
+# ``<root>_lib`` spelling declare their stable command facade here.
+PYTHON_CONTROLLER_ROOTS = {
+    "optimization_compare_lib": "compare_optimization.py",
+}
+# Higher-level evidence packages may additionally consume these lower-level contracts.
 PYTHON_LIBRARY_DEPENDENCIES = {
     "native_profile_capture_lib": frozenset({
         "metal_profile_report_lib",

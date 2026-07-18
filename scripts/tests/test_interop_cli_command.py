@@ -4,12 +4,14 @@ from pathlib import Path
 from scripts.interop_cli_command import build_command, installed_binary, run_command
 
 ROOT = Path(__file__).resolve().parents[2]
-CALLERS = (
-    "benchmark_full.py",
-    "benchmark_smoke.py",
-    "e2e_interop.py",
+PACKAGE_CALLERS = (
+    "benchmark_full_lib/controller.py",
+    "benchmark_smoke_lib/controller.py",
+    "e2e_interop_lib/controller.py",
+    "profile_smoke_lib/controller.py",
+)
+COMPATIBILITY_CALLERS = (
     "merkle_worker_stress.py",
-    "profile_smoke.py",
     "prove_checkpoints.py",
     "std_shims_behavior.py",
 )
@@ -35,7 +37,14 @@ class InteropCliCommandTests(unittest.TestCase):
         self.assertEqual(["--mode", "verify", "--artifact", "proof.json"], command[-4:])
 
     def test_callers_use_the_shared_command_boundary(self) -> None:
-        for filename in CALLERS:
+        for filename in PACKAGE_CALLERS:
+            source = (ROOT / "scripts" / filename).read_text(encoding="utf-8")
+            with self.subTest(filename=filename):
+                self.assertIn("interop_cli_lib.command import", source)
+                self.assertNotIn("interop_cli_command import", source)
+                self.assertNotIn("src/interop_cli.zig", source)
+                self.assertNotIn('"build-exe"', source)
+        for filename in COMPATIBILITY_CALLERS:
             source = (ROOT / "scripts" / filename).read_text(encoding="utf-8")
             with self.subTest(filename=filename):
                 self.assertIn("interop_cli_command import", source)

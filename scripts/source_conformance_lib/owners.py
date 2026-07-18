@@ -95,9 +95,9 @@ def scan_build(repo: Path) -> list[Finding]:
     return findings
 
 
-def scan_python(repo: Path) -> list[Finding]:
+def scan_python_roots(repo: Path) -> list[Finding]:
     findings: list[Finding] = []
-    for relative in policy.ACTIVE_PERFORMANCE_ROOTS:
+    for relative in policy.ACTIVE_FORMAL_EVIDENCE_ROOTS:
         source = repo / relative
         if not source.is_file():
             continue
@@ -147,6 +147,35 @@ def scan_python(repo: Path) -> list[Finding]:
     return findings
 
 
+def scan_python_controllers(repo: Path) -> list[Finding]:
+    """Cap every active deep evidence controller without pretending it is an entry point."""
+    findings: list[Finding] = []
+    scripts_root = repo / "scripts"
+    for source in sorted(scripts_root.glob("*_lib/controller.py")):
+        display = source.relative_to(repo)
+        if is_deferred(display):
+            continue
+        line_count = len(source.read_text(encoding="utf-8").splitlines())
+        if line_count > policy.PYTHON_CONTROLLER_CEILING:
+            findings.append(Finding(
+                f"deep-controller:{display.as_posix()}",
+                f"{display}: cohesive evidence controller exceeds the "
+                f"{policy.PYTHON_CONTROLLER_CEILING}-line soft ceiling",
+                line_count,
+            ))
+        root_name = policy.PYTHON_CONTROLLER_ROOTS.get(
+            source.parent.name,
+            f"{source.parent.name.removesuffix('_lib')}.py",
+        )
+        root = scripts_root / root_name
+        if not root.is_file():
+            findings.append(Finding(
+                f"deep-controller:{display.as_posix()}",
+                f"{display}: evidence controller has no stable executable facade ({root.name})",
+            ))
+    return findings
+
+
 def scan_rust(repo: Path) -> list[Finding]:
     findings: list[Finding] = []
     for crate_name in sorted(policy.ACTIVE_NATIVE_RUST_CRATES):
@@ -167,4 +196,4 @@ def scan_rust(repo: Path) -> list[Finding]:
 
 
 def scan(repo: Path) -> list[Finding]:
-    return scan_build(repo) + scan_python(repo) + scan_rust(repo)
+    return scan_build(repo) + scan_python_roots(repo) + scan_python_controllers(repo) + scan_rust(repo)

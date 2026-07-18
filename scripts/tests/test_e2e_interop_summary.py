@@ -3,24 +3,14 @@
 
 from __future__ import annotations
 
-import importlib.util
+import importlib
 import subprocess
 import unittest
-from pathlib import Path
 from unittest import mock
 
 
-ROOT = Path(__file__).resolve().parents[2]
-MODULE_PATH = ROOT / "scripts" / "e2e_interop.py"
-
-
 def load_module():
-    spec = importlib.util.spec_from_file_location("e2e_interop", MODULE_PATH)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"failed to load module from {MODULE_PATH}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return importlib.import_module("scripts.e2e_interop_lib.controller")
 
 
 class ComputeSummaryTests(unittest.TestCase):

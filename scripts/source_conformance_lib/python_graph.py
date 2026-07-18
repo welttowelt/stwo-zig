@@ -103,6 +103,7 @@ def scan(repo: Path) -> list[Finding]:
             _, target_package = layer(target.relative_to(scripts_root))
             allowed_packages = {
                 source_package,
+                *policy.PYTHON_FOUNDATION_LIBRARIES,
                 *policy.PYTHON_LIBRARY_DEPENDENCIES.get(source_package, frozenset()),
             }
             if (

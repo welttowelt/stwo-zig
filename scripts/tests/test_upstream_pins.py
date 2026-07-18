@@ -67,7 +67,7 @@ class UpstreamPinTests(unittest.TestCase):
 
         joined = "\n".join(errors)
         self.assertIn("src/interop/examples_artifact.zig", joined)
-        self.assertIn("scripts/e2e_interop.py", joined)
+        self.assertIn("scripts/e2e_interop_lib/controller.py", joined)
         self.assertIn("scripts/prove_checkpoints.py", joined)
         self.assertIn("tools/stwo-interop-rs/Cargo.toml", joined)
         self.assertIn("tools/stwo-vector-gen/Cargo.lock", joined)

@@ -17,6 +17,7 @@ from scripts.check_source_conformance import (
     scan,
     write_baseline,
 )
+from scripts.source_conformance_lib.policy import ACTIVE_FORMAL_EVIDENCE_ROOTS
 
 
 class SourceConformanceTests(unittest.TestCase):
@@ -314,6 +315,44 @@ class SourceConformanceTests(unittest.TestCase):
             self.assertIn("thin-owner:bench/sample.zig", keys)
             self.assertIn("thin-owner:tests/native/mod.zig", keys)
             self.assertIn("thin-owner:build_support/products.zig", keys)
+
+    def test_formal_native_evidence_root_registry_is_explicit_and_checked_in(self) -> None:
+        expected = {
+            "scripts/archive_native_matrix.py",
+            "scripts/benchmark_delta.py",
+            "scripts/benchmark_full.py",
+            "scripts/benchmark_smoke.py",
+            "scripts/compare_optimization.py",
+            "scripts/e2e_interop.py",
+            "scripts/metal_core_aot_receipt.py",
+            "scripts/metal_profile_report.py",
+            "scripts/native_profile_capture.py",
+            "scripts/native_proof_matrix.py",
+            "scripts/profile_smoke.py",
+        }
+        self.assertEqual(expected, set(ACTIVE_FORMAL_EVIDENCE_ROOTS))
+        root = Path(__file__).resolve().parents[2]
+        for relative in expected:
+            with self.subTest(relative=relative):
+                self.assertTrue((root / relative).is_file())
+
+    def test_deep_controller_cap_and_stable_facade_are_mechanical(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary)
+            controller = repo / "scripts/example_lib/controller.py"
+            controller.parent.mkdir(parents=True)
+            controller.write_text("pass\n" * 851, encoding="utf-8")
+
+            keys = {finding.key for finding in scan(repo)}
+            self.assertIn("deep-controller:scripts/example_lib/controller.py", keys)
+
+            controller.write_text("pass\n" * 850, encoding="utf-8")
+            (repo / "scripts/example.py").write_text(
+                "from example_lib.controller import main\n",
+                encoding="utf-8",
+            )
+            keys = {finding.key for finding in scan(repo)}
+            self.assertNotIn("deep-controller:scripts/example_lib/controller.py", keys)
 
     def test_baseline_round_trip_requires_explanations(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

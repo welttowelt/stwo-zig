@@ -314,7 +314,7 @@ def _text_pins(ledger: PinLedger) -> tuple[TextPin, ...]:
     cairo_stwo = ledger.cairo_stwo_revision
     return (
         TextPin(
-            "scripts/e2e_interop.py",
+            "scripts/e2e_interop_lib/controller.py",
             "Native UPSTREAM_COMMIT",
             rf'^UPSTREAM_COMMIT = "({REVISION_RE})"$',
             native,

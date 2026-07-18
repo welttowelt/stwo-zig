@@ -170,8 +170,8 @@ active track to be empty, not the deletion or hurried restructuring of deferred 
 | `src/backends/metal/runtime.zig` | 212-line facade over focused protocol-stage modules; all 104 public signatures preserved |
 | `src/backends/metal/kernels.metal` | 824-line compatibility owner with decommitment shaders extracted; all 90 exports preserved in one library |
 | `src/tests/metal/backend_test.zig` | 8-line test map over focused protocol-stage suites |
-| `build.zig` | 850-line public graph with the complete Metal product graph in typed build support |
-| benchmark delta, optimization comparison, and Native proof-matrix tests | Focused archive, metric, and fixture modules with the public scripts/tests below the ceiling |
+| `build.zig` | 433-line public graph with the complete Metal product graph in typed build support |
+| benchmark, profiler, interop, delta, optimization comparison, and Native proof evidence | Thin command owners; heavy benchmark/profile/interop lanes delegate to responsibility packages whose workload catalogs are separate from execution/report controllers |
 | `tools/stwo-interop-rs` and `tools/stwo-vector-gen` command roots | 29-line and 59-line roots over explicit schema, codec, proof, and generator modules |
 
 All remaining baseline owners belong to `deferred_todo`. Their existing design documents remain the
@@ -236,6 +236,16 @@ must state any remaining parser limitation explicitly.
 - Executable roots parse arguments, construct dependencies, call one service, and exit.
 - Approximately 500 lines is the normal review target; 850 is the soft ceiling for a genuinely
   cohesive protocol/HPC module.
+- The formal Native evidence command-root set is explicit in
+  `scripts/source_conformance_lib/policy.py`: archive, benchmark, profiler, interop, AOT, delta,
+  comparison, and Native proof-matrix commands. The source gate caps those roots independently from
+  their implementation modules.
+- Every active `scripts/*_lib/controller.py` is discovered mechanically, must have a stable command
+  facade, and remains subject to the 850-line cohesive-module ceiling. A deep controller is not
+  described as a thin entry point merely because both are below a line limit.
+- Shared executable command construction lives below controllers in `scripts/interop_cli_lib/`;
+  the historical `scripts/interop_cli_command.py` path is a compatibility facade, not an
+  implementation dependency.
 - A legacy file may only shrink until its exception is removed.
 - Extracted modules hide representation, policy, caching, concurrency, or ABI complexity; shallow
   one-function wrappers do not count as decomposition.
@@ -465,9 +475,12 @@ identity, setup attribution, or repository ownership.
       grown findings.
 - [x] No manually maintained source in the active Native/backend scope exceeds the repository
       ceiling without a checked generated-file exemption.
-- [ ] The active Native/backend target tree and dependency direction are mechanically true.
-- [ ] Active `build.zig`, executable roots, test roots, performance controllers, and Native Rust
-      tools are thin owners.
+- [x] The active Native/backend target tree and statically resolvable Zig, Metal, Python, build,
+      Cargo, and Rust dependency direction are mechanically true.
+- [x] Active build owners, Native command/test roots, and Native Rust command roots are thin; every
+      formal Native evidence executable root is explicit and independently capped; complex
+      benchmark/profile/interop roots are 17-line facades over compartmentalized controllers that
+      remain mechanically capped at the repository's 850-line soft ceiling.
 - [x] Metal shader families and runtime responsibilities are compartmentalized behind stable ABI.
 - [ ] The deterministic shared/Native core metallib passes manifest, export, ABI, AOT/JIT parity,
       authentication, cache, and release-admission gates.
@@ -484,8 +497,6 @@ identity, setup attribution, or repository ownership.
 
 The unchecked items reflect the following audited gaps:
 
-- dependency checks do not yet cover every claimed Python, Cargo/Rust, or build-graph edge, and the
-  largest build/performance owners need an explicit thin-owner rule or further decomposition;
 - CPU SIMD tests do not yet establish the complete alignment, tail, aliasing, scratch, and dispatch
   contract;
 - the current bidirectional Rust receipt is ignored local output, and its negative cases do not yet
