@@ -4,6 +4,7 @@ pub const counter = @import("counter.zig");
 pub const component = @import("component.zig");
 pub const interaction = @import("interaction.zig");
 pub const schema = @import("schema.zig");
+pub const source_ingest = @import("source_ingest.zig");
 
 test {
     @import("std").testing.refAllDecls(@This());
