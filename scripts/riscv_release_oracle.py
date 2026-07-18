@@ -27,7 +27,14 @@ import json
 import platform
 import subprocess
 import sys
+import time
 from pathlib import Path
+
+from riscv_release_oracle_lib.witness import (
+    compare_ordered_accesses,
+    compare_per_family_witness_rows,
+    load_trace_vectors,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 PINNED = "d478f783055aa0d73a93768a433a3c6c31c91d1c"
@@ -37,143 +44,7 @@ PINNED = "d478f783055aa0d73a93768a433a3c6c31c91d1c"
 # recorded overlay that only formats RunResult is). Its exact content is
 # hashed into the receipt.
 ADAPTER_REL = "crates/prover/src/bin/cp11_dump.rs"
-ADAPTER_SOURCE = r"""//! CP-11 receipt adapter: serialize the oracle's own run + public data.
-use std::env;
-use std::fs;
-// decode matrix mode relies on the air crate re-exported through prover deps.
-use prover as _;
-use air;
-use stwo::core::channel::Channel;
-
-fn main() {
-    let args: Vec<String> = env::args().collect();
-    let mut elf: Option<String> = None;
-    let mut decode_file: Option<String> = None;
-    let mut poseidon2_file: Option<String> = None;
-    let mut transcript_prefix = false;
-    let mut max: u64 = 1_000_000;
-    let mut i = 1;
-    while i < args.len() {
-        match args[i].as_str() {
-            "--elf" => { i += 1; elf = Some(args[i].clone()); }
-            "--decode-file" => { i += 1; decode_file = Some(args[i].clone()); }
-            "--poseidon2-file" => { i += 1; poseidon2_file = Some(args[i].clone()); }
-            "--transcript-prefix" => { transcript_prefix = true; }
-            "--max-steps" => { i += 1; max = args[i].parse().expect("max-steps"); }
-            _ => {}
-        }
-        i += 1;
-    }
-    if let Some(path) = poseidon2_file {
-        let raw = fs::read(path).expect("read poseidon2 file");
-        let mut out = String::new();
-        for chunk in raw.chunks_exact(64) {
-            let mut state = [0u32; 16];
-            for (i, word) in chunk.chunks_exact(4).enumerate() {
-                state[i] = u32::from_le_bytes([word[0], word[1], word[2], word[3]]);
-            }
-            runner::poseidon2::poseidon2_permutation(&mut state);
-            let rendered: Vec<String> = state.iter().map(|w| w.to_string()).collect();
-            out.push_str(&rendered.join(" "));
-            out.push('\n');
-        }
-        print!("{}", out);
-        return;
-    }
-    if let Some(path) = decode_file {
-        let raw = fs::read(path).expect("read decode file");
-        let mut out = String::new();
-        for chunk in raw.chunks_exact(4) {
-            let word = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
-            match air::decode::DecodedInst::decode(word) {
-                Some(inst) => out.push_str(&format!(
-                    "{:08x} {} {} {} {} {}\n",
-                    word,
-                    format!("{:?}", inst.opcode).to_uppercase(),
-                    inst.rd, inst.rs1, inst.rs2, inst.imm
-                )),
-                None => out.push_str(&format!("{:08x} -\n", word)),
-            }
-        }
-        print!("{}", out);
-        return;
-    }
-    let bytes = fs::read(elf.expect("--elf required")).expect("read elf");
-    let result = runner::run(&bytes, max).expect("run");
-    let public = prover::public_data::PublicData::new(&result);
-    if transcript_prefix {
-        // Shared-transcript-prefix mode: replay everything prove_rv32im mixes
-        // before the first commitment root (prover.rs step 4) — a default
-        // Blake2s channel driven by the oracle's own PublicData::mix_into —
-        // and print the digest after every mix step.
-        let mut recorder = RecordingChannel::default();
-        println!("init digest={}", digest_hex(&recorder.inner));
-        public.mix_into(&mut recorder);
-        return;
-    }
-    let regs: Vec<String> = result.final_regs.iter().map(|r| r.to_string()).collect();
-    println!(
-        "{{\"trace\":{{\"final_pc\":{},\"final_regs\":[{}],\"total_steps\":{}}},\"public_data\":{}}}",
-        result.final_pc,
-        regs.join(","),
-        result.cycles,
-        serde_json::to_string(&public).expect("serialize public data")
-    );
-}
-
-fn digest_hex(channel: &stwo::core::channel::Blake2sChannel) -> String {
-    channel
-        .digest()
-        .as_ref()
-        .iter()
-        .map(|byte| format!("{:02x}", byte))
-        .collect()
-}
-
-/// Blake2s channel wrapper that prints the digest after every mix step. The
-/// oracle's own PublicData::mix_into drives the sequence; this wrapper is
-/// pure instrumentation (no duplicated transcript model).
-#[derive(Default, Clone, Debug)]
-struct RecordingChannel {
-    inner: stwo::core::channel::Blake2sChannel,
-}
-
-impl Channel for RecordingChannel {
-    const BYTES_PER_HASH: usize =
-        <stwo::core::channel::Blake2sChannel as Channel>::BYTES_PER_HASH;
-
-    fn verify_pow_nonce(&self, n_bits: u32, nonce: u64) -> bool {
-        self.inner.verify_pow_nonce(n_bits, nonce)
-    }
-
-    fn mix_u32s(&mut self, data: &[u32]) {
-        self.inner.mix_u32s(data);
-        println!("mix_u32s len={} digest={}", data.len(), digest_hex(&self.inner));
-    }
-
-    fn mix_felts(&mut self, felts: &[stwo::core::fields::qm31::SecureField]) {
-        self.inner.mix_felts(felts);
-        println!("mix_felts len={} digest={}", felts.len(), digest_hex(&self.inner));
-    }
-
-    fn mix_u64(&mut self, value: u64) {
-        self.inner.mix_u64(value);
-        println!("mix_u64 digest={}", digest_hex(&self.inner));
-    }
-
-    fn draw_secure_felt(&mut self) -> stwo::core::fields::qm31::SecureField {
-        self.inner.draw_secure_felt()
-    }
-
-    fn draw_secure_felts(&mut self, n_felts: usize) -> Vec<stwo::core::fields::qm31::SecureField> {
-        self.inner.draw_secure_felts(n_felts)
-    }
-
-    fn draw_u32s(&mut self) -> Vec<u32> {
-        self.inner.draw_u32s()
-    }
-}
-"""
+ADAPTER_SOURCE_PATH = ROOT / "scripts" / "riscv_release_oracle_lib" / "cp11_dump.rs"
 
 BOUNDARIES = [
     "decode",
@@ -203,6 +74,39 @@ def _tree_digest(source: Path) -> str:
     return hashlib.sha256(out.encode()).hexdigest()
 
 
+def _canonical_digest(value: object) -> str:
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def finalize_case_result_digests(receipt: dict) -> None:
+    vectors = load_trace_vectors(ROOT, PINNED, receipt)
+    names = [vector["name"] for vector in vectors["vectors"]]
+    generated = {"decode", "poseidon2_vectors"}
+    expected = []
+    digests = {}
+    for boundary_name in BOUNDARIES:
+        boundary = receipt["boundaries"][boundary_name]
+        aggregate_key = f"{boundary_name}/aggregate"
+        expected.append(aggregate_key)
+        digests[aggregate_key] = _canonical_digest(boundary)
+        if boundary_name in generated:
+            case_key = f"{boundary_name}/corpus"
+            expected.append(case_key)
+            digests[case_key] = _canonical_digest(boundary)
+            continue
+        expected.extend(f"{boundary_name}/{name}" for name in names)
+        cases = boundary.get("corpus")
+        if not isinstance(cases, list):
+            continue
+        for case in cases:
+            name = case.get("name") if isinstance(case, dict) else None
+            if name in names:
+                digests[f"{boundary_name}/{name}"] = _canonical_digest(case)
+    receipt["expected_case_result_keys"] = sorted(set(expected))
+    receipt["case_result_digests"] = dict(sorted(digests.items()))
+
+
 def build_oracle(source: Path, receipt: dict) -> Path:
     head = _run(["git", "rev-parse", "HEAD"], cwd=source).strip()
     if head != PINNED:
@@ -214,18 +118,20 @@ def build_oracle(source: Path, receipt: dict) -> Path:
         raise SystemExit("oracle checkout is not clean; refusing to build")
     submodule = _run(["git", "submodule", "status", "--recursive"], cwd=source)
     tree_digest = _tree_digest(source)
+    adapter_source = ADAPTER_SOURCE_PATH.read_bytes()
 
     adapter_path = source / ADAPTER_REL
     adapter_path.parent.mkdir(parents=True, exist_ok=True)
-    adapter_path.write_text(ADAPTER_SOURCE)
+    adapter_path.write_bytes(adapter_source)
     try:
         toolchain = _run(["rustc", "--version"], cwd=source).strip()
-        build_cmd = ["cargo", "build", "--release", "-p", "prover"]
+        build_cmd = ["cargo", "build", "--locked", "--release", "-p", "prover"]
         _run(build_cmd, cwd=source)
         exe = source / "target" / "release" / "cp11_dump"
         receipt["oracle"] = {
             "repository": "https://github.com/ClementWalter/stark-v",
             "commit": head,
+            "clean": True,
             "tree_digest_sha256": tree_digest,
             "submodule_status": submodule.strip().splitlines(),
             "lockfile_sha256": _sha256_file(source / "Cargo.lock"),
@@ -234,7 +140,7 @@ def build_oracle(source: Path, receipt: dict) -> Path:
             "build_mode": "release",
             "adapter_overlay": {
                 "path": ADAPTER_REL,
-                "sha256": hashlib.sha256(ADAPTER_SOURCE.encode()).hexdigest(),
+                "sha256": hashlib.sha256(adapter_source).hexdigest(),
                 "note": "thin serializer over the oracle's own runner crate; "
                 "applied after tree digest, removed after build",
             },
@@ -258,9 +164,7 @@ def compare_execution(oracle_exe: Path, receipt: dict) -> None:
         ["zig", "build", "riscv-trace-dump", "-Doptimize=ReleaseFast"], cwd=ROOT, check=True
     )
     zig_exe = ROOT / "zig-out" / "bin" / "riscv-trace-dump"
-    vectors = json.loads((ROOT / "vectors" / "riscv_elfs" / "trace_vectors.json").read_text())
-    if vectors["stark_v_commit"] != PINNED:
-        raise SystemExit("trace vectors pinned to a different oracle commit")
+    vectors = load_trace_vectors(ROOT, PINNED, receipt)
     cases = []
     all_ok = True
     for vector in vectors["vectors"]:
@@ -307,7 +211,8 @@ def compare_public_values(oracle_exe: Path, receipt: dict) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             artifact_path = Path(tmp) / "a.json"
             _run([str(cli), "prove", "--elf", str(elf.relative_to(ROOT)), "--backend", "cpu",
-                  "--protocol", "functional", "--output", str(artifact_path)], cwd=ROOT)
+                  "--protocol", "functional", "--experimental", "--output",
+                  str(artifact_path)], cwd=ROOT)
             zig = json.loads(artifact_path.read_text())["statement"]["public_data"]
         mismatches = []
         for field in scalar_fields:
@@ -554,18 +459,23 @@ def compare_shared_transcript_prefix(oracle_exe: Path, receipt: dict) -> None:
 def build_and_compare(args) -> int:
     source = Path(args.stark_v_source).resolve()
     receipt: dict = {
-        "schema": "riscv-oracle-receipt-v1",
+        "schema": "riscv-oracle-receipt-v2",
         "candidate_commit": args.candidate,
+        "created_at_unix": int(time.time()),
+        "case_result_digests": {},
         "boundaries": {name: {"status": "unimplemented"} for name in BOUNDARIES},
     }
     oracle_exe = build_oracle(source, receipt)
     compare_execution(oracle_exe, receipt)
+    compare_per_family_witness_rows(oracle_exe, receipt, ROOT, PINNED)
+    compare_ordered_accesses(oracle_exe, receipt, ROOT, PINNED)
     compare_public_values(oracle_exe, receipt)
     compare_decode(oracle_exe, receipt)
     compare_program_tuples(oracle_exe, receipt)
     compare_memory_roots(oracle_exe, receipt)
     compare_poseidon2(oracle_exe, receipt)
     compare_shared_transcript_prefix(oracle_exe, receipt)
+    finalize_case_result_digests(receipt)
     receipt["verdict"] = (
         "PASS"
         if all(b.get("status") == "pass" for b in receipt["boundaries"].values())
@@ -583,7 +493,7 @@ def build_and_compare(args) -> int:
 def validate(args) -> int:
     receipt = json.loads(Path(args.receipt).read_text())
     errors = []
-    if receipt.get("schema") != "riscv-oracle-receipt-v1":
+    if receipt.get("schema") not in {"riscv-oracle-receipt-v1", "riscv-oracle-receipt-v2"}:
         errors.append("unknown receipt schema")
     if receipt.get("oracle", {}).get("commit") != PINNED:
         errors.append("receipt oracle commit is not the pinned revision")

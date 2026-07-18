@@ -27,6 +27,8 @@ pub fn main() !void {
     var program_tuples: ?[]const u8 = null;
     var poseidon2_file: ?[]const u8 = null;
     var transcript_prefix: ?[]const u8 = null;
+    var witness_rows: ?[]const u8 = null;
+    var ordered_accesses: ?[]const u8 = null;
     var max_steps: usize = 1_000_000;
 
     var i: usize = 1;
@@ -49,6 +51,12 @@ pub fn main() !void {
         } else if (std.mem.eql(u8, args[i], "--transcript-prefix") and i + 1 < args.len) {
             i += 1;
             transcript_prefix = args[i];
+        } else if (std.mem.eql(u8, args[i], "--witness-rows") and i + 1 < args.len) {
+            i += 1;
+            witness_rows = args[i];
+        } else if (std.mem.eql(u8, args[i], "--ordered-accesses") and i + 1 < args.len) {
+            i += 1;
+            ordered_accesses = args[i];
         } else if (std.mem.eql(u8, args[i], "--max-steps") and i + 1 < args.len) {
             i += 1;
             max_steps = try std.fmt.parseInt(usize, args[i], 10);
@@ -75,6 +83,16 @@ pub fn main() !void {
 
     if (transcript_prefix) |path| {
         try dumpTranscriptPrefix(allocator, path);
+        return;
+    }
+
+    if (witness_rows) |path| {
+        try dumpWitnessRows(allocator, path, max_steps);
+        return;
+    }
+
+    if (ordered_accesses) |path| {
+        try dumpOrderedAccesses(allocator, path, max_steps);
         return;
     }
 
@@ -112,6 +130,322 @@ pub fn main() !void {
         const stdout = std.fs.File{ .handle = std.posix.STDOUT_FILENO };
         try stdout.writeAll(json_buf.items);
     }
+}
+
+const Family = runner.trace.OpcodeFamily;
+
+const CANONICAL_FAMILIES = [_]Family{
+    .auipc,
+    .base_alu_imm,
+    .base_alu_reg,
+    .branch_eq,
+    .branch_lt,
+    .div,
+    .jal,
+    .jalr,
+    .load_store,
+    .lt_imm,
+    .lt_reg,
+    .lui,
+    .mul,
+    .mulh,
+    .shifts_imm,
+    .shifts_reg,
+};
+
+fn LayoutFor(comptime family: Family) type {
+    const layouts = @import("frontends/riscv/air/trace_columns.zig");
+    return switch (family) {
+        .base_alu_reg => layouts.BaseAluRegColumns,
+        .base_alu_imm => layouts.BaseAluImmColumns,
+        .shifts_reg => layouts.ShiftsRegColumns,
+        .shifts_imm => layouts.ShiftsImmColumns,
+        .lt_reg => layouts.LtRegColumns,
+        .lt_imm => layouts.LtImmColumns,
+        .branch_eq => layouts.BranchEqColumns,
+        .branch_lt => layouts.BranchLtColumns,
+        .lui => layouts.LuiColumns,
+        .auipc => layouts.AuipcColumns,
+        .jalr => layouts.JalrColumns,
+        .jal => layouts.JalColumns,
+        .load_store => layouts.LoadStoreColumns,
+        .mul => layouts.MulColumns,
+        .mulh => layouts.MulhColumns,
+        .div => layouts.DivColumns,
+    };
+}
+
+fn familyRowCount(trace: *const runner.trace.Trace, family: Family) !usize {
+    var count: usize = 0;
+    for (trace.rows.items) |row| {
+        if (try runner.trace.proofOpcodeFamily(row.opcode) == family) count += 1;
+    }
+    return count;
+}
+
+fn writeFamilyWitness(
+    allocator: std.mem.Allocator,
+    writer: anytype,
+    trace: *const runner.trace.Trace,
+    comptime family: Family,
+) !void {
+    const row_count = try familyRowCount(trace, family);
+    const padded_count = @max(row_count, 1);
+    const log_size: u32 = @intCast(std.math.log2_int_ceil(usize, padded_count));
+    var columns = try trace.columnsForFamily(allocator, family, log_size);
+    defer columns.deinit(allocator);
+    const Layout = LayoutFor(family);
+    const fields = @typeInfo(Layout).@"struct".fields;
+    std.debug.assert(fields.len == columns.n_columns);
+
+    try writer.print("family={s} rows={d} columns={d}\n", .{
+        @tagName(family),
+        columns.n_real_rows,
+        columns.n_columns,
+    });
+    try writer.writeAll("names=");
+    inline for (fields, 0..) |field, index| {
+        if (index != 0) try writer.writeByte(',');
+        try writer.writeAll(field.name);
+    }
+    try writer.writeByte('\n');
+    for (0..columns.n_real_rows) |row| {
+        try writer.print("row={d}", .{row});
+        for (columns.columns[0..columns.n_columns]) |column| {
+            try writer.print(" {d}", .{column[row].v});
+        }
+        try writer.writeByte('\n');
+    }
+}
+
+fn dumpWitnessRows(allocator: std.mem.Allocator, path: []const u8, max_steps: usize) !void {
+    const elf_bytes = try std.fs.cwd().readFileAlloc(allocator, path, 64 * 1024 * 1024);
+    defer allocator.free(elf_bytes);
+    var result = try runner.run(allocator, elf_bytes, max_steps);
+    defer result.deinit();
+
+    var out: std.ArrayList(u8) = .{};
+    defer out.deinit(allocator);
+    const writer = out.writer(allocator);
+    inline for (CANONICAL_FAMILIES) |family| {
+        try writeFamilyWitness(allocator, writer, &result.execution_trace, family);
+    }
+    const stdout = std.fs.File{ .handle = std.posix.STDOUT_FILENO };
+    try stdout.writeAll(out.items);
+}
+
+const OrderedAccess = struct {
+    clock: u32,
+    kind: u8,
+    ordinal: u8,
+    family_index: usize,
+    family: []const u8,
+    role: []const u8,
+    addr_space: u32,
+    addr: u32,
+    previous_clock: u32,
+    previous: u32,
+    next: u32,
+};
+
+fn canonicalFamilyIndex(family: Family) usize {
+    inline for (CANONICAL_FAMILIES, 0..) |candidate, index| {
+        if (family == candidate) return index;
+    }
+    unreachable;
+}
+
+fn columnIndex(comptime Layout: type, comptime name: []const u8) usize {
+    inline for (@typeInfo(Layout).@"struct".fields, 0..) |field, index| {
+        if (comptime std.mem.eql(u8, field.name, name)) return index;
+    }
+    @compileError("missing witness column " ++ name);
+}
+
+fn columnValue(
+    columns: *const runner.trace.TraceColumns,
+    comptime Layout: type,
+    comptime name: []const u8,
+    row: usize,
+) u32 {
+    return columns.columns[columnIndex(Layout, name)][row].v;
+}
+
+fn columnWord(
+    columns: *const runner.trace.TraceColumns,
+    comptime Layout: type,
+    comptime role: []const u8,
+    comptime phase: []const u8,
+    row: usize,
+) u32 {
+    return columnValue(columns, Layout, role ++ "_" ++ phase ++ "_0", row) |
+        (columnValue(columns, Layout, role ++ "_" ++ phase ++ "_1", row) << 8) |
+        (columnValue(columns, Layout, role ++ "_" ++ phase ++ "_2", row) << 16) |
+        (columnValue(columns, Layout, role ++ "_" ++ phase ++ "_3", row) << 24);
+}
+
+fn appendColumnAccess(
+    allocator: std.mem.Allocator,
+    accesses: *std.ArrayList(OrderedAccess),
+    columns: *const runner.trace.TraceColumns,
+    comptime family: Family,
+    row: usize,
+    ordinal: u8,
+    comptime role: []const u8,
+    addr_space: u32,
+) !void {
+    const Layout = LayoutFor(family);
+    try accesses.append(allocator, .{
+        .clock = columnValue(columns, Layout, "clock", row),
+        .kind = 1,
+        .ordinal = ordinal,
+        .family_index = canonicalFamilyIndex(family),
+        .family = @tagName(family),
+        .role = role,
+        .addr_space = addr_space,
+        .addr = columnValue(columns, Layout, role ++ "_addr", row),
+        .previous_clock = columnValue(columns, Layout, role ++ "_clock_prev", row),
+        .previous = columnWord(columns, Layout, role, "prev", row),
+        .next = columnWord(columns, Layout, role, "next", row),
+    });
+}
+
+fn appendFamilyAccesses(
+    allocator: std.mem.Allocator,
+    accesses: *std.ArrayList(OrderedAccess),
+    trace: *const runner.trace.Trace,
+    comptime family: Family,
+) !void {
+    const row_count = try familyRowCount(trace, family);
+    const log_size: u32 = @intCast(std.math.log2_int_ceil(usize, @max(row_count, 1)));
+    var columns = try trace.columnsForFamily(allocator, family, log_size);
+    defer columns.deinit(allocator);
+    for (0..columns.n_real_rows) |row| switch (family) {
+        .base_alu_reg, .shifts_reg, .lt_reg, .mul, .mulh, .div => {
+            try appendColumnAccess(allocator, accesses, &columns, family, row, 0, "rs1", 0);
+            try appendColumnAccess(allocator, accesses, &columns, family, row, 1, "rs2", 0);
+            try appendColumnAccess(allocator, accesses, &columns, family, row, 2, "rd", 0);
+        },
+        .base_alu_imm, .shifts_imm, .lt_imm, .jalr => {
+            try appendColumnAccess(allocator, accesses, &columns, family, row, 0, "rs1", 0);
+            try appendColumnAccess(allocator, accesses, &columns, family, row, 1, "rd", 0);
+        },
+        .branch_eq, .branch_lt => {
+            try appendColumnAccess(allocator, accesses, &columns, family, row, 0, "rs1", 0);
+            try appendColumnAccess(allocator, accesses, &columns, family, row, 1, "rs2", 0);
+        },
+        .lui, .auipc, .jal => try appendColumnAccess(allocator, accesses, &columns, family, row, 0, "rd", 0),
+        .load_store => {
+            const Layout = LayoutFor(family);
+            const is_store = columnValue(&columns, Layout, "opcode_sb_flag", row) +
+                columnValue(&columns, Layout, "opcode_sh_flag", row) +
+                columnValue(&columns, Layout, "opcode_sw_flag", row) != 0;
+            try appendColumnAccess(allocator, accesses, &columns, family, row, 0, "rs1", 0);
+            try appendColumnAccess(
+                allocator,
+                accesses,
+                &columns,
+                family,
+                row,
+                1,
+                "src",
+                if (is_store) 0 else 1,
+            );
+            try appendColumnAccess(
+                allocator,
+                accesses,
+                &columns,
+                family,
+                row,
+                2,
+                "dst",
+                if (is_store) 1 else 0,
+            );
+        },
+    };
+}
+
+fn limbsToWord(limbs: [4]@import("core/fields/m31.zig").M31) u32 {
+    var value: u32 = 0;
+    for (limbs, 0..) |limb, index| value |= limb.v << @intCast(8 * index);
+    return value;
+}
+
+fn orderedAccessLessThan(_: void, lhs: OrderedAccess, rhs: OrderedAccess) bool {
+    if (lhs.clock != rhs.clock) return lhs.clock < rhs.clock;
+    if (lhs.kind != rhs.kind) return lhs.kind < rhs.kind;
+    if (lhs.ordinal != rhs.ordinal) return lhs.ordinal < rhs.ordinal;
+    if (lhs.addr_space != rhs.addr_space) return lhs.addr_space < rhs.addr_space;
+    if (lhs.addr != rhs.addr) return lhs.addr < rhs.addr;
+    return lhs.family_index < rhs.family_index;
+}
+
+fn dumpOrderedAccesses(allocator: std.mem.Allocator, path: []const u8, max_steps: usize) !void {
+    const elf_bytes = try std.fs.cwd().readFileAlloc(allocator, path, 64 * 1024 * 1024);
+    defer allocator.free(elf_bytes);
+    var result = try runner.run(allocator, elf_bytes, max_steps);
+    defer result.deinit();
+
+    var accesses: std.ArrayList(OrderedAccess) = .{};
+    defer accesses.deinit(allocator);
+    inline for (CANONICAL_FAMILIES) |family| {
+        try appendFamilyAccesses(allocator, &accesses, &result.execution_trace, family);
+    }
+    for (result.state_chain_tracker.clock_updates_reg.items) |gap| {
+        const value = limbsToWord(gap.value_limbs);
+        try accesses.append(allocator, .{
+            .clock = gap.clk,
+            .kind = 0,
+            .ordinal = 0,
+            .family_index = std.math.maxInt(usize),
+            .family = "clock_update",
+            .role = "clock_update",
+            .addr_space = gap.addr_space,
+            .addr = gap.addr,
+            .previous_clock = gap.clk_prev,
+            .previous = value,
+            .next = value,
+        });
+    }
+    for (result.state_chain_tracker.clock_updates_mem.items) |gap| {
+        const value = limbsToWord(gap.value_limbs);
+        try accesses.append(allocator, .{
+            .clock = gap.clk,
+            .kind = 0,
+            .ordinal = 0,
+            .family_index = std.math.maxInt(usize),
+            .family = "clock_update",
+            .role = "clock_update",
+            .addr_space = gap.addr_space,
+            .addr = gap.addr,
+            .previous_clock = gap.clk_prev,
+            .previous = value,
+            .next = value,
+        });
+    }
+    std.mem.sort(OrderedAccess, accesses.items, {}, orderedAccessLessThan);
+
+    var out: std.ArrayList(u8) = .{};
+    defer out.deinit(allocator);
+    const writer = out.writer(allocator);
+    for (accesses.items) |access| {
+        try writer.print(
+            "clock={d} ordinal={d} family={s} role={s} space={d} addr={d} previous_clock={d} previous={d} next={d}\n",
+            .{
+                access.clock,
+                access.ordinal,
+                access.family,
+                access.role,
+                access.addr_space,
+                access.addr,
+                access.previous_clock,
+                access.previous,
+                access.next,
+            },
+        );
+    }
+    const stdout = std.fs.File{ .handle = std.posix.STDOUT_FILENO };
+    try stdout.writeAll(out.items);
 }
 
 fn printUsage() void {
