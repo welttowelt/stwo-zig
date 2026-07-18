@@ -67,50 +67,10 @@ pub const RiscVClaim = struct {
     range_check_m31_mult: ?ComponentClaim = null,
 };
 
-/// Top-level RISC-V interaction claim (mirrors RiscVClaim structure).
-pub const RiscVInteractionClaim = struct {
-    // ---- Opcode family components (16) ----
-    base_alu_reg: ?ComponentInteractionClaim = null,
-    base_alu_imm: ?ComponentInteractionClaim = null,
-    shifts_reg: ?ComponentInteractionClaim = null,
-    shifts_imm: ?ComponentInteractionClaim = null,
-    lt_reg: ?ComponentInteractionClaim = null,
-    lt_imm: ?ComponentInteractionClaim = null,
-    branch_eq: ?ComponentInteractionClaim = null,
-    branch_lt: ?ComponentInteractionClaim = null,
-    lui: ?ComponentInteractionClaim = null,
-    auipc: ?ComponentInteractionClaim = null,
-    jalr: ?ComponentInteractionClaim = null,
-    jal: ?ComponentInteractionClaim = null,
-    load_store: ?ComponentInteractionClaim = null,
-    mul: ?ComponentInteractionClaim = null,
-    mulh: ?ComponentInteractionClaim = null,
-    div: ?ComponentInteractionClaim = null,
-
-    // ---- Infrastructure components ----
-    program: ?ComponentInteractionClaim = null,
-    memory: ?ComponentInteractionClaim = null,
-    merkle: ?ComponentInteractionClaim = null,
-    poseidon2: ?ComponentInteractionClaim = null,
-    mem_clock_update: ?ComponentInteractionClaim = null,
-    reg_clock_update: ?ComponentInteractionClaim = null,
-
-    // ---- Preprocessed table components ----
-    bitwise: ?ComponentInteractionClaim = null,
-    range_check_20: ?ComponentInteractionClaim = null,
-    range_check_8_8: ?ComponentInteractionClaim = null,
-    range_check_8_11: ?ComponentInteractionClaim = null,
-    range_check_8_8_4: ?ComponentInteractionClaim = null,
-    range_check_m31: ?ComponentInteractionClaim = null,
-
-    // ---- Preprocessed multiplicity tracking ----
-    bitwise_mult: ?ComponentInteractionClaim = null,
-    range_check_20_mult: ?ComponentInteractionClaim = null,
-    range_check_8_8_mult: ?ComponentInteractionClaim = null,
-    range_check_8_11_mult: ?ComponentInteractionClaim = null,
-    range_check_8_8_4_mult: ?ComponentInteractionClaim = null,
-    range_check_m31_mult: ?ComponentInteractionClaim = null,
-};
+// NOTE: the canonical interaction claim for the wired LogUp buses is
+// `prover.RiscVInteractionClaim` (frontends/riscv/prover.zig); the historical
+// per-family optional mirror that lived here was never consumed and was
+// removed when the real interaction tree landed.
 
 test "claims: default initialization" {
     const claim = RiscVClaim{};

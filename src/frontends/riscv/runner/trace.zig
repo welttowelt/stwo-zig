@@ -47,6 +47,8 @@ pub const TraceRow = struct {
     branch_taken: bool,
     /// PC after execution (next_pc).
     next_pc: u32,
+    /// Raw 32-bit instruction word (defaults to 0 for synthetic test rows).
+    inst_word: u32 = 0,
 };
 
 /// Accumulated execution trace.
@@ -160,13 +162,11 @@ pub fn nColumnsForFamily(family: OpcodeFamily) u32 {
     };
 }
 
-/// Helper to cast a signed imm to M31 (field element).
-/// Negative values are mapped to P - |imm| (modular negation).
+/// Cast a signed imm to M31; negatives map to P - |imm| (modular negation).
 fn immToM31(imm: i32) M31 {
     if (imm >= 0) {
         return M31.fromU64(@intCast(imm));
     } else {
-        // M31 modulus is 2^31 - 1. Map negative to mod-reduced positive.
         const abs: u32 = @intCast(-@as(i64, imm));
         return M31.zero().sub(M31.fromU64(abs));
     }

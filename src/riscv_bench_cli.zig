@@ -311,8 +311,8 @@ pub fn mainWithEngine(comptime Engine: type) !void {
     const preprocessed_cells = output.statement.nPreprocessedCells();
     const main_cells = output.statement.nMainCells();
     const interaction_cells = output.statement.nInteractionCells();
-    const committed_cells = main_cells;
-    std.debug.print("Trace cells: preprocessed={d} main={d} implicit-zero={d} committed={d}\n", .{
+    const committed_cells = main_cells + interaction_cells;
+    std.debug.print("Trace cells: preprocessed={d} main={d} interaction={d} committed={d}\n", .{
         preprocessed_cells,
         main_cells,
         interaction_cells,
@@ -346,7 +346,7 @@ pub fn mainWithEngine(comptime Engine: type) !void {
     // Stage 4: Verify
     const t_verify = Timer.begin();
     // verifyRiscV consumes output.proof on both success and failure.
-    try riscv_prover.verifyRiscV(allocator, config, output.statement, output.proof);
+    try riscv_prover.verifyRiscV(allocator, config, output.statement, output.proof, output.interaction_claim);
     const verify_ms = t_verify.elapsedMs();
 
     std.debug.print("Verify:   {d:.1}ms\n", .{verify_ms});

@@ -126,16 +126,18 @@ pub fn genProgramColumns(
     const table = try BitReversalTable.init(allocator, log_size);
     defer table.deinit(allocator);
 
-    // Collect unique PCs with multiplicity and opcode.
-    // Key: PC -> { multiplicity, opcode_value }.
-    const PcInfo = struct { mult: u32, opcode_val: u32 };
+    // Collect unique PCs with multiplicity and the fetched instruction. A PC
+    // may not denote two different words within one execution statement.
+    const PcInfo = struct { mult: u32, inst_word: u32 };
     var pc_info = std.AutoHashMap(u32, PcInfo).init(allocator);
     defer pc_info.deinit();
 
     for (exec_trace.rows.items) |row| {
         const gop = try pc_info.getOrPut(row.pc);
         if (!gop.found_existing) {
-            gop.value_ptr.* = .{ .mult = 0, .opcode_val = @intFromEnum(row.opcode) };
+            gop.value_ptr.* = .{ .mult = 0, .inst_word = row.inst_word };
+        } else if (gop.value_ptr.inst_word != row.inst_word) {
+            return error.ProgramWordChanged;
         }
         gop.value_ptr.mult += 1;
     }
@@ -149,8 +151,8 @@ pub fn genProgramColumns(
         const gop = try seen.getOrPut(row.pc);
         if (gop.found_existing) continue;
 
-        const info = pc_info.get(row.pc) orelse PcInfo{ .mult = 0, .opcode_val = 0 };
-        const word = info.opcode_val;
+        const info = pc_info.get(row.pc) orelse PcInfo{ .mult = 0, .inst_word = 0 };
+        const word = info.inst_word;
 
         placeValue(columns[0], row_idx, table, M31.one()); // enabler
         placeValue(columns[1], row_idx, table, M31.fromCanonical(row.pc & 0x7FFFFFFF)); // addr
@@ -1035,9 +1037,7 @@ test "infra_trace: multiplicityLogSize consistency" {
     const allocator = std.testing.allocator;
     var exec_trace = try makeSmallExecTrace(allocator);
     defer exec_trace.deinit();
-
     var result = try genPreprocessedMultiplicityColumns(allocator, &exec_trace);
     defer freeMultiplicityColumns(allocator, &result.columns);
-
     try std.testing.expectEqual(result.log_size, multiplicityLogSize(&exec_trace));
 }

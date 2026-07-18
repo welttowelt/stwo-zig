@@ -19,12 +19,24 @@ pub const ElfError = error{
 pub const ElfInfo = struct {
     entry_point: u32,
     segments_loaded: usize,
-    stack_pointer: ?u32 = null,
-    global_pointer: ?u32 = null,
-    input_start: ?u32 = null,
-    input_end: ?u32 = null,
-    halt_flag: ?u32 = null,
+    stack_pointer: u32,
+    global_pointer: u32,
+    input_start: u32,
+    input_end: u32,
+    halt_flag: u32,
+    output_len: u32,
+    output_data: u32,
+    output_end: u32,
 };
+
+// These addresses are part of the pinned Stark-V guest ABI. Linker symbols
+// override them when a guest uses a custom memory layout.
+pub const DEFAULT_STACK_POINTER: u32 = 0x0020_0000;
+pub const DEFAULT_GLOBAL_POINTER: u32 = 0x0020_0800;
+pub const DEFAULT_HALT_FLAG: u32 = 0x0010_0000;
+pub const DEFAULT_OUTPUT_LEN: u32 = 0x0010_0004;
+pub const DEFAULT_OUTPUT_DATA: u32 = 0x0010_0008;
+pub const DEFAULT_OUTPUT_END: u32 = 0x001F_FC00;
 
 // ELF32 constants
 const ELF_MAGIC = [4]u8{ 0x7F, 'E', 'L', 'F' };
@@ -90,14 +102,20 @@ pub fn loadElf(elf_bytes: []const u8, mem: *Memory) (ElfError || error{OutOfMemo
         segments_loaded += 1;
     }
 
+    const output_len = findSymbolValue(elf_bytes, "__output_len") orelse DEFAULT_OUTPUT_LEN;
+    const input_start = findSymbolValue(elf_bytes, "__input_start") orelse output_len;
+
     return .{
         .entry_point = e_entry,
         .segments_loaded = segments_loaded,
-        .stack_pointer = findSymbolValue(elf_bytes, "__stack_top"),
-        .global_pointer = findSymbolValue(elf_bytes, "__global_pointer$"),
-        .input_start = findSymbolValue(elf_bytes, "__input_start"),
-        .input_end = findSymbolValue(elf_bytes, "__input_end"),
-        .halt_flag = findSymbolValue(elf_bytes, "__halt_flag"),
+        .stack_pointer = findSymbolValue(elf_bytes, "__stack_top") orelse DEFAULT_STACK_POINTER,
+        .global_pointer = findSymbolValue(elf_bytes, "__global_pointer$") orelse DEFAULT_GLOBAL_POINTER,
+        .input_start = input_start,
+        .input_end = findSymbolValue(elf_bytes, "__input_end") orelse input_start,
+        .halt_flag = findSymbolValue(elf_bytes, "__halt_flag") orelse DEFAULT_HALT_FLAG,
+        .output_len = output_len,
+        .output_data = findSymbolValue(elf_bytes, "__output_data") orelse DEFAULT_OUTPUT_DATA,
+        .output_end = findSymbolValue(elf_bytes, "__output_end") orelse DEFAULT_OUTPUT_END,
     };
 }
 
@@ -267,6 +285,14 @@ test "loadElf parses minimal ELF header" {
 
     try std.testing.expectEqual(@as(u32, 0x00010000), info.entry_point);
     try std.testing.expectEqual(@as(usize, 1), info.segments_loaded);
+    try std.testing.expectEqual(DEFAULT_STACK_POINTER, info.stack_pointer);
+    try std.testing.expectEqual(DEFAULT_GLOBAL_POINTER, info.global_pointer);
+    try std.testing.expectEqual(DEFAULT_HALT_FLAG, info.halt_flag);
+    try std.testing.expectEqual(DEFAULT_OUTPUT_LEN, info.output_len);
+    try std.testing.expectEqual(DEFAULT_OUTPUT_DATA, info.output_data);
+    try std.testing.expectEqual(DEFAULT_OUTPUT_END, info.output_end);
+    try std.testing.expectEqual(DEFAULT_OUTPUT_LEN, info.input_start);
+    try std.testing.expectEqual(DEFAULT_OUTPUT_LEN, info.input_end);
 
     // Verify the instruction was loaded at the correct address.
     try std.testing.expectEqual(@as(u32, 0x02A00093), mem.readU32(0x00010000));

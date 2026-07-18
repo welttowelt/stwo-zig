@@ -20,20 +20,62 @@ pub const DecodedInst = decode.DecodedInst;
 pub const Opcode = decode.Opcode;
 pub const HostInterface = host_mod.HostInterface;
 
+pub const CompletionReason = enum {
+    halt_flag,
+    self_loop,
+    stalled_pc,
+    ecall,
+    ebreak,
+    host_halt,
+    invalid_instruction,
+    max_steps,
+};
+
+/// A final, word-aligned guest output value and its last access clock.
+pub const OutputWord = struct {
+    addr: u32,
+    value: u32,
+    clock: u32,
+};
+
 /// Result of running a RISC-V program to completion.
 pub const RunResult = struct {
+    /// Entry PC and register file before the first instruction.
+    initial_pc: u32,
+    initial_regs: [32]u32,
     /// Final CPU state after execution halts.
     cpu_final: Cpu,
+    final_pc: u32,
+    final_regs: [32]u32,
     /// Number of instructions executed.
     step_count: usize,
+    /// The successful termination condition. Strict Stark-V execution never
+    /// returns `invalid_instruction` or `max_steps`.
+    completion_reason: CompletionReason,
+    /// Owned public input and the guest memory region into which it was loaded.
+    input: []u8,
+    input_start: u32,
+    input_end: u32,
+    /// Guest output captured at completion. Zero-length or invalid output is
+    /// represented as null, matching the pinned Stark-V runner.
+    output: ?[]u8,
+    output_len: u32,
+    output_len_addr: u32,
+    output_data_addr: u32,
+    output_end_addr: u32,
+    output_words: []OutputWord,
     /// Execution trace for STARK proving.
     execution_trace: trace.Trace,
     /// Memory and register access chain state.
     state_chain_tracker: state_chain.StateChainTracker,
     /// Exit code from HALT syscall (null if halted by plain ECALL/EBREAK).
     exit_code: ?u32,
+    allocator: std.mem.Allocator,
 
     pub fn deinit(self: *RunResult) void {
+        self.allocator.free(self.input);
+        if (self.output) |output| self.allocator.free(output);
+        self.allocator.free(self.output_words);
         self.execution_trace.deinit();
         self.state_chain_tracker.deinit();
         self.* = undefined;
@@ -57,7 +99,7 @@ pub fn runWithInput(
     input: []const u8,
     max_steps: usize,
 ) !RunResult {
-    return runConfigured(allocator, elf_bytes, max_steps, null, input, true);
+    return runConfigured(allocator, elf_bytes, max_steps, null, input, true, true);
 }
 
 /// Run a RISC-V ELF program with optional host syscall handling.
@@ -71,7 +113,7 @@ pub fn runWithHost(
     max_steps: usize,
     host: ?HostInterface,
 ) !RunResult {
-    return runConfigured(allocator, elf_bytes, max_steps, host, &.{}, false);
+    return runConfigured(allocator, elf_bytes, max_steps, host, &.{}, false, false);
 }
 
 fn runConfigured(
@@ -81,37 +123,49 @@ fn runConfigured(
     host: ?HostInterface,
     input: []const u8,
     stop_on_halt_flag: bool,
+    strict_completion: bool,
 ) !RunResult {
     var mem = Memory.init(allocator);
     defer mem.deinit();
 
     const elf_info = try elf_loader.loadElf(elf_bytes, &mem);
-    // Register defaults follow the pinned Stark-V oracle: __stack_top falls
-    // back to 0x0020_0000 and __global_pointer$ to 0x0020_0800.
-    const default_stack: u32 = 0x0020_0000;
-    const default_gp: u32 = 0x0020_0800;
-    var rv_cpu = Cpu.init(elf_info.entry_point, elf_info.stack_pointer orelse default_stack);
-    rv_cpu.writeReg(3, elf_info.global_pointer orelse default_gp);
+    var rv_cpu = Cpu.init(elf_info.entry_point, elf_info.stack_pointer);
+    rv_cpu.writeReg(3, elf_info.global_pointer);
+    const initial_pc = rv_cpu.pc;
+    const initial_regs = snapshotRegisters(rv_cpu);
     if (input.len != 0) {
-        const input_start = elf_info.input_start orelse return error.MissingInputRegion;
-        const input_end = elf_info.input_end orelse return error.MissingInputRegion;
-        if (input.len > input_end - input_start) return error.InputTooLarge;
-        mem.writeSlice(input_start, input);
+        const input_capacity = elf_info.input_end -| elf_info.input_start;
+        if (input.len > input_capacity) return error.InputTooLarge;
+        mem.writeSlice(elf_info.input_start, input);
     }
     var exec_trace = trace.Trace.init(allocator);
+    errdefer exec_trace.deinit();
     exec_trace.initial_pc = rv_cpu.pc;
     var chain_tracker = state_chain.StateChainTracker.init(allocator);
+    errdefer chain_tracker.deinit();
     var exit_code: ?u32 = null;
+    var completion_reason: CompletionReason = undefined;
 
     var steps: usize = 0;
-    while (steps < max_steps) : (steps += 1) {
+    while (true) {
         if (stop_on_halt_flag) {
-            const halt_flag = elf_info.halt_flag orelse return error.MissingHaltFlag;
-            if (mem.readU32(halt_flag) != 0) break;
+            if (mem.readU32(elf_info.halt_flag) != 0) {
+                completion_reason = .halt_flag;
+                break;
+            }
+        }
+        if (steps >= max_steps) {
+            if (strict_completion) return error.MaxStepsExceeded;
+            completion_reason = .max_steps;
+            break;
         }
         const pc_before = rv_cpu.pc;
         const inst_word = mem.readU32(rv_cpu.pc);
-        const inst = DecodedInst.decode(inst_word) catch break;
+        const inst = DecodedInst.decode(inst_word) catch {
+            if (strict_completion) return error.InvalidInstruction;
+            completion_reason = .invalid_instruction;
+            break;
+        };
 
         // Capture pre-execution register values.
         const rs1_val = rv_cpu.readReg(inst.rs1);
@@ -125,7 +179,10 @@ fn runConfigured(
                 ((rs1_val +% @as(u32, @bitCast(inst.imm))) & ~@as(u32, 1)) == pc_before,
             else => false,
         };
-        if (is_self_loop) break;
+        if (is_self_loop) {
+            completion_reason = .self_loop;
+            break;
+        }
 
         // Capture memory address and value for load/store instructions
         // BEFORE execution modifies CPU state.
@@ -176,6 +233,7 @@ fn runConfigured(
                     switch (result) {
                         .Halt => |code| {
                             exit_code = code;
+                            completion_reason = .host_halt;
                             halted = true;
                         },
                         .Continue => {
@@ -184,10 +242,12 @@ fn runConfigured(
                         },
                     }
                 } else {
+                    completion_reason = .ecall;
                     halted = true;
                 }
             },
             error.Ebreak => {
+                completion_reason = .ebreak;
                 halted = true;
             },
         };
@@ -212,6 +272,7 @@ fn runConfigured(
             .is_store = is_store,
             .branch_taken = (rv_cpu.pc != pc_before + 4),
             .next_pc = rv_cpu.pc,
+            .inst_word = inst_word,
         });
 
         // Record state chain accesses.
@@ -221,30 +282,148 @@ fn runConfigured(
         if (inst.rs1 != 0) try chain_tracker.recordRegAccess(inst.rs1, clk, rs1_val);
         if (inst.rs2 != 0) try chain_tracker.recordRegAccess(inst.rs2, clk, rs2_val);
         if (inst.rd != 0) try chain_tracker.recordRegAccess(inst.rd, clk + 1, rd_val);
-        if (is_load or is_store) try chain_tracker.recordMemAccess(mem_addr, clk, mem_val);
-
-        if (halted) {
-            steps += 1; // Count the halting instruction.
-            break;
+        if (is_load or is_store) {
+            const aligned_addr = mem_addr & ~@as(u32, 3);
+            try chain_tracker.recordMemAccess(aligned_addr, clk, mem.readU32(aligned_addr));
         }
+
+        steps += 1;
+
+        if (halted) break;
 
         // Backup infinite-loop halt matching the pinned oracle: the traced
         // instruction left the PC unchanged.
         if (rv_cpu.pc == pc_before) {
-            steps += 1;
+            completion_reason = .stalled_pc;
             break;
         }
     }
 
     exec_trace.final_pc = rv_cpu.pc;
 
+    const owned_input = try allocator.dupe(u8, input);
+    errdefer allocator.free(owned_input);
+    const captured_output = try captureOutput(
+        allocator,
+        &mem,
+        &chain_tracker,
+        elf_info,
+        strict_completion,
+    );
+    errdefer {
+        if (captured_output.bytes) |output| allocator.free(output);
+        allocator.free(captured_output.words);
+    }
+
     return .{
+        .initial_pc = initial_pc,
+        .initial_regs = initial_regs,
         .cpu_final = rv_cpu,
+        .final_pc = rv_cpu.pc,
+        .final_regs = snapshotRegisters(rv_cpu),
         .step_count = steps,
+        .completion_reason = completion_reason,
+        .input = owned_input,
+        .input_start = elf_info.input_start,
+        .input_end = elf_info.input_end,
+        .output = captured_output.bytes,
+        .output_len = captured_output.len,
+        .output_len_addr = elf_info.output_len,
+        .output_data_addr = elf_info.output_data,
+        .output_end_addr = elf_info.output_end,
+        .output_words = captured_output.words,
         .execution_trace = exec_trace,
         .state_chain_tracker = chain_tracker,
         .exit_code = exit_code,
+        .allocator = allocator,
     };
+}
+
+const CapturedOutput = struct {
+    bytes: ?[]u8,
+    len: u32,
+    words: []OutputWord,
+};
+
+fn snapshotRegisters(rv_cpu: Cpu) [32]u32 {
+    var regs: [32]u32 = undefined;
+    for (&regs, 0..) |*value, index| {
+        value.* = rv_cpu.readReg(@intCast(index));
+    }
+    return regs;
+}
+
+fn captureOutput(
+    allocator: std.mem.Allocator,
+    mem: *const Memory,
+    tracker: *const state_chain.StateChainTracker,
+    elf_info: elf_loader.ElfInfo,
+    require_access: bool,
+) !CapturedOutput {
+    const output_len = mem.readU32(elf_info.output_len);
+    const capacity = elf_info.output_end -| elf_info.output_data;
+    const valid_len = output_len != 0 and output_len <= capacity;
+
+    var bytes: ?[]u8 = null;
+    errdefer if (bytes) |output| allocator.free(output);
+    if (valid_len) {
+        const output = try allocator.alloc(u8, output_len);
+        mem.readSlice(elf_info.output_data, output);
+        bytes = output;
+    }
+
+    var words: std.ArrayList(OutputWord) = .{};
+    errdefer words.deinit(allocator);
+    try appendOutputWord(
+        allocator,
+        &words,
+        mem,
+        tracker,
+        elf_info.output_len & ~@as(u32, 3),
+        require_access,
+    );
+
+    if (valid_len) {
+        const first = elf_info.output_data & ~@as(u32, 3);
+        const end = @as(u64, elf_info.output_data) + output_len;
+        const end_aligned = (end + 3) & ~@as(u64, 3);
+        var addr: u64 = first;
+        while (addr < end_aligned) : (addr += 4) {
+            try appendOutputWord(
+                allocator,
+                &words,
+                mem,
+                tracker,
+                @intCast(addr),
+                require_access,
+            );
+        }
+    }
+
+    return .{
+        .bytes = bytes,
+        .len = output_len,
+        .words = try words.toOwnedSlice(allocator),
+    };
+}
+
+fn appendOutputWord(
+    allocator: std.mem.Allocator,
+    words: *std.ArrayList(OutputWord),
+    mem: *const Memory,
+    tracker: *const state_chain.StateChainTracker,
+    addr: u32,
+    require_access: bool,
+) !void {
+    const clock = tracker.mem_last_clk.get(addr) orelse {
+        if (require_access) return error.OutputAddressNotAccessed;
+        return;
+    };
+    try words.append(allocator, .{
+        .addr = addr,
+        .value = mem.readU32(addr),
+        .clock = clock,
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -316,6 +495,65 @@ test "runner: run minimal ELF to ecall" {
     try std.testing.expectEqual(@as(u32, 42), result.cpu_final.readReg(1));
     try std.testing.expectEqual(@as(usize, 2), result.step_count);
     try std.testing.expectEqual(@as(usize, 2), result.execution_trace.rows.items.len);
+    try std.testing.expectEqual(CompletionReason.ecall, result.completion_reason);
+    try std.testing.expectEqual(@as(u32, 0x10000), result.initial_pc);
+    try std.testing.expectEqual(@as(u32, 0x10004), result.final_pc);
+    try std.testing.expectEqual(elf_loader.DEFAULT_STACK_POINTER, result.initial_regs[2]);
+    try std.testing.expectEqual(elf_loader.DEFAULT_GLOBAL_POINTER, result.initial_regs[3]);
+    try std.testing.expectEqual(@as(u32, 42), result.final_regs[1]);
+}
+
+test "runner: runWithInput captures Stark-V public IO with access clocks" {
+    const instructions = [_]u32{
+        0x0010_00B7, // LUI x1, 0x100: x1 = 0x0010_0000
+        0x0040_0113, // ADDI x2, x0, 4
+        0x0020_A223, // SW x2, 4(x1): output length
+        0x02A0_0193, // ADDI x3, x0, 42
+        0x0030_A423, // SW x3, 8(x1): output data
+        0x0010_0113, // ADDI x2, x0, 1
+        0x0020_A023, // SW x2, 0(x1): halt flag
+    };
+    const elf = makeTestElf(&instructions);
+
+    var result = try runWithInput(std.testing.allocator, &elf, &.{}, 1000);
+    defer result.deinit();
+
+    try std.testing.expectEqual(CompletionReason.halt_flag, result.completion_reason);
+    try std.testing.expectEqual(@as(usize, instructions.len), result.step_count);
+    try std.testing.expectEqual(@as(u32, 4), result.output_len);
+    try std.testing.expectEqualSlices(u8, &[_]u8{ 42, 0, 0, 0 }, result.output.?);
+    try std.testing.expectEqual(@as(usize, 2), result.output_words.len);
+    try std.testing.expectEqual(OutputWord{
+        .addr = elf_loader.DEFAULT_OUTPUT_LEN,
+        .value = 4,
+        .clock = 4,
+    }, result.output_words[0]);
+    try std.testing.expectEqual(OutputWord{
+        .addr = elf_loader.DEFAULT_OUTPUT_DATA,
+        .value = 42,
+        .clock = 8,
+    }, result.output_words[1]);
+}
+
+test "runner: runWithInput rejects an invalid instruction" {
+    const instructions = [_]u32{0};
+    const elf = makeTestElf(&instructions);
+    try std.testing.expectError(
+        error.InvalidInstruction,
+        runWithInput(std.testing.allocator, &elf, &.{}, 1000),
+    );
+}
+
+test "runner: runWithInput rejects max-step exhaustion" {
+    const instructions = [_]u32{
+        0x0010_0093, // ADDI x1, x0, 1
+        0x0010_8093, // ADDI x1, x1, 1
+    };
+    const elf = makeTestElf(&instructions);
+    try std.testing.expectError(
+        error.MaxStepsExceeded,
+        runWithInput(std.testing.allocator, &elf, &.{}, 1),
+    );
 }
 
 test "runner: mem_addr and mem_val captured for load/store" {

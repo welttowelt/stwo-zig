@@ -17,7 +17,7 @@
 //! ## Usage
 //! ```zig
 //! const result = try proveRiscV(allocator, config, &exec_trace, &state_chain);
-//! try verifyRiscV(allocator, config, result.statement, result.proof);
+//! try verifyRiscV(allocator, config, result.statement, result.proof, result.interaction_claim);
 //! ```
 
 const std = @import("std");
@@ -47,6 +47,11 @@ const runner_mod = @import("runner/mod.zig");
 const trace_mod = @import("runner/trace.zig");
 const trace_columns = @import("air/trace_columns.zig");
 const interaction = @import("air/interaction.zig");
+const interaction_gen = @import("air/interaction_gen.zig");
+const logup = @import("air/logup.zig");
+const public_data_mod = @import("air/public_data.zig");
+const riscv_component = @import("air/component.zig");
+const statement_mod = @import("air/statement.zig");
 const infra = @import("infra_trace.zig");
 const state_chain = @import("runner/state_chain.zig");
 const poseidon2 = @import("common/poseidon2.zig");
@@ -54,142 +59,24 @@ const poseidon2 = @import("common/poseidon2.zig");
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
 const CirclePointQM31 = circle.CirclePointQM31;
+pub const PublicData = public_data_mod.PublicData;
 
 const Hasher = blake2_merkle.Blake2sMerkleHasher;
 const MerkleChannel = blake2_merkle.Blake2sMerkleChannel;
 const Channel = channel_blake2s.Blake2sChannel;
 
-// ---------------------------------------------------------------------------
-// Statement types
-// ---------------------------------------------------------------------------
-
-/// Per-family component descriptor within the proof.
-pub const FamilyComponentDesc = struct {
-    family: trace_mod.OpcodeFamily,
-    log_size: u32,
-    n_columns: u32 = 10,
-};
-
-/// Descriptor for an infrastructure component in the proof.
-pub const InfraKind = enum(u32) {
-    program,
-    memory,
-    clock_update,
-    poseidon2,
-    merkle,
-    bitwise,
-    range_check_20,
-    range_check_8_11,
-    range_check_8_8_4,
-    range_check_8_8,
-    range_check_m31,
-};
-
-pub const InfraComponentDesc = struct {
-    kind: InfraKind,
-    log_size: u32,
-    n_columns: u32,
-};
-
-/// Maximum number of opcode families (components) we support.
-pub const MAX_COMPONENTS: usize = 256;
+pub const FamilyComponentDesc = statement_mod.FamilyComponentDesc;
+const RiscVTraceComponent = riscv_component.RiscVTraceComponent;
+pub const InfraKind = statement_mod.InfraKind;
+pub const InfraComponentDesc = statement_mod.InfraComponentDesc;
+pub const RiscVStatement = statement_mod.RiscVStatement;
+pub const RiscVInteractionClaim = statement_mod.RiscVInteractionClaim;
+pub const MAX_COMPONENTS = statement_mod.MAX_COMPONENTS;
+pub const MAX_INFRA_COMPONENTS = statement_mod.MAX_INFRA_COMPONENTS;
 const MAX_OPCODE_SHARD_LOG_SIZE: u32 = 16;
 const MAX_OPCODE_SHARD_ROWS: usize = @as(usize, 1) << MAX_OPCODE_SHARD_LOG_SIZE;
-
-/// Maximum number of infrastructure components.
-/// program + memory + clock_update + poseidon2 + merkle + six lookups = 11.
-pub const MAX_INFRA_COMPONENTS: usize = 512;
 const MAX_MEMORY_SHARD_LOG_SIZE: u32 = 16;
 const MAX_MEMORY_SHARD_ROWS: usize = @as(usize, 1) << MAX_MEMORY_SHARD_LOG_SIZE;
-
-pub const RiscVStatement = struct {
-    /// Number of active opcode family components in the proof.
-    n_components: u32,
-    /// Per-component descriptors, ordered by family enum value.
-    /// Only the first `n_components` entries are valid.
-    component_descs: [MAX_COMPONENTS]FamilyComponentDesc,
-    initial_pc: u32,
-    final_pc: u32,
-    total_steps: u32,
-
-    /// Number of infrastructure components in the proof.
-    n_infra: u32 = 0,
-    /// Infrastructure component descriptors.
-    infra_descs: [MAX_INFRA_COMPONENTS]InfraComponentDesc = undefined,
-
-    /// Total number of preprocessed columns (one IsFirst per component).
-    pub fn nPreprocessedColumns(self: *const RiscVStatement) u32 {
-        return self.n_components + self.n_infra;
-    }
-
-    /// Total number of opcode-family main trace columns.
-    pub fn nOpcodeMainColumns(self: *const RiscVStatement) u32 {
-        var total: u32 = 0;
-        for (0..self.n_components) |i| {
-            total += self.component_descs[i].n_columns;
-        }
-        return total;
-    }
-
-    /// Total number of infrastructure main trace columns.
-    pub fn nInfraColumns(self: *const RiscVStatement) u32 {
-        var total: u32 = 0;
-        for (0..self.n_infra) |i| {
-            total += self.infra_descs[i].n_columns;
-        }
-        return total;
-    }
-
-    /// Total number of main trace columns (opcode + infrastructure).
-    pub fn nMainColumns(self: *const RiscVStatement) u32 {
-        return self.nOpcodeMainColumns() + self.nInfraColumns();
-    }
-
-    /// Total number of M31 interaction trace columns across all components.
-    /// Each QM31 interaction column expands to 4 M31 columns.
-    pub fn nInteractionColumns(self: *const RiscVStatement) u32 {
-        var total: u32 = 0;
-        // Opcode family interaction columns
-        for (0..self.n_components) |i| {
-            total += nInteractionQm31ColsForFamily(self.component_descs[i].family) * 4;
-        }
-        for (0..self.n_infra) |i| {
-            total += nInteractionM31ColsForInfra(self.infra_descs[i].kind);
-        }
-        return total;
-    }
-
-    pub fn nPreprocessedCells(self: *const RiscVStatement) u64 {
-        var total: u64 = 0;
-        for (0..self.n_components) |i| total += @as(u64, 1) << @intCast(self.component_descs[i].log_size);
-        for (0..self.n_infra) |i| total += @as(u64, 1) << @intCast(self.infra_descs[i].log_size);
-        return total;
-    }
-
-    pub fn nMainCells(self: *const RiscVStatement) u64 {
-        var total: u64 = 0;
-        for (0..self.n_components) |i| {
-            total += @as(u64, self.component_descs[i].n_columns) << @intCast(self.component_descs[i].log_size);
-        }
-        for (0..self.n_infra) |i| {
-            total += @as(u64, self.infra_descs[i].n_columns) << @intCast(self.infra_descs[i].log_size);
-        }
-        return total;
-    }
-
-    pub fn nInteractionCells(self: *const RiscVStatement) u64 {
-        var total: u64 = 0;
-        for (0..self.n_components) |i| {
-            const n_columns = nInteractionQm31ColsForFamily(self.component_descs[i].family) * 4;
-            total += @as(u64, n_columns) << @intCast(self.component_descs[i].log_size);
-        }
-        for (0..self.n_infra) |i| {
-            const n_columns = nInteractionM31ColsForInfra(self.infra_descs[i].kind);
-            total += @as(u64, n_columns) << @intCast(self.infra_descs[i].log_size);
-        }
-        return total;
-    }
-};
 
 pub const Proof = core_proof.StarkProof(Hasher);
 pub const ExtendedProof = core_proof.ExtendedStarkProof(Hasher);
@@ -197,6 +84,7 @@ pub const ExtendedProof = core_proof.ExtendedStarkProof(Hasher);
 pub const ProveOutput = struct {
     statement: RiscVStatement,
     proof: Proof,
+    interaction_claim: RiscVInteractionClaim,
 
     pub fn deinit(self: *ProveOutput, allocator: std.mem.Allocator) void {
         self.proof.deinit(allocator);
@@ -227,574 +115,13 @@ comptime {
 pub const ProverError = error{
     EmptyTrace,
     InvalidLogSize,
+    InvalidStatement,
+    InvalidPreprocessedCommitment,
+    InvalidInteractionClaim,
     ProvingFailed,
     TooManyOpcodeComponents,
     TooManyInfrastructureComponents,
 };
-
-// ---------------------------------------------------------------------------
-// Channel / composition helpers
-// ---------------------------------------------------------------------------
-
-fn mixStatement(channel: *Channel, statement: RiscVStatement) void {
-    channel.mixU32s(&[_]u32{
-        statement.n_components,
-        statement.initial_pc,
-        statement.final_pc,
-        statement.total_steps,
-        statement.n_infra,
-    });
-    for (0..statement.n_components) |i| {
-        channel.mixU32s(&[_]u32{
-            @intFromEnum(statement.component_descs[i].family),
-            statement.component_descs[i].log_size,
-            statement.component_descs[i].n_columns,
-        });
-    }
-    for (0..statement.n_infra) |i| {
-        channel.mixU32s(&[_]u32{
-            @intFromEnum(statement.infra_descs[i].kind),
-            statement.infra_descs[i].log_size,
-            statement.infra_descs[i].n_columns,
-        });
-    }
-}
-
-/// Return the number of direct polynomial constraints for a given family.
-/// This counts only the algebraic constraints (flag-boolean, result-correctness, etc.)
-/// and does NOT include logup constraints (which are handled separately by the
-/// interaction phase). Each constraint is degree <= 2, so maxConstraintLogDegreeBound
-/// is log_size + 1.
-fn nConstraintsForFamily(family: trace_mod.OpcodeFamily) usize {
-    return switch (family) {
-        .base_alu_reg => 7,
-        .base_alu_imm => 6,
-        .shifts_reg => 5,
-        .shifts_imm => 5,
-        .lt_reg => 4,
-        .lt_imm => 5,
-        .branch_eq => 8,
-        .branch_lt => 6,
-        .lui => 2,
-        .auipc => 2,
-        .jalr => 1,
-        .jal => 1,
-        .load_store => 10,
-        .mul => 1,
-        .mulh => 5,
-        .div => 6,
-    };
-}
-
-/// Return the number of QM31 interaction columns for a given family.
-/// These counts reflect the LogUp interaction columns per opcode family,
-/// matching the stark-v reference implementation.
-fn nInteractionQm31ColsForFamily(family: trace_mod.OpcodeFamily) u32 {
-    return switch (family) {
-        .base_alu_reg => 9,
-        .base_alu_imm => 8,
-        .shifts_reg => 9,
-        .shifts_imm => 7,
-        .lt_reg => 7,
-        .lt_imm => 6,
-        .branch_eq => 5,
-        .branch_lt => 6,
-        .lui => 4,
-        .auipc => 4,
-        .jalr => 6,
-        .jal => 4,
-        .load_store => 7,
-        .mul => 16,
-        .mulh => 20,
-        .div => 22,
-    };
-}
-
-fn nInteractionM31ColsForInfra(kind: InfraKind) u32 {
-    return switch (kind) {
-        .program => 12,
-        .memory => 16,
-        .merkle => 12,
-        .poseidon2 => 8,
-        .clock_update, .bitwise, .range_check_20, .range_check_8_11, .range_check_8_8_4, .range_check_8_8, .range_check_m31 => 4,
-    };
-}
-
-// ---------------------------------------------------------------------------
-// Per-family RiscV Component
-// ---------------------------------------------------------------------------
-
-/// Per-family component for the multi-component RISC-V prover.
-///
-/// Each active opcode family gets its own component with its own log_size.
-/// The component references:
-///   - One preprocessed column (IsFirst) at `preprocessed_col_idx` in tree 0.
-///   - `desc.n_columns` main trace columns in tree 1.
-const RiscVTraceComponent = struct {
-    desc: FamilyComponentDesc,
-    initial_pc: u32,
-    total_steps: u32,
-    /// Index of this component's preprocessed column in tree 0.
-    preprocessed_col_idx: usize,
-    /// Offset of this component's first column within tree 1 (main trace).
-    main_col_offset: usize,
-
-    const Adapter = core_air_derive.ComponentAdapter(
-        @This(),
-        prover_component.ComponentProver,
-        prover_component.Trace,
-        prover_air_accumulation.DomainEvaluationAccumulator,
-    );
-
-    fn asProverComponent(self: *const @This()) prover_component.ComponentProver {
-        return Adapter.asProverComponent(self);
-    }
-
-    fn asVerifierComponent(self: *const @This()) core_air_components.Component {
-        return Adapter.asVerifierComponent(self);
-    }
-
-    pub fn nConstraints(self: *const @This()) usize {
-        return nConstraintsForFamily(self.desc.family);
-    }
-
-    pub fn maxConstraintLogDegreeBound(self: *const @This()) u32 {
-        // All polynomial constraints are degree <= 2 (flag^2 - flag, flag * expr)
-        // so the quotient degree bound is log_size + 1.
-        return self.desc.log_size + 1;
-    }
-
-    pub fn traceLogDegreeBounds(
-        self: *const @This(),
-        allocator: std.mem.Allocator,
-    ) !core_air_components.TraceLogDegreeBounds {
-        const preprocessed = try allocator.dupe(u32, &[_]u32{self.desc.log_size});
-        const main = try allocator.alloc(u32, self.desc.n_columns);
-        @memset(main, self.desc.log_size);
-        return core_air_components.TraceLogDegreeBounds.initOwned(
-            try allocator.dupe([]u32, &[_][]u32{ preprocessed, main }),
-        );
-    }
-
-    pub fn maskPoints(
-        self: *const @This(),
-        allocator: std.mem.Allocator,
-        point: CirclePointQM31,
-        _: u32,
-    ) !core_air_components.MaskPoints {
-        const preprocessed_col = try allocator.alloc(CirclePointQM31, 0);
-        const preprocessed_cols = try allocator.dupe(
-            []CirclePointQM31,
-            &[_][]CirclePointQM31{preprocessed_col},
-        );
-
-        const n = self.desc.n_columns;
-        const main_cols = try allocator.alloc([]CirclePointQM31, n);
-        for (0..n) |i| {
-            const col_points = try allocator.alloc(CirclePointQM31, 1);
-            col_points[0] = point;
-            main_cols[i] = col_points;
-        }
-
-        return core_air_components.MaskPoints.initOwned(
-            try allocator.dupe([][]CirclePointQM31, &[_][][]CirclePointQM31{
-                preprocessed_cols,
-                main_cols,
-            }),
-        );
-    }
-
-    pub fn preprocessedColumnIndices(
-        self: *const @This(),
-        allocator: std.mem.Allocator,
-    ) ![]usize {
-        return allocator.dupe(usize, &[_]usize{self.preprocessed_col_idx});
-    }
-
-    pub fn evaluateConstraintQuotientsAtPoint(
-        self: *const @This(),
-        _: CirclePointQM31,
-        _: *const core_air_components.MaskValues,
-        evaluation_accumulator: *core_air_accumulation.PointEvaluationAccumulator,
-        _: u32,
-    ) !void {
-        // Point-evaluation path matching the domain-evaluation path.
-        //
-        // Currently produces constant evaluations that match the domain
-        // evaluation. Both paths use the same per-constraint constants so
-        // the OODS consistency check passes.
-        //
-        // TODO: Once domain evaluation uses real quotient polynomials,
-        // switch this to evaluate the real AIR constraints on the
-        // sampled mask values.
-        const n_constraints = nConstraintsForFamily(self.desc.family);
-
-        const base_eval = QM31.fromM31(
-            M31.fromCanonical(self.desc.log_size),
-            M31.fromCanonical(self.initial_pc & 0x7FFFFFFF),
-            M31.fromCanonical(self.total_steps),
-            M31.fromCanonical(@as(u32, @intFromEnum(self.desc.family)) + 1),
-        );
-
-        for (0..n_constraints) |ci| {
-            const ci32: u32 = @intCast(ci);
-            const eval = base_eval.add(QM31.fromM31(
-                M31.fromCanonical(ci32 +% 1),
-                M31.zero(),
-                M31.zero(),
-                M31.zero(),
-            ));
-            evaluation_accumulator.accumulate(eval);
-        }
-    }
-
-    pub fn evaluateConstraintQuotientsOnDomain(
-        self: *const @This(),
-        trace: *const prover_component.Trace,
-        evaluation_accumulator: *prover_air_accumulation.DomainEvaluationAccumulator,
-    ) !void {
-        _ = trace;
-        // Domain-evaluation of constraint quotients.
-        //
-        // Currently uses a per-component constant polynomial that is
-        // consistent with the point-evaluation path. Real quotient
-        // computation requires trace-polynomial extension to the
-        // constraint domain (IFFT + FFT), which is not yet wired up.
-        //
-        // The point-evaluation path (evaluateConstraintQuotientsAtPoint)
-        // evaluates the REAL AIR constraints on sampled column values,
-        // so the verifier does check actual execution correctness at the
-        // OODS point.
-        const n_constraints = nConstraintsForFamily(self.desc.family);
-
-        // Accumulate one constant polynomial per constraint without allocating
-        // a domain-sized column for every constraint.
-        // The constant encodes component identity so different components
-        // produce distinct composition contributions.
-        const base_eval = QM31.fromM31(
-            M31.fromCanonical(self.desc.log_size),
-            M31.fromCanonical(self.initial_pc & 0x7FFFFFFF),
-            M31.fromCanonical(self.total_steps),
-            M31.fromCanonical(@as(u32, @intFromEnum(self.desc.family)) + 1),
-        );
-
-        for (0..n_constraints) |ci| {
-            // Vary the constant slightly per constraint index so the
-            // polynomial random-linear-combination is non-degenerate.
-            const ci32: u32 = @intCast(ci);
-            const eval = base_eval.add(QM31.fromM31(
-                M31.fromCanonical(ci32 +% 1),
-                M31.zero(),
-                M31.zero(),
-                M31.zero(),
-            ));
-            try evaluation_accumulator.accumulateConstant(self.desc.log_size + 1, eval);
-        }
-    }
-};
-
-// ---------------------------------------------------------------------------
-// Family constraint evaluators
-// ---------------------------------------------------------------------------
-
-/// QM31 helpers for constraint evaluation.
-fn qBool(v: QM31) QM31 {
-    // v * (v - 1) = v^2 - v
-    return v.mul(v).sub(v);
-}
-
-/// Evaluate the polynomial constraints for a given family at a single point.
-/// `col_vals` contains QM31 values for each column. `out` receives one QM31 per constraint.
-fn evaluateFamilyConstraints(
-    family: trace_mod.OpcodeFamily,
-    col_vals: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31,
-    out: []QM31,
-) void {
-    switch (family) {
-        .base_alu_reg => evaluateBaseAluReg(col_vals, out),
-        .base_alu_imm => evaluateBaseAluImm(col_vals, out),
-        .shifts_reg => evaluateShiftsReg(col_vals, out),
-        .shifts_imm => evaluateShiftsImm(col_vals, out),
-        .lt_reg => evaluateLtReg(col_vals, out),
-        .lt_imm => evaluateLtImm(col_vals, out),
-        .branch_eq => evaluateBranchEq(col_vals, out),
-        .branch_lt => evaluateBranchLt(col_vals, out),
-        .lui => evaluateLui(col_vals, out),
-        .auipc => evaluateAuipc(col_vals, out),
-        .jalr => evaluateJalr(col_vals, out),
-        .jal => evaluateJal(col_vals, out),
-        .load_store => evaluateLoadStore(col_vals, out),
-        .mul => evaluateMul(col_vals, out),
-        .mulh => evaluateMulh(col_vals, out),
-        .div => evaluateDiv(col_vals, out),
-    }
-}
-
-/// base_alu_reg: 7 constraints (flag booleans + enabler)
-/// Columns: clk(0), pc(1), is_add(2), is_sub(3), is_xor(4), is_or(5), is_and(6),
-///   rd_access(7..16), rs1_access(17..26), rs2_access(27..36)
-fn evaluateBaseAluReg(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
-    const is_add = c[2];
-    const is_sub = c[3];
-    const is_xor = c[4];
-    const is_or = c[5];
-    const is_and = c[6];
-
-    // 5 flag-boolean constraints
-    out[0] = qBool(is_add);
-    out[1] = qBool(is_sub);
-    out[2] = qBool(is_xor);
-    out[3] = qBool(is_or);
-    out[4] = qBool(is_and);
-
-    // enabler = sum of flags
-    const flag_sum = is_add.add(is_sub).add(is_xor).add(is_or).add(is_and);
-    const enabler = flag_sum;
-    out[5] = qBool(enabler);
-
-    // Placeholder: sum constraint (enabler consistency)
-    out[6] = enabler.sub(flag_sum);
-}
-
-/// base_alu_imm: 6 constraints (flag booleans + imm_sign + enabler)
-/// Columns: clk(0), pc(1), is_addi(2), is_xori(3), is_ori(4), is_andi(5),
-///   imm(6), imm_sign(7), enabler(8), rd_access(9..18), rs1_access(19..28)
-fn evaluateBaseAluImm(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
-    const is_addi = c[2];
-    const is_xori = c[3];
-    const is_ori = c[4];
-    const is_andi = c[5];
-    const imm_sign = c[7];
-    const enabler = c[8];
-
-    // 4 flag-boolean constraints
-    out[0] = qBool(is_addi);
-    out[1] = qBool(is_xori);
-    out[2] = qBool(is_ori);
-    out[3] = qBool(is_andi);
-
-    // imm_sign boolean
-    out[4] = qBool(imm_sign);
-
-    // enabler boolean
-    out[5] = qBool(enabler);
-}
-
-/// shifts_reg: 5 constraints
-/// Columns: clk(0), pc(1), is_sll(2), is_srl(3), is_sra(4), enabler(5), ...
-fn evaluateShiftsReg(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
-    const is_sll = c[2];
-    const is_srl = c[3];
-    const is_sra = c[4];
-    const enabler = c[5];
-
-    out[0] = qBool(is_sll);
-    out[1] = qBool(is_srl);
-    out[2] = qBool(is_sra);
-    out[3] = enabler.sub(is_sll.add(is_srl).add(is_sra));
-    out[4] = qBool(enabler);
-}
-
-/// shifts_imm: 5 constraints
-/// Columns: clk(0), pc(1), is_slli(2), is_srli(3), is_srai(4), enabler(5), imm(6), ...
-fn evaluateShiftsImm(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
-    const is_slli = c[2];
-    const is_srli = c[3];
-    const is_srai = c[4];
-    const enabler = c[5];
-
-    out[0] = qBool(is_slli);
-    out[1] = qBool(is_srli);
-    out[2] = qBool(is_srai);
-    out[3] = enabler.sub(is_slli.add(is_srli).add(is_srai));
-    out[4] = qBool(enabler);
-}
-
-/// lt_reg: 4 constraints
-/// Columns: clk(0), pc(1), is_slt(2), is_sltu(3), enabler(4), ...
-fn evaluateLtReg(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
-    const is_slt = c[2];
-    const is_sltu = c[3];
-    const enabler = c[4];
-
-    out[0] = qBool(is_slt);
-    out[1] = qBool(is_sltu);
-    out[2] = enabler.sub(is_slt.add(is_sltu));
-    out[3] = qBool(enabler);
-}
-
-/// lt_imm: 5 constraints
-/// Columns: clk(0), pc(1), is_slti(2), is_sltiu(3), enabler(4), imm(5), imm_sign(6), ...
-fn evaluateLtImm(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
-    const is_slti = c[2];
-    const is_sltiu = c[3];
-    const enabler = c[4];
-    const imm_sign = c[6];
-
-    out[0] = qBool(is_slti);
-    out[1] = qBool(is_sltiu);
-    out[2] = enabler.sub(is_slti.add(is_sltiu));
-    out[3] = qBool(enabler);
-    out[4] = qBool(imm_sign);
-}
-
-/// branch_eq: 8 constraints
-/// Columns: clk(0), pc(1), is_beq(2), is_bne(3), enabler(4), branch_target(5),
-///   diff(6), diff_inv(7), is_equal(8), branch_target_aux(9),
-///   rs1_access(10..19), rs2_access(20..29)
-fn evaluateBranchEq(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
-    const is_beq = c[2];
-    const is_bne = c[3];
-    const enabler = c[4];
-    const diff = c[6];
-    const diff_inv = c[7];
-    const is_equal = c[8];
-    const one = QM31.one();
-
-    // 3 flag booleans (is_beq, is_bne, is_equal)
-    out[0] = qBool(is_beq);
-    out[1] = qBool(is_bne);
-    out[2] = qBool(is_equal);
-
-    // enabler = is_beq + is_bne
-    out[3] = enabler.sub(is_beq.add(is_bne));
-
-    // enabler boolean
-    out[4] = qBool(enabler);
-
-    // Placeholder: diff constraints will be updated with limbed values
-    out[5] = QM31.zero();
-
-    // is_equal * diff = 0
-    out[6] = is_equal.mul(diff);
-
-    // (1 - is_equal) * (1 - diff * diff_inv) = 0
-    out[7] = one.sub(is_equal).mul(one.sub(diff.mul(diff_inv)));
-}
-
-/// branch_lt: 6 constraints
-/// Columns: clk(0), pc(1), is_blt(2), is_bltu(3), is_bge(4), is_bgeu(5), enabler(6), ...
-fn evaluateBranchLt(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
-    const is_blt = c[2];
-    const is_bltu = c[3];
-    const is_bge = c[4];
-    const is_bgeu = c[5];
-    const enabler = c[6];
-
-    out[0] = qBool(is_blt);
-    out[1] = qBool(is_bltu);
-    out[2] = qBool(is_bge);
-    out[3] = qBool(is_bgeu);
-    out[4] = enabler.sub(is_blt.add(is_bltu).add(is_bge).add(is_bgeu));
-    out[5] = qBool(enabler);
-}
-
-/// lui: 2 constraints
-/// Columns: clk(0), pc(1), imm_u(2), enabler(3), result_lo(4), result_hi(5),
-///   rd_access(6..15)
-fn evaluateLui(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
-    const enabler = c[3];
-
-    // enabler boolean
-    out[0] = qBool(enabler);
-
-    // Placeholder for result constraints (will use limbed rd values)
-    out[1] = QM31.zero();
-}
-
-/// auipc: 2 constraints
-/// Columns: clk(0), pc(1), imm_u(2), enabler(3), rd_access(4..13)
-fn evaluateAuipc(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
-    const enabler = c[3];
-    out[0] = qBool(enabler);
-    out[1] = QM31.zero(); // placeholder
-}
-
-/// jalr: 1 constraint
-/// Columns: clk(0), pc(1), imm(2), enabler(3), target_lo(4), target_hi(5),
-///   rd_access(6..15), rs1_access(16..25)
-fn evaluateJalr(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
-    const enabler = c[3];
-    out[0] = qBool(enabler);
-}
-
-/// jal: 1 constraint
-/// Columns: clk(0), pc(1), imm_j(2), enabler(3), rd_access(4..13)
-fn evaluateJal(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
-    const enabler = c[3];
-    out[0] = qBool(enabler);
-}
-
-/// load_store: 10 constraints
-/// Columns: clk(0), pc(1), imm(2), is_lb(3), is_lbu(4), is_lh(5), is_lhu(6),
-///   is_lw(7), is_sb(8), is_sh(9), is_sw(10), enabler(11), ...
-fn evaluateLoadStore(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
-    const is_lb = c[3];
-    const is_lbu = c[4];
-    const is_lh = c[5];
-    const is_lhu = c[6];
-    const is_lw = c[7];
-    const is_sb = c[8];
-    const is_sh = c[9];
-    const is_sw = c[10];
-    const enabler = c[11];
-
-    // 8 flag booleans
-    out[0] = qBool(is_lb);
-    out[1] = qBool(is_lbu);
-    out[2] = qBool(is_lh);
-    out[3] = qBool(is_lhu);
-    out[4] = qBool(is_lw);
-    out[5] = qBool(is_sb);
-    out[6] = qBool(is_sh);
-    out[7] = qBool(is_sw);
-
-    // enabler = sum of flags
-    const flag_sum = is_lb.add(is_lbu).add(is_lh).add(is_lhu).add(is_lw).add(is_sb).add(is_sh).add(is_sw);
-    out[8] = enabler.sub(flag_sum);
-
-    // enabler boolean
-    out[9] = qBool(enabler);
-}
-
-/// mul: 1 constraint
-/// Columns: clk(0), pc(1), enabler(2), rd_access(3..12), rs1_access(13..22), rs2_access(23..32)
-fn evaluateMul(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
-    const enabler = c[2];
-    out[0] = qBool(enabler);
-}
-
-/// mulh: 5 constraints
-/// Columns: clk(0), pc(1), is_mulh(2), is_mulhsu(3), is_mulhu(4), enabler(5), ...
-fn evaluateMulh(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
-    const is_mulh = c[2];
-    const is_mulhsu = c[3];
-    const is_mulhu = c[4];
-    const enabler = c[5];
-
-    out[0] = qBool(is_mulh);
-    out[1] = qBool(is_mulhsu);
-    out[2] = qBool(is_mulhu);
-    out[3] = enabler.sub(is_mulh.add(is_mulhsu).add(is_mulhu));
-    out[4] = qBool(enabler);
-}
-
-/// div: 6 constraints
-/// Columns: clk(0), pc(1), is_div(2), is_divu(3), is_rem(4), is_remu(5), enabler(6), ...
-fn evaluateDiv(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
-    const is_div = c[2];
-    const is_divu = c[3];
-    const is_rem = c[4];
-    const is_remu = c[5];
-    const enabler = c[6];
-
-    out[0] = qBool(is_div);
-    out[1] = qBool(is_divu);
-    out[2] = qBool(is_rem);
-    out[3] = qBool(is_remu);
-    out[4] = enabler.sub(is_div.add(is_divu).add(is_rem).add(is_remu));
-    out[5] = qBool(enabler);
-}
 
 // -- Helpers --
 
@@ -802,6 +129,121 @@ fn evaluateDiv(c: *const [trace_mod.MAX_FAMILY_COLUMNS]QM31, out: []QM31) void {
 fn computeLogSize(count: usize) u32 {
     if (count <= 1) return 1;
     return @intCast(std.math.log2_int_ceil(usize, count));
+}
+
+fn validateStatement(statement: RiscVStatement) ProverError!void {
+    if (statement.n_components == 0 or statement.n_components > MAX_COMPONENTS)
+        return ProverError.InvalidStatement;
+    if (statement.n_infra < 4 or statement.n_infra > MAX_INFRA_COMPONENTS)
+        return ProverError.InvalidStatement;
+    if (statement.public_data.initial_pc != statement.initial_pc or
+        statement.public_data.final_pc != statement.final_pc or
+        statement.public_data.clock != statement.total_steps or
+        statement.public_data.io_entries.input_words.len !=
+            std.math.divCeil(usize, statement.public_data.io_entries.input_len, 4) catch unreachable)
+        return ProverError.InvalidStatement;
+
+    var total_rows: u64 = 0;
+    var previous_family: ?trace_mod.OpcodeFamily = null;
+    var previous_rows: u32 = 0;
+    var max_non_program_log: u32 = 0;
+    for (0..statement.n_components) |i| {
+        const desc = statement.component_descs[i];
+        if (desc.log_size == 0 or desc.log_size > MAX_OPCODE_SHARD_LOG_SIZE or
+            desc.n_rows == 0 or desc.n_rows > MAX_OPCODE_SHARD_ROWS or
+            desc.log_size != computeLogSize(desc.n_rows) or
+            desc.n_columns != nCommittedColumnsForFamily(desc.family) + OPCODE_BUS_COLS)
+            return ProverError.InvalidStatement;
+        if (previous_family) |family| {
+            if (@intFromEnum(desc.family) < @intFromEnum(family))
+                return ProverError.InvalidStatement;
+            if (desc.family == family and previous_rows != MAX_OPCODE_SHARD_ROWS)
+                return ProverError.InvalidStatement;
+        }
+        previous_family = desc.family;
+        previous_rows = desc.n_rows;
+        total_rows += desc.n_rows;
+        max_non_program_log = @max(max_non_program_log, desc.log_size);
+    }
+    if (total_rows != statement.total_steps) return ProverError.InvalidStatement;
+
+    const program = statement.infra_descs[0];
+    if (program.kind != .program or program.n_rows == 0 or
+        program.n_columns != infra.PROGRAM_TRACE_COLS)
+        return ProverError.InvalidStatement;
+
+    var index: usize = 1;
+    while (index < statement.n_infra and statement.infra_descs[index].kind == .memory) : (index += 1) {
+        const desc = statement.infra_descs[index];
+        if (desc.n_columns != infra.MEMORY_TRACE_COLS or desc.n_rows == 0 or
+            desc.n_rows > MAX_MEMORY_SHARD_ROWS or
+            desc.log_size != @max(@as(u32, 4), computeLogSize(desc.n_rows)))
+            return ProverError.InvalidStatement;
+        max_non_program_log = @max(max_non_program_log, desc.log_size);
+    }
+    if (index + 3 != statement.n_infra) return ProverError.InvalidStatement;
+    const clock_update = statement.infra_descs[index];
+    const poseidon_desc = statement.infra_descs[index + 1];
+    const merkle_desc = statement.infra_descs[index + 2];
+    if (clock_update.kind != .clock_update or
+        clock_update.n_columns != infra.CLOCK_UPDATE_COLS or
+        clock_update.log_size != @max(@as(u32, 4), computeLogSize(clock_update.n_rows)))
+        return ProverError.InvalidStatement;
+    if (poseidon_desc.kind != .poseidon2 or
+        poseidon_desc.n_columns != infra.POSEIDON2_TRACE_COLS or
+        poseidon_desc.log_size != @max(@as(u32, 4), computeLogSize(poseidon_desc.n_rows)))
+        return ProverError.InvalidStatement;
+    if (merkle_desc.kind != .merkle or
+        merkle_desc.n_columns != infra.MERKLE_TRACE_COLS or
+        merkle_desc.log_size != @max(@as(u32, 4), computeLogSize(merkle_desc.n_rows)))
+        return ProverError.InvalidStatement;
+    max_non_program_log = @max(
+        max_non_program_log,
+        @max(clock_update.log_size, @max(poseidon_desc.log_size, merkle_desc.log_size)),
+    );
+    if (program.n_rows > (@as(usize, 1) << @intCast(program.log_size)) or
+        program.log_size != @max(computeLogSize(program.n_rows), max_non_program_log))
+        return ProverError.InvalidStatement;
+}
+
+fn verifyPreprocessedRoot(
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    statement: RiscVStatement,
+    actual: Hasher.Hash,
+) !void {
+    const n_columns = 2 * (statement.n_components + statement.n_infra);
+    const columns = try allocator.alloc(prover_pcs.ColumnEvaluation, n_columns);
+    var initialized: usize = 0;
+    var columns_moved = false;
+    errdefer if (!columns_moved) {
+        for (columns[0..initialized]) |column| allocator.free(@constCast(column.values));
+        allocator.free(columns);
+    };
+    for (0..statement.n_components) |i| {
+        const desc = statement.component_descs[i];
+        columns[initialized] = .{ .log_size = desc.log_size, .values = try genIsFirstColumn(allocator, desc.log_size) };
+        initialized += 1;
+        columns[initialized] = .{ .log_size = desc.log_size, .values = try genIsActiveColumn(allocator, desc.log_size, desc.n_rows) };
+        initialized += 1;
+    }
+    for (0..statement.n_infra) |i| {
+        const desc = statement.infra_descs[i];
+        columns[initialized] = .{ .log_size = desc.log_size, .values = try genIsFirstColumn(allocator, desc.log_size) };
+        initialized += 1;
+        columns[initialized] = .{ .log_size = desc.log_size, .values = try genIsActiveColumn(allocator, desc.log_size, desc.n_rows) };
+        initialized += 1;
+    }
+
+    var scheme = try CpuProverEngine.init(allocator, pcs_config);
+    defer CpuProverEngine.deinit(&scheme, allocator);
+    var channel = Channel{};
+    try CpuProverEngine.commit(&scheme, allocator, columns, null, &channel);
+    columns_moved = true;
+    var roots = try scheme.roots(allocator);
+    defer roots.deinit(allocator);
+    if (roots.items.len != 1 or !std.meta.eql(roots.items[0], actual))
+        return ProverError.InvalidPreprocessedCommitment;
 }
 
 // ---------------------------------------------------------------------------
@@ -1022,6 +464,25 @@ fn genIsFirstColumn(allocator: std.mem.Allocator, log_size: u32) ![]M31 {
     return values;
 }
 
+fn genIsActiveColumn(
+    allocator: std.mem.Allocator,
+    log_size: u32,
+    n_rows: u32,
+) ![]M31 {
+    const n = @as(usize, 1) << @intCast(log_size);
+    if (n_rows > n) return ProverError.InvalidLogSize;
+    const values = try allocator.alloc(M31, n);
+    @memset(values, M31.zero());
+    for (0..n_rows) |row| {
+        const dst = utils.bitReverseIndex(
+            utils.cosetIndexToCircleDomainIndex(row, log_size),
+            log_size,
+        );
+        values[dst] = M31.one();
+    }
+    return values;
+}
+
 fn isCommittedFamilyColumn(family: trace_mod.OpcodeFamily, column: usize) bool {
     return switch (family) {
         .base_alu_reg => !((column >= 8 and column <= 12) or
@@ -1043,6 +504,8 @@ fn nCommittedColumnsForFamily(family: trace_mod.OpcodeFamily) u32 {
     }
     return count;
 }
+
+const OPCODE_BUS_COLS: u32 = 3;
 
 /// Generate M31 columns for a specific opcode family, in bit-reversed
 /// circle-domain order suitable for direct commitment.
@@ -1316,6 +779,66 @@ pub fn proveRiscVWithEngine(
     opt_chain: ?*const state_chain.StateChainTracker,
     recorder: ?*stage_profile.Recorder,
 ) !ProveOutput {
+    var reg_last_clock = [_]u32{0} ** 32;
+    if (opt_chain) |chain| reg_last_clock = chain.reg_last_clk;
+    return proveRiscVWithEngineAndPublicData(
+        Engine,
+        allocator,
+        pcs_config,
+        exec_trace,
+        opt_chain,
+        recorder,
+        .{
+            .initial_pc = exec_trace.initial_pc,
+            .final_pc = exec_trace.final_pc,
+            .clock = @intCast(exec_trace.step_count),
+            .initial_regs = .{0} ** 32,
+            .final_regs = .{0} ** 32,
+            .reg_last_clock = reg_last_clock,
+            .program_root = null,
+            .initial_rw_root = null,
+            .final_rw_root = null,
+            .io_entries = .{
+                .input_start = 0,
+                .input_len = 0,
+                .input_words = &.{},
+                .output_len = 0,
+                .output_len_addr = 0,
+                .output_data_addr = 0,
+                .output_words = &.{},
+            },
+        },
+    );
+}
+
+pub fn proveRiscVWithPublicData(
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    exec_trace: *const trace_mod.Trace,
+    opt_chain: ?*const state_chain.StateChainTracker,
+    recorder: ?*stage_profile.Recorder,
+    public_data: PublicData,
+) !ProveOutput {
+    return proveRiscVWithEngineAndPublicData(
+        CpuProverEngine,
+        allocator,
+        pcs_config,
+        exec_trace,
+        opt_chain,
+        recorder,
+        public_data,
+    );
+}
+
+fn proveRiscVWithEngineAndPublicData(
+    comptime Engine: type,
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    exec_trace: *const trace_mod.Trace,
+    opt_chain: ?*const state_chain.StateChainTracker,
+    recorder: ?*stage_profile.Recorder,
+    public_data: PublicData,
+) !ProveOutput {
     comptime prover_engine.assertProverEngine(Engine);
     if (exec_trace.step_count == 0) return ProverError.EmptyTrace;
 
@@ -1329,6 +852,7 @@ pub fn proveRiscVWithEngine(
         .initial_pc = exec_trace.initial_pc,
         .final_pc = exec_trace.final_pc,
         .total_steps = @intCast(exec_trace.step_count),
+        .public_data = public_data,
     };
 
     for (0..trace_mod.N_FAMILIES) |fi| {
@@ -1343,7 +867,8 @@ pub fn proveRiscVWithEngine(
             statement.component_descs[statement.n_components] = .{
                 .family = family,
                 .log_size = computeLogSize(shard_len),
-                .n_columns = nCommittedColumnsForFamily(family),
+                .n_rows = @intCast(shard_len),
+                .n_columns = nCommittedColumnsForFamily(family) + OPCODE_BUS_COLS,
             };
             statement.n_components += 1;
             remaining -= shard_len;
@@ -1367,10 +892,11 @@ pub fn proveRiscVWithEngine(
     }
 
     // Program ROM (8 cols)
-    const program_log_size = computeLogSize(unique_pcs);
+    var program_log_size = computeLogSize(unique_pcs);
     statement.infra_descs[statement.n_infra] = .{
         .kind = .program,
         .log_size = program_log_size,
+        .n_rows = @intCast(unique_pcs),
         .n_columns = infra.PROGRAM_TRACE_COLS,
     };
     statement.n_infra += 1;
@@ -1389,6 +915,7 @@ pub fn proveRiscVWithEngine(
             statement.infra_descs[statement.n_infra] = .{
                 .kind = .memory,
                 .log_size = shard_log_size,
+                .n_rows = @intCast(shard_len),
                 .n_columns = infra.MEMORY_TRACE_COLS,
             };
             statement.n_infra += 1;
@@ -1407,6 +934,9 @@ pub fn proveRiscVWithEngine(
     statement.infra_descs[statement.n_infra] = .{
         .kind = .clock_update,
         .log_size = clock_update_log,
+        .n_rows = if (opt_chain) |chain| @intCast(
+            chain.clock_updates_mem.items.len + chain.clock_updates_reg.items.len,
+        ) else 0,
         .n_columns = infra.CLOCK_UPDATE_COLS,
     };
     statement.n_infra += 1;
@@ -1414,6 +944,11 @@ pub fn proveRiscVWithEngine(
     // Build real Poseidon2 Merkle trees and capture hash traces.
     const prog_merkle = try buildProgramMerkleTree(allocator, exec_trace);
     defer allocator.free(prog_merkle.hash_traces);
+    const computed_program_root = prog_merkle.root[0].v;
+    if (statement.public_data.program_root) |root| {
+        if (root != computed_program_root) return ProverError.InvalidStatement;
+    }
+    statement.public_data.program_root = computed_program_root;
 
     // Optionally build memory Merkle tree when state chain is available.
     var mem_merkle_traces: []poseidon2.PermuteTrace = &.{};
@@ -1436,6 +971,7 @@ pub fn proveRiscVWithEngine(
     statement.infra_descs[statement.n_infra] = .{
         .kind = .poseidon2,
         .log_size = poseidon_log_size,
+        .n_rows = @intCast(total_hashes),
         .n_columns = infra.POSEIDON2_TRACE_COLS,
     };
     statement.n_infra += 1;
@@ -1449,15 +985,33 @@ pub fn proveRiscVWithEngine(
     statement.infra_descs[statement.n_infra] = .{
         .kind = .merkle,
         .log_size = merkle_log_size,
+        .n_rows = @intCast(total_merkle_nodes),
         .n_columns = infra.MERKLE_TRACE_COLS,
     };
     statement.n_infra += 1;
 
-    // Lookup multiplicities are protocol-known zero until LogUp is wired.
-    // Do not materialize or commit six full-domain placeholder columns.
+    // Preprocessed lookup multiplicity tables stay uncommitted: range-check
+    // and bitwise buses are not wired yet.
+
+    // Lift the program ROM to the maximal component size: the interaction
+    // tree (tree 2) must contain a column at the maximal committed log size
+    // because the lifted PCS folds query positions only for tree 0. Padding
+    // ROM rows carry zero multiplicity and do not change the bus balance.
+    var max_component_log: u32 = 0;
+    for (0..statement.n_components) |i| {
+        max_component_log = @max(max_component_log, statement.component_descs[i].log_size);
+    }
+    for (0..statement.n_infra) |i| {
+        max_component_log = @max(max_component_log, statement.infra_descs[i].log_size);
+    }
+    program_log_size = @max(program_log_size, max_component_log);
+    std.debug.assert(statement.infra_descs[0].kind == .program);
+    statement.infra_descs[0].log_size = program_log_size;
+    try validateStatement(statement);
 
     var channel = Channel{};
     pcs_config.mixInto(&channel);
+    statement.public_data.mixInto(&channel);
 
     var scheme = try Engine.init(allocator, pcs_config);
 
@@ -1465,21 +1019,28 @@ pub fn proveRiscVWithEngine(
     var empty_chain = state_chain.StateChainTracker.init(allocator);
     defer empty_chain.deinit();
 
-    // -- Step 3: Tree 0 -- Preprocessed (one IsFirst per component, including infra). --
-    const n_preproc = statement.n_components + statement.n_infra;
+    // -- Step 3: Tree 0 -- deterministic IsFirst/IsActive selector pairs. --
+    const n_preproc = 2 * (statement.n_components + statement.n_infra);
     {
         var stage = try stage_profile.StageScope.begin(recorder, "riscv_preprocessed_commit", "RISC-V preprocessed trace commit");
         defer stage.end();
         const preprocessed = try allocator.alloc(prover_pcs.ColumnEvaluation, n_preproc);
         for (0..statement.n_components) |i| {
             const ls = statement.component_descs[i].log_size;
-            const is_first = try genIsFirstColumn(allocator, ls);
-            preprocessed[i] = .{ .log_size = ls, .values = is_first };
+            preprocessed[2 * i] = .{ .log_size = ls, .values = try genIsFirstColumn(allocator, ls) };
+            preprocessed[2 * i + 1] = .{
+                .log_size = ls,
+                .values = try genIsActiveColumn(allocator, ls, statement.component_descs[i].n_rows),
+            };
         }
         for (0..statement.n_infra) |i| {
             const ls = statement.infra_descs[i].log_size;
-            const is_first = try genIsFirstColumn(allocator, ls);
-            preprocessed[statement.n_components + i] = .{ .log_size = ls, .values = is_first };
+            const base = 2 * (statement.n_components + i);
+            preprocessed[base] = .{ .log_size = ls, .values = try genIsFirstColumn(allocator, ls) };
+            preprocessed[base + 1] = .{
+                .log_size = ls,
+                .values = try genIsActiveColumn(allocator, ls, statement.infra_descs[i].n_rows),
+            };
         }
         try Engine.commit(&scheme, allocator, preprocessed, recorder, &channel);
     }
@@ -1654,6 +1215,13 @@ pub fn proveRiscVWithEngine(
     opcode_stage.end();
     if (opcode_work.err) |err| return err;
 
+    var rows_by_family: [trace_mod.N_FAMILIES]std.ArrayList(trace_mod.TraceRow) =
+        .{std.ArrayList(trace_mod.TraceRow).empty} ** trace_mod.N_FAMILIES;
+    defer for (&rows_by_family) |*rows| rows.deinit(allocator);
+    for (exec_trace.rows.items) |row| {
+        try rows_by_family[@intFromEnum(trace_mod.opcodeFamily(row.opcode))].append(allocator, row);
+    }
+    var family_bus_cursor: [trace_mod.N_FAMILIES]usize = .{0} ** trace_mod.N_FAMILIES;
     var opcode_col_offset: usize = 0;
     for (0..statement.n_components) |comp_idx| {
         const desc = statement.component_descs[comp_idx];
@@ -1670,6 +1238,24 @@ pub fn proveRiscVWithEngine(
             };
             committed_column += 1;
         }
+        std.debug.assert(committed_column + OPCODE_BUS_COLS == desc.n_columns);
+        const fi = @intFromEnum(desc.family);
+        const start = family_bus_cursor[fi];
+        const end = start + desc.n_rows;
+        if (end > rows_by_family[fi].items.len) return ProverError.InvalidLogSize;
+        const bus = try interaction_gen.genOpcodeBusColumns(
+            allocator,
+            rows_by_family[fi].items[start..end],
+            desc.log_size,
+        );
+        for (bus) |values| {
+            main_columns[opcode_col_offset + committed_column] = .{
+                .log_size = desc.log_size,
+                .values = values,
+            };
+            committed_column += 1;
+        }
+        family_bus_cursor[fi] = end;
         std.debug.assert(committed_column == desc.n_columns);
         opcode_col_offset += desc.n_columns;
     }
@@ -1682,12 +1268,13 @@ pub fn proveRiscVWithEngine(
         try Engine.commit(&scheme, allocator, main_columns, recorder, &channel);
     }
 
-    // The current AIR has no LogUp constraints: its interaction values are
-    // protocol-known zero and are not sampled by any component. Do not create
-    // a commitment for columns that the verifier can reconstruct exactly.
+    // Tree 2 carries only cumulative columns for the CPU state chain and
+    // program lookup (8 columns per opcode shard, 4 for the program ROM).
+    // Memory-access buses, range checks, and per-family semantic constraints
+    // are NOT wired yet; their components commit no interaction columns.
     const n_interaction = statement.nInteractionColumns();
 
-    std.log.info("Columns: opcode={d} infra={d} total tree1={d} implicit-zero={d}", .{
+    std.log.info("Columns: opcode={d} infra={d} total tree1={d} interaction={d}", .{
         n_opcode_main,
         n_infra_main,
         n_main,
@@ -1701,46 +1288,154 @@ pub fn proveRiscVWithEngine(
         merkle_log_size,
     });
 
-    mixStatement(&channel, statement);
+    statement.mixShape(&channel);
 
-    // -- Step 5: Create per-family components and prove. --
+    // -- Step 5: LogUp interaction tree (tree 2). --
+    // Fiat-Shamir order (verifier must match byte-for-byte): statement, then
+    // lookup-element draw, then the tree-2 commitment, then the claims.
+    const lookup = interaction.LookupElements.draw(&channel);
+
+    var interaction_claim = RiscVInteractionClaim.initZero();
+    interaction_claim.n_components = statement.n_components;
+
+    // Uncommitted trace-order-shifted S columns ([0] state, [1] prog per
+    // opcode component; rom for the program component), kept alive for the
+    // on-domain constraint evaluation inside Engine.prove.
+    const opcode_prev = try allocator.alloc([2][4][]M31, statement.n_components);
+    for (opcode_prev) |*prev| prev.* = .{ .{ &.{}, &.{}, &.{}, &.{} }, .{ &.{}, &.{}, &.{}, &.{} } };
+    var rom_prev: [4][]M31 = .{ &.{}, &.{}, &.{}, &.{} };
+    defer {
+        for (opcode_prev) |prev| {
+            for (prev) |set| interaction_gen.freeColumns(allocator, &set);
+        }
+        allocator.free(opcode_prev);
+        interaction_gen.freeColumns(allocator, &rom_prev);
+    }
+
+    {
+        var stage = try stage_profile.StageScope.begin(recorder, "riscv_interaction_commit", "RISC-V interaction trace generation and commit");
+        defer stage.end();
+
+        // Rebuild per-family row lists (execution order) and chunk them by
+        // MAX_OPCODE_SHARD_ROWS, mirroring the descriptor construction.
+        var family_rows: [trace_mod.N_FAMILIES]std.ArrayList(trace_mod.TraceRow) =
+            .{std.ArrayList(trace_mod.TraceRow).empty} ** trace_mod.N_FAMILIES;
+        defer for (&family_rows) |*list| list.deinit(allocator);
+        for (exec_trace.rows.items) |row| {
+            const fi = @intFromEnum(trace_mod.opcodeFamily(row.opcode));
+            try family_rows[fi].append(allocator, row);
+        }
+
+        const interaction_columns = try allocator.alloc(prover_pcs.ColumnEvaluation, n_interaction);
+        var inter_col_idx: usize = 0;
+        errdefer {
+            for (interaction_columns[0..inter_col_idx]) |column| {
+                allocator.free(@constCast(column.values));
+            }
+            allocator.free(interaction_columns);
+        }
+
+        var family_cursor: [trace_mod.N_FAMILIES]usize = .{0} ** trace_mod.N_FAMILIES;
+        for (0..statement.n_components) |i| {
+            const desc = statement.component_descs[i];
+            const fi = @intFromEnum(desc.family);
+            const remaining = family_rows[fi].items.len - family_cursor[fi];
+            const shard_len = @min(remaining, MAX_OPCODE_SHARD_ROWS);
+            std.debug.assert(shard_len > 0 and computeLogSize(shard_len) == desc.log_size);
+            const shard = family_rows[fi].items[family_cursor[fi]..][0..shard_len];
+            family_cursor[fi] += shard_len;
+
+            const gen = try interaction_gen.genOpcodeInteraction(allocator, shard, desc.log_size, &lookup);
+            interaction_claim.state_claims[i] = gen.state_claim;
+            interaction_claim.prog_claims[i] = gen.prog_claim;
+            opcode_prev[i] = .{ gen.prev_state, gen.prev_prog };
+            for (gen.columns) |values| {
+                interaction_columns[inter_col_idx] = .{ .log_size = desc.log_size, .values = values };
+                inter_col_idx += 1;
+            }
+        }
+        for (0..trace_mod.N_FAMILIES) |fi| {
+            std.debug.assert(family_cursor[fi] == family_rows[fi].items.len);
+        }
+
+        const rom = try interaction_gen.genProgramInteraction(
+            allocator,
+            exec_trace.rows.items,
+            program_log_size,
+            &lookup,
+        );
+        interaction_claim.rom_claim = rom.rom_claim;
+        rom_prev = rom.prev_rom;
+        for (rom.columns) |values| {
+            interaction_columns[inter_col_idx] = .{ .log_size = program_log_size, .values = values };
+            inter_col_idx += 1;
+        }
+        std.debug.assert(inter_col_idx == n_interaction);
+
+        try Engine.commit(&scheme, allocator, interaction_columns, recorder, &channel);
+    }
+
+    interaction_claim.mixInto(&channel);
+
+    // -- Step 6: Create per-family components and prove. --
     const total_components = statement.n_components + statement.n_infra;
     var component_storage: [MAX_COMPONENTS + MAX_INFRA_COMPONENTS]RiscVTraceComponent = undefined;
     var components_arr: [MAX_COMPONENTS + MAX_INFRA_COMPONENTS]prover_component.ComponentProver = undefined;
 
     var main_offset: usize = 0;
+    var interaction_offset: usize = 0;
     // Opcode family components
     for (0..statement.n_components) |i| {
         component_storage[i] = .{
             .desc = .{
                 .family = statement.component_descs[i].family,
                 .log_size = statement.component_descs[i].log_size,
+                .n_rows = statement.component_descs[i].n_rows,
                 .n_columns = statement.component_descs[i].n_columns,
             },
             .initial_pc = statement.initial_pc,
             .total_steps = statement.total_steps,
-            .preprocessed_col_idx = i,
+            .is_first_col_idx = 2 * i,
+            .is_active_col_idx = 2 * i + 1,
             .main_col_offset = main_offset,
+            .kind = .opcode,
+            .lookup = &lookup,
+            .interaction_col_offset = interaction_offset,
+            .state_claim = interaction_claim.state_claims[i],
+            .prog_claim = interaction_claim.prog_claims[i],
+            .s_state_prev = constPrev(opcode_prev[i][0]),
+            .s_prog_prev = constPrev(opcode_prev[i][1]),
         };
         components_arr[i] = component_storage[i].asProverComponent();
         main_offset += statement.component_descs[i].n_columns;
+        interaction_offset += riscv_component.nInteractionCols(.opcode);
     }
     // Infrastructure components (same RiscVTraceComponent type, different descriptors)
     for (0..statement.n_infra) |i| {
         const idx = statement.n_components + i;
+        const kind: riscv_component.Kind =
+            if (statement.infra_descs[i].kind == .program) .program else .silent;
         component_storage[idx] = .{
             .desc = .{
                 .family = .base_alu_reg, // placeholder family for infra
                 .log_size = statement.infra_descs[i].log_size,
+                .n_rows = statement.infra_descs[i].n_rows,
                 .n_columns = statement.infra_descs[i].n_columns,
             },
             .initial_pc = statement.initial_pc,
             .total_steps = statement.total_steps,
-            .preprocessed_col_idx = idx, // no preprocessed for infra, but must be unique
+            .is_first_col_idx = 2 * idx,
+            .is_active_col_idx = 2 * idx + 1,
             .main_col_offset = main_offset,
+            .kind = kind,
+            .lookup = &lookup,
+            .interaction_col_offset = interaction_offset,
+            .rom_claim = interaction_claim.rom_claim,
+            .s_rom_prev = constPrev(rom_prev),
         };
         components_arr[idx] = component_storage[idx].asProverComponent();
         main_offset += statement.infra_descs[i].n_columns;
+        interaction_offset += riscv_component.nInteractionCols(kind);
     }
 
     var extended = try Engine.prove(
@@ -1753,22 +1448,43 @@ pub fn proveRiscVWithEngine(
     const proof = extended.proof;
     extended.aux.deinit(allocator);
 
-    return .{ .statement = statement, .proof = proof };
+    return .{ .statement = statement, .proof = proof, .interaction_claim = interaction_claim };
+}
+
+fn constPrev(bufs: [4][]M31) [4][]const M31 {
+    return .{ bufs[0], bufs[1], bufs[2], bufs[3] };
 }
 
 /// Verify a RISC-V STARK proof with per-opcode-family components.
+/// Consumes `proof_in` on both success and failure.
 pub fn verifyRiscV(
     allocator: std.mem.Allocator,
     pcs_config: pcs_core.PcsConfig,
     statement: RiscVStatement,
     proof_in: Proof,
+    claim: RiscVInteractionClaim,
 ) !void {
-    if (statement.n_components == 0) return ProverError.InvalidLogSize;
+    var proof = proof_in;
+    var proof_moved = false;
+    defer if (!proof_moved) proof.deinit(allocator);
 
-    const proof = proof_in;
+    try validateStatement(statement);
+    if (claim.n_components != statement.n_components) {
+        return ProverError.InvalidInteractionClaim;
+    }
+    if (proof.commitment_scheme_proof.commitments.items.len != 4) {
+        return core_verifier.VerificationError.InvalidStructure;
+    }
+    try verifyPreprocessedRoot(
+        allocator,
+        pcs_config,
+        statement,
+        proof.commitment_scheme_proof.commitments.items[0],
+    );
 
     var channel = Channel{};
     pcs_config.mixInto(&channel);
+    statement.public_data.mixInto(&channel);
 
     var commitment_scheme = try pcs_verifier.CommitmentSchemeVerifier(
         Hasher,
@@ -1776,15 +1492,18 @@ pub fn verifyRiscV(
     ).init(allocator, pcs_config);
     defer commitment_scheme.deinit(allocator);
 
-    // Tree 0: Preprocessed -- one IsFirst column per component (opcode + infra).
-    const n_preproc_v = statement.n_components + statement.n_infra;
+    // Tree 0: deterministic IsFirst/IsActive pairs for every component.
+    const n_preproc_v = 2 * (statement.n_components + statement.n_infra);
     const preproc_log_sizes = try allocator.alloc(u32, n_preproc_v);
     defer allocator.free(preproc_log_sizes);
     for (0..statement.n_components) |i| {
-        preproc_log_sizes[i] = statement.component_descs[i].log_size;
+        preproc_log_sizes[2 * i] = statement.component_descs[i].log_size;
+        preproc_log_sizes[2 * i + 1] = statement.component_descs[i].log_size;
     }
     for (0..statement.n_infra) |i| {
-        preproc_log_sizes[statement.n_components + i] = statement.infra_descs[i].log_size;
+        const base = 2 * (statement.n_components + i);
+        preproc_log_sizes[base] = statement.infra_descs[i].log_size;
+        preproc_log_sizes[base + 1] = statement.infra_descs[i].log_size;
     }
     try commitment_scheme.commit(
         allocator,
@@ -1821,7 +1540,59 @@ pub fn verifyRiscV(
         &channel,
     );
 
-    mixStatement(&channel, statement);
+    statement.mixShape(&channel);
+
+    // LogUp Fiat-Shamir mirror of the prover: draw lookup elements, absorb
+    // the tree-2 commitment, then absorb the claims.
+    const lookup = interaction.LookupElements.draw(&channel);
+
+    const n_interaction = statement.nInteractionColumns();
+    const interaction_log_sizes = try allocator.alloc(u32, n_interaction);
+    defer allocator.free(interaction_log_sizes);
+    var inter_col_offset: usize = 0;
+    for (0..statement.n_components) |i| {
+        const n_cols = riscv_component.nInteractionCols(.opcode);
+        for (0..n_cols) |c| {
+            interaction_log_sizes[inter_col_offset + c] = statement.component_descs[i].log_size;
+        }
+        inter_col_offset += n_cols;
+    }
+    for (0..statement.n_infra) |i| {
+        const n_cols = statement_mod.nInteractionColsForInfra(statement.infra_descs[i].kind);
+        for (0..n_cols) |c| {
+            interaction_log_sizes[inter_col_offset + c] = statement.infra_descs[i].log_size;
+        }
+        inter_col_offset += n_cols;
+    }
+    std.debug.assert(inter_col_offset == n_interaction);
+    try commitment_scheme.commit(
+        allocator,
+        proof.commitment_scheme_proof.commitments.items[2],
+        interaction_log_sizes,
+        &channel,
+    );
+
+    claim.mixInto(&channel);
+
+    // Relation domains cancel independently; a shifted state claim must not
+    // be repairable by an offsetting program claim.
+    const boundary = try logup.stateBoundary(
+        &lookup,
+        statement.initial_pc,
+        statement.final_pc,
+        statement.total_steps,
+    );
+    const state_claims = try allocator.alloc(QM31, statement.n_components);
+    defer allocator.free(state_claims);
+    const program_claims = try allocator.alloc(QM31, statement.n_components + 1);
+    defer allocator.free(program_claims);
+    for (0..statement.n_components) |i| {
+        state_claims[i] = claim.state_claims[i];
+        program_claims[i] = claim.prog_claims[i];
+    }
+    program_claims[statement.n_components] = claim.rom_claim;
+    try logup.verifyGlobalCancellation(state_claims, boundary);
+    try logup.verifyGlobalCancellation(program_claims, QM31.zero());
 
     // Reconstruct per-family + infrastructure verifier components.
     const total_v_components = statement.n_components + statement.n_infra;
@@ -1829,34 +1600,52 @@ pub fn verifyRiscV(
     var verifier_components: [MAX_COMPONENTS + MAX_INFRA_COMPONENTS]core_air_components.Component = undefined;
 
     var verifier_col_offset: usize = 0;
+    var verifier_inter_offset: usize = 0;
     for (0..statement.n_components) |i| {
         component_storage[i] = .{
             .desc = statement.component_descs[i],
             .initial_pc = statement.initial_pc,
             .total_steps = statement.total_steps,
-            .preprocessed_col_idx = i,
+            .is_first_col_idx = 2 * i,
+            .is_active_col_idx = 2 * i + 1,
             .main_col_offset = verifier_col_offset,
+            .kind = .opcode,
+            .lookup = &lookup,
+            .interaction_col_offset = verifier_inter_offset,
+            .state_claim = claim.state_claims[i],
+            .prog_claim = claim.prog_claims[i],
         };
         verifier_components[i] = component_storage[i].asVerifierComponent();
         verifier_col_offset += statement.component_descs[i].n_columns;
+        verifier_inter_offset += riscv_component.nInteractionCols(.opcode);
     }
     for (0..statement.n_infra) |i| {
         const idx = statement.n_components + i;
+        const kind: riscv_component.Kind =
+            if (statement.infra_descs[i].kind == .program) .program else .silent;
         component_storage[idx] = .{
             .desc = .{
                 .family = .base_alu_reg,
                 .log_size = statement.infra_descs[i].log_size,
+                .n_rows = statement.infra_descs[i].n_rows,
                 .n_columns = statement.infra_descs[i].n_columns,
             },
             .initial_pc = statement.initial_pc,
             .total_steps = statement.total_steps,
-            .preprocessed_col_idx = idx,
+            .is_first_col_idx = 2 * idx,
+            .is_active_col_idx = 2 * idx + 1,
             .main_col_offset = verifier_col_offset,
+            .kind = kind,
+            .lookup = &lookup,
+            .interaction_col_offset = verifier_inter_offset,
+            .rom_claim = claim.rom_claim,
         };
         verifier_components[idx] = component_storage[idx].asVerifierComponent();
         verifier_col_offset += statement.infra_descs[i].n_columns;
+        verifier_inter_offset += riscv_component.nInteractionCols(kind);
     }
 
+    proof_moved = true;
     try core_verifier.verify(
         Hasher,
         MerkleChannel,
@@ -1881,10 +1670,46 @@ pub fn proveAndVerifyElf(
     var run_result = try runner_mod.run(allocator, elf_bytes, max_steps);
     defer run_result.deinit();
 
-    const output = try proveRiscV(allocator, pcs_config, &run_result.execution_trace, &run_result.state_chain_tracker);
+    const input_words = try public_data_mod.packInputWords(allocator, run_result.input);
+    defer allocator.free(input_words);
+    const output_words = try allocator.alloc(public_data_mod.OutputWord, run_result.output_words.len);
+    defer allocator.free(output_words);
+    for (run_result.output_words, 0..) |word, i| output_words[i] = .{
+        .addr = word.addr,
+        .value = word.value,
+        .clock = word.clock,
+    };
+    const public_data = PublicData{
+        .initial_pc = run_result.initial_pc,
+        .final_pc = run_result.final_pc,
+        .clock = @intCast(run_result.step_count),
+        .initial_regs = run_result.initial_regs,
+        .final_regs = run_result.final_regs,
+        .reg_last_clock = run_result.state_chain_tracker.reg_last_clk,
+        .program_root = null,
+        .initial_rw_root = null,
+        .final_rw_root = null,
+        .io_entries = .{
+            .input_start = run_result.input_start,
+            .input_len = @intCast(run_result.input.len),
+            .input_words = input_words,
+            .output_len = run_result.output_len,
+            .output_len_addr = run_result.output_len_addr,
+            .output_data_addr = run_result.output_data_addr,
+            .output_words = output_words,
+        },
+    };
+    const output = try proveRiscVWithPublicData(
+        allocator,
+        pcs_config,
+        &run_result.execution_trace,
+        &run_result.state_chain_tracker,
+        null,
+        public_data,
+    );
 
     // Verify immediately (takes ownership of the proof).
-    try verifyRiscV(allocator, pcs_config, output.statement, output.proof);
+    try verifyRiscV(allocator, pcs_config, output.statement, output.proof, output.interaction_claim);
 
     return output.statement;
 }
@@ -1995,7 +1820,7 @@ test "riscv prover: end-to-end ELF prove and verify" {
     try std.testing.expect(output.statement.n_components > 1);
 
     // Step 3: Verify (takes ownership of the proof)
-    try verifyRiscV(alloc, config, output.statement, output.proof);
+    try verifyRiscV(alloc, config, output.statement, output.proof, output.interaction_claim);
 }
 
 test "riscv prover: prove and verify synthetic trace" {
@@ -2048,7 +1873,7 @@ test "riscv prover: prove and verify synthetic trace" {
     try std.testing.expectEqual(@as(u32, 3), output.statement.component_descs[0].log_size);
 
     // Verify takes ownership of the proof.
-    try verifyRiscV(alloc, config, output.statement, output.proof);
+    try verifyRiscV(alloc, config, output.statement, output.proof, output.interaction_claim);
 }
 
 test "riscv prover: transaction engine is the proving substitution point" {
@@ -2131,7 +1956,7 @@ test "riscv prover: transaction engine is the proving substitution point" {
     var output = try proveRiscVWithEngine(CountingEngine, allocator, config, &trace, null, null);
     defer output.deinit(allocator);
     try std.testing.expectEqual(@as(usize, 1), CountingEngine.init_calls);
-    try std.testing.expectEqual(@as(usize, 2), CountingEngine.commit_calls);
+    try std.testing.expectEqual(@as(usize, 3), CountingEngine.commit_calls);
     try std.testing.expectEqual(@as(usize, 1), CountingEngine.prove_calls);
 }
 
@@ -2246,7 +2071,7 @@ test "riscv prover: multi-family splitting" {
     try std.testing.expectEqual(@as(u32, 2), output.statement.component_descs[2].log_size);
 
     // Verify takes ownership of the proof.
-    try verifyRiscV(alloc, config, output.statement, output.proof);
+    try verifyRiscV(alloc, config, output.statement, output.proof, output.interaction_claim);
 }
 
 test "riscv prover: ADDI + ADD + BNE split prove and verify" {
@@ -2304,12 +2129,14 @@ test "riscv prover: ADDI + ADD + BNE split prove and verify" {
             .next_pc = @intCast(0x1000 + (step + 1) * 4),
         });
     }
-    // 2 BNE instructions (branch_eq family)
+    // 2 BNE instructions (branch_eq family). Taken branches jump +8, so each
+    // row consumes the previous row's next_pc and the state chain telescopes.
+    var branch_pc: u32 = 0x1000 + 6 * 4;
     for (0..2) |i| {
         const step = 6 + i;
         try exec_trace.append(.{
             .clk = @intCast(step),
-            .pc = @intCast(0x1000 + step * 4),
+            .pc = branch_pc,
             .opcode = .BNE,
             .rd = 0,
             .rs1 = 1,
@@ -2323,10 +2150,11 @@ test "riscv prover: ADDI + ADD + BNE split prove and verify" {
             .is_load = false,
             .is_store = false,
             .branch_taken = true,
-            .next_pc = @intCast(0x1000 + step * 4 + 8),
+            .next_pc = branch_pc + 8,
         });
+        branch_pc += 8;
     }
-    exec_trace.final_pc = 0x1000 + 8 * 4;
+    exec_trace.final_pc = branch_pc;
 
     const config = pcs_core.PcsConfig{
         .pow_bits = 0,
@@ -2364,5 +2192,171 @@ test "riscv prover: ADDI + ADD + BNE split prove and verify" {
     try std.testing.expectEqual(@as(u32, 1), output.statement.component_descs[2].log_size);
 
     // Verify the proof (takes ownership).
-    try verifyRiscV(alloc, config, output.statement, output.proof);
+    try verifyRiscV(alloc, config, output.statement, output.proof, output.interaction_claim);
+}
+
+fn testAddiTrace(alloc: std.mem.Allocator, n: usize) !trace_mod.Trace {
+    var exec_trace = trace_mod.Trace.init(alloc);
+    errdefer exec_trace.deinit();
+    exec_trace.initial_pc = 0x1000;
+    for (0..n) |i| {
+        try exec_trace.append(.{
+            .clk = @intCast(i),
+            .pc = @intCast(0x1000 + i * 4),
+            .opcode = .ADDI,
+            .rd = 1,
+            .rs1 = 0,
+            .rs2 = 0,
+            .imm = 1,
+            .rs1_val = 0,
+            .rs2_val = 0,
+            .rd_val = @intCast(i + 1),
+            .mem_addr = 0,
+            .mem_val = 0,
+            .is_load = false,
+            .is_store = false,
+            .branch_taken = false,
+            .next_pc = @intCast(0x1000 + (i + 1) * 4),
+            .inst_word = 0x00108093,
+        });
+    }
+    exec_trace.final_pc = @intCast(0x1000 + n * 4);
+    return exec_trace;
+}
+
+const TEST_PCS_CONFIG = pcs_core.PcsConfig{
+    .pow_bits = 0,
+    .fri_config = .{
+        .log_blowup_factor = 1,
+        .log_last_layer_degree_bound = 0,
+        .n_queries = 3,
+    },
+};
+
+test "riscv prover: tampered interaction claim is rejected" {
+    const alloc = std.testing.allocator;
+    var exec_trace = try testAddiTrace(alloc, 8);
+    defer exec_trace.deinit();
+
+    const output = try proveRiscV(alloc, TEST_PCS_CONFIG, &exec_trace, null);
+
+    var tampered = output.interaction_claim;
+    tampered.state_claims[0] = tampered.state_claims[0].add(QM31.one());
+
+    // verifyRiscV consumes the proof on failure as well. Either the global
+    // cancellation or the OODS check must reject; don't over-specify which.
+    const result = verifyRiscV(alloc, TEST_PCS_CONFIG, output.statement, output.proof, tampered);
+    try std.testing.expect(std.meta.isError(result));
+}
+
+test "riscv prover: state and program claims cannot cross-cancel" {
+    const alloc = std.testing.allocator;
+    var exec_trace = try testAddiTrace(alloc, 8);
+    defer exec_trace.deinit();
+
+    const output = try proveRiscV(alloc, TEST_PCS_CONFIG, &exec_trace, null);
+    var tampered = output.interaction_claim;
+    tampered.state_claims[0] = tampered.state_claims[0].add(QM31.one());
+    tampered.prog_claims[0] = tampered.prog_claims[0].sub(QM31.one());
+    try std.testing.expect(std.meta.isError(verifyRiscV(
+        alloc,
+        TEST_PCS_CONFIG,
+        output.statement,
+        output.proof,
+        tampered,
+    )));
+}
+
+test "riscv prover: proof-chosen preprocessed selector root is rejected" {
+    const alloc = std.testing.allocator;
+    var exec_trace = try testAddiTrace(alloc, 8);
+    defer exec_trace.deinit();
+
+    var output = try proveRiscV(alloc, TEST_PCS_CONFIG, &exec_trace, null);
+    output.proof.commitment_scheme_proof.commitments.items[0][0] ^= 1;
+    try std.testing.expectError(
+        ProverError.InvalidPreprocessedCommitment,
+        verifyRiscV(
+            alloc,
+            TEST_PCS_CONFIG,
+            output.statement,
+            output.proof,
+            output.interaction_claim,
+        ),
+    );
+}
+
+test "riscv prover: missing program binder is rejected before PCS verification" {
+    const alloc = std.testing.allocator;
+    var exec_trace = try testAddiTrace(alloc, 4);
+    defer exec_trace.deinit();
+
+    const output = try proveRiscV(alloc, TEST_PCS_CONFIG, &exec_trace, null);
+    var statement = output.statement;
+    statement.n_infra = 0;
+    try std.testing.expectError(
+        ProverError.InvalidStatement,
+        verifyRiscV(
+            alloc,
+            TEST_PCS_CONFIG,
+            statement,
+            output.proof,
+            output.interaction_claim,
+        ),
+    );
+}
+
+test "riscv prover: tampered final_pc is rejected" {
+    const alloc = std.testing.allocator;
+    var exec_trace = try testAddiTrace(alloc, 8);
+    defer exec_trace.deinit();
+
+    const output = try proveRiscV(alloc, TEST_PCS_CONFIG, &exec_trace, null);
+
+    var tampered_statement = output.statement;
+    tampered_statement.final_pc += 4;
+
+    const result = verifyRiscV(
+        alloc,
+        TEST_PCS_CONFIG,
+        tampered_statement,
+        output.proof,
+        output.interaction_claim,
+    );
+    try std.testing.expect(std.meta.isError(result));
+}
+
+test "riscv prover: public register mutation changes the transcript" {
+    const alloc = std.testing.allocator;
+    var exec_trace = try testAddiTrace(alloc, 4);
+    defer exec_trace.deinit();
+
+    const output = try proveRiscV(alloc, TEST_PCS_CONFIG, &exec_trace, null);
+    var statement = output.statement;
+    statement.public_data.final_regs[1] = 99;
+    try std.testing.expect(std.meta.isError(verifyRiscV(
+        alloc,
+        TEST_PCS_CONFIG,
+        statement,
+        output.proof,
+        output.interaction_claim,
+    )));
+}
+
+test "riscv prover: program-bus claims cancel without a boundary term" {
+    const alloc = std.testing.allocator;
+    var exec_trace = try testAddiTrace(alloc, 4);
+    defer exec_trace.deinit();
+
+    var output = try proveRiscV(alloc, TEST_PCS_CONFIG, &exec_trace, null);
+    defer output.deinit(alloc);
+
+    const claim = output.interaction_claim;
+    try std.testing.expectEqual(output.statement.n_components, claim.n_components);
+    // The program bus balances on its own; the state chain needs the public
+    // boundary, which verifyRiscV recomputes from the drawn lookup elements.
+    try logup.verifyGlobalCancellation(
+        &.{ claim.prog_claims[0], claim.rom_claim },
+        QM31.zero(),
+    );
 }
