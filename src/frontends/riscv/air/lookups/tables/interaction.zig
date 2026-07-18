@@ -19,6 +19,14 @@ pub const Result = struct {
     previous: Previous,
     claim: QM31,
 
+    /// Moves the current cumulative columns out for commitment. Previous-row
+    /// masks and the claim remain owned by this result until `deinit`.
+    pub fn takeColumns(self: *Result) [N_COLUMNS][]M31 {
+        const result = self.columns;
+        self.columns = .{&.{}} ** N_COLUMNS;
+        return result;
+    }
+
     pub fn deinit(self: *Result, allocator: std.mem.Allocator) void {
         freeColumns(allocator, &self.columns);
         freeColumns(allocator, &self.previous);
@@ -134,7 +142,9 @@ fn allocateColumns(allocator: std.mem.Allocator, len: usize) ![N_COLUMNS][]M31 {
 }
 
 fn freeColumns(allocator: std.mem.Allocator, columns: []const []M31) void {
-    for (columns) |column| allocator.free(column);
+    for (columns) |column| {
+        if (column.len != 0) allocator.free(column);
+    }
 }
 
 fn sourceTerm(
@@ -217,6 +227,17 @@ test "generated singleton column closes one signed range M31 request" {
     for (0..N_COLUMNS) |coordinate| {
         const previous_row = table.map(schema.size(.range_check_m31) - 2);
         try std.testing.expect(generated.previous[coordinate][last].eql(generated.columns[coordinate][previous_row]));
+    }
+
+    const owned_columns = generated.takeColumns();
+    defer freeColumns(allocator, &owned_columns);
+    for (generated.columns) |column| try std.testing.expectEqual(@as(usize, 0), column.len);
+    for (owned_columns) |column| {
+        try std.testing.expectEqual(schema.size(.range_check_m31), column.len);
+    }
+    try std.testing.expect(generated.claim.eql(claim_from_column));
+    for (generated.previous) |column| {
+        try std.testing.expectEqual(schema.size(.range_check_m31), column.len);
     }
 }
 

@@ -36,8 +36,19 @@ pub const Result = struct {
         return result;
     }
 
+    /// Moves the current cumulative columns out for commitment. The returned
+    /// active prefix is caller-owned; claims and previous-row masks remain
+    /// valid until `deinit` so composition can borrow them after the commit.
+    pub fn takeColumns(self: *Result) [MAX_COLUMNS][]M31 {
+        const result = self.columns;
+        for (self.columns[0..self.nColumns()]) |*column| column.* = &.{};
+        return result;
+    }
+
     pub fn deinit(self: *Result, allocator: std.mem.Allocator) void {
-        for (self.columns[0..self.nColumns()]) |column| allocator.free(column);
+        for (self.columns[0..self.nColumns()]) |column| {
+            if (column.len != 0) allocator.free(column);
+        }
         for (self.previous[0..self.n_batches]) |set| {
             for (set) |column| allocator.free(column);
         }
@@ -442,6 +453,20 @@ test "opcode interaction derives exact claims from committed main columns" {
         try list.pair(batch, &relations),
     ));
     try std.testing.expect(generated.total().eql(expected));
+
+    const column_count = generated.nColumns();
+    const owned_columns = generated.takeColumns();
+    defer for (owned_columns[0..column_count]) |column| allocator.free(column);
+    for (generated.columns[0..column_count]) |column| {
+        try std.testing.expectEqual(@as(usize, 0), column.len);
+    }
+    for (owned_columns[0..column_count]) |column| {
+        try std.testing.expectEqual(@as(usize, 16), column.len);
+    }
+    try std.testing.expect(generated.total().eql(expected));
+    for (generated.previous[0..generated.n_batches]) |set| {
+        for (set) |column| try std.testing.expectEqual(@as(usize, 16), column.len);
+    }
 }
 
 test "opcode interaction is padding invariant and shard additive" {
