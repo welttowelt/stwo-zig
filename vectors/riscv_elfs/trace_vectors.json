@@ -1,0 +1,59 @@
+{
+ "stark_v_commit": "d478f783055aa0d73a93768a433a3c6c31c91d1c",
+ "captured_by": "scripts/riscv_trace_vectors.py --update",
+ "cross_verification": {
+  "tool": "scripts/riscv_equivalence.py --run",
+  "status": "zig-only",
+  "note": "digests captured from the Zig runner; rerun the equivalence tool against a Stark-V dumper built at the pinned commit to escalate provenance"
+ },
+ "vectors": [
+  {
+   "name": "alu_test",
+   "elf": "vectors/riscv_elfs/alu_test.elf",
+   "elf_sha256": "7b1ec8d8f1b8ae949b7f4cdc088b590613b2db053350ddbb852382a9c690dc71",
+   "trace_sha256": "6230513142697bdaa86ecad2a76c5d796f4f6abf8bc3f7fc6fbe3a778c0aabc7",
+   "total_steps": 5,
+   "final_pc": 65552
+  },
+  {
+   "name": "branch_fib",
+   "elf": "vectors/riscv_elfs/branch_fib.elf",
+   "elf_sha256": "f2460ee35305c3ba21cac095d340dd1ce34b29be9493a770ae441c26ce6ee1ae",
+   "trace_sha256": "fd0d438b823f848d08718153ea5aa620c4bdc569a0a4b3bc8fda17790c799c46",
+   "total_steps": 127,
+   "final_pc": 65580
+  },
+  {
+   "name": "jal_jalr",
+   "elf": "vectors/riscv_elfs/jal_jalr.elf",
+   "elf_sha256": "304808a4c44ccef025f9edd37c0232c10ddb70c5e5088b0287c6bb50023c81d0",
+   "trace_sha256": "296bd22ade59bff5d5ca077ecafde4f157d079928c33c788347efaeee128854d",
+   "total_steps": 8,
+   "final_pc": 65564
+  },
+  {
+   "name": "mem_ls",
+   "elf": "vectors/riscv_elfs/mem_ls.elf",
+   "elf_sha256": "dcf8dba15e10338f61b719697a6d20e474b0ab2e69b52925be33828fc589efda",
+   "trace_sha256": "a62f55da5af06ba36fca99e41cae0b37e61acb2ee454e33730d44c349bfb80a8",
+   "total_steps": 15,
+   "final_pc": 65592
+  },
+  {
+   "name": "mul_div",
+   "elf": "vectors/riscv_elfs/mul_div.elf",
+   "elf_sha256": "46c9a8ccea28aa0d993109a1489ba8c59a6fbfc2787929e53a0068f324135501",
+   "trace_sha256": "a3a19f46f07048cfa78ce2734e49c774f35cd812be5b7e43262875a36ab8b9e8",
+   "total_steps": 18,
+   "final_pc": 65604
+  },
+  {
+   "name": "shift_logic",
+   "elf": "vectors/riscv_elfs/shift_logic.elf",
+   "elf_sha256": "f4929a53552e3074ad91b8f9c84ea07f5d6af7b86684664a8909974d6e44e375",
+   "trace_sha256": "bb161a9fe884d9dcefa081026633122b251dca487167fd8bd0a60112b483f31c",
+   "total_steps": 20,
+   "final_pc": 65612
+  }
+ ]
+}

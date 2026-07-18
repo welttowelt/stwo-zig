@@ -24,6 +24,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
+# The Stark-V oracle revision this frontend targets. The upstream pin
+# checker rejects drift between this constant and conformance/upstream.md.
+PINNED_STARK_V_REVISION = "d478f783055aa0d73a93768a433a3c6c31c91d1c"
+
 
 def load_trace(path: str) -> dict:
     """Load a JSON trace file."""

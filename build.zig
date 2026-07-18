@@ -326,8 +326,10 @@ pub fn build(b: *std.Build) void {
     rg_riscv.step.dependOn(&rg_test.step);
     const rg_riscv_prover = b.addSystemCommand(&.{ "zig", "build", "test-riscv-prover", optimize_arg });
     rg_riscv_prover.step.dependOn(&rg_riscv.step);
+    const rg_riscv_vectors = b.addSystemCommand(&.{ "python3", "scripts/riscv_trace_vectors.py" });
+    rg_riscv_vectors.step.dependOn(&rg_riscv_prover.step);
     const rg_api_parity = b.addSystemCommand(&.{ "python3", "scripts/check_api_parity.py" });
-    rg_api_parity.step.dependOn(&rg_riscv_prover.step);
+    rg_api_parity.step.dependOn(&rg_riscv_vectors.step);
     const rg_deep = b.addSystemCommand(&.{ "zig", "test", "src/stwo_deep.zig", zig_optimize_arg });
     rg_deep.step.dependOn(&rg_api_parity.step);
     const rg_vectors_fields = b.addSystemCommand(&.{ "python3", "scripts/parity_fields.py", "--skip-zig" });
@@ -373,8 +375,10 @@ pub fn build(b: *std.Build) void {
     rgs_riscv.step.dependOn(&rgs_test.step);
     const rgs_riscv_prover = b.addSystemCommand(&.{ "zig", "build", "test-riscv-prover", optimize_arg });
     rgs_riscv_prover.step.dependOn(&rgs_riscv.step);
+    const rgs_riscv_vectors = b.addSystemCommand(&.{ "python3", "scripts/riscv_trace_vectors.py" });
+    rgs_riscv_vectors.step.dependOn(&rgs_riscv_prover.step);
     const rgs_api_parity = b.addSystemCommand(&.{ "python3", "scripts/check_api_parity.py" });
-    rgs_api_parity.step.dependOn(&rgs_riscv_prover.step);
+    rgs_api_parity.step.dependOn(&rgs_riscv_vectors.step);
     const rgs_deep = b.addSystemCommand(&.{ "zig", "test", "src/stwo_deep.zig", zig_optimize_arg });
     rgs_deep.step.dependOn(&rgs_api_parity.step);
     const rgs_vectors_fields = b.addSystemCommand(&.{ "python3", "scripts/parity_fields.py", "--skip-zig" });

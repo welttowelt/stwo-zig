@@ -16,6 +16,17 @@ checkers.
 - Pinned commit: `a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2`
 - Pin date: `2026-02-07`
 
+## RISC-V (Stark-V) Lane
+
+This lane governs the RV32IM frontend's executor semantics, trace format, and AIR parity target.
+Stark-V is a work in progress upstream; pinning a commit turns parity into a concrete, testable
+contract instead of a moving reference. Native Stwo or Cairo acceptance does not establish
+Stark-V parity, and Stark-V acceptance establishes neither of the other lanes.
+
+- Stark-V repository: `https://github.com/ClementWalter/stark-v`
+- Pinned Stark-V commit: `d478f783055aa0d73a93768a433a3c6c31c91d1c`
+- Stark-V pin date: `2026-06-12`
+
 ## Cairo Lane
 
 This lane governs Cairo AIR, witness generation, statement, proof, and canonical `verify_cairo`

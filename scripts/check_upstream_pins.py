@@ -24,6 +24,8 @@ class PinLedgerError(ValueError):
 class PinLedger:
     native_repository: str
     native_revision: str
+    riscv_repository: str
+    riscv_revision: str
     cairo_repository: str
     cairo_revision: str
     cairo_stwo_repository: str
@@ -54,6 +56,14 @@ def parse_ledger(path: Path = DEFAULT_LEDGER) -> PinLedger:
         ),
         native_revision=_single_field(
             text, rf"^- Pinned commit: `({REVISION_RE})`$", "Native Stwo revision"
+        ),
+        riscv_repository=_single_field(
+            text, r"^- Stark-V repository: `([^`]+)`$", "Stark-V repository"
+        ),
+        riscv_revision=_single_field(
+            text,
+            rf"^- Pinned Stark-V commit: `({REVISION_RE})`$",
+            "Stark-V revision",
         ),
         cairo_repository=_single_field(
             text, r"^- Stwo-Cairo repository: `([^`]+)`$", "Cairo Stwo-Cairo repository"
@@ -310,9 +320,22 @@ def _check_lock_sources(
 
 def _text_pins(ledger: PinLedger) -> tuple[TextPin, ...]:
     native = ledger.native_revision
+    riscv = ledger.riscv_revision
     cairo = ledger.cairo_revision
     cairo_stwo = ledger.cairo_stwo_revision
     return (
+        TextPin(
+            "scripts/riscv_equivalence.py",
+            "Stark-V PINNED_STARK_V_REVISION",
+            rf'^PINNED_STARK_V_REVISION = "({REVISION_RE})"$',
+            riscv,
+        ),
+        TextPin(
+            "vectors/riscv_elfs/trace_vectors.json",
+            "Stark-V trace vector provenance commit",
+            rf'^ "stark_v_commit": "({REVISION_RE})",$',
+            riscv,
+        ),
         TextPin(
             "scripts/e2e_interop_lib/controller.py",
             "Native UPSTREAM_COMMIT",
@@ -524,7 +547,7 @@ def main(argv: list[str] | None = None) -> int:
         for error in errors:
             print(f"- {error}", file=sys.stderr)
         return 1
-    print("upstream pin ledger matches all Native and Cairo carriers")
+    print("upstream pin ledger matches all Native, Stark-V, and Cairo carriers")
     return 0
 
 
