@@ -50,8 +50,9 @@ def cmd_clone(args) -> int:
 def cmd_setup(_args) -> int:
     from . import workspace
     m = manifest_mod.load()
-    workspace.setup(m.root, m)
-    print(f"{ansi.OK} toolchain verified and bench target built")
+    built = workspace.setup(m.root, m)
+    print(f"{ansi.OK} toolchain verified; bench targets built for group(s): "
+          + ", ".join(built))
     return 0
 
 

@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import ledger, stats
-from .manifest import Manifest, Workload
+from .manifest import Manifest, Workload, WorkloadGroup
 
 
 class RunError(RuntimeError):
@@ -63,8 +63,33 @@ def _run(cmd: str, cwd: Path, timeout: int) -> str:
     return proc.stdout
 
 
-def build_arm(arm_root: Path, manifest: Manifest, timeout: int = 900) -> None:
-    _run(manifest.build_step(), arm_root, timeout)
+def announce_skipped_groups(manifest: Manifest) -> list[dict]:
+    """Print one loud line per disabled group and return the skip records.
+
+    Every runner entry point calls this so a disabled group is never
+    silently dropped from a run.
+    """
+    skipped = []
+    for group in manifest.groups():
+        if group.enabled:
+            continue
+        reason = group.disabled_reason or "no reason recorded"
+        print(f"skipped group {group.group_id}: {reason}")
+        skipped.append({"group": group.group_id, "reason": reason})
+    return skipped
+
+
+def build_arm(arm_root: Path, manifest: Manifest, timeout: int = 900,
+              groups: list[WorkloadGroup] | None = None) -> None:
+    """Build the bench binaries for the given groups (default: all enabled)."""
+    if groups is None:
+        groups = [g for g in manifest.groups() if g.enabled]
+    seen: set[str] = set()
+    for group in groups:
+        if group.build_step in seen:
+            continue
+        seen.add(group.build_step)
+        _run(group.build_step, arm_root, timeout)
 
 
 def bench_once(
@@ -76,7 +101,13 @@ def bench_once(
     out_dir: Path,
     tag: str,
 ) -> ArmResult:
-    binary = arm_root / manifest.binary()
+    group = manifest.group(workload.group_id)
+    binary = arm_root / group.binary
+    if not binary.is_file():
+        raise RunError(
+            f"group {group.group_id}: bench binary not found at {binary} — "
+            f"build it first ({group.build_step}); refusing to fabricate measurements"
+        )
     args = workload.args.format(warmups=warmups, samples=samples)
     stdout = _run(f"{binary} {args}", arm_root, timeout=1200)
     try:
@@ -246,15 +277,19 @@ def draw_holdout(manifest: Manifest, workload_class: str, seed: int) -> Workload
     bounds = gen.get(workload_class)
     if not bounds:
         return None
+    candidates = manifest.workloads(workload_class)
+    if not candidates:
+        return None
     rng = random.Random(seed)
-    base = manifest.workloads(workload_class)[0]
+    base = candidates[0]
     log_lo, log_hi = bounds["log_n_rows"]
     log_n = rng.randint(log_lo, log_hi)
     args = _replace_flag(base.args, "--log-n-rows", str(log_n))
     if bounds.get("sequence_len"):
         seq_lo, seq_hi = bounds["sequence_len"]
         args = _replace_flag(args, "--sequence-len", str(rng.randint(seq_lo, seq_hi)))
-    return Workload(f"holdout_{workload_class}", workload_class, args, base.native_unit)
+    return Workload(f"holdout_{workload_class}", workload_class, args,
+                    base.native_unit, base.group_id)
 
 
 def _replace_flag(args: str, flag: str, value: str) -> str:
@@ -269,8 +304,14 @@ def evaluate_aa(repo_root: Path, manifest: Manifest, workload_class: str,
     """A/A run (both arms = this tree): measures the per-class dispersion that
     theta is built from. Record the half_width in ledger/epochs.json by PR."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    build_arm(repo_root, manifest)
-    workload = manifest.workloads(workload_class)[0]
+    skipped = announce_skipped_groups(manifest)
+    workloads = manifest.workloads(workload_class)
+    if not workloads:
+        raise RunError(
+            f"no workloads registered for class {workload_class} in any enabled group"
+        )
+    workload = workloads[0]
+    build_arm(repo_root, manifest, groups=[manifest.group(workload.group_id)])
     score = paired_rounds(repo_root, repo_root, manifest, workload,
                           manifest.gates, out_dir)
     half_width = (score.ci[1] - score.ci[0]) / 2.0
@@ -280,6 +321,7 @@ def evaluate_aa(repo_root: Path, manifest: Manifest, workload_class: str,
         "rounds": len(score.ratios),
         "aa_r": round(score.r, 6),
         "half_width": round(half_width, 6),
+        "skipped_groups": skipped,
         "record_as": {"ledger/epochs.json": {"aa_dispersion": {workload_class: round(half_width, 6)}}},
     }
 
@@ -302,16 +344,21 @@ def evaluate(
     by the judge (signing.py), never this flag alone.
     """
     policy = manifest.gates
+    skipped = announce_skipped_groups(manifest)
     workloads = manifest.workloads(workload_class)
     if not workloads:
-        raise RunError(f"no workloads registered for class {workload_class}")
+        raise RunError(
+            f"no workloads registered for class {workload_class} in any enabled group"
+        )
 
     dispersion = ledger.aa_dispersion(repo_root, workload_class)
     th = stats.theta(dispersion, float(policy["theta_floor"]), float(policy["dispersion_multiplier"]))
 
     out_dir.mkdir(parents=True, exist_ok=True)
+    active_group_ids = {w.group_id for w in workloads}
+    active_groups = [g for g in manifest.groups() if g.group_id in active_group_ids]
     for arm_root in (predecessor_root, repo_root):
-        build_arm(arm_root, manifest)
+        build_arm(arm_root, manifest, groups=active_groups)
 
     scores = [
         paired_rounds(predecessor_root, repo_root, manifest, w, policy, out_dir,
@@ -385,6 +432,7 @@ def evaluate(
             "energy_j": None,
         },
         "holdout": holdout_result,
+        "skipped_groups": skipped,
         "evidence": {
             "reports": [p for s in scores for p in s.reports],
             "pairing": "round-level ABBA (bench schema v4 exposes medians, not raw samples)",

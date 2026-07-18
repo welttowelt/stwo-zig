@@ -106,15 +106,23 @@ def frontier_view(rows: list[ledger.Row], classes: list[str],
 
 def benchmark_summary(manifest_raw: dict) -> str:
     reg = manifest_raw["workload_registry"]
-    rows = [
-        [wid, spec["class"], spec["native_unit"], spec["args"].split(" --warmups")[0]]
-        for wid, spec in reg["workloads"].items()
-    ]
-    parts = [
-        ansi.rule("fixed benchmark · stwo-zig native proof matrix"),
-        ansi.table(["workload", "class", "native unit", "invocation"], rows),
-        "",
-        ansi.style(f"  build: {reg['build_step']}", "dim"),
-        ansi.style("  gates: G1 conformance · G2 identity · G3 mechanism · G4 budgets · G5 environment", "dim"),
-    ]
+    parts = [ansi.rule("fixed benchmark · stwo-zig proof matrix")]
+    for gid, group in reg["groups"].items():
+        enabled = bool(group.get("enabled"))
+        header = f"  group {gid} · report schema {group.get('report_schema')}"
+        parts.append("")
+        if enabled:
+            parts.append(ansi.style(header, "bold"))
+        else:
+            reason = group.get("disabled_reason") or "no reason recorded"
+            parts.append(ansi.style(header + " · disabled", "yellow"))
+            parts.append(ansi.style(f"  skipped group {gid}: {reason}", "yellow"))
+        rows = [
+            [wid, spec["class"], spec["native_unit"], spec["args"].split(" --warmups")[0]]
+            for wid, spec in group["workloads"].items()
+        ]
+        parts.append(ansi.table(["workload", "class", "native unit", "invocation"], rows))
+        parts.append(ansi.style(f"  build: {group['build_step']}", "dim"))
+    parts.append("")
+    parts.append(ansi.style("  gates: G1 conformance · G2 identity · G3 mechanism · G4 budgets · G5 environment", "dim"))
     return "\n".join(parts)

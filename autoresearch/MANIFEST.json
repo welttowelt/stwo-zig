@@ -1,5 +1,5 @@
 {
-  "manifest_version": 1,
+  "manifest_version": 2,
   "harness": {
     "name": "stwo-perf",
     "contract": "stwo-zig-og-docs archive: 2026-07-17-performance-extraction-playbook.md, Part F",
@@ -39,24 +39,50 @@
     ".github/**"
   ],
   "workload_registry": {
-    "note": "Command templates are data so flag drift is a manifest edit, not a code change. The runner prepends the built bench binary; {warmups}/{samples} come from gates policy; report schema is the checked-in native_proof schema v4.",
-    "build_step": "zig build native-proof-bench-cpu -Doptimize=ReleaseFast",
-    "binary": "zig-out/bin/native-proof-bench-cpu",
-    "workloads": {
-      "wf_log10x8": {
-        "class": "small",
-        "args": "--example wide_fibonacci --log-n-rows 10 --sequence-len 8 --warmups {warmups} --samples {samples} --protocol functional",
-        "native_unit": "trace rows"
+    "note": "Command templates are data so flag drift is a manifest edit, not a code change. The runner prepends the built bench binary of the owning group; {warmups}/{samples} come from gates policy.",
+    "schema_note": "Registry v2 (manifest_version bumped 1 -> 2): workloads live in named groups, each carrying its own build_step, binary, report_schema, and enabled flag. v1's flat build_step/binary/workloads triple is exactly today's group 'native'; loaders reject the flat shape with a migration hint. Disabled groups are announced loudly by every runner entry point, never silently dropped.",
+    "groups": {
+      "native": {
+        "enabled": true,
+        "build_step": "zig build native-proof-bench-cpu -Doptimize=ReleaseFast",
+        "binary": "zig-out/bin/native-proof-bench-cpu",
+        "report_schema": "native_proof_v4",
+        "workloads": {
+          "wf_log10x8": {
+            "class": "small",
+            "args": "--example wide_fibonacci --log-n-rows 10 --sequence-len 8 --warmups {warmups} --samples {samples} --protocol functional",
+            "native_unit": "trace rows"
+          },
+          "wf_log14x32": {
+            "class": "wide",
+            "args": "--example wide_fibonacci --log-n-rows 14 --sequence-len 32 --warmups {warmups} --samples {samples} --protocol functional",
+            "native_unit": "trace rows"
+          },
+          "plonk_log14": {
+            "class": "deep",
+            "args": "--example plonk --log-n-rows 14 --warmups {warmups} --samples {samples} --protocol functional",
+            "native_unit": "gates"
+          }
+        }
       },
-      "wf_log14x32": {
-        "class": "wide",
-        "args": "--example wide_fibonacci --log-n-rows 14 --sequence-len 32 --warmups {warmups} --samples {samples} --protocol functional",
-        "native_unit": "trace rows"
-      },
-      "plonk_log14": {
-        "class": "deep",
-        "args": "--example plonk --log-n-rows 14 --warmups {warmups} --samples {samples} --protocol functional",
-        "native_unit": "gates"
+      "riscv": {
+        "enabled": false,
+        "disabled_reason": "stark-v adapter pending release gate",
+        "build_step": "zig build stwo-zig -Doptimize=ReleaseFast",
+        "binary": "zig-out/bin/stwo-zig",
+        "report_schema": "riscv_proof_v1",
+        "workloads": {
+          "riscv_fib_small": {
+            "class": "small",
+            "args": "--elf vectors/riscv_elfs/branch_fib.elf --warmups {warmups} --samples {samples}",
+            "native_unit": "executed instructions"
+          },
+          "riscv_alu": {
+            "class": "small",
+            "args": "--elf vectors/riscv_elfs/alu_test.elf --warmups {warmups} --samples {samples}",
+            "native_unit": "executed instructions"
+          }
+        }
       }
     },
     "holdout_generator": {

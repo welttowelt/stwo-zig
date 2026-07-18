@@ -14,11 +14,21 @@ def _git(cwd, *args):
 
 
 MANIFEST_RAW = {
-    "manifest_version": 1,
+    "manifest_version": 2,
     "harness": {"anchor_commit": None},
     "editable_paths": [{"glob": "src/kernel/**", "min_rung": "s3"}],
     "locked_paths": ["harness/**"],
-    "workload_registry": {"workloads": {}, "build_step": "true", "binary": "true"},
+    "workload_registry": {
+        "groups": {
+            "native": {
+                "enabled": True,
+                "build_step": "true",
+                "binary": "true",
+                "report_schema": "native_proof_v4",
+                "workloads": {},
+            },
+        },
+    },
     "gates_policy": {},
 }
 

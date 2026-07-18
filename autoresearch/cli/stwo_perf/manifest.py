@@ -21,6 +21,18 @@ class Workload:
     workload_class: str
     args: str
     native_unit: str
+    group_id: str = "native"
+
+
+@dataclass(frozen=True)
+class WorkloadGroup:
+    group_id: str
+    enabled: bool
+    disabled_reason: str | None
+    build_step: str
+    binary: str
+    report_schema: str
+    workloads: list[Workload]
 
 
 @dataclass(frozen=True)
@@ -44,21 +56,47 @@ class Manifest:
     def anchor_commit(self) -> str | None:
         return self.raw["harness"].get("anchor_commit")
 
-    def workloads(self, workload_class: str | None = None) -> list[Workload]:
-        registry = self.raw["workload_registry"]["workloads"]
+    def groups(self) -> list[WorkloadGroup]:
+        """Workload groups in manifest order (registry v2)."""
+        out = []
+        for gid, spec in self.raw["workload_registry"]["groups"].items():
+            out.append(WorkloadGroup(
+                group_id=gid,
+                enabled=bool(spec["enabled"]),
+                disabled_reason=spec.get("disabled_reason"),
+                build_step=spec["build_step"],
+                binary=spec["binary"],
+                report_schema=spec["report_schema"],
+                workloads=[
+                    Workload(wid, w["class"], w["args"], w["native_unit"], gid)
+                    for wid, w in spec["workloads"].items()
+                ],
+            ))
+        return out
+
+    def group(self, group_id: str) -> WorkloadGroup:
+        for g in self.groups():
+            if g.group_id == group_id:
+                return g
+        raise ManifestError(f"unknown workload group: {group_id}")
+
+    def workloads(self, workload_class: str | None = None,
+                  include_disabled: bool = False) -> list[Workload]:
+        """Workloads across groups; disabled groups excluded unless asked.
+
+        Callers that iterate for execution must announce disabled groups
+        loudly themselves (runner/workspace do) — this filter is for
+        selection, never for silent dropping.
+        """
         out = [
-            Workload(wid, spec["class"], spec["args"], spec["native_unit"])
-            for wid, spec in registry.items()
+            w
+            for g in self.groups()
+            if include_disabled or g.enabled
+            for w in g.workloads
         ]
         if workload_class:
             out = [w for w in out if w.workload_class == workload_class]
         return out
-
-    def build_step(self) -> str:
-        return self.raw["workload_registry"]["build_step"]
-
-    def binary(self) -> str:
-        return self.raw["workload_registry"]["binary"]
 
     def is_locked(self, path: str) -> bool:
         return any(_match(path, glob) for glob in self.locked)
@@ -129,6 +167,26 @@ def _validate(raw: dict) -> None:
     for entry in raw["editable_paths"]:
         if entry.get("min_rung") not in RUNGS:
             raise ManifestError(f"editable path {entry.get('glob')} has invalid min_rung")
-    for wid, spec in raw["workload_registry"]["workloads"].items():
-        if spec.get("class") not in ("small", "wide", "deep"):
-            raise ManifestError(f"workload {wid} has invalid class")
+    registry = raw["workload_registry"]
+    if "groups" not in registry:
+        raise ManifestError(
+            "workload_registry has no 'groups': flat v1 registries "
+            "(build_step/binary/workloads at top level) were replaced by named "
+            "groups in manifest_version 2 — wrap the flat triple in a group"
+        )
+    if not registry["groups"]:
+        raise ManifestError("workload_registry.groups is empty")
+    for gid, spec in registry["groups"].items():
+        for key in ("enabled", "build_step", "binary", "report_schema", "workloads"):
+            if key not in spec:
+                raise ManifestError(f"workload group {gid} missing required key: {key}")
+        if not isinstance(spec["enabled"], bool):
+            raise ManifestError(f"workload group {gid}: 'enabled' must be a boolean")
+        if not spec["enabled"] and not str(spec.get("disabled_reason") or "").strip():
+            raise ManifestError(
+                f"workload group {gid} is disabled without a disabled_reason; "
+                "silent dark groups are not allowed"
+            )
+        for wid, w in spec["workloads"].items():
+            if w.get("class") not in ("small", "wide", "deep"):
+                raise ManifestError(f"workload {gid}/{wid} has invalid class")

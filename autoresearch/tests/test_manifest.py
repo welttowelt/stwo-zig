@@ -41,6 +41,98 @@ class ManifestTest(unittest.TestCase):
         self.assertTrue(small)
         self.assertTrue(all(w.workload_class == "small" for w in small))
 
+    def test_groups_native_enabled_riscv_disabled(self):
+        by_id = {g.group_id: g for g in self.m.groups()}
+        self.assertIn("native", by_id)
+        self.assertIn("riscv", by_id)
+        native, riscv = by_id["native"], by_id["riscv"]
+        self.assertTrue(native.enabled)
+        self.assertEqual(native.binary, "zig-out/bin/native-proof-bench-cpu")
+        self.assertEqual(len(native.workloads), 3)
+        self.assertFalse(riscv.enabled)
+        self.assertEqual(riscv.disabled_reason, "stark-v adapter pending release gate")
+        self.assertEqual(riscv.binary, "zig-out/bin/stwo-zig")
+        self.assertEqual(riscv.build_step, "zig build stwo-zig -Doptimize=ReleaseFast")
+        self.assertEqual({w.workload_id for w in riscv.workloads},
+                         {"riscv_fib_small", "riscv_alu"})
+
+    def test_disabled_group_workloads_excluded_by_default(self):
+        default_ids = {w.workload_id for w in self.m.workloads()}
+        self.assertNotIn("riscv_fib_small", default_ids)
+        self.assertNotIn("riscv_alu", default_ids)
+        all_ids = {w.workload_id for w in self.m.workloads(include_disabled=True)}
+        self.assertIn("riscv_fib_small", all_ids)
+        self.assertIn("riscv_alu", all_ids)
+        # every default workload comes from an enabled group
+        enabled = {g.group_id for g in self.m.groups() if g.enabled}
+        self.assertTrue(all(w.group_id in enabled for w in self.m.workloads()))
+
+    def test_unknown_group_raises(self):
+        with self.assertRaises(manifest_mod.ManifestError):
+            self.m.group("does-not-exist")
+
+
+class RegistryValidationTest(unittest.TestCase):
+    def _base_raw(self) -> dict:
+        return {
+            "manifest_version": 2,
+            "harness": {"anchor_commit": None},
+            "editable_paths": [],
+            "locked_paths": [],
+            "gates_policy": {},
+            "workload_registry": {
+                "groups": {
+                    "native": {
+                        "enabled": True,
+                        "build_step": "true",
+                        "binary": "bin/bench",
+                        "report_schema": "native_proof_v4",
+                        "workloads": {
+                            "wf": {"class": "small", "args": "--x", "native_unit": "rows"},
+                        },
+                    },
+                },
+            },
+        }
+
+    def test_grouped_registry_validates(self):
+        manifest_mod._validate(self._base_raw())  # must not raise
+
+    def test_flat_v1_registry_rejected_with_migration_hint(self):
+        raw = self._base_raw()
+        raw["workload_registry"] = {
+            "build_step": "true", "binary": "bin/bench", "workloads": {},
+        }
+        with self.assertRaises(manifest_mod.ManifestError) as ctx:
+            manifest_mod._validate(raw)
+        self.assertIn("groups", str(ctx.exception))
+
+    def test_disabled_group_without_reason_rejected(self):
+        raw = self._base_raw()
+        raw["workload_registry"]["groups"]["riscv"] = {
+            "enabled": False,
+            "build_step": "true",
+            "binary": "bin/riscv",
+            "report_schema": "riscv_proof_v1",
+            "workloads": {},
+        }
+        with self.assertRaises(manifest_mod.ManifestError) as ctx:
+            manifest_mod._validate(raw)
+        self.assertIn("disabled_reason", str(ctx.exception))
+
+    def test_group_missing_required_key_rejected(self):
+        raw = self._base_raw()
+        del raw["workload_registry"]["groups"]["native"]["report_schema"]
+        with self.assertRaises(manifest_mod.ManifestError) as ctx:
+            manifest_mod._validate(raw)
+        self.assertIn("report_schema", str(ctx.exception))
+
+    def test_invalid_workload_class_rejected(self):
+        raw = self._base_raw()
+        raw["workload_registry"]["groups"]["native"]["workloads"]["wf"]["class"] = "huge"
+        with self.assertRaises(manifest_mod.ManifestError):
+            manifest_mod._validate(raw)
+
 
 if __name__ == "__main__":
     unittest.main()

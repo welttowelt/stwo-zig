@@ -42,16 +42,33 @@ def clone(repo_root: Path, dest: Path, ref: str = "HEAD") -> Path:
     return dest
 
 
-def setup(root: Path, manifest: Manifest) -> None:
-    """Verify toolchain and build the bench target once."""
+def setup(root: Path, manifest: Manifest) -> list[str]:
+    """Verify toolchain and build every enabled group's bench target once.
+
+    Disabled groups are announced loudly (never silently dropped); returns
+    the group ids that were built.
+    """
     zig = subprocess.run(["zig", "version"], capture_output=True, text=True)
     if zig.returncode != 0:
         raise WorkspaceError("zig not found on PATH")
-    proc = subprocess.run(
-        manifest.build_step().split(), cwd=root, capture_output=True, text=True
-    )
-    if proc.returncode != 0:
-        raise WorkspaceError(f"build step failed:\n{proc.stderr.strip()[-800:]}")
+    built: list[str] = []
+    for group in manifest.groups():
+        if not group.enabled:
+            print(f"skipped group {group.group_id}: "
+                  f"{group.disabled_reason or 'no reason recorded'}")
+            continue
+        proc = subprocess.run(
+            group.build_step.split(), cwd=root, capture_output=True, text=True
+        )
+        if proc.returncode != 0:
+            raise WorkspaceError(
+                f"build step for group {group.group_id} failed:\n"
+                f"{proc.stderr.strip()[-800:]}"
+            )
+        built.append(group.group_id)
+    if not built:
+        raise WorkspaceError("no enabled workload groups to build")
+    return built
 
 
 def default_branch_tip(root: Path) -> str:

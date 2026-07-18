@@ -40,9 +40,14 @@ runner. A claimed verdict is advisory by definition.
   },
   "tiebreakers": { "rss_ratio": 0.99, "waits": null, "dispatches": null, "energy_j": null },
   "holdout": { "seed": 180734, "pass": true, "r": 1.004 },
+  "skipped_groups": [ { "group": "riscv", "reason": "stark-v adapter pending release gate" } ],
   "evidence": { "reports": ["<paths>"], "pairing": "round-level ABBA (...)" }
 }
 ```
+
+`skipped_groups` (additive, registry v2) records every workload group the
+manifest disables at run time, with its manifest `disabled_reason` — the same
+skip the runner announces on stdout. Empty list when every group ran.
 
 Judge-added fields (present only on signed judged verdicts fetched from the
 `judge-verdicts` branch, never in a submission's tree):
