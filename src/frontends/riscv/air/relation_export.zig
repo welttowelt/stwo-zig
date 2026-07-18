@@ -78,6 +78,8 @@ pub const TupleEvidence = struct {
     zero: StreamDigest,
     nonzero: StreamDigest,
     domains: [DOMAIN_COUNT]StreamDigest,
+    domain_zero: [DOMAIN_COUNT]StreamDigest,
+    domain_nonzero: [DOMAIN_COUNT]StreamDigest,
 };
 
 pub const ComponentEvidence = struct {
@@ -86,6 +88,8 @@ pub const ComponentEvidence = struct {
     zero: StreamDigest,
     nonzero: StreamDigest,
     domains: [DOMAIN_COUNT]StreamDigest,
+    domain_zero: [DOMAIN_COUNT]StreamDigest,
+    domain_nonzero: [DOMAIN_COUNT]StreamDigest,
     domain_sums: [DOMAIN_COUNT]QM31,
     computed_claim: QM31,
     native_claim: QM31,
@@ -113,6 +117,8 @@ pub const ShardEvidence = struct {
     zero: StreamDigest,
     nonzero: StreamDigest,
     domains: [DOMAIN_COUNT]StreamDigest,
+    domain_zero: [DOMAIN_COUNT]StreamDigest,
+    domain_nonzero: [DOMAIN_COUNT]StreamDigest,
 };
 
 pub const ClaimEvidence = struct {
@@ -128,6 +134,8 @@ pub const AggregateEvidence = struct {
     zero: StreamDigest,
     nonzero: StreamDigest,
     domains: [DOMAIN_COUNT]StreamDigest,
+    domain_zero: [DOMAIN_COUNT]StreamDigest,
+    domain_nonzero: [DOMAIN_COUNT]StreamDigest,
     domain_sums: [DOMAIN_COUNT]QM31,
 };
 
@@ -159,7 +167,7 @@ pub const ClaimLedger = struct {
         };
     }
 
-    fn check(self: *ClaimLedger, component: Component, computed: QM31) Error!QM31 {
+    pub fn check(self: *ClaimLedger, component: Component, computed: QM31) Error!QM31 {
         const index = @intFromEnum(component);
         if (self.checked[index]) return error.ComponentAlreadyChecked;
         const native = self.native[index];
@@ -199,18 +207,18 @@ pub const Sequence = struct {
         return .{ .streams = ComponentStreams.init() };
     }
 
-    fn begin(self: *Sequence, component: Component) Error!void {
+    pub fn begin(self: *Sequence, component: Component) Error!void {
         if (self.poisoned) return error.PoisonedSequence;
         if (@intFromEnum(component) != self.next_component) return error.ComponentOutOfOrder;
     }
 
-    fn append(self: *Sequence, raw: RawEntry, term: QM31) void {
+    pub fn append(self: *Sequence, raw: RawEntry, term: QM31) void {
         self.streams.append(raw);
         const domain = @intFromEnum(raw.domain);
         self.domain_sums[domain] = self.domain_sums[domain].add(term);
     }
 
-    fn end(self: *Sequence) void {
+    pub fn end(self: *Sequence) void {
         self.next_component += 1;
     }
 
@@ -318,6 +326,8 @@ pub fn exportOpcodeFamily(
             .zero = shard_digests.zero,
             .nonzero = shard_digests.nonzero,
             .domains = shard_digests.domains,
+            .domain_zero = shard_digests.domain_zero,
+            .domain_nonzero = shard_digests.domain_nonzero,
         });
     }
 
@@ -425,28 +435,42 @@ const StreamAccumulator = struct {
     }
 };
 
-const ComponentStreams = struct {
+/// Internal streaming primitive shared by the committed infrastructure and
+/// lookup-table exporters. It is public only across the AIR implementation;
+/// callers should consume `ComponentEvidence` and `AggregateEvidence`.
+pub const ComponentStreams = struct {
     all: StreamAccumulator,
     zero: StreamAccumulator,
     nonzero: StreamAccumulator,
     domains: [DOMAIN_COUNT]StreamAccumulator,
+    domain_zero: [DOMAIN_COUNT]StreamAccumulator,
+    domain_nonzero: [DOMAIN_COUNT]StreamAccumulator,
 
-    fn init() ComponentStreams {
+    pub fn init() ComponentStreams {
         return .{
             .all = StreamAccumulator.init(),
             .zero = StreamAccumulator.init(),
             .nonzero = StreamAccumulator.init(),
             .domains = initDomains(),
+            .domain_zero = initDomains(),
+            .domain_nonzero = initDomains(),
         };
     }
 
-    fn append(self: *ComponentStreams, raw: RawEntry) void {
+    pub fn append(self: *ComponentStreams, raw: RawEntry) void {
         self.all.append(raw);
-        if (raw.numerator.isZero()) self.zero.append(raw) else self.nonzero.append(raw);
-        self.domains[@intFromEnum(raw.domain)].append(raw);
+        const domain = @intFromEnum(raw.domain);
+        self.domains[domain].append(raw);
+        if (raw.numerator.isZero()) {
+            self.zero.append(raw);
+            self.domain_zero[domain].append(raw);
+        } else {
+            self.nonzero.append(raw);
+            self.domain_nonzero[domain].append(raw);
+        }
     }
 
-    fn finish(
+    pub fn finish(
         self: *ComponentStreams,
         component: Component,
         domain_sums: [DOMAIN_COUNT]QM31,
@@ -463,6 +487,8 @@ const ComponentStreams = struct {
             .zero = streams.zero,
             .nonzero = streams.nonzero,
             .domains = streams.domains,
+            .domain_zero = streams.domain_zero,
+            .domain_nonzero = streams.domain_nonzero,
             .domain_sums = domain_sums,
             .computed_claim = computed_claim,
             .native_claim = native_claim,
@@ -472,14 +498,20 @@ const ComponentStreams = struct {
         };
     }
 
-    fn finishStreams(self: *ComponentStreams) TupleEvidence {
+    pub fn finishStreams(self: *ComponentStreams) TupleEvidence {
         var domains: [DOMAIN_COUNT]StreamDigest = undefined;
+        var domain_zero: [DOMAIN_COUNT]StreamDigest = undefined;
+        var domain_nonzero: [DOMAIN_COUNT]StreamDigest = undefined;
         for (&self.domains, &domains) |*stream, *digest| digest.* = stream.finish();
+        for (&self.domain_zero, &domain_zero) |*stream, *digest| digest.* = stream.finish();
+        for (&self.domain_nonzero, &domain_nonzero) |*stream, *digest| digest.* = stream.finish();
         return .{
             .all = self.all.finish(),
             .zero = self.zero.finish(),
             .nonzero = self.nonzero.finish(),
             .domains = domains,
+            .domain_zero = domain_zero,
+            .domain_nonzero = domain_nonzero,
         };
     }
 
@@ -493,6 +525,8 @@ const ComponentStreams = struct {
             .zero = streams.zero,
             .nonzero = streams.nonzero,
             .domains = streams.domains,
+            .domain_zero = streams.domain_zero,
+            .domain_nonzero = streams.domain_nonzero,
             .domain_sums = domain_sums,
         };
     }
@@ -504,7 +538,7 @@ fn initDomains() [DOMAIN_COUNT]StreamAccumulator {
     return result;
 }
 
-fn rawEntry(entry: entry_mod.Entry) Error!RawEntry {
+pub fn rawEntry(entry: entry_mod.Entry) Error!RawEntry {
     const expected = domainArity(entry.domain);
     if (entry.arity != expected) return error.InvalidEntryArity;
     var result = RawEntry{
@@ -518,13 +552,15 @@ fn rawEntry(entry: entry_mod.Entry) Error!RawEntry {
     return result;
 }
 
-fn entryTerm(entry: entry_mod.Entry, relations: *const relations_mod.Relations) Error!QM31 {
+pub fn entryTerm(entry: entry_mod.Entry, relations: *const relations_mod.Relations) Error!QM31 {
+    if (entry.numerator.isZero()) return QM31.zero();
     const denominator = try entry.denominator(relations);
     const inverse = denominator.inv() catch return error.ZeroDenominator;
     return entry.numerator.mul(inverse);
 }
 
-fn pairTerm(pair: @import("logup.zig").RowPair) Error!QM31 {
+pub fn pairTerm(pair: @import("logup.zig").RowPair) Error!QM31 {
+    if (pair.n1.isZero() and pair.n2.isZero()) return QM31.zero();
     const denominator = pair.d1.mul(pair.d2);
     const numerator = pair.n1.mul(pair.d2).add(pair.n2.mul(pair.d1));
     return numerator.mul(denominator.inv() catch return error.ZeroDenominator);

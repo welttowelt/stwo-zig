@@ -35,6 +35,7 @@ from riscv_release_oracle_lib.witness import (
     compare_per_family_witness_rows,
     load_trace_vectors,
 )
+from riscv_release_oracle_lib.relations import compare_relation_boundaries
 
 ROOT = Path(__file__).resolve().parent.parent
 PINNED = "d478f783055aa0d73a93768a433a3c6c31c91d1c"
@@ -49,9 +50,14 @@ ADAPTER_SUMS_REL = "crates/prover/src/bin/cp11_dump/relation_sums.rs"
 ADAPTER_SUMS_SOURCE_PATH = (
     ROOT / "scripts" / "riscv_release_oracle_lib" / "cp11_dump" / "relation_sums.rs"
 )
+ADAPTER_TUPLES_REL = "crates/prover/src/bin/cp11_dump/relation_tuples.rs"
+ADAPTER_TUPLES_SOURCE_PATH = (
+    ROOT / "scripts" / "riscv_release_oracle_lib" / "cp11_dump" / "relation_tuples.rs"
+)
 ADAPTER_OVERLAYS = (
     (ADAPTER_REL, ADAPTER_SOURCE_PATH),
     (ADAPTER_SUMS_REL, ADAPTER_SUMS_SOURCE_PATH),
+    (ADAPTER_TUPLES_REL, ADAPTER_TUPLES_SOURCE_PATH),
 )
 
 BOUNDARIES = [
@@ -493,6 +499,7 @@ def build_and_compare(args) -> int:
     compare_program_tuples(oracle_exe, receipt)
     compare_memory_roots(oracle_exe, receipt)
     compare_poseidon2(oracle_exe, receipt)
+    compare_relation_boundaries(oracle_exe, receipt, ROOT, PINNED)
     compare_shared_transcript_prefix(oracle_exe, receipt)
     finalize_case_result_digests(receipt)
     receipt["verdict"] = (

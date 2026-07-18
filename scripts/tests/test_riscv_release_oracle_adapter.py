@@ -26,11 +26,17 @@ class AdapterOverlayTest(unittest.TestCase):
 
     def test_relation_evidence_calls_pinned_production_apis(self) -> None:
         adapter = ORACLE.ADAPTER_SOURCE_PATH.read_text(encoding="utf-8")
+        tuples = ORACLE.ADAPTER_TUPLES_SOURCE_PATH.read_text(encoding="utf-8")
         self.assertIn("components.relation_entries(&trace_refs)", adapter)
         self.assertIn("components::gen_interaction_trace(&traces, &relations)", adapter)
         self.assertIn("components.visit_components(&claimed_sum", adapter)
         self.assertIn("public.logup_sum(&relations)", adapter)
+        self.assertIn("components.relation_entries(&trace_refs)", tuples)
+        self.assertIn("components.visit_components(&claimed_sum", tuples)
+        self.assertIn("schema=riscv-relation-tuples-v2", tuples)
+        self.assertIn("aggregate_relation=", tuples)
         self.assertNotIn("Relations::dummy()", adapter)
+        self.assertNotIn("Relations::dummy()", tuples)
 
 
 if __name__ == "__main__":
