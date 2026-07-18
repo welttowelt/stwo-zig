@@ -2,6 +2,7 @@
 
 const qm31 = @import("../../../core/fields/qm31.zig");
 const component = @import("component.zig");
+const opcode_memory = @import("opcode_memory.zig");
 const public_data = @import("public_data.zig");
 const trace_mod = @import("../runner/trace.zig");
 const transcript_claims = @import("transcript/claims.zig");
@@ -13,7 +14,7 @@ pub const PublicData = public_data.PublicData;
 pub const MAX_COMPONENTS: usize = 256;
 pub const MAX_INFRA_COMPONENTS: usize = 512;
 pub const MAX_INTERACTION_COLUMNS: usize =
-    (MAX_COMPONENTS + MAX_INFRA_COMPONENTS) * 16;
+    MAX_COMPONENTS * @as(usize, component.nInteractionCols(.opcode)) + MAX_INFRA_COMPONENTS * 16;
 
 pub const InfraKind = enum(u32) {
     program,
@@ -178,6 +179,7 @@ pub const CanonicalInteractionClaim = struct {
 pub const RiscVInteractionClaim = struct {
     state_claims: [MAX_COMPONENTS]QM31,
     prog_claims: [MAX_COMPONENTS]QM31,
+    opcode_memory_claims: [MAX_COMPONENTS][opcode_memory.N_ACCESSES]QM31,
     rom_claim: QM31,
     memory_claims: [MAX_INFRA_COMPONENTS][4]QM31,
     n_components: u32,
@@ -187,6 +189,7 @@ pub const RiscVInteractionClaim = struct {
         return .{
             .state_claims = .{QM31.zero()} ** MAX_COMPONENTS,
             .prog_claims = .{QM31.zero()} ** MAX_COMPONENTS,
+            .opcode_memory_claims = .{.{QM31.zero()} ** opcode_memory.N_ACCESSES} ** MAX_COMPONENTS,
             .rom_claim = QM31.zero(),
             .memory_claims = .{.{QM31.zero()} ** 4} ** MAX_INFRA_COMPONENTS,
             .n_components = 0,
@@ -209,6 +212,9 @@ pub const RiscVInteractionClaim = struct {
             const claim_index = @intFromEnum(componentForFamily(desc.family));
             result.claimed_sums[claim_index] = result.claimed_sums[claim_index]
                 .add(self.state_claims[i]).add(self.prog_claims[i]);
+            for (self.opcode_memory_claims[i]) |sum| {
+                result.claimed_sums[claim_index] = result.claimed_sums[claim_index].add(sum);
+            }
             for (0..component.nInteractionCols(.opcode)) |_| {
                 if (result.n_log_sizes == result.log_sizes.len) return error.TooManyInteractionColumns;
                 result.log_sizes[result.n_log_sizes] = desc.log_size;

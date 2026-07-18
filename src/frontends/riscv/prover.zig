@@ -49,7 +49,10 @@ const trace_mod = @import("runner/trace.zig");
 const trace_columns = @import("air/trace_columns.zig");
 const interaction_gen = @import("air/interaction_gen.zig");
 const logup = @import("air/logup.zig");
+const memory_logup = @import("air/memory_logup.zig");
+const opcode_memory = @import("air/opcode_memory.zig");
 const public_data_mod = @import("air/public_data.zig");
+const public_logup = @import("air/public_logup.zig");
 const memory_boundary = @import("air/memory_commitment/boundary.zig");
 const memory_interaction = @import("air/memory_commitment/interaction.zig");
 const memory_trace = @import("air/memory_commitment/trace.zig");
@@ -662,8 +665,11 @@ pub fn proveRiscVWithEngine(
     opt_memory: ?*const memory_state.Snapshot,
     recorder: ?*stage_profile.Recorder,
 ) !ProveOutput {
-    var reg_last_clock = [_]u32{0} ** 32;
-    if (opt_chain) |chain| reg_last_clock = chain.reg_last_clk;
+    const register_boundary = try opcode_memory.deriveRegisterBoundary(exec_trace.rows.items);
+    if (opt_chain) |chain| {
+        if (!std.mem.eql(u32, &register_boundary.last_clock, &chain.reg_last_clk))
+            return ProverError.InvalidStatement;
+    }
     return proveRiscVWithEngineAndPublicData(
         Engine,
         allocator,
@@ -676,9 +682,9 @@ pub fn proveRiscVWithEngine(
             .initial_pc = exec_trace.initial_pc,
             .final_pc = exec_trace.final_pc,
             .clock = @intCast(exec_trace.step_count),
-            .initial_regs = .{0} ** 32,
-            .final_regs = .{0} ** 32,
-            .reg_last_clock = reg_last_clock,
+            .initial_regs = register_boundary.initial,
+            .final_regs = register_boundary.final,
+            .reg_last_clock = register_boundary.last_clock,
             .program_root = null,
             .initial_rw_root = null,
             .final_rw_root = null,
@@ -1098,9 +1104,9 @@ pub fn proveRiscVWithEngineAndPublicData(
         try Engine.commit(&scheme, allocator, main_columns, recorder, &channel);
     }
 
-    // Tree 2 carries CPU/program columns plus proof-constrained RW-memory
-    // boundary claims. Opcode memory requests and Merkle/Poseidon emitters do
-    // not yet close those new relation domains, so release remains fail-closed.
+    // Tree 2 carries CPU/program and opcode/RW-memory boundary claims. The
+    // memory-access domain closes below; Merkle/Poseidon and range-table
+    // emitters remain release blockers.
     const n_interaction = statement.nInteractionColumns();
 
     std.log.info("Columns: opcode={d} infra={d} total tree1={d} interaction={d}", .{
@@ -1128,6 +1134,10 @@ pub fn proveRiscVWithEngineAndPublicData(
     // on-domain constraint evaluation inside Engine.prove.
     const opcode_prev = try allocator.alloc([2][4][]M31, statement.n_components);
     for (opcode_prev) |*prev| prev.* = .{ .{ &.{}, &.{}, &.{}, &.{} }, .{ &.{}, &.{}, &.{}, &.{} } };
+    const opcode_memory_prev = try allocator.alloc(opcode_memory.Previous, statement.n_components);
+    for (opcode_memory_prev) |*prev| {
+        prev.* = .{.{ &.{}, &.{}, &.{}, &.{} }} ** opcode_memory.N_ACCESSES;
+    }
     var rom_prev: [4][]M31 = .{ &.{}, &.{}, &.{}, &.{} };
     const memory_prev = try allocator.alloc(memory_interaction.Previous, statement.n_infra);
     for (memory_prev) |*prev| prev.* = .{.{ &.{}, &.{}, &.{}, &.{} }} ** memory_interaction.N_SUMS;
@@ -1136,6 +1146,10 @@ pub fn proveRiscVWithEngineAndPublicData(
             for (prev) |set| interaction_gen.freeColumns(allocator, &set);
         }
         allocator.free(opcode_prev);
+        for (opcode_memory_prev) |prev| {
+            for (prev) |set| interaction_gen.freeColumns(allocator, &set);
+        }
+        allocator.free(opcode_memory_prev);
         interaction_gen.freeColumns(allocator, &rom_prev);
         for (0..statement.n_infra) |i| {
             if (statement.infra_descs[i].kind != .memory) continue;
@@ -1180,7 +1194,9 @@ pub fn proveRiscVWithEngineAndPublicData(
             const gen = try interaction_gen.genOpcodeInteraction(allocator, shard, desc.log_size, &relations);
             interaction_claim.state_claims[i] = gen.state_claim;
             interaction_claim.prog_claims[i] = gen.prog_claim;
+            interaction_claim.opcode_memory_claims[i] = gen.memory_claims;
             opcode_prev[i] = .{ gen.prev_state, gen.prev_prog };
+            opcode_memory_prev[i] = gen.prev_memory;
             for (gen.columns) |values| {
                 interaction_columns[inter_col_idx] = .{ .log_size = desc.log_size, .values = values };
                 inter_col_idx += 1;
@@ -1257,8 +1273,10 @@ pub fn proveRiscVWithEngineAndPublicData(
             .interaction_col_offset = interaction_offset,
             .state_claim = interaction_claim.state_claims[i],
             .prog_claim = interaction_claim.prog_claims[i],
+            .opcode_memory_claims = interaction_claim.opcode_memory_claims[i],
             .s_state_prev = constPrev(opcode_prev[i][0]),
             .s_prog_prev = constPrev(opcode_prev[i][1]),
+            .s_opcode_memory_prev = constOpcodeMemoryPrev(opcode_memory_prev[i]),
         };
         components_arr[i] = component_storage[i].asProverComponent();
         main_offset += statement.component_descs[i].n_columns;
@@ -1316,6 +1334,12 @@ fn constPrev(bufs: [4][]M31) [4][]const M31 {
 
 fn constMemoryPrev(bufs: memory_interaction.Previous) [memory_interaction.N_SUMS][4][]const M31 {
     var result: [memory_interaction.N_SUMS][4][]const M31 = undefined;
+    for (&result, bufs) |*dst, src| dst.* = constPrev(src);
+    return result;
+}
+
+fn constOpcodeMemoryPrev(bufs: opcode_memory.Previous) [opcode_memory.N_ACCESSES][4][]const M31 {
+    var result: [opcode_memory.N_ACCESSES][4][]const M31 = undefined;
     for (&result, bufs) |*dst, src| dst.* = constPrev(src);
     return result;
 }
@@ -1443,11 +1467,13 @@ pub fn verifyRiscVWithEngine(
 
     // Relation domains cancel independently; a shifted state claim must not
     // be repairable by an offsetting program claim.
-    const boundary = try logup.stateBoundary(
+    const state_boundary = try public_logup.registersStateSum(
+        &statement.public_data,
         &relations,
-        statement.initial_pc,
-        statement.final_pc,
-        statement.total_steps,
+    );
+    const memory_boundary_sum = try public_logup.memoryAccessSum(
+        &statement.public_data,
+        &relations,
     );
     const state_claims = try allocator.alloc(QM31, statement.n_components);
     defer allocator.free(state_claims);
@@ -1458,8 +1484,22 @@ pub fn verifyRiscVWithEngine(
         program_claims[i] = claim.prog_claims[i];
     }
     program_claims[statement.n_components] = claim.rom_claim;
-    try logup.verifyGlobalCancellation(state_claims, boundary);
+    try logup.verifyGlobalCancellation(state_claims, state_boundary);
     try logup.verifyGlobalCancellation(program_claims, QM31.zero());
+    var memory_claims: [MAX_COMPONENTS * opcode_memory.N_ACCESSES + MAX_INFRA_COMPONENTS]QM31 = undefined;
+    var n_memory_claims: usize = 0;
+    for (0..statement.n_components) |i| {
+        for (claim.opcode_memory_claims[i]) |memory_claim| {
+            memory_claims[n_memory_claims] = memory_claim;
+            n_memory_claims += 1;
+        }
+    }
+    for (0..statement.n_infra) |i| {
+        if (statement.infra_descs[i].kind != .memory) continue;
+        memory_claims[n_memory_claims] = claim.memory_claims[i][0];
+        n_memory_claims += 1;
+    }
+    try memory_logup.verifyCancellation(memory_claims[0..n_memory_claims], memory_boundary_sum);
 
     // Reconstruct per-family + infrastructure verifier components.
     const total_v_components = statement.n_components + statement.n_infra;
@@ -1481,6 +1521,7 @@ pub fn verifyRiscVWithEngine(
             .interaction_col_offset = verifier_inter_offset,
             .state_claim = claim.state_claims[i],
             .prog_claim = claim.prog_claims[i],
+            .opcode_memory_claims = claim.opcode_memory_claims[i],
         };
         verifier_components[i] = component_storage[i].asVerifierComponent();
         verifier_col_offset += statement.component_descs[i].n_columns;

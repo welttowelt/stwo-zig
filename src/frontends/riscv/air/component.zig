@@ -30,8 +30,9 @@ const prover_twiddles = @import("../../../prover/poly/twiddles.zig");
 const interaction_gen = @import("interaction_gen.zig");
 const logup = @import("logup.zig");
 const memory_interaction = @import("memory_commitment/interaction.zig");
+const opcode_memory = @import("opcode_memory.zig");
 const relation_challenges = @import("relation_challenges.zig");
-const semantics = @import("semantics/mod.zig");
+const semantic_eval = @import("semantic_eval.zig");
 const trace_mod = @import("../runner/trace.zig");
 
 const M31 = m31.M31;
@@ -79,6 +80,8 @@ pub const RiscVTraceComponent = struct {
     state_claim: QM31 = QM31.zero(),
     prog_claim: QM31 = QM31.zero(),
     rom_claim: QM31 = QM31.zero(),
+    opcode_memory_claims: [opcode_memory.N_ACCESSES]QM31 =
+        .{QM31.zero()} ** opcode_memory.N_ACCESSES,
     memory_claims: [memory_interaction.N_SUMS]QM31 =
         .{QM31.zero()} ** memory_interaction.N_SUMS,
     /// Trace-order-shifted S coordinate columns in committed order at
@@ -86,6 +89,8 @@ pub const RiscVTraceComponent = struct {
     /// the on-domain evaluator as uncommitted column sources.
     s_state_prev: [4][]const M31 = EMPTY_PREV,
     s_prog_prev: [4][]const M31 = EMPTY_PREV,
+    s_opcode_memory_prev: [opcode_memory.N_ACCESSES][4][]const M31 =
+        .{EMPTY_PREV} ** opcode_memory.N_ACCESSES,
     s_rom_prev: [4][]const M31 = EMPTY_PREV,
     s_memory_prev: [memory_interaction.N_SUMS][4][]const M31 = EMPTY_MEMORY_PREV,
 
@@ -106,11 +111,10 @@ pub const RiscVTraceComponent = struct {
 
     pub fn nConstraints(self: *const @This()) usize {
         return switch (self.kind) {
-            .opcode => 2 + switch (self.desc.family) {
-                .base_alu_reg => semantics.base_alu_reg.N_CONSTRAINTS + 1,
-                .base_alu_imm => semantics.base_alu_imm.N_CONSTRAINTS + 1,
-                else => 0,
-            },
+            .opcode => 2 + opcode_memory.N_ACCESSES + if (semantic_eval.isTraceCompatible(self.desc.family))
+                semantic_eval.constraintCount(self.desc.family)
+            else
+                0,
             .program => 2,
             .memory => memory_interaction.N_CONSTRAINTS,
             .silent => 1,
@@ -243,7 +247,7 @@ pub const RiscVTraceComponent = struct {
         for (inter[o .. o + nInteractionCols(self.kind)]) |col| {
             if (col.len < 2) return error.InvalidProofShape;
         }
-        for (main[self.main_col_offset .. self.main_col_offset + 2]) |col| {
+        for (main[self.main_col_offset .. self.main_col_offset + self.desc.n_columns]) |col| {
             if (col.len < 1) return error.InvalidProofShape;
         }
 
@@ -262,8 +266,8 @@ pub const RiscVTraceComponent = struct {
 
         switch (self.kind) {
             .opcode => {
-                const pc = main[self.main_col_offset + 1][0];
-                const clk = main[self.main_col_offset + 0][0];
+                const pc = main[self.main_col_offset + semantic_eval.pcColumn(self.desc.family)][0];
+                const clk = main[self.main_col_offset + semantic_eval.clockColumn(self.desc.family)][0];
                 const bus = self.main_col_offset + self.desc.n_columns - 5;
                 const next_pc = main[bus][0];
                 const opcode_id = main[bus + 1][0];
@@ -293,40 +297,40 @@ pub const RiscVTraceComponent = struct {
                     logup.pairConstraint(s_prog, s_prog_prev, is_first, self.prog_claim, prog_pair)
                         .mul(denominator_inv),
                 );
-                switch (self.desc.family) {
-                    .base_alu_reg => {
-                        const sampled = try sampledMainRow(
-                            semantics.base_alu_reg.N_ORACLE_COLUMNS,
-                            main,
-                            self.main_col_offset,
-                        );
-                        const row = try semantics.base_alu_reg.Row.fromOracleColumns(&sampled);
-                        const constraints = semantics.base_alu_reg.evaluate(row);
-                        for (constraints.values) |constraint| {
-                            evaluation_accumulator.accumulate(constraint.mul(denominator_inv));
-                        }
-                        evaluation_accumulator.accumulate(
-                            semantics.base_alu_reg.placementConstraint(row, is_active)
-                                .mul(denominator_inv),
-                        );
-                    },
-                    .base_alu_imm => {
-                        const sampled = try sampledMainRow(
-                            semantics.base_alu_imm.N_ORACLE_COLUMNS,
-                            main,
-                            self.main_col_offset,
-                        );
-                        const row = try semantics.base_alu_imm.Row.fromOracleColumns(&sampled);
-                        const constraints = semantics.base_alu_imm.evaluate(row);
-                        for (constraints.values) |constraint| {
-                            evaluation_accumulator.accumulate(constraint.mul(denominator_inv));
-                        }
-                        evaluation_accumulator.accumulate(
-                            semantics.base_alu_imm.placementConstraint(row, is_active)
-                                .mul(denominator_inv),
-                        );
-                    },
-                    else => {},
+                var sampled: [trace_mod.MAX_FAMILY_COLUMNS]QM31 = undefined;
+                const n_columns = semantic_eval.mainColumnCount(self.desc.family);
+                for (sampled[0..n_columns], 0..) |*value, column| {
+                    value.* = main[self.main_col_offset + column][0];
+                }
+                var memory_sums: [opcode_memory.N_ACCESSES]QM31 = undefined;
+                var memory_previous: [opcode_memory.N_ACCESSES]QM31 = undefined;
+                for (0..opcode_memory.N_ACCESSES) |slot| {
+                    const memory_offset = o + 8 + slot * 4;
+                    memory_sums[slot] = try sampledSecure(inter, memory_offset, 0);
+                    memory_previous[slot] = try sampledSecure(inter, memory_offset, 1);
+                }
+                const memory_constraints = try opcode_memory.constraints(
+                    self.desc.family,
+                    sampled[0..n_columns],
+                    is_active,
+                    is_first,
+                    memory_sums,
+                    memory_previous,
+                    self.opcode_memory_claims,
+                    &self.relations.memory_access,
+                );
+                for (memory_constraints) |constraint| {
+                    evaluation_accumulator.accumulate(constraint.mul(denominator_inv));
+                }
+                if (semantic_eval.isTraceCompatible(self.desc.family)) {
+                    const constraints = try semantic_eval.evaluate(
+                        self.desc.family,
+                        sampled[0..n_columns],
+                        is_active,
+                    );
+                    for (constraints.values[0..constraints.len]) |constraint| {
+                        evaluation_accumulator.accumulate(constraint.mul(denominator_inv));
+                    }
                 }
             },
             .program => {
@@ -416,16 +420,11 @@ pub const RiscVTraceComponent = struct {
 
         // Source order is selectors, relation inputs from the pre-challenge
         // main tree, cumulative interaction columns, then shifted S columns.
-        const has_direct_semantics = self.kind == .opcode and switch (self.desc.family) {
-            .base_alu_reg, .base_alu_imm => true,
-            else => false,
-        };
-        const opcode_main_sources: usize = if (has_direct_semantics)
-            self.desc.n_columns
-        else
-            7;
+        const has_direct_semantics = self.kind == .opcode and
+            semantic_eval.isTraceCompatible(self.desc.family);
+        const opcode_main_sources: usize = if (self.kind == .opcode) self.desc.n_columns else 0;
         const n_sources: usize = switch (self.kind) {
-            .opcode => 2 + opcode_main_sources + n_inter + 8,
+            .opcode => 2 + opcode_main_sources + n_inter + 8 + opcode_memory.N_COLUMNS,
             .program => 2 + 7 + n_inter + 4,
             .memory => 2 + 8 + n_inter + memory_interaction.N_COLUMNS,
             .silent => unreachable,
@@ -461,21 +460,9 @@ pub const RiscVTraceComponent = struct {
             polys_buf[n_polys] = pp[self.is_active_col_idx];
             n_polys += 1;
             if (self.kind == .opcode) {
-                if (has_direct_semantics) {
-                    for (0..self.desc.n_columns) |i| {
-                        polys_buf[n_polys] = main[self.main_col_offset + i];
-                        n_polys += 1;
-                    }
-                } else {
-                    polys_buf[n_polys] = main[self.main_col_offset + 0]; // clk
+                for (0..self.desc.n_columns) |i| {
+                    polys_buf[n_polys] = main[self.main_col_offset + i];
                     n_polys += 1;
-                    polys_buf[n_polys] = main[self.main_col_offset + 1]; // pc
-                    n_polys += 1;
-                    const bus = self.main_col_offset + self.desc.n_columns - 5;
-                    for (0..5) |i| {
-                        polys_buf[n_polys] = main[bus + i];
-                        n_polys += 1;
-                    }
                 }
             } else if (self.kind == .program) {
                 for (0..7) |i| {
@@ -505,7 +492,13 @@ pub const RiscVTraceComponent = struct {
         // the trace domain, then extend exactly like the committed columns.
         {
             const prev_sets: []const [4][]const M31 = switch (self.kind) {
-                .opcode => &.{ self.s_state_prev, self.s_prog_prev },
+                .opcode => &.{
+                    self.s_state_prev,
+                    self.s_prog_prev,
+                    self.s_opcode_memory_prev[0],
+                    self.s_opcode_memory_prev[1],
+                    self.s_opcode_memory_prev[2],
+                },
                 .program => &.{self.s_rom_prev},
                 .memory => &self.s_memory_prev,
                 .silent => unreachable,
@@ -586,12 +579,13 @@ pub const RiscVTraceComponent = struct {
                     const main_start: usize = 2;
                     const inter_start = main_start + opcode_main_sources;
                     const prev_start = inter_start + n_inter;
-                    const clk = QM31.fromBase(evaluations[main_start][row]);
-                    const pc = QM31.fromBase(evaluations[main_start + 1][row]);
-                    const bus = if (has_direct_semantics)
-                        main_start + self.desc.n_columns - 5
-                    else
-                        main_start + 2;
+                    const clk = QM31.fromBase(
+                        evaluations[main_start + semantic_eval.clockColumn(self.desc.family)][row],
+                    );
+                    const pc = QM31.fromBase(
+                        evaluations[main_start + semantic_eval.pcColumn(self.desc.family)][row],
+                    );
+                    const bus = main_start + self.desc.n_columns - 5;
                     const next_pc = QM31.fromBase(evaluations[bus][row]);
                     const opcode_id = QM31.fromBase(evaluations[bus + 1][row]);
                     const value_1 = QM31.fromBase(evaluations[bus + 2][row]);
@@ -627,41 +621,45 @@ pub const RiscVTraceComponent = struct {
                     const powers = column_accumulator.random_coeff_powers;
                     row_evaluation = powers[powers.len - 1].mul(c_state)
                         .add(powers[powers.len - 2].mul(c_prog));
-                    if (self.desc.family == .base_alu_reg) {
-                        var sampled: [semantics.base_alu_reg.N_ORACLE_COLUMNS]QM31 = undefined;
-                        for (&sampled, 0..) |*value, column| {
-                            value.* = QM31.fromBase(evaluations[main_start + column][row]);
-                        }
-                        const semantic_row = try semantics.base_alu_reg.Row.fromOracleColumns(&sampled);
-                        const constraints = semantics.base_alu_reg.evaluate(semantic_row);
-                        for (constraints.values, 0..) |constraint, index| {
-                            row_evaluation = row_evaluation.add(
-                                powers[powers.len - 3 - index].mul(constraint),
-                            );
-                        }
+                    var sampled: [trace_mod.MAX_FAMILY_COLUMNS]QM31 = undefined;
+                    const n_columns = semantic_eval.mainColumnCount(self.desc.family);
+                    for (sampled[0..n_columns], 0..) |*value, column| {
+                        value.* = QM31.fromBase(evaluations[main_start + column][row]);
+                    }
+                    var memory_sums: [opcode_memory.N_ACCESSES]QM31 = undefined;
+                    var memory_previous: [opcode_memory.N_ACCESSES]QM31 = undefined;
+                    for (0..opcode_memory.N_ACCESSES) |slot| {
+                        const memory_offset = inter_start + 8 + slot * 4;
+                        const previous_offset = prev_start + 8 + slot * 4;
+                        memory_sums[slot] = secureAt(evaluations[memory_offset..][0..4], row);
+                        memory_previous[slot] = secureAt(evaluations[previous_offset..][0..4], row);
+                    }
+                    const memory_constraints = try opcode_memory.constraints(
+                        self.desc.family,
+                        sampled[0..n_columns],
+                        is_active,
+                        is_first,
+                        memory_sums,
+                        memory_previous,
+                        self.opcode_memory_claims,
+                        &self.relations.memory_access,
+                    );
+                    for (memory_constraints, 0..) |constraint, index| {
                         row_evaluation = row_evaluation.add(
-                            powers[powers.len - 3 - constraints.values.len].mul(
-                                semantics.base_alu_reg.placementConstraint(semantic_row, is_active),
-                            ),
+                            powers[powers.len - 3 - index].mul(constraint),
                         );
                     }
-                    if (self.desc.family == .base_alu_imm) {
-                        var sampled: [semantics.base_alu_imm.N_ORACLE_COLUMNS]QM31 = undefined;
-                        for (&sampled, 0..) |*value, column| {
-                            value.* = QM31.fromBase(evaluations[main_start + column][row]);
-                        }
-                        const semantic_row = try semantics.base_alu_imm.Row.fromOracleColumns(&sampled);
-                        const constraints = semantics.base_alu_imm.evaluate(semantic_row);
-                        for (constraints.values, 0..) |constraint, index| {
+                    if (has_direct_semantics) {
+                        const constraints = try semantic_eval.evaluate(
+                            self.desc.family,
+                            sampled[0..n_columns],
+                            is_active,
+                        );
+                        for (constraints.values[0..constraints.len], 0..) |constraint, index| {
                             row_evaluation = row_evaluation.add(
-                                powers[powers.len - 3 - index].mul(constraint),
+                                powers[powers.len - 3 - opcode_memory.N_ACCESSES - index].mul(constraint),
                             );
                         }
-                        row_evaluation = row_evaluation.add(
-                            powers[powers.len - 3 - constraints.values.len].mul(
-                                semantics.base_alu_imm.placementConstraint(semantic_row, is_active),
-                            ),
-                        );
                     }
                 },
                 .program => {

@@ -206,6 +206,7 @@ fn runConfigured(
                 completion_reason = .ebreak;
                 halted = true;
             },
+            error.MisalignedMemoryAccess => return error.MisalignedMemoryAccess,
         };
 
         const rd_val = rv_cpu.readReg(inst.rd);

@@ -4,7 +4,8 @@
 //! elements) so it never depends on the prover orchestration module.
 //!
 //! Layouts (M31 columns, committed bit-reversed circle-domain order):
-//!  - Opcode component (8): [0..4) S_state, [4..8) S_program.
+//!  - Opcode component (20): [0..4) S_state, [4..8) S_program,
+//!    [8..20) three S_memory_access columns.
 //!  - Program component (4): [0..4) S_rom.
 //!
 //! Every relation tuple input lives in the main tree, which is committed
@@ -20,6 +21,7 @@ const m31 = @import("../../../core/fields/m31.zig");
 const qm31 = @import("../../../core/fields/qm31.zig");
 const infra = @import("../infra_trace.zig");
 const logup = @import("logup.zig");
+const opcode_memory = @import("opcode_memory.zig");
 const program_decode = @import("program/decode.zig");
 const program_table = @import("program/table.zig");
 const relation_challenges = @import("relation_challenges.zig");
@@ -29,7 +31,7 @@ const M31 = m31.M31;
 const QM31 = qm31.QM31;
 
 /// M31 interaction columns committed per opcode component.
-pub const OPCODE_INTERACTION_COLS: usize = 8;
+pub const OPCODE_INTERACTION_COLS: usize = 8 + opcode_memory.N_COLUMNS;
 /// M31 interaction columns committed for the program ROM component.
 pub const PROGRAM_INTERACTION_COLS: usize = 4;
 
@@ -85,13 +87,17 @@ pub const OpcodeInteraction = struct {
     prev_state: [4][]M31,
     /// Trace-order shift of the S_prog coordinates, committed order.
     prev_prog: [4][]M31,
+    /// Trace-order shifts for the three memory-access cumulative columns.
+    prev_memory: opcode_memory.Previous,
     state_claim: QM31,
     prog_claim: QM31,
+    memory_claims: [opcode_memory.N_ACCESSES]QM31,
 
     pub fn deinit(self: *OpcodeInteraction, allocator: std.mem.Allocator) void {
         freeColumns(allocator, &self.columns);
         freeColumns(allocator, &self.prev_state);
         freeColumns(allocator, &self.prev_prog);
+        for (&self.prev_memory) |*set| freeColumns(allocator, set);
         self.* = undefined;
     }
 };
@@ -150,8 +156,8 @@ pub fn genOpcodeInteraction(
     const table = try infra.BitReversalTable.init(allocator, log_size);
     defer table.deinit(allocator);
 
-    var columns = try allocColumns(allocator, OPCODE_INTERACTION_COLS, n);
-    errdefer freeColumns(allocator, &columns);
+    var state_program_columns = try allocColumns(allocator, 8, n);
+    errdefer freeColumns(allocator, &state_program_columns);
     var prev_state = try allocColumns(allocator, 4, n);
     errdefer freeColumns(allocator, &prev_state);
     var prev_prog = try allocColumns(allocator, 4, n);
@@ -164,19 +170,32 @@ pub fn genOpcodeInteraction(
         const s_prev = col_state.sums[(i + n - 1) % n].toM31Array();
         const p_prev = col_prog.sums[(i + n - 1) % n].toM31Array();
         for (0..4) |c| {
-            columns[c][dst] = s[c];
-            columns[4 + c][dst] = p[c];
+            state_program_columns[c][dst] = s[c];
+            state_program_columns[4 + c][dst] = p[c];
             prev_state[c][dst] = s_prev[c];
             prev_prog[c][dst] = p_prev[c];
         }
     }
 
+    const memory = try opcode_memory.generate(
+        allocator,
+        rows,
+        if (rows.len == 0) unreachable else trace_mod.opcodeFamily(rows[0].opcode),
+        log_size,
+        &relations.memory_access,
+    );
+    var columns: [OPCODE_INTERACTION_COLS][]M31 = undefined;
+    for (state_program_columns, 0..) |column, index| columns[index] = column;
+    for (memory.columns, 0..) |column, index| columns[8 + index] = column;
+
     return .{
         .columns = columns,
         .prev_state = prev_state,
         .prev_prog = prev_prog,
+        .prev_memory = memory.previous,
         .state_claim = col_state.claimed,
         .prog_claim = col_prog.claimed,
+        .memory_claims = memory.claims,
     };
 }
 

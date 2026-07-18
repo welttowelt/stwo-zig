@@ -1,14 +1,14 @@
 //! Versioned proof envelope for the staged Stark-V RV32IM adapter.
 //!
 //! This is a publication contract, not a release claim. Artifacts using this
-//! schema remain explicitly `not_release_gated` until opcode semantics, the
-//! memory bus, and public I/O terms are constrained by the RISC-V AIR.
+//! schema remain explicitly `not_release_gated` until opcode semantics and the
+//! Merkle/Poseidon closure are constrained by the RISC-V AIR.
 
 const std = @import("std");
 const atomic_file = @import("atomic_file.zig");
 
-pub const SCHEMA_VERSION: u32 = 1;
-pub const EXCHANGE_MODE = "riscv_proof_json_wire_v1";
+pub const SCHEMA_VERSION: u32 = 2;
+pub const EXCHANGE_MODE = "riscv_proof_json_wire_v2";
 pub const RELEASE_STATUS = "not_release_gated";
 pub const GENERATOR = "zig";
 pub const AIR = "stark_v_rv32im";
@@ -23,6 +23,7 @@ const M31_MODULUS: u32 = 0x7fff_ffff;
 
 pub const Qm31Wire = [4]u32;
 pub const MemoryClaimsWire = [4]Qm31Wire;
+pub const OpcodeMemoryClaimsWire = [3]Qm31Wire;
 
 pub const FriConfigWire = struct {
     log_blowup_factor: u32,
@@ -100,6 +101,7 @@ pub const InteractionClaimWire = struct {
     interaction_pow: u64,
     state_claims: []const Qm31Wire,
     program_claims: []const Qm31Wire,
+    opcode_memory_claims: []const OpcodeMemoryClaimsWire,
     rom_claim: Qm31Wire,
     memory_claims: []const MemoryClaimsWire,
 };
@@ -266,10 +268,14 @@ fn validateClaims(
 ) !void {
     if (claims.state_claims.len != component_count or
         claims.program_claims.len != component_count or
+        claims.opcode_memory_claims.len != component_count or
         claims.memory_claims.len != infrastructure_count)
         return error.InvalidInteractionClaimCount;
     for (claims.state_claims) |claim| try validateQm31(claim);
     for (claims.program_claims) |claim| try validateQm31(claim);
+    for (claims.opcode_memory_claims) |component_claims| {
+        for (component_claims) |claim| try validateQm31(claim);
+    }
     try validateQm31(claims.rom_claim);
     for (claims.memory_claims) |component_claims| {
         for (component_claims) |claim| try validateQm31(claim);
@@ -371,6 +377,11 @@ fn fixture() Artifact {
             .interaction_pow = 0,
             .state_claims = &.{.{ 0, 0, 0, 0 }},
             .program_claims = &.{.{ 0, 0, 0, 0 }},
+            .opcode_memory_claims = &.{.{
+                .{ 0, 0, 0, 0 },
+                .{ 0, 0, 0, 0 },
+                .{ 0, 0, 0, 0 },
+            }},
             .rom_claim = .{ 0, 0, 0, 0 },
             .memory_claims = &.{.{
                 .{ 0, 0, 0, 0 },

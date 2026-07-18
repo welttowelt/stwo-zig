@@ -2,9 +2,10 @@
 //!
 //! The field model and transcript order mirror Stark-V's `PublicData` at the
 //! pinned RISC-V oracle revision. This module only binds the values into the
-//! Fiat-Shamir transcript. The corresponding public MemoryAccess LogUp terms
-//! must be added when that bus is wired; transcript binding alone does not
-//! prove that these values belong to the committed execution trace.
+//! Fiat-Shamir transcript. PC and clock also bind through registers-state;
+//! registers and I/O close through MemoryAccess. Root fields remain release
+//! blockers until the Merkle bus closes end to end; transcript binding alone
+//! does not prove that they belong to the trace.
 
 const std = @import("std");
 

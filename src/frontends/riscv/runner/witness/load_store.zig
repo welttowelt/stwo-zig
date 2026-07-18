@@ -1,5 +1,10 @@
 //! Exact load/store role-separated witness.
 
+const std = @import("std");
+const M31 = @import("../../../../core/fields/m31.zig").M31;
+const QM31 = @import("../../../../core/fields/qm31.zig").QM31;
+const Opcode = @import("../decode.zig").Opcode;
+const load_store_semantics = @import("../../air/semantics/load_store.zig");
 const w = @import("writer.zig");
 
 pub fn fill(columns: anytype, index: usize, row: anytype) void {
@@ -47,4 +52,68 @@ pub fn fill(columns: anytype, index: usize, row: anytype) void {
         row.opcode == .LW, row.opcode == .SB, row.opcode == .SH,  row.opcode == .SW,
     };
     for (flags, 0..) |flag, i| w.set(columns, index, 42 + i, w.bit(flag));
+}
+
+fn semanticRow(row: anytype) !load_store_semantics.Row {
+    const n = load_store_semantics.N_ORACLE_COLUMNS;
+    var storage: [n][1]M31 = .{.{M31.zero()}} ** n;
+    var columns: [n][]M31 = undefined;
+    for (&columns, &storage) |*column, *values| column.* = values;
+    fill(&columns, 0, row);
+
+    var sampled: [n]QM31 = undefined;
+    for (&sampled, columns) |*value, column| value.* = QM31.fromBase(column[0]);
+    return load_store_semantics.Row.fromOracleColumns(&sampled);
+}
+
+test "load store witness: aligned SW and LW satisfy pinned semantics" {
+    const TestRow = struct {
+        clk: u32 = 1,
+        pc: u32 = 0x1000,
+        opcode: Opcode,
+        rd: u5 = 0,
+        rs1: u5 = 2,
+        rs2: u5 = 0,
+        imm: i32 = 0,
+        rs1_val: u32 = 0x2000,
+        rs1_prev_clk: u32 = 0,
+        rs2_val: u32 = 0,
+        rs2_prev_clk: u32 = 0,
+        rd_prev_val: u32 = 0,
+        rd_prev_clk: u32 = 0,
+        rd_val: u32 = 0,
+        mem_addr: u32 = 0x2000,
+        mem_prev_word: u32 = 0,
+        mem_prev_clk: u32 = 0,
+        mem_next_word: u32 = 0,
+        is_load: bool = false,
+        is_store: bool = false,
+    };
+
+    const value: u32 = 0xCAFE_BABE;
+    const sw = try semanticRow(TestRow{
+        .opcode = .SW,
+        .rs2 = 3,
+        .rs2_val = value,
+        .mem_next_word = value,
+        .is_store = true,
+    });
+    try std.testing.expect(load_store_semantics.evaluate(sw).allZero());
+    try std.testing.expect(sw.dst.addr.eql(QM31.fromBase(M31.fromU64(0x2000))));
+    try std.testing.expect(sw.src.addr.eql(QM31.fromBase(M31.fromU64(3))));
+
+    const lw = try semanticRow(TestRow{
+        .clk = 2,
+        .pc = 0x1004,
+        .opcode = .LW,
+        .rd = 4,
+        .rd_val = value,
+        .mem_prev_word = value,
+        .mem_prev_clk = 1,
+        .mem_next_word = value,
+        .is_load = true,
+    });
+    try std.testing.expect(load_store_semantics.evaluate(lw).allZero());
+    try std.testing.expect(lw.src.addr.eql(QM31.fromBase(M31.fromU64(0x2000))));
+    try std.testing.expect(lw.dst.addr.eql(QM31.fromBase(M31.fromU64(4))));
 }

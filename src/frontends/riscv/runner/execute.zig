@@ -12,11 +12,17 @@ const DecodedInst = decode.DecodedInst;
 pub const ExecuteError = error{
     Ecall,
     Ebreak,
+    MisalignedMemoryAccess,
 };
 
+fn requireAligned(addr: u32, alignment: u32) ExecuteError!void {
+    std.debug.assert(std.math.isPowerOfTwo(alignment));
+    if (addr & (alignment - 1) != 0) return error.MisalignedMemoryAccess;
+}
+
 /// Execute a single decoded instruction, mutating `cpu` and `mem`.
-/// Returns `error.Ecall` / `error.Ebreak` for system calls; the caller
-/// decides how to handle them.
+/// Returns system-instruction errors to the host and rejects memory accesses
+/// that the pinned Stark-V AIR cannot represent.
 pub fn execute(cpu: *Cpu, mem: *Memory, inst: DecodedInst) ExecuteError!void {
     switch (inst.opcode) {
         // ----------------------------------------------------------------
@@ -93,16 +99,19 @@ pub fn execute(cpu: *Cpu, mem: *Memory, inst: DecodedInst) ExecuteError!void {
         },
         .LH => {
             const addr = cpu.readReg(inst.rs1) +% @as(u32, @bitCast(inst.imm));
+            try requireAligned(addr, 2);
             const half = mem.readU16(addr);
             const signed: i16 = @bitCast(half);
             cpu.writeReg(inst.rd, @bitCast(@as(i32, signed)));
         },
         .LHU => {
             const addr = cpu.readReg(inst.rs1) +% @as(u32, @bitCast(inst.imm));
+            try requireAligned(addr, 2);
             cpu.writeReg(inst.rd, @as(u32, mem.readU16(addr)));
         },
         .LW => {
             const addr = cpu.readReg(inst.rs1) +% @as(u32, @bitCast(inst.imm));
+            try requireAligned(addr, 4);
             cpu.writeReg(inst.rd, mem.readU32(addr));
         },
 
@@ -115,10 +124,12 @@ pub fn execute(cpu: *Cpu, mem: *Memory, inst: DecodedInst) ExecuteError!void {
         },
         .SH => {
             const addr = cpu.readReg(inst.rs1) +% @as(u32, @bitCast(inst.imm));
+            try requireAligned(addr, 2);
             mem.writeU16(addr, @truncate(cpu.readReg(inst.rs2)));
         },
         .SW => {
             const addr = cpu.readReg(inst.rs1) +% @as(u32, @bitCast(inst.imm));
+            try requireAligned(addr, 4);
             mem.writeU32(addr, cpu.readReg(inst.rs2));
         },
 
@@ -398,6 +409,55 @@ test "execute LW / SW roundtrip" {
     const lw_inst = try DecodedInst.decode(0x00012303);
     try execute(&t.cpu, &t.mem, lw_inst);
     try std.testing.expectEqual(@as(u32, 0xCAFE_BABE), t.cpu.readReg(6));
+}
+
+test "execute rejects misaligned halfword and word accesses" {
+    const cases = [_]struct { opcode: Opcode, addr: u32 }{
+        .{ .opcode = .LH, .addr = 0x2001 },
+        .{ .opcode = .LHU, .addr = 0x2001 },
+        .{ .opcode = .SH, .addr = 0x2001 },
+        .{ .opcode = .LW, .addr = 0x2002 },
+        .{ .opcode = .SW, .addr = 0x2002 },
+    };
+    for (cases) |case| {
+        var t = makeTestCpuAndMem();
+        defer t.mem.deinit();
+        t.cpu.writeReg(2, case.addr);
+        t.cpu.writeReg(3, 0xCAFE_BABE);
+        const inst = DecodedInst{
+            .opcode = case.opcode,
+            .rd = 1,
+            .rs1 = 2,
+            .rs2 = 3,
+            .imm = 0,
+        };
+        try std.testing.expectError(error.MisalignedMemoryAccess, execute(&t.cpu, &t.mem, inst));
+        try std.testing.expectEqual(@as(u32, 0x1000), t.cpu.pc);
+        try std.testing.expectEqual(@as(u32, 0), t.cpu.readReg(1));
+        try std.testing.expectEqual(@as(u32, 0), t.mem.readU32(case.addr & ~@as(u32, 3)));
+    }
+}
+
+test "execute preserves unrestricted byte access" {
+    var t = makeTestCpuAndMem();
+    defer t.mem.deinit();
+    t.cpu.writeReg(2, 0x2001);
+    t.cpu.writeReg(3, 0xAB);
+    try execute(&t.cpu, &t.mem, .{
+        .opcode = .SB,
+        .rd = 0,
+        .rs1 = 2,
+        .rs2 = 3,
+        .imm = 0,
+    });
+    try execute(&t.cpu, &t.mem, .{
+        .opcode = .LBU,
+        .rd = 1,
+        .rs1 = 2,
+        .rs2 = 0,
+        .imm = 0,
+    });
+    try std.testing.expectEqual(@as(u32, 0xAB), t.cpu.readReg(1));
 }
 
 test "execute BEQ taken" {

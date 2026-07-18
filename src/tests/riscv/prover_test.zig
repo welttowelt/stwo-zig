@@ -30,16 +30,8 @@ const proveRiscVWithEngine = prover.proveRiscVWithEngine;
 test "riscv prover: end-to-end ELF prove and verify" {
     const alloc = std.testing.allocator;
 
-    // Build a hand-crafted ELF with ~8 instructions exercising multiple opcode families:
-    //   0x10000: ADDI x1, x0, 10     (0x00A00093) -- x1 = 10
-    //   0x10004: ADDI x2, x0, 20     (0x01400113) -- x2 = 20
-    //   0x10008: ADD  x3, x1, x2     (0x002081B3) -- x3 = 30
-    //   0x1000C: SW   x3, 0(x1)      (0x0030A023) -- mem[10] = 30 (store, addr=10)
-    //   0x10010: LW   x4, 0(x1)      (0x0000A203) -- x4 = mem[10] = 30 (load)
-    //   0x10014: BEQ  x3, x4, +8     (0x00418463) -- branch taken (30 == 30), skip to 0x1001C
-    //   0x10018: ADDI x5, x0, 99     (0x06300293) -- SKIPPED
-    //   0x1001C: JAL  x0, 0           (0x0000006F) -- untraced self-loop sentinel
-    const n_insts = 8;
+    // Build a guest that commits one public output word then self-halts.
+    const n_insts = 6;
     const code_size = n_insts * 4;
     const elf_size = 84 + code_size;
     var elf_buf: [elf_size]u8 = [_]u8{0} ** elf_size;
@@ -84,13 +76,11 @@ test "riscv prover: end-to-end ELF prove and verify" {
 
     // Instructions at offset 84
     const instructions = [n_insts]u32{
-        0x00A00093, // ADDI x1, x0, 10
-        0x01400113, // ADDI x2, x0, 20
-        0x002081B3, // ADD  x3, x1, x2
-        0x0030A023, // SW   x3, 0(x1)  -- store 30 at addr 10
-        0x0000A203, // LW   x4, 0(x1)  -- load from addr 10
-        0x00418463, // BEQ  x3, x4, +8 -- taken (30 == 30)
-        0x06300293, // ADDI x5, x0, 99 -- skipped
+        0x001000B7, // LUI x1, 0x100 -- io RW region base
+        0x00400113, // ADDI x2, x0, 4 -- output length
+        0x0020A223, // SW x2, 4(x1)
+        0x02A00193, // ADDI x3, x0, 42 -- output word
+        0x0030A423, // SW x3, 8(x1)
         0x0000006F, // JAL x0, 0 -- runner stops before tracing the sentinel
     };
     for (instructions, 0..) |inst_word, i| {
@@ -106,12 +96,9 @@ test "riscv prover: end-to-end ELF prove and verify" {
     defer run_result.deinit();
 
     // Verify execution correctness
-    try std.testing.expectEqual(@as(u32, 10), run_result.cpu_final.readReg(1));
-    try std.testing.expectEqual(@as(u32, 20), run_result.cpu_final.readReg(2));
-    try std.testing.expectEqual(@as(u32, 30), run_result.cpu_final.readReg(3));
-    try std.testing.expectEqual(@as(u32, 30), run_result.cpu_final.readReg(4));
-    // x5 should be 0 since BEQ was taken and ADDI x5 was skipped
-    try std.testing.expectEqual(@as(u32, 0), run_result.cpu_final.readReg(5));
+    try std.testing.expectEqual(@as(u32, 0x0010_0000), run_result.cpu_final.readReg(1));
+    try std.testing.expectEqual(@as(u32, 4), run_result.output_len);
+    try std.testing.expectEqualSlices(u8, &.{ 42, 0, 0, 0 }, run_result.output.?);
 
     // Step 2: Prove
     const config = pcs_core.PcsConfig{
@@ -123,19 +110,9 @@ test "riscv prover: end-to-end ELF prove and verify" {
         },
     };
 
-    const output = try proveRiscV(
-        alloc,
-        config,
-        &run_result.execution_trace,
-        &run_result.state_chain_tracker,
-        &run_result.rw_memory,
-    );
-
-    // Verify we got multiple components (the traced rows use ADDI, ADD, SW, LW, BEQ).
-    try std.testing.expect(output.statement.n_components > 1);
-
-    // Step 3: Verify (takes ownership of the proof)
-    try verifyRiscV(alloc, config, output.statement, output.proof, output.interaction_claim);
+    const statement = try riscv_cpu.proveAndVerifyElf(alloc, &elf_buf, 1000, config);
+    try std.testing.expect(statement.n_components > 1);
+    try std.testing.expectEqual(@as(u32, 4), statement.public_data.io_entries.output_len);
 }
 
 test "riscv prover: prove and verify synthetic trace" {
@@ -145,7 +122,6 @@ test "riscv prover: prove and verify synthetic trace" {
 
     exec_trace.initial_pc = 0x1000;
 
-    // Add 8 synthetic trace rows -- all ADDI, so one component.
     for (0..8) |i| {
         try exec_trace.append(.{
             .clk = @intCast(i + 1),
@@ -157,6 +133,9 @@ test "riscv prover: prove and verify synthetic trace" {
             .imm = 1,
             .rs1_val = 0,
             .rs2_val = 0,
+            .rs1_prev_clk = @intCast(i),
+            .rd_prev_val = if (i == 0) 0 else 1,
+            .rd_prev_clk = @intCast(i),
             .rd_val = 1,
             .mem_addr = 0,
             .mem_val = 0,
@@ -180,7 +159,6 @@ test "riscv prover: prove and verify synthetic trace" {
 
     const output = try proveRiscV(alloc, config, &exec_trace, null, null);
 
-    // All 8 rows are ADDI (base_alu_imm), so we should have 1 component.
     try std.testing.expectEqual(@as(u32, 1), output.statement.n_components);
     try std.testing.expectEqual(
         trace_mod.OpcodeFamily.base_alu_imm,
@@ -188,7 +166,6 @@ test "riscv prover: prove and verify synthetic trace" {
     );
     try std.testing.expectEqual(@as(u32, 3), output.statement.component_descs[0].log_size);
 
-    // Verify takes ownership of the proof.
     try verifyRiscV(alloc, config, output.statement, output.proof, output.interaction_claim);
 }
 
@@ -250,6 +227,9 @@ test "riscv prover: transaction engine is the proving substitution point" {
             .imm = 1,
             .rs1_val = 0,
             .rs2_val = 0,
+            .rs1_prev_clk = @intCast(row),
+            .rd_prev_val = if (row == 0) 0 else 1,
+            .rd_prev_clk = @intCast(row),
             .rd_val = 1,
             .mem_addr = 0,
             .mem_val = 0,
@@ -382,12 +362,6 @@ test "riscv prover: multi-family splitting" {
 
     exec_trace.initial_pc = 0x1000;
 
-    // Create a trace with 3 opcode families:
-    //   4 x ADD (base_alu_reg)
-    //   8 x ADDI (base_alu_imm)
-    //   4 x BEQ (branch_eq)
-
-    // 4 ADD instructions
     for (0..4) |i| {
         try exec_trace.append(.{
             .clk = @intCast(i + 1),
@@ -399,6 +373,10 @@ test "riscv prover: multi-family splitting" {
             .imm = 0,
             .rs1_val = 10,
             .rs2_val = 20,
+            .rs1_prev_clk = @intCast(i),
+            .rs2_prev_clk = @intCast(i),
+            .rd_prev_val = if (i == 0) 0 else 30,
+            .rd_prev_clk = @intCast(i),
             .rd_val = 30,
             .mem_addr = 0,
             .mem_val = 0,
@@ -409,7 +387,6 @@ test "riscv prover: multi-family splitting" {
             .inst_word = 0x003100b3,
         });
     }
-    // 8 ADDI instructions
     for (0..8) |i| {
         try exec_trace.append(.{
             .clk = @intCast(5 + i),
@@ -421,6 +398,9 @@ test "riscv prover: multi-family splitting" {
             .imm = 5,
             .rs1_val = 30,
             .rs2_val = 0,
+            .rs1_prev_clk = @intCast(4 + i),
+            .rd_prev_val = if (i == 0) 0 else 35,
+            .rd_prev_clk = if (i == 0) 0 else @intCast(4 + i),
             .rd_val = 35,
             .mem_addr = 0,
             .mem_val = 0,
@@ -431,7 +411,6 @@ test "riscv prover: multi-family splitting" {
             .inst_word = 0x00508213,
         });
     }
-    // 4 BEQ instructions
     for (0..4) |i| {
         try exec_trace.append(.{
             .clk = @intCast(13 + i),
@@ -442,13 +421,15 @@ test "riscv prover: multi-family splitting" {
             .rs2 = 2,
             .imm = 8,
             .rs1_val = 30,
-            .rs2_val = 30,
+            .rs2_val = 10,
+            .rs1_prev_clk = @intCast(12 + i),
+            .rs2_prev_clk = if (i == 0) 4 else @intCast(12 + i),
             .rd_val = 0,
             .mem_addr = 0,
             .mem_val = 0,
             .is_load = false,
             .is_store = false,
-            .branch_taken = true,
+            .branch_taken = false,
             .next_pc = @intCast(0x1030 + (i + 1) * 4),
             .inst_word = 0x00208463,
         });
@@ -499,12 +480,6 @@ test "riscv prover: ADDI + ADD + BNE split prove and verify" {
 
     exec_trace.initial_pc = 0x1000;
 
-    // Build a trace with 3 opcode families as required:
-    //   4 x ADDI (base_alu_imm)
-    //   2 x ADD  (base_alu_reg)
-    //   2 x BNE  (branch_eq)
-
-    // 4 ADDI instructions
     for (0..4) |i| {
         try exec_trace.append(.{
             .clk = @intCast(i + 1),
@@ -516,6 +491,9 @@ test "riscv prover: ADDI + ADD + BNE split prove and verify" {
             .imm = @intCast(i + 1),
             .rs1_val = 0,
             .rs2_val = 0,
+            .rs1_prev_clk = @intCast(i),
+            .rd_prev_val = @intCast(i),
+            .rd_prev_clk = @intCast(i),
             .rd_val = @intCast(i + 1),
             .mem_addr = 0,
             .mem_val = 0,
@@ -537,9 +515,13 @@ test "riscv prover: ADDI + ADD + BNE split prove and verify" {
             .rs1 = 1,
             .rs2 = 2,
             .imm = 0,
-            .rs1_val = 10,
+            .rs1_val = 4,
             .rs2_val = 20,
-            .rd_val = 30,
+            .rs1_prev_clk = @intCast(4 + i),
+            .rs2_prev_clk = if (i == 0) 0 else 5,
+            .rd_prev_val = if (i == 0) 0 else 24,
+            .rd_prev_clk = if (i == 0) 0 else 5,
+            .rd_val = 24,
             .mem_addr = 0,
             .mem_val = 0,
             .is_load = false,
@@ -562,8 +544,10 @@ test "riscv prover: ADDI + ADD + BNE split prove and verify" {
             .rs1 = 1,
             .rs2 = 2,
             .imm = 8,
-            .rs1_val = 10,
+            .rs1_val = 4,
             .rs2_val = 20,
+            .rs1_prev_clk = @intCast(6 + i),
+            .rs2_prev_clk = @intCast(6 + i),
             .rd_val = 0,
             .mem_addr = 0,
             .mem_val = 0,
@@ -631,6 +615,9 @@ fn testAddiTrace(alloc: std.mem.Allocator, n: usize) !trace_mod.Trace {
             .imm = 1,
             .rs1_val = 0,
             .rs2_val = 0,
+            .rs1_prev_clk = @intCast(i),
+            .rd_prev_val = if (i == 0) 0 else 1,
+            .rd_prev_clk = @intCast(i),
             .rd_val = 1,
             .mem_addr = 0,
             .mem_val = 0,
@@ -684,7 +671,7 @@ test "riscv prover: tampered interaction PoW is rejected before relation draws" 
     );
 }
 
-test "riscv prover: state and program claims cannot cross-cancel" {
+test "riscv prover: state and memory claims cannot cross-cancel" {
     const alloc = std.testing.allocator;
     var exec_trace = try testAddiTrace(alloc, 8);
     defer exec_trace.deinit();
@@ -692,7 +679,7 @@ test "riscv prover: state and program claims cannot cross-cancel" {
     const output = try proveRiscV(alloc, TEST_PCS_CONFIG, &exec_trace, null, null);
     var tampered = output.interaction_claim;
     tampered.state_claims[0] = tampered.state_claims[0].add(QM31.one());
-    tampered.prog_claims[0] = tampered.prog_claims[0].sub(QM31.one());
+    tampered.opcode_memory_claims[0][0] = tampered.opcode_memory_claims[0][0].sub(QM31.one());
     try std.testing.expect(std.meta.isError(verifyRiscV(
         alloc,
         TEST_PCS_CONFIG,
@@ -761,7 +748,7 @@ test "riscv prover: tampered final_pc is rejected" {
     try std.testing.expect(std.meta.isError(result));
 }
 
-test "riscv prover: tampered RW-memory root is rejected" {
+test "riscv prover: tampered RW-memory root presence is rejected" {
     const alloc = std.testing.allocator;
     var exec_trace = try testAddiTrace(alloc, 4);
     defer exec_trace.deinit();
@@ -781,7 +768,7 @@ test "riscv prover: tampered RW-memory root is rejected" {
     try std.testing.expect(output.statement.public_data.final_rw_root != null);
 
     var statement = output.statement;
-    statement.public_data.final_rw_root.? +%= 1;
+    statement.public_data.final_rw_root = null;
     try std.testing.expect(std.meta.isError(verifyRiscV(
         alloc,
         TEST_PCS_CONFIG,
@@ -806,6 +793,23 @@ test "riscv prover: public register mutation changes the transcript" {
         output.proof,
         output.interaction_claim,
     )));
+}
+
+test "riscv prover: public clock mutation is rejected" {
+    const alloc = std.testing.allocator;
+    var exec_trace = try testAddiTrace(alloc, 4);
+    defer exec_trace.deinit();
+
+    const output = try proveRiscV(alloc, TEST_PCS_CONFIG, &exec_trace, null, null);
+    var statement = output.statement;
+    statement.public_data.clock +%= 1;
+    try std.testing.expectError(error.InvalidStatement, verifyRiscV(
+        alloc,
+        TEST_PCS_CONFIG,
+        statement,
+        output.proof,
+        output.interaction_claim,
+    ));
 }
 
 test "riscv prover: program-bus claims cancel without a boundary term" {

@@ -66,6 +66,17 @@ pub fn mainColumnCount(family: trace.OpcodeFamily) usize {
     };
 }
 
+pub fn clockColumn(family: trace.OpcodeFamily) usize {
+    return switch (family) {
+        .lui, .auipc, .jalr, .jal, .mul => 1,
+        else => 0,
+    };
+}
+
+pub fn pcColumn(family: trace.OpcodeFamily) usize {
+    return clockColumn(family) + 1;
+}
+
 pub fn constraintCount(family: trace.OpcodeFamily) usize {
     return switch (family) {
         .base_alu_reg => moduleConstraintCount(semantics.base_alu_reg),
@@ -129,7 +140,7 @@ fn evaluateModule(
     columns: []const QM31,
     is_active: QM31,
 ) !Evaluation {
-    const n_columns = moduleColumnCount(Module);
+    const n_columns = comptime moduleColumnCount(Module);
     if (columns.len != n_columns) return error.InvalidMainTraceShape;
     var sampled: [n_columns]QM31 = undefined;
     @memcpy(&sampled, columns);
@@ -158,6 +169,14 @@ test "semantic evaluator covers every family without exceeding its bound" {
             mainColumnCount(family),
         );
     }
+}
+
+test "semantic evaluator exposes schema-driven clock and pc columns" {
+    try std.testing.expectEqual(@as(usize, 1), clockColumn(.lui));
+    try std.testing.expectEqual(@as(usize, 2), pcColumn(.jalr));
+    try std.testing.expectEqual(@as(usize, 1), clockColumn(.mul));
+    try std.testing.expectEqual(@as(usize, 0), clockColumn(.base_alu_reg));
+    try std.testing.expectEqual(@as(usize, 1), pcColumn(.load_store));
 }
 
 test "semantic evaluator accepts canonical inactive padding for compatible families" {
