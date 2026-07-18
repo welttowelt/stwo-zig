@@ -45,6 +45,14 @@ PINNED = "d478f783055aa0d73a93768a433a3c6c31c91d1c"
 # hashed into the receipt.
 ADAPTER_REL = "crates/prover/src/bin/cp11_dump.rs"
 ADAPTER_SOURCE_PATH = ROOT / "scripts" / "riscv_release_oracle_lib" / "cp11_dump.rs"
+ADAPTER_SUMS_REL = "crates/prover/src/bin/cp11_dump/relation_sums.rs"
+ADAPTER_SUMS_SOURCE_PATH = (
+    ROOT / "scripts" / "riscv_release_oracle_lib" / "cp11_dump" / "relation_sums.rs"
+)
+ADAPTER_OVERLAYS = (
+    (ADAPTER_REL, ADAPTER_SOURCE_PATH),
+    (ADAPTER_SUMS_REL, ADAPTER_SUMS_SOURCE_PATH),
+)
 
 BOUNDARIES = [
     "decode",
@@ -118,11 +126,20 @@ def build_oracle(source: Path, receipt: dict) -> Path:
         raise SystemExit("oracle checkout is not clean; refusing to build")
     submodule = _run(["git", "submodule", "status", "--recursive"], cwd=source)
     tree_digest = _tree_digest(source)
-    adapter_source = ADAPTER_SOURCE_PATH.read_bytes()
-
-    adapter_path = source / ADAPTER_REL
-    adapter_path.parent.mkdir(parents=True, exist_ok=True)
-    adapter_path.write_bytes(adapter_source)
+    overlay_files = []
+    overlay_paths = []
+    for relative_path, source_path in ADAPTER_OVERLAYS:
+        payload = source_path.read_bytes()
+        destination = source / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(payload)
+        overlay_paths.append(destination)
+        overlay_files.append(
+            {
+                "path": relative_path,
+                "sha256": hashlib.sha256(payload).hexdigest(),
+            }
+        )
     try:
         toolchain = _run(["rustc", "--version"], cwd=source).strip()
         build_cmd = ["cargo", "build", "--locked", "--release", "-p", "prover"]
@@ -140,9 +157,10 @@ def build_oracle(source: Path, receipt: dict) -> Path:
             "build_mode": "release",
             "adapter_overlay": {
                 "path": ADAPTER_REL,
-                "sha256": hashlib.sha256(adapter_source).hexdigest(),
-                "note": "thin serializer over the oracle's own runner crate; "
-                "applied after tree digest, removed after build",
+                "sha256": _canonical_digest(overlay_files),
+                "files": overlay_files,
+                "note": "aggregate identity of thin serializers over the oracle's "
+                "own production APIs; applied after tree digest, removed after build",
             },
             "executable_sha256": _sha256_file(exe),
             "host_arch": platform.machine(),
@@ -150,9 +168,10 @@ def build_oracle(source: Path, receipt: dict) -> Path:
         }
         return exe
     finally:
-        adapter_path.unlink(missing_ok=True)
+        for overlay_path in reversed(overlay_paths):
+            overlay_path.unlink(missing_ok=True)
         try:
-            adapter_path.parent.rmdir()
+            (source / ADAPTER_REL).parent.rmdir()
         except OSError:
             pass
 
