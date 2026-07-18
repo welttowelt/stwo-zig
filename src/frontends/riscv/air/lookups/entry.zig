@@ -29,13 +29,33 @@ pub const Domain = enum(u8) {
 
 pub const DOMAIN_COUNT: usize = @typeInfo(Domain).@"enum".fields.len;
 
+pub const Error = error{InvalidRelationArity};
+
+pub fn expectedArity(domain: Domain) u8 {
+    return switch (domain) {
+        .registers_state, .range_check_8_11, .range_check_8_8, .range_check_m31 => 2,
+        .memory_access => 7,
+        .program_access => 5,
+        .merkle, .bitwise => 4,
+        .poseidon2 => 16,
+        .poseidon2_io => 32,
+        .range_check_20 => 1,
+        .range_check_8_8_4 => 3,
+    };
+}
+
 pub const Entry = struct {
     domain: Domain,
     numerator: QM31,
     values: [MAX_ARITY]QM31 = .{QM31.zero()} ** MAX_ARITY,
     arity: u8,
 
-    pub fn denominator(self: Entry, relations: *const relations_mod.Relations) QM31 {
+    pub fn validate(self: Entry) Error!void {
+        if (self.arity != expectedArity(self.domain)) return error.InvalidRelationArity;
+    }
+
+    pub fn denominator(self: Entry, relations: *const relations_mod.Relations) Error!QM31 {
+        try self.validate();
         return switch (self.domain) {
             .registers_state => relations.registers_state.combineSecure(self.values[0..2].*),
             .memory_access => relations.memory_access.combineSecure(self.values[0..7].*),
@@ -68,17 +88,17 @@ pub const List = struct {
         return (self.len + self.batch_size - 1) / self.batch_size;
     }
 
-    pub fn pair(self: List, batch: usize, relations: *const relations_mod.Relations) logup.RowPair {
+    pub fn pair(self: List, batch: usize, relations: *const relations_mod.Relations) Error!logup.RowPair {
         const first = self.entries[batch * self.batch_size];
         if (self.batch_size == 1 or batch * self.batch_size + 1 == self.len) {
-            return logup.RowPair.single(first.numerator, first.denominator(relations));
+            return logup.RowPair.single(first.numerator, try first.denominator(relations));
         }
         const second = self.entries[batch * self.batch_size + 1];
         return .{
             .n1 = first.numerator,
-            .d1 = first.denominator(relations),
+            .d1 = try first.denominator(relations),
             .n2 = second.numerator,
-            .d2 = second.denominator(relations),
+            .d2 = try second.denominator(relations),
         };
     }
 };
@@ -154,4 +174,24 @@ test "lookup entry domains retain transcript order" {
     try std.testing.expectEqual(@as(u8, 0), @intFromEnum(Domain.registers_state));
     try std.testing.expectEqual(@as(u8, 6), @intFromEnum(Domain.bitwise));
     try std.testing.expectEqual(@as(u8, 11), @intFromEnum(Domain.range_check_m31));
+}
+
+test "lookup entry arities cover all twelve relation domains and fail closed" {
+    const relations = relations_mod.Relations.dummy();
+    for (0..DOMAIN_COUNT) |index| {
+        const domain: Domain = @enumFromInt(index);
+        var relation_entry = Entry{
+            .domain = domain,
+            .numerator = QM31.one(),
+            .arity = expectedArity(domain),
+        };
+        try relation_entry.validate();
+        _ = try relation_entry.denominator(&relations);
+        relation_entry.arity -|= 1;
+        try std.testing.expectError(error.InvalidRelationArity, relation_entry.validate());
+        try std.testing.expectError(
+            error.InvalidRelationArity,
+            relation_entry.denominator(&relations),
+        );
+    }
 }
