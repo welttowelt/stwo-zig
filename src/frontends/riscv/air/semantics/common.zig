@@ -4,12 +4,16 @@
 //! and the lifted evaluation domain. Keeping these functions scalar makes the
 //! same formulas usable in both paths without an expression-tree adapter.
 
+const std = @import("std");
 const M31 = @import("../../../../core/fields/m31.zig").M31;
 const QM31 = @import("../../../../core/fields/qm31.zig").QM31;
 
 pub const BYTE_RADIX = q(1 << 8);
 pub const WORD_RADIX = q(@as(u64, 1) << 32);
 pub const INV_BYTE_RADIX = QM31.fromBase(M31.fromCanonical(1 << 8).invUncheckedNonZero());
+pub const INV_2 = QM31.fromBase(M31.fromCanonical(2).invUncheckedNonZero());
+pub const INV_4 = QM31.fromBase(M31.fromCanonical(4).invUncheckedNonZero());
+pub const INV_32 = QM31.fromBase(M31.fromCanonical(32).invUncheckedNonZero());
 
 pub fn ConstraintSet(comptime n: usize) type {
     return struct {
@@ -91,21 +95,62 @@ pub const AccessChain = struct {
     clock_gap: QM31,
 };
 
+pub const RegistersStateTuple = struct {
+    pc: QM31,
+    clock: QM31,
+
+    pub fn values(self: @This()) [2]QM31 {
+        return .{ self.pc, self.clock };
+    }
+};
+
+pub const RegistersStateChain = struct {
+    previous: RegistersStateTuple,
+    next: RegistersStateTuple,
+};
+
+pub fn registersStateChain(pc: QM31, clock: QM31) RegistersStateChain {
+    return .{
+        .previous = .{ .pc = pc, .clock = clock },
+        .next = .{ .pc = pc.add(q(4)), .clock = clock.add(QM31.one()) },
+    };
+}
+
 pub fn registerAccessChain(access: Access, row_clock: QM31) AccessChain {
+    return accessChain(access, row_clock, QM31.zero(), access.addr, access.next);
+}
+
+pub fn accessChain(
+    access: Access,
+    row_clock: QM31,
+    addr_space: QM31,
+    addr: QM31,
+    next: [4]QM31,
+) AccessChain {
     return .{
         .previous = .{
-            .addr_space = QM31.zero(),
-            .addr = access.addr,
+            .addr_space = addr_space,
+            .addr = addr,
             .clock = access.previous_clock,
             .limbs = access.previous,
         },
         .next = .{
-            .addr_space = QM31.zero(),
-            .addr = access.addr,
+            .addr_space = addr_space,
+            .addr = addr,
             .clock = row_clock,
-            .limbs = access.next,
+            .limbs = next,
         },
         .clock_gap = row_clock.sub(access.previous_clock),
+    };
+}
+
+pub fn accessFromColumns(columns: []const QM31) Access {
+    std.debug.assert(columns.len == 10);
+    return .{
+        .addr = columns[0],
+        .previous = columns[1..5].*,
+        .previous_clock = columns[5],
+        .next = columns[6..10].*,
     };
 }
 
@@ -137,7 +182,6 @@ pub inline fn selectedCarryBit(selector: QM31, numerator: QM31) QM31 {
 }
 
 test "semantics common: compose little-endian word" {
-    const std = @import("std");
     const actual = composeU32(.{ q(0x78), q(0x56), q(0x34), q(0x12) });
     try std.testing.expect(actual.eql(q(0x12345678)));
 }
