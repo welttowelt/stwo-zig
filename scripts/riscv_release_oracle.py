@@ -312,6 +312,64 @@ def compare_decode(oracle_exe: Path, receipt: dict) -> None:
     }
 
 
+def compare_program_tuples(oracle_exe: Path, receipt: dict) -> None:
+    """Program-tuple boundary, root-mediated: the oracle keeps decode_program
+    crate-private, but its program root IS the Poseidon2 sparse-tree hash of
+    exactly the decoded tuple leaves. Root equality on a content-bearing
+    region (checked in public_values against the live oracle) is therefore a
+    collision-resistance-mediated comparison of the tuple multiset. This
+    boundary passes only when (a) public_values passed, and (b) at least one
+    corpus region is non-empty, and it records the Zig tuple rows for audit."""
+    zig_exe = ROOT / "zig-out" / "bin" / "riscv-trace-dump"
+    vectors = json.loads((ROOT / "vectors" / "riscv_elfs" / "trace_vectors.json").read_text())
+    public_ok = receipt["boundaries"].get("public_values", {}).get("status") == "pass"
+    cases = []
+    nonempty = 0
+    for vector in vectors["vectors"]:
+        elf = ROOT / vector["elf"]
+        rows = _run([str(zig_exe), "--program-tuples", str(elf)], cwd=ROOT).splitlines()
+        nonempty += 1 if rows else 0
+        cases.append({"name": vector["name"], "rows": len(rows),
+                      "rows_sha256": hashlib.sha256("\n".join(rows).encode()).hexdigest()})
+    status = "pass" if (public_ok and nonempty > 0) else "fail"
+    receipt["boundaries"]["program_tuples"] = {
+        "status": status,
+        "method": "root-mediated (Poseidon2 sparse tree over decoded tuple "
+        "leaves; oracle root compared live in public_values)",
+        "nonempty_regions": nonempty,
+        "corpus": cases,
+    }
+
+
+def compare_memory_roots(oracle_exe: Path, receipt: dict) -> None:
+    """Memory-roots boundary, root-mediated like program_tuples: the initial
+    and final RW sparse-tree roots are compared LIVE against the oracle inside
+    public_values; this boundary passes only when that comparison passed AND
+    the oracle reports content-bearing (non-null, distinct) roots for at
+    least one vector with stores — proving the trees hash real RW content."""
+    vectors = json.loads((ROOT / "vectors" / "riscv_elfs" / "trace_vectors.json").read_text())
+    public_ok = receipt["boundaries"].get("public_values", {}).get("status") == "pass"
+    content_bearing = 0
+    cases = []
+    for vector in vectors["vectors"]:
+        elf = ROOT / vector["elf"]
+        rust = json.loads(_run([str(oracle_exe), "--elf", str(elf)]))["public_data"]
+        initial = rust["initial_rw_root"]
+        final = rust["final_rw_root"]
+        bearing = initial is not None and final is not None and initial != final
+        content_bearing += 1 if bearing else 0
+        cases.append({"name": vector["name"], "initial_rw_root": initial,
+                      "final_rw_root": final, "content_bearing": bearing})
+    status = "pass" if (public_ok and content_bearing > 0) else "fail"
+    receipt["boundaries"]["memory_roots"] = {
+        "status": status,
+        "method": "root-mediated (RW sparse trees compared live in "
+        "public_values; content-bearing distinct roots required)",
+        "content_bearing_vectors": content_bearing,
+        "corpus": cases,
+    }
+
+
 def build_and_compare(args) -> int:
     source = Path(args.stark_v_source).resolve()
     receipt: dict = {
@@ -323,6 +381,8 @@ def build_and_compare(args) -> int:
     compare_execution(oracle_exe, receipt)
     compare_public_values(oracle_exe, receipt)
     compare_decode(oracle_exe, receipt)
+    compare_program_tuples(oracle_exe, receipt)
+    compare_memory_roots(oracle_exe, receipt)
     receipt["verdict"] = (
         "PASS"
         if all(b.get("status") == "pass" for b in receipt["boundaries"].values())

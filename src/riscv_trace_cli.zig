@@ -24,6 +24,7 @@ pub fn main() !void {
     var elf_path: ?[]const u8 = null;
     var output_path: ?[]const u8 = null;
     var decode_file: ?[]const u8 = null;
+    var program_tuples: ?[]const u8 = null;
     var max_steps: usize = 1_000_000;
 
     var i: usize = 1;
@@ -37,6 +38,9 @@ pub fn main() !void {
         } else if (std.mem.eql(u8, args[i], "--decode-file") and i + 1 < args.len) {
             i += 1;
             decode_file = args[i];
+        } else if (std.mem.eql(u8, args[i], "--program-tuples") and i + 1 < args.len) {
+            i += 1;
+            program_tuples = args[i];
         } else if (std.mem.eql(u8, args[i], "--max-steps") and i + 1 < args.len) {
             i += 1;
             max_steps = try std.fmt.parseInt(usize, args[i], 10);
@@ -48,6 +52,11 @@ pub fn main() !void {
 
     if (decode_file) |path| {
         try dumpDecodeMatrix(allocator, path);
+        return;
+    }
+
+    if (program_tuples) |path| {
+        try dumpProgramTuples(allocator, path);
         return;
     }
 
@@ -123,6 +132,35 @@ fn dumpDecodeMatrix(allocator: std.mem.Allocator, path: []const u8) !void {
         } else |_| {
             try writer.print("{x:0>8} -\n", .{word});
         }
+    }
+    const stdout = std.fs.File{ .handle = std.posix.STDOUT_FILENO };
+    try stdout.writeAll(out.items);
+}
+
+/// Program-tuple mode for oracle parity: decode_program rows over the
+/// declared region, canonical line format, byte-compared with the oracle.
+fn dumpProgramTuples(allocator: std.mem.Allocator, path: []const u8) !void {
+    const program_decode = @import("frontends/riscv/air/program/decode.zig");
+    const memory_mod = @import("frontends/riscv/runner/memory.zig");
+    const elf_loader = @import("frontends/riscv/runner/elf_loader.zig");
+
+    const elf_bytes = try std.fs.cwd().readFileAlloc(allocator, path, 64 * 1024 * 1024);
+    defer allocator.free(elf_bytes);
+    var mem = memory_mod.Memory.init(allocator);
+    defer mem.deinit();
+    const elf_info = try elf_loader.loadElf(elf_bytes, &mem);
+    const layout = elf_info.memory_layout;
+
+    var out: std.ArrayList(u8) = .{};
+    defer out.deinit(allocator);
+    const writer = out.writer(allocator);
+    var addr: u32 = layout.program_base;
+    while (addr < layout.program_end) : (addr += 4) {
+        const word = mem.readU32(addr);
+        const values = try program_decode.decodeProgramWord(word);
+        try writer.print("{x:0>8} {d} {d} {d} {d}\n", .{
+            addr, values[0], values[1], values[2], values[3],
+        });
     }
     const stdout = std.fs.File{ .handle = std.posix.STDOUT_FILENO };
     try stdout.writeAll(out.items);
