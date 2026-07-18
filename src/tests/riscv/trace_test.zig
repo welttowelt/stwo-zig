@@ -8,6 +8,10 @@ const StateChainTracker = @import("../../frontends/riscv/runner/state_chain.zig"
 
 test {
     std.testing.refAllDeclsRecursive(runner);
+    // AIR-layer suites are gated here so they can never silently rot.
+    _ = @import("../../frontends/riscv/air/logup.zig");
+    _ = @import("../../frontends/riscv/air/interaction.zig");
+    _ = @import("../../frontends/riscv/air/relations.zig");
 }
 
 test "infra_trace: genMemoryColumns caps rows at the domain size" {

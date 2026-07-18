@@ -92,16 +92,16 @@ pub const RangeCheckM31Relation = struct {
 
 test "relation IDs are distinct" {
     const ids = [_]u32{
-        OpcodeRelation.ID.inner,
-        MemoryAccessRelation.ID.inner,
-        RegisterAccessRelation.ID.inner,
-        ProgramLookupRelation.ID.inner,
-        BitwiseRelation.ID.inner,
-        RangeCheck20Relation.ID.inner,
-        RangeCheck8_8Relation.ID.inner,
-        RangeCheck8_11Relation.ID.inner,
-        RangeCheck8_8_4Relation.ID.inner,
-        RangeCheckM31Relation.ID.inner,
+        OpcodeRelation.ID.v,
+        MemoryAccessRelation.ID.v,
+        RegisterAccessRelation.ID.v,
+        ProgramLookupRelation.ID.v,
+        BitwiseRelation.ID.v,
+        RangeCheck20Relation.ID.v,
+        RangeCheck8_8Relation.ID.v,
+        RangeCheck8_11Relation.ID.v,
+        RangeCheck8_8_4Relation.ID.v,
+        RangeCheckM31Relation.ID.v,
     };
     // Check all pairs are distinct.
     for (ids, 0..) |a, i| {
