@@ -271,7 +271,7 @@ const MerkleTreeResult = struct {
 ///
 /// Returns the captured hash traces (for Poseidon2 trace columns), the total
 /// number of hash invocations (for Merkle trace columns), and the tree root.
-fn buildProgramSparseRoot(
+pub fn buildProgramSparseRoot(
     allocator: std.mem.Allocator,
     opt_memory: ?*const memory_state.Snapshot,
 ) !?u32 {
