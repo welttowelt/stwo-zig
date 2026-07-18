@@ -110,6 +110,7 @@ def summarize_samples(
     repeats: int,
     env: Optional[Dict[str, str]] = None,
     stage_profile_path: Optional[Path] = None,
+    generated_artifact_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
     if repeats <= 0:
         raise ValueError("--repeats must be positive")
@@ -124,6 +125,8 @@ def summarize_samples(
     for i in range(warmups + repeats):
         if stage_profile_path is not None and stage_profile_path.exists():
             stage_profile_path.unlink()
+        if generated_artifact_path is not None:
+            generated_artifact_path.unlink(missing_ok=True)
         run_result = run_timed(cmd, env)
         raw_runs.append(
             {
@@ -342,6 +345,7 @@ def benchmark_runtime(
         repeats,
         runtime_env,
         stage_profile_path=stage_profile_path,
+        generated_artifact_path=artifact_path,
     )
     metrics = proof_metrics(artifact_path)
     verify_stats = summarize_samples(
