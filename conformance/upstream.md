@@ -97,4 +97,4 @@ The current Native Stwo increment targets:
 4. Re-run vector generation for all committed fixtures in the affected lane.
 5. Require the affected Zig parity, bidirectional interoperability, and exact Rust-oracle tests to
    pass before merging.
-6. Document any intentional divergence in `docs/conformance/divergence-log.md`.
+6. Document any intentional divergence in `conformance/divergence-log.md`.
