@@ -8,7 +8,7 @@ from scripts.check_upstream_pins import PinLedgerError, parse_ledger, validate_r
 
 
 ROOT = Path(__file__).resolve().parents[2]
-LEDGER = ROOT / "docs" / "conformance" / "upstream.md"
+LEDGER = ROOT / "conformance" / "upstream.md"
 
 
 class UpstreamPinTests(unittest.TestCase):

@@ -1,28 +1,28 @@
+# Build outputs
 .zig-cache/
 zig-out/
+target/
 tools/stwo-vector-gen/target/
 tools/stwo-interop-rs/target/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# macOS
+.DS_Store
+
+# Metal pipeline archives
+*.metallib.binarchive
+
+# Judge run products (published signed to the judge-verdicts branch, never tracked)
+judge-out/
+
+# Regenerated run outputs. Evidence lives in the tracked history and archive
+# directories under vectors/reports/; loose root-level products are ephemeral.
 vectors/.fields.tmp.json
 vectors/.bench*
 vectors/.profile*
-vectors/reports/e2e_interop_report.json
-vectors/reports/latest_e2e_interop_report.json
+vectors/reports/*.json
 vectors/reports/interop_artifacts/
-vectors/reports/benchmark_smoke_report.json
-vectors/reports/latest_benchmark_smoke_report.json
-vectors/reports/profile_smoke_report.json
-vectors/reports/latest_profile_smoke_report.json
-vectors/reports/*_artifact.json
-vectors/reports/prove_checkpoints_report.json
-vectors/reports/latest_prove_checkpoints_report.json
 vectors/reports/prove_checkpoints_artifacts/
-vectors/reports/release_evidence.json
-vectors/reports/latest_release_evidence.json
-target/
-__pycache__/
-*.py[cod]
-*.metallib.binarchive
-.DS_Store
-/cairo_bench
-/riscv_bench
-/riscv_trace_cli

@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_LEDGER = ROOT / "docs" / "conformance" / "upstream.md"
+DEFAULT_LEDGER = ROOT / "conformance" / "upstream.md"
 REVISION_RE = r"[0-9a-f]{40}"
 
 
@@ -455,7 +455,7 @@ def _text_pins(ledger: PinLedger) -> tuple[TextPin, ...]:
 
 
 def validate_repository(root: Path = ROOT, ledger_path: Path | None = None) -> list[str]:
-    path = ledger_path or root / "docs" / "conformance" / "upstream.md"
+    path = ledger_path or root / "conformance" / "upstream.md"
     try:
         ledger = parse_ledger(path)
     except (OSError, PinLedgerError) as error:

@@ -18,11 +18,11 @@ Protocol parity with Rust. Portable CPU execution. Resident GPU proving on Metal
 
 `stwo-zig` is a parity-first port of [StarkWare's Stwo](https://github.com/starkware-libs/stwo).
 It brings Stwo's circle-STARK protocol to Zig while making memory, vectorization, and device
-execution explicit. The result is one proving stack with native examples, Cairo and RISC-V
-frontends, and backends designed for both portability and throughput.
+execution explicit. The result is one proving stack: pure Stwo with native examples today,
+and the Cairo frontend (stwo-cairo in Zig) when that effort resumes.
 
 > [!IMPORTANT]
-> The [pinned Rust Stwo revision](docs/conformance/upstream.md) is the final correctness oracle.
+> The [pinned Rust Stwo revision](conformance/upstream.md) is the final correctness oracle.
 > Gated proofs cross-verify in both directions: Rust to Zig and Zig to Rust.
 
 ## Backends
@@ -38,8 +38,7 @@ frontends, and backends designed for both portability and throughput.
 | Surface | Current status |
 | :--- | :--- |
 | **Native Stwo** | Blake, Poseidon, Plonk, state-machine, wide-Fibonacci, and XOR AIRs |
-| **Cairo** | Versioned PIE ingestion and SN2-specialized resident proof machinery; the general Cairo proof path is not yet release-gated |
-| **RISC-V** | RV32IM execution and trace generation; the complete RV32IM AIR is not yet release-gated |
+| **Cairo** | Versioned PIE ingestion and SN2-specialized resident proof machinery, parked until the stwo-cairo effort resumes; the general Cairo proof path is not release-gated |
 
 ## Quick Start
 
@@ -48,7 +47,6 @@ Requires **Zig 0.15.x** and **Python 3**. Rust parity tooling uses
 
 ```sh
 zig build test -Doptimize=ReleaseFast
-zig build test-riscv-prover -Doptimize=ReleaseFast
 zig build metal-test -Doptimize=ReleaseFast  # macOS with Metal
 ```
 
@@ -69,10 +67,10 @@ python3 scripts/install_hooks.py
 
 | | |
 | :--- | :--- |
-| **[Documentation](docs/README.md)** | Architecture, performance reports, profiling, and project history |
-| **[Conformance](docs/conformance/contract.md)** | Protocol parity, interoperability, and release requirements |
-| **[Metal architecture](docs/sn-pie-metal-production-architecture.md)** | The end-to-end design for resident, streaming block proving |
-| **[Benchmarks](docs/cairo-fib-resident-metal-vs-simd.md)** | Rust Stwo-Cairo SIMD and Metal reference measurements with proof parity |
+| **[Conformance](conformance/upstream.md)** | Pinned oracle revisions, API parity ledger, and the source-conformance baseline |
+| **[Autoresearch](autoresearch/README.md)** | The stwo-perf harness: judged scoring, submissions, ledger, and site feed |
+| **[Benchmark history](vectors/reports/benchmark_history/index.json)** | Immutable judged runs, deltas, and bundles under human-readable run ids |
+| **Design archive** | Prose architecture and history live in the sibling `stwo-zig-og-docs` directory |
 | **[Contributing](CONTRIBUTING.md)** | Zig, SIMD, Metal, correctness, and engineering standards |
 
 The compatibility target is pinned to upstream commit

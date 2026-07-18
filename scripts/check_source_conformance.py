@@ -33,7 +33,7 @@ except ModuleNotFoundError:  # Direct execution adds scripts/, not the repositor
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_BASELINE = ROOT / "docs/conformance/source-baseline.json"
+DEFAULT_BASELINE = ROOT / "conformance/source-baseline.json"
 BASELINE_VERSION = 3
 BASELINE_TRACKS = ("active_native_backend", "deferred_todo")
 DEFAULT_BASELINE_TRACK = "active_native_backend"
@@ -284,9 +284,9 @@ def write_baseline(
             "reason": "Legacy source-layout debt present when the conformance ratchet was introduced.",
             "next_extraction": "Classify and extract the next responsibility named by the remediation plan.",
             "plan": (
-                "docs/design/2026-07-17-metal-shader-library-decomposition.md"
+                "conformance/decomposition-plan.md"
                 if ".metal" in finding.key
-                else "docs/design/2026-07-17-source-conformance.md"
+                else "conformance/decomposition-plan.md"
             ),
         }
         if finding.key.startswith("file-size:"):

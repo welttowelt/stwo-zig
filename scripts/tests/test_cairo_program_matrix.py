@@ -25,7 +25,7 @@ from cairo_program_benchmark_lib.matrix import (  # noqa: E402
 )
 
 
-DOCUMENT_PATH = REPOSITORY_ROOT / "docs/design/2026-07-17-cairo-program-matrix.md"
+DOCUMENT_PATH = REPOSITORY_ROOT / "vectors/cairo/cairo_program_matrix.json"  # JSON is the authority; prose archived in stwo-zig-og-docs
 
 
 def table_rows(header: str) -> list[list[str]]:
@@ -97,41 +97,6 @@ class MatrixAuthorityTests(unittest.TestCase):
                 self.assertEqual(tier.expected_cycles, record["expected_cycles"])
                 self.assertEqual(program.expected_cycle_count(size), record["expected_cycles"])
         self.assertNotIn(25_000, dict((program.slug, sizes) for program, sizes in cases)["fib"])
-
-    def test_document_program_table_matches_the_manifest(self) -> None:
-        rows = table_rows("| Program | Size unit | Input meaning | Primary stress |")
-        expected = {
-            record["slug"]: record for record in MATRIX["programs"]
-        }
-        self.assertEqual(len(rows), PROGRAM_COUNT)
-        self.assertEqual({unquote_code(row[0]) for row in rows}, set(expected))
-        for row in rows:
-            record = expected[unquote_code(row[0])]
-            self.assertEqual(unquote_code(row[1]), record["size_unit"])
-            self.assertEqual(row[2], record["size_semantics"])
-            self.assertEqual(row[3], record["primary_stress"])
-
-    def test_document_geometry_table_matches_all_27_cells(self) -> None:
-        rows = table_rows(
-            "| Program | Small input / cycles | Medium input / cycles | Large input / cycles |"
-        )
-        manifest_cases = {
-            (case["program"], case["tier"]): case for case in MATRIX["cases"]
-        }
-        self.assertEqual(len(rows), PROGRAM_COUNT)
-        for row in rows:
-            slug = unquote_code(row[0])
-            for index, tier in enumerate(TIER_NAMES, start=1):
-                case = manifest_cases[(slug, tier)]
-                self.assertEqual(size_and_cycles(row[index]), (case["size"], case["expected_cycles"]))
-
-    def test_document_names_the_same_source_and_compiler_contract(self) -> None:
-        document = DOCUMENT_PATH.read_text()
-        self.assertIn(SOURCE_REPOSITORY["url"], document)
-        self.assertIn(SOURCE_REPOSITORY["commit"], document)
-        self.assertIn(f"`{COMPILER['version']}`", document)
-        self.assertRegex(document, re.escape("Fib25k is a separate implementation bring-up"))
-
 
 if __name__ == "__main__":
     unittest.main()

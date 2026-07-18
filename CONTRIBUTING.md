@@ -67,7 +67,7 @@ When requirements compete, use this order:
 1. **Protocol correctness and soundness.** Transcript order, field semantics, statement binding,
    proof shape, and verification behavior are never traded for speed.
 2. **Pinned Rust Stwo oracle parity.** For every protocol surface shared with Stwo, the Rust
-   implementation pinned in `docs/conformance/upstream.md` is the final correctness oracle.
+   implementation pinned in `conformance/upstream.md` is the final correctness oracle.
    Agreement among Zig scalar, SIMD, and Metal implementations cannot overrule a Rust disagreement.
 3. **Memory and resource safety.** Ownership, bounds, lifetimes, alignment, queue completion, and
    failure cleanup must be explicit and correct.
@@ -92,7 +92,7 @@ The codebase is divided by responsibility, not by arbitrary file size or impleme
 The intended dependency direction is:
 
 ```text
-frontends/{cairo,riscv}       block/program semantics, ingestion, AIR, witness
+frontends/cairo               block/program semantics, ingestion, AIR, witness (parked until stwo-cairo resumes)
              |
              v
 prover + backend contracts    protocol orchestration and capability interfaces
@@ -120,14 +120,13 @@ docs                           architecture, protocols, performance claims, oper
   and MSL details stop at this boundary.
 - `src/backends/cuda/`: CUDA-specific resources and execution, isolated from Metal and core.
 - `src/frontends/cairo/`: Cairo statement, adapter, AIR, witness, geometry, and proof-plan logic.
-- `src/frontends/riscv/`: RISC-V runner, trace, AIR, witness, and prover integration.
 - `src/interop/`: versioned external representations and cross-language conversion.
 - `src/bench/`: benchmark execution primitives, not production protocol logic.
 - `scripts/`: orchestration and report tooling. Scripts must call stable program boundaries rather
   than duplicate proof semantics.
 - `tools/`: independently buildable adapters and developer utilities.
 - `vectors/`: committed conformance inputs, outputs, and machine-readable evidence.
-- `docs/`: normative designs, operational procedures, and interpretation of evidence.
+- `conformance/`: machine-read pins, parity ledger, and the source baseline. Prose design history lives in the sibling `stwo-zig-og-docs` archive.
 
 ### Dependency rules
 
@@ -135,7 +134,7 @@ docs                           architecture, protocols, performance claims, oper
 2. Frontends depend on `core` and prover interfaces; `core` never imports a frontend.
 3. Concrete backends implement capabilities; generic prover code must not identify a backend by
    name and branch on it.
-4. Metal runtime and shader details do not cross into Cairo, RISC-V, or core types.
+4. Metal runtime and shader details do not cross into Cairo or core types.
 5. Benchmark/report code does not decide proof semantics or enable production behavior.
 6. Cross-language formats are versioned at `interop`; raw internal layouts are not public formats.
 7. A convenience import must not create a dependency cycle or make a private representation part
@@ -201,7 +200,7 @@ A change will be blocked when any of the following applies:
     behavior under review.
 13. **No final Rust-oracle evidence.** A shared Stwo protocol change, optimized backend, or proof
     path lacks conformance against the exact Rust revision pinned in
-    `docs/conformance/upstream.md`. Zig-to-Zig agreement, including agreement between scalar, SIMD,
+    `conformance/upstream.md`. Zig-to-Zig agreement, including agreement between scalar, SIMD,
     Metal, and the Zig verifier, is necessary but not sufficient.
 
 ---
@@ -225,7 +224,7 @@ Before non-trivial code, write down:
 - scalar/reference behavior used to prove parity;
 - the benchmark that can falsify the performance hypothesis.
 
-Put substantial designs under `docs/design/<YYYY-MM-DD>-<slug>.md`, or extend an existing normative
+Record substantial designs as dated notes in the `stwo-zig-og-docs` archive, or extend an existing normative
 architecture document when the concern already has one. The document should be as short as the
 problem permits, but long enough to remove ambiguity. Large architecture changes need a dataflow
 diagram and an ownership/lifetime diagram.
@@ -448,7 +447,7 @@ lifetimes visible.
 - Variables and fields use `snake_case`.
 - Constants follow the prevailing Zig convention for their role; do not encode type information in
   names.
-- Use domain terminology from Stwo, Cairo, RISC-V, FRI, PCS, and Metal consistently.
+- Use domain terminology from Stwo, Cairo, FRI, PCS, and Metal consistently.
 - Abbreviations are acceptable only when standard in the domain: `fri`, `pcs`, `air`, `oods`,
   `lde`, `simd`, `gpu`, `m31`, `qm31`.
 
@@ -642,7 +641,7 @@ A cache hit with incomplete identity is a correctness failure.
 ### Rust Stwo is the final correctness oracle
 
 For all behavior within the shared Stwo compatibility scope, the Rust implementation at the exact
-commit recorded in `docs/conformance/upstream.md` is authoritative. This is a release and review
+commit recorded in `conformance/upstream.md` is authoritative. This is a release and review
 gate, not an optional diagnostic.
 
 The oracle hierarchy is:
@@ -667,7 +666,7 @@ Consequences:
 - Oracle evidence must identify the Rust source revision and the executable/artifact used. Do not
   compare different Rust revisions opportunistically.
 - Upgrading the oracle is a controlled compatibility event: update
-  `docs/conformance/upstream.md`, regenerate bound vectors, rerun bidirectional interop and tamper
+  `conformance/upstream.md`, regenerate bound vectors, rerun bidirectional interop and tamper
   gates, and document intentional semantic changes.
 - A Zig-only protocol extension cannot be called Stwo-parity-complete until a Rust reference,
   verifier adapter, or other Rust-side oracle at the pinned boundary can validate its shared
@@ -1095,13 +1094,6 @@ zig build interop
 zig build prove-checkpoints
 ```
 
-For RISC-V work:
-
-```bash
-zig build test-riscv
-zig build test-riscv-prover
-```
-
 For Metal work on a supported Mac:
 
 ```bash
@@ -1432,7 +1424,7 @@ boundaries.
 - [ ] Scalar/reference behavior exists for optimized arithmetic or kernels.
 - [ ] Boundary, failure, and fixed-seed differential tests are included.
 - [ ] Protocol/security parameters are unchanged or deliberately versioned.
-- [ ] The exact Rust Stwo revision and oracle artifact match `docs/conformance/upstream.md`.
+- [ ] The exact Rust Stwo revision and oracle artifact match `conformance/upstream.md`.
 - [ ] Rust proofs verify in Zig and Zig proofs verify through the pinned Rust boundary.
 - [ ] Deterministic proof bytes match Rust, or documented canonical semantic checkpoints explain and
       validate any permitted byte difference.

@@ -34,7 +34,7 @@ def parse_upstream_commit() -> str:
     text = UPSTREAM_PATH.read_text(encoding="utf-8")
     match = re.search(r"Pinned commit:\s*`([0-9a-f]{40})`", text)
     if not match:
-        raise RuntimeError("failed to parse pinned commit from docs/conformance/upstream.md")
+        raise RuntimeError("failed to parse pinned commit from conformance/upstream.md")
     return match.group(1)
 
 
@@ -43,7 +43,7 @@ def parse_api_parity_json() -> dict:
     start = text.find(API_PARITY_JSON_START)
     end = text.find(API_PARITY_JSON_END)
     if start < 0 or end < 0 or end <= start:
-        raise RuntimeError("failed to locate API parity JSON markers in docs/conformance/api-parity.md")
+        raise RuntimeError("failed to locate API parity JSON markers in conformance/api-parity.md")
     snippet = text[start + len(API_PARITY_JSON_START) : end]
     match = re.search(r"```json\s*(\{.*\})\s*```", snippet, re.DOTALL)
     if not match:
@@ -86,7 +86,7 @@ def main() -> int:
 
     symbols = payload.get("symbols")
     if not isinstance(symbols, dict):
-        raise RuntimeError("docs/conformance/api-parity.md payload missing symbols object")
+        raise RuntimeError("conformance/api-parity.md payload missing symbols object")
 
     rust_paths = {
         str(entry.get("rust_path"))

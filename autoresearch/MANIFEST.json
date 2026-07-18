@@ -2,7 +2,7 @@
   "manifest_version": 1,
   "harness": {
     "name": "stwo-perf",
-    "contract": "docs/design/2026-07-17-performance-extraction-playbook.md#part-f-the-autoresearch-harness",
+    "contract": "stwo-zig-og-docs archive: 2026-07-17-performance-extraction-playbook.md, Part F",
     "anchor_commit": null,
     "anchor_report": null,
     "anchor_prove_ms": { "small": null, "wide": null, "deep": null },
@@ -29,7 +29,7 @@
     "autoresearch/**",
     "scripts/**",
     "vectors/**",
-    "docs/conformance/**",
+    "conformance/**",
     "build.zig",
     "build.zig.zon",
     "build/**",

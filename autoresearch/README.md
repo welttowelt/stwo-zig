@@ -1,7 +1,7 @@
 # stwo-perf: the autoresearch harness
 
 Implementation of the harness contract in
-[`docs/design/2026-07-17-performance-extraction-playbook.md`](../docs/design/2026-07-17-performance-extraction-playbook.md),
+the performance-extraction playbook (Part F; archived in `stwo-zig-og-docs`),
 Part F. One CLI governs the optimization search from workspace creation to
 submission; the judge — never the searcher — decides scores; and this git
 repository is the source of truth: promoted efforts are merged commits whose

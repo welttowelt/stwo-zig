@@ -408,7 +408,7 @@ class SourceConformanceTests(unittest.TestCase):
     def test_checked_in_schema_matches_enforced_baseline_contract(self) -> None:
         repo = Path(__file__).resolve().parents[2]
         schema = json.loads(
-            (repo / "docs/conformance/source-baseline.schema.json").read_text(encoding="utf-8")
+            (repo / "conformance/source-baseline.schema.json").read_text(encoding="utf-8")
         )
         self.assertEqual(BASELINE_VERSION, schema["properties"]["version"]["const"])
         finding = schema["$defs"]["finding"]
@@ -445,7 +445,7 @@ class SourceConformanceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             repo = Path(temporary)
             (repo / "src").mkdir()
-            plan = repo / "docs/design/2026-07-17-source-conformance.md"
+            plan = repo / "conformance/decomposition-plan.md"
             plan.parent.mkdir(parents=True)
             plan.write_text("# Plan\n", encoding="utf-8")
             source = repo / "src/tool.zig"
@@ -475,7 +475,7 @@ class SourceConformanceTests(unittest.TestCase):
             with redirect_stderr(io.StringIO()):
                 self.assertEqual(1, main(["--repo", str(repo), "--baseline", str(baseline)]))
 
-            plan = repo / "docs/design/2026-07-17-source-conformance.md"
+            plan = repo / "conformance/decomposition-plan.md"
             plan.parent.mkdir(parents=True)
             plan.write_text("# Plan\n", encoding="utf-8")
             with redirect_stdout(io.StringIO()):
@@ -491,7 +491,7 @@ class SourceConformanceTests(unittest.TestCase):
             source = repo / "src/core/legacy.zig"
             source.parent.mkdir(parents=True)
             source.write_text("\n" * 900, encoding="utf-8")
-            plan = repo / "docs/design/2026-07-17-source-conformance.md"
+            plan = repo / "conformance/decomposition-plan.md"
             plan.parent.mkdir(parents=True)
             plan.write_text("# Plan\n", encoding="utf-8")
             baseline = repo / "baseline.json"

@@ -4,8 +4,6 @@ const m31 = @import("../../../core/fields/m31.zig");
 const blake2_merkle = @import("../../../core/vcs_lifted/blake2_merkle.zig");
 const blake2_hash = @import("../../../core/vcs/blake2_hash.zig");
 const merkle_prover = @import("../../../prover/vcs_lifted/prover.zig");
-const riscv_prover = @import("../../../frontends/riscv/prover.zig");
-const trace_mod = @import("../../../frontends/riscv/runner/trace.zig");
 const pcs_core = @import("../../../core/pcs/mod.zig");
 const MetalProverEngine = @import("../../../backends/metal/prover_engine.zig").MetalProverEngine;
 const canonic = @import("../../../core/poly/circle/canonic.zig");
@@ -307,49 +305,4 @@ test "metal: prepared sparse Merkle leaves match committed tree" {
     defer resident.deinit();
     _ = try runtime.residentMerklePrepared(arena, resident);
     try std.testing.expectEqualSlices(u8, &reference_layers[0], std.mem.sliceAsBytes(words[layer_offsets[10] .. layer_offsets[10] + 8]));
-}
-
-test "metal: transaction engine proves and CPU verifier accepts" {
-    const allocator = std.testing.allocator;
-    var trace = trace_mod.Trace.init(allocator);
-    defer trace.deinit();
-    trace.initial_pc = 0x1000;
-    for (0..8) |row| {
-        try trace.append(.{
-            .clk = @intCast(row),
-            .pc = @intCast(0x1000 + row * 4),
-            .opcode = .ADDI,
-            .rd = 1,
-            .rs1 = 0,
-            .rs2 = 0,
-            .imm = 1,
-            .rs1_val = 0,
-            .rs2_val = 0,
-            .rd_val = @intCast(row + 1),
-            .mem_addr = 0,
-            .mem_val = 0,
-            .is_load = false,
-            .is_store = false,
-            .branch_taken = false,
-            .next_pc = @intCast(0x1000 + (row + 1) * 4),
-        });
-    }
-    trace.final_pc = 0x1020;
-    const config = pcs_core.PcsConfig{
-        .pow_bits = 0,
-        .fri_config = .{
-            .log_blowup_factor = 1,
-            .log_last_layer_degree_bound = 0,
-            .n_queries = 3,
-        },
-    };
-    const output = try riscv_prover.proveRiscVWithEngine(
-        MetalProverEngine,
-        allocator,
-        config,
-        &trace,
-        null,
-        null,
-    );
-    try riscv_prover.verifyRiscV(allocator, config, output.statement, output.proof);
 }

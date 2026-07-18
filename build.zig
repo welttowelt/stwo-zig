@@ -93,7 +93,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     const cross_module_test_options = b.addOptions();
-    cross_module_test_options.addOption(bool, "riscv_only", false);
     cross_module_test_options.addOption(bool, "metal_only", false);
     cross_module_test_module.addOptions("test_options", cross_module_test_options);
     const cross_module_tests = b.addTest(.{ .root_module = cross_module_test_module });
@@ -140,65 +139,6 @@ pub fn build(b: *std.Build) void {
     const install_cairo_input_cli = b.addInstallArtifact(cairo_input_cli, .{});
     const cairo_input_step = b.step("cairo-input", "Build adapted Cairo input inspector");
     cairo_input_step.dependOn(&install_cairo_input_cli.step);
-
-    // RISC-V trace dumper CLI for cross-verification
-    const riscv_trace_module = b.createModule(.{
-        .root_source_file = b.path("src/riscv_trace_cli.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const riscv_trace_cli = b.addExecutable(.{
-        .name = "riscv-trace-dump",
-        .root_module = riscv_trace_module,
-    });
-    b.installArtifact(riscv_trace_cli);
-    const riscv_trace_step = b.step("riscv-trace-dump", "Build RISC-V trace dumper CLI");
-    riscv_trace_step.dependOn(&riscv_trace_cli.step);
-
-    // RISC-V runner tests use the src-wide test root for nested source access.
-    const riscv_test_module = b.createModule(.{
-        .root_source_file = b.path("src/tests.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const riscv_test_options = b.addOptions();
-    riscv_test_options.addOption(bool, "riscv_only", true);
-    riscv_test_options.addOption(bool, "metal_only", false);
-    riscv_test_module.addOptions("test_options", riscv_test_options);
-    const riscv_tests = b.addTest(.{
-        .root_module = riscv_test_module,
-    });
-    const run_riscv_tests = b.addRunArtifact(riscv_tests);
-    const riscv_test_step = b.step("test-riscv", "Run RISC-V runner tests (trace_dump)");
-    riscv_test_step.dependOn(&run_riscv_tests.step);
-
-    // RISC-V prover tests (prove + verify roundtrips).
-    const riscv_prover_test_module = b.createModule(.{
-        .root_source_file = b.path("src/riscv_prover_test.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const riscv_prover_tests = b.addTest(.{
-        .root_module = riscv_prover_test_module,
-    });
-    const run_riscv_prover_tests = b.addRunArtifact(riscv_prover_tests);
-    const riscv_prover_test_step = b.step("test-riscv-prover", "Run RISC-V prover tests (prove+verify)");
-    riscv_prover_test_step.dependOn(&run_riscv_prover_tests.step);
-
-    // RISC-V benchmark CLI (execute, prove, verify, hosted mode)
-    const riscv_bench_module = b.createModule(.{
-        .root_source_file = b.path("src/riscv_bench_cli.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const riscv_bench_cli = b.addExecutable(.{
-        .name = "riscv-bench",
-        .root_module = riscv_bench_module,
-    });
-    const install_riscv_bench = b.addInstallArtifact(riscv_bench_cli, .{});
-    b.getInstallStep().dependOn(&install_riscv_bench.step);
-    const riscv_bench_step = b.step("riscv-bench", "Build RISC-V benchmark CLI");
-    riscv_bench_step.dependOn(&install_riscv_bench.step);
 
     const native_proof_cpu_module = b.createModule(.{
         .root_source_file = b.path("src/tools/native_proof_bench/cpu.zig"),
@@ -299,14 +239,6 @@ pub fn build(b: *std.Build) void {
         "Validate API parity rust_path entries against pinned upstream commit",
     );
     upstream_surface_step.dependOn(&upstream_surface_cmd.step);
-
-    // Capture current roadmap baseline snapshot for section-15 closure tracking.
-    const roadmap_baseline_cmd = b.addSystemCommand(&.{ "python3", "scripts/roadmap_baseline.py" });
-    const roadmap_baseline_step = b.step(
-        "roadmap-baseline",
-        "Capture roadmap baseline snapshot (CONFORMANCE section 15 + report hashes)",
-    );
-    roadmap_baseline_step.dependOn(&roadmap_baseline_cmd.step);
 
     // Deterministic release gate sequence:
     // fmt -> upstream-pins -> source-conformance -> test -> api-parity -> deep-gate -> vectors -> interop -> bench-smoke -> profile-smoke
@@ -423,12 +355,4 @@ pub fn build(b: *std.Build) void {
         "Run strict release gate sequence (fmt -> upstream-pins -> source-conformance -> test -> api-parity -> deep-gate -> vectors -> interop -> prove-checkpoints -> bench-strict -> profile-smoke -> std-shims-smoke -> std-shims-behavior -> release-evidence)",
     );
     release_gate_strict_step.dependOn(&rgs_evidence.step);
-
-    const roadmap_audit_cmd = b.addSystemCommand(&.{ "python3", "scripts/roadmap_audit.py" });
-    roadmap_audit_cmd.step.dependOn(&rgs_evidence.step);
-    const roadmap_audit_step = b.step(
-        "roadmap-audit",
-        "Audit CONFORMANCE section-15 closure status (requires all rows Complete)",
-    );
-    roadmap_audit_step.dependOn(&roadmap_audit_cmd.step);
 }
