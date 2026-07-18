@@ -2,15 +2,6 @@
  "version": 3,
  "findings": [
   {
-   "key": "file-size:frontends/riscv/infra_trace.zig",
-   "owner": "riscv-frontend",
-   "track": "deferred_todo",
-   "reason": "The RISC-V infrastructure trace retains multiple legacy construction stages in one module.",
-   "next_extraction": "Extract the next independently specified infrastructure table with component-level tests in the RISC-V migration phase.",
-   "plan": "conformance/decomposition-plan.md",
-   "max_lines": 1043
-  },
-  {
    "key": "file-size:frontends/riscv/prover.zig",
    "owner": "riscv-frontend",
    "track": "deferred_todo",
