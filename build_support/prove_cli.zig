@@ -42,6 +42,13 @@ pub fn addProduct(context: Context) void {
     }) });
     context.test_step.dependOn(&b.addRunArtifact(registry_tests).step);
 
+    const riscv_artifact_tests = b.addTest(.{ .root_module = b.createModule(.{
+        .root_source_file = b.path("src/interop/riscv_artifact.zig"),
+        .target = context.target,
+        .optimize = context.optimize,
+    }) });
+    context.test_step.dependOn(&b.addRunArtifact(riscv_artifact_tests).step);
+
     const dispatch_module = b.createModule(.{
         .root_source_file = b.path("src/tools/prove/native_dispatch.zig"),
         .target = context.target,

@@ -16,7 +16,7 @@ pub fn write(writer: anytype) !void {
         \\  {"air":"blake","status":"release_gated","backends":["cpu","metal-hybrid"]},
         \\  {"air":"poseidon","status":"release_gated","backends":["cpu","metal-hybrid"]}
         \\],"deferred_adapters":[
-        \\  {"adapter":"stark-v-rv32im-elf","status":"not_release_gated","reason":"RV32IM AIR and public I/O binding are incomplete"}
+        \\  {"adapter":"stark-v-rv32im-elf","status":"not_release_gated","reason":"RV32IM opcode, memory, and public I/O AIR constraints are incomplete"}
         \\]}
     );
 }

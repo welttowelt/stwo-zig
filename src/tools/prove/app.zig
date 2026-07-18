@@ -21,36 +21,70 @@ pub fn main() !void {
     switch (parsed) {
         .help => |command| try cli.writeUsage(std.fs.File.stdout().deprecatedWriter(), command),
         .applications => try writeApplications(),
-        .verify => |request| try verifyArtifact(allocator, request),
+        .verify => |request| verifyArtifact(allocator, request) catch |err| switch (err) {
+            error.AdapterNotReleaseGated => {
+                try writeLine(std.fs.File.stderr().deprecatedWriter(), starkv_adapter.PENDING_DIAGNOSTIC);
+                std.process.exit(1);
+            },
+            else => return err,
+        },
         .prove => |request| try prove(allocator, request),
         .bench => |request| try bench(allocator, request),
-        .prove_elf => |request| try proveElf(allocator, request.run, .{
-            .proof_out = request.output,
-            .report_out = request.report_out,
-        }),
-        .bench_elf => |request| try proveElf(allocator, request.run, .{
-            .proof_out = request.proof_out,
-            .report_out = request.report_out,
-        }),
+        .prove_elf => |request| try runElf(allocator, request.run, .prove, request.output, request.report_out),
+        .bench_elf => |request| try runElf(
+            allocator,
+            request.run,
+            .{ .bench = .{
+                .warmups = request.warmups,
+                .samples = request.samples,
+                .profiled = request.profiled,
+            } },
+            request.proof_out,
+            request.report_out,
+        ),
     }
 }
 
-fn proveElf(
+fn runElf(
     allocator: std.mem.Allocator,
     run: cli.ElfRun,
-    outputs: starkv_adapter.OutputPaths,
+    mode: starkv_adapter.Mode,
+    proof_output: ?[]const u8,
+    report_output: ?[]const u8,
 ) !void {
-    starkv_adapter.proveElf(allocator, run.elf_path, run.input_path, .{
+    if (proof_output) |path| try rejectPathCollision(path, report_output);
+    if (proof_output) |path| try requireAbsent(path);
+    if (report_output) |path| try requireAbsent(path);
+
+    const proof_temporary = if (proof_output) |path|
+        try atomic_file.temporaryPathAlloc(allocator, path, "proof")
+    else
+        null;
+    defer if (proof_temporary) |path| allocator.free(path);
+    defer if (proof_temporary) |path| std.fs.cwd().deleteFile(path) catch {};
+
+    const report = starkv_adapter.run(allocator, run.elf_path, run.input_path, .{
         .backend = run.backend,
         .protocol = run.protocol,
         .blake2_backend = run.blake2_backend,
         .metal_runtime = run.metal_runtime,
-    }, outputs) catch |err| switch (err) {
+        .mode = mode,
+        .proof_temporary = proof_temporary,
+        .proof_report_path = proof_output,
+    }) catch |err| switch (err) {
         error.AdapterNotReleaseGated => {
             try writeLine(std.fs.File.stderr().deprecatedWriter(), starkv_adapter.PENDING_DIAGNOSTIC);
             std.process.exit(1);
         },
+        else => return err,
     };
+    defer allocator.free(report);
+
+    if (proof_output) |path| {
+        try publishResult(allocator, proof_temporary.?, path, report, report_output);
+    } else {
+        try publishReport(allocator, report, report_output);
+    }
 }
 
 fn prove(allocator: std.mem.Allocator, request: cli.Prove) !void {
@@ -109,6 +143,7 @@ fn publishResult(
         defer std.fs.cwd().deleteFile(report_temporary) catch {};
         try atomic_file.writeExclusive(allocator, report_temporary, report);
         try atomic_file.publishExclusive(proof_temporary, proof_output);
+        errdefer std.fs.cwd().deleteFile(proof_output) catch {};
         try atomic_file.publishExclusive(report_temporary, output);
         return;
     }
@@ -126,6 +161,9 @@ fn publishReport(
 }
 
 fn verifyArtifact(allocator: std.mem.Allocator, request: cli.Verify) !void {
+    if (try stwo.interop.riscv_artifact.isRiscVArtifactPath(allocator, request.artifact)) {
+        return starkv_adapter.verifyArtifact(allocator, request.artifact);
+    }
     const verified = try artifact_verifier.verifyPath(
         allocator,
         request.artifact,
@@ -179,16 +217,23 @@ fn writeLine(writer: anytype, bytes: []const u8) !void {
 }
 
 test "stark-v adapter seam fails closed until the release gate flips" {
-    try std.testing.expectError(error.AdapterNotReleaseGated, starkv_adapter.proveElf(
+    try std.testing.expectError(error.AdapterNotReleaseGated, starkv_adapter.run(
         std.testing.allocator,
         "guest.elf",
         "input.bin",
-        .{ .backend = .cpu, .protocol = .secure, .blake2_backend = .auto, .metal_runtime = .{} },
-        .{ .proof_out = "proof.json", .report_out = null },
+        .{
+            .backend = .cpu,
+            .protocol = .secure,
+            .blake2_backend = .auto,
+            .metal_runtime = .{},
+            .mode = .prove,
+            .proof_temporary = "proof.tmp",
+            .proof_report_path = "proof.json",
+        },
     ));
 }
 
-test "publication never replaces a competing report or deletes its verified proof" {
+test "publication rolls back its proof when a competing report wins" {
     var temporary = std.testing.tmpDir(.{});
     defer temporary.cleanup();
     const root = try temporary.dir.realpathAlloc(std.testing.allocator, ".");
@@ -212,9 +257,10 @@ test "publication never replaces a competing report or deletes its verified proo
             report_output,
         ),
     );
-    const proof = try std.fs.cwd().readFileAlloc(std.testing.allocator, proof_output, 32);
-    defer std.testing.allocator.free(proof);
-    try std.testing.expectEqualStrings("proof", proof);
+    try std.testing.expectError(
+        error.FileNotFound,
+        std.fs.cwd().access(proof_output, .{}),
+    );
     const report = try std.fs.cwd().readFileAlloc(std.testing.allocator, report_output, 32);
     defer std.testing.allocator.free(report);
     try std.testing.expectEqualStrings("existing", report);
