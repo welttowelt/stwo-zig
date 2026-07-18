@@ -16,10 +16,8 @@ pub const N_ORACLE_COLUMNS: usize = 33;
 pub const N_CONSTRAINTS: usize = 1;
 pub const LOOKUP_BATCH_SIZE: usize = 1;
 pub const BITWISE_LOOKUP_COUNT: usize = 0;
-pub const CURRENT_TRACE_COMPATIBLE = false;
-pub const MISSING_CURRENT_WITNESS_COLUMNS = [_][]const u8{
-    "oracle column order (enabler, clock, pc, rd, rs1, rs2)",
-};
+pub const CURRENT_TRACE_COMPATIBLE = true;
+pub const MISSING_CURRENT_WITNESS_COLUMNS = [_][]const u8{};
 
 pub const Row = struct {
     enabler: QM31,

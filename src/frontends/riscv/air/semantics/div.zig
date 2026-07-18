@@ -17,14 +17,8 @@ pub const N_ORACLE_COLUMNS: usize = 65;
 pub const N_CONSTRAINTS: usize = 62;
 pub const LOOKUP_BATCH_SIZE: usize = 1;
 pub const BITWISE_LOOKUP_COUNT: usize = 0;
-pub const CURRENT_TRACE_COMPATIBLE = false;
-pub const MISSING_CURRENT_WITNESS_COLUMNS = [_][]const u8{
-    "zero_divisor and r_zero",
-    "c_sum_inv and r_sum_inv",
-    "r_abs_0..3 and r_inv_0..3",
-    "lt_marker_0..3 and lt_diff",
-    "oracle access-first column order",
-};
+pub const CURRENT_TRACE_COMPATIBLE = true;
+pub const MISSING_CURRENT_WITNESS_COLUMNS = [_][]const u8{};
 
 pub const Row = struct {
     clock: QM31,

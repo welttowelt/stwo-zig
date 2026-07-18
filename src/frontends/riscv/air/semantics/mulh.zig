@@ -17,8 +17,7 @@ pub const LOOKUP_BATCH_SIZE: usize = 1;
 pub const BITWISE_LOOKUP_COUNT: usize = 0;
 pub const CURRENT_TRACE_COMPATIBLE = false;
 pub const MISSING_CURRENT_WITNESS_COLUMNS = [_][]const u8{
-    "rd_high_0..3 low-product limbs",
-    "oracle access-first column order",
+    "pinned signed carry relation rejects the exact runner witness",
 };
 
 pub const Row = struct {
