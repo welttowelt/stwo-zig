@@ -152,6 +152,19 @@ def run_profiled_once(cmd: List[str], env: Optional[Dict[str, str]] = None) -> D
     }
 
 
+def run_profiled_samples(
+    cmd: List[str],
+    repeats: int,
+    artifact_path: Path,
+    env: Optional[Dict[str, str]] = None,
+) -> List[Dict[str, Any]]:
+    runs: List[Dict[str, Any]] = []
+    for _ in range(repeats):
+        artifact_path.unlink(missing_ok=True)
+        runs.append(run_profiled_once(cmd, env))
+    return runs
+
+
 def parse_hotspots(sample_text: str, top_n: int) -> List[Dict[str, Any]]:
     marker = "Sort by top of stack, same collapsed"
     start = sample_text.find(marker)
@@ -262,6 +275,7 @@ def profile_runtime_workload(
     merkle_pool_reuse: bool,
     merkle_pool_reuse_workloads: Set[str],
 ) -> Dict[str, Any]:
+    artifact_path = ARTIFACT_DIR / f"{runtime}_{workload['name']}.json"
     backend_args = (
         ["--blake2-backend", zig_blake2_backend]
         if runtime == "zig"
@@ -285,15 +299,16 @@ def profile_runtime_workload(
             "--example",
             workload["example"],
             "--artifact",
-            str(ARTIFACT_DIR / f"{runtime}_{workload['name']}.json"),
+            str(artifact_path),
         ]
         + backend_args
         + COMMON_CONFIG_ARGS
         + workload["args"]
     )
 
-    runs = [run_profiled_once(cmd, runtime_env) for _ in range(repeats)]
+    runs = run_profiled_samples(cmd, repeats, artifact_path, runtime_env)
     sample_file = SAMPLE_DIR / f"{runtime}_{workload['name']}.sample.txt"
+    artifact_path.unlink(missing_ok=True)
     hotspot_info = sample_hotspots(
         cmd=cmd,
         sample_file=sample_file,
