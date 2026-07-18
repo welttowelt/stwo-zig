@@ -5,6 +5,7 @@
 
 const std = @import("std");
 const Memory = @import("memory.zig").Memory;
+const MemoryLayout = @import("memory_state.zig").MemoryLayout;
 
 pub const ElfError = error{
     InvalidMagic,
@@ -27,6 +28,7 @@ pub const ElfInfo = struct {
     output_len: u32,
     output_data: u32,
     output_end: u32,
+    memory_layout: MemoryLayout,
 };
 
 // These addresses are part of the pinned Stark-V guest ABI. Linker symbols
@@ -92,30 +94,69 @@ pub fn loadElf(elf_bytes: []const u8, mem: *Memory) (ElfError || error{OutOfMemo
         const p_offset = readU32LE(phdr[4..8]);
         const p_vaddr = readU32LE(phdr[8..12]);
         const p_filesz = readU32LE(phdr[16..20]);
+        const p_memsz = readU32LE(phdr[20..24]);
 
-        if (@as(usize, p_offset) + @as(usize, p_filesz) > elf_bytes.len) {
+        if (p_filesz > p_memsz or @as(usize, p_offset) + @as(usize, p_filesz) > elf_bytes.len) {
             return ElfError.InvalidProgramHeader;
         }
 
         const segment_data = elf_bytes[p_offset .. p_offset + p_filesz];
         mem.loadSegment(p_vaddr, segment_data);
+        mem.loadZeroes(p_vaddr +% p_filesz, p_memsz - p_filesz);
         segments_loaded += 1;
     }
 
     const output_len = findSymbolValue(elf_bytes, "__output_len") orelse DEFAULT_OUTPUT_LEN;
     const input_start = findSymbolValue(elf_bytes, "__input_start") orelse output_len;
+    const input_end = findSymbolValue(elf_bytes, "__input_end") orelse input_start;
+    const halt_flag = findSymbolValue(elf_bytes, "__halt_flag") orelse DEFAULT_HALT_FLAG;
+    const output_data = findSymbolValue(elf_bytes, "__output_data") orelse DEFAULT_OUTPUT_DATA;
+    const output_end = findSymbolValue(elf_bytes, "__output_end") orelse DEFAULT_OUTPUT_END;
+    const stack_pointer = findSymbolValue(elf_bytes, "__stack_top") orelse DEFAULT_STACK_POINTER;
+    const stack_bottom = findSymbolValue(elf_bytes, "__stack_bottom") orelse if (findSymbolValue(
+        elf_bytes,
+        "__stack_size",
+    )) |size| stack_pointer -% size else stack_pointer;
+    const program_base = findSymbolValue(elf_bytes, "__text_start") orelse e_entry;
+    const program_end = program_base +% (findSymbolValue(elf_bytes, "__text_len") orelse 0);
+    const data_base = findSymbolValue(elf_bytes, "__data_start") orelse stack_bottom;
+    const data_end = data_base +% (findSymbolValue(elf_bytes, "__data_len") orelse 0);
+    var io_base = @min(halt_flag, @min(output_len, output_data));
+    var io_end = @max(output_end, @max(output_data, @max(output_len, halt_flag)));
+    io_end = io_end +| 1;
+    if (input_start < input_end) {
+        io_base = @min(io_base, input_start);
+        io_end = @max(io_end, input_end);
+    }
+    const memory_layout = MemoryLayout{
+        .program_base = program_base,
+        .program_end = program_end,
+        .data_base = data_base,
+        .data_end = data_end,
+        .stack_bottom = stack_bottom,
+        .stack_top = stack_pointer,
+        .io_base = io_base,
+        .io_end = io_end,
+        .input_base = input_start,
+        .input_end = input_end,
+        .output_len_addr = output_len,
+        .output_data_addr = output_data,
+        .output_base = output_len,
+        .output_end = output_end,
+    };
 
     return .{
         .entry_point = e_entry,
         .segments_loaded = segments_loaded,
-        .stack_pointer = findSymbolValue(elf_bytes, "__stack_top") orelse DEFAULT_STACK_POINTER,
+        .stack_pointer = stack_pointer,
         .global_pointer = findSymbolValue(elf_bytes, "__global_pointer$") orelse DEFAULT_GLOBAL_POINTER,
         .input_start = input_start,
-        .input_end = findSymbolValue(elf_bytes, "__input_end") orelse input_start,
-        .halt_flag = findSymbolValue(elf_bytes, "__halt_flag") orelse DEFAULT_HALT_FLAG,
+        .input_end = input_end,
+        .halt_flag = halt_flag,
         .output_len = output_len,
-        .output_data = findSymbolValue(elf_bytes, "__output_data") orelse DEFAULT_OUTPUT_DATA,
-        .output_end = findSymbolValue(elf_bytes, "__output_end") orelse DEFAULT_OUTPUT_END,
+        .output_data = output_data,
+        .output_end = output_end,
+        .memory_layout = memory_layout,
     };
 }
 
@@ -293,9 +334,27 @@ test "loadElf parses minimal ELF header" {
     try std.testing.expectEqual(DEFAULT_OUTPUT_END, info.output_end);
     try std.testing.expectEqual(DEFAULT_OUTPUT_LEN, info.input_start);
     try std.testing.expectEqual(DEFAULT_OUTPUT_LEN, info.input_end);
+    try std.testing.expectEqual(@as(u32, 0x00010000), info.memory_layout.program_base);
+    try std.testing.expectEqual(DEFAULT_HALT_FLAG, info.memory_layout.io_base);
+    try std.testing.expectEqual(DEFAULT_OUTPUT_END + 1, info.memory_layout.io_end);
 
     // Verify the instruction was loaded at the correct address.
     try std.testing.expectEqual(@as(u32, 0x02A00093), mem.readU32(0x00010000));
+}
+
+test "loadElf materializes unaccessed BSS words" {
+    var mem = @import("memory.zig").Memory.init(std.testing.allocator);
+    defer mem.deinit();
+
+    var elf = makeMinimalElf();
+    elf[72] = 8; // p_memsz exceeds the four file-backed bytes.
+    _ = try loadElf(&elf, &mem);
+
+    var addresses = std.AutoHashMap(u32, void).init(std.testing.allocator);
+    defer addresses.deinit();
+    try mem.addAlignedWordAddresses(&addresses);
+    try std.testing.expect(addresses.contains(0x00010004));
+    try std.testing.expectEqual(@as(u32, 0), mem.readU32(0x00010004));
 }
 
 test "loadElf rejects bad magic" {

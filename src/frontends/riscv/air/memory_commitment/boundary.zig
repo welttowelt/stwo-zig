@@ -10,6 +10,7 @@ const M31 = @import("../../../../core/fields/m31.zig").M31;
 const QM31 = @import("../../../../core/fields/qm31.zig").QM31;
 const relation_challenges = @import("../relation_challenges.zig");
 const sparse_merkle = @import("sparse_merkle.zig");
+const memory_state = @import("../../runner/memory_state.zig");
 
 pub const Error = sparse_merkle.Error || error{
     DuplicateWord,
@@ -18,31 +19,8 @@ pub const Error = sparse_merkle.Error || error{
     ZeroDenominator,
 };
 
-/// Public classification after applying the segment's first/last role.
-pub const WordRole = struct {
-    is_public_input: bool = false,
-    is_public_output: bool = false,
-};
-
-/// Initial/final state for one aligned address in the RW-memory union.
-pub const WordState = struct {
-    addr: u32,
-    initial_word: u32,
-    final_word: u32,
-    final_clock: u32,
-    role: WordRole = .{},
-
-    pub fn includeInitial(self: WordState) bool {
-        return !self.role.is_public_input;
-    }
-
-    /// Stark-V retains an accessed input's final state, while final public
-    /// output words are consumed by the public statement instead of this row.
-    pub fn includeFinal(self: WordState) bool {
-        if (self.role.is_public_input) return self.final_clock > 0;
-        return !self.role.is_public_output;
-    }
-};
+pub const WordRole = memory_state.WordRole;
+pub const WordState = memory_state.WordState;
 
 /// One exact row of Stark-V's `memory` table.
 pub const Row = struct {

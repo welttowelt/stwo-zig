@@ -205,21 +205,7 @@ pub const HostRuntime = struct {
 
         // Write into guest memory and record word-aligned writes.
         if (bytes_read > 0) {
-            mem.writeSlice(buf_ptr, self.scratch.items[0..bytes_read]);
-
-            // Record word-aligned memory writes for state chain tracking.
-            // We record each 4-byte-aligned word that was touched.
-            const start_word = buf_ptr & ~@as(u32, 3);
-            const end_addr = buf_ptr +% @as(u32, @intCast(bytes_read));
-            const end_word = (end_addr +% 3) & ~@as(u32, 3);
-
-            var addr = start_word;
-            while (addr < end_word) : (addr +%= 4) {
-                self.mem_writes.append(self.allocator, .{
-                    .addr = addr,
-                    .value = mem.readU32(addr),
-                }) catch @panic("HostRuntime: mem_writes alloc failed");
-            }
+            self.writeTracked(mem, buf_ptr, self.scratch.items[0..bytes_read]);
         }
 
         cpu.writeReg(REG_A0, @intCast(bytes_read));
@@ -243,17 +229,7 @@ pub const HostRuntime = struct {
         Keccak256.hash(self.scratch.items, &hash, .{});
 
         // Write result to guest memory.
-        mem.writeSlice(output_ptr, &hash);
-
-        // Record memory writes for state chain tracking (8 words).
-        var addr = output_ptr & ~@as(u32, 3);
-        const end = (output_ptr +% 32 +% 3) & ~@as(u32, 3);
-        while (addr < end) : (addr +%= 4) {
-            self.mem_writes.append(self.allocator, .{
-                .addr = addr,
-                .value = mem.readU32(addr),
-            }) catch @panic("HostRuntime: mem_writes alloc failed");
-        }
+        self.writeTracked(mem, output_ptr, &hash);
     }
 
     /// ECRECOVER (a7=243): Accelerated ECDSA public key recovery on secp256k1.
@@ -351,17 +327,7 @@ pub const HostRuntime = struct {
         // Write 32-byte output: 12 zero bytes + 20-byte address
         var output: [32]u8 = [_]u8{0} ** 32;
         @memcpy(output[12..32], pub_hash[12..32]);
-        mem.writeSlice(output_ptr, &output);
-
-        // Record memory writes.
-        var addr = output_ptr & ~@as(u32, 3);
-        const end_addr = (output_ptr +% 32 +% 3) & ~@as(u32, 3);
-        while (addr < end_addr) : (addr +%= 4) {
-            self.mem_writes.append(self.allocator, .{
-                .addr = addr,
-                .value = mem.readU32(addr),
-            }) catch @panic("HostRuntime: mem_writes alloc failed");
-        }
+        self.writeTracked(mem, output_ptr, &output);
 
         cpu.writeReg(REG_A0, 1); // Success
     }
@@ -381,15 +347,28 @@ pub const HostRuntime = struct {
         var hash: [32]u8 = undefined;
         Sha256.hash(self.scratch.items, &hash, .{});
 
-        mem.writeSlice(output_ptr, &hash);
+        self.writeTracked(mem, output_ptr, &hash);
+    }
 
-        var addr = output_ptr & ~@as(u32, 3);
-        const end = (output_ptr +% 32 +% 3) & ~@as(u32, 3);
-        while (addr < end) : (addr +%= 4) {
+    /// Capture old aligned words, apply one host write, then retain the new
+    /// words so the runner can emit exact access-chain transitions.
+    fn writeTracked(self: *HostRuntime, mem: *Memory, addr: u32, bytes: []const u8) void {
+        if (bytes.len == 0) return;
+        const first_write = self.mem_writes.items.len;
+        const first_word = addr & ~@as(u32, 3);
+        const end_addr = addr +% @as(u32, @intCast(bytes.len));
+        const end_word = (end_addr +% 3) & ~@as(u32, 3);
+        var word_addr = first_word;
+        while (word_addr < end_word) : (word_addr +%= 4) {
             self.mem_writes.append(self.allocator, .{
-                .addr = addr,
-                .value = mem.readU32(addr),
+                .addr = word_addr,
+                .previous_value = mem.readU32(word_addr),
+                .value = undefined,
             }) catch @panic("HostRuntime: mem_writes alloc failed");
+        }
+        mem.writeSlice(addr, bytes);
+        for (self.mem_writes.items[first_write..]) |*write| {
+            write.value = mem.readU32(write.addr);
         }
     }
 };
@@ -492,6 +471,8 @@ test "HostRuntime: HINT_LEN and HINT_READ" {
     const writes = rt.mem_writes.items;
     try std.testing.expect(writes.len > 0);
     try std.testing.expectEqual(@as(u32, 0x4000), writes[0].addr);
+    try std.testing.expectEqual(@as(u32, 0), writes[0].previous_value);
+    try std.testing.expectEqual(@as(u32, 0xEFBE_ADDE), writes[0].value);
 }
 
 test "HostRuntime: unknown syscall is no-op" {

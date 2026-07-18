@@ -12,6 +12,8 @@ pub const elf_loader = @import("elf_loader.zig");
 pub const trace = @import("trace.zig");
 pub const trace_dump = @import("trace_dump.zig");
 pub const state_chain = @import("state_chain.zig");
+pub const memory_state = @import("memory_state.zig");
+pub const result_mod = @import("result.zig");
 const access_witness = @import("access_witness.zig");
 pub const host_mod = @import("../host/mod.zig");
 
@@ -20,68 +22,9 @@ pub const Memory = memory.Memory;
 pub const DecodedInst = decode.DecodedInst;
 pub const Opcode = decode.Opcode;
 pub const HostInterface = host_mod.HostInterface;
-
-pub const CompletionReason = enum {
-    halt_flag,
-    self_loop,
-    stalled_pc,
-    ecall,
-    ebreak,
-    host_halt,
-    invalid_instruction,
-    max_steps,
-};
-
-/// A final, word-aligned guest output value and its last access clock.
-pub const OutputWord = struct {
-    addr: u32,
-    value: u32,
-    clock: u32,
-};
-
-/// Result of running a RISC-V program to completion.
-pub const RunResult = struct {
-    /// Entry PC and register file before the first instruction.
-    initial_pc: u32,
-    initial_regs: [32]u32,
-    /// Final CPU state after execution halts.
-    cpu_final: Cpu,
-    final_pc: u32,
-    final_regs: [32]u32,
-    /// Number of instructions executed.
-    step_count: usize,
-    /// The successful termination condition. Strict Stark-V execution never
-    /// returns `invalid_instruction` or `max_steps`.
-    completion_reason: CompletionReason,
-    /// Owned public input and the guest memory region into which it was loaded.
-    input: []u8,
-    input_start: u32,
-    input_end: u32,
-    /// Guest output captured at completion. Zero-length or invalid output is
-    /// represented as null, matching the pinned Stark-V runner.
-    output: ?[]u8,
-    output_len: u32,
-    output_len_addr: u32,
-    output_data_addr: u32,
-    output_end_addr: u32,
-    output_words: []OutputWord,
-    /// Execution trace for STARK proving.
-    execution_trace: trace.Trace,
-    /// Memory and register access chain state.
-    state_chain_tracker: state_chain.StateChainTracker,
-    /// Exit code from HALT syscall (null if halted by plain ECALL/EBREAK).
-    exit_code: ?u32,
-    allocator: std.mem.Allocator,
-
-    pub fn deinit(self: *RunResult) void {
-        self.allocator.free(self.input);
-        if (self.output) |output| self.allocator.free(output);
-        self.allocator.free(self.output_words);
-        self.execution_trace.deinit();
-        self.state_chain_tracker.deinit();
-        self.* = undefined;
-    }
-};
+pub const CompletionReason = result_mod.CompletionReason;
+pub const OutputWord = result_mod.OutputWord;
+pub const RunResult = result_mod.RunResult;
 
 /// Run a RISC-V ELF program to completion (or until `max_steps`).
 ///
@@ -231,7 +174,12 @@ fn runConfigured(
                     // Record any memory writes the syscall performed
                     // into the state chain tracker.
                     for (h.lastMemoryWrites()) |mw| {
-                        try chain_tracker.recordMemAccess(mw.addr, access_clk, mw.value);
+                        try chain_tracker.recordMemTransition(
+                            mw.addr,
+                            access_clk,
+                            mw.previous_value,
+                            mw.value,
+                        );
                     }
 
                     // Record any register writes (a0 return value).
@@ -306,7 +254,12 @@ fn runConfigured(
         );
         if (is_load or is_store) {
             const aligned_addr = mem_addr & ~@as(u32, 3);
-            try chain_tracker.recordMemAccess(aligned_addr, access_clk, mem.readU32(aligned_addr));
+            try chain_tracker.recordMemTransition(
+                aligned_addr,
+                access_clk,
+                mem_prev_word,
+                mem.readU32(aligned_addr),
+            );
         }
 
         steps += 1;
@@ -336,6 +289,19 @@ fn runConfigured(
         if (captured_output.bytes) |output| allocator.free(output);
         allocator.free(captured_output.words);
     }
+    const rw_memory = try memory_state.capture(
+        allocator,
+        &mem,
+        &chain_tracker,
+        elf_info.memory_layout,
+        memory_state.SegmentRole.single(),
+        captured_output.len,
+    );
+    chain_tracker.releaseMemoryBaselines();
+    errdefer {
+        var owned = rw_memory;
+        owned.deinit(allocator);
+    }
 
     return .{
         .initial_pc = initial_pc,
@@ -356,6 +322,7 @@ fn runConfigured(
         .output_words = captured_output.words,
         .execution_trace = exec_trace,
         .state_chain_tracker = chain_tracker,
+        .rw_memory = rw_memory,
         .exit_code = exit_code,
         .allocator = allocator,
     };
@@ -555,6 +522,13 @@ test "runner: runWithInput captures Stark-V public IO with access clocks" {
         .value = 42,
         .clock = 5,
     }, result.output_words[1]);
+    try std.testing.expect(result.rw_memory.segment_role.is_first);
+    try std.testing.expect(result.rw_memory.segment_role.is_last);
+    var output_role_count: usize = 0;
+    for (result.rw_memory.words) |word| {
+        if (word.role.is_public_output) output_role_count += 1;
+    }
+    try std.testing.expectEqual(@as(usize, 2), output_role_count);
 }
 
 test "runner: runWithInput rejects an invalid instruction" {

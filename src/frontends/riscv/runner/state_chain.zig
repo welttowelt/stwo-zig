@@ -39,6 +39,8 @@ pub const StateChainTracker = struct {
     reg_last_clk: [32]u32,
     /// Last access clock per memory address.
     mem_last_clk: std.AutoHashMap(u32, u32),
+    /// Value preceding the first traced access to each aligned memory word.
+    mem_initial: std.AutoHashMap(u32, u32),
     /// Recorded accesses (one per register read/write or memory access).
     accesses: std.ArrayList(Access),
     /// Clock gap-filling records for memory accesses.
@@ -51,6 +53,7 @@ pub const StateChainTracker = struct {
         return .{
             .reg_last_clk = .{0} ** 32,
             .mem_last_clk = std.AutoHashMap(u32, u32).init(allocator),
+            .mem_initial = std.AutoHashMap(u32, u32).init(allocator),
             .accesses = .{},
             .clock_updates_mem = .{},
             .clock_updates_reg = .{},
@@ -60,10 +63,17 @@ pub const StateChainTracker = struct {
 
     pub fn deinit(self: *StateChainTracker) void {
         self.mem_last_clk.deinit();
+        self.mem_initial.deinit();
         self.accesses.deinit(self.allocator);
         self.clock_updates_mem.deinit(self.allocator);
         self.clock_updates_reg.deinit(self.allocator);
         self.* = undefined;
+    }
+
+    /// Release first-access baselines after the compact memory snapshot owns
+    /// them. Access witnesses and final clocks remain intact.
+    pub fn releaseMemoryBaselines(self: *StateChainTracker) void {
+        self.mem_initial.clearAndFree();
     }
 
     /// Record a register access at the given clock.
@@ -86,19 +96,34 @@ pub const StateChainTracker = struct {
 
     /// Record a memory access at the given clock.
     pub fn recordMemAccess(self: *StateChainTracker, addr: u32, clk: u32, value: u32) !void {
-        const prev_clk = self.mem_last_clk.get(addr) orelse 0;
-        const limbs = decomposeU32(value);
+        return self.recordMemTransition(addr, clk, value, value);
+    }
 
-        try self.fillClockGap(1, addr, prev_clk, clk, limbs);
+    /// Record an exact previous-to-next transition at an aligned word.
+    pub fn recordMemTransition(
+        self: *StateChainTracker,
+        addr: u32,
+        clk: u32,
+        previous: u32,
+        next: u32,
+    ) !void {
+        const aligned_addr = addr & ~@as(u32, 3);
+        const initial = try self.mem_initial.getOrPut(aligned_addr);
+        if (!initial.found_existing) initial.value_ptr.* = previous;
+        const prev_clk = self.mem_last_clk.get(aligned_addr) orelse 0;
+        const previous_limbs = decomposeU32(previous);
+        const next_limbs = decomposeU32(next);
+
+        try self.fillClockGap(1, aligned_addr, prev_clk, clk, previous_limbs);
 
         try self.accesses.append(self.allocator, .{
             .addr_space = 1,
-            .addr = addr,
+            .addr = aligned_addr,
             .clk = clk,
-            .value_limbs = limbs,
+            .value_limbs = next_limbs,
             .clk_prev = prev_clk,
         });
-        try self.mem_last_clk.put(addr, clk);
+        try self.mem_last_clk.put(aligned_addr, clk);
     }
 
     /// Fill clock gaps with intermediate records.
@@ -207,6 +232,19 @@ test "state_chain: memory access tracking" {
     try std.testing.expectEqual(@as(usize, 2), tracker.memAccessCount());
     // Second access should chain back to clock 4.
     try std.testing.expectEqual(@as(u32, 4), tracker.accesses.items[1].clk_prev);
+}
+
+test "state_chain: memory transition retains the first aligned baseline" {
+    const alloc = std.testing.allocator;
+    var tracker = StateChainTracker.init(alloc);
+    defer tracker.deinit();
+
+    try tracker.recordMemTransition(0x1001, 4, 0x0403_0201, 0x0807_0605);
+    try tracker.recordMemTransition(0x1000, 8, 0x0807_0605, 0x0c0b_0a09);
+
+    try std.testing.expectEqual(@as(u32, 0x0403_0201), tracker.mem_initial.get(0x1000).?);
+    try std.testing.expectEqual(@as(u32, 8), tracker.mem_last_clk.get(0x1000).?);
+    try std.testing.expectEqual(@as(u32, 0x09), tracker.accesses.items[1].value_limbs[0].v);
 }
 
 test "state_chain: mixed register and memory accesses" {

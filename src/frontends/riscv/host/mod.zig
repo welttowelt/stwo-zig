@@ -57,6 +57,7 @@ pub const SyscallResult = union(enum) {
 /// word must be recorded in the state chain tracker.
 pub const MemoryWrite = struct {
     addr: u32,
+    previous_value: u32,
     value: u32,
 };
 

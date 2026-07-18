@@ -18,6 +18,18 @@ pub const Memory = struct {
         self.data.deinit();
     }
 
+    /// Add every initialized aligned word address without exposing byte-map
+    /// iteration to commitment consumers.
+    pub fn addAlignedWordAddresses(
+        self: *const Memory,
+        addresses: *std.AutoHashMap(u32, void),
+    ) !void {
+        var iterator = self.data.keyIterator();
+        while (iterator.next()) |addr| {
+            try addresses.put(addr.* & ~@as(u32, 3), {});
+        }
+    }
+
     // ----- Byte access -----
 
     pub fn readByte(self: *const Memory, addr: u32) u8 {
@@ -64,6 +76,14 @@ pub const Memory = struct {
     pub fn loadSegment(self: *Memory, base_addr: u32, segment: []const u8) void {
         for (segment, 0..) |byte, i| {
             self.writeByte(base_addr +% @as(u32, @intCast(i)), byte);
+        }
+    }
+
+    /// Materialize a zero-initialized ELF range. Presence matters to the
+    /// memory commitment even when the guest never accesses the bytes.
+    pub fn loadZeroes(self: *Memory, base_addr: u32, len: u32) void {
+        for (0..len) |i| {
+            self.writeByte(base_addr +% @as(u32, @intCast(i)), 0);
         }
     }
 
