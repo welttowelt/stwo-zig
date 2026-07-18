@@ -11,7 +11,7 @@ const QM31 = @import("../../../core/fields/qm31.zig").QM31;
 const public_data = @import("public_data.zig");
 const relation_challenges = @import("relation_challenges.zig");
 
-pub const Error = error{ ZeroDenominator, ClockOverflow };
+pub const Error = public_data.ValidationError || error{ ZeroDenominator, ClockOverflow };
 
 /// Public compensation split by independent LogUp relation. These domains
 /// must cancel independently; offsetting a forged memory claim with a Merkle
@@ -32,6 +32,7 @@ pub fn sum(
     data: *const public_data.PublicData,
     relations: *const relation_challenges.Relations,
 ) Error!QM31 {
+    try data.validate();
     return (try relationSums(data, relations)).total();
 }
 
@@ -111,11 +112,11 @@ pub fn memoryAccessSum(
         )), .consume);
     }
 
-    // Public input words are initial RW-memory values at clock zero. Address
-    // arithmetic deliberately mirrors Rust wrapping-add and saturating-mul.
+    // Public input words are initial RW-memory values at clock zero. The public
+    // validator restricts addresses to the non-wrapping subset of the pinned
+    // Rust arithmetic, and this helper repeats the checked derivation here.
     for (data.io_entries.input_words, 0..) |word, index| {
-        const word_offset: u32 = @truncate(index);
-        const addr = data.io_entries.input_start +% (word_offset *| 4);
+        const addr = try data.io_entries.inputWordAddress(index);
         try addInverse(&result, relations.memory_access.combineBase(memoryTuple(
             1,
             base(addr),
@@ -224,24 +225,42 @@ test "public LogUp: clock-zero state and untouched register remain constrained" 
     var data = emptyPublicData();
     data.initial_pc = 7;
     data.final_pc = 8;
-    try std.testing.expect(!(try sum(&data, &relations)).eql(QM31.zero()));
+    try std.testing.expect(!(try registersStateSum(&data, &relations)).eql(QM31.zero()));
     data.final_pc = 7;
-    try std.testing.expect((try sum(&data, &relations)).eql(QM31.zero()));
+    try std.testing.expect((try registersStateSum(&data, &relations)).eql(QM31.zero()));
 
     data.initial_pc = 1;
     data.final_pc = 1;
     data.initial_regs[31] = 11;
     data.final_regs[31] = 12;
-    try std.testing.expect(!(try sum(&data, &relations)).eql(QM31.zero()));
+    try std.testing.expect(!(try memoryAccessSum(&data, &relations)).eql(QM31.zero()));
     data.final_regs[31] = 11;
-    try std.testing.expect((try sum(&data, &relations)).eql(QM31.zero()));
+    try std.testing.expect((try memoryAccessSum(&data, &relations)).eql(QM31.zero()));
 }
 
 test "public LogUp: final clock overflow fails closed" {
     const relations = relation_challenges.Relations.dummy();
     var data = emptyPublicData();
+    data.program_root = 0;
     data.clock = std.math.maxInt(u32);
     try std.testing.expectError(error.ClockOverflow, sum(&data, &relations));
+}
+
+test "public LogUp: malformed public input fails before address wrapping" {
+    const relations = relation_challenges.Relations.dummy();
+    var data = emptyPublicData();
+    data.program_root = 0;
+    const input_words = [_]u32{1};
+    data.io_entries.input_start = std.math.maxInt(u32);
+    data.io_entries.input_len = 1;
+    data.io_entries.input_words = &input_words;
+    try std.testing.expectError(error.InputAddressOverflow, sum(&data, &relations));
+}
+
+test "public LogUp: missing mandatory program root fails closed" {
+    const relations = relation_challenges.Relations.dummy();
+    const data = emptyPublicData();
+    try std.testing.expectError(error.MissingProgramRoot, sum(&data, &relations));
 }
 
 test "public LogUp: relation domains are independent and total is their sum" {

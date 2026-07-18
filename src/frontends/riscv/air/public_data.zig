@@ -9,6 +9,22 @@
 
 const std = @import("std");
 
+pub const ValidationError = error{
+    InputAddressOverflow,
+    InputWordCountMismatch,
+    MisalignedOutputDataAddress,
+    MisalignedOutputLengthAddress,
+    MissingProgramRoot,
+    NonCanonicalInputPadding,
+    OutputAddressOverflow,
+    OutputClockOutOfRange,
+    OutputLengthWordMismatch,
+    OutputWordAddressMismatch,
+    OutputWordCountMismatch,
+    OverlappingOutputRegions,
+    RegisterClockOutOfRange,
+};
+
 /// A final public output word and the clock of its last memory access.
 pub const OutputWord = struct {
     addr: u32,
@@ -32,6 +48,37 @@ pub const IoEntries = struct {
     output_data_addr: u32,
     /// Output length word followed by the output data words.
     output_words: []const OutputWord,
+
+    /// Derive the address of an input word without the wrapping arithmetic used
+    /// by the pinned Rust implementation. Valid statements occupy the shared
+    /// non-wrapping subset of both implementations.
+    pub fn inputWordAddress(self: IoEntries, index: usize) ValidationError!u32 {
+        const word_index = std.math.cast(u32, index) orelse
+            return error.InputAddressOverflow;
+        const offset = std.math.mul(u32, word_index, 4) catch
+            return error.InputAddressOverflow;
+        return std.math.add(u32, self.input_start, offset) catch
+            return error.InputAddressOverflow;
+    }
+
+    fn outputDataWordAddress(self: IoEntries, index: usize) ValidationError!u32 {
+        const word_index = std.math.cast(u32, index) orelse
+            return error.OutputAddressOverflow;
+        const offset = std.math.mul(u32, word_index, 4) catch
+            return error.OutputAddressOverflow;
+        return std.math.add(u32, self.output_data_addr & ~@as(u32, 3), offset) catch
+            return error.OutputAddressOverflow;
+    }
+
+    fn outputDataWordCount(self: IoEntries) ValidationError!usize {
+        if (self.output_len == 0) return 0;
+        const end = std.math.add(u32, self.output_data_addr, self.output_len) catch
+            return error.OutputAddressOverflow;
+        const start_aligned = self.output_data_addr & ~@as(u32, 3);
+        const end_aligned = (@as(u64, end) + 3) & ~@as(u64, 3);
+        return std.math.cast(usize, (end_aligned - start_aligned) / 4) orelse
+            return error.OutputAddressOverflow;
+    }
 };
 
 /// Public execution state carried by an RV32IM proof.
@@ -48,6 +95,79 @@ pub const PublicData = struct {
     initial_rw_root: ?u32,
     final_rw_root: ?u32,
     io_entries: IoEntries,
+
+    /// Validate the statement shape that is derivable from public data alone.
+    ///
+    /// Stark-V clears output words on non-final segments, so an empty output
+    /// list remains valid only when `output_len == 0` until segment identity is
+    /// committed by the statement. Output words expose complete memory words;
+    /// unused bytes of the final output word are therefore intentionally not
+    /// required to be zero.
+    pub fn validate(self: *const PublicData) ValidationError!void {
+        if (self.program_root == null) return error.MissingProgramRoot;
+        for (self.reg_last_clock) |clock| {
+            if (clock > self.clock) return error.RegisterClockOutOfRange;
+        }
+        try self.validateInput();
+        try self.validateOutput();
+    }
+
+    fn validateInput(self: *const PublicData) ValidationError!void {
+        const io = self.io_entries;
+        const expected_words_u32 = std.math.divCeil(u32, io.input_len, 4) catch unreachable;
+        const expected_words = std.math.cast(usize, expected_words_u32) orelse
+            return error.InputWordCountMismatch;
+        if (io.input_words.len != expected_words) return error.InputWordCountMismatch;
+
+        _ = std.math.add(u32, io.input_start, io.input_len) catch
+            return error.InputAddressOverflow;
+        if (io.input_words.len != 0) {
+            _ = try io.inputWordAddress(io.input_words.len - 1);
+        }
+
+        const used_bytes = io.input_len & 3;
+        if (used_bytes != 0) {
+            const used_bits: u5 = @intCast(used_bytes * 8);
+            const used_mask = (@as(u32, 1) << used_bits) - 1;
+            if ((io.input_words[io.input_words.len - 1] & ~used_mask) != 0)
+                return error.NonCanonicalInputPadding;
+        }
+    }
+
+    fn validateOutput(self: *const PublicData) ValidationError!void {
+        const io = self.io_entries;
+        // The pinned runner permits an unaligned symbol, but publishes only the
+        // containing aligned word. Without adjacent words the four-byte length
+        // cannot be reconstructed uniquely, so the proof profile fails closed
+        // to the aligned subset rather than leaving `output_len` transcript-only.
+        if ((io.output_len_addr & 3) != 0) return error.MisalignedOutputLengthAddress;
+        // The memory relation carries aligned word addresses, not the byte
+        // offset within a word. Restricting the data symbol to word alignment
+        // makes `output_data_addr` uniquely derivable from non-empty output.
+        if ((io.output_data_addr & 3) != 0) return error.MisalignedOutputDataAddress;
+        if (io.output_words.len == 0) {
+            if (io.output_len != 0) return error.OutputWordCountMismatch;
+            return;
+        }
+
+        const data_word_count = try io.outputDataWordCount();
+        const expected_count = std.math.add(usize, data_word_count, 1) catch
+            return error.OutputWordCountMismatch;
+        if (io.output_words.len != expected_count) return error.OutputWordCountMismatch;
+
+        const length_word_addr = io.output_len_addr & ~@as(u32, 3);
+        const length_word = io.output_words[0];
+        if (length_word.addr != length_word_addr) return error.OutputWordAddressMismatch;
+        if (length_word.value != io.output_len) return error.OutputLengthWordMismatch;
+        try validateOutputClock(length_word.clock, self.clock);
+
+        for (io.output_words[1..], 0..) |word, index| {
+            const expected_addr = try io.outputDataWordAddress(index);
+            if (expected_addr == length_word_addr) return error.OverlappingOutputRegions;
+            if (word.addr != expected_addr) return error.OutputWordAddressMismatch;
+            try validateOutputClock(word.clock, self.clock);
+        }
+    }
 
     /// Mix fields in the exact order used by pinned Stark-V `PublicData`.
     pub fn mixInto(self: *const PublicData, channel: anytype) void {
@@ -81,6 +201,10 @@ pub const PublicData = struct {
         }
     }
 };
+
+fn validateOutputClock(clock: u32, final_clock: u32) ValidationError!void {
+    if (clock == 0 or clock > final_clock) return error.OutputClockOutOfRange;
+}
 
 /// Pack public input bytes into Stark-V's contiguous little-endian words.
 /// The unused high bytes of the final word are zero.
@@ -222,4 +346,150 @@ test "public data: pack input words is little endian with zero padding" {
     const empty = try packInputWords(std.testing.allocator, &.{});
     defer std.testing.allocator.free(empty);
     try std.testing.expectEqual(@as(usize, 0), empty.len);
+}
+
+fn validPublicData(input_words: []const u32, output_words: []const OutputWord) PublicData {
+    return .{
+        .initial_pc = 0x1000,
+        .final_pc = 0x1010,
+        .clock = 10,
+        .initial_regs = .{0} ** 32,
+        .final_regs = .{0} ** 32,
+        .reg_last_clock = .{0} ** 32,
+        .program_root = 1,
+        .initial_rw_root = null,
+        .final_rw_root = null,
+        .io_entries = .{
+            .input_start = 0x2000,
+            .input_len = 6,
+            .input_words = input_words,
+            .output_len = 5,
+            .output_len_addr = 0x3004,
+            .output_data_addr = 0x3008,
+            .output_words = output_words,
+        },
+    };
+}
+
+test "public data: validator accepts the pinned input and output shape" {
+    const input_words = [_]u32{ 0x0403_0201, 0x0000_0605 };
+    const output_words = [_]OutputWord{
+        .{ .addr = 0x3004, .value = 5, .clock = 8 },
+        .{ .addr = 0x3008, .value = 0x4443_4241, .clock = 9 },
+        // Stark-V publishes the complete final memory word. Bytes above the
+        // five-byte logical output are public but are not required to be zero.
+        .{ .addr = 0x300c, .value = 0xaabb_cc45, .clock = 10 },
+    };
+    const data = validPublicData(&input_words, &output_words);
+    try data.validate();
+}
+
+test "public data: validator rejects missing root and malformed input" {
+    const output_words = [_]OutputWord{
+        .{ .addr = 0x3004, .value = 5, .clock = 8 },
+        .{ .addr = 0x3008, .value = 11, .clock = 9 },
+        .{ .addr = 0x300c, .value = 12, .clock = 10 },
+    };
+    const canonical_input = [_]u32{ 0x0403_0201, 0x0000_0605 };
+
+    var data = validPublicData(&canonical_input, &output_words);
+    data.program_root = null;
+    try std.testing.expectError(error.MissingProgramRoot, data.validate());
+
+    data = validPublicData(&canonical_input, &output_words);
+    data.reg_last_clock[31] = data.clock + 1;
+    try std.testing.expectError(error.RegisterClockOutOfRange, data.validate());
+
+    data = validPublicData(canonical_input[0..1], &output_words);
+    try std.testing.expectError(error.InputWordCountMismatch, data.validate());
+
+    const noncanonical_input = [_]u32{ 0x0403_0201, 0x0100_0605 };
+    data = validPublicData(&noncanonical_input, &output_words);
+    try std.testing.expectError(error.NonCanonicalInputPadding, data.validate());
+
+    const one_byte_input = [_]u32{1};
+    data = validPublicData(&one_byte_input, &output_words);
+    data.io_entries.input_start = std.math.maxInt(u32);
+    data.io_entries.input_len = 1;
+    try std.testing.expectError(error.InputAddressOverflow, data.validate());
+}
+
+test "public data: validator rejects malformed output structure" {
+    const input_words = [_]u32{ 0x0403_0201, 0x0000_0605 };
+    var output_words = [_]OutputWord{
+        .{ .addr = 0x3004, .value = 5, .clock = 8 },
+        .{ .addr = 0x3008, .value = 11, .clock = 9 },
+        .{ .addr = 0x300c, .value = 12, .clock = 10 },
+    };
+    var data = validPublicData(&input_words, output_words[0..2]);
+    try std.testing.expectError(error.OutputWordCountMismatch, data.validate());
+
+    data = validPublicData(&input_words, &output_words);
+    output_words[0].value = 4;
+    try std.testing.expectError(error.OutputLengthWordMismatch, data.validate());
+    output_words[0].value = 5;
+
+    output_words[1].addr += 4;
+    try std.testing.expectError(error.OutputWordAddressMismatch, data.validate());
+    output_words[1].addr -= 4;
+
+    output_words[1].clock = 0;
+    try std.testing.expectError(error.OutputClockOutOfRange, data.validate());
+    output_words[1].clock = 11;
+    try std.testing.expectError(error.OutputClockOutOfRange, data.validate());
+}
+
+test "public data: empty output forms retain the pinned segment distinction" {
+    const input_words = [_]u32{ 0x0403_0201, 0x0000_0605 };
+    var data = validPublicData(&input_words, &.{});
+    data.io_entries.output_len = 0;
+    try data.validate();
+
+    const final_segment_words = [_]OutputWord{.{
+        .addr = 0x3004,
+        .value = 0,
+        .clock = 8,
+    }};
+    data.io_entries.output_words = &final_segment_words;
+    try data.validate();
+
+    data.io_entries.output_len = 1;
+    try std.testing.expectError(error.OutputWordCountMismatch, data.validate());
+}
+
+test "public data: output regions use checked, non-overlapping addresses" {
+    const input_words = [_]u32{ 0x0403_0201, 0x0000_0605 };
+    const overflow_words = [_]OutputWord{
+        .{ .addr = 0x3004, .value = 2, .clock = 8 },
+        .{ .addr = 0xffff_fffc, .value = 1, .clock = 9 },
+    };
+    var data = validPublicData(&input_words, &overflow_words);
+    data.io_entries.output_len = 4;
+    data.io_entries.output_data_addr = 0xffff_fffc;
+    try std.testing.expectError(error.OutputAddressOverflow, data.validate());
+
+    const overlap_words = [_]OutputWord{
+        .{ .addr = 0x3008, .value = 4, .clock = 8 },
+        .{ .addr = 0x3008, .value = 1, .clock = 9 },
+    };
+    data = validPublicData(&input_words, &overlap_words);
+    data.io_entries.output_len = 4;
+    data.io_entries.output_len_addr = 0x3008;
+    try std.testing.expectError(error.OverlappingOutputRegions, data.validate());
+}
+
+test "public data: unaligned output length is outside the supported proof profile" {
+    const input_words = [_]u32{ 0x0403_0201, 0x0000_0605 };
+    const output_words = [_]OutputWord{
+        .{ .addr = 0x3004, .value = 5, .clock = 8 },
+        .{ .addr = 0x3008, .value = 11, .clock = 9 },
+        .{ .addr = 0x300c, .value = 12, .clock = 10 },
+    };
+    var data = validPublicData(&input_words, &output_words);
+    data.io_entries.output_len_addr += 1;
+    try std.testing.expectError(error.MisalignedOutputLengthAddress, data.validate());
+
+    data = validPublicData(&input_words, &output_words);
+    data.io_entries.output_data_addr += 1;
+    try std.testing.expectError(error.MisalignedOutputDataAddress, data.validate());
 }

@@ -160,6 +160,7 @@ fn validateStatement(statement: RiscVStatement) ProverError!void {
         return ProverError.InvalidStatement;
     if (statement.n_infra < 10 or statement.n_infra > MAX_INFRA_COMPONENTS)
         return ProverError.InvalidStatement;
+    statement.public_data.validate() catch return ProverError.InvalidStatement;
     if (statement.public_data.initial_pc != statement.initial_pc or
         statement.public_data.final_pc != statement.final_pc or
         statement.public_data.clock != statement.total_steps or
