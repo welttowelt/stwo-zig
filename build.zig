@@ -345,6 +345,26 @@ pub fn build(b: *std.Build) void {
     );
     upstream_surface_step.dependOn(&upstream_surface_cmd.step);
 
+    // RISC-V release gate (CP-13): fail-closed by construction. It chains the
+    // trace-vector gate, the staged CLI smoke (prove -> independent verify ->
+    // tamper rejection), and oracle-receipt validation — which FAILS until
+    // every CP-11 boundary comparison genuinely passes. It joins the strict
+    // release chain only at RF-01 promotion, when it can pass truthfully.
+    const riscv_gate_vectors = b.addSystemCommand(&.{ "python3", "scripts/riscv_trace_vectors.py" });
+    const riscv_gate_smoke = b.addSystemCommand(&.{ "python3", "scripts/riscv_staged_smoke.py" });
+    riscv_gate_smoke.step.dependOn(&riscv_gate_vectors.step);
+    const riscv_gate_receipt = b.addSystemCommand(&.{
+        "python3",                                            "scripts/riscv_release_oracle.py",
+        "validate",                                           "--receipt",
+        "zig-out/release-evidence/riscv/oracle-receipt.json",
+    });
+    riscv_gate_receipt.step.dependOn(&riscv_gate_smoke.step);
+    const riscv_release_gate_step = b.step(
+        "riscv-release-gate",
+        "Enforcing RISC-V release gate (vectors -> staged smoke -> oracle receipt); fails until CP-11 boundaries pass",
+    );
+    riscv_release_gate_step.dependOn(&riscv_gate_receipt.step);
+
     // Deterministic release gate sequence:
     // fmt -> upstream-pins -> source-conformance -> test -> test-riscv -> test-riscv-prover -> api-parity -> deep-gate -> vectors -> interop -> bench-smoke -> profile-smoke
     const rg_fmt = b.addSystemCommand(&.{ "zig", "fmt", "--check", "build.zig", "src", "tools" });
