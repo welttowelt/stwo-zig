@@ -270,6 +270,54 @@ def ECALL():
     return 0x0000_0073
 
 
+def build_elf_with_symbols(instructions: list[int], symbols: dict[str, int]) -> bytes:
+    """Minimal ELF with a symtab: header + PT_LOAD phdr + code + .symtab/.strtab
+    and section headers, so both runners resolve linker-script symbols."""
+    code = b"".join(struct.pack("<I", inst) for inst in instructions)
+    e_phoff = 52
+    code_off = 52 + 32
+
+    strtab = b"\x00"
+    name_offsets = {}
+    for name in symbols:
+        name_offsets[name] = len(strtab)
+        strtab += name.encode() + b"\x00"
+    # Symbol entries: null + one per symbol (Elf32_Sym: name,value,size,info,other,shndx)
+    symtab = struct.pack("<IIIBBH", 0, 0, 0, 0, 0, 0)
+    for name, value in symbols.items():
+        symtab += struct.pack("<IIIBBH", name_offsets[name], value, 0, 0x10, 0, 0xFFF1)
+
+    shstrtab = b"\x00.symtab\x00.strtab\x00.shstrtab\x00"
+    symtab_off = code_off + len(code)
+    strtab_off = symtab_off + len(symtab)
+    shstrtab_off = strtab_off + len(strtab)
+    shoff = shstrtab_off + len(shstrtab)
+
+    def shdr(name_off, sh_type, offset, size, link, info, entsize):
+        return struct.pack("<IIIIIIIIII", name_off, sh_type, 0, 0, offset, size, link, info, 1, entsize)
+
+    sections = b"".join([
+        shdr(0, 0, 0, 0, 0, 0, 0),  # null
+        shdr(1, 2, symtab_off, len(symtab), 2, 1, 16),  # .symtab -> links .strtab
+        shdr(9, 3, strtab_off, len(strtab), 0, 0, 0),  # .strtab
+        shdr(17, 3, shstrtab_off, len(shstrtab), 0, 0, 0),  # .shstrtab
+    ])
+
+    header = struct.pack(
+        "<4sBBBBB7xHHIIIIIHHHHHH",
+        b"\x7fELF", 1, 1, 1, 0, 0,
+        2, 0xF3, 1,
+        CODE_VADDR,
+        e_phoff,
+        shoff,  # e_shoff
+        0,
+        52, 32, 1,
+        40, 4, 3,  # shentsize, shnum, shstrndx
+    )
+    phdr = struct.pack("<IIIIIIII", 1, code_off, CODE_VADDR, 0, len(code), len(code), 0, 0)
+    return header + phdr + code + symtab + strtab + shstrtab + sections
+
+
 def build_elf(instructions: list[int]) -> bytes:
     """Minimal RV32 ELF: 52-byte header + one PT_LOAD phdr + code at 0x10000.
 
@@ -430,6 +478,25 @@ def prog_jal_jalr() -> list[int]:
     ] + EPILOGUE()
 
 
+def prog_declared_region() -> list[int]:
+    # Same ALU body, but with a DECLARED text region so program tuples,
+    # program roots, and Poseidon2 hashing become non-trivial oracle surfaces.
+    return [ADDI(1, 0, 10), ADDI(2, 0, 20), ADD(3, 1, 2), SUB(4, 2, 1)] + EPILOGUE()
+
+
+SYMBOL_PROGRAMS: dict[str, tuple[list[int], dict[str, int]]] = {
+    "declared_region": (
+        prog_declared_region(),
+        {
+            "__text_start": CODE_VADDR,
+            "__text_len": (4 + 3) * 4,
+            "__global_pointer$": 0x0020_0800,
+            "__stack_top": 0x0020_0000,
+        },
+    ),
+}
+
+
 PROGRAMS: dict[str, list[int]] = {
     "alu_test": prog_alu_basic(),
     "branch_fib": prog_branch_fib(),
@@ -479,8 +546,13 @@ def update(scratch: Path) -> int:
     VECTOR_DIR.mkdir(parents=True, exist_ok=True)
     dumper = build_trace_dumper()
     vectors = []
-    for name, program in sorted(PROGRAMS.items()):
-        elf_bytes = build_elf(program)
+    all_programs: dict[str, bytes] = {
+        name: build_elf(program) for name, program in PROGRAMS.items()
+    }
+    for name, (program, symbols) in SYMBOL_PROGRAMS.items():
+        all_programs[name] = build_elf_with_symbols(program, symbols)
+    for name in sorted(all_programs):
+        elf_bytes = all_programs[name]
         elf_path = VECTOR_DIR / f"{name}.elf"
         elf_path.write_bytes(elf_bytes)
         trace_bytes = dump_trace(dumper, elf_path, scratch / f"{name}.trace.json")
@@ -521,7 +593,7 @@ def gate(scratch: Path) -> int:
     if payload.get("stark_v_commit") != pinned_stark_v_commit():
         errors.append("vector provenance commit does not match the pinned Stark-V commit")
     recorded = {v["name"] for v in payload.get("vectors", [])}
-    expected = set(PROGRAMS)
+    expected = set(PROGRAMS) | set(SYMBOL_PROGRAMS)
     if recorded != expected:
         errors.append(f"vector set mismatch: recorded {sorted(recorded)} expected {sorted(expected)}")
 
@@ -529,14 +601,19 @@ def gate(scratch: Path) -> int:
     for vector in payload.get("vectors", []):
         name = vector["name"]
         program = PROGRAMS.get(name)
-        if program is None:
+        symbol_entry = SYMBOL_PROGRAMS.get(name)
+        if program is None and symbol_entry is None:
             continue
         elf_path = ROOT / vector["elf"]
         if not elf_path.exists():
             errors.append(f"{name}: committed ELF missing at {vector['elf']}")
             continue
         committed = elf_path.read_bytes()
-        regenerated = build_elf(program)
+        regenerated = (
+            build_elf(program)
+            if program is not None
+            else build_elf_with_symbols(symbol_entry[0], symbol_entry[1])
+        )
         if committed != regenerated:
             errors.append(f"{name}: committed ELF is not byte-identical to the generator output")
             continue

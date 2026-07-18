@@ -55,6 +55,7 @@ const public_data_mod = @import("air/public_data.zig");
 const public_logup = @import("air/public_logup.zig");
 const memory_boundary = @import("air/memory_commitment/boundary.zig");
 const sparse_merkle = @import("air/memory_commitment/sparse_merkle.zig");
+const program_decode = @import("air/program/decode.zig");
 const memory_interaction = @import("air/memory_commitment/interaction.zig");
 const memory_trace = @import("air/memory_commitment/trace.zig");
 const riscv_component = @import("air/component.zig");
@@ -281,10 +282,13 @@ fn buildProgramSparseRoot(
     defer leaves.deinit(allocator);
     if (opt_memory) |snapshot| {
         for (snapshot.program_words) |word| {
-            for (0..4) |limb| {
+            // Oracle-exact leaf values: the DECODED per-class program tuple
+            // (opcode id + class-specific fields), never raw bytes.
+            const values = try program_decode.decodeProgramWord(word.initial_word);
+            for (values, 0..) |value, limb| {
                 try leaves.append(allocator, .{
                     .index = word.addr + @as(u32, @intCast(limb)),
-                    .value = (word.initial_word >> @intCast(8 * limb)) & 0xFF,
+                    .value = value,
                 });
             }
         }

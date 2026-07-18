@@ -16,8 +16,8 @@ implementation. Python 3.11+ stdlib only; no packages to install.
 autoresearch/
   MANIFEST.json        editable paths + rung map, locked paths, workload
                        registry, gate policy — the machine-readable contract
-  skills/              agent skills: zig-profiling and metal-profiling
-                       (methodology + the stwo-prof command reference)
+  skills/              agent skills: complexity-first algorithm selection,
+                       Zig profiling, and Metal profiling
   README.md            this file
   schema/              submission dir, verdict JSON, and ledger row schemas
   ledger/              promotions.tsv (append-only) + epochs.json
@@ -59,6 +59,17 @@ stwo-perf feed                     # compile site/feed.json — the repo->websit
                                    # dirty inputs
 ```
 
+### Algorithm-selection gate
+
+Before hand-rolling or replacing an algorithm, apply
+`skills/match-algorithmic-problems`. It requires a sourced mapping from the
+project task to canonical problems and computational models, distinguishes
+algorithmic reductions from hardness proofs, and compares transferable prior
+work against the real parameter regime. The output includes a falsifiable
+performance or quality prediction. Preserve reusable matches as durable
+`stwo-perf notes`; the selected implementation then enters the measured
+profiling loop.
+
 ### Profiling inner loop (S1)
 
 `stwo-prof` isolates code outside the repo and measures it with in-process
@@ -74,9 +85,9 @@ stwo-prof metal run mydemo --entry k --grid 1048576   # real GPU ms + reflection
 stwo-prof metal trace -- <command>  # Metal System Trace capture
 ```
 
-Methodology and reading guides live in `skills/zig-profiling` and
-`skills/metal-profiling`; kernel-scope results are diagnostics and never
-enter the promotions ledger.
+Methodology and reading guides live in `skills/match-algorithmic-problems`,
+`skills/zig-profiling`, and `skills/metal-profiling`; kernel-scope results are
+diagnostics and never enter the promotions ledger.
 
 The CLI output is fully formatted for terminals (colors honor `NO_COLOR` and
 disappear when piped).

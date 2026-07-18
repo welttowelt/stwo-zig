@@ -24,6 +24,14 @@
    "final_pc": 65588
   },
   {
+   "name": "declared_region",
+   "elf": "vectors/riscv_elfs/declared_region.elf",
+   "elf_sha256": "c79bbd13c940a90b2c99fe5effc26dde4302278d721cb276362d14e664c8b74a",
+   "trace_sha256": "d2a9376cadaf1da2ed07b7a88f1d9bd65bf1a029476a8da608dc6756eaf97637",
+   "total_steps": 6,
+   "final_pc": 65560
+  },
+  {
    "name": "jal_jalr",
    "elf": "vectors/riscv_elfs/jal_jalr.elf",
    "elf_sha256": "83a1acdff2e2e266ce5edba7046820767273be0f393471846e4957e2e964b653",
