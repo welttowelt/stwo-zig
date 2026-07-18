@@ -9,16 +9,26 @@ the same shape from its own harness.
 Guarantees a producer must uphold (all testable):
 
 1. **Committed inputs only.** The feed is a pure function of files in the
-   repository (manifest, ledger, epochs, history archive, submissions,
-   notes). No network, no local state.
-2. **Deterministic.** Same commit + same inputs → byte-identical output
-   (sorted keys; the only timestamps are sourced from the inputs or the
-   commit itself, never from the wall clock).
-3. **Provenance-bound.** `provenance.inputs_sha256` digests every input, and
-   `provenance.repo_commit` names the commit, so any consumer can verify the
-   feed against the repository.
+   repository. The producer refuses to run when any input path has
+   uncommitted changes (`--allow-dirty` exists for local debugging only and
+   stamps `provenance.dirty_inputs`; a dirty feed must never be published).
+2. **Deterministic.** Same inputs → byte-identical output (sorted keys; the
+   only timestamps are sourced from the inputs or the commit itself, never
+   from the wall clock).
+3. **Provenance-bound.** `provenance.inputs_sha256` digests every input that
+   feeds numeric content — manifest, ledger, epochs, the history index, and
+   the exact matrix report rendered (verified against the digest the index
+   records for it). Note titles are display-only and not digested.
 4. **Nothing invented.** Empty boards render empty; missing telemetry is
    omitted, never zero-filled.
+
+**The one-commit lag, by construction:** a feed committed into the repo
+names the commit it was generated FROM — necessarily the parent of the
+commit that adds the feed, since committing the feed advances HEAD.
+Verification therefore means "`inputs_sha256` matches the input files", not
+"`repo_commit` equals the commit containing the feed". CI regeneration
+gates must compare feeds with the `provenance.repo_commit*` fields
+excluded, or regenerate at the recorded commit.
 
 Top-level keys:
 

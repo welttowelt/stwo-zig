@@ -191,8 +191,8 @@
       "request_ms": 19.540354
      },
      "metal": {
-      "cpu_fallbacks_per_proof": 16,
-      "metal_dispatches_per_proof": 20,
+      "cpu_fallbacks_per_proof": 16.0,
+      "metal_dispatches_per_proof": 20.0,
       "native_mhz": 0.7514886532086167,
       "peak_rss_mib": 41.73,
       "prove_ms": 21.802083,
@@ -220,8 +220,8 @@
       "request_ms": 113.332604
      },
      "metal": {
-      "cpu_fallbacks_per_proof": 18,
-      "metal_dispatches_per_proof": 22,
+      "cpu_fallbacks_per_proof": 18.0,
+      "metal_dispatches_per_proof": 22.0,
       "native_mhz": 0.5718513228602529,
       "peak_rss_mib": 133.55,
       "prove_ms": 114.603771,
@@ -249,8 +249,8 @@
       "request_ms": 13.023395
      },
      "metal": {
-      "cpu_fallbacks_per_proof": 16,
-      "metal_dispatches_per_proof": 22,
+      "cpu_fallbacks_per_proof": 16.0,
+      "metal_dispatches_per_proof": 22.0,
       "native_mhz": 0.9503900163702512,
       "peak_rss_mib": 36.38,
       "prove_ms": 17.240229,
@@ -279,8 +279,8 @@
       "request_ms": 31.444333
      },
      "metal": {
-      "cpu_fallbacks_per_proof": 18,
-      "metal_dispatches_per_proof": 24,
+      "cpu_fallbacks_per_proof": 18.0,
+      "metal_dispatches_per_proof": 24.0,
       "native_mhz": 1.5872823613984157,
       "peak_rss_mib": 67.11,
       "prove_ms": 41.288313,
@@ -309,8 +309,8 @@
       "request_ms": 13.574958
      },
      "metal": {
-      "cpu_fallbacks_per_proof": 16,
-      "metal_dispatches_per_proof": 22,
+      "cpu_fallbacks_per_proof": 16.0,
+      "metal_dispatches_per_proof": 22.0,
       "native_mhz": 0.931702745752915,
       "peak_rss_mib": 38.14,
       "prove_ms": 17.585208,
@@ -337,8 +337,8 @@
       "request_ms": 32.923041
      },
      "metal": {
-      "cpu_fallbacks_per_proof": 18,
-      "metal_dispatches_per_proof": 24,
+      "cpu_fallbacks_per_proof": 18.0,
+      "metal_dispatches_per_proof": 24.0,
       "native_mhz": 1.5756842360739576,
       "peak_rss_mib": 71.62,
       "prove_ms": 41.59225,
@@ -365,8 +365,8 @@
       "request_ms": 13.032312
      },
      "metal": {
-      "cpu_fallbacks_per_proof": 16,
-      "metal_dispatches_per_proof": 22,
+      "cpu_fallbacks_per_proof": 16.0,
+      "metal_dispatches_per_proof": 22.0,
       "native_mhz": 0.951844524272508,
       "peak_rss_mib": 37.16,
       "prove_ms": 17.212895,
@@ -395,8 +395,8 @@
       "request_ms": 33.679834
      },
      "metal": {
-      "cpu_fallbacks_per_proof": 18,
-      "metal_dispatches_per_proof": 24,
+      "cpu_fallbacks_per_proof": 18.0,
+      "metal_dispatches_per_proof": 24.0,
       "native_mhz": 1.6000553640018016,
       "peak_rss_mib": 67.14,
       "prove_ms": 40.958667,
@@ -425,8 +425,8 @@
       "request_ms": 42.023604
      },
      "metal": {
-      "cpu_fallbacks_per_proof": 13,
-      "metal_dispatches_per_proof": 15,
+      "cpu_fallbacks_per_proof": 13.0,
+      "metal_dispatches_per_proof": 15.0,
       "native_mhz": 0.25273134030944766,
       "peak_rss_mib": 52.22,
       "prove_ms": 40.517417,
@@ -454,8 +454,8 @@
       "request_ms": 146.978438
      },
      "metal": {
-      "cpu_fallbacks_per_proof": 14,
-      "metal_dispatches_per_proof": 18,
+      "cpu_fallbacks_per_proof": 14.0,
+      "metal_dispatches_per_proof": 18.0,
       "native_mhz": 0.5483056221488387,
       "peak_rss_mib": 186.48,
       "prove_ms": 119.567417,
@@ -483,8 +483,8 @@
       "request_ms": 8.393125
      },
      "metal": {
-      "cpu_fallbacks_per_proof": 10,
-      "metal_dispatches_per_proof": 12,
+      "cpu_fallbacks_per_proof": 10.0,
+      "metal_dispatches_per_proof": 12.0,
       "native_mhz": 0.10067846877630926,
       "peak_rss_mib": 38.34,
       "prove_ms": 10.173792,
@@ -511,8 +511,8 @@
       "request_ms": 54.473813
      },
      "metal": {
-      "cpu_fallbacks_per_proof": 13,
-      "metal_dispatches_per_proof": 15,
+      "cpu_fallbacks_per_proof": 13.0,
+      "metal_dispatches_per_proof": 15.0,
       "native_mhz": 0.17175464697941306,
       "peak_rss_mib": 69.06,
       "prove_ms": 47.696104,
@@ -532,7 +532,7 @@
   "run_id": "2026-07-18-064334-matrix-v5-789feb4c"
  },
  "metal_resident_progress": {
-  "cpu_fallbacks_per_proof_median": 16,
+  "cpu_fallbacks_per_proof_median": 16.0,
   "rows_total": 12,
   "rows_with_zero_fallbacks": 0
  },
@@ -544,15 +544,17 @@
   "slug": "stwo-zig"
  },
  "provenance": {
-  "determinism": "same commit + same inputs => byte-identical feed",
+  "determinism": "pure function of the named inputs; a committed feed names the commit it was generated FROM (one-commit lag by construction) \u2014 verify via inputs_sha256, not commit equality",
+  "dirty_inputs": [],
   "inputs_sha256": {
    "autoresearch/MANIFEST.json": "64b1dee6555bf2994af2cbbe1a4b7c2cabdc6e90e73db73b8d45913385326260",
    "autoresearch/ledger/epochs.json": "57dc8223f69d09c9c16385e1ac65e5310ee8d1c2b044b6772e69655ea7749d7d",
    "autoresearch/ledger/promotions.tsv": "d3ab2dd042280735865b61c184c9c81d860724563850ba05c7ee31342f5d989e",
-   "vectors/reports/benchmark_history/index.json": "356ab43ca2a23cf5fa9b2771c5d8f4b036d6e6e41b10724fb4c9db6e9f6fc74a"
+   "vectors/reports/benchmark_history/index.json": "356ab43ca2a23cf5fa9b2771c5d8f4b036d6e6e41b10724fb4c9db6e9f6fc74a",
+   "vectors/reports/benchmark_history/runs/2026-07-18-064334-matrix-v5-789feb4c/report.json": "8da5fae41d077ae897b44b024a4b3d2956a57daff2c0678a0441b26ec6643768"
   },
-  "repo_commit": "b409de249949",
-  "repo_commit_time": "2026-07-18T10:09:02+01:00"
+  "repo_commit": "45321e7424ea",
+  "repo_commit_time": "2026-07-18T10:32:28+01:00"
  },
  "submissions": []
 }

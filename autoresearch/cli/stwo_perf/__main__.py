@@ -339,13 +339,22 @@ def build_parser() -> argparse.ArgumentParser:
                    help="copy autoresearch/workflows/*.yml into .github/workflows/")
     p = sub.add_parser("feed", help="compile the deterministic site feed (repo->website contract)")
     p.add_argument("--out", help="output path (default autoresearch/site/feed.json)")
+    p.add_argument("--allow-dirty", action="store_true",
+                   help="permit uncommitted input changes (feed is marked dirty; never publish)")
     return parser
 
 
 def cmd_feed(args) -> int:
     from . import feed
     m = manifest_mod.load()
-    out = feed.write_feed(m, Path(args.out) if args.out else None)
+    try:
+        out = feed.write_feed(m, Path(args.out) if args.out else None,
+                              allow_dirty=args.allow_dirty)
+    except feed.FeedError as exc:
+        return _fail(str(exc))
+    if args.allow_dirty:
+        print(ansi.style("  ⚠ dirty inputs allowed — feed is marked dirty and "
+                         "must not be published", "yellow"))
     data = json.loads(out.read_text())
     latest = data.get("latest_matrix") or {}
     print(f"{ansi.OK} feed written: {out.relative_to(m.root)}")

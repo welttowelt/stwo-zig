@@ -52,6 +52,9 @@ stwo-perf submit --slug quotient-batching \
 stwo-perf submissions              # pending / promoted / rejected
 stwo-perf sync                     # jump back to the promoted frontier
 stwo-perf notes add --title "tile size sweep" --note-file findings.md
+stwo-perf feed                     # compile site/feed.json — the repo->website
+                                   # contract (schema/site-feed.md); refuses
+                                   # dirty inputs
 ```
 
 The CLI output is fully formatted for terminals (colors honor `NO_COLOR` and
