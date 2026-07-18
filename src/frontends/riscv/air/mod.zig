@@ -14,6 +14,7 @@ pub const relation_challenges = @import("relation_challenges.zig");
 pub const relations = @import("relations.zig");
 pub const semantics = @import("semantics/mod.zig");
 pub const statement = @import("statement.zig");
+pub const transcript = @import("transcript/mod.zig");
 pub const trace_columns = @import("trace_columns.zig");
 pub const components = @import("components/mod.zig");
 pub const preprocessed = @import("preprocessed/mod.zig");
