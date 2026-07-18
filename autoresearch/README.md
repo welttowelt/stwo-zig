@@ -179,7 +179,7 @@ STWO_PERF_HMAC_SECRET=$(openssl rand -hex 32) GITHUB_CLIENT_ID=<oauth app id> \
 
 Endpoints: `POST /v1/keys` (GitHub bearer token → HMAC key, stateless verify,
 key-id revocation list), `POST /v1/keys/verify`, `GET /v1/leaderboard`,
-`GET /v1/frontier/<class>`, `GET /v1/client-id`, `GET /v1/health`. Binds
+`GET /v1/frontier/<board>/<class>`, `GET /v1/client-id`, `GET /v1/health`. Binds
 127.0.0.1; front with TLS in real deployments. `stwo-perf login` uses the
 GitHub device flow; tokens live in `~/.config/stwo-perf/` with mode 600.
 
@@ -188,7 +188,7 @@ GitHub device flow; tokens live in `~/.config/stwo-perf/` with mode 600.
 1. Freeze the anchor: set `harness.anchor_commit` + `anchor_report` in
    `MANIFEST.json` (human-reviewed commit, after the conformance goal's
    baseline-freeze phase).
-2. Measure A/A dispersion per class on the judge host; record in
+2. Measure A/A dispersion per board and class on the judge host; record in
    `ledger/epochs.json`.
 3. Install workflows; add the `stwo-judge` self-hosted runner; protect `main`.
 4. First promotion follows the quickstart above end to end.

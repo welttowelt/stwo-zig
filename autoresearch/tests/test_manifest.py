@@ -37,7 +37,7 @@ class ManifestTest(unittest.TestCase):
         self.assertEqual(strays, ["docs/random.md"])
 
     def test_workload_registry(self):
-        small = self.m.workloads("small")
+        small = self.m.workloads("small", board="core_cpu")
         self.assertTrue(small)
         self.assertTrue(all(w.workload_class == "small" for w in small))
 
@@ -47,29 +47,56 @@ class ManifestTest(unittest.TestCase):
         self.assertIn("riscv", by_id)
         native, riscv = by_id["native"], by_id["riscv"]
         self.assertTrue(native.enabled)
+        self.assertEqual(native.board, "core_cpu")
         self.assertEqual(native.binary, "zig-out/bin/native-proof-bench-cpu")
+        self.assertEqual(native.report_schema, "native_proof_v6")
         self.assertEqual(len(native.workloads), 3)
         self.assertFalse(riscv.enabled)
+        self.assertEqual(riscv.board, "riscv")
         self.assertEqual(riscv.disabled_reason, "stark-v adapter pending release gate")
         self.assertEqual(riscv.binary, "zig-out/bin/stwo-zig")
         self.assertEqual(riscv.build_step, "zig build stwo-zig -Doptimize=ReleaseFast")
         self.assertEqual({w.workload_id for w in riscv.workloads},
                          {"riscv_fib_small", "riscv_alu"})
+        self.assertTrue(all(w.args.startswith("bench --elf ") for w in riscv.workloads))
+        self.assertTrue(all("--backend cpu" in w.args for w in riscv.workloads))
 
     def test_disabled_group_workloads_excluded_by_default(self):
-        default_ids = {w.workload_id for w in self.m.workloads()}
+        default_ids = {w.workload_id for w in self.m.workloads(board="core_cpu")}
         self.assertNotIn("riscv_fib_small", default_ids)
         self.assertNotIn("riscv_alu", default_ids)
-        all_ids = {w.workload_id for w in self.m.workloads(include_disabled=True)}
+        all_ids = {
+            w.workload_id
+            for w in self.m.workloads(include_disabled=True, board="riscv")
+        }
         self.assertIn("riscv_fib_small", all_ids)
         self.assertIn("riscv_alu", all_ids)
         # every default workload comes from an enabled group
         enabled = {g.group_id for g in self.m.groups() if g.enabled}
-        self.assertTrue(all(w.group_id in enabled for w in self.m.workloads()))
+        self.assertTrue(all(
+            w.group_id in enabled for w in self.m.workloads(board="core_cpu")
+        ))
+
+    def test_workload_selection_requires_board(self):
+        with self.assertRaises(manifest_mod.ManifestError):
+            self.m.workloads("small")
 
     def test_unknown_group_raises(self):
         with self.assertRaises(manifest_mod.ManifestError):
             self.m.group("does-not-exist")
+
+    def test_board_selection_never_pools_groups(self):
+        self.assertEqual(
+            {w.group_id for w in self.m.workloads("small", board="core_cpu")},
+            {"native"},
+        )
+        self.assertEqual(self.m.workloads("small", board="riscv"), [])
+        self.assertEqual(
+            {w.group_id for w in self.m.workloads(
+                "small", include_disabled=True, board="riscv",
+            )},
+            {"riscv"},
+        )
 
 
 class RegistryValidationTest(unittest.TestCase):
@@ -84,9 +111,10 @@ class RegistryValidationTest(unittest.TestCase):
                 "groups": {
                     "native": {
                         "enabled": True,
+                        "board": "core_cpu",
                         "build_step": "true",
                         "binary": "bin/bench",
-                        "report_schema": "native_proof_v4",
+                        "report_schema": "native_proof_v6",
                         "workloads": {
                             "wf": {"class": "small", "args": "--x", "native_unit": "rows"},
                         },
@@ -111,6 +139,7 @@ class RegistryValidationTest(unittest.TestCase):
         raw = self._base_raw()
         raw["workload_registry"]["groups"]["riscv"] = {
             "enabled": False,
+            "board": "riscv",
             "build_step": "true",
             "binary": "bin/riscv",
             "report_schema": "riscv_proof_v1",
@@ -132,6 +161,27 @@ class RegistryValidationTest(unittest.TestCase):
         raw["workload_registry"]["groups"]["native"]["workloads"]["wf"]["class"] = "huge"
         with self.assertRaises(manifest_mod.ManifestError):
             manifest_mod._validate(raw)
+
+    def test_unknown_report_schema_rejected(self):
+        raw = self._base_raw()
+        raw["workload_registry"]["groups"]["native"]["report_schema"] = "made_up_v99"
+        with self.assertRaises(manifest_mod.ManifestError) as ctx:
+            manifest_mod._validate(raw)
+        self.assertIn("unsupported report_schema", str(ctx.exception))
+
+    def test_duplicate_board_ownership_rejected(self):
+        raw = self._base_raw()
+        raw["workload_registry"]["groups"]["other"] = {
+            "enabled": True,
+            "board": "core_cpu",
+            "build_step": "true",
+            "binary": "bin/other",
+            "report_schema": "native_proof_v6",
+            "workloads": {},
+        }
+        with self.assertRaises(manifest_mod.ManifestError) as ctx:
+            manifest_mod._validate(raw)
+        self.assertIn("cross-group workload pooling", str(ctx.exception))
 
 
 if __name__ == "__main__":

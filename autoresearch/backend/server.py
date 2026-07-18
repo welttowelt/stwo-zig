@@ -101,15 +101,23 @@ def make_handler(repo: Path, secret: bytes, store: Store, client_id: str | None)
                     return self._json(500, {"error": str(exc)})
                 return self._json(200, {"rows": [r.values for r in rows]})
             if path.startswith("/v1/frontier/"):
-                cls = path.rsplit("/", 1)[-1]
+                parts = path.strip("/").split("/")
+                if len(parts) != 4:
+                    return self._json(400, {
+                        "error": "frontier path must be /v1/frontier/<board>/<class>"
+                    })
+                board, cls = parts[2], parts[3]
+                if board not in ledger.BOARDS:
+                    return self._json(400, {"error": f"unknown board: {board}"})
                 if cls not in ("small", "wide", "deep"):
                     return self._json(400, {"error": "class must be small|wide|deep"})
                 try:
                     rows = ledger.load(repo)
                 except (OSError, ledger.LedgerError) as exc:
                     return self._json(500, {"error": str(exc)})
-                v = frontier.view(rows, cls)
+                v = frontier.view(rows, board, cls)
                 return self._json(200, {
+                    "board": board,
                     "class": cls,
                     "frontier": [r.values for r in v.frontier],
                     "head": v.head.values if v.head else None,

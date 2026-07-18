@@ -1,6 +1,6 @@
 # Scoring boards (v1)
 
-What "the score" means for stwo-zig autoresearch. Six boards, one promotion
+What "the score" means for stwo-zig autoresearch. Seven boards, one promotion
 currency. A board defines a basket (which workloads), a lane (which backend
 contract), a protocol (how it may be measured), and a display score. The
 promotion math never changes per board: a submission is judged by the paired
@@ -107,13 +107,25 @@ protocol differs, not because the math does.
   controlled machine (conformance-goal rule); they are never casually
   re-runnable, so heavy ledger rows are rarer and marked `heavy_*`.
 
+## Board 7 — RISC-V
+
+- **Lane:** the pinned Stark-V RV32IM adapter, measured in executed
+  instructions and scored only against RISC-V workloads and anchors.
+- **Isolation:** this board owns one workload group. Its workloads, A/A
+  dispersion, anchor budgets, frontier, and promotion HEAD never pool with a
+  native board, even when both use the same `small`/`wide`/`deep` class names.
+- **Release condition:** the group remains disabled until the AIR, public I/O
+  binding, oracle parity, and CLI adapter release gates are complete. Disabled
+  means no measurements and no promotions; it never means a silent skip or a
+  fabricated score.
+
 ## Ledger mapping
 
-`promotions.tsv` gains a `board` column (schema v1 is still row-free, so this
-is a free change): `core_cpu | core_hybrid | core_metal | heavy_native |
-heavy_cairo | stream`. A submission's declared objective becomes
-(board, workload_class, dimension). Kernel results stay out of the ledger by
-rule; they live in the microharness diagnostics reports.
+`promotions.tsv` carries a `board` column. A submission's declared objective
+is `(board, workload_class, dimension)`. The board set is `core_cpu |
+core_hybrid | core_metal | heavy_native | heavy_cairo | stream | riscv`.
+Kernel results stay out of the ledger by rule; they live in the microharness
+diagnostics reports.
 
 ## What is deliberately not scored
 

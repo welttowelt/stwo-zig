@@ -30,7 +30,7 @@ def cmd_frontier(_args) -> int:
     rows = ledger.load(m.root)
     gates = m.gates
     anchors = m.raw["harness"].get("anchor_prove_ms") or {}
-    print(render.frontier_view(rows, ["small", "wide", "deep"], anchors,
+    print(render.frontier_view(rows, list(ledger.BOARDS), ["small", "wide", "deep"], anchors,
                                (gates["targeted_class_budget"], gates["matrix_row_budget"])))
     if m.anchor_commit is None:
         print()
@@ -62,18 +62,22 @@ def cmd_run(args) -> int:
     out_dir = m.root / "autoresearch" / ".runs" / "latest"
     if args.aa:
         try:
-            result = runner.evaluate_aa(m.root, m, args.workload_class, out_dir)
+            result = runner.evaluate_aa(
+                m.root, m, args.workload_class, out_dir, board=args.board,
+            )
         except runner.RunError as exc:
             return _fail(str(exc))
         print(ansi.kv_panel("A/A dispersion", [
             ("class", result["workload_class"]),
+            ("board", result["board"]),
             ("workload", result["workload"]),
             ("rounds", str(result["rounds"])),
             ("A/A r", f"{result['aa_r']}"),
             ("CI half-width", ansi.style(f"{result['half_width']}", "bold")),
         ]))
         print()
-        print("  record it: set aa_dispersion." + result["workload_class"]
+        print("  record it: set aa_dispersion." + result["board"] + "."
+              + result["workload_class"]
               + f" = {result['half_width']} in ledger/epochs.json via a reviewed PR")
         return 0
     if args.scope == "s2":
@@ -293,7 +297,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dimension", choices=["time", "rss", "energy"], default="time")
     p.add_argument("--board", default="core_cpu",
                    choices=["core_cpu", "core_hybrid", "core_metal",
-                            "heavy_native", "heavy_cairo", "stream"],
+                            "heavy_native", "heavy_cairo", "stream", "riscv"],
                    help="scoring board (schema/scoring.md); kernels are never boards")
     p.add_argument("--predecessor", help="worktree of the paired A arm (required)")
     p.add_argument("--aa", action="store_true",

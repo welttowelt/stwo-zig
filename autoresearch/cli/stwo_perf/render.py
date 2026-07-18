@@ -62,45 +62,49 @@ def verdict(v: dict) -> str:
     return "\n".join(lines)
 
 
-def frontier_view(rows: list[ledger.Row], classes: list[str],
+def frontier_view(rows: list[ledger.Row], boards: list[str], classes: list[str],
                   anchors: dict, budgets: tuple[float, float]) -> str:
     lines = [ansi.rule("promotions ledger · Pareto frontier")]
     if not rows:
         lines.append(ansi.style("  ledger is empty — no judged promotions yet", "dim"))
-    for cls in classes:
-        v = frontier.view(rows, cls)
+    for board in boards:
         lines.append("")
-        lines.append(ansi.style(f"  {cls}", "bold"))
-        if not v.head:
-            lines.append(ansi.style("    no promoted rows", "dim"))
-            continue
-        table_rows = [
-            [
-                r.commit,
-                f"{r.prove_ms:.3f}",
-                f"{r.peak_rss_mib:.1f}",
-                f"{r.energy_j:.2f}" if r.energy_j is not None else "—",
-                ansi.style("frontier", "iris") if r in v.frontier else ansi.style("superseded", "dim"),
-                str(r.judged_at_utc)[:10],
+        lines.append(ansi.style(f"  board {board}", "bold"))
+        for cls in classes:
+            v = frontier.view(rows, board, cls)
+            lines.append(ansi.style(f"    {cls}", "bold"))
+            if not v.head:
+                lines.append(ansi.style("      no promoted rows", "dim"))
+                continue
+            table_rows = [
+                [
+                    r.commit,
+                    f"{r.prove_ms:.3f}",
+                    f"{r.peak_rss_mib:.1f}",
+                    f"{r.energy_j:.2f}" if r.energy_j is not None else "—",
+                    ansi.style("frontier", "iris") if r in v.frontier else ansi.style("superseded", "dim"),
+                    str(r.judged_at_utc)[:10],
+                ]
+                for r in (v.frontier + v.superseded)
             ]
-            for r in (v.frontier + v.superseded)
-        ]
-        lines.append(
-            ansi.table(
-                ["commit", "prove ms", "RSS MiB", "J", "state", "judged"],
-                table_rows,
-                aligns="lrrrll",
-            )
-        )
-        anchor_ms = anchors.get(cls)
-        if anchor_ms:
-            drift = frontier.drift_vs_anchor(rows, cls, float(anchor_ms), budgets[1], budgets[0])
-            if drift["ratio"] is not None:
-                mark = ansi.gate_mark(drift["within_matrix"])
-                lines.append(
-                    f"    anchor drift {ansi.ratio(drift['ratio'])} {mark} "
-                    f"(budgets: targeted x{budgets[0]}, matrix x{budgets[1]})"
+            lines.append(
+                ansi.table(
+                    ["commit", "prove ms", "RSS MiB", "J", "state", "judged"],
+                    table_rows,
+                    aligns="lrrrll",
                 )
+            )
+            anchor_ms = anchors.get(board, {}).get(cls)
+            if anchor_ms:
+                drift = frontier.drift_vs_anchor(
+                    rows, board, cls, float(anchor_ms), budgets[1], budgets[0],
+                )
+                if drift["ratio"] is not None:
+                    mark = ansi.gate_mark(drift["within_matrix"])
+                    lines.append(
+                        f"      anchor drift {ansi.ratio(drift['ratio'])} {mark} "
+                        f"(budgets: targeted x{budgets[0]}, matrix x{budgets[1]})"
+                    )
     return "\n".join(lines)
 
 

@@ -9,6 +9,10 @@ from pathlib import Path
 
 RUNGS = ("s1", "s2", "s3", "s4", "s5")
 ACCEPTANCE_FLOOR = "s3"
+REPORT_SCHEMA_VERSIONS = {
+    "native_proof_v6": 6,
+    "riscv_proof_v1": 1,
+}
 
 
 class ManifestError(RuntimeError):
@@ -29,6 +33,7 @@ class WorkloadGroup:
     group_id: str
     enabled: bool
     disabled_reason: str | None
+    board: str
     build_step: str
     binary: str
     report_schema: str
@@ -64,6 +69,7 @@ class Manifest:
                 group_id=gid,
                 enabled=bool(spec["enabled"]),
                 disabled_reason=spec.get("disabled_reason"),
+                board=spec["board"],
                 build_step=spec["build_step"],
                 binary=spec["binary"],
                 report_schema=spec["report_schema"],
@@ -80,17 +86,29 @@ class Manifest:
                 return g
         raise ManifestError(f"unknown workload group: {group_id}")
 
-    def workloads(self, workload_class: str | None = None,
-                  include_disabled: bool = False) -> list[Workload]:
-        """Workloads across groups; disabled groups excluded unless asked.
+    def group_for_board(self, board: str) -> WorkloadGroup:
+        matches = [group for group in self.groups() if group.board == board]
+        if not matches:
+            raise ManifestError(f"board has no workload group: {board}")
+        if len(matches) != 1:
+            raise ManifestError(f"board maps to multiple workload groups: {board}")
+        return matches[0]
 
-        Callers that iterate for execution must announce disabled groups
-        loudly themselves (runner/workspace do) — this filter is for
-        selection, never for silent dropping.
+    def workloads(self, workload_class: str | None = None,
+                  include_disabled: bool = False,
+                  board: str | None = None) -> list[Workload]:
+        """Workloads for exactly one board; disabled groups excluded unless asked.
+
+        A board is mandatory so a new enabled group cannot silently enter an
+        existing caller's score basket. Execution callers must still announce
+        disabled groups loudly themselves (runner/workspace do).
         """
+        if board is None:
+            raise ManifestError("board is required for workload selection")
+        groups = [self.group_for_board(board)]
         out = [
             w
-            for g in self.groups()
+            for g in groups
             if include_disabled or g.enabled
             for w in g.workloads
         ]
@@ -176,8 +194,9 @@ def _validate(raw: dict) -> None:
         )
     if not registry["groups"]:
         raise ManifestError("workload_registry.groups is empty")
+    seen_boards: set[str] = set()
     for gid, spec in registry["groups"].items():
-        for key in ("enabled", "build_step", "binary", "report_schema", "workloads"):
+        for key in ("enabled", "board", "build_step", "binary", "report_schema", "workloads"):
             if key not in spec:
                 raise ManifestError(f"workload group {gid} missing required key: {key}")
         if not isinstance(spec["enabled"], bool):
@@ -186,6 +205,20 @@ def _validate(raw: dict) -> None:
             raise ManifestError(
                 f"workload group {gid} is disabled without a disabled_reason; "
                 "silent dark groups are not allowed"
+            )
+        board = spec["board"]
+        if not isinstance(board, str) or not board.strip():
+            raise ManifestError(f"workload group {gid}: 'board' must be a non-empty string")
+        if board in seen_boards:
+            raise ManifestError(
+                f"board {board} is owned by multiple workload groups; "
+                "cross-group workload pooling is forbidden"
+            )
+        seen_boards.add(board)
+        report_schema = spec["report_schema"]
+        if report_schema not in REPORT_SCHEMA_VERSIONS:
+            raise ManifestError(
+                f"workload group {gid} has unsupported report_schema: {report_schema!r}"
             )
         for wid, w in spec["workloads"].items():
             if w.get("class") not in ("small", "wide", "deep"):

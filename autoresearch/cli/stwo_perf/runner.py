@@ -23,7 +23,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import ledger, stats
-from .manifest import Manifest, Workload, WorkloadGroup
+from .manifest import (
+    REPORT_SCHEMA_VERSIONS,
+    Manifest,
+    ManifestError,
+    Workload,
+    WorkloadGroup,
+)
 
 
 class RunError(RuntimeError):
@@ -117,6 +123,16 @@ def bench_once(
             f"{workload.workload_id}: bench emitted non-JSON output "
             f"(first 200 chars: {stdout[:200]!r})"
         ) from exc
+    if not isinstance(report, dict):
+        raise RunError(f"{workload.workload_id}: bench report root must be a JSON object")
+    expected_schema = REPORT_SCHEMA_VERSIONS[group.report_schema]
+    actual_schema = report.get("schema_version")
+    if type(actual_schema) is not int or actual_schema != expected_schema:
+        raise RunError(
+            f"{workload.workload_id}: group {group.group_id} expected "
+            f"{group.report_schema} (schema_version={expected_schema}), got "
+            f"schema_version={actual_schema!r}"
+        )
     out_path = out_dir / f"{workload.workload_id}.{tag}.json"
     out_path.write_text(json.dumps(report, indent=1))
     timing = report["timing"]["prove_seconds"]
@@ -177,6 +193,11 @@ def paired_rounds(
         a, b = results["a"], results["b"]
         if a.proof_verified < samples or b.proof_verified < samples:
             raise RunError(f"{workload.workload_id}: unverified proofs in round {round_no}")
+        if not a.byte_identical or not b.byte_identical:
+            raise RunError(
+                f"{workload.workload_id}: proof bytes changed across verified samples "
+                f"in round {round_no}"
+            )
         ratios.append(b.prove_ms / a.prove_ms)
         a_meds.append(a.prove_ms)
         b_meds.append(b.prove_ms)
@@ -269,7 +290,8 @@ def acquire_judge_lock(repo_root: Path) -> Path:
     raise RunError(f"could not acquire judge lock ({lock})")
 
 
-def draw_holdout(manifest: Manifest, workload_class: str, seed: int) -> Workload | None:
+def draw_holdout(manifest: Manifest, workload_class: str, seed: int,
+                 board: str = "core_cpu") -> Workload | None:
     """Seeded jittered hold-out inside class bounds (playbook F.7)."""
     import random
 
@@ -277,7 +299,7 @@ def draw_holdout(manifest: Manifest, workload_class: str, seed: int) -> Workload
     bounds = gen.get(workload_class)
     if not bounds:
         return None
-    candidates = manifest.workloads(workload_class)
+    candidates = manifest.workloads(workload_class, board=board)
     if not candidates:
         return None
     rng = random.Random(seed)
@@ -300,15 +322,15 @@ def _replace_flag(args: str, flag: str, value: str) -> str:
 
 
 def evaluate_aa(repo_root: Path, manifest: Manifest, workload_class: str,
-                out_dir: Path) -> dict:
+                out_dir: Path, board: str = "core_cpu") -> dict:
     """A/A run (both arms = this tree): measures the per-class dispersion that
     theta is built from. Record the half_width in ledger/epochs.json by PR."""
     out_dir.mkdir(parents=True, exist_ok=True)
     skipped = announce_skipped_groups(manifest)
-    workloads = manifest.workloads(workload_class)
+    workloads = _board_workloads(manifest, board, workload_class)
     if not workloads:
         raise RunError(
-            f"no workloads registered for class {workload_class} in any enabled group"
+            f"no enabled workloads registered for board {board}, class {workload_class}"
         )
     workload = workloads[0]
     build_arm(repo_root, manifest, groups=[manifest.group(workload.group_id)])
@@ -317,12 +339,15 @@ def evaluate_aa(repo_root: Path, manifest: Manifest, workload_class: str,
     half_width = (score.ci[1] - score.ci[0]) / 2.0
     return {
         "workload_class": workload_class,
+        "board": board,
         "workload": workload.workload_id,
         "rounds": len(score.ratios),
         "aa_r": round(score.r, 6),
         "half_width": round(half_width, 6),
         "skipped_groups": skipped,
-        "record_as": {"ledger/epochs.json": {"aa_dispersion": {workload_class: round(half_width, 6)}}},
+        "record_as": {"ledger/epochs.json": {"aa_dispersion": {
+            board: {workload_class: round(half_width, 6)},
+        }}},
     }
 
 
@@ -345,13 +370,13 @@ def evaluate(
     """
     policy = manifest.gates
     skipped = announce_skipped_groups(manifest)
-    workloads = manifest.workloads(workload_class)
+    workloads = _board_workloads(manifest, board, workload_class)
     if not workloads:
         raise RunError(
-            f"no workloads registered for class {workload_class} in any enabled group"
+            f"no enabled workloads registered for board {board}, class {workload_class}"
         )
 
-    dispersion = ledger.aa_dispersion(repo_root, workload_class)
+    dispersion = ledger.aa_dispersion(repo_root, board, workload_class)
     th = stats.theta(dispersion, float(policy["theta_floor"]), float(policy["dispersion_multiplier"]))
 
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -369,7 +394,7 @@ def evaluate(
     holdout_result = None
     if judged:
         seed = _seed(_git(repo_root, "rev-parse", "HEAD") or "head", 0)
-        holdout = draw_holdout(manifest, workload_class, seed)
+        holdout = draw_holdout(manifest, workload_class, seed, board)
         if holdout is not None:
             hs = paired_rounds(predecessor_root, repo_root, manifest, holdout,
                                policy, out_dir, stop_theta=th, round_budget=3)
@@ -393,7 +418,7 @@ def evaluate(
         )
 
     gates = _gates(repo_root, manifest, scores, policy, judged, dispersion,
-                   workload_class)
+                   workload_class, board)
     verdict = {
         "schema_version": 1,
         "kind": "judged" if judged else "claimed",
@@ -435,14 +460,14 @@ def evaluate(
         "skipped_groups": skipped,
         "evidence": {
             "reports": [p for s in scores for p in s.reports],
-            "pairing": "round-level ABBA (bench schema v4 exposes medians, not raw samples)",
+            "pairing": "round-level ABBA (bench reports expose medians, not raw samples)",
         },
     }
     return verdict
 
 
 def _gates(repo_root, manifest, scores, policy, judged, dispersion,
-           workload_class) -> dict:
+           workload_class, board) -> dict:
     g1_ok = all(True for _ in scores)  # per-round verification enforced in paired_rounds
     # Submission and note additions are the point of a submission PR; they are
     # not locked-path violations (mirrors validate_action's carve-out).
@@ -453,15 +478,20 @@ def _gates(repo_root, manifest, scores, policy, judged, dispersion,
         and not p.startswith("autoresearch/.runs/")
     ]
     violations, strays = manifest.classify_touched(touched)
-    g2_ok = not violations
-    g2_detail = "no locked path touched" if g2_ok else f"locked paths touched: {violations[:5]}"
+    g2_ok = not violations and not strays
+    if g2_ok:
+        g2_detail = "no locked or out-of-scope path touched"
+    elif violations:
+        g2_detail = f"locked paths touched: {violations[:5]}"
+    else:
+        g2_detail = "no locked path touched"
     if strays:
         g2_detail += f"; outside editable set: {strays[:5]}"
 
     # G4: anchor drift budgets, charged against the frozen anchor (never the
     # predecessor). Inactive until the anchor is frozen — G5 blocks judged then.
     anchors = manifest.raw["harness"].get("anchor_prove_ms") or {}
-    anchor_ms = anchors.get(workload_class)
+    anchor_ms = anchors.get(board, {}).get(workload_class)
     g4_ok, g4_detail = True, "anchor not frozen; budgets inactive (G5 blocks judged)"
     if anchor_ms:
         objective = scores[0]
@@ -489,6 +519,14 @@ def _gates(repo_root, manifest, scores, policy, judged, dispersion,
         "G4": {"pass": g4_ok, "detail": g4_detail},
         "G5": {"pass": env_ok, "detail": env_detail},
     }
+
+
+def _board_workloads(manifest: Manifest, board: str,
+                     workload_class: str) -> list[Workload]:
+    try:
+        return manifest.workloads(workload_class, board=board)
+    except ManifestError as exc:
+        raise RunError(str(exc)) from exc
 
 
 def changed_paths(repo_root: Path) -> list[str]:

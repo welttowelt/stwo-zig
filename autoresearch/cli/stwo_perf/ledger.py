@@ -20,7 +20,7 @@ OUTCOMES = ("promoted", "neutral", "rejected")
 # Scoring boards (schema/scoring.md). Kernel results never enter the ledger.
 BOARDS = (
     "core_cpu", "core_hybrid", "core_metal",
-    "heavy_native", "heavy_cairo", "stream",
+    "heavy_native", "heavy_cairo", "stream", "riscv",
 )
 
 _FLOAT_COLS = {"judged_r", "ci_low", "ci_high", "prove_ms", "native_mhz", "peak_rss_mib"}
@@ -143,6 +143,7 @@ def current_epoch(repo_root: Path) -> dict:
     return epochs[max(epochs)]
 
 
-def aa_dispersion(repo_root: Path, workload_class: str) -> float | None:
-    value = current_epoch(repo_root).get("aa_dispersion", {}).get(workload_class)
+def aa_dispersion(repo_root: Path, board: str, workload_class: str) -> float | None:
+    by_board = current_epoch(repo_root).get("aa_dispersion", {})
+    value = by_board.get(board, {}).get(workload_class)
     return float(value) if value is not None else None

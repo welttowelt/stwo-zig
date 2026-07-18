@@ -139,7 +139,8 @@ def main() -> int:
         print("no unrecorded submission has a signed judged verdict yet")
         return 0
     objective_class = verdict["declared_objective"]["workload_class"]
-    head = frontier.view(ledger.load(repo), objective_class).head
+    objective_board = verdict["declared_objective"]["board"]
+    head = frontier.view(ledger.load(repo), objective_board, objective_class).head
     outcome, gates_cell = decide_outcome(
         verdict, float(head.prove_ms) if head is not None else None
     )

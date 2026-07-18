@@ -18,7 +18,7 @@ class FrontierTest(unittest.TestCase):
             row_line(commit="b", prove_ms="3.0", peak_rss_mib="25",
                      judged_at_utc="2026-07-18T02:00:00Z", submission_id="s2"),
         )
-        v = frontier.view(data, "small")
+        v = frontier.view(data, "core_cpu", "small")
         self.assertEqual([r.commit for r in v.frontier], ["b"])
         self.assertEqual(v.head.commit, "b")
 
@@ -28,17 +28,17 @@ class FrontierTest(unittest.TestCase):
             row_line(commit="b", prove_ms="4.0", peak_rss_mib="20",
                      judged_at_utc="2026-07-18T02:00:00Z", submission_id="s2"),
         )
-        v = frontier.view(data, "small")
+        v = frontier.view(data, "core_cpu", "small")
         self.assertEqual(len(v.frontier), 2)
 
     def test_gate_failing_row_excluded(self):
         data = rows(row_line(commit="a", gates="G3:fail", outcome="rejected"))
-        v = frontier.view(data, "small")
+        v = frontier.view(data, "core_cpu", "small")
         self.assertIsNone(v.head)
 
     def test_neutral_row_excluded_from_frontier(self):
         data = rows(row_line(commit="a", outcome="neutral"))
-        v = frontier.view(data, "small")
+        v = frontier.view(data, "core_cpu", "small")
         self.assertIsNone(v.head)
 
     def test_superseded_row_excluded(self):
@@ -49,15 +49,26 @@ class FrontierTest(unittest.TestCase):
             supersedes="2026-07-18T01:00:00Z+a",
         )
         data = rows(first, correction)
-        v = frontier.view(data, "small")
+        v = frontier.view(data, "core_cpu", "small")
         self.assertEqual([r.commit for r in v.frontier], ["a2"])
 
     def test_drift_budget_vs_anchor(self):
         data = rows(row_line(commit="a", prove_ms="4.2"))
-        drift = frontier.drift_vs_anchor(data, "small", anchor_prove_ms=4.0,
+        drift = frontier.drift_vs_anchor(data, "core_cpu", "small", anchor_prove_ms=4.0,
                                          matrix_budget=1.05, targeted_budget=1.02)
         self.assertFalse(drift["within_targeted"])
         self.assertTrue(drift["within_matrix"])
+
+    def test_same_class_on_another_board_never_changes_head(self):
+        data = rows(
+            row_line(commit="native", board="core_cpu", prove_ms="4.0"),
+            row_line(
+                commit="riscv", board="riscv", prove_ms="1.0",
+                judged_at_utc="2026-07-18T02:00:00Z", submission_id="s2",
+            ),
+        )
+        self.assertEqual(frontier.view(data, "core_cpu", "small").head.commit, "native")
+        self.assertEqual(frontier.view(data, "riscv", "small").head.commit, "riscv")
 
 
 if __name__ == "__main__":

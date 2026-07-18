@@ -17,7 +17,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "cli"))
-from stwo_perf import manifest as manifest_mod, render, runner, signing  # noqa: E402
+from stwo_perf import ledger, manifest as manifest_mod, render, runner, signing  # noqa: E402
 
 
 def comment(body: str) -> None:
@@ -71,6 +71,19 @@ def find_submission() -> Path:
     return sub
 
 
+def claimed_board(manifest: manifest_mod.Manifest, objective: dict) -> str:
+    board = objective.get("board")
+    if not isinstance(board, str):
+        raise SystemExit("claimed verdict must declare a string board")
+    if board not in ledger.BOARDS:
+        raise SystemExit(f"claimed verdict names unsupported board: {board}")
+    try:
+        manifest.group_for_board(board)
+    except manifest_mod.ManifestError as exc:
+        raise SystemExit(f"claimed board is not runnable: {exc}") from exc
+    return board
+
+
 def main() -> int:
     m = manifest_mod.load(Path.cwd())
     sub = find_submission()
@@ -79,6 +92,7 @@ def main() -> int:
     wl_class = objective.get("workload_class", "small")
     dimension = objective.get("dimension", "time")
     scope = claimed.get("scope", "s3")
+    board = claimed_board(m, objective)
 
     base_sha = os.environ.get("BASE_SHA", "origin/main")
     with tempfile.TemporaryDirectory(prefix="stwo-perf-judge-") as tmp:
@@ -91,7 +105,7 @@ def main() -> int:
         try:
             verdict = runner.evaluate(
                 m.root, pred, m, wl_class, dimension, scope,
-                judged=True, out_dir=Path(tmp) / "runs",
+                judged=True, out_dir=Path(tmp) / "runs", board=board,
             )
         finally:
             lock.unlink(missing_ok=True)

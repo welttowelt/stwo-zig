@@ -180,7 +180,7 @@ def _boards(repo: Path, rows: list[ledger.Row]) -> dict:
         entries = [r.values for r in board_rows]
         board_frontier = {}
         for cls in CLASSES:
-            view = frontier.view(board_rows, cls)
+            view = frontier.view(board_rows, board, cls)
             board_frontier[cls] = {
                 "head": view.head.values if view.head else None,
                 "frontier": [r.values for r in view.frontier],

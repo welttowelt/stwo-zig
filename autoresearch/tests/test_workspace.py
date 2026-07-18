@@ -22,9 +22,10 @@ MANIFEST_RAW = {
         "groups": {
             "native": {
                 "enabled": True,
+                "board": "core_cpu",
                 "build_step": "true",
                 "binary": "true",
-                "report_schema": "native_proof_v4",
+                "report_schema": "native_proof_v6",
                 "workloads": {},
             },
         },
