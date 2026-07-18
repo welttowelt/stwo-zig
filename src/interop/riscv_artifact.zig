@@ -96,6 +96,7 @@ pub const StatementWire = struct {
 };
 
 pub const InteractionClaimWire = struct {
+    interaction_pow: u64,
     state_claims: []const Qm31Wire,
     program_claims: []const Qm31Wire,
     rom_claim: Qm31Wire,
@@ -353,6 +354,7 @@ fn fixture() Artifact {
             },
         },
         .interaction_claim = .{
+            .interaction_pow = 0,
             .state_claims = &.{.{ 0, 0, 0, 0 }},
             .program_claims = &.{.{ 0, 0, 0, 0 }},
             .rom_claim = .{ 0, 0, 0, 0 },

@@ -3,6 +3,8 @@
 const qm31 = @import("../../../core/fields/qm31.zig");
 const component = @import("component.zig");
 const public_data = @import("public_data.zig");
+const trace_mod = @import("../runner/trace.zig");
+const transcript_claims = @import("transcript/claims.zig");
 
 const QM31 = qm31.QM31;
 pub const FamilyComponentDesc = component.FamilyComponentDesc;
@@ -10,6 +12,8 @@ pub const PublicData = public_data.PublicData;
 
 pub const MAX_COMPONENTS: usize = 256;
 pub const MAX_INFRA_COMPONENTS: usize = 512;
+pub const MAX_INTERACTION_COLUMNS: usize =
+    MAX_COMPONENTS * 8 + MAX_INFRA_COMPONENTS * 4;
 
 pub const InfraKind = enum(u32) {
     program,
@@ -109,12 +113,28 @@ pub const RiscVStatement = struct {
         return total;
     }
 
-    pub fn mixShape(self: RiscVStatement, channel: anytype) void {
+    pub fn canonicalMainClaim(self: *const RiscVStatement) transcript_claims.MainClaim {
+        var log_sizes = [_]u32{0} ** transcript_claims.COMPONENT_COUNT;
+        for (0..self.n_components) |i| {
+            const desc = self.component_descs[i];
+            const index = @intFromEnum(componentForFamily(desc.family));
+            log_sizes[index] = @max(log_sizes[index], desc.log_size);
+        }
+        for (0..self.n_infra) |i| {
+            const desc = self.infra_descs[i];
+            const index = @intFromEnum(componentForInfra(desc.kind));
+            log_sizes[index] = @max(log_sizes[index], desc.log_size);
+        }
+        return transcript_claims.MainClaim.init(log_sizes);
+    }
+
+    /// Domain-separated extension to Stark-V's canonical 27-component claim.
+    /// Upstream has one table per family; Zig shards large tables and must bind
+    /// the complete shard geometry before drawing relation challenges.
+    pub fn mixShardManifest(self: RiscVStatement, channel: anytype) void {
         channel.mixU32s(&.{
+            0x5348_5244, // "SHRD"
             self.n_components,
-            self.initial_pc,
-            self.final_pc,
-            self.total_steps,
             self.n_infra,
         });
         for (0..self.n_components) |i| {
@@ -138,11 +158,25 @@ pub const RiscVStatement = struct {
     }
 };
 
+pub const CanonicalInteractionClaim = struct {
+    claimed_sums: [transcript_claims.COMPONENT_COUNT]QM31,
+    log_sizes: [MAX_INTERACTION_COLUMNS]u32,
+    n_log_sizes: usize,
+
+    pub fn view(self: *const CanonicalInteractionClaim) transcript_claims.InteractionClaim {
+        return transcript_claims.InteractionClaim.init(
+            self.claimed_sums,
+            self.log_sizes[0..self.n_log_sizes],
+        );
+    }
+};
+
 pub const RiscVInteractionClaim = struct {
     state_claims: [MAX_COMPONENTS]QM31,
     prog_claims: [MAX_COMPONENTS]QM31,
     rom_claim: QM31,
     n_components: u32,
+    interaction_pow: u64,
 
     pub fn initZero() RiscVInteractionClaim {
         return .{
@@ -150,14 +184,80 @@ pub const RiscVInteractionClaim = struct {
             .prog_claims = .{QM31.zero()} ** MAX_COMPONENTS,
             .rom_claim = QM31.zero(),
             .n_components = 0,
+            .interaction_pow = 0,
         };
     }
 
-    pub fn mixInto(self: RiscVInteractionClaim, channel: anytype) void {
-        channel.mixU32s(&.{ 0x5354_4154, self.n_components }); // "STAT"
-        for (0..self.n_components) |i| channel.mixFelts(&.{self.state_claims[i]});
-        channel.mixU32s(&.{ 0x5052_4F47, self.n_components }); // "PROG"
-        for (0..self.n_components) |i| channel.mixFelts(&.{self.prog_claims[i]});
-        channel.mixFelts(&.{self.rom_claim});
+    pub fn canonical(
+        self: *const RiscVInteractionClaim,
+        statement: *const RiscVStatement,
+    ) !CanonicalInteractionClaim {
+        if (self.n_components != statement.n_components) return error.InvalidInteractionClaim;
+        var result = CanonicalInteractionClaim{
+            .claimed_sums = .{QM31.zero()} ** transcript_claims.COMPONENT_COUNT,
+            .log_sizes = undefined,
+            .n_log_sizes = 0,
+        };
+        for (0..statement.n_components) |i| {
+            const desc = statement.component_descs[i];
+            const claim_index = @intFromEnum(componentForFamily(desc.family));
+            result.claimed_sums[claim_index] = result.claimed_sums[claim_index]
+                .add(self.state_claims[i]).add(self.prog_claims[i]);
+            for (0..component.nInteractionCols(.opcode)) |_| {
+                if (result.n_log_sizes == result.log_sizes.len) return error.TooManyInteractionColumns;
+                result.log_sizes[result.n_log_sizes] = desc.log_size;
+                result.n_log_sizes += 1;
+            }
+        }
+        for (0..statement.n_infra) |i| {
+            const desc = statement.infra_descs[i];
+            if (desc.kind == .program) {
+                const claim_index = @intFromEnum(transcript_claims.Component.program);
+                result.claimed_sums[claim_index] = result.claimed_sums[claim_index].add(self.rom_claim);
+            }
+            for (0..nInteractionColsForInfra(desc.kind)) |_| {
+                if (result.n_log_sizes == result.log_sizes.len) return error.TooManyInteractionColumns;
+                result.log_sizes[result.n_log_sizes] = desc.log_size;
+                result.n_log_sizes += 1;
+            }
+        }
+        return result;
     }
 };
+
+fn componentForFamily(family: trace_mod.OpcodeFamily) transcript_claims.Component {
+    return switch (family) {
+        .auipc => .auipc,
+        .base_alu_imm => .base_alu_imm,
+        .base_alu_reg => .base_alu_reg,
+        .branch_eq => .branch_eq,
+        .branch_lt => .branch_lt,
+        .div => .div,
+        .jal => .jal,
+        .jalr => .jalr,
+        .load_store => .load_store,
+        .lt_imm => .lt_imm,
+        .lt_reg => .lt_reg,
+        .lui => .lui,
+        .mul => .mul,
+        .mulh => .mulh,
+        .shifts_imm => .shifts_imm,
+        .shifts_reg => .shifts_reg,
+    };
+}
+
+fn componentForInfra(kind: InfraKind) transcript_claims.Component {
+    return switch (kind) {
+        .program => .program,
+        .memory => .memory,
+        .merkle => .merkle,
+        .poseidon2 => .poseidon2,
+        .clock_update => .clock_update,
+        .bitwise => .bitwise,
+        .range_check_20 => .range_check_20,
+        .range_check_8_11 => .range_check_8_11,
+        .range_check_8_8_4 => .range_check_8_8_4,
+        .range_check_8_8 => .range_check_8_8,
+        .range_check_m31 => .range_check_m31,
+    };
+}

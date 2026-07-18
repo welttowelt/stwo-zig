@@ -663,6 +663,20 @@ test "riscv prover: tampered interaction claim is rejected" {
     try std.testing.expect(std.meta.isError(result));
 }
 
+test "riscv prover: tampered interaction PoW is rejected before relation draws" {
+    const alloc = std.testing.allocator;
+    var exec_trace = try testAddiTrace(alloc, 8);
+    defer exec_trace.deinit();
+
+    const output = try proveRiscV(alloc, TEST_PCS_CONFIG, &exec_trace, null);
+    var tampered = output.interaction_claim;
+    tampered.interaction_pow +%= 1;
+    try std.testing.expectError(
+        error.InvalidInteractionProofOfWork,
+        verifyRiscV(alloc, TEST_PCS_CONFIG, output.statement, output.proof, tampered),
+    );
+}
+
 test "riscv prover: state and program claims cannot cross-cancel" {
     const alloc = std.testing.allocator;
     var exec_trace = try testAddiTrace(alloc, 8);

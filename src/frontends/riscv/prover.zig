@@ -47,11 +47,11 @@ const trace_mod = @import("runner/trace.zig");
 const trace_columns = @import("air/trace_columns.zig");
 const interaction_gen = @import("air/interaction_gen.zig");
 const logup = @import("air/logup.zig");
-const relation_challenges = @import("air/relation_challenges.zig");
 const public_data_mod = @import("air/public_data.zig");
 const riscv_component = @import("air/component.zig");
 const statement_mod = @import("air/statement.zig");
 const infra = @import("infra_trace.zig");
+const proof_transcript = @import("proof_transcript.zig");
 const state_chain = @import("runner/state_chain.zig");
 const poseidon2 = @import("common/poseidon2.zig");
 
@@ -955,7 +955,6 @@ pub fn proveRiscVWithEngineAndPublicData(
     try validateStatement(statement);
 
     var channel = Channel{};
-    pcs_config.mixInto(&channel);
     statement.public_data.mixInto(&channel);
 
     var scheme = try Engine.init(allocator, pcs_config);
@@ -1233,15 +1232,13 @@ pub fn proveRiscVWithEngineAndPublicData(
         merkle_log_size,
     });
 
-    statement.mixShape(&channel);
-
     // -- Step 5: LogUp interaction tree (tree 2). --
-    // Fiat-Shamir order (verifier must match byte-for-byte): statement, then
-    // lookup-element draw, then the tree-2 commitment, then the claims.
-    const relations = try relation_challenges.Relations.draw(allocator, &channel);
+    const transcript_prefix = try proof_transcript.proveToRelations(allocator, &channel, &statement);
+    const relations = transcript_prefix.relations;
 
     var interaction_claim = RiscVInteractionClaim.initZero();
     interaction_claim.n_components = statement.n_components;
+    interaction_claim.interaction_pow = transcript_prefix.interaction_pow;
 
     // Uncommitted trace-order-shifted S columns ([0] state, [1] prog per
     // opcode component; rom for the program component), kept alive for the
@@ -1317,10 +1314,9 @@ pub fn proveRiscVWithEngineAndPublicData(
         }
         std.debug.assert(inter_col_idx == n_interaction);
 
+        try proof_transcript.mixInteractionClaim(&channel, &statement, &interaction_claim);
         try Engine.commit(&scheme, allocator, interaction_columns, recorder, &channel);
     }
-
-    interaction_claim.mixInto(&channel);
 
     // -- Step 6: Create per-family components and prove. --
     const total_components = statement.n_components + statement.n_infra;
@@ -1431,7 +1427,6 @@ pub fn verifyRiscVWithEngine(
     );
 
     var channel = Channel{};
-    pcs_config.mixInto(&channel);
     statement.public_data.mixInto(&channel);
 
     var commitment_scheme = try pcs_verifier.CommitmentSchemeVerifier(
@@ -1488,11 +1483,12 @@ pub fn verifyRiscVWithEngine(
         &channel,
     );
 
-    statement.mixShape(&channel);
-
-    // LogUp Fiat-Shamir mirror of the prover: draw lookup elements, absorb
-    // the tree-2 commitment, then absorb the claims.
-    const relations = try relation_challenges.Relations.draw(allocator, &channel);
+    const relations = try proof_transcript.verifyToRelations(
+        allocator,
+        &channel,
+        &statement,
+        claim.interaction_pow,
+    );
 
     const n_interaction = statement.nInteractionColumns();
     const interaction_log_sizes = try allocator.alloc(u32, n_interaction);
@@ -1513,14 +1509,13 @@ pub fn verifyRiscVWithEngine(
         inter_col_offset += n_cols;
     }
     std.debug.assert(inter_col_offset == n_interaction);
+    try proof_transcript.mixInteractionClaim(&channel, &statement, &claim);
     try commitment_scheme.commit(
         allocator,
         proof.commitment_scheme_proof.commitments.items[2],
         interaction_log_sizes,
         &channel,
     );
-
-    claim.mixInto(&channel);
 
     // Relation domains cancel independently; a shifted state claim must not
     // be repairable by an offsetting program claim.
