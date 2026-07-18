@@ -324,8 +324,15 @@ def SENTINEL() -> int:
     return JAL(0, 0)
 
 
+def EPILOGUE() -> list[int]:
+    """SDK-conforming halt: write the zero output-length word (the pinned
+    oracle's PublicData builder requires the output-len address to have been
+    accessed), then the sentinel."""
+    return [LUI(31, 0x00100000), SW(0, 31, 4), SENTINEL()]
+
+
 def prog_alu_basic() -> list[int]:
-    return [ADDI(1, 0, 10), ADDI(2, 0, 20), ADD(3, 1, 2), SUB(4, 2, 1), SENTINEL()]
+    return [ADDI(1, 0, 10), ADDI(2, 0, 20), ADD(3, 1, 2), SUB(4, 2, 1)] + EPILOGUE()
 
 
 def prog_branch_fib() -> list[int]:
@@ -343,8 +350,7 @@ def prog_branch_fib() -> list[int]:
         BLT(3, 4, -16),  # while i < n
         BEQ(1, 2, 8),  # never taken (a != b after loop)
         ADDI(6, 0, 1),  # x6 = 1 marks fallthrough
-        SENTINEL(),
-    ]
+    ] + EPILOGUE()
 
 
 def prog_mul_div() -> list[int]:
@@ -366,28 +372,26 @@ def prog_mul_div() -> list[int]:
         ADDI(15, 0, -1),
         DIV(16, 14, 15),  # overflow => INT_MIN
         REM(17, 14, 15),  # overflow => 0
-        SENTINEL(),
-    ]
+    ] + EPILOGUE()
 
 
 def prog_mem_ls() -> list[int]:
     return [
-        LUI(1, 0x00300000),  # data region base (clear of the oracle stack/gp area)
+        LUI(1, 0x00100000),  # io RW region; offsets skip halt/len/output words
         LUI(2, 0x12345000),
         ADDI(2, 2, 0x678),  # x2 = 0x12345678
-        SW(2, 1, 0),
-        LW(3, 1, 0),
-        SH(2, 1, 8),
-        LHU(4, 1, 8),
-        LH(5, 1, 8),  # sign-extended
-        SB(2, 1, 16),
-        LBU(6, 1, 16),
-        LB(7, 1, 16),  # sign-extended
+        SW(2, 1, 16),
+        LW(3, 1, 16),
+        SH(2, 1, 24),
+        LHU(4, 1, 24),
+        LH(5, 1, 24),  # sign-extended
+        SB(2, 1, 32),
+        LBU(6, 1, 32),
+        LB(7, 1, 32),  # sign-extended
         AUIPC(8, 0),  # pc-relative
-        SW(8, 1, 20),
-        LW(9, 1, 20),
-        SENTINEL(),
-    ]
+        SW(8, 1, 36),
+        LW(9, 1, 36),
+    ] + EPILOGUE()
 
 
 def prog_shift_logic() -> list[int]:
@@ -411,8 +415,7 @@ def prog_shift_logic() -> list[int]:
         SLTU(16, 5, 4),
         SLTI(17, 1, 0),
         SLTIU(18, 1, 0),
-        SENTINEL(),
-    ]
+    ] + EPILOGUE()
 
 
 def prog_jal_jalr() -> list[int]:
@@ -424,8 +427,7 @@ def prog_jal_jalr() -> list[int]:
         ADDI(1, 1, 1),  # 0x10010: fn body
         JALR(0, 5, 0),  # 0x10014: return to x5
         ADDI(2, 1, 0),  # 0x10018: end
-        SENTINEL(),  # 0x1001C
-    ]
+    ] + EPILOGUE()
 
 
 PROGRAMS: dict[str, list[int]] = {

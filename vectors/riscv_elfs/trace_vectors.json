@@ -2,67 +2,58 @@
  "stark_v_commit": "d478f783055aa0d73a93768a433a3c6c31c91d1c",
  "captured_by": "scripts/riscv_trace_vectors.py --update",
  "cross_verification": {
-  "tool": "scripts/riscv_trace_vectors.py --attest-rust",
-  "status": "rust-cross-verified",
-  "comparison": "canonical-json-byte-identical",
-  "fields": [
-   "steps",
-   "final_pc",
-   "final_regs",
-   "total_steps"
-  ],
-  "rust_source_commit": "d478f783055aa0d73a93768a433a3c6c31c91d1c",
-  "rust_binary_sha256": "2243674f7232f609110556cacd4ad213f1f8c1a1a1f8cf6f29fd65bf48b0db68",
-  "note": "every committed ELF produced identical canonical bytes in Zig and the Stark-V runner adapter; instruction clocks are one-based to match the pinned oracle"
+  "tool": "scripts/riscv_equivalence.py --run",
+  "status": "zig-only",
+  "note": "digests captured from the Zig runner; rerun the equivalence tool against a Stark-V dumper built at the pinned commit to escalate provenance"
  },
  "vectors": [
   {
    "name": "alu_test",
    "elf": "vectors/riscv_elfs/alu_test.elf",
-   "elf_sha256": "5f9306d90eb4a2aa1d713635d2bb75ef44e51ecba38f09f2538aac987b0531a8",
-   "trace_sha256": "c82d590ba34277669990394fb6f24cb5f13fb907f0d417b6d061922fde924044",
-   "total_steps": 4,
-   "final_pc": 65552
+   "elf_sha256": "86ee90ce13ec5f79af84df543df6dfbe50cbe7005293acbc392920bfe839bb06",
+   "trace_sha256": "d2a9376cadaf1da2ed07b7a88f1d9bd65bf1a029476a8da608dc6756eaf97637",
+   "total_steps": 6,
+   "final_pc": 65560
   },
   {
    "name": "branch_fib",
    "elf": "vectors/riscv_elfs/branch_fib.elf",
-   "elf_sha256": "bc17f540ae357a7f38bf6af92491d557671907dbf877953d52d582d896842e81",
-   "trace_sha256": "f0a46f830ecdca68bbae2fc424b93ca124117de26c6dcfb7b08abc10ceeec055",
-   "total_steps": 126,
-   "final_pc": 65580
+   "elf_sha256": "8c795ec42ed83b544e153c4f9402cbd4c270e0bc1343a01bf2b4f598e372064a",
+   "trace_sha256": "bc3f139b0634c1a2840a2a562b0c053d66313088f3277ec374e1bf442d0b946b",
+   "total_steps": 128,
+   "final_pc": 65588
   },
   {
    "name": "jal_jalr",
    "elf": "vectors/riscv_elfs/jal_jalr.elf",
-   "elf_sha256": "b1f1036a63b470f5e8dedb44052ed1af3edc0bcb2f7c37580898eeca13be3fb3",
-   "trace_sha256": "822132f50aad4dc8b26e68edee596e55095bc97f334745c2aa717bb855a0fa0f",
-   "total_steps": 7,
-   "final_pc": 65564
+   "elf_sha256": "83a1acdff2e2e266ce5edba7046820767273be0f393471846e4957e2e964b653",
+   "trace_sha256": "2eb91e9b420435fbd31181d20ebbc4c314bba53b328d52990cc6d95b864ac499",
+   "total_steps": 9,
+   "final_pc": 65572
   },
   {
    "name": "mem_ls",
    "elf": "vectors/riscv_elfs/mem_ls.elf",
-   "elf_sha256": "5894d4f1941c33fefa7981b04cac70b77905e437380c86962097866b662604f8",
-   "trace_sha256": "6d6779046bf141ca1c8ae4caf2fd7e8c73c8273cfe3fd3680e9cadb1318e87cd",
-   "total_steps": 14,
-   "final_pc": 65592
+   "elf_sha256": "db228dc79a675bf0b5251ae835db93496918dd14353cbb31317a2849d7df356b",
+   "trace_sha256": "75b578bed8fdc525c051e446905ed0ef44277d3418357cbf6d808790c32cca6d",
+   "total_steps": 16,
+   "final_pc": 65600
   },
   {
    "name": "mul_div",
    "elf": "vectors/riscv_elfs/mul_div.elf",
-   "elf_sha256": "30a01a4fb76f6a4adc83a8557c7edace4380fe8129634c8a4345d65fc58d7402",
-   "trace_sha256": "6b48c4522225312e3daed52b3ec2e0d2d99c8a8f74016d1c9e95ccfc3dd3da6e",
-   "total_steps": 17,
-   "final_pc": 65604
+   "elf_sha256": "de6d9ff80481ade4df1243e638ff87bee3bfeb213d2b9e2bceeedac21ac5ed52",
+   "trace_sha256": "dbaa2cd6e5fce74c06f1de19bf234119bfd0435a3ba80487377390dec9a42a85",
+   "total_steps": 19,
+   "final_pc": 65612
   },
   {
    "name": "shift_logic",
    "elf": "vectors/riscv_elfs/shift_logic.elf",
-   "elf_sha256": "1730c9d0ebb185c438b2422bb6a8a32b6071afa2f9041678c8bd9a9ef13a0a64",
-   "trace_sha256": "90e3000c552eede4941154966e867cd8cf02a03a8e07c47d5cbf8c4b75a22a78",
-   "total_steps": 19,
-   "final_pc": 65612
+   "elf_sha256": "1e7943e1857c12a14b371cea44a10ec4653a80895cfe82e5d1403bd7e3aac0d4",
+   "trace_sha256": "a04262724c4d534d0eede9f094679549236cca8600885906d2cb6b36da541a6b",
+   "total_steps": 21,
+   "final_pc": 65620
   }
  ]
 }

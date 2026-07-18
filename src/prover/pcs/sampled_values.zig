@@ -442,7 +442,9 @@ fn evaluateCoefficientBatchParallel(
     var work: [work_pool_mod.MAX_WORKERS]CoefficientEvalWork = undefined;
     const chunk_len = (coefficients.len + worker_count - 1) / worker_count;
     for (0..worker_count) |worker| {
-        const start = worker * chunk_len;
+        // Clamp the start as well: with ceiling-divided chunks a trailing
+        // worker's nominal start can land past the end of the slice.
+        const start = @min(coefficients.len, worker * chunk_len);
         const end = @min(coefficients.len, start + chunk_len);
         work[worker] = .{
             .coefficients = coefficients[start..end],

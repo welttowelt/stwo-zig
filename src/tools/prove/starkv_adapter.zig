@@ -81,12 +81,43 @@ pub fn run(
     defer run_result.deinit();
 
     const config = stagedPcsConfig(options.protocol);
-    var output = try riscv_cpu.proveRiscV(
+    const pd_mod = stwo.frontends.riscv.air.public_data;
+    const input_words = try pd_mod.packInputWords(allocator, run_result.input);
+    defer allocator.free(input_words);
+    const out_words = try allocator.alloc(pd_mod.OutputWord, run_result.output_words.len);
+    defer allocator.free(out_words);
+    for (run_result.output_words, 0..) |word, i| out_words[i] = .{
+        .addr = word.addr,
+        .value = word.value,
+        .clock = word.clock,
+    };
+    var output = try riscv_cpu.proveRiscVWithPublicData(
         allocator,
         config,
         &run_result.execution_trace,
         &run_result.state_chain_tracker,
         &run_result.rw_memory,
+        null,
+        .{
+            .initial_pc = run_result.initial_pc,
+            .final_pc = run_result.final_pc,
+            .clock = @intCast(run_result.step_count),
+            .initial_regs = run_result.initial_regs,
+            .final_regs = run_result.final_regs,
+            .reg_last_clock = run_result.state_chain_tracker.reg_last_clk,
+            .program_root = null,
+            .initial_rw_root = null,
+            .final_rw_root = null,
+            .io_entries = .{
+                .input_start = run_result.input_start,
+                .input_len = @intCast(run_result.input.len),
+                .input_words = input_words,
+                .output_len = run_result.output_len,
+                .output_len_addr = run_result.output_len_addr,
+                .output_data_addr = run_result.output_data_addr,
+                .output_words = out_words,
+            },
+        },
     );
 
     // Serialize the proof FIRST: verification consumes ownership of it.

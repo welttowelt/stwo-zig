@@ -36,8 +36,8 @@ PINNED = "d478f783055aa0d73a93768a433a3c6c31c91d1c"
 # crate (a duplicated standalone model is not acceptable per CP-11; a
 # recorded overlay that only formats RunResult is). Its exact content is
 # hashed into the receipt.
-ADAPTER_REL = "crates/runner/src/bin/cp11_trace_dump.rs"
-ADAPTER_SOURCE = '''//! CP-11 receipt adapter: serialize runner::run output, nothing more.
+ADAPTER_REL = "crates/prover/src/bin/cp11_dump.rs"
+ADAPTER_SOURCE = r"""//! CP-11 receipt adapter: serialize the oracle's own run + public data.
 use std::env;
 use std::fs;
 
@@ -56,15 +56,17 @@ fn main() {
     }
     let bytes = fs::read(elf.expect("--elf required")).expect("read elf");
     let result = runner::run(&bytes, max).expect("run");
+    let public = prover::public_data::PublicData::new(&result);
     let regs: Vec<String> = result.final_regs.iter().map(|r| r.to_string()).collect();
     println!(
-        "{{\\"steps\\":[],\\"final_pc\\":{},\\"final_regs\\":[{}],\\"total_steps\\":{}}}",
+        "{{\"trace\":{{\"final_pc\":{},\"final_regs\":[{}],\"total_steps\":{}}},\"public_data\":{}}}",
         result.final_pc,
         regs.join(","),
-        result.cycles
+        result.cycles,
+        serde_json::to_string(&public).expect("serialize public data")
     );
 }
-'''
+"""
 
 BOUNDARIES = [
     "decode",
@@ -111,9 +113,9 @@ def build_oracle(source: Path, receipt: dict) -> Path:
     adapter_path.write_text(ADAPTER_SOURCE)
     try:
         toolchain = _run(["rustc", "--version"], cwd=source).strip()
-        build_cmd = ["cargo", "build", "--release", "-p", "runner"]
+        build_cmd = ["cargo", "build", "--release", "-p", "prover"]
         _run(build_cmd, cwd=source)
-        exe = source / "target" / "release" / "cp11_trace_dump"
+        exe = source / "target" / "release" / "cp11_dump"
         receipt["oracle"] = {
             "repository": "https://github.com/ClementWalter/stark-v",
             "commit": head,
@@ -156,7 +158,7 @@ def compare_execution(oracle_exe: Path, receipt: dict) -> None:
     all_ok = True
     for vector in vectors["vectors"]:
         elf = ROOT / vector["elf"]
-        rust = json.loads(_run([str(oracle_exe), "--elf", str(elf)]))
+        rust = json.loads(_run([str(oracle_exe), "--elf", str(elf)]))["trace"]
         zig = json.loads(_run([str(zig_exe), "--elf", str(elf)], cwd=ROOT))
         ok = all(rust[k] == zig[k] for k in ("total_steps", "final_pc", "final_regs"))
         all_ok = all_ok and ok
@@ -178,6 +180,49 @@ def compare_execution(oracle_exe: Path, receipt: dict) -> None:
     # executed paths; the exhaustive decode matrix remains its own boundary.
 
 
+def compare_public_values(oracle_exe: Path, receipt: dict) -> None:
+    """Public-values boundary: the oracle's own PublicData::new(run) against
+    the public data the Zig proof artifact actually binds, per corpus ELF."""
+    import tempfile
+
+    subprocess.run(["zig", "build", "stwo-zig", "-Doptimize=ReleaseFast"], cwd=ROOT, check=True)
+    cli = ROOT / "zig-out" / "bin" / "stwo-zig"
+    vectors = json.loads((ROOT / "vectors" / "riscv_elfs" / "trace_vectors.json").read_text())
+    cases = []
+    all_ok = True
+    scalar_fields = ["initial_pc", "final_pc", "clock", "initial_regs", "final_regs",
+                     "reg_last_clock", "program_root", "initial_rw_root", "final_rw_root"]
+    io_fields = ["input_start", "input_len", "input_words", "output_len",
+                 "output_len_addr", "output_data_addr"]
+    for vector in vectors["vectors"]:
+        elf = ROOT / vector["elf"]
+        rust = json.loads(_run([str(oracle_exe), "--elf", str(elf)]))["public_data"]
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact_path = Path(tmp) / "a.json"
+            _run([str(cli), "prove", "--elf", str(elf.relative_to(ROOT)), "--backend", "cpu",
+                  "--protocol", "functional", "--output", str(artifact_path)], cwd=ROOT)
+            zig = json.loads(artifact_path.read_text())["statement"]["public_data"]
+        mismatches = []
+        for field in scalar_fields:
+            if rust[field] != zig[field]:
+                mismatches.append(field)
+        for field in io_fields:
+            if rust["io_entries"][field] != zig[field]:
+                mismatches.append(f"io.{field}")
+        rust_outputs = [[w["addr"], w["value"], w["clock"]] for w in rust["io_entries"]["output_words"]]
+        zig_outputs = [[w["addr"], w["value"], w["clock"]] for w in zig["output_words"]]
+        if rust_outputs != zig_outputs:
+            mismatches.append("io.output_words")
+        ok = not mismatches
+        all_ok = all_ok and ok
+        cases.append({"name": vector["name"], "agree": ok, "mismatches": mismatches})
+    receipt["boundaries"]["public_values"] = {
+        "status": "pass" if all_ok else "fail",
+        "fields": scalar_fields + [f"io.{f}" for f in io_fields] + ["io.output_words"],
+        "corpus": cases,
+    }
+
+
 def build_and_compare(args) -> int:
     source = Path(args.stark_v_source).resolve()
     receipt: dict = {
@@ -187,6 +232,7 @@ def build_and_compare(args) -> int:
     }
     oracle_exe = build_oracle(source, receipt)
     compare_execution(oracle_exe, receipt)
+    compare_public_values(oracle_exe, receipt)
     receipt["verdict"] = (
         "PASS"
         if all(b.get("status") == "pass" for b in receipt["boundaries"].values())
