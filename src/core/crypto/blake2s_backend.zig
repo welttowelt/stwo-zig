@@ -24,6 +24,18 @@ pub const SimdContract = struct {
     pub const caller_scratch_bytes = 0;
 };
 
+/// Test-only dispatch evidence. Recording is compiled out of production
+/// artifacts so observing the contract cannot perturb benchmark results.
+pub const TestCompressionCounts = struct {
+    scalar: u64,
+    simd: u64,
+    parallel_simd_4: u64,
+};
+
+var test_scalar_compressions = std.atomic.Value(u64).init(0);
+var test_simd_compressions = std.atomic.Value(u64).init(0);
+var test_parallel_simd_4_compressions = std.atomic.Value(u64).init(0);
+
 var default_backend_mode = std.atomic.Value(u8).init(@intFromEnum(BackendMode.auto));
 
 /// Changes the process default used by subsequently constructed hashers and
@@ -40,6 +52,19 @@ pub fn getDefaultBackendMode() BackendMode {
 
 pub fn getDefaultBackendSelection() BackendSelection {
     return selectBackend(getDefaultBackendMode());
+}
+
+/// Compatibility aliases retained for the original public VCS API.
+pub fn setBackendMode(mode: BackendMode) void {
+    setDefaultBackendMode(mode);
+}
+
+pub fn getBackendMode() BackendMode {
+    return getDefaultBackendMode();
+}
+
+pub fn getEffectiveBackendMode() BackendMode {
+    return getDefaultBackendSelection().effective;
 }
 
 pub fn supportsSimdBackend() bool {
@@ -60,6 +85,22 @@ pub fn selectBackend(requested: BackendMode) BackendSelection {
         },
         .simd_supported = simd_supported,
         .explicit_simd_width = SimdContract.explicit_width,
+    };
+}
+
+pub fn resetTestCompressionCounts() void {
+    if (comptime !builtin.is_test) return;
+    test_scalar_compressions.store(0, .release);
+    test_simd_compressions.store(0, .release);
+    test_parallel_simd_4_compressions.store(0, .release);
+}
+
+pub fn testCompressionCounts() TestCompressionCounts {
+    if (comptime !builtin.is_test) return .{ .scalar = 0, .simd = 0, .parallel_simd_4 = 0 };
+    return .{
+        .scalar = test_scalar_compressions.load(.acquire),
+        .simd = test_simd_compressions.load(.acquire),
+        .parallel_simd_4 = test_parallel_simd_4_compressions.load(.acquire),
     };
 }
 
@@ -240,8 +281,24 @@ pub const Blake2sHasher = struct {
         seed: Fixed64Seed,
         data: *const [4][64]u8,
     ) [4]Blake2sHash {
+        return hashFinal64FromSeed4WithMode(getDefaultBackendMode(), seed, data);
+    }
+
+    pub fn hashFinal64FromSeed4WithMode(
+        mode: BackendMode,
+        seed: Fixed64Seed,
+        data: *const [4][64]u8,
+    ) [4]Blake2sHash {
         // Inputs are read-only and may alias. The implementation owns all
         // temporary state on the stack and requires no caller scratch.
+        if (selectBackend(mode).effective == .scalar) {
+            var out: [4]Blake2sHash = undefined;
+            for (&out, data) |*digest, *block| {
+                digest.* = hashFinal64FromSeedWithMode(.scalar, seed, block);
+            }
+            return out;
+        }
+
         var messages: [16]V4 = undefined;
         loadParallelBlock4(data, &messages);
 
@@ -255,6 +312,14 @@ pub const Blake2sHasher = struct {
         seed: Fixed64Seed,
         data: *const [4][]const u8,
     ) [4]Blake2sHash {
+        return hashEqualFromSeed4WithMode(getDefaultBackendMode(), seed, data);
+    }
+
+    pub fn hashEqualFromSeed4WithMode(
+        mode: BackendMode,
+        seed: Fixed64Seed,
+        data: *const [4][]const u8,
+    ) [4]Blake2sHash {
         // All lanes must have one non-zero common length. Inputs are read-only,
         // need only byte alignment, and may overlap or alias exactly. The last
         // partial block is zero-padded in fixed-size stack scratch.
@@ -262,6 +327,18 @@ pub const Blake2sHasher = struct {
         for (data[1..]) |message| std.debug.assert(message.len == len);
         std.debug.assert(len > 0);
         std.debug.assert(len <= std.math.maxInt(u32) - 64);
+
+        if (selectBackend(mode).effective == .scalar) {
+            var out: [4]Blake2sHash = undefined;
+            for (&out, data) |*digest, message| {
+                var hasher = Self.initWithMode(.scalar);
+                hasher.h = seed;
+                hasher.t0 = 64;
+                hasher.update(message);
+                digest.* = hasher.finalize();
+            }
+            return out;
+        }
 
         var states: [8]V4 = undefined;
         for (0..8) |word_index| states[word_index] = @splat(seed[word_index]);
@@ -444,6 +521,7 @@ fn gScalar(v: *[16]u32, a: usize, b: usize, c: usize, d: usize, x: u32, y: u32) 
 }
 
 fn compressScalar(h: *[8]u32, m: *const [16]u32, t0: u32, t1: u32, f0: u32) void {
+    if (comptime builtin.is_test) _ = test_scalar_compressions.fetchAdd(1, .monotonic);
     var v: [16]u32 = undefined;
     var i: usize = 0;
     while (i < 8) : (i += 1) {
@@ -543,6 +621,7 @@ fn g4(a: *V4, b: *V4, c: *V4, d: *V4, x: V4, y: V4) void {
 }
 
 fn compressSimd(h: *[8]u32, m: *const [16]u32, t0: u32, t1: u32, f0: u32) void {
+    if (comptime builtin.is_test) _ = test_simd_compressions.fetchAdd(1, .monotonic);
     var v: [16]u32 = undefined;
     var i: usize = 0;
     while (i < 8) : (i += 1) {
@@ -599,6 +678,7 @@ fn compressSimd(h: *[8]u32, m: *const [16]u32, t0: u32, t1: u32, f0: u32) void {
 }
 
 fn compressParallel4(h: *[8]V4, m: *const [16]V4, t0: u32, t1: u32, f0: u32) void {
+    if (comptime builtin.is_test) _ = test_parallel_simd_4_compressions.fetchAdd(1, .monotonic);
     var v: [16]V4 = undefined;
     for (0..8) |i| {
         v[i] = h[i];
@@ -739,64 +819,6 @@ test "blake2s backend: fixed-seed scalar and simd modes cover boundaries and una
     }
 }
 
-test "blake2s backend: backend selection is observable and captured per hasher" {
-    const scalar = Blake2sHasher.initWithMode(.scalar);
-    try std.testing.expectEqual(BackendMode.scalar, scalar.backendSelection().requested);
-    try std.testing.expectEqual(BackendMode.scalar, scalar.backendSelection().effective);
-    try std.testing.expectEqual(@as(usize, 4), scalar.backendSelection().explicit_simd_width);
-
-    const automatic = selectBackend(.auto);
-    try std.testing.expectEqual(
-        if (supportsSimdBackend()) BackendMode.simd else BackendMode.scalar,
-        automatic.effective,
-    );
-    try std.testing.expectEqual(supportsSimdBackend(), automatic.simd_supported);
-
-    const requested_simd = Blake2sHasher.initWithMode(.simd).backendSelection();
-    try std.testing.expectEqual(BackendMode.simd, requested_simd.requested);
-    try std.testing.expectEqual(
-        if (supportsSimdBackend()) BackendMode.simd else BackendMode.scalar,
-        requested_simd.effective,
-    );
-}
-
-test "blake2s backend: process default changes do not alter existing hashers" {
-    const previous = getDefaultBackendMode();
-    defer setDefaultBackendMode(previous);
-
-    setDefaultBackendMode(.scalar);
-    var scalar = Blake2sHasher.init();
-    setDefaultBackendMode(.simd);
-    try std.testing.expectEqual(BackendMode.scalar, scalar.backendSelection().effective);
-    scalar.update("captured backend selection");
-    const captured = scalar.finalize();
-    const expected = Blake2sHasher.hashWithMode(.scalar, "captured backend selection");
-    try std.testing.expectEqualSlices(u8, expected[0..], captured[0..]);
-}
-
-test "blake2s backend: four-way read-only aliases and scalar tails are supported" {
-    var prng = std.Random.DefaultPrng.init(0xbb67_ae85_84ca_a73b);
-    var prefix: [64]u8 = undefined;
-    var storage: [260]u8 = undefined;
-    prng.random().bytes(prefix[0..]);
-    prng.random().bytes(storage[0..]);
-    const seed = Blake2sHasher.seedAfterFixed64WithMode(.scalar, &prefix);
-
-    try std.testing.expectEqual(@as(usize, 1), SimdContract.input_alignment);
-    try std.testing.expectEqual(@as(usize, 0), SimdContract.caller_scratch_bytes);
-    try std.testing.expect(SimdContract.scalar_tail_supported);
-    try std.testing.expect(SimdContract.read_only_input_aliasing_supported);
-
-    inline for (.{ @as(usize, 1), 63, 64, 65, 129, 257 }) |len| {
-        const shared = storage[1 .. 1 + len];
-        const aliases = [4][]const u8{ shared, shared, shared, shared };
-        const batched = Blake2sHasher.hashEqualFromSeed4(seed, &aliases);
-        var scalar = Blake2sHasher.initWithMode(.scalar);
-        scalar.update(prefix[0..]);
-        scalar.update(shared);
-        const expected = scalar.finalize();
-        for (batched) |digest| {
-            try std.testing.expectEqualSlices(u8, expected[0..], digest[0..]);
-        }
-    }
+test {
+    _ = @import("tests/blake2s_dispatch.zig");
 }

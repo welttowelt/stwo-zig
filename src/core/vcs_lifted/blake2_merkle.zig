@@ -47,28 +47,44 @@ fn Blake2sMerkleHasherProtocolGeneric(
         inner: InnerHasher,
         pub const Hash = blake2_hash.Blake2sHash;
         pub const NodeSeed = InnerHasher.Fixed64Seed;
+        pub const Children = struct { left: Hash, right: Hash };
         pub const protocol = hash_protocol;
 
         const Self = @This();
 
         pub fn init() Self {
-            return .{ .inner = InnerHasher.init() };
+            return initWithMode(defaultMode());
+        }
+
+        pub fn initWithMode(mode: blake2_hash.BackendMode) Self {
+            return .{ .inner = InnerHasher.initWithMode(mode) };
         }
 
         pub fn defaultWithInitialState() Self {
-            var hasher = Self.init();
+            return defaultWithInitialStateWithMode(defaultMode());
+        }
+
+        pub fn defaultWithInitialStateWithMode(mode: blake2_hash.BackendMode) Self {
+            var hasher = Self.initWithMode(mode);
             if (comptime hash_protocol == .domain_prefixed) hasher.inner.update(LEAF_PREFIX[0..]);
             return hasher;
         }
 
-        pub fn hashChildren(children: struct { left: Hash, right: Hash }) Hash {
+        pub fn hashChildren(children: Children) Hash {
+            return hashChildrenWithMode(defaultMode(), children);
+        }
+
+        pub fn hashChildrenWithMode(
+            mode: blake2_hash.BackendMode,
+            children: Children,
+        ) Hash {
             if (comptime hash_protocol == .domain_prefixed) {
                 var payload: [64]u8 = undefined;
                 @memcpy(payload[0..32], children.left[0..]);
                 @memcpy(payload[32..64], children.right[0..]);
-                return InnerHasher.hashFinal64FromSeed(nodeSeed(), &payload);
+                return InnerHasher.hashFinal64FromSeedWithMode(mode, nodeSeedWithMode(mode), &payload);
             }
-            return InnerHasher.concatAndHash(children.left, children.right);
+            return InnerHasher.concatAndHashWithMode(mode, children.left, children.right);
         }
 
         pub fn domainPrefixBytes() u32 {
@@ -78,34 +94,59 @@ fn Blake2sMerkleHasherProtocolGeneric(
         /// Pre-hashed node-domain separator state used to avoid reprocessing
         /// `NODE_PREFIX` for every parent hash on one Merkle layer.
         pub fn nodeSeed() NodeSeed {
-            return InnerHasher.seedAfterFixed64(&NODE_PREFIX);
+            return nodeSeedWithMode(defaultMode());
+        }
+
+        pub fn nodeSeedWithMode(mode: blake2_hash.BackendMode) NodeSeed {
+            return InnerHasher.seedAfterFixed64WithMode(mode, &NODE_PREFIX);
         }
 
         pub fn leafSeed() NodeSeed {
-            return InnerHasher.seedAfterFixed64(&LEAF_PREFIX);
+            return leafSeedWithMode(defaultMode());
         }
 
-        pub fn hashChildrenWithSeed(seed: NodeSeed, children: struct { left: Hash, right: Hash }) Hash {
+        pub fn leafSeedWithMode(mode: blake2_hash.BackendMode) NodeSeed {
+            return InnerHasher.seedAfterFixed64WithMode(mode, &LEAF_PREFIX);
+        }
+
+        pub fn hashChildrenWithSeed(seed: NodeSeed, children: Children) Hash {
+            return hashChildrenWithSeedWithMode(defaultMode(), seed, children);
+        }
+
+        pub fn hashChildrenWithSeedWithMode(
+            mode: blake2_hash.BackendMode,
+            seed: NodeSeed,
+            children: Children,
+        ) Hash {
             if (comptime hash_protocol == .domain_prefixed) {
                 var payload: [64]u8 = undefined;
                 @memcpy(payload[0..32], children.left[0..]);
                 @memcpy(payload[32..64], children.right[0..]);
-                return InnerHasher.hashFinal64FromSeed(seed, &payload);
+                return InnerHasher.hashFinal64FromSeedWithMode(mode, seed, &payload);
             }
-            return InnerHasher.concatAndHash(children.left, children.right);
+            return InnerHasher.concatAndHashWithMode(mode, children.left, children.right);
         }
 
         pub fn hashChildrenWithSeed4(seed: NodeSeed, children: *const [8]Hash) [4]Hash {
+            return hashChildrenWithSeed4WithMode(defaultMode(), seed, children);
+        }
+
+        pub fn hashChildrenWithSeed4WithMode(
+            mode: blake2_hash.BackendMode,
+            seed: NodeSeed,
+            children: *const [8]Hash,
+        ) [4]Hash {
             if (comptime hash_protocol == .domain_prefixed) {
                 var payloads: [4][64]u8 = undefined;
                 for (&payloads, 0..) |*payload, lane| {
                     @memcpy(payload[0..32], children[2 * lane][0..]);
                     @memcpy(payload[32..64], children[2 * lane + 1][0..]);
                 }
-                return InnerHasher.hashFinal64FromSeed4(seed, &payloads);
+                return InnerHasher.hashFinal64FromSeed4WithMode(mode, seed, &payloads);
             }
             var out: [4]Hash = undefined;
-            for (&out, 0..) |*digest, lane| digest.* = InnerHasher.concatAndHash(
+            for (&out, 0..) |*digest, lane| digest.* = InnerHasher.concatAndHashWithMode(
+                mode,
                 children[2 * lane],
                 children[2 * lane + 1],
             );
@@ -113,9 +154,18 @@ fn Blake2sMerkleHasherProtocolGeneric(
         }
 
         pub fn hashPackedLeavesWithSeed4(seed: NodeSeed, messages: *const [4][]const u8) [4]Hash {
-            if (comptime hash_protocol == .domain_prefixed) return InnerHasher.hashEqualFromSeed4(seed, messages);
+            return hashPackedLeavesWithSeed4WithMode(defaultMode(), seed, messages);
+        }
+
+        pub fn hashPackedLeavesWithSeed4WithMode(
+            mode: blake2_hash.BackendMode,
+            seed: NodeSeed,
+            messages: *const [4][]const u8,
+        ) [4]Hash {
+            if (comptime hash_protocol == .domain_prefixed)
+                return InnerHasher.hashEqualFromSeed4WithMode(mode, seed, messages);
             var out: [4]Hash = undefined;
-            for (&out, messages) |*digest, message| digest.* = InnerHasher.hash(message);
+            for (&out, messages) |*digest, message| digest.* = InnerHasher.hashWithMode(mode, message);
             return out;
         }
 
@@ -155,6 +205,10 @@ fn Blake2sMerkleHasherProtocolGeneric(
 
         pub fn finalize(self: *Self) Hash {
             return self.inner.finalize();
+        }
+
+        fn defaultMode() blake2_hash.BackendMode {
+            return blake2_hash.getDefaultBackendSelection().requested;
         }
     };
 }

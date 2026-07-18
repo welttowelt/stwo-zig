@@ -133,6 +133,14 @@ fn executeExample(
     workload: config.Workload,
     request: Spec.Request,
 ) !void {
+    const blake2_selection = blake2_hash.getDefaultBackendSelection();
+    const requested_blake2_mode: blake2_hash.BackendMode = switch (args.blake2_backend) {
+        .auto => .auto,
+        .scalar => .scalar,
+        .simd => .simd,
+    };
+    if (blake2_selection.requested != requested_blake2_mode)
+        return error.Blake2BackendAdmissionMismatch;
     const protocol_parameters = args.protocol.parameters();
     var fri_config = try stwo.core.fri.FriConfig.init(
         protocol_parameters.log_last_layer_degree_bound,
@@ -392,11 +400,6 @@ fn executeExample(
         };
     } else null;
 
-    const blake2_selection = blake2_hash.selectBackend(switch (args.blake2_backend) {
-        .auto => .auto,
-        .scalar => .scalar,
-        .simd => .simd,
-    });
     const report = report_mod.Report{
         .backend = backend,
         .evidence_class = evidence_class,

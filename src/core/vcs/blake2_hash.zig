@@ -4,6 +4,7 @@ const blake2_backend = @import("../crypto/blake2s_backend.zig");
 
 const M31 = m31.M31;
 
+// Independent standard-library oracle used only by differential tests.
 const StdBlake2s256 = blk: {
     if (@hasDecl(std.crypto.hash, "Blake2s256")) break :blk std.crypto.hash.Blake2s256;
     if (@hasDecl(std.crypto.hash, "blake2") and @hasDecl(std.crypto.hash.blake2, "Blake2s256")) {
@@ -23,6 +24,27 @@ pub fn getDefaultBackendSelection() BackendSelection {
     return blake2_backend.getDefaultBackendSelection();
 }
 
+/// Compatibility aliases for callers that predate explicit default naming.
+pub fn setBackendMode(mode: BackendMode) void {
+    setDefaultBackendMode(mode);
+}
+
+pub fn getBackendMode() BackendMode {
+    return blake2_backend.getDefaultBackendMode();
+}
+
+pub fn getEffectiveBackendMode() BackendMode {
+    return getDefaultBackendSelection().effective;
+}
+
+pub fn resetTestCompressionCounts() void {
+    blake2_backend.resetTestCompressionCounts();
+}
+
+pub fn testCompressionCounts() blake2_backend.TestCompressionCounts {
+    return blake2_backend.testCompressionCounts();
+}
+
 pub fn selectBackend(mode: BackendMode) BackendSelection {
     return blake2_backend.selectBackend(mode);
 }
@@ -38,13 +60,21 @@ pub const Blake2sM31Hasher = Blake2sHasherGeneric(true);
 
 pub fn Blake2sHasherGeneric(comptime is_m31_output: bool) type {
     return struct {
-        ctx: StdBlake2s256,
+        ctx: blake2_backend.Blake2sHasher,
 
         const Self = @This();
         pub const Fixed64Seed = blake2_backend.Blake2sHasher.Fixed64Seed;
 
         pub fn init() Self {
-            return .{ .ctx = StdBlake2s256.init(.{}) };
+            return .{ .ctx = blake2_backend.Blake2sHasher.init() };
+        }
+
+        pub fn initWithMode(mode: BackendMode) Self {
+            return .{ .ctx = blake2_backend.Blake2sHasher.initWithMode(mode) };
+        }
+
+        pub fn backendSelection(self: *const Self) BackendSelection {
+            return self.ctx.backendSelection();
         }
 
         pub fn update(self: *Self, data: []const u8) void {
@@ -52,14 +82,19 @@ pub fn Blake2sHasherGeneric(comptime is_m31_output: bool) type {
         }
 
         pub fn finalize(self: *Self) Blake2sHash {
-            var out: Blake2sHash = undefined;
-            self.ctx.final(&out);
+            var out = self.ctx.finalize();
             if (is_m31_output) out = reduceToM31(out);
             return out;
         }
 
         pub fn hash(data: []const u8) Blake2sHash {
             var hasher = Self.init();
+            hasher.update(data);
+            return hasher.finalize();
+        }
+
+        pub fn hashWithMode(mode: BackendMode, data: []const u8) Blake2sHash {
+            var hasher = Self.initWithMode(mode);
             hasher.update(data);
             return hasher.finalize();
         }
@@ -86,6 +121,10 @@ pub fn Blake2sHasherGeneric(comptime is_m31_output: bool) type {
             return out;
         }
 
+        pub fn hashFixed64WithMode(mode: BackendMode, data: *const [64]u8) Blake2sHash {
+            return hashFixedSingleBlockWithMode(64, mode, data);
+        }
+
         /// Fixed-size Merkle-node path (64-byte prefix + 64-byte children)
         /// routed through the shared backend implementation.
         pub fn hashFixed128(data: *const [128]u8) Blake2sHash {
@@ -104,14 +143,40 @@ pub fn Blake2sHasherGeneric(comptime is_m31_output: bool) type {
             return blake2_backend.Blake2sHasher.seedAfterFixed64(data);
         }
 
+        pub fn seedAfterFixed64WithMode(mode: BackendMode, data: *const [64]u8) Fixed64Seed {
+            return blake2_backend.Blake2sHasher.seedAfterFixed64WithMode(mode, data);
+        }
+
         pub fn hashFinal64FromSeed(seed: Fixed64Seed, data: *const [64]u8) Blake2sHash {
             var out = blake2_backend.Blake2sHasher.hashFinal64FromSeed(seed, data);
             if (is_m31_output) out = reduceToM31(out);
             return out;
         }
 
+        pub fn hashFinal64FromSeedWithMode(
+            mode: BackendMode,
+            seed: Fixed64Seed,
+            data: *const [64]u8,
+        ) Blake2sHash {
+            var out = blake2_backend.Blake2sHasher.hashFinal64FromSeedWithMode(mode, seed, data);
+            if (is_m31_output) out = reduceToM31(out);
+            return out;
+        }
+
         pub fn hashFinal64FromSeed4(seed: Fixed64Seed, data: *const [4][64]u8) [4]Blake2sHash {
             var out = blake2_backend.Blake2sHasher.hashFinal64FromSeed4(seed, data);
+            if (is_m31_output) {
+                for (&out) |*digest| digest.* = reduceToM31(digest.*);
+            }
+            return out;
+        }
+
+        pub fn hashFinal64FromSeed4WithMode(
+            mode: BackendMode,
+            seed: Fixed64Seed,
+            data: *const [4][64]u8,
+        ) [4]Blake2sHash {
+            var out = blake2_backend.Blake2sHasher.hashFinal64FromSeed4WithMode(mode, seed, data);
             if (is_m31_output) {
                 for (&out) |*digest| digest.* = reduceToM31(digest.*);
             }
@@ -126,11 +191,30 @@ pub fn Blake2sHasherGeneric(comptime is_m31_output: bool) type {
             return out;
         }
 
+        pub fn hashEqualFromSeed4WithMode(
+            mode: BackendMode,
+            seed: Fixed64Seed,
+            data: *const [4][]const u8,
+        ) [4]Blake2sHash {
+            var out = blake2_backend.Blake2sHasher.hashEqualFromSeed4WithMode(mode, seed, data);
+            if (is_m31_output) {
+                for (&out) |*digest| digest.* = reduceToM31(digest.*);
+            }
+            return out;
+        }
+
         pub fn concatAndHash(v1: Blake2sHash, v2: Blake2sHash) Blake2sHash {
             var payload: [64]u8 = undefined;
             @memcpy(payload[0..32], v1[0..]);
             @memcpy(payload[32..64], v2[0..]);
             return hashFixed64(&payload);
+        }
+
+        pub fn concatAndHashWithMode(mode: BackendMode, v1: Blake2sHash, v2: Blake2sHash) Blake2sHash {
+            var payload: [64]u8 = undefined;
+            @memcpy(payload[0..32], v1[0..]);
+            @memcpy(payload[32..64], v2[0..]);
+            return hashFixed64WithMode(mode, &payload);
         }
     };
 }
@@ -217,6 +301,16 @@ test "blake2 hash: scalar and simd backends match without shared policy mutation
     const simd_hash = Blake2sHasher.hashFixed128WithMode(.simd, &payload);
 
     try std.testing.expect(std.mem.eql(u8, scalar_hash[0..], simd_hash[0..]));
+}
+
+test "blake2 hash: compatibility backend selectors remain observable" {
+    const previous = getBackendMode();
+    defer setBackendMode(previous);
+
+    setBackendMode(.scalar);
+    try std.testing.expectEqual(BackendMode.scalar, getBackendMode());
+    try std.testing.expectEqual(BackendMode.scalar, getEffectiveBackendMode());
+    try std.testing.expectEqual(BackendMode.scalar, Blake2sHasher.init().backendSelection().effective);
 }
 
 test "blake2 hash: backend wrapper matches std reference on varied lengths" {
