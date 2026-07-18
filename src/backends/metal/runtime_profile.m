@@ -12,6 +12,10 @@
 
 static const void *StwoProfilePipelineNameKey = &StwoProfilePipelineNameKey;
 
+// Encoder profiling consumes paired 8-byte timestamp samples. Keep the sample
+// buffer within Metal's 32 KiB limit on supported Apple Silicon devices.
+static const NSUInteger StwoProfileMaxEncodersPerCommandBuffer = 2048u;
+
 static double stwo_profile_cpu_milliseconds(uint64_t start, uint64_t end) {
     static mach_timebase_info_data_t timebase;
     static dispatch_once_t once;
@@ -76,7 +80,9 @@ static NSUInteger stwo_profile_size_product(MTLSize size) {
     NSString *configuredMax = NSProcessInfo.processInfo.environment[@"STWO_ZIG_METAL_PROFILE_MAX_ENCODERS"];
     if (configuredMax != nil) {
         long long value = configuredMax.longLongValue;
-        if (value > 0 && value <= 65536) _maxEncoders = (NSUInteger)value;
+        if (value > 0) {
+            _maxEncoders = MIN((NSUInteger)value, StwoProfileMaxEncodersPerCommandBuffer);
+        }
     }
     _stageBoundaryCounters = [device supportsCounterSampling:MTLCounterSamplingPointAtStageBoundary];
     _encoderCountersRequested = [NSProcessInfo.processInfo.environment[

@@ -16,6 +16,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from native_profile_capture_lib import (  # noqa: E402
     COUNTER_WORKLOADS,
+    METAL_MAX_ENCODERS_PER_COMMAND_BUFFER,
     PROFILE_WORKLOADS,
     CaptureError,
     CaptureSettings,
@@ -53,7 +54,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="blake",
         help="one Metal workload that must provide stage-boundary encoder timestamps",
     )
-    parser.add_argument("--metal-max-encoders", type=int, default=4096)
+    parser.add_argument(
+        "--metal-max-encoders",
+        type=int,
+        default=METAL_MAX_ENCODERS_PER_COMMAND_BUFFER,
+    )
     parser.add_argument(
         "--blake2-backend",
         choices=("auto", "scalar", "simd"),
@@ -75,8 +80,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("--cooldown-seconds must be in [0, 30]")
     if not 0.0 < args.timeout_seconds <= 3600.0:
         parser.error("--timeout-seconds must be in (0, 3600]")
-    if not 1 <= args.metal_max_encoders <= 65536:
-        parser.error("--metal-max-encoders must be in [1, 65536]")
+    if not 1 <= args.metal_max_encoders <= METAL_MAX_ENCODERS_PER_COMMAND_BUFFER:
+        parser.error(
+            "--metal-max-encoders must be in "
+            f"[1, {METAL_MAX_ENCODERS_PER_COMMAND_BUFFER}]"
+        )
     if args.metal_runtime == "source-jit":
         if args.metal_aot_bundle is not None or args.metal_aot_manifest_sha256 is not None:
             parser.error("AOT options require --metal-runtime authenticated-aot")

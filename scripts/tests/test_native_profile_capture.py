@@ -1,3 +1,5 @@
+import contextlib
+import io
 import json
 import tempfile
 import unittest
@@ -5,6 +7,7 @@ from pathlib import Path
 
 
 from scripts.metal_profile_report_lib import build_report
+from scripts.native_profile_capture import parse_args
 from scripts.native_profile_capture_lib.contract import (
     validate_metal_profile,
     validate_profile_report,
@@ -15,6 +18,7 @@ from scripts.native_profile_capture_lib.evidence import (
     write_bytes_exclusive,
 )
 from scripts.native_profile_capture_lib.model import (
+    METAL_MAX_ENCODERS_PER_COMMAND_BUFFER,
     PROFILE_WORKLOADS,
     CaptureError,
 )
@@ -117,6 +121,26 @@ def metal_events(*, counters):
 
 
 class NativeProfileCaptureTest(unittest.TestCase):
+    def test_metal_counter_buffer_capacity_is_bounded(self):
+        default_args = parse_args([])
+        self.assertEqual(
+            METAL_MAX_ENCODERS_PER_COMMAND_BUFFER,
+            default_args.metal_max_encoders,
+        )
+        boundary_args = parse_args([
+            "--metal-max-encoders",
+            str(METAL_MAX_ENCODERS_PER_COMMAND_BUFFER),
+        ])
+        self.assertEqual(
+            METAL_MAX_ENCODERS_PER_COMMAND_BUFFER,
+            boundary_args.metal_max_encoders,
+        )
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            parse_args([
+                "--metal-max-encoders",
+                str(METAL_MAX_ENCODERS_PER_COMMAND_BUFFER + 1),
+            ])
+
     def test_all_six_examples_satisfy_cpu_and_metal_stage_contract(self):
         args = support.args(samples=1, warmups=1)
         for workload in PROFILE_WORKLOADS:

@@ -64,6 +64,10 @@ MAX_CAPTURE_FILES = 128
 MAX_ARTIFACT_BYTES = 64 * 1024 * 1024
 MAX_CAPTURE_BYTES = 512 * 1024 * 1024
 
+# Every profiled encoder reserves two 8-byte timestamp samples. Metal limits
+# this counter buffer to 32 KiB on supported Apple Silicon devices.
+METAL_MAX_ENCODERS_PER_COMMAND_BUFFER = 2048
+
 
 class CaptureError(ValueError):
     pass
