@@ -10,11 +10,16 @@ const std = @import("std");
 const stwo = @import("stwo");
 const cli = @import("cli.zig");
 const registry = @import("registry.zig");
+const build_identity = @import("build_identity");
+const wire_arena = @import("starkv_adapter/wire_arena.zig");
+const wire_reconstruct = @import("starkv_adapter/wire_reconstruct.zig");
+
+const WireArena = wire_arena.WireArena;
 
 pub const AdapterError = error{AdapterNotReleaseGated};
 
 pub const PENDING_DIAGNOSTIC =
-    "stark-v adapter: pending release gate (opcode, memory, and public I/O AIR constraints are incomplete)";
+    "stark-v adapter: staged only; the RISC-V release contract is not yet fully satisfied";
 
 pub const Benchmark = struct {
     warmups: usize,
@@ -183,10 +188,21 @@ fn runProve(
 
     var wires = try WireArena.init(allocator, &output);
     defer wires.deinit(allocator);
-    const statement_digest = artifact_mod.statementDigest(wires.statement);
+    const elf_digest_hex = std.fmt.bytesToHex(elf_digest, .lower);
+    const input_digest_hex = std.fmt.bytesToHex(input_digest, .lower);
+    const source = artifact_mod.SourceWire{
+        .elf_sha256 = &elf_digest_hex,
+        .input_sha256 = &input_digest_hex,
+    };
+    const layout_digest_hex = std.fmt.bytesToHex(
+        stwo.frontends.riscv.witness_layout.digest(),
+        .lower,
+    );
+    const statement_digest = artifact_mod.statementDigest(source, wires.statement);
     const statement_digest_hex = std.fmt.bytesToHex(statement_digest, .lower);
 
     try artifact_mod.writeArtifact(allocator, proof_temporary, .{
+        .artifact_kind = artifact_mod.ARTIFACT_KIND,
         .schema_version = artifact_mod.SCHEMA_VERSION,
         .exchange_mode = artifact_mod.EXCHANGE_MODE,
         .release_status = artifact_mod.RELEASE_STATUS,
@@ -194,14 +210,14 @@ fn runProve(
         .air = artifact_mod.AIR,
         .backend = "cpu",
         .protocol = @tagName(options.protocol),
-        .source = .{
-            .elf_sha256 = &std.fmt.bytesToHex(elf_digest, .lower),
-            .input_sha256 = &std.fmt.bytesToHex(input_digest, .lower),
-        },
+        .source = source,
         .provenance = .{
             .oracle_repository = artifact_mod.ORACLE_REPOSITORY,
             .oracle_commit = artifact_mod.ORACLE_COMMIT,
             .implementation_repository = artifact_mod.IMPLEMENTATION_REPOSITORY,
+            .implementation_commit = build_identity.implementation_commit,
+            .implementation_dirty = build_identity.implementation_dirty,
+            .witness_layout_sha256 = &layout_digest_hex,
         },
         .pcs_config = .{
             .pow_bits = config.pow_bits,
@@ -416,149 +432,6 @@ fn stagedPcsConfig(protocol: cli.Protocol) stwo.core.pcs.PcsConfig {
     };
 }
 
-/// Owned wire projections of the statement and claim for artifact assembly.
-const WireArena = struct {
-    statement: stwo.interop.riscv_artifact.StatementWire,
-    claim: stwo.interop.riscv_artifact.InteractionClaimWire,
-    components: []stwo.interop.riscv_artifact.ComponentWire,
-    infrastructure: []stwo.interop.riscv_artifact.InfraComponentWire,
-    input_words: []u32,
-    output_words: []stwo.interop.riscv_artifact.OutputWordWire,
-    state_claims: []stwo.interop.riscv_artifact.Qm31Wire,
-    program_claims: []stwo.interop.riscv_artifact.Qm31Wire,
-    opcode_memory: []stwo.interop.riscv_artifact.OpcodeMemoryClaimsWire,
-    memory_claims: []stwo.interop.riscv_artifact.MemoryClaimsWire,
-
-    fn qm31Wire(value: anytype) stwo.interop.riscv_artifact.Qm31Wire {
-        const limbs = value.toM31Array();
-        return .{ limbs[0].v, limbs[1].v, limbs[2].v, limbs[3].v };
-    }
-
-    fn init(allocator: std.mem.Allocator, output: anytype) !WireArena {
-        const statement = output.statement;
-        const claim = output.interaction_claim;
-        const n = statement.n_components;
-        const n_infra = statement.n_infra;
-
-        var self: WireArena = undefined;
-        self.components = try allocator.alloc(
-            stwo.interop.riscv_artifact.ComponentWire,
-            n,
-        );
-        errdefer allocator.free(self.components);
-        for (self.components, 0..) |*wire, i| {
-            const desc = statement.component_descs[i];
-            wire.* = .{
-                .family = @intFromEnum(desc.family),
-                .log_size = desc.log_size,
-                .n_rows = @intCast(desc.n_rows),
-                .n_columns = desc.n_columns,
-            };
-        }
-        self.infrastructure = try allocator.alloc(
-            stwo.interop.riscv_artifact.InfraComponentWire,
-            n_infra,
-        );
-        errdefer allocator.free(self.infrastructure);
-        for (self.infrastructure, 0..) |*wire, i| {
-            const desc = statement.infra_descs[i];
-            wire.* = .{
-                .kind = @intFromEnum(desc.kind),
-                .log_size = desc.log_size,
-                .n_rows = @intCast(desc.n_rows),
-                .n_columns = desc.n_columns,
-            };
-        }
-        const io = statement.public_data.io_entries;
-        self.input_words = try allocator.dupe(u32, io.input_words);
-        errdefer allocator.free(self.input_words);
-        self.output_words = try allocator.alloc(
-            stwo.interop.riscv_artifact.OutputWordWire,
-            io.output_words.len,
-        );
-        errdefer allocator.free(self.output_words);
-        for (self.output_words, io.output_words) |*wire, word| {
-            wire.* = .{ .addr = word.addr, .value = word.value, .clock = word.clock };
-        }
-        self.state_claims = try allocator.alloc(stwo.interop.riscv_artifact.Qm31Wire, n);
-        errdefer allocator.free(self.state_claims);
-        self.program_claims = try allocator.alloc(stwo.interop.riscv_artifact.Qm31Wire, n);
-        errdefer allocator.free(self.program_claims);
-        self.opcode_memory = try allocator.alloc(
-            stwo.interop.riscv_artifact.OpcodeMemoryClaimsWire,
-            n,
-        );
-        errdefer allocator.free(self.opcode_memory);
-        for (0..n) |i| {
-            self.state_claims[i] = qm31Wire(claim.state_claims[i]);
-            self.program_claims[i] = qm31Wire(claim.prog_claims[i]);
-            for (claim.opcode_memory_claims[i], 0..) |value, j| {
-                self.opcode_memory[i][j] = qm31Wire(value);
-            }
-        }
-        self.memory_claims = try allocator.alloc(
-            stwo.interop.riscv_artifact.MemoryClaimsWire,
-            n_infra,
-        );
-        errdefer allocator.free(self.memory_claims);
-        for (0..n_infra) |i| {
-            self.memory_claims[i] = .{.{ 0, 0, 0, 0 }} ** 4;
-            const kind = statement.infra_descs[i].kind;
-            for (0..stwo.frontends.riscv.air.statement.nClaimedSumsForInfra(kind)) |sum| {
-                self.memory_claims[i][sum] = qm31Wire(try claim.infraClaim(kind, i, sum));
-            }
-        }
-        self.statement = .{
-            .initial_pc = statement.initial_pc,
-            .final_pc = statement.final_pc,
-            .total_steps = statement.total_steps,
-            .components = self.components,
-            .infrastructure = self.infrastructure,
-            .public_data = .{
-                .initial_pc = statement.public_data.initial_pc,
-                .final_pc = statement.public_data.final_pc,
-                .clock = statement.public_data.clock,
-                .initial_regs = statement.public_data.initial_regs,
-                .final_regs = statement.public_data.final_regs,
-                .reg_last_clock = statement.public_data.reg_last_clock,
-                .program_root = statement.public_data.program_root,
-                .initial_rw_root = statement.public_data.initial_rw_root,
-                .final_rw_root = statement.public_data.final_rw_root,
-                .input_start = io.input_start,
-                .input_len = io.input_len,
-                .input_words = self.input_words,
-                .output_len = io.output_len,
-                .output_len_addr = io.output_len_addr,
-                .output_data_addr = io.output_data_addr,
-                .output_words = self.output_words,
-            },
-        };
-        self.claim = .{
-            .interaction_pow = claim.interaction_pow,
-            .state_claims = self.state_claims,
-            .program_claims = self.program_claims,
-            .opcode_memory_claims = self.opcode_memory,
-            // Reserved by the staged v2 envelope; the exact program component
-            // now occupies its descriptor-indexed infrastructure slots.
-            .rom_claim = .{ 0, 0, 0, 0 },
-            .memory_claims = self.memory_claims,
-        };
-        return self;
-    }
-
-    fn deinit(self: *WireArena, allocator: std.mem.Allocator) void {
-        allocator.free(self.components);
-        allocator.free(self.infrastructure);
-        allocator.free(self.input_words);
-        allocator.free(self.output_words);
-        allocator.free(self.state_claims);
-        allocator.free(self.program_claims);
-        allocator.free(self.opcode_memory);
-        allocator.free(self.memory_claims);
-        self.* = undefined;
-    }
-};
-
 /// Cryptographically verifies a staged artifact: structural validation,
 /// statement/claim/proof reconstruction from the wire, then the full
 /// verifier including global LogUp cancellation. Acceptance is reported
@@ -566,7 +439,7 @@ const WireArena = struct {
 /// be mistaken for promotion.
 pub fn verifyArtifact(
     allocator: std.mem.Allocator,
-    path: []const u8,
+    artifact: stwo.interop.riscv_artifact.Artifact,
     requested_policy: cli.Protocol,
     expected_statement_digest: [32]u8,
 ) !void {
@@ -574,117 +447,28 @@ pub fn verifyArtifact(
     const prover = stwo.frontends.riscv.prover_mod;
     const riscv_cpu = stwo.integrations.riscv_cpu;
 
-    var parsed = try artifact_mod.readArtifact(allocator, path);
-    defer parsed.deinit();
-    const artifact = parsed.value;
     try artifact_mod.validateForPolicy(artifact, switch (requested_policy) {
         .secure => .secure,
         .functional => .functional,
         .smoke => .smoke,
     });
-    const actual_statement_digest = artifact_mod.statementDigest(artifact.statement);
+    try validateLocalProvenance(artifact.provenance);
+    const actual_statement_digest = artifact_mod.statementDigest(artifact.source, artifact.statement);
     if (!std.mem.eql(u8, &expected_statement_digest, &actual_statement_digest))
         return error.StatementDigestMismatch;
 
-    const wire_statement = artifact.statement;
-    if (wire_statement.components.len > prover.MAX_COMPONENTS or
-        wire_statement.infrastructure.len > prover.MAX_INFRA_COMPONENTS)
-        return error.InvalidArtifact;
-
-    var statement: prover.RiscVStatement = undefined;
-    statement.n_components = @intCast(wire_statement.components.len);
-    statement.n_infra = @intCast(wire_statement.infrastructure.len);
-    statement.initial_pc = wire_statement.initial_pc;
-    statement.final_pc = wire_statement.final_pc;
-    statement.total_steps = wire_statement.total_steps;
-    for (wire_statement.components, 0..) |wire, i| {
-        statement.component_descs[i] = .{
-            .family = std.meta.intToEnum(
-                @TypeOf(statement.component_descs[0].family),
-                wire.family,
-            ) catch return error.InvalidArtifact,
-            .log_size = wire.log_size,
-            .n_rows = wire.n_rows,
-            .n_columns = wire.n_columns,
-        };
-    }
-    for (wire_statement.infrastructure, 0..) |wire, i| {
-        statement.infra_descs[i] = .{
-            .kind = std.meta.intToEnum(
-                @TypeOf(statement.infra_descs[0].kind),
-                wire.kind,
-            ) catch return error.InvalidArtifact,
-            .log_size = wire.log_size,
-            .n_rows = wire.n_rows,
-            .n_columns = wire.n_columns,
-        };
-    }
-
-    const wire_public = wire_statement.public_data;
-    const output_words = try allocator.alloc(
-        @TypeOf(statement.public_data.io_entries.output_words[0]),
-        wire_public.output_words.len,
-    );
-    defer allocator.free(output_words);
-    for (output_words, wire_public.output_words) |*word, wire| {
-        word.* = .{ .addr = wire.addr, .value = wire.value, .clock = wire.clock };
-    }
-    statement.public_data = .{
-        .initial_pc = wire_public.initial_pc,
-        .final_pc = wire_public.final_pc,
-        .clock = wire_public.clock,
-        .initial_regs = wire_public.initial_regs,
-        .final_regs = wire_public.final_regs,
-        .reg_last_clock = wire_public.reg_last_clock,
-        .program_root = wire_public.program_root,
-        .initial_rw_root = wire_public.initial_rw_root,
-        .final_rw_root = wire_public.final_rw_root,
-        .io_entries = .{
-            .input_start = wire_public.input_start,
-            .input_len = wire_public.input_len,
-            .input_words = wire_public.input_words,
-            .output_len = wire_public.output_len,
-            .output_len_addr = wire_public.output_len_addr,
-            .output_data_addr = wire_public.output_data_addr,
-            .output_words = output_words,
-        },
-    };
-
-    const wire_claim = artifact.interaction_claim;
-    if (wire_claim.state_claims.len != statement.n_components or
-        wire_claim.program_claims.len != statement.n_components or
-        wire_claim.opcode_memory_claims.len != statement.n_components or
-        wire_claim.memory_claims.len != statement.n_infra)
-        return error.InvalidArtifact;
-    var claim = prover.RiscVInteractionClaim.initZero();
-    claim.n_components = statement.n_components;
-    claim.n_infra = statement.n_infra;
-    claim.interaction_pow = wire_claim.interaction_pow;
-    const zero_wire: stwo.interop.riscv_artifact.Qm31Wire = .{ 0, 0, 0, 0 };
-    if (!std.mem.eql(u32, &wire_claim.rom_claim, &zero_wire)) return error.InvalidArtifact;
-    for (0..statement.n_components) |i| {
-        claim.state_claims[i] = qm31FromWire(wire_claim.state_claims[i]);
-        claim.prog_claims[i] = qm31FromWire(wire_claim.program_claims[i]);
-        for (wire_claim.opcode_memory_claims[i], 0..) |value, j| {
-            claim.opcode_memory_claims[i][j] = qm31FromWire(value);
-        }
-    }
-    for (0..statement.n_infra) |i| {
-        const kind = statement.infra_descs[i].kind;
-        const n_sums = stwo.frontends.riscv.air.statement.nClaimedSumsForInfra(kind);
-        for (wire_claim.memory_claims[i][0..n_sums], 0..) |value, sum| {
-            try claim.setInfraClaim(kind, i, sum, qm31FromWire(value));
-        }
-        for (wire_claim.memory_claims[i][n_sums..]) |padding| {
-            if (!std.mem.eql(u32, &padding, &zero_wire)) return error.InvalidArtifact;
-        }
-    }
+    var reconstructed = try wire_reconstruct.Reconstruction.init(allocator, artifact);
+    defer reconstructed.deinit(allocator);
 
     if (artifact.proof_bytes_hex.len % 2 != 0) return error.InvalidArtifact;
     const proof_raw = try allocator.alloc(u8, artifact.proof_bytes_hex.len / 2);
     defer allocator.free(proof_raw);
     _ = std.fmt.hexToBytes(proof_raw, artifact.proof_bytes_hex) catch
         return error.InvalidArtifact;
+    try stwo.interop.postcard.proof_preflight.validate(
+        proof_raw,
+        try proofPreflightShape(artifact),
+    );
     var stream = std.io.fixedBufferStream(proof_raw);
     var proof = try stwo.interop.postcard.deserializeProof(
         prover.Hasher,
@@ -708,9 +492,91 @@ pub fn verifyArtifact(
         proof.deinit(allocator);
         return error.ProofConfigMismatch;
     }
-    try riscv_cpu.verifyRiscV(allocator, config, statement, proof, claim);
+    try riscv_cpu.verifyRiscV(
+        allocator,
+        config,
+        reconstructed.statement,
+        proof,
+        reconstructed.claim,
+    );
 
     try writeVerifyLine(artifact.release_status, actual_statement_digest);
+}
+
+fn proofPreflightShape(
+    artifact: stwo.interop.riscv_artifact.Artifact,
+) !stwo.interop.postcard.proof_preflight.Shape {
+    const protocol = stwo.interop.riscv_artifact.wire_protocol;
+    const prover = stwo.frontends.riscv.prover_mod;
+
+    var preprocessed_columns: u64 = std.math.mul(
+        u64,
+        artifact.statement.components.len,
+        2,
+    ) catch return error.InvalidArtifact;
+    var main_columns: u64 = 0;
+    var interaction_columns: u64 = 0;
+    var max_log_size: u32 = 0;
+    for (artifact.statement.components) |component| {
+        main_columns = std.math.add(u64, main_columns, component.n_columns) catch
+            return error.InvalidArtifact;
+        const interaction = std.math.mul(
+            u64,
+            component.interaction_batch_count,
+            4,
+        ) catch return error.InvalidArtifact;
+        interaction_columns = std.math.add(u64, interaction_columns, interaction) catch
+            return error.InvalidArtifact;
+        max_log_size = @max(max_log_size, component.log_size);
+    }
+    for (artifact.statement.infrastructure) |component| {
+        const kind = std.meta.intToEnum(protocol.InfraKind, component.kind) catch
+            return error.InvalidArtifact;
+        preprocessed_columns = std.math.add(
+            u64,
+            preprocessed_columns,
+            protocol.preprocessedColumns(kind),
+        ) catch return error.InvalidArtifact;
+        main_columns = std.math.add(u64, main_columns, component.n_columns) catch
+            return error.InvalidArtifact;
+        const interaction = std.math.mul(u64, component.claim_count, 4) catch
+            return error.InvalidArtifact;
+        interaction_columns = std.math.add(u64, interaction_columns, interaction) catch
+            return error.InvalidArtifact;
+        max_log_size = @max(max_log_size, component.log_size);
+    }
+
+    return .{
+        .config = .{
+            .pow_bits = artifact.pcs_config.pow_bits,
+            .log_blowup_factor = artifact.pcs_config.fri_config.log_blowup_factor,
+            .n_queries = artifact.pcs_config.fri_config.n_queries,
+            .log_last_layer_degree_bound = artifact.pcs_config.fri_config.log_last_layer_degree_bound,
+            .fold_step = artifact.pcs_config.fri_config.fold_step,
+            .lifting_log_size = artifact.pcs_config.lifting_log_size,
+        },
+        .tree_columns = .{
+            std.math.cast(u32, preprocessed_columns) orelse return error.InvalidArtifact,
+            std.math.cast(u32, main_columns) orelse return error.InvalidArtifact,
+            std.math.cast(u32, interaction_columns) orelse return error.InvalidArtifact,
+            2 * stwo.core.fields.qm31.SECURE_EXTENSION_DEGREE,
+        },
+        .max_column_log_size = max_log_size,
+        .hash_size = @sizeOf(prover.Hasher.Hash),
+        .max_wire_bytes = stwo.interop.riscv_artifact.MAX_PROOF_BYTES,
+    };
+}
+
+fn validateLocalProvenance(provenance: stwo.interop.riscv_artifact.ProvenanceWire) !void {
+    if (!std.mem.eql(u8, provenance.implementation_commit, build_identity.implementation_commit) or
+        provenance.implementation_dirty != build_identity.implementation_dirty)
+        return error.ImplementationIdentityMismatch;
+    const expected_layout = std.fmt.bytesToHex(
+        stwo.frontends.riscv.witness_layout.digest(),
+        .lower,
+    );
+    if (!std.mem.eql(u8, provenance.witness_layout_sha256, &expected_layout))
+        return error.WitnessLayoutMismatch;
 }
 
 fn pcsConfigsEqual(expected: anytype, actual: @TypeOf(expected)) bool {
@@ -720,10 +586,6 @@ fn pcsConfigsEqual(expected: anytype, actual: @TypeOf(expected)) bool {
         expected.fri_config.n_queries == actual.fri_config.n_queries and
         expected.fri_config.fold_step == actual.fri_config.fold_step and
         expected.lifting_log_size == actual.lifting_log_size;
-}
-
-fn qm31FromWire(wire: stwo.interop.riscv_artifact.Qm31Wire) stwo.core.fields.qm31.QM31 {
-    return stwo.core.fields.qm31.QM31.fromU32Unchecked(wire[0], wire[1], wire[2], wire[3]);
 }
 
 fn writeVerifyLine(release_status: []const u8, statement_digest: [32]u8) !void {
@@ -774,6 +636,32 @@ test "adapter PCS profiles satisfy their advertised artifact policies" {
     }
 }
 
+test "staged verifier binds build and witness-layout provenance" {
+    const artifact = stwo.interop.riscv_artifact;
+    const layout = std.fmt.bytesToHex(stwo.frontends.riscv.witness_layout.digest(), .lower);
+    var provenance = artifact.ProvenanceWire{
+        .oracle_repository = artifact.ORACLE_REPOSITORY,
+        .oracle_commit = artifact.ORACLE_COMMIT,
+        .implementation_repository = artifact.IMPLEMENTATION_REPOSITORY,
+        .implementation_commit = build_identity.implementation_commit,
+        .implementation_dirty = build_identity.implementation_dirty,
+        .witness_layout_sha256 = &layout,
+    };
+    try validateLocalProvenance(provenance);
+
+    provenance.implementation_commit = "00" ** 20;
+    try std.testing.expectError(
+        error.ImplementationIdentityMismatch,
+        validateLocalProvenance(provenance),
+    );
+    provenance.implementation_commit = build_identity.implementation_commit;
+    provenance.witness_layout_sha256 = "00" ** 32;
+    try std.testing.expectError(
+        error.WitnessLayoutMismatch,
+        validateLocalProvenance(provenance),
+    );
+}
+
 test "wire arena rolls back every partial allocation" {
     const prover = stwo.frontends.riscv.prover_mod;
     const public_data = stwo.frontends.riscv.air.public_data;
@@ -822,6 +710,7 @@ test "wire arena rolls back every partial allocation" {
     };
     var claim = prover.RiscVInteractionClaim.initZero();
     claim.n_components = 1;
+    claim.n_infra = 1;
     const output = .{ .statement = statement, .interaction_claim = claim };
 
     for (0..8) |fail_index| {

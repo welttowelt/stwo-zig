@@ -162,6 +162,11 @@ pub fn readArtifact(allocator: std.mem.Allocator, path: []const u8) !std.json.Pa
     const raw = try std.fs.cwd().readFileAlloc(allocator, path, MAX_ARTIFACT_BYTES);
     defer allocator.free(raw);
 
+    return parseArtifact(allocator, raw);
+}
+
+pub fn parseArtifact(allocator: std.mem.Allocator, raw: []const u8) !std.json.Parsed(InteropArtifact) {
+    if (raw.len > MAX_ARTIFACT_BYTES) return error.StreamTooLong;
     return std.json.parseFromSlice(InteropArtifact, allocator, raw, .{
         .ignore_unknown_fields = false,
         .allocate = .alloc_always,

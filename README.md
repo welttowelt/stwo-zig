@@ -39,7 +39,7 @@ and the Cairo frontend (stwo-cairo in Zig) when that effort resumes.
 | :--- | :--- |
 | **Native Stwo** | Blake, Poseidon, Plonk, state-machine, wide-Fibonacci, and XOR AIRs |
 | **Cairo** | Versioned PIE ingestion and SN2-specialized resident proof machinery, parked until the stwo-cairo effort resumes; the general Cairo proof path is not release-gated |
-| **RISC-V** | Experimental Stark-V adapter (`src/frontends/riscv/`): RV32IM executor, sharded opcode/memory AIR components, CPU and Metal proving CLIs. Not release-gated — the complete cross-shard LogUp placement and guest public I/O binding are outstanding |
+| **RISC-V** | Staged Stark-V RV32IM ELF adapter with sharded AIR components and the CPU prove/verify CLI. It remains fail-closed behind `--experimental` until the [release contract](conformance/2026-07-18-riscv-release-goal.md) passes |
 
 ## Quick Start
 
@@ -71,20 +71,30 @@ zig-out/bin/stwo-zig verify --artifact proof.json
 `--backend metal-hybrid` explicitly on macOS; backend failure never falls back to CPU. Run
 `stwo-zig applications` for the compiled AIR registry and adapter status.
 
-> [!NOTE]
-> [Stark-V](https://github.com/ClementWalter/stark-v) produces an RV32IM ELF, not a self-describing
-> Stwo trace. The experimental adapter lives in `src/frontends/riscv/` and remains outside this
-> CLI until the complete RV32IM AIR (cross-shard LogUp placement) and guest public I/O binding
-> are release-gated. A Native wide-Fibonacci proof establishes the Fibonacci AIR relation;
-> it does not claim to prove execution of a Stark-V ELF.
-
 ## RISC-V frontend (experimental)
 
-The Stark-V adapter proves RV32IM execution traces through the same PCS/FRI core, with the Rust
-[stark-v](https://github.com/ClementWalter/stark-v) implementation as its reference. Its unit and
-prove/verify suites run in every release gate so the frontend cannot rot silently, but its proofs
-are diagnostic: the AIR omits interaction columns a sound proof requires, so throughput numbers
-are not proof-system parity claims.
+The staged adapter accepts an RV32IM ELF, executes it, builds the sharded witness, proves it through
+the same PCS/FRI core, self-verifies before publication, and emits a bounded schema-v3 artifact.
+A separate process must verify that artifact against a caller-supplied expected-statement digest.
+The pinned Rust [Stark-V](https://github.com/ClementWalter/stark-v) implementation remains the final
+oracle at shared boundaries. Staged artifacts say `not_release_gated` and cannot be relabelled.
+
+```sh
+zig build stwo-zig -Doptimize=ReleaseFast
+
+zig-out/bin/stwo-zig prove \
+  --elf vectors/riscv_elfs/branch_fib.elf \
+  --backend cpu --protocol functional --experimental \
+  --output riscv-proof.json --report-out riscv-report.json
+
+STATEMENT_DIGEST=$(python3 -c \
+  'import json; print(json.load(open("riscv-report.json"))["statement_sha256"])')
+zig-out/bin/stwo-zig verify \
+  --artifact riscv-proof.json --protocol functional \
+  --expect-statement-digest "$STATEMENT_DIGEST"
+```
+
+`functional` is the fast development profile. Use `secure` when collecting release evidence.
 
 ```sh
 zig build test-riscv -Doptimize=ReleaseFast         # runner + trace suites
@@ -112,6 +122,7 @@ python3 scripts/install_hooks.py
 | | |
 | :--- | :--- |
 | **[Conformance](conformance/upstream.md)** | Pinned oracle revisions, API parity ledger, and the source-conformance baseline |
+| **[RISC-V release goal](conformance/2026-07-18-riscv-release-goal.md)** | Executable checkpoints, evidence requirements, and the fail-closed promotion contract |
 | **[Autoresearch](autoresearch/README.md)** | The stwo-perf harness: judged scoring, submissions, ledger, and site feed |
 | **[Benchmark history](vectors/reports/benchmark_history/index.json)** | Immutable judged runs, deltas, and bundles under human-readable run ids |
 | **Design archive** | Prose architecture and history live in the sibling `stwo-zig-og-docs` directory |

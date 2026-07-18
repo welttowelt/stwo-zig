@@ -26,9 +26,26 @@ pub fn verifyPath(
     path: []const u8,
     security_policy: SecurityPolicy,
 ) !Verification {
-    var parsed = try artifacts.readArtifact(allocator, path);
+    const raw = try std.fs.cwd().readFileAlloc(allocator, path, artifacts.MAX_ARTIFACT_BYTES);
+    defer allocator.free(raw);
+    return verifyBytes(allocator, raw, security_policy);
+}
+
+pub fn verifyBytes(
+    allocator: std.mem.Allocator,
+    raw: []const u8,
+    security_policy: SecurityPolicy,
+) !Verification {
+    var parsed = try artifacts.parseArtifact(allocator, raw);
     defer parsed.deinit();
-    const artifact = parsed.value;
+    return verifyArtifact(allocator, parsed.value, security_policy);
+}
+
+pub fn verifyArtifact(
+    allocator: std.mem.Allocator,
+    artifact: artifacts.InteropArtifact,
+    security_policy: SecurityPolicy,
+) !Verification {
     if (artifact.schema_version != artifacts.SCHEMA_VERSION)
         return error.UnsupportedSchemaVersion;
     if (!std.mem.eql(u8, artifact.exchange_mode, artifacts.EXCHANGE_MODE))

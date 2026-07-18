@@ -18,6 +18,8 @@ const proof_mod = @import("../core/proof.zig");
 const vcs_verifier = @import("../core/vcs_lifted/verifier.zig");
 const proof_wire = @import("proof_wire.zig");
 
+pub const proof_preflight = @import("postcard/proof_preflight.zig");
+
 const M31 = m31_mod.M31;
 const QM31 = qm31_mod.QM31;
 

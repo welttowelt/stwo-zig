@@ -162,16 +162,21 @@ fn publishReport(
 }
 
 fn verifyArtifact(allocator: std.mem.Allocator, request: cli.Verify) !void {
-    if (try stwo.interop.riscv_artifact.isRiscVArtifactPath(allocator, request.artifact)) {
-        const expected = request.expected_statement_digest orelse
-            return error.MissingExpectedStatementDigest;
-        return starkv_adapter.verifyArtifact(allocator, request.artifact, request.protocol, expected);
-    }
+    var classified = try stwo.interop.riscv_artifact.classifyPath(allocator, request.artifact);
+    defer classified.deinit(allocator);
+    const native_bytes: []const u8 = switch (classified) {
+        .riscv => |parsed| {
+            const expected = request.expected_statement_digest orelse
+                return error.MissingExpectedStatementDigest;
+            return starkv_adapter.verifyArtifact(allocator, parsed.value, request.protocol, expected);
+        },
+        .other => |raw| raw,
+    };
     if (request.expected_statement_digest != null)
         return error.ExpectedStatementDigestRequiresRiscVArtifact;
-    const verified = try artifact_verifier.verifyPath(
+    const verified = try artifact_verifier.verifyBytes(
         allocator,
-        request.artifact,
+        native_bytes,
         switch (request.protocol) {
             .secure => .secure,
             .functional => .functional,

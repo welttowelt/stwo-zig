@@ -35,7 +35,7 @@ pub fn write(writer: anytype) !void {
         \\],"deferred_adapters":[
     );
     if (!RISCV_ADAPTER_RELEASE_GATED) try writer.writeAll(
-        \\  {"adapter":"stark-v-rv32im-elf","status":"not_release_gated","isa":"rv32im","backends":["cpu"],"reason":"RV32IM opcode, memory, and public I/O AIR constraints are incomplete"}
+        \\  {"adapter":"stark-v-rv32im-elf","status":"not_release_gated","isa":"rv32im","backends":["cpu"],"reason":"RISC-V release contract is not yet fully satisfied"}
     );
     try writer.writeAll(
         \\]}
