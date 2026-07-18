@@ -200,16 +200,26 @@ pub const DecodedInst = struct {
                         .imm = 0,
                     };
                 }
+                // Oracle-exact (funct3, funct7) matching: any other funct7
+                // combination is an illegal instruction, never a base op.
                 break :blk .{
                     .opcode = switch (funct3) {
-                        0b000 => if (funct7 == 0b0100000) Opcode.SUB else Opcode.ADD,
-                        0b001 => .SLL,
-                        0b010 => .SLT,
-                        0b011 => .SLTU,
-                        0b100 => .XOR,
-                        0b101 => if (funct7 == 0b0100000) Opcode.SRA else Opcode.SRL,
-                        0b110 => .OR,
-                        0b111 => .AND,
+                        0b000 => switch (funct7) {
+                            0b0000000 => Opcode.ADD,
+                            0b0100000 => Opcode.SUB,
+                            else => return error.IllegalInstruction,
+                        },
+                        0b001 => if (funct7 == 0) Opcode.SLL else return error.IllegalInstruction,
+                        0b010 => if (funct7 == 0) Opcode.SLT else return error.IllegalInstruction,
+                        0b011 => if (funct7 == 0) Opcode.SLTU else return error.IllegalInstruction,
+                        0b100 => if (funct7 == 0) Opcode.XOR else return error.IllegalInstruction,
+                        0b101 => switch (funct7) {
+                            0b0000000 => Opcode.SRL,
+                            0b0100000 => Opcode.SRA,
+                            else => return error.IllegalInstruction,
+                        },
+                        0b110 => if (funct7 == 0) Opcode.OR else return error.IllegalInstruction,
+                        0b111 => if (funct7 == 0) Opcode.AND else return error.IllegalInstruction,
                     },
                     .rd = rd,
                     .rs1 = rs1,
@@ -232,8 +242,13 @@ pub const DecodedInst = struct {
                 },
                 .rd = rd,
                 .rs1 = rs1,
-                .rs2 = 0,
-                .imm = decodeIImm(inst),
+                .rs2 = rs2,
+                // Shift immediates carry the 5-bit shamt only (oracle-exact);
+                // every other OP-IMM uses the sign-extended I immediate.
+                .imm = switch (funct3) {
+                    0b001, 0b101 => @as(i32, rs2),
+                    else => decodeIImm(inst),
+                },
             },
 
             // ----- I-type loads (LOAD = 0b0000011) -----
@@ -248,7 +263,7 @@ pub const DecodedInst = struct {
                 },
                 .rd = rd,
                 .rs1 = rs1,
-                .rs2 = 0,
+                .rs2 = rs2,
                 .imm = decodeIImm(inst),
             },
 
@@ -260,7 +275,7 @@ pub const DecodedInst = struct {
                     0b010 => .SW,
                     else => return error.IllegalInstruction,
                 },
-                .rd = 0,
+                .rd = rd,
                 .rs1 = rs1,
                 .rs2 = rs2,
                 .imm = decodeSImm(inst),
@@ -277,7 +292,7 @@ pub const DecodedInst = struct {
                     0b111 => .BGEU,
                     else => return error.IllegalInstruction,
                 },
-                .rd = 0,
+                .rd = rd,
                 .rs1 = rs1,
                 .rs2 = rs2,
                 .imm = decodeBImm(inst),
@@ -287,8 +302,8 @@ pub const DecodedInst = struct {
             0b1101111 => .{
                 .opcode = .JAL,
                 .rd = rd,
-                .rs1 = 0,
-                .rs2 = 0,
+                .rs1 = rs1,
+                .rs2 = rs2,
                 .imm = decodeJImm(inst),
             },
 
@@ -297,7 +312,7 @@ pub const DecodedInst = struct {
                 .opcode = .JALR,
                 .rd = rd,
                 .rs1 = rs1,
-                .rs2 = 0,
+                .rs2 = rs2,
                 .imm = decodeIImm(inst),
             },
 
@@ -305,8 +320,8 @@ pub const DecodedInst = struct {
             0b0110111 => .{
                 .opcode = .LUI,
                 .rd = rd,
-                .rs1 = 0,
-                .rs2 = 0,
+                .rs1 = rs1,
+                .rs2 = rs2,
                 .imm = decodeUImm(inst),
             },
 
@@ -314,55 +329,19 @@ pub const DecodedInst = struct {
             0b0010111 => .{
                 .opcode = .AUIPC,
                 .rd = rd,
-                .rs1 = 0,
-                .rs2 = 0,
+                .rs1 = rs1,
+                .rs2 = rs2,
                 .imm = decodeUImm(inst),
             },
 
-            // ----- RV32A: Atomic memory operations (AMO = 0b0101111) -----
-            0b0101111 => blk: {
-                if (funct3 != 0b010) return error.IllegalInstruction;
-                const funct5: u5 = @truncate(inst >> 27);
-                break :blk .{
-                    .opcode = switch (funct5) {
-                        0b00010 => .LR_W,
-                        0b00011 => .SC_W,
-                        0b00001 => .AMOSWAP_W,
-                        0b00000 => .AMOADD_W,
-                        0b01100 => .AMOAND_W,
-                        0b01000 => .AMOOR_W,
-                        0b00100 => .AMOXOR_W,
-                        0b10000 => .AMOMIN_W,
-                        0b10100 => .AMOMAX_W,
-                        0b11000 => .AMOMINU_W,
-                        0b11100 => .AMOMAXU_W,
-                        else => return error.IllegalInstruction,
-                    },
-                    .rd = rd,
-                    .rs1 = rs1,
-                    .rs2 = rs2,
-                    .imm = 0,
-                };
-            },
-
             // ----- SYSTEM (0b1110011) -----
-            0b1110011 => .{
-                .opcode = if (inst == 0x00000073) Opcode.ECALL else Opcode.EBREAK,
-                .rd = 0,
-                .rs1 = 0,
-                .rs2 = 0,
-                .imm = 0,
-            },
+            // SYSTEM (0b1110011) is NOT decodable in the pinned Stark-V
+            // contract; the runner special-cases ECALL/EBREAK words before
+            // decode so hosted execution keeps its syscall surface.
 
-            // ----- FENCE (0b0001111) -----
-            // Memory ordering fence — no-op in single-threaded zkVM.
-            0b0001111 => .{
-                .opcode = .FENCE,
-                .rd = 0,
-                .rs1 = 0,
-                .rs2 = 0,
-                .imm = 0,
-            },
+            // FENCE (0b0001111) is NOT decodable in the pinned Stark-V
+            // contract: the oracle has no arm for it, so it falls through to
+            // IllegalInstruction exactly like any other unsupported word.
 
             else => return error.IllegalInstruction,
         };
@@ -487,9 +466,10 @@ test "decode MUL x1, x2, x3 (0x023100B3)" {
     try std.testing.expectEqual(@as(u5, 3), inst.rs2);
 }
 
-test "decode ECALL (0x00000073)" {
-    const inst = try DecodedInst.decode(0x00000073);
-    try std.testing.expectEqual(Opcode.ECALL, inst.opcode);
+test "decode rejects SYSTEM words (pinned contract; runner synthesizes ECALL)" {
+    try std.testing.expectError(error.IllegalInstruction, DecodedInst.decode(0x00000073));
+    try std.testing.expectError(error.IllegalInstruction, DecodedInst.decode(0x00100073));
+    try std.testing.expectError(error.IllegalInstruction, DecodedInst.decode(0x0000000F));
 }
 
 test "proof opcode conversion covers exact Stark-V ids and rejects execution-only opcodes" {
@@ -550,15 +530,15 @@ test "decoder equivalence: Zig decoder vs known RV32IM instruction encodings" {
         // SUB x2, x2, x3
         .{ .encoding = 0x40310133, .opcode = .SUB, .rd = 2, .rs1 = 2, .rs2 = 3, .imm = 0 },
         // ADDI x1, x0, 5
-        .{ .encoding = 0x00500093, .opcode = .ADDI, .rd = 1, .rs1 = 0, .rs2 = 0, .imm = 5 },
+        .{ .encoding = 0x00500093, .opcode = .ADDI, .rd = 1, .rs1 = 0, .rs2 = 5, .imm = 5 },
         // LW x2, 0(x0)
         .{ .encoding = 0x00002103, .opcode = .LW, .rd = 2, .rs1 = 0, .rs2 = 0, .imm = 0 },
         // SW x1, 0(x2)
         .{ .encoding = 0x00112023, .opcode = .SW, .rd = 0, .rs1 = 2, .rs2 = 1, .imm = 0 },
         // BEQ x1, x2, 8
-        .{ .encoding = 0x00208463, .opcode = .BEQ, .rd = 0, .rs1 = 1, .rs2 = 2, .imm = 8 },
+        .{ .encoding = 0x00208463, .opcode = .BEQ, .rd = 8, .rs1 = 1, .rs2 = 2, .imm = 8 },
         // JAL x1, 12
-        .{ .encoding = 0x00C000EF, .opcode = .JAL, .rd = 1, .rs1 = 0, .rs2 = 0, .imm = 12 },
+        .{ .encoding = 0x00C000EF, .opcode = .JAL, .rd = 1, .rs1 = 0, .rs2 = 12, .imm = 12 },
         // JALR x1, x1, 0
         .{ .encoding = 0x000080E7, .opcode = .JALR, .rd = 1, .rs1 = 1, .rs2 = 0, .imm = 0 },
         // LUI x3, 1
@@ -572,9 +552,8 @@ test "decoder equivalence: Zig decoder vs known RV32IM instruction encodings" {
         // DIV x0, x1, x2
         .{ .encoding = 0x0220C033, .opcode = .DIV, .rd = 0, .rs1 = 1, .rs2 = 2, .imm = 0 },
         // SLLI x0, x0, 1
-        .{ .encoding = 0x00101013, .opcode = .SLLI, .rd = 0, .rs1 = 0, .rs2 = 0, .imm = 1 },
+        .{ .encoding = 0x00101013, .opcode = .SLLI, .rd = 0, .rs1 = 0, .rs2 = 1, .imm = 1 },
         // ECALL
-        .{ .encoding = 0x00000073, .opcode = .ECALL, .rd = 0, .rs1 = 0, .rs2 = 0, .imm = 0 },
     };
 
     for (cases) |expected| {

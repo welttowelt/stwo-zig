@@ -525,7 +525,9 @@ test "execute DIV by zero" {
 test "execute ECALL returns error" {
     var t = makeTestCpuAndMem();
     defer t.mem.deinit();
-    const inst = try DecodedInst.decode(0x00000073);
+    // The runner synthesizes ECALL (SYSTEM words are outside the pinned
+    // decode contract); execute keeps its syscall error surface.
+    const inst = DecodedInst{ .opcode = .ECALL, .rd = 0, .rs1 = 0, .rs2 = 0, .imm = 0 };
     const result = execute(&t.cpu, &t.mem, inst);
     try std.testing.expectError(error.Ecall, result);
 }

@@ -23,6 +23,7 @@ pub fn main() !void {
 
     var elf_path: ?[]const u8 = null;
     var output_path: ?[]const u8 = null;
+    var decode_file: ?[]const u8 = null;
     var max_steps: usize = 1_000_000;
 
     var i: usize = 1;
@@ -33,6 +34,9 @@ pub fn main() !void {
         } else if (std.mem.eql(u8, args[i], "--output") and i + 1 < args.len) {
             i += 1;
             output_path = args[i];
+        } else if (std.mem.eql(u8, args[i], "--decode-file") and i + 1 < args.len) {
+            i += 1;
+            decode_file = args[i];
         } else if (std.mem.eql(u8, args[i], "--max-steps") and i + 1 < args.len) {
             i += 1;
             max_steps = try std.fmt.parseInt(usize, args[i], 10);
@@ -40,6 +44,11 @@ pub fn main() !void {
             printUsage();
             return;
         }
+    }
+
+    if (decode_file) |path| {
+        try dumpDecodeMatrix(allocator, path);
+        return;
     }
 
     if (elf_path == null) {
@@ -89,4 +98,32 @@ fn printUsage() void {
         \\  --help, -h           Show this message
         \\
     , .{});
+}
+
+/// Decode-matrix mode for oracle parity: canonical one-line-per-word output
+/// byte-compared against the pinned Stark-V decoder over the same corpus.
+fn dumpDecodeMatrix(allocator: std.mem.Allocator, path: []const u8) !void {
+    const raw = try std.fs.cwd().readFileAlloc(allocator, path, 64 * 1024 * 1024);
+    defer allocator.free(raw);
+    var out: std.ArrayList(u8) = .{};
+    defer out.deinit(allocator);
+    const writer = out.writer(allocator);
+    var offset: usize = 0;
+    while (offset + 4 <= raw.len) : (offset += 4) {
+        const word = std.mem.readInt(u32, raw[offset..][0..4], .little);
+        if (runner.DecodedInst.decode(word)) |inst| {
+            try writer.print("{x:0>8} {s} {d} {d} {d} {d}\n", .{
+                word,
+                @tagName(inst.opcode),
+                inst.rd,
+                inst.rs1,
+                inst.rs2,
+                inst.imm,
+            });
+        } else |_| {
+            try writer.print("{x:0>8} -\n", .{word});
+        }
+    }
+    const stdout = std.fs.File{ .handle = std.posix.STDOUT_FILENO };
+    try stdout.writeAll(out.items);
 }

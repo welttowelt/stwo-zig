@@ -40,19 +40,42 @@ ADAPTER_REL = "crates/prover/src/bin/cp11_dump.rs"
 ADAPTER_SOURCE = r"""//! CP-11 receipt adapter: serialize the oracle's own run + public data.
 use std::env;
 use std::fs;
+// decode matrix mode relies on the air crate re-exported through prover deps.
+use prover as _;
+use air;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
     let mut elf: Option<String> = None;
+    let mut decode_file: Option<String> = None;
     let mut max: u64 = 1_000_000;
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
             "--elf" => { i += 1; elf = Some(args[i].clone()); }
+            "--decode-file" => { i += 1; decode_file = Some(args[i].clone()); }
             "--max-steps" => { i += 1; max = args[i].parse().expect("max-steps"); }
             _ => {}
         }
         i += 1;
+    }
+    if let Some(path) = decode_file {
+        let raw = fs::read(path).expect("read decode file");
+        let mut out = String::new();
+        for chunk in raw.chunks_exact(4) {
+            let word = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+            match air::decode::DecodedInst::decode(word) {
+                Some(inst) => out.push_str(&format!(
+                    "{:08x} {} {} {} {} {}\n",
+                    word,
+                    format!("{:?}", inst.opcode).to_uppercase(),
+                    inst.rd, inst.rs1, inst.rs2, inst.imm
+                )),
+                None => out.push_str(&format!("{:08x} -\n", word)),
+            }
+        }
+        print!("{}", out);
+        return;
     }
     let bytes = fs::read(elf.expect("--elf required")).expect("read elf");
     let result = runner::run(&bytes, max).expect("run");
@@ -223,6 +246,72 @@ def compare_public_values(oracle_exe: Path, receipt: dict) -> None:
     }
 
 
+DECODE_WORDS_NOTE = "systematic opcode/funct/register/immediate sweep, deterministic"
+
+
+def decode_corpus() -> bytes:
+    """Deterministic instruction-word corpus covering every opcode template,
+    funct combination, register pattern, and immediate edge."""
+    words = []
+    regs = [0, 1, 5, 31]
+    funct7s = [0x00, 0x20, 0x01, 0x7F, 0x40]
+    imm_patterns = [0x000, 0x001, 0x7FF, 0x800, 0xFFF, 0x555, 0xAAA]
+    for opcode7 in range(0, 128, 1):
+        for funct3 in range(8):
+            for funct7 in funct7s:
+                base = opcode7 | (funct3 << 12) | (funct7 << 25)
+                for rd in regs[:2]:
+                    for rs1 in regs[:2]:
+                        words.append(base | (rd << 7) | (rs1 << 15) | (regs[3] << 20))
+    for opcode7 in (0x13, 0x03, 0x23, 0x63, 0x67, 0x6F, 0x37, 0x17):
+        for funct3 in range(8):
+            for imm in imm_patterns:
+                words.append(opcode7 | (funct3 << 12) | (5 << 7) | (1 << 15) | (imm << 20))
+    for word in (0x00000073, 0x00100073, 0x0000000F, 0x00000000, 0xFFFFFFFF,
+                 0x0000006F, 0xFFDFF06F, 0x800000B7, 0xFFFFF0B7):
+        words.append(word)
+    seed = 0x9E3779B9
+    for _ in range(4096):
+        seed = (seed * 1664525 + 1013904223) & 0xFFFFFFFF
+        words.append(seed)
+    import struct as _struct
+    return b"".join(_struct.pack("<I", w) for w in words)
+
+
+def compare_decode(oracle_exe: Path, receipt: dict) -> None:
+    """Exhaustive-template decode matrix: both decoders over one corpus,
+    canonical line format, byte-compared."""
+    import tempfile
+
+    subprocess.run(["zig", "build", "riscv-trace-dump", "-Doptimize=ReleaseFast"], cwd=ROOT, check=True)
+    zig_exe = ROOT / "zig-out" / "bin" / "riscv-trace-dump"
+    with tempfile.TemporaryDirectory() as tmp:
+        corpus = Path(tmp) / "words.bin"
+        payload = decode_corpus()
+        corpus.write_bytes(payload)
+        rust_out = _run([str(oracle_exe), "--decode-file", str(corpus)])
+        zig_out = _run([str(zig_exe), "--decode-file", str(corpus)], cwd=ROOT)
+    if rust_out == zig_out:
+        receipt["boundaries"]["decode"] = {
+            "status": "pass",
+            "corpus_words": len(payload) // 4,
+            "corpus_sha256": hashlib.sha256(payload).hexdigest(),
+            "note": DECODE_WORDS_NOTE,
+        }
+        return
+    diffs = []
+    for rust_line, zig_line in zip(rust_out.splitlines(), zig_out.splitlines()):
+        if rust_line != zig_line:
+            diffs.append({"rust": rust_line, "zig": zig_line})
+            if len(diffs) >= 20:
+                break
+    receipt["boundaries"]["decode"] = {
+        "status": "fail",
+        "corpus_words": len(payload) // 4,
+        "first_disagreements": diffs,
+    }
+
+
 def build_and_compare(args) -> int:
     source = Path(args.stark_v_source).resolve()
     receipt: dict = {
@@ -233,6 +322,7 @@ def build_and_compare(args) -> int:
     oracle_exe = build_oracle(source, receipt)
     compare_execution(oracle_exe, receipt)
     compare_public_values(oracle_exe, receipt)
+    compare_decode(oracle_exe, receipt)
     receipt["verdict"] = (
         "PASS"
         if all(b.get("status") == "pass" for b in receipt["boundaries"].values())

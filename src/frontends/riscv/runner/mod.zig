@@ -105,11 +105,18 @@ fn runConfigured(
         }
         const pc_before = rv_cpu.pc;
         const inst_word = mem.readU32(rv_cpu.pc);
-        const inst = DecodedInst.decode(inst_word) catch {
-            if (strict_completion) return error.InvalidInstruction;
-            completion_reason = .invalid_instruction;
-            break;
-        };
+        // ECALL/EBREAK are runtime affordances (hosted syscalls and halts),
+        // not part of the pinned decode contract - synthesize them here.
+        const inst = if (inst_word == 0x00000073)
+            DecodedInst{ .opcode = .ECALL, .rd = 0, .rs1 = 0, .rs2 = 0, .imm = 0 }
+        else if (inst_word == 0x00100073)
+            DecodedInst{ .opcode = .EBREAK, .rd = 0, .rs1 = 0, .rs2 = 0, .imm = 0 }
+        else
+            DecodedInst.decode(inst_word) catch {
+                if (strict_completion) return error.InvalidInstruction;
+                completion_reason = .invalid_instruction;
+                break;
+            };
 
         // Capture pre-execution register values.
         const rs1_val = rv_cpu.readReg(inst.rs1);
