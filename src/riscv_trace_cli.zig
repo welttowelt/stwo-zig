@@ -12,6 +12,7 @@
 const std = @import("std");
 const runner = @import("frontends/riscv/runner/mod.zig");
 const trace_dump = @import("frontends/riscv/runner/trace_dump.zig");
+const witness_layout = @import("frontends/riscv/witness_layout.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -132,48 +133,7 @@ pub fn main() !void {
     }
 }
 
-const Family = runner.trace.OpcodeFamily;
-
-const CANONICAL_FAMILIES = [_]Family{
-    .auipc,
-    .base_alu_imm,
-    .base_alu_reg,
-    .branch_eq,
-    .branch_lt,
-    .div,
-    .jal,
-    .jalr,
-    .load_store,
-    .lt_imm,
-    .lt_reg,
-    .lui,
-    .mul,
-    .mulh,
-    .shifts_imm,
-    .shifts_reg,
-};
-
-fn LayoutFor(comptime family: Family) type {
-    const layouts = @import("frontends/riscv/air/trace_columns.zig");
-    return switch (family) {
-        .base_alu_reg => layouts.BaseAluRegColumns,
-        .base_alu_imm => layouts.BaseAluImmColumns,
-        .shifts_reg => layouts.ShiftsRegColumns,
-        .shifts_imm => layouts.ShiftsImmColumns,
-        .lt_reg => layouts.LtRegColumns,
-        .lt_imm => layouts.LtImmColumns,
-        .branch_eq => layouts.BranchEqColumns,
-        .branch_lt => layouts.BranchLtColumns,
-        .lui => layouts.LuiColumns,
-        .auipc => layouts.AuipcColumns,
-        .jalr => layouts.JalrColumns,
-        .jal => layouts.JalColumns,
-        .load_store => layouts.LoadStoreColumns,
-        .mul => layouts.MulColumns,
-        .mulh => layouts.MulhColumns,
-        .div => layouts.DivColumns,
-    };
-}
+const Family = witness_layout.Family;
 
 fn familyRowCount(trace: *const runner.trace.Trace, family: Family) !usize {
     var count: usize = 0;
@@ -194,7 +154,7 @@ fn writeFamilyWitness(
     const log_size: u32 = @intCast(std.math.log2_int_ceil(usize, padded_count));
     var columns = try trace.columnsForFamily(allocator, family, log_size);
     defer columns.deinit(allocator);
-    const Layout = LayoutFor(family);
+    const Layout = witness_layout.LayoutFor(family);
     const fields = @typeInfo(Layout).@"struct".fields;
     std.debug.assert(fields.len == columns.n_columns);
 
@@ -227,7 +187,7 @@ fn dumpWitnessRows(allocator: std.mem.Allocator, path: []const u8, max_steps: us
     var out: std.ArrayList(u8) = .{};
     defer out.deinit(allocator);
     const writer = out.writer(allocator);
-    inline for (CANONICAL_FAMILIES) |family| {
+    inline for (witness_layout.canonical_families) |family| {
         try writeFamilyWitness(allocator, writer, &result.execution_trace, family);
     }
     const stdout = std.fs.File{ .handle = std.posix.STDOUT_FILENO };
@@ -249,7 +209,7 @@ const OrderedAccess = struct {
 };
 
 fn canonicalFamilyIndex(family: Family) usize {
-    inline for (CANONICAL_FAMILIES, 0..) |candidate, index| {
+    inline for (witness_layout.canonical_families, 0..) |candidate, index| {
         if (family == candidate) return index;
     }
     unreachable;
@@ -294,7 +254,7 @@ fn appendColumnAccess(
     comptime role: []const u8,
     addr_space: u32,
 ) !void {
-    const Layout = LayoutFor(family);
+    const Layout = witness_layout.LayoutFor(family);
     try accesses.append(allocator, .{
         .clock = columnValue(columns, Layout, "clock", row),
         .kind = 1,
@@ -336,7 +296,7 @@ fn appendFamilyAccesses(
         },
         .lui, .auipc, .jal => try appendColumnAccess(allocator, accesses, &columns, family, row, 0, "rd", 0),
         .load_store => {
-            const Layout = LayoutFor(family);
+            const Layout = witness_layout.LayoutFor(family);
             const is_store = columnValue(&columns, Layout, "opcode_sb_flag", row) +
                 columnValue(&columns, Layout, "opcode_sh_flag", row) +
                 columnValue(&columns, Layout, "opcode_sw_flag", row) != 0;
@@ -388,7 +348,7 @@ fn dumpOrderedAccesses(allocator: std.mem.Allocator, path: []const u8, max_steps
 
     var accesses: std.ArrayList(OrderedAccess) = .{};
     defer accesses.deinit(allocator);
-    inline for (CANONICAL_FAMILIES) |family| {
+    inline for (witness_layout.canonical_families) |family| {
         try appendFamilyAccesses(allocator, &accesses, &result.execution_trace, family);
     }
     for (result.state_chain_tracker.clock_updates_reg.items) |gap| {
@@ -585,8 +545,9 @@ const DigestRecorder = struct {
 /// channel digest after every mix step for byte comparison with the oracle.
 fn dumpTranscriptPrefix(allocator: std.mem.Allocator, path: []const u8) !void {
     const public_data_mod = @import("frontends/riscv/air/public_data.zig");
-    const prover_mod = @import("frontends/riscv/prover.zig");
     const memory_boundary = @import("frontends/riscv/air/memory_commitment/boundary.zig");
+    const program_commitment = @import("frontends/riscv/air/program/commitment.zig");
+    const program_table = @import("frontends/riscv/air/program/table.zig");
 
     const elf_bytes = try std.fs.cwd().readFileAlloc(allocator, path, 64 * 1024 * 1024);
     defer allocator.free(elf_bytes);
@@ -604,6 +565,17 @@ fn dumpTranscriptPrefix(allocator: std.mem.Allocator, path: []const u8) !void {
     };
     var boundary_claims = try memory_boundary.build(allocator, run_result.rw_memory.words);
     defer boundary_claims.deinit(allocator);
+    const fetches = try allocator.alloc(program_table.Fetch, run_result.execution_trace.rows.items.len);
+    defer allocator.free(fetches);
+    for (run_result.execution_trace.rows.items, fetches) |row, *fetch| {
+        fetch.* = .{ .pc = row.pc, .word = row.inst_word };
+    }
+    var program = try program_commitment.build(
+        allocator,
+        fetches,
+        run_result.rw_memory.program_words,
+    );
+    defer program.deinit(allocator);
     const data = public_data_mod.PublicData{
         .initial_pc = run_result.initial_pc,
         .final_pc = run_result.final_pc,
@@ -611,7 +583,7 @@ fn dumpTranscriptPrefix(allocator: std.mem.Allocator, path: []const u8) !void {
         .initial_regs = run_result.initial_regs,
         .final_regs = run_result.final_regs,
         .reg_last_clock = run_result.state_chain_tracker.reg_last_clk,
-        .program_root = try prover_mod.buildProgramSparseRoot(allocator, &run_result.rw_memory),
+        .program_root = program.tree.root,
         .initial_rw_root = if (boundary_claims.initial_tree) |tree| tree.root else null,
         .final_rw_root = if (boundary_claims.final_tree) |tree| tree.root else null,
         .io_entries = .{
