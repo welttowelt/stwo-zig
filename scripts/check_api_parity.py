@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
-CONFORMANCE_DIR = ROOT / "docs" / "conformance"
+CONFORMANCE_DIR = ROOT / "conformance"
 API_PARITY_PATH = CONFORMANCE_DIR / "api-parity.md"
 UPSTREAM_PATH = CONFORMANCE_DIR / "upstream.md"
 

@@ -41,16 +41,34 @@ pub fn run(
 
 fn nativeArgs(request: cli.Run, execution: Execution) runner.config.Args {
     var result = runner.config.Args{
-        .example = @enumFromInt(@intFromEnum(std.meta.activeTag(request.workload))),
-        .protocol = @enumFromInt(@intFromEnum(request.protocol)),
+        .example = switch (request.workload) {
+            .wide_fibonacci => .wide_fibonacci,
+            .xor => .xor,
+            .plonk => .plonk,
+            .state_machine => .state_machine,
+            .blake => .blake,
+            .poseidon => .poseidon,
+        },
+        .protocol = switch (request.protocol) {
+            .secure => .secure,
+            .functional => .functional,
+            .smoke => .smoke,
+        },
         .warmups = execution.warmups,
         .samples = execution.samples,
         .profiled = execution.profiled,
         .proof_artifact_out = execution.proof_temporary,
         .proof_artifact_report_path = execution.proof_report_path,
-        .blake2_backend = @enumFromInt(@intFromEnum(request.blake2_backend)),
+        .blake2_backend = switch (request.blake2_backend) {
+            .auto => .auto,
+            .scalar => .scalar,
+            .simd => .simd,
+        },
         .metal_runtime = .{
-            .mode = @enumFromInt(@intFromEnum(request.metal_runtime.mode)),
+            .mode = switch (request.metal_runtime.mode) {
+                .source_jit => .source_jit,
+                .authenticated_aot => .authenticated_aot,
+            },
             .aot_bundle = request.metal_runtime.aot_bundle,
             .manifest_sha256 = request.metal_runtime.manifest_sha256,
         },
@@ -101,4 +119,29 @@ test "native dispatch: CLI workload mapping preserves parameters" {
     try std.testing.expectEqual(@as(u32, 17), args.wide_fibonacci.log_n_rows);
     try std.testing.expectEqual(@as(u32, 31), args.wide_fibonacci.sequence_len);
     try std.testing.expectEqualStrings("proof.json", args.proof_artifact_report_path.?);
+}
+
+test "native dispatch: security profiles map by meaning, not enum ordinal" {
+    const workload: cli.Workload = .{ .plonk = .{ .log_n_rows = 8 } };
+    const execution = Execution{
+        .warmups = 0,
+        .samples = 1,
+        .profiled = false,
+        .proof_temporary = null,
+        .proof_report_path = null,
+    };
+    inline for (.{
+        .{ cli.Protocol.secure, runner.config.Protocol.secure },
+        .{ cli.Protocol.functional, runner.config.Protocol.functional },
+        .{ cli.Protocol.smoke, runner.config.Protocol.smoke },
+    }) |pair| {
+        const args = nativeArgs(.{
+            .backend = .cpu,
+            .protocol = pair[0],
+            .workload = workload,
+            .blake2_backend = .auto,
+            .metal_runtime = .{},
+        }, execution);
+        try std.testing.expectEqual(pair[1], args.protocol);
+    }
 }

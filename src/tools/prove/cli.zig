@@ -86,7 +86,10 @@ pub const Bench = struct {
     profiled: bool,
 };
 
-pub const Verify = struct { artifact: []const u8 };
+pub const Verify = struct {
+    artifact: []const u8,
+    protocol: Protocol,
+};
 
 pub const Parsed = union(enum) {
     prove: Prove,
@@ -217,6 +220,7 @@ pub fn parse(argv: []const []const u8) !Parsed {
         } },
         .verify => .{ .verify = .{
             .artifact = try requiredPath(scratch.artifact, error.MissingArtifact),
+            .protocol = scratch.protocol,
         } },
         .applications => unreachable,
     };
@@ -391,7 +395,7 @@ fn rejectIrrelevant(command: Command, scratch: Scratch) !void {
             .bench => isRunFlag(flag) or contains(&.{
                 .report_out, .proof_out, .warmups, .samples, .profiled,
             }, flag),
-            .verify => flag == .artifact,
+            .verify => flag == .artifact or flag == .protocol,
             .applications => false,
         };
         if (!allowed) return error.IrrelevantArgument;
@@ -495,17 +499,20 @@ fn isHelp(value: []const u8) bool {
 }
 
 pub fn writeUsage(writer: anytype, command: ?Command) !void {
-    if (command == null) return writer.writeAll(
-        \\Usage: stwo-zig <command> [options]
-        \\
-        \\Commands:
-        \\  prove          Produce and verify one proof artifact
-        \\  bench          Benchmark the same verified proving path
-        \\  verify         Verify a proof artifact
-        \\  applications   List compiled-in AIR applications
-        \\
-        \\Run `stwo-zig <command> --help` for command options.
-    );
+    if (command == null) {
+        try writer.writeAll(
+            \\Usage: stwo-zig <command> [options]
+            \\
+            \\Commands:
+            \\  prove          Produce and verify one proof artifact
+            \\  bench          Benchmark the same verified proving path
+            \\  verify         Verify a proof artifact
+            \\  applications   List compiled-in AIR applications
+            \\
+            \\Run `stwo-zig <command> --help` for command options.
+        );
+        return writer.writeByte('\n');
+    }
     switch (command.?) {
         .prove => try writer.writeAll(
             \\Usage: stwo-zig prove --air NAME --backend NAME --output PATH [run options]
@@ -523,10 +530,12 @@ pub fn writeUsage(writer: anytype, command: ?Command) !void {
             \\  --profiled        Enable diagnostic stage instrumentation
         ),
         .verify => return writer.writeAll(
-            \\Usage: stwo-zig verify --artifact PATH
+            \\Usage: stwo-zig verify --artifact PATH [--protocol secure|functional|smoke]
+            \\
         ),
         .applications => return writer.writeAll(
             \\Usage: stwo-zig applications
+            \\
         ),
     }
     try writer.writeAll(
@@ -548,6 +557,7 @@ pub fn writeUsage(writer: anytype, command: ?Command) !void {
         \\  --metal-runtime MODE  source-jit or authenticated-aot
         \\  --metal-aot-bundle PATH
         \\  --metal-aot-manifest-sha256 HEX
+        \\
     );
 }
 
@@ -621,6 +631,8 @@ test "backend and Metal runtime selection fail closed" {
 
 test "bounds paths verification and help fail closed" {
     try std.testing.expectError(error.InvalidPath, parse(&.{ "verify", "--artifact", "" }));
+    const verify = (try parse(&.{ "verify", "--artifact", "proof.json" })).verify;
+    try std.testing.expectEqual(Protocol.secure, verify.protocol);
     try std.testing.expectError(error.InvalidSampleCount, parse(&.{
         "bench", "--air", "plonk", "--backend", "cpu", "--samples", "0",
     }));

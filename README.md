@@ -50,6 +50,32 @@ zig build test -Doptimize=ReleaseFast
 zig build metal-test -Doptimize=ReleaseFast  # macOS with Metal
 ```
 
+## Prove
+
+Build the installed proof command, produce one verified Native proof, then run the local verifier
+against its versioned Rust-compatible artifact:
+
+```sh
+zig build stwo-zig -Doptimize=ReleaseFast
+
+zig-out/bin/stwo-zig prove \
+  --air wide_fibonacci --backend cpu --protocol secure \
+  --log-n-rows 12 --sequence-len 16 \
+  --output proof.json --report-out prove-report.json
+
+zig-out/bin/stwo-zig verify --artifact proof.json
+```
+
+`bench` uses the same proving transaction and verifies every warmup and timed sample. Select
+`--backend metal-hybrid` explicitly on macOS; backend failure never falls back to CPU. Run
+`stwo-zig applications` for the compiled AIR registry and adapter status.
+
+> [!NOTE]
+> [Stark-V](https://github.com/ClementWalter/stark-v) produces an RV32IM ELF, not a self-describing
+> Stwo trace. Its adapter remains deferred until the complete RV32IM AIR and guest public I/O
+> binding are release-gated. A Native wide-Fibonacci proof establishes the Fibonacci AIR relation;
+> it does not claim to prove execution of a Stark-V ELF.
+
 Run the same standard gate used by hosted CI:
 
 ```sh

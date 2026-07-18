@@ -28,6 +28,8 @@ pub fn main() !void {
 
 fn prove(allocator: std.mem.Allocator, request: cli.Prove) !void {
     try rejectPathCollision(request.output, request.report_out);
+    try requireAbsent(request.output);
+    if (request.report_out) |path| try requireAbsent(path);
     const proof_temporary = try atomic_file.temporaryPathAlloc(allocator, request.output, "proof");
     defer allocator.free(proof_temporary);
     defer std.fs.cwd().deleteFile(proof_temporary) catch {};
@@ -44,6 +46,8 @@ fn prove(allocator: std.mem.Allocator, request: cli.Prove) !void {
 
 fn bench(allocator: std.mem.Allocator, request: cli.Bench) !void {
     if (request.proof_out) |proof_out| try rejectPathCollision(proof_out, request.report_out);
+    if (request.proof_out) |path| try requireAbsent(path);
+    if (request.report_out) |path| try requireAbsent(path);
     const proof_temporary = if (request.proof_out) |proof_out|
         try atomic_file.temporaryPathAlloc(allocator, proof_out, "proof")
     else
@@ -78,7 +82,6 @@ fn publishResult(
         defer std.fs.cwd().deleteFile(report_temporary) catch {};
         try atomic_file.writeExclusive(allocator, report_temporary, report);
         try atomic_file.publishExclusive(proof_temporary, proof_output);
-        errdefer std.fs.cwd().deleteFile(proof_output) catch {};
         try atomic_file.publishExclusive(report_temporary, output);
         return;
     }
@@ -96,7 +99,15 @@ fn publishReport(
 }
 
 fn verifyArtifact(allocator: std.mem.Allocator, request: cli.Verify) !void {
-    const verified = try artifact_verifier.verifyPath(allocator, request.artifact);
+    const verified = try artifact_verifier.verifyPath(
+        allocator,
+        request.artifact,
+        switch (request.protocol) {
+            .secure => .secure,
+            .functional => .functional,
+            .smoke => .smoke,
+        },
+    );
     var proof_sha256 = std.fmt.bytesToHex(verified.proof_sha256, .lower);
     const receipt = .{
         .schema_version = @as(u32, 1),
@@ -104,7 +115,8 @@ fn verifyArtifact(allocator: std.mem.Allocator, request: cli.Verify) !void {
         .artifact_schema_version = stwo.interop.examples_artifact.SCHEMA_VERSION,
         .upstream_commit = stwo.interop.examples_artifact.UPSTREAM_COMMIT,
         .exchange_mode = stwo.interop.examples_artifact.EXCHANGE_MODE,
-        .generator = @tagName(verified.generator),
+        .security_policy = @tagName(request.protocol),
+        .claimed_generator = @tagName(verified.claimed_generator),
         .air = @tagName(verified.example),
         .proof_bytes = verified.proof_bytes,
         .proof_sha256 = &proof_sha256,
@@ -126,7 +138,47 @@ fn rejectPathCollision(path: []const u8, maybe_other: ?[]const u8) !void {
     }
 }
 
+fn requireAbsent(path: []const u8) !void {
+    std.fs.cwd().access(path, .{}) catch |err| switch (err) {
+        error.FileNotFound => return,
+        else => return err,
+    };
+    return error.OutputAlreadyExists;
+}
+
 fn writeLine(writer: anytype, bytes: []const u8) !void {
     try writer.writeAll(bytes);
     try writer.writeByte('\n');
+}
+
+test "publication never replaces a competing report or deletes its verified proof" {
+    var temporary = std.testing.tmpDir(.{});
+    defer temporary.cleanup();
+    const root = try temporary.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(root);
+    const proof_temporary = try std.fs.path.join(std.testing.allocator, &.{ root, "proof.tmp" });
+    defer std.testing.allocator.free(proof_temporary);
+    const proof_output = try std.fs.path.join(std.testing.allocator, &.{ root, "proof.json" });
+    defer std.testing.allocator.free(proof_output);
+    const report_output = try std.fs.path.join(std.testing.allocator, &.{ root, "report.json" });
+    defer std.testing.allocator.free(report_output);
+
+    try atomic_file.writeExclusive(std.testing.allocator, proof_temporary, "proof");
+    try atomic_file.writeExclusive(std.testing.allocator, report_output, "existing");
+    try std.testing.expectError(
+        error.PathAlreadyExists,
+        publishResult(
+            std.testing.allocator,
+            proof_temporary,
+            proof_output,
+            "report",
+            report_output,
+        ),
+    );
+    const proof = try std.fs.cwd().readFileAlloc(std.testing.allocator, proof_output, 32);
+    defer std.testing.allocator.free(proof);
+    try std.testing.expectEqualStrings("proof", proof);
+    const report = try std.fs.cwd().readFileAlloc(std.testing.allocator, report_output, 32);
+    defer std.testing.allocator.free(report);
+    try std.testing.expectEqualStrings("existing", report);
 }

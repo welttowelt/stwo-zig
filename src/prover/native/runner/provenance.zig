@@ -16,6 +16,7 @@ const override_names = [_][]const u8{
 pub const Owned = struct {
     git_commit: []u8,
     environment_overrides: []report.EnvironmentOverride,
+    git_available: bool,
 
     pub fn deinit(self: *Owned, allocator: std.mem.Allocator) void {
         allocator.free(self.git_commit);
@@ -25,10 +26,32 @@ pub const Owned = struct {
     }
 };
 
+pub const GitStatus = struct {
+    output: []u8,
+    available: bool,
+};
+
 pub fn collect(allocator: std.mem.Allocator) !Owned {
-    const git_commit = try runCommand(allocator, &.{ "git", "rev-parse", "HEAD" });
+    var git_available = true;
+    var git_commit = runCommand(allocator, &.{ "git", "rev-parse", "HEAD" }) catch blk: {
+        git_available = false;
+        break :blk try allocator.dupe(u8, "0000000000000000000000000000000000000000");
+    };
+    if (git_commit.len != 40) {
+        allocator.free(git_commit);
+        git_available = false;
+        git_commit = try allocator.dupe(u8, "0000000000000000000000000000000000000000");
+    }
+
+    return collectWithCommit(allocator, git_commit, git_available);
+}
+
+fn collectWithCommit(
+    allocator: std.mem.Allocator,
+    git_commit: []u8,
+    git_available: bool,
+) !Owned {
     errdefer allocator.free(git_commit);
-    if (git_commit.len != 40) return error.InvalidGitCommit;
 
     var overrides = std.ArrayList(report.EnvironmentOverride).empty;
     errdefer {
@@ -45,14 +68,19 @@ pub fn collect(allocator: std.mem.Allocator) !Owned {
     return .{
         .git_commit = git_commit,
         .environment_overrides = try overrides.toOwnedSlice(allocator),
+        .git_available = git_available,
     };
 }
 
-pub fn collectGitStatus(allocator: std.mem.Allocator) ![]u8 {
-    return runCommand(
+pub fn collectGitStatus(allocator: std.mem.Allocator) !GitStatus {
+    const output = runCommand(
         allocator,
         &.{ "git", "status", "--porcelain", "--untracked-files=normal" },
-    );
+    ) catch return .{
+        .output = try allocator.alloc(u8, 0),
+        .available = false,
+    };
+    return .{ .output = output, .available = true };
 }
 
 fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) ![]u8 {

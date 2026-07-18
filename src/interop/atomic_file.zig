@@ -1,6 +1,7 @@
-//! Exclusive, crash-resistant publication for proof and report artifacts.
+//! Atomic, exclusive publication for proof and report artifacts.
 
 const std = @import("std");
+const builtin = @import("builtin");
 
 pub fn temporaryPathAlloc(
     allocator: std.mem.Allocator,
@@ -16,8 +17,16 @@ pub fn temporaryPathAlloc(
 
 /// Publishes a sibling temporary file without replacing an existing output.
 pub fn publishExclusive(temporary_path: []const u8, output_path: []const u8) !void {
+    if (comptime builtin.os.tag == .windows) {
+        try std.os.windows.MoveFileEx(
+            temporary_path,
+            output_path,
+            std.os.windows.MOVEFILE_WRITE_THROUGH,
+        );
+        return;
+    }
     try std.posix.link(temporary_path, output_path);
-    try std.fs.cwd().deleteFile(temporary_path);
+    std.fs.cwd().deleteFile(temporary_path) catch {};
 }
 
 pub fn writeExclusive(

@@ -563,9 +563,21 @@ This ledger maps every public export in the Zig root/module API surface to the p
       "rust_path": null,
       "source": "src/stwo.zig"
     },
+    "stwo.interop.atomic_file": {
+      "kind": "const",
+      "rationale": "Zig-only atomic artifact publication helper; no direct upstream crate export symbol.",
+      "rust_path": null,
+      "source": "src/interop/mod.zig"
+    },
     "stwo.interop.examples_artifact": {
       "kind": "const",
       "rationale": "Zig/Rust interoperability wire helper for conformance harness; no direct upstream crate export symbol.",
+      "rust_path": null,
+      "source": "src/interop/mod.zig"
+    },
+    "stwo.interop.examples_artifact_verifier": {
+      "kind": "const",
+      "rationale": "Zig verification boundary for the pinned Zig/Rust proof-exchange artifact; no direct upstream crate export symbol.",
       "rust_path": null,
       "source": "src/interop/mod.zig"
     },

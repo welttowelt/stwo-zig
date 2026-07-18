@@ -20,6 +20,7 @@ pub fn addProduct(context: Context) void {
     module.addImport("stwo", context.stwo_module);
     module.addImport("native_proof_runner", context.native_proof_runner_module);
     const executable = b.addExecutable(.{ .name = "stwo-zig", .root_module = module });
+    executable.linkLibC();
     if (context.target.result.os.tag == .macos) metal_products.linkRuntime(b, executable);
     const install = b.addInstallArtifact(executable, .{});
     b.getInstallStep().dependOn(&install.step);
@@ -34,6 +35,13 @@ pub fn addProduct(context: Context) void {
     const parser_tests = b.addTest(.{ .root_module = parser_module });
     context.test_step.dependOn(&b.addRunArtifact(parser_tests).step);
 
+    const registry_tests = b.addTest(.{ .root_module = b.createModule(.{
+        .root_source_file = b.path("src/tools/prove/registry.zig"),
+        .target = context.target,
+        .optimize = context.optimize,
+    }) });
+    context.test_step.dependOn(&b.addRunArtifact(registry_tests).step);
+
     const dispatch_module = b.createModule(.{
         .root_source_file = b.path("src/tools/prove/native_dispatch.zig"),
         .target = context.target,
@@ -44,4 +52,16 @@ pub fn addProduct(context: Context) void {
     const dispatch_tests = b.addTest(.{ .root_module = dispatch_module });
     if (context.target.result.os.tag == .macos) metal_products.linkRuntime(b, dispatch_tests);
     context.test_step.dependOn(&b.addRunArtifact(dispatch_tests).step);
+
+    const app_module = b.createModule(.{
+        .root_source_file = b.path("src/tools/prove/app.zig"),
+        .target = context.target,
+        .optimize = context.optimize,
+    });
+    app_module.addImport("stwo", context.stwo_module);
+    app_module.addImport("native_proof_runner", context.native_proof_runner_module);
+    const app_tests = b.addTest(.{ .root_module = app_module });
+    app_tests.linkLibC();
+    if (context.target.result.os.tag == .macos) metal_products.linkRuntime(b, app_tests);
+    context.test_step.dependOn(&b.addRunArtifact(app_tests).step);
 }

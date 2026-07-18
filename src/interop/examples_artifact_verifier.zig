@@ -12,15 +12,20 @@ const xor = @import("../examples/xor.zig");
 
 pub const Generator = enum { rust, zig };
 pub const Example = enum { blake, plonk, poseidon, state_machine, wide_fibonacci, xor };
+pub const SecurityPolicy = enum { secure, functional, smoke };
 
 pub const Verification = struct {
-    generator: Generator,
+    claimed_generator: Generator,
     example: Example,
     proof_bytes: usize,
     proof_sha256: [32]u8,
 };
 
-pub fn verifyPath(allocator: std.mem.Allocator, path: []const u8) !Verification {
+pub fn verifyPath(
+    allocator: std.mem.Allocator,
+    path: []const u8,
+    security_policy: SecurityPolicy,
+) !Verification {
     var parsed = try artifacts.readArtifact(allocator, path);
     defer parsed.deinit();
     const artifact = parsed.value;
@@ -38,6 +43,7 @@ pub fn verifyPath(allocator: std.mem.Allocator, path: []const u8) !Verification 
     }
 
     const pcs_config = try artifacts.pcsConfigFromWire(artifact.pcs_config);
+    try requireSecurityPolicy(pcs_config, security_policy);
     const proof_bytes = try artifacts.hexToBytesAlloc(allocator, artifact.proof_bytes_hex);
     defer allocator.free(proof_bytes);
     const proof_sha256 = digest(proof_bytes);
@@ -51,70 +57,174 @@ pub fn verifyPath(allocator: std.mem.Allocator, path: []const u8) !Verification 
         proof.deinit(allocator);
         return error.UnknownExample;
     };
+    validateStatementShape(artifact, example) catch |err| {
+        proof.deinit(allocator);
+        return err;
+    };
     switch (example) {
         .blake => {
             const wire = artifact.blake_statement orelse {
                 proof.deinit(allocator);
                 return error.MissingBlakeStatement;
             };
-            try blake.verify(allocator, pcs_config, try artifacts.blakeStatementFromWire(wire), proof);
+            const statement = artifacts.blakeStatementFromWire(wire) catch |err| {
+                proof.deinit(allocator);
+                return err;
+            };
+            try blake.verify(allocator, pcs_config, statement, proof);
         },
         .plonk => {
             const wire = artifact.plonk_statement orelse {
                 proof.deinit(allocator);
                 return error.MissingPlonkStatement;
             };
-            try plonk.verify(allocator, pcs_config, try artifacts.plonkStatementFromWire(wire), proof);
+            const statement = artifacts.plonkStatementFromWire(wire) catch |err| {
+                proof.deinit(allocator);
+                return err;
+            };
+            try plonk.verify(allocator, pcs_config, statement, proof);
         },
         .poseidon => {
             const wire = artifact.poseidon_statement orelse {
                 proof.deinit(allocator);
                 return error.MissingPoseidonStatement;
             };
-            try poseidon.verify(allocator, pcs_config, try artifacts.poseidonStatementFromWire(wire), proof);
+            const statement = artifacts.poseidonStatementFromWire(wire) catch |err| {
+                proof.deinit(allocator);
+                return err;
+            };
+            try poseidon.verify(allocator, pcs_config, statement, proof);
         },
         .state_machine => {
             const wire = artifact.state_machine_statement orelse {
                 proof.deinit(allocator);
                 return error.MissingStateMachineStatement;
             };
-            try state_machine.verify(
-                allocator,
-                pcs_config,
-                try artifacts.stateMachineStatementFromWire(wire),
-                proof,
-            );
+            const statement = artifacts.stateMachineStatementFromWire(wire) catch |err| {
+                proof.deinit(allocator);
+                return err;
+            };
+            try state_machine.verify(allocator, pcs_config, statement, proof);
         },
         .wide_fibonacci => {
             const wire = artifact.wide_fibonacci_statement orelse {
                 proof.deinit(allocator);
                 return error.MissingWideFibonacciStatement;
             };
-            try wide_fibonacci.verify(
-                allocator,
-                pcs_config,
-                try artifacts.wideFibonacciStatementFromWire(wire),
-                proof,
-            );
+            const statement = artifacts.wideFibonacciStatementFromWire(wire) catch |err| {
+                proof.deinit(allocator);
+                return err;
+            };
+            try wide_fibonacci.verify(allocator, pcs_config, statement, proof);
         },
         .xor => {
             const wire = artifact.xor_statement orelse {
                 proof.deinit(allocator);
                 return error.MissingXorStatement;
             };
-            try xor.verify(allocator, pcs_config, try artifacts.xorStatementFromWire(wire), proof);
+            const statement = artifacts.xorStatementFromWire(wire) catch |err| {
+                proof.deinit(allocator);
+                return err;
+            };
+            try xor.verify(allocator, pcs_config, statement, proof);
         },
     }
     return .{
-        .generator = generator,
+        .claimed_generator = generator,
         .example = example,
         .proof_bytes = proof_bytes.len,
         .proof_sha256 = proof_sha256,
     };
 }
 
+fn requireSecurityPolicy(config: anytype, policy: SecurityPolicy) !void {
+    const SecurityMinimum = struct { pow_bits: u32, n_queries: usize };
+    const minimum: SecurityMinimum = switch (policy) {
+        .secure => .{ .pow_bits = @as(u32, 26), .n_queries = @as(usize, 70) },
+        .functional => .{ .pow_bits = @as(u32, 10), .n_queries = @as(usize, 3) },
+        .smoke => .{ .pow_bits = @as(u32, 0), .n_queries = @as(usize, 3) },
+    };
+    if (config.pow_bits < minimum.pow_bits or
+        config.fri_config.n_queries < minimum.n_queries or
+        config.fri_config.log_blowup_factor != 1 or
+        config.fri_config.log_last_layer_degree_bound != 0 or
+        config.fri_config.fold_step != 1 or
+        config.lifting_log_size != null)
+        return error.InsufficientSecurityPolicy;
+}
+
+fn validateStatementShape(artifact: artifacts.InteropArtifact, example: Example) !void {
+    const present = [_]bool{
+        artifact.blake_statement != null,
+        artifact.plonk_statement != null,
+        artifact.poseidon_statement != null,
+        artifact.state_machine_statement != null,
+        artifact.wide_fibonacci_statement != null,
+        artifact.xor_statement != null,
+    };
+    var count: usize = 0;
+    for (present) |is_present| count += @intFromBool(is_present);
+    if (count != 1) return error.InvalidStatementShape;
+    const expected_present = switch (example) {
+        .blake => present[0],
+        .plonk => present[1],
+        .poseidon => present[2],
+        .state_machine => present[3],
+        .wide_fibonacci => present[4],
+        .xor => present[5],
+    };
+    if (!expected_present) return error.InvalidStatementShape;
+}
+
 fn digest(bytes: []const u8) [32]u8 {
     var result: [32]u8 = undefined;
     std.crypto.hash.sha2.Sha256.hash(bytes, &result, .{});
     return result;
+}
+
+test "artifact verifier: statement union is exact" {
+    const base = artifacts.InteropArtifact{
+        .schema_version = artifacts.SCHEMA_VERSION,
+        .upstream_commit = artifacts.UPSTREAM_COMMIT,
+        .exchange_mode = artifacts.EXCHANGE_MODE,
+        .generator = "zig",
+        .example = "wide_fibonacci",
+        .pcs_config = .{
+            .pow_bits = 0,
+            .fri_config = .{
+                .log_blowup_factor = 1,
+                .log_last_layer_degree_bound = 0,
+                .n_queries = 3,
+                .fold_step = 1,
+            },
+        },
+        .wide_fibonacci_statement = .{ .log_n_rows = 5, .sequence_len = 8 },
+        .proof_bytes_hex = "",
+    };
+    try validateStatementShape(base, .wide_fibonacci);
+    var ambiguous = base;
+    ambiguous.plonk_statement = .{ .log_n_rows = 5 };
+    try std.testing.expectError(
+        error.InvalidStatementShape,
+        validateStatementShape(ambiguous, .wide_fibonacci),
+    );
+    try std.testing.expectError(error.InvalidStatementShape, validateStatementShape(base, .plonk));
+}
+
+test "artifact verifier: verifier policy rejects prover-selected weak parameters" {
+    const fri = @import("../core/fri.zig");
+    const pcs = @import("../core/pcs/mod.zig");
+    const weak = pcs.PcsConfig{
+        .pow_bits = 0,
+        .fri_config = try fri.FriConfig.init(0, 1, 0),
+    };
+    try std.testing.expectError(
+        error.InsufficientSecurityPolicy,
+        requireSecurityPolicy(weak, .secure),
+    );
+    const secure = pcs.PcsConfig{
+        .pow_bits = 26,
+        .fri_config = try fri.FriConfig.init(0, 1, 70),
+    };
+    try requireSecurityPolicy(secure, .secure);
 }

@@ -346,8 +346,8 @@ fn executeExample(
 
     var provenance_owned = try provenance.collect(allocator);
     defer provenance_owned.deinit(allocator);
-    const dirty_output = try provenance.collectGitStatus(allocator);
-    defer allocator.free(dirty_output);
+    const git_status = try provenance.collectGitStatus(allocator);
+    defer allocator.free(git_status.output);
     const overrides = provenance_owned.environment_overrides;
 
     const input_summary = try statistics.summarize(allocator, input_values);
@@ -364,15 +364,16 @@ fn executeExample(
     const meets_sampling_contract = args.warmups >= config.MIN_HEADLINE_WARMUPS and
         args.samples >= minimum_samples;
     const evidence_class = args.evidenceClass(meets_sampling_contract);
-    const git_dirty = dirty_output.len != 0;
-    const provenance_complete = overrides.len == 0;
+    const git_dirty = git_status.output.len != 0;
+    const provenance_complete = provenance_owned.git_available and git_status.available and
+        overrides.len == 0;
     const telemetry_valid = telemetry.valid(backend, warmup_telemetry, sample_telemetry);
     const byte_identical_verified_samples =
         args.samples == proof_records.len and all_samples_byte_identical;
     const headline_requirements = report_mod.HeadlineRequirements{
         .verified_unprofiled = evidence_class == .verified_unprofiled,
         .sampling_contract = meets_sampling_contract,
-        .functional_protocol = args.protocol == .functional,
+        .functional_protocol = args.protocol != .smoke,
         .release_fast = builtin.mode == .ReleaseFast,
         .clean_complete_provenance = provenance_complete and !git_dirty,
         .thread_parallelism_enabled = !builtin.single_threaded,
