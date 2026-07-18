@@ -9,6 +9,7 @@ const StateChainTracker = @import("../../frontends/riscv/runner/state_chain.zig"
 test {
     std.testing.refAllDeclsRecursive(runner);
     // AIR-layer suites are gated here so they can never silently rot.
+    _ = @import("../../frontends/riscv/air/clock_update_component_test.zig");
     _ = @import("../../frontends/riscv/air/component_order.zig");
     _ = @import("../../frontends/riscv/air/logup.zig");
     _ = @import("../../frontends/riscv/air/interaction.zig");
