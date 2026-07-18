@@ -12,6 +12,7 @@ test {
     _ = @import("../../frontends/riscv/air/logup.zig");
     _ = @import("../../frontends/riscv/air/interaction.zig");
     _ = @import("../../frontends/riscv/air/relations.zig");
+    _ = @import("../../frontends/riscv/air/semantics/mod.zig");
 }
 
 test "infra_trace: genMemoryColumns caps rows at the domain size" {
