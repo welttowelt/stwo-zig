@@ -13,6 +13,7 @@ const schema = @import("schema.zig");
 
 pub const N_COLUMNS: usize = 4;
 pub const Previous = [N_COLUMNS][]M31;
+pub const CHUNK_ROWS: usize = 4096;
 
 pub const Result = struct {
     columns: [N_COLUMNS][]M31,
@@ -67,37 +68,49 @@ pub fn generate(
 ) !Result {
     const size = schema.size(counter.kind);
     if (counter.values.len != size) return error.InvalidTraceShape;
-    const denominators = try allocator.alloc(QM31, size);
-    defer allocator.free(denominators);
-    for (denominators, 0..) |*denominator, row| {
-        const tuple = try schema.tupleAt(counter.kind, row);
-        const relation_entry = tableEntry(counter.kind, tuple, counter.values[row]);
-        denominator.* = try relation_entry.denominator(relations);
-    }
-    const inverse = try fields.batchInverse(QM31, allocator, denominators);
-    defer allocator.free(inverse);
-
-    const sums = try allocator.alloc(QM31, size);
-    defer allocator.free(sums);
-    var accumulator = QM31.zero();
-    for (sums, inverse, counter.values) |*sum, denominator_inverse, multiplicity| {
-        accumulator = accumulator.add(QM31.fromBase(multiplicity).neg().mul(denominator_inverse));
-        sum.* = accumulator;
-    }
-
     var columns = try allocateColumns(allocator, size);
     errdefer freeColumns(allocator, &columns);
     var previous = try allocateColumns(allocator, size);
     errdefer freeColumns(allocator, &previous);
     const table = try infra.BitReversalTable.init(allocator, schema.logSize(counter.kind));
     defer table.deinit(allocator);
+
+    const chunk_capacity = @min(size, CHUNK_ROWS);
+    const denominators = try allocator.alloc(QM31, chunk_capacity);
+    defer allocator.free(denominators);
+    const inverses = try allocator.alloc(QM31, chunk_capacity);
+    defer allocator.free(inverses);
+
+    var accumulator = QM31.zero();
+    var row_start: usize = 0;
+    while (row_start < size) {
+        const chunk_len = @min(CHUNK_ROWS, size - row_start);
+        for (denominators[0..chunk_len], 0..) |*denominator, local_row| {
+            const row = row_start + local_row;
+            const tuple = try schema.tupleAt(counter.kind, row);
+            const relation_entry = tableEntry(counter.kind, tuple, counter.values[row]);
+            denominator.* = try relation_entry.denominator(relations);
+        }
+        try fields.batchInverseInPlace(
+            QM31,
+            denominators[0..chunk_len],
+            inverses[0..chunk_len],
+        );
+        for (inverses[0..chunk_len], counter.values[row_start .. row_start + chunk_len], 0..) |denominator_inverse, multiplicity, local_row| {
+            const row = row_start + local_row;
+            accumulator = accumulator.add(QM31.fromBase(multiplicity).neg().mul(denominator_inverse));
+            const current = accumulator.toM31Array();
+            const dst = table.map(row);
+            for (0..N_COLUMNS) |coordinate| columns[coordinate][dst] = current[coordinate];
+        }
+        row_start += chunk_len;
+    }
+
     for (0..size) |row| {
         const dst = table.map(row);
-        const current = sums[row].toM31Array();
-        const prior = sums[(row + size - 1) % size].toM31Array();
+        const prior = table.map((row + size - 1) % size);
         for (0..N_COLUMNS) |coordinate| {
-            columns[coordinate][dst] = current[coordinate];
-            previous[coordinate][dst] = prior[coordinate];
+            previous[coordinate][dst] = columns[coordinate][prior];
         }
     }
     return .{ .columns = columns, .previous = previous, .claim = accumulator };
@@ -144,6 +157,66 @@ fn allocateColumns(allocator: std.mem.Allocator, len: usize) ![N_COLUMNS][]M31 {
 fn freeColumns(allocator: std.mem.Allocator, columns: []const []M31) void {
     for (columns) |column| {
         if (column.len != 0) allocator.free(column);
+    }
+}
+
+fn generateFullDomainReference(
+    allocator: std.mem.Allocator,
+    counter: *const counter_mod.Counter,
+    relations: *const relations_mod.Relations,
+) !Result {
+    const size = schema.size(counter.kind);
+    if (counter.values.len != size) return error.InvalidTraceShape;
+    const denominators = try allocator.alloc(QM31, size);
+    defer allocator.free(denominators);
+    for (denominators, 0..) |*denominator, row| {
+        const tuple = try schema.tupleAt(counter.kind, row);
+        const relation_entry = tableEntry(counter.kind, tuple, counter.values[row]);
+        denominator.* = try relation_entry.denominator(relations);
+    }
+    const inverses = try fields.batchInverse(QM31, allocator, denominators);
+    defer allocator.free(inverses);
+    const sums = try allocator.alloc(QM31, size);
+    defer allocator.free(sums);
+    var accumulator = QM31.zero();
+    for (sums, inverses, counter.values) |*sum, denominator_inverse, multiplicity| {
+        accumulator = accumulator.add(QM31.fromBase(multiplicity).neg().mul(denominator_inverse));
+        sum.* = accumulator;
+    }
+
+    var columns = try allocateColumns(allocator, size);
+    errdefer freeColumns(allocator, &columns);
+    var previous = try allocateColumns(allocator, size);
+    errdefer freeColumns(allocator, &previous);
+    const table = try infra.BitReversalTable.init(allocator, schema.logSize(counter.kind));
+    defer table.deinit(allocator);
+    for (0..size) |row| {
+        const dst = table.map(row);
+        const current = sums[row].toM31Array();
+        const prior = sums[(row + size - 1) % size].toM31Array();
+        for (0..N_COLUMNS) |coordinate| {
+            columns[coordinate][dst] = current[coordinate];
+            previous[coordinate][dst] = prior[coordinate];
+        }
+    }
+    return .{ .columns = columns, .previous = previous, .claim = accumulator };
+}
+
+fn expectEqualResults(expected: *const Result, actual: *const Result) !void {
+    try std.testing.expect(expected.claim.eql(actual.claim));
+    for (0..N_COLUMNS) |coordinate| {
+        try std.testing.expectEqual(expected.columns[coordinate].len, actual.columns[coordinate].len);
+        try std.testing.expectEqual(expected.previous[coordinate].len, actual.previous[coordinate].len);
+        try std.testing.expect(std.mem.eql(
+            u8,
+            std.mem.sliceAsBytes(expected.columns[coordinate]),
+            std.mem.sliceAsBytes(actual.columns[coordinate]),
+        ));
+        try std.testing.expect(std.mem.eql(
+            u8,
+            std.mem.sliceAsBytes(expected.previous[coordinate]),
+            std.mem.sliceAsBytes(actual.previous[coordinate]),
+        ));
     }
 }
 
@@ -239,6 +312,51 @@ test "generated singleton column closes one signed range M31 request" {
     for (generated.previous) |column| {
         try std.testing.expectEqual(schema.size(.range_check_m31), column.len);
     }
+}
+
+test "chunked table interaction is byte-identical across inversion boundaries" {
+    const allocator = std.testing.allocator;
+    const relations = relations_mod.Relations.dummy();
+    var counter = try counter_mod.Counter.init(allocator, .range_check_m31);
+    defer counter.deinit(allocator);
+    const size = schema.size(counter.kind);
+    try std.testing.expect(size > 2 * CHUNK_ROWS);
+    counter.values[0] = M31.one();
+    counter.values[CHUNK_ROWS - 1] = M31.fromU64(2).neg();
+    counter.values[CHUNK_ROWS] = M31.fromU64(3);
+    counter.values[CHUNK_ROWS + 1] = M31.fromU64(4).neg();
+    counter.values[2 * CHUNK_ROWS - 1] = M31.fromU64(5);
+    counter.values[2 * CHUNK_ROWS] = M31.fromU64(6).neg();
+    counter.values[size - 1] = M31.fromU64(7);
+
+    var expected = try generateFullDomainReference(allocator, &counter, &relations);
+    defer expected.deinit(allocator);
+    var actual = try generate(allocator, &counter, &relations);
+    defer actual.deinit(allocator);
+    try expectEqualResults(&expected, &actual);
+}
+
+fn generateForAllocationTest(
+    allocator: std.mem.Allocator,
+    counter: *const counter_mod.Counter,
+    relations: *const relations_mod.Relations,
+) !void {
+    var generated = try generate(allocator, counter, relations);
+    defer generated.deinit(allocator);
+}
+
+test "chunked table interaction rolls back every allocation failure" {
+    const allocator = std.testing.allocator;
+    const relations = relations_mod.Relations.dummy();
+    var counter = try counter_mod.Counter.init(allocator, .range_check_m31);
+    defer counter.deinit(allocator);
+    counter.values[CHUNK_ROWS - 1] = M31.one();
+    counter.values[CHUNK_ROWS] = M31.one().neg();
+    try std.testing.checkAllAllocationFailures(
+        allocator,
+        generateForAllocationTest,
+        .{ &counter, &relations },
+    );
 }
 
 fn M31QM31(value: u32) QM31 {
