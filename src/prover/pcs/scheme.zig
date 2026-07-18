@@ -366,13 +366,8 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
             var builder = StreamingTreeBuilder(B, H, MC).init(allocator, self, effective_batch_size);
             errdefer builder.deinit();
 
-            // Process columns in batches.  Each iteration:
-            //  1. Allocates a new batch array and moves column entries into it.
-            //  2. Nulls out the moved entries in the original array.
-            //  3. Passes the batch to addColumnsOwned (which takes full ownership).
-            //
-            // On error, `builder.deinit()` cleans up already-consumed data,
-            // and we manually free remaining unconsumed columns below.
+            // Each batch moves entries out of `owned_columns`; the builder owns
+            // consumed entries and the error paths below free the remainder.
             var consumed: usize = 0;
             while (consumed < owned_columns.len) {
                 const end = @min(owned_columns.len, consumed + effective_batch_size);
@@ -411,6 +406,12 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
             // All column values have been transferred to the builder.
             allocator.free(owned_columns);
 
+            var merkle_commit_stage = try stage_profile.StageScope.begin(
+                recorder,
+                "merkle_commit",
+                "Merkle commit",
+            );
+            defer merkle_commit_stage.end();
             try builder.commit(channel);
         }
 

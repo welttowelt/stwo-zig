@@ -8,6 +8,7 @@ const pcs_utils = @import("../../../../core/pcs/utils.zig");
 const vcs_verifier = @import("../../../../core/vcs_lifted/verifier.zig");
 const prover_circle = @import("../../../../prover/poly/circle/mod.zig");
 const pcs_prover = @import("../../../../prover/pcs/mod.zig");
+const stage_profile = @import("../../../../prover/stage_profile.zig");
 
 const M31 = m31.M31;
 const CirclePointQM31 = circle.CirclePointQM31;
@@ -586,6 +587,69 @@ test "prover pcs: streaming commitment with batch_size=1 matches non-streaming" 
         try std.testing.expectEqualSlices(u8, root_ref[0..], root_stream[0..]);
     }
     try std.testing.expectEqualSlices(u8, channel_ref.digestBytes()[0..], channel_stream.digestBytes()[0..]);
+}
+
+test "prover pcs: Blake-width streaming profile retains final Merkle stage" {
+    const Hasher = @import("../../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const MerkleChannel = @import("../../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
+    const Channel = @import("../../../../core/channel/blake2s.zig").Blake2sChannel;
+    const CpuBackend = @import("../../../../backends/cpu_scalar/mod.zig").CpuBackend;
+    const Scheme = CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel);
+    const alloc = std.testing.allocator;
+    const blake_main_trace_columns: usize = 192;
+
+    var scheme = try Scheme.init(alloc, PcsConfig.default());
+    defer scheme.deinit(alloc);
+    var recorder = stage_profile.Recorder.init(alloc, "ReleaseFast", "blake");
+    defer recorder.deinit();
+
+    var main_trace_stage = try stage_profile.StageScope.begin(
+        &recorder,
+        "main_trace_commit",
+        "Main trace commit",
+    );
+    defer main_trace_stage.end();
+
+    const columns = try alloc.alloc(ColumnEvaluation, blake_main_trace_columns);
+    var initialized: usize = 0;
+    var columns_owned = true;
+    errdefer if (columns_owned) {
+        for (columns[0..initialized]) |column| alloc.free(column.values);
+        alloc.free(columns);
+    };
+    for (columns, 0..) |*column, column_index| {
+        const values = try alloc.alloc(M31, 4);
+        initialized += 1;
+        for (values, 0..) |*value, row| {
+            value.* = M31.fromU64((column_index + 1) * 17 + row);
+        }
+        column.* = .{ .log_size = 2, .values = values };
+    }
+
+    var channel = Channel{};
+    columns_owned = false;
+    try scheme.commitOwnedWithRecorder(alloc, columns, &recorder, &channel);
+    main_trace_stage.end();
+
+    var profile = try recorder.snapshot(alloc);
+    defer profile.deinit(alloc);
+    try std.testing.expectEqual(@as(usize, 1), profile.stages.len);
+    try std.testing.expectEqualStrings("main_trace_commit", profile.stages[0].id);
+
+    const children = profile.stages[0].children orelse return error.TestExpectedStageChildren;
+    const expected = [_][]const u8{
+        "interpolate_columns",
+        "evaluate_extended_domain",
+        "interpolate_columns",
+        "evaluate_extended_domain",
+        "interpolate_columns",
+        "evaluate_extended_domain",
+        "merkle_commit",
+    };
+    try std.testing.expectEqual(expected.len, children.len);
+    for (expected, children) |expected_id, child| {
+        try std.testing.expectEqualStrings(expected_id, child.id);
+    }
 }
 
 test "prover pcs: streaming tree builder API matches non-streaming" {
