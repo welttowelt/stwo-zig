@@ -5,8 +5,10 @@
 
 pub const claims = @import("claims.zig");
 pub const interaction = @import("interaction.zig");
+pub const memory_logup = @import("memory_logup.zig");
 pub const public_data = @import("public_data.zig");
 pub const public_logup = @import("public_logup.zig");
+pub const program = @import("program/mod.zig");
 pub const relation_challenges = @import("relation_challenges.zig");
 pub const relations = @import("relations.zig");
 pub const semantics = @import("semantics/mod.zig");

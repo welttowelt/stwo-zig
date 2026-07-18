@@ -13,22 +13,46 @@ const relation_challenges = @import("relation_challenges.zig");
 
 pub const Error = error{ ZeroDenominator, ClockOverflow };
 
+/// Public compensation split by independent LogUp relation. These domains
+/// must cancel independently; offsetting a forged memory claim with a Merkle
+/// or CPU-state claim is not valid.
+pub const Sums = struct {
+    registers_state: QM31,
+    merkle: QM31,
+    memory_access: QM31,
+
+    pub fn total(self: Sums) QM31 {
+        return self.registers_state.add(self.merkle).add(self.memory_access);
+    }
+};
+
 /// Exact verifier-side compensation for public CPU, root, register, input,
 /// and output boundary values.
 pub fn sum(
     data: *const public_data.PublicData,
     relations: *const relation_challenges.Relations,
 ) Error!QM31 {
-    var result = QM31.zero();
+    return (try relationSums(data, relations)).total();
+}
+
+pub fn relationSums(
+    data: *const public_data.PublicData,
+    relations: *const relation_challenges.Relations,
+) Error!Sums {
+    var result = Sums{
+        .registers_state = QM31.zero(),
+        .merkle = QM31.zero(),
+        .memory_access = QM31.zero(),
+    };
 
     // Registers-state bus: public initial emit and final consume. Stark-V
     // instruction clocks start at one, hence the `clock + 1` final boundary.
     const final_clock = std.math.add(u32, data.clock, 1) catch return error.ClockOverflow;
-    try addInverse(&result, relations.registers_state.combineBase(.{
+    try addInverse(&result.registers_state, relations.registers_state.combineBase(.{
         base(data.initial_pc),
         base(1),
     }), .emit);
-    try addInverse(&result, relations.registers_state.combineBase(.{
+    try addInverse(&result.registers_state, relations.registers_state.combineBase(.{
         base(data.final_pc),
         base(final_clock),
     }), .consume);
@@ -36,7 +60,7 @@ pub fn sum(
     // Every present root is emitted once on Merkle(index, depth, value, root).
     for ([_]?u32{ data.program_root, data.initial_rw_root, data.final_rw_root }) |maybe_root| {
         if (maybe_root) |root| {
-            try addInverse(&result, relations.merkle.combineBase(.{
+            try addInverse(&result.merkle, relations.merkle.combineBase(.{
                 M31.zero(), M31.zero(), base(root), base(root),
             }), .emit);
         }
@@ -46,13 +70,13 @@ pub fn sum(
     // the word at its final access clock, including never-accessed registers.
     for (0..32) |index| {
         const addr = base(@intCast(index));
-        try addInverse(&result, relations.memory_access.combineBase(memoryTuple(
+        try addInverse(&result.memory_access, relations.memory_access.combineBase(memoryTuple(
             0,
             addr,
             M31.zero(),
             data.initial_regs[index],
         )), .emit);
-        try addInverse(&result, relations.memory_access.combineBase(memoryTuple(
+        try addInverse(&result.memory_access, relations.memory_access.combineBase(memoryTuple(
             0,
             addr,
             base(data.reg_last_clock[index]),
@@ -65,7 +89,7 @@ pub fn sum(
     for (data.io_entries.input_words, 0..) |word, index| {
         const word_offset: u32 = @truncate(index);
         const addr = data.io_entries.input_start +% (word_offset *| 4);
-        try addInverse(&result, relations.memory_access.combineBase(memoryTuple(
+        try addInverse(&result.memory_access, relations.memory_access.combineBase(memoryTuple(
             1,
             base(addr),
             M31.zero(),
@@ -75,7 +99,7 @@ pub fn sum(
 
     // Public output words are consumed at their last committed access clock.
     for (data.io_entries.output_words) |word| {
-        try addInverse(&result, relations.memory_access.combineBase(memoryTuple(
+        try addInverse(&result.memory_access, relations.memory_access.combineBase(memoryTuple(
             1,
             base(word.addr),
             base(word.clock),
