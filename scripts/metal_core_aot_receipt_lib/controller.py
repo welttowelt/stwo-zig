@@ -74,12 +74,19 @@ def capture_build(args: argparse.Namespace) -> str:
     if output_dir.exists():
         shutil.rmtree(output_dir)
     output_dir.mkdir(parents=True)
+    compiler_workspace = output_dir / ".canonical-compiler-workspace"
 
     commands: list[dict[str, Any]] = []
     bundles: list[dict[str, Any]] = []
     for bundle in bundle_paths:
-        commands.append(run([str(builder), "build", "--output-dir", str(bundle)]))
+        if compiler_workspace.exists():
+            shutil.rmtree(compiler_workspace)
+        commands.append(
+            run([str(builder), "build", "--output-dir", str(compiler_workspace)])
+        )
+        shutil.copytree(compiler_workspace, bundle, copy_function=shutil.copyfile)
         bundles.append(load_bundle(bundle))
+    shutil.rmtree(compiler_workspace)
     require_reproducible(bundles[0], bundles[1])
 
     ci = ci_identity()

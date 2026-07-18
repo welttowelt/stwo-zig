@@ -188,9 +188,13 @@ class MetalCoreAotReceiptTests(unittest.TestCase):
             output_dir = root / "artifact"
             receipt_out = output_dir / "hosted-build.json"
 
+            compiler_paths: list[Path] = []
+
             def fake_run(command: list[str], **_: object) -> dict[str, object]:
                 self.assertEqual("build", command[1])
-                write_bundle(Path(command[3]))
+                compiler_path = Path(command[3])
+                compiler_paths.append(compiler_path)
+                write_bundle(compiler_path)
                 return command_evidence(command)
 
             with (
@@ -233,6 +237,9 @@ class MetalCoreAotReceiptTests(unittest.TestCase):
             self.assertEqual(BUILD_SCHEMA, receipt["schema"])
             self.assertEqual(BUILD_CHECKS, receipt["checks"])
             self.assertEqual({"build-a", "build-b"}, set(receipt["bundles"]))
+            self.assertEqual(2, len(compiler_paths))
+            self.assertEqual(compiler_paths[0], compiler_paths[1])
+            self.assertFalse(compiler_paths[0].exists())
             self.assertNotIn("probe", receipt["executables"])
             self.assertNotIn("metal_device", receipt["host"])
             for device_claim in (
