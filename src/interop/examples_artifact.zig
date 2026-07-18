@@ -10,6 +10,7 @@ const state_machine = @import("../examples/state_machine.zig");
 const wide_fibonacci = @import("../examples/wide_fibonacci.zig");
 const xor = @import("../examples/xor.zig");
 const proof_wire = @import("proof_wire.zig");
+const atomic_file = @import("atomic_file.zig");
 
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
@@ -17,6 +18,8 @@ const QM31 = qm31.QM31;
 pub const SCHEMA_VERSION: u32 = 1;
 pub const UPSTREAM_COMMIT: []const u8 = "a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2";
 pub const EXCHANGE_MODE: []const u8 = "proof_exchange_json_wire_v1";
+pub const MAX_ARTIFACT_BYTES: usize = 256 * 1024 * 1024;
+pub const MAX_PROOF_BYTES: usize = 128 * 1024 * 1024;
 
 pub const PcsConfigWire = proof_wire.PcsConfigWire;
 pub const Qm31Wire = proof_wire.Qm31Wire;
@@ -87,6 +90,7 @@ pub const ArtifactError = error{
     InvalidHexLength,
     InvalidHexDigit,
     NonCanonicalM31,
+    ProofTooLarge,
     ValueOutOfRange,
 };
 
@@ -98,10 +102,9 @@ pub fn writeArtifact(
     const rendered = try std.json.Stringify.valueAlloc(allocator, artifact, .{});
     defer allocator.free(rendered);
 
-    const file = try std.fs.cwd().createFile(path, .{ .truncate = true });
-    defer file.close();
-    try file.writeAll(rendered);
-    try file.writeAll("\n");
+    const output = try std.mem.concat(allocator, u8, &.{ rendered, "\n" });
+    defer allocator.free(output);
+    try atomic_file.writeExclusive(allocator, path, output);
 }
 
 /// Writes the canonical proof-exchange artifact used by native suite lanes.
@@ -156,7 +159,7 @@ pub fn writeNativeProofArtifact(
 }
 
 pub fn readArtifact(allocator: std.mem.Allocator, path: []const u8) !std.json.Parsed(InteropArtifact) {
-    const raw = try std.fs.cwd().readFileAlloc(allocator, path, std.math.maxInt(usize));
+    const raw = try std.fs.cwd().readFileAlloc(allocator, path, MAX_ARTIFACT_BYTES);
     defer allocator.free(raw);
 
     return std.json.parseFromSlice(InteropArtifact, allocator, raw, .{
@@ -166,7 +169,9 @@ pub fn readArtifact(allocator: std.mem.Allocator, path: []const u8) !std.json.Pa
 }
 
 pub fn bytesToHexAlloc(allocator: std.mem.Allocator, bytes: []const u8) ![]u8 {
-    const out = try allocator.alloc(u8, bytes.len * 2);
+    if (bytes.len > MAX_PROOF_BYTES) return error.ProofTooLarge;
+    const encoded_len = try std.math.mul(usize, bytes.len, 2);
+    const out = try allocator.alloc(u8, encoded_len);
     const alphabet = "0123456789abcdef";
     for (bytes, 0..) |byte, i| {
         out[2 * i] = alphabet[byte >> 4];
@@ -180,6 +185,7 @@ pub fn hexToBytesAlloc(
     hex: []const u8,
 ) (std.mem.Allocator.Error || ArtifactError)![]u8 {
     if ((hex.len & 1) != 0) return ArtifactError.InvalidHexLength;
+    if (hex.len > MAX_PROOF_BYTES * 2) return ArtifactError.ProofTooLarge;
 
     const out = try allocator.alloc(u8, hex.len / 2);
     errdefer allocator.free(out);

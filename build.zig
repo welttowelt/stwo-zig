@@ -1,6 +1,7 @@
 const std = @import("std");
 const metal_core_aot = @import("build_support/metal_core_aot.zig");
 const metal_products = @import("build_support/metal_products.zig");
+const prove_cli = @import("build_support/prove_cli.zig");
 const verification_products = @import("build_support/verification_products.zig");
 
 pub fn build(b: *std.Build) void {
@@ -31,7 +32,7 @@ pub fn build(b: *std.Build) void {
     interop_cli_build_step.dependOn(&install_interop_cli.step);
 
     const native_proof_runner_module = b.createModule(.{
-        .root_source_file = b.path("src/bench/native_proof/runner.zig"),
+        .root_source_file = b.path("src/prover/native/runner.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -66,7 +67,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const native_proof_runner_test_module = b.createModule(.{
-        .root_source_file = b.path("src/bench/native_proof/runner.zig"),
+        .root_source_file = b.path("src/prover/native/runner.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -157,6 +158,15 @@ pub fn build(b: *std.Build) void {
         "Build the machine-readable native CPU full-proof benchmark with SIMD hot paths",
     );
     native_proof_cpu_step.dependOn(&install_native_proof_cpu.step);
+
+    prove_cli.addProduct(.{
+        .b = b,
+        .target = target,
+        .optimize = optimize,
+        .stwo_module = stwo_module,
+        .native_proof_runner_module = native_proof_runner_module,
+        .test_step = test_step,
+    });
 
     // Metal products are platform-specific; their internal graph lives with the backend.
     if (target.result.os.tag == .macos) {

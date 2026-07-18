@@ -65,11 +65,13 @@ pub const Workload = union(Example) {
 pub const Protocol = enum {
     smoke,
     functional,
+    secure,
 
     pub fn parameters(self: Protocol) ProtocolParameters {
         return switch (self) {
             .smoke => .{ .pow_bits = 0 },
             .functional => .{ .pow_bits = 10 },
+            .secure => .{ .pow_bits = 26, .n_queries = 70 },
         };
     }
 };
@@ -95,6 +97,7 @@ pub const Args = struct {
     samples: usize = 5,
     profiled: bool = false,
     proof_artifact_out: ?[]const u8 = null,
+    proof_artifact_report_path: ?[]const u8 = null,
     blake2_backend: Blake2Backend = .auto,
     metal_runtime: MetalRuntimeSelection = .{},
 
@@ -306,6 +309,8 @@ fn validate(args: Args) !void {
     if (args.samples == 0 or args.samples > 21) return error.InvalidSampleCount;
     if (args.proof_artifact_out) |path| if (path.len == 0)
         return error.InvalidProofArtifactPath;
+    if (args.proof_artifact_report_path != null and args.proof_artifact_out == null)
+        return error.InvalidProofArtifactPath;
     switch (args.metal_runtime.mode) {
         .source_jit => if (args.metal_runtime.aot_bundle != null or
             args.metal_runtime.manifest_sha256 != null)
@@ -334,7 +339,7 @@ pub fn writeUsage(writer: anytype, backend: Backend) !void {
         \\  --initial-y N        State Machine initial y coordinate
         \\  --n-rounds N         Blake round count (maximum: 32)
         \\  --log-n-instances N  Poseidon log2 instance count
-        \\  --protocol NAME      smoke or functional (default: functional)
+        \\  --protocol NAME      smoke, functional, or secure (default: functional)
         \\  --warmups N          Verified untimed warmups (headline minimum: 10)
         \\  --samples N          Verified timed samples (maximum: 21)
         \\  --proof-artifact-out PATH

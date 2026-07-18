@@ -1,0 +1,47 @@
+const std = @import("std");
+const metal_products = @import("metal_products.zig");
+
+pub const Context = struct {
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    stwo_module: *std.Build.Module,
+    native_proof_runner_module: *std.Build.Module,
+    test_step: *std.Build.Step,
+};
+
+pub fn addProduct(context: Context) void {
+    const b = context.b;
+    const module = b.createModule(.{
+        .root_source_file = b.path("src/tools/prove/main.zig"),
+        .target = context.target,
+        .optimize = context.optimize,
+    });
+    module.addImport("stwo", context.stwo_module);
+    module.addImport("native_proof_runner", context.native_proof_runner_module);
+    const executable = b.addExecutable(.{ .name = "stwo-zig", .root_module = module });
+    if (context.target.result.os.tag == .macos) metal_products.linkRuntime(b, executable);
+    const install = b.addInstallArtifact(executable, .{});
+    b.getInstallStep().dependOn(&install.step);
+    const build_step = b.step("stwo-zig", "Build the production proof CLI");
+    build_step.dependOn(&install.step);
+
+    const parser_module = b.createModule(.{
+        .root_source_file = b.path("src/tools/prove/cli.zig"),
+        .target = context.target,
+        .optimize = context.optimize,
+    });
+    const parser_tests = b.addTest(.{ .root_module = parser_module });
+    context.test_step.dependOn(&b.addRunArtifact(parser_tests).step);
+
+    const dispatch_module = b.createModule(.{
+        .root_source_file = b.path("src/tools/prove/native_dispatch.zig"),
+        .target = context.target,
+        .optimize = context.optimize,
+    });
+    dispatch_module.addImport("stwo", context.stwo_module);
+    dispatch_module.addImport("native_proof_runner", context.native_proof_runner_module);
+    const dispatch_tests = b.addTest(.{ .root_module = dispatch_module });
+    if (context.target.result.os.tag == .macos) metal_products.linkRuntime(b, dispatch_tests);
+    context.test_step.dependOn(&b.addRunArtifact(dispatch_tests).step);
+}

@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const stwo = @import("stwo");
-const config = @import("config.zig");
+pub const config = @import("config.zig");
 const examples = @import("examples.zig");
 const report_mod = @import("report.zig");
 const provenance = @import("runner/provenance.zig");
@@ -51,16 +51,22 @@ pub fn main(comptime Engine: type, comptime backend: config.Backend) !void {
     };
     switch (parsed) {
         .help => return config.writeUsage(std.fs.File.stdout().deprecatedWriter(), backend),
-        .run => |args| try execute(Engine, backend, allocator, args),
+        .run => |args| {
+            const encoded = try run(Engine, backend, allocator, args);
+            defer allocator.free(encoded);
+            const stdout = std.fs.File.stdout().deprecatedWriter();
+            try stdout.writeAll(encoded);
+            try stdout.writeByte('\n');
+        },
     }
 }
 
-fn execute(
+pub fn run(
     comptime Engine: type,
     comptime backend: config.Backend,
     allocator: std.mem.Allocator,
     args: config.Args,
-) !void {
+) ![]u8 {
     blake2_hash.setDefaultBackendMode(switch (args.blake2_backend) {
         .auto => .auto,
         .scalar => .scalar,
@@ -132,7 +138,7 @@ fn executeExample(
     args: config.Args,
     workload: config.Workload,
     request: Spec.Request,
-) !void {
+) ![]u8 {
     const blake2_selection = blake2_hash.getDefaultBackendSelection();
     const requested_blake2_mode: blake2_hash.BackendMode = switch (args.blake2_backend) {
         .auto => .auto,
@@ -325,7 +331,7 @@ fn executeExample(
             canonical_proof.?,
         );
         break :blk .{
-            .path = path,
+            .path = args.proof_artifact_report_path orelse path,
             .sample_index = 0,
             .bytes = proof_records[0].bytes,
             .sha256 = proof_records[0].sha256,
@@ -489,11 +495,7 @@ fn executeExample(
             .headline_requirements = headline_requirements,
         },
     };
-    const encoded = try report_mod.encodeAlloc(allocator, report);
-    defer allocator.free(encoded);
-    const stdout = std.fs.File.stdout().deprecatedWriter();
-    try stdout.writeAll(encoded);
-    try stdout.writeByte('\n');
+    return report_mod.encodeAlloc(allocator, report);
 }
 
 fn runGatedSample(
