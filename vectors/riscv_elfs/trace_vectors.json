@@ -2,9 +2,18 @@
  "stark_v_commit": "d478f783055aa0d73a93768a433a3c6c31c91d1c",
  "captured_by": "scripts/riscv_trace_vectors.py --update",
  "cross_verification": {
-  "tool": "scripts/riscv_equivalence.py --run",
-  "status": "zig-only",
-  "note": "digests captured from the Zig runner; rerun the equivalence tool against a Stark-V dumper built at the pinned commit to escalate provenance"
+  "tool": "scripts/riscv_trace_vectors.py --attest-rust --rust-arg=--trace-json",
+  "status": "rust-cross-verified",
+  "comparison": "canonical-json-byte-identical",
+  "fields": [
+   "steps",
+   "final_pc",
+   "final_regs",
+   "total_steps"
+  ],
+  "rust_source_commit": "d478f783055aa0d73a93768a433a3c6c31c91d1c",
+  "rust_binary_sha256": "19b68cad8402a4e7dbf2e3dc037e8395d1bccc76b484e3fc0c09a8fe3bf179e6",
+  "note": "every committed ELF produced identical canonical bytes in Zig and the Stark-V runner adapter; instruction clocks are one-based to match the pinned oracle"
  },
  "vectors": [
   {
@@ -54,6 +63,14 @@
    "trace_sha256": "dbaa2cd6e5fce74c06f1de19bf234119bfd0435a3ba80487377390dec9a42a85",
    "total_steps": 19,
    "final_pc": 65612
+  },
+  {
+   "name": "multi_shard_addi",
+   "elf": "vectors/riscv_elfs/multi_shard_addi.elf",
+   "elf_sha256": "f21275b235d8b7251cdc8e86166f1b1c2b048e84691c1fdb494e0b6adf105460",
+   "trace_sha256": "479aa31e05a0843ee7af848d7144a610c6d93730d03f4236bcb5d93022c984c4",
+   "total_steps": 65537,
+   "final_pc": 327684
   },
   {
    "name": "shift_logic",

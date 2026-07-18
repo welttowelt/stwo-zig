@@ -484,6 +484,11 @@ def prog_declared_region() -> list[int]:
     return [ADDI(1, 0, 10), ADDI(2, 0, 20), ADD(3, 1, 2), SUB(4, 2, 1)] + EPILOGUE()
 
 
+def prog_multi_shard_addi() -> list[int]:
+    """Two base-ALU-immediate shards with no control-flow special cases."""
+    return [ADDI(1, 1, 1)] * 65_537 + [SENTINEL()]
+
+
 SYMBOL_PROGRAMS: dict[str, tuple[list[int], dict[str, int]]] = {
     "declared_region": (
         prog_declared_region(),
@@ -502,6 +507,7 @@ PROGRAMS: dict[str, list[int]] = {
     "branch_fib": prog_branch_fib(),
     "mul_div": prog_mul_div(),
     "mem_ls": prog_mem_ls(),
+    "multi_shard_addi": prog_multi_shard_addi(),
     "shift_logic": prog_shift_logic(),
     "jal_jalr": prog_jal_jalr(),
 }
@@ -669,7 +675,12 @@ def validate_rust_source(rust_source: Path) -> str:
     return head
 
 
-def attest_rust(rust_dumper: Path, rust_source: Path, scratch: Path) -> int:
+def attest_rust(
+    rust_dumper: Path,
+    rust_source: Path,
+    scratch: Path,
+    rust_args: list[str],
+) -> int:
     """Cross-run every vector and require identical canonical trace bytes."""
     source_commit = validate_rust_source(rust_source)
     rust_dumper = rust_dumper.resolve(strict=True)
@@ -680,7 +691,7 @@ def attest_rust(rust_dumper: Path, rust_source: Path, scratch: Path) -> int:
         elf_path = ROOT / vector["elf"]
         zig_bytes = dump_trace(dumper, elf_path, scratch / f"{vector['name']}.zig.json")
         rust_out = subprocess.run(
-            [str(rust_dumper), "--elf", str(elf_path)],
+            [str(rust_dumper), *rust_args, "--elf", str(elf_path)],
             cwd=ROOT,
             check=True,
             capture_output=True,
@@ -701,7 +712,8 @@ def attest_rust(rust_dumper: Path, rust_source: Path, scratch: Path) -> int:
             return 1
         print(f"{vector['name']}: rust/zig canonical trace bytes are identical")
     payload["cross_verification"] = {
-        "tool": "scripts/riscv_trace_vectors.py --attest-rust",
+        "tool": "scripts/riscv_trace_vectors.py --attest-rust"
+        + (" --rust-arg=" + " --rust-arg=".join(rust_args) if rust_args else ""),
         "status": "rust-cross-verified",
         "comparison": "canonical-json-byte-identical",
         "fields": ["steps", "final_pc", "final_regs", "total_steps"],
@@ -725,6 +737,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--rust-source", type=Path, default=None, metavar="STARK_V_CHECKOUT",
                         help="clean Stark-V checkout at the exact pin (required with "
                              "--attest-rust)")
+    parser.add_argument("--rust-arg", action="append", default=[],
+                        help="argument passed to the pinned Rust trace dumper before --elf")
     parser.add_argument("--scratch", type=Path, default=None, help="working dir for trace output")
     args = parser.parse_args(argv)
     import tempfile
@@ -735,7 +749,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.attest_rust is not None:
             if args.rust_source is None:
                 parser.error("--rust-source is required with --attest-rust")
-            return attest_rust(args.attest_rust, args.rust_source, scratch)
+            return attest_rust(args.attest_rust, args.rust_source, scratch, args.rust_arg)
         return gate(scratch)
 
     if args.scratch is not None:
