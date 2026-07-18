@@ -181,10 +181,38 @@ class NativeProofMatrixFormalTests(unittest.TestCase):
             ), mock.patch(
                 "native_proof_matrix_lib.controller.run_rust_oracle",
                 side_effect=oracle_evidence,
-            ) as oracle:
+            ) as oracle, mock.patch(
+                "native_proof_matrix_lib.controller.collect_static",
+                return_value={
+                    "schema": "native_matrix_host_environment_v1",
+                    "toolchain": {},
+                    "complete": True,
+                    "blockers": [],
+                },
+            ), mock.patch(
+                "native_proof_matrix_lib.controller.collect_load",
+                return_value={
+                    "schema": "native_matrix_host_load_v1",
+                    "load_average": {
+                        "one_minute": 0.0,
+                        "five_minutes": 0.0,
+                        "fifteen_minutes": 0.0,
+                    },
+                    "complete": True,
+                    "blockers": [],
+                },
+            ):
                 document = MODULE.run_matrix(matrix_args)
             self.assertEqual(oracle.call_count, 6)
             self.assertTrue(document["summary"]["all_rust_oracles_verified"])
+            self.assertEqual(
+                "native_matrix_host_environment_v1",
+                document["configuration"]["host_environment"]["schema"],
+            )
+            self.assertEqual(
+                {"start", "end"},
+                set(document["configuration"]["host_load"]),
+            )
             self.assertEqual(
                 [row["lane_order"] for row in document["rows"]],
                 [

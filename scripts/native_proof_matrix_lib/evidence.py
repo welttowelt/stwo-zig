@@ -14,8 +14,8 @@ from .model import (
 )
 
 
-SUMMARY_SCHEMA_VERSION = 4
-SUMMARY_PROTOCOL = "native_proof_cross_backend_matrix_v4"
+SUMMARY_SCHEMA_VERSION = 5
+SUMMARY_PROTOCOL = "native_proof_cross_backend_matrix_v5"
 MIN_FORMAL_MEASURED_PROOFS = 10
 PROCESS_RESOURCE_KEYS = {
     "measurement",

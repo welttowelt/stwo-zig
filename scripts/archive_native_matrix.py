@@ -125,6 +125,25 @@ def build_manifest(matrix_dir: Path, expected_report: Path | None) -> tuple[dict
         files.append(
             {"path": relative.as_posix(), "bytes": len(raw), "sha256": actual_digest}
         )
+    configuration = summary.get("configuration", {})
+    if not isinstance(configuration, dict):
+        raise ArchiveError("matrix summary configuration must be an object")
+    execution_provenance = {
+        "runner": configuration.get("provenance"),
+        "host_environment": configuration.get("host_environment"),
+        "host_load": configuration.get("host_load"),
+    }
+    limitations = [
+        "this bundle preserves evidence and does not reclassify diagnostic benchmark rows",
+    ]
+    if (
+        execution_provenance["host_environment"] is None
+        or execution_provenance["host_load"] is None
+    ):
+        limitations.insert(
+            0,
+            "execution host fields absent from the source report cannot be reconstructed",
+        )
     manifest = {
         "schema": SCHEMA,
         "report": {
@@ -133,13 +152,10 @@ def build_manifest(matrix_dir: Path, expected_report: Path | None) -> tuple[dict
             "bytes": len(summary_raw),
             "sha256": sha256_bytes(summary_raw),
         },
-        "execution_provenance": summary.get("configuration", {}).get("provenance"),
+        "execution_provenance": execution_provenance,
         "files": files,
         "totals": {"artifact_files": len(files), "artifact_bytes": total_bytes},
-        "limitations": [
-            "execution host fields absent from the source report cannot be reconstructed",
-            "this bundle preserves evidence and does not reclassify diagnostic benchmark rows",
-        ],
+        "limitations": limitations,
     }
     return manifest, summary_raw
 

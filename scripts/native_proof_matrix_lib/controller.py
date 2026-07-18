@@ -40,6 +40,7 @@ from .model import (
     MatrixError,
     Workload,
 )
+from .provenance import collect_load, collect_static, validate_environment, validate_load
 
 
 def numeric_summary(values: list[float]) -> dict[str, float]:
@@ -165,11 +166,28 @@ def run_matrix(args: argparse.Namespace) -> dict[str, Any]:
         require_binary(args.rust_oracle_bin, "Rust oracle") if args.formal else None
     )
     binary_hashes = {lane: sha256_file(binary) for lane, binary in binaries.items()}
+    metal_runtime = getattr(args, "metal_runtime", "source-jit")
+    host_environment = collect_static(metal_runtime)
+    try:
+        validate_environment(host_environment, metal_runtime)
+    except ValueError as error:
+        raise MatrixError(str(error)) from error
+    load_start = collect_load()
+    try:
+        validate_load(load_start)
+    except ValueError as error:
+        raise MatrixError(str(error)) from error
     output_dir = args.output_dir.resolve()
     with output_dir_lock(output_dir):
         prepare_output_dir(output_dir)
         return _run_matrix_locked(
-            args, binaries, binary_hashes, output_dir, rust_oracle
+            args,
+            binaries,
+            binary_hashes,
+            output_dir,
+            rust_oracle,
+            host_environment,
+            load_start,
         )
 
 
@@ -179,6 +197,8 @@ def _run_matrix_locked(
     binary_hashes: dict[str, str],
     output_dir: Path,
     rust_oracle: Path | None,
+    host_environment: dict[str, object],
+    load_start: dict[str, object],
 ) -> dict[str, Any]:
     total_lanes = len(args.workloads) * len(LANES)
     completed_lanes = 0
@@ -303,6 +323,12 @@ def _run_matrix_locked(
     if args.formal and not all_rows_stable:
         raise MatrixError("formal matrix did not satisfy measured-proof stability")
 
+    load_end = collect_load()
+    try:
+        validate_load(load_end)
+    except ValueError as error:
+        raise MatrixError(str(error)) from error
+
     document = {
         "schema_version": SUMMARY_SCHEMA_VERSION,
         "protocol": SUMMARY_PROTOCOL,
@@ -345,6 +371,11 @@ def _run_matrix_locked(
                 for lane, binary in binaries.items()
             },
             "provenance": matrix_provenance,
+            "host_environment": host_environment,
+            "host_load": {
+                "start": load_start,
+                "end": load_end,
+            },
         },
         "summary": {
             "rows": len(result_rows),

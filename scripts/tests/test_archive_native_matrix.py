@@ -55,6 +55,25 @@ class ArchiveNativeMatrixTests(unittest.TestCase):
             bundle = root / "archive" / first["path"]
             self.assertEqual(report.read_bytes(), (bundle / "summary.json").read_bytes())
             self.assertTrue((bundle / "tree/row/metal.proof.json").is_file())
+            manifest = json.loads((bundle / "manifest.json").read_text())
+            self.assertEqual("a" * 40, manifest["execution_provenance"]["runner"]["git_commit"])
+            self.assertIn("host fields absent", manifest["limitations"][0])
+
+    def test_preserves_complete_host_provenance_without_a_missing_field_limitation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            report = write_matrix(root / "matrix")
+            summary = json.loads(report.read_text())
+            summary["configuration"]["host_environment"] = {"schema": "host-v1"}
+            summary["configuration"]["host_load"] = {"start": {}, "end": {}}
+            report.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
+
+            manifest, _ = build_manifest(root / "matrix", report)
+            self.assertEqual(
+                {"schema": "host-v1"},
+                manifest["execution_provenance"]["host_environment"],
+            )
+            self.assertEqual(1, len(manifest["limitations"]))
 
     def test_rejects_artifact_and_report_drift(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
