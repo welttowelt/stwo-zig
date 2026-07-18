@@ -24,6 +24,15 @@ use crate::wire::{
 use crate::UPSTREAM_COMMIT;
 use anyhow::{anyhow, bail, Context, Result};
 use std::fs;
+use stwo::core::pcs::PcsConfig;
+
+fn pcs_configs_match(expected: PcsConfig, actual: PcsConfig) -> bool {
+    expected.pow_bits == actual.pow_bits
+        && expected.fri_config.log_blowup_factor == actual.fri_config.log_blowup_factor
+        && expected.fri_config.log_last_layer_degree_bound
+            == actual.fri_config.log_last_layer_degree_bound
+        && expected.fri_config.n_queries == actual.fri_config.n_queries
+}
 
 pub(crate) fn run_generate(cli: &Cli) -> Result<()> {
     let example = cli
@@ -284,6 +293,9 @@ pub(crate) fn run_verify(cli: &Cli) -> Result<()> {
     let proof_bytes = hex::decode(&artifact.proof_bytes_hex)?;
     let proof_wire: ProofWire = serde_json::from_slice(&proof_bytes)?;
     let proof = wire_to_proof(proof_wire)?;
+    if !pcs_configs_match(config, proof.0.config) {
+        bail!("proof PCS config does not match artifact PCS config");
+    }
 
     match artifact.example.as_str() {
         "blake" => {
@@ -411,6 +423,35 @@ pub(crate) fn run_bench(cli: &Cli) -> Result<()> {
 
     println!("{}", serde_json::to_string(&report)?);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pcs_configs_match;
+    use stwo::core::fri::FriConfig;
+    use stwo::core::pcs::PcsConfig;
+
+    fn config() -> PcsConfig {
+        PcsConfig {
+            pow_bits: 3,
+            fri_config: FriConfig::new(1, 2, 5),
+        }
+    }
+
+    #[test]
+    fn proof_and_artifact_configs_require_exact_equality() {
+        let expected = config();
+        assert!(pcs_configs_match(expected, expected));
+
+        let mut fields = [config(), config(), config(), config()];
+        fields[0].pow_bits += 1;
+        fields[1].fri_config.log_blowup_factor += 1;
+        fields[2].fri_config.log_last_layer_degree_bound += 1;
+        fields[3].fri_config.n_queries += 1;
+        for actual in fields {
+            assert!(!pcs_configs_match(expected, actual));
+        }
+    }
 }
 
 pub(crate) fn summarize_timing(

@@ -13,6 +13,7 @@ A machine-readable report is emitted under vectors/reports/.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import subprocess
@@ -21,22 +22,39 @@ from pathlib import Path
 from typing import Any, Optional
 
 try:
-    from interop_cli_command import run_command
+    from e2e_interop_lib import (
+        ACTIVE_MUTATIONS,
+        archive_receipt,
+        collect_provenance,
+        coverage_manifest,
+        mutate_artifact,
+        register_artifact,
+    )
+    from interop_cli_command import build_command, installed_binary
 except ModuleNotFoundError:
-    from scripts.interop_cli_command import run_command
+    from scripts.e2e_interop_lib import (
+        ACTIVE_MUTATIONS,
+        archive_receipt,
+        collect_provenance,
+        coverage_manifest,
+        mutate_artifact,
+        register_artifact,
+    )
+    from scripts.interop_cli_command import build_command, installed_binary
 
 
 ROOT = Path(__file__).resolve().parent.parent
 REPORT_DEFAULT = ROOT / "vectors" / "reports" / "e2e_interop_report.json"
 ARTIFACT_DIR_DEFAULT = ROOT / "vectors" / "reports" / "interop_artifacts"
+ARCHIVE_DIR_DEFAULT = ROOT / "vectors" / "reports" / "interop_history"
 RUST_MANIFEST = ROOT / "tools" / "stwo-interop-rs" / "Cargo.toml"
+RUST_BINARY = ROOT / "tools" / "stwo-interop-rs" / "target" / "release" / "stwo-interop-rs"
 
 RUST_TOOLCHAIN_DEFAULT = "nightly-2025-07-14"
 UPSTREAM_COMMIT = "a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2"
 SCHEMA_VERSION = 1
 EXCHANGE_MODE = "proof_exchange_json_wire_v1"
 SUPPORTED_EXAMPLES = ("blake", "plonk", "poseidon", "xor", "state_machine", "wide_fibonacci")
-M31_MODULUS = 2147483647
 REJECTION_CLASS_VERIFIER = "verifier_semantic"
 REJECTION_CLASS_PARSER = "parser"
 REJECTION_CLASS_METADATA = "metadata_policy"
@@ -85,12 +103,16 @@ def run_step(
         "status": "ok" if succeeded else "failed",
         "stdout_tail": trim_tail(proc.stdout),
         "stderr_tail": trim_tail(proc.stderr),
+        "stdout_sha256": hashlib.sha256(proc.stdout.encode("utf-8")).hexdigest(),
+        "stderr_sha256": hashlib.sha256(proc.stderr.encode("utf-8")).hexdigest(),
     }
     if expect_failure:
         step["rejection_class"] = classify_rejection(step["stdout_tail"], step["stderr_tail"])
+        step["required_rejection_class"] = required_rejection_class
     steps.append(step)
     if succeeded:
         if required_rejection_class and step.get("rejection_class") != required_rejection_class:
+            step["status"] = "failed"
             raise RuntimeError(
                 f"{name} rejected with class {step.get('rejection_class')}, expected {required_rejection_class}"
             )
@@ -120,6 +142,8 @@ def classify_rejection(stdout_tail: str, stderr_tail: str) -> str:
         "unsupportedgenerator",
         "unsupported generator",
         "unknown artifact generator",
+        "unsupportedprovemode",
+        "unsupported prove mode",
     )
     if any(marker in combined for marker in metadata_markers):
         return REJECTION_CLASS_METADATA
@@ -130,6 +154,8 @@ def classify_rejection(stdout_tail: str, stderr_tail: str) -> str:
         "statement not satisfied",
         "invalidproofshape",
         "invalid proof shape",
+        "proofconfigmismatch",
+        "proof pcs config does not match artifact pcs config",
         "deep-ali",
         "verify failed",
         "verification failed",
@@ -177,339 +203,148 @@ def assert_artifact_metadata(artifact_path: Path, *, expected_generator: str, ex
         )
 
 
-def tamper_proof_bytes_hex(src: Path, dst: Path) -> None:
-    artifact = json.loads(src.read_text(encoding="utf-8"))
-    proof_hex = artifact.get("proof_bytes_hex")
-    if not isinstance(proof_hex, str) or len(proof_hex) == 0:
-        raise RuntimeError(f"{rel(src)} missing proof_bytes_hex")
-
-    # Deterministically mutate a commitment byte inside the decoded proof wire.
-    # The resulting artifact remains valid JSON and proof-wire encoded bytes.
-    proof_bytes = bytes.fromhex(proof_hex)
-    proof_wire = json.loads(proof_bytes.decode("utf-8"))
-    commitments = proof_wire.get("commitments")
-    if not isinstance(commitments, list) or len(commitments) == 0:
-        raise RuntimeError(f"{rel(src)} missing proof commitments")
-    if not isinstance(commitments[0], list) or len(commitments[0]) == 0:
-        raise RuntimeError(f"{rel(src)} invalid first commitment")
-
-    commitments[0][0] = (int(commitments[0][0]) + 1) % 256
-    mutated_proof_bytes = json.dumps(
-        proof_wire,
-        separators=(",", ":"),
-        sort_keys=True,
-    ).encode("utf-8")
-    artifact["proof_bytes_hex"] = mutated_proof_bytes.hex()
-
-    dst.write_text(json.dumps(artifact, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+def runtime_command(binary: Path, *, mode: str, artifact: Path, example: str | None = None) -> list[str]:
+    command = [str(binary), "--mode", mode]
+    if example is not None:
+        command.extend(("--example", example))
+    command.extend(("--artifact", str(artifact)))
+    return command
 
 
-def tamper_statement(src: Path, dst: Path, *, example: str) -> None:
-    artifact = json.loads(src.read_text(encoding="utf-8"))
-
-    if example == "blake":
-        stmt = artifact.get("blake_statement")
-        if not isinstance(stmt, dict):
-            raise RuntimeError(f"{rel(src)} missing blake_statement")
-        stmt["n_rounds"] = int(stmt.get("n_rounds", 0)) + 1
-    elif example == "plonk":
-        stmt = artifact.get("plonk_statement")
-        if not isinstance(stmt, dict):
-            raise RuntimeError(f"{rel(src)} missing plonk_statement")
-        stmt["log_n_rows"] = int(stmt.get("log_n_rows", 0)) + 1
-    elif example == "poseidon":
-        stmt = artifact.get("poseidon_statement")
-        if not isinstance(stmt, dict):
-            raise RuntimeError(f"{rel(src)} missing poseidon_statement")
-        stmt["log_n_instances"] = int(stmt.get("log_n_instances", 0)) + 1
-    elif example == "xor":
-        stmt = artifact.get("xor_statement")
-        if not isinstance(stmt, dict):
-            raise RuntimeError(f"{rel(src)} missing xor_statement")
-        stmt["offset"] = int(stmt.get("offset", 0)) + 1
-    elif example == "state_machine":
-        stmt = artifact.get("state_machine_statement")
-        if not isinstance(stmt, dict):
-            raise RuntimeError(f"{rel(src)} missing state_machine_statement")
-        public_input = stmt.get("public_input")
-        if not isinstance(public_input, list) or len(public_input) < 2:
-            raise RuntimeError(f"{rel(src)} invalid state_machine_statement.public_input")
-        if not isinstance(public_input[1], list) or len(public_input[1]) < 1:
-            raise RuntimeError(f"{rel(src)} invalid state_machine_statement.public_input[1]")
-        public_input[1][0] = (int(public_input[1][0]) + 1) % M31_MODULUS
-    elif example == "wide_fibonacci":
-        stmt = artifact.get("wide_fibonacci_statement")
-        if not isinstance(stmt, dict):
-            raise RuntimeError(f"{rel(src)} missing wide_fibonacci_statement")
-        stmt["sequence_len"] = int(stmt.get("sequence_len", 0)) + 1
-    else:
-        raise RuntimeError(f"unsupported example for statement tamper: {example}")
-
-    dst.write_text(json.dumps(artifact, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-
-
-def tamper_metadata(
-    src: Path,
-    dst: Path,
+def run_negative_matrix(
     *,
-    upstream_commit: Optional[str] = None,
-    generator: Optional[str] = None,
-) -> None:
-    artifact = json.loads(src.read_text(encoding="utf-8"))
-    if upstream_commit is not None:
-        artifact["upstream_commit"] = upstream_commit
-    if generator is not None:
-        artifact["generator"] = generator
-    dst.write_text(json.dumps(artifact, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    example: str,
+    direction: str,
+    source_artifact: Path,
+    verifier_binary: Path,
+    artifact_dir: Path,
+    all_steps: list[dict[str, Any]],
+    artifact_records: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    for spec in ACTIVE_MUTATIONS:
+        mutated = artifact_dir / f"{example}_{direction}_{spec.mutation_id}_tampered.json"
+        mutate_artifact(source_artifact, mutated, spec, example=example)
+        record = register_artifact(
+            mutated,
+            example=example,
+            direction=direction,
+            role="negative_mutation",
+            mutation_id=spec.mutation_id,
+        )
+        artifact_records.append(record)
+        step = run_step(
+            name=f"{example}_{direction}_{spec.mutation_id}_tamper_reject",
+            cmd=runtime_command(verifier_binary, mode="verify", artifact=mutated),
+            steps=all_steps,
+            expect_failure=True,
+            required_rejection_class=spec.required_rejection_class,
+        )
+        step.update(
+            {
+                "mutation_id": spec.mutation_id,
+                "mutation_category": spec.category,
+                "artifact_sha256": record["artifact_sha256"],
+            }
+        )
+        results.append(
+            {
+                "mutation_id": spec.mutation_id,
+                "category": spec.category,
+                "field_path": spec.field_path,
+                "status": "rejected",
+                "rejection_class": step["rejection_class"],
+                "artifact": rel(mutated),
+                "artifact_sha256": record["artifact_sha256"],
+                "proof_sha256": record["proof_sha256"],
+            }
+        )
+    return results
+
+
+def run_exchange_direction(
+    *,
+    example: str,
+    direction: str,
+    generator: str,
+    generator_binary: Path,
+    verifier_binary: Path,
+    artifact_dir: Path,
+    all_steps: list[dict[str, Any]],
+    artifact_records: list[dict[str, Any]],
+) -> dict[str, Any]:
+    artifact = artifact_dir / f"{example}_{direction}.json"
+    run_step(
+        name=f"{example}_{generator}_generate",
+        cmd=runtime_command(generator_binary, mode="generate", artifact=artifact, example=example),
+        steps=all_steps,
+    )
+    assert_artifact_metadata(artifact, expected_generator=generator, example=example)
+    record = register_artifact(
+        artifact,
+        example=example,
+        direction=direction,
+        role="accepted_proof",
+    )
+    artifact_records.append(record)
+    verify_step = run_step(
+        name=f"{example}_{direction}_verify",
+        cmd=runtime_command(verifier_binary, mode="verify", artifact=artifact),
+        steps=all_steps,
+    )
+    verify_step["artifact_sha256"] = record["artifact_sha256"]
+    negative_matrix = run_negative_matrix(
+        example=example,
+        direction=direction,
+        source_artifact=artifact,
+        verifier_binary=verifier_binary,
+        artifact_dir=artifact_dir,
+        all_steps=all_steps,
+        artifact_records=artifact_records,
+    )
+    return {
+        "direction": direction,
+        "artifact": rel(artifact),
+        "artifact_sha256": record["artifact_sha256"],
+        "proof_sha256": record["proof_sha256"],
+        "negative_matrix": negative_matrix,
+    }
 
 
 def run_example_case(
     *,
     example: str,
     artifact_dir: Path,
-    rust_toolchain: str,
+    zig_binary: Path,
+    rust_binary: Path,
     all_steps: list[dict[str, Any]],
+    artifact_records: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    rust_artifact = artifact_dir / f"{example}_rust_to_zig.json"
-    zig_artifact = artifact_dir / f"{example}_zig_to_rust.json"
-    rust_statement_tampered = artifact_dir / f"{example}_rust_to_zig_statement_tampered.json"
-    rust_tampered = artifact_dir / f"{example}_rust_to_zig_tampered.json"
-    rust_commit_tampered = artifact_dir / f"{example}_rust_to_zig_commit_tampered.json"
-    rust_generator_tampered = artifact_dir / f"{example}_rust_to_zig_generator_tampered.json"
-    zig_statement_tampered = artifact_dir / f"{example}_zig_to_rust_statement_tampered.json"
-    zig_tampered = artifact_dir / f"{example}_zig_to_rust_tampered.json"
-    zig_commit_tampered = artifact_dir / f"{example}_zig_to_rust_commit_tampered.json"
-    zig_generator_tampered = artifact_dir / f"{example}_zig_to_rust_generator_tampered.json"
-
     start_index = len(all_steps)
-
-    run_step(
-        name=f"{example}_rust_generate",
-        cmd=[
-            "cargo",
-            f"+{rust_toolchain}",
-            "run",
-            "--manifest-path",
-            str(RUST_MANIFEST),
-            "--",
-            "--mode",
-            "generate",
-            "--example",
-            example,
-            "--artifact",
-            str(rust_artifact),
-        ],
-        steps=all_steps,
+    rust_to_zig = run_exchange_direction(
+        example=example,
+        direction="rust_to_zig",
+        generator="rust",
+        generator_binary=rust_binary,
+        verifier_binary=zig_binary,
+        artifact_dir=artifact_dir,
+        all_steps=all_steps,
+        artifact_records=artifact_records,
     )
-    assert_artifact_metadata(rust_artifact, expected_generator="rust", example=example)
-
-    run_step(
-        name=f"{example}_rust_to_zig_verify",
-        cmd=run_command(
-            "--mode",
-            "verify",
-            "--artifact",
-            str(rust_artifact),
-        ),
-        steps=all_steps,
+    zig_to_rust = run_exchange_direction(
+        example=example,
+        direction="zig_to_rust",
+        generator="zig",
+        generator_binary=zig_binary,
+        verifier_binary=rust_binary,
+        artifact_dir=artifact_dir,
+        all_steps=all_steps,
+        artifact_records=artifact_records,
     )
-
-    tamper_statement(rust_artifact, rust_statement_tampered, example=example)
-    rust_to_zig_statement_tamper_step = run_step(
-        name=f"{example}_rust_to_zig_statement_tamper_reject",
-        cmd=run_command(
-            "--mode",
-            "verify",
-            "--artifact",
-            str(rust_statement_tampered),
-        ),
-        steps=all_steps,
-        expect_failure=True,
-        required_rejection_class=REJECTION_CLASS_VERIFIER,
-    )
-
-    tamper_proof_bytes_hex(rust_artifact, rust_tampered)
-    rust_to_zig_tamper_step = run_step(
-        name=f"{example}_rust_to_zig_tamper_reject",
-        cmd=run_command(
-            "--mode",
-            "verify",
-            "--artifact",
-            str(rust_tampered),
-        ),
-        steps=all_steps,
-        expect_failure=True,
-        required_rejection_class=REJECTION_CLASS_VERIFIER,
-    )
-    tamper_metadata(
-        rust_artifact,
-        rust_commit_tampered,
-        upstream_commit="0000000000000000000000000000000000000000",
-    )
-    rust_to_zig_commit_tamper_step = run_step(
-        name=f"{example}_rust_to_zig_commit_tamper_reject",
-        cmd=run_command(
-            "--mode",
-            "verify",
-            "--artifact",
-            str(rust_commit_tampered),
-        ),
-        steps=all_steps,
-        expect_failure=True,
-        required_rejection_class=REJECTION_CLASS_METADATA,
-    )
-    tamper_metadata(rust_artifact, rust_generator_tampered, generator="invalid-generator")
-    rust_to_zig_generator_tamper_step = run_step(
-        name=f"{example}_rust_to_zig_generator_tamper_reject",
-        cmd=run_command(
-            "--mode",
-            "verify",
-            "--artifact",
-            str(rust_generator_tampered),
-        ),
-        steps=all_steps,
-        expect_failure=True,
-        required_rejection_class=REJECTION_CLASS_METADATA,
-    )
-
-    run_step(
-        name=f"{example}_zig_generate",
-        cmd=run_command(
-            "--mode",
-            "generate",
-            "--example",
-            example,
-            "--artifact",
-            str(zig_artifact),
-        ),
-        steps=all_steps,
-    )
-    assert_artifact_metadata(zig_artifact, expected_generator="zig", example=example)
-
-    run_step(
-        name=f"{example}_zig_to_rust_verify",
-        cmd=[
-            "cargo",
-            f"+{rust_toolchain}",
-            "run",
-            "--manifest-path",
-            str(RUST_MANIFEST),
-            "--",
-            "--mode",
-            "verify",
-            "--artifact",
-            str(zig_artifact),
-        ],
-        steps=all_steps,
-    )
-
-    tamper_statement(zig_artifact, zig_statement_tampered, example=example)
-    zig_to_rust_statement_tamper_step = run_step(
-        name=f"{example}_zig_to_rust_statement_tamper_reject",
-        cmd=[
-            "cargo",
-            f"+{rust_toolchain}",
-            "run",
-            "--manifest-path",
-            str(RUST_MANIFEST),
-            "--",
-            "--mode",
-            "verify",
-            "--artifact",
-            str(zig_statement_tampered),
-        ],
-        steps=all_steps,
-        expect_failure=True,
-        required_rejection_class=REJECTION_CLASS_VERIFIER,
-    )
-
-    tamper_proof_bytes_hex(zig_artifact, zig_tampered)
-    zig_to_rust_tamper_step = run_step(
-        name=f"{example}_zig_to_rust_tamper_reject",
-        cmd=[
-            "cargo",
-            f"+{rust_toolchain}",
-            "run",
-            "--manifest-path",
-            str(RUST_MANIFEST),
-            "--",
-            "--mode",
-            "verify",
-            "--artifact",
-            str(zig_tampered),
-        ],
-        steps=all_steps,
-        expect_failure=True,
-        required_rejection_class=REJECTION_CLASS_VERIFIER,
-    )
-    tamper_metadata(
-        zig_artifact,
-        zig_commit_tampered,
-        upstream_commit="0000000000000000000000000000000000000000",
-    )
-    zig_to_rust_commit_tamper_step = run_step(
-        name=f"{example}_zig_to_rust_commit_tamper_reject",
-        cmd=[
-            "cargo",
-            f"+{rust_toolchain}",
-            "run",
-            "--manifest-path",
-            str(RUST_MANIFEST),
-            "--",
-            "--mode",
-            "verify",
-            "--artifact",
-            str(zig_commit_tampered),
-        ],
-        steps=all_steps,
-        expect_failure=True,
-        required_rejection_class=REJECTION_CLASS_METADATA,
-    )
-    tamper_metadata(zig_artifact, zig_generator_tampered, generator="invalid-generator")
-    zig_to_rust_generator_tamper_step = run_step(
-        name=f"{example}_zig_to_rust_generator_tamper_reject",
-        cmd=[
-            "cargo",
-            f"+{rust_toolchain}",
-            "run",
-            "--manifest-path",
-            str(RUST_MANIFEST),
-            "--",
-            "--mode",
-            "verify",
-            "--artifact",
-            str(zig_generator_tampered),
-        ],
-        steps=all_steps,
-        expect_failure=True,
-        required_rejection_class=REJECTION_CLASS_METADATA,
-    )
-
     return {
         "example": example,
         "status": "ok",
-        "artifacts": {
-            "rust_to_zig": rel(rust_artifact),
-            "rust_to_zig_statement_tampered": rel(rust_statement_tampered),
-            "rust_to_zig_tampered": rel(rust_tampered),
-            "rust_to_zig_commit_tampered": rel(rust_commit_tampered),
-            "rust_to_zig_generator_tampered": rel(rust_generator_tampered),
-            "zig_to_rust": rel(zig_artifact),
-            "zig_to_rust_statement_tampered": rel(zig_statement_tampered),
-            "zig_to_rust_tampered": rel(zig_tampered),
-            "zig_to_rust_commit_tampered": rel(zig_commit_tampered),
-            "zig_to_rust_generator_tampered": rel(zig_generator_tampered),
-        },
-        "tamper_rejections": {
-            "rust_to_zig_statement_tamper": rust_to_zig_statement_tamper_step.get("rejection_class"),
-            "rust_to_zig_proof_tamper": rust_to_zig_tamper_step.get("rejection_class"),
-            "rust_to_zig_commit_tamper": rust_to_zig_commit_tamper_step.get("rejection_class"),
-            "rust_to_zig_generator_tamper": rust_to_zig_generator_tamper_step.get("rejection_class"),
-            "zig_to_rust_statement_tamper": zig_to_rust_statement_tamper_step.get("rejection_class"),
-            "zig_to_rust_proof_tamper": zig_to_rust_tamper_step.get("rejection_class"),
-            "zig_to_rust_commit_tamper": zig_to_rust_commit_tamper_step.get("rejection_class"),
-            "zig_to_rust_generator_tamper": zig_to_rust_generator_tamper_step.get("rejection_class"),
-        },
+        "directions": [rust_to_zig, zig_to_rust],
         "steps": [step["name"] for step in all_steps[start_index:]],
     }
 
@@ -552,7 +387,7 @@ def compute_summary(
         rejection_class = str(step.get("rejection_class", REJECTION_CLASS_OTHER))
         tamper_rejection_counts[rejection_class] = tamper_rejection_counts.get(rejection_class, 0) + 1
 
-    tamper_cases_total = len(examples) * 8
+    tamper_cases_total = len(examples) * 2 * len(ACTIVE_MUTATIONS)
     tamper_cases_executed = len(tamper_steps)
     tamper_cases_passed = len([step for step in tamper_steps if step.get("status") == "ok"])
     tamper_cases_failed = tamper_cases_executed - tamper_cases_passed
@@ -587,9 +422,21 @@ def parse_args() -> argparse.Namespace:
         help="Directory where generated/tampered artifacts are written",
     )
     parser.add_argument(
+        "--archive-dir",
+        type=Path,
+        default=ARCHIVE_DIR_DEFAULT,
+        help="Content-addressed directory for exact gated artifacts and receipts",
+    )
+    parser.add_argument(
         "--rust-toolchain",
         default=RUST_TOOLCHAIN_DEFAULT,
         help="Rust nightly toolchain used for stwo prover builds",
+    )
+    parser.add_argument(
+        "--zig-optimize",
+        default="ReleaseFast",
+        choices=("ReleaseFast", "ReleaseSafe"),
+        help="Optimization mode for the exact Zig verifier binary",
     )
     parser.add_argument(
         "--examples",
@@ -614,7 +461,9 @@ def main() -> int:
 
     steps: list[dict[str, Any]] = []
     cases: list[dict[str, Any]] = []
+    artifact_records: list[dict[str, Any]] = []
     failure: Optional[dict[str, Any]] = None
+    provenance: Optional[dict[str, Any]] = None
     started_at = time.time()
 
     artifact_dir = args.artifact_dir
@@ -622,16 +471,26 @@ def main() -> int:
 
     try:
         run_step(
-            name="rust_interop_tool_check",
+            name="rust_interop_tool_build",
             cmd=[
                 "cargo",
                 f"+{args.rust_toolchain}",
-                "check",
+                "build",
+                "--release",
+                "--locked",
                 "--manifest-path",
                 str(RUST_MANIFEST),
             ],
             steps=steps,
         )
+        run_step(
+            name="zig_interop_tool_build",
+            cmd=build_command(args.zig_optimize),
+            steps=steps,
+        )
+        zig_binary = installed_binary(ROOT)
+        if not zig_binary.is_file() or not RUST_BINARY.is_file():
+            raise RuntimeError("interop build did not produce both exact verifier binaries")
 
         run_step(
             name="zig_interop_proof_wire_test",
@@ -656,12 +515,34 @@ def main() -> int:
             steps=steps,
         )
 
+        gate_sources = {
+            Path(__file__).resolve(),
+            ROOT / "scripts/e2e_interop_lib/evidence.py",
+            ROOT / "scripts/e2e_interop_lib/mutations.py",
+            ROOT / "src/interop/examples_artifact.zig",
+            ROOT / "src/interop/proof_wire.zig",
+            ROOT / "src/tools/interop/artifact.zig",
+            ROOT / "tools/stwo-interop-rs/Cargo.toml",
+            ROOT / "tools/stwo-interop-rs/Cargo.lock",
+            *list((ROOT / "tools/stwo-interop-rs/src").glob("*.rs")),
+        }
+        provenance = collect_provenance(
+            root=ROOT,
+            rust_toolchain=args.rust_toolchain,
+            upstream_commit=UPSTREAM_COMMIT,
+            zig_optimize=args.zig_optimize,
+            zig_binary=zig_binary,
+            rust_binary=RUST_BINARY,
+            gate_sources=gate_sources,
+        )
         for example in args.examples:
             case = run_example_case(
                 example=example,
                 artifact_dir=artifact_dir,
-                rust_toolchain=args.rust_toolchain,
+                zig_binary=zig_binary,
+                rust_binary=RUST_BINARY,
                 all_steps=steps,
+                artifact_records=artifact_records,
             )
             cases.append(case)
 
@@ -677,6 +558,7 @@ def main() -> int:
         "upstream_commit": UPSTREAM_COMMIT,
         "rust_toolchain": args.rust_toolchain,
         "summary": compute_summary(examples=list(args.examples), steps=steps),
+        "mutation_coverage": coverage_manifest(list(args.examples)),
         "cases": cases,
         "steps": steps,
         "artifacts": {
@@ -687,8 +569,29 @@ def main() -> int:
         "duration_seconds": round(time.time() - started_at, 6),
     }
 
+    if provenance is not None:
+        try:
+            report["archive"] = archive_receipt(
+                archive_dir=args.archive_dir,
+                report=report,
+                artifact_records=artifact_records,
+                provenance=provenance,
+                path_replacements={
+                    str(artifact_dir.resolve()): "$ARTIFACT_DIR",
+                    str(args.archive_dir.resolve()): "$ARCHIVE_DIR",
+                    str(args.report_out.resolve()): "$REPORT_OUT",
+                    str(ROOT.resolve()): ".",
+                },
+            )
+        except Exception as exc:  # pylint: disable=broad-except
+            report["status"] = "failed"
+            report["failure"] = {"message": f"evidence archive failed: {exc}"}
+            report["archive"] = None
+    else:
+        report["archive"] = None
+
     write_report(args.report_out, report)
-    return 0 if status == "ok" else 1
+    return 0 if report["status"] == "ok" else 1
 
 
 if __name__ == "__main__":

@@ -401,6 +401,9 @@ fn runVerifyImpl(allocator: std.mem.Allocator, cli: Cli, use_std_shims: bool) !v
     defer allocator.free(proof_bytes);
 
     const proof = try proof_wire.decodeProofBytes(allocator, proof_bytes);
+    if (!examples_artifact.pcsConfigsEqual(config, proof.commitment_scheme_proof.config)) {
+        return error.ProofConfigMismatch;
+    }
 
     if (std.mem.eql(u8, artifact.example, "blake")) {
         const statement_wire = artifact.blake_statement orelse return error.MissingBlakeStatement;

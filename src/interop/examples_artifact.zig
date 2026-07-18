@@ -210,6 +210,15 @@ pub fn pcsConfigFromWire(wire: PcsConfigWire) !pcs.PcsConfig {
     };
 }
 
+pub fn pcsConfigsEqual(expected: pcs.PcsConfig, actual: pcs.PcsConfig) bool {
+    return expected.pow_bits == actual.pow_bits and
+        expected.fri_config.log_blowup_factor == actual.fri_config.log_blowup_factor and
+        expected.fri_config.log_last_layer_degree_bound == actual.fri_config.log_last_layer_degree_bound and
+        expected.fri_config.n_queries == actual.fri_config.n_queries and
+        expected.fri_config.fold_step == actual.fri_config.fold_step and
+        expected.lifting_log_size == actual.lifting_log_size;
+}
+
 pub fn stateMachineStatementToWire(statement: state_machine.PreparedStatement) StateMachineStatementWire {
     return .{
         .public_input = .{
@@ -360,6 +369,36 @@ test "interop artifact: hex roundtrip" {
     defer alloc.free(decoded);
 
     try std.testing.expectEqualSlices(u8, bytes, decoded);
+}
+
+test "interop artifact: proof and artifact configs require exact equality" {
+    const expected = try pcsConfigFromWire(.{
+        .pow_bits = 3,
+        .fri_config = .{
+            .log_blowup_factor = 2,
+            .log_last_layer_degree_bound = 1,
+            .n_queries = 5,
+        },
+    });
+    try std.testing.expect(pcsConfigsEqual(expected, expected));
+
+    inline for (.{
+        "pow_bits",
+        "log_blowup_factor",
+        "log_last_layer_degree_bound",
+        "n_queries",
+        "fold_step",
+        "lifting_log_size",
+    }) |field| {
+        var actual = expected;
+        if (comptime std.mem.eql(u8, field, "pow_bits")) actual.pow_bits += 1;
+        if (comptime std.mem.eql(u8, field, "log_blowup_factor")) actual.fri_config.log_blowup_factor += 1;
+        if (comptime std.mem.eql(u8, field, "log_last_layer_degree_bound")) actual.fri_config.log_last_layer_degree_bound += 1;
+        if (comptime std.mem.eql(u8, field, "n_queries")) actual.fri_config.n_queries += 1;
+        if (comptime std.mem.eql(u8, field, "fold_step")) actual.fri_config.fold_step += 1;
+        if (comptime std.mem.eql(u8, field, "lifting_log_size")) actual.lifting_log_size = 4;
+        try std.testing.expect(!pcsConfigsEqual(expected, actual));
+    }
 }
 
 test "interop artifact: wide fibonacci statement wire roundtrip" {
