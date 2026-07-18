@@ -30,15 +30,19 @@ class CiTests(unittest.TestCase):
 
     def test_release_gates_run_the_complete_test_graph_in_requested_mode(self) -> None:
         build = (ROOT / "build.zig").read_text(encoding="utf-8")
+        verification_products = (
+            ROOT / "build_support/verification_products.zig"
+        ).read_text(encoding="utf-8")
+        build_graph = build + verification_products
         full_test_command = 'b.addSystemCommand(&.{ "zig", "build", "test", optimize_arg })'
         self.assertEqual(2, build.count(full_test_command))
         self.assertIn(
             'b.addSystemCommand(&.{ "zig", "test", "src/stwo_deep.zig", zig_optimize_arg })',
-            build,
+            build_graph,
         )
         self.assertEqual(
             3,
-            build.count(
+            build_graph.count(
                 'b.addSystemCommand(&.{ "zig", "test", "src/stwo_deep.zig", zig_optimize_arg })'
             ),
         )

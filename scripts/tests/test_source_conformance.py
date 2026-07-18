@@ -97,7 +97,11 @@ class SourceConformanceTests(unittest.TestCase):
             owned = {source.display_path.as_posix(): source.category for source in inventory(repo)}
             self.assertEqual(sources, owned)
             keys = {finding.key for finding in scan(repo)}
-            self.assertEqual({f"file-size:{relative}" for relative in sources}, keys)
+            self.assertEqual(
+                {f"file-size:{relative}" for relative in sources}
+                | {"thin-owner:build.zig", "thin-owner:build_support/options.py"},
+                keys,
+            )
 
     def test_dependency_enforcement_is_limited_to_src(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -165,6 +169,151 @@ class SourceConformanceTests(unittest.TestCase):
             for name in ROOT_ALLOWLIST:
                 (repo / "src" / name).write_text("pub const marker = true;\n", encoding="utf-8")
             self.assertEqual([], scan(repo))
+
+    def test_python_dependencies_respect_command_library_and_deferred_boundaries(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary)
+            files = {
+                "scripts/active_command.py": "VALUE = 1\n",
+                "scripts/active_runner.py": "import active_command\n",
+                "scripts/sn_pie_worker.py": "VALUE = 2\n",
+                "scripts/consumer.py": "import sn_pie_worker\n",
+                "scripts/feature_lib/__init__.py": "from .model import VALUE\n",
+                "scripts/feature_lib/model.py": "from active_command import VALUE\n",
+                "scripts/native_proof_matrix_lib/model.py": "VALUE = 3\n",
+                "scripts/native_profile_capture_lib/evidence.py": (
+                    "from native_proof_matrix_lib.model import VALUE\n"
+                ),
+                "scripts/metal_profile_report.py": "VALUE = 4\n",
+                "scripts/native_profile_capture_lib/contract.py": (
+                    "from metal_profile_report import VALUE\n"
+                ),
+                "scripts/tests/test_consumer.py": "import active_command\n",
+            }
+            for relative, text in files.items():
+                path = repo / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text, encoding="utf-8")
+
+            keys = {finding.key for finding in scan(repo)}
+            self.assertIn(
+                "python-dependency:scripts/consumer.py->scripts/sn_pie_worker.py",
+                keys,
+            )
+            self.assertIn(
+                "python-dependency:scripts/feature_lib/model.py->scripts/active_command.py",
+                keys,
+            )
+            self.assertNotIn(
+                "python-dependency:scripts/tests/test_consumer.py->scripts/active_command.py",
+                keys,
+            )
+            self.assertNotIn(
+                "python-dependency:scripts/active_runner.py->scripts/active_command.py",
+                keys,
+            )
+            self.assertNotIn(
+                "python-dependency:scripts/feature_lib/__init__.py->scripts/feature_lib/model.py",
+                keys,
+            )
+            self.assertNotIn(
+                "python-dependency:scripts/native_profile_capture_lib/evidence.py"
+                "->scripts/native_proof_matrix_lib/model.py",
+                keys,
+            )
+            self.assertNotIn(
+                "python-dependency:scripts/native_profile_capture_lib/contract.py"
+                "->scripts/metal_profile_report.py",
+                keys,
+            )
+
+    def test_build_graph_rejects_non_support_imports_cycles_and_missing_static_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary)
+            (repo / "build_support").mkdir(parents=True)
+            (repo / "src").mkdir()
+            (repo / "src/core.zig").write_text("", encoding="utf-8")
+            (repo / "build.zig").write_text(
+                'const helper = @import("build_support/helper.zig");\n'
+                'const core = @import("src/core.zig");\n'
+                'pub fn build(b: anytype) void { _ = b.path("src/missing.zig"); }\n',
+                encoding="utf-8",
+            )
+            (repo / "build_support/helper.zig").write_text(
+                'const other = @import("other.zig");\n',
+                encoding="utf-8",
+            )
+            (repo / "build_support/other.zig").write_text(
+                'const helper = @import("helper.zig");\n',
+                encoding="utf-8",
+            )
+
+            keys = {finding.key for finding in scan(repo)}
+            self.assertIn("build-dependency:build.zig->src/core.zig", keys)
+            self.assertIn("build-path:build.zig->src/missing.zig", keys)
+            self.assertIn("build-cycle:build_support/helper.zig", keys)
+            self.assertIn("build-cycle:build_support/other.zig", keys)
+
+    def test_native_rust_edges_reject_cross_tool_paths_missing_modules_and_cycles(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary)
+            crate = repo / "tools/stwo-interop-rs"
+            (crate / "src").mkdir(parents=True)
+            (repo / "tools/peer").mkdir(parents=True)
+            (crate / "Cargo.toml").write_text(
+                "[package]\nname = \"oracle\"\nversion = \"0.1.0\"\n"
+                "[dependencies]\npeer = { path = \"../peer\" }\n",
+                encoding="utf-8",
+            )
+            (crate / "src/main.rs").write_text(
+                "mod alpha;\nmod beta;\nmod missing;\nfn main() {}\n",
+                encoding="utf-8",
+            )
+            (crate / "src/alpha.rs").write_text(
+                "mod child;\nuse crate::beta::Value;\n",
+                encoding="utf-8",
+            )
+            (crate / "src/alpha").mkdir()
+            (crate / "src/alpha/child.rs").write_text("pub struct Value;\n", encoding="utf-8")
+            (crate / "src/beta.rs").write_text("use crate::alpha::Value;\n", encoding="utf-8")
+
+            keys = {finding.key for finding in scan(repo)}
+            self.assertIn("cargo-dependency:tools/stwo-interop-rs->tools/peer", keys)
+            self.assertIn(
+                "rust-module:tools/stwo-interop-rs/src/main.rs->missing",
+                keys,
+            )
+            self.assertIn("rust-cycle:tools/stwo-interop-rs/src/alpha", keys)
+            self.assertIn("rust-cycle:tools/stwo-interop-rs/src/beta", keys)
+            self.assertNotIn(
+                "rust-module:tools/stwo-interop-rs/src/alpha.rs->child",
+                keys,
+            )
+
+    def test_thin_owner_caps_cover_active_performance_and_build_support_entrypoints(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary)
+            controller = repo / "scripts/benchmark_delta.py"
+            controller.parent.mkdir(parents=True)
+            controller.write_text("def main():\n" + "    pass\n" * 300, encoding="utf-8")
+            zig_root = repo / "src/bench/sample.zig"
+            zig_root.parent.mkdir(parents=True)
+            zig_root.write_text(
+                "pub fn main() void {\n" + "    _ = 1;\n" * 199 + "}\n",
+                encoding="utf-8",
+            )
+            test_root = repo / "src/tests/native/mod.zig"
+            test_root.parent.mkdir(parents=True)
+            test_root.write_text("\n" * 301, encoding="utf-8")
+            support = repo / "build_support/products.zig"
+            support.parent.mkdir(parents=True)
+            support.write_text("\n" * 501, encoding="utf-8")
+
+            keys = {finding.key for finding in scan(repo)}
+            self.assertIn("thin-owner:scripts/benchmark_delta.py", keys)
+            self.assertIn("thin-owner:bench/sample.zig", keys)
+            self.assertIn("thin-owner:tests/native/mod.zig", keys)
+            self.assertIn("thin-owner:build_support/products.zig", keys)
 
     def test_baseline_round_trip_requires_explanations(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

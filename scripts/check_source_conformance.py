@@ -9,12 +9,10 @@ Inventory scope:
 * maintained Python under ``scripts/``; and
 * Rust sources under repository-owned ``tools/`` crates.
 
-Generated, vendored, cache, and build-output directories are excluded. Dependency
-direction is deliberately narrower than the inventory: relative Zig ``@import``
-edges under ``src/`` and quoted Metal includes under ``src/`` are the only edges
-resolved today. Python imports, Cargo dependencies, Rust module paths, and the
-``build.zig`` graph are inventoried for source hygiene but are not inferred by
-this checker.
+Generated, vendored, cache, and build-output directories are excluded. Repository-
+local Zig, Metal, Python, build, Cargo, and Rust module edges are resolved where
+their syntax is static. External package imports and dynamically constructed build
+paths remain outside this source-layout check.
 """
 
 from __future__ import annotations
@@ -25,6 +23,13 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+try:
+    from scripts.source_conformance_lib import build_graph, owners, python_graph, rust_graph
+    from scripts.source_conformance_lib.model import Finding
+except ModuleNotFoundError:  # Direct execution adds scripts/, not the repository root.
+    from source_conformance_lib import build_graph, owners, python_graph, rust_graph
+    from source_conformance_lib.model import Finding
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -65,13 +70,6 @@ FORBIDDEN_TARGETS = {
     "backends": frozenset({"frontends", "integrations", "examples", "tools"}),
     "frontends": frozenset({"backends", "integrations", "tools"}),
 }
-
-
-@dataclass(frozen=True, order=True)
-class Finding:
-    key: str
-    message: str
-    line_count: int | None = None
 
 
 @dataclass(frozen=True, order=True)
@@ -189,6 +187,7 @@ def scan(repo: Path) -> list[Finding]:
 
         if owned_source.category != "src" or source.suffix != ".zig":
             continue
+        findings.extend(owners.scan_zig(relative, text))
         source_layer = relative.parts[0] if len(relative.parts) > 1 else None
         forbidden = FORBIDDEN_TARGETS.get(source_layer, frozenset())
         if not forbidden:
@@ -203,6 +202,10 @@ def scan(repo: Path) -> list[Finding]:
                     f"dependency:{relative.as_posix()}->{target.as_posix()}",
                     f"{relative}: {source_layer} must not import {target_layer} ({imported})",
                 ))
+    findings.extend(python_graph.scan(repo))
+    findings.extend(build_graph.scan(repo))
+    findings.extend(rust_graph.scan(repo))
+    findings.extend(owners.scan(repo))
     return sorted(set(findings))
 
 

@@ -198,6 +198,39 @@ class NativeMatrixPhase1EvidenceTests(unittest.TestCase):
                         baseline_path, current_path, "2026-07-17T12:00:00Z"
                     )
 
+    def test_v4_to_v5_delta_uses_the_shared_formal_evidence_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            baseline = native_v4_report("a" * 40, "3", 2048)
+            current = native_v4_report("b" * 40, "4", 1024)
+            current["schema_version"] = 5
+            current["protocol"] = benchmark_delta.NATIVE_PROTOCOL_V5
+            current["configuration"]["host_environment"] = {
+                "schema": "native_matrix_host_environment_v1"
+            }
+            current["configuration"]["host_load"] = {
+                "start": {"schema": "native_matrix_host_load_v1"},
+                "end": {"schema": "native_matrix_host_load_v1"},
+            }
+            baseline_path = root / "baseline.json"
+            current_path = root / "current.json"
+            write_json(baseline_path, baseline)
+            write_json(current_path, current)
+
+            delta, _, _ = benchmark_delta.compare_reports(
+                baseline_path, current_path, "2026-07-18T12:00:00Z"
+            )
+
+        self.assertEqual(delta["status"], "comparable")
+        self.assertEqual(
+            delta["report_kind"],
+            f"{benchmark_delta.NATIVE_PROTOCOL_V4}->{benchmark_delta.NATIVE_PROTOCOL_V5}",
+        )
+        self.assertEqual(
+            delta["comparison_identity"]["report_protocol"],
+            delta["report_kind"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
