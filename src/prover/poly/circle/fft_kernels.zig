@@ -3,6 +3,33 @@ const m31 = @import("../../../core/fields/m31.zig");
 
 const M31 = m31.M31;
 
+pub const SimdContract = struct {
+    pub const natural_alignment = @alignOf(M31);
+    pub const native_width = m31.PACK_WIDTH;
+    pub const scalar_tail_supported = true;
+    pub const vector_byte_alignment_required = false;
+    pub const caller_scratch_bytes = 0;
+    pub const in_place = true;
+};
+
+/// Validates the in-place geometry that makes the two butterfly halves
+/// disjoint and fully contained in `values`. Packed-width divisibility is not
+/// required because the kernel owns fixed-width and scalar tails.
+pub fn isValidLayerGeometry(values_len: usize, i: u32, h: usize) bool {
+    if (i >= @bitSizeOf(usize) - 1) return false;
+    const half_block = @as(usize, 1) << @intCast(i);
+    const block_len = std.math.mul(usize, half_block, 2) catch return false;
+    const block_start = std.math.mul(usize, h, block_len) catch return false;
+    const block_end = std.math.add(usize, block_start, block_len) catch return false;
+    return block_end <= values_len;
+}
+
+pub fn isValidPairGeometry(values_len: usize, h: usize) bool {
+    const block_start = std.math.mul(usize, h, 2) catch return false;
+    const block_end = std.math.add(usize, block_start, 2) catch return false;
+    return block_end <= values_len;
+}
+
 /// Applies one forward FFT layer block with hardware-native packed lanes.
 pub inline fn fftLayerLoopForwardM31(
     values: []M31,
@@ -10,6 +37,7 @@ pub inline fn fftLayerLoopForwardM31(
     h: usize,
     twid: M31,
 ) void {
+    std.debug.assert(isValidLayerGeometry(values.len, i, h));
     const half_block: usize = @as(usize, 1) << @intCast(i);
     const block_start = h << @intCast(i + 1);
     var lhs = values.ptr + block_start;
@@ -101,6 +129,7 @@ pub inline fn fftLayerLoopForwardM31(
 
 /// Applies one adjacent forward butterfly.
 pub inline fn fftPairForwardM31(values: []M31, h: usize, twid: M31) void {
+    std.debug.assert(isValidPairGeometry(values.len, h));
     const idx0 = h << 1;
     const idx1 = idx0 + 1;
     const v0 = values[idx0];
@@ -117,6 +146,7 @@ pub inline fn fftLayerLoopInverseM31(
     h: usize,
     itwid: M31,
 ) void {
+    std.debug.assert(isValidLayerGeometry(values.len, i, h));
     const half_block: usize = @as(usize, 1) << @intCast(i);
     const block_start = h << @intCast(i + 1);
     var lhs = values.ptr + block_start;
@@ -222,6 +252,7 @@ pub inline fn fftLayerLoopInverseM31(
 
 /// Applies one adjacent inverse butterfly.
 pub inline fn fftPairInverseM31(values: []M31, h: usize, itwid: M31) void {
+    std.debug.assert(isValidPairGeometry(values.len, h));
     const idx0 = h << 1;
     const idx1 = idx0 + 1;
     const v0 = values[idx0];
@@ -234,20 +265,38 @@ test "circle FFT layer kernels match scalar butterfly laws across lane regimes" 
     const allocator = std.testing.allocator;
     const twid = M31.fromCanonical(1_234_567);
     const itwid = M31.fromCanonical(7_654_321);
+    const max_values_len = 1 << 11;
+    const vector_bytes = m31.PACK_WIDTH * @sizeOf(M31);
+    const alignment = comptime std.mem.Alignment.fromByteUnits(@max(@alignOf(M31), vector_bytes));
+    const offset: usize = if (m31.PACK_WIDTH > 1) 1 else 0;
+    const before_storage = try allocator.alignedAlloc(M31, alignment, max_values_len + offset);
+    defer allocator.free(before_storage);
+    const forward_storage = try allocator.alignedAlloc(M31, alignment, max_values_len + offset);
+    defer allocator.free(forward_storage);
+    const inverse_storage = try allocator.alignedAlloc(M31, alignment, max_values_len + offset);
+    defer allocator.free(inverse_storage);
+    var prng = std.Random.DefaultPrng.init(0x3c6e_f372_fe94_f82b);
+    const rng = prng.random();
+
+    try std.testing.expectEqual(@as(usize, 0), SimdContract.caller_scratch_bytes);
+    try std.testing.expect(SimdContract.scalar_tail_supported);
+    try std.testing.expect(!SimdContract.vector_byte_alignment_required);
+    if (m31.PACK_WIDTH > 1) {
+        try std.testing.expect(@intFromPtr((before_storage.ptr + offset)) % vector_bytes != 0);
+    }
 
     var log_half_block: u32 = 0;
     while (log_half_block <= 9) : (log_half_block += 1) {
         const half_block = @as(usize, 1) << @intCast(log_half_block);
         const block_start = half_block * 2;
         const values_len = half_block * 4;
-        const before = try allocator.alloc(M31, values_len);
-        defer allocator.free(before);
-        for (before, 0..) |*value, index| {
-            value.* = M31.fromCanonical(@intCast((index * 1_048_583 + 97) % m31.Modulus));
-        }
+        const before = before_storage[offset .. offset + values_len];
+        const forward = forward_storage[offset .. offset + values_len];
+        const inverse = inverse_storage[offset .. offset + values_len];
+        for (before) |*value| value.* = M31.fromCanonical(rng.intRangeLessThan(u32, 0, m31.Modulus));
+        @memcpy(forward, before);
+        @memcpy(inverse, before);
 
-        const forward = try allocator.dupe(M31, before);
-        defer allocator.free(forward);
         fftLayerLoopForwardM31(forward, log_half_block, 1, twid);
         for (0..values_len) |index| {
             const expected = if (index < block_start or index >= block_start + half_block * 2)
@@ -259,8 +308,6 @@ test "circle FFT layer kernels match scalar butterfly laws across lane regimes" 
             try std.testing.expect(forward[index].eql(expected));
         }
 
-        const inverse = try allocator.dupe(M31, before);
-        defer allocator.free(inverse);
         fftLayerLoopInverseM31(inverse, log_half_block, 1, itwid);
         for (0..values_len) |index| {
             const expected = if (index < block_start or index >= block_start + half_block * 2)
@@ -272,6 +319,18 @@ test "circle FFT layer kernels match scalar butterfly laws across lane regimes" 
             try std.testing.expect(inverse[index].eql(expected));
         }
     }
+}
+
+test "circle FFT geometry rejects out of range and overflow before SIMD access" {
+    try std.testing.expect(isValidLayerGeometry(2, 0, 0));
+    try std.testing.expect(!isValidLayerGeometry(1, 0, 0));
+    try std.testing.expect(!isValidLayerGeometry(8, 2, 1));
+    try std.testing.expect(!isValidLayerGeometry(std.math.maxInt(usize), 0, std.math.maxInt(usize)));
+    try std.testing.expect(!isValidLayerGeometry(8, @bitSizeOf(usize), 0));
+
+    try std.testing.expect(isValidPairGeometry(4, 1));
+    try std.testing.expect(!isValidPairGeometry(3, 1));
+    try std.testing.expect(!isValidPairGeometry(std.math.maxInt(usize), std.math.maxInt(usize)));
 }
 
 test "circle FFT pair kernels match scalar butterfly laws" {

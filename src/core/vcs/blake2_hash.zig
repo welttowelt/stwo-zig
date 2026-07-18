@@ -13,17 +13,18 @@ const StdBlake2s256 = blk: {
 };
 
 pub const BackendMode = blake2_backend.BackendMode;
+pub const BackendSelection = blake2_backend.BackendSelection;
 
-pub fn setBackendMode(mode: BackendMode) void {
-    blake2_backend.setBackendMode(mode);
+pub fn setDefaultBackendMode(mode: BackendMode) void {
+    blake2_backend.setDefaultBackendMode(mode);
 }
 
-pub fn getBackendMode() BackendMode {
-    return blake2_backend.getBackendMode();
+pub fn getDefaultBackendSelection() BackendSelection {
+    return blake2_backend.getDefaultBackendSelection();
 }
 
-pub fn getEffectiveBackendMode() BackendMode {
-    return blake2_backend.getEffectiveBackendMode();
+pub fn selectBackend(mode: BackendMode) BackendSelection {
+    return blake2_backend.selectBackend(mode);
 }
 
 pub fn supportsSimdBackend() bool {
@@ -69,6 +70,16 @@ pub fn Blake2sHasherGeneric(comptime is_m31_output: bool) type {
             return out;
         }
 
+        pub fn hashFixedSingleBlockWithMode(
+            comptime byte_len: usize,
+            mode: BackendMode,
+            data: *const [byte_len]u8,
+        ) Blake2sHash {
+            var out = blake2_backend.Blake2sHasher.hashFixedSingleBlockWithMode(byte_len, mode, data);
+            if (is_m31_output) out = reduceToM31(out);
+            return out;
+        }
+
         pub fn hashFixed64(data: *const [64]u8) Blake2sHash {
             var out = blake2_backend.Blake2sHasher.hashFixed64(data);
             if (is_m31_output) out = reduceToM31(out);
@@ -79,6 +90,12 @@ pub fn Blake2sHasherGeneric(comptime is_m31_output: bool) type {
         /// routed through the shared backend implementation.
         pub fn hashFixed128(data: *const [128]u8) Blake2sHash {
             var out = blake2_backend.Blake2sHasher.hashFixed128(data);
+            if (is_m31_output) out = reduceToM31(out);
+            return out;
+        }
+
+        pub fn hashFixed128WithMode(mode: BackendMode, data: *const [128]u8) Blake2sHash {
+            var out = blake2_backend.Blake2sHasher.hashFixed128WithMode(mode, data);
             if (is_m31_output) out = reduceToM31(out);
             return out;
         }
@@ -191,18 +208,13 @@ test "blake2 hash: fixed128 backend matches generic hasher" {
     }
 }
 
-test "blake2 hash: scalar and simd backends match" {
-    const previous_mode = getBackendMode();
-    defer setBackendMode(previous_mode);
-
+test "blake2 hash: scalar and simd backends match without shared policy mutation" {
     var payload: [128]u8 = undefined;
     var prng = std.Random.DefaultPrng.init(0x1f83_d9ab_5be0_cd19);
     prng.random().bytes(payload[0..]);
 
-    setBackendMode(.scalar);
-    const scalar_hash = Blake2sHasher.hashFixed128(&payload);
-    setBackendMode(.simd);
-    const simd_hash = Blake2sHasher.hashFixed128(&payload);
+    const scalar_hash = Blake2sHasher.hashFixed128WithMode(.scalar, &payload);
+    const simd_hash = Blake2sHasher.hashFixed128WithMode(.simd, &payload);
 
     try std.testing.expect(std.mem.eql(u8, scalar_hash[0..], simd_hash[0..]));
 }

@@ -61,7 +61,7 @@ fn execute(
     allocator: std.mem.Allocator,
     args: config.Args,
 ) !void {
-    blake2_hash.setBackendMode(switch (args.blake2_backend) {
+    blake2_hash.setDefaultBackendMode(switch (args.blake2_backend) {
         .auto => .auto,
         .scalar => .scalar,
         .simd => .simd,
@@ -392,6 +392,11 @@ fn executeExample(
         };
     } else null;
 
+    const blake2_selection = blake2_hash.selectBackend(switch (args.blake2_backend) {
+        .auto => .auto,
+        .scalar => .scalar,
+        .simd => .simd,
+    });
     const report = report_mod.Report{
         .backend = backend,
         .evidence_class = evidence_class,
@@ -405,9 +410,9 @@ fn executeExample(
             .target_arch = @tagName(builtin.cpu.arch),
             .cpu_count = try std.Thread.getCpuCount(),
             .simd_pack_width = M31_PACK_WIDTH,
-            .blake2s_requested_backend = @tagName(blake2_hash.getBackendMode()),
-            .blake2s_effective_backend = @tagName(blake2_hash.getEffectiveBackendMode()),
-            .blake2s_simd_supported = blake2_hash.supportsSimdBackend(),
+            .blake2s_requested_backend = @tagName(blake2_selection.requested),
+            .blake2s_effective_backend = @tagName(blake2_selection.effective),
+            .blake2s_simd_supported = blake2_selection.simd_supported,
             .single_threaded = builtin.single_threaded,
             .thread_parallelism_enabled = !builtin.single_threaded,
             .environment_overrides = overrides,

@@ -578,3 +578,40 @@ test "m31: packed butterfly roundtrip (butterfly then ibutterfly)" {
         try std.testing.expect(rhs[i].eql(orig_rhs[i].add(orig_rhs[i])));
     }
 }
+
+test "m31: SIMD memory contract accepts natural alignment and rejects butterfly aliases" {
+    try std.testing.expectEqual(@alignOf(M31), m31.SimdMemoryContract.natural_alignment);
+    try std.testing.expectEqual(@as(usize, 0), m31.SimdMemoryContract.caller_scratch_bytes);
+    try std.testing.expect(!m31.SimdMemoryContract.vector_byte_alignment_required);
+    try std.testing.expect(!m31.SimdMemoryContract.butterfly_aliasing_supported);
+
+    var values: [PACK_WIDTH * 3 + 1]M31 = undefined;
+    const base = values[0..].ptr;
+    try std.testing.expect(!m31.disjointM31Ranges(base, base, PACK_WIDTH));
+    if (PACK_WIDTH > 1) {
+        try std.testing.expect(!m31.disjointM31Ranges(base, base + 1, PACK_WIDTH));
+    }
+    try std.testing.expect(m31.disjointM31Ranges(base, base + PACK_WIDTH, PACK_WIDTH));
+    try std.testing.expect(!m31.disjointM31Ranges(base, base + PACK_WIDTH, std.math.maxInt(usize)));
+}
+
+test "m31: packed loads and stores support vector-unaligned natural pointers" {
+    const allocator = std.testing.allocator;
+    const vector_bytes = PACK_WIDTH * @sizeOf(M31);
+    const alignment = comptime std.mem.Alignment.fromByteUnits(@max(@alignOf(M31), vector_bytes));
+    const offset: usize = if (PACK_WIDTH > 1) 1 else 0;
+    const input_storage = try allocator.alignedAlloc(M31, alignment, PACK_WIDTH + offset);
+    defer allocator.free(input_storage);
+    const output_storage = try allocator.alignedAlloc(M31, alignment, PACK_WIDTH + offset);
+    defer allocator.free(output_storage);
+    const input = input_storage[offset..];
+    const output = output_storage[offset..];
+
+    for (input, 0..) |*value, lane| value.* = M31.fromCanonical(@intCast(17 * lane + 3));
+    storePacked(output.ptr, loadPacked(input.ptr));
+    try std.testing.expectEqualSlices(M31, input, output);
+    try std.testing.expectEqual(@as(usize, 0), @intFromPtr(input.ptr) % @alignOf(M31));
+    if (PACK_WIDTH > 1) {
+        try std.testing.expect(@intFromPtr(input.ptr) % vector_bytes != 0);
+    }
+}

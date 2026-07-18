@@ -169,13 +169,15 @@ pub const Vec4u32 = @Vector(VEC_WIDTH, u32);
 pub const Vec4u64 = @Vector(VEC_WIDTH, u64);
 const P_VEC: Vec4u32 = @splat(Modulus);
 
-/// Load 4 M31 values from a pointer.
+/// Load four readable M31 values. Only M31's natural alignment is required;
+/// alignment to the vector byte width is deliberately not a precondition.
 pub inline fn loadVec4(ptr: [*]const M31) Vec4u32 {
     const raw: *const [VEC_WIDTH]u32 = @ptrCast(ptr);
     return raw.*;
 }
 
-/// Store 4 M31 values to a pointer.
+/// Store four writable M31 values with the same natural-alignment contract as
+/// `loadVec4`.
 pub inline fn storeVec4(ptr: [*]M31, v: Vec4u32) void {
     const raw: *[VEC_WIDTH]u32 = @ptrCast(ptr);
     raw.* = v;
@@ -222,9 +224,11 @@ inline fn reduceVec4(x: Vec4u64) Vec4u32 {
     return @select(u32, is_p, @as(Vec4u32, @splat(0)), adjusted);
 }
 
-/// Vectorized butterfly: forward FFT.
+/// Vectorized butterfly over two disjoint four-element ranges. The operation
+/// is in-place, handles no tail, and uses no caller or hidden heap scratch.
 /// lhs[i] = lhs[i] + rhs[i]*twid, rhs[i] = lhs[i] - rhs[i]*twid.
 pub inline fn butterflyVec4(lhs: [*]M31, rhs: [*]M31, twid: Vec4u32) void {
+    std.debug.assert(disjointM31Ranges(lhs, rhs, VEC_WIDTH));
     const v0 = loadVec4(lhs);
     const v1 = loadVec4(rhs);
     const m = mulVec4(v1, twid);
@@ -232,9 +236,11 @@ pub inline fn butterflyVec4(lhs: [*]M31, rhs: [*]M31, twid: Vec4u32) void {
     storeVec4(rhs, subVec4(v0, m));
 }
 
-/// Vectorized inverse butterfly: inverse FFT.
+/// Vectorized inverse butterfly over two disjoint four-element ranges. The
+/// alignment, tail, and scratch contract matches `butterflyVec4`.
 /// lhs[i] = lhs[i] + rhs[i], rhs[i] = (lhs[i] - rhs[i]) * itwid.
 pub inline fn ibutterflyVec4(lhs: [*]M31, rhs: [*]M31, itwid: Vec4u32) void {
+    std.debug.assert(disjointM31Ranges(lhs, rhs, VEC_WIDTH));
     const v0 = loadVec4(lhs);
     const v1 = loadVec4(rhs);
     storeVec4(lhs, addVec4(v0, v1));
@@ -252,13 +258,24 @@ pub const PackedM31 = @Vector(PACK_WIDTH, u32);
 pub const PackedU64 = @Vector(PACK_WIDTH, u64);
 const P_PACKED: PackedM31 = @splat(Modulus);
 
-/// Load one packed group of M31 values from a pointer.
+pub const SimdMemoryContract = struct {
+    pub const natural_alignment = @alignOf(M31);
+    pub const fixed_width = VEC_WIDTH;
+    pub const native_width = PACK_WIDTH;
+    pub const caller_scratch_bytes = 0;
+    pub const vector_byte_alignment_required = false;
+    pub const butterfly_aliasing_supported = false;
+};
+
+/// Load exactly `PACK_WIDTH` readable values. The pointer must be naturally
+/// aligned for M31 but may be unaligned to the packed vector's byte width.
 pub inline fn loadPacked(ptr: [*]const M31) PackedM31 {
     const raw: *const [PACK_WIDTH]u32 = @ptrCast(ptr);
     return raw.*;
 }
 
-/// Store one packed group of M31 values to a pointer.
+/// Store exactly `PACK_WIDTH` writable values under the `loadPacked` alignment
+/// contract.
 pub inline fn storePacked(ptr: [*]M31, v: PackedM31) void {
     const raw: *[PACK_WIDTH]u32 = @ptrCast(ptr);
     raw.* = v;
@@ -300,8 +317,10 @@ inline fn reducePacked(x: PackedU64) PackedM31 {
     return @select(u32, r >= P_PACKED, r -% P_PACKED, r);
 }
 
-/// Packed forward butterfly: lhs[i] = lhs[i] + rhs[i]*twid, rhs[i] = lhs[i] - rhs[i]*twid.
+/// Packed forward butterfly over two disjoint `PACK_WIDTH` ranges. The caller
+/// owns the scalar tail; this operation allocates no scratch.
 pub inline fn butterflyPacked(lhs: [*]M31, rhs: [*]M31, twid: PackedM31) void {
+    std.debug.assert(disjointM31Ranges(lhs, rhs, PACK_WIDTH));
     const v0 = loadPacked(lhs);
     const v1 = loadPacked(rhs);
     const m = mulPacked(v1, twid);
@@ -309,8 +328,10 @@ pub inline fn butterflyPacked(lhs: [*]M31, rhs: [*]M31, twid: PackedM31) void {
     storePacked(rhs, subPacked(v0, m));
 }
 
-/// Packed inverse butterfly.
+/// Packed inverse butterfly with the same width, alias, and scratch contract
+/// as `butterflyPacked`.
 pub inline fn ibutterflyPacked(lhs: [*]M31, rhs: [*]M31, itwid: PackedM31) void {
+    std.debug.assert(disjointM31Ranges(lhs, rhs, PACK_WIDTH));
     const v0 = loadPacked(lhs);
     const v1 = loadPacked(rhs);
     storePacked(lhs, addPacked(v0, v1));
@@ -320,6 +341,18 @@ pub inline fn ibutterflyPacked(lhs: [*]M31, rhs: [*]M31, itwid: PackedM31) void 
 /// Create a PackedM31 by splatting a scalar across all lanes.
 pub inline fn splatPacked(x: M31) PackedM31 {
     return @splat(x.v);
+}
+
+/// Reports whether two M31 ranges are disjoint without dereferencing them.
+/// False also covers byte-count or address overflow. Low-level SIMD butterfly
+/// entry points require this predicate and assert it in checked builds.
+pub fn disjointM31Ranges(lhs: [*]const M31, rhs: [*]const M31, width: usize) bool {
+    const byte_len = std.math.mul(usize, width, @sizeOf(M31)) catch return false;
+    const lhs_start = @intFromPtr(lhs);
+    const rhs_start = @intFromPtr(rhs);
+    const lhs_end = std.math.add(usize, lhs_start, byte_len) catch return false;
+    const rhs_end = std.math.add(usize, rhs_start, byte_len) catch return false;
+    return lhs_end <= rhs_start or rhs_end <= lhs_start;
 }
 
 /// Fixed-exponent inversion for `p = 2^31 - 1`, computing `a^(p-2)`.

@@ -27,7 +27,7 @@ pub fn main() !void {
     if (cli.stage_profile_out != null and cli.mode != .generate) {
         return error.UnsupportedStageProfileMode;
     }
-    blake2_hash.setBackendMode(cli.blake2_backend);
+    blake2_hash.setDefaultBackendMode(cli.blake2_backend);
 
     switch (cli.mode) {
         .generate => try runGenerate(gpa, cli),
