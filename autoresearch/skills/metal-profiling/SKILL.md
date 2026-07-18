@@ -18,8 +18,12 @@ stwo-prof metal isolate <name> [--from k.metal]   # scratch kernel dir
 stwo-prof metal run <name> --entry <kernel> \
     --grid 1048576 --tg 256 \
     --buffers f32:1048576,f32:1048576,f32:1048576  # GPU ms + reflection
+stwo-prof metal run <name> --entry <kernel> --sweep-tg  # occupancy curve
 stwo-prof metal trace --output run.trace -- <cmd>  # full Metal System Trace
 ```
+
+`run` and the sweep take `--json` and write `metal.json` / `sweep.json`
+into the kernel dir for downstream reading.
 
 The runner JIT-compiles the kernel (profiling lane only — production
 admission still rejects JIT), binds buffers in declaration order with
@@ -49,8 +53,10 @@ GPUStartTime/GPUEndTime: real device execution, not wall clock.
   playbook's submission-economics ordering is binding.
 - The bandwidth estimate assumes each buffer element is touched once per
   dispatch — correct it for the kernel's real access pattern before quoting.
-- Grid/threadgroup sweeps are data: vary `--tg` across {64,128,256,512,1024}
-  and record the curve; a single point is not an occupancy conclusion.
+- A single point is not an occupancy conclusion: `--sweep-tg` runs the
+  64..1024 threadgroup curve and marks the best point. Expect the optimum
+  to move with the kernel — a memory-bound add peaks at a different width
+  than a threadgroup-memory-heavy reduction.
 - Device work must be provable: a "Metal win" without GPU-time evidence and
   dispatch counts is a hybrid-lane claim at best. Promotion-grade results go
   through `stwo-perf run`; this harness is the kernel-scope inner loop.

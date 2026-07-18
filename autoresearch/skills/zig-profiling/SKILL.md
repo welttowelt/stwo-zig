@@ -12,14 +12,38 @@ reward loop is data-driven design: counters decide, opinions don't.
 ## The loop
 
 ```bash
-stwo-prof zig isolate <name> [--from file.zig]   # scratch dir outside the repo
+stwo-prof zig isolate <name> [--from file.zig] \
+    [--import stwo=$REPO/src/stwo.zig]           # scratch dir outside the repo
 # edit ~/.cache/stwo-prof/<name>/workload.zig     (contract in the header)
 stwo-prof zig run <name> --iters N               # counters: ns/op, instr/op,
                                                  # cycles/op, IPC, energy, RSS
 stwo-prof zig asm <name>                         # codegen: instrs, NEON share
-stwo-prof zig sample <name>                      # stacks for larger workloads
+stwo-prof zig sample <name>                      # inclusive hot-frame table
 stwo-prof zig compare <a> <b>                    # ABBA A/B with bootstrap CI
 ```
+
+Every subcommand takes `--json` and writes its structured result into the
+scratch dir (`counters.json`, `asm.json`, `sample.json`,
+`compare-vs-<b>.json`) — read those instead of re-parsing terminal output.
+
+## Profile live repo code, not copies
+
+`--import name=path` wires a repo module into the harness build, so the
+workload can do:
+
+```zig
+const stwo = @import("stwo");
+const M31 = stwo.core.fields.m31.M31;
+```
+
+This is the default depth move for any question about existing prover code.
+Never copy repo code into a workload: copies drift the moment the codebase
+evolves, and a stale copy measures software that no longer exists. With a
+wired import the harness compiles the live source on every run — a compile
+error is the tool telling you the API moved, and `run --json` records the
+wired paths as provenance. Isolate two harnesses against the same import to
+A/B a current code path against a candidate rewrite (e.g. scalar `inv()` vs
+`batchInverseInPlace`) with both arms reading identical field arithmetic.
 
 Counters come from `proc_pid_rusage` deltas taken in-process around the
 measured loop — no profiler attach, no sudo, near-zero dispersion. That is
@@ -51,6 +75,8 @@ is secondary (the harness scope-ladder rule for S0/S1).
 - **Inlining in `asm` output**: the workload usually inlines into `_main`.
   Mark it `pub noinline fn run(...)` when you need a separate symbol to
   inspect; remove `noinline` before timing (inlining is part of the result).
+  `asm` hides std/runtime symbols (the harness's own I/O plumbing) by
+  default — `--all` shows them, and `--symbol <substr>` narrows to one.
 - **Noise**: `compare` interleaves ABBA and reports a bootstrap CI on wall
   ratios; instruction ratios are near-deterministic — when wall moves but
   instructions don't, suspect the machine, not the code.
@@ -59,8 +85,9 @@ is secondary (the harness scope-ladder rule for S0/S1).
 
 - A vectorization claim requires `asm` evidence (NEON share on the hot
   symbol), not source-level belief — the CONTRIBUTING SIMD rule, mechanized.
-- An A/B verdict requires the CI to exclude 1.0; a point estimate is not a
-  result. Promotion-grade claims still go through `stwo-perf run` at S3 —
+- An A/B verdict requires the CI to exclude 1.0; `compare` prints the
+  verdict explicitly — "no verdict (CI spans 1.0)" means collect more
+  rounds or accept neutrality, never round in your favour. Promotion-grade claims still go through `stwo-perf run` at S3 —
   this harness is the S1 inner loop that generates hypotheses cheaply.
 - Findings worth keeping become `stwo-perf notes add` entries with the
   counter numbers inline; scratch dirs are disposable, evidence is not.

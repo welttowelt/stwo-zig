@@ -24,7 +24,10 @@ def _run(cmd: list[str], cwd: Path | None = None, timeout: int = 900,
     proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True,
                           timeout=timeout, env=merged)
     if proc.returncode != 0:
-        raise ProfError(f"{' '.join(cmd)} failed:\n{proc.stderr.strip()[-800:]}")
+        stderr = proc.stderr.strip()
+        error_lines = [l for l in stderr.splitlines() if "error" in l.lower()]
+        detail = "\n".join(error_lines[:12]) if error_lines else stderr[-800:]
+        raise ProfError(f"{' '.join(cmd)} failed:\n{detail}")
     return proc
 
 
@@ -51,10 +54,12 @@ def run_counters(bench_dir: Path, iters: int, rounds: int = 5,
         values = [r[key] for r in rows if key in r]
         return statistics.median(values) if values else None
 
+    from .scaffold import workload_imports
     summary = {
         "rounds": rounds,
         "iterations": iters,
         "ops_per_call": rows[0].get("ops_per_call"),
+        "imports": workload_imports(bench_dir) or None,
         "ns_per_op": med("ns_per_op"),
         "ns_per_op_min": min((r["ns_per_op"] for r in rows), default=None),
         "instructions_per_op": med("instructions_per_op"),
@@ -132,6 +137,41 @@ def sample_stacks(bench_dir: Path, seconds: int = 5, iters: int = 2_000_000) -> 
     return proc.stdout
 
 
+_SAMPLE_FRAME_RE = re.compile(r"[\s+!:|]+(\d+)\s+(\S+)\s+\(in bench\)")
+
+
+def sample_hot_frames(report: str, top: int = 10) -> list[dict]:
+    """Aggregate /usr/bin/sample call-tree lines for the bench binary.
+
+    Counts are inclusive; a frame appearing at several call sites keeps its
+    maximum count (the deepest attribution of that symbol)."""
+    inclusive: dict[str, int] = {}
+    for count, symbol in _SAMPLE_FRAME_RE.findall(report):
+        inclusive[symbol] = max(inclusive.get(symbol, 0), int(count))
+    total = max(inclusive.values(), default=0)
+    return [
+        {"symbol": sym, "samples": n,
+         "pct_of_run": round(100.0 * n / total, 1) if total else 0.0}
+        for sym, n in sorted(inclusive.items(), key=lambda kv: -kv[1])[:top]
+    ]
+
+
+# Zig std top-level namespaces plus compiler-rt: harness plumbing an agent
+# almost never needs to see. `asm --all` shows everything.
+_STD_NAMESPACES = (
+    "Io.", "fs.", "fmt.", "log.", "debug.", "heap.", "posix.", "mem.",
+    "math.", "process.", "Thread.", "os.", "time.", "meta.", "sort.",
+    "ascii.", "atomic.", "simd.", "unicode.", "builtin.", "Random.",
+    "start.", "c.", "compress.", "std.",
+)
+
+
+def is_std_symbol(name: str) -> bool:
+    bare = name.lstrip("_")
+    return (name.startswith("__") or bare.startswith(_STD_NAMESPACES)
+            or bare in ("start", "main.frame", "memcpy", "memset", "memmove"))
+
+
 _NEON_RE = re.compile(
     r"\.(?:16b|8b|8h|4h|4s|2s|2d|1d)\b|\bv\d+\.", re.IGNORECASE
 )
@@ -146,11 +186,25 @@ def asm_summary(bench_dir: Path, symbol_filter: str | None = None) -> dict:
     'vector claim needs disassembly evidence' rule mechanically."""
     # Emit from main.zig: unreferenced pub fns are lazily skipped, so the
     # workload only appears in the listing via the harness that calls it.
+    from .scaffold import workload_imports
     out_s = bench_dir / "bench.s"
-    _run([
-        "zig", "build-obj", "main.zig", "-O", "ReleaseFast",
+    cmd = [
+        "zig", "build-obj", "-O", "ReleaseFast",
         "-fno-emit-bin", f"-femit-asm={out_s.name}", "-mcpu", "native",
-    ], cwd=bench_dir)
+    ]
+    imports = workload_imports(bench_dir)
+    if imports:
+        # --dep flags attach to the next -M module; the first -M is the
+        # main module, so root (with its deps) must come before the dep
+        # module definitions.
+        for mod in sorted(imports):
+            cmd += ["--dep", mod]
+        cmd += ["-Mroot=main.zig"]
+        for mod, path in sorted(imports.items()):
+            cmd += [f"-M{mod}={path}"]
+    else:
+        cmd += ["main.zig"]
+    _run(cmd, cwd=bench_dir)
     current = None
     per_symbol: dict[str, dict] = defaultdict(
         lambda: {"instructions": 0, "neon": 0, "branches": 0, "memory": 0}
@@ -174,7 +228,9 @@ def asm_summary(bench_dir: Path, symbol_filter: str | None = None) -> dict:
         if _MEM_RE.match(line):
             row["memory"] += 1
     symbols = {
-        name: {**row, "neon_pct": round(100.0 * row["neon"] / row["instructions"], 1)}
+        name: {**row,
+               "neon_pct": round(100.0 * row["neon"] / row["instructions"], 1),
+               "std": is_std_symbol(name)}
         for name, row in per_symbol.items()
         if row["instructions"] > 0 and (symbol_filter is None or symbol_filter in name)
     }

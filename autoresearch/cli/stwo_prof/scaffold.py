@@ -146,9 +146,17 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    const exe = b.addExecutable(.{ .name = "bench", .root_module = module });
+{IMPORTS}    const exe = b.addExecutable(.{ .name = "bench", .root_module = module });
     b.installArtifact(exe);
 }
+'''
+
+ZIG_IMPORT_TEMPLATE = '''    const {name}_mod = b.createModule(.{{
+        .root_source_file = .{{ .cwd_relative = "{path}" }},
+        .target = target,
+        .optimize = optimize,
+    }});
+    module.addImport("{name}", {name}_mod);
 '''
 
 METAL_KERNEL_TEMPLATE = '''// stwo-prof demo kernel. Replace with the kernel under investigation.
@@ -180,18 +188,46 @@ def resolve(name_or_path: str) -> Path:
     return scratch_root() / name_or_path
 
 
-def isolate_zig(name: str, source: Path | None) -> Path:
-    """Create (or refresh the harness of) a scratch Zig bench directory."""
+def isolate_zig(name: str, source: Path | None,
+                imports: dict[str, str] | None = None) -> Path:
+    """Create (or refresh the harness of) a scratch Zig bench directory.
+
+    `imports` maps module names to absolute root-source paths, wired into the
+    generated build so the workload can `@import("stwo")` the live repo code
+    instead of copy-pasting it — measurements track the codebase as it
+    evolves, with zero drift.
+    """
+    import json
     dest = scratch_root() / name
     dest.mkdir(parents=True, exist_ok=True)
+    meta_path = dest / "prof.json"
+    meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+    if imports:
+        meta.setdefault("imports", {}).update(
+            {k: str(Path(v).resolve()) for k, v in imports.items()}
+        )
+    meta_path.write_text(json.dumps(meta, indent=1, sort_keys=True) + "\n")
+
     workload = dest / "workload.zig"
     if source is not None:
         shutil.copy2(source, workload)
     elif not workload.exists():
         workload.write_text(ZIG_WORKLOAD_TEMPLATE)
     (dest / "main.zig").write_text(ZIG_MAIN_TEMPLATE)
-    (dest / "build.zig").write_text(ZIG_BUILD_TEMPLATE)
+    import_blocks = "".join(
+        ZIG_IMPORT_TEMPLATE.format(name=mod, path=path)
+        for mod, path in sorted(meta.get("imports", {}).items())
+    )
+    (dest / "build.zig").write_text(ZIG_BUILD_TEMPLATE.replace("{IMPORTS}", import_blocks))
     return dest
+
+
+def workload_imports(bench_dir: Path) -> dict[str, str]:
+    import json
+    meta_path = bench_dir / "prof.json"
+    if not meta_path.exists():
+        return {}
+    return json.loads(meta_path.read_text()).get("imports", {})
 
 
 def isolate_metal(name: str, source: Path | None) -> Path:

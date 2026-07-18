@@ -34,6 +34,25 @@ class ScaffoldTest(unittest.TestCase):
             finally:
                 del os.environ["STWO_PROF_SCRATCH"]
 
+    def test_isolate_wires_module_imports(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            import os
+            os.environ["STWO_PROF_SCRATCH"] = tmp
+            try:
+                module = Path(tmp) / "stwo.zig"
+                module.write_text("pub const x = 1;\n")
+                dest = scaffold.isolate_zig("t3", None, imports={"stwo": str(module)})
+                build = (dest / "build.zig").read_text()
+                self.assertIn('module.addImport("stwo", stwo_mod)', build)
+                self.assertIn(str(module.resolve()), build)
+                self.assertEqual(scaffold.workload_imports(dest),
+                                 {"stwo": str(module.resolve())})
+                # re-isolating without imports must not drop the wiring
+                scaffold.isolate_zig("t3", None)
+                self.assertIn("stwo_mod", (dest / "build.zig").read_text())
+            finally:
+                del os.environ["STWO_PROF_SCRATCH"]
+
 
 ASM_FIXTURE = """\t.section __TEXT,__text
 _hot_kernel:
@@ -71,6 +90,35 @@ class AsmSummaryTest(unittest.TestCase):
             self.assertEqual(hot["memory"], 2)  # ld1 + st1
             self.assertIn("_scalar.helper", summary["symbols"])
             self.assertNotIn("lTmp0", summary["symbols"])
+            self.assertFalse(hot["std"])
+
+    def test_std_symbol_classification(self):
+        for name in ("_Io.Writer.printValue__anon_3357", "_fs.File.Writer.drain",
+                     "___udivti3", "_memcpy", "_fmt.float.round__anon_5137"):
+            self.assertTrue(zigtools.is_std_symbol(name), name)
+        for name in ("_workload.run", "_main", "_fields.batchInverseInPlace",
+                     "_m31.M31.inv"):
+            self.assertFalse(zigtools.is_std_symbol(name), name)
+
+
+SAMPLE_FIXTURE = """Call graph:
+    2732 Thread_123
+    + 2732 start  (in dyld) + 6  [0x1a2b3c]
+    +   2732 main  (in bench) + 40  [0x104abc]
+    +     2698 workload.run  (in bench) + 24  [0x104def]
+    +     ! 2100 fields.batchInverseInPlace__anon_1234  (in bench) + 96  [0x104fed]
+    +     34 counters  (in bench) + 12  [0x104aaa]
+"""
+
+
+class SampleFramesTest(unittest.TestCase):
+    def test_hot_frames_are_inclusive_and_ranked(self):
+        frames = zigtools.sample_hot_frames(SAMPLE_FIXTURE, top=3)
+        self.assertEqual(frames[0]["symbol"], "main")
+        self.assertEqual(frames[0]["pct_of_run"], 100.0)
+        self.assertEqual(frames[1]["symbol"], "workload.run")
+        self.assertEqual(frames[2]["samples"], 2100)
+        self.assertNotIn("start", [f["symbol"] for f in frames])
 
 
 class ResolveTest(unittest.TestCase):

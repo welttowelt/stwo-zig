@@ -28,8 +28,19 @@ def _panel(title: str, data: dict, keys: list[tuple[str, str]]) -> None:
 
 def cmd_zig_isolate(args) -> int:
     source = Path(args.source) if args.source else None
-    dest = scaffold.isolate_zig(args.name, source)
+    imports = {}
+    for spec in args.imports or []:
+        name, _, path = spec.partition("=")
+        if not path:
+            return _fail(f"--import expects name=path, got {spec!r}")
+        imports[name] = path
+    dest = scaffold.isolate_zig(args.name, source, imports=imports or None)
     print(f"{ansi.OK} scratch harness: {dest}")
+    wired = scaffold.workload_imports(dest)
+    if wired:
+        for mod, path in sorted(wired.items()):
+            print(f"  @import(\"{mod}\") -> {path}")
+        print("  the workload profiles LIVE repo code — no copy, no drift")
     print(f"  edit {dest}/workload.zig (contract in the file header), then:")
     print(f"  stwo-prof zig run {args.name}")
     return 0
@@ -58,29 +69,44 @@ def cmd_zig_run(args) -> int:
 
 
 def cmd_zig_compare(args) -> int:
-    result = zigtools.compare(scaffold.resolve(args.a), scaffold.resolve(args.b),
-                              iters=args.iters, rounds=args.rounds)
+    bench_a, bench_b = scaffold.resolve(args.a), scaffold.resolve(args.b)
+    result = zigtools.compare(bench_a, bench_b, iters=args.iters, rounds=args.rounds)
     print(ansi.rule(f"A/B · {args.a} vs {args.b}"))
     ratio = result["wall_ratio_b_over_a"]
     lo, hi = result["wall_ratio_ci95"]
-    print(f"  wall  B/A {ansi.ratio(ratio)}  CI95 [{lo}, {hi}]")
+    verdict = "B faster" if hi < 1.0 else ("A faster" if lo > 1.0 else "no verdict (CI spans 1.0)")
+    print(f"  wall  B/A {ansi.ratio(ratio)}  CI95 [{lo}, {hi}]  → {verdict}")
     if "instruction_ratio_b_over_a" in result:
         print(f"  instr B/A {ansi.ratio(result['instruction_ratio_b_over_a'])}"
               f"   cycles B/A {ansi.ratio(result['cycle_ratio_b_over_a'])}")
     print(ansi.style(
         f"  A {result['a_ns_per_op']:.3f} ns/op · B {result['b_ns_per_op']:.3f} ns/op", "dim"))
+    if args.json:
+        out = bench_a / f"compare-vs-{bench_b.name}.json"
+        out.write_text(json.dumps(result, indent=1) + "\n")
+        print(ansi.style(f"  written to {out}", "dim"))
     return 0
 
 
 def cmd_zig_asm(args) -> int:
     summary = zigtools.asm_summary(scaffold.resolve(args.name), args.symbol)
+    ranked = sorted(summary["symbols"].items(), key=lambda kv: -kv[1]["instructions"])
+    hidden = 0
+    if not args.all:
+        hidden = sum(1 for _, s in ranked if s["std"])
+        ranked = [(n, s) for n, s in ranked if not s["std"]]
     rows = [
         [name, str(s["instructions"]), f"{s['neon_pct']}%", str(s["branches"]), str(s["memory"])]
-        for name, s in sorted(summary["symbols"].items(),
-                              key=lambda kv: -kv[1]["instructions"])
+        for name, s in ranked
     ][:args.top]
     print(ansi.table(["symbol", "instrs", "neon", "branches", "mem"], rows, aligns="lrrrr"))
+    if hidden:
+        print(ansi.style(f"  {hidden} std/runtime symbols hidden (--all to show)", "dim"))
     print(ansi.style(f"  full listing: {summary['asm_file']}", "dim"))
+    if args.json:
+        out = scaffold.resolve(args.name) / "asm.json"
+        out.write_text(json.dumps(summary, indent=1) + "\n")
+        print(ansi.style(f"  written to {out}", "dim"))
     return 0
 
 
@@ -89,10 +115,18 @@ def cmd_zig_sample(args) -> int:
                                     seconds=args.seconds, iters=args.iters)
     out = scaffold.resolve(args.name) / "sample.txt"
     out.write_text(report)
-    for line in report.splitlines():
-        if "bench" in line and ("workload" in line or "main" in line):
-            print(line)
+    frames = zigtools.sample_hot_frames(report, top=args.top)
+    if frames:
+        rows = [[f["symbol"], str(f["samples"]), f"{f['pct_of_run']}%"] for f in frames]
+        print(ansi.table(["frame (inclusive)", "samples", "of run"], rows, aligns="lrr"))
+    else:
+        print(ansi.style("  no bench frames captured — raise --iters so the "
+                         "workload outlives the sampler", "yellow"))
     print(f"{ansi.OK} full stack report: {out}")
+    if args.json:
+        jout = scaffold.resolve(args.name) / "sample.json"
+        jout.write_text(json.dumps({"hot_frames": frames}, indent=1) + "\n")
+        print(ansi.style(f"  written to {jout}", "dim"))
     return 0
 
 
@@ -108,6 +142,8 @@ def cmd_metal_isolate(args) -> int:
 def cmd_metal_run(args) -> int:
     bench = scaffold.resolve(args.name)
     kernel = bench / "kernel.metal" if bench.is_dir() else bench
+    if args.sweep_tg:
+        return _metal_sweep(bench, kernel, args)
     result = metaltools.run_kernel(kernel, args.entry, grid=args.grid, tg=args.tg,
                                    iters=args.iters, buffers=args.buffers)
     _panel(f"metal · {args.entry}", result, [
@@ -125,6 +161,36 @@ def cmd_metal_run(args) -> int:
     if args.json:
         out = (bench if bench.is_dir() else bench.parent) / "metal.json"
         out.write_text(json.dumps(result, indent=1) + "\n")
+        print(ansi.style(f"  written to {out}", "dim"))
+    return 0
+
+
+def _metal_sweep(bench: Path, kernel: Path, args) -> int:
+    """Threadgroup-size sweep: the skill's 'a single point is not an
+    occupancy conclusion' rule, mechanized."""
+    points, max_threads = [], None
+    for tg in (64, 128, 256, 512, 1024):
+        if max_threads is not None and tg > max_threads:
+            break
+        result = metaltools.run_kernel(kernel, args.entry, grid=args.grid, tg=tg,
+                                       iters=args.iters, buffers=args.buffers)
+        max_threads = result.get("pipeline", {}).get("max_total_threads_per_threadgroup")
+        points.append({"tg": tg, "gpu_ms_median": result["gpu_ms_median"],
+                       "approx_gb_per_s": result.get("approx_gb_per_s")})
+    best = min(points, key=lambda p: p["gpu_ms_median"])
+    rows = [[str(p["tg"]), f"{p['gpu_ms_median']:.4f}",
+             f"{p['approx_gb_per_s']:.1f}" if p["approx_gb_per_s"] else "-",
+             "◀ best" if p is best else ""]
+            for p in points]
+    print(ansi.rule(f"metal tg sweep · {args.entry} · grid {args.grid}"))
+    print(ansi.table(["tg", "GPU ms", "~GB/s", ""], rows, aligns="rrrl"))
+    if max_threads is not None and max_threads < 1024:
+        print(ansi.style(f"  PSO caps threadgroups at {max_threads} — "
+                         "register pressure is limiting occupancy", "yellow"))
+    if args.json:
+        out = (bench if bench.is_dir() else bench.parent) / "sweep.json"
+        out.write_text(json.dumps({"entry": args.entry, "grid": args.grid,
+                                   "points": points}, indent=1) + "\n")
         print(ansi.style(f"  written to {out}", "dim"))
     return 0
 
@@ -156,6 +222,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = zs.add_parser("isolate", help="create a scratch bench harness")
     p.add_argument("name")
     p.add_argument("--from", dest="source", help="seed workload.zig from a file")
+    p.add_argument("--import", dest="imports", action="append", metavar="NAME=PATH",
+                   help="wire a module into the harness (e.g. stwo=/repo/src/stwo.zig) "
+                        "so the workload profiles live repo code")
     p = zs.add_parser("run", help="build + run with in-process hardware counters")
     p.add_argument("name")
     p.add_argument("--iters", type=int, default=2000)
@@ -167,14 +236,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("b")
     p.add_argument("--iters", type=int, default=2000)
     p.add_argument("--rounds", type=int, default=7)
+    p.add_argument("--json", action="store_true")
     p = zs.add_parser("asm", help="codegen summary (instrs, NEON share, branches)")
     p.add_argument("name")
     p.add_argument("--symbol")
     p.add_argument("--top", type=int, default=12)
+    p.add_argument("--all", action="store_true",
+                   help="include std/runtime symbols (hidden by default)")
+    p.add_argument("--json", action="store_true")
     p = zs.add_parser("sample", help="stack sampling via /usr/bin/sample")
     p.add_argument("name")
     p.add_argument("--seconds", type=int, default=5)
     p.add_argument("--iters", type=int, default=2_000_000)
+    p.add_argument("--top", type=int, default=10)
+    p.add_argument("--json", action="store_true")
 
     metal = sub.add_parser("metal", help="GPU profiling lane")
     ms = metal.add_subparsers(dest="cmd", required=True)
@@ -188,6 +263,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--tg", type=int, default=256)
     p.add_argument("--iters", type=int, default=50)
     p.add_argument("--buffers", default="f32:1048576,f32:1048576,f32:1048576")
+    p.add_argument("--sweep-tg", action="store_true",
+                   help="sweep threadgroup sizes 64..1024 and print the curve")
     p.add_argument("--json", action="store_true")
     ms.add_parser("caps", help="device capabilities")
     p = ms.add_parser("trace", help="Metal System Trace around a command")
