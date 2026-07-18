@@ -498,7 +498,9 @@ identity, setup attribution, or repository ownership.
 Local acceptance is bound to implementation revision `44a81457`:
 
 - the 12-row matrix report is
-  `vectors/reports/benchmark_history/reports/native_proof_cross_backend_matrix_v5/3e3cf347fe958b822558e7c614b5f11317187f321d412fbd4a834d551b81d78b.json`;
+  `vectors/reports/benchmark_history/runs/2026-07-18-004844-matrix-v5-44a81457/report.json`
+  (SHA-256 `3e3cf347fe958b822558e7c614b5f11317187f321d412fbd4a834d551b81d78b`; relocated by the
+  history layout-v2 migration, bytes unchanged);
   its raw 72-file tree is bundle
   `8904754e1be42115f1c14ab86c4f41c646b26a37ce52a1782b58f4c6f7a4fea5`, and its comparable
   immutable delta is `935452a7f710c885cff681fa6f374c23e9136d1df179adbfa13412491e02ecbd`;

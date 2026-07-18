@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Archive an exact Native proof-matrix tree under a content address."""
+"""Archive an exact Native proof-matrix tree beside its run's report.
+
+Layout v2: the bundle lives at `runs/<run-id>/bundle/` next to the run's
+`report.json`. The report bytes are stored exactly once — the bundle binds
+them by sha256 in its manifest instead of carrying a duplicate copy. The
+manifest digest (the bundle identity) is recorded in index.json.
+"""
 
 from __future__ import annotations
 
@@ -8,12 +14,18 @@ import hashlib
 import json
 import os
 import shutil
+import sys
 import tempfile
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
 
 SCHEMA = "native_proof_matrix_bundle_v1"
+INDEX_SCHEMA_VERSION = 2
 MAX_FILES = 256
 MAX_FILE_BYTES = 64 * 1024 * 1024
 MAX_TOTAL_BYTES = 256 * 1024 * 1024
@@ -160,12 +172,44 @@ def build_manifest(matrix_dir: Path, expected_report: Path | None) -> tuple[dict
     return manifest, summary_raw
 
 
+def _resolve_run(index: dict[str, Any], report_sha256: str) -> str:
+    artifacts = index.get("artifacts")
+    if not isinstance(artifacts, dict) or report_sha256 not in artifacts:
+        raise ArchiveError(
+            "the matrix report is not archived yet; run the delta archiver first "
+            f"(no artifact entry for {report_sha256[:12]})"
+        )
+    run = artifacts[report_sha256].get("run")
+    if not isinstance(run, str) or run not in index.get("runs", {}):
+        raise ArchiveError(f"archive index has no run for report {report_sha256[:12]}")
+    return run
+
+
 def publish_bundle(matrix_dir: Path, archive_dir: Path, expected_report: Path | None) -> dict[str, Any]:
     manifest, summary_raw = build_manifest(matrix_dir, expected_report)
     manifest_raw = encoded_json(manifest)
     digest = sha256_bytes(manifest_raw)
-    relative = Path("matrix_bundles") / SCHEMA / digest
-    destination = archive_dir.resolve() / relative
+    report_sha256 = manifest["report"]["sha256"]
+
+    archive_dir = archive_dir.resolve()
+    index_path = archive_dir / "index.json"
+    if not index_path.exists():
+        raise ArchiveError("archive index.json is missing; archive the report first")
+    index, _ = load_object(index_path, "archive index")
+    if index.get("schema_version") == 1:
+        raise ArchiveError(
+            "archive uses the v1 layout; run scripts/migrate_benchmark_history_v2.py first"
+        )
+    if index.get("schema_version") != INDEX_SCHEMA_VERSION:
+        raise ArchiveError("archive index schema is incompatible")
+
+    run = _resolve_run(index, report_sha256)
+    run_report = archive_dir / index["artifacts"][report_sha256]["path"]
+    if run_report.read_bytes() != summary_raw:
+        raise ArchiveError("archived run report differs from the matrix summary")
+
+    relative = Path("runs") / run / "bundle"
+    destination = archive_dir / relative
     tree = destination / "tree"
     destination.mkdir(parents=True, exist_ok=True)
 
@@ -185,28 +229,29 @@ def publish_bundle(matrix_dir: Path, archive_dir: Path, expected_report: Path | 
             out.flush()
             os.fsync(out.fileno())
         os.replace(temporary, target)
-    atomic_write(destination / "summary.json", summary_raw)
+    # The report bytes live once, as the run's report.json; the manifest's
+    # report.sha256 (verified above) binds the bundle to them.
     atomic_write(destination / "manifest.json", manifest_raw)
 
     locator = {
         "schema": SCHEMA,
         "bundle_sha256": digest,
         "path": relative.as_posix(),
-        "report_sha256": manifest["report"]["sha256"],
+        "run": run,
+        "report_sha256": report_sha256,
         "artifact_files": manifest["totals"]["artifact_files"],
         "artifact_bytes": manifest["totals"]["artifact_bytes"],
     }
-    index_path = archive_dir.resolve() / "matrix_bundles" / "index.json"
-    if index_path.exists():
-        index, _ = load_object(index_path, "matrix bundle index")
-        if index.get("schema_version") != 1 or not isinstance(index.get("bundles"), dict):
-            raise ArchiveError("matrix bundle index schema is incompatible")
-    else:
-        index = {"schema_version": 1, "bundles": {}}
-    existing = index["bundles"].get(digest)
+    run_entry = index["runs"][run]
+    existing = run_entry.get("bundle")
     if existing is not None and existing != locator:
+        raise ArchiveError("run already carries a different bundle")
+    run_entry["bundle"] = locator
+    bundles = index.setdefault("bundles", {})
+    recorded = bundles.get(digest)
+    if recorded is not None and recorded != locator:
         raise ArchiveError("matrix bundle index conflicts with immutable content")
-    index["bundles"][digest] = locator
+    bundles[digest] = locator
     atomic_write(index_path, encoded_json(index))
     return locator
 

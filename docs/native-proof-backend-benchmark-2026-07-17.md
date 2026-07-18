@@ -60,8 +60,11 @@ granularity TODO, not missing proof work.
 
 ## Evidence
 
-- Exact report: `vectors/reports/benchmark_history/reports/native_proof_cross_backend_matrix_v5/3e3cf347fe958b822558e7c614b5f11317187f321d412fbd4a834d551b81d78b.json`
-- Raw matrix bundle: `vectors/reports/benchmark_history/matrix_bundles/native_proof_matrix_bundle_v1/8904754e1be42115f1c14ab86c4f41c646b26a37ce52a1782b58f4c6f7a4fea5/`
+- Exact report: `vectors/reports/benchmark_history/runs/2026-07-18-004844-matrix-v5-44a81457/report.json`
+  (SHA-256 `3e3cf347fe958b822558e7c614b5f11317187f321d412fbd4a834d551b81d78b`; relocated by the
+  history layout-v2 migration, bytes unchanged)
+- Raw matrix bundle: `vectors/reports/benchmark_history/runs/2026-07-18-004844-matrix-v5-44a81457/bundle/`
+  (manifest SHA-256 `8904754e1be42115f1c14ab86c4f41c646b26a37ce52a1782b58f4c6f7a4fea5`)
 - Comparable delta: `vectors/reports/native_proof_broad_delta_44a81457.json`
 - Immutable delta SHA-256: `935452a7f710c885cff681fa6f374c23e9136d1df179adbfa13412491e02ecbd`
 - Profile manifest: `vectors/reports/native_profile_baseline_44a81457/manifest.json`

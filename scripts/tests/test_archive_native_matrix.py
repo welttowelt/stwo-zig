@@ -35,6 +35,7 @@ def write_matrix(path: Path) -> Path:
     summary = {
         "protocol": "native_proof_cross_backend_matrix_v4",
         "schema_version": 4,
+        "generated_at": "2026-07-18T06:43:34.232047+00:00",
         "configuration": {"provenance": {"git_commit": "a" * 40}},
         "rows": [{"lanes": lanes}],
     }
@@ -43,21 +44,62 @@ def write_matrix(path: Path) -> Path:
     return report
 
 
+def seed_archive(archive: Path, report: Path) -> str:
+    """Layout-v2 archives require the report to be archived under a run first."""
+    raw = report.read_bytes()
+    sha = digest(raw)
+    run = "2026-07-18-064334-matrix-v4-aaaaaaaa"
+    run_report = archive / "runs" / run / "report.json"
+    run_report.parent.mkdir(parents=True, exist_ok=True)
+    run_report.write_bytes(raw)
+    index = {
+        "schema_version": 2,
+        "runs": {
+            run: {
+                "kind": "native_proof_cross_backend_matrix_v4",
+                "report": {"path": f"runs/{run}/report.json", "bytes": len(raw), "sha256": sha},
+                "deltas": [],
+                "bundle": None,
+            }
+        },
+        "artifacts": {sha: {"path": f"runs/{run}/report.json", "bytes": len(raw), "run": run}},
+        "deltas": {},
+        "bundles": {},
+        "comparisons": [],
+    }
+    (archive / "index.json").write_text(json.dumps(index, indent=2, sort_keys=True) + "\n")
+    return run
+
+
 class ArchiveNativeMatrixTests(unittest.TestCase):
     def test_publishes_exact_tree_and_is_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             report = write_matrix(root / "matrix")
+            run = seed_archive(root / "archive", report)
             first = publish_bundle(root / "matrix", root / "archive", report)
             second = publish_bundle(root / "matrix", root / "archive", report)
             self.assertEqual(first, second)
             self.assertEqual(6, first["artifact_files"])
+            self.assertEqual(run, first["run"])
+            self.assertEqual(f"runs/{run}/bundle", first["path"])
             bundle = root / "archive" / first["path"]
-            self.assertEqual(report.read_bytes(), (bundle / "summary.json").read_bytes())
+            # No duplicated report bytes: the run's report.json is the single copy.
+            self.assertFalse((bundle / "summary.json").exists())
             self.assertTrue((bundle / "tree/row/metal.proof.json").is_file())
             manifest = json.loads((bundle / "manifest.json").read_text())
             self.assertEqual("a" * 40, manifest["execution_provenance"]["runner"]["git_commit"])
             self.assertIn("host fields absent", manifest["limitations"][0])
+            index = json.loads((root / "archive" / "index.json").read_text())
+            self.assertEqual(first, index["runs"][run]["bundle"])
+            self.assertEqual(first, index["bundles"][first["bundle_sha256"]])
+
+    def test_refuses_unarchived_report(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            report = write_matrix(root / "matrix")
+            with self.assertRaisesRegex(ArchiveError, "index.json is missing"):
+                publish_bundle(root / "matrix", root / "archive", report)
 
     def test_preserves_complete_host_provenance_without_a_missing_field_limitation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
