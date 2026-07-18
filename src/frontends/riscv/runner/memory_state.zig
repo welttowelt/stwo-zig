@@ -34,6 +34,10 @@ pub const MemoryLayout = struct {
         return addr >= start and addr < end_aligned;
     }
 
+    pub fn isProgramAddr(self: MemoryLayout, addr: u32) bool {
+        return addr >= self.program_base and addr < self.program_end;
+    }
+
     pub fn isRwAddr(self: MemoryLayout, addr: u32) bool {
         return (addr >= self.data_base and addr < self.data_end) or
             (addr >= self.stack_bottom and addr < self.stack_top) or
@@ -79,9 +83,14 @@ pub const Snapshot = struct {
     layout: MemoryLayout,
     segment_role: SegmentRole,
     words: []WordState,
+    /// Aligned words of the DECLARED program region ([__text_start,
+    /// __text_start + __text_len)), in address order — the pinned oracle's
+    /// program-root leaf source. Empty when the region is undeclared.
+    program_words: []WordState = &.{},
 
     pub fn deinit(self: *Snapshot, allocator: std.mem.Allocator) void {
         allocator.free(self.words);
+        allocator.free(self.program_words);
         self.* = undefined;
     }
 };
@@ -123,10 +132,28 @@ pub fn capture(
         });
     }
     std.mem.sort(WordState, words.items, {}, lessWord);
+
+    var program_words: std.ArrayList(WordState) = .{};
+    errdefer program_words.deinit(allocator);
+    var program_iterator = addresses.keyIterator();
+    while (program_iterator.next()) |addr_ptr| {
+        const addr = addr_ptr.*;
+        if (!layout.isProgramAddr(addr)) continue;
+        const word = memory.readU32(addr);
+        try program_words.append(allocator, .{
+            .addr = addr,
+            .initial_word = word,
+            .final_word = word,
+            .final_clock = 0,
+        });
+    }
+    std.mem.sort(WordState, program_words.items, {}, lessWord);
+
     return .{
         .layout = layout,
         .segment_role = segment_role,
         .words = try words.toOwnedSlice(allocator),
+        .program_words = try program_words.toOwnedSlice(allocator),
     };
 }
 

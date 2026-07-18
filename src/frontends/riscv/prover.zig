@@ -54,6 +54,7 @@ const opcode_memory = @import("air/opcode_memory.zig");
 const public_data_mod = @import("air/public_data.zig");
 const public_logup = @import("air/public_logup.zig");
 const memory_boundary = @import("air/memory_commitment/boundary.zig");
+const sparse_merkle = @import("air/memory_commitment/sparse_merkle.zig");
 const memory_interaction = @import("air/memory_commitment/interaction.zig");
 const memory_trace = @import("air/memory_commitment/trace.zig");
 const riscv_component = @import("air/component.zig");
@@ -269,6 +270,31 @@ const MerkleTreeResult = struct {
 ///
 /// Returns the captured hash traces (for Poseidon2 trace columns), the total
 /// number of hash invocations (for Merkle trace columns), and the tree root.
+fn buildProgramSparseRoot(
+    allocator: std.mem.Allocator,
+    opt_memory: ?*const memory_state.Snapshot,
+) !?u32 {
+    // Oracle-exact: leaves are the bytes of the DECLARED program region;
+    // an undeclared/empty region yields an ABSENT root (None), which the
+    // transcript distinguishes from a present zero or default root.
+    var leaves: std.ArrayList(sparse_merkle.Leaf) = .{};
+    defer leaves.deinit(allocator);
+    if (opt_memory) |snapshot| {
+        for (snapshot.program_words) |word| {
+            for (0..4) |limb| {
+                try leaves.append(allocator, .{
+                    .index = word.addr + @as(u32, @intCast(limb)),
+                    .value = (word.initial_word >> @intCast(8 * limb)) & 0xFF,
+                });
+            }
+        }
+    }
+    if (leaves.items.len == 0) return null;
+    var tree = try sparse_merkle.build(allocator, leaves.items);
+    defer tree.deinit(allocator);
+    return tree.root;
+}
+
 fn buildProgramMerkleTree(
     allocator: std.mem.Allocator,
     exec_trace: *const trace_mod.Trace,
@@ -823,9 +849,15 @@ pub fn proveRiscVWithEngineAndPublicData(
     // Build real Poseidon2 Merkle trees and capture hash traces.
     const prog_merkle = try buildProgramMerkleTree(allocator, exec_trace);
     defer allocator.free(prog_merkle.hash_traces);
-    const computed_program_root = prog_merkle.root[0].v;
+    // The PUBLIC program root uses the pinned oracle's construction: a
+    // byte-addressed sparse Poseidon2 tree over the instruction words at
+    // pc + limb — the same tree family whose RW roots already match the
+    // oracle. The legacy dense trace above still feeds the Poseidon2
+    // component until the Merkle bus closes (CP-06).
+    const computed_program_root = try buildProgramSparseRoot(allocator, opt_memory);
     if (statement.public_data.program_root) |root| {
-        if (root != computed_program_root) return ProverError.InvalidStatement;
+        const computed = computed_program_root orelse return ProverError.InvalidStatement;
+        if (root != computed) return ProverError.InvalidStatement;
     }
     statement.public_data.program_root = computed_program_root;
 
