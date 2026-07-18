@@ -23,6 +23,9 @@ ACTIVE_FORMAL_EVIDENCE_ROOTS = (
     "scripts/native_profile_capture.py",
     "scripts/native_proof_matrix.py",
     "scripts/profile_smoke.py",
+    "scripts/check_riscv_release_contract.py",
+    "scripts/riscv_release_evidence.py",
+    "scripts/riscv_release_gate.py",
 )
 # Every active evidence package may consume the stable interop command contract.
 PYTHON_FOUNDATION_LIBRARIES = frozenset({"interop_cli_lib", "process_resources_lib"})

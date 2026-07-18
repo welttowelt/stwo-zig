@@ -13,6 +13,8 @@ on:
         options:
           - standard
           - strict
+          - riscv-candidate
+          - riscv-promoted
         default: standard
 
 permissions:
@@ -25,6 +27,7 @@ concurrency:
 jobs:
   release-gate:
     name: Release gate
+    if: github.event_name != 'workflow_dispatch' || !startsWith(inputs.gate, 'riscv-')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -47,9 +50,9 @@ jobs:
         run: rustup toolchain install nightly-2025-07-14 --profile minimal
 
       - name: Checkout pinned stwo-cairo oracle
-        env:
+        env: &stwo-cairo-env
           STWO_CAIRO_REVISION: dcd5834565b7a26a27a614e353c9c60109ebc1d9
-        run: |
+        run: &checkout-stwo-cairo |
           git init "$STWO_CAIRO_RUST_ROOT"
           git -C "$STWO_CAIRO_RUST_ROOT" remote add origin https://github.com/teddyjfpender/stwo-cairo
           git -C "$STWO_CAIRO_RUST_ROOT" fetch --depth=1 origin "$STWO_CAIRO_REVISION"
@@ -76,6 +79,7 @@ jobs:
 
   metal-acceptance:
     name: Metal AOT reproducible build
+    if: github.event_name != 'workflow_dispatch' || !startsWith(inputs.gate, 'riscv-')
     runs-on: macos-14
     timeout-minutes: 20
     steps:
@@ -116,3 +120,74 @@ jobs:
 
       - name: Compile broader Metal test graph without execution
         run: zig build metal-check -Doptimize=ReleaseSafe
+
+  riscv-release-evidence:
+    name: RISC-V release evidence
+    if: github.event_name != 'workflow_dispatch' || startsWith(inputs.gate, 'riscv-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      STARK_V_SOURCE: ${{ github.workspace }}/../stark-v
+      STWO_CAIRO_RUST_ROOT: ${{ github.workspace }}/../stwo-cairo
+      RISCV_GATE_PHASE: ${{ inputs.gate == 'riscv-candidate' && 'candidate' || 'promoted' }}
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Detect promoted adapter
+        id: riscv-release-state
+        run: |
+          if grep -q 'pub const RISCV_ADAPTER_RELEASE_GATED = true;' src/tools/prove/registry.zig; then
+            echo 'promoted=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'promoted=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Python
+        if: steps.riscv-release-state.outputs.promoted == 'true' || startsWith(inputs.gate, 'riscv-')
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+
+      - name: Setup Zig
+        if: steps.riscv-release-state.outputs.promoted == 'true' || startsWith(inputs.gate, 'riscv-')
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          version: 0.15.2
+
+      - name: Install pinned Rust toolchain
+        if: steps.riscv-release-state.outputs.promoted == 'true' || startsWith(inputs.gate, 'riscv-')
+        run: rustup toolchain install nightly-2025-07-14 --profile minimal
+
+      - name: Checkout pinned Stark-V oracle
+        if: steps.riscv-release-state.outputs.promoted == 'true' || startsWith(inputs.gate, 'riscv-')
+        env:
+          STARK_V_REVISION: d478f783055aa0d73a93768a433a3c6c31c91d1c
+        run: |
+          git init "$STARK_V_SOURCE"
+          git -C "$STARK_V_SOURCE" remote add origin https://github.com/ClementWalter/stark-v
+          git -C "$STARK_V_SOURCE" fetch --depth=1 origin "$STARK_V_REVISION"
+          git -C "$STARK_V_SOURCE" checkout --detach FETCH_HEAD
+
+      - name: Checkout pinned stwo-cairo oracle
+        if: steps.riscv-release-state.outputs.promoted == 'true' || startsWith(inputs.gate, 'riscv-')
+        env: *stwo-cairo-env
+        run: *checkout-stwo-cairo
+
+      - name: Run enforcing CP-13 phase gate
+        if: steps.riscv-release-state.outputs.promoted == 'true' || startsWith(inputs.gate, 'riscv-')
+        run: |
+          python3 scripts/riscv_release_gate.py \
+            --strict \
+            --phase "$RISCV_GATE_PHASE" \
+            --stark-v-source "$STARK_V_SOURCE" \
+            --candidate "$(git rev-parse HEAD)"
+
+      - name: Retain RISC-V phase evidence
+        if: always() && (steps.riscv-release-state.outputs.promoted == 'true' || startsWith(inputs.gate, 'riscv-'))
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: riscv-${{ env.RISCV_GATE_PHASE }}-evidence-${{ github.sha }}
+          path: zig-out/release-evidence/riscv/
+          if-no-files-found: error
+          retention-days: 30

@@ -3,11 +3,39 @@ const std = @import("std");
 pub const Context = struct {
     b: *std.Build,
     zig_optimize_arg: []const u8,
+    riscv_release_phase: []const u8,
+    riscv_evidence_dir: []const u8,
 };
 
 pub fn addProducts(context: Context) void {
     const b = context.b;
     const zig_optimize_arg = context.zig_optimize_arg;
+    const riscv_release_phase = context.riscv_release_phase;
+    const riscv_receipt = b.fmt("{s}/oracle-receipt.json", .{context.riscv_evidence_dir});
+
+    // CP-13 remains independent of the ordinary release chains until RF-01.
+    // The final candidate-bound evidence check intentionally fails while any
+    // CP-11 boundary or provenance field is unavailable.
+    const riscv_contract = b.addSystemCommand(&.{
+        "python3", "scripts/check_riscv_release_contract.py", "--all", "--phase", riscv_release_phase,
+    });
+    const riscv_vectors = b.addSystemCommand(&.{ "python3", "scripts/riscv_trace_vectors.py" });
+    riscv_vectors.step.dependOn(&riscv_contract.step);
+    const riscv_smoke = b.addSystemCommand(&.{
+        "python3", "scripts/riscv_staged_smoke.py", "--phase", riscv_release_phase,
+    });
+    riscv_smoke.step.dependOn(&riscv_vectors.step);
+    const riscv_evidence = b.addSystemCommand(&.{
+        "python3",          "scripts/riscv_release_evidence.py",
+        "--receipt",        riscv_receipt,
+        "--candidate-head",
+    });
+    riscv_evidence.step.dependOn(&riscv_smoke.step);
+    const riscv_release_gate = b.step(
+        "riscv-release-gate",
+        "Run the staged CLI and validate complete candidate-bound CP-11 evidence",
+    );
+    riscv_release_gate.dependOn(&riscv_evidence.step);
 
     // Expanded compile/test graph gate.
     const deep_gate_cmd = b.addSystemCommand(&.{ "zig", "test", "src/stwo_deep.zig", zig_optimize_arg });

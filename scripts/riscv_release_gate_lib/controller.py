@@ -1,0 +1,345 @@
+"""Execution and evidence capture for the enforcing CP-13 command."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import platform
+import re
+import shlex
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Callable
+
+from .contract import repository_contract_errors, sha256_file
+
+
+ROOT = Path(__file__).resolve().parents[2]
+EVIDENCE_BASE = ROOT / "zig-out/release-evidence/riscv/runs"
+MAX_CAPTURE_CHARS = 16_384
+DEFAULT_COMMAND_TIMEOUT_SECONDS = 3_600.0
+
+
+def command_plan(
+    *,
+    strict: bool,
+    phase: str,
+    stark_v_source: Path | None,
+    candidate: str,
+    evidence_dir: Path,
+) -> list[list[str]]:
+    python = sys.executable
+    cli_evidence = evidence_dir / "cli"
+    commands = [
+        ["zig", "fmt", "--check", "build.zig", "src", "tools"],
+        [python, "scripts/check_upstream_pins.py"],
+        [python, "scripts/check_source_conformance.py"],
+        [python, "scripts/check_riscv_release_contract.py", "--all", "--phase", phase],
+        [
+            python,
+            "-m",
+            "unittest",
+            "scripts.tests.test_riscv_release_gate",
+            "scripts.tests.test_ci",
+            "scripts.tests.test_source_conformance",
+            "scripts.tests.test_upstream_pins",
+        ],
+        ["zig", "build", "test", "-Doptimize=ReleaseFast"],
+        ["zig", "build", "test-riscv", "-Doptimize=ReleaseFast"],
+        ["zig", "build", "test-riscv-prover", "-Doptimize=ReleaseFast"],
+        [python, "scripts/check_api_parity.py"],
+        [python, "scripts/riscv_trace_vectors.py"],
+        [
+            python,
+            "scripts/riscv_staged_smoke.py",
+            "--phase",
+            phase,
+            "--evidence-dir",
+            str(cli_evidence),
+        ],
+        ["zig", "build", "release-gate", "-Doptimize=ReleaseFast"],
+    ]
+    if strict:
+        if stark_v_source is None:
+            raise ValueError("--strict requires --stark-v-source")
+        receipt = str(evidence_dir / "oracle-receipt.json")
+        commands.extend(
+            [
+                ["zig", "build", "release-gate-strict", "-Doptimize=ReleaseFast"],
+                [
+                    python,
+                    "scripts/riscv_release_oracle.py",
+                    "build-and-compare",
+                    "--stark-v-source",
+                    str(stark_v_source),
+                    "--candidate",
+                    candidate,
+                    "--receipt-out",
+                    receipt,
+                ],
+                [python, "scripts/riscv_release_oracle.py", "validate", "--receipt", receipt],
+                [
+                    python,
+                    "scripts/riscv_release_evidence.py",
+                    "--receipt",
+                    receipt,
+                    "--candidate",
+                    candidate,
+                ],
+                [
+                    "zig",
+                    "build",
+                    "riscv-release-gate",
+                    "-Doptimize=ReleaseFast",
+                    f"-Driscv-release-phase={phase}",
+                    f"-Driscv-evidence-dir={evidence_dir}",
+                ],
+            ]
+        )
+    return commands
+
+
+def git_status(root: Path = ROOT) -> str:
+    return subprocess.run(
+        ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+
+
+def _text(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    return value.decode(errors="replace") if isinstance(value, bytes) else value
+
+
+def _capture(
+    command: list[str],
+    root: Path = ROOT,
+    timeout_seconds: float = DEFAULT_COMMAND_TIMEOUT_SECONDS,
+) -> dict[str, object]:
+    started_at = time.time_ns()
+    started = time.monotonic_ns()
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=root,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+        code = completed.returncode
+        stdout = completed.stdout
+        stderr = completed.stderr
+        timed_out = False
+    except subprocess.TimeoutExpired as error:
+        code = 124
+        stdout = _text(error.stdout)
+        stderr = _text(error.stderr) + f"\ncommand timed out after {timeout_seconds:g}s"
+        timed_out = True
+    except OSError as error:
+        code = 127
+        stdout = ""
+        stderr = str(error)
+        timed_out = False
+    combined = f"{stdout}\n{stderr}"
+    skipped = sum(int(match) for match in re.findall(r"\b(\d+) skipped\b", combined))
+    skipped += sum(int(match) for match in re.findall(r"\bskipped=(\d+)\b", combined))
+    return {
+        "command": command,
+        "command_shell": shlex.join(command),
+        "exit_code": code,
+        "timed_out": timed_out,
+        "timeout_seconds": timeout_seconds,
+        "started_at_unix_ns": started_at,
+        "duration_ns": time.monotonic_ns() - started,
+        "skipped_tests": skipped,
+        "stdout_sha256": hashlib.sha256(stdout.encode()).hexdigest(),
+        "stderr_sha256": hashlib.sha256(stderr.encode()).hexdigest(),
+        "stdout_tail": stdout[-MAX_CAPTURE_CHARS:],
+        "stderr_tail": stderr[-MAX_CAPTURE_CHARS:],
+    }
+
+
+def _tool_versions(root: Path = ROOT) -> dict[str, str]:
+    versions: dict[str, str] = {}
+    for name, command in {
+        "git": ["git", "--version"],
+        "zig": ["zig", "version"],
+        "python": [sys.executable, "--version"],
+        "rustc": ["rustc", "--version"],
+    }.items():
+        result = _capture(command, root, 30.0)
+        text = f"{result['stdout_tail']}\n{result['stderr_tail']}".strip()
+        versions[name] = text if result["exit_code"] == 0 else "unavailable"
+    return versions
+
+
+def _artifact_digests(root: Path, evidence_dir: Path) -> dict[str, str]:
+    paths = (
+        "conformance/2026-07-18-riscv-release-goal.md",
+        "conformance/2026-07-18-riscv-bias-audit.md",
+        "conformance/divergence-log.md",
+        "src/tests/riscv/malicious_witness_test.zig",
+        "autoresearch/MANIFEST.json",
+    )
+    digests = {path: sha256_file(root / path) for path in paths if (root / path).is_file()}
+    if evidence_dir.is_dir():
+        for artifact in sorted(evidence_dir.rglob("*")):
+            if artifact.is_file() and artifact.name != "release-gate.json":
+                relative = artifact.relative_to(root).as_posix()
+                digests[relative] = sha256_file(artifact)
+    return digests
+
+
+def _write_report_atomic(path: Path, report: dict[str, object]) -> None:
+    encoded = (json.dumps(report, indent=2, sort_keys=True) + "\n").encode()
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(encoded)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.link(temporary, path)
+        temporary.unlink()
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def run_gate(
+    commands: list[list[str]],
+    *,
+    phase: str,
+    candidate: str,
+    evidence_dir: Path,
+    report_out: Path,
+    command_timeout_seconds: float = DEFAULT_COMMAND_TIMEOUT_SECONDS,
+    root: Path = ROOT,
+    runner: Callable[[list[str], Path], dict[str, object]] = _capture,
+) -> int:
+    try:
+        evidence_dir.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        print(f"riscv release gate: evidence directory already exists: {evidence_dir}", file=sys.stderr)
+        return 1
+    started = time.time_ns()
+    monotonic_started = time.monotonic_ns()
+    records: list[dict[str, object]] = []
+    initial_status = git_status(root)
+    failures = []
+    if initial_status:
+        failures.append("initial repository is dirty")
+
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
+    ).stdout.strip()
+    if head != candidate:
+        failures.append(f"candidate {candidate} does not match HEAD {head}")
+    failures.extend(repository_contract_errors(root, phase))
+
+    if not failures:
+        for command in commands:
+            print(f"+ {shlex.join(command)}", flush=True)
+            record = runner(command, root)
+            records.append(record)
+            if record["exit_code"] != 0:
+                failures.append(f"command failed: {record['command_shell']}")
+                break
+            if record.get("skipped_tests", 0) != 0:
+                failures.append(f"required tests were skipped: {record['command_shell']}")
+                break
+
+    final_status = git_status(root)
+    if final_status:
+        failures.append("final repository is dirty")
+    report = {
+        "schema": "riscv-release-gate-evidence-v1",
+        "status": "PASS" if not failures else "FAIL",
+        "phase": phase,
+        "candidate_commit": candidate,
+        "started_at_unix_ns": started,
+        "duration_ns": time.monotonic_ns() - monotonic_started,
+        "command_timeout_seconds": command_timeout_seconds,
+        "host": {
+            "system": platform.system(),
+            "release": platform.release(),
+            "machine": platform.machine(),
+            "node": platform.node(),
+            "ci": bool(os.environ.get("CI")),
+        },
+        "toolchains": _tool_versions(root),
+        "git": {
+            "head": head,
+            "initial_porcelain": initial_status,
+            "final_porcelain": final_status,
+        },
+        "commands": records,
+        "artifact_sha256": _artifact_digests(root, evidence_dir),
+        "failures": failures,
+    }
+    _write_report_atomic(report_out, report)
+    for failure in failures:
+        print(f"riscv release gate: {failure}", file=sys.stderr)
+    return 1 if failures else 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Run and record the enforcing CP-13 RISC-V gate")
+    parser.add_argument("--strict", action="store_true")
+    parser.add_argument("--phase", choices=("candidate", "promoted"), required=True)
+    parser.add_argument("--stark-v-source", type=Path)
+    parser.add_argument("--candidate", required=True)
+    parser.add_argument("--evidence-dir", type=Path)
+    parser.add_argument(
+        "--command-timeout-seconds",
+        type=float,
+        default=DEFAULT_COMMAND_TIMEOUT_SECONDS,
+    )
+    args = parser.parse_args(argv)
+    if args.command_timeout_seconds <= 0:
+        parser.error("--command-timeout-seconds must be positive")
+    evidence_dir = args.evidence_dir
+    if evidence_dir is None:
+        evidence_dir = EVIDENCE_BASE / f"{args.candidate}-{time.time_ns()}"
+    elif not evidence_dir.is_absolute():
+        evidence_dir = ROOT / evidence_dir
+    evidence_dir = evidence_dir.resolve()
+    if not evidence_dir.is_relative_to(EVIDENCE_BASE.resolve()):
+        parser.error(f"--evidence-dir must be below {EVIDENCE_BASE.relative_to(ROOT)}")
+    report_out = evidence_dir / "release-gate.json"
+    try:
+        commands = command_plan(
+            strict=args.strict,
+            phase=args.phase,
+            stark_v_source=args.stark_v_source,
+            candidate=args.candidate,
+            evidence_dir=evidence_dir,
+        )
+    except ValueError as error:
+        parser.error(str(error))
+    return run_gate(
+        commands,
+        phase=args.phase,
+        candidate=args.candidate,
+        evidence_dir=evidence_dir,
+        report_out=report_out,
+        command_timeout_seconds=args.command_timeout_seconds,
+        runner=lambda command, root: _capture(
+            command,
+            root,
+            args.command_timeout_seconds,
+        ),
+    )

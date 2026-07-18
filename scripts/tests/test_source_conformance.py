@@ -316,7 +316,7 @@ class SourceConformanceTests(unittest.TestCase):
             self.assertIn("thin-owner:tests/native/mod.zig", keys)
             self.assertIn("thin-owner:build_support/products.zig", keys)
 
-    def test_formal_native_evidence_root_registry_is_explicit_and_checked_in(self) -> None:
+    def test_formal_evidence_root_registry_is_explicit_and_checked_in(self) -> None:
         expected = {
             "scripts/archive_native_matrix.py",
             "scripts/benchmark_delta.py",
@@ -329,6 +329,9 @@ class SourceConformanceTests(unittest.TestCase):
             "scripts/native_profile_capture.py",
             "scripts/native_proof_matrix.py",
             "scripts/profile_smoke.py",
+            "scripts/check_riscv_release_contract.py",
+            "scripts/riscv_release_evidence.py",
+            "scripts/riscv_release_gate.py",
         }
         self.assertEqual(expected, set(ACTIVE_FORMAL_EVIDENCE_ROOTS))
         root = Path(__file__).resolve().parents[2]

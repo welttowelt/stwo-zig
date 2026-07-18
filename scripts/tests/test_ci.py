@@ -29,6 +29,26 @@ class CiTests(unittest.TestCase):
         self.assertIn("run: python3 scripts/ci.py --strict\n", workflow)
         self.assertIn("inputs.gate == 'strict'", workflow)
 
+    def test_hosted_ci_exposes_fail_closed_riscv_candidate_evidence_lane(self) -> None:
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        self.assertIn("- riscv-candidate", workflow)
+        self.assertIn("- riscv-promoted", workflow)
+        self.assertIn("name: RISC-V release evidence", workflow)
+        self.assertIn("startsWith(inputs.gate, 'riscv-')", workflow)
+        self.assertEqual(2, workflow.count("!startsWith(inputs.gate, 'riscv-')"))
+        self.assertIn("inputs.gate == 'riscv-candidate' && 'candidate' || 'promoted'", workflow)
+        self.assertIn("id: riscv-release-state", workflow)
+        self.assertIn("RISCV_ADAPTER_RELEASE_GATED = true", workflow)
+        self.assertIn("steps.riscv-release-state.outputs.promoted == 'true'", workflow)
+        self.assertIn("https://github.com/ClementWalter/stark-v", workflow)
+        self.assertIn("STARK_V_REVISION: d478f783055aa0d73a93768a433a3c6c31c91d1c", workflow)
+        self.assertIn("python3 scripts/riscv_release_gate.py", workflow)
+        self.assertIn("--strict", workflow)
+        self.assertIn('--phase "$RISCV_GATE_PHASE"', workflow)
+        self.assertIn('--candidate "$(git rev-parse HEAD)"', workflow)
+        self.assertIn("name: riscv-${{ env.RISCV_GATE_PHASE }}-evidence-${{ github.sha }}", workflow)
+        self.assertIn("if-no-files-found: error", workflow)
+
     def test_hosted_ci_accepts_exact_commit_aot_evidence_tags(self) -> None:
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         self.assertIn('tags: ["aot-evidence-*"]', workflow)
