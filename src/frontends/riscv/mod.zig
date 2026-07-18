@@ -18,9 +18,10 @@ pub const HostRuntime = host.HostRuntime;
 pub const runWithHost = runner.runWithHost;
 pub const runWithInput = runner.runWithInput;
 pub const RiscVClaim = air.claims.RiscVClaim;
-pub const proveRiscV = prover_mod.proveRiscV;
-pub const verifyRiscV = prover_mod.verifyRiscV;
-pub const proveAndVerifyElf = prover_mod.proveAndVerifyElf;
+pub const proveRiscVWithEngine = prover_mod.proveRiscVWithEngine;
+pub const proveRiscVWithEngineAndPublicData = prover_mod.proveRiscVWithEngineAndPublicData;
+pub const verifyRiscVWithEngine = prover_mod.verifyRiscVWithEngine;
+pub const proveAndVerifyElfWithEngine = prover_mod.proveAndVerifyElfWithEngine;
 
 test {
     @import("std").testing.refAllDeclsRecursive(infra_trace);

@@ -2,14 +2,6 @@
  "version": 3,
  "findings": [
   {
-   "key": "dependency:frontends/riscv/prover.zig->backends/cpu_scalar/mod.zig",
-   "owner": "riscv-frontend",
-   "track": "deferred_todo",
-   "reason": "The legacy RISC-V prover still selects a concrete CPU backend instead of depending on the backend-neutral prover contract.",
-   "next_extraction": "Move backend selection to the RISC-V tool boundary and leave the frontend dependent only on backend-neutral proof interfaces.",
-   "plan": "conformance/decomposition-plan.md"
-  },
-  {
    "key": "file-size:frontends/riscv/air/trace_columns.zig",
    "owner": "riscv-frontend",
    "track": "deferred_todo",
@@ -31,10 +23,10 @@
    "key": "file-size:frontends/riscv/prover.zig",
    "owner": "riscv-frontend",
    "track": "deferred_todo",
-   "reason": "The legacy RISC-V prover combines frontend planning, backend selection, and proof orchestration. Budget raised 2364 -> 2368 at restoration: the prover-engine contract gained a required deinit while the frontend was out of tree; the four lines are the minimal CountingEngine compliance shim.",
-   "next_extraction": "Move concrete backend selection out first, then split frontend planning from backend-neutral proof orchestration.",
+   "reason": "The RISC-V prover still combines statement construction, trace planning, and backend-neutral proof orchestration.",
+   "next_extraction": "Split statement and column planning from proof orchestration behind explicit frontend contracts.",
    "plan": "conformance/decomposition-plan.md",
-   "max_lines": 2368
+   "max_lines": 1672
   },
   {
    "key": "file-size:frontends/riscv/runner/trace.zig",

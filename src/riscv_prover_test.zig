@@ -6,12 +6,14 @@
 
 const std = @import("std");
 pub const prover = @import("frontends/riscv/prover.zig");
+pub const prover_tests = @import("tests/riscv/prover_test.zig");
 pub const infra_trace = @import("frontends/riscv/infra_trace.zig");
 pub const interaction_gen = @import("frontends/riscv/air/interaction_gen.zig");
 pub const riscv_air_component = @import("frontends/riscv/air/component.zig");
 
 test {
     _ = prover;
+    _ = prover_tests;
     _ = interaction_gen;
     _ = riscv_air_component;
     std.testing.refAllDeclsRecursive(infra_trace);

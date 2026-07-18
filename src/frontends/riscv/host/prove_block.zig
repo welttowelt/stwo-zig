@@ -33,7 +33,8 @@ pub const ProveBlockResult = struct {
 /// 3. Executes the guest with syscall dispatch.
 /// 4. STARK proves the execution trace.
 /// 5. Returns the proof, journal, and metadata.
-pub fn proveEthereumBlock(
+pub fn proveEthereumBlockWithEngine(
+    comptime Engine: type,
     allocator: std.mem.Allocator,
     elf_bytes: []const u8,
     block_input: *const BlockInput,
@@ -58,11 +59,13 @@ pub fn proveEthereumBlock(
     defer run_result.deinit();
 
     // Prove the execution.
-    const prove_output = try prover_mod.proveRiscV(
+    const prove_output = try prover_mod.proveRiscVWithEngine(
+        Engine,
         allocator,
         pcs_config,
         &run_result.execution_trace,
         &run_result.state_chain_tracker,
+        null,
     );
 
     return .{

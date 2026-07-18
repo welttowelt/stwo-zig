@@ -15,7 +15,7 @@ pub const prove_block = @import("prove_block.zig");
 pub const HintOracle = hint_oracle.HintOracle;
 pub const HostRuntime = runtime.HostRuntime;
 pub const BlockInput = block_input.BlockInput;
-pub const proveEthereumBlock = prove_block.proveEthereumBlock;
+pub const proveEthereumBlockWithEngine = prove_block.proveEthereumBlockWithEngine;
 
 /// Syscall numbers matching the SP1/stark-v ABI.
 /// Guest places the syscall number in register a7 (x17) before ECALL.

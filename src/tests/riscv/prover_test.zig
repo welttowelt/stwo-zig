@@ -1,0 +1,767 @@
+//! CPU integration tests for backend-neutral RISC-V proof orchestration.
+
+const std = @import("std");
+const riscv_cpu = @import("../../integrations/riscv_cpu/mod.zig");
+const prover = @import("../../frontends/riscv/prover.zig");
+const logup = @import("../../frontends/riscv/air/logup.zig");
+const runner_mod = @import("../../frontends/riscv/runner/mod.zig");
+const trace_mod = @import("../../frontends/riscv/runner/trace.zig");
+const pcs_core = @import("../../core/pcs/mod.zig");
+const qm31 = @import("../../core/fields/qm31.zig");
+const prover_component = @import("../../prover/air/component_prover.zig");
+const prover_engine = @import("../../prover/engine.zig");
+const prover_pcs = @import("../../prover/pcs/mod.zig");
+const stage_profile = @import("../../prover/stage_profile.zig");
+
+const CpuProverEngine = riscv_cpu.CpuProverEngine;
+const Channel = CpuProverEngine.Channel;
+const ExtendedProof = prover.ExtendedProof;
+const ProverError = prover.ProverError;
+const QM31 = qm31.QM31;
+const proveRiscV = riscv_cpu.proveRiscV;
+const verifyRiscV = riscv_cpu.verifyRiscV;
+const proveRiscVWithEngine = prover.proveRiscVWithEngine;
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+test "riscv prover: end-to-end ELF prove and verify" {
+    const alloc = std.testing.allocator;
+
+    // Build a hand-crafted ELF with ~8 instructions exercising multiple opcode families:
+    //   0x10000: ADDI x1, x0, 10     (0x00A00093) -- x1 = 10
+    //   0x10004: ADDI x2, x0, 20     (0x01400113) -- x2 = 20
+    //   0x10008: ADD  x3, x1, x2     (0x002081B3) -- x3 = 30
+    //   0x1000C: SW   x3, 0(x1)      (0x0030A023) -- mem[10] = 30 (store, addr=10)
+    //   0x10010: LW   x4, 0(x1)      (0x0000A203) -- x4 = mem[10] = 30 (load)
+    //   0x10014: BEQ  x3, x4, +8     (0x00418463) -- branch taken (30 == 30), skip to 0x1001C
+    //   0x10018: ADDI x5, x0, 99     (0x06300293) -- SKIPPED
+    //   0x1001C: JAL  x0, 0           (0x0000006F) -- untraced self-loop sentinel
+    const n_insts = 8;
+    const code_size = n_insts * 4;
+    const elf_size = 84 + code_size;
+    var elf_buf: [elf_size]u8 = [_]u8{0} ** elf_size;
+
+    // ELF header
+    elf_buf[0] = 0x7F;
+    elf_buf[1] = 'E';
+    elf_buf[2] = 'L';
+    elf_buf[3] = 'F';
+    elf_buf[4] = 1; // ELFCLASS32
+    elf_buf[5] = 1; // ELFDATA2LSB
+    elf_buf[6] = 1; // EI_VERSION
+    elf_buf[16] = 2; // e_type = ET_EXEC
+    elf_buf[18] = 0xF3; // e_machine = EM_RISCV
+    elf_buf[20] = 1; // e_version
+    // e_entry = 0x10000
+    elf_buf[24] = 0x00;
+    elf_buf[25] = 0x00;
+    elf_buf[26] = 0x01;
+    elf_buf[27] = 0x00;
+    // e_phoff = 52
+    elf_buf[28] = 52;
+    // e_ehsize = 52
+    elf_buf[40] = 52;
+    // e_phentsize = 32
+    elf_buf[42] = 32;
+    // e_phnum = 1
+    elf_buf[44] = 1;
+
+    // Program header at offset 52
+    elf_buf[52] = 1; // p_type = PT_LOAD
+    elf_buf[56] = 84; // p_offset = 84
+    // p_vaddr = 0x10000
+    elf_buf[60] = 0x00;
+    elf_buf[61] = 0x00;
+    elf_buf[62] = 0x01;
+    elf_buf[63] = 0x00;
+    // p_filesz
+    elf_buf[68] = code_size;
+    // p_memsz
+    elf_buf[72] = code_size;
+
+    // Instructions at offset 84
+    const instructions = [n_insts]u32{
+        0x00A00093, // ADDI x1, x0, 10
+        0x01400113, // ADDI x2, x0, 20
+        0x002081B3, // ADD  x3, x1, x2
+        0x0030A023, // SW   x3, 0(x1)  -- store 30 at addr 10
+        0x0000A203, // LW   x4, 0(x1)  -- load from addr 10
+        0x00418463, // BEQ  x3, x4, +8 -- taken (30 == 30)
+        0x06300293, // ADDI x5, x0, 99 -- skipped
+        0x0000006F, // JAL x0, 0 -- runner stops before tracing the sentinel
+    };
+    for (instructions, 0..) |inst_word, i| {
+        const offset = 84 + i * 4;
+        elf_buf[offset] = @truncate(inst_word);
+        elf_buf[offset + 1] = @truncate(inst_word >> 8);
+        elf_buf[offset + 2] = @truncate(inst_word >> 16);
+        elf_buf[offset + 3] = @truncate(inst_word >> 24);
+    }
+
+    // Step 1: Run the ELF
+    var run_result = try runner_mod.run(alloc, &elf_buf, 1000);
+    defer run_result.deinit();
+
+    // Verify execution correctness
+    try std.testing.expectEqual(@as(u32, 10), run_result.cpu_final.readReg(1));
+    try std.testing.expectEqual(@as(u32, 20), run_result.cpu_final.readReg(2));
+    try std.testing.expectEqual(@as(u32, 30), run_result.cpu_final.readReg(3));
+    try std.testing.expectEqual(@as(u32, 30), run_result.cpu_final.readReg(4));
+    // x5 should be 0 since BEQ was taken and ADDI x5 was skipped
+    try std.testing.expectEqual(@as(u32, 0), run_result.cpu_final.readReg(5));
+
+    // Step 2: Prove
+    const config = pcs_core.PcsConfig{
+        .pow_bits = 0,
+        .fri_config = .{
+            .log_blowup_factor = 1,
+            .log_last_layer_degree_bound = 0,
+            .n_queries = 3,
+        },
+    };
+
+    const output = try proveRiscV(alloc, config, &run_result.execution_trace, &run_result.state_chain_tracker);
+
+    // Verify we got multiple components (the traced rows use ADDI, ADD, SW, LW, BEQ).
+    try std.testing.expect(output.statement.n_components > 1);
+
+    // Step 3: Verify (takes ownership of the proof)
+    try verifyRiscV(alloc, config, output.statement, output.proof, output.interaction_claim);
+}
+
+test "riscv prover: prove and verify synthetic trace" {
+    const alloc = std.testing.allocator;
+    var exec_trace = trace_mod.Trace.init(alloc);
+    defer exec_trace.deinit();
+
+    exec_trace.initial_pc = 0x1000;
+
+    // Add 8 synthetic trace rows -- all ADDI, so one component.
+    for (0..8) |i| {
+        try exec_trace.append(.{
+            .clk = @intCast(i + 1),
+            .pc = @intCast(0x1000 + i * 4),
+            .opcode = .ADDI,
+            .rd = 1,
+            .rs1 = 0,
+            .rs2 = 0,
+            .imm = 1,
+            .rs1_val = 0,
+            .rs2_val = 0,
+            .rd_val = 1,
+            .mem_addr = 0,
+            .mem_val = 0,
+            .is_load = false,
+            .is_store = false,
+            .branch_taken = false,
+            .next_pc = @intCast(0x1000 + (i + 1) * 4),
+        });
+    }
+    exec_trace.final_pc = 0x1000 + 8 * 4;
+
+    const config = pcs_core.PcsConfig{
+        .pow_bits = 0,
+        .fri_config = .{
+            .log_blowup_factor = 1,
+            .log_last_layer_degree_bound = 0,
+            .n_queries = 3,
+        },
+    };
+
+    const output = try proveRiscV(alloc, config, &exec_trace, null);
+
+    // All 8 rows are ADDI (base_alu_imm), so we should have 1 component.
+    try std.testing.expectEqual(@as(u32, 1), output.statement.n_components);
+    try std.testing.expectEqual(
+        trace_mod.OpcodeFamily.base_alu_imm,
+        output.statement.component_descs[0].family,
+    );
+    try std.testing.expectEqual(@as(u32, 3), output.statement.component_descs[0].log_size);
+
+    // Verify takes ownership of the proof.
+    try verifyRiscV(alloc, config, output.statement, output.proof, output.interaction_claim);
+}
+
+test "riscv prover: transaction engine is the proving substitution point" {
+    const CountingEngine = struct {
+        pub const Scheme = CpuProverEngine.Scheme;
+        var init_calls: usize = 0;
+        var commit_calls: usize = 0;
+        var prove_calls: usize = 0;
+
+        pub fn init(allocator: std.mem.Allocator, config: pcs_core.PcsConfig) !Scheme {
+            init_calls += 1;
+            return CpuProverEngine.init(allocator, config);
+        }
+
+        pub fn deinit(scheme: *Scheme, allocator: std.mem.Allocator) void {
+            CpuProverEngine.deinit(scheme, allocator);
+        }
+
+        pub fn commit(
+            scheme: *Scheme,
+            allocator: std.mem.Allocator,
+            columns: []prover_pcs.ColumnEvaluation,
+            recorder: ?*stage_profile.Recorder,
+            channel: *Channel,
+        ) !void {
+            commit_calls += 1;
+            return CpuProverEngine.commit(scheme, allocator, columns, recorder, channel);
+        }
+
+        pub fn prove(
+            allocator: std.mem.Allocator,
+            components: []const prover_component.ComponentProver,
+            channel: *Channel,
+            scheme: Scheme,
+            options: prover_engine.ProveOptions,
+        ) !ExtendedProof {
+            prove_calls += 1;
+            return CpuProverEngine.prove(allocator, components, channel, scheme, options);
+        }
+    };
+
+    CountingEngine.init_calls = 0;
+    CountingEngine.commit_calls = 0;
+    CountingEngine.prove_calls = 0;
+
+    const allocator = std.testing.allocator;
+    var trace = trace_mod.Trace.init(allocator);
+    defer trace.deinit();
+    trace.initial_pc = 0x1000;
+    for (0..4) |row| {
+        try trace.append(.{
+            .clk = @intCast(row + 1),
+            .pc = @intCast(0x1000 + row * 4),
+            .opcode = .ADDI,
+            .rd = 1,
+            .rs1 = 0,
+            .rs2 = 0,
+            .imm = 1,
+            .rs1_val = 0,
+            .rs2_val = 0,
+            .rd_val = 1,
+            .mem_addr = 0,
+            .mem_val = 0,
+            .is_load = false,
+            .is_store = false,
+            .branch_taken = false,
+            .next_pc = @intCast(0x1000 + (row + 1) * 4),
+        });
+    }
+    trace.final_pc = 0x1010;
+    const config = pcs_core.PcsConfig{
+        .pow_bits = 0,
+        .fri_config = .{
+            .log_blowup_factor = 1,
+            .log_last_layer_degree_bound = 0,
+            .n_queries = 2,
+        },
+    };
+
+    var output = try proveRiscVWithEngine(CountingEngine, allocator, config, &trace, null, null);
+    defer output.deinit(allocator);
+    try std.testing.expectEqual(@as(usize, 1), CountingEngine.init_calls);
+    try std.testing.expectEqual(@as(usize, 3), CountingEngine.commit_calls);
+    try std.testing.expectEqual(@as(usize, 1), CountingEngine.prove_calls);
+}
+
+fn singleAddTrace(allocator: std.mem.Allocator, result: u32) !trace_mod.Trace {
+    var trace = trace_mod.Trace.init(allocator);
+    errdefer trace.deinit();
+    trace.initial_pc = 0x1000;
+    trace.final_pc = 0x1004;
+    try trace.append(.{
+        .clk = 1,
+        .pc = 0x1000,
+        .opcode = .ADD,
+        .rd = 3,
+        .rs1 = 1,
+        .rs2 = 2,
+        .imm = 0,
+        .rs1_val = 7,
+        .rs2_val = 9,
+        .rd_val = result,
+        .mem_addr = 0,
+        .mem_val = 0,
+        .is_load = false,
+        .is_store = false,
+        .branch_taken = false,
+        .next_pc = 0x1004,
+    });
+    return trace;
+}
+
+test "riscv prover: base alu register semantics reject forged ADD" {
+    const allocator = std.testing.allocator;
+
+    var honest = try singleAddTrace(allocator, 16);
+    defer honest.deinit();
+    const output = try proveRiscV(allocator, TEST_PCS_CONFIG, &honest, null);
+    try verifyRiscV(
+        allocator,
+        TEST_PCS_CONFIG,
+        output.statement,
+        output.proof,
+        output.interaction_claim,
+    );
+
+    var forged = try singleAddTrace(allocator, 17);
+    defer forged.deinit();
+    try std.testing.expectError(
+        error.ConstraintsNotSatisfied,
+        proveRiscV(allocator, TEST_PCS_CONFIG, &forged, null),
+    );
+}
+
+fn singleAddiTrace(allocator: std.mem.Allocator, result: u32) !trace_mod.Trace {
+    var trace = trace_mod.Trace.init(allocator);
+    errdefer trace.deinit();
+    trace.initial_pc = 0x1000;
+    trace.final_pc = 0x1004;
+    try trace.append(.{
+        .clk = 1,
+        .pc = 0x1000,
+        .opcode = .ADDI,
+        .rd = 1,
+        .rs1 = 0,
+        .rs2 = 0,
+        .imm = 1,
+        .rs1_val = 0,
+        .rs2_val = 0,
+        .rd_val = result,
+        .mem_addr = 0,
+        .mem_val = 0,
+        .is_load = false,
+        .is_store = false,
+        .branch_taken = false,
+        .next_pc = 0x1004,
+        .inst_word = 0x00100093,
+    });
+    return trace;
+}
+
+test "riscv prover: base alu immediate semantics reject forged ADDI" {
+    const allocator = std.testing.allocator;
+
+    var honest = try singleAddiTrace(allocator, 1);
+    defer honest.deinit();
+    const output = try proveRiscV(allocator, TEST_PCS_CONFIG, &honest, null);
+    try verifyRiscV(
+        allocator,
+        TEST_PCS_CONFIG,
+        output.statement,
+        output.proof,
+        output.interaction_claim,
+    );
+
+    var forged = try singleAddiTrace(allocator, 2);
+    defer forged.deinit();
+    try std.testing.expectError(
+        error.ConstraintsNotSatisfied,
+        proveRiscV(allocator, TEST_PCS_CONFIG, &forged, null),
+    );
+}
+
+test "riscv prover: multi-family splitting" {
+    const alloc = std.testing.allocator;
+    var exec_trace = trace_mod.Trace.init(alloc);
+    defer exec_trace.deinit();
+
+    exec_trace.initial_pc = 0x1000;
+
+    // Create a trace with 3 opcode families:
+    //   4 x ADD (base_alu_reg)
+    //   8 x ADDI (base_alu_imm)
+    //   4 x BEQ (branch_eq)
+
+    // 4 ADD instructions
+    for (0..4) |i| {
+        try exec_trace.append(.{
+            .clk = @intCast(i + 1),
+            .pc = @intCast(0x1000 + i * 4),
+            .opcode = .ADD,
+            .rd = 1,
+            .rs1 = 2,
+            .rs2 = 3,
+            .imm = 0,
+            .rs1_val = 10,
+            .rs2_val = 20,
+            .rd_val = 30,
+            .mem_addr = 0,
+            .mem_val = 0,
+            .is_load = false,
+            .is_store = false,
+            .branch_taken = false,
+            .next_pc = @intCast(0x1000 + (i + 1) * 4),
+        });
+    }
+    // 8 ADDI instructions
+    for (0..8) |i| {
+        try exec_trace.append(.{
+            .clk = @intCast(5 + i),
+            .pc = @intCast(0x1010 + i * 4),
+            .opcode = .ADDI,
+            .rd = 4,
+            .rs1 = 1,
+            .rs2 = 0,
+            .imm = 5,
+            .rs1_val = 30,
+            .rs2_val = 0,
+            .rd_val = 35,
+            .mem_addr = 0,
+            .mem_val = 0,
+            .is_load = false,
+            .is_store = false,
+            .branch_taken = false,
+            .next_pc = @intCast(0x1010 + (i + 1) * 4),
+        });
+    }
+    // 4 BEQ instructions
+    for (0..4) |i| {
+        try exec_trace.append(.{
+            .clk = @intCast(13 + i),
+            .pc = @intCast(0x1030 + i * 4),
+            .opcode = .BEQ,
+            .rd = 0,
+            .rs1 = 1,
+            .rs2 = 2,
+            .imm = 8,
+            .rs1_val = 30,
+            .rs2_val = 30,
+            .rd_val = 0,
+            .mem_addr = 0,
+            .mem_val = 0,
+            .is_load = false,
+            .is_store = false,
+            .branch_taken = true,
+            .next_pc = @intCast(0x1030 + (i + 1) * 4),
+        });
+    }
+    exec_trace.final_pc = 0x1040;
+
+    const config = pcs_core.PcsConfig{
+        .pow_bits = 0,
+        .fri_config = .{
+            .log_blowup_factor = 1,
+            .log_last_layer_degree_bound = 0,
+            .n_queries = 3,
+        },
+    };
+
+    const output = try proveRiscV(alloc, config, &exec_trace, null);
+
+    // Should have 3 components.
+    try std.testing.expectEqual(@as(u32, 3), output.statement.n_components);
+
+    // Verify families are in enum order: base_alu_reg, base_alu_imm, branch_eq
+    try std.testing.expectEqual(
+        trace_mod.OpcodeFamily.base_alu_reg,
+        output.statement.component_descs[0].family,
+    );
+    try std.testing.expectEqual(
+        trace_mod.OpcodeFamily.base_alu_imm,
+        output.statement.component_descs[1].family,
+    );
+    try std.testing.expectEqual(
+        trace_mod.OpcodeFamily.branch_eq,
+        output.statement.component_descs[2].family,
+    );
+
+    // Verify log_sizes: ADD=4 rows -> log2(4)=2, ADDI=8 -> log2(8)=3, BEQ=4 -> log2(4)=2
+    try std.testing.expectEqual(@as(u32, 2), output.statement.component_descs[0].log_size);
+    try std.testing.expectEqual(@as(u32, 3), output.statement.component_descs[1].log_size);
+    try std.testing.expectEqual(@as(u32, 2), output.statement.component_descs[2].log_size);
+
+    // Verify takes ownership of the proof.
+    try verifyRiscV(alloc, config, output.statement, output.proof, output.interaction_claim);
+}
+
+test "riscv prover: ADDI + ADD + BNE split prove and verify" {
+    const alloc = std.testing.allocator;
+    var exec_trace = trace_mod.Trace.init(alloc);
+    defer exec_trace.deinit();
+
+    exec_trace.initial_pc = 0x1000;
+
+    // Build a trace with 3 opcode families as required:
+    //   4 x ADDI (base_alu_imm)
+    //   2 x ADD  (base_alu_reg)
+    //   2 x BNE  (branch_eq)
+
+    // 4 ADDI instructions
+    for (0..4) |i| {
+        try exec_trace.append(.{
+            .clk = @intCast(i + 1),
+            .pc = @intCast(0x1000 + i * 4),
+            .opcode = .ADDI,
+            .rd = 1,
+            .rs1 = 0,
+            .rs2 = 0,
+            .imm = @intCast(i + 1),
+            .rs1_val = 0,
+            .rs2_val = 0,
+            .rd_val = @intCast(i + 1),
+            .mem_addr = 0,
+            .mem_val = 0,
+            .is_load = false,
+            .is_store = false,
+            .branch_taken = false,
+            .next_pc = @intCast(0x1000 + (i + 1) * 4),
+        });
+    }
+    // 2 ADD instructions
+    for (0..2) |i| {
+        const step = 4 + i;
+        try exec_trace.append(.{
+            .clk = @intCast(step + 1),
+            .pc = @intCast(0x1000 + step * 4),
+            .opcode = .ADD,
+            .rd = 3,
+            .rs1 = 1,
+            .rs2 = 2,
+            .imm = 0,
+            .rs1_val = 10,
+            .rs2_val = 20,
+            .rd_val = 30,
+            .mem_addr = 0,
+            .mem_val = 0,
+            .is_load = false,
+            .is_store = false,
+            .branch_taken = false,
+            .next_pc = @intCast(0x1000 + (step + 1) * 4),
+        });
+    }
+    // 2 BNE instructions (branch_eq family). Taken branches jump +8, so each
+    // row consumes the previous row's next_pc and the state chain telescopes.
+    var branch_pc: u32 = 0x1000 + 6 * 4;
+    for (0..2) |i| {
+        const step = 6 + i;
+        try exec_trace.append(.{
+            .clk = @intCast(step + 1),
+            .pc = branch_pc,
+            .opcode = .BNE,
+            .rd = 0,
+            .rs1 = 1,
+            .rs2 = 2,
+            .imm = 8,
+            .rs1_val = 10,
+            .rs2_val = 20,
+            .rd_val = 0,
+            .mem_addr = 0,
+            .mem_val = 0,
+            .is_load = false,
+            .is_store = false,
+            .branch_taken = true,
+            .next_pc = branch_pc + 8,
+        });
+        branch_pc += 8;
+    }
+    exec_trace.final_pc = branch_pc;
+
+    const config = pcs_core.PcsConfig{
+        .pow_bits = 0,
+        .fri_config = .{
+            .log_blowup_factor = 1,
+            .log_last_layer_degree_bound = 0,
+            .n_queries = 3,
+        },
+    };
+
+    // Verify correct family grouping.
+    const counts = try exec_trace.groupByOpcodeFamily(alloc);
+    try std.testing.expectEqual(@as(usize, 4), counts.get(.base_alu_imm));
+    try std.testing.expectEqual(@as(usize, 2), counts.get(.base_alu_reg));
+    try std.testing.expectEqual(@as(usize, 2), counts.get(.branch_eq));
+    try std.testing.expectEqual(@as(usize, 8), counts.total());
+
+    // Prove with component splitting.
+    const output = try proveRiscV(alloc, config, &exec_trace, null);
+
+    // Verify statement: 3 components (base_alu_reg, base_alu_imm, branch_eq)
+    try std.testing.expectEqual(@as(u32, 3), output.statement.n_components);
+    try std.testing.expectEqual(@as(u32, 8), output.statement.total_steps);
+
+    // Component 0: base_alu_reg (ADD, 2 rows -> log_size=1)
+    try std.testing.expectEqual(trace_mod.OpcodeFamily.base_alu_reg, output.statement.component_descs[0].family);
+    try std.testing.expectEqual(@as(u32, 1), output.statement.component_descs[0].log_size);
+
+    // Component 1: base_alu_imm (ADDI, 4 rows -> log_size=2)
+    try std.testing.expectEqual(trace_mod.OpcodeFamily.base_alu_imm, output.statement.component_descs[1].family);
+    try std.testing.expectEqual(@as(u32, 2), output.statement.component_descs[1].log_size);
+
+    // Component 2: branch_eq (BNE, 2 rows -> log_size=1)
+    try std.testing.expectEqual(trace_mod.OpcodeFamily.branch_eq, output.statement.component_descs[2].family);
+    try std.testing.expectEqual(@as(u32, 1), output.statement.component_descs[2].log_size);
+
+    // Verify the proof (takes ownership).
+    try verifyRiscV(alloc, config, output.statement, output.proof, output.interaction_claim);
+}
+
+fn testAddiTrace(alloc: std.mem.Allocator, n: usize) !trace_mod.Trace {
+    var exec_trace = trace_mod.Trace.init(alloc);
+    errdefer exec_trace.deinit();
+    exec_trace.initial_pc = 0x1000;
+    for (0..n) |i| {
+        try exec_trace.append(.{
+            .clk = @intCast(i + 1),
+            .pc = @intCast(0x1000 + i * 4),
+            .opcode = .ADDI,
+            .rd = 1,
+            .rs1 = 0,
+            .rs2 = 0,
+            .imm = 1,
+            .rs1_val = 0,
+            .rs2_val = 0,
+            .rd_val = 1,
+            .mem_addr = 0,
+            .mem_val = 0,
+            .is_load = false,
+            .is_store = false,
+            .branch_taken = false,
+            .next_pc = @intCast(0x1000 + (i + 1) * 4),
+            .inst_word = 0x00100093,
+        });
+    }
+    exec_trace.final_pc = @intCast(0x1000 + n * 4);
+    return exec_trace;
+}
+
+const TEST_PCS_CONFIG = pcs_core.PcsConfig{
+    .pow_bits = 0,
+    .fri_config = .{
+        .log_blowup_factor = 1,
+        .log_last_layer_degree_bound = 0,
+        .n_queries = 3,
+    },
+};
+
+test "riscv prover: tampered interaction claim is rejected" {
+    const alloc = std.testing.allocator;
+    var exec_trace = try testAddiTrace(alloc, 8);
+    defer exec_trace.deinit();
+
+    const output = try proveRiscV(alloc, TEST_PCS_CONFIG, &exec_trace, null);
+
+    var tampered = output.interaction_claim;
+    tampered.state_claims[0] = tampered.state_claims[0].add(QM31.one());
+
+    // verifyRiscV consumes the proof on failure as well. Either the global
+    // cancellation or the OODS check must reject; don't over-specify which.
+    const result = verifyRiscV(alloc, TEST_PCS_CONFIG, output.statement, output.proof, tampered);
+    try std.testing.expect(std.meta.isError(result));
+}
+
+test "riscv prover: state and program claims cannot cross-cancel" {
+    const alloc = std.testing.allocator;
+    var exec_trace = try testAddiTrace(alloc, 8);
+    defer exec_trace.deinit();
+
+    const output = try proveRiscV(alloc, TEST_PCS_CONFIG, &exec_trace, null);
+    var tampered = output.interaction_claim;
+    tampered.state_claims[0] = tampered.state_claims[0].add(QM31.one());
+    tampered.prog_claims[0] = tampered.prog_claims[0].sub(QM31.one());
+    try std.testing.expect(std.meta.isError(verifyRiscV(
+        alloc,
+        TEST_PCS_CONFIG,
+        output.statement,
+        output.proof,
+        tampered,
+    )));
+}
+
+test "riscv prover: proof-chosen preprocessed selector root is rejected" {
+    const alloc = std.testing.allocator;
+    var exec_trace = try testAddiTrace(alloc, 8);
+    defer exec_trace.deinit();
+
+    var output = try proveRiscV(alloc, TEST_PCS_CONFIG, &exec_trace, null);
+    output.proof.commitment_scheme_proof.commitments.items[0][0] ^= 1;
+    try std.testing.expectError(
+        ProverError.InvalidPreprocessedCommitment,
+        verifyRiscV(
+            alloc,
+            TEST_PCS_CONFIG,
+            output.statement,
+            output.proof,
+            output.interaction_claim,
+        ),
+    );
+}
+
+test "riscv prover: missing program binder is rejected before PCS verification" {
+    const alloc = std.testing.allocator;
+    var exec_trace = try testAddiTrace(alloc, 4);
+    defer exec_trace.deinit();
+
+    const output = try proveRiscV(alloc, TEST_PCS_CONFIG, &exec_trace, null);
+    var statement = output.statement;
+    statement.n_infra = 0;
+    try std.testing.expectError(
+        ProverError.InvalidStatement,
+        verifyRiscV(
+            alloc,
+            TEST_PCS_CONFIG,
+            statement,
+            output.proof,
+            output.interaction_claim,
+        ),
+    );
+}
+
+test "riscv prover: tampered final_pc is rejected" {
+    const alloc = std.testing.allocator;
+    var exec_trace = try testAddiTrace(alloc, 8);
+    defer exec_trace.deinit();
+
+    const output = try proveRiscV(alloc, TEST_PCS_CONFIG, &exec_trace, null);
+
+    var tampered_statement = output.statement;
+    tampered_statement.final_pc += 4;
+
+    const result = verifyRiscV(
+        alloc,
+        TEST_PCS_CONFIG,
+        tampered_statement,
+        output.proof,
+        output.interaction_claim,
+    );
+    try std.testing.expect(std.meta.isError(result));
+}
+
+test "riscv prover: public register mutation changes the transcript" {
+    const alloc = std.testing.allocator;
+    var exec_trace = try testAddiTrace(alloc, 4);
+    defer exec_trace.deinit();
+
+    const output = try proveRiscV(alloc, TEST_PCS_CONFIG, &exec_trace, null);
+    var statement = output.statement;
+    statement.public_data.final_regs[1] = 99;
+    try std.testing.expect(std.meta.isError(verifyRiscV(
+        alloc,
+        TEST_PCS_CONFIG,
+        statement,
+        output.proof,
+        output.interaction_claim,
+    )));
+}
+
+test "riscv prover: program-bus claims cancel without a boundary term" {
+    const alloc = std.testing.allocator;
+    var exec_trace = try testAddiTrace(alloc, 4);
+    defer exec_trace.deinit();
+
+    var output = try proveRiscV(alloc, TEST_PCS_CONFIG, &exec_trace, null);
+    defer output.deinit(alloc);
+
+    const claim = output.interaction_claim;
+    try std.testing.expectEqual(output.statement.n_components, claim.n_components);
+    // The program bus balances on its own; the state chain needs the public
+    // boundary, which verifyRiscV recomputes from the drawn lookup elements.
+    try logup.verifyGlobalCancellation(
+        &.{ claim.prog_claims[0], claim.rom_claim },
+        QM31.zero(),
+    );
+}

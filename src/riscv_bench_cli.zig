@@ -11,6 +11,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const runner = @import("frontends/riscv/runner/mod.zig");
 const riscv_prover = @import("frontends/riscv/prover.zig");
+const riscv_cpu = @import("integrations/riscv_cpu/mod.zig");
 const stage_profile = @import("prover/stage_profile.zig");
 const pcs_core = @import("core/pcs/mod.zig");
 const trace_mod = @import("frontends/riscv/runner/trace.zig");
@@ -111,7 +112,7 @@ fn encodeBne(rs1: u5, rs2: u5, offset: i13) u32 {
 }
 
 pub fn main() !void {
-    return mainWithEngine(riscv_prover.CpuProverEngine);
+    return mainWithEngine(riscv_cpu.CpuProverEngine);
 }
 
 pub fn mainWithEngine(comptime Engine: type) !void {
@@ -345,8 +346,8 @@ pub fn mainWithEngine(comptime Engine: type) !void {
 
     // Stage 4: Verify
     const t_verify = Timer.begin();
-    // verifyRiscV consumes output.proof on both success and failure.
-    try riscv_prover.verifyRiscV(allocator, config, output.statement, output.proof, output.interaction_claim);
+    // Verification uses the portable CPU integration regardless of proving backend.
+    try riscv_cpu.verifyRiscV(allocator, config, output.statement, output.proof, output.interaction_claim);
     const verify_ms = t_verify.elapsedMs();
 
     std.debug.print("Verify:   {d:.1}ms\n", .{verify_ms});
