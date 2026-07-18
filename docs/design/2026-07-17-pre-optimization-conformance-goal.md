@@ -1,6 +1,6 @@
 # Pre-Optimization Repository and Backend Readiness Goal
 
-Status: active; local Native baseline complete, hosted Metal AOT acceptance remains
+Status: complete; Native optimization baseline unlocked
 Priority: repository structure, shared Stwo, Native CPU/Metal backends, then performance engineering
 Deferred TODO: all Cairo, SN PIE, streaming, RISC-V, and SNIP-36 implementation work
 Completion signal: every optimization-unlock item in Section 11 passes from a clean checkout
@@ -482,7 +482,7 @@ identity, setup attribution, or repository ownership.
       benchmark/profile/interop roots are 17-line facades over compartmentalized controllers that
       remain mechanically capped at the repository's 850-line soft ceiling.
 - [x] Metal shader families and runtime responsibilities are compartmentalized behind stable ABI.
-- [ ] The deterministic shared/Native core metallib passes manifest, export, ABI, AOT/JIT parity,
+- [x] The deterministic shared/Native core metallib passes manifest, export, ABI, AOT/JIT parity,
       authentication, cache, and release-admission gates.
 - [x] CPU scalar/SIMD dispatch has exact capability ownership and differential tests.
 - [x] CPU and selected Metal capability pass the complete six-example Native suite in Zig.
@@ -490,10 +490,10 @@ identity, setup attribution, or repository ownership.
 - [x] Metal evidence proves device work and reports an exact `metal_hybrid` or `metal_resident`
       identity with all host stages and fallback counters.
 - [x] Resource, cache, failure, teardown, and repeated-request tests show bounded ownership.
-- [ ] Local hooks and hosted CI invoke the same checked-in gate definitions.
+- [x] Local hooks and hosted CI invoke the same checked-in gate definitions.
 - [x] A clean broad Native CPU/Metal benchmark and profiler baseline, raw samples, and delta history
       are committed.
-- [ ] The working tree is clean and all generated build/evidence artifacts are reproducible.
+- [x] The working tree is clean and all generated build/evidence artifacts are reproducible.
 
 Local acceptance is bound to implementation revision `44a81457`:
 
@@ -511,25 +511,52 @@ Local acceptance is bound to implementation revision `44a81457`:
 - the protected performance extraction playbook remains byte-identical at SHA-256
   `6fe794bce344b9615a10030ef4cd72c068af8865989ecd384a1c7d75cc34c449`.
 
-The remaining unchecked items reflect one hosted acceptance dependency and its final clean-tree
-closure:
+Final hosted and device acceptance is bound to implementation revision
+`e8ec9c043c4ff87b1f1696015f939dc7321dce78`:
 
-- this checkout resolves only `/Library/Developer/CommandLineTools`, so deterministic metallib,
-  AOT/JIT, authentication, and release admission require the checked `aot-evidence-*` Full-Xcode
-  workflow run and a durable copy of its exact receipt and two build bundles;
-- local pre-push and hosted release gates now share `python3 scripts/ci.py`, but the hosted path must
-  actually pass at the exact evidence tag before gate parity is accepted; and
-- the evidence files and this status update must be committed, the final shared gate must pass, and
-  the tree must return to clean.
+- annotated tag `aot-evidence-e8ec9c04` triggered
+  [workflow run `29627343666`](https://github.com/teddyjfpender/stwo-zig/actions/runs/29627343666);
+  the `Metal AOT reproducible build` job `88034235188` and `Release gate` job `88034235190`
+  both passed at that exact commit;
+- the hosted release job ran the same `python3 scripts/ci.py` entry point as
+  `.githooks/pre-push`, passed all 383 maintained Python tests, reported zero active Native source
+  findings, passed all 616 Zig tests, then passed the interop, benchmark-smoke, and profile-smoke
+  stages; the strict workflow-dispatch lane remains a later release-signoff option rather than an
+  optimization-unlock prerequisite;
+- hosted interop artifact `8424440768`, digest
+  `5d5e71ff2c24c40e73a4f77ef84585f6dbf6e24611a92b7ca1cb398d4a0ba03d`, records 12/12
+  bidirectional proof exchanges and 204/204 negative cases across all six Native examples; its
+  216-artifact receipt is `644d003224593b525d1241b0f06431b2b27b415da30e88d35969bc688b87225f`;
+- hosted Metal artifact `8424302732`, digest
+  `bda5ee45474317e5451e09915a7b495e4df652012ae83f0c19980ed682f62b3b`, contains two
+  independently compiled, byte-identical five-file bundles plus its build receipt and checksum;
+- build receipt `fe87513de81d32b156b5e04895073d63d68b3d9ddf204e722e8f8664ee7b7939`
+  binds ReleaseSafe, Xcode 15.4, SDK 14.5, Metal 3.1 safe math, warnings-as-errors, core shader ABI
+  2, 78 unique exports, 78 ordered ABI entries, and no function constants; both bundles retain the
+  exact metallib digest `900ee9a69412e6d11da7e473c6840329a329087a68375d5f6396905acf612b50`;
+- device receipt `08a23fe3d47b3e96b31984782ad782d4bdd736ba3c377a559cd24d8002657d57`
+  binds the hosted parent receipt and exact commit, reprobes both bundles on an Apple M5 Max, and
+  passes all ten device checks, including authenticated admission, exact export/function-constant
+  identity, and AOT/JIT transcript-output parity; the remaining kernels are authenticated by
+  manifest ABI, export, and Metal function-type checks rather than overstated as dispatched parity;
+  and
+- the durable 14-file chain is stored under
+  `vectors/reports/metal_core_aot_history/08a23fe3d47b3e96b31984782ad782d4bdd736ba3c377a559cd24d8002657d57/`.
+
+The accepted implementation tag is intentionally the authority for executable acceptance. This
+subsequent preservation commit adds only its immutable generated artifacts and this status record,
+so it does not create a circular requirement for a receipt that authenticates itself. Focused
+receipt validation, source conformance, checksums, and a clean final tree close the preservation
+step.
 
 The profiler baseline is complete for optimization admission. One non-blocking granularity TODO is
 explicit: streaming CPU commitment leaf hashing occurs in the parent `main_trace_commit` timer,
 while batch preparation and tree finalization have child stages. A future accumulated-stage scope
 should coalesce discontiguous leaf hashing and finalization without changing proof semantics.
 
-Any unchecked item keeps aggressive optimization locked. Deferred Cairo, SN PIE, streaming,
-RISC-V, and SNIP-36 semantic or structural items do not appear in this checklist and cannot be
-reintroduced implicitly through a status report.
+Every optimization-unlock item is now checked. Deferred Cairo, SN PIE, streaming, RISC-V, and
+SNIP-36 semantic or structural items remain explicit TODOs and cannot be reintroduced implicitly
+through a status report.
 
 ## 12. Definition of Done
 
@@ -552,7 +579,7 @@ A reviewer can start from a clean checkout and establish without private knowled
 9. that the next optimization can be reviewed as a performance change rather than a combined
    correctness, architecture, and benchmarking experiment.
 
-At that point,
+With this goal complete,
 [`2026-07-17-backend-performance-program.md`](2026-07-17-backend-performance-program.md) becomes the
 active execution plan. The Rust oracle, source checker, backend identity, broad suite, and evidence
 contracts remain permanently blocking while performance is driven upward.
