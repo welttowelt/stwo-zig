@@ -63,6 +63,17 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.gate == 'strict'
         run: python3 scripts/ci.py --strict
 
+      - name: Retain interoperability diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-interop-report-${{ github.sha }}
+          path: |
+            vectors/reports/e2e_interop_report.json
+            vectors/reports/latest_e2e_interop_report.json
+          if-no-files-found: warn
+          retention-days: 30
+
   metal-acceptance:
     name: Metal AOT reproducible build
     runs-on: macos-14

@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import importlib
 import subprocess
+import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 
@@ -131,6 +133,38 @@ class ComputeSummaryTests(unittest.TestCase):
             steps[0]["rejection_class"],
             self.mod.REJECTION_CLASS_ROBUSTNESS,
         )
+
+    def test_failure_diagnostics_exposes_last_failed_step(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            report_path = Path(temp_dir) / "interop.json"
+            diagnostics = self.mod.failure_diagnostics(
+                {
+                    "failure": {"message": "hosted build failed"},
+                    "steps": [
+                        {
+                            "name": "rust_interop_tool_build",
+                            "status": "failed",
+                            "return_code": 101,
+                            "stdout_tail": "",
+                            "stderr_tail": "linker unavailable",
+                        }
+                    ],
+                },
+                report_path,
+            )
+
+        self.assertIn("hosted build failed", diagnostics)
+        self.assertIn(str(report_path), diagnostics)
+        self.assertIn("rust_interop_tool_build return_code=101", diagnostics)
+        self.assertIn("linker unavailable", diagnostics)
+
+    def test_failure_diagnostics_handles_precondition_failure(self) -> None:
+        diagnostics = self.mod.failure_diagnostics(
+            {"failure": {"message": "repository is dirty"}, "steps": []},
+            Path("report.json"),
+        )
+        self.assertIn("repository is dirty", diagnostics)
+        self.assertIn("failed step: none recorded", diagnostics)
 
 
 if __name__ == "__main__":

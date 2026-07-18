@@ -17,6 +17,7 @@ import hashlib
 import json
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -73,6 +74,36 @@ def trim_tail(text: str, limit: int = 2000) -> str:
     if len(text) <= limit:
         return text
     return text[-limit:]
+
+
+def failure_diagnostics(report: dict[str, Any], report_path: Path) -> str:
+    """Render the bounded evidence needed to diagnose a failed hosted gate."""
+    failure = report.get("failure")
+    message = failure.get("message") if isinstance(failure, dict) else None
+    lines = [
+        f"interop gate failed: {message or 'no failure message recorded'}",
+        f"interop report: {report_path}",
+    ]
+
+    failed_steps = [
+        step
+        for step in report.get("steps", [])
+        if isinstance(step, dict) and step.get("status") == "failed"
+    ]
+    if not failed_steps:
+        lines.append("failed step: none recorded")
+        return "\n".join(lines)
+
+    step = failed_steps[-1]
+    lines.append(
+        "failed step: "
+        f"{step.get('name', 'unknown')} return_code={step.get('return_code', 'unknown')}"
+    )
+    for stream_name in ("stdout_tail", "stderr_tail"):
+        output = str(step.get(stream_name, "")).strip()
+        if output:
+            lines.extend((f"{stream_name}:", output))
+    return "\n".join(lines)
 
 
 def run_step(
@@ -620,7 +651,10 @@ def main() -> int:
         report["archive"] = None
 
     write_report(args.report_out, report)
-    return 0 if report["status"] == "ok" else 1
+    if report["status"] != "ok":
+        print(failure_diagnostics(report, args.report_out), file=sys.stderr, flush=True)
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
