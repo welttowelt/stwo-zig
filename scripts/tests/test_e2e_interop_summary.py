@@ -166,6 +166,15 @@ class ComputeSummaryTests(unittest.TestCase):
         self.assertIn("repository is dirty", diagnostics)
         self.assertIn("failed step: none recorded", diagnostics)
 
+    def test_generated_artifact_is_retired_before_exclusive_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact = Path(temp_dir) / "wide_fibonacci_zig_to_rust.json"
+            artifact.write_text("stale", encoding="utf-8")
+
+            self.mod.prepare_generated_artifact(artifact)
+            self.assertFalse(artifact.exists())
+            self.mod.prepare_generated_artifact(artifact)
+
 
 if __name__ == "__main__":
     unittest.main()

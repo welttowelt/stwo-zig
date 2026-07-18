@@ -269,6 +269,11 @@ def runtime_command(binary: Path, *, mode: str, artifact: Path, example: str | N
     return command
 
 
+def prepare_generated_artifact(path: Path) -> None:
+    """Retire output owned by a prior gate run before exclusive publication."""
+    path.unlink(missing_ok=True)
+
+
 def run_negative_matrix(
     *,
     example: str,
@@ -332,6 +337,7 @@ def run_exchange_direction(
     artifact_records: list[dict[str, Any]],
 ) -> dict[str, Any]:
     artifact = artifact_dir / f"{example}_{direction}.json"
+    prepare_generated_artifact(artifact)
     run_step(
         name=f"{example}_{generator}_generate",
         cmd=runtime_command(generator_binary, mode="generate", artifact=artifact, example=example),
