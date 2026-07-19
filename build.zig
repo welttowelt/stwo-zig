@@ -1,6 +1,6 @@
 const std = @import("std");
-const aggregate = @import("build_support/products/aggregate_cli.zig");
+const dispatcher = @import("build_support/root_dispatcher.zig");
 
 pub fn build(b: *std.Build) void {
-    aggregate.addProduct(b);
+    dispatcher.add(b);
 }

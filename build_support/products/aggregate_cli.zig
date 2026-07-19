@@ -244,7 +244,6 @@ pub fn addProduct(b: *std.Build) void {
         .root_module = riscv_bench_module,
     });
     const install_riscv_bench = b.addInstallArtifact(riscv_bench_cli, .{});
-    b.getInstallStep().dependOn(&install_riscv_bench.step);
     const riscv_bench_step = b.step("riscv-bench", "Build RISC-V benchmark CLI");
     riscv_bench_step.dependOn(&install_riscv_bench.step);
 
