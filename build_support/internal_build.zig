@@ -75,8 +75,9 @@ pub fn build(b: *std.Build) void {
         .riscv_cpu_compat => {
             constructProduct(b, target, optimize, repository_root, shared, .riscv_cpu);
             const focused = &b.top_level_steps.get("test-riscv-cpu-product").?.step;
+            const exhaustive = &b.top_level_steps.get("test-riscv-release-exhaustive").?.step;
             b.step("test-riscv", "Run RISC-V runner tests (trace_dump)").dependOn(focused);
-            b.step("test-riscv-prover", "Run RISC-V prover tests (prove+verify)").dependOn(focused);
+            b.step("test-riscv-prover", "Run RISC-V prover tests (prove+verify)").dependOn(exhaustive);
             construction_observer.recordConstructor(b, "compatibility aliases");
         },
         .compatibility_tools => {

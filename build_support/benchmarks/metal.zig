@@ -167,6 +167,7 @@ pub fn addProducts(context: Context) void {
     const metal_test_options = b.addOptions();
     metal_test_options.addOption(bool, "metal_only", true);
     metal_test_options.addOption(bool, "riscv_only", false);
+    metal_test_options.addOption(bool, "riscv_exhaustive", false);
     metal_test_module.addOptions("test_options", metal_test_options);
     const metal_tests = b.addTest(.{
         .root_module = metal_test_module,
