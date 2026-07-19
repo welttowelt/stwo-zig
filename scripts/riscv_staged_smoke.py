@@ -20,7 +20,13 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from scripts.riscv_staged_smoke_lib import contracts, mutations  # noqa: E402
+
 ELF = "vectors/riscv_elfs/branch_fib.elf"
+ELF_SHA256 = "fb8533da02ca7c10c53b4a09f748d112f338f7433b597262d874a0ac4ba338b2"
+COMMAND_TIMEOUT_SECONDS = 1_800
 MULTI_SHARD_TOTAL_STEPS = 131_078
 MULTI_SHARD_ADDI_ROWS = 65_538
 MULTI_SHARD_PROGRAM_WORDS = 8
@@ -39,55 +45,45 @@ def write_multi_shard_elf(path: Path) -> None:
     path.write_bytes(elf)
 
 
+def write_unsupported_elf(path: Path) -> None:
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import riscv_trace_vectors as vectors  # pylint: disable=import-outside-toplevel
+
+    path.write_bytes(vectors.build_release_elf([0x0000_0073]))  # ECALL is outside the proof ISA.
+
+
 def command(cli: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [str(cli), *args], cwd=ROOT, capture_output=True, text=True,
+        timeout=COMMAND_TIMEOUT_SECONDS,
     )
 
 
-def read_uleb(data: bytes, start: int) -> tuple[int, int]:
-    value = 0
-    shift = 0
-    position = start
-    while position < len(data) and shift < 70:
-        byte = data[position]
-        position += 1
-        value |= (byte & 0x7f) << shift
-        if not byte & 0x80:
-            return value, position
-        shift += 7
-    raise ValueError("invalid postcard ULEB128")
+def git_identity() -> tuple[str, bool]:
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=ROOT, check=True, capture_output=True, text=True,
+    ).stdout.strip()
+    status = subprocess.run(
+        ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+        cwd=ROOT, check=True, capture_output=True, text=True,
+    ).stdout
+    return head, bool(status)
 
 
-def write_uleb(value: int) -> bytes:
-    encoded = bytearray()
-    while value >= 0x80:
-        encoded.append((value & 0x7f) | 0x80)
-        value >>= 7
-    encoded.append(value)
-    return bytes(encoded)
-
-
-def proof_wire_mutations(proof_hex: str) -> dict[str, str]:
-    raw = bytes.fromhex(proof_hex)
-    position = 0
-    # PcsConfig: five ULEB scalars, then Option<u32> lifting log size.
-    for _ in range(5):
-        _, position = read_uleb(raw, position)
-    lifting_tag = raw[position]
-    position += 1
-    if lifting_tag == 1:
-        _, position = read_uleb(raw, position)
-    elif lifting_tag != 0:
-        raise ValueError("invalid postcard lifting-log option")
-    commitments_start = position
-    _, commitments_end = read_uleb(raw, commitments_start)
-    length_bomb = (raw[:commitments_start] + write_uleb(1 << 32) +
-                   raw[commitments_end:])
+def require_rejection(
+    result: subprocess.CompletedProcess[str], outputs: tuple[Path, ...], label: str,
+    expected_errors: tuple[str, ...] = (),
+) -> dict[str, object]:
+    if result.returncode == 0 or any(path.exists() for path in outputs):
+        raise contracts.ContractError(f"{label}: rejected invocation published output")
+    if expected_errors and not any(error in result.stderr for error in expected_errors):
+        raise contracts.ContractError(
+            f"{label}: expected one of {expected_errors}, got {result.stderr!r}"
+        )
     return {
-        "trailing": (raw + b"\x00").hex(),
-        "truncated": raw[:-1].hex(),
-        "length-bomb": length_bomb.hex(),
+        "returncode": result.returncode,
+        "stdout_sha256": contracts.sha256_text(result.stdout),
+        "stderr_sha256": contracts.sha256_text(result.stderr),
     }
 
 
@@ -99,17 +95,47 @@ def main() -> int:
     candidate = args.phase == "candidate"
     expected_status = "not_release_gated" if candidate else "release_gated"
 
-    subprocess.run(["zig", "build", "stwo-zig", "-Doptimize=ReleaseFast"], cwd=ROOT, check=True)
+    subprocess.run(
+        ["zig", "build", "stwo-zig", "-Doptimize=ReleaseFast"],
+        cwd=ROOT,
+        check=True,
+        timeout=COMMAND_TIMEOUT_SECONDS,
+    )
     cli = ROOT / "zig-out" / "bin" / "stwo-zig"
-    registry = json.loads(command(cli, "applications").stdout)
-    deferred = {entry["adapter"]: entry for entry in registry["deferred_adapters"]}
-    applications = {entry.get("adapter"): entry for entry in registry["applications"]}
-    if candidate:
-        if deferred.get("stark-v-rv32im-elf", {}).get("status") != expected_status:
-            print("riscv staged smoke: candidate registry is not fail closed", file=sys.stderr)
-            return 1
-    elif applications.get("stark-v-rv32im-elf", {}).get("status") != expected_status:
-        print("riscv staged smoke: promoted registry entry is absent", file=sys.stderr)
+    implementation_commit, implementation_dirty = git_identity()
+
+    visible_digests: dict[str, str] = {}
+    help_cases = {
+        "root-help": ("--help",),
+        "prove-help": ("prove", "--help"),
+        "bench-help": ("bench", "--help"),
+        "verify-help": ("verify", "--help"),
+        "applications-help": ("applications", "--help"),
+    }
+    try:
+        for name, command_args in help_cases.items():
+            result = command(cli, *command_args)
+            if result.returncode != 0 or result.stderr:
+                raise contracts.ContractError(f"{name}: installed help failed")
+            visible_digests[name] = contracts.validate_visible_snapshot(name, result.stdout)
+        for name, command_args in {
+            "missing-command": (),
+            "unknown-command": ("not-a-command",),
+        }.items():
+            result = command(cli, *command_args)
+            if result.returncode == 0 or result.stdout:
+                raise contracts.ContractError(f"{name}: diagnostic did not fail on stderr")
+            visible_digests[name] = contracts.validate_visible_snapshot(
+                name, result.stderr, diagnostic=True,
+            )
+        registry_result = command(cli, "applications")
+        if registry_result.returncode != 0 or registry_result.stderr:
+            raise contracts.ContractError("applications: installed registry command failed")
+        registry = contracts.strict_json_object(registry_result.stdout, "applications")
+        contracts.validate_registry(registry, expected_status)
+        visible_digests["applications"] = contracts.sha256_text(registry_result.stdout)
+    except contracts.ContractError as error:
+        print(f"riscv staged smoke: {error}", file=sys.stderr)
         return 1
 
     if args.evidence_dir:
@@ -125,8 +151,30 @@ def main() -> int:
         artifact = Path(tmp) / "proof.json"
         report = Path(tmp) / "report.json"
         benchmark_report = Path(tmp) / "benchmark.json"
+        benchmark_artifact = Path(tmp) / "benchmark-proof.json"
         denied_artifact = Path(tmp) / "denied.json"
         denied_report = Path(tmp) / "denied-report.json"
+        malformed_elf = Path(tmp) / "malformed.elf"
+        malformed_elf.write_bytes(b"not an ELF")
+        unsupported_elf = Path(tmp) / "unsupported-ecall.elf"
+        write_unsupported_elf(unsupported_elf)
+        oversized_input = Path(tmp) / "oversized-input.bin"
+        with oversized_input.open("wb") as handle:
+            handle.truncate(16 * 1024 * 1024 + 1)
+
+        rejection_results: dict[str, dict[str, object]] = {}
+
+        def elf_prove_args(elf: str, *, backend: str = "cpu", input_path: Path | None = None) -> list[str]:
+            values = [
+                "prove", "--elf", elf, "--backend", backend, "--protocol", "functional",
+                "--output", str(denied_artifact), "--report-out", str(denied_report),
+            ]
+            if input_path is not None:
+                values.extend(("--input", str(input_path)))
+            if candidate:
+                values.append("--experimental")
+            return values
+
         admission = [
             "prove", "--elf", str(multi_shard_elf), "--backend", "cpu", "--protocol", "functional",
             "--output", str(denied_artifact), "--report-out", str(denied_report),
@@ -134,17 +182,86 @@ def main() -> int:
         if not candidate:
             admission.append("--experimental")
         denied = command(cli, *admission)
-        if denied.returncode == 0 or denied_artifact.exists() or denied_report.exists():
-            expectation = "missing" if candidate else "present"
-            print(f"riscv staged smoke: --experimental {expectation} was admitted",
-                  file=sys.stderr)
+        try:
+            rejection_results["phase-admission"] = require_rejection(
+                denied,
+                (denied_artifact, denied_report),
+                "phase admission",
+                ("ExperimentalFlagRequired",) if candidate else ("ExperimentalFlagAfterPromotion",),
+            )
+        except contracts.ContractError as error:
+            print(f"riscv staged smoke: {error}", file=sys.stderr)
             return 1
 
         irrelevant = command(
             cli, "verify", "--artifact", "does-not-exist.json", "--experimental",
         )
-        if irrelevant.returncode == 0:
-            print("riscv staged smoke: irrelevant --experimental was admitted", file=sys.stderr)
+        try:
+            rejection_results["irrelevant-experimental"] = require_rejection(
+                irrelevant, (), "irrelevant --experimental", ("IrrelevantArgument",),
+            )
+            negative_cases = {
+                "malformed-elf": (
+                    elf_prove_args(str(malformed_elf)),
+                    ("BufferTooSmall", "InvalidMagic"),
+                ),
+                "undeclared-release-abi": (
+                    elf_prove_args("vectors/riscv_elfs/negative/undeclared_program.elf"),
+                    ("MissingReleaseAbiSymbol",),
+                ),
+                "self-loop-completion": (
+                    elf_prove_args("vectors/riscv_elfs/negative/self_loop_sentinel.elf"),
+                    ("InvalidReleaseCompletion",),
+                ),
+                "unsupported-instruction": (
+                    elf_prove_args(str(unsupported_elf)),
+                    ("InvalidInstruction",),
+                ),
+                "oversized-input": (
+                    elf_prove_args(ELF, input_path=oversized_input),
+                    ("FileTooBig",),
+                ),
+                "missing-input": (
+                    elf_prove_args(ELF, input_path=Path(tmp) / "missing-input.bin"),
+                    ("FileNotFound",),
+                ),
+                "unsupported-backend": (
+                    elf_prove_args(ELF, backend="metal-hybrid"),
+                    ("staged only",),
+                ),
+            }
+            for label, (case_args, expected_errors) in negative_cases.items():
+                result = command(cli, *case_args)
+                rejection_results[label] = require_rejection(
+                    result, (denied_artifact, denied_report), label, expected_errors,
+                )
+
+            sentinel = b"existing-output-must-survive\n"
+            denied_artifact.write_bytes(sentinel)
+            occupied_proof = command(cli, *elf_prove_args(ELF))
+            if occupied_proof.returncode == 0 or denied_artifact.read_bytes() != sentinel or \
+                    denied_report.exists():
+                raise contracts.ContractError("existing proof output was replaced or accompanied")
+            rejection_results["existing-proof"] = {
+                "returncode": occupied_proof.returncode,
+                "stderr_sha256": contracts.sha256_text(occupied_proof.stderr),
+            }
+            denied_artifact.unlink()
+            denied_report.write_bytes(sentinel)
+            occupied_report = command(cli, *elf_prove_args(ELF))
+            if occupied_report.returncode == 0 or denied_report.read_bytes() != sentinel or \
+                    denied_artifact.exists():
+                raise contracts.ContractError("existing report output was replaced or accompanied")
+            rejection_results["existing-report"] = {
+                "returncode": occupied_report.returncode,
+                "stderr_sha256": contracts.sha256_text(occupied_report.stderr),
+            }
+            denied_report.unlink()
+            malformed_elf.unlink()
+            unsupported_elf.unlink()
+            oversized_input.unlink()
+        except contracts.ContractError as error:
+            print(f"riscv staged smoke: {error}", file=sys.stderr)
             return 1
 
         prove_args = [
@@ -162,38 +279,38 @@ def main() -> int:
             print("riscv staged smoke: atomic artifact/report publication is incomplete",
                   file=sys.stderr)
             return 1
-        payload = json.loads(artifact.read_text())
-        report_payload = json.loads(report.read_text())
-        provenance = payload.get("provenance", {})
-        source = payload.get("source", {})
-        statement = payload.get("statement", {})
-        if payload.get("artifact_kind") != "stwo_riscv_proof" or \
-                payload.get("schema_version") != 3 or \
-                payload.get("exchange_mode") != "riscv_proof_json_wire_v3":
-            print("riscv staged smoke: artifact is not the exact schema-v3 contract",
-                  file=sys.stderr)
+        if prove.stdout:
+            print("riscv staged smoke: --report-out prove also wrote stdout", file=sys.stderr)
             return 1
-        if source.get("elf_sha256") != MULTI_SHARD_ELF_SHA256 or \
-                source.get("input_sha256") != hashlib.sha256(b"").hexdigest():
-            print("riscv staged smoke: artifact source identity drifted", file=sys.stderr)
+        try:
+            payload = contracts.strict_json_object(artifact.read_text(), "artifact")
+            report_payload = contracts.strict_json_object(report.read_text(), "prove report")
+            statement_digest = contracts.require_sha256(
+                report_payload.get("statement_sha256"), "prove report.statement_sha256",
+            )
+            contracts.validate_artifact(
+                payload,
+                expected_status=expected_status,
+                expected_commit=implementation_commit,
+                expected_dirty=implementation_dirty,
+                elf_sha256=MULTI_SHARD_ELF_SHA256,
+                input_sha256=hashlib.sha256(b"").hexdigest(),
+                witness_layout_sha256=WITNESS_LAYOUT_SHA256,
+            )
+            proof_bytes = bytes.fromhex(payload["proof_bytes_hex"])
+            contracts.validate_prove_report(
+                report_payload,
+                expected_status=expected_status,
+                experimental=candidate,
+                statement_sha256=statement_digest,
+                proof_path=str(artifact),
+            )
+        except (contracts.ContractError, ValueError) as error:
+            print(f"riscv staged smoke: {error}", file=sys.stderr)
             return 1
-        implementation_commit = provenance.get("implementation_commit", "")
-        if len(implementation_commit) != 40 or \
-                any(byte not in "0123456789abcdef" for byte in implementation_commit) or \
-                not isinstance(provenance.get("implementation_dirty"), bool) or \
-                provenance.get("witness_layout_sha256") != WITNESS_LAYOUT_SHA256:
-            print("riscv staged smoke: artifact build/layout provenance is incomplete",
-                  file=sys.stderr)
-            return 1
+        statement = payload["statement"]
         if statement.get("segment_ordinal") != 0 or statement.get("segment_count") != 1:
             print("riscv staged smoke: artifact segment geometry drifted", file=sys.stderr)
-            return 1
-        if payload["release_status"] != expected_status or \
-                report_payload["release_status"] != expected_status:
-            print("riscv staged smoke: artifact/report release status drifted", file=sys.stderr)
-            return 1
-        if report_payload["experimental"] is not candidate:
-            print("riscv staged smoke: report lost typed admission state", file=sys.stderr)
             return 1
         family_counts: dict[int, int] = {}
         for component in payload["statement"]["components"]:
@@ -204,14 +321,25 @@ def main() -> int:
             print("riscv staged smoke: installed CLI proof did not cross a family shard",
                   file=sys.stderr)
             return 1
-        statement_digest = report_payload["statement_sha256"]
         verify = command(
             cli, "verify", "--artifact", str(artifact), "--protocol", "functional",
             "--expect-statement-digest", statement_digest,
         )
-        if verify.returncode != 0 or "proof VERIFIED" not in verify.stdout:
+        if verify.returncode != 0:
             print(f"riscv staged smoke: honest artifact rejected: {verify.stdout}"
                   f"{verify.stderr}", file=sys.stderr)
+            return 1
+        try:
+            verify_payload = contracts.strict_json_object(verify.stdout, "verify receipt")
+            contracts.validate_verify_receipt(
+                verify_payload,
+                expected_status=expected_status,
+                policy="functional",
+                statement_sha256=statement_digest,
+                proof_bytes=proof_bytes,
+            )
+        except contracts.ContractError as error:
+            print(f"riscv staged smoke: {error}", file=sys.stderr)
             return 1
         wrong_digest = "00" * 32 if statement_digest != "00" * 32 else "11" * 32
         wrong_statement = command(
@@ -257,7 +385,7 @@ def main() -> int:
             "length-bomb": "InvalidProofShape",
         }
         proof_wire_results: dict[str, dict[str, object]] = {}
-        for mutation, proof_hex in proof_wire_mutations(
+        for mutation, proof_hex in mutations.proof_wire(
                 json.loads(artifact.read_text())["proof_bytes_hex"]).items():
             mutated_payload = json.loads(artifact.read_text())
             mutated_payload["proof_bytes_hex"] = proof_hex
@@ -279,9 +407,34 @@ def main() -> int:
                       f"{expected_error}: {result.stderr}",
                       file=sys.stderr)
                 return 1
+        hostile_artifact_results: dict[str, dict[str, object]] = {}
+        artifact_text = artifact.read_text()
+        artifact_payload = contracts.strict_json_object(artifact_text, "artifact")
+        for mutation, (mutated_text, expected_error) in mutations.hostile_json(
+                artifact_text, artifact_payload).items():
+            mutation_path = Path(tmp) / f"artifact-{mutation}.json"
+            mutation_path.write_text(mutated_text)
+            result = command(
+                cli, "verify", "--artifact", str(mutation_path),
+                "--protocol", "functional", "--expect-statement-digest", statement_digest,
+            )
+            expected_errors = (expected_error,)
+            if mutation == "corrupt-json":
+                expected_errors = ("SyntaxError", "UnexpectedToken", "UnexpectedEndOfInput")
+            hostile_artifact_results[mutation] = {
+                "returncode": result.returncode,
+                "expected_error": expected_error,
+                "stderr_sha256": contracts.sha256_text(result.stderr),
+            }
+            if result.returncode == 0 or not any(
+                    error in result.stderr for error in expected_errors):
+                print(f"riscv staged smoke: hostile {mutation} did not fail closed: "
+                      f"{result.stderr}", file=sys.stderr)
+                return 1
         bench_args = [
             "bench", "--elf", ELF, "--backend", "cpu", "--protocol", "functional",
             "--warmups", "0", "--samples", "2", "--report-out", str(benchmark_report),
+            "--proof-out", str(benchmark_artifact),
         ]
         if candidate:
             bench_args.append("--experimental")
@@ -290,11 +443,61 @@ def main() -> int:
             print(f"riscv staged smoke: benchmark failed: {benchmark.stdout}{benchmark.stderr}",
                   file=sys.stderr)
             return 1
-        benchmark_payload = json.loads(benchmark_report.read_text())
-        if benchmark_payload["schema"] != "riscv_proof_v1" or \
-                benchmark_payload["release_status"] != expected_status or \
-                benchmark_payload["verified_samples"] != 2:
-            print("riscv staged smoke: benchmark report contract drifted", file=sys.stderr)
+        if benchmark.stdout or not benchmark_artifact.is_file():
+            print("riscv staged smoke: benchmark publication contract drifted", file=sys.stderr)
+            return 1
+        try:
+            benchmark_payload = contracts.strict_json_object(
+                benchmark_report.read_text(), "benchmark report",
+            )
+            benchmark_artifact_payload = contracts.strict_json_object(
+                benchmark_artifact.read_text(), "benchmark artifact",
+            )
+            contracts.validate_benchmark_report(
+                benchmark_payload,
+                expected_status=expected_status,
+                experimental=candidate,
+                warmups=0,
+                samples=2,
+                proof_path=str(benchmark_artifact),
+            )
+            contracts.validate_artifact(
+                benchmark_artifact_payload,
+                expected_status=expected_status,
+                expected_commit=implementation_commit,
+                expected_dirty=implementation_dirty,
+                elf_sha256=ELF_SHA256,
+                input_sha256=hashlib.sha256(b"").hexdigest(),
+                witness_layout_sha256=WITNESS_LAYOUT_SHA256,
+            )
+            if benchmark_payload["artifact_sha256"] != hashlib.sha256(
+                    benchmark_artifact.read_bytes()).hexdigest():
+                raise contracts.ContractError("benchmark artifact digest drifted")
+        except contracts.ContractError as error:
+            print(f"riscv staged smoke: {error}", file=sys.stderr)
+            return 1
+        benchmark_statement = benchmark_payload["statement_sha256"]
+        benchmark_verify = command(
+            cli, "verify", "--artifact", str(benchmark_artifact), "--protocol", "functional",
+            "--expect-statement-digest", benchmark_statement,
+        )
+        if benchmark_verify.returncode != 0:
+            print(f"riscv staged smoke: retained benchmark proof rejected: "
+                  f"{benchmark_verify.stderr}", file=sys.stderr)
+            return 1
+        try:
+            benchmark_verify_payload = contracts.strict_json_object(
+                benchmark_verify.stdout, "benchmark verify receipt",
+            )
+            contracts.validate_verify_receipt(
+                benchmark_verify_payload,
+                expected_status=expected_status,
+                policy="functional",
+                statement_sha256=benchmark_statement,
+                proof_bytes=bytes.fromhex(benchmark_artifact_payload["proof_bytes_hex"]),
+            )
+        except contracts.ContractError as error:
+            print(f"riscv staged smoke: {error}", file=sys.stderr)
             return 1
 
         if args.evidence_dir:
@@ -303,6 +506,8 @@ def main() -> int:
                 "schema": "riscv_cli_evidence_v1",
                 "phase": args.phase,
                 "release_status": expected_status,
+                "implementation_commit": implementation_commit,
+                "implementation_dirty": implementation_dirty,
                 "generator": "scripts/riscv_trace_vectors.py::build_release_elf",
                 "multi_shard_program": "declared ADDI/BLT loop with halt-flag epilogue",
                 "multi_shard_program_words": MULTI_SHARD_PROGRAM_WORDS,
@@ -315,12 +520,20 @@ def main() -> int:
                 "artifact_sha256": digest(artifact),
                 "report_sha256": digest(report),
                 "benchmark_report_sha256": digest(benchmark_report),
+                "benchmark_artifact_sha256": digest(benchmark_artifact),
                 "tampered_artifact_sha256": digest(tampered),
                 "independent_verify_returncode": verify.returncode,
                 "wrong_statement_returncode": wrong_statement.returncode,
                 "policy_downgrade_returncode": downgrade.returncode,
                 "tamper_returncode": tamper.returncode,
                 "proof_wire_mutation_returncodes": proof_wire_results,
+                "hostile_artifact_results": hostile_artifact_results,
+                "boundary_rejection_results": rejection_results,
+                "visible_output_sha256": visible_digests,
+                "verify_receipt_sha256": contracts.sha256_text(verify.stdout),
+                "benchmark_verify_receipt_sha256": contracts.sha256_text(
+                    benchmark_verify.stdout
+                ),
             }
             (Path(tmp) / "summary.json").write_text(
                 json.dumps(summary, indent=2, sort_keys=True) + "\n"

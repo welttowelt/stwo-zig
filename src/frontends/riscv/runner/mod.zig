@@ -105,6 +105,8 @@ fn runConfigured(
         }
         const pc_before = rv_cpu.pc;
         const inst_word = mem.readU32(rv_cpu.pc);
+        if (strict_completion and (inst_word == 0x00000073 or inst_word == 0x00100073))
+            return error.InvalidInstruction;
         // ECALL/EBREAK are runtime affordances (hosted syscalls and halts),
         // not part of the pinned decode contract - synthesize them here.
         const inst = if (inst_word == 0x00000073)
@@ -550,6 +552,17 @@ test "runner: runWithInput rejects an invalid instruction" {
         error.InvalidInstruction,
         runWithInput(std.testing.allocator, &elf, &.{}, 1000),
     );
+}
+
+test "runner: strict completion rejects SYSTEM words before compatibility synthesis" {
+    for ([_]u32{ 0x00000073, 0x00100073 }) |system_word| {
+        const instructions = [_]u32{system_word};
+        const elf = makeTestElf(&instructions);
+        try std.testing.expectError(
+            error.InvalidInstruction,
+            runWithInput(std.testing.allocator, &elf, &.{}, 1000),
+        );
+    }
 }
 
 test "runner: runWithInput rejects max-step exhaustion" {

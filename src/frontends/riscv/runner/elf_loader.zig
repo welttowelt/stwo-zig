@@ -14,6 +14,7 @@ pub const ElfError = error{
     NotRiscV,
     InvalidProgramHeader,
     BufferTooSmall,
+    MissingReleaseAbiSymbol,
 };
 
 /// Information extracted from the ELF header after loading.
@@ -47,6 +48,23 @@ const ELFDATA2LSB: u8 = 1;
 const EM_RISCV: u16 = 243;
 const PT_LOAD: u32 = 1;
 
+/// Complete linker contract required by the production Stark-V adapter.
+pub const RELEASE_ABI_SYMBOLS = [_][]const u8{
+    "__text_start",
+    "__text_len",
+    "__data_start",
+    "__data_len",
+    "__global_pointer$",
+    "__stack_bottom",
+    "__stack_top",
+    "__input_start",
+    "__input_end",
+    "__halt_flag",
+    "__output_len",
+    "__output_data",
+    "__output_end",
+};
+
 // ELF32 header offsets and sizes
 const ELF_HDR_SIZE: usize = 52;
 const PHDR_SIZE: usize = 32;
@@ -55,20 +73,7 @@ const PHDR_SIZE: usize = 32;
 ///
 /// Returns the entry point and the number of segments loaded.
 pub fn loadElf(elf_bytes: []const u8, mem: *Memory) (ElfError || error{OutOfMemory})!ElfInfo {
-    if (elf_bytes.len < ELF_HDR_SIZE) return ElfError.BufferTooSmall;
-
-    // Validate magic.
-    if (!std.mem.eql(u8, elf_bytes[0..4], &ELF_MAGIC)) return ElfError.InvalidMagic;
-
-    // EI_CLASS must be ELFCLASS32.
-    if (elf_bytes[4] != ELFCLASS32) return ElfError.Not32Bit;
-
-    // EI_DATA must be ELFDATA2LSB (little-endian).
-    if (elf_bytes[5] != ELFDATA2LSB) return ElfError.NotLittleEndian;
-
-    // e_machine (offset 18, 2 bytes LE) must be EM_RISCV.
-    const e_machine = readU16LE(elf_bytes[18..20]);
-    if (e_machine != EM_RISCV) return ElfError.NotRiscV;
+    try validateIdentity(elf_bytes);
 
     // e_entry (offset 24, 4 bytes LE)
     const e_entry = readU32LE(elf_bytes[24..28]);
@@ -160,12 +165,30 @@ pub fn loadElf(elf_bytes: []const u8, mem: *Memory) (ElfError || error{OutOfMemo
     };
 }
 
+/// Rejects compatibility ELFs before the production adapter starts execution.
+/// `loadElf` continues to provide documented defaults for diagnostic callers.
+pub fn validateReleaseAbi(elf_bytes: []const u8) ElfError!void {
+    try validateIdentity(elf_bytes);
+    for (RELEASE_ABI_SYMBOLS) |symbol| {
+        if (findSymbolValue(elf_bytes, symbol) == null)
+            return ElfError.MissingReleaseAbiSymbol;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 fn readU16LE(bytes: *const [2]u8) u16 {
     return @as(u16, bytes[0]) | (@as(u16, bytes[1]) << 8);
+}
+
+fn validateIdentity(elf_bytes: []const u8) ElfError!void {
+    if (elf_bytes.len < ELF_HDR_SIZE) return ElfError.BufferTooSmall;
+    if (!std.mem.eql(u8, elf_bytes[0..4], &ELF_MAGIC)) return ElfError.InvalidMagic;
+    if (elf_bytes[4] != ELFCLASS32) return ElfError.Not32Bit;
+    if (elf_bytes[5] != ELFDATA2LSB) return ElfError.NotLittleEndian;
+    if (readU16LE(elf_bytes[18..20]) != EM_RISCV) return ElfError.NotRiscV;
 }
 
 fn readU32LE(bytes: *const [4]u8) u32 {
@@ -340,6 +363,18 @@ test "loadElf parses minimal ELF header" {
 
     // Verify the instruction was loaded at the correct address.
     try std.testing.expectEqual(@as(u32, 0x02A00093), mem.readU32(0x00010000));
+}
+
+test "release ABI preflight rejects compatibility and malformed ELFs" {
+    const compatibility_elf = makeMinimalElf();
+    try std.testing.expectError(
+        ElfError.MissingReleaseAbiSymbol,
+        validateReleaseAbi(&compatibility_elf),
+    );
+    try std.testing.expectError(
+        ElfError.BufferTooSmall,
+        validateReleaseAbi("not an ELF"),
+    );
 }
 
 test "loadElf materializes unaccessed BSS words" {

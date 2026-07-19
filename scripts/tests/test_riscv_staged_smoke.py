@@ -1,0 +1,243 @@
+"""Unit contracts for the installed RISC-V prove/verify/benchmark smoke."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import subprocess
+import unittest
+from pathlib import Path
+from unittest import mock
+
+from scripts import riscv_staged_smoke as smoke
+from scripts.riscv_staged_smoke_lib import contracts, mutations
+
+
+DIGEST = "ab" * 32
+
+
+def artifact() -> dict[str, object]:
+    return {
+        "artifact_kind": "stwo_riscv_proof",
+        "schema_version": 3,
+        "exchange_mode": "riscv_proof_json_wire_v3",
+        "release_status": "not_release_gated",
+        "generator": "zig",
+        "air": "stark_v_rv32im",
+        "backend": "cpu",
+        "protocol": "functional",
+        "source": {"elf_sha256": DIGEST, "input_sha256": DIGEST},
+        "provenance": {
+            "oracle_repository": "oracle",
+            "oracle_commit": "cd" * 20,
+            "implementation_repository": "implementation",
+            "implementation_commit": "ef" * 20,
+            "implementation_dirty": False,
+            "witness_layout_sha256": DIGEST,
+        },
+        "pcs_config": {},
+        "statement": {},
+        "interaction_claim": {},
+        "proof_bytes_hex": "01" * 32,
+    }
+
+
+class JsonContractTests(unittest.TestCase):
+    def test_strict_json_requires_one_object_and_rejects_nested_duplicates(self) -> None:
+        self.assertEqual({"value": 1}, contracts.strict_json_object('{"value":1}', "test"))
+        with self.assertRaisesRegex(contracts.ContractError, "duplicate JSON field value"):
+            contracts.strict_json_object('{"nested":{"value":1,"value":2}}', "test")
+        with self.assertRaisesRegex(contracts.ContractError, "one JSON object"):
+            contracts.strict_json_object("[]", "test")
+        with self.assertRaisesRegex(contracts.ContractError, "invalid JSON"):
+            contracts.strict_json_object("{} {}", "test")
+
+    def test_artifact_contract_binds_exact_fields_source_and_build(self) -> None:
+        payload = artifact()
+        contracts.validate_artifact(
+            payload,
+            expected_status="not_release_gated",
+            expected_commit="ef" * 20,
+            expected_dirty=False,
+            elf_sha256=DIGEST,
+            input_sha256=DIGEST,
+            witness_layout_sha256=DIGEST,
+        )
+        payload["verified"] = True
+        with self.assertRaisesRegex(contracts.ContractError, "fields drifted"):
+            contracts.validate_artifact(
+                payload,
+                expected_status="not_release_gated",
+                expected_commit="ef" * 20,
+                expected_dirty=False,
+                elf_sha256=DIGEST,
+                input_sha256=DIGEST,
+                witness_layout_sha256=DIGEST,
+            )
+
+    def test_verify_receipt_binds_statement_policy_and_proof_digest(self) -> None:
+        proof = b"proof-wire"
+        receipt = {
+            "schema": "riscv_verify_v1",
+            "status": "verified",
+            "artifact_kind": "stwo_riscv_proof",
+            "artifact_schema_version": 3,
+            "release_status": "not_release_gated",
+            "security_policy": "functional",
+            "statement_sha256": DIGEST,
+            "proof_bytes": len(proof),
+            "proof_sha256": hashlib.sha256(proof).hexdigest(),
+        }
+        contracts.validate_verify_receipt(
+            receipt,
+            expected_status="not_release_gated",
+            policy="functional",
+            statement_sha256=DIGEST,
+            proof_bytes=proof,
+        )
+        receipt["security_policy"] = "smoke"
+        with self.assertRaisesRegex(contracts.ContractError, "values drifted"):
+            contracts.validate_verify_receipt(
+                receipt,
+                expected_status="not_release_gated",
+                policy="functional",
+                statement_sha256=DIGEST,
+                proof_bytes=proof,
+            )
+
+    def test_prove_report_has_phase_neutral_exact_schema(self) -> None:
+        report = {
+            "schema": "riscv_prove_v1",
+            "release_status": "not_release_gated",
+            "experimental": True,
+            "verified_in_process": True,
+            "total_steps": 8,
+            "n_components": 3,
+            "execution_seconds": 0.1,
+            "witness_seconds": 0.2,
+            "proving_seconds": 0.3,
+            "verification_seconds": 0.4,
+            "total_seconds": 1.0,
+            "statement_sha256": DIGEST,
+            "proof_path": "proof.json",
+        }
+        contracts.validate_prove_report(
+            report,
+            expected_status="not_release_gated",
+            experimental=True,
+            statement_sha256=DIGEST,
+            proof_path="proof.json",
+        )
+        report["schema"] = "riscv-staged-report-v1"
+        with self.assertRaisesRegex(contracts.ContractError, "schema/release status drifted"):
+            contracts.validate_prove_report(
+                report,
+                expected_status="not_release_gated",
+                experimental=True,
+                statement_sha256=DIGEST,
+                proof_path="proof.json",
+            )
+
+    def test_benchmark_report_binds_samples_timing_and_retained_artifact(self) -> None:
+        report = {
+            "schema": "riscv_proof_v1",
+            "release_status": "not_release_gated",
+            "mode": "bench",
+            "experimental": True,
+            "profiled": False,
+            "warmups": 0,
+            "samples": 2,
+            "verified_samples": 2,
+            "total_steps": 8,
+            "n_components": 3,
+            "throughput_numerator": "vm_steps",
+            "median_seconds": 1.0,
+            "throughput_mhz": 0.1,
+            "mean_execution_seconds": 0.1,
+            "mean_witness_seconds": 0.2,
+            "mean_proving_seconds": 0.3,
+            "mean_verification_seconds": 0.4,
+            "sample_seconds": [0.9, 1.0],
+            "statement_sha256": DIGEST,
+            "artifact_sha256": DIGEST,
+            "proof_path": "bench-proof.json",
+        }
+        contracts.validate_benchmark_report(
+            report,
+            expected_status="not_release_gated",
+            experimental=True,
+            warmups=0,
+            samples=2,
+            proof_path="bench-proof.json",
+        )
+        report["verified_samples"] = 1
+        with self.assertRaisesRegex(contracts.ContractError, "sample accounting drifted"):
+            contracts.validate_benchmark_report(
+                report,
+                expected_status="not_release_gated",
+                experimental=True,
+                warmups=0,
+                samples=2,
+                proof_path="bench-proof.json",
+            )
+
+    def test_registry_requires_exact_single_riscv_phase_entry(self) -> None:
+        payload = {
+            "schema_version": 1,
+            "backend_availability": {"cpu": True, "metal-hybrid": True},
+            "applications": [],
+            "deferred_adapters": [{
+                "adapter": "stark-v-rv32im-elf",
+                "status": "not_release_gated",
+                "isa": "rv32im",
+                "backends": ["cpu"],
+            }],
+        }
+        contracts.validate_registry(payload, "not_release_gated")
+        payload["applications"] = list(payload["deferred_adapters"])
+        with self.assertRaisesRegex(contracts.ContractError, "release status drifted"):
+            contracts.validate_registry(payload, "not_release_gated")
+
+
+class MutationTests(unittest.TestCase):
+    def test_hostile_artifact_set_covers_routing_shape_and_relabel(self) -> None:
+        payload = artifact()
+        rendered = json.dumps(payload, separators=(",", ":"))
+        cases = mutations.hostile_json(rendered, payload)
+        self.assertEqual({
+            "corrupt-json", "legacy-schema-v2", "duplicate-header", "unknown-field",
+            "omitted-claim", "release-relabel",
+        }, set(cases))
+        self.assertIn('"schema_version":3,"schema_version":3', cases["duplicate-header"][0])
+        self.assertEqual("not_release_gated", payload["release_status"])
+
+    def test_proof_wire_mutations_are_distinct_and_bounded(self) -> None:
+        # Five config integers, absent lifting log, zero commitments, and payload.
+        proof = bytes([1, 1, 1, 1, 1, 0, 0, 9, 8, 7])
+        cases = mutations.proof_wire(proof.hex())
+        self.assertEqual({"trailing", "truncated", "length-bomb"}, set(cases))
+        self.assertEqual(proof + b"\x00", bytes.fromhex(cases["trailing"]))
+        self.assertEqual(proof[:-1], bytes.fromhex(cases["truncated"]))
+
+
+class ProcessBoundaryTests(unittest.TestCase):
+    def test_command_has_a_finite_timeout_and_captures_both_streams(self) -> None:
+        completed = subprocess.CompletedProcess(["cli"], 0, "{}\n", "")
+        with mock.patch("scripts.riscv_staged_smoke.subprocess.run", return_value=completed) as run:
+            self.assertIs(completed, smoke.command(Path("cli"), "applications"))
+        self.assertEqual(smoke.COMMAND_TIMEOUT_SECONDS, run.call_args.kwargs["timeout"])
+        self.assertTrue(run.call_args.kwargs["capture_output"])
+        self.assertTrue(run.call_args.kwargs["text"])
+
+    def test_rejection_requires_nonzero_exit_no_outputs_and_named_error(self) -> None:
+        result = subprocess.CompletedProcess(["cli"], 1, "", "error: InvalidMagic\n")
+        evidence = smoke.require_rejection(result, (), "malformed", ("InvalidMagic",))
+        self.assertEqual(1, evidence["returncode"])
+        with self.assertRaisesRegex(contracts.ContractError, "published output"):
+            smoke.require_rejection(
+                subprocess.CompletedProcess(["cli"], 0, "{}", ""), (), "accepted",
+            )
+
+
+if __name__ == "__main__":
+    unittest.main()

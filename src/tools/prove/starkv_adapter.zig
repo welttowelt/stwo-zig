@@ -11,6 +11,7 @@ const stwo = @import("stwo");
 const cli = @import("cli.zig");
 const registry = @import("registry.zig");
 const build_identity = @import("build_identity");
+const verify_receipt = @import("starkv_adapter/verify_receipt.zig");
 const wire_arena = @import("starkv_adapter/wire_arena.zig");
 const wire_reconstruct = @import("starkv_adapter/wire_reconstruct.zig");
 
@@ -86,6 +87,7 @@ fn runProve(
 
     const elf_bytes = try std.fs.cwd().readFileAlloc(allocator, elf_path, 64 * 1024 * 1024);
     defer allocator.free(elf_bytes);
+    try runner.elf_loader.validateReleaseAbi(elf_bytes);
     var elf_digest: [32]u8 = undefined;
     std.crypto.hash.sha2.Sha256.hash(elf_bytes, &elf_digest, .{});
 
@@ -98,11 +100,13 @@ fn runProve(
     std.crypto.hash.sha2.Sha256.hash(input_bytes, &input_digest, .{});
 
     var execution_timer = try std.time.Timer.start();
-    var run_result = if (input_path != null)
-        try runner.runWithInput(allocator, elf_bytes, input_bytes, 10_000_000)
-    else
-        try runner.run(allocator, elf_bytes, 10_000_000);
+    // The production CLI always enforces the symbol-bearing Stark-V ABI. The
+    // compatibility runner deliberately accepts older, undeclared programs and
+    // must never become an empty-input bypass around this boundary.
+    var run_result = try runner.runWithInput(allocator, elf_bytes, input_bytes, 10_000_000);
     defer run_result.deinit();
+    if (run_result.completion_reason != .halt_flag)
+        return error.InvalidReleaseCompletion;
     const execution_seconds = seconds(execution_timer.read());
 
     const config = stagedPcsConfig(options.protocol);
@@ -234,7 +238,7 @@ fn runProve(
 
     return std.fmt.allocPrint(
         allocator,
-        "{{\"schema\":\"riscv-staged-report-v1\",\"release_status\":\"{s}\"," ++
+        "{{\"schema\":\"riscv_prove_v1\",\"release_status\":\"{s}\"," ++
             "\"experimental\":{},\"verified_in_process\":true," ++
             "\"total_steps\":{d},\"n_components\":{d}," ++
             "\"execution_seconds\":{d},\"witness_seconds\":{d}," ++
@@ -500,7 +504,20 @@ pub fn verifyArtifact(
         reconstructed.claim,
     );
 
-    try writeVerifyLine(artifact.release_status, actual_statement_digest);
+    var proof_digest: [32]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(proof_raw, &proof_digest, .{});
+    const receipt = try verify_receipt.encode(allocator, .{
+        .artifact_kind = artifact.artifact_kind,
+        .artifact_schema_version = artifact.schema_version,
+        .release_status = artifact.release_status,
+        .security_policy = @tagName(requested_policy),
+        .statement_sha256 = actual_statement_digest,
+        .proof_bytes = proof_raw.len,
+        .proof_sha256 = proof_digest,
+    });
+    defer allocator.free(receipt);
+    try std.fs.File.stdout().writeAll(receipt);
+    try std.fs.File.stdout().writeAll("\n");
 }
 
 fn proofPreflightShape(
@@ -586,17 +603,6 @@ fn pcsConfigsEqual(expected: anytype, actual: @TypeOf(expected)) bool {
         expected.fri_config.n_queries == actual.fri_config.n_queries and
         expected.fri_config.fold_step == actual.fri_config.fold_step and
         expected.lifting_log_size == actual.lifting_log_size;
-}
-
-fn writeVerifyLine(release_status: []const u8, statement_digest: [32]u8) !void {
-    var buffer: [256]u8 = undefined;
-    const digest_hex = std.fmt.bytesToHex(statement_digest, .lower);
-    const line = try std.fmt.bufPrint(
-        &buffer,
-        "riscv artifact: proof VERIFIED (status: {s}, statement: {s})\n",
-        .{ release_status, &digest_hex },
-    );
-    try std.fs.File.stdout().writeAll(line);
 }
 
 test "adapter preserves the complete sampled benchmark contract" {
