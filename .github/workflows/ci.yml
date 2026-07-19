@@ -375,6 +375,8 @@ jobs:
             --policy-context "$RUNNER_TEMP/riscv-policy-match.json" \
             --evidence-dir "$RISCV_EVIDENCE_DIR" \
             --cli zig-out/bin/stwo-zig \
+            --oracle-cli "$STWO_ZIG_RISCV_ORACLE_CACHE_DIR/$(jq -r .oracle.build_cache.key_sha256 "$RISCV_EVIDENCE_DIR/oracle-receipt.json")/cp11_dump" \
+            --trace-cli zig-out/bin/riscv-trace-dump \
             --output-dir "$RISCV_BUNDLE_DIR"
 
       - name: Publish immutable exhaustive bundle

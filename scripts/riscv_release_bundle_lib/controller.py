@@ -56,6 +56,9 @@ def pack(args: argparse.Namespace) -> int:
         validate_oracle_receipt(root, evidence / "oracle-receipt.json", args.candidate)
         executable_sha256 = model.sha256_file(args.cli)
         model.validate_cli_summary(summary, args.candidate, args.phase, executable_sha256)
+        model.validate_executable_digests(
+            oracle, cli=args.cli, oracle_cli=args.oracle_cli, trace_cli=args.trace_cli,
+        )
 
         output.mkdir(parents=True, exist_ok=False)
         created_output = True
@@ -65,6 +68,8 @@ def pack(args: argparse.Namespace) -> int:
                 "oracle-receipt.json": evidence / "oracle-receipt.json",
                 "cli/summary.json": evidence / "cli/summary.json",
                 "bin/stwo-zig": args.cli,
+                "bin/cp11_dump": args.oracle_cli,
+                "bin/riscv-trace-dump": args.trace_cli,
             }[name]
             destination = output / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -156,6 +161,12 @@ def verify(args: argparse.Namespace) -> int:
         model.validate_cli_summary(
             summary, args.candidate, args.phase, model.sha256_file(files["bin/stwo-zig"]),
         )
+        model.validate_executable_digests(
+            oracle,
+            cli=files["bin/stwo-zig"],
+            oracle_cli=files["bin/cp11_dump"],
+            trace_cli=files["bin/riscv-trace-dump"],
+        )
         domains = model.source_domains(root)
         domains["oracle_build"] = model.oracle_domain(oracle)
         domains["toolchains"] = {
@@ -186,6 +197,8 @@ def main(argv: list[str] | None = None) -> int:
     add_identity_arguments(command)
     command.add_argument("--evidence-dir", type=Path, required=True)
     command.add_argument("--cli", type=Path, required=True)
+    command.add_argument("--oracle-cli", type=Path, required=True)
+    command.add_argument("--trace-cli", type=Path, required=True)
     command.add_argument("--output-dir", type=Path, required=True)
     command.set_defaults(handler=pack)
     command = subparsers.add_parser("verify")

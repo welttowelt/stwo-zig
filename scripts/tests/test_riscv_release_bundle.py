@@ -257,6 +257,36 @@ class BundleContractTests(unittest.TestCase):
             with self.assertRaisesRegex(model.BundleError, "regular"):
                 model.validate_files(bundle, manifest)
 
+    def test_bundle_executables_must_match_exhaustive_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            paths = {
+                name: root / name for name in ("stwo-zig", "cp11_dump", "riscv-trace-dump")
+            }
+            for name, path in paths.items():
+                path.write_bytes(name.encode())
+            receipt = {
+                "oracle": {"executable_sha256": model.sha256_file(paths["cp11_dump"])},
+                "implementation": {"executables": {
+                    "stwo-zig": model.sha256_file(paths["stwo-zig"]),
+                    "riscv-trace-dump": model.sha256_file(paths["riscv-trace-dump"]),
+                }},
+            }
+            model.validate_executable_digests(
+                receipt,
+                cli=paths["stwo-zig"],
+                oracle_cli=paths["cp11_dump"],
+                trace_cli=paths["riscv-trace-dump"],
+            )
+            paths["cp11_dump"].write_bytes(b"tampered")
+            with self.assertRaisesRegex(model.BundleError, "Rust cp11_dump digest"):
+                model.validate_executable_digests(
+                    receipt,
+                    cli=paths["stwo-zig"],
+                    oracle_cli=paths["cp11_dump"],
+                    trace_cli=paths["riscv-trace-dump"],
+                )
+
     def test_cli_summary_is_bound_to_phase_commit_and_executable(self) -> None:
         summary = {
             "schema": "riscv_cli_evidence_v1",

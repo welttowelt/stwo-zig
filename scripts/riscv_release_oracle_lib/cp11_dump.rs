@@ -388,6 +388,7 @@ fn dump_relation_sums(result: runner::RunResult) {
 fn main() {
     let args: Vec<String> = env::args().collect();
     let mut elf: Option<String> = None;
+    let mut input: Option<String> = None;
     let mut decode_file: Option<String> = None;
     let mut poseidon2_file: Option<String> = None;
     let mut transcript_prefix = false;
@@ -404,6 +405,10 @@ fn main() {
             "--elf" => {
                 i += 1;
                 elf = Some(args[i].clone());
+            }
+            "--input" => {
+                i += 1;
+                input = Some(args[i].clone());
             }
             "--decode-file" => {
                 i += 1;
@@ -480,8 +485,9 @@ fn main() {
         return;
     }
     let bytes = fs::read(elf.expect("--elf required")).expect("read elf");
+    let input = input.map_or_else(Vec::new, |path| fs::read(path).expect("read input"));
     let elf_sha256 = format!("{:x}", sha2::Sha256::digest(&bytes));
-    let result = runner::run(&bytes, max).expect("run");
+    let result = runner::run_with_input(&bytes, &input, max).expect("run");
     if witness_rows {
         dump_witness_rows(&result.tracer);
         return;

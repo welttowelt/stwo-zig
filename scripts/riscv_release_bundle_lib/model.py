@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA = "riscv-release-bundle-v2"
+SCHEMA = "riscv-release-bundle-v3"
 TRUSTED_REPOSITORY = "teddyjfpender/stwo-zig"
 TRUSTED_REPOSITORY_ID = 1_152_389_958
 TRUSTED_OWNER_ID = 92_999_717
@@ -28,6 +28,8 @@ FILE_LAYOUT = {
     "oracle-receipt.json": "oracle-receipt.json",
     "cli/summary.json": "cli/summary.json",
     "bin/stwo-zig": "bin/stwo-zig",
+    "bin/cp11_dump": "bin/cp11_dump",
+    "bin/riscv-trace-dump": "bin/riscv-trace-dump",
 }
 COVERAGE = {
     "exhaustive_gate": "PASS",
@@ -521,6 +523,32 @@ def validate_cli_summary(
         raise BundleError("exhaustive CLI claim-order mutation is missing")
     for field in required_successes:
         require_sha256(summary[field], f"exhaustive CLI {field}")
+
+
+def validate_executable_digests(
+    oracle: dict[str, Any], *, cli: Path, oracle_cli: Path, trace_cli: Path,
+) -> None:
+    oracle_identity = oracle.get("oracle")
+    implementation = oracle.get("implementation")
+    if not isinstance(oracle_identity, dict) or not isinstance(implementation, dict):
+        raise BundleError("oracle receipt executable identities are missing")
+    executables = implementation.get("executables")
+    if not isinstance(executables, dict):
+        raise BundleError("oracle receipt implementation executables are missing")
+    expected = {
+        "pinned Rust cp11_dump": oracle_identity.get("executable_sha256"),
+        "candidate stwo-zig": executables.get("stwo-zig"),
+        "candidate riscv-trace-dump": executables.get("riscv-trace-dump"),
+    }
+    paths = {
+        "pinned Rust cp11_dump": oracle_cli,
+        "candidate stwo-zig": cli,
+        "candidate riscv-trace-dump": trace_cli,
+    }
+    for label, expected_digest in expected.items():
+        require_sha256(expected_digest, f"{label} receipt digest")
+        if sha256_file(paths[label]) != expected_digest:
+            raise BundleError(f"{label} digest differs from exhaustive oracle receipt")
 
 
 def regular_bundle_file(bundle: Path, relative: str) -> Path:
