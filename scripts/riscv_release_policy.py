@@ -83,15 +83,51 @@ def policy_domain(
         missing = sorted(set(paths) - covered)
         raise PolicyError(f"policy domain path is absent: {missing}")
 
+    process = subprocess.Popen(
+        ["git", "cat-file", "--batch"], cwd=root,
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    if process.stdin is None or process.stdout is None or process.stderr is None:
+        process.kill()
+        raise PolicyError("cannot open git cat-file batch pipes")
     digest = hashlib.sha256()
-    for mode, kind, object_id, path in entries:
-        if kind != b"blob":
-            raise PolicyError(f"policy domain contains non-blob entry: {path!r}")
-        content = git(root, "cat-file", "blob", object_id.decode("ascii"), binary=True)
-        assert isinstance(content, bytes)
-        for value in (mode, path, content):
-            digest.update(len(value).to_bytes(8, "big"))
-            digest.update(value)
+    try:
+        for mode, kind, object_id, path in entries:
+            if kind != b"blob":
+                raise PolicyError(f"policy domain contains non-blob entry: {path!r}")
+            process.stdin.write(object_id + b"\n")
+            process.stdin.flush()
+            header = process.stdout.readline().rstrip(b"\n").split(b" ")
+            if len(header) != 3 or header[:2] != [object_id, b"blob"]:
+                raise PolicyError("git cat-file policy identity drifted")
+            try:
+                size = int(header[2])
+            except ValueError as error:
+                raise PolicyError("invalid git cat-file policy size") from error
+            for value in (mode, path):
+                digest.update(len(value).to_bytes(8, "big"))
+                digest.update(value)
+            digest.update(size.to_bytes(8, "big"))
+            remaining = size
+            while remaining:
+                content = process.stdout.read(min(1024 * 1024, remaining))
+                if not content:
+                    raise PolicyError("truncated git cat-file policy object")
+                digest.update(content)
+                remaining -= len(content)
+            if process.stdout.read(1) != b"\n":
+                raise PolicyError("truncated git cat-file policy terminator")
+        process.stdin.close()
+        if process.wait() != 0:
+            diagnostic = process.stderr.read().decode("utf-8", errors="replace").strip()
+            raise PolicyError(f"git cat-file policy batch failed: {diagnostic}")
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+        for stream in (process.stdin, process.stdout, process.stderr):
+            if not stream.closed:
+                stream.close()
     return {
         "schema": DOMAIN_SCHEMA,
         "sha256": digest.hexdigest(),
