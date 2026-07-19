@@ -56,12 +56,15 @@ The following documents are normative, in descending order:
    SIMD, Metal, correctness-oracle, directory, and file-size requirements.
 2. [upstream.md](upstream.md), which pins the final Rust correctness oracles.
 3. This delivery goal.
-4. [the RISC-V release goal](2026-07-18-riscv-release-goal.md), for specialized
+4. [the performance baseline epoch 2 amendment](2026-07-19-build-monorepo-baseline-epoch-2-amendment.md),
+   which supplies the missing BG-00/BG-14 denominators without changing their
+   thresholds.
+5. [the RISC-V release goal](2026-07-18-riscv-release-goal.md), for specialized
    RISC-V soundness, statement, artifact, oracle, and registry requirements.
-5. [the accepted architecture](2026-07-19-zig-build-monorepo-architecture.md).
-6. [decomposition-plan.md](decomposition-plan.md) and
+6. [the accepted architecture](2026-07-19-zig-build-monorepo-architecture.md).
+7. [decomposition-plan.md](decomposition-plan.md) and
    [source-baseline.json](source-baseline.json), which govern existing debt.
-7. [divergence-log.md](divergence-log.md), for deliberate protocol differences.
+8. [divergence-log.md](divergence-log.md), for deliberate protocol differences.
 
 When requirements appear to conflict, the stronger correctness, explicitness,
 or fail-closed rule wins. An implementation discovery updates the relevant
