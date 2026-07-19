@@ -1,7 +1,9 @@
 //! Build ownership for the independently consumable Stwo core library.
 
 const std = @import("std");
+const build_identity = @import("../build_identity.zig");
 const closure_gate = @import("../gates/product_closure.zig");
+const identity_receipt = @import("../graph/identity/receipt.zig");
 const graph = @import("../graph/modules.zig");
 const product_policy = @import("../graph/product.zig");
 
@@ -29,6 +31,7 @@ pub const Context = struct {
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
+    identity: build_identity.Identity,
 };
 
 pub const Result = struct {
@@ -55,6 +58,17 @@ pub fn addProduct(context: Context) Result {
     build_step.dependOn(&object.step);
     build_step.dependOn(&closure.step);
     build_step.dependOn(&purity.step);
+    _ = identity_receipt.add(.{
+        .b = context.b,
+        .source = context.identity,
+        .product = descriptor.product,
+        .target = context.target,
+        .optimize = context.optimize,
+        .artifact = object.getEmittedBin(),
+        .executable = false,
+        .step_name = "identity-stwo-core",
+        .output_name = "stwo-core.json",
+    });
 
     const tests = context.b.addTest(.{ .root_module = surfaceModule(context, module) });
     const test_step = context.b.step("test-stwo-core", "Test the focused Stwo core library and purity boundary");

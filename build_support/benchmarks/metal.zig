@@ -1,6 +1,6 @@
 const std = @import("std");
-const metal_backend = @import("backends/metal.zig");
-const graph = @import("graph/modules.zig");
+const metal_backend = @import("../backends/metal.zig");
+const graph = @import("../graph/modules.zig");
 
 pub const Context = struct {
     b: *std.Build,

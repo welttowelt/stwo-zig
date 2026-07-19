@@ -3,9 +3,11 @@
 const std = @import("std");
 const stwo = @import("stwo");
 const cli = @import("cli.zig");
+const lifecycle = @import("native_transaction");
 const native_dispatch = @import("native_dispatch.zig");
+const product_identity = @import("native_product_identity");
 const registry = @import("registry.zig");
-const starkv_adapter = @import("starkv_adapter.zig");
+const starkv_adapter = @import("starkv_adapter");
 
 const atomic_file = stwo.interop.atomic_file;
 const artifact_verifier = stwo.interop.examples_artifact_verifier;
@@ -90,84 +92,65 @@ fn runElf(
     defer allocator.free(report);
 
     if (proof_output) |path| {
-        try publishResult(allocator, proof_temporary.?, path, report, report_output);
+        try lifecycle.publishResult(atomic_file, allocator, proof_temporary.?, path, report, report_output);
     } else {
-        try publishReport(allocator, report, report_output);
+        try lifecycle.publishReport(atomic_file, allocator, report, report_output);
     }
 }
 
 fn prove(allocator: std.mem.Allocator, request: cli.Prove) !void {
-    try rejectPathCollision(request.output, request.report_out);
-    try requireAbsent(request.output);
-    if (request.report_out) |path| try requireAbsent(path);
-    const proof_temporary = try atomic_file.temporaryPathAlloc(allocator, request.output, "proof");
-    defer allocator.free(proof_temporary);
-    defer std.fs.cwd().deleteFile(proof_temporary) catch {};
-    const report = try native_dispatch.run(allocator, request.run, .{
-        .warmups = 0,
-        .samples = 1,
-        .profiled = false,
-        .proof_temporary = proof_temporary,
-        .proof_report_path = request.output,
-    });
-    defer allocator.free(report);
-    try publishResult(allocator, proof_temporary, request.output, report, request.report_out);
+    try lifecycle.prove(
+        atomic_file,
+        allocator,
+        request.output,
+        request.report_out,
+        NativeRun{ .allocator = allocator, .run = request.run },
+        NativeRun.prove,
+    );
 }
 
 fn bench(allocator: std.mem.Allocator, request: cli.Bench) !void {
-    if (request.proof_out) |proof_out| try rejectPathCollision(proof_out, request.report_out);
-    if (request.proof_out) |path| try requireAbsent(path);
-    if (request.report_out) |path| try requireAbsent(path);
-    const proof_temporary = if (request.proof_out) |proof_out|
-        try atomic_file.temporaryPathAlloc(allocator, proof_out, "proof")
-    else
-        null;
-    defer if (proof_temporary) |path| allocator.free(path);
-    defer if (proof_temporary) |path| std.fs.cwd().deleteFile(path) catch {};
-    const report = try native_dispatch.run(allocator, request.run, .{
-        .warmups = request.warmups,
-        .samples = request.samples,
-        .profiled = request.profiled,
-        .proof_temporary = proof_temporary,
-        .proof_report_path = request.proof_out,
-    });
-    defer allocator.free(report);
-    if (request.proof_out) |proof_out| {
-        try publishResult(allocator, proof_temporary.?, proof_out, report, request.report_out);
-    } else {
-        try publishReport(allocator, report, request.report_out);
-    }
+    try lifecycle.bench(
+        atomic_file,
+        allocator,
+        request.proof_out,
+        request.report_out,
+        NativeRun{
+            .allocator = allocator,
+            .run = request.run,
+            .warmups = request.warmups,
+            .samples = request.samples,
+            .profiled = request.profiled,
+        },
+        NativeRun.execute,
+    );
 }
 
-fn publishResult(
+const NativeRun = struct {
     allocator: std.mem.Allocator,
-    proof_temporary: []const u8,
-    proof_output: []const u8,
-    report: []const u8,
-    report_output: ?[]const u8,
-) !void {
-    if (report_output) |output| {
-        const report_temporary = try atomic_file.temporaryPathAlloc(allocator, output, "report");
-        defer allocator.free(report_temporary);
-        defer std.fs.cwd().deleteFile(report_temporary) catch {};
-        try atomic_file.writeExclusive(allocator, report_temporary, report);
-        try atomic_file.publishExclusive(proof_temporary, proof_output);
-        errdefer std.fs.cwd().deleteFile(proof_output) catch {};
-        try atomic_file.publishExclusive(report_temporary, output);
-        return;
-    }
-    try atomic_file.publishExclusive(proof_temporary, proof_output);
-    try writeLine(std.fs.File.stdout().deprecatedWriter(), report);
-}
+    run: cli.Run,
+    warmups: usize = 0,
+    samples: usize = 1,
+    profiled: bool = false,
 
-fn publishReport(
-    allocator: std.mem.Allocator,
-    report: []const u8,
-    report_output: ?[]const u8,
-) !void {
-    if (report_output) |output| return atomic_file.writeExclusive(allocator, output, report);
-    try writeLine(std.fs.File.stdout().deprecatedWriter(), report);
-}
+    fn prove(self: NativeRun, temporary: ?[]const u8, output: ?[]const u8) ![]u8 {
+        return self.runWith(temporary, output);
+    }
+
+    fn execute(self: NativeRun, temporary: ?[]const u8, output: ?[]const u8) ![]u8 {
+        return self.runWith(temporary, output);
+    }
+
+    fn runWith(self: NativeRun, temporary: ?[]const u8, output: ?[]const u8) ![]u8 {
+        return native_dispatch.run(self.allocator, self.run, .{
+            .warmups = self.warmups,
+            .samples = self.samples,
+            .profiled = self.profiled,
+            .proof_temporary = temporary,
+            .proof_report_path = output,
+        });
+    }
+};
 
 fn verifyArtifact(allocator: std.mem.Allocator, request: cli.Verify) !void {
     var classified = try stwo.interop.riscv_artifact.classifyPath(allocator, request.artifact);
@@ -187,7 +170,9 @@ fn verifyArtifact(allocator: std.mem.Allocator, request: cli.Verify) !void {
     };
     if (request.expected_statement_digest != null)
         return error.ExpectedStatementDigestRequiresRiscVArtifact;
-    const verified = try artifact_verifier.verifyBytes(
+    const encoded = try lifecycle.verifyBytes(
+        artifact_verifier,
+        stwo.interop.examples_artifact,
         allocator,
         native_bytes,
         switch (request.protocol) {
@@ -195,21 +180,8 @@ fn verifyArtifact(allocator: std.mem.Allocator, request: cli.Verify) !void {
             .functional => .functional,
             .smoke => .smoke,
         },
+        product_identity.value(),
     );
-    var proof_sha256 = std.fmt.bytesToHex(verified.proof_sha256, .lower);
-    const receipt = .{
-        .schema_version = @as(u32, 1),
-        .status = "verified",
-        .artifact_schema_version = stwo.interop.examples_artifact.SCHEMA_VERSION,
-        .upstream_commit = stwo.interop.examples_artifact.UPSTREAM_COMMIT,
-        .exchange_mode = stwo.interop.examples_artifact.EXCHANGE_MODE,
-        .security_policy = @tagName(request.protocol),
-        .claimed_generator = @tagName(verified.claimed_generator),
-        .air = @tagName(verified.example),
-        .proof_bytes = verified.proof_bytes,
-        .proof_sha256 = &proof_sha256,
-    };
-    const encoded = try std.json.Stringify.valueAlloc(allocator, receipt, .{});
     defer allocator.free(encoded);
     try writeLine(std.fs.File.stdout().deprecatedWriter(), encoded);
 }
@@ -295,7 +267,8 @@ test "publication rolls back its proof when a competing report wins" {
     try atomic_file.writeExclusive(std.testing.allocator, report_output, "existing");
     try std.testing.expectError(
         error.PathAlreadyExists,
-        publishResult(
+        lifecycle.publishResult(
+            atomic_file,
             std.testing.allocator,
             proof_temporary,
             proof_output,

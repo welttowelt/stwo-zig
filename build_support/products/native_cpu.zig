@@ -11,7 +11,7 @@ const product_policy = @import("../graph/product.zig");
 const protocol_features = "native-examples-v1+lifted-pcs-v1";
 const source_closure = product_policy.SourceClosure{
     .entry_roots = &.{
-        "src/native_cpu_product.zig",
+        "src/products/native_cpu/main.zig",
         "src/stwo_native_cpu.zig",
         "src/prover/native/runner.zig",
         "src/products/native_cpu/benchmark.zig",
@@ -23,15 +23,19 @@ const source_closure = product_policy.SourceClosure{
         .{ .name = "stwo_native_cpu", .source = "src/stwo_native_cpu.zig" },
         .{ .name = "stwo_prover_impl", .source = "src/prover/mod.zig" },
         .{ .name = "native_proof_runner", .source = "src/prover/native/runner.zig" },
+        .{ .name = "native_transaction", .source = "src/integrations/native/transaction.zig" },
+        .{ .name = "native_product_identity", .source = "src/integrations/native/product_identity.zig" },
     },
     .allowed_files = &.{
-        "src/native_cpu_product.zig",
+        "src/products/native_cpu/main.zig",
         "src/stwo_native_cpu.zig",
         "src/interop/atomic_file.zig",
         "src/interop/examples_artifact.zig",
         "src/interop/examples_artifact_verifier.zig",
         "src/interop/postcard.zig",
         "src/interop/proof_wire.zig",
+        "src/integrations/native/transaction.zig",
+        "src/integrations/native/product_identity.zig",
     },
     .allowed_prefixes = &.{
         "src/core",
@@ -84,7 +88,7 @@ pub fn addProduct(context: Context) void {
     const cli_product = policy.product;
     const stwo = createStwoModule(context, .library);
     const runner = createRunnerModule(context, stwo, .library);
-    const root = createProductModule(context, cli_product, stwo, runner, "src/native_cpu_product.zig");
+    const root = createProductModule(context, cli_product, stwo, runner, "src/products/native_cpu/main.zig");
     const installed = graph_install.executable(
         context.b,
         "stwo-zig-native-cpu",
@@ -153,7 +157,7 @@ fn addProductTests(context: Context) *std.Build.Step.Compile {
         product(.@"test"),
         stwo,
         runner,
-        "src/native_cpu_product.zig",
+        "src/products/native_cpu/main.zig",
     );
     return context.b.addTest(.{ .root_module = root });
 }
@@ -202,6 +206,15 @@ fn createProductModule(
     root.addImport("stwo", stwo);
     root.addImport("stwo_native_cpu", stwo);
     root.addImport("native_proof_runner", runner);
+    const lifecycle = graph.create(context.b, .{
+        .product = product_descriptor,
+        .root_source_file = "src/integrations/native/transaction.zig",
+        .target = context.target,
+        .optimize = context.optimize,
+    });
+    context.protocol.addImports(lifecycle);
+    lifecycle.addImport("stwo", stwo);
+    root.addImport("native_transaction", lifecycle);
     root.addOptions("build_identity", graph_identity.buildOptions(context.b, context.identity));
     root.addOptions(
         "product_identity",
@@ -213,6 +226,24 @@ fn createProductModule(
             context.optimize,
         ),
     );
+    const native_identity = graph.create(context.b, .{
+        .product = product_descriptor,
+        .root_source_file = "src/integrations/native/product_identity.zig",
+        .target = context.target,
+        .optimize = context.optimize,
+    });
+    native_identity.addImport("native_proof_runner", runner);
+    native_identity.addOptions(
+        "product_identity",
+        graph_identity.productOptions(
+            context.b,
+            context.identity,
+            product_descriptor,
+            context.target,
+            context.optimize,
+        ),
+    );
+    root.addImport("native_product_identity", native_identity);
     return root;
 }
 

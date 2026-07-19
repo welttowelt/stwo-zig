@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const identity = @import("identity.zig");
+const capabilities = @import("capabilities.zig");
 
 const Application = struct {
     air: []const u8,
@@ -9,14 +10,13 @@ const Application = struct {
     backends: []const []const u8 = &.{"cpu"},
 };
 
-const applications = [_]Application{
-    .{ .air = "wide_fibonacci" },
-    .{ .air = "xor" },
-    .{ .air = "plonk" },
-    .{ .air = "state_machine" },
-    .{ .air = "blake" },
-    .{ .air = "poseidon" },
-};
+const applications = makeApplications();
+
+fn makeApplications() [capabilities.applications.len]Application {
+    var result: [capabilities.applications.len]Application = undefined;
+    for (capabilities.applications, 0..) |air, index| result[index] = .{ .air = air };
+    return result;
+}
 
 pub fn write(writer: anytype) !void {
     try std.json.Stringify.value(.{

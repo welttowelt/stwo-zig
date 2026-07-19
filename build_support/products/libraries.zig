@@ -1,6 +1,7 @@
 //! Public library products and the aggregate downstream compatibility module.
 
 const std = @import("std");
+const build_identity = @import("../build_identity.zig");
 const graph = @import("../graph/modules.zig");
 const core_product = @import("core.zig");
 const prover_product = @import("prover.zig");
@@ -9,6 +10,7 @@ pub const Context = struct {
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
+    identity: ?build_identity.Identity = null,
 };
 
 pub const Result = struct {
@@ -49,16 +51,19 @@ pub fn addPublicModules(context: Context) Result {
 }
 
 pub fn addProducts(context: Context) Result {
+    const identity = context.identity orelse @panic("library products require source identity");
     const core = core_product.addProduct(.{
         .b = context.b,
         .target = context.target,
         .optimize = context.optimize,
+        .identity = identity,
     });
     const prover = prover_product.addProduct(.{
         .b = context.b,
         .target = context.target,
         .optimize = context.optimize,
         .core = core.module,
+        .identity = identity,
     });
     const stwo = context.b.addModule("stwo", .{
         .root_source_file = context.b.path("src/stwo.zig"),

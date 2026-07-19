@@ -4,10 +4,14 @@ const std = @import("std");
 const build_identity = @import("build_identity.zig");
 const architecture_receipts = @import("gates/architecture_receipts.zig");
 const baseline = @import("gates/baseline.zig");
+const configure_plan = @import("gates/configure_plan.zig");
+const native_gates = @import("gates/native.zig");
+const release_evidence = @import("gates/release_evidence.zig");
+const riscv_gates = @import("gates/riscv.zig");
 const graph = @import("graph/modules.zig");
-const metal_core_aot = @import("metal_core_aot.zig");
-const metal_products = @import("metal_products.zig");
-const verification = @import("verification_products.zig");
+const metal_core_aot = @import("backends/metal_aot.zig");
+const metal_products = @import("benchmarks/metal.zig");
+const native_benchmarks = @import("benchmarks/native.zig");
 const aggregate = @import("products/aggregate_cli.zig");
 const core = @import("products/core.zig");
 const deferred = @import("products/matrix.zig");
@@ -16,19 +20,7 @@ const native_metal = @import("products/native_metal.zig");
 const prover = @import("products/prover.zig");
 const riscv_cpu = @import("products/riscv_cpu.zig");
 
-const Scope = enum {
-    aggregate,
-    architecture,
-    core,
-    deferred,
-    metal_tools,
-    native_cpu,
-    native_metal,
-    policy,
-    prover,
-    riscv_cpu,
-    verification,
-};
+const Scope = configure_plan.Scope;
 
 pub fn build(b: *std.Build) void {
     const repository_root = b.option(
@@ -48,6 +40,8 @@ pub fn build(b: *std.Build) void {
 
     if (scope == .aggregate) {
         aggregate.addProduct(b);
+        deferred.addIdentity(b);
+        configure_plan.add(b, scope);
         return;
     }
 
@@ -64,20 +58,29 @@ pub fn build(b: *std.Build) void {
             .b = b,
             .target = target,
             .optimize = optimize,
+            .identity = resolveIdentity(b, repository_root, shared),
         }),
         .prover => {
             const core_result = core.addProduct(.{
                 .b = b,
                 .target = target,
                 .optimize = optimize,
+                .identity = resolveIdentity(b, repository_root, shared),
             });
             _ = prover.addProduct(.{
                 .b = b,
                 .target = target,
                 .optimize = optimize,
                 .core = core_result.module,
+                .identity = resolveIdentity(b, repository_root, shared),
             });
         },
+        .package => _ = @import("products/libraries.zig").addProducts(.{
+            .b = b,
+            .target = target,
+            .optimize = optimize,
+            .identity = resolveIdentity(b, repository_root, shared),
+        }),
         .native_cpu => native_cpu.addProduct(.{
             .b = b,
             .target = target,
@@ -99,6 +102,23 @@ pub fn build(b: *std.Build) void {
             .identity = resolveIdentity(b, repository_root, shared),
             .protocol = graph.createPrivateProtocolModules(b, target, optimize),
         }),
+        .riscv_cpu_compat => {
+            riscv_cpu.addProduct(.{
+                .b = b,
+                .target = target,
+                .optimize = optimize,
+                .identity = resolveIdentity(b, repository_root, shared),
+                .protocol = graph.createPrivateProtocolModules(b, target, optimize),
+            });
+            const focused = &b.top_level_steps.get("test-riscv-cpu-product").?.step;
+            b.step("test-riscv", "Run RISC-V runner tests (trace_dump)").dependOn(focused);
+            b.step("test-riscv-prover", "Run RISC-V prover tests (prove+verify)").dependOn(focused);
+        },
+        .compatibility_tools => @import("products/compatibility_tools.zig").addProducts(.{
+            .b = b,
+            .target = target,
+            .optimize = optimize,
+        }),
         .metal_tools => addMetalTools(b, target, optimize),
         .deferred => {
             deferred.addDeferredProducts(b, target);
@@ -110,14 +130,21 @@ pub fn build(b: *std.Build) void {
                 "cuda-test is unavailable: select an explicit CUDA product with complete library and runtime paths",
             ).step);
         },
-        .verification => verification.addProducts(.{
-            .b = b,
-            .zig_optimize_arg = b.fmt("-O{s}", .{@tagName(optimize)}),
-            .riscv_release_phase = shared.riscv_release_phase,
-            .riscv_evidence_dir = shared.riscv_evidence_dir,
-        }),
+        .verification => {
+            const release_options = ReleaseOptions.read(b);
+            riscv_gates.addGates(.{
+                .b = b,
+                .release_phase = release_options.phase,
+                .evidence_dir = release_options.evidence_dir,
+            });
+            const native = native_gates.addGates(b, b.fmt("-O{s}", .{@tagName(optimize)}));
+            native_benchmarks.addProducts(.{ .b = b });
+            release_evidence.addGates(b, native.prove_checkpoints);
+        },
         .policy => addPolicyGates(b),
+        .release => @import("gates/release.zig").addGates(b, optimize),
     }
+    configure_plan.add(b, scope);
 }
 
 fn setRepositoryRoot(b: *std.Build, repository_root: []const u8) void {
@@ -129,18 +156,29 @@ fn setRepositoryRoot(b: *std.Build, repository_root: []const u8) void {
 }
 
 const SharedOptions = struct {
-    riscv_release_phase: []const u8,
-    riscv_evidence_dir: []const u8,
     implementation_commit: ?[]const u8,
     implementation_dirty: ?bool,
+    implementation_tree: ?[]const u8,
+    dirty_content_sha256: ?[]const u8,
 
     fn read(b: *std.Build) SharedOptions {
-        _ = b.option(bool, "aggregate-metal", "Explicit aggregate Metal linkage");
         return .{
-            .riscv_release_phase = b.option([]const u8, "riscv-release-phase", "CP-13 phase: candidate or promoted") orelse "candidate",
-            .riscv_evidence_dir = b.option([]const u8, "riscv-evidence-dir", "Fresh CP-13 evidence directory") orelse "zig-out/release-evidence/riscv",
             .implementation_commit = b.option([]const u8, "implementation-commit", "Exact lowercase 40-hex source commit embedded in the product"),
             .implementation_dirty = b.option(bool, "implementation-dirty", "Whether the source embedded in the product has local modifications"),
+            .implementation_tree = b.option([]const u8, "implementation-tree", "Exact lowercase 40-hex source tree for an identity override"),
+            .dirty_content_sha256 = b.option([]const u8, "implementation-dirty-content-sha256", "Canonical dirty-content digest required for a diagnostic dirty override"),
+        };
+    }
+};
+
+const ReleaseOptions = struct {
+    phase: []const u8,
+    evidence_dir: []const u8,
+
+    fn read(b: *std.Build) ReleaseOptions {
+        return .{
+            .phase = b.option([]const u8, "riscv-release-phase", "CP-13 phase: candidate or promoted") orelse "candidate",
+            .evidence_dir = b.option([]const u8, "riscv-evidence-dir", "Fresh CP-13 evidence directory") orelse "zig-out/release-evidence/riscv",
         };
     }
 };
@@ -150,11 +188,20 @@ fn resolveIdentity(
     repository_root: []const u8,
     shared: SharedOptions,
 ) build_identity.Identity {
-    return build_identity.resolve(
+    if ((shared.implementation_commit == null) != (shared.implementation_dirty == null))
+        @panic("incomplete internal implementation identity override");
+    if (shared.implementation_commit == null and
+        (shared.implementation_tree != null or shared.dirty_content_sha256 != null))
+        @panic("orphan internal implementation identity override");
+    return build_identity.resolveWithOverride(
         b.allocator,
         repository_root,
-        shared.implementation_commit,
-        shared.implementation_dirty,
+        if (shared.implementation_commit) |commit| .{
+            .commit = commit,
+            .tree = shared.implementation_tree,
+            .dirty = shared.implementation_dirty.?,
+            .dirty_content_sha256 = shared.dirty_content_sha256,
+        } else null,
     ) catch |err| std.debug.panic("cannot resolve product build identity: {s}", .{@errorName(err)});
 }
 
@@ -208,7 +255,7 @@ fn addMetalTools(
 
 fn addPolicyGates(b: *std.Build) void {
     inline for (.{
-        .{ "fmt", "Check formatting (zig fmt --check)", &.{ "zig", "fmt", "--check", "build.zig", "src", "tools" } },
+        .{ "fmt", "Check formatting (zig fmt --check)", &.{ "zig", "fmt", "--check", "build.zig", "build_support", "src", "tools" } },
         .{ "api-parity", "Validate API parity ledger coverage", &.{ "python3", "scripts/check_api_parity.py" } },
         .{ "upstream-pins", "Validate Native and Cairo pin carriers against the upstream ledger", &.{ "python3", "scripts/check_upstream_pins.py" } },
         .{ "source-conformance", "Reject new source layout, dependency direction, and file-size violations", &.{ "python3", "scripts/check_source_conformance.py" } },

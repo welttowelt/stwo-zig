@@ -2,7 +2,7 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const admission = @import("../../tools/prove/registry.zig");
+const capabilities = @import("riscv_cpu_capabilities");
 const identity = @import("product_identity");
 
 pub fn write(writer: anytype) !void {
@@ -46,11 +46,11 @@ pub fn write(writer: anytype) !void {
             },
         },
         .backend_availability = .{ .cpu = true },
-        .applications = if (admission.RISCV_ADAPTER_RELEASE_GATED)
+        .applications = if (capabilities.adapter_release_gated)
             &[_]Application{Application.releaseGated()}
         else
             &[_]Application{},
-        .deferred_adapters = if (admission.RISCV_ADAPTER_RELEASE_GATED)
+        .deferred_adapters = if (capabilities.adapter_release_gated)
             &[_]Application{}
         else
             &[_]Application{Application.deferred()},
@@ -58,11 +58,11 @@ pub fn write(writer: anytype) !void {
 }
 
 const Application = struct {
-    adapter: []const u8 = "stark-v-rv32im-elf",
-    air: []const u8 = "stark_v_rv32im",
+    adapter: []const u8 = capabilities.adapter,
+    air: []const u8 = capabilities.air,
     status: []const u8,
-    isa: []const u8 = "rv32im",
-    backends: []const []const u8 = &.{"cpu"},
+    isa: []const u8 = capabilities.isa,
+    backends: []const []const u8 = &.{capabilities.backend},
     reason: ?[]const u8 = null,
 
     fn releaseGated() Application {
@@ -72,7 +72,7 @@ const Application = struct {
     fn deferred() Application {
         return .{
             .status = "not_release_gated",
-            .reason = "RISC-V release contract is not yet fully satisfied",
+            .reason = capabilities.deferred_reason,
         };
     }
 };

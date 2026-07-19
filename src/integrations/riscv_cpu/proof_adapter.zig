@@ -4,16 +4,16 @@
 //! the CLI routes `--elf` runs through, and it returns
 //! `error.AdapterNotReleaseGated` until the RV32IM AIR and public I/O binding
 //! pass the release gate. Wiring the real prover is a one-function change
-//! here; the registry entry in `registry.zig` flips only at that moment.
+//! here; the focused capability authority flips only at that moment.
 
 const std = @import("std");
 const stwo = @import("stwo");
-const registry = @import("registry.zig");
+const capabilities = @import("riscv_cpu_capabilities");
 const build_identity = @import("build_identity");
-const transcript_state = @import("starkv_adapter/transcript_state.zig");
-const verify_receipt = @import("starkv_adapter/verify_receipt.zig");
-const wire_arena = @import("starkv_adapter/wire_arena.zig");
-const wire_reconstruct = @import("starkv_adapter/wire_reconstruct.zig");
+const transcript_state = @import("proof_adapter/transcript_state.zig");
+const verify_receipt = @import("proof_adapter/verify_receipt.zig");
+const wire_arena = @import("proof_adapter/wire_arena.zig");
+const wire_reconstruct = @import("proof_adapter/wire_reconstruct.zig");
 
 const WireArena = wire_arena.WireArena;
 
@@ -66,7 +66,7 @@ pub fn run(
     input_path: ?[]const u8,
     options: Options,
 ) ![]u8 {
-    try registry.requireRiscVAdmission(options.experimental);
+    try capabilities.requireAdmission(options.experimental);
     if (options.backend != .cpu) return error.AdapterNotReleaseGated;
     const process_identity = try measureProcessIdentity(allocator);
     return switch (options.mode) {
@@ -715,7 +715,7 @@ test "adapter preserves the complete sampled benchmark contract" {
         .backend = .cpu,
         .protocol = .functional,
         .mode = .{ .bench = .{ .warmups = 3, .samples = 7, .profiled = true } },
-        .experimental = !registry.RISCV_ADAPTER_RELEASE_GATED,
+        .experimental = !capabilities.adapter_release_gated,
         .proof_temporary = "proof.tmp",
         .proof_report_path = "proof.json",
     };

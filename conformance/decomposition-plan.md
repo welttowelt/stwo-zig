@@ -16,7 +16,7 @@ is the operative ledger.
 | Owner | Next extraction |
 | --- | --- |
 | `.github/workflows/ci.yml` | extract the protected build-architecture session, host producers, and verifier into a separately reviewed reusable workflow once GitHub's called-workflow identity is explicitly admitted by the receipt protocol |
-| `src/metal_arena_plan_cli.zig` | move remaining orchestration into `src/tools/metal_arena_plan/` until the root file is a thin argument parser |
+| `src/tools/metal_arena_plan/main.zig` | the active owner now has a responsible directory behind a 7-line Zig 0.15 package-root facade; split its retained 4,887-line orchestration by admission, schedule construction, proving, verification, and reporting without changing Metal semantics |
 | `src/backends/metal/runtime.zig` | continue the runtime decomposition into `src/backends/metal/runtime/` owners |
 | `src/backends/metal/runtime.m` | split the Objective-C bridge by admission, resources, encoding, and lifecycle |
 | `src/integrations/cairo_metal/arena_binding.zig` | phase facade split per the archived arena-binding plan (Cairo work resumes with stwo-cairo) |
@@ -24,5 +24,6 @@ is the operative ledger.
 | Rust support crates over the size ceiling | reduce when the pinned oracle next changes; never edited casually |
 | `src/frontends/riscv/prover.zig` | split statement and column planning from backend-neutral proof orchestration; concrete CPU selection now lives in `src/integrations/riscv_cpu/` |
 | RISC-V oversized trace sources (`air/trace_columns.zig`, `infra_trace.zig`, `runner/trace.zig`) | decompose during the active Stark-V adapter completion; shrink each baseline entry with its extraction |
-| Root RISC-V sources (`riscv_*_cli.zig`, `riscv_prover_test.zig`) | move active CLI ownership into `src/tools/riscv/`; retain root files only as thin build entry points |
-| `src/stwo_native_metal.zig` | replace the Zig 0.15 package-root compatibility facade with named core/prover/example/backend modules during BG-09; the executable entry point already lives under `src/products/native_metal/` |
+| `src/tools/riscv/bench/main.zig`, `src/tools/riscv/trace/main.zig` | active owners now sit below `src/tools/riscv/` behind 5-line Zig 0.15 package-root facades; split their retained benchmark and trace orchestration before removing the temporary deferred-policy prefixes |
+| `src/tools/riscv/metal_bench/main.zig` | the Metal benchmark owner now sits below `src/tools/riscv/` behind a 5-line Zig 0.15 package-root facade; remove the facade with the other RISC-V tool facades when named imports replace the compatibility module root |
+| `src/stwo_native_cpu.zig`, `src/stwo_native_metal.zig`, `src/stwo_riscv_cpu.zig` | retain these small declarative package-root maps while Zig 0.15 relative imports require an `src/` module root; they construct no executable, install, test, or backend selection and must disappear when every child is a named module |

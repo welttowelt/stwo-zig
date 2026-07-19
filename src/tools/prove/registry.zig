@@ -1,42 +1,43 @@
 //! Compiled AIR registry and deferred adapter status.
 
-const builtin = @import("builtin");
+const capabilities = @import("aggregate_capabilities");
+const native = @import("native_cpu_capabilities");
+const riscv = @import("riscv_cpu_capabilities");
 
 /// The single typed admission switch for the Stark-V adapter. RF-01 flips this
 /// in the same commit as the artifact release status after every gate passes.
-pub const RISCV_ADAPTER_RELEASE_GATED = false;
+pub const RISCV_ADAPTER_RELEASE_GATED = riscv.adapter_release_gated;
 
 pub fn requireRiscVAdmission(experimental: bool) !void {
-    if (RISCV_ADAPTER_RELEASE_GATED) {
-        if (experimental) return error.ExperimentalFlagAfterPromotion;
-    } else if (!experimental) {
-        return error.ExperimentalFlagRequired;
-    }
+    return riscv.requireAdmission(experimental);
 }
 
 pub fn write(writer: anytype) !void {
-    try writer.writeAll(
-        \\{"schema_version":1,"backend_availability":{"cpu":true,"metal-hybrid":
-    );
-    try writer.writeAll(if (builtin.os.tag == .macos) "true" else "false");
-    try writer.writeAll(
-        \\},"applications":[
-        \\  {"air":"wide_fibonacci","status":"release_gated","backends":["cpu","metal-hybrid"]},
-        \\  {"air":"xor","status":"release_gated","backends":["cpu","metal-hybrid"]},
-        \\  {"air":"plonk","status":"release_gated","backends":["cpu","metal-hybrid"]},
-        \\  {"air":"state_machine","status":"release_gated","backends":["cpu","metal-hybrid"]},
-        \\  {"air":"blake","status":"release_gated","backends":["cpu","metal-hybrid"]},
-        \\  {"air":"poseidon","status":"release_gated","backends":["cpu","metal-hybrid"]}
-    );
-    if (RISCV_ADAPTER_RELEASE_GATED) try writer.writeAll(
-        \\,{"adapter":"stark-v-rv32im-elf","air":"stark_v_rv32im","status":"release_gated","isa":"rv32im","backends":["cpu"]}
-    );
+    try writer.writeAll("{\"schema_version\":1,\"backend_availability\":{\"cpu\":true,\"metal-hybrid\":");
+    try writer.writeAll(if (capabilities.metal_enabled) "true" else "false");
+    try writer.print("}},\"product_matrix\":{{\"native_cpu\":{{\"product_id\":\"{s}\",\"state\":\"{s}\"}},\"native_metal\":{{\"product_id\":\"{s}\",\"state\":\"{s}\",\"selected\":{s}}}}},\"applications\":[", .{
+        capabilities.native_cpu_product,
+        capabilities.native_cpu_state,
+        capabilities.native_metal_product,
+        capabilities.native_metal_state,
+        if (capabilities.metal_enabled) "true" else "false",
+    });
+    if (!capabilities.native_cpu_enabled) @compileError("aggregate requires released Native CPU product");
+    inline for (native.applications, 0..) |air, index| {
+        if (index != 0) try writer.writeByte(',');
+        try writer.print("{{\"air\":\"{s}\",\"status\":\"release_gated\",\"backends\":[\"cpu\"", .{air});
+        if (capabilities.metal_enabled) try writer.writeAll(",\"metal-hybrid\"");
+        try writer.writeAll("]}");
+    }
+    if (RISCV_ADAPTER_RELEASE_GATED) try writer.print(
+        \\,{{"adapter":"{s}","air":"{s}","status":"release_gated","isa":"{s}","backends":["{s}"]}}
+    , .{ riscv.adapter, riscv.air, riscv.isa, riscv.backend });
     try writer.writeAll(
         \\],"deferred_adapters":[
     );
-    if (!RISCV_ADAPTER_RELEASE_GATED) try writer.writeAll(
-        \\  {"adapter":"stark-v-rv32im-elf","status":"not_release_gated","isa":"rv32im","backends":["cpu"],"reason":"RISC-V release contract is not yet fully satisfied"}
-    );
+    if (!RISCV_ADAPTER_RELEASE_GATED) try writer.print(
+        \\  {{"adapter":"{s}","status":"not_release_gated","isa":"{s}","backends":["{s}"],"reason":"{s}"}}
+    , .{ riscv.adapter, riscv.isa, riscv.backend, riscv.deferred_reason });
     try writer.writeAll(
         \\]}
     );

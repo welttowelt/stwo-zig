@@ -1,9 +1,11 @@
 //! Runtime backend dispatch into the shared Native proving transaction.
 
 const std = @import("std");
+const capabilities = @import("aggregate_capabilities");
 const builtin = @import("builtin");
 const stwo = @import("stwo");
 const runner = @import("native_proof_runner");
+const product_identity = @import("native_product_identity");
 const cli = @import("cli.zig");
 
 pub const Execution = struct {
@@ -28,7 +30,8 @@ pub fn run(
             args,
         ),
         .metal_hybrid => {
-            if (comptime builtin.os.tag != .macos) return error.MetalBackendUnavailable;
+            if (comptime builtin.os.tag != .macos or !capabilities.metal_enabled)
+                return error.MetalBackendUnavailable;
             return runner.run(
                 stwo.backends.metal.MetalProverEngine,
                 .metal_hybrid,
@@ -41,6 +44,7 @@ pub fn run(
 
 fn nativeArgs(request: cli.Run, execution: Execution) runner.config.Args {
     var result = runner.config.Args{
+        .product_identity = product_identity.value(),
         .example = switch (request.workload) {
             .wide_fibonacci => .wide_fibonacci,
             .xor => .xor,

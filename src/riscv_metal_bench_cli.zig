@@ -1,6 +1,5 @@
-const benchmark = @import("riscv_bench_cli.zig");
-const MetalProverEngine = @import("backends/metal/prover_engine.zig").MetalProverEngine;
+//! Zig 0.15 package-root compatibility facade for the RISC-V Metal benchmark.
 
 pub fn main() !void {
-    return benchmark.mainWithEngine(MetalProverEngine);
+    return @import("tools/riscv/metal_bench/main.zig").main();
 }

@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const libraries = @import("products/libraries.zig");
+const delegation = @import("graph/delegation.zig");
 
 const StepSpec = struct {
     name: []const u8,
@@ -15,24 +16,28 @@ const steps = [_]StepSpec{
     .{ .name = "build-monorepo-baseline", .description = "Validate the immutable pre-migration build and performance baseline", .scope = "architecture" },
     .{ .name = "stwo-core", .description = "Build the focused Stwo core library", .scope = "core" },
     .{ .name = "test-stwo-core", .description = "Test the focused Stwo core library and purity boundary", .scope = "core" },
+    .{ .name = "identity-stwo-core", .description = "Emit canonical machine identity for stwo-core", .scope = "core" },
     .{ .name = "stwo-prover", .description = "Build the focused backend-generic Stwo prover library", .scope = "prover" },
     .{ .name = "test-stwo-prover", .description = "Test the focused generic prover, backend contracts, and purity boundary", .scope = "prover" },
-    .{ .name = "test-downstream-modules", .description = "Compile and run a clean external consumer of stwo_core, stwo_prover, and stwo", .scope = "aggregate" },
-    .{ .name = "interop-cli", .description = "Build the proof interoperability CLI", .scope = "aggregate" },
+    .{ .name = "identity-stwo-prover", .description = "Emit canonical machine identity for stwo-prover", .scope = "prover" },
+    .{ .name = "test-downstream-modules", .description = "Compile and run a clean external consumer of stwo_core, stwo_prover, and stwo", .scope = "package" },
+    .{ .name = "interop-cli", .description = "Build the proof interoperability CLI", .scope = "compatibility_tools" },
     .{ .name = "test", .description = "Run unit tests", .scope = "aggregate" },
     .{ .name = "metal-core-aot", .description = "Build the deterministic, fail-closed core Metal AOT tool", .scope = "metal_tools" },
     .{ .name = "test-metal-core-aot", .description = "Run deterministic core Metal AOT tooling tests without compiling shaders", .scope = "metal_tools" },
     .{ .name = "metal-core-aot-probe", .description = "Build the authenticated Native core metallib acceptance probe", .scope = "metal_tools" },
     .{ .name = "test-metal-core-aot-probe", .description = "Run Native core metallib probe contract tests without compiling shaders", .scope = "metal_tools" },
     .{ .name = "metal-core-aot-acceptance", .description = "Build, authenticate, and inspect the linked Native core metallib", .scope = "metal_tools" },
-    .{ .name = "cairo-input", .description = "Build adapted Cairo input inspector", .scope = "aggregate" },
-    .{ .name = "riscv-opcode-manifest", .description = "Dump the canonical Stark-V opcode and proof-family policy as JSON", .scope = "aggregate" },
-    .{ .name = "riscv-opcode-manifest-check", .description = "Validate exact Stark-V opcode IDs and execution-only classifications", .scope = "aggregate" },
-    .{ .name = "test-riscv", .description = "Run RISC-V runner tests (trace_dump)", .scope = "aggregate" },
-    .{ .name = "test-riscv-prover", .description = "Run RISC-V prover tests (prove+verify)", .scope = "aggregate" },
-    .{ .name = "riscv-bench", .description = "Build RISC-V benchmark CLI", .scope = "aggregate" },
-    .{ .name = "native-proof-bench-cpu", .description = "Build the machine-readable native CPU full-proof benchmark with SIMD hot paths", .scope = "aggregate" },
+    .{ .name = "cairo-input", .description = "Build adapted Cairo input inspector", .scope = "compatibility_tools" },
+    .{ .name = "riscv-opcode-manifest", .description = "Dump the canonical Stark-V opcode and proof-family policy as JSON", .scope = "compatibility_tools" },
+    .{ .name = "riscv-opcode-manifest-check", .description = "Validate exact Stark-V opcode IDs and execution-only classifications", .scope = "compatibility_tools" },
+    .{ .name = "test-riscv", .description = "Run RISC-V runner tests (trace_dump)", .scope = "riscv_cpu_compat" },
+    .{ .name = "test-riscv-prover", .description = "Run RISC-V prover tests (prove+verify)", .scope = "riscv_cpu_compat" },
+    .{ .name = "riscv-bench", .description = "Build RISC-V benchmark CLI", .scope = "compatibility_tools" },
+    .{ .name = "native-proof-bench-cpu", .description = "Build the machine-readable native CPU full-proof benchmark with SIMD hot paths", .scope = "compatibility_tools" },
     .{ .name = "stwo-zig", .description = "Build the production proof CLI", .scope = "aggregate" },
+    .{ .name = "identity-stwo-zig", .description = "Emit canonical machine identity for stwo-zig", .scope = "aggregate" },
+    .{ .name = "product-matrix-identity", .description = "Emit the hashed authoritative product capability matrix", .scope = "aggregate" },
     .{ .name = "stwo-native-cpu", .description = "Build the focused Native CPU/SIMD proof CLI", .scope = "native_cpu" },
     .{ .name = "benchmark-native-cpu", .description = "Build the focused Native CPU/SIMD benchmark", .scope = "native_cpu" },
     .{ .name = "test-native-cpu-product", .description = "Test Native CPU product behavior, imports, and visible capabilities", .scope = "native_cpu" },
@@ -96,8 +101,8 @@ const steps = [_]StepSpec{
     .{ .name = "source-conformance", .description = "Reject new source layout, dependency direction, and file-size violations", .scope = "policy" },
     .{ .name = "upstream-surface", .description = "Validate API parity rust_path entries against pinned upstream commit", .scope = "policy" },
     .{ .name = "build-configure-closure", .description = "Verify focused configure closure and the default install manifest", .scope = "policy" },
-    .{ .name = "release-gate", .description = "Run release gate sequence (fmt -> upstream-pins -> source-conformance -> test -> test-riscv -> test-riscv-prover -> api-parity -> deep-gate -> vectors -> interop -> bench-smoke -> profile-smoke)", .scope = "aggregate" },
-    .{ .name = "release-gate-strict", .description = "Run strict release gate sequence (fmt -> upstream-pins -> source-conformance -> test -> test-riscv -> test-riscv-prover -> api-parity -> deep-gate -> vectors -> interop -> prove-checkpoints -> bench-strict -> profile-smoke -> std-shims-smoke -> std-shims-behavior -> release-evidence)", .scope = "aggregate" },
+    .{ .name = "release-gate", .description = "Run release gate sequence (fmt -> upstream-pins -> source-conformance -> test -> test-riscv -> test-riscv-prover -> api-parity -> deep-gate -> vectors -> interop -> bench-smoke -> profile-smoke)", .scope = "release" },
+    .{ .name = "release-gate-strict", .description = "Run strict release gate sequence (fmt -> upstream-pins -> source-conformance -> test -> test-riscv -> test-riscv-prover -> api-parity -> deep-gate -> vectors -> interop -> prove-checkpoints -> bench-strict -> profile-smoke -> std-shims-smoke -> std-shims-behavior -> release-evidence)", .scope = "release" },
 };
 
 pub fn add(b: *std.Build) void {
@@ -105,83 +110,15 @@ pub fn add(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     _ = libraries.addPublicModules(.{ .b = b, .target = target, .optimize = optimize });
 
-    const options = ForwardedOptions.read(b);
-    for (steps) |spec| addProxy(b, target, optimize, options, spec);
-    addInstallProxy(b, target, optimize, options);
-}
-
-const ForwardedOptions = struct {
-    aggregate_metal: bool,
-    riscv_release_phase: []const u8,
-    riscv_evidence_dir: []const u8,
-    implementation_commit: ?[]const u8,
-    implementation_dirty: ?bool,
-
-    fn read(b: *std.Build) ForwardedOptions {
-        return .{
-            .aggregate_metal = b.option(bool, "aggregate-metal", "Explicitly link Metal into aggregate test roots") orelse false,
-            .riscv_release_phase = b.option([]const u8, "riscv-release-phase", "CP-13 phase: candidate or promoted") orelse "candidate",
-            .riscv_evidence_dir = b.option([]const u8, "riscv-evidence-dir", "Fresh CP-13 evidence directory") orelse "zig-out/release-evidence/riscv",
-            .implementation_commit = b.option([]const u8, "implementation-commit", "Exact lowercase 40-hex source commit embedded in the production CLI"),
-            .implementation_dirty = b.option(bool, "implementation-dirty", "Whether the source embedded in the production CLI has local modifications"),
-        };
-    }
-};
-
-fn addProxy(
-    b: *std.Build,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-    options: ForwardedOptions,
-    spec: StepSpec,
-) void {
-    const command = delegatedCommand(b, target, optimize, options, spec.scope, spec.name);
-    b.step(spec.name, spec.description).dependOn(&command.step);
-}
-
-fn addInstallProxy(
-    b: *std.Build,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-    options: ForwardedOptions,
-) void {
-    const command = delegatedCommand(b, target, optimize, options, "aggregate", "stwo-zig");
-    b.getInstallStep().dependOn(&command.step);
-}
-
-fn delegatedCommand(
-    b: *std.Build,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-    options: ForwardedOptions,
-    scope: []const u8,
-    step_name: []const u8,
-) *std.Build.Step.Run {
-    const repository_root = b.pathFromRoot(".");
-    const build_file = b.pathFromRoot("build_support/internal_build.zig");
-    const cache_dir = b.pathFromRoot(".zig-cache");
-    const triple = target.result.zigTriple(b.allocator) catch @panic("cannot format build target");
-    const command = b.addSystemCommand(&.{
-        b.graph.zig_exe,
-        "build",
-        step_name,
-        "--build-file",
-        build_file,
-        "--cache-dir",
-        cache_dir,
-        "-p",
-        b.install_path,
-        b.fmt("-Drepository-root={s}", .{repository_root}),
-        b.fmt("-Dproduct-scope={s}", .{scope}),
-        b.fmt("-Dtarget={s}", .{triple}),
-        b.fmt("-Doptimize={s}", .{@tagName(optimize)}),
-        b.fmt("-Daggregate-metal={s}", .{if (options.aggregate_metal) "true" else "false"}),
-        b.fmt("-Driscv-release-phase={s}", .{options.riscv_release_phase}),
-        b.fmt("-Driscv-evidence-dir={s}", .{options.riscv_evidence_dir}),
-    });
-    if (options.implementation_commit) |value|
-        command.addArg(b.fmt("-Dimplementation-commit={s}", .{value}));
-    if (options.implementation_dirty) |value|
-        command.addArg(b.fmt("-Dimplementation-dirty={s}", .{if (value) "true" else "false"}));
-    return command;
+    const options = delegation.Options.read(b);
+    for (steps) |spec| delegation.addProxy(
+        b,
+        target,
+        optimize,
+        options,
+        spec.name,
+        spec.description,
+        spec.scope,
+    );
+    delegation.addInstallProxy(b, target, optimize, options);
 }

@@ -3,7 +3,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
-ARENA_CLI = ROOT / "src" / "metal_arena_plan_cli.zig"
+ARENA_CLI = ROOT / "src/tools/metal_arena_plan/main.zig"
 MULTIPLICITY_FEEDS = (
     ROOT
     / "src"

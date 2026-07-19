@@ -2,7 +2,7 @@
 
 const std = @import("std");
 const stwo = @import("stwo_riscv_cpu");
-const adapter = @import("../../tools/prove/starkv_adapter.zig");
+const adapter = @import("starkv_adapter");
 const cli = @import("cli.zig");
 const registry = @import("registry.zig");
 

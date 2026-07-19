@@ -23,13 +23,18 @@ const source_closure = product_policy.SourceClosure{
         .{ .name = "stwo_native_metal", .source = "src/stwo_native_metal.zig" },
         .{ .name = "stwo_prover_impl", .source = "src/prover/mod.zig" },
         .{ .name = "native_proof_runner", .source = "src/prover/native/runner.zig" },
+        .{ .name = "native_transaction", .source = "src/integrations/native/transaction.zig" },
+        .{ .name = "native_product_identity", .source = "src/integrations/native/product_identity.zig" },
     },
     .allowed_files = &.{
         "src/stwo_native_metal.zig",
         "src/interop/atomic_file.zig",
         "src/interop/examples_artifact.zig",
+        "src/interop/examples_artifact_verifier.zig",
         "src/interop/postcard.zig",
         "src/interop/proof_wire.zig",
+        "src/integrations/native/transaction.zig",
+        "src/integrations/native/product_identity.zig",
     },
     .allowed_prefixes = &.{
         "src/core",
@@ -204,7 +209,15 @@ fn createProductModule(
     root.addImport("stwo", stwo);
     root.addImport("stwo_native_metal", stwo);
     root.addImport("native_proof_runner", runner);
+    const transaction = graph.create(context.b, .{
+        .product = logical_product,
+        .root_source_file = "src/integrations/native/transaction.zig",
+        .target = context.target,
+        .optimize = context.optimize,
+    });
+    root.addImport("native_transaction", transaction);
     root.addOptions("build_identity", graph_identity.buildOptions(context.b, context.identity));
+    const runtime_identity = metal.sourceJitIdentity(context.b);
     root.addOptions(
         "product_identity",
         graph_identity.productOptionsWithRuntime(
@@ -213,13 +226,28 @@ fn createProductModule(
             logical_product,
             context.target,
             context.optimize,
-            .{
-                .runtime_manifest = metal.identity_runtime_manifest,
-                .sdk_manifest = metal.identity_sdk_manifest,
-                .aot_manifest = metal.identity_aot_manifest,
-            },
+            runtime_identity,
         ),
     );
+    const native_identity = graph.create(context.b, .{
+        .product = logical_product,
+        .root_source_file = "src/integrations/native/product_identity.zig",
+        .target = context.target,
+        .optimize = context.optimize,
+    });
+    native_identity.addImport("native_proof_runner", runner);
+    native_identity.addOptions(
+        "product_identity",
+        graph_identity.productOptionsWithRuntime(
+            context.b,
+            context.identity,
+            logical_product,
+            context.target,
+            context.optimize,
+            runtime_identity,
+        ),
+    );
+    root.addImport("native_product_identity", native_identity);
     return root;
 }
 
@@ -239,5 +267,5 @@ test "descriptor binds runtime identity and explicit target policy" {
     try std.testing.expectEqual(product_policy.State.parity_gated, policy.state);
     try std.testing.expectEqualStrings("stwo-zig-native-metal", policy.executable.?);
     try std.testing.expect(std.mem.indexOf(u8, policy.product.protocol_features, "metal-runtime-v1") != null);
-    try std.testing.expectEqualStrings("source-jit+authenticated-aot", metal.runtime_modes);
+    try std.testing.expectEqualStrings("source-jit", metal.runtime_modes);
 }

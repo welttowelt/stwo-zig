@@ -253,26 +253,32 @@ class CiTests(unittest.TestCase):
 
     def test_release_gates_run_the_complete_test_graph_in_requested_mode(self) -> None:
         build = (ROOT / "build.zig").read_text(encoding="utf-8")
-        verification_products = (
-            ROOT / "build_support/verification_products.zig"
-        ).read_text(encoding="utf-8")
+        verification_products = "\n".join(
+            (ROOT / path).read_text(encoding="utf-8")
+            for path in (
+                "build_support/gates/native.zig",
+                "build_support/gates/riscv.zig",
+                "build_support/benchmarks/native.zig",
+                "build_support/gates/release_evidence.zig",
+                "build_support/gates/release.zig",
+            )
+        )
         build_graph = build + verification_products
-        full_test_command = 'b.addSystemCommand(&.{ "zig", "build", "test", optimize_arg })'
-        self.assertEqual(2, build.count(full_test_command))
+        full_test_command = '&.{ "zig", "build", "test", build_optimize }'
+        self.assertEqual(2, build_graph.count(full_test_command))
         self.assertEqual(3, build_graph.count('"scripts/zig_protocol_test.py"'))
         gate_archive = "zig-out/release-evidence/native/interop-history"
-        self.assertEqual(1, build.count(gate_archive))
-        self.assertEqual(1, build.count('"--archive-dir"'))
-        self.assertEqual(2, build.count("b.addSystemCommand(native_interop_gate_command)"))
+        self.assertEqual(2, build_graph.count(gate_archive))
+        self.assertEqual(2, build_graph.count('"--archive-dir"'))
         transitive_commands = {
-            'b.addSystemCommand(&.{ "zig", "build", "test-riscv", optimize_arg })': 2,
-            'b.addSystemCommand(&.{ "zig", "build", "test-riscv-prover", optimize_arg })': 2,
-            'b.addSystemCommand(&.{ "python3", "scripts/riscv_trace_vectors.py" })': 2,
+            '&.{ "zig", "build", "test-riscv", build_optimize }': 2,
+            '&.{ "zig", "build", "test-riscv-prover", build_optimize }': 2,
+            '&.{ "python3", "scripts/riscv_trace_vectors.py" }': 3,
             # One additional standalone public API-parity build target is expected.
-            'b.addSystemCommand(&.{ "python3", "scripts/check_api_parity.py" })': 3,
+            '&.{ "python3", "scripts/check_api_parity.py" }': 2,
         }
         for command, expected_count in transitive_commands.items():
-            self.assertEqual(expected_count, build.count(command))
+            self.assertEqual(expected_count, build_graph.count(command))
         self.assertEqual(
             0,
             subprocess.run(
@@ -358,7 +364,7 @@ class CiTests(unittest.TestCase):
             )
         self.assertIn("if-no-files-found: error", workflow)
 
-        metal_products = (ROOT / "build_support/metal_products.zig").read_text(
+        metal_products = (ROOT / "build_support/benchmarks/metal.zig").read_text(
             encoding="utf-8"
         )
         self.assertIn(

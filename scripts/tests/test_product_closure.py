@@ -84,6 +84,23 @@ class SourceClosureTest(unittest.TestCase):
         with self.assertRaisesRegex(ClosureError, "outside product manifest"):
             inspect_sources(self.root, self.manifest())
 
+    def test_aggregate_manifest_rejects_unrelated_product_owner(self) -> None:
+        self.write(
+            "src/tools/prove/main.zig",
+            'const unrelated = @import("../../products/unrelated/main.zig");\n',
+        )
+        self.write("src/products/unrelated/main.zig", "pub const value = 1;\n")
+        self.write("src/core/mod.zig", "")
+        self.write("src/prover/mod.zig", "")
+        manifest = self.manifest(
+            product="stwo-zig",
+            entry_roots=("src/tools/prove/main.zig",),
+            named_imports=(),
+            allowed_prefixes=("src/tools/prove", "src/core", "src/prover"),
+        )
+        with self.assertRaisesRegex(ClosureError, "outside product manifest"):
+            inspect_sources(self.root, manifest)
+
     def test_rejects_named_module_cycle(self) -> None:
         self.write("src/product/main.zig", 'const core = @import("core");\n')
         self.write("src/core/mod.zig", 'const product = @import("product");\n')

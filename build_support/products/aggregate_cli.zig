@@ -1,499 +1,90 @@
+//! Opt-in aggregate SDK and CLI compatibility product.
+
 const std = @import("std");
-const build_monorepo_baseline = @import("../gates/baseline.zig");
-const metal_backend = @import("../backends/metal.zig");
-const metal_core_aot = @import("../metal_core_aot.zig");
-const metal_products = @import("../metal_products.zig");
-const library_products = @import("libraries.zig");
+const metal = @import("../backends/metal.zig");
+const graph_identity = @import("../graph/identity.zig");
+const identity_receipt = @import("../graph/identity/receipt.zig");
+const closure_gate = @import("../gates/product_closure.zig");
 const prove_cli = @import("../prove_cli.zig");
-const product_matrix = @import("matrix.zig");
-const native_cpu_product = @import("native_cpu.zig");
-const native_metal_product = @import("native_metal.zig");
-const riscv_cpu_product = @import("riscv_cpu.zig");
-const verification_products = @import("../verification_products.zig");
+const aggregate = @import("aggregate.zig");
+const libraries = @import("libraries.zig");
 
 pub fn addProduct(b: *std.Build) void {
-    @import("../gates/architecture_receipts.zig").addGates(b);
-    build_monorepo_baseline.addGate(b);
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    const aggregate_metal = b.option(bool, "aggregate-metal", "Explicitly link Metal into aggregate test roots") orelse false;
-    const optimize_arg = b.fmt("-Doptimize={s}", .{@tagName(optimize)});
-    const zig_optimize_arg = b.fmt("-O{s}", .{@tagName(optimize)});
-    const riscv_release_phase = b.option([]const u8, "riscv-release-phase", "CP-13 phase: candidate or promoted") orelse "candidate";
-    const riscv_evidence_dir = b.option([]const u8, "riscv-evidence-dir", "Fresh CP-13 evidence directory") orelse "zig-out/release-evidence/riscv";
-    const implementation_identity = prove_cli.resolveBuildIdentity(b);
-    const native_interop_gate_command = &.{
-        "python3",                                         "scripts/e2e_interop.py", "--archive-dir",
-        "zig-out/release-evidence/native/interop-history",
-    };
-
-    const libraries = library_products.addProducts(.{
+    const metal_enabled = b.option(
+        bool,
+        "aggregate-metal",
+        "Explicitly link Metal into the aggregate compatibility product",
+    ) orelse false;
+    if (metal_enabled) metal.requireTarget(target.result) catch @panic(
+        "-Daggregate-metal=true requires a macOS target and Apple Metal SDK",
+    );
+    const source_identity = prove_cli.resolveBuildIdentity(b);
+    const runtime_identity: graph_identity.RuntimeHooks = if (metal_enabled)
+        metal.sourceJitIdentity(b)
+    else
+        .{};
+    const modules = libraries.addPublicModules(.{
         .b = b,
         .target = target,
         .optimize = optimize,
     });
-    const stwo_module = libraries.stwo;
-    const protocol = libraries.protocol;
-    const interop_cli_module = library_products.consumer(b, protocol, .{
-        .root_source_file = b.path("src/tools/interop/main.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    interop_cli_module.addImport("stwo", stwo_module);
-    const interop_cli = b.addExecutable(.{
-        .name = "interop_cli",
-        .root_module = interop_cli_module,
-    });
-    interop_cli.linkLibC();
-    const install_interop_cli = b.addInstallArtifact(interop_cli, .{});
-    const interop_cli_build_step = b.step("interop-cli", "Build the proof interoperability CLI");
-    interop_cli_build_step.dependOn(&install_interop_cli.step);
-
-    const native_proof_runner_module = library_products.consumer(b, protocol, .{
+    const runner = libraries.consumer(b, modules.protocol, .{
         .root_source_file = b.path("src/prover/native/runner.zig"),
         .target = target,
         .optimize = optimize,
     });
-    native_proof_runner_module.addImport("stwo", stwo_module);
+    runner.addImport("stwo", modules.stwo);
 
-    // Unit tests.
-    const test_module = library_products.consumer(b, protocol, .{
+    const aggregate_tests = libraries.consumer(b, modules.protocol, .{
         .root_source_file = b.path("src/stwo.zig"),
         .target = target,
         .optimize = optimize,
     });
-    const tests = b.addTest(.{
-        .root_module = test_module,
-    });
-    if (aggregate_metal) {
-        metal_backend.requireTarget(target.result) catch @panic(
-            "-Daggregate-metal=true requires a macOS target and Apple Metal SDK",
-        );
-        metal_backend.linkRuntime(b, tests);
-    }
-    const run_tests = b.addRunArtifact(tests);
+    const tests = b.addTest(.{ .root_module = aggregate_tests });
+    if (metal_enabled) metal.linkRuntime(b, tests);
+    const test_step = b.step("test", "Run aggregate compatibility tests");
+    test_step.dependOn(&b.addRunArtifact(tests).step);
 
-    const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&run_tests.step);
-
-    const shader_manifest_module = library_products.consumer(b, protocol, .{
-        .root_source_file = b.path("src/backends/metal/shader_manifest.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    metal_core_aot.addProducts(.{
-        .b = b,
-        .target = target,
-        .optimize = optimize,
-        .shader_manifest_module = shader_manifest_module,
-        .test_step = test_step,
-    });
-
-    const native_proof_runner_test_module = library_products.consumer(b, protocol, .{
-        .root_source_file = b.path("src/prover/native/runner.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    native_proof_runner_test_module.addImport("stwo", stwo_module);
-    const native_proof_runner_tests = b.addTest(.{ .root_module = native_proof_runner_test_module });
-    const run_native_proof_runner_tests = b.addRunArtifact(native_proof_runner_tests);
-    test_step.dependOn(&run_native_proof_runner_tests.step);
-
-    const pcs_test_module = library_products.consumer(b, protocol, .{
-        .root_source_file = b.path("src/stwo_deep.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const pcs_tests = b.addTest(.{
-        .root_module = pcs_test_module,
-        .filters = &.{"prover pcs:"},
-    });
-    const run_pcs_tests = b.addRunArtifact(pcs_tests);
-    test_step.dependOn(&run_pcs_tests.step);
-
-    const cross_module_test_module = library_products.consumer(b, protocol, .{
-        .root_source_file = b.path("src/tests.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const cross_module_test_options = b.addOptions();
-    cross_module_test_options.addOption(bool, "metal_only", false);
-    cross_module_test_options.addOption(bool, "riscv_only", false);
-    cross_module_test_module.addOptions("test_options", cross_module_test_options);
-    const cross_module_tests = b.addTest(.{ .root_module = cross_module_test_module });
-    // The compatibility test root eagerly instantiates Metal declarations on
-    // macOS even when its Metal-only filter is false. This is aggregate
-    // compatibility linkage, not a focused CPU product dependency.
-    if (aggregate_metal or target.result.os.tag == .macos)
-        metal_backend.linkRuntime(b, cross_module_tests);
-    const run_cross_module_tests = b.addRunArtifact(cross_module_tests);
-    test_step.dependOn(&run_cross_module_tests.step);
-
-    inline for ([_][]const u8{
-        "proof_layout.zig",
-        "schedule_addressing.zig",
-        "schedule_coverage.zig",
-        "transcript_fixture.zig",
-    }) |filename| {
-        const arena_schedule_test_module = library_products.consumer(b, protocol, .{
-            .root_source_file = b.path(b.fmt("src/tools/metal_arena_plan/{s}", .{filename})),
+    const runner_tests = b.addTest(.{
+        .root_module = libraries.consumer(b, modules.protocol, .{
+            .root_source_file = b.path("src/prover/native/runner.zig"),
             .target = target,
             .optimize = optimize,
-        });
-        arena_schedule_test_module.addImport("stwo", stwo_module);
-        const arena_schedule_tests = b.addTest(.{ .root_module = arena_schedule_test_module });
-        const run_arena_schedule_tests = b.addRunArtifact(arena_schedule_tests);
-        test_step.dependOn(&run_arena_schedule_tests.step);
-    }
+        }),
+    });
+    runner_tests.root_module.addImport("stwo", modules.stwo);
+    test_step.dependOn(&b.addRunArtifact(runner_tests).step);
 
-    const metal_session_protocol_test_module = library_products.consumer(b, protocol, .{
-        .root_source_file = b.path("src/tools/metal_session/protocol.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const metal_session_protocol_tests = b.addTest(.{ .root_module = metal_session_protocol_test_module });
-    const run_metal_session_protocol_tests = b.addRunArtifact(metal_session_protocol_tests);
-    test_step.dependOn(&run_metal_session_protocol_tests.step);
-
-    const cairo_input_module = library_products.consumer(b, protocol, .{
-        .root_source_file = b.path("src/tools/cairo/input_inspector.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    cairo_input_module.addImport("stwo", stwo_module);
-    const cairo_input_cli = b.addExecutable(.{
-        .name = "cairo-input",
-        .root_module = cairo_input_module,
-    });
-    const install_cairo_input_cli = b.addInstallArtifact(cairo_input_cli, .{});
-    const cairo_input_step = b.step("cairo-input", "Build adapted Cairo input inspector");
-    cairo_input_step.dependOn(&install_cairo_input_cli.step);
-
-    // Canonical Stark-V opcode policy dump and mechanical coverage check.
-    const riscv_opcode_manifest_module = library_products.consumer(b, protocol, .{
-        .root_source_file = b.path("src/tools/riscv_opcode_manifest/main.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    riscv_opcode_manifest_module.addImport("stwo", stwo_module);
-    const riscv_opcode_manifest_cli = b.addExecutable(.{
-        .name = "riscv-opcode-manifest",
-        .root_module = riscv_opcode_manifest_module,
-    });
-    const run_riscv_opcode_manifest = b.addRunArtifact(riscv_opcode_manifest_cli);
-    run_riscv_opcode_manifest.addArg("dump");
-    const riscv_opcode_manifest_step = b.step(
-        "riscv-opcode-manifest",
-        "Dump the canonical Stark-V opcode and proof-family policy as JSON",
-    );
-    riscv_opcode_manifest_step.dependOn(&run_riscv_opcode_manifest.step);
-    const check_riscv_opcode_manifest = b.addRunArtifact(riscv_opcode_manifest_cli);
-    check_riscv_opcode_manifest.addArg("check");
-    const riscv_opcode_manifest_check_step = b.step(
-        "riscv-opcode-manifest-check",
-        "Validate exact Stark-V opcode IDs and execution-only classifications",
-    );
-    riscv_opcode_manifest_check_step.dependOn(&check_riscv_opcode_manifest.step);
-    const riscv_opcode_manifest_test_module = library_products.consumer(b, protocol, .{
-        .root_source_file = b.path("src/tools/riscv_opcode_manifest/main.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    riscv_opcode_manifest_test_module.addImport("stwo", stwo_module);
-    const riscv_opcode_manifest_tests = b.addTest(.{ .root_module = riscv_opcode_manifest_test_module });
-    test_step.dependOn(&b.addRunArtifact(riscv_opcode_manifest_tests).step);
-
-    // RISC-V runner tests use the src-wide test root for nested source access.
-    const riscv_test_module = library_products.consumer(b, protocol, .{
-        .root_source_file = b.path("src/tests.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const riscv_test_options = b.addOptions();
-    riscv_test_options.addOption(bool, "riscv_only", true);
-    riscv_test_options.addOption(bool, "metal_only", false);
-    riscv_test_module.addOptions("test_options", riscv_test_options);
-    const riscv_tests = b.addTest(.{
-        .root_module = riscv_test_module,
-    });
-    const run_riscv_tests = b.addRunArtifact(riscv_tests);
-    const riscv_test_step = b.step("test-riscv", "Run RISC-V runner tests (trace_dump)");
-    riscv_test_step.dependOn(&run_riscv_tests.step);
-
-    // RISC-V prover tests (prove + verify roundtrips).
-    const riscv_prover_test_module = library_products.consumer(b, protocol, .{
-        .root_source_file = b.path("src/riscv_prover_test.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const riscv_prover_tests = b.addTest(.{
-        .root_module = riscv_prover_test_module,
-    });
-    const run_riscv_prover_tests = b.addRunArtifact(riscv_prover_tests);
-    const riscv_prover_test_step = b.step("test-riscv-prover", "Run RISC-V prover tests (prove+verify)");
-    riscv_prover_test_step.dependOn(&run_riscv_prover_tests.step);
-
-    // RISC-V benchmark CLI (execute, prove, verify, hosted mode)
-    const riscv_bench_module = library_products.consumer(b, protocol, .{
-        .root_source_file = b.path("src/riscv_bench_cli.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const riscv_bench_cli = b.addExecutable(.{
-        .name = "riscv-bench",
-        .root_module = riscv_bench_module,
-    });
-    const install_riscv_bench = b.addInstallArtifact(riscv_bench_cli, .{});
-    const riscv_bench_step = b.step("riscv-bench", "Build RISC-V benchmark CLI");
-    riscv_bench_step.dependOn(&install_riscv_bench.step);
-
-    const native_proof_cpu_module = library_products.consumer(b, protocol, .{
-        .root_source_file = b.path("src/tools/native_proof_bench/cpu.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    native_proof_cpu_module.addImport("stwo", stwo_module);
-    native_proof_cpu_module.addImport("native_proof_runner", native_proof_runner_module);
-    const native_proof_cpu = b.addExecutable(.{
-        .name = "native-proof-bench-cpu",
-        .root_module = native_proof_cpu_module,
-    });
-    const install_native_proof_cpu = b.addInstallArtifact(native_proof_cpu, .{});
-    const native_proof_cpu_step = b.step(
-        "native-proof-bench-cpu",
-        "Build the machine-readable native CPU full-proof benchmark with SIMD hot paths",
-    );
-    native_proof_cpu_step.dependOn(&install_native_proof_cpu.step);
-
-    prove_cli.addProduct(.{
+    const executable = prove_cli.addProduct(.{
         .b = b,
         .target = target,
         .optimize = optimize,
-        .stwo_module = stwo_module,
-        .native_proof_runner_module = native_proof_runner_module,
+        .stwo_module = modules.stwo,
+        .native_proof_runner_module = runner,
         .test_step = test_step,
-        .identity = implementation_identity,
+        .identity = source_identity,
+        .product = aggregate.product(metal_enabled),
+        .runtime = runtime_identity,
+        .metal_enabled = metal_enabled,
     });
-    native_cpu_product.addProduct(.{
+    _ = identity_receipt.add(.{
         .b = b,
+        .source = source_identity,
+        .product = aggregate.product(metal_enabled),
         .target = target,
         .optimize = optimize,
-        .identity = implementation_identity,
-        .protocol = protocol,
+        .artifact = executable.getEmittedBin(),
+        .executable = true,
+        .step_name = "identity-stwo-zig",
+        .output_name = "stwo-zig.json",
+        .runtime = runtime_identity,
     });
-    native_metal_product.addProduct(.{
+    const closure = closure_gate.addCheck(.{
         .b = b,
-        .target = target,
-        .optimize = optimize,
-        .identity = implementation_identity,
-        .protocol = protocol,
+        .descriptor = aggregate.descriptorFor(metal_enabled),
+        .binary = executable,
     });
-    riscv_cpu_product.addProduct(.{
-        .b = b,
-        .target = target,
-        .optimize = optimize,
-        .identity = implementation_identity,
-        .protocol = protocol,
-    });
-
-    // Compatibility Metal tools remain named, but target support is checked by
-    // their backend owner rather than selected by the host OS.
-    metal_products.addProducts(.{
-        .b = b,
-        .target = target,
-        .optimize = optimize,
-        .stwo_module = stwo_module,
-        .protocol = protocol,
-        .test_step = if (aggregate_metal) test_step else null,
-    });
-    product_matrix.addDeferredProducts(b, target);
-
-    const cuda_test_step = b.step(
-        "cuda-test",
-        "Unavailable compatibility alias; CUDA now requires an explicit product toolchain",
-    );
-    cuda_test_step.dependOn(&b.addFail(
-        "cuda-test is unavailable: select an explicit CUDA product with complete library and runtime paths",
-    ).step);
-
-    verification_products.addProducts(.{
-        .b = b,
-        .zig_optimize_arg = zig_optimize_arg,
-        .riscv_release_phase = riscv_release_phase,
-        .riscv_evidence_dir = riscv_evidence_dir,
-    });
-    // Formatting gate.
-    const fmt_cmd = b.addSystemCommand(&.{ "zig", "fmt", "--check", "build.zig", "src", "tools" });
-    const fmt_step = b.step("fmt", "Check formatting (zig fmt --check)");
-    fmt_step.dependOn(&fmt_cmd.step);
-
-    // API parity ledger validation.
-    const api_parity_cmd = b.addSystemCommand(&.{ "python3", "scripts/check_api_parity.py" });
-    const api_parity_step = b.step("api-parity", "Validate API parity ledger coverage");
-    api_parity_step.dependOn(&api_parity_cmd.step);
-
-    // Scope-aware Rust oracle pin ledger validation.
-    const upstream_pins_cmd = b.addSystemCommand(&.{ "python3", "scripts/check_upstream_pins.py" });
-    const upstream_pins_step = b.step(
-        "upstream-pins",
-        "Validate Native and Cairo pin carriers against the upstream ledger",
-    );
-    upstream_pins_step.dependOn(&upstream_pins_cmd.step);
-
-    // Source ownership, dependency direction, and file-size ratchet.
-    const source_conformance_cmd = b.addSystemCommand(&.{
-        "python3",
-        "scripts/check_source_conformance.py",
-    });
-    const source_conformance_step = b.step(
-        "source-conformance",
-        "Reject new source layout, dependency direction, and file-size violations",
-    );
-    source_conformance_step.dependOn(&source_conformance_cmd.step);
-
-    // Upstream surface audit for rust_path validity at pinned commit.
-    const upstream_surface_cmd = b.addSystemCommand(&.{ "python3", "scripts/check_upstream_surface.py" });
-    const upstream_surface_step = b.step(
-        "upstream-surface",
-        "Validate API parity rust_path entries against pinned upstream commit",
-    );
-    upstream_surface_step.dependOn(&upstream_surface_cmd.step);
-
-    // Deterministic release gate sequence:
-    // fmt -> upstream-pins -> source-conformance -> test -> test-riscv -> test-riscv-prover -> api-parity -> deep-gate -> vectors -> interop -> bench-smoke -> profile-smoke
-    const rg_fmt = b.addSystemCommand(&.{ "zig", "fmt", "--check", "build.zig", "src", "tools" });
-    const rg_upstream_pins = b.addSystemCommand(&.{ "python3", "scripts/check_upstream_pins.py" });
-    rg_upstream_pins.step.dependOn(&rg_fmt.step);
-    const rg_source_conformance = b.addSystemCommand(&.{
-        "python3",
-        "scripts/check_source_conformance.py",
-    });
-    rg_source_conformance.step.dependOn(&rg_upstream_pins.step);
-    const rg_test = b.addSystemCommand(&.{ "zig", "build", "test", optimize_arg });
-    rg_test.step.dependOn(&rg_source_conformance.step);
-    const rg_riscv = b.addSystemCommand(&.{ "zig", "build", "test-riscv", optimize_arg });
-    rg_riscv.step.dependOn(&rg_test.step);
-    const rg_riscv_prover = b.addSystemCommand(&.{ "zig", "build", "test-riscv-prover", optimize_arg });
-    rg_riscv_prover.step.dependOn(&rg_riscv.step);
-    const rg_riscv_vectors = b.addSystemCommand(&.{ "python3", "scripts/riscv_trace_vectors.py" });
-    rg_riscv_vectors.step.dependOn(&rg_riscv_prover.step);
-    const rg_api_parity = b.addSystemCommand(&.{ "python3", "scripts/check_api_parity.py" });
-    rg_api_parity.step.dependOn(&rg_riscv_vectors.step);
-    const rg_deep = b.addSystemCommand(&.{
-        "python3",
-        "scripts/zig_protocol_test.py",
-        "src/stwo_deep.zig",
-        zig_optimize_arg,
-    });
-    rg_deep.step.dependOn(&rg_api_parity.step);
-    const rg_vectors_fields = b.addSystemCommand(&.{ "python3", "scripts/parity_fields.py", "--skip-zig" });
-    rg_vectors_fields.step.dependOn(&rg_deep.step);
-    const rg_vectors_constraint = b.addSystemCommand(&.{
-        "python3",
-        "scripts/parity_constraint_expr.py",
-        "--skip-zig",
-    });
-    rg_vectors_constraint.step.dependOn(&rg_vectors_fields.step);
-    const rg_vectors_air_derive = b.addSystemCommand(&.{
-        "python3",
-        "scripts/parity_air_derive.py",
-        "--skip-zig",
-    });
-    rg_vectors_air_derive.step.dependOn(&rg_vectors_constraint.step);
-    const rg_interop = b.addSystemCommand(native_interop_gate_command);
-    rg_interop.step.dependOn(&rg_vectors_air_derive.step);
-    const rg_bench = b.addSystemCommand(&.{ "python3", "scripts/benchmark_smoke.py" });
-    rg_bench.step.dependOn(&rg_interop.step);
-    const rg_profile = b.addSystemCommand(&.{ "python3", "scripts/profile_smoke.py" });
-    rg_profile.step.dependOn(&rg_bench.step);
-
-    const release_gate_step = b.step(
-        "release-gate",
-        "Run release gate sequence (fmt -> upstream-pins -> source-conformance -> test -> test-riscv -> test-riscv-prover -> api-parity -> deep-gate -> vectors -> interop -> bench-smoke -> profile-smoke)",
-    );
-    release_gate_step.dependOn(&rg_profile.step);
-
-    // Strict release gate sequence:
-    // fmt -> upstream-pins -> source-conformance -> test -> test-riscv -> test-riscv-prover -> api-parity -> deep-gate -> vectors -> interop -> prove-checkpoints -> bench-strict -> profile-smoke -> std-shims-smoke -> std-shims-behavior
-    const rgs_fmt = b.addSystemCommand(&.{ "zig", "fmt", "--check", "build.zig", "src", "tools" });
-    const rgs_upstream_pins = b.addSystemCommand(&.{ "python3", "scripts/check_upstream_pins.py" });
-    rgs_upstream_pins.step.dependOn(&rgs_fmt.step);
-    const rgs_source_conformance = b.addSystemCommand(&.{
-        "python3",
-        "scripts/check_source_conformance.py",
-    });
-    rgs_source_conformance.step.dependOn(&rgs_upstream_pins.step);
-    const rgs_test = b.addSystemCommand(&.{ "zig", "build", "test", optimize_arg });
-    rgs_test.step.dependOn(&rgs_source_conformance.step);
-    const rgs_riscv = b.addSystemCommand(&.{ "zig", "build", "test-riscv", optimize_arg });
-    rgs_riscv.step.dependOn(&rgs_test.step);
-    const rgs_riscv_prover = b.addSystemCommand(&.{ "zig", "build", "test-riscv-prover", optimize_arg });
-    rgs_riscv_prover.step.dependOn(&rgs_riscv.step);
-    const rgs_riscv_vectors = b.addSystemCommand(&.{ "python3", "scripts/riscv_trace_vectors.py" });
-    rgs_riscv_vectors.step.dependOn(&rgs_riscv_prover.step);
-    const rgs_api_parity = b.addSystemCommand(&.{ "python3", "scripts/check_api_parity.py" });
-    rgs_api_parity.step.dependOn(&rgs_riscv_vectors.step);
-    const rgs_deep = b.addSystemCommand(&.{
-        "python3",
-        "scripts/zig_protocol_test.py",
-        "src/stwo_deep.zig",
-        zig_optimize_arg,
-    });
-    rgs_deep.step.dependOn(&rgs_api_parity.step);
-    const rgs_vectors_fields = b.addSystemCommand(&.{ "python3", "scripts/parity_fields.py", "--skip-zig" });
-    rgs_vectors_fields.step.dependOn(&rgs_deep.step);
-    const rgs_vectors_constraint = b.addSystemCommand(&.{
-        "python3",
-        "scripts/parity_constraint_expr.py",
-        "--skip-zig",
-    });
-    rgs_vectors_constraint.step.dependOn(&rgs_vectors_fields.step);
-    const rgs_vectors_air_derive = b.addSystemCommand(&.{
-        "python3",
-        "scripts/parity_air_derive.py",
-        "--skip-zig",
-    });
-    rgs_vectors_air_derive.step.dependOn(&rgs_vectors_constraint.step);
-    const rgs_interop = b.addSystemCommand(native_interop_gate_command);
-    rgs_interop.step.dependOn(&rgs_vectors_air_derive.step);
-    const rgs_prove_checkpoints = b.addSystemCommand(&.{ "python3", "scripts/prove_checkpoints.py" });
-    rgs_prove_checkpoints.step.dependOn(&rgs_interop.step);
-    const rgs_bench = b.addSystemCommand(&.{
-        "python3",
-        "scripts/benchmark_smoke.py",
-        "--include-medium",
-        "--warmups",
-        "3",
-        "--repeats",
-        "11",
-    });
-    rgs_bench.step.dependOn(&rgs_prove_checkpoints.step);
-    const rgs_profile = b.addSystemCommand(&.{ "python3", "scripts/profile_smoke.py" });
-    rgs_profile.step.dependOn(&rgs_bench.step);
-    const rgs_std_shims = b.addSystemCommand(&.{
-        "zig",
-        "build-lib",
-        "src/std_shims_freestanding.zig",
-        "-target",
-        "wasm32-freestanding",
-        "-O",
-        "ReleaseSmall",
-        "-femit-bin=/tmp/stwo-zig-std-shims-verifier.wasm",
-    });
-    rgs_std_shims.step.dependOn(&rgs_profile.step);
-    const rgs_std_shims_behavior = b.addSystemCommand(&.{ "python3", "scripts/std_shims_behavior.py" });
-    rgs_std_shims_behavior.step.dependOn(&rgs_std_shims.step);
-    const rgs_evidence = b.addSystemCommand(&.{
-        "python3",
-        "scripts/release_evidence.py",
-        "--gate-mode",
-        "strict",
-    });
-    rgs_evidence.step.dependOn(&rgs_std_shims_behavior.step);
-
-    const release_gate_strict_step = b.step(
-        "release-gate-strict",
-        "Run strict release gate sequence (fmt -> upstream-pins -> source-conformance -> test -> test-riscv -> test-riscv-prover -> api-parity -> deep-gate -> vectors -> interop -> prove-checkpoints -> bench-strict -> profile-smoke -> std-shims-smoke -> std-shims-behavior -> release-evidence)",
-    );
-    release_gate_strict_step.dependOn(&rgs_evidence.step);
+    test_step.dependOn(&closure.step);
 }

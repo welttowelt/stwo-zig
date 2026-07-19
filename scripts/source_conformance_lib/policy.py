@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-BUILD_ROOT_CEILING = 500
+BUILD_ROOT_CEILING = 200
 BUILD_SUPPORT_CEILING = 500
 PYTHON_ROOT_CEILING = 350
 PYTHON_ENTRYPOINT_CEILING = 100
@@ -68,13 +68,14 @@ DEFERRED_PREFIXES = (
     "src/bench/cairo_metal/",
     "src/frontends/cairo/",
     "src/integrations/cairo_metal/",
-    "src/metal_arena_plan_cli.zig",
     "src/tests/cairo/",
     "src/tools/cairo/",
     "src/tools/cairo_metal_codegen/",
     "src/tools/metal_arena_plan/",
     "src/tools/metal_prover_session/",
     "src/tools/metal_session/",
+    "src/tools/riscv/bench/",
+    "src/tools/riscv/trace/",
     "scripts/cairo_",
     "scripts/sn_pie_",
     "scripts/tests/test_cairo_",

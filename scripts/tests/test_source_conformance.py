@@ -18,9 +18,14 @@ from scripts.check_source_conformance import (
     write_baseline,
 )
 from scripts.source_conformance_lib.policy import ACTIVE_FORMAL_EVIDENCE_ROOTS
+from scripts.source_conformance_lib import policy
 
 
 class SourceConformanceTests(unittest.TestCase):
+    def test_root_build_ceiling_matches_formal_dispatcher_contract(self) -> None:
+        self.assertEqual(200, policy.BUILD_ROOT_CEILING)
+        self.assertLess(policy.BUILD_ROOT_CEILING, policy.BUILD_SUPPORT_CEILING)
+
     @staticmethod
     def baseline_entry(key: str, **overrides: object) -> dict[str, object]:
         entry: dict[str, object] = {

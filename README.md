@@ -69,6 +69,14 @@ root.addImport("stwo_prover", stwo_zig.module("stwo_prover"));
 surfaces without installing unrelated executables. Their corresponding
 `test-stwo-*` steps include transitive purity and external-consumer gates.
 
+The root build is a compatibility dispatcher. Product construction lives under
+`build_support/products/`, backend integration under `build_support/backends/`,
+benchmarks under `build_support/benchmarks/`, and policy under
+`build_support/gates/`. The default install contains only the CPU aggregate CLI;
+Metal enters that aggregate only with `-Daggregate-metal=true`. Machine-readable
+build contracts are available through `product-matrix-identity`,
+`identity-stwo-{core,prover,zig}`, and `build-configure-closure`.
+
 ## Prove
 
 Build the installed proof command, produce one verified Native proof, then run the local verifier

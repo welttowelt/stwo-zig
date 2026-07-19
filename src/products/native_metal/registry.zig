@@ -23,7 +23,7 @@ pub fn write(writer: anytype) !void {
         .schema_version = @as(u32, 1),
         .product = identity.value(),
         .backend_availability = .{ .metal = true },
-        .runtime_modes = &.{ "source-jit", "authenticated-aot" },
+        .runtime_modes = &.{"source-jit"},
         .applications = &applications,
         .deferred_adapters = &[_]Application{},
     }, .{}, writer);

@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OWNED = (
     ROOT / "build_support/products/riscv_cpu.zig",
-    ROOT / "src/riscv_cpu_product.zig",
+    ROOT / "src/products/riscv_cpu/main.zig",
     ROOT / "src/stwo_riscv_cpu.zig",
     ROOT / "src/riscv_trace_cli.zig",
     *(ROOT / "src/products/riscv_cpu").glob("*.zig"),

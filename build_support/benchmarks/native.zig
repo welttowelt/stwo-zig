@@ -2,80 +2,10 @@ const std = @import("std");
 
 pub const Context = struct {
     b: *std.Build,
-    zig_optimize_arg: []const u8,
-    riscv_release_phase: []const u8,
-    riscv_evidence_dir: []const u8,
 };
 
 pub fn addProducts(context: Context) void {
     const b = context.b;
-    const zig_optimize_arg = context.zig_optimize_arg;
-    const riscv_release_phase = context.riscv_release_phase;
-    const riscv_receipt = b.fmt("{s}/oracle-receipt.json", .{context.riscv_evidence_dir});
-
-    // CP-13 remains independent of the ordinary release chains until RF-01.
-    // The final candidate-bound evidence check intentionally fails while any
-    // CP-11 boundary or provenance field is unavailable.
-    const riscv_contract = b.addSystemCommand(&.{
-        "python3", "scripts/check_riscv_release_contract.py", "--all", "--phase", riscv_release_phase,
-    });
-    const riscv_vectors = b.addSystemCommand(&.{ "python3", "scripts/riscv_trace_vectors.py" });
-    riscv_vectors.step.dependOn(&riscv_contract.step);
-    const riscv_smoke = b.addSystemCommand(&.{
-        "python3", "scripts/riscv_staged_smoke.py", "--phase", riscv_release_phase,
-    });
-    riscv_smoke.step.dependOn(&riscv_vectors.step);
-    const riscv_evidence = b.addSystemCommand(&.{
-        "python3",          "scripts/riscv_release_evidence.py",
-        "--receipt",        riscv_receipt,
-        "--candidate-head",
-    });
-    riscv_evidence.step.dependOn(&riscv_smoke.step);
-    const riscv_release_gate = b.step(
-        "riscv-release-gate",
-        "Run the staged CLI and validate complete candidate-bound CP-11 evidence",
-    );
-    riscv_release_gate.dependOn(&riscv_evidence.step);
-
-    // Expanded compile/test graph gate.
-    const deep_gate_cmd = b.addSystemCommand(&.{
-        "python3",
-        "scripts/zig_protocol_test.py",
-        "src/stwo_deep.zig",
-        zig_optimize_arg,
-    });
-    const deep_gate_step = b.step("deep-gate", "Run expanded deep graph coverage");
-    deep_gate_step.dependOn(&deep_gate_cmd.step);
-
-    // Deterministic parity vectors gate (Rust upstream -> JSON fixtures).
-    const vectors_fields_cmd = b.addSystemCommand(&.{ "python3", "scripts/parity_fields.py", "--skip-zig" });
-    const vectors_constraint_cmd = b.addSystemCommand(&.{
-        "python3",
-        "scripts/parity_constraint_expr.py",
-        "--skip-zig",
-    });
-    vectors_constraint_cmd.step.dependOn(&vectors_fields_cmd.step);
-    const vectors_air_derive_cmd = b.addSystemCommand(&.{
-        "python3",
-        "scripts/parity_air_derive.py",
-        "--skip-zig",
-    });
-    vectors_air_derive_cmd.step.dependOn(&vectors_constraint_cmd.step);
-    const vectors_step = b.step("vectors", "Validate committed parity vectors");
-    vectors_step.dependOn(&vectors_air_derive_cmd.step);
-
-    // Cross-language interoperability gate (true Rust<->Zig proof exchange + tamper rejection).
-    const interop_cmd = b.addSystemCommand(&.{ "python3", "scripts/e2e_interop.py" });
-    const interop_step = b.step("interop", "Run interoperability harness (Rust <-> Zig proof exchange)");
-    interop_step.dependOn(&interop_cmd.step);
-
-    // Prove/prove_ex checkpoint parity gate (deterministic proof-byte parity + tamper rejection).
-    const prove_checkpoints_cmd = b.addSystemCommand(&.{ "python3", "scripts/prove_checkpoints.py" });
-    const prove_checkpoints_step = b.step(
-        "prove-checkpoints",
-        "Run prove/prove_ex checkpoint harness (Rust -> Zig/Rust verification)",
-    );
-    prove_checkpoints_step.dependOn(&prove_checkpoints_cmd.step);
 
     // Benchmark smoke gate with deterministic short workloads.
     const bench_smoke_cmd = b.addSystemCommand(&.{ "python3", "scripts/benchmark_smoke.py" });
@@ -403,43 +333,4 @@ pub fn addProducts(context: Context) void {
         "Run optimization acceptance gate (bench/profile + baseline comparator)",
     );
     opt_gate_step.dependOn(&opt_compare_cmd.step);
-
-    // Freestanding verifier profile compile check.
-    const std_shims_smoke_cmd = b.addSystemCommand(&.{
-        "zig",
-        "build-lib",
-        "src/std_shims_freestanding.zig",
-        "-target",
-        "wasm32-freestanding",
-        "-O",
-        "ReleaseSmall",
-        "-femit-bin=/tmp/stwo-zig-std-shims-verifier.wasm",
-    });
-    const std_shims_smoke_step = b.step(
-        "std-shims-smoke",
-        "Build freestanding verifier profile shim (wasm32-freestanding)",
-    );
-    std_shims_smoke_step.dependOn(&std_shims_smoke_cmd.step);
-
-    // Std-shims behavior parity against standard verifier over checkpoint artifacts.
-    const std_shims_behavior_cmd = b.addSystemCommand(&.{ "python3", "scripts/std_shims_behavior.py" });
-    const std_shims_behavior_step = b.step(
-        "std-shims-behavior",
-        "Validate std-shims verifier behavior parity against standard verifier",
-    );
-    std_shims_behavior_cmd.step.dependOn(&prove_checkpoints_cmd.step);
-    std_shims_behavior_step.dependOn(&std_shims_behavior_cmd.step);
-
-    // Canonical release evidence manifest generator.
-    const release_evidence_cmd = b.addSystemCommand(&.{
-        "python3",
-        "scripts/release_evidence.py",
-        "--gate-mode",
-        "strict",
-    });
-    const release_evidence_step = b.step(
-        "release-evidence",
-        "Generate canonical release evidence manifest (vectors/reports/release_evidence.json)",
-    );
-    release_evidence_step.dependOn(&release_evidence_cmd.step);
 }

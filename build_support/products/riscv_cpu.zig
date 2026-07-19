@@ -16,7 +16,7 @@ const product = graph.Product{
 };
 const source_closure = product_policy.SourceClosure{
     .entry_roots = &.{
-        "src/riscv_cpu_product.zig",
+        "src/products/riscv_cpu/main.zig",
         "src/stwo_riscv_cpu.zig",
         "src/riscv_trace_cli.zig",
     },
@@ -26,17 +26,19 @@ const source_closure = product_policy.SourceClosure{
         .{ .name = "stwo_core", .source = "src/core/mod.zig" },
         .{ .name = "stwo_riscv_cpu", .source = "src/stwo_riscv_cpu.zig" },
         .{ .name = "stwo_prover_impl", .source = "src/prover/mod.zig" },
+        .{ .name = "starkv_adapter", .source = "src/integrations/riscv_cpu/proof_adapter.zig" },
+        .{ .name = "riscv_cpu_capabilities", .source = "src/products/riscv_cpu/capabilities.zig" },
     },
+    .generated_imports = &.{"aggregate_capabilities"},
     .allowed_files = &.{
-        "src/riscv_cpu_product.zig",
+        "src/products/riscv_cpu/main.zig",
         "src/stwo_riscv_cpu.zig",
         "src/riscv_trace_cli.zig",
         "src/interop/atomic_file.zig",
         "src/interop/postcard.zig",
         "src/interop/proof_wire.zig",
         "src/interop/riscv_artifact.zig",
-        "src/tools/prove/registry.zig",
-        "src/tools/prove/starkv_adapter.zig",
+        "src/products/riscv_cpu/capabilities.zig",
     },
     .allowed_prefixes = &.{
         "src/core",
@@ -48,7 +50,7 @@ const source_closure = product_policy.SourceClosure{
         "src/products/riscv_cpu",
         "src/interop/postcard",
         "src/interop/riscv_artifact",
-        "src/tools/prove/starkv_adapter",
+        "src/tools/riscv/trace",
     },
     .forbidden_dynamic_dependencies = &.{
         "Metal.framework",
@@ -179,15 +181,19 @@ fn addExecutable(
 ) *std.Build.Step.Compile {
     const b = context.b;
     const stwo = createStwoModule(b, protocol, target, optimize);
+    const capabilities = createCapabilitiesModule(context, target, optimize);
+    const adapter = createAdapterModule(context, protocol, stwo, capabilities, target, optimize);
     const root = graph.create(b, .{
         .product = product,
-        .root_source_file = "src/riscv_cpu_product.zig",
+        .root_source_file = "src/products/riscv_cpu/main.zig",
         .target = target,
         .optimize = optimize,
     });
     protocol.addImports(root);
     root.addImport("stwo", stwo);
     root.addImport("stwo_riscv_cpu", stwo);
+    root.addImport("starkv_adapter", adapter);
+    root.addImport("riscv_cpu_capabilities", capabilities);
     root.addOptions("build_identity", graph_identity.buildOptions(b, context.identity));
     root.addOptions(
         "product_identity",
@@ -199,6 +205,15 @@ fn addExecutable(
 fn addTests(context: Context) *std.Build.Step.Compile {
     const b = context.b;
     const stwo = createStwoModule(b, context.protocol, context.target, context.optimize);
+    const capabilities = createCapabilitiesModule(context, context.target, context.optimize);
+    const adapter = createAdapterModule(
+        context,
+        context.protocol,
+        stwo,
+        capabilities,
+        context.target,
+        context.optimize,
+    );
     const test_product = graph.Product{
         .name = product.name,
         .frontend = product.frontend,
@@ -208,13 +223,15 @@ fn addTests(context: Context) *std.Build.Step.Compile {
     };
     const root = graph.create(b, .{
         .product = test_product,
-        .root_source_file = "src/riscv_cpu_product.zig",
+        .root_source_file = "src/products/riscv_cpu/main.zig",
         .target = context.target,
         .optimize = context.optimize,
     });
     context.protocol.addImports(root);
     root.addImport("stwo", stwo);
     root.addImport("stwo_riscv_cpu", stwo);
+    root.addImport("starkv_adapter", adapter);
+    root.addImport("riscv_cpu_capabilities", capabilities);
     root.addOptions("build_identity", graph_identity.buildOptions(b, context.identity));
     root.addOptions(
         "product_identity",
@@ -249,4 +266,38 @@ fn createStwoModule(
     });
     protocol.addImports(module);
     return module;
+}
+
+fn createAdapterModule(
+    context: Context,
+    protocol: graph.ProtocolModules,
+    stwo: *std.Build.Module,
+    capabilities: *std.Build.Module,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) *std.Build.Module {
+    const module = graph.create(context.b, .{
+        .product = product,
+        .root_source_file = "src/integrations/riscv_cpu/proof_adapter.zig",
+        .target = target,
+        .optimize = optimize,
+    });
+    protocol.addImports(module);
+    module.addImport("stwo", stwo);
+    module.addImport("riscv_cpu_capabilities", capabilities);
+    module.addOptions("build_identity", graph_identity.buildOptions(context.b, context.identity));
+    return module;
+}
+
+fn createCapabilitiesModule(
+    context: Context,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) *std.Build.Module {
+    return graph.create(context.b, .{
+        .product = product,
+        .root_source_file = "src/products/riscv_cpu/capabilities.zig",
+        .target = target,
+        .optimize = optimize,
+    });
 }
