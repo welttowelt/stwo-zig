@@ -11,6 +11,11 @@ import statistics
 import sys
 from pathlib import Path
 
+from scripts.benchmark_product_contract_lib.identity import (
+    PRODUCT_SPECS,
+    canonical_identity_sha256,
+)
+
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "native_proof_matrix.py"
 SPEC = importlib.util.spec_from_file_location("native_proof_matrix", MODULE_PATH)
@@ -41,6 +46,39 @@ FUNCTIONAL_PROTOCOL = {
     "n_queries": 3,
     "fold_step": 1,
 }
+
+
+def product_identity(lane: str, *, dirty: bool = False) -> dict[str, object]:
+    spec = PRODUCT_SPECS[lane]
+    identity: dict[str, object] = {
+        "schema_version": 2,
+        "name": spec.name,
+        "frontend": spec.frontend,
+        "backend": spec.backend,
+        "role": "benchmark",
+        "protocol_features": spec.protocol_features,
+        "protocol_manifest_sha256": hashlib.sha256(
+            spec.protocol_features.encode()
+        ).hexdigest(),
+        "identity_sha256": "0" * 64,
+        "implementation_repository": "https://github.com/teddyjfpender/stwo-zig",
+        "implementation_commit": "1" * 40,
+        "implementation_tree": "2" * 40,
+        "implementation_dirty": dirty,
+        "dirty_content_sha256": "3" * 64 if dirty else None,
+        "zig_version": "0.15.2",
+        "target_arch": "aarch64",
+        "target_os": "macos",
+        "target_abi": "none",
+        "cpu_model": "apple_m1",
+        "cpu_features_sha256": "4" * 64,
+        "optimize": "ReleaseFast",
+        "runtime_manifest": spec.runtime_manifest,
+        "sdk_manifest": spec.sdk_manifest,
+        "aot_manifest": spec.aot_manifest,
+    }
+    identity["identity_sha256"] = canonical_identity_sha256(identity)
+    return identity
 
 
 def summary(value: float) -> dict[str, float]:
@@ -256,6 +294,7 @@ def make_report(
         }
     return {
         "schema_version": MODULE.REPORT_SCHEMA_VERSION,
+        "product_identity": product_identity(lane, dirty=dirty),
         "backend": "cpu_native" if lane == "cpu" else "metal_hybrid",
         "evidence_class": evidence_class,
         "profiled": False,

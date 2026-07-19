@@ -33,6 +33,12 @@ from benchmark_delta_lib.native_oracle import (  # noqa: E402
     classify_transition,
     oracle_binary_pair,
 )
+from benchmark_delta_lib.product_identity import (  # noqa: E402
+    LEGACY_V5_PRODUCT_ALIASES,
+    product_identity_transition,
+    product_receipt_revision,
+    validate_native_v6_report,
+)
 
 
 DELTA_SCHEMA_VERSION = 1
@@ -41,9 +47,15 @@ UPSTREAM_PROTOCOL = "upstream_family_matrix_v1"
 NATIVE_PROTOCOL_V3 = "native_proof_cross_backend_matrix_v3"
 NATIVE_PROTOCOL_V4 = "native_proof_cross_backend_matrix_v4"
 NATIVE_PROTOCOL_V5 = "native_proof_cross_backend_matrix_v5"
+NATIVE_PROTOCOL_V6 = "native_proof_cross_backend_matrix_v6"
 # Compatibility alias used by historical report tests and callers.
 NATIVE_PROTOCOL = NATIVE_PROTOCOL_V3
-NATIVE_PROTOCOLS = {NATIVE_PROTOCOL_V3, NATIVE_PROTOCOL_V4, NATIVE_PROTOCOL_V5}
+NATIVE_PROTOCOLS = {
+    NATIVE_PROTOCOL_V3,
+    NATIVE_PROTOCOL_V4,
+    NATIVE_PROTOCOL_V5,
+    NATIVE_PROTOCOL_V6,
+}
 SUPPORTED_PROTOCOLS = {UPSTREAM_PROTOCOL, *NATIVE_PROTOCOLS}
 NATIVE_V4_RESOURCE_KEYS = {
     "measurement",
@@ -511,6 +523,7 @@ def compare_native(
     compatible_protocols = (
         baseline_protocol == current_protocol
         or protocols == (NATIVE_PROTOCOL_V4, NATIVE_PROTOCOL_V5)
+        or protocols == (NATIVE_PROTOCOL_V5, NATIVE_PROTOCOL_V6)
     )
     if not compatible_protocols:
         raise IncompatibleReports("benchmark report protocols differ")
@@ -518,6 +531,7 @@ def compare_native(
         NATIVE_PROTOCOL_V3: 3,
         NATIVE_PROTOCOL_V4: 4,
         NATIVE_PROTOCOL_V5: 5,
+        NATIVE_PROTOCOL_V6: 6,
     }
     expected_schemas = tuple(schema_by_protocol.get(protocol) for protocol in protocols)
     if (
@@ -531,8 +545,10 @@ def compare_native(
         (baseline, "baseline", baseline_protocol),
         (current, "current", current_protocol),
     ):
-        if protocol in {NATIVE_PROTOCOL_V4, NATIVE_PROTOCOL_V5}:
+        if protocol in {NATIVE_PROTOCOL_V4, NATIVE_PROTOCOL_V5, NATIVE_PROTOCOL_V6}:
             validate_native_v4_report(report, label)
+        if protocol == NATIVE_PROTOCOL_V6:
+            validate_native_v6_report(report, label)
     base_configuration = require_object(
         baseline.get("configuration"), "baseline.configuration"
     )
@@ -541,7 +557,7 @@ def compare_native(
     )
     stable_configuration = NATIVE_STABLE_CONFIGURATION + (
         ("stability_contract",)
-        if baseline_protocol in {NATIVE_PROTOCOL_V4, NATIVE_PROTOCOL_V5}
+        if baseline_protocol in {NATIVE_PROTOCOL_V4, NATIVE_PROTOCOL_V5, NATIVE_PROTOCOL_V6}
         else ()
     )
     base_settings = selected_fields(
@@ -667,6 +683,7 @@ def compare_native(
         NATIVE_PROTOCOL_V4,
         NATIVE_PROTOCOL_V5,
     )
+    product_transition = product_identity_transition(baseline, current, protocols)
 
     identity = {
         "report_protocol": (
@@ -678,6 +695,7 @@ def compare_native(
         "host_execution": base_host,
         "correctness_scope": base_oracle,
         "oracle_binary_transition": oracle_transition,
+        "product_identity_transition": product_transition,
         "ordered_workloads": workload_keys,
     }
     revisions = {
@@ -692,6 +710,7 @@ def compare_native(
                     for row in baseline_rows
                 }
             ),
+            "product_receipts": product_receipt_revision(baseline),
         },
         "current": {
             "git_commit": curr_provenance.get("git_commit"),
@@ -704,6 +723,7 @@ def compare_native(
                     for row in current_rows
                 }
             ),
+            "product_receipts": product_receipt_revision(current),
         },
     }
     return identity, comparisons, revisions
@@ -730,7 +750,11 @@ def compare_reports(
         protocol_pair = (baseline["protocol"], current["protocol"])
         if (
             baseline["protocol"] != current["protocol"]
-            and protocol_pair != (NATIVE_PROTOCOL_V4, NATIVE_PROTOCOL_V5)
+            and protocol_pair
+            not in {
+                (NATIVE_PROTOCOL_V4, NATIVE_PROTOCOL_V5),
+                (NATIVE_PROTOCOL_V5, NATIVE_PROTOCOL_V6),
+            }
         ):
             raise IncompatibleReports("benchmark report protocols differ")
         if baseline["protocol"] == UPSTREAM_PROTOCOL:

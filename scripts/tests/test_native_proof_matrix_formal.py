@@ -225,6 +225,21 @@ class NativeProofMatrixFormalTests(unittest.TestCase):
                 ],
             )
             self.assertTrue(all(row["rust_oracle"] for row in document["rows"]))
+            self.assertEqual(document["schema_version"], 6)
+            self.assertEqual(
+                document["protocol"], "native_proof_cross_backend_matrix_v6"
+            )
+            self.assertEqual(set(document["product_receipts"]), {"cpu", "metal"})
+            self.assertTrue(
+                all(
+                    receipt["promotion_eligible"]
+                    for receipt in document["product_receipts"].values()
+                )
+            )
+            self.assertEqual(
+                document["product_receipts"]["cpu"]["product_identity"]["name"],
+                "stwo-native-cpu",
+            )
 
     def test_dirty_provenance_blocks_headline_without_weakening_parity(self) -> None:
         workload = MODULE.Workload.wide_fibonacci(10, 8)

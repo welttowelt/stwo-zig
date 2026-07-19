@@ -7,6 +7,19 @@ import math
 import statistics
 from typing import Any
 
+try:
+    from scripts.benchmark_product_contract_lib import (
+        PRODUCT_SPECS,
+        ProductEvidenceError,
+        validate_product_identity,
+    )
+except ModuleNotFoundError:
+    from benchmark_product_contract_lib import (  # type: ignore[no-redef]
+        PRODUCT_SPECS,
+        ProductEvidenceError,
+        validate_product_identity,
+    )
+
 from .model import (
     ACCELERATED_CLASSIFICATIONS,
     ARCHIVE_STORE_COUNTER_KEYS,
@@ -44,7 +57,7 @@ from .validation import (
 
 
 REPORT_KEYS = {
-    "schema_version", "backend", "evidence_class", "profiled", "provenance",
+    "schema_version", "product_identity", "backend", "evidence_class", "profiled", "provenance",
     "protocol", "workload", "session", "runtime_admission", "proof", "backend_telemetry", "timing",
     "throughput",
 }
@@ -688,6 +701,14 @@ def validate_report(
         raise MatrixError(f"{lane}.provenance.environment_overrides has invalid schema")
     if complete != (len(overrides) == 0):
         raise MatrixError(f"{lane}.provenance.complete disagrees with overrides")
+    try:
+        product_identity = validate_product_identity(
+            report["product_identity"], lane, provenance=provenance
+        )
+    except ProductEvidenceError as error:
+        raise MatrixError(str(error)) from error
+    if report["backend"] != PRODUCT_SPECS[lane].report_backend:
+        raise MatrixError(f"{lane} report backend disagrees with its focused product")
     protocol = require_object(report, "protocol", lane)
     require_exact_keys(protocol, PROTOCOL_KEYS, f"{lane}.protocol")
     if protocol != PROTOCOL_PRESETS[args.protocol]:

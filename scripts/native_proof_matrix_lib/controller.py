@@ -10,6 +10,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+try:
+    from scripts.benchmark_product_contract_lib import (
+        MIN_PROMOTION_WARMUPS,
+        build_receipt,
+        validate_receipt,
+    )
+except ModuleNotFoundError:
+    from benchmark_product_contract_lib import (
+        MIN_PROMOTION_WARMUPS,
+        build_receipt,
+        validate_receipt,
+    )
+
 from .artifacts import (
     atomic_write_json,
     output_dir_lock,
@@ -38,6 +51,7 @@ from .model import (
     MAX_SEQUENCE_LEN,
     MAX_TOTAL_REQUEST_CELLS,
     MatrixError,
+    PROTOCOL_PRESETS,
     Workload,
 )
 from .provenance import collect_load, collect_static, validate_environment, validate_load
@@ -129,7 +143,10 @@ def summarize_lane(
     )
     return {
         "display_name": "Zig CPU/SIMD" if execution["lane"] == "cpu" else "Zig Metal",
+        "product_identity": report["product_identity"],
         "backend": report["backend"],
+        "evidence_class": report["evidence_class"],
+        "profiled": report["profiled"],
         "command": execution["command"],
         "process_wall_seconds": execution["process_wall_seconds"],
         "stdout_artifact": relative_to_output(execution["stdout_path"], output_dir),
@@ -154,6 +171,105 @@ def summarize_lane(
         "session": report["session"],
         "backend_telemetry": report.get("backend_telemetry"),
     }
+
+
+def product_receipts(
+    *,
+    args: argparse.Namespace,
+    rows: list[dict[str, Any]],
+    binary_hashes: dict[str, str],
+    host_environment: dict[str, object],
+    formal_ready: bool,
+) -> dict[str, dict[str, Any]]:
+    receipts: dict[str, dict[str, Any]] = {}
+    for lane in LANES:
+        identities = [row["lanes"][lane]["product_identity"] for row in rows]
+        if not identities or any(identity != identities[0] for identity in identities[1:]):
+            raise MatrixError(f"{lane} focused product identity changed between rows")
+        measurements = []
+        for row in rows:
+            workload = row["workload"]
+            lane_summary = row["lanes"][lane]
+            measurements.append({
+                "workload": {
+                    **workload,
+                    "descriptor_sha256": row["descriptor_sha256"],
+                },
+                "numerator": {
+                    "unit": workload["native_unit"],
+                    "units": workload["native_units"],
+                },
+                "security_profile": PROTOCOL_PRESETS[args.protocol],
+                "timing_scope": {
+                    "headline": "prove_seconds",
+                    "total": "request_seconds",
+                    "included": [
+                        "input_seconds",
+                        "prove_seconds",
+                        "proof_encode_seconds",
+                        "verify_seconds",
+                    ],
+                    "backend_init": "reported_separately",
+                },
+                "cold_warm_state": {
+                    "backend_initialization": "once_before_warmups",
+                    "warmups_excluded": args.warmups,
+                    "measured_samples": args.samples,
+                    "sample_state": "post_warmup",
+                    "metal_runtime": getattr(args, "metal_runtime", "source-jit")
+                    if lane == "metal"
+                    else "not_applicable",
+                },
+                "proof_status": {
+                    "local_verification": True,
+                    "verified_samples": lane_summary["proof"]["verified_samples"],
+                    "byte_identical_samples": lane_summary["proof"][
+                        "all_samples_byte_identical"
+                    ],
+                    "cross_backend_canonical_equality": row["proof_parity"],
+                    "pinned_rust_stwo_verified": (
+                        row["rust_oracle"] is not None
+                        and row["rust_oracle"]["verified"] is True
+                    ),
+                    "proof_sha256": row["proof_digest_sha256"],
+                },
+                "eligibility_status": {
+                    "headline_eligible": row["headline_eligible"],
+                    "stability_satisfied": row["stability"]["satisfied"],
+                    "evidence_class": lane_summary["evidence_class"],
+                    "profiled": lane_summary["profiled"],
+                },
+            })
+        receipt = build_receipt(
+            lane=lane,
+            evidence_kind="benchmark",
+            product_identity=identities[0],
+            executable_sha256=binary_hashes[lane],
+            measurement_policy={
+                "execution": "sequential_alternating_lane_order",
+                "proof_protocol": args.protocol,
+                "formal": args.formal,
+                "profiled": False,
+                "final_correctness_oracle": "pinned Rust Stwo",
+                "minimum_excluded_warmups": MIN_PROMOTION_WARMUPS,
+                "minimum_verified_samples": MIN_FORMAL_MEASURED_PROOFS,
+                "every_measured_proof_locally_verified": True,
+                "cross_backend_canonical_proof_equality": True,
+            },
+            host_device=host_environment,
+            measurements=measurements,
+            promotion_eligible=formal_ready,
+        )
+        validate_receipt(
+            receipt,
+            lane=lane,
+            evidence_kind="benchmark",
+            expected_identity=identities[0],
+            expected_executable_sha256=binary_hashes[lane],
+            expected_host_device=host_environment,
+        )
+        receipts[lane] = receipt
+    return receipts
 
 
 def run_matrix(args: argparse.Namespace) -> dict[str, Any]:
@@ -323,12 +439,28 @@ def _run_matrix_locked(
     if args.formal and not all_rows_stable:
         raise MatrixError("formal matrix did not satisfy measured-proof stability")
 
+    all_rows_headline = bool(result_rows) and all(
+        row["headline_eligible"] for row in result_rows
+    )
+
     load_end = collect_load()
     try:
         validate_load(load_end)
     except ValueError as error:
         raise MatrixError(str(error)) from error
 
+    receipts = product_receipts(
+        args=args,
+        rows=result_rows,
+        binary_hashes=binary_hashes,
+        host_environment=host_environment,
+        formal_ready=(
+            args.formal
+            and all_rust_oracles_verified
+            and all_rows_stable
+            and all_rows_headline
+        ),
+    )
     document = {
         "schema_version": SUMMARY_SCHEMA_VERSION,
         "protocol": SUMMARY_PROTOCOL,
@@ -388,6 +520,7 @@ def _run_matrix_locked(
             "all_rust_oracles_verified": all_rust_oracles_verified,
             "all_rows_meet_stability_contract": all_rows_stable,
         },
+        "product_receipts": receipts,
         "rows": result_rows,
     }
     atomic_write_json(output_dir / "summary.json", document)

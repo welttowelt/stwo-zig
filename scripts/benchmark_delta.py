@@ -18,6 +18,7 @@ from benchmark_delta_lib.controller import (  # noqa: E402
     NATIVE_PROTOCOL_V3,
     NATIVE_PROTOCOL_V4,
     NATIVE_PROTOCOL_V5,
+    NATIVE_PROTOCOL_V6,
     NATIVE_PROTOCOLS,
     SUPPORTED_PROTOCOLS,
     UPSTREAM_PROTOCOL,
@@ -34,6 +35,7 @@ from benchmark_delta_lib.controller import (  # noqa: E402
     metric_record,
     parse_timestamp,
     validate_native_v4_report,
+    validate_native_v6_report,
 )
 
 __all__ = [
@@ -44,6 +46,7 @@ __all__ = [
     "NATIVE_PROTOCOL_V3",
     "NATIVE_PROTOCOL_V4",
     "NATIVE_PROTOCOL_V5",
+    "NATIVE_PROTOCOL_V6",
     "NATIVE_PROTOCOLS",
     "SUPPORTED_PROTOCOLS",
     "UPSTREAM_PROTOCOL",
@@ -60,6 +63,7 @@ __all__ = [
     "metric_record",
     "parse_timestamp",
     "validate_native_v4_report",
+    "validate_native_v6_report",
 ]
 
 

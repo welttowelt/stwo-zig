@@ -1,7 +1,10 @@
 import contextlib
+import copy
+import hashlib
 import io
 import json
 import tempfile
+import types
 import unittest
 from pathlib import Path
 
@@ -12,6 +15,7 @@ from scripts.native_profile_capture_lib.contract import (
     validate_metal_profile,
     validate_profile_report,
 )
+from scripts.native_profile_capture_lib.controller import _product_receipts
 from scripts.native_profile_capture_lib.evidence import (
     publish_manifest,
     verify_manifest,
@@ -222,6 +226,79 @@ class NativeProfileCaptureTest(unittest.TestCase):
             (root / "row/cpu.stdout.json").write_bytes(b"mutated\n")
             with self.assertRaisesRegex(CaptureError, "differs"):
                 verify_manifest(root)
+
+    def test_profile_manifest_binds_focused_products_but_cannot_promote(self):
+        workload = PROFILE_WORKLOADS[0]
+        rows = [{
+            "workload": workload.report_dict(),
+            "descriptor_sha256": support.MODULE.workload_descriptor_sha256(
+                workload, "functional"
+            ),
+            "lanes": {},
+        }]
+        for lane in ("cpu", "metal"):
+            report = profile_report(lane, workload)
+            rows[0]["lanes"][lane] = {
+                "product_identity": report["product_identity"],
+                "coverage": {
+                    "host_timer_scope": {"request_seconds": "verified request"}
+                },
+                "proof": {"proof_sha256": support.PROOF_WIRE_SHA256},
+            }
+        settings = types.SimpleNamespace(
+            protocol="functional",
+            warmups=1,
+            samples=1,
+            metal_runtime="source-jit",
+        )
+        binary_hashes = {"cpu": "6" * 64, "metal": "7" * 64}
+        host = {"schema": "native_matrix_host_environment_v1"}
+        receipts = _product_receipts(
+            settings=settings,
+            rows=rows,
+            binary_hashes=binary_hashes,
+            host_environment=host,
+        )
+        self.assertFalse(receipts["cpu"]["promotion_eligible"])
+        self.assertFalse(receipts["metal"]["promotion_eligible"])
+
+        manifest = {
+            "schema_version": 2,
+            "protocol": "native_profiler_baseline_v2",
+            "product_receipts": receipts,
+            "host_environment": host,
+            "binaries": {
+                lane: {"path": lane, "sha256": digest}
+                for lane, digest in binary_hashes.items()
+            },
+            "rows": rows,
+        }
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write_bytes_exclusive(root / "row/cpu.stdout.json", b"{}\n")
+            publish_manifest(root, manifest)
+            verified = verify_manifest(root)
+            self.assertEqual(
+                verified["product_receipts"]["metal"]["product_identity"]["name"],
+                "stwo-native-metal",
+            )
+
+        substituted = copy.deepcopy(manifest)
+        receipt = substituted["product_receipts"]["metal"]
+        receipt["host_device"] = {
+            "schema": "native_matrix_host_environment_v1",
+            "metal_device": {"runtime_identity": "substituted-metal-runtime"},
+        }
+        payload = {key: value for key, value in receipt.items() if key != "receipt_sha256"}
+        receipt["receipt_sha256"] = hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write_bytes_exclusive(root / "row/cpu.stdout.json", b"{}\n")
+            with self.assertRaisesRegex(CaptureError, "host/device identity"):
+                publish_manifest(root, substituted)
 
 
 if __name__ == "__main__":

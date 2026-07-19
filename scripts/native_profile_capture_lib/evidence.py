@@ -8,6 +8,14 @@ import os
 from pathlib import Path
 from typing import Any
 
+try:
+    from scripts.benchmark_product_contract_lib import (
+        ProductEvidenceError,
+        validate_receipt,
+    )
+except ModuleNotFoundError:
+    from benchmark_product_contract_lib import ProductEvidenceError, validate_receipt
+
 if __package__.startswith("scripts."):
     from scripts.native_proof_matrix_lib.artifacts import atomic_write_bytes, atomic_write_json
 else:
@@ -91,7 +99,68 @@ def verify_manifest(root: Path) -> dict[str, Any]:
         raise CaptureError("profile manifest has an invalid artifact inventory")
     if document["artifacts"] != artifact_inventory(root):
         raise CaptureError("profile artifact tree differs from its manifest")
+    if document.get("protocol") == "native_profiler_baseline_v2":
+        _validate_product_receipts(document)
     return document
+
+
+def _validate_product_receipts(document: dict[str, Any]) -> None:
+    receipts = document.get("product_receipts")
+    binaries = document.get("binaries")
+    rows = document.get("rows")
+    host_environment = document.get("host_environment")
+    if (
+        not isinstance(receipts, dict)
+        or set(receipts) != {"cpu", "metal"}
+        or not isinstance(binaries, dict)
+        or set(binaries) != {"cpu", "metal"}
+        or not isinstance(rows, list)
+        or not rows
+        or not isinstance(host_environment, dict)
+        or not host_environment
+    ):
+        raise CaptureError("profile manifest has invalid focused-product evidence")
+    for lane in ("cpu", "metal"):
+        try:
+            identities = [row["lanes"][lane]["product_identity"] for row in rows]
+        except (KeyError, TypeError) as error:
+            raise CaptureError(f"profile rows lack {lane} product identity") from error
+        if any(identity != identities[0] for identity in identities[1:]):
+            raise CaptureError(f"profile {lane} product identity changed between rows")
+        binary = binaries[lane]
+        if not isinstance(binary, dict):
+            raise CaptureError(f"profile {lane} binary evidence is invalid")
+        try:
+            receipt = validate_receipt(
+                receipts[lane],
+                lane=lane,
+                evidence_kind="profile",
+                expected_identity=identities[0],
+                expected_executable_sha256=binary.get("sha256"),
+                expected_host_device=host_environment,
+            )
+        except ProductEvidenceError as error:
+            raise CaptureError(f"profile {lane} receipt is invalid: {error}") from error
+        if len(receipt["measurements"]) != len(rows):
+            raise CaptureError(f"profile {lane} receipt row count differs")
+        for index, (row, measurement) in enumerate(
+            zip(rows, receipt["measurements"], strict=True)
+        ):
+            workload = row.get("workload")
+            if not isinstance(workload, dict):
+                raise CaptureError(f"profile row {index} workload is invalid")
+            if measurement["workload"] != {
+                **workload,
+                "descriptor_sha256": row.get("descriptor_sha256"),
+            }:
+                raise CaptureError(f"profile {lane} receipt workload differs at row {index}")
+            proof = row["lanes"][lane].get("proof")
+            if (
+                not isinstance(proof, dict)
+                or measurement["proof_status"]["proof_sha256"]
+                != proof.get("proof_sha256")
+            ):
+                raise CaptureError(f"profile {lane} receipt proof differs at row {index}")
 
 
 def write_bytes_exclusive(path: Path, contents: bytes) -> None:

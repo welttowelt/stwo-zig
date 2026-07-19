@@ -199,7 +199,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--cpu-bin",
         type=Path,
-        default=ROOT / "zig-out/bin/native-proof-bench-cpu",
+        default=ROOT / "zig-out/bin/stwo-zig-native-cpu-bench",
     )
     parser.add_argument(
         "--metal-bin",

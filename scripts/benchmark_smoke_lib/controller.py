@@ -29,6 +29,11 @@ from .catalog import (
 )
 
 try:
+    from scripts.benchmark_product_contract_lib import aggregate_diagnostic_scope
+except ModuleNotFoundError:
+    from benchmark_product_contract_lib import aggregate_diagnostic_scope
+
+try:
     from interop_cli_lib.command import build_command, installed_binary
 except ModuleNotFoundError:
     from scripts.interop_cli_lib.command import build_command, installed_binary
@@ -608,6 +613,7 @@ def main() -> int:
         "generated_at_unix": int(time.time()),
         "status": status,
         "protocol": "matched_workload_matrix_v1",
+        "product_scope": aggregate_diagnostic_scope("benchmark_smoke"),
         "settings_hash": settings_hash,
         "workload_matrix_hash": canonical_hash(workload_matrix(workloads)),
         "thresholds": thresholds,

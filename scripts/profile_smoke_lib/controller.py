@@ -24,6 +24,11 @@ from .catalog import (
 )
 
 try:
+    from scripts.benchmark_product_contract_lib import aggregate_diagnostic_scope
+except ModuleNotFoundError:
+    from benchmark_product_contract_lib import aggregate_diagnostic_scope
+
+try:
     from interop_cli_lib.command import build_command, installed_binary
 except ModuleNotFoundError:
     from scripts.interop_cli_lib.command import build_command, installed_binary
@@ -499,6 +504,7 @@ def main() -> int:
         "schema_version": 2,
         "generated_at_unix": int(time.time()),
         "status": status,
+        "product_scope": aggregate_diagnostic_scope("profile_smoke"),
         "collector": collector_label(
             measurement_for_platform(),
             sample=SAMPLE_BIN.exists(),

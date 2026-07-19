@@ -7,6 +7,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+try:
+    from scripts.benchmark_product_contract_lib import build_receipt, validate_receipt
+except ModuleNotFoundError:
+    from benchmark_product_contract_lib import build_receipt, validate_receipt
+
 if __package__.startswith("scripts."):
     from scripts.native_proof_matrix_lib.artifacts import (
         output_dir_lock,
@@ -15,7 +20,11 @@ if __package__.startswith("scripts."):
         sha256_file,
     )
     from scripts.native_proof_matrix_lib.contract import validate_proof_artifact
-    from scripts.native_proof_matrix_lib.model import MatrixError, workload_descriptor_sha256
+    from scripts.native_proof_matrix_lib.model import (
+        MatrixError,
+        PROTOCOL_PRESETS,
+        workload_descriptor_sha256,
+    )
     from scripts.native_proof_matrix_lib.provenance import (
         collect_load,
         collect_static,
@@ -30,7 +39,11 @@ else:
         sha256_file,
     )
     from native_proof_matrix_lib.contract import validate_proof_artifact
-    from native_proof_matrix_lib.model import MatrixError, workload_descriptor_sha256
+    from native_proof_matrix_lib.model import (
+        MatrixError,
+        PROTOCOL_PRESETS,
+        workload_descriptor_sha256,
+    )
     from native_proof_matrix_lib.provenance import (
         collect_load,
         collect_static,
@@ -79,6 +92,7 @@ def _lane_manifest(
     execution: dict[str, Any], root: Path, coverage: dict[str, Any]
 ) -> dict[str, Any]:
     document = {
+        "product_identity": execution["report"]["product_identity"],
         "command": execution["command"],
         "environment": execution["environment"],
         "pid": execution["pid"],
@@ -99,6 +113,96 @@ def _lane_manifest(
         document["aggregate_command"] = execution["aggregate_command"]
         document["metal_profile"] = execution["metal_profile_summary"]
     return document
+
+
+def _product_receipts(
+    *,
+    settings: CaptureSettings,
+    rows: list[dict[str, Any]],
+    binary_hashes: dict[str, str],
+    host_environment: dict[str, object],
+) -> dict[str, dict[str, Any]]:
+    receipts: dict[str, dict[str, Any]] = {}
+    for lane in ("cpu", "metal"):
+        identities = [row["lanes"][lane]["product_identity"] for row in rows]
+        if not identities or any(identity != identities[0] for identity in identities[1:]):
+            raise CaptureError(f"{lane} focused product identity changed during profiling")
+        measurements = []
+        for row in rows:
+            workload = row["workload"]
+            proof = row["lanes"][lane]["proof"]
+            measurements.append({
+                "workload": {
+                    **workload,
+                    "descriptor_sha256": row["descriptor_sha256"],
+                },
+                "numerator": {
+                    "unit": workload["native_unit"],
+                    "units": workload["native_units"],
+                },
+                "security_profile": PROTOCOL_PRESETS[settings.protocol],
+                "timing_scope": {
+                    "headline": None,
+                    "diagnostic": "instrumented_verified_request",
+                    "host_timers": row["lanes"][lane]["coverage"]["host_timer_scope"],
+                    "gpu_timers": (
+                        row["lanes"][lane].get("metal_profile")
+                        if lane == "metal"
+                        else None
+                    ),
+                },
+                "cold_warm_state": {
+                    "backend_initialization": "once_before_warmups",
+                    "warmups_excluded": settings.warmups,
+                    "measured_samples": settings.samples,
+                    "sample_state": "profiled_post_warmup_diagnostic",
+                    "metal_runtime": settings.metal_runtime
+                    if lane == "metal"
+                    else "not_applicable",
+                },
+                "proof_status": {
+                    "local_verification": True,
+                    "verified_samples": settings.samples,
+                    "byte_identical_samples": True,
+                    "cross_backend_canonical_equality": True,
+                    "pinned_rust_stwo_verified": False,
+                    "proof_sha256": proof["proof_sha256"],
+                },
+                "eligibility_status": {
+                    "headline_eligible": False,
+                    "stability_satisfied": False,
+                    "evidence_class": "profiled_diagnostic",
+                    "profiled": True,
+                },
+            })
+        receipt = build_receipt(
+            lane=lane,
+            evidence_kind="profile",
+            product_identity=identities[0],
+            executable_sha256=binary_hashes[lane],
+            measurement_policy={
+                "execution": "bounded_sequential_cpu_then_metal",
+                "proof_protocol": settings.protocol,
+                "profiled_diagnostic": True,
+                "headline_eligible": False,
+                "every_measured_proof_locally_verified": True,
+                "cross_backend_canonical_proof_equality": True,
+                "final_correctness_oracle_checked": False,
+            },
+            host_device=host_environment,
+            measurements=measurements,
+            promotion_eligible=False,
+        )
+        validate_receipt(
+            receipt,
+            lane=lane,
+            evidence_kind="profile",
+            expected_identity=identities[0],
+            expected_executable_sha256=binary_hashes[lane],
+            expected_host_device=host_environment,
+        )
+        receipts[lane] = receipt
+    return receipts
 
 
 def _validate_settings(settings: CaptureSettings) -> tuple[Path, Path]:
@@ -213,9 +317,15 @@ def _capture_locked(
         validate_load(load_end)
     except ValueError as error:
         raise CaptureError(str(error)) from error
+    receipts = _product_receipts(
+        settings=settings,
+        rows=rows,
+        binary_hashes=binary_hashes,
+        host_environment=host_environment,
+    )
     manifest = {
-        "schema_version": 1,
-        "protocol": "native_profiler_baseline_v1",
+        "schema_version": 2,
+        "protocol": "native_profiler_baseline_v2",
         "captured_at": datetime.now(timezone.utc).isoformat(),
         "evidence_policy": {
             "evidence_class": "profiled_diagnostic",
@@ -248,6 +358,7 @@ def _capture_locked(
             "metal": {"path": str(metal_binary), "sha256": binary_hashes["metal"]},
         },
         "source_provenance": profile_provenance,
+        "product_receipts": receipts,
         "workload_order": [workload.report_dict() for workload in settings.workloads],
         "rows": rows,
     }

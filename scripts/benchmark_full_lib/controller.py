@@ -14,6 +14,11 @@ from typing import Any
 from .catalog import UPSTREAM_FAMILIES, WORKLOADS
 
 try:
+    from scripts.benchmark_product_contract_lib import aggregate_diagnostic_scope
+except ModuleNotFoundError:
+    from benchmark_product_contract_lib import aggregate_diagnostic_scope
+
+try:
     from interop_cli_lib.command import build_command, installed_binary
 except ModuleNotFoundError:
     from scripts.interop_cli_lib.command import build_command, installed_binary
@@ -336,6 +341,7 @@ def main() -> int:
     report = {
         "status": status,
         "protocol": "upstream_family_matrix_v1",
+        "product_scope": aggregate_diagnostic_scope("benchmark_full"),
         "upstream_families": list(UPSTREAM_FAMILIES),
         "settings": {
             "warmups": args.warmups,
