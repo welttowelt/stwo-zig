@@ -8,6 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import riscv_trace_vectors as rtv
+import riscv_trace_admission as admission_policy
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -123,6 +124,68 @@ class FixtureIdentityTest(unittest.TestCase):
             len(program) * 4,
         )
 
+    def test_mulhu_only_keeps_balanced_mulh_diagnostics_fail_closed(self):
+        program = rtv.prog_mulhu_only()
+        self.assertEqual(program.count(rtv.MULHU(3, 1, 2)), 1)
+        self.assertNotIn(rtv.MULH(3, 1, 2), program)
+        self.assertNotIn(rtv.MULHSU(3, 1, 2), program)
+        self.assertEqual(
+            rtv.PROOF_ADMISSION["mulhu_only"],
+            {
+                "status": admission_policy.DIAGNOSTIC_FAIL_CLOSED,
+                "known_limitation": admission_policy.SIGNED_MULH_LIMITATION,
+            },
+        )
+
+    def test_proof_admission_separates_limitation_from_balanced_diagnostic(self):
+        self.assertEqual(set(rtv.PROOF_ADMISSION), set(rtv.PROGRAMS))
+        vectors = [
+            {"name": name, "proof_admission": dict(rtv.PROOF_ADMISSION[name])}
+            for name in sorted(rtv.PROGRAMS)
+        ]
+        self.assertEqual(admission_policy.errors(vectors, rtv.PROOF_ADMISSION), [])
+        fail_closed = {
+            name: policy
+            for name, policy in rtv.PROOF_ADMISSION.items()
+            if policy["status"] == admission_policy.FAIL_CLOSED
+        }
+        self.assertEqual(
+            fail_closed,
+            {
+                "mul_div": {
+                    "status": admission_policy.FAIL_CLOSED,
+                    "known_limitation": admission_policy.SIGNED_MULH_LIMITATION,
+                },
+            },
+        )
+        supported = {
+            name
+            for name, policy in rtv.PROOF_ADMISSION.items()
+            if policy["status"] == admission_policy.SUPPORTED
+        }
+        self.assertEqual(supported, set(rtv.PROGRAMS) - {"mul_div", "mulhu_only"})
+
+        unknown = [{**vector, "proof_admission": dict(vector["proof_admission"])} for vector in vectors]
+        unknown[0]["proof_admission"]["status"] = "unknown"
+        self.assertTrue(any(
+            "unknown proof-admission status 'unknown'" in error
+            for error in admission_policy.errors(unknown, rtv.PROOF_ADMISSION)
+        ))
+        diagnostic = {
+            name: policy
+            for name, policy in rtv.PROOF_ADMISSION.items()
+            if policy["status"] == admission_policy.DIAGNOSTIC_FAIL_CLOSED
+        }
+        self.assertEqual(
+            diagnostic,
+            {
+                "mulhu_only": {
+                    "status": admission_policy.DIAGNOSTIC_FAIL_CLOSED,
+                    "known_limitation": admission_policy.SIGNED_MULH_LIMITATION,
+                },
+            },
+        )
+
     def test_legacy_shapes_are_explicit_negative_diagnostics(self):
         undeclared, undeclared_reason = rtv.NEGATIVE_FIXTURES["undeclared_program"]
         self.assertEqual(struct.unpack_from("<I", undeclared, 32)[0], 0)
@@ -148,6 +211,10 @@ class FixtureIdentityTest(unittest.TestCase):
         self.assertEqual(
             {v["name"] for v in payload["negative_vectors"]},
             set(rtv.NEGATIVE_FIXTURES),
+        )
+        self.assertEqual(
+            {vector["name"]: vector["proof_admission"] for vector in payload["vectors"]},
+            rtv.PROOF_ADMISSION,
         )
         self.assertTrue(all(
             vector["expected"] == "diagnostic_only_not_release_eligible"

@@ -28,6 +28,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+import riscv_trace_admission as admission
+import riscv_trace_attestation as attestation
+
 ROOT = Path(__file__).resolve().parent.parent
 VECTOR_DIR = ROOT / "vectors" / "riscv_elfs"
 VECTOR_FILE = VECTOR_DIR / "trace_vectors.json"
@@ -461,6 +464,16 @@ def prog_mul_div() -> list[int]:
     ] + EPILOGUE()
 
 
+def prog_mulhu_only() -> list[int]:
+    """Produce nonempty MULH-family evidence without admitting the family."""
+    return [
+        LUI(1, 0x80000000),
+        ADDI(1, 1, -1),  # x1 = 0x7fffffff
+        LUI(2, 0x40000000),
+        MULHU(3, 1, 2),
+    ] + EPILOGUE()
+
+
 def prog_mem_ls() -> list[int]:
     return [
         LUI(1, 0x00100000),  # io RW region; offsets skip halt/len/output words
@@ -537,11 +550,15 @@ PROGRAMS: dict[str, list[int]] = {
     "branch_fib": prog_branch_fib(),
     "declared_region": prog_declared_region(),
     "mul_div": prog_mul_div(),
+    "mulhu_only": prog_mulhu_only(),
     "mem_ls": prog_mem_ls(),
     "multi_shard_addi": prog_multi_shard_addi(),
     "shift_logic": prog_shift_logic(),
     "jal_jalr": prog_jal_jalr(),
 }
+
+
+PROOF_ADMISSION = admission.for_programs(PROGRAMS)
 
 
 NEGATIVE_FIXTURES: dict[str, tuple[bytes, str]] = {
@@ -617,6 +634,7 @@ def update(scratch: Path) -> int:
                 "trace_sha256": _sha256(trace_bytes),
                 "total_steps": trace["total_steps"],
                 "final_pc": trace["final_pc"],
+                "proof_admission": PROOF_ADMISSION[name],
             }
         )
     negative_vectors = []
@@ -663,6 +681,8 @@ def gate(scratch: Path) -> int:
     expected = set(PROGRAMS)
     if recorded != expected:
         errors.append(f"vector set mismatch: recorded {sorted(recorded)} expected {sorted(expected)}")
+
+    errors.extend(admission.errors(payload.get("vectors", []), PROOF_ADMISSION))
 
     dumper = build_trace_dumper()
     for vector in payload.get("vectors", []):
@@ -732,32 +752,6 @@ def gate(scratch: Path) -> int:
     return 0
 
 
-def validate_rust_source(rust_source: Path) -> str:
-    """Require a clean Stark-V checkout at the repository's exact pin."""
-    try:
-        head = subprocess.run(
-            ["git", "-C", str(rust_source), "rev-parse", "HEAD"],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-        status = subprocess.run(
-            ["git", "-C", str(rust_source), "status", "--porcelain"],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-    except subprocess.CalledProcessError as error:
-        raise SystemExit(f"cannot inspect Stark-V source checkout: {error}") from error
-
-    expected = pinned_stark_v_commit()
-    if head != expected:
-        raise SystemExit(f"Stark-V source is at {head}, expected exact pin {expected}")
-    if status:
-        raise SystemExit("Stark-V source checkout is dirty; refusing oracle attestation")
-    return head
-
-
 def attest_rust(
     rust_dumper: Path,
     rust_source: Path,
@@ -765,7 +759,7 @@ def attest_rust(
     rust_args: list[str],
 ) -> int:
     """Cross-run every vector and require identical canonical trace bytes."""
-    source_commit = validate_rust_source(rust_source)
+    source_commit = attestation.validate_source(rust_source, pinned_stark_v_commit())
     rust_dumper = rust_dumper.resolve(strict=True)
     binary_sha256 = _sha256(rust_dumper.read_bytes())
     payload = json.loads(VECTOR_FILE.read_text(encoding="utf-8"))
