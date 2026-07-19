@@ -139,18 +139,22 @@ class CiTests(unittest.TestCase):
             "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'",
             workflow,
         )
-        full_release_only = (
-            "github.event_name == 'push' ||\n"
+        tag_or_dispatch_only = (
+            "(github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) ||\n"
             "      (github.event_name == 'workflow_dispatch' &&\n"
             "      (inputs.gate == 'standard' || inputs.gate == 'strict'))"
         )
-        self.assertEqual(2, workflow.count(full_release_only))
+        self.assertEqual(2, workflow.count(tag_or_dispatch_only))
+        self.assertNotIn("github.event_name == 'push' ||", workflow)
         self.assertIn("focused-plan:", workflow)
         self.assertIn("focused-linux:", workflow)
         self.assertIn("focused-macos:", workflow)
         self.assertIn("focused-verdict:", workflow)
         self.assertIn("python3 scripts/ci_scope_plan.py", workflow)
         self.assertIn("python3 scripts/ci_scope_run.py", workflow)
+        self.assertIn("github.event.before", workflow)
+        focused = workflow.split("  focused-plan:", 1)[1].split("  release-gate:", 1)[0]
+        self.assertEqual(4, focused.count("github.ref == 'refs/heads/main'"))
         self.assertIn("inputs.gate == 'riscv-candidate' && 'candidate' || 'promoted'", workflow)
         self.assertIn("id: riscv-release-state", workflow)
         self.assertEqual(2, workflow.count("src/products/riscv_cpu/capabilities.zig"))
@@ -397,12 +401,15 @@ class CiTests(unittest.TestCase):
         self.assertEqual(1, len(interop_steps))
         self.assertIn(f"--archive-dir {gate_archive}", interop_steps[0]["command"])
 
-    def test_pre_push_is_focused_while_hosted_main_uses_the_release_entrypoint(self) -> None:
+    def test_pre_push_and_hosted_main_are_focused(self) -> None:
         pre_push = (ROOT / ".githooks/pre-push").read_text(encoding="utf-8")
         self.assertIn("exec python3 scripts/ci_scope_push.py", pre_push)
         self.assertNotIn("zig build", pre_push)
 
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        focused = workflow.split("  focused-plan:", 1)[1].split("  release-gate:", 1)[0]
+        self.assertIn("github.event.before", focused)
+        self.assertIn("github.ref == 'refs/heads/main'", focused)
         self.assertIn("run: python3 scripts/ci.py\n", workflow)
 
     def test_hosted_metal_gate_builds_reproducible_aot_and_compiles_broader_graph(
