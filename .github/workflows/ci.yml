@@ -74,6 +74,7 @@ jobs:
           path: |
             vectors/reports/e2e_interop_report.json
             vectors/reports/latest_e2e_interop_report.json
+            zig-out/release-evidence/native/interop-history/
           if-no-files-found: warn
           retention-days: 30
 
@@ -188,6 +189,16 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: riscv-${{ env.RISCV_GATE_PHASE }}-evidence-${{ github.sha }}
-          path: zig-out/release-evidence/riscv/
+          path: |
+            zig-out/release-evidence/riscv/
+            zig-out/release-evidence/native/
+            vectors/reports/e2e_interop_report.json
+            vectors/reports/latest_e2e_interop_report.json
+            vectors/reports/benchmark_smoke_report.json
+            vectors/reports/profile_smoke_report.json
+            vectors/reports/prove_checkpoints_report.json
+            vectors/reports/std_shims_behavior_report.json
+            vectors/reports/release_evidence.json
+            vectors/reports/latest_release_evidence.json
           if-no-files-found: error
           retention-days: 30

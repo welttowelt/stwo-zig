@@ -1,9 +1,11 @@
 import re
+import subprocess
 import sys
 import unittest
 from pathlib import Path
 
 from scripts.ci import command_plan
+from scripts.release_evidence import gate_steps
 
 ROOT = Path(__file__).resolve().parents[2]
 PINNED_ACTION_RE = re.compile(r"^\s*uses:\s*[^@\s]+@[0-9a-f]{40}(?:\s+#.*)?$")
@@ -75,6 +77,26 @@ class CiTests(unittest.TestCase):
         self.assertEqual(1, build.count(gate_archive))
         self.assertEqual(1, build.count('"--archive-dir"'))
         self.assertEqual(2, build.count("b.addSystemCommand(native_interop_gate_command)"))
+        transitive_commands = {
+            'b.addSystemCommand(&.{ "zig", "build", "test-riscv", optimize_arg })': 2,
+            'b.addSystemCommand(&.{ "zig", "build", "test-riscv-prover", optimize_arg })': 2,
+            'b.addSystemCommand(&.{ "python3", "scripts/riscv_trace_vectors.py" })': 2,
+            # One additional standalone public API-parity build target is expected.
+            'b.addSystemCommand(&.{ "python3", "scripts/check_api_parity.py" })': 3,
+        }
+        for command, expected_count in transitive_commands.items():
+            self.assertEqual(expected_count, build.count(command))
+        self.assertEqual(
+            0,
+            subprocess.run(
+                ["git", "check-ignore", "-q", gate_archive],
+                cwd=ROOT,
+                check=False,
+            ).returncode,
+        )
+        interop_steps = [step for step in gate_steps("strict") if step["name"] == "interop"]
+        self.assertEqual(1, len(interop_steps))
+        self.assertIn(f"--archive-dir {gate_archive}", interop_steps[0]["command"])
 
     def test_pre_push_and_hosted_ci_use_the_same_standard_entrypoint(self) -> None:
         pre_push = (ROOT / ".githooks/pre-push").read_text(encoding="utf-8")

@@ -510,7 +510,7 @@ class CommandPlanTests(unittest.TestCase):
         self.assertTrue(any("check_riscv_release_contract.py --core-purity" in row for row in rendered))
         self.assertTrue(any("check_riscv_release_contract.py --frontend-layering" in row for row in rendered))
         self.assertTrue(any("riscv_staged_smoke.py --phase candidate" in row for row in rendered))
-        self.assertTrue(any("unittest scripts.tests.test_riscv_release_gate" in row for row in rendered))
+        self.assertTrue(any("unittest discover -s scripts/tests -p test_*.py" in row for row in rendered))
         self.assertFalse(any("riscv_release_oracle.py" in row for row in rendered))
         self.assertEqual("zig build release-gate -Doptimize=ReleaseFast", rendered[-1])
         self.assertFalse(any("test-riscv-prover" in row for row in rendered))
