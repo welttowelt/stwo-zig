@@ -47,6 +47,10 @@ ZIG_IMPORT_RE = re.compile(r'@import\("([^"\n]+)"\)')
 ZIG_NON_CODE_RE = re.compile(r'//[^\n]*|/\*.*?\*/|"(?:\\.|[^"\\])*"', re.DOTALL)
 ACTIVE_PLACEHOLDER_RE = re.compile(r"\b(?:legacy|placeholder|silent)\b")
 MANUAL_SOURCE_CEILING = 850
+ALLOWED_ACTIVE_DIVERGENCES = frozenset({("RISC-V", "PCS geometry")})
+KNOWN_PIN_BLOCKING_DIVERGENCES = {
+    PINNED_ORACLE: frozenset({("RISC-V", "Signed `MULH` carry relation")}),
+}
 
 
 def _contains_assignment(source: str, name: str, value: str) -> bool:
@@ -94,9 +98,61 @@ def phase_errors(phase: str, registry_source: str, artifact_source: str, cli_sou
     return errors
 
 
+def divergence_ledger_errors(text: str, pinned_oracle: str = PINNED_ORACLE) -> list[str]:
+    """Reject every active divergence except a narrowly allowlisted PCS deviation."""
+    marker = "## Active divergences"
+    if marker not in text:
+        return ["divergence ledger has no Active divergences section"]
+    active = text.split(marker, 1)[1].split("\n## ", 1)[0]
+    rows: dict[tuple[str, str], str] = {}
+    errors: list[str] = []
+    for raw_line in active.splitlines():
+        line = raw_line.strip()
+        if not line.startswith("|"):
+            continue
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if not cells or cells[0] == "Lane" or all(set(cell) <= {"-", ":"} for cell in cells):
+            continue
+        if len(cells) != 5:
+            errors.append("divergence ledger contains a malformed active table row")
+            continue
+        key = (cells[0], cells[1])
+        if key in rows:
+            errors.append(f"divergence ledger contains duplicate active row: {key[0]} / {key[1]}")
+            continue
+        rows[key] = cells[4]
+
+    if not rows:
+        errors.append("divergence ledger active table is empty or malformed")
+    for key, status in sorted(rows.items()):
+        if key in ALLOWED_ACTIVE_DIVERGENCES:
+            if not status.startswith("Allowed only with "):
+                errors.append(
+                    f"allowlisted divergence lacks its conditional status: {key[0]} / {key[1]}"
+                )
+            continue
+        errors.append(f"release-blocking divergence remains active: {key[0]} / {key[1]}")
+
+    for key in KNOWN_PIN_BLOCKING_DIVERGENCES.get(pinned_oracle, frozenset()):
+        if key not in rows:
+            errors.append(
+                "known-defective oracle pin lacks its mandatory blocking divergence: "
+                f"{key[0]} / {key[1]}"
+            )
+    return errors
+
+
+def divergence_errors(root: Path) -> list[str]:
+    ledger = root / "conformance/divergence-log.md"
+    if not ledger.is_file():
+        return ["missing required release artifact: conformance/divergence-log.md"]
+    return divergence_ledger_errors(ledger.read_text(encoding="utf-8"))
+
+
 def repository_contract_errors(root: Path, phase: str) -> list[str]:
     required = (
         "conformance/2026-07-18-riscv-release-goal.md",
+        "conformance/divergence-log.md",
         "scripts/riscv_release_gate.py",
         "scripts/riscv_release_evidence.py",
         "scripts/riscv_release_oracle.py",
@@ -108,6 +164,7 @@ def repository_contract_errors(root: Path, phase: str) -> list[str]:
     artifact = (root / "src/interop/riscv_artifact.zig").read_text(encoding="utf-8")
     cli = (root / "src/tools/prove/cli.zig").read_text(encoding="utf-8")
     errors.extend(phase_errors(phase, registry, artifact, cli))
+    errors.extend(divergence_errors(root))
 
     autoresearch = root / "autoresearch/MANIFEST.json"
     if autoresearch.is_file():

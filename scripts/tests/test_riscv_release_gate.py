@@ -12,6 +12,8 @@ from scripts.riscv_release_gate_lib.contract import (
     ORACLE_REPOSITORY,
     PINNED_ORACLE,
     core_purity_errors,
+    divergence_errors,
+    divergence_ledger_errors,
     frontend_layering_errors,
     phase_errors,
     receipt_errors,
@@ -112,6 +114,57 @@ class PhaseContractTests(unittest.TestCase):
         )
         self.assertTrue(any("admission switch" in error for error in mixed))
         self.assertTrue(any("RELEASE_STATUS" in error for error in mixed))
+
+
+class DivergenceContractTests(unittest.TestCase):
+    @staticmethod
+    def ledger(*rows: str) -> str:
+        return "\n".join((
+            "# Upstream divergence ledger",
+            "",
+            "## Active divergences",
+            "",
+            "| Lane | Boundary | Current | Oracle | Release status |",
+            "| --- | --- | --- | --- | --- |",
+            *rows,
+            "",
+            "## Closure requirements",
+        ))
+
+    def test_current_signed_mulh_oracle_defect_is_release_blocking(self) -> None:
+        errors = divergence_errors(Path(__file__).resolve().parents[2])
+        self.assertIn(
+            "release-blocking divergence remains active: "
+            "RISC-V / Signed `MULH` carry relation",
+            errors,
+        )
+
+    def test_known_defective_pin_cannot_hide_or_waive_its_blocker(self) -> None:
+        missing = divergence_ledger_errors(self.ledger())
+        self.assertTrue(any("known-defective oracle pin" in error for error in missing))
+
+        disguised = divergence_ledger_errors(self.ledger(
+            "| RISC-V | Signed `MULH` carry relation | zig | rust | Allowed only with tests. |"
+        ))
+        self.assertIn(
+            "release-blocking divergence remains active: "
+            "RISC-V / Signed `MULH` carry relation",
+            disguised,
+        )
+
+    def test_only_the_conditional_pcs_geometry_row_is_allowlisted(self) -> None:
+        ledger = self.ledger(
+            "| RISC-V | PCS geometry | zig | rust | Allowed only with the self-check. |"
+        )
+        self.assertEqual([], divergence_ledger_errors(ledger, pinned_oracle="f" * 40))
+
+        invented = self.ledger(
+            "| RISC-V | Invented waiver | zig | rust | Allowed only with tests. |"
+        )
+        self.assertIn(
+            "release-blocking divergence remains active: RISC-V / Invented waiver",
+            divergence_ledger_errors(invented, pinned_oracle="f" * 40),
+        )
 
 
 class LayeringContractTests(unittest.TestCase):
@@ -274,6 +327,47 @@ class ExecutionEvidenceTests(unittest.TestCase):
         return subprocess.run(
             ["git", "rev-parse", "HEAD"], cwd=path, check=True, capture_output=True, text=True
         ).stdout.strip()
+
+    def test_candidate_and_promoted_controllers_refuse_active_mulh_blocker(self) -> None:
+        blocker = next(
+            error for error in divergence_errors(Path(__file__).resolve().parents[2])
+            if "Signed `MULH` carry relation" in error
+        )
+        for phase in ("candidate", "promoted"):
+            with (
+                self.subTest(phase=phase),
+                tempfile.TemporaryDirectory() as repository,
+                tempfile.TemporaryDirectory() as output,
+            ):
+                root = Path(repository)
+                candidate = self.repository(root)
+                calls: list[list[str]] = []
+
+                def runner(command: list[str], _: Path) -> dict[str, object]:
+                    calls.append(command)
+                    raise AssertionError("controller executed commands after a contract failure")
+
+                evidence_dir = Path(output) / "session"
+                report = evidence_dir / "gate.json"
+                with (
+                    mock.patch.object(controller, "repository_contract_errors", return_value=[blocker]),
+                    mock.patch.object(controller, "_tool_versions", return_value={}),
+                    mock.patch.object(controller, "_artifact_digests", return_value={}),
+                ):
+                    code = controller.run_gate(
+                        [["must-not-run"]],
+                        phase=phase,
+                        candidate=candidate,
+                        evidence_dir=evidence_dir,
+                        report_out=report,
+                        root=root,
+                        runner=runner,
+                    )
+                payload = json.loads(report.read_text(encoding="utf-8"))
+                self.assertEqual(1, code)
+                self.assertEqual([], calls)
+                self.assertEqual("FAIL", payload["status"])
+                self.assertIn(blocker, payload["failures"])
 
     def test_execution_is_fail_fast_and_report_names_only_executed_commands(self) -> None:
         with tempfile.TemporaryDirectory() as repository, tempfile.TemporaryDirectory() as output:
