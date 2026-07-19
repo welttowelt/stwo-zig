@@ -1254,9 +1254,16 @@ Use the repository entrypoints rather than reconstructing CI commands locally:
 
 ```sh
 python3 scripts/install_hooks.py  # once per checkout
+python3 scripts/ci.py --fast      # static validate-or-reject in seconds; no compilation
 python3 scripts/ci.py             # same standard gate as hosted CI
 python3 scripts/ci.py --strict    # release evidence gate
 ```
+
+Run `--fast` first and often: it rejects formatting, pin-drift, source-conformance,
+and script-contract breakage in seconds without a single `zig build`. That
+compilation-free property is enforced by test, not convention — a compile-class
+command entering the fast plan fails `scripts/tests/test_ci.py`. Only after fast
+passes is the standard gate worth its minutes.
 
 The pre-commit hook is intentionally limited to staged-diff hygiene, formatting, and source
 conformance. The pre-push hook uses the generated product catalog and

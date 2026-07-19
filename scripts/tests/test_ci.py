@@ -4,7 +4,7 @@ import sys
 import unittest
 from pathlib import Path
 
-from scripts.ci import command_plan
+from scripts.ci import FAST_PLAN, command_plan
 from scripts.check_build_configure_closure import validate_actual_construction
 from scripts.release_evidence import gate_steps
 
@@ -116,6 +116,24 @@ class CiTests(unittest.TestCase):
 
     def test_strict_plan_selects_strict_gate(self) -> None:
         self.assertEqual("release-gate-strict", command_plan(True, "ReleaseSafe")[1][2])
+
+    def test_fast_plan_is_structurally_compilation_free(self) -> None:
+        # The fast tier's speed guarantee is enforced here, not by a clock:
+        # no command may enter the compilation class. `zig build` compiles;
+        # `zig fmt --check` only parses and stays permitted.
+        for command in FAST_PLAN:
+            self.assertNotEqual(("zig", "build"), tuple(command[:2]), command)
+            self.assertFalse(
+                any(argument.startswith("-Doptimize") for argument in command),
+                command,
+            )
+
+    def test_fast_plan_covers_static_gates_and_script_tests(self) -> None:
+        flattened = [" ".join(command) for command in FAST_PLAN]
+        self.assertTrue(any("zig fmt --check" in line for line in flattened))
+        self.assertTrue(any("check_upstream_pins" in line for line in flattened))
+        self.assertTrue(any("check_source_conformance" in line for line in flattened))
+        self.assertTrue(any("unittest discover" in line for line in flattened))
 
     def test_hosted_ci_exposes_standard_and_strict_shared_entrypoints(self) -> None:
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
