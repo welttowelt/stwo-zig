@@ -214,8 +214,6 @@ fn createProductModule(
         .target = context.target,
         .optimize = context.optimize,
     });
-    context.protocol.addImports(lifecycle);
-    lifecycle.addImport("stwo", stwo);
     lifecycle.addImport("output_transaction", graph.create(context.b, .{
         .product = product_descriptor,
         .root_source_file = "src/interop/output_transaction.zig",

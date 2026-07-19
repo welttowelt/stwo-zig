@@ -4,6 +4,7 @@ const std = @import("std");
 const metal = @import("../backends/metal.zig");
 const graph_identity = @import("../graph/identity.zig");
 const identity_receipt = @import("../graph/identity/receipt.zig");
+const graph = @import("../graph/modules.zig");
 const closure_gate = @import("../gates/product_closure.zig");
 const prove_cli = @import("../prove_cli.zig");
 const aggregate = @import("aggregate.zig");
@@ -20,20 +21,29 @@ pub fn addProduct(b: *std.Build, metal_enabled: bool) void {
         metal.sourceJitIdentity(b)
     else
         .{};
-    const modules = libraries.addPublicModules(.{
-        .b = b,
+    const protocol = graph.createPrivateProtocolModules(b, target, optimize);
+    const stwo = graph.create(b, .{
+        .product = aggregate.product(metal_enabled),
+        .root_source_file = if (metal_enabled)
+            "src/stwo_aggregate_metal.zig"
+        else
+            "src/stwo_aggregate_cpu.zig",
         .target = target,
         .optimize = optimize,
     });
-    const runner = libraries.consumer(b, modules.protocol, .{
+    protocol.addImports(stwo);
+    const runner = libraries.consumer(b, protocol, .{
         .root_source_file = b.path("src/prover/native/runner.zig"),
         .target = target,
         .optimize = optimize,
     });
-    runner.addImport("stwo", modules.stwo);
+    runner.addImport("stwo", stwo);
 
-    const aggregate_tests = libraries.consumer(b, modules.protocol, .{
-        .root_source_file = b.path("src/stwo.zig"),
+    const aggregate_tests = libraries.consumer(b, protocol, .{
+        .root_source_file = b.path(if (metal_enabled)
+            "src/stwo_aggregate_metal.zig"
+        else
+            "src/stwo_aggregate_cpu.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -43,20 +53,20 @@ pub fn addProduct(b: *std.Build, metal_enabled: bool) void {
     test_step.dependOn(&b.addRunArtifact(tests).step);
 
     const runner_tests = b.addTest(.{
-        .root_module = libraries.consumer(b, modules.protocol, .{
+        .root_module = libraries.consumer(b, protocol, .{
             .root_source_file = b.path("src/prover/native/runner.zig"),
             .target = target,
             .optimize = optimize,
         }),
     });
-    runner_tests.root_module.addImport("stwo", modules.stwo);
+    runner_tests.root_module.addImport("stwo", stwo);
     test_step.dependOn(&b.addRunArtifact(runner_tests).step);
 
     const executable = prove_cli.addProduct(.{
         .b = b,
         .target = target,
         .optimize = optimize,
-        .stwo_module = modules.stwo,
+        .stwo_module = stwo,
         .native_proof_runner_module = runner,
         .test_step = test_step,
         .identity = source_identity,

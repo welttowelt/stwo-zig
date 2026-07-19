@@ -44,11 +44,7 @@ pub fn bench(
     }
 }
 
-pub fn prepare(proof_output: ?[]const u8, report_output: ?[]const u8) !void {
-    return output_transaction.prepare(proof_output, report_output);
-}
-
-pub fn publishResult(
+fn publishResult(
     comptime AtomicFile: type,
     allocator: std.mem.Allocator,
     proof_temporary: []const u8,
@@ -67,7 +63,7 @@ pub fn publishResult(
     );
 }
 
-pub fn publishReport(
+fn publishReport(
     comptime AtomicFile: type,
     allocator: std.mem.Allocator,
     report: []const u8,

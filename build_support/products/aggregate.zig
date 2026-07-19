@@ -3,52 +3,102 @@
 const graph = @import("../graph/modules.zig");
 const policy = @import("../graph/product.zig");
 
-const source_closure = policy.SourceClosure{
-    .entry_roots = &.{
-        "src/tools/prove/main.zig",
-        "src/stwo.zig",
-        "src/prover/native/runner.zig",
-    },
-    .named_imports = &.{
-        .{ .name = "stwo", .source = "src/stwo.zig" },
-        .{ .name = "stwo_backend_contracts", .source = "src/backend/mod.zig" },
-        .{ .name = "stwo_core", .source = "src/core/mod.zig" },
-        .{ .name = "stwo_prover_impl", .source = "src/prover/mod.zig" },
-        .{ .name = "native_proof_runner", .source = "src/prover/native/runner.zig" },
-        .{ .name = "native_transaction", .source = "src/integrations/native/transaction.zig" },
-        .{ .name = "output_transaction", .source = "src/interop/output_transaction.zig" },
-        .{ .name = "native_product_identity", .source = "src/integrations/native/product_identity.zig" },
-        .{ .name = "native_cpu_capabilities", .source = "src/products/native_cpu/capabilities.zig" },
-        .{ .name = "riscv_cpu_capabilities", .source = "src/products/riscv_cpu/capabilities.zig" },
-        .{ .name = "starkv_adapter", .source = "src/integrations/riscv_cpu/proof_adapter.zig" },
-    },
-    .generated_imports = &.{"aggregate_capabilities"},
-    .allowed_files = &.{
-        "src/stwo.zig",
-        "src/products/native_cpu/capabilities.zig",
-        "src/products/riscv_cpu/capabilities.zig",
-    },
-    .allowed_prefixes = &.{
-        "src/backend",
-        "src/backends",
-        "src/core",
-        "src/examples",
-        "src/frontends",
-        "src/integrations",
-        "src/interop",
-        "src/prover",
-        "src/std_shims",
-        "src/tools/metal_session",
-        "src/tools/prove",
-        "src/tracing",
-    },
-    .forbidden_dynamic_dependencies = &.{
-        "Metal.framework",
-        "Foundation.framework",
-        "libobjc",
-        "cuda",
-    },
+const cpu_facade = "src/stwo_aggregate_cpu.zig";
+const metal_facade = "src/stwo_aggregate_metal.zig";
+
+const common_allowed_files = [_][]const u8{
+    cpu_facade,
+    "src/products/native_cpu/capabilities.zig",
+    "src/products/riscv_cpu/capabilities.zig",
+    "src/interop/atomic_file.zig",
+    "src/interop/examples_artifact.zig",
+    "src/interop/examples_artifact_verifier.zig",
+    "src/interop/output_transaction.zig",
+    "src/interop/postcard.zig",
+    "src/interop/proof_wire.zig",
+    "src/interop/riscv_artifact.zig",
+    "src/integrations/native/product_identity.zig",
+    "src/integrations/native/transaction.zig",
 };
+
+const common_allowed_prefixes = [_][]const u8{
+    "src/backend",
+    "src/backends/cpu_scalar",
+    "src/core",
+    "src/examples",
+    "src/frontends/riscv",
+    "src/integrations/riscv_cpu",
+    "src/interop/postcard",
+    "src/interop/riscv_artifact",
+    "src/prover",
+    "src/std_shims",
+    "src/tools/prove",
+    "src/tracing",
+};
+
+const metal_allowed_files = common_allowed_files ++ .{
+    metal_facade,
+    "src/backends/metal/arena_plan.zig",
+    "src/backends/metal/command_epoch.zig",
+    "src/backends/metal/commit_backend.zig",
+    "src/backends/metal/commit_policy.zig",
+    "src/backends/metal/core_aot.zig",
+    "src/backends/metal/merkle_tree.zig",
+    "src/backends/metal/mod.zig",
+    "src/backends/metal/protocol_recipes.zig",
+    "src/backends/metal/prover_engine.zig",
+    "src/backends/metal/recovery.zig",
+    "src/backends/metal/resident_arena.zig",
+    "src/backends/metal/runtime.zig",
+    "src/backends/metal/shader_manifest.zig",
+    "src/backends/metal/shared_runtime.zig",
+    "src/backends/metal/telemetry.zig",
+};
+
+const metal_allowed_prefixes = common_allowed_prefixes ++ .{
+    "src/backends/metal/recipes",
+    "src/backends/metal/runtime",
+    "src/backends/metal/shaders",
+    "src/backends/metal/tests",
+};
+
+const cpu_source_closure = sourceClosure(false);
+const metal_source_closure = sourceClosure(true);
+
+fn sourceClosure(comptime metal: bool) policy.SourceClosure {
+    return .{
+        .entry_roots = &.{
+            "src/tools/prove/main.zig",
+            if (metal) metal_facade else cpu_facade,
+            "src/prover/native/runner.zig",
+        },
+        .named_imports = &.{
+            .{ .name = "stwo", .source = if (metal) metal_facade else cpu_facade },
+            .{ .name = "stwo_backend_contracts", .source = "src/backend/mod.zig" },
+            .{ .name = "stwo_core", .source = "src/core/mod.zig" },
+            .{ .name = "stwo_prover_impl", .source = "src/prover/mod.zig" },
+            .{ .name = "native_proof_runner", .source = "src/prover/native/runner.zig" },
+            .{ .name = "native_transaction", .source = "src/integrations/native/transaction.zig" },
+            .{ .name = "output_transaction", .source = "src/interop/output_transaction.zig" },
+            .{ .name = "native_product_identity", .source = "src/integrations/native/product_identity.zig" },
+            .{ .name = "native_cpu_capabilities", .source = "src/products/native_cpu/capabilities.zig" },
+            .{ .name = "riscv_cpu_capabilities", .source = "src/products/riscv_cpu/capabilities.zig" },
+            .{ .name = "starkv_adapter", .source = "src/integrations/riscv_cpu/proof_adapter.zig" },
+        },
+        .generated_imports = &.{"aggregate_capabilities"},
+        .allowed_files = if (metal) &metal_allowed_files else &common_allowed_files,
+        .allowed_prefixes = if (metal) &metal_allowed_prefixes else &common_allowed_prefixes,
+        .required_dynamic_dependencies = if (metal) &.{
+            "Metal.framework",
+            "Foundation.framework",
+            "libobjc",
+        } else &.{},
+        .forbidden_dynamic_dependencies = if (metal)
+            &.{"cuda"}
+        else
+            &.{ "Metal.framework", "Foundation.framework", "libobjc", "cuda" },
+    };
+}
 
 pub const descriptor = policy.Descriptor{
     .product = product(false),
@@ -59,8 +109,8 @@ pub const descriptor = policy.Descriptor{
     .executable = "stwo-zig",
     .installed_artifacts = &.{"stwo-zig"},
     .release_gates = &.{ "test", "vectors", "interop" },
-    .dependencies = .{ .module_roots = source_closure.entry_roots },
-    .source_closure = source_closure,
+    .dependencies = .{ .module_roots = cpu_source_closure.entry_roots },
+    .source_closure = cpu_source_closure,
 };
 
 pub fn product(metal: bool) graph.Product {
@@ -79,15 +129,34 @@ pub fn product(metal: bool) graph.Product {
 pub fn descriptorFor(metal: bool) policy.Descriptor {
     var result = descriptor;
     result.product = product(metal);
-    if (metal) {
-        var closure = source_closure;
-        closure.required_dynamic_dependencies = &.{
-            "Metal.framework",
-            "Foundation.framework",
-            "libobjc",
-        };
-        closure.forbidden_dynamic_dependencies = &.{"cuda"};
-        result.source_closure = closure;
-    }
+    result.dependencies.module_roots = if (metal)
+        metal_source_closure.entry_roots
+    else
+        cpu_source_closure.entry_roots;
+    result.source_closure = if (metal) metal_source_closure else cpu_source_closure;
     return result;
+}
+
+test "aggregate product closures cannot own deferred implementation trees" {
+    const std = @import("std");
+    const deferred = [_][]const u8{
+        "src/backends/cuda",
+        "src/frontends/cairo",
+        "src/integrations/cairo_cpu",
+        "src/integrations/cairo_metal",
+        "src/backends/metal/cairo",
+    };
+    inline for (.{ cpu_source_closure, metal_source_closure }) |closure| {
+        for (closure.allowed_prefixes) |allowed| {
+            for (deferred) |blocked| {
+                try std.testing.expect(!owns(allowed, blocked));
+            }
+        }
+    }
+}
+
+fn owns(allowed: []const u8, blocked: []const u8) bool {
+    const std = @import("std");
+    return std.mem.eql(u8, allowed, blocked) or
+        (std.mem.startsWith(u8, blocked, allowed) and blocked[allowed.len] == '/');
 }

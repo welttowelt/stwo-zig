@@ -64,6 +64,8 @@ ROOT_ALLOWLIST = frozenset({
     "riscv_trace_cli.zig",
     "std_shims_freestanding.zig",
     "stwo.zig",
+    "stwo_aggregate_cpu.zig",
+    "stwo_aggregate_metal.zig",
     "stwo_deep.zig",
     "stwo_native_cpu.zig",
     "stwo_native_metal.zig",

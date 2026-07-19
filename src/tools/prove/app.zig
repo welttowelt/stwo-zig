@@ -3,8 +3,8 @@
 const std = @import("std");
 const stwo = @import("stwo");
 const cli = @import("cli.zig");
-const lifecycle = @import("native_transaction");
 const native_dispatch = @import("native_dispatch.zig");
+const native_transaction = @import("native_transaction");
 const output_transaction = @import("output_transaction");
 const product_identity = @import("native_product_identity");
 const registry = @import("registry.zig");
@@ -112,7 +112,7 @@ fn runElf(
 }
 
 fn prove(allocator: std.mem.Allocator, request: cli.Prove) !void {
-    try lifecycle.prove(
+    try native_transaction.prove(
         atomic_file,
         allocator,
         request.output,
@@ -123,7 +123,7 @@ fn prove(allocator: std.mem.Allocator, request: cli.Prove) !void {
 }
 
 fn bench(allocator: std.mem.Allocator, request: cli.Bench) !void {
-    try lifecycle.bench(
+    try native_transaction.bench(
         atomic_file,
         allocator,
         request.proof_out,
@@ -183,7 +183,7 @@ fn verifyArtifact(allocator: std.mem.Allocator, request: cli.Verify) !void {
     };
     if (request.expected_statement_digest != null)
         return error.ExpectedStatementDigestRequiresRiscVArtifact;
-    const encoded = try lifecycle.verifyBytes(
+    const encoded = try native_transaction.verifyBytes(
         artifact_verifier,
         stwo.interop.examples_artifact,
         allocator,
@@ -266,13 +266,14 @@ test "publication rejects an existing report without exposing its proof" {
     try atomic_file.writeExclusive(std.testing.allocator, report_output, "existing");
     try std.testing.expectError(
         error.OutputAlreadyExists,
-        lifecycle.publishResult(
+        output_transaction.publishResult(
             atomic_file,
             std.testing.allocator,
             proof_temporary,
             proof_output,
             "report",
             report_output,
+            std.fs.File.stdout().deprecatedWriter(),
         ),
     );
     try std.testing.expectError(
