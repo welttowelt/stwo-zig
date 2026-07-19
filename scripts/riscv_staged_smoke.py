@@ -26,7 +26,7 @@ sys.path.insert(0, str(ROOT))
 from scripts.riscv_staged_smoke_lib import contracts, mutations, profiles  # noqa: E402
 
 ELF = "vectors/riscv_elfs/branch_fib.elf"
-ELF_SHA256 = "fb8533da02ca7c10c53b4a09f748d112f338f7433b597262d874a0ac4ba338b2"
+ELF_SHA256 = "4dbf634977e3a30e71a16a681f1ac84def562bd0847fa4885f5f9214d003e0f1"
 COMMAND_TIMEOUT_SECONDS = 1_800
 MULTI_SHARD_TOTAL_STEPS = 131_078
 MULTI_SHARD_ADDI_ROWS = 65_538

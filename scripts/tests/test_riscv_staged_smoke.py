@@ -44,6 +44,15 @@ def artifact() -> dict[str, object]:
 
 
 class JsonContractTests(unittest.TestCase):
+    def test_benchmark_elf_digest_matches_the_cross_verified_manifest(self) -> None:
+        manifest = json.loads(
+            (smoke.ROOT / "vectors/riscv_elfs/trace_vectors.json").read_text()
+        )
+        vector = next(item for item in manifest["vectors"] if item["name"] == "branch_fib")
+        digest = hashlib.sha256((smoke.ROOT / smoke.ELF).read_bytes()).hexdigest()
+        self.assertEqual(smoke.ELF_SHA256, digest)
+        self.assertEqual(smoke.ELF_SHA256, vector["elf_sha256"])
+
     def test_strict_json_requires_one_object_and_rejects_nested_duplicates(self) -> None:
         self.assertEqual({"value": 1}, contracts.strict_json_object('{"value":1}', "test"))
         with self.assertRaisesRegex(contracts.ContractError, "duplicate JSON field value"):
