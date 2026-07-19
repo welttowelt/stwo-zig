@@ -29,9 +29,6 @@ class ProductSpec:
     backend: str
     report_backend: str
     protocol_features: str
-    runtime_manifest: str
-    sdk_manifest: str
-    aot_manifest: str
 
 
 PRODUCT_SPECS = {
@@ -41,9 +38,6 @@ PRODUCT_SPECS = {
         backend="cpu",
         report_backend="cpu_native",
         protocol_features="native-examples-v1+lifted-pcs-v1",
-        runtime_manifest="none",
-        sdk_manifest="none",
-        aot_manifest="none",
     ),
     "metal": ProductSpec(
         name="stwo-native-metal",
@@ -51,11 +45,77 @@ PRODUCT_SPECS = {
         backend="metal",
         report_backend="metal_hybrid",
         protocol_features="native-examples-v1+lifted-pcs-v1+metal-runtime-v1",
-        runtime_manifest="metal-runtime-v1:source-jit+authenticated-aot",
-        sdk_manifest="apple-metal-sdk:metal3.1:safe-math",
-        aot_manifest="metal-aot-v1:source+compile-profile+metallib-sha256",
     ),
 }
+
+
+def _parse_manifest(
+    value: str,
+    *,
+    prefix: str,
+    fields: tuple[str, ...],
+    context: str,
+) -> dict[str, str]:
+    actual_prefix, separator, payload = value.partition(":")
+    if separator != ":" or actual_prefix != prefix:
+        raise ProductEvidenceError(f"{context} has an unsupported schema")
+    result: dict[str, str] = {}
+    for item in payload.split(";"):
+        key, separator, field_value = item.partition("=")
+        if separator != "=" or not key or not field_value or key in result:
+            raise ProductEvidenceError(f"{context} is malformed")
+        result[key] = field_value
+    if tuple(result) != fields:
+        raise ProductEvidenceError(f"{context} has unsupported fields")
+    return result
+
+
+def _require_hex64(value: str, context: str) -> None:
+    if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
+        raise ProductEvidenceError(f"{context} must be 64 lowercase hex characters")
+
+
+def _validate_runtime(identity: dict[str, Any], lane: str) -> None:
+    if lane == "cpu":
+        for field in ("runtime_manifest", "sdk_manifest", "aot_manifest"):
+            if identity[field] != "none":
+                raise ProductEvidenceError(
+                    f"{lane}.product_identity.{field} does not identify a host-only CPU product"
+                )
+        return
+
+    runtime = _parse_manifest(
+        identity["runtime_manifest"],
+        prefix="metal-runtime-v2",
+        fields=("mode", "shader-amalgamation-sha256", "runtime-objc-sha256"),
+        context="metal.product_identity.runtime_manifest",
+    )
+    if runtime["mode"] != "source-jit":
+        raise ProductEvidenceError(
+            "metal.product_identity.runtime_manifest is not the source-JIT product"
+        )
+    for field in ("shader-amalgamation-sha256", "runtime-objc-sha256"):
+        _require_hex64(runtime[field], f"metal.product_identity.runtime_manifest.{field}")
+
+    sdk = _parse_manifest(
+        identity["sdk_manifest"],
+        prefix="apple-metal-sdk-v2",
+        fields=(
+            "sdk-path",
+            "sdk-version",
+            "sdk-build",
+            "objc-compiler",
+            "objc-compiler-version-sha256",
+            "compile-profile-sha256",
+        ),
+        context="metal.product_identity.sdk_manifest",
+    )
+    for field in ("objc-compiler-version-sha256", "compile-profile-sha256"):
+        _require_hex64(sdk[field], f"metal.product_identity.sdk_manifest.{field}")
+    if identity["aot_manifest"] != "none":
+        raise ProductEvidenceError(
+            "metal.product_identity.aot_manifest does not identify the source-JIT product"
+        )
 
 
 def validate_product_identity(
@@ -75,15 +135,13 @@ def validate_product_identity(
         "backend": spec.backend,
         "role": required_role,
         "protocol_features": spec.protocol_features,
-        "runtime_manifest": spec.runtime_manifest,
-        "sdk_manifest": spec.sdk_manifest,
-        "aot_manifest": spec.aot_manifest,
     }
     for field, expected_value in expected.items():
         if value[field] != expected_value:
             raise ProductEvidenceError(
                 f"{lane}.product_identity.{field} does not identify {spec.name}"
             )
+    _validate_runtime(value, lane)
     if provenance is not None:
         bindings = {
             "implementation_commit": "git_commit",

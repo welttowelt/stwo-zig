@@ -50,6 +50,21 @@ FUNCTIONAL_PROTOCOL = {
 
 def product_identity(lane: str, *, dirty: bool = False) -> dict[str, object]:
     spec = PRODUCT_SPECS[lane]
+    if lane == "metal":
+        runtime_manifest = (
+            "metal-runtime-v2:mode=source-jit;"
+            f"shader-amalgamation-sha256={'5' * 64};"
+            f"runtime-objc-sha256={'6' * 64}"
+        )
+        sdk_manifest = (
+            "apple-metal-sdk-v2:sdk-path=/Applications/Xcode.app/SDKs/MacOSX.sdk;"
+            "sdk-version=15.0;sdk-build=24A335;objc-compiler=/usr/bin/clang;"
+            f"objc-compiler-version-sha256={'7' * 64};"
+            f"compile-profile-sha256={'8' * 64}"
+        )
+    else:
+        runtime_manifest = "none"
+        sdk_manifest = "none"
     identity: dict[str, object] = {
         "schema_version": 2,
         "name": spec.name,
@@ -73,9 +88,9 @@ def product_identity(lane: str, *, dirty: bool = False) -> dict[str, object]:
         "cpu_model": "apple_m1",
         "cpu_features_sha256": "4" * 64,
         "optimize": "ReleaseFast",
-        "runtime_manifest": spec.runtime_manifest,
-        "sdk_manifest": spec.sdk_manifest,
-        "aot_manifest": spec.aot_manifest,
+        "runtime_manifest": runtime_manifest,
+        "sdk_manifest": sdk_manifest,
+        "aot_manifest": "none",
     }
     identity["identity_sha256"] = canonical_identity_sha256(identity)
     return identity

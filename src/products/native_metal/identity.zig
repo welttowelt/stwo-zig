@@ -5,11 +5,16 @@ const std = @import("std");
 
 pub const value = native_identity.value;
 
-test "generated Native Metal identity binds runtime and AOT semantics" {
+test "generated Native Metal identity binds exact source-JIT semantics" {
     const actual = value();
     try actual.validate();
     try std.testing.expectEqualStrings("stwo-native-metal", actual.name);
     try std.testing.expectEqualStrings("metal", actual.backend);
-    try std.testing.expect(std.mem.indexOf(u8, actual.runtime_manifest, "authenticated-aot") != null);
-    try std.testing.expect(std.mem.indexOf(u8, actual.aot_manifest, "metallib-sha256") != null);
+    try std.testing.expect(std.mem.startsWith(
+        u8,
+        actual.runtime_manifest,
+        "metal-runtime-v2:mode=source-jit;",
+    ));
+    try std.testing.expect(std.mem.startsWith(u8, actual.sdk_manifest, "apple-metal-sdk-v2:"));
+    try std.testing.expectEqualStrings("none", actual.aot_manifest);
 }

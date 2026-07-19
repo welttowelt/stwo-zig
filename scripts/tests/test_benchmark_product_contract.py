@@ -235,6 +235,45 @@ class BenchmarkProductContractTests(unittest.TestCase):
             with self.subTest(field=field), self.assertRaises(ProductEvidenceError):
                 validate_product_identity(changed, "cpu")
 
+    def test_metal_identity_requires_exact_source_jit_build_manifests(self) -> None:
+        identity = product_identity("metal")
+        validate_product_identity(identity, "metal")
+        mutations = (
+            (
+                "legacy_runtime",
+                "runtime_manifest",
+                "metal-runtime-v1:source-jit+authenticated-aot",
+            ),
+            (
+                "aot_mode",
+                "runtime_manifest",
+                identity["runtime_manifest"].replace(
+                    "mode=source-jit", "mode=authenticated-aot"
+                ),
+            ),
+            (
+                "invalid_shader_digest",
+                "runtime_manifest",
+                identity["runtime_manifest"].replace("5" * 64, "not-a-digest"),
+            ),
+            (
+                "legacy_sdk",
+                "sdk_manifest",
+                "apple-metal-sdk:metal3.1:safe-math",
+            ),
+            (
+                "aot_manifest",
+                "aot_manifest",
+                "metal-aot-v1:source+compile-profile+metallib-sha256",
+            ),
+        )
+        for name, field, value in mutations:
+            changed = copy.deepcopy(identity)
+            changed[field] = value
+            changed["identity_sha256"] = canonical_identity_sha256(changed)
+            with self.subTest(name=name), self.assertRaises(ProductEvidenceError):
+                validate_product_identity(changed, "metal")
+
     def test_generic_identity_validator_has_no_benchmark_lane_policy(self) -> None:
         products = (
             ("stwo-core", "none", "none", "library", "stwo-core-v1"),

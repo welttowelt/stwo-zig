@@ -139,11 +139,18 @@ class CiTests(unittest.TestCase):
             "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'",
             workflow,
         )
-        standard_or_strict = (
-            "github.event_name != 'workflow_dispatch' || inputs.gate == 'standard' ||\n"
-            "      inputs.gate == 'strict'"
+        full_release_only = (
+            "github.event_name == 'push' ||\n"
+            "      (github.event_name == 'workflow_dispatch' &&\n"
+            "      (inputs.gate == 'standard' || inputs.gate == 'strict'))"
         )
-        self.assertEqual(2, workflow.count(standard_or_strict))
+        self.assertEqual(2, workflow.count(full_release_only))
+        self.assertIn("focused-plan:", workflow)
+        self.assertIn("focused-linux:", workflow)
+        self.assertIn("focused-macos:", workflow)
+        self.assertIn("focused-verdict:", workflow)
+        self.assertIn("python3 scripts/ci_scope_plan.py", workflow)
+        self.assertIn("python3 scripts/ci_scope_run.py", workflow)
         self.assertIn("inputs.gate == 'riscv-candidate' && 'candidate' || 'promoted'", workflow)
         self.assertIn("id: riscv-release-state", workflow)
         self.assertIn("RISCV_ADAPTER_RELEASE_GATED = true", workflow)

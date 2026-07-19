@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import sys
 import tempfile
 import types
 import unittest
@@ -266,6 +267,7 @@ class ArchitectureExternalAuthorityTest(unittest.TestCase):
             del sys_modules[name]
 
     def test_run_host_reauthenticates_after_candidate_execution(self) -> None:
+        role = "macos" if sys.platform == "darwin" else "linux"
         first = {
             "candidate": CANDIDATE, "candidate_tree": TREE,
             "authority_commit": AUTHORITY, "authority_tree": "d" * 40,
@@ -282,7 +284,7 @@ class ArchitectureExternalAuthorityTest(unittest.TestCase):
         ):
             with self.assertRaisesRegex(ReceiptError, "changed during"):
                 authority.run_host(
-                    role="macos", candidate_root=Path("candidate"), candidate=CANDIDATE,
+                    role=role, candidate_root=Path("candidate"), candidate=CANDIDATE,
                     output_dir=Path("output"), receipt_root=Path("receipts"),
                     session_nonce="1" * 64, riscv_bundle=Path("riscv"),
                     native_oracle_bundle=Path("native"),
@@ -290,7 +292,7 @@ class ArchitectureExternalAuthorityTest(unittest.TestCase):
                     riscv_trust_context=Path("riscv-trust.json"),
                     riscv_policy_context=Path("riscv-policy.json"),
                     riscv_phase="candidate",
-                    environment=environment("architecture-authority-macos"),
+                    environment=environment(f"architecture-authority-{role}"),
                 )
         self.assertEqual(2, authenticate.call_count)
 

@@ -124,9 +124,6 @@ def validate() -> dict[str, object]:
             "backend": spec.backend,
             "role": "benchmark",
             "protocol_features": spec.protocol_features,
-            "runtime_manifest": spec.runtime_manifest,
-            "sdk_manifest": spec.sdk_manifest,
-            "aot_manifest": spec.aot_manifest,
         }
         if live != expected_live:
             raise ValueError(f"{lane} Python product spec drifted from Zig descriptor authority")

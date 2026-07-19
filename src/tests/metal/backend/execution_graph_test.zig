@@ -50,7 +50,11 @@ test "metal: FRI commitment policy shares the exact secure-column boundary" {
     try std.testing.expect(!metal_commit_policy.usesResidentMerkle(cell_threshold - 1));
     try std.testing.expect(metal_commit_policy.usesResidentMerkle(cell_threshold));
 
-    const value_threshold = cell_threshold / qm31.SECURE_EXTENSION_DEGREE;
+    const value_threshold = std.math.divCeil(
+        usize,
+        cell_threshold,
+        qm31.SECURE_EXTENSION_DEGREE,
+    ) catch unreachable;
     try std.testing.expect(!metal_commit_policy.secureColumnUsesResidentMerkle(value_threshold - 1));
     try std.testing.expect(metal_commit_policy.secureColumnUsesResidentMerkle(value_threshold));
     try std.testing.expect(

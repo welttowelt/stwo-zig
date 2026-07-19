@@ -209,6 +209,23 @@ graphs without Metal. macOS Metal CI builds focused Metal products separately;
 passing a CPU job does not count as compiling or testing Metal. Cairo products
 remain disabled with an explicit reason until their conformance lane resumes.
 
+Pull requests use the machine-readable ownership policy in
+`conformance/ci-touchpoints-v1.json`. `scripts/ci_scope_plan.py` intersects the
+complete base-to-head diff with the generated product catalog, adds explicit
+shared and tool ownership, and fails closed to every lane for an unknown source
+path. Renames classify both old and new paths. Documentation changes run the
+static policy lane only; shader and AOT-owned changes are the only ordinary
+changes that request the Full-Xcode AOT lane.
+
+Each selected lane runs independently through `scripts/ci_scope_run.py` with a
+product-scoped compiler cache and emits a `stwo-focused-ci-timing-v1` receipt.
+The receipt binds the commit, tree, dirty state, host, command vector, exit
+status, output digests, and monotonic duration. One stable PR verdict requires
+every selected Linux and macOS matrix entry to pass. The complete release gate
+and reproducible Metal AOT acceptance remain mandatory on `main`, release tags,
+and explicit standard or strict release dispatches; they are not the default
+gate for an unrelated product touchpoint.
+
 Source conformance must eventually enforce a matrix like:
 
 | Owner | Forbidden dependencies |
@@ -268,3 +285,4 @@ rather than grow the source-conformance debt ledger.
 - [ ] Product identity is present in proof, benchmark, cache, and gate receipts.
 - [ ] Aggregate CLI output remains compatible for released applications.
 - [ ] Pinned Rust Stwo/Stark-V evidence remains the final correctness oracle.
+- [x] Pull requests select catalog-owned product gates and publish per-lane timing receipts.
