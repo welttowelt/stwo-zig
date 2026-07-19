@@ -122,7 +122,7 @@ jobs:
             "$RUNNER_TEMP/sn-pie-composition/composition.air" \
             -o "$RUNNER_TEMP/sn-pie-composition/composition.metallib"
           export STWO_ZIG_COMPOSITION_METALLIB="$RUNNER_TEMP/sn-pie-composition/composition.metallib"
-          python3 -m unittest \
+          STWO_ZIG_ALLOW_EXPLICIT_NO_METAL_DEVICE=1 python3 -m unittest \
             scripts.tests.test_sn_pie_composition_bundle.SnPieCompositionBundleTest.test_sn1_retarget_loads_in_zig_with_existing_metallib
 
       - name: Capture reproducible Full-Xcode AOT build receipt

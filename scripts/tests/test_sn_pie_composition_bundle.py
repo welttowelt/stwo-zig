@@ -15,6 +15,7 @@ SCRIPT = ROOT / "scripts/sn_pie_composition_bundle.py"
 TEMPLATE = ROOT / "vectors/cairo/sn_pie_2_composition.bin"
 METALLIB = ROOT / "vectors/cairo/sn_pie_2_composition.metallib"
 METALLIB_OVERRIDE = "STWO_ZIG_COMPOSITION_METALLIB"
+ALLOW_EXPLICIT_NO_DEVICE = "STWO_ZIG_ALLOW_EXPLICIT_NO_METAL_DEVICE"
 SPEC = importlib.util.spec_from_file_location("sn_pie_composition_bundle", SCRIPT)
 MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
@@ -330,13 +331,22 @@ class SnPieCompositionBundleTest(unittest.TestCase):
                     text=True,
                 )
 
-            self.assertEqual(
-                0,
-                completed.returncode,
-                "Metal composition loader failed\n"
-                f"stdout:\n{completed.stdout}\n"
-                f"stderr:\n{completed.stderr}",
-            )
+            if completed.returncode != 0:
+                self.assertEqual(
+                    "1",
+                    os.environ.get(ALLOW_EXPLICIT_NO_DEVICE),
+                    "Metal composition loader failed without the explicit "
+                    "no-device host allowance\n"
+                    f"stdout:\n{completed.stdout}\n"
+                    f"stderr:\n{completed.stderr}",
+                )
+                self.assertEqual("", completed.stdout)
+                self.assertIn(
+                    "Full Metal initialization failed: No Metal device available",
+                    completed.stderr,
+                )
+                self.assertIn("RuntimeInitializationFailed", completed.stderr)
+                return
 
             loaded = json.loads(completed.stdout)
             self.assertEqual(result["changed_components"], 35)

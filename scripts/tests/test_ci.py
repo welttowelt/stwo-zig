@@ -133,6 +133,7 @@ class CiTests(unittest.TestCase):
         self.assertIn("-fno-fast-math", metal_job)
         self.assertIn("-Werror", metal_job)
         self.assertIn("STWO_ZIG_COMPOSITION_METALLIB", metal_job)
+        self.assertIn("STWO_ZIG_ALLOW_EXPLICIT_NO_METAL_DEVICE=1", metal_job)
         self.assertIn(
             "SnPieCompositionBundleTest.test_sn1_retarget_loads_in_zig_with_existing_metallib",
             metal_job,

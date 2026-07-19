@@ -344,15 +344,21 @@ evidence gaps for CP-00 through CP-12. Their ledger rows remain `IN_PROGRESS`
 because the sign-off protocol requires the same candidate to pass hosted CP-13;
 the failed hosted preflight cannot be replaced by the valid local receipt.
 
-The hosted failure is a gate portability defect, not a semantic divergence:
-`metal-eval-prepare` is deliberately absent from Linux build graphs. The next
-candidate conditions that preparation on Darwin, makes the Linux loader contract
-an executed zero-skip platform assertion, and gives the real loader integration
-an explicit macOS Metal-acceptance owner. The build step installs and executes
-the exact `zig-out/bin/metal-eval-prepare` product instead of selecting an ignored
-cache executable by modification time. A new local and hosted strict receipt is
-mandatory after that change. Uncommitted code and output remain diagnostic by
-definition.
+The original hosted failure was a gate portability defect, not a semantic
+divergence: `metal-eval-prepare` is deliberately absent from Linux build graphs.
+The corrected candidate conditions that preparation on Darwin, makes the Linux
+loader contract an executed zero-skip platform assertion, and installs the exact
+`zig-out/bin/metal-eval-prepare` product instead of selecting an ignored cache
+executable by modification time. Hosted run `29683986860` then established a
+second platform fact: GitHub's `macos-14-arm64` runner has the full Xcode Metal
+compiler and linker but exposes no `MTLDevice`. Hosted macOS acceptance therefore
+compiles and links the exact SN2 composition under the repository's declared
+Metal 3.1/macOS 14 policy, executes the installed loader, and accepts only its
+explicit fail-closed `No Metal device available` result. A real-device Darwin
+CP-13 run remains the owner of successful library loading and all-program PSO
+resolution. Neither platform path skips the test. A new local and hosted strict
+receipt is mandatory after this change. Uncommitted code and output remain
+diagnostic by definition.
 
 The pinned Rust and Zig narrow-Poseidon2 witness generators have reached exact
 445-column parity for the focused `Call.narrow(1, 2)` row, and the committed
@@ -1256,9 +1262,12 @@ Additional requirements:
   exact installed `zig-out/bin/metal-eval-prepare` product and the checked-in
   SN-PIE composition metallib loader test execute. On non-Darwin hosts the test
   executes the platform-unavailability contract without a skip. The hosted
-  macOS Metal-acceptance lane separately builds and runs the real loader
-  integration; CP-13 must not hide or allowlist it as an optional skip or select
-  an executable by ignored cache order.
+  macOS Metal-acceptance lane compiles and links a host-compatible copy of the
+  exact SN2 composition. Because the GitHub runner exposes no `MTLDevice`, it
+  must then execute the installed loader and observe only the exact fail-closed
+  no-device diagnostic. A real-device local Darwin CP-13 run must successfully
+  load the library and resolve all 279 programs. CP-13 must not hide either path
+  as an optional skip or select an executable by ignored cache order.
 - The live oracle procedure from CP-11 is part of strict release evidence, not an
   optional local flag.
 - The installed CLI completes a representative multi-shard ELF prove/verify and
