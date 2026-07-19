@@ -5,28 +5,13 @@
 //! verifier integrations cannot silently reorder claim-phase events.
 
 const std = @import("std");
-const builtin = @import("builtin");
 const claims = @import("claims.zig");
 const public_data = @import("../public_data.zig");
 const relation_challenges = @import("../relation_challenges.zig");
 
-pub const INTERACTION_POW_BITS_DEBUG: u32 = 1;
-pub const INTERACTION_POW_BITS_RELEASE: u32 = 10;
-
-pub const Difficulty = struct {
-    bits: u32,
-
-    pub fn init(bits: u32) Difficulty {
-        return .{ .bits = bits };
-    }
-
-    pub fn default() Difficulty {
-        return .{ .bits = if (builtin.mode == .Debug)
-            INTERACTION_POW_BITS_DEBUG
-        else
-            INTERACTION_POW_BITS_RELEASE };
-    }
-};
+/// RV32IM interaction security parameter. Changing this value requires a proof
+/// protocol version bump and renewed pinned-oracle evidence.
+pub const INTERACTION_POW_BITS: u32 = 10;
 
 pub const PrefixError = error{InvalidInteractionProofOfWork};
 
@@ -35,12 +20,8 @@ pub const ProverRelations = struct {
     relations: relation_challenges.Relations,
 };
 
-test "claim phase: default interaction PoW difficulty matches Stark-V build mode" {
-    const expected = if (builtin.mode == .Debug)
-        INTERACTION_POW_BITS_DEBUG
-    else
-        INTERACTION_POW_BITS_RELEASE;
-    try std.testing.expectEqual(expected, Difficulty.default().bits);
+test "claim phase: interaction PoW difficulty is build-mode invariant" {
+    try std.testing.expectEqual(@as(u32, 10), INTERACTION_POW_BITS);
 }
 
 /// Mix public data, preprocessed and main roots, then the canonical main claim.
@@ -69,7 +50,6 @@ pub fn proveToRelations(
     preprocessed_root: anytype,
     main_root: anytype,
     main_claim: *const claims.MainClaim,
-    difficulty: Difficulty,
 ) !ProverRelations {
     mixCommittedPrefix(
         MerkleChannel,
@@ -79,7 +59,7 @@ pub fn proveToRelations(
         main_root,
         main_claim,
     );
-    const nonce = channel.grind(difficulty.bits);
+    const nonce = channel.grind(INTERACTION_POW_BITS);
     channel.mixU64(nonce);
     return .{
         .interaction_pow = nonce,
@@ -97,7 +77,6 @@ pub fn verifyToRelations(
     preprocessed_root: anytype,
     main_root: anytype,
     main_claim: *const claims.MainClaim,
-    difficulty: Difficulty,
     interaction_pow: u64,
 ) !relation_challenges.Relations {
     mixCommittedPrefix(
@@ -108,7 +87,7 @@ pub fn verifyToRelations(
         main_root,
         main_claim,
     );
-    if (!channel.verifyPowNonce(difficulty.bits, interaction_pow)) {
+    if (!channel.verifyPowNonce(INTERACTION_POW_BITS, interaction_pow)) {
         return PrefixError.InvalidInteractionProofOfWork;
     }
     channel.mixU64(interaction_pow);

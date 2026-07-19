@@ -2,8 +2,15 @@
 //!
 //! The adapter contains a parity test against the production RISC-V registries.
 
+const schema = @import("schema.zig");
+
 pub const FAMILY_COUNT: usize = 16;
 pub const LOOKUP_TABLE_COUNT: usize = 6;
+
+/// Interaction PoW for proof-artifact schema v3. A change requires a schema
+/// version bump rather than accepting a value from an artifact or caller.
+pub const INTERACTION_POW_SCHEMA_VERSION: u32 = 3;
+pub const INTERACTION_POW_BITS: u32 = 10;
 
 pub const Family = struct {
     ordinal: u8,
@@ -114,6 +121,8 @@ pub fn mainColumns(kind: InfraKind) u32 {
 }
 
 comptime {
+    if (schema.SCHEMA_VERSION != INTERACTION_POW_SCHEMA_VERSION)
+        @compileError("review interaction PoW before changing the RISC-V artifact schema");
     var seen = [_]bool{false} ** FAMILY_COUNT;
     for (FAMILIES) |family| {
         if (family.ordinal >= FAMILY_COUNT or seen[family.ordinal])

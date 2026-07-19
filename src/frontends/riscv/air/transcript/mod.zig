@@ -9,7 +9,7 @@ pub const Component = claims.Component;
 pub const COMPONENT_COUNT = claims.COMPONENT_COUNT;
 pub const MainClaim = claims.MainClaim;
 pub const InteractionClaim = claims.InteractionClaim;
-pub const Difficulty = protocol.Difficulty;
+pub const INTERACTION_POW_BITS = protocol.INTERACTION_POW_BITS;
 pub const ProverRelations = protocol.ProverRelations;
 pub const PrefixError = protocol.PrefixError;
 pub const mixCommittedPrefix = protocol.mixCommittedPrefix;
@@ -67,8 +67,6 @@ test "claim phase: prover and verifier replay are byte symmetric" {
     const preprocessed_root = [_]u8{0x11} ** 32;
     const main_root = [_]u8{0x22} ** 32;
     const interaction_root = [_]u8{0x33} ** 32;
-    const difficulty = Difficulty.init(1);
-
     var prover_channel = Blake2sChannel{};
     const prover_result = try proveToRelations(
         Blake2sMerkleChannel,
@@ -78,7 +76,6 @@ test "claim phase: prover and verifier replay are byte symmetric" {
         preprocessed_root,
         main_root,
         &main_claim,
-        difficulty,
     );
     const interaction_claim = fixtureInteractionClaim();
     finishWithInteractionRoot(
@@ -97,7 +94,6 @@ test "claim phase: prover and verifier replay are byte symmetric" {
         preprocessed_root,
         main_root,
         &main_claim,
-        difficulty,
         prover_result.interaction_pow,
     );
     finishWithInteractionRoot(
@@ -119,8 +115,6 @@ test "claim phase: invalid interaction proof of work fails before relation draws
     const main_claim = fixtureMainClaim();
     const preprocessed_root = [_]u8{0x11} ** 32;
     const main_root = [_]u8{0x22} ** 32;
-    const difficulty = Difficulty.init(8);
-
     var prover_channel = Blake2sChannel{};
     mixCommittedPrefix(
         Blake2sMerkleChannel,
@@ -130,9 +124,9 @@ test "claim phase: invalid interaction proof of work fails before relation draws
         main_root,
         &main_claim,
     );
-    const valid_nonce = prover_channel.grind(difficulty.bits);
+    const valid_nonce = prover_channel.grind(INTERACTION_POW_BITS);
     var invalid_nonce = valid_nonce +% 1;
-    while (prover_channel.verifyPowNonce(difficulty.bits, invalid_nonce)) invalid_nonce +%= 1;
+    while (prover_channel.verifyPowNonce(INTERACTION_POW_BITS, invalid_nonce)) invalid_nonce +%= 1;
 
     var verifier_channel = Blake2sChannel{};
     try std.testing.expectError(
@@ -145,7 +139,6 @@ test "claim phase: invalid interaction proof of work fails before relation draws
             preprocessed_root,
             main_root,
             &main_claim,
-            difficulty,
             invalid_nonce,
         ),
     );
@@ -155,7 +148,8 @@ test "claim phase: invalid interaction proof of work fails before relation draws
 test "claim phase: deterministic pinned transcript checkpoints" {
     // Independently reproduced with Stark-V d478f783 and its pinned Stwo
     // submodule 52a5d60d. These checkpoints bind mix-call boundaries, not only
-    // a flattened value stream.
+    // a flattened value stream. The 1-bit grind retains the upstream debug
+    // reference vector; production helpers always use INTERACTION_POW_BITS.
     const data = fixturePublicData();
     const main_claim = fixtureMainClaim();
     const interaction_claim = fixtureInteractionClaim();

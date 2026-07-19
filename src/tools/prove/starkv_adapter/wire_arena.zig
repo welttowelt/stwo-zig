@@ -204,8 +204,11 @@ test "artifact protocol snapshot matches production RISC-V registries" {
     const order = stwo.frontends.riscv.air.component_order;
     const entries = stwo.frontends.riscv.air.lookups.opcode_entries;
     const tables = stwo.frontends.riscv.air.lookups.tables.schema;
+    const transcript = stwo.frontends.riscv.air.transcript;
     const trace = stwo.frontends.riscv.runner.trace;
 
+    try std.testing.expectEqual(artifact.SCHEMA_VERSION, wire.INTERACTION_POW_SCHEMA_VERSION);
+    try std.testing.expectEqual(wire.INTERACTION_POW_BITS, transcript.INTERACTION_POW_BITS);
     try std.testing.expectEqual(wire.FAMILIES.len, order.opcodeFamilies().len);
     for (order.opcodeFamilies(), wire.FAMILIES) |family, metadata| {
         try std.testing.expectEqual(metadata.ordinal, @intFromEnum(family));
