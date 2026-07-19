@@ -54,7 +54,12 @@ MANUAL_SOURCE_CEILING = 850
 SIGNED_MULH_FIX_MARKER = "FIX(stark-v-signed-mulh)"
 ALLOWED_ACTIVE_DIVERGENCES = frozenset({
     ("RISC-V", "PCS geometry"),
+    ("RISC-V", "Interaction transcript"),
     ("RISC-V", "Signed `MULH` carry relation"),
+})
+REQUIRED_ARCHITECTURAL_DIVERGENCES = frozenset({
+    ("RISC-V", "PCS geometry"),
+    ("RISC-V", "Interaction transcript"),
 })
 KNOWN_PIN_DOCUMENTED_LIMITATIONS = {
     PINNED_ORACLE: frozenset({("RISC-V", "Signed `MULH` carry relation")}),
@@ -140,6 +145,13 @@ def divergence_ledger_errors(text: str, pinned_oracle: str = PINNED_ORACLE) -> l
                 )
             continue
         errors.append(f"release-blocking divergence remains active: {key[0]} / {key[1]}")
+
+    for key in REQUIRED_ARCHITECTURAL_DIVERGENCES:
+        if key not in rows:
+            errors.append(
+                "required architectural divergence is missing: "
+                f"{key[0]} / {key[1]}"
+            )
 
     for key in KNOWN_PIN_DOCUMENTED_LIMITATIONS.get(pinned_oracle, frozenset()):
         if key not in rows:

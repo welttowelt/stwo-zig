@@ -1,11 +1,9 @@
 //! Public statement data for RV32IM proofs.
 //!
 //! The field model and transcript order mirror Stark-V's `PublicData` at the
-//! pinned RISC-V oracle revision. This module only binds the values into the
-//! Fiat-Shamir transcript. PC and clock also bind through registers-state;
-//! registers and I/O close through MemoryAccess. Root fields remain release
-//! blockers until the Merkle bus closes end to end; transcript binding alone
-//! does not prove that they belong to the trace.
+//! pinned RISC-V oracle revision. PC and clock bind through registers-state,
+//! registers and I/O close through memory-access, and roots are checked against
+//! the committed program and RW-memory trees before entering the transcript.
 
 const std = @import("std");
 
@@ -98,11 +96,10 @@ pub const PublicData = struct {
 
     /// Validate the statement shape that is derivable from public data alone.
     ///
-    /// Stark-V clears output words on non-final segments, so an empty output
-    /// list remains valid only when `output_len == 0` until segment identity is
-    /// committed by the statement. Output words expose complete memory words;
-    /// unused bytes of the final output word are therefore intentionally not
-    /// required to be zero.
+    /// The released CLI accepts one complete, unsegmented execution, so every
+    /// public output word is present. Output words expose complete memory words;
+    /// unused bytes of the final output word are intentionally not required to
+    /// be zero.
     pub fn validate(self: *const PublicData) ValidationError!void {
         if (self.program_root == null) return error.MissingProgramRoot;
         for (self.reg_last_clock) |clock| {

@@ -184,7 +184,8 @@ class DivergenceContractTests(unittest.TestCase):
 
     def test_only_code_owned_conditional_rows_are_allowlisted(self) -> None:
         ledger = self.ledger(
-            "| RISC-V | PCS geometry | zig | rust | Allowed only with the self-check. |"
+            "| RISC-V | PCS geometry | zig | rust | Allowed only with the self-check. |",
+            "| RISC-V | Interaction transcript | zig | rust | Allowed only with the transcript receipt. |",
         )
         self.assertEqual([], divergence_ledger_errors(ledger, pinned_oracle="f" * 40))
 
@@ -194,6 +195,15 @@ class DivergenceContractTests(unittest.TestCase):
         self.assertIn(
             "release-blocking divergence remains active: RISC-V / Invented waiver",
             divergence_ledger_errors(invented, pinned_oracle="f" * 40),
+        )
+
+    def test_architectural_divergences_cannot_be_hidden(self) -> None:
+        ledger = self.ledger(
+            "| RISC-V | PCS geometry | zig | rust | Allowed only with the self-check. |",
+        )
+        self.assertIn(
+            "required architectural divergence is missing: RISC-V / Interaction transcript",
+            divergence_ledger_errors(ledger, pinned_oracle="f" * 40),
         )
 
 

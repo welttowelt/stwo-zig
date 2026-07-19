@@ -2,8 +2,8 @@
 //!
 //! This is an exact port of pinned Stark-V `PublicData::logup_sum`. Each domain
 //! is exposed separately so callers cannot accidentally offset an unclosed
-//! claim against another relation. The proof consumes `registersStateSum` and
-//! `memoryAccessSum`; the release gate remains closed until Merkle is active.
+//! claim against another relation. The production proof consumes all three
+//! public domains independently.
 
 const std = @import("std");
 const M31 = @import("../../../core/fields/m31.zig").M31;
