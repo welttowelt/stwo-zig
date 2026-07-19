@@ -186,8 +186,10 @@ jobs:
         with:
           version: 0.15.2
 
-      - name: Install pinned Rust toolchain
-        run: rustup toolchain install nightly-2026-01-29 --profile minimal
+      - name: Install pinned Rust toolchains
+        run: |
+          rustup toolchain install nightly-2025-07-14 --profile minimal
+          rustup toolchain install nightly-2026-01-29 --profile minimal
 
       - name: Checkout pinned Stark-V oracle
         env:
