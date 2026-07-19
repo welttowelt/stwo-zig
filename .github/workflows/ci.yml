@@ -13,17 +13,27 @@ on:
         options:
           - standard
           - strict
+          - riscv-produce-candidate
+          - riscv-produce-promoted
           - riscv-candidate
           - riscv-promoted
         default: standard
+      candidate_sha:
+        description: Full candidate commit SHA (RISC-V gates only)
+        type: string
+        default: ""
+      candidate_ref:
+        description: Explicit candidate source ref (RISC-V gates only)
+        type: string
+        default: ""
+      producer_run_id:
+        description: Exhaustive producer run ID (fast RISC-V gates only)
+        type: string
+        default: ""
 
 permissions:
   actions: read
   contents: read
-
-concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && inputs.gate || 'automatic' }}
-  cancel-in-progress: true
 
 jobs:
   release-gate:
@@ -152,18 +162,57 @@ jobs:
 
   riscv-release-evidence:
     name: RISC-V exhaustive release evidence
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: >-
+      github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
+      startsWith(inputs.gate, 'riscv-produce-')
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    concurrency:
+      group: riscv-exhaustive-${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.sha }}
+      cancel-in-progress: false
     env:
+      RISCV_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+      RISCV_CANDIDATE_REF: ${{ inputs.candidate_ref }}
+      RISCV_REQUESTED_PHASE: ${{ inputs.gate == 'riscv-produce-candidate' && 'candidate' || inputs.gate == 'riscv-produce-promoted' && 'promoted' || '' }}
+      TRUSTED_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      TRUSTED_REPOSITORY_ID: "1152389958"
+      TRUSTED_OWNER_ID: "92999717"
       STARK_V_SOURCE: ${{ github.workspace }}/../stark-v
       STWO_ZIG_RISCV_ORACLE_CACHE_DIR: ${{ runner.tool_cache }}/stwo-zig/riscv-oracle
       STWO_CAIRO_RUST_ROOT: ${{ github.workspace }}/../stwo-cairo
-      RISCV_EVIDENCE_DIR: zig-out/release-evidence/riscv/runs/exhaustive-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-      RISCV_BUNDLE_DIR: zig-out/release-evidence/riscv/bundle-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+      RISCV_EVIDENCE_DIR: zig-out/release-evidence/riscv/runs/exhaustive-${{ inputs.candidate_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+      RISCV_BUNDLE_DIR: zig-out/release-evidence/riscv/bundle-${{ inputs.candidate_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
-      - name: Checkout candidate
+      - name: Require owner-dispatched main workflow and exact candidate
+        id: riscv-candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$GITHUB_REF" = refs/heads/main
+          test "$GITHUB_WORKFLOW_REF" = "$GITHUB_REPOSITORY/.github/workflows/ci.yml@refs/heads/main"
+          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")
+          test "$(jq -r .repository.id <<<"$run")" = "$TRUSTED_REPOSITORY_ID"
+          test "$(jq -r .event <<<"$run")" = workflow_dispatch
+          test "$(jq -r .head_branch <<<"$run")" = main
+          test "$(jq -r .head_sha <<<"$run")" = "$TRUSTED_WORKFLOW_SHA"
+          test "$(jq -r .actor.id <<<"$run")" = "$TRUSTED_OWNER_ID"
+          test "$(jq -r .triggering_actor.id <<<"$run")" = "$TRUSTED_OWNER_ID"
+          [[ "$RISCV_CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$RISCV_CANDIDATE_REF" == refs/heads/* ]]
+          candidate=$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$RISCV_CANDIDATE_SHA")
+          test "$(jq -r .sha <<<"$candidate")" = "$RISCV_CANDIDATE_SHA"
+          candidate_branch=${RISCV_CANDIDATE_REF#refs/heads/}
+          branches=$(gh api "repos/$GITHUB_REPOSITORY/commits/$RISCV_CANDIDATE_SHA/branches-where-head?per_page=100")
+          jq -e --arg branch "$candidate_branch" 'any(.[]; .name == $branch)' \
+            <<<"$branches" >/dev/null
+          echo "tree_oid=$(jq -r .tree.sha <<<"$candidate")" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout exact candidate
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ env.RISCV_CANDIDATE_SHA }}
+          persist-credentials: false
 
       - name: Detect promoted adapter
         id: riscv-release-state
@@ -174,6 +223,12 @@ jobs:
           else
             echo 'promoted=false' >> "$GITHUB_OUTPUT"
             echo 'phase=candidate' >> "$GITHUB_OUTPUT"
+          fi
+          if test -n "$RISCV_REQUESTED_PHASE"; then
+            test "$RISCV_REQUESTED_PHASE" = "$(tail -n 1 "$GITHUB_OUTPUT" | cut -d= -f2)" || {
+              echo "requested phase does not match candidate source" >&2
+              exit 1
+            }
           fi
 
       - name: Setup Python
@@ -211,25 +266,70 @@ jobs:
         env: *stwo-cairo-env
         run: *checkout-stwo-cairo
 
+      - name: Capture trusted producer identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RISCV_PHASE: ${{ steps.riscv-release-state.outputs.phase }}
+          RISCV_TREE_OID: ${{ steps.riscv-candidate.outputs.tree_oid }}
+        run: |
+          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")
+          repository_id=$(jq -r .repository.id <<<"$run")
+          test "$repository_id" = "$TRUSTED_REPOSITORY_ID"
+          artifact_name="riscv-exhaustive-bundle-$RISCV_CANDIDATE_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          jq -n \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --argjson repository_id "$repository_id" \
+            --arg candidate "$RISCV_CANDIDATE_SHA" \
+            --arg tree "$RISCV_TREE_OID" \
+            --arg source_ref "$RISCV_CANDIDATE_REF" \
+            --arg workflow_sha "$TRUSTED_WORKFLOW_SHA" \
+            --arg event "$GITHUB_EVENT_NAME" \
+            --argjson run_id "$GITHUB_RUN_ID" \
+            --argjson run_attempt "$GITHUB_RUN_ATTEMPT" \
+            --arg actor "$(jq -r .actor.login <<<"$run")" \
+            --argjson actor_id "$(jq -r .actor.id <<<"$run")" \
+            --arg triggering_actor "$(jq -r .triggering_actor.login <<<"$run")" \
+            --argjson triggering_actor_id "$(jq -r .triggering_actor.id <<<"$run")" \
+            --arg phase "$RISCV_PHASE" \
+            --arg artifact_name "$artifact_name" \
+            '{
+              schema: "riscv-release-producer-trust-v1",
+              trust_root: "repository-owner-dispatch",
+              repository: {full_name: $repository, id: $repository_id},
+              candidate: {
+                sha: $candidate, tree_oid: $tree,
+                source_repository: $repository, source_repository_id: $repository_id,
+                source_ref: $source_ref
+              },
+              workflow: {
+                path: ".github/workflows/ci.yml", repository: $repository,
+                repository_id: $repository_id, ref: "refs/heads/main",
+                commit_sha: $workflow_sha
+              },
+              workflow_base: {ref: "refs/heads/main", sha: $workflow_sha},
+              event: $event,
+              run: {id: $run_id, attempt: $run_attempt},
+              actor: {login: $actor, id: $actor_id},
+              triggering_actor: {login: $triggering_actor, id: $triggering_actor_id},
+              phase: $phase,
+              artifact: {name: $artifact_name, retention_days: 30}
+            }' > "$RUNNER_TEMP/riscv-producer-trust.json"
+
       - name: Run enforcing CP-13 phase gate
         run: |
           python3 scripts/riscv_release_gate.py \
             --strict \
             --phase "${{ steps.riscv-release-state.outputs.phase }}" \
             --stark-v-source "$STARK_V_SOURCE" \
-            --candidate "$(git rev-parse HEAD)" \
+            --candidate "$RISCV_CANDIDATE_SHA" \
             --evidence-dir "$RISCV_EVIDENCE_DIR"
 
       - name: Pack immutable exhaustive evidence
         run: |
           python3 scripts/riscv_release_bundle.py pack \
-            --candidate "$GITHUB_SHA" \
+            --candidate "$RISCV_CANDIDATE_SHA" \
             --phase "${{ steps.riscv-release-state.outputs.phase }}" \
-            --producer-repository "$GITHUB_REPOSITORY" \
-            --producer-workflow-ref "$GITHUB_WORKFLOW_REF" \
-            --producer-run-id "$GITHUB_RUN_ID" \
-            --producer-run-attempt "$GITHUB_RUN_ATTEMPT" \
-            --producer-event "$GITHUB_EVENT_NAME" \
+            --trust-context "$RUNNER_TEMP/riscv-producer-trust.json" \
             --evidence-dir "$RISCV_EVIDENCE_DIR" \
             --cli zig-out/bin/stwo-zig \
             --output-dir "$RISCV_BUNDLE_DIR"
@@ -238,7 +338,7 @@ jobs:
         id: riscv-bundle-upload
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: riscv-exhaustive-bundle-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: riscv-exhaustive-bundle-${{ env.RISCV_CANDIDATE_SHA }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ env.RISCV_BUNDLE_DIR }}/
           if-no-files-found: error
           retention-days: 30
@@ -250,7 +350,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: riscv-${{ steps.riscv-release-state.outputs.phase }}-diagnostics-${{ github.sha }}
+          name: riscv-${{ steps.riscv-release-state.outputs.phase }}-diagnostics-${{ env.RISCV_CANDIDATE_SHA }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             zig-out/release-evidence/riscv/
             zig-out/release-evidence/native/
@@ -267,16 +367,54 @@ jobs:
 
   riscv-fast-release-gate:
     name: RISC-V fast release gate
-    if: github.event_name == 'workflow_dispatch' && startsWith(inputs.gate, 'riscv-')
+    if: >-
+      github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
+      (inputs.gate == 'riscv-candidate' || inputs.gate == 'riscv-promoted')
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 3
+    concurrency:
+      group: riscv-fast-${{ inputs.candidate_sha }}-${{ inputs.producer_run_id }}
+      cancel-in-progress: false
     env:
+      RISCV_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+      RISCV_CANDIDATE_REF: ${{ inputs.candidate_ref }}
+      RISCV_PRODUCER_RUN_ID: ${{ inputs.producer_run_id }}
       RISCV_GATE_PHASE: ${{ inputs.gate == 'riscv-candidate' && 'candidate' || 'promoted' }}
       RISCV_BUNDLE_DIR: ${{ runner.temp }}/riscv-exhaustive-bundle
-      RISCV_FAST_EVIDENCE_DIR: zig-out/release-evidence/riscv/runs/fast-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+      RISCV_FAST_EVIDENCE_DIR: zig-out/release-evidence/riscv/runs/fast-${{ inputs.candidate_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+      TRUSTED_REPOSITORY_ID: "1152389958"
+      TRUSTED_OWNER_ID: "92999717"
     steps:
+      - name: Require owner-dispatched main workflow and exact inputs
+        id: riscv-candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$GITHUB_REF" = refs/heads/main
+          test "$GITHUB_WORKFLOW_REF" = "$GITHUB_REPOSITORY/.github/workflows/ci.yml@refs/heads/main"
+          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")
+          test "$(jq -r .repository.id <<<"$run")" = "$TRUSTED_REPOSITORY_ID"
+          test "$(jq -r .event <<<"$run")" = workflow_dispatch
+          test "$(jq -r .head_branch <<<"$run")" = main
+          test "$(jq -r .actor.id <<<"$run")" = "$TRUSTED_OWNER_ID"
+          test "$(jq -r .triggering_actor.id <<<"$run")" = "$TRUSTED_OWNER_ID"
+          [[ "$RISCV_CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$RISCV_CANDIDATE_REF" == refs/heads/* ]]
+          [[ "$RISCV_PRODUCER_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          candidate=$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$RISCV_CANDIDATE_SHA")
+          test "$(jq -r .sha <<<"$candidate")" = "$RISCV_CANDIDATE_SHA"
+          candidate_branch=${RISCV_CANDIDATE_REF#refs/heads/}
+          branches=$(gh api "repos/$GITHUB_REPOSITORY/commits/$RISCV_CANDIDATE_SHA/branches-where-head?per_page=100")
+          jq -e --arg branch "$candidate_branch" 'any(.[]; .name == $branch)' \
+            <<<"$branches" >/dev/null
+          echo "tree_oid=$(jq -r .tree.sha <<<"$candidate")" >> "$GITHUB_OUTPUT"
+
       - name: Checkout exact candidate
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ env.RISCV_CANDIDATE_SHA }}
+          persist-credentials: false
 
       - name: Setup Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
@@ -295,47 +433,95 @@ jobs:
             exit 1
           }
 
-      - name: Resolve exact successful push producer
+      - name: Resolve exact successful producer job and artifact
         id: riscv-producer
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          response=$(gh api \
-            --method GET \
-            -f head_sha="$GITHUB_SHA" \
-            -f event=push \
-            -f status=success \
-            -f per_page=100 \
-            "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs")
-          producer=$(jq -c \
-            --arg sha "$GITHUB_SHA" \
-            '[.workflow_runs[] | select(
-              .head_sha == $sha and .event == "push" and .conclusion == "success" and
-              .head_branch == "main" and .path == ".github/workflows/ci.yml"
-            )] | sort_by(.run_number, .run_attempt) | last // empty' <<<"$response")
-          test -n "$producer" || {
-            echo "no successful main push producer exists for exact commit $GITHUB_SHA" >&2
-            exit 1
-          }
-          run_id=$(jq -r .id <<<"$producer")
+          run_id="$RISCV_PRODUCER_RUN_ID"
+          producer=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id")
+          test "$(jq -r .path <<<"$producer")" = .github/workflows/ci.yml
+          test "$(jq -r .head_branch <<<"$producer")" = main
+          producer_event=$(jq -r .event <<<"$producer")
+          test "$producer_event" = workflow_dispatch
+          test "$(jq -r .repository.id <<<"$producer")" = "$TRUSTED_REPOSITORY_ID"
+          test "$(jq -r .actor.id <<<"$producer")" = "$TRUSTED_OWNER_ID"
+          test "$(jq -r .triggering_actor.id <<<"$producer")" = "$TRUSTED_OWNER_ID"
           run_attempt=$(jq -r .run_attempt <<<"$producer")
-          artifacts=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts?per_page=100")
-          count=$(jq \
-            --arg name "riscv-exhaustive-bundle-$GITHUB_SHA-$run_id-$run_attempt" \
-            '[.artifacts[] | select(.name == $name and (.expired | not))] | length' \
-            <<<"$artifacts")
-          test "$count" = 1 || {
-            echo "exact producer has $count live exhaustive bundles; expected one" >&2
+          jobs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/attempts/$run_attempt/jobs?per_page=100")
+          producer_job=$(jq -c \
+            '[.jobs[] | select(.name == "RISC-V exhaustive release evidence" and
+              .conclusion == "success")] | if length == 1 then .[0] else empty end' \
+            <<<"$jobs")
+          test -n "$producer_job" || {
+            echo "producer job is not uniquely successful in run $run_id attempt $run_attempt" >&2
             exit 1
           }
+          artifacts=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts?per_page=100")
+          artifact_name="riscv-exhaustive-bundle-$RISCV_CANDIDATE_SHA-$run_id-$run_attempt"
+          artifact=$(jq -c --arg name "$artifact_name" \
+            '[.artifacts[] | select(.name == $name and (.expired | not))] |
+             if length == 1 then .[0] else empty end' <<<"$artifacts")
+          test -n "$artifact" || {
+            echo "producer lacks one live exact-candidate exhaustive bundle" >&2
+            exit 1
+          }
+          digest=$(jq -r .digest <<<"$artifact")
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          repository_id=$(jq -r .repository.id <<<"$producer")
+          test "$repository_id" = "$TRUSTED_REPOSITORY_ID"
+          workflow_sha=$(jq -r .head_sha <<<"$producer")
+          [[ "$workflow_sha" =~ ^[0-9a-f]{40}$ ]]
+          jq -n \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --argjson repository_id "$repository_id" \
+            --arg candidate "$RISCV_CANDIDATE_SHA" \
+            --arg tree "${{ steps.riscv-candidate.outputs.tree_oid }}" \
+            --arg source_ref "$RISCV_CANDIDATE_REF" \
+            --arg workflow_sha "$workflow_sha" \
+            --arg event "$producer_event" \
+            --argjson run_id "$run_id" \
+            --argjson run_attempt "$run_attempt" \
+            --arg actor "$(jq -r .actor.login <<<"$producer")" \
+            --argjson actor_id "$(jq -r .actor.id <<<"$producer")" \
+            --arg triggering_actor "$(jq -r .triggering_actor.login <<<"$producer")" \
+            --argjson triggering_actor_id "$(jq -r .triggering_actor.id <<<"$producer")" \
+            --arg phase "$RISCV_GATE_PHASE" \
+            --arg artifact_name "$artifact_name" \
+            '{
+              schema: "riscv-release-producer-trust-v1",
+              trust_root: "repository-owner-dispatch",
+              repository: {full_name: $repository, id: $repository_id},
+              candidate: {
+                sha: $candidate, tree_oid: $tree,
+                source_repository: $repository, source_repository_id: $repository_id,
+                source_ref: $source_ref
+              },
+              workflow: {
+                path: ".github/workflows/ci.yml", repository: $repository,
+                repository_id: $repository_id, ref: "refs/heads/main",
+                commit_sha: $workflow_sha
+              },
+              workflow_base: {ref: "refs/heads/main", sha: $workflow_sha},
+              event: $event,
+              run: {id: $run_id, attempt: $run_attempt},
+              actor: {login: $actor, id: $actor_id},
+              triggering_actor: {login: $triggering_actor, id: $triggering_actor_id},
+              phase: $phase,
+              artifact: {name: $artifact_name, retention_days: 30}
+            }' > "$RUNNER_TEMP/riscv-producer-trust.json"
           echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
           echo "run_attempt=$run_attempt" >> "$GITHUB_OUTPUT"
-          echo "using exhaustive producer run $run_id attempt $run_attempt for $GITHUB_SHA"
+          echo "artifact_id=$(jq -r .id <<<"$artifact")" >> "$GITHUB_OUTPUT"
+          echo "artifact_digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "artifact_created_at=$(jq -r .created_at <<<"$artifact")" >> "$GITHUB_OUTPUT"
+          echo "artifact_expires_at=$(jq -r .expires_at <<<"$artifact")" >> "$GITHUB_OUTPUT"
+          echo "producer_job_id=$(jq -r .id <<<"$producer_job")" >> "$GITHUB_OUTPUT"
 
       - name: Download exact immutable exhaustive bundle
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
-          name: riscv-exhaustive-bundle-${{ github.sha }}-${{ steps.riscv-producer.outputs.run_id }}-${{ steps.riscv-producer.outputs.run_attempt }}
+          name: riscv-exhaustive-bundle-${{ env.RISCV_CANDIDATE_SHA }}-${{ steps.riscv-producer.outputs.run_id }}-${{ steps.riscv-producer.outputs.run_attempt }}
           path: ${{ env.RISCV_BUNDLE_DIR }}
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
@@ -344,13 +530,29 @@ jobs:
       - name: Verify exact-source exhaustive evidence
         run: |
           python3 scripts/riscv_release_bundle.py verify \
-            --candidate "$GITHUB_SHA" \
+            --candidate "$RISCV_CANDIDATE_SHA" \
             --phase "$RISCV_GATE_PHASE" \
-            --producer-repository "$GITHUB_REPOSITORY" \
-            --producer-workflow-ref "$GITHUB_WORKFLOW_REF" \
-            --producer-run-id "${{ steps.riscv-producer.outputs.run_id }}" \
-            --producer-run-attempt "${{ steps.riscv-producer.outputs.run_attempt }}" \
+            --trust-context "$RUNNER_TEMP/riscv-producer-trust.json" \
             --bundle "$RISCV_BUNDLE_DIR"
+
+      - name: Record immutable artifact transport
+        run: |
+          jq -n \
+            --argjson artifact_id "${{ steps.riscv-producer.outputs.artifact_id }}" \
+            --arg digest "${{ steps.riscv-producer.outputs.artifact_digest }}" \
+            --arg created_at "${{ steps.riscv-producer.outputs.artifact_created_at }}" \
+            --arg expires_at "${{ steps.riscv-producer.outputs.artifact_expires_at }}" \
+            --argjson run_id "${{ steps.riscv-producer.outputs.run_id }}" \
+            --argjson run_attempt "${{ steps.riscv-producer.outputs.run_attempt }}" \
+            --argjson job_id "${{ steps.riscv-producer.outputs.producer_job_id }}" \
+            --arg manifest_sha256 "$(shasum -a 256 "$RISCV_BUNDLE_DIR/manifest.json" | cut -d' ' -f1)" \
+            '{
+              schema: "riscv-artifact-transport-v1", artifact_id: $artifact_id,
+              artifact_digest: $digest, created_at: $created_at, expires_at: $expires_at,
+              producer_run: {id: $run_id, attempt: $run_attempt},
+              producer_job: {id: $job_id, conclusion: "success"},
+              manifest_sha256: $manifest_sha256
+            }' > "$RISCV_BUNDLE_DIR/artifact-transport.json"
 
       - name: Run bounded live proof and independent verification
         run: |
@@ -362,11 +564,19 @@ jobs:
             --producer-receipt "$RISCV_BUNDLE_DIR/manifest.json" \
             --evidence-dir "$RISCV_FAST_EVIDENCE_DIR"
 
+      - name: Enforce fast-gate receipt SLA
+        run: |
+          jq -e '
+            .schema == "riscv_cli_evidence_v2" and .profile == "fast" and
+            .timing.wall_duration_ns <= 180000000000
+          ' "$RISCV_FAST_EVIDENCE_DIR/summary.json"
+          cp "$RISCV_BUNDLE_DIR/artifact-transport.json" "$RISCV_FAST_EVIDENCE_DIR/"
+
       - name: Retain fast live-proof evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: riscv-${{ env.RISCV_GATE_PHASE }}-fast-evidence-${{ github.sha }}
+          name: riscv-${{ env.RISCV_GATE_PHASE }}-fast-evidence-${{ env.RISCV_CANDIDATE_SHA }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ env.RISCV_FAST_EVIDENCE_DIR }}/
           if-no-files-found: error
           retention-days: 30

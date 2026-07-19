@@ -1,5 +1,6 @@
 import json
 import os
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -12,26 +13,88 @@ from scripts.riscv_release_bundle_lib import controller, model
 
 DIGEST = "a" * 64
 COMMIT = "b" * 40
+TREE = "c" * 40
 
 
 def gate_report() -> dict[str, object]:
+    python = "/python"
+    receipt = "/evidence/oracle-receipt.json"
     commands = [
-        "python scripts/riscv_staged_smoke.py --phase candidate",
-        "zig build release-gate-strict -Doptimize=ReleaseFast",
-        "python scripts/riscv_release_oracle.py build-and-compare",
-        "python scripts/riscv_release_oracle.py validate",
-        "python scripts/riscv_release_evidence.py",
+        ["zig", "fmt", "--check", "build.zig", "src", "tools"],
+        [python, "scripts/check_upstream_pins.py"],
+        [python, "scripts/check_source_conformance.py"],
+        [python, "scripts/check_riscv_release_contract.py", "--all", "--phase", "candidate"],
+        [python, "scripts/check_riscv_release_contract.py", "--structure"],
+        [python, "scripts/check_riscv_release_contract.py", "--core-purity"],
+        [python, "scripts/check_riscv_release_contract.py", "--frontend-layering"],
+        [python, "-m", "unittest", "discover", "-s", "scripts/tests", "-p", "test_*.py"],
+        [
+            python, "scripts/riscv_staged_smoke.py", "--phase", "candidate",
+            "--evidence-dir", "/evidence/cli",
+        ],
+        ["zig", "build", "release-gate-strict", "-Doptimize=ReleaseFast"],
+        [
+            python, "scripts/riscv_release_oracle.py", "build-and-compare",
+            "--stark-v-source", "/oracle", "--candidate", COMMIT,
+            "--receipt-out", receipt,
+        ],
+        [python, "scripts/riscv_release_oracle.py", "validate", "--receipt", receipt],
+        [
+            python, "scripts/riscv_release_evidence.py", "--receipt", receipt,
+            "--candidate", COMMIT,
+        ],
     ]
     return {
         "schema": "riscv-release-gate-evidence-v1",
         "status": "PASS",
         "phase": "candidate",
         "candidate_commit": COMMIT,
+        "host": {"system": "Linux"},
         "git": {"head": COMMIT, "initial_porcelain": "", "final_porcelain": ""},
         "commands": [
-            {"command_shell": command, "exit_code": 0, "skipped_tests": 0}
+            {
+                "command": command,
+                "command_shell": shlex.join(command),
+                "exit_code": 0,
+                "skipped_tests": 0,
+            }
             for command in commands
         ],
+    }
+
+
+def trust_context() -> dict[str, object]:
+    repository = model.TRUSTED_REPOSITORY
+    run_id = 123
+    attempt = 2
+    return {
+        "schema": "riscv-release-producer-trust-v1",
+        "trust_root": "repository-owner-dispatch",
+        "repository": {"full_name": repository, "id": model.TRUSTED_REPOSITORY_ID},
+        "candidate": {
+            "sha": COMMIT,
+            "tree_oid": TREE,
+            "source_repository": repository,
+            "source_repository_id": model.TRUSTED_REPOSITORY_ID,
+            "source_ref": "refs/heads/candidate",
+        },
+        "workflow": {
+            "path": ".github/workflows/ci.yml",
+            "repository": repository,
+            "repository_id": model.TRUSTED_REPOSITORY_ID,
+            "ref": "refs/heads/main",
+            "commit_sha": "d" * 40,
+        },
+        "workflow_base": {"ref": "refs/heads/main", "sha": "d" * 40},
+        "event": "workflow_dispatch",
+        "run": {"id": run_id, "attempt": attempt},
+        "actor": {"login": "teddyjfpender", "id": model.TRUSTED_OWNER_ID},
+        "triggering_actor": {"login": "teddyjfpender", "id": model.TRUSTED_OWNER_ID},
+        "phase": "candidate",
+        "artifact": {
+            "name": f"riscv-exhaustive-bundle-{COMMIT}-{run_id}-{attempt}",
+            "retention_days": 30,
+        },
     }
 
 
@@ -73,6 +136,23 @@ class ContentDomainTests(unittest.TestCase):
 
 
 class BundleContractTests(unittest.TestCase):
+    def test_producer_trust_requires_canonical_main_and_owner_identities(self) -> None:
+        trust = trust_context()
+        model.validate_trust_context(trust, candidate=COMMIT, phase="candidate", tree=TREE)
+        for mutate, diagnostic in (
+            (lambda value: value["workflow"].update(ref="refs/heads/candidate"), "canonical"),
+            (lambda value: value["actor"].update(id=0), "actor"),
+            (lambda value: value["candidate"].update(tree_oid="e" * 40), "commit/tree"),
+        ):
+            drifted = json.loads(json.dumps(trust))
+            mutate(drifted)
+            with self.subTest(diagnostic=diagnostic), self.assertRaisesRegex(
+                model.BundleError, diagnostic,
+            ):
+                model.validate_trust_context(
+                    drifted, candidate=COMMIT, phase="candidate", tree=TREE,
+                )
+
     def test_pack_does_not_delete_a_preexisting_output_directory(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -94,7 +174,15 @@ class BundleContractTests(unittest.TestCase):
         report = gate_report()
         model.validate_gate_report(report, COMMIT, "candidate")
         report["commands"] = report["commands"][:-1]
-        with self.assertRaisesRegex(model.BundleError, "riscv_release_evidence"):
+        with self.assertRaisesRegex(model.BundleError, "receipt argument|oracle source|canonical"):
+            model.validate_gate_report(report, COMMIT, "candidate")
+
+    def test_gate_report_rejects_reordered_canonical_subphases(self) -> None:
+        report = gate_report()
+        report["commands"][4], report["commands"][5] = (
+            report["commands"][5], report["commands"][4],
+        )
+        with self.assertRaisesRegex(model.BundleError, "canonical and ordered"):
             model.validate_gate_report(report, COMMIT, "candidate")
 
     def test_gate_report_rejects_skipped_tests(self) -> None:
@@ -157,6 +245,13 @@ class BundleContractTests(unittest.TestCase):
                 )
             },
             "boundary_rejection_results": {"phase-admission": {"returncode": 1}},
+            "claim_order_swap": {
+                "returncode": 1,
+                "expected_error": "OodsNotMatching",
+            },
+        }
+        summary["boundary_rejection_results"] = {
+            name: {"returncode": 1} for name in model.BOUNDARY_REJECTION_KEYS
         }
         model.validate_cli_summary(summary, COMMIT, "candidate", DIGEST)
         summary["implementation_commit"] = "c" * 40
@@ -169,6 +264,66 @@ class BundleContractTests(unittest.TestCase):
             path.write_text('{"phase":"candidate","phase":"promoted"}', encoding="utf-8")
             with self.assertRaisesRegex(model.BundleError, "duplicate"):
                 model.strict_json(path)
+
+    def test_cli_summary_rejects_each_delegated_coverage_omission(self) -> None:
+        summary = {
+            "schema": "riscv_cli_evidence_v1",
+            "profile": "exhaustive",
+            "phase": "candidate",
+            "release_status": "not_release_gated",
+            "implementation_commit": COMMIT,
+            "implementation_dirty": False,
+            "executable_sha256": DIGEST,
+            "multi_shard_addi_rows": 65_537,
+            "total_steps": 131_078,
+            **{
+                field: DIGEST for field in (
+                    "artifact_sha256", "benchmark_artifact_sha256", "benchmark_report_sha256",
+                    "verify_receipt_sha256", "benchmark_verify_receipt_sha256",
+                )
+            },
+            "independent_verify_returncode": 0,
+            "tamper_returncode": 1,
+            "proof_wire_mutation_returncodes": {
+                name: {"returncode": 1}
+                for name in ("trailing", "truncated", "length-bomb")
+            },
+            "hostile_artifact_results": {
+                name: {"returncode": 1}
+                for name in (
+                    "corrupt-json", "legacy-schema-v2", "duplicate-header", "unknown-field",
+                    "omitted-claim", "release-relabel",
+                )
+            },
+            "boundary_rejection_results": {
+                name: {"returncode": 1} for name in model.BOUNDARY_REJECTION_KEYS
+            },
+            "claim_order_swap": {"returncode": 1, "expected_error": "OodsNotMatching"},
+        }
+        for field, key in (
+            ("boundary_rejection_results", "existing-report"),
+            ("proof_wire_mutation_returncodes", "trailing"),
+            ("hostile_artifact_results", "unknown-field"),
+        ):
+            with self.subTest(field=field), mock.patch.dict(summary[field], clear=False):
+                removed = summary[field].pop(key)
+                try:
+                    with self.assertRaisesRegex(model.BundleError, "coverage|matrix"):
+                        model.validate_cli_summary(summary, COMMIT, "candidate", DIGEST)
+                finally:
+                    summary[field][key] = removed
+        summary.pop("claim_order_swap")
+        with self.assertRaisesRegex(model.BundleError, "claim-order"):
+            model.validate_cli_summary(summary, COMMIT, "candidate", DIGEST)
+
+    def test_bundle_lifetime_matches_artifact_policy_and_expires(self) -> None:
+        manifest = {"created_at_unix": 100, "expires_at_unix": 100 + 30 * 24 * 60 * 60}
+        model.validate_lifetime(manifest, now=101)
+        with self.assertRaisesRegex(model.BundleError, "expired"):
+            model.validate_lifetime(manifest, now=manifest["expires_at_unix"] + 1)
+        manifest["expires_at_unix"] -= 1
+        with self.assertRaisesRegex(model.BundleError, "retention"):
+            model.validate_lifetime(manifest, now=101)
 
 
 if __name__ == "__main__":

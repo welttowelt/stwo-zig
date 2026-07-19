@@ -6,6 +6,7 @@ import argparse
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from . import model
@@ -14,18 +15,9 @@ from . import model
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def producer_identity(args: argparse.Namespace) -> dict[str, object]:
-    return {
-        "repository": args.producer_repository,
-        "workflow_ref": args.producer_workflow_ref,
-        "run_id": args.producer_run_id,
-        "run_attempt": args.producer_run_attempt,
-        "event": args.producer_event,
-        "head_sha": args.candidate,
-    }
-
-
-def validate_oracle_receipt(root: Path, receipt: Path, candidate: str) -> None:
+def validate_oracle_receipt(
+    root: Path, receipt: Path, candidate: str, *, immutable: bool = False,
+) -> None:
     result = subprocess.run(
         [
             sys.executable,
@@ -34,6 +26,7 @@ def validate_oracle_receipt(root: Path, receipt: Path, candidate: str) -> None:
             str(receipt),
             "--candidate",
             candidate,
+            *(["--at-receipt-time"] if immutable else []),
         ],
         cwd=root,
         check=False,
@@ -57,6 +50,7 @@ def pack(args: argparse.Namespace) -> int:
         gate = model.strict_json(evidence / "release-gate.json")
         oracle = model.strict_json(evidence / "oracle-receipt.json")
         summary = model.strict_json(evidence / "cli/summary.json")
+        trust = model.strict_json(args.trust_context)
         model.validate_gate_report(gate, args.candidate, args.phase)
         validate_oracle_receipt(root, evidence / "oracle-receipt.json", args.candidate)
         executable_sha256 = model.sha256_file(args.cli)
@@ -85,13 +79,19 @@ def pack(args: argparse.Namespace) -> int:
             "schema": "release-gate-toolchains-v1",
             "sha256": model.canonical_sha256(gate.get("toolchains")),
         }
+        created_at = int(time.time())
+        model.validate_trust_context(
+            trust, candidate=args.candidate, phase=args.phase, tree=tree,
+        )
         manifest = {
             "schema": model.SCHEMA,
             "phase": args.phase,
             "candidate_commit": args.candidate,
             "repository_tree_oid": tree,
+            "created_at_unix": created_at,
+            "expires_at_unix": created_at + model.BUNDLE_RETENTION_SECONDS,
             "coverage": model.COVERAGE,
-            "producer": producer_identity(args),
+            "producer": trust,
             "domains": domains,
             "files": files,
         }
@@ -119,25 +119,25 @@ def verify(args: argparse.Namespace) -> int:
             raise model.BundleError("bundle is not bound to the requested phase and candidate")
         if manifest.get("repository_tree_oid") != tree:
             raise model.BundleError("bundle repository tree identity drifted")
+        model.validate_lifetime(manifest)
         if manifest.get("coverage") != model.COVERAGE:
             raise model.BundleError("bundle exhaustive coverage declaration drifted")
-        producer = manifest.get("producer")
-        expected_producer = {
-            "repository": args.producer_repository,
-            "workflow_ref": args.producer_workflow_ref,
-            "run_id": args.producer_run_id,
-            "run_attempt": args.producer_run_attempt,
-            "event": "push",
-            "head_sha": args.candidate,
-        }
-        if producer != expected_producer:
-            raise model.BundleError("bundle producer identity does not match the selected push run")
+        expected_producer = model.strict_json(args.trust_context)
+        model.validate_trust_context(
+            expected_producer, candidate=args.candidate, phase=args.phase, tree=tree,
+        )
+        if manifest.get("producer") != expected_producer:
+            raise model.BundleError(
+                "bundle producer identity does not match the selected producer run"
+            )
         files = model.validate_files(bundle, manifest)
         gate = model.strict_json(files["release-gate.json"])
         oracle = model.strict_json(files["oracle-receipt.json"])
         summary = model.strict_json(files["cli/summary.json"])
         model.validate_gate_report(gate, args.candidate, args.phase)
-        validate_oracle_receipt(root, files["oracle-receipt.json"], args.candidate)
+        validate_oracle_receipt(
+            root, files["oracle-receipt.json"], args.candidate, immutable=True,
+        )
         model.validate_cli_summary(
             summary, args.candidate, args.phase, model.sha256_file(files["bin/stwo-zig"]),
         )
@@ -159,10 +159,7 @@ def verify(args: argparse.Namespace) -> int:
 def add_identity_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--candidate", required=True)
     parser.add_argument("--phase", choices=("candidate", "promoted"), required=True)
-    parser.add_argument("--producer-repository", required=True)
-    parser.add_argument("--producer-workflow-ref", required=True)
-    parser.add_argument("--producer-run-id", required=True)
-    parser.add_argument("--producer-run-attempt", required=True)
+    parser.add_argument("--trust-context", type=Path, required=True)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -171,7 +168,6 @@ def main(argv: list[str] | None = None) -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
     command = subparsers.add_parser("pack")
     add_identity_arguments(command)
-    command.add_argument("--producer-event", choices=("push",), required=True)
     command.add_argument("--evidence-dir", type=Path, required=True)
     command.add_argument("--cli", type=Path, required=True)
     command.add_argument("--output-dir", type=Path, required=True)

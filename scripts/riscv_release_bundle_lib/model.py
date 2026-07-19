@@ -5,15 +5,24 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
+import shlex
 import stat
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
 
 SCHEMA = "riscv-release-bundle-v1"
+TRUSTED_REPOSITORY = "teddyjfpender/stwo-zig"
+TRUSTED_REPOSITORY_ID = 1_152_389_958
+TRUSTED_OWNER_ID = 92_999_717
 ORACLE_BOUNDARY_COUNT = 11
 MAX_JSON_BYTES = 64 * 1024 * 1024
+BUNDLE_RETENTION_SECONDS = 30 * 24 * 60 * 60
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 FILE_LAYOUT = {
     "release-gate.json": "release-gate.json",
     "oracle-receipt.json": "oracle-receipt.json",
@@ -25,6 +34,19 @@ COVERAGE = {
     "cross_shard_cli_smoke": "PASS",
     "benchmark_cli_smoke": "PASS",
     "oracle_boundaries": f"{ORACLE_BOUNDARY_COUNT}/{ORACLE_BOUNDARY_COUNT}",
+}
+BOUNDARY_REJECTION_KEYS = {
+    "phase-admission",
+    "irrelevant-experimental",
+    "malformed-elf",
+    "undeclared-release-abi",
+    "self-loop-completion",
+    "unsupported-instruction",
+    "oversized-input",
+    "missing-input",
+    "unsupported-backend",
+    "existing-proof",
+    "existing-report",
 }
 DOMAIN_PATHS = {
     "repository": (),
@@ -68,6 +90,24 @@ class BundleError(ValueError):
 def canonical_sha256(value: object) -> str:
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
+
+
+def exact_keys(value: object, expected: set[str], label: str) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != expected:
+        raise BundleError(f"{label} fields drifted")
+    return value
+
+
+def require_commit(value: object, label: str) -> str:
+    if not isinstance(value, str) or COMMIT_RE.fullmatch(value) is None:
+        raise BundleError(f"{label} is not a full commit SHA")
+    return value
+
+
+def require_sha256(value: object, label: str) -> str:
+    if not isinstance(value, str) or SHA256_RE.fullmatch(value) is None:
+        raise BundleError(f"{label} is not a lowercase SHA-256")
+    return value
 
 
 def sha256_file(path: Path) -> str:
@@ -132,39 +172,32 @@ def tracked_domain(root: Path, paths: tuple[str, ...]) -> dict[str, object]:
     if not entries:
         raise BundleError(f"empty content domain for paths {paths}")
 
-    query = b"".join(object_id.encode("ascii") + b"\n" for _, object_id, _ in entries)
-    batch = subprocess.run(
-        ["git", "cat-file", "--batch"], cwd=root, check=True,
-        input=query, capture_output=True,
-    ).stdout
-    cursor = 0
     digest = hashlib.sha256()
     records: list[dict[str, object]] = []
     for mode, object_id, path_bytes in entries:
-        line_end = batch.find(b"\n", cursor)
-        if line_end < 0:
-            raise BundleError("truncated git cat-file batch header")
-        header = batch[cursor:line_end].decode("ascii").split(" ")
-        if len(header) != 3 or header[0] != object_id:
-            raise BundleError("git cat-file batch identity drifted")
-        try:
-            size = int(header[2])
-        except ValueError as error:
-            raise BundleError("invalid git cat-file batch size") from error
-        start = line_end + 1
-        end = start + size
-        if end >= len(batch) or batch[end:end + 1] != b"\n":
-            raise BundleError("truncated git cat-file batch object")
-        blob = batch[start:end]
-        cursor = end + 1
-        for value in (mode.encode(), path_bytes, blob):
+        for value in (mode.encode(), path_bytes):
             digest.update(len(value).to_bytes(8, "big"))
             digest.update(value)
+        path = root / os.fsdecode(path_bytes)
+        if mode in {"100644", "100755"}:
+            size = path.stat().st_size
+            digest.update(size.to_bytes(8, "big"))
+            with path.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(chunk)
+        elif mode == "120000":
+            payload = os.fsencode(os.readlink(path))
+            digest.update(len(payload).to_bytes(8, "big"))
+            digest.update(payload)
+        elif mode == "160000":
+            payload = object_id.encode("ascii")
+            digest.update(len(payload).to_bytes(8, "big"))
+            digest.update(payload)
+        else:
+            raise BundleError(f"unsupported tracked mode {mode}: {path_bytes!r}")
         records.append({"path": path_bytes.decode("utf-8"), "mode": mode})
-    if cursor != len(batch):
-        raise BundleError("unexpected trailing git cat-file batch output")
     return {
-        "schema": "git-tracked-content-v1",
+        "schema": "git-tracked-content-v2",
         "sha256": digest.hexdigest(),
         "file_count": len(records),
         "paths": list(paths),
@@ -199,6 +232,156 @@ def oracle_domain(receipt: dict[str, Any]) -> dict[str, object]:
     return {"schema": "pinned-oracle-build-v1", "sha256": canonical_sha256(identity)}
 
 
+def validate_trust_context(
+    trust: dict[str, Any], *, candidate: str, phase: str, tree: str,
+) -> None:
+    exact_keys(
+        trust,
+        {
+            "schema", "repository", "candidate", "workflow", "workflow_base",
+            "trust_root", "event", "run", "actor", "triggering_actor", "phase",
+            "artifact",
+        },
+        "producer trust",
+    )
+    if trust.get("schema") != "riscv-release-producer-trust-v1":
+        raise BundleError("producer trust schema drifted")
+    if trust.get("trust_root") != "repository-owner-dispatch":
+        raise BundleError("producer trust root is not repository-owner dispatch")
+    repository = exact_keys(trust["repository"], {"full_name", "id"}, "repository")
+    candidate_identity = exact_keys(
+        trust["candidate"],
+        {"sha", "tree_oid", "source_repository", "source_repository_id", "source_ref"},
+        "candidate",
+    )
+    workflow = exact_keys(
+        trust["workflow"],
+        {"path", "repository", "repository_id", "ref", "commit_sha"},
+        "workflow",
+    )
+    workflow_base = exact_keys(
+        trust["workflow_base"], {"ref", "sha"}, "workflow base",
+    )
+    run = exact_keys(trust["run"], {"id", "attempt"}, "producer run")
+    actor = exact_keys(trust["actor"], {"login", "id"}, "producer actor")
+    triggering = exact_keys(
+        trust["triggering_actor"], {"login", "id"}, "producer triggering actor",
+    )
+    artifact = exact_keys(
+        trust["artifact"], {"name", "retention_days"}, "producer artifact",
+    )
+    if repository != {"full_name": TRUSTED_REPOSITORY, "id": TRUSTED_REPOSITORY_ID}:
+        raise BundleError("producer repository is not the canonical repository")
+    if repository["full_name"] != candidate_identity["source_repository"] or \
+            repository["id"] != candidate_identity["source_repository_id"]:
+        raise BundleError("candidate source repository is not the trusted repository")
+    if candidate_identity["sha"] != candidate or candidate_identity["tree_oid"] != tree:
+        raise BundleError("candidate commit/tree trust identity drifted")
+    require_commit(candidate_identity["sha"], "candidate SHA")
+    if not isinstance(candidate_identity["source_ref"], str) or not \
+            candidate_identity["source_ref"].startswith("refs/heads/"):
+        raise BundleError("candidate source ref is not an explicit branch")
+    if workflow != {
+        "path": ".github/workflows/ci.yml",
+        "repository": repository["full_name"],
+        "repository_id": repository["id"],
+        "ref": "refs/heads/main",
+        "commit_sha": workflow["commit_sha"],
+    }:
+        raise BundleError("producer workflow is not canonical main CI")
+    require_commit(workflow["commit_sha"], "workflow commit SHA")
+    if workflow_base != {"ref": "refs/heads/main", "sha": workflow["commit_sha"]}:
+        raise BundleError("workflow base is not the workflow definition commit")
+    if trust["event"] != "workflow_dispatch":
+        raise BundleError("producer event is not owner-dispatched")
+    if not isinstance(run["id"], int) or run["id"] <= 0 or \
+            not isinstance(run["attempt"], int) or run["attempt"] <= 0:
+        raise BundleError("producer run identity is invalid")
+    for identity, label in ((actor, "actor"), (triggering, "triggering actor")):
+        if not isinstance(identity["login"], str) or not identity["login"] or \
+                not isinstance(identity["id"], int) or identity["id"] <= 0:
+            raise BundleError(f"producer {label} identity is invalid")
+        if identity["id"] != TRUSTED_OWNER_ID:
+            raise BundleError(f"producer {label} is not the repository owner")
+    if trust["phase"] != phase:
+        raise BundleError("producer phase drifted")
+    expected_name = f"riscv-exhaustive-bundle-{candidate}-{run['id']}-{run['attempt']}"
+    if artifact != {"name": expected_name, "retention_days": 30}:
+        raise BundleError("producer artifact policy drifted")
+
+
+def validate_lifetime(manifest: dict[str, Any], now: int | None = None) -> None:
+    created = manifest.get("created_at_unix")
+    expires = manifest.get("expires_at_unix")
+    if isinstance(created, bool) or not isinstance(created, int) or \
+            isinstance(expires, bool) or not isinstance(expires, int):
+        raise BundleError("bundle lifetime is missing")
+    if expires - created != BUNDLE_RETENTION_SECONDS:
+        raise BundleError("bundle lifetime does not match artifact retention")
+    current = int(time.time()) if now is None else now
+    if current < created - 300:
+        raise BundleError("bundle creation time is in the future")
+    if current > expires:
+        raise BundleError("bundle evidence has expired")
+
+
+def canonical_commands(report: dict[str, Any], candidate: str, phase: str) -> list[list[str]]:
+    records = report.get("commands")
+    if not isinstance(records, list) or not records:
+        raise BundleError("release gate commands are missing")
+    host = report.get("host")
+    is_darwin = isinstance(host, dict) and host.get("system") == "Darwin"
+    if len(records) != (14 if is_darwin else 13):
+        raise BundleError("release gate command count is not canonical")
+    commands = [record.get("command") if isinstance(record, dict) else None for record in records]
+    if any(not isinstance(command, list) or not all(isinstance(item, str) for item in command)
+           for command in commands):
+        raise BundleError("release gate command argv is malformed")
+    python = commands[1][0]
+    evidence_command = commands[-1]
+    try:
+        receipt = evidence_command[evidence_command.index("--receipt") + 1]
+    except (ValueError, IndexError) as error:
+        raise BundleError("release evidence receipt argument is missing") from error
+    evidence_dir = str(Path(receipt).parent)
+    cli_evidence = str(Path(evidence_dir) / "cli")
+    oracle_command = commands[-3]
+    try:
+        stark_v_source = oracle_command[oracle_command.index("--stark-v-source") + 1]
+    except (ValueError, IndexError) as error:
+        raise BundleError("oracle source argument is missing") from error
+    expected = [
+        ["zig", "fmt", "--check", "build.zig", "src", "tools"],
+        [python, "scripts/check_upstream_pins.py"],
+        [python, "scripts/check_source_conformance.py"],
+        [python, "scripts/check_riscv_release_contract.py", "--all", "--phase", phase],
+        [python, "scripts/check_riscv_release_contract.py", "--structure"],
+        [python, "scripts/check_riscv_release_contract.py", "--core-purity"],
+        [python, "scripts/check_riscv_release_contract.py", "--frontend-layering"],
+    ]
+    if is_darwin:
+        expected.append(["zig", "build", "metal-eval-prepare", "-Doptimize=ReleaseFast"])
+    expected.extend([
+        [python, "-m", "unittest", "discover", "-s", "scripts/tests", "-p", "test_*.py"],
+        [
+            python, "scripts/riscv_staged_smoke.py", "--phase", phase,
+            "--evidence-dir", cli_evidence,
+        ],
+        ["zig", "build", "release-gate-strict", "-Doptimize=ReleaseFast"],
+        [
+            python, "scripts/riscv_release_oracle.py", "build-and-compare",
+            "--stark-v-source", stark_v_source, "--candidate", candidate,
+            "--receipt-out", receipt,
+        ],
+        [python, "scripts/riscv_release_oracle.py", "validate", "--receipt", receipt],
+        [
+            python, "scripts/riscv_release_evidence.py", "--receipt", receipt,
+            "--candidate", candidate,
+        ],
+    ])
+    return expected
+
+
 def validate_gate_report(report: dict[str, Any], candidate: str, phase: str) -> None:
     if report.get("schema") != "riscv-release-gate-evidence-v1":
         raise BundleError("release gate evidence schema drifted")
@@ -212,24 +395,16 @@ def validate_gate_report(report: dict[str, Any], candidate: str, phase: str) -> 
     ):
         raise BundleError("release gate did not run from a clean exact candidate")
     commands = report.get("commands")
-    if not isinstance(commands, list):
-        raise BundleError("release gate commands are missing")
+    expected_commands = canonical_commands(report, candidate, phase)
+    if [record["command"] for record in commands] != expected_commands:
+        raise BundleError("release gate command plan is not canonical and ordered")
     for record in commands:
         if not isinstance(record, dict) or record.get("exit_code") != 0:
             raise BundleError("release gate contains a failed command")
         if record.get("skipped_tests") != 0:
             raise BundleError("release gate contains skipped required tests")
-    rendered = [record.get("command_shell", "") for record in commands]
-    required = (
-        "scripts/riscv_staged_smoke.py",
-        "zig build release-gate-strict",
-        "scripts/riscv_release_oracle.py build-and-compare",
-        "scripts/riscv_release_oracle.py validate",
-        "scripts/riscv_release_evidence.py",
-    )
-    for fragment in required:
-        if sum(fragment in command for command in rendered) != 1:
-            raise BundleError(f"release gate lacks one exhaustive command: {fragment}")
+        if record.get("command_shell") != shlex.join(record["command"]):
+            raise BundleError("release gate shell rendering drifted from argv")
 
 
 def validate_cli_summary(
@@ -272,8 +447,17 @@ def validate_cli_summary(
         ):
             raise BundleError(f"exhaustive CLI {field} coverage drifted")
     boundary = summary.get("boundary_rejection_results")
-    if not isinstance(boundary, dict) or not boundary:
+    if not isinstance(boundary, dict) or set(boundary) != BOUNDARY_REJECTION_KEYS or any(
+        not isinstance(result, dict) or result.get("returncode") == 0
+        for result in boundary.values()
+    ):
         raise BundleError("exhaustive CLI boundary rejection matrix is missing")
+    claim_swap = summary.get("claim_order_swap")
+    if not isinstance(claim_swap, dict) or claim_swap.get("returncode") == 0 or \
+            claim_swap.get("expected_error") != "OodsNotMatching":
+        raise BundleError("exhaustive CLI claim-order mutation is missing")
+    for field in required_successes:
+        require_sha256(summary[field], f"exhaustive CLI {field}")
 
 
 def regular_bundle_file(bundle: Path, relative: str) -> Path:

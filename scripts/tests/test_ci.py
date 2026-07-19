@@ -35,11 +35,15 @@ class CiTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         self.assertIn("- riscv-candidate", workflow)
         self.assertIn("- riscv-promoted", workflow)
+        self.assertIn("- riscv-produce-candidate", workflow)
+        self.assertIn("- riscv-produce-promoted", workflow)
+        self.assertIn("candidate_sha:", workflow)
+        self.assertIn("candidate_ref:", workflow)
+        self.assertIn("producer_run_id:", workflow)
         self.assertIn("name: RISC-V exhaustive release evidence", workflow)
         self.assertIn("name: RISC-V fast release gate", workflow)
-        self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/main'", workflow)
         self.assertIn(
-            "github.event_name == 'workflow_dispatch' && startsWith(inputs.gate, 'riscv-')",
+            "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'",
             workflow,
         )
         self.assertEqual(2, workflow.count("!startsWith(inputs.gate, 'riscv-')"))
@@ -54,10 +58,14 @@ class CiTests(unittest.TestCase):
         self.assertIn("actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830", workflow)
         self.assertIn("python3 scripts/riscv_release_gate.py", workflow)
         self.assertIn("--strict", workflow)
-        self.assertIn('--candidate "$(git rev-parse HEAD)"', workflow)
+        self.assertIn('--candidate "$RISCV_CANDIDATE_SHA"', workflow)
         self.assertIn("python3 scripts/riscv_release_bundle.py pack", workflow)
         self.assertIn("python3 scripts/riscv_release_bundle.py verify", workflow)
-        self.assertIn("riscv-exhaustive-bundle-${{ github.sha }}", workflow)
+        self.assertIn("--trust-context", workflow)
+        self.assertIn(
+            "riscv-exhaustive-bundle-${{ env.RISCV_CANDIDATE_SHA }}-${{ github.run_id }}-${{ github.run_attempt }}",
+            workflow,
+        )
         self.assertIn("--profile fast", workflow)
         self.assertIn(
             "actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53",
@@ -67,17 +75,22 @@ class CiTests(unittest.TestCase):
 
     def test_fast_riscv_gate_cannot_cancel_or_consume_a_different_commit(self) -> None:
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-        self.assertIn(
-            "github.event_name == 'workflow_dispatch' && inputs.gate || 'automatic'",
-            workflow,
-        )
-        self.assertIn('-f head_sha="$GITHUB_SHA"', workflow)
-        self.assertIn('.head_sha == $sha', workflow)
-        self.assertIn('.event == "push"', workflow)
+        self.assertIn("group: riscv-exhaustive-${{", workflow)
+        self.assertIn("group: riscv-fast-${{ inputs.candidate_sha }}-${{ inputs.producer_run_id }}", workflow)
+        self.assertEqual(2, workflow.count("cancel-in-progress: false"))
+        self.assertIn("timeout-minutes: 3", workflow)
+        self.assertIn(".timing.wall_duration_ns <= 180000000000", workflow)
+        self.assertIn('[[ "$RISCV_CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]', workflow)
+        self.assertIn('[[ "$RISCV_CANDIDATE_REF" == refs/heads/* ]]', workflow)
+        self.assertIn("branches-where-head", workflow)
+        self.assertIn('test "$producer_event" = workflow_dispatch', workflow)
+        self.assertIn('test "$(jq -r .repository.id <<<"$producer")" = "$TRUSTED_REPOSITORY_ID"', workflow)
+        self.assertIn('test "$(jq -r .actor.id <<<"$producer")" = "$TRUSTED_OWNER_ID"', workflow)
+        self.assertIn('test "$(jq -r .triggering_actor.id <<<"$producer")" = "$TRUSTED_OWNER_ID"', workflow)
+        self.assertIn('.name == "RISC-V exhaustive release evidence"', workflow)
         self.assertIn('.conclusion == "success"', workflow)
-        self.assertIn('.head_branch == "main"', workflow)
-        self.assertIn("--producer-run-id", workflow)
-        self.assertIn("--producer-run-attempt", workflow)
+        self.assertIn("artifact_digest=$digest", workflow)
+        self.assertNotIn('test "$(jq -r .conclusion <<<"$producer")" = success', workflow)
 
     def test_hosted_ci_accepts_exact_commit_aot_evidence_tags(self) -> None:
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
