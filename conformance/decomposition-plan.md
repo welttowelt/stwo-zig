@@ -24,3 +24,4 @@ is the operative ledger.
 | `src/frontends/riscv/prover.zig` | split statement and column planning from backend-neutral proof orchestration; concrete CPU selection now lives in `src/integrations/riscv_cpu/` |
 | RISC-V oversized trace sources (`air/trace_columns.zig`, `infra_trace.zig`, `runner/trace.zig`) | decompose during the active Stark-V adapter completion; shrink each baseline entry with its extraction |
 | Root RISC-V sources (`riscv_*_cli.zig`, `riscv_prover_test.zig`) | move active CLI ownership into `src/tools/riscv/`; retain root files only as thin build entry points |
+| `src/stwo_native_metal.zig` | replace the Zig 0.15 package-root compatibility facade with named core/prover/example/backend modules during BG-09; the executable entry point already lives under `src/products/native_metal/` |

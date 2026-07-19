@@ -64,6 +64,7 @@ ROOT_ALLOWLIST = frozenset({
     "stwo.zig",
     "stwo_deep.zig",
     "stwo_native_cpu.zig",
+    "stwo_native_metal.zig",
     "stwo_riscv_cpu.zig",
     "tests.zig",
 })

@@ -1,9 +1,12 @@
 const std = @import("std");
 const build_monorepo_baseline = @import("build_support/gates/baseline.zig");
+const metal_backend = @import("build_support/backends/metal.zig");
 const metal_core_aot = @import("build_support/metal_core_aot.zig");
 const metal_products = @import("build_support/metal_products.zig");
 const prove_cli = @import("build_support/prove_cli.zig");
+const product_matrix = @import("build_support/products/matrix.zig");
 const native_cpu_product = @import("build_support/products/native_cpu.zig");
+const native_metal_product = @import("build_support/products/native_metal.zig");
 const riscv_cpu_product = @import("build_support/products/riscv_cpu.zig");
 const verification_products = @import("build_support/verification_products.zig");
 
@@ -11,6 +14,11 @@ pub fn build(b: *std.Build) void {
     build_monorepo_baseline.addGate(b);
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const aggregate_metal = b.option(
+        bool,
+        "aggregate-metal",
+        "Explicitly link Metal into aggregate test roots",
+    ) orelse false;
     const optimize_arg = b.fmt("-Doptimize={s}", .{@tagName(optimize)});
     const zig_optimize_arg = b.fmt("-O{s}", .{@tagName(optimize)});
     const riscv_release_phase = b.option([]const u8, "riscv-release-phase", "CP-13 phase: candidate or promoted") orelse "candidate";
@@ -58,7 +66,12 @@ pub fn build(b: *std.Build) void {
     const tests = b.addTest(.{
         .root_module = test_module,
     });
-    if (target.result.os.tag == .macos) metal_products.linkRuntime(b, tests);
+    if (aggregate_metal) {
+        metal_backend.requireTarget(target.result) catch @panic(
+            "-Daggregate-metal=true requires a macOS target and Apple Metal SDK",
+        );
+        metal_backend.linkRuntime(b, tests);
+    }
     const run_tests = b.addRunArtifact(tests);
 
     const test_step = b.step("test", "Run unit tests");
@@ -109,7 +122,11 @@ pub fn build(b: *std.Build) void {
     cross_module_test_options.addOption(bool, "riscv_only", false);
     cross_module_test_module.addOptions("test_options", cross_module_test_options);
     const cross_module_tests = b.addTest(.{ .root_module = cross_module_test_module });
-    if (target.result.os.tag == .macos) metal_products.linkRuntime(b, cross_module_tests);
+    // The compatibility test root eagerly instantiates Metal declarations on
+    // macOS even when its Metal-only filter is false. This is aggregate
+    // compatibility linkage, not a focused CPU product dependency.
+    if (aggregate_metal or target.result.os.tag == .macos)
+        metal_backend.linkRuntime(b, cross_module_tests);
     const run_cross_module_tests = b.addRunArtifact(cross_module_tests);
     test_step.dependOn(&run_cross_module_tests.step);
 
@@ -265,6 +282,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .identity = implementation_identity,
     });
+    native_metal_product.addProduct(.{
+        .b = b,
+        .target = target,
+        .optimize = optimize,
+        .identity = implementation_identity,
+    });
     riscv_cpu_product.addProduct(.{
         .b = b,
         .target = target,
@@ -272,46 +295,24 @@ pub fn build(b: *std.Build) void {
         .identity = implementation_identity,
     });
 
-    // Metal products are platform-specific; their internal graph lives with the backend.
-    if (target.result.os.tag == .macos) {
-        metal_products.addProducts(.{
-            .b = b,
-            .target = target,
-            .optimize = optimize,
-            .stwo_module = stwo_module,
-            .native_proof_runner_module = native_proof_runner_module,
-            .test_step = test_step,
-        });
-    }
+    // Compatibility Metal tools remain named, but target support is checked by
+    // their backend owner rather than selected by the host OS.
+    metal_products.addProducts(.{
+        .b = b,
+        .target = target,
+        .optimize = optimize,
+        .stwo_module = stwo_module,
+        .test_step = if (aggregate_metal) test_step else null,
+    });
+    product_matrix.addDeferredProducts(b, target);
 
-    // -----------------------------------------------------------------
-    // CUDA GPU backend (opt-in via -Dcuda=true)
-    // -----------------------------------------------------------------
-    const cuda_enabled = b.option(bool, "cuda", "Enable CUDA GPU backend") orelse false;
-    const cuda_lib_path = b.option([]const u8, "cuda-lib-path", "Path to libstwo_cuda.a") orelse "/Users/theodorepender/Coding/gpu-acc/stwo-cuda/build/lib";
-    const cuda_runtime_path = b.option([]const u8, "cuda-runtime-path", "Path to CUDA runtime libraries (libcudart)") orelse "/usr/local/cuda/lib64";
-
-    if (cuda_enabled) {
-        // CUDA-linked test binary: runs the same test suite but with the
-        // real CUDA libraries available at link time.
-        const cuda_test_module = b.createModule(.{
-            .root_source_file = b.path("src/stwo.zig"),
-            .target = target,
-            .optimize = optimize,
-        });
-        const cuda_tests = b.addTest(.{
-            .root_module = cuda_test_module,
-        });
-        cuda_tests.addLibraryPath(.{ .cwd_relative = cuda_lib_path });
-        cuda_tests.addLibraryPath(.{ .cwd_relative = cuda_runtime_path });
-        cuda_tests.linkSystemLibrary("stwo_cuda");
-        cuda_tests.linkSystemLibrary("cudart");
-        cuda_tests.linkSystemLibrary("stdc++");
-
-        const run_cuda_tests = b.addRunArtifact(cuda_tests);
-        const cuda_test_step = b.step("cuda-test", "Run unit tests with CUDA backend linked");
-        cuda_test_step.dependOn(&run_cuda_tests.step);
-    }
+    const cuda_test_step = b.step(
+        "cuda-test",
+        "Unavailable compatibility alias; CUDA now requires an explicit product toolchain",
+    );
+    cuda_test_step.dependOn(&b.addFail(
+        "cuda-test is unavailable: select an explicit CUDA product with complete library and runtime paths",
+    ).step);
 
     verification_products.addProducts(.{
         .b = b,

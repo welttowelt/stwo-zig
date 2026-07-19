@@ -1,6 +1,6 @@
 const std = @import("std");
+const metal_backend = @import("backends/metal.zig");
 const build_identity = @import("build_identity.zig");
-const metal_products = @import("metal_products.zig");
 
 pub const Context = struct {
     b: *std.Build,
@@ -36,7 +36,7 @@ pub fn addProduct(context: Context) void {
     module.addOptions("build_identity", identity_options);
     const executable = b.addExecutable(.{ .name = "stwo-zig", .root_module = module });
     executable.linkLibC();
-    if (context.target.result.os.tag == .macos) metal_products.linkRuntime(b, executable);
+    if (context.target.result.os.tag == .macos) metal_backend.linkRuntime(b, executable);
     const install = b.addInstallArtifact(executable, .{});
     b.getInstallStep().dependOn(&install.step);
     const build_step = b.step("stwo-zig", "Build the production proof CLI");
@@ -72,7 +72,7 @@ pub fn addProduct(context: Context) void {
     dispatch_module.addImport("stwo", context.stwo_module);
     dispatch_module.addImport("native_proof_runner", context.native_proof_runner_module);
     const dispatch_tests = b.addTest(.{ .root_module = dispatch_module });
-    if (context.target.result.os.tag == .macos) metal_products.linkRuntime(b, dispatch_tests);
+    if (context.target.result.os.tag == .macos) metal_backend.linkRuntime(b, dispatch_tests);
     context.test_step.dependOn(&b.addRunArtifact(dispatch_tests).step);
 
     const app_module = b.createModule(.{
@@ -85,7 +85,7 @@ pub fn addProduct(context: Context) void {
     app_module.addOptions("build_identity", identity_options);
     const app_tests = b.addTest(.{ .root_module = app_module });
     app_tests.linkLibC();
-    if (context.target.result.os.tag == .macos) metal_products.linkRuntime(b, app_tests);
+    if (context.target.result.os.tag == .macos) metal_backend.linkRuntime(b, app_tests);
     context.test_step.dependOn(&b.addRunArtifact(app_tests).step);
 }
 
