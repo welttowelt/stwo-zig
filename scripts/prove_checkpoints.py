@@ -294,6 +294,11 @@ def write_artifact(path: Path, artifact: dict[str, Any]) -> None:
         f.write("\n")
 
 
+def prepare_generated_artifact(path: Path) -> None:
+    """Retire the prior harness-owned output before exclusive publication."""
+    path.unlink(missing_ok=True)
+
+
 def assert_artifact_metadata(
     artifact: dict[str, Any], *, generator: str, example: str, prove_mode: str
 ) -> None:
@@ -548,6 +553,7 @@ def main() -> int:
         for generator, generator_artifacts in artifacts.items():
             parsed[generator] = {}
             for prove_mode, artifact_path in generator_artifacts.items():
+                prepare_generated_artifact(artifact_path)
                 run_step(
                     name=f"{case.case_id}_{generator}_{prove_mode}_generate",
                     cmd=generate_cmd(

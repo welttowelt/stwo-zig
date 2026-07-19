@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
+from pathlib import Path
 
 from scripts import prove_checkpoints
 
@@ -58,6 +60,22 @@ class CanonicalProofWireTests(unittest.TestCase):
             prove_checkpoints.canonical_proof_wire(left),
             prove_checkpoints.canonical_proof_wire(right),
         )
+
+
+class GeneratedArtifactLifecycleTests(unittest.TestCase):
+    def test_retires_only_the_prior_generated_output(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            generated = root / "proof.json"
+            sibling = root / "receipt.json"
+            generated.write_text("stale", encoding="utf-8")
+            sibling.write_text("preserve", encoding="utf-8")
+
+            prove_checkpoints.prepare_generated_artifact(generated)
+            prove_checkpoints.prepare_generated_artifact(generated)
+
+            self.assertFalse(generated.exists())
+            self.assertEqual(sibling.read_text(encoding="utf-8"), "preserve")
 
 
 if __name__ == "__main__":
