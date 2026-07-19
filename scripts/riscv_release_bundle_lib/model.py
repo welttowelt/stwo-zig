@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA = "riscv-release-bundle-v1"
+SCHEMA = "riscv-release-bundle-v2"
 TRUSTED_REPOSITORY = "teddyjfpender/stwo-zig"
 TRUSTED_REPOSITORY_ID = 1_152_389_958
 TRUSTED_OWNER_ID = 92_999_717
@@ -48,6 +48,17 @@ BOUNDARY_REJECTION_KEYS = {
     "existing-proof",
     "existing-report",
 }
+RELEASE_POLICY_PATHS = [
+    ".github/workflows/ci.yml",
+    "CONTRIBUTING.md",
+    "autoresearch/MANIFEST.json",
+    "build.zig",
+    "build.zig.zon",
+    "build_support",
+    "conformance",
+    "scripts",
+    "vectors/riscv_elfs",
+]
 DOMAIN_PATHS = {
     "repository": (),
     "prover": (
@@ -347,6 +358,34 @@ def validate_lifetime(manifest: dict[str, Any], now: int | None = None) -> None:
         raise BundleError("bundle creation time is in the future")
     if current > expires:
         raise BundleError("bundle evidence has expired")
+
+
+def validate_policy_context(
+    policy: dict[str, Any], *, candidate: str, workflow_commit: str,
+) -> None:
+    exact_keys(
+        policy,
+        {"schema", "trusted_workflow_commit", "candidate_commit", "domain"},
+        "release policy match",
+    )
+    if policy.get("schema") != "riscv-release-policy-match-v1":
+        raise BundleError("release policy match schema drifted")
+    if policy.get("trusted_workflow_commit") != workflow_commit:
+        raise BundleError("release policy is not bound to the producer workflow")
+    if policy.get("candidate_commit") != candidate:
+        raise BundleError("release policy is not bound to the candidate")
+    domain = exact_keys(
+        policy["domain"], {"schema", "sha256", "file_count", "paths"},
+        "release policy domain",
+    )
+    if domain.get("schema") != "riscv-release-policy-domain-v1":
+        raise BundleError("release policy domain schema drifted")
+    require_sha256(domain.get("sha256"), "release policy domain digest")
+    if isinstance(domain.get("file_count"), bool) or not \
+            isinstance(domain.get("file_count"), int) or domain["file_count"] <= 0:
+        raise BundleError("release policy domain file count is invalid")
+    if domain.get("paths") != RELEASE_POLICY_PATHS:
+        raise BundleError("release policy domain paths drifted")
 
 
 def canonical_commands(report: dict[str, Any], candidate: str, phase: str) -> list[list[str]]:

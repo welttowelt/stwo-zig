@@ -40,6 +40,15 @@ Until that setting changes, owner dispatch by immutable numeric identity is the
 checked trust root. The workflow and this document do not claim that `main` is
 protected.
 
+Before either job executes a candidate-owned script, it checks out the exact
+trusted producer workflow commit, copies the policy checker to runner-temporary
+storage, and captures a SHA-256 content domain covering the workflow, build
+graph, conformance inventories, all scripts, and their tests. After candidate
+checkout, that trusted copy requires the candidate policy domain to be byte and
+mode identical. Policy changes therefore land on `main` separately before a
+registry-flip candidate can consume them. The match digest and both commits are
+bound into the exhaustive bundle manifest.
+
 ## Producer
 
 Dispatch from the canonical repository, always with `--ref main`:
@@ -69,9 +78,10 @@ duplicated, reordered, skipped, or shell-rewritten phases:
 The published artifact is named
 `riscv-exhaustive-bundle-<candidate>-<run>-<attempt>`. It binds the candidate
 commit and tree, producer workflow commit, dispatch identities, phase, exact
-command plan, delegated mutation coverage, source domains, toolchains, oracle
-build, executable digest, and every retained file digest. It expires exactly
-30 days after creation, matching Actions artifact retention.
+command plan, trusted policy domain, delegated mutation coverage, source
+domains, toolchains, oracle build, executable digest, and every retained file
+digest. It expires exactly 30 days after creation, matching Actions artifact
+retention.
 
 The pinned Stark-V helper uses the content-addressed cache contract in
 [RISC-V Oracle Build Cache](riscv-oracle-build-cache.md). A valid hit skips only
@@ -104,12 +114,15 @@ The consumer then:
 
 1. checks out the exact candidate with credentials disabled;
 2. reconstructs and validates the producer trust context;
-3. downloads only the explicit producer artifact;
-4. verifies bundle lifetime, file hashes, complete source domains, command
+3. downloads the archive by exact artifact ID and rejects it unless the raw ZIP
+   SHA-256 equals the digest returned by the GitHub artifact API;
+4. extracts only bounded regular paths with the trusted policy checker;
+5. verifies bundle lifetime, file hashes, trusted policy match, complete source
+   domains, command
    plan, coverage matrix, oracle receipt, executable identity, and phase;
-5. runs a fresh 131,078-step cross-shard proof with the retained executable;
-6. verifies that proof in an independent process; and
-7. retains the fast receipt plus artifact transport identity.
+6. runs a fresh 131,078-step cross-shard proof with the retained executable;
+7. verifies that proof in an independent process; and
+8. retains the fast receipt plus artifact transport identity.
 
 The immutable oracle receipt is checked at its recorded creation time because
 its bytes are already covered by the unexpired bundle. This permits exact

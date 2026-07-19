@@ -51,6 +51,7 @@ def pack(args: argparse.Namespace) -> int:
         oracle = model.strict_json(evidence / "oracle-receipt.json")
         summary = model.strict_json(evidence / "cli/summary.json")
         trust = model.strict_json(args.trust_context)
+        policy = model.strict_json(args.policy_context)
         model.validate_gate_report(gate, args.candidate, args.phase)
         validate_oracle_receipt(root, evidence / "oracle-receipt.json", args.candidate)
         executable_sha256 = model.sha256_file(args.cli)
@@ -83,6 +84,11 @@ def pack(args: argparse.Namespace) -> int:
         model.validate_trust_context(
             trust, candidate=args.candidate, phase=args.phase, tree=tree,
         )
+        model.validate_policy_context(
+            policy,
+            candidate=args.candidate,
+            workflow_commit=trust["workflow"]["commit_sha"],
+        )
         manifest = {
             "schema": model.SCHEMA,
             "phase": args.phase,
@@ -92,6 +98,7 @@ def pack(args: argparse.Namespace) -> int:
             "expires_at_unix": created_at + model.BUNDLE_RETENTION_SECONDS,
             "coverage": model.COVERAGE,
             "producer": trust,
+            "release_policy": policy,
             "domains": domains,
             "files": files,
         }
@@ -130,6 +137,14 @@ def verify(args: argparse.Namespace) -> int:
             raise model.BundleError(
                 "bundle producer identity does not match the selected producer run"
             )
+        expected_policy = model.strict_json(args.policy_context)
+        model.validate_policy_context(
+            expected_policy,
+            candidate=args.candidate,
+            workflow_commit=expected_producer["workflow"]["commit_sha"],
+        )
+        if manifest.get("release_policy") != expected_policy:
+            raise model.BundleError("bundle release policy does not match trusted main")
         files = model.validate_files(bundle, manifest)
         gate = model.strict_json(files["release-gate.json"])
         oracle = model.strict_json(files["oracle-receipt.json"])
@@ -160,6 +175,7 @@ def add_identity_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--candidate", required=True)
     parser.add_argument("--phase", choices=("candidate", "promoted"), required=True)
     parser.add_argument("--trust-context", type=Path, required=True)
+    parser.add_argument("--policy-context", type=Path, required=True)
 
 
 def main(argv: list[str] | None = None) -> int:

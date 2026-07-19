@@ -45,15 +45,15 @@ jobs:
       STWO_CAIRO_RUST_ROOT: ${{ github.workspace }}/../stwo-cairo
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
 
       - name: Setup Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
         with:
           python-version: "3.13"
 
       - name: Setup Zig
-        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29  # v2
         with:
           version: 0.15.2
 
@@ -79,7 +79,7 @@ jobs:
 
       - name: Retain interoperability diagnostics
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: native-interop-report-${{ github.sha }}
           path: |
@@ -96,15 +96,15 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
 
       - name: Setup Zig
-        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29  # v2
         with:
           version: 0.15.2
 
       - name: Setup Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
         with:
           python-version: "3.13"
 
@@ -146,7 +146,7 @@ jobs:
             --commit "$GITHUB_SHA"
 
       - name: Retain AOT build receipt and both exact bundles
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: native-metal-core-aot-${{ github.sha }}
           path: |
@@ -179,7 +179,6 @@ jobs:
       TRUSTED_OWNER_ID: "92999717"
       STARK_V_SOURCE: ${{ github.workspace }}/../stark-v
       STARK_V_REVISION: d478f783055aa0d73a93768a433a3c6c31c91d1c
-      STWO_ZIG_RISCV_ORACLE_CACHE_DIR: ${{ runner.tool_cache }}/stwo-zig/riscv-oracle
       STWO_CAIRO_RUST_ROOT: ${{ github.workspace }}/../stwo-cairo
       RISCV_EVIDENCE_DIR: zig-out/release-evidence/riscv/runs/exhaustive-${{ inputs.candidate_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
       RISCV_BUNDLE_DIR: zig-out/release-evidence/riscv/bundle-${{ inputs.candidate_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -208,12 +207,34 @@ jobs:
             <<<"$branches" >/dev/null
           echo "tree_oid=$(jq -r .tree.sha <<<"$candidate")" >> "$GITHUB_OUTPUT"
 
+      - name: Checkout trusted main release policy
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        with:
+          ref: ${{ env.TRUSTED_WORKFLOW_SHA }}
+          persist-credentials: false
+
+      - name: Capture trusted main release policy
+        run: |
+          cp scripts/riscv_release_policy.py "$RUNNER_TEMP/riscv_release_policy.py"
+          python3 "$RUNNER_TEMP/riscv_release_policy.py" capture \
+            --root . \
+            --trusted-commit "$TRUSTED_WORKFLOW_SHA" \
+            --output "$RUNNER_TEMP/riscv-policy-baseline.json"
+
       - name: Checkout exact candidate
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
         with:
           repository: ${{ github.repository }}
           ref: ${{ env.RISCV_CANDIDATE_SHA }}
           persist-credentials: false
+
+      - name: Require candidate release policy matches trusted main
+        run: |
+          python3 "$RUNNER_TEMP/riscv_release_policy.py" compare \
+            --root . \
+            --candidate "$RISCV_CANDIDATE_SHA" \
+            --baseline "$RUNNER_TEMP/riscv-policy-baseline.json" \
+            --output "$RUNNER_TEMP/riscv-policy-match.json"
 
       - name: Detect promoted adapter
         id: riscv-release-state
@@ -233,12 +254,12 @@ jobs:
           fi
 
       - name: Setup Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
         with:
           python-version: "3.13"
 
       - name: Setup Zig
-        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29  # v2
         with:
           version: 0.15.2
 
@@ -267,6 +288,9 @@ jobs:
           test "$(jq -r .actor.id <<<"$run")" = "$TRUSTED_OWNER_ID"
           test "$(jq -r .triggering_actor.id <<<"$run")" = "$TRUSTED_OWNER_ID"
 
+      - name: Initialize runner-local oracle cache path
+        run: echo "STWO_ZIG_RISCV_ORACLE_CACHE_DIR=$RUNNER_TOOL_CACHE/stwo-zig/riscv-oracle" >> "$GITHUB_ENV"
+
       - name: Compute exact Stark-V helper cache identity
         id: riscv-oracle-cache
         run: |
@@ -275,7 +299,7 @@ jobs:
           echo "key_sha256=$key_sha256" >> "$GITHUB_OUTPUT"
 
       - name: Restore integrity-checked, trusted-writer-scoped Stark-V helper cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
         with:
           path: ${{ env.STWO_ZIG_RISCV_ORACLE_CACHE_DIR }}
           key: riscv-oracle-${{ steps.riscv-oracle-cache.outputs.key_sha256 }}
@@ -348,13 +372,14 @@ jobs:
             --candidate "$RISCV_CANDIDATE_SHA" \
             --phase "${{ steps.riscv-release-state.outputs.phase }}" \
             --trust-context "$RUNNER_TEMP/riscv-producer-trust.json" \
+            --policy-context "$RUNNER_TEMP/riscv-policy-match.json" \
             --evidence-dir "$RISCV_EVIDENCE_DIR" \
             --cli zig-out/bin/stwo-zig \
             --output-dir "$RISCV_BUNDLE_DIR"
 
       - name: Publish immutable exhaustive bundle
         id: riscv-bundle-upload
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: riscv-exhaustive-bundle-${{ env.RISCV_CANDIDATE_SHA }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ env.RISCV_BUNDLE_DIR }}/
@@ -366,7 +391,7 @@ jobs:
 
       - name: Retain RISC-V phase evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: riscv-${{ steps.riscv-release-state.outputs.phase }}-diagnostics-${{ env.RISCV_CANDIDATE_SHA }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
@@ -398,11 +423,13 @@ jobs:
       RISCV_CANDIDATE_REF: ${{ inputs.candidate_ref }}
       RISCV_PRODUCER_RUN_ID: ${{ inputs.producer_run_id }}
       RISCV_GATE_PHASE: ${{ inputs.gate == 'riscv-candidate' && 'candidate' || 'promoted' }}
-      RISCV_BUNDLE_DIR: ${{ runner.temp }}/riscv-exhaustive-bundle
       RISCV_FAST_EVIDENCE_DIR: zig-out/release-evidence/riscv/runs/fast-${{ inputs.candidate_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
       TRUSTED_REPOSITORY_ID: "1152389958"
       TRUSTED_OWNER_ID: "92999717"
     steps:
+      - name: Initialize fast runner paths
+        run: echo "RISCV_BUNDLE_DIR=$RUNNER_TEMP/riscv-exhaustive-bundle" >> "$GITHUB_ENV"
+
       - name: Require owner-dispatched main workflow and exact inputs
         id: riscv-candidate
         env:
@@ -427,15 +454,55 @@ jobs:
             <<<"$branches" >/dev/null
           echo "tree_oid=$(jq -r .tree.sha <<<"$candidate")" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve producer workflow trust root
+        id: riscv-producer-root
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          producer=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RISCV_PRODUCER_RUN_ID")
+          test "$(jq -r .path <<<"$producer")" = .github/workflows/ci.yml
+          test "$(jq -r .event <<<"$producer")" = workflow_dispatch
+          test "$(jq -r .head_branch <<<"$producer")" = main
+          test "$(jq -r .repository.id <<<"$producer")" = "$TRUSTED_REPOSITORY_ID"
+          test "$(jq -r .actor.id <<<"$producer")" = "$TRUSTED_OWNER_ID"
+          test "$(jq -r .triggering_actor.id <<<"$producer")" = "$TRUSTED_OWNER_ID"
+          workflow_sha=$(jq -r .head_sha <<<"$producer")
+          [[ "$workflow_sha" =~ ^[0-9a-f]{40}$ ]]
+          echo "workflow_sha=$workflow_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout trusted producer release policy
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        with:
+          ref: ${{ steps.riscv-producer-root.outputs.workflow_sha }}
+          persist-credentials: false
+
+      - name: Capture trusted producer release policy
+        env:
+          TRUSTED_PRODUCER_SHA: ${{ steps.riscv-producer-root.outputs.workflow_sha }}
+        run: |
+          cp scripts/riscv_release_policy.py "$RUNNER_TEMP/riscv_release_policy.py"
+          python3 "$RUNNER_TEMP/riscv_release_policy.py" capture \
+            --root . \
+            --trusted-commit "$TRUSTED_PRODUCER_SHA" \
+            --output "$RUNNER_TEMP/riscv-policy-baseline.json"
+
       - name: Checkout exact candidate
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
         with:
           repository: ${{ github.repository }}
           ref: ${{ env.RISCV_CANDIDATE_SHA }}
           persist-credentials: false
 
+      - name: Require candidate release policy matches trusted producer
+        run: |
+          python3 "$RUNNER_TEMP/riscv_release_policy.py" compare \
+            --root . \
+            --candidate "$RISCV_CANDIDATE_SHA" \
+            --baseline "$RUNNER_TEMP/riscv-policy-baseline.json" \
+            --output "$RUNNER_TEMP/riscv-policy-match.json"
+
       - name: Setup Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
         with:
           python-version: "3.13"
 
@@ -490,6 +557,7 @@ jobs:
           test "$repository_id" = "$TRUSTED_REPOSITORY_ID"
           workflow_sha=$(jq -r .head_sha <<<"$producer")
           [[ "$workflow_sha" =~ ^[0-9a-f]{40}$ ]]
+          test "$workflow_sha" = "${{ steps.riscv-producer-root.outputs.workflow_sha }}"
           jq -n \
             --arg repository "$GITHUB_REPOSITORY" \
             --argjson repository_id "$repository_id" \
@@ -528,22 +596,30 @@ jobs:
               phase: $phase,
               artifact: {name: $artifact_name, retention_days: 30}
             }' > "$RUNNER_TEMP/riscv-producer-trust.json"
-          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
-          echo "run_attempt=$run_attempt" >> "$GITHUB_OUTPUT"
-          echo "artifact_id=$(jq -r .id <<<"$artifact")" >> "$GITHUB_OUTPUT"
-          echo "artifact_digest=$digest" >> "$GITHUB_OUTPUT"
-          echo "artifact_created_at=$(jq -r .created_at <<<"$artifact")" >> "$GITHUB_OUTPUT"
-          echo "artifact_expires_at=$(jq -r .expires_at <<<"$artifact")" >> "$GITHUB_OUTPUT"
-          echo "producer_job_id=$(jq -r .id <<<"$producer_job")" >> "$GITHUB_OUTPUT"
+          {
+            echo "run_id=$run_id"
+            echo "run_attempt=$run_attempt"
+            echo "artifact_id=$(jq -r .id <<<"$artifact")"
+            echo "artifact_digest=$digest"
+            echo "artifact_created_at=$(jq -r .created_at <<<"$artifact")"
+            echo "artifact_expires_at=$(jq -r .expires_at <<<"$artifact")"
+            echo "producer_job_id=$(jq -r .id <<<"$producer_job")"
+          } >> "$GITHUB_OUTPUT"
 
-      - name: Download exact immutable exhaustive bundle
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
-        with:
-          name: riscv-exhaustive-bundle-${{ env.RISCV_CANDIDATE_SHA }}-${{ steps.riscv-producer.outputs.run_id }}-${{ steps.riscv-producer.outputs.run_attempt }}
-          path: ${{ env.RISCV_BUNDLE_DIR }}
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: ${{ steps.riscv-producer.outputs.run_id }}
+      - name: Download and verify exact immutable exhaustive archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          archive="$RUNNER_TEMP/riscv-exhaustive-bundle.zip"
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            "repos/$GITHUB_REPOSITORY/actions/artifacts/${{ steps.riscv-producer.outputs.artifact_id }}/zip" \
+            > "$archive"
+          actual_digest="sha256:$(shasum -a 256 "$archive" | cut -d' ' -f1)"
+          test "$actual_digest" = "${{ steps.riscv-producer.outputs.artifact_digest }}"
+          python3 "$RUNNER_TEMP/riscv_release_policy.py" extract \
+            --archive "$archive" \
+            --output "$RISCV_BUNDLE_DIR"
 
       - name: Verify exact-source exhaustive evidence
         run: |
@@ -551,6 +627,7 @@ jobs:
             --candidate "$RISCV_CANDIDATE_SHA" \
             --phase "$RISCV_GATE_PHASE" \
             --trust-context "$RUNNER_TEMP/riscv-producer-trust.json" \
+            --policy-context "$RUNNER_TEMP/riscv-policy-match.json" \
             --bundle "$RISCV_BUNDLE_DIR"
 
       - name: Record immutable artifact transport
@@ -592,7 +669,7 @@ jobs:
 
       - name: Retain fast live-proof evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: riscv-${{ env.RISCV_GATE_PHASE }}-fast-evidence-${{ env.RISCV_CANDIDATE_SHA }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ env.RISCV_FAST_EVIDENCE_DIR }}/

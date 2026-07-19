@@ -68,6 +68,12 @@ numeric owner identity `92999717` for both the actor and triggering actor. Pull
 requests, forks, pushes, and manually dispatched fast gates cannot write this
 namespace, and no broad `restore-keys` fallback is allowed.
 
+The exhaustive job also captures the release-policy content domain from its
+trusted main workflow commit and requires the candidate's workflow, build
+graph, scripts, conformance inventories, and tests to be byte-identical before
+executing the candidate cache resolver or build adapter. A registry candidate
+therefore cannot redefine the cache key, entry validator, or oracle overlay.
+
 GitHub currently reports `main` as `.protected=false`. Enabling branch
 protection and restricting workflow changes remains an administrator hardening
 TODO; checked-in workflow code cannot establish that setting. Until then, the

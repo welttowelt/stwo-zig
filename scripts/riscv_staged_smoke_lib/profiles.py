@@ -11,7 +11,7 @@ from typing import Any
 from . import contracts
 
 
-PRODUCER_SCHEMA = "riscv-release-bundle-v1"
+PRODUCER_SCHEMA = "riscv-release-bundle-v2"
 EXHAUSTIVE_SCHEMAS = {"riscv_cli_evidence_v1", "riscv_cli_evidence_v2"}
 REQUIRED_COVERAGE = {
     "exhaustive_gate": "PASS",
@@ -131,6 +131,11 @@ def validate_producer_receipt(
     producer = receipt.get("producer")
     if not isinstance(producer, dict) or not producer:
         raise contracts.ContractError("producer receipt: GitHub producer identity is missing")
+    release_policy = receipt.get("release_policy")
+    if not isinstance(release_policy, dict) or \
+            release_policy.get("schema") != "riscv-release-policy-match-v1" or \
+            release_policy.get("candidate_commit") != candidate_commit:
+        raise contracts.ContractError("producer receipt: trusted release policy is missing")
     domains = receipt.get("domains")
     if not isinstance(domains, dict) or not domains:
         raise contracts.ContractError("producer receipt: content domains are missing")
@@ -160,6 +165,7 @@ def validate_producer_receipt(
         "candidate_commit": candidate_commit,
         "coverage": dict(REQUIRED_COVERAGE),
         "producer_sha256": canonical_sha256(producer),
+        "release_policy_sha256": canonical_sha256(release_policy),
         "domains_sha256": canonical_sha256(domains),
         "executable": dict(cli_entry),
         "exhaustive_summary": {

@@ -393,6 +393,10 @@ class ProfileContractTests(unittest.TestCase):
             "candidate_commit": self.COMMIT,
             "coverage": dict(profiles.REQUIRED_COVERAGE),
             "producer": {"repository": "owner/repo", "run_id": "1"},
+            "release_policy": {
+                "schema": "riscv-release-policy-match-v1",
+                "candidate_commit": self.COMMIT,
+            },
             "domains": {"repository": {"sha256": DIGEST}},
             "files": {
                 "bin/stwo-zig": {

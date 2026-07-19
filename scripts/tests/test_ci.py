@@ -79,9 +79,15 @@ class CiTests(unittest.TestCase):
             workflow,
         )
         self.assertIn("--profile fast", workflow)
-        self.assertIn(
-            "actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53",
-            workflow,
+        self.assertIn("actions/artifacts/${{ steps.riscv-producer.outputs.artifact_id }}/zip", workflow)
+        self.assertIn('test "$actual_digest" = "${{ steps.riscv-producer.outputs.artifact_digest }}"', workflow)
+        self.assertIn('python3 "$RUNNER_TEMP/riscv_release_policy.py" extract', workflow)
+        self.assertNotIn("actions/download-artifact@", workflow)
+        fast = workflow.split("  riscv-fast-release-gate:", 1)[1]
+        self.assertLess(fast.index("actual_digest="), fast.index("riscv_release_policy.py\" extract"))
+        self.assertLess(
+            fast.index("riscv_release_policy.py\" extract"),
+            fast.index("name: Verify exact-source exhaustive evidence"),
         )
         self.assertIn("if-no-files-found: error", workflow)
 
@@ -121,6 +127,43 @@ class CiTests(unittest.TestCase):
         self.assertLess(trusted_scope, identity)
         self.assertLess(identity, restore)
         self.assertNotIn("hashFiles(", producer)
+
+    def test_riscv_policy_is_trusted_before_candidate_code_executes(self) -> None:
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        producer = workflow.split("  riscv-release-evidence:", 1)[1].split(
+            "  riscv-fast-release-gate:", 1
+        )[0]
+        trusted_checkout = producer.index("name: Checkout trusted main release policy")
+        capture = producer.index("name: Capture trusted main release policy")
+        candidate_checkout = producer.index("name: Checkout exact candidate")
+        compare = producer.index("name: Require candidate release policy matches trusted main")
+        candidate_execution = producer.index("name: Detect promoted adapter")
+        self.assertLess(trusted_checkout, capture)
+        self.assertLess(capture, candidate_checkout)
+        self.assertLess(candidate_checkout, compare)
+        self.assertLess(compare, candidate_execution)
+        self.assertIn('--policy-context "$RUNNER_TEMP/riscv-policy-match.json"', producer)
+
+        fast = workflow.split("  riscv-fast-release-gate:", 1)[1]
+        self.assertLess(
+            fast.index("name: Resolve producer workflow trust root"),
+            fast.index("name: Checkout trusted producer release policy"),
+        )
+        self.assertLess(
+            fast.index("name: Require candidate release policy matches trusted producer"),
+            fast.index("name: Require requested release phase"),
+        )
+
+    def test_riscv_jobs_initialize_runner_paths_at_step_runtime(self) -> None:
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        producer = workflow.split("  riscv-release-evidence:", 1)[1].split(
+            "  riscv-fast-release-gate:", 1
+        )[0]
+        fast = workflow.split("  riscv-fast-release-gate:", 1)[1]
+        self.assertNotIn("${{ runner.tool_cache }}", producer)
+        self.assertNotIn("${{ runner.temp }}", fast)
+        self.assertIn("$RUNNER_TOOL_CACHE/stwo-zig/riscv-oracle", producer)
+        self.assertIn("$RUNNER_TEMP/riscv-exhaustive-bundle", fast)
 
     def test_hosted_ci_accepts_exact_commit_aot_evidence_tags(self) -> None:
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
@@ -227,7 +270,7 @@ class CiTests(unittest.TestCase):
         self.assertNotIn("metal-core-aot-probe", workflow)
         self.assertNotIn("metal-core-aot-acceptance -Doptimize", workflow)
         self.assertIn(
-            "uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4",
+            "uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4",
             workflow,
         )
         for artifact in (

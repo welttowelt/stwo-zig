@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+from scripts import riscv_release_policy
 from scripts.riscv_release_bundle_lib import controller, model
 
 
@@ -98,6 +99,20 @@ def trust_context() -> dict[str, object]:
     }
 
 
+def policy_context() -> dict[str, object]:
+    return {
+        "schema": "riscv-release-policy-match-v1",
+        "trusted_workflow_commit": "d" * 40,
+        "candidate_commit": COMMIT,
+        "domain": {
+            "schema": "riscv-release-policy-domain-v1",
+            "sha256": DIGEST,
+            "file_count": 100,
+            "paths": model.RELEASE_POLICY_PATHS,
+        },
+    }
+
+
 class ContentDomainTests(unittest.TestCase):
     def repository(self, root: Path) -> None:
         subprocess.run(["git", "init", "-q"], cwd=root, check=True)
@@ -136,6 +151,32 @@ class ContentDomainTests(unittest.TestCase):
 
 
 class BundleContractTests(unittest.TestCase):
+    def test_release_policy_binds_trusted_workflow_candidate_and_domain(self) -> None:
+        self.assertEqual(
+            model.RELEASE_POLICY_PATHS, list(riscv_release_policy.POLICY_PATHS),
+        )
+        policy = policy_context()
+        model.validate_policy_context(
+            policy, candidate=COMMIT, workflow_commit="d" * 40,
+        )
+        for field, value, diagnostic in (
+            ("trusted_workflow_commit", "e" * 40, "workflow"),
+            ("candidate_commit", "e" * 40, "candidate"),
+        ):
+            drifted = json.loads(json.dumps(policy))
+            drifted[field] = value
+            with self.subTest(field=field), self.assertRaisesRegex(
+                model.BundleError, diagnostic,
+            ):
+                model.validate_policy_context(
+                    drifted, candidate=COMMIT, workflow_commit="d" * 40,
+                )
+        policy["domain"]["paths"] = model.RELEASE_POLICY_PATHS[:-1]
+        with self.assertRaisesRegex(model.BundleError, "paths"):
+            model.validate_policy_context(
+                policy, candidate=COMMIT, workflow_commit="d" * 40,
+            )
+
     def test_producer_trust_requires_canonical_main_and_owner_identities(self) -> None:
         trust = trust_context()
         model.validate_trust_context(trust, candidate=COMMIT, phase="candidate", tree=TREE)
