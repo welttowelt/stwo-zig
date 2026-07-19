@@ -1,6 +1,7 @@
 //! Deterministic unique-PC decoded program table construction.
 
 const std = @import("std");
+const opcode_manifest = @import("../../opcode_manifest.zig");
 const decode = @import("decode.zig");
 
 pub const Fetch = struct {
@@ -103,9 +104,15 @@ test "decoded program table: changing a word at one PC is rejected" {
     try std.testing.expectError(Error.ProgramWordChanged, generate(std.testing.allocator, &fetches));
 }
 
-test "decoded program table: unsupported instructions fail closed" {
-    const fetches = [_]Fetch{.{ .pc = 0x1000, .word = 0x00000073 }};
-    try std.testing.expectError(Error.UnsupportedInstructionClass, generate(std.testing.allocator, &fetches));
+test "decoded program table: manifest rejection matrix fails before row construction" {
+    for (opcode_manifest.proof_rejection_vectors) |vector| {
+        const fetches = [_]Fetch{.{ .pc = 0x1000, .word = vector.word }};
+        const expected: Error = switch (vector.kind) {
+            .unsupported_instruction_class => Error.UnsupportedInstructionClass,
+            .invalid_instruction => Error.InvalidInstruction,
+        };
+        try std.testing.expectError(expected, generate(std.testing.allocator, &fetches));
+    }
 }
 
 test "decoded program table: empty fetch stream produces an empty table" {

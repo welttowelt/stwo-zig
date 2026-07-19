@@ -179,6 +179,81 @@ pub const unsupported_entries = [_]UnsupportedEntry{
     .{ .mnemonic = "amomaxu.w", .class = .rv32a, .execution_supported = true },
 };
 
+pub const RejectionKind = enum {
+    unsupported_instruction_class,
+    invalid_instruction,
+};
+
+pub const RejectionVector = struct {
+    name: []const u8,
+    word: u32,
+    kind: RejectionKind,
+};
+
+/// Canonical words that must fail before proof construction.
+///
+/// The first fifteen entries correspond one-for-one with
+/// `unsupported_entries`. The remaining entries cover unsupported extension
+/// primary opcodes and malformed encodings within otherwise admitted classes.
+pub const proof_rejection_vectors = [_]RejectionVector{
+    .{ .name = "ecall", .word = 0x00000073, .kind = .unsupported_instruction_class },
+    .{ .name = "ebreak", .word = 0x00100073, .kind = .unsupported_instruction_class },
+    .{ .name = "fence", .word = 0x0000000f, .kind = .unsupported_instruction_class },
+    .{ .name = "fence.i", .word = 0x0000100f, .kind = .unsupported_instruction_class },
+    .{ .name = "lr.w", .word = atomicWord(0b00010, 0), .kind = .unsupported_instruction_class },
+    .{ .name = "sc.w", .word = atomicWord(0b00011, 3), .kind = .unsupported_instruction_class },
+    .{ .name = "amoswap.w", .word = atomicWord(0b00001, 3), .kind = .unsupported_instruction_class },
+    .{ .name = "amoadd.w", .word = atomicWord(0b00000, 3), .kind = .unsupported_instruction_class },
+    .{ .name = "amoand.w", .word = atomicWord(0b01100, 3), .kind = .unsupported_instruction_class },
+    .{ .name = "amoor.w", .word = atomicWord(0b01000, 3), .kind = .unsupported_instruction_class },
+    .{ .name = "amoxor.w", .word = atomicWord(0b00100, 3), .kind = .unsupported_instruction_class },
+    .{ .name = "amomin.w", .word = atomicWord(0b10000, 3), .kind = .unsupported_instruction_class },
+    .{ .name = "amomax.w", .word = atomicWord(0b10100, 3), .kind = .unsupported_instruction_class },
+    .{ .name = "amominu.w", .word = atomicWord(0b11000, 3), .kind = .unsupported_instruction_class },
+    .{ .name = "amomaxu.w", .word = atomicWord(0b11100, 3), .kind = .unsupported_instruction_class },
+    .{ .name = "csrrw", .word = 0x300110f3, .kind = .unsupported_instruction_class },
+    .{ .name = "load-fp", .word = 0x00002087, .kind = .invalid_instruction },
+    .{ .name = "store-fp", .word = 0x00112027, .kind = .invalid_instruction },
+    .{ .name = "op-fp", .word = 0x003100d3, .kind = .invalid_instruction },
+    .{ .name = "vector", .word = 0x02000057, .kind = .invalid_instruction },
+    .{ .name = "compressed", .word = 0x00000001, .kind = .invalid_instruction },
+    .{ .name = "custom-0", .word = 0x0000000b, .kind = .invalid_instruction },
+    .{ .name = "r-type-reserved-funct7", .word = registerWord(0b0000010, 0), .kind = .invalid_instruction },
+    .{ .name = "r-type-invalid-sub-shape", .word = registerWord(0b0100000, 1), .kind = .invalid_instruction },
+    .{ .name = "load-reserved-funct3", .word = 0x00003083, .kind = .invalid_instruction },
+    .{ .name = "store-reserved-funct3", .word = 0x00113023, .kind = .invalid_instruction },
+    .{ .name = "branch-reserved-funct3", .word = 0x0020a063, .kind = .invalid_instruction },
+    .{ .name = "invalid-primary-opcode", .word = 0x00000000, .kind = .invalid_instruction },
+};
+
+pub const PinnedPermissiveEncoding = struct {
+    name: []const u8,
+    word: u32,
+    opcode: Opcode,
+};
+
+/// Reserved encodings accepted by the pinned Rust decoder.
+///
+/// These are parity constraints, not ISA endorsements. Rejecting them would
+/// silently change the accepted statement while the Stark-V pin is unchanged.
+pub const pinned_permissive_encodings = [_]PinnedPermissiveEncoding{
+    .{ .name = "slli-reserved-funct7", .word = shiftWord(0b1111111, 31, 0b001), .opcode = .slli },
+    .{ .name = "srli-reserved-funct7", .word = shiftWord(0b0000001, 3, 0b101), .opcode = .srli },
+    .{ .name = "jalr-nonzero-funct3", .word = 0x001170e7, .opcode = .jalr },
+};
+
+fn atomicWord(funct5: u32, rs2: u32) u32 {
+    return (funct5 << 27) | (rs2 << 20) | (2 << 15) | (0b010 << 12) | (1 << 7) | 0x2f;
+}
+
+fn registerWord(funct7: u32, funct3: u32) u32 {
+    return (funct7 << 25) | (3 << 20) | (2 << 15) | (funct3 << 12) | (1 << 7) | 0x33;
+}
+
+fn shiftWord(funct7: u32, shamt: u32, funct3: u32) u32 {
+    return (funct7 << 25) | (shamt << 20) | (2 << 15) | (funct3 << 12) | (1 << 7) | 0x13;
+}
+
 pub fn entry(opcode: Opcode) *const Entry {
     return &entries[@intFromEnum(opcode)];
 }
@@ -187,13 +262,39 @@ pub fn family(opcode: Opcode) Family {
     return entry(opcode).family;
 }
 
-pub const ValidationError = error{ ProtocolIdMismatch, MnemonicMismatch };
+pub const ValidationError = error{
+    ProtocolIdMismatch,
+    MnemonicMismatch,
+    RejectionManifestMismatch,
+    DuplicateEncoding,
+};
 
 pub fn validate() ValidationError!void {
     if (entries.len != @typeInfo(Opcode).@"enum".fields.len) return error.ProtocolIdMismatch;
     inline for (entries, 0..) |item, expected_id| {
         if (item.opcode.protocolId() != expected_id) return error.ProtocolIdMismatch;
         if (!std.mem.eql(u8, item.mnemonic, @tagName(item.opcode))) return error.MnemonicMismatch;
+    }
+    if (proof_rejection_vectors.len < unsupported_entries.len)
+        return error.RejectionManifestMismatch;
+    inline for (unsupported_entries, 0..) |unsupported, index| {
+        const rejected = proof_rejection_vectors[index];
+        if (!std.mem.eql(u8, unsupported.mnemonic, rejected.name) or
+            rejected.kind != .unsupported_instruction_class)
+            return error.RejectionManifestMismatch;
+    }
+    inline for (proof_rejection_vectors, 0..) |lhs, lhs_index| {
+        inline for (proof_rejection_vectors[lhs_index + 1 ..]) |rhs| {
+            if (lhs.word == rhs.word) return error.DuplicateEncoding;
+        }
+    }
+    inline for (pinned_permissive_encodings, 0..) |lhs, lhs_index| {
+        inline for (pinned_permissive_encodings[lhs_index + 1 ..]) |rhs| {
+            if (lhs.word == rhs.word) return error.DuplicateEncoding;
+        }
+        inline for (proof_rejection_vectors) |rejected| {
+            if (lhs.word == rejected.word) return error.DuplicateEncoding;
+        }
     }
 }
 
@@ -210,4 +311,10 @@ test "execution-only instructions have no proof-family field" {
         try std.testing.expect(item.execution_supported);
         try std.testing.expect(item.mnemonic.len != 0);
     }
+}
+
+test "opcode manifest owns a unique fail-closed decoder matrix" {
+    try validate();
+    try std.testing.expectEqual(@as(usize, 28), proof_rejection_vectors.len);
+    try std.testing.expectEqual(@as(usize, 3), pinned_permissive_encodings.len);
 }

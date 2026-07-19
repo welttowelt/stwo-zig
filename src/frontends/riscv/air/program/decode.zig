@@ -305,10 +305,20 @@ test "decoded program: negative signed immediates use canonical M31" {
     try std.testing.expectEqual(m31.Modulus - 4, branch[3]);
 }
 
-test "decoded program: rejects instruction classes outside RV32IM" {
-    try std.testing.expectError(Error.UnsupportedInstructionClass, decodeProgramWord(0x00000073));
-    try std.testing.expectError(Error.UnsupportedInstructionClass, decodeProgramWord(0x00100073));
-    try std.testing.expectError(Error.UnsupportedInstructionClass, decodeProgramWord(0x0000000f));
-    try std.testing.expectError(Error.UnsupportedInstructionClass, decodeProgramWord(0x100020af));
-    try std.testing.expectError(Error.InvalidInstruction, decodeProgramWord(0));
+test "decoded program: rejects the manifest-owned proof preflight matrix" {
+    for (opcode_manifest.proof_rejection_vectors) |vector| {
+        const expected: Error = switch (vector.kind) {
+            .unsupported_instruction_class => Error.UnsupportedInstructionClass,
+            .invalid_instruction => Error.InvalidInstruction,
+        };
+        try std.testing.expectError(expected, decodeProgramWord(vector.word));
+    }
+}
+
+test "decoded program: preserves pinned permissive encoding behavior" {
+    for (opcode_manifest.pinned_permissive_encodings) |vector| {
+        const decoded = try decodeInstruction(vector.word);
+        try std.testing.expectEqual(vector.opcode, decoded.opcode);
+        try std.testing.expectEqual(vector.opcode.protocolId(), (try decodeProgramWord(vector.word))[0]);
+    }
 }

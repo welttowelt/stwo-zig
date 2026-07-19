@@ -466,10 +466,17 @@ test "decode MUL x1, x2, x3 (0x023100B3)" {
     try std.testing.expectEqual(@as(u5, 3), inst.rs2);
 }
 
-test "decode rejects SYSTEM words (pinned contract; runner synthesizes ECALL)" {
-    try std.testing.expectError(error.IllegalInstruction, DecodedInst.decode(0x00000073));
-    try std.testing.expectError(error.IllegalInstruction, DecodedInst.decode(0x00100073));
-    try std.testing.expectError(error.IllegalInstruction, DecodedInst.decode(0x0000000F));
+test "decode rejects the manifest-owned proof preflight matrix" {
+    for (opcode_manifest.proof_rejection_vectors) |vector| {
+        try std.testing.expectError(error.IllegalInstruction, DecodedInst.decode(vector.word));
+    }
+}
+
+test "decode preserves pinned permissive encoding behavior" {
+    for (opcode_manifest.pinned_permissive_encodings) |vector| {
+        const decoded = try DecodedInst.decode(vector.word);
+        try std.testing.expectEqual(vector.opcode, try proofOpcode(decoded.opcode));
+    }
 }
 
 test "proof opcode conversion covers exact Stark-V ids and rejects execution-only opcodes" {
