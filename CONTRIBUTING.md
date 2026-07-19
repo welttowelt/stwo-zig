@@ -1265,6 +1265,13 @@ compilation-free property is enforced by test, not convention — a compile-clas
 command entering the fast plan fails `scripts/tests/test_ci.py`. Only after fast
 passes is the standard gate worth its minutes.
 
+Membership in `scripts/` is also enforced by test: every script must be
+transitively reachable from a live entry point (build graph, hosted workflow,
+conformance policy, hooks, docs) or declared with a purpose in
+`scripts/tests/test_script_reachability.py`. A script nothing reaches fails the
+suite — wire it into a gate, declare it, or delete it; history keeps deletions
+cheap to reverse.
+
 The pre-commit hook is intentionally limited to staged-diff hygiene, formatting, and source
 conformance. The pre-push hook uses the generated product catalog and
 `conformance/ci-touchpoints-v1.json` to run only gates owned by the exact commits being pushed.
