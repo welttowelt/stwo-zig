@@ -1,3 +1,0 @@
-Sampling process 16682 for 1 second with 1 millisecond of run time between samples
-Sampling completed, processing symbols...
-Sample analysis of process 16682 written to file /private/tmp/stwo-native-profile-final-44a81457/row-04-blake-log_n_rows-12-n_rounds-16/cpu/cpu.sample.txt

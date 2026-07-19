@@ -1,3 +1,0 @@
-Sampling process 16693 for 1 second with 1 millisecond of run time between samples
-Sampling completed, processing symbols...
-Sample analysis of process 16693 written to file /private/tmp/stwo-native-profile-final-44a81457/row-05-poseidon-log_n_instances-14/cpu/cpu.sample.txt
