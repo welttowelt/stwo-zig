@@ -2,6 +2,7 @@ const std = @import("std");
 const metal_core_aot = @import("build_support/metal_core_aot.zig");
 const metal_products = @import("build_support/metal_products.zig");
 const prove_cli = @import("build_support/prove_cli.zig");
+const native_cpu_product = @import("build_support/products/native_cpu.zig");
 const riscv_cpu_product = @import("build_support/products/riscv_cpu.zig");
 const verification_products = @import("build_support/verification_products.zig");
 
@@ -254,6 +255,12 @@ pub fn build(b: *std.Build) void {
         .stwo_module = stwo_module,
         .native_proof_runner_module = native_proof_runner_module,
         .test_step = test_step,
+        .identity = implementation_identity,
+    });
+    native_cpu_product.addProduct(.{
+        .b = b,
+        .target = target,
+        .optimize = optimize,
         .identity = implementation_identity,
     });
     riscv_cpu_product.addProduct(.{

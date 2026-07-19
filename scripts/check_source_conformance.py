@@ -58,10 +58,12 @@ EXCLUDED_DIRECTORY_NAMES = frozenset({
 MANUAL_SOURCE_CEILING = 850
 OWNER_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 ROOT_ALLOWLIST = frozenset({
+    "native_cpu_product.zig",
     "riscv_cpu_product.zig",
     "std_shims_freestanding.zig",
     "stwo.zig",
     "stwo_deep.zig",
+    "stwo_native_cpu.zig",
     "stwo_riscv_cpu.zig",
     "tests.zig",
 })

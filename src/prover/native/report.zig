@@ -263,6 +263,7 @@ pub const HeadlineRequirements = struct {
 
 pub const Report = struct {
     schema_version: u32 = SCHEMA_VERSION,
+    product_identity: ?config.ProductIdentity = null,
     backend: config.Backend,
     evidence_class: config.EvidenceClass,
     profiled: bool,
@@ -278,6 +279,38 @@ pub const Report = struct {
 };
 
 pub fn encodeAlloc(allocator: std.mem.Allocator, value: Report) ![]u8 {
+    if (value.product_identity == null) {
+        const LegacyReport = struct {
+            schema_version: u32,
+            backend: config.Backend,
+            evidence_class: config.EvidenceClass,
+            profiled: bool,
+            provenance: Provenance,
+            protocol: Protocol,
+            workload: Workload,
+            session: Session,
+            runtime_admission: ?RuntimeAdmission,
+            proof: ProofEvidence,
+            backend_telemetry: ?BackendTelemetry,
+            timing: Timing,
+            throughput: Throughput,
+        };
+        return std.json.Stringify.valueAlloc(allocator, LegacyReport{
+            .schema_version = value.schema_version,
+            .backend = value.backend,
+            .evidence_class = value.evidence_class,
+            .profiled = value.profiled,
+            .provenance = value.provenance,
+            .protocol = value.protocol,
+            .workload = value.workload,
+            .session = value.session,
+            .runtime_admission = value.runtime_admission,
+            .proof = value.proof,
+            .backend_telemetry = value.backend_telemetry,
+            .timing = value.timing,
+            .throughput = value.throughput,
+        }, .{});
+    }
     return std.json.Stringify.valueAlloc(allocator, value, .{});
 }
 
@@ -376,6 +409,7 @@ test "native proof report: diagnostic evidence cannot populate headline rates" {
     var parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, encoded, .{});
     defer parsed.deinit();
     const object = parsed.value.object;
+    try std.testing.expect(object.get("product_identity") == null);
     try std.testing.expectEqualStrings("profiled_diagnostic", object.get("evidence_class").?.string);
     const throughput = object.get("throughput").?.object;
     try std.testing.expect(throughput.get("headline_native_mhz").? == .null);

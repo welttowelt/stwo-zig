@@ -38,6 +38,14 @@ fn GatedSampleOutcome(comptime Statement: type) type {
 }
 
 pub fn main(comptime Engine: type, comptime backend: config.Backend) !void {
+    return mainWithProduct(Engine, backend, null);
+}
+
+pub fn mainWithProduct(
+    comptime Engine: type,
+    comptime backend: config.Backend,
+    product_identity: ?config.ProductIdentity,
+) !void {
     const allocator = std.heap.smp_allocator;
     const process_args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, process_args);
@@ -51,7 +59,9 @@ pub fn main(comptime Engine: type, comptime backend: config.Backend) !void {
     };
     switch (parsed) {
         .help => return config.writeUsage(std.fs.File.stdout().deprecatedWriter(), backend),
-        .run => |args| {
+        .run => |parsed_args| {
+            var args = parsed_args;
+            args.product_identity = product_identity;
             const encoded = try run(Engine, backend, allocator, args);
             defer allocator.free(encoded);
             const stdout = std.fs.File.stdout().deprecatedWriter();
@@ -408,6 +418,7 @@ fn executeExample(
     } else null;
 
     const report = report_mod.Report{
+        .product_identity = args.product_identity,
         .backend = backend,
         .evidence_class = evidence_class,
         .profiled = args.profiled,

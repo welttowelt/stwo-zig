@@ -15,6 +15,25 @@ pub const MetalRuntimeSelection = struct {
     manifest_sha256: ?[32]u8 = null,
 };
 
+pub const ProductIdentity = struct {
+    schema_version: u32,
+    name: []const u8,
+    frontend: []const u8,
+    backend: []const u8,
+    role: []const u8,
+    protocol_features: []const u8,
+    identity_sha256: []const u8,
+    implementation_commit: []const u8,
+    implementation_tree: ?[]const u8,
+    implementation_dirty: bool,
+    target_arch: []const u8,
+    target_os: []const u8,
+    target_abi: []const u8,
+    cpu_model: []const u8,
+    cpu_features_sha256: []const u8,
+    optimize: []const u8,
+};
+
 pub const EvidenceClass = enum {
     verified_unprofiled,
     profiled_diagnostic,
@@ -100,6 +119,7 @@ pub const Args = struct {
     proof_artifact_report_path: ?[]const u8 = null,
     blake2_backend: Blake2Backend = .auto,
     metal_runtime: MetalRuntimeSelection = .{},
+    product_identity: ?ProductIdentity = null,
 
     pub fn workload(self: Args) Workload {
         return switch (self.example) {
