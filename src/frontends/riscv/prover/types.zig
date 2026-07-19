@@ -63,6 +63,7 @@ pub const ProverError = error{
     EmptyTrace,
     InvalidLogSize,
     InvalidStatement,
+    UnsupportedProofFamily,
     InvalidPreprocessedCommitment,
     InvalidInteractionClaim,
     ProvingFailed,

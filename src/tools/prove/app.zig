@@ -77,6 +77,13 @@ fn runElf(
             try writeLine(std.fs.File.stderr().deprecatedWriter(), starkv_adapter.PENDING_DIAGNOSTIC);
             std.process.exit(1);
         },
+        error.UnsupportedProofFamily => {
+            try writeLine(
+                std.fs.File.stderr().deprecatedWriter(),
+                starkv_adapter.UNSUPPORTED_PROOF_FAMILY_DIAGNOSTIC,
+            );
+            std.process.exit(1);
+        },
         else => return err,
     };
     defer allocator.free(report);

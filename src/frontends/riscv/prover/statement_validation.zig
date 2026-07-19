@@ -38,7 +38,18 @@ pub fn computeOpcodeLogSize(count: usize) u32 {
     return @max(@as(u32, 4), computeLogSize(count));
 }
 
-pub fn validate(statement: types.RiscVStatement) types.ProverError!void {
+pub const AdmissionPolicy = enum {
+    /// Proofs and verification admit only fully constrained opcode families.
+    proof,
+    /// CP-11 diagnostics may inspect the exact committed relation sources for
+    /// the pinned MULH family limitation. This never authorizes a proof.
+    relation_diagnostic,
+};
+
+pub fn validate(
+    statement: types.RiscVStatement,
+    policy: AdmissionPolicy,
+) types.ProverError!void {
     if (statement.n_components == 0 or statement.n_components > types.MAX_COMPONENTS)
         return types.ProverError.InvalidStatement;
     if (statement.n_infra < 10 or statement.n_infra > types.MAX_INFRA_COMPONENTS)
@@ -57,7 +68,7 @@ pub fn validate(statement: types.RiscVStatement) types.ProverError!void {
     var previous_rows: u32 = 0;
     for (0..statement.n_components) |i| {
         const desc = statement.component_descs[i];
-        try validateProofFamily(desc.family);
+        try validateFamily(desc.family, policy);
         if (desc.log_size == 0 or desc.log_size > MAX_OPCODE_SHARD_LOG_SIZE or
             desc.n_rows == 0 or desc.n_rows > MAX_OPCODE_SHARD_ROWS or
             desc.log_size != computeOpcodeLogSize(desc.n_rows) or
@@ -124,8 +135,13 @@ fn validateTotalStepsFieldCycle(total_steps: u32) types.ProverError!void {
     if (total_steps >= m31.Modulus - 1) return types.ProverError.InvalidStatement;
 }
 
-fn validateProofFamily(family: trace_mod.OpcodeFamily) types.ProverError!void {
-    if (!semantic_eval.isTraceCompatible(family)) return types.ProverError.InvalidStatement;
+fn validateFamily(
+    family: trace_mod.OpcodeFamily,
+    policy: AdmissionPolicy,
+) types.ProverError!void {
+    if (semantic_eval.isTraceCompatible(family)) return;
+    if (policy == .relation_diagnostic and family == .mulh) return;
+    return types.ProverError.UnsupportedProofFamily;
 }
 
 fn validateMemoryShards(shards: []const statement_mod.InfraComponentDesc) types.ProverError!void {
@@ -217,9 +233,11 @@ test "statement validation: execution clock cannot wrap the base field" {
 test "statement validation: only semantically constrained opcode families are admitted" {
     for (component_order.opcodeFamilies()) |family| {
         if (family == .mulh) {
-            try std.testing.expectError(error.InvalidStatement, validateProofFamily(family));
+            try std.testing.expectError(error.UnsupportedProofFamily, validateFamily(family, .proof));
+            try validateFamily(family, .relation_diagnostic);
         } else {
-            try validateProofFamily(family);
+            try validateFamily(family, .proof);
+            try validateFamily(family, .relation_diagnostic);
             try std.testing.expect(semantic_eval.constraintCount(family) > 0);
         }
     }

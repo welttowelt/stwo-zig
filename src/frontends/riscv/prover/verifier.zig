@@ -63,7 +63,7 @@ pub fn verifyRiscVWithEngineUsingChannel(
     var proof_moved = false;
     defer if (!proof_moved) proof.deinit(allocator);
 
-    try statement_validation.validate(statement);
+    try statement_validation.validate(statement, .proof);
     if (claim.n_components != statement.n_components or claim.n_infra != statement.n_infra) {
         return types.ProverError.InvalidInteractionClaim;
     }

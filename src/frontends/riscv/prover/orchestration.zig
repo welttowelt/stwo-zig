@@ -334,7 +334,10 @@ pub fn runRiscVWithEngineAndPublicDataUsingChannel(
         };
         statement.n_infra += 1;
     }
-    try statement_validation.validate(statement);
+    try statement_validation.validate(statement, switch (mode) {
+        .prove => .proof,
+        .relation_diagnostic => .relation_diagnostic,
+    });
 
     statement.public_data.mixInto(channel);
 

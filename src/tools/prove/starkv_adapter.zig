@@ -22,6 +22,10 @@ pub const AdapterError = error{AdapterNotReleaseGated};
 
 pub const PENDING_DIAGNOSTIC =
     "stark-v adapter: staged only; the RISC-V release contract is not yet fully satisfied";
+pub const UNSUPPORTED_PROOF_FAMILY_DIAGNOSTIC =
+    "stark-v adapter: error=UnsupportedProofFamily " ++
+    "stage=statement_validation_before_first_commitment " ++
+    "limitation=stark-v-signed-mulh";
 
 pub const Benchmark = struct {
     warmups: usize,

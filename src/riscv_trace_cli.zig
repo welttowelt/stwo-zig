@@ -17,6 +17,7 @@ const witness_layout = @import("frontends/riscv/witness_layout.zig");
 const opcode_manifest = @import("frontends/riscv/opcode_manifest.zig");
 const public_data = @import("frontends/riscv/air/public_data.zig");
 const relation_evidence = @import("frontends/riscv/air/relation_evidence.zig");
+const public_values_diagnostic = @import("frontends/riscv/diagnostics/public_values.zig");
 const riscv_cpu = @import("integrations/riscv_cpu/mod.zig");
 const pcs = @import("core/pcs/mod.zig");
 
@@ -38,6 +39,7 @@ pub fn main() !void {
     var ordered_accesses: ?[]const u8 = null;
     var relation_tuples: ?[]const u8 = null;
     var relation_sums: ?[]const u8 = null;
+    var public_values: ?[]const u8 = null;
     var max_steps: usize = 1_000_000;
     var max_steps_set = false;
     var help = false;
@@ -64,6 +66,8 @@ pub fn main() !void {
             try takeOptionValue(args, &i, &relation_tuples);
         } else if (std.mem.eql(u8, args[i], "--relation-sums")) {
             try takeOptionValue(args, &i, &relation_sums);
+        } else if (std.mem.eql(u8, args[i], "--public-values")) {
+            try takeOptionValue(args, &i, &public_values);
         } else if (std.mem.eql(u8, args[i], "--max-steps")) {
             if (max_steps_set) return error.DuplicateOption;
             const raw = try takeValue(args, &i);
@@ -85,6 +89,7 @@ pub fn main() !void {
         ordered_accesses,
         relation_tuples,
         relation_sums,
+        public_values,
     });
     if (help) {
         if (mode_count != 0 or output_path != null or max_steps_set)
@@ -132,6 +137,11 @@ pub fn main() !void {
 
     if (relation_sums) |path| {
         try dumpRelationEvidence(allocator, path, max_steps, .sums);
+        return;
+    }
+
+    if (public_values) |path| {
+        try dumpPublicValues(allocator, path, max_steps);
         return;
     }
 
@@ -556,6 +566,27 @@ fn dumpRelationEvidence(
     try stdout.writeAll(out.items);
 }
 
+fn dumpPublicValues(allocator: std.mem.Allocator, path: []const u8, max_steps: usize) !void {
+    const elf_bytes = try std.fs.cwd().readFileAlloc(allocator, path, 64 * 1024 * 1024);
+    defer allocator.free(elf_bytes);
+    var result = try runner.run(allocator, elf_bytes, max_steps);
+    defer result.deinit();
+    var owned = try public_values_diagnostic.derive(allocator, &result);
+    defer owned.deinit(allocator);
+    const encoded = try public_values_diagnostic.encode(
+        allocator,
+        owned.data,
+        build_identity.implementation_commit,
+        build_identity.implementation_dirty,
+        elf_bytes,
+        result.input,
+    );
+    defer allocator.free(encoded);
+    const stdout = std.fs.File{ .handle = std.posix.STDOUT_FILENO };
+    try stdout.writeAll(encoded);
+    try stdout.writeAll("\n");
+}
+
 fn printUsage() void {
     std.debug.print(
         \\Usage: riscv-trace-dump --elf <path> [--output <trace.json>] [--max-steps N]
@@ -566,6 +597,7 @@ fn printUsage() void {
         \\  --max-steps <N>      Maximum execution steps (default: 1000000)
         \\  --relation-tuples <path>  Dump bound default-challenge tuple evidence
         \\  --relation-sums <path>    Dump bound default-challenge sum evidence
+        \\  --public-values <path>    Dump proof-independent public statement JSON
         \\  --help, -h           Show this message
         \\
     , .{});
@@ -694,58 +726,12 @@ const DigestRecorder = struct {
 /// default Blake2s channel seeded by `PublicData.mixInto` — printing the
 /// channel digest after every mix step for byte comparison with the oracle.
 fn dumpTranscriptPrefix(allocator: std.mem.Allocator, path: []const u8) !void {
-    const public_data_mod = @import("frontends/riscv/air/public_data.zig");
-    const memory_boundary = @import("frontends/riscv/air/memory_commitment/boundary.zig");
-    const program_commitment = @import("frontends/riscv/air/program/commitment.zig");
-    const program_table = @import("frontends/riscv/air/program/table.zig");
-
     const elf_bytes = try std.fs.cwd().readFileAlloc(allocator, path, 64 * 1024 * 1024);
     defer allocator.free(elf_bytes);
     var run_result = try runner.run(allocator, elf_bytes, 10_000_000);
     defer run_result.deinit();
-
-    const input_words = try public_data_mod.packInputWords(allocator, run_result.input);
-    defer allocator.free(input_words);
-    const out_words = try allocator.alloc(public_data_mod.OutputWord, run_result.output_words.len);
-    defer allocator.free(out_words);
-    for (run_result.output_words, 0..) |word, i| out_words[i] = .{
-        .addr = word.addr,
-        .value = word.value,
-        .clock = word.clock,
-    };
-    var boundary_claims = try memory_boundary.build(allocator, run_result.rw_memory.words);
-    defer boundary_claims.deinit(allocator);
-    const fetches = try allocator.alloc(program_table.Fetch, run_result.execution_trace.rows.items.len);
-    defer allocator.free(fetches);
-    for (run_result.execution_trace.rows.items, fetches) |row, *fetch| {
-        fetch.* = .{ .pc = row.pc, .word = row.inst_word };
-    }
-    var program = try program_commitment.build(
-        allocator,
-        fetches,
-        run_result.rw_memory.program_words,
-    );
-    defer program.deinit(allocator);
-    const data = public_data_mod.PublicData{
-        .initial_pc = run_result.initial_pc,
-        .final_pc = run_result.final_pc,
-        .clock = @intCast(run_result.step_count),
-        .initial_regs = run_result.initial_regs,
-        .final_regs = run_result.final_regs,
-        .reg_last_clock = run_result.state_chain_tracker.reg_last_clk,
-        .program_root = program.tree.root,
-        .initial_rw_root = if (boundary_claims.initial_tree) |tree| tree.root else null,
-        .final_rw_root = if (boundary_claims.final_tree) |tree| tree.root else null,
-        .io_entries = .{
-            .input_start = run_result.input_start,
-            .input_len = @intCast(run_result.input.len),
-            .input_words = input_words,
-            .output_len = run_result.output_len,
-            .output_len_addr = run_result.output_len_addr,
-            .output_data_addr = run_result.output_data_addr,
-            .output_words = out_words,
-        },
-    };
+    var owned = try public_values_diagnostic.derive(allocator, &run_result);
+    defer owned.deinit(allocator);
 
     var out: std.ArrayList(u8) = .{};
     defer out.deinit(allocator);
@@ -755,7 +741,7 @@ fn dumpTranscriptPrefix(allocator: std.mem.Allocator, path: []const u8) !void {
         try writer.print("init ", .{});
     }
     recorder.appendDigest();
-    data.mixInto(&recorder);
+    owned.data.mixInto(&recorder);
 
     const stdout = std.fs.File{ .handle = std.posix.STDOUT_FILENO };
     try stdout.writeAll(out.items);

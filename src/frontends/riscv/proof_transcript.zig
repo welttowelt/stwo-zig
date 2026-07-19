@@ -382,7 +382,7 @@ fn expectMutationRejectedOrDivergent(
 test "active RISC-V transcript claim phase is byte-symmetric at every event" {
     const allocator = std.testing.allocator;
     const statement = fixtureStatement();
-    try statement_validation.validate(statement);
+    try statement_validation.validate(statement, .proof);
     const claim = fixtureInteractionClaim(&statement);
     const preprocessed_root = [_]u8{0x11} ** 32;
     const main_root = [_]u8{0x22} ** 32;
@@ -442,7 +442,7 @@ test "active RISC-V transcript claim phase is byte-symmetric at every event" {
 test "active RISC-V transcript rejects reversed main-claim and shard-manifest mix" {
     const allocator = std.testing.allocator;
     const statement = fixtureStatement();
-    try statement_validation.validate(statement);
+    try statement_validation.validate(statement, .proof);
     const preprocessed_root = [_]u8{0x11} ** 32;
     const main_root = [_]u8{0x22} ** 32;
 
@@ -462,7 +462,7 @@ test "active RISC-V transcript rejects reversed main-claim and shard-manifest mi
 test "active RISC-V transcript detects reversed relation-pair draws" {
     const allocator = std.testing.allocator;
     const statement = fixtureStatement();
-    try statement_validation.validate(statement);
+    try statement_validation.validate(statement, .proof);
     const preprocessed_root = [_]u8{0x11} ** 32;
     const main_root = [_]u8{0x22} ** 32;
 
@@ -488,14 +488,17 @@ test "active RISC-V transcript detects reversed relation-pair draws" {
 test "active RISC-V transcript binds shard order before relation draws" {
     const allocator = std.testing.allocator;
     const statement = fixtureStatement();
-    try statement_validation.validate(statement);
+    try statement_validation.validate(statement, .proof);
     var reversed_statement = statement;
     std.mem.swap(
         statement_mod.FamilyComponentDesc,
         &reversed_statement.component_descs[0],
         &reversed_statement.component_descs[1],
     );
-    try std.testing.expectError(error.InvalidStatement, statement_validation.validate(reversed_statement));
+    try std.testing.expectError(
+        error.InvalidStatement,
+        statement_validation.validate(reversed_statement, .proof),
+    );
     const canonical_claim = statement.canonicalMainClaim();
     const reversed_claim = reversed_statement.canonicalMainClaim();
     try std.testing.expectEqual(canonical_claim.log_sizes, reversed_claim.log_sizes);
