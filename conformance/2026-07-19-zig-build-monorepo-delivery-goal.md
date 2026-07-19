@@ -524,7 +524,7 @@ Each released focused product executes its real production path:
 
 | Checkpoint | Required result | Authoritative evidence | Decision while incomplete |
 | --- | --- | --- | --- |
-| BG-00 Baseline | Frozen commands, identities, build times, binary/link surfaces, proof outputs, and benchmark rows from the pre-migration commit | versioned baseline receipt | NO-GO |
+| BG-00 Baseline | Frozen commands, identities, dependency/link surfaces, proof outputs, and source-conformance state from the pre-migration commit | versioned architecture baseline receipt | NO-GO |
 | BG-01 Typed graph | One typed product/capability model and named module factory own construction | graph unit tests and invalid-pair negatives | NO-GO |
 | BG-02 Core/prover | Independently buildable core and generic prover with enforced purity | focused build/test/import receipts | NO-GO |
 | BG-03 RISC-V CPU | Focused host/static product, CLI, diagnostic, tests, and fast challenge | product receipt and secure challenge receipt | NO-GO |
@@ -552,28 +552,18 @@ Before removing compatibility wiring, record:
 - existing public build step names;
 - aggregate CLI help, registry, success, and failure outputs;
 - Native and RISC-V proof/verify artifacts and normalized digests;
-- CPU and Metal benchmark rows used by CI;
-- cold and warm build times for aggregate and existing focused steps;
-- final binary sizes and dynamic linkage; and
+- focused-product dependency and dynamic-link surfaces; and
 - source-conformance baseline and file counts.
 
-BG-00 also records the performance comparator source digest and policy for the
-separate future autoresearch goal. The
-initial authority is `autoresearch/cli/stwo_perf/runner.py` plus `stats.py`:
-round-level alternating AB/BA pairing, Hodges-Lehmann Walsh-average location,
-95% deterministic percentile-bootstrap confidence interval, 4,000 resamples,
-and a workload-ID-derived seed. The frozen policy records warmups, samples per
-round, and at least three paired rounds. Changing the comparator, confidence,
-resampling, seed derivation, stopping rule, or sample minimum is a versioned
-goal amendment and baseline epoch, not an implementation choice.
+Existing performance history and comparator policy remain immutable inputs to
+the separate future autoresearch goal. BG-00 neither regenerates nor evaluates
+them, and their absence cannot block this architecture goal. No build timing,
+binary-size measurement, benchmark row, throughput comparison, confidence
+interval, or performance baseline capture is required here.
 
-The baseline is immutable input to later autoresearch reports. It is not
-regenerated from the migrated tree and is not evaluated by this architecture
-goal.
-
-Each later work package also captures its own pre-slice focused baseline. This
-prevents a long migration from comparing the last slice only with an obsolete
-or materially different starting product.
+Each later work package records its pre-slice structural and behavioral state.
+That evidence exists to detect ownership or correctness regressions, not to
+score performance.
 
 ### BG-01: Typed graph and module factory
 
