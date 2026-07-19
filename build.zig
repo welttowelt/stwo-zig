@@ -1,4 +1,5 @@
 const std = @import("std");
+const build_monorepo_baseline = @import("build_support/gates/baseline.zig");
 const metal_core_aot = @import("build_support/metal_core_aot.zig");
 const metal_products = @import("build_support/metal_products.zig");
 const prove_cli = @import("build_support/prove_cli.zig");
@@ -7,6 +8,7 @@ const riscv_cpu_product = @import("build_support/products/riscv_cpu.zig");
 const verification_products = @import("build_support/verification_products.zig");
 
 pub fn build(b: *std.Build) void {
+    build_monorepo_baseline.addGate(b);
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const optimize_arg = b.fmt("-Doptimize={s}", .{@tagName(optimize)});
