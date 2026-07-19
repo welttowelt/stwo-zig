@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const libraries = @import("products/libraries.zig");
+const matrix = @import("products/matrix.zig");
 const delegation = @import("graph/delegation.zig");
 
 const StepSpec = struct {
@@ -14,15 +15,8 @@ const steps = [_]StepSpec{
     .{ .name = "architecture-gate", .description = "Produce one host-local BG-15 architecture receipt", .scope = "architecture" },
     .{ .name = "architecture-verify", .description = "Verify Linux and macOS BG-15 receipts in the trusted workflow", .scope = "architecture" },
     .{ .name = "build-monorepo-baseline", .description = "Validate the immutable pre-migration build and performance baseline", .scope = "architecture" },
-    .{ .name = "stwo-core", .description = "Build the focused Stwo core library", .scope = "core" },
-    .{ .name = "test-stwo-core", .description = "Test the focused Stwo core library and purity boundary", .scope = "core" },
-    .{ .name = "identity-stwo-core", .description = "Emit canonical machine identity for stwo-core", .scope = "core" },
-    .{ .name = "stwo-prover", .description = "Build the focused backend-generic Stwo prover library", .scope = "prover" },
-    .{ .name = "test-stwo-prover", .description = "Test the focused generic prover, backend contracts, and purity boundary", .scope = "prover" },
-    .{ .name = "identity-stwo-prover", .description = "Emit canonical machine identity for stwo-prover", .scope = "prover" },
     .{ .name = "test-downstream-modules", .description = "Compile and run a clean external consumer of stwo_core, stwo_prover, and stwo", .scope = "package" },
     .{ .name = "interop-cli", .description = "Build the proof interoperability CLI", .scope = "compatibility_tools" },
-    .{ .name = "test", .description = "Run unit tests", .scope = "aggregate" },
     .{ .name = "metal-core-aot", .description = "Build the deterministic, fail-closed core Metal AOT tool", .scope = "metal_tools" },
     .{ .name = "test-metal-core-aot", .description = "Run deterministic core Metal AOT tooling tests without compiling shaders", .scope = "metal_tools" },
     .{ .name = "metal-core-aot-probe", .description = "Build the authenticated Native core metallib acceptance probe", .scope = "metal_tools" },
@@ -35,19 +29,8 @@ const steps = [_]StepSpec{
     .{ .name = "test-riscv-prover", .description = "Run RISC-V prover tests (prove+verify)", .scope = "riscv_cpu_compat" },
     .{ .name = "riscv-bench", .description = "Build RISC-V benchmark CLI", .scope = "compatibility_tools" },
     .{ .name = "native-proof-bench-cpu", .description = "Build the machine-readable native CPU full-proof benchmark with SIMD hot paths", .scope = "compatibility_tools" },
-    .{ .name = "stwo-zig", .description = "Build the production proof CLI", .scope = "aggregate" },
-    .{ .name = "identity-stwo-zig", .description = "Emit canonical machine identity for stwo-zig", .scope = "aggregate" },
-    .{ .name = "product-matrix-identity", .description = "Emit the hashed authoritative product capability matrix", .scope = "aggregate" },
-    .{ .name = "stwo-native-cpu", .description = "Build the focused Native CPU/SIMD proof CLI", .scope = "native_cpu" },
-    .{ .name = "benchmark-native-cpu", .description = "Build the focused Native CPU/SIMD benchmark", .scope = "native_cpu" },
-    .{ .name = "test-native-cpu-product", .description = "Test Native CPU product behavior, imports, and visible capabilities", .scope = "native_cpu" },
-    .{ .name = "stwo-native-metal", .description = "Build the focused Native Metal proof CLI", .scope = "native_metal" },
-    .{ .name = "native-proof-bench-metal", .description = "Build the compatible machine-readable Native Metal proof benchmark", .scope = "native_metal" },
-    .{ .name = "test-native-metal", .description = "Test Native Metal ownership, linkage, and visible capabilities", .scope = "native_metal" },
     .{ .name = "riscv-trace-dump", .description = "Build RISC-V trace dumper CLI", .scope = "riscv_cpu" },
-    .{ .name = "stwo-zig-riscv-cpu", .description = "Build the focused Stark-V RV32IM CPU/SIMD proof CLI", .scope = "riscv_cpu" },
     .{ .name = "stwo-zig-riscv-cpu-static", .description = "Build the static x86_64-linux-musl RISC-V CPU challenge executable", .scope = "riscv_cpu" },
-    .{ .name = "test-riscv-cpu-product", .description = "Test the focused RISC-V CPU product shell and capability surface", .scope = "riscv_cpu" },
     .{ .name = "metal-arena-plan", .description = "Build sparse Metal arena planner", .scope = "metal_tools" },
     .{ .name = "metal-arena-session", .description = "Build persistent Metal SN PIE prover session", .scope = "metal_tools" },
     .{ .name = "metal-prover-session-test", .description = "Run persistent Metal prover-session unit tests", .scope = "metal_tools" },
@@ -63,12 +46,6 @@ const steps = [_]StepSpec{
     .{ .name = "metal-check", .description = "Compile and link resident Metal backend tests without executing them", .scope = "metal_tools" },
     .{ .name = "metal-bench", .description = "Build resident Metal commitment benchmark", .scope = "metal_tools" },
     .{ .name = "riscv-metal-bench", .description = "Build RISC-V prover with Metal commitments", .scope = "metal_tools" },
-    .{ .name = "stwo-cairo-cpu", .description = "Cairo proving remains disabled until its separate Rust-oracle semantic release goal passes", .scope = "deferred" },
-    .{ .name = "stwo-cairo-metal", .description = "Cairo Metal proving is disabled until Cairo CPU semantics pass their separate Rust-oracle release goal", .scope = "deferred" },
-    .{ .name = "stwo-riscv-metal", .description = "the RISC-V Metal integration has no parity-gated product implementation", .scope = "deferred" },
-    .{ .name = "stwo-native-cuda", .description = "the experimental Native CUDA product requires an explicit toolchain contract and a separately parity-gated kernel implementation", .scope = "deferred" },
-    .{ .name = "stwo-cairo-cuda", .description = "Cairo CUDA proving is disabled until Cairo CPU semantics pass their separate Rust-oracle release goal", .scope = "deferred" },
-    .{ .name = "stwo-riscv-cuda", .description = "the RISC-V CUDA integration has no parity-gated product implementation", .scope = "deferred" },
     .{ .name = "cuda-test", .description = "Unavailable compatibility alias; CUDA now requires an explicit product toolchain", .scope = "deferred" },
     .{ .name = "riscv-release-gate", .description = "Run the staged CLI and validate complete candidate-bound CP-11 evidence", .scope = "verification" },
     .{ .name = "deep-gate", .description = "Run expanded deep graph coverage", .scope = "verification" },
@@ -111,6 +88,7 @@ pub fn add(b: *std.Build) void {
     _ = libraries.addPublicModules(.{ .b = b, .target = target, .optimize = optimize });
 
     const options = delegation.Options.read(b);
+    matrix.addRootProxies(b, target, optimize, options);
     for (steps) |spec| delegation.addProxy(
         b,
         target,

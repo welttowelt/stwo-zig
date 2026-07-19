@@ -12,13 +12,7 @@ const graph = @import("graph/modules.zig");
 const metal_core_aot = @import("backends/metal_aot.zig");
 const metal_products = @import("benchmarks/metal.zig");
 const native_benchmarks = @import("benchmarks/native.zig");
-const aggregate = @import("products/aggregate_cli.zig");
-const core = @import("products/core.zig");
-const deferred = @import("products/matrix.zig");
-const native_cpu = @import("products/native_cpu.zig");
-const native_metal = @import("products/native_metal.zig");
-const prover = @import("products/prover.zig");
-const riscv_cpu = @import("products/riscv_cpu.zig");
+const products = @import("products/matrix.zig");
 
 const Scope = configure_plan.Scope;
 
@@ -39,8 +33,8 @@ pub fn build(b: *std.Build) void {
         std.debug.panic("unknown internal product scope: {s}", .{scope_name});
 
     if (scope == .aggregate) {
-        aggregate.addProduct(b);
-        deferred.addIdentity(b);
+        products.constructAggregate(b);
+        products.addIdentity(b);
         configure_plan.add(b, scope);
         return;
     }
@@ -54,62 +48,22 @@ pub fn build(b: *std.Build) void {
             architecture_receipts.addGates(b);
             baseline.addGate(b);
         },
-        .core => _ = core.addProduct(.{
-            .b = b,
-            .target = target,
-            .optimize = optimize,
-            .identity = resolveIdentity(b, repository_root, shared),
-        }),
-        .prover => {
-            const core_result = core.addProduct(.{
-                .b = b,
-                .target = target,
-                .optimize = optimize,
-                .identity = resolveIdentity(b, repository_root, shared),
-            });
-            _ = prover.addProduct(.{
-                .b = b,
-                .target = target,
-                .optimize = optimize,
-                .core = core_result.module,
-                .identity = resolveIdentity(b, repository_root, shared),
-            });
-        },
+        .core, .prover, .native_cpu, .native_metal, .riscv_cpu => constructProduct(
+            b,
+            target,
+            optimize,
+            repository_root,
+            shared,
+            @tagName(scope),
+        ),
         .package => _ = @import("products/libraries.zig").addProducts(.{
             .b = b,
             .target = target,
             .optimize = optimize,
             .identity = resolveIdentity(b, repository_root, shared),
         }),
-        .native_cpu => native_cpu.addProduct(.{
-            .b = b,
-            .target = target,
-            .optimize = optimize,
-            .identity = resolveIdentity(b, repository_root, shared),
-            .protocol = graph.createPrivateProtocolModules(b, target, optimize),
-        }),
-        .native_metal => native_metal.addProduct(.{
-            .b = b,
-            .target = target,
-            .optimize = optimize,
-            .identity = resolveIdentity(b, repository_root, shared),
-            .protocol = graph.createPrivateProtocolModules(b, target, optimize),
-        }),
-        .riscv_cpu => riscv_cpu.addProduct(.{
-            .b = b,
-            .target = target,
-            .optimize = optimize,
-            .identity = resolveIdentity(b, repository_root, shared),
-            .protocol = graph.createPrivateProtocolModules(b, target, optimize),
-        }),
         .riscv_cpu_compat => {
-            riscv_cpu.addProduct(.{
-                .b = b,
-                .target = target,
-                .optimize = optimize,
-                .identity = resolveIdentity(b, repository_root, shared),
-                .protocol = graph.createPrivateProtocolModules(b, target, optimize),
-            });
+            constructProduct(b, target, optimize, repository_root, shared, "riscv_cpu");
             const focused = &b.top_level_steps.get("test-riscv-cpu-product").?.step;
             b.step("test-riscv", "Run RISC-V runner tests (trace_dump)").dependOn(focused);
             b.step("test-riscv-prover", "Run RISC-V prover tests (prove+verify)").dependOn(focused);
@@ -121,7 +75,7 @@ pub fn build(b: *std.Build) void {
         }),
         .metal_tools => addMetalTools(b, target, optimize),
         .deferred => {
-            deferred.addDeferredProducts(b, target);
+            products.addDeferredProducts(b, target);
             const cuda_test = b.step(
                 "cuda-test",
                 "Unavailable compatibility alias; CUDA now requires an explicit product toolchain",
@@ -203,6 +157,23 @@ fn resolveIdentity(
             .dirty_content_sha256 = shared.dirty_content_sha256,
         } else null,
     ) catch |err| std.debug.panic("cannot resolve product build identity: {s}", .{@errorName(err)});
+}
+
+fn constructProduct(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    repository_root: []const u8,
+    shared: SharedOptions,
+    scope: []const u8,
+) void {
+    const constructed = products.construct(.{
+        .b = b,
+        .target = target,
+        .optimize = optimize,
+        .identity = resolveIdentity(b, repository_root, shared),
+    }, scope);
+    if (!constructed) std.debug.panic("product scope absent from central catalog: {s}", .{scope});
 }
 
 fn addMetalTools(

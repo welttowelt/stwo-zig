@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from scripts.ci import command_plan
+from scripts.check_build_configure_closure import validate_actual_construction
 from scripts.release_evidence import gate_steps
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -12,6 +13,46 @@ PINNED_ACTION_RE = re.compile(r"^\s*uses:\s*[^@\s]+@[0-9a-f]{40}(?:\s+#.*)?$")
 
 
 class CiTests(unittest.TestCase):
+    def construction_fixture(self) -> tuple[dict[str, object], dict[str, dict[str, object]]]:
+        manifest: dict[str, object] = {
+            "product_ids": ["focused"],
+            "external_tools": ["python3"],
+            "runtime_probes": ["Metal.framework"],
+            "actual": {
+                "module_roots": ["src/product/main.zig"],
+                "external_tools": ["python3"],
+                "runtime_probes": ["Metal.framework"],
+            },
+        }
+        matrix = {
+            "focused": {
+                "module_roots": ["src/product/main.zig"],
+                "allowed_files": [],
+                "allowed_prefixes": ["src/product"],
+                "configure_allowed_files": [],
+                "configure_allowed_prefixes": [],
+            }
+        }
+        return manifest, matrix
+
+    def test_actual_construction_rejects_undeclared_module_mutation(self) -> None:
+        manifest, matrix = self.construction_fixture()
+        manifest["actual"]["module_roots"].append("src/zother/hidden.zig")  # type: ignore[index]
+        with self.assertRaisesRegex(SystemExit, "undeclared module roots"):
+            validate_actual_construction(manifest, matrix, "focused")
+
+    def test_actual_construction_rejects_undeclared_tool_mutation(self) -> None:
+        manifest, matrix = self.construction_fixture()
+        manifest["actual"]["external_tools"].append("ztool")  # type: ignore[index]
+        with self.assertRaisesRegex(SystemExit, "undeclared external tools"):
+            validate_actual_construction(manifest, matrix, "focused")
+
+    def test_actual_construction_rejects_runtime_probe_mutation(self) -> None:
+        manifest, matrix = self.construction_fixture()
+        manifest["actual"]["runtime_probes"].append("ZZ.framework")  # type: ignore[index]
+        with self.assertRaisesRegex(SystemExit, "runtime probes diverge"):
+            validate_actual_construction(manifest, matrix, "focused")
+
     def test_standard_plan_runs_tooling_then_release_gate(self) -> None:
         plan = command_plan(False, "ReleaseFast")
         self.assertEqual(sys.executable, plan[0][0])

@@ -1,6 +1,7 @@
 //! Versioned configure plan emitted by each delegated internal build scope.
 
 const std = @import("std");
+const observer = @import("construction_observer.zig");
 
 pub const Inputs = struct {
     b: *std.Build,
@@ -14,8 +15,9 @@ pub const Inputs = struct {
 };
 
 pub fn add(inputs: Inputs) void {
+    const actual = observer.observe(inputs.b);
     const encoded = std.json.Stringify.valueAlloc(inputs.b.allocator, .{
-        .schema = "stwo-configure-manifest-v1",
+        .schema = "stwo-configure-manifest-v2",
         .scope = inputs.scope,
         .product_ids = inputs.product_ids,
         .module_roots = inputs.module_roots,
@@ -23,6 +25,7 @@ pub fn add(inputs: Inputs) void {
         .runtime_probes = inputs.runtime_probes,
         .constructors = inputs.constructors,
         .declarative_exports_only = inputs.declarative_exports_only,
+        .actual = actual,
     }, .{ .whitespace = .indent_2 }) catch @panic("cannot encode configure manifest");
     const files = inputs.b.addWriteFiles();
     const generated = files.add("configure-manifest.json", encoded);

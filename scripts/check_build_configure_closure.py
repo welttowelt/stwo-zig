@@ -147,10 +147,10 @@ SCOPES: dict[str, set[str]] = {
 MANIFESTS: dict[str, dict[str, object]] = {
     "aggregate": {
         "product_ids": ["stwo-zig"],
-        "external_tools": [],
+        "external_tools": ["python3"],
         "runtime_probes": [],
         "constructors": [
-            "products/aggregate_cli.addProduct",
+            "products/matrix.construct.aggregate",
             "products/matrix.addIdentity",
         ],
         "declarative_exports_only": False,
@@ -172,12 +172,12 @@ MANIFESTS: dict[str, dict[str, object]] = {
         "constructors": ["products/compatibility_tools.addProducts"],
         "declarative_exports_only": False,
     },
-    "core": {"product_ids": ["stwo-core"], "external_tools": [], "runtime_probes": [], "constructors": ["products/core.addProduct"], "declarative_exports_only": False},
-    "prover": {"product_ids": ["stwo-prover"], "external_tools": [], "runtime_probes": [], "constructors": ["products/prover.addProduct"], "declarative_exports_only": False},
-    "native_cpu": {"product_ids": ["stwo-native-cpu"], "external_tools": [], "runtime_probes": [], "constructors": ["products/native_cpu.addProduct"], "declarative_exports_only": False},
-    "native_metal": {"product_ids": ["stwo-native-metal"], "external_tools": ["xcrun"], "runtime_probes": ["Metal.framework", "Foundation.framework", "libobjc"], "constructors": ["products/native_metal.addProduct"], "declarative_exports_only": False},
-    "riscv_cpu": {"product_ids": ["stwo-riscv-cpu"], "external_tools": [], "runtime_probes": [], "constructors": ["products/riscv_cpu.addProduct"], "declarative_exports_only": False},
-    "riscv_cpu_compat": {"product_ids": ["stwo-riscv-cpu"], "external_tools": [], "runtime_probes": [], "constructors": ["products/riscv_cpu.addProduct", "compatibility aliases"], "declarative_exports_only": False},
+    "core": {"product_ids": ["stwo-core"], "external_tools": ["python3"], "runtime_probes": [], "constructors": ["products/matrix.construct.core"], "declarative_exports_only": False},
+    "prover": {"product_ids": ["stwo-prover"], "external_tools": ["python3"], "runtime_probes": [], "constructors": ["products/matrix.construct.prover"], "declarative_exports_only": False},
+    "native_cpu": {"product_ids": ["stwo-native-cpu"], "external_tools": ["python3"], "runtime_probes": [], "constructors": ["products/matrix.construct.native_cpu"], "declarative_exports_only": False},
+    "native_metal": {"product_ids": ["stwo-native-metal"], "external_tools": ["python3", "xcrun"], "runtime_probes": ["Metal.framework", "Foundation.framework", "libobjc"], "constructors": ["products/matrix.construct.native_metal"], "declarative_exports_only": False},
+    "riscv_cpu": {"product_ids": ["stwo-riscv-cpu"], "external_tools": ["python3"], "runtime_probes": [], "constructors": ["products/matrix.construct.riscv_cpu"], "declarative_exports_only": False},
+    "riscv_cpu_compat": {"product_ids": ["stwo-riscv-cpu"], "external_tools": ["python3"], "runtime_probes": [], "constructors": ["products/matrix.construct.riscv_cpu", "compatibility aliases"], "declarative_exports_only": False},
     "package": {
         "product_ids": ["stwo-core", "stwo-prover", "stwo"],
         "module_roots": ["src/core/mod.zig", "src/products/prover/root.zig", "src/stwo.zig"],
@@ -195,7 +195,7 @@ MANIFESTS: dict[str, dict[str, object]] = {
     },
     "verification": {"product_ids": [], "module_roots": [], "external_tools": ["python3", "zig"], "runtime_probes": [], "constructors": ["gates/riscv.addGates", "gates/native.addGates", "benchmarks/native.addProducts", "gates/release_evidence.addGates"], "declarative_exports_only": False},
     "deferred": {"product_ids": ["stwo-cairo-cpu", "stwo-cairo-metal", "stwo-riscv-metal", "stwo-native-cuda", "stwo-cairo-cuda", "stwo-riscv-cuda"], "module_roots": [], "external_tools": [], "runtime_probes": [], "constructors": ["products/matrix.addDeferredProducts"], "declarative_exports_only": False},
-    "policy": {"product_ids": [], "module_roots": [], "external_tools": ["python3", "zig fmt"], "runtime_probes": [], "constructors": ["internal_build.addPolicyGates"], "declarative_exports_only": False},
+    "policy": {"product_ids": [], "module_roots": [], "external_tools": ["python3", "zig"], "runtime_probes": [], "constructors": ["internal_build.addPolicyGates"], "declarative_exports_only": False},
     "release": {"product_ids": ["stwo-zig-release"], "module_roots": [], "external_tools": ["python3", "zig"], "runtime_probes": [], "constructors": ["gates/release.addGates"], "declarative_exports_only": False},
 }
 
@@ -287,7 +287,7 @@ def read_configure_manifest(
         path = Path(raw) / f"build-graph/configure-{scope}.json"
         encoded = path.read_bytes()
         manifest = json.loads(encoded)
-    if manifest.get("schema") != "stwo-configure-manifest-v1":
+    if manifest.get("schema") != "stwo-configure-manifest-v2":
         raise SystemExit(f"{scope} configure manifest has an unknown schema")
     if manifest.get("scope") != scope or not manifest.get("constructors"):
         raise SystemExit(f"{scope} configure manifest is incomplete")
@@ -316,7 +316,63 @@ def read_configure_manifest(
                 f"{scope} configure manifest {field} mismatch: "
                 f"expected={wanted!r}, actual={manifest.get(field)!r}"
             )
+    validate_actual_construction(manifest, matrix, scope)
     return manifest, hashlib.sha256(encoded).hexdigest()
+
+
+def validate_actual_construction(
+    manifest: dict[str, object],
+    matrix: dict[str, dict[str, object]],
+    scope: str,
+) -> None:
+    actual = manifest.get("actual")
+    if not isinstance(actual, dict):
+        raise SystemExit(f"{scope} configure manifest has no observed construction graph")
+    for field in ("module_roots", "external_tools", "runtime_probes"):
+        values = actual.get(field)
+        if not isinstance(values, list) or values != sorted(set(values)):
+            raise SystemExit(f"{scope} actual {field} is not a sorted unique list")
+
+    actual_tools = set(actual["external_tools"])
+    declared_tools = set(manifest["external_tools"])
+    if not actual_tools <= declared_tools:
+        raise SystemExit(
+            f"{scope} constructed undeclared external tools: "
+            f"{sorted(actual_tools - declared_tools)}"
+        )
+    actual_probes = set(actual["runtime_probes"])
+    declared_probes = set(manifest["runtime_probes"])
+    if actual_probes != declared_probes:
+        raise SystemExit(
+            f"{scope} runtime probes diverge from constructed linkage: "
+            f"declared={sorted(declared_probes)}, actual={sorted(actual_probes)}"
+        )
+
+    selected = [matrix.get(product_id) for product_id in manifest["product_ids"]]
+    if not selected or any(product is None for product in selected):
+        return
+    allowed_files: set[str] = set()
+    allowed_prefixes: list[str] = []
+    for product in selected:
+        assert product is not None
+        allowed_files.update(product["module_roots"])
+        allowed_files.update(product["allowed_files"])
+        allowed_files.update(product["configure_allowed_files"])
+        allowed_prefixes.extend(
+            prefix.rstrip("/") + "/"
+            for prefix in (
+                list(product["allowed_prefixes"])
+                + list(product["configure_allowed_prefixes"])
+            )
+        )
+    undeclared = [
+        path
+        for path in actual["module_roots"]
+        if path not in allowed_files
+        and not any(path.startswith(prefix) for prefix in allowed_prefixes)
+    ]
+    if undeclared:
+        raise SystemExit(f"{scope} constructed undeclared module roots: {undeclared}")
 
 
 def check_scope(

@@ -1,12 +1,6 @@
 const std = @import("std");
 const configure_manifest = @import("../graph/configure_manifest.zig");
-const product = @import("../graph/product.zig");
-const aggregate = @import("../products/aggregate.zig");
-const core = @import("../products/core.zig");
-const native_cpu = @import("../products/native_cpu.zig");
-const native_metal = @import("../products/native_metal.zig");
-const prover = @import("../products/prover.zig");
-const riscv_cpu = @import("../products/riscv_cpu.zig");
+const matrix = @import("../products/matrix.zig");
 
 pub const Scope = enum {
     aggregate,
@@ -28,51 +22,26 @@ pub const Scope = enum {
 
 pub fn add(b: *std.Build, scope: Scope) void {
     const inputs: configure_manifest.Inputs = switch (scope) {
-        .aggregate => .{
-            .b = b,
-            .scope = "aggregate",
-            .product_ids = &.{"stwo-zig"},
-            .module_roots = aggregate.descriptor.dependencies.module_roots,
-            .constructors = &.{
-                "products/aggregate_cli.addProduct",
-                "products/matrix.addIdentity",
-            },
-        },
+        .aggregate => fromCatalog(b, "aggregate"),
         .architecture => gate(
             b,
             "architecture",
             &.{"python3"},
             &.{ "gates/architecture_receipts.addGates", "gates/baseline.addGate" },
         ),
-        .core => fromProduct(b, "core", core.descriptor, "products/core.addProduct"),
-        .prover => fromProduct(b, "prover", prover.descriptor, "products/prover.addProduct"),
-        .native_cpu => fromProduct(
-            b,
-            "native_cpu",
-            native_cpu.descriptor(.cli),
-            "products/native_cpu.addProduct",
-        ),
-        .native_metal => .{
-            .b = b,
-            .scope = "native_metal",
-            .product_ids = &.{"stwo-native-metal"},
-            .module_roots = native_metal.descriptor(.cli).dependencies.module_roots,
-            .external_tools = &.{"xcrun"},
-            .runtime_probes = &.{ "Metal.framework", "Foundation.framework", "libobjc" },
-            .constructors = &.{"products/native_metal.addProduct"},
-        },
-        .riscv_cpu => fromProduct(
-            b,
-            "riscv_cpu",
-            riscv_cpu.descriptor,
-            "products/riscv_cpu.addProduct",
-        ),
+        .core => fromCatalog(b, "core"),
+        .prover => fromCatalog(b, "prover"),
+        .native_cpu => fromCatalog(b, "native_cpu"),
+        .native_metal => fromCatalog(b, "native_metal"),
+        .riscv_cpu => fromCatalog(b, "riscv_cpu"),
         .riscv_cpu_compat => .{
             .b = b,
             .scope = "riscv_cpu_compat",
-            .product_ids = &.{"stwo-riscv-cpu"},
-            .module_roots = riscv_cpu.descriptor.dependencies.module_roots,
-            .constructors = &.{ "products/riscv_cpu.addProduct", "compatibility aliases" },
+            .product_ids = fromCatalog(b, "riscv_cpu").product_ids,
+            .module_roots = fromCatalog(b, "riscv_cpu").module_roots,
+            .external_tools = fromCatalog(b, "riscv_cpu").external_tools,
+            .runtime_probes = fromCatalog(b, "riscv_cpu").runtime_probes,
+            .constructors = &.{ "products/matrix.construct.riscv_cpu", "compatibility aliases" },
         },
         .package => .{
             .b = b,
@@ -110,14 +79,7 @@ pub fn add(b: *std.Build, scope: Scope) void {
         .deferred => .{
             .b = b,
             .scope = "deferred",
-            .product_ids = &.{
-                "stwo-cairo-cpu",
-                "stwo-cairo-metal",
-                "stwo-riscv-metal",
-                "stwo-native-cuda",
-                "stwo-cairo-cuda",
-                "stwo-riscv-cuda",
-            },
+            .product_ids = matrix.productIdsForScope(b, "deferred"),
             .module_roots = &.{},
             .constructors = &.{"products/matrix.addDeferredProducts"},
         },
@@ -135,7 +97,7 @@ pub fn add(b: *std.Build, scope: Scope) void {
         .policy => gate(
             b,
             "policy",
-            &.{ "python3", "zig fmt" },
+            &.{ "python3", "zig" },
             &.{"internal_build.addPolicyGates"},
         ),
         .release => .{
@@ -169,7 +131,7 @@ fn gate(
 fn fromProduct(
     b: *std.Build,
     scope: []const u8,
-    descriptor: product.Descriptor,
+    descriptor: @import("../graph/product.zig").Descriptor,
     constructor: []const u8,
 ) configure_manifest.Inputs {
     const product_ids = b.allocator.alloc([]const u8, 1) catch @panic("out of memory");
@@ -184,4 +146,18 @@ fn fromProduct(
         .external_tools = descriptor.dependencies.external_dependencies,
         .constructors = constructors,
     };
+}
+
+fn fromCatalog(b: *std.Build, scope: []const u8) configure_manifest.Inputs {
+    const spec = matrix.findByScope(scope) orelse
+        std.debug.panic("configure scope absent from product catalog: {s}", .{scope});
+    const constructor = b.fmt("products/matrix.construct.{s}", .{@tagName(spec.constructor)});
+    var inputs = fromProduct(b, scope, spec.descriptor, constructor);
+    inputs.external_tools = spec.configure_tools;
+    inputs.runtime_probes = spec.runtime_probes;
+    if (spec.constructor == .aggregate) inputs.constructors = &.{
+        "products/matrix.construct.aggregate",
+        "products/matrix.addIdentity",
+    };
+    return inputs;
 }
