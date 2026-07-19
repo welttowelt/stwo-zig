@@ -109,13 +109,44 @@ def validate_visible_snapshot(name: str, value: str, *, diagnostic: bool = False
 def validate_registry(payload: Mapping[str, Any], expected_status: str) -> None:
     exact_fields(
         payload,
-        {"schema_version", "backend_availability", "applications", "deferred_adapters"},
+        {
+            "schema_version", "backend_availability", "product_matrix",
+            "applications", "deferred_adapters",
+        },
         "applications",
     )
     if payload["schema_version"] != 1:
         raise ContractError("applications: unsupported schema")
-    if not isinstance(payload["backend_availability"], dict):
+    availability = payload["backend_availability"]
+    if not isinstance(availability, dict):
         raise ContractError("applications: missing backend availability")
+    exact_fields(availability, {"cpu", "metal-hybrid"}, "applications.backend_availability")
+    if availability["cpu"] is not True or not isinstance(availability["metal-hybrid"], bool):
+        raise ContractError("applications: backend availability drifted")
+
+    product_matrix = payload["product_matrix"]
+    if not isinstance(product_matrix, dict):
+        raise ContractError("applications: missing product matrix")
+    exact_fields(product_matrix, {"native_cpu", "native_metal"}, "applications.product_matrix")
+    native_cpu = product_matrix["native_cpu"]
+    native_metal = product_matrix["native_metal"]
+    if not isinstance(native_cpu, dict) or not isinstance(native_metal, dict):
+        raise ContractError("applications: product matrix entries must be objects")
+    exact_fields(native_cpu, {"product_id", "state"}, "applications.product_matrix.native_cpu")
+    exact_fields(
+        native_metal,
+        {"product_id", "state", "selected"},
+        "applications.product_matrix.native_metal",
+    )
+    if native_cpu != {"product_id": "stwo-native-cpu", "state": "released"}:
+        raise ContractError("applications: Native CPU product matrix entry drifted")
+    if (
+        native_metal.get("product_id") != "stwo-native-metal"
+        or native_metal.get("state") != "parity_gated"
+        or native_metal.get("selected") is not availability["metal-hybrid"]
+    ):
+        raise ContractError("applications: Native Metal product matrix entry drifted")
+
     applications = payload["applications"]
     deferred = payload["deferred_adapters"]
     if not isinstance(applications, list) or not isinstance(deferred, list):

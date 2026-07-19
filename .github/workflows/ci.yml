@@ -429,15 +429,26 @@ jobs:
       - name: Detect promoted adapter
         id: riscv-release-state
         run: |
-          if grep -q 'pub const RISCV_ADAPTER_RELEASE_GATED = true;' src/tools/prove/registry.zig; then
-            echo 'promoted=true' >> "$GITHUB_OUTPUT"
-            echo 'phase=promoted' >> "$GITHUB_OUTPUT"
-          else
-            echo 'promoted=false' >> "$GITHUB_OUTPUT"
-            echo 'phase=candidate' >> "$GITHUB_OUTPUT"
-          fi
+          release_state=$(sed -nE \
+            's/^pub const adapter_release_gated = (true|false);$/\1/p' \
+            src/products/riscv_cpu/capabilities.zig)
+          case "$release_state" in
+            true)
+              actual=promoted
+              echo 'promoted=true' >> "$GITHUB_OUTPUT"
+              ;;
+            false)
+              actual=candidate
+              echo 'promoted=false' >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo 'RISC-V capability release state is missing or ambiguous' >&2
+              exit 1
+              ;;
+          esac
+          echo "phase=$actual" >> "$GITHUB_OUTPUT"
           if test -n "$RISCV_REQUESTED_PHASE"; then
-            test "$RISCV_REQUESTED_PHASE" = "$(tail -n 1 "$GITHUB_OUTPUT" | cut -d= -f2)" || {
+            test "$RISCV_REQUESTED_PHASE" = "$actual" || {
               echo "requested phase does not match candidate source" >&2
               exit 1
             }
@@ -724,11 +735,17 @@ jobs:
 
       - name: Require requested release phase
         run: |
-          if grep -q 'pub const RISCV_ADAPTER_RELEASE_GATED = true;' src/tools/prove/registry.zig; then
-            actual=promoted
-          else
-            actual=candidate
-          fi
+          release_state=$(sed -nE \
+            's/^pub const adapter_release_gated = (true|false);$/\1/p' \
+            src/products/riscv_cpu/capabilities.zig)
+          case "$release_state" in
+            true) actual=promoted ;;
+            false) actual=candidate ;;
+            *)
+              echo 'RISC-V capability release state is missing or ambiguous' >&2
+              exit 1
+              ;;
+          esac
           test "$actual" = "$RISCV_GATE_PHASE" || {
             echo "requested phase $RISCV_GATE_PHASE does not match source phase $actual" >&2
             exit 1

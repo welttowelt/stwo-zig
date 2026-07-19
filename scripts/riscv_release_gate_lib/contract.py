@@ -109,7 +109,77 @@ def _contains_bool_assignment(source: str, name: str, value: bool) -> bool:
     return re.search(pattern, source) is not None
 
 
-def phase_errors(phase: str, registry_source: str, artifact_source: str, cli_source: str) -> list[str]:
+def _riscv_capability_alias(registry_source: str) -> str | None:
+    match = re.search(
+        r'const\s+([A-Za-z_]\w*)\s*=\s*@import\("riscv_cpu_capabilities"\)\s*;',
+        registry_source,
+    )
+    return match.group(1) if match is not None else None
+
+
+def _contains_member_assignment(source: str, name: str, owner: str, member: str) -> bool:
+    pattern = (
+        rf"pub\s+const\s+{re.escape(name)}\s*=\s*"
+        rf"{re.escape(owner)}\s*\.\s*{re.escape(member)}\s*;"
+    )
+    return re.search(pattern, source) is not None
+
+
+def _conditional_print_body(source: str, condition: str) -> str | None:
+    pattern = (
+        rf"if\s*\(\s*{condition}\s*\)\s*try\s+writer\.print\s*\("
+        r"(?P<body>.*?)\)\s*;"
+    )
+    match = re.search(pattern, source, re.DOTALL)
+    return match.group("body") if match is not None else None
+
+
+def _registry_wiring_errors(registry_source: str) -> list[str]:
+    alias = _riscv_capability_alias(registry_source)
+    if alias is None:
+        return ["registry does not import the typed RISC-V CPU capabilities"]
+
+    errors: list[str] = []
+    if not _contains_member_assignment(
+            registry_source, "RISCV_ADAPTER_RELEASE_GATED", alias, "adapter_release_gated"):
+        errors.append("registry admission switch does not alias the RISC-V capability owner")
+
+    admission_pattern = (
+        r"pub\s+fn\s+requireRiscVAdmission\s*\(\s*experimental\s*:\s*bool\s*\)\s*"
+        rf"!void\s*\{{\s*return\s+{re.escape(alias)}\.requireAdmission\s*\(\s*"
+        r"experimental\s*\)\s*;\s*\}"
+    )
+    if re.search(admission_pattern, registry_source, re.DOTALL) is None:
+        errors.append("registry does not delegate RISC-V admission to the capability owner")
+
+    release_body = _conditional_print_body(
+        registry_source, re.escape("RISCV_ADAPTER_RELEASE_GATED")
+    )
+    deferred_body = _conditional_print_body(
+        registry_source, rf"!\s*{re.escape('RISCV_ADAPTER_RELEASE_GATED')}"
+    )
+    release_members = ("adapter", "air", "isa", "backend")
+    deferred_members = ("adapter", "isa", "backend", "deferred_reason")
+    if release_body is None or any(
+            re.search(rf"\b{re.escape(alias)}\s*\.\s*{member}\b", release_body) is None
+            for member in release_members
+    ) or '"status":"release_gated"' not in release_body:
+        errors.append("registry release branch is not wired to the typed RISC-V capability")
+    if deferred_body is None or any(
+            re.search(rf"\b{re.escape(alias)}\s*\.\s*{member}\b", deferred_body) is None
+            for member in deferred_members
+    ) or '"status":"not_release_gated"' not in deferred_body:
+        errors.append("registry deferred branch is not wired to the typed RISC-V capability")
+    return errors
+
+
+def phase_errors(
+    phase: str,
+    registry_source: str,
+    capability_source: str,
+    artifact_source: str,
+    cli_source: str,
+) -> list[str]:
     """Return every source-level release-state mismatch for ``phase``."""
     if phase not in {"candidate", "promoted"}:
         return [f"unknown release phase: {phase}"]
@@ -119,25 +189,23 @@ def phase_errors(phase: str, registry_source: str, artifact_source: str, cli_sou
         errors.append(f"artifact RELEASE_STATUS is not {expected}")
 
     promoted = phase == "promoted"
-    if not _contains_bool_assignment(registry_source, "RISCV_ADAPTER_RELEASE_GATED", promoted):
-        errors.append(f"registry admission switch does not select the {phase} phase")
-    for required in (
-        '"adapter":"stark-v-rv32im-elf"',
-        '"status":"not_release_gated"',
-        '"status":"release_gated"',
-        '"isa":"rv32im"',
-        '"backends":["cpu"]',
-        "requireRiscVAdmission",
+    if not _contains_bool_assignment(capability_source, "adapter_release_gated", promoted):
+        errors.append(f"RISC-V capability owner does not select the {phase} phase")
+    for name, value in (
+        ("adapter", "stark-v-rv32im-elf"),
+        ("air", "stark_v_rv32im"),
+        ("isa", "rv32im"),
+        ("backend", "cpu"),
     ):
-        if required not in registry_source:
-            errors.append(f"registry is missing required Stark-V release surface: {required}")
+        if not _contains_assignment(capability_source, name, value):
+            errors.append(f"RISC-V capability {name} is not {value}")
     reason = re.search(
-        r'"status":"not_release_gated"[^}]*"reason":"([^"]+)"',
-        registry_source,
-        re.DOTALL,
+        r'pub\s+const\s+deferred_reason\s*=\s*"((?:\\.|[^"\\])*)"\s*;',
+        capability_source,
     )
     if reason is None or not reason.group(1).strip():
-        errors.append("deferred Stark-V registry entry lacks a non-empty reason")
+        errors.append("RISC-V capability owner lacks a non-empty deferred reason")
+    errors.extend(_registry_wiring_errors(registry_source))
     if "Flag.experimental" not in cli_source or '"--experimental"' not in cli_source:
         errors.append("CLI lacks the typed --experimental admission flag")
     return errors
@@ -218,12 +286,14 @@ def repository_contract_errors(root: Path, phase: str) -> list[str]:
         "scripts/riscv_staged_smoke.py",
         "scripts/riscv_trace_vectors.py",
         "src/frontends/riscv/air/semantics/mulh.zig",
+        "src/products/riscv_cpu/capabilities.zig",
     )
     errors = [f"missing required release artifact: {path}" for path in required if not (root / path).is_file()]
     registry = (root / "src/tools/prove/registry.zig").read_text(encoding="utf-8")
+    capability = (root / "src/products/riscv_cpu/capabilities.zig").read_text(encoding="utf-8")
     artifact = (root / "src/interop/riscv_artifact.zig").read_text(encoding="utf-8")
     cli = (root / "src/tools/prove/cli.zig").read_text(encoding="utf-8")
-    errors.extend(phase_errors(phase, registry, artifact, cli))
+    errors.extend(phase_errors(phase, registry, capability, artifact, cli))
     errors.extend(divergence_errors(root))
     mulh_semantics = root / "src/frontends/riscv/air/semantics/mulh.zig"
     if mulh_semantics.is_file():

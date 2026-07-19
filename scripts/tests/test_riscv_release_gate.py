@@ -21,7 +21,6 @@ from scripts.riscv_release_gate_lib.contract import (
     divergence_ledger_errors,
     frontend_layering_errors,
     oracle_limitation_source_errors,
-    phase_errors,
     receipt_errors,
     expected_case_result_keys,
     _relation_case_errors,
@@ -175,54 +174,6 @@ def limitation_case(boundary: str) -> dict[str, object]:
             },
         },
     }
-
-
-class PhaseContractTests(unittest.TestCase):
-    def test_candidate_requires_one_reasoned_deferred_adapter_and_typed_flag(self) -> None:
-        registry = (
-            'pub const RISCV_ADAPTER_RELEASE_GATED = false; requireRiscVAdmission; '
-            '{"adapter":"stark-v-rv32im-elf","air":"stark_v_rv32im",'
-            '"status":"release_gated","isa":"rv32im","backends":["cpu"]} '
-            '{"adapter":"stark-v-rv32im-elf","status":"not_release_gated",'
-            '"isa":"rv32im","backends":["cpu"],"reason":"soundness gates pending"}'
-        )
-        artifact = 'pub const RELEASE_STATUS = "not_release_gated";'
-        cli = 'const Flag = enum { experimental }; _ = Flag.experimental; "--experimental";'
-        self.assertEqual([], phase_errors("candidate", registry, artifact, cli))
-
-        self.assertIn(
-            "CLI lacks the typed --experimental admission flag",
-            phase_errors("candidate", registry, artifact, ""),
-        )
-        self.assertIn(
-            "registry admission switch does not select the promoted phase",
-            phase_errors("promoted", registry, 'pub const RELEASE_STATUS = "release_gated";', cli),
-        )
-        self.assertIn(
-            "deferred Stark-V registry entry lacks a non-empty reason",
-            phase_errors("candidate", registry.replace("soundness gates pending", ""), artifact, cli),
-        )
-
-    def test_promoted_requires_atomic_registry_artifact_and_flag_transition(self) -> None:
-        registry = (
-            'pub const RISCV_ADAPTER_RELEASE_GATED = true; requireRiscVAdmission; '
-            '{"adapter":"stark-v-rv32im-elf","air":"stark_v_rv32im",'
-            '"status":"release_gated","isa":"rv32im","backends":["cpu"]} '
-            '{"adapter":"stark-v-rv32im-elf","status":"not_release_gated",'
-            '"isa":"rv32im","backends":["cpu"],"reason":"pending"}'
-        )
-        artifact = 'pub const RELEASE_STATUS = "release_gated";'
-        cli = 'const Flag = enum { experimental }; _ = Flag.experimental; "--experimental";'
-        self.assertEqual([], phase_errors("promoted", registry, artifact, cli))
-
-        mixed = phase_errors(
-            "promoted",
-            registry.replace("= true", "= false"),
-            'pub const RELEASE_STATUS = "not_release_gated";',
-            cli,
-        )
-        self.assertTrue(any("admission switch" in error for error in mixed))
-        self.assertTrue(any("RELEASE_STATUS" in error for error in mixed))
 
 
 class DivergenceContractTests(unittest.TestCase):

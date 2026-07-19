@@ -218,6 +218,17 @@ class JsonContractTests(unittest.TestCase):
         payload = {
             "schema_version": 1,
             "backend_availability": {"cpu": True, "metal-hybrid": True},
+            "product_matrix": {
+                "native_cpu": {
+                    "product_id": "stwo-native-cpu",
+                    "state": "released",
+                },
+                "native_metal": {
+                    "product_id": "stwo-native-metal",
+                    "state": "parity_gated",
+                    "selected": True,
+                },
+            },
             "applications": [],
             "deferred_adapters": [{
                 "adapter": "stark-v-rv32im-elf",
@@ -229,6 +240,40 @@ class JsonContractTests(unittest.TestCase):
         contracts.validate_registry(payload, "not_release_gated")
         payload["applications"] = list(payload["deferred_adapters"])
         with self.assertRaisesRegex(contracts.ContractError, "release status drifted"):
+            contracts.validate_registry(payload, "not_release_gated")
+
+    def test_registry_product_matrix_is_exact_and_tracks_metal_selection(self) -> None:
+        payload = {
+            "schema_version": 1,
+            "backend_availability": {"cpu": True, "metal-hybrid": False},
+            "product_matrix": {
+                "native_cpu": {
+                    "product_id": "stwo-native-cpu",
+                    "state": "released",
+                },
+                "native_metal": {
+                    "product_id": "stwo-native-metal",
+                    "state": "parity_gated",
+                    "selected": False,
+                },
+            },
+            "applications": [],
+            "deferred_adapters": [{
+                "adapter": "stark-v-rv32im-elf",
+                "status": "not_release_gated",
+                "isa": "rv32im",
+                "backends": ["cpu"],
+            }],
+        }
+        contracts.validate_registry(payload, "not_release_gated")
+
+        payload["product_matrix"]["native_metal"]["selected"] = True
+        with self.assertRaisesRegex(contracts.ContractError, "Native Metal"):
+            contracts.validate_registry(payload, "not_release_gated")
+
+        payload["product_matrix"]["native_metal"]["selected"] = False
+        payload["product_matrix"]["native_cpu"]["extra"] = True
+        with self.assertRaisesRegex(contracts.ContractError, "fields drifted"):
             contracts.validate_registry(payload, "not_release_gated")
 
 
