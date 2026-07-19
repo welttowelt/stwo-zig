@@ -426,6 +426,7 @@ jobs:
         with:
           repository: ${{ github.repository }}
           ref: ${{ env.RISCV_CANDIDATE_SHA }}
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Require candidate release policy matches trusted main

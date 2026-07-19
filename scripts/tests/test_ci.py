@@ -278,6 +278,8 @@ class CiTests(unittest.TestCase):
         self.assertLess(capture, candidate_checkout)
         self.assertLess(candidate_checkout, compare)
         self.assertLess(compare, candidate_execution)
+        candidate_checkout_block = producer[candidate_checkout:compare]
+        self.assertIn("fetch-depth: 0", candidate_checkout_block)
         self.assertIn('--policy-context "$RUNNER_TEMP/riscv-policy-match.json"', producer)
 
         fast = workflow.split("  riscv-fast-release-gate:", 1)[1]
