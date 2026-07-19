@@ -1212,6 +1212,7 @@ python3 scripts/check_riscv_release_contract.py --all --phase candidate
 python3 scripts/check_riscv_release_contract.py --structure
 python3 scripts/check_riscv_release_contract.py --core-purity
 python3 scripts/check_riscv_release_contract.py --frontend-layering
+zig build metal-eval-prepare -Doptimize=ReleaseFast
 python3 -m unittest discover -s scripts/tests -p 'test_*.py'
 python3 scripts/riscv_staged_smoke.py \
   --phase candidate \
@@ -1241,6 +1242,9 @@ Additional requirements:
 - The first and last dirty-tree assertions fail on any tracked or untracked,
   non-ignored path.
 - Required tests report zero skipped tests.
+- Full Python discovery compiles `metal-eval-prepare` first so the checked-in
+  SN-PIE composition metallib loader test executes; CP-13 must not hide or
+  allowlist that integration as an optional skip.
 - The live oracle procedure from CP-11 is part of strict release evidence, not an
   optional local flag.
 - The installed CLI completes a representative multi-shard ELF prove/verify and

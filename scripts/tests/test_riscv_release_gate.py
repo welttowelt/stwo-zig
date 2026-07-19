@@ -511,6 +511,13 @@ class CommandPlanTests(unittest.TestCase):
         self.assertTrue(any("check_riscv_release_contract.py --frontend-layering" in row for row in rendered))
         self.assertTrue(any("riscv_staged_smoke.py --phase candidate" in row for row in rendered))
         self.assertTrue(any("unittest discover -s scripts/tests -p test_*.py" in row for row in rendered))
+        loader_index = rendered.index(
+            "zig build metal-eval-prepare -Doptimize=ReleaseFast"
+        )
+        discovery_index = next(
+            index for index, row in enumerate(rendered) if "unittest discover" in row
+        )
+        self.assertLess(loader_index, discovery_index)
         self.assertFalse(any("riscv_release_oracle.py" in row for row in rendered))
         self.assertEqual("zig build release-gate -Doptimize=ReleaseFast", rendered[-1])
         self.assertFalse(any("test-riscv-prover" in row for row in rendered))

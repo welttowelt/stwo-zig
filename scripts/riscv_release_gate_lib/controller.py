@@ -42,6 +42,7 @@ def command_plan(
         [python, "scripts/check_riscv_release_contract.py", "--structure"],
         [python, "scripts/check_riscv_release_contract.py", "--core-purity"],
         [python, "scripts/check_riscv_release_contract.py", "--frontend-layering"],
+        ["zig", "build", "metal-eval-prepare", "-Doptimize=ReleaseFast"],
         [
             python,
             "-m",
