@@ -5,9 +5,10 @@ This document describes the repository-owned implementation of the
 The machine authority is
 [`build-monorepo-performance-baseline-v2-protocol-v1.json`](build-monorepo-performance-baseline-v2-protocol-v1.json).
 
-No epoch-2 measurements are committed yet. BG-14 and BG-15 therefore remain
-`NO-GO`. This protocol defines how those measurements are captured and judged;
-it is not evidence that they passed.
+No epoch-2 measurements are committed yet, so the separate future autoresearch
+promotion remains `NO-GO`. This protocol defines how those measurements are
+captured and judged; it is not evidence that they passed. Architecture BG-14
+and BG-15 do not execute or consume this protocol.
 
 ## Components
 
@@ -102,10 +103,11 @@ Each host's protected producer attests:
 - the complete raw-bundle content digest.
 
 The aggregate validator requires the attestation digest through a separate
-trusted input supplied by the protected architecture workflow. An attestation
-embedded only in the receipt is not authority. The architecture runner remains
-responsible for authenticating repository, workflow SHA, ref, event, run, job,
-and artifact transport before passing those digests to this validator.
+trusted input supplied by a future protected autoresearch workflow. An
+attestation embedded only in the receipt is not authority. That promotion
+runner remains responsible for authenticating repository, workflow SHA, ref,
+event, run, job, and artifact transport before passing those digests to this
+validator.
 
 ## Derived verdicts
 

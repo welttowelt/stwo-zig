@@ -1,19 +1,20 @@
 # Build-monorepo performance baseline epoch 2 amendment
 
-**Status:** ACTIVE; evidence capture is required before BG-14 or BG-15 can pass.
+**Status:** DEFERRED; this is a future autoresearch goal and is not an
+architecture BG-14 or BG-15 prerequisite.
 
-**Scope:** This amendment changes only the evidence needed to evaluate BG-00 and
-BG-14 of the
-[Zig build-monorepo delivery goal](2026-07-19-zig-build-monorepo-delivery-goal.md).
-It does not change a product contract, correctness rule, workload numerator,
-statistical policy, or acceptance threshold.
+**Scope:** This document preserves the proposed evidence contract for a later
+autoresearch goal. The operative
+[Zig build-monorepo delivery goal](2026-07-19-zig-build-monorepo-delivery-goal.md)
+requires only static, fail-closed performance-harness readiness. It does not
+require this capture, a performance comparison, or a performance threshold.
 
 ## Reason
 
 The immutable v1 receipt at `conformance/build-monorepo-baseline-v1.json`
 correctly preserves the pre-migration build surface, aggregate artifact,
 proofs, and one three-sample smoke comparison. It does not contain all of the
-denominators later made mandatory by BG-14:
+denominators proposed for the future autoresearch promotion gate:
 
 - focused-equivalent Native CPU and Metal performance samples;
 - paired Hodges-Lehmann confidence intervals;
@@ -24,8 +25,8 @@ denominators later made mandatory by BG-14:
 
 The smoke row is explicitly non-promotion evidence. Treating it as a formal
 performance baseline, or manufacturing missing fields from the migrated tree,
-would be invalid. BG-14 therefore remains `NO-GO` until the epoch defined here
-has been captured and validated.
+would be invalid. The future autoresearch goal remains `NO-GO` until the epoch
+defined here has been captured and validated; the architecture goal does not.
 
 ## Unchanged authority
 
@@ -41,7 +42,7 @@ receipt:    conformance/build-monorepo-baseline-v1.json
 Epoch 2 re-executes that exact commit from a detached clean worktree. It does
 not substitute the current implementation, rewrite v1, or infer measurements
 from old dashboard summaries. The candidate is a second clean worktree at the
-single commit seeking BG-15 approval.
+single commit seeking independent performance-promotion approval.
 
 The v1 statistical authority remains unchanged:
 
@@ -161,8 +162,8 @@ verification policy.
 
 Metal fallback counters are recorded for both revisions. Historical fallback
 does not invalidate the timing denominator, but the candidate cannot publish a
-Metal headline or pass BG-05/BG-14 with any CPU fallback in a Metal-labelled
-warmup or sample.
+Metal headline or pass the future Metal performance lane with any CPU fallback
+in a Metal-labelled warmup or sample.
 
 Runtime modes are compared only like for like. If the historical executable
 supports source JIT but has no equivalent authenticated AOT path, the
@@ -222,20 +223,22 @@ independent validator. The validator must test at least these mutations:
 - change the comparator source or statistical policy; and
 - recompute the unkeyed receipt digest after any mutation.
 
-The architecture host runner consumes the validated epoch-2 receipt. It does
-not implement a second statistical policy. Missing macOS or Linux evidence,
-any mutation, or any failed budget keeps BG-14 and BG-15 `NO-GO`.
+The future autoresearch promotion runner consumes the validated epoch-2
+receipt. It does not implement a second statistical policy. Missing macOS or
+Linux evidence, any mutation, or any failed budget keeps that future
+performance promotion `NO-GO`; it does not block architecture BG-14 or BG-15.
 
 ## Completion
 
-This amendment is complete only when:
+After a separate autoresearch goal explicitly activates this amendment, that
+goal is complete only when:
 
 - the exact historical commit and candidate were measured on their allocated
   hosts;
 - the raw evidence bundle and v2 receipt pass the independent validator;
 - every build, throughput, memory, and link budget passes;
-- the protected architecture workflow binds the receipt digest; and
-- the same candidate receives the final trusted BG-15 cross-host receipt.
+- the protected autoresearch workflow binds the receipt digest; and
+- the same candidate receives its independent performance-promotion receipt.
 
-Until then, v1 remains valid historical evidence and the release decision
-remains `NO-GO`.
+Until then, v1 remains valid historical evidence and performance promotion
+remains `NO-GO`. Repository-architecture completion is decided independently.

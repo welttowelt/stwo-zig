@@ -6,7 +6,7 @@
   "repository": "https://github.com/teddyjfpender/stwo-zig",
   "authority": {
     "amendment_path": "conformance/2026-07-19-build-monorepo-baseline-epoch-2-amendment.md",
-    "amendment_sha256": "8d712fdfb0c156c5e9680c3988400e19d96a081e1775bf7a66abe639d81b5632",
+    "amendment_sha256": "60c91e0d007169f82b9f9e3307962147c26071c8a9812789268441eec014c726",
     "baseline_receipt_path": "conformance/build-monorepo-baseline-v1.json",
     "baseline_receipt_sha256": "66677813fb3f414a4fbd7015a7b5e105a8ad2ada57a23726ec227dffd7ff0ab6",
     "runner_path": "autoresearch/cli/stwo_perf/runner.py",
