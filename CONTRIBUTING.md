@@ -1265,6 +1265,12 @@ compilation-free property is enforced by test, not convention — a compile-clas
 command entering the fast plan fails `scripts/tests/test_ci.py`. Only after fast
 passes is the standard gate worth its minutes.
 
+For the RISC-V lane, `scripts/riscv_stark_v_benchmark.py` produces the matched
+Zig-vs-Stark-V prove/verify matrix over the committed release ELF corpus (both
+lanes under the pinned oracle's default PCS profile). Zig rows run the staged
+CLI and carry `staged_experimental_not_release_gated` until RF-01 promotes the
+adapter; treat them as baseline candidates, never as release evidence.
+
 Membership in `scripts/` is also enforced by test: every script must be
 transitively reachable from a live entry point (build graph, hosted workflow,
 conformance policy, hooks, docs) or declared with a purpose in

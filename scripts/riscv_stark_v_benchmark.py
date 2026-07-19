@@ -1,0 +1,237 @@
+#!/usr/bin/env python3
+"""Matched RISC-V prove/verify benchmarks: Zig staged adapter vs pinned Stark-V.
+
+Both lanes prove the committed release ELF corpus under the same PCS profile
+(the Zig `functional` protocol equals the pinned oracle's `PcsConfig::default()`:
+pow_bits 10, blowup 1, 3 queries, last layer 0). The Zig lane runs the staged
+CLI with --experimental and every row carries its release status verbatim, so
+staged numbers can never impersonate promoted evidence. The Rust lane is the
+pinned Stark-V `bench-cli`; its phase timings come from the tracing timestamps
+it emits (the metrics JSON has no clocks). Rows fail closed: a lane error, a
+cycle-count mismatch, or an unverified proof marks the row failed and the run
+exits nonzero.
+
+Usage:
+  python3 scripts/riscv_stark_v_benchmark.py --stark-v-source <checkout> \
+      [--warmups 1] [--samples 3] [--report-out PATH]
+
+The checkout must be at the ledger's pinned Stark-V commit with
+`target/release/stark-v-bench` built (`cargo build --locked --release -p bench-cli`).
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import hashlib
+import json
+import re
+import statistics
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+SCHEMA = "riscv_starkv_benchmark_v1"
+PINNED_COMMIT = "d478f783055aa0d73a93768a433a3c6c31c91d1c"
+DEFAULT_REPORT = ROOT / "vectors/reports/latest_riscv_starkv_benchmark_report.json"
+ZIG_BINARY = ROOT / "zig-out/bin/stwo-zig"
+
+ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+LOG_LINE_RE = re.compile(
+    r"^(?P<stamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+)Z\s+INFO\b.*?(?P<message>[A-Z][^=]*?)\s*$"
+)
+
+PHASE_MARKERS = {
+    "run_start": "Running guest program...",
+    "prove_start": "Generating proof...",
+    "verify_start": "Verifying proof...",
+    "verify_done": "Proof verified successfully",
+}
+
+
+def parse_phase_seconds(stderr: str) -> dict[str, float]:
+    """Extract execution/prove/verify durations from bench-cli tracing output."""
+    stamps: dict[str, dt.datetime] = {}
+    for raw in stderr.splitlines():
+        line = ANSI_RE.sub("", raw)
+        match = LOG_LINE_RE.match(line.strip())
+        if not match:
+            continue
+        message = match.group("message").strip()
+        for key, marker in PHASE_MARKERS.items():
+            if marker in message and key not in stamps:
+                stamps[key] = dt.datetime.fromisoformat(match.group("stamp"))
+    missing = [key for key in PHASE_MARKERS if key not in stamps]
+    if missing:
+        raise ValueError(f"bench-cli output lacks phase markers: {missing}")
+    return {
+        "execution_seconds": (stamps["prove_start"] - stamps["run_start"]).total_seconds(),
+        "prove_seconds": (stamps["verify_start"] - stamps["prove_start"]).total_seconds(),
+        "verify_seconds": (stamps["verify_done"] - stamps["verify_start"]).total_seconds(),
+    }
+
+
+def load_corpus() -> tuple[str, list[dict[str, str]]]:
+    manifest = json.loads((ROOT / "vectors/riscv_elfs/trace_vectors.json").read_text())
+    if manifest.get("stark_v_commit") != PINNED_COMMIT:
+        raise SystemExit("trace vector manifest is pinned to a different Stark-V commit")
+    vectors = []
+    for vector in manifest["vectors"]:
+        elf = ROOT / vector["elf"]
+        digest = hashlib.sha256(elf.read_bytes()).hexdigest()
+        if digest != vector["elf_sha256"]:
+            raise SystemExit(f"ELF digest mismatch for {vector['name']}")
+        vectors.append({
+            "name": vector["name"],
+            "elf": str(elf),
+            "elf_sha256": digest,
+            "proof_admission": vector.get("proof_admission", {}),
+        })
+    if not vectors:
+        raise SystemExit("release corpus has no positive vectors")
+    return PINNED_COMMIT, vectors
+
+
+def validate_stark_v(source: Path) -> Path:
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=source, capture_output=True, text=True, check=True
+    ).stdout.strip()
+    if head != PINNED_COMMIT:
+        raise SystemExit(f"Stark-V checkout is at {head}, not the pinned {PINNED_COMMIT}")
+    binary = source / "target/release/stark-v-bench"
+    if not binary.exists():
+        raise SystemExit(
+            "stark-v-bench is not built; run: cargo build --locked --release -p bench-cli"
+        )
+    return binary
+
+
+def run_zig_lane(elf: str, warmups: int, samples: int) -> dict[str, object]:
+    result = subprocess.run(
+        [
+            str(ZIG_BINARY), "bench", "--elf", elf, "--backend", "cpu",
+            "--protocol", "functional", "--experimental",
+            "--warmups", str(warmups), "--samples", str(samples),
+        ],
+        capture_output=True, text=True, timeout=1800,
+    )
+    if result.returncode != 0:
+        return {"error": (result.stderr or result.stdout).strip()[-400:]}
+    report_lines = [line for line in result.stdout.splitlines() if line.startswith("{")]
+    if not report_lines:
+        return {"error": "no report JSON on stdout"}
+    report = json.loads(report_lines[-1])
+    if report.get("verified_samples") != samples:
+        return {"error": f"verified_samples={report.get('verified_samples')} != {samples}"}
+    return {
+        "release_status": report["release_status"],
+        "total_steps": report["total_steps"],
+        "prove_seconds": report["mean_proving_seconds"],
+        "verify_seconds": report["mean_verification_seconds"],
+        "execution_seconds": report["mean_execution_seconds"],
+        "statement_sha256": report["statement_sha256"],
+        "implementation_commit": report["implementation_commit"],
+        "implementation_dirty": report["implementation_dirty"],
+    }
+
+
+def run_rust_lane(binary: Path, elf: str, warmups: int, samples: int) -> dict[str, object]:
+    runs: list[dict[str, float]] = []
+    cycles: set[int] = set()
+    for index in range(warmups + samples):
+        result = subprocess.run(
+            [str(binary), "bench", "--elf", elf, "--metrics-out", "/dev/null"],
+            capture_output=True, text=True, timeout=1800,
+            env={"PATH": "/usr/bin:/bin", "RUST_LOG": "info"},
+        )
+        log = result.stdout + "\n" + result.stderr
+        if result.returncode != 0:
+            return {"error": ANSI_RE.sub("", log).strip()[-400:]}
+        if "Proof verified successfully" not in ANSI_RE.sub("", log):
+            return {"error": "rust lane did not report successful verification"}
+        cycle_match = re.search(r"completed with (\d+) cycles", ANSI_RE.sub("", log))
+        if cycle_match:
+            cycles.add(int(cycle_match.group(1)))
+        if index >= warmups:
+            runs.append(parse_phase_seconds(log))
+    if len(cycles) > 1:
+        return {"error": f"nondeterministic cycle counts: {sorted(cycles)}"}
+    return {
+        "cycles": cycles.pop() if cycles else None,
+        "prove_seconds": statistics.median(run["prove_seconds"] for run in runs),
+        "verify_seconds": statistics.median(run["verify_seconds"] for run in runs),
+        "execution_seconds": statistics.median(run["execution_seconds"] for run in runs),
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--stark-v-source", required=True, type=Path)
+    parser.add_argument("--warmups", type=int, default=1)
+    parser.add_argument("--samples", type=int, default=3)
+    parser.add_argument("--report-out", type=Path, default=DEFAULT_REPORT)
+    args = parser.parse_args(argv)
+
+    if not ZIG_BINARY.exists():
+        raise SystemExit("stwo-zig is not built; run: zig build stwo-zig -Doptimize=ReleaseFast")
+    rust_binary = validate_stark_v(args.stark_v_source.resolve())
+    pinned, corpus = load_corpus()
+
+    rows = []
+    failures = 0
+    for vector in corpus:
+        admission = vector["proof_admission"]
+        if admission.get("status") != "supported":
+            rows.append({
+                "name": vector["name"],
+                "elf_sha256": vector["elf_sha256"],
+                "status": "skipped_unsupported_family",
+                "proof_admission": admission,
+            })
+            print(f"{vector['name']:20s} skip   {admission.get('known_limitation', admission.get('status'))}", flush=True)
+            continue
+        zig = run_zig_lane(vector["elf"], args.warmups, args.samples)
+        rust = run_rust_lane(rust_binary, vector["elf"], args.warmups, args.samples)
+        row: dict[str, object] = {"name": vector["name"], "elf_sha256": vector["elf_sha256"]}
+        problems = []
+        for side, lane in (("zig", zig), ("rust", rust)):
+            if "error" in lane:
+                problems.append(f"{side}: {lane['error']}")
+        if not problems and zig["total_steps"] != rust["cycles"]:
+            problems.append(f"step mismatch: zig={zig['total_steps']} rust={rust['cycles']}")
+        row["zig"] = zig
+        row["rust"] = rust
+        if problems:
+            row["status"] = "failed"
+            row["problems"] = problems
+            failures += 1
+        else:
+            row["status"] = "ok"
+            row["zig_over_rust_prove"] = zig["prove_seconds"] / rust["prove_seconds"]
+            row["zig_over_rust_verify"] = zig["verify_seconds"] / rust["verify_seconds"]
+        rows.append(row)
+        summary = (
+            f"prove z/r={row.get('zig_over_rust_prove'):.3f}" if row["status"] == "ok"
+            else "; ".join(problems)[:160]
+        )
+        print(f"{vector['name']:20s} {row['status']:6s} {summary}", flush=True)
+
+    report = {
+        "schema": SCHEMA,
+        "stark_v_commit": pinned,
+        "zig_release_status": "staged_experimental_not_release_gated",
+        "pcs_profile": "functional == pinned PcsConfig::default() (pow 10, blowup 1, 3 queries)",
+        "warmups": args.warmups,
+        "samples": args.samples,
+        "failure_count": failures,
+        "rows": rows,
+    }
+    args.report_out.parent.mkdir(parents=True, exist_ok=True)
+    args.report_out.write_text(json.dumps(report, indent=1, sort_keys=True) + "\n")
+    print(f"report: {args.report_out}")
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
