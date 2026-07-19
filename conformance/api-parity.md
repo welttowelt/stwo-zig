@@ -809,6 +809,12 @@ This ledger maps every public export in the Zig root/module API surface to the p
       "rust_path": "crates/stwo/src/lib.rs",
       "source": "src/prover/mod.zig"
     },
+    "stwo.prover.resident_storage": {
+      "kind": "const",
+      "rationale": "Zig compatibility alias for the backend-owned resident-storage capability; it changes storage placement, while proof semantics remain checked by the pinned Rust Stwo oracle.",
+      "rust_path": null,
+      "source": "src/prover/mod.zig"
+    },
     "stwo.prover.secure_column": {
       "kind": "const",
       "rationale": null,
@@ -856,6 +862,12 @@ This ledger maps every public export in the Zig root/module API surface to the p
       "rationale": null,
       "rust_path": "crates/stwo/src/lib.rs",
       "source": "src/prover/mod.zig"
+    },
+    "stwo.prover.vcs_lifted.decommit": {
+      "kind": "const",
+      "rationale": "Zig backend-neutral extraction of lifted Merkle decommitment traversal; roots, queried values, and rejection behavior remain parity-tested against pinned Rust Stwo semantics.",
+      "rust_path": null,
+      "source": "src/prover/vcs_lifted/mod.zig"
     },
     "stwo.prover.vcs_lifted.ops": {
       "kind": "const",
