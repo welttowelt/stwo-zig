@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,6 +22,25 @@ class Manifest:
     generated_imports: frozenset[str]
     allowed_files: frozenset[str]
     allowed_prefixes: tuple[str, ...]
+
+    def canonical(self) -> dict[str, object]:
+        return {
+            "product": self.product,
+            "entry_roots": sorted(self.entry_roots),
+            "named_imports": {
+                item.name: item.source
+                for item in sorted(self.named_imports, key=lambda item: item.name)
+            },
+            "generated_imports": sorted(self.generated_imports),
+            "allowed_files": sorted(self.allowed_files),
+            "allowed_prefixes": sorted(self.allowed_prefixes),
+        }
+
+    def digest(self) -> str:
+        payload = json.dumps(
+            self.canonical(), sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+        return hashlib.sha256(payload).hexdigest()
 
     def validate(self, repository: Path) -> list[str]:
         errors: list[str] = []

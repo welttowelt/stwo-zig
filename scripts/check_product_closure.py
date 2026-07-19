@@ -73,6 +73,8 @@ def run(args: argparse.Namespace) -> tuple[list[str], dict[str, object]]:
     receipt: dict[str, object] = {
         "schema": "stwo-zig-product-closure-v1",
         "product": args.product,
+        "manifest": manifest.canonical(),
+        "manifest_sha256": manifest.digest(),
         "source": {
             "entry_roots": list(manifest.entry_roots),
             "named_imports": {

@@ -54,6 +54,14 @@ class SourceClosureTest(unittest.TestCase):
         self.assertEqual(3, len(graph.sources))
         self.assertEqual(64, len(graph.source_digest()))
 
+    def test_manifest_digest_binds_policy(self) -> None:
+        original = self.manifest()
+        changed = self.manifest(
+            allowed_prefixes=("src/product", "src/core", "src/hidden")
+        )
+        self.assertNotEqual(original.digest(), changed.digest())
+        self.assertEqual(original.digest(), self.manifest().digest())
+
     def test_rejects_undeclared_named_import(self) -> None:
         self.write("src/product/main.zig", 'const hidden = @import("hidden");\n')
         self.write("src/core/mod.zig", "")
