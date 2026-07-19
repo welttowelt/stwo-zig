@@ -8,6 +8,7 @@ import os
 import sys
 import tempfile
 import unittest
+from contextlib import nullcontext
 from pathlib import Path
 from unittest import mock
 
@@ -168,6 +169,65 @@ class OracleBuildCacheTest(unittest.TestCase):
                 oracle_build._normalized_submodules(
                     f"{prefix}{commit} external/stwo (not exact)\n"
                 )
+
+    def test_build_oracle_miss_builds_stores_and_records_exact_inputs(self) -> None:
+        source = self.root / "stark-v"
+        source.mkdir()
+        cache_dir = self.root / "cache"
+        manifest_transform = {"path": "crates/prover/Cargo.toml", "sha256": "66" * 32}
+        adapter_overlay = {
+            "schema": "stark-v-cp11-adapter-overlay-v1",
+            "sha256": "44" * 32,
+            "files": [manifest_transform],
+        }
+        rust = {
+            "rustc_verbose": "rustc pinned\nrelease: pinned",
+            "cargo_verbose": "cargo pinned",
+            "target": "aarch64-apple-darwin",
+            "target_layout": "host-default",
+            "cargo_config_sha256": "55" * 32,
+            "build_environment": {},
+        }
+        inputs = oracle_build.BuildInputs(
+            identity=identity(rust=rust),
+            submodule_status=(" 2 external/stwo",),
+            tree_digest_sha256="11" * 32,
+            lockfile_sha256="33" * 32,
+            adapter_overlay=adapter_overlay,
+            rust=rust,
+        )
+
+        def fake_run(command: list[str], cwd: Path | None = None) -> str:
+            self.assertEqual(list(oracle_build.BUILD_COMMAND), command)
+            self.assertEqual(source, cwd)
+            built = source / "target/release/cp11_dump"
+            built.parent.mkdir(parents=True)
+            built.write_bytes(b"cold exact build")
+            built.chmod(0o755)
+            return ""
+
+        receipt: dict[str, object] = {}
+        with (
+            mock.patch.object(oracle_build, "resolve_build_inputs", return_value=inputs),
+            mock.patch.object(
+                oracle_build,
+                "_temporary_sha2_dependency",
+                return_value=nullcontext(manifest_transform),
+            ),
+            mock.patch.object(oracle_build, "_run", side_effect=fake_run) as run,
+        ):
+            executable = oracle_build.build_oracle(
+                source, receipt, "d478f783055aa0d73a93768a433a3c6c31c91d1c", cache_dir,
+            )
+
+        self.assertEqual(1, run.call_count)
+        self.assertEqual(b"cold exact build", executable.read_bytes())
+        self.assertEqual("miss", receipt["oracle"]["build_cache"]["status"])
+        self.assertEqual(adapter_overlay, receipt["oracle"]["adapter_overlay"])
+        self.assertEqual(
+            executable,
+            build_cache.load(cache_dir, inputs.identity).executable,
+        )
 
 
 if __name__ == "__main__":

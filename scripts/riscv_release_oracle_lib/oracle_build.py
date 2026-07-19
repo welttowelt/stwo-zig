@@ -282,7 +282,7 @@ def build_oracle(
         build_started = time.monotonic()
         overlay_paths: list[Path] = []
         with _temporary_sha2_dependency(source) as applied_manifest_evidence:
-            if applied_manifest_evidence != overlay_evidence["files"][0]:
+            if applied_manifest_evidence != inputs.adapter_overlay["files"][0]:
                 raise SystemExit("oracle manifest transform changed after cache identity")
             try:
                 for relative_path, source_path in ADAPTER_OVERLAYS:
