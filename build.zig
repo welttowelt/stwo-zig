@@ -2,6 +2,7 @@ const std = @import("std");
 const metal_core_aot = @import("build_support/metal_core_aot.zig");
 const metal_products = @import("build_support/metal_products.zig");
 const prove_cli = @import("build_support/prove_cli.zig");
+const riscv_cpu_product = @import("build_support/products/riscv_cpu.zig");
 const verification_products = @import("build_support/verification_products.zig");
 
 pub fn build(b: *std.Build) void {
@@ -149,33 +150,6 @@ pub fn build(b: *std.Build) void {
     const cairo_input_step = b.step("cairo-input", "Build adapted Cairo input inspector");
     cairo_input_step.dependOn(&install_cairo_input_cli.step);
 
-    // RISC-V trace dumper CLI for cross-verification
-    const riscv_trace_module = b.createModule(.{
-        .root_source_file = b.path("src/riscv_trace_cli.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const riscv_trace_identity_options = b.addOptions();
-    riscv_trace_identity_options.addOption(
-        []const u8,
-        "implementation_commit",
-        &implementation_identity.implementation_commit,
-    );
-    riscv_trace_identity_options.addOption(
-        bool,
-        "implementation_dirty",
-        implementation_identity.implementation_dirty,
-    );
-    riscv_trace_module.addOptions("build_identity", riscv_trace_identity_options);
-    const riscv_trace_cli = b.addExecutable(.{
-        .name = "riscv-trace-dump",
-        .root_module = riscv_trace_module,
-    });
-    const install_riscv_trace_cli = b.addInstallArtifact(riscv_trace_cli, .{});
-    b.getInstallStep().dependOn(&install_riscv_trace_cli.step);
-    const riscv_trace_step = b.step("riscv-trace-dump", "Build RISC-V trace dumper CLI");
-    riscv_trace_step.dependOn(&install_riscv_trace_cli.step);
-
     // Canonical Stark-V opcode policy dump and mechanical coverage check.
     const riscv_opcode_manifest_module = b.createModule(.{
         .root_source_file = b.path("src/tools/riscv_opcode_manifest/main.zig"),
@@ -280,6 +254,12 @@ pub fn build(b: *std.Build) void {
         .stwo_module = stwo_module,
         .native_proof_runner_module = native_proof_runner_module,
         .test_step = test_step,
+        .identity = implementation_identity,
+    });
+    riscv_cpu_product.addProduct(.{
+        .b = b,
+        .target = target,
+        .optimize = optimize,
         .identity = implementation_identity,
     });
 
