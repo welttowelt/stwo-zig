@@ -18,10 +18,11 @@ on:
         default: standard
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && inputs.gate || 'automatic' }}
   cancel-in-progress: true
 
 jobs:
@@ -150,15 +151,16 @@ jobs:
         run: zig build metal-check -Doptimize=ReleaseSafe
 
   riscv-release-evidence:
-    name: RISC-V release evidence
-    if: github.event_name != 'workflow_dispatch' || startsWith(inputs.gate, 'riscv-')
+    name: RISC-V exhaustive release evidence
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
       STARK_V_SOURCE: ${{ github.workspace }}/../stark-v
       STWO_ZIG_RISCV_ORACLE_CACHE_DIR: ${{ runner.tool_cache }}/stwo-zig/riscv-oracle
       STWO_CAIRO_RUST_ROOT: ${{ github.workspace }}/../stwo-cairo
-      RISCV_GATE_PHASE: ${{ inputs.gate == 'riscv-candidate' && 'candidate' || 'promoted' }}
+      RISCV_EVIDENCE_DIR: zig-out/release-evidence/riscv/runs/exhaustive-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+      RISCV_BUNDLE_DIR: zig-out/release-evidence/riscv/bundle-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Checkout candidate
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -168,28 +170,26 @@ jobs:
         run: |
           if grep -q 'pub const RISCV_ADAPTER_RELEASE_GATED = true;' src/tools/prove/registry.zig; then
             echo 'promoted=true' >> "$GITHUB_OUTPUT"
+            echo 'phase=promoted' >> "$GITHUB_OUTPUT"
           else
             echo 'promoted=false' >> "$GITHUB_OUTPUT"
+            echo 'phase=candidate' >> "$GITHUB_OUTPUT"
           fi
 
       - name: Setup Python
-        if: steps.riscv-release-state.outputs.promoted == 'true' || startsWith(inputs.gate, 'riscv-')
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.13"
 
       - name: Setup Zig
-        if: steps.riscv-release-state.outputs.promoted == 'true' || startsWith(inputs.gate, 'riscv-')
         uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
         with:
           version: 0.15.2
 
       - name: Install pinned Rust toolchain
-        if: steps.riscv-release-state.outputs.promoted == 'true' || startsWith(inputs.gate, 'riscv-')
         run: rustup toolchain install nightly-2026-01-29 --profile minimal
 
       - name: Checkout pinned Stark-V oracle
-        if: steps.riscv-release-state.outputs.promoted == 'true' || startsWith(inputs.gate, 'riscv-')
         env:
           STARK_V_REVISION: d478f783055aa0d73a93768a433a3c6c31c91d1c
         run: |
@@ -200,31 +200,55 @@ jobs:
           git -C "$STARK_V_SOURCE" submodule update --init --recursive --depth=1
 
       - name: Restore authenticated Stark-V helper cache
-        if: steps.riscv-release-state.outputs.promoted == 'true' || startsWith(inputs.gate, 'riscv-')
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ${{ env.STWO_ZIG_RISCV_ORACLE_CACHE_DIR }}
           key: riscv-oracle-v1-${{ runner.os }}-${{ runner.arch }}-d478f783-nightly-2026-01-29-${{ hashFiles('scripts/riscv_release_oracle_lib/cp11_dump.rs', 'scripts/riscv_release_oracle_lib/cp11_dump/*.rs') }}
 
       - name: Checkout pinned stwo-cairo oracle
-        if: steps.riscv-release-state.outputs.promoted == 'true' || startsWith(inputs.gate, 'riscv-')
         env: *stwo-cairo-env
         run: *checkout-stwo-cairo
 
       - name: Run enforcing CP-13 phase gate
-        if: steps.riscv-release-state.outputs.promoted == 'true' || startsWith(inputs.gate, 'riscv-')
         run: |
           python3 scripts/riscv_release_gate.py \
             --strict \
-            --phase "$RISCV_GATE_PHASE" \
+            --phase "${{ steps.riscv-release-state.outputs.phase }}" \
             --stark-v-source "$STARK_V_SOURCE" \
-            --candidate "$(git rev-parse HEAD)"
+            --candidate "$(git rev-parse HEAD)" \
+            --evidence-dir "$RISCV_EVIDENCE_DIR"
 
-      - name: Retain RISC-V phase evidence
-        if: always() && (steps.riscv-release-state.outputs.promoted == 'true' || startsWith(inputs.gate, 'riscv-'))
+      - name: Pack immutable exhaustive evidence
+        run: |
+          python3 scripts/riscv_release_bundle.py pack \
+            --candidate "$GITHUB_SHA" \
+            --phase "${{ steps.riscv-release-state.outputs.phase }}" \
+            --producer-repository "$GITHUB_REPOSITORY" \
+            --producer-workflow-ref "$GITHUB_WORKFLOW_REF" \
+            --producer-run-id "$GITHUB_RUN_ID" \
+            --producer-run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --producer-event "$GITHUB_EVENT_NAME" \
+            --evidence-dir "$RISCV_EVIDENCE_DIR" \
+            --cli zig-out/bin/stwo-zig \
+            --output-dir "$RISCV_BUNDLE_DIR"
+
+      - name: Publish immutable exhaustive bundle
+        id: riscv-bundle-upload
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: riscv-${{ env.RISCV_GATE_PHASE }}-evidence-${{ github.sha }}
+          name: riscv-exhaustive-bundle-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.RISCV_BUNDLE_DIR }}/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Record immutable artifact digest
+        run: echo "riscv exhaustive artifact digest ${{ steps.riscv-bundle-upload.outputs.artifact-digest }}"
+
+      - name: Retain RISC-V phase evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: riscv-${{ steps.riscv-release-state.outputs.phase }}-diagnostics-${{ github.sha }}
           path: |
             zig-out/release-evidence/riscv/
             zig-out/release-evidence/native/
@@ -236,5 +260,111 @@ jobs:
             vectors/reports/std_shims_behavior_report.json
             vectors/reports/release_evidence.json
             vectors/reports/latest_release_evidence.json
+          if-no-files-found: error
+          retention-days: 30
+
+  riscv-fast-release-gate:
+    name: RISC-V fast release gate
+    if: github.event_name == 'workflow_dispatch' && startsWith(inputs.gate, 'riscv-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      RISCV_GATE_PHASE: ${{ inputs.gate == 'riscv-candidate' && 'candidate' || 'promoted' }}
+      RISCV_BUNDLE_DIR: ${{ runner.temp }}/riscv-exhaustive-bundle
+      RISCV_FAST_EVIDENCE_DIR: zig-out/release-evidence/riscv/runs/fast-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+
+      - name: Require requested release phase
+        run: |
+          if grep -q 'pub const RISCV_ADAPTER_RELEASE_GATED = true;' src/tools/prove/registry.zig; then
+            actual=promoted
+          else
+            actual=candidate
+          fi
+          test "$actual" = "$RISCV_GATE_PHASE" || {
+            echo "requested phase $RISCV_GATE_PHASE does not match source phase $actual" >&2
+            exit 1
+          }
+
+      - name: Resolve exact successful push producer
+        id: riscv-producer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          response=$(gh api \
+            --method GET \
+            -f head_sha="$GITHUB_SHA" \
+            -f event=push \
+            -f status=success \
+            -f per_page=100 \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs")
+          producer=$(jq -c \
+            --arg sha "$GITHUB_SHA" \
+            '[.workflow_runs[] | select(
+              .head_sha == $sha and .event == "push" and .conclusion == "success" and
+              .head_branch == "main" and .path == ".github/workflows/ci.yml"
+            )] | sort_by(.run_number, .run_attempt) | last // empty' <<<"$response")
+          test -n "$producer" || {
+            echo "no successful main push producer exists for exact commit $GITHUB_SHA" >&2
+            exit 1
+          }
+          run_id=$(jq -r .id <<<"$producer")
+          run_attempt=$(jq -r .run_attempt <<<"$producer")
+          artifacts=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts?per_page=100")
+          count=$(jq \
+            --arg name "riscv-exhaustive-bundle-$GITHUB_SHA-$run_id-$run_attempt" \
+            '[.artifacts[] | select(.name == $name and (.expired | not))] | length' \
+            <<<"$artifacts")
+          test "$count" = 1 || {
+            echo "exact producer has $count live exhaustive bundles; expected one" >&2
+            exit 1
+          }
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "run_attempt=$run_attempt" >> "$GITHUB_OUTPUT"
+          echo "using exhaustive producer run $run_id attempt $run_attempt for $GITHUB_SHA"
+
+      - name: Download exact immutable exhaustive bundle
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: riscv-exhaustive-bundle-${{ github.sha }}-${{ steps.riscv-producer.outputs.run_id }}-${{ steps.riscv-producer.outputs.run_attempt }}
+          path: ${{ env.RISCV_BUNDLE_DIR }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.riscv-producer.outputs.run_id }}
+
+      - name: Verify exact-source exhaustive evidence
+        run: |
+          python3 scripts/riscv_release_bundle.py verify \
+            --candidate "$GITHUB_SHA" \
+            --phase "$RISCV_GATE_PHASE" \
+            --producer-repository "$GITHUB_REPOSITORY" \
+            --producer-workflow-ref "$GITHUB_WORKFLOW_REF" \
+            --producer-run-id "${{ steps.riscv-producer.outputs.run_id }}" \
+            --producer-run-attempt "${{ steps.riscv-producer.outputs.run_attempt }}" \
+            --bundle "$RISCV_BUNDLE_DIR"
+
+      - name: Run bounded live proof and independent verification
+        run: |
+          chmod 0555 "$RISCV_BUNDLE_DIR/bin/stwo-zig"
+          python3 scripts/riscv_staged_smoke.py \
+            --phase "$RISCV_GATE_PHASE" \
+            --profile fast \
+            --cli "$RISCV_BUNDLE_DIR/bin/stwo-zig" \
+            --producer-receipt "$RISCV_BUNDLE_DIR/manifest.json" \
+            --evidence-dir "$RISCV_FAST_EVIDENCE_DIR"
+
+      - name: Retain fast live-proof evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: riscv-${{ env.RISCV_GATE_PHASE }}-fast-evidence-${{ github.sha }}
+          path: ${{ env.RISCV_FAST_EVIDENCE_DIR }}/
           if-no-files-found: error
           retention-days: 30

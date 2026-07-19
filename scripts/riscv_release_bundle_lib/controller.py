@@ -49,6 +49,7 @@ def pack(args: argparse.Namespace) -> int:
     root = args.root.resolve()
     evidence = args.evidence_dir.resolve()
     output = args.output_dir.resolve()
+    created_output = False
     try:
         tree = model.require_clean_head(root, args.candidate)
         if output.exists():
@@ -62,6 +63,7 @@ def pack(args: argparse.Namespace) -> int:
         model.validate_cli_summary(summary, args.candidate, args.phase, executable_sha256)
 
         output.mkdir(parents=True, exist_ok=False)
+        created_output = True
         for name, relative in model.FILE_LAYOUT.items():
             source = {
                 "release-gate.json": evidence / "release-gate.json",
@@ -97,7 +99,7 @@ def pack(args: argparse.Namespace) -> int:
         print(f"riscv release bundle: packed exhaustive evidence at {output}")
         return 0
     except (OSError, ValueError, subprocess.SubprocessError) as error:
-        if output.exists():
+        if created_output and output.exists():
             shutil.rmtree(output)
         print(f"riscv release bundle: {error}", file=sys.stderr)
         return 1

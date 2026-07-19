@@ -216,11 +216,13 @@ def validate_cli_summary(
         summary.get("implementation_commit"), summary.get("implementation_dirty"),
         summary.get("executable_sha256"),
     )
-    if expected != (
-        "riscv_cli_evidence_v1", phase, expected_status, candidate, False, executable_sha256,
+    if expected[0] not in {"riscv_cli_evidence_v1", "riscv_cli_evidence_v2"} or expected[1:] != (
+        phase, expected_status, candidate, False, executable_sha256,
     ):
         raise BundleError("exhaustive CLI summary identity drifted")
-    if summary.get("multi_shard_addi_rows", 0) <= 65_536:
+    if summary.get("profile") not in (None, "exhaustive"):
+        raise BundleError("linked CLI summary is not exhaustive")
+    if summary.get("multi_shard_addi_rows", 0) <= 65_536 or summary.get("total_steps") != 131_078:
         raise BundleError("exhaustive CLI summary did not cross a shard boundary")
     required_successes = (
         "artifact_sha256", "benchmark_artifact_sha256", "benchmark_report_sha256",
@@ -230,6 +232,23 @@ def validate_cli_summary(
         raise BundleError("exhaustive CLI or benchmark evidence is incomplete")
     if summary.get("independent_verify_returncode") != 0 or summary.get("tamper_returncode") == 0:
         raise BundleError("exhaustive CLI verification/tamper result drifted")
+    expected_mutations = {
+        "proof_wire_mutation_returncodes": {"trailing", "truncated", "length-bomb"},
+        "hostile_artifact_results": {
+            "corrupt-json", "legacy-schema-v2", "duplicate-header", "unknown-field",
+            "omitted-claim", "release-relabel",
+        },
+    }
+    for field, names in expected_mutations.items():
+        results = summary.get(field)
+        if not isinstance(results, dict) or set(results) != names or any(
+            not isinstance(result, dict) or result.get("returncode") == 0
+            for result in results.values()
+        ):
+            raise BundleError(f"exhaustive CLI {field} coverage drifted")
+    boundary = summary.get("boundary_rejection_results")
+    if not isinstance(boundary, dict) or not boundary:
+        raise BundleError("exhaustive CLI boundary rejection matrix is missing")
 
 
 def regular_bundle_file(bundle: Path, relative: str) -> Path:

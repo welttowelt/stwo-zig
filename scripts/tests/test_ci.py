@@ -35,13 +35,17 @@ class CiTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         self.assertIn("- riscv-candidate", workflow)
         self.assertIn("- riscv-promoted", workflow)
-        self.assertIn("name: RISC-V release evidence", workflow)
-        self.assertIn("startsWith(inputs.gate, 'riscv-')", workflow)
+        self.assertIn("name: RISC-V exhaustive release evidence", workflow)
+        self.assertIn("name: RISC-V fast release gate", workflow)
+        self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/main'", workflow)
+        self.assertIn(
+            "github.event_name == 'workflow_dispatch' && startsWith(inputs.gate, 'riscv-')",
+            workflow,
+        )
         self.assertEqual(2, workflow.count("!startsWith(inputs.gate, 'riscv-')"))
         self.assertIn("inputs.gate == 'riscv-candidate' && 'candidate' || 'promoted'", workflow)
         self.assertIn("id: riscv-release-state", workflow)
         self.assertIn("RISCV_ADAPTER_RELEASE_GATED = true", workflow)
-        self.assertIn("steps.riscv-release-state.outputs.promoted == 'true'", workflow)
         self.assertIn("https://github.com/ClementWalter/stark-v", workflow)
         self.assertIn("STARK_V_REVISION: d478f783055aa0d73a93768a433a3c6c31c91d1c", workflow)
         self.assertIn("rustup toolchain install nightly-2026-01-29 --profile minimal", workflow)
@@ -50,10 +54,30 @@ class CiTests(unittest.TestCase):
         self.assertIn("actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830", workflow)
         self.assertIn("python3 scripts/riscv_release_gate.py", workflow)
         self.assertIn("--strict", workflow)
-        self.assertIn('--phase "$RISCV_GATE_PHASE"', workflow)
         self.assertIn('--candidate "$(git rev-parse HEAD)"', workflow)
-        self.assertIn("name: riscv-${{ env.RISCV_GATE_PHASE }}-evidence-${{ github.sha }}", workflow)
+        self.assertIn("python3 scripts/riscv_release_bundle.py pack", workflow)
+        self.assertIn("python3 scripts/riscv_release_bundle.py verify", workflow)
+        self.assertIn("riscv-exhaustive-bundle-${{ github.sha }}", workflow)
+        self.assertIn("--profile fast", workflow)
+        self.assertIn(
+            "actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53",
+            workflow,
+        )
         self.assertIn("if-no-files-found: error", workflow)
+
+    def test_fast_riscv_gate_cannot_cancel_or_consume_a_different_commit(self) -> None:
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        self.assertIn(
+            "github.event_name == 'workflow_dispatch' && inputs.gate || 'automatic'",
+            workflow,
+        )
+        self.assertIn('-f head_sha="$GITHUB_SHA"', workflow)
+        self.assertIn('.head_sha == $sha', workflow)
+        self.assertIn('.event == "push"', workflow)
+        self.assertIn('.conclusion == "success"', workflow)
+        self.assertIn('.head_branch == "main"', workflow)
+        self.assertIn("--producer-run-id", workflow)
+        self.assertIn("--producer-run-attempt", workflow)
 
     def test_hosted_ci_accepts_exact_commit_aot_evidence_tags(self) -> None:
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")

@@ -4,8 +4,10 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
-from scripts.riscv_release_bundle_lib import model
+from scripts.riscv_release_bundle_lib import controller, model
 
 
 DIGEST = "a" * 64
@@ -71,6 +73,23 @@ class ContentDomainTests(unittest.TestCase):
 
 
 class BundleContractTests(unittest.TestCase):
+    def test_pack_does_not_delete_a_preexisting_output_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "existing"
+            output.mkdir()
+            marker = output / "marker"
+            marker.write_text("keep", encoding="utf-8")
+            args = SimpleNamespace(
+                root=root,
+                evidence_dir=root / "evidence",
+                output_dir=output,
+                candidate=COMMIT,
+            )
+            with mock.patch.object(model, "require_clean_head", return_value="tree"):
+                self.assertEqual(1, controller.pack(args))
+            self.assertEqual("keep", marker.read_text(encoding="utf-8"))
+
     def test_gate_report_requires_every_exhaustive_subphase(self) -> None:
         report = gate_report()
         model.validate_gate_report(report, COMMIT, "candidate")
@@ -118,6 +137,7 @@ class BundleContractTests(unittest.TestCase):
             "implementation_dirty": False,
             "executable_sha256": DIGEST,
             "multi_shard_addi_rows": 65_537,
+            "total_steps": 131_078,
             "artifact_sha256": DIGEST,
             "benchmark_artifact_sha256": DIGEST,
             "benchmark_report_sha256": DIGEST,
@@ -125,6 +145,18 @@ class BundleContractTests(unittest.TestCase):
             "benchmark_verify_receipt_sha256": DIGEST,
             "independent_verify_returncode": 0,
             "tamper_returncode": 1,
+            "proof_wire_mutation_returncodes": {
+                name: {"returncode": 1}
+                for name in ("trailing", "truncated", "length-bomb")
+            },
+            "hostile_artifact_results": {
+                name: {"returncode": 1}
+                for name in (
+                    "corrupt-json", "legacy-schema-v2", "duplicate-header", "unknown-field",
+                    "omitted-claim", "release-relabel",
+                )
+            },
+            "boundary_rejection_results": {"phase-admission": {"returncode": 1}},
         }
         model.validate_cli_summary(summary, COMMIT, "candidate", DIGEST)
         summary["implementation_commit"] = "c" * 40
