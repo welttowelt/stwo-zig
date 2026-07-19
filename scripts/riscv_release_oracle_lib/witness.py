@@ -7,6 +7,8 @@ import json
 import subprocess
 from pathlib import Path
 
+from riscv_trace_vectors_lib import admission as admission_policy
+
 
 def load_trace_vectors(root: Path, pinned: str, receipt: dict) -> dict:
     manifest_path = root / "vectors" / "riscv_elfs" / "trace_vectors.json"
@@ -54,6 +56,18 @@ def load_trace_vectors(root: Path, pinned: str, receipt: dict) -> dict:
             digest.update(name.encode())
             digest.update(b"\0")
             digest.update(elf_bytes)
+
+    positive_vectors = vectors["vectors"]
+    positive_names = [vector["name"] for vector in positive_vectors]
+    try:
+        expected_admission = admission_policy.for_programs(positive_names)
+    except (TypeError, ValueError) as error:
+        raise SystemExit(f"invalid trace-vector proof-admission policy: {error}") from error
+    admission_errors = admission_policy.errors(positive_vectors, expected_admission)
+    if admission_errors:
+        raise SystemExit(
+            "invalid trace-vector proof-admission policy: " + "; ".join(admission_errors)
+        )
     receipt["corpus_digest_sha256"] = digest.hexdigest()
     return vectors
 

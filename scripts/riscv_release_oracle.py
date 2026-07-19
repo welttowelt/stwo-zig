@@ -22,6 +22,7 @@ Validator:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
 import platform
@@ -74,11 +75,18 @@ ADAPTER_TUPLES_REL = "crates/prover/src/bin/cp11_dump/relation_tuples.rs"
 ADAPTER_TUPLES_SOURCE_PATH = (
     ROOT / "scripts" / "riscv_release_oracle_lib" / "cp11_dump" / "relation_tuples.rs"
 )
+ADAPTER_LIMITATION_REL = "crates/prover/src/bin/cp11_dump/relation_limitation.rs"
+ADAPTER_LIMITATION_SOURCE_PATH = (
+    ROOT / "scripts" / "riscv_release_oracle_lib" / "cp11_dump" / "relation_limitation.rs"
+)
 ADAPTER_OVERLAYS = (
     (ADAPTER_REL, ADAPTER_SOURCE_PATH),
     (ADAPTER_SUMS_REL, ADAPTER_SUMS_SOURCE_PATH),
     (ADAPTER_TUPLES_REL, ADAPTER_TUPLES_SOURCE_PATH),
+    (ADAPTER_LIMITATION_REL, ADAPTER_LIMITATION_SOURCE_PATH),
 )
+PROVER_MANIFEST_REL = "crates/prover/Cargo.toml"
+SHA2_DEPENDENCY = 'sha2 = { version = "0.10", default-features = false }'
 
 BOUNDARIES = [
     "decode",
@@ -110,6 +118,68 @@ def _tree_digest(source: Path) -> str:
 def _canonical_digest(value: object) -> str:
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _promote_locked_sha2_dependency(original: bytes) -> tuple[bytes, dict[str, str]]:
+    """Temporarily expose the pinned manifest's already-locked SHA-256 crate.
+
+    The CP-11 serializer needs SHA-256 but must not modify the pinned lockfile or
+    permanently mutate the oracle checkout. Fail closed if the pinned manifest
+    no longer has the exact dependency/section shape reviewed here.
+    """
+    try:
+        text = original.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise SystemExit("pinned prover manifest is not UTF-8") from error
+    lines = text.splitlines(keepends=True)
+    logical = [line.rstrip("\r\n") for line in lines]
+    if logical.count("[dependencies]") != 1 or logical.count("[dev-dependencies]") != 1:
+        raise SystemExit("pinned prover manifest has unexpected dependency sections")
+    if logical.count(SHA2_DEPENDENCY) != 1:
+        raise SystemExit("pinned prover manifest has unexpected sha2 dependency shape")
+    dependencies_index = logical.index("[dependencies]")
+    dev_dependencies_index = logical.index("[dev-dependencies]")
+    sha2_index = logical.index(SHA2_DEPENDENCY)
+    next_section_index = next(
+        (
+            index
+            for index in range(dev_dependencies_index + 1, len(logical))
+            if logical[index].startswith("[") and logical[index].endswith("]")
+        ),
+        len(logical),
+    )
+    if not dependencies_index < dev_dependencies_index < sha2_index < next_section_index:
+        raise SystemExit("pinned sha2 dependency is not in [dev-dependencies]")
+
+    sha2_line = lines.pop(sha2_index)
+    lines.insert(dependencies_index + 1, sha2_line)
+    transformed = "".join(lines).encode("utf-8")
+    before_sha256 = hashlib.sha256(original).hexdigest()
+    after_sha256 = hashlib.sha256(transformed).hexdigest()
+    patch_record = {
+        "operation": "promote_locked_dev_dependency",
+        "path": PROVER_MANIFEST_REL,
+        "dependency": SHA2_DEPENDENCY,
+        "before_sha256": before_sha256,
+        "after_sha256": after_sha256,
+    }
+    return transformed, {
+        **patch_record,
+        "sha256": after_sha256,
+        "patch_sha256": _canonical_digest(patch_record),
+    }
+
+
+@contextlib.contextmanager
+def _temporary_sha2_dependency(source: Path):
+    manifest = source / PROVER_MANIFEST_REL
+    original = manifest.read_bytes()
+    transformed, evidence = _promote_locked_sha2_dependency(original)
+    try:
+        manifest.write_bytes(transformed)
+        yield evidence
+    finally:
+        manifest.write_bytes(original)
 
 
 def require_clean_candidate(root: Path, candidate: str) -> None:
@@ -210,54 +280,56 @@ def build_oracle(source: Path, receipt: dict) -> Path:
             + "; ".join(invalid_submodules)
         )
     tree_digest = _tree_digest(source)
-    overlay_files = []
-    overlay_paths = []
-    for relative_path, source_path in ADAPTER_OVERLAYS:
-        payload = source_path.read_bytes()
-        destination = source / relative_path
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_bytes(payload)
-        overlay_paths.append(destination)
-        overlay_files.append(
-            {
-                "path": relative_path,
-                "sha256": hashlib.sha256(payload).hexdigest(),
-            }
-        )
-    try:
-        toolchain = _run(["rustc", "--version"], cwd=source).strip()
-        build_cmd = ["cargo", "build", "--locked", "--release", "-p", "prover"]
-        _run(build_cmd, cwd=source)
-        exe = source / "target" / "release" / "cp11_dump"
-        receipt["oracle"] = {
-            "repository": "https://github.com/ClementWalter/stark-v",
-            "commit": head,
-            "clean": True,
-            "tree_digest_sha256": tree_digest,
-            "submodule_status": submodule.strip().splitlines(),
-            "lockfile_sha256": _sha256_file(source / "Cargo.lock"),
-            "toolchain": toolchain,
-            "build_command": " ".join(build_cmd),
-            "build_mode": "release",
-            "adapter_overlay": {
-                "path": ADAPTER_REL,
-                "sha256": _canonical_digest(overlay_files),
-                "files": overlay_files,
-                "note": "aggregate identity of thin serializers over the oracle's "
-                "own production APIs; applied after tree digest, removed after build",
-            },
-            "executable_sha256": _sha256_file(exe),
-            "host_arch": platform.machine(),
-            "host_os": f"{platform.system()} {platform.release()}",
-        }
-        return exe
-    finally:
-        for overlay_path in reversed(overlay_paths):
-            overlay_path.unlink(missing_ok=True)
+    with _temporary_sha2_dependency(source) as manifest_evidence:
+        overlay_files = [manifest_evidence]
+        overlay_paths = []
         try:
-            (source / ADAPTER_REL).parent.rmdir()
-        except OSError:
-            pass
+            for relative_path, source_path in ADAPTER_OVERLAYS:
+                payload = source_path.read_bytes()
+                destination = source / relative_path
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(payload)
+                overlay_paths.append(destination)
+                overlay_files.append(
+                    {
+                        "path": relative_path,
+                        "sha256": hashlib.sha256(payload).hexdigest(),
+                    }
+                )
+            toolchain = _run(["rustc", "--version"], cwd=source).strip()
+            build_cmd = ["cargo", "build", "--locked", "--release", "-p", "prover"]
+            _run(build_cmd, cwd=source)
+            exe = source / "target" / "release" / "cp11_dump"
+            receipt["oracle"] = {
+                "repository": "https://github.com/ClementWalter/stark-v",
+                "commit": head,
+                "clean": True,
+                "tree_digest_sha256": tree_digest,
+                "submodule_status": submodule.strip().splitlines(),
+                "lockfile_sha256": _sha256_file(source / "Cargo.lock"),
+                "toolchain": toolchain,
+                "build_command": " ".join(build_cmd),
+                "build_mode": "release",
+                "adapter_overlay": {
+                    "path": ADAPTER_REL,
+                    "sha256": _canonical_digest(overlay_files),
+                    "files": overlay_files,
+                    "note": "aggregate identity of thin serializers over the oracle's "
+                    "own production APIs and a recorded, temporary manifest transform; "
+                    "applied after tree digest, removed after build",
+                },
+                "executable_sha256": _sha256_file(exe),
+                "host_arch": platform.machine(),
+                "host_os": f"{platform.system()} {platform.release()}",
+            }
+            return exe
+        finally:
+            for overlay_path in reversed(overlay_paths):
+                overlay_path.unlink(missing_ok=True)
+            try:
+                (source / ADAPTER_REL).parent.rmdir()
+            except OSError:
+                pass
 
 
 def compare_execution(oracle_exe: Path, receipt: dict) -> None:

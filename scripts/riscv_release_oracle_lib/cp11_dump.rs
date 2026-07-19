@@ -1,4 +1,6 @@
 //! CP-11 receipt adapter: serialize the oracle's own run + public data.
+#[path = "cp11_dump/relation_limitation.rs"]
+mod cp11_relation_limitation;
 #[path = "cp11_dump/relation_sums.rs"]
 mod cp11_relation_sums;
 #[path = "cp11_dump/relation_tuples.rs"]
@@ -10,6 +12,7 @@ use std::fs;
 use air;
 use num_traits::Zero;
 use prover as _;
+use sha2::Digest;
 use simd::AlignedVec;
 use stwo::core::channel::Channel;
 use stwo::core::fields::m31::BaseField;
@@ -392,6 +395,7 @@ fn main() {
     let mut ordered_accesses = false;
     let mut relation_tuples = false;
     let mut relation_sums = false;
+    let mut relation_limitation = false;
     let mut trace_json = false;
     let mut max: u64 = 1_000_000;
     let mut i = 1;
@@ -423,6 +427,9 @@ fn main() {
             }
             "--relation-sums" => {
                 relation_sums = true;
+            }
+            "--relation-limitation" => {
+                relation_limitation = true;
             }
             "--trace-json" => {
                 trace_json = true;
@@ -473,6 +480,7 @@ fn main() {
         return;
     }
     let bytes = fs::read(elf.expect("--elf required")).expect("read elf");
+    let elf_sha256 = format!("{:x}", sha2::Sha256::digest(&bytes));
     let result = runner::run(&bytes, max).expect("run");
     if witness_rows {
         dump_witness_rows(&result.tracer);
@@ -492,6 +500,10 @@ fn main() {
     }
     if relation_sums {
         dump_relation_sums(result);
+        return;
+    }
+    if relation_limitation {
+        cp11_relation_limitation::dump(result, elf_sha256);
         return;
     }
     let public = prover::public_data::PublicData::new(&result);

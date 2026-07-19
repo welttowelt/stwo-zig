@@ -9,6 +9,11 @@ import time
 from pathlib import Path
 from typing import Any
 
+try:
+    from riscv_trace_vectors_lib import admission as admission_policy
+except ModuleNotFoundError:  # Imported as scripts.riscv_release_gate_lib in tests.
+    from scripts.riscv_trace_vectors_lib import admission as admission_policy
+
 
 PINNED_ORACLE = "d478f783055aa0d73a93768a433a3c6c31c91d1c"
 ORACLE_REPOSITORY = "https://github.com/ClementWalter/stark-v"
@@ -52,6 +57,33 @@ ZIG_NON_CODE_RE = re.compile(r'//[^\n]*|/\*.*?\*/|"(?:\\.|[^"\\])*"', re.DOTALL)
 ACTIVE_PLACEHOLDER_RE = re.compile(r"\b(?:legacy|placeholder|silent)\b")
 MANUAL_SOURCE_CEILING = 850
 SIGNED_MULH_FIX_MARKER = "FIX(stark-v-signed-mulh)"
+PROOF_SUPPORTED = admission_policy.SUPPORTED
+PROOF_FAIL_CLOSED = admission_policy.FAIL_CLOSED
+PROOF_DIAGNOSTIC_FAIL_CLOSED = admission_policy.DIAGNOSTIC_FAIL_CLOSED
+SIGNED_MULH_LIMITATION = admission_policy.SIGNED_MULH_LIMITATION
+BALANCED_RELATION_MODE = "balanced_full"
+LIMITATION_RELATION_MODE = "pinned_known_limitation"
+LIMITATION_DIAGNOSTIC = (
+    "stark-v adapter: error=UnsupportedProofFamily "
+    "stage=statement_validation_before_first_commitment "
+    "limitation=stark-v-signed-mulh"
+)
+EXPECTED_LIMITATION_REQUESTS = (
+    (0, 38, 12, (255, 1_073_741_827)),
+    (0, 38, 13, (235, 12_582_914)),
+    (0, 38, 14, (255, 49_154)),
+    (0, 38, 16, (255, 1_610_612_738)),
+    (2, 39, 12, (255, 1_073_741_827)),
+    (2, 39, 13, (235, 12_582_914)),
+    (2, 39, 14, (255, 49_154)),
+    (2, 39, 16, (255, 1_610_612_738)),
+)
+LIMITATION_CORE_FIELDS = {
+    "schema", "limitation_id", "oracle_commit", "family", "family_rows",
+    "signed_rows", "unsigned_rows", "raw_nonzero_entries", "raw_stream_sha256",
+    "range811_requests", "range811_stream_sha256", "invalid_request_count",
+    "invalid_requests_sha256", "invalid_requests", "outcome", "source",
+}
 ALLOWED_ACTIVE_DIVERGENCES = frozenset({
     ("RISC-V", "PCS geometry"),
     ("RISC-V", "Interaction transcript"),
@@ -294,15 +326,35 @@ def _canonical_digest(value: Any) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def trace_vector_names() -> tuple[str, ...]:
+def trace_vector_contract() -> tuple[
+    tuple[str, ...], dict[str, dict[str, str]], dict[str, str]
+]:
     root = Path(__file__).resolve().parents[2]
     payload = json.loads(
         (root / "vectors/riscv_elfs/trace_vectors.json").read_text(encoding="utf-8")
     )
-    names = tuple(vector["name"] for vector in payload["vectors"])
+    vectors = payload.get("vectors")
+    if not isinstance(vectors, list):
+        raise ValueError("trace-vector manifest has no positive vector list")
+    names = tuple(
+        vector.get("name") if isinstance(vector, dict) else None for vector in vectors
+    )
     if not names or any(not isinstance(name, str) for name in names) or len(set(names)) != len(names):
         raise ValueError("trace-vector manifest has invalid or duplicate names")
-    return names
+    expected = admission_policy.for_programs(names)
+    admission_errors = admission_policy.errors(vectors, expected)
+    if admission_errors:
+        raise ValueError(
+            "trace-vector proof-admission policy is invalid: " + "; ".join(admission_errors)
+        )
+    elf_digests = {vector["name"]: vector.get("elf_sha256") for vector in vectors}
+    if any(SHA256_RE.fullmatch(digest or "") is None for digest in elf_digests.values()):
+        raise ValueError("trace-vector manifest has an invalid ELF digest")
+    return names, expected, elf_digests
+
+
+def trace_vector_names() -> tuple[str, ...]:
+    return trace_vector_contract()[0]
 
 
 def expected_case_result_keys(vector_names: tuple[str, ...]) -> list[str]:
@@ -315,6 +367,150 @@ def expected_case_result_keys(vector_names: tuple[str, ...]) -> list[str]:
     return sorted(keys)
 
 
+def _limitation_core_errors(core: object, label: str, elf_sha256: object) -> list[str]:
+    errors: list[str] = []
+    if not isinstance(core, dict) or set(core) != LIMITATION_CORE_FIELDS:
+        return [f"{label} normalized limitation core is missing or non-canonical"]
+    expected = {
+        "schema": "riscv-mulh-limitation-v1",
+        "limitation_id": SIGNED_MULH_LIMITATION,
+        "oracle_commit": PINNED_ORACLE,
+        "family": "mulh",
+        "family_rows": 3,
+        "signed_rows": 2,
+        "unsigned_rows": 1,
+        "raw_nonzero_entries": 60,
+        "range811_requests": 24,
+        "invalid_request_count": 8,
+        "outcome": "preprocessed_registration_rejected",
+    }
+    for field, value in expected.items():
+        if core.get(field) != value or type(core.get(field)) is not type(value):
+            errors.append(f"{label} limitation core has invalid {field}")
+    for field in (
+        "raw_stream_sha256", "range811_stream_sha256", "invalid_requests_sha256"
+    ):
+        _sha(core.get(field), f"{label} limitation core {field}", errors)
+    if core.get("source") != {
+        "elf_sha256": elf_sha256,
+        "input_sha256": hashlib.sha256(b"").hexdigest(),
+    }:
+        errors.append(f"{label} limitation core is not bound to the live source")
+
+    requests = core.get("invalid_requests")
+    if not isinstance(requests, list) or len(requests) != 8:
+        errors.append(f"{label} limitation core has no exact invalid-request matrix")
+        return errors
+    identities: set[tuple[int, int, int]] = set()
+    observed_requests: list[tuple[int, int, int, tuple[int, int]]] = []
+    for request in requests:
+        if not isinstance(request, dict) or set(request) != {
+            "row", "opcode_id", "request_index", "tuple", "classification",
+        }:
+            errors.append(f"{label} limitation core has a malformed invalid request")
+            continue
+        row = request.get("row")
+        opcode_id = request.get("opcode_id")
+        request_index = request.get("request_index")
+        values = request.get("tuple")
+        if (
+            type(row) is not int or not 0 <= row < 3
+            or type(opcode_id) is not int or opcode_id not in {38, 39}
+            or type(request_index) is not int
+            or not isinstance(values, list) or len(values) != 2
+            or any(
+                type(value) is not int or not 0 <= value < (1 << 31) - 1
+                for value in values
+            )
+            or request.get("classification") != "range_check_8_11_value_out_of_range"
+        ):
+            errors.append(f"{label} limitation core has an invalid request record")
+            continue
+        identity = (row, opcode_id, request_index)
+        if identity in identities:
+            errors.append(f"{label} limitation core duplicates an invalid request")
+        identities.add(identity)
+        observed_requests.append((row, opcode_id, request_index, tuple(values)))
+    if tuple(observed_requests) != EXPECTED_LIMITATION_REQUESTS:
+        errors.append(f"{label} limitation core request matrix is not exact")
+    return errors
+
+
+def _relation_case_errors(
+    case: dict,
+    boundary: str,
+    admission: dict[str, str],
+) -> list[str]:
+    label = f"boundary case {boundary}/{case.get('name')}"
+    errors: list[str] = []
+    if case.get("proof_admission") != admission:
+        errors.append(f"{label} relabels the live proof-admission policy")
+    status = admission["status"]
+    if status in {PROOF_SUPPORTED, PROOF_DIAGNOSTIC_FAIL_CLOSED}:
+        if case.get("evidence_mode") != BALANCED_RELATION_MODE:
+            errors.append(f"{label} is not a full balanced relation comparison")
+        expected_admitted = status == PROOF_SUPPORTED
+        if case.get("proof_admitted") is not expected_admitted:
+            errors.append(f"{label} has an invalid proof-admission verdict")
+        if case.get("agree") is not True:
+            errors.append(f"{label} does not attest balanced agreement")
+        if status == PROOF_DIAGNOSTIC_FAIL_CLOSED:
+            count = case.get("mulh_nonzero_entries")
+            if type(count) is not int or count <= 0:
+                errors.append(f"{label} has no nonzero MULH tuple evidence")
+        if "limitation_evidence" in case or "comparison_outcome" in case:
+            errors.append(f"{label} mixes balanced and limitation evidence")
+        return errors
+
+    if status != PROOF_FAIL_CLOSED:
+        return [f"{label} uses an unknown proof-admission status"]
+    if case.get("evidence_mode") != LIMITATION_RELATION_MODE:
+        errors.append(f"{label} is not exact pinned-limitation evidence")
+    if case.get("proof_admitted") is not False:
+        errors.append(f"{label} calls the signed-MULH case proof-admitted")
+    if case.get("agree") is not True:
+        errors.append(f"{label} does not attest exact fail-closed agreement")
+    if case.get("comparison_outcome") != "exact_pinned_limitation_fail_closed":
+        errors.append(f"{label} lacks the exact fail-closed outcome")
+    expected_observation = (
+        "raw_relation_requests" if boundary == "relation_tuples"
+        else "preprocessed_registration"
+    )
+    if case.get("observation") != expected_observation:
+        errors.append(f"{label} has the wrong limitation observation")
+    evidence = case.get("limitation_evidence")
+    if not isinstance(evidence, dict) or set(evidence) != {
+        "normalized_core", "normalized_core_sha256", "production_rejection",
+    }:
+        errors.append(f"{label} has incomplete limitation evidence")
+        return errors
+    core = evidence["normalized_core"]
+    errors.extend(_limitation_core_errors(core, label, case.get("elf_sha256")))
+    if isinstance(core, dict):
+        expected_digest = _canonical_digest(core)
+        if evidence.get("normalized_core_sha256") != expected_digest:
+            errors.append(f"{label} limitation core digest does not bind the core")
+    production = evidence.get("production_rejection")
+    if not isinstance(production, dict) or set(production) != {
+        "exit_code", "stdout_sha256", "stderr_sha256", "diagnostic",
+        "proof_artifact_absent", "report_artifact_absent", "temporary_residue_absent",
+    }:
+        errors.append(f"{label} has incomplete production rejection evidence")
+        return errors
+    if (
+        production.get("exit_code") != 1
+        or production.get("stdout_sha256") != hashlib.sha256(b"").hexdigest()
+        or production.get("diagnostic") != LIMITATION_DIAGNOSTIC
+        or production.get("stderr_sha256")
+        != hashlib.sha256((LIMITATION_DIAGNOSTIC + "\n").encode()).hexdigest()
+        or production.get("proof_artifact_absent") is not True
+        or production.get("report_artifact_absent") is not True
+        or production.get("temporary_residue_absent") is not True
+    ):
+        errors.append(f"{label} production rejection is not the exact no-artifact contract")
+    return errors
+
+
 def receipt_errors(
     receipt: dict[str, Any],
     candidate: str,
@@ -324,6 +520,23 @@ def receipt_errors(
 ) -> list[str]:
     """Validate the full CP-11 evidence contract, not only its verdict bit."""
     errors: list[str] = []
+    try:
+        live_names, live_admission, live_elf_digests = trace_vector_contract()
+    except (OSError, TypeError, ValueError, json.JSONDecodeError) as error:
+        errors.append(f"live trace-vector contract is invalid: {error}")
+        live_names, live_admission, live_elf_digests = (), {}, {}
+    if vector_names is None:
+        names = live_names
+        admissions = live_admission
+        elf_digests = live_elf_digests
+    else:
+        names = vector_names
+        admissions = (
+            live_admission
+            if vector_names == live_names
+            else {name: {"status": PROOF_SUPPORTED} for name in vector_names}
+        )
+        elf_digests = live_elf_digests if vector_names == live_names else {}
     if COMMIT_RE.fullmatch(candidate) is None:
         errors.append("candidate is not a full lowercase Git commit")
     if receipt.get("schema") != "riscv-oracle-receipt-v2":
@@ -396,9 +609,7 @@ def receipt_errors(
             status = boundary.get("status") if isinstance(boundary, dict) else "missing"
             errors.append(f"boundary {name} is {status}")
 
-    expected_keys = expected_case_result_keys(
-        trace_vector_names() if vector_names is None else vector_names
-    )
+    expected_keys = expected_case_result_keys(names)
     declared_keys = receipt.get("expected_case_result_keys")
     if declared_keys != expected_keys:
         errors.append("expected case-result key manifest is incomplete or non-canonical")
@@ -416,7 +627,6 @@ def receipt_errors(
                 if digests[aggregate] != _canonical_digest(boundaries[boundary]):
                     errors.append(f"aggregate digest does not bind boundary {boundary}")
 
-        names = trace_vector_names() if vector_names is None else vector_names
         for boundary_name in ELF_CORPUS_BOUNDARIES:
             boundary = boundaries.get(boundary_name)
             cases = boundary.get("corpus") if isinstance(boundary, dict) else None
@@ -433,10 +643,25 @@ def receipt_errors(
                 continue
             for case in cases:
                 key = f"{boundary_name}/{case['name']}"
+                expected_elf = elf_digests.get(case["name"])
+                if (
+                    boundary_name in {"relation_tuples", "relation_sums"}
+                    and expected_elf is not None
+                    and case.get("elf_sha256") != expected_elf
+                ):
+                    errors.append(f"boundary case {key} is not bound to the live ELF digest")
                 if digests.get(key) != _canonical_digest(case):
                     errors.append(f"case-result digest does not bind {key}")
                 if boundary_name in ELF_AGREEMENT_BOUNDARIES and case.get("agree") is not True:
                     errors.append(f"boundary case {key} does not attest agreement")
+                if boundary_name in {"relation_tuples", "relation_sums"}:
+                    expected_admission = admissions.get(case["name"])
+                    if expected_admission is None:
+                        errors.append(f"boundary case {key} has no live admission policy")
+                    else:
+                        errors.extend(_relation_case_errors(
+                            case, boundary_name, expected_admission
+                        ))
         for boundary_name, key in GENERATED_CORPUS_KEYS.items():
             boundary = boundaries.get(boundary_name)
             if isinstance(boundary, dict) and digests.get(key) != _canonical_digest(boundary):

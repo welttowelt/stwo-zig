@@ -35,6 +35,9 @@ class AdapterOverlayTest(unittest.TestCase):
     def test_relation_evidence_calls_pinned_production_apis(self) -> None:
         adapter = ORACLE.ADAPTER_SOURCE_PATH.read_text(encoding="utf-8")
         tuples = ORACLE.ADAPTER_TUPLES_SOURCE_PATH.read_text(encoding="utf-8")
+        limitation = (
+            ORACLE.ADAPTER_SOURCE_PATH.parent / "cp11_dump" / "relation_limitation.rs"
+        ).read_text(encoding="utf-8")
         self.assertIn("components.relation_entries(&trace_refs)", adapter)
         self.assertIn("components::gen_interaction_trace(&traces, &relations)", adapter)
         self.assertIn("components.visit_components(&claimed_sum", adapter)
@@ -45,6 +48,70 @@ class AdapterOverlayTest(unittest.TestCase):
         self.assertIn("aggregate_relation=", tuples)
         self.assertNotIn("Relations::dummy()", adapter)
         self.assertNotIn("Relations::dummy()", tuples)
+        self.assertIn("add_to_relation_entries(&component, &trace_refs)", limitation)
+        self.assertIn("range_check_8_11::Table::index(&values)", limitation)
+        self.assertIn("range_check_8_11::Table::gen_columns()", limitation)
+        self.assertNotIn("wrapping_shl", limitation)
+        self.assertNotIn("wrapping_add", limitation)
+
+    def test_temporary_sha2_manifest_transform_restores_exact_clean_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = root / ORACLE.PROVER_MANIFEST_REL
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text(
+                "[package]\nname = \"prover\"\n\n"
+                "[dependencies]\nserde = \"1\"\n\n"
+                "[dev-dependencies]\n"
+                f"{ORACLE.SHA2_DEPENDENCY}\n",
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "cp11@example.invalid"],
+                cwd=root,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "CP11 Test"], cwd=root, check=True
+            )
+            subprocess.run(["git", "add", "."], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "manifest"], cwd=root, check=True)
+            original = manifest.read_bytes()
+
+            with self.assertRaisesRegex(RuntimeError, "build failed"):
+                with ORACLE._temporary_sha2_dependency(root) as evidence:
+                    transformed = manifest.read_bytes()
+                    self.assertNotEqual(original, transformed)
+                    self.assertEqual(hashlib.sha256(original).hexdigest(), evidence["before_sha256"])
+                    self.assertEqual(hashlib.sha256(transformed).hexdigest(), evidence["after_sha256"])
+                    self.assertEqual(evidence["after_sha256"], evidence["sha256"])
+                    self.assertRegex(evidence["patch_sha256"], r"^[0-9a-f]{64}$")
+                    dependencies, dev_dependencies = transformed.decode().split(
+                        "[dev-dependencies]"
+                    )
+                    self.assertIn(ORACLE.SHA2_DEPENDENCY, dependencies)
+                    self.assertNotIn(ORACLE.SHA2_DEPENDENCY, dev_dependencies)
+                    raise RuntimeError("build failed")
+
+            self.assertEqual(original, manifest.read_bytes())
+            status = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=root,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout
+            self.assertEqual("", status)
+
+    def test_sha2_manifest_transform_rejects_unreviewed_shape(self) -> None:
+        malformed = (
+            "[dependencies]\n"
+            f"{ORACLE.SHA2_DEPENDENCY}\n"
+            "[dev-dependencies]\n"
+        ).encode()
+        with self.assertRaisesRegex(SystemExit, r"not in \[dev-dependencies\]"):
+            ORACLE._promote_locked_sha2_dependency(malformed)
 
 
 class ProducerProvenanceTest(unittest.TestCase):

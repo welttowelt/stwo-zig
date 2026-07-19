@@ -11,6 +11,7 @@ from scripts.riscv_release_gate_lib.contract import (
     BOUNDARIES,
     ELF_CORPUS_BOUNDARIES,
     GENERATED_CORPUS_KEYS,
+    EXPECTED_LIMITATION_REQUESTS,
     IMPLEMENTATION_REPOSITORY,
     ORACLE_REPOSITORY,
     PINNED_ORACLE,
@@ -22,6 +23,7 @@ from scripts.riscv_release_gate_lib.contract import (
     phase_errors,
     receipt_errors,
     expected_case_result_keys,
+    _relation_case_errors,
 )
 from scripts.riscv_release_gate_lib import controller
 from scripts.riscv_release_gate_lib.controller import command_plan
@@ -41,6 +43,12 @@ def valid_receipt(now: int) -> dict[str, object]:
         }
         for name in BOUNDARIES
     }
+    for name in ("relation_tuples", "relation_sums"):
+        boundaries[name]["corpus"][0].update({
+            "proof_admission": {"status": "supported"},
+            "proof_admitted": True,
+            "evidence_mode": "balanced_full",
+        })
     keys = expected_case_result_keys(("alu",))
     digests = {key: DIGEST for key in keys}
     for boundary in BOUNDARIES:
@@ -92,6 +100,79 @@ def valid_receipt(now: int) -> dict[str, object]:
             },
         },
         "boundaries": boundaries,
+    }
+
+
+def limitation_core() -> dict[str, object]:
+    return {
+        "schema": "riscv-mulh-limitation-v1",
+        "limitation_id": "stark-v-signed-mulh",
+        "oracle_commit": PINNED_ORACLE,
+        "family": "mulh",
+        "family_rows": 3,
+        "signed_rows": 2,
+        "unsigned_rows": 1,
+        "raw_nonzero_entries": 60,
+        "raw_stream_sha256": "1" * 64,
+        "range811_requests": 24,
+        "range811_stream_sha256": "2" * 64,
+        "invalid_request_count": 8,
+        "invalid_requests_sha256": "3" * 64,
+        "invalid_requests": [
+            {
+                "row": row,
+                "opcode_id": opcode,
+                "request_index": request,
+                "tuple": list(values),
+                "classification": "range_check_8_11_value_out_of_range",
+            }
+            for row, opcode, request, values in EXPECTED_LIMITATION_REQUESTS
+        ],
+        "outcome": "preprocessed_registration_rejected",
+        "source": {
+            "elf_sha256": DIGEST,
+            "input_sha256": hashlib.sha256(b"").hexdigest(),
+        },
+    }
+
+
+def limitation_case(boundary: str) -> dict[str, object]:
+    core = limitation_core()
+    diagnostic = (
+        "stark-v adapter: error=UnsupportedProofFamily "
+        "stage=statement_validation_before_first_commitment "
+        "limitation=stark-v-signed-mulh"
+    )
+    return {
+        "name": "mul_div",
+        "elf_sha256": DIGEST,
+        "proof_admission": {
+            "status": "fail_closed_known_limitation",
+            "known_limitation": "stark-v-signed-mulh",
+        },
+        "proof_admitted": False,
+        "evidence_mode": "pinned_known_limitation",
+        "agree": True,
+        "comparison_outcome": "exact_pinned_limitation_fail_closed",
+        "observation": (
+            "raw_relation_requests" if boundary == "relation_tuples"
+            else "preprocessed_registration"
+        ),
+        "limitation_evidence": {
+            "normalized_core": core,
+            "normalized_core_sha256": hashlib.sha256(
+                json.dumps(core, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest(),
+            "production_rejection": {
+                "exit_code": 1,
+                "stdout_sha256": hashlib.sha256(b"").hexdigest(),
+                "stderr_sha256": hashlib.sha256((diagnostic + "\n").encode()).hexdigest(),
+                "diagnostic": diagnostic,
+                "proof_artifact_absent": True,
+                "report_artifact_absent": True,
+                "temporary_residue_absent": True,
+            },
+        },
     }
 
 
@@ -318,6 +399,98 @@ class ReceiptContractTests(unittest.TestCase):
         errors = receipt_errors(receipt, COMMIT, now=now, vector_names=("alu",))
         self.assertIn(
             "boundary execution corpus is incomplete, duplicated, or non-canonical",
+            errors,
+        )
+
+    def test_signed_mulh_limitation_mode_is_exact_and_fail_closed(self) -> None:
+        admission = {
+            "status": "fail_closed_known_limitation",
+            "known_limitation": "stark-v-signed-mulh",
+        }
+        for boundary in ("relation_tuples", "relation_sums"):
+            self.assertEqual(
+                [], _relation_case_errors(limitation_case(boundary), boundary, admission)
+            )
+
+        relabeled = limitation_case("relation_tuples")
+        relabeled["evidence_mode"] = "balanced_full"
+        relabeled["proof_admitted"] = True
+        errors = _relation_case_errors(
+            relabeled, "relation_tuples", admission
+        )
+        self.assertTrue(any("not exact pinned-limitation" in error for error in errors))
+        self.assertTrue(any("proof-admitted" in error for error in errors))
+
+        skipped = limitation_case("relation_sums")
+        skipped.pop("limitation_evidence")
+        skipped["comparison_outcome"] = "skipped"
+        errors = _relation_case_errors(skipped, "relation_sums", admission)
+        self.assertTrue(any("exact fail-closed outcome" in error for error in errors))
+        self.assertTrue(any("incomplete limitation evidence" in error for error in errors))
+
+    def test_limitation_rejects_malformed_matrix_and_artifact_creation(self) -> None:
+        admission = {
+            "status": "fail_closed_known_limitation",
+            "known_limitation": "stark-v-signed-mulh",
+        }
+        malformed = limitation_case("relation_tuples")
+        malformed["limitation_evidence"]["normalized_core"]["invalid_requests"][0][
+            "request_index"
+        ] = 9
+        malformed["limitation_evidence"]["production_rejection"][
+            "proof_artifact_absent"
+        ] = False
+        errors = _relation_case_errors(malformed, "relation_tuples", admission)
+        self.assertTrue(any("request matrix is not exact" in error for error in errors))
+        self.assertTrue(any("no-artifact contract" in error for error in errors))
+
+        noncanonical = limitation_case("relation_tuples")
+        noncanonical["limitation_evidence"]["normalized_core"]["invalid_requests"][0][
+            "tuple"
+        ][1] = (1 << 31) - 1
+        errors = _relation_case_errors(noncanonical, "relation_tuples", admission)
+        self.assertTrue(any("invalid request record" in error for error in errors))
+
+        wrong_source = limitation_case("relation_tuples")
+        wrong_source["limitation_evidence"]["normalized_core"]["source"][
+            "elf_sha256"
+        ] = "c" * 64
+        errors = _relation_case_errors(wrong_source, "relation_tuples", admission)
+        self.assertTrue(any("not bound to the live source" in error for error in errors))
+
+    def test_mulhu_diagnostic_requires_nonzero_family_evidence_and_stays_unadmitted(self) -> None:
+        admission = {
+            "status": "diagnostic_balanced_family_fail_closed",
+            "known_limitation": "stark-v-signed-mulh",
+        }
+        case = {
+            "name": "mulhu_only",
+            "proof_admission": admission,
+            "proof_admitted": False,
+            "evidence_mode": "balanced_full",
+            "agree": True,
+            "mulh_nonzero_entries": 1,
+        }
+        self.assertEqual(
+            [], _relation_case_errors(case, "relation_tuples", admission)
+        )
+        case["mulh_nonzero_entries"] = 0
+        case["proof_admitted"] = True
+        errors = _relation_case_errors(case, "relation_tuples", admission)
+        self.assertTrue(any("no nonzero MULH" in error for error in errors))
+        self.assertTrue(any("proof-admission verdict" in error for error in errors))
+
+    def test_relation_cases_bind_the_live_manifest_elf_digest(self) -> None:
+        now = int(time.time())
+        receipt = valid_receipt(now)
+        receipt["boundaries"]["relation_tuples"]["corpus"][0]["elf_sha256"] = "c" * 64
+        with mock.patch(
+            "scripts.riscv_release_gate_lib.contract.trace_vector_contract",
+            return_value=(("alu",), {"alu": {"status": "supported"}}, {"alu": DIGEST}),
+        ):
+            errors = receipt_errors(receipt, COMMIT, now=now, vector_names=("alu",))
+        self.assertIn(
+            "boundary case relation_tuples/alu is not bound to the live ELF digest",
             errors,
         )
 
