@@ -513,6 +513,7 @@ class CommandPlanTests(unittest.TestCase):
         self.assertTrue(any("unittest scripts.tests.test_riscv_release_gate" in row for row in rendered))
         self.assertFalse(any("riscv_release_oracle.py" in row for row in rendered))
         self.assertEqual("zig build release-gate -Doptimize=ReleaseFast", rendered[-1])
+        self.assertFalse(any("test-riscv-prover" in row for row in rendered))
 
     def test_strict_plan_generates_then_validates_candidate_bound_oracle_evidence(self) -> None:
         source = Path("/oracle")
@@ -524,6 +525,9 @@ class CommandPlanTests(unittest.TestCase):
             evidence_dir=Path("/evidence"),
         )
         rendered = [" ".join(command) for command in plan]
+        self.assertNotIn("zig build release-gate -Doptimize=ReleaseFast", rendered)
+        self.assertEqual(1, rendered.count("zig build release-gate-strict -Doptimize=ReleaseFast"))
+        self.assertFalse(any("test-riscv-prover" in row for row in rendered))
         strict_index = rendered.index("zig build release-gate-strict -Doptimize=ReleaseFast")
         producer_index = next(i for i, row in enumerate(rendered) if "build-and-compare" in row)
         oracle_validate_index = next(

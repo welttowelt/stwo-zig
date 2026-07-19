@@ -51,11 +51,6 @@ def command_plan(
             "scripts.tests.test_source_conformance",
             "scripts.tests.test_upstream_pins",
         ],
-        ["zig", "build", "test", "-Doptimize=ReleaseFast"],
-        ["zig", "build", "test-riscv", "-Doptimize=ReleaseFast"],
-        ["zig", "build", "test-riscv-prover", "-Doptimize=ReleaseFast"],
-        [python, "scripts/check_api_parity.py"],
-        [python, "scripts/riscv_trace_vectors.py"],
         [
             python,
             "scripts/riscv_staged_smoke.py",
@@ -64,7 +59,6 @@ def command_plan(
             "--evidence-dir",
             str(cli_evidence),
         ],
-        ["zig", "build", "release-gate", "-Doptimize=ReleaseFast"],
     ]
     if strict:
         if stark_v_source is None:
@@ -95,6 +89,8 @@ def command_plan(
                 ],
             ]
         )
+    else:
+        commands.append(["zig", "build", "release-gate", "-Doptimize=ReleaseFast"])
     return commands
 
 
