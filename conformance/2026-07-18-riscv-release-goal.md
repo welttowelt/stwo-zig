@@ -5,7 +5,7 @@
 **Created:** 2026-07-18
 
 **Last reconciled:** 2026-07-19 against the committed implementation through
-`515dd87d`. No checkpoint is promoted by implementation work alone; the fresh
+`d3b6b5c0`. No checkpoint is promoted by implementation work alone; the fresh
 clean-candidate controller remains the acceptance authority.
 
 **Authority:** This is the operative delivery contract for the Stark-V RV32IM
@@ -41,7 +41,7 @@ autoresearch scoring disabled until independently qualified.
 **Last accepted live-oracle evidence:** `30bc24ecaa4a5ed21cd4fa2455bed81bbce8553a`.
 The live pinned-Rust receipt at that revision passes 9 of 11 shared boundaries.
 It is diagnostic parity evidence, not a release acceptance receipt. The current
-committed implementation through `515dd87d` also contains production assembly,
+committed implementation through `d3b6b5c0` also contains production assembly,
 cross-shard rejection, retained-buffer public binding, the exhaustive public
 mutation matrix, complete transcript-state receipts, production-artifact public
 comparison, and limitation-aware relation receipt machinery. None changes the
@@ -239,7 +239,7 @@ authorize RF-01 by itself.
 
 ### Current implementation snapshot
 
-The current committed implementation baseline is `515dd87d`. It contains:
+The current committed implementation baseline is `d3b6b5c0`. It contains:
 
 - exact six-domain lookup schemas and signed counters through `a5b68b28`;
 - a generic lookup-table AIR component through `dee14997`;
@@ -324,7 +324,9 @@ The current committed implementation baseline is `515dd87d`. It contains:
   `473071a0`, removing two redundant executions of the expensive prover suite
   without removing any owned test, parity, vector, or benchmark gate; and
 - full Python discovery plus retained Native and RISC-V CI evidence ownership
-  through `515dd87d`.
+  through `515dd87d`; and
+- explicit preparation and execution of the SN-PIE Metal loader integration,
+  removing the last Python discovery skip, through `d3b6b5c0`.
 
 The latest committed integrations are diagnostic progress, not accepted release
 evidence. Focused component tests and production ELF proof/verify roundtrips
@@ -1441,7 +1443,7 @@ remains `IN_PROGRESS`.
 | CP-10 Artifact | IN_PROGRESS | Bounded schema v3, atomic path, owned statement, external expected digest, hostile preflight, exact wire reconstruction, provenance validation, security-policy checks, and occupied-output preservation are committed through `6bcca4bd` | Bind the final exact shard/infra claims, complete hostile-decoding and DoS coverage, then pass candidate/promoted clean evidence |
 | CP-11 Rust oracle | FAIL | Fresh `30bc24ec` receipt is 9/11; bound relation exporters and deterministic provenance are committed; exact balanced-family and pinned-limitation receipt modes, including eight frozen invalid requests and no-artifact production rejection, land through `09ab473e` | Run the fresh clean-candidate full-corpus receipt and require all 11 boundaries, exactly 12 relation domains, and canonical physical provenance to pass |
 | CP-12 Adversarial fleet | IN_PROGRESS | Padding, memory geometry, narrow Poseidon, transcript, CLI, artifact, and cross-shard mutations advance through `91710ca9` and `93ff11e4`; the production public/claim matrix rejects 176 attempts with exact PoW-versus-LogUp classes through `5044dc1f` | Preserve the complete semantic, public, Merkle/table, multi-shard, and artifact fleet in final clean-candidate evidence |
-| CP-13 Release gate | IN_PROGRESS | Phase-aware controller, named structure/core/frontend selectors, pre-command fail closure, and clean candidate/oracle receipt validation are committed; tracked-archive self-dirtying is removed, full Python discovery is restored, and one transitive generic gate owns the expensive graph through `515dd87d`; final evidence not accepted | Strict candidate and promoted controllers pass locally and in clean CI |
+| CP-13 Release gate | IN_PROGRESS | Phase-aware controller, named structure/core/frontend selectors, pre-command fail closure, and clean candidate/oracle receipt validation are committed; tracked-archive self-dirtying is removed, full Python discovery has zero skips, and one transitive generic gate owns the expensive graph through `d3b6b5c0`; final evidence not accepted | Strict candidate and promoted controllers pass locally and in clean CI |
 | RF-01 Registry flip | NOT_STARTED | None | Atomic promotion commit and post-flip gate |
 | BA-01 Core purity | IN_PROGRESS | Named mechanical checker passes through `75a74318` | Preserve and rerun it in candidate and promoted CP-13 evidence |
 | BA-02 Frontend layering | IN_PROGRESS | The active `silent` path is removed; infrastructure and prover ownership are decomposed through `ca3c3d56`; the mechanical frontend-layering selector passes diagnostically at `60a5d93e` | Preserve the clean selector result and prove no semantic or proof-byte drift in candidate and promoted CP-13 evidence |
