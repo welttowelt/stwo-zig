@@ -90,11 +90,15 @@ class UpstreamPinTests(unittest.TestCase):
         self.assertIn(".github/workflows/ci.yml", joined)
 
     def test_standard_and_strict_release_gates_enforce_pin_ledger(self) -> None:
-        build = (ROOT / "build.zig").read_text(encoding="utf-8")
-        command = 'b.addSystemCommand(&.{ "python3", "scripts/check_upstream_pins.py" })'
-        self.assertEqual(3, build.count(command))
-        self.assertIn("rg_source_conformance.step.dependOn(&rg_upstream_pins.step);", build)
-        self.assertIn("rgs_source_conformance.step.dependOn(&rgs_upstream_pins.step);", build)
+        internal = (ROOT / "build_support/internal_build.zig").read_text(encoding="utf-8")
+        release = (ROOT / "build_support/gates/release.zig").read_text(encoding="utf-8")
+        command = '"python3", "scripts/check_upstream_pins.py"'
+        self.assertEqual(3, internal.count(command) + release.count(command))
+        self.assertEqual(2, release.count(command))
+        self.assertLess(
+            release.index('"scripts/check_upstream_pins.py"'),
+            release.index('"scripts/check_source_conformance.py"'),
+        )
 
     def test_ledger_rejects_ambiguous_native_pin(self) -> None:
         text = LEDGER.read_text(encoding="utf-8")

@@ -9,7 +9,7 @@ Protocol parity with Rust. Portable CPU execution. Resident GPU proving on Metal
 [![CI](https://github.com/teddyjfpender/stwo-zig/actions/workflows/ci.yml/badge.svg)](https://github.com/teddyjfpender/stwo-zig/actions/workflows/ci.yml)
 [![Benchmark Pages](https://github.com/teddyjfpender/stwo-zig/actions/workflows/benchmark-pages.yml/badge.svg)](https://github.com/teddyjfpender/stwo-zig/actions/workflows/benchmark-pages.yml)
 [![Zig 0.15.x](https://img.shields.io/badge/Zig-0.15.x-F7A41D?logo=zig&logoColor=white)](https://ziglang.org/)
-![Backends: CPU, Metal, CUDA](https://img.shields.io/badge/backends-CPU_%7C_Metal_%7C_CUDA-2563EB)
+![Backends: CPU and Metal](https://img.shields.io/badge/backends-CPU_%7C_Metal-2563EB)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-0F766E)](LICENSE)
 
 </div>
@@ -30,8 +30,8 @@ and the Cairo frontend (stwo-cairo in Zig) when that effort resumes.
 | Backend | Execution model | Focus |
 | :--- | :--- | :--- |
 | **Zig CPU / SIMD** | Portable scalar backend with hardware-native SIMD hot paths | Predictable execution and broad compatibility |
-| **Metal** | Persistent, resident hybrid prover runtime for Apple GPUs | Wide traces, streaming proofs, and low transfer overhead |
-| **CUDA** | Device-column backend through `libstwo_cuda` | NVIDIA GPU acceleration and backend parity |
+| **Metal** | Persistent resident runtime for Apple GPUs | Device-only production proofs with exact runtime identity |
+| **CUDA** | Unavailable product descriptors only | No release-gated implementation or implicit selection |
 
 ## Frontends
 
@@ -47,9 +47,23 @@ Requires **Zig 0.15.x** and **Python 3**. Rust parity tooling uses
 `nightly-2025-07-14`.
 
 ```sh
-zig build test -Doptimize=ReleaseFast
-zig build metal-test -Doptimize=ReleaseFast  # macOS with Metal
+zig build test-stwo-core -Doptimize=ReleaseFast
+zig build test-stwo-prover -Doptimize=ReleaseFast
+zig build test-native-cpu-product -Doptimize=ReleaseFast
+zig build test-native-metal -Doptimize=ReleaseFast  # macOS with Metal
 ```
+
+### Product support
+
+| Product | Host | State |
+| :--- | :--- | :--- |
+| `stwo-core` / `stwo-prover` | Zig-supported hosts | Released focused libraries |
+| `stwo-native-cpu` | Zig-supported hosts | Released CPU/SIMD CLI |
+| `stwo-native-metal` | macOS with Apple Metal | Parity-gated, source-JIT, device-only CLI |
+| `stwo-zig` | Zig-supported hosts | Released CPU aggregate; Metal only with `-Daggregate-metal=true` on macOS |
+| `stwo-zig-riscv-cpu` | Native host; static x86_64 Linux artifact | Staged and fail-closed behind `--experimental` |
+| Cairo products | No production host | Deferred until the separate Rust-oracle semantic goal resumes |
+| CUDA products | No production host | Explicitly unavailable; no fallback or placeholder execution |
 
 Library consumers can select the smallest public module they need:
 
@@ -79,23 +93,24 @@ build contracts are available through `product-matrix-identity`,
 
 ## Prove
 
-Build the installed proof command, produce one verified Native proof, then run the local verifier
-against its versioned Rust-compatible artifact:
+Build the focused CPU product, produce one self-verified proof, then verify its
+versioned Rust-compatible artifact in a separate invocation:
 
 ```sh
-zig build stwo-zig -Doptimize=ReleaseFast
+zig build stwo-native-cpu -Doptimize=ReleaseFast
 
-zig-out/bin/stwo-zig prove \
-  --air wide_fibonacci --backend cpu --protocol secure \
-  --log-n-rows 12 --sequence-len 16 \
-  --output proof.json --report-out prove-report.json
+zig-out/bin/stwo-zig-native-cpu prove \
+  --example xor --log-size 12 --protocol secure \
+  --proof-artifact-out proof.json
 
-zig-out/bin/stwo-zig verify --artifact proof.json
+zig-out/bin/stwo-zig-native-cpu verify \
+  --artifact proof.json --protocol secure
 ```
 
-`bench` uses the same proving transaction and verifies every warmup and timed sample. Select
-`--backend metal-hybrid` explicitly on macOS; backend failure never falls back to CPU. Run
-`stwo-zig applications` for the compiled AIR registry and adapter status.
+`bench` uses the same proving transaction and verifies every warmup and timed
+sample. `stwo-zig-native-metal` admits only its exact source-JIT identity and
+fails rather than entering a CPU commitment path. Run `applications` on any
+CLI for its compiled capability registry.
 
 ## RISC-V frontend (experimental)
 

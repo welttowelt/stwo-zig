@@ -78,6 +78,7 @@ const steps = [_]StepSpec{
     .{ .name = "source-conformance", .description = "Reject new source layout, dependency direction, and file-size violations", .scope = "policy" },
     .{ .name = "upstream-surface", .description = "Validate API parity rust_path entries against pinned upstream commit", .scope = "policy" },
     .{ .name = "build-configure-closure", .description = "Verify focused configure closure and the default install manifest", .scope = "policy" },
+    .{ .name = "registry-parity", .description = "Compare focused and aggregate compiled capability registries", .scope = "policy" },
     .{ .name = "release-gate", .description = "Run release gate sequence (fmt -> upstream-pins -> source-conformance -> test -> test-riscv -> test-riscv-prover -> api-parity -> deep-gate -> vectors -> interop -> bench-smoke -> profile-smoke)", .scope = "release" },
     .{ .name = "release-gate-strict", .description = "Run strict release gate sequence (fmt -> upstream-pins -> source-conformance -> test -> test-riscv -> test-riscv-prover -> api-parity -> deep-gate -> vectors -> interop -> prove-checkpoints -> bench-strict -> profile-smoke -> std-shims-smoke -> std-shims-behavior -> release-evidence)", .scope = "release" },
 };

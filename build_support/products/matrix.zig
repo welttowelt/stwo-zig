@@ -213,6 +213,7 @@ pub fn addIdentity(b: *std.Build) void {
     inline for (descriptors, 0..) |descriptor, index| {
         const closure = descriptor.source_closure;
         records[index] = .{
+            .descriptor_schema_version = descriptor.schema_version,
             .product_id = descriptor.product.name,
             .frontend = @tagName(descriptor.product.frontend),
             .backend = @tagName(descriptor.product.backend),
@@ -220,11 +221,19 @@ pub fn addIdentity(b: *std.Build) void {
             .protocol_manifest = descriptor.product.protocol_features,
             .state = @tagName(descriptor.state),
             .target_support = @tagName(descriptor.target_support),
+            .unsupported_target_reason = descriptor.unsupported_target_reason,
+            .unavailable_reason = descriptor.unavailable_reason,
             .build_step = descriptor.build_step,
             .test_step = descriptor.test_step,
             .executable = descriptor.executable,
+            .installed_artifacts = descriptor.installed_artifacts,
+            .compatibility_aliases = descriptor.compatibility_aliases,
+            .release_gates = descriptor.release_gates,
+            .benchmark_step = descriptor.benchmark_step,
+            .profiler_step = descriptor.profiler_step,
             .module_roots = descriptor.dependencies.module_roots,
             .external_dependencies = descriptor.dependencies.external_dependencies,
+            .source_closure = closure,
             .required_dynamic_dependencies = if (closure) |value|
                 value.required_dynamic_dependencies
             else
@@ -264,6 +273,7 @@ pub fn addIdentity(b: *std.Build) void {
 }
 
 const MatrixProduct = struct {
+    descriptor_schema_version: u32,
     product_id: []const u8,
     frontend: []const u8,
     backend: []const u8,
@@ -271,11 +281,19 @@ const MatrixProduct = struct {
     protocol_manifest: []const u8,
     state: []const u8,
     target_support: []const u8,
+    unsupported_target_reason: ?[]const u8,
+    unavailable_reason: ?[]const u8,
     build_step: []const u8,
     test_step: ?[]const u8,
     executable: ?[]const u8,
+    installed_artifacts: []const []const u8,
+    compatibility_aliases: []const []const u8,
+    release_gates: []const []const u8,
+    benchmark_step: ?[]const u8,
+    profiler_step: ?[]const u8,
     module_roots: []const []const u8,
     external_dependencies: []const []const u8,
+    source_closure: ?product_policy.SourceClosure,
     required_dynamic_dependencies: []const []const u8,
     forbidden_dynamic_dependencies: []const []const u8,
     allowed_files: []const []const u8,

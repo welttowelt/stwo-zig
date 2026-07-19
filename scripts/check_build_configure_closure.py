@@ -82,6 +82,7 @@ SCOPES: dict[str, set[str]] = {
         "source-conformance",
         "upstream-surface",
         "build-configure-closure",
+        "registry-parity",
     },
     "metal_tools": {
         "metal-core-aot",
