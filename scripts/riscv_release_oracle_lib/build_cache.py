@@ -1,4 +1,4 @@
-"""Authenticated local cache for the pinned Stark-V CP-11 helper binary."""
+"""Integrity-checked cache for the pinned Stark-V CP-11 helper binary."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from pathlib import Path
 
 
 CACHE_SCHEMA = "riscv-stark-v-oracle-build-cache-v1"
+ACTIONS_CACHE_KEY_SCHEMA = "riscv-stark-v-oracle-actions-cache-key-v1"
 MANIFEST_NAME = "manifest.json"
 EXECUTABLE_NAME = "cp11_dump"
 MAX_MANIFEST_BYTES = 256 * 1024
@@ -46,6 +47,25 @@ def sha256_file(path: Path) -> str:
 
 def cache_key(identity: dict[str, object]) -> str:
     return sha256_bytes(canonical_json(identity))
+
+
+def actions_cache_identity(identity: dict[str, object]) -> dict[str, object]:
+    """Bind an outer Actions cache entry to the complete inner cache contract."""
+    return {
+        "schema": ACTIONS_CACHE_KEY_SCHEMA,
+        "inner_cache_schema": CACHE_SCHEMA,
+        "inner_cache_key_sha256": cache_key(identity),
+        "inner_build_identity": identity,
+        "entry_contract": {
+            "manifest_name": MANIFEST_NAME,
+            "executable_name": EXECUTABLE_NAME,
+            "max_manifest_bytes": MAX_MANIFEST_BYTES,
+        },
+    }
+
+
+def actions_cache_key(identity: dict[str, object]) -> str:
+    return sha256_bytes(canonical_json(actions_cache_identity(identity)))
 
 
 def default_cache_dir() -> Path:

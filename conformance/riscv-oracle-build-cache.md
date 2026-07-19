@@ -51,7 +51,27 @@ The CLI also accepts `--oracle-cache-dir`. Deleting the directory is always
 safe; the next CP-11 producer run performs a locked rebuild.
 
 GitHub Actions restores this directory using a pinned `actions/cache` revision.
-The outer Actions key identifies the runner platform, Stark-V/toolchain pin, and
-helper sources. The repository-owned manifest performs the authoritative inner
-validation. CI initializes Stark-V submodules recursively before the gate and
-installs the `nightly-2026-01-29` toolchain selected by Stark-V itself.
+After installing the pinned toolchains and recursively initializing Stark-V,
+CI computes the outer key with the same resolver used by the inner lookup. The
+outer digest covers the complete inner build identity, inner cache schema, and
+entry contract. Any identity or schema change that would make a valid old entry
+miss therefore selects a new outer Actions key. Integrity damage under an
+otherwise matching key is still rejected by the inner validation and rebuilt
+for the current producer. Because Actions keys are immutable, a persistently
+damaged outer entry requires an explicit cache-schema/key rotation.
+
+This is an **integrity-checked, trusted-writer-scoped cache**, not an
+authenticated artifact. The workflow permits restore/save only in the
+exhaustive producer job. Both the job admission and a pre-cache runtime guard
+require the canonical repository, `workflow_dispatch` on `refs/heads/main`, and
+numeric owner identity `92999717` for both the actor and triggering actor. Pull
+requests, forks, pushes, and manually dispatched fast gates cannot write this
+namespace, and no broad `restore-keys` fallback is allowed.
+
+GitHub currently reports `main` as `.protected=false`. Enabling branch
+protection and restricting workflow changes remains an administrator hardening
+TODO; checked-in workflow code cannot establish that setting. Until then, the
+numeric repository-owner dispatch check is the fail-closed trust root. The
+digest checks detect content drift but do not prove authorship independently of
+that trusted writer. A cache hit never replaces execution of the Rust/Zig
+oracle comparison.

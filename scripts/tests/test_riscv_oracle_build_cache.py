@@ -48,7 +48,7 @@ class OracleBuildCacheTest(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
         self.binary = self.root / "built-cp11_dump"
-        self.binary.write_bytes(b"authenticated Rust oracle")
+        self.binary.write_bytes(b"integrity-checked Rust oracle")
         self.binary.chmod(0o755)
 
     def tearDown(self) -> None:
@@ -68,6 +68,36 @@ class OracleBuildCacheTest(unittest.TestCase):
         build_cache.store(cache_dir, identity(), self.binary)
         changed = identity(adapter_overlay_sha256="99" * 32)
         self.assertIsNone(build_cache.load(cache_dir, changed))
+
+    def test_actions_key_covers_full_inner_identity_and_schema(self) -> None:
+        expected_identity = identity()
+        outer = build_cache.actions_cache_identity(expected_identity)
+        self.assertEqual(build_cache.CACHE_SCHEMA, outer["inner_cache_schema"])
+        self.assertEqual(expected_identity, outer["inner_build_identity"])
+        self.assertEqual(
+            build_cache.cache_key(expected_identity),
+            outer["inner_cache_key_sha256"],
+        )
+
+        original = build_cache.actions_cache_key(expected_identity)
+        changed = identity(adapter_overlay_sha256="99" * 32)
+        self.assertNotEqual(original, build_cache.actions_cache_key(changed))
+        with mock.patch.object(build_cache, "CACHE_SCHEMA", "cache-schema-v2"):
+            self.assertNotEqual(original, build_cache.actions_cache_key(expected_identity))
+
+    def test_actions_key_covers_inner_entry_contract(self) -> None:
+        original = build_cache.actions_cache_key(identity())
+        with mock.patch.object(build_cache, "EXECUTABLE_NAME", "cp11_dump-v2"):
+            self.assertNotEqual(original, build_cache.actions_cache_key(identity()))
+
+    def test_cache_policy_names_the_trusted_writer_boundary(self) -> None:
+        policy = (ROOT / "conformance/riscv-oracle-build-cache.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("integrity-checked, trusted-writer-scoped cache", policy)
+        self.assertIn("GitHub currently reports `main` as `.protected=false`", policy)
+        self.assertIn("repository-owner dispatch check is the fail-closed trust root", policy)
+        self.assertNotIn("authenticated cache", policy.lower())
 
     def test_binary_tampering_is_a_miss(self) -> None:
         cache_dir = self.root / "cache"

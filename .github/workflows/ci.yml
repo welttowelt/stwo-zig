@@ -178,6 +178,7 @@ jobs:
       TRUSTED_REPOSITORY_ID: "1152389958"
       TRUSTED_OWNER_ID: "92999717"
       STARK_V_SOURCE: ${{ github.workspace }}/../stark-v
+      STARK_V_REVISION: d478f783055aa0d73a93768a433a3c6c31c91d1c
       STWO_ZIG_RISCV_ORACLE_CACHE_DIR: ${{ runner.tool_cache }}/stwo-zig/riscv-oracle
       STWO_CAIRO_RUST_ROOT: ${{ github.workspace }}/../stwo-cairo
       RISCV_EVIDENCE_DIR: zig-out/release-evidence/riscv/runs/exhaustive-${{ inputs.candidate_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -247,8 +248,6 @@ jobs:
           rustup toolchain install nightly-2026-01-29 --profile minimal
 
       - name: Checkout pinned Stark-V oracle
-        env:
-          STARK_V_REVISION: d478f783055aa0d73a93768a433a3c6c31c91d1c
         run: |
           git init "$STARK_V_SOURCE"
           git -C "$STARK_V_SOURCE" remote add origin https://github.com/ClementWalter/stark-v
@@ -256,11 +255,30 @@ jobs:
           git -C "$STARK_V_SOURCE" checkout --detach FETCH_HEAD
           git -C "$STARK_V_SOURCE" submodule update --init --recursive --depth=1
 
-      - name: Restore authenticated Stark-V helper cache
+      - name: Enforce owner-dispatched cache writer scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$GITHUB_REPOSITORY" = teddyjfpender/stwo-zig
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_REF" = refs/heads/main
+          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")
+          test "$(jq -r .repository.id <<<"$run")" = "$TRUSTED_REPOSITORY_ID"
+          test "$(jq -r .actor.id <<<"$run")" = "$TRUSTED_OWNER_ID"
+          test "$(jq -r .triggering_actor.id <<<"$run")" = "$TRUSTED_OWNER_ID"
+
+      - name: Compute exact Stark-V helper cache identity
+        id: riscv-oracle-cache
+        run: |
+          key_sha256=$(python3 scripts/riscv_release_oracle.py cache-key \
+            --stark-v-source "$STARK_V_SOURCE")
+          echo "key_sha256=$key_sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Restore integrity-checked, trusted-writer-scoped Stark-V helper cache
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ${{ env.STWO_ZIG_RISCV_ORACLE_CACHE_DIR }}
-          key: riscv-oracle-v1-${{ runner.os }}-${{ runner.arch }}-d478f783-nightly-2026-01-29-${{ hashFiles('scripts/riscv_release_oracle_lib/cp11_dump.rs', 'scripts/riscv_release_oracle_lib/cp11_dump/*.rs') }}
+          key: riscv-oracle-${{ steps.riscv-oracle-cache.outputs.key_sha256 }}
 
       - name: Checkout pinned stwo-cairo oracle
         env: *stwo-cairo-env

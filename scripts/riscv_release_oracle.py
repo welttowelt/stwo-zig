@@ -49,6 +49,7 @@ from riscv_release_oracle_lib.oracle_build import (
     _promote_locked_sha2_dependency,
     _temporary_sha2_dependency,
     build_oracle,
+    resolve_build_inputs,
 )
 from riscv_release_oracle_lib.public_values import (
     IMPLEMENTATION_REPOSITORY,
@@ -675,6 +676,13 @@ def validate(args) -> int:
     return 1 if errors else 0
 
 
+def print_cache_key(args) -> int:
+    source = Path(args.stark_v_source).resolve()
+    inputs = resolve_build_inputs(source, PINNED)
+    print(build_cache.actions_cache_key(inputs.identity))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="mode", required=True)
@@ -689,8 +697,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     p = sub.add_parser("validate")
     p.add_argument("--receipt", required=True)
+    p = sub.add_parser("cache-key")
+    p.add_argument("--stark-v-source", required=True)
     args = parser.parse_args(argv)
-    return build_and_compare(args) if args.mode == "build-and-compare" else validate(args)
+    if args.mode == "build-and-compare":
+        return build_and_compare(args)
+    if args.mode == "cache-key":
+        return print_cache_key(args)
+    return validate(args)
 
 
 if __name__ == "__main__":

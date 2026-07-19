@@ -10,6 +10,7 @@ import platform
 import re
 import subprocess
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 from riscv_release_oracle_lib import build_cache
@@ -34,6 +35,21 @@ ADAPTER_OVERLAYS = (
 )
 PROVER_MANIFEST_REL = "crates/prover/Cargo.toml"
 SHA2_DEPENDENCY = 'sha2 = { version = "0.10", default-features = false }'
+BUILD_IDENTITY_SCHEMA = "riscv-stark-v-oracle-build-identity-v1"
+BUILD_COMMAND = (
+    "cargo", "build", "--locked", "--release", "-p", "prover",
+    "--bin", "cp11_dump",
+)
+
+
+@dataclass(frozen=True)
+class BuildInputs:
+    identity: dict[str, object]
+    submodule_status: tuple[str, ...]
+    tree_digest_sha256: str
+    lockfile_sha256: str
+    adapter_overlay: dict[str, object]
+    rust: dict[str, object]
 
 
 def _run(cmd: list[str], cwd: Path | None = None) -> str:
@@ -199,12 +215,8 @@ def _adapter_overlay_evidence(source: Path) -> dict[str, object]:
     }
 
 
-def build_oracle(
-    source: Path,
-    receipt: dict,
-    pinned_commit: str,
-    cache_dir: Path | None = None,
-) -> Path:
+def resolve_build_inputs(source: Path, pinned_commit: str) -> BuildInputs:
+    """Resolve the one identity used by pre-restore and inner cache lookup."""
     head = _run(["git", "rev-parse", "HEAD"], cwd=source).strip()
     if head != pinned_commit:
         raise SystemExit(f"oracle checkout at {head}, pinned {pinned_commit}")
@@ -223,13 +235,8 @@ def build_oracle(
     lockfile_sha256 = _sha256_file(source / "Cargo.lock")
     overlay_evidence = _adapter_overlay_evidence(source)
     rust_build = _resolved_rust_build(source)
-    target = str(rust_build["target"])
-    build_cmd = [
-        "cargo", "build", "--locked", "--release", "-p", "prover",
-        "--bin", "cp11_dump",
-    ]
     identity: dict[str, object] = {
-        "schema": "riscv-stark-v-oracle-build-identity-v1",
+        "schema": BUILD_IDENTITY_SCHEMA,
         "oracle": {
             "repository": "https://github.com/ClementWalter/stark-v",
             "commit": head,
@@ -239,9 +246,30 @@ def build_oracle(
         },
         "adapter_overlay_sha256": overlay_evidence["sha256"],
         "rust": rust_build,
-        "build_command": build_cmd,
+        "build_command": list(BUILD_COMMAND),
         "platform": {"machine": platform.machine(), "system": platform.system()},
     }
+    return BuildInputs(
+        identity=identity,
+        submodule_status=tuple(submodule.strip().splitlines()),
+        tree_digest_sha256=tree_digest,
+        lockfile_sha256=lockfile_sha256,
+        adapter_overlay=overlay_evidence,
+        rust=rust_build,
+    )
+
+
+def build_oracle(
+    source: Path,
+    receipt: dict,
+    pinned_commit: str,
+    cache_dir: Path | None = None,
+) -> Path:
+    inputs = resolve_build_inputs(source, pinned_commit)
+    identity = inputs.identity
+    rust_build = inputs.rust
+    target = str(rust_build["target"])
+    build_cmd = list(BUILD_COMMAND)
     selected_cache_dir = cache_dir or build_cache.default_cache_dir()
     cached = build_cache.load(selected_cache_dir, identity)
     cache_status = "hit"
@@ -283,15 +311,15 @@ def build_oracle(
         raise SystemExit("Rust oracle cache executable changed after validation")
     receipt["oracle"] = {
         "repository": "https://github.com/ClementWalter/stark-v",
-        "commit": head,
+        "commit": pinned_commit,
         "clean": True,
-        "tree_digest_sha256": tree_digest,
-        "submodule_status": submodule.strip().splitlines(),
-        "lockfile_sha256": lockfile_sha256,
+        "tree_digest_sha256": inputs.tree_digest_sha256,
+        "submodule_status": list(inputs.submodule_status),
+        "lockfile_sha256": inputs.lockfile_sha256,
         "toolchain": str(rust_build["rustc_verbose"]).splitlines()[0],
         "build_command": " ".join(build_cmd),
         "build_mode": "release",
-        "adapter_overlay": overlay_evidence,
+        "adapter_overlay": inputs.adapter_overlay,
         "executable_sha256": cached.executable_sha256,
         "host_arch": platform.machine(),
         "host_os": f"{platform.system()} {platform.release()}",

@@ -56,6 +56,18 @@ class CiTests(unittest.TestCase):
         self.assertIn("submodule update --init --recursive --depth=1", workflow)
         self.assertIn("STWO_ZIG_RISCV_ORACLE_CACHE_DIR", workflow)
         self.assertIn("actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830", workflow)
+        self.assertIn("name: Enforce owner-dispatched cache writer scope", workflow)
+        self.assertIn('test "$GITHUB_REPOSITORY" = teddyjfpender/stwo-zig', workflow)
+        self.assertIn('test "$GITHUB_EVENT_NAME" = workflow_dispatch', workflow)
+        self.assertIn('test "$GITHUB_REF" = refs/heads/main', workflow)
+        self.assertIn("id: riscv-oracle-cache", workflow)
+        self.assertIn("riscv_release_oracle.py cache-key", workflow)
+        self.assertIn(
+            "key: riscv-oracle-${{ steps.riscv-oracle-cache.outputs.key_sha256 }}",
+            workflow,
+        )
+        self.assertNotIn("Restore authenticated Stark-V helper cache", workflow)
+        self.assertNotIn("restore-keys:", workflow)
         self.assertIn("python3 scripts/riscv_release_gate.py", workflow)
         self.assertIn("--strict", workflow)
         self.assertIn('--candidate "$RISCV_CANDIDATE_SHA"', workflow)
@@ -91,6 +103,24 @@ class CiTests(unittest.TestCase):
         self.assertIn('.conclusion == "success"', workflow)
         self.assertIn("artifact_digest=$digest", workflow)
         self.assertNotIn('test "$(jq -r .conclusion <<<"$producer")" = success', workflow)
+
+    def test_riscv_oracle_cache_identity_precedes_exact_restore(self) -> None:
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        producer = workflow.split("  riscv-release-evidence:", 1)[1].split(
+            "  riscv-fast-release-gate:", 1
+        )[0]
+        install = producer.index("name: Install pinned Rust toolchains")
+        checkout = producer.index("name: Checkout pinned Stark-V oracle")
+        recursive = producer.index("submodule update --init --recursive --depth=1")
+        trusted_scope = producer.index("name: Enforce owner-dispatched cache writer scope")
+        identity = producer.index("name: Compute exact Stark-V helper cache identity")
+        restore = producer.index("uses: actions/cache@")
+        self.assertLess(install, checkout)
+        self.assertLess(checkout, recursive)
+        self.assertLess(recursive, trusted_scope)
+        self.assertLess(trusted_scope, identity)
+        self.assertLess(identity, restore)
+        self.assertNotIn("hashFiles(", producer)
 
     def test_hosted_ci_accepts_exact_commit_aot_evidence_tags(self) -> None:
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
