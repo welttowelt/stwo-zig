@@ -27,9 +27,11 @@ RELATIONS = (
 PUBLIC_RELATIONS = ("registers_state", "merkle", "memory_access")
 M31_MODULUS = (1 << 31) - 1
 HEX_DIGEST = re.compile(r"[0-9a-f]{64}")
+HEX_COMMIT = re.compile(r"[0-9a-f]{40}")
 EMPTY_TUPLE_DIGEST = hashlib.blake2s(
     b"stwo-zig/riscv/relation-tuples/v1\0"
 ).hexdigest()
+EMPTY_INPUT_DIGEST = hashlib.sha256(b"").hexdigest()
 
 
 class EvidenceError(ValueError):
@@ -99,15 +101,56 @@ def _stream(line: str, identity: str, expected: str) -> dict[str, object]:
     return result
 
 
-def parse_tuple_dump(output: str) -> dict[str, object]:
+def _binding(line: str) -> dict[str, object]:
+    fields = _fields(line)
+    expected = {
+        "binding", "challenge_mode", "implementation_commit",
+        "implementation_dirty", "oracle_commit", "elf_sha256",
+        "input_sha256", "witness_layout_sha256",
+        "diagnostic_preprocessed_commitment", "diagnostic_main_commitment",
+        "diagnostic_interaction_commitment",
+    }
+    if set(fields) != expected:
+        raise EvidenceError(
+            f"binding has fields {sorted(fields)}, expected {sorted(expected)}"
+        )
+    if fields["binding"] != "zig_diagnostic":
+        raise EvidenceError("relation binding is not Zig diagnostic evidence")
+    if fields["challenge_mode"] != "pinned_default_blake2s_v1":
+        raise EvidenceError("relation binding has an unsupported challenge mode")
+    if not HEX_COMMIT.fullmatch(fields["implementation_commit"]):
+        raise EvidenceError("implementation_commit is not lowercase 40-hex")
+    if not HEX_COMMIT.fullmatch(fields["oracle_commit"]):
+        raise EvidenceError("oracle_commit is not lowercase 40-hex")
+    if fields["implementation_dirty"] not in ("true", "false"):
+        raise EvidenceError("implementation_dirty is not a boolean")
+    for field in (
+        "elf_sha256", "input_sha256", "witness_layout_sha256",
+        "diagnostic_preprocessed_commitment", "diagnostic_main_commitment",
+        "diagnostic_interaction_commitment",
+    ):
+        _digest(fields[field], field)
+        if set(fields[field]) == {"0"}:
+            raise EvidenceError(f"{field} is an unbound zero digest")
+    return {
+        **fields,
+        "implementation_dirty": fields["implementation_dirty"] == "true",
+    }
+
+
+def parse_tuple_dump(output: str, *, require_binding: bool = False) -> dict[str, object]:
     lines = output.splitlines()
-    expected_lines = 1 + len(COMPONENTS) * (1 + len(RELATIONS)) + 1 + len(RELATIONS)
+    bound = bool(lines) and lines[0] == "schema=riscv-relation-tuples-v3"
+    expected_lines = 1 + int(bound) + len(COMPONENTS) * (1 + len(RELATIONS)) + 1 + len(RELATIONS)
     if len(lines) != expected_lines:
         raise EvidenceError(f"tuple dump has {len(lines)} lines, expected {expected_lines}")
-    if lines[0] != "schema=riscv-relation-tuples-v2":
-        raise EvidenceError("tuple dump schema is not riscv-relation-tuples-v2")
+    if not bound and (not lines or lines[0] != "schema=riscv-relation-tuples-v2"):
+        raise EvidenceError("tuple dump schema is neither v2 oracle nor bound v3 Zig evidence")
+    if require_binding and not bound:
+        raise EvidenceError("Zig tuple evidence is not root-bound schema v3")
 
-    cursor = 1
+    binding = _binding(lines[1]) if bound else None
+    cursor = 1 + int(bound)
     components: dict[str, object] = {}
     for component in COMPONENTS:
         stream = _stream(lines[cursor], "component", component)
@@ -157,6 +200,7 @@ def parse_tuple_dump(output: str) -> dict[str, object]:
         if aggregate_relations[relation]["nonzero_entries"] != expected_nonzero:
             raise EvidenceError(f"aggregate {relation} nonzero count does not compose")
     return {
+        "binding": binding,
         "components": components,
         "aggregate": aggregate,
         "aggregate_relations": aggregate_relations,
@@ -187,15 +231,19 @@ def _exact_fields(line: str, expected: dict[str, str | None]) -> dict[str, str]:
     return fields
 
 
-def parse_sum_dump(output: str) -> dict[str, object]:
+def parse_sum_dump(output: str, *, require_binding: bool = False) -> dict[str, object]:
     lines = output.splitlines()
-    expected_lines = 1 + len(RELATIONS) + len(COMPONENTS) + len(RELATIONS) + len(PUBLIC_RELATIONS) + 1
+    bound = bool(lines) and lines[0] == "schema=riscv-relation-sums-v2"
+    expected_lines = 1 + int(bound) + len(RELATIONS) + len(COMPONENTS) + len(RELATIONS) + len(PUBLIC_RELATIONS) + 1
     if len(lines) != expected_lines:
         raise EvidenceError(f"sum dump has {len(lines)} lines, expected {expected_lines}")
-    if lines[0] != "schema=riscv-relation-sums-v1":
-        raise EvidenceError("sum dump schema is not riscv-relation-sums-v1")
+    if not bound and (not lines or lines[0] != "schema=riscv-relation-sums-v1"):
+        raise EvidenceError("sum dump schema is neither v1 oracle nor bound v2 Zig evidence")
+    if require_binding and not bound:
+        raise EvidenceError("Zig sum evidence is not root-bound schema v2")
 
-    cursor = 1
+    binding = _binding(lines[1]) if bound else None
+    cursor = 1 + int(bound)
     challenges: dict[str, tuple[int, int, int, int]] = {}
     for relation in RELATIONS:
         fields = _exact_fields(
@@ -248,6 +296,7 @@ def parse_sum_dump(output: str) -> dict[str, object]:
     if balanced != _add_qm31(native, public):
         raise EvidenceError("balanced sum is not native plus public")
     return {
+        "binding": binding,
         "challenges": challenges,
         "components": components,
         "relations": relation_sums,
@@ -294,22 +343,59 @@ def _first_difference(rust: object, zig: object, path: str = "") -> dict[str, ob
 
 def compare_tuple_dumps(rust_output: str, zig_output: str) -> dict[str, object]:
     rust = _comparable_tuple(parse_tuple_dump(rust_output))
-    zig = _comparable_tuple(parse_tuple_dump(zig_output))
+    parsed_zig = parse_tuple_dump(zig_output, require_binding=True)
+    zig = _comparable_tuple(parsed_zig)
     difference = _first_difference(rust, zig)
-    return {"agree": difference is None, "first_divergence": difference}
+    return {
+        "agree": difference is None,
+        "first_divergence": difference,
+        "binding": parsed_zig["binding"],
+    }
 
 
 def compare_sum_dumps(rust_output: str, zig_output: str) -> dict[str, object]:
     rust = parse_sum_dump(rust_output)
-    zig = parse_sum_dump(zig_output)
-    difference = _first_difference(rust, zig)
-    return {"agree": difference is None, "first_divergence": difference}
+    zig = parse_sum_dump(zig_output, require_binding=True)
+    difference = _first_difference(
+        {key: value for key, value in rust.items() if key != "binding"},
+        {key: value for key, value in zig.items() if key != "binding"},
+    )
+    return {
+        "agree": difference is None,
+        "first_divergence": difference,
+        "binding": zig["binding"],
+    }
 
 
 def _run(command: list[str], cwd: Path | None = None) -> str:
     return subprocess.run(
         command, cwd=cwd, check=True, capture_output=True, text=True
     ).stdout
+
+
+def _binding_problem(
+    binding: object,
+    *,
+    receipt: dict,
+    vector: dict,
+    pinned: str,
+) -> str | None:
+    if not isinstance(binding, dict):
+        return "missing parsed Zig diagnostic binding"
+    expected = {
+        "implementation_commit": receipt["candidate_commit"],
+        "implementation_dirty": False,
+        "oracle_commit": pinned,
+        "elf_sha256": vector["elf_sha256"],
+        "input_sha256": EMPTY_INPUT_DIGEST,
+        "witness_layout_sha256": receipt.get("witness_layout_digest_sha256"),
+    }
+    for field, value in expected.items():
+        if value is None:
+            return f"receipt is missing expected {field}"
+        if binding.get(field) != value:
+            return f"{field}={binding.get(field)!r}, expected {value!r}"
+    return None
 
 
 def compare_relation_boundaries(
@@ -338,6 +424,31 @@ def compare_relation_boundaries(
             sum_result = compare_sum_dumps(rust_sums, zig_sums)
         except EvidenceError as error:
             sum_result = {"agree": False, "evidence_error": str(error)}
+        tuple_binding = tuple_result.pop("binding", None)
+        sum_binding = sum_result.pop("binding", None)
+        tuple_binding_problem = _binding_problem(
+            tuple_binding, receipt=receipt, vector=vector, pinned=pinned
+        )
+        sum_binding_problem = _binding_problem(
+            sum_binding, receipt=receipt, vector=vector, pinned=pinned
+        )
+        if tuple_binding_problem is not None:
+            tuple_result = {
+                **tuple_result,
+                "agree": False,
+                "evidence_error": tuple_binding_problem,
+            }
+        if sum_binding_problem is not None:
+            sum_result = {
+                **sum_result,
+                "agree": False,
+                "evidence_error": sum_binding_problem,
+            }
+        if tuple_binding != sum_binding:
+            tuple_result["agree"] = False
+            sum_result["agree"] = False
+            tuple_result["evidence_error"] = "tuple and sum diagnostic bindings differ"
+            sum_result["evidence_error"] = "tuple and sum diagnostic bindings differ"
         tuples_ok = tuples_ok and bool(tuple_result["agree"])
         sums_ok = sums_ok and bool(sum_result["agree"])
         tuple_cases.append({
@@ -345,6 +456,7 @@ def compare_relation_boundaries(
             "elf_sha256": vector["elf_sha256"],
             "rust_sha256": hashlib.sha256(rust_tuples.encode()).hexdigest(),
             "zig_sha256": hashlib.sha256(zig_tuples.encode()).hexdigest(),
+            "zig_binding": tuple_binding,
             **tuple_result,
         })
         sum_cases.append({
@@ -352,6 +464,7 @@ def compare_relation_boundaries(
             "elf_sha256": vector["elf_sha256"],
             "rust_sha256": hashlib.sha256(rust_sums.encode()).hexdigest(),
             "zig_sha256": hashlib.sha256(zig_sums.encode()).hexdigest(),
+            "zig_binding": sum_binding,
             **sum_result,
         })
     receipt["boundaries"]["relation_tuples"] = {

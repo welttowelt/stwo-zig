@@ -76,6 +76,7 @@ const proof_transcript = @import("proof_transcript.zig");
 const lookup_sources = @import("prover/lookup_sources.zig");
 const opcode_trace = @import("prover/opcode_trace.zig");
 const preprocessed_trace = @import("prover/preprocessed.zig");
+const relation_diagnostic = @import("prover/relation_diagnostic.zig");
 const semantic_component = @import("air/semantic_component.zig");
 const state_chain = @import("runner/state_chain.zig");
 const memory_state = @import("runner/memory_state.zig");
@@ -105,6 +106,13 @@ const MAX_MEMORY_SHARD_ROWS: usize = @as(usize, 1) << MAX_MEMORY_SHARD_LOG_SIZE;
 pub const Proof = core_proof.StarkProof(Hasher);
 pub const ExtendedProof = core_proof.ExtendedStarkProof(Hasher);
 pub const OwnedRiscVStatement = @import("owned_statement.zig").OwnedRiscVStatement;
+pub const RelationDiagnostic = relation_diagnostic.Output;
+
+const RunMode = enum { prove, relation_diagnostic };
+
+fn RunOutput(comptime mode: RunMode) type {
+    return if (mode == .prove) ProveOutput else RelationDiagnostic;
+}
 
 pub const ProveOutput = struct {
     statement: RiscVStatement,
@@ -326,6 +334,54 @@ pub fn proveRiscVWithEngineAndPublicData(
     recorder: ?*stage_profile.Recorder,
     public_data: PublicData,
 ) !ProveOutput {
+    return runRiscVWithEngineAndPublicData(
+        Engine,
+        .prove,
+        allocator,
+        pcs_config,
+        exec_trace,
+        opt_chain,
+        opt_memory,
+        recorder,
+        public_data,
+    );
+}
+
+/// Generates CP-11 evidence through the production witness, interaction, and
+/// commitment builders under the pinned default-channel challenges.
+pub fn diagnoseRiscVRelationsWithEngineAndPublicData(
+    comptime Engine: type,
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    exec_trace: *const trace_mod.Trace,
+    opt_chain: ?*const state_chain.StateChainTracker,
+    opt_memory: ?*const memory_state.Snapshot,
+    public_data: PublicData,
+) !RelationDiagnostic {
+    return runRiscVWithEngineAndPublicData(
+        Engine,
+        .relation_diagnostic,
+        allocator,
+        pcs_config,
+        exec_trace,
+        opt_chain,
+        opt_memory,
+        null,
+        public_data,
+    );
+}
+
+fn runRiscVWithEngineAndPublicData(
+    comptime Engine: type,
+    comptime mode: RunMode,
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    exec_trace: *const trace_mod.Trace,
+    opt_chain: ?*const state_chain.StateChainTracker,
+    opt_memory: ?*const memory_state.Snapshot,
+    recorder: ?*stage_profile.Recorder,
+    public_data: PublicData,
+) !RunOutput(mode) {
     comptime prover_engine.assertProverEngine(Engine);
     if (exec_trace.step_count == 0) return ProverError.EmptyTrace;
 
@@ -549,7 +605,14 @@ pub fn proveRiscVWithEngineAndPublicData(
 
     var scheme = try Engine.init(allocator, pcs_config);
     var scheme_owned = true;
-    errdefer if (scheme_owned) Engine.deinit(&scheme, allocator);
+    defer if (scheme_owned) Engine.deinit(&scheme, allocator);
+
+    var retained_tree0: relation_diagnostic.RetainedTree = undefined;
+    var retained_tree0_initialized = false;
+    defer if (retained_tree0_initialized) retained_tree0.deinit(allocator);
+    var retained_tree1: relation_diagnostic.RetainedTree = undefined;
+    var retained_tree1_initialized = false;
+    defer if (retained_tree1_initialized) retained_tree1.deinit(allocator);
 
     // Empty state chain for fallback when opt_chain is null.
     var empty_chain = state_chain.StateChainTracker.init(allocator);
@@ -565,6 +628,10 @@ pub fn proveRiscVWithEngineAndPublicData(
             for (preprocessed) |column| allocator.free(@constCast(column.values));
             allocator.free(preprocessed);
         };
+        if (comptime mode == .relation_diagnostic) {
+            retained_tree0 = try relation_diagnostic.RetainedTree.capture(allocator, preprocessed);
+            retained_tree0_initialized = true;
+        }
         moved = true;
         try Engine.commit(&scheme, allocator, preprocessed, recorder, &channel);
     }
@@ -763,6 +830,11 @@ pub fn proveRiscVWithEngineAndPublicData(
     std.debug.assert(opcode_col_offset == n_opcode_main);
     std.debug.assert(col_offset == n_main);
 
+    if (comptime mode == .relation_diagnostic) {
+        retained_tree1 = try relation_diagnostic.RetainedTree.capture(allocator, main_columns);
+        retained_tree1_initialized = true;
+    }
+
     {
         var stage = try stage_profile.StageScope.begin(recorder, "riscv_main_trace_commit", "RISC-V main trace commit");
         defer stage.end();
@@ -788,7 +860,18 @@ pub fn proveRiscVWithEngineAndPublicData(
     });
 
     // -- Step 5: LogUp interaction tree (tree 2). --
-    const transcript_prefix = try proof_transcript.proveToRelations(allocator, &channel, &statement);
+    const transcript_prefix: proof_transcript.ProverRelations = if (comptime mode == .prove)
+        try proof_transcript.proveToRelations(allocator, &channel, &statement)
+    else blk: {
+        var diagnostic_channel = Channel{};
+        break :blk .{
+            .interaction_pow = 0,
+            .relations = try @import("air/relation_challenges.zig").Relations.draw(
+                allocator,
+                &diagnostic_channel,
+            ),
+        };
+    };
     const relations = transcript_prefix.relations;
 
     var interaction_claim = RiscVInteractionClaim.initZero();
@@ -977,6 +1060,23 @@ pub fn proveRiscVWithEngineAndPublicData(
         try proof_transcript.mixInteractionClaim(&channel, &statement, &interaction_claim);
         interaction_columns_moved = true;
         try Engine.commit(&scheme, allocator, interaction_columns, recorder, &channel);
+    }
+
+    if (comptime mode == .relation_diagnostic) {
+        if (scheme.trees.items.len != 3) return error.InvalidTreeShape;
+        return relation_diagnostic.build(
+            allocator,
+            &statement,
+            &retained_tree0,
+            &retained_tree1,
+            .{
+                scheme.trees.items[0].root(),
+                scheme.trees.items[1].root(),
+                scheme.trees.items[2].root(),
+            },
+            relations,
+            &interaction_claim,
+        );
     }
 
     // -- Step 6: Pair semantic owners with exact lookup consumers. --

@@ -103,7 +103,7 @@ test "relation export: committed opcode stream binds a fixed native claim" {
         482472235,
     );
     const native = claims.InteractionClaim.init(native_sums, &.{});
-    var ledger = try relation_export.ClaimLedger.init(.{1} ** 32, .{2} ** 32, &native);
+    var ledger = try relation_export.ClaimLedger.init(.{3} ** 32, .{1} ** 32, .{2} ** 32, &native);
     var sequence = relation_export.Sequence.init();
     var observer = relation_export.NullObserver{};
     const evidence = try relation_export.exportOpcodeFamily(
@@ -132,7 +132,7 @@ test "relation export: shadow columns and self-derived claim do not cross bindin
     columns.storage[0][0] = committed_value.add(M31.one());
     var zero_sums = [_]QM31{QM31.zero()} ** relation_export.COMPONENT_COUNT;
     const zero_claims = claims.InteractionClaim.init(zero_sums, &.{});
-    var ledger = try relation_export.ClaimLedger.init(.{1} ** 32, .{2} ** 32, &zero_claims);
+    var ledger = try relation_export.ClaimLedger.init(.{3} ** 32, .{1} ** 32, .{2} ** 32, &zero_claims);
     var sequence = relation_export.Sequence.init();
     var observer = relation_export.NullObserver{};
     try std.testing.expectError(
@@ -151,7 +151,7 @@ test "relation export: shadow columns and self-derived claim do not cross bindin
     columns.storage[0][0] = committed_value;
     zero_sums[@intFromEnum(relation_export.Component.auipc)] = QM31.one();
     const shadow_claims = claims.InteractionClaim.init(zero_sums, &.{});
-    ledger = try relation_export.ClaimLedger.init(.{1} ** 32, .{2} ** 32, &shadow_claims);
+    ledger = try relation_export.ClaimLedger.init(.{3} ** 32, .{1} ** 32, .{2} ** 32, &shadow_claims);
     sequence = relation_export.Sequence.init();
     try std.testing.expectError(
         error.ClaimMismatch,
@@ -206,7 +206,7 @@ test "relation export: ordered two-shard family checks one aggregate claim" {
         441995620,
     );
     const native = claims.InteractionClaim.init(native_sums, &.{});
-    var ledger = try relation_export.ClaimLedger.init(.{1} ** 32, .{2} ** 32, &native);
+    var ledger = try relation_export.ClaimLedger.init(.{3} ** 32, .{1} ** 32, .{2} ** 32, &native);
     var sequence = relation_export.Sequence.init();
     var observer = relation_export.NullObserver{};
     const evidence = try relation_export.exportOpcodeFamily(
@@ -233,7 +233,7 @@ test "relation export: ordered two-shard family checks one aggregate claim" {
 fn expectShardFailure(expected: relation_export.Error, shards: []const relation_export.OpcodeShard) !void {
     const zero_sums = [_]QM31{QM31.zero()} ** relation_export.COMPONENT_COUNT;
     const native = claims.InteractionClaim.init(zero_sums, &.{});
-    var ledger = try relation_export.ClaimLedger.init(.{1} ** 32, .{2} ** 32, &native);
+    var ledger = try relation_export.ClaimLedger.init(.{3} ** 32, .{1} ** 32, .{2} ** 32, &native);
     var sequence = relation_export.Sequence.init();
     var observer = relation_export.NullObserver{};
     try std.testing.expectError(
@@ -253,7 +253,7 @@ fn expectShardFailure(expected: relation_export.Error, shards: []const relation_
 test "relation export: absent components are explicit zero-claim records" {
     const zero_sums = [_]QM31{QM31.zero()} ** relation_export.COMPONENT_COUNT;
     const native = claims.InteractionClaim.init(zero_sums, &.{});
-    var ledger = try relation_export.ClaimLedger.init(.{1} ** 32, .{2} ** 32, &native);
+    var ledger = try relation_export.ClaimLedger.init(.{3} ** 32, .{1} ** 32, .{2} ** 32, &native);
     var sequence = relation_export.Sequence.init();
     for (0..relation_export.COMPONENT_COUNT) |index| {
         const evidence = try relation_export.exportAbsentComponent(
@@ -273,7 +273,7 @@ test "relation export: absent components are explicit zero-claim records" {
     var nonzero_sums = zero_sums;
     nonzero_sums[0] = QM31.one();
     const invalid_native = claims.InteractionClaim.init(nonzero_sums, &.{});
-    ledger = try relation_export.ClaimLedger.init(.{1} ** 32, .{2} ** 32, &invalid_native);
+    ledger = try relation_export.ClaimLedger.init(.{3} ** 32, .{1} ** 32, .{2} ** 32, &invalid_native);
     sequence = relation_export.Sequence.init();
     try std.testing.expectError(
         error.ClaimMismatch,
@@ -285,11 +285,15 @@ test "relation export: unbound proof identities fail closed" {
     const sums = [_]QM31{QM31.zero()} ** relation_export.COMPONENT_COUNT;
     const native = claims.InteractionClaim.init(sums, &.{});
     try std.testing.expectError(
-        error.UnboundMainCommitment,
-        relation_export.ClaimLedger.init(.{0} ** 32, .{2} ** 32, &native),
+        error.UnboundPreprocessedCommitment,
+        relation_export.ClaimLedger.init(.{0} ** 32, .{1} ** 32, .{2} ** 32, &native),
     );
     try std.testing.expectError(
-        error.UnboundInteractionCommitment,
-        relation_export.ClaimLedger.init(.{1} ** 32, .{0} ** 32, &native),
+        error.UnboundMainCommitment,
+        relation_export.ClaimLedger.init(.{3} ** 32, .{0} ** 32, .{2} ** 32, &native),
+    );
+    try std.testing.expectError(
+        error.UnboundDiagnosticInteractionCommitment,
+        relation_export.ClaimLedger.init(.{3} ** 32, .{1} ** 32, .{0} ** 32, &native),
     );
 }

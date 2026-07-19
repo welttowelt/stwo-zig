@@ -9,11 +9,12 @@ pub const Context = struct {
     stwo_module: *std.Build.Module,
     native_proof_runner_module: *std.Build.Module,
     test_step: *std.Build.Step,
+    identity: build_identity.Identity,
 };
 
 pub fn addProduct(context: Context) void {
     const b = context.b;
-    const identity = resolveBuildIdentity(b);
+    const identity = context.identity;
     const identity_options = b.addOptions();
     identity_options.addOption(
         []const u8,
@@ -88,7 +89,7 @@ pub fn addProduct(context: Context) void {
     context.test_step.dependOn(&b.addRunArtifact(app_tests).step);
 }
 
-fn resolveBuildIdentity(b: *std.Build) build_identity.Identity {
+pub fn resolveBuildIdentity(b: *std.Build) build_identity.Identity {
     const explicit_commit = b.option(
         []const u8,
         "implementation-commit",

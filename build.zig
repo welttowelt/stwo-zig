@@ -11,6 +11,7 @@ pub fn build(b: *std.Build) void {
     const zig_optimize_arg = b.fmt("-O{s}", .{@tagName(optimize)});
     const riscv_release_phase = b.option([]const u8, "riscv-release-phase", "CP-13 phase: candidate or promoted") orelse "candidate";
     const riscv_evidence_dir = b.option([]const u8, "riscv-evidence-dir", "Fresh CP-13 evidence directory") orelse "zig-out/release-evidence/riscv";
+    const implementation_identity = prove_cli.resolveBuildIdentity(b);
 
     // Library module (importable by downstream packages).
     const stwo_module = b.addModule("stwo", .{
@@ -150,6 +151,18 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const riscv_trace_identity_options = b.addOptions();
+    riscv_trace_identity_options.addOption(
+        []const u8,
+        "implementation_commit",
+        &implementation_identity.implementation_commit,
+    );
+    riscv_trace_identity_options.addOption(
+        bool,
+        "implementation_dirty",
+        implementation_identity.implementation_dirty,
+    );
+    riscv_trace_module.addOptions("build_identity", riscv_trace_identity_options);
     const riscv_trace_cli = b.addExecutable(.{
         .name = "riscv-trace-dump",
         .root_module = riscv_trace_module,
@@ -263,6 +276,7 @@ pub fn build(b: *std.Build) void {
         .stwo_module = stwo_module,
         .native_proof_runner_module = native_proof_runner_module,
         .test_step = test_step,
+        .identity = implementation_identity,
     });
 
     // Metal products are platform-specific; their internal graph lives with the backend.

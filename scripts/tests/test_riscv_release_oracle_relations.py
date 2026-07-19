@@ -20,6 +20,19 @@ NONZERO = "3" * 64
 P = relations.M31_MODULUS
 
 
+def binding_line() -> str:
+    return (
+        "binding=zig_diagnostic challenge_mode=pinned_default_blake2s_v1 "
+        f"implementation_commit={'a' * 40} implementation_dirty=false "
+        f"oracle_commit={'b' * 40} elf_sha256={'4' * 64} "
+        f"input_sha256={relations.EMPTY_INPUT_DIGEST} "
+        f"witness_layout_sha256={'5' * 64} "
+        f"diagnostic_preprocessed_commitment={'6' * 64} "
+        f"diagnostic_main_commitment={'7' * 64} "
+        f"diagnostic_interaction_commitment={'8' * 64}"
+    )
+
+
 def stream_line(
     identity: str,
     name: str,
@@ -37,8 +50,18 @@ def stream_line(
     )
 
 
-def tuple_dump(padding: int = 1, active_digest: str = NONZERO) -> str:
-    lines = ["schema=riscv-relation-tuples-v2"]
+def tuple_dump(
+    padding: int = 1,
+    active_digest: str = NONZERO,
+    *,
+    bound: bool = True,
+) -> str:
+    lines = [
+        "schema=riscv-relation-tuples-v3"
+        if bound else "schema=riscv-relation-tuples-v2"
+    ]
+    if bound:
+        lines.append(binding_line())
     aggregate_zero = 0
     for component_index, component in enumerate(relations.COMPONENTS):
         active = component_index == 0
@@ -77,8 +100,18 @@ def add(lhs: tuple[int, int, int, int], rhs: tuple[int, int, int, int]):
     return tuple((a + b) % P for a, b in zip(lhs, rhs))
 
 
-def sum_dump(claim_delta: int = 0, corrupt_prefix: bool = False) -> str:
-    lines = ["schema=riscv-relation-sums-v1"]
+def sum_dump(
+    claim_delta: int = 0,
+    corrupt_prefix: bool = False,
+    *,
+    bound: bool = True,
+) -> str:
+    lines = [
+        "schema=riscv-relation-sums-v2"
+        if bound else "schema=riscv-relation-sums-v1"
+    ]
+    if bound:
+        lines.append(binding_line())
     for index, relation in enumerate(relations.RELATIONS):
         lines.append(f"challenge={relation} signature={qm31((index + 1, 0, 0, 0))}")
     prefix = (0, 0, 0, 0)
@@ -114,15 +147,19 @@ class RelationEvidenceTest(unittest.TestCase):
         parsed = relations.parse_tuple_dump(tuple_dump())
         self.assertEqual(1, parsed["aggregate"]["nonzero_entries"])
         lines = tuple_dump().splitlines()
-        lines[1], lines[14] = lines[14], lines[1]
+        lines[2], lines[15] = lines[15], lines[2]
         with self.assertRaisesRegex(relations.EvidenceError, "expected component=auipc"):
             relations.parse_tuple_dump("\n".join(lines) + "\n")
 
     def test_tuple_comparison_ignores_padding_but_localizes_active_drift(self) -> None:
         self.assertTrue(
-            relations.compare_tuple_dumps(tuple_dump(1), tuple_dump(7))["agree"]
+            relations.compare_tuple_dumps(
+                tuple_dump(1, bound=False), tuple_dump(7)
+            )["agree"]
         )
-        result = relations.compare_tuple_dumps(tuple_dump(), tuple_dump(active_digest="4" * 64))
+        result = relations.compare_tuple_dumps(
+            tuple_dump(bound=False), tuple_dump(active_digest="4" * 64)
+        )
         self.assertFalse(result["agree"])
         self.assertIn("/components/auipc", result["first_divergence"]["path"])
 
@@ -133,12 +170,36 @@ class RelationEvidenceTest(unittest.TestCase):
             relations.parse_sum_dump(sum_dump(corrupt_prefix=True))
 
     def test_sum_comparison_localizes_first_component_claim_drift(self) -> None:
-        result = relations.compare_sum_dumps(sum_dump(), sum_dump(claim_delta=1))
+        result = relations.compare_sum_dumps(
+            sum_dump(bound=False), sum_dump(claim_delta=1)
+        )
         self.assertFalse(result["agree"])
         self.assertEqual(
             "/components/auipc/claim",
             result["first_divergence"]["path"],
         )
+
+    def test_comparison_requires_root_bound_zig_evidence(self) -> None:
+        with self.assertRaisesRegex(relations.EvidenceError, "root-bound schema v3"):
+            relations.compare_tuple_dumps(
+                tuple_dump(bound=False), tuple_dump(bound=False)
+            )
+        with self.assertRaisesRegex(relations.EvidenceError, "root-bound schema v2"):
+            relations.compare_sum_dumps(sum_dump(bound=False), sum_dump(bound=False))
+
+    def test_binding_rejects_zero_root_and_bad_challenge_mode(self) -> None:
+        tuples = tuple_dump().replace(
+            f"diagnostic_main_commitment={'7' * 64}",
+            f"diagnostic_main_commitment={'0' * 64}",
+        )
+        with self.assertRaisesRegex(relations.EvidenceError, "unbound zero digest"):
+            relations.parse_tuple_dump(tuples, require_binding=True)
+        sums = sum_dump().replace(
+            "challenge_mode=pinned_default_blake2s_v1",
+            "challenge_mode=production",
+        )
+        with self.assertRaisesRegex(relations.EvidenceError, "challenge mode"):
+            relations.parse_sum_dump(sums, require_binding=True)
 
 
 if __name__ == "__main__":

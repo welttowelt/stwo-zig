@@ -1,4 +1,4 @@
-//! Canonical CP-11 serialization of production-bound relation evidence.
+//! Canonical CP-11 diagnostic evidence over retained production buffers.
 
 const std = @import("std");
 const M31 = @import("../../../core/fields/m31.zig").M31;
@@ -6,6 +6,7 @@ const QM31 = @import("../../../core/fields/qm31.zig").QM31;
 const entry = @import("lookups/entry.zig");
 const relation_export = @import("relation_export.zig");
 const relations_mod = @import("relation_challenges.zig");
+const opcode_manifest = @import("../opcode_manifest.zig");
 const witness_layout = @import("../witness_layout.zig");
 
 pub const Error = entry.Error || error{
@@ -19,6 +20,10 @@ pub const Error = entry.Error || error{
     InvalidPublicDomains,
     InvalidPublicTotal,
     InvalidWitnessLayout,
+    UnboundPreprocessedCommitment,
+    UnboundMainCommitment,
+    UnboundDiagnosticInteractionCommitment,
+    InvalidEvidenceBinding,
 };
 
 pub const Bundle = struct {
@@ -31,6 +36,11 @@ pub const Bundle = struct {
     pub fn validate(self: *const Bundle) Error!void {
         if (!std.mem.eql(u8, &self.witness_layout_digest, &witness_layout.digest()))
             return error.InvalidWitnessLayout;
+        if (isZeroDigest(self.claims.preprocessed_tree))
+            return error.UnboundPreprocessedCommitment;
+        if (isZeroDigest(self.claims.main_tree)) return error.UnboundMainCommitment;
+        if (isZeroDigest(self.claims.diagnostic_interaction_tree))
+            return error.UnboundDiagnosticInteractionCommitment;
         var component_domains = [_]QM31{QM31.zero()} ** relation_export.DOMAIN_COUNT;
         var component_total = QM31.zero();
         var aggregate_entries: u64 = 0;
@@ -111,9 +121,29 @@ pub const Bundle = struct {
     }
 };
 
-pub fn writeTuples(writer: anytype, bundle: *const Bundle) !void {
+/// Immutable producer and workload identity attached to diagnostic evidence.
+/// Commitment roots and the witness layout are taken from `Bundle` so callers
+/// cannot substitute metadata detached from the retained committed buffers.
+pub const Binding = struct {
+    implementation_commit: []const u8,
+    implementation_dirty: bool,
+    oracle_commit: []const u8,
+    elf_sha256: [32]u8,
+    input_sha256: [32]u8,
+
+    pub fn validate(self: Binding) Error!void {
+        if (!isLowerCommit(self.implementation_commit) or
+            !std.mem.eql(u8, self.oracle_commit, opcode_manifest.stark_v_revision) or
+            isZeroDigest(self.elf_sha256) or isZeroDigest(self.input_sha256))
+            return error.InvalidEvidenceBinding;
+    }
+};
+
+pub fn writeTuples(writer: anytype, bundle: *const Bundle, binding: Binding) !void {
     try bundle.validate();
-    try writer.writeAll("schema=riscv-relation-tuples-v2\n");
+    try binding.validate();
+    try writer.writeAll("schema=riscv-relation-tuples-v3\n");
+    try writeBinding(writer, bundle, binding);
     for (bundle.components) |component| {
         try writeStream(writer, "component", @tagName(component.component), component);
         for (0..relation_export.DOMAIN_COUNT) |domain_index| {
@@ -152,9 +182,12 @@ pub fn writeSums(
     writer: anytype,
     bundle: *const Bundle,
     relations: *const relations_mod.Relations,
+    binding: Binding,
 ) !void {
     try bundle.validate();
-    try writer.writeAll("schema=riscv-relation-sums-v1\n");
+    try binding.validate();
+    try writer.writeAll("schema=riscv-relation-sums-v2\n");
+    try writeBinding(writer, bundle, binding);
     for (0..relation_export.DOMAIN_COUNT) |domain_index| {
         const domain: relation_export.Domain = @enumFromInt(domain_index);
         try writer.print("challenge={s} signature=", .{@tagName(domain)});
@@ -189,6 +222,31 @@ pub fn writeSums(
     try writeQm31(writer, bundle.public.total);
     try writer.writeAll(" balanced_sum=");
     try writeQm31(writer, bundle.claims.total.add(bundle.public.total));
+    try writer.writeByte('\n');
+}
+
+fn writeBinding(writer: anytype, bundle: *const Bundle, binding: Binding) !void {
+    try writer.print(
+        "binding=zig_diagnostic challenge_mode=pinned_default_blake2s_v1 " ++
+            "implementation_commit={s} implementation_dirty={} oracle_commit={s} " ++
+            "elf_sha256=",
+        .{
+            binding.implementation_commit,
+            binding.implementation_dirty,
+            binding.oracle_commit,
+        },
+    );
+    try writeDigest(writer, binding.elf_sha256);
+    try writer.writeAll(" input_sha256=");
+    try writeDigest(writer, binding.input_sha256);
+    try writer.writeAll(" witness_layout_sha256=");
+    try writeDigest(writer, bundle.witness_layout_digest);
+    try writer.writeAll(" diagnostic_preprocessed_commitment=");
+    try writeDigest(writer, bundle.claims.preprocessed_tree);
+    try writer.writeAll(" diagnostic_main_commitment=");
+    try writeDigest(writer, bundle.claims.main_tree);
+    try writer.writeAll(" diagnostic_interaction_commitment=");
+    try writeDigest(writer, bundle.claims.diagnostic_interaction_tree);
     try writer.writeByte('\n');
 }
 
@@ -250,6 +308,19 @@ fn writeDigest(writer: anytype, digest: relation_export.Digest) !void {
     try writer.writeAll(&encoded);
 }
 
+fn isZeroDigest(digest: relation_export.Digest) bool {
+    for (digest) |byte| if (byte != 0) return false;
+    return true;
+}
+
+fn isLowerCommit(value: []const u8) bool {
+    if (value.len != 40) return false;
+    for (value) |byte| {
+        if (!std.ascii.isDigit(byte) and !(byte >= 'a' and byte <= 'f')) return false;
+    }
+    return true;
+}
+
 fn writeQm31(writer: anytype, value: QM31) !void {
     const limbs = value.toM31Array();
     try writer.print("{d},{d},{d},{d}", .{
@@ -279,7 +350,7 @@ fn emptyBundle() !Bundle {
         .{QM31.zero()} ** relation_export.COMPONENT_COUNT,
         &.{},
     );
-    var ledger = try relation_export.ClaimLedger.init(.{1} ** 32, .{2} ** 32, &native);
+    var ledger = try relation_export.ClaimLedger.init(.{3} ** 32, .{1} ** 32, .{2} ** 32, &native);
     var sequence = relation_export.Sequence.init();
     var components: [relation_export.COMPONENT_COUNT]relation_export.ComponentEvidence = undefined;
     for (&components, 0..) |*component, index| {
@@ -301,33 +372,71 @@ fn emptyBundle() !Bundle {
     };
 }
 
+fn testBinding() Binding {
+    return .{
+        .implementation_commit = "0123456789abcdef0123456789abcdef01234567",
+        .implementation_dirty = true,
+        .oracle_commit = opcode_manifest.stark_v_revision,
+        .elf_sha256 = .{4} ** 32,
+        .input_sha256 = .{5} ** 32,
+    };
+}
+
 test "relation evidence serializes one complete canonical registry" {
     const allocator = std.testing.allocator;
     var bundle = try emptyBundle();
     try bundle.validate();
+    bundle.claims.preprocessed_tree = .{0} ** 32;
+    try std.testing.expectError(error.UnboundPreprocessedCommitment, bundle.validate());
+    bundle.claims.preprocessed_tree = .{3} ** 32;
+    bundle.claims.main_tree = .{0} ** 32;
+    try std.testing.expectError(error.UnboundMainCommitment, bundle.validate());
+    bundle.claims.main_tree = .{1} ** 32;
+    bundle.claims.diagnostic_interaction_tree = .{0} ** 32;
+    try std.testing.expectError(error.UnboundDiagnosticInteractionCommitment, bundle.validate());
+    bundle.claims.diagnostic_interaction_tree = .{2} ** 32;
     bundle.witness_layout_digest[0] ^= 1;
     try std.testing.expectError(error.InvalidWitnessLayout, bundle.validate());
     bundle.witness_layout_digest[0] ^= 1;
 
     var tuples: std.ArrayList(u8) = .{};
     defer tuples.deinit(allocator);
-    try writeTuples(tuples.writer(allocator), &bundle);
+    try writeTuples(tuples.writer(allocator), &bundle, testBinding());
     try std.testing.expect(std.mem.startsWith(
         u8,
         tuples.items,
-        "schema=riscv-relation-tuples-v2\ncomponent=auipc ",
+        "schema=riscv-relation-tuples-v3\nbinding=zig_diagnostic ",
     ));
-    try std.testing.expectEqual(@as(usize, 365), std.mem.count(u8, tuples.items, "\n"));
+    try std.testing.expectEqual(@as(usize, 366), std.mem.count(u8, tuples.items, "\n"));
 
     var sums: std.ArrayList(u8) = .{};
     defer sums.deinit(allocator);
-    try writeSums(sums.writer(allocator), &bundle, &relations_mod.Relations.dummy());
+    try writeSums(
+        sums.writer(allocator),
+        &bundle,
+        &relations_mod.Relations.dummy(),
+        testBinding(),
+    );
     try std.testing.expect(std.mem.startsWith(
         u8,
         sums.items,
-        "schema=riscv-relation-sums-v1\nchallenge=registers_state ",
+        "schema=riscv-relation-sums-v2\nbinding=zig_diagnostic ",
     ));
-    try std.testing.expectEqual(@as(usize, 56), std.mem.count(u8, sums.items, "\n"));
+    try std.testing.expectEqual(@as(usize, 57), std.mem.count(u8, sums.items, "\n"));
+
+    var changed_root = bundle;
+    changed_root.claims.main_tree[0] ^= 1;
+    var changed: std.ArrayList(u8) = .{};
+    defer changed.deinit(allocator);
+    try writeTuples(changed.writer(allocator), &changed_root, testBinding());
+    try std.testing.expect(!std.mem.eql(u8, tuples.items, changed.items));
+
+    var invalid_binding = testBinding();
+    invalid_binding.implementation_commit = "ABCDEF0123456789abcdef0123456789abcdef01";
+    try std.testing.expectError(
+        error.InvalidEvidenceBinding,
+        writeTuples(tuples.writer(allocator), &bundle, invalid_binding),
+    );
 
     bundle.claims.claims[0] = QM31.one();
     try std.testing.expectError(error.ComponentClaimMismatch, bundle.validate());

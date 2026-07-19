@@ -31,8 +31,9 @@ const shard_manifest_domain = "stwo-zig/riscv/family-shard-manifest/v1\x00";
 const absent_component_domain = "stwo-zig/riscv/absent-component/v1\x00";
 
 pub const Error = error{
+    UnboundPreprocessedCommitment,
     UnboundMainCommitment,
-    UnboundInteractionCommitment,
+    UnboundDiagnosticInteractionCommitment,
     MainColumnsDigestMismatch,
     InvalidColumnCount,
     InvalidColumnLength,
@@ -125,8 +126,9 @@ pub const ClaimEvidence = struct {
     claims: [COMPONENT_COUNT]QM31,
     prefixes: [COMPONENT_COUNT]QM31,
     total: QM31,
+    preprocessed_tree: Digest,
     main_tree: Digest,
-    interaction_tree: Digest,
+    diagnostic_interaction_tree: Digest,
 };
 
 pub const AggregateEvidence = struct {
@@ -150,20 +152,25 @@ pub const PublicEvidence = struct {
 pub const ClaimLedger = struct {
     native: [COMPONENT_COUNT]QM31,
     checked: [COMPONENT_COUNT]bool = .{false} ** COMPONENT_COUNT,
+    preprocessed_tree: Digest,
     main_tree: Digest,
-    interaction_tree: Digest,
+    diagnostic_interaction_tree: Digest,
 
     pub fn init(
+        preprocessed_tree: Digest,
         main_tree: Digest,
-        interaction_tree: Digest,
+        diagnostic_interaction_tree: Digest,
         native: *const claims.InteractionClaim,
     ) Error!ClaimLedger {
+        if (isZeroDigest(preprocessed_tree)) return error.UnboundPreprocessedCommitment;
         if (isZeroDigest(main_tree)) return error.UnboundMainCommitment;
-        if (isZeroDigest(interaction_tree)) return error.UnboundInteractionCommitment;
+        if (isZeroDigest(diagnostic_interaction_tree))
+            return error.UnboundDiagnosticInteractionCommitment;
         return .{
             .native = native.claimed_sums,
+            .preprocessed_tree = preprocessed_tree,
             .main_tree = main_tree,
-            .interaction_tree = interaction_tree,
+            .diagnostic_interaction_tree = diagnostic_interaction_tree,
         };
     }
 
@@ -188,8 +195,9 @@ pub const ClaimLedger = struct {
             .claims = self.native,
             .prefixes = prefixes,
             .total = total,
+            .preprocessed_tree = self.preprocessed_tree,
             .main_tree = self.main_tree,
-            .interaction_tree = self.interaction_tree,
+            .diagnostic_interaction_tree = self.diagnostic_interaction_tree,
         };
     }
 };
@@ -569,7 +577,7 @@ pub fn pairTerm(pair: @import("logup.zig").RowPair) Error!QM31 {
 fn validateColumns(family: trace.OpcodeFamily, columns: []const []const M31) Error!void {
     if (columns.len != trace.nColumnsForFamily(family)) return error.InvalidColumnCount;
     const size = columns[0].len;
-    if (size < 16 or !std.math.isPowerOfTwo(size)) return error.InvalidDomainSize;
+    if (size < 2 or !std.math.isPowerOfTwo(size)) return error.InvalidDomainSize;
     for (columns) |column| if (column.len != size) return error.InvalidColumnLength;
 }
 

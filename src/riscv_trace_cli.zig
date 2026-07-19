@@ -10,9 +10,15 @@
 //! When --output is omitted the JSON is written to stdout.
 
 const std = @import("std");
+const build_identity = @import("build_identity");
 const runner = @import("frontends/riscv/runner/mod.zig");
 const trace_dump = @import("frontends/riscv/runner/trace_dump.zig");
 const witness_layout = @import("frontends/riscv/witness_layout.zig");
+const opcode_manifest = @import("frontends/riscv/opcode_manifest.zig");
+const public_data = @import("frontends/riscv/air/public_data.zig");
+const relation_evidence = @import("frontends/riscv/air/relation_evidence.zig");
+const riscv_cpu = @import("integrations/riscv_cpu/mod.zig");
+const pcs = @import("core/pcs/mod.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -30,42 +36,64 @@ pub fn main() !void {
     var transcript_prefix: ?[]const u8 = null;
     var witness_rows: ?[]const u8 = null;
     var ordered_accesses: ?[]const u8 = null;
+    var relation_tuples: ?[]const u8 = null;
+    var relation_sums: ?[]const u8 = null;
     var max_steps: usize = 1_000_000;
+    var max_steps_set = false;
+    var help = false;
 
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
-        if (std.mem.eql(u8, args[i], "--elf") and i + 1 < args.len) {
-            i += 1;
-            elf_path = args[i];
-        } else if (std.mem.eql(u8, args[i], "--output") and i + 1 < args.len) {
-            i += 1;
-            output_path = args[i];
-        } else if (std.mem.eql(u8, args[i], "--decode-file") and i + 1 < args.len) {
-            i += 1;
-            decode_file = args[i];
-        } else if (std.mem.eql(u8, args[i], "--program-tuples") and i + 1 < args.len) {
-            i += 1;
-            program_tuples = args[i];
-        } else if (std.mem.eql(u8, args[i], "--poseidon2-file") and i + 1 < args.len) {
-            i += 1;
-            poseidon2_file = args[i];
-        } else if (std.mem.eql(u8, args[i], "--transcript-prefix") and i + 1 < args.len) {
-            i += 1;
-            transcript_prefix = args[i];
-        } else if (std.mem.eql(u8, args[i], "--witness-rows") and i + 1 < args.len) {
-            i += 1;
-            witness_rows = args[i];
-        } else if (std.mem.eql(u8, args[i], "--ordered-accesses") and i + 1 < args.len) {
-            i += 1;
-            ordered_accesses = args[i];
-        } else if (std.mem.eql(u8, args[i], "--max-steps") and i + 1 < args.len) {
-            i += 1;
-            max_steps = try std.fmt.parseInt(usize, args[i], 10);
+        if (std.mem.eql(u8, args[i], "--elf")) {
+            try takeOptionValue(args, &i, &elf_path);
+        } else if (std.mem.eql(u8, args[i], "--output")) {
+            try takeOptionValue(args, &i, &output_path);
+        } else if (std.mem.eql(u8, args[i], "--decode-file")) {
+            try takeOptionValue(args, &i, &decode_file);
+        } else if (std.mem.eql(u8, args[i], "--program-tuples")) {
+            try takeOptionValue(args, &i, &program_tuples);
+        } else if (std.mem.eql(u8, args[i], "--poseidon2-file")) {
+            try takeOptionValue(args, &i, &poseidon2_file);
+        } else if (std.mem.eql(u8, args[i], "--transcript-prefix")) {
+            try takeOptionValue(args, &i, &transcript_prefix);
+        } else if (std.mem.eql(u8, args[i], "--witness-rows")) {
+            try takeOptionValue(args, &i, &witness_rows);
+        } else if (std.mem.eql(u8, args[i], "--ordered-accesses")) {
+            try takeOptionValue(args, &i, &ordered_accesses);
+        } else if (std.mem.eql(u8, args[i], "--relation-tuples")) {
+            try takeOptionValue(args, &i, &relation_tuples);
+        } else if (std.mem.eql(u8, args[i], "--relation-sums")) {
+            try takeOptionValue(args, &i, &relation_sums);
+        } else if (std.mem.eql(u8, args[i], "--max-steps")) {
+            if (max_steps_set) return error.DuplicateOption;
+            const raw = try takeValue(args, &i);
+            max_steps = try std.fmt.parseInt(usize, raw, 10);
+            max_steps_set = true;
         } else if (std.mem.eql(u8, args[i], "--help") or std.mem.eql(u8, args[i], "-h")) {
-            printUsage();
-            return;
-        }
+            if (help) return error.DuplicateOption;
+            help = true;
+        } else return error.UnknownOption;
     }
+
+    const mode_count = countPresent(.{
+        elf_path,
+        decode_file,
+        program_tuples,
+        poseidon2_file,
+        transcript_prefix,
+        witness_rows,
+        ordered_accesses,
+        relation_tuples,
+        relation_sums,
+    });
+    if (help) {
+        if (mode_count != 0 or output_path != null or max_steps_set)
+            return error.ConflictingOptions;
+        printUsage();
+        return;
+    }
+    if (mode_count != 1) return error.ConflictingOptions;
+    if (output_path != null and elf_path == null) return error.ConflictingOptions;
 
     if (decode_file) |path| {
         try dumpDecodeMatrix(allocator, path);
@@ -97,9 +125,14 @@ pub fn main() !void {
         return;
     }
 
-    if (elf_path == null) {
-        printUsage();
-        std.process.exit(1);
+    if (relation_tuples) |path| {
+        try dumpRelationEvidence(allocator, path, max_steps, .tuples);
+        return;
+    }
+
+    if (relation_sums) |path| {
+        try dumpRelationEvidence(allocator, path, max_steps, .sums);
+        return;
     }
 
     // Read ELF binary.
@@ -131,6 +164,28 @@ pub fn main() !void {
         const stdout = std.fs.File{ .handle = std.posix.STDOUT_FILENO };
         try stdout.writeAll(json_buf.items);
     }
+}
+
+fn takeValue(args: []const []const u8, index: *usize) ![]const u8 {
+    if (index.* + 1 >= args.len or std.mem.startsWith(u8, args[index.* + 1], "-"))
+        return error.MissingOptionValue;
+    index.* += 1;
+    return args[index.*];
+}
+
+fn takeOptionValue(
+    args: []const []const u8,
+    index: *usize,
+    destination: *?[]const u8,
+) !void {
+    if (destination.* != null) return error.DuplicateOption;
+    destination.* = try takeValue(args, index);
+}
+
+fn countPresent(values: anytype) usize {
+    var count: usize = 0;
+    inline for (values) |value| count += @intFromBool(value != null);
+    return count;
 }
 
 const Family = witness_layout.Family;
@@ -408,6 +463,99 @@ fn dumpOrderedAccesses(allocator: std.mem.Allocator, path: []const u8, max_steps
     try stdout.writeAll(out.items);
 }
 
+const RelationEvidenceMode = enum { tuples, sums };
+
+fn dumpRelationEvidence(
+    allocator: std.mem.Allocator,
+    path: []const u8,
+    max_steps: usize,
+    mode: RelationEvidenceMode,
+) !void {
+    const elf_bytes = try std.fs.cwd().readFileAlloc(allocator, path, 64 * 1024 * 1024);
+    defer allocator.free(elf_bytes);
+    var result = try runner.runWithInput(allocator, elf_bytes, &.{}, max_steps);
+    defer result.deinit();
+    if (result.rw_memory.program_words.len == 0 or
+        result.completion_reason != .halt_flag)
+        return error.UnsupportedRelationEvidenceSource;
+
+    var elf_digest: [32]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(elf_bytes, &elf_digest, .{});
+    var input_digest: [32]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(result.input, &input_digest, .{});
+    const binding = relation_evidence.Binding{
+        .implementation_commit = build_identity.implementation_commit,
+        .implementation_dirty = build_identity.implementation_dirty,
+        .oracle_commit = opcode_manifest.stark_v_revision,
+        .elf_sha256 = elf_digest,
+        .input_sha256 = input_digest,
+    };
+
+    const input_words = try public_data.packInputWords(allocator, result.input);
+    defer allocator.free(input_words);
+    const output_words = try allocator.alloc(public_data.OutputWord, result.output_words.len);
+    defer allocator.free(output_words);
+    for (result.output_words, output_words) |source, *destination| {
+        destination.* = .{
+            .addr = source.addr,
+            .value = source.value,
+            .clock = source.clock,
+        };
+    }
+    const config = pcs.PcsConfig{
+        .pow_bits = 0,
+        .fri_config = .{
+            .log_blowup_factor = 1,
+            .log_last_layer_degree_bound = 0,
+            .n_queries = 3,
+        },
+    };
+    const diagnostic = try riscv_cpu.diagnoseRiscVRelations(
+        allocator,
+        config,
+        &result.execution_trace,
+        &result.state_chain_tracker,
+        &result.rw_memory,
+        .{
+            .initial_pc = result.initial_pc,
+            .final_pc = result.final_pc,
+            .clock = @intCast(result.step_count),
+            .initial_regs = result.initial_regs,
+            .final_regs = result.final_regs,
+            .reg_last_clock = result.state_chain_tracker.reg_last_clk,
+            .program_root = null,
+            .initial_rw_root = null,
+            .final_rw_root = null,
+            .io_entries = .{
+                .input_start = result.input_start,
+                .input_len = @intCast(result.input.len),
+                .input_words = input_words,
+                .output_len = result.output_len,
+                .output_len_addr = result.output_len_addr,
+                .output_data_addr = result.output_data_addr,
+                .output_words = output_words,
+            },
+        },
+    );
+    var out: std.ArrayList(u8) = .{};
+    defer out.deinit(allocator);
+    switch (mode) {
+        .tuples => try relation_evidence.writeTuples(
+            out.writer(allocator),
+            &diagnostic.bundle,
+            binding,
+        ),
+        .sums => try relation_evidence.writeSums(
+            out.writer(allocator),
+            &diagnostic.bundle,
+            &diagnostic.relations,
+            binding,
+        ),
+    }
+    const stdout = std.fs.File{ .handle = std.posix.STDOUT_FILENO };
+    try stdout.writeAll(out.items);
+}
+
 fn printUsage() void {
     std.debug.print(
         \\Usage: riscv-trace-dump --elf <path> [--output <trace.json>] [--max-steps N]
@@ -416,6 +564,8 @@ fn printUsage() void {
         \\  --elf <path>         Path to a RISC-V RV32IM ELF binary (required)
         \\  --output <path>      Write JSON trace to file (default: stdout)
         \\  --max-steps <N>      Maximum execution steps (default: 1000000)
+        \\  --relation-tuples <path>  Dump bound default-challenge tuple evidence
+        \\  --relation-sums <path>    Dump bound default-challenge sum evidence
         \\  --help, -h           Show this message
         \\
     , .{});

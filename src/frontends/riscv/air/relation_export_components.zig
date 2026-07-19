@@ -142,7 +142,7 @@ fn exportTyped(
             const list = try Adapter.entries(&main, active);
             var row_has_nonzero = false;
             for (list.entries[0..list.len], 0..) |relation_entry, declaration| {
-                const raw = try relation_export.rawEntry(relation_entry);
+                const raw = try evidenceRawEntry(Adapter, relation_entry, declaration);
                 if (row >= shard.n_real_rows and !raw.numerator.isZero())
                     return error.NonZeroPadding;
                 row_has_nonzero = row_has_nonzero or !raw.numerator.isZero();
@@ -226,6 +226,7 @@ pub fn exportLookupTable(
     const placement = try infra.BitReversalTable.init(allocator, table_schema.logSize(source.kind));
     defer placement.deinit(allocator);
     var stream = relation_export.ComponentStreams.init();
+    var shard_stream = relation_export.ComponentStreams.init();
     var domain_sums = [_]QM31{QM31.zero()} ** relation_export.DOMAIN_COUNT;
     var computed_claim = QM31.zero();
     for (0..size) |row| {
@@ -243,6 +244,7 @@ pub fn exportLookupTable(
         const raw = try relation_export.rawEntry(relation_entry);
         const term = try relation_export.entryTerm(relation_entry, relations);
         stream.append(raw);
+        shard_stream.append(raw);
         const domain = @intFromEnum(raw.domain);
         domain_sums[domain] = domain_sums[domain].add(term);
         computed_claim = computed_claim.add(term);
@@ -260,7 +262,7 @@ pub fn exportLookupTable(
     manifest.update(table_manifest_domain);
     manifest.update(&main_digest);
     manifest.update(&preprocessed_digest);
-    const streams = stream.finishStreams();
+    const streams = shard_stream.finishStreams();
     try observer.onShard(.{
         .component = component,
         .ordinal = 0,
@@ -334,12 +336,12 @@ fn validateShard(
     if (shard.ordinal != @as(u32, @intCast(index))) return error.ShardOutOfOrder;
     if (shard.committed_columns.len != Adapter.n_columns) return error.InvalidColumnCount;
     const size = shard.committed_columns[0].len;
-    if (size < 16 or !std.math.isPowerOfTwo(size)) return error.InvalidDomainSize;
+    if (size < 2 or !std.math.isPowerOfTwo(size)) return error.InvalidDomainSize;
     for (shard.committed_columns) |column| {
         if (column.len != size) return error.InvalidColumnLength;
     }
-    if (shard.n_real_rows == 0 or shard.n_real_rows > size)
-        return error.InvalidShardGeometry;
+    if (shard.n_real_rows > size) return error.InvalidShardGeometry;
+    if (count > 1 and shard.n_real_rows == 0) return error.InvalidShardGeometry;
     if (index + 1 < count and shard.n_real_rows != size)
         return error.InvalidShardGeometry;
     return size;
@@ -385,6 +387,15 @@ const MerkleAdapter = struct {
     fn entries(main: []const QM31, _: QM31) !entry.List {
         return merkle.entries(main[0..n_columns].*);
     }
+
+    fn evidenceArity(declaration: usize) u8 {
+        return switch (declaration) {
+            0...2 => 4,
+            3 => 2,
+            4 => 1,
+            else => unreachable,
+        };
+    }
 };
 
 const PoseidonAdapter = struct {
@@ -394,6 +405,16 @@ const PoseidonAdapter = struct {
     const require_active = true;
     fn entries(main: []const QM31, _: QM31) !entry.List {
         return poseidon2.entries(main[0..n_columns].*);
+    }
+
+    fn evidenceArity(declaration: usize) u8 {
+        return switch (declaration) {
+            0 => 16,
+            1 => 1,
+            2 => 8,
+            3 => 32,
+            else => unreachable,
+        };
     }
 };
 
@@ -406,6 +427,24 @@ const ClockAdapter = struct {
         return clock.orderedEntries(try clock.Row.fromMain(main));
     }
 };
+
+/// Rust's production relation visitor hashes the value slice supplied by each
+/// declaration, before `Relation::combine` implicitly extends it with zeros.
+/// Keep the full relation arity for arithmetic and project only the diagnostic
+/// record to that declaration shape.
+fn evidenceRawEntry(
+    comptime Adapter: type,
+    relation_entry: entry.Entry,
+    declaration: usize,
+) !relation_export.RawEntry {
+    var raw = try relation_export.rawEntry(relation_entry);
+    if (comptime @hasDecl(Adapter, "evidenceArity")) {
+        const arity = Adapter.evidenceArity(declaration);
+        std.debug.assert(arity <= raw.arity);
+        raw.arity = arity;
+    }
+    return raw;
+}
 
 fn componentForTable(kind: table_schema.Kind) relation_export.Component {
     return switch (kind) {

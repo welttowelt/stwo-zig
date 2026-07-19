@@ -4,13 +4,14 @@
 //!   tree 0: its IsFirst column at `preprocessed_col_idx`;
 //!   tree 1: `desc.n_columns` main columns starting at `main_col_offset`;
 //!   tree 2: its interaction columns starting at `interaction_col_offset`
-//!           (12 for opcode shards, 7 for the program ROM, 0 otherwise).
+//!           (family-specific for opcode shards, 7 for the program ROM, and
+//!           16 for a memory-boundary shard).
 //!
 //! Opcode components enforce the two pairs-batched LogUp transitions (CPU
 //! state chain and program-bus consume); the program component enforces the
-//! ROM emission column. All other infrastructure components are `silent`:
-//! they contribute a single literal-zero constraint so the accumulator
-//! bookkeeping stays uniform.
+//! ROM emission columns; memory components enforce their four pairs-batched
+//! boundary transitions. Hash, lookup-table, and clock-update infrastructure
+//! use their dedicated AIR component types.
 
 const std = @import("std");
 const core_air_accumulation = @import("../../../core/air/accumulation.zig");
@@ -50,7 +51,7 @@ pub const FamilyComponentDesc = struct {
 };
 
 /// Constraint role of a component.
-pub const Kind = enum { opcode, program, memory, silent };
+pub const Kind = enum { opcode, program, memory };
 
 /// Number of committed M31 interaction columns for a component kind.
 pub fn nInteractionCols(kind: Kind) u32 {
@@ -58,7 +59,6 @@ pub fn nInteractionCols(kind: Kind) u32 {
         .opcode => @intCast(interaction_gen.OPCODE_INTERACTION_COLS),
         .program => @intCast(program_interaction.N_COLUMNS),
         .memory => @intCast(memory_interaction.N_COLUMNS),
-        .silent => 0,
     };
 }
 
@@ -121,7 +121,6 @@ pub const RiscVTraceComponent = struct {
                 0,
             .program => program_interaction.N_CONSTRAINTS,
             .memory => memory_interaction.N_CONSTRAINTS,
-            .silent => 1,
         };
     }
 
@@ -232,10 +231,6 @@ pub const RiscVTraceComponent = struct {
         evaluation_accumulator: *core_air_accumulation.PointEvaluationAccumulator,
         max_log_degree_bound: u32,
     ) !void {
-        if (self.kind == .silent) {
-            evaluation_accumulator.accumulate(QM31.zero());
-            return;
-        }
         if (max_log_degree_bound < self.desc.log_size) return error.InvalidProofShape;
         if (mask.items.len < 3) return error.InvalidProofShape;
         const pp = mask.items[0];
@@ -383,7 +378,6 @@ pub const RiscVTraceComponent = struct {
                     evaluation_accumulator.accumulate(constraint.mul(denominator_inv));
                 }
             },
-            .silent => unreachable,
         }
     }
 
@@ -392,11 +386,6 @@ pub const RiscVTraceComponent = struct {
         trace: *const prover_component.Trace,
         evaluation_accumulator: *prover_air_accumulation.DomainEvaluationAccumulator,
     ) !void {
-        if (self.kind == .silent) {
-            try evaluation_accumulator.accumulateConstant(self.desc.log_size + 1, QM31.zero());
-            return;
-        }
-
         const allocator = evaluation_accumulator.allocator;
         const log_size = self.desc.log_size;
         // Evaluate the quotient on the committed LDE domain (log_size + 1):
@@ -428,7 +417,6 @@ pub const RiscVTraceComponent = struct {
             .program => 2 + program_commitment.N_MAIN_COLUMNS + n_inter +
                 program_interaction.N_COLUMNS,
             .memory => 2 + 8 + n_inter + memory_interaction.N_COLUMNS,
-            .silent => unreachable,
         };
         const evaluations = try allocator.alloc([]const M31, n_sources);
         defer allocator.free(evaluations);
@@ -502,7 +490,6 @@ pub const RiscVTraceComponent = struct {
                 },
                 .program => &self.s_program_prev,
                 .memory => &self.s_memory_prev,
-                .silent => unreachable,
             };
             const trace_domain = canonic.CanonicCoset.new(log_size).circleDomain();
             for (prev_sets) |prev_set| {
@@ -725,7 +712,6 @@ pub const RiscVTraceComponent = struct {
                         );
                     }
                 },
-                .silent => unreachable,
             }
             column_accumulator.accumulate(
                 row,

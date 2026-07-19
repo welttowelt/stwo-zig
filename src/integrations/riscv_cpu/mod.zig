@@ -68,6 +68,25 @@ pub fn proveRiscVWithPublicData(
     );
 }
 
+pub fn diagnoseRiscVRelations(
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    exec_trace: *const trace_mod.Trace,
+    opt_chain: ?*const state_chain.StateChainTracker,
+    opt_memory: ?*const memory_state.Snapshot,
+    public_data: public_data_mod.PublicData,
+) !prover_mod.RelationDiagnostic {
+    return prover_mod.diagnoseRiscVRelationsWithEngineAndPublicData(
+        CpuProverEngine,
+        allocator,
+        pcs_config,
+        exec_trace,
+        opt_chain,
+        opt_memory,
+        public_data,
+    );
+}
+
 pub fn verifyRiscV(
     allocator: std.mem.Allocator,
     pcs_config: pcs_core.PcsConfig,
