@@ -34,7 +34,6 @@ class UpstreamPinTests(unittest.TestCase):
             "tools/stwo-cairo-trace-oracle/Cargo.lock",
             ".github/workflows/ci.yml",
             "scripts/generate_cairo_claim_registry.py",
-            "scripts/sn_pie_metal_session.py",
             "src/tools/metal_prover_session/state.zig",
             "src/frontends/cairo/prover.zig",
             "src/frontends/cairo/claim_registry.zig",

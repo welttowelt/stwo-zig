@@ -415,18 +415,6 @@ def _text_pins(ledger: PinLedger) -> tuple[TextPin, ...]:
             cairo_stwo,
         ),
         TextPin(
-            "scripts/sn_pie_metal_session.py",
-            "session Stwo-Cairo revision",
-            rf'^RUST_VERIFIER_STWO_CAIRO_REVISION = "({REVISION_RE})"$',
-            cairo,
-        ),
-        TextPin(
-            "scripts/sn_pie_metal_session.py",
-            "session Stwo revision",
-            rf'^RUST_VERIFIER_STWO_REVISION = "({REVISION_RE})"$',
-            cairo_stwo,
-        ),
-        TextPin(
             "src/tools/metal_prover_session/state.zig",
             "resident session Stwo-Cairo revision",
             rf'^pub const rust_verifier_stwo_cairo_revision = "({REVISION_RE})";$',
