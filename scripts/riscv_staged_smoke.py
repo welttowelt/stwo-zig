@@ -341,6 +341,33 @@ def main() -> int:
         except contracts.ContractError as error:
             print(f"riscv staged smoke: {error}", file=sys.stderr)
             return 1
+        try:
+            claim_swap_payload, claim_swap_indices = mutations.swap_same_family_opcode_claims(
+                json.loads(artifact.read_text())
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            print(f"riscv staged smoke: cannot construct claim-order mutation: {error}",
+                  file=sys.stderr)
+            return 1
+        claim_swap_path = Path(tmp) / "claim-order-swapped.json"
+        claim_swap_path.write_text(json.dumps(claim_swap_payload))
+        claim_swap = command(
+            cli, "verify", "--artifact", str(claim_swap_path), "--protocol", "functional",
+            "--expect-statement-digest", statement_digest,
+        )
+        if claim_swap.returncode == 0 or "OodsNotMatching" not in claim_swap.stderr:
+            print("riscv staged smoke: same-family shard claims did not fail as "
+                  f"OodsNotMatching: {claim_swap.stderr}", file=sys.stderr)
+            return 1
+        reverted_claim_swap = command(
+            cli, "verify", "--artifact", str(artifact), "--protocol", "functional",
+            "--expect-statement-digest", statement_digest,
+        )
+        if reverted_claim_swap.returncode != 0 or reverted_claim_swap.stderr or \
+                reverted_claim_swap.stdout != verify.stdout:
+            print("riscv staged smoke: honest artifact did not recover after claim-order "
+                  f"mutation: {reverted_claim_swap.stderr}", file=sys.stderr)
+            return 1
         wrong_digest = "00" * 32 if statement_digest != "00" * 32 else "11" * 32
         wrong_statement = command(
             cli, "verify", "--artifact", str(artifact), "--protocol", "functional",
@@ -522,6 +549,16 @@ def main() -> int:
                 "benchmark_report_sha256": digest(benchmark_report),
                 "benchmark_artifact_sha256": digest(benchmark_artifact),
                 "tampered_artifact_sha256": digest(tampered),
+                "claim_order_swap": {
+                    "component_indices": list(claim_swap_indices),
+                    "artifact_sha256": digest(claim_swap_path),
+                    "returncode": claim_swap.returncode,
+                    "expected_error": "OodsNotMatching",
+                    "stderr_sha256": contracts.sha256_text(claim_swap.stderr),
+                    "reverted_receipt_sha256": contracts.sha256_text(
+                        reverted_claim_swap.stdout
+                    ),
+                },
                 "independent_verify_returncode": verify.returncode,
                 "wrong_statement_returncode": wrong_statement.returncode,
                 "policy_downgrade_returncode": downgrade.returncode,

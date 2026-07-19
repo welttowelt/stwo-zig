@@ -200,6 +200,57 @@ class JsonContractTests(unittest.TestCase):
 
 
 class MutationTests(unittest.TestCase):
+    def test_same_family_claim_swap_preserves_indices_and_global_multiset(self) -> None:
+        payload = artifact()
+        payload["statement"] = {"components": [
+            {"family": 1, "family_shard_count": 2, "family_shard_index": 0},
+            {"family": 1, "family_shard_count": 2, "family_shard_index": 1},
+            {"family": 2, "family_shard_count": 1, "family_shard_index": 0},
+        ]}
+        payload["interaction_claim"] = {"opcode_claims": [
+            {"component_index": 0, "claimed_sums": [[1, 2, 3, 4], [5, 6, 7, 8]]},
+            {"component_index": 1, "claimed_sums": [[9, 10, 11, 12], [13, 14, 15, 16]]},
+            {"component_index": 2, "claimed_sums": [[17, 18, 19, 20]]},
+        ]}
+        original_claims = payload["interaction_claim"]["opcode_claims"]
+        before = sorted(
+            json.dumps(value)
+            for claim in original_claims
+            for value in claim["claimed_sums"]
+        )
+
+        mutated, indices = mutations.swap_same_family_opcode_claims(payload)
+
+        self.assertEqual((0, 1), indices)
+        self.assertEqual([0, 1, 2], [
+            claim["component_index"]
+            for claim in mutated["interaction_claim"]["opcode_claims"]
+        ])
+        self.assertEqual(
+            original_claims[1]["claimed_sums"],
+            mutated["interaction_claim"]["opcode_claims"][0]["claimed_sums"],
+        )
+        after = sorted(
+            json.dumps(value)
+            for claim in mutated["interaction_claim"]["opcode_claims"]
+            for value in claim["claimed_sums"]
+        )
+        self.assertEqual(before, after)
+        self.assertEqual(0, payload["interaction_claim"]["opcode_claims"][0]["component_index"])
+
+    def test_same_family_claim_swap_rejects_a_noop(self) -> None:
+        payload = artifact()
+        payload["statement"] = {"components": [
+            {"family": 1, "family_shard_count": 2, "family_shard_index": 0},
+            {"family": 1, "family_shard_count": 2, "family_shard_index": 1},
+        ]}
+        payload["interaction_claim"] = {"opcode_claims": [
+            {"component_index": 0, "claimed_sums": [[1, 2, 3, 4]]},
+            {"component_index": 1, "claimed_sums": [[1, 2, 3, 4]]},
+        ]}
+        with self.assertRaisesRegex(ValueError, "no distinct adjacent same-family"):
+            mutations.swap_same_family_opcode_claims(payload)
+
     def test_hostile_artifact_set_covers_routing_shape_and_relabel(self) -> None:
         payload = artifact()
         rendered = json.dumps(payload, separators=(",", ":"))

@@ -50,6 +50,53 @@ def proof_wire(proof_hex: str) -> dict[str, str]:
     }
 
 
+def swap_same_family_opcode_claims(
+    payload: dict[str, Any],
+) -> tuple[dict[str, Any], tuple[int, int]]:
+    """Swap two distinct same-family shard claims without changing their indices."""
+    mutated = json.loads(json.dumps(payload))
+    components = mutated["statement"]["components"]
+    claims = mutated["interaction_claim"]["opcode_claims"]
+    if len(components) != len(claims):
+        raise ValueError("component and opcode-claim counts differ")
+
+    for left in range(len(components) - 1):
+        right = left + 1
+        if components[left]["family"] != components[right]["family"]:
+            continue
+        if (
+            components[left]["family_shard_count"] < 2
+            or components[left]["family_shard_count"]
+            != components[right]["family_shard_count"]
+            or components[left]["family_shard_index"] + 1
+            != components[right]["family_shard_index"]
+        ):
+            raise ValueError("same-family component shard metadata is not canonical")
+        if claims[left]["component_index"] != left or claims[right]["component_index"] != right:
+            raise ValueError("opcode claim indices are not canonical")
+        left_sums = claims[left]["claimed_sums"]
+        right_sums = claims[right]["claimed_sums"]
+        if len(left_sums) != len(right_sums):
+            raise ValueError("same-family opcode claim widths differ")
+        if left_sums == right_sums:
+            continue
+
+        before = sorted(
+            json.dumps(value, separators=(",", ":"), sort_keys=True)
+            for value in left_sums + right_sums
+        )
+        claims[left]["claimed_sums"], claims[right]["claimed_sums"] = right_sums, left_sums
+        after = sorted(
+            json.dumps(value, separators=(",", ":"), sort_keys=True)
+            for value in claims[left]["claimed_sums"] + claims[right]["claimed_sums"]
+        )
+        if before != after:
+            raise AssertionError("claim swap changed the global claimed-sum multiset")
+        return mutated, (left, right)
+
+    raise ValueError("artifact has no distinct adjacent same-family shard claims")
+
+
 def hostile_json(artifact_text: str, payload: dict[str, Any]) -> dict[str, tuple[str, str]]:
     unknown = dict(payload)
     unknown["untrusted_extension"] = True
