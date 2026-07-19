@@ -11,7 +11,7 @@ from typing import Any
 from . import contracts
 
 
-PRODUCER_SCHEMA = "riscv-release-bundle-v2"
+PRODUCER_SCHEMA = "riscv-release-bundle-v3"
 EXHAUSTIVE_SCHEMAS = {"riscv_cli_evidence_v1", "riscv_cli_evidence_v2"}
 REQUIRED_COVERAGE = {
     "exhaustive_gate": "PASS",

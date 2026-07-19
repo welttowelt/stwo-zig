@@ -151,6 +151,82 @@ class ContentDomainTests(unittest.TestCase):
 
 
 class BundleContractTests(unittest.TestCase):
+    def test_reusable_anchor_accepts_a_different_candidate_with_identical_policy(self) -> None:
+        current = "e" * 40
+        current_workflow = "9" * 40
+        trust = trust_context()
+        anchor_policy = policy_context()
+        current_policy = json.loads(json.dumps(anchor_policy))
+        current_policy.update(
+            trusted_workflow_commit=current_workflow,
+            candidate_commit=current,
+        )
+        now = int(__import__("time").time())
+        manifest = {
+            "schema": model.SCHEMA,
+            "candidate_commit": COMMIT,
+            "repository_tree_oid": TREE,
+            "phase": "candidate",
+            "created_at_unix": now,
+            "expires_at_unix": now + model.BUNDLE_RETENTION_SECONDS,
+            "coverage": model.COVERAGE,
+            "producer": trust,
+            "release_policy": anchor_policy,
+            "domains": {
+                "oracle_build": {"schema": "oracle", "sha256": DIGEST},
+                "toolchains": {
+                    "schema": "release-gate-toolchains-v1",
+                    "sha256": model.canonical_sha256({"zig": "0.15.2"}),
+                },
+            },
+        }
+        gate = {"toolchains": {"zig": "0.15.2"}}
+        oracle = {"oracle": {}, "implementation": {}}
+        summary = {}
+        files = {
+            "release-gate.json": Path("release-gate.json"),
+            "oracle-receipt.json": Path("oracle-receipt.json"),
+            "cli/summary.json": Path("summary.json"),
+            "bin/stwo-zig": Path("stwo-zig"),
+            "bin/cp11_dump": Path("cp11_dump"),
+            "bin/riscv-trace-dump": Path("riscv-trace-dump"),
+        }
+        values = {
+            "manifest.json": manifest,
+            "trust.json": trust,
+            "current-policy.json": current_policy,
+            "release-gate.json": gate,
+            "oracle-receipt.json": oracle,
+            "summary.json": summary,
+        }
+        args = SimpleNamespace(
+            root=Path("."),
+            bundle=Path("bundle"),
+            candidate=current,
+            workflow_sha=current_workflow,
+            trust_context=Path("trust.json"),
+            policy_context=Path("current-policy.json"),
+        )
+
+        def strict(path: Path) -> dict[str, object]:
+            return values[path.name]
+
+        with mock.patch.object(model, "require_clean_head", return_value="8" * 40), \
+                mock.patch.object(model, "strict_json", side_effect=strict), \
+                mock.patch.object(model, "validate_files", return_value=files), \
+                mock.patch.object(model, "validate_gate_report"), \
+                mock.patch.object(controller, "validate_oracle_receipt"), \
+                mock.patch.object(model, "validate_cli_summary"), \
+                mock.patch.object(model, "validate_executable_digests"), \
+                mock.patch.object(model, "sha256_file", return_value=DIGEST), \
+                mock.patch.object(
+                    model, "oracle_domain",
+                    return_value={"schema": "oracle", "sha256": DIGEST},
+                ):
+            self.assertEqual(0, controller.verify_anchor(args))
+            current_policy["domain"] = {**current_policy["domain"], "sha256": "7" * 64}
+            self.assertEqual(1, controller.verify_anchor(args))
+
     def test_release_policy_binds_trusted_workflow_candidate_and_domain(self) -> None:
         self.assertEqual(
             model.RELEASE_POLICY_PATHS, list(riscv_release_policy.POLICY_PATHS),

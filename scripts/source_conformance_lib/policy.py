@@ -36,6 +36,10 @@ PYTHON_CONTROLLER_ROOTS = {
 }
 # Higher-level evidence packages may additionally consume these lower-level contracts.
 PYTHON_LIBRARY_DEPENDENCIES = {
+    "riscv_release_challenge_lib": frozenset({
+        "riscv_release_oracle_lib",
+        "riscv_staged_smoke_lib",
+    }),
     "riscv_release_oracle_lib": frozenset({"riscv_trace_vectors_lib"}),
     "riscv_release_gate_lib": frozenset({"riscv_trace_vectors_lib"}),
     "native_profile_capture_lib": frozenset({
