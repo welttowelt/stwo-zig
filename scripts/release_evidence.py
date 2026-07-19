@@ -26,6 +26,7 @@ STD_SHIMS_BEHAVIOR_REPORT_DEFAULT = REPORTS_DIR / "std_shims_behavior_report.jso
 BENCHMARK_OPT_REPORT_DEFAULT = REPORTS_DIR / "benchmark_opt_report.json"
 PROFILE_OPT_REPORT_DEFAULT = REPORTS_DIR / "profile_opt_report.json"
 OPT_COMPARE_REPORT_DEFAULT = REPORTS_DIR / "optimization_compare_report.json"
+INTEROP_GATE_ARCHIVE = "zig-out/release-evidence/native/interop-history"
 
 SCHEMA_VERSION = 1
 MANIFEST_TYPE = "release_evidence_v1"
@@ -98,7 +99,13 @@ def gate_steps(gate_mode: str) -> list[dict[str, str]]:
         {"name": "vectors_fields", "command": "python3 scripts/parity_fields.py --skip-zig"},
         {"name": "vectors_constraint", "command": "python3 scripts/parity_constraint_expr.py --skip-zig"},
         {"name": "vectors_air_derive", "command": "python3 scripts/parity_air_derive.py --skip-zig"},
-        {"name": "interop", "command": "python3 scripts/e2e_interop.py"},
+        {
+            "name": "interop",
+            "command": (
+                "python3 scripts/e2e_interop.py --archive-dir "
+                f"{INTEROP_GATE_ARCHIVE}"
+            ),
+        },
         {"name": "benchmark", "command": benchmark_cmd},
         {"name": "profile", "command": "python3 scripts/profile_smoke.py"},
     ]

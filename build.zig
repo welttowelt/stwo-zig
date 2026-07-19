@@ -12,6 +12,10 @@ pub fn build(b: *std.Build) void {
     const riscv_release_phase = b.option([]const u8, "riscv-release-phase", "CP-13 phase: candidate or promoted") orelse "candidate";
     const riscv_evidence_dir = b.option([]const u8, "riscv-evidence-dir", "Fresh CP-13 evidence directory") orelse "zig-out/release-evidence/riscv";
     const implementation_identity = prove_cli.resolveBuildIdentity(b);
+    const native_interop_gate_command = &.{
+        "python3",                                         "scripts/e2e_interop.py", "--archive-dir",
+        "zig-out/release-evidence/native/interop-history",
+    };
 
     // Library module (importable by downstream packages).
     const stwo_module = b.addModule("stwo", .{
@@ -399,7 +403,7 @@ pub fn build(b: *std.Build) void {
         "--skip-zig",
     });
     rg_vectors_air_derive.step.dependOn(&rg_vectors_constraint.step);
-    const rg_interop = b.addSystemCommand(&.{ "python3", "scripts/e2e_interop.py" });
+    const rg_interop = b.addSystemCommand(native_interop_gate_command);
     rg_interop.step.dependOn(&rg_vectors_air_derive.step);
     const rg_bench = b.addSystemCommand(&.{ "python3", "scripts/benchmark_smoke.py" });
     rg_bench.step.dependOn(&rg_interop.step);
@@ -448,7 +452,7 @@ pub fn build(b: *std.Build) void {
         "--skip-zig",
     });
     rgs_vectors_air_derive.step.dependOn(&rgs_vectors_constraint.step);
-    const rgs_interop = b.addSystemCommand(&.{ "python3", "scripts/e2e_interop.py" });
+    const rgs_interop = b.addSystemCommand(native_interop_gate_command);
     rgs_interop.step.dependOn(&rgs_vectors_air_derive.step);
     const rgs_prove_checkpoints = b.addSystemCommand(&.{ "python3", "scripts/prove_checkpoints.py" });
     rgs_prove_checkpoints.step.dependOn(&rgs_interop.step);

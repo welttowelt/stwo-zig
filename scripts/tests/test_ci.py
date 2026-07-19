@@ -71,6 +71,10 @@ class CiTests(unittest.TestCase):
                 'b.addSystemCommand(&.{ "zig", "test", "src/stwo_deep.zig", zig_optimize_arg })'
             ),
         )
+        gate_archive = "zig-out/release-evidence/native/interop-history"
+        self.assertEqual(1, build.count(gate_archive))
+        self.assertEqual(1, build.count('"--archive-dir"'))
+        self.assertEqual(2, build.count("b.addSystemCommand(native_interop_gate_command)"))
 
     def test_pre_push_and_hosted_ci_use_the_same_standard_entrypoint(self) -> None:
         pre_push = (ROOT / ".githooks/pre-push").read_text(encoding="utf-8")
