@@ -2,18 +2,9 @@
  "stark_v_commit": "d478f783055aa0d73a93768a433a3c6c31c91d1c",
  "captured_by": "scripts/riscv_trace_vectors.py --update",
  "cross_verification": {
-  "tool": "scripts/riscv_trace_vectors.py --attest-rust --rust-arg=--trace-json",
-  "status": "rust-cross-verified",
-  "comparison": "canonical-json-byte-identical",
-  "fields": [
-   "steps",
-   "final_pc",
-   "final_regs",
-   "total_steps"
-  ],
-  "rust_source_commit": "d478f783055aa0d73a93768a433a3c6c31c91d1c",
-  "rust_binary_sha256": "51290356c15cbe40c2051c58c90f377a5b7b70c1d27ad20438885ae9a16ceb3f",
-  "note": "every positive release-corpus ELF produced identical canonical bytes in Zig and the Stark-V runner adapter; instruction clocks are one-based to match the pinned oracle; negative diagnostic ELFs are intentionally excluded from positive parity claims"
+  "tool": "scripts/riscv_equivalence.py --run",
+  "status": "zig-only",
+  "note": "positive-vector digests captured from the Zig runner; rerun the equivalence tool against a Stark-V dumper built at the pinned commit to escalate provenance"
  },
  "vectors": [
   {
@@ -58,6 +49,50 @@
    }
   },
   {
+   "name": "bubble_sort",
+   "elf": "vectors/riscv_elfs/bubble_sort.elf",
+   "elf_sha256": "1c1049a49be4b904a68a34b1afc5452f44a4a225edb167dbd8974de67cca8ea8",
+   "trace_sha256": "cd298b6f482c45014d88083a910707a9d8ed04d1dd262c5e7f87ce7eca41a83d",
+   "total_steps": 9462,
+   "final_pc": 65644,
+   "executed_opcode_ids": [
+    1,
+    10,
+    21,
+    26,
+    29,
+    30,
+    35
+   ],
+   "proof_admission": {
+    "status": "supported"
+   }
+  },
+  {
+   "name": "collatz",
+   "elf": "vectors/riscv_elfs/collatz.elf",
+   "elf_sha256": "533ba03ba57377b83905f6816d6a84c509ea3c123df202bd7f0fa974212214da",
+   "trace_sha256": "ba2deb85b04ebb710093e3f5564e04f41dc6108d401caf42f5a55d6801ae06d0",
+   "total_steps": 34237,
+   "final_pc": 65620,
+   "executed_opcode_ids": [
+    0,
+    10,
+    15,
+    16,
+    17,
+    26,
+    27,
+    28,
+    29,
+    33,
+    35
+   ],
+   "proof_admission": {
+    "status": "supported"
+   }
+  },
+  {
    "name": "declared_region",
    "elf": "vectors/riscv_elfs/declared_region.elf",
    "elf_sha256": "d2b41fe78881aeee2883a134db22e4054701f42a6773acf7b7f218f3a47a793f",
@@ -69,6 +104,44 @@
     1,
     10,
     26,
+    35
+   ],
+   "proof_admission": {
+    "status": "supported"
+   }
+  },
+  {
+   "name": "fib_iter",
+   "elf": "vectors/riscv_elfs/fib_iter.elf",
+   "elf_sha256": "cf0f6a37202b356e073e67426a4fa0ab5afb1c0db1da31c106622e2e4e79c558",
+   "trace_sha256": "fc8dcf6db6ee65373966de812bdfd8fb81283cc4029ecbc6766232012c2020cc",
+   "total_steps": 102408,
+   "final_pc": 65588,
+   "executed_opcode_ids": [
+    0,
+    10,
+    26,
+    29,
+    35
+   ],
+   "proof_admission": {
+    "status": "supported"
+   }
+  },
+  {
+   "name": "gcd_euclid",
+   "elf": "vectors/riscv_elfs/gcd_euclid.elf",
+   "elf_sha256": "72642542eecc7c26e920c346b21610f06e9d6b28e4e6b0133ce0aadd57c6e183",
+   "trace_sha256": "00e1a7aeff7cfd9d2a99e12f2d7e17b500ff9e971c21d24bf2c34e4fe035d7b8",
+   "total_steps": 124931,
+   "final_pc": 65584,
+   "executed_opcode_ids": [
+    1,
+    10,
+    26,
+    27,
+    29,
+    33,
     35
    ],
    "proof_admission": {
@@ -112,6 +185,24 @@
     26,
     35,
     36
+   ],
+   "proof_admission": {
+    "status": "supported"
+   }
+  },
+  {
+   "name": "memcpy_loop",
+   "elf": "vectors/riscv_elfs/memcpy_loop.elf",
+   "elf_sha256": "708bf392e6b457313b40f40981c705a51dbf6c47a71f26fd68f472902daee38a",
+   "trace_sha256": "ef86e933e20ed5e0dd0b8e8cb78bcb4e4c9cfdabc2f0a2ea60d4ad7820eed369",
+   "total_steps": 2126,
+   "final_pc": 65636,
+   "executed_opcode_ids": [
+    10,
+    21,
+    26,
+    29,
+    35
    ],
    "proof_admission": {
     "status": "supported"
@@ -203,6 +294,49 @@
     17,
     18,
     26,
+    35
+   ],
+   "proof_admission": {
+    "status": "supported"
+   }
+  },
+  {
+   "name": "sieve_primes",
+   "elf": "vectors/riscv_elfs/sieve_primes.elf",
+   "elf_sha256": "e17f246064c7edb8ca7cb313f1e5fef369d0fa9ff64d4fa5cc05628f576791a5",
+   "trace_sha256": "9fb1ca2b565b7a28983429bed85f8a612c2e7667e7a53c089cfbef6e2db7d00f",
+   "total_steps": 2792,
+   "final_pc": 65640,
+   "executed_opcode_ids": [
+    0,
+    10,
+    22,
+    24,
+    26,
+    28,
+    29,
+    30,
+    33,
+    35
+   ],
+   "proof_admission": {
+    "status": "supported"
+   }
+  },
+  {
+   "name": "xorshift_prng",
+   "elf": "vectors/riscv_elfs/xorshift_prng.elf",
+   "elf_sha256": "a237303b7882124cdf5b013117aa1a3abede047995add871c3525c4ca3fa376e",
+   "trace_sha256": "f13bcfe5f259c56705e7286c198624611ca91da214d6894116b072a18d26f866",
+   "total_steps": 65544,
+   "final_pc": 65600,
+   "executed_opcode_ids": [
+    5,
+    10,
+    16,
+    17,
+    26,
+    29,
     35
    ],
    "proof_admission": {
