@@ -87,6 +87,10 @@ class JsonContractTests(unittest.TestCase):
             "statement_sha256": DIGEST,
             "proof_bytes": len(proof),
             "proof_sha256": hashlib.sha256(proof).hexdigest(),
+            "transcript_blake2s": DIGEST,
+            "implementation_commit": "ef" * 20,
+            "implementation_dirty": False,
+            "executable_sha256": DIGEST,
         }
         contracts.validate_verify_receipt(
             receipt,
@@ -94,6 +98,10 @@ class JsonContractTests(unittest.TestCase):
             policy="functional",
             statement_sha256=DIGEST,
             proof_bytes=proof,
+            transcript_blake2s=DIGEST,
+            expected_commit="ef" * 20,
+            expected_dirty=False,
+            executable_sha256=DIGEST,
         )
         receipt["security_policy"] = "smoke"
         with self.assertRaisesRegex(contracts.ContractError, "values drifted"):
@@ -103,6 +111,10 @@ class JsonContractTests(unittest.TestCase):
                 policy="functional",
                 statement_sha256=DIGEST,
                 proof_bytes=proof,
+                transcript_blake2s=DIGEST,
+                expected_commit="ef" * 20,
+                expected_dirty=False,
+                executable_sha256=DIGEST,
             )
 
     def test_prove_report_has_phase_neutral_exact_schema(self) -> None:
@@ -119,6 +131,10 @@ class JsonContractTests(unittest.TestCase):
             "verification_seconds": 0.4,
             "total_seconds": 1.0,
             "statement_sha256": DIGEST,
+            "transcript_blake2s": DIGEST,
+            "implementation_commit": "ef" * 20,
+            "implementation_dirty": False,
+            "executable_sha256": DIGEST,
             "proof_path": "proof.json",
         }
         contracts.validate_prove_report(
@@ -127,6 +143,9 @@ class JsonContractTests(unittest.TestCase):
             experimental=True,
             statement_sha256=DIGEST,
             proof_path="proof.json",
+            expected_commit="ef" * 20,
+            expected_dirty=False,
+            executable_sha256=DIGEST,
         )
         report["schema"] = "riscv-staged-report-v1"
         with self.assertRaisesRegex(contracts.ContractError, "schema/release status drifted"):
@@ -136,6 +155,9 @@ class JsonContractTests(unittest.TestCase):
                 experimental=True,
                 statement_sha256=DIGEST,
                 proof_path="proof.json",
+                expected_commit="ef" * 20,
+                expected_dirty=False,
+                executable_sha256=DIGEST,
             )
 
     def test_benchmark_report_binds_samples_timing_and_retained_artifact(self) -> None:
@@ -159,6 +181,10 @@ class JsonContractTests(unittest.TestCase):
             "mean_verification_seconds": 0.4,
             "sample_seconds": [0.9, 1.0],
             "statement_sha256": DIGEST,
+            "transcript_blake2s": DIGEST,
+            "implementation_commit": "ef" * 20,
+            "implementation_dirty": False,
+            "executable_sha256": DIGEST,
             "artifact_sha256": DIGEST,
             "proof_path": "bench-proof.json",
         }
@@ -169,6 +195,9 @@ class JsonContractTests(unittest.TestCase):
             warmups=0,
             samples=2,
             proof_path="bench-proof.json",
+            expected_commit="ef" * 20,
+            expected_dirty=False,
+            executable_sha256=DIGEST,
         )
         report["verified_samples"] = 1
         with self.assertRaisesRegex(contracts.ContractError, "sample accounting drifted"):
@@ -179,6 +208,9 @@ class JsonContractTests(unittest.TestCase):
                 warmups=0,
                 samples=2,
                 proof_path="bench-proof.json",
+                expected_commit="ef" * 20,
+                expected_dirty=False,
+                executable_sha256=DIGEST,
             )
 
     def test_registry_requires_exact_single_riscv_phase_entry(self) -> None:

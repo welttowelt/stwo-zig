@@ -103,6 +103,7 @@ def main() -> int:
     )
     cli = ROOT / "zig-out" / "bin" / "stwo-zig"
     implementation_commit, implementation_dirty = git_identity()
+    executable_sha256 = hashlib.sha256(cli.read_bytes()).hexdigest()
 
     visible_digests: dict[str, str] = {}
     help_cases = {
@@ -304,6 +305,9 @@ def main() -> int:
                 experimental=candidate,
                 statement_sha256=statement_digest,
                 proof_path=str(artifact),
+                expected_commit=implementation_commit,
+                expected_dirty=implementation_dirty,
+                executable_sha256=executable_sha256,
             )
         except (contracts.ContractError, ValueError) as error:
             print(f"riscv staged smoke: {error}", file=sys.stderr)
@@ -337,10 +341,16 @@ def main() -> int:
                 policy="functional",
                 statement_sha256=statement_digest,
                 proof_bytes=proof_bytes,
+                transcript_blake2s=report_payload["transcript_blake2s"],
+                expected_commit=implementation_commit,
+                expected_dirty=implementation_dirty,
+                executable_sha256=executable_sha256,
             )
         except contracts.ContractError as error:
             print(f"riscv staged smoke: {error}", file=sys.stderr)
             return 1
+        verify_receipt_path = Path(tmp) / "verify-receipt.json"
+        verify_receipt_path.write_text(verify.stdout)
         try:
             claim_swap_payload, claim_swap_indices = mutations.swap_same_family_opcode_claims(
                 json.loads(artifact.read_text())
@@ -487,6 +497,9 @@ def main() -> int:
                 warmups=0,
                 samples=2,
                 proof_path=str(benchmark_artifact),
+                expected_commit=implementation_commit,
+                expected_dirty=implementation_dirty,
+                executable_sha256=executable_sha256,
             )
             contracts.validate_artifact(
                 benchmark_artifact_payload,
@@ -522,9 +535,20 @@ def main() -> int:
                 policy="functional",
                 statement_sha256=benchmark_statement,
                 proof_bytes=bytes.fromhex(benchmark_artifact_payload["proof_bytes_hex"]),
+                transcript_blake2s=benchmark_payload["transcript_blake2s"],
+                expected_commit=implementation_commit,
+                expected_dirty=implementation_dirty,
+                executable_sha256=executable_sha256,
             )
         except contracts.ContractError as error:
             print(f"riscv staged smoke: {error}", file=sys.stderr)
+            return 1
+        benchmark_verify_receipt_path = Path(tmp) / "benchmark-verify-receipt.json"
+        benchmark_verify_receipt_path.write_text(benchmark_verify.stdout)
+
+        if hashlib.sha256(cli.read_bytes()).hexdigest() != executable_sha256:
+            print("riscv staged smoke: installed executable changed during evidence run",
+                  file=sys.stderr)
             return 1
 
         if args.evidence_dir:
@@ -535,6 +559,7 @@ def main() -> int:
                 "release_status": expected_status,
                 "implementation_commit": implementation_commit,
                 "implementation_dirty": implementation_dirty,
+                "executable_sha256": executable_sha256,
                 "generator": "scripts/riscv_trace_vectors.py::build_release_elf",
                 "multi_shard_program": "declared ADDI/BLT loop with halt-flag epilogue",
                 "multi_shard_program_words": MULTI_SHARD_PROGRAM_WORDS,
@@ -544,6 +569,7 @@ def main() -> int:
                 "n_components": report_payload["n_components"],
                 "family_component_counts": family_counts,
                 "statement_sha256": statement_digest,
+                "transcript_blake2s": report_payload["transcript_blake2s"],
                 "artifact_sha256": digest(artifact),
                 "report_sha256": digest(report),
                 "benchmark_report_sha256": digest(benchmark_report),
@@ -568,8 +594,12 @@ def main() -> int:
                 "boundary_rejection_results": rejection_results,
                 "visible_output_sha256": visible_digests,
                 "verify_receipt_sha256": contracts.sha256_text(verify.stdout),
+                "retained_verify_receipt_sha256": digest(verify_receipt_path),
                 "benchmark_verify_receipt_sha256": contracts.sha256_text(
                     benchmark_verify.stdout
+                ),
+                "retained_benchmark_verify_receipt_sha256": digest(
+                    benchmark_verify_receipt_path
                 ),
             }
             (Path(tmp) / "summary.json").write_text(

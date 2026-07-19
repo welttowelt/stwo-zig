@@ -46,6 +46,10 @@ pub const Options = struct {
     proof_report_path: ?[]const u8,
 };
 
+const ProcessIdentity = struct {
+    executable_sha256: [32]u8,
+};
+
 /// Runs the staged ELF adapter and returns an owned machine-readable report.
 ///
 /// Keeping publication outside the adapter gives Native and RISC-V workloads
@@ -59,14 +63,16 @@ pub fn run(
 ) ![]u8 {
     try registry.requireRiscVAdmission(options.experimental);
     if (options.backend != .cpu) return error.AdapterNotReleaseGated;
+    const process_identity = try measureProcessIdentity(allocator);
     return switch (options.mode) {
-        .prove => runProve(allocator, elf_path, input_path, options),
+        .prove => runProve(allocator, elf_path, input_path, options, process_identity),
         .bench => |benchmark| runBenchmark(
             allocator,
             elf_path,
             input_path,
             options,
             benchmark,
+            process_identity,
         ),
     };
 }
@@ -76,6 +82,7 @@ fn runProve(
     elf_path: []const u8,
     input_path: ?[]const u8,
     options: Options,
+    process_identity: ProcessIdentity,
 ) ![]u8 {
     const proof_temporary = options.proof_temporary orelse return error.AdapterNotReleaseGated;
     var total_timer = try std.time.Timer.start();
@@ -127,7 +134,9 @@ fn runProve(
     );
     defer recorder.deinit();
     var proving_timer = try std.time.Timer.start();
-    var output = try riscv_cpu.proveRiscVWithPublicData(
+    var prove_channel = riscv_cpu.CpuProverEngine.Channel{};
+    var output = try prover.proveRiscVWithEngineAndPublicDataUsingChannel(
+        riscv_cpu.CpuProverEngine,
         allocator,
         config,
         &run_result.execution_trace,
@@ -154,7 +163,9 @@ fn runProve(
                 .output_words = out_words,
             },
         },
+        &prove_channel,
     );
+    const transcript_digest = prove_channel.digestBytes();
     const proving_with_witness_seconds = seconds(proving_timer.read());
     var profile = try recorder.snapshot(allocator);
     defer profile.deinit(allocator);
@@ -176,13 +187,18 @@ fn runProve(
     // The verifier consumes the proof on both success and failure.
     var verification_timer = try std.time.Timer.start();
     proof_owned = false;
-    try riscv_cpu.verifyRiscV(
+    var verify_channel = riscv_cpu.CpuProverEngine.Channel{};
+    try prover.verifyRiscVWithEngineUsingChannel(
+        riscv_cpu.CpuProverEngine,
         allocator,
         config,
         output.statement,
         output.proof,
         output.interaction_claim,
+        &verify_channel,
     );
+    if (!std.mem.eql(u8, &transcript_digest, &verify_channel.digestBytes()))
+        return error.TranscriptDigestMismatch;
     const verification_seconds = seconds(verification_timer.read());
     const proof_hex = try allocator.alloc(u8, proof_bytes.items.len * 2);
     defer allocator.free(proof_hex);
@@ -204,6 +220,11 @@ fn runProve(
     );
     const statement_digest = artifact_mod.statementDigest(source, wires.statement);
     const statement_digest_hex = std.fmt.bytesToHex(statement_digest, .lower);
+    const transcript_digest_hex = std.fmt.bytesToHex(transcript_digest, .lower);
+    const executable_digest_hex = std.fmt.bytesToHex(
+        process_identity.executable_sha256,
+        .lower,
+    );
 
     try artifact_mod.writeArtifact(allocator, proof_temporary, .{
         .artifact_kind = artifact_mod.ARTIFACT_KIND,
@@ -244,7 +265,10 @@ fn runProve(
             "\"execution_seconds\":{d},\"witness_seconds\":{d}," ++
             "\"proving_seconds\":{d},\"verification_seconds\":{d}," ++
             "\"total_seconds\":{d}," ++
-            "\"statement_sha256\":\"{s}\",\"proof_path\":\"{s}\"}}",
+            "\"statement_sha256\":\"{s}\"," ++
+            "\"transcript_blake2s\":\"{s}\"," ++
+            "\"implementation_commit\":\"{s}\",\"implementation_dirty\":{}," ++
+            "\"executable_sha256\":\"{s}\",\"proof_path\":\"{s}\"}}",
         .{
             artifact_mod.RELEASE_STATUS,
             options.experimental,
@@ -256,6 +280,10 @@ fn runProve(
             verification_seconds,
             seconds(total_timer.read()),
             &statement_digest_hex,
+            &transcript_digest_hex,
+            build_identity.implementation_commit,
+            build_identity.implementation_dirty,
+            &executable_digest_hex,
             options.proof_report_path orelse proof_temporary,
         },
     );
@@ -285,6 +313,10 @@ const ProveReport = struct {
     verification_seconds: f64,
     total_seconds: f64,
     statement_sha256: []const u8,
+    transcript_blake2s: []const u8,
+    implementation_commit: []const u8,
+    implementation_dirty: bool,
+    executable_sha256: []const u8,
 };
 
 fn runBenchmark(
@@ -293,6 +325,7 @@ fn runBenchmark(
     input_path: ?[]const u8,
     options: Options,
     benchmark: Benchmark,
+    process_identity: ProcessIdentity,
 ) ![]u8 {
     const sample_seconds = try allocator.alloc(f64, benchmark.samples);
     defer allocator.free(sample_seconds);
@@ -305,6 +338,7 @@ fn runBenchmark(
     var witness_seconds: f64 = 0;
     var proving_seconds: f64 = 0;
     var verification_seconds: f64 = 0;
+    var transcript_digest: ?[32]u8 = null;
 
     const iterations = try std.math.add(usize, benchmark.warmups, benchmark.samples);
     for (0..iterations) |iteration| {
@@ -333,7 +367,7 @@ fn runBenchmark(
             .experimental = options.experimental,
             .proof_temporary = path,
             .proof_report_path = if (keep_artifact) options.proof_report_path else null,
-        });
+        }, process_identity);
         defer allocator.free(report_raw);
         const elapsed = seconds(timer.read());
 
@@ -347,6 +381,23 @@ fn runBenchmark(
             return error.InvalidStatementDigest;
         _ = std.fmt.hexToBytes(&statement_digest, report.statement_sha256) catch
             return error.InvalidStatementDigest;
+        var current_transcript_digest: [32]u8 = undefined;
+        if (report.transcript_blake2s.len != current_transcript_digest.len * 2)
+            return error.InvalidTranscriptDigest;
+        _ = std.fmt.hexToBytes(&current_transcript_digest, report.transcript_blake2s) catch
+            return error.InvalidTranscriptDigest;
+        if (!std.mem.eql(u8, report.implementation_commit, build_identity.implementation_commit) or
+            report.implementation_dirty != build_identity.implementation_dirty)
+            return error.ImplementationIdentityMismatch;
+        const executable_hex = std.fmt.bytesToHex(process_identity.executable_sha256, .lower);
+        if (!std.mem.eql(u8, report.executable_sha256, &executable_hex))
+            return error.ExecutableIdentityMismatch;
+        if (transcript_digest) |expected| {
+            if (!std.mem.eql(u8, &expected, &current_transcript_digest))
+                return error.NondeterministicTranscript;
+        } else {
+            transcript_digest = current_transcript_digest;
+        }
         total_steps = report.total_steps;
         n_components = report.n_components;
 
@@ -381,6 +432,8 @@ fn runBenchmark(
     const median_seconds = sorted[sorted.len / 2];
     const statement_hex = std.fmt.bytesToHex(statement_digest, .lower);
     const artifact_hex = std.fmt.bytesToHex(artifact_digest.?, .lower);
+    const transcript_hex = std.fmt.bytesToHex(transcript_digest.?, .lower);
+    const executable_hex = std.fmt.bytesToHex(process_identity.executable_sha256, .lower);
     const report = .{
         .schema = "riscv_proof_v1",
         .release_status = stwo.interop.riscv_artifact.RELEASE_STATUS,
@@ -401,6 +454,10 @@ fn runBenchmark(
         .mean_verification_seconds = verification_seconds / denominator,
         .sample_seconds = sample_seconds,
         .statement_sha256 = &statement_hex,
+        .transcript_blake2s = &transcript_hex,
+        .implementation_commit = build_identity.implementation_commit,
+        .implementation_dirty = build_identity.implementation_dirty,
+        .executable_sha256 = &executable_hex,
         .artifact_sha256 = &artifact_hex,
         .proof_path = options.proof_report_path,
     };
@@ -496,16 +553,20 @@ pub fn verifyArtifact(
         proof.deinit(allocator);
         return error.ProofConfigMismatch;
     }
-    try riscv_cpu.verifyRiscV(
+    var verify_channel = riscv_cpu.CpuProverEngine.Channel{};
+    try prover.verifyRiscVWithEngineUsingChannel(
+        riscv_cpu.CpuProverEngine,
         allocator,
         config,
         reconstructed.statement,
         proof,
         reconstructed.claim,
+        &verify_channel,
     );
 
     var proof_digest: [32]u8 = undefined;
     std.crypto.hash.sha2.Sha256.hash(proof_raw, &proof_digest, .{});
+    const process_identity = try measureProcessIdentity(allocator);
     const receipt = try verify_receipt.encode(allocator, .{
         .artifact_kind = artifact.artifact_kind,
         .artifact_schema_version = artifact.schema_version,
@@ -514,10 +575,39 @@ pub fn verifyArtifact(
         .statement_sha256 = actual_statement_digest,
         .proof_bytes = proof_raw.len,
         .proof_sha256 = proof_digest,
+        .transcript_blake2s = verify_channel.digestBytes(),
+        .implementation_commit = build_identity.implementation_commit,
+        .implementation_dirty = build_identity.implementation_dirty,
+        .executable_sha256 = process_identity.executable_sha256,
     });
     defer allocator.free(receipt);
     try std.fs.File.stdout().writeAll(receipt);
     try std.fs.File.stdout().writeAll("\n");
+}
+
+fn measureProcessIdentity(allocator: std.mem.Allocator) !ProcessIdentity {
+    const executable_path = try std.fs.selfExePathAlloc(allocator);
+    defer allocator.free(executable_path);
+    const file = try std.fs.openFileAbsolute(executable_path, .{});
+    defer file.close();
+    const before = try file.stat();
+    if (before.kind != .file or before.size == 0) return error.InvalidExecutable;
+
+    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    var buffer: [256 * 1024]u8 = undefined;
+    var measured_bytes: u64 = 0;
+    while (true) {
+        const count = try file.read(&buffer);
+        if (count == 0) break;
+        hasher.update(buffer[0..count]);
+        measured_bytes = std.math.add(u64, measured_bytes, count) catch
+            return error.InvalidExecutable;
+    }
+    const after = try file.stat();
+    if (measured_bytes != before.size or before.size != after.size or
+        before.inode != after.inode or before.mtime != after.mtime)
+        return error.ExecutableChangedDuringMeasurement;
+    return .{ .executable_sha256 = hasher.finalResult() };
 }
 
 fn proofPreflightShape(

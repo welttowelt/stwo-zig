@@ -30,12 +30,14 @@ PROVE_REPORT_FIELDS = {
     "schema", "release_status", "experimental", "verified_in_process",
     "total_steps", "n_components", "execution_seconds", "witness_seconds",
     "proving_seconds", "verification_seconds", "total_seconds",
-    "statement_sha256", "proof_path",
+    "statement_sha256", "transcript_blake2s", "implementation_commit",
+    "implementation_dirty", "executable_sha256", "proof_path",
 }
 VERIFY_RECEIPT_FIELDS = {
     "schema", "status", "artifact_kind", "artifact_schema_version",
     "release_status", "security_policy", "statement_sha256", "proof_bytes",
-    "proof_sha256",
+    "proof_sha256", "transcript_blake2s", "implementation_commit",
+    "implementation_dirty", "executable_sha256",
 }
 BENCHMARK_REPORT_FIELDS = {
     "schema", "release_status", "mode", "experimental", "profiled",
@@ -43,7 +45,8 @@ BENCHMARK_REPORT_FIELDS = {
     "throughput_numerator", "median_seconds", "throughput_mhz",
     "mean_execution_seconds", "mean_witness_seconds", "mean_proving_seconds",
     "mean_verification_seconds", "sample_seconds", "statement_sha256",
-    "artifact_sha256", "proof_path",
+    "transcript_blake2s", "implementation_commit", "implementation_dirty",
+    "executable_sha256", "artifact_sha256", "proof_path",
 }
 
 
@@ -158,7 +161,8 @@ def validate_artifact(
 
 def validate_prove_report(
     payload: Mapping[str, Any], *, expected_status: str, experimental: bool,
-    statement_sha256: str, proof_path: str,
+    statement_sha256: str, proof_path: str, expected_commit: str,
+    expected_dirty: bool, executable_sha256: str,
 ) -> None:
     exact_fields(payload, PROVE_REPORT_FIELDS, "prove report")
     if payload["schema"] != "riscv_prove_v1" or payload["release_status"] != expected_status:
@@ -167,6 +171,12 @@ def validate_prove_report(
         raise ContractError("prove report: admission or verification state drifted")
     if payload["statement_sha256"] != statement_sha256 or payload["proof_path"] != proof_path:
         raise ContractError("prove report: statement or proof path drifted")
+    require_sha256(payload["transcript_blake2s"], "prove report.transcript_blake2s")
+    if payload["implementation_commit"] != expected_commit or \
+            payload["implementation_dirty"] is not expected_dirty:
+        raise ContractError("prove report: build identity drifted")
+    if payload["executable_sha256"] != executable_sha256:
+        raise ContractError("prove report: executable identity drifted")
     for field in (
         "execution_seconds", "witness_seconds", "proving_seconds",
         "verification_seconds", "total_seconds",
@@ -176,7 +186,8 @@ def validate_prove_report(
 
 def validate_verify_receipt(
     payload: Mapping[str, Any], *, expected_status: str, policy: str,
-    statement_sha256: str, proof_bytes: bytes,
+    statement_sha256: str, proof_bytes: bytes, transcript_blake2s: str,
+    expected_commit: str, expected_dirty: bool, executable_sha256: str,
 ) -> None:
     exact_fields(payload, VERIFY_RECEIPT_FIELDS, "verify receipt")
     expected = {
@@ -189,6 +200,10 @@ def validate_verify_receipt(
         "statement_sha256": statement_sha256,
         "proof_bytes": len(proof_bytes),
         "proof_sha256": hashlib.sha256(proof_bytes).hexdigest(),
+        "transcript_blake2s": transcript_blake2s,
+        "implementation_commit": expected_commit,
+        "implementation_dirty": expected_dirty,
+        "executable_sha256": executable_sha256,
     }
     if payload != expected:
         raise ContractError("verify receipt: values drifted")
@@ -196,7 +211,8 @@ def validate_verify_receipt(
 
 def validate_benchmark_report(
     payload: Mapping[str, Any], *, expected_status: str, experimental: bool,
-    warmups: int, samples: int, proof_path: str,
+    warmups: int, samples: int, proof_path: str, expected_commit: str,
+    expected_dirty: bool, executable_sha256: str,
 ) -> None:
     exact_fields(payload, BENCHMARK_REPORT_FIELDS, "benchmark report")
     if payload["schema"] != "riscv_proof_v1" or payload["mode"] != "bench":
@@ -211,7 +227,13 @@ def validate_benchmark_report(
     if not isinstance(payload["sample_seconds"], list) or len(payload["sample_seconds"]) != samples:
         raise ContractError("benchmark report: sample array drifted")
     require_sha256(payload["statement_sha256"], "benchmark report.statement_sha256")
+    require_sha256(payload["transcript_blake2s"], "benchmark report.transcript_blake2s")
     require_sha256(payload["artifact_sha256"], "benchmark report.artifact_sha256")
+    if payload["implementation_commit"] != expected_commit or \
+            payload["implementation_dirty"] is not expected_dirty:
+        raise ContractError("benchmark report: build identity drifted")
+    if payload["executable_sha256"] != executable_sha256:
+        raise ContractError("benchmark report: executable identity drifted")
     for field in (
         "median_seconds", "throughput_mhz", "mean_execution_seconds",
         "mean_witness_seconds", "mean_proving_seconds", "mean_verification_seconds",
