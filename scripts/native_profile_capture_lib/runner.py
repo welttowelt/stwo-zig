@@ -30,7 +30,9 @@ from .model import MAX_ARTIFACT_BYTES, CaptureError, CaptureSettings
 from .sample_profile import build_sample_summary
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(
+    os.environ.get("STWO_ZIG_EXECUTION_ROOT", Path(__file__).resolve().parents[2])
+).resolve()
 SAMPLE_BIN = Path("/usr/bin/sample")
 METAL_REPORT_SCRIPT = ROOT / "scripts/metal_profile_report.py"
 

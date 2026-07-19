@@ -23,17 +23,23 @@ class BuildMonorepoBaselineTest(unittest.TestCase):
         errors = baseline.validate(baseline.ROOT, changed)
         self.assertIn("source tree does not match source commit", errors)
 
-    def test_statistical_policy_substitution_is_rejected(self) -> None:
+    def test_archived_performance_evidence_is_outside_architecture_gate(self) -> None:
         changed = copy.deepcopy(self.receipt)
-        changed["statistical_policy"]["bootstrap_iterations"] = 100
-        errors = baseline.validate(baseline.ROOT, changed)
-        self.assertIn("statistical_policy.bootstrap_iterations must be 4000", errors)
+        del changed["benchmark_baselines"]
+        del changed["statistical_policy"]
+        del changed["aggregate_product"]["cold_build"]
+        del changed["aggregate_product"]["warm_noop_build"]
+        del changed["aggregate_product"]["binary"]["bytes"]
+        self.assertEqual([], baseline.validate(baseline.ROOT, changed))
 
-    def test_cross_backend_proof_substitution_is_rejected(self) -> None:
+    def test_architecture_proof_substitution_is_rejected(self) -> None:
         changed = copy.deepcopy(self.receipt)
-        changed["benchmark_baselines"]["metal"]["proof_artifact_sha256"] = "f" * 64
+        changed["proof_baselines"]["native_cpu"]["proof_artifact_sha256"] = "not-a-digest"
         errors = baseline.validate(baseline.ROOT, changed)
-        self.assertIn("CPU and Metal baseline rows do not retain the same proof artifact", errors)
+        self.assertIn(
+            "proof_baselines.native_cpu.proof_artifact_sha256 is not canonical lowercase hex",
+            errors,
+        )
 
     def test_duplicate_json_key_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

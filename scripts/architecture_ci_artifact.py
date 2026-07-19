@@ -7,8 +7,10 @@ import argparse
 import hashlib
 import json
 import re
+import shutil
 import stat
 import sys
+import tempfile
 import zipfile
 from pathlib import Path
 
@@ -18,6 +20,8 @@ DECIMAL = re.compile(r"^[1-9][0-9]*$")
 SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 MAX_ARCHIVE_BYTES = 8 * 1024 * 1024
 MAX_RECEIPT_BYTES = 4 * 1024 * 1024
+MAX_HOST_ARCHIVE_BYTES = 1024 * 1024 * 1024
+MAX_ORACLE_ARCHIVE_BYTES = 512 * 1024 * 1024
 
 
 class ArtifactError(ValueError):
@@ -91,6 +95,58 @@ def extract(archive: Path, output: Path, expected_member: str, digest: str) -> s
     return hashlib.sha256(payload).hexdigest()
 
 
+def extract_members(
+    archive: Path,
+    output: Path,
+    expected_members: dict[str, int],
+    digest: str,
+    *,
+    max_archive_bytes: int,
+) -> dict[str, str]:
+    """Extract an exact flat member set into a fresh directory atomically."""
+
+    if not expected_members or any(SAFE_NAME.fullmatch(name) is None for name in expected_members):
+        raise ArtifactError("artifact expected-member set is unsafe")
+    if archive.stat().st_size > max_archive_bytes:
+        raise ArtifactError("artifact archive exceeds the size bound")
+    actual = hashlib.sha256(archive.read_bytes()).hexdigest()
+    if digest != f"sha256:{actual}":
+        raise ArtifactError("downloaded artifact archive digest mismatch")
+    if output.exists():
+        raise ArtifactError("refusing to replace an extracted artifact directory")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=f".{output.name}.", dir=output.parent))
+    digests: dict[str, str] = {}
+    try:
+        with zipfile.ZipFile(archive) as bundle:
+            members = bundle.infolist()
+            names = [member.filename for member in members]
+            if len(names) != len(set(names)) or set(names) != set(expected_members):
+                raise ArtifactError("artifact members differ from the exact transport schema")
+            total = 0
+            for member in members:
+                mode = member.external_attr >> 16
+                limit = expected_members[member.filename]
+                total += member.file_size
+                if (
+                    stat.S_ISLNK(mode)
+                    or member.is_dir()
+                    or member.file_size <= 0
+                    or member.file_size > limit
+                    or total > max_archive_bytes
+                ):
+                    raise ArtifactError("artifact member type or size is invalid")
+                payload = bundle.read(member)
+                target = staging / member.filename
+                target.write_bytes(payload)
+                digests[member.filename] = hashlib.sha256(payload).hexdigest()
+        staging.replace(output)
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    return digests
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     phases = parser.add_subparsers(dest="phase", required=True)
@@ -104,16 +160,39 @@ def main(argv: list[str] | None = None) -> int:
     unpack.add_argument("--output", type=Path, required=True)
     unpack.add_argument("--member", required=True)
     unpack.add_argument("--digest", required=True)
+    host = phases.add_parser("extract-host")
+    host.add_argument("--archive", type=Path, required=True)
+    host.add_argument("--output-dir", type=Path, required=True)
+    host.add_argument("--digest", required=True)
+    oracle = phases.add_parser("extract-oracle-tar")
+    oracle.add_argument("--archive", type=Path, required=True)
+    oracle.add_argument("--output-dir", type=Path, required=True)
+    oracle.add_argument("--member", required=True)
+    oracle.add_argument("--digest", required=True)
     args = parser.parse_args(argv)
     try:
         if args.phase == "select":
             result = select(_strict_json(args.metadata), args.name, args.run_id, args.digest)
-        else:
+        elif args.phase == "extract":
             result = {
                 "receipt_sha256": extract(
                     args.archive, args.output, args.member, args.digest,
                 )
             }
+        elif args.phase == "extract-host":
+            result = extract_members(
+                args.archive, args.output_dir,
+                {"receipt.json": MAX_RECEIPT_BYTES, "preimages.zip": MAX_HOST_ARCHIVE_BYTES},
+                args.digest, max_archive_bytes=MAX_HOST_ARCHIVE_BYTES,
+            )
+        else:
+            if SAFE_NAME.fullmatch(args.member) is None or not args.member.endswith(".tar"):
+                raise ArtifactError("Native oracle tar member is unsafe")
+            result = extract_members(
+                args.archive, args.output_dir,
+                {args.member: MAX_ORACLE_ARCHIVE_BYTES}, args.digest,
+                max_archive_bytes=MAX_ORACLE_ARCHIVE_BYTES,
+            )
     except (ArtifactError, OSError, UnicodeError, json.JSONDecodeError, zipfile.BadZipFile) as error:
         print(f"architecture artifact: FAIL: {error}", file=sys.stderr)
         return 2

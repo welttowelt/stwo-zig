@@ -92,6 +92,7 @@ def require_owned_file(root: Path, path: Path, label: str) -> Path:
 def produce(
     *,
     root: Path,
+    authority_root: Path | None = None,
     protocol_path: Path,
     product_schema_path: Path,
     workflow_path: Path,
@@ -103,11 +104,19 @@ def produce(
     run_attempt: str,
     session_nonce: str,
     attestation_mode: str,
+    authority_commit: str | None = None,
+    authority_tree: str | None = None,
+    authority_plan_sha256: str | None = None,
+    evidence_preimages_path: Path | None = None,
     now: int | None = None,
 ) -> tuple[Path, dict[str, Any], str]:
-    protocol_path = require_owned_file(root, protocol_path, "protocol manifest")
+    authority_root = root if authority_root is None else authority_root.resolve()
+    protocol_path = require_owned_file(authority_root, protocol_path, "protocol manifest")
     product_schema_path = require_owned_file(root, product_schema_path, "product schema")
-    workflow_path = require_owned_file(root, workflow_path, "workflow definition")
+    workflow_owner = authority_root if attestation_mode == "github-actions-artifact" else root
+    workflow_path = require_owned_file(
+        workflow_owner, workflow_path, "workflow definition",
+    )
     protocol, protocol_sha256 = load_protocol(protocol_path)
     if role not in protocol["host_roles"]:
         raise ReceiptError(f"unsupported host role: {role}")
@@ -117,9 +126,31 @@ def produce(
     if candidate is not None:
         require_hex40(candidate, "candidate")
     source = source_identity(root, candidate, protocol["trust"]["repository"])
+    if attestation_mode == "github-actions-artifact":
+        require_hex40(authority_commit, "authority_commit")
+        require_hex40(authority_tree, "authority_tree")
+        require_hex64(authority_plan_sha256, "authority_plan_sha256")
+        if authority_commit == source["commit"]:
+            raise ReceiptError("trusted authority must be distinct from candidate")
+        if evidence_preimages_path is None:
+            raise ReceiptError("trusted host receipt requires evidence preimages")
+    else:
+        authority_commit = authority_commit or source["commit"]
+        authority_tree = authority_tree or source["tree"]
+        authority_plan_sha256 = authority_plan_sha256 or ("0" * 64)
+    preimages_sha256 = (
+        sha256_file(evidence_preimages_path.resolve(strict=True))
+        if evidence_preimages_path is not None else "0" * 64
+    )
+    authority = {
+        "repository": protocol["trust"]["repository"],
+        "commit": authority_commit,
+        "tree": authority_tree,
+        "plan_sha256": authority_plan_sha256,
+    }
     product_schema_sha256 = sha256_file(product_schema_path)
     workflow_sha256 = sha256_file(workflow_path)
-    workflow_relative = workflow_path.relative_to(root.resolve()).as_posix()
+    workflow_relative = workflow_path.relative_to(workflow_owner.resolve()).as_posix()
     if workflow_relative != protocol["trust"]["workflow_path"]:
         raise ReceiptError("workflow definition path differs from trusted protocol")
     workflow, run, attestation = workflow_and_run(
@@ -148,6 +179,8 @@ def produce(
         "schema_version": 1,
         "created_at_unix": int(time.time()) if now is None else now,
         "source": source,
+        "authority": authority,
+        "evidence_preimages_sha256": preimages_sha256,
         "product_schema_sha256": product_schema_sha256,
         "protocol_manifest_sha256": protocol_sha256,
         "workflow": workflow,

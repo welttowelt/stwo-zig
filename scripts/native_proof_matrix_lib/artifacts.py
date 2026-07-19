@@ -35,7 +35,9 @@ except ModuleNotFoundError:
     )
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(
+    os.environ.get("STWO_ZIG_EXECUTION_ROOT", Path(__file__).resolve().parents[2])
+).resolve()
 PROFILE_ENV_VARS = (
     "STWO_ZIG_METAL_PROFILE_OUT",
     "STWO_ZIG_METAL_PROFILE_ENCODER_COUNTERS",

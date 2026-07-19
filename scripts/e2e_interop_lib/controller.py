@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -50,7 +51,9 @@ except ModuleNotFoundError:
     from scripts.interop_cli_lib.command import build_command, installed_binary
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(
+    os.environ.get("STWO_ZIG_EXECUTION_ROOT", Path(__file__).resolve().parents[2])
+).resolve()
 REPORT_DEFAULT = ROOT / "vectors" / "reports" / "e2e_interop_report.json"
 ARTIFACT_DIR_DEFAULT = ROOT / "vectors" / "reports" / "interop_artifacts"
 ARCHIVE_DIR_DEFAULT = ROOT / "vectors" / "reports" / "interop_history"
@@ -503,6 +506,12 @@ def parse_args() -> argparse.Namespace:
         help="Rust nightly toolchain used for stwo prover builds",
     )
     parser.add_argument(
+        "--rust-binary",
+        type=Path,
+        default=None,
+        help="Prebuilt content-addressed Rust oracle; skips Cargo compilation",
+    )
+    parser.add_argument(
         "--zig-optimize",
         default="ReleaseFast",
         choices=("ReleaseFast", "ReleaseSafe"),
@@ -540,26 +549,28 @@ def main() -> int:
     artifact_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        run_step(
-            name="rust_interop_tool_build",
-            cmd=[
-                "cargo",
-                f"+{args.rust_toolchain}",
-                "build",
-                "--release",
-                "--locked",
-                "--manifest-path",
-                str(RUST_MANIFEST),
-            ],
-            steps=steps,
-        )
+        rust_binary = args.rust_binary.resolve() if args.rust_binary is not None else RUST_BINARY
+        if args.rust_binary is None:
+            run_step(
+                name="rust_interop_tool_build",
+                cmd=[
+                    "cargo",
+                    f"+{args.rust_toolchain}",
+                    "build",
+                    "--release",
+                    "--locked",
+                    "--manifest-path",
+                    str(RUST_MANIFEST),
+                ],
+                steps=steps,
+            )
         run_step(
             name="zig_interop_tool_build",
             cmd=build_command(args.zig_optimize),
             steps=steps,
         )
         zig_binary = installed_binary(ROOT)
-        if not zig_binary.is_file() or not RUST_BINARY.is_file():
+        if not zig_binary.is_file() or not rust_binary.is_file():
             raise RuntimeError("interop build did not produce both exact verifier binaries")
 
         run_step(
@@ -590,7 +601,7 @@ def main() -> int:
             upstream_commit=UPSTREAM_COMMIT,
             zig_optimize=args.zig_optimize,
             zig_binary=zig_binary,
-            rust_binary=RUST_BINARY,
+            rust_binary=rust_binary,
             gate_sources=gate_sources,
         )
         if not provenance["repository"]["clean"]:
@@ -600,7 +611,7 @@ def main() -> int:
                 example=example,
                 artifact_dir=artifact_dir,
                 zig_binary=zig_binary,
-                rust_binary=RUST_BINARY,
+                rust_binary=rust_binary,
                 all_steps=steps,
                 artifact_records=artifact_records,
             )

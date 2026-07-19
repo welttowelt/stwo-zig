@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import subprocess
 import sys
 import tempfile
@@ -60,7 +61,7 @@ from native_proof_matrix_lib.model import (  # noqa: E402
 )
 
 
-ROOT = SCRIPT_DIR.parent
+ROOT = Path(os.environ.get("STWO_ZIG_EXECUTION_ROOT", SCRIPT_DIR.parent)).resolve()
 
 
 def resolve_workloads(

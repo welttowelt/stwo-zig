@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """Pack or verify immutable, exact-source RISC-V release evidence."""
 
-try:
-    from riscv_release_bundle_lib.controller import main
-except ModuleNotFoundError:
-    from scripts.riscv_release_bundle_lib.controller import main
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts.riscv_release_bundle_lib.controller import main  # noqa: E402
 
 
 if __name__ == "__main__":

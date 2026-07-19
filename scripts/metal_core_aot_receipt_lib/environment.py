@@ -12,7 +12,9 @@ from typing import Any
 from .artifacts import sha256_bytes
 from .model import COMMIT_RE, DECIMAL_RE, ReceiptError
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(
+    os.environ.get("STWO_ZIG_EXECUTION_ROOT", Path(__file__).resolve().parents[2])
+).resolve()
 
 
 def run(command: list[str], *, cwd: Path = ROOT) -> dict[str, Any]:

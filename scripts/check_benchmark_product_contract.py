@@ -4,13 +4,14 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-ROOT = SCRIPT_DIR.parent
+ROOT = Path(os.environ.get("STWO_ZIG_EXECUTION_ROOT", SCRIPT_DIR.parent)).resolve()
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 if str(SCRIPT_DIR) not in sys.path:
@@ -41,7 +42,7 @@ from native_proof_matrix_lib.model import MIN_HEADLINE_WARMUPS  # noqa: E402
 from native_proof_matrix_lib.evidence import MIN_FORMAL_MEASURED_PROOFS  # noqa: E402
 
 
-POLICY = ROOT / "conformance" / "benchmark-profiler-product-contract-v1.json"
+POLICY = SCRIPT_DIR.parent / "conformance" / "benchmark-profiler-product-contract-v1.json"
 AUTHORITY = ROOT / "build_support" / "benchmark_product_authority.zig"
 
 

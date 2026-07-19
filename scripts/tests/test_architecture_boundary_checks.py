@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -67,8 +68,8 @@ def report(product: str, proof_digest: str) -> dict[str, object]:
         "schema_version": 6,
         "product_identity": identity(product),
         "backend": "cpu_native",
-        "evidence_class": "profiled_diagnostic",
-        "profiled": True,
+        "evidence_class": "correctness_only",
+        "profiled": False,
         "provenance": {"optimization": "ReleaseFast", "complete": True},
         "protocol": {"name": "smoke", "n_queries": 1},
         "workload": {
@@ -170,28 +171,25 @@ class AggregateParityTest(unittest.TestCase):
             "aggregate_report_path", lambda value: value["protocol"].update(n_queries=2),
         )
 
-    def test_rejects_mismatched_stage_topology(self) -> None:
-        self._rejects(
-            "aggregate_report_path",
-            lambda value: value["timing"]["stage_profiles"][0]["stages"][0].update(id="oods"),
-        )
+    def test_ignores_excluded_stage_topology(self) -> None:
+        self.documents["aggregate_report_path"]["timing"]["stage_profiles"][0]["stages"][0]["id"] = "oods"
+        self._write()
+        self.assertEqual("PASS", check_aggregate_parity.validate(**self.paths)["status"])
 
     def test_ignores_stage_duration_noise(self) -> None:
         self.documents["aggregate_report_path"]["timing"]["stage_profiles"][0]["stages"][0]["seconds"] = 9.5
         self._write()
         self.assertEqual("PASS", check_aggregate_parity.validate(**self.paths)["status"])
 
-    def test_rejects_timing_schema_drift(self) -> None:
-        self._rejects(
-            "aggregate_report_path",
-            lambda value: value["timing"].update(warmup_request_seconds=[]),
-        )
+    def test_ignores_excluded_timing_schema(self) -> None:
+        self.documents["aggregate_report_path"]["timing"]["warmup_request_seconds"] = []
+        self._write()
+        self.assertEqual("PASS", check_aggregate_parity.validate(**self.paths)["status"])
 
-    def test_rejects_throughput_schema_drift(self) -> None:
-        self._rejects(
-            "aggregate_report_path",
-            lambda value: value["throughput"].update(extra_rate=1.0),
-        )
+    def test_ignores_excluded_throughput_schema(self) -> None:
+        self.documents["aggregate_report_path"]["throughput"]["extra_rate"] = 1.0
+        self._write()
+        self.assertEqual("PASS", check_aggregate_parity.validate(**self.paths)["status"])
 
     def test_rejects_forged_verify_receipt(self) -> None:
         self._rejects(
@@ -215,6 +213,33 @@ class LinkClosureTest(unittest.TestCase):
         )
         self.assertEqual("PASS", report_value["status"])
         self.assertEqual("1" * 64, report_value["binary"]["sha256"])
+
+    @mock.patch.object(check_architecture_link_closure, "sha256_file", return_value="1" * 64)
+    def test_validator_recomputes_policy_from_raw_dependency_preimage(self, _sha) -> None:
+        value = {
+            "schema": "build-architecture-link-closure-v1",
+            "status": "PASS",
+            "product_id": "stwo-native-cpu",
+            "binary": {
+                "path": "aggregate", "sha256": "1" * 64,
+                "inspector": "otool" if sys.platform == "darwin" else "readelf",
+                "output": ["/System/Metal.framework/Metal"],
+            },
+            "static_binary": None,
+            "required": [],
+            "forbidden": ["Metal", "Foundation", "libobjc", "cuda"],
+            "failures": [],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            receipt_path = Path(directory) / "link.json"
+            receipt_path.write_text(json.dumps(value), encoding="utf-8")
+            with self.assertRaisesRegex(
+                check_architecture_link_closure.LinkageError, "raw dependency preimage",
+            ):
+                check_architecture_link_closure.validate_receipt(
+                    receipt_path, product="stwo-native-cpu", binary=Path("aggregate"),
+                    static_binary=None,
+                )
 
 
 if __name__ == "__main__":

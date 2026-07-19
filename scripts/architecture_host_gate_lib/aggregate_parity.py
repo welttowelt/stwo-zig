@@ -30,8 +30,8 @@ SEMANTIC_REPORT_FIELDS = {
     "provenance", "session", "runtime_admission", "proof", "backend_telemetry",
 }
 PARITY_RECEIPT_FIELDS = {
-    "schema", "status", "normalization", "semantic_sha256", "stage_topology_sha256",
-    "proof_sha256", "artifacts", "reports", "verify_receipts",
+    "schema", "status", "normalization", "semantic_sha256", "proof_sha256",
+    "artifacts", "reports", "verify_receipts",
 }
 SHARED_IDENTITY_FIELDS = {
     "schema_version", "implementation_repository", "implementation_commit",
@@ -107,7 +107,7 @@ def report(path: Path, product_name: str, proof_digest: str) -> tuple[dict[str, 
         raise ParityError(f"{path} product identity differs from the expected CPU product")
     if value.get("schema_version") != 6 or value.get("backend") != "cpu_native":
         raise ParityError(f"{path} machine report schema/backend drifted")
-    if value.get("evidence_class") != "profiled_diagnostic" or value.get("profiled") is not True:
+    if value.get("evidence_class") != "correctness_only" or value.get("profiled") is not False:
         raise ParityError(f"{path} evidence classification drifted")
     proof = value.get("proof")
     if not isinstance(proof, dict) or proof.get("verified_samples") != 1:
@@ -168,74 +168,7 @@ def semantic_report(value: dict[str, Any]) -> dict[str, Any]:
     artifact_record.pop("path", None)
     proof["artifact"] = artifact_record
     semantic["proof"] = proof
-    timing = value.get("timing")
-    if not isinstance(timing, dict) or "stage_profiles" not in timing:
-        raise ParityError("machine report does not expose stage-profile evidence")
-    semantic["stage_topology"] = stage_topology(timing["stage_profiles"])
-    semantic["timing_schema"] = value_shape({
-        key: item for key, item in timing.items() if key != "stage_profiles"
-    })
-    semantic["throughput_schema"] = value_shape(value.get("throughput"))
     return semantic
-
-
-def value_shape(value: Any) -> Any:
-    """Describe exact report structure without admitting measurement values."""
-
-    if isinstance(value, dict):
-        return {key: value_shape(item) for key, item in sorted(value.items())}
-    if isinstance(value, list):
-        return {"kind": "array", "length": len(value), "items": [value_shape(item) for item in value]}
-    if value is None:
-        return "null"
-    if isinstance(value, bool):
-        return "boolean"
-    if isinstance(value, (int, float)):
-        return "number"
-    if isinstance(value, str):
-        return "string"
-    raise ParityError("machine report contains an unsupported JSON value")
-
-
-def stage_topology(value: Any) -> Any:
-    """Retain the complete named stage tree while excluding noisy durations."""
-
-    if value is None:
-        return None
-    if not isinstance(value, list):
-        raise ParityError("stage_profiles is not null or an array")
-
-    def node(raw: Any) -> dict[str, Any]:
-        if not isinstance(raw, dict) or set(raw) != {"id", "label", "seconds", "children"}:
-            raise ParityError("stage profile node fields drifted")
-        if not isinstance(raw["id"], str) or not raw["id"] or not isinstance(raw["label"], str):
-            raise ParityError("stage profile node identity is invalid")
-        if not isinstance(raw["seconds"], (int, float)) or raw["seconds"] < 0:
-            raise ParityError("stage profile duration is invalid")
-        children = raw["children"]
-        if children is not None and not isinstance(children, list):
-            raise ParityError("stage profile children are invalid")
-        return {
-            "id": raw["id"],
-            "label": raw["label"],
-            "children": None if children is None else [node(child) for child in children],
-        }
-
-    profiles = []
-    for raw in value:
-        if not isinstance(raw, dict) or set(raw) != {
-            "schema_version", "runtime", "example", "stages",
-        }:
-            raise ParityError("stage profile fields drifted")
-        if raw["schema_version"] != 1 or not isinstance(raw["stages"], list):
-            raise ParityError("stage profile schema drifted")
-        profiles.append({
-            "schema_version": 1,
-            "runtime": raw["runtime"],
-            "example": raw["example"],
-            "stages": [node(item) for item in raw["stages"]],
-        })
-    return profiles
 
 
 def validate(
@@ -260,28 +193,22 @@ def validate(
         raise ParityError("focused and aggregate proof artifacts differ")
     focused_semantic = semantic_report(focused_report)
     aggregate_semantic = semantic_report(aggregate_report)
-    if focused_semantic["stage_topology"] is None or aggregate_semantic["stage_topology"] is None:
-        raise ParityError("profiled parity reports contain no production stage tree")
     if focused_semantic != aggregate_semantic:
         raise ParityError("focused and aggregate statement/protocol/report semantics differ")
     if focused_verify["proof_sha256"] != aggregate_verify["proof_sha256"]:
         raise ParityError("independent verifier receipts differ on proof identity")
     semantic = focused_semantic
-    stage_digest = hashlib.sha256(
-        json.dumps(semantic["stage_topology"], sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
     return {
         "schema": "build-architecture-aggregate-parity-v2",
         "status": "PASS",
         "normalization": [
             *[f"product_identity.{field}" for field in PRODUCT_IDENTITY_FIELDS],
-            "timing.duration_values", "throughput.duration_derivatives",
+            "timing.excluded", "throughput.excluded",
             "proof.artifact.path",
         ],
         "semantic_sha256": hashlib.sha256(
             json.dumps(semantic, sort_keys=True, separators=(",", ":")).encode()
         ).hexdigest(),
-        "stage_topology_sha256": stage_digest,
         "proof_sha256": focused_proof,
         "artifacts": {
             "focused": hashlib.sha256(focused_raw).hexdigest(),
@@ -306,12 +233,12 @@ def validate_receipt(path: Path) -> dict[str, Any]:
         raise ParityError("aggregate parity receipt did not pass")
     expected_normalization = [
         *[f"product_identity.{field}" for field in PRODUCT_IDENTITY_FIELDS],
-        "timing.duration_values", "throughput.duration_derivatives",
+        "timing.excluded", "throughput.excluded",
         "proof.artifact.path",
     ]
     if value["normalization"] != expected_normalization:
         raise ParityError("aggregate parity normalization drifted")
-    for field in ("semantic_sha256", "stage_topology_sha256", "proof_sha256"):
+    for field in ("semantic_sha256", "proof_sha256"):
         digest = value[field]
         if not isinstance(digest, str) or len(digest) != 64 or any(
             character not in "0123456789abcdef" for character in digest

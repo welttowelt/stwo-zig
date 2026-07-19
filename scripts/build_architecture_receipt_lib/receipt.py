@@ -42,19 +42,24 @@ COMMAND_FIELDS = {
 }
 EVIDENCE_REF_FIELDS = {"status", "reason", "sha256"}
 EVIDENCE_MANIFEST_FIELDS = {"schema", "checkpoints", "products", "commands", "evidence"}
+AUTHORITY_FIELDS = {
+    "repository", "commit", "tree", "plan_sha256",
+}
 HOST_RECEIPT_FIELDS = {
     "schema", "schema_version", "created_at_unix", "source",
     "product_schema_sha256", "protocol_manifest_sha256", "workflow", "run",
     "host", "toolchains", "checkpoints", "products", "commands", "evidence",
-    "attestation", "verdict", "content_sha256",
+    "authority", "evidence_preimages_sha256", "attestation", "verdict", "content_sha256",
 }
 AGGREGATE_FIELDS = {
     "schema", "schema_version", "created_at_unix", "source",
     "product_schema_sha256", "protocol_manifest_sha256", "workflow", "run",
     "host_receipts", "hosts", "toolchains", "checkpoints", "products",
-    "commands", "evidence", "verdict", "content_sha256",
+    "commands", "evidence", "authority", "verdict", "content_sha256",
 }
-HOST_PARENT_FIELDS = {"file_sha256", "content_sha256", "artifact_name"}
+HOST_PARENT_FIELDS = {
+    "file_sha256", "content_sha256", "artifact_name", "evidence_preimages_sha256",
+}
 
 
 def validate_source(value: object, label: str) -> dict[str, Any]:
@@ -66,6 +71,15 @@ def validate_source(value: object, label: str) -> dict[str, Any]:
         raise ReceiptError(f"{label}.clean must be boolean")
     require_hex64(source["dirty_content_sha256"], f"{label}.dirty_content_sha256")
     return source
+
+
+def validate_authority(value: object, label: str) -> dict[str, Any]:
+    authority = exact_object(value, AUTHORITY_FIELDS, label)
+    require_string(authority["repository"], f"{label}.repository")
+    require_hex40(authority["commit"], f"{label}.commit")
+    require_hex40(authority["tree"], f"{label}.tree")
+    require_hex64(authority["plan_sha256"], f"{label}.plan_sha256")
+    return authority
 
 
 def validate_host(value: object, role: str, label: str) -> dict[str, Any]:
@@ -305,6 +319,10 @@ def validate_host_receipt(
         raise ReceiptError("host receipt schema/version drifted")
     require_timestamp(value["created_at_unix"], "created_at_unix")
     source = validate_source(value["source"], "source")
+    authority = validate_authority(value["authority"], "authority")
+    require_hex64(value["evidence_preimages_sha256"], "evidence_preimages_sha256")
+    if authority["commit"] == source["commit"] and value["attestation"]["kind"] != "local-unsigned-v1":
+        raise ReceiptError("trusted receipt authority must be distinct from candidate")
     require_hex64(value["product_schema_sha256"], "product_schema_sha256")
     require_hex64(value["protocol_manifest_sha256"], "protocol_manifest_sha256")
     validate_workflow(value["workflow"], "workflow")
@@ -339,6 +357,9 @@ def validate_aggregate_receipt(value: dict[str, Any], protocol: dict[str, Any]) 
         raise ReceiptError("aggregate receipt schema/version drifted")
     require_timestamp(value["created_at_unix"], "created_at_unix")
     source = validate_source(value["source"], "source")
+    authority = validate_authority(value["authority"], "authority")
+    if authority["commit"] == source["commit"]:
+        raise ReceiptError("aggregate authority must be distinct from candidate")
     require_hex64(value["product_schema_sha256"], "product_schema_sha256")
     require_hex64(value["protocol_manifest_sha256"], "protocol_manifest_sha256")
     workflow = validate_workflow(value["workflow"], "workflow")
@@ -364,6 +385,10 @@ def validate_aggregate_receipt(value: dict[str, Any], protocol: dict[str, Any]) 
         parent = exact_object(parents[role], HOST_PARENT_FIELDS, f"host_receipts.{role}")
         require_hex64(parent["file_sha256"], f"host_receipts.{role}.file_sha256")
         require_hex64(parent["content_sha256"], f"host_receipts.{role}.content_sha256")
+        require_hex64(
+            parent["evidence_preimages_sha256"],
+            f"host_receipts.{role}.evidence_preimages_sha256",
+        )
         require_safe_component(parent["artifact_name"], f"host_receipts.{role}.artifact_name")
     if parents["linux"]["file_sha256"] == parents["macos"]["file_sha256"]:
         raise ReceiptError("aggregate host receipt file identities are replayed")

@@ -25,6 +25,8 @@ COMMIT = "1" * 40
 TREE = "2" * 40
 WORKFLOW_SHA = "3" * 40
 SESSION = "4" * 64
+AUTHORITY_COMMIT = "a" * 40
+AUTHORITY_TREE = "b" * 40
 RUN_ID = "12345"
 RUN_ATTEMPT = "2"
 NOW = 1_800_000_000
@@ -39,20 +41,32 @@ class ReceiptFixture:
         self.root = root
         self.protocol_path = root / "conformance/build-architecture-receipt-protocol-v1.json"
         self.product_schema_path = root / "build_support/graph/product.zig"
-        self.workflow_path = root / ".github/workflows/ci.yml"
+        self.workflow_path = root / ".github/workflows/architecture-authority.yml"
+        self.plan_path = root / "conformance/build-architecture-ci-plan-v1.json"
         for destination, source in (
             (
                 self.protocol_path,
                 Path("conformance/build-architecture-receipt-protocol-v1.json"),
             ),
             (self.product_schema_path, Path("build_support/graph/product.zig")),
-            (self.workflow_path, Path(".github/workflows/ci.yml")),
+            (self.workflow_path, Path(".github/workflows/architecture-authority.yml")),
+            (self.plan_path, Path("conformance/build-architecture-ci-plan-v1.json")),
+            (
+                root / "conformance/build-architecture-external-verifier-v1.json",
+                Path("conformance/build-architecture-external-verifier-v1.json"),
+            ),
         ):
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes(source.read_bytes())
         self.protocol, self.protocol_sha256 = load_protocol(self.protocol_path)
         self.product_schema_sha256 = codec.sha256_file(self.product_schema_path)
         self.workflow_sha256 = codec.sha256_file(self.workflow_path)
+        self.authority_plan_sha256 = codec.sha256_file(self.plan_path)
+        self.preimages = {}
+        for role in ("linux", "macos"):
+            path = root / f"{role}-preimages.json"
+            path.write_text(f'{{"role":"{role}"}}', encoding="utf-8")
+            self.preimages[role] = path
         trust = self.protocol["trust"]
         self.source = {
             "repository": trust["repository"],
@@ -71,6 +85,9 @@ class ReceiptFixture:
             "GITHUB_RUN_ID": RUN_ID,
             "GITHUB_RUN_ATTEMPT": RUN_ATTEMPT,
             "GITHUB_JOB": self.protocol["aggregate_job"],
+            "STWO_ARCHITECTURE_AUTHORITY_COMMIT": AUTHORITY_COMMIT,
+            "STWO_ARCHITECTURE_AUTHORITY_TREE": AUTHORITY_TREE,
+            "STWO_ARCHITECTURE_AUTHORITY_PLAN_SHA256": self.authority_plan_sha256,
         }
 
     def host_receipt(self, role: str) -> dict[str, object]:
@@ -151,6 +168,13 @@ class ReceiptFixture:
             "schema_version": 1,
             "created_at_unix": NOW,
             "source": copy.deepcopy(self.source),
+            "authority": {
+                "repository": self.protocol["trust"]["repository"],
+                "commit": AUTHORITY_COMMIT,
+                "tree": AUTHORITY_TREE,
+                "plan_sha256": self.authority_plan_sha256,
+            },
+            "evidence_preimages_sha256": codec.sha256_file(self.preimages[role]),
             "product_schema_sha256": self.product_schema_sha256,
             "protocol_manifest_sha256": self.protocol_sha256,
             "workflow": {
@@ -186,9 +210,12 @@ class ReceiptFixture:
         return codec.with_content_digest(without)
 
     def verify(self, linux: Path, macos: Path, output: Path | None = None):
-        with mock.patch(
-            "scripts.build_architecture_receipt_lib.verifier.source_identity",
-            return_value=self.source,
+        with (
+            mock.patch(
+                "scripts.build_architecture_receipt_lib.verifier.source_identity",
+                return_value=self.source,
+            ),
+            mock.patch("scripts.architecture_host_gate_lib.preimages.verify"),
         ):
             return verifier.verify(
                 root=self.root,
@@ -200,6 +227,8 @@ class ReceiptFixture:
                 output_root=output or self.root / "out",
                 candidate=COMMIT,
                 session_nonce=SESSION,
+                linux_preimages_path=self.preimages["linux"],
+                macos_preimages_path=self.preimages["macos"],
                 environment=self.environment,
                 now=NOW,
             )
@@ -264,6 +293,10 @@ class BuildArchitectureReceiptTest(unittest.TestCase):
                 run_attempt=RUN_ATTEMPT,
                 session_nonce=SESSION,
                 attestation_mode="github-actions-artifact",
+                authority_commit=AUTHORITY_COMMIT,
+                authority_tree=AUTHORITY_TREE,
+                authority_plan_sha256=self.fixture.authority_plan_sha256,
+                evidence_preimages_path=self.fixture.preimages[role],
                 now=NOW,
             )
         self.assertEqual(STATUS_PASS, trusted["verdict"])
@@ -372,6 +405,28 @@ class BuildArchitectureReceiptTest(unittest.TestCase):
                         self.fixture.write_host("linux", linux_value),
                         self.fixture.write_host("macos"),
                     )
+
+    def test_authority_and_bounded_preimage_mutations_are_rejected(self) -> None:
+        for field, changed in (
+            ("commit", "d" * 40),
+            ("tree", "e" * 40),
+            ("plan_sha256", "f" * 64),
+        ):
+            with self.subTest(field=field):
+                linux = self.fixture.host_receipt("linux")
+                linux["authority"][field] = changed
+                linux = self.fixture.rebind(linux)
+                with self.assertRaisesRegex(ReceiptError, "authority identity mismatch"):
+                    self.fixture.verify(
+                        self.fixture.write_host("linux", linux),
+                        self.fixture.write_host("macos"),
+                    )
+
+        linux_path = self.fixture.write_host("linux")
+        macos_path = self.fixture.write_host("macos")
+        self.fixture.preimages["linux"].write_text('{"role":"substituted"}')
+        with self.assertRaisesRegex(ReceiptError, "preimage digest mismatch"):
+            self.fixture.verify(linux_path, macos_path)
 
     def test_aggregate_authority_requires_exact_protected_workflow_environment(self) -> None:
         linux = self.fixture.write_host("linux")

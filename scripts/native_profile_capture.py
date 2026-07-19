@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -24,7 +25,7 @@ from native_profile_capture_lib import (  # noqa: E402
 )
 
 
-ROOT = SCRIPT_DIR.parent
+ROOT = Path(os.environ.get("STWO_ZIG_EXECUTION_ROOT", SCRIPT_DIR.parent)).resolve()
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

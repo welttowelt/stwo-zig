@@ -13,6 +13,7 @@ from . import model
 
 
 ROOT = Path(__file__).resolve().parents[2]
+EVIDENCE_SCRIPT = Path(__file__).resolve().parents[1] / "riscv_release_evidence.py"
 
 
 def validate_oracle_receipt(
@@ -21,7 +22,7 @@ def validate_oracle_receipt(
     result = subprocess.run(
         [
             sys.executable,
-            "scripts/riscv_release_evidence.py",
+            str(EVIDENCE_SCRIPT),
             "--receipt",
             str(receipt),
             "--candidate",

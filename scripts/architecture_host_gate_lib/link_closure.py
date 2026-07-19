@@ -6,10 +6,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import tempfile
 from pathlib import Path
 
 from scripts.product_closure.linkage import (
+    DynamicLinkage,
     LinkageError,
     check_dynamic,
     check_static_elf,
@@ -31,6 +33,15 @@ RECEIPT_FIELDS = {
 }
 
 
+def host_policy(product: str, host_role: str) -> dict[str, tuple[str, ...]]:
+    if product == "stwo-zig" and host_role == "macos":
+        return {
+            "required": ("Metal", "Foundation", "libobjc"),
+            "forbidden": ("cuda",),
+        }
+    return POLICY[product]
+
+
 def write(path: Path, value: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(prefix=path.name + ".", dir=path.parent)
@@ -45,8 +56,12 @@ def write(path: Path, value: dict[str, object]) -> None:
         Path(temporary).unlink(missing_ok=True)
 
 
-def inspect(product: str, binary: Path, static_binary: Path | None) -> dict[str, object]:
-    policy = POLICY[product]
+def inspect(
+    product: str, binary: Path, static_binary: Path | None,
+    host_role: str | None = None,
+) -> dict[str, object]:
+    role = host_role or ("macos" if sys.platform == "darwin" else "linux")
+    policy = host_policy(product, role)
     dynamic = inspect_dynamic(binary)
     failures = check_dynamic(dynamic, policy["required"], policy["forbidden"])
     static = None
@@ -79,6 +94,9 @@ def inspect(product: str, binary: Path, static_binary: Path | None) -> dict[str,
 
 def validate_receipt(
     path: Path, *, product: str, binary: Path, static_binary: Path | None,
+    host_role: str | None = None,
+    logical_binary: Path | None = None, logical_static_binary: Path | None = None,
+    reinspect_binary: bool = True,
 ) -> dict[str, object]:
     def unique(pairs):
         value = {}
@@ -91,7 +109,12 @@ def validate_receipt(
     value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique)
     if not isinstance(value, dict) or set(value) != RECEIPT_FIELDS:
         raise LinkageError("link-closure receipt fields drifted")
-    policy = POLICY[product]
+    role = host_role or ("macos" if sys.platform == "darwin" else "linux")
+    actual_role = "macos" if sys.platform == "darwin" else "linux"
+    if reinspect_binary and role != actual_role:
+        raise LinkageError("fresh linkage recomputation must run on the product host role")
+    policy = host_policy(product, role)
+    recorded_binary = logical_binary or binary
     if (
         value["schema"] != "build-architecture-link-closure-v1"
         or value["status"] != "PASS"
@@ -107,17 +130,26 @@ def validate_receipt(
     }:
         raise LinkageError("link-closure dynamic identity drifted")
     if (
-        dynamic["path"] != str(binary)
+        dynamic["path"] != str(recorded_binary)
         or dynamic["sha256"] != sha256_file(binary)
         or dynamic["inspector"] not in {"otool", "readelf", "ldd"}
         or not isinstance(dynamic["output"], list)
         or not all(isinstance(item, str) for item in dynamic["output"])
     ):
         raise LinkageError("link-closure dynamic artifact binding drifted")
+    expected_inspectors = {"otool"} if role == "macos" else {"readelf", "ldd"}
+    if dynamic["inspector"] not in expected_inspectors:
+        raise LinkageError("link-closure inspector is inconsistent with the host")
+    failures = check_dynamic(
+        DynamicLinkage(dynamic["inspector"], "\n".join(dynamic["output"])),
+        policy["required"], policy["forbidden"],
+    )
+    if failures:
+        raise LinkageError("link-closure raw dependency preimage violates policy")
     expected_static = None
     if static_binary is not None:
         expected_static = {
-            "path": str(static_binary),
+            "path": str(logical_static_binary or static_binary),
             "sha256": sha256_file(static_binary),
             "bits": 64,
             "machine": "x86_64",
@@ -125,6 +157,13 @@ def validate_receipt(
         }
     if value["static_binary"] != expected_static:
         raise LinkageError("link-closure static artifact binding drifted")
+    if reinspect_binary:
+        fresh = inspect(product, binary, static_binary, role)
+        fresh["binary"]["path"] = str(recorded_binary)
+        if fresh["static_binary"] is not None:
+            fresh["static_binary"]["path"] = str(logical_static_binary or static_binary)
+        if fresh != value:
+            raise LinkageError("link-closure receipt differs from fresh binary inspection")
     return value
 
 

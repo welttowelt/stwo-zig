@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from typing import Any, Callable
 
-from scripts.architecture_host_gate_lib import capture, plan, products, validators
+from scripts.architecture_host_gate_lib import capture, plan, preimages, products, validators
 from scripts.build_architecture_receipt_lib.codec import atomic_write, canonical_bytes
 from scripts.build_architecture_receipt_lib.model import (
     DEFAULT_PROTOCOL,
@@ -53,14 +53,18 @@ def _digest(value: object) -> str:
 
 def execute(
     *, root: Path, role: str, plan_path: Path, protocol_path: Path,
+    authority_root: Path | None = None,
     output_dir: Path, candidate: str,
     timeout: float, run_id: str, run_attempt: str, repository: str,
     repository_id: str, workflow_sha: str, riscv_bundle: Path,
+    native_oracle_bundle: Path,
+    native_oracle_trust: Path,
     riscv_trust_context: Path, riscv_policy_context: Path,
     riscv_phase: str,
     executor: Callable[[list[str], Path, float], tuple[int, bytes, bytes, int]] = capture.run,
 ) -> tuple[Path, dict[str, Any]]:
     root = root.resolve()
+    authority_root = (authority_root or root).resolve()
     protocol, _ = load_protocol(protocol_path)
     architecture_plan = plan.load(plan_path, protocol)
     if role not in protocol["host_roles"]:
@@ -75,11 +79,15 @@ def execute(
     log_dir = output_dir / "commands"
     log_dir.mkdir()
     replacements = {
+        "authority_root": str(authority_root),
         "candidate": candidate,
+        "candidate_root": str(root),
         "evidence_dir": output_dir.relative_to(root.resolve()).as_posix(),
         "repository": repository,
         "repository_id": repository_id,
         "riscv_bundle": str(riscv_bundle.resolve()),
+        "native_oracle_bundle": str(native_oracle_bundle.resolve()),
+        "native_oracle_trust": str(native_oracle_trust.resolve()),
         "riscv_policy_context": str(riscv_policy_context.resolve()),
         "riscv_phase": riscv_phase,
         "riscv_trust_context": str(riscv_trust_context.resolve()),
@@ -91,17 +99,23 @@ def execute(
     source_clean = _clean(root)
     command_records: list[dict[str, Any]] = []
     command_outputs: dict[str, Path] = {}
+    captured_paths: set[Path] = set()
     result_details: dict[str, dict[str, Any]] = {}
     role_plan = architecture_plan["roles"][role]
     if source_clean:
         for raw in role_plan["commands"]:
-            argv = [plan.expand(argument, replacements) for argument in raw["argv"]]
+            expanded_argv = [plan.expand(argument, replacements) for argument in raw["argv"]]
+            argv = plan.authority_argv(
+                raw["id"], expanded_argv,
+                authority_root=authority_root, candidate_root=root,
+            )
             inputs = [
                 Path(plan.expand(path, replacements)).resolve()
                 if Path(plan.expand(path, replacements)).is_absolute()
                 else (root / plan.expand(path, replacements)).resolve()
                 for path in raw["required_inputs"]
             ]
+            captured_paths.update(inputs)
             outputs = [
                 _owned_path(root, plan.expand(path, replacements))
                 for path in raw["generated_outputs"]
@@ -136,15 +150,26 @@ def execute(
             )
             command_records.append(record)
             command_outputs[raw["id"]] = stdout_path
+            captured_paths.add(stdout_path)
+            captured_paths.add(log_dir / f"{len(command_records) - 1:03d}-{raw['id']}.stderr")
             replacements[f"stdout_{raw['id'].replace('-', '_')}"] = (
                 stdout_path.relative_to(root).as_posix()
             )
             failures: list[str] = list(input_failures)
+            try:
+                validators.validate_stdout(raw["id"], stdout_path, host_role=role)
+            except (OSError, UnicodeError, json.JSONDecodeError, ReceiptError, ValueError) as error:
+                failures.append(str(error))
             output_digests: dict[str, str] = {}
             if outputs:
+                captured_paths.update(outputs)
                 try:
                     output_digests = validators.validate_outputs(
-                        raw["id"], outputs, inputs, root=root, candidate=candidate,
+                    raw["id"], outputs, inputs, root=root, candidate=candidate,
+                    host_role=role,
+                    )
+                    captured_paths.update(
+                        validators.preimage_dependencies(raw["id"], outputs, root=root)
                     )
                 except (OSError, UnicodeError, json.JSONDecodeError, ReceiptError, ValueError) as error:
                     failures.append(str(error))
@@ -157,6 +182,10 @@ def execute(
                     failures.append(str(error))
             result_details[raw["id"]] = {
                 "record": record,
+                "stdout_path": stdout_path.relative_to(root).as_posix(),
+                "stderr_path": (
+                    log_dir / f"{len(command_records) - 1:03d}-{raw['id']}.stderr"
+                ).relative_to(root).as_posix(),
                 "inputs": input_digests,
                 "outputs": output_digests,
                 "failures": failures,
@@ -194,6 +223,13 @@ def execute(
     validate_evidence_manifest(manifest, protocol, role)
     output = output_dir / f"{role}-{run_id}-evidence.json"
     atomic_write(output, manifest, protocol["limits"]["max_json_bytes"])
+    captured_paths.add(output)
+    preimages.create(
+        output_dir / f"{role}-{run_id}-preimages.zip",
+        root=root, role=role, candidate=candidate, tree=tree,
+        plan_sha256=capture.sha256_file(plan_path), details=result_details,
+        manifest=manifest, captured_paths=captured_paths,
+    )
     return output, manifest
 
 
@@ -277,6 +313,14 @@ def _evidence(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--root", type=Path, default=ROOT,
+        help="exact candidate checkout against which the authority plan executes",
+    )
+    parser.add_argument(
+        "--authority-root", type=Path, default=None,
+        help="authenticated checkout containing plan and policy executables",
+    )
     parser.add_argument("--role", choices=("linux", "macos"), required=True)
     parser.add_argument("--candidate", required=True)
     parser.add_argument("--run-id", required=True)
@@ -285,6 +329,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repository-id", required=True)
     parser.add_argument("--workflow-sha", required=True)
     parser.add_argument("--riscv-bundle", type=Path, default=ROOT.parent / "riscv-bundle")
+    parser.add_argument(
+        "--native-oracle-bundle", type=Path,
+        default=ROOT.parent / "native-oracle-bundle",
+    )
+    parser.add_argument("--native-oracle-trust", type=Path, required=True)
     parser.add_argument("--riscv-trust-context", type=Path, required=True)
     parser.add_argument("--riscv-policy-context", type=Path, required=True)
     parser.add_argument("--riscv-phase", choices=("candidate", "promoted"), required=True)
@@ -295,12 +344,15 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         output, manifest = execute(
-            root=ROOT, role=args.role, plan_path=args.plan, protocol_path=args.protocol,
+            root=args.root, authority_root=args.authority_root, role=args.role,
+            plan_path=args.plan, protocol_path=args.protocol,
             output_dir=args.output_dir, candidate=args.candidate,
             timeout=args.command_timeout_seconds,
             run_id=args.run_id, run_attempt=args.run_attempt,
             repository=args.repository, repository_id=args.repository_id,
             workflow_sha=args.workflow_sha, riscv_bundle=args.riscv_bundle,
+            native_oracle_bundle=args.native_oracle_bundle,
+            native_oracle_trust=args.native_oracle_trust,
             riscv_trust_context=args.riscv_trust_context,
             riscv_policy_context=args.riscv_policy_context,
             riscv_phase=args.riscv_phase,

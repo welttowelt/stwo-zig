@@ -105,16 +105,9 @@ def validate(repo: Path, baseline: dict[str, Any]) -> list[str]:
     else:
         binary = aggregate.get("binary", {})
         require_hex(errors, binary.get("sha256"), HEX64, "aggregate_product.binary.sha256")
-        if not isinstance(binary.get("bytes"), int) or binary.get("bytes", 0) <= 0:
-            errors.append("aggregate binary size must be positive")
         linkage = binary.get("dynamic_linkage")
         if not isinstance(linkage, list) or not any("Metal.framework" in item for item in linkage):
             errors.append("pre-migration aggregate linkage must record host-selected Metal")
-        for timing in ("cold_build", "warm_noop_build"):
-            seconds = aggregate.get(timing, {}).get("wall_seconds")
-            if not isinstance(seconds, (int, float)) or seconds <= 0:
-                errors.append(f"aggregate {timing} wall_seconds must be positive")
-
     proofs = baseline.get("proof_baselines")
     if not isinstance(proofs, dict):
         errors.append("proof_baselines must be an object")
@@ -128,55 +121,6 @@ def validate(repo: Path, baseline: dict[str, Any]) -> list[str]:
                 errors.append(f"{product} baseline proof is not verified")
             for field in ("proof_artifact_sha256", "canonical_proof_sha256", "report_sha256", "verify_receipt_sha256"):
                 require_hex(errors, proof.get(field), HEX64, f"proof_baselines.{product}.{field}")
-
-    benchmarks = baseline.get("benchmark_baselines")
-    if not isinstance(benchmarks, dict):
-        errors.append("benchmark_baselines must be an object")
-    else:
-        cpu = benchmarks.get("cpu", {})
-        metal = benchmarks.get("metal", {})
-        if cpu.get("proof_artifact_sha256") != metal.get("proof_artifact_sha256"):
-            errors.append("CPU and Metal baseline rows do not retain the same proof artifact")
-        for lane, row in (("cpu", cpu), ("metal", metal)):
-            for field in ("median_prove_seconds", "median_request_seconds", "median_verify_seconds", "median_native_mhz"):
-                value = row.get(field)
-                if not isinstance(value, (int, float)) or value <= 0:
-                    errors.append(f"benchmark {lane}.{field} must be positive")
-            require_hex(errors, row.get("report_sha256"), HEX64, f"benchmark_baselines.{lane}.report_sha256")
-        sampling = benchmarks.get("sampling", {})
-        if sampling.get("verified_samples") != sampling.get("samples"):
-            errors.append("baseline benchmark did not verify every sample")
-        if sampling.get("all_samples_byte_identical") is not True:
-            errors.append("baseline benchmark proofs are not byte-identical")
-
-    statistical = baseline.get("statistical_policy")
-    if not isinstance(statistical, dict):
-        errors.append("statistical_policy must be an object")
-    else:
-        expected = {
-            "confidence_level": 0.95,
-            "bootstrap_iterations": 4000,
-            "minimum_paired_rounds": 3,
-        }
-        for field, value in expected.items():
-            if statistical.get(field) != value:
-                errors.append(f"statistical_policy.{field} must be {value}")
-        if isinstance(commit, str) and HEX40.fullmatch(commit):
-            for path_field, hash_field in (
-                ("runner_path", "runner_sha256"),
-                ("stats_path", "stats_sha256"),
-            ):
-                path = statistical.get(path_field)
-                expected_hash = statistical.get(hash_field)
-                require_hex(errors, expected_hash, HEX64, f"statistical_policy.{hash_field}")
-                if isinstance(path, str):
-                    try:
-                        actual = sha256(git(repo, "show", f"{commit}:{path}"))
-                    except ValueError as error:
-                        errors.append(str(error))
-                    else:
-                        if actual != expected_hash:
-                            errors.append(f"{path} digest does not match pinned source")
 
     conformance = baseline.get("source_conformance")
     if not isinstance(conformance, dict):

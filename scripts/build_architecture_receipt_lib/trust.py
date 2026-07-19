@@ -146,6 +146,18 @@ def validate_trusted_verifier_environment(
         "run_attempt": require_decimal(
             _required_env(environment, "GITHUB_RUN_ATTEMPT"), "GITHUB_RUN_ATTEMPT",
         ),
+        "authority_commit": require_hex40(
+            _required_env(environment, "STWO_ARCHITECTURE_AUTHORITY_COMMIT"),
+            "STWO_ARCHITECTURE_AUTHORITY_COMMIT",
+        ),
+        "authority_tree": require_hex40(
+            _required_env(environment, "STWO_ARCHITECTURE_AUTHORITY_TREE"),
+            "STWO_ARCHITECTURE_AUTHORITY_TREE",
+        ),
+        "authority_plan_sha256": require_hex64(
+            _required_env(environment, "STWO_ARCHITECTURE_AUTHORITY_PLAN_SHA256"),
+            "STWO_ARCHITECTURE_AUTHORITY_PLAN_SHA256",
+        ),
     }
 
 

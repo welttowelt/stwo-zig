@@ -1,5 +1,5 @@
 {
-  "aggregate_job": "architecture-verify",
+  "aggregate_job": "architecture-authority-verify",
   "checkpoint_order": [
     "BG-00",
     "BG-01",
@@ -37,7 +37,7 @@
         "BG-14"
       ],
       "os": "linux",
-      "producer_job": "architecture-linux",
+      "producer_job": "architecture-authority-linux",
       "required_products": [
         "stwo-core",
         "stwo-prover",
@@ -64,7 +64,7 @@
         "BG-14"
       ],
       "os": "macos",
-      "producer_job": "architecture-macos",
+      "producer_job": "architecture-authority-macos",
       "required_products": [
         "stwo-core",
         "stwo-prover",
@@ -96,7 +96,9 @@
     "repository": "teddyjfpender/stwo-zig",
     "repository_id": 1152389958,
     "repository_owner_id": 92999717,
-    "workflow_path": ".github/workflows/ci.yml",
-    "workflow_ref": "teddyjfpender/stwo-zig/.github/workflows/ci.yml@refs/heads/main"
+    "external_verifier_contract_path": "conformance/build-architecture-external-verifier-v1.json",
+    "external_verifier_contract_sha256": "541bc2f7791f2c1e830d944037e35aaba83db68d49808eb5f7134776a5ee3528",
+    "workflow_path": ".github/workflows/architecture-authority.yml",
+    "workflow_ref": "teddyjfpender/stwo-zig/.github/workflows/architecture-authority.yml@refs/heads/main"
   }
 }

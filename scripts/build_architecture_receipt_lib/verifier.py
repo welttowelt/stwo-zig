@@ -133,6 +133,7 @@ def _checkpoint_verdicts(
 def verify(
     *,
     root: Path,
+    authority_root: Path | None = None,
     protocol_path: Path,
     product_schema_path: Path,
     workflow_path: Path,
@@ -141,14 +142,19 @@ def verify(
     output_root: Path,
     candidate: str,
     session_nonce: str,
+    linux_preimages_path: Path | None = None,
+    macos_preimages_path: Path | None = None,
     environment: Mapping[str, str] | None = None,
     now: int | None = None,
 ) -> tuple[Path, dict[str, Any], str]:
     require_hex40(candidate, "candidate")
     require_hex64(session_nonce, "session_nonce")
-    protocol_path = require_owned_file(root, protocol_path, "protocol manifest")
+    authority_root = root if authority_root is None else authority_root.resolve()
+    protocol_path = require_owned_file(authority_root, protocol_path, "protocol manifest")
     product_schema_path = require_owned_file(root, product_schema_path, "product schema")
-    workflow_path = require_owned_file(root, workflow_path, "workflow definition")
+    workflow_path = require_owned_file(
+        authority_root, workflow_path, "authority workflow definition",
+    )
     protocol, protocol_sha256 = load_protocol(protocol_path)
     trusted = validate_trusted_verifier_environment(protocol, environment)
     product_schema_sha256 = sha256_file(product_schema_path)
@@ -163,6 +169,18 @@ def verify(
     receipts: dict[str, dict[str, Any]] = {}
     file_digests: dict[str, str] = {}
     current_time = int(time.time()) if now is None else now
+    preimage_paths = {
+        "linux": linux_preimages_path.resolve() if linux_preimages_path is not None else None,
+        "macos": macos_preimages_path.resolve() if macos_preimages_path is not None else None,
+    }
+    expected_authority = {
+        "repository": protocol["trust"]["repository"],
+        "commit": trusted["authority_commit"],
+        "tree": trusted["authority_tree"],
+        "plan_sha256": trusted["authority_plan_sha256"],
+    }
+    if expected_authority["commit"] == candidate:
+        raise ReceiptError("protected architecture authority equals candidate")
     for role, path in paths.items():
         receipt = strict_json(path, protocol["limits"]["max_json_bytes"])
         validate_host_receipt(receipt, protocol, expected_role=role)
@@ -178,6 +196,13 @@ def verify(
             raise ReceiptError(f"{role} receipt product schema mismatch")
         if receipt["protocol_manifest_sha256"] != protocol_sha256:
             raise ReceiptError(f"{role} receipt protocol manifest mismatch")
+        if receipt["authority"] != expected_authority:
+            raise ReceiptError(f"{role} receipt authority identity mismatch")
+        preimage_path = preimage_paths[role]
+        if preimage_path is None or not preimage_path.is_file():
+            raise ReceiptError(f"{role} bounded evidence preimages are missing")
+        if sha256_file(preimage_path) != receipt["evidence_preimages_sha256"]:
+            raise ReceiptError(f"{role} evidence preimage digest mismatch")
         receipts[role] = receipt
         file_digests[role] = sha256_file(path)
     if file_digests["linux"] == file_digests["macos"]:
@@ -202,6 +227,7 @@ def verify(
         "schema_version": 1,
         "created_at_unix": current_time,
         "source": source,
+        "authority": expected_authority,
         "product_schema_sha256": product_schema_sha256,
         "protocol_manifest_sha256": protocol_sha256,
         "workflow": receipts["linux"]["workflow"],
@@ -211,6 +237,7 @@ def verify(
                 "file_sha256": file_digests[role],
                 "content_sha256": receipts[role]["content_sha256"],
                 "artifact_name": receipts[role]["attestation"]["artifact_name"],
+                "evidence_preimages_sha256": receipts[role]["evidence_preimages_sha256"],
             }
             for role in ("linux", "macos")
         },

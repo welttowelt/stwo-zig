@@ -25,6 +25,7 @@ from .verifier import verify
 
 def _shared_paths(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--root", type=Path, default=ROOT)
+    parser.add_argument("--authority-root", type=Path, default=ROOT)
     parser.add_argument("--protocol", type=Path, default=DEFAULT_PROTOCOL)
     parser.add_argument("--product-schema", type=Path, default=DEFAULT_PRODUCT_SCHEMA)
     parser.add_argument("--workflow-definition", type=Path, default=DEFAULT_WORKFLOW)
@@ -48,6 +49,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="local-unsigned",
     )
     producer.add_argument("--evidence-manifest", type=Path, default=None)
+    producer.add_argument("--evidence-preimages", type=Path, default=None)
+    producer.add_argument("--authority-commit", default=None)
+    producer.add_argument("--authority-tree", default=None)
+    producer.add_argument("--authority-plan-sha256", default=None)
 
     verifier = phases.add_parser("verify", help="run the trusted cross-host verifier")
     _shared_paths(verifier)
@@ -55,6 +60,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     verifier.add_argument("--macos-receipt", type=Path, required=True)
     verifier.add_argument("--candidate", required=True)
     verifier.add_argument("--session-nonce", default=None)
+    verifier.add_argument("--linux-preimages", type=Path, required=True)
+    verifier.add_argument("--macos-preimages", type=Path, required=True)
 
     inspect = phases.add_parser("inspect", help="validate one diagnostic host receipt")
     inspect.add_argument("--protocol", type=Path, default=DEFAULT_PROTOCOL)
@@ -73,6 +80,7 @@ def _producer(args: argparse.Namespace) -> int:
         nonce = default_session_nonce()
     output, receipt, digest = produce(
         root=args.root.resolve(),
+        authority_root=args.authority_root.resolve(),
         protocol_path=args.protocol,
         product_schema_path=args.product_schema,
         workflow_path=args.workflow_definition,
@@ -84,6 +92,10 @@ def _producer(args: argparse.Namespace) -> int:
         run_attempt=run_attempt,
         session_nonce=nonce,
         attestation_mode=args.attestation,
+        authority_commit=args.authority_commit,
+        authority_tree=args.authority_tree,
+        authority_plan_sha256=args.authority_plan_sha256,
+        evidence_preimages_path=args.evidence_preimages,
     )
     print(
         f"architecture host receipt: {receipt['verdict']} "
@@ -98,6 +110,7 @@ def _verifier(args: argparse.Namespace) -> int:
         raise ReceiptError("aggregate verification requires the issued session nonce")
     output, receipt, digest = verify(
         root=args.root.resolve(),
+        authority_root=args.authority_root.resolve(),
         protocol_path=args.protocol,
         product_schema_path=args.product_schema,
         workflow_path=args.workflow_definition,
@@ -106,6 +119,8 @@ def _verifier(args: argparse.Namespace) -> int:
         output_root=args.output_root,
         candidate=args.candidate,
         session_nonce=nonce,
+        linux_preimages_path=args.linux_preimages,
+        macos_preimages_path=args.macos_preimages,
     )
     print(f"architecture aggregate receipt: {receipt['verdict']} {digest} {output}")
     return 0 if receipt["verdict"] == STATUS_PASS else 1

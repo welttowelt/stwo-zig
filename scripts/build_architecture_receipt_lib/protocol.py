@@ -5,13 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .codec import canonical_bytes, sha256_bytes, strict_json
+from .codec import canonical_bytes, sha256_bytes, sha256_file, strict_json
 from .model import (
     CHECKPOINT_RE,
     PROTOCOL_SCHEMA,
     ReceiptError,
     exact_object,
     require_non_negative_int,
+    require_hex64,
     require_safe_component,
     require_string,
 )
@@ -41,6 +42,8 @@ TRUST_FIELDS = {
     "repository_owner_id",
     "workflow_path",
     "workflow_ref",
+    "external_verifier_contract_path",
+    "external_verifier_contract_sha256",
 }
 ROLE_FIELDS = {"os", "producer_job", "allocated_checkpoints", "required_products"}
 
@@ -116,6 +119,14 @@ def validate_protocol(value: dict[str, Any]) -> dict[str, Any]:
             raise ReceiptError(f"trust.{field} must be positive")
     require_string(trust["workflow_path"], "trust.workflow_path")
     require_string(trust["workflow_ref"], "trust.workflow_ref")
+    require_string(
+        trust["external_verifier_contract_path"],
+        "trust.external_verifier_contract_path",
+    )
+    require_hex64(
+        trust["external_verifier_contract_sha256"],
+        "trust.external_verifier_contract_sha256",
+    )
     return value
 
 
@@ -125,4 +136,11 @@ def load_protocol(path: Path) -> tuple[dict[str, Any], str]:
     # Protocol files are deliberately much smaller than receipt limits.
     value = strict_json(path, 256 * 1024, require_canonical=False)
     validate_protocol(value)
+    trust = value["trust"]
+    root = path.resolve().parent.parent
+    contract = (root / trust["external_verifier_contract_path"]).resolve()
+    if not contract.is_relative_to(root) or not contract.is_file():
+        raise ReceiptError("external verifier contract is not repository-owned")
+    if sha256_file(contract) != trust["external_verifier_contract_sha256"]:
+        raise ReceiptError("external verifier contract digest mismatch")
     return value, sha256_bytes(canonical_bytes(value))
