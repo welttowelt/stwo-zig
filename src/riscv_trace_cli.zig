@@ -31,6 +31,7 @@ pub fn main() !void {
     defer std.process.argsFree(allocator, args);
 
     var elf_path: ?[]const u8 = null;
+    var input_path: ?[]const u8 = null;
     var output_path: ?[]const u8 = null;
     var decode_file: ?[]const u8 = null;
     var program_tuples: ?[]const u8 = null;
@@ -50,6 +51,8 @@ pub fn main() !void {
     while (i < args.len) : (i += 1) {
         if (std.mem.eql(u8, args[i], "--elf")) {
             try takeOptionValue(args, &i, &elf_path);
+        } else if (std.mem.eql(u8, args[i], "--input")) {
+            try takeOptionValue(args, &i, &input_path);
         } else if (std.mem.eql(u8, args[i], "--output")) {
             try takeOptionValue(args, &i, &output_path);
         } else if (std.mem.eql(u8, args[i], "--decode-file")) {
@@ -97,13 +100,22 @@ pub fn main() !void {
         relation_limitation,
     });
     if (help) {
-        if (mode_count != 0 or output_path != null or max_steps_set)
+        if (mode_count != 0 or output_path != null or input_path != null or max_steps_set)
             return error.ConflictingOptions;
         printUsage();
         return;
     }
     if (mode_count != 1) return error.ConflictingOptions;
     if (output_path != null and elf_path == null) return error.ConflictingOptions;
+    if (input_path != null and elf_path == null and relation_tuples == null and
+        relation_sums == null and public_values == null and relation_limitation == null)
+        return error.ConflictingOptions;
+
+    const input = if (input_path) |path|
+        try std.fs.cwd().readFileAlloc(allocator, path, 64 * 1024 * 1024)
+    else
+        try allocator.alloc(u8, 0);
+    defer allocator.free(input);
 
     if (decode_file) |path| {
         try dumpDecodeMatrix(allocator, path);
@@ -136,22 +148,22 @@ pub fn main() !void {
     }
 
     if (relation_tuples) |path| {
-        try dumpRelationEvidence(allocator, path, max_steps, .tuples);
+        try dumpRelationEvidence(allocator, path, input, max_steps, .tuples);
         return;
     }
 
     if (relation_sums) |path| {
-        try dumpRelationEvidence(allocator, path, max_steps, .sums);
+        try dumpRelationEvidence(allocator, path, input, max_steps, .sums);
         return;
     }
 
     if (public_values) |path| {
-        try dumpPublicValues(allocator, path, max_steps);
+        try dumpPublicValues(allocator, path, input, max_steps);
         return;
     }
 
     if (relation_limitation) |path| {
-        try dumpRelationLimitation(allocator, path, max_steps);
+        try dumpRelationLimitation(allocator, path, input, max_steps);
         return;
     }
 
@@ -163,7 +175,7 @@ pub fn main() !void {
     defer allocator.free(elf_bytes);
 
     // Execute.
-    var result = runner.run(allocator, elf_bytes, max_steps) catch |err| {
+    var result = runner.runWithInput(allocator, elf_bytes, input, max_steps) catch |err| {
         std.debug.print("error: execution failed: {}\n", .{err});
         std.process.exit(1);
     };
@@ -488,12 +500,13 @@ const RelationEvidenceMode = enum { tuples, sums };
 fn dumpRelationEvidence(
     allocator: std.mem.Allocator,
     path: []const u8,
+    input: []const u8,
     max_steps: usize,
     mode: RelationEvidenceMode,
 ) !void {
     const elf_bytes = try std.fs.cwd().readFileAlloc(allocator, path, 64 * 1024 * 1024);
     defer allocator.free(elf_bytes);
-    var result = try runner.runWithInput(allocator, elf_bytes, &.{}, max_steps);
+    var result = try runner.runWithInput(allocator, elf_bytes, input, max_steps);
     defer result.deinit();
     if (result.rw_memory.program_words.len == 0 or
         result.completion_reason != .halt_flag)
@@ -576,10 +589,15 @@ fn dumpRelationEvidence(
     try stdout.writeAll(out.items);
 }
 
-fn dumpPublicValues(allocator: std.mem.Allocator, path: []const u8, max_steps: usize) !void {
+fn dumpPublicValues(
+    allocator: std.mem.Allocator,
+    path: []const u8,
+    input: []const u8,
+    max_steps: usize,
+) !void {
     const elf_bytes = try std.fs.cwd().readFileAlloc(allocator, path, 64 * 1024 * 1024);
     defer allocator.free(elf_bytes);
-    var result = try runner.run(allocator, elf_bytes, max_steps);
+    var result = try runner.runWithInput(allocator, elf_bytes, input, max_steps);
     defer result.deinit();
     var owned = try public_values_diagnostic.derive(allocator, &result);
     defer owned.deinit(allocator);
@@ -600,11 +618,12 @@ fn dumpPublicValues(allocator: std.mem.Allocator, path: []const u8, max_steps: u
 fn dumpRelationLimitation(
     allocator: std.mem.Allocator,
     path: []const u8,
+    input: []const u8,
     max_steps: usize,
 ) !void {
     const elf_bytes = try std.fs.cwd().readFileAlloc(allocator, path, 64 * 1024 * 1024);
     defer allocator.free(elf_bytes);
-    var result = try runner.runWithInput(allocator, elf_bytes, &.{}, max_steps);
+    var result = try runner.runWithInput(allocator, elf_bytes, input, max_steps);
     defer result.deinit();
     if (result.rw_memory.program_words.len == 0 or
         result.completion_reason != .halt_flag)
@@ -635,6 +654,7 @@ fn printUsage() void {
         \\Options:
         \\  --elf <path>         Path to a RISC-V RV32IM ELF binary (required)
         \\  --output <path>      Write JSON trace to file (default: stdout)
+        \\  --input <path>       Load bytes into the ELF's declared input region
         \\  --max-steps <N>      Maximum execution steps (default: 1000000)
         \\  --relation-tuples <path>  Dump bound default-challenge tuple evidence
         \\  --relation-sums <path>    Dump bound default-challenge sum evidence

@@ -33,6 +33,11 @@ def main(argv: list[str] | None = None) -> int:
     candidate = parser.add_mutually_exclusive_group(required=True)
     candidate.add_argument("--candidate")
     candidate.add_argument("--candidate-head", action="store_true")
+    parser.add_argument(
+        "--at-receipt-time",
+        action="store_true",
+        help="validate immutable evidence at its recorded creation time",
+    )
     args = parser.parse_args(argv)
     expected_candidate = args.candidate
     if args.candidate_head:
@@ -53,7 +58,13 @@ def main(argv: list[str] | None = None) -> int:
         print("riscv release evidence: receipt root must be an object", file=sys.stderr)
         return 1
     try:
-        errors = receipt_errors(payload, expected_candidate)
+        validation_time = None
+        if args.at_receipt_time:
+            created_at = payload.get("created_at_unix")
+            if isinstance(created_at, bool) or not isinstance(created_at, int):
+                raise ValueError("receipt created_at_unix is not an integer")
+            validation_time = created_at
+        errors = receipt_errors(payload, expected_candidate, now=validation_time)
     except (OSError, ValueError, KeyError, TypeError) as error:
         print(f"riscv release evidence: invalid evidence contract: {error}", file=sys.stderr)
         return 1

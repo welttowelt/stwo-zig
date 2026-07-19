@@ -8,7 +8,6 @@
 
 const std = @import("std");
 const stwo = @import("stwo");
-const cli = @import("cli.zig");
 const registry = @import("registry.zig");
 const build_identity = @import("build_identity");
 const transcript_state = @import("starkv_adapter/transcript_state.zig");
@@ -33,16 +32,17 @@ pub const Benchmark = struct {
     profiled: bool,
 };
 
+pub const Backend = enum { cpu, unavailable_device };
+pub const Protocol = enum { secure, functional, smoke };
+
 pub const Mode = union(enum) {
     prove,
     bench: Benchmark,
 };
 
 pub const Options = struct {
-    backend: cli.Backend,
-    protocol: cli.Protocol,
-    blake2_backend: cli.Blake2Backend,
-    metal_runtime: cli.MetalRuntime,
+    backend: Backend,
+    protocol: Protocol,
     mode: Mode,
     experimental: bool,
     /// Sibling temporary path owned and published by the CLI transaction.
@@ -373,8 +373,6 @@ fn runBenchmark(
         const report_raw = try runProve(allocator, elf_path, input_path, .{
             .backend = options.backend,
             .protocol = options.protocol,
-            .blake2_backend = options.blake2_backend,
-            .metal_runtime = options.metal_runtime,
             .mode = .prove,
             .experimental = options.experimental,
             .proof_temporary = path,
@@ -478,7 +476,7 @@ fn runBenchmark(
     return std.json.Stringify.valueAlloc(allocator, report, .{});
 }
 
-fn stagedPcsConfig(protocol: cli.Protocol) stwo.core.pcs.PcsConfig {
+fn stagedPcsConfig(protocol: Protocol) stwo.core.pcs.PcsConfig {
     return switch (protocol) {
         .secure => .{
             .pow_bits = 26,
@@ -515,7 +513,7 @@ fn stagedPcsConfig(protocol: cli.Protocol) stwo.core.pcs.PcsConfig {
 pub fn verifyArtifact(
     allocator: std.mem.Allocator,
     artifact: stwo.interop.riscv_artifact.Artifact,
-    requested_policy: cli.Protocol,
+    requested_policy: Protocol,
     expected_statement_digest: [32]u8,
 ) !void {
     const artifact_mod = stwo.interop.riscv_artifact;
@@ -716,8 +714,6 @@ test "adapter preserves the complete sampled benchmark contract" {
     const options = Options{
         .backend = .cpu,
         .protocol = .functional,
-        .blake2_backend = .simd,
-        .metal_runtime = .{},
         .mode = .{ .bench = .{ .warmups = 3, .samples = 7, .profiled = true } },
         .experimental = !registry.RISCV_ADAPTER_RELEASE_GATED,
         .proof_temporary = "proof.tmp",
@@ -734,7 +730,7 @@ test "adapter preserves the complete sampled benchmark contract" {
 
 test "adapter PCS profiles satisfy their advertised artifact policies" {
     const cases = [_]struct {
-        protocol: cli.Protocol,
+        protocol: Protocol,
         pow_bits: u32,
         n_queries: usize,
     }{

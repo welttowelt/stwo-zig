@@ -22,10 +22,8 @@ Validator:
 from __future__ import annotations
 
 import argparse
-import contextlib
 import hashlib
 import json
-import platform
 import subprocess
 import sys
 import tempfile
@@ -39,6 +37,20 @@ from riscv_release_oracle_lib.witness import (
     load_trace_vectors,
 )
 from riscv_release_oracle_lib.relations import compare_relation_boundaries
+from riscv_release_oracle_lib import build_cache
+from riscv_release_oracle_lib.oracle_build import (
+    ADAPTER_LIMITATION_SOURCE_PATH,
+    ADAPTER_OVERLAYS,
+    ADAPTER_SOURCE_PATH,
+    ADAPTER_SUMS_SOURCE_PATH,
+    ADAPTER_TUPLES_SOURCE_PATH,
+    PROVER_MANIFEST_REL,
+    SHA2_DEPENDENCY,
+    _promote_locked_sha2_dependency,
+    _temporary_sha2_dependency,
+    build_oracle,
+    resolve_build_inputs,
+)
 from riscv_release_oracle_lib.public_values import (
     IMPLEMENTATION_REPOSITORY,
     PINNED_ORACLE,
@@ -60,33 +72,6 @@ UNSUPPORTED_PROOF_FAMILY_STDERR = (
     "stage=statement_validation_before_first_commitment "
     "limitation=stark-v-signed-mulh\n"
 )
-
-# The trace-dump adapter is a thin serializer over the oracle's own runner
-# crate (a duplicated standalone model is not acceptable per CP-11; a
-# recorded overlay that only formats RunResult is). Its exact content is
-# hashed into the receipt.
-ADAPTER_REL = "crates/prover/src/bin/cp11_dump.rs"
-ADAPTER_SOURCE_PATH = ROOT / "scripts" / "riscv_release_oracle_lib" / "cp11_dump.rs"
-ADAPTER_SUMS_REL = "crates/prover/src/bin/cp11_dump/relation_sums.rs"
-ADAPTER_SUMS_SOURCE_PATH = (
-    ROOT / "scripts" / "riscv_release_oracle_lib" / "cp11_dump" / "relation_sums.rs"
-)
-ADAPTER_TUPLES_REL = "crates/prover/src/bin/cp11_dump/relation_tuples.rs"
-ADAPTER_TUPLES_SOURCE_PATH = (
-    ROOT / "scripts" / "riscv_release_oracle_lib" / "cp11_dump" / "relation_tuples.rs"
-)
-ADAPTER_LIMITATION_REL = "crates/prover/src/bin/cp11_dump/relation_limitation.rs"
-ADAPTER_LIMITATION_SOURCE_PATH = (
-    ROOT / "scripts" / "riscv_release_oracle_lib" / "cp11_dump" / "relation_limitation.rs"
-)
-ADAPTER_OVERLAYS = (
-    (ADAPTER_REL, ADAPTER_SOURCE_PATH),
-    (ADAPTER_SUMS_REL, ADAPTER_SUMS_SOURCE_PATH),
-    (ADAPTER_TUPLES_REL, ADAPTER_TUPLES_SOURCE_PATH),
-    (ADAPTER_LIMITATION_REL, ADAPTER_LIMITATION_SOURCE_PATH),
-)
-PROVER_MANIFEST_REL = "crates/prover/Cargo.toml"
-SHA2_DEPENDENCY = 'sha2 = { version = "0.10", default-features = false }'
 
 BOUNDARIES = [
     "decode",
@@ -110,76 +95,9 @@ def _sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _tree_digest(source: Path) -> str:
-    out = _run(["git", "ls-files", "-s"], cwd=source)
-    return hashlib.sha256(out.encode()).hexdigest()
-
-
 def _canonical_digest(value: object) -> str:
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
-
-
-def _promote_locked_sha2_dependency(original: bytes) -> tuple[bytes, dict[str, str]]:
-    """Temporarily expose the pinned manifest's already-locked SHA-256 crate.
-
-    The CP-11 serializer needs SHA-256 but must not modify the pinned lockfile or
-    permanently mutate the oracle checkout. Fail closed if the pinned manifest
-    no longer has the exact dependency/section shape reviewed here.
-    """
-    try:
-        text = original.decode("utf-8")
-    except UnicodeDecodeError as error:
-        raise SystemExit("pinned prover manifest is not UTF-8") from error
-    lines = text.splitlines(keepends=True)
-    logical = [line.rstrip("\r\n") for line in lines]
-    if logical.count("[dependencies]") != 1 or logical.count("[dev-dependencies]") != 1:
-        raise SystemExit("pinned prover manifest has unexpected dependency sections")
-    if logical.count(SHA2_DEPENDENCY) != 1:
-        raise SystemExit("pinned prover manifest has unexpected sha2 dependency shape")
-    dependencies_index = logical.index("[dependencies]")
-    dev_dependencies_index = logical.index("[dev-dependencies]")
-    sha2_index = logical.index(SHA2_DEPENDENCY)
-    next_section_index = next(
-        (
-            index
-            for index in range(dev_dependencies_index + 1, len(logical))
-            if logical[index].startswith("[") and logical[index].endswith("]")
-        ),
-        len(logical),
-    )
-    if not dependencies_index < dev_dependencies_index < sha2_index < next_section_index:
-        raise SystemExit("pinned sha2 dependency is not in [dev-dependencies]")
-
-    sha2_line = lines.pop(sha2_index)
-    lines.insert(dependencies_index + 1, sha2_line)
-    transformed = "".join(lines).encode("utf-8")
-    before_sha256 = hashlib.sha256(original).hexdigest()
-    after_sha256 = hashlib.sha256(transformed).hexdigest()
-    patch_record = {
-        "operation": "promote_locked_dev_dependency",
-        "path": PROVER_MANIFEST_REL,
-        "dependency": SHA2_DEPENDENCY,
-        "before_sha256": before_sha256,
-        "after_sha256": after_sha256,
-    }
-    return transformed, {
-        **patch_record,
-        "sha256": after_sha256,
-        "patch_sha256": _canonical_digest(patch_record),
-    }
-
-
-@contextlib.contextmanager
-def _temporary_sha2_dependency(source: Path):
-    manifest = source / PROVER_MANIFEST_REL
-    original = manifest.read_bytes()
-    transformed, evidence = _promote_locked_sha2_dependency(original)
-    try:
-        manifest.write_bytes(transformed)
-        yield evidence
-    finally:
-        manifest.write_bytes(original)
 
 
 def require_clean_candidate(root: Path, candidate: str) -> None:
@@ -258,78 +176,6 @@ def finalize_case_result_digests(receipt: dict) -> None:
                 digests[f"{boundary_name}/{name}"] = _canonical_digest(case)
     receipt["expected_case_result_keys"] = sorted(set(expected))
     receipt["case_result_digests"] = dict(sorted(digests.items()))
-
-
-def build_oracle(source: Path, receipt: dict) -> Path:
-    head = _run(["git", "rev-parse", "HEAD"], cwd=source).strip()
-    if head != PINNED:
-        raise SystemExit(f"oracle checkout at {head}, pinned {PINNED}")
-    dirty = subprocess.run(
-        ["git", "status", "--porcelain"], cwd=source, check=True, capture_output=True, text=True
-    ).stdout.strip()
-    if dirty:
-        raise SystemExit("oracle checkout is not clean; refusing to build")
-    submodule = _run(["git", "submodule", "status", "--recursive"], cwd=source)
-    invalid_submodules = [
-        line for line in submodule.splitlines()
-        if line and line[0] != " "
-    ]
-    if invalid_submodules:
-        raise SystemExit(
-            "oracle submodules are not initialized at the recorded commits: "
-            + "; ".join(invalid_submodules)
-        )
-    tree_digest = _tree_digest(source)
-    with _temporary_sha2_dependency(source) as manifest_evidence:
-        overlay_files = [manifest_evidence]
-        overlay_paths = []
-        try:
-            for relative_path, source_path in ADAPTER_OVERLAYS:
-                payload = source_path.read_bytes()
-                destination = source / relative_path
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                destination.write_bytes(payload)
-                overlay_paths.append(destination)
-                overlay_files.append(
-                    {
-                        "path": relative_path,
-                        "sha256": hashlib.sha256(payload).hexdigest(),
-                    }
-                )
-            toolchain = _run(["rustc", "--version"], cwd=source).strip()
-            build_cmd = ["cargo", "build", "--locked", "--release", "-p", "prover"]
-            _run(build_cmd, cwd=source)
-            exe = source / "target" / "release" / "cp11_dump"
-            receipt["oracle"] = {
-                "repository": "https://github.com/ClementWalter/stark-v",
-                "commit": head,
-                "clean": True,
-                "tree_digest_sha256": tree_digest,
-                "submodule_status": submodule.strip().splitlines(),
-                "lockfile_sha256": _sha256_file(source / "Cargo.lock"),
-                "toolchain": toolchain,
-                "build_command": " ".join(build_cmd),
-                "build_mode": "release",
-                "adapter_overlay": {
-                    "path": ADAPTER_REL,
-                    "sha256": _canonical_digest(overlay_files),
-                    "files": overlay_files,
-                    "note": "aggregate identity of thin serializers over the oracle's "
-                    "own production APIs and a recorded, temporary manifest transform; "
-                    "applied after tree digest, removed after build",
-                },
-                "executable_sha256": _sha256_file(exe),
-                "host_arch": platform.machine(),
-                "host_os": f"{platform.system()} {platform.release()}",
-            }
-            return exe
-        finally:
-            for overlay_path in reversed(overlay_paths):
-                overlay_path.unlink(missing_ok=True)
-            try:
-                (source / ADAPTER_REL).parent.rmdir()
-            except OSError:
-                pass
 
 
 def compare_execution(oracle_exe: Path, receipt: dict) -> None:
@@ -780,7 +626,8 @@ def build_and_compare(args) -> int:
         "case_result_digests": {},
         "boundaries": {name: {"status": "unimplemented"} for name in BOUNDARIES},
     }
-    oracle_exe = build_oracle(source, receipt)
+    cache_dir = Path(args.oracle_cache_dir).expanduser().resolve()
+    oracle_exe = build_oracle(source, receipt, PINNED, cache_dir)
     compare_execution(oracle_exe, receipt)
     compare_per_family_witness_rows(oracle_exe, receipt, ROOT, PINNED)
     compare_ordered_accesses(oracle_exe, receipt, ROOT, PINNED)
@@ -829,6 +676,13 @@ def validate(args) -> int:
     return 1 if errors else 0
 
 
+def print_cache_key(args) -> int:
+    source = Path(args.stark_v_source).resolve()
+    inputs = resolve_build_inputs(source, PINNED)
+    print(build_cache.actions_cache_key(inputs.identity))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="mode", required=True)
@@ -836,10 +690,21 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--stark-v-source", required=True)
     p.add_argument("--candidate", required=True)
     p.add_argument("--receipt-out", required=True)
+    p.add_argument(
+        "--oracle-cache-dir",
+        default=str(build_cache.default_cache_dir()),
+        help="persistent content-addressed CP-11 helper cache",
+    )
     p = sub.add_parser("validate")
     p.add_argument("--receipt", required=True)
+    p = sub.add_parser("cache-key")
+    p.add_argument("--stark-v-source", required=True)
     args = parser.parse_args(argv)
-    return build_and_compare(args) if args.mode == "build-and-compare" else validate(args)
+    if args.mode == "build-and-compare":
+        return build_and_compare(args)
+    if args.mode == "cache-key":
+        return print_cache_key(args)
+    return validate(args)
 
 
 if __name__ == "__main__":
