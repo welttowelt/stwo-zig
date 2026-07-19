@@ -27,6 +27,7 @@ import json
 import platform
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -37,11 +38,27 @@ from riscv_release_oracle_lib.witness import (
     load_trace_vectors,
 )
 from riscv_release_oracle_lib.relations import compare_relation_boundaries
+from riscv_release_oracle_lib.public_values import (
+    IMPLEMENTATION_REPOSITORY,
+    PINNED_ORACLE,
+    PUBLIC_DATA_FIELDS,
+    PUBLIC_VALUES_DERIVATION,
+    PUBLIC_VALUES_SCHEMA,
+    parse_proof_artifact_public_data,
+    parse_public_values_diagnostic,
+    strict_object as _strict_object,
+    validate_public_data_shape as _validate_public_data_shape,
+)
+from riscv_trace_vectors_lib import admission as trace_admission
 
 ROOT = Path(__file__).resolve().parent.parent
-PINNED = "d478f783055aa0d73a93768a433a3c6c31c91d1c"
-IMPLEMENTATION_REPOSITORY = "https://github.com/teddyjfpender/stwo-zig"
+PINNED = PINNED_ORACLE
 MAX_RECEIPT_BYTES = 64 * 1024 * 1024
+UNSUPPORTED_PROOF_FAMILY_STDERR = (
+    "stark-v adapter: error=UnsupportedProofFamily "
+    "stage=statement_validation_before_first_commitment "
+    "limitation=stark-v-signed-mulh\n"
+)
 
 # The trace-dump adapter is a thin serializer over the oracle's own runner
 # crate (a duplicated standalone model is not acceptable per CP-11; a
@@ -77,7 +94,6 @@ BOUNDARIES = [
     "shared_transcript_prefix",
 ]
 
-
 def _run(cmd: list[str], cwd: Path | None = None) -> str:
     return subprocess.run(cmd, cwd=cwd, check=True, capture_output=True, text=True).stdout
 
@@ -94,15 +110,6 @@ def _tree_digest(source: Path) -> str:
 def _canonical_digest(value: object) -> str:
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
-
-
-def _strict_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
-    result: dict[str, object] = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError(f"duplicate JSON field: {key}")
-        result[key] = value
-    return result
 
 
 def require_clean_candidate(root: Path, candidate: str) -> None:
@@ -289,57 +296,184 @@ def compare_execution(oracle_exe: Path, receipt: dict) -> None:
 
 
 def compare_public_values(oracle_exe: Path, receipt: dict) -> None:
-    """Public-values boundary: the oracle's own PublicData::new(run) against
-    the public data the Zig proof artifact actually binds, per corpus ELF."""
-    import tempfile
+    """Compare Rust public data to the exact production or diagnostic boundary.
 
-    subprocess.run(["zig", "build", "stwo-zig", "-Doptimize=ReleaseFast"], cwd=ROOT, check=True)
+    Supported vectors must publish a real proof artifact and are compared from
+    the public statement it binds. Explicit family-wide limitations instead
+    use the proof-independent tree-builder diagnostic, while the same installed
+    CLI must reject proving before commitment and publish no outputs.
+    """
+    subprocess.run(
+        ["zig", "build", "stwo-zig", "-Doptimize=ReleaseFast"],
+        cwd=ROOT,
+        check=True,
+    )
     cli = ROOT / "zig-out" / "bin" / "stwo-zig"
+    trace_dump = ROOT / "zig-out" / "bin" / "riscv-trace-dump"
     record_implementation_executable(receipt, "stwo-zig", cli, oracle_exe)
-    vectors = json.loads((ROOT / "vectors" / "riscv_elfs" / "trace_vectors.json").read_text())
+    vectors = load_trace_vectors(ROOT, PINNED, receipt)
+    expected_admission = trace_admission.for_programs(
+        vector["name"] for vector in vectors["vectors"]
+    )
+    admission_errors = trace_admission.errors(vectors["vectors"], expected_admission)
+    if admission_errors:
+        raise SystemExit("invalid proof-admission policy: " + "; ".join(admission_errors))
     cases = []
     all_ok = True
-    scalar_fields = ["initial_pc", "final_pc", "clock", "initial_regs", "final_regs",
-                     "reg_last_clock", "program_root", "initial_rw_root", "final_rw_root"]
-    io_fields = ["input_start", "input_len", "input_words", "output_len",
-                 "output_len_addr", "output_data_addr"]
+    witness_digest = receipt.get("witness_layout_digest_sha256")
+    if not isinstance(witness_digest, str):
+        raise SystemExit("public-values comparison has no live witness-layout digest")
     for vector in vectors["vectors"]:
         elf = ROOT / vector["elf"]
-        rust = json.loads(_run([str(oracle_exe), "--elf", str(elf)]))["public_data"]
-        with tempfile.TemporaryDirectory() as tmp:
-            artifact_path = Path(tmp) / "a.json"
-            _run([str(cli), "prove", "--elf", str(elf.relative_to(ROOT)), "--backend", "cpu",
-                  "--protocol", "functional", "--experimental", "--output",
-                  str(artifact_path)], cwd=ROOT)
-            artifact = json.loads(artifact_path.read_text())
-            zig = artifact["statement"]["public_data"]
-        mismatches = []
-        provenance = artifact.get("provenance", {})
-        expected_provenance = {
-            "oracle_commit": PINNED,
-            "implementation_commit": receipt["candidate_commit"],
-            "implementation_dirty": False,
-            "witness_layout_sha256": receipt.get("witness_layout_digest_sha256"),
-        }
-        for field, expected in expected_provenance.items():
-            if provenance.get(field) != expected:
-                mismatches.append(f"provenance.{field}")
-        for field in scalar_fields:
-            if rust[field] != zig[field]:
-                mismatches.append(field)
-        for field in io_fields:
-            if rust["io_entries"][field] != zig[field]:
-                mismatches.append(f"io.{field}")
-        rust_outputs = [[w["addr"], w["value"], w["clock"]] for w in rust["io_entries"]["output_words"]]
-        zig_outputs = [[w["addr"], w["value"], w["clock"]] for w in zig["output_words"]]
-        if rust_outputs != zig_outputs:
-            mismatches.append("io.output_words")
+        rust_payload = json.loads(
+            _run([str(oracle_exe), "--elf", str(elf)]),
+            object_pairs_hook=_strict_object,
+        )
+        rust = _validate_public_data_shape(rust_payload["public_data"], "Rust public_data")
+        input_bytes = b"".join(
+            word.to_bytes(4, "little") for word in rust["io_entries"]["input_words"]
+        )[:rust["io_entries"]["input_len"]]
+        input_digest = hashlib.sha256(input_bytes).hexdigest()
+        admission = vector["proof_admission"]
+        status = admission["status"]
+        boundary_error = None
+        rejection = None
+        with tempfile.TemporaryDirectory() as directory:
+            proof_path = Path(directory) / "proof.json"
+            report_path = Path(directory) / "report.json"
+            if status == trace_admission.SUPPORTED:
+                try:
+                    _run(
+                        [
+                            str(cli),
+                            "prove",
+                            "--elf",
+                            str(elf),
+                            "--backend",
+                            "cpu",
+                            "--protocol",
+                            "functional",
+                            "--experimental",
+                            "--output",
+                            str(proof_path),
+                        ],
+                        cwd=ROOT,
+                    )
+                    zig = parse_proof_artifact_public_data(
+                        proof_path.read_text(encoding="utf-8"),
+                        candidate=receipt["candidate_commit"],
+                        witness_layout_sha256=witness_digest,
+                        elf_sha256=vector["elf_sha256"],
+                        input_sha256=input_digest,
+                    )
+                    mismatches = [
+                        field for field in PUBLIC_DATA_FIELDS if rust[field] != zig[field]
+                    ]
+                except (
+                    KeyError,
+                    OSError,
+                    TypeError,
+                    ValueError,
+                    json.JSONDecodeError,
+                    subprocess.SubprocessError,
+                ) as error:
+                    mismatches = ["proof_artifact_contract"]
+                    boundary_error = str(error)
+                mode = "production_proof_artifact"
+            else:
+                try:
+                    diagnostic_raw = _run(
+                        [str(trace_dump), "--public-values", str(elf)],
+                        cwd=ROOT,
+                    )
+                    zig = parse_public_values_diagnostic(
+                        diagnostic_raw,
+                        candidate=receipt["candidate_commit"],
+                        witness_layout_sha256=witness_digest,
+                        elf_sha256=vector["elf_sha256"],
+                        input_sha256=input_digest,
+                    )
+                    mismatches = [
+                        field for field in PUBLIC_DATA_FIELDS if rust[field] != zig[field]
+                    ]
+                except (
+                    KeyError,
+                    OSError,
+                    TypeError,
+                    ValueError,
+                    json.JSONDecodeError,
+                    subprocess.SubprocessError,
+                ) as error:
+                    mismatches = ["diagnostic_contract"]
+                    boundary_error = str(error)
+                process = subprocess.run(
+                    [
+                        str(cli),
+                        "prove",
+                        "--elf",
+                        str(elf),
+                        "--backend",
+                        "cpu",
+                        "--protocol",
+                        "functional",
+                        "--experimental",
+                        "--output",
+                        str(proof_path),
+                        "--report-out",
+                        str(report_path),
+                    ],
+                    cwd=ROOT,
+                    capture_output=True,
+                    text=True,
+                )
+                temporary_residue = sorted(
+                    path.name for path in Path(directory).iterdir()
+                    if path != proof_path and path != report_path
+                )
+                rejection_ok = (
+                    process.returncode == 1
+                    and process.stdout == ""
+                    and process.stderr == UNSUPPORTED_PROOF_FAMILY_STDERR
+                    and not proof_path.exists()
+                    and not report_path.exists()
+                    and not temporary_residue
+                )
+                if not rejection_ok:
+                    mismatches.append("typed_precommit_rejection")
+                rejection = {
+                    "error": "UnsupportedProofFamily",
+                    "stage": "statement_validation_before_first_commitment",
+                    "returncode": process.returncode,
+                    "stdout_empty": process.stdout == "",
+                    "stderr_exact": process.stderr == UNSUPPORTED_PROOF_FAMILY_STDERR,
+                    "proof_artifact_published": proof_path.exists(),
+                    "report_published": report_path.exists(),
+                    "temporary_residue": temporary_residue,
+                }
+                mode = "tree_builder_diagnostic_and_production_rejection"
         ok = not mismatches
         all_ok = all_ok and ok
-        cases.append({"name": vector["name"], "agree": ok, "mismatches": mismatches})
+        case = {
+            "name": vector["name"],
+            "elf_sha256": vector["elf_sha256"],
+            "input_sha256": input_digest,
+            "proof_admission": admission,
+            "mode": mode,
+            "agree": ok,
+            "mismatches": mismatches,
+        }
+        if rejection is not None:
+            case["production_rejection"] = rejection
+        if boundary_error is not None:
+            case["boundary_error"] = boundary_error
+        cases.append(case)
     receipt["boundaries"]["public_values"] = {
         "status": "pass" if all_ok else "fail",
-        "fields": scalar_fields + [f"io.{f}" for f in io_fields] + ["io.output_words"],
+        "comparison": "supported=Rust PublicData::new versus production proof artifact; "
+        "fail-closed=Rust PublicData::new versus tree-builder diagnostic plus typed "
+        "precommit production rejection",
+        "diagnostic_schema": PUBLIC_VALUES_SCHEMA,
+        "fields": list(PUBLIC_DATA_FIELDS),
         "corpus": cases,
     }
 
@@ -381,9 +515,7 @@ def compare_decode(oracle_exe: Path, receipt: dict) -> None:
     canonical line format, byte-compared."""
     import tempfile
 
-    subprocess.run(["zig", "build", "riscv-trace-dump", "-Doptimize=ReleaseFast"], cwd=ROOT, check=True)
     zig_exe = ROOT / "zig-out" / "bin" / "riscv-trace-dump"
-    record_implementation_executable(receipt, "riscv-trace-dump", zig_exe, oracle_exe)
     with tempfile.TemporaryDirectory() as tmp:
         corpus = Path(tmp) / "words.bin"
         payload = decode_corpus()
