@@ -20,7 +20,7 @@ pub const N_MAIN_COLUMNS: usize = 10;
 /// Exact schema pairing: children; parent + Poseidon input; Poseidon output.
 pub const N_SUMS: usize = 3;
 pub const N_INTERACTION_COLUMNS: usize = N_SUMS * 4;
-pub const N_CONSTRAINTS: usize = N_SUMS + 4;
+pub const N_CONSTRAINTS: usize = N_SUMS + 7;
 pub const Previous = [N_SUMS][4][]M31;
 
 const INV2: QM31 = QM31.fromBase(M31.fromU64(1073741824));
@@ -185,6 +185,10 @@ pub fn evaluate(
     result[N_SUMS + 1] = multiplicityConstraint(main[6]);
     result[N_SUMS + 2] = multiplicityConstraint(main[7]);
     result[N_SUMS + 3] = multiplicityConstraint(main[8]);
+    const is_padding = QM31.one().sub(is_active);
+    result[N_SUMS + 4] = main[6].mul(is_padding);
+    result[N_SUMS + 5] = main[7].mul(is_padding);
+    result[N_SUMS + 6] = main[8].mul(is_padding);
     return result;
 }
 
@@ -403,4 +407,40 @@ test "Merkle node AIR: leaves, nodes, hashes, and public root cancel" {
             &relations,
         );
     }
+}
+
+test "Merkle node AIR: inactive rows cannot inject un-hashed tree edges" {
+    const zero = QM31.zero();
+    const relations = relations_mod.Relations.dummy();
+    var main = [_]QM31{zero} ** N_MAIN_COLUMNS;
+    main[6] = QM31.one();
+    main[7] = QM31.one();
+    main[8] = QM31.fromBase(M31.fromU64(2));
+
+    const constraints = evaluate(
+        main,
+        zero,
+        zero,
+        .{zero} ** N_SUMS,
+        .{zero} ** N_SUMS,
+        .{zero} ** N_SUMS,
+        &relations,
+    );
+    try std.testing.expect(!constraints[N_SUMS + 4].isZero());
+    try std.testing.expect(!constraints[N_SUMS + 5].isZero());
+    try std.testing.expect(!constraints[N_SUMS + 6].isZero());
+
+    main[6] = zero;
+    main[7] = zero;
+    main[8] = zero;
+    const padding = evaluate(
+        main,
+        zero,
+        zero,
+        .{zero} ** N_SUMS,
+        .{zero} ** N_SUMS,
+        .{zero} ** N_SUMS,
+        &relations,
+    );
+    for (padding[N_SUMS + 4 ..]) |constraint| try std.testing.expect(constraint.isZero());
 }

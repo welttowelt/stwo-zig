@@ -11,7 +11,7 @@ const commitment = @import("commitment.zig");
 
 pub const N_SUMS: usize = 3;
 pub const N_COLUMNS: usize = N_SUMS * 4;
-pub const N_CONSTRAINTS: usize = N_SUMS + 1;
+pub const N_CONSTRAINTS: usize = N_SUMS + 2;
 pub const Previous = [N_SUMS][4][]M31;
 
 pub const Claims = struct {
@@ -107,6 +107,7 @@ pub fn evaluate(
         );
     }
     result[N_SUMS] = main[0].sub(is_active);
+    result[N_SUMS + 1] = main[6].mul(QM31.one().sub(is_active));
     return result;
 }
 
@@ -236,4 +237,33 @@ test "program interaction: exact declaration order uses three pair columns" {
     try std.testing.expect(!pairs[0].n1.isZero());
     try std.testing.expect(!pairs[0].n2.isZero());
     try std.testing.expect(pairs[2].n2.isZero());
+}
+
+test "program interaction: inactive rows cannot inject program multiplicity" {
+    const zero = QM31.zero();
+    const relations = relations_mod.Relations.dummy();
+    var main = [_]QM31{zero} ** commitment.N_MAIN_COLUMNS;
+    main[6] = QM31.one();
+    const forged = evaluate(
+        main,
+        zero,
+        zero,
+        .{zero} ** N_SUMS,
+        .{zero} ** N_SUMS,
+        .{zero} ** N_SUMS,
+        &relations,
+    );
+    try std.testing.expect(!forged[N_SUMS + 1].isZero());
+
+    main[6] = zero;
+    const padding = evaluate(
+        main,
+        zero,
+        zero,
+        .{zero} ** N_SUMS,
+        .{zero} ** N_SUMS,
+        .{zero} ** N_SUMS,
+        &relations,
+    );
+    try std.testing.expect(padding[N_SUMS + 1].isZero());
 }
