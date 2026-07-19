@@ -442,12 +442,12 @@ class RunnerReceiptTests(unittest.TestCase):
                     cache_root=None,
                 )
 
-    @unittest.skipUnless(sys.platform == "darwin", "macOS compatibility rule")
     def test_macos_can_run_linux_compatible_lane_only_when_explicit(self) -> None:
         policy = runner_policy([["tool"]], host="linux")
         captured: list[tuple[list[str], dict[str, object]]] = []
         with tempfile.TemporaryDirectory() as raw:
             with (
+                mock.patch.object(ci_scope_run.sys, "platform", "darwin"),
                 mock.patch.object(
                     ci_scope_run.subprocess,
                     "run",
