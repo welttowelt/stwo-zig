@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import hashlib
 import json
 import os
@@ -22,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[2]
 EVIDENCE_BASE = ROOT / "zig-out/release-evidence/riscv/runs"
 MAX_CAPTURE_CHARS = 16_384
 DEFAULT_COMMAND_TIMEOUT_SECONDS = 3_600.0
+HEARTBEAT_SECONDS = 30.0
 HOSTED_NO_DEVICE_ALLOWANCE = "STWO_ZIG_ALLOW_EXPLICIT_NO_METAL_DEVICE"
 
 
@@ -129,14 +131,26 @@ def _capture(
     started_at = time.time_ns()
     started = time.monotonic_ns()
     try:
-        completed = subprocess.run(
-            command,
-            cwd=root,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-        )
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(
+                subprocess.run,
+                command,
+                cwd=root,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds,
+            )
+            while True:
+                try:
+                    completed = future.result(timeout=HEARTBEAT_SECONDS)
+                    break
+                except concurrent.futures.TimeoutError:
+                    elapsed = (time.monotonic_ns() - started) / 1_000_000_000
+                    print(
+                        f"  still running ({elapsed:.0f}s): {shlex.join(command)}",
+                        flush=True,
+                    )
         code = completed.returncode
         stdout = completed.stdout
         stderr = completed.stderr
@@ -257,16 +271,33 @@ def run_gate(
     failures.extend(repository_contract_errors(root, phase))
 
     if not failures:
-        for command in commands:
-            print(f"+ {shlex.join(command)}", flush=True)
+        for index, command in enumerate(commands, start=1):
+            print(
+                f"[{index}/{len(commands)}] START {shlex.join(command)}",
+                flush=True,
+            )
             record = runner(command, root)
             records.append(record)
             if record["exit_code"] != 0:
+                print(
+                    f"[{index}/{len(commands)}] FAIL "
+                    f"{record.get('duration_ns', 0) / 1_000_000_000:.3f}s",
+                    flush=True,
+                )
                 failures.append(f"command failed: {record['command_shell']}")
                 break
             if record.get("skipped_tests", 0) != 0:
+                print(
+                    f"[{index}/{len(commands)}] FAIL skipped required tests",
+                    flush=True,
+                )
                 failures.append(f"required tests were skipped: {record['command_shell']}")
                 break
+            print(
+                f"[{index}/{len(commands)}] PASS "
+                f"{record.get('duration_ns', 0) / 1_000_000_000:.3f}s",
+                flush=True,
+            )
 
     final_status = git_status(root)
     if final_status:
