@@ -43,7 +43,8 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(first["state"], "received")
         with self.assertRaises(StoreError):
             self.store.create_submission(record("c" * 40))
-        self.store.transition(first["id"], {"received"}, "rejected", "test")
+        self.store.transition(first["id"], {"received"}, "validating", "test")
+        self.store.transition(first["id"], {"validating"}, "rejected", "test")
         with self.assertRaises(StoreError):
             self.store.create_submission(record())
 
@@ -51,8 +52,9 @@ class StoreTest(unittest.TestCase):
         item = self.store.create_submission(record(coauthors=[{
             "login": "bob", "status": "pending",
         }]))
+        self.store.transition(item["id"], {"received"}, "validating", "intake")
         self.store.transition(
-            item["id"], {"received"}, "awaiting_coauthors", "source verified",
+            item["id"], {"validating"}, "awaiting_coauthors", "source verified",
         )
         updated = self.store.accept_coauthor(item["id"], person(2, "bob"))
         self.assertEqual(updated["state"], "queued")
@@ -65,7 +67,8 @@ class StoreTest(unittest.TestCase):
 
     def test_same_tree_cannot_grind_a_new_holdout_seed(self):
         first = self.store.create_submission(record(tree="a" * 40))
-        self.store.transition(first["id"], {"received"}, "rejected", "test")
+        self.store.transition(first["id"], {"received"}, "validating", "test")
+        self.store.transition(first["id"], {"validating"}, "rejected", "test")
         with self.assertRaisesRegex(StoreError, "tree was already submitted"):
             self.store.create_submission(record("c" * 40, tree="a" * 40))
 

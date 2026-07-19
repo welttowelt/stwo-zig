@@ -24,6 +24,25 @@ ACTIVE_STATES = {
 }
 TERMINAL_STATES = {"promoted", "neutral", "rejected", "stale", "withdrawn"}
 ALL_STATES = ACTIVE_STATES | TERMINAL_STATES
+STATE_TRANSITIONS = {
+    "received": frozenset({"validating", "withdrawn"}),
+    "validating": frozenset({
+        "awaiting_coauthors", "queued", "rejected", "withdrawn",
+    }),
+    "awaiting_coauthors": frozenset({"queued", "withdrawn"}),
+    "queued": frozenset({"judging", "withdrawn"}),
+    "judging": frozenset({"promotable", "neutral", "rejected", "stale"}),
+    "promotable": frozenset({"promoting"}),
+    "promoting": frozenset({"promoting", "promoted", "stale", "promotion_error"}),
+    # Only an authenticated operator may perform this recovery via the admin
+    # claim endpoint, after repairing the canonical checkout.
+    "promotion_error": frozenset({"promotable"}),
+    "promoted": frozenset(),
+    "neutral": frozenset(),
+    "rejected": frozenset(),
+    "stale": frozenset(),
+    "withdrawn": frozenset(),
+}
 _THREAD_LOCK = threading.RLock()
 
 
@@ -33,6 +52,13 @@ class StoreError(RuntimeError):
 
 def _utc_now() -> str:
     return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def require_transition(source: str, target: str) -> None:
+    if source not in ALL_STATES or target not in ALL_STATES:
+        raise StoreError(f"invalid submission transition: {source} -> {target}")
+    if target not in STATE_TRANSITIONS[source]:
+        raise StoreError(f"forbidden submission transition: {source} -> {target}")
 
 
 class Store:
@@ -216,6 +242,7 @@ class Store:
                     and all(co["status"] == "accepted" for co in item.get("coauthors", []))):
                 actual_state = "queued"
                 actual_detail = "source verified and all requested co-authors accepted"
+            require_transition(item["state"], actual_state)
             item["state"] = actual_state
             item["updated_utc"] = now
             item["state_history"].append({
@@ -233,6 +260,8 @@ class Store:
             raise StoreError("worker source states are invalid")
         if claimed_state not in ALL_STATES:
             raise StoreError("worker claimed state is invalid")
+        for source_state in source_states:
+            require_transition(source_state, claimed_state)
 
         def mutate(data):
             candidates = [s for s in data["submissions"] if s["state"] in source_states]
@@ -268,6 +297,7 @@ class Store:
             item["updated_utc"] = now
             if (item["state"] == "awaiting_coauthors"
                     and all(co["status"] == "accepted" for co in item.get("coauthors", []))):
+                require_transition(item["state"], "queued")
                 item["state"] = "queued"
                 item["state_history"].append({
                     "state": "queued", "at": now,

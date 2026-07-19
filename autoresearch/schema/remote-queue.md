@@ -14,6 +14,8 @@ received -> validating -> awaiting_coauthors -> queued -> judging
                                                             stale <- frontier check -> promoted
                                                                             |
                                                                     promotion_error
+                                                                            |
+                                                                operator repair -> promotable
 ```
 
 `withdrawn` is available to the primary author before judging. `stale` means the
@@ -35,6 +37,9 @@ The HTTP process never checks out, builds, or executes participant code.
 5. a failed network push remains `promoting` with an immutable promotion commit
    and is safely retried; ambiguous partial repository work becomes
    `promotion_error` and is never reset automatically.
+An authenticated operator may move `promotion_error` back to `promotable` only
+after repairing the checkout; the store rejects every transition not present in
+this graph, even when a caller supplies a permissive optimistic-lock state set.
 
 The externally visible reward is deliberately small: one shipping index for the
 declared board/class/dimension plus gate and secret-holdout pass/fail. Detailed
