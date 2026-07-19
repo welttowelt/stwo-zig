@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Enforce the explicit source boundary of the focused RISC-V CPU product."""
+"""Defense-in-depth marker checks for the focused RISC-V CPU product."""
 
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ def main() -> int:
     if failures:
         print("\n".join(failures))
         return 1
-    print(f"riscv cpu product closure: PASS ({len(OWNED)} owned files)")
+    print(f"riscv CPU product markers: PASS ({len(OWNED)} owned files)")
     return 0
 
 

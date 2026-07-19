@@ -2,6 +2,10 @@
 
 const std = @import("std");
 const product_policy = @import("../graph/product.zig");
+const core = @import("core.zig");
+const prover = @import("prover.zig");
+const native_cpu = @import("native_cpu.zig");
+const riscv_cpu = @import("riscv_cpu.zig");
 const cairo_cpu = @import("cairo_cpu.zig");
 const cairo_metal = @import("cairo_metal.zig");
 const riscv_metal = @import("riscv_metal.zig");
@@ -11,6 +15,10 @@ const cairo_cuda = @import("cairo_cuda.zig");
 const riscv_cuda = @import("riscv_cuda.zig");
 
 pub const descriptors = [_]product_policy.Descriptor{
+    core.descriptor,
+    prover.descriptor,
+    native_cpu.descriptor(.cli),
+    riscv_cpu.descriptor,
     native_metal.descriptor(.cli),
     cairo_cpu.descriptor,
     cairo_metal.descriptor,

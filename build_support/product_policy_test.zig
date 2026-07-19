@@ -21,7 +21,7 @@ test "Cairo products remain disabled and RISC-V accelerators unavailable" {
     for (matrix.descriptors) |descriptor| {
         if (descriptor.product.frontend == .cairo)
             try std.testing.expectEqual(product_policy.State.disabled, descriptor.state);
-        if (descriptor.product.frontend == .riscv)
+        if (descriptor.product.frontend == .riscv and descriptor.product.backend != .cpu)
             try std.testing.expectEqual(product_policy.State.unavailable, descriptor.state);
     }
 }

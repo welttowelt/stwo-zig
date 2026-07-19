@@ -2,8 +2,10 @@
 
 const std = @import("std");
 const build_identity = @import("../build_identity.zig");
+const closure_gate = @import("../gates/product_closure.zig");
 const graph_identity = @import("../graph/identity.zig");
 const graph = @import("../graph/modules.zig");
+const product_policy = @import("../graph/product.zig");
 
 const product = graph.Product{
     .name = "stwo-riscv-cpu",
@@ -11,6 +13,49 @@ const product = graph.Product{
     .backend = .cpu,
     .role = .cli,
     .protocol_features = "stark-v-rv32im+logup-v1",
+};
+const source_closure = product_policy.SourceClosure{
+    .entry_roots = &.{
+        "src/riscv_cpu_product.zig",
+        "src/stwo_riscv_cpu.zig",
+        "src/riscv_trace_cli.zig",
+    },
+    .named_imports = &.{
+        .{ .name = "stwo", .source = "src/stwo_riscv_cpu.zig" },
+        .{ .name = "stwo_backend_contracts", .source = "src/backend/mod.zig" },
+        .{ .name = "stwo_core", .source = "src/core/mod.zig" },
+        .{ .name = "stwo_riscv_cpu", .source = "src/stwo_riscv_cpu.zig" },
+        .{ .name = "stwo_prover_impl", .source = "src/prover/mod.zig" },
+    },
+    .allowed_files = &.{
+        "src/riscv_cpu_product.zig",
+        "src/stwo_riscv_cpu.zig",
+        "src/riscv_trace_cli.zig",
+        "src/interop/atomic_file.zig",
+        "src/interop/postcard.zig",
+        "src/interop/proof_wire.zig",
+        "src/interop/riscv_artifact.zig",
+        "src/tools/prove/registry.zig",
+        "src/tools/prove/starkv_adapter.zig",
+    },
+    .allowed_prefixes = &.{
+        "src/core",
+        "src/backend",
+        "src/backends/cpu_scalar",
+        "src/prover",
+        "src/frontends/riscv",
+        "src/integrations/riscv_cpu",
+        "src/products/riscv_cpu",
+        "src/interop/postcard",
+        "src/interop/riscv_artifact",
+        "src/tools/prove/starkv_adapter",
+    },
+    .forbidden_dynamic_dependencies = &.{
+        "Metal.framework",
+        "Foundation.framework",
+        "libobjc",
+        "cuda",
+    },
 };
 
 pub const Context = struct {
@@ -21,7 +66,24 @@ pub const Context = struct {
     protocol: graph.ProtocolModules,
 };
 
+pub const descriptor = product_policy.Descriptor{
+    .product = product,
+    .state = .staged,
+    .target_support = .any,
+    .build_step = "stwo-zig-riscv-cpu",
+    .test_step = "test-riscv-cpu-product",
+    .executable = "stwo-zig-riscv-cpu",
+    .installed_artifacts = &.{"stwo-zig-riscv-cpu"},
+    .release_gates = &.{"riscv-release-gate"},
+    .dependencies = .{ .module_roots = source_closure.entry_roots },
+    .source_closure = source_closure,
+};
+
 pub fn addProduct(context: Context) void {
+    descriptor.validate() catch |err| std.debug.panic(
+        "invalid RISC-V CPU descriptor: {s}",
+        .{@errorName(err)},
+    );
     const host = addExecutable(
         context,
         context.protocol,
@@ -71,11 +133,18 @@ pub fn addProduct(context: Context) void {
     );
     test_step.dependOn(&context.b.addRunArtifact(tests).step);
 
-    const closure_check = context.b.addSystemCommand(&.{
+    const closure_check = closure_gate.addCheck(.{
+        .b = context.b,
+        .descriptor = descriptor,
+        .binary = host,
+        .static_binary = static,
+    });
+    test_step.dependOn(&closure_check.step);
+    const marker_check = context.b.addSystemCommand(&.{
         "python3",
         "scripts/check_riscv_cpu_product.py",
     });
-    test_step.dependOn(&closure_check.step);
+    test_step.dependOn(&marker_check.step);
 }
 
 fn addTraceExecutable(

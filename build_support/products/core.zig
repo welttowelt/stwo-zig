@@ -1,7 +1,29 @@
 //! Build ownership for the independently consumable Stwo core library.
 
 const std = @import("std");
+const closure_gate = @import("../gates/product_closure.zig");
 const graph = @import("../graph/modules.zig");
+const product_policy = @import("../graph/product.zig");
+
+const source_closure = product_policy.SourceClosure{
+    .entry_roots = &.{ "src/core/mod.zig", "src/products/core/surface.zig" },
+    .named_imports = &.{
+        .{ .name = "stwo_core", .source = "src/core/mod.zig" },
+    },
+    .allowed_prefixes = &.{ "src/core", "src/products/core" },
+};
+
+pub const descriptor = product_policy.Descriptor{
+    .product = graph.coreProduct(.library),
+    .state = .released,
+    .target_support = .any,
+    .build_step = "stwo-core",
+    .test_step = "test-stwo-core",
+    .executable = null,
+    .release_gates = &.{"test-stwo-core"},
+    .dependencies = .{ .module_roots = source_closure.entry_roots },
+    .source_closure = source_closure,
+};
 
 pub const Context = struct {
     b: *std.Build,
@@ -14,6 +36,10 @@ pub const Result = struct {
 };
 
 pub fn addProduct(context: Context) Result {
+    descriptor.validate() catch |err| std.debug.panic(
+        "invalid Core descriptor: {s}",
+        .{@errorName(err)},
+    );
     const module = graph.addPublic(context.b, "stwo_core", .{
         .product = graph.coreProduct(.library),
         .root_source_file = "src/core/mod.zig",
@@ -23,14 +49,17 @@ pub fn addProduct(context: Context) Result {
 
     const surface = surfaceModule(context, module);
     const object = context.b.addObject(.{ .name = "stwo-core", .root_module = surface });
+    const closure = closure_gate.addCheck(.{ .b = context.b, .descriptor = descriptor });
     const purity = purityCheck(context, "core");
     const build_step = context.b.step("stwo-core", "Build the focused Stwo core library");
     build_step.dependOn(&object.step);
+    build_step.dependOn(&closure.step);
     build_step.dependOn(&purity.step);
 
     const tests = context.b.addTest(.{ .root_module = surfaceModule(context, module) });
     const test_step = context.b.step("test-stwo-core", "Test the focused Stwo core library and purity boundary");
     test_step.dependOn(&context.b.addRunArtifact(tests).step);
+    test_step.dependOn(&closure.step);
     test_step.dependOn(&purity.step);
 
     return .{ .module = module };

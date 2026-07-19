@@ -3,12 +3,51 @@
 const std = @import("std");
 const metal = @import("../backends/metal.zig");
 const build_identity = @import("../build_identity.zig");
+const closure_gate = @import("../gates/product_closure.zig");
 const graph_identity = @import("../graph/identity.zig");
 const graph_install = @import("../graph/install.zig");
 const graph = @import("../graph/modules.zig");
 const product_policy = @import("../graph/product.zig");
 
 const protocol_features = "native-examples-v1+lifted-pcs-v1+metal-runtime-v1";
+const source_closure = product_policy.SourceClosure{
+    .entry_roots = &.{
+        "src/products/native_metal/main.zig",
+        "src/stwo_native_metal.zig",
+        "src/prover/native/runner.zig",
+    },
+    .named_imports = &.{
+        .{ .name = "stwo", .source = "src/stwo_native_metal.zig" },
+        .{ .name = "stwo_backend_contracts", .source = "src/backend/mod.zig" },
+        .{ .name = "stwo_core", .source = "src/core/mod.zig" },
+        .{ .name = "stwo_native_metal", .source = "src/stwo_native_metal.zig" },
+        .{ .name = "stwo_prover_impl", .source = "src/prover/mod.zig" },
+        .{ .name = "native_proof_runner", .source = "src/prover/native/runner.zig" },
+    },
+    .allowed_files = &.{
+        "src/stwo_native_metal.zig",
+        "src/interop/atomic_file.zig",
+        "src/interop/examples_artifact.zig",
+        "src/interop/postcard.zig",
+        "src/interop/proof_wire.zig",
+    },
+    .allowed_prefixes = &.{
+        "src/core",
+        "src/backend",
+        "src/backends/cpu_scalar",
+        "src/backends/metal",
+        "src/prover",
+        "src/examples",
+        "src/products/native_metal",
+        "src/interop/postcard",
+    },
+    .required_dynamic_dependencies = &.{
+        "Metal.framework",
+        "Foundation.framework",
+        "libobjc",
+    },
+    .forbidden_dynamic_dependencies = &.{"cuda"},
+};
 
 pub const Context = struct {
     b: *std.Build,
@@ -33,15 +72,10 @@ pub fn descriptor(role: graph.Role) product_policy.Descriptor {
         .benchmark_step = "native-proof-bench-metal",
         .profiler_step = "native-proof-profile",
         .dependencies = .{
-            .module_roots = &.{
-                "src/products/native_metal/main.zig",
-                "src/stwo_native_metal.zig",
-                "src/prover/native/runner.zig",
-                metal.runtime_source,
-                metal.shader_manifest_source,
-            },
+            .module_roots = source_closure.entry_roots,
             .external_dependencies = &.{ "Foundation.framework", "Metal.framework", "libobjc" },
         },
+        .source_closure = source_closure,
     };
 }
 
@@ -114,13 +148,17 @@ pub fn addProduct(context: Context) void {
     applications.addArg("applications");
     test_step.dependOn(&applications.step);
 
-    const closure_check = context.b.addSystemCommand(&.{
+    const closure_check = closure_gate.addCheck(.{
+        .b = context.b,
+        .descriptor = policy,
+        .binary = installed.executable,
+    });
+    test_step.dependOn(&closure_check.step);
+    const marker_check = context.b.addSystemCommand(&.{
         "python3",
         "scripts/check_native_metal_product.py",
     });
-    closure_check.addArg("--binary");
-    closure_check.addArtifactArg(installed.executable);
-    test_step.dependOn(&closure_check.step);
+    test_step.dependOn(&marker_check.step);
 }
 
 fn createStwoModule(context: Context, role: graph.Role) *std.Build.Module {

@@ -2,11 +2,53 @@
 
 const std = @import("std");
 const build_identity = @import("../build_identity.zig");
+const closure_gate = @import("../gates/product_closure.zig");
 const graph_identity = @import("../graph/identity.zig");
 const graph_install = @import("../graph/install.zig");
 const graph = @import("../graph/modules.zig");
+const product_policy = @import("../graph/product.zig");
 
 const protocol_features = "native-examples-v1+lifted-pcs-v1";
+const source_closure = product_policy.SourceClosure{
+    .entry_roots = &.{
+        "src/native_cpu_product.zig",
+        "src/stwo_native_cpu.zig",
+        "src/prover/native/runner.zig",
+        "src/products/native_cpu/benchmark.zig",
+    },
+    .named_imports = &.{
+        .{ .name = "stwo", .source = "src/stwo_native_cpu.zig" },
+        .{ .name = "stwo_backend_contracts", .source = "src/backend/mod.zig" },
+        .{ .name = "stwo_core", .source = "src/core/mod.zig" },
+        .{ .name = "stwo_native_cpu", .source = "src/stwo_native_cpu.zig" },
+        .{ .name = "stwo_prover_impl", .source = "src/prover/mod.zig" },
+        .{ .name = "native_proof_runner", .source = "src/prover/native/runner.zig" },
+    },
+    .allowed_files = &.{
+        "src/native_cpu_product.zig",
+        "src/stwo_native_cpu.zig",
+        "src/interop/atomic_file.zig",
+        "src/interop/examples_artifact.zig",
+        "src/interop/examples_artifact_verifier.zig",
+        "src/interop/postcard.zig",
+        "src/interop/proof_wire.zig",
+    },
+    .allowed_prefixes = &.{
+        "src/core",
+        "src/backend",
+        "src/backends/cpu_scalar",
+        "src/prover",
+        "src/examples",
+        "src/products/native_cpu",
+        "src/interop/postcard",
+    },
+    .forbidden_dynamic_dependencies = &.{
+        "Metal.framework",
+        "Foundation.framework",
+        "libobjc",
+        "cuda",
+    },
+};
 
 pub const Context = struct {
     b: *std.Build,
@@ -16,8 +58,30 @@ pub const Context = struct {
     protocol: graph.ProtocolModules,
 };
 
+pub fn descriptor(role: graph.Role) product_policy.Descriptor {
+    return .{
+        .product = product(role),
+        .state = .released,
+        .target_support = .any,
+        .build_step = "stwo-native-cpu",
+        .test_step = "test-native-cpu-product",
+        .executable = "stwo-zig-native-cpu",
+        .installed_artifacts = &.{"stwo-zig-native-cpu"},
+        .release_gates = &.{ "test-native-cpu-product", "vectors", "interop" },
+        .benchmark_step = "benchmark-native-cpu",
+        .profiler_step = "profile-opt",
+        .dependencies = .{ .module_roots = source_closure.entry_roots },
+        .source_closure = source_closure,
+    };
+}
+
 pub fn addProduct(context: Context) void {
-    const cli_product = product(.cli);
+    const policy = descriptor(.cli);
+    policy.validate() catch |err| std.debug.panic(
+        "invalid Native CPU descriptor: {s}",
+        .{@errorName(err)},
+    );
+    const cli_product = policy.product;
     const stwo = createStwoModule(context, .library);
     const runner = createRunnerModule(context, stwo, .library);
     const root = createProductModule(context, cli_product, stwo, runner, "src/native_cpu_product.zig");
@@ -68,13 +132,17 @@ pub fn addProduct(context: Context) void {
     applications.addArg("applications");
     test_step.dependOn(&applications.step);
 
-    const closure_check = context.b.addSystemCommand(&.{
+    const closure_check = closure_gate.addCheck(.{
+        .b = context.b,
+        .descriptor = policy,
+        .binary = installed.executable,
+    });
+    test_step.dependOn(&closure_check.step);
+    const marker_check = context.b.addSystemCommand(&.{
         "python3",
         "scripts/check_native_cpu_product.py",
     });
-    closure_check.addArg("--binary");
-    closure_check.addArtifactArg(installed.executable);
-    test_step.dependOn(&closure_check.step);
+    test_step.dependOn(&marker_check.step);
 }
 
 fn addProductTests(context: Context) *std.Build.Step.Compile {
@@ -119,13 +187,13 @@ fn createRunnerModule(
 
 fn createProductModule(
     context: Context,
-    descriptor: graph.Product,
+    product_descriptor: graph.Product,
     stwo: *std.Build.Module,
     runner: *std.Build.Module,
     root_source_file: []const u8,
 ) *std.Build.Module {
     const root = graph.create(context.b, .{
-        .product = descriptor,
+        .product = product_descriptor,
         .root_source_file = root_source_file,
         .target = context.target,
         .optimize = context.optimize,
@@ -140,7 +208,7 @@ fn createProductModule(
         graph_identity.productOptions(
             context.b,
             context.identity,
-            descriptor,
+            product_descriptor,
             context.target,
             context.optimize,
         ),

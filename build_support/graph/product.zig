@@ -31,6 +31,36 @@ pub const DependencyManifest = struct {
     external_dependencies: []const []const u8 = &.{},
 };
 
+pub const NamedImport = struct {
+    name: []const u8,
+    source: []const u8,
+};
+
+pub const SourceClosure = struct {
+    entry_roots: []const []const u8,
+    named_imports: []const NamedImport = &.{},
+    generated_imports: []const []const u8 = &.{},
+    allowed_files: []const []const u8 = &.{},
+    allowed_prefixes: []const []const u8 = &.{},
+    required_dynamic_dependencies: []const []const u8 = &.{},
+    forbidden_dynamic_dependencies: []const []const u8 = &.{},
+
+    pub fn validate(self: SourceClosure) !void {
+        if (self.entry_roots.len == 0) return error.MissingClosureEntryRoot;
+        if (self.allowed_files.len == 0 and self.allowed_prefixes.len == 0)
+            return error.MissingClosureSourceOwner;
+        for (self.entry_roots) |path| if (path.len == 0) return error.EmptyClosurePath;
+        for (self.allowed_files) |path| if (path.len == 0) return error.EmptyClosurePath;
+        for (self.allowed_prefixes) |path| if (path.len == 0) return error.EmptyClosurePath;
+        for (self.named_imports, 0..) |named, index| {
+            if (named.name.len == 0 or named.source.len == 0) return error.InvalidNamedImport;
+            for (self.named_imports[index + 1 ..]) |other| {
+                if (std.mem.eql(u8, named.name, other.name)) return error.DuplicateNamedImport;
+            }
+        }
+    }
+};
+
 pub const Descriptor = struct {
     schema_version: u32 = SCHEMA_VERSION,
     product: modules.Product,
@@ -47,6 +77,7 @@ pub const Descriptor = struct {
     benchmark_step: ?[]const u8 = null,
     profiler_step: ?[]const u8 = null,
     dependencies: DependencyManifest = .{},
+    source_closure: ?SourceClosure = null,
 
     pub fn validate(self: Descriptor) !void {
         if (self.schema_version != SCHEMA_VERSION) return error.UnsupportedProductSchema;
@@ -69,6 +100,10 @@ pub const Descriptor = struct {
             return error.MissingInstalledArtifact;
         if (self.isConstructible() and self.dependencies.module_roots.len == 0)
             return error.MissingDependencyManifest;
+        if (self.isConstructible()) {
+            const closure = self.source_closure orelse return error.MissingSourceClosure;
+            try closure.validate();
+        }
     }
 
     pub fn isConstructible(self: Descriptor) bool {
@@ -153,6 +188,10 @@ test "target support is compatibility policy, not product selection" {
         .installed_artifacts = &.{"stwo-zig-native-metal"},
         .dependencies = .{
             .module_roots = &.{"src/products/native_metal/main.zig"},
+        },
+        .source_closure = .{
+            .entry_roots = &.{"src/products/native_metal/main.zig"},
+            .allowed_prefixes = &.{"src/products/native_metal"},
         },
     };
     try descriptor.validate();
