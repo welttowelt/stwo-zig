@@ -11,6 +11,7 @@ const stwo = @import("stwo");
 const cli = @import("cli.zig");
 const registry = @import("registry.zig");
 const build_identity = @import("build_identity");
+const transcript_state = @import("starkv_adapter/transcript_state.zig");
 const verify_receipt = @import("starkv_adapter/verify_receipt.zig");
 const wire_arena = @import("starkv_adapter/wire_arena.zig");
 const wire_reconstruct = @import("starkv_adapter/wire_reconstruct.zig");
@@ -165,7 +166,10 @@ fn runProve(
         },
         &prove_channel,
     );
-    const transcript_digest = prove_channel.digestBytes();
+    const transcript_state_digest = transcript_state.receiptDigest(
+        prove_channel.digestBytes(),
+        prove_channel.n_draws,
+    );
     const proving_with_witness_seconds = seconds(proving_timer.read());
     var profile = try recorder.snapshot(allocator);
     defer profile.deinit(allocator);
@@ -197,8 +201,12 @@ fn runProve(
         output.interaction_claim,
         &verify_channel,
     );
-    if (!std.mem.eql(u8, &transcript_digest, &verify_channel.digestBytes()))
-        return error.TranscriptDigestMismatch;
+    const verify_transcript_state_digest = transcript_state.receiptDigest(
+        verify_channel.digestBytes(),
+        verify_channel.n_draws,
+    );
+    if (!std.mem.eql(u8, &transcript_state_digest, &verify_transcript_state_digest))
+        return error.TranscriptStateDigestMismatch;
     const verification_seconds = seconds(verification_timer.read());
     const proof_hex = try allocator.alloc(u8, proof_bytes.items.len * 2);
     defer allocator.free(proof_hex);
@@ -220,7 +228,7 @@ fn runProve(
     );
     const statement_digest = artifact_mod.statementDigest(source, wires.statement);
     const statement_digest_hex = std.fmt.bytesToHex(statement_digest, .lower);
-    const transcript_digest_hex = std.fmt.bytesToHex(transcript_digest, .lower);
+    const transcript_state_digest_hex = std.fmt.bytesToHex(transcript_state_digest, .lower);
     const executable_digest_hex = std.fmt.bytesToHex(
         process_identity.executable_sha256,
         .lower,
@@ -266,7 +274,7 @@ fn runProve(
             "\"proving_seconds\":{d},\"verification_seconds\":{d}," ++
             "\"total_seconds\":{d}," ++
             "\"statement_sha256\":\"{s}\"," ++
-            "\"transcript_blake2s\":\"{s}\"," ++
+            "\"transcript_state_blake2s\":\"{s}\"," ++
             "\"implementation_commit\":\"{s}\",\"implementation_dirty\":{}," ++
             "\"executable_sha256\":\"{s}\",\"proof_path\":\"{s}\"}}",
         .{
@@ -280,7 +288,7 @@ fn runProve(
             verification_seconds,
             seconds(total_timer.read()),
             &statement_digest_hex,
-            &transcript_digest_hex,
+            &transcript_state_digest_hex,
             build_identity.implementation_commit,
             build_identity.implementation_dirty,
             &executable_digest_hex,
@@ -313,7 +321,7 @@ const ProveReport = struct {
     verification_seconds: f64,
     total_seconds: f64,
     statement_sha256: []const u8,
-    transcript_blake2s: []const u8,
+    transcript_state_blake2s: []const u8,
     implementation_commit: []const u8,
     implementation_dirty: bool,
     executable_sha256: []const u8,
@@ -338,7 +346,7 @@ fn runBenchmark(
     var witness_seconds: f64 = 0;
     var proving_seconds: f64 = 0;
     var verification_seconds: f64 = 0;
-    var transcript_digest: ?[32]u8 = null;
+    var transcript_state_digest: ?[32]u8 = null;
 
     const iterations = try std.math.add(usize, benchmark.warmups, benchmark.samples);
     for (0..iterations) |iteration| {
@@ -381,22 +389,24 @@ fn runBenchmark(
             return error.InvalidStatementDigest;
         _ = std.fmt.hexToBytes(&statement_digest, report.statement_sha256) catch
             return error.InvalidStatementDigest;
-        var current_transcript_digest: [32]u8 = undefined;
-        if (report.transcript_blake2s.len != current_transcript_digest.len * 2)
-            return error.InvalidTranscriptDigest;
-        _ = std.fmt.hexToBytes(&current_transcript_digest, report.transcript_blake2s) catch
-            return error.InvalidTranscriptDigest;
+        var current_transcript_state_digest: [32]u8 = undefined;
+        if (report.transcript_state_blake2s.len != current_transcript_state_digest.len * 2)
+            return error.InvalidTranscriptStateDigest;
+        _ = std.fmt.hexToBytes(
+            &current_transcript_state_digest,
+            report.transcript_state_blake2s,
+        ) catch return error.InvalidTranscriptStateDigest;
         if (!std.mem.eql(u8, report.implementation_commit, build_identity.implementation_commit) or
             report.implementation_dirty != build_identity.implementation_dirty)
             return error.ImplementationIdentityMismatch;
         const executable_hex = std.fmt.bytesToHex(process_identity.executable_sha256, .lower);
         if (!std.mem.eql(u8, report.executable_sha256, &executable_hex))
             return error.ExecutableIdentityMismatch;
-        if (transcript_digest) |expected| {
-            if (!std.mem.eql(u8, &expected, &current_transcript_digest))
-                return error.NondeterministicTranscript;
+        if (transcript_state_digest) |expected| {
+            if (!std.mem.eql(u8, &expected, &current_transcript_state_digest))
+                return error.NondeterministicTranscriptState;
         } else {
-            transcript_digest = current_transcript_digest;
+            transcript_state_digest = current_transcript_state_digest;
         }
         total_steps = report.total_steps;
         n_components = report.n_components;
@@ -432,7 +442,7 @@ fn runBenchmark(
     const median_seconds = sorted[sorted.len / 2];
     const statement_hex = std.fmt.bytesToHex(statement_digest, .lower);
     const artifact_hex = std.fmt.bytesToHex(artifact_digest.?, .lower);
-    const transcript_hex = std.fmt.bytesToHex(transcript_digest.?, .lower);
+    const transcript_state_hex = std.fmt.bytesToHex(transcript_state_digest.?, .lower);
     const executable_hex = std.fmt.bytesToHex(process_identity.executable_sha256, .lower);
     const report = .{
         .schema = "riscv_proof_v1",
@@ -454,7 +464,7 @@ fn runBenchmark(
         .mean_verification_seconds = verification_seconds / denominator,
         .sample_seconds = sample_seconds,
         .statement_sha256 = &statement_hex,
-        .transcript_blake2s = &transcript_hex,
+        .transcript_state_blake2s = &transcript_state_hex,
         .implementation_commit = build_identity.implementation_commit,
         .implementation_dirty = build_identity.implementation_dirty,
         .executable_sha256 = &executable_hex,
@@ -575,7 +585,10 @@ pub fn verifyArtifact(
         .statement_sha256 = actual_statement_digest,
         .proof_bytes = proof_raw.len,
         .proof_sha256 = proof_digest,
-        .transcript_blake2s = verify_channel.digestBytes(),
+        .transcript_state_blake2s = transcript_state.receiptDigest(
+            verify_channel.digestBytes(),
+            verify_channel.n_draws,
+        ),
         .implementation_commit = build_identity.implementation_commit,
         .implementation_dirty = build_identity.implementation_dirty,
         .executable_sha256 = process_identity.executable_sha256,

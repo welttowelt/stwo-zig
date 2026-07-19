@@ -10,7 +10,7 @@ pub const Input = struct {
     statement_sha256: [32]u8,
     proof_bytes: usize,
     proof_sha256: [32]u8,
-    transcript_blake2s: [32]u8,
+    transcript_state_blake2s: [32]u8,
     implementation_commit: []const u8,
     implementation_dirty: bool,
     executable_sha256: [32]u8,
@@ -19,7 +19,7 @@ pub const Input = struct {
 pub fn encode(allocator: std.mem.Allocator, input: Input) ![]u8 {
     const statement_hex = std.fmt.bytesToHex(input.statement_sha256, .lower);
     const proof_hex = std.fmt.bytesToHex(input.proof_sha256, .lower);
-    const transcript_hex = std.fmt.bytesToHex(input.transcript_blake2s, .lower);
+    const transcript_state_hex = std.fmt.bytesToHex(input.transcript_state_blake2s, .lower);
     const executable_hex = std.fmt.bytesToHex(input.executable_sha256, .lower);
     return std.json.Stringify.valueAlloc(allocator, .{
         .schema = "riscv_verify_v1",
@@ -31,7 +31,7 @@ pub fn encode(allocator: std.mem.Allocator, input: Input) ![]u8 {
         .statement_sha256 = &statement_hex,
         .proof_bytes = input.proof_bytes,
         .proof_sha256 = &proof_hex,
-        .transcript_blake2s = &transcript_hex,
+        .transcript_state_blake2s = &transcript_state_hex,
         .implementation_commit = input.implementation_commit,
         .implementation_dirty = input.implementation_dirty,
         .executable_sha256 = &executable_hex,
@@ -47,7 +47,7 @@ test "verification receipt is one canonical JSON object" {
         .statement_sha256 = [_]u8{0xab} ** 32,
         .proof_bytes = 17,
         .proof_sha256 = [_]u8{0xcd} ** 32,
-        .transcript_blake2s = [_]u8{0xef} ** 32,
+        .transcript_state_blake2s = [_]u8{0xef} ** 32,
         .implementation_commit = "12" ** 20,
         .implementation_dirty = false,
         .executable_sha256 = [_]u8{0x34} ** 32,
@@ -60,7 +60,7 @@ test "verification receipt is one canonical JSON object" {
             "\"release_status\":\"not_release_gated\",\"security_policy\":\"functional\"," ++
             "\"statement_sha256\":\"" ++ "ab" ** 32 ++ "\",\"proof_bytes\":17," ++
             "\"proof_sha256\":\"" ++ "cd" ** 32 ++ "\"," ++
-            "\"transcript_blake2s\":\"" ++ "ef" ** 32 ++ "\"," ++
+            "\"transcript_state_blake2s\":\"" ++ "ef" ** 32 ++ "\"," ++
             "\"implementation_commit\":\"" ++ "12" ** 20 ++ "\"," ++
             "\"implementation_dirty\":false,\"executable_sha256\":\"" ++
             "34" ** 32 ++ "\"}",
