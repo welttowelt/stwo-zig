@@ -175,6 +175,13 @@ pub const MetalCommitBackend = struct {
     ) !MerkleTree(H) {
         var cells: usize = 0;
         for (columns) |column| cells = try std.math.add(usize, cells, column.len);
+        // An empty commitment has no leaves or hash work to accelerate. Keep
+        // the canonical empty-tree representation without classifying it as a
+        // CPU execution fallback.
+        if (cells == 0) {
+            const empty_tree = try merkle.MerkleProverLifted(H).commit(allocator, columns);
+            return MerkleTree(H).fromHost(empty_tree);
+        }
         if (!commit_policy.usesResidentMerkle(cells)) {
             const host_tree = try merkle.MerkleProverLifted(H).commit(allocator, columns);
             telemetry.record(.host_merkle_commit);

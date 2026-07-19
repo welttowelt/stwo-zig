@@ -3,17 +3,16 @@
 const std = @import("std");
 const qm31 = @import("stwo_core").fields.qm31;
 
-/// Commitments below this aggregate M31 cell count use the CPU implementation.
-pub const merkle_cell_threshold: usize = 1 << 24;
+/// A Metal-labelled proof admits every non-empty commitment to the resident
+/// implementation. Performance selection belongs to an explicitly hybrid
+/// product; it cannot silently move work to CPU under this policy.
+pub const merkle_cell_threshold: usize = 1;
 
-/// First-FRI quotient trees pay one resident decommit readback later in the
-/// proof. Production A/B places their complete-proof crossover at lifting log
-/// 13; smaller quotient trees retain the CPU commitment path.
-pub const quotient_resident_merkle_log_threshold: u32 = 13;
+/// Every valid lifted quotient domain is resident in the strict Metal product.
+pub const quotient_resident_merkle_log_threshold: u32 = 1;
 
-/// PR #6 begins Metal folds at log 16. Local complete-proof A/B keeps the
-/// combined fold-plus-tree transaction conservative at log 18.
-pub const fri_fold_commit_log_threshold: u32 = 18;
+/// Fold and commit in one device epoch at every non-trivial FRI layer.
+pub const fri_fold_commit_log_threshold: u32 = 1;
 
 pub fn usesResidentMerkle(cell_count: usize) bool {
     return cell_count >= merkle_cell_threshold;
