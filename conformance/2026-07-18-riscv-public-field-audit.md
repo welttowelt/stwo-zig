@@ -14,10 +14,10 @@ nothing about the trace and is not accepted as coverage below).
 | `initial_regs[0..32]` | memory-access boundary emits every register's clock-0 word; first access-site consume must match | BOUND |
 | `final_regs[0..32]` | memory-access boundary consumes every register at its final clock; last access-site emit must match | BOUND |
 | `reg_last_clock[0..32]` | the boundary consume clock; a wrong clock breaks pairing with the last access-site emission | BOUND |
-| `program_root` | Merkle relation emit exists, but the Merkle bus consume side is NOT active | RELEASE BLOCKER (per module header; CP-06) |
-| `initial_rw_root` | same as `program_root` | RELEASE BLOCKER (CP-06) |
-| `final_rw_root` | same as `program_root` | RELEASE BLOCKER (CP-06) |
-| `io_entries.input_start`, `input_len` | address arithmetic of the public input emissions (wrapping add, saturating mul, oracle-exact) | BOUND through input_words emissions |
+| `program_root` | checked against the decoded-program sparse tree; committed program leaves and Merkle nodes consume the public root emission, and every parent is coupled to an active Poseidon2 call | BOUND |
+| `initial_rw_root` | checked against the initial RW-memory sparse tree; committed boundary leaves and Merkle/Poseidon rows consume the public root emission | BOUND when the oracle-shared optional tree is present |
+| `final_rw_root` | checked against the final RW-memory sparse tree; committed boundary leaves and Merkle/Poseidon rows consume the public root emission | BOUND when the oracle-shared optional tree is present |
+| `io_entries.input_start`, `input_len` | checked word-index multiplication and address addition over the shared non-wrapping subset; exact word count and canonical final-word padding | BOUND through input_words emissions |
 | `io_entries.input_words` | memory-access boundary emits each word at clock 0; the guest's first reads must consume them | BOUND |
 | `io_entries.output_len_addr`, `output_data_addr`, `output_len` | classify the public-output words the private final table excludes | BOUND through output_words consumption |
 | `io_entries.output_words` | memory-access boundary consumes each word at its recorded final clock; the guest's last writes must emit them | BOUND |
@@ -28,9 +28,19 @@ Known envelope limits (not defects, oracle-shared):
   pinned oracle's supported envelope (its `include_initial = !is_input` rule
   leaves such words publicly unowned). The Zig port matches the oracle
   exactly rather than diverging the transcript.
-- Root fields remain transcript-bound only until the Merkle bus closes
-  (CP-06); the registry flip is blocked on that among other checkpoints.
+- Initial and final RW roots are optional exactly when their corresponding
+  oracle tree is absent. Presence is semantic: a present zero root emits a
+  Merkle tuple and is distinct from absence. The program root is mandatory.
 
-Verified by: per-domain independence test in `air/public_logup.zig`
-("relation domains are independent..."), the e2e prove/verify roundtrip,
-and the memory-bus global-cancellation check in `verifyRiscVWithEngine`.
+Verified by: the per-domain independence test in `air/public_logup.zig`, the
+Merkle leaf/node/hash/root cancellation and mutation tests in
+`air/memory_commitment/merkle_node.zig`, boundary-tree validation in
+`air/memory_commitment/boundary.zig`, the production e2e prove/verify
+roundtrip, and the global relation-cancellation check in
+`verifyRiscVWithEngine`. The nine-byte partial-word production proof in
+`tests/riscv/public_relation_binding_test.zig` covers nonempty input and
+canonical final-word padding. The release oracle additionally compares that
+fixture's complete public data, 27 component prefixes, 12 relation-domain sums,
+and tuple streams with the pinned Rust implementation. The committed-witness
+matrix in `tests/riscv/main_witness_rejection_test.zig` distinguishes an absent
+RW root from a present default root in production verification.

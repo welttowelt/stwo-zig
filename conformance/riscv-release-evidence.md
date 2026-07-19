@@ -39,7 +39,8 @@ fails closed unless all of the following hold:
 - full candidate and tree identities in the canonical repository;
 - explicit candidate and anchor `refs/heads/*` refs whose current heads are
   the respective commits;
-- requested candidate/promoted phase equals the checked-out registry state;
+- requested candidate/promoted phase equals the checked-out capability-owned
+  release state;
 - current candidate release-policy domain equals current trusted main; and
 - reusable anchor release-policy domain equals current trusted main.
 
@@ -52,12 +53,18 @@ successful trusted workflow run.
 
 ## Exhaustive anchor
 
-Dispatch the producer from the canonical repository, preferably against a
-dedicated anchor branch that remains at the produced commit:
+First ensure the reviewed release-policy and controller revision is on canonical
+`main`; anchor and candidate refs may differ from it only outside the policy
+domain. Dispatch the producer from the canonical repository, preferably against
+a dedicated anchor branch that remains at the produced commit:
 
 ```sh
 candidate_sha=$(git rev-parse HEAD)
-candidate_ref=refs/heads/riscv-release-anchor
+candidate_short=$(git rev-parse --short=12 HEAD)
+candidate_branch=riscv-release-anchor-$candidate_short
+candidate_ref=refs/heads/$candidate_branch
+git push origin main
+git push origin "$candidate_sha:$candidate_ref"
 
 gh workflow run ci.yml --ref main \
   -f gate=riscv-produce-candidate \
@@ -65,8 +72,19 @@ gh workflow run ci.yml --ref main \
   -f candidate_ref="$candidate_ref"
 ```
 
+Wait for that dispatch to finish, record its numeric run ID, and require the
+`RISC-V exhaustive release evidence` job to succeed before starting a fast
+challenge:
+
+```sh
+gh run list --workflow ci.yml --event workflow_dispatch --branch main --limit 10
+producer_run_id=<successful-producer-run-id>
+gh run watch "$producer_run_id" --exit-status
+```
+
 Use `riscv-produce-promoted` only when that source contains the promoted
-registry state. The producer runs the complete canonical plan:
+capability and artifact release state. The producer runs the complete canonical
+plan:
 
 1. format, upstream-pin, source-conformance, structure, purity, and layering gates;
 2. full Python and transitive Zig release gates with no skipped required tests;
@@ -90,11 +108,15 @@ identity, command coverage, and every file digest.
 Dispatch the consumer with the explicit reusable producer run ID:
 
 ```sh
+candidate_branch=<candidate-branch>
+candidate_sha=$(git rev-parse HEAD)
+git push origin "$candidate_sha:refs/heads/$candidate_branch"
+
 gh workflow run ci.yml --ref main \
   -f gate=riscv-candidate \
-  -f candidate_sha=<candidate-commit> \
-  -f candidate_ref=refs/heads/<candidate-branch> \
-  -f producer_run_id=<anchor-producer-run>
+  -f candidate_sha="$candidate_sha" \
+  -f candidate_ref="refs/heads/$candidate_branch" \
+  -f producer_run_id="$producer_run_id"
 ```
 
 Use `riscv-promoted` for promoted source. The workflow requires exactly one
@@ -125,11 +147,16 @@ as public output, so the candidate identity and nonce affect the committed
 program root and algebraically bound public statement. Signed `MULH`/`MULHSU`
 remain excluded under the documented pinned-oracle limitation.
 
-Nonempty public input is not admitted in this MVP: the current Zig AIR produces
-`LogupSumNonZero` for that case. The empty input digest is explicitly bound in
-the challenge and proof. This limitation must be fixed under Rust-oracle parity
-before expanding the challenge grammar; it must not be bypassed by weakening
-the proof or relation check.
+Nonempty public input is admitted by the proof system. The focused nine-byte
+public-I/O fixture, including a partial final word, passes production prove and
+verify while its nonzero public `memory_access` term closes independently. The
+release oracle machine-gates that same deterministic ELF and input against the
+pinned Rust runner: full public data, all 27 component prefixes, all 12 relation
+domains, tuple streams, input and binding digests, nonzero public compensation,
+and the zero final aggregate must agree. The fast challenge still selects empty
+input and binds its digest in the challenge and proof; that is a
+challenge-grammar choice, not an AIR limitation. Expanding the grammar must
+preserve Rust-oracle parity and must not weaken the proof or relation check.
 
 ## Candidate isolation
 

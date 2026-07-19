@@ -5,11 +5,11 @@
 **Created:** 2026-07-18
 
 **Last reconciled:** 2026-07-19 against the committed implementation through
-`bae4ff48`. That exact revision passed the strict candidate controller locally,
-then failed hosted candidate run `29682036388` at a macOS-only build-step
-preflight. No checkpoint is promoted by local evidence alone; the next fresh
-clean-candidate controller and matching hosted run remain the acceptance
-authority.
+`eaf4f5ff`. The focused product gate passes in 85.5 seconds and the separately
+owned exhaustive RISC-V proof/adversarial suite passes in 343.8 seconds on the
+measured local host. These are diagnostic results, not release receipts. No
+checkpoint is promoted by local evidence alone; the next exhaustive hosted
+anchor and fresh candidate challenge remain the acceptance authority.
 
 **Authority:** This is the operative delivery contract for the Stark-V RV32IM
 lane. It may be replaced only by a reviewed document that names every changed
@@ -24,14 +24,19 @@ one identified commit from a clean checkout.
 reason or independently PASS` + `zero release-blocking divergences`. Every term
 is mandatory. A false term makes the result `NO-GO`.
 
-**Machine authority:** `scripts/riscv_release_gate.py --strict` is the only
-command allowed to issue a candidate or promoted release receipt. Its repository
-preflight must reject every active divergence except an explicitly allowlisted,
-conditionally gated difference. For the currently pinned Stark-V revision, the
-signed `MULH` carry defect is a mandatory documented limitation: deleting or
-renaming its ledger row, removing its implementation `FIX` marker, or claiming
-corrected semantics without a new pin must fail the gate. Exact parity with the
-pinned behavior is required; correcting the upstream Rust repository is not.
+**Machine authority:** release authorization requires the two-stage hosted
+protocol in [riscv-release-evidence.md](riscv-release-evidence.md): one successful
+exhaustive anchor producer plus one fresh, exact-candidate challenge that reuses
+that anchor only while the complete release-policy domain is byte-identical.
+`scripts/riscv_release_gate.py --strict` owns the exhaustive plan and may issue
+the anchor's local receipt, but cannot authorize promotion without the hosted
+challenge receipt. Both stages reject every active divergence except an
+explicitly allowlisted, conditionally gated difference. For the currently
+pinned Stark-V revision, the signed `MULH` carry defect is a mandatory documented
+limitation: deleting or renaming its ledger row, removing its implementation
+`FIX` marker, or claiming corrected semantics without a new pin must fail the
+gate. Exact parity with the pinned behavior is required; correcting the upstream
+Rust repository is not.
 
 **Goal identity:** Complete and release-gate the Stark-V RV32IM proving lane by
 finishing globally sound cross-shard LogUp placement, binding the full public
@@ -49,8 +54,8 @@ signed-`MULH` limitation. The enclosing local CP-13 run passed in 665.529 second
 with a clean start and end tree. Hosted run `29682036388` rejected the same
 revision before Python discovery because Linux correctly exposes no
 `metal-eval-prepare` build step. The local receipt is therefore valid diagnostic
-evidence but cannot authorize RF-01 until a new exact candidate passes both local
-and hosted controllers.
+evidence but cannot authorize RF-01 until a policy-compatible hosted exhaustive
+anchor and a fresh exact-candidate challenge both pass.
 
 ## Goal
 
@@ -93,7 +98,7 @@ required evidence.
 | **1. Complete cross-shard LogUp placement in the RISC-V AIR** | CP-03 through CP-06, CP-11, CP-12 | Canonical component order; exact committed-buffer tuple provenance; all twelve relation domains independently cancel; one-, two-, and many-shard proofs pass; semantic omission, duplication, tuple, multiplicity, padding, and boundary attacks fail cryptographically; mutation of an existing artifact's shard/claim order fails; live Rust cumulative accumulator and deterministic provenance agree after every component | Unlocks final statement/CLI integration only after semantic, memory, Merkle, Poseidon2, range, and bitwise constraints are active in both on-domain and OODS evaluation | `NO-GO` while any relation source, sink, recurrence, commitment, or verifier consumer is absent |
 | **2. Verify the build and visible CLI result** | CP-09, CP-10, CP-13 | `ReleaseFast` installed binary; stable help and diagnostic snapshots; staged prove, independent verify, and benchmark smoke; deterministic machine JSON; bounded schema-v3 artifact; atomic publication and tamper rejection | Candidate CLI evidence may be collected in parallel, but it cannot authorize promotion before checkpoints 1 and 3 pass | `NO-GO` while the CLI projects transitional claims, relies on in-process state, or emits schema v2 |
 | **3. Add public I/O binding to the RISC-V statement** | CP-07, CP-08, CP-11, CP-12 | Every public field is canonically transcript-bound and algebraically linked to committed execution; caller-supplied expected statement is enforced; prover/verifier channel traces agree; per-field, ordering, length, address, clock, and root-presence mutations fail; schema-v3 segment geometry is fixed to ordinal `0` of count `1` and every other value is rejected | Unlocks clean candidate evidence only after public compensation closes in the relevant relation domains | `NO-GO` while any public value is prover-chosen, transcript-only, host-asserted, or unconnected to a committed relation |
-| **4. Flip the prove-CLI registry entry and release-gate the adapter** | CP-00 through CP-13, then RF-01 | One clean candidate commit passes the strict candidate controller locally and in clean CI with fresh 11/11 Rust-oracle evidence and zero release-blocking divergences; a separate non-semantic promotion commit passes the strict promoted controller | This is the final release action, never an implementation shortcut. A failure after the flip requires reverting the promotion | `FORBIDDEN` until every prerequisite is `PASS` on one identified candidate |
+| **4. Flip the prove-CLI registry entry and release-gate the adapter** | CP-00 through CP-13, then RF-01 | A successful policy-compatible exhaustive hosted anchor provides fresh 11/11 Rust-oracle evidence and zero release-blocking divergences; the exact clean candidate then passes a fresh three-minute challenge against it; a separate non-semantic promotion commit repeats the producer/challenge pair in promoted mode | This is the final release action, never an implementation shortcut. A failure after the flip requires reverting the promotion | `FORBIDDEN` until every prerequisite is `PASS` on one identified candidate |
 | **5. Complete the bias audit** | BA-01 through BA-03 | Mechanical core-purity and frontend-layering gates pass on candidate and promoted revisions; audit records all dependency edges and source-debt findings; autoresearch exercise validity either passes independently or remains disabled with an explicit, tested reason | BA-01 and BA-02 are release requirements. BA-03 does not block adapter release while it remains fail-closed, but it blocks RISC-V autoresearch scoring | `NO-GO` for release on BA-01/BA-02 failure; `NO-GO` for autoresearch activation on BA-03 failure |
 
 The dependency order is **1 -> 3 -> 4**. Checkpoint 2 may progress alongside
@@ -109,37 +114,47 @@ The completion decision is deliberately binary:
 
 1. Land semantic, statement, artifact, and audit work while the registry and
    autoresearch lane remain closed.
-2. Select one candidate commit with a clean tree. Run the enforcing CP-13
-   candidate controller locally and in clean CI. The controller must include
-   the fresh 11/11 pinned-Rust oracle receipt and the complete adversarial fleet.
+2. Ensure the current release-policy revision has a successful exhaustive
+   producer in hosted CI. It must include the fresh 11/11 pinned-Rust oracle
+   receipt and the complete adversarial fleet. Select one candidate commit with
+   a clean tree, then run its fresh challenge against that policy-compatible
+   producer. Implementation-only candidates may reuse the unexpired anchor;
+   policy, oracle, schema, vector, or compatibility drift requires a new one.
 3. Record `PASS` for CP-00 through CP-13, BA-01, and BA-02 only from that exact
    evidence bundle. Close every release-blocking divergence.
 4. Make RF-01 a separate, non-semantic promotion commit. Its diff may change
    release surfaces and documentation, but not execution, witness, AIR,
    transcript, proof, artifact, or verification semantics.
-5. Run the enforcing controller again in `promoted` mode locally and in clean
-   CI. Revert RF-01 if either run fails.
+5. Run a new exhaustive producer and fresh challenge in `promoted` mode. Revert
+   RF-01 if either hosted stage fails.
 6. Leave the autoresearch RISC-V group disabled unless BA-03 later obtains its
    own independent activation receipt.
 
-The two authoritative release invocations are:
+The authoritative candidate dispatches are:
 
 ```sh
-python3 scripts/riscv_release_gate.py \
-  --strict \
-  --phase candidate \
-  --stark-v-source "$STARK_V_SOURCE" \
-  --candidate "$(git rev-parse HEAD)"
+candidate_sha=$(git rev-parse HEAD)
+candidate_short=$(git rev-parse --short=12 HEAD)
+candidate_branch=riscv-release-anchor-$candidate_short
+candidate_ref=refs/heads/$candidate_branch
+git push origin main
+git push origin "$candidate_sha:$candidate_ref"
+gh workflow run ci.yml --ref main \
+  -f gate=riscv-produce-candidate \
+  -f candidate_sha="$candidate_sha" \
+  -f candidate_ref="$candidate_ref"
 
-python3 scripts/riscv_release_gate.py \
-  --strict \
-  --phase promoted \
-  --stark-v-source "$STARK_V_SOURCE" \
-  --candidate "$(git rev-parse HEAD)"
+producer_run_id=<successful-producer-run-id>
+gh workflow run ci.yml --ref main \
+  -f gate=riscv-candidate \
+  -f candidate_sha="$candidate_sha" \
+  -f candidate_ref="$candidate_ref" \
+  -f producer_run_id="$producer_run_id"
 ```
 
-Individual commands listed by later checkpoints are development gates. They do
-not replace either enforcing invocation or the matching CI run.
+Promoted source uses `riscv-produce-promoted` and `riscv-promoted`. Individual
+commands listed by later checkpoints are development gates. They do not replace
+either hosted stage.
 
 ### Evidence required at every checkpoint
 
@@ -171,11 +186,14 @@ The following documents are normative, in this order:
 2. [upstream.md](upstream.md), which pins Stark-V commit
    `d478f783055aa0d73a93768a433a3c6c31c91d1c`.
 3. This goal document.
-4. [divergence-log.md](divergence-log.md), which records intentional differences
+4. [riscv-release-evidence.md](riscv-release-evidence.md), which defines the
+   hosted exhaustive-anchor and fresh-challenge execution protocol without
+   weakening any checkpoint in this goal.
+5. [divergence-log.md](divergence-log.md), which records intentional differences
    and whether each difference blocks release.
-5. [2026-07-18-riscv-bias-audit.md](2026-07-18-riscv-bias-audit.md), which records
+6. [2026-07-18-riscv-bias-audit.md](2026-07-18-riscv-bias-audit.md), which records
    the independent NO-GO baseline and the audit requirements that must be closed.
-6. [decomposition-plan.md](decomposition-plan.md) and
+7. [decomposition-plan.md](decomposition-plan.md) and
    [source-baseline.json](source-baseline.json), which govern repository structure
    and existing source debt.
 
@@ -201,8 +219,8 @@ stages one through four.
 | D1 Cross-shard LogUp | Exact source, table, public, Merkle, Poseidon2, range, bitwise, state, program, and memory placement; canonical component batching; global cancellation across one, two, and many shards | CP-04, CP-05, CP-06 | Honest proofs pass; semantic omission, duplication, tuple, multiplicity, padding, and boundary attacks fail cryptographically; an existing artifact cannot be reordered without rejection |
 | D2 Build and visible CLI result | ReleaseFast build; installed candidate CLI proves, independently verifies, benchmarks, emits deterministic JSON, publishes atomically, and renders stable help/errors | CP-09, CP-10 | Candidate smoke matrix passes using the installed binary and a genuinely multi-shard ELF |
 | D3 Public I/O statement | Caller-expected program, input, output, roots, registers, clocks, and geometry are transcript-bound and algebraically bound to committed execution | CP-07, CP-08 | Every public field mutation and every transcript ordering mutation fails in production verification |
-| D4 Independent evidence | Eleven live Rust boundaries agree, the adversarial fleet rejects every named forgery, and the enforcing candidate controller reproduces the result from one clean commit | CP-11, CP-12, CP-13 | Fresh 11/11 receipt plus strict local and clean-CI evidence with zero required skips |
-| D5 Registry promotion | One non-semantic commit changes only release surfaces from staged to promoted and removes candidate-only admission | RF-01 | The promoted strict controller passes; otherwise the promotion is reverted |
+| D4 Independent evidence | Eleven live Rust boundaries agree in a policy-compatible exhaustive anchor, the adversarial fleet rejects every named forgery, and the exact candidate passes a fresh hosted challenge against that anchor | CP-11, CP-12, CP-13 | Fresh 11/11 exhaustive anchor plus a fresh exact-candidate challenge, with zero required skips |
+| D5 Registry promotion | One non-semantic commit changes only release surfaces from staged to promoted and removes candidate-only admission | RF-01 | The promoted producer/challenge pair passes; otherwise the promotion is reverted |
 | D6 Bias audit | Core purity and frontend layering are mechanically enforced on the promoted revision; autoresearch remains independently gated | BA-01, BA-02, BA-03 | BA-01 and BA-02 pass; BA-03 either passes independently or remains disabled with reason |
 
 There is no partial release state between D4 and D5. An internally verifying
@@ -341,8 +359,9 @@ non-vacuous twelve-domain relation closure, the malicious-witness fleet, public
 algebraic binding, transcript symmetry, installed schema-v3 CLI prove/verify,
 and the full pinned-Rust oracle. That closes the former local implementation and
 evidence gaps for CP-00 through CP-12. Their ledger rows remain `IN_PROGRESS`
-because the sign-off protocol requires the same candidate to pass hosted CP-13;
-the failed hosted preflight cannot be replaced by the valid local receipt.
+because the sign-off protocol requires a policy-compatible hosted exhaustive
+anchor and fresh exact-candidate challenge; the failed hosted preflight cannot
+be replaced by the valid local receipt.
 
 The original hosted failure was a gate portability defect, not a semantic
 divergence: `metal-eval-prepare` is deliberately absent from Linux build graphs.
@@ -356,17 +375,20 @@ compiles and links the exact SN2 composition under the repository's declared
 Metal 3.1/macOS 14 policy, executes the installed loader, and accepts only its
 explicit fail-closed `No Metal device available` result. A real-device Darwin
 CP-13 run remains the owner of successful library loading and all-program PSO
-resolution. Neither platform path skips the test. A new local and hosted strict
-receipt is mandatory after this change. Uncommitted code and output remain
-diagnostic by definition.
+resolution. Neither platform path skips the test. A new hosted exhaustive
+anchor and fresh challenge are mandatory after this change. Uncommitted code
+and output remain diagnostic by definition.
 
 The pinned Rust and Zig narrow-Poseidon2 witness generators have reached exact
 445-column parity for the focused `Call.narrow(1, 2)` row, and the committed
 production HashComponent roundtrip passed its focused ReleaseFast suite before
-landing. CP-06 nevertheless remains `IN_PROGRESS` until proof-level malicious
-Merkle/Poseidon mutations, complete table and memory closure, and clean
-candidate evidence pass. Focused parity or a green local suite is never accepted
-as release evidence by itself.
+landing. The production precommit mutation matrix at `fef1a0ae` now also changes
+typed Merkle, Poseidon2, memory, opcode-lookup, table-value, and multiplicity
+cells and requires production proving or verification to reject each change;
+it separately proves that an absent RW root is not interchangeable with a
+present default root. CP-06 nevertheless remains `IN_PROGRESS` until the clean
+candidate exhaustive evidence passes. Focused parity or a green local suite is
+never accepted as release evidence by itself.
 
 The committed staged proof artifact is schema v3 and includes single-read
 classification, bounded hostile decoding, exact claim reconstruction,
@@ -390,8 +412,8 @@ run in parallel, but integration and promotion obey the dependency order.
 | WP-06 | Bind the complete caller-expected public statement algebraically and in the transcript | CP-07, CP-08 | Per-field mutation rejection, exact transcript trace, and prover/verifier event symmetry |
 | WP-07 | Complete the installed CLI prove, independent verify, and benchmark path with a versioned atomic artifact | CP-09, CP-10 | Candidate and promoted phase smoke tests, security-policy rejection tests, and cross-process verification |
 | WP-08 | Run the malicious-witness fleet against production commitments and verification | CP-12 | Every named semantic/relation/public/transcript mutation is rejected for the expected invariant |
-| WP-09 | Produce a clean, candidate-bound evidence bundle with no skipped required tests | CP-13 | Standard and strict gates pass locally and in CI from the same clean commit |
-| WP-10 | Audit core purity and frontend layering, then perform a non-semantic registry promotion | BA-01, BA-02, RF-01 | Audit is green; every blocking divergence is closed; post-promotion strict gate passes |
+| WP-09 | Produce a clean, candidate-bound challenge receipt against an unexpired policy-compatible exhaustive bundle with no skipped required tests | CP-13 | Hosted exhaustive anchor and fresh exact-candidate challenge pass |
+| WP-10 | Audit core purity and frontend layering, then perform a non-semantic registry promotion | BA-01, BA-02, RF-01 | Audit is green; every blocking divergence is closed; post-promotion producer/challenge pair passes |
 
 The signed `MULH`/`MULHSU` defect recorded in
 [divergence-log.md](divergence-log.md) is an inherited pinned-oracle limitation,
@@ -418,8 +440,8 @@ compensate for a missing earlier soundness gate.
 | G2 Live oracle parity | Does Zig agree with the actual pinned Rust implementation at every shared boundary? | Fresh, candidate-bound 11/11 receipt from a clean Rust checkout | Keep CP-11 non-passing |
 | G3 Global proof soundness | Are all accepted semantics and all 12 relation domains committed, constrained, globally cancelled, and verifier-consumed? | Multi-shard honest proofs pass; forgery fleet fails; every blocking divergence is closed | Keep registry closed regardless of G2 |
 | G4 Production CLI E2E | Can an installed binary prove, publish atomically, verify independently, enforce policy, and report deterministically? | Candidate and promoted phase smoke matrices pass | Do not advertise production CLI support |
-| G5 Clean candidate release | Can one exact clean commit reproduce every required result and evidence artifact? | CP-13 strict gate passes locally and in CI with zero required skips | RF-01 is forbidden |
-| G6 Atomic promotion | Does the registry-only promotion preserve every gate without semantic changes? | Post-promotion strict gate and bias audit pass | Revert the promotion commit |
+| G5 Clean candidate release | Can one exact clean commit answer a fresh challenge against complete, policy-compatible exhaustive evidence? | Hosted CP-13 exhaustive anchor and fresh exact-candidate challenge pass with zero required skips | RF-01 is forbidden |
+| G6 Atomic promotion | Does the registry-only promotion preserve every gate without semantic changes? | Post-promotion producer/challenge pair and bias audit pass | Revert the promotion commit |
 
 The release controller must fail closed when a command is absent, skipped,
 times out, produces malformed evidence, names another candidate, uses a dirty
@@ -1199,9 +1221,28 @@ Gate:
 
 ### CP-13: Clean-tree release gate and release evidence
 
-**Initial status:** NOT_STARTED for the final candidate.
+**Initial status:** IN_PROGRESS for the final candidate. The controller and both
+hosted stages exist; the current-policy anchor and exact-candidate challenge
+receipts remain to be generated.
 
-The repository must provide one enforcing command:
+CP-13 has two machine-enforced stages. The **exhaustive anchor producer** runs
+the canonical strict plan, the pinned Rust oracle, all adversarial suites, and
+the structural/policy gates. It publishes an immutable, content-addressed v3
+bundle. The **fresh candidate challenge** has a hard three-minute job timeout;
+it builds only the focused static RISC-V product, derives a nonce-bound
+cross-shard program, obtains a candidate proof, verifies it in the distinct
+anchor verifier process, and compares public and cumulative relation outputs to
+the bundled Rust oracle.
+
+Candidate CP-13 passes only when a policy-compatible producer and the candidate
+challenge both succeed. The consumer validates the exact producer run ID,
+artifact digest, anchor branch head, candidate branch head, workflow identity,
+both tree identities, phase, expiry, and release-policy domain. The anchor and
+candidate commits may differ outside that policy domain. A local strict pass, an
+expired or incompatible bundle, or a successful producer without a fresh
+exact-candidate challenge cannot authorize RF-01.
+
+The producer's canonical plan remains owned by:
 
 ```sh
 python3 scripts/riscv_release_gate.py \
@@ -1211,47 +1252,14 @@ python3 scripts/riscv_release_gate.py \
   --candidate "$(git rev-parse HEAD)"
 ```
 
-That command, rather than a prose checklist or static command receipt, must run
-and enforce the following sequence. `--phase candidate` enforces the staged
-registry and explicit `--experimental` behavior; `--phase promoted` enforces the
-release registry and rejects that flag.
-
-```sh
-EVIDENCE_DIR="zig-out/release-evidence/riscv/runs/<fresh-run>"
-test -z "$(git status --porcelain=v1 --untracked-files=all)"
-zig fmt --check build.zig src tools
-python3 scripts/check_upstream_pins.py
-python3 scripts/check_source_conformance.py
-python3 scripts/check_riscv_release_contract.py --all --phase candidate
-python3 scripts/check_riscv_release_contract.py --structure
-python3 scripts/check_riscv_release_contract.py --core-purity
-python3 scripts/check_riscv_release_contract.py --frontend-layering
-if [ "$(uname -s)" = Darwin ]; then
-  zig build metal-eval-prepare -Doptimize=ReleaseFast
-fi
-python3 -m unittest discover -s scripts/tests -p 'test_*.py'
-python3 scripts/riscv_staged_smoke.py \
-  --phase candidate \
-  --evidence-dir "$EVIDENCE_DIR/cli"
-zig build release-gate-strict -Doptimize=ReleaseFast
-python3 scripts/riscv_release_oracle.py build-and-compare \
-  --stark-v-source "$STARK_V_SOURCE" \
-  --candidate "$(git rev-parse HEAD)" \
-  --receipt-out "$EVIDENCE_DIR/oracle-receipt.json"
-python3 scripts/riscv_release_oracle.py validate \
-  --receipt "$EVIDENCE_DIR/oracle-receipt.json"
-python3 scripts/riscv_release_evidence.py \
-  --receipt "$EVIDENCE_DIR/oracle-receipt.json" \
-  --candidate "$(git rev-parse HEAD)"
-test -z "$(git status --porcelain=v1 --untracked-files=all)"
-```
-
-`release-gate-strict` transitively owns the ReleaseFast Zig suite, RISC-V runner
-and prover suites, API parity, pinned trace vectors, deep tests, Native
+`release-gate-strict` transitively owns the ReleaseFast Zig suite, focused and
+exhaustive RISC-V suites, API parity, pinned trace vectors, deep tests, Native
 interchange, proof checkpoints, strict benchmarks, profiling, freestanding
-shims, and release-evidence manifest. The controller must not invoke those
-owners separately or run the base release gate before the strict superset. In
-non-strict mode it selects the base gate instead.
+shims, and release-evidence manifest. The normal product touchpoint runs only
+`test-riscv-cpu-product`; the periodic producer additionally runs
+`test-riscv-release-exhaustive` through the compatibility alias
+`test-riscv-prover`. The controller must not duplicate either owner or run the
+base release gate before the strict superset.
 
 Additional requirements:
 
@@ -1296,18 +1304,30 @@ the same candidate commit. The promotion is one focused, reviewed commit that:
   [divergence-log.md](divergence-log.md);
 - updates the bias audit with the exact evidence commit and a GO/NO-GO result;
 - adds no new semantic implementation; and
-- reruns CP-13 after the flip as:
+- reruns CP-13 after the flip as a new promoted producer/challenge pair:
 
 ```sh
-python3 scripts/riscv_release_gate.py \
-  --strict \
-  --phase promoted \
-  --stark-v-source "$STARK_V_SOURCE" \
-  --candidate "$(git rev-parse HEAD)"
+promoted_sha=$(git rev-parse HEAD)
+promoted_short=$(git rev-parse --short=12 HEAD)
+promoted_branch=riscv-release-promoted-$promoted_short
+promoted_ref=refs/heads/$promoted_branch
+git push origin main
+git push origin "$promoted_sha:$promoted_ref"
+gh workflow run ci.yml --ref main \
+  -f gate=riscv-produce-promoted \
+  -f candidate_sha="$promoted_sha" \
+  -f candidate_ref="$promoted_ref"
+
+producer_run_id=<successful-promoted-producer-run-id>
+gh workflow run ci.yml --ref main \
+  -f gate=riscv-promoted \
+  -f candidate_sha="$promoted_sha" \
+  -f candidate_ref="$promoted_ref" \
+  -f producer_run_id="$producer_run_id"
 ```
 
-If the post-flip gate fails, revert the promotion commit. Do not patch around a
-failing gate by relaxing the registry, artifact, verifier, or CI contract.
+If either post-flip stage fails, revert the promotion commit. Do not patch around
+a failing gate by relaxing the registry, artifact, verifier, or CI contract.
 
 ## Bias audit and autoresearch checkpoints
 
@@ -1454,23 +1474,23 @@ remains `IN_PROGRESS`.
 
 | Checkpoint | Status | Evidence baseline | Required closure evidence |
 | --- | --- | --- | --- |
-| CP-00 Fail closed | IN_PROGRESS | Typed candidate-only `--experimental`, closed registry, exact proof preflight, and rejection corpus ownership are committed through `20b65f1f`; typed precommit family rejection and exact no-artifact limitation evidence are committed through `09ab473e` | Complete unsupported decoder/backend matrix; preserve closed release and autoresearch registries; obtain clean-candidate evidence |
-| CP-01 Structure | IN_PROGRESS | Infrastructure trace construction is decomposed through `980bc3cc`; the prover frontend is decomposed through `ca3c3d56`; structure, core-purity, and frontend-layering selectors pass diagnostically at `60a5d93e` | Preserve the clean mechanical result and touched-source-debt reduction in final candidate evidence |
-| CP-02 Execute | IN_PROGRESS | Live decode and execution boundaries pass at `30bc24ec`; the symbol-bearing release corpus and negative ABI fixtures are committed through `dd1a8c1a`; exact source-bound signed-`MULH` and balanced `MULHU` diagnostics are committed through `09ab473e` | Exact 45-opcode manifest, complete edge corpus, and fresh clean oracle evidence under the documented limitation |
-| CP-03 Witness | IN_PROGRESS | Production-buffer per-family rows and ordered accesses pass live Rust comparison at `30bc24ec`; canonical production layout digest is committed through `3ea0eccd`; diagnostic execution/request provenance is committed through `0b5e1364` | Complete schema/edge corpus and bind deterministic layout/provenance digests into fresh final-candidate evidence |
-| CP-04 Semantic AIR | IN_PROGRESS | Production opcode semantic placement is committed through `52315ef1`; exact synthetic clock-gap predecessor chaining is committed through `e454dafb`; every proof-admitted family is assembled on-domain/OODS through `75c6d7a7`; signed-`MULH` admission fails closed through `60a5d93e`; the public/claim matrix reaches 176 exact verifier rejections through `5044dc1f` | Preserve this coverage in the clean candidate, complete the declared opcode edge corpus, and obtain fresh Rust evidence |
+| CP-00 Fail closed | IN_PROGRESS | Typed candidate-only `--experimental`, closed registry, exact proof preflight, and rejection corpus ownership are committed through `20b65f1f`; the release controller reads the typed capability owner and fails closed on registry drift through `30ecc5c7` | Preserve closed release and autoresearch registries; obtain the candidate producer/challenge evidence |
+| CP-01 Structure | IN_PROGRESS | Infrastructure trace construction is decomposed through `980bc3cc`; the prover frontend is decomposed through `ca3c3d56`; focused product and periodic exhaustive test ownership are separated through `eaf4f5ff`; source conformance passes with no new debt | Preserve the clean mechanical result and touched-source-debt reduction in final candidate evidence |
+| CP-02 Execute | IN_PROGRESS | Live decode and execution boundaries pass at `30bc24ec`; the release corpus executes every protocol opcode ID `0...44`, including signed/unsigned branch edges, through `994107ad`; the typed manifest ties all 45 admitted opcodes to encoding, witness, semantics, relation, and proof ownership through `387249f4` | Obtain fresh clean oracle evidence under the documented signed-`MULH` limitation |
+| CP-03 Witness | IN_PROGRESS | Production-buffer per-family rows and ordered accesses pass live Rust comparison at `30bc24ec`; canonical production layout and provenance are committed; the 45-entry manifest is mechanically checked against live witness schemas and relation placement through `387249f4` | Bind the current layout/provenance digests into fresh final-candidate evidence |
+| CP-04 Semantic AIR | IN_PROGRESS | Production opcode semantic placement is committed through `52315ef1`; every proof-admitted family is assembled on-domain/OODS through `75c6d7a7`; signed-`MULH` admission fails closed; the public/claim matrix reaches 176 exact verifier rejections; complete admitted-opcode ownership is checked through `387249f4` | Preserve this coverage and obtain fresh Rust evidence on the clean candidate |
 | CP-05 Cross-shard LogUp | IN_PROGRESS | Exact batching/constraints, ownership, order, clock relations, and central 27-component assembly are committed through `92456745`; twelve domains close independently through `5e80b6c8`; canonical-zero padding lands through `b6a0e34c`; state-clock wraparound and existing-artifact same-family claim swaps are rejected through `1a3c16a8` and `91710ca9` | Preserve one-, two-, and many-shard proof evidence and obtain full-corpus cumulative and deterministic-provenance Rust parity on the clean candidate |
-| CP-06 Memory/hash/tables | IN_PROGRESS | Live roots, exact lookup tables, exact Rust/Zig 445-column parity, production HashComponent integration, six-table placement, and memory range sources are committed through `92456745`; padding multiplicities, canonical memory geometry, narrow Poseidon mode, and production verifier assembly advance through `75c6d7a7` | Preserve proof-level Merkle/Poseidon/table/memory mutation and complete memory closure evidence on the clean candidate |
-| CP-07 Public I/O | IN_PROGRESS | Public values pass live; fail-closed shape/address/clock/root/padding validation is committed through `f7ab4c83`; retained production Tree0/Tree1 diagnostics prove independent algebraic closure through `62bc000d`; 176 exact verifier mutations cover every public scalar/vector element, root presence, and I/O shape through `5044dc1f` | Preserve the single-execution `(0,1)` artifact restriction and rerun the full evidence on the clean candidate |
+| CP-06 Memory/hash/tables | IN_PROGRESS | Live roots, exact lookup tables, exact Rust/Zig 445-column parity, production HashComponent integration, six-table placement, and memory range sources are committed through `92456745`; padding multiplicities, canonical memory geometry, narrow Poseidon mode, and production verifier assembly advance through `75c6d7a7`; the typed precommit matrix rejects 13 committed-witness mutation classes and distinguishes absent from present-default RW roots through `fef1a0ae` | Preserve the mutation matrix and complete memory closure evidence in the clean candidate exhaustive anchor |
+| CP-07 Public I/O | IN_PROGRESS | Public values pass live; fail-closed shape/address/clock/root/padding validation is committed through `f7ab4c83`; the program and optional RW roots close through committed Merkle/Poseidon rows; a nonempty nine-byte partial-word input proves/verifies in Zig through `1cfcd6dd`; exact pinned-Rust parity for its public data, 27 component prefixes, 12 relation domains, tuple streams, and nonzero public compensation is machine-gated through `3dc744ac`; 176 verifier mutations cover every public field and I/O shape | Preserve the single-execution `(0,1)` artifact restriction and rerun the full evidence on the clean candidate |
 | CP-08 Transcript | IN_PROGRESS | Shared public-data prefix passes at `88870d2c`; fixed schema-v3 claim mixing lands through `e4119c3f`; the full production event trace and mutation probes land through `93ff11e4`; separate-process receipts bind final digest plus draw count and executable/build identity through `283f16df` | Rerun the transcript-state receipt and full mutation evidence on the clean candidate |
 | CP-09 CLI | IN_PROGRESS | Installed strict candidate prove/verify boundary and independent-process verification are committed through `6bcca4bd`; complete transcript-state receipts land through `283f16df`; the adapter remains staged | Exercise the full installed multi-shard prove/verify/benchmark matrix and post-RF-01 promoted matrix from clean checkouts |
 | CP-10 Artifact | IN_PROGRESS | Bounded schema v3, atomic path, owned statement, external expected digest, hostile preflight, exact wire reconstruction, provenance validation, security-policy checks, and occupied-output preservation are committed through `6bcca4bd` | Bind the final exact shard/infra claims, complete hostile-decoding and DoS coverage, then pass candidate/promoted clean evidence |
-| CP-11 Rust oracle | IN_PROGRESS | Clean local `bae4ff48` receipt passes all 11 boundaries, exactly 12 relation domains, canonical physical provenance, and the pinned signed-`MULH` limitation | Reproduce the fresh 11/11 receipt on the next exact candidate in hosted CP-13 and preserve it after RF-01 |
-| CP-12 Adversarial fleet | IN_PROGRESS | Padding, memory geometry, narrow Poseidon, transcript, CLI, artifact, and cross-shard mutations advance through `91710ca9` and `93ff11e4`; the production public/claim matrix rejects 176 attempts with exact PoW-versus-LogUp classes through `5044dc1f` | Preserve the complete semantic, public, Merkle/table, multi-shard, and artifact fleet in final clean-candidate evidence |
-| CP-13 Release gate | IN_PROGRESS | Clean local `bae4ff48` strict candidate passes in 665.529 seconds with zero skips and clean start/end state; hosted run `29682036388` fails before discovery because Linux has no macOS-only `metal-eval-prepare` step; cross-host ownership is corrected in the next candidate | The next exact candidate passes strict controllers locally and in hosted CI, followed by the promoted controller |
+| CP-11 Rust oracle | IN_PROGRESS | Clean local `bae4ff48` receipt passes all 11 boundaries, exactly 12 relation domains, canonical physical provenance, and the pinned signed-`MULH` limitation; the deterministic nonempty partial-word case is an exact Rust/Zig machine gate through `3dc744ac` | Reproduce the fresh 11/11 receipt on the next exact candidate in hosted CP-13 and preserve it after RF-01 |
+| CP-12 Adversarial fleet | IN_PROGRESS | Padding, memory geometry, narrow Poseidon, transcript, CLI, artifact, and cross-shard mutations advance through `91710ca9` and `93ff11e4`; the production public/claim matrix rejects 176 attempts; all previously orphaned malicious-witness, MULH-limitation, transcript, and full-prover suites are owned by the exhaustive target through `eaf4f5ff`; the typed precommit matrix at `fef1a0ae` requires each of 13 witness mutation classes to fail in production proving or verification without claiming that every invalid witness can first be proved | Preserve the complete fleet in the final hosted exhaustive anchor and fresh challenge |
+| CP-13 Release gate | IN_PROGRESS | The typed controller fix is committed through `30ecc5c7`; focused and exhaustive ownership is split through `eaf4f5ff`; focused product and exhaustive diagnostic gates pass locally in 85.5 and 343.8 seconds; the hosted producer has a 90-minute fail-safe and the consumer a hard three-minute timeout | Produce the initial current-policy hosted anchor, pass a fresh exact-candidate challenge against it, then repeat the producer/challenge pair after RF-01 changes the release policy |
 | RF-01 Registry flip | NOT_STARTED | None | Atomic promotion commit and post-flip gate |
-| BA-01 Core purity | IN_PROGRESS | Named mechanical checker passes in clean local `bae4ff48` CP-13 evidence | Reproduce it in hosted candidate and local/hosted promoted evidence |
-| BA-02 Frontend layering | IN_PROGRESS | The active `silent` path is removed; infrastructure and prover ownership are decomposed through `ca3c3d56`; the named selector passes in clean local `bae4ff48` CP-13 evidence | Reproduce the selector and no-drift proof in hosted candidate and local/hosted promoted evidence |
+| BA-01 Core purity | IN_PROGRESS | Named mechanical checker passes in clean local `bae4ff48` CP-13 evidence | Reproduce it in the hosted candidate and promoted exhaustive anchors |
+| BA-02 Frontend layering | IN_PROGRESS | The active `silent` path is removed; infrastructure and prover ownership are decomposed through `ca3c3d56`; the named selector passes in clean local `bae4ff48` CP-13 evidence | Reproduce the selector and no-drift proof in the hosted candidate and promoted exhaustive anchors |
 | BA-03 Autoresearch | FAIL | Correctly disabled at `c0720031` | Keep disabled, or satisfy independent activation gates |
 
 ## Definition of done
@@ -1478,7 +1498,8 @@ remains `IN_PROGRESS`.
 This goal is complete only when:
 
 - CP-00 through CP-13 pass on one clean candidate revision;
-- RF-01 is committed and its post-flip strict gate passes in CI;
+- RF-01 is committed and its post-flip exhaustive producer and fresh challenge
+  pass in hosted CI;
 - BA-01 and BA-02 pass on the promoted revision;
 - BA-03 is either independently passed in a later commit or remains explicitly
   disabled with its reason intact;
