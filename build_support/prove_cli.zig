@@ -75,6 +75,7 @@ pub fn addProduct(context: Context) *std.Build.Step.Compile {
     });
     native_transaction.addImport("output_transaction", output_transaction);
     module.addImport("native_transaction", native_transaction);
+    module.addImport("output_transaction", output_transaction);
     const native_identity = b.createModule(.{
         .root_source_file = b.path("src/integrations/native/product_identity.zig"),
         .target = context.target,
@@ -144,6 +145,7 @@ pub fn addProduct(context: Context) *std.Build.Step.Compile {
     app_module.addImport("stwo", context.stwo_module);
     app_module.addImport("native_proof_runner", context.native_proof_runner_module);
     app_module.addImport("native_transaction", native_transaction);
+    app_module.addImport("output_transaction", output_transaction);
     app_module.addOptions("build_identity", identity_options);
     app_module.addOptions("aggregate_capabilities", capabilities);
     app_module.addOptions("product_identity", product_options);

@@ -5,6 +5,7 @@ const stwo = @import("stwo");
 const cli = @import("cli.zig");
 const lifecycle = @import("native_transaction");
 const native_dispatch = @import("native_dispatch.zig");
+const output_transaction = @import("output_transaction");
 const product_identity = @import("native_product_identity");
 const registry = @import("registry.zig");
 const starkv_adapter = @import("starkv_adapter");
@@ -54,7 +55,7 @@ fn runElf(
     proof_output: ?[]const u8,
     report_output: ?[]const u8,
 ) !void {
-    try lifecycle.prepare(proof_output, report_output);
+    try output_transaction.prepare(proof_output, report_output);
 
     const proof_temporary = if (proof_output) |path|
         try atomic_file.temporaryPathAlloc(allocator, path, "proof")
@@ -90,9 +91,23 @@ fn runElf(
     defer allocator.free(report);
 
     if (proof_output) |path| {
-        try lifecycle.publishResult(atomic_file, allocator, proof_temporary.?, path, report, report_output);
+        try output_transaction.publishResult(
+            atomic_file,
+            allocator,
+            proof_temporary.?,
+            path,
+            report,
+            report_output,
+            std.fs.File.stdout().deprecatedWriter(),
+        );
     } else {
-        try lifecycle.publishReport(atomic_file, allocator, report, report_output);
+        try output_transaction.publishReport(
+            atomic_file,
+            allocator,
+            report,
+            report_output,
+            std.fs.File.stdout().deprecatedWriter(),
+        );
     }
 }
 
