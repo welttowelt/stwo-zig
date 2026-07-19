@@ -5,7 +5,8 @@
 **Created:** 2026-07-18
 
 **Last reconciled:** 2026-07-19 against committed implementation baseline
-`30633196` and the explicitly unaccepted working-tree slices described below.
+`9092a3e1`; uncommitted output remains diagnostic and cannot alter checkpoint
+status.
 
 **Authority:** This is the operative delivery contract for the Stark-V RV32IM
 lane. It may be replaced only by a reviewed document that names every changed
@@ -20,6 +21,13 @@ one identified commit from a clean checkout.
 reason or independently PASS` + `zero release-blocking divergences`. Every term
 is mandatory. A false term makes the result `NO-GO`.
 
+**Machine authority:** `scripts/riscv_release_gate.py --strict` is the only
+command allowed to issue a candidate or promoted release receipt. Its repository
+preflight must reject every active divergence except an explicitly allowlisted,
+conditionally gated PCS difference. For the currently pinned Stark-V revision,
+the signed `MULH` carry defect is a mandatory blocker: deleting, renaming, or
+marking its ledger row as allowed must also fail the gate.
+
 **Goal identity:** Complete and release-gate the Stark-V RV32IM proving lane by
 finishing globally sound cross-shard LogUp placement, binding the full public
 I/O statement, validating the production prove/verify/benchmark CLI and
@@ -31,9 +39,10 @@ autoresearch scoring disabled until independently qualified.
 **Last accepted live-oracle evidence:** `30bc24ecaa4a5ed21cd4fa2455bed81bbce8553a`.
 The live pinned-Rust receipt at that revision passes 9 of 11 shared boundaries.
 It is diagnostic parity evidence, not a release acceptance receipt. The current
-committed implementation also contains the staged production CLI through
-`9af6fe2b` and the two-shard live-oracle corpus case through `8e5be3c3`; neither
-changes the release decision without a fresh clean-candidate receipt.
+committed implementation also contains the schema-v3 staged production CLI
+through `6f01c105` and the symbol-bearing live-oracle release corpus through
+`dd1a8c1a`; neither changes the release decision without a fresh clean-candidate
+receipt.
 
 ## Goal
 
@@ -225,7 +234,7 @@ authorize RF-01 by itself.
 
 ### Current implementation snapshot
 
-The current committed implementation baseline is `30633196`. It contains:
+The current committed implementation baseline is `9092a3e1`. It contains:
 
 - exact six-domain lookup schemas and signed counters through `a5b68b28`;
 - a generic lookup-table AIR component through `dee14997`;
@@ -254,7 +263,22 @@ The current committed implementation baseline is `30633196`. It contains:
   boundary through `3ea0eccd`; and
 - build-time, exact source commit and dirty-state identity for the installed
   prove CLI through `30633196`, including paired archive overrides and no
-  runtime Git dependency.
+  runtime Git dependency;
+- a decomposed schema-v3 RISC-V artifact and staged CLI with bounded hostile
+  preflight, validation, exact wire reconstruction, atomic publication,
+  independent verification, tamper rejection, and stable visible diagnostics
+  through `6f01c105`;
+- decomposed infrastructure trace construction under focused modules, with the
+  source-debt baseline reduced accordingly, through `980bc3cc`; and
+- a symbol-bearing positive release corpus plus explicit undeclared-program and
+  sentinel-loop negative fixtures, all pinned to byte-level Rust trace parity,
+  through `dd1a8c1a`; and
+- a code-owned active-divergence allowlist and mandatory signed-`MULH` blocker
+  that stop candidate and promoted controllers before command execution through
+  `196b5604`; and
+- bound default-challenge relation tuple v3 and cumulative-sum v2 evidence over
+  retained production buffers, including exact candidate, oracle, workload,
+  layout, and diagnostic commitment identities, through `9092a3e1`.
 
 The latest committed integrations are diagnostic progress, not accepted release
 evidence. Focused component tests and one serial production ELF proof/verify
@@ -267,12 +291,14 @@ validator, canonical layout digest, and embedded build identity close important
 boundary preconditions but do not establish algebraic public binding, relation
 parity, or artifact acceptance on their own.
 
-At this reconciliation point, the working tree contains unaccepted schema-v3
-CLI/artifact, production relation-evidence, and pinned-oracle adapter slices.
-These must pass focused review, hostile decoding, independent-process
-verification, exact production relation parity, and the named clean-candidate
-gates before they alter CP-05, CP-09, CP-10, or CP-11. Uncommitted code and
-output from it remain diagnostic by definition.
+The committed relation-evidence implementation has passed focused adversarial
+review and one production-valid Fib tuple/sum comparison, but that diagnostic
+run is not a fresh corpus-wide clean-candidate receipt. It therefore advances
+CP-05 and CP-11 implementation without changing their checkpoint status. The
+committed schema-v3 CLI/artifact, release corpus, and mechanical divergence
+preflight similarly advance CP-01, CP-02, CP-09, CP-10, and CP-13
+implementation, but remain unaccepted until the complete checkpoint receipts
+pass. Uncommitted code and output from it remain diagnostic by definition.
 
 The pinned Rust and Zig narrow-Poseidon2 witness generators have reached exact
 445-column parity for the focused `Call.narrow(1, 2)` row, and the committed
@@ -282,13 +308,12 @@ Merkle/Poseidon mutations, complete table and memory closure, and clean
 candidate evidence pass. Focused parity or a green local suite is never accepted
 as release evidence by itself.
 
-The last accepted staged proof artifact is schema v2 and mirrors transitional
-claim fields. A schema-v3 implementation is under review, but production
-placement requires it to land with single-read classification, bounded hostile
-decoding, exact claim reconstruction, caller-expected statement enforcement,
-and independent-process verification. Until those gates pass, CP-09 and CP-10
-remain `IN_PROGRESS` even when an older staged smoke or an uncommitted v3 smoke
-passes.
+The committed staged proof artifact is schema v3 and includes single-read
+classification, bounded hostile decoding, exact claim reconstruction,
+caller-expected statement enforcement, and independent-process verification.
+CP-09 and CP-10 nevertheless remain `IN_PROGRESS` until the production claims
+stabilize and the candidate and promoted CP-13 receipts exercise that exact wire
+format from clean checkouts.
 
 ### Required work packages
 
@@ -333,6 +358,14 @@ The release controller must fail closed when a command is absent, skipped,
 times out, produces malformed evidence, names another candidate, uses a dirty
 oracle tree, or leaves the candidate tree dirty. A prose claim, static command
 list, cached receipt, or agent report cannot override a failed gate.
+
+The controller must parse [divergence-log.md](divergence-log.md) before running
+any build, test, smoke, or oracle command. Both `candidate` and `promoted` phases
+must stop with a failing machine-readable receipt when a release-blocking row is
+active. The allowlist is code-owned and exact; prose such as "allowed with
+tests" cannot waive an unlisted divergence. A known defect tied to the pinned
+oracle must remain mandatory until the pin changes to a corrected upstream and
+the corresponding signed proof-and-verify evidence is renewed.
 
 ### Required evidence bundle
 
@@ -1244,12 +1277,12 @@ built on an unsound statement:
    padding, and allocation-failure mutation coverage.
 6. Bind the complete public statement and exact transcript sequence under CP-07
    and CP-08.
-7. Stabilize the internal claim model, migrate artifact/CLI wire schema v2 to v3,
-   and pass the bounded hostile-decoding and independent-verification gates under
-   CP-09 and CP-10.
-8. Export production `relation_tuples` and cumulative per-component
-   `relation_sums`; obtain a fresh clean, candidate-bound 11/11 pinned-Rust
-   receipt under CP-11.
+7. Stabilize the internal claim model used by the committed artifact/CLI wire
+   schema v3, then pass its bounded hostile-decoding, independent-verification,
+   candidate, and promoted gates under CP-09 and CP-10.
+8. Exercise the committed bound `relation_tuples` and cumulative per-component
+   `relation_sums` over the full release corpus; obtain a fresh clean,
+   candidate-bound 11/11 pinned-Rust receipt under CP-11.
 9. Run the complete production adversarial fleet under CP-12, including every
    shard, claim, public-field, transcript, Merkle, table, and artifact mutation.
 10. Close the signed `MULH`/`MULHSU` oracle blocker, or narrow the declared ISA in
@@ -1275,22 +1308,22 @@ remains `IN_PROGRESS`.
 | Checkpoint | Status | Evidence baseline | Required closure evidence |
 | --- | --- | --- | --- |
 | CP-00 Fail closed | IN_PROGRESS | Typed candidate-only `--experimental`, closed registry, and negative phase admission through `9af6fe2b` | Complete unsupported decoder/backend matrix; preserve closed release and autoresearch registries |
-| CP-01 Structure | IN_PROGRESS | Mechanical core-purity gate passes through `75a74318`; frontend-layering gate correctly fails on active `silent` paths and oversized files | Backend-neutral frontend; RISC-V frontend-layering checker clean; touched source debt reduced |
-| CP-02 Execute | IN_PROGRESS | Live decode and execution boundaries pass at `30bc24ec`; two-shard ADDI corpus case is committed at `8e5be3c3` | Exact 45-opcode manifest, complete edge corpus, and corrected signed-MULH oracle |
+| CP-01 Structure | IN_PROGRESS | Mechanical core-purity gate passes; infrastructure trace construction is decomposed and its source-debt entries removed through `980bc3cc`; frontend layering still rejects the oversized prover owner | Backend-neutral frontend; RISC-V frontend-layering checker clean; touched source debt reduced |
+| CP-02 Execute | IN_PROGRESS | Live decode and execution boundaries pass at `30bc24ec`; the symbol-bearing release corpus, compact genuinely multi-shard ADDI case, and explicit negative ABI fixtures are committed through `dd1a8c1a` with pinned-Rust byte parity | Exact 45-opcode manifest, complete edge corpus, and corrected signed-MULH oracle |
 | CP-03 Witness | IN_PROGRESS | Production-buffer per-family rows and ordered accesses pass live Rust comparison at `30bc24ec`; canonical production layout digest is committed through `3ea0eccd` | Complete schema/edge corpus and bind the committed layout digest into fresh final-candidate evidence |
 | CP-04 Semantic AIR | IN_PROGRESS | Production opcode semantic placement is committed through `52315ef1`; exact synthetic clock-gap predecessor chaining is committed through `e454dafb`; a focused roundtrip is diagnostic only | Complete accepted-opcode on-domain/OODS coverage, nonempty long-gap proof coverage, the full malicious-witness matrix, and corrected signed-MULH oracle evidence |
-| CP-05 Cross-shard LogUp | IN_PROGRESS | Exact opcode batching/constraints, ownership, canonical order, clock relations, and the central 27-component interaction assembly are committed through `92456745`; production tuple/sum oracle boundaries remain open | Prove one-, two-, and many-shard non-vacuous closure for all 12 domains; reject omission, duplication, reorder, tuple, multiplicity, padding, and boundary mutations; obtain cumulative Rust parity |
+| CP-05 Cross-shard LogUp | IN_PROGRESS | Exact opcode batching/constraints, ownership, canonical order, clock relations, and the central 27-component interaction assembly are committed through `92456745`; bound production-buffer tuple/sum diagnostics land through `9092a3e1` and one valid Fib comparison has exact Rust parity | Prove one-, two-, and many-shard non-vacuous closure for all 12 domains; reject omission, duplication, reorder, tuple, multiplicity, padding, and boundary mutations; obtain full-corpus cumulative Rust parity |
 | CP-06 Memory/hash/tables | IN_PROGRESS | Live roots, exact lookup-table building blocks, exact Rust/Zig 445-column parity, production HashComponent integration, six fixed-table placement, multiplicity derivation, and memory boundary range sources are committed through `92456745` | Enforce proof-level Merkle/Poseidon/table/memory mutations, canonical-zero `poseidon2_io`, and complete memory closure on a clean candidate |
 | CP-07 Public I/O | IN_PROGRESS | Public values pass live; standalone field audit exists; fail-closed public-data shape, address, clock, root, and padding validation is committed through `f7ab4c83` | Algebraically constrain every field, segment role, expected statement, root, and public relation term, then pass field-by-field production mutations |
 | CP-08 Transcript | IN_PROGRESS | Shared public-data prefix passes at `88870d2c` | Exact full event order, shard divergence declaration, byte tracer, and mutation probes |
-| CP-09 CLI | IN_PROGRESS | Installed candidate prove, independent verify, verified benchmark, two-shard smoke, and failure matrix through `9af6fe2b`; exact build-time commit/dirty identity is committed through `30633196`; current adapter still projects transitional claims | Migrate to the stabilized exact claim model/schema v3, preserve candidate behavior and build identity, and pass the post-RF-01 promoted matrix |
-| CP-10 Artifact | IN_PROGRESS | Staged schema v2, atomic path, owned statement, external expected digest, and security-policy checks through `9af6fe2b`; clock claim width is corrected through `bd9d5af4`; canonical layout and implementation identities are available through `3ea0eccd` and `30633196` | Land bounded schema v3 with exact shard/infra claims, hostile decoding and DoS coverage, exact provenance fields, then pass candidate/promoted clean evidence |
-| CP-11 Rust oracle | FAIL | Fresh `30bc24ec` receipt is 9/11 | Exact `relation_tuples` and per-component cumulative `relation_sums` pass with candidate-bound strict evidence |
+| CP-09 CLI | IN_PROGRESS | Installed candidate prove, independent verify, verified benchmark, multi-shard smoke, failure matrix, stable diagnostics, and exact build identity are committed through `6f01c105`; the adapter remains staged | Stabilize the exact production claim model, preserve candidate behavior and build identity, and pass the candidate and post-RF-01 promoted matrices |
+| CP-10 Artifact | IN_PROGRESS | Bounded schema v3, atomic path, owned statement, external expected digest, hostile preflight, exact wire reconstruction, provenance validation, and security-policy checks are committed through `6f01c105` | Bind the final exact shard/infra claims, complete hostile-decoding and DoS coverage, then pass candidate/promoted clean evidence |
+| CP-11 Rust oracle | FAIL | Fresh `30bc24ec` receipt is 9/11; bound relation exporters and strict provenance comparison are committed through `9092a3e1`, with one valid Fib case agreeing diagnostically | Exact `relation_tuples` and per-component cumulative `relation_sums` pass over the full release corpus with candidate-bound strict evidence |
 | CP-12 Adversarial fleet | IN_PROGRESS | Committed partial matrix at `88870d2c` | Full production malicious-witness and cross-shard forgery matrix complete |
-| CP-13 Release gate | IN_PROGRESS | Phase-aware controller through `0374679e` and named structure/core/frontend selectors through `75a74318`; final evidence not accepted | Strict candidate and promoted controllers pass locally and in clean CI |
+| CP-13 Release gate | IN_PROGRESS | Phase-aware controller through `0374679e`, named structure/core/frontend selectors through `75a74318`, and pre-command fail closure for active divergences through `196b5604`; final evidence not accepted | Strict candidate and promoted controllers pass locally and in clean CI |
 | RF-01 Registry flip | NOT_STARTED | None | Atomic promotion commit and post-flip gate |
 | BA-01 Core purity | IN_PROGRESS | Named mechanical checker passes through `75a74318` | Preserve and rerun it in candidate and promoted CP-13 evidence |
-| BA-02 Frontend layering | FAIL | Named mechanical checker through `75a74318` rejects active `silent` paths and oversized frontend files | Remove active incomplete paths, decompose touched debt, and rerun the checker clean |
+| BA-02 Frontend layering | FAIL | The active `silent` path is removed and infrastructure trace construction is decomposed through `980bc3cc`; the mechanical checker now rejects only the oversized prover owner | Decompose `src/frontends/riscv/prover.zig` without semantic or proof-byte drift and rerun the checker clean |
 | BA-03 Autoresearch | FAIL | Correctly disabled at `c0720031` | Keep disabled, or satisfy independent activation gates |
 
 ## Definition of done
