@@ -60,7 +60,6 @@ const state_chain = @import("../runner/state_chain.zig");
 const memory_state = @import("../runner/memory_state.zig");
 
 const M31 = m31.M31;
-const Channel = types.Channel;
 const PublicData = types.PublicData;
 const ProveOutput = types.ProveOutput;
 const ProverError = types.ProverError;
@@ -86,6 +85,38 @@ pub fn runRiscVWithEngineAndPublicData(
     opt_memory: ?*const memory_state.Snapshot,
     recorder: ?*stage_profile.Recorder,
     public_data: PublicData,
+) !RunOutput(mode) {
+    var channel = Engine.Channel{};
+    return runRiscVWithEngineAndPublicDataUsingChannel(
+        Engine,
+        mode,
+        allocator,
+        pcs_config,
+        exec_trace,
+        opt_chain,
+        opt_memory,
+        recorder,
+        public_data,
+        &channel,
+    );
+}
+
+/// Runs the production proving transaction against a caller-owned channel.
+///
+/// The ordinary entrypoint above instantiates `Engine.Channel` directly. This
+/// substitution point lets conformance tests observe the exact production
+/// transcript without replaying statement or commitment events.
+pub fn runRiscVWithEngineAndPublicDataUsingChannel(
+    comptime Engine: type,
+    comptime mode: RunMode,
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    exec_trace: *const trace_mod.Trace,
+    opt_chain: ?*const state_chain.StateChainTracker,
+    opt_memory: ?*const memory_state.Snapshot,
+    recorder: ?*stage_profile.Recorder,
+    public_data: PublicData,
+    channel: *Engine.Channel,
 ) !RunOutput(mode) {
     comptime prover_engine.assertProverEngine(Engine);
     if (exec_trace.step_count == 0) return ProverError.EmptyTrace;
@@ -305,8 +336,7 @@ pub fn runRiscVWithEngineAndPublicData(
     }
     try statement_validation.validate(statement);
 
-    var channel = Channel{};
-    statement.public_data.mixInto(&channel);
+    statement.public_data.mixInto(channel);
 
     var scheme = try Engine.init(allocator, pcs_config);
     var scheme_owned = true;
@@ -338,7 +368,7 @@ pub fn runRiscVWithEngineAndPublicData(
             retained_tree0_initialized = true;
         }
         moved = true;
-        try Engine.commit(&scheme, allocator, preprocessed, recorder, &channel);
+        try Engine.commit(&scheme, allocator, preprocessed, recorder, channel);
     }
 
     // -- Step 4: Tree 1 -- Main trace (opcode + infrastructure columns). --
@@ -544,7 +574,7 @@ pub fn runRiscVWithEngineAndPublicData(
         var stage = try stage_profile.StageScope.begin(recorder, "riscv_main_trace_commit", "RISC-V main trace commit");
         defer stage.end();
         main_columns_moved = true;
-        try Engine.commit(&scheme, allocator, main_columns, recorder, &channel);
+        try Engine.commit(&scheme, allocator, main_columns, recorder, channel);
     }
 
     // Tree 2 carries exact declaration-order opcode and infrastructure
@@ -566,9 +596,9 @@ pub fn runRiscVWithEngineAndPublicData(
 
     // -- Step 5: LogUp interaction tree (tree 2). --
     const transcript_prefix: proof_transcript.ProverRelations = if (comptime mode == .prove)
-        try proof_transcript.proveToRelations(allocator, &channel, &statement)
+        try proof_transcript.proveToRelations(allocator, channel, &statement)
     else blk: {
-        var diagnostic_channel = Channel{};
+        var diagnostic_channel = Engine.Channel{};
         break :blk .{
             .interaction_pow = 0,
             .relations = try @import("../air/relation_challenges.zig").Relations.draw(
@@ -762,9 +792,9 @@ pub fn runRiscVWithEngineAndPublicData(
         }
         std.debug.assert(inter_col_idx == n_interaction);
 
-        try proof_transcript.mixInteractionClaim(&channel, &statement, &interaction_claim);
+        try proof_transcript.mixInteractionClaim(channel, &statement, &interaction_claim);
         interaction_columns_moved = true;
-        try Engine.commit(&scheme, allocator, interaction_columns, recorder, &channel);
+        try Engine.commit(&scheme, allocator, interaction_columns, recorder, channel);
     }
 
     if (comptime mode == .relation_diagnostic) {
@@ -790,7 +820,7 @@ pub fn runRiscVWithEngineAndPublicData(
         allocator,
         recorder,
         scheme,
-        &channel,
+        channel,
         statement,
         &relations,
         interaction_claim,

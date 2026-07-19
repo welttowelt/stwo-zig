@@ -35,6 +35,29 @@ pub fn verifyRiscVWithEngine(
     proof_in: types.Proof,
     claim: types.RiscVInteractionClaim,
 ) !void {
+    var channel = Engine.Channel{};
+    return verifyRiscVWithEngineUsingChannel(
+        Engine,
+        allocator,
+        pcs_config,
+        statement,
+        proof_in,
+        claim,
+        &channel,
+    );
+}
+
+/// Verifies through the production path using a caller-owned transcript channel.
+/// The default entrypoint above remains monomorphic and has no tracing branch.
+pub fn verifyRiscVWithEngineUsingChannel(
+    comptime Engine: type,
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    statement: types.RiscVStatement,
+    proof_in: types.Proof,
+    claim: types.RiscVInteractionClaim,
+    channel: *Engine.Channel,
+) !void {
     comptime prover_engine.assertProverEngine(Engine);
     var proof = proof_in;
     var proof_moved = false;
@@ -55,12 +78,11 @@ pub fn verifyRiscVWithEngine(
         proof.commitment_scheme_proof.commitments.items[0],
     );
 
-    var channel = types.Channel{};
-    statement.public_data.mixInto(&channel);
+    statement.public_data.mixInto(channel);
 
     var commitment_scheme = try pcs_verifier.CommitmentSchemeVerifier(
         types.Hasher,
-        types.MerkleChannel,
+        Engine.MerkleChannel,
     ).init(allocator, pcs_config);
     defer commitment_scheme.deinit(allocator);
 
@@ -71,7 +93,7 @@ pub fn verifyRiscVWithEngine(
         allocator,
         proof.commitment_scheme_proof.commitments.items[0],
         preproc_log_sizes,
-        &channel,
+        channel,
     );
 
     // Tree 1: opcode and infrastructure main columns.
@@ -93,12 +115,12 @@ pub fn verifyRiscVWithEngine(
         allocator,
         proof.commitment_scheme_proof.commitments.items[1],
         main_log_sizes,
-        &channel,
+        channel,
     );
 
     const relations = try proof_transcript.verifyToRelations(
         allocator,
-        &channel,
+        channel,
         &statement,
         claim.interaction_pow,
     );
@@ -122,12 +144,12 @@ pub fn verifyRiscVWithEngine(
         inter_col_offset += n_cols;
     }
     std.debug.assert(inter_col_offset == n_interaction);
-    try proof_transcript.mixInteractionClaim(&channel, &statement, &claim);
+    try proof_transcript.mixInteractionClaim(channel, &statement, &claim);
     try commitment_scheme.commit(
         allocator,
         proof.commitment_scheme_proof.commitments.items[2],
         interaction_log_sizes,
-        &channel,
+        channel,
     );
 
     const canonical = try claim.canonical(&statement);
@@ -267,10 +289,10 @@ pub fn verifyRiscVWithEngine(
     proof_moved = true;
     try core_verifier.verify(
         types.Hasher,
-        types.MerkleChannel,
+        Engine.MerkleChannel,
         allocator,
         verifier_components[0..total_components],
-        &channel,
+        channel,
         &commitment_scheme,
         proof,
     );

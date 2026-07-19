@@ -38,12 +38,37 @@ pub fn proveRiscVWithEngine(
     opt_memory: ?*const memory_state.Snapshot,
     recorder: ?*stage_profile.Recorder,
 ) !ProveOutput {
+    var channel = Engine.Channel{};
+    return proveRiscVWithEngineUsingChannel(
+        Engine,
+        allocator,
+        pcs_config,
+        exec_trace,
+        opt_chain,
+        opt_memory,
+        recorder,
+        &channel,
+    );
+}
+
+/// Proves through the normal frontend path while exposing its live channel to
+/// conformance instrumentation. The default entrypoint remains branch-free.
+pub fn proveRiscVWithEngineUsingChannel(
+    comptime Engine: type,
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    exec_trace: *const trace_mod.Trace,
+    opt_chain: ?*const state_chain.StateChainTracker,
+    opt_memory: ?*const memory_state.Snapshot,
+    recorder: ?*stage_profile.Recorder,
+    channel: *Engine.Channel,
+) !ProveOutput {
     const register_boundary = try opcode_memory.deriveRegisterBoundary(exec_trace.rows.items);
     if (opt_chain) |chain| {
         if (!std.mem.eql(u32, &register_boundary.last_clock, &chain.reg_last_clk))
             return ProverError.InvalidStatement;
     }
-    return proveRiscVWithEngineAndPublicData(
+    return proveRiscVWithEngineAndPublicDataUsingChannel(
         Engine,
         allocator,
         pcs_config,
@@ -71,6 +96,7 @@ pub fn proveRiscVWithEngine(
                 .output_words = &.{},
             },
         },
+        channel,
     );
 }
 
@@ -84,7 +110,32 @@ pub fn proveRiscVWithEngineAndPublicData(
     recorder: ?*stage_profile.Recorder,
     public_data: PublicData,
 ) !ProveOutput {
-    return orchestration.runRiscVWithEngineAndPublicData(
+    var channel = Engine.Channel{};
+    return proveRiscVWithEngineAndPublicDataUsingChannel(
+        Engine,
+        allocator,
+        pcs_config,
+        exec_trace,
+        opt_chain,
+        opt_memory,
+        recorder,
+        public_data,
+        &channel,
+    );
+}
+
+pub fn proveRiscVWithEngineAndPublicDataUsingChannel(
+    comptime Engine: type,
+    allocator: std.mem.Allocator,
+    pcs_config: pcs_core.PcsConfig,
+    exec_trace: *const trace_mod.Trace,
+    opt_chain: ?*const state_chain.StateChainTracker,
+    opt_memory: ?*const memory_state.Snapshot,
+    recorder: ?*stage_profile.Recorder,
+    public_data: PublicData,
+    channel: *Engine.Channel,
+) !ProveOutput {
+    return orchestration.runRiscVWithEngineAndPublicDataUsingChannel(
         Engine,
         .prove,
         allocator,
@@ -94,6 +145,7 @@ pub fn proveRiscVWithEngineAndPublicData(
         opt_memory,
         recorder,
         public_data,
+        channel,
     );
 }
 
@@ -120,5 +172,7 @@ pub fn diagnoseRiscVRelationsWithEngineAndPublicData(
     );
 }
 
-pub const verifyRiscVWithEngine = @import("prover/verifier.zig").verifyRiscVWithEngine;
+const verifier = @import("prover/verifier.zig");
+pub const verifyRiscVWithEngine = verifier.verifyRiscVWithEngine;
+pub const verifyRiscVWithEngineUsingChannel = verifier.verifyRiscVWithEngineUsingChannel;
 pub const proveAndVerifyElfWithEngine = @import("prover/elf.zig").proveAndVerifyElfWithEngine;

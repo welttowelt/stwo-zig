@@ -30,7 +30,7 @@ pub fn prove(
     allocator: std.mem.Allocator,
     recorder: ?*stage_profile.Recorder,
     scheme: Engine.Scheme,
-    channel: *types.Channel,
+    channel: *Engine.Channel,
     statement: types.RiscVStatement,
     relations: *const relation_challenges.Relations,
     interaction_claim: types.RiscVInteractionClaim,

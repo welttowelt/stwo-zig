@@ -178,6 +178,8 @@ test "riscv prover: prove and verify synthetic trace" {
 test "riscv prover: transaction engine is the proving substitution point" {
     const CountingEngine = struct {
         pub const Scheme = CpuProverEngine.Scheme;
+        pub const Channel = CpuProverEngine.Channel;
+        pub const MerkleChannel = CpuProverEngine.MerkleChannel;
         var init_calls: usize = 0;
         var commit_calls: usize = 0;
         var prove_calls: usize = 0;
@@ -196,7 +198,7 @@ test "riscv prover: transaction engine is the proving substitution point" {
             allocator: std.mem.Allocator,
             columns: []prover_pcs.ColumnEvaluation,
             recorder: ?*stage_profile.Recorder,
-            channel: *Channel,
+            channel: *CpuProverEngine.Channel,
         ) !void {
             commit_calls += 1;
             return CpuProverEngine.commit(scheme, allocator, columns, recorder, channel);
@@ -205,7 +207,7 @@ test "riscv prover: transaction engine is the proving substitution point" {
         pub fn prove(
             allocator: std.mem.Allocator,
             components: []const prover_component.ComponentProver,
-            channel: *Channel,
+            channel: *CpuProverEngine.Channel,
             scheme: Scheme,
             options: prover_engine.ProveOptions,
         ) !ExtendedProof {

@@ -134,7 +134,7 @@ pub fn verifyPreprocessedRoot(
 
     var scheme = try Engine.init(allocator, pcs_config);
     defer Engine.deinit(&scheme, allocator);
-    var channel = types.Channel{};
+    var channel = Engine.Channel{};
     try Engine.commit(&scheme, allocator, columns, null, &channel);
     columns_moved = true;
     var roots = try scheme.roots(allocator);
