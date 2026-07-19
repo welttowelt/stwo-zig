@@ -29,6 +29,25 @@ GO = BG-00..BG-15 PASS on one clean commit
 Every term is mandatory. A false, missing, stale, or skipped term makes the
 decision NO-GO.
 
+### Scope amendment: performance is a separate goal
+
+As of 2026-07-19, proving-speed parity, build-speed parity, memory-ratio
+promotion, benchmark execution, and backend optimization are explicitly
+deferred to a later autoresearch goal. They are not release criteria for this
+build-monorepo delivery goal.
+
+This amendment does not remove benchmark or profiler ownership from the
+architecture. Focused benchmark commands, stable workload identities,
+machine-readable schemas, historical ledgers, delta tooling, and profiler
+entry points must remain constructible and correctly attributed. The current
+release gate validates those interfaces without executing a performance
+matrix or accepting a throughput promotion.
+
+Correctness is not performance. Proof verification, pinned Rust-oracle parity,
+explicit backend selection, and zero silent fallback remain mandatory. A
+Metal-labelled product may be slower during this architecture transition; it
+may not claim CPU work as Metal work.
+
 ## Goal identity
 
 Deliver stwo-zig as a deliberately composed Zig build monorepo in which core,
@@ -57,8 +76,8 @@ The following documents are normative, in descending order:
 2. [upstream.md](upstream.md), which pins the final Rust correctness oracles.
 3. This delivery goal.
 4. [the performance baseline epoch 2 amendment](2026-07-19-build-monorepo-baseline-epoch-2-amendment.md),
-   which supplies the missing BG-00/BG-14 denominators without changing their
-   thresholds.
+   retained as the future autoresearch epoch contract but non-operative for
+   this architecture release decision.
 5. [the RISC-V release goal](2026-07-18-riscv-release-goal.md), for specialized
    RISC-V soundness, statement, artifact, oracle, and registry requirements.
 6. [the accepted architecture](2026-07-19-zig-build-monorepo-architecture.md).
@@ -89,7 +108,8 @@ This goal includes all of the following:
 - canonical product and build identity in binaries and machine evidence;
 - import, compile, link, visible-capability, and behavioral closure gates;
 - final Rust-oracle conformance for affected proof behavior;
-- benchmark continuity and non-regression evidence; and
+- benchmark/profiler ownership, schema, identity, history, and delta-tool
+  continuity without executing performance comparisons; and
 - migration of operative documentation and source-debt ledgers.
 
 ### Deliberately deferred
@@ -101,9 +121,13 @@ The following work is not required to complete this architecture goal:
 - enabling the RISC-V autoresearch board;
 - implementing RISC-V Metal proving;
 - implementing new CUDA kernels;
+- proving-speed, build-speed, binary-size, or peak-memory parity against any
+  historical epoch;
+- executing or promoting the epoch-two performance matrix;
+- repairing or productionizing the deferred epoch-two capture controller;
 - changing AIR semantics, proof security parameters, transcript order, proof
   wire format, or verifier policy; and
-- optimizing prover kernels beyond preventing architecture regressions.
+- optimizing prover kernels.
 
 Deferred does not mean invisible. Each deferred product must exist in the
 matrix with an explicit unavailable or experimental state and a tested reason.
@@ -514,7 +538,7 @@ Each released focused product executes its real production path:
 | BG-11 Gates/caches | Focused gates and product-scoped trusted caches | CI contract and cache-domain tests | NO-GO |
 | BG-12 Bench/profiler | Benchmarks and profiles use exact focused products and retain comparable history | benchmark schema/delta/profile receipts | NO-GO |
 | BG-13 Correctness | Focused/aggregate parity and final pinned Rust oracle conformance | oracle and adversarial receipts | NO-GO |
-| BG-14 Performance | Build, binary, proof throughput, and memory budgets pass | reproducible before/after report | NO-GO |
+| BG-14 Performance readiness | Focused benchmark/profiler interfaces and future epoch configuration remain attributable and fail closed | static contract, schema, history, and deferred-state tests | NO-GO if ambiguous, executable as a promotion gate, or able to fabricate performance evidence |
 | BG-15 Final integration | One clean commit passes all required hosts with no skips or new debt | architecture release receipt | NO-GO |
 
 ## Detailed checkpoints
@@ -533,7 +557,8 @@ Before removing compatibility wiring, record:
 - final binary sizes and dynamic linkage; and
 - source-conformance baseline and file counts.
 
-BG-00 also freezes the performance comparator source digest and policy. The
+BG-00 also records the performance comparator source digest and policy for the
+separate future autoresearch goal. The
 initial authority is `autoresearch/cli/stwo_perf/runner.py` plus `stats.py`:
 round-level alternating AB/BA pairing, Hodges-Lehmann Walsh-average location,
 95% deterministic percentile-bootstrap confidence interval, 4,000 resamples,
@@ -542,8 +567,9 @@ round, and at least three paired rounds. Changing the comparator, confidence,
 resampling, seed derivation, stopping rule, or sample minimum is a versioned
 goal amendment and baseline epoch, not an implementation choice.
 
-The baseline is immutable input to later parity and performance reports. It is
-not regenerated from the migrated tree.
+The baseline is immutable input to later autoresearch reports. It is not
+regenerated from the migrated tree and is not evaluated by this architecture
+goal.
 
 Each later work package also captures its own pre-slice focused baseline. This
 prevents a long migration from comparing the last slice only with an obsolete
@@ -670,7 +696,8 @@ Required outcomes:
 - Metal runtime, generated shader, and AOT identities enter product identity;
 - device-labelled paths cannot fall back to CPU;
 - parity uses CPU and final Rust oracles as required; and
-- existing Metal performance evidence remains comparable across the move.
+- historical Metal performance evidence retains stable product/workload keys
+  and remains comparable later without being rerun by this goal.
 
 This checkpoint includes build architecture, not deferred kernel optimization.
 
@@ -814,48 +841,40 @@ machinery also uses pinned Rust Stwo. Evidence from one lane or boundary does
 not certify another. Zig scalar and the Zig verifier remain fast differential
 and defense-in-depth checks, not replacements for either relevant Rust pin.
 
-### BG-14: Performance and resource budgets
+### BG-14: Performance-harness readiness
 
-Architecture work must improve focus without degrading proving performance.
-The final report records comparable before/after values.
+This checkpoint is architectural. It proves that later autoresearch can measure
+the focused products without changing product construction or losing history.
+It does not execute benchmarks and it has no speed, build-time, memory, or
+binary-size threshold.
 
-Mandatory budgets:
+Required static and bounded checks:
 
-- RISC-V static focused cold build: at most 60 seconds on the recorded reference
-  host; warm no-op build: at most 2 seconds;
-- RISC-V hosted fast challenge: hard 180-second end-to-end runner job limit;
-- Native CPU and RISC-V CPU focused cold builds: no slower than their frozen
-  aggregate build baseline;
-- warm focused build: no unrelated product rebuild;
-- verified CPU proving throughput: the frozen 95% Hodges-Lehmann confidence
-  lower bound of `candidate throughput / baseline throughput` is at least
-  `0.97` for every unchanged benchmark basket;
-- verified Metal proving throughput: the same confidence lower bound is at
-  least `0.97` for every unchanged path, with no added runtime compilation on
-  an AOT path;
-- peak proof memory: no more than `1.05x` baseline; and
-- focused binary/link surface: no unrelated frontend/backend growth.
+- each released focused product owns an explicit benchmark and profiler entry
+  point built from the same production proving transaction as its CLI;
+- benchmark help, workload registry, schema version, numerator definition,
+  product identity, backend identity, and runtime identity are testable without
+  running a benchmark matrix;
+- benchmark history and delta tools retain stable product/workload keys and
+  reject malformed, cross-product, or provenance-incomplete rows;
+- the frozen epoch-two protocol and baseline artifacts remain immutable future
+  inputs and are not regenerated from the candidate tree;
+- the incomplete epoch-two capture controller is labelled deferred and cannot
+  emit or be consumed as promotion-quality evidence;
+- architecture CI contains no benchmark execution, MHz comparison, confidence
+  interval, performance receipt, or performance-derived release verdict; and
+- profiler and benchmark construction do not broaden a focused product's import
+  or dynamic-link closure.
 
-Use paired, interleaved runs on an idle recorded host. Security parameters,
-trace shape, stage inclusion, and verifier policy remain identical. A budget
-failure blocks completion; it is not explained away by the architectural value.
-Heavy SN-PIE and long sustained runs remain outside ordinary architecture CI;
-they are scheduled evidence runs and must not make the fast product gates
-unusable.
+BG-14 fails if performance evidence can be fabricated, if a candidate can
+silently promote itself, if historical keys are lost, or if the architecture
+release gate depends on a missing performance artifact. A slow but correct and
+honestly labelled focused product does not fail this checkpoint.
 
-The RISC-V reference host is the machine identity frozen in BG-00, including
-runner image, CPU, memory, filesystem class, Zig version, and trusted-bundle
-state. A new reference host requires an overlapping calibration receipt before
-it can enforce the budget. The 180-second clock starts at trusted runner job
-allocation and ends when the independent verifier records its verdict. It
-includes checkout, toolchain/cache restoration, candidate build, challenge
-issuance, proving, and verification; only scheduler queue time is excluded.
-Subphase timings are recorded, and no phase may be moved outside the clock to
-make the result pass.
-
-There are no per-commit waivers for these budgets. A justified change to a
-threshold requires an accepted amendment to this goal, a new immutable baseline
-epoch, and comparable overlap evidence before the implementation can pass.
+The later autoresearch goal must repair and independently audit the epoch-two
+controller before use. Its throughput, build, memory, binary, host-calibration,
+and complete-clock policies remain documented future requirements, not waived
+or implicitly satisfied requirements of this goal.
 
 ### BG-15: Final integration receipt
 
@@ -867,7 +886,8 @@ From one clean commit:
 4. run aggregate compatibility;
 5. run Linux and macOS link-closure jobs;
 6. run final Native and RISC-V Rust-oracle gates;
-7. run benchmark non-regression and history/delta validation;
+7. validate benchmark/profiler construction, schemas, history keys, delta
+   tooling, and the explicit non-executable deferred performance state;
 8. confirm no required test was skipped;
 9. confirm the source baseline only shrank or stayed unchanged; and
 10. have the trusted aggregate verifier emit one bounded release receipt.
@@ -920,7 +940,7 @@ The receipt contains:
 - exact ordered commands, durations, exit codes, and skipped-test counts;
 - import and link closure summaries;
 - compatibility and oracle receipt digests;
-- build/performance/memory before-and-after records;
+- benchmark/profiler interface and deferred-epoch contract digests;
 - source-debt before-and-after records; and
 - final `PASS` only when every mandatory field passes.
 
@@ -949,7 +969,7 @@ reviewability.
 | WP-07 | aggregate compatibility composition | WP-02..WP-06 | gate extraction preparation |
 | WP-08 | gates, benchmarks, caches, profiler ownership | WP-03..WP-07 | documentation reconciliation |
 | WP-09 | thin root, obsolete-owner deletion, debt shrink | WP-07, WP-08 | final evidence preparation |
-| WP-10 | full parity, oracle, performance, and release receipt | all prior | none |
+| WP-10 | full correctness parity, oracle, architecture, and release receipt | all prior | none |
 
 ### Increment rules
 
@@ -1000,7 +1020,7 @@ Rollback is mandatory when a slice:
 - causes a focused product to import or link an unrelated capability;
 - breaks aggregate compatibility without a versioned migration;
 - loses benchmark history or comparable timing scope;
-- exceeds a performance/resource budget;
+- executes or consumes deferred performance promotion evidence;
 - grows source debt; or
 - requires disabling a mandatory gate.
 
@@ -1046,7 +1066,8 @@ At creation of this goal:
 - [ ] BG-11 focused CI, release, and trusted cache contracts pass.
 - [ ] BG-12 benchmark/profiler identity and historical deltas pass.
 - [ ] BG-13 focused/aggregate and final Rust-oracle correctness pass.
-- [ ] BG-14 build, throughput, memory, and binary budgets pass.
+- [ ] BG-14 benchmark/profiler interfaces, history, and deferred performance
+      state pass without executing a performance matrix.
 - [ ] BG-15 one clean cross-host integration receipt passes with zero skips.
 - [ ] `conformance/source-baseline.json` did not grow.
 - [ ] `conformance/decomposition-plan.md` reflects every retained exception.
