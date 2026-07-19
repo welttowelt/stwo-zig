@@ -21,7 +21,9 @@ const Symbol = struct {
 const instructions = [_]u32{
     0x0010_00B7, // LUI x1, __halt_flag
     0x0018_0237, // LUI x4, __input_start
-    0x0002_2283, // LW x5, 0(x4): consume one public input word
+    0x0002_2283, // LW x5, 0(x4): consume public input word 0
+    0x0042_2303, // LW x6, 4(x4): consume public input word 1
+    0x0082_2383, // LW x7, 8(x4): consume public input word 2
     0x0040_0113, // ADDI x2, x0, 4
     0x0020_A223, // SW x2, 4(x1): publish output_len = 4
     0x0050_A423, // SW x5, 8(x1): publish the loaded input word

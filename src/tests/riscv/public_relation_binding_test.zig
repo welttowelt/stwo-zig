@@ -76,11 +76,11 @@ test "riscv public statement: production relations algebraically bind every publ
     const elf = try release_elf_fixture.buildPublicIoHaltElf(allocator);
     defer allocator.free(elf);
 
-    const input = [_]u8{ 0x11, 0x22, 0x33, 0x44 };
+    const input = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 9 };
     var run = try runner.runWithInput(allocator, elf, &input, 1000);
     defer run.deinit();
     try std.testing.expectEqual(runner.CompletionReason.halt_flag, run.completion_reason);
-    try std.testing.expectEqualSlices(u8, &input, run.output.?);
+    try std.testing.expectEqualSlices(u8, input[0..4], run.output.?);
 
     const input_words = try public_data_mod.packInputWords(allocator, run.input);
     defer allocator.free(input_words);
