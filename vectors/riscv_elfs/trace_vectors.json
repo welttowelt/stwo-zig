@@ -12,7 +12,7 @@
    "total_steps"
   ],
   "rust_source_commit": "d478f783055aa0d73a93768a433a3c6c31c91d1c",
-  "rust_binary_sha256": "4a2e78c6cd8a34483b1cf58f4dc5e37827211eca42e3417c7ba92c900c06afd8",
+  "rust_binary_sha256": "51290356c15cbe40c2051c58c90f377a5b7b70c1d27ad20438885ae9a16ceb3f",
   "note": "every positive release-corpus ELF produced identical canonical bytes in Zig and the Stark-V runner adapter; instruction clocks are one-based to match the pinned oracle; negative diagnostic ELFs are intentionally excluded from positive parity claims"
  },
  "vectors": [
@@ -23,6 +23,13 @@
    "trace_sha256": "d81b2ee8a7eeb014b168e0a6c7cd8adade087842becfb7017e117031b3ad0920",
    "total_steps": 8,
    "final_pc": 65568,
+   "executed_opcode_ids": [
+    0,
+    1,
+    10,
+    26,
+    35
+   ],
    "proof_admission": {
     "status": "supported"
    }
@@ -30,10 +37,22 @@
   {
    "name": "branch_fib",
    "elf": "vectors/riscv_elfs/branch_fib.elf",
-   "elf_sha256": "fb8533da02ca7c10c53b4a09f748d112f338f7433b597262d874a0ac4ba338b2",
-   "trace_sha256": "56a77e3d1aa13457f5be8ff42c3cc251ce31b103caa530a97ab3e315e4ca6c46",
-   "total_steps": 130,
-   "final_pc": 65596,
+   "elf_sha256": "4dbf634977e3a30e71a16a681f1ac84def562bd0847fa4885f5f9214d003e0f1",
+   "trace_sha256": "02bc87e4ca26df633f26e97a28ffb6c61c6e0561a540996ca39ba2e8358de8a6",
+   "total_steps": 144,
+   "final_pc": 65668,
+   "executed_opcode_ids": [
+    0,
+    10,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    35
+   ],
    "proof_admission": {
     "status": "supported"
    }
@@ -45,6 +64,13 @@
    "trace_sha256": "d81b2ee8a7eeb014b168e0a6c7cd8adade087842becfb7017e117031b3ad0920",
    "total_steps": 8,
    "final_pc": 65568,
+   "executed_opcode_ids": [
+    0,
+    1,
+    10,
+    26,
+    35
+   ],
    "proof_admission": {
     "status": "supported"
    }
@@ -56,6 +82,13 @@
    "trace_sha256": "5b7477a915854db639390bae68ce361e96209f630cdca252d7d57543d2c1a286",
    "total_steps": 11,
    "final_pc": 65580,
+   "executed_opcode_ids": [
+    10,
+    26,
+    33,
+    34,
+    35
+   ],
    "proof_admission": {
     "status": "supported"
    }
@@ -67,6 +100,19 @@
    "trace_sha256": "4c4291a23908b95080d7c6ac87e03ddda638d309f8d29abccb3c0c1f15a7ac9d",
    "total_steps": 18,
    "final_pc": 65608,
+   "executed_opcode_ids": [
+    10,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    35,
+    36
+   ],
    "proof_admission": {
     "status": "supported"
    }
@@ -78,6 +124,19 @@
    "trace_sha256": "9bbf1523b019e409605d966de87e2138ad23b65c08bd1aedff62f88dba850f36",
    "total_steps": 21,
    "final_pc": 65620,
+   "executed_opcode_ids": [
+    10,
+    26,
+    35,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44
+   ],
    "proof_admission": {
     "status": "fail_closed_known_limitation",
     "known_limitation": "stark-v-signed-mulh"
@@ -90,6 +149,12 @@
    "trace_sha256": "03c4aefaf2a96274e2c596e9ddd21a488051b6a5c5e5101096bab4897810d300",
    "total_steps": 8,
    "final_pc": 65568,
+   "executed_opcode_ids": [
+    10,
+    26,
+    35,
+    40
+   ],
    "proof_admission": {
     "status": "diagnostic_balanced_family_fail_closed",
     "known_limitation": "stark-v-signed-mulh"
@@ -102,6 +167,12 @@
    "trace_sha256": "3979a686d811e18eddef23fda883a625b7c489540ad2ed86822fe03b71e4924e",
    "total_steps": 131078,
    "final_pc": 65568,
+   "executed_opcode_ids": [
+    10,
+    26,
+    29,
+    35
+   ],
    "proof_admission": {
     "status": "supported"
    }
@@ -113,6 +184,27 @@
    "trace_sha256": "513b148af08abbb98c981f2517854ef9acff330932ab11504a9f9cb281bf87fe",
    "total_steps": 23,
    "final_pc": 65628,
+   "executed_opcode_ids": [
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    26,
+    35
+   ],
    "proof_admission": {
     "status": "supported"
    }

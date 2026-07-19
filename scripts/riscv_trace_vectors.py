@@ -28,7 +28,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from riscv_trace_vectors_lib import admission, attestation
+from riscv_trace_vectors_lib import admission, attestation, corpus
 
 ROOT = Path(__file__).resolve().parent.parent
 VECTOR_DIR = ROOT / "vectors" / "riscv_elfs"
@@ -424,21 +424,7 @@ def prog_alu_basic() -> list[int]:
 
 
 def prog_branch_fib() -> list[int]:
-    # fib(24) iteratively: x1=a, x2=b, x3=i, x4=n, x5=tmp
-    return [
-        ADDI(1, 0, 0),
-        ADDI(2, 0, 1),
-        ADDI(3, 0, 0),
-        ADDI(4, 0, 24),
-        # loop:
-        ADD(5, 1, 2),  # tmp = a + b
-        ADDI(1, 2, 0),  # a = b
-        ADDI(2, 5, 0),  # b = tmp
-        ADDI(3, 3, 1),  # i += 1
-        BLT(3, 4, -16),  # while i < n
-        BEQ(1, 2, 8),  # never taken (a != b after loop)
-        ADDI(6, 0, 1),  # x6 = 1 marks fallthrough
-    ] + EPILOGUE()
+    return corpus.branch_fib_program(ADDI, ADD, BLT, BEQ, BNE, BGE, BLTU, BGEU, EPILOGUE())
 
 
 def prog_mul_div() -> list[int]:
@@ -616,6 +602,7 @@ def update(scratch: Path) -> int:
     negative_dir.mkdir(parents=True, exist_ok=True)
     dumper = build_trace_dumper()
     vectors = []
+    corpus_opcode_ids: set[int] = set()
     all_programs = {
         name: build_release_elf(program) for name, program in PROGRAMS.items()
     }
@@ -625,6 +612,8 @@ def update(scratch: Path) -> int:
         elf_path.write_bytes(elf_bytes)
         trace_bytes = dump_trace(dumper, elf_path, scratch / f"{name}.trace.json")
         trace = json.loads(trace_bytes)
+        opcode_ids = corpus.executed_opcode_ids(dumper, elf_path, trace, ROOT)
+        corpus_opcode_ids.update(opcode_ids)
         vectors.append(
             {
                 "name": name,
@@ -633,9 +622,14 @@ def update(scratch: Path) -> int:
                 "trace_sha256": _sha256(trace_bytes),
                 "total_steps": trace["total_steps"],
                 "final_pc": trace["final_pc"],
+                "executed_opcode_ids": opcode_ids,
                 "proof_admission": PROOF_ADMISSION[name],
             }
         )
+    if corpus_opcode_ids != corpus.EXPECTED_PROOF_OPCODE_IDS:
+        missing = sorted(corpus.EXPECTED_PROOF_OPCODE_IDS - corpus_opcode_ids)
+        extra = sorted(corpus_opcode_ids - corpus.EXPECTED_PROOF_OPCODE_IDS)
+        raise SystemExit(f"release corpus opcode IDs differ: missing={missing} extra={extra}")
     negative_vectors = []
     for name in sorted(NEGATIVE_FIXTURES):
         elf_bytes, reason = NEGATIVE_FIXTURES[name]
@@ -684,6 +678,7 @@ def gate(scratch: Path) -> int:
     errors.extend(admission.errors(payload.get("vectors", []), PROOF_ADMISSION))
 
     dumper = build_trace_dumper()
+    corpus_opcode_ids: set[int] = set()
     for vector in payload.get("vectors", []):
         name = vector["name"]
         program = PROGRAMS.get(name)
@@ -712,6 +707,19 @@ def gate(scratch: Path) -> int:
             )
         if trace["final_pc"] != vector["final_pc"]:
             errors.append(f"{name}: final pc {trace['final_pc']} != recorded {vector['final_pc']}")
+        try:
+            opcode_ids = corpus.executed_opcode_ids(dumper, elf_path, trace, ROOT)
+        except ValueError as error:
+            errors.append(f"{name}: {error}")
+            continue
+        if opcode_ids != vector.get("executed_opcode_ids"):
+            errors.append(f"{name}: executed opcode ID coverage drift")
+        corpus_opcode_ids.update(opcode_ids)
+
+    if corpus_opcode_ids != corpus.EXPECTED_PROOF_OPCODE_IDS:
+        missing = sorted(corpus.EXPECTED_PROOF_OPCODE_IDS - corpus_opcode_ids)
+        extra = sorted(corpus_opcode_ids - corpus.EXPECTED_PROOF_OPCODE_IDS)
+        errors.append(f"release corpus opcode IDs differ: missing={missing} extra={extra}")
 
     recorded_negative = {v["name"] for v in payload.get("negative_vectors", [])}
     if recorded_negative != set(NEGATIVE_FIXTURES):

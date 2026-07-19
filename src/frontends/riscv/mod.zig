@@ -28,4 +28,5 @@ pub const proveAndVerifyElfWithEngine = prover_mod.proveAndVerifyElfWithEngine;
 
 test {
     @import("std").testing.refAllDeclsRecursive(infra_trace);
+    _ = @import("opcode_coverage_test.zig");
 }

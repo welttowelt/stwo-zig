@@ -9,6 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import riscv_trace_vectors as rtv
 from riscv_trace_vectors_lib import admission as admission_policy
+from riscv_trace_vectors_lib import corpus as corpus_contract
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -124,6 +125,20 @@ class FixtureIdentityTest(unittest.TestCase):
             len(program) * 4,
         )
 
+    def test_branch_fib_contains_signed_unsigned_taken_and_fallthrough_edges(self):
+        program = rtv.prog_branch_fib()
+        expected = {
+            rtv.BNE(7, 8, 8),
+            rtv.BNE(8, 8, 8),
+            rtv.BGE(7, 8, 8),
+            rtv.BGE(8, 7, 8),
+            rtv.BLTU(7, 8, 8),
+            rtv.BLTU(8, 7, 8),
+            rtv.BGEU(7, 8, 8),
+            rtv.BGEU(8, 7, 8),
+        }
+        self.assertEqual({word for word in program if word in expected}, expected)
+
     def test_mulhu_only_keeps_balanced_mulh_diagnostics_fail_closed(self):
         program = rtv.prog_mulhu_only()
         self.assertEqual(program.count(rtv.MULHU(3, 1, 2)), 1)
@@ -221,6 +236,14 @@ class FixtureIdentityTest(unittest.TestCase):
             for vector in payload["negative_vectors"]
         ))
         self.assertEqual(payload["stark_v_commit"], rtv.pinned_stark_v_commit())
+        self.assertEqual(
+            {
+                opcode_id
+                for vector in payload["vectors"]
+                for opcode_id in vector["executed_opcode_ids"]
+            },
+            corpus_contract.EXPECTED_PROOF_OPCODE_IDS,
+        )
 
 
 if __name__ == "__main__":
