@@ -2,6 +2,7 @@ const std = @import("std");
 
 pub const Identity = struct {
     implementation_commit: [commit_hex_len]u8,
+    implementation_tree: ?[commit_hex_len]u8,
     implementation_dirty: bool,
 };
 
@@ -26,14 +27,22 @@ pub fn resolve(
         return error.IncompleteImplementationIdentityOverride;
 
     if (explicit_commit) |commit| {
+        const parsed_commit = try parseCommit(commit);
         return .{
-            .implementation_commit = try parseCommit(commit),
+            .implementation_commit = parsed_commit,
+            .implementation_tree = readTree(
+                allocator,
+                repository_root,
+                &parsed_commit,
+            ) catch null,
             .implementation_dirty = explicit_dirty.?,
         };
     }
 
+    const commit = try readCommit(allocator, repository_root);
     return .{
-        .implementation_commit = try readCommit(allocator, repository_root),
+        .implementation_commit = commit,
+        .implementation_tree = try readTree(allocator, repository_root, &commit),
         .implementation_dirty = try readDirty(allocator, repository_root),
     };
 }
@@ -74,6 +83,25 @@ fn readDirty(allocator: std.mem.Allocator, repository_root: []const u8) ResolveE
     defer allocator.free(untracked.stderr);
     try requireSuccess(untracked.term);
     return untracked.stdout.len != 0;
+}
+
+fn readTree(
+    allocator: std.mem.Allocator,
+    repository_root: []const u8,
+    commit: []const u8,
+) ResolveError![commit_hex_len]u8 {
+    const revision = try std.fmt.allocPrint(allocator, "{s}^{{tree}}", .{commit});
+    defer allocator.free(revision);
+    const result = try runGit(
+        allocator,
+        repository_root,
+        &.{ "rev-parse", "--verify", revision },
+        git_output_limit,
+    );
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+    try requireSuccess(result.term);
+    return parseCommit(std.mem.trim(u8, result.stdout, " \t\r\n"));
 }
 
 fn runGit(
@@ -124,6 +152,7 @@ test "accepts a complete explicit identity without a repository" {
         "0123456789abcdef0123456789abcdef01234567",
         &identity.implementation_commit,
     );
+    try std.testing.expectEqual(@as(?[commit_hex_len]u8, null), identity.implementation_tree);
     try std.testing.expect(!identity.implementation_dirty);
 }
 

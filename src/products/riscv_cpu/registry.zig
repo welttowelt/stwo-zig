@@ -12,11 +12,23 @@ pub fn write(writer: anytype) !void {
             .name = identity.product,
             .frontend = identity.frontend,
             .backend = identity.backend,
+            .role = identity.role,
+            .protocol_features = identity.protocol_features,
+            .identity_sha256 = identity.identity_sha256,
+            .source = .{
+                .commit = identity.implementation_commit,
+                .tree = if (identity.implementation_tree_available)
+                    identity.implementation_tree
+                else
+                    null,
+                .dirty = identity.implementation_dirty,
+            },
             .target = .{
                 .arch = identity.target_arch,
                 .os = identity.target_os,
                 .abi = identity.target_abi,
                 .cpu_model = identity.cpu_model,
+                .cpu_features_sha256 = identity.cpu_features_sha256,
             },
             .optimize = identity.optimize,
         },

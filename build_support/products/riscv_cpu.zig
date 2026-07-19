@@ -2,6 +2,16 @@
 
 const std = @import("std");
 const build_identity = @import("../build_identity.zig");
+const graph_identity = @import("../graph/identity.zig");
+const graph = @import("../graph/modules.zig");
+
+const product = graph.Product{
+    .name = "stwo-zig-riscv-cpu",
+    .frontend = .riscv,
+    .backend = .cpu,
+    .role = .cli,
+    .protocol_features = "stark-v-rv32im+logup-v1",
+};
 
 pub const Context = struct {
     b: *std.Build,
@@ -73,12 +83,13 @@ fn addTraceExecutable(
     optimize: std.builtin.OptimizeMode,
 ) *std.Build.Step.Compile {
     const b = context.b;
-    const root = b.createModule(.{
-        .root_source_file = b.path("src/riscv_trace_cli.zig"),
+    const root = graph.create(b, .{
+        .product = product,
+        .root_source_file = "src/riscv_trace_cli.zig",
         .target = target,
         .optimize = optimize,
     });
-    root.addOptions("build_identity", buildIdentityOptions(b, context.identity));
+    root.addOptions("build_identity", graph_identity.buildOptions(b, context.identity));
     return b.addExecutable(.{ .name = "riscv-trace-dump", .root_module = root });
 }
 
@@ -90,32 +101,50 @@ fn addExecutable(
 ) *std.Build.Step.Compile {
     const b = context.b;
     const stwo = createStwoModule(b, target, optimize);
-    const root = b.createModule(.{
-        .root_source_file = b.path("src/riscv_cpu_product.zig"),
+    const root = graph.create(b, .{
+        .product = product,
+        .root_source_file = "src/riscv_cpu_product.zig",
         .target = target,
         .optimize = optimize,
     });
     root.addImport("stwo", stwo);
     root.addImport("stwo_riscv_cpu", stwo);
-    root.addOptions("build_identity", buildIdentityOptions(b, context.identity));
-    root.addOptions("product_identity", productIdentityOptions(b, target, optimize));
+    root.addOptions("build_identity", graph_identity.buildOptions(b, context.identity));
+    root.addOptions(
+        "product_identity",
+        graph_identity.productOptions(b, context.identity, product, target, optimize),
+    );
     return b.addExecutable(.{ .name = name, .root_module = root });
 }
 
 fn addTests(context: Context) *std.Build.Step.Compile {
     const b = context.b;
     const stwo = createStwoModule(b, context.target, context.optimize);
-    const root = b.createModule(.{
-        .root_source_file = b.path("src/riscv_cpu_product.zig"),
+    const test_product = graph.Product{
+        .name = product.name,
+        .frontend = product.frontend,
+        .backend = product.backend,
+        .role = .@"test",
+        .protocol_features = product.protocol_features,
+    };
+    const root = graph.create(b, .{
+        .product = test_product,
+        .root_source_file = "src/riscv_cpu_product.zig",
         .target = context.target,
         .optimize = context.optimize,
     });
     root.addImport("stwo", stwo);
     root.addImport("stwo_riscv_cpu", stwo);
-    root.addOptions("build_identity", buildIdentityOptions(b, context.identity));
+    root.addOptions("build_identity", graph_identity.buildOptions(b, context.identity));
     root.addOptions(
         "product_identity",
-        productIdentityOptions(b, context.target, context.optimize),
+        graph_identity.productOptions(
+            b,
+            context.identity,
+            test_product,
+            context.target,
+            context.optimize,
+        ),
     );
     return b.addTest(.{ .root_module = root });
 }
@@ -125,37 +154,16 @@ fn createStwoModule(
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 ) *std.Build.Module {
-    return b.createModule(.{
-        .root_source_file = b.path("src/stwo_riscv_cpu.zig"),
+    return graph.create(b, .{
+        .product = .{
+            .name = product.name,
+            .frontend = product.frontend,
+            .backend = product.backend,
+            .role = .library,
+            .protocol_features = product.protocol_features,
+        },
+        .root_source_file = "src/stwo_riscv_cpu.zig",
         .target = target,
         .optimize = optimize,
     });
-}
-
-fn buildIdentityOptions(
-    b: *std.Build,
-    identity: build_identity.Identity,
-) *std.Build.Step.Options {
-    const options = b.addOptions();
-    options.addOption([]const u8, "implementation_commit", &identity.implementation_commit);
-    options.addOption(bool, "implementation_dirty", identity.implementation_dirty);
-    return options;
-}
-
-fn productIdentityOptions(
-    b: *std.Build,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-) *std.Build.Step.Options {
-    const options = b.addOptions();
-    options.addOption(u32, "schema_version", 1);
-    options.addOption([]const u8, "product", "stwo-zig-riscv-cpu");
-    options.addOption([]const u8, "frontend", "stark-v-rv32im");
-    options.addOption([]const u8, "backend", "cpu");
-    options.addOption([]const u8, "target_arch", @tagName(target.result.cpu.arch));
-    options.addOption([]const u8, "target_os", @tagName(target.result.os.tag));
-    options.addOption([]const u8, "target_abi", @tagName(target.result.abi));
-    options.addOption([]const u8, "cpu_model", target.result.cpu.model.name);
-    options.addOption([]const u8, "optimize", @tagName(optimize));
-    return options;
 }
