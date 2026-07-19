@@ -63,6 +63,20 @@ PROOF_DIAGNOSTIC_FAIL_CLOSED = admission_policy.DIAGNOSTIC_FAIL_CLOSED
 SIGNED_MULH_LIMITATION = admission_policy.SIGNED_MULH_LIMITATION
 BALANCED_RELATION_MODE = "balanced_full"
 LIMITATION_RELATION_MODE = "pinned_known_limitation"
+NONEMPTY_RELATION_MODE = "nonempty_public_input"
+NONEMPTY_RELATION_CASE = "public_io_partial_word"
+NONEMPTY_RELATION_GENERATOR = "scripts/riscv_release_oracle_lib/public_input_fixture.py"
+NONEMPTY_RELATION_ELF_SHA256 = (
+    "a55facfb5444038a6544a499cfbf2c4845e73e032a5ebda882effc431e8115ee"
+)
+NONEMPTY_RELATION_INPUT_SHA256 = (
+    "47e4ee7f211f73265dd17658f6e21c1318bd6c81f37598e20a2756299542efcf"
+)
+NONEMPTY_RELATION_PUBLIC_FIELDS = (
+    "initial_pc", "final_pc", "clock", "initial_regs", "final_regs",
+    "reg_last_clock", "program_root", "initial_rw_root", "final_rw_root",
+    "io_entries",
+)
 LIMITATION_DIAGNOSTIC = (
     "stark-v adapter: error=UnsupportedProofFamily "
     "stage=statement_validation_before_first_commitment "
@@ -432,9 +446,86 @@ def expected_case_result_keys(vector_names: tuple[str, ...]) -> list[str]:
     for boundary in BOUNDARIES:
         if boundary in ELF_CORPUS_BOUNDARIES:
             keys.extend(f"{boundary}/{name}" for name in vector_names)
+            if boundary in {"relation_tuples", "relation_sums"}:
+                keys.append(f"{boundary}/{NONEMPTY_RELATION_CASE}")
         elif boundary in GENERATED_CORPUS_KEYS:
             keys.append(GENERATED_CORPUS_KEYS[boundary])
     return sorted(keys)
+
+
+def _nonempty_relation_errors(
+    case: object,
+    boundary: str,
+    candidate: str,
+    witness_digest: object,
+) -> list[str]:
+    label = f"boundary {boundary}/{NONEMPTY_RELATION_CASE}"
+    if not isinstance(case, dict):
+        return [f"{label} is missing"]
+    errors: list[str] = []
+    expected = {
+        "name": NONEMPTY_RELATION_CASE,
+        "generator": NONEMPTY_RELATION_GENERATOR,
+        "elf_sha256": NONEMPTY_RELATION_ELF_SHA256,
+        "input_sha256": NONEMPTY_RELATION_INPUT_SHA256,
+        "input_len": 9,
+        "proof_admitted": True,
+        "evidence_mode": NONEMPTY_RELATION_MODE,
+        "agree": True,
+        "component_count": 27,
+        "relation_count": 12,
+    }
+    for field, value in expected.items():
+        if case.get(field) != value or type(case.get(field)) is not type(value):
+            errors.append(f"{label} has invalid {field}")
+    if "evidence_error" in case or case.get("first_divergence") is not None:
+        errors.append(f"{label} records disagreement")
+    for field in ("rust_sha256", "zig_sha256"):
+        _sha(case.get(field), f"{label} {field}", errors)
+    public = case.get("public_data")
+    if not isinstance(public, dict) or public.get("agree") is not True:
+        errors.append(f"{label} lacks public-data agreement")
+    else:
+        if public.get("fields") != list(NONEMPTY_RELATION_PUBLIC_FIELDS):
+            errors.append(f"{label} public-data fields are incomplete")
+        if public.get("mismatches") != []:
+            errors.append(f"{label} public-data mismatches are nonempty")
+        _sha(public.get("normalized_sha256"), f"{label} public data", errors)
+    binding = case.get("zig_binding")
+    binding_expected = {
+        "implementation_commit": candidate,
+        "implementation_dirty": False,
+        "oracle_commit": PINNED_ORACLE,
+        "elf_sha256": NONEMPTY_RELATION_ELF_SHA256,
+        "input_sha256": NONEMPTY_RELATION_INPUT_SHA256,
+        "witness_layout_sha256": witness_digest,
+    }
+    if not isinstance(binding, dict):
+        errors.append(f"{label} lacks a Zig diagnostic binding")
+    else:
+        for field, value in binding_expected.items():
+            if binding.get(field) != value:
+                errors.append(f"{label} binding has invalid {field}")
+        for field in (
+            "diagnostic_preprocessed_commitment", "diagnostic_main_commitment",
+            "diagnostic_interaction_commitment",
+        ):
+            _sha(binding.get(field), f"{label} binding {field}", errors)
+    expected_observation = (
+        "canonical_nonzero_tuple_streams"
+        if boundary == "relation_tuples"
+        else "all_component_prefixes_and_relation_domains"
+    )
+    if case.get("observation") != expected_observation:
+        errors.append(f"{label} has the wrong observation")
+    if boundary == "relation_sums":
+        if case.get("public_relation_count") != 3:
+            errors.append(f"{label} does not cover all public relation domains")
+        if case.get("public_memory_sum_nonzero") is not True:
+            errors.append(f"{label} has no nonzero public memory compensation")
+        if case.get("balanced_sum") != [0, 0, 0, 0]:
+            errors.append(f"{label} does not balance to zero")
+    return errors
 
 
 def _limitation_core_errors(core: object, label: str, elf_sha256: object) -> list[str]:
@@ -678,6 +769,12 @@ def receipt_errors(
         if not isinstance(boundary, dict) or boundary.get("status") != "pass":
             status = boundary.get("status") if isinstance(boundary, dict) else "missing"
             errors.append(f"boundary {name} is {status}")
+    for name in ("relation_tuples", "relation_sums"):
+        boundary = boundaries.get(name)
+        case = boundary.get("nonempty_public_input") if isinstance(boundary, dict) else None
+        errors.extend(_nonempty_relation_errors(
+            case, name, candidate, receipt.get("witness_layout_digest_sha256")
+        ))
 
     expected_keys = expected_case_result_keys(names)
     declared_keys = receipt.get("expected_case_result_keys")
@@ -732,6 +829,11 @@ def receipt_errors(
                         errors.extend(_relation_case_errors(
                             case, boundary_name, expected_admission
                         ))
+            if boundary_name in {"relation_tuples", "relation_sums"}:
+                special = boundary.get("nonempty_public_input")
+                key = f"{boundary_name}/{NONEMPTY_RELATION_CASE}"
+                if isinstance(special, dict) and digests.get(key) != _canonical_digest(special):
+                    errors.append(f"case-result digest does not bind {key}")
         for boundary_name, key in GENERATED_CORPUS_KEYS.items():
             boundary = boundaries.get(boundary_name)
             if isinstance(boundary, dict) and digests.get(key) != _canonical_digest(boundary):

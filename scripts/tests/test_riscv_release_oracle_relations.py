@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from riscv_release_oracle_lib import relations  # noqa: E402
+from riscv_release_oracle_lib import nonempty_relations  # noqa: E402
+from riscv_release_oracle_lib import public_input_fixture  # noqa: E402
 
 
 EMPTY = relations.EMPTY_TUPLE_DIGEST
@@ -196,6 +200,110 @@ def parse_limitation(payload: dict, producer: str = "rust") -> dict:
 
 
 class RelationEvidenceTest(unittest.TestCase):
+    def test_nonempty_fixture_is_deterministic_and_partial_word_shaped(self) -> None:
+        payload = public_input_fixture.build_elf()
+        self.assertEqual(707, len(payload))
+        self.assertEqual(9, len(public_input_fixture.INPUT))
+        self.assertEqual(
+            public_input_fixture.ELF_SHA256,
+            hashlib.sha256(payload).hexdigest(),
+        )
+        self.assertEqual(
+            public_input_fixture.INPUT_SHA256,
+            hashlib.sha256(public_input_fixture.INPUT).hexdigest(),
+        )
+
+    def test_nonempty_comparison_runs_every_oracle_with_input_and_fails_on_drift(self) -> None:
+        public = {
+            field: None for field in nonempty_relations.PUBLIC_DATA_FIELDS
+        }
+        public["io_entries"] = {
+            "input_len": 9,
+            "input_words": [0x04030201, 0x08070605, 9],
+        }
+        binding = {
+            "implementation_commit": "a" * 40,
+            "implementation_dirty": False,
+            "oracle_commit": "b" * 40,
+            "elf_sha256": public_input_fixture.ELF_SHA256,
+            "input_sha256": public_input_fixture.INPUT_SHA256,
+            "witness_layout_sha256": "5" * 64,
+        }
+        calls = []
+
+        def run(command, _cwd):
+            calls.append(command)
+            return '{"public_data":{}}' if "--relation-tuples" not in command and \
+                "--relation-sums" not in command and "--public-values" not in command \
+                else "diagnostic"
+
+        tuple_compare = mock.Mock(return_value={
+            "agree": True, "first_divergence": None, "binding": dict(binding),
+        })
+        sum_compare = mock.Mock(return_value={
+            "agree": True, "first_divergence": None, "binding": dict(binding),
+        })
+        parsed_sum = {
+            "public": {"memory_access": (1, 0, 0, 0)},
+            "aggregate": {"balanced": (0, 0, 0, 0)},
+        }
+        with mock.patch.object(nonempty_relations, "_run", side_effect=run), \
+                mock.patch.object(
+                    nonempty_relations, "validate_public_data_shape", return_value=public
+                ), mock.patch.object(
+                    nonempty_relations, "parse_public_values_diagnostic", return_value=public
+                ):
+            tuple_case, sum_case = nonempty_relations.compare_or_failure(
+                Path("rust"), Path("zig"),
+                {"candidate_commit": "a" * 40, "witness_layout_digest_sha256": "5" * 64},
+                ROOT, "b" * 40, tuple_compare, sum_compare,
+                mock.Mock(return_value=parsed_sum), mock.Mock(return_value=None),
+            )
+        self.assertTrue(tuple_case["agree"])
+        self.assertTrue(sum_case["agree"])
+        self.assertEqual(6, len(calls))
+        self.assertTrue(all("--input" in command for command in calls))
+
+        tuple_compare.return_value = {
+            "agree": False,
+            "first_divergence": {"path": "/components/load_store"},
+            "binding": dict(binding),
+        }
+        with mock.patch.object(nonempty_relations, "_run", side_effect=run), \
+                mock.patch.object(
+                    nonempty_relations, "validate_public_data_shape", return_value=public
+                ), mock.patch.object(
+                    nonempty_relations, "parse_public_values_diagnostic", return_value=public
+                ):
+            tuple_case, _ = nonempty_relations.compare_or_failure(
+                Path("rust"), Path("zig"),
+                {"candidate_commit": "a" * 40, "witness_layout_digest_sha256": "5" * 64},
+                ROOT, "b" * 40, tuple_compare, sum_compare,
+                mock.Mock(return_value=parsed_sum), mock.Mock(return_value=None),
+            )
+        self.assertFalse(tuple_case["agree"])
+
+    def test_nonempty_comparison_controls_boundary_status(self) -> None:
+        receipt = {"boundaries": {}}
+        tuple_case = {"agree": False, "first_divergence": {"path": "/components/lw"}}
+        sum_case = {"agree": True, "first_divergence": None}
+        with mock.patch.object(
+            relations, "load_trace_vectors", return_value={"vectors": []}
+        ), mock.patch.object(
+            nonempty_relations,
+            "compare_or_failure",
+            return_value=(tuple_case, sum_case),
+        ):
+            relations.compare_relation_boundaries(
+                Path("rust"), receipt, ROOT, "b" * 40
+            )
+        self.assertEqual("fail", receipt["boundaries"]["relation_tuples"]["status"])
+        self.assertEqual(
+            tuple_case,
+            receipt["boundaries"]["relation_tuples"]["nonempty_public_input"],
+        )
+        self.assertEqual("pass", receipt["boundaries"]["relation_sums"]["status"])
+
     def test_tuple_parser_requires_complete_canonical_evidence(self) -> None:
         parsed = relations.parse_tuple_dump(tuple_dump())
         self.assertEqual(1, parsed["aggregate"]["nonzero_entries"])

@@ -16,6 +16,7 @@ from scripts.riscv_release_gate_lib.contract import (
     IMPLEMENTATION_REPOSITORY,
     ORACLE_REPOSITORY,
     PINNED_ORACLE,
+    NONEMPTY_RELATION_CASE,
     core_purity_errors,
     divergence_errors,
     divergence_ledger_errors,
@@ -28,11 +29,11 @@ from scripts.riscv_release_gate_lib.contract import (
 from scripts.riscv_release_gate_lib import controller
 from scripts.riscv_release_gate_lib.controller import command_plan
 from scripts.riscv_release_evidence import _strict_object
+from scripts.tests.riscv_release_receipt_fixture import nonempty_relation_case
 
 
 COMMIT = "a" * 40
 DIGEST = "b" * 64
-
 
 def valid_receipt(now: int) -> dict[str, object]:
     boundaries = {
@@ -49,6 +50,7 @@ def valid_receipt(now: int) -> dict[str, object]:
             "proof_admitted": True,
             "evidence_mode": "balanced_full",
         })
+        boundaries[name]["nonempty_public_input"] = nonempty_relation_case(name)
     keys = expected_case_result_keys(("alu",))
     digests = {key: DIGEST for key in keys}
     for boundary in BOUNDARIES:
@@ -61,6 +63,11 @@ def valid_receipt(now: int) -> dict[str, object]:
             digests[f"{boundary}/alu"] = hashlib.sha256(
                 json.dumps(case, sort_keys=True, separators=(",", ":")).encode()
             ).hexdigest()
+            if boundary in {"relation_tuples", "relation_sums"}:
+                special = boundaries[boundary]["nonempty_public_input"]
+                digests[f"{boundary}/{NONEMPTY_RELATION_CASE}"] = hashlib.sha256(
+                    json.dumps(special, sort_keys=True, separators=(",", ":")).encode()
+                ).hexdigest()
         if boundary in GENERATED_CORPUS_KEYS:
             digests[GENERATED_CORPUS_KEYS[boundary]] = digests[f"{boundary}/aggregate"]
     return {
@@ -353,6 +360,39 @@ class ReceiptContractTests(unittest.TestCase):
             "boundary execution corpus is incomplete, duplicated, or non-canonical",
             errors,
         )
+
+    def test_nonempty_relation_case_rejects_every_parity_binding_mutation(self) -> None:
+        mutations = (
+            ("relation_tuples", "elf_sha256", "c" * 64, "invalid elf_sha256"),
+            ("relation_tuples", "input_sha256", "c" * 64, "invalid input_sha256"),
+            ("relation_tuples", "agree", False, "invalid agree"),
+            ("relation_sums", "balanced_sum", [1, 0, 0, 0], "does not balance"),
+        )
+        for boundary, field, value, expected in mutations:
+            with self.subTest(boundary=boundary, field=field):
+                receipt = valid_receipt(int(time.time()))
+                receipt["boundaries"][boundary]["nonempty_public_input"][field] = value
+                errors = receipt_errors(receipt, COMMIT, now=receipt["created_at_unix"])
+                self.assertTrue(any(expected in error for error in errors), errors)
+
+        for field, value, expected in (
+            ("implementation_commit", "c" * 40, "binding has invalid implementation_commit"),
+            ("input_sha256", "c" * 64, "binding has invalid input_sha256"),
+        ):
+            receipt = valid_receipt(int(time.time()))
+            case = receipt["boundaries"]["relation_tuples"]["nonempty_public_input"]
+            case["zig_binding"][field] = value
+            errors = receipt_errors(receipt, COMMIT, now=receipt["created_at_unix"])
+            self.assertTrue(any(expected in error for error in errors), errors)
+
+        receipt = valid_receipt(int(time.time()))
+        public = receipt["boundaries"]["relation_sums"]["nonempty_public_input"][
+            "public_data"
+        ]
+        public["agree"] = False
+        public["mismatches"] = ["io_entries"]
+        errors = receipt_errors(receipt, COMMIT, now=receipt["created_at_unix"])
+        self.assertTrue(any("lacks public-data agreement" in error for error in errors))
 
     def test_signed_mulh_limitation_mode_is_exact_and_fail_closed(self) -> None:
         admission = {

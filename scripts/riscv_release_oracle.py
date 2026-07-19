@@ -37,6 +37,7 @@ from riscv_release_oracle_lib.witness import (
     load_trace_vectors,
 )
 from riscv_release_oracle_lib.relations import compare_relation_boundaries
+from riscv_release_oracle_lib import nonempty_relations
 from riscv_release_oracle_lib import build_cache
 from riscv_release_oracle_lib.oracle_build import (
     ADAPTER_LIMITATION_SOURCE_PATH,
@@ -167,6 +168,12 @@ def finalize_case_result_digests(receipt: dict) -> None:
             digests[case_key] = _canonical_digest(boundary)
             continue
         expected.extend(f"{boundary_name}/{name}" for name in names)
+        if boundary_name in {"relation_tuples", "relation_sums"}:
+            case_key = f"{boundary_name}/{nonempty_relations.CASE_NAME}"
+            expected.append(case_key)
+            nonempty = boundary.get("nonempty_public_input")
+            if isinstance(nonempty, dict):
+                digests[case_key] = _canonical_digest(nonempty)
         cases = boundary.get("corpus")
         if not isinstance(cases, list):
             continue

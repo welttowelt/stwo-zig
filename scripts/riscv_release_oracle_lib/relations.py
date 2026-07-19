@@ -11,6 +11,7 @@ from pathlib import Path
 
 from riscv_trace_vectors_lib import admission as admission_policy
 
+from . import nonempty_relations
 from .witness import load_trace_vectors
 
 
@@ -673,6 +674,7 @@ def _binding_problem(
     receipt: dict,
     vector: dict,
     pinned: str,
+    input_sha256: str = EMPTY_INPUT_DIGEST,
 ) -> str | None:
     if not isinstance(binding, dict):
         return "missing parsed Zig diagnostic binding"
@@ -681,7 +683,7 @@ def _binding_problem(
         "implementation_dirty": False,
         "oracle_commit": pinned,
         "elf_sha256": vector["elf_sha256"],
-        "input_sha256": EMPTY_INPUT_DIGEST,
+        "input_sha256": input_sha256,
         "witness_layout_sha256": receipt.get("witness_layout_digest_sha256"),
     }
     for field, value in expected.items():
@@ -822,14 +824,22 @@ def compare_relation_boundaries(
             "zig_binding": sum_binding,
             **sum_result,
         })
+    nonempty_tuple_case, nonempty_sum_case = nonempty_relations.compare_or_failure(
+        oracle_exe, zig_exe, receipt, root, pinned,
+        compare_tuple_dumps, compare_sum_dumps, parse_sum_dump, _binding_problem,
+    )
+    tuples_ok = tuples_ok and bool(nonempty_tuple_case["agree"])
+    sums_ok = sums_ok and bool(nonempty_sum_case["agree"])
     receipt["boundaries"]["relation_tuples"] = {
         "status": "pass" if tuples_ok else "fail",
         "comparison": "canonical production nonzero streams, or the exact normalized pinned signed-MULH pre-counter limitation core",
         "padding_policy": "full and zero streams are validated locally but excluded from cross-port equality because Zig may shard a pinned Rust component",
         "corpus": tuple_cases,
+        "nonempty_public_input": nonempty_tuple_case,
     }
     receipt["boundaries"]["relation_sums"] = {
         "status": "pass" if sums_ok else "fail",
         "comparison": "exact balanced relation sums for admitted diagnostics; signed-MULH instead requires normalized pre-counter parity and exact production rejection",
         "corpus": sum_cases,
+        "nonempty_public_input": nonempty_sum_case,
     }
