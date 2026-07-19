@@ -1,6 +1,7 @@
 //! Canonical RISC-V statement geometry and preprocessed-root validation.
 
 const std = @import("std");
+const m31 = @import("../../../core/fields/m31.zig");
 const pcs_core = @import("../../../core/pcs/mod.zig");
 const component_order = @import("../air/component_order.zig");
 const lookup_table_schema = @import("../air/lookups/tables/schema.zig");
@@ -16,8 +17,15 @@ const types = @import("types.zig");
 
 const MAX_OPCODE_SHARD_LOG_SIZE: u32 = 16;
 const MAX_OPCODE_SHARD_ROWS: usize = @as(usize, 1) << MAX_OPCODE_SHARD_LOG_SIZE;
+const MAX_EXECUTION_STEPS: usize = types.MAX_COMPONENTS * MAX_OPCODE_SHARD_ROWS;
 const MAX_MEMORY_SHARD_LOG_SIZE: u32 = 16;
 const MAX_MEMORY_SHARD_ROWS: usize = @as(usize, 1) << MAX_MEMORY_SHARD_LOG_SIZE;
+
+comptime {
+    if (MAX_EXECUTION_STEPS >= m31.Modulus) {
+        @compileError("RISC-V execution geometry must fit in one M31 field cycle");
+    }
+}
 
 /// Compute log_size from a count, with minimum of 1.
 pub fn computeLogSize(count: usize) u32 {
@@ -34,6 +42,7 @@ pub fn validate(statement: types.RiscVStatement) types.ProverError!void {
         return types.ProverError.InvalidStatement;
     if (statement.n_infra < 10 or statement.n_infra > types.MAX_INFRA_COMPONENTS)
         return types.ProverError.InvalidStatement;
+    try validateTotalStepsFieldCycle(statement.total_steps);
     statement.public_data.validate() catch return types.ProverError.InvalidStatement;
     if (statement.public_data.initial_pc != statement.initial_pc or
         statement.public_data.final_pc != statement.final_pc or
@@ -107,6 +116,12 @@ pub fn validate(statement: types.RiscVStatement) types.ProverError!void {
         return types.ProverError.InvalidStatement;
 }
 
+fn validateTotalStepsFieldCycle(total_steps: u32) types.ProverError!void {
+    // The state bus exposes clocks 1 through total_steps + 1. Keep that final
+    // endpoint canonical so a long execution cannot close through M31 wraparound.
+    if (total_steps >= m31.Modulus - 1) return types.ProverError.InvalidStatement;
+}
+
 fn validateMemoryShards(shards: []const statement_mod.InfraComponentDesc) types.ProverError!void {
     for (shards, 0..) |desc, shard_index| {
         if (desc.n_columns != memory_trace.N_COLUMNS or desc.n_rows == 0 or
@@ -174,5 +189,21 @@ test "statement validation: memory shard partition is canonical" {
             memoryShard(17),
             memoryShard(MAX_MEMORY_SHARD_ROWS),
         }),
+    );
+}
+
+test "statement validation: execution clock cannot wrap the base field" {
+    try validateTotalStepsFieldCycle(m31.Modulus - 2);
+    try std.testing.expectError(
+        error.InvalidStatement,
+        validateTotalStepsFieldCycle(m31.Modulus - 1),
+    );
+    try std.testing.expectError(
+        error.InvalidStatement,
+        validateTotalStepsFieldCycle(m31.Modulus),
+    );
+    try std.testing.expectError(
+        error.InvalidStatement,
+        validateTotalStepsFieldCycle(std.math.maxInt(u32)),
     );
 }

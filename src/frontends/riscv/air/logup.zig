@@ -32,7 +32,7 @@ pub const SECURE_EXTENSION_DEGREE = qm31.SECURE_EXTENSION_DEGREE;
 const CirclePointM31 = circle.CirclePointM31;
 const CirclePointQM31 = circle.CirclePointQM31;
 
-pub const LogupError = error{ ZeroDenominator, OutOfMemory };
+pub const LogupError = error{ ZeroDenominator, StepClockCycle, OutOfMemory };
 
 /// Lift a base-field circle point into the secure field.
 pub fn liftPoint(p: CirclePointM31) CirclePointQM31 {
@@ -185,6 +185,9 @@ pub fn stateBoundary(
     final_pc: u32,
     total_steps: u32,
 ) LogupError!QM31 {
+    // The final state is `(final_pc, total_steps + 1)`. Reject a field-cycle
+    // alias even when this helper is called outside statement validation.
+    if (total_steps >= m31.Modulus - 1) return error.StepClockCycle;
     const d_init = stateDenominator(
         relations,
         QM31.fromBase(M31.fromU64(initial_pc)),
@@ -312,46 +315,109 @@ test "pairConstraint vanishes exactly on honest cumulative columns" {
     try std.testing.expect(!forged.eql(QM31.zero()));
 }
 
-test "state chain telescopes across shards with the public boundary" {
-    // Two shards proving a four-step execution: pc 0x1000 -> 0x1010.
-    const relations = relation_challenges.Relations.dummy();
+const StateTestEdge = struct { pc: u32, clock: u32, next_pc: u32 };
 
+fn stateTestClaim(
+    allocator: std.mem.Allocator,
+    relations: *const relation_challenges.Relations,
+    edges: []const StateTestEdge,
+) !QM31 {
+    const pairs = try allocator.alloc(RowPair, edges.len);
+    defer allocator.free(pairs);
+    for (edges, 0..) |edge, index| {
+        pairs[index] = stateChainPair(
+            relations,
+            QM31.fromBase(M31.fromU64(edge.pc)),
+            QM31.fromBase(M31.fromU64(edge.clock)),
+            QM31.fromBase(M31.fromU64(edge.next_pc)),
+            QM31.one(),
+        );
+    }
+    var column = try cumulativeColumn(allocator, pairs);
+    defer column.deinit(allocator);
+    return column.claimed;
+}
+
+test "state chain closes for one, two, many, and interleaved shards" {
     const allocator = std.testing.allocator;
-    const one = QM31.one();
+    const relations = relation_challenges.Relations.dummy();
+    const edges = [_]StateTestEdge{
+        .{ .pc = 0x1000, .clock = 1, .next_pc = 0x1004 },
+        .{ .pc = 0x1004, .clock = 2, .next_pc = 0x1008 },
+        .{ .pc = 0x1008, .clock = 3, .next_pc = 0x100c },
+        .{ .pc = 0x100c, .clock = 4, .next_pc = 0x1010 },
+        .{ .pc = 0x1010, .clock = 5, .next_pc = 0x1014 },
+        .{ .pc = 0x1014, .clock = 6, .next_pc = 0x1018 },
+    };
+    const boundary = try stateBoundary(&relations, 0x1000, 0x1018, edges.len);
 
-    // Shard A holds steps 1 and 3; shard B holds steps 2 and 4 — deliberately
-    // interleaved to show placement is order-independent.
-    const mkRow = struct {
-        fn f(rel: *const relation_challenges.Relations, pc: u32, clk: u32, next: u32) RowPair {
-            return stateChainPair(
-                rel,
-                QM31.fromBase(M31.fromU64(pc)),
-                QM31.fromBase(M31.fromU64(clk)),
-                QM31.fromBase(M31.fromU64(next)),
-                QM31.one(),
-            );
-        }
-    }.f;
-    _ = one;
+    const one = try stateTestClaim(allocator, &relations, &edges);
+    try verifyGlobalCancellation(&.{one}, boundary);
 
-    const shard_a = [_]RowPair{ mkRow(&relations, 0x1000, 1, 0x1004), mkRow(&relations, 0x1008, 3, 0x100C) };
-    const shard_b = [_]RowPair{ mkRow(&relations, 0x1004, 2, 0x1008), mkRow(&relations, 0x100C, 4, 0x1010) };
+    const two = [_]QM31{
+        try stateTestClaim(allocator, &relations, edges[0..3]),
+        try stateTestClaim(allocator, &relations, edges[3..]),
+    };
+    try verifyGlobalCancellation(&two, boundary);
 
-    var col_a = try cumulativeColumn(allocator, &shard_a);
-    defer col_a.deinit(allocator);
-    var col_b = try cumulativeColumn(allocator, &shard_b);
-    defer col_b.deinit(allocator);
+    var many: [edges.len]QM31 = undefined;
+    for (&many, 0..) |*claim, index| {
+        claim.* = try stateTestClaim(allocator, &relations, edges[index .. index + 1]);
+    }
+    try verifyGlobalCancellation(&many, boundary);
 
-    const boundary = try stateBoundary(&relations, 0x1000, 0x1010, 4);
-    try verifyGlobalCancellation(&.{ col_a.claimed, col_b.claimed }, boundary);
+    const even = [_]StateTestEdge{ edges[0], edges[2], edges[4] };
+    const odd = [_]StateTestEdge{ edges[1], edges[3], edges[5] };
+    const interleaved = [_]QM31{
+        try stateTestClaim(allocator, &relations, &even),
+        try stateTestClaim(allocator, &relations, &odd),
+    };
+    try verifyGlobalCancellation(&interleaved, boundary);
+}
 
-    // Drop one row's emission (forge the chain) and the cancellation fails.
-    const bad_b = [_]RowPair{ mkRow(&relations, 0x1004, 2, 0x1008), mkRow(&relations, 0x100C, 4, 0x1014) };
-    var col_bad = try cumulativeColumn(allocator, &bad_b);
-    defer col_bad.deinit(allocator);
+test "state chain rejects omission, duplication, boundary mutation, and field cycles" {
+    const allocator = std.testing.allocator;
+    const relations = relation_challenges.Relations.dummy();
+    const edges = [_]StateTestEdge{
+        .{ .pc = 0x1000, .clock = 1, .next_pc = 0x1004 },
+        .{ .pc = 0x1004, .clock = 2, .next_pc = 0x1008 },
+        .{ .pc = 0x1008, .clock = 3, .next_pc = 0x100c },
+        .{ .pc = 0x100c, .clock = 4, .next_pc = 0x1010 },
+    };
+    const boundary = try stateBoundary(&relations, 0x1000, 0x1010, edges.len);
+    const prefix = try stateTestClaim(allocator, &relations, edges[0..2]);
+    const omitted = try stateTestClaim(allocator, &relations, edges[3..]);
     try std.testing.expectError(
         error.LogupSumNonZero,
-        verifyGlobalCancellation(&.{ col_a.claimed, col_bad.claimed }, boundary),
+        verifyGlobalCancellation(&.{ prefix, omitted }, boundary),
+    );
+
+    const suffix = try stateTestClaim(allocator, &relations, edges[2..]);
+    const duplicated = try stateTestClaim(allocator, &relations, edges[1..2]);
+    try std.testing.expectError(
+        error.LogupSumNonZero,
+        verifyGlobalCancellation(&.{ prefix, suffix, duplicated }, boundary),
+    );
+
+    const all = try stateTestClaim(allocator, &relations, &edges);
+    const wrong_pc = try stateBoundary(&relations, 0x1000, 0x1014, edges.len);
+    try std.testing.expectError(
+        error.LogupSumNonZero,
+        verifyGlobalCancellation(&.{all}, wrong_pc),
+    );
+    const wrong_clock = try stateBoundary(&relations, 0x1000, 0x1010, edges.len + 1);
+    try std.testing.expectError(
+        error.LogupSumNonZero,
+        verifyGlobalCancellation(&.{all}, wrong_clock),
+    );
+
+    try std.testing.expectError(
+        error.StepClockCycle,
+        stateBoundary(&relations, 0x1000, 0x1000, m31.Modulus - 1),
+    );
+    try std.testing.expectError(
+        error.StepClockCycle,
+        stateBoundary(&relations, 0x1000, 0x1000, m31.Modulus),
     );
 }
 
