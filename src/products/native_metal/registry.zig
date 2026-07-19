@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const identity = @import("identity.zig");
+const native = @import("native_cpu_capabilities");
 
 const Application = struct {
     air: []const u8,
@@ -9,13 +10,10 @@ const Application = struct {
     backends: []const []const u8 = &.{"metal"},
 };
 
-const applications = [_]Application{
-    .{ .air = "wide_fibonacci" },
-    .{ .air = "xor" },
-    .{ .air = "plonk" },
-    .{ .air = "state_machine" },
-    .{ .air = "blake" },
-    .{ .air = "poseidon" },
+const applications = blk: {
+    var result: [native.applications.len]Application = undefined;
+    for (native.applications, 0..) |air, index| result[index] = .{ .air = air };
+    break :blk result;
 };
 
 pub fn write(writer: anytype) !void {

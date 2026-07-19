@@ -395,6 +395,12 @@ fn executeExample(
     var runtime_source_hex: [64]u8 = undefined;
     var runtime_manifest_hex: [64]u8 = undefined;
     var runtime_metallib_hex: [64]u8 = undefined;
+    const runtime_platform_identity: ?[]u8 = if (comptime backend == .metal_hybrid)
+        (try Engine.runtimePlatformIdentityAlloc(allocator)) orelse
+            return error.MetalRuntimeIdentityMissing
+    else
+        null;
+    defer if (runtime_platform_identity) |value| allocator.free(value);
     const runtime_admission: ?report_mod.RuntimeAdmission = if (comptime backend == .metal_hybrid) blk: {
         const lifecycle = Engine.runtimeLifecycleSnapshot();
         const identity = lifecycle.identity orelse return error.MetalRuntimeIdentityMissing;
@@ -414,6 +420,7 @@ fn executeExample(
             .live_resident_resources = lifecycle.live_resident_resources,
             .initialization_count = lifecycle.initialization_count,
             .shutdown_count = lifecycle.shutdown_count,
+            .platform_identity = runtime_platform_identity.?,
         };
     } else null;
 

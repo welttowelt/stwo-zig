@@ -26,6 +26,7 @@ pub const lifted_merkle_prefix_bytes: u32 = 64;
 
 pub const MetalError = error{
     RuntimeInitializationFailed,
+    RuntimeIdentityFailed,
     CommitmentFailed,
     RootReadFailed,
     InvalidColumns,
@@ -100,6 +101,7 @@ pub const Runtime = struct {
     pub const pipelineCacheStats = session_ops.pipelineCacheStats;
     pub const archiveStoreStats = session_ops.archiveStoreStats;
     pub const maxBufferLength = session_ops.maxBufferLength;
+    pub const platformIdentityAlloc = session_ops.platformIdentityAlloc;
     pub const allocateResidentBuffer = session_ops.allocateResidentBuffer;
     pub const beginCommandEpoch = session_ops.beginCommandEpoch;
     pub const prepareArenaCopies = session_ops.prepareArenaCopies;

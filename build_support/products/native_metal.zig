@@ -25,6 +25,7 @@ const source_closure = product_policy.SourceClosure{
         .{ .name = "native_proof_runner", .source = "src/prover/native/runner.zig" },
         .{ .name = "native_transaction", .source = "src/integrations/native/transaction.zig" },
         .{ .name = "native_product_identity", .source = "src/integrations/native/product_identity.zig" },
+        .{ .name = "native_cpu_capabilities", .source = "src/products/native_cpu/capabilities.zig" },
     },
     .allowed_files = &.{
         "src/stwo_native_metal.zig",
@@ -35,6 +36,7 @@ const source_closure = product_policy.SourceClosure{
         "src/interop/proof_wire.zig",
         "src/integrations/native/transaction.zig",
         "src/integrations/native/product_identity.zig",
+        "src/products/native_cpu/capabilities.zig",
     },
     .allowed_prefixes = &.{
         "src/core",
@@ -152,6 +154,12 @@ pub fn addProduct(context: Context) void {
     const applications = context.b.addRunArtifact(installed.executable);
     applications.addArg("applications");
     test_step.dependOn(&applications.step);
+    const lifecycle = context.b.addSystemCommand(&.{
+        "python3",
+        "scripts/check_native_metal_lifecycle.py",
+    });
+    lifecycle.addArtifactArg(installed.executable);
+    test_step.dependOn(&lifecycle.step);
 
     const closure_check = closure_gate.addCheck(.{
         .b = context.b,
@@ -216,6 +224,13 @@ fn createProductModule(
         .optimize = context.optimize,
     });
     root.addImport("native_transaction", transaction);
+    const capabilities = graph.create(context.b, .{
+        .product = logical_product,
+        .root_source_file = "src/products/native_cpu/capabilities.zig",
+        .target = context.target,
+        .optimize = context.optimize,
+    });
+    root.addImport("native_cpu_capabilities", capabilities);
     root.addOptions("build_identity", graph_identity.buildOptions(context.b, context.identity));
     const runtime_identity = metal.sourceJitIdentity(context.b);
     root.addOptions(

@@ -102,6 +102,12 @@ pub fn ProverEngine(
                 return B.runtimeLifecycleSnapshot();
         }
 
+        pub fn runtimePlatformIdentityAlloc(allocator: std.mem.Allocator) !?[]u8 {
+            if (comptime @hasDecl(B, "runtimePlatformIdentityAlloc"))
+                return try B.runtimePlatformIdentityAlloc(allocator);
+            return null;
+        }
+
         pub fn telemetrySnapshot() TelemetryError!TelemetrySnapshot {
             if (comptime @hasDecl(B, "telemetrySnapshot")) return B.telemetrySnapshot();
         }

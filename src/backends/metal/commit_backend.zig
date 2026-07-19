@@ -70,6 +70,10 @@ pub const MetalCommitBackend = struct {
         return shared_runtime.lifecycleSnapshot();
     }
 
+    pub fn runtimePlatformIdentityAlloc(allocator: std.mem.Allocator) ![]u8 {
+        return shared_runtime.platformIdentityAlloc(allocator);
+    }
+
     /// Releases the process-wide runtime at a quiescent request boundary.
     ///
     /// In-flight calls and live Metal-backed columns, trees, or buffers make

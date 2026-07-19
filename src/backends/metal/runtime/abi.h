@@ -143,6 +143,8 @@ typedef struct {
     uint64_t byte_count;
 } StwoZigPreparedStateRange;
 
+size_t stwo_zig_metal_runtime_identity(void *runtime, char *output, size_t output_len);
+
 _Static_assert(sizeof(StwoZigCommandEpochStats) == 56u, "StwoZigCommandEpochStats ABI");
 _Static_assert(sizeof(StwoZigRawQuotientView) == 36u, "StwoZigRawQuotientView ABI");
 _Static_assert(sizeof(StwoZigPolynomialEvalTask) == 20u, "StwoZigPolynomialEvalTask ABI");

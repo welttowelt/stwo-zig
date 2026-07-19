@@ -112,6 +112,16 @@ pub fn maxBufferLength(self: *const Runtime) u64 {
     return ffi.stwo_zig_metal_max_buffer_length(self.handle);
 }
 
+pub fn platformIdentityAlloc(self: *const Runtime, allocator: std.mem.Allocator) MetalError![]u8 {
+    const length = ffi.stwo_zig_metal_runtime_identity(self.handle, null, 0);
+    if (length == 0) return MetalError.RuntimeIdentityFailed;
+    const result = allocator.alloc(u8, length) catch return MetalError.RuntimeIdentityFailed;
+    errdefer allocator.free(result);
+    if (ffi.stwo_zig_metal_runtime_identity(self.handle, result.ptr, result.len) != length)
+        return MetalError.RuntimeIdentityFailed;
+    return result;
+}
+
 pub fn allocateResidentBuffer(self: *Runtime, byte_length: usize) MetalError!ResidentBuffer {
     const maximum = self.maxBufferLength();
     if (maximum == 0 or byte_length > maximum) {

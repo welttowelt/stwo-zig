@@ -672,3 +672,16 @@ static StwoZigMetalRuntime *create_runtime_from_library(
 #import "runtime/polynomial_evaluation.m"
 #import "runtime/quotients.m"
 #import "runtime/lifecycle_and_tree.m"
+
+size_t stwo_zig_metal_runtime_identity(void *runtime_ptr, char *output, size_t output_len) {
+    @autoreleasepool {
+        if (runtime_ptr == NULL) return 0u;
+        StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        NSData *encoded = [eval_runtime_identity(runtime.device).canonical
+            dataUsingEncoding:NSUTF8StringEncoding];
+        if (encoded.length == 0u) return 0u;
+        if (output != NULL && output_len >= encoded.length)
+            memcpy(output, encoded.bytes, encoded.length);
+        return encoded.length;
+    }
+}

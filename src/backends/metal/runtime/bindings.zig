@@ -9,6 +9,11 @@ const PreparedStateRange = runtime.PreparedStateRange;
 const WitnessLayout = runtime.WitnessLayout;
 
 pub extern fn stwo_zig_metal_runtime_destroy(runtime: ?*anyopaque) void;
+pub extern fn stwo_zig_metal_runtime_identity(
+    runtime: *anyopaque,
+    output: ?[*]u8,
+    output_len: usize,
+) usize;
 pub extern fn stwo_zig_metal_pipeline_cache_stats(
     runtime: *anyopaque,
     stats: *PipelineCacheStats,

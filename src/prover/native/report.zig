@@ -88,6 +88,7 @@ pub const RuntimeAdmission = struct {
     live_resident_resources: u64,
     initialization_count: u64,
     shutdown_count: u64,
+    platform_identity: []const u8,
 };
 
 pub const CanonicalProof = struct {
@@ -438,6 +439,7 @@ test "native proof report: authenticated runtime identity is explicit" {
         .live_resident_resources = 0,
         .initialization_count = 1,
         .shutdown_count = 0,
+        .platform_identity = "runtime-v1|registry=0000000000000001|architecture=Apple M1|os-version=26.5|os-build=25F70",
     };
     const encoded = try std.json.Stringify.valueAlloc(std.testing.allocator, identity, .{});
     defer std.testing.allocator.free(encoded);

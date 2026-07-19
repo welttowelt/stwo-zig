@@ -153,6 +153,12 @@ pub fn lifecycleSnapshot() LifecycleSnapshot {
     };
 }
 
+pub fn platformIdentityAlloc(allocator: std.mem.Allocator) ![]u8 {
+    var lease = try acquireExisting();
+    defer lease.deinit();
+    return lease.runtime.platformIdentityAlloc(allocator);
+}
+
 /// Releases the runtime only when no calls or backend-owned resident objects
 /// can still reference it. A successful shutdown permits a later warmup.
 pub fn shutdown() ShutdownError!void {
