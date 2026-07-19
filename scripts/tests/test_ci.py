@@ -67,7 +67,10 @@ class CiTests(unittest.TestCase):
             workflow,
         )
         self.assertNotIn("Restore authenticated Stark-V helper cache", workflow)
-        self.assertNotIn("restore-keys:", workflow)
+        self.assertIn(
+            "restore-keys: riscv-cpu-static-v1-${{ runner.os }}-zig-0.15.2-",
+            workflow,
+        )
         self.assertIn("python3 scripts/riscv_release_gate.py", workflow)
         self.assertIn("--strict", workflow)
         self.assertIn('--candidate "$RISCV_CANDIDATE_SHA"', workflow)
@@ -78,20 +81,36 @@ class CiTests(unittest.TestCase):
             "riscv-exhaustive-bundle-${{ env.RISCV_CANDIDATE_SHA }}-${{ github.run_id }}-${{ github.run_attempt }}",
             workflow,
         )
-        self.assertIn("--profile fast", workflow)
+        self.assertIn("riscv_release_bundle.py verify-anchor", workflow)
+        self.assertIn("riscv_release_challenge.py issue", workflow)
+        self.assertIn("riscv_release_challenge.py execute", workflow)
+        self.assertIn("stwo-zig-riscv-cpu-static", workflow)
+        self.assertIn("riscv_sandbox_adversary.py", workflow)
+        self.assertIn("riscv_candidate_sandbox_probe.c", workflow)
+        self.assertIn('"--protocol", "secure"', (
+            ROOT / "scripts/riscv_release_challenge_lib/execution.py"
+        ).read_text(encoding="utf-8"))
         self.assertIn("actions/artifacts/${{ steps.riscv-producer.outputs.artifact_id }}/zip", workflow)
         self.assertIn('test "$actual_digest" = "${{ steps.riscv-producer.outputs.artifact_digest }}"', workflow)
         self.assertIn('python3 "$RUNNER_TEMP/riscv_release_policy.py" extract', workflow)
         self.assertNotIn("actions/download-artifact@", workflow)
         fast = workflow.split("  riscv-fast-release-gate:", 1)[1]
+        self.assertNotIn("riscv_staged_smoke.py", fast)
+        self.assertNotIn("--profile fast", fast)
+        self.assertIn("riscv-release-challenge-result-v1", fast)
+        self.assertIn("riscv_release_bundle.py verify-anchor", fast)
+        self.assertLess(
+            fast.index("riscv_release_challenge.py issue"),
+            fast.index("riscv_release_challenge.py execute"),
+        )
         self.assertLess(fast.index("actual_digest="), fast.index("riscv_release_policy.py\" extract"))
         self.assertLess(
             fast.index("riscv_release_policy.py\" extract"),
-            fast.index("name: Verify exact-source exhaustive evidence"),
+            fast.index("name: Verify reusable exhaustive anchor"),
         )
         self.assertIn("if-no-files-found: error", workflow)
 
-    def test_fast_riscv_gate_cannot_cancel_or_consume_a_different_commit(self) -> None:
+    def test_fast_riscv_gate_cannot_cancel_or_confuse_anchor_and_candidate(self) -> None:
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         self.assertIn("group: riscv-exhaustive-${{", workflow)
         self.assertIn("group: riscv-fast-${{ inputs.candidate_sha }}-${{ inputs.producer_run_id }}", workflow)
@@ -108,6 +127,10 @@ class CiTests(unittest.TestCase):
         self.assertIn('.name == "RISC-V exhaustive release evidence"', workflow)
         self.assertIn('.conclusion == "success"', workflow)
         self.assertIn("artifact_digest=$digest", workflow)
+        self.assertIn("anchor_candidate=$anchor_candidate", workflow)
+        self.assertIn("riscv-exhaustive-bundle-[0-9a-f]{40}", workflow)
+        self.assertIn(".candidate.sha", workflow)
+        self.assertIn('test "$(jq -r .head_sha <<<"$run")" = "$GITHUB_SHA"', workflow)
         self.assertNotIn('test "$(jq -r .conclusion <<<"$producer")" = success', workflow)
 
     def test_riscv_oracle_cache_identity_precedes_exact_restore(self) -> None:
@@ -147,11 +170,19 @@ class CiTests(unittest.TestCase):
         fast = workflow.split("  riscv-fast-release-gate:", 1)[1]
         self.assertLess(
             fast.index("name: Resolve producer workflow trust root"),
-            fast.index("name: Checkout trusted producer release policy"),
+            fast.index("name: Checkout current trusted-main release policy"),
         )
         self.assertLess(
-            fast.index("name: Require candidate release policy matches trusted producer"),
+            fast.index("name: Require candidate release policy matches current trusted main"),
             fast.index("name: Require requested release phase"),
+        )
+        self.assertLess(
+            fast.index("name: Require candidate release policy matches current trusted main"),
+            fast.index("name: Restore exact-candidate Zig build cache"),
+        )
+        self.assertLess(
+            fast.index("name: Restore exact-candidate Zig build cache"),
+            fast.index("name: Build focused static candidate prover and diagnostic"),
         )
 
     def test_riscv_jobs_initialize_runner_paths_at_step_runtime(self) -> None:
@@ -266,9 +297,9 @@ class CiTests(unittest.TestCase):
             workflow,
         )
         self.assertIn('--commit "$GITHUB_SHA"', workflow)
-        self.assertNotIn("--probe", workflow)
-        self.assertNotIn("metal-core-aot-probe", workflow)
-        self.assertNotIn("metal-core-aot-acceptance -Doptimize", workflow)
+        self.assertNotIn("--probe", metal_job)
+        self.assertNotIn("metal-core-aot-probe", metal_job)
+        self.assertNotIn("metal-core-aot-acceptance -Doptimize", metal_job)
         self.assertIn(
             "uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4",
             workflow,

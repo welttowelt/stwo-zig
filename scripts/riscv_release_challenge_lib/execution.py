@@ -126,7 +126,7 @@ class CandidateSandbox:
         self.output = root / "out"
         if root.exists():
             raise model.ChallengeError("candidate sandbox already exists")
-        for relative in ("bin", "work", "out"):
+        for relative in ("bin", "work", "out", "proc"):
             (root / relative).mkdir(parents=True, exist_ok=False)
         for source, relative, mode in (
             (cli, "bin/prover", 0o555),
@@ -152,7 +152,7 @@ class CandidateSandbox:
             )
         prefix = [
             "sudo", "-n", "unshare", "--net", "--mount", "--pid", "--fork",
-            "--kill-child=SIGKILL", "--",
+            "--kill-child=SIGKILL", f"--mount-proc={root / 'proc'}", "--",
             "prlimit", "--cpu=160:160", "--as=3221225472:3221225472",
             "--fsize=134217728:134217728", "--nproc=256:256", "--",
             "setpriv", "--no-new-privs", "--",
@@ -197,7 +197,9 @@ class CandidateSandbox:
             check=False, capture_output=True, timeout=10,
         )
         self.root.chmod(0o755)
-        for directory in (self.root / "bin", self.root / "work", self.output):
+        for directory in (
+            self.root / "bin", self.root / "work", self.output, self.root / "proc",
+        ):
             directory.chmod(0o755)
         shutil.rmtree(self.root)
 

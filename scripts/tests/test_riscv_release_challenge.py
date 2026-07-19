@@ -216,6 +216,7 @@ class SandboxContractTests(unittest.TestCase):
                 self.assertFalse(any("cp11" in path or "oracle" in path for path in exposed))
                 prefix = sandbox.runner.prefix
                 self.assertIn("--kill-child=SIGKILL", prefix)
+                self.assertTrue(any(value.startswith("--mount-proc=") for value in prefix))
                 self.assertIn("--userspec=65534:65534", prefix)
                 self.assertIn("--no-new-privs", prefix)
             finally:
