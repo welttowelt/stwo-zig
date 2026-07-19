@@ -69,14 +69,10 @@ pub fn validate(statement: types.RiscVStatement) types.ProverError!void {
         program.n_columns != program_commitment.N_MAIN_COLUMNS)
         return types.ProverError.InvalidStatement;
 
-    var index: usize = 1;
-    while (index < statement.n_infra and statement.infra_descs[index].kind == .memory) : (index += 1) {
-        const desc = statement.infra_descs[index];
-        if (desc.n_columns != memory_trace.N_COLUMNS or desc.n_rows == 0 or
-            desc.n_rows > MAX_MEMORY_SHARD_ROWS or
-            desc.log_size != @max(@as(u32, 4), computeLogSize(desc.n_rows)))
-            return types.ProverError.InvalidStatement;
-    }
+    const memory_start: usize = 1;
+    var index = memory_start;
+    while (index < statement.n_infra and statement.infra_descs[index].kind == .memory) : (index += 1) {}
+    try validateMemoryShards(statement.infra_descs[memory_start..index]);
     if (index + 3 + component_order.LOOKUP_TABLE_COUNT != statement.n_infra)
         return types.ProverError.InvalidStatement;
     const merkle_desc = statement.infra_descs[index];
@@ -111,6 +107,17 @@ pub fn validate(statement: types.RiscVStatement) types.ProverError!void {
         return types.ProverError.InvalidStatement;
 }
 
+fn validateMemoryShards(shards: []const statement_mod.InfraComponentDesc) types.ProverError!void {
+    for (shards, 0..) |desc, shard_index| {
+        if (desc.n_columns != memory_trace.N_COLUMNS or desc.n_rows == 0 or
+            desc.n_rows > MAX_MEMORY_SHARD_ROWS or
+            desc.log_size != @max(@as(u32, 4), computeLogSize(desc.n_rows)))
+            return types.ProverError.InvalidStatement;
+        if (shard_index + 1 < shards.len and desc.n_rows != MAX_MEMORY_SHARD_ROWS)
+            return types.ProverError.InvalidStatement;
+    }
+}
+
 pub fn verifyPreprocessedRoot(
     comptime Engine: type,
     allocator: std.mem.Allocator,
@@ -134,4 +141,38 @@ pub fn verifyPreprocessedRoot(
     defer roots.deinit(allocator);
     if (roots.items.len != 1 or !std.meta.eql(roots.items[0], actual))
         return types.ProverError.InvalidPreprocessedCommitment;
+}
+
+fn memoryShard(n_rows: u32) statement_mod.InfraComponentDesc {
+    return .{
+        .kind = .memory,
+        .log_size = @max(@as(u32, 4), computeLogSize(n_rows)),
+        .n_rows = n_rows,
+        .n_columns = memory_trace.N_COLUMNS,
+    };
+}
+
+test "statement validation: memory shard partition is canonical" {
+    try validateMemoryShards(&.{});
+    try validateMemoryShards(&.{memoryShard(17)});
+    try validateMemoryShards(&.{
+        memoryShard(MAX_MEMORY_SHARD_ROWS),
+        memoryShard(17),
+    });
+    try validateMemoryShards(&.{
+        memoryShard(MAX_MEMORY_SHARD_ROWS),
+        memoryShard(MAX_MEMORY_SHARD_ROWS),
+    });
+
+    try std.testing.expectError(
+        error.InvalidStatement,
+        validateMemoryShards(&.{ memoryShard(16), memoryShard(17) }),
+    );
+    try std.testing.expectError(
+        error.InvalidStatement,
+        validateMemoryShards(&.{
+            memoryShard(17),
+            memoryShard(MAX_MEMORY_SHARD_ROWS),
+        }),
+    );
 }
