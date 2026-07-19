@@ -51,8 +51,12 @@ ZIG_IMPORT_RE = re.compile(r'@import\("([^"\n]+)"\)')
 ZIG_NON_CODE_RE = re.compile(r'//[^\n]*|/\*.*?\*/|"(?:\\.|[^"\\])*"', re.DOTALL)
 ACTIVE_PLACEHOLDER_RE = re.compile(r"\b(?:legacy|placeholder|silent)\b")
 MANUAL_SOURCE_CEILING = 850
-ALLOWED_ACTIVE_DIVERGENCES = frozenset({("RISC-V", "PCS geometry")})
-KNOWN_PIN_BLOCKING_DIVERGENCES = {
+SIGNED_MULH_FIX_MARKER = "FIX(stark-v-signed-mulh)"
+ALLOWED_ACTIVE_DIVERGENCES = frozenset({
+    ("RISC-V", "PCS geometry"),
+    ("RISC-V", "Signed `MULH` carry relation"),
+})
+KNOWN_PIN_DOCUMENTED_LIMITATIONS = {
     PINNED_ORACLE: frozenset({("RISC-V", "Signed `MULH` carry relation")}),
 }
 
@@ -103,7 +107,7 @@ def phase_errors(phase: str, registry_source: str, artifact_source: str, cli_sou
 
 
 def divergence_ledger_errors(text: str, pinned_oracle: str = PINNED_ORACLE) -> list[str]:
-    """Reject every active divergence except a narrowly allowlisted PCS deviation."""
+    """Reject active divergences except narrow, explicitly documented exceptions."""
     marker = "## Active divergences"
     if marker not in text:
         return ["divergence ledger has no Active divergences section"]
@@ -137,10 +141,10 @@ def divergence_ledger_errors(text: str, pinned_oracle: str = PINNED_ORACLE) -> l
             continue
         errors.append(f"release-blocking divergence remains active: {key[0]} / {key[1]}")
 
-    for key in KNOWN_PIN_BLOCKING_DIVERGENCES.get(pinned_oracle, frozenset()):
+    for key in KNOWN_PIN_DOCUMENTED_LIMITATIONS.get(pinned_oracle, frozenset()):
         if key not in rows:
             errors.append(
-                "known-defective oracle pin lacks its mandatory blocking divergence: "
+                "known oracle limitation lacks its mandatory documented divergence: "
                 f"{key[0]} / {key[1]}"
             )
     return errors
@@ -153,6 +157,13 @@ def divergence_errors(root: Path) -> list[str]:
     return divergence_ledger_errors(ledger.read_text(encoding="utf-8"))
 
 
+def oracle_limitation_source_errors(source: str) -> list[str]:
+    """Require the implementation marker for the pinned signed-MULH defect."""
+    if SIGNED_MULH_FIX_MARKER not in source:
+        return [f"signed-MULH oracle limitation lacks {SIGNED_MULH_FIX_MARKER}"]
+    return []
+
+
 def repository_contract_errors(root: Path, phase: str) -> list[str]:
     required = (
         "conformance/2026-07-18-riscv-release-goal.md",
@@ -162,6 +173,7 @@ def repository_contract_errors(root: Path, phase: str) -> list[str]:
         "scripts/riscv_release_oracle.py",
         "scripts/riscv_staged_smoke.py",
         "scripts/riscv_trace_vectors.py",
+        "src/frontends/riscv/air/semantics/mulh.zig",
     )
     errors = [f"missing required release artifact: {path}" for path in required if not (root / path).is_file()]
     registry = (root / "src/tools/prove/registry.zig").read_text(encoding="utf-8")
@@ -169,6 +181,9 @@ def repository_contract_errors(root: Path, phase: str) -> list[str]:
     cli = (root / "src/tools/prove/cli.zig").read_text(encoding="utf-8")
     errors.extend(phase_errors(phase, registry, artifact, cli))
     errors.extend(divergence_errors(root))
+    mulh_semantics = root / "src/frontends/riscv/air/semantics/mulh.zig"
+    if mulh_semantics.is_file():
+        errors.extend(oracle_limitation_source_errors(mulh_semantics.read_text(encoding="utf-8")))
 
     autoresearch = root / "autoresearch/MANIFEST.json"
     if autoresearch.is_file():

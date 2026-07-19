@@ -24,9 +24,11 @@ is mandatory. A false term makes the result `NO-GO`.
 **Machine authority:** `scripts/riscv_release_gate.py --strict` is the only
 command allowed to issue a candidate or promoted release receipt. Its repository
 preflight must reject every active divergence except an explicitly allowlisted,
-conditionally gated PCS difference. For the currently pinned Stark-V revision,
-the signed `MULH` carry defect is a mandatory blocker: deleting, renaming, or
-marking its ledger row as allowed must also fail the gate.
+conditionally gated difference. For the currently pinned Stark-V revision, the
+signed `MULH` carry defect is a mandatory documented limitation: deleting or
+renaming its ledger row, removing its implementation `FIX` marker, or claiming
+corrected semantics without a new pin must fail the gate. Exact parity with the
+pinned behavior is required; correcting the upstream Rust repository is not.
 
 **Goal identity:** Complete and release-gate the Stark-V RV32IM proving lane by
 finishing globally sound cross-shard LogUp placement, binding the full public
@@ -273,9 +275,9 @@ The current committed implementation baseline is `9092a3e1`. It contains:
 - a symbol-bearing positive release corpus plus explicit undeclared-program and
   sentinel-loop negative fixtures, all pinned to byte-level Rust trace parity,
   through `dd1a8c1a`; and
-- a code-owned active-divergence allowlist and mandatory signed-`MULH` blocker
-  that stop candidate and promoted controllers before command execution through
-  `196b5604`; and
+- a code-owned active-divergence allowlist and mandatory signed-`MULH` limitation
+  record that stop candidate and promoted controllers if the ledger row or
+  implementation `FIX` marker disappears; and
 - bound default-challenge relation tuple v3 and cumulative-sum v2 evidence over
   retained production buffers, including exact candidate, oracle, workload,
   layout, and diagnostic commitment identities, through `9092a3e1`.
@@ -334,10 +336,12 @@ run in parallel, but integration and promotion obey the dependency order.
 | WP-10 | Audit core purity and frontend layering, then perform a non-semantic registry promotion | BA-01, BA-02, RF-01 | Audit is green; every blocking divergence is closed; post-promotion strict gate passes |
 
 The signed `MULH`/`MULHSU` defect recorded in
-[divergence-log.md](divergence-log.md) is a release blocker. Full RV32IM cannot
-be promoted until the Rust oracle is corrected, pinned, and regenerated with
-signed proof-and-verify coverage. Matching a known-invalid witness is not
-correctness.
+[divergence-log.md](divergence-log.md) is an inherited pinned-oracle limitation,
+not an instruction to repair Stark-V in this repository. Zig must preserve exact
+d478f783 witness and relation-export parity, retain the explicit implementation
+`FIX(stark-v-signed-mulh)` marker, and fail closed when the affected family
+reaches production proving. A later upstream correction requires a new pin and
+fresh signed proof-and-verify evidence before the marker or limitation is removed.
 
 ### Gate hierarchy
 
@@ -584,8 +588,10 @@ Required behavior:
 - One typed manifest at `src/frontends/riscv/opcode_manifest.zig` enumerates
   exactly the pinned 45 opcodes with protocol IDs `0...44`, family, encoding,
   witness schema, semantic component, and required relation domains. It is the
-  release statement's accepted set and can be emitted as canonical JSON by a
-  repository-owned conformance tool.
+  oracle-parity execution set and can be emitted as canonical JSON by a
+  repository-owned conformance tool. Proof admission may exclude a documented
+  pinned-oracle limitation only when the production prover fails closed before
+  commitment and the divergence ledger records that exclusion.
 - The manifest covers ADD, SUB, SLL, SLT, SLTU, XOR, SRL, SRA, OR, AND, ADDI,
   SLTI, SLTIU, XORI, ORI, ANDI, SLLI, SRLI, SRAI, LB, LH, LW, LBU, LHU, SB, SH,
   SW, BEQ, BNE, BLT, BGE, BLTU, BGEU, JAL, JALR, LUI, AUIPC, MUL, MULH, MULHSU,
@@ -669,9 +675,11 @@ Required behavior:
   free witness columns.
 - The decoded program tuple `(pc, opcode, value_1, value_2, value_3)` is consumed
   by the opcode component.
-- MUL/MULH/DIV modules are made compatible with the committed component layout
-  before placement; `CURRENT_TRACE_COMPATIBLE = false` cannot remain in a
-  release path.
+- MUL and DIV modules are compatible with the committed component layout before
+  placement. The pinned signed-MULH limitation may retain
+  `CURRENT_TRACE_COMPATIBLE = false` only while the complete family fails closed
+  before commitment and the exact witness/export path remains available for
+  oracle parity.
 - There are no zero-constraint or silent components for an accepted family.
 
 Gate:
@@ -688,11 +696,12 @@ Gate:
   ID, constraint set, relation domains, tuple counts and batching, witness
   builder, and production component ID. Tests exercise each entry on-domain and
   OODS.
-- M-extension coverage explicitly includes all MULH/MULHSU/MULHU sign
+- M-extension oracle coverage explicitly includes all MULH/MULHSU/MULHU sign
   combinations, `INT_MIN * UINT_MAX`, maximum carries, signed and unsigned
   zero-divisor results, DIV/REM signed overflow, truncation toward zero, remainder
   sign, and `rd` aliasing `rs1`, `rs2`, and `x0`. Each row class has Rust row
-  parity and malicious-witness rejection.
+  parity; proof-admitted rows also require malicious-witness rejection. The
+  pinned signed-MULH family instead requires an exact fail-closed production test.
 
 ### CP-05: Cross-shard LogUp placement and global cancellation
 
@@ -1285,9 +1294,10 @@ built on an unsound statement:
    candidate-bound 11/11 pinned-Rust receipt under CP-11.
 9. Run the complete production adversarial fleet under CP-12, including every
    shard, claim, public-field, transcript, Merkle, table, and artifact mutation.
-10. Close the signed `MULH`/`MULHSU` oracle blocker, or narrow the declared ISA in
-    this contract through an explicit reviewed protocol change. Never silently
-    promote the known-invalid pinned witness.
+10. Preserve exact signed `MULH`/`MULHSU` witness/export parity with the pinned
+    oracle, retain the explicit `FIX(stark-v-signed-mulh)` record, and keep the
+    affected production proving path fail closed. Do not make an upstream Rust
+    correction a prerequisite for this repository's adapter release.
 11. Remove active source-debt blockers and pass CP-01, BA-01, and BA-02.
 12. Produce clean-tree candidate evidence under CP-13 with every prior checkpoint
     passing on the same commit.
@@ -1309,9 +1319,9 @@ remains `IN_PROGRESS`.
 | --- | --- | --- | --- |
 | CP-00 Fail closed | IN_PROGRESS | Typed candidate-only `--experimental`, closed registry, and negative phase admission through `9af6fe2b` | Complete unsupported decoder/backend matrix; preserve closed release and autoresearch registries |
 | CP-01 Structure | IN_PROGRESS | Mechanical core-purity gate passes; infrastructure trace construction is decomposed and its source-debt entries removed through `980bc3cc`; frontend layering still rejects the oversized prover owner | Backend-neutral frontend; RISC-V frontend-layering checker clean; touched source debt reduced |
-| CP-02 Execute | IN_PROGRESS | Live decode and execution boundaries pass at `30bc24ec`; the symbol-bearing release corpus, compact genuinely multi-shard ADDI case, and explicit negative ABI fixtures are committed through `dd1a8c1a` with pinned-Rust byte parity | Exact 45-opcode manifest, complete edge corpus, and corrected signed-MULH oracle |
+| CP-02 Execute | IN_PROGRESS | Live decode and execution boundaries pass at `30bc24ec`; the symbol-bearing release corpus, compact genuinely multi-shard ADDI case, and explicit negative ABI fixtures are committed through `dd1a8c1a` with pinned-Rust byte parity | Exact 45-opcode manifest, complete edge corpus, and explicit pinned signed-MULH limitation coverage |
 | CP-03 Witness | IN_PROGRESS | Production-buffer per-family rows and ordered accesses pass live Rust comparison at `30bc24ec`; canonical production layout digest is committed through `3ea0eccd` | Complete schema/edge corpus and bind the committed layout digest into fresh final-candidate evidence |
-| CP-04 Semantic AIR | IN_PROGRESS | Production opcode semantic placement is committed through `52315ef1`; exact synthetic clock-gap predecessor chaining is committed through `e454dafb`; a focused roundtrip is diagnostic only | Complete accepted-opcode on-domain/OODS coverage, nonempty long-gap proof coverage, the full malicious-witness matrix, and corrected signed-MULH oracle evidence |
+| CP-04 Semantic AIR | IN_PROGRESS | Production opcode semantic placement is committed through `52315ef1`; exact synthetic clock-gap predecessor chaining is committed through `e454dafb`; a focused roundtrip is diagnostic only | Complete accepted-opcode on-domain/OODS coverage, nonempty long-gap proof coverage, the full malicious-witness matrix, and fail-closed pinned signed-MULH limitation evidence |
 | CP-05 Cross-shard LogUp | IN_PROGRESS | Exact opcode batching/constraints, ownership, canonical order, clock relations, and the central 27-component interaction assembly are committed through `92456745`; bound production-buffer tuple/sum diagnostics land through `9092a3e1` and one valid Fib comparison has exact Rust parity | Prove one-, two-, and many-shard non-vacuous closure for all 12 domains; reject omission, duplication, reorder, tuple, multiplicity, padding, and boundary mutations; obtain full-corpus cumulative Rust parity |
 | CP-06 Memory/hash/tables | IN_PROGRESS | Live roots, exact lookup-table building blocks, exact Rust/Zig 445-column parity, production HashComponent integration, six fixed-table placement, multiplicity derivation, and memory boundary range sources are committed through `92456745` | Enforce proof-level Merkle/Poseidon/table/memory mutations, canonical-zero `poseidon2_io`, and complete memory closure on a clean candidate |
 | CP-07 Public I/O | IN_PROGRESS | Public values pass live; standalone field audit exists; fail-closed public-data shape, address, clock, root, and padding validation is committed through `f7ab4c83` | Algebraically constrain every field, segment role, expected statement, root, and public relation term, then pass field-by-field production mutations |

@@ -18,6 +18,7 @@ from scripts.riscv_release_gate_lib.contract import (
     divergence_errors,
     divergence_ledger_errors,
     frontend_layering_errors,
+    oracle_limitation_source_errors,
     phase_errors,
     receipt_errors,
     expected_case_result_keys,
@@ -157,28 +158,31 @@ class DivergenceContractTests(unittest.TestCase):
             "## Closure requirements",
         ))
 
-    def test_current_signed_mulh_oracle_defect_is_release_blocking(self) -> None:
+    def test_current_signed_mulh_oracle_defect_is_documented_but_allowlisted(self) -> None:
         errors = divergence_errors(Path(__file__).resolve().parents[2])
-        self.assertIn(
-            "release-blocking divergence remains active: "
-            "RISC-V / Signed `MULH` carry relation",
-            errors,
+        self.assertFalse(
+            any("Signed `MULH` carry relation" in error for error in errors)
         )
 
-    def test_known_defective_pin_cannot_hide_or_waive_its_blocker(self) -> None:
+    def test_known_oracle_limitation_cannot_be_hidden_or_loosely_waived(self) -> None:
         missing = divergence_ledger_errors(self.ledger())
-        self.assertTrue(any("known-defective oracle pin" in error for error in missing))
+        self.assertTrue(any("known oracle limitation" in error for error in missing))
 
         disguised = divergence_ledger_errors(self.ledger(
-            "| RISC-V | Signed `MULH` carry relation | zig | rust | Allowed only with tests. |"
+            "| RISC-V | Signed `MULH` carry relation | zig | rust | Deferred without condition. |"
         ))
-        self.assertIn(
-            "release-blocking divergence remains active: "
-            "RISC-V / Signed `MULH` carry relation",
-            disguised,
+        self.assertTrue(
+            any("allowlisted divergence lacks its conditional status" in error for error in disguised)
         )
 
-    def test_only_the_conditional_pcs_geometry_row_is_allowlisted(self) -> None:
+    def test_signed_mulh_fix_marker_is_machine_enforced(self) -> None:
+        self.assertEqual([], oracle_limitation_source_errors("// FIX(stark-v-signed-mulh): pinned"))
+        self.assertEqual(
+            ["signed-MULH oracle limitation lacks FIX(stark-v-signed-mulh)"],
+            oracle_limitation_source_errors("// defect mentioned without the stable marker"),
+        )
+
+    def test_only_code_owned_conditional_rows_are_allowlisted(self) -> None:
         ledger = self.ledger(
             "| RISC-V | PCS geometry | zig | rust | Allowed only with the self-check. |"
         )
@@ -372,11 +376,8 @@ class ExecutionEvidenceTests(unittest.TestCase):
             ["git", "rev-parse", "HEAD"], cwd=path, check=True, capture_output=True, text=True
         ).stdout.strip()
 
-    def test_candidate_and_promoted_controllers_refuse_active_mulh_blocker(self) -> None:
-        blocker = next(
-            error for error in divergence_errors(Path(__file__).resolve().parents[2])
-            if "Signed `MULH` carry relation" in error
-        )
+    def test_candidate_and_promoted_controllers_refuse_any_active_blocker(self) -> None:
+        blocker = "release-blocking divergence remains active: RISC-V / Public statement"
         for phase in ("candidate", "promoted"):
             with (
                 self.subTest(phase=phase),
