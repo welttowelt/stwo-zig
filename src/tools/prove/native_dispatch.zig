@@ -32,7 +32,6 @@ pub fn run(
         .metal_hybrid => {
             if (comptime builtin.os.tag != .macos or !capabilities.metal_enabled)
                 return error.MetalBackendUnavailable;
-            stwo.backends.metal.commit_policy.requireDeviceOnly();
             return runner.run(
                 stwo.backends.metal.MetalProverEngine,
                 .metal_hybrid,
