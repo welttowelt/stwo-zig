@@ -327,7 +327,7 @@ class CiTests(unittest.TestCase):
             "metal_eval_prepare_step.dependOn(&install_metal_eval_prepare.step);",
             metal_products,
         )
-        self.assertIn(
+        self.assertNotIn(
             "b.getInstallStep().dependOn(&install_metal_eval_prepare.step);",
             metal_products,
         )
