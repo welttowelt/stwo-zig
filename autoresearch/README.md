@@ -271,6 +271,34 @@ absolute store path and grant the workflow's bot a protected-branch bypass for
 its exact fast-forward + research-record push. The daemon gives lower latency
 and avoids scheduled Actions entirely.
 
+## Verification before staging
+
+The pre-staging suite is stdlib-only, hermetic, and part of the normal
+`unittest discover` workflow:
+
+```bash
+# Full harness suite
+python3 -m unittest discover -s autoresearch/tests -p 'test_*.py'
+
+# Focused operational contract
+python3 -m unittest \
+  autoresearch/tests/test_queue_state_machine.py \
+  autoresearch/tests/test_failure_injection.py \
+  autoresearch/tests/test_hermetic_e2e.py -v
+```
+
+The queue test checks every source/target state pair, terminal-state
+immutability, reachability, compare-and-swap claims, and attribution freeze.
+Failure injection covers unavailable attestation/clone services, crashed
+benchmarks, absent signing keys, stale frontiers, tampered verdicts, partial
+disk writes, concurrent claimers, and interrupted/resumed pushes. The
+end-to-end test drives the actual CLI command handlers and API-key config,
+production HTTP handler, co-author consent, durable queue, local Git fork,
+tree canonicalization, signed verdict, two-commit promotion, research record,
+and ledger. GitHub's attestation service and the costly benchmark executable
+are deterministic boundary doubles; exercising those two real integrations is
+the purpose of staging, not a hidden assumption in the hermetic suite.
+
 ## Activation checklist (in order)
 
 1. Freeze the anchor: set `harness.anchor_commit` + `anchor_report` in

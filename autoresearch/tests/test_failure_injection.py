@@ -209,6 +209,47 @@ class PipelineFailureInjectionTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "requires repository repair"):
             worker.cycle(self.store, self.repos.canonical, True, None, "main")
 
+    def test_tampered_signed_verdict_never_changes_canonical_head(self):
+        judged, _lock = self.judge()
+        data = json.loads(self.store.path.read_text())
+        stored = next(item for item in data["submissions"] if item["id"] == judged["id"])
+        stored["judged_verdict"]["score"]["R_geomean"] = 0.01
+        self.store.path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+
+        with mock.patch.dict(os.environ, {"JUDGE_HMAC_SECRET": "hermetic-signing"}):
+            failed = promotion.process_one(self.store, self.repos.canonical)
+        self.assertEqual(failed["state"], "promotion_error")
+        self.assertIn("signature verification failed", failed["worker_error"])
+        self.assertEqual(git(self.repos.canonical, "rev-parse", "HEAD"),
+                         self.repos.frontier)
+
+    def test_resume_refuses_to_push_when_local_tip_changed(self):
+        self.judge()
+        push_calls = []
+
+        def unavailable(_repo, _remote, _branch, _expected):
+            push_calls.append("failed")
+            raise promotion.PromotionError("injected network outage")
+
+        with mock.patch.dict(os.environ, {"JUDGE_HMAC_SECRET": "hermetic-signing"}):
+            paused = promotion.process_one(
+                self.store, self.repos.canonical, "publish", push_fn=unavailable,
+            )
+        self.assertEqual(paused["state"], "promoting")
+        recorded_tip = paused["promotion_commit"]
+        git(self.repos.canonical, "commit", "--allow-empty", "-m", "unexpected tip")
+
+        def must_not_push(*_args):
+            push_calls.append("unexpected")
+
+        failed = promotion.process_one(
+            self.store, self.repos.canonical, "publish", push_fn=must_not_push,
+        )
+        self.assertEqual(failed["state"], "promotion_error")
+        self.assertIn("not at recorded promotion tip", failed["state_history"][-1]["detail"])
+        self.assertEqual(push_calls, ["failed"])
+        self.assertNotEqual(git(self.repos.canonical, "rev-parse", "HEAD"), recorded_tip)
+
     def test_frontier_move_marks_candidate_stale_without_merging_it(self):
         judged, _lock = self.judge()
         git(self.repos.canonical, "commit", "--allow-empty", "-m", "frontier moved")
