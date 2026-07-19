@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -293,21 +294,22 @@ def cmd_apikey_revoke(_args) -> int:
 def cmd_submit_remote(args) -> int:
     from . import remote
     m = manifest_mod.load()
-    receipt = json.loads(Path(args.receipt).read_text())
+    receipt_path = Path(args.receipt)
+    receipt_bytes = receipt_path.read_bytes()
+    receipt = json.loads(receipt_bytes)
     note = Path(args.note_file).read_text()
     qualification = {"receipt": receipt}
-    if args.artifact_digest or args.attestation_url:
-        if not (args.artifact_digest and args.attestation_url):
-            return _fail("--artifact-digest and --attestation-url must be supplied together")
-        qualification["attestation"] = {
-            "artifact_digest": args.artifact_digest,
-            "url": args.attestation_url,
+    attestation_required = m.qualification_policy.get(
+        "require_github_artifact_attestation", False
+    )
+    if args.artifact_digest or args.attestation_url or attestation_required:
+        attestation = {
+            "artifact_digest": args.artifact_digest
+            or "sha256:" + hashlib.sha256(receipt_bytes).hexdigest(),
         }
-    if (m.qualification_policy.get("require_github_artifact_attestation", False)
-            and "attestation" not in qualification):
-        return _fail(
-            "current policy requires --artifact-digest and --attestation-url from fork CI"
-        )
+        if args.attestation_url:
+            attestation["url"] = args.attestation_url
+        qualification["attestation"] = attestation
     payload = {
         "schema_version": 2,
         "source": {
@@ -471,8 +473,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="HTTPS URL of the GitHub fork containing the commit")
     p.add_argument("--ref", required=True, help="immutable source branch as refs/heads/<name>")
     p.add_argument("--note-file", required=True)
-    p.add_argument("--artifact-digest", help="sha256:<hex> for an attested receipt artifact")
-    p.add_argument("--attestation-url", help="GitHub artifact-attestation URL")
+    p.add_argument("--artifact-digest",
+                   help="override the automatically computed sha256 receipt digest")
+    p.add_argument("--attestation-url", help="optional GitHub attestation audit URL")
     p.add_argument("--coauthor", action="append", default=[], metavar="GITHUB_LOGIN")
     p = sub.add_parser("remote-frontier", help="print the full canonical commit required by fork CI")
     p.add_argument("--board", default="core_cpu")

@@ -42,6 +42,7 @@ def submission_payload():
         "frontier_commit": "a" * 40,
         "candidate_tree": "c" * 40,
         "changed_paths": ["src/core/fields/value.zig"],
+        "patch_bytes": 123,
         "patch_digest": "sha256:" + "d" * 64,
         "locked_tree_digest": "sha256:" + "e" * 64,
         "submitter_login": "alice",

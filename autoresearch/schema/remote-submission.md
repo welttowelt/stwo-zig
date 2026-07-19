@@ -33,6 +33,11 @@ The checked-in policy currently requires the GitHub artifact attestation.
 }
 ```
 
+`artifact_digest` is required by current policy and the CLI computes it from
+the downloaded receipt bytes. `url` is optional audit metadata; intake locates
+and verifies attestations cryptographically by digest, repository, signer,
+source commit, and source ref.
+
 The note uses the same five ordered sections as submission schema v1 and is at
 most 10 KiB. Requested co-authors must independently authenticate and run
 `stwo-perf coauthor-accept <submission-id>` before the judge queue releases the
@@ -43,6 +48,8 @@ to equal the submitted commit, fetches that object to a private immutable ref,
 and thereafter uses the full commit/tree/digest bindings. Moving the branch
 during intake rejects the submission; moving it afterward cannot change the
 pinned candidate.
+The checked-in policy also caps changed paths and binary patch bytes before any
+central build, limiting authenticated resource-exhaustion attempts.
 
 On promotion, the bot creates exactly one commit whose parent is the judged
 frontier and whose tree equals `candidate_tree`. The bot is author/committer and

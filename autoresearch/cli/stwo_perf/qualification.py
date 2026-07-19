@@ -36,6 +36,7 @@ class TreeEvidence:
     frontier_commit: str
     candidate_tree: str
     changed_paths: list[str]
+    patch_bytes: int
     patch_digest: str
     locked_tree_digest: str
 
@@ -95,6 +96,12 @@ def inspect_tree(repo: Path, manifest: Manifest, frontier_ref: str,
     paths = sorted(p.decode() for p in raw_paths.split(b"\0") if p)
     if not paths:
         raise QualificationError("candidate has no changes from the frontier")
+    policy = manifest.raw.get("qualification_policy", {})
+    max_paths = int(policy.get("max_changed_paths", 100))
+    if len(paths) > max_paths:
+        raise QualificationError(
+            f"candidate changes {len(paths)} paths; policy limit is {max_paths}"
+        )
     unsafe = [
         path for path in paths
         if path.startswith("/") or "\\" in path
@@ -124,12 +131,18 @@ def inspect_tree(repo: Path, manifest: Manifest, frontier_ref: str,
     patch = _git(
         repo, "diff", "--binary", "--full-index", "--no-renames", frontier, candidate,
     )
+    max_patch_bytes = int(policy.get("max_patch_bytes", 5 * 1024 * 1024))
+    if len(patch) > max_patch_bytes:
+        raise QualificationError(
+            f"candidate patch is {len(patch)} bytes; policy limit is {max_patch_bytes}"
+        )
     tree = _git(repo, "rev-parse", f"{candidate}^{{tree}}").decode().strip()
     return TreeEvidence(
         candidate_commit=candidate,
         frontier_commit=frontier,
         candidate_tree=tree,
         changed_paths=paths,
+        patch_bytes=len(patch),
         patch_digest="sha256:" + hashlib.sha256(patch).hexdigest(),
         locked_tree_digest=candidate_locked,
     )
@@ -153,6 +166,7 @@ def build_receipt(repo: Path, manifest: Manifest, frontier_ref: str,
         "frontier_commit": evidence.frontier_commit,
         "candidate_tree": evidence.candidate_tree,
         "changed_paths": evidence.changed_paths,
+        "patch_bytes": evidence.patch_bytes,
         "patch_digest": evidence.patch_digest,
         "locked_tree_digest": evidence.locked_tree_digest,
         "submitter_login": submitter_login,
@@ -176,6 +190,8 @@ def validate_receipt(receipt: dict) -> None:
     paths = receipt.get("changed_paths")
     if not isinstance(paths, list) or not paths or not all(isinstance(p, str) for p in paths):
         raise QualificationError("qualification changed_paths must be a non-empty list")
+    if not isinstance(receipt.get("patch_bytes"), int) or receipt["patch_bytes"] <= 0:
+        raise QualificationError("qualification patch_bytes must be a positive integer")
     checks = receipt.get("checks")
     if not isinstance(checks, dict):
         raise QualificationError("qualification checks must be an object")
@@ -210,6 +226,7 @@ def verify_receipt(repo: Path, manifest: Manifest, receipt: dict) -> TreeEvidenc
     comparisons = {
         "candidate_tree": evidence.candidate_tree,
         "changed_paths": evidence.changed_paths,
+        "patch_bytes": evidence.patch_bytes,
         "patch_digest": evidence.patch_digest,
         "locked_tree_digest": evidence.locked_tree_digest,
     }

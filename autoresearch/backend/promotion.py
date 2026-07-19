@@ -92,6 +92,7 @@ def _write_record(repo: Path, record: dict) -> Path:
         "source_commit": record["source"]["commit"],
         "canonical_commit": record["canonical_commit"],
         "candidate_tree": record["qualification"]["receipt"]["candidate_tree"],
+        "patch_bytes": record["qualification"]["receipt"]["patch_bytes"],
         "patch_digest": record["qualification"]["receipt"]["patch_digest"],
         "changed_paths": record["qualification"]["receipt"]["changed_paths"],
         "qualification_receipt": qualification.receipt_digest(

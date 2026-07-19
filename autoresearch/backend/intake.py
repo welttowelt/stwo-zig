@@ -75,6 +75,7 @@ def verify_checkout(checkout: Path, manifest: manifest_mod.Manifest,
 
     return {
         "candidate_tree": evidence.candidate_tree,
+        "patch_bytes": evidence.patch_bytes,
         "patch_digest": evidence.patch_digest,
         "locked_tree_digest": evidence.locked_tree_digest,
         "changed_paths": evidence.changed_paths,

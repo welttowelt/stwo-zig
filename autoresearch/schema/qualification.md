@@ -21,6 +21,7 @@ The receipt binds:
   "frontier_commit": "<40 lowercase hex>",
   "candidate_tree": "<40 lowercase hex>",
   "changed_paths": ["src/core/fields/example.zig"],
+  "patch_bytes": 1234,
   "patch_digest": "sha256:<64 lowercase hex>",
   "locked_tree_digest": "sha256:<64 lowercase hex>",
   "submitter_login": "octocat",
@@ -60,4 +61,5 @@ GitHub-hosted runner; a different workflow in the same fork is not sufficient.
 Exact rejection rules are implemented by `stwo_perf.qualification`: the declared
 frontier must be an ancestor, every changed path must match `editable_paths`, no
 locked or stray path may change, final source modes must be `100644`, existing
-modes may not change, and the locked-tree digest must remain identical.
+modes may not change, the locked-tree digest must remain identical, and the
+candidate must fit the manifest's changed-path and patch-byte admission caps.

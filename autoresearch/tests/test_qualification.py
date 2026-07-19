@@ -72,6 +72,15 @@ class QualificationTest(unittest.TestCase):
         with self.assertRaises(qualification.QualificationError):
             qualification.inspect_tree(self.repo, self.manifest, self.frontier)
 
+    def test_patch_size_policy_is_enforced_before_central_build(self):
+        self._commit_edit()
+        limited = Manifest(self.repo, {
+            **self.manifest.raw,
+            "qualification_policy": {"max_changed_paths": 100, "max_patch_bytes": 1},
+        })
+        with self.assertRaisesRegex(qualification.QualificationError, "patch is"):
+            qualification.inspect_tree(self.repo, limited, self.frontier)
+
 
 if __name__ == "__main__":
     unittest.main()

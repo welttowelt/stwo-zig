@@ -85,8 +85,6 @@ stwo-perf submit-remote \
   --repository https://github.com/<your-login>/stwo-zig \
   --ref refs/heads/<optimization-branch> \
   --note-file note.md \
-  --artifact-digest sha256:<receipt-file-sha256> \
-  --attestation-url https://github.com/.../attestations/... \
   --coauthor <collaborator-login>
 
 stwo-perf submission-status
@@ -99,6 +97,8 @@ authenticates `whoami`, `submit-remote`, `submission-status`, co-author consent,
 and withdrawal; `stwo-perf apikey-revoke` invalidates it centrally. See
 `schema/qualification.md`, `schema/remote-submission.md`, and
 `schema/remote-queue.md` for the wire and state contracts.
+The CLI computes the attested receipt's SHA-256 directly from the downloaded
+file; `--attestation-url` is optional audit metadata, not a verification input.
 
 ### Algorithm-selection gate
 

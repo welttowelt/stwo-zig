@@ -76,6 +76,7 @@ class PromotionIntegrationTest(unittest.TestCase):
                 "schema_version": 1, "candidate_commit": "b" * 40,
                 "frontier_commit": frontier, "candidate_tree": candidate_tree,
                 "changed_paths": ["src/core/fields/value.zig"],
+                "patch_bytes": 123,
                 "patch_digest": "sha256:" + "d" * 64,
                 "locked_tree_digest": "sha256:" + "e" * 64,
                 "submitter_login": "alice", "checks": {}, "claim": {}, "workflow": {},

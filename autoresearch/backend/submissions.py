@@ -145,8 +145,8 @@ def validate_request(body: dict, author: dict, allowed_boards: set[str]) -> dict
             raise SubmissionError("qualification.attestation.artifact_digest is invalid")
         url = attestation.get("url")
         parsed = urllib.parse.urlsplit(url) if isinstance(url, str) else None
-        if (parsed is None or parsed.scheme != "https"
-                or parsed.hostname not in {"github.com", "api.github.com"}):
+        if (url is not None and (parsed is None or parsed.scheme != "https"
+                or parsed.hostname not in {"github.com", "api.github.com"})):
             raise SubmissionError("qualification.attestation.url must be a GitHub HTTPS URL")
 
     return {

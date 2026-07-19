@@ -17,14 +17,17 @@ def person(github_id=1, login="alice"):
     }
 
 
-def record(commit="b" * 40, coauthors=None):
-    return {
+def record(commit="b" * 40, coauthors=None, tree=None):
+    value = {
         "author": person(),
         "coauthors": coauthors or [],
         "source": {"commit": commit},
         "claim": {"board": "core_cpu", "workload_class": "small",
                   "dimension": "time", "shipping_index": 0.9},
     }
+    if tree:
+        value["qualification"] = {"receipt": {"candidate_tree": tree}}
+    return value
 
 
 class StoreTest(unittest.TestCase):
@@ -59,6 +62,12 @@ class StoreTest(unittest.TestCase):
         self.store.record_key(person(), "key-1", ["identity:read"])
         self.store.revoke_key("key-1")
         self.assertEqual(self.store.revoked(), {"key-1"})
+
+    def test_same_tree_cannot_grind_a_new_holdout_seed(self):
+        first = self.store.create_submission(record(tree="a" * 40))
+        self.store.transition(first["id"], {"received"}, "rejected", "test")
+        with self.assertRaisesRegex(StoreError, "tree was already submitted"):
+            self.store.create_submission(record("c" * 40, tree="a" * 40))
 
 
 if __name__ == "__main__":

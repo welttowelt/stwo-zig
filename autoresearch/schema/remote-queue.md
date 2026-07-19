@@ -20,7 +20,9 @@ received -> validating -> awaiting_coauthors -> queued -> judging
 canonical repository moved after qualification or judgment; it is terminal and
 the participant should sync, rerun fork CI, and submit a new commit. Only one
 active submission per GitHub identity is admitted by default, and a source
-commit can never be submitted twice.
+commit or candidate tree can never be submitted twice. Tree-level deduplication
+also prevents repackaging an identical optimization merely to draw another
+secret holdout seed.
 
 The store is an atomic, mode-0600 JSON file protected by a process/thread lock.
 The HTTP process never checks out, builds, or executes participant code.

@@ -123,6 +123,8 @@
     ],
     "source_commit_must_descend_from_frontier": true,
     "source_modes": ["100644"],
+    "max_changed_paths": 100,
+    "max_patch_bytes": 5242880,
     "require_github_artifact_attestation": true,
     "central_reverification_required": true,
     "note": "Fork CI is a cost-shifting qualification signal, never the trust root. Intake recomputes tree evidence and the central judge rebuilds and benchmarks hidden holdouts before promotion."
