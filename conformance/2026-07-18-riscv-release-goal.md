@@ -5,7 +5,7 @@
 **Created:** 2026-07-18
 
 **Last reconciled:** 2026-07-19 against committed implementation baseline
-`9092a3e1`; uncommitted output remains diagnostic and cannot alter checkpoint
+`60a5d93e`; uncommitted output remains diagnostic and cannot alter checkpoint
 status.
 
 **Authority:** This is the operative delivery contract for the Stark-V RV32IM
@@ -41,10 +41,10 @@ autoresearch scoring disabled until independently qualified.
 **Last accepted live-oracle evidence:** `30bc24ecaa4a5ed21cd4fa2455bed81bbce8553a`.
 The live pinned-Rust receipt at that revision passes 9 of 11 shared boundaries.
 It is diagnostic parity evidence, not a release acceptance receipt. The current
-committed implementation also contains the schema-v3 staged production CLI
-through `6f01c105` and the symbol-bearing live-oracle release corpus through
-`dd1a8c1a`; neither changes the release decision without a fresh clean-candidate
-receipt.
+committed implementation through `60a5d93e` contains the hardened schema-v3
+production CLI, production transcript tracer, deterministic relation provenance,
+strict oracle-receipt validation, and mandatory pinned signed-`MULH` limitation;
+none changes the release decision without a fresh clean-candidate receipt.
 
 ## Goal
 
@@ -84,7 +84,7 @@ required evidence.
 
 | Delivery checkpoint | Detailed contract | Required evidence | Unlock condition | Current decision |
 | --- | --- | --- | --- | --- |
-| **1. Complete cross-shard LogUp placement in the RISC-V AIR** | CP-03 through CP-06, CP-11, CP-12 | Canonical component order; exact committed-buffer tuple provenance; all twelve relation domains independently cancel; one-, two-, and many-shard proofs pass; omission, duplication, reorder, tuple, multiplicity, padding, and boundary mutations fail; live Rust cumulative accumulator parity after every component | Unlocks final statement/CLI integration only after semantic, memory, Merkle, Poseidon2, range, and bitwise constraints are active in both on-domain and OODS evaluation | `NO-GO` while any relation source, sink, recurrence, commitment, or verifier consumer is absent |
+| **1. Complete cross-shard LogUp placement in the RISC-V AIR** | CP-03 through CP-06, CP-11, CP-12 | Canonical component order; exact committed-buffer tuple provenance; all twelve relation domains independently cancel; one-, two-, and many-shard proofs pass; semantic omission, duplication, tuple, multiplicity, padding, and boundary attacks fail cryptographically; mutation of an existing artifact's shard/claim order fails; live Rust cumulative accumulator and deterministic provenance agree after every component | Unlocks final statement/CLI integration only after semantic, memory, Merkle, Poseidon2, range, and bitwise constraints are active in both on-domain and OODS evaluation | `NO-GO` while any relation source, sink, recurrence, commitment, or verifier consumer is absent |
 | **2. Verify the build and visible CLI result** | CP-09, CP-10, CP-13 | `ReleaseFast` installed binary; stable help and diagnostic snapshots; staged prove, independent verify, and benchmark smoke; deterministic machine JSON; bounded schema-v3 artifact; atomic publication and tamper rejection | Candidate CLI evidence may be collected in parallel, but it cannot authorize promotion before checkpoints 1 and 3 pass | `NO-GO` while the CLI projects transitional claims, relies on in-process state, or emits schema v2 |
 | **3. Add public I/O binding to the RISC-V statement** | CP-07, CP-08, CP-11, CP-12 | Every public field is canonically transcript-bound and algebraically linked to committed execution; caller-supplied expected statement is enforced; prover/verifier channel traces agree; per-field, ordering, length, address, clock, root-presence, and segment-role mutations fail | Unlocks clean candidate evidence only after public compensation closes in the relevant relation domains | `NO-GO` while any public value is prover-chosen, transcript-only, host-asserted, or unconnected to a committed relation |
 | **4. Flip the prove-CLI registry entry and release-gate the adapter** | CP-00 through CP-13, then RF-01 | One clean candidate commit passes the strict candidate controller locally and in clean CI with fresh 11/11 Rust-oracle evidence and zero release-blocking divergences; a separate non-semantic promotion commit passes the strict promoted controller | This is the final release action, never an implementation shortcut. A failure after the flip requires reverting the promotion | `FORBIDDEN` until every prerequisite is `PASS` on one identified candidate |
@@ -192,7 +192,7 @@ stages one through four.
 
 | Stage | Required outcome | Checkpoints | Promotion condition |
 | --- | --- | --- | --- |
-| D1 Cross-shard LogUp | Exact source, table, public, Merkle, Poseidon2, range, bitwise, state, program, and memory placement; canonical component batching; global cancellation across one, two, and many shards | CP-04, CP-05, CP-06 | Honest proofs pass and every omission, duplication, reorder, tuple, multiplicity, and shard-boundary mutation fails |
+| D1 Cross-shard LogUp | Exact source, table, public, Merkle, Poseidon2, range, bitwise, state, program, and memory placement; canonical component batching; global cancellation across one, two, and many shards | CP-04, CP-05, CP-06 | Honest proofs pass; semantic omission, duplication, tuple, multiplicity, padding, and boundary attacks fail cryptographically; an existing artifact cannot be reordered without rejection |
 | D2 Build and visible CLI result | ReleaseFast build; installed candidate CLI proves, independently verifies, benchmarks, emits deterministic JSON, publishes atomically, and renders stable help/errors | CP-09, CP-10 | Candidate smoke matrix passes using the installed binary and a genuinely multi-shard ELF |
 | D3 Public I/O statement | Caller-expected program, input, output, roots, registers, clocks, and geometry are transcript-bound and algebraically bound to committed execution | CP-07, CP-08 | Every public field mutation and every transcript ordering mutation fails in production verification |
 | D4 Independent evidence | Eleven live Rust boundaries agree, the adversarial fleet rejects every named forgery, and the enforcing candidate controller reproduces the result from one clean commit | CP-11, CP-12, CP-13 | Fresh 11/11 receipt plus strict local and clean-CI evidence with zero required skips |
@@ -236,7 +236,7 @@ authorize RF-01 by itself.
 
 ### Current implementation snapshot
 
-The current committed implementation baseline is `9092a3e1`. It contains:
+The current committed implementation baseline is `60a5d93e`. It contains:
 
 - exact six-domain lookup schemas and signed counters through `a5b68b28`;
 - a generic lookup-table AIR component through `dee14997`;
@@ -280,18 +280,34 @@ The current committed implementation baseline is `9092a3e1`. It contains:
   implementation `FIX` marker disappears; and
 - bound default-challenge relation tuple v3 and cumulative-sum v2 evidence over
   retained production buffers, including exact candidate, oracle, workload,
-  layout, and diagnostic commitment identities, through `9092a3e1`.
+  layout, and diagnostic commitment identities, through `9092a3e1`;
+- proof preflight and exact rejection coverage through `20b65f1f`, independent
+  twelve-domain relation closure through `5e80b6c8`, canonical-zero relation
+  padding through `b6a0e34c`, canonical memory-shard geometry through
+  `eb62f4b0`, and focused malicious-proof coverage through `ebb1db1d`;
+- proof-enforced narrow RV32IM Poseidon rows through `791fb490`, the fixed
+  schema-v3 claim transcript through `e4119c3f`, and a live production
+  prover/verifier channel tracer with root and relation-draw mutation probes
+  through `93ff11e4`;
+- an installed strict CLI boundary, phase-neutral prove/verify receipts,
+  hostile-artifact coverage, and independent-process verification through
+  `6bcca4bd`;
+- deterministic diagnostic opcode-request provenance and a complete
+  execution-row ledger through `0b5e1364`; and
+- clean candidate/oracle receipt enforcement through `b5725ec1`, plus the
+  mandatory pinned signed-`MULH` limitation and implementation marker through
+  `60a5d93e`.
 
 The latest committed integrations are diagnostic progress, not accepted release
-evidence. Focused component tests and one serial production ELF proof/verify
-roundtrip passed after the interaction tree landed, but that fixture produced no
-synthetic clock-gap rows and the run was not a clean-candidate CP-13 receipt.
-CP-04 through CP-06 therefore remain `IN_PROGRESS`; the required multi-shard,
-non-vacuous relation-domain closure, malicious-witness fleet, and clean
-pinned-Rust evidence have not been replaced by that roundtrip. The public-data
-validator, canonical layout digest, and embedded build identity close important
-boundary preconditions but do not establish algebraic public binding, relation
-parity, or artifact acceptance on their own.
+evidence. Focused component tests and production ELF proof/verify roundtrips
+passed after the interaction tree landed, but no run is a clean-candidate CP-13
+receipt. CP-04 through CP-06 therefore remain `IN_PROGRESS`; the required
+multi-shard, non-vacuous relation-domain closure, complete malicious-witness
+fleet, and clean pinned-Rust evidence have not been replaced by those
+roundtrips. The public-data validator, canonical layout digest, embedded build
+identity, strict CLI, production channel trace, and diagnostic provenance ledger
+close important boundary preconditions but do not establish complete algebraic
+public binding, relation parity, or release acceptance on their own.
 
 The committed relation-evidence implementation has passed focused adversarial
 review and one production-valid Fib tuple/sum comparison, but that diagnostic
@@ -327,7 +343,7 @@ run in parallel, but integration and promotion obey the dependency order.
 | WP-01 | Preserve the closed registry and typed candidate-only `--experimental` admission | CP-00 | Negative CLI and registry tests; candidate artifacts remain `not_release_gated` |
 | WP-02 | Export and compare production per-family witness rows and ordered accesses | CP-02, CP-03, CP-11 | Live byte/digest equality against the clean pinned Rust binary |
 | WP-03 | Export exact relation tuples and cumulative relation sums after every component | CP-05, CP-11 | All 12 domains independently identified; first divergence is localizable; receipt reaches 11/11 |
-| WP-04 | Complete exact cross-shard state, program, memory, public, range, bitwise, Merkle, and Poseidon placement | CP-04, CP-05 | One-, two-, and many-shard global cancellation plus omission/duplication/reorder rejection |
+| WP-04 | Complete exact cross-shard state, program, memory, public, range, bitwise, Merkle, and Poseidon placement | CP-04, CP-05 | One-, two-, and many-shard global cancellation; cryptographic rejection of semantic omission/duplication/tuple/boundary attacks; existing-artifact reorder rejection; deterministic CP-11 provenance |
 | WP-05 | Bind each Merkle parent to the exact pinned Poseidon2 child hash and close all memory/table buses | CP-06 | Root/path/hash/table mutations fail in the production verifier; live root vectors agree |
 | WP-06 | Bind the complete caller-expected public statement algebraically and in the transcript | CP-07, CP-08 | Per-field mutation rejection, exact transcript trace, and prover/verifier event symmetry |
 | WP-07 | Complete the installed CLI prove, independent verify, and benchmark path with a versioned atomic artifact | CP-09, CP-10 | Candidate and promoted phase smoke tests, security-policy rejection tests, and cross-process verification |
@@ -722,6 +738,13 @@ All twelve pinned relation domains must be drawn independently in schema order:
 11. `range_check_8_8`
 12. `range_check_m31`
 
+This list is exhaustive. The production proof has exactly these twelve
+Stark-V relation domains. A Zig-only thirteenth bus, a private replacement for
+one of these buses, or an aggregate bus that permits one domain to offset
+another is a protocol divergence and is forbidden. Diagnostics may decompose
+the existing aggregate by domain, but they must not add a challenge pair,
+interaction column, claim, or verifier obligation to the proof.
+
 Required behavior:
 
 - Each relation uses its own `(z, alpha)` pair and the pinned alpha-power tuple
@@ -737,13 +760,27 @@ Required behavior:
   live Rust oracle. Two omitted sides of a bus cannot satisfy this gate.
 - Every generated interaction column is committed, opened, recurrence-constrained,
   and consumed by the verifier.
+- Semantic exact-once execution is AIR-enforced: every accepted execution step
+  contributes its required state, program, access, range, bitwise, Merkle, and
+  table requests exactly once, and the public endpoints close the same twelve
+  relation multisets. Omitting or duplicating a semantic request, changing its
+  tuple, or breaking a shard-boundary state transition must fail the
+  cryptographic verifier. A host-side provenance ledger is evidence for this
+  property, not a substitute for it.
 - Shard boundaries are algebraically linked. Tampering with an existing
-  artifact's partition, ordering, duplication, omission, or manifest cannot
-  preserve acceptance. A freshly generated proof may use another legal canonical
-  shard count and must preserve the same public execution result. For each shard
-  count, row-to-shard placement is deterministic.
-- Each relation request has exact-once provenance `(execution_row, family,
-  relation, request_ordinal)` across the selected partition.
+  artifact's partition, claim ordering, duplication, omission, or manifest
+  cannot preserve acceptance because the commitments, claims, transcript, and
+  openings no longer agree.
+- Physical row-to-shard placement is a deterministic witness-generation and
+  CP-11 provenance contract, not an extra semantic relation. For a selected
+  legal shard count, the canonical generator emits one stable placement and the
+  oracle receipt records request provenance `(execution_row, family,
+  relation, request_ordinal)` plus physical component/shard/row location. A
+  newly generated proof that consistently commits a different legal row
+  permutation but proves the identical relation multisets and public execution
+  is semantically equivalent, not a forgery. It may fail canonical-generation
+  or Rust byte/digest parity gates without constituting a proof-soundness
+  failure.
 - Empty components and padding contribute a canonical zero claim.
 - The prover and verifier derive identical component order and shard geometry
   from committed statement data.
@@ -753,10 +790,15 @@ Gate:
 - Cancellation tests for one shard, two shards, many shards, empty components,
   and uneven component sizes. Empty shards are rejected unless the statement
   specification is deliberately changed and oracle-gated.
-- Randomized placement tests with fixed seeds.
-- Proof-level rejection for row deletion, duplication, shard reorder, component
-  reorder, boundary PC/clock tampering, tuple tampering, multiplicity tampering,
-  denominator substitution, and relation-challenge swapping.
+- Deterministic placement tests over fixed-seed executions and each supported
+  shard count; CP-11 compares the resulting physical provenance and cumulative
+  component evidence with Rust.
+- Proof-level rejection for semantic row/request deletion or duplication,
+  boundary PC/clock tampering, tuple tampering, multiplicity tampering,
+  denominator substitution, relation-challenge swapping, and mutation of an
+  already-created artifact's shard or component order. A fresh, internally
+  consistent permutation of semantically interchangeable rows is not listed as
+  a forgery.
 - A per-relation diagnostic reports all twelve final sums in tests and requires
   each to equal zero independently.
 - The production proof retains Stark-V's canonical randomized aggregate. The
@@ -1019,6 +1061,11 @@ Required oracle procedure:
 6. Compare every shared boundary: decode, execution, per-family witness rows,
    program tuples, ordered accesses, public values, memory roots, Poseidon2
    vectors, relation tuples, relation sums, and shared transcript prefix.
+   Relation comparison covers exactly the twelve pinned domains and records the
+   canonical generator's physical request provenance. It must not introduce a
+   thirteenth Zig relation. Physical provenance drift fails deterministic oracle
+   parity; it is reported separately from an AIR-semantic tuple-multiset
+   mismatch.
 7. Store a machine-readable receipt and make the release gate validate it.
 
 The required producer command is:
@@ -1071,7 +1118,8 @@ At minimum it must try to preserve superficial proof shape while changing:
 - one range/bitwise lookup value or multiplicity;
 - one Merkle leaf, sibling, direction, node, or root;
 - one public input/output value, length, address, or clock;
-- one component sum, shard claim, shard order, or padding row;
+- one component sum, shard claim, existing-artifact shard order, semantic
+  request occurrence, or padding row;
 - one transcript field, relation draw, commitment, or artifact parameter; and
 - one PCS folded-point direction covered by the allowed divergence.
 
@@ -1281,7 +1329,10 @@ built on an unsound statement:
    transitional opcode buses without duplicating the main tree.
 4. Enforce the canonical 27-component interaction claim and public compensation
    across one, two, and many shards; close every one of the twelve relation
-   domains independently and in the canonical randomized aggregate.
+   domains independently and in the canonical randomized aggregate. Do not add
+   a thirteenth Zig-only bus. Keep canonical physical row placement in witness
+   generation and CP-11 provenance while enforcing semantic exact-once requests
+   in the AIR.
 5. Complete CP-04 and CP-06 semantic, memory, Merkle, Poseidon2, range, bitwise,
    padding, and allocation-failure mutation coverage.
 6. Bind the complete public statement and exact transcript sequence under CP-07
@@ -1317,23 +1368,23 @@ remains `IN_PROGRESS`.
 
 | Checkpoint | Status | Evidence baseline | Required closure evidence |
 | --- | --- | --- | --- |
-| CP-00 Fail closed | IN_PROGRESS | Typed candidate-only `--experimental`, closed registry, and negative phase admission through `9af6fe2b` | Complete unsupported decoder/backend matrix; preserve closed release and autoresearch registries |
-| CP-01 Structure | IN_PROGRESS | Mechanical core-purity gate passes; infrastructure trace construction is decomposed and its source-debt entries removed through `980bc3cc`; frontend layering still rejects the oversized prover owner | Backend-neutral frontend; RISC-V frontend-layering checker clean; touched source debt reduced |
-| CP-02 Execute | IN_PROGRESS | Live decode and execution boundaries pass at `30bc24ec`; the symbol-bearing release corpus, compact genuinely multi-shard ADDI case, and explicit negative ABI fixtures are committed through `dd1a8c1a` with pinned-Rust byte parity | Exact 45-opcode manifest, complete edge corpus, and explicit pinned signed-MULH limitation coverage |
-| CP-03 Witness | IN_PROGRESS | Production-buffer per-family rows and ordered accesses pass live Rust comparison at `30bc24ec`; canonical production layout digest is committed through `3ea0eccd` | Complete schema/edge corpus and bind the committed layout digest into fresh final-candidate evidence |
-| CP-04 Semantic AIR | IN_PROGRESS | Production opcode semantic placement is committed through `52315ef1`; exact synthetic clock-gap predecessor chaining is committed through `e454dafb`; a focused roundtrip is diagnostic only | Complete accepted-opcode on-domain/OODS coverage, nonempty long-gap proof coverage, the full malicious-witness matrix, and fail-closed pinned signed-MULH limitation evidence |
-| CP-05 Cross-shard LogUp | IN_PROGRESS | Exact opcode batching/constraints, ownership, canonical order, clock relations, and the central 27-component interaction assembly are committed through `92456745`; bound production-buffer tuple/sum diagnostics land through `9092a3e1` and one valid Fib comparison has exact Rust parity | Prove one-, two-, and many-shard non-vacuous closure for all 12 domains; reject omission, duplication, reorder, tuple, multiplicity, padding, and boundary mutations; obtain full-corpus cumulative Rust parity |
-| CP-06 Memory/hash/tables | IN_PROGRESS | Live roots, exact lookup-table building blocks, exact Rust/Zig 445-column parity, production HashComponent integration, six fixed-table placement, multiplicity derivation, and memory boundary range sources are committed through `92456745` | Enforce proof-level Merkle/Poseidon/table/memory mutations, canonical-zero `poseidon2_io`, and complete memory closure on a clean candidate |
+| CP-00 Fail closed | IN_PROGRESS | Typed candidate-only `--experimental`, closed registry, exact proof preflight, and rejection corpus ownership are committed through `20b65f1f`; the signed-`MULH` limitation is mandatory through `60a5d93e` | Complete unsupported decoder/backend matrix; preserve closed release and autoresearch registries; obtain clean-candidate evidence |
+| CP-01 Structure | IN_PROGRESS | Infrastructure trace construction is decomposed through `980bc3cc`; the prover frontend is decomposed through `ca3c3d56`; structure, core-purity, and frontend-layering selectors pass diagnostically at `60a5d93e` | Preserve the clean mechanical result and touched-source-debt reduction in final candidate evidence |
+| CP-02 Execute | IN_PROGRESS | Live decode and execution boundaries pass at `30bc24ec`; the symbol-bearing release corpus and negative ABI fixtures are committed through `dd1a8c1a`; the inherited signed-`MULH` behavior and fail-closed proof admission are explicit through `60a5d93e` | Exact 45-opcode manifest, complete edge corpus, and fresh clean oracle evidence under the documented limitation |
+| CP-03 Witness | IN_PROGRESS | Production-buffer per-family rows and ordered accesses pass live Rust comparison at `30bc24ec`; canonical production layout digest is committed through `3ea0eccd`; diagnostic execution/request provenance is committed through `0b5e1364` | Complete schema/edge corpus and bind deterministic layout/provenance digests into fresh final-candidate evidence |
+| CP-04 Semantic AIR | IN_PROGRESS | Production opcode semantic placement is committed through `52315ef1`; exact synthetic clock-gap predecessor chaining is committed through `e454dafb`; proof-level malicious cases advance through `ebb1db1d`; signed-`MULH` proof admission fails closed through `60a5d93e` | Complete accepted-opcode on-domain/OODS coverage, nonempty long-gap proof coverage, and the full malicious-witness matrix |
+| CP-05 Cross-shard LogUp | IN_PROGRESS | Exact batching/constraints, ownership, order, clock relations, and central 27-component assembly are committed through `92456745`; twelve domains close independently through `5e80b6c8`; canonical-zero padding lands through `b6a0e34c`; bound tuple/sum diagnostics and deterministic request provenance land through `0b5e1364` | Prove one-, two-, and many-shard non-vacuous semantic exact-once closure for exactly 12 domains; cryptographically reject omission, duplication, tuple, multiplicity, padding, boundary, and existing-artifact reorder attacks; obtain full-corpus cumulative and deterministic-provenance Rust parity |
+| CP-06 Memory/hash/tables | IN_PROGRESS | Live roots, exact lookup tables, exact Rust/Zig 445-column parity, production HashComponent integration, six-table placement, and memory range sources are committed through `92456745`; padding multiplicities, canonical memory shard geometry, and narrow Poseidon mode are enforced through `791fb490` | Enforce proof-level Merkle/Poseidon/table/memory mutations, canonical-zero `poseidon2_io`, and complete memory closure on a clean candidate |
 | CP-07 Public I/O | IN_PROGRESS | Public values pass live; standalone field audit exists; fail-closed public-data shape, address, clock, root, and padding validation is committed through `f7ab4c83` | Algebraically constrain every field, segment role, expected statement, root, and public relation term, then pass field-by-field production mutations |
-| CP-08 Transcript | IN_PROGRESS | Shared public-data prefix passes at `88870d2c` | Exact full event order, shard divergence declaration, byte tracer, and mutation probes |
-| CP-09 CLI | IN_PROGRESS | Installed candidate prove, independent verify, verified benchmark, multi-shard smoke, failure matrix, stable diagnostics, and exact build identity are committed through `6f01c105`; the adapter remains staged | Stabilize the exact production claim model, preserve candidate behavior and build identity, and pass the candidate and post-RF-01 promoted matrices |
-| CP-10 Artifact | IN_PROGRESS | Bounded schema v3, atomic path, owned statement, external expected digest, hostile preflight, exact wire reconstruction, provenance validation, and security-policy checks are committed through `6f01c105` | Bind the final exact shard/infra claims, complete hostile-decoding and DoS coverage, then pass candidate/promoted clean evidence |
-| CP-11 Rust oracle | FAIL | Fresh `30bc24ec` receipt is 9/11; bound relation exporters and strict provenance comparison are committed through `9092a3e1`, with one valid Fib case agreeing diagnostically | Exact `relation_tuples` and per-component cumulative `relation_sums` pass over the full release corpus with candidate-bound strict evidence |
-| CP-12 Adversarial fleet | IN_PROGRESS | Committed partial matrix at `88870d2c` | Full production malicious-witness and cross-shard forgery matrix complete |
-| CP-13 Release gate | IN_PROGRESS | Phase-aware controller through `0374679e`, named structure/core/frontend selectors through `75a74318`, and pre-command fail closure for active divergences through `196b5604`; final evidence not accepted | Strict candidate and promoted controllers pass locally and in clean CI |
+| CP-08 Transcript | IN_PROGRESS | Shared public-data prefix passes at `88870d2c`; fixed schema-v3 claim mixing lands through `e4119c3f`; the production prover/verifier event trace and exact root/relation-draw mutation probes land through `93ff11e4` | Produce the independent-process transcript receipt and final clean-candidate mutation evidence |
+| CP-09 CLI | IN_PROGRESS | Installed strict candidate prove/verify boundary, phase-neutral receipts, stable diagnostics, retained benchmark artifacts, and independent-process verification coverage are committed through `6bcca4bd`; the adapter remains staged | Exercise the full installed multi-shard prove/verify/benchmark matrix and post-RF-01 promoted matrix from clean checkouts |
+| CP-10 Artifact | IN_PROGRESS | Bounded schema v3, atomic path, owned statement, external expected digest, hostile preflight, exact wire reconstruction, provenance validation, security-policy checks, and occupied-output preservation are committed through `6bcca4bd` | Bind the final exact shard/infra claims, complete hostile-decoding and DoS coverage, then pass candidate/promoted clean evidence |
+| CP-11 Rust oracle | FAIL | Fresh `30bc24ec` receipt is 9/11; bound relation exporters land through `9092a3e1`; deterministic request provenance lands through `0b5e1364`; candidate/tree/submodule/digest receipt checks are hardened through `b5725ec1` | Exact `relation_tuples`, per-component cumulative `relation_sums`, and canonical physical provenance pass over the full release corpus for exactly 12 domains with candidate-bound strict evidence |
+| CP-12 Adversarial fleet | IN_PROGRESS | The production malicious matrix advances through `ebb1db1d`; padding, memory geometry, narrow Poseidon, transcript, CLI, and artifact mutation coverage advances through `6bcca4bd` and `93ff11e4` | Complete the remaining semantic, public, Merkle/table, multi-shard, and existing-artifact reorder attacks with exact cryptographic rejection classes |
+| CP-13 Release gate | IN_PROGRESS | Phase-aware controller through `0374679e`, named structure/core/frontend selectors through `75a74318`, pre-command fail closure through `196b5604`, and clean candidate/oracle receipt validation through `b5725ec1`; final evidence not accepted | Strict candidate and promoted controllers pass locally and in clean CI |
 | RF-01 Registry flip | NOT_STARTED | None | Atomic promotion commit and post-flip gate |
 | BA-01 Core purity | IN_PROGRESS | Named mechanical checker passes through `75a74318` | Preserve and rerun it in candidate and promoted CP-13 evidence |
-| BA-02 Frontend layering | FAIL | The active `silent` path is removed and infrastructure trace construction is decomposed through `980bc3cc`; the mechanical checker now rejects only the oversized prover owner | Decompose `src/frontends/riscv/prover.zig` without semantic or proof-byte drift and rerun the checker clean |
+| BA-02 Frontend layering | IN_PROGRESS | The active `silent` path is removed; infrastructure and prover ownership are decomposed through `ca3c3d56`; the mechanical frontend-layering selector passes diagnostically at `60a5d93e` | Preserve the clean selector result and prove no semantic or proof-byte drift in candidate and promoted CP-13 evidence |
 | BA-03 Autoresearch | FAIL | Correctly disabled at `c0720031` | Keep disabled, or satisfy independent activation gates |
 
 ## Definition of done
