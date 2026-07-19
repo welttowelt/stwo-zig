@@ -6,7 +6,7 @@ const graph_identity = @import("../graph/identity.zig");
 const graph = @import("../graph/modules.zig");
 
 const product = graph.Product{
-    .name = "stwo-zig-riscv-cpu",
+    .name = "stwo-riscv-cpu",
     .frontend = .riscv,
     .backend = .cpu,
     .role = .cli,
@@ -30,7 +30,6 @@ pub fn addProduct(context: Context) void {
     const install_host = context.b.addInstallArtifact(host, .{});
     const host_trace = addTraceExecutable(context, context.target, context.optimize);
     const install_host_trace = context.b.addInstallArtifact(host_trace, .{});
-    context.b.getInstallStep().dependOn(&install_host_trace.step);
     const trace_step = context.b.step("riscv-trace-dump", "Build RISC-V trace dumper CLI");
     trace_step.dependOn(&install_host_trace.step);
     const host_step = context.b.step(
@@ -38,7 +37,6 @@ pub fn addProduct(context: Context) void {
         "Build the focused Stark-V RV32IM CPU/SIMD proof CLI",
     );
     host_step.dependOn(&install_host.step);
-    host_step.dependOn(&install_host_trace.step);
 
     const static_target = context.b.resolveTargetQuery(.{
         .cpu_arch = .x86_64,

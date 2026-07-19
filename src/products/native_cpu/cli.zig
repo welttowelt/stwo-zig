@@ -183,7 +183,7 @@ fn isHelp(value: []const u8) bool {
 
 pub fn writeUsage(writer: anytype, command: ?Command) !void {
     if (command == null) return writer.writeAll(
-        \\Usage: stwo-native-cpu <command> [options]
+        \\Usage: stwo-zig-native-cpu <command> [options]
         \\
         \\Commands:
         \\  prove          Produce and verify one Native proof
@@ -198,16 +198,16 @@ pub fn writeUsage(writer: anytype, command: ?Command) !void {
         .prove => try writeRunUsage(writer, "prove --output PATH"),
         .bench => try writeRunUsage(writer, "bench [--proof-out PATH] [--report-out PATH]"),
         .verify => try writer.writeAll(
-            \\Usage: stwo-native-cpu verify --artifact PATH [--protocol secure|functional|smoke]
+            \\Usage: stwo-zig-native-cpu verify --artifact PATH [--protocol secure|functional|smoke]
             \\
         ),
-        .applications => try writer.writeAll("Usage: stwo-native-cpu applications\n"),
+        .applications => try writer.writeAll("Usage: stwo-zig-native-cpu applications\n"),
     }
 }
 
 fn writeRunUsage(writer: anytype, command: []const u8) !void {
     try writer.print(
-        \\Usage: stwo-native-cpu {s} [options]
+        \\Usage: stwo-zig-native-cpu {s} [options]
         \\  --example NAME       wide_fibonacci, xor, plonk, state_machine, blake, poseidon
         \\  --protocol NAME      smoke, functional, or secure
         \\  --blake2-backend     auto, scalar, or simd

@@ -22,7 +22,7 @@ pub fn addProduct(context: Context) void {
     const root = createProductModule(context, cli_product, stwo, runner, "src/native_cpu_product.zig");
     const installed = graph_install.executable(
         context.b,
-        "stwo-native-cpu",
+        "stwo-zig-native-cpu",
         root,
         "stwo-native-cpu",
         "Build the focused Native CPU/SIMD proof CLI",
@@ -38,9 +38,9 @@ pub fn addProduct(context: Context) void {
     );
     _ = graph_install.executable(
         context.b,
-        "stwo-native-cpu-bench",
+        "stwo-zig-native-cpu-bench",
         benchmark_root,
-        "native-cpu-bench",
+        "benchmark-native-cpu",
         "Build the focused Native CPU/SIMD benchmark",
     );
 

@@ -139,7 +139,12 @@ def main() -> int:
                     f"{repository_path(path)}: forbidden product-owner dependency {marker!r}"
                 )
     owner = (ROOT / "build_support/products/native_cpu.zig").read_text(encoding="utf-8")
-    for artifact in ("stwo-native-cpu", "stwo-native-cpu-bench"):
+    for artifact in (
+        '"stwo-native-cpu"',
+        '"stwo-zig-native-cpu"',
+        '"stwo-zig-native-cpu-bench"',
+        '"benchmark-native-cpu"',
+    ):
         if artifact not in owner:
             failures.append(f"focused product does not construct {artifact}")
     if args.binary is not None:
