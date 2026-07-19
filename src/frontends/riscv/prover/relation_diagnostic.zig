@@ -78,7 +78,8 @@ pub fn build(
         roots[2],
         &native,
     );
-    var sequence = relation_export.Sequence.init();
+    var sequence = try relation_export.Sequence.initForExecution(allocator, statement.total_steps);
+    defer sequence.deinit(allocator);
     var observer = relation_export.NullObserver{};
     var evidence: [relation_export.COMPONENT_COUNT]relation_export.ComponentEvidence = undefined;
 

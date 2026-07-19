@@ -12,6 +12,25 @@ const TestColumns = struct {
     len: usize,
 };
 
+const ProvenanceObserver = struct {
+    real_requests: usize = 0,
+    padding_requests: usize = 0,
+
+    pub fn onEntry(self: *ProvenanceObserver, location: relation_export.Location, _: relation_export.RawEntry) !void {
+        if (location.opcode) |identity| {
+            try std.testing.expectEqual(@as(u32, 1), identity.execution_row);
+            try std.testing.expectEqual(trace.OpcodeFamily.auipc, identity.family);
+            try std.testing.expectEqual(@as(u64, 0), identity.family_row);
+            try std.testing.expectEqual(@as(u32, @intCast(location.declaration)), identity.request_ordinal);
+            self.real_requests += 1;
+        } else {
+            self.padding_requests += 1;
+        }
+    }
+
+    pub fn onShard(_: *ProvenanceObserver, _: relation_export.ShardEvidence) !void {}
+};
+
 fn zeroColumns(
     allocator: std.mem.Allocator,
     family: trace.OpcodeFamily,
@@ -105,7 +124,7 @@ test "relation export: committed opcode stream binds a fixed native claim" {
     const native = claims.InteractionClaim.init(native_sums, &.{});
     var ledger = try relation_export.ClaimLedger.init(.{3} ** 32, .{1} ** 32, .{2} ** 32, &native);
     var sequence = relation_export.Sequence.init();
-    var observer = relation_export.NullObserver{};
+    var observer = ProvenanceObserver{};
     const evidence = try relation_export.exportOpcodeFamily(
         std.testing.allocator,
         .auipc,
@@ -118,6 +137,8 @@ test "relation export: committed opcode stream binds a fixed native claim" {
     try std.testing.expectEqual(@as(u64, 128), evidence.all.entries);
     try std.testing.expectEqual(@as(u64, 120), evidence.zero.entries);
     try std.testing.expectEqual(@as(u64, 8), evidence.nonzero.entries);
+    try std.testing.expectEqual(@as(usize, 8), observer.real_requests);
+    try std.testing.expectEqual(@as(usize, 120), observer.padding_requests);
     try std.testing.expectError(error.IncompleteClaims, ledger.finish());
     try std.testing.expectError(error.IncompleteComponents, sequence.finish());
 }
@@ -228,6 +249,62 @@ test "relation export: ordered two-shard family checks one aggregate claim" {
     try expectShardFailure(error.ShardOutOfOrder, &reordered);
     const duplicated = [_]relation_export.OpcodeShard{ shards[0], shards[0] };
     try expectShardFailure(error.ShardOutOfOrder, &duplicated);
+}
+
+test "relation export: same-shape shard contents retain canonical execution order" {
+    var earlier = try zeroColumns(std.testing.allocator, .auipc);
+    defer freeTestColumns(std.testing.allocator, earlier.storage[0..earlier.len]);
+    var later = try zeroColumns(std.testing.allocator, .auipc);
+    defer freeTestColumns(std.testing.allocator, later.storage[0..later.len]);
+    var earlier_rows: [16]trace.TraceRow = undefined;
+    var later_rows: [16]trace.TraceRow = undefined;
+    for (&earlier_rows, 0..) |*row, index| row.* = testAuipcRow(@intCast(index));
+    for (&later_rows, 0..) |*row, index| row.* = testAuipcRow(@intCast(index + 16));
+    try fillCommittedRows(std.testing.allocator, &earlier, .auipc, &earlier_rows);
+    try fillCommittedRows(std.testing.allocator, &later, .auipc, &later_rows);
+
+    const earlier_views: []const []const M31 = earlier.storage[0..earlier.len];
+    const later_views: []const []const M31 = later.storage[0..later.len];
+    var reordered = [_]relation_export.OpcodeShard{
+        .{
+            .ordinal = 0,
+            .shard_count = 2,
+            .n_real_rows = 16,
+            .committed_columns = later_views,
+            .main_columns_digest = undefined,
+        },
+        .{
+            .ordinal = 1,
+            .shard_count = 2,
+            .n_real_rows = 16,
+            .committed_columns = earlier_views,
+            .main_columns_digest = undefined,
+        },
+    };
+    for (&reordered) |*shard| {
+        shard.main_columns_digest = relation_export.digestCommittedShard(.auipc, .auipc, shard.*);
+    }
+    try expectShardFailure(error.NonCanonicalExecutionOrder, &reordered);
+
+    var duplicated = reordered;
+    duplicated[0].committed_columns = earlier_views;
+    duplicated[1].committed_columns = earlier_views;
+    for (&duplicated) |*shard| {
+        shard.main_columns_digest = relation_export.digestCommittedShard(.auipc, .auipc, shard.*);
+    }
+    try expectShardFailure(error.NonCanonicalExecutionOrder, &duplicated);
+}
+
+test "relation export: complete execution ledger is exact once" {
+    var sequence = try relation_export.Sequence.initForExecution(std.testing.allocator, 3);
+    defer sequence.deinit(std.testing.allocator);
+    try sequence.observeExecutionRow(1);
+    try sequence.observeExecutionRow(3);
+    try std.testing.expectError(error.DuplicateExecutionRow, sequence.observeExecutionRow(1));
+    try std.testing.expectError(error.ExecutionRowOutOfRange, sequence.observeExecutionRow(4));
+    try std.testing.expectError(error.IncompleteExecutionRows, sequence.validateExecutionRows());
+    try sequence.observeExecutionRow(2);
+    try sequence.validateExecutionRows();
 }
 
 fn expectShardFailure(expected: relation_export.Error, shards: []const relation_export.OpcodeShard) !void {

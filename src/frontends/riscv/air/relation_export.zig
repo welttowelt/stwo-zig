@@ -52,6 +52,11 @@ pub const Error = error{
     ComponentAlreadyChecked,
     IncompleteComponents,
     IncompleteClaims,
+    DuplicateExecutionRow,
+    ExecutionRowOutOfRange,
+    IncompleteExecutionRows,
+    InvalidExecutionProvenance,
+    NonCanonicalExecutionOrder,
     PoisonedSequence,
 };
 
@@ -67,6 +72,17 @@ pub const Location = struct {
     shard: u32,
     row: usize,
     declaration: usize,
+    opcode: ?OpcodeRequestProvenance = null,
+};
+
+/// Diagnostic identity of one opcode relation request. `execution_row` is the
+/// one-based clock committed by the opcode row; `family_row` is its canonical
+/// position after filtering the execution by family.
+pub const OpcodeRequestProvenance = struct {
+    execution_row: u32,
+    family: trace.OpcodeFamily,
+    family_row: u64,
+    request_ordinal: u32,
 };
 
 pub const StreamDigest = struct {
@@ -209,10 +225,27 @@ pub const Sequence = struct {
     next_component: usize = 0,
     streams: ComponentStreams,
     domain_sums: [DOMAIN_COUNT]QM31 = .{QM31.zero()} ** DOMAIN_COUNT,
+    execution_rows: ?ExecutionRows = null,
     poisoned: bool = false,
 
     pub fn init() Sequence {
         return .{ .streams = ComponentStreams.init() };
+    }
+
+    /// Enable exact-once execution-row checks for a complete diagnostic run.
+    /// Production proof acceptance does not currently consume this ledger.
+    pub fn initForExecution(
+        allocator: std.mem.Allocator,
+        total_steps: u32,
+    ) !Sequence {
+        var result = init();
+        result.execution_rows = try ExecutionRows.init(allocator, total_steps);
+        return result;
+    }
+
+    pub fn deinit(self: *Sequence, allocator: std.mem.Allocator) void {
+        if (self.execution_rows) |*rows| rows.deinit(allocator);
+        self.execution_rows = null;
     }
 
     pub fn begin(self: *Sequence, component: Component) Error!void {
@@ -226,6 +259,10 @@ pub const Sequence = struct {
         self.domain_sums[domain] = self.domain_sums[domain].add(term);
     }
 
+    pub fn observeExecutionRow(self: *Sequence, execution_row: u32) Error!void {
+        if (self.execution_rows) |*rows| try rows.observe(execution_row);
+    }
+
     pub fn end(self: *Sequence) void {
         self.next_component += 1;
     }
@@ -233,7 +270,44 @@ pub const Sequence = struct {
     pub fn finish(self: *Sequence) Error!AggregateEvidence {
         if (self.poisoned) return error.PoisonedSequence;
         if (self.next_component != COMPONENT_COUNT) return error.IncompleteComponents;
+        try self.validateExecutionRows();
         return self.streams.finishAggregate(self.domain_sums);
+    }
+
+    pub fn validateExecutionRows(self: *const Sequence) Error!void {
+        if (self.execution_rows) |rows| try rows.finish();
+    }
+};
+
+const ExecutionRows = struct {
+    seen: std.DynamicBitSetUnmanaged,
+    total_steps: u32,
+    count: u32 = 0,
+
+    fn init(allocator: std.mem.Allocator, total_steps: u32) !ExecutionRows {
+        if (total_steps == 0) return error.ExecutionRowOutOfRange;
+        return .{
+            .seen = try std.DynamicBitSetUnmanaged.initEmpty(allocator, @intCast(total_steps)),
+            .total_steps = total_steps,
+        };
+    }
+
+    fn deinit(self: *ExecutionRows, allocator: std.mem.Allocator) void {
+        self.seen.deinit(allocator);
+        self.* = undefined;
+    }
+
+    fn observe(self: *ExecutionRows, execution_row: u32) Error!void {
+        if (execution_row == 0 or execution_row > self.total_steps)
+            return error.ExecutionRowOutOfRange;
+        const index: usize = @intCast(execution_row - 1);
+        if (self.seen.isSet(index)) return error.DuplicateExecutionRow;
+        self.seen.set(index);
+        self.count += 1;
+    }
+
+    fn finish(self: ExecutionRows) Error!void {
+        if (self.count != self.total_steps) return error.IncompleteExecutionRows;
     }
 };
 
@@ -271,6 +345,8 @@ pub fn exportOpcodeFamily(
     updateU32(&manifest, @intFromEnum(component));
     updateU32(&manifest, @intFromEnum(family));
     updateU32(&manifest, @intCast(shards.len));
+    var family_row_offset: u64 = 0;
+    var previous_execution_row: ?u32 = null;
 
     for (shards, 0..) |shard, shard_index| {
         try validateShard(family, shard, shard_index, shards.len);
@@ -297,6 +373,20 @@ pub fn exportOpcodeFamily(
                 family,
                 secure[0..shard.committed_columns.len],
             );
+            const provenance: ?OpcodeRequestProvenance = if (row < shard.n_real_rows) blk: {
+                const execution_row = try executionRow(list);
+                if (previous_execution_row) |previous| {
+                    if (execution_row <= previous) return error.NonCanonicalExecutionOrder;
+                }
+                previous_execution_row = execution_row;
+                try sequence.observeExecutionRow(execution_row);
+                break :blk .{
+                    .execution_row = execution_row,
+                    .family = family,
+                    .family_row = family_row_offset + row,
+                    .request_ordinal = 0,
+                };
+            } else null;
             var row_has_nonzero = false;
             for (list.entries[0..list.len], 0..) |entry, declaration| {
                 const raw = try rawEntry(entry);
@@ -314,6 +404,12 @@ pub fn exportOpcodeFamily(
                     .shard = shard.ordinal,
                     .row = row,
                     .declaration = declaration,
+                    .opcode = if (provenance) |identity| .{
+                        .execution_row = identity.execution_row,
+                        .family = identity.family,
+                        .family_row = identity.family_row,
+                        .request_ordinal = @intCast(declaration),
+                    } else null,
                 }, raw);
             }
             if (row < shard.n_real_rows and !row_has_nonzero)
@@ -337,6 +433,7 @@ pub fn exportOpcodeFamily(
             .domain_zero = shard_digests.domain_zero,
             .domain_nonzero = shard_digests.domain_nonzero,
         });
+        family_row_offset += shard.n_real_rows;
     }
 
     var unbatched_total = QM31.zero();
@@ -595,6 +692,28 @@ fn validateShard(
         return error.InvalidShardGeometry;
     if (index + 1 < count and shard.n_real_rows != size)
         return error.InvalidShardGeometry;
+}
+
+fn executionRow(list: opcode_entries.List) Error!u32 {
+    var consume: ?RawEntry = null;
+    var emit: ?RawEntry = null;
+    const negative_one = M31.one().neg();
+    for (list.entries[0..list.len]) |entry| {
+        const raw = try rawEntry(entry);
+        if (raw.domain != .registers_state or raw.numerator.isZero()) continue;
+        if (raw.numerator.eql(negative_one)) {
+            if (consume != null) return error.InvalidExecutionProvenance;
+            consume = raw;
+        } else if (raw.numerator.isOne()) {
+            if (emit != null) return error.InvalidExecutionProvenance;
+            emit = raw;
+        } else return error.InvalidExecutionProvenance;
+    }
+    const previous = consume orelse return error.InvalidExecutionProvenance;
+    const next = emit orelse return error.InvalidExecutionProvenance;
+    if (!previous.values[1].add(M31.one()).eql(next.values[1]))
+        return error.InvalidExecutionProvenance;
+    return previous.values[1].toU32();
 }
 
 fn componentForFamily(family: trace.OpcodeFamily) Component {
