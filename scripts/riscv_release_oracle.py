@@ -30,6 +30,7 @@ import sys
 import time
 from pathlib import Path
 
+from riscv_release_gate_lib.contract import receipt_errors
 from riscv_release_oracle_lib.witness import (
     compare_ordered_accesses,
     compare_per_family_witness_rows,
@@ -39,6 +40,8 @@ from riscv_release_oracle_lib.relations import compare_relation_boundaries
 
 ROOT = Path(__file__).resolve().parent.parent
 PINNED = "d478f783055aa0d73a93768a433a3c6c31c91d1c"
+IMPLEMENTATION_REPOSITORY = "https://github.com/teddyjfpender/stwo-zig"
+MAX_RECEIPT_BYTES = 64 * 1024 * 1024
 
 # The trace-dump adapter is a thin serializer over the oracle's own runner
 # crate (a duplicated standalone model is not acceptable per CP-11; a
@@ -93,6 +96,65 @@ def _canonical_digest(value: object) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _strict_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON field: {key}")
+        result[key] = value
+    return result
+
+
+def require_clean_candidate(root: Path, candidate: str) -> None:
+    """Bind standalone CP-11 production to the clean candidate it names."""
+    head = _run(["git", "rev-parse", "--verify", "HEAD"], cwd=root).strip()
+    if candidate != head:
+        raise SystemExit(f"candidate {candidate} does not match HEAD {head}")
+    dirty = _run(
+        ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+        cwd=root,
+    ).strip()
+    if dirty:
+        raise SystemExit("Zig candidate checkout is not clean; refusing CP-11 evidence")
+
+
+def load_receipt(path: Path) -> dict[str, object]:
+    if path.stat().st_size > MAX_RECEIPT_BYTES:
+        raise ValueError(f"receipt exceeds {MAX_RECEIPT_BYTES} bytes")
+    payload = json.loads(
+        path.read_text(encoding="utf-8"),
+        object_pairs_hook=_strict_object,
+    )
+    if not isinstance(payload, dict):
+        raise ValueError("receipt root must be an object")
+    return payload
+
+
+def record_implementation_executable(
+    receipt: dict,
+    name: str,
+    executable: Path,
+    oracle_executable: Path,
+) -> None:
+    resolved = executable.resolve(strict=True)
+    oracle_resolved = oracle_executable.resolve(strict=True)
+    digest = _sha256_file(resolved)
+    if resolved == oracle_resolved or digest == _sha256_file(oracle_resolved):
+        raise SystemExit(f"{name} resolves to the Rust oracle executable; refusing self-comparison")
+    implementation = receipt.setdefault(
+        "implementation",
+        {
+            "repository": IMPLEMENTATION_REPOSITORY,
+            "commit": receipt["candidate_commit"],
+            "clean": True,
+            "executables": {},
+        },
+    )
+    previous = implementation["executables"].setdefault(name, digest)
+    if previous != digest:
+        raise SystemExit(f"{name} executable changed during one CP-11 run")
+
+
 def finalize_case_result_digests(receipt: dict) -> None:
     vectors = load_trace_vectors(ROOT, PINNED, receipt)
     names = [vector["name"] for vector in vectors["vectors"]]
@@ -131,6 +193,15 @@ def build_oracle(source: Path, receipt: dict) -> Path:
     if dirty:
         raise SystemExit("oracle checkout is not clean; refusing to build")
     submodule = _run(["git", "submodule", "status", "--recursive"], cwd=source)
+    invalid_submodules = [
+        line for line in submodule.splitlines()
+        if line and line[0] != " "
+    ]
+    if invalid_submodules:
+        raise SystemExit(
+            "oracle submodules are not initialized at the recorded commits: "
+            + "; ".join(invalid_submodules)
+        )
     tree_digest = _tree_digest(source)
     overlay_files = []
     overlay_paths = []
@@ -189,6 +260,7 @@ def compare_execution(oracle_exe: Path, receipt: dict) -> None:
         ["zig", "build", "riscv-trace-dump", "-Doptimize=ReleaseFast"], cwd=ROOT, check=True
     )
     zig_exe = ROOT / "zig-out" / "bin" / "riscv-trace-dump"
+    record_implementation_executable(receipt, "riscv-trace-dump", zig_exe, oracle_exe)
     vectors = load_trace_vectors(ROOT, PINNED, receipt)
     cases = []
     all_ok = True
@@ -223,6 +295,7 @@ def compare_public_values(oracle_exe: Path, receipt: dict) -> None:
 
     subprocess.run(["zig", "build", "stwo-zig", "-Doptimize=ReleaseFast"], cwd=ROOT, check=True)
     cli = ROOT / "zig-out" / "bin" / "stwo-zig"
+    record_implementation_executable(receipt, "stwo-zig", cli, oracle_exe)
     vectors = json.loads((ROOT / "vectors" / "riscv_elfs" / "trace_vectors.json").read_text())
     cases = []
     all_ok = True
@@ -238,8 +311,19 @@ def compare_public_values(oracle_exe: Path, receipt: dict) -> None:
             _run([str(cli), "prove", "--elf", str(elf.relative_to(ROOT)), "--backend", "cpu",
                   "--protocol", "functional", "--experimental", "--output",
                   str(artifact_path)], cwd=ROOT)
-            zig = json.loads(artifact_path.read_text())["statement"]["public_data"]
+            artifact = json.loads(artifact_path.read_text())
+            zig = artifact["statement"]["public_data"]
         mismatches = []
+        provenance = artifact.get("provenance", {})
+        expected_provenance = {
+            "oracle_commit": PINNED,
+            "implementation_commit": receipt["candidate_commit"],
+            "implementation_dirty": False,
+            "witness_layout_sha256": receipt.get("witness_layout_digest_sha256"),
+        }
+        for field, expected in expected_provenance.items():
+            if provenance.get(field) != expected:
+                mismatches.append(f"provenance.{field}")
         for field in scalar_fields:
             if rust[field] != zig[field]:
                 mismatches.append(field)
@@ -299,6 +383,7 @@ def compare_decode(oracle_exe: Path, receipt: dict) -> None:
 
     subprocess.run(["zig", "build", "riscv-trace-dump", "-Doptimize=ReleaseFast"], cwd=ROOT, check=True)
     zig_exe = ROOT / "zig-out" / "bin" / "riscv-trace-dump"
+    record_implementation_executable(receipt, "riscv-trace-dump", zig_exe, oracle_exe)
     with tempfile.TemporaryDirectory() as tmp:
         corpus = Path(tmp) / "words.bin"
         payload = decode_corpus()
@@ -482,6 +567,7 @@ def compare_shared_transcript_prefix(oracle_exe: Path, receipt: dict) -> None:
 
 
 def build_and_compare(args) -> int:
+    require_clean_candidate(ROOT, args.candidate)
     source = Path(args.stark_v_source).resolve()
     receipt: dict = {
         "schema": "riscv-oracle-receipt-v2",
@@ -502,11 +588,18 @@ def build_and_compare(args) -> int:
     compare_relation_boundaries(oracle_exe, receipt, ROOT, PINNED)
     compare_shared_transcript_prefix(oracle_exe, receipt)
     finalize_case_result_digests(receipt)
-    receipt["verdict"] = (
-        "PASS"
-        if all(b.get("status") == "pass" for b in receipt["boundaries"].values())
-        else "FAIL"
+    require_clean_candidate(ROOT, args.candidate)
+    receipt["verdict"] = "PASS"
+    vectors = load_trace_vectors(ROOT, PINNED, receipt)
+    contract_errors = receipt_errors(
+        receipt,
+        args.candidate,
+        now=receipt["created_at_unix"],
+        vector_names=tuple(vector["name"] for vector in vectors["vectors"]),
     )
+    if contract_errors:
+        receipt["verdict"] = "FAIL"
+        receipt["contract_errors"] = contract_errors
     out = Path(args.receipt_out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(receipt, indent=1) + "\n")
@@ -517,18 +610,14 @@ def build_and_compare(args) -> int:
 
 
 def validate(args) -> int:
-    receipt = json.loads(Path(args.receipt).read_text())
-    errors = []
-    if receipt.get("schema") not in {"riscv-oracle-receipt-v1", "riscv-oracle-receipt-v2"}:
-        errors.append("unknown receipt schema")
-    if receipt.get("oracle", {}).get("commit") != PINNED:
-        errors.append("receipt oracle commit is not the pinned revision")
-    for name in BOUNDARIES:
-        status = receipt.get("boundaries", {}).get(name, {}).get("status")
-        if status != "pass":
-            errors.append(f"boundary {name}: {status or 'missing'}")
-    if receipt.get("verdict") != "PASS":
-        errors.append(f"verdict {receipt.get('verdict')}")
+    try:
+        head = _run(["git", "rev-parse", "--verify", "HEAD"], cwd=ROOT).strip()
+        require_clean_candidate(ROOT, head)
+        receipt = load_receipt(Path(args.receipt))
+        errors = receipt_errors(receipt, head)
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
+        print(f"oracle receipt: invalid evidence: {error}", file=sys.stderr)
+        return 1
     for error in errors:
         print(f"oracle receipt: {error}", file=sys.stderr)
     if not errors:

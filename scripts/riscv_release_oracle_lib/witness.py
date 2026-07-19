@@ -12,29 +12,46 @@ def load_trace_vectors(root: Path, pinned: str, receipt: dict) -> dict:
     manifest_path = root / "vectors" / "riscv_elfs" / "trace_vectors.json"
     manifest_bytes = manifest_path.read_bytes()
     vectors = json.loads(manifest_bytes)
-    if vectors["stark_v_commit"] != pinned:
+    if not isinstance(vectors, dict) or vectors.get("stark_v_commit") != pinned:
         raise SystemExit("trace vectors pinned to a different oracle commit")
 
     digest = hashlib.sha256()
     digest.update(manifest_bytes)
+    observed_names: set[str] = set()
     for group in ("vectors", "negative_vectors"):
         entries = vectors.get(group)
         if not isinstance(entries, list):
             raise SystemExit(f"trace vector manifest has no {group} list")
+        if group == "vectors" and not entries:
+            raise SystemExit("trace vector manifest has no positive release vectors")
         for vector in entries:
+            if not isinstance(vector, dict):
+                raise SystemExit(f"trace vector manifest has a non-object {group} entry")
+            name = vector.get("name")
+            elf_path = vector.get("elf")
+            expected_digest = vector.get("elf_sha256")
+            if not isinstance(name, str) or not name or name in observed_names:
+                raise SystemExit(f"trace vector manifest has invalid or duplicate name: {name!r}")
+            observed_names.add(name)
+            if not isinstance(elf_path, str) or not elf_path:
+                raise SystemExit(f"trace vector {name} has no ELF path")
+            if not isinstance(expected_digest, str):
+                raise SystemExit(f"trace vector {name} has no ELF digest")
             if group == "negative_vectors" and vector.get("expected") != \
                     "diagnostic_only_not_release_eligible":
                 raise SystemExit(
-                    f"negative ELF is not diagnostic-only: {vector.get('name')}"
+                    f"negative ELF is not diagnostic-only: {name}"
                 )
-            elf = root / vector["elf"]
+            elf = (root / elf_path).resolve()
+            if not elf.is_relative_to(root.resolve()):
+                raise SystemExit(f"trace vector ELF escapes the repository: {name}")
             elf_bytes = elf.read_bytes()
             actual = hashlib.sha256(elf_bytes).hexdigest()
-            if actual != vector["elf_sha256"]:
-                raise SystemExit(f"ELF digest mismatch for {vector['name']}: {actual}")
+            if actual != expected_digest:
+                raise SystemExit(f"ELF digest mismatch for {name}: {actual}")
             digest.update(group.encode())
             digest.update(b"\0")
-            digest.update(vector["name"].encode())
+            digest.update(name.encode())
             digest.update(b"\0")
             digest.update(elf_bytes)
     receipt["corpus_digest_sha256"] = digest.hexdigest()

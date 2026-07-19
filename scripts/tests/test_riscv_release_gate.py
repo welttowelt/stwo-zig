@@ -9,6 +9,9 @@ from unittest import mock
 
 from scripts.riscv_release_gate_lib.contract import (
     BOUNDARIES,
+    ELF_CORPUS_BOUNDARIES,
+    GENERATED_CORPUS_KEYS,
+    IMPLEMENTATION_REPOSITORY,
     ORACLE_REPOSITORY,
     PINNED_ORACLE,
     core_purity_errors,
@@ -29,7 +32,14 @@ DIGEST = "b" * 64
 
 
 def valid_receipt(now: int) -> dict[str, object]:
-    boundaries = {name: {"status": "pass"} for name in BOUNDARIES}
+    boundaries = {
+        name: {
+            "status": "pass",
+            **({"corpus": [{"name": "alu", "agree": True}]}
+               if name in ELF_CORPUS_BOUNDARIES else {}),
+        }
+        for name in BOUNDARIES
+    }
     keys = expected_case_result_keys(("alu",))
     digests = {key: DIGEST for key in keys}
     for boundary in BOUNDARIES:
@@ -37,6 +47,13 @@ def valid_receipt(now: int) -> dict[str, object]:
             boundaries[boundary], sort_keys=True, separators=(",", ":")
         ).encode()
         digests[f"{boundary}/aggregate"] = hashlib.sha256(encoded).hexdigest()
+        if boundary in ELF_CORPUS_BOUNDARIES:
+            case = boundaries[boundary]["corpus"][0]
+            digests[f"{boundary}/alu"] = hashlib.sha256(
+                json.dumps(case, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest()
+        if boundary in GENERATED_CORPUS_KEYS:
+            digests[GENERATED_CORPUS_KEYS[boundary]] = digests[f"{boundary}/aggregate"]
     return {
         "schema": "riscv-oracle-receipt-v2",
         "candidate_commit": COMMIT,
@@ -62,6 +79,15 @@ def valid_receipt(now: int) -> dict[str, object]:
             "adapter_overlay": {
                 "path": "crates/prover/src/bin/cp11_dump.rs",
                 "sha256": DIGEST,
+            },
+        },
+        "implementation": {
+            "repository": IMPLEMENTATION_REPOSITORY,
+            "commit": COMMIT,
+            "clean": True,
+            "executables": {
+                "riscv-trace-dump": DIGEST,
+                "stwo-zig": DIGEST,
             },
         },
         "boundaries": boundaries,
@@ -262,6 +288,24 @@ class ReceiptContractTests(unittest.TestCase):
         errors = receipt_errors(receipt, COMMIT, now=now, vector_names=("alu",))
         self.assertIn("expected case-result key manifest is incomplete or non-canonical", errors)
         self.assertIn("case-result digest keys do not exactly cover the declared corpus", errors)
+
+    def test_per_corpus_rows_and_digests_are_bound_not_only_declared(self) -> None:
+        now = int(time.time())
+        receipt = valid_receipt(now)
+        receipt["boundaries"]["execution"]["corpus"] = [
+            {"name": "alu", "agree": False}
+        ]
+        errors = receipt_errors(receipt, COMMIT, now=now, vector_names=("alu",))
+        self.assertIn("case-result digest does not bind execution/alu", errors)
+        self.assertIn("boundary case execution/alu does not attest agreement", errors)
+
+        receipt = valid_receipt(now)
+        receipt["boundaries"]["execution"]["corpus"] = []
+        errors = receipt_errors(receipt, COMMIT, now=now, vector_names=("alu",))
+        self.assertIn(
+            "boundary execution corpus is incomplete, duplicated, or non-canonical",
+            errors,
+        )
 
 
 class CommandPlanTests(unittest.TestCase):

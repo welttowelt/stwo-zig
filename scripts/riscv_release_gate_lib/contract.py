@@ -12,6 +12,7 @@ from typing import Any
 
 PINNED_ORACLE = "d478f783055aa0d73a93768a433a3c6c31c91d1c"
 ORACLE_REPOSITORY = "https://github.com/ClementWalter/stark-v"
+IMPLEMENTATION_REPOSITORY = "https://github.com/teddyjfpender/stwo-zig"
 BOUNDARIES = (
     "decode",
     "execution",
@@ -36,6 +37,9 @@ ELF_CORPUS_BOUNDARIES = frozenset({
     "relation_sums",
     "shared_transcript_prefix",
 })
+ELF_AGREEMENT_BOUNDARIES = ELF_CORPUS_BOUNDARIES - {
+    "program_tuples", "memory_roots",
+}
 GENERATED_CORPUS_KEYS = {
     "decode": "decode/corpus",
     "poseidon2_vectors": "poseidon2_vectors/corpus",
@@ -327,6 +331,25 @@ def receipt_errors(
     else:
         _sha(overlay.get("sha256"), "oracle adapter overlay", errors)
 
+    implementation = receipt.get("implementation")
+    if not isinstance(implementation, dict):
+        errors.append("Zig implementation provenance is missing")
+        implementation = {}
+    if implementation.get("repository") != IMPLEMENTATION_REPOSITORY:
+        errors.append("Zig implementation repository identity is not pinned")
+    if implementation.get("commit") != candidate:
+        errors.append("Zig implementation executable belongs to another candidate")
+    if implementation.get("clean") is not True:
+        errors.append("Zig implementation executable does not attest a clean source tree")
+    executables = implementation.get("executables")
+    if not isinstance(executables, dict) or set(executables) != {
+        "riscv-trace-dump", "stwo-zig",
+    }:
+        errors.append("Zig implementation executable manifest is incomplete or non-canonical")
+    else:
+        for name, digest in executables.items():
+            _sha(digest, f"Zig executable {name}", errors)
+
     created = receipt.get("created_at_unix")
     current = int(time.time()) if now is None else now
     if not isinstance(created, int):
@@ -365,6 +388,32 @@ def receipt_errors(
             if aggregate in digests and boundary in boundaries:
                 if digests[aggregate] != _canonical_digest(boundaries[boundary]):
                     errors.append(f"aggregate digest does not bind boundary {boundary}")
+
+        names = trace_vector_names() if vector_names is None else vector_names
+        for boundary_name in ELF_CORPUS_BOUNDARIES:
+            boundary = boundaries.get(boundary_name)
+            cases = boundary.get("corpus") if isinstance(boundary, dict) else None
+            if not isinstance(cases, list):
+                errors.append(f"boundary {boundary_name} has no per-corpus evidence")
+                continue
+            case_names = tuple(
+                case.get("name") if isinstance(case, dict) else None for case in cases
+            )
+            if case_names != names:
+                errors.append(
+                    f"boundary {boundary_name} corpus is incomplete, duplicated, or non-canonical"
+                )
+                continue
+            for case in cases:
+                key = f"{boundary_name}/{case['name']}"
+                if digests.get(key) != _canonical_digest(case):
+                    errors.append(f"case-result digest does not bind {key}")
+                if boundary_name in ELF_AGREEMENT_BOUNDARIES and case.get("agree") is not True:
+                    errors.append(f"boundary case {key} does not attest agreement")
+        for boundary_name, key in GENERATED_CORPUS_KEYS.items():
+            boundary = boundaries.get(boundary_name)
+            if isinstance(boundary, dict) and digests.get(key) != _canonical_digest(boundary):
+                errors.append(f"case-result digest does not bind {key}")
     return errors
 
 
