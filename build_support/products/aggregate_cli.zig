@@ -9,14 +9,9 @@ const prove_cli = @import("../prove_cli.zig");
 const aggregate = @import("aggregate.zig");
 const libraries = @import("libraries.zig");
 
-pub fn addProduct(b: *std.Build) void {
+pub fn addProduct(b: *std.Build, metal_enabled: bool) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    const metal_enabled = b.option(
-        bool,
-        "aggregate-metal",
-        "Explicitly link Metal into the aggregate compatibility product",
-    ) orelse false;
     if (metal_enabled) metal.requireTarget(target.result) catch @panic(
         "-Daggregate-metal=true requires a macOS target and Apple Metal SDK",
     );
@@ -76,6 +71,7 @@ pub fn addProduct(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
         .artifact = executable.getEmittedBin(),
+        .artifact_path = "bin/stwo-zig",
         .executable = true,
         .step_name = "identity-stwo-zig",
         .output_name = "stwo-zig.json",

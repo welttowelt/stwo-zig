@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prove that focused internal build scopes configure only owned products."""
+"""Validate configured build graphs against the emitted typed catalog."""
 
 from __future__ import annotations
 
@@ -11,194 +11,8 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import Any
 
-
-SCOPES: dict[str, set[str]] = {
-    "aggregate": {
-        "stwo-zig",
-        "test",
-        "identity-stwo-zig",
-        "product-matrix-identity",
-    },
-    "architecture": {
-        "architecture-gate",
-        "architecture-verify",
-        "build-monorepo-baseline",
-    },
-    "compatibility_tools": {
-        "interop-cli",
-        "cairo-input",
-        "riscv-opcode-manifest",
-        "riscv-opcode-manifest-check",
-        "riscv-bench",
-        "native-proof-bench-cpu",
-    },
-    "core": {"stwo-core", "test-stwo-core", "identity-stwo-core"},
-    "prover": {
-        "stwo-core",
-        "test-stwo-core",
-        "stwo-prover",
-        "test-stwo-prover",
-        "identity-stwo-core",
-        "identity-stwo-prover",
-    },
-    "package": {
-        "stwo-core",
-        "test-stwo-core",
-        "identity-stwo-core",
-        "stwo-prover",
-        "test-stwo-prover",
-        "identity-stwo-prover",
-        "test-downstream-modules",
-    },
-    "native_cpu": {
-        "stwo-native-cpu",
-        "benchmark-native-cpu",
-        "test-native-cpu-product",
-    },
-    "native_metal": {
-        "stwo-native-metal",
-        "native-proof-bench-metal",
-        "test-native-metal",
-    },
-    "riscv_cpu": {
-        "riscv-trace-dump",
-        "stwo-zig-riscv-cpu",
-        "stwo-zig-riscv-cpu-static",
-        "test-riscv-cpu-product",
-    },
-    "riscv_cpu_compat": {
-        "riscv-trace-dump",
-        "stwo-zig-riscv-cpu",
-        "stwo-zig-riscv-cpu-static",
-        "test-riscv-cpu-product",
-        "test-riscv",
-        "test-riscv-prover",
-    },
-    "policy": {
-        "fmt",
-        "api-parity",
-        "upstream-pins",
-        "source-conformance",
-        "upstream-surface",
-        "build-configure-closure",
-        "registry-parity",
-    },
-    "metal_tools": {
-        "metal-core-aot",
-        "test-metal-core-aot",
-        "metal-core-aot-probe",
-        "test-metal-core-aot-probe",
-        "metal-core-aot-acceptance",
-        "metal-arena-plan",
-        "metal-arena-session",
-        "metal-prover-session-test",
-        "metal-recovery-bench",
-        "metal-ec-op-bench",
-        "metal-compact-bench",
-        "cairo-streaming-commitment-bench",
-        "cairo-streaming-commitment-test",
-        "metal-eval-prepare",
-        "metal-eval-source",
-        "metal-witness-source",
-        "metal-test",
-        "metal-check",
-        "metal-bench",
-        "riscv-metal-bench",
-    },
-    "verification": {
-        "riscv-release-gate",
-        "deep-gate",
-        "vectors",
-        "interop",
-        "prove-checkpoints",
-        "bench-smoke",
-        "bench-kernels",
-        "bench-strict",
-        "bench-opt",
-        "bench-opt-binary-codec",
-        "bench-contrast",
-        "bench-contrast-long",
-        "bench-targeted-families",
-        "bench-pages",
-        "bench-full",
-        "bench-pages-validate",
-        "profile-smoke",
-        "profile-opt",
-        "profile-contrast",
-        "profile-contrast-long",
-        "merkle-worker-stress",
-        "opt-gate",
-        "std-shims-smoke",
-        "std-shims-behavior",
-        "release-evidence",
-    },
-    "deferred": {
-        "stwo-cairo-cpu",
-        "stwo-cairo-metal",
-        "stwo-riscv-metal",
-        "stwo-native-cuda",
-        "stwo-cairo-cuda",
-        "stwo-riscv-cuda",
-        "cuda-test",
-    },
-    "release": {"release-gate", "release-gate-strict"},
-}
-
-MANIFESTS: dict[str, dict[str, object]] = {
-    "aggregate": {
-        "product_ids": ["stwo-zig"],
-        "external_tools": ["python3"],
-        "runtime_probes": [],
-        "constructors": [
-            "products/matrix.construct.aggregate",
-            "products/matrix.addIdentity",
-        ],
-        "declarative_exports_only": False,
-    },
-    "architecture": {
-        "product_ids": [], "module_roots": [], "external_tools": ["python3"],
-        "runtime_probes": [],
-        "constructors": ["gates/architecture_receipts.addGates", "gates/baseline.addGate"],
-        "declarative_exports_only": False,
-    },
-    "compatibility_tools": {
-        "product_ids": ["stwo-compatibility-tools"],
-        "module_roots": [
-            "src/tools/interop/main.zig", "src/tools/cairo/input_inspector.zig",
-            "src/tools/riscv_opcode_manifest/main.zig", "src/riscv_bench_cli.zig",
-            "src/tools/native_proof_bench/cpu.zig",
-        ],
-        "external_tools": [], "runtime_probes": [],
-        "constructors": ["products/compatibility_tools.addProducts"],
-        "declarative_exports_only": False,
-    },
-    "core": {"product_ids": ["stwo-core"], "external_tools": ["python3"], "runtime_probes": [], "constructors": ["products/matrix.construct.core"], "declarative_exports_only": False},
-    "prover": {"product_ids": ["stwo-prover"], "external_tools": ["python3"], "runtime_probes": [], "constructors": ["products/matrix.construct.prover"], "declarative_exports_only": False},
-    "native_cpu": {"product_ids": ["stwo-native-cpu"], "external_tools": ["python3"], "runtime_probes": [], "constructors": ["products/matrix.construct.native_cpu"], "declarative_exports_only": False},
-    "native_metal": {"product_ids": ["stwo-native-metal"], "external_tools": ["python3", "xcrun"], "runtime_probes": ["Metal.framework", "Foundation.framework", "libobjc"], "constructors": ["products/matrix.construct.native_metal"], "declarative_exports_only": False},
-    "riscv_cpu": {"product_ids": ["stwo-riscv-cpu"], "external_tools": ["python3"], "runtime_probes": [], "constructors": ["products/matrix.construct.riscv_cpu"], "declarative_exports_only": False},
-    "riscv_cpu_compat": {"product_ids": ["stwo-riscv-cpu"], "external_tools": ["python3"], "runtime_probes": [], "constructors": ["products/matrix.construct.riscv_cpu", "compatibility aliases"], "declarative_exports_only": False},
-    "package": {
-        "product_ids": ["stwo-core", "stwo-prover", "stwo"],
-        "module_roots": ["src/core/mod.zig", "src/products/prover/root.zig", "src/stwo.zig"],
-        "external_tools": ["python3"], "runtime_probes": [],
-        "constructors": ["products/libraries.addProducts"],
-        "declarative_exports_only": False,
-    },
-    "metal_tools": {
-        "product_ids": ["stwo-native-metal-tools"],
-        "module_roots": ["src/stwo.zig", "src/backends/metal/shader_manifest.zig"],
-        "external_tools": ["xcrun", "metal", "metallib"],
-        "runtime_probes": ["Metal.framework", "Foundation.framework", "libobjc"],
-        "constructors": ["backends/metal_aot.addProducts", "benchmarks/metal.addProducts"],
-        "declarative_exports_only": False,
-    },
-    "verification": {"product_ids": [], "module_roots": [], "external_tools": ["python3", "zig"], "runtime_probes": [], "constructors": ["gates/riscv.addGates", "gates/native.addGates", "benchmarks/native.addProducts", "gates/release_evidence.addGates"], "declarative_exports_only": False},
-    "deferred": {"product_ids": ["stwo-cairo-cpu", "stwo-cairo-metal", "stwo-riscv-metal", "stwo-native-cuda", "stwo-cairo-cuda", "stwo-riscv-cuda"], "module_roots": [], "external_tools": [], "runtime_probes": [], "constructors": ["products/matrix.addDeferredProducts"], "declarative_exports_only": False},
-    "policy": {"product_ids": [], "module_roots": [], "external_tools": ["python3", "zig"], "runtime_probes": [], "constructors": ["internal_build.addPolicyGates"], "declarative_exports_only": False},
-    "release": {"product_ids": ["stwo-zig-release"], "module_roots": [], "external_tools": ["python3", "zig"], "runtime_probes": [], "constructors": ["gates/release.addGates"], "declarative_exports_only": False},
-}
 
 BUILTINS = {"install", "uninstall", "configure-manifest"}
 FOCUSED_OWNER_FILES = (
@@ -237,37 +51,47 @@ def internal_help(repository: Path, scope: str) -> tuple[set[str], float, str]:
     return parse_steps(result.stdout), elapsed, result.stdout
 
 
-def read_product_matrix(repository: Path) -> tuple[dict[str, dict[str, object]], str]:
-    with tempfile.TemporaryDirectory(prefix="stwo-product-matrix-") as raw:
-        result = subprocess.run(
-            ["zig", "build", "product-matrix-identity", "-p", raw],
-            cwd=repository,
-            text=True,
-            capture_output=True,
-        )
+def read_product_catalog(
+    repository: Path,
+    *,
+    metal: bool = False,
+) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]], str]:
+    with tempfile.TemporaryDirectory(prefix="stwo-product-catalog-") as raw:
+        command = ["zig", "build", "product-matrix-identity", "-p", raw]
+        if metal:
+            command.append("-Daggregate-metal=true")
+        result = subprocess.run(command, cwd=repository, text=True, capture_output=True)
         if result.returncode != 0:
-            raise SystemExit(f"product matrix identity failed:\n{result.stderr}")
+            raise SystemExit(f"product catalog identity failed:\n{result.stderr}")
         encoded = (Path(raw) / "identity/product-matrix.json").read_bytes()
-    matrix = json.loads(encoded)
-    if matrix.get("schema") != "stwo-product-matrix-v1":
-        raise SystemExit("product matrix has an unknown schema")
+    catalog = json.loads(encoded)
+    if catalog.get("schema") != "stwo-product-catalog-v2":
+        raise SystemExit("product catalog has an unknown schema")
     payload = json.dumps(
-        {"schema": matrix["schema"], "products": matrix["products"]},
+        {
+            "schema": catalog["schema"],
+            "products": catalog["products"],
+            "scopes": catalog["scopes"],
+        },
         separators=(",", ":"),
     ).encode()
-    if hashlib.sha256(payload).hexdigest() != matrix.get("matrix_sha256"):
-        raise SystemExit("product matrix digest is invalid")
-    by_id = {product["product_id"]: product for product in matrix["products"]}
-    if len(by_id) != len(matrix["products"]):
-        raise SystemExit("product matrix contains duplicate product identities")
-    return by_id, hashlib.sha256(encoded).hexdigest()
+    if hashlib.sha256(payload).hexdigest() != catalog.get("catalog_sha256"):
+        raise SystemExit("product catalog digest is invalid")
+    products = {item["product_id"]: item for item in catalog["products"]}
+    scopes = {item["scope"]: item for item in catalog["scopes"]}
+    if len(products) != len(catalog["products"]):
+        raise SystemExit("product catalog contains duplicate product identities")
+    if len(scopes) != len(catalog["scopes"]):
+        raise SystemExit("product catalog contains duplicate scopes")
+    return products, scopes, hashlib.sha256(encoded).hexdigest()
 
 
 def read_configure_manifest(
     repository: Path,
     scope: str,
-    matrix: dict[str, dict[str, object]],
-) -> tuple[dict[str, object], str]:
+    products: dict[str, dict[str, Any]],
+    scopes: dict[str, dict[str, Any]],
+) -> tuple[dict[str, Any], str]:
     with tempfile.TemporaryDirectory(prefix="stwo-configure-manifest-") as raw:
         command = [
             "zig",
@@ -285,87 +109,106 @@ def read_configure_manifest(
         result = subprocess.run(command, cwd=repository, text=True, capture_output=True)
         if result.returncode != 0:
             raise SystemExit(f"{scope} configure manifest failed:\n{result.stderr}")
-        path = Path(raw) / f"build-graph/configure-{scope}.json"
-        encoded = path.read_bytes()
-        manifest = json.loads(encoded)
-    if manifest.get("schema") != "stwo-configure-manifest-v2":
+        encoded = (Path(raw) / f"build-graph/configure-{scope}.json").read_bytes()
+    manifest = json.loads(encoded)
+    if manifest.get("schema") != "stwo-configure-manifest-v3":
         raise SystemExit(f"{scope} configure manifest has an unknown schema")
-    if manifest.get("scope") != scope or not manifest.get("constructors"):
-        raise SystemExit(f"{scope} configure manifest is incomplete")
-    expected = dict(MANIFESTS[scope])
-    if "module_roots" not in expected:
-        products = [matrix.get(product_id) for product_id in expected["product_ids"]]
-        if any(product is None for product in products):
-            raise SystemExit(f"{scope} has no authoritative product descriptor")
-        expected["module_roots"] = list(
-            dict.fromkeys(
-                root
-                for product in products
-                for root in product["module_roots"]  # type: ignore[index]
-            )
-        )
-        declared_runtime = sorted(
-            dependency
-            for product in products
-            for dependency in product["external_dependencies"]  # type: ignore[index]
-        )
-        if declared_runtime != sorted(expected["runtime_probes"]):
-            raise SystemExit(f"{scope} runtime probes diverge from its product descriptor")
-    for field, wanted in expected.items():
-        if manifest.get(field) != wanted:
+    expected = scopes[scope]
+    for field in (
+        "scope",
+        "role",
+        "product_ids",
+        "module_roots",
+        "generated_module_roots",
+        "dependency_module_roots",
+        "allowed_module_files",
+        "allowed_module_prefixes",
+        "external_tools",
+        "runtime_probes",
+        "constructors",
+        "constructed_products",
+    ):
+        manifest_field = "scope_role" if field == "role" else field
+        if manifest.get(manifest_field) != expected.get(field):
             raise SystemExit(
-                f"{scope} configure manifest {field} mismatch: "
-                f"expected={wanted!r}, actual={manifest.get(field)!r}"
+                f"{scope} configure manifest {manifest_field} mismatch: "
+                f"expected={expected.get(field)!r}, actual={manifest.get(manifest_field)!r}"
             )
-    validate_actual_construction(manifest, matrix, scope)
+    validate_actual_construction(manifest, products, scope)
     return manifest, hashlib.sha256(encoded).hexdigest()
 
 
+def _canonical_products(values: object, scope: str, field: str) -> list[dict[str, str]]:
+    if not isinstance(values, list) or any(not isinstance(item, dict) for item in values):
+        raise SystemExit(f"{scope} {field} is not a product identity list")
+    keys = ("product_id", "frontend", "backend", "role", "protocol_manifest")
+    result: list[dict[str, str]] = []
+    for item in values:
+        assert isinstance(item, dict)
+        if set(item) != set(keys) or any(not isinstance(item[key], str) for key in keys):
+            raise SystemExit(f"{scope} {field} contains an incomplete product identity")
+        result.append({key: item[key] for key in keys})
+    return sorted(result, key=lambda item: tuple(item[key] for key in keys))
+
+
 def validate_actual_construction(
-    manifest: dict[str, object],
-    matrix: dict[str, dict[str, object]],
+    manifest: dict[str, Any],
+    products: dict[str, dict[str, Any]],
     scope: str,
 ) -> None:
     actual = manifest.get("actual")
     if not isinstance(actual, dict):
         raise SystemExit(f"{scope} configure manifest has no observed construction graph")
-    for field in ("module_roots", "external_tools", "runtime_probes"):
+    list_fields = (
+        "constructors",
+        "module_roots",
+        "generated_module_roots",
+        "dependency_module_roots",
+        "external_tools",
+        "runtime_probes",
+    )
+    for field in list_fields:
         values = actual.get(field)
         if not isinstance(values, list) or values != sorted(set(values)):
             raise SystemExit(f"{scope} actual {field} is not a sorted unique list")
 
-    actual_tools = set(actual["external_tools"])
-    declared_tools = set(manifest["external_tools"])
-    if not actual_tools <= declared_tools:
-        raise SystemExit(
-            f"{scope} constructed undeclared external tools: "
-            f"{sorted(actual_tools - declared_tools)}"
-        )
-    actual_probes = set(actual["runtime_probes"])
-    declared_probes = set(manifest["runtime_probes"])
-    if actual_probes != declared_probes:
-        raise SystemExit(
-            f"{scope} runtime probes diverge from constructed linkage: "
-            f"declared={sorted(declared_probes)}, actual={sorted(actual_probes)}"
-        )
-
-    selected = [matrix.get(product_id) for product_id in manifest["product_ids"]]
-    if not selected or any(product is None for product in selected):
-        return
-    allowed_files: set[str] = set()
-    allowed_prefixes: list[str] = []
-    for product in selected:
-        assert product is not None
-        allowed_files.update(product["module_roots"])
-        allowed_files.update(product["allowed_files"])
-        allowed_files.update(product["configure_allowed_files"])
-        allowed_prefixes.extend(
-            prefix.rstrip("/") + "/"
-            for prefix in (
-                list(product["allowed_prefixes"])
-                + list(product["configure_allowed_prefixes"])
+    for field in (
+        "constructors",
+        "generated_module_roots",
+        "dependency_module_roots",
+        "external_tools",
+        "runtime_probes",
+    ):
+        observed = actual[field]
+        declared = manifest[field]
+        if observed != sorted(set(declared)):
+            raise SystemExit(
+                f"{scope} actual {field} diverges from catalog: "
+                f"declared={sorted(set(declared))}, actual={observed}"
             )
+
+    expected_products = _canonical_products(
+        manifest.get("constructed_products"), scope, "constructed_products"
+    )
+    actual_products = _canonical_products(actual.get("products"), scope, "actual products")
+    if actual_products != expected_products:
+        raise SystemExit(
+            f"{scope} constructed product identities diverge from catalog: "
+            f"declared={expected_products!r}, actual={actual_products!r}"
         )
+    if manifest.get("scope_role") in {
+        "compatibility_tools",
+        "backend_tools",
+        "gates",
+        "unavailable",
+    } and actual_products:
+        raise SystemExit(f"{scope} non-product scope constructed a released product identity")
+
+    allowed_files: set[str] = set(manifest["module_roots"])
+    allowed_files.update(manifest["allowed_module_files"])
+    allowed_prefixes = [
+        prefix.rstrip("/") + "/" for prefix in manifest["allowed_module_prefixes"]
+    ]
     undeclared = [
         path
         for path in actual["module_roots"]
@@ -379,18 +222,21 @@ def validate_actual_construction(
 def check_scope(
     repository: Path,
     scope: str,
-    expected: set[str],
-    matrix: dict[str, dict[str, object]],
-) -> dict[str, object]:
+    catalog_scope: dict[str, Any],
+    products: dict[str, dict[str, Any]],
+    scopes: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
     actual, elapsed, output = internal_help(repository, scope)
-    wanted = expected | BUILTINS
+    wanted = set(catalog_scope["steps"]) | BUILTINS
     missing = sorted(wanted - actual)
     extra = sorted(actual - wanted)
     if missing or extra:
         raise SystemExit(
             f"{scope} configure closure mismatch: missing={missing}, extra={extra}"
         )
-    manifest, manifest_digest = read_configure_manifest(repository, scope, matrix)
+    manifest, manifest_digest = read_configure_manifest(
+        repository, scope, products, scopes
+    )
     return {
         "scope": scope,
         "steps": sorted(actual),
@@ -427,14 +273,8 @@ def check_install_ownership(repository: Path) -> None:
     delegation = (repository / "build_support/graph/delegation.zig").read_text()
     if "delegation.addInstallProxy" not in dispatcher or '"aggregate", "stwo-zig"' not in delegation:
         raise SystemExit("root default install is not pinned to the aggregate CLI only")
-    libraries = (repository / "build_support/products/libraries.zig").read_text()
-    public_start = libraries.index("pub fn addPublicModules")
-    products_start = libraries.index("pub fn addProducts", public_start)
-    public_body = libraries[public_start:products_start]
-    forbidden = ("addExecutable", "addTest", "addSystemCommand", "addInstall")
-    found = [token for token in forbidden if token in public_body]
-    if found:
-        raise SystemExit(f"declarative public module export constructs build work: {found}")
+    if "if (b.pkg_hash.len != 0)" not in dispatcher:
+        raise SystemExit("root public modules are not dependency-only")
 
 
 def inspect_linkage(binary: Path) -> str:
@@ -444,7 +284,7 @@ def inspect_linkage(binary: Path) -> str:
     return result.stdout.lower()
 
 
-def exercise_install(repository: Path, *, metal: bool) -> dict[str, object]:
+def exercise_install(repository: Path, *, metal: bool) -> dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix="stwo-install-closure-") as raw:
         prefix = Path(raw)
         command = [
@@ -485,6 +325,11 @@ def exercise_install(repository: Path, *, metal: bool) -> dict[str, object]:
         has_metal = "metal.framework" in linkage and "foundation.framework" in linkage
         if sys.platform == "darwin" and has_metal is not metal:
             raise SystemExit("aggregate binary linkage does not match selected Metal product")
+        _, selected_scopes, _ = read_product_catalog(repository, metal=metal)
+        aggregate_product = selected_scopes["aggregate"]["constructed_products"]
+        expected_backend = "metal" if metal else "cpu"
+        if aggregate_product[0]["backend"] != expected_backend:
+            raise SystemExit("aggregate catalog identity does not match selected capability")
         return {
             "metal_enabled": metal,
             "files": files,
@@ -506,10 +351,10 @@ def main() -> int:
     nested_cache = repository / "build_support/.zig-cache"
     nested_cache_preexisting = nested_cache.exists()
 
-    matrix, matrix_receipt_sha256 = read_product_matrix(repository)
+    products, scopes, catalog_receipt_sha256 = read_product_catalog(repository)
     receipts = [
-        check_scope(repository, scope, expected, matrix)
-        for scope, expected in SCOPES.items()
+        check_scope(repository, scope, spec, products, scopes)
+        for scope, spec in sorted(scopes.items())
     ]
     check_unknown_scope(repository)
     check_install_ownership(repository)
@@ -519,16 +364,17 @@ def main() -> int:
     if not nested_cache_preexisting and nested_cache.exists():
         raise SystemExit("internal build invocation leaked a build_support/.zig-cache")
     payload = {
-        "schema": "stwo-build-configure-closure-v1",
+        "schema": "stwo-build-configure-closure-v2",
         "result": "pass",
         "default_install_artifacts": ["stwo-zig"],
-        "root_declarative_exports": ["stwo_core", "stwo_prover", "stwo"],
-        "product_matrix_receipt_sha256": matrix_receipt_sha256,
+        "dependency_only_public_modules": ["stwo_core", "stwo_prover", "stwo"],
+        "product_catalog_receipt_sha256": catalog_receipt_sha256,
         "scopes": receipts,
         "install_manifests": installs,
         "negative_checks": [
             "unknown-scope-fails",
-            "exact-step-set",
+            "exact-catalog-step-set",
+            "actual-constructor-and-product-match",
             "focused-install-mutation-rejected",
             "internal-cache-placement",
         ],
@@ -538,7 +384,7 @@ def main() -> int:
         receipt = repository / receipt
     receipt.parent.mkdir(parents=True, exist_ok=True)
     receipt.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
-    print(f"build configure closure: PASS ({len(receipts)} focused scopes)")
+    print(f"build configure closure: PASS ({len(receipts)} catalog scopes)")
     return 0
 
 

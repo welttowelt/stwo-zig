@@ -1,0 +1,154 @@
+//! Typed non-product scopes and compatibility steps for the build catalog.
+
+const std = @import("std");
+const construction_observer = @import("../graph/construction_observer.zig");
+
+pub const Scope = enum {
+    aggregate,
+    architecture,
+    compatibility_tools,
+    core,
+    deferred,
+    metal_tools,
+    native_cpu,
+    native_metal,
+    package,
+    policy,
+    prover,
+    release,
+    riscv_cpu,
+    riscv_cpu_compat,
+    verification,
+};
+
+pub const Step = struct {
+    name: []const u8,
+    description: []const u8,
+    scope: Scope,
+};
+
+pub const ScopeRole = enum {
+    product,
+    package_exports,
+    compatibility_tools,
+    backend_tools,
+    gates,
+    unavailable,
+};
+
+pub const Configure = struct {
+    scope: Scope,
+    role: ScopeRole,
+    inherited_product_scope: ?Scope = null,
+    product_ids: []const []const u8 = &.{},
+    module_roots: []const []const u8 = &.{},
+    generated_module_roots: []const []const u8 = &.{},
+    dependency_module_roots: []const []const u8 = &.{},
+    allowed_module_files: []const []const u8 = &.{},
+    allowed_module_prefixes: []const []const u8 = &.{},
+    external_tools: []const []const u8 = &.{},
+    runtime_probes: []const []const u8 = &.{},
+    constructors: []const []const u8,
+    constructed_products: []const construction_observer.ProductIdentity = &.{},
+};
+
+/// Steps which are not the primary build/test/benchmark/identity steps already
+/// carried by a product descriptor. Root dispatch and closure validation both
+/// consume this exact list.
+pub const steps = [_]Step{
+    .{ .name = "architecture-gate", .description = "Produce one host-local BG-15 architecture receipt", .scope = .architecture },
+    .{ .name = "architecture-verify", .description = "Verify Linux and macOS BG-15 receipts in the trusted workflow", .scope = .architecture },
+    .{ .name = "build-monorepo-baseline", .description = "Validate the immutable pre-migration build-architecture baseline", .scope = .architecture },
+    .{ .name = "test-downstream-modules", .description = "Compile and run a clean external consumer of stwo_core, stwo_prover, and stwo", .scope = .package },
+    .{ .name = "interop-cli", .description = "Build the proof interoperability CLI", .scope = .compatibility_tools },
+    .{ .name = "metal-core-aot", .description = "Build the deterministic, fail-closed core Metal AOT tool", .scope = .metal_tools },
+    .{ .name = "test-metal-core-aot", .description = "Run deterministic core Metal AOT tooling tests without compiling shaders", .scope = .metal_tools },
+    .{ .name = "metal-core-aot-probe", .description = "Build the authenticated Native core metallib acceptance probe", .scope = .metal_tools },
+    .{ .name = "test-metal-core-aot-probe", .description = "Run Native core metallib probe contract tests without compiling shaders", .scope = .metal_tools },
+    .{ .name = "metal-core-aot-acceptance", .description = "Build, authenticate, and inspect the linked Native core metallib", .scope = .metal_tools },
+    .{ .name = "cairo-input", .description = "Build adapted Cairo input inspector", .scope = .compatibility_tools },
+    .{ .name = "riscv-opcode-manifest", .description = "Dump the canonical Stark-V opcode and proof-family policy as JSON", .scope = .compatibility_tools },
+    .{ .name = "riscv-opcode-manifest-check", .description = "Validate exact Stark-V opcode IDs and execution-only classifications", .scope = .compatibility_tools },
+    .{ .name = "test-riscv", .description = "Run RISC-V runner tests (trace_dump)", .scope = .riscv_cpu_compat },
+    .{ .name = "test-riscv-prover", .description = "Run RISC-V prover tests (prove+verify)", .scope = .riscv_cpu_compat },
+    .{ .name = "riscv-bench", .description = "Build RISC-V benchmark CLI", .scope = .compatibility_tools },
+    .{ .name = "native-proof-bench-cpu", .description = "Build the machine-readable native CPU full-proof benchmark with SIMD hot paths", .scope = .compatibility_tools },
+    .{ .name = "riscv-trace-dump", .description = "Build RISC-V trace dumper CLI", .scope = .riscv_cpu },
+    .{ .name = "stwo-zig-riscv-cpu-static", .description = "Build the static x86_64-linux-musl RISC-V CPU challenge executable", .scope = .riscv_cpu },
+    .{ .name = "metal-arena-plan", .description = "Build sparse Metal arena planner", .scope = .metal_tools },
+    .{ .name = "metal-arena-session", .description = "Build persistent Metal SN PIE prover session", .scope = .metal_tools },
+    .{ .name = "metal-prover-session-test", .description = "Run persistent Metal prover-session unit tests", .scope = .metal_tools },
+    .{ .name = "metal-recovery-bench", .description = "Build Metal recovery storage benchmark", .scope = .metal_tools },
+    .{ .name = "metal-ec-op-bench", .description = "Build resident Metal EC-op benchmark", .scope = .metal_tools },
+    .{ .name = "metal-compact-bench", .description = "Build resident Metal compaction benchmark", .scope = .metal_tools },
+    .{ .name = "cairo-streaming-commitment-bench", .description = "Build bounded production-callsite Cairo Metal commitment benchmark", .scope = .metal_tools },
+    .{ .name = "cairo-streaming-commitment-test", .description = "Run bounded production-callsite Cairo Metal commitment parity test", .scope = .metal_tools },
+    .{ .name = "metal-eval-prepare", .description = "Compile exact SN Cairo AIR programs for Metal", .scope = .metal_tools },
+    .{ .name = "metal-eval-source", .description = "Build the exact Cairo AIR Metal source generator", .scope = .metal_tools },
+    .{ .name = "metal-witness-source", .description = "Build the exact Cairo witness Metal source generator", .scope = .metal_tools },
+    .{ .name = "metal-test", .description = "Run resident Metal backend parity tests", .scope = .metal_tools },
+    .{ .name = "metal-check", .description = "Compile and link resident Metal backend tests without executing them", .scope = .metal_tools },
+    .{ .name = "metal-bench", .description = "Build resident Metal commitment benchmark", .scope = .metal_tools },
+    .{ .name = "riscv-metal-bench", .description = "Build RISC-V prover with Metal commitments", .scope = .metal_tools },
+    .{ .name = "cuda-test", .description = "Unavailable compatibility alias; CUDA now requires an explicit product toolchain", .scope = .deferred },
+    .{ .name = "riscv-release-gate", .description = "Run the staged CLI and validate complete candidate-bound CP-11 evidence", .scope = .verification },
+    .{ .name = "deep-gate", .description = "Run expanded deep graph coverage", .scope = .verification },
+    .{ .name = "vectors", .description = "Validate committed parity vectors", .scope = .verification },
+    .{ .name = "interop", .description = "Run interoperability harness (Rust <-> Zig proof exchange)", .scope = .verification },
+    .{ .name = "prove-checkpoints", .description = "Run prove/prove_ex checkpoint harness (Rust -> Zig/Rust verification)", .scope = .verification },
+    .{ .name = "bench-smoke", .description = "Run benchmark smoke harness and emit report", .scope = .verification },
+    .{ .name = "bench-kernels", .description = "Run targeted kernel benchmark harness", .scope = .verification },
+    .{ .name = "bench-strict", .description = "Run strict benchmark harness (base + medium workloads, stabilized samples)", .scope = .verification },
+    .{ .name = "bench-opt", .description = "Run optimization-track benchmark harness (native CPU)", .scope = .verification },
+    .{ .name = "bench-opt-binary-codec", .description = "Run optimization-track benchmark with binary internal proof codec (non-default)", .scope = .verification },
+    .{ .name = "bench-contrast", .description = "Run heavy contrast benchmark harness", .scope = .verification },
+    .{ .name = "bench-contrast-long", .description = "Run long contrast benchmark harness", .scope = .verification },
+    .{ .name = "bench-targeted-families", .description = "Run the benchmark family regression gate", .scope = .verification },
+    .{ .name = "bench-pages", .description = "Render static benchmark pages assets", .scope = .verification },
+    .{ .name = "bench-full", .description = "Run the full benchmark suite", .scope = .verification },
+    .{ .name = "bench-pages-validate", .description = "Validate static benchmark pages assets are current", .scope = .verification },
+    .{ .name = "profile-smoke", .description = "Run profiling smoke harness and emit report", .scope = .verification },
+    .{ .name = "profile-opt", .description = "Run optimization-track profile harness", .scope = .verification },
+    .{ .name = "profile-contrast", .description = "Run larger contrast profile harness", .scope = .verification },
+    .{ .name = "profile-contrast-long", .description = "Run long contrast profile harness", .scope = .verification },
+    .{ .name = "merkle-worker-stress", .description = "Run deterministic Merkle worker stress checks", .scope = .verification },
+    .{ .name = "opt-gate", .description = "Run optimization acceptance gate", .scope = .verification },
+    .{ .name = "std-shims-smoke", .description = "Build freestanding verifier profile shim", .scope = .verification },
+    .{ .name = "std-shims-behavior", .description = "Validate std-shims verifier behavior parity", .scope = .verification },
+    .{ .name = "release-evidence", .description = "Generate canonical release evidence manifest", .scope = .verification },
+    .{ .name = "fmt", .description = "Check formatting", .scope = .policy },
+    .{ .name = "api-parity", .description = "Validate API parity ledger coverage", .scope = .policy },
+    .{ .name = "upstream-pins", .description = "Validate upstream pin carriers", .scope = .policy },
+    .{ .name = "source-conformance", .description = "Reject source conformance regressions", .scope = .policy },
+    .{ .name = "upstream-surface", .description = "Validate upstream API surface", .scope = .policy },
+    .{ .name = "build-configure-closure", .description = "Verify focused configure closure", .scope = .policy },
+    .{ .name = "registry-parity", .description = "Compare focused and aggregate registries", .scope = .policy },
+    .{ .name = "release-gate", .description = "Run the standard release gate", .scope = .release },
+    .{ .name = "release-gate-strict", .description = "Run the strict release gate", .scope = .release },
+};
+
+/// Configure declarations for scopes that are not a single catalog product.
+/// Product scopes are derived directly from their product descriptors.
+pub const configure = [_]Configure{
+    .{ .scope = .architecture, .role = .gates, .external_tools = &.{"python3"}, .constructors = &.{ "gates/architecture_receipts.addGates", "gates/baseline.addGate" } },
+    .{ .scope = .riscv_cpu_compat, .role = .product, .inherited_product_scope = .riscv_cpu, .constructors = &.{ "products/matrix.construct.riscv_cpu", "compatibility aliases" } },
+    .{ .scope = .package, .role = .package_exports, .product_ids = &.{ "stwo-core", "stwo-prover", "stwo" }, .module_roots = &.{ "src/core/mod.zig", "src/products/prover/root.zig", "src/stwo.zig" }, .generated_module_roots = &.{"generated:options:"}, .allowed_module_files = &.{ "src/stwo.zig", "build_support/graph/identity/emitter.zig" }, .allowed_module_prefixes = &.{ "src/core", "src/backend", "src/prover", "src/products/core", "src/products/prover" }, .external_tools = &.{"python3"}, .constructors = &.{"products/libraries.addProducts"}, .constructed_products = &.{
+        .{ .product_id = "stwo-core", .frontend = "none", .backend = "none", .role = "library", .protocol_manifest = "stwo-core-v1" },
+        .{ .product_id = "stwo-prover", .frontend = "none", .backend = "contracts", .role = "library", .protocol_manifest = "generic-prover+backend-contracts-v1" },
+        .{ .product_id = "stwo", .frontend = "aggregate", .backend = "contracts", .role = "library", .protocol_manifest = "aggregate-sdk-v1" },
+    } },
+    .{ .scope = .metal_tools, .role = .backend_tools, .product_ids = &.{"stwo-native-metal-tools"}, .module_roots = &.{ "src/stwo.zig", "src/backends/metal/shader_manifest.zig" }, .generated_module_roots = &.{"generated:options:"}, .allowed_module_files = &.{ "src/stwo.zig", "src/tests.zig", "src/metal_arena_plan_cli.zig", "src/riscv_metal_bench_cli.zig" }, .allowed_module_prefixes = &.{ "src/core", "src/backend", "src/backends", "src/bench", "src/examples", "src/frontends", "src/integrations", "src/interop", "src/prover", "src/std_shims", "src/tools", "src/tracing" }, .runtime_probes = &.{ "Metal.framework", "Foundation.framework", "libobjc" }, .constructors = &.{ "backends/metal_aot.addProducts", "benchmarks/metal.addProducts" } },
+    .{ .scope = .compatibility_tools, .role = .compatibility_tools, .product_ids = &.{"stwo-compatibility-tools"}, .module_roots = &.{ "src/tools/interop/main.zig", "src/tools/cairo/input_inspector.zig", "src/tools/riscv_opcode_manifest/main.zig", "src/riscv_bench_cli.zig", "src/tools/native_proof_bench/cpu.zig" }, .allowed_module_files = &.{"src/stwo.zig"}, .allowed_module_prefixes = &.{ "src/core", "src/backend", "src/prover", "src/frontends/riscv", "src/integrations/riscv_cpu", "src/interop", "src/products/native_cpu", "src/tools" }, .constructors = &.{"products/compatibility_tools.addProducts"} },
+    .{ .scope = .verification, .role = .gates, .external_tools = &.{ "python3", "zig" }, .constructors = &.{ "gates/riscv.addGates", "gates/native.addGates", "benchmarks/native.addProducts", "gates/release_evidence.addGates" } },
+    .{ .scope = .policy, .role = .gates, .external_tools = &.{ "python3", "zig" }, .constructors = &.{"internal_build.addPolicyGates"} },
+    .{ .scope = .release, .role = .gates, .product_ids = &.{"stwo-zig-release"}, .external_tools = &.{ "python3", "zig" }, .constructors = &.{"gates/release.addGates"} },
+};
+
+pub fn configureFor(scope: Scope) ?Configure {
+    for (configure) |spec| if (spec.scope == scope) return spec;
+    return null;
+}
+
+pub fn parse(name: []const u8) ?Scope {
+    return std.meta.stringToEnum(Scope, name);
+}

@@ -5,6 +5,7 @@ const build_identity = @import("build_identity.zig");
 const architecture_receipts = @import("gates/architecture_receipts.zig");
 const baseline = @import("gates/baseline.zig");
 const configure_plan = @import("gates/configure_plan.zig");
+const construction_observer = @import("graph/construction_observer.zig");
 const native_gates = @import("gates/native.zig");
 const release_evidence = @import("gates/release_evidence.zig");
 const riscv_gates = @import("gates/riscv.zig");
@@ -33,9 +34,13 @@ pub fn build(b: *std.Build) void {
         std.debug.panic("unknown internal product scope: {s}", .{scope_name});
 
     if (scope == .aggregate) {
-        products.constructAggregate(b);
-        products.addIdentity(b);
-        configure_plan.add(b, scope);
+        const aggregate_metal = b.option(
+            bool,
+            "aggregate-metal",
+            "Explicitly link Metal into the aggregate compatibility product",
+        ) orelse false;
+        products.constructAggregate(b, aggregate_metal);
+        configure_plan.add(b, scope, aggregate_metal);
         return;
     }
 
@@ -46,7 +51,9 @@ pub fn build(b: *std.Build) void {
         .aggregate => unreachable,
         .architecture => {
             architecture_receipts.addGates(b);
+            construction_observer.recordConstructor(b, "gates/architecture_receipts.addGates");
             baseline.addGate(b);
+            construction_observer.recordConstructor(b, "gates/baseline.addGate");
         },
         .core, .prover, .native_cpu, .native_metal, .riscv_cpu => constructProduct(
             b,
@@ -54,28 +61,36 @@ pub fn build(b: *std.Build) void {
             optimize,
             repository_root,
             shared,
-            @tagName(scope),
+            scope,
         ),
-        .package => _ = @import("products/libraries.zig").addProducts(.{
-            .b = b,
-            .target = target,
-            .optimize = optimize,
-            .identity = resolveIdentity(b, repository_root, shared),
-        }),
+        .package => {
+            _ = @import("products/libraries.zig").addProducts(.{
+                .b = b,
+                .target = target,
+                .optimize = optimize,
+                .identity = resolveIdentity(b, repository_root, shared),
+            });
+            construction_observer.recordConstructor(b, "products/libraries.addProducts");
+        },
         .riscv_cpu_compat => {
-            constructProduct(b, target, optimize, repository_root, shared, "riscv_cpu");
+            constructProduct(b, target, optimize, repository_root, shared, .riscv_cpu);
             const focused = &b.top_level_steps.get("test-riscv-cpu-product").?.step;
             b.step("test-riscv", "Run RISC-V runner tests (trace_dump)").dependOn(focused);
             b.step("test-riscv-prover", "Run RISC-V prover tests (prove+verify)").dependOn(focused);
+            construction_observer.recordConstructor(b, "compatibility aliases");
         },
-        .compatibility_tools => @import("products/compatibility_tools.zig").addProducts(.{
-            .b = b,
-            .target = target,
-            .optimize = optimize,
-        }),
+        .compatibility_tools => {
+            @import("products/compatibility_tools.zig").addProducts(.{
+                .b = b,
+                .target = target,
+                .optimize = optimize,
+            });
+            construction_observer.recordConstructor(b, "products/compatibility_tools.addProducts");
+        },
         .metal_tools => addMetalTools(b, target, optimize),
         .deferred => {
             products.addDeferredProducts(b, target);
+            construction_observer.recordConstructor(b, "products/matrix.addDeferredProducts");
             const cuda_test = b.step(
                 "cuda-test",
                 "Unavailable compatibility alias; CUDA now requires an explicit product toolchain",
@@ -91,14 +106,24 @@ pub fn build(b: *std.Build) void {
                 .release_phase = release_options.phase,
                 .evidence_dir = release_options.evidence_dir,
             });
+            construction_observer.recordConstructor(b, "gates/riscv.addGates");
             const native = native_gates.addGates(b, b.fmt("-O{s}", .{@tagName(optimize)}));
+            construction_observer.recordConstructor(b, "gates/native.addGates");
             native_benchmarks.addProducts(.{ .b = b });
+            construction_observer.recordConstructor(b, "benchmarks/native.addProducts");
             release_evidence.addGates(b, native.prove_checkpoints);
+            construction_observer.recordConstructor(b, "gates/release_evidence.addGates");
         },
-        .policy => addPolicyGates(b),
-        .release => @import("gates/release.zig").addGates(b, optimize),
+        .policy => {
+            addPolicyGates(b);
+            construction_observer.recordConstructor(b, "internal_build.addPolicyGates");
+        },
+        .release => {
+            @import("gates/release.zig").addGates(b, optimize);
+            construction_observer.recordConstructor(b, "gates/release.addGates");
+        },
     }
-    configure_plan.add(b, scope);
+    configure_plan.add(b, scope, false);
 }
 
 fn setRepositoryRoot(b: *std.Build, repository_root: []const u8) void {
@@ -165,7 +190,7 @@ fn constructProduct(
     optimize: std.builtin.OptimizeMode,
     repository_root: []const u8,
     shared: SharedOptions,
-    scope: []const u8,
+    scope: Scope,
 ) void {
     const constructed = products.construct(.{
         .b = b,
@@ -173,7 +198,10 @@ fn constructProduct(
         .optimize = optimize,
         .identity = resolveIdentity(b, repository_root, shared),
     }, scope);
-    if (!constructed) std.debug.panic("product scope absent from central catalog: {s}", .{scope});
+    if (!constructed) std.debug.panic(
+        "product scope absent from central catalog: {s}",
+        .{@tagName(scope)},
+    );
 }
 
 fn addMetalTools(
@@ -206,14 +234,13 @@ fn addMetalTools(
         .optimize = optimize,
     });
     protocol.addImports(shader_manifest);
-    const internal_tests = b.addSystemCommand(&.{"true"});
     metal_core_aot.addProducts(.{
         .b = b,
         .target = target,
         .optimize = optimize,
         .shader_manifest_module = shader_manifest,
-        .test_step = &internal_tests.step,
     });
+    construction_observer.recordConstructor(b, "backends/metal_aot.addProducts");
     metal_products.addProducts(.{
         .b = b,
         .target = target,
@@ -222,6 +249,7 @@ fn addMetalTools(
         .protocol = protocol,
         .test_step = null,
     });
+    construction_observer.recordConstructor(b, "benchmarks/metal.addProducts");
 }
 
 fn addPolicyGates(b: *std.Build) void {

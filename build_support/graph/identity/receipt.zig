@@ -12,6 +12,7 @@ pub const Inputs = struct {
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     artifact: std.Build.LazyPath,
+    artifact_path: []const u8,
     executable: bool,
     step_name: []const u8,
     output_name: []const u8,
@@ -42,6 +43,7 @@ pub fn add(inputs: Inputs) *std.Build.Step {
     const run = inputs.b.addRunArtifact(emitter);
     run.addFileArg(inputs.artifact);
     run.addArg(if (inputs.executable) "executable" else "library");
+    run.addArg(inputs.artifact_path);
     const output = run.captureStdOut();
     const install = inputs.b.addInstallFile(
         output,

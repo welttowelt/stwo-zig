@@ -5,7 +5,6 @@ pub const Context = struct {
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     shader_manifest_module: *std.Build.Module,
-    test_step: *std.Build.Step,
 };
 
 pub fn addProducts(context: Context) void {
@@ -35,7 +34,6 @@ pub fn addProducts(context: Context) void {
     test_module.addImport("shader_manifest", context.shader_manifest_module);
     const tests = b.addTest(.{ .root_module = test_module });
     const run_tests = b.addRunArtifact(tests);
-    context.test_step.dependOn(&run_tests.step);
     const test_step = b.step(
         "test-metal-core-aot",
         "Run deterministic core Metal AOT tooling tests without compiling shaders",
@@ -82,7 +80,6 @@ fn addHostedAcceptance(context: Context, tool: *std.Build.Step.Compile) void {
     const probe_tests = b.addTest(.{ .root_module = probe_test_module });
     linkProbe(b, probe_tests);
     const run_probe_tests = b.addRunArtifact(probe_tests);
-    context.test_step.dependOn(&run_probe_tests.step);
     const probe_test_step = b.step(
         "test-metal-core-aot-probe",
         "Run Native core metallib probe contract tests without compiling shaders",

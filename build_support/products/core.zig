@@ -22,6 +22,7 @@ pub const descriptor = product_policy.Descriptor{
     .build_step = "stwo-core",
     .test_step = "test-stwo-core",
     .executable = null,
+    .installed_artifacts = &.{"lib/stwo-core.o"},
     .release_gates = &.{"test-stwo-core"},
     .dependencies = .{ .module_roots = source_closure.entry_roots },
     .source_closure = source_closure,
@@ -52,23 +53,27 @@ pub fn addProduct(context: Context) Result {
 
     const surface = surfaceModule(context, module);
     const object = context.b.addObject(.{ .name = "stwo-core", .root_module = surface });
+    const install_object = context.b.addInstallFile(object.getEmittedBin(), "lib/stwo-core.o");
     const closure = closure_gate.addCheck(.{ .b = context.b, .descriptor = descriptor });
     const purity = purityCheck(context, "core");
     const build_step = context.b.step("stwo-core", "Build the focused Stwo core library");
     build_step.dependOn(&object.step);
+    build_step.dependOn(&install_object.step);
     build_step.dependOn(&closure.step);
     build_step.dependOn(&purity.step);
-    _ = identity_receipt.add(.{
+    const identity_step = identity_receipt.add(.{
         .b = context.b,
         .source = context.identity,
         .product = descriptor.product,
         .target = context.target,
         .optimize = context.optimize,
         .artifact = object.getEmittedBin(),
+        .artifact_path = "lib/stwo-core.o",
         .executable = false,
         .step_name = "identity-stwo-core",
         .output_name = "stwo-core.json",
     });
+    identity_step.dependOn(&install_object.step);
 
     const tests = context.b.addTest(.{ .root_module = surfaceModule(context, module) });
     const test_step = context.b.step("test-stwo-core", "Test the focused Stwo core library and purity boundary");

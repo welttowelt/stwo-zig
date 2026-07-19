@@ -1,6 +1,7 @@
 //! Metal toolchain, runtime source, and link ownership.
 
 const std = @import("std");
+const construction_observer = @import("../graph/construction_observer.zig");
 const graph_identity = @import("../graph/identity.zig");
 
 pub const runtime_source = "src/backends/metal/runtime.m";
@@ -51,6 +52,7 @@ fn digestBytes(bytes: []const u8) [64]u8 {
 }
 
 fn commandOutput(b: *std.Build, argv: []const []const u8) []const u8 {
+    construction_observer.recordConfigureTool(b, argv[0]);
     const result = std.process.Child.run(.{
         .allocator = b.allocator,
         .argv = argv,

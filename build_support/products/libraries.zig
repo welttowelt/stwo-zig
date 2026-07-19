@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const build_identity = @import("../build_identity.zig");
+const construction_observer = @import("../graph/construction_observer.zig");
 const graph = @import("../graph/modules.zig");
 const core_product = @import("core.zig");
 const prover_product = @import("prover.zig");
@@ -58,6 +59,7 @@ pub fn addProducts(context: Context) Result {
         .optimize = context.optimize,
         .identity = identity,
     });
+    construction_observer.recordProduct(context.b, graph.coreProduct(.library));
     const prover = prover_product.addProduct(.{
         .b = context.b,
         .target = context.target,
@@ -65,10 +67,18 @@ pub fn addProducts(context: Context) Result {
         .core = core.module,
         .identity = identity,
     });
+    construction_observer.recordProduct(context.b, graph.proverProduct(.library));
     const stwo = context.b.addModule("stwo", .{
         .root_source_file = context.b.path("src/stwo.zig"),
         .target = context.target,
         .optimize = context.optimize,
+    });
+    construction_observer.recordProduct(context.b, .{
+        .name = "stwo",
+        .frontend = .aggregate,
+        .backend = .contracts,
+        .role = .library,
+        .protocol_features = "aggregate-sdk-v1",
     });
     prover.protocol.addImports(stwo);
 

@@ -23,8 +23,6 @@ pub const Product = struct {
             },
             .library, .@"test" => {},
         }
-        if (self.frontend == .aggregate and self.role == .library)
-            return error.InvalidAggregateLibrary;
     }
 
     pub fn frontendManifest(self: Product) []const u8 {
@@ -179,4 +177,15 @@ test "generic prover identifies backend contracts without a concrete backend" {
     const prover = proverProduct(.library);
     try prover.validate();
     try std.testing.expectEqualStrings("contracts", prover.backendManifest());
+}
+
+test "aggregate SDK facade has an explicit library identity" {
+    const facade = Product{
+        .name = "stwo",
+        .frontend = .aggregate,
+        .backend = .contracts,
+        .role = .library,
+        .protocol_features = "aggregate-sdk-v1",
+    };
+    try facade.validate();
 }

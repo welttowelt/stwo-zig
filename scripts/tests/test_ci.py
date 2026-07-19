@@ -15,11 +15,39 @@ PINNED_ACTION_RE = re.compile(r"^\s*uses:\s*[^@\s]+@[0-9a-f]{40}(?:\s+#.*)?$")
 class CiTests(unittest.TestCase):
     def construction_fixture(self) -> tuple[dict[str, object], dict[str, dict[str, object]]]:
         manifest: dict[str, object] = {
+            "scope_role": "product",
             "product_ids": ["focused"],
+            "constructors": ["products/matrix.construct.focused"],
+            "constructed_products": [
+                {
+                    "product_id": "focused",
+                    "frontend": "native",
+                    "backend": "cpu",
+                    "role": "cli",
+                    "protocol_manifest": "focused-v1",
+                }
+            ],
+            "module_roots": ["src/product/main.zig"],
+            "allowed_module_files": ["src/product/main.zig"],
+            "allowed_module_prefixes": ["src/product"],
+            "generated_module_roots": ["generated:options:"],
+            "dependency_module_roots": [],
             "external_tools": ["python3"],
             "runtime_probes": ["Metal.framework"],
             "actual": {
+                "products": [
+                    {
+                        "product_id": "focused",
+                        "frontend": "native",
+                        "backend": "cpu",
+                        "role": "cli",
+                        "protocol_manifest": "focused-v1",
+                    }
+                ],
+                "constructors": ["products/matrix.construct.focused"],
                 "module_roots": ["src/product/main.zig"],
+                "generated_module_roots": ["generated:options:"],
+                "dependency_module_roots": [],
                 "external_tools": ["python3"],
                 "runtime_probes": ["Metal.framework"],
             },
@@ -44,13 +72,37 @@ class CiTests(unittest.TestCase):
     def test_actual_construction_rejects_undeclared_tool_mutation(self) -> None:
         manifest, matrix = self.construction_fixture()
         manifest["actual"]["external_tools"].append("ztool")  # type: ignore[index]
-        with self.assertRaisesRegex(SystemExit, "undeclared external tools"):
+        with self.assertRaisesRegex(SystemExit, "external_tools.*diverges"):
             validate_actual_construction(manifest, matrix, "focused")
 
     def test_actual_construction_rejects_runtime_probe_mutation(self) -> None:
         manifest, matrix = self.construction_fixture()
         manifest["actual"]["runtime_probes"].append("ZZ.framework")  # type: ignore[index]
-        with self.assertRaisesRegex(SystemExit, "runtime probes diverge"):
+        with self.assertRaisesRegex(SystemExit, "runtime_probes.*diverges"):
+            validate_actual_construction(manifest, matrix, "focused")
+
+    def test_actual_construction_rejects_constructor_mutation(self) -> None:
+        manifest, matrix = self.construction_fixture()
+        manifest["actual"]["constructors"] = ["products/matrix.construct.hidden"]  # type: ignore[index]
+        with self.assertRaisesRegex(SystemExit, "constructors.*diverges"):
+            validate_actual_construction(manifest, matrix, "focused")
+
+    def test_actual_construction_rejects_product_identity_mutation(self) -> None:
+        manifest, matrix = self.construction_fixture()
+        manifest["actual"]["products"][0]["backend"] = "metal"  # type: ignore[index]
+        with self.assertRaisesRegex(SystemExit, "product identities diverge"):
+            validate_actual_construction(manifest, matrix, "focused")
+
+    def test_actual_construction_rejects_generated_root_mutation(self) -> None:
+        manifest, matrix = self.construction_fixture()
+        manifest["actual"]["generated_module_roots"] = ["generated:hidden:"]  # type: ignore[index]
+        with self.assertRaisesRegex(SystemExit, "generated_module_roots.*diverges"):
+            validate_actual_construction(manifest, matrix, "focused")
+
+    def test_actual_construction_rejects_dependency_root_mutation(self) -> None:
+        manifest, matrix = self.construction_fixture()
+        manifest["actual"]["dependency_module_roots"] = ["dependency:hidden:root.zig"]  # type: ignore[index]
+        with self.assertRaisesRegex(SystemExit, "dependency_module_roots.*diverges"):
             validate_actual_construction(manifest, matrix, "focused")
 
     def test_standard_plan_runs_tooling_then_release_gate(self) -> None:

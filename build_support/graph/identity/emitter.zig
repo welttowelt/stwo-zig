@@ -8,7 +8,7 @@ pub fn main() !void {
     defer arena.deinit();
     const allocator = arena.allocator();
     const arguments = try std.process.argsAlloc(allocator);
-    if (arguments.len != 3) return error.InvalidArguments;
+    if (arguments.len != 4) return error.InvalidArguments;
     const executable = if (std.mem.eql(u8, arguments[2], "executable"))
         true
     else if (std.mem.eql(u8, arguments[2], "library"))
@@ -26,6 +26,7 @@ pub fn main() !void {
         .identity_schema_version = product.schema_version,
         .product_identity_sha256 = product.identity_sha256,
         .artifact_sha256 = &artifact_hex,
+        .artifact_path = arguments[3],
         .executable_sha256 = if (executable) @as(?[]const u8, &artifact_hex) else null,
         .frontend = product.frontend,
         .backend = product.backend,

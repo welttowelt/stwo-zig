@@ -33,6 +33,7 @@ pub const descriptor = product_policy.Descriptor{
     .build_step = "stwo-prover",
     .test_step = "test-stwo-prover",
     .executable = null,
+    .installed_artifacts = &.{"lib/stwo-prover.o"},
     .release_gates = &.{"test-stwo-prover"},
     .dependencies = .{ .module_roots = source_closure.entry_roots },
     .source_closure = source_closure,
@@ -73,23 +74,27 @@ pub fn addProduct(context: Context) Result {
 
     const surface = surfaceModule(context, module);
     const object = context.b.addObject(.{ .name = "stwo-prover", .root_module = surface });
+    const install_object = context.b.addInstallFile(object.getEmittedBin(), "lib/stwo-prover.o");
     const closure = closure_gate.addCheck(.{ .b = context.b, .descriptor = descriptor });
     const purity = purityCheck(context);
     const build_step = context.b.step("stwo-prover", "Build the focused backend-generic Stwo prover library");
     build_step.dependOn(&object.step);
+    build_step.dependOn(&install_object.step);
     build_step.dependOn(&closure.step);
     build_step.dependOn(&purity.step);
-    _ = identity_receipt.add(.{
+    const identity_step = identity_receipt.add(.{
         .b = context.b,
         .source = context.identity,
         .product = descriptor.product,
         .target = context.target,
         .optimize = context.optimize,
         .artifact = object.getEmittedBin(),
+        .artifact_path = "lib/stwo-prover.o",
         .executable = false,
         .step_name = "identity-stwo-prover",
         .output_name = "stwo-prover.json",
     });
+    identity_step.dependOn(&install_object.step);
 
     const tests = context.b.addTest(.{ .root_module = surfaceModule(context, module) });
     const test_step = context.b.step(
