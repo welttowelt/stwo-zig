@@ -1,6 +1,6 @@
 # Zig build-monorepo delivery goal
 
-**Status:** ACTIVE
+**Status:** REPOSITORY COMPLETE; PROTECTED RELEASE ACTIVATION DEFERRED
 
 **Created:** 2026-07-19
 
@@ -10,12 +10,20 @@ The architecture document defines the intended design. This document defines
 the work, gates, evidence, and release decision required to claim that design
 has been delivered.
 
-**Release decision:** NO-GO until every mandatory checkpoint in this document
+**Repository disposition (2026-07-19):** The revised repository-architecture
+scope is complete at `68028a77`. Product construction, focused ownership,
+correctness-only gates, and fail-closed release plumbing are integrated. The
+protected cross-host authority cannot be activated on the current private
+repository plan and remains an explicit external TODO governed by
+[the activation runbook](2026-07-19-build-architecture-authority-activation.md).
+That operational activation is not part of the revised repository-setup goal.
+
+**Protected release decision:** NO-GO until every mandatory checkpoint in this document
 passes on one identified commit from a clean checkout. A focused product
 compiling locally, an aggregate test suite passing, or a source tree looking
 better organized is useful progress but is not completion evidence.
 
-**Completion formula:**
+**Protected release formula:**
 
 ```text
 GO = BG-00..BG-15 PASS on one clean commit
@@ -27,7 +35,8 @@ GO = BG-00..BG-15 PASS on one clean commit
 ```
 
 Every term is mandatory. A false, missing, stale, or skipped term makes the
-decision NO-GO.
+protected release decision NO-GO. It does not reopen the completed repository
+architecture scope.
 
 ### Scope amendment: performance is a separate goal
 
@@ -1040,7 +1049,28 @@ At creation of this goal:
 - therefore BG-00 through BG-15 remain NO-GO until reconciled on one clean
   integrated commit.
 
-## Sign-off checklist
+## Repository completion evidence
+
+The revised goal deliberately stops at a repository that is ready for a later,
+independent autoresearch goal. It does not claim performance parity or a
+protected production release receipt.
+
+- the root `build.zig` is a six-line dispatcher into independently constructed
+  product scopes;
+- one typed catalog owns released and deferred product construction;
+- configure-closure validation passes all 15 catalog scopes;
+- focused Core, Prover, Native CPU, Native Metal, RISC-V CPU, and aggregate
+  graphs construct without importing deferred Cairo/CUDA implementations;
+- CPU and Metal aggregate correctness builds pass, and the Metal lifecycle is
+  fail-closed against CPU fallback;
+- source conformance reports no new violations;
+- registry parity covers all six released Native AIRs;
+- 93 focused authority/receipt boundary tests and workflow lint pass;
+- performance execution and promotion are disabled and deferred; and
+- protected BG-15 issuance remains disabled until the external controls in the
+  activation runbook exist.
+
+## Protected release activation checklist
 
 - [ ] BG-00 immutable baseline is committed and validated.
 - [ ] BG-01 typed graph and canonical identity are the only authorities.
@@ -1063,8 +1093,8 @@ At creation of this goal:
 - [ ] `conformance/decomposition-plan.md` reflects every retained exception.
 - [ ] No autoresearch lane was enabled by this architecture work.
 
-When every box is supported by the BG-15 receipt, update this document to
-`Status: COMPLETE`, record the exact commit and receipt digest, and begin
-aggressive backend optimization from the focused product graphs. Until then,
-the architecture is in migration and performance claims must name the exact
-product actually measured.
+These boxes govern a future protected production-release activation, not the
+completed repository-layout goal. When every box is supported by the BG-15
+receipt, record the exact candidate commit and receipt digest and change the
+protected release decision to GO. Performance work remains a separate goal and
+must name the exact product actually measured.
