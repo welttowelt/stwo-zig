@@ -54,9 +54,7 @@ fn runElf(
     proof_output: ?[]const u8,
     report_output: ?[]const u8,
 ) !void {
-    if (proof_output) |path| try rejectPathCollision(path, report_output);
-    if (proof_output) |path| try requireAbsent(path);
-    if (report_output) |path| try requireAbsent(path);
+    try lifecycle.prepare(proof_output, report_output);
 
     const proof_temporary = if (proof_output) |path|
         try atomic_file.temporaryPathAlloc(allocator, path, "proof")
@@ -200,20 +198,6 @@ fn riscvProtocol(value: cli.Protocol) starkv_adapter.Protocol {
     };
 }
 
-fn rejectPathCollision(path: []const u8, maybe_other: ?[]const u8) !void {
-    if (maybe_other) |other| {
-        if (std.mem.eql(u8, path, other)) return error.OutputPathCollision;
-    }
-}
-
-fn requireAbsent(path: []const u8) !void {
-    std.fs.cwd().access(path, .{}) catch |err| switch (err) {
-        error.FileNotFound => return,
-        else => return err,
-    };
-    return error.OutputAlreadyExists;
-}
-
 fn writeLine(writer: anytype, bytes: []const u8) !void {
     try writer.writeAll(bytes);
     try writer.writeByte('\n');
@@ -251,7 +235,7 @@ test "stark-v adapter: staged CPU path is live while device backends fail closed
     ));
 }
 
-test "publication rolls back its proof when a competing report wins" {
+test "publication rejects an existing report without exposing its proof" {
     var temporary = std.testing.tmpDir(.{});
     defer temporary.cleanup();
     const root = try temporary.dir.realpathAlloc(std.testing.allocator, ".");
@@ -266,7 +250,7 @@ test "publication rolls back its proof when a competing report wins" {
     try atomic_file.writeExclusive(std.testing.allocator, proof_temporary, "proof");
     try atomic_file.writeExclusive(std.testing.allocator, report_output, "existing");
     try std.testing.expectError(
-        error.PathAlreadyExists,
+        error.OutputAlreadyExists,
         lifecycle.publishResult(
             atomic_file,
             std.testing.allocator,

@@ -24,12 +24,14 @@ const source_closure = product_policy.SourceClosure{
         .{ .name = "stwo_prover_impl", .source = "src/prover/mod.zig" },
         .{ .name = "native_proof_runner", .source = "src/prover/native/runner.zig" },
         .{ .name = "native_transaction", .source = "src/integrations/native/transaction.zig" },
+        .{ .name = "output_transaction", .source = "src/interop/output_transaction.zig" },
         .{ .name = "native_product_identity", .source = "src/integrations/native/product_identity.zig" },
     },
     .allowed_files = &.{
         "src/products/native_cpu/main.zig",
         "src/stwo_native_cpu.zig",
         "src/interop/atomic_file.zig",
+        "src/interop/output_transaction.zig",
         "src/interop/examples_artifact.zig",
         "src/interop/examples_artifact_verifier.zig",
         "src/interop/postcard.zig",
@@ -214,6 +216,12 @@ fn createProductModule(
     });
     context.protocol.addImports(lifecycle);
     lifecycle.addImport("stwo", stwo);
+    lifecycle.addImport("output_transaction", graph.create(context.b, .{
+        .product = product_descriptor,
+        .root_source_file = "src/interop/output_transaction.zig",
+        .target = context.target,
+        .optimize = context.optimize,
+    }));
     root.addImport("native_transaction", lifecycle);
     root.addOptions("build_identity", graph_identity.buildOptions(context.b, context.identity));
     root.addOptions(

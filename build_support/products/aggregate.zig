@@ -16,6 +16,7 @@ const source_closure = policy.SourceClosure{
         .{ .name = "stwo_prover_impl", .source = "src/prover/mod.zig" },
         .{ .name = "native_proof_runner", .source = "src/prover/native/runner.zig" },
         .{ .name = "native_transaction", .source = "src/integrations/native/transaction.zig" },
+        .{ .name = "output_transaction", .source = "src/interop/output_transaction.zig" },
         .{ .name = "native_product_identity", .source = "src/integrations/native/product_identity.zig" },
         .{ .name = "native_cpu_capabilities", .source = "src/products/native_cpu/capabilities.zig" },
         .{ .name = "riscv_cpu_capabilities", .source = "src/products/riscv_cpu/capabilities.zig" },

@@ -28,6 +28,7 @@ const source_closure = product_policy.SourceClosure{
         .{ .name = "stwo_prover_impl", .source = "src/prover/mod.zig" },
         .{ .name = "starkv_adapter", .source = "src/integrations/riscv_cpu/proof_adapter.zig" },
         .{ .name = "riscv_cpu_capabilities", .source = "src/products/riscv_cpu/capabilities.zig" },
+        .{ .name = "output_transaction", .source = "src/interop/output_transaction.zig" },
     },
     .generated_imports = &.{"aggregate_capabilities"},
     .allowed_files = &.{
@@ -35,6 +36,7 @@ const source_closure = product_policy.SourceClosure{
         "src/stwo_riscv_cpu.zig",
         "src/riscv_trace_cli.zig",
         "src/interop/atomic_file.zig",
+        "src/interop/output_transaction.zig",
         "src/interop/postcard.zig",
         "src/interop/proof_wire.zig",
         "src/interop/riscv_artifact.zig",
@@ -194,6 +196,7 @@ fn addExecutable(
     root.addImport("stwo_riscv_cpu", stwo);
     root.addImport("starkv_adapter", adapter);
     root.addImport("riscv_cpu_capabilities", capabilities);
+    root.addImport("output_transaction", createOutputTransaction(context, target, optimize));
     root.addOptions("build_identity", graph_identity.buildOptions(b, context.identity));
     root.addOptions(
         "product_identity",
@@ -232,6 +235,10 @@ fn addTests(context: Context) *std.Build.Step.Compile {
     root.addImport("stwo_riscv_cpu", stwo);
     root.addImport("starkv_adapter", adapter);
     root.addImport("riscv_cpu_capabilities", capabilities);
+    root.addImport(
+        "output_transaction",
+        createOutputTransaction(context, context.target, context.optimize),
+    );
     root.addOptions("build_identity", graph_identity.buildOptions(b, context.identity));
     root.addOptions(
         "product_identity",
@@ -297,6 +304,19 @@ fn createCapabilitiesModule(
     return graph.create(context.b, .{
         .product = product,
         .root_source_file = "src/products/riscv_cpu/capabilities.zig",
+        .target = target,
+        .optimize = optimize,
+    });
+}
+
+fn createOutputTransaction(
+    context: Context,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) *std.Build.Module {
+    return graph.create(context.b, .{
+        .product = product,
+        .root_source_file = "src/interop/output_transaction.zig",
         .target = target,
         .optimize = optimize,
     });

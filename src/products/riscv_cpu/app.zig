@@ -7,6 +7,7 @@ const cli = @import("cli.zig");
 const registry = @import("registry.zig");
 
 const atomic_file = stwo.interop.atomic_file;
+const output_transaction = @import("output_transaction");
 
 pub fn main() !void {
     const allocator = std.heap.smp_allocator;
@@ -48,9 +49,7 @@ fn runElf(
     proof_output: ?[]const u8,
     report_output: ?[]const u8,
 ) !void {
-    if (proof_output) |path| try rejectPathCollision(path, report_output);
-    if (proof_output) |path| try requireAbsent(path);
-    if (report_output) |path| try requireAbsent(path);
+    try output_transaction.prepare(proof_output, report_output);
 
     const proof_temporary = if (proof_output) |path|
         try atomic_file.temporaryPathAlloc(allocator, path, "proof")
@@ -83,9 +82,23 @@ fn runElf(
     defer allocator.free(report);
 
     if (proof_output) |path| {
-        try publishResult(allocator, proof_temporary.?, path, report, report_output);
+        try output_transaction.publishResult(
+            atomic_file,
+            allocator,
+            proof_temporary.?,
+            path,
+            report,
+            report_output,
+            std.fs.File.stdout().deprecatedWriter(),
+        );
     } else {
-        try publishReport(allocator, report, report_output);
+        try output_transaction.publishReport(
+            atomic_file,
+            allocator,
+            report,
+            report_output,
+            std.fs.File.stdout().deprecatedWriter(),
+        );
     }
 }
 
@@ -110,54 +123,12 @@ fn protocol(value: cli.Protocol) adapter.Protocol {
     };
 }
 
-fn publishResult(
-    allocator: std.mem.Allocator,
-    proof_temporary: []const u8,
-    proof_output: []const u8,
-    report: []const u8,
-    report_output: ?[]const u8,
-) !void {
-    if (report_output) |output| {
-        const report_temporary = try atomic_file.temporaryPathAlloc(allocator, output, "report");
-        defer allocator.free(report_temporary);
-        defer std.fs.cwd().deleteFile(report_temporary) catch {};
-        try atomic_file.writeExclusive(allocator, report_temporary, report);
-        try atomic_file.publishExclusive(proof_temporary, proof_output);
-        errdefer std.fs.cwd().deleteFile(proof_output) catch {};
-        try atomic_file.publishExclusive(report_temporary, output);
-        return;
-    }
-    try atomic_file.publishExclusive(proof_temporary, proof_output);
-    try writeLine(std.fs.File.stdout().deprecatedWriter(), report);
-}
-
-fn publishReport(
-    allocator: std.mem.Allocator,
-    report: []const u8,
-    report_output: ?[]const u8,
-) !void {
-    if (report_output) |output| return atomic_file.writeExclusive(allocator, output, report);
-    try writeLine(std.fs.File.stdout().deprecatedWriter(), report);
-}
-
 fn writeApplications() !void {
     var buffer: [4096]u8 = undefined;
     var output = std.fs.File.stdout().writer(&buffer);
     try registry.write(&output.interface);
     try output.interface.writeByte('\n');
     try output.interface.flush();
-}
-
-fn rejectPathCollision(path: []const u8, maybe_other: ?[]const u8) !void {
-    if (maybe_other) |other| if (std.mem.eql(u8, path, other)) return error.OutputPathCollision;
-}
-
-fn requireAbsent(path: []const u8) !void {
-    std.fs.cwd().access(path, .{}) catch |err| switch (err) {
-        error.FileNotFound => return,
-        else => return err,
-    };
-    return error.OutputAlreadyExists;
 }
 
 fn writeLine(writer: anytype, bytes: []const u8) !void {

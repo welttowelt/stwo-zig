@@ -73,7 +73,6 @@ const MetalRun = struct {
     args: runner.config.Args,
 
     fn execute(self: MetalRun, temporary: ?[]const u8, output: ?[]const u8) ![]u8 {
-        stwo.backends.metal.commit_policy.requireDeviceOnly();
         var args = self.args;
         args.proof_artifact_out = temporary;
         args.proof_artifact_report_path = output;

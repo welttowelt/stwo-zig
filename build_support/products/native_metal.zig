@@ -24,12 +24,14 @@ const source_closure = product_policy.SourceClosure{
         .{ .name = "stwo_prover_impl", .source = "src/prover/mod.zig" },
         .{ .name = "native_proof_runner", .source = "src/prover/native/runner.zig" },
         .{ .name = "native_transaction", .source = "src/integrations/native/transaction.zig" },
+        .{ .name = "output_transaction", .source = "src/interop/output_transaction.zig" },
         .{ .name = "native_product_identity", .source = "src/integrations/native/product_identity.zig" },
         .{ .name = "native_cpu_capabilities", .source = "src/products/native_cpu/capabilities.zig" },
     },
     .allowed_files = &.{
         "src/stwo_native_metal.zig",
         "src/interop/atomic_file.zig",
+        "src/interop/output_transaction.zig",
         "src/interop/examples_artifact.zig",
         "src/interop/examples_artifact_verifier.zig",
         "src/interop/postcard.zig",
@@ -223,6 +225,12 @@ fn createProductModule(
         .target = context.target,
         .optimize = context.optimize,
     });
+    transaction.addImport("output_transaction", graph.create(context.b, .{
+        .product = logical_product,
+        .root_source_file = "src/interop/output_transaction.zig",
+        .target = context.target,
+        .optimize = context.optimize,
+    }));
     root.addImport("native_transaction", transaction);
     const capabilities = graph.create(context.b, .{
         .product = logical_product,

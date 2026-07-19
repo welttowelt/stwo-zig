@@ -68,6 +68,12 @@ pub fn addProduct(context: Context) *std.Build.Step.Compile {
         .target = context.target,
         .optimize = context.optimize,
     });
+    const output_transaction = b.createModule(.{
+        .root_source_file = b.path("src/interop/output_transaction.zig"),
+        .target = context.target,
+        .optimize = context.optimize,
+    });
+    native_transaction.addImport("output_transaction", output_transaction);
     module.addImport("native_transaction", native_transaction);
     const native_identity = b.createModule(.{
         .root_source_file = b.path("src/integrations/native/product_identity.zig"),
