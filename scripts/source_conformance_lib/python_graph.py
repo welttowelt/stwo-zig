@@ -70,7 +70,9 @@ def resolve_imports(
 def layer(relative: Path) -> tuple[str, str | None]:
     if relative.parts[0] == "tests":
         return "test", None
-    if len(relative.parts) > 1 and relative.parts[0].endswith("_lib"):
+    if len(relative.parts) > 1 and (
+        relative.parts[0].endswith("_lib") or relative.parts[0] == "product_closure"
+    ):
         return "library", relative.parts[0]
     return "boundary", None
 

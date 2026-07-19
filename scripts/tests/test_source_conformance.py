@@ -322,6 +322,7 @@ class SourceConformanceTests(unittest.TestCase):
             "scripts/benchmark_delta.py",
             "scripts/benchmark_full.py",
             "scripts/benchmark_smoke.py",
+            "scripts/architecture_host_gate.py",
             "scripts/build_architecture_receipt.py",
             "scripts/compare_optimization.py",
             "scripts/e2e_interop.py",

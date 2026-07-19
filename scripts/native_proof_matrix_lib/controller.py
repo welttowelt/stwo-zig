@@ -278,8 +278,11 @@ def run_matrix(args: argparse.Namespace) -> dict[str, Any]:
         "cpu": require_binary(args.cpu_bin, "cpu"),
         "metal": require_binary(args.metal_bin, "metal"),
     }
+    # A bounded correctness matrix may still use the pinned final oracle even
+    # when its sample count is intentionally too small for headline evidence.
     rust_oracle = (
-        require_binary(args.rust_oracle_bin, "Rust oracle") if args.formal else None
+        require_binary(args.rust_oracle_bin, "Rust oracle")
+        if args.rust_oracle_bin is not None else None
     )
     binary_hashes = {lane: sha256_file(binary) for lane, binary in binaries.items()}
     metal_runtime = getattr(args, "metal_runtime", "source-jit")
