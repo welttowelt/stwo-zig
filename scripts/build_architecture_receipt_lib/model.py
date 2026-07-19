@@ -13,7 +13,7 @@ AGGREGATE_SCHEMA = "build-monorepo-receipt-v1"
 EVIDENCE_SCHEMA = "build-architecture-host-evidence-v1"
 PROTOCOL_SCHEMA = "build-architecture-receipt-protocol-v1"
 DEFAULT_PROTOCOL = ROOT / "conformance/build-architecture-receipt-protocol-v1.json"
-DEFAULT_PRODUCT_SCHEMA = ROOT / "build_support/graph/modules.zig"
+DEFAULT_PRODUCT_SCHEMA = ROOT / "build_support/graph/product.zig"
 DEFAULT_WORKFLOW = ROOT / ".github/workflows/ci.yml"
 DEFAULT_OUTPUT_ROOT = ROOT / "zig-out/release-evidence/build-architecture"
 

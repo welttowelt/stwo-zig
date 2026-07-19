@@ -38,14 +38,14 @@ class ReceiptFixture:
     def __init__(self, root: Path) -> None:
         self.root = root
         self.protocol_path = root / "conformance/build-architecture-receipt-protocol-v1.json"
-        self.product_schema_path = root / "build_support/graph/modules.zig"
+        self.product_schema_path = root / "build_support/graph/product.zig"
         self.workflow_path = root / ".github/workflows/ci.yml"
         for destination, source in (
             (
                 self.protocol_path,
                 Path("conformance/build-architecture-receipt-protocol-v1.json"),
             ),
-            (self.product_schema_path, Path("build_support/graph/modules.zig")),
+            (self.product_schema_path, Path("build_support/graph/product.zig")),
             (self.workflow_path, Path(".github/workflows/ci.yml")),
         ):
             destination.parent.mkdir(parents=True, exist_ok=True)

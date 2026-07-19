@@ -12,6 +12,7 @@ const riscv_cpu_product = @import("build_support/products/riscv_cpu.zig");
 const verification_products = @import("build_support/verification_products.zig");
 
 pub fn build(b: *std.Build) void {
+    @import("build_support/gates/architecture_receipts.zig").addGates(b);
     build_monorepo_baseline.addGate(b);
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
