@@ -147,16 +147,20 @@ def archive_store() -> dict[str, int | float]:
     return store
 
 
-def backend_counters(dispatches: int = 4, fallbacks: int = 1) -> dict[str, int]:
+def backend_counters(dispatches: int = 4, fallbacks: int = 0) -> dict[str, int]:
     counters = {key: 0 for key in MODULE.BACKEND_COUNTER_KEYS}
     counters["metal_circle_lde_dispatches"] = dispatches
     counters["host_merkle_commits"] = fallbacks
     return counters
 
 
-def telemetry_delta(dispatches: int = 4, fallbacks: int = 1) -> dict[str, object]:
+def telemetry_delta(dispatches: int = 4, fallbacks: int = 0) -> dict[str, object]:
     return {
-        "classification": "accelerated_with_fallbacks",
+        "classification": (
+            "accelerated_without_fallbacks"
+            if fallbacks == 0
+            else "accelerated_with_fallbacks"
+        ),
         "metal_dispatches": dispatches,
         "cpu_fallbacks": fallbacks,
         "counters": backend_counters(dispatches, fallbacks),
@@ -230,6 +234,7 @@ def make_report(
     artifact_path: Path | None = None,
     dirty: bool = False,
     cold_pipeline: bool = False,
+    metal_fallbacks: int = 0,
 ) -> dict[str, object]:
     prove = 2.0 if lane == "cpu" else 1.0
     request = 2.5 if lane == "cpu" else 1.25
@@ -261,7 +266,7 @@ def make_report(
         "clean_complete_provenance": not dirty,
         "thread_parallelism_enabled": True,
         "byte_identical_verified_samples": True,
-        "backend_telemetry_valid": not cold_pipeline,
+        "backend_telemetry_valid": not cold_pipeline and metal_fallbacks == 0,
     }
     telemetry = None
     if lane == "metal":
@@ -269,11 +274,15 @@ def make_report(
             "scope": "verified_proof_request",
             "post_warmup_pipeline_cache": pipeline_cache(),
             "post_warmup_archive_store": archive_store(),
-            "warmups": [telemetry_delta() for _ in range(warmups)],
-            "samples": [telemetry_delta() for _ in range(samples)],
+            "warmups": [
+                telemetry_delta(fallbacks=metal_fallbacks) for _ in range(warmups)
+            ],
+            "samples": [
+                telemetry_delta(fallbacks=metal_fallbacks) for _ in range(samples)
+            ],
             "total_metal_dispatches": 4 * (warmups + samples),
-            "total_cpu_fallbacks": warmups + samples,
-            "valid": True,
+            "total_cpu_fallbacks": metal_fallbacks * (warmups + samples),
+            "valid": not cold_pipeline and metal_fallbacks == 0,
         }
         if cold_pipeline:
             telemetry["samples"][0]["pipeline_cache"]["direct_compiles"] = 1

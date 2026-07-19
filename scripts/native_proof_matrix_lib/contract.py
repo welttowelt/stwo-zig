@@ -473,14 +473,15 @@ def validate_metal_telemetry(report: dict[str, Any], warmups: int, samples: int)
     )
     if declared_total_dispatches != total_dispatches or declared_total_fallbacks != total_fallbacks:
         raise MatrixError("metal telemetry aggregate totals are inconsistent")
+    measured_backend_valid = measured_pipeline_warm and total_fallbacks == 0
     declared_valid = require_bool(
         telemetry["valid"], "metal.backend_telemetry.valid"
     )
-    if declared_valid != measured_pipeline_warm:
+    if declared_valid != measured_backend_valid:
         raise MatrixError(
-            "metal.backend_telemetry.valid disagrees with measured pipeline warmth"
+            "metal.backend_telemetry.valid disagrees with pipeline warmth or CPU fallback counters"
         )
-    return measured_pipeline_warm
+    return measured_backend_valid
 
 
 def validate_sample(sample: dict[str, Any], lane: str, index: int, workload: Workload) -> None:

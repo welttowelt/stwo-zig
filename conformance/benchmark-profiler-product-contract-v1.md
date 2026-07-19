@@ -27,6 +27,11 @@ must match. Formal rows also require acceptance by the pinned Rust Stwo oracle.
 No failed, unverified, profiled, dirty, unstable, or under-sampled row may
 publish headline performance.
 
+Metal telemetry is promotion-quality only when every warmup and measured proof
+records at least one Metal dispatch and zero CPU fallbacks. Hybrid fallback
+runs remain valid diagnostic reports, but cannot populate headline fields or
+produce a promotion-eligible receipt.
+
 `scripts/native_profile_capture.py` is the focused profiling surface. It uses
 the same product identities and executable binding, locally verifies the
 profiled proofs, and requires CPU/Metal canonical proof equality. Profile

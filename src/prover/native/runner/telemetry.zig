@@ -117,9 +117,12 @@ pub fn valid(
     samples: []const report.BackendTelemetryDelta,
 ) bool {
     if (comptime backend == .cpu_native) return warmups.len == 0 and samples.len == 0;
-    for (warmups) |delta| if (delta.metal_dispatches == 0) return false;
+    for (warmups) |delta| {
+        if (delta.metal_dispatches == 0 or delta.cpu_fallbacks != 0) return false;
+    }
     for (samples) |delta| {
         if (delta.metal_dispatches == 0 or
+            delta.cpu_fallbacks != 0 or
             pipelinePreparationOccurred(delta.pipeline_cache) or
             archivePreparationOccurred(delta.archive_store))
             return false;
@@ -185,6 +188,11 @@ test "every Metal request needs a dispatch" {
     host_only.metal_dispatches = 0;
     try std.testing.expect(valid(.metal_hybrid, &.{accelerated}, &.{accelerated}));
     try std.testing.expect(!valid(.metal_hybrid, &.{accelerated}, &.{host_only}));
+    var fallback = accelerated;
+    fallback.classification = "accelerated_with_fallbacks";
+    fallback.cpu_fallbacks = 1;
+    try std.testing.expect(!valid(.metal_hybrid, &.{fallback}, &.{accelerated}));
+    try std.testing.expect(!valid(.metal_hybrid, &.{accelerated}, &.{fallback}));
     var cold = accelerated;
     cold.pipeline_cache.direct_compiles = 1;
     try std.testing.expect(!valid(.metal_hybrid, &.{accelerated}, &.{cold}));

@@ -396,6 +396,14 @@ class NativeProofMatrixTests(unittest.TestCase):
         with self.assertRaisesRegex(MODULE.MatrixError, "pipeline warmth"):
             MODULE.validate_report(report, "metal", workload, args())
 
+        report = make_report("metal", workload, metal_fallbacks=1)
+        _, blockers = MODULE.validate_report(report, "metal", workload, args())
+        self.assertIn("metal_requirement_backend_telemetry_valid", blockers)
+        self.assertFalse(report["throughput"]["headline_eligible"])
+        report["backend_telemetry"]["valid"] = True
+        with self.assertRaisesRegex(MODULE.MatrixError, "CPU fallback counters"):
+            MODULE.validate_report(report, "metal", workload, args())
+
         report = make_report("metal", workload, cold_pipeline=True)
         report["backend_telemetry"]["samples"][0]["pipeline_cache"]["direct_compiles"] = 0
         report["backend_telemetry"]["samples"][0]["pipeline_cache"]["pipeline_preparation_seconds"] = 0.0
@@ -414,8 +422,10 @@ class NativeProofMatrixTests(unittest.TestCase):
         delta = report["backend_telemetry"]["warmups"][0]
         delta["counters"] = backend_counters(0, 1)
         delta["metal_dispatches"] = 0
+        delta["cpu_fallbacks"] = 1
         delta["classification"] = "host_only"
         report["backend_telemetry"]["total_metal_dispatches"] -= 4
+        report["backend_telemetry"]["total_cpu_fallbacks"] += 1
         with self.assertRaisesRegex(MODULE.MatrixError, "no accelerated work"):
             MODULE.validate_report(report, "metal", workload, args())
 
