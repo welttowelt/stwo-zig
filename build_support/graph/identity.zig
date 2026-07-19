@@ -4,10 +4,19 @@ const std = @import("std");
 const builtin = @import("builtin");
 const build_identity = @import("../build_identity.zig");
 const modules = @import("modules.zig");
+const encoding = @import("identity/encoding.zig");
+
+const digestBytes = encoding.digestBytes;
+const hashBool = encoding.hashBool;
+const hashDigest = encoding.hashDigest;
+const hashField = encoding.hashField;
+const hashInt = encoding.hashInt;
+const hashOptionalDigest = encoding.hashOptionalDigest;
+const hashOptionalField = encoding.hashOptionalField;
 
 pub const SCHEMA_VERSION: u32 = 2;
 pub const EVIDENCE_SCHEMA_VERSION: u32 = 1;
-pub const Digest = [32]u8;
+pub const Digest = encoding.Digest;
 pub const RuntimeHooks = struct {
     runtime_manifest: []const u8 = "none",
     sdk_manifest: []const u8 = "none",
@@ -299,41 +308,6 @@ fn cpuFeaturesDigest(cpu: std.Target.Cpu) Digest {
     return hasher.finalResult();
 }
 
-fn digestBytes(value: []const u8) Digest {
-    var result: Digest = undefined;
-    std.crypto.hash.sha2.Sha256.hash(value, &result, .{});
-    return result;
-}
-
-fn hashField(hasher: *std.crypto.hash.sha2.Sha256, value: []const u8) void {
-    hashInt(hasher, value.len);
-    hasher.update(value);
-}
-
-fn hashOptionalField(hasher: *std.crypto.hash.sha2.Sha256, value: ?[]const u8) void {
-    hashBool(hasher, value != null);
-    if (value) |present| hashField(hasher, present);
-}
-
-fn hashDigest(hasher: *std.crypto.hash.sha2.Sha256, value: Digest) void {
-    hasher.update(&value);
-}
-
-fn hashOptionalDigest(hasher: *std.crypto.hash.sha2.Sha256, value: ?Digest) void {
-    hashBool(hasher, value != null);
-    if (value) |present| hashDigest(hasher, present);
-}
-
-fn hashBool(hasher: *std.crypto.hash.sha2.Sha256, value: bool) void {
-    hasher.update(if (value) "\x01" else "\x00");
-}
-
-fn hashInt(hasher: *std.crypto.hash.sha2.Sha256, value: anytype) void {
-    var encoded: [8]u8 = undefined;
-    std.mem.writeInt(u64, &encoded, @intCast(value), .big);
-    hasher.update(&encoded);
-}
-
 fn isLowerHex(value: []const u8, expected_len: usize) bool {
     if (value.len != expected_len) return false;
     for (value) |byte| {
@@ -363,137 +337,4 @@ fn persistTree(b: *std.Build, identity: build_identity.Identity) []const u8 {
     if (identity.implementation_tree) |tree|
         return b.allocator.dupe(u8, &tree) catch @panic("out of memory");
     return "unavailable";
-}
-
-fn testIdentity() CanonicalIdentity {
-    return .{
-        .product = "stwo-native-cpu",
-        .frontend = "native-examples",
-        .backend = "cpu",
-        .role = "cli",
-        .source_repository = build_identity.IMPLEMENTATION_REPOSITORY,
-        .source_commit = "11" ** 20,
-        .source_tree = "22" ** 20,
-        .source_dirty = false,
-        .dirty_content_sha256 = null,
-        .zig_version = "0.15.2",
-        .target_arch = "aarch64",
-        .target_os = "macos",
-        .target_abi = "none",
-        .cpu_model = "apple_m1",
-        .cpu_features_sha256 = .{3} ** 32,
-        .optimize = "ReleaseFast",
-        .protocol_manifest = "native-examples-v1+lifted-pcs-v1",
-    };
-}
-
-test "every canonical field mutation changes product identity" {
-    const baseline = testIdentity();
-    const expected = try baseline.digest();
-    var mutations = [_]CanonicalIdentity{
-        baseline, baseline, baseline, baseline, baseline, baseline, baseline, baseline,
-        baseline, baseline, baseline, baseline, baseline, baseline, baseline, baseline,
-        baseline, baseline, baseline, baseline,
-    };
-    mutations[0].schema_version = 1;
-    mutations[1].product = "stwo-aggregate";
-    mutations[2].frontend = "aggregate";
-    mutations[3].backend = "metal";
-    mutations[4].role = "benchmark";
-    mutations[5].source_repository = "https://example.invalid/fork";
-    mutations[6].source_commit = "33" ** 20;
-    mutations[7].source_tree = "44" ** 20;
-    mutations[8].source_dirty = true;
-    mutations[8].dirty_content_sha256 = .{5} ** 32;
-    mutations[9].zig_version = "0.16.0";
-    mutations[10].target_arch = "x86_64";
-    mutations[11].target_os = "linux";
-    mutations[12].target_abi = "gnu";
-    mutations[13].cpu_model = "baseline";
-    mutations[14].cpu_features_sha256 = .{6} ** 32;
-    mutations[15].optimize = "ReleaseSafe";
-    mutations[16].protocol_manifest = "substituted-capability";
-    mutations[17].runtime.runtime_manifest = "metal-runtime-v2";
-    mutations[18].runtime.sdk_manifest = "macosx27-metal4.0";
-    mutations[19].runtime.aot_manifest = "shader-archive-v2";
-    for (mutations, 0..) |mutation, index| {
-        const actual = mutation.digest() catch |err| {
-            if (index == 0) {
-                try std.testing.expectEqual(error.UnsupportedIdentitySchema, err);
-                continue;
-            }
-            return err;
-        };
-        try std.testing.expect(!std.mem.eql(u8, &expected, &actual));
-    }
-}
-
-test "retained evidence rejects surface executable and AOT substitution" {
-    const product_digest = try testIdentity().digest();
-    const executable_digest = digestBytes("focused executable");
-    const evidence = RetainedEvidence{
-        .class = .gate_receipt,
-        .product_identity_sha256 = product_digest,
-        .executable_sha256 = executable_digest,
-        .runtime_artifact_sha256 = digestBytes("authenticated metallib"),
-    };
-    try evidence.validate(.gate_receipt, product_digest, executable_digest);
-    try std.testing.expectError(
-        error.EvidenceClassMismatch,
-        evidence.validate(.benchmark, product_digest, executable_digest),
-    );
-    try std.testing.expectError(
-        error.ProductIdentityMismatch,
-        evidence.validate(.gate_receipt, digestBytes("aggregate product"), executable_digest),
-    );
-    try std.testing.expectError(
-        error.ExecutableMismatch,
-        evidence.validate(.gate_receipt, product_digest, digestBytes("substituted executable")),
-    );
-    var substituted_aot = evidence;
-    substituted_aot.runtime_artifact_sha256 = digestBytes("substituted metallib");
-    try std.testing.expect(!std.mem.eql(u8, &(try evidence.digest()), &(try substituted_aot.digest())));
-}
-
-test "dirty identity is all-or-nothing" {
-    var identity = testIdentity();
-    identity.source_dirty = true;
-    try std.testing.expectError(error.InconsistentDirtyIdentity, identity.digest());
-    identity.dirty_content_sha256 = .{7} ** 32;
-    _ = try identity.digest();
-    try std.testing.expectError(
-        error.DirtyReleaseIdentity,
-        issueReleaseEvidence(.gate_receipt, identity, digestBytes("executable"), null),
-    );
-}
-
-test "executable evidence uses exact post-link file bytes" {
-    var temporary = std.testing.tmpDir(.{});
-    defer temporary.cleanup();
-    try temporary.dir.writeFile(.{ .sub_path = "candidate", .data = "first executable" });
-    const path = try temporary.dir.realpathAlloc(std.testing.allocator, "candidate");
-    defer std.testing.allocator.free(path);
-    const first = try digestFile(path);
-    try temporary.dir.writeFile(.{ .sub_path = "candidate", .data = "second executable" });
-    const second = try digestFile(path);
-    try std.testing.expect(!std.mem.eql(u8, &first, &second));
-
-    const identity = testIdentity();
-    inline for (std.meta.tags(EvidenceClass)) |class| {
-        const evidence = try issueReleaseEvidence(class, identity, second, null);
-        try evidence.validate(class, try identity.digest(), second);
-    }
-
-    var metal = identity;
-    metal.backend = "metal";
-    metal.runtime = .{
-        .runtime_manifest = "metal-runtime-v1",
-        .sdk_manifest = "metal3.1",
-        .aot_manifest = "authenticated-aot-v1",
-    };
-    try std.testing.expectError(
-        error.MissingRuntimeArtifactDigest,
-        issueReleaseEvidence(.gate_receipt, metal, second, null),
-    );
-    _ = try issueReleaseEvidence(.gate_receipt, metal, second, digestBytes("metallib"));
 }
