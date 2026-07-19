@@ -120,8 +120,7 @@ def tracked_domain(root: Path, paths: tuple[str, ...]) -> dict[str, object]:
     if paths:
         command.extend(("--", *paths))
     raw = subprocess.run(command, cwd=root, check=True, capture_output=True).stdout
-    records: list[dict[str, object]] = []
-    digest = hashlib.sha256()
+    entries: list[tuple[str, str, bytes]] = []
     for entry in raw.split(b"\0"):
         if not entry:
             continue
@@ -129,15 +128,41 @@ def tracked_domain(root: Path, paths: tuple[str, ...]) -> dict[str, object]:
         mode, object_id, stage = metadata.decode("ascii").split(" ")
         if stage != "0":
             raise BundleError(f"unmerged path in content domain: {path_bytes!r}")
-        blob = subprocess.run(
-            ["git", "cat-file", "blob", object_id], cwd=root, check=True, capture_output=True,
-        ).stdout
+        entries.append((mode, object_id, path_bytes))
+    if not entries:
+        raise BundleError(f"empty content domain for paths {paths}")
+
+    query = b"".join(object_id.encode("ascii") + b"\n" for _, object_id, _ in entries)
+    batch = subprocess.run(
+        ["git", "cat-file", "--batch"], cwd=root, check=True,
+        input=query, capture_output=True,
+    ).stdout
+    cursor = 0
+    digest = hashlib.sha256()
+    records: list[dict[str, object]] = []
+    for mode, object_id, path_bytes in entries:
+        line_end = batch.find(b"\n", cursor)
+        if line_end < 0:
+            raise BundleError("truncated git cat-file batch header")
+        header = batch[cursor:line_end].decode("ascii").split(" ")
+        if len(header) != 3 or header[0] != object_id:
+            raise BundleError("git cat-file batch identity drifted")
+        try:
+            size = int(header[2])
+        except ValueError as error:
+            raise BundleError("invalid git cat-file batch size") from error
+        start = line_end + 1
+        end = start + size
+        if end >= len(batch) or batch[end:end + 1] != b"\n":
+            raise BundleError("truncated git cat-file batch object")
+        blob = batch[start:end]
+        cursor = end + 1
         for value in (mode.encode(), path_bytes, blob):
             digest.update(len(value).to_bytes(8, "big"))
             digest.update(value)
         records.append({"path": path_bytes.decode("utf-8"), "mode": mode})
-    if not records:
-        raise BundleError(f"empty content domain for paths {paths}")
+    if cursor != len(batch):
+        raise BundleError("unexpected trailing git cat-file batch output")
     return {
         "schema": "git-tracked-content-v1",
         "sha256": digest.hexdigest(),
