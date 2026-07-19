@@ -106,6 +106,22 @@ jobs:
       - name: Exercise SN-PIE composition metallib loader
         run: |
           zig build metal-eval-prepare -Doptimize=ReleaseFast
+          zig build metal-eval-source -Doptimize=ReleaseFast
+          mkdir -p "$RUNNER_TEMP/sn-pie-composition"
+          zig-out/bin/metal-eval-source \
+            vectors/cairo/sn_pie_2_composition.bin \
+            "$RUNNER_TEMP/sn-pie-composition/composition.metal"
+          xcrun --sdk macosx metal \
+            -mmacosx-version-min=14.0 \
+            -std=metal3.1 \
+            -fno-fast-math \
+            -Werror \
+            -c "$RUNNER_TEMP/sn-pie-composition/composition.metal" \
+            -o "$RUNNER_TEMP/sn-pie-composition/composition.air"
+          xcrun --sdk macosx metallib \
+            "$RUNNER_TEMP/sn-pie-composition/composition.air" \
+            -o "$RUNNER_TEMP/sn-pie-composition/composition.metallib"
+          export STWO_ZIG_COMPOSITION_METALLIB="$RUNNER_TEMP/sn-pie-composition/composition.metallib"
           python3 -m unittest \
             scripts.tests.test_sn_pie_composition_bundle.SnPieCompositionBundleTest.test_sn1_retarget_loads_in_zig_with_existing_metallib
 

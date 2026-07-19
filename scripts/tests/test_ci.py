@@ -125,6 +125,15 @@ class CiTests(unittest.TestCase):
             "zig build metal-eval-prepare -Doptimize=ReleaseFast", metal_job
         )
         self.assertIn(
+            "zig build metal-eval-source -Doptimize=ReleaseFast", metal_job
+        )
+        self.assertIn("zig-out/bin/metal-eval-source", metal_job)
+        self.assertIn("-mmacosx-version-min=14.0", metal_job)
+        self.assertIn("-std=metal3.1", metal_job)
+        self.assertIn("-fno-fast-math", metal_job)
+        self.assertIn("-Werror", metal_job)
+        self.assertIn("STWO_ZIG_COMPOSITION_METALLIB", metal_job)
+        self.assertIn(
             "SnPieCompositionBundleTest.test_sn1_retarget_loads_in_zig_with_existing_metallib",
             metal_job,
         )
@@ -174,6 +183,14 @@ class CiTests(unittest.TestCase):
         )
         self.assertIn(
             "b.getInstallStep().dependOn(&install_metal_eval_prepare.step);",
+            metal_products,
+        )
+        self.assertIn(
+            "const install_metal_eval_source = b.addInstallArtifact(",
+            metal_products,
+        )
+        self.assertIn(
+            "metal_eval_source_step.dependOn(&install_metal_eval_source.step);",
             metal_products,
         )
         self.assertIn(

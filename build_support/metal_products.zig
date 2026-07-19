@@ -194,7 +194,13 @@ pub fn addProducts(context: Context) void {
         .name = "metal-eval-source",
         .root_module = metal_eval_source_module,
     });
-    b.installArtifact(metal_eval_source);
+    const install_metal_eval_source = b.addInstallArtifact(metal_eval_source, .{});
+    b.getInstallStep().dependOn(&install_metal_eval_source.step);
+    const metal_eval_source_step = b.step(
+        "metal-eval-source",
+        "Build the exact Cairo AIR Metal source generator",
+    );
+    metal_eval_source_step.dependOn(&install_metal_eval_source.step);
 
     const metal_witness_source_module = b.createModule(.{
         .root_source_file = b.path("src/tools/cairo_metal_codegen/witness_source.zig"),

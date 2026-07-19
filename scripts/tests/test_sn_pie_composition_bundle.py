@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import os
 from pathlib import Path
 import struct
 import subprocess
@@ -13,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts/sn_pie_composition_bundle.py"
 TEMPLATE = ROOT / "vectors/cairo/sn_pie_2_composition.bin"
 METALLIB = ROOT / "vectors/cairo/sn_pie_2_composition.metallib"
+METALLIB_OVERRIDE = "STWO_ZIG_COMPOSITION_METALLIB"
 SPEC = importlib.util.spec_from_file_location("sn_pie_composition_bundle", SCRIPT)
 MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
@@ -263,6 +265,11 @@ def installed_metal_eval_prepare() -> Path | None:
     return path if path.is_file() else None
 
 
+def composition_metallib() -> Path:
+    override = os.environ.get(METALLIB_OVERRIDE)
+    return Path(override) if override else METALLIB
+
+
 class SnPieCompositionBundleTest(unittest.TestCase):
     def test_memory_address_stride_substitutions_follow_trace_domain(self):
         self.assertEqual(
@@ -300,7 +307,8 @@ class SnPieCompositionBundleTest(unittest.TestCase):
         def test_sn1_retarget_loads_in_zig_with_existing_metallib(self):
             runner = installed_metal_eval_prepare()
             self.assertIsNotNone(runner)
-            self.assertTrue(METALLIB.is_file())
+            metallib = composition_metallib()
+            self.assertTrue(metallib.is_file(), metallib)
             with tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 proof = root / "sn1-proof.json"
@@ -315,12 +323,20 @@ class SnPieCompositionBundleTest(unittest.TestCase):
                 )
                 result = MODULE.retarget(TEMPLATE, proof, output)
                 completed = subprocess.run(
-                    [runner, output, METALLIB],
+                    [runner, output, metallib],
                     cwd=ROOT,
-                    check=True,
+                    check=False,
                     capture_output=True,
                     text=True,
                 )
+
+            self.assertEqual(
+                0,
+                completed.returncode,
+                "Metal composition loader failed\n"
+                f"stdout:\n{completed.stdout}\n"
+                f"stderr:\n{completed.stderr}",
+            )
 
             loaded = json.loads(completed.stdout)
             self.assertEqual(result["changed_components"], 35)
