@@ -107,6 +107,10 @@ class RegistryValidationTest(unittest.TestCase):
             "editable_paths": [],
             "locked_paths": [],
             "gates_policy": {},
+            "qualification_policy": {
+                "required_checks": ["allowed_diff"],
+                "max_active_per_user": 1,
+            },
             "workload_registry": {
                 "groups": {
                     "native": {

@@ -361,6 +361,7 @@ def evaluate(
     judged: bool,
     out_dir: Path,
     board: str = "core_cpu",
+    holdout_seed: int | None = None,
 ) -> dict:
     """Run the full paired evaluation and assemble a verdict dict.
 
@@ -393,7 +394,11 @@ def evaluate(
 
     holdout_result = None
     if judged:
-        seed = _seed(_git(repo_root, "rev-parse", "HEAD") or "head", 0)
+        seed = (
+            holdout_seed
+            if holdout_seed is not None
+            else _seed(_git(repo_root, "rev-parse", "HEAD") or "head", 0)
+        )
         holdout = draw_holdout(manifest, workload_class, seed, board)
         if holdout is not None:
             hs = paired_rounds(predecessor_root, repo_root, manifest, holdout,

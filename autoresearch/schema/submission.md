@@ -1,5 +1,9 @@
 # Submission directory schema (v1)
 
+This schema is the legacy PR envelope. Bot-promoted fork submissions use the
+v2 envelope documented in [remote-submission.md](remote-submission.md); both
+forms are immutable research records keyed by the promotions ledger.
+
 A submission is one directory under `autoresearch/submissions/`, added by one PR:
 
 ```text

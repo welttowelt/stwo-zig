@@ -110,6 +110,23 @@
     "wall_clock_cap_seconds": { "small": 240, "wide": 600, "deep": 600 },
     "neutral_band_note": "Promotion requires the declared-objective CI entirely below 1 - theta, where theta = max(theta_floor, dispersion_multiplier x per-class A/A dispersion recorded in the ledger epoch)."
   },
+  "qualification_policy": {
+    "schema_version": 1,
+    "max_active_per_user": 1,
+    "required_checks": [
+      "allowed_diff",
+      "locked_tree",
+      "source_modes",
+      "harness_tests",
+      "release_build",
+      "public_benchmark"
+    ],
+    "source_commit_must_descend_from_frontier": true,
+    "source_modes": ["100644"],
+    "require_github_artifact_attestation": true,
+    "central_reverification_required": true,
+    "note": "Fork CI is a cost-shifting qualification signal, never the trust root. Intake recomputes tree evidence and the central judge rebuilds and benchmarks hidden holdouts before promotion."
+  },
   "scopes": {
     "s1": "kernel/function microbench (counters primary; wall time secondary)",
     "s2": "stage subtree via stage profiles (diagnostic only)",

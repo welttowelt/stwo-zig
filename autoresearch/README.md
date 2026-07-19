@@ -20,13 +20,14 @@ autoresearch/
                        Metal performance design, Zig profiling, and
                        Metal profiling
   README.md            this file
-  schema/              submission dir, verdict JSON, and ledger row schemas
+  schema/              local/remote submission, qualification, queue, verdict,
+                       scoring, and ledger schemas
   ledger/              promotions.tsv (append-only) + epochs.json
   submissions/         one directory per submission, landed by PR
   notes/               standalone working notes (searchable via the CLI)
   cli/                 stwo-perf (harness) and stwo-prof (profiling) CLIs
-  backend/             optional API-key/leaderboard service (GitHub-verified)
-  bots/                validate / judge / promote automation entrypoints
+  backend/             GitHub identity, scoped keys, intake store, and queue workers
+  bots/                validate / qualify / intake / judge / promote entrypoints
   workflows/           GitHub Actions to copy into .github/workflows/
   tests/               unit tests (python3 -m unittest discover -s autoresearch/tests)
 ```
@@ -59,6 +60,45 @@ stwo-perf feed                     # compile site/feed.json — the repo->websit
                                    # contract (schema/site-feed.md); refuses
                                    # dirty inputs
 ```
+
+## Fork-funded remote autoresearch
+
+The remote path is for frequent, low-review submissions without spending the
+canonical repository's hosted-runner budget on every attempt. A participant
+fork pays for public qualification; the canonical service spends controlled
+machine time only after cheap central tree validation.
+
+```bash
+# In a current fork, commit only MANIFEST.json editable paths. Obtain the exact
+# canonical tip (not merely the last source commit in the performance ledger):
+stwo-perf config --set api_url=https://autoresearch.example
+FRONTIER=$(stwo-perf remote-frontier --board core_cpu --class small)
+
+# Run autoresearch-qualify-fork in the fork's Actions UI with FRONTIER and
+# download its autoresearch-qualification artifact. Then authenticate the CLI:
+stwo-perf login --client-id <github-oauth-app-client-id>
+stwo-perf apikey
+stwo-perf whoami
+
+stwo-perf submit-remote \
+  --receipt qualification/receipt.json \
+  --repository https://github.com/<your-login>/stwo-zig \
+  --ref refs/heads/<optimization-branch> \
+  --note-file note.md \
+  --artifact-digest sha256:<receipt-file-sha256> \
+  --attestation-url https://github.com/.../attestations/... \
+  --coauthor <collaborator-login>
+
+stwo-perf submission-status
+# Each requested collaborator uses their own GitHub-bound key:
+stwo-perf coauthor-accept <submission-id>
+```
+
+`STWO_PERF_API_KEY` can replace the stored key for headless agents. The same key
+authenticates `whoami`, `submit-remote`, `submission-status`, co-author consent,
+and withdrawal; `stwo-perf apikey-revoke` invalidates it centrally. See
+`schema/qualification.md`, `schema/remote-submission.md`, and
+`schema/remote-queue.md` for the wire and state contracts.
 
 ### Algorithm-selection gate
 
@@ -100,8 +140,11 @@ disappear when piped).
 | actor | may do | may never do |
 | --- | --- | --- |
 | searcher (human or agent) | edit `editable_paths`, run claimed evaluations, submit, write notes | touch locked paths in a submission PR, mint `kind: judged`, append the ledger |
+| fork qualification CI | run locked public tests/build/benchmark in the participant account, emit an optional attested receipt | establish trust merely because a check is green |
+| intake worker | fetch a GitHub-owned fork, pin its source object, recompute ancestry/path/mode/tree/digest policy | execute participant code or trust fork-supplied pass booleans |
 | judge (self-hosted runner) | paired judged runs under the host lock, comment verdicts, publish **HMAC-signed** verdicts to the `judge-verdicts` branch | edit source, edit existing ledger rows, write into the PR branch |
-| promotion bot (CI on merge) | fetch the signed verdict, verify the signature, append one outcome row | append anything unsigned; anything else |
+| remote judge/promoter | create an exact-tree canonical commit, run secret holdout, verify signed promotion, add verified co-author trailers and append one row | merge a stale frontier, altered tree, unsigned verdict, or unconsented attribution |
+| promotion bot (legacy PR flow) | fetch the signed verdict, verify the signature, append one outcome row | append anything unsigned; anything else |
 
 Enforced mechanically, three times: `stwo-perf submit` refuses locally;
 `bots/validate_action.py` re-checks every PR in CI (locked paths on submission
@@ -140,7 +183,7 @@ within theta/2 of the bar.
 
 ## GitHub as the source of truth
 
-A promoted effort is, permanently and in one place:
+A legacy PR promotion is, permanently and in one place:
 
 1. the **merged commit** with the editable-path diff;
 2. its **submission directory** — `note.md` (public reasoning), `verdict.json`
@@ -157,6 +200,13 @@ reconstruct any promoted state. Because ledger rows and `sync` reference the
 judged PR-head commit, `main` must use **merge commits** (disable squash and
 rebase merging) so those SHAs stay reachable forever.
 
+A remote promotion preserves the same four things with a different envelope:
+the first canonical commit contains only the exact editable-path tree delta and
+verified participant trailers; its child adds the append-only ledger row and a
+v2 submission directory containing the note, remote identity/source record,
+tree delta, qualification receipt, and signed judged verdict. Both commits are
+fast-forwarded together, so source and evidence cannot land separately.
+
 ## Installing the automation
 
 ```bash
@@ -172,6 +222,10 @@ cp autoresearch/workflows/*.yml .github/workflows/     # commit via normal revie
   push) after it finishes.
 - `promote.yml` — on merge; verifies the signature and appends the outcome
   row; pushes with `[skip ci]`.
+- `qualify-fork.yml` — inherited and run in participant forks; public test,
+  release build, paired benchmark, receipt upload, and artifact attestation.
+- `remote-queue.yml` — optional scheduled, self-hosted alternative to the local
+  queue daemon; centrally revalidates, judges, records, and fast-forwards one.
 
 Branch protection expected on `main`: require `autoresearch-validate` **and**
 `autoresearch-judge` (an unlabeled PR reports the judge check as skipped,
@@ -179,23 +233,43 @@ which satisfies it), require review, forbid force pushes, allow only merge
 commits, and add the promote workflow identity to the required-pull-request
 **bypass list** — without that exemption the bot's ledger push is rejected
 and no row ever lands. Secrets required: `JUDGE_HMAC_SECRET` (same value for
-judge and promote workflows).
+judge and promote workflows). The remote worker additionally uses an
+independent `JUDGE_HOLDOUT_SECRET`; never expose either secret to fork CI.
 
 ## Backend (optional)
 
-The repo works with no backend. Run it when you want GitHub-verified API keys
-for bots/CI and JSON leaderboard/frontier endpoints:
+The legacy PR flow works with no backend. Remote fork submissions use the HTTP
+service plus a worker sharing one store file:
 
 ```bash
 STWO_PERF_HMAC_SECRET=$(openssl rand -hex 32) GITHUB_CLIENT_ID=<oauth app id> \
-  python3 autoresearch/backend/server.py --repo . --port 8787
+  python3 autoresearch/backend/server.py --repo . --port 8787 \
+  --store /var/lib/stwo-perf/backend-store.json
+
+JUDGE_HMAC_SECRET=<independent-secret> JUDGE_HOLDOUT_SECRET=<independent-secret> \
+  python3 autoresearch/backend/worker.py --repo . \
+  --store /var/lib/stwo-perf/backend-store.json \
+  --push-remote origin --branch main
 ```
 
-Endpoints: `POST /v1/keys` (GitHub bearer token → HMAC key, stateless verify,
-key-id revocation list), `POST /v1/keys/verify`, `GET /v1/leaderboard`,
-`GET /v1/frontier/<board>/<class>`, `GET /v1/client-id`, `GET /v1/health`. Binds
-127.0.0.1; front with TLS in real deployments. `stwo-perf login` uses the
-GitHub device flow; tokens live in `~/.config/stwo-perf/` with mode 600.
+The OAuth app must enable GitHub Device Flow and requests only `read:user`.
+The backend exchanges the CLI's
+GitHub token only for `/user`, stores no GitHub credential, and issues a scoped,
+revocable HMAC key bound to the stable numeric GitHub ID. API endpoints include
+`POST /v1/auth/github/keys`, `POST /v1/keys/revoke`, `GET /v1/me`,
+`POST/GET /v1/submissions`, consent/withdrawal actions, leaderboard/frontier,
+client ID, and health. The service binds to 127.0.0.1; put authenticated TLS,
+request rate limits, backups, and process isolation in front of it in production.
+CLI credentials live in `~/.config/stwo-perf/config.json` with mode 600.
+An always-on worker also needs `GH_TOKEN` access to verify attestations; the
+scheduled workflow receives its repository token automatically.
+
+For a zero-idle-daemon deployment, `remote-queue.yml` runs one cycle every five
+minutes on the existing self-hosted `stwo-judge` machine and consumes no hosted
+runner minutes. Set repository variable `AUTORESEARCH_STORE_PATH` to the shared
+absolute store path and grant the workflow's bot a protected-branch bypass for
+its exact fast-forward + research-record push. The daemon gives lower latency
+and avoids scheduled Actions entirely.
 
 ## Activation checklist (in order)
 

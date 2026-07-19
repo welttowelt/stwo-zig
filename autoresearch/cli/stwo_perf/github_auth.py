@@ -13,7 +13,7 @@ from . import config
 DEVICE_CODE_URL = "https://github.com/login/device/code"
 TOKEN_URL = "https://github.com/login/oauth/access_token"
 API_ROOT = "https://api.github.com"
-DEFAULT_SCOPE = "repo read:user"
+DEFAULT_SCOPE = "read:user"
 
 
 class AuthError(RuntimeError):

@@ -57,6 +57,10 @@ def make_raw(riscv_enabled: bool, native_binary: str = "bin/fakebench") -> dict:
         "editable_paths": [],
         "locked_paths": [],
         "gates_policy": GATES_POLICY,
+        "qualification_policy": {
+            "required_checks": ["allowed_diff"],
+            "max_active_per_user": 1,
+        },
         "workload_registry": {
             "groups": {
                 "native": {

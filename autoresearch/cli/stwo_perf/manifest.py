@@ -58,6 +58,10 @@ class Manifest:
         return dict(self.raw["gates_policy"])
 
     @property
+    def qualification_policy(self) -> dict:
+        return dict(self.raw["qualification_policy"])
+
+    @property
     def anchor_commit(self) -> str | None:
         return self.raw["harness"].get("anchor_commit")
 
@@ -179,12 +183,18 @@ def load(root: Path | None = None) -> Manifest:
 
 def _validate(raw: dict) -> None:
     for key in ("manifest_version", "harness", "editable_paths", "locked_paths",
-                "workload_registry", "gates_policy"):
+                "workload_registry", "gates_policy", "qualification_policy"):
         if key not in raw:
             raise ManifestError(f"MANIFEST.json missing required key: {key}")
     for entry in raw["editable_paths"]:
         if entry.get("min_rung") not in RUNGS:
             raise ManifestError(f"editable path {entry.get('glob')} has invalid min_rung")
+    qualification = raw["qualification_policy"]
+    required_checks = qualification.get("required_checks")
+    if not isinstance(required_checks, list) or not required_checks:
+        raise ManifestError("qualification_policy.required_checks must be a non-empty list")
+    if qualification.get("max_active_per_user", 0) < 1:
+        raise ManifestError("qualification_policy.max_active_per_user must be positive")
     registry = raw["workload_registry"]
     if "groups" not in registry:
         raise ManifestError(

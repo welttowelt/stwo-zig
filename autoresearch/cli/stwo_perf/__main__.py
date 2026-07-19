@@ -224,7 +224,13 @@ def cmd_reset(args) -> int:
 def cmd_login(args) -> int:
     client_id = args.client_id or config.get("github_client_id")
     if not client_id:
-        return _fail("pass --client-id once (stored) or set github_client_id in config")
+        from . import remote
+        try:
+            client_id = remote.request(config.api_url(), "/v1/client-id")["github_client_id"]
+        except (remote.RemoteError, KeyError):
+            return _fail(
+                "backend has no GitHub client id; pass --client-id once or configure it"
+            )
     try:
         token = device_login(client_id)
         user = whoami(token)
@@ -237,22 +243,141 @@ def cmd_login(args) -> int:
 
 
 def cmd_apikey(_args) -> int:
-    import urllib.request
+    from . import remote
     token = config.github_token()
     if not token:
         return _fail("login first: stwo-perf login")
-    req = urllib.request.Request(
-        f"{config.api_url()}/v1/keys",
-        method="POST",
-        headers={"Authorization": f"Bearer {token}"},
-    )
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = json.loads(resp.read().decode())
-    except OSError as exc:
-        return _fail(f"backend unreachable at {config.api_url()}: {exc}")
+        data = remote.issue_key(config.api_url(), token)
+    except remote.RemoteError as exc:
+        return _fail(str(exc))
     config.set_value("api_key", data["key"])
-    print(f"{ansi.OK} API key issued for {data['login']} and stored")
+    print(f"{ansi.OK} API key issued for {data['login']} and stored (scoped for CLI submissions)")
+    return 0
+
+
+def _remote_key() -> str:
+    key = config.api_key()
+    if not key:
+        raise RuntimeError("no API key configured; run `stwo-perf apikey` first")
+    return key
+
+
+def cmd_whoami(_args) -> int:
+    from . import remote
+    try:
+        data = remote.me(config.api_url(), _remote_key())
+    except (remote.RemoteError, RuntimeError) as exc:
+        return _fail(str(exc))
+    identity = data["identity"]
+    print(ansi.kv_panel("authenticated CLI identity", [
+        ("GitHub", identity["login"]),
+        ("name", identity["name"]),
+        ("id", str(identity["github_id"])),
+        ("profile", identity["profile_url"]),
+    ]))
+    return 0
+
+
+def cmd_apikey_revoke(_args) -> int:
+    from . import remote
+    try:
+        data = remote.revoke_key(config.api_url(), _remote_key())
+    except (remote.RemoteError, RuntimeError) as exc:
+        return _fail(str(exc))
+    config.set_value("api_key", "")
+    print(f"{ansi.OK} API key {data['key_id']} revoked and removed from CLI config")
+    return 0
+
+
+def cmd_submit_remote(args) -> int:
+    from . import remote
+    m = manifest_mod.load()
+    receipt = json.loads(Path(args.receipt).read_text())
+    note = Path(args.note_file).read_text()
+    qualification = {"receipt": receipt}
+    if args.artifact_digest or args.attestation_url:
+        if not (args.artifact_digest and args.attestation_url):
+            return _fail("--artifact-digest and --attestation-url must be supplied together")
+        qualification["attestation"] = {
+            "artifact_digest": args.artifact_digest,
+            "url": args.attestation_url,
+        }
+    if (m.qualification_policy.get("require_github_artifact_attestation", False)
+            and "attestation" not in qualification):
+        return _fail(
+            "current policy requires --artifact-digest and --attestation-url from fork CI"
+        )
+    payload = {
+        "schema_version": 2,
+        "source": {
+            "repository": args.repository,
+            "commit": receipt.get("candidate_commit"),
+            "frontier_commit": receipt.get("frontier_commit"),
+            "ref": args.ref,
+        },
+        "qualification": qualification,
+        "claim": receipt.get("claim"),
+        "note": note,
+        "coauthors": args.coauthor,
+    }
+    try:
+        data = remote.submit(config.api_url(), _remote_key(), payload)
+    except (remote.RemoteError, RuntimeError) as exc:
+        return _fail(str(exc))
+    item = data["submission"]
+    print(f"{ansi.OK} remote submission queued: {item['id']}")
+    print(f"  state: {item['state']} · source: {item['source']['commit'][:12]}")
+    if args.coauthor:
+        print("  co-authors must accept with: stwo-perf coauthor-accept <id>")
+    return 0
+
+
+def cmd_remote_frontier(args) -> int:
+    from . import remote
+    try:
+        data = remote.frontier(config.api_url(), args.board, args.workload_class)
+    except remote.RemoteError as exc:
+        return _fail(str(exc))
+    print(data["repository_frontier_commit"])
+    return 0
+
+
+def cmd_submission_status(args) -> int:
+    from . import remote
+    try:
+        data = remote.submissions(config.api_url(), _remote_key(), args.submission_id)
+    except (remote.RemoteError, RuntimeError) as exc:
+        return _fail(str(exc))
+    items = [data["submission"]] if args.submission_id else data["submissions"]
+    if not items:
+        print(ansi.style("no remote submissions", "dim"))
+        return 0
+    rows = [[
+        item["id"], item["state"], item["claim"]["board"],
+        item["claim"]["workload_class"], f"{item['claim']['shipping_index']:.4f}",
+    ] for item in items]
+    print(ansi.table(["id", "state", "board", "class", "claimed R"], rows))
+    return 0
+
+
+def cmd_coauthor_accept(args) -> int:
+    from . import remote
+    try:
+        data = remote.accept_coauthor(config.api_url(), _remote_key(), args.submission_id)
+    except (remote.RemoteError, RuntimeError) as exc:
+        return _fail(str(exc))
+    print(f"{ansi.OK} co-authorship accepted for {data['submission']['id']}")
+    return 0
+
+
+def cmd_submission_withdraw(args) -> int:
+    from . import remote
+    try:
+        data = remote.withdraw(config.api_url(), _remote_key(), args.submission_id)
+    except (remote.RemoteError, RuntimeError) as exc:
+        return _fail(str(exc))
+    print(f"{ansi.OK} submission {data['submission']['id']} withdrawn")
     return 0
 
 
@@ -337,7 +462,28 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("login", help="GitHub device-flow login")
     p.add_argument("--client-id")
-    sub.add_parser("apikey", help="issue an API key from the backend")
+    sub.add_parser("apikey", help="issue and store a GitHub-bound CLI API key")
+    sub.add_parser("apikey-revoke", help="revoke the configured CLI API key")
+    sub.add_parser("whoami", help="verify the configured API key and show its GitHub identity")
+    p = sub.add_parser("submit-remote", help="submit a fork commit and qualification receipt")
+    p.add_argument("--receipt", required=True, help="qualification receipt JSON from fork CI")
+    p.add_argument("--repository", required=True,
+                   help="HTTPS URL of the GitHub fork containing the commit")
+    p.add_argument("--ref", required=True, help="immutable source branch as refs/heads/<name>")
+    p.add_argument("--note-file", required=True)
+    p.add_argument("--artifact-digest", help="sha256:<hex> for an attested receipt artifact")
+    p.add_argument("--attestation-url", help="GitHub artifact-attestation URL")
+    p.add_argument("--coauthor", action="append", default=[], metavar="GITHUB_LOGIN")
+    p = sub.add_parser("remote-frontier", help="print the full canonical commit required by fork CI")
+    p.add_argument("--board", default="core_cpu")
+    p.add_argument("--class", dest="workload_class", choices=["small", "wide", "deep"],
+                   default="small")
+    p = sub.add_parser("submission-status", help="list remote queue state or inspect one submission")
+    p.add_argument("submission_id", nargs="?")
+    p = sub.add_parser("coauthor-accept", help="accept requested Git co-authorship")
+    p.add_argument("submission_id")
+    p = sub.add_parser("submission-withdraw", help="withdraw your unjudged remote submission")
+    p.add_argument("submission_id")
     p = sub.add_parser("config", help="show or set CLI configuration")
     p.add_argument("--set", metavar="KEY=VALUE")
     sub.add_parser("install-workflows",
@@ -395,7 +541,12 @@ HANDLERS = {
     "setup": cmd_setup, "run": cmd_run, "submit": cmd_submit,
     "submissions": cmd_submissions, "submission-note": cmd_submission_note,
     "notes": cmd_notes, "sync": cmd_sync, "reset": cmd_reset,
-    "login": cmd_login, "apikey": cmd_apikey, "config": cmd_config,
+    "login": cmd_login, "apikey": cmd_apikey,
+    "apikey-revoke": cmd_apikey_revoke, "whoami": cmd_whoami,
+    "submit-remote": cmd_submit_remote, "submission-status": cmd_submission_status,
+    "remote-frontier": cmd_remote_frontier,
+    "coauthor-accept": cmd_coauthor_accept,
+    "submission-withdraw": cmd_submission_withdraw, "config": cmd_config,
     "install-workflows": cmd_install_workflows, "feed": cmd_feed,
 }
 

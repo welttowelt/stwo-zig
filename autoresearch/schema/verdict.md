@@ -50,13 +50,18 @@ manifest disables at run time, with its manifest `disabled_reason` — the same
 skip the runner announces on stdout. Empty list when every group ran.
 
 Judge-added fields (present only on signed judged verdicts fetched from the
-`judge-verdicts` branch, never in a submission's tree):
+`judge-verdicts` branch in the legacy PR flow, or written by the remote
+promotion bot into its immutable v2 research record):
 
 - `submission_id` — the submission directory this verdict judges;
 - `claimed_divergence` — null, or `{claimed_r, judged_r, gap, judged_ci_half_width}`
   when the claim diverged beyond the judged CI (a recorded finding);
 - `judge_signature` — HMAC-SHA256 over the canonical JSON payload; verified by
   the promotion bot before any ledger append.
+
+Remote judged verdicts additionally bind the full `canonical_commit`, original
+`source_commit`, and `qualification_receipt` digest. The HTTP API never exposes
+the worker-only signed verdict before repository publication.
 
 Gate failures reject the candidate (no score is comparable); per-gate `detail`
 carries the margin as a diagnostic, never as a negotiable penalty. `holdout`

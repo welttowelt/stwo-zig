@@ -10,10 +10,21 @@ SECRET = b"test-secret-32-bytes-long-please"
 
 class ApiKeyTest(unittest.TestCase):
     def test_issue_verify_roundtrip(self):
-        key, key_id = apikeys.issue("teddy", SECRET)
+        key, key_id = apikeys.issue({"login": "teddy", "github_id": 42}, SECRET)
         payload = apikeys.verify(key, SECRET)
         self.assertEqual(payload["login"], "teddy")
+        self.assertEqual(payload["github_id"], 42)
+        self.assertIn("submissions:write", payload["scopes"])
         self.assertEqual(payload["key_id"], key_id)
+
+    def test_scope_is_enforced(self):
+        key, _ = apikeys.issue(
+            {"login": "teddy", "github_id": 42}, SECRET,
+            scopes=["identity:read"],
+        )
+        payload = apikeys.verify(key, SECRET)
+        with self.assertRaises(apikeys.KeyError_):
+            apikeys.require_scope(payload, "submissions:write")
 
     def test_tampered_payload_rejected(self):
         key, _ = apikeys.issue("teddy", SECRET)
