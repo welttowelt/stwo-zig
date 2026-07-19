@@ -46,7 +46,11 @@ class CiTests(unittest.TestCase):
             "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'",
             workflow,
         )
-        self.assertEqual(2, workflow.count("!startsWith(inputs.gate, 'riscv-')"))
+        standard_or_strict = (
+            "github.event_name != 'workflow_dispatch' || inputs.gate == 'standard' ||\n"
+            "      inputs.gate == 'strict'"
+        )
+        self.assertEqual(2, workflow.count(standard_or_strict))
         self.assertIn("inputs.gate == 'riscv-candidate' && 'candidate' || 'promoted'", workflow)
         self.assertIn("id: riscv-release-state", workflow)
         self.assertIn("RISCV_ADAPTER_RELEASE_GATED = true", workflow)
@@ -94,7 +98,9 @@ class CiTests(unittest.TestCase):
         self.assertIn('test "$actual_digest" = "${{ steps.riscv-producer.outputs.artifact_digest }}"', workflow)
         self.assertIn('python3 "$RUNNER_TEMP/riscv_release_policy.py" extract', workflow)
         self.assertNotIn("actions/download-artifact@", workflow)
-        fast = workflow.split("  riscv-fast-release-gate:", 1)[1]
+        fast = workflow.split("  riscv-fast-release-gate:", 1)[1].split(
+            "  architecture-session:", 1
+        )[0]
         self.assertNotIn("riscv_staged_smoke.py", fast)
         self.assertNotIn("--profile fast", fast)
         self.assertIn("riscv-release-challenge-result-v1", fast)
@@ -190,11 +196,56 @@ class CiTests(unittest.TestCase):
         producer = workflow.split("  riscv-release-evidence:", 1)[1].split(
             "  riscv-fast-release-gate:", 1
         )[0]
-        fast = workflow.split("  riscv-fast-release-gate:", 1)[1]
+        fast = workflow.split("  riscv-fast-release-gate:", 1)[1].split(
+            "  architecture-session:", 1
+        )[0]
         self.assertNotIn("${{ runner.tool_cache }}", producer)
         self.assertNotIn("${{ runner.temp }}", fast)
         self.assertIn("$RUNNER_TOOL_CACHE/stwo-zig/riscv-oracle", producer)
         self.assertIn("$RUNNER_TEMP/riscv-exhaustive-bundle", fast)
+
+    def test_architecture_dispatch_is_a_protected_multi_host_receipt_protocol(self) -> None:
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        self.assertIn("- architecture", workflow)
+        jobs = {
+            job: workflow.split(f"  {job}:", 1)[1].split("\n  architecture-", 1)[0]
+            for job in (
+                "architecture-session",
+                "architecture-linux",
+                "architecture-macos",
+                "architecture-verify",
+            )
+        }
+        for job, body in jobs.items():
+            self.assertIn("inputs.gate == 'architecture'", body)
+            self.assertIn("github.ref == 'refs/heads/main'", body)
+            self.assertIn("python3 scripts/architecture_ci_trust.py", body)
+            self.assertIn(f"--expected-job {job}", body)
+        self.assertNotIn("pull_request", "".join(jobs.values()))
+
+        linux = jobs["architecture-linux"]
+        macos = jobs["architecture-macos"]
+        verifier = jobs["architecture-verify"]
+        self.assertIn("verify-anchor", (
+            ROOT / "conformance/build-architecture-ci-plan-v1.json"
+        ).read_text(encoding="utf-8"))
+        self.assertNotIn("build-and-compare", linux)
+        self.assertIn(
+            'artifact_name="build-architecture-linux-$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"',
+            linux,
+        )
+        self.assertIn(
+            'artifact_name="build-architecture-macos-$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"',
+            macos,
+        )
+        self.assertIn("path: ${{ runner.temp }}/linux.json", linux)
+        self.assertIn("path: ${{ runner.temp }}/macos.json", macos)
+        self.assertIn("actions/artifacts/$artifact_id/zip", verifier)
+        self.assertNotIn("actions/download-artifact@", verifier)
+        self.assertIn("architecture_ci_artifact.py select", verifier)
+        self.assertIn("architecture_ci_artifact.py extract", verifier)
+        self.assertIn("build_architecture_receipt.py verify", verifier)
+        self.assertIn("needs: [architecture-session, architecture-linux, architecture-macos]", verifier)
 
     def test_hosted_ci_accepts_exact_commit_aot_evidence_tags(self) -> None:
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")

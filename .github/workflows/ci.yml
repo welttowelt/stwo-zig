@@ -13,6 +13,7 @@ on:
         options:
           - standard
           - strict
+          - architecture
           - riscv-produce-candidate
           - riscv-produce-promoted
           - riscv-candidate
@@ -27,7 +28,7 @@ on:
         type: string
         default: ""
       producer_run_id:
-        description: Exhaustive producer run ID (fast RISC-V gates only)
+        description: Exhaustive RISC-V anchor producer run ID (fast and architecture gates)
         type: string
         default: ""
 
@@ -38,7 +39,9 @@ permissions:
 jobs:
   release-gate:
     name: Release gate
-    if: github.event_name != 'workflow_dispatch' || !startsWith(inputs.gate, 'riscv-')
+    if: >-
+      github.event_name != 'workflow_dispatch' || inputs.gate == 'standard' ||
+      inputs.gate == 'strict'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -91,7 +94,9 @@ jobs:
 
   metal-acceptance:
     name: Metal AOT reproducible build
-    if: github.event_name != 'workflow_dispatch' || !startsWith(inputs.gate, 'riscv-')
+    if: >-
+      github.event_name != 'workflow_dispatch' || inputs.gate == 'standard' ||
+      inputs.gate == 'strict'
     runs-on: macos-14
     timeout-minutes: 20
     steps:
@@ -748,3 +753,356 @@ jobs:
           path: ${{ env.RISCV_FAST_EVIDENCE_DIR }}/
           if-no-files-found: error
           retention-days: 30
+
+  architecture-session:
+    name: Build architecture trust session
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.gate == 'architecture' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      nonce: ${{ steps.session.outputs.nonce }}
+    steps:
+      - name: Checkout exact workflow commit
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Authenticate owner-dispatched workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            > "$RUNNER_TEMP/architecture-run.json"
+          python3 scripts/architecture_ci_trust.py \
+            --run-metadata "$RUNNER_TEMP/architecture-run.json" \
+            --expected-job architecture-session
+      - name: Issue same-run session nonce
+        id: session
+        run: echo "nonce=$(openssl rand -hex 32)" >> "$GITHUB_OUTPUT"
+
+  architecture-linux:
+    name: Build architecture Linux producer
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.gate == 'architecture' &&
+      github.ref == 'refs/heads/main'
+    needs: architecture-session
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+      artifact_name: ${{ steps.receipt.outputs.artifact_name }}
+      receipt_member: ${{ steps.receipt.outputs.receipt_member }}
+      gate_status: ${{ steps.receipt.outputs.gate_status }}
+    env:
+      STWO_ARCHITECTURE_SESSION_NONCE: ${{ needs.architecture-session.outputs.nonce }}
+    steps:
+      - name: Checkout exact workflow commit
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+        with:
+          python-version: "3.13"
+      - name: Setup Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29  # v2
+        with:
+          version: 0.15.2
+      - name: Install pinned Native Rust oracle toolchain
+        run: rustup toolchain install nightly-2025-07-14 --profile minimal
+      - name: Authenticate producer and capture release policy
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "RISCV_BUNDLE_DIR=$RUNNER_TEMP/riscv-architecture-anchor" >> "$GITHUB_ENV"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            > "$RUNNER_TEMP/architecture-run.json"
+          python3 scripts/architecture_ci_trust.py \
+            --run-metadata "$RUNNER_TEMP/architecture-run.json" \
+            --expected-job architecture-linux
+          [[ "${{ inputs.producer_run_id }}" =~ ^[1-9][0-9]*$ ]]
+          python3 scripts/riscv_release_policy.py capture \
+            --root . \
+            --trusted-commit "$GITHUB_SHA" \
+            --output "$RUNNER_TEMP/riscv-policy-baseline.json"
+          python3 scripts/riscv_release_policy.py compare \
+            --root . \
+            --candidate "$GITHUB_SHA" \
+            --baseline "$RUNNER_TEMP/riscv-policy-baseline.json" \
+            --output "$RUNNER_TEMP/riscv-policy-match.json"
+      - name: Select and download exact exhaustive RISC-V anchor
+        id: anchor
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run_id="${{ inputs.producer_run_id }}"
+          producer=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id")
+          test "$(jq -r .path <<<"$producer")" = .github/workflows/ci.yml
+          test "$(jq -r .event <<<"$producer")" = workflow_dispatch
+          test "$(jq -r .head_branch <<<"$producer")" = main
+          test "$(jq -r .repository.id <<<"$producer")" = "$GITHUB_REPOSITORY_ID"
+          test "$(jq -r .actor.id <<<"$producer")" = "$GITHUB_REPOSITORY_OWNER_ID"
+          test "$(jq -r .triggering_actor.id <<<"$producer")" = "$GITHUB_REPOSITORY_OWNER_ID"
+          attempt=$(jq -r .run_attempt <<<"$producer")
+          jobs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/attempts/$attempt/jobs?per_page=100")
+          jq -e '[.jobs[] | select(.name == "RISC-V exhaustive release evidence" and .conclusion == "success")] | length == 1' \
+            <<<"$jobs" >/dev/null
+          artifacts=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts?per_page=100")
+          pattern="^riscv-exhaustive-bundle-[0-9a-f]{40}-$run_id-$attempt$"
+          artifact=$(jq -c --arg pattern "$pattern" \
+            '[.artifacts[] | select((.name | test($pattern)) and (.expired | not))] | if length == 1 then .[0] else empty end' \
+            <<<"$artifacts")
+          test -n "$artifact"
+          artifact_id=$(jq -r .id <<<"$artifact")
+          expected_digest=$(jq -r .digest <<<"$artifact")
+          [[ "$expected_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          archive="$RUNNER_TEMP/riscv-architecture-anchor.zip"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" > "$archive"
+          test "sha256:$(sha256sum "$archive" | cut -d' ' -f1)" = "$expected_digest"
+          python3 scripts/riscv_release_policy.py extract \
+            --archive "$archive" \
+            --output "$RISCV_BUNDLE_DIR"
+          jq '.producer' "$RISCV_BUNDLE_DIR/manifest.json" \
+            > "$RUNNER_TEMP/riscv-producer-trust.json"
+          test "$(jq -r .producer.run.id "$RISCV_BUNDLE_DIR/manifest.json")" = "$run_id"
+          echo "artifact_id=$artifact_id" >> "$GITHUB_OUTPUT"
+      - name: Execute host plan and issue diagnostic or passing receipt
+        id: receipt
+        run: |
+          if grep -q 'pub const RISCV_ADAPTER_RELEASE_GATED = true;' src/tools/prove/registry.zig; then
+            riscv_phase=promoted
+          else
+            riscv_phase=candidate
+          fi
+          evidence="zig-out/release-evidence/architecture-host/linux-$GITHUB_RUN_ID"
+          set +e
+          python3 scripts/architecture_host_gate.py \
+            --role linux \
+            --candidate "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --repository "$GITHUB_REPOSITORY" \
+            --repository-id "$GITHUB_REPOSITORY_ID" \
+            --workflow-sha "$GITHUB_WORKFLOW_SHA" \
+            --riscv-bundle "$RISCV_BUNDLE_DIR" \
+            --riscv-trust-context "$RUNNER_TEMP/riscv-producer-trust.json" \
+            --riscv-policy-context "$RUNNER_TEMP/riscv-policy-match.json" \
+            --riscv-phase "$riscv_phase" \
+            --output-dir "$evidence"
+          host_status=$?
+          manifest="$evidence/linux-$GITHUB_RUN_ID-evidence.json"
+          python3 scripts/build_architecture_receipt.py produce \
+            --host-role linux \
+            --candidate "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --session-nonce "$STWO_ARCHITECTURE_SESSION_NONCE" \
+            --attestation github-actions-artifact \
+            --evidence-manifest "$manifest"
+          receipt_status=$?
+          set -e
+          receipt="zig-out/release-evidence/build-architecture/$GITHUB_SHA/linux/$GITHUB_RUN_ID.json"
+          test -s "$receipt"
+          cp "$receipt" "$RUNNER_TEMP/linux.json"
+          artifact_name="build-architecture-linux-$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          {
+            echo "artifact_name=$artifact_name"
+            echo "receipt_member=linux.json"
+            echo "gate_status=$host_status:$receipt_status"
+          } >> "$GITHUB_OUTPUT"
+      - name: Upload exact one-member Linux receipt
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: ${{ steps.receipt.outputs.artifact_name }}
+          path: ${{ runner.temp }}/linux.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Enforce Linux architecture verdict
+        run: test "${{ steps.receipt.outputs.gate_status }}" = "0:0"
+
+  architecture-macos:
+    name: Build architecture macOS producer
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.gate == 'architecture' &&
+      github.ref == 'refs/heads/main'
+    needs: architecture-session
+    runs-on: macos-14
+    timeout-minutes: 90
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+      artifact_name: ${{ steps.receipt.outputs.artifact_name }}
+      receipt_member: ${{ steps.receipt.outputs.receipt_member }}
+      gate_status: ${{ steps.receipt.outputs.gate_status }}
+    env:
+      STWO_ARCHITECTURE_SESSION_NONCE: ${{ needs.architecture-session.outputs.nonce }}
+    steps:
+      - name: Checkout exact workflow commit
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+        with:
+          python-version: "3.13"
+      - name: Setup Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29  # v2
+        with:
+          version: 0.15.2
+      - name: Install pinned Native Rust oracle toolchain
+        run: rustup toolchain install nightly-2025-07-14 --profile minimal
+      - name: Require full Xcode Metal toolchain and authenticate producer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          xcode-select --print-path | grep -q '^/Applications/Xcode'
+          xcrun --sdk macosx --find metal
+          xcrun --sdk macosx --find metallib
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            > "$RUNNER_TEMP/architecture-run.json"
+          python3 scripts/architecture_ci_trust.py \
+            --run-metadata "$RUNNER_TEMP/architecture-run.json" \
+            --expected-job architecture-macos
+      - name: Execute host plan and issue diagnostic or passing receipt
+        id: receipt
+        run: |
+          evidence="zig-out/release-evidence/architecture-host/macos-$GITHUB_RUN_ID"
+          set +e
+          python3 scripts/architecture_host_gate.py \
+            --role macos \
+            --candidate "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --repository "$GITHUB_REPOSITORY" \
+            --repository-id "$GITHUB_REPOSITORY_ID" \
+            --workflow-sha "$GITHUB_WORKFLOW_SHA" \
+            --riscv-bundle "$RUNNER_TEMP/unused-riscv-bundle" \
+            --riscv-trust-context "$RUNNER_TEMP/unused-riscv-trust.json" \
+            --riscv-policy-context "$RUNNER_TEMP/unused-riscv-policy.json" \
+            --riscv-phase candidate \
+            --output-dir "$evidence"
+          host_status=$?
+          manifest="$evidence/macos-$GITHUB_RUN_ID-evidence.json"
+          python3 scripts/build_architecture_receipt.py produce \
+            --host-role macos \
+            --candidate "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --session-nonce "$STWO_ARCHITECTURE_SESSION_NONCE" \
+            --attestation github-actions-artifact \
+            --evidence-manifest "$manifest"
+          receipt_status=$?
+          set -e
+          receipt="zig-out/release-evidence/build-architecture/$GITHUB_SHA/macos/$GITHUB_RUN_ID.json"
+          test -s "$receipt"
+          cp "$receipt" "$RUNNER_TEMP/macos.json"
+          artifact_name="build-architecture-macos-$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          {
+            echo "artifact_name=$artifact_name"
+            echo "receipt_member=macos.json"
+            echo "gate_status=$host_status:$receipt_status"
+          } >> "$GITHUB_OUTPUT"
+      - name: Upload exact one-member macOS receipt
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: ${{ steps.receipt.outputs.artifact_name }}
+          path: ${{ runner.temp }}/macos.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Enforce macOS architecture verdict
+        run: test "${{ steps.receipt.outputs.gate_status }}" = "0:0"
+
+  architecture-verify:
+    name: Build architecture aggregate verifier
+    if: >-
+      always() && github.event_name == 'workflow_dispatch' && inputs.gate == 'architecture' &&
+      github.ref == 'refs/heads/main' && needs.architecture-session.result == 'success' &&
+      needs.architecture-linux.result != 'skipped' && needs.architecture-macos.result != 'skipped'
+    needs: [architecture-session, architecture-linux, architecture-macos]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      STWO_ARCHITECTURE_SESSION_NONCE: ${{ needs.architecture-session.outputs.nonce }}
+    steps:
+      - name: Checkout exact workflow commit
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+        with:
+          python-version: "3.13"
+      - name: Setup Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29  # v2
+        with:
+          version: 0.15.2
+      - name: Authenticate verifier and fetch same-run artifact metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            > "$RUNNER_TEMP/architecture-run.json"
+          python3 scripts/architecture_ci_trust.py \
+            --run-metadata "$RUNNER_TEMP/architecture-run.json" \
+            --expected-job architecture-verify
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?per_page=100" \
+            > "$RUNNER_TEMP/architecture-artifacts.json"
+      - name: Download exact Linux and macOS receipts by artifact ID
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LINUX_NAME: ${{ needs.architecture-linux.outputs.artifact_name }}
+          LINUX_DIGEST: ${{ needs.architecture-linux.outputs.artifact_digest }}
+          MACOS_NAME: ${{ needs.architecture-macos.outputs.artifact_name }}
+          MACOS_DIGEST: ${{ needs.architecture-macos.outputs.artifact_digest }}
+        run: |
+          mkdir -p "zig-out/release-evidence/build-architecture/$GITHUB_SHA/linux"
+          mkdir -p "zig-out/release-evidence/build-architecture/$GITHUB_SHA/macos"
+          for role in linux macos; do
+            upper=$(printf '%s' "$role" | tr '[:lower:]' '[:upper:]')
+            eval "name=\${${upper}_NAME}"
+            eval "digest=\${${upper}_DIGEST}"
+            [[ "$digest" == sha256:* ]] || digest="sha256:$digest"
+            python3 scripts/architecture_ci_artifact.py select \
+              --metadata "$RUNNER_TEMP/architecture-artifacts.json" \
+              --name "$name" \
+              --run-id "$GITHUB_RUN_ID" \
+              --digest "$digest" \
+              > "$RUNNER_TEMP/$role-selection.json"
+            artifact_id=$(jq -r .artifact_id "$RUNNER_TEMP/$role-selection.json")
+            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" \
+              > "$RUNNER_TEMP/$role.zip"
+            python3 scripts/architecture_ci_artifact.py extract \
+              --archive "$RUNNER_TEMP/$role.zip" \
+              --output "zig-out/release-evidence/build-architecture/$GITHUB_SHA/$role/$GITHUB_RUN_ID.json" \
+              --member "$role.json" \
+              --digest "$digest"
+          done
+      - name: Derive sole aggregate architecture verdict
+        id: aggregate
+        run: |
+          set +e
+          python3 scripts/build_architecture_receipt.py verify \
+            --candidate "$GITHUB_SHA" \
+            --session-nonce "$STWO_ARCHITECTURE_SESSION_NONCE" \
+            --linux-receipt "zig-out/release-evidence/build-architecture/$GITHUB_SHA/linux/$GITHUB_RUN_ID.json" \
+            --macos-receipt "zig-out/release-evidence/build-architecture/$GITHUB_SHA/macos/$GITHUB_RUN_ID.json"
+          status=$?
+          set -e
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+      - name: Retain aggregate receipt or NO-GO attempt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: build-architecture-verdict-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: zig-out/release-evidence/build-architecture/${{ github.sha }}/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Enforce aggregate architecture verdict
+        run: test "${{ steps.aggregate.outputs.status }}" = "0"

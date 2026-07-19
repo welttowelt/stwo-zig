@@ -104,6 +104,7 @@ class ArchitectureHostGateTest(unittest.TestCase):
                 repository_id="8", workflow_sha=SHA, riscv_bundle=self.root / "bundle",
                 riscv_trust_context=self.root / "trust.json",
                 riscv_policy_context=self.root / "policy-context.json",
+                riscv_phase="candidate",
                 executor=executor,
             )
 
@@ -130,6 +131,18 @@ class ArchitectureHostGateTest(unittest.TestCase):
         _, manifest = self.run_gate(execute)
         self.assertEqual("NO-GO", manifest["checkpoints"]["BG-00"]["status"])
         self.assertTrue((self.root / "authority.json").is_file())
+
+    def test_missing_required_input_never_invokes_expensive_command(self) -> None:
+        (self.root / "authority.json").unlink()
+        executor = mock.Mock()
+        _, manifest = self.run_gate(executor)
+        executor.assert_not_called()
+        self.assertEqual("NO-GO", manifest["checkpoints"]["BG-00"]["status"])
+        self.assertEqual(125, manifest["commands"][0]["exit_code"])
+        self.assertIn(
+            "required input admission failed",
+            (self.root / "evidence/commands/000-gate.stderr").read_text(),
+        )
 
     def test_missing_output_or_skipped_test_is_no_go(self) -> None:
         _, missing = self.run_gate(lambda *_: (0, b"ok", b"", 1))

@@ -15,6 +15,7 @@ is the operative ledger.
 
 | Owner | Next extraction |
 | --- | --- |
+| `.github/workflows/ci.yml` | extract the protected build-architecture session, host producers, and verifier into a separately reviewed reusable workflow once GitHub's called-workflow identity is explicitly admitted by the receipt protocol |
 | `src/metal_arena_plan_cli.zig` | move remaining orchestration into `src/tools/metal_arena_plan/` until the root file is a thin argument parser |
 | `src/backends/metal/runtime.zig` | continue the runtime decomposition into `src/backends/metal/runtime/` owners |
 | `src/backends/metal/runtime.m` | split the Objective-C bridge by admission, resources, encoding, and lifecycle |

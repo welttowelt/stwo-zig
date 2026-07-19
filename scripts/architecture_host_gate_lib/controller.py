@@ -57,6 +57,7 @@ def execute(
     timeout: float, run_id: str, run_attempt: str, repository: str,
     repository_id: str, workflow_sha: str, riscv_bundle: Path,
     riscv_trust_context: Path, riscv_policy_context: Path,
+    riscv_phase: str,
     executor: Callable[[list[str], Path, float], tuple[int, bytes, bytes, int]] = capture.run,
 ) -> tuple[Path, dict[str, Any]]:
     root = root.resolve()
@@ -80,6 +81,7 @@ def execute(
         "repository_id": repository_id,
         "riscv_bundle": str(riscv_bundle.resolve()),
         "riscv_policy_context": str(riscv_policy_context.resolve()),
+        "riscv_phase": riscv_phase,
         "riscv_trust_context": str(riscv_trust_context.resolve()),
         "run_attempt": run_attempt,
         "run_id": run_id,
@@ -123,9 +125,14 @@ def execute(
                         raise ReceiptError(f"refusing to replace non-file output: {output}")
                     output.unlink()
                 output.parent.mkdir(parents=True, exist_ok=True)
+            command_executor = executor
+            if input_failures:
+                diagnostic = ("required input admission failed: " + "; ".join(input_failures)).encode()
+                command_executor = lambda _argv, _root, _timeout: (125, b"", diagnostic, 0)
             record, stdout_path = capture.capture_command(
                 ordinal=len(command_records), command_id=raw["id"], phase=raw["phase"],
-                argv=argv, root=root, log_dir=log_dir, timeout=timeout, executor=executor,
+                argv=argv, root=root, log_dir=log_dir, timeout=timeout,
+                executor=command_executor,
             )
             command_records.append(record)
             command_outputs[raw["id"]] = stdout_path
@@ -280,6 +287,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--riscv-bundle", type=Path, default=ROOT.parent / "riscv-bundle")
     parser.add_argument("--riscv-trust-context", type=Path, required=True)
     parser.add_argument("--riscv-policy-context", type=Path, required=True)
+    parser.add_argument("--riscv-phase", choices=("candidate", "promoted"), required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--plan", type=Path, default=DEFAULT_PLAN)
     parser.add_argument("--protocol", type=Path, default=DEFAULT_PROTOCOL)
@@ -295,6 +303,7 @@ def main(argv: list[str] | None = None) -> int:
             workflow_sha=args.workflow_sha, riscv_bundle=args.riscv_bundle,
             riscv_trust_context=args.riscv_trust_context,
             riscv_policy_context=args.riscv_policy_context,
+            riscv_phase=args.riscv_phase,
         )
     except (OSError, UnicodeError, json.JSONDecodeError, ReceiptError) as error:
         print(f"architecture host gate: FAIL: {error}", file=sys.stderr)
