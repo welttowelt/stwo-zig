@@ -207,12 +207,17 @@ fn createProductModule(
     root.addOptions("build_identity", graph_identity.buildOptions(context.b, context.identity));
     root.addOptions(
         "product_identity",
-        graph_identity.productOptions(
+        graph_identity.productOptionsWithRuntime(
             context.b,
             context.identity,
             logical_product,
             context.target,
             context.optimize,
+            .{
+                .runtime_manifest = metal.identity_runtime_manifest,
+                .sdk_manifest = metal.identity_sdk_manifest,
+                .aot_manifest = metal.identity_aot_manifest,
+            },
         ),
     );
     return root;

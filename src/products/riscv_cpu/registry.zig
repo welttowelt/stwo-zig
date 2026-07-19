@@ -1,6 +1,7 @@
 //! Machine-readable capability surface for the focused RISC-V CPU product.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const admission = @import("../../tools/prove/registry.zig");
 const identity = @import("product_identity");
 
@@ -14,15 +15,22 @@ pub fn write(writer: anytype) !void {
             .backend = identity.backend,
             .role = identity.role,
             .protocol_features = identity.protocol_features,
+            .protocol_manifest_sha256 = identity.protocol_manifest_sha256,
             .identity_sha256 = identity.identity_sha256,
             .source = .{
+                .repository = identity.implementation_repository,
                 .commit = identity.implementation_commit,
                 .tree = if (identity.implementation_tree_available)
                     identity.implementation_tree
                 else
                     null,
                 .dirty = identity.implementation_dirty,
+                .dirty_content_sha256 = if (identity.dirty_content_sha256_available)
+                    identity.dirty_content_sha256
+                else
+                    null,
             },
+            .zig_version = identity.zig_version,
             .target = .{
                 .arch = identity.target_arch,
                 .os = identity.target_os,
@@ -31,6 +39,11 @@ pub fn write(writer: anytype) !void {
                 .cpu_features_sha256 = identity.cpu_features_sha256,
             },
             .optimize = identity.optimize,
+            .runtime = .{
+                .manifest = identity.runtime_manifest,
+                .sdk = identity.sdk_manifest,
+                .aot = identity.aot_manifest,
+            },
         },
         .backend_availability = .{ .cpu = true },
         .applications = if (admission.RISCV_ADAPTER_RELEASE_GATED)
@@ -77,6 +90,13 @@ test "registry exposes exactly the RISC-V CPU capability" {
     defer parsed.deinit();
 
     const root = parsed.value.object;
+    const product = root.get("product").?.object;
+    try std.testing.expectEqual(@as(i64, 2), product.get("schema_version").?.integer);
+    try std.testing.expectEqualStrings(builtin.zig_version_string, product.get("zig_version").?.string);
+    try std.testing.expectEqualStrings(
+        "https://github.com/teddyjfpender/stwo-zig",
+        product.get("source").?.object.get("repository").?.string,
+    );
     try std.testing.expectEqual(@as(usize, 1), root.get("backend_availability").?.object.count());
     try std.testing.expect(root.get("backend_availability").?.object.get("cpu").?.bool);
     const encoded = output.buffered();

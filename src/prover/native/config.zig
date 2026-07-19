@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 pub const Backend = enum { cpu_native, metal_hybrid };
 
@@ -22,17 +23,70 @@ pub const ProductIdentity = struct {
     backend: []const u8,
     role: []const u8,
     protocol_features: []const u8,
+    protocol_manifest_sha256: []const u8,
     identity_sha256: []const u8,
+    implementation_repository: []const u8,
     implementation_commit: []const u8,
     implementation_tree: ?[]const u8,
     implementation_dirty: bool,
+    dirty_content_sha256: ?[]const u8,
+    zig_version: []const u8,
     target_arch: []const u8,
     target_os: []const u8,
     target_abi: []const u8,
     cpu_model: []const u8,
     cpu_features_sha256: []const u8,
     optimize: []const u8,
+    runtime_manifest: []const u8,
+    sdk_manifest: []const u8,
+    aot_manifest: []const u8,
+
+    pub fn validate(self: ProductIdentity) !void {
+        if (self.schema_version != 2) return error.UnsupportedProductIdentitySchema;
+        inline for (.{
+            self.name,
+            self.frontend,
+            self.backend,
+            self.role,
+            self.protocol_features,
+            self.implementation_repository,
+            self.target_arch,
+            self.target_os,
+            self.target_abi,
+            self.cpu_model,
+            self.optimize,
+            self.runtime_manifest,
+            self.sdk_manifest,
+            self.aot_manifest,
+        }) |field| if (field.len == 0) return error.EmptyProductIdentityField;
+        if (!isLowerHex(self.identity_sha256, 64)) return error.InvalidIdentityDigest;
+        if (!isLowerHex(self.protocol_manifest_sha256, 64)) return error.InvalidProtocolDigest;
+        if (!isLowerHex(self.implementation_commit, 40)) return error.InvalidImplementationCommit;
+        const tree = self.implementation_tree orelse return error.MissingImplementationTree;
+        if (!isLowerHex(tree, 40)) return error.InvalidImplementationTree;
+        if (self.implementation_dirty != (self.dirty_content_sha256 != null))
+            return error.InconsistentDirtyIdentity;
+        if (self.dirty_content_sha256) |digest| {
+            if (!isLowerHex(digest, 64)) return error.InvalidDirtyContentDigest;
+        }
+        if (!std.mem.eql(u8, self.zig_version, builtin.zig_version_string))
+            return error.ZigVersionMismatch;
+        if (!isLowerHex(self.cpu_features_sha256, 64)) return error.InvalidCpuFeaturesDigest;
+        var protocol_digest: [32]u8 = undefined;
+        std.crypto.hash.sha2.Sha256.hash(self.protocol_features, &protocol_digest, .{});
+        const expected = std.fmt.bytesToHex(protocol_digest, .lower);
+        if (!std.mem.eql(u8, self.protocol_manifest_sha256, &expected))
+            return error.ProtocolManifestMismatch;
+    }
 };
+
+fn isLowerHex(value: []const u8, expected_len: usize) bool {
+    if (value.len != expected_len) return false;
+    for (value) |byte| {
+        if (!std.ascii.isDigit(byte) and !(byte >= 'a' and byte <= 'f')) return false;
+    }
+    return true;
+}
 
 pub const EvidenceClass = enum {
     verified_unprofiled,

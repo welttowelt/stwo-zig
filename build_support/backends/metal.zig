@@ -5,6 +5,9 @@ const std = @import("std");
 pub const runtime_source = "src/backends/metal/runtime.m";
 pub const shader_manifest_source = "src/backends/metal/shader_manifest.zig";
 pub const runtime_modes = "source-jit+authenticated-aot";
+pub const identity_runtime_manifest = "metal-runtime-v1:source-jit+authenticated-aot";
+pub const identity_sdk_manifest = "apple-metal-sdk:metal3.1:safe-math";
+pub const identity_aot_manifest = "metal-aot-v1:source+compile-profile+metallib-sha256";
 
 pub fn supports(os: std.Target.Os.Tag) bool {
     return os == .macos;

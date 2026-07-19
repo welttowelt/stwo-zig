@@ -1,6 +1,7 @@
 const std = @import("std");
 const metal_backend = @import("backends/metal.zig");
 const build_identity = @import("build_identity.zig");
+const graph_identity = @import("graph/identity.zig");
 
 pub const Context = struct {
     b: *std.Build,
@@ -15,17 +16,7 @@ pub const Context = struct {
 pub fn addProduct(context: Context) void {
     const b = context.b;
     const identity = context.identity;
-    const identity_options = b.addOptions();
-    identity_options.addOption(
-        []const u8,
-        "implementation_commit",
-        &identity.implementation_commit,
-    );
-    identity_options.addOption(
-        bool,
-        "implementation_dirty",
-        identity.implementation_dirty,
-    );
+    const identity_options = graph_identity.buildOptions(b, identity);
     const module = b.createModule(.{
         .root_source_file = b.path("src/tools/prove/main.zig"),
         .target = context.target,
@@ -100,10 +91,28 @@ pub fn resolveBuildIdentity(b: *std.Build) build_identity.Identity {
         "implementation-dirty",
         "Whether the source embedded in the production CLI has local modifications",
     );
-    return build_identity.resolve(
+    const explicit_tree = b.option(
+        []const u8,
+        "implementation-tree",
+        "Exact lowercase 40-hex source tree for an identity override",
+    );
+    const explicit_dirty_digest = b.option(
+        []const u8,
+        "implementation-dirty-content-sha256",
+        "Canonical dirty-content digest required for a diagnostic dirty override",
+    );
+    if ((explicit_commit == null) != (explicit_dirty == null))
+        std.debug.panic("cannot resolve production CLI build identity: incomplete override", .{});
+    if (explicit_commit == null and (explicit_tree != null or explicit_dirty_digest != null))
+        std.debug.panic("cannot resolve production CLI build identity: orphan tree or dirty digest", .{});
+    return build_identity.resolveWithOverride(
         b.allocator,
         b.pathFromRoot("."),
-        explicit_commit,
-        explicit_dirty,
+        if (explicit_commit) |commit| .{
+            .commit = commit,
+            .tree = explicit_tree,
+            .dirty = explicit_dirty.?,
+            .dirty_content_sha256 = explicit_dirty_digest,
+        } else null,
     ) catch |err| std.debug.panic("cannot resolve production CLI build identity: {s}", .{@errorName(err)});
 }

@@ -182,4 +182,19 @@ test "bounded proving report carries the exact focused product identity" {
     try std.testing.expectEqualStrings("stwo-native-cpu", product.get("name").?.string);
     try std.testing.expectEqualStrings("cpu", product.get("backend").?.string);
     _ = try artifact_verifier.verifyPath(std.testing.allocator, artifact_path, .smoke);
+    const proof_artifact = try std.fs.openFileAbsolute(artifact_path, .{});
+    defer proof_artifact.close();
+    const artifact_bytes = try proof_artifact.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer std.testing.allocator.free(artifact_bytes);
+    const product_identity = identity.value();
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        artifact_bytes,
+        product_identity.identity_sha256,
+    ) == null);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        artifact_bytes,
+        product_identity.implementation_commit,
+    ) == null);
 }
