@@ -1,8 +1,8 @@
 const std = @import("std");
-const circle = @import("../../core/circle.zig");
-const fields = @import("../../core/fields/mod.zig");
-const m31 = @import("../../core/fields/m31.zig");
-const utils = @import("../../core/utils.zig");
+const circle = @import("stwo_core").circle;
+const fields = @import("stwo_core").fields;
+const m31 = @import("stwo_core").fields.m31;
+const utils = @import("stwo_core").utils;
 
 const Coset = circle.Coset;
 const M31 = m31.M31;

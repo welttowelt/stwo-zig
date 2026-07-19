@@ -1,6 +1,6 @@
 //! Canonical Stark-V relation entries before LogUp batching.
 
-const QM31 = @import("../../../../core/fields/qm31.zig").QM31;
+const QM31 = @import("stwo_core").fields.qm31.QM31;
 const logup = @import("../logup.zig");
 const relations_mod = @import("../relation_challenges.zig");
 const common = @import("../semantics/common.zig");

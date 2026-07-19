@@ -1,6 +1,6 @@
 //! Register and memory access witness column encoding.
 
-const M31 = @import("../../../core/fields/m31.zig").M31;
+const M31 = @import("stwo_core").fields.m31.M31;
 
 fn write(columns: anytype, column: usize, row: usize, value: M31) void {
     if (columns[column].len != 0) columns[column][row] = value;

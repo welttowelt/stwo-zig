@@ -1,7 +1,7 @@
 //! Derives lookup-table counters from the exact opcode columns being committed.
 
 const std = @import("std");
-const M31 = @import("../../../core/fields/m31.zig").M31;
+const M31 = @import("stwo_core").fields.m31.M31;
 const source_ingest = @import("../air/lookups/tables/source_ingest.zig");
 const counter = @import("../air/lookups/tables/counter.zig");
 const table_interaction = @import("../air/lookups/tables/interaction.zig");

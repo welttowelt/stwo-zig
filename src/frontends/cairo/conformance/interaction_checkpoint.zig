@@ -4,8 +4,8 @@
 //! deliberately independent of the Fiat-Shamir proof transcript.
 
 const std = @import("std");
-const m31 = @import("../../../core/fields/m31.zig");
-const QM31 = @import("../../../core/fields/qm31.zig").QM31;
+const m31 = @import("stwo_core").fields.m31;
+const QM31 = @import("stwo_core").fields.qm31.QM31;
 
 pub const Digest = [32]u8;
 pub const SecureLimbs = [4]u32;

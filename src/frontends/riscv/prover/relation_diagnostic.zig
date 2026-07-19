@@ -6,8 +6,8 @@
 //! AIR interaction builders under the pinned diagnostic challenges.
 
 const std = @import("std");
-const M31 = @import("../../../core/fields/m31.zig").M31;
-const prover_pcs = @import("../../../prover/pcs/mod.zig");
+const M31 = @import("stwo_core").fields.m31.M31;
+const prover_pcs = @import("stwo_prover_impl").pcs;
 const component_order = @import("../air/component_order.zig");
 const poseidon2_air = @import("../air/memory_commitment/poseidon2_air.zig");
 const relation_evidence = @import("../air/relation_evidence.zig");

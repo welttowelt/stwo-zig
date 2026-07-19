@@ -19,8 +19,8 @@ const opcode_entries = @import("../../frontends/riscv/air/lookups/opcode_entries
 const merkle_node = @import("../../frontends/riscv/air/memory_commitment/merkle_node.zig");
 const poseidon2_air = @import("../../frontends/riscv/air/memory_commitment/poseidon2_air.zig");
 const transcript = @import("../../frontends/riscv/air/transcript/mod.zig");
-const pcs_core = @import("../../core/pcs/mod.zig");
-const qm31 = @import("../../core/fields/qm31.zig");
+const pcs_core = @import("stwo_core").pcs;
+const qm31 = @import("stwo_core").fields.qm31;
 
 const QM31 = qm31.QM31;
 

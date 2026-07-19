@@ -6,7 +6,7 @@
 //!
 //! Ported from stark-v's relation system for RV32IM.
 
-const M31 = @import("../../../core/fields/m31.zig").M31;
+const M31 = @import("stwo_core").fields.m31.M31;
 
 /// CPU state transition bus: (pc, clk, regs...).
 /// Connects opcode components to the CPU scheduling logic.

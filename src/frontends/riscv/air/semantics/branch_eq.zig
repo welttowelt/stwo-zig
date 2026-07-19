@@ -4,7 +4,7 @@
 //! d478f783055aa0d73a93768a433a3c6c31c91d1c.
 
 const std = @import("std");
-const QM31 = @import("../../../../core/fields/qm31.zig").QM31;
+const QM31 = @import("stwo_core").fields.qm31.QM31;
 const common = @import("common.zig");
 const control = @import("control_common.zig");
 const Opcode = @import("../program/opcode.zig").Opcode;

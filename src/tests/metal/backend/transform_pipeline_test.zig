@@ -2,10 +2,10 @@
 
 const std = @import("std");
 const metal = @import("../../../backends/metal/runtime.zig");
-const m31 = @import("../../../core/fields/m31.zig");
-const canonic = @import("../../../core/poly/circle/canonic.zig");
-const circle_poly = @import("../../../prover/poly/circle/poly.zig");
-const twiddles = @import("../../../prover/poly/twiddles.zig");
+const m31 = @import("stwo_core").fields.m31;
+const canonic = @import("stwo_core").poly.circle.canonic;
+const circle_poly = @import("stwo_prover_impl").poly.circle.poly;
+const twiddles = @import("stwo_prover_impl").poly.twiddles;
 
 const M31 = m31.M31;
 

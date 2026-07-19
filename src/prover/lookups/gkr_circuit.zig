@@ -1,9 +1,9 @@
 //! GKR circuit layers and the polynomial oracle consumed by batch sum-check.
 
 const std = @import("std");
-const fraction = @import("../../core/fraction.zig");
-const m31 = @import("../../core/fields/m31.zig");
-const qm31 = @import("../../core/fields/qm31.zig");
+const fraction = @import("stwo_core").fraction;
+const m31 = @import("stwo_core").fields.m31;
+const qm31 = @import("stwo_core").fields.qm31;
 const gkr_verifier = @import("gkr_verifier.zig");
 const mle_mod = @import("mle.zig");
 const utils = @import("utils.zig");

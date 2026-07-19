@@ -1,9 +1,9 @@
 //! Exact RV32M witnesses from pinned Stark-V `runner/src/ops/muldiv.rs`.
 
 const std = @import("std");
-const m31 = @import("../../../../core/fields/m31.zig");
+const m31 = @import("stwo_core").fields.m31;
 const M31 = m31.M31;
-const QM31 = @import("../../../../core/fields/qm31.zig").QM31;
+const QM31 = @import("stwo_core").fields.qm31.QM31;
 const mul_semantics = @import("../../air/semantics/mul.zig");
 const mulh_semantics = @import("../../air/semantics/mulh.zig");
 const div_semantics = @import("../../air/semantics/div.zig");

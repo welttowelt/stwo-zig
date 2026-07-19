@@ -42,6 +42,10 @@ pub const accumulation_ops = @import("accumulation_ops.zig");
 pub const gkr_ops = @import("gkr_ops.zig");
 pub const merkle_ops = @import("merkle_ops.zig");
 pub const recovery = @import("recovery.zig");
+pub const arena_plan = @import("arena_plan.zig");
+pub const line_evaluation = @import("line_evaluation.zig");
+pub const resident_storage = @import("resident_storage.zig");
+pub const secure_column = @import("secure_column.zig");
 
 /// Convenience re-export: backend-specific column type.
 pub const Column = column.Column;
@@ -80,4 +84,8 @@ test "backend: contract modules compile" {
     _ = gkr_ops;
     _ = merkle_ops;
     _ = recovery;
+    _ = arena_plan;
+    _ = line_evaluation;
+    _ = resident_storage;
+    _ = secure_column;
 }

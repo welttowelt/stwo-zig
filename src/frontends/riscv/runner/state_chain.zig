@@ -5,7 +5,7 @@
 //! records when the clock difference exceeds MAX_CLOCK_DIFF.
 
 const std = @import("std");
-const M31 = @import("../../../core/fields/m31.zig").M31;
+const M31 = @import("stwo_core").fields.m31.M31;
 
 /// Maximum clock difference before gap-filling is required (2^20 - 1).
 pub const MAX_CLOCK_DIFF: u32 = (1 << 20) - 1;

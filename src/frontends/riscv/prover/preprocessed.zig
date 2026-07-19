@@ -1,7 +1,7 @@
 //! Canonical preprocessed-column construction for RISC-V proof components.
 
 const std = @import("std");
-const prover_pcs = @import("../../../prover/pcs/mod.zig");
+const prover_pcs = @import("stwo_prover_impl").pcs;
 const table_schema = @import("../air/lookups/tables/schema.zig");
 const statement_mod = @import("../air/statement.zig");
 const opcode_trace = @import("opcode_trace.zig");

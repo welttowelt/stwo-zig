@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const cairo_merkle = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sPlainMerkleHasher;
+const cairo_merkle = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sPlainMerkleHasher;
 const arena_plan = @import("../arena_plan.zig");
 const recovery = @import("../recovery.zig");
 const runtime = @import("../runtime.zig");

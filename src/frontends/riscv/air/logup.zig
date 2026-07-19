@@ -20,10 +20,10 @@
 //! the exact interpolation pipeline the prover uses.
 
 const std = @import("std");
-const m31 = @import("../../../core/fields/m31.zig");
-const qm31 = @import("../../../core/fields/qm31.zig");
-const circle = @import("../../../core/circle.zig");
-const canonic = @import("../../../core/poly/circle/canonic.zig");
+const m31 = @import("stwo_core").fields.m31;
+const qm31 = @import("stwo_core").fields.qm31;
+const circle = @import("stwo_core").circle;
+const canonic = @import("stwo_core").poly.circle.canonic;
 const relation_challenges = @import("relation_challenges.zig");
 
 const M31 = m31.M31;
@@ -215,8 +215,8 @@ pub fn verifyGlobalCancellation(claims: []const QM31, boundary: QM31) !void {
 // Tests
 // ---------------------------------------------------------------------------
 
-const eval_mod = @import("../../../prover/poly/circle/evaluation.zig");
-const poly_mod = @import("../../../prover/poly/circle/poly.zig");
+const eval_mod = @import("stwo_prover_impl").poly.circle.evaluation;
+const poly_mod = @import("stwo_prover_impl").poly.circle.poly;
 const infra = @import("../infra_trace.zig");
 
 test "geometry: trace-order shift equals evaluation at point minus coset step" {

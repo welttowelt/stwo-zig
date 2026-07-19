@@ -1,9 +1,9 @@
 //! Immutable canonical M31 twiddles shared across circle-domain sizes.
 
 const std = @import("std");
-const m31 = @import("../../core/fields/m31.zig");
-const canonic = @import("../../core/poly/circle/canonic.zig");
-const domain = @import("../../core/poly/circle/domain.zig");
+const m31 = @import("stwo_core").fields.m31;
+const canonic = @import("stwo_core").poly.circle.canonic;
+const domain = @import("stwo_core").poly.circle.domain;
 const twiddles = @import("twiddles.zig");
 
 const M31 = m31.M31;

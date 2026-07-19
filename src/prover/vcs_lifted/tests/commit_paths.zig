@@ -1,14 +1,14 @@
 //! Lifted Merkle parallel and streaming commitment tests.
 
 const std = @import("std");
-const m31 = @import("../../../core/fields/m31.zig");
-const prover_mod = @import("../prover.zig");
+const m31 = @import("stwo_core").fields.m31;
+const prover_mod = @import("stwo_prover_impl").vcs_lifted.prover;
 
 const M31 = m31.M31;
 const MerkleProverLifted = prover_mod.MerkleProverLifted;
 
 test "prover vcs_lifted: root is stable across large-layer worker-count overrides" {
-    const Hasher = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
     const Prover = MerkleProverLifted(Hasher);
     const alloc = std.testing.allocator;
     const log_size: u32 = 14;
@@ -52,7 +52,7 @@ test "prover vcs_lifted: root is stable across large-layer worker-count override
 }
 
 test "prover vcs_lifted: streaming committer produces identical root — single batch" {
-    const Hasher = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
     const Prover = MerkleProverLifted(Hasher);
     const alloc = std.testing.allocator;
 
@@ -105,7 +105,7 @@ test "prover vcs_lifted: streaming committer produces identical root — single 
 }
 
 test "prover vcs_lifted: constant-column fast path matches streaming committer" {
-    const Hasher = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
     const Prover = MerkleProverLifted(Hasher);
     const alloc = std.testing.allocator;
 
@@ -129,7 +129,7 @@ test "prover vcs_lifted: constant-column fast path matches streaming committer" 
 }
 
 test "prover vcs_lifted: streaming committer produces identical root — column-by-column" {
-    const Hasher = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
     const Prover = MerkleProverLifted(Hasher);
     const alloc = std.testing.allocator;
 
@@ -183,7 +183,7 @@ test "prover vcs_lifted: streaming committer produces identical root — column-
 }
 
 test "prover vcs_lifted: streaming committer produces identical root — many columns batched" {
-    const Hasher = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
     const Prover = MerkleProverLifted(Hasher);
     const alloc = std.testing.allocator;
 
@@ -251,7 +251,7 @@ test "prover vcs_lifted: streaming committer produces identical root — many co
 }
 
 test "prover vcs_lifted: streaming committer empty columns" {
-    const Hasher = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
     const Prover = MerkleProverLifted(Hasher);
     const alloc = std.testing.allocator;
 

@@ -1,7 +1,7 @@
 //! Backend-neutral ownership for immutable prover-wide resources.
 
 const std = @import("std");
-const pcs = @import("../core/pcs/mod.zig");
+const pcs = @import("stwo_core").pcs;
 const TwiddleSource = @import("poly/twiddle_source.zig").TwiddleSource;
 const M31TwiddleTower = @import("poly/twiddle_tower.zig").M31TwiddleTower;
 
@@ -90,7 +90,7 @@ fn pcsConfigsEqual(lhs: PcsConfig, rhs: PcsConfig) bool {
 }
 
 fn testConfig() PcsConfig {
-    var fri_config = @import("../core/fri.zig").FriConfig.init(2, 3, 17) catch unreachable;
+    var fri_config = @import("stwo_core").fri.FriConfig.init(2, 3, 17) catch unreachable;
     fri_config.fold_step = 2;
     return .{
         .pow_bits = 7,

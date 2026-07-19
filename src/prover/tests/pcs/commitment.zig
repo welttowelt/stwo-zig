@@ -1,16 +1,16 @@
 //! Backend-independent PCS commitment-tree tests.
 
 const std = @import("std");
-const m31 = @import("../../../core/fields/m31.zig");
-const vcs_verifier = @import("../../../core/vcs_lifted/verifier.zig");
-const pcs_prover = @import("../../pcs/mod.zig");
+const m31 = @import("stwo_core").fields.m31;
+const vcs_verifier = @import("stwo_core").vcs_lifted.verifier;
+const pcs_prover = @import("stwo_prover_impl").pcs;
 
 const M31 = m31.M31;
 const ColumnEvaluation = pcs_prover.ColumnEvaluation;
 const CommitmentTreeProver = pcs_prover.CommitmentTreeProver;
 
 test "prover pcs: commitment tree decommit verifies" {
-    const Hasher = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
     const Verifier = vcs_verifier.MerkleVerifierLifted(Hasher);
     const alloc = std.testing.allocator;
 

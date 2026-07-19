@@ -1,7 +1,7 @@
 //! Metal storage and word-address ABI for a backend-neutral arena plan.
 
 const std = @import("std");
-const arena_plan = @import("../../backend/arena_plan.zig");
+const arena_plan = @import("stwo_backend_contracts").arena_plan;
 const runtime = @import("runtime.zig");
 
 pub const narrow_word_address_space_bytes: u64 =

@@ -1,10 +1,10 @@
 //! Prime-field, extension-field, circle, FFT, and Blake3 oracle vectors.
 
 const std = @import("std");
-const circle_mod = @import("../../../core/circle.zig");
-const fft_mod = @import("../../../core/fft.zig");
-const vcs_blake3 = @import("../../../core/vcs/blake3_hash.zig");
-const m31_mod = @import("../../../core/fields/m31.zig");
+const circle_mod = @import("stwo_core").circle;
+const fft_mod = @import("stwo_core").fft;
+const vcs_blake3 = @import("stwo_core").vcs.blake3_hash;
+const m31_mod = @import("stwo_core").fields.m31;
 const fixtures = @import("fixtures.zig");
 
 const M31_CIRCLE_GEN = circle_mod.M31_CIRCLE_GEN;

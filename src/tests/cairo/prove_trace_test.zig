@@ -1,8 +1,8 @@
 const std = @import("std");
 const CpuBackend = @import("../../backends/cpu_scalar/mod.zig").CpuBackend;
-const pcs_core = @import("../../core/pcs/mod.zig");
-const core_fri = @import("../../core/fri.zig");
-const verification = @import("../../core/verifier_types.zig").VerificationError;
+const pcs_core = @import("stwo_core").pcs;
+const core_fri = @import("stwo_core").fri;
+const verification = @import("stwo_core").verifier_types.VerificationError;
 const generic = @import("../../frontends/cairo/prove_trace.zig");
 const scalar = @import("../../integrations/cairo_cpu/prove_trace.zig");
 

@@ -17,11 +17,11 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const m31_mod = @import("../../core/fields/m31.zig");
-const cm31_mod = @import("../../core/fields/cm31.zig");
-const qm31_mod = @import("../../core/fields/qm31.zig");
-const circle = @import("../../core/circle.zig");
-const core_fri = @import("../../core/fri.zig");
+const m31_mod = @import("stwo_core").fields.m31;
+const cm31_mod = @import("stwo_core").fields.cm31;
+const qm31_mod = @import("stwo_core").fields.qm31;
+const circle = @import("stwo_core").circle;
+const core_fri = @import("stwo_core").fri;
 
 const M31 = m31_mod.M31;
 const CM31 = cm31_mod.CM31;
@@ -460,7 +460,7 @@ pub const CudaBackend = struct {
 // Compile-time contract validation
 // ---------------------------------------------------------------
 
-const backend = @import("../../backend/mod.zig");
+const backend = @import("stwo_backend_contracts");
 
 comptime {
     // Validate that CudaBackend satisfies the full backend contract.

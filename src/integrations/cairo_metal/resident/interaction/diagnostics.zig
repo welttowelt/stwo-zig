@@ -2,9 +2,9 @@
 
 const std = @import("std");
 const arena_plan = @import("../../../../backends/metal/arena_plan.zig");
-const circle_poly_mod = @import("../../../../prover/poly/circle/poly.zig");
-const circle_eval_mod = @import("../../../../prover/poly/circle/evaluation.zig");
-const canonic_circle_mod = @import("../../../../core/poly/circle/canonic.zig");
+const circle_poly_mod = @import("stwo_prover_impl").poly.circle.poly;
+const circle_eval_mod = @import("stwo_prover_impl").poly.circle.evaluation;
+const canonic_circle_mod = @import("stwo_core").poly.circle.canonic;
 const relation_bundle_mod = @import("../../../../frontends/cairo/witness/relation_bundle.zig");
 const interaction_trace_mod = @import("../../../../frontends/cairo/witness/interaction_trace.zig");
 const witness_bundle_mod = @import("../../../../frontends/cairo/witness/bundle.zig");
@@ -12,8 +12,8 @@ const witness_program_mod = @import("../../../../frontends/cairo/witness/program
 const schedule_bindings = @import("../../schedule_bindings.zig");
 const resident_binding = @import("../binding.zig");
 const Error = @import("../errors.zig").Error;
-const M31 = @import("../../../../core/fields/m31.zig").M31;
-const QM31 = @import("../../../../core/fields/qm31.zig").QM31;
+const M31 = @import("stwo_core").fields.m31.M31;
+const QM31 = @import("stwo_core").fields.qm31.QM31;
 
 const collectComponent = schedule_bindings.collectComponent;
 const componentName = schedule_bindings.componentName;

@@ -2,8 +2,8 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const m31 = @import("../../core/fields/m31.zig");
-const qm31 = @import("../../core/fields/qm31.zig");
+const m31 = @import("stwo_core").fields.m31;
+const qm31 = @import("stwo_core").fields.qm31;
 const work_pool = @import("../work_pool.zig");
 const tile_sink = @import("../pcs/quotient_tile_sink.zig");
 
@@ -150,7 +150,7 @@ pub fn FirstLayerLeafSink(comptime H: type) type {
 }
 
 test "first layer sink enforces a complete ordered partition" {
-    const H = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const H = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
     const Sink = FirstLayerLeafSink(H);
     const allocator = std.testing.allocator;
     var sink = try Sink.init(allocator, 4);
@@ -174,7 +174,7 @@ test "first layer sink enforces a complete ordered partition" {
 }
 
 test "first layer sink four-lane hashing matches scalar tails" {
-    const H = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const H = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
     const Sink = FirstLayerLeafSink(H);
     const allocator = std.testing.allocator;
     var sink = try Sink.init(allocator, 8);
@@ -213,7 +213,7 @@ test "first layer sink four-lane hashing matches scalar tails" {
 }
 
 test "first layer sink rejects incomplete and out of order tiles" {
-    const H = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const H = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
     const Sink = FirstLayerLeafSink(H);
     const allocator = std.testing.allocator;
     var sink = try Sink.init(allocator, 2);
@@ -229,7 +229,7 @@ test "first layer sink rejects incomplete and out of order tiles" {
 }
 
 fn allocateAndReleaseSink(allocator: std.mem.Allocator) !void {
-    const H = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const H = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
     var sink = try FirstLayerLeafSink(H).init(allocator, 8);
     defer sink.deinit();
 }

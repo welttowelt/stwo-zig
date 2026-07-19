@@ -5,6 +5,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+try:
+    from zig_protocol_lib.command import aggregate_run_command
+except ModuleNotFoundError:
+    from scripts.zig_protocol_lib.command import aggregate_run_command
+
 
 def installed_binary(root: Path) -> Path:
     return root / "zig-out" / "bin" / "interop_cli"
@@ -18,14 +23,4 @@ def build_command(optimize: str, cpu: str = "baseline") -> list[str]:
 
 
 def run_command(*arguments: str) -> list[str]:
-    return [
-        "zig",
-        "run",
-        "-lc",
-        "--dep",
-        "stwo",
-        "-Mroot=src/tools/interop/main.zig",
-        "-Mstwo=src/stwo.zig",
-        "--",
-        *arguments,
-    ]
+    return aggregate_run_command("src/tools/interop/main.zig", *arguments)

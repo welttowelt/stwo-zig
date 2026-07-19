@@ -1,6 +1,6 @@
 //! Column writer shared by the pinned family witness builders.
 
-const M31 = @import("../../../../core/fields/m31.zig").M31;
+const M31 = @import("stwo_core").fields.m31.M31;
 
 pub inline fn set(columns: anytype, row: usize, column: usize, value: M31) void {
     columns[column][row] = value;

@@ -14,13 +14,13 @@
 //! `std.Thread.Pool`, configured by environment variables.
 
 const std = @import("std");
-const m31_mod = @import("../../core/fields/m31.zig");
-const cm31_mod = @import("../../core/fields/cm31.zig");
-const qm31_mod = @import("../../core/fields/qm31.zig");
-const fields_mod = @import("../../core/fields/mod.zig");
-const core_fri = @import("../../core/fri.zig");
-const circle = @import("../../core/circle.zig");
-const lifted_merkle = @import("../../prover/vcs_lifted/prover.zig");
+const m31_mod = @import("stwo_core").fields.m31;
+const cm31_mod = @import("stwo_core").fields.cm31;
+const qm31_mod = @import("stwo_core").fields.qm31;
+const fields_mod = @import("stwo_core").fields;
+const core_fri = @import("stwo_core").fri;
+const circle = @import("stwo_core").circle;
+const lifted_merkle = @import("stwo_prover_impl").vcs_lifted.prover;
 
 const M31 = m31_mod.M31;
 const CM31 = cm31_mod.CM31;
@@ -225,7 +225,7 @@ pub const CpuBackend = struct {
 // Compile-time contract validation
 // ---------------------------------------------------------------
 
-const backend = @import("../../backend/mod.zig");
+const backend = @import("stwo_backend_contracts");
 
 comptime {
     // Validate that CpuBackend satisfies the full backend contract.

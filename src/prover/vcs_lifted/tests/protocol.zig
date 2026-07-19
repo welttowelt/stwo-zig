@@ -1,17 +1,17 @@
 //! Lifted Merkle protocol and compatibility tests.
 
 const std = @import("std");
-const m31 = @import("../../../core/fields/m31.zig");
-const vcs_lifted_verifier = @import("../../../core/vcs_lifted/verifier.zig");
-const prover_mod = @import("../prover.zig");
+const m31 = @import("stwo_core").fields.m31;
+const vcs_lifted_verifier = @import("stwo_core").vcs_lifted.verifier;
+const prover_mod = @import("stwo_prover_impl").vcs_lifted.prover;
 
 const M31 = m31.M31;
 const MerkleProverLifted = prover_mod.MerkleProverLifted;
 
 test "prover vcs_lifted: decommit and verify roundtrip" {
-    const Hasher = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
     const Prover = MerkleProverLifted(Hasher);
-    const Verifier = @import("../../../core/vcs_lifted/verifier.zig").MerkleVerifierLifted(Hasher);
+    const Verifier = @import("stwo_core").vcs_lifted.verifier.MerkleVerifierLifted(Hasher);
     const alloc = std.testing.allocator;
 
     const columns = [_][]const M31{
@@ -65,9 +65,9 @@ test "prover vcs_lifted: decommit and verify roundtrip" {
 }
 
 test "prover vcs_lifted: invalid witness fails verification" {
-    const Hasher = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
     const Prover = MerkleProverLifted(Hasher);
-    const Verifier = @import("../../../core/vcs_lifted/verifier.zig").MerkleVerifierLifted(Hasher);
+    const Verifier = @import("stwo_core").vcs_lifted.verifier.MerkleVerifierLifted(Hasher);
     const alloc = std.testing.allocator;
 
     const columns = [_][]const M31{
@@ -106,10 +106,10 @@ test "prover vcs_lifted: invalid witness fails verification" {
 }
 
 test "prover vcs_lifted: empty columns root matches mixed-degree prover" {
-    const LiftedHasher = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
-    const MixedHasher = @import("../../../core/vcs/blake2_merkle.zig").Blake2sMerkleHasher;
+    const LiftedHasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
+    const MixedHasher = @import("stwo_core").vcs.blake2_merkle.Blake2sMerkleHasher;
     const LiftedProver = MerkleProverLifted(LiftedHasher);
-    const MixedProver = @import("../../vcs/prover.zig").MerkleProver(MixedHasher);
+    const MixedProver = @import("stwo_prover_impl").vcs.prover.MerkleProver(MixedHasher);
     const alloc = std.testing.allocator;
 
     const no_columns = [_][]const M31{};
@@ -122,7 +122,7 @@ test "prover vcs_lifted: empty columns root matches mixed-degree prover" {
 }
 
 test "prover vcs_lifted: packed leaf hashing matches legacy per-value path" {
-    const lifted_blake2 = @import("../../../core/vcs_lifted/blake2_merkle.zig");
+    const lifted_blake2 = @import("stwo_core").vcs_lifted.blake2_merkle;
     const BaseHasher = lifted_blake2.Blake2sMerkleHasher;
     const PackedProver = MerkleProverLifted(BaseHasher);
     const LegacyLeafHasher = struct {

@@ -81,8 +81,8 @@ pub fn immediate(columns: anytype, index: usize, row: anytype) void {
 }
 
 const std_probe = @import("std");
-const M31_probe = @import("../../../../core/fields/m31.zig").M31;
-const QM31_probe = @import("../../../../core/fields/qm31.zig").QM31;
+const M31_probe = @import("stwo_core").fields.m31.M31;
+const QM31_probe = @import("stwo_core").fields.qm31.QM31;
 const shifts_imm_semantics = @import("../../air/semantics/shifts_imm.zig");
 
 test "shift witness: SLLI by 8 satisfies pinned semantics" {

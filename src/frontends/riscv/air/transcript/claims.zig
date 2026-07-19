@@ -4,7 +4,7 @@
 //! pinned Stark-V `crates/prover/src/components/mod.rs`.
 
 const std = @import("std");
-const QM31 = @import("../../../../core/fields/qm31.zig").QM31;
+const QM31 = @import("stwo_core").fields.qm31.QM31;
 
 pub const Component = enum(u8) {
     auipc,

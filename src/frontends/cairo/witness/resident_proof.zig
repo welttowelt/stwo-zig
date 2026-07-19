@@ -1,10 +1,10 @@
 //! Reconstruction of generic STWO proofs from compact resident Cairo bundles.
 
 const std = @import("std");
-const fri = @import("../../../core/fri.zig");
-const pcs = @import("../../../core/pcs/mod.zig");
-const line = @import("../../../core/poly/line.zig");
-const vcs_verifier = @import("../../../core/vcs_lifted/verifier.zig");
+const fri = @import("stwo_core").fri;
+const pcs = @import("stwo_core").pcs;
+const line = @import("stwo_core").poly.line;
+const vcs_verifier = @import("stwo_core").vcs_lifted.verifier;
 const proof_bundle = @import("proof_bundle.zig");
 const types = @import("resident_types.zig");
 

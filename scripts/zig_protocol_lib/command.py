@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+"""Canonical direct Zig commands for the named Stwo protocol module graph."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+
+def protocol_module_args(root_source: str) -> list[str]:
+    return [
+        "--dep",
+        "stwo_core",
+        "--dep",
+        "stwo_backend_contracts",
+        "--dep",
+        "stwo_prover_impl",
+        f"-Mroot={root_source}",
+        "-Mstwo_core=src/core/mod.zig",
+        "--dep",
+        "stwo_core",
+        "-Mstwo_backend_contracts=src/backend/mod.zig",
+        "--dep",
+        "stwo_core",
+        "--dep",
+        "stwo_backend_contracts",
+        "-Mstwo_prover_impl=src/prover/mod.zig",
+    ]
+
+
+def test_command(root_source: str, *arguments: str) -> list[str]:
+    return ["zig", "test", *protocol_module_args(root_source), *arguments]
+
+
+def aggregate_run_command(root_source: str, *arguments: str) -> list[str]:
+    return [
+        "zig",
+        "run",
+        "-lc",
+        "--dep",
+        "stwo",
+        "--dep",
+        "stwo_core",
+        "--dep",
+        "stwo_backend_contracts",
+        "--dep",
+        "stwo_prover_impl",
+        f"-Mroot={root_source}",
+        "--dep",
+        "stwo_core",
+        "--dep",
+        "stwo_backend_contracts",
+        "--dep",
+        "stwo_prover_impl",
+        "-Mstwo=src/stwo.zig",
+        "-Mstwo_core=src/core/mod.zig",
+        "--dep",
+        "stwo_core",
+        "-Mstwo_backend_contracts=src/backend/mod.zig",
+        "--dep",
+        "stwo_core",
+        "--dep",
+        "stwo_backend_contracts",
+        "-Mstwo_prover_impl=src/prover/mod.zig",
+        "--",
+        *arguments,
+    ]
+
+
+def source_contract() -> tuple[Path, ...]:
+    root = Path(__file__).resolve().parents[2]
+    return (
+        Path(__file__).resolve(),
+        root / "src/core/mod.zig",
+        root / "src/backend/mod.zig",
+        root / "src/prover/mod.zig",
+    )

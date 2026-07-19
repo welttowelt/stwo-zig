@@ -5,12 +5,12 @@ const arena_plan = @import("../../backends/metal/arena_plan.zig");
 const metal_runtime = @import("../../backends/metal/runtime.zig");
 const composition_bundle = @import("../../frontends/cairo/witness/composition_bundle.zig");
 const geometry = @import("../../frontends/cairo/witness/quotient_geometry.zig");
-const quotients = @import("../../core/pcs/quotients.zig");
-const twiddles = @import("../../prover/poly/twiddles.zig");
-const circle = @import("../../core/circle.zig");
-const canonic = @import("../../core/poly/circle/canonic.zig");
-const M31 = @import("../../core/fields/m31.zig").M31;
-const QM31 = @import("../../core/fields/qm31.zig").QM31;
+const quotients = @import("stwo_core").pcs.quotients;
+const twiddles = @import("stwo_prover_impl").poly.twiddles;
+const circle = @import("stwo_core").circle;
+const canonic = @import("stwo_core").poly.circle.canonic;
+const M31 = @import("stwo_core").fields.m31.M31;
+const QM31 = @import("stwo_core").fields.qm31.QM31;
 
 pub const Telemetry = struct {
     wall_ms: f64,

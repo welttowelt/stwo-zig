@@ -1,8 +1,8 @@
 //! Canonical RISC-V statement geometry and preprocessed-root validation.
 
 const std = @import("std");
-const m31 = @import("../../../core/fields/m31.zig");
-const pcs_core = @import("../../../core/pcs/mod.zig");
+const m31 = @import("stwo_core").fields.m31;
+const pcs_core = @import("stwo_core").pcs;
 const component_order = @import("../air/component_order.zig");
 const lookup_table_schema = @import("../air/lookups/tables/schema.zig");
 const merkle_node = @import("../air/memory_commitment/merkle_node.zig");

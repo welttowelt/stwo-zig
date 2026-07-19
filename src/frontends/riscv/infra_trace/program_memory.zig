@@ -1,7 +1,7 @@
 //! Legacy program-ROM and memory-access infrastructure column generators.
 
 const std = @import("std");
-const M31 = @import("../../../core/fields/m31.zig").M31;
+const M31 = @import("stwo_core").fields.m31.M31;
 const program_table = @import("../air/program/table.zig");
 const trace_columns = @import("../air/trace_columns.zig");
 const trace_mod = @import("../runner/trace.zig");

@@ -1,6 +1,6 @@
 //! Cairo CPU state types.
 
-const M31 = @import("../../../core/fields/m31.zig").M31;
+const M31 = @import("stwo_core").fields.m31.M31;
 
 /// Log2 of the memory address bound (addresses fit in 29 bits).
 pub const LOG_MEMORY_ADDRESS_BOUND: u32 = 29;

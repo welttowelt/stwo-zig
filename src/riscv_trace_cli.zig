@@ -20,7 +20,7 @@ const relation_evidence = @import("frontends/riscv/air/relation_evidence.zig");
 const public_values_diagnostic = @import("frontends/riscv/diagnostics/public_values.zig");
 const mulh_limitation_diagnostic = @import("frontends/riscv/diagnostics/mulh_limitation.zig");
 const riscv_cpu = @import("integrations/riscv_cpu/mod.zig");
-const pcs = @import("core/pcs/mod.zig");
+const pcs = @import("stwo_core").pcs;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -412,7 +412,7 @@ fn appendFamilyAccesses(
     };
 }
 
-fn limbsToWord(limbs: [4]@import("core/fields/m31.zig").M31) u32 {
+fn limbsToWord(limbs: [4]@import("stwo_core").fields.m31.M31) u32 {
     var value: u32 = 0;
     for (limbs, 0..) |limb, index| value |= limb.v << @intCast(8 * index);
     return value;
@@ -726,7 +726,7 @@ fn dumpProgramTuples(allocator: std.mem.Allocator, path: []const u8) !void {
 /// out, byte-compared with the pinned oracle over the same corpus.
 fn dumpPoseidon2(allocator: std.mem.Allocator, path: []const u8) !void {
     const poseidon2 = @import("frontends/riscv/air/memory_commitment/poseidon2.zig");
-    const M31 = @import("core/fields/m31.zig").M31;
+    const M31 = @import("stwo_core").fields.m31.M31;
 
     const raw = try std.fs.cwd().readFileAlloc(allocator, path, 64 * 1024 * 1024);
     defer allocator.free(raw);
@@ -757,7 +757,7 @@ fn dumpPoseidon2(allocator: std.mem.Allocator, path: []const u8) !void {
 /// The channel mix contract is infallible, so recording failures abort
 /// rather than silently truncating the transcript.
 const DigestRecorder = struct {
-    channel: @import("core/channel/blake2s.zig").Blake2sChannel = .{},
+    channel: @import("stwo_core").channel.blake2s.Blake2sChannel = .{},
     allocator: std.mem.Allocator,
     out: *std.ArrayList(u8),
 

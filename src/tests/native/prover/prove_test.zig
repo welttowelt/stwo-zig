@@ -1,17 +1,17 @@
 const std = @import("std");
-const prove_mod = @import("../../../prover/prove.zig");
-const circle = @import("../../../core/circle.zig");
-const core_verifier = @import("../../../core/verifier.zig");
-const core_air_accumulation = @import("../../../core/air/accumulation.zig");
-const core_air_components = @import("../../../core/air/components.zig");
-const m31 = @import("../../../core/fields/m31.zig");
-const qm31 = @import("../../../core/fields/qm31.zig");
-const pcs_core = @import("../../../core/pcs/mod.zig");
-const verifier_types = @import("../../../core/verifier_types.zig");
-const component_prover = @import("../../../prover/air/component_prover.zig");
-const prover_air_accumulation = @import("../../../prover/air/accumulation.zig");
-const pcs_prover = @import("../../../prover/pcs/mod.zig");
-const secure_column = @import("../../../prover/secure_column.zig");
+const prove_mod = @import("stwo_prover_impl").prove;
+const circle = @import("stwo_core").circle;
+const core_verifier = @import("stwo_core").verifier;
+const core_air_accumulation = @import("stwo_core").air.accumulation;
+const core_air_components = @import("stwo_core").air.components;
+const m31 = @import("stwo_core").fields.m31;
+const qm31 = @import("stwo_core").fields.qm31;
+const pcs_core = @import("stwo_core").pcs;
+const verifier_types = @import("stwo_core").verifier_types;
+const component_prover = @import("stwo_prover_impl").air.component_prover;
+const prover_air_accumulation = @import("stwo_prover_impl").air.accumulation;
+const pcs_prover = @import("stwo_prover_impl").pcs;
+const secure_column = @import("stwo_prover_impl").secure_column;
 
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
@@ -23,9 +23,9 @@ const prove = prove_mod.prove;
 const proveEx = prove_mod.proveEx;
 
 test "prover prove: early component and sampled-point errors consume schemes" {
-    const Hasher = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
-    const MerkleChannel = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
-    const Channel = @import("../../../core/channel/blake2s.zig").Blake2sChannel;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
+    const MerkleChannel = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleChannel;
+    const Channel = @import("stwo_core").channel.blake2s.Blake2sChannel;
     const CpuBackend = @import("../../../backends/cpu_scalar/mod.zig").CpuBackend;
     const Scheme = pcs_prover.CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel);
     const alloc = std.testing.allocator;
@@ -69,17 +69,17 @@ test "prover prove: early component and sampled-point errors consume schemes" {
 }
 
 test "prover prove: prove_ex components slice verifies with core verifier" {
-    const Hasher = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
-    const MerkleChannel = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
-    const Channel = @import("../../../core/channel/blake2s.zig").Blake2sChannel;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
+    const MerkleChannel = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleChannel;
+    const Channel = @import("stwo_core").channel.blake2s.Blake2sChannel;
     const CpuBackend = @import("../../../backends/cpu_scalar/mod.zig").CpuBackend;
     const Scheme = pcs_prover.CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel);
-    const VerifierScheme = @import("../../../core/pcs/verifier.zig").CommitmentSchemeVerifier(Hasher, MerkleChannel);
+    const VerifierScheme = @import("stwo_core").pcs.verifier.CommitmentSchemeVerifier(Hasher, MerkleChannel);
     const alloc = std.testing.allocator;
 
     const config = pcs_core.PcsConfig{
         .pow_bits = 0,
-        .fri_config = try @import("../../../core/fri.zig").FriConfig.init(0, 1, 3),
+        .fri_config = try @import("stwo_core").fri.FriConfig.init(0, 1, 3),
     };
 
     const MockComponent = struct {
@@ -328,17 +328,17 @@ test "prover prove: prove_ex components slice verifies with core verifier" {
 }
 
 test "prover prove: prepared proof verifies with core verifier" {
-    const Hasher = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
-    const MerkleChannel = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
-    const Channel = @import("../../../core/channel/blake2s.zig").Blake2sChannel;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
+    const MerkleChannel = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleChannel;
+    const Channel = @import("stwo_core").channel.blake2s.Blake2sChannel;
     const CpuBackend = @import("../../../backends/cpu_scalar/mod.zig").CpuBackend;
     const Scheme = pcs_prover.CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel);
-    const Verifier = @import("../../../core/pcs/verifier.zig").CommitmentSchemeVerifier(Hasher, MerkleChannel);
+    const Verifier = @import("stwo_core").pcs.verifier.CommitmentSchemeVerifier(Hasher, MerkleChannel);
     const alloc = std.testing.allocator;
 
     const config = pcs_core.PcsConfig{
         .pow_bits = 0,
-        .fri_config = try @import("../../../core/fri.zig").FriConfig.init(0, 1, 3),
+        .fri_config = try @import("stwo_core").fri.FriConfig.init(0, 1, 3),
     };
 
     var scheme = try Scheme.init(alloc, config);
@@ -414,17 +414,17 @@ test "prover prove: prepared proof verifies with core verifier" {
 }
 
 test "prover prove: prove_ex computes sampled values and verifies" {
-    const Hasher = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
-    const MerkleChannel = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
-    const Channel = @import("../../../core/channel/blake2s.zig").Blake2sChannel;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
+    const MerkleChannel = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleChannel;
+    const Channel = @import("stwo_core").channel.blake2s.Blake2sChannel;
     const CpuBackend = @import("../../../backends/cpu_scalar/mod.zig").CpuBackend;
     const Scheme = pcs_prover.CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel);
-    const Verifier = @import("../../../core/pcs/verifier.zig").CommitmentSchemeVerifier(Hasher, MerkleChannel);
+    const Verifier = @import("stwo_core").pcs.verifier.CommitmentSchemeVerifier(Hasher, MerkleChannel);
     const alloc = std.testing.allocator;
 
     const config = pcs_core.PcsConfig{
         .pow_bits = 0,
-        .fri_config = try @import("../../../core/fri.zig").FriConfig.init(0, 1, 3),
+        .fri_config = try @import("stwo_core").fri.FriConfig.init(0, 1, 3),
     };
 
     var scheme = try Scheme.init(alloc, config);
@@ -495,17 +495,17 @@ test "prover prove: prove_ex computes sampled values and verifies" {
 }
 
 test "prover prove: prove_ex supports non-zero blowup" {
-    const Hasher = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
-    const MerkleChannel = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
-    const Channel = @import("../../../core/channel/blake2s.zig").Blake2sChannel;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
+    const MerkleChannel = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleChannel;
+    const Channel = @import("stwo_core").channel.blake2s.Blake2sChannel;
     const CpuBackend = @import("../../../backends/cpu_scalar/mod.zig").CpuBackend;
     const Scheme = pcs_prover.CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel);
-    const Verifier = @import("../../../core/pcs/verifier.zig").CommitmentSchemeVerifier(Hasher, MerkleChannel);
+    const Verifier = @import("stwo_core").pcs.verifier.CommitmentSchemeVerifier(Hasher, MerkleChannel);
     const alloc = std.testing.allocator;
 
     const config = pcs_core.PcsConfig{
         .pow_bits = 0,
-        .fri_config = try @import("../../../core/fri.zig").FriConfig.init(0, 2, 3),
+        .fri_config = try @import("stwo_core").fri.FriConfig.init(0, 2, 3),
     };
 
     var scheme = try Scheme.init(alloc, config);

@@ -1,6 +1,6 @@
-const fft = @import("../../../core/fft.zig");
-const m31 = @import("../../../core/fields/m31.zig");
-const domain_mod = @import("../../../core/poly/circle/domain.zig");
+const fft = @import("stwo_core").fft;
+const m31 = @import("stwo_core").fields.m31;
+const domain_mod = @import("stwo_core").poly.circle.domain;
 const fft_kernels = @import("fft_kernels.zig");
 const twiddles_mod = @import("../twiddles.zig");
 

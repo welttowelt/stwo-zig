@@ -1,11 +1,11 @@
 //! Backend-neutral ownership and ordering for a complete proving transaction.
 
 const std = @import("std");
-const pcs_core = @import("../../core/pcs/mod.zig");
-const prover_component = @import("../../prover/air/component_prover.zig");
-const prover_engine = @import("../../prover/engine.zig");
-const prover_pcs = @import("../../prover/pcs/mod.zig");
-const stage_profile = @import("../../prover/stage_profile.zig");
+const pcs_core = @import("stwo_core").pcs;
+const prover_component = @import("stwo_prover_impl").air.component_prover;
+const prover_engine = @import("stwo_prover_impl").engine;
+const prover_pcs = @import("stwo_prover_impl").pcs;
+const stage_profile = @import("stwo_prover_impl").stage_profile;
 
 const ColumnEvaluation = prover_pcs.ColumnEvaluation;
 

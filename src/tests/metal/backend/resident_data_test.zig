@@ -1,29 +1,29 @@
 const std = @import("std");
 const metal = @import("../../../backends/metal/runtime.zig");
-const m31 = @import("../../../core/fields/m31.zig");
-const blake2_merkle = @import("../../../core/vcs_lifted/blake2_merkle.zig");
-const blake2_hash = @import("../../../core/vcs/blake2_hash.zig");
-const merkle_prover = @import("../../../prover/vcs_lifted/prover.zig");
-const pcs_core = @import("../../../core/pcs/mod.zig");
+const m31 = @import("stwo_core").fields.m31;
+const blake2_merkle = @import("stwo_core").vcs_lifted.blake2_merkle;
+const blake2_hash = @import("stwo_core").vcs.blake2_hash;
+const merkle_prover = @import("stwo_prover_impl").vcs_lifted.prover;
+const pcs_core = @import("stwo_core").pcs;
 const MetalProverEngine = @import("../../../backends/metal/prover_engine.zig").MetalProverEngine;
-const canonic = @import("../../../core/poly/circle/canonic.zig");
-const circle_poly = @import("../../../prover/poly/circle/poly.zig");
-const twiddles = @import("../../../prover/poly/twiddles.zig");
-const core_fri = @import("../../../core/fri.zig");
-const qm31 = @import("../../../core/fields/qm31.zig");
-const line = @import("../../../core/poly/line.zig");
-const prover_line = @import("../../../prover/line.zig");
+const canonic = @import("stwo_core").poly.circle.canonic;
+const circle_poly = @import("stwo_prover_impl").poly.circle.poly;
+const twiddles = @import("stwo_prover_impl").poly.twiddles;
+const core_fri = @import("stwo_core").fri;
+const qm31 = @import("stwo_core").fields.qm31;
+const line = @import("stwo_core").poly.line;
+const prover_line = @import("stwo_prover_impl").line;
 const MetalBackend = @import("../../../backends/metal/commit_backend.zig").MetalCommitBackend;
 const metal_commit_policy = @import("../../../backends/metal/commit_policy.zig");
 const eval_program = @import("../../../frontends/cairo/witness/eval_program.zig");
 const eval_codegen = @import("../../../integrations/cairo_metal/eval_codegen.zig");
-const circle_core = @import("../../../core/circle.zig");
-const core_utils = @import("../../../core/utils.zig");
-const blake2s_channel = @import("../../../core/channel/blake2s.zig");
+const circle_core = @import("stwo_core").circle;
+const core_utils = @import("stwo_core").utils;
+const blake2s_channel = @import("stwo_core").channel.blake2s;
 const protocol_recipes = @import("../../../backends/metal/protocol_recipes.zig");
 const arena_plan = @import("../../../backends/metal/arena_plan.zig");
-const secure_column = @import("../../../prover/secure_column.zig");
-const secure_circle_poly = @import("../../../prover/poly/circle/secure_poly.zig");
+const secure_column = @import("stwo_prover_impl").secure_column;
+const secure_circle_poly = @import("stwo_prover_impl").poly.circle.secure_poly;
 const cairo_arena_binding = @import("../../../integrations/cairo_metal/arena_binding.zig");
 const cairo_oods = @import("../../../integrations/cairo_metal/oods.zig");
 const cairo_quotient_inputs = @import("../../../integrations/cairo_metal/quotient_inputs.zig");
@@ -536,7 +536,7 @@ test "metal: resident FRI folds and coordinate conversion match CPU" {
         }
     }
     const alpha = QM31.fromU32Unchecked(7, 11, 13, 17);
-    const line_domain = try line.LineDomain.init(@import("../../../core/circle.zig").Coset.halfOdds(log_size - 1));
+    const line_domain = try line.LineDomain.init(@import("stwo_core").circle.Coset.halfOdds(log_size - 1));
 
     const expected = try allocator.alloc(QM31, line_domain.size());
     defer allocator.free(expected);

@@ -163,7 +163,7 @@ fn encodeInstruction(offset0: u16, offset1: u16, offset2: u16, felt5_high: u16, 
 }
 
 test "Cairo verify instruction inputs: opcode padding compacts and counts exactly" {
-    const M31 = @import("../../../core/fields/m31.zig").M31;
+    const M31 = @import("stwo_core").fields.m31.M31;
     const memory = @import("../common/memory.zig");
     var grouped = opcodes.CasmStatesByOpcode.init(std.testing.allocator);
     defer grouped.deinit(std.testing.allocator);
@@ -218,7 +218,7 @@ test "Cairo verify instruction inputs: opcode padding compacts and counts exactl
 }
 
 test "Cairo verify instruction inputs: missing and non-instruction memory fail closed" {
-    const M31 = @import("../../../core/fields/m31.zig").M31;
+    const M31 = @import("stwo_core").fields.m31.M31;
     const memory = @import("../common/memory.zig");
     var grouped = opcodes.CasmStatesByOpcode.init(std.testing.allocator);
     defer grouped.deinit(std.testing.allocator);

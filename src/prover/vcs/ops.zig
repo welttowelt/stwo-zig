@@ -1,6 +1,6 @@
 const std = @import("std");
-const m31 = @import("../../core/fields/m31.zig");
-const vcs_merkle_hasher = @import("../../core/vcs/merkle_hasher.zig");
+const m31 = @import("stwo_core").fields.m31;
+const vcs_merkle_hasher = @import("stwo_core").vcs.merkle_hasher;
 
 const M31 = m31.M31;
 
@@ -27,7 +27,7 @@ pub fn commitOnLayer(
 }
 
 test "vcs ops: dummy backend satisfies contract" {
-    const Hasher = @import("../../core/vcs/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Hasher = @import("stwo_core").vcs.blake2_merkle.Blake2sMerkleHasher;
     const DummyBackend = struct {
         pub fn commitOnLayer(
             allocator: std.mem.Allocator,

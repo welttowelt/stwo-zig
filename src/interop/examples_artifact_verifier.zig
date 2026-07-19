@@ -229,8 +229,8 @@ test "artifact verifier: statement union is exact" {
 }
 
 test "artifact verifier: verifier policy rejects prover-selected weak parameters" {
-    const fri = @import("../core/fri.zig");
-    const pcs = @import("../core/pcs/mod.zig");
+    const fri = @import("stwo_core").fri;
+    const pcs = @import("stwo_core").pcs;
     const weak = pcs.PcsConfig{
         .pow_bits = 0,
         .fri_config = try fri.FriConfig.init(0, 1, 0),

@@ -4,11 +4,11 @@ const std = @import("std");
 const riscv_cpu = @import("../../integrations/riscv_cpu/mod.zig");
 const prover = @import("../../frontends/riscv/prover.zig");
 const trace_mod = @import("../../frontends/riscv/runner/trace.zig");
-const pcs = @import("../../core/pcs/mod.zig");
-const prover_component = @import("../../prover/air/component_prover.zig");
-const prover_engine = @import("../../prover/engine.zig");
-const prover_pcs = @import("../../prover/pcs/mod.zig");
-const stage_profile = @import("../../prover/stage_profile.zig");
+const pcs = @import("stwo_core").pcs;
+const prover_component = @import("stwo_prover_impl").air.component_prover;
+const prover_engine = @import("stwo_prover_impl").engine;
+const prover_pcs = @import("stwo_prover_impl").pcs;
+const stage_profile = @import("stwo_prover_impl").stage_profile;
 
 const CpuProverEngine = riscv_cpu.CpuProverEngine;
 const ExtendedProof = prover.ExtendedProof;

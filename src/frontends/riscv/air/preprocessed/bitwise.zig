@@ -6,7 +6,7 @@
 //! look up 8-bit limb results without re-deriving them inside the AIR.
 
 const std = @import("std");
-const M31 = @import("../../../../core/fields/m31.zig").M31;
+const M31 = @import("stwo_core").fields.m31.M31;
 
 pub const TABLE_SIZE: usize = 256 * 256; // 65536 entries
 pub const N_COLUMNS: usize = 5; // a, b, and, or, xor

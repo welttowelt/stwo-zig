@@ -6,8 +6,8 @@
 //! their byte-addressed sparse Merkle trees.
 
 const std = @import("std");
-const M31 = @import("../../../../core/fields/m31.zig").M31;
-const QM31 = @import("../../../../core/fields/qm31.zig").QM31;
+const M31 = @import("stwo_core").fields.m31.M31;
+const QM31 = @import("stwo_core").fields.qm31.QM31;
 const relation_challenges = @import("../relation_challenges.zig");
 const sparse_merkle = @import("sparse_merkle.zig");
 const memory_state = @import("../../runner/memory_state.zig");

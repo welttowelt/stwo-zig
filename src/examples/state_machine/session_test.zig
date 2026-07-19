@@ -1,9 +1,9 @@
 //! Prepared-input and reusable-session tests for the State Machine prover.
 
 const std = @import("std");
-const fri = @import("../../core/fri.zig");
-const m31 = @import("../../core/fields/m31.zig");
-const pcs = @import("../../core/pcs/mod.zig");
+const fri = @import("stwo_core").fri;
+const m31 = @import("stwo_core").fields.m31;
+const pcs = @import("stwo_core").pcs;
 const proof_wire = @import("../../interop/proof_wire.zig");
 const subject = @import("../state_machine.zig");
 

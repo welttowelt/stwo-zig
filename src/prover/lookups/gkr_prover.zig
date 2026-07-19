@@ -1,7 +1,7 @@
 const std = @import("std");
-const fraction = @import("../../core/fraction.zig");
-const m31 = @import("../../core/fields/m31.zig");
-const qm31 = @import("../../core/fields/qm31.zig");
+const fraction = @import("stwo_core").fraction;
+const m31 = @import("stwo_core").fields.m31;
+const qm31 = @import("stwo_core").fields.qm31;
 const gkr_circuit = @import("gkr_circuit.zig");
 const gkr_verifier = @import("gkr_verifier.zig");
 const mle_mod = @import("mle.zig");
@@ -306,7 +306,7 @@ fn flattenMaskColumns(allocator: std.mem.Allocator, mask: *const gkr_verifier.Gk
 
 test "gkr prover: grand product prove and verify" {
     const alloc = std.testing.allocator;
-    const Channel = @import("../../core/channel/blake2s.zig").Blake2sChannel;
+    const Channel = @import("stwo_core").channel.blake2s.Blake2sChannel;
 
     var draw_channel = Channel{};
     const values = try draw_channel.drawSecureFelts(alloc, 1 << 5);
@@ -343,7 +343,7 @@ test "gkr prover: grand product prove and verify" {
 
 test "gkr prover: logup generic prove and verify" {
     const alloc = std.testing.allocator;
-    const Channel = @import("../../core/channel/blake2s.zig").Blake2sChannel;
+    const Channel = @import("stwo_core").channel.blake2s.Blake2sChannel;
 
     var draw_channel = Channel{};
     const numerators_values = try draw_channel.drawSecureFelts(alloc, 1 << 5);
@@ -397,7 +397,7 @@ test "gkr prover: logup generic prove and verify" {
 
 test "gkr prover: logup singles prove and verify" {
     const alloc = std.testing.allocator;
-    const Channel = @import("../../core/channel/blake2s.zig").Blake2sChannel;
+    const Channel = @import("stwo_core").channel.blake2s.Blake2sChannel;
 
     var draw_channel = Channel{};
     const denominators_values = try draw_channel.drawSecureFelts(alloc, 1 << 5);
@@ -439,7 +439,7 @@ test "gkr prover: logup singles prove and verify" {
 
 test "gkr prover: logup multiplicities prove and verify" {
     const alloc = std.testing.allocator;
-    const Channel = @import("../../core/channel/blake2s.zig").Blake2sChannel;
+    const Channel = @import("stwo_core").channel.blake2s.Blake2sChannel;
 
     var draw_channel = Channel{};
     const numerator_secure = try draw_channel.drawSecureFelts(alloc, 1 << 5);

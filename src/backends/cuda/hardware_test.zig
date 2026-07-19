@@ -9,8 +9,8 @@ const builtin = @import("builtin");
 const ffi = @import("ffi.zig");
 const DeviceColumn = @import("device_column.zig").DeviceColumn;
 const DeviceContext = @import("device_context.zig").DeviceContext;
-const M31 = @import("../../core/fields/m31.zig").M31;
-const QM31 = @import("../../core/fields/qm31.zig").QM31;
+const M31 = @import("stwo_core").fields.m31.M31;
+const QM31 = @import("stwo_core").fields.qm31.QM31;
 const mod = @import("mod.zig");
 const CudaBackend = mod.CudaBackend;
 

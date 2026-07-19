@@ -1,6 +1,6 @@
 const std = @import("std");
-const m31 = @import("../../core/fields/m31.zig");
-const pcs_utils = @import("../../core/pcs/utils.zig");
+const m31 = @import("stwo_core").fields.m31;
+const pcs_utils = @import("stwo_core").pcs.utils;
 
 const M31 = m31.M31;
 const TreeVec = pcs_utils.TreeVec;

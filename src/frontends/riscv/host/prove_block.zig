@@ -7,7 +7,7 @@ const std = @import("std");
 const host_mod = @import("mod.zig");
 const runner_mod = @import("../runner/mod.zig");
 const prover_mod = @import("../prover.zig");
-const pcs_core = @import("../../../core/pcs/mod.zig");
+const pcs_core = @import("stwo_core").pcs;
 const BlockInput = @import("block_input.zig").BlockInput;
 
 pub const ProveBlockResult = struct {

@@ -12,7 +12,7 @@
 //!   - Register accesses verified via state chain lookups.
 
 const std = @import("std");
-const cf = @import("../../../../core/constraint_framework/mod.zig");
+const cf = @import("stwo_core").constraint_framework;
 const claims_mod = @import("../claims.zig");
 const trace = @import("../trace_columns.zig");
 

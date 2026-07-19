@@ -1,5 +1,5 @@
 const std = @import("std");
-const arena_plan = @import("../../backend/arena_plan.zig");
+const arena_plan = @import("stwo_backend_contracts").arena_plan;
 const composition_bundle = @import("../../frontends/cairo/witness/composition_bundle.zig");
 const geometry_mod = @import("../../integrations/cairo_metal/runtime_decommit_geometry.zig");
 

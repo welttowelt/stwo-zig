@@ -127,8 +127,8 @@ pub fn DeviceColumn(comptime F: type) type {
 // Tests
 // ---------------------------------------------------------------
 
-const m31_mod = @import("../../core/fields/m31.zig");
-const qm31_mod = @import("../../core/fields/qm31.zig");
+const m31_mod = @import("stwo_core").fields.m31;
+const qm31_mod = @import("stwo_core").fields.qm31;
 
 const M31 = m31_mod.M31;
 const QM31 = qm31_mod.QM31;

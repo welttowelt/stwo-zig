@@ -5,7 +5,7 @@
 //! RV32A, SYSTEM, or FENCE here would create program rows with no sound AIR.
 
 const std = @import("std");
-const m31 = @import("../../../../core/fields/m31.zig");
+const m31 = @import("stwo_core").fields.m31;
 const opcode_manifest = @import("../../opcode_manifest.zig");
 const opcode_mod = @import("opcode.zig");
 

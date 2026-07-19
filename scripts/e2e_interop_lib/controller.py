@@ -20,7 +20,13 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+
 from typing import Any, Optional
+
+try:
+    from zig_protocol_lib.command import test_command
+except ModuleNotFoundError:
+    from scripts.zig_protocol_lib.command import test_command
 
 try:
     from e2e_interop_lib import (
@@ -558,24 +564,12 @@ def main() -> int:
 
         run_step(
             name="zig_interop_proof_wire_test",
-            cmd=[
-                "zig",
-                "test",
-                "src/stwo.zig",
-                "--test-filter",
-                "interop proof wire:",
-            ],
+            cmd=test_command("src/stwo.zig", "--test-filter", "interop proof wire:"),
             steps=steps,
         )
         run_step(
             name="zig_interop_artifact_test",
-            cmd=[
-                "zig",
-                "test",
-                "src/stwo.zig",
-                "--test-filter",
-                "interop artifact:",
-            ],
+            cmd=test_command("src/stwo.zig", "--test-filter", "interop artifact:"),
             steps=steps,
         )
 

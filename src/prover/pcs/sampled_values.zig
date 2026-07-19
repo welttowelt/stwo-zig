@@ -5,11 +5,11 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const circle = @import("../../core/circle.zig");
-const m31 = @import("../../core/fields/m31.zig");
-const qm31 = @import("../../core/fields/qm31.zig");
-const pcs_core = @import("../../core/pcs/mod.zig");
-const canonic = @import("../../core/poly/circle/canonic.zig");
+const circle = @import("stwo_core").circle;
+const m31 = @import("stwo_core").fields.m31;
+const qm31 = @import("stwo_core").fields.qm31;
+const pcs_core = @import("stwo_core").pcs;
+const canonic = @import("stwo_core").poly.circle.canonic;
 const prover_circle = @import("../poly/circle/mod.zig");
 const prover_circle_eval = @import("../poly/circle/evaluation.zig");
 const work_pool_mod = @import("../work_pool.zig");

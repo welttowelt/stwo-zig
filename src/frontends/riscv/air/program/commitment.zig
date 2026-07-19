@@ -1,7 +1,7 @@
 //! Oracle-exact sparse program commitment rows.
 
 const std = @import("std");
-const M31 = @import("../../../../core/fields/m31.zig").M31;
+const M31 = @import("stwo_core").fields.m31.M31;
 const infra = @import("../../infra_trace.zig");
 const memory_state = @import("../../runner/memory_state.zig");
 const sparse_merkle = @import("../memory_commitment/sparse_merkle.zig");

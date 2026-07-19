@@ -1,8 +1,8 @@
 //! Backend-neutral sink contract for completed FRI quotient row tiles.
 
 const std = @import("std");
-const m31 = @import("../../core/fields/m31.zig");
-const qm31 = @import("../../core/fields/qm31.zig");
+const m31 = @import("stwo_core").fields.m31;
+const qm31 = @import("stwo_core").fields.qm31;
 
 const M31 = m31.M31;
 

@@ -2,7 +2,7 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const M31 = @import("../../core/fields/m31.zig").M31;
+const M31 = @import("stwo_core").fields.m31.M31;
 const work_pool_mod = @import("../work_pool.zig");
 const columns_mod = @import("columns.zig");
 const layers_mod = @import("layers.zig");

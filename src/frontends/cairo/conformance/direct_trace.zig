@@ -232,7 +232,7 @@ fn testInput(
 }
 
 test "Cairo direct trace: receipt ordinal drives CPU column hashing" {
-    const M31 = @import("../../../core/fields/m31.zig").M31;
+    const M31 = @import("stwo_core").fields.m31.M31;
     const opcodes = @import("../adapter/opcodes.zig");
     var grouped = opcodes.CasmStatesByOpcode.init(std.testing.allocator);
     defer grouped.deinit(std.testing.allocator);
@@ -290,7 +290,7 @@ test "Cairo direct trace: receipt ordinal drives CPU column hashing" {
 }
 
 test "Cairo direct trace: comparison stops at the first digest mismatch" {
-    const M31 = @import("../../../core/fields/m31.zig").M31;
+    const M31 = @import("stwo_core").fields.m31.M31;
     const opcodes = @import("../adapter/opcodes.zig");
     var grouped = opcodes.CasmStatesByOpcode.init(std.testing.allocator);
     defer grouped.deinit(std.testing.allocator);

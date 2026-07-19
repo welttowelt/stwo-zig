@@ -1,7 +1,7 @@
 //! Committed main columns for Stark-V's ordinary RW-memory boundary table.
 
 const std = @import("std");
-const M31 = @import("../../../../core/fields/m31.zig").M31;
+const M31 = @import("stwo_core").fields.m31.M31;
 const infra = @import("../../infra_trace.zig");
 const boundary = @import("boundary.zig");
 

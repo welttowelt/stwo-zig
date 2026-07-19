@@ -11,7 +11,7 @@
 //! instruction verification.
 
 const std = @import("std");
-const cf = @import("../../../../core/constraint_framework/mod.zig");
+const cf = @import("stwo_core").constraint_framework;
 const claims_mod = @import("../claims.zig");
 
 const ExprEvaluator = cf.ExprEvaluator;
@@ -70,7 +70,7 @@ pub fn evaluate(
     // Constraint: next_pc = mem_value_at[fp-1] (reconstructed from limbs).
     // next_pc = next_pc_lo + next_pc_hi * 2^16
     const arena = eval.arena;
-    const shift_16 = try arena.baseConst(@import("../../../../core/fields/m31.zig").M31.fromCanonical(1 << 16));
+    const shift_16 = try arena.baseConst(@import("stwo_core").fields.m31.M31.fromCanonical(1 << 16));
     const next_pc_reconstructed = try arena.baseAdd(next_pc_lo, try arena.baseMul(next_pc_hi, shift_16));
     const next_pc_from_mem = try arena.baseAdd(mem_fp_m1_val_lo, try arena.baseMul(mem_fp_m1_val_hi, shift_16));
 

@@ -6,7 +6,7 @@
 //! decomposed into 28 x 9-bit words represented as M31 elements.
 
 const std = @import("std");
-const M31 = @import("../../../core/fields/m31.zig").M31;
+const M31 = @import("stwo_core").fields.m31.M31;
 
 /// Number of 9-bit words in a Felt252 decomposition.
 pub const N_WORDS: usize = 28;

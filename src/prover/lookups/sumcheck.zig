@@ -1,6 +1,6 @@
 const std = @import("std");
-const m31 = @import("../../core/fields/m31.zig");
-const qm31 = @import("../../core/fields/qm31.zig");
+const m31 = @import("stwo_core").fields.m31;
+const qm31 = @import("stwo_core").fields.qm31;
 const lookup_utils = @import("utils.zig");
 
 const M31 = m31.M31;
@@ -248,7 +248,7 @@ fn pow2Base(n: usize) M31 {
 
 test "sumcheck: prove and partially verify single mle" {
     const alloc = std.testing.allocator;
-    const Channel = @import("../../core/channel/blake2s.zig").Blake2sChannel;
+    const Channel = @import("stwo_core").channel.blake2s.Blake2sChannel;
     const mle_mod = @import("mle.zig");
     const MleSecure = mle_mod.Mle(QM31);
 
@@ -283,7 +283,7 @@ test "sumcheck: prove and partially verify single mle" {
 
 test "sumcheck: invalid proof is rejected" {
     const alloc = std.testing.allocator;
-    const Channel = @import("../../core/channel/blake2s.zig").Blake2sChannel;
+    const Channel = @import("stwo_core").channel.blake2s.Blake2sChannel;
     const mle_mod = @import("mle.zig");
     const MleSecure = mle_mod.Mle(QM31);
 

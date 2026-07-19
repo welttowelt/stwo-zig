@@ -12,7 +12,7 @@
 //! `write_encoded_memory` functions.
 
 const std = @import("std");
-const M31 = @import("../../../core/fields/m31.zig").M31;
+const M31 = @import("stwo_core").fields.m31.M31;
 const cpu = @import("../common/cpu.zig");
 const memory_mod = @import("../common/memory.zig");
 const felt252_mod = @import("../common/felt252.zig");

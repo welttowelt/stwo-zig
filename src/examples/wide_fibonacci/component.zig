@@ -1,22 +1,22 @@
 //! Real wide-Fibonacci AIR component shared by the prover and verifier.
 
 const std = @import("std");
-const core_air_accumulation = @import("../../core/air/accumulation.zig");
-const core_air_components = @import("../../core/air/components.zig");
-const core_air_derive = @import("../../core/air/derive.zig");
-const core_constraints = @import("../../core/constraints.zig");
-const m31 = @import("../../core/fields/m31.zig");
-const qm31 = @import("../../core/fields/qm31.zig");
-const canonic = @import("../../core/poly/circle/canonic.zig");
-const prover_air_accumulation = @import("../../prover/air/accumulation.zig");
-const prover_component = @import("../../prover/air/component_prover.zig");
-const prover_circle = @import("../../prover/poly/circle/mod.zig");
-const prover_twiddles = @import("../../prover/poly/twiddles.zig");
+const core_air_accumulation = @import("stwo_core").air.accumulation;
+const core_air_components = @import("stwo_core").air.components;
+const core_air_derive = @import("stwo_core").air.derive;
+const core_constraints = @import("stwo_core").constraints;
+const m31 = @import("stwo_core").fields.m31;
+const qm31 = @import("stwo_core").fields.qm31;
+const canonic = @import("stwo_core").poly.circle.canonic;
+const prover_air_accumulation = @import("stwo_prover_impl").air.accumulation;
+const prover_component = @import("stwo_prover_impl").air.component_prover;
+const prover_circle = @import("stwo_prover_impl").poly.circle;
+const prover_twiddles = @import("stwo_prover_impl").poly.twiddles;
 const trace_input = @import("trace.zig");
 
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
-const CirclePointQM31 = @import("../../core/circle.zig").CirclePointQM31;
+const CirclePointQM31 = @import("stwo_core").circle.CirclePointQM31;
 
 pub const Component = struct {
     statement: trace_input.Statement,
@@ -230,7 +230,7 @@ pub const Component = struct {
 };
 
 test "wide Fibonacci component: OODS quotient and coefficient order match scalar recurrence" {
-    const point = @import("../../core/circle.zig").SECURE_FIELD_CIRCLE_GEN.mul(29);
+    const point = @import("stwo_core").circle.SECURE_FIELD_CIRCLE_GEN.mul(29);
     const alpha = QM31.fromU32Unchecked(2, 3, 5, 7);
     var values = [_]QM31{
         QM31.fromBase(M31.fromCanonical(3)),

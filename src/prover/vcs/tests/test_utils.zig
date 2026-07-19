@@ -1,8 +1,8 @@
 const std = @import("std");
-const m31 = @import("../../../core/fields/m31.zig");
-const vcs_test_utils = @import("../../../core/vcs/test_utils.zig");
-const vcs_verifier = @import("../../../core/vcs/verifier.zig");
-const vcs_prover = @import("../prover.zig");
+const m31 = @import("stwo_core").fields.m31;
+const vcs_test_utils = @import("stwo_core").vcs.test_utils;
+const vcs_verifier = @import("stwo_core").vcs.verifier;
+const vcs_prover = @import("stwo_prover_impl").vcs.prover;
 
 const M31 = m31.M31;
 
@@ -92,7 +92,7 @@ fn prepareMerkle(
 }
 
 test "vcs test utils: prepare merkle verifies" {
-    const Hasher = @import("../../../core/vcs/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Hasher = @import("stwo_core").vcs.blake2_merkle.Blake2sMerkleHasher;
     const alloc = std.testing.allocator;
 
     var data = try prepareMerkle(Hasher, alloc, 0);

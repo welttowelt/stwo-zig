@@ -3,7 +3,7 @@
 //! Numerators preserve the signs and gates from the pinned Stark-V schema so
 //! interaction-column integration does not have to reconstruct policy.
 
-const QM31 = @import("../../../../core/fields/qm31.zig").QM31;
+const QM31 = @import("stwo_core").fields.qm31.QM31;
 const common = @import("common.zig");
 
 pub fn Request(comptime Tuple: type) type {

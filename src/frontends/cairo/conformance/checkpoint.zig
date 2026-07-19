@@ -5,7 +5,7 @@
 //! first component or column whose geometry or values differ.
 
 const std = @import("std");
-const M31 = @import("../../../core/fields/m31.zig");
+const M31 = @import("stwo_core").fields.m31;
 
 pub const Digest = [32]u8;
 pub const initial_accumulator = [_]u8{0} ** 32;

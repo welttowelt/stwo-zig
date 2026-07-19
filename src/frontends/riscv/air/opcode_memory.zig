@@ -6,8 +6,8 @@
 //! every tuple from the committed family columns through `accessFromMain`.
 
 const std = @import("std");
-const M31 = @import("../../../core/fields/m31.zig").M31;
-const QM31 = @import("../../../core/fields/qm31.zig").QM31;
+const M31 = @import("stwo_core").fields.m31.M31;
+const QM31 = @import("stwo_core").fields.qm31.QM31;
 const memory_logup = @import("memory_logup.zig");
 const relation_challenges = @import("relation_challenges.zig");
 const trace_mod = @import("../runner/trace.zig");

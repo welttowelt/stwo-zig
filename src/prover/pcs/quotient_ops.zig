@@ -1,15 +1,15 @@
 const std = @import("std");
-const m31 = @import("../../core/fields/m31.zig");
-const qm31 = @import("../../core/fields/qm31.zig");
-const quotients = @import("../../core/pcs/quotients.zig");
-const pcs_utils = @import("../../core/pcs/utils.zig");
+const m31 = @import("stwo_core").fields.m31;
+const qm31 = @import("stwo_core").fields.qm31;
+const quotients = @import("stwo_core").pcs.quotients;
+const pcs_utils = @import("stwo_core").pcs.utils;
 const column_geometry = @import("quotient_column_geometry.zig");
 const execution = @import("quotients/execution.zig");
 const lazy_provider = @import("quotients/lazy_provider.zig");
 const planning = @import("quotients/planning.zig");
 const secure_column = @import("../secure_column.zig");
 
-const circle_mod = @import("../../core/circle.zig");
+const circle_mod = @import("stwo_core").circle;
 const CirclePointQM31 = circle_mod.CirclePointQM31;
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
@@ -229,8 +229,8 @@ test "prover pcs quotient ops: compute fri quotients matches direct fri answers 
     );
     defer columns.deinitDeep(alloc);
 
-    const point0 = @import("../../core/circle.zig").SECURE_FIELD_CIRCLE_GEN.mul(7);
-    const point1 = @import("../../core/circle.zig").SECURE_FIELD_CIRCLE_GEN.mul(19);
+    const point0 = @import("stwo_core").circle.SECURE_FIELD_CIRCLE_GEN.mul(7);
+    const point1 = @import("stwo_core").circle.SECURE_FIELD_CIRCLE_GEN.mul(19);
 
     const col0_samples = try alloc.dupe(PointSample, &[_]PointSample{
         .{ .point = point0, .value = QM31.fromU32Unchecked(1, 2, 3, 4) },
@@ -351,8 +351,8 @@ test "prover pcs quotient ops: forced materialized and streaming strategies matc
     var columns_borrowed = try borrowColumnsForTest(alloc, columns);
     defer columns_borrowed.deinit(alloc);
 
-    const point0 = @import("../../core/circle.zig").SECURE_FIELD_CIRCLE_GEN.mul(7);
-    const point1 = @import("../../core/circle.zig").SECURE_FIELD_CIRCLE_GEN.mul(13);
+    const point0 = @import("stwo_core").circle.SECURE_FIELD_CIRCLE_GEN.mul(7);
+    const point1 = @import("stwo_core").circle.SECURE_FIELD_CIRCLE_GEN.mul(13);
 
     const col0_samples = try alloc.dupe(PointSample, &[_]PointSample{
         .{ .point = point0, .value = QM31.fromU32Unchecked(1, 2, 3, 4) },
@@ -420,7 +420,7 @@ test "prover pcs quotient ops: rejects invalid column length" {
     defer columns.deinitDeep(alloc);
 
     const sample_col = try alloc.dupe(PointSample, &[_]PointSample{
-        .{ .point = @import("../../core/circle.zig").SECURE_FIELD_CIRCLE_GEN, .value = QM31.one() },
+        .{ .point = @import("stwo_core").circle.SECURE_FIELD_CIRCLE_GEN, .value = QM31.one() },
     });
     const sample_tree = try alloc.dupe([]PointSample, &[_][]PointSample{sample_col});
     var samples = TreeVec([][]PointSample).initOwned(
@@ -459,7 +459,7 @@ test "prover pcs quotient ops: rejects column log size above lifting" {
     defer columns.deinitDeep(alloc);
 
     const sample_col = try alloc.dupe(PointSample, &[_]PointSample{
-        .{ .point = @import("../../core/circle.zig").SECURE_FIELD_CIRCLE_GEN, .value = QM31.one() },
+        .{ .point = @import("stwo_core").circle.SECURE_FIELD_CIRCLE_GEN, .value = QM31.one() },
     });
     const sample_tree = try alloc.dupe([]PointSample, &[_][]PointSample{sample_col});
     var samples = TreeVec([][]PointSample).initOwned(
@@ -548,8 +548,8 @@ test "prover pcs quotient ops: lazy provider matches materialized output" {
     var columns_borrowed = try borrowColumnsForTest(alloc, columns);
     defer columns_borrowed.deinit(alloc);
 
-    const point0 = @import("../../core/circle.zig").SECURE_FIELD_CIRCLE_GEN.mul(7);
-    const point1 = @import("../../core/circle.zig").SECURE_FIELD_CIRCLE_GEN.mul(13);
+    const point0 = @import("stwo_core").circle.SECURE_FIELD_CIRCLE_GEN.mul(7);
+    const point1 = @import("stwo_core").circle.SECURE_FIELD_CIRCLE_GEN.mul(13);
 
     const col0_samples = try alloc.dupe(PointSample, &[_]PointSample{
         .{ .point = point0, .value = QM31.fromU32Unchecked(1, 2, 3, 4) },

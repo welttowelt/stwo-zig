@@ -1,5 +1,5 @@
 const std = @import("std");
-const qm31 = @import("../../core/fields/qm31.zig");
+const qm31 = @import("stwo_core").fields.qm31;
 
 const QM31 = qm31.QM31;
 
@@ -61,7 +61,7 @@ pub fn LoggingMerkleChannel(comptime MC: type, comptime C: type) type {
 }
 
 test "logging channel: delegates channel behavior exactly" {
-    const Blake2sChannel = @import("../../core/channel/blake2s.zig").Blake2sChannel;
+    const Blake2sChannel = @import("stwo_core").channel.blake2s.Blake2sChannel;
     const alloc = std.testing.allocator;
     const Channel = LoggingChannel(Blake2sChannel);
 
@@ -103,8 +103,8 @@ test "logging channel: delegates channel behavior exactly" {
 }
 
 test "logging merkle channel: mixRoot delegates exactly" {
-    const channel_blake2s = @import("../../core/channel/blake2s.zig");
-    const lifted_blake2 = @import("../../core/vcs_lifted/blake2_merkle.zig");
+    const channel_blake2s = @import("stwo_core").channel.blake2s;
+    const lifted_blake2 = @import("stwo_core").vcs_lifted.blake2_merkle;
     const Channel = LoggingChannel(channel_blake2s.Blake2sChannel);
     const MerkleChannel = LoggingMerkleChannel(
         lifted_blake2.Blake2sMerkleChannel,

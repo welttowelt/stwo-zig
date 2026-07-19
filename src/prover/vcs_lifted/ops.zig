@@ -1,6 +1,6 @@
 const std = @import("std");
-const m31 = @import("../../core/fields/m31.zig");
-const lifted_merkle_hasher = @import("../../core/vcs_lifted/merkle_hasher.zig");
+const m31 = @import("stwo_core").fields.m31;
+const lifted_merkle_hasher = @import("stwo_core").vcs_lifted.merkle_hasher;
 
 const M31 = m31.M31;
 
@@ -38,7 +38,7 @@ pub fn buildNextLayer(
 }
 
 test "vcs lifted ops: dummy backend satisfies contract" {
-    const Hasher = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
     const DummyBackend = struct {
         pub fn buildLeaves(
             allocator: std.mem.Allocator,

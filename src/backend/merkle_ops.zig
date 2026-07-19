@@ -4,7 +4,7 @@
 //! committed columns. The generic prover depends only on the typed tree API.
 
 const std = @import("std");
-const m31 = @import("../core/fields/m31.zig");
+const m31 = @import("stwo_core").fields.m31;
 
 const M31 = m31.M31;
 

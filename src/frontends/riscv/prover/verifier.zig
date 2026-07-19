@@ -1,11 +1,11 @@
 //! RISC-V proof transcript reconstruction and verification.
 
 const std = @import("std");
-const core_air_components = @import("../../../core/air/components.zig");
-const pcs_core = @import("../../../core/pcs/mod.zig");
-const pcs_verifier = @import("../../../core/pcs/verifier.zig");
-const core_verifier = @import("../../../core/verifier.zig");
-const prover_engine = @import("../../../prover/engine.zig");
+const core_air_components = @import("stwo_core").air.components;
+const pcs_core = @import("stwo_core").pcs;
+const pcs_verifier = @import("stwo_core").pcs.verifier;
+const core_verifier = @import("stwo_core").verifier;
+const prover_engine = @import("stwo_prover_impl").engine;
 const component_order = @import("../air/component_order.zig");
 const clock_update_component = @import("../air/clock_update_component.zig");
 const clock_update_interaction = @import("../air/clock_update_interaction.zig");

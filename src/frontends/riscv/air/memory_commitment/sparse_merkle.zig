@@ -5,7 +5,7 @@
 //! hash for that depth with multiplicity zero.
 
 const std = @import("std");
-const m31 = @import("../../../../core/fields/m31.zig");
+const m31 = @import("stwo_core").fields.m31;
 const poseidon2 = @import("poseidon2.zig");
 
 pub const LEAF_DEPTH: u32 = 30;

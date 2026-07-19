@@ -109,7 +109,7 @@ pub fn resolve(input: *const cairo_adapter.ProverInput, component: []const u8) E
 }
 
 test "Cairo direct inputs: opcode rows preserve padding active flag and iota" {
-    const M31 = @import("../../../core/fields/m31.zig").M31;
+    const M31 = @import("stwo_core").fields.m31.M31;
     var grouped = cairo_opcodes.CasmStatesByOpcode.init(std.testing.allocator);
     defer grouped.deinit(std.testing.allocator);
     try grouped.get(.blake_compress_opcode).append(std.testing.allocator, .{

@@ -1,12 +1,12 @@
 //! Public contracts and canonical field decoding shared by resident verification.
 
 const std = @import("std");
-const channel_blake2s = @import("../../../core/channel/blake2s.zig");
-const fri = @import("../../../core/fri.zig");
-const m31 = @import("../../../core/fields/m31.zig");
-const qm31 = @import("../../../core/fields/qm31.zig");
-const proof_mod = @import("../../../core/proof.zig");
-const blake2_merkle = @import("../../../core/vcs_lifted/blake2_merkle.zig");
+const channel_blake2s = @import("stwo_core").channel.blake2s;
+const fri = @import("stwo_core").fri;
+const m31 = @import("stwo_core").fields.m31;
+const qm31 = @import("stwo_core").fields.qm31;
+const proof_mod = @import("stwo_core").proof;
+const blake2_merkle = @import("stwo_core").vcs_lifted.blake2_merkle;
 const composition_bundle = @import("composition_bundle.zig");
 const proof_bundle = @import("proof_bundle.zig");
 

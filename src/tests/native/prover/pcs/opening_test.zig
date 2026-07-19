@@ -1,18 +1,18 @@
 //! PCS sampled opening and FRI proof integration tests.
 
 const std = @import("std");
-const circle = @import("../../../../core/circle.zig");
-const m31 = @import("../../../../core/fields/m31.zig");
-const qm31 = @import("../../../../core/fields/qm31.zig");
-const pcs_core = @import("../../../../core/pcs/mod.zig");
-const pcs_utils = @import("../../../../core/pcs/utils.zig");
-const core_quotients = @import("../../../../core/pcs/quotients.zig");
-const vcs_verifier = @import("../../../../core/vcs_lifted/verifier.zig");
-const canonic = @import("../../../../core/poly/circle/canonic.zig");
-const component_prover = @import("../../../../prover/air/component_prover.zig");
-const prover_circle = @import("../../../../prover/poly/circle/mod.zig");
-const prover_fri = @import("../../../../prover/fri.zig");
-const pcs_prover = @import("../../../../prover/pcs/mod.zig");
+const circle = @import("stwo_core").circle;
+const m31 = @import("stwo_core").fields.m31;
+const qm31 = @import("stwo_core").fields.qm31;
+const pcs_core = @import("stwo_core").pcs;
+const pcs_utils = @import("stwo_core").pcs.utils;
+const core_quotients = @import("stwo_core").pcs.quotients;
+const vcs_verifier = @import("stwo_core").vcs_lifted.verifier;
+const canonic = @import("stwo_core").poly.circle.canonic;
+const component_prover = @import("stwo_prover_impl").air.component_prover;
+const prover_circle = @import("stwo_prover_impl").poly.circle;
+const prover_fri = @import("stwo_prover_impl").fri;
+const pcs_prover = @import("stwo_prover_impl").pcs;
 
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
@@ -24,17 +24,17 @@ const CommitmentSchemeError = pcs_prover.CommitmentSchemeError;
 const CommitmentSchemeProver = pcs_prover.CommitmentSchemeProver;
 
 test "prover pcs: prove values from samples roundtrip with core verifier" {
-    const Hasher = @import("../../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
-    const MerkleChannel = @import("../../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
-    const Channel = @import("../../../../core/channel/blake2s.zig").Blake2sChannel;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
+    const MerkleChannel = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleChannel;
+    const Channel = @import("stwo_core").channel.blake2s.Blake2sChannel;
     const CpuBackend = @import("../../../../backends/cpu_scalar/mod.zig").CpuBackend;
     const Scheme = CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel);
-    const Verifier = @import("../../../../core/pcs/verifier.zig").CommitmentSchemeVerifier(Hasher, MerkleChannel);
+    const Verifier = @import("stwo_core").pcs.verifier.CommitmentSchemeVerifier(Hasher, MerkleChannel);
     const alloc = std.testing.allocator;
 
     const config = PcsConfig{
         .pow_bits = 0,
-        .fri_config = try @import("../../../../core/fri.zig").FriConfig.init(0, 1, 3),
+        .fri_config = try @import("stwo_core").fri.FriConfig.init(0, 1, 3),
     };
 
     var prover_channel = Channel{};
@@ -58,7 +58,7 @@ test "prover pcs: prove values from samples roundtrip with core verifier" {
         &prover_channel,
     );
 
-    const sample_point = @import("../../../../core/circle.zig").SECURE_FIELD_CIRCLE_GEN.mul(13);
+    const sample_point = @import("stwo_core").circle.SECURE_FIELD_CIRCLE_GEN.mul(13);
     const sample_value = QM31.fromBase(M31.fromCanonical(5));
 
     const sampled_points_col_prover = try alloc.dupe(CirclePointQM31, &[_]CirclePointQM31{
@@ -113,17 +113,17 @@ test "prover pcs: prove values from samples roundtrip with core verifier" {
 }
 
 test "prover pcs: prove values computes sampled values in prover" {
-    const Hasher = @import("../../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
-    const MerkleChannel = @import("../../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
-    const Channel = @import("../../../../core/channel/blake2s.zig").Blake2sChannel;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
+    const MerkleChannel = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleChannel;
+    const Channel = @import("stwo_core").channel.blake2s.Blake2sChannel;
     const CpuBackend = @import("../../../../backends/cpu_scalar/mod.zig").CpuBackend;
     const Scheme = CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel);
-    const Verifier = @import("../../../../core/pcs/verifier.zig").CommitmentSchemeVerifier(Hasher, MerkleChannel);
+    const Verifier = @import("stwo_core").pcs.verifier.CommitmentSchemeVerifier(Hasher, MerkleChannel);
     const alloc = std.testing.allocator;
 
     const config = PcsConfig{
         .pow_bits = 0,
-        .fri_config = try @import("../../../../core/fri.zig").FriConfig.init(0, 1, 3),
+        .fri_config = try @import("stwo_core").fri.FriConfig.init(0, 1, 3),
     };
 
     var prover_channel = Channel{};
@@ -147,7 +147,7 @@ test "prover pcs: prove values computes sampled values in prover" {
         &prover_channel,
     );
 
-    const sample_point = @import("../../../../core/circle.zig").SECURE_FIELD_CIRCLE_GEN.mul(73);
+    const sample_point = @import("stwo_core").circle.SECURE_FIELD_CIRCLE_GEN.mul(73);
     const sampled_points_col_prover = try alloc.dupe(CirclePointQM31, &[_]CirclePointQM31{
         sample_point,
     });
@@ -200,17 +200,17 @@ test "prover pcs: prove values computes sampled values in prover" {
 }
 
 test "prover pcs: stored coefficients fast path computes sampled values" {
-    const Hasher = @import("../../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
-    const MerkleChannel = @import("../../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
-    const Channel = @import("../../../../core/channel/blake2s.zig").Blake2sChannel;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
+    const MerkleChannel = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleChannel;
+    const Channel = @import("stwo_core").channel.blake2s.Blake2sChannel;
     const CpuBackend = @import("../../../../backends/cpu_scalar/mod.zig").CpuBackend;
     const Scheme = CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel);
-    const Verifier = @import("../../../../core/pcs/verifier.zig").CommitmentSchemeVerifier(Hasher, MerkleChannel);
+    const Verifier = @import("stwo_core").pcs.verifier.CommitmentSchemeVerifier(Hasher, MerkleChannel);
     const alloc = std.testing.allocator;
 
     const config = PcsConfig{
         .pow_bits = 0,
-        .fri_config = try @import("../../../../core/fri.zig").FriConfig.init(0, 2, 3),
+        .fri_config = try @import("stwo_core").fri.FriConfig.init(0, 2, 3),
     };
 
     var prover_channel = Channel{};
@@ -239,7 +239,7 @@ test "prover pcs: stored coefficients fast path computes sampled values" {
     try std.testing.expectEqual(@as(usize, 1), coeffs.len);
     try std.testing.expectEqual(@as(u32, 3), coeffs[0].logSize());
 
-    const sample_point = @import("../../../../core/circle.zig").SECURE_FIELD_CIRCLE_GEN.mul(59);
+    const sample_point = @import("stwo_core").circle.SECURE_FIELD_CIRCLE_GEN.mul(59);
     const sampled_points_col_prover = try alloc.dupe(CirclePointQM31, &[_]CirclePointQM31{
         sample_point,
     });
@@ -285,17 +285,17 @@ test "prover pcs: stored coefficients fast path computes sampled values" {
 }
 
 test "prover pcs: prove values handles repeated sampled points across columns" {
-    const Hasher = @import("../../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
-    const MerkleChannel = @import("../../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
-    const Channel = @import("../../../../core/channel/blake2s.zig").Blake2sChannel;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
+    const MerkleChannel = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleChannel;
+    const Channel = @import("stwo_core").channel.blake2s.Blake2sChannel;
     const CpuBackend = @import("../../../../backends/cpu_scalar/mod.zig").CpuBackend;
     const Scheme = CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel);
-    const Verifier = @import("../../../../core/pcs/verifier.zig").CommitmentSchemeVerifier(Hasher, MerkleChannel);
+    const Verifier = @import("stwo_core").pcs.verifier.CommitmentSchemeVerifier(Hasher, MerkleChannel);
     const alloc = std.testing.allocator;
 
     const config = PcsConfig{
         .pow_bits = 0,
-        .fri_config = try @import("../../../../core/fri.zig").FriConfig.init(0, 1, 3),
+        .fri_config = try @import("stwo_core").fri.FriConfig.init(0, 1, 3),
     };
 
     var prover_channel = Channel{};
@@ -330,7 +330,7 @@ test "prover pcs: prove values handles repeated sampled points across columns" {
         &prover_channel,
     );
 
-    const sample_point = @import("../../../../core/circle.zig").SECURE_FIELD_CIRCLE_GEN.mul(97);
+    const sample_point = @import("stwo_core").circle.SECURE_FIELD_CIRCLE_GEN.mul(97);
     const sampled_points_col0_prover = try alloc.dupe(CirclePointQM31, &[_]CirclePointQM31{
         sample_point,
         sample_point,
@@ -403,17 +403,17 @@ test "prover pcs: prove values handles repeated sampled points across columns" {
 }
 
 test "prover pcs: prove values handles repeated sampled points across mixed log sizes" {
-    const Hasher = @import("../../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
-    const MerkleChannel = @import("../../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
-    const Channel = @import("../../../../core/channel/blake2s.zig").Blake2sChannel;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
+    const MerkleChannel = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleChannel;
+    const Channel = @import("stwo_core").channel.blake2s.Blake2sChannel;
     const CpuBackend = @import("../../../../backends/cpu_scalar/mod.zig").CpuBackend;
     const Scheme = CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel);
-    const Verifier = @import("../../../../core/pcs/verifier.zig").CommitmentSchemeVerifier(Hasher, MerkleChannel);
+    const Verifier = @import("stwo_core").pcs.verifier.CommitmentSchemeVerifier(Hasher, MerkleChannel);
     const alloc = std.testing.allocator;
 
     const config = PcsConfig{
         .pow_bits = 0,
-        .fri_config = try @import("../../../../core/fri.zig").FriConfig.init(0, 1, 3),
+        .fri_config = try @import("stwo_core").fri.FriConfig.init(0, 1, 3),
     };
 
     var prover_channel = Channel{};
@@ -444,7 +444,7 @@ test "prover pcs: prove values handles repeated sampled points across mixed log 
         &prover_channel,
     );
 
-    const sample_point = @import("../../../../core/circle.zig").SECURE_FIELD_CIRCLE_GEN.mul(131);
+    const sample_point = @import("stwo_core").circle.SECURE_FIELD_CIRCLE_GEN.mul(131);
     const sampled_points_col0_prover = try alloc.dupe(CirclePointQM31, &[_]CirclePointQM31{
         sample_point,
         sample_point,
@@ -517,16 +517,16 @@ test "prover pcs: prove values handles repeated sampled points across mixed log 
 }
 
 test "prover pcs: prove values from samples rejects shape mismatch" {
-    const Hasher = @import("../../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
-    const MerkleChannel = @import("../../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
-    const Channel = @import("../../../../core/channel/blake2s.zig").Blake2sChannel;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
+    const MerkleChannel = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleChannel;
+    const Channel = @import("stwo_core").channel.blake2s.Blake2sChannel;
     const CpuBackend = @import("../../../../backends/cpu_scalar/mod.zig").CpuBackend;
     const Scheme = CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel);
     const alloc = std.testing.allocator;
 
     var scheme = try Scheme.init(alloc, .{
         .pow_bits = 0,
-        .fri_config = try @import("../../../../core/fri.zig").FriConfig.init(0, 1, 2),
+        .fri_config = try @import("stwo_core").fri.FriConfig.init(0, 1, 2),
     });
 
     const column_values = [_]M31{
@@ -556,17 +556,17 @@ test "prover pcs: prove values from samples rejects shape mismatch" {
 }
 
 test "prover pcs: prove values paths support non-zero blowup" {
-    const Hasher = @import("../../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
-    const MerkleChannel = @import("../../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
-    const Channel = @import("../../../../core/channel/blake2s.zig").Blake2sChannel;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
+    const MerkleChannel = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleChannel;
+    const Channel = @import("stwo_core").channel.blake2s.Blake2sChannel;
     const CpuBackend = @import("../../../../backends/cpu_scalar/mod.zig").CpuBackend;
     const Scheme = CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel);
-    const Verifier = @import("../../../../core/pcs/verifier.zig").CommitmentSchemeVerifier(Hasher, MerkleChannel);
+    const Verifier = @import("stwo_core").pcs.verifier.CommitmentSchemeVerifier(Hasher, MerkleChannel);
     const alloc = std.testing.allocator;
 
     var scheme_samples = try Scheme.init(alloc, .{
         .pow_bits = 0,
-        .fri_config = try @import("../../../../core/fri.zig").FriConfig.init(0, 2, 2),
+        .fri_config = try @import("stwo_core").fri.FriConfig.init(0, 2, 2),
     });
 
     const column_values = [_]M31{
@@ -584,7 +584,7 @@ test "prover pcs: prove values paths support non-zero blowup" {
     try std.testing.expectEqual(@as(u32, 4), scheme_samples.trees.items[0].columns[0].log_size);
     try std.testing.expectEqual(@as(usize, 16), scheme_samples.trees.items[0].columns[0].values.len);
 
-    const sample_point = @import("../../../../core/circle.zig").SECURE_FIELD_CIRCLE_GEN.mul(31);
+    const sample_point = @import("stwo_core").circle.SECURE_FIELD_CIRCLE_GEN.mul(31);
     const sampled_points_col = try alloc.dupe(CirclePointQM31, &[_]CirclePointQM31{sample_point});
     const sampled_points_tree = try alloc.dupe([]CirclePointQM31, &[_][]CirclePointQM31{sampled_points_col});
     const sampled_points = TreeVec([][]CirclePointQM31).initOwned(
@@ -612,7 +612,7 @@ test "prover pcs: prove values paths support non-zero blowup" {
 
     var verifier_samples = try Verifier.init(alloc, .{
         .pow_bits = 0,
-        .fri_config = try @import("../../../../core/fri.zig").FriConfig.init(0, 2, 2),
+        .fri_config = try @import("stwo_core").fri.FriConfig.init(0, 2, 2),
     });
     defer verifier_samples.deinit(alloc);
 
@@ -632,7 +632,7 @@ test "prover pcs: prove values paths support non-zero blowup" {
 
     var scheme_points = try Scheme.init(alloc, .{
         .pow_bits = 0,
-        .fri_config = try @import("../../../../core/fri.zig").FriConfig.init(0, 2, 2),
+        .fri_config = try @import("stwo_core").fri.FriConfig.init(0, 2, 2),
     });
     try scheme_points.commit(
         alloc,
@@ -660,7 +660,7 @@ test "prover pcs: prove values paths support non-zero blowup" {
 
     var verifier_points = try Verifier.init(alloc, .{
         .pow_bits = 0,
-        .fri_config = try @import("../../../../core/fri.zig").FriConfig.init(0, 2, 2),
+        .fri_config = try @import("stwo_core").fri.FriConfig.init(0, 2, 2),
     });
     defer verifier_points.deinit(alloc);
 
@@ -680,16 +680,16 @@ test "prover pcs: prove values paths support non-zero blowup" {
 }
 
 test "prover pcs: inconsistent sampled values are rejected by fri degree check" {
-    const Hasher = @import("../../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
-    const MerkleChannel = @import("../../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
-    const Channel = @import("../../../../core/channel/blake2s.zig").Blake2sChannel;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
+    const MerkleChannel = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleChannel;
+    const Channel = @import("stwo_core").channel.blake2s.Blake2sChannel;
     const CpuBackend = @import("../../../../backends/cpu_scalar/mod.zig").CpuBackend;
     const Scheme = CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel);
     const alloc = std.testing.allocator;
 
     const config = PcsConfig{
         .pow_bits = 0,
-        .fri_config = try @import("../../../../core/fri.zig").FriConfig.init(0, 1, 3),
+        .fri_config = try @import("stwo_core").fri.FriConfig.init(0, 1, 3),
     };
 
     var prover_channel = Channel{};
@@ -713,7 +713,7 @@ test "prover pcs: inconsistent sampled values are rejected by fri degree check" 
         &prover_channel,
     );
 
-    const sample_point = @import("../../../../core/circle.zig").SECURE_FIELD_CIRCLE_GEN.mul(13);
+    const sample_point = @import("stwo_core").circle.SECURE_FIELD_CIRCLE_GEN.mul(13);
     const bad_sample_value = QM31.fromBase(M31.fromCanonical(6));
 
     const sampled_points_col = try alloc.dupe(CirclePointQM31, &[_]CirclePointQM31{
@@ -744,9 +744,9 @@ test "prover pcs: inconsistent sampled values are rejected by fri degree check" 
 }
 
 test "prover pcs: prove values rejects sampled point on domain" {
-    const Hasher = @import("../../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
-    const MerkleChannel = @import("../../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
-    const Channel = @import("../../../../core/channel/blake2s.zig").Blake2sChannel;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
+    const MerkleChannel = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleChannel;
+    const Channel = @import("stwo_core").channel.blake2s.Blake2sChannel;
     const CpuBackend = @import("../../../../backends/cpu_scalar/mod.zig").CpuBackend;
     const Scheme = CommitmentSchemeProver(CpuBackend, Hasher, MerkleChannel);
     const alloc = std.testing.allocator;
@@ -755,7 +755,7 @@ test "prover pcs: prove values rejects sampled point on domain" {
     var prover_channel = Channel{};
     var scheme = try Scheme.init(alloc, .{
         .pow_bits = 0,
-        .fri_config = try @import("../../../../core/fri.zig").FriConfig.init(0, 1, 3),
+        .fri_config = try @import("stwo_core").fri.FriConfig.init(0, 1, 3),
     });
 
     const column_values = [_]M31{

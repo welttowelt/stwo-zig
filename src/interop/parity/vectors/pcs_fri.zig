@@ -1,19 +1,19 @@
 //! PCS quotient and FRI oracle vectors.
 
 const std = @import("std");
-const circle_mod = @import("../../../core/circle.zig");
-const constraints_mod = @import("../../../core/constraints.zig");
-const fri_mod = @import("../../../core/fri.zig");
-const pcs_utils_mod = @import("../../../core/pcs/utils.zig");
-const quotients_mod = @import("../../../core/pcs/quotients.zig");
-const canonic_mod = @import("../../../core/poly/circle/canonic.zig");
-const line_mod = @import("../../../core/poly/line.zig");
-const utils_mod = @import("../../../core/utils.zig");
-const prover_fri_mod = @import("../../../prover/fri.zig");
-const prover_secure_column_mod = @import("../../../prover/secure_column.zig");
-const vcs_lifted_prover_mod = @import("../../../prover/vcs_lifted/prover.zig");
-const m31_mod = @import("../../../core/fields/m31.zig");
-const qm31_mod = @import("../../../core/fields/qm31.zig");
+const circle_mod = @import("stwo_core").circle;
+const constraints_mod = @import("stwo_core").constraints;
+const fri_mod = @import("stwo_core").fri;
+const pcs_utils_mod = @import("stwo_core").pcs.utils;
+const quotients_mod = @import("stwo_core").pcs.quotients;
+const canonic_mod = @import("stwo_core").poly.circle.canonic;
+const line_mod = @import("stwo_core").poly.line;
+const utils_mod = @import("stwo_core").utils;
+const prover_fri_mod = @import("stwo_prover_impl").fri;
+const prover_secure_column_mod = @import("stwo_prover_impl").secure_column;
+const vcs_lifted_prover_mod = @import("stwo_prover_impl").vcs_lifted.prover;
+const m31_mod = @import("stwo_core").fields.m31;
+const qm31_mod = @import("stwo_core").fields.qm31;
 const fixtures = @import("fixtures.zig");
 
 const CirclePointQM31 = circle_mod.CirclePointQM31;
@@ -286,7 +286,7 @@ test "field vectors: fri decommit parity" {
 
 test "field vectors: fri layer decommit parity" {
     const alloc = std.testing.allocator;
-    const Hasher = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
     const Prover = vcs_lifted_prover_mod.MerkleProverLifted(Hasher);
 
     var parsed = try parseVectors(alloc);

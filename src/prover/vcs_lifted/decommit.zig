@@ -5,8 +5,8 @@
 //! one proof-construction algorithm without erased handles or callbacks here.
 
 const std = @import("std");
-const m31 = @import("../../core/fields/m31.zig");
-const vcs_lifted_verifier = @import("../../core/vcs_lifted/verifier.zig");
+const m31 = @import("stwo_core").fields.m31;
+const vcs_lifted_verifier = @import("stwo_core").vcs_lifted.verifier;
 
 const M31 = m31.M31;
 

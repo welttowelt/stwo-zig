@@ -1,8 +1,8 @@
 //! Transcript-derived public statement for the State Machine example.
 
-const channel_blake2s = @import("../../core/channel/blake2s.zig");
-const m31 = @import("../../core/fields/m31.zig");
-const qm31 = @import("../../core/fields/qm31.zig");
+const channel_blake2s = @import("stwo_core").channel.blake2s;
+const m31 = @import("stwo_core").fields.m31;
+const qm31 = @import("stwo_core").fields.qm31;
 const trace_input = @import("input.zig");
 
 const M31 = m31.M31;

@@ -2,13 +2,13 @@
 
 const std = @import("std");
 const CpuBackend = @import("../../../backends/cpu_scalar/mod.zig").CpuBackend;
-const core_fri = @import("../../../core/fri.zig");
-const m31 = @import("../../../core/fields/m31.zig");
-const qm31 = @import("../../../core/fields/qm31.zig");
-const canonic = @import("../../../core/poly/circle/canonic.zig");
-const fri = @import("../../../prover/fri.zig");
-const prover_line = @import("../../../prover/line.zig");
-const secure_column = @import("../../../prover/secure_column.zig");
+const core_fri = @import("stwo_core").fri;
+const m31 = @import("stwo_core").fields.m31;
+const qm31 = @import("stwo_core").fields.qm31;
+const canonic = @import("stwo_core").poly.circle.canonic;
+const fri = @import("stwo_prover_impl").fri;
+const prover_line = @import("stwo_prover_impl").line;
+const secure_column = @import("stwo_prover_impl").secure_column;
 
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
@@ -105,9 +105,9 @@ const FoldTreeTestBackend = struct {
 };
 
 test "prover fri: pending tree hook preserves commitments and proof" {
-    const Hasher = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
-    const MerkleChannel = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
-    const Channel = @import("../../../core/channel/blake2s.zig").Blake2sChannel;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
+    const MerkleChannel = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleChannel;
+    const Channel = @import("stwo_core").channel.blake2s.Blake2sChannel;
     const FallbackProver = fri.FriProver(CpuBackend, Hasher, MerkleChannel);
     const HookProver = fri.FriProver(FoldTreeTestBackend, Hasher, MerkleChannel);
     const allocator = std.testing.allocator;

@@ -21,7 +21,10 @@ ENTRY_ROOTS = (
 )
 NAMED_ROOTS = {
     "stwo": ROOT / "src/stwo_native_cpu.zig",
+    "stwo_backend_contracts": ROOT / "src/backend/mod.zig",
+    "stwo_core": ROOT / "src/core/mod.zig",
     "stwo_native_cpu": ROOT / "src/stwo_native_cpu.zig",
+    "stwo_prover_impl": ROOT / "src/prover/mod.zig",
     "native_proof_runner": ROOT / "src/prover/native/runner.zig",
 }
 GENERATED_IMPORTS = {"build_identity", "builtin", "product_identity", "std"}

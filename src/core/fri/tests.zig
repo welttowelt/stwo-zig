@@ -1,17 +1,17 @@
 const std = @import("std");
-const fri = @import("../fri.zig");
-const geometry = @import("geometry.zig");
-const circle = @import("../circle.zig");
-const fft = @import("../fft.zig");
-const fields = @import("../fields/mod.zig");
-const m31 = @import("../fields/m31.zig");
-const qm31 = @import("../fields/qm31.zig");
-const line = @import("../poly/line.zig");
-const canonic = @import("../poly/circle/canonic.zig");
-const circle_domain = @import("../poly/circle/domain.zig");
-const queries_mod = @import("../queries.zig");
-const core_utils = @import("../utils.zig");
-const vcs_verifier = @import("../vcs_lifted/verifier.zig");
+const fri = @import("stwo_core").fri;
+const geometry = @import("stwo_core").fri.geometry;
+const circle = @import("stwo_core").circle;
+const fft = @import("stwo_core").fft;
+const fields = @import("stwo_core").fields;
+const m31 = @import("stwo_core").fields.m31;
+const qm31 = @import("stwo_core").fields.qm31;
+const line = @import("stwo_core").poly.line;
+const canonic = @import("stwo_core").poly.circle.canonic;
+const circle_domain = @import("stwo_core").poly.circle.domain;
+const queries_mod = @import("stwo_core").queries;
+const core_utils = @import("stwo_core").utils;
+const vcs_verifier = @import("stwo_core").vcs_lifted.verifier;
 
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
@@ -353,9 +353,9 @@ test "fri: fold circle columns workspace path matches qm31 slice path" {
 }
 
 test "fri verifier: commit and sample query positions" {
-    const Hasher = @import("../vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
-    const MerkleChannel = @import("../vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
-    const Channel = @import("../channel/blake2s.zig").Blake2sChannel;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
+    const MerkleChannel = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleChannel;
+    const Channel = @import("stwo_core").channel.blake2s.Blake2sChannel;
     const Verifier = FriVerifier(Hasher, MerkleChannel);
     const alloc = std.testing.allocator;
 
@@ -391,9 +391,9 @@ test "fri verifier: commit and sample query positions" {
 }
 
 test "fri verifier: invalid layer count fails commit" {
-    const Hasher = @import("../vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
-    const MerkleChannel = @import("../vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
-    const Channel = @import("../channel/blake2s.zig").Blake2sChannel;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
+    const MerkleChannel = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleChannel;
+    const Channel = @import("stwo_core").channel.blake2s.Blake2sChannel;
     const Verifier = FriVerifier(Hasher, MerkleChannel);
     const alloc = std.testing.allocator;
 
@@ -424,7 +424,7 @@ test "fri verifier: invalid layer count fails commit" {
 }
 
 test "fri proof containers: deinit owned buffers" {
-    const Hasher = @import("../vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
     const LayerProof = FriLayerProof(Hasher);
     const LayerProofAux = FriLayerProofAux(Hasher);
     const Proof = FriProof(Hasher);

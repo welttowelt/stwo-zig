@@ -1,9 +1,9 @@
 //! Prover component assembly and final proof construction.
 
 const std = @import("std");
-const m31 = @import("../../../core/fields/m31.zig");
-const prover_component = @import("../../../prover/air/component_prover.zig");
-const stage_profile = @import("../../../prover/stage_profile.zig");
+const m31 = @import("stwo_core").fields.m31;
+const prover_component = @import("stwo_prover_impl").air.component_prover;
+const stage_profile = @import("stwo_prover_impl").stage_profile;
 const component_order = @import("../air/component_order.zig");
 const clock_update_component = @import("../air/clock_update_component.zig");
 const clock_update_interaction = @import("../air/clock_update_interaction.zig");

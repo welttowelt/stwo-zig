@@ -3,9 +3,9 @@
 const std = @import("std");
 const adapter = @import("../adapter/mod.zig");
 const memory_mod = @import("../common/memory.zig");
-const M31 = @import("../../../core/fields/m31.zig").M31;
-const M31_MODULUS = @import("../../../core/fields/m31.zig").Modulus;
-const Blake2sMerkleHasher = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sPlainMerkleHasher;
+const M31 = @import("stwo_core").fields.m31.M31;
+const M31_MODULUS = @import("stwo_core").fields.m31.Modulus;
+const Blake2sMerkleHasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sPlainMerkleHasher;
 
 pub const Error = error{
     ClaimLengthOverflow,

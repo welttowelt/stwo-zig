@@ -1,12 +1,12 @@
 //! Backend-independent FRI decommitment tests.
 
 const std = @import("std");
-const fri = @import("../fri.zig");
-const m31 = @import("../../core/fields/m31.zig");
-const qm31 = @import("../../core/fields/qm31.zig");
-const secure_column = @import("../secure_column.zig");
-const vcs_lifted_prover = @import("../vcs_lifted/prover.zig");
-const vcs_lifted_verifier = @import("../../core/vcs_lifted/verifier.zig");
+const fri = @import("stwo_prover_impl").fri;
+const m31 = @import("stwo_core").fields.m31;
+const qm31 = @import("stwo_core").fields.qm31;
+const secure_column = @import("stwo_prover_impl").secure_column;
+const vcs_lifted_prover = @import("stwo_prover_impl").vcs_lifted.prover;
+const vcs_lifted_verifier = @import("stwo_core").vcs_lifted.verifier;
 
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
@@ -85,7 +85,7 @@ test "prover fri: fold step too large fails" {
 }
 
 test "prover fri: layer decommit extended contains proof and aux values" {
-    const Hasher = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
     const LiftedProver = vcs_lifted_prover.MerkleProverLifted(Hasher);
     const alloc = std.testing.allocator;
 
@@ -132,7 +132,7 @@ test "prover fri: layer decommit extended contains proof and aux values" {
 }
 
 test "prover fri: layer decommit extended query out of range fails" {
-    const Hasher = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
     const LiftedProver = vcs_lifted_prover.MerkleProverLifted(Hasher);
     const alloc = std.testing.allocator;
 
@@ -169,7 +169,7 @@ test "prover fri: layer decommit extended query out of range fails" {
 }
 
 test "prover fri: layer decommit verifies with lifted merkle verifier" {
-    const Hasher = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
     const LiftedProver = vcs_lifted_prover.MerkleProverLifted(Hasher);
     const LiftedVerifier = vcs_lifted_verifier.MerkleVerifierLifted(Hasher);
     const alloc = std.testing.allocator;
@@ -237,7 +237,7 @@ test "prover fri: layer decommit verifies with lifted merkle verifier" {
 }
 
 test "prover fri: layer decommit corrupted witness fails" {
-    const Hasher = @import("../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
     const LiftedProver = vcs_lifted_prover.MerkleProverLifted(Hasher);
     const LiftedVerifier = vcs_lifted_verifier.MerkleVerifierLifted(Hasher);
     const alloc = std.testing.allocator;

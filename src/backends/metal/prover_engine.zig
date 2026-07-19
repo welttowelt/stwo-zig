@@ -1,7 +1,7 @@
 const std = @import("std");
-const channel_blake2s = @import("../../core/channel/blake2s.zig");
-const blake2_merkle = @import("../../core/vcs_lifted/blake2_merkle.zig");
-const prover_engine = @import("../../prover/engine.zig");
+const channel_blake2s = @import("stwo_core").channel.blake2s;
+const blake2_merkle = @import("stwo_core").vcs_lifted.blake2_merkle;
+const prover_engine = @import("stwo_prover_impl").engine;
 const MetalCommitBackend = @import("commit_backend.zig").MetalCommitBackend;
 
 const Hasher = blake2_merkle.Blake2sPrefixedMerkleHasher;

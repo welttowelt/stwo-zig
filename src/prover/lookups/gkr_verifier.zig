@@ -1,7 +1,7 @@
 const std = @import("std");
-const fraction = @import("../../core/fraction.zig");
-const m31 = @import("../../core/fields/m31.zig");
-const qm31 = @import("../../core/fields/qm31.zig");
+const fraction = @import("stwo_core").fraction;
+const m31 = @import("stwo_core").fields.m31;
+const qm31 = @import("stwo_core").fields.qm31;
 const sumcheck = @import("sumcheck.zig");
 const utils = @import("utils.zig");
 
@@ -350,7 +350,7 @@ test "gkr verifier: mask reduce and gate eval" {
 
 test "gkr verifier: one-layer grand-product partial verification" {
     const alloc = std.testing.allocator;
-    const Channel = @import("../../core/channel/blake2s.zig").Blake2sChannel;
+    const Channel = @import("stwo_core").channel.blake2s.Blake2sChannel;
 
     const a = QM31.fromU32Unchecked(7, 0, 0, 0);
     const b = QM31.fromU32Unchecked(11, 0, 0, 0);

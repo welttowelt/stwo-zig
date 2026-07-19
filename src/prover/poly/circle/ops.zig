@@ -1,5 +1,5 @@
 const std = @import("std");
-const canonic = @import("../../../core/poly/circle/canonic.zig");
+const canonic = @import("stwo_core").poly.circle.canonic;
 const eval_mod = @import("evaluation.zig");
 const poly = @import("poly.zig");
 const secure_poly = @import("secure_poly.zig");
@@ -33,7 +33,7 @@ pub fn splitSecureAtMid(
 
 test "prover poly circle ops: evaluate on canonic domain applies blowup" {
     const alloc = std.testing.allocator;
-    const m31 = @import("../../../core/fields/m31.zig");
+    const m31 = @import("stwo_core").fields.m31;
 
     const coeffs = [_]m31.M31{
         m31.M31.fromCanonical(9),

@@ -2,9 +2,9 @@
 
 const std = @import("std");
 
-pub const core = @import("core/mod.zig");
-pub const backend = @import("backend/mod.zig");
-pub const prover = @import("prover/mod.zig");
+pub const core = @import("stwo_core");
+pub const backend = @import("stwo_backend_contracts");
+pub const prover = @import("stwo_prover_impl");
 
 pub const backends = struct {
     pub const cpu = @import("backends/cpu_scalar/mod.zig");

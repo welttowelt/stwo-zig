@@ -5,8 +5,8 @@
 //! source ingestion rejects; it never repairs, drops, or rewrites a request.
 
 const std = @import("std");
-const M31 = @import("../../../core/fields/m31.zig").M31;
-const QM31 = @import("../../../core/fields/qm31.zig").QM31;
+const M31 = @import("stwo_core").fields.m31.M31;
+const QM31 = @import("stwo_core").fields.qm31.QM31;
 const entry = @import("../air/lookups/entry.zig");
 const opcode_entries = @import("../air/lookups/opcode_entries.zig");
 const table_schema = @import("../air/lookups/tables/schema.zig");

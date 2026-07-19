@@ -1,7 +1,7 @@
 const std = @import("std");
 const program_mod = @import("program.zig");
-const arena_plan = @import("../../../backend/arena_plan.zig");
-const recovery = @import("../../../backend/recovery.zig");
+const arena_plan = @import("stwo_backend_contracts").arena_plan;
+const recovery = @import("stwo_backend_contracts").recovery;
 
 /// Shared execution state for every output column of one recorded Cairo
 /// witness program. The epoch runner is serial at this boundary, so one scratch

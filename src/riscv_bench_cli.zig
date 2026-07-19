@@ -12,8 +12,8 @@ const builtin = @import("builtin");
 const runner = @import("frontends/riscv/runner/mod.zig");
 const riscv_prover = @import("frontends/riscv/prover.zig");
 const riscv_cpu = @import("integrations/riscv_cpu/mod.zig");
-const stage_profile = @import("prover/stage_profile.zig");
-const pcs_core = @import("core/pcs/mod.zig");
+const stage_profile = @import("stwo_prover_impl").stage_profile;
+const pcs_core = @import("stwo_core").pcs;
 const trace_mod = @import("frontends/riscv/runner/trace.zig");
 const host_mod = @import("frontends/riscv/host/mod.zig");
 

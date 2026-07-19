@@ -1,5 +1,5 @@
 const std = @import("std");
-const arena_plan = @import("../../backend/arena_plan.zig");
+const arena_plan = @import("stwo_backend_contracts").arena_plan;
 const bindings_mod = @import("schedule_bindings.zig");
 
 test "runtime decommit geometry binds Fib-like 4 trace and 7 FRI trees fail closed" {

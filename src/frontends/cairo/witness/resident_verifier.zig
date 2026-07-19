@@ -1,15 +1,15 @@
 //! Cairo resident-proof transcript replay and generic verifier orchestration.
 
 const std = @import("std");
-const air_accumulation = @import("../../../core/air/accumulation.zig");
-const air_components = @import("../../../core/air/components.zig");
-const circle = @import("../../../core/circle.zig");
-const constraints = @import("../../../core/constraints.zig");
-const pcs = @import("../../../core/pcs/mod.zig");
-const pcs_verifier = @import("../../../core/pcs/verifier.zig");
-const canonic = @import("../../../core/poly/circle/canonic.zig");
-const core_verifier = @import("../../../core/verifier.zig");
-const vcs_verifier = @import("../../../core/vcs_lifted/verifier.zig");
+const air_accumulation = @import("stwo_core").air.accumulation;
+const air_components = @import("stwo_core").air.components;
+const circle = @import("stwo_core").circle;
+const constraints = @import("stwo_core").constraints;
+const pcs = @import("stwo_core").pcs;
+const pcs_verifier = @import("stwo_core").pcs.verifier;
+const canonic = @import("stwo_core").poly.circle.canonic;
+const core_verifier = @import("stwo_core").verifier;
+const vcs_verifier = @import("stwo_core").vcs_lifted.verifier;
 const composition_bundle = @import("composition_bundle.zig");
 const eval_program = @import("eval_program.zig");
 const proof_bundle = @import("proof_bundle.zig");

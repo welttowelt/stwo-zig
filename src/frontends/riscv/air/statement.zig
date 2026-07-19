@@ -1,7 +1,7 @@
 //! Public RISC-V proof shape and transcript claims.
 
 const std = @import("std");
-const qm31 = @import("../../../core/fields/qm31.zig");
+const qm31 = @import("stwo_core").fields.qm31;
 const component = @import("component.zig");
 const memory_interaction = @import("memory_commitment/interaction.zig");
 const merkle_node = @import("memory_commitment/merkle_node.zig");

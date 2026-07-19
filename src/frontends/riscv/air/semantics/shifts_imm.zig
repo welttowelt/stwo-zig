@@ -1,7 +1,7 @@
 //! Exact pinned Stark-V SLLI/SRLI/SRAI semantics and lookup requests.
 
 const std = @import("std");
-const QM31 = @import("../../../../core/fields/qm31.zig").QM31;
+const QM31 = @import("stwo_core").fields.qm31.QM31;
 const common = @import("common.zig");
 const shift = @import("shift_common.zig");
 

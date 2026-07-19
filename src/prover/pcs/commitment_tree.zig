@@ -4,8 +4,8 @@
 //! Scheme orchestration, FRI integration, and transcript policy live elsewhere.
 
 const std = @import("std");
-const backend_merkle = @import("../../backend/merkle_ops.zig");
-const m31 = @import("../../core/fields/m31.zig");
+const backend_merkle = @import("stwo_backend_contracts").merkle_ops;
+const m31 = @import("stwo_core").fields.m31;
 const prover_circle = @import("../poly/circle/mod.zig");
 const vcs_lifted_prover = @import("../vcs_lifted/prover.zig");
 const quotient_ops = @import("quotient_ops.zig");

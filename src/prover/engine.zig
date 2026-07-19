@@ -1,8 +1,8 @@
 //! Complete prover transaction contract shared by native and device backends.
 
 const std = @import("std");
-const pcs_core = @import("../core/pcs/mod.zig");
-const proof = @import("../core/proof.zig");
+const pcs_core = @import("stwo_core").pcs;
+const proof = @import("stwo_core").proof;
 const component = @import("air/component_prover.zig");
 const pcs = @import("pcs/mod.zig");
 const prove_mod = @import("prove.zig");

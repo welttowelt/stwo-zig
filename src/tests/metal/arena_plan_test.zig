@@ -1,6 +1,6 @@
 const std = @import("std");
 const arena = @import("../../backends/metal/arena_plan.zig");
-const recovery = @import("../../backend/recovery.zig");
+const recovery = @import("stwo_backend_contracts").recovery;
 const cairo_recovery = @import("../../frontends/cairo/witness/recovery.zig");
 const protocol_recipes = @import("../../backends/metal/protocol_recipes.zig");
 const witness_bundle = @import("../../frontends/cairo/witness/bundle.zig");

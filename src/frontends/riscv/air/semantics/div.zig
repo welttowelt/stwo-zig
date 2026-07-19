@@ -6,9 +6,9 @@
 //! Oracle: pinned `crates/air/src/schema.rs` and `runner/src/ops/muldiv.rs`.
 
 const std = @import("std");
-const m31 = @import("../../../../core/fields/m31.zig");
+const m31 = @import("stwo_core").fields.m31;
 const M31 = m31.M31;
-const QM31 = @import("../../../../core/fields/qm31.zig").QM31;
+const QM31 = @import("stwo_core").fields.qm31.QM31;
 const common = @import("common.zig");
 const control = @import("control_common.zig");
 const Opcode = @import("../program/opcode.zig").Opcode;

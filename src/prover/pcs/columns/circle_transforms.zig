@@ -2,8 +2,8 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const m31 = @import("../../../core/fields/m31.zig");
-const canonic = @import("../../../core/poly/circle/canonic.zig");
+const m31 = @import("stwo_core").fields.m31;
+const canonic = @import("stwo_core").poly.circle.canonic;
 const prover_circle = @import("../../poly/circle/mod.zig");
 const twiddle_source_mod = @import("../../poly/twiddle_source.zig");
 const twiddles_mod = @import("../../poly/twiddles.zig");

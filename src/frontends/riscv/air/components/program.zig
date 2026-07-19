@@ -14,10 +14,10 @@
 //!   - Program lookup relation: +multiplicity / (z - entry(addr, value_0..3)).
 
 const std = @import("std");
-const cf = @import("../../../../core/constraint_framework/mod.zig");
+const cf = @import("stwo_core").constraint_framework;
 const claims_mod = @import("../claims.zig");
 const trace = @import("../trace_columns.zig");
-const M31 = @import("../../../../core/fields/m31.zig").M31;
+const M31 = @import("stwo_core").fields.m31.M31;
 
 const ExprEvaluator = cf.ExprEvaluator;
 const ExprArena = cf.ExprArena;

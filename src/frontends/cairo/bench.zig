@@ -65,7 +65,7 @@ pub fn run(comptime B: type) !void {
     }
 
     const prove_trace_mod = @import("prove_trace.zig");
-    const pcs_core_mod = @import("../../core/pcs/mod.zig");
+    const pcs_core_mod = @import("stwo_core").pcs;
 
     std.debug.print("Cairo Proving Benchmark\n", .{});
     std.debug.print("============================\n", .{});

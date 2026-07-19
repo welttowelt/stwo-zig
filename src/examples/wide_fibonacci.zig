@@ -1,17 +1,17 @@
 const std = @import("std");
-const core_air_components = @import("../core/air/components.zig");
-const core_air_utils = @import("../core/air/utils.zig");
-const channel_blake2s = @import("../core/channel/blake2s.zig");
-const m31 = @import("../core/fields/m31.zig");
-const pcs_core = @import("../core/pcs/mod.zig");
-const pcs_verifier = @import("../core/pcs/verifier.zig");
-const core_proof = @import("../core/proof.zig");
-const core_verifier = @import("../core/verifier.zig");
-const blake2_merkle = @import("../core/vcs_lifted/blake2_merkle.zig");
-const prover_component = @import("../prover/air/component_prover.zig");
-const prover_engine = @import("../prover/engine.zig");
-const prover_pcs = @import("../prover/pcs/mod.zig");
-const stage_profile = @import("../prover/stage_profile.zig");
+const core_air_components = @import("stwo_core").air.components;
+const core_air_utils = @import("stwo_core").air.utils;
+const channel_blake2s = @import("stwo_core").channel.blake2s;
+const m31 = @import("stwo_core").fields.m31;
+const pcs_core = @import("stwo_core").pcs;
+const pcs_verifier = @import("stwo_core").pcs.verifier;
+const core_proof = @import("stwo_core").proof;
+const core_verifier = @import("stwo_core").verifier;
+const blake2_merkle = @import("stwo_core").vcs_lifted.blake2_merkle;
+const prover_component = @import("stwo_prover_impl").air.component_prover;
+const prover_engine = @import("stwo_prover_impl").engine;
+const prover_pcs = @import("stwo_prover_impl").pcs;
+const stage_profile = @import("stwo_prover_impl").stage_profile;
 const prover_transaction = @import("common/prover_transaction.zig");
 const component_mod = @import("wide_fibonacci/component.zig");
 const trace_input = @import("wide_fibonacci/trace.zig");
@@ -566,7 +566,7 @@ test "examples wide_fibonacci: generic CPU engine owns the proving transaction" 
 
     const config = pcs_core.PcsConfig{
         .pow_bits = 0,
-        .fri_config = try @import("../core/fri.zig").FriConfig.init(0, 1, 3),
+        .fri_config = try @import("stwo_core").fri.FriConfig.init(0, 1, 3),
     };
     const statement = Statement{ .log_n_rows = 5, .sequence_len = 8 };
     const output = try proveWithEngine(
@@ -586,7 +586,7 @@ test "examples wide_fibonacci: generic CPU engine owns the proving transaction" 
 test "examples wide_fibonacci: prepared CPU backend route verifies" {
     const config = pcs_core.PcsConfig{
         .pow_bits = 0,
-        .fri_config = try @import("../core/fri.zig").FriConfig.init(0, 1, 3),
+        .fri_config = try @import("stwo_core").fri.FriConfig.init(0, 1, 3),
     };
     const statement = Statement{ .log_n_rows = 5, .sequence_len = 8 };
     const prepared = try prepareInput(std.testing.allocator, statement);
@@ -603,7 +603,7 @@ test "examples wide_fibonacci: prepared CPU backend route verifies" {
 test "examples wide_fibonacci: corrupted recurrence trace is rejected" {
     const config = pcs_core.PcsConfig{
         .pow_bits = 0,
-        .fri_config = try @import("../core/fri.zig").FriConfig.init(0, 1, 3),
+        .fri_config = try @import("stwo_core").fri.FriConfig.init(0, 1, 3),
     };
     const statement = Statement{ .log_n_rows = 5, .sequence_len = 8 };
     const prepared = try prepareInput(std.testing.allocator, statement);
@@ -623,7 +623,7 @@ test "examples wide_fibonacci: corrupted recurrence trace is rejected" {
         try std.testing.expect(false);
     } else |err| {
         try std.testing.expectEqual(
-            @import("../prover/prove.zig").ProvingError.ConstraintsNotSatisfied,
+            @import("stwo_prover_impl").prove.ProvingError.ConstraintsNotSatisfied,
             err,
         );
     }
@@ -633,7 +633,7 @@ test "examples wide_fibonacci: prove/verify wrapper roundtrip" {
     const alloc = std.testing.allocator;
     const config = pcs_core.PcsConfig{
         .pow_bits = 0,
-        .fri_config = try @import("../core/fri.zig").FriConfig.init(0, 1, 3),
+        .fri_config = try @import("stwo_core").fri.FriConfig.init(0, 1, 3),
     };
 
     const statement: Statement = .{
@@ -660,7 +660,7 @@ test "examples wide_fibonacci: prove/verify wrapper roundtrip" {
 test "examples wide_fibonacci: coefficient fallback verifies with two-bit blowup" {
     const config = pcs_core.PcsConfig{
         .pow_bits = 0,
-        .fri_config = try @import("../core/fri.zig").FriConfig.init(0, 2, 3),
+        .fri_config = try @import("stwo_core").fri.FriConfig.init(0, 2, 3),
     };
     const output = try prove(
         std.testing.allocator,
@@ -673,7 +673,7 @@ test "examples wide_fibonacci: coefficient fallback verifies with two-bit blowup
 test "examples wide_fibonacci: two-column trace has zero constraints" {
     const config = pcs_core.PcsConfig{
         .pow_bits = 0,
-        .fri_config = try @import("../core/fri.zig").FriConfig.init(0, 1, 3),
+        .fri_config = try @import("stwo_core").fri.FriConfig.init(0, 1, 3),
     };
     const output = try prove(
         std.testing.allocator,
@@ -686,7 +686,7 @@ test "examples wide_fibonacci: two-column trace has zero constraints" {
 test "examples wide_fibonacci: traces narrower than two columns are rejected" {
     const config = pcs_core.PcsConfig{
         .pow_bits = 0,
-        .fri_config = try @import("../core/fri.zig").FriConfig.init(0, 1, 3),
+        .fri_config = try @import("stwo_core").fri.FriConfig.init(0, 1, 3),
     };
     try std.testing.expectError(
         error.InvalidSequenceLength,
@@ -709,7 +709,7 @@ test "examples wide_fibonacci: traces narrower than two columns are rejected" {
 test "examples wide_fibonacci: verify wrapper rejects statement mismatch" {
     const config = pcs_core.PcsConfig{
         .pow_bits = 0,
-        .fri_config = try @import("../core/fri.zig").FriConfig.init(0, 1, 3),
+        .fri_config = try @import("stwo_core").fri.FriConfig.init(0, 1, 3),
     };
 
     const statement: Statement = .{
@@ -724,7 +724,7 @@ test "examples wide_fibonacci: verify wrapper rejects statement mismatch" {
     if (verify(std.testing.allocator, config, bad_statement, output.proof)) |_| {
         try std.testing.expect(false);
     } else |err| {
-        const verification_error = @import("../core/verifier_types.zig").VerificationError;
+        const verification_error = @import("stwo_core").verifier_types.VerificationError;
         try std.testing.expect(
             err == verification_error.OodsNotMatching or
                 err == verification_error.InvalidStructure or

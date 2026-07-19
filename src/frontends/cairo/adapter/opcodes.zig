@@ -245,7 +245,7 @@ test "opcodes: state_by_opcode total count" {
     var states = CasmStatesByOpcode.init(alloc);
     defer states.deinit(alloc);
 
-    const M31 = @import("../../../core/fields/m31.zig").M31;
+    const M31 = @import("stwo_core").fields.m31.M31;
     const s = CasmState{ .pc = M31.fromCanonical(1), .ap = M31.fromCanonical(2), .fp = M31.fromCanonical(3) };
 
     try states.get(.ret_opcode).append(alloc, s);

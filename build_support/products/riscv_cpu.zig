@@ -18,11 +18,13 @@ pub const Context = struct {
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     identity: build_identity.Identity,
+    protocol: graph.ProtocolModules,
 };
 
 pub fn addProduct(context: Context) void {
     const host = addExecutable(
         context,
+        context.protocol,
         context.target,
         context.optimize,
         "stwo-zig-riscv-cpu",
@@ -45,6 +47,7 @@ pub fn addProduct(context: Context) void {
     });
     const static = addExecutable(
         context,
+        graph.createPrivateProtocolModules(context.b, static_target, .ReleaseFast),
         static_target,
         .ReleaseFast,
         "stwo-zig-riscv-cpu-x86_64-linux-musl",
@@ -81,30 +84,39 @@ fn addTraceExecutable(
     optimize: std.builtin.OptimizeMode,
 ) *std.Build.Step.Compile {
     const b = context.b;
+    const protocol = if (target.result.cpu.arch == context.target.result.cpu.arch and
+        target.result.os.tag == context.target.result.os.tag and
+        target.result.abi == context.target.result.abi)
+        context.protocol
+    else
+        graph.createPrivateProtocolModules(b, target, optimize);
     const root = graph.create(b, .{
         .product = product,
         .root_source_file = "src/riscv_trace_cli.zig",
         .target = target,
         .optimize = optimize,
     });
+    protocol.addImports(root);
     root.addOptions("build_identity", graph_identity.buildOptions(b, context.identity));
     return b.addExecutable(.{ .name = "riscv-trace-dump", .root_module = root });
 }
 
 fn addExecutable(
     context: Context,
+    protocol: graph.ProtocolModules,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     name: []const u8,
 ) *std.Build.Step.Compile {
     const b = context.b;
-    const stwo = createStwoModule(b, target, optimize);
+    const stwo = createStwoModule(b, protocol, target, optimize);
     const root = graph.create(b, .{
         .product = product,
         .root_source_file = "src/riscv_cpu_product.zig",
         .target = target,
         .optimize = optimize,
     });
+    protocol.addImports(root);
     root.addImport("stwo", stwo);
     root.addImport("stwo_riscv_cpu", stwo);
     root.addOptions("build_identity", graph_identity.buildOptions(b, context.identity));
@@ -117,7 +129,7 @@ fn addExecutable(
 
 fn addTests(context: Context) *std.Build.Step.Compile {
     const b = context.b;
-    const stwo = createStwoModule(b, context.target, context.optimize);
+    const stwo = createStwoModule(b, context.protocol, context.target, context.optimize);
     const test_product = graph.Product{
         .name = product.name,
         .frontend = product.frontend,
@@ -131,6 +143,7 @@ fn addTests(context: Context) *std.Build.Step.Compile {
         .target = context.target,
         .optimize = context.optimize,
     });
+    context.protocol.addImports(root);
     root.addImport("stwo", stwo);
     root.addImport("stwo_riscv_cpu", stwo);
     root.addOptions("build_identity", graph_identity.buildOptions(b, context.identity));
@@ -149,10 +162,11 @@ fn addTests(context: Context) *std.Build.Step.Compile {
 
 fn createStwoModule(
     b: *std.Build,
+    protocol: graph.ProtocolModules,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 ) *std.Build.Module {
-    return graph.create(b, .{
+    const module = graph.create(b, .{
         .product = .{
             .name = product.name,
             .frontend = product.frontend,
@@ -164,4 +178,6 @@ fn createStwoModule(
         .target = target,
         .optimize = optimize,
     });
+    protocol.addImports(module);
+    return module;
 }

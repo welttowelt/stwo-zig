@@ -6,11 +6,11 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const channel_blake2s = @import("../../core/channel/blake2s.zig");
-const m31 = @import("../../core/fields/m31.zig");
-const qm31 = @import("../../core/fields/qm31.zig");
-const pcs_core = @import("../../core/pcs/mod.zig");
-const blake2_hash = @import("../../core/vcs/blake2_hash.zig");
+const channel_blake2s = @import("stwo_core").channel.blake2s;
+const m31 = @import("stwo_core").fields.m31;
+const qm31 = @import("stwo_core").fields.qm31;
+const pcs_core = @import("stwo_core").pcs;
+const blake2_hash = @import("stwo_core").vcs.blake2_hash;
 
 const M31 = m31.M31;
 const QM31 = qm31.QM31;

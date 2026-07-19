@@ -1,8 +1,3 @@
-pub const ResidentStorage = struct {
-    handle: *anyopaque,
-    destroyFn: *const fn (*anyopaque) void,
+//! Compatibility alias for backend-owned resident storage.
 
-    pub fn deinit(self: ResidentStorage) void {
-        self.destroyFn(self.handle);
-    }
-};
+pub const ResidentStorage = @import("stwo_backend_contracts").resident_storage.ResidentStorage;

@@ -208,16 +208,7 @@ class CiTests(unittest.TestCase):
         build_graph = build + verification_products
         full_test_command = 'b.addSystemCommand(&.{ "zig", "build", "test", optimize_arg })'
         self.assertEqual(2, build.count(full_test_command))
-        self.assertIn(
-            'b.addSystemCommand(&.{ "zig", "test", "src/stwo_deep.zig", zig_optimize_arg })',
-            build_graph,
-        )
-        self.assertEqual(
-            3,
-            build_graph.count(
-                'b.addSystemCommand(&.{ "zig", "test", "src/stwo_deep.zig", zig_optimize_arg })'
-            ),
-        )
+        self.assertEqual(3, build_graph.count('"scripts/zig_protocol_test.py"'))
         gate_archive = "zig-out/release-evidence/native/interop-history"
         self.assertEqual(1, build.count(gate_archive))
         self.assertEqual(1, build.count('"--archive-dir"'))

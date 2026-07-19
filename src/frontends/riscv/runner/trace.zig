@@ -3,7 +3,7 @@
 const std = @import("std");
 const decode = @import("decode.zig");
 const opcode_manifest = @import("../opcode_manifest.zig");
-const M31 = @import("../../../core/fields/m31.zig").M31;
+const M31 = @import("stwo_core").fields.m31.M31;
 const layouts = @import("../air/trace_columns.zig");
 const base_witness = @import("witness/base.zig");
 const compare_witness = @import("witness/compare.zig");
@@ -11,7 +11,7 @@ const control_witness = @import("witness/control.zig");
 const shift_witness = @import("witness/shift.zig");
 const load_store_witness = @import("witness/load_store.zig");
 const m_extension_witness = @import("witness/m_extension.zig");
-const QM31 = @import("../../../core/fields/qm31.zig").QM31;
+const QM31 = @import("stwo_core").fields.qm31.QM31;
 const semantics = @import("../air/semantics/mod.zig");
 
 const Opcode = decode.Opcode;

@@ -5,9 +5,9 @@
 //! rows into checkpoint digests without materializing the complete trace.
 
 const std = @import("std");
-const m31_mod = @import("../../../core/fields/m31.zig");
+const m31_mod = @import("stwo_core").fields.m31;
 const M31 = m31_mod.M31;
-const QM31 = @import("../../../core/fields/qm31.zig").QM31;
+const QM31 = @import("stwo_core").fields.qm31.QM31;
 const interaction_source = @import("interaction_source.zig");
 
 pub const LookupColumns = interaction_source.LookupColumns;

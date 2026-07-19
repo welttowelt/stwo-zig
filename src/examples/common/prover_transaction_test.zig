@@ -1,14 +1,14 @@
 //! Ownership and allocation-failure tests for the shared prover transaction.
 
 const std = @import("std");
-const fri = @import("../../core/fri.zig");
-const m31 = @import("../../core/fields/m31.zig");
-const pcs_core = @import("../../core/pcs/mod.zig");
-const Blake2sChannel = @import("../../core/channel/blake2s.zig").Blake2sChannel;
-const prover_component = @import("../../prover/air/component_prover.zig");
-const prover_engine = @import("../../prover/engine.zig");
-const prover_pcs = @import("../../prover/pcs/mod.zig");
-const stage_profile = @import("../../prover/stage_profile.zig");
+const fri = @import("stwo_core").fri;
+const m31 = @import("stwo_core").fields.m31;
+const pcs_core = @import("stwo_core").pcs;
+const Blake2sChannel = @import("stwo_core").channel.blake2s.Blake2sChannel;
+const prover_component = @import("stwo_prover_impl").air.component_prover;
+const prover_engine = @import("stwo_prover_impl").engine;
+const prover_pcs = @import("stwo_prover_impl").pcs;
+const stage_profile = @import("stwo_prover_impl").stage_profile;
 const subject = @import("prover_transaction.zig");
 
 const M31 = m31.M31;

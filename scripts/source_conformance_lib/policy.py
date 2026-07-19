@@ -28,7 +28,11 @@ ACTIVE_FORMAL_EVIDENCE_ROOTS = (
     "scripts/riscv_release_gate.py",
 )
 # Every active evidence package may consume the stable interop command contract.
-PYTHON_FOUNDATION_LIBRARIES = frozenset({"interop_cli_lib", "process_resources_lib"})
+PYTHON_FOUNDATION_LIBRARIES = frozenset({
+    "interop_cli_lib",
+    "process_resources_lib",
+    "zig_protocol_lib",
+})
 # Controller packages with historical executable names that are not a direct
 # ``<root>_lib`` spelling declare their stable command facade here.
 PYTHON_CONTROLLER_ROOTS = {

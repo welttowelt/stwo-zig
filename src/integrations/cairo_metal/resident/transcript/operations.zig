@@ -4,7 +4,7 @@ const std = @import("std");
 const arena_plan = @import("../../../../backends/metal/arena_plan.zig");
 const metal_runtime = @import("../../../../backends/metal/runtime.zig");
 const protocol_recipes = @import("../../../../backends/metal/protocol_recipes.zig");
-const QM31 = @import("../../../../core/fields/qm31.zig").QM31;
+const QM31 = @import("stwo_core").fields.qm31.QM31;
 const schedule_bindings = @import("../../schedule_bindings.zig");
 const Error = @import("../errors.zig").Error;
 

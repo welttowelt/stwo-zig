@@ -1,8 +1,8 @@
 //! Canonical CP-11 diagnostic evidence over retained production buffers.
 
 const std = @import("std");
-const M31 = @import("../../../core/fields/m31.zig").M31;
-const QM31 = @import("../../../core/fields/qm31.zig").QM31;
+const M31 = @import("stwo_core").fields.m31.M31;
+const QM31 = @import("stwo_core").fields.qm31.QM31;
 const entry = @import("lookups/entry.zig");
 const relation_export = @import("relation_export.zig");
 const relations_mod = @import("relation_challenges.zig");

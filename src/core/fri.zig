@@ -17,6 +17,8 @@ const QM31 = qm31.QM31;
 const config_mod = @import("fri/config.zig");
 const folding = @import("fri/folding.zig");
 
+pub const geometry = @import("fri/geometry.zig");
+
 pub const FriConfig = config_mod.FriConfig;
 pub const FOLD_STEP = config_mod.FOLD_STEP;
 pub const CIRCLE_TO_LINE_FOLD_STEP = config_mod.CIRCLE_TO_LINE_FOLD_STEP;

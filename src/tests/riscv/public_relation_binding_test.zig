@@ -6,7 +6,7 @@ const public_data_mod = @import("../../frontends/riscv/air/public_data.zig");
 const relation_export = @import("../../frontends/riscv/air/relation_export.zig");
 const memory_boundary = @import("../../frontends/riscv/air/memory_commitment/boundary.zig");
 const runner = @import("../../frontends/riscv/runner/mod.zig");
-const pcs = @import("../../core/pcs/mod.zig");
+const pcs = @import("stwo_core").pcs;
 const release_elf_fixture = @import("release_elf_fixture.zig");
 
 const PublicData = public_data_mod.PublicData;

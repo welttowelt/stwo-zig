@@ -2,9 +2,9 @@
 
 const std = @import("std");
 const composition_bundle = @import("composition_bundle.zig");
-const circle = @import("../../../core/circle.zig");
-const canonic = @import("../../../core/poly/circle/canonic.zig");
-const QM31 = @import("../../../core/fields/qm31.zig").QM31;
+const circle = @import("stwo_core").circle;
+const canonic = @import("stwo_core").poly.circle.canonic;
+const QM31 = @import("stwo_core").fields.qm31.QM31;
 
 pub const m31_prime: u32 = 0x7fff_ffff;
 

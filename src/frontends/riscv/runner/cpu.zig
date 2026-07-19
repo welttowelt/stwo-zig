@@ -4,7 +4,7 @@
 //! and the program counter of a RISC-V RV32IM hart.
 
 const std = @import("std");
-const M31 = @import("../../../core/fields/m31.zig").M31;
+const M31 = @import("stwo_core").fields.m31.M31;
 
 /// Number of integer registers (x0 .. x31).
 pub const N_REGISTERS: usize = 32;

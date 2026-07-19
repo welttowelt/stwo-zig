@@ -1,6 +1,6 @@
 //! ALU and shift committed columns in pinned Stark-V order.
 
-const M31 = @import("../../../../core/fields/m31.zig").M31;
+const M31 = @import("stwo_core").fields.m31.M31;
 
 pub const BaseAluRegColumns = struct {
     clock: M31,

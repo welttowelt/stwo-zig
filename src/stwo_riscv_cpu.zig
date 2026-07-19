@@ -4,8 +4,8 @@
 //! product's capability closure cannot enter the focused executable through a
 //! convenience re-export.
 
-pub const core = @import("core/mod.zig");
-pub const prover = @import("prover/mod.zig");
+pub const core = @import("stwo_core");
+pub const prover = @import("stwo_prover_impl");
 
 pub const frontends = struct {
     pub const riscv = @import("frontends/riscv/mod.zig");

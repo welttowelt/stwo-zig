@@ -224,7 +224,7 @@ fn computeQuotientsConfigured(
     defer allocator.free(domain_x);
     const domain_y = try allocator.alloc(u32, row_count);
     defer allocator.free(domain_y);
-    const utils = @import("../../../core/utils.zig");
+    const utils = @import("stwo_core").utils;
     for (0..row_count) |position| {
         const point = provider.domain.at(utils.bitReverseIndex(position, provider.lifting_log_size));
         domain_x[position] = point.x.v;
@@ -409,11 +409,11 @@ pub fn evaluateCoefficientPlans(
     }
     for (tree_values, output_offsets) |values, output_offset| {
         for (values, 0..) |*value, point_index| {
-            var coordinates: [4]@import("../../../core/fields/m31.zig").M31 = undefined;
+            var coordinates: [4]@import("stwo_core").fields.m31.M31 = undefined;
             inline for (0..4) |coordinate| {
                 coordinates[coordinate].v = output_words[(@as(usize, output_offset) + point_index) * 4 + coordinate];
             }
-            value.* = @import("../../../core/fields/qm31.zig").QM31.fromM31Array(coordinates);
+            value.* = @import("stwo_core").fields.qm31.QM31.fromM31Array(coordinates);
         }
     }
     return gpu_ms;
@@ -422,8 +422,8 @@ pub fn evaluateCoefficientPlans(
 pub fn transformCircle(
     self: *Runtime,
     allocator: std.mem.Allocator,
-    columns: []const []@import("../../../core/fields/m31.zig").M31,
-    twiddles: []const @import("../../../core/fields/m31.zig").M31,
+    columns: []const []@import("stwo_core").fields.m31.M31,
+    twiddles: []const @import("stwo_core").fields.m31.M31,
     log_size: u32,
     inverse: bool,
 ) (MetalError || std.mem.Allocator.Error)!f64 {
@@ -437,7 +437,7 @@ pub fn transformCircle(
         pointers[index] = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(column)).ptr;
     }
     const scale_factor = if (inverse)
-        (@import("../../../core/fields/m31.zig").M31.fromCanonical(@intCast(expected_len)).inv() catch
+        (@import("stwo_core").fields.m31.M31.fromCanonical(@intCast(expected_len)).inv() catch
             return MetalError.CircleTransformFailed).v
     else
         1;
@@ -466,8 +466,8 @@ pub fn transformCircle(
 /// column pointer already aliases resident shared storage.
 pub fn transformCircleResident(
     self: *Runtime,
-    column: []@import("../../../core/fields/m31.zig").M31,
-    twiddles: []const @import("../../../core/fields/m31.zig").M31,
+    column: []@import("stwo_core").fields.m31.M31,
+    twiddles: []const @import("stwo_core").fields.m31.M31,
     log_size: u32,
     inverse: bool,
 ) MetalError!f64 {
@@ -476,7 +476,7 @@ pub fn transformCircleResident(
     if (column.len != expected_len or twiddles.len != expected_len / 2) return MetalError.CircleTransformFailed;
     var pointers = [_][*]u32{std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(column)).ptr};
     const scale_factor = if (inverse)
-        (@import("../../../core/fields/m31.zig").M31.fromCanonical(@intCast(expected_len)).inv() catch
+        (@import("stwo_core").fields.m31.M31.fromCanonical(@intCast(expected_len)).inv() catch
             return MetalError.CircleTransformFailed).v
     else
         1;
@@ -504,11 +504,11 @@ pub fn transformCircleResident(
 pub fn transformCircleLde(
     self: *Runtime,
     allocator: std.mem.Allocator,
-    source_columns: []const []const @import("../../../core/fields/m31.zig").M31,
-    base_columns: []const []@import("../../../core/fields/m31.zig").M31,
-    extended_columns: []const []@import("../../../core/fields/m31.zig").M31,
-    inverse_twiddles: []const @import("../../../core/fields/m31.zig").M31,
-    forward_twiddles: []const @import("../../../core/fields/m31.zig").M31,
+    source_columns: []const []const @import("stwo_core").fields.m31.M31,
+    base_columns: []const []@import("stwo_core").fields.m31.M31,
+    extended_columns: []const []@import("stwo_core").fields.m31.M31,
+    inverse_twiddles: []const @import("stwo_core").fields.m31.M31,
+    forward_twiddles: []const @import("stwo_core").fields.m31.M31,
     base_log_size: u32,
     extended_log_size: u32,
 ) (MetalError || std.mem.Allocator.Error)!f64 {
@@ -532,7 +532,7 @@ pub fn transformCircleLde(
     }
     const inverse_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(inverse_twiddles));
     const forward_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(forward_twiddles));
-    const scale_factor = (@import("../../../core/fields/m31.zig").M31.fromCanonical(@intCast(base_len)).inv() catch
+    const scale_factor = (@import("stwo_core").fields.m31.M31.fromCanonical(@intCast(base_len)).inv() catch
         return MetalError.CircleTransformFailed).v;
     var gpu_ms: f64 = 0;
     var message: [1024]u8 = [_]u8{0} ** 1024;

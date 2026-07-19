@@ -1,7 +1,7 @@
 //! Canonical stwo-cairo witness bytecode shared with the generated Rust writers.
 
 const std = @import("std");
-const M31 = @import("../../../core/fields/m31.zig").M31;
+const M31 = @import("stwo_core").fields.m31.M31;
 
 pub const Op = enum(u8) {
     input = 0,
@@ -281,7 +281,7 @@ fn executeRow(
             .u32_shl => a << @intCast(inst.imm & 31),
             .u32_shr => a >> @intCast(inst.imm & 31),
             .u32_xor => a ^ b,
-            .as_m31 => a % @import("../../../core/fields/m31.zig").Modulus,
+            .as_m31 => a % @import("stwo_core").fields.m31.Modulus,
             .trunc16 => a & 0xffff,
             .table_limb => tables.limb(inst.b, a, inst.imm),
             .m31_inverse => (M31.fromCanonical(a).inv() catch M31.zero()).v,
@@ -371,7 +371,7 @@ pub fn interpretCore(
             .u32_shl => a << @intCast(inst.imm & 31),
             .u32_shr => a >> @intCast(inst.imm & 31),
             .u32_xor => a ^ b,
-            .as_m31 => a % @import("../../../core/fields/m31.zig").Modulus,
+            .as_m31 => a % @import("stwo_core").fields.m31.Modulus,
             .trunc16 => a & 0xffff,
             .table_limb => tableContext.tableLimb(inst.b, a, inst.imm),
             .m31_inverse => (M31.fromCanonical(a).inv() catch M31.zero()).v,

@@ -1,18 +1,18 @@
 //! Proof sizing, line interpolation, and VCS oracle vectors.
 
 const std = @import("std");
-const circle_mod = @import("../../../core/circle.zig");
-const fri_mod = @import("../../../core/fri.zig");
-const pcs_mod = @import("../../../core/pcs/mod.zig");
-const proof_mod = @import("../../../core/proof.zig");
-const quotients_mod = @import("../../../core/pcs/quotients.zig");
-const line_mod = @import("../../../core/poly/line.zig");
-const vcs_verifier_mod = @import("../../../core/vcs/verifier.zig");
-const prover_line_mod = @import("../../../prover/line.zig");
-const vcs_prover_mod = @import("../../../prover/vcs/prover.zig");
-const vcs_lifted_prover_mod = @import("../../../prover/vcs_lifted/prover.zig");
-const m31_mod = @import("../../../core/fields/m31.zig");
-const qm31_mod = @import("../../../core/fields/qm31.zig");
+const circle_mod = @import("stwo_core").circle;
+const fri_mod = @import("stwo_core").fri;
+const pcs_mod = @import("stwo_core").pcs;
+const proof_mod = @import("stwo_core").proof;
+const quotients_mod = @import("stwo_core").pcs.quotients;
+const line_mod = @import("stwo_core").poly.line;
+const vcs_verifier_mod = @import("stwo_core").vcs.verifier;
+const prover_line_mod = @import("stwo_prover_impl").line;
+const vcs_prover_mod = @import("stwo_prover_impl").vcs.prover;
+const vcs_lifted_prover_mod = @import("stwo_prover_impl").vcs_lifted.prover;
+const m31_mod = @import("stwo_core").fields.m31;
+const qm31_mod = @import("stwo_core").fields.qm31;
 const fixtures = @import("fixtures.zig");
 
 const M31 = m31_mod.M31;
@@ -30,8 +30,8 @@ const expectedVcsLiftedError = fixtures.expectedVcsLiftedError;
 
 test "field vectors: proof extract oods parity" {
     const alloc = std.testing.allocator;
-    const Hasher = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
-    const vcs_verifier = @import("../../../core/vcs_lifted/verifier.zig");
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
+    const vcs_verifier = @import("stwo_core").vcs_lifted.verifier;
     var parsed = try parseVectors(alloc);
     defer parsed.deinit();
 
@@ -91,8 +91,8 @@ test "field vectors: proof extract oods parity" {
 
 test "field vectors: proof size breakdown parity" {
     const alloc = std.testing.allocator;
-    const Hasher = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
-    const vcs_verifier = @import("../../../core/vcs_lifted/verifier.zig");
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
+    const vcs_verifier = @import("stwo_core").vcs_lifted.verifier;
     var parsed = try parseVectors(alloc);
     defer parsed.deinit();
 
@@ -244,7 +244,7 @@ test "field vectors: prover line interpolation parity" {
 
 test "field vectors: vcs verifier parity" {
     const alloc = std.testing.allocator;
-    const Hasher = @import("../../../core/vcs/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Hasher = @import("stwo_core").vcs.blake2_merkle.Blake2sMerkleHasher;
     const Verifier = vcs_verifier_mod.MerkleVerifier(Hasher);
     const Decommitment = vcs_verifier_mod.MerkleDecommitment(Hasher);
 
@@ -289,7 +289,7 @@ test "field vectors: vcs verifier parity" {
 
 test "field vectors: vcs prover parity" {
     const alloc = std.testing.allocator;
-    const Hasher = @import("../../../core/vcs/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Hasher = @import("stwo_core").vcs.blake2_merkle.Blake2sMerkleHasher;
     const Prover = vcs_prover_mod.MerkleProver(Hasher);
     const Verifier = vcs_verifier_mod.MerkleVerifier(Hasher);
     const LogSizeQueries = vcs_verifier_mod.LogSizeQueries;
@@ -371,9 +371,9 @@ test "field vectors: vcs prover parity" {
 
 test "field vectors: vcs lifted verifier parity" {
     const alloc = std.testing.allocator;
-    const Hasher = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
-    const Verifier = @import("../../../core/vcs_lifted/verifier.zig").MerkleVerifierLifted(Hasher);
-    const Decommitment = @import("../../../core/vcs_lifted/verifier.zig").MerkleDecommitmentLifted(Hasher);
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
+    const Verifier = @import("stwo_core").vcs_lifted.verifier.MerkleVerifierLifted(Hasher);
+    const Decommitment = @import("stwo_core").vcs_lifted.verifier.MerkleDecommitmentLifted(Hasher);
 
     var parsed = try parseVectors(alloc);
     defer parsed.deinit();
@@ -426,9 +426,9 @@ test "field vectors: vcs lifted verifier parity" {
 
 test "field vectors: vcs lifted prover parity" {
     const alloc = std.testing.allocator;
-    const Hasher = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
     const Prover = vcs_lifted_prover_mod.MerkleProverLifted(Hasher);
-    const Verifier = @import("../../../core/vcs_lifted/verifier.zig").MerkleVerifierLifted(Hasher);
+    const Verifier = @import("stwo_core").vcs_lifted.verifier.MerkleVerifierLifted(Hasher);
 
     var parsed = try parseVectors(alloc);
     defer parsed.deinit();

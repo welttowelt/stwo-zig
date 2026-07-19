@@ -1,6 +1,6 @@
 //! Exact comparison witnesses from the pinned Stark-V runner.
 
-const M31 = @import("../../../../core/fields/m31.zig").M31;
+const M31 = @import("stwo_core").fields.m31.M31;
 const w = @import("writer.zig");
 
 const Comparison = struct {

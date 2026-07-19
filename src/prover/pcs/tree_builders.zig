@@ -1,8 +1,8 @@
 //! Owned and streaming PCS tree construction.
 
 const std = @import("std");
-const m31 = @import("../../core/fields/m31.zig");
-const pcs_core = @import("../../core/pcs/mod.zig");
+const m31 = @import("stwo_core").fields.m31;
+const pcs_core = @import("stwo_core").pcs;
 const prover_circle = @import("../poly/circle/mod.zig");
 const stage_profile = @import("../stage_profile.zig");
 const vcs_lifted_prover = @import("../vcs_lifted/prover.zig");

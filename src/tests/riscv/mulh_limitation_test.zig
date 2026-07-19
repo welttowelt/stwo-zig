@@ -6,7 +6,7 @@ const public_values = @import("../../frontends/riscv/diagnostics/public_values.z
 const limitation = @import("../../frontends/riscv/diagnostics/mulh_limitation.zig");
 const relation_export = @import("../../frontends/riscv/air/relation_export.zig");
 const runner = @import("../../frontends/riscv/runner/mod.zig");
-const pcs = @import("../../core/pcs/mod.zig");
+const pcs = @import("stwo_core").pcs;
 
 const TEST_PCS_CONFIG = pcs.PcsConfig{
     .pow_bits = 0,

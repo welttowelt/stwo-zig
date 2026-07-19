@@ -1,7 +1,7 @@
 //! Convenience ELF execution, proof, and verification transaction.
 
 const std = @import("std");
-const pcs_core = @import("../../../core/pcs/mod.zig");
+const pcs_core = @import("stwo_core").pcs;
 const public_data_mod = @import("../air/public_data.zig");
 const runner_mod = @import("../runner/mod.zig");
 const orchestration = @import("orchestration.zig");

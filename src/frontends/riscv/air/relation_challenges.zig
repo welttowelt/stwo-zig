@@ -6,8 +6,8 @@
 //! There is no relation-ID term and challenges are not shared across buses.
 
 const std = @import("std");
-const M31 = @import("../../../core/fields/m31.zig").M31;
-const QM31 = @import("../../../core/fields/qm31.zig").QM31;
+const M31 = @import("stwo_core").fields.m31.M31;
+const QM31 = @import("stwo_core").fields.qm31.QM31;
 
 pub const RELATION_COUNT: usize = 12;
 const CHALLENGES_PER_RELATION: usize = 2;
@@ -137,7 +137,7 @@ test "relation challenges: combine matches Stark-V alpha-power convention" {
 }
 
 test "relation challenges: bulk draw matches twelve oracle pair draws" {
-    const Blake2sChannel = @import("../../../core/channel/blake2s.zig").Blake2sChannel;
+    const Blake2sChannel = @import("stwo_core").channel.blake2s.Blake2sChannel;
     const allocator = std.testing.allocator;
     var actual_channel = Blake2sChannel{};
     var oracle_channel = Blake2sChannel{};
@@ -160,7 +160,7 @@ test "relation challenges: bulk draw matches twelve oracle pair draws" {
 }
 
 test "relation challenges: default-channel limbs match pinned Stark-V" {
-    const Blake2sChannel = @import("../../../core/channel/blake2s.zig").Blake2sChannel;
+    const Blake2sChannel = @import("stwo_core").channel.blake2s.Blake2sChannel;
     var channel = Blake2sChannel{};
     const relations = try Relations.draw(std.testing.allocator, &channel);
 

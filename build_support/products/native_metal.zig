@@ -15,6 +15,7 @@ pub const Context = struct {
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     identity: build_identity.Identity,
+    protocol: graph.ProtocolModules,
 };
 
 pub fn descriptor(role: graph.Role) product_policy.Descriptor {
@@ -123,12 +124,14 @@ pub fn addProduct(context: Context) void {
 }
 
 fn createStwoModule(context: Context, role: graph.Role) *std.Build.Module {
-    return graph.create(context.b, .{
+    const module = graph.create(context.b, .{
         .product = product(role),
         .root_source_file = "src/stwo_native_metal.zig",
         .target = context.target,
         .optimize = context.optimize,
     });
+    context.protocol.addImports(module);
+    return module;
 }
 
 fn createRunnerModule(
@@ -142,6 +145,7 @@ fn createRunnerModule(
         .target = context.target,
         .optimize = context.optimize,
     });
+    context.protocol.addImports(runner);
     runner.addImport("stwo", stwo);
     return runner;
 }
@@ -158,6 +162,7 @@ fn createProductModule(
         .target = context.target,
         .optimize = context.optimize,
     });
+    context.protocol.addImports(root);
     root.addImport("stwo", stwo);
     root.addImport("stwo_native_metal", stwo);
     root.addImport("native_proof_runner", runner);

@@ -8,7 +8,7 @@
 //! for commitment via the stwo STARK backend.
 
 const std = @import("std");
-const m31 = @import("../../core/fields/m31.zig");
+const m31 = @import("stwo_core").fields.m31;
 const poseidon2 = @import("common/poseidon2.zig");
 const trace_mod = @import("runner/trace.zig");
 const state_chain = @import("runner/state_chain.zig");

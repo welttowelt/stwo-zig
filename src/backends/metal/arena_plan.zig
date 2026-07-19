@@ -1,6 +1,6 @@
 //! Compatibility surface joining the neutral arena plan with Metal storage.
 
-const plan = @import("../../backend/arena_plan.zig");
+const plan = @import("stwo_backend_contracts").arena_plan;
 const resident = @import("resident_arena.zig");
 
 pub const max_ticks = plan.max_ticks;

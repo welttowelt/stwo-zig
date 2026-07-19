@@ -1,9 +1,9 @@
 const std = @import("std");
 const runtime_mod = @import("../runtime.zig");
-const circle = @import("../../../core/circle.zig");
-const m31 = @import("../../../core/fields/m31.zig");
-const qm31 = @import("../../../core/fields/qm31.zig");
-const circle_poly = @import("../../../prover/poly/circle/poly.zig");
+const circle = @import("stwo_core").circle;
+const m31 = @import("stwo_core").fields.m31;
+const qm31 = @import("stwo_core").fields.qm31;
+const circle_poly = @import("stwo_prover_impl").poly.circle.poly;
 
 const M31 = m31.M31;
 const QM31 = qm31.QM31;

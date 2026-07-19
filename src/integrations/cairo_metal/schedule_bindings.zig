@@ -1,8 +1,8 @@
 //! Schedule JSON selection and binding-order reconstruction for Cairo proofs.
 
 const std = @import("std");
-const arena_plan = @import("../../backend/arena_plan.zig");
-const fri_geometry = @import("../../core/fri/geometry.zig");
+const arena_plan = @import("stwo_backend_contracts").arena_plan;
+const fri_geometry = @import("stwo_core").fri.geometry;
 const decommit_geometry = @import("decommit_geometry.zig");
 
 pub const Error = error{

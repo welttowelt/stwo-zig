@@ -1,8 +1,8 @@
 //! Exact declaration-order LogUp columns for the program commitment table.
 
 const std = @import("std");
-const M31 = @import("../../../../core/fields/m31.zig").M31;
-const QM31 = @import("../../../../core/fields/qm31.zig").QM31;
+const M31 = @import("stwo_core").fields.m31.M31;
+const QM31 = @import("stwo_core").fields.qm31.QM31;
 const infra = @import("../../infra_trace.zig");
 const lookup_entry = @import("../lookups/entry.zig");
 const logup = @import("../logup.zig");

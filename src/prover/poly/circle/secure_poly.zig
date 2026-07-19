@@ -1,8 +1,8 @@
 const std = @import("std");
-const circle = @import("../../../core/circle.zig");
-const m31 = @import("../../../core/fields/m31.zig");
-const qm31 = @import("../../../core/fields/qm31.zig");
-const domain_mod = @import("../../../core/poly/circle/domain.zig");
+const circle = @import("stwo_core").circle;
+const m31 = @import("stwo_core").fields.m31;
+const qm31 = @import("stwo_core").fields.qm31;
+const domain_mod = @import("stwo_core").poly.circle.domain;
 const poly = @import("poly.zig");
 const eval_mod = @import("evaluation.zig");
 const secure_column = @import("../../secure_column.zig");
@@ -285,7 +285,7 @@ test "prover poly circle secure poly: rejects mixed coordinate log sizes" {
 test "prover poly circle secure poly: interpolate from evaluation roundtrip" {
     const alloc = std.testing.allocator;
     const log_size: u32 = 4;
-    const domain = @import("../../../core/poly/circle/canonic.zig").CanonicCoset.new(log_size).circleDomain();
+    const domain = @import("stwo_core").poly.circle.canonic.CanonicCoset.new(log_size).circleDomain();
     const n = domain.size();
 
     var coordinate_polys: [qm31.SECURE_EXTENSION_DEGREE]CircleCoefficients = undefined;
@@ -340,7 +340,7 @@ test "prover poly circle secure poly: interpolate from evaluation roundtrip" {
 test "prover poly circle secure poly: interpolate with twiddles matches interpolate" {
     const alloc = std.testing.allocator;
     const log_size: u32 = 5;
-    const domain = @import("../../../core/poly/circle/canonic.zig").CanonicCoset.new(log_size).circleDomain();
+    const domain = @import("stwo_core").poly.circle.canonic.CanonicCoset.new(log_size).circleDomain();
     const n = domain.size();
 
     var eval_columns: [qm31.SECURE_EXTENSION_DEGREE][]M31 = undefined;
@@ -385,7 +385,7 @@ test "prover poly circle secure poly: interpolate with twiddles matches interpol
 test "prover poly circle secure poly: interpolate and split reuses exact twiddles" {
     const allocator = std.testing.allocator;
     const log_size: u32 = 5;
-    const domain = @import("../../../core/poly/circle/canonic.zig").CanonicCoset.new(log_size).circleDomain();
+    const domain = @import("stwo_core").poly.circle.canonic.CanonicCoset.new(log_size).circleDomain();
 
     var columns: [qm31.SECURE_EXTENSION_DEGREE][]M31 = undefined;
     var initialized: usize = 0;

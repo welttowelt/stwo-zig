@@ -13,31 +13,31 @@
 //! ```
 
 const std = @import("std");
-const backend_mod = @import("../../backend/mod.zig");
-const core_air_accumulation = @import("../../core/air/accumulation.zig");
-const core_air_components = @import("../../core/air/components.zig");
-const core_air_derive = @import("../../core/air/derive.zig");
-const core_air_utils = @import("../../core/air/utils.zig");
-const channel_blake2s = @import("../../core/channel/blake2s.zig");
-const m31 = @import("../../core/fields/m31.zig");
-const qm31 = @import("../../core/fields/qm31.zig");
-const pcs_core = @import("../../core/pcs/mod.zig");
-const pcs_verifier = @import("../../core/pcs/verifier.zig");
-const core_proof = @import("../../core/proof.zig");
-const core_verifier = @import("../../core/verifier.zig");
-const blake2_merkle = @import("../../core/vcs_lifted/blake2_merkle.zig");
-const prover_air_accumulation = @import("../../prover/air/accumulation.zig");
-const prover_component = @import("../../prover/air/component_prover.zig");
-const prover_pcs = @import("../../prover/pcs/mod.zig");
-const prover_prove = @import("../../prover/prove.zig");
-const secure_column = @import("../../prover/secure_column.zig");
-const utils = @import("../../core/utils.zig");
+const backend_mod = @import("stwo_backend_contracts");
+const core_air_accumulation = @import("stwo_core").air.accumulation;
+const core_air_components = @import("stwo_core").air.components;
+const core_air_derive = @import("stwo_core").air.derive;
+const core_air_utils = @import("stwo_core").air.utils;
+const channel_blake2s = @import("stwo_core").channel.blake2s;
+const m31 = @import("stwo_core").fields.m31;
+const qm31 = @import("stwo_core").fields.qm31;
+const pcs_core = @import("stwo_core").pcs;
+const pcs_verifier = @import("stwo_core").pcs.verifier;
+const core_proof = @import("stwo_core").proof;
+const core_verifier = @import("stwo_core").verifier;
+const blake2_merkle = @import("stwo_core").vcs_lifted.blake2_merkle;
+const prover_air_accumulation = @import("stwo_prover_impl").air.accumulation;
+const prover_component = @import("stwo_prover_impl").air.component_prover;
+const prover_pcs = @import("stwo_prover_impl").pcs;
+const prover_prove = @import("stwo_prover_impl").prove;
+const secure_column = @import("stwo_prover_impl").secure_column;
+const utils = @import("stwo_core").utils;
 
 const trace_reader = @import("adapter/trace_reader.zig");
 
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
-const CirclePointQM31 = @import("../../core/circle.zig").CirclePointQM31;
+const CirclePointQM31 = @import("stwo_core").circle.CirclePointQM31;
 pub const Hasher = blake2_merkle.Blake2sPlainMerkleHasher;
 pub const MerkleChannel = blake2_merkle.Blake2sPlainMerkleChannel;
 pub const Channel = channel_blake2s.Blake2sChannel;

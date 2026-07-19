@@ -5,7 +5,7 @@
 //! trace columns without assembling a Metal-style arena.
 
 const std = @import("std");
-const m31_mod = @import("../../../core/fields/m31.zig");
+const m31_mod = @import("stwo_core").fields.m31;
 const M31 = m31_mod.M31;
 const relation_bundle = @import("relation_bundle.zig");
 

@@ -1,13 +1,13 @@
 //! Native CPU FRI commit/decommit integration tests.
 
 const std = @import("std");
-const fri = @import("../../../prover/fri.zig");
-const circle = @import("../../../core/circle.zig");
-const core_fri = @import("../../../core/fri.zig");
-const m31 = @import("../../../core/fields/m31.zig");
-const qm31 = @import("../../../core/fields/qm31.zig");
-const circle_domain = @import("../../../core/poly/circle/domain.zig");
-const secure_column = @import("../../../prover/secure_column.zig");
+const fri = @import("stwo_prover_impl").fri;
+const circle = @import("stwo_core").circle;
+const core_fri = @import("stwo_core").fri;
+const m31 = @import("stwo_core").fields.m31;
+const qm31 = @import("stwo_core").fields.qm31;
+const circle_domain = @import("stwo_core").poly.circle.domain;
+const secure_column = @import("stwo_prover_impl").secure_column;
 
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
@@ -16,16 +16,16 @@ const FriProver = fri.FriProver;
 
 test "prover fri: commit and decommit roundtrip with verifier" {
     const CpuBackend = @import("../../../backends/cpu_scalar/mod.zig").CpuBackend;
-    const Hasher = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
-    const MerkleChannel = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
-    const Channel = @import("../../../core/channel/blake2s.zig").Blake2sChannel;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
+    const MerkleChannel = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleChannel;
+    const Channel = @import("stwo_core").channel.blake2s.Blake2sChannel;
     const Prover = FriProver(CpuBackend, Hasher, MerkleChannel);
     const Verifier = core_fri.FriVerifier(Hasher, MerkleChannel);
     const alloc = std.testing.allocator;
 
     const config = try core_fri.FriConfig.init(0, 1, 4);
     const column_log_size: u32 = 3;
-    const domain = @import("../../../core/poly/circle/canonic.zig").CanonicCoset
+    const domain = @import("stwo_core").poly.circle.canonic.CanonicCoset
         .new(column_log_size)
         .circleDomain();
 
@@ -70,9 +70,9 @@ test "prover fri: commit and decommit roundtrip with verifier" {
 
 test "prover fri: commit rejects non-canonic domain" {
     const CpuBackend = @import("../../../backends/cpu_scalar/mod.zig").CpuBackend;
-    const Hasher = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
-    const MerkleChannel = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
-    const Channel = @import("../../../core/channel/blake2s.zig").Blake2sChannel;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
+    const MerkleChannel = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleChannel;
+    const Channel = @import("stwo_core").channel.blake2s.Blake2sChannel;
     const Prover = FriProver(CpuBackend, Hasher, MerkleChannel);
     const alloc = std.testing.allocator;
 
@@ -101,14 +101,14 @@ test "prover fri: commit rejects non-canonic domain" {
 
 test "prover fri: commit rejects high-degree last layer" {
     const CpuBackend = @import("../../../backends/cpu_scalar/mod.zig").CpuBackend;
-    const Hasher = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
-    const MerkleChannel = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
-    const Channel = @import("../../../core/channel/blake2s.zig").Blake2sChannel;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
+    const MerkleChannel = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleChannel;
+    const Channel = @import("stwo_core").channel.blake2s.Blake2sChannel;
     const Prover = FriProver(CpuBackend, Hasher, MerkleChannel);
     const alloc = std.testing.allocator;
 
     const config = try core_fri.FriConfig.init(0, 1, 3);
-    const domain = @import("../../../core/poly/circle/canonic.zig").CanonicCoset
+    const domain = @import("stwo_core").poly.circle.canonic.CanonicCoset
         .new(3)
         .circleDomain();
 

@@ -1,6 +1,6 @@
 //! Compatibility export for the backend-neutral recovery contract.
 
-const recovery = @import("../../backend/recovery.zig");
+const recovery = @import("stwo_backend_contracts").recovery;
 
 pub const RecoveryError = recovery.RecoveryError;
 pub const BufferAccess = recovery.BufferAccess;

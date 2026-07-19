@@ -1,8 +1,9 @@
 //! Native XOR integration coverage for the shared proof codecs.
 
 const std = @import("std");
-const fri = @import("../../core/fri.zig");
-const pcs = @import("../../core/pcs/mod.zig");
+const core = @import("stwo_core");
+const fri = core.fri;
+const pcs = core.pcs;
 const xor = @import("../../examples/xor.zig");
 const postcard = @import("../postcard.zig");
 const proof_wire = @import("../proof_wire.zig");

@@ -1,8 +1,8 @@
 //! Parallel generation and ownership of committed opcode-family columns.
 
 const std = @import("std");
-const M31 = @import("../../../core/fields/m31.zig").M31;
-const work_pool = @import("../../../prover/work_pool.zig");
+const M31 = @import("stwo_core").fields.m31.M31;
+const work_pool = @import("stwo_prover_impl").work_pool;
 const infra = @import("../infra_trace.zig");
 const statement_mod = @import("../air/statement.zig");
 const trace = @import("../runner/trace.zig");

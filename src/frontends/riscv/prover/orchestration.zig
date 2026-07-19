@@ -23,11 +23,11 @@
 //! ```
 
 const std = @import("std");
-const m31 = @import("../../../core/fields/m31.zig");
-const pcs_core = @import("../../../core/pcs/mod.zig");
-const prover_engine = @import("../../../prover/engine.zig");
-const prover_pcs = @import("../../../prover/pcs/mod.zig");
-const stage_profile = @import("../../../prover/stage_profile.zig");
+const m31 = @import("stwo_core").fields.m31;
+const pcs_core = @import("stwo_core").pcs;
+const prover_engine = @import("stwo_prover_impl").engine;
+const prover_pcs = @import("stwo_prover_impl").pcs;
+const stage_profile = @import("stwo_prover_impl").stage_profile;
 
 const trace_mod = @import("../runner/trace.zig");
 const component_order = @import("../air/component_order.zig");

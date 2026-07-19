@@ -1,8 +1,8 @@
 //! Shared allocation and committed-row placement for infrastructure traces.
 
 const std = @import("std");
-const M31 = @import("../../../core/fields/m31.zig").M31;
-const utils = @import("../../../core/utils.zig");
+const M31 = @import("stwo_core").fields.m31.M31;
+const utils = @import("stwo_core").utils;
 
 /// Precomputed mapping from trace row order to committed circle-domain order.
 pub const BitReversalTable = struct {

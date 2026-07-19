@@ -5,9 +5,9 @@
 //! nodes. The generic prover sees the same typed reader interface in both cases.
 
 const std = @import("std");
-const m31 = @import("../../core/fields/m31.zig");
-const decommit_mod = @import("../../prover/vcs_lifted/decommit.zig");
-const host_merkle = @import("../../prover/vcs_lifted/prover.zig");
+const m31 = @import("stwo_core").fields.m31;
+const decommit_mod = @import("stwo_prover_impl").vcs_lifted.decommit;
+const host_merkle = @import("stwo_prover_impl").vcs_lifted.prover;
 const runtime_mod = @import("runtime.zig");
 const shared_runtime = @import("shared_runtime.zig");
 

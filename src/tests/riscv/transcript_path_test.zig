@@ -2,15 +2,15 @@
 
 const std = @import("std");
 const CpuBackend = @import("../../backends/cpu_scalar/mod.zig").CpuBackend;
-const channel_blake2s = @import("../../core/channel/blake2s.zig");
-const pcs_core = @import("../../core/pcs/mod.zig");
-const qm31 = @import("../../core/fields/qm31.zig");
-const blake2_merkle = @import("../../core/vcs_lifted/blake2_merkle.zig");
+const channel_blake2s = @import("stwo_core").channel.blake2s;
+const pcs_core = @import("stwo_core").pcs;
+const qm31 = @import("stwo_core").fields.qm31;
+const blake2_merkle = @import("stwo_core").vcs_lifted.blake2_merkle;
 const prover = @import("../../frontends/riscv/prover.zig");
 const relation_challenges = @import("../../frontends/riscv/air/relation_challenges.zig");
 const trace_mod = @import("../../frontends/riscv/runner/trace.zig");
 const postcard = @import("../../interop/postcard.zig");
-const prover_engine = @import("../../prover/engine.zig");
+const prover_engine = @import("stwo_prover_impl").engine;
 
 const QM31 = qm31.QM31;
 const BaseChannel = channel_blake2s.Blake2sChannel;

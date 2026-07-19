@@ -1,17 +1,17 @@
 const std = @import("std");
 
-const M31 = @import("../../../core/fields/m31.zig").M31;
-const QM31 = @import("../../../core/fields/qm31.zig").QM31;
-const canonic = @import("../../../core/poly/circle/canonic.zig");
-const core_utils = @import("../../../core/utils.zig");
-const circle_poly = @import("../../../prover/poly/circle/poly.zig");
-const twiddles_mod = @import("../../../prover/poly/twiddles.zig");
+const M31 = @import("stwo_core").fields.m31.M31;
+const QM31 = @import("stwo_core").fields.qm31.QM31;
+const canonic = @import("stwo_core").poly.circle.canonic;
+const core_utils = @import("stwo_core").utils;
+const circle_poly = @import("stwo_prover_impl").poly.circle.poly;
+const twiddles_mod = @import("stwo_prover_impl").poly.twiddles;
 const arena_plan = @import("../arena_plan.zig");
 const recovery = @import("../recovery.zig");
 const runtime = @import("../runtime.zig");
-const blake2_hash = @import("../../../core/vcs/blake2_hash.zig");
-const fri_geometry = @import("../../../core/fri/geometry.zig");
-const cairo_merkle = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sPlainMerkleHasher;
+const blake2_hash = @import("stwo_core").vcs.blake2_hash;
+const fri_geometry = @import("stwo_core").fri.geometry;
+const cairo_merkle = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sPlainMerkleHasher;
 
 const cairo_domain_prefix_bytes = cairo_merkle.domainPrefixBytes();
 
@@ -176,7 +176,7 @@ pub const QuotientRecipe = struct {
             subdomain_offsets[coordinate] = subdomain_offset + @as(u64, @intCast(coordinate)) * subdomain_rows;
             quotient_offsets[coordinate] = quotient_offset + @as(u64, @intCast(coordinate)) * quotient_rows;
         }
-        const scale = @import("../../../core/fields/m31.zig").M31.fromCanonical(@intCast(subdomain_rows)).inv() catch
+        const scale = @import("stwo_core").fields.m31.M31.fromCanonical(@intCast(subdomain_rows)).inv() catch
             return recovery.RecoveryError.BindingSizeMismatch;
         var interpolate = try metal.prepareCircleIfft(
             &subdomain_offsets,
@@ -386,7 +386,7 @@ pub const QuotientRecipe = struct {
         std.debug.print("quotient stage=combine cpu_samples=exact rows={}\n", .{sample_rows.len});
     }
 
-    fn coefficientsAtPoint(self: *QuotientRecipe, point: @import("../../../core/circle.zig").CirclePointM31) !QM31 {
+    fn coefficientsAtPoint(self: *QuotientRecipe, point: @import("stwo_core").circle.CirclePointM31) !QM31 {
         const coefficient_bytes: []align(4) u8 = @alignCast(try self.arena.bytes(self.subdomain_values));
         const coefficient_words = std.mem.bytesAsSlice(u32, coefficient_bytes);
         const row_count = @as(usize, 1) << @intCast(self.subdomain_log);
@@ -670,7 +670,7 @@ pub const FriRecipe = struct {
         if (final_coefficients.offset_bytes % 4 != 0 or final_coefficients.size_bytes != 32 or
             final_degree_error.offset_bytes % 4 != 0 or final_degree_error.size_bytes != 4)
             return recovery.RecoveryError.BindingSizeMismatch;
-        const final_x = @import("../../../core/circle.zig").Coset.halfOdds(1).initial.x;
+        const final_x = @import("stwo_core").circle.Coset.halfOdds(1).initial.x;
         const inverse_x = final_x.inv() catch return recovery.RecoveryError.BindingSizeMismatch;
         self.final = try metal.prepareFriFinal(
             std.math.cast(u32, final_evaluation.offset_bytes / 4) orelse return recovery.RecoveryError.BindingSizeMismatch,

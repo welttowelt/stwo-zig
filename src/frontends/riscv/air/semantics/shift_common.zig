@@ -4,7 +4,7 @@
 //! not interchangeable with a binary shift amount or a whole-word result.
 
 const std = @import("std");
-const QM31 = @import("../../../../core/fields/qm31.zig").QM31;
+const QM31 = @import("stwo_core").fields.qm31.QM31;
 const common = @import("common.zig");
 
 pub const N_CONSTRAINTS: usize = 53;

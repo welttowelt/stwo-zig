@@ -7,9 +7,9 @@
 //! streams raw entries, and recomputes the declaration-order batched claim.
 
 const std = @import("std");
-const M31 = @import("../../../core/fields/m31.zig").M31;
-const QM31 = @import("../../../core/fields/qm31.zig").QM31;
-const blake2 = @import("../../../core/vcs/blake2_hash.zig");
+const M31 = @import("stwo_core").fields.m31.M31;
+const QM31 = @import("stwo_core").fields.qm31.QM31;
+const blake2 = @import("stwo_core").vcs.blake2_hash;
 const infra = @import("../infra_trace.zig");
 const trace = @import("../runner/trace.zig");
 const entry_mod = @import("lookups/entry.zig");

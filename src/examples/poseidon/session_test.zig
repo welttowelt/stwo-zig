@@ -1,10 +1,10 @@
 //! Prepared-input and reusable-session tests for the Poseidon prover.
 
 const std = @import("std");
-const fri = @import("../../core/fri.zig");
-const pcs = @import("../../core/pcs/mod.zig");
+const fri = @import("stwo_core").fri;
+const pcs = @import("stwo_core").pcs;
 const proof_wire = @import("../../interop/proof_wire.zig");
-const prover_engine = @import("../../prover/engine.zig");
+const prover_engine = @import("stwo_prover_impl").engine;
 const MetalCommitBackend = @import("../../backends/metal/mod.zig").MetalCommitBackend;
 const subject = @import("../poseidon.zig");
 

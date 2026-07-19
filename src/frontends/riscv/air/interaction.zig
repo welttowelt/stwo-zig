@@ -6,11 +6,11 @@
 //! that the total LogUp sum across all components equals zero.
 
 const std = @import("std");
-const M31 = @import("../../../core/fields/m31.zig").M31;
-const CM31 = @import("../../../core/fields/cm31.zig").CM31;
-const QM31 = @import("../../../core/fields/qm31.zig").QM31;
-const SECURE_EXTENSION_DEGREE = @import("../../../core/fields/qm31.zig").SECURE_EXTENSION_DEGREE;
-const prover_pcs = @import("../../../prover/pcs/mod.zig");
+const M31 = @import("stwo_core").fields.m31.M31;
+const CM31 = @import("stwo_core").fields.cm31.CM31;
+const QM31 = @import("stwo_core").fields.qm31.QM31;
+const SECURE_EXTENSION_DEGREE = @import("stwo_core").fields.qm31.SECURE_EXTENSION_DEGREE;
+const prover_pcs = @import("stwo_prover_impl").pcs;
 
 /// Size of the common lookup random element vector.
 /// Must be >= max relation tuple size across all components.

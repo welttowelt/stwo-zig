@@ -6,7 +6,7 @@
 //! range by performing a LogUp lookup against the corresponding table.
 
 const std = @import("std");
-const M31 = @import("../../../../core/fields/m31.zig").M31;
+const M31 = @import("stwo_core").fields.m31.M31;
 
 /// Range check for values in [0, 2^log_size).
 /// A single column of sequential M31 values.

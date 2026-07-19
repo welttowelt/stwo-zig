@@ -18,9 +18,9 @@ pub const verifyToRelations = protocol.verifyToRelations;
 pub const finishWithInteractionRoot = protocol.finishWithInteractionRoot;
 pub const finishWithoutInteractionRoot = protocol.finishWithoutInteractionRoot;
 
-const Blake2sChannel = @import("../../../../core/channel/blake2s.zig").Blake2sChannel;
-const Blake2sMerkleChannel = @import("../../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleChannel;
-const QM31 = @import("../../../../core/fields/qm31.zig").QM31;
+const Blake2sChannel = @import("stwo_core").channel.blake2s.Blake2sChannel;
+const Blake2sMerkleChannel = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleChannel;
+const QM31 = @import("stwo_core").fields.qm31.QM31;
 const PublicData = @import("../public_data.zig").PublicData;
 
 fn fixturePublicData() PublicData {

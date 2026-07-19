@@ -20,6 +20,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from zig_protocol_lib.command import test_command
+
 
 ROOT = Path(__file__).resolve().parent.parent
 GEN_MANIFEST = ROOT / "tools" / "stwo-air-derive-vector-gen" / "Cargo.toml"
@@ -95,7 +97,7 @@ def main() -> int:
             return 1
 
     if not args.skip_zig:
-        run(["zig", "test", "src/stwo.zig", "--test-filter", "air derive: vector parity"])
+        run(test_command("src/stwo.zig", "--test-filter", "air derive: vector parity"))
 
     return 0
 

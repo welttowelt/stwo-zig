@@ -4,11 +4,11 @@
 //! quotient evaluation. Execution remains in the row and tile executors.
 
 const std = @import("std");
-const circle = @import("../../../core/circle.zig");
-const m31 = @import("../../../core/fields/m31.zig");
-const qm31 = @import("../../../core/fields/qm31.zig");
-const quotients = @import("../../../core/pcs/quotients.zig");
-const pcs_utils = @import("../../../core/pcs/utils.zig");
+const circle = @import("stwo_core").circle;
+const m31 = @import("stwo_core").fields.m31;
+const qm31 = @import("stwo_core").fields.qm31;
+const quotients = @import("stwo_core").pcs.quotients;
+const pcs_utils = @import("stwo_core").pcs.utils;
 const column_geometry = @import("../quotient_column_geometry.zig");
 const row_executor = @import("../quotient_row_executor.zig");
 

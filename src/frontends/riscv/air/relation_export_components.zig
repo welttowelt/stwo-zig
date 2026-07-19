@@ -5,9 +5,9 @@
 //! accept runner rows or regenerate table tuples as evidence.
 
 const std = @import("std");
-const M31 = @import("../../../core/fields/m31.zig").M31;
-const QM31 = @import("../../../core/fields/qm31.zig").QM31;
-const blake2 = @import("../../../core/vcs/blake2_hash.zig");
+const M31 = @import("stwo_core").fields.m31.M31;
+const QM31 = @import("stwo_core").fields.qm31.QM31;
+const blake2 = @import("stwo_core").vcs.blake2_hash;
 const infra = @import("../infra_trace.zig");
 const clock = @import("clock_update_interaction.zig");
 const entry = @import("lookups/entry.zig");

@@ -3,10 +3,10 @@
 const std = @import("std");
 const arena_plan = @import("../../../backends/metal/arena_plan.zig");
 const schedule_bindings = @import("../schedule_bindings.zig");
-const M31 = @import("../../../core/fields/m31.zig").M31;
-const twiddles_mod = @import("../../../prover/poly/twiddles.zig");
-const canonic_circle_mod = @import("../../../core/poly/circle/canonic.zig");
-const circle_mod = @import("../../../core/circle.zig");
+const M31 = @import("stwo_core").fields.m31.M31;
+const twiddles_mod = @import("stwo_prover_impl").poly.twiddles;
+const canonic_circle_mod = @import("stwo_core").poly.circle.canonic;
+const circle_mod = @import("stwo_core").circle;
 
 const Error = error{InvalidBindingSize};
 

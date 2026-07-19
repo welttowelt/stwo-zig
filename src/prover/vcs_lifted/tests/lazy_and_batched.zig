@@ -1,11 +1,11 @@
 //! Lifted Merkle lazy quotient and batched leaf tests.
 
 const std = @import("std");
-const m31 = @import("../../../core/fields/m31.zig");
-const qm31 = @import("../../../core/fields/qm31.zig");
-const quotient_ops = @import("../../pcs/quotient_ops.zig");
-const secure_column = @import("../../secure_column.zig");
-const prover_mod = @import("../prover.zig");
+const m31 = @import("stwo_core").fields.m31;
+const qm31 = @import("stwo_core").fields.qm31;
+const quotient_ops = @import("stwo_prover_impl").pcs.quotient_ops;
+const secure_column = @import("stwo_prover_impl").secure_column;
+const prover_mod = @import("stwo_prover_impl").vcs_lifted.prover;
 
 const M31 = m31.M31;
 const SecureColumnByCoords = secure_column.SecureColumnByCoords;
@@ -13,14 +13,14 @@ const MerkleProverLifted = prover_mod.MerkleProverLifted;
 
 test "MerkleProverLifted: commitWithLazyQuotients produces same root as standard commit" {
     const alloc = std.testing.allocator;
-    const pcs_utils = @import("../../../core/pcs/utils.zig");
+    const pcs_utils = @import("stwo_core").pcs.utils;
     const TreeVec = pcs_utils.TreeVec;
-    const quotients_mod = @import("../../../core/pcs/quotients.zig");
+    const quotients_mod = @import("stwo_core").pcs.quotients;
     const ColumnEvaluation = quotient_ops.ColumnEvaluation;
     const PointSample = quotients_mod.PointSample;
     const QM31 = qm31.QM31;
 
-    const blake2_merkle = @import("../../../core/vcs_lifted/blake2_merkle.zig");
+    const blake2_merkle = @import("stwo_core").vcs_lifted.blake2_merkle;
     const Hasher = blake2_merkle.Blake2sMerkleHasher;
     const Prover = MerkleProverLifted(Hasher);
 
@@ -47,8 +47,8 @@ test "MerkleProverLifted: commitWithLazyQuotients produces same root as standard
     defer columns.deinitDeep(alloc);
 
     // Build sample data.
-    const point0 = @import("../../../core/circle.zig").SECURE_FIELD_CIRCLE_GEN.mul(7);
-    const point1 = @import("../../../core/circle.zig").SECURE_FIELD_CIRCLE_GEN.mul(19);
+    const point0 = @import("stwo_core").circle.SECURE_FIELD_CIRCLE_GEN.mul(7);
+    const point1 = @import("stwo_core").circle.SECURE_FIELD_CIRCLE_GEN.mul(19);
 
     const col0_samples = try alloc.dupe(PointSample, &[_]PointSample{
         .{ .point = point0, .value = QM31.fromU32Unchecked(1, 2, 3, 4) },
@@ -67,16 +67,16 @@ test "MerkleProverLifted: commitWithLazyQuotients produces same root as standard
     defer samples.deinitDeep(alloc);
 
     // Split into points/values.
-    const point_trees = try alloc.alloc([][]@import("../../../core/circle.zig").CirclePointQM31, 1);
+    const point_trees = try alloc.alloc([][]@import("stwo_core").circle.CirclePointQM31, 1);
     errdefer alloc.free(point_trees);
     const value_trees = try alloc.alloc([][]QM31, 1);
     errdefer alloc.free(value_trees);
 
-    point_trees[0] = try alloc.alloc([]@import("../../../core/circle.zig").CirclePointQM31, samples.items[0].len);
+    point_trees[0] = try alloc.alloc([]@import("stwo_core").circle.CirclePointQM31, samples.items[0].len);
     value_trees[0] = try alloc.alloc([]QM31, samples.items[0].len);
 
     for (samples.items[0], 0..) |col_samples, col_idx| {
-        const pts = try alloc.alloc(@import("../../../core/circle.zig").CirclePointQM31, col_samples.len);
+        const pts = try alloc.alloc(@import("stwo_core").circle.CirclePointQM31, col_samples.len);
         const vals = try alloc.alloc(QM31, col_samples.len);
         for (col_samples, 0..) |s, si| {
             pts[si] = s.point;
@@ -86,7 +86,7 @@ test "MerkleProverLifted: commitWithLazyQuotients produces same root as standard
         value_trees[0][col_idx] = vals;
     }
 
-    var sampled_points = TreeVec([][]@import("../../../core/circle.zig").CirclePointQM31).initOwned(point_trees);
+    var sampled_points = TreeVec([][]@import("stwo_core").circle.CirclePointQM31).initOwned(point_trees);
     defer sampled_points.deinitDeep(alloc);
     var sampled_values = TreeVec([][]QM31).initOwned(value_trees);
     defer sampled_values.deinitDeep(alloc);
@@ -266,7 +266,7 @@ test "MerkleProverLifted: commitWithLazyQuotients produces same root as standard
 }
 
 fn buildOwnedLeafTree(allocator: std.mem.Allocator) !void {
-    const Hasher = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
     const Prover = MerkleProverLifted(Hasher);
     const leaves = try allocator.alloc(Hasher.Hash, 8);
     var leaves_owned = true;
@@ -295,7 +295,7 @@ test "prover vcs_lifted: owned leaf tree releases every failed allocation" {
 test "prover vcs_lifted: batched leaf building matches original for uniform columns" {
     // Verifies that buildLeavesBatched produces bit-identical leaf hashes
     // as the original buildLeaves when all columns have the same log_size.
-    const Hasher = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
     const Prover = MerkleProverLifted(Hasher);
     const alloc = std.testing.allocator;
 
@@ -345,7 +345,7 @@ test "prover vcs_lifted: batched leaf building matches original for uniform colu
 test "prover vcs_lifted: batched leaf building matches original for mixed log sizes" {
     // Verifies bit-identical output when columns have different log_sizes,
     // which exercises the lifting index mapping.
-    const Hasher = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
     const Prover = MerkleProverLifted(Hasher);
     const alloc = std.testing.allocator;
 
@@ -402,9 +402,9 @@ test "prover vcs_lifted: batched leaf building matches original for mixed log si
 test "prover vcs_lifted: batched commit produces same root and decommitment" {
     // End-to-end test: full commit + decommit with the batched path
     // must produce the same root and decommitment as the original.
-    const Hasher = @import("../../../core/vcs_lifted/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
     const Prover = MerkleProverLifted(Hasher);
-    const Verifier = @import("../../../core/vcs_lifted/verifier.zig").MerkleVerifierLifted(Hasher);
+    const Verifier = @import("stwo_core").vcs_lifted.verifier.MerkleVerifierLifted(Hasher);
     const alloc = std.testing.allocator;
 
     const columns = [_][]const M31{

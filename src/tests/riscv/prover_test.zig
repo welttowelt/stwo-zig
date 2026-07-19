@@ -6,8 +6,8 @@ const prover = @import("../../frontends/riscv/prover.zig");
 const runner_mod = @import("../../frontends/riscv/runner/mod.zig");
 const memory_state = @import("../../frontends/riscv/runner/memory_state.zig");
 const trace_mod = @import("../../frontends/riscv/runner/trace.zig");
-const pcs_core = @import("../../core/pcs/mod.zig");
-const qm31 = @import("../../core/fields/qm31.zig");
+const pcs_core = @import("stwo_core").pcs;
+const qm31 = @import("stwo_core").fields.qm31;
 
 const CpuProverEngine = riscv_cpu.CpuProverEngine;
 const Channel = CpuProverEngine.Channel;

@@ -3,6 +3,7 @@ const build_monorepo_baseline = @import("build_support/gates/baseline.zig");
 const metal_backend = @import("build_support/backends/metal.zig");
 const metal_core_aot = @import("build_support/metal_core_aot.zig");
 const metal_products = @import("build_support/metal_products.zig");
+const library_products = @import("build_support/products/libraries.zig");
 const prove_cli = @import("build_support/prove_cli.zig");
 const product_matrix = @import("build_support/products/matrix.zig");
 const native_cpu_product = @import("build_support/products/native_cpu.zig");
@@ -14,11 +15,7 @@ pub fn build(b: *std.Build) void {
     build_monorepo_baseline.addGate(b);
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    const aggregate_metal = b.option(
-        bool,
-        "aggregate-metal",
-        "Explicitly link Metal into aggregate test roots",
-    ) orelse false;
+    const aggregate_metal = b.option(bool, "aggregate-metal", "Explicitly link Metal into aggregate test roots") orelse false;
     const optimize_arg = b.fmt("-Doptimize={s}", .{@tagName(optimize)});
     const zig_optimize_arg = b.fmt("-O{s}", .{@tagName(optimize)});
     const riscv_release_phase = b.option([]const u8, "riscv-release-phase", "CP-13 phase: candidate or promoted") orelse "candidate";
@@ -29,13 +26,14 @@ pub fn build(b: *std.Build) void {
         "zig-out/release-evidence/native/interop-history",
     };
 
-    // Library module (importable by downstream packages).
-    const stwo_module = b.addModule("stwo", .{
-        .root_source_file = b.path("src/stwo.zig"),
+    const libraries = library_products.addProducts(.{
+        .b = b,
         .target = target,
         .optimize = optimize,
     });
-    const interop_cli_module = b.createModule(.{
+    const stwo_module = libraries.stwo;
+    const protocol = libraries.protocol;
+    const interop_cli_module = library_products.consumer(b, protocol, .{
         .root_source_file = b.path("src/tools/interop/main.zig"),
         .target = target,
         .optimize = optimize,
@@ -50,7 +48,7 @@ pub fn build(b: *std.Build) void {
     const interop_cli_build_step = b.step("interop-cli", "Build the proof interoperability CLI");
     interop_cli_build_step.dependOn(&install_interop_cli.step);
 
-    const native_proof_runner_module = b.createModule(.{
+    const native_proof_runner_module = library_products.consumer(b, protocol, .{
         .root_source_file = b.path("src/prover/native/runner.zig"),
         .target = target,
         .optimize = optimize,
@@ -58,7 +56,7 @@ pub fn build(b: *std.Build) void {
     native_proof_runner_module.addImport("stwo", stwo_module);
 
     // Unit tests.
-    const test_module = b.createModule(.{
+    const test_module = library_products.consumer(b, protocol, .{
         .root_source_file = b.path("src/stwo.zig"),
         .target = target,
         .optimize = optimize,
@@ -77,7 +75,7 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_tests.step);
 
-    const shader_manifest_module = b.createModule(.{
+    const shader_manifest_module = library_products.consumer(b, protocol, .{
         .root_source_file = b.path("src/backends/metal/shader_manifest.zig"),
         .target = target,
         .optimize = optimize,
@@ -90,7 +88,7 @@ pub fn build(b: *std.Build) void {
         .test_step = test_step,
     });
 
-    const native_proof_runner_test_module = b.createModule(.{
+    const native_proof_runner_test_module = library_products.consumer(b, protocol, .{
         .root_source_file = b.path("src/prover/native/runner.zig"),
         .target = target,
         .optimize = optimize,
@@ -100,7 +98,7 @@ pub fn build(b: *std.Build) void {
     const run_native_proof_runner_tests = b.addRunArtifact(native_proof_runner_tests);
     test_step.dependOn(&run_native_proof_runner_tests.step);
 
-    const pcs_test_module = b.createModule(.{
+    const pcs_test_module = library_products.consumer(b, protocol, .{
         .root_source_file = b.path("src/stwo_deep.zig"),
         .target = target,
         .optimize = optimize,
@@ -112,7 +110,7 @@ pub fn build(b: *std.Build) void {
     const run_pcs_tests = b.addRunArtifact(pcs_tests);
     test_step.dependOn(&run_pcs_tests.step);
 
-    const cross_module_test_module = b.createModule(.{
+    const cross_module_test_module = library_products.consumer(b, protocol, .{
         .root_source_file = b.path("src/tests.zig"),
         .target = target,
         .optimize = optimize,
@@ -136,7 +134,7 @@ pub fn build(b: *std.Build) void {
         "schedule_coverage.zig",
         "transcript_fixture.zig",
     }) |filename| {
-        const arena_schedule_test_module = b.createModule(.{
+        const arena_schedule_test_module = library_products.consumer(b, protocol, .{
             .root_source_file = b.path(b.fmt("src/tools/metal_arena_plan/{s}", .{filename})),
             .target = target,
             .optimize = optimize,
@@ -147,7 +145,7 @@ pub fn build(b: *std.Build) void {
         test_step.dependOn(&run_arena_schedule_tests.step);
     }
 
-    const metal_session_protocol_test_module = b.createModule(.{
+    const metal_session_protocol_test_module = library_products.consumer(b, protocol, .{
         .root_source_file = b.path("src/tools/metal_session/protocol.zig"),
         .target = target,
         .optimize = optimize,
@@ -156,7 +154,7 @@ pub fn build(b: *std.Build) void {
     const run_metal_session_protocol_tests = b.addRunArtifact(metal_session_protocol_tests);
     test_step.dependOn(&run_metal_session_protocol_tests.step);
 
-    const cairo_input_module = b.createModule(.{
+    const cairo_input_module = library_products.consumer(b, protocol, .{
         .root_source_file = b.path("src/tools/cairo/input_inspector.zig"),
         .target = target,
         .optimize = optimize,
@@ -171,7 +169,7 @@ pub fn build(b: *std.Build) void {
     cairo_input_step.dependOn(&install_cairo_input_cli.step);
 
     // Canonical Stark-V opcode policy dump and mechanical coverage check.
-    const riscv_opcode_manifest_module = b.createModule(.{
+    const riscv_opcode_manifest_module = library_products.consumer(b, protocol, .{
         .root_source_file = b.path("src/tools/riscv_opcode_manifest/main.zig"),
         .target = target,
         .optimize = optimize,
@@ -195,7 +193,7 @@ pub fn build(b: *std.Build) void {
         "Validate exact Stark-V opcode IDs and execution-only classifications",
     );
     riscv_opcode_manifest_check_step.dependOn(&check_riscv_opcode_manifest.step);
-    const riscv_opcode_manifest_test_module = b.createModule(.{
+    const riscv_opcode_manifest_test_module = library_products.consumer(b, protocol, .{
         .root_source_file = b.path("src/tools/riscv_opcode_manifest/main.zig"),
         .target = target,
         .optimize = optimize,
@@ -205,7 +203,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&b.addRunArtifact(riscv_opcode_manifest_tests).step);
 
     // RISC-V runner tests use the src-wide test root for nested source access.
-    const riscv_test_module = b.createModule(.{
+    const riscv_test_module = library_products.consumer(b, protocol, .{
         .root_source_file = b.path("src/tests.zig"),
         .target = target,
         .optimize = optimize,
@@ -222,7 +220,7 @@ pub fn build(b: *std.Build) void {
     riscv_test_step.dependOn(&run_riscv_tests.step);
 
     // RISC-V prover tests (prove + verify roundtrips).
-    const riscv_prover_test_module = b.createModule(.{
+    const riscv_prover_test_module = library_products.consumer(b, protocol, .{
         .root_source_file = b.path("src/riscv_prover_test.zig"),
         .target = target,
         .optimize = optimize,
@@ -235,7 +233,7 @@ pub fn build(b: *std.Build) void {
     riscv_prover_test_step.dependOn(&run_riscv_prover_tests.step);
 
     // RISC-V benchmark CLI (execute, prove, verify, hosted mode)
-    const riscv_bench_module = b.createModule(.{
+    const riscv_bench_module = library_products.consumer(b, protocol, .{
         .root_source_file = b.path("src/riscv_bench_cli.zig"),
         .target = target,
         .optimize = optimize,
@@ -249,7 +247,7 @@ pub fn build(b: *std.Build) void {
     const riscv_bench_step = b.step("riscv-bench", "Build RISC-V benchmark CLI");
     riscv_bench_step.dependOn(&install_riscv_bench.step);
 
-    const native_proof_cpu_module = b.createModule(.{
+    const native_proof_cpu_module = library_products.consumer(b, protocol, .{
         .root_source_file = b.path("src/tools/native_proof_bench/cpu.zig"),
         .target = target,
         .optimize = optimize,
@@ -281,18 +279,21 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
         .identity = implementation_identity,
+        .protocol = protocol,
     });
     native_metal_product.addProduct(.{
         .b = b,
         .target = target,
         .optimize = optimize,
         .identity = implementation_identity,
+        .protocol = protocol,
     });
     riscv_cpu_product.addProduct(.{
         .b = b,
         .target = target,
         .optimize = optimize,
         .identity = implementation_identity,
+        .protocol = protocol,
     });
 
     // Compatibility Metal tools remain named, but target support is checked by
@@ -302,6 +303,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
         .stwo_module = stwo_module,
+        .protocol = protocol,
         .test_step = if (aggregate_metal) test_step else null,
     });
     product_matrix.addDeferredProducts(b, target);
@@ -377,7 +379,12 @@ pub fn build(b: *std.Build) void {
     rg_riscv_vectors.step.dependOn(&rg_riscv_prover.step);
     const rg_api_parity = b.addSystemCommand(&.{ "python3", "scripts/check_api_parity.py" });
     rg_api_parity.step.dependOn(&rg_riscv_vectors.step);
-    const rg_deep = b.addSystemCommand(&.{ "zig", "test", "src/stwo_deep.zig", zig_optimize_arg });
+    const rg_deep = b.addSystemCommand(&.{
+        "python3",
+        "scripts/zig_protocol_test.py",
+        "src/stwo_deep.zig",
+        zig_optimize_arg,
+    });
     rg_deep.step.dependOn(&rg_api_parity.step);
     const rg_vectors_fields = b.addSystemCommand(&.{ "python3", "scripts/parity_fields.py", "--skip-zig" });
     rg_vectors_fields.step.dependOn(&rg_deep.step);
@@ -426,7 +433,12 @@ pub fn build(b: *std.Build) void {
     rgs_riscv_vectors.step.dependOn(&rgs_riscv_prover.step);
     const rgs_api_parity = b.addSystemCommand(&.{ "python3", "scripts/check_api_parity.py" });
     rgs_api_parity.step.dependOn(&rgs_riscv_vectors.step);
-    const rgs_deep = b.addSystemCommand(&.{ "zig", "test", "src/stwo_deep.zig", zig_optimize_arg });
+    const rgs_deep = b.addSystemCommand(&.{
+        "python3",
+        "scripts/zig_protocol_test.py",
+        "src/stwo_deep.zig",
+        zig_optimize_arg,
+    });
     rgs_deep.step.dependOn(&rgs_api_parity.step);
     const rgs_vectors_fields = b.addSystemCommand(&.{ "python3", "scripts/parity_fields.py", "--skip-zig" });
     rgs_vectors_fields.step.dependOn(&rgs_deep.step);

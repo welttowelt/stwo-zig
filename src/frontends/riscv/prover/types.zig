@@ -1,10 +1,10 @@
 //! Shared protocol types for RISC-V proving and verification.
 
 const std = @import("std");
-const channel_blake2s = @import("../../../core/channel/blake2s.zig");
-const core_proof = @import("../../../core/proof.zig");
-const blake2_merkle = @import("../../../core/vcs_lifted/blake2_merkle.zig");
-const prover_engine = @import("../../../prover/engine.zig");
+const channel_blake2s = @import("stwo_core").channel.blake2s;
+const core_proof = @import("stwo_core").proof;
+const blake2_merkle = @import("stwo_core").vcs_lifted.blake2_merkle;
+const prover_engine = @import("stwo_prover_impl").engine;
 const public_data_mod = @import("../air/public_data.zig");
 const statement_mod = @import("../air/statement.zig");
 const relation_diagnostic = @import("relation_diagnostic.zig");

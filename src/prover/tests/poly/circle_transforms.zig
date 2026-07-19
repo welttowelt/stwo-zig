@@ -1,9 +1,9 @@
 const std = @import("std");
-const m31 = @import("../../../core/fields/m31.zig");
-const canonic = @import("../../../core/poly/circle/canonic.zig");
-const eval_mod = @import("../../poly/circle/evaluation.zig");
-const circle_poly = @import("../../poly/circle/poly.zig");
-const twiddles_mod = @import("../../poly/twiddles.zig");
+const m31 = @import("stwo_core").fields.m31;
+const canonic = @import("stwo_core").poly.circle.canonic;
+const eval_mod = @import("stwo_prover_impl").poly.circle.evaluation;
+const circle_poly = @import("stwo_prover_impl").poly.circle.poly;
+const twiddles_mod = @import("stwo_prover_impl").poly.twiddles;
 
 const M31 = m31.M31;
 const CircleCoefficients = circle_poly.CircleCoefficients;

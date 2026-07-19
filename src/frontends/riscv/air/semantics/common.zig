@@ -5,8 +5,8 @@
 //! same formulas usable in both paths without an expression-tree adapter.
 
 const std = @import("std");
-const M31 = @import("../../../../core/fields/m31.zig").M31;
-const QM31 = @import("../../../../core/fields/qm31.zig").QM31;
+const M31 = @import("stwo_core").fields.m31.M31;
+const QM31 = @import("stwo_core").fields.qm31.QM31;
 
 pub const BYTE_RADIX = q(1 << 8);
 pub const WORD_RADIX = q(@as(u64, 1) << 32);

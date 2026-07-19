@@ -1,7 +1,7 @@
 //! Shared cost model for Metal-backed lifted Merkle commitments.
 
 const std = @import("std");
-const qm31 = @import("../../core/fields/qm31.zig");
+const qm31 = @import("stwo_core").fields.qm31;
 
 /// Commitments below this aggregate M31 cell count use the CPU implementation.
 pub const merkle_cell_threshold: usize = 1 << 24;

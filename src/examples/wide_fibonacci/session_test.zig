@@ -1,8 +1,8 @@
 //! Transaction-level tests for reusable wide Fibonacci prover sessions.
 
 const std = @import("std");
-const fri = @import("../../core/fri.zig");
-const pcs = @import("../../core/pcs/mod.zig");
+const fri = @import("stwo_core").fri;
+const pcs = @import("stwo_core").pcs;
 const proof_wire = @import("../../interop/proof_wire.zig");
 const subject = @import("../wide_fibonacci.zig");
 

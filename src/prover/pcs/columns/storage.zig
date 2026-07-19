@@ -1,7 +1,7 @@
 //! PCS column and coefficient ownership policy.
 
 const std = @import("std");
-const m31 = @import("../../../core/fields/m31.zig");
+const m31 = @import("stwo_core").fields.m31;
 const prover_circle = @import("../../poly/circle/mod.zig");
 const commitment_tree = @import("../commitment_tree.zig");
 

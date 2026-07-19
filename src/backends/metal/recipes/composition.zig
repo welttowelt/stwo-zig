@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const M31 = @import("../../../core/fields/m31.zig").M31;
+const M31 = @import("stwo_core").fields.m31.M31;
 const arena_plan = @import("../arena_plan.zig");
 const recovery = @import("../recovery.zig");
 const runtime = @import("../runtime.zig");

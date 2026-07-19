@@ -5,8 +5,8 @@
 //! RV32IM sparse trees use narrow mode (`wide = io = 0`).
 
 const std = @import("std");
-const M31 = @import("../../../../core/fields/m31.zig").M31;
-const QM31 = @import("../../../../core/fields/qm31.zig").QM31;
+const M31 = @import("stwo_core").fields.m31.M31;
+const QM31 = @import("stwo_core").fields.qm31.QM31;
 const infra = @import("../../infra_trace.zig");
 const lookup_entry = @import("../lookups/entry.zig");
 const logup = @import("../logup.zig");
@@ -619,8 +619,8 @@ test "poseidon2 AIR: arbitrary canonical narrow pairs satisfy every constraint" 
     var prng = std.Random.DefaultPrng.init(0x506f736569646f6e);
     const random = prng.random();
     for (0..64) |_| {
-        const lhs = random.int(u32) % @import("../../../../core/fields/m31.zig").Modulus;
-        const rhs = random.int(u32) % @import("../../../../core/fields/m31.zig").Modulus;
+        const lhs = random.int(u32) % @import("stwo_core").fields.m31.Modulus;
+        const rhs = random.int(u32) % @import("stwo_core").fields.m31.Modulus;
         try expectAllZero(&evaluate(secureRow(fill(Call.narrow(lhs, rhs)))));
     }
 }

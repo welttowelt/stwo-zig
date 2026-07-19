@@ -1,5 +1,5 @@
 const std = @import("std");
-const m31 = @import("../m31.zig");
+const m31 = @import("stwo_core").fields.m31;
 
 const M31 = m31.M31;
 const Modulus = m31.Modulus;
@@ -501,7 +501,7 @@ test "m31: packed all ops match scalar for many random rounds" {
 }
 
 test "m31: packed butterfly matches scalar fft.butterfly" {
-    const fft_mod = @import("../../fft.zig");
+    const fft_mod = @import("stwo_core").fft;
     var lhs: [PACK_WIDTH]M31 = undefined;
     var rhs: [PACK_WIDTH]M31 = undefined;
     var lhs_scalar: [PACK_WIDTH]M31 = undefined;
@@ -529,7 +529,7 @@ test "m31: packed butterfly matches scalar fft.butterfly" {
 }
 
 test "m31: packed ibutterfly matches scalar fft.ibutterfly" {
-    const fft_mod = @import("../../fft.zig");
+    const fft_mod = @import("stwo_core").fft;
     var lhs: [PACK_WIDTH]M31 = undefined;
     var rhs: [PACK_WIDTH]M31 = undefined;
     var lhs_scalar: [PACK_WIDTH]M31 = undefined;

@@ -1,8 +1,8 @@
 const std = @import("std");
-const m31 = @import("../../core/fields/m31.zig");
-const vcs_merkle_hasher = @import("../../core/vcs/merkle_hasher.zig");
-const vcs_utils = @import("../../core/vcs/utils.zig");
-const vcs_verifier = @import("../../core/vcs/verifier.zig");
+const m31 = @import("stwo_core").fields.m31;
+const vcs_merkle_hasher = @import("stwo_core").vcs.merkle_hasher;
+const vcs_utils = @import("stwo_core").vcs.utils;
+const vcs_verifier = @import("stwo_core").vcs.verifier;
 
 const M31 = m31.M31;
 
@@ -284,9 +284,9 @@ pub fn MerkleProver(comptime H: type) type {
 }
 
 test "prover vcs: decommit and verify roundtrip" {
-    const Hasher = @import("../../core/vcs/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Hasher = @import("stwo_core").vcs.blake2_merkle.Blake2sMerkleHasher;
     const Prover = MerkleProver(Hasher);
-    const Verifier = @import("../../core/vcs/verifier.zig").MerkleVerifier(Hasher);
+    const Verifier = @import("stwo_core").vcs.verifier.MerkleVerifier(Hasher);
     const alloc = std.testing.allocator;
 
     const columns = [_][]const M31{
@@ -340,9 +340,9 @@ test "prover vcs: decommit and verify roundtrip" {
 }
 
 test "prover vcs: invalid witness fails verification" {
-    const Hasher = @import("../../core/vcs/blake2_merkle.zig").Blake2sMerkleHasher;
+    const Hasher = @import("stwo_core").vcs.blake2_merkle.Blake2sMerkleHasher;
     const Prover = MerkleProver(Hasher);
-    const Verifier = @import("../../core/vcs/verifier.zig").MerkleVerifier(Hasher);
+    const Verifier = @import("stwo_core").vcs.verifier.MerkleVerifier(Hasher);
     const alloc = std.testing.allocator;
 
     const columns = [_][]const M31{

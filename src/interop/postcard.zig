@@ -10,12 +10,12 @@
 //! language boundaries.
 
 const std = @import("std");
-const fri = @import("../core/fri.zig");
-const m31_mod = @import("../core/fields/m31.zig");
-const qm31_mod = @import("../core/fields/qm31.zig");
-const pcs = @import("../core/pcs/mod.zig");
-const proof_mod = @import("../core/proof.zig");
-const vcs_verifier = @import("../core/vcs_lifted/verifier.zig");
+const fri = @import("stwo_core").fri;
+const m31_mod = @import("stwo_core").fields.m31;
+const qm31_mod = @import("stwo_core").fields.qm31;
+const pcs = @import("stwo_core").pcs;
+const proof_mod = @import("stwo_core").proof;
+const vcs_verifier = @import("stwo_core").vcs_lifted.verifier;
 const proof_wire = @import("proof_wire.zig");
 
 pub const proof_preflight = @import("postcard/proof_preflight.zig");
@@ -218,7 +218,7 @@ pub fn deserializeProof(
     allocator: std.mem.Allocator,
     reader: anytype,
 ) !proof_mod.StarkProof(H) {
-    const line = @import("../core/poly/line.zig");
+    const line = @import("stwo_core").poly.line;
 
     // -- PcsConfig --
     const pow_bits = try readU32(reader);

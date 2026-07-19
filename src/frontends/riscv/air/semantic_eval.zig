@@ -5,7 +5,7 @@
 //! exact component-placement equality used identically on-domain and OODS.
 
 const std = @import("std");
-const QM31 = @import("../../../core/fields/qm31.zig").QM31;
+const QM31 = @import("stwo_core").fields.qm31.QM31;
 const semantics = @import("semantics/mod.zig");
 const trace = @import("../runner/trace.zig");
 

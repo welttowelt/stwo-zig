@@ -1,11 +1,11 @@
 const std = @import("std");
-const circle = @import("../../../core/circle.zig");
-const m31 = @import("../../../core/fields/m31.zig");
-const qm31 = @import("../../../core/fields/qm31.zig");
-const canonic = @import("../../../core/poly/circle/canonic.zig");
-const domain_mod = @import("../../../core/poly/circle/domain.zig");
-const line_mod = @import("../../../core/poly/line.zig");
-const poly_utils = @import("../../../core/poly/utils.zig");
+const circle = @import("stwo_core").circle;
+const m31 = @import("stwo_core").fields.m31;
+const qm31 = @import("stwo_core").fields.qm31;
+const canonic = @import("stwo_core").poly.circle.canonic;
+const domain_mod = @import("stwo_core").poly.circle.domain;
+const line_mod = @import("stwo_core").poly.line;
+const poly_utils = @import("stwo_core").poly.utils;
 const eval_mod = @import("evaluation.zig");
 const point_evaluation = @import("point_evaluation.zig");
 const transforms = @import("transforms.zig");
@@ -582,7 +582,7 @@ test "prover poly circle poly: evaluate on domain returns base values" {
         M31.fromCanonical(0),
     };
     const poly = try CircleCoefficients.initBorrowed(coeffs[0..]);
-    const domain = @import("../../../core/poly/circle/canonic.zig").CanonicCoset.new(3).circleDomain();
+    const domain = @import("stwo_core").poly.circle.canonic.CanonicCoset.new(3).circleDomain();
 
     const evaluation = try poly.evaluate(alloc, domain);
     defer alloc.free(@constCast(evaluation.values));
@@ -605,7 +605,7 @@ test "prover poly circle poly: interpolation roundtrip" {
     }
 
     const poly = try CircleCoefficients.initBorrowed(coeffs);
-    const domain = @import("../../../core/poly/circle/canonic.zig").CanonicCoset.new(log_size).circleDomain();
+    const domain = @import("stwo_core").poly.circle.canonic.CanonicCoset.new(log_size).circleDomain();
     const evaluation = try poly.evaluate(alloc, domain);
     defer alloc.free(@constCast(evaluation.values));
 
@@ -628,7 +628,7 @@ test "prover poly circle poly: evaluate with twiddles matches evaluate" {
     }
 
     const poly = try CircleCoefficients.initBorrowed(coeffs);
-    const domain = @import("../../../core/poly/circle/canonic.zig").CanonicCoset.new(domain_log_size).circleDomain();
+    const domain = @import("stwo_core").poly.circle.canonic.CanonicCoset.new(domain_log_size).circleDomain();
 
     const eval_direct = try poly.evaluate(alloc, domain);
     defer alloc.free(@constCast(eval_direct.values));
@@ -661,7 +661,7 @@ test "prover poly circle poly: interpolate with twiddles matches interpolate" {
         value.* = M31.fromCanonical(canonical);
     }
 
-    const domain = @import("../../../core/poly/circle/canonic.zig").CanonicCoset.new(log_size).circleDomain();
+    const domain = @import("stwo_core").poly.circle.canonic.CanonicCoset.new(log_size).circleDomain();
     const evaluation = try eval_mod.CircleEvaluation.init(domain, values);
 
     var interpolated_direct = try interpolateFromEvaluation(alloc, evaluation);

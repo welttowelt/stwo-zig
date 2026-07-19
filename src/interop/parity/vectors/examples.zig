@@ -5,8 +5,8 @@ const example_plonk_mod = @import("../../../examples/plonk.zig");
 const example_state_machine_mod = @import("../../../examples/state_machine.zig");
 const example_wide_fibonacci_mod = @import("../../../examples/wide_fibonacci.zig");
 const example_xor_mod = @import("../../../examples/xor.zig");
-const m31_mod = @import("../../../core/fields/m31.zig");
-const qm31_mod = @import("../../../core/fields/qm31.zig");
+const m31_mod = @import("stwo_core").fields.m31;
+const qm31_mod = @import("stwo_core").fields.qm31;
 const fixtures = @import("fixtures.zig");
 
 const M31 = m31_mod.M31;
@@ -151,7 +151,7 @@ test "field vectors: examples state machine claimed-sum parity" {
 
 test "field vectors: examples state machine lookup draw parity" {
     const alloc = std.testing.allocator;
-    const Channel = @import("../../../core/channel/blake2s.zig").Blake2sChannel;
+    const Channel = @import("stwo_core").channel.blake2s.Blake2sChannel;
 
     var parsed = try parseVectors(alloc);
     defer parsed.deinit();

@@ -51,6 +51,24 @@ zig build test -Doptimize=ReleaseFast
 zig build metal-test -Doptimize=ReleaseFast  # macOS with Metal
 ```
 
+Library consumers can select the smallest public module they need:
+
+| Import | Contract |
+| :--- | :--- |
+| `stwo_core` | Fields, circle domains, transcript, proof types, and verification |
+| `stwo_prover` | `core`, backend contracts, and the backend-generic prover |
+| `stwo` | Aggregate compatibility SDK |
+
+```zig
+const stwo_zig = b.dependency("stwo_zig", .{ .target = target, .optimize = optimize });
+root.addImport("stwo_core", stwo_zig.module("stwo_core"));
+root.addImport("stwo_prover", stwo_zig.module("stwo_prover"));
+```
+
+`zig build stwo-core` and `zig build stwo-prover` compile the focused library
+surfaces without installing unrelated executables. Their corresponding
+`test-stwo-*` steps include transitive purity and external-consumer gates.
+
 ## Prove
 
 Build the installed proof command, produce one verified Native proof, then run the local verifier

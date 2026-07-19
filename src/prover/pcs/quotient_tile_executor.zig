@@ -1,17 +1,17 @@
 //! Bounded CPU execution for direct contribution-to-quotient row tiles.
 
 const std = @import("std");
-const circle = @import("../../core/circle.zig");
-const cm31 = @import("../../core/fields/cm31.zig");
-const m31 = @import("../../core/fields/m31.zig");
-const qm31 = @import("../../core/fields/qm31.zig");
-const quotients = @import("../../core/pcs/quotients.zig");
-const core_utils = @import("../../core/utils.zig");
+const circle = @import("stwo_core").circle;
+const cm31 = @import("stwo_core").fields.cm31;
+const m31 = @import("stwo_core").fields.m31;
+const qm31 = @import("stwo_core").fields.qm31;
+const quotients = @import("stwo_core").pcs.quotients;
+const core_utils = @import("stwo_core").utils;
 const row_executor = @import("quotient_row_executor.zig");
 const tile_sink = @import("quotient_tile_sink.zig");
 const work_pool_mod = @import("../work_pool.zig");
 
-const CircleDomain = @import("../../core/poly/circle/domain.zig").CircleDomain;
+const CircleDomain = @import("stwo_core").poly.circle.domain.CircleDomain;
 const CirclePointM31 = circle.CirclePointM31;
 const CM31 = cm31.CM31;
 const M31 = m31.M31;

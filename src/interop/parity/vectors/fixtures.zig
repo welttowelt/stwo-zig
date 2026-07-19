@@ -1,31 +1,31 @@
 //! Rust-oracle vector schemas and decoding helpers.
 
 const std = @import("std");
-const circle_mod = @import("../../../core/circle.zig");
-const constraints_mod = @import("../../../core/constraints.zig");
-const fft_mod = @import("../../../core/fft.zig");
-const fri_mod = @import("../../../core/fri.zig");
-const pcs_mod = @import("../../../core/pcs/mod.zig");
-const pcs_utils_mod = @import("../../../core/pcs/utils.zig");
-const proof_mod = @import("../../../core/proof.zig");
-const quotients_mod = @import("../../../core/pcs/quotients.zig");
-const canonic_mod = @import("../../../core/poly/circle/canonic.zig");
-const line_mod = @import("../../../core/poly/line.zig");
-const utils_mod = @import("../../../core/utils.zig");
-const vcs_verifier_mod = @import("../../../core/vcs/verifier.zig");
-const vcs_blake3 = @import("../../../core/vcs/blake3_hash.zig");
-const prover_fri_mod = @import("../../../prover/fri.zig");
-const prover_secure_column_mod = @import("../../../prover/secure_column.zig");
-const vcs_prover_mod = @import("../../../prover/vcs/prover.zig");
-const vcs_lifted_prover_mod = @import("../../../prover/vcs_lifted/prover.zig");
-const prover_line_mod = @import("../../../prover/line.zig");
+const circle_mod = @import("stwo_core").circle;
+const constraints_mod = @import("stwo_core").constraints;
+const fft_mod = @import("stwo_core").fft;
+const fri_mod = @import("stwo_core").fri;
+const pcs_mod = @import("stwo_core").pcs;
+const pcs_utils_mod = @import("stwo_core").pcs.utils;
+const proof_mod = @import("stwo_core").proof;
+const quotients_mod = @import("stwo_core").pcs.quotients;
+const canonic_mod = @import("stwo_core").poly.circle.canonic;
+const line_mod = @import("stwo_core").poly.line;
+const utils_mod = @import("stwo_core").utils;
+const vcs_verifier_mod = @import("stwo_core").vcs.verifier;
+const vcs_blake3 = @import("stwo_core").vcs.blake3_hash;
+const prover_fri_mod = @import("stwo_prover_impl").fri;
+const prover_secure_column_mod = @import("stwo_prover_impl").secure_column;
+const vcs_prover_mod = @import("stwo_prover_impl").vcs.prover;
+const vcs_lifted_prover_mod = @import("stwo_prover_impl").vcs_lifted.prover;
+const prover_line_mod = @import("stwo_prover_impl").line;
 const example_plonk_mod = @import("../../../examples/plonk.zig");
 const example_state_machine_mod = @import("../../../examples/state_machine.zig");
 const example_wide_fibonacci_mod = @import("../../../examples/wide_fibonacci.zig");
 const example_xor_mod = @import("../../../examples/xor.zig");
-const cm31_mod = @import("../../../core/fields/cm31.zig");
-const m31_mod = @import("../../../core/fields/m31.zig");
-const qm31_mod = @import("../../../core/fields/qm31.zig");
+const cm31_mod = @import("stwo_core").fields.cm31;
+const m31_mod = @import("stwo_core").fields.m31;
+const qm31_mod = @import("stwo_core").fields.qm31;
 
 pub const CirclePointM31 = circle_mod.CirclePointM31;
 pub const CirclePointQM31 = circle_mod.CirclePointQM31;
@@ -640,8 +640,8 @@ pub fn expectedFriDecommitError(name: []const u8) prover_fri_mod.FriDecommitErro
     unreachable;
 }
 
-pub fn expectedVcsLiftedError(name: []const u8) @import("../../../core/vcs_lifted/verifier.zig").MerkleVerificationError {
-    const lifted_verifier = @import("../../../core/vcs_lifted/verifier.zig");
+pub fn expectedVcsLiftedError(name: []const u8) @import("stwo_core").vcs_lifted.verifier.MerkleVerificationError {
+    const lifted_verifier = @import("stwo_core").vcs_lifted.verifier;
     if (std.mem.eql(u8, name, "WitnessTooShort")) return lifted_verifier.MerkleVerificationError.WitnessTooShort;
     if (std.mem.eql(u8, name, "WitnessTooLong")) return lifted_verifier.MerkleVerificationError.WitnessTooLong;
     if (std.mem.eql(u8, name, "RootMismatch")) return lifted_verifier.MerkleVerificationError.RootMismatch;

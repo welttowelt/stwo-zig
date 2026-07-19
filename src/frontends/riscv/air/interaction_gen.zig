@@ -17,8 +17,8 @@
 //! are NOT committed.
 
 const std = @import("std");
-const m31 = @import("../../../core/fields/m31.zig");
-const qm31 = @import("../../../core/fields/qm31.zig");
+const m31 = @import("stwo_core").fields.m31;
+const qm31 = @import("stwo_core").fields.qm31;
 const infra = @import("../infra_trace.zig");
 const logup = @import("logup.zig");
 const opcode_memory = @import("opcode_memory.zig");

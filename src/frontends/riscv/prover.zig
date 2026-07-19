@@ -1,8 +1,8 @@
 //! Stable public facade for RISC-V STARK proving and verification.
 
 const std = @import("std");
-const pcs_core = @import("../../core/pcs/mod.zig");
-const stage_profile = @import("../../prover/stage_profile.zig");
+const pcs_core = @import("stwo_core").pcs;
+const stage_profile = @import("stwo_prover_impl").stage_profile;
 const opcode_memory = @import("air/opcode_memory.zig");
 const trace_mod = @import("runner/trace.zig");
 const state_chain = @import("runner/state_chain.zig");

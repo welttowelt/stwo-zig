@@ -1,10 +1,10 @@
 //! XOR statement validation and owned trace preparation.
 
 const std = @import("std");
-const core_air_utils = @import("../../core/air/utils.zig");
-const m31 = @import("../../core/fields/m31.zig");
-const utils = @import("../../core/utils.zig");
-const prover_pcs = @import("../../prover/pcs/mod.zig");
+const core_air_utils = @import("stwo_core").air.utils;
+const m31 = @import("stwo_core").fields.m31;
+const utils = @import("stwo_core").utils;
+const prover_pcs = @import("stwo_prover_impl").pcs;
 const prover_transaction = @import("../common/prover_transaction.zig");
 
 const M31 = m31.M31;

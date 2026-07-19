@@ -4,7 +4,7 @@ const adapter = @import("../../frontends/cairo/adapter/mod.zig");
 const claim_registry = @import("../../frontends/cairo/claim_registry.zig");
 const memory_mod = @import("../../frontends/cairo/common/memory.zig");
 const composition_bundle = @import("../../frontends/cairo/witness/composition_bundle.zig");
-const M31 = @import("../../core/fields/m31.zig").M31;
+const M31 = @import("stwo_core").fields.m31.M31;
 
 const ORDINALS = statement_bootstrap.ORDINALS;
 const Error = statement_bootstrap.Error;

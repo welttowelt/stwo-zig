@@ -1,8 +1,8 @@
 //! Owned Blake trace preparation for backend-neutral proving.
 
 const std = @import("std");
-const m31 = @import("../../core/fields/m31.zig");
-const prover_pcs = @import("../../prover/pcs/mod.zig");
+const m31 = @import("stwo_core").fields.m31;
+const prover_pcs = @import("stwo_prover_impl").pcs;
 const prover_transaction = @import("../common/prover_transaction.zig");
 
 const M31 = m31.M31;

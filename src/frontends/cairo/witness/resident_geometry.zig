@@ -1,7 +1,7 @@
 //! Cairo AIR mask geometry and sampled-value shape derivation.
 
 const std = @import("std");
-const circle = @import("../../../core/circle.zig");
+const circle = @import("stwo_core").circle;
 const composition_bundle = @import("composition_bundle.zig");
 const types = @import("resident_types.zig");
 

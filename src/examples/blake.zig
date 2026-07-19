@@ -1,27 +1,27 @@
 const std = @import("std");
-const core_air_accumulation = @import("../core/air/accumulation.zig");
-const core_air_components = @import("../core/air/components.zig");
-const core_air_derive = @import("../core/air/derive.zig");
-const channel_blake2s = @import("../core/channel/blake2s.zig");
-const m31 = @import("../core/fields/m31.zig");
-const qm31 = @import("../core/fields/qm31.zig");
-const pcs_core = @import("../core/pcs/mod.zig");
-const pcs_verifier = @import("../core/pcs/verifier.zig");
-const core_proof = @import("../core/proof.zig");
-const core_verifier = @import("../core/verifier.zig");
-const blake2_merkle = @import("../core/vcs_lifted/blake2_merkle.zig");
-const prover_air_accumulation = @import("../prover/air/accumulation.zig");
-const prover_component = @import("../prover/air/component_prover.zig");
-const prover_engine = @import("../prover/engine.zig");
-const stage_profile = @import("../prover/stage_profile.zig");
-const secure_column = @import("../prover/secure_column.zig");
+const core_air_accumulation = @import("stwo_core").air.accumulation;
+const core_air_components = @import("stwo_core").air.components;
+const core_air_derive = @import("stwo_core").air.derive;
+const channel_blake2s = @import("stwo_core").channel.blake2s;
+const m31 = @import("stwo_core").fields.m31;
+const qm31 = @import("stwo_core").fields.qm31;
+const pcs_core = @import("stwo_core").pcs;
+const pcs_verifier = @import("stwo_core").pcs.verifier;
+const core_proof = @import("stwo_core").proof;
+const core_verifier = @import("stwo_core").verifier;
+const blake2_merkle = @import("stwo_core").vcs_lifted.blake2_merkle;
+const prover_air_accumulation = @import("stwo_prover_impl").air.accumulation;
+const prover_component = @import("stwo_prover_impl").air.component_prover;
+const prover_engine = @import("stwo_prover_impl").engine;
+const stage_profile = @import("stwo_prover_impl").stage_profile;
+const secure_column = @import("stwo_prover_impl").secure_column;
 const prover_transaction = @import("common/prover_transaction.zig");
 const trace_input = @import("blake/input.zig");
 const CpuBackend = @import("../backends/cpu_scalar/mod.zig").CpuBackend;
 
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
-const CirclePointQM31 = @import("../core/circle.zig").CirclePointQM31;
+const CirclePointQM31 = @import("stwo_core").circle.CirclePointQM31;
 
 pub const Hasher = blake2_merkle.Blake2sPrefixedMerkleHasher;
 pub const MerkleChannel = blake2_merkle.Blake2sPrefixedMerkleChannel;
@@ -579,7 +579,7 @@ fn mixStatement(channel: *Channel, statement: Statement) void {
 test "examples blake: prove/verify wrapper roundtrip" {
     const config = pcs_core.PcsConfig{
         .pow_bits = 0,
-        .fri_config = try @import("../core/fri.zig").FriConfig.init(0, 1, 3),
+        .fri_config = try @import("stwo_core").fri.FriConfig.init(0, 1, 3),
     };
     const statement: Statement = .{
         .log_n_rows = 5,
@@ -593,7 +593,7 @@ test "examples blake: prove/verify wrapper roundtrip" {
 test "examples blake: prove_ex wrapper roundtrip" {
     const config = pcs_core.PcsConfig{
         .pow_bits = 0,
-        .fri_config = try @import("../core/fri.zig").FriConfig.init(0, 1, 3),
+        .fri_config = try @import("stwo_core").fri.FriConfig.init(0, 1, 3),
     };
     const statement: Statement = .{
         .log_n_rows = 5,
@@ -609,7 +609,7 @@ test "examples blake: prove and prove_ex wrappers emit identical proof bytes" {
     const alloc = std.testing.allocator;
     const config = pcs_core.PcsConfig{
         .pow_bits = 0,
-        .fri_config = try @import("../core/fri.zig").FriConfig.init(0, 1, 3),
+        .fri_config = try @import("stwo_core").fri.FriConfig.init(0, 1, 3),
     };
     const statement: Statement = .{
         .log_n_rows = 5,
@@ -635,7 +635,7 @@ test "examples blake: prove and prove_ex wrappers emit identical proof bytes" {
 test "examples blake: verify wrapper rejects statement mismatch" {
     const config = pcs_core.PcsConfig{
         .pow_bits = 0,
-        .fri_config = try @import("../core/fri.zig").FriConfig.init(0, 1, 3),
+        .fri_config = try @import("stwo_core").fri.FriConfig.init(0, 1, 3),
     };
     const statement: Statement = .{
         .log_n_rows = 5,
@@ -649,7 +649,7 @@ test "examples blake: verify wrapper rejects statement mismatch" {
     if (verify(std.testing.allocator, config, bad_statement, output.proof)) |_| {
         try std.testing.expect(false);
     } else |err| {
-        const verification_error = @import("../core/verifier_types.zig").VerificationError;
+        const verification_error = @import("stwo_core").verifier_types.VerificationError;
         try std.testing.expect(
             err == verification_error.OodsNotMatching or
                 err == verification_error.InvalidStructure or

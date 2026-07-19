@@ -1,7 +1,7 @@
 const std = @import("std");
 const cpu = @import("../cpu_scalar/mod.zig").CpuBackend;
 const commit_policy = @import("commit_policy.zig");
-const merkle = @import("../../prover/vcs_lifted/prover.zig");
+const merkle = @import("stwo_prover_impl").vcs_lifted.prover;
 const metal_merkle = @import("merkle_tree.zig");
 const shared_runtime = @import("shared_runtime.zig");
 const telemetry = @import("telemetry.zig");
@@ -86,9 +86,9 @@ pub const MetalCommitBackend = struct {
         return metal_merkle.MetalMerkleTree(H);
     }
 
-    pub fn allocateSecureColumn(column_len: usize) !@import("../../prover/secure_column.zig").SecureColumnByCoords {
-        const M31 = @import("../../core/fields/m31.zig").M31;
-        const DEGREE = @import("../../core/fields/qm31.zig").SECURE_EXTENSION_DEGREE;
+    pub fn allocateSecureColumn(column_len: usize) !@import("stwo_prover_impl").secure_column.SecureColumnByCoords {
+        const M31 = @import("stwo_core").fields.m31.M31;
+        const DEGREE = @import("stwo_core").fields.qm31.SECURE_EXTENSION_DEGREE;
         var lease = try shared_runtime.acquire();
         defer lease.deinit();
         var buffer = try lease.runtime.allocateResidentBuffer(column_len * DEGREE * @sizeOf(M31));
@@ -100,7 +100,7 @@ pub const MetalCommitBackend = struct {
         }
         shared_runtime.retainResidentResource();
         errdefer shared_runtime.releaseResidentResource();
-        return @import("../../prover/secure_column.zig").SecureColumnByCoords.initResident(
+        return @import("stwo_prover_impl").secure_column.SecureColumnByCoords.initResident(
             columns,
             .{
                 .handle = buffer.handle,
@@ -110,9 +110,9 @@ pub const MetalCommitBackend = struct {
     }
 
     pub fn allocateLineEvaluation(
-        domain: @import("../../core/poly/line.zig").LineDomain,
-    ) !@import("../../prover/line.zig").LineEvaluation {
-        const QM31 = @import("../../core/fields/qm31.zig").QM31;
+        domain: @import("stwo_core").poly.line.LineDomain,
+    ) !@import("stwo_prover_impl").line.LineEvaluation {
+        const QM31 = @import("stwo_core").fields.qm31.QM31;
         var lease = try shared_runtime.acquire();
         defer lease.deinit();
         var buffer = try lease.runtime.allocateResidentBuffer(domain.size() * @sizeOf(QM31));
@@ -120,7 +120,7 @@ pub const MetalCommitBackend = struct {
         const values: [*]QM31 = @ptrCast(@alignCast(buffer.contents));
         shared_runtime.retainResidentResource();
         errdefer shared_runtime.releaseResidentResource();
-        return @import("../../prover/line.zig").LineEvaluation.initResident(
+        return @import("stwo_prover_impl").line.LineEvaluation.initResident(
             domain,
             values[0..domain.size()],
             .{
@@ -131,8 +131,8 @@ pub const MetalCommitBackend = struct {
     }
 
     pub fn secureColumnFromLine(
-        evaluation: @import("../../prover/line.zig").LineEvaluation,
-    ) !@import("../../prover/secure_column.zig").SecureColumnByCoords {
+        evaluation: @import("stwo_prover_impl").line.LineEvaluation,
+    ) !@import("stwo_prover_impl").secure_column.SecureColumnByCoords {
         var column = try allocateSecureColumn(evaluation.len());
         errdefer column.deinit(std.heap.page_allocator);
         const source = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(evaluation.values));
@@ -157,10 +157,10 @@ pub const MetalCommitBackend = struct {
     /// dispatch and allocate their coordinate planes from the proof allocator.
     pub fn secureColumnForMerkle(
         allocator: std.mem.Allocator,
-        evaluation: @import("../../prover/line.zig").LineEvaluation,
-    ) !@import("../../prover/secure_column.zig").SecureColumnByCoords {
+        evaluation: @import("stwo_prover_impl").line.LineEvaluation,
+    ) !@import("stwo_prover_impl").secure_column.SecureColumnByCoords {
         if (!commit_policy.secureColumnUsesResidentMerkle(evaluation.len())) {
-            return @import("../../prover/secure_column.zig").SecureColumnByCoords.fromSecureSlice(
+            return @import("stwo_prover_impl").secure_column.SecureColumnByCoords.fromSecureSlice(
                 allocator,
                 evaluation.values,
             );
@@ -171,7 +171,7 @@ pub const MetalCommitBackend = struct {
     pub fn commitMerkle(
         comptime H: type,
         allocator: std.mem.Allocator,
-        columns: []const []const @import("../../core/fields/m31.zig").M31,
+        columns: []const []const @import("stwo_core").fields.m31.M31,
     ) !MerkleTree(H) {
         var cells: usize = 0;
         for (columns) |column| cells = try std.math.add(usize, cells, column.len);
@@ -220,7 +220,7 @@ pub const MetalCommitBackend = struct {
     ) !MerkleTree(H) {
         if (!commit_policy.quotientUsesResidentMerkle(provider.lifting_log_size)) {
             try computeLazyQuotients(allocator, provider, out);
-            const columns = [_][]const @import("../../core/fields/m31.zig").M31{
+            const columns = [_][]const @import("stwo_core").fields.m31.M31{
                 out.columns[0],
                 out.columns[1],
                 out.columns[2],
@@ -265,12 +265,12 @@ pub const MetalCommitBackend = struct {
 
     pub fn interpolateCircleBuffers(
         allocator: std.mem.Allocator,
-        values: []const []@import("../../core/fields/m31.zig").M31,
-        domain: @import("../../core/poly/circle/domain.zig").CircleDomain,
-        twiddle_tree: @import("../../prover/poly/twiddles.zig").TwiddleTree([]const @import("../../core/fields/m31.zig").M31),
+        values: []const []@import("stwo_core").fields.m31.M31,
+        domain: @import("stwo_core").poly.circle.domain.CircleDomain,
+        twiddle_tree: @import("stwo_prover_impl").poly.twiddles.TwiddleTree([]const @import("stwo_core").fields.m31.M31),
     ) !void {
         if (domain.logSize() < 3) {
-            try @import("../../prover/poly/circle/poly.zig").interpolateBuffersWithTwiddles(values, domain, twiddle_tree);
+            try @import("stwo_prover_impl").poly.circle.poly.interpolateBuffersWithTwiddles(values, domain, twiddle_tree);
             telemetry.record(.cpu_small_circle_interpolation);
             return;
         }
@@ -288,12 +288,12 @@ pub const MetalCommitBackend = struct {
 
     pub fn evaluateCircleBuffers(
         allocator: std.mem.Allocator,
-        values: []const []@import("../../core/fields/m31.zig").M31,
-        domain: @import("../../core/poly/circle/domain.zig").CircleDomain,
-        twiddle_tree: @import("../../prover/poly/twiddles.zig").TwiddleTree([]const @import("../../core/fields/m31.zig").M31),
+        values: []const []@import("stwo_core").fields.m31.M31,
+        domain: @import("stwo_core").poly.circle.domain.CircleDomain,
+        twiddle_tree: @import("stwo_prover_impl").poly.twiddles.TwiddleTree([]const @import("stwo_core").fields.m31.M31),
     ) !void {
         if (domain.logSize() < 3) {
-            try @import("../../prover/poly/circle/poly.zig").evaluateBuffersWithTwiddles(values, domain, twiddle_tree);
+            try @import("stwo_prover_impl").poly.circle.poly.evaluateBuffersWithTwiddles(values, domain, twiddle_tree);
             telemetry.record(.cpu_small_circle_evaluation);
             return;
         }
@@ -311,26 +311,26 @@ pub const MetalCommitBackend = struct {
 
     pub fn interpolateAndEvaluateCircleBuffers(
         allocator: std.mem.Allocator,
-        source_values: []const []const @import("../../core/fields/m31.zig").M31,
-        base_values: []const []@import("../../core/fields/m31.zig").M31,
-        extended_values: []const []@import("../../core/fields/m31.zig").M31,
-        base_domain: @import("../../core/poly/circle/domain.zig").CircleDomain,
-        base_twiddles: @import("../../prover/poly/twiddles.zig").TwiddleTree([]const @import("../../core/fields/m31.zig").M31),
-        extended_domain: @import("../../core/poly/circle/domain.zig").CircleDomain,
-        extended_twiddles: @import("../../prover/poly/twiddles.zig").TwiddleTree([]const @import("../../core/fields/m31.zig").M31),
+        source_values: []const []const @import("stwo_core").fields.m31.M31,
+        base_values: []const []@import("stwo_core").fields.m31.M31,
+        extended_values: []const []@import("stwo_core").fields.m31.M31,
+        base_domain: @import("stwo_core").poly.circle.domain.CircleDomain,
+        base_twiddles: @import("stwo_prover_impl").poly.twiddles.TwiddleTree([]const @import("stwo_core").fields.m31.M31),
+        extended_domain: @import("stwo_core").poly.circle.domain.CircleDomain,
+        extended_twiddles: @import("stwo_prover_impl").poly.twiddles.TwiddleTree([]const @import("stwo_core").fields.m31.M31),
     ) !void {
         if (base_domain.logSize() < 3) {
             for (source_values, base_values) |source, base| @memcpy(base, source);
-            try @import("../../prover/poly/circle/poly.zig").interpolateBuffersWithTwiddles(
+            try @import("stwo_prover_impl").poly.circle.poly.interpolateBuffersWithTwiddles(
                 base_values,
                 base_domain,
                 base_twiddles,
             );
             for (base_values, extended_values) |base, extended| {
                 @memcpy(extended[0..base.len], base);
-                @memset(extended[base.len..], @import("../../core/fields/m31.zig").M31.zero());
+                @memset(extended[base.len..], @import("stwo_core").fields.m31.M31.zero());
             }
-            try @import("../../prover/poly/circle/poly.zig").evaluateBuffersWithTwiddles(
+            try @import("stwo_prover_impl").poly.circle.poly.evaluateBuffersWithTwiddles(
                 extended_values,
                 extended_domain,
                 extended_twiddles,
@@ -361,15 +361,15 @@ pub const MetalCommitBackend = struct {
     pub const evalAtPoint = cpu.evalAtPoint;
     pub fn foldCircleIntoLine(
         allocator: std.mem.Allocator,
-        dst: []@import("../../core/fields/qm31.zig").QM31,
-        src_columns: [4][]const @import("../../core/fields/m31.zig").M31,
-        src_domain: @import("../../core/poly/circle/domain.zig").CircleDomain,
-        alpha: @import("../../core/fields/qm31.zig").QM31,
-        workspace: *@import("../../core/fri.zig").FoldCircleWorkspace,
+        dst: []@import("stwo_core").fields.qm31.QM31,
+        src_columns: [4][]const @import("stwo_core").fields.m31.M31,
+        src_domain: @import("stwo_core").poly.circle.domain.CircleDomain,
+        alpha: @import("stwo_core").fields.qm31.QM31,
+        workspace: *@import("stwo_core").fri.FoldCircleWorkspace,
     ) !void {
-        const M31 = @import("../../core/fields/m31.zig").M31;
-        const core_utils = @import("../../core/utils.zig");
-        const fields = @import("../../core/fields/mod.zig");
+        const M31 = @import("stwo_core").fields.m31.M31;
+        const core_utils = @import("stwo_core").utils;
+        const fields = @import("stwo_core").fields;
         try workspace.ensureCapacity(allocator, dst.len);
         const py = workspace.py_values[0..dst.len];
         const inverse_y = workspace.inv_py_values[0..dst.len];
@@ -398,14 +398,14 @@ pub const MetalCommitBackend = struct {
 
     pub fn foldLineEvaluationN(
         allocator: std.mem.Allocator,
-        evaluation: @import("../../prover/line.zig").LineEvaluation,
-        alpha: @import("../../core/fields/qm31.zig").QM31,
-        workspace: *@import("../../core/fri.zig").FoldLineWorkspace,
+        evaluation: @import("stwo_prover_impl").line.LineEvaluation,
+        alpha: @import("stwo_core").fields.qm31.QM31,
+        workspace: *@import("stwo_core").fri.FoldLineWorkspace,
         n_folds: u32,
-    ) !@import("../../prover/line.zig").LineEvaluation {
-        const M31 = @import("../../core/fields/m31.zig").M31;
-        const core_utils = @import("../../core/utils.zig");
-        const fields = @import("../../core/fields/mod.zig");
+    ) !@import("stwo_prover_impl").line.LineEvaluation {
+        const M31 = @import("stwo_core").fields.m31.M31;
+        const core_utils = @import("stwo_core").utils;
+        const fields = @import("stwo_core").fields;
         var current = evaluation;
         var owns_current = false;
         var current_alpha = alpha;
@@ -455,15 +455,15 @@ pub const MetalCommitBackend = struct {
     pub fn foldLineAndCommitNext(
         comptime H: type,
         allocator: std.mem.Allocator,
-        evaluation: @import("../../prover/line.zig").LineEvaluation,
-        alpha: @import("../../core/fields/qm31.zig").QM31,
-        workspace: *@import("../../core/fri.zig").FoldLineWorkspace,
+        evaluation: @import("stwo_prover_impl").line.LineEvaluation,
+        alpha: @import("stwo_core").fields.qm31.QM31,
+        workspace: *@import("stwo_core").fri.FoldLineWorkspace,
         n_folds: u32,
-    ) !@import("../../backend/fri_ops.zig").FoldLineAndCommitResult(MerkleTree(H)) {
-        const M31 = @import("../../core/fields/m31.zig").M31;
-        const core_utils = @import("../../core/utils.zig");
-        const fields = @import("../../core/fields/mod.zig");
-        const secure_column = @import("../../prover/secure_column.zig");
+    ) !@import("stwo_backend_contracts").fri_ops.FoldLineAndCommitResult(MerkleTree(H)) {
+        const M31 = @import("stwo_core").fields.m31.M31;
+        const core_utils = @import("stwo_core").utils;
+        const fields = @import("stwo_core").fields;
+        const secure_column = @import("stwo_prover_impl").secure_column;
         if (n_folds == 0 or n_folds >= @bitSizeOf(usize) or
             evaluation.len() >> @intCast(n_folds) == 0)
         {

@@ -1,15 +1,15 @@
 //! Stateful PCS commitment, opening, and proof orchestration.
 
 const std = @import("std");
-const backend_merkle = @import("../../backend/merkle_ops.zig");
-const circle = @import("../../core/circle.zig");
-const m31 = @import("../../core/fields/m31.zig");
-const qm31 = @import("../../core/fields/qm31.zig");
-const pcs_core = @import("../../core/pcs/mod.zig");
-const pcs_utils = @import("../../core/pcs/utils.zig");
-const verifier_types = @import("../../core/verifier_types.zig");
-const vcs_verifier = @import("../../core/vcs_lifted/verifier.zig");
-const canonic = @import("../../core/poly/circle/canonic.zig");
+const backend_merkle = @import("stwo_backend_contracts").merkle_ops;
+const circle = @import("stwo_core").circle;
+const m31 = @import("stwo_core").fields.m31;
+const qm31 = @import("stwo_core").fields.qm31;
+const pcs_core = @import("stwo_core").pcs;
+const pcs_utils = @import("stwo_core").pcs.utils;
+const verifier_types = @import("stwo_core").verifier_types;
+const vcs_verifier = @import("stwo_core").vcs_lifted.verifier;
+const canonic = @import("stwo_core").poly.circle.canonic;
 const component_prover = @import("../air/component_prover.zig");
 const prover_circle = @import("../poly/circle/mod.zig");
 const twiddle_source_mod = @import("../poly/twiddle_source.zig");

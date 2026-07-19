@@ -1,10 +1,10 @@
 //! Root module for stwo-zig.
 const std = @import("std");
 
-pub const core = @import("core/mod.zig");
-pub const backend = @import("backend/mod.zig");
+pub const core = @import("stwo_core");
+pub const backend = @import("stwo_backend_contracts");
 pub const backends = @import("backends/mod.zig");
-pub const prover = @import("prover/mod.zig");
+pub const prover = @import("stwo_prover_impl");
 pub const frontends = @import("frontends/mod.zig");
 pub const integrations = @import("integrations/mod.zig");
 pub const examples = @import("examples/mod.zig");
