@@ -28,7 +28,6 @@ const pcs_core = @import("stwo_core").pcs;
 const prover_engine = @import("stwo_prover_impl").engine;
 const prover_pcs = @import("stwo_prover_impl").pcs;
 const stage_profile = @import("stwo_prover_impl").stage_profile;
-
 const trace_mod = @import("../runner/trace.zig");
 const component_order = @import("../air/component_order.zig");
 const clock_update_interaction = @import("../air/clock_update_interaction.zig");
@@ -55,6 +54,7 @@ const preprocessed_trace = @import("preprocessed.zig");
 const relation_diagnostic = @import("relation_diagnostic.zig");
 const proof_finalize = @import("proof_finalize.zig");
 const statement_validation = @import("statement_validation.zig");
+const test_witness_hook = @import("test_witness_hook.zig");
 const types = @import("types.zig");
 const state_chain = @import("../runner/state_chain.zig");
 const memory_state = @import("../runner/memory_state.zig");
@@ -74,7 +74,7 @@ const MAX_OPCODE_SHARD_ROWS: usize = 1 << 16;
 const MAX_MEMORY_SHARD_ROWS: usize = 1 << 16;
 const computeLogSize = statement_validation.computeLogSize;
 const computeOpcodeLogSize = statement_validation.computeOpcodeLogSize;
-
+pub const TestWitnessMutation = test_witness_hook.Mutation;
 pub fn runRiscVWithEngineAndPublicData(
     comptime Engine: type,
     comptime mode: RunMode,
@@ -98,6 +98,7 @@ pub fn runRiscVWithEngineAndPublicData(
         recorder,
         public_data,
         &channel,
+        null,
     );
 }
 
@@ -117,6 +118,7 @@ pub fn runRiscVWithEngineAndPublicDataUsingChannel(
     recorder: ?*stage_profile.Recorder,
     public_data: PublicData,
     channel: *Engine.Channel,
+    test_mutation: ?TestWitnessMutation,
 ) !RunOutput(mode) {
     comptime prover_engine.assertProverEngine(Engine);
     if (exec_trace.step_count == 0) return ProverError.EmptyTrace;
@@ -370,6 +372,8 @@ pub fn runRiscVWithEngineAndPublicDataUsingChannel(
             retained_tree0 = try relation_diagnostic.RetainedTree.capture(allocator, preprocessed);
             retained_tree0_initialized = true;
         }
+        if (test_mutation) |mutation|
+            try test_witness_hook.applyPreprocessed(allocator, statement, preprocessed, mutation);
         moved = true;
         try Engine.commit(&scheme, allocator, preprocessed, recorder, channel);
     }
@@ -567,6 +571,9 @@ pub fn runRiscVWithEngineAndPublicDataUsingChannel(
     }
     std.debug.assert(opcode_col_offset == n_opcode_main);
     std.debug.assert(col_offset == n_main);
+
+    if (test_mutation) |mutation|
+        try test_witness_hook.applyMain(allocator, statement, main_columns, mutation);
 
     if (comptime mode == .relation_diagnostic) {
         retained_tree1 = try relation_diagnostic.RetainedTree.capture(allocator, main_columns);

@@ -146,6 +146,7 @@ pub fn proveRiscVWithEngineAndPublicDataUsingChannel(
         recorder,
         public_data,
         channel,
+        null,
     );
 }
 
