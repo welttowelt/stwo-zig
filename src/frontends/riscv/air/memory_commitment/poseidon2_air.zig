@@ -211,6 +211,13 @@ pub fn evaluate(main: [N_MAIN_COLUMNS]QM31) [N_CONSTRAINTS]QM31 {
     return result;
 }
 
+/// Protocol-shell constraints for callers that admit only the narrow
+/// permutation mode. The generic pinned evaluator deliberately continues to
+/// support wide and atomic-I/O rows.
+pub fn narrowModeConstraints(main: [N_MAIN_COLUMNS]QM31) [2]QM31 {
+    return .{ main[WIDE_COLUMN], main[IO_COLUMN] };
+}
+
 pub fn generateInteraction(
     allocator: std.mem.Allocator,
     calls: []const Call,

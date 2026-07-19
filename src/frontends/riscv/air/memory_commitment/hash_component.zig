@@ -22,7 +22,7 @@ const poseidon2_air = @import("poseidon2_air.zig");
 
 const CirclePointQM31 = circle.CirclePointQM31;
 const EMPTY_PREV: [4][]const M31 = .{ &.{}, &.{}, &.{}, &.{} };
-const N_POSEIDON_SHELL_CONSTRAINTS: usize = 1;
+const N_POSEIDON_SHELL_CONSTRAINTS: usize = 3;
 const N_POSEIDON_COMPONENT_CONSTRAINTS: usize =
     poseidon2_air.N_CONSTRAINTS + N_POSEIDON_SHELL_CONSTRAINTS + poseidon2_air.N_SUMS;
 
@@ -439,6 +439,11 @@ fn poseidonConstraints(
     var constraints: [N_POSEIDON_COMPONENT_CONSTRAINTS]QM31 = undefined;
     @memcpy(constraints[0..poseidon2_air.N_CONSTRAINTS], &air_constraints);
     constraints[poseidon2_air.N_CONSTRAINTS] = main[0].sub(is_active);
+    const narrow_mode = poseidon2_air.narrowModeConstraints(main);
+    @memcpy(
+        constraints[poseidon2_air.N_CONSTRAINTS + 1 ..][0..narrow_mode.len],
+        &narrow_mode,
+    );
     @memcpy(
         constraints[poseidon2_air.N_CONSTRAINTS + N_POSEIDON_SHELL_CONSTRAINTS ..],
         &interaction_constraints,
@@ -593,11 +598,12 @@ fn combineConstraints(powers: []const QM31, constraints: []const QM31) QM31 {
 test "hash component: exact shapes remain pinned" {
     try std.testing.expectEqual(@as(usize, 445), nMainColumns(.poseidon2));
     try std.testing.expectEqual(@as(usize, 8), nInteractionColumns(.poseidon2));
+    try std.testing.expectEqual(@as(usize, 435), N_POSEIDON_COMPONENT_CONSTRAINTS);
     try std.testing.expectEqual(@as(usize, 10), nMainColumns(.merkle));
     try std.testing.expectEqual(@as(usize, 12), nInteractionColumns(.merkle));
 }
 
-test "hash component: Poseidon shell binds enabler after pinned AIR constraints" {
+test "hash component: RISC-V Poseidon shell binds selector and narrow mode" {
     const row = poseidon2_air.fill(poseidon2_air.Call.narrow(1, 2));
     var main: [poseidon2_air.N_MAIN_COLUMNS]QM31 = undefined;
     for (&main, row) |*dst, value| dst.* = QM31.fromBase(value);
@@ -616,6 +622,8 @@ test "hash component: Poseidon shell binds enabler after pinned AIR constraints"
         try std.testing.expect(constraint.isZero());
     }
     try std.testing.expect(honest[poseidon2_air.N_CONSTRAINTS].isZero());
+    try std.testing.expect(honest[poseidon2_air.N_CONSTRAINTS + 1].isZero());
+    try std.testing.expect(honest[poseidon2_air.N_CONSTRAINTS + 2].isZero());
 
     const inactive = poseidonConstraints(
         main,
@@ -630,6 +638,44 @@ test "hash component: Poseidon shell binds enabler after pinned AIR constraints"
         try std.testing.expect(actual.eql(expected));
     }
     try std.testing.expect(!inactive[poseidon2_air.N_CONSTRAINTS].isZero());
+
+    var wide_call = poseidon2_air.Call.narrow(1, 2);
+    wide_call.wide = true;
+    const wide_row = poseidon2_air.fill(wide_call);
+    for (&main, wide_row) |*dst, value| dst.* = QM31.fromBase(value);
+    const wide = poseidonConstraints(
+        main,
+        QM31.one(),
+        QM31.one(),
+        zeros,
+        zeros,
+        zeros,
+        &relations,
+    );
+    for (wide[0..poseidon2_air.N_CONSTRAINTS]) |constraint| {
+        try std.testing.expect(constraint.isZero());
+    }
+    try std.testing.expect(!wide[poseidon2_air.N_CONSTRAINTS + 1].isZero());
+    try std.testing.expect(wide[poseidon2_air.N_CONSTRAINTS + 2].isZero());
+
+    var io_call = poseidon2_air.Call.narrow(1, 2);
+    io_call.io = true;
+    const io_row = poseidon2_air.fill(io_call);
+    for (&main, io_row) |*dst, value| dst.* = QM31.fromBase(value);
+    const io = poseidonConstraints(
+        main,
+        QM31.one(),
+        QM31.one(),
+        zeros,
+        zeros,
+        zeros,
+        &relations,
+    );
+    for (io[0..poseidon2_air.N_CONSTRAINTS]) |constraint| {
+        try std.testing.expect(constraint.isZero());
+    }
+    try std.testing.expect(io[poseidon2_air.N_CONSTRAINTS + 1].isZero());
+    try std.testing.expect(!io[poseidon2_air.N_CONSTRAINTS + 2].isZero());
 }
 
 fn allocateHashMetadata(
