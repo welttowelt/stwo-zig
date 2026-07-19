@@ -7,6 +7,7 @@ import hashlib
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import Callable
 
 from store import Store
 
@@ -34,8 +35,23 @@ def _branch(ref: str) -> str:
     return ref.removeprefix(prefix)
 
 
+def _verify_attestation(receipt_file: Path, source: dict) -> None:
+    repository = source["repository"].removeprefix("https://github.com/")
+    signer = f"{repository}/.github/workflows/qualify-fork.yml"
+    _run([
+        "gh", "attestation", "verify", str(receipt_file),
+        "--repo", repository,
+        "--signer-workflow", signer,
+        "--source-digest", source["commit"],
+        "--source-ref", source["ref"],
+        "--deny-self-hosted-runners",
+    ])
+
+
 def verify_checkout(checkout: Path, manifest: manifest_mod.Manifest,
-                    record: dict, verify_attestation: bool = True) -> dict:
+                    record: dict, verify_attestation: bool = True,
+                    attestation_verifier: Callable[[Path, dict], None] | None = None,
+                    ) -> dict:
     source = record["source"]
     branch = _branch(source["ref"])
     branch_head = _run(
@@ -61,16 +77,7 @@ def verify_checkout(checkout: Path, manifest: manifest_mod.Manifest,
         actual_digest = "sha256:" + hashlib.sha256(receipt_bytes).hexdigest()
         if actual_digest != attestation["artifact_digest"]:
             raise IntakeError("attested artifact digest does not match the receipt")
-        repository = source["repository"].removeprefix("https://github.com/")
-        signer = f"{repository}/.github/workflows/qualify-fork.yml"
-        _run([
-            "gh", "attestation", "verify", str(receipt_file),
-            "--repo", repository,
-            "--signer-workflow", signer,
-            "--source-digest", source["commit"],
-            "--source-ref", source["ref"],
-            "--deny-self-hosted-runners",
-        ])
+        (attestation_verifier or _verify_attestation)(receipt_file, source)
         attestation_verified = True
 
     return {
@@ -84,7 +91,10 @@ def verify_checkout(checkout: Path, manifest: manifest_mod.Manifest,
 
 
 def validate_remote(record: dict, canonical_repo: Path,
-                    verify_attestation: bool = True) -> dict:
+                    verify_attestation: bool = True,
+                    source_url_resolver: Callable[[str], str] | None = None,
+                    attestation_verifier: Callable[[Path, dict], None] | None = None,
+                    ) -> dict:
     manifest = manifest_mod.load(canonical_repo)
     source = record["source"]
     requires_attestation = manifest.qualification_policy.get(
@@ -95,19 +105,25 @@ def validate_remote(record: dict, canonical_repo: Path,
     if requires_attestation and not verify_attestation:
         raise IntakeError("current policy forbids skipping artifact verification")
     branch = _branch(source["ref"])
+    source_url = (
+        source_url_resolver(source["repository"])
+        if source_url_resolver else source["repository"]
+    )
     with tempfile.TemporaryDirectory(prefix="autoresearch-intake-") as tmp:
         checkout = Path(tmp) / "source"
         _run([
             "git", "clone", "--no-checkout", "--filter=blob:none", "--single-branch",
-            "--branch", branch, source["repository"], str(checkout),
+            "--branch", branch, source_url, str(checkout),
         ])
         # Fetching the named branch is not enough if the frontier is no longer
         # in its shallow negotiation. Require the exact canonical object.
         _run(["git", "fetch", "origin", source["frontier_commit"]], checkout)
-        evidence = verify_checkout(checkout, manifest, record, verify_attestation)
+        evidence = verify_checkout(
+            checkout, manifest, record, verify_attestation, attestation_verifier,
+        )
         source_ref = f"refs/autoresearch/source/{record['id']}"
         _run([
-            "git", "fetch", "--no-tags", source["repository"],
+            "git", "fetch", "--no-tags", source_url,
             f"{source['ref']}:{source_ref}",
         ], canonical_repo)
         fetched = _run(["git", "rev-parse", f"{source_ref}^{{commit}}"], canonical_repo)
@@ -124,12 +140,18 @@ def validate_remote(record: dict, canonical_repo: Path,
 
 
 def process_one(store: Store, canonical_repo: Path,
-                verify_attestation: bool = True) -> dict | None:
+                verify_attestation: bool = True, *,
+                source_url_resolver: Callable[[str], str] | None = None,
+                attestation_verifier: Callable[[Path, dict], None] | None = None,
+                ) -> dict | None:
     item = store.claim_next({"received"}, "validating", "claimed by intake worker")
     if item is None:
         return None
     try:
-        evidence = validate_remote(item, canonical_repo, verify_attestation)
+        evidence = validate_remote(
+            item, canonical_repo, verify_attestation,
+            source_url_resolver, attestation_verifier,
+        )
     except (IntakeError, OSError) as exc:
         return store.transition(
             item["id"], {"validating"}, "rejected", "central intake rejected source",

@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
+from typing import Callable
 
 from canonical import BOT_EMAIL, BOT_NAME, CanonicalError, current_commit
 from store import Store
@@ -110,7 +111,9 @@ def _push(repo: Path, remote: str, branch: str, expected_commit: str) -> None:
 
 
 def _resume(store: Store, repo: Path, record: dict,
-            push_remote: str | None, branch: str) -> dict:
+            push_remote: str | None, branch: str,
+            push_fn: Callable[[Path, str, str, str], None] | None = None,
+            ) -> dict:
     promotion_commit = record.get("promotion_commit")
     try:
         at_recorded_tip = bool(promotion_commit) and current_commit(repo) == promotion_commit
@@ -123,7 +126,7 @@ def _resume(store: Store, repo: Path, record: dict,
         )
     if push_remote:
         try:
-            _push(repo, push_remote, branch, promotion_commit)
+            (push_fn or _push)(repo, push_remote, branch, promotion_commit)
         except PromotionError as exc:
             return store.transition(
                 record["id"], {"promoting"}, "promoting",
@@ -138,7 +141,10 @@ def _resume(store: Store, repo: Path, record: dict,
 
 
 def process_one(store: Store, repo: Path, push_remote: str | None = None,
-                branch: str = "main") -> dict | None:
+                branch: str = "main", *,
+                push_fn: Callable[[Path, str, str, str], None] | None = None,
+                record_writer: Callable[[Path, dict], Path] | None = None,
+                ) -> dict | None:
     # A failed network push is resumable without rewriting either canonical
     # commit; retry it before claiming another candidate.
     promoting = sorted(
@@ -146,7 +152,7 @@ def process_one(store: Store, repo: Path, push_remote: str | None = None,
         key=lambda item: (item["created_utc"], item["id"]),
     )
     if promoting:
-        return _resume(store, repo, promoting[0], push_remote, branch)
+        return _resume(store, repo, promoting[0], push_remote, branch, push_fn)
 
     record = store.claim_next({"promotable"}, "promoting", "claimed by promotion worker")
     if record is None:
@@ -170,7 +176,7 @@ def process_one(store: Store, repo: Path, push_remote: str | None = None,
         if actual_tree != expected_tree:
             raise PromotionError("canonical candidate tree no longer matches receipt")
         _git(repo, "merge", "--ff-only", record["canonical_commit"])
-        sub = _write_record(repo, record)
+        sub = (record_writer or _write_record)(repo, record)
         row = _row(record)
         row["epoch"] = ledger.current_epoch(repo)["epoch"]
         ledger.append(repo, row)
@@ -193,7 +199,7 @@ def process_one(store: Store, repo: Path, push_remote: str | None = None,
             "canonical source and ledger commits prepared",
             {"promotion_commit": promotion_commit},
         )
-        return _resume(store, repo, record, push_remote, branch)
+        return _resume(store, repo, record, push_remote, branch, push_fn)
     except (PromotionError, CanonicalError, signing.SigningError, ledger.LedgerError,
             OSError, subprocess.SubprocessError) as exc:
         # Keep only a fully materialized promotion automatically resumable.

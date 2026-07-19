@@ -8,6 +8,7 @@ import os
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import Callable
 
 from identity import author_env, coauthor_trailer
 from store import Store
@@ -143,7 +144,10 @@ def decide_outcome(repo: Path, verdict: dict) -> tuple[str, str]:
     return "promoted", "G1..G5:pass"
 
 
-def process_one(store: Store, repo: Path) -> dict | None:
+def process_one(store: Store, repo: Path, *,
+                evaluator: Callable[..., dict] | None = None,
+                lock_acquirer: Callable[[Path], Path] | None = None,
+                ) -> dict | None:
     record = store.claim_next({"queued"}, "judging", "claimed by canonical judge")
     if record is None:
         return None
@@ -164,10 +168,10 @@ def process_one(store: Store, repo: Path) -> dict | None:
             try:
                 canonical_commit = materialize_candidate(repo, manifest, record, candidate)
                 _git(repo, "worktree", "add", "--detach", str(predecessor), frontier_commit)
-                lock = runner.acquire_judge_lock(repo)
+                lock = (lock_acquirer or runner.acquire_judge_lock)(repo)
                 try:
                     claim = record["claim"]
-                    verdict = runner.evaluate(
+                    verdict = (evaluator or runner.evaluate)(
                         candidate, predecessor, manifest_mod.load(candidate),
                         claim["workload_class"], claim["dimension"], "s3",
                         judged=True, out_dir=tmp_root / "runs", board=claim["board"],
