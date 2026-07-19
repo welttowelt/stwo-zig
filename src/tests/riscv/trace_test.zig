@@ -25,6 +25,7 @@ test {
     _ = @import("../../frontends/riscv/air/semantics/mod.zig");
     _ = @import("../../frontends/riscv/air/transcript/mod.zig");
     _ = @import("../../frontends/riscv/diagnostics/public_values.zig");
+    _ = @import("public_relation_binding_test.zig");
 }
 
 test "infra_trace: genMemoryColumns caps rows at the domain size" {

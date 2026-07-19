@@ -7,6 +7,7 @@ const relation_export = @import("../../frontends/riscv/air/relation_export.zig")
 const memory_boundary = @import("../../frontends/riscv/air/memory_commitment/boundary.zig");
 const runner = @import("../../frontends/riscv/runner/mod.zig");
 const pcs = @import("stwo_core").pcs;
+const QM31 = @import("stwo_core").fields.qm31.QM31;
 const release_elf_fixture = @import("release_elf_fixture.zig");
 
 const PublicData = public_data_mod.PublicData;
@@ -71,7 +72,7 @@ fn expectOnlyDomainOpen(
     }
 }
 
-test "riscv public statement: production relations algebraically bind every public class" {
+test "riscv public statement: nonempty input proves and binds every public class" {
     const allocator = std.testing.allocator;
     const elf = try release_elf_fixture.buildPublicIoHaltElf(allocator);
     defer allocator.free(elf);
@@ -113,6 +114,42 @@ test "riscv public statement: production relations algebraically bind every publ
 
     const baseline = try diagnose(allocator, &run, public_data);
     try baseline.bundle.validate();
+
+    // CP-11 compares these prefixes after every canonical Stark-V component.
+    // Keep the non-empty input path explicit: its public memory term must be
+    // nonzero and independently compensated by committed execution tuples.
+    var prefix = QM31.zero();
+    for (baseline.bundle.claims.claims, baseline.bundle.claims.prefixes) |claim, observed| {
+        prefix = prefix.add(claim);
+        try std.testing.expect(prefix.eql(observed));
+    }
+    try std.testing.expect(prefix.eql(baseline.bundle.claims.total));
+    const memory_domain = @intFromEnum(relation_export.Domain.memory_access);
+    try std.testing.expect(!baseline.bundle.public.domains[memory_domain].isZero());
+    try std.testing.expect(
+        baseline.bundle.aggregate.domain_sums[memory_domain]
+            .add(baseline.bundle.public.domains[memory_domain])
+            .isZero(),
+    );
+
+    // The same nine-byte statement, including its partial final input word,
+    // must pass the production proof path rather than only the diagnostic.
+    const proof = try riscv_cpu.proveRiscVWithPublicData(
+        allocator,
+        TEST_PCS_CONFIG,
+        &run.execution_trace,
+        &run.state_chain_tracker,
+        &run.rw_memory,
+        null,
+        public_data,
+    );
+    try riscv_cpu.verifyRiscV(
+        allocator,
+        TEST_PCS_CONFIG,
+        proof.statement,
+        proof.proof,
+        proof.interaction_claim,
+    );
 
     // A CPU boundary substitution is rejected before any commitment can be
     // made because it disagrees with the execution trace endpoint.

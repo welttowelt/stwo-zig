@@ -131,11 +131,13 @@ pub fn addProduct(context: Context) void {
     static_step.dependOn(&install_static_trace.step);
 
     const tests = addTests(context);
+    const integration_tests = addIntegrationTests(context);
     const test_step = context.b.step(
         "test-riscv-cpu-product",
         "Test the focused RISC-V CPU product shell and capability surface",
     );
     test_step.dependOn(&context.b.addRunArtifact(tests).step);
+    test_step.dependOn(&context.b.addRunArtifact(integration_tests).step);
 
     const closure_check = closure_gate.addCheck(.{
         .b = context.b,
@@ -250,6 +252,29 @@ fn addTests(context: Context) *std.Build.Step.Compile {
             context.optimize,
         ),
     );
+    return b.addTest(.{ .root_module = root });
+}
+
+fn addIntegrationTests(context: Context) *std.Build.Step.Compile {
+    const b = context.b;
+    const test_product = graph.Product{
+        .name = product.name,
+        .frontend = product.frontend,
+        .backend = product.backend,
+        .role = .@"test",
+        .protocol_features = product.protocol_features,
+    };
+    const root = graph.create(b, .{
+        .product = test_product,
+        .root_source_file = "src/tests.zig",
+        .target = context.target,
+        .optimize = context.optimize,
+    });
+    context.protocol.addImports(root);
+    const test_options = b.addOptions();
+    test_options.addOption(bool, "metal_only", false);
+    test_options.addOption(bool, "riscv_only", true);
+    root.addOptions("test_options", test_options);
     return b.addTest(.{ .root_module = root });
 }
 
