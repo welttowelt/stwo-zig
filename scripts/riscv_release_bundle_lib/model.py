@@ -172,30 +172,54 @@ def tracked_domain(root: Path, paths: tuple[str, ...]) -> dict[str, object]:
     if not entries:
         raise BundleError(f"empty content domain for paths {paths}")
 
+    process = subprocess.Popen(
+        ["git", "cat-file", "--batch"], cwd=root,
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    if process.stdin is None or process.stdout is None or process.stderr is None:
+        process.kill()
+        raise BundleError("cannot open git cat-file batch pipes")
     digest = hashlib.sha256()
     records: list[dict[str, object]] = []
-    for mode, object_id, path_bytes in entries:
-        for value in (mode.encode(), path_bytes):
-            digest.update(len(value).to_bytes(8, "big"))
-            digest.update(value)
-        path = root / os.fsdecode(path_bytes)
-        if mode in {"100644", "100755"}:
-            size = path.stat().st_size
+    try:
+        for mode, object_id, path_bytes in entries:
+            process.stdin.write(object_id.encode("ascii") + b"\n")
+            process.stdin.flush()
+            header = process.stdout.readline().rstrip(b"\n").decode("ascii").split(" ")
+            if len(header) != 3 or header[0] != object_id:
+                raise BundleError("git cat-file batch identity drifted")
+            expected_type = "commit" if mode == "160000" else "blob"
+            if header[1] != expected_type:
+                raise BundleError(f"tracked mode/object type drifted: {path_bytes!r}")
+            try:
+                size = int(header[2])
+            except ValueError as error:
+                raise BundleError("invalid git cat-file batch size") from error
+            for value in (mode.encode(), path_bytes):
+                digest.update(len(value).to_bytes(8, "big"))
+                digest.update(value)
             digest.update(size.to_bytes(8, "big"))
-            with path.open("rb") as handle:
-                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                    digest.update(chunk)
-        elif mode == "120000":
-            payload = os.fsencode(os.readlink(path))
-            digest.update(len(payload).to_bytes(8, "big"))
-            digest.update(payload)
-        elif mode == "160000":
-            payload = object_id.encode("ascii")
-            digest.update(len(payload).to_bytes(8, "big"))
-            digest.update(payload)
-        else:
-            raise BundleError(f"unsupported tracked mode {mode}: {path_bytes!r}")
-        records.append({"path": path_bytes.decode("utf-8"), "mode": mode})
+            remaining = size
+            while remaining:
+                chunk = process.stdout.read(min(1024 * 1024, remaining))
+                if not chunk:
+                    raise BundleError("truncated git cat-file batch object")
+                digest.update(chunk)
+                remaining -= len(chunk)
+            if process.stdout.read(1) != b"\n":
+                raise BundleError("truncated git cat-file batch terminator")
+            records.append({"path": path_bytes.decode("utf-8"), "mode": mode})
+        process.stdin.close()
+        if process.wait() != 0:
+            diagnostic = process.stderr.read().decode("utf-8", errors="replace").strip()
+            raise BundleError(f"git cat-file batch failed: {diagnostic}")
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+        for stream in (process.stdin, process.stdout, process.stderr):
+            if not stream.closed:
+                stream.close()
     return {
         "schema": "git-tracked-content-v2",
         "sha256": digest.hexdigest(),
