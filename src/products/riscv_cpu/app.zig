@@ -62,12 +62,6 @@ fn runElf(
     const report = adapter.run(allocator, run.elf_path, run.input_path, .{
         .backend = .cpu,
         .protocol = protocol(run.protocol),
-        .blake2_backend = switch (run.blake2_backend) {
-            .auto => .auto,
-            .scalar => .scalar,
-            .simd => .simd,
-        },
-        .metal_runtime = .{},
         .mode = mode,
         .experimental = run.experimental,
         .proof_temporary = proof_temporary,
@@ -108,7 +102,7 @@ fn verifyArtifact(allocator: std.mem.Allocator, request: cli.Verify) !void {
     }
 }
 
-fn protocol(value: cli.Protocol) @TypeOf(@as(adapter.Options, undefined).protocol) {
+fn protocol(value: cli.Protocol) adapter.Protocol {
     return switch (value) {
         .secure => .secure,
         .functional => .functional,

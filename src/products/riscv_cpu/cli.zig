@@ -4,13 +4,11 @@ const std = @import("std");
 
 pub const Command = enum { prove, bench, verify, applications };
 pub const Protocol = enum { secure, functional, smoke };
-pub const Blake2Backend = enum { auto, scalar, simd };
 
 pub const Run = struct {
     elf_path: []const u8,
     input_path: ?[]const u8,
     protocol: Protocol,
-    blake2_backend: Blake2Backend,
     experimental: bool,
 };
 
@@ -54,7 +52,6 @@ const Flag = enum {
     proof_out,
     warmups,
     samples,
-    blake2_backend,
     profiled,
     experimental,
     expect_statement_digest,
@@ -73,7 +70,6 @@ const Scratch = struct {
     proof_out: ?[]const u8 = null,
     warmups: usize = 10,
     samples: usize = 5,
-    blake2_backend: Blake2Backend = .auto,
     profiled: bool = false,
     experimental: bool = false,
     expected_statement_digest: ?[32]u8 = null,
@@ -124,8 +120,8 @@ fn finish(command: Command, scratch: Scratch) !Parsed {
     switch (command) {
         .prove => {
             try requireOnly(scratch, &.{
-                .elf,            .input,        .backend, .protocol, .output, .report_out,
-                .blake2_backend, .experimental,
+                .elf,          .input, .backend, .protocol, .output, .report_out,
+                .experimental,
             });
             return .{ .prove = .{
                 .run = try makeRun(scratch),
@@ -135,8 +131,8 @@ fn finish(command: Command, scratch: Scratch) !Parsed {
         },
         .bench => {
             try requireOnly(scratch, &.{
-                .elf,     .input,   .backend,        .protocol, .report_out,   .proof_out,
-                .warmups, .samples, .blake2_backend, .profiled, .experimental,
+                .elf,     .input,   .backend,  .protocol,     .report_out, .proof_out,
+                .warmups, .samples, .profiled, .experimental,
             });
             if (scratch.warmups > 10) return error.WarmupsTooLarge;
             if (scratch.samples == 0 or scratch.samples > 21) return error.InvalidSamples;
@@ -168,7 +164,6 @@ fn makeRun(scratch: Scratch) !Run {
         .elf_path = try requiredPath(scratch.elf, error.MissingElf),
         .input_path = try optionalPath(scratch.input),
         .protocol = scratch.protocol,
-        .blake2_backend = scratch.blake2_backend,
         .experimental = scratch.experimental,
     };
 }
@@ -196,8 +191,6 @@ fn assign(scratch: *Scratch, flag: Flag, value: []const u8) !void {
         .proof_out => scratch.proof_out = value,
         .warmups => scratch.warmups = try std.fmt.parseInt(usize, value, 10),
         .samples => scratch.samples = try std.fmt.parseInt(usize, value, 10),
-        .blake2_backend => scratch.blake2_backend =
-            std.meta.stringToEnum(Blake2Backend, value) orelse return error.InvalidBlake2Backend,
         .expect_statement_digest => scratch.expected_statement_digest = try parseSha256(value),
         .profiled, .experimental, .count => unreachable,
     }

@@ -64,10 +64,11 @@ fn runElf(
     defer if (proof_temporary) |path| std.fs.cwd().deleteFile(path) catch {};
 
     const report = starkv_adapter.run(allocator, run.elf_path, run.input_path, .{
-        .backend = run.backend,
-        .protocol = run.protocol,
-        .blake2_backend = run.blake2_backend,
-        .metal_runtime = run.metal_runtime,
+        .backend = switch (run.backend) {
+            .cpu => .cpu,
+            .metal_hybrid => .unavailable_device,
+        },
+        .protocol = riscvProtocol(run.protocol),
         .mode = mode,
         .experimental = run.experimental,
         .proof_temporary = proof_temporary,
@@ -175,7 +176,12 @@ fn verifyArtifact(allocator: std.mem.Allocator, request: cli.Verify) !void {
         .riscv => |parsed| {
             const expected = request.expected_statement_digest orelse
                 return error.MissingExpectedStatementDigest;
-            return starkv_adapter.verifyArtifact(allocator, parsed.value, request.protocol, expected);
+            return starkv_adapter.verifyArtifact(
+                allocator,
+                parsed.value,
+                riscvProtocol(request.protocol),
+                expected,
+            );
         },
         .other => |raw| raw,
     };
@@ -214,6 +220,14 @@ fn writeApplications() !void {
     try stdout.writeByte('\n');
 }
 
+fn riscvProtocol(value: cli.Protocol) starkv_adapter.Protocol {
+    return switch (value) {
+        .secure => .secure,
+        .functional => .functional,
+        .smoke => .smoke,
+    };
+}
+
 fn rejectPathCollision(path: []const u8, maybe_other: ?[]const u8) !void {
     if (maybe_other) |other| {
         if (std.mem.eql(u8, path, other)) return error.OutputPathCollision;
@@ -243,8 +257,6 @@ test "stark-v adapter: staged CPU path is live while device backends fail closed
         .{
             .backend = .cpu,
             .protocol = .secure,
-            .blake2_backend = .auto,
-            .metal_runtime = .{},
             .mode = .prove,
             .experimental = !registry.RISCV_ADAPTER_RELEASE_GATED,
             .proof_temporary = "proof.tmp",
@@ -257,10 +269,8 @@ test "stark-v adapter: staged CPU path is live while device backends fail closed
         "guest.elf",
         null,
         .{
-            .backend = .metal_hybrid,
+            .backend = .unavailable_device,
             .protocol = .secure,
-            .blake2_backend = .auto,
-            .metal_runtime = .{},
             .mode = .prove,
             .experimental = !registry.RISCV_ADAPTER_RELEASE_GATED,
             .proof_temporary = "proof.tmp",
