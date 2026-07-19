@@ -2,15 +2,6 @@
  "version": 3,
  "findings": [
   {
-   "key": "file-size:frontends/riscv/prover.zig",
-   "owner": "riscv-frontend",
-   "track": "deferred_todo",
-   "reason": "The RISC-V prover still combines statement construction, trace planning, and backend-neutral proof orchestration.",
-   "next_extraction": "Split statement and column planning from proof orchestration behind explicit frontend contracts.",
-   "plan": "conformance/decomposition-plan.md",
-   "max_lines": 1672
-  },
-  {
    "key": "file-size:integrations/cairo_metal/arena_binding.zig",
    "owner": "source-conformance",
    "track": "active_native_backend",
