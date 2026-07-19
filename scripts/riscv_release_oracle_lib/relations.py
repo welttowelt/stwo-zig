@@ -295,6 +295,13 @@ def parse_sum_dump(output: str, *, require_binding: bool = False) -> dict[str, o
         raise EvidenceError("aggregate public sum differs from the public-domain total")
     if balanced != _add_qm31(native, public):
         raise EvidenceError("balanced sum is not native plus public")
+    zero = (0, 0, 0, 0)
+    for relation, native_sum in relation_sums.items():
+        compensated = _add_qm31(native_sum, public_sums.get(relation, zero))
+        if compensated != zero:
+            raise EvidenceError(f"relation {relation} is not independently balanced")
+    if balanced != zero:
+        raise EvidenceError("aggregate relation sum is not balanced to zero")
     return {
         "binding": binding,
         "challenges": challenges,

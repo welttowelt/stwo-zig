@@ -103,6 +103,7 @@ def add(lhs: tuple[int, int, int, int], rhs: tuple[int, int, int, int]):
 def sum_dump(
     claim_delta: int = 0,
     corrupt_prefix: bool = False,
+    unbalanced: bool = False,
     *,
     bound: bool = True,
 ) -> str:
@@ -127,14 +128,17 @@ def sum_dump(
     for index, relation in enumerate(relations.RELATIONS):
         value = prefix if index == 0 else (0, 0, 0, 0)
         lines.append(f"relation={relation} sum={qm31(value)}")
+    compensation = tuple((-limb) % P for limb in prefix)
+    if unbalanced:
+        compensation = add(compensation, (1, 0, 0, 0))
     public_values = {
-        "registers_state": (2, 0, 0, 0),
-        "merkle": (3, 0, 0, 0),
-        "memory_access": (5, 0, 0, 0),
+        "registers_state": compensation,
+        "merkle": (0, 0, 0, 0),
+        "memory_access": (0, 0, 0, 0),
     }
     for relation in relations.PUBLIC_RELATIONS:
         lines.append(f"public={relation} sum={qm31(public_values[relation])}")
-    public = (10, 0, 0, 0)
+    public = compensation
     lines.append(
         f"aggregate=native sum={qm31(prefix)} public_sum={qm31(public)} "
         f"balanced_sum={qm31(add(prefix, public))}"
@@ -168,6 +172,28 @@ class RelationEvidenceTest(unittest.TestCase):
         self.assertEqual((27, 0, 0, 0), parsed["aggregate"]["native"])
         with self.assertRaisesRegex(relations.EvidenceError, "cumulative prefix drifted"):
             relations.parse_sum_dump(sum_dump(corrupt_prefix=True))
+        with self.assertRaisesRegex(
+            relations.EvidenceError,
+            "relation registers_state is not independently balanced",
+        ):
+            relations.parse_sum_dump(sum_dump(unbalanced=True))
+
+        lines = sum_dump().splitlines()
+        register_index = next(
+            index for index, line in enumerate(lines)
+            if line.startswith("relation=registers_state ")
+        )
+        program_index = next(
+            index for index, line in enumerate(lines)
+            if line.startswith("relation=program_access ")
+        )
+        lines[register_index] = f"relation=registers_state sum={qm31((28, 0, 0, 0))}"
+        lines[program_index] = f"relation=program_access sum={qm31((P - 1, 0, 0, 0))}"
+        with self.assertRaisesRegex(
+            relations.EvidenceError,
+            "relation registers_state is not independently balanced",
+        ):
+            relations.parse_sum_dump("\n".join(lines) + "\n")
 
     def test_sum_comparison_localizes_first_component_claim_drift(self) -> None:
         result = relations.compare_sum_dumps(

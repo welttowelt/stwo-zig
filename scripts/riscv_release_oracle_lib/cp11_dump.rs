@@ -324,6 +324,16 @@ fn dump_relation_sums(result: runner::RunResult) {
     let public_domains = cp11_relation_sums::public_domain_sums(&public, &relations);
     let public_total: QM31 = public_domains.iter().copied().sum();
     assert_eq!(public_total, public.logup_sum(&relations));
+    for (index, sum) in domain_sums.iter().copied().enumerate() {
+        let compensation = match index {
+            0 => public_domains[0],
+            1 => public_domains[2],
+            3 => public_domains[1],
+            _ => QM31::zero(),
+        };
+        assert_eq!(sum + compensation, QM31::zero());
+    }
+    assert_eq!(tracker_total + public_total, QM31::zero());
 
     println!("schema=riscv-relation-sums-v1");
     for (index, relation) in RELATION_NAMES.iter().copied().enumerate() {

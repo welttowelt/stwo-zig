@@ -19,6 +19,7 @@ pub const Error = entry.Error || error{
     InvalidDomainCounts,
     InvalidPublicDomains,
     InvalidPublicTotal,
+    UnbalancedRelationDomain,
     InvalidWitnessLayout,
     UnboundPreprocessedCommitment,
     UnboundMainCommitment,
@@ -116,6 +117,8 @@ pub const Bundle = struct {
                 .registers_state, .memory_access, .merkle => {},
                 else => if (!sum.isZero()) return error.InvalidPublicDomains,
             }
+            if (!self.aggregate.domain_sums[domain].add(sum).isZero())
+                return error.UnbalancedRelationDomain;
         }
         if (!public_total.eql(self.public.total)) return error.InvalidPublicTotal;
     }
@@ -398,6 +401,20 @@ test "relation evidence serializes one complete canonical registry" {
     bundle.witness_layout_digest[0] ^= 1;
     try std.testing.expectError(error.InvalidWitnessLayout, bundle.validate());
     bundle.witness_layout_digest[0] ^= 1;
+    bundle.public.domains[0] = QM31.one();
+    bundle.public.total = QM31.one();
+    try std.testing.expectError(error.UnbalancedRelationDomain, bundle.validate());
+    bundle.public.domains[0] = QM31.zero();
+    bundle.public.total = QM31.zero();
+    bundle.components[0].domain_sums[0] = QM31.one();
+    bundle.components[0].domain_sums[2] = QM31.one().neg();
+    bundle.aggregate.domain_sums[0] = QM31.one();
+    bundle.aggregate.domain_sums[2] = QM31.one().neg();
+    try std.testing.expectError(error.UnbalancedRelationDomain, bundle.validate());
+    bundle.components[0].domain_sums[0] = QM31.zero();
+    bundle.components[0].domain_sums[2] = QM31.zero();
+    bundle.aggregate.domain_sums[0] = QM31.zero();
+    bundle.aggregate.domain_sums[2] = QM31.zero();
 
     var tuples: std.ArrayList(u8) = .{};
     defer tuples.deinit(allocator);
