@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[2]
 EVIDENCE_BASE = ROOT / "zig-out/release-evidence/riscv/runs"
 MAX_CAPTURE_CHARS = 16_384
 DEFAULT_COMMAND_TIMEOUT_SECONDS = 3_600.0
+HOSTED_NO_DEVICE_ALLOWANCE = "STWO_ZIG_ALLOW_EXPLICIT_NO_METAL_DEVICE"
 
 
 def command_plan(
@@ -243,6 +244,10 @@ def run_gate(
     failures = []
     if initial_status:
         failures.append("initial repository is dirty")
+    if HOSTED_NO_DEVICE_ALLOWANCE in os.environ:
+        failures.append(
+            f"forbidden hosted-only environment variable is set: {HOSTED_NO_DEVICE_ALLOWANCE}"
+        )
 
     head = subprocess.run(
         ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
@@ -280,6 +285,7 @@ def run_gate(
             "machine": platform.machine(),
             "node": platform.node(),
             "ci": bool(os.environ.get("CI")),
+            "hosted_no_device_allowance_present": HOSTED_NO_DEVICE_ALLOWANCE in os.environ,
         },
         "toolchains": _tool_versions(root),
         "git": {

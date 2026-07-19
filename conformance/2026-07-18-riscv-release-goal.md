@@ -1267,7 +1267,10 @@ Additional requirements:
   must then execute the installed loader and observe only the exact fail-closed
   no-device diagnostic. A real-device local Darwin CP-13 run must successfully
   load the library and resolve all 279 programs. CP-13 must not hide either path
-  as an optional skip or select an executable by ignored cache order.
+  as an optional skip or select an executable by ignored cache order. Its
+  controller rejects the hosted-only no-device allowance if inherited from the
+  environment, and the hosted branch accepts only exit code 1, empty stdout,
+  and the complete normalized two-line no-device diagnostic.
 - The live oracle procedure from CP-11 is part of strict release evidence, not an
   optional local flag.
 - The installed CLI completes a representative multi-shard ELF prove/verify and

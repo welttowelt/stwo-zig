@@ -16,6 +16,11 @@ TEMPLATE = ROOT / "vectors/cairo/sn_pie_2_composition.bin"
 METALLIB = ROOT / "vectors/cairo/sn_pie_2_composition.metallib"
 METALLIB_OVERRIDE = "STWO_ZIG_COMPOSITION_METALLIB"
 ALLOW_EXPLICIT_NO_DEVICE = "STWO_ZIG_ALLOW_EXPLICIT_NO_METAL_DEVICE"
+NO_DEVICE_EXIT_CODE = 1
+NO_DEVICE_STDERR_LINES = [
+    "error: Full Metal initialization failed: No Metal device available",
+    "error: RuntimeInitializationFailed",
+]
 SPEC = importlib.util.spec_from_file_location("sn_pie_composition_bundle", SCRIPT)
 MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
@@ -271,7 +276,42 @@ def composition_metallib() -> Path:
     return Path(override) if override else METALLIB
 
 
+def is_exact_no_device_failure(completed: subprocess.CompletedProcess[str]) -> bool:
+    return (
+        completed.returncode == NO_DEVICE_EXIT_CODE
+        and completed.stdout == ""
+        and completed.stderr.splitlines() == NO_DEVICE_STDERR_LINES
+    )
+
+
 class SnPieCompositionBundleTest(unittest.TestCase):
+    def test_no_device_allowance_accepts_only_the_complete_normalized_failure(self):
+        exact = subprocess.CompletedProcess(
+            args=["metal-eval-prepare"],
+            returncode=NO_DEVICE_EXIT_CODE,
+            stdout="",
+            stderr="\n".join(NO_DEVICE_STDERR_LINES) + "\n",
+        )
+        self.assertTrue(is_exact_no_device_failure(exact))
+        for changed in (
+            subprocess.CompletedProcess(exact.args, 137, exact.stdout, exact.stderr),
+            subprocess.CompletedProcess(exact.args, exact.returncode, "unexpected", exact.stderr),
+            subprocess.CompletedProcess(
+                exact.args,
+                exact.returncode,
+                exact.stdout,
+                "fatal: unrelated loader corruption\n" + exact.stderr,
+            ),
+            subprocess.CompletedProcess(
+                exact.args,
+                exact.returncode,
+                exact.stdout,
+                NO_DEVICE_STDERR_LINES[0] + "\n",
+            ),
+        ):
+            with self.subTest(changed=changed):
+                self.assertFalse(is_exact_no_device_failure(changed))
+
     def test_memory_address_stride_substitutions_follow_trace_domain(self):
         self.assertEqual(
             MODULE.memory_address_stride_substitutions("memory_address_to_id", 20, 14),
@@ -340,12 +380,13 @@ class SnPieCompositionBundleTest(unittest.TestCase):
                     f"stdout:\n{completed.stdout}\n"
                     f"stderr:\n{completed.stderr}",
                 )
-                self.assertEqual("", completed.stdout)
-                self.assertIn(
-                    "Full Metal initialization failed: No Metal device available",
-                    completed.stderr,
+                self.assertTrue(
+                    is_exact_no_device_failure(completed),
+                    "host allowance accepts only exit 1, empty stdout, and the "
+                    "complete normalized no-device diagnostic\n"
+                    f"stdout:\n{completed.stdout}\n"
+                    f"stderr:\n{completed.stderr}",
                 )
-                self.assertIn("RuntimeInitializationFailed", completed.stderr)
                 return
 
             loaded = json.loads(completed.stdout)

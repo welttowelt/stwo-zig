@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import subprocess
 import tempfile
 import time
@@ -638,6 +639,46 @@ class ExecutionEvidenceTests(unittest.TestCase):
                 self.assertEqual("FAIL", payload["status"])
                 self.assertIn(blocker, payload["failures"])
 
+    def test_controller_rejects_the_hosted_no_device_allowance(self) -> None:
+        with tempfile.TemporaryDirectory() as repository, tempfile.TemporaryDirectory() as output:
+            root = Path(repository)
+            candidate = self.repository(root)
+            calls: list[list[str]] = []
+
+            def runner(command: list[str], _: Path) -> dict[str, object]:
+                calls.append(command)
+                raise AssertionError("controller executed with the hosted-only allowance")
+
+            evidence_dir = Path(output) / "session"
+            report = evidence_dir / "gate.json"
+            with (
+                mock.patch.dict(
+                    os.environ,
+                    {controller.HOSTED_NO_DEVICE_ALLOWANCE: "1"},
+                ),
+                mock.patch.object(controller, "repository_contract_errors", return_value=[]),
+                mock.patch.object(controller, "_tool_versions", return_value={}),
+                mock.patch.object(controller, "_artifact_digests", return_value={}),
+            ):
+                code = controller.run_gate(
+                    [["must-not-run"]],
+                    phase="candidate",
+                    candidate=candidate,
+                    evidence_dir=evidence_dir,
+                    report_out=report,
+                    root=root,
+                    runner=runner,
+                )
+            payload = json.loads(report.read_text(encoding="utf-8"))
+            self.assertEqual(1, code)
+            self.assertEqual([], calls)
+            self.assertTrue(payload["host"]["hosted_no_device_allowance_present"])
+            self.assertIn(
+                "forbidden hosted-only environment variable is set: "
+                + controller.HOSTED_NO_DEVICE_ALLOWANCE,
+                payload["failures"],
+            )
+
     def test_execution_is_fail_fast_and_report_names_only_executed_commands(self) -> None:
         with tempfile.TemporaryDirectory() as repository, tempfile.TemporaryDirectory() as output:
             root = Path(repository)
@@ -723,6 +764,7 @@ class ExecutionEvidenceTests(unittest.TestCase):
             self.assertEqual(["one", "two"], [row["command"][0] for row in payload["commands"]])
             self.assertEqual("", payload["git"]["initial_porcelain"])
             self.assertEqual("", payload["git"]["final_porcelain"])
+            self.assertFalse(payload["host"]["hosted_no_device_allowance_present"])
             self.assertEqual([], list(evidence_dir.glob(".*.tmp")))
 
     def test_zero_exit_with_skipped_required_tests_still_fails_closed(self) -> None:
