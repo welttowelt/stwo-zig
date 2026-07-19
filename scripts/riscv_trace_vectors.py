@@ -28,8 +28,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-import riscv_trace_admission as admission
-import riscv_trace_attestation as attestation
+from riscv_trace_vectors_lib import admission, attestation
 
 ROOT = Path(__file__).resolve().parent.parent
 VECTOR_DIR = ROOT / "vectors" / "riscv_elfs"
