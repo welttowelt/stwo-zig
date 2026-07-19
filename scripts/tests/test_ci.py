@@ -110,12 +110,24 @@ class CiTests(unittest.TestCase):
         self,
     ) -> None:
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        metal_job = workflow.split("  metal-acceptance:", 1)[1].split(
+            "  riscv-release-evidence:", 1
+        )[0]
         self.assertIn(
             "xcode-select --print-path | grep -q '^/Applications/Xcode'",
-            workflow,
+            metal_job,
         )
-        self.assertIn("xcrun --sdk macosx --find metal", workflow)
-        self.assertIn("xcrun --sdk macosx --find metallib", workflow)
+        self.assertIn("xcrun --sdk macosx --find metal", metal_job)
+        self.assertIn("xcrun --sdk macosx --find metallib", metal_job)
+        self.assertIn("name: Setup Python", metal_job)
+        self.assertIn('python-version: "3.13"', metal_job)
+        self.assertIn(
+            "zig build metal-eval-prepare -Doptimize=ReleaseFast", metal_job
+        )
+        self.assertIn(
+            "SnPieCompositionBundleTest.test_sn1_retarget_loads_in_zig_with_existing_metallib",
+            metal_job,
+        )
         self.assertIn(
             "zig build metal-core-aot -Doptimize=ReleaseSafe",
             workflow,
@@ -151,6 +163,18 @@ class CiTests(unittest.TestCase):
 
         metal_products = (ROOT / "build_support/metal_products.zig").read_text(
             encoding="utf-8"
+        )
+        self.assertIn(
+            "const install_metal_eval_prepare = b.addInstallArtifact(",
+            metal_products,
+        )
+        self.assertIn(
+            "metal_eval_prepare_step.dependOn(&install_metal_eval_prepare.step);",
+            metal_products,
+        )
+        self.assertIn(
+            "b.getInstallStep().dependOn(&install_metal_eval_prepare.step);",
+            metal_products,
         )
         self.assertIn(
             "metal_check_step.dependOn(&metal_tests.step);", metal_products

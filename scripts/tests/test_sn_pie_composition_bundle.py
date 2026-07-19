@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import struct
 import subprocess
+import sys
 import tempfile
 import unittest
 from collections.abc import Iterable
@@ -257,10 +258,9 @@ def write_canonical_preprocessed(path: Path) -> None:
             stream.write(bytes(4))
 
 
-def latest_metal_eval_prepare() -> Path | None:
-    candidates = list((ROOT / ".zig-cache/o").glob("*/metal-eval-prepare"))
-    candidates = [path for path in candidates if path.is_file()]
-    return max(candidates, key=lambda path: path.stat().st_mtime) if candidates else None
+def installed_metal_eval_prepare() -> Path | None:
+    path = ROOT / "zig-out/bin/metal-eval-prepare"
+    return path if path.is_file() else None
 
 
 class SnPieCompositionBundleTest(unittest.TestCase):
@@ -295,36 +295,45 @@ class SnPieCompositionBundleTest(unittest.TestCase):
         self.assertEqual(result["max_evaluation_log_size"], 24)
         self.assertEqual(result["changes"], {})
 
-    def test_sn1_retarget_loads_in_zig_with_existing_metallib(self):
-        runner = latest_metal_eval_prepare()
-        if runner is None or not METALLIB.is_file():
-            self.skipTest("built metal-eval-prepare and the checked-in metallib are required")
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            proof = root / "sn1-proof.json"
-            output = root / "composition.bin"
-            template_labels = [item["label"] for item in components(TEMPLATE.read_bytes())]
-            write_proof(
-                proof,
-                SN1_LOGS,
-                [label for label in template_labels if label not in SN1_LOGS],
-            )
-            result = MODULE.retarget(TEMPLATE, proof, output)
-            completed = subprocess.run(
-                [runner, output, METALLIB],
-                cwd=ROOT,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
+    if sys.platform == "darwin":
 
-        loaded = json.loads(completed.stdout)
-        self.assertEqual(result["changed_components"], 35)
-        self.assertEqual(result["max_evaluation_log_size"], 25)
-        self.assertEqual(loaded["components"], 58)
-        self.assertEqual(loaded["programs"], 279)
-        self.assertEqual(loaded["source_bytes"], 0)
-        self.assertTrue(loaded["all_programs_compiled"])
+        def test_sn1_retarget_loads_in_zig_with_existing_metallib(self):
+            runner = installed_metal_eval_prepare()
+            self.assertIsNotNone(runner)
+            self.assertTrue(METALLIB.is_file())
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                proof = root / "sn1-proof.json"
+                output = root / "composition.bin"
+                template_labels = [
+                    item["label"] for item in components(TEMPLATE.read_bytes())
+                ]
+                write_proof(
+                    proof,
+                    SN1_LOGS,
+                    [label for label in template_labels if label not in SN1_LOGS],
+                )
+                result = MODULE.retarget(TEMPLATE, proof, output)
+                completed = subprocess.run(
+                    [runner, output, METALLIB],
+                    cwd=ROOT,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+
+            loaded = json.loads(completed.stdout)
+            self.assertEqual(result["changed_components"], 35)
+            self.assertEqual(result["max_evaluation_log_size"], 25)
+            self.assertEqual(loaded["components"], 58)
+            self.assertEqual(loaded["programs"], 279)
+            self.assertEqual(loaded["source_bytes"], 0)
+            self.assertTrue(loaded["all_programs_compiled"])
+
+    else:
+
+        def test_metal_eval_prepare_is_absent_on_unsupported_host(self):
+            self.assertIsNone(installed_metal_eval_prepare())
 
     def test_fib_25k_projection_has_authenticated_30_component_geometry(self):
         template_data = TEMPLATE.read_bytes()

@@ -31,6 +31,7 @@ def command_plan(
     stark_v_source: Path | None,
     candidate: str,
     evidence_dir: Path,
+    host_system: str | None = None,
 ) -> list[list[str]]:
     python = sys.executable
     cli_evidence = evidence_dir / "cli"
@@ -42,26 +43,33 @@ def command_plan(
         [python, "scripts/check_riscv_release_contract.py", "--structure"],
         [python, "scripts/check_riscv_release_contract.py", "--core-purity"],
         [python, "scripts/check_riscv_release_contract.py", "--frontend-layering"],
-        ["zig", "build", "metal-eval-prepare", "-Doptimize=ReleaseFast"],
-        [
-            python,
-            "-m",
-            "unittest",
-            "discover",
-            "-s",
-            "scripts/tests",
-            "-p",
-            "test_*.py",
-        ],
-        [
-            python,
-            "scripts/riscv_staged_smoke.py",
-            "--phase",
-            phase,
-            "--evidence-dir",
-            str(cli_evidence),
-        ],
     ]
+    if (platform.system() if host_system is None else host_system) == "Darwin":
+        commands.append(
+            ["zig", "build", "metal-eval-prepare", "-Doptimize=ReleaseFast"]
+        )
+    commands.extend(
+        [
+            [
+                python,
+                "-m",
+                "unittest",
+                "discover",
+                "-s",
+                "scripts/tests",
+                "-p",
+                "test_*.py",
+            ],
+            [
+                python,
+                "scripts/riscv_staged_smoke.py",
+                "--phase",
+                phase,
+                "--evidence-dir",
+                str(cli_evidence),
+            ],
+        ]
+    )
     if strict:
         if stark_v_source is None:
             raise ValueError("--strict requires --stark-v-source")

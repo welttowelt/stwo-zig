@@ -92,11 +92,22 @@ jobs:
         with:
           version: 0.15.2
 
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+
       - name: Require full Xcode offline Metal tools
         run: |
           xcode-select --print-path | grep -q '^/Applications/Xcode'
           xcrun --sdk macosx --find metal
           xcrun --sdk macosx --find metallib
+
+      - name: Exercise SN-PIE composition metallib loader
+        run: |
+          zig build metal-eval-prepare -Doptimize=ReleaseFast
+          python3 -m unittest \
+            scripts.tests.test_sn_pie_composition_bundle.SnPieCompositionBundleTest.test_sn1_retarget_loads_in_zig_with_existing_metallib
 
       - name: Capture reproducible Full-Xcode AOT build receipt
         run: |

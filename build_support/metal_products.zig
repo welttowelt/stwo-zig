@@ -179,9 +179,10 @@ pub fn addProducts(context: Context) void {
         .root_module = metal_eval_prepare_module,
     });
     linkRuntime(b, metal_eval_prepare);
-    b.installArtifact(metal_eval_prepare);
+    const install_metal_eval_prepare = b.addInstallArtifact(metal_eval_prepare, .{});
+    b.getInstallStep().dependOn(&install_metal_eval_prepare.step);
     const metal_eval_prepare_step = b.step("metal-eval-prepare", "Compile exact SN Cairo AIR programs for Metal");
-    metal_eval_prepare_step.dependOn(&metal_eval_prepare.step);
+    metal_eval_prepare_step.dependOn(&install_metal_eval_prepare.step);
 
     const metal_eval_source_module = b.createModule(.{
         .root_source_file = b.path("src/tools/cairo_metal_codegen/eval_source.zig"),

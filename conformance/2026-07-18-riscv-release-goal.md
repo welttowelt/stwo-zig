@@ -5,8 +5,11 @@
 **Created:** 2026-07-18
 
 **Last reconciled:** 2026-07-19 against the committed implementation through
-`d3b6b5c0`. No checkpoint is promoted by implementation work alone; the fresh
-clean-candidate controller remains the acceptance authority.
+`bae4ff48`. That exact revision passed the strict candidate controller locally,
+then failed hosted candidate run `29682036388` at a macOS-only build-step
+preflight. No checkpoint is promoted by local evidence alone; the next fresh
+clean-candidate controller and matching hosted run remain the acceptance
+authority.
 
 **Authority:** This is the operative delivery contract for the Stark-V RV32IM
 lane. It may be replaced only by a reviewed document that names every changed
@@ -38,14 +41,16 @@ from one clean candidate, performing a non-semantic registry promotion, and
 completing core-purity/frontend-layering bias audits while keeping RISC-V
 autoresearch scoring disabled until independently qualified.
 
-**Last accepted live-oracle evidence:** `30bc24ecaa4a5ed21cd4fa2455bed81bbce8553a`.
-The live pinned-Rust receipt at that revision passes 9 of 11 shared boundaries.
-It is diagnostic parity evidence, not a release acceptance receipt. The current
-committed implementation through `d3b6b5c0` also contains production assembly,
-cross-shard rejection, retained-buffer public binding, the exhaustive public
-mutation matrix, complete transcript-state receipts, production-artifact public
-comparison, and limitation-aware relation receipt machinery. None changes the
-release decision without a fresh clean-candidate receipt.
+**Last accepted live-oracle evidence:**
+`bae4ff484c4f8edb750c2a7924983b36aece3b21`. Its clean local strict candidate
+receipt passes all 11 shared boundaries and binds the complete corpus, relation
+domains, physical provenance, transcript prefix, and documented pinned
+signed-`MULH` limitation. The enclosing local CP-13 run passed in 665.529 seconds
+with a clean start and end tree. Hosted run `29682036388` rejected the same
+revision before Python discovery because Linux correctly exposes no
+`metal-eval-prepare` build step. The local receipt is therefore valid diagnostic
+evidence but cannot authorize RF-01 until a new exact candidate passes both local
+and hosted controllers.
 
 ## Goal
 
@@ -325,28 +330,29 @@ The current committed implementation baseline is `d3b6b5c0`. It contains:
   without removing any owned test, parity, vector, or benchmark gate; and
 - full Python discovery plus retained Native and RISC-V CI evidence ownership
   through `515dd87d`; and
-- explicit preparation and execution of the SN-PIE Metal loader integration,
-  removing the last Python discovery skip, through `d3b6b5c0`.
+- explicit Darwin preparation and execution of the SN-PIE Metal loader
+  integration, removing the last local Python discovery skip, through
+  `d3b6b5c0`; and
+- exact-output retirement in the proof-checkpoint harness through `bae4ff48`,
+  proven by two consecutive 12-case, 288-step matrix passes.
 
-The latest committed integrations are diagnostic progress, not accepted release
-evidence. Focused component tests and production ELF proof/verify roundtrips
-passed after the interaction tree landed, but no run is a clean-candidate CP-13
-receipt. CP-04 through CP-06 therefore remain `IN_PROGRESS`; the required
-multi-shard, non-vacuous relation-domain closure, complete malicious-witness
-fleet, and clean pinned-Rust evidence have not been replaced by those
-roundtrips. Retained production buffers now establish the public algebraic
-binding implementation and the separate-process receipt establishes transcript
-state symmetry, but neither establishes full-corpus Rust relation parity or
-release acceptance without the clean candidate controller.
+The clean local `bae4ff48` controller exercised cross-shard proof placement,
+non-vacuous twelve-domain relation closure, the malicious-witness fleet, public
+algebraic binding, transcript symmetry, installed schema-v3 CLI prove/verify,
+and the full pinned-Rust oracle. That closes the former local implementation and
+evidence gaps for CP-00 through CP-12. Their ledger rows remain `IN_PROGRESS`
+because the sign-off protocol requires the same candidate to pass hosted CP-13;
+the failed hosted preflight cannot be replaced by the valid local receipt.
 
-The committed relation-evidence implementation has passed focused adversarial
-review and one production-valid Fib tuple/sum comparison, but that diagnostic
-run is not a fresh corpus-wide clean-candidate receipt. It therefore advances
-CP-05 and CP-11 implementation without changing their checkpoint status. The
-committed schema-v3 CLI/artifact, release corpus, and mechanical divergence
-preflight similarly advance CP-01, CP-02, CP-09, CP-10, and CP-13
-implementation, but remain unaccepted until the complete checkpoint receipts
-pass. Uncommitted code and output from it remain diagnostic by definition.
+The hosted failure is a gate portability defect, not a semantic divergence:
+`metal-eval-prepare` is deliberately absent from Linux build graphs. The next
+candidate conditions that preparation on Darwin, makes the Linux loader contract
+an executed zero-skip platform assertion, and gives the real loader integration
+an explicit macOS Metal-acceptance owner. The build step installs and executes
+the exact `zig-out/bin/metal-eval-prepare` product instead of selecting an ignored
+cache executable by modification time. A new local and hosted strict receipt is
+mandatory after that change. Uncommitted code and output remain diagnostic by
+definition.
 
 The pinned Rust and Zig narrow-Poseidon2 witness generators have reached exact
 445-column parity for the focused `Call.narrow(1, 2)` row, and the committed
@@ -1214,7 +1220,9 @@ python3 scripts/check_riscv_release_contract.py --all --phase candidate
 python3 scripts/check_riscv_release_contract.py --structure
 python3 scripts/check_riscv_release_contract.py --core-purity
 python3 scripts/check_riscv_release_contract.py --frontend-layering
-zig build metal-eval-prepare -Doptimize=ReleaseFast
+if [ "$(uname -s)" = Darwin ]; then
+  zig build metal-eval-prepare -Doptimize=ReleaseFast
+fi
 python3 -m unittest discover -s scripts/tests -p 'test_*.py'
 python3 scripts/riscv_staged_smoke.py \
   --phase candidate \
@@ -1244,9 +1252,13 @@ Additional requirements:
 - The first and last dirty-tree assertions fail on any tracked or untracked,
   non-ignored path.
 - Required tests report zero skipped tests.
-- Full Python discovery compiles `metal-eval-prepare` first so the checked-in
-  SN-PIE composition metallib loader test executes; CP-13 must not hide or
-  allowlist that integration as an optional skip.
+- On Darwin, full Python discovery compiles `metal-eval-prepare` first so the
+  exact installed `zig-out/bin/metal-eval-prepare` product and the checked-in
+  SN-PIE composition metallib loader test execute. On non-Darwin hosts the test
+  executes the platform-unavailability contract without a skip. The hosted
+  macOS Metal-acceptance lane separately builds and runs the real loader
+  integration; CP-13 must not hide or allowlist it as an optional skip or select
+  an executable by ignored cache order.
 - The live oracle procedure from CP-11 is part of strict release evidence, not an
   optional local flag.
 - The installed CLI completes a representative multi-shard ELF prove/verify and
@@ -1441,12 +1453,12 @@ remains `IN_PROGRESS`.
 | CP-08 Transcript | IN_PROGRESS | Shared public-data prefix passes at `88870d2c`; fixed schema-v3 claim mixing lands through `e4119c3f`; the full production event trace and mutation probes land through `93ff11e4`; separate-process receipts bind final digest plus draw count and executable/build identity through `283f16df` | Rerun the transcript-state receipt and full mutation evidence on the clean candidate |
 | CP-09 CLI | IN_PROGRESS | Installed strict candidate prove/verify boundary and independent-process verification are committed through `6bcca4bd`; complete transcript-state receipts land through `283f16df`; the adapter remains staged | Exercise the full installed multi-shard prove/verify/benchmark matrix and post-RF-01 promoted matrix from clean checkouts |
 | CP-10 Artifact | IN_PROGRESS | Bounded schema v3, atomic path, owned statement, external expected digest, hostile preflight, exact wire reconstruction, provenance validation, security-policy checks, and occupied-output preservation are committed through `6bcca4bd` | Bind the final exact shard/infra claims, complete hostile-decoding and DoS coverage, then pass candidate/promoted clean evidence |
-| CP-11 Rust oracle | FAIL | Fresh `30bc24ec` receipt is 9/11; bound relation exporters and deterministic provenance are committed; exact balanced-family and pinned-limitation receipt modes, including eight frozen invalid requests and no-artifact production rejection, land through `09ab473e` | Run the fresh clean-candidate full-corpus receipt and require all 11 boundaries, exactly 12 relation domains, and canonical physical provenance to pass |
+| CP-11 Rust oracle | IN_PROGRESS | Clean local `bae4ff48` receipt passes all 11 boundaries, exactly 12 relation domains, canonical physical provenance, and the pinned signed-`MULH` limitation | Reproduce the fresh 11/11 receipt on the next exact candidate in hosted CP-13 and preserve it after RF-01 |
 | CP-12 Adversarial fleet | IN_PROGRESS | Padding, memory geometry, narrow Poseidon, transcript, CLI, artifact, and cross-shard mutations advance through `91710ca9` and `93ff11e4`; the production public/claim matrix rejects 176 attempts with exact PoW-versus-LogUp classes through `5044dc1f` | Preserve the complete semantic, public, Merkle/table, multi-shard, and artifact fleet in final clean-candidate evidence |
-| CP-13 Release gate | IN_PROGRESS | Phase-aware controller, named structure/core/frontend selectors, pre-command fail closure, and clean candidate/oracle receipt validation are committed; tracked-archive self-dirtying is removed, full Python discovery has zero skips, and one transitive generic gate owns the expensive graph through `d3b6b5c0`; final evidence not accepted | Strict candidate and promoted controllers pass locally and in clean CI |
+| CP-13 Release gate | IN_PROGRESS | Clean local `bae4ff48` strict candidate passes in 665.529 seconds with zero skips and clean start/end state; hosted run `29682036388` fails before discovery because Linux has no macOS-only `metal-eval-prepare` step; cross-host ownership is corrected in the next candidate | The next exact candidate passes strict controllers locally and in hosted CI, followed by the promoted controller |
 | RF-01 Registry flip | NOT_STARTED | None | Atomic promotion commit and post-flip gate |
-| BA-01 Core purity | IN_PROGRESS | Named mechanical checker passes through `75a74318` | Preserve and rerun it in candidate and promoted CP-13 evidence |
-| BA-02 Frontend layering | IN_PROGRESS | The active `silent` path is removed; infrastructure and prover ownership are decomposed through `ca3c3d56`; the mechanical frontend-layering selector passes diagnostically at `60a5d93e` | Preserve the clean selector result and prove no semantic or proof-byte drift in candidate and promoted CP-13 evidence |
+| BA-01 Core purity | IN_PROGRESS | Named mechanical checker passes in clean local `bae4ff48` CP-13 evidence | Reproduce it in hosted candidate and local/hosted promoted evidence |
+| BA-02 Frontend layering | IN_PROGRESS | The active `silent` path is removed; infrastructure and prover ownership are decomposed through `ca3c3d56`; the named selector passes in clean local `bae4ff48` CP-13 evidence | Reproduce the selector and no-drift proof in hosted candidate and local/hosted promoted evidence |
 | BA-03 Autoresearch | FAIL | Correctly disabled at `c0720031` | Keep disabled, or satisfy independent activation gates |
 
 ## Definition of done

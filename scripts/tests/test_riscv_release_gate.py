@@ -503,6 +503,7 @@ class CommandPlanTests(unittest.TestCase):
             stark_v_source=None,
             candidate=COMMIT,
             evidence_dir=Path("/evidence"),
+            host_system="Linux",
         )
         rendered = [" ".join(command) for command in plan]
         self.assertTrue(any("check_riscv_release_contract.py --all --phase candidate" in row for row in rendered))
@@ -511,16 +512,44 @@ class CommandPlanTests(unittest.TestCase):
         self.assertTrue(any("check_riscv_release_contract.py --frontend-layering" in row for row in rendered))
         self.assertTrue(any("riscv_staged_smoke.py --phase candidate" in row for row in rendered))
         self.assertTrue(any("unittest discover -s scripts/tests -p test_*.py" in row for row in rendered))
-        loader_index = rendered.index(
-            "zig build metal-eval-prepare -Doptimize=ReleaseFast"
-        )
-        discovery_index = next(
-            index for index, row in enumerate(rendered) if "unittest discover" in row
-        )
-        self.assertLess(loader_index, discovery_index)
         self.assertFalse(any("riscv_release_oracle.py" in row for row in rendered))
         self.assertEqual("zig build release-gate -Doptimize=ReleaseFast", rendered[-1])
         self.assertFalse(any("test-riscv-prover" in row for row in rendered))
+
+    def test_macos_plan_prepares_metal_immediately_before_discovery(self) -> None:
+        plan = command_plan(
+            strict=False,
+            phase="candidate",
+            stark_v_source=None,
+            candidate=COMMIT,
+            evidence_dir=Path("/evidence"),
+            host_system="Darwin",
+        )
+        rendered = [" ".join(command) for command in plan]
+        loader = "zig build metal-eval-prepare -Doptimize=ReleaseFast"
+        self.assertEqual(1, rendered.count(loader))
+        loader_index = rendered.index(loader)
+        discovery_index = next(
+            index for index, row in enumerate(rendered) if "unittest discover" in row
+        )
+        self.assertEqual(loader_index + 1, discovery_index)
+
+    def test_linux_plan_executes_discovery_without_a_metal_only_build_step(self) -> None:
+        plan = command_plan(
+            strict=False,
+            phase="candidate",
+            stark_v_source=None,
+            candidate=COMMIT,
+            evidence_dir=Path("/evidence"),
+            host_system="Linux",
+        )
+        rendered = [" ".join(command) for command in plan]
+        self.assertNotIn(
+            "zig build metal-eval-prepare -Doptimize=ReleaseFast", rendered
+        )
+        self.assertTrue(
+            any("unittest discover -s scripts/tests -p test_*.py" in row for row in rendered)
+        )
 
     def test_strict_plan_generates_then_validates_candidate_bound_oracle_evidence(self) -> None:
         source = Path("/oracle")
@@ -530,6 +559,7 @@ class CommandPlanTests(unittest.TestCase):
             stark_v_source=source,
             candidate=COMMIT,
             evidence_dir=Path("/evidence"),
+            host_system="Linux",
         )
         rendered = [" ".join(command) for command in plan]
         self.assertNotIn("zig build release-gate -Doptimize=ReleaseFast", rendered)
