@@ -24,6 +24,23 @@ const ManifestJson = struct {
             try writer.write(@tagName(entry.family));
             try writer.objectField("program_shape");
             try writer.write(@tagName(entry.program_shape));
+            try writer.objectField("encoding_class");
+            try writer.write(@tagName(entry.encoding_class));
+            try writer.objectField("witness_schema");
+            try writer.write(@tagName(entry.witness_schema));
+            try writer.objectField("semantic_component");
+            try writer.write(@tagName(entry.semantic_component));
+            try writer.objectField("relation_domains");
+            try writer.beginArray();
+            inline for (@typeInfo(manifest.RelationDomain).@"enum".fields) |field| {
+                const domain: manifest.RelationDomain = @enumFromInt(field.value);
+                if (entry.relation_domains.contains(domain)) try writer.write(field.name);
+            }
+            try writer.endArray();
+            try writer.objectField("execution_supported");
+            try writer.write(entry.execution_supported);
+            try writer.objectField("proof_eligibility");
+            try writer.write(@tagName(entry.proof_eligibility));
             try writer.endObject();
         }
         try writer.endArray();
@@ -93,4 +110,7 @@ test "machine-readable view contains both proof and execution-only policy" {
     defer parsed.deinit();
     try std.testing.expectEqual(@as(usize, 45), parsed.value.object.get("supported").?.array.items.len);
     try std.testing.expectEqual(@as(usize, 15), parsed.value.object.get("unsupported").?.array.items.len);
+    const first = parsed.value.object.get("supported").?.array.items[0].object;
+    try std.testing.expectEqualStrings("r_type", first.get("encoding_class").?.string);
+    try std.testing.expect(first.get("relation_domains").?.array.items.len >= 4);
 }

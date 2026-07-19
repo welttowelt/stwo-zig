@@ -60,6 +60,9 @@ test "all 45 proof opcodes reach witness, semantic, lookup, and component author
         try std.testing.expectEqual(protocol_id, manifest_entry.opcode.protocolId());
         const family = manifest_entry.family;
         covered_families[@intFromEnum(family)] = true;
+        try std.testing.expect(manifest_entry.execution_supported);
+        try std.testing.expectEqual(family, manifest_entry.witness_schema);
+        try std.testing.expectEqual(family, manifest_entry.semantic_component);
 
         const Layout = witness_layout.LayoutFor(family);
         const layout_fields = @typeInfo(Layout).@"struct".fields;
@@ -77,10 +80,13 @@ test "all 45 proof opcodes reach witness, semantic, lookup, and component author
         try std.testing.expectEqual(lookup_entries.batchCount(family), requests.batchCount());
 
         var domains = [_]bool{false} ** lookup_entry.DOMAIN_COUNT;
+        var domain_bits: u16 = 0;
         for (requests.entries[0..requests.len]) |request| {
             try request.validate();
             domains[@intFromEnum(request.domain)] = true;
+            domain_bits |= @as(u16, 1) << @intFromEnum(request.domain);
         }
+        try std.testing.expectEqual(manifest_entry.relation_domains.bits, domain_bits);
         try std.testing.expect(domains[@intFromEnum(lookup_entry.Domain.program_access)]);
         try std.testing.expect(domains[@intFromEnum(lookup_entry.Domain.registers_state)]);
         try std.testing.expect(domains[@intFromEnum(lookup_entry.Domain.memory_access)]);
@@ -92,6 +98,10 @@ test "all 45 proof opcodes reach witness, semantic, lookup, and component author
         );
 
         if (semantic_eval.isTraceCompatible(family)) {
+            try std.testing.expectEqual(
+                opcode_manifest.ProofEligibility.admitted,
+                manifest_entry.proof_eligibility,
+            );
             const component = try semantic_component.SemanticComponent.init(family, 0, 0, 0);
             try std.testing.expectEqual(family, component.family);
             try std.testing.expectEqual(layout_fields.len, component.mainColumnCount());
@@ -99,6 +109,10 @@ test "all 45 proof opcodes reach witness, semantic, lookup, and component author
         } else {
             // The pinned signed-MULH family remains the sole fail-closed limitation.
             try std.testing.expectEqual(opcode_manifest.Family.mulh, family);
+            try std.testing.expectEqual(
+                opcode_manifest.ProofEligibility.fail_closed_signed_mulh_family,
+                manifest_entry.proof_eligibility,
+            );
             try std.testing.expectError(
                 error.IncompatibleCommittedTrace,
                 semantic_component.SemanticComponent.init(family, 0, 0, 0),

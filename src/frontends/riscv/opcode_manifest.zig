@@ -6,7 +6,7 @@
 
 const std = @import("std");
 
-pub const schema_version: u32 = 1;
+pub const schema_version: u32 = 2;
 pub const stark_v_revision = "d478f783055aa0d73a93768a433a3c6c31c91d1c";
 
 pub const Opcode = enum(u8) {
@@ -93,11 +93,59 @@ pub const ProgramShape = enum {
     auipc,
 };
 
+pub const EncodingClass = enum {
+    r_type,
+    i_type,
+    s_type,
+    b_type,
+    u_type,
+    j_type,
+};
+
+/// Relation order matches the pinned Stark-V transcript order.
+pub const RelationDomain = enum(u4) {
+    registers_state,
+    memory_access,
+    program_access,
+    merkle,
+    poseidon2,
+    poseidon2_io,
+    bitwise,
+    range_check_20,
+    range_check_8_11,
+    range_check_8_8_4,
+    range_check_8_8,
+    range_check_m31,
+};
+
+pub const RelationSet = struct {
+    bits: u16,
+
+    pub fn contains(self: RelationSet, domain: RelationDomain) bool {
+        return self.bits & (@as(u16, 1) << @intFromEnum(domain)) != 0;
+    }
+
+    pub fn count(self: RelationSet) u5 {
+        return @popCount(self.bits);
+    }
+};
+
+pub const ProofEligibility = enum {
+    admitted,
+    fail_closed_signed_mulh_family,
+};
+
 pub const Entry = struct {
     opcode: Opcode,
     mnemonic: []const u8,
     family: Family,
     program_shape: ProgramShape,
+    encoding_class: EncodingClass,
+    witness_schema: Family,
+    semantic_component: Family,
+    relation_domains: RelationSet,
+    execution_supported: bool,
+    proof_eligibility: ProofEligibility,
 };
 
 const reg = ProgramShape.register;
@@ -105,52 +153,99 @@ const imm = ProgramShape.immediate;
 
 /// Indexed by protocol ID. Order is part of the proof protocol.
 pub const entries = [_]Entry{
-    .{ .opcode = .add, .mnemonic = "add", .family = .base_alu_reg, .program_shape = reg },
-    .{ .opcode = .sub, .mnemonic = "sub", .family = .base_alu_reg, .program_shape = reg },
-    .{ .opcode = .sll, .mnemonic = "sll", .family = .shifts_reg, .program_shape = reg },
-    .{ .opcode = .slt, .mnemonic = "slt", .family = .lt_reg, .program_shape = reg },
-    .{ .opcode = .sltu, .mnemonic = "sltu", .family = .lt_reg, .program_shape = reg },
-    .{ .opcode = .xor, .mnemonic = "xor", .family = .base_alu_reg, .program_shape = reg },
-    .{ .opcode = .srl, .mnemonic = "srl", .family = .shifts_reg, .program_shape = reg },
-    .{ .opcode = .sra, .mnemonic = "sra", .family = .shifts_reg, .program_shape = reg },
-    .{ .opcode = .@"or", .mnemonic = "or", .family = .base_alu_reg, .program_shape = reg },
-    .{ .opcode = .@"and", .mnemonic = "and", .family = .base_alu_reg, .program_shape = reg },
-    .{ .opcode = .addi, .mnemonic = "addi", .family = .base_alu_imm, .program_shape = imm },
-    .{ .opcode = .slti, .mnemonic = "slti", .family = .lt_imm, .program_shape = imm },
-    .{ .opcode = .sltiu, .mnemonic = "sltiu", .family = .lt_imm, .program_shape = imm },
-    .{ .opcode = .xori, .mnemonic = "xori", .family = .base_alu_imm, .program_shape = imm },
-    .{ .opcode = .ori, .mnemonic = "ori", .family = .base_alu_imm, .program_shape = imm },
-    .{ .opcode = .andi, .mnemonic = "andi", .family = .base_alu_imm, .program_shape = imm },
-    .{ .opcode = .slli, .mnemonic = "slli", .family = .shifts_imm, .program_shape = .shift_immediate },
-    .{ .opcode = .srli, .mnemonic = "srli", .family = .shifts_imm, .program_shape = .shift_immediate },
-    .{ .opcode = .srai, .mnemonic = "srai", .family = .shifts_imm, .program_shape = .shift_immediate },
-    .{ .opcode = .lb, .mnemonic = "lb", .family = .load_store, .program_shape = .load },
-    .{ .opcode = .lh, .mnemonic = "lh", .family = .load_store, .program_shape = .load },
-    .{ .opcode = .lw, .mnemonic = "lw", .family = .load_store, .program_shape = .load },
-    .{ .opcode = .lbu, .mnemonic = "lbu", .family = .load_store, .program_shape = .load },
-    .{ .opcode = .lhu, .mnemonic = "lhu", .family = .load_store, .program_shape = .load },
-    .{ .opcode = .sb, .mnemonic = "sb", .family = .load_store, .program_shape = .store },
-    .{ .opcode = .sh, .mnemonic = "sh", .family = .load_store, .program_shape = .store },
-    .{ .opcode = .sw, .mnemonic = "sw", .family = .load_store, .program_shape = .store },
-    .{ .opcode = .beq, .mnemonic = "beq", .family = .branch_eq, .program_shape = .branch },
-    .{ .opcode = .bne, .mnemonic = "bne", .family = .branch_eq, .program_shape = .branch },
-    .{ .opcode = .blt, .mnemonic = "blt", .family = .branch_lt, .program_shape = .branch },
-    .{ .opcode = .bge, .mnemonic = "bge", .family = .branch_lt, .program_shape = .branch },
-    .{ .opcode = .bltu, .mnemonic = "bltu", .family = .branch_lt, .program_shape = .branch },
-    .{ .opcode = .bgeu, .mnemonic = "bgeu", .family = .branch_lt, .program_shape = .branch },
-    .{ .opcode = .jal, .mnemonic = "jal", .family = .jal, .program_shape = .jal },
-    .{ .opcode = .jalr, .mnemonic = "jalr", .family = .jalr, .program_shape = .jalr },
-    .{ .opcode = .lui, .mnemonic = "lui", .family = .lui, .program_shape = .lui },
-    .{ .opcode = .auipc, .mnemonic = "auipc", .family = .auipc, .program_shape = .auipc },
-    .{ .opcode = .mul, .mnemonic = "mul", .family = .mul, .program_shape = reg },
-    .{ .opcode = .mulh, .mnemonic = "mulh", .family = .mulh, .program_shape = reg },
-    .{ .opcode = .mulhsu, .mnemonic = "mulhsu", .family = .mulh, .program_shape = reg },
-    .{ .opcode = .mulhu, .mnemonic = "mulhu", .family = .mulh, .program_shape = reg },
-    .{ .opcode = .div, .mnemonic = "div", .family = .div, .program_shape = reg },
-    .{ .opcode = .divu, .mnemonic = "divu", .family = .div, .program_shape = reg },
-    .{ .opcode = .rem, .mnemonic = "rem", .family = .div, .program_shape = reg },
-    .{ .opcode = .remu, .mnemonic = "remu", .family = .div, .program_shape = reg },
+    proof(.add, "add", .base_alu_reg, reg),
+    proof(.sub, "sub", .base_alu_reg, reg),
+    proof(.sll, "sll", .shifts_reg, reg),
+    proof(.slt, "slt", .lt_reg, reg),
+    proof(.sltu, "sltu", .lt_reg, reg),
+    proof(.xor, "xor", .base_alu_reg, reg),
+    proof(.srl, "srl", .shifts_reg, reg),
+    proof(.sra, "sra", .shifts_reg, reg),
+    proof(.@"or", "or", .base_alu_reg, reg),
+    proof(.@"and", "and", .base_alu_reg, reg),
+    proof(.addi, "addi", .base_alu_imm, imm),
+    proof(.slti, "slti", .lt_imm, imm),
+    proof(.sltiu, "sltiu", .lt_imm, imm),
+    proof(.xori, "xori", .base_alu_imm, imm),
+    proof(.ori, "ori", .base_alu_imm, imm),
+    proof(.andi, "andi", .base_alu_imm, imm),
+    proof(.slli, "slli", .shifts_imm, .shift_immediate),
+    proof(.srli, "srli", .shifts_imm, .shift_immediate),
+    proof(.srai, "srai", .shifts_imm, .shift_immediate),
+    proof(.lb, "lb", .load_store, .load),
+    proof(.lh, "lh", .load_store, .load),
+    proof(.lw, "lw", .load_store, .load),
+    proof(.lbu, "lbu", .load_store, .load),
+    proof(.lhu, "lhu", .load_store, .load),
+    proof(.sb, "sb", .load_store, .store),
+    proof(.sh, "sh", .load_store, .store),
+    proof(.sw, "sw", .load_store, .store),
+    proof(.beq, "beq", .branch_eq, .branch),
+    proof(.bne, "bne", .branch_eq, .branch),
+    proof(.blt, "blt", .branch_lt, .branch),
+    proof(.bge, "bge", .branch_lt, .branch),
+    proof(.bltu, "bltu", .branch_lt, .branch),
+    proof(.bgeu, "bgeu", .branch_lt, .branch),
+    proof(.jal, "jal", .jal, .jal),
+    proof(.jalr, "jalr", .jalr, .jalr),
+    proof(.lui, "lui", .lui, .lui),
+    proof(.auipc, "auipc", .auipc, .auipc),
+    proof(.mul, "mul", .mul, reg),
+    proof(.mulh, "mulh", .mulh, reg),
+    proof(.mulhsu, "mulhsu", .mulh, reg),
+    proof(.mulhu, "mulhu", .mulh, reg),
+    proof(.div, "div", .div, reg),
+    proof(.divu, "divu", .div, reg),
+    proof(.rem, "rem", .div, reg),
+    proof(.remu, "remu", .div, reg),
 };
+
+fn proof(comptime opcode: Opcode, mnemonic: []const u8, comptime family_id: Family, shape: ProgramShape) Entry {
+    return .{
+        .opcode = opcode,
+        .mnemonic = mnemonic,
+        .family = family_id,
+        .program_shape = shape,
+        .encoding_class = encodingClass(shape),
+        .witness_schema = family_id,
+        .semantic_component = family_id,
+        .relation_domains = relationDomains(family_id),
+        .execution_supported = true,
+        .proof_eligibility = if (family_id == .mulh) .fail_closed_signed_mulh_family else .admitted,
+    };
+}
+
+fn encodingClass(shape: ProgramShape) EncodingClass {
+    return switch (shape) {
+        .register => .r_type,
+        .immediate, .shift_immediate, .load, .jalr => .i_type,
+        .store => .s_type,
+        .branch => .b_type,
+        .lui, .auipc => .u_type,
+        .jal => .j_type,
+    };
+}
+
+fn relationSet(comptime domains: anytype) RelationSet {
+    var bits: u16 = 0;
+    inline for (domains) |domain| bits |= @as(u16, 1) << @intFromEnum(domain);
+    return .{ .bits = bits };
+}
+
+fn relationDomains(comptime family_id: Family) RelationSet {
+    const base = [_]RelationDomain{ .registers_state, .memory_access, .program_access, .range_check_20 };
+    return switch (family_id) {
+        .base_alu_reg => relationSet(base ++ [_]RelationDomain{ .bitwise, .range_check_8_8 }),
+        .base_alu_imm => relationSet(base ++ [_]RelationDomain{ .bitwise, .range_check_8_11, .range_check_8_8 }),
+        .shifts_reg, .shifts_imm, .lt_reg, .branch_lt => relationSet(base ++ [_]RelationDomain{.range_check_8_8}),
+        .lt_imm, .lui => relationSet(base ++ [_]RelationDomain{.range_check_8_8_4}),
+        .branch_eq => relationSet(base),
+        .auipc, .jalr, .jal => relationSet(base ++ [_]RelationDomain{ .range_check_8_8, .range_check_m31 }),
+        .load_store => relationSet(base ++ [_]RelationDomain{.range_check_m31}),
+        .mul, .mulh => relationSet(base ++ [_]RelationDomain{.range_check_8_11}),
+        .div => relationSet(base ++ [_]RelationDomain{ .range_check_8_11, .range_check_8_8 }),
+    };
+}
 
 pub const UnsupportedClass = enum { system, fence, rv32a };
 
