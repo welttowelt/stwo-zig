@@ -5,7 +5,7 @@
 **Created:** 2026-07-18
 
 **Last reconciled:** 2026-07-19 against the committed implementation through
-`09ab473e`. No checkpoint is promoted by implementation work alone; the fresh
+`515dd87d`. No checkpoint is promoted by implementation work alone; the fresh
 clean-candidate controller remains the acceptance authority.
 
 **Authority:** This is the operative delivery contract for the Stark-V RV32IM
@@ -41,7 +41,7 @@ autoresearch scoring disabled until independently qualified.
 **Last accepted live-oracle evidence:** `30bc24ecaa4a5ed21cd4fa2455bed81bbce8553a`.
 The live pinned-Rust receipt at that revision passes 9 of 11 shared boundaries.
 It is diagnostic parity evidence, not a release acceptance receipt. The current
-committed implementation through `09ab473e` also contains production assembly,
+committed implementation through `515dd87d` also contains production assembly,
 cross-shard rejection, retained-buffer public binding, the exhaustive public
 mutation matrix, complete transcript-state receipts, production-artifact public
 comparison, and limitation-aware relation receipt machinery. None changes the
@@ -239,7 +239,7 @@ authorize RF-01 by itself.
 
 ### Current implementation snapshot
 
-The current committed implementation baseline is `09ab473e`. It contains:
+The current committed implementation baseline is `515dd87d`. It contains:
 
 - exact six-domain lookup schemas and signed counters through `a5b68b28`;
 - a generic lookup-table AIR component through `dee14997`;
@@ -317,7 +317,14 @@ The current committed implementation baseline is `09ab473e`. It contains:
   test, and normalized CLI evidence through `a974e591`; and
 - pinned-Rust diagnostic receipt production and validation through `09ab473e`,
   freezing all eight invalid requests, source digests, proof/report absence, and
-  exact no-residue CLI rejection.
+  exact no-residue CLI rejection;
+- clean automated Native interop evidence routing through `48e30f7a`, preserving
+  the tracked archive for explicit formal publication;
+- exactly one transitive generic release gate per RISC-V phase through
+  `473071a0`, removing two redundant executions of the expensive prover suite
+  without removing any owned test, parity, vector, or benchmark gate; and
+- full Python discovery plus retained Native and RISC-V CI evidence ownership
+  through `515dd87d`.
 
 The latest committed integrations are diagnostic progress, not accepted release
 evidence. Focused component tests and production ELF proof/verify roundtrips
@@ -1196,32 +1203,38 @@ registry and explicit `--experimental` behavior; `--phase promoted` enforces the
 release registry and rejects that flag.
 
 ```sh
+EVIDENCE_DIR="zig-out/release-evidence/riscv/runs/<fresh-run>"
 test -z "$(git status --porcelain=v1 --untracked-files=all)"
 zig fmt --check build.zig src tools
 python3 scripts/check_upstream_pins.py
 python3 scripts/check_source_conformance.py
 python3 scripts/check_riscv_release_contract.py --all --phase candidate
+python3 scripts/check_riscv_release_contract.py --structure
+python3 scripts/check_riscv_release_contract.py --core-purity
+python3 scripts/check_riscv_release_contract.py --frontend-layering
 python3 -m unittest discover -s scripts/tests -p 'test_*.py'
-zig build test -Doptimize=ReleaseFast
-zig build test-riscv -Doptimize=ReleaseFast
-zig build test-riscv-prover -Doptimize=ReleaseFast
-python3 scripts/check_api_parity.py
-python3 scripts/riscv_trace_vectors.py
-python3 scripts/riscv_staged_smoke.py --phase candidate
-zig build release-gate -Doptimize=ReleaseFast
+python3 scripts/riscv_staged_smoke.py \
+  --phase candidate \
+  --evidence-dir "$EVIDENCE_DIR/cli"
 zig build release-gate-strict -Doptimize=ReleaseFast
 python3 scripts/riscv_release_oracle.py build-and-compare \
   --stark-v-source "$STARK_V_SOURCE" \
   --candidate "$(git rev-parse HEAD)" \
-  --receipt-out zig-out/release-evidence/riscv/oracle-receipt.json
+  --receipt-out "$EVIDENCE_DIR/oracle-receipt.json"
 python3 scripts/riscv_release_oracle.py validate \
-  --receipt zig-out/release-evidence/riscv/oracle-receipt.json
+  --receipt "$EVIDENCE_DIR/oracle-receipt.json"
 python3 scripts/riscv_release_evidence.py \
-  --receipt zig-out/release-evidence/riscv/oracle-receipt.json \
+  --receipt "$EVIDENCE_DIR/oracle-receipt.json" \
   --candidate "$(git rev-parse HEAD)"
-zig build riscv-release-gate -Doptimize=ReleaseFast
 test -z "$(git status --porcelain=v1 --untracked-files=all)"
 ```
+
+`release-gate-strict` transitively owns the ReleaseFast Zig suite, RISC-V runner
+and prover suites, API parity, pinned trace vectors, deep tests, Native
+interchange, proof checkpoints, strict benchmarks, profiling, freestanding
+shims, and release-evidence manifest. The controller must not invoke those
+owners separately or run the base release gate before the strict superset. In
+non-strict mode it selects the base gate instead.
 
 Additional requirements:
 
@@ -1424,7 +1437,7 @@ remains `IN_PROGRESS`.
 | CP-10 Artifact | IN_PROGRESS | Bounded schema v3, atomic path, owned statement, external expected digest, hostile preflight, exact wire reconstruction, provenance validation, security-policy checks, and occupied-output preservation are committed through `6bcca4bd` | Bind the final exact shard/infra claims, complete hostile-decoding and DoS coverage, then pass candidate/promoted clean evidence |
 | CP-11 Rust oracle | FAIL | Fresh `30bc24ec` receipt is 9/11; bound relation exporters and deterministic provenance are committed; exact balanced-family and pinned-limitation receipt modes, including eight frozen invalid requests and no-artifact production rejection, land through `09ab473e` | Run the fresh clean-candidate full-corpus receipt and require all 11 boundaries, exactly 12 relation domains, and canonical physical provenance to pass |
 | CP-12 Adversarial fleet | IN_PROGRESS | Padding, memory geometry, narrow Poseidon, transcript, CLI, artifact, and cross-shard mutations advance through `91710ca9` and `93ff11e4`; the production public/claim matrix rejects 176 attempts with exact PoW-versus-LogUp classes through `5044dc1f` | Preserve the complete semantic, public, Merkle/table, multi-shard, and artifact fleet in final clean-candidate evidence |
-| CP-13 Release gate | IN_PROGRESS | Phase-aware controller through `0374679e`, named structure/core/frontend selectors through `75a74318`, pre-command fail closure through `196b5604`, and clean candidate/oracle receipt validation through `b5725ec1`; final evidence not accepted | Strict candidate and promoted controllers pass locally and in clean CI |
+| CP-13 Release gate | IN_PROGRESS | Phase-aware controller, named structure/core/frontend selectors, pre-command fail closure, and clean candidate/oracle receipt validation are committed; tracked-archive self-dirtying is removed, full Python discovery is restored, and one transitive generic gate owns the expensive graph through `515dd87d`; final evidence not accepted | Strict candidate and promoted controllers pass locally and in clean CI |
 | RF-01 Registry flip | NOT_STARTED | None | Atomic promotion commit and post-flip gate |
 | BA-01 Core purity | IN_PROGRESS | Named mechanical checker passes through `75a74318` | Preserve and rerun it in candidate and promoted CP-13 evidence |
 | BA-02 Frontend layering | IN_PROGRESS | The active `silent` path is removed; infrastructure and prover ownership are decomposed through `ca3c3d56`; the mechanical frontend-layering selector passes diagnostically at `60a5d93e` | Preserve the clean selector result and prove no semantic or proof-byte drift in candidate and promoted CP-13 evidence |
