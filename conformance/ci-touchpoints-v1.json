@@ -15,6 +15,7 @@
     },
     "build_graph": {
       "host": "linux",
+      "local": "hosted",
       "description": "Catalog construction and build-identity boundaries",
       "commands": [
         ["python3", "scripts/check_build_configure_closure.py"],
@@ -67,6 +68,7 @@
     },
     "aggregate_cpu": {
       "host": "linux",
+      "local": "hosted",
       "description": "CPU aggregate compatibility product",
       "commands": [
         ["zig", "build", "test", "stwo-zig", "-Daggregate-metal=false", "-Doptimize=ReleaseFast", "-j2"],
@@ -89,6 +91,7 @@
     },
     "aggregate_metal": {
       "host": "macos",
+      "local": "hosted",
       "description": "Metal-enabled aggregate compatibility product",
       "commands": [
         ["zig", "build", "test", "stwo-zig", "-Daggregate-metal=true", "-Doptimize=ReleaseSafe", "-j2"]
@@ -103,6 +106,7 @@
     },
     "metal_aot": {
       "host": "macos",
+      "local": "hosted",
       "description": "Metal shader and AOT tooling contract",
       "commands": [
         ["zig", "build", "test-metal-core-aot", "test-metal-core-aot-probe", "metal-core-aot", "-Doptimize=ReleaseSafe", "-j2"],
@@ -141,8 +145,12 @@
       "lanes": ["build_graph", "riscv_cpu", "aggregate_cpu", "aggregate_metal"]
     },
     {
-      "prefixes": ["build_support/products/native_metal.zig", "build_support/backends/metal.zig", "build_support/benchmarks/metal.zig", "src/backends/metal"],
+      "prefixes": ["build_support/products/native_metal.zig", "build_support/backends/metal.zig", "build_support/benchmarks/metal.zig"],
       "lanes": ["build_graph", "native_metal", "aggregate_metal", "metal_compile"]
+    },
+    {
+      "prefixes": ["src/backends/metal"],
+      "lanes": ["native_metal", "aggregate_metal", "metal_compile"]
     },
     {
       "prefixes": ["src/backends/metal/shaders", "src/backends/metal/kernels.metal", "src/backends/metal/shader_manifest.zig", "src/tools/metal_core_aot", "build_support/backends/metal_aot.zig", "scripts/metal_core_aot_receipt"],
@@ -165,7 +173,7 @@
       "lanes": ["deferred"]
     },
     {
-      "prefixes": [".github/workflows", "scripts/ci_scope_", "conformance/ci-touchpoints-v1.json"],
+      "prefixes": [".github/workflows", ".githooks", "scripts/ci_scope_plan.py", "scripts/ci_scope_run.py", "scripts/ci_scope_push.py", "conformance/ci-touchpoints-v1.json"],
       "lanes": ["build_graph", "core", "prover", "package", "native_cpu", "native_oracle", "riscv_cpu", "aggregate_cpu", "deferred", "native_metal", "aggregate_metal", "metal_compile", "metal_aot"]
     }
   ],

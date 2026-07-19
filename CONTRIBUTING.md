@@ -1259,15 +1259,20 @@ python3 scripts/ci.py --strict    # release evidence gate
 ```
 
 The pre-commit hook is intentionally limited to staged-diff hygiene, formatting, and source
-conformance. The pre-push hook runs the same standard `scripts/ci.py` entrypoint as hosted CI,
-including tooling tests, Zig tests, deep graph coverage, vectors, Native interop, and bounded
-benchmark/profile smoke tests. Neither hook runs hardware Metal benchmarks or large SN PIE
-workloads.
+conformance. The pre-push hook uses the generated product catalog and
+`conformance/ci-touchpoints-v1.json` to run only gates owned by the exact commits being pushed.
+It reuses product-scoped caches and writes timing receipts under `zig-out/ci/pre-push/`. A host
+that cannot execute a selected Metal or Full-Xcode lane reports it as deferred to authoritative
+hosted CI. Exhaustive build-graph closure and aggregate compatibility products also run in hosted
+CI, where they can execute in parallel instead of serially rebuilding every commit-bound product
+identity in the local feedback loop.
+Neither hook runs hardware benchmarks, profiles, or large SN PIE workloads.
 
 Git permits an emergency local bypass with `--no-verify`. That bypass skips feedback only; it does
-not waive any repository requirement. Disclose its use in the PR, run `python3 scripts/ci.py` before
-requesting review, and record any gate that remains unavailable. Hosted CI is authoritative and
-must not contain a corresponding bypass path.
+not waive any repository requirement. Disclose its use in the PR, run the relevant focused gate
+before requesting review, and record any gate that remains unavailable. Run `python3 scripts/ci.py`
+for an explicit full release rehearsal. Hosted CI is authoritative and must not contain a
+corresponding bypass path.
 
 1. **Identify the contract.** Name the bug, feature, parity gap, architectural debt, or measured
    bottleneck.

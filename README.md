@@ -152,7 +152,7 @@ python3 scripts/ci.py
 ```
 
 For release evidence, use `python3 scripts/ci.py --strict`. Enable the versioned fast pre-commit
-and broader pre-push checks once per checkout with:
+and product-scoped pre-push checks once per checkout with:
 
 ```sh
 python3 scripts/install_hooks.py

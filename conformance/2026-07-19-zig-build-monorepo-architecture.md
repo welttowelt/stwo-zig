@@ -226,6 +226,16 @@ and reproducible Metal AOT acceptance remain mandatory on `main`, release tags,
 and explicit standard or strict release dispatches; they are not the default
 gate for an unrelated product touchpoint.
 
+The versioned pre-push hook applies the same selector to the exact remote ref
+updates through `scripts/ci_scope_push.py`. It runs locally compatible lanes,
+reuses the build graph's existing per-product caches, and records any
+host-incompatible lane as deferred to authoritative hosted CI. A manual
+`scripts/ci.py` invocation remains the explicit full-release rehearsal.
+Exhaustive build-graph closure and aggregate compatibility lanes are hosted as
+well: they bind or reconstruct the candidate's complete product matrix and run
+in parallel in CI, avoiding serial duplicate rebuilds in the local product
+feedback loop.
+
 Source conformance must eventually enforce a matrix like:
 
 | Owner | Forbidden dependencies |

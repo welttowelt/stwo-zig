@@ -38,14 +38,18 @@ def expand(command: list[str], output_dir: Path, commit: str) -> list[str]:
 
 def run_lane(
     *, root: Path, policy: dict[str, Any], lane: str, output: Path,
-    cache_mode: str, cache_root: Path | None,
+    cache_mode: str, cache_root: Path | None, local_compatible: bool = False,
 ) -> dict[str, Any]:
     validate_policy(policy)
     spec = policy["lanes"].get(lane)
     if not isinstance(spec, dict):
         raise PlanError(f"unknown CI lane: {lane}")
     host = "macos" if sys.platform == "darwin" else "linux"
-    if spec["host"] != host:
+    required_host = spec["host"]
+    compatible_host = host == required_host or (
+        local_compatible and host == "macos" and required_host == "linux"
+    )
+    if not compatible_host:
         raise PlanError(f"CI lane {lane} requires {spec['host']}, current host is {host}")
     for command in spec["commands"]:
         targets = {argument for argument in command if not argument.startswith("-")}
@@ -119,6 +123,7 @@ def run_lane(
         "schema": "stwo-focused-ci-timing-v1",
         "lane": lane,
         "host": host,
+        "required_host": required_host,
         "host_machine": platform.machine(),
         "cache_mode": cache_mode,
         "commit": commit,
@@ -140,11 +145,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--cache-mode", choices=("inherit", "cold", "warm"), default="inherit")
     parser.add_argument("--cache-root", type=Path)
+    parser.add_argument(
+        "--local-compatible", action="store_true",
+        help="permit Linux product lanes on a macOS development host",
+    )
     args = parser.parse_args(argv)
     try:
         receipt = run_lane(
             root=args.root, policy=strict_json(args.policy), lane=args.lane,
             output=args.output, cache_mode=args.cache_mode, cache_root=args.cache_root,
+            local_compatible=args.local_compatible,
         )
     except (OSError, json.JSONDecodeError, subprocess.CalledProcessError, PlanError) as error:
         print(f"CI scope run: FAIL: {error}", file=sys.stderr)

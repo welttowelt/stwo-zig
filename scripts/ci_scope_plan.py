@@ -61,6 +61,8 @@ def validate_policy(policy: dict[str, Any]) -> None:
             raise PlanError("CI lane is malformed")
         if spec.get("host") not in ALL_HOSTS:
             raise PlanError(f"CI lane {lane} has an invalid host")
+        if spec.get("local", "run") not in {"run", "hosted"}:
+            raise PlanError(f"CI lane {lane} has an invalid local execution policy")
         commands = spec.get("commands")
         if not isinstance(commands, list) or not commands:
             raise PlanError(f"CI lane {lane} has no commands")

@@ -394,9 +394,9 @@ class CiTests(unittest.TestCase):
         self.assertEqual(1, len(interop_steps))
         self.assertIn(f"--archive-dir {gate_archive}", interop_steps[0]["command"])
 
-    def test_pre_push_and_hosted_ci_use_the_same_standard_entrypoint(self) -> None:
+    def test_pre_push_is_focused_while_hosted_main_uses_the_release_entrypoint(self) -> None:
         pre_push = (ROOT / ".githooks/pre-push").read_text(encoding="utf-8")
-        self.assertIn("exec python3 scripts/ci.py", pre_push)
+        self.assertIn("exec python3 scripts/ci_scope_push.py", pre_push)
         self.assertNotIn("zig build", pre_push)
 
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")

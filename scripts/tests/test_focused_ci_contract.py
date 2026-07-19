@@ -134,6 +134,7 @@ class PlannerContractTests(unittest.TestCase):
         self.assertNotIn("native_cpu", shader)
         self.assertNotIn("riscv_cpu", shader)
         self.assertNotIn("metal_aot", runtime)
+        self.assertNotIn("build_graph", runtime)
         self.assertIn("metal_compile", runtime)
         self.assertIn("native_metal", runtime)
 
@@ -440,6 +441,41 @@ class RunnerReceiptTests(unittest.TestCase):
                     cache_mode="inherit",
                     cache_root=None,
                 )
+
+    @unittest.skipUnless(sys.platform == "darwin", "macOS compatibility rule")
+    def test_macos_can_run_linux_compatible_lane_only_when_explicit(self) -> None:
+        policy = runner_policy([["tool"]], host="linux")
+        captured: list[tuple[list[str], dict[str, object]]] = []
+        with tempfile.TemporaryDirectory() as raw:
+            with (
+                mock.patch.object(
+                    ci_scope_run.subprocess,
+                    "run",
+                    side_effect=self.fake_run([(0, b"", b"")], captured),
+                ),
+                mock.patch.object(
+                    ci_scope_run.time,
+                    "monotonic_ns",
+                    side_effect=[100, 200, 300, 400],
+                ),
+                mock.patch.object(
+                    ci_scope_run.sys, "stdout", SimpleNamespace(buffer=io.BytesIO())
+                ),
+                mock.patch.object(
+                    ci_scope_run.sys, "stderr", SimpleNamespace(buffer=io.BytesIO())
+                ),
+            ):
+                receipt = ci_scope_run.run_lane(
+                    root=ROOT,
+                    policy=policy,
+                    lane="focused",
+                    output=Path(raw) / "receipt.json",
+                    cache_mode="inherit",
+                    cache_root=None,
+                    local_compatible=True,
+                )
+        self.assertEqual("macos", receipt["host"])
+        self.assertEqual("linux", receipt["required_host"])
 
 
 if __name__ == "__main__":
