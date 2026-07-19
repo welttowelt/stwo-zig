@@ -16,6 +16,7 @@ ACTIVE_FORMAL_EVIDENCE_ROOTS = (
     "scripts/benchmark_delta.py",
     "scripts/benchmark_full.py",
     "scripts/benchmark_smoke.py",
+    "scripts/build_architecture_receipt.py",
     "scripts/compare_optimization.py",
     "scripts/e2e_interop.py",
     "scripts/metal_core_aot_receipt.py",
