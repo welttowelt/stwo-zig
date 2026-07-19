@@ -5,12 +5,13 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
 from scripts import riscv_staged_smoke as smoke
-from scripts.riscv_staged_smoke_lib import contracts, mutations
+from scripts.riscv_staged_smoke_lib import contracts, mutations, profiles
 
 
 DIGEST = "ab" * 32
@@ -319,6 +320,142 @@ class ProcessBoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(contracts.ContractError, "published output"):
             smoke.require_rejection(
                 subprocess.CompletedProcess(["cli"], 0, "{}", ""), (), "accepted",
+            )
+
+    def test_prebuilt_cli_skips_the_build_and_timing_counts_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            cli = Path(directory) / "stwo-zig"
+            cli.write_bytes(b"prebuilt")
+            with mock.patch("scripts.riscv_staged_smoke.subprocess.run") as run:
+                resolved, origin, build_count, build_duration = smoke.prepare_cli(cli)
+            self.assertEqual(cli.resolve(), resolved)
+            self.assertEqual("prebuilt", origin)
+            self.assertEqual(0, build_count)
+            self.assertGreaterEqual(build_duration, 0)
+            run.assert_not_called()
+
+        metrics = [
+            {"ordinal": 0, "argv": ["applications"], "duration_ns": 7, "returncode": 0},
+            {"ordinal": 1, "argv": ["verify"], "duration_ns": 11, "returncode": 1},
+        ]
+        with mock.patch("scripts.riscv_staged_smoke.time.monotonic_ns", return_value=100):
+            timing = smoke.timing_evidence(
+                metrics, smoke_started=20, build_command_count=0, build_duration_ns=3,
+            )
+        self.assertEqual(2, timing["cli_command_count"])
+        self.assertEqual(18, timing["cli_command_duration_ns"])
+        self.assertEqual(80, timing["wall_duration_ns"])
+
+
+class ProfileContractTests(unittest.TestCase):
+    COMMIT = "c" * 40
+
+    @staticmethod
+    def exhaustive_summary(executable_sha256: str) -> dict[str, object]:
+        return {
+            "schema": "riscv_cli_evidence_v1",
+            "phase": "candidate",
+            "release_status": "not_release_gated",
+            "implementation_commit": ProfileContractTests.COMMIT,
+            "implementation_dirty": False,
+            "executable_sha256": executable_sha256,
+            "total_steps": 131_078,
+            "artifact_sha256": DIGEST,
+            "report_sha256": DIGEST,
+            "benchmark_report_sha256": DIGEST,
+            "benchmark_artifact_sha256": DIGEST,
+            "verify_receipt_sha256": DIGEST,
+            "benchmark_verify_receipt_sha256": DIGEST,
+            "independent_verify_returncode": 0,
+            "tamper_returncode": 1,
+            "proof_wire_mutation_returncodes": {
+                name: {"returncode": 1} for name in profiles.PROOF_WIRE_MUTATIONS
+            },
+            "hostile_artifact_results": {
+                name: {"returncode": 1} for name in profiles.HOSTILE_ARTIFACT_MUTATIONS
+            },
+            "boundary_rejection_results": {"malformed-elf": {"returncode": 1}},
+        }
+
+    def bundle(self, root: Path) -> tuple[Path, Path]:
+        cli = root / "bin" / "stwo-zig"
+        cli.parent.mkdir(parents=True)
+        cli.write_bytes(b"exact prebuilt executable")
+        executable_sha256 = profiles.sha256_file(cli)
+        summary = root / "cli" / "summary.json"
+        summary.parent.mkdir(parents=True)
+        summary.write_text(
+            json.dumps(self.exhaustive_summary(executable_sha256)), encoding="utf-8",
+        )
+        manifest = {
+            "schema": profiles.PRODUCER_SCHEMA,
+            "phase": "candidate",
+            "candidate_commit": self.COMMIT,
+            "coverage": dict(profiles.REQUIRED_COVERAGE),
+            "producer": {"repository": "owner/repo", "run_id": "1"},
+            "domains": {"repository": {"sha256": DIGEST}},
+            "files": {
+                "bin/stwo-zig": {
+                    "sha256": executable_sha256,
+                    "size": cli.stat().st_size,
+                },
+                "cli/summary.json": {
+                    "sha256": profiles.sha256_file(summary),
+                    "size": summary.stat().st_size,
+                },
+            },
+        }
+        receipt = root / "manifest.json"
+        receipt.write_text(json.dumps(manifest), encoding="utf-8")
+        return cli, receipt
+
+    def test_fast_profile_authenticates_cli_and_exhaustive_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            cli, receipt = self.bundle(Path(directory))
+            link = profiles.validate_producer_receipt(
+                receipt,
+                cli,
+                phase="candidate",
+                candidate_commit=self.COMMIT,
+                implementation_dirty=False,
+            )
+            self.assertEqual(profiles.PRODUCER_SCHEMA, link["schema"])
+            self.assertEqual(profiles.sha256_file(cli), link["executable"]["sha256"])
+            self.assertEqual(
+                profiles.sha256_file(receipt), link["manifest_sha256"],
+            )
+
+    def test_fast_profile_fails_closed_on_dirty_or_drifted_producer(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            cli, receipt = self.bundle(Path(directory))
+            with self.assertRaisesRegex(contracts.ContractError, "clean checkout"):
+                profiles.validate_producer_receipt(
+                    receipt,
+                    cli,
+                    phase="candidate",
+                    candidate_commit=self.COMMIT,
+                    implementation_dirty=True,
+                )
+            cli.write_bytes(b"drifted")
+            with self.assertRaisesRegex(contracts.ContractError, "bundled file drifted"):
+                profiles.validate_producer_receipt(
+                    receipt,
+                    cli,
+                    phase="candidate",
+                    candidate_commit=self.COMMIT,
+                    implementation_dirty=False,
+                )
+
+    def test_fast_profile_rejects_non_exhaustive_linkage(self) -> None:
+        summary = self.exhaustive_summary(DIGEST)
+        summary["schema"] = "riscv_cli_evidence_v2"
+        summary["profile"] = "fast"
+        with self.assertRaisesRegex(contracts.ContractError, "not exhaustive"):
+            profiles.validate_exhaustive_summary(
+                summary,
+                phase="candidate",
+                candidate_commit=self.COMMIT,
+                executable_sha256=DIGEST,
             )
 
 
