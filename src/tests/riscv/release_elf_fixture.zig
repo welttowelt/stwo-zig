@@ -3,8 +3,8 @@
 const std = @import("std");
 
 const CODE_VADDR: u32 = 0x0001_0000;
-const INPUT_START: u32 = 0x0010_0000;
-const INPUT_END: u32 = INPUT_START;
+const INPUT_START: u32 = 0x0018_0000;
+const INPUT_END: u32 = INPUT_START + 12;
 const HALT_FLAG: u32 = 0x0010_0000;
 const OUTPUT_LEN: u32 = 0x0010_0004;
 const OUTPUT_DATA: u32 = 0x0010_0008;
@@ -19,10 +19,14 @@ const Symbol = struct {
 };
 
 const instructions = [_]u32{
-    0x00100FB7, // LUI x31, __halt_flag
-    0x000FA223, // SW x0, 4(x31): publish output_len = 0
-    0x00100F13, // ADDI x30, x0, 1
-    0x01EFA023, // SW x30, 0(x31): set halt flag before the next fetch
+    0x0010_00B7, // LUI x1, __halt_flag
+    0x0018_0237, // LUI x4, __input_start
+    0x0002_2283, // LW x5, 0(x4): consume one public input word
+    0x0040_0113, // ADDI x2, x0, 4
+    0x0020_A223, // SW x2, 4(x1): publish output_len = 4
+    0x0050_A423, // SW x5, 8(x1): publish the loaded input word
+    0x0010_0113, // ADDI x2, x0, 1
+    0x0020_A023, // SW x2, 0(x1): set halt flag before the next fetch
 };
 
 const symbols = [_]Symbol{
@@ -48,9 +52,9 @@ const SYMBOL_ENTRY_SIZE: usize = 16;
 const SECTION_COUNT: usize = 4;
 const SHSTRTAB = "\x00.symtab\x00.strtab\x00.shstrtab\x00";
 
-/// Build the smallest release-shape guest used by adversarial prover tests.
+/// Build a release-shape guest with non-empty public input and output regions.
 /// The caller owns the returned bytes.
-pub fn buildZeroOutputHaltElf(allocator: std.mem.Allocator) ![]u8 {
+pub fn buildPublicIoHaltElf(allocator: std.mem.Allocator) ![]u8 {
     const code_offset = ELF_HEADER_SIZE + PROGRAM_HEADER_SIZE;
     const code_size = instructions.len * @sizeOf(u32);
     const symtab_offset = code_offset + code_size;
