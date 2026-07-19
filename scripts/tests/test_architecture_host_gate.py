@@ -90,7 +90,6 @@ class ArchitectureHostGateTest(unittest.TestCase):
             mock.patch.object(controller.plan, "load", return_value=architecture_plan()),
             mock.patch.object(controller, "_git", side_effect=lambda _root, *args: git_values[args]),
             mock.patch.object(controller, "_clean", return_value=clean),
-            mock.patch.object(controller, "_load_policy", return_value={}),
             mock.patch.object(controller.products, "collect", return_value=product(product_status)),
             mock.patch.object(
                 controller.validators, "validate_outputs", side_effect=validate_outputs,
@@ -99,7 +98,7 @@ class ArchitectureHostGateTest(unittest.TestCase):
         ):
             return controller.execute(
                 root=self.root, role="linux", plan_path=self.root / "plan.json",
-                protocol_path=self.root / "protocol.json", policy_path=self.root / "policy.json",
+                protocol_path=self.root / "protocol.json",
                 output_dir=output, candidate=SHA,
                 timeout=1.0, run_id="7", run_attempt="1", repository="owner/repo",
                 repository_id="8", workflow_sha=SHA, riscv_bundle=self.root / "bundle",

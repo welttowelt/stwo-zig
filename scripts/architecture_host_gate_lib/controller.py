@@ -24,7 +24,6 @@ from scripts.build_architecture_receipt_lib.receipt import validate_evidence_man
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_PLAN = ROOT / "conformance/build-architecture-ci-plan-v1.json"
-DEFAULT_POLICY = ROOT / "conformance/ci-product-capability-policy-v1.json"
 
 
 def _git(root: Path, *arguments: str) -> str:
@@ -34,21 +33,6 @@ def _git(root: Path, *arguments: str) -> str:
     if result.returncode != 0:
         raise ReceiptError(f"git {' '.join(arguments)} failed: {result.stderr.strip()}")
     return result.stdout.strip()
-
-
-def _strict_json(path: Path) -> dict[str, Any]:
-    def unique(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-        result: dict[str, Any] = {}
-        for key, value in pairs:
-            if key in result:
-                raise ReceiptError(f"duplicate JSON key in {path}: {key}")
-            result[key] = value
-        return result
-
-    value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique)
-    if not isinstance(value, dict):
-        raise ReceiptError(f"{path} does not contain a JSON object")
-    return value
 
 
 def _owned_path(root: Path, raw: str) -> Path:
@@ -67,19 +51,9 @@ def _digest(value: object) -> str:
     return hashlib.sha256(canonical_bytes(value)).hexdigest()
 
 
-def _load_policy(path: Path) -> dict[str, object]:
-    value = _strict_json(path)
-    if value.get("schema") != "stwo-zig-ci-product-capability-policy-v1":
-        raise ReceiptError("architecture product capability policy schema drifted")
-    policy = value.get("products")
-    if not isinstance(policy, dict):
-        raise ReceiptError("architecture product capability policy is malformed")
-    return policy
-
-
 def execute(
     *, root: Path, role: str, plan_path: Path, protocol_path: Path,
-    policy_path: Path, output_dir: Path, candidate: str,
+    output_dir: Path, candidate: str,
     timeout: float, run_id: str, run_attempt: str, repository: str,
     repository_id: str, workflow_sha: str, riscv_bundle: Path,
     riscv_trust_context: Path, riscv_policy_context: Path,
@@ -180,10 +154,9 @@ def execute(
                 "outputs": output_digests,
                 "failures": failures,
             }
-    capability_policy = _load_policy(policy_path)
     product_records = [
         products.collect(
-            spec, root=root, command_outputs=command_outputs, policy=capability_policy,
+            spec, root=root, command_outputs=command_outputs,
             candidate=candidate, tree=tree,
         )
         for spec in role_plan["products"]
@@ -310,13 +283,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--plan", type=Path, default=DEFAULT_PLAN)
     parser.add_argument("--protocol", type=Path, default=DEFAULT_PROTOCOL)
-    parser.add_argument("--policy", type=Path, default=DEFAULT_POLICY)
     parser.add_argument("--command-timeout-seconds", type=float, default=3600.0)
     args = parser.parse_args(argv)
     try:
         output, manifest = execute(
             root=ROOT, role=args.role, plan_path=args.plan, protocol_path=args.protocol,
-            policy_path=args.policy, output_dir=args.output_dir, candidate=args.candidate,
+            output_dir=args.output_dir, candidate=args.candidate,
             timeout=args.command_timeout_seconds,
             run_id=args.run_id, run_attempt=args.run_attempt,
             repository=args.repository, repository_id=args.repository_id,

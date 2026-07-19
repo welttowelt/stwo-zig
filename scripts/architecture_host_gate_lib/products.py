@@ -10,12 +10,6 @@ from scripts.architecture_host_gate_lib.capture import sha256_file
 from scripts.product_identity_lib import ProductIdentityError, validate_canonical_identity
 
 
-POLICY_FIELDS = {
-    "frontend", "backend", "role", "protocol_manifest",
-    "runtime_manifest", "sdk_manifest", "aot_manifest",
-}
-
-
 class ProductError(ValueError):
     """A built product cannot support architecture evidence."""
 
@@ -98,7 +92,7 @@ def _load_command(path: Path) -> dict[str, object]:
 
 def collect(
     spec: dict[str, Any], *, root: Path, command_outputs: dict[str, Path],
-    policy: dict[str, object], candidate: str, tree: str,
+    candidate: str, tree: str,
 ) -> dict[str, object]:
     product_id = spec["product_id"]
     try:
@@ -117,13 +111,6 @@ def collect(
             raise ProductError("product tree differs from candidate")
         if canonical["implementation_dirty"] or canonical["dirty_content_sha256"] is not None:
             raise ProductError("product identity is dirty")
-        expected = policy.get(product_id)
-        if not isinstance(expected, dict) or set(expected) != POLICY_FIELDS:
-            raise ProductError("product has no exact capability policy")
-        aliases = {"protocol_manifest": "protocol_features"}
-        for field, value in expected.items():
-            if canonical[aliases.get(field, field)] != value:
-                raise ProductError(f"product capability differs at {field}")
         artifact_path = spec["artifact_path"]
         artifact = sha256_file(root / artifact_path) if artifact_path is not None else receipt_artifact
         if not isinstance(artifact, str):
@@ -138,7 +125,7 @@ def collect(
             "artifact_sha256": artifact,
             "executable_sha256": artifact if artifact_path is not None else None,
             "status": "PASS",
-            "reason": "canonical identity, capability policy, and exact artifact agree",
+            "reason": "descriptor-issued canonical identity and exact artifact agree",
         }
     except (KeyError, OSError, ProductError, ProductIdentityError, ValueError) as error:
         return {
