@@ -7,8 +7,10 @@
 const std = @import("std");
 pub const prover = @import("frontends/riscv/prover.zig");
 pub const prover_tests = @import("tests/riscv/prover_test.zig");
+pub const proof_admission_tests = @import("tests/riscv/proof_admission_test.zig");
 pub const malicious_witness_tests = @import("tests/riscv/malicious_witness_test.zig");
 pub const public_relation_binding_tests = @import("tests/riscv/public_relation_binding_test.zig");
+pub const mulh_limitation_tests = @import("tests/riscv/mulh_limitation_test.zig");
 pub const transcript_path_tests = @import("tests/riscv/transcript_path_test.zig");
 pub const infra_trace = @import("frontends/riscv/infra_trace.zig");
 pub const interaction_gen = @import("frontends/riscv/air/interaction_gen.zig");
@@ -19,8 +21,10 @@ pub const proof_transcript = @import("frontends/riscv/proof_transcript.zig");
 test {
     _ = prover;
     _ = prover_tests;
+    _ = proof_admission_tests;
     _ = malicious_witness_tests;
     _ = public_relation_binding_tests;
+    _ = mulh_limitation_tests;
     _ = transcript_path_tests;
     _ = interaction_gen;
     _ = riscv_air_component;

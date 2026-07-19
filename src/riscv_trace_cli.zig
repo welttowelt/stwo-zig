@@ -18,6 +18,7 @@ const opcode_manifest = @import("frontends/riscv/opcode_manifest.zig");
 const public_data = @import("frontends/riscv/air/public_data.zig");
 const relation_evidence = @import("frontends/riscv/air/relation_evidence.zig");
 const public_values_diagnostic = @import("frontends/riscv/diagnostics/public_values.zig");
+const mulh_limitation_diagnostic = @import("frontends/riscv/diagnostics/mulh_limitation.zig");
 const riscv_cpu = @import("integrations/riscv_cpu/mod.zig");
 const pcs = @import("core/pcs/mod.zig");
 
@@ -40,6 +41,7 @@ pub fn main() !void {
     var relation_tuples: ?[]const u8 = null;
     var relation_sums: ?[]const u8 = null;
     var public_values: ?[]const u8 = null;
+    var relation_limitation: ?[]const u8 = null;
     var max_steps: usize = 1_000_000;
     var max_steps_set = false;
     var help = false;
@@ -68,6 +70,8 @@ pub fn main() !void {
             try takeOptionValue(args, &i, &relation_sums);
         } else if (std.mem.eql(u8, args[i], "--public-values")) {
             try takeOptionValue(args, &i, &public_values);
+        } else if (std.mem.eql(u8, args[i], "--relation-limitation")) {
+            try takeOptionValue(args, &i, &relation_limitation);
         } else if (std.mem.eql(u8, args[i], "--max-steps")) {
             if (max_steps_set) return error.DuplicateOption;
             const raw = try takeValue(args, &i);
@@ -90,6 +94,7 @@ pub fn main() !void {
         relation_tuples,
         relation_sums,
         public_values,
+        relation_limitation,
     });
     if (help) {
         if (mode_count != 0 or output_path != null or max_steps_set)
@@ -142,6 +147,11 @@ pub fn main() !void {
 
     if (public_values) |path| {
         try dumpPublicValues(allocator, path, max_steps);
+        return;
+    }
+
+    if (relation_limitation) |path| {
+        try dumpRelationLimitation(allocator, path, max_steps);
         return;
     }
 
@@ -587,6 +597,37 @@ fn dumpPublicValues(allocator: std.mem.Allocator, path: []const u8, max_steps: u
     try stdout.writeAll("\n");
 }
 
+fn dumpRelationLimitation(
+    allocator: std.mem.Allocator,
+    path: []const u8,
+    max_steps: usize,
+) !void {
+    const elf_bytes = try std.fs.cwd().readFileAlloc(allocator, path, 64 * 1024 * 1024);
+    defer allocator.free(elf_bytes);
+    var result = try runner.runWithInput(allocator, elf_bytes, &.{}, max_steps);
+    defer result.deinit();
+    if (result.rw_memory.program_words.len == 0 or
+        result.completion_reason != .halt_flag)
+        return error.UnsupportedRelationEvidenceSource;
+
+    var report = try mulh_limitation_diagnostic.derive(allocator, &result.execution_trace);
+    defer report.deinit(allocator);
+    if (report.signed_rows == 0 or report.invalid_requests.len == 0)
+        return error.MissingPinnedLimitation;
+    const encoded = try mulh_limitation_diagnostic.encode(
+        allocator,
+        report,
+        build_identity.implementation_commit,
+        build_identity.implementation_dirty,
+        elf_bytes,
+        result.input,
+    );
+    defer allocator.free(encoded);
+    const stdout = std.fs.File{ .handle = std.posix.STDOUT_FILENO };
+    try stdout.writeAll(encoded);
+    try stdout.writeAll("\n");
+}
+
 fn printUsage() void {
     std.debug.print(
         \\Usage: riscv-trace-dump --elf <path> [--output <trace.json>] [--max-steps N]
@@ -598,6 +639,7 @@ fn printUsage() void {
         \\  --relation-tuples <path>  Dump bound default-challenge tuple evidence
         \\  --relation-sums <path>    Dump bound default-challenge sum evidence
         \\  --public-values <path>    Dump proof-independent public statement JSON
+        \\  --relation-limitation <path>  Dump exact pinned signed-MULH rejection JSON
         \\  --help, -h           Show this message
         \\
     , .{});

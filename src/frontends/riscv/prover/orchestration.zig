@@ -585,17 +585,19 @@ pub fn runRiscVWithEngineAndPublicDataUsingChannel(
     // the Tree1 commitment.
     const n_interaction = statement.nInteractionColumns();
 
-    std.log.info("Columns: opcode={d} infra={d} total tree1={d} interaction={d}", .{
-        n_opcode_main,
-        n_infra_main,
-        n_main,
-        n_interaction,
-    });
-    std.log.info("Poseidon2 Merkle: {d} exact sparse-node calls, poseidon_log_size={d}, merkle_log_size={d}", .{
-        total_hashes,
-        poseidon_log_size,
-        merkle_log_size,
-    });
+    if (comptime mode == .prove) {
+        std.log.info("Columns: opcode={d} infra={d} total tree1={d} interaction={d}", .{
+            n_opcode_main,
+            n_infra_main,
+            n_main,
+            n_interaction,
+        });
+        std.log.info("Poseidon2 Merkle: {d} exact sparse-node calls, poseidon_log_size={d}, merkle_log_size={d}", .{
+            total_hashes,
+            poseidon_log_size,
+            merkle_log_size,
+        });
+    }
 
     // -- Step 5: LogUp interaction tree (tree 2). --
     const transcript_prefix: proof_transcript.ProverRelations = if (comptime mode == .prove)

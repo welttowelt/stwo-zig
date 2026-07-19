@@ -8,19 +8,13 @@ const memory_state = @import("../../frontends/riscv/runner/memory_state.zig");
 const trace_mod = @import("../../frontends/riscv/runner/trace.zig");
 const pcs_core = @import("../../core/pcs/mod.zig");
 const qm31 = @import("../../core/fields/qm31.zig");
-const prover_component = @import("../../prover/air/component_prover.zig");
-const prover_engine = @import("../../prover/engine.zig");
-const prover_pcs = @import("../../prover/pcs/mod.zig");
-const stage_profile = @import("../../prover/stage_profile.zig");
 
 const CpuProverEngine = riscv_cpu.CpuProverEngine;
 const Channel = CpuProverEngine.Channel;
-const ExtendedProof = prover.ExtendedProof;
 const ProverError = prover.ProverError;
 const QM31 = qm31.QM31;
 const proveRiscV = riscv_cpu.proveRiscV;
 const verifyRiscV = riscv_cpu.verifyRiscV;
-const proveRiscVWithEngine = prover.proveRiscVWithEngine;
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -173,96 +167,6 @@ test "riscv prover: prove and verify synthetic trace" {
     try std.testing.expectEqual(@as(u32, 4), output.statement.component_descs[0].log_size);
 
     try verifyRiscV(alloc, config, output.statement, output.proof, output.interaction_claim);
-}
-
-test "riscv prover: transaction engine is the proving substitution point" {
-    const CountingEngine = struct {
-        pub const Scheme = CpuProverEngine.Scheme;
-        pub const Channel = CpuProverEngine.Channel;
-        pub const MerkleChannel = CpuProverEngine.MerkleChannel;
-        var init_calls: usize = 0;
-        var commit_calls: usize = 0;
-        var prove_calls: usize = 0;
-
-        pub fn init(allocator: std.mem.Allocator, config: pcs_core.PcsConfig) !Scheme {
-            init_calls += 1;
-            return CpuProverEngine.init(allocator, config);
-        }
-
-        pub fn deinit(scheme: *Scheme, allocator: std.mem.Allocator) void {
-            CpuProverEngine.deinit(scheme, allocator);
-        }
-
-        pub fn commit(
-            scheme: *Scheme,
-            allocator: std.mem.Allocator,
-            columns: []prover_pcs.ColumnEvaluation,
-            recorder: ?*stage_profile.Recorder,
-            channel: *CpuProverEngine.Channel,
-        ) !void {
-            commit_calls += 1;
-            return CpuProverEngine.commit(scheme, allocator, columns, recorder, channel);
-        }
-
-        pub fn prove(
-            allocator: std.mem.Allocator,
-            components: []const prover_component.ComponentProver,
-            channel: *CpuProverEngine.Channel,
-            scheme: Scheme,
-            options: prover_engine.ProveOptions,
-        ) !ExtendedProof {
-            prove_calls += 1;
-            return CpuProverEngine.prove(allocator, components, channel, scheme, options);
-        }
-    };
-
-    CountingEngine.init_calls = 0;
-    CountingEngine.commit_calls = 0;
-    CountingEngine.prove_calls = 0;
-
-    const allocator = std.testing.allocator;
-    var trace = trace_mod.Trace.init(allocator);
-    defer trace.deinit();
-    trace.initial_pc = 0x1000;
-    for (0..4) |row| {
-        try trace.append(.{
-            .clk = @intCast(row + 1),
-            .pc = @intCast(0x1000 + row * 4),
-            .opcode = .ADDI,
-            .rd = 1,
-            .rs1 = 0,
-            .rs2 = 0,
-            .imm = 1,
-            .rs1_val = 0,
-            .rs2_val = 0,
-            .rs1_prev_clk = @intCast(row),
-            .rd_prev_val = if (row == 0) 0 else 1,
-            .rd_prev_clk = @intCast(row),
-            .rd_val = 1,
-            .mem_addr = 0,
-            .mem_val = 0,
-            .is_load = false,
-            .is_store = false,
-            .branch_taken = false,
-            .next_pc = @intCast(0x1000 + (row + 1) * 4),
-            .inst_word = 0x00100093,
-        });
-    }
-    trace.final_pc = 0x1010;
-    const config = pcs_core.PcsConfig{
-        .pow_bits = 0,
-        .fri_config = .{
-            .log_blowup_factor = 1,
-            .log_last_layer_degree_bound = 0,
-            .n_queries = 2,
-        },
-    };
-
-    var output = try proveRiscVWithEngine(CountingEngine, allocator, config, &trace, null, null, null);
-    defer output.deinit(allocator);
-    try std.testing.expectEqual(@as(usize, 1), CountingEngine.init_calls);
-    try std.testing.expectEqual(@as(usize, 3), CountingEngine.commit_calls);
-    try std.testing.expectEqual(@as(usize, 1), CountingEngine.prove_calls);
 }
 
 fn singleAddTrace(allocator: std.mem.Allocator, result: u32) !trace_mod.Trace {

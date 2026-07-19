@@ -18,12 +18,13 @@ pub const BITWISE_LOOKUP_COUNT: usize = 0;
 // FIX(stark-v-signed-mulh): The pinned oracle adds `sign * 128` to the raw top
 // byte while also using a `255 * sign` extension byte. For signed operands this
 // makes the carry numerator non-divisible by 256 (for example, MULH(-1, -1)
-// yields carry_4 = 2_139_096_569), outside the 11-bit lookup table. The sign
-// witnesses are also not tied to the operand top bits, so clearing them can
-// admit unsigned-high behavior for a signed opcode. Preserve the formula below
-// for d478f783 parity, keep this family fail closed in production, and remove
-// this marker only after the pinned Rust oracle changes with signed prove/verify
-// vectors.
+// yields carry_4 = 2_139_096_569), outside the 11-bit lookup table. Of the eight
+// invalid range requests, four index past the table and four wrap to an existing
+// u32 index whose generated tuple does not match. The sign witnesses are also
+// not tied to the operand top bits, so clearing them can admit unsigned-high
+// behavior for a signed opcode. Preserve the formula below for d478f783 parity,
+// keep this family fail closed in production, and remove this marker only after
+// the pinned Rust oracle changes with signed prove/verify vectors.
 pub const CURRENT_TRACE_COMPATIBLE = false;
 pub const MISSING_CURRENT_WITNESS_COLUMNS = [_][]const u8{
     "pinned signed carry relation rejects the exact runner witness",

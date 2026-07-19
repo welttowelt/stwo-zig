@@ -1,0 +1,160 @@
+//! Proof admission must reject unsupported families before backend work.
+
+const std = @import("std");
+const riscv_cpu = @import("../../integrations/riscv_cpu/mod.zig");
+const prover = @import("../../frontends/riscv/prover.zig");
+const trace_mod = @import("../../frontends/riscv/runner/trace.zig");
+const pcs = @import("../../core/pcs/mod.zig");
+const prover_component = @import("../../prover/air/component_prover.zig");
+const prover_engine = @import("../../prover/engine.zig");
+const prover_pcs = @import("../../prover/pcs/mod.zig");
+const stage_profile = @import("../../prover/stage_profile.zig");
+
+const CpuProverEngine = riscv_cpu.CpuProverEngine;
+const ExtendedProof = prover.ExtendedProof;
+
+const CountingEngine = struct {
+    pub const Scheme = CpuProverEngine.Scheme;
+    pub const Channel = CpuProverEngine.Channel;
+    pub const MerkleChannel = CpuProverEngine.MerkleChannel;
+    var init_calls: usize = 0;
+    var commit_calls: usize = 0;
+    var prove_calls: usize = 0;
+
+    fn reset() void {
+        init_calls = 0;
+        commit_calls = 0;
+        prove_calls = 0;
+    }
+
+    pub fn init(allocator: std.mem.Allocator, config: pcs.PcsConfig) !Scheme {
+        init_calls += 1;
+        return CpuProverEngine.init(allocator, config);
+    }
+
+    pub fn deinit(scheme: *Scheme, allocator: std.mem.Allocator) void {
+        CpuProverEngine.deinit(scheme, allocator);
+    }
+
+    pub fn commit(
+        scheme: *Scheme,
+        allocator: std.mem.Allocator,
+        columns: []prover_pcs.ColumnEvaluation,
+        recorder: ?*stage_profile.Recorder,
+        channel: *Channel,
+    ) !void {
+        commit_calls += 1;
+        return CpuProverEngine.commit(scheme, allocator, columns, recorder, channel);
+    }
+
+    pub fn prove(
+        allocator: std.mem.Allocator,
+        components: []const prover_component.ComponentProver,
+        channel: *Channel,
+        scheme: Scheme,
+        options: prover_engine.ProveOptions,
+    ) !ExtendedProof {
+        prove_calls += 1;
+        return CpuProverEngine.prove(allocator, components, channel, scheme, options);
+    }
+};
+
+const TEST_CONFIG = pcs.PcsConfig{
+    .pow_bits = 0,
+    .fri_config = .{
+        .log_blowup_factor = 1,
+        .log_last_layer_degree_bound = 0,
+        .n_queries = 2,
+    },
+};
+
+test "transaction engine is the proving substitution point" {
+    CountingEngine.reset();
+    const allocator = std.testing.allocator;
+    var trace = trace_mod.Trace.init(allocator);
+    defer trace.deinit();
+    trace.initial_pc = 0x1000;
+    for (0..4) |row| {
+        try trace.append(.{
+            .clk = @intCast(row + 1),
+            .pc = @intCast(0x1000 + row * 4),
+            .opcode = .ADDI,
+            .rd = 1,
+            .rs1 = 0,
+            .rs2 = 0,
+            .imm = 1,
+            .rs1_val = 0,
+            .rs2_val = 0,
+            .rs1_prev_clk = @intCast(row),
+            .rd_prev_val = if (row == 0) 0 else 1,
+            .rd_prev_clk = @intCast(row),
+            .rd_val = 1,
+            .mem_addr = 0,
+            .mem_val = 0,
+            .is_load = false,
+            .is_store = false,
+            .branch_taken = false,
+            .next_pc = @intCast(0x1000 + (row + 1) * 4),
+            .inst_word = 0x0010_0093,
+        });
+    }
+    trace.final_pc = 0x1010;
+
+    var output = try prover.proveRiscVWithEngine(
+        CountingEngine,
+        allocator,
+        TEST_CONFIG,
+        &trace,
+        null,
+        null,
+        null,
+    );
+    defer output.deinit(allocator);
+    try std.testing.expectEqual(@as(usize, 1), CountingEngine.init_calls);
+    try std.testing.expectEqual(@as(usize, 3), CountingEngine.commit_calls);
+    try std.testing.expectEqual(@as(usize, 1), CountingEngine.prove_calls);
+}
+
+test "MULH family rejection happens before engine initialization" {
+    CountingEngine.reset();
+    const allocator = std.testing.allocator;
+    var trace = trace_mod.Trace.init(allocator);
+    defer trace.deinit();
+    trace.initial_pc = 0x1000;
+    trace.final_pc = 0x1004;
+    try trace.append(.{
+        .clk = 1,
+        .pc = 0x1000,
+        .opcode = .MULHU,
+        .rd = 3,
+        .rs1 = 1,
+        .rs2 = 2,
+        .imm = 0,
+        .rs1_val = 0x7fff_ffff,
+        .rs2_val = 0x4000_0000,
+        .rd_val = 0x1fff_ffff,
+        .mem_addr = 0,
+        .mem_val = 0,
+        .is_load = false,
+        .is_store = false,
+        .branch_taken = false,
+        .next_pc = 0x1004,
+        .inst_word = 0x0220_b1b3,
+    });
+
+    try std.testing.expectError(
+        error.UnsupportedProofFamily,
+        prover.proveRiscVWithEngine(
+            CountingEngine,
+            allocator,
+            TEST_CONFIG,
+            &trace,
+            null,
+            null,
+            null,
+        ),
+    );
+    try std.testing.expectEqual(@as(usize, 0), CountingEngine.init_calls);
+    try std.testing.expectEqual(@as(usize, 0), CountingEngine.commit_calls);
+    try std.testing.expectEqual(@as(usize, 0), CountingEngine.prove_calls);
+}
