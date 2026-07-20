@@ -79,9 +79,14 @@ def main() -> int:
     repo = Path.cwd()
     recorded = record_pending(repo)
     if not recorded:
-        print("[record] no unrecorded claimed submissions; nothing to do")
-        return 0
-    refresh_feed(repo)
+        print("[record] no unrecorded claimed submissions")
+    # The feed refreshes whenever any committed input moved — new matrix
+    # runs, reference measurements, and calibration land on the site without
+    # a manual regen, not only after promotions.
+    if refresh_feed(repo):
+        print("[record] ✓ feed refreshed")
+    else:
+        print("[record] feed already current")
     return 0
 
 

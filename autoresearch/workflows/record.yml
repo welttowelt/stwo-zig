@@ -11,6 +11,10 @@ on:
     branches: [main]
     paths:
       - "autoresearch/submissions/**"
+      - "autoresearch/ledger/**"
+      - "autoresearch/reference/**"
+      - "autoresearch/MANIFEST.json"
+      - "vectors/reports/benchmark_history/**"
 
 permissions:
   contents: write
