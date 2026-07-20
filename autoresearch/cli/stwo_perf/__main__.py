@@ -109,6 +109,7 @@ def cmd_run(args) -> int:
 
 def cmd_submit(args) -> int:
     from . import submitter
+    _warn_harness_drift()
     m = manifest_mod.load()
     try:
         sub_dir = submitter.package(
@@ -123,6 +124,46 @@ def cmd_submit(args) -> int:
     print("  branch, then open a PR labeled 'submission'. The judge re-runs before")
     print("  anything lands; your claimed verdict is advisory.")
     return 0
+
+
+def cmd_update(_args) -> int:
+    from . import update as update_mod
+    m = manifest_mod.load()
+    try:
+        result = update_mod.update(m.root)
+    except update_mod.UpdateError as exc:
+        return _fail(str(exc))
+    if result["commits"] == 0:
+        print(f"{ansi.OK} already current: {result['new'][:12]}")
+        return 0
+    print(
+        f"{ansi.OK} fast-forwarded {result['commits']} commit(s): "
+        f"{result['old'][:12]} → {result['new'][:12]}"
+    )
+    if result["harness_changed"]:
+        print(ansi.style(
+            "  harness policy changed — the CLI runs from this repository, so the "
+            "new rules are already in effect (nothing to rebuild or reinstall)",
+            "yellow",
+        ))
+    else:
+        print(ansi.style("  no harness policy changes; source updated", "dim"))
+    return 0
+
+
+def _warn_harness_drift() -> None:
+    """Best-effort submit-time staleness nudge: source divergence is normal
+    mid-effort, autoresearch/** divergence means stale rules."""
+    from . import update as update_mod
+    m = manifest_mod.load()
+    drift = update_mod.harness_drift(m.root)
+    if drift:
+        print(ansi.style(
+            f"warning: harness policy differs from origin/main ({len(drift)} file(s), "
+            f"e.g. {drift[0]}) — run `stwo-perf update` in the canonical checkout "
+            "(then `stwo-perf sync` in workspaces) so submissions follow current rules",
+            "yellow",
+        ), file=sys.stderr)
 
 
 def cmd_promote_claimed(args) -> int:
@@ -313,6 +354,7 @@ def cmd_apikey_revoke(_args) -> int:
 
 def cmd_submit_remote(args) -> int:
     from . import remote
+    _warn_harness_drift()
     m = manifest_mod.load()
     receipt_path = Path(args.receipt)
     receipt_bytes = receipt_path.read_bytes()
@@ -436,6 +478,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("dest")
 
     sub.add_parser("setup", help="verify toolchain and build the bench target")
+
+    sub.add_parser(
+        "update",
+        help="fast-forward the canonical checkout to origin/main — the CLI is "
+             "repo-resident, so updating the checkout IS updating the CLI",
+    )
 
     p = sub.add_parser("run", help="paired reward evaluation; emits a claimed verdict")
     p.add_argument("--scope", choices=["s1", "s2", "s3", "s4", "s5"], default="s3")
@@ -588,6 +636,7 @@ HANDLERS = {
     "coauthor-accept": cmd_coauthor_accept,
     "submission-withdraw": cmd_submission_withdraw, "config": cmd_config,
     "install-workflows": cmd_install_workflows, "feed": cmd_feed,
+    "update": cmd_update,
 }
 
 

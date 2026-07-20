@@ -41,6 +41,8 @@ autoresearch/
 ```bash
 alias stwo-perf="$PWD/autoresearch/cli/stwo-perf"
 
+stwo-perf update                   # fast-forward the checkout; the CLI is
+                                   # repo-resident, so this IS the reinstall
 stwo-perf benchmark                # the fixed suite, gates, ledger state
 stwo-perf frontier                 # promotions ledger + Pareto frontier
 stwo-perf clone ../ws-quotient     # your workspace (git worktree)
