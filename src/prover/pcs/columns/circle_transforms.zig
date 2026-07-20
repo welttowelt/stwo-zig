@@ -82,7 +82,7 @@ pub fn interpolateCoefficientColumns(
     for (groups.items, 0..) |group, group_idx| {
         const twiddle_tree = try twiddle_source.get(allocator, group.log_size);
         const domain = canonic.CanonicCoset.new(group.log_size).circleDomain();
-        const batch_len = preferredFftBatchLen(domain.size());
+        const batch_len = preferredCpuFftBatchLen(domain.size(), group.indices.items.len);
         var batch_start: usize = 0;
         while (batch_start < group.indices.items.len) : (batch_start += batch_len) {
             const chunk_len = @min(batch_len, group.indices.items.len - batch_start);
@@ -212,7 +212,7 @@ pub fn interpolateOwnedColumnsForExtensionForBackend(
         const batch_len = if (comptime @hasDecl(B, "interpolateCircleBuffers"))
             group.indices.items.len
         else
-            preferredFftBatchLen(domain.size());
+            preferredCpuFftBatchLen(domain.size(), group.indices.items.len);
         var batch_start: usize = 0;
         while (batch_start < group.indices.items.len) : (batch_start += batch_len) {
             const chunk_len = @min(batch_len, group.indices.items.len - batch_start);
@@ -381,7 +381,7 @@ pub fn extendCoefficientColumnsByGroupForBackend(
         const batch_len = if (comptime @hasDecl(B, "evaluateCircleBuffers"))
             group.indices.items.len
         else
-            preferredFftBatchLen(domain_size);
+            preferredCpuFftBatchLen(domain_size, group.indices.items.len);
         var batch_start: usize = 0;
         while (batch_start < group.indices.items.len) : (batch_start += batch_len) {
             const chunk_len = @min(batch_len, group.indices.items.len - batch_start);
@@ -543,4 +543,41 @@ fn preferredFftBatchLen(value_len: usize) usize {
     if (value_bytes == 0) return 1;
     const max_batch = fft_batch_target_bytes / value_bytes;
     return std.math.clamp(max_batch, 1, 32);
+}
+
+fn preferredCpuFftBatchLen(value_len: usize, column_count: usize) usize {
+    const cache_batch = preferredFftBatchLen(value_len);
+    if (value_len < 4096 or column_count < 2) return cache_batch;
+
+    const pool = work_pool_mod.getGlobalPool() orelse return cache_batch;
+    return preferredCpuFftBatchLenForWorkers(
+        cache_batch,
+        column_count,
+        pool.workerCount(),
+    );
+}
+
+fn preferredCpuFftBatchLenForWorkers(
+    cache_batch: usize,
+    column_count: usize,
+    worker_count: usize,
+) usize {
+    std.debug.assert(worker_count != 0);
+    const columns_per_worker = (column_count + worker_count - 1) / worker_count;
+    return @min(cache_batch, @max(@as(usize, 1), columns_per_worker));
+}
+
+test "circle transforms: CPU FFT batch exposes one task per worker" {
+    try std.testing.expectEqual(
+        @as(usize, 8),
+        preferredCpuFftBatchLenForWorkers(16, 32, 4),
+    );
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        preferredCpuFftBatchLenForWorkers(16, 4, 12),
+    );
+    try std.testing.expectEqual(
+        @as(usize, 16),
+        preferredCpuFftBatchLenForWorkers(16, 64, 2),
+    );
 }
