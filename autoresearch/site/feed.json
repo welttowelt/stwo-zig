@@ -733,6 +733,84 @@
      "verdict_kind": "claimed",
      "waits": null,
      "workload_class": "wide"
+    },
+    {
+     "board": "core_cpu",
+     "ci_high": 1.000933,
+     "ci_low": 0.972361,
+     "commit": "86f6396f1995f5d473ff6cad1debc0a75a5810fc",
+     "dispatches": null,
+     "energy_j": null,
+     "epoch": 1,
+     "gates": "G1..G5:pass",
+     "harness_commit": "caef9f755204",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-20T23:44:32Z",
+     "judged_r": 0.989573,
+     "native_mhz": 0.0,
+     "outcome": "neutral",
+     "peak_rss_mib": 0.0,
+     "predecessor": "bbb8c8823cca",
+     "prove_ms": 1.554416,
+     "schema_version": 2,
+     "scope": "s3",
+     "submission_id": "2026-07-20-metal-batched-sampled-value-epoch",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "small"
+    },
+    {
+     "board": "core_cpu",
+     "ci_high": 1.008301,
+     "ci_low": 0.990135,
+     "commit": "86f6396f1995f5d473ff6cad1debc0a75a5810fc",
+     "dispatches": null,
+     "energy_j": null,
+     "epoch": 1,
+     "gates": "G1..G5:pass",
+     "harness_commit": "caef9f755204",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-20T23:44:33Z",
+     "judged_r": 1.00089,
+     "native_mhz": 0.0,
+     "outcome": "neutral",
+     "peak_rss_mib": 0.0,
+     "predecessor": "bbb8c8823cca",
+     "prove_ms": 6.7405,
+     "schema_version": 2,
+     "scope": "s3",
+     "submission_id": "2026-07-20-metal-batched-sampled-value-epoch",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "deep"
+    },
+    {
+     "board": "core_cpu",
+     "ci_high": 1.002816,
+     "ci_low": 0.978301,
+     "commit": "86f6396f1995f5d473ff6cad1debc0a75a5810fc",
+     "dispatches": null,
+     "energy_j": null,
+     "epoch": 1,
+     "gates": "G1..G5:pass",
+     "harness_commit": "caef9f755204",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-20T23:44:33Z",
+     "judged_r": 0.992418,
+     "native_mhz": 0.0,
+     "outcome": "neutral",
+     "peak_rss_mib": 0.0,
+     "predecessor": "bbb8c8823cca",
+     "prove_ms": 10.798625,
+     "schema_version": 2,
+     "scope": "s3",
+     "submission_id": "2026-07-20-metal-batched-sampled-value-epoch",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "wide"
     }
    ],
    "frontier_by_class": {
@@ -1446,7 +1524,7 @@
   "rows_total": 12,
   "rows_with_zero_fallbacks": 12
  },
- "notes_count": 3,
+ "notes_count": 4,
  "project": {
   "contract": "stwo-zig-og-docs archive: 2026-07-17-performance-extraction-playbook.md, Part F",
   "harness": "stwo-perf",
@@ -1514,12 +1592,12 @@
   "inputs_sha256": {
    "autoresearch/MANIFEST.json": "fd0697677abbcc8ce0488edc6273cb55a8b4879321f36ddbef06e451c3da492f",
    "autoresearch/ledger/epochs.json": "b2b6c98203cc97f3a13c23a9c3da29d3b6709e7d9c6afb8b5240926166b01921",
-   "autoresearch/ledger/promotions.tsv": "043d9487fa425230cacb84aba661b3db388ed7d65a6e9a276e8882f5fb4b9155",
+   "autoresearch/ledger/promotions.tsv": "7ce39207f091613e0c0208d62e2a862e6f1055cc9e6a8fc26c535c75fffdf1c2",
    "vectors/reports/benchmark_history/index.json": "0216c5ae101a3fe33e647553a0ba7bbf2ac2b3ba8c8265fd8ff5ddde059401fe",
    "vectors/reports/benchmark_history/runs/2026-07-20-221601-matrix-v6-e78cca6f/report.json": "facd106c0afb0f14e12263a420d5bbe6dca2dcf6b09d603f3bf3e99950385d6f"
   },
-  "repo_commit": "a770bda68a68",
-  "repo_commit_time": "2026-07-20T23:02:36Z"
+  "repo_commit": "2362dd3ed158",
+  "repo_commit_time": "2026-07-20T23:44:33Z"
  },
  "references": {
   "peer_rust_scalar": {
@@ -1690,6 +1768,24 @@
    ],
    "verdict_kind": "claimed",
    "workload_class": "deep"
+  },
+  {
+   "id": "2026-07-20-metal-batched-sampled-value-epoch",
+   "judged_r": 0.989573,
+   "note": "# Batch all sampled-value trees into one Metal command epoch\n\n## Model and harness\n\nGPT-5 Codex optimized clean candidate `f58bab07f67c` from current predecessor\n`bbb8c8823cca` on an Apple M5 Max running macOS 26.5.2. The production evidence\nuses the real ReleaseFast `native-proof-bench-metal` product, functional\nprotocol, proof verification, and the source-JIT runtime. Zig embeds the MSL and\nmacOS compiles it through `newLibraryWithSource`; initialization is excluded\nfrom timed samples. This change does not modify MSL, the Objective-C runtime,\nthe C/shader ABI, pipeline identities, or the authenticated AOT path.\n\nThe manifest still has no enabled `core_metal` scoring workload. The attached\nS3 verdicts are honest CPU no-regression controls; the Metal claim comes from\nthe production-compatible Native Metal binary and is not mislabeled as a CPU\nspeedup.\n\n## Hypothesis\n\nFresh stage profiles found sampled-value evaluation at 1.355 ms on wide and\n2.111 ms on deep. Source and mechanism telemetry showed that one logical ragged\nresult was evaluated as one synchronous Metal transaction per commitment tree:\ntwo command buffers/waits on small and wide, three on deep. Each call repacked\ndescriptors, allocated six Metal buffers, dispatched basis construction and\npolynomial evaluation, waited, and copied a small result.\n\nThe numerical tasks are independent after the CPU builds their point-factor\nplans. The canonical match is segmented/CSR-style flattening: translate every\ntree-local coefficient and output index through prefix offsets, concatenate all\nplans, execute the existing arbitrary-task kernels once, then scatter through\nthe saved offsets. The prediction was one physical epoch, unchanged arithmetic\nand proof bytes, a 0.3--0.8 ms stage reduction, and a measurable end-to-end win.\n\nApple recommends submitting the fewest command buffers that keep the GPU busy,\nbecause frequent submissions can introduce CPU/GPU synchronization stalls:\nhttps://developer.apple.com/library/archive/documentation/3DDrawing/Conceptual/MTLBestPracticesGuide/CommandBuffers.html\n\n## Changes\n\nThe generic PCS evaluator now exposes an optional backend batch hook after\nbuilding the exact existing per-tree coefficient plans. The Metal runtime:\n\n- counts aggregate coefficient, factor, basis-task, evaluation-task, and output\n  storage;\n- assigns global coefficient and output prefixes while preserving tree-local\n  plan order;\n- calls the unchanged polynomial-evaluation FFI once; and\n- scatters exact QM31 outputs only after the existing terminal completion wait.\n\nThe former single-tree runtime API remains as a one-element wrapper. All\nnon-Metal backends retain the reference path. No asynchronous ownership, new\nfeature requirement, numerical reassociation, or fallback was introduced. A\ntwo-tree device test gives both trees local column index zero and compares every\nbatched output with scalar circle-polynomial evaluation, directly testing the\nprefix mapping that could otherwise alias trees.\n\n## Results\n\nSeven clean paired rounds per class alternated A-B / B-A process order. Every\nprocess used ten warmups and seven timed verified proofs. Statistics are the\nrepository's round-median Hodges--Lehmann estimator with deterministic\n100,000-resample bootstrap intervals.\n\n| class | predecessor | candidate | B/A (95% CI) | latency reduction |\n| --- | ---: | ---: | ---: | ---: |\n| small `wf_log10x8` | 3.078 ms | 2.874 ms | 0.9187 [0.6642, 0.9289] | 8.13% |\n| wide `wf_log14x32` | 12.563 ms | 11.894 ms | 0.9517 [0.9357, 0.9678] | 4.83% |\n| deep `plonk_log14` | 8.668 ms | 7.603 ms | 0.8767 [0.8742, 0.8789] | 12.33% |\n\nThe suite geometric-mean ratio is 0.9152: 8.48% less latency / 1.093x\nthroughput. A separate symmetrically preconditioned seven-round small run\nmeasured 3.042 -> 2.825 ms, ratio 0.9225 [0.8290, 0.9442], confirming that the\nsmall win is about 7.8% after removing favorable baseline-first frequency-ramp\noutliers.\n\nThe profiled sampled stage moved exactly as intended:\n\n| class | stage before -> after | physical sampled epochs |\n| --- | ---: | ---: |\n| wide | 1.355 -> 0.800 ms | 2 -> 1 |\n| deep | 2.111 -> 0.661 ms | 3 -> 1 |\n| small | candidate 0.377 ms | 2 -> 1 |\n\nAcross the primary paired suite, all 294 timed proofs independently verified,\nwere byte-identical, and matched across arms. Every report was audited for the\nfixed digest, verification count, mechanism count, and fallback count. CPU\nsampled-value fallbacks remained zero. Fixed proof hashes are:\n\n- small: `91741aec956846d52e50f7b8fef3ac93195dbcd76cdb89e25ed33a148bea5700`\n- wide: `57a7d291eb8a103d0e4395c23fd7dc9ab7e9ed2d0f95558835cc6482630f3374`\n- deep: `d63a2c92846148edc075fbb46fe63f5cf0fc6fe05ae1d5d54d09bda33b69dbaf`\n\n## Official controls and validation\n\nFresh CPU S3 controls for all moved classes passed G1--G5, the pinned Rust\noracle, all proof-digest checks, and all 12 regression guards. They were neutral\nas expected for a compile-time Metal-only hook: small 0.9896\n`[0.9724, 1.0009]`, wide 0.9924 `[0.9783, 1.0028]`, and deep 1.0009\n`[0.9901, 1.0083]`.\n\nValidation passes the full Zig tests, Native Metal product test, Metal compile\ngate, both authenticated-AOT tooling/probe suites, source conformance,\nformatting, diff checks, exact fixed proofs, and the new multi-tree device\nparity test. The broad Metal runtime suite is 80/83 with two expected skips and\nthe same single resident-FRI parity failure documented on the untouched\npredecessor.\n\n## Caveats\n\n- No enabled Metal judge workload exists, so this cannot receive Metal board\n  credit until the harness exposes one.\n- Full Metal System Trace is unavailable because this host has Command Line\n  Tools rather than full Xcode. Real source-JIT execution, stage timers,\n  per-operation GPU timestamps, source wait topology, and mechanism telemetry\n  support the attribution.\n- The batch temporarily holds the sum rather than the maximum of two or three\n  trees' GPU-visible evaluator buffers. At the fixed log-14 shapes this is only\n  low-single-digit MiB against the device's 55.66 GB recommended working set.\n",
+   "outcome": "neutral",
+   "solver": "teddyjfpender",
+   "title": "Batch all sampled-value trees into one Metal command epoch",
+   "transcripts": [
+    {
+     "captured_by": "submitter",
+     "excerpt": "# Session 01 \u2014 continuing Metal autoresearch after the resident FRI cascade\n\nDate: 2026-07-21\nModel: GPT-5 Codex\n\n## Objective and process\n\nContinue the optimization loop for the requested multi-hour window: update the\nrepo-resident CLI, benchmark the current merged frontier, profile and formalize\nthe next bottleneck, implement an exact Metal architecture, gather paired\nevidence, package a transcript-bearing submission, open a PR, repair CI, merge\nonly when green, and repeat.\n\nThe canonical checkout and CLI were current at `bbb8c8823cca`, which contains\nthe merged resident line-FRI cascade from PR #25. A fresh worktree and branch\n`autoresearch/metal-epoch2` were created from that exact recor",
+     "label": "session-01.md",
+     "sha256": "a78b84410b5863c5b7094df82e4dca413a7f62e8f748811caac9e603933032f4"
+    }
+   ],
+   "verdict_kind": "claimed",
+   "workload_class": "small"
   },
   {
    "id": "2026-07-20-metal-resident-fri-transcript-cascade-epoch",
