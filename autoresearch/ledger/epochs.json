@@ -6,11 +6,11 @@
       "reason": "initial harness installation",
       "harness_commit": null,
       "aa_dispersion": {
-        "note": "Per-board, per-class A/A paired-ratio CI half-widths, measured by `stwo-perf run --aa` on the designated judge host (arm64 macOS, 2026-07-20) and recorded here. riscv stays null until its board enables; theta = max(floor, 2 x dispersion) per class.",
+        "note": "Per-board, per-class A/A paired-ratio CI half-widths, measured by `stwo-perf run --aa` on the designated Apple M5 Max judge host (arm64 macOS, 18 CPU cores, 2026-07-20) and recorded here. riscv stays null until its board enables; theta = max(floor, 2 x dispersion) per class.",
         "core_cpu": {
-          "small": 0.030362,
-          "wide": 0.011056,
-          "deep": 0.01772
+          "small": 0.018654,
+          "wide": 0.014645,
+          "deep": 0.009139
         },
         "riscv": {
           "small": null,
