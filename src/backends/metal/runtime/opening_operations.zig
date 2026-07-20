@@ -47,6 +47,7 @@ const FriTreePlan = runtime.FriTreePlan;
 const FriFinalPlan = runtime.FriFinalPlan;
 const QuotientCommitResult = runtime.QuotientCommitResult;
 const FriFoldCommitResult = runtime.FriFoldCommitResult;
+const FriLineCascadeResult = runtime.FriLineCascadeResult;
 const ResidentBuffer = runtime.ResidentBuffer;
 const Tree = runtime.Tree;
 const validDomainPrefixBytes = protocol_mode.validDomainPrefixBytes;
@@ -151,6 +152,79 @@ pub fn foldFriLineAndCommit(
             .log_size = std.math.log2_int(u32, destination_count),
         },
     };
+}
+
+/// Commits every single-fold line-FRI layer, advances the Blake2s transcript,
+/// and folds to the terminal evaluation in one ordered Metal command buffer.
+pub fn foldFriLineCascade(
+    self: *Runtime,
+    allocator: std.mem.Allocator,
+    source: *anyopaque,
+    source_count: u32,
+    inverse_x: []const u32,
+    coordinates: []const *anyopaque,
+    final_destination: *anyopaque,
+    leaf_seed: [8]u32,
+    node_seed: [8]u32,
+    domain_prefix_bytes: u32,
+    channel_state: *[10]u32,
+) (MetalError || std.mem.Allocator.Error)!FriLineCascadeResult {
+    if (source_count < 2 or coordinates.len == 0 or coordinates.len >= 31 or
+        source_count & (source_count - 1) != 0 or
+        !validDomainPrefixBytes(domain_prefix_bytes))
+    {
+        return MetalError.InvalidColumns;
+    }
+    const layer_count = std.math.cast(u32, coordinates.len) orelse return MetalError.InvalidColumns;
+    if (source_count >> @intCast(layer_count) == 0) return MetalError.InvalidColumns;
+
+    var expected_inverse_count: u64 = 0;
+    var count = source_count;
+    for (coordinates) |_| {
+        count >>= 1;
+        expected_inverse_count += count;
+    }
+    if (inverse_x.len != expected_inverse_count or inverse_x.len > std.math.maxInt(u32))
+        return MetalError.InvalidColumns;
+
+    const trees = try allocator.alloc(Tree, coordinates.len);
+    errdefer allocator.free(trees);
+    const handles = try allocator.alloc(?*anyopaque, coordinates.len);
+    defer allocator.free(handles);
+    @memset(handles, null);
+
+    var stats: CommandEpochStats = undefined;
+    var message: [1024]u8 = [_]u8{0} ** 1024;
+    if (!ffi.stwo_zig_metal_fri_line_cascade(
+        self.handle,
+        source,
+        source_count,
+        inverse_x.ptr,
+        @intCast(inverse_x.len),
+        coordinates.ptr,
+        final_destination,
+        layer_count,
+        &leaf_seed,
+        &node_seed,
+        domain_prefix_bytes,
+        channel_state,
+        handles.ptr,
+        &stats,
+        &message,
+        message.len,
+    )) {
+        std.log.err("Metal FRI line cascade failed: {s}", .{std.mem.sliceTo(&message, 0)});
+        return MetalError.CommitmentFailed;
+    }
+
+    for (trees, handles, 0..) |*tree, handle, stage| {
+        tree.* = .{
+            .handle = handle orelse unreachable,
+            .runtime_handle = self.handle,
+            .log_size = std.math.log2_int(u32, source_count >> @intCast(stage)),
+        };
+    }
+    return .{ .stats = stats, .trees = trees };
 }
 
 pub fn prepareFriFold(

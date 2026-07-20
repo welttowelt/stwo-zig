@@ -90,6 +90,23 @@ pub const MetalCommitBackend = struct {
         return metal_merkle.MetalMerkleTree(H);
     }
 
+    fn FriLineCascadeResult(comptime H: type) type {
+        return struct {
+            columns: []@import("stwo_prover_impl").secure_column.SecureColumnByCoords,
+            trees: []MerkleTree(H),
+            last_layer_evaluation: @import("stwo_prover_impl").line.LineEvaluation,
+
+            pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+                for (self.columns) |*column| column.deinit(allocator);
+                allocator.free(self.columns);
+                for (self.trees) |*tree| tree.deinit(allocator);
+                allocator.free(self.trees);
+                self.last_layer_evaluation.deinit(allocator);
+                self.* = undefined;
+            }
+        };
+    }
+
     pub fn allocateSecureColumn(column_len: usize) !@import("stwo_prover_impl").secure_column.SecureColumnByCoords {
         const M31 = @import("stwo_core").fields.m31.M31;
         const DEGREE = @import("stwo_core").fields.qm31.SECURE_EXTENSION_DEGREE;
@@ -578,6 +595,191 @@ pub const MetalCommitBackend = struct {
             },
         );
         return .{ .evaluation = folded, .column = coordinates, .tree = tree };
+    }
+
+    /// Executes the complete single-fold Blake2s line-FRI dependency chain in
+    /// one Metal epoch. The optional result is null before any mutation when
+    /// the channel, shape, or resident-storage contract is unsupported.
+    pub fn commitFriLineCascade(
+        comptime H: type,
+        allocator: std.mem.Allocator,
+        evaluation: @import("stwo_prover_impl").line.LineEvaluation,
+        channel: anytype,
+        workspace: *@import("stwo_core").fri.FoldLineWorkspace,
+        last_layer_size: usize,
+        fold_step: u32,
+    ) !?FriLineCascadeResult(H) {
+        const channel_blake2s = @import("stwo_core").channel.blake2s;
+        const M31 = @import("stwo_core").fields.m31.M31;
+        const core_utils = @import("stwo_core").utils;
+        const fields = @import("stwo_core").fields;
+        if (comptime @TypeOf(channel.*) != channel_blake2s.Blake2sChannel) return null;
+        if (fold_step != 1 or last_layer_size == 0 or
+            evaluation.len() <= last_layer_size or evaluation.resident_storage == null or
+            !std.math.isPowerOfTwo(evaluation.len()) or !std.math.isPowerOfTwo(last_layer_size) or
+            evaluation.len() % last_layer_size != 0)
+        {
+            return null;
+        }
+        const layer_count: usize = std.math.log2_int(usize, evaluation.len() / last_layer_size);
+        if (layer_count == 0 or layer_count >= 31) return null;
+
+        const inverse_count = evaluation.len() - last_layer_size;
+        const inverse_values = try allocator.alloc(M31, inverse_count);
+        defer allocator.free(inverse_values);
+        var current_domain = evaluation.domain();
+        var current_count = evaluation.len();
+        var inverse_cursor: usize = 0;
+        for (0..layer_count) |_| {
+            const destination_count = current_count >> 1;
+            try workspace.ensureCapacity(allocator, destination_count);
+            const x = workspace.x_values[0..destination_count];
+            const inverse_x = workspace.inv_x_values[0..destination_count];
+            const log_size = current_domain.logSize();
+            for (x, 0..) |*value, index| {
+                value.* = current_domain.at(core_utils.bitReverseIndex(index << 1, log_size));
+            }
+            try fields.batchInverseInPlace(M31, x, inverse_x);
+            @memcpy(inverse_values[inverse_cursor .. inverse_cursor + destination_count], inverse_x);
+            inverse_cursor += destination_count;
+            current_count = destination_count;
+            current_domain = current_domain.double();
+        }
+
+        const SecureColumn = @import("stwo_prover_impl").secure_column.SecureColumnByCoords;
+        const columns = try allocator.alloc(SecureColumn, layer_count);
+        var initialized_columns: usize = 0;
+        errdefer {
+            for (columns[0..initialized_columns]) |*column| column.deinit(allocator);
+            allocator.free(columns);
+        }
+        const coordinate_handles = try allocator.alloc(*anyopaque, layer_count);
+        defer allocator.free(coordinate_handles);
+        current_count = evaluation.len();
+        for (columns, coordinate_handles) |*column, *handle| {
+            column.* = try allocateSecureColumn(current_count);
+            initialized_columns += 1;
+            handle.* = column.resident_storage.?.handle;
+            current_count >>= 1;
+        }
+
+        var terminal = try allocateLineEvaluation(current_domain);
+        errdefer terminal.deinit(allocator);
+        const terminal_storage = terminal.resident_storage orelse return error.InvalidColumns;
+        const source_storage = evaluation.resident_storage.?;
+
+        var channel_state = [_]u32{0} ** 10;
+        for (0..8) |word| {
+            channel_state[word] = std.mem.readInt(
+                u32,
+                channel.digest[word * 4 ..][0..4],
+                .little,
+            );
+        }
+        channel_state[8] = channel.n_draws;
+        const inverse_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(inverse_values));
+
+        var lease = try shared_runtime.acquire();
+        defer lease.deinit();
+        var runtime_result = try lease.runtime.foldFriLineCascade(
+            allocator,
+            source_storage.handle,
+            @intCast(evaluation.len()),
+            inverse_words,
+            coordinate_handles,
+            terminal_storage.handle,
+            H.leafSeed(),
+            H.nodeSeed(),
+            H.domainPrefixBytes(),
+            &channel_state,
+        );
+        defer allocator.free(runtime_result.trees);
+
+        var consumed_runtime_trees: usize = 0;
+        errdefer {
+            for (runtime_result.trees[consumed_runtime_trees..]) |*tree| tree.deinit();
+        }
+        const trees = try allocator.alloc(MerkleTree(H), layer_count);
+        var initialized_trees: usize = 0;
+        errdefer {
+            for (trees[0..initialized_trees]) |*tree| tree.deinit(allocator);
+            allocator.free(trees);
+        }
+        for (runtime_result.trees, trees) |runtime_tree, *tree| {
+            consumed_runtime_trees += 1;
+            tree.* = try MerkleTree(H).fromSharedRuntime(runtime_tree);
+            initialized_trees += 1;
+        }
+
+        for (0..8) |word| {
+            std.mem.writeInt(u32, channel.digest[word * 4 ..][0..4], channel_state[word], .little);
+        }
+        channel.n_draws = channel_state[8];
+        telemetry.record(.metal_fri_fold_commit_epoch);
+        for (0..layer_count) |_| telemetry.record(.resident_merkle_commit);
+        std.log.debug(
+            "Metal FRI line cascade: {d:.3}ms, {} layers, {} dispatches, {} command buffer, {} wait",
+            .{
+                runtime_result.stats.gpu_milliseconds,
+                layer_count,
+                runtime_result.stats.dispatches,
+                runtime_result.stats.command_buffers,
+                runtime_result.stats.wait_count,
+            },
+        );
+        return .{
+            .columns = columns,
+            .trees = trees,
+            .last_layer_evaluation = terminal,
+        };
+    }
+
+    /// Adopts a successful resident cascade into the generic prover's private
+    /// layer types. Keeping this ownership transfer here leaves the generic
+    /// scheduler with only a narrow optional backend hook.
+    pub fn commitFriLayers(
+        comptime H: type,
+        comptime InnerLayerProver: type,
+        comptime InnerCommitResult: type,
+        allocator: std.mem.Allocator,
+        evaluation: @import("stwo_prover_impl").line.LineEvaluation,
+        channel: anytype,
+        workspace: *@import("stwo_core").fri.FoldLineWorkspace,
+        config: @import("stwo_core").fri.FriConfig,
+    ) !?InnerCommitResult {
+        var cascade = (try commitFriLineCascade(
+            H,
+            allocator,
+            evaluation,
+            channel,
+            workspace,
+            config.lastLayerDomainSize(),
+            config.fold_step,
+        )) orelse return null;
+        std.debug.assert(cascade.columns.len == cascade.trees.len);
+        const ready_layers = allocator.alloc(InnerLayerProver, cascade.columns.len) catch |err| {
+            cascade.deinit(allocator);
+            return err;
+        };
+        var layer_domain = evaluation.domain();
+        for (ready_layers, cascade.columns, cascade.trees) |*layer, column, tree| {
+            layer.* = .{
+                .domain = layer_domain,
+                .column = column,
+                .merkle_tree = tree,
+                .fold_step = 1,
+            };
+            layer_domain = layer_domain.double();
+        }
+        const terminal_evaluation = cascade.last_layer_evaluation;
+        allocator.free(cascade.columns);
+        allocator.free(cascade.trees);
+        var consumed_evaluation = evaluation;
+        consumed_evaluation.deinit(allocator);
+        return .{
+            .inner_layers = ready_layers,
+            .last_layer_evaluation = terminal_evaluation,
+        };
     }
     pub const foldLine = cpu.foldLine;
     pub const foldLineN = cpu.foldLineN;

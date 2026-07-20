@@ -49,6 +49,24 @@ pub extern fn stwo_zig_metal_fri_fold_line_and_commit(
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
+pub extern fn stwo_zig_metal_fri_line_cascade(
+    runtime: *anyopaque,
+    source: *anyopaque,
+    source_count: u32,
+    inverse_x: [*]const u32,
+    inverse_x_count: u32,
+    coordinates: [*]const *anyopaque,
+    final_destination: *anyopaque,
+    layer_count: u32,
+    leaf_seed: *const [8]u32,
+    node_seed: *const [8]u32,
+    domain_prefix_bytes: u32,
+    channel_state: *[10]u32,
+    trees: [*]?*anyopaque,
+    stats: *CommandEpochStats,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
 pub extern fn stwo_zig_metal_fri_fold_prepare(
     runtime: *anyopaque,
     source_offset_words: u32,
@@ -411,6 +429,11 @@ test "opening bindings retain canonical shared ABI parameter types" {
     try std.testing.expectEqual(@as(usize, 15), fold_commit.params.len);
     try std.testing.expect(fold_commit.params[12].type.? == *CommandEpochStats);
     try std.testing.expect(fold_commit.return_type.? == ?*anyopaque);
+
+    const cascade = @typeInfo(@TypeOf(stwo_zig_metal_fri_line_cascade)).@"fn";
+    try std.testing.expectEqual(@as(usize, 16), cascade.params.len);
+    try std.testing.expect(cascade.params[13].type.? == *CommandEpochStats);
+    try std.testing.expect(cascade.return_type.? == bool);
 
     const quotient = @typeInfo(@TypeOf(stwo_zig_metal_quotient_coefficients_resident)).@"fn";
     try std.testing.expect(quotient.params[2].type.? == [*]const QuotientCoefficientTerm);

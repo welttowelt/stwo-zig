@@ -201,7 +201,9 @@ bool stwo_zig_metal_tree_root(void *tree_ptr, uint8_t *root, double *gpu_millise
     if (tree_ptr == NULL || root == NULL) return false;
     @autoreleasepool {
         StwoZigMetalTree *tree = (__bridge StwoZigMetalTree *)tree_ptr;
-        memcpy(root, tree.rootReadback.contents, 32u);
+        const uint8_t *root_bytes = (const uint8_t *)tree.rootReadback.contents +
+            (NSUInteger)tree.rootReadbackWordOffset * sizeof(uint32_t);
+        memcpy(root, root_bytes, 32u);
         if (gpu_milliseconds != NULL) *gpu_milliseconds = tree.gpuMilliseconds;
         return true;
     }

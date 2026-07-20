@@ -475,6 +475,7 @@ const opening_bindings = @import("opening_bindings.zig");
 pub const stwo_zig_metal_fri_fold_circle = opening_bindings.stwo_zig_metal_fri_fold_circle;
 pub const stwo_zig_metal_fri_fold_line = opening_bindings.stwo_zig_metal_fri_fold_line;
 pub const stwo_zig_metal_fri_fold_line_and_commit = opening_bindings.stwo_zig_metal_fri_fold_line_and_commit;
+pub const stwo_zig_metal_fri_line_cascade = opening_bindings.stwo_zig_metal_fri_line_cascade;
 pub const stwo_zig_metal_fri_fold_prepare = opening_bindings.stwo_zig_metal_fri_fold_prepare;
 pub const stwo_zig_metal_fri_fold_prepared = opening_bindings.stwo_zig_metal_fri_fold_prepared;
 pub const stwo_zig_metal_quotient_combine_prepare = opening_bindings.stwo_zig_metal_quotient_combine_prepare;

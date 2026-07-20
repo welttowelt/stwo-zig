@@ -15,23 +15,10 @@ const secure_column = @import("secure_column.zig");
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
 const SecureColumnByCoords = secure_column.SecureColumnByCoords;
-pub const FriDecommitError = error{
-    QueryOutOfRange,
-    FoldStepTooLarge,
-};
-pub const FriProverError = error{
-    NotCanonicDomain,
-    ShapeMismatch,
-    InvalidLastLayerSize,
-    InvalidLastLayerDegree,
-    InvalidColumnSize,
-};
+pub const FriDecommitError = error{ QueryOutOfRange, FoldStepTooLarge };
+pub const FriProverError = error{ NotCanonicDomain, ShapeMismatch, InvalidLastLayerSize, InvalidLastLayerDegree, InvalidColumnSize };
 pub const FoldLineAndCommitResult = backend_fri.FoldLineAndCommitResult;
-pub const ValueEntry = struct {
-    position: usize,
-    value: QM31,
-};
-
+pub const ValueEntry = struct { position: usize, value: QM31 };
 pub const DecommitmentPositionsResult = struct {
     decommitment_positions: []usize,
     witness_evals: []QM31,
@@ -489,6 +476,18 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
             );
             defer fold_workspace.deinit(allocator);
             const last_layer_log_size = std.math.log2_int(usize, config.lastLayerDomainSize());
+            if (comptime @hasDecl(B, "commitFriLayers")) {
+                if (try B.commitFriLayers(
+                    H,
+                    InnerLayerProver,
+                    InnerCommitResult,
+                    allocator,
+                    layer_evaluation,
+                    channel,
+                    &fold_workspace,
+                    config,
+                )) |result| return result;
+            }
             var pending_tree: ?B.MerkleTree(H) = null;
             var pending_column: ?SecureColumnByCoords = null;
             errdefer if (pending_tree) |*tree| tree.deinit(allocator);
