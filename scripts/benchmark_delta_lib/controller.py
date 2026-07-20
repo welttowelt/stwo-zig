@@ -20,6 +20,7 @@ if str(SCRIPT_DIR) not in sys.path:
 from benchmark_delta_lib.archive import ARCHIVE_SCHEMA_VERSION, update_archive  # noqa: E402
 from benchmark_delta_lib.common import (  # noqa: E402
     DELTA_PROTOCOL,
+    SEQUENTIAL_DELTA_NOTE,
     DeltaError,
     IncompatibleReports,
     atomic_write,
@@ -40,7 +41,6 @@ from benchmark_delta_lib.product_identity import (  # noqa: E402
     validate_native_v6_report,
 )
 
-
 DELTA_SCHEMA_VERSION = 1
 MAX_REPORT_BYTES = 128 * 1024 * 1024
 UPSTREAM_PROTOCOL = "upstream_family_matrix_v1"
@@ -48,7 +48,6 @@ NATIVE_PROTOCOL_V3 = "native_proof_cross_backend_matrix_v3"
 NATIVE_PROTOCOL_V4 = "native_proof_cross_backend_matrix_v4"
 NATIVE_PROTOCOL_V5 = "native_proof_cross_backend_matrix_v5"
 NATIVE_PROTOCOL_V6 = "native_proof_cross_backend_matrix_v6"
-# Compatibility alias used by historical report tests and callers.
 NATIVE_PROTOCOL = NATIVE_PROTOCOL_V3
 NATIVE_PROTOCOLS = {
     NATIVE_PROTOCOL_V3,
@@ -745,12 +744,7 @@ def compare_reports(
         ),
         "sources": {"baseline": baseline_source, "current": current_source},
         "normalizations": [],
-        # Judge finding (PR 20 era): this delta compares two SEQUENTIAL runs,
-        # never interleaved arms — session-to-session machine drift lands in
-        # the numbers, so timing deltas here are diagnostics only. Paired
-        # ABBA evaluation (stwo-perf run) is the only scored comparison.
-        "sequencing": "sequential-runs (diagnostic only; not paired ABBA — "
-                      "never a timing claim)",
+        "sequencing": SEQUENTIAL_DELTA_NOTE,
     }
     try:
         protocol_pair = (baseline["protocol"], current["protocol"])

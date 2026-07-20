@@ -11,6 +11,9 @@ from typing import Any
 
 
 DELTA_PROTOCOL = "benchmark_delta_v1"
+SEQUENTIAL_DELTA_NOTE = (
+    "sequential-runs (diagnostic only; not paired ABBA - never a timing claim)"
+)
 
 
 class DeltaError(RuntimeError):
