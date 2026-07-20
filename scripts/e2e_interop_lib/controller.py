@@ -58,7 +58,14 @@ REPORT_DEFAULT = ROOT / "vectors" / "reports" / "e2e_interop_report.json"
 ARTIFACT_DIR_DEFAULT = ROOT / "vectors" / "reports" / "interop_artifacts"
 ARCHIVE_DIR_DEFAULT = ROOT / "vectors" / "reports" / "interop_history"
 RUST_MANIFEST = ROOT / "tools" / "stwo-interop-rs" / "Cargo.toml"
-RUST_BINARY = ROOT / "tools" / "stwo-interop-rs" / "target" / "release" / "stwo-interop-rs"
+
+
+def default_rust_binary() -> Path:
+    """Where cargo actually writes the oracle: CARGO_TARGET_DIR wins when the
+    harness (ci_scope_run.py warm cache) redirects the target directory."""
+    target = os.environ.get("CARGO_TARGET_DIR")
+    base = Path(target) if target else ROOT / "tools" / "stwo-interop-rs" / "target"
+    return (base / "release" / "stwo-interop-rs").resolve()
 
 RUST_TOOLCHAIN_DEFAULT = "nightly-2025-07-14"
 UPSTREAM_COMMIT = "a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2"
@@ -549,7 +556,7 @@ def main() -> int:
     artifact_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        rust_binary = args.rust_binary.resolve() if args.rust_binary is not None else RUST_BINARY
+        rust_binary = args.rust_binary.resolve() if args.rust_binary is not None else default_rust_binary()
         if args.rust_binary is None:
             run_step(
                 name="rust_interop_tool_build",
