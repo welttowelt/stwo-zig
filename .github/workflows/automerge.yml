@@ -1,0 +1,69 @@
+# Copy into .github/workflows/ alongside validate.yml.
+# Auto-merges green submission PRs so contributions land the moment CI and
+# validation pass; the recorder then puts the result on the board within its
+# one-minute windows. Fires on every workflow completion and merges only when
+# EVERY check run at the head is completed and green, so ordering races are
+# harmless. Scope guards: open PRs against main that add a submission
+# directory, authored by OWNER/MEMBER/COLLABORATOR (unknown forks keep the
+# human merge or the qualified submit-remote path; widen AUTHOR_OK below to
+# open it up).
+name: autoresearch-automerge
+
+on:
+  workflow_run:
+    workflows: [CI, autoresearch-validate]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: automerge-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Merge green submission PRs at this head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          AUTHOR_OK='OWNER MEMBER COLLABORATOR'
+
+          prs=$(gh api "repos/$REPO/commits/$HEAD_SHA/pulls" \
+            --jq '.[] | select(.state == "open") | .number' || true)
+          [ -z "$prs" ] && { echo "no open PR at $HEAD_SHA"; exit 0; }
+
+          for pr in $prs; do
+            base=$(gh pr view "$pr" --repo "$REPO" --json baseRefName --jq .baseRefName)
+            [ "$base" = "main" ] || { echo "PR #$pr: base $base — skip"; continue; }
+
+            assoc=$(gh pr view "$pr" --repo "$REPO" --json authorAssociation --jq .authorAssociation)
+            case " $AUTHOR_OK " in
+              *" $assoc "*) ;;
+              *) echo "PR #$pr: author association $assoc — human merge required"; continue ;;
+            esac
+
+            is_submission=$(gh pr view "$pr" --repo "$REPO" --json files \
+              --jq '[.files[].path | select(startswith("autoresearch/submissions/"))] | length')
+            [ "$is_submission" -gt 0 ] || { echo "PR #$pr: not a submission PR — skip"; continue; }
+
+            # Every check run at this head must be finished and green.
+            pending=$(gh api "repos/$REPO/commits/$HEAD_SHA/check-runs" --paginate \
+              --jq '[.check_runs[] | select(.status != "completed")] | length')
+            [ "$pending" -eq 0 ] || { echo "PR #$pr: $pending check(s) still running — wait"; continue; }
+            bad=$(gh api "repos/$REPO/commits/$HEAD_SHA/check-runs" --paginate \
+              --jq '[.check_runs[] | select(.conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral")] | length')
+            [ "$bad" -eq 0 ] || { echo "PR #$pr: $bad failing check(s) — no merge"; continue; }
+
+            echo "PR #$pr: all checks green — merging"
+            gh pr merge "$pr" --repo "$REPO" --merge \
+              --subject "$(gh pr view "$pr" --repo "$REPO" --json title --jq .title) (#$pr)" || \
+              echo "PR #$pr: merge refused (raced or conflicted); next completion retries"
+          done

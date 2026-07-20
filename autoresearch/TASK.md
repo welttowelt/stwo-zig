@@ -97,6 +97,9 @@ Then:
 diff plus the submission directory to a GitHub fork of this repository, and
 open a pull request against `teddyjfpender/stwo-zig` labeled `submission`.
 The `autoresearch-validate` workflow checks it mechanically on hosted runners.
+When validation and CI are fully green, collaborator submissions auto-merge
+and the recorder puts the result on the board within a minute or two;
+first-time outside contributors get a human merge (or use Path B).
 
 **Path B — authenticated remote submission** (fork-funded qualification):
 
