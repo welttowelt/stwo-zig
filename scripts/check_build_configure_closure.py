@@ -177,7 +177,6 @@ def validate_actual_construction(
         "generated_module_roots",
         "dependency_module_roots",
         "external_tools",
-        "runtime_probes",
     ):
         observed = actual[field]
         declared = manifest[field]
@@ -186,6 +185,25 @@ def validate_actual_construction(
                 f"{scope} actual {field} diverges from catalog: "
                 f"declared={sorted(set(declared))}, actual={observed}"
             )
+
+    # Runtime probes are host-realizable only where the probing graphs build
+    # (Apple frameworks cannot link on Linux). Capability partition, all or
+    # nothing: a fully stubbed host observes none; any construction that
+    # probes at all must observe exactly the declared set, and an undeclared
+    # probe is fatal everywhere.
+    observed_probes = actual["runtime_probes"]
+    declared_probes = sorted(set(manifest["runtime_probes"]))
+    undeclared_probes = sorted(set(observed_probes) - set(declared_probes))
+    if undeclared_probes:
+        raise SystemExit(
+            f"{scope} actual runtime_probes diverges from catalog: "
+            f"undeclared={undeclared_probes}"
+        )
+    if observed_probes and observed_probes != declared_probes:
+        raise SystemExit(
+            f"{scope} actual runtime_probes diverges from catalog: partial "
+            f"construction observed={observed_probes}, declared={declared_probes}"
+        )
 
     expected_products = _canonical_products(
         manifest.get("constructed_products"), scope, "constructed_products"
