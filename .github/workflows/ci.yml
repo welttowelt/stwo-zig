@@ -71,8 +71,16 @@ jobs:
       - name: Select affected product lanes
         id: scope
         run: |
+          # For PRs, diff against the live merge-base — the event's base.sha
+          # can lag the base branch, which would count already-merged main
+          # commits as part of the PR and select lanes the PR never touched.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="$(git merge-base "origin/${{ github.base_ref }}" HEAD)"
+          else
+            BASE="${{ github.event.before }}"
+          fi
           python3 scripts/ci_scope_plan.py \
-            --base "${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}" \
+            --base "$BASE" \
             --head "${{ github.sha }}" \
             --output "$RUNNER_TEMP/focused-ci-plan.json" \
             --github-output "$GITHUB_OUTPUT"
