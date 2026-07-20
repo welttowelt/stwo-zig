@@ -1,2 +1,3 @@
 schema_version	harness_commit	epoch	judged_at_utc	commit	scope	board	workload_class	outcome	judged_r	ci_low	ci_high	prove_ms	native_mhz	peak_rss_mib	waits	dispatches	energy_j	gates	holdout	submission_id	predecessor	supersedes
 2	962dbbae393f	1	2026-07-20T17:32:05Z	675305979ed2748dbaf3682f100742b0a38202c3	s3	core_cpu	wide	promoted	0.973575	0.963875	0.986153	17.321458	0.000000	0.000000				G1..G5:pass	none	2026-07-20-packed-direct-quotient-resident-merkle-pool	31a3132ef2e6		claimed
+2	a48a97b2cc2e	1	2026-07-20T18:13:17Z	99ff32efcc3560908ad262e20120b07bd0cf9626	s3	core_cpu	small	promoted	0.870962	0.862475	0.877999	2.378542	0.000000	0.000000				G1..G5:pass	none	2026-07-20-deeper-merkle-pool-parallelism	b343b866a9f4		claimed
