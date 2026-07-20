@@ -84,7 +84,8 @@
     },
     "native_metal": {
       "host": "macos",
-      "description": "Focused Native Metal product",
+      "hosted": false,
+      "description": "Focused Native Metal product (real Metal GPU required; local/judge-host only)",
       "commands": [
         ["zig", "build", "test-native-metal", "stwo-native-metal", "-Doptimize=ReleaseSafe", "-j2"]
       ]
@@ -110,7 +111,7 @@
       "description": "Metal shader and AOT tooling contract",
       "commands": [
         ["zig", "build", "test-metal-core-aot", "test-metal-core-aot-probe", "metal-core-aot", "-Doptimize=ReleaseSafe", "-j2"],
-        ["python3", "scripts/metal_core_aot_receipt.py", "build", "--builder", "zig-out/bin/metal-core-aot", "--output-dir", "{output_dir}/metal-aot", "--receipt-out", "{output_dir}/metal-aot/receipt.json", "--commit", "{commit}"]
+        ["python3", "scripts/metal_core_aot_receipt.py", "reproduce", "--builder", "zig-out/bin/metal-core-aot", "--output-dir", "{output_dir}/metal-aot"]
       ]
     }
   },

@@ -63,6 +63,8 @@ def validate_policy(policy: dict[str, Any]) -> None:
             raise PlanError(f"CI lane {lane} has an invalid host")
         if spec.get("local", "run") not in {"run", "hosted"}:
             raise PlanError(f"CI lane {lane} has an invalid local execution policy")
+        if not isinstance(spec.get("hosted", True), bool):
+            raise PlanError(f"CI lane {lane} has an invalid hosted flag")
         commands = spec.get("commands")
         if not isinstance(commands, list) or not commands:
             raise PlanError(f"CI lane {lane} has no commands")
@@ -223,7 +225,15 @@ def write_json(path: Path, value: dict[str, Any]) -> None:
 def emit_github_output(path: Path, plan: dict[str, Any], policy: dict[str, Any]) -> None:
     with path.open("a", encoding="utf-8") as stream:
         for host in ALL_HOSTS:
-            lanes = [lane for lane in plan["lanes"] if policy["lanes"][lane]["host"] == host]
+            # Capability partition: lanes marked hosted=false (they need
+            # hardware the hosted runners cannot provide, e.g. a real Metal
+            # device) stay in the plan artifact but never enter a hosted
+            # matrix; local pre-push and the judge host run them instead.
+            lanes = [
+                lane for lane in plan["lanes"]
+                if policy["lanes"][lane]["host"] == host
+                and policy["lanes"][lane].get("hosted", True)
+            ]
             stream.write(f"{host}_matrix={json.dumps({'lane': lanes}, separators=(',', ':'))}\n")
             stream.write(f"{host}_count={len(lanes)}\n")
 
