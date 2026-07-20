@@ -240,6 +240,9 @@ def main(argv: list[str] | None = None) -> int:
             )
         row["zig"] = zig
         row["rust"] = rust
+        # RISC-V has no Metal prover on either lane (adapter is CPU-only), so the
+        # Metal column is uniformly gated; native CPU-vs-Metal is a separate matrix.
+        row["metal"] = "gated"
         if problems:
             row["status"] = "failed"
             row["problems"] = problems
@@ -270,6 +273,8 @@ def main(argv: list[str] | None = None) -> int:
                 statistics.median(ok_ratios) if ok_ratios else None
             ),
         },
+        "metal_note": "RISC-V adapter is CPU-only; no RISC-V Metal prover on "
+                      "either lane. Native CPU-vs-Metal is in the native proof matrix.",
         "warmups": args.warmups,
         "samples": args.samples,
         "failure_count": failures,

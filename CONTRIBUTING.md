@@ -1271,6 +1271,16 @@ lanes under the pinned oracle's default PCS profile). Zig rows run the staged
 CLI and carry `staged_experimental_not_release_gated` until RF-01 promotes the
 adapter; treat them as baseline candidates, never as release evidence.
 
+`scripts/build_crypto_guests.py` vendors the compiled cryptographic guests
+(SHA-256, Keccak, ECDSA from Stark-V's guest-lib, plus the repo-owned
+`vectors/riscv_guests/poseidon2_m31` guest) into `vectors/riscv_elfs/crypto/`
+with a provenance record, and `scripts/riscv_crypto_benchmark.py` benches them
+on both lanes. Rows are either `proof` (SHA-256 all sizes, single-block Keccak)
+or `execution` (ECDSA, Poseidon2-M31, multi-block Keccak — neither lane proves
+these at the pinned config, so both only execute them). Every RISC-V row's Metal
+cell is `gated`: the RISC-V adapter is CPU-only and neither lane ships a RISC-V
+Metal prover — CPU-vs-Metal comparison exists only in the native proof matrix.
+
 Membership in `scripts/` is also enforced by test: every script must be
 transitively reachable from a live entry point (build graph, hosted workflow,
 conformance policy, hooks, docs) or declared with a purpose in
