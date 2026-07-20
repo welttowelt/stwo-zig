@@ -343,6 +343,32 @@
      "verdict_kind": "claimed",
      "waits": null,
      "workload_class": "wide"
+    },
+    {
+     "board": "core_cpu",
+     "ci_high": 0.877999,
+     "ci_low": 0.862475,
+     "commit": "99ff32efcc3560908ad262e20120b07bd0cf9626",
+     "dispatches": null,
+     "energy_j": null,
+     "epoch": 1,
+     "gates": "G1..G5:pass",
+     "harness_commit": "a48a97b2cc2e",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-20T18:13:17Z",
+     "judged_r": 0.870962,
+     "native_mhz": 0.0,
+     "outcome": "promoted",
+     "peak_rss_mib": 0.0,
+     "predecessor": "b343b866a9f4",
+     "prove_ms": 2.378542,
+     "schema_version": 2,
+     "scope": "s3",
+     "submission_id": "2026-07-20-deeper-merkle-pool-parallelism",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "small"
     }
    ],
    "frontier_by_class": {
@@ -351,8 +377,60 @@
      "head": null
     },
     "small": {
-     "frontier": [],
-     "head": null
+     "frontier": [
+      {
+       "board": "core_cpu",
+       "ci_high": 0.877999,
+       "ci_low": 0.862475,
+       "commit": "99ff32efcc3560908ad262e20120b07bd0cf9626",
+       "dispatches": null,
+       "energy_j": null,
+       "epoch": 1,
+       "gates": "G1..G5:pass",
+       "harness_commit": "a48a97b2cc2e",
+       "holdout": "none",
+       "judged_at_utc": "2026-07-20T18:13:17Z",
+       "judged_r": 0.870962,
+       "native_mhz": 0.0,
+       "outcome": "promoted",
+       "peak_rss_mib": 0.0,
+       "predecessor": "b343b866a9f4",
+       "prove_ms": 2.378542,
+       "schema_version": 2,
+       "scope": "s3",
+       "submission_id": "2026-07-20-deeper-merkle-pool-parallelism",
+       "supersedes": "",
+       "verdict_kind": "claimed",
+       "waits": null,
+       "workload_class": "small"
+      }
+     ],
+     "head": {
+      "board": "core_cpu",
+      "ci_high": 0.877999,
+      "ci_low": 0.862475,
+      "commit": "99ff32efcc3560908ad262e20120b07bd0cf9626",
+      "dispatches": null,
+      "energy_j": null,
+      "epoch": 1,
+      "gates": "G1..G5:pass",
+      "harness_commit": "a48a97b2cc2e",
+      "holdout": "none",
+      "judged_at_utc": "2026-07-20T18:13:17Z",
+      "judged_r": 0.870962,
+      "native_mhz": 0.0,
+      "outcome": "promoted",
+      "peak_rss_mib": 0.0,
+      "predecessor": "b343b866a9f4",
+      "prove_ms": 2.378542,
+      "schema_version": 2,
+      "scope": "s3",
+      "submission_id": "2026-07-20-deeper-merkle-pool-parallelism",
+      "supersedes": "",
+      "verdict_kind": "claimed",
+      "waits": null,
+      "workload_class": "small"
+     }
     },
     "wide": {
      "frontier": [
@@ -1014,14 +1092,32 @@
   "inputs_sha256": {
    "autoresearch/MANIFEST.json": "0ab298be4576385bfefcbbb48f2f063d62c0db2f7b3e7c38edac44838f2beeff",
    "autoresearch/ledger/epochs.json": "97e69d9694297442fc0cb3b3feda79323142c0ecc45a2e81f6192da9064ca803",
-   "autoresearch/ledger/promotions.tsv": "9e4c91a266d21f136446276e7a942ff03e3c55556a39c171c002d89492fef3e2",
+   "autoresearch/ledger/promotions.tsv": "1966a89fcd7e621d56e665c684a667bff0e2873bde27498e8d303864645d4104",
    "vectors/reports/benchmark_history/index.json": "356ab43ca2a23cf5fa9b2771c5d8f4b036d6e6e41b10724fb4c9db6e9f6fc74a",
    "vectors/reports/benchmark_history/runs/2026-07-18-064334-matrix-v5-789feb4c/report.json": "8da5fae41d077ae897b44b024a4b3d2956a57daff2c0678a0441b26ec6643768"
   },
-  "repo_commit": "f1225c95e3b7",
-  "repo_commit_time": "2026-07-20T18:41:55+01:00"
+  "repo_commit": "f339cdbcac41",
+  "repo_commit_time": "2026-07-20T18:13:18Z"
  },
  "submissions": [
+  {
+   "id": "2026-07-20-deeper-merkle-pool-parallelism",
+   "judged_r": 0.870962,
+   "note": "# Use the resident pool deeper into Merkle trees\n\n## Model and harness\n\nModel: GPT-5 Codex. Harness: repo-resident `stwo-perf` updated at the start of the session, ReleaseFast on arm64 macOS, paired S3 small/time against current promoted `main`. The reasoning-first submitter transcript is attached as `transcripts/session-01.md`.\n\n## Hypothesis\n\nCurrent Merkle scheduling leaves most of the installed 16-worker prover pool idle below the largest tree layer: it requires 4,096 parent hashes per worker and stops parallel hashing below 8,192 parents. Full-proof sampling showed four-way BLAKE2s compression as the hottest executable frame while worker threads waited. Reducing task granularity should reuse the already-resident pool deeper into each tree, cutting repeated Merkle fixed cost without changing hash order or proof bytes.\n\n## Changes\n\nLowered the lifted Merkle parallel threshold from 8,192 to 2,048 parent nodes and the minimum chunk from 4,096 to 1,024 parents per worker. No hashing, field arithmetic, transcript, or protocol logic changed; only the number of independent parent ranges scheduled onto the existing pool changed.\n\n## Results\n\nS3 `wf_log10x8` small/time: ratio 0.8710, 95% CI [0.8625, 0.8780], 15 paired rounds. The predecessor median was 2.723 ms and the candidate median was 2.379 ms. Every timed proof verified and remained byte-identical.\n\nUnpaired warmed diagnostics also preserved the existing proof hashes and measured 13.70 ms for the wide workload and 9.78 ms for the deep workload, indicating that the scheduling mechanism is not small-only. These are diagnostics, not claimed promotion scores.\n\n## Caveats\n\nThis is a local claimed verdict; the locked judge rerun is authoritative. The anchor is not frozen, so drift budgets and judged promotion remain inactive. The threshold is tuned from profiling and full-proof evidence on the current 18-CPU arm64 host; other CPU topologies may select fewer workers through the existing capacity and CPU-count caps, but cross-host efficiency still belongs to judge and holdout validation.\n",
+   "outcome": "promoted",
+   "solver": "Teddy Pender",
+   "title": "Use the resident pool deeper into Merkle trees",
+   "transcripts": [
+    {
+     "captured_by": "submitter",
+     "excerpt": "# Autoresearch session transcript\n\n- Captured by: submitter\n- Model: GPT-5 Codex\n- Date: 2026-07-20\n- Redaction policy: preserve reasoning and evidence; omit credentials, environment values, system instructions, broad local paths, and raw bulk tool output.\n\n## User request\n\nThe user asked the agent to update the repository's autoresearch CLI first, learn from existing notes, transcripts, and researcher ideas, drive the largest CPU-prover optimization possible under the repository contract, and submit as soon as a significant solution is available.\n\n## Initial repository findings\n\nThe repo-resident `stwo-perf update` reported current at commit `b343b866a9f4`. The task fixes a three-workload C",
+     "label": "session-01.md",
+     "sha256": "ef3943334dc463849e925bd9b811eb4b115146f324eac998f56eb7d7cc879c46"
+    }
+   ],
+   "verdict_kind": "claimed",
+   "workload_class": "small"
+  },
   {
    "id": "2026-07-20-packed-direct-quotient-resident-merkle-pool",
    "judged_r": 0.973575,
