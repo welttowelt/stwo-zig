@@ -17,7 +17,34 @@
  },
  "boards": {
   "core_cpu": {
-   "entries": [],
+   "entries": [
+    {
+     "board": "core_cpu",
+     "ci_high": 0.986153,
+     "ci_low": 0.963875,
+     "commit": "675305979ed2748dbaf3682f100742b0a38202c3",
+     "dispatches": null,
+     "energy_j": null,
+     "epoch": 1,
+     "gates": "G1..G5:pass",
+     "harness_commit": "962dbbae393f",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-20T17:32:05Z",
+     "judged_r": 0.973575,
+     "native_mhz": 0.0,
+     "outcome": "promoted",
+     "peak_rss_mib": 0.0,
+     "predecessor": "31a3132ef2e6",
+     "prove_ms": 17.321458,
+     "schema_version": 2,
+     "scope": "s3",
+     "submission_id": "2026-07-20-packed-direct-quotient-resident-merkle-pool",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "wide"
+    }
+   ],
    "frontier_by_class": {
     "deep": {
      "frontier": [],
@@ -28,8 +55,60 @@
      "head": null
     },
     "wide": {
-     "frontier": [],
-     "head": null
+     "frontier": [
+      {
+       "board": "core_cpu",
+       "ci_high": 0.986153,
+       "ci_low": 0.963875,
+       "commit": "675305979ed2748dbaf3682f100742b0a38202c3",
+       "dispatches": null,
+       "energy_j": null,
+       "epoch": 1,
+       "gates": "G1..G5:pass",
+       "harness_commit": "962dbbae393f",
+       "holdout": "none",
+       "judged_at_utc": "2026-07-20T17:32:05Z",
+       "judged_r": 0.973575,
+       "native_mhz": 0.0,
+       "outcome": "promoted",
+       "peak_rss_mib": 0.0,
+       "predecessor": "31a3132ef2e6",
+       "prove_ms": 17.321458,
+       "schema_version": 2,
+       "scope": "s3",
+       "submission_id": "2026-07-20-packed-direct-quotient-resident-merkle-pool",
+       "supersedes": "",
+       "verdict_kind": "claimed",
+       "waits": null,
+       "workload_class": "wide"
+      }
+     ],
+     "head": {
+      "board": "core_cpu",
+      "ci_high": 0.986153,
+      "ci_low": 0.963875,
+      "commit": "675305979ed2748dbaf3682f100742b0a38202c3",
+      "dispatches": null,
+      "energy_j": null,
+      "epoch": 1,
+      "gates": "G1..G5:pass",
+      "harness_commit": "962dbbae393f",
+      "holdout": "none",
+      "judged_at_utc": "2026-07-20T17:32:05Z",
+      "judged_r": 0.973575,
+      "native_mhz": 0.0,
+      "outcome": "promoted",
+      "peak_rss_mib": 0.0,
+      "predecessor": "31a3132ef2e6",
+      "prove_ms": 17.321458,
+      "schema_version": 2,
+      "scope": "s3",
+      "submission_id": "2026-07-20-packed-direct-quotient-resident-merkle-pool",
+      "supersedes": "",
+      "verdict_kind": "claimed",
+      "waits": null,
+      "workload_class": "wide"
+     }
     }
    }
   },
@@ -635,12 +714,19 @@
   "inputs_sha256": {
    "autoresearch/MANIFEST.json": "0ab298be4576385bfefcbbb48f2f063d62c0db2f7b3e7c38edac44838f2beeff",
    "autoresearch/ledger/epochs.json": "97e69d9694297442fc0cb3b3feda79323142c0ecc45a2e81f6192da9064ca803",
-   "autoresearch/ledger/promotions.tsv": "d3ab2dd042280735865b61c184c9c81d860724563850ba05c7ee31342f5d989e",
+   "autoresearch/ledger/promotions.tsv": "9e4c91a266d21f136446276e7a942ff03e3c55556a39c171c002d89492fef3e2",
    "vectors/reports/benchmark_history/index.json": "356ab43ca2a23cf5fa9b2771c5d8f4b036d6e6e41b10724fb4c9db6e9f6fc74a",
    "vectors/reports/benchmark_history/runs/2026-07-18-064334-matrix-v5-789feb4c/report.json": "8da5fae41d077ae897b44b024a4b3d2956a57daff2c0678a0441b26ec6643768"
   },
-  "repo_commit": "facf4eb85926",
-  "repo_commit_time": "2026-07-20T10:10:18+01:00"
+  "repo_commit": "af1feb3fbfce",
+  "repo_commit_time": "2026-07-20T18:32:05+01:00"
  },
- "submissions": []
+ "submissions": [
+  {
+   "id": "2026-07-20-packed-direct-quotient-resident-merkle-pool",
+   "judged_r": 0.973575,
+   "outcome": "promoted",
+   "title": "Pack direct quotient rows and reuse the resident Merkle pool"
+  }
+ ]
 }
