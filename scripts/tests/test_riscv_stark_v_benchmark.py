@@ -1,6 +1,10 @@
 import unittest
 
-from scripts.riscv_stark_v_benchmark import PHASE_MARKERS, parse_phase_seconds
+from scripts.riscv_stark_v_benchmark import (
+    MIN_RUST_PARALLELISM,
+    PHASE_MARKERS,
+    parse_phase_seconds,
+)
 
 FIXTURE = """\
 \x1b[2m2026-07-19T23:06:20.000000Z\x1b[0m \x1b[32m INFO\x1b[0m \x1b[2mstark_v_bench\x1b[0m\x1b[2m:\x1b[0m Running guest program...
@@ -38,3 +42,8 @@ class PhaseParsingTests(unittest.TestCase):
         self.assertEqual(
             set(PHASE_MARKERS), {"run_start", "prove_start", "verify_start", "verify_done"}
         )
+
+    def test_parallelism_floor_rejects_serial_rust(self) -> None:
+        # The floor must sit above a single core so a non-parallel Rust build
+        # (cpu/wall ~ 1.0) fails, while a genuinely threaded one clears it.
+        self.assertGreater(MIN_RUST_PARALLELISM, 1.0)

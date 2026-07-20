@@ -16,7 +16,10 @@ Usage:
       [--warmups 1] [--samples 3] [--report-out PATH]
 
 The checkout must be at the ledger's pinned Stark-V commit with
-`target/release/stark-v-bench` built (`cargo build --locked --release -p bench-cli`).
+`target/release/stark-v-bench` built WITH the parallel feature:
+`cargo build --locked --release -p bench-cli --features parallel`. The Zig lane
+is multi-threaded, so the Rust lane must be too; the harness measures each Rust
+run's CPU/wall ratio and fails the run if the binary looks single-threaded.
 """
 
 from __future__ import annotations
@@ -25,7 +28,9 @@ import argparse
 import datetime as dt
 import hashlib
 import json
+import os
 import re
+import resource
 import statistics
 import subprocess
 import sys
@@ -48,6 +53,14 @@ PHASE_MARKERS = {
     "verify_start": "Verifying proof...",
     "verify_done": "Proof verified successfully",
 }
+
+# Both provers must be measured with the same threading posture. The Zig lane
+# runs multi-threaded by default; the pinned Stark-V prover is only parallel
+# when built `--features parallel`, which is NON-default. Rather than trust the
+# build flag, the harness measures each Rust run's CPU-time / wall-time and
+# fails the run if the Rust lane looks single-threaded on a multi-core host —
+# so a comparison can never silently pit parallel Zig against serial Rust.
+MIN_RUST_PARALLELISM = 1.5
 
 
 def parse_phase_seconds(stderr: str) -> dict[str, float]:
@@ -102,12 +115,15 @@ def validate_stark_v(source: Path) -> Path:
     binary = source / "target/release/stark-v-bench"
     if not binary.exists():
         raise SystemExit(
-            "stark-v-bench is not built; run: cargo build --locked --release -p bench-cli"
+            "stark-v-bench is not built; run: "
+            "cargo build --locked --release -p bench-cli --features parallel"
         )
     return binary
 
 
 def run_zig_lane(elf: str, warmups: int, samples: int) -> dict[str, object]:
+    before = resource.getrusage(resource.RUSAGE_CHILDREN)
+    wall_start = dt.datetime.now()
     result = subprocess.run(
         [
             str(ZIG_BINARY), "bench", "--elf", elf, "--backend", "cpu",
@@ -116,6 +132,8 @@ def run_zig_lane(elf: str, warmups: int, samples: int) -> dict[str, object]:
         ],
         capture_output=True, text=True, timeout=1800,
     )
+    wall = (dt.datetime.now() - wall_start).total_seconds()
+    after = resource.getrusage(resource.RUSAGE_CHILDREN)
     if result.returncode != 0:
         return {"error": (result.stderr or result.stdout).strip()[-400:]}
     report_lines = [line for line in result.stdout.splitlines() if line.startswith("{")]
@@ -124,6 +142,7 @@ def run_zig_lane(elf: str, warmups: int, samples: int) -> dict[str, object]:
     report = json.loads(report_lines[-1])
     if report.get("verified_samples") != samples:
         return {"error": f"verified_samples={report.get('verified_samples')} != {samples}"}
+    cpu = (after.ru_utime - before.ru_utime) + (after.ru_stime - before.ru_stime)
     return {
         "release_status": report["release_status"],
         "total_steps": report["total_steps"],
@@ -133,18 +152,26 @@ def run_zig_lane(elf: str, warmups: int, samples: int) -> dict[str, object]:
         "statement_sha256": report["statement_sha256"],
         "implementation_commit": report["implementation_commit"],
         "implementation_dirty": report["implementation_dirty"],
+        # Whole-invocation ratio over warmups+samples; a coarse threading check,
+        # not a per-phase figure like the medians above.
+        "cpu_wall_ratio": (cpu / wall) if wall > 0 else 0.0,
     }
 
 
 def run_rust_lane(binary: Path, elf: str, warmups: int, samples: int) -> dict[str, object]:
     runs: list[dict[str, float]] = []
+    parallelism: list[float] = []
     cycles: set[int] = set()
     for index in range(warmups + samples):
+        before = resource.getrusage(resource.RUSAGE_CHILDREN)
+        wall_start = dt.datetime.now()
         result = subprocess.run(
             [str(binary), "bench", "--elf", elf, "--metrics-out", "/dev/null"],
             capture_output=True, text=True, timeout=1800,
             env={"PATH": "/usr/bin:/bin", "RUST_LOG": "info"},
         )
+        wall = (dt.datetime.now() - wall_start).total_seconds()
+        after = resource.getrusage(resource.RUSAGE_CHILDREN)
         log = result.stdout + "\n" + result.stderr
         if result.returncode != 0:
             return {"error": ANSI_RE.sub("", log).strip()[-400:]}
@@ -155,6 +182,9 @@ def run_rust_lane(binary: Path, elf: str, warmups: int, samples: int) -> dict[st
             cycles.add(int(cycle_match.group(1)))
         if index >= warmups:
             runs.append(parse_phase_seconds(log))
+            cpu = (after.ru_utime - before.ru_utime) + (after.ru_stime - before.ru_stime)
+            if wall > 0:
+                parallelism.append(cpu / wall)
     if len(cycles) > 1:
         return {"error": f"nondeterministic cycle counts: {sorted(cycles)}"}
     return {
@@ -162,6 +192,7 @@ def run_rust_lane(binary: Path, elf: str, warmups: int, samples: int) -> dict[st
         "prove_seconds": statistics.median(run["prove_seconds"] for run in runs),
         "verify_seconds": statistics.median(run["verify_seconds"] for run in runs),
         "execution_seconds": statistics.median(run["execution_seconds"] for run in runs),
+        "cpu_wall_ratio": statistics.median(parallelism) if parallelism else 0.0,
     }
 
 
@@ -177,6 +208,7 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("stwo-zig is not built; run: zig build stwo-zig -Doptimize=ReleaseFast")
     rust_binary = validate_stark_v(args.stark_v_source.resolve())
     pinned, corpus = load_corpus()
+    multicore = (os.cpu_count() or 1) > 1
 
     rows = []
     failures = 0
@@ -200,6 +232,12 @@ def main(argv: list[str] | None = None) -> int:
                 problems.append(f"{side}: {lane['error']}")
         if not problems and zig["total_steps"] != rust["cycles"]:
             problems.append(f"step mismatch: zig={zig['total_steps']} rust={rust['cycles']}")
+        if not problems and multicore and rust["cpu_wall_ratio"] < MIN_RUST_PARALLELISM:
+            problems.append(
+                f"rust lane looks single-threaded (cpu/wall={rust['cpu_wall_ratio']:.2f} "
+                f"< {MIN_RUST_PARALLELISM}); rebuild with `cargo build --locked --release "
+                "-p bench-cli --features parallel`"
+            )
         row["zig"] = zig
         row["rust"] = rust
         if problems:
@@ -217,11 +255,21 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(f"{vector['name']:20s} {row['status']:6s} {summary}", flush=True)
 
+    ok_ratios = [r["rust"]["cpu_wall_ratio"] for r in rows if r["status"] == "ok"]
     report = {
         "schema": SCHEMA,
         "stark_v_commit": pinned,
         "zig_release_status": "staged_experimental_not_release_gated",
         "pcs_profile": "functional == pinned PcsConfig::default() (pow 10, blowup 1, 3 queries)",
+        "threading": {
+            "host_cpu_count": os.cpu_count(),
+            "both_lanes_multi_threaded": multicore,
+            "rust_features_required": "parallel",
+            "min_rust_cpu_wall_ratio": MIN_RUST_PARALLELISM,
+            "observed_median_rust_cpu_wall_ratio": (
+                statistics.median(ok_ratios) if ok_ratios else None
+            ),
+        },
         "warmups": args.warmups,
         "samples": args.samples,
         "failure_count": failures,
