@@ -291,6 +291,18 @@ pub const MetalCommitBackend = struct {
         std.log.debug("Metal sampled-value kernel: {d:.3}ms", .{gpu_ms});
     }
 
+    pub fn evaluateCoefficientTreePlans(
+        allocator: std.mem.Allocator,
+        tree_plans: anytype,
+    ) !void {
+        if (tree_plans.len == 0) return;
+        var lease = try shared_runtime.acquire();
+        defer lease.deinit();
+        const gpu_ms = try lease.runtime.evaluateCoefficientTreePlans(allocator, tree_plans);
+        telemetry.record(.metal_sampled_value_dispatch);
+        std.log.debug("Metal sampled-value batch epoch: {d:.3}ms", .{gpu_ms});
+    }
+
     pub fn interpolateCircleBuffers(
         allocator: std.mem.Allocator,
         values: []const []@import("stwo_core").fields.m31.M31,

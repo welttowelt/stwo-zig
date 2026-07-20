@@ -214,6 +214,12 @@ const CoefficientEvalPlan = struct {
     }
 };
 
+const CoefficientEvalTreePlan = struct {
+    coefficients: []const prover_circle.CircleCoefficients,
+    tree_values: [][]QM31,
+    plans: []const CoefficientEvalPlan,
+};
+
 fn deinitCoefficientEvalPlans(
     allocator: std.mem.Allocator,
     plans: *std.ArrayList(CoefficientEvalPlan),
@@ -642,27 +648,73 @@ fn evaluateCoefficientTreesWithBackend(
         return false;
     };
 
+    if (comptime @hasDecl(B, "evaluateCoefficientTreePlans")) {
+        const plan_lists = try allocator.alloc(std.ArrayList(CoefficientEvalPlan), trees.len);
+        defer allocator.free(plan_lists);
+        var initialized: usize = 0;
+        defer for (plan_lists[0..initialized]) |*plans| {
+            deinitCoefficientEvalPlans(allocator, plans);
+        };
+
+        const tree_plans = try allocator.alloc(CoefficientEvalTreePlan, trees.len);
+        defer allocator.free(tree_plans);
+        for (trees, tree_points_list, out, 0..) |tree, tree_points, tree_values, tree_index| {
+            plan_lists[tree_index] = try buildCoefficientPlansForTree(
+                allocator,
+                tree.columns,
+                tree_points,
+                tree.coefficients.?,
+                lifting_log_size,
+            );
+            initialized += 1;
+            tree_plans[tree_index] = .{
+                .coefficients = tree.coefficients.?,
+                .tree_values = tree_values,
+                .plans = plan_lists[tree_index].items,
+            };
+        }
+        try B.evaluateCoefficientTreePlans(allocator, tree_plans);
+        return true;
+    }
+
     for (trees, tree_points_list, out) |tree, tree_points, tree_values| {
         const coefficients = tree.coefficients.?;
-        var plans = std.ArrayList(CoefficientEvalPlan).empty;
+        var plans = try buildCoefficientPlansForTree(
+            allocator,
+            tree.columns,
+            tree_points,
+            coefficients,
+            lifting_log_size,
+        );
         defer deinitCoefficientEvalPlans(allocator, &plans);
-        var plan_index = std.AutoHashMap(u64, usize).init(allocator);
-        defer plan_index.deinit();
-
-        for (tree.columns, tree_points, 0..) |column, points, column_idx| {
-            const plan = try getOrCreateCoefficientEvalPlan(
-                allocator,
-                &plan_index,
-                &plans,
-                coefficients[column_idx].logSize(),
-                lifting_log_size - column.log_size,
-                points,
-            );
-            try plan.column_indices.append(allocator, column_idx);
-        }
         try B.evaluateCoefficientPlans(allocator, coefficients, tree_values, plans.items);
     }
     return true;
+}
+
+fn buildCoefficientPlansForTree(
+    allocator: std.mem.Allocator,
+    columns: []const commitment_tree.ColumnEvaluation,
+    tree_points: [][]CirclePointQM31,
+    coefficients: []const prover_circle.CircleCoefficients,
+    lifting_log_size: u32,
+) !std.ArrayList(CoefficientEvalPlan) {
+    var plans = std.ArrayList(CoefficientEvalPlan).empty;
+    errdefer deinitCoefficientEvalPlans(allocator, &plans);
+    var plan_index = std.AutoHashMap(u64, usize).init(allocator);
+    defer plan_index.deinit();
+    for (columns, tree_points, 0..) |column, points, column_idx| {
+        const plan = try getOrCreateCoefficientEvalPlan(
+            allocator,
+            &plan_index,
+            &plans,
+            coefficients[column_idx].logSize(),
+            lifting_log_size - column.log_size,
+            points,
+        );
+        try plan.column_indices.append(allocator, column_idx);
+    }
+    return plans;
 }
 
 fn releaseTreeCoefficients(
