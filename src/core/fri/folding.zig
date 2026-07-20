@@ -302,6 +302,38 @@ pub const FoldCircleWorkspace = struct {
     }
 };
 
+const CosetCoordinate = enum { x, y };
+
+/// Fills one coordinate of the first `out.len` coset points in bit-reversed
+/// order. FRI consumes even natural-domain indices in bit-reversed order, and
+/// for a `log_size`-bit index `bitReverse(i << 1)` is exactly the
+/// `(log_size - 1)`-bit reversal of `i`.
+///
+/// Walking the arithmetic-progression coset once avoids reconstructing every
+/// point independently from the set bits of its index. Bit reversal is an
+/// involution, so scattering natural point `j` to `bitReverse(j)` produces the
+/// same output order as gathering point `bitReverse(i)` for each output `i`.
+fn fillBitReversedCosetCoordinate(
+    out: []M31,
+    coset: circle.Coset,
+    comptime coordinate: CosetCoordinate,
+) void {
+    std.debug.assert(out.len != 0 and std.math.isPowerOfTwo(out.len));
+    std.debug.assert(out.len <= coset.size());
+
+    const log_len: u32 = @intCast(std.math.log2_int(usize, out.len));
+    var points = coset.iter();
+    var natural_index: usize = 0;
+    while (natural_index < out.len) : (natural_index += 1) {
+        const point = points.next() orelse unreachable;
+        const output_index = core_utils.bitReverseIndex(natural_index, log_len);
+        out[output_index] = switch (coordinate) {
+            .x => point.x,
+            .y => point.y,
+        };
+    }
+}
+
 pub fn foldLine(
     allocator: std.mem.Allocator,
     eval: []const QM31,
@@ -331,15 +363,10 @@ pub fn foldLineSingleStep(
     const x_values = workspace.x_values[0..folded_values.len];
     const inv_x_values = workspace.inv_x_values[0..folded_values.len];
 
-    const domain_log_size = domain.logSize();
-    var i: usize = 0;
-    while (i < folded_values.len) : (i += 1) {
-        // fold_shift=1 for single-step: each pair occupies 2 consecutive positions.
-        x_values[i] = domain.at(core_utils.bitReverseIndex(i << 1, domain_log_size));
-    }
+    fillBitReversedCosetCoordinate(x_values, domain.coset(), .x);
     try fields.batchInverseInPlace(M31, x_values, inv_x_values);
 
-    i = 0;
+    var i: usize = 0;
     while (i < folded_values.len) : (i += 1) {
         const inv_x = inv_x_values[i];
         var f0 = eval[i * 2];
@@ -411,14 +438,10 @@ fn foldLineInPlaceSingleStep(
     const x_values = workspace.x_values[0..folded_len];
     const inv_x_values = workspace.inv_x_values[0..folded_len];
 
-    const domain_log_size = domain.logSize();
-    var i: usize = 0;
-    while (i < folded_len) : (i += 1) {
-        x_values[i] = domain.at(core_utils.bitReverseIndex(i << 1, domain_log_size));
-    }
+    fillBitReversedCosetCoordinate(x_values, domain.coset(), .x);
     try fields.batchInverseInPlace(M31, x_values, inv_x_values);
 
-    i = 0;
+    var i: usize = 0;
     while (i < folded_len) : (i += 1) {
         const inv_x = inv_x_values[i];
         var f0 = eval[i * 2];
@@ -514,20 +537,14 @@ pub fn foldCircleIntoLineWithWorkspace(
     }
 
     const alpha_sq = alpha.square();
-    const fold_shift: std.math.Log2Int(usize) = @intCast(CIRCLE_TO_LINE_FOLD_STEP);
-    const domain_log_size = src_domain.logSize();
     try workspace.ensureCapacity(allocator, dst.len);
     const py_values = workspace.py_values[0..dst.len];
     const inv_py_values = workspace.inv_py_values[0..dst.len];
 
-    var i: usize = 0;
-    while (i < dst.len) : (i += 1) {
-        const p = src_domain.at(core_utils.bitReverseIndex(i << fold_shift, domain_log_size));
-        py_values[i] = p.y;
-    }
+    fillBitReversedCosetCoordinate(py_values, src_domain.half_coset, .y);
     try fields.batchInverseInPlace(M31, py_values, inv_py_values);
 
-    i = 0;
+    var i: usize = 0;
     while (i < dst.len) : (i += 1) {
         const inv_py = inv_py_values[i];
         var f0_px = src[i * 2];
@@ -554,20 +571,14 @@ pub fn foldCircleColumnsIntoLineWithWorkspace(
     }
 
     const alpha_sq = alpha.square();
-    const fold_shift: std.math.Log2Int(usize) = @intCast(CIRCLE_TO_LINE_FOLD_STEP);
-    const domain_log_size = src_domain.logSize();
     try workspace.ensureCapacity(allocator, dst.len);
     const py_values = workspace.py_values[0..dst.len];
     const inv_py_values = workspace.inv_py_values[0..dst.len];
 
-    var i: usize = 0;
-    while (i < dst.len) : (i += 1) {
-        const p = src_domain.at(core_utils.bitReverseIndex(i << fold_shift, domain_log_size));
-        py_values[i] = p.y;
-    }
+    fillBitReversedCosetCoordinate(py_values, src_domain.half_coset, .y);
     try fields.batchInverseInPlace(M31, py_values, inv_py_values);
 
-    i = 0;
+    var i: usize = 0;
     while (i < dst.len) : (i += 1) {
         const inv_py = inv_py_values[i];
         const left_idx = i * 2;
@@ -595,5 +606,40 @@ pub fn accumulateLine(layer_query_evals: []QM31, column_query_evals: []const QM3
     const alpha_sq = folding_alpha.square();
     for (layer_query_evals, 0..) |*curr, i| {
         curr.* = curr.*.mul(alpha_sq).add(column_query_evals[i]);
+    }
+}
+
+test "fri folding: coset walk matches indexed bit-reversed coordinates" {
+    const allocator = std.testing.allocator;
+
+    var line_log_size: u32 = 1;
+    while (line_log_size <= 15) : (line_log_size += 1) {
+        const base_coset = circle.Coset.halfOdds(line_log_size);
+        const shifted_coset = base_coset.shift(base_coset.step_size.mul(3));
+        const domain = try line.LineDomain.init(shifted_coset);
+        const output_len = domain.size() / 2;
+        const actual = try allocator.alloc(M31, output_len);
+        defer allocator.free(actual);
+
+        fillBitReversedCosetCoordinate(actual, domain.coset(), .x);
+        for (actual, 0..) |coordinate, i| {
+            const expected = domain.at(core_utils.bitReverseIndex(i << 1, line_log_size));
+            try std.testing.expect(coordinate.eql(expected));
+        }
+    }
+
+    var circle_log_size: u32 = 2;
+    while (circle_log_size <= 15) : (circle_log_size += 1) {
+        const base_half_coset = circle.Coset.halfOdds(circle_log_size - 1);
+        const shifted_half_coset = base_half_coset.shift(base_half_coset.step_size.mul(5));
+        const domain = circle_domain.CircleDomain.new(shifted_half_coset);
+        const actual = try allocator.alloc(M31, domain.size() / 2);
+        defer allocator.free(actual);
+
+        fillBitReversedCosetCoordinate(actual, domain.half_coset, .y);
+        for (actual, 0..) |coordinate, i| {
+            const expected = domain.at(core_utils.bitReverseIndex(i << 1, circle_log_size)).y;
+            try std.testing.expect(coordinate.eql(expected));
+        }
     }
 }
