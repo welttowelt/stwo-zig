@@ -37,13 +37,13 @@ EXPECTED_AUTHORITY = {
     "amendment_path": "conformance/2026-07-19-build-monorepo-baseline-epoch-2-amendment.md",
     "amendment_sha256": "60c91e0d007169f82b9f9e3307962147c26071c8a9812789268441eec014c726",
     "baseline_receipt_path": "conformance/build-monorepo-baseline-v1.json",
-    "baseline_receipt_sha256": "66677813fb3f414a4fbd7015a7b5e105a8ad2ada57a23726ec227dffd7ff0ab6",
+    "baseline_receipt_sha256": "b5616cc082fa175294563693bf5f0def1079a56d690bc53660954448fff53dc0",
     "runner_path": "autoresearch/cli/stwo_perf/runner.py",
-    "runner_sha256": "38dc927687a0296b31336ce0249479bc7966b8c446318dd608f07b37e161f147",
+    "runner_sha256": "32254bc695fc60f42d8eb5e5783f50e9f9e094b5f98f304001b13c569bcfb7c1",
     "stats_path": "autoresearch/cli/stwo_perf/stats.py",
     "stats_sha256": "78ac6b44ffc2b73f6f4418a3d01341ac50213376f5ff92d7a72168a3d965e503",
     "autoresearch_manifest_path": "autoresearch/MANIFEST.json",
-    "autoresearch_manifest_sha256": "0ab298be4576385bfefcbbb48f2f063d62c0db2f7b3e7c38edac44838f2beeff",
+    "autoresearch_manifest_sha256": "3ffb3108a45076b67457f6011c1c1146b9c93e3088886f6a1a93b6b64298a9f6",
 }
 EXPECTED_BUDGETS = {
     "minimum_throughput_ci_lower": 0.97,

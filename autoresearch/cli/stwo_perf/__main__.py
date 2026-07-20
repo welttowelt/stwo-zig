@@ -95,6 +95,7 @@ def cmd_run(args) -> int:
         verdict = runner.evaluate(
             m.root, predecessor, m, args.workload_class, args.dimension,
             args.scope, judged=False, out_dir=out_dir, board=args.board,
+            guards_mode=args.guards,
         )
     except runner.RunError as exc:
         return _fail(str(exc))
@@ -501,6 +502,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--class", dest="workload_class", choices=["small", "wide", "deep"],
                    default="small")
     p.add_argument("--dimension", choices=["time", "rss", "energy"], default="time")
+    p.add_argument(
+        "--guards", choices=["auto", "all", "none"], default="auto",
+        help="regression guards: auto = impact-mapped from the diff (default), "
+             "all = full portfolio, none = objective only (inner-loop iteration; "
+             "submissions still face the judged guard matrix)",
+    )
     p.add_argument("--board", default="core_cpu",
                    choices=["core_cpu", "core_hybrid", "core_metal",
                             "heavy_native", "heavy_cairo", "stream", "riscv"],

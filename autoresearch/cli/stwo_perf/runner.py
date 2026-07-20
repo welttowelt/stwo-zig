@@ -43,6 +43,8 @@ class ArmResult:
     byte_identical: bool
     peak_rss_mib: float | None
     report_path: str
+    proof_digest: str | None = None
+    request_ms: float | None = None
 
 
 @dataclass
@@ -55,6 +57,9 @@ class WorkloadScore:
     b_median_ms: float
     rss_ratio: float | None
     reports: list[str] = field(default_factory=list)
+    proof_digest: str | None = None
+    request_ratio: float | None = None
+    report_sha256s: list[str] = field(default_factory=list)
 
 
 def _run(cmd: str, cwd: Path, timeout: int) -> str:
@@ -138,12 +143,22 @@ def bench_once(
     timing = report["timing"]["prove_seconds"]
     proof = report["proof"]
     rss = _peak_rss_mib(report)
+    samples_meta = proof.get("samples") or []
+    digest = samples_meta[0].get("sha256") if samples_meta else None
+    request = report["timing"].get("request_seconds")
+    request_ms = (
+        float(request["median"]) * 1000.0
+        if isinstance(request, dict) and request.get("median") is not None
+        else None
+    )
     return ArmResult(
         prove_ms=float(timing["median"]) * 1000.0,
         proof_verified=int(proof.get("verified_samples", 0)),
         byte_identical=bool(proof.get("all_samples_byte_identical", False)),
         peak_rss_mib=rss,
         report_path=str(out_path),
+        proof_digest=digest,
+        request_ms=request_ms,
     )
 
 
@@ -179,6 +194,8 @@ def paired_rounds(
     reports: list[str] = []
     rss_a: list[float] = []
     rss_b: list[float] = []
+    request_ratios: list[float] = []
+    cross_digest: str | None = None
 
     round_no = 0
     while round_no < max_rounds:
@@ -198,6 +215,23 @@ def paired_rounds(
                 f"{workload.workload_id}: proof bytes changed across verified samples "
                 f"in round {round_no}"
             )
+        # G1 conformance is CROSS-ARM: the candidate's proof bytes must equal
+        # the predecessor's, per round, not merely be self-consistent per arm.
+        if a.proof_digest and b.proof_digest and a.proof_digest != b.proof_digest:
+            raise RunError(
+                f"{workload.workload_id}: cross-arm proof digest mismatch in round "
+                f"{round_no} (predecessor {a.proof_digest[:12]} vs candidate "
+                f"{b.proof_digest[:12]}) — conformance failure"
+            )
+        if cross_digest is None:
+            cross_digest = b.proof_digest
+        elif b.proof_digest and b.proof_digest != cross_digest:
+            raise RunError(
+                f"{workload.workload_id}: proof digest changed between rounds — "
+                f"nondeterministic proof bytes"
+            )
+        if a.request_ms and b.request_ms:
+            request_ratios.append(b.request_ms / a.request_ms)
         ratios.append(b.prove_ms / a.prove_ms)
         a_meds.append(a.prove_ms)
         b_meds.append(b.prove_ms)
@@ -222,6 +256,9 @@ def paired_rounds(
     rss_ratio = None
     if rss_a and rss_b:
         rss_ratio = (sum(rss_b) / len(rss_b)) / (sum(rss_a) / len(rss_a))
+    request_ratio = (
+        sorted(request_ratios)[len(request_ratios) // 2] if request_ratios else None
+    )
     return WorkloadScore(
         workload=workload,
         ratios=ratios,
@@ -231,6 +268,11 @@ def paired_rounds(
         b_median_ms=sorted(b_meds)[len(b_meds) // 2],
         rss_ratio=rss_ratio,
         reports=reports,
+        proof_digest=cross_digest,
+        request_ratio=request_ratio,
+        report_sha256s=[
+            hashlib.sha256(Path(rp).read_bytes()).hexdigest() for rp in reports
+        ],
     )
 
 
@@ -351,6 +393,114 @@ def evaluate_aa(repo_root: Path, manifest: Manifest, workload_class: str,
     }
 
 
+RUST_ORACLE_RELPATH = "tools/stwo-interop-rs/target/release/stwo-interop-rs"
+RUST_ORACLE_TOOLCHAIN = "nightly-2025-07-14"
+
+
+def rust_oracle_check(candidate_root: Path, manifest: Manifest,
+                      workload: Workload, out_dir: Path) -> dict:
+    """One pinned-Rust verification per scored workload: the candidate emits a
+    proof artifact and the parity oracle must accept it. Fail-closed when the
+    policy requires the oracle and it cannot run."""
+    oracle = candidate_root / RUST_ORACLE_RELPATH
+    if not oracle.is_file():
+        _run(
+            f"cargo +{RUST_ORACLE_TOOLCHAIN} build --release --locked "
+            f"--manifest-path tools/stwo-interop-rs/Cargo.toml",
+            candidate_root, timeout=1200,
+        )
+    group = manifest.group(workload.group_id)
+    binary = candidate_root / group.binary
+    artifact = out_dir / f"{workload.workload_id}.oracle-artifact.json"
+    args = workload.args.format(warmups=0, samples=1)
+    _run(f"{binary} {args} --proof-artifact-out {artifact}", candidate_root,
+         timeout=600)
+    if not artifact.is_file():
+        raise RunError(
+            f"{workload.workload_id}: bench did not write the oracle artifact"
+        )
+    _run(f"{oracle} --mode verify --artifact {artifact}", candidate_root,
+         timeout=600)
+    return {
+        "workload": workload.workload_id,
+        "verified": True,
+        "artifact_sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
+    }
+
+
+def guard_registry(manifest: Manifest) -> dict:
+    return manifest.raw.get("workload_registry", {}).get("guards", {}) or {}
+
+
+def select_guards(manifest: Manifest, touched: list[str],
+                  objective_group: WorkloadGroup) -> list[Workload]:
+    """Impact-mapped guard selection: generic prover/PCS/FFT/accumulation
+    paths exercise every native AIR; an unmatched editable source path fails
+    closed to every guard."""
+    registry = guard_registry(manifest)
+    workloads = registry.get("workloads", {})
+    if not workloads:
+        return []
+    rules = registry.get("impact_map", {}).get("rules", [])
+    selected: set[str] = set()
+    source_paths = [p for p in touched if p.startswith("src/")]
+    for path in source_paths:
+        matched = False
+        for rule in rules:
+            if any(path.startswith(prefix) for prefix in rule.get("prefixes", [])):
+                matched = True
+                guards = rule.get("guards")
+                if guards == "all":
+                    selected.update(workloads)
+                else:
+                    selected.update(guards or [])
+        if not matched:
+            selected.update(workloads)  # unknown impact: run everything
+    return [
+        Workload(gid, "guard", spec["args"], spec.get("native_unit", ""),
+                 objective_group.group_id)
+        for gid, spec in sorted(workloads.items())
+        if gid in selected
+    ]
+
+
+def run_guards(a_root: Path, b_root: Path, manifest: Manifest,
+               guards: list[Workload], out_dir: Path) -> dict:
+    """Paired ABBA regression guards: pass = upper CI bound <= budget; a guard
+    straddling its budget after the base rounds resamples with extra rounds,
+    then fails closed."""
+    registry = guard_registry(manifest)
+    policy = registry.get("policy", {})
+    budget = float(policy.get("budget_upper", 1.05))
+    guard_policy = {
+        "warmups": int(policy.get("warmups", 5)),
+        "samples_per_round": int(policy.get("samples_per_round", 2)),
+        "min_rounds": int(policy.get("min_rounds", 3)),
+        "max_rounds": int(policy.get("max_rounds", 8)),
+        "theta_floor": max(budget - 1.0, 0.01),
+        "wall_clock_cap_seconds": {"guard": 300},
+    }
+    extra = int(policy.get("inconclusive_extra_rounds", 4))
+    results: dict[str, dict] = {}
+    for guard in guards:
+        score = paired_rounds(a_root, b_root, manifest, guard, guard_policy, out_dir)
+        if score.ci[0] <= budget <= score.ci[1]:
+            # Inconclusive vs the budget: continue sampling once, then decide.
+            score = paired_rounds(
+                a_root, b_root, manifest, guard, guard_policy, out_dir,
+                round_budget=guard_policy["max_rounds"] + extra,
+            )
+        results[guard.workload_id] = {
+            "r": round(score.r, 6),
+            "ci": [round(score.ci[0], 6), round(score.ci[1], 6)],
+            "rounds": len(score.ratios),
+            "budget_upper": budget,
+            "pass": score.ci[1] <= budget,
+            "proof_digest": score.proof_digest,
+        }
+    return results
+
+
 def evaluate(
     repo_root: Path,
     predecessor_root: Path,
@@ -362,6 +512,7 @@ def evaluate(
     out_dir: Path,
     board: str = "core_cpu",
     holdout_seed: int | None = None,
+    guards_mode: str = "auto",
 ) -> dict:
     """Run the full paired evaluation and assemble a verdict dict.
 
@@ -391,6 +542,30 @@ def evaluate(
                       stop_theta=th)
         for w in workloads
     ]
+
+    touched = changed_paths(repo_root)
+    guard_results: dict = {}
+    if guards_mode != "none":
+        objective_group = manifest.group(workloads[0].group_id)
+        if guards_mode == "all":
+            registry = guard_registry(manifest).get("workloads", {})
+            selected = [
+                Workload(gid, "guard", spec["args"], spec.get("native_unit", ""),
+                         objective_group.group_id)
+                for gid, spec in sorted(registry.items())
+            ]
+        else:
+            selected = select_guards(manifest, touched, objective_group)
+        if selected:
+            print(f"running {len(selected)} regression guard(s): "
+                  + ", ".join(g.workload_id for g in selected))
+            guard_results = run_guards(predecessor_root, repo_root, manifest,
+                                       selected, out_dir)
+
+    oracle_results: list[dict] = []
+    if bool(policy.get("require_rust_oracle", False)):
+        for w in workloads:
+            oracle_results.append(rust_oracle_check(repo_root, manifest, w, out_dir))
 
     holdout_result = None
     if judged:
@@ -423,7 +598,7 @@ def evaluate(
         )
 
     gates = _gates(repo_root, manifest, scores, policy, judged, dispersion,
-                   workload_class, board)
+                   workload_class, board, guard_results, oracle_results)
     verdict = {
         "schema_version": 1,
         "kind": "judged" if judged else "claimed",
@@ -462,18 +637,43 @@ def evaluate(
             "energy_j": None,
         },
         "holdout": holdout_result,
+        "guards": guard_results,
+        "rust_oracle": oracle_results,
         "skipped_groups": skipped,
         "evidence": {
-            "reports": [p for s in scores for p in s.reports],
             "pairing": "round-level ABBA (bench reports expose medians, not raw samples)",
+            "per_workload": {
+                s.workload.workload_id: {
+                    "round_ratios": [round(x, 6) for x in s.ratios],
+                    "proof_digest": s.proof_digest,
+                    "request_ratio": round(s.request_ratio, 6) if s.request_ratio else None,
+                    "report_sha256s": s.report_sha256s,
+                }
+                for s in scores
+            },
+            "reports": [p for s in scores for p in s.reports],
         },
     }
     return verdict
 
 
 def _gates(repo_root, manifest, scores, policy, judged, dispersion,
-           workload_class, board) -> dict:
-    g1_ok = all(True for _ in scores)  # per-round verification enforced in paired_rounds
+           workload_class, board, guard_results=None, oracle_results=None) -> dict:
+    guard_results = guard_results or {}
+    oracle_results = oracle_results or []
+    # Per-round verification, per-round CROSS-ARM digest equality, and digest
+    # constancy are enforced in paired_rounds (a violation raises, so reaching
+    # here means they held); the pinned-Rust oracle results land in the detail.
+    g1_ok = True
+    if bool(policy.get("require_rust_oracle", False)):
+        g1_ok = len(oracle_results) == len(scores) and all(
+            o.get("verified") for o in oracle_results
+        )
+    oracle_note = (
+        f"; pinned Rust oracle verified {sum(1 for o in oracle_results if o.get('verified'))}/{len(scores)} workloads"
+        if policy.get("require_rust_oracle", False)
+        else "; rust oracle not required by policy"
+    )
     # Submission and note additions are the point of a submission PR; they are
     # not locked-path violations (mirrors validate_action's carve-out).
     touched = [
@@ -497,16 +697,44 @@ def _gates(repo_root, manifest, scores, policy, judged, dispersion,
     # predecessor). Inactive until the anchor is frozen — G5 blocks judged then.
     anchors = manifest.raw["harness"].get("anchor_prove_ms") or {}
     anchor_ms = anchors.get(board, {}).get(workload_class)
-    g4_ok, g4_detail = True, "anchor not frozen; budgets inactive (G5 blocks judged)"
-    if anchor_ms:
+    g4_ok, g4_details = True, []
+    if anchor_ms and scores:
         objective = scores[0]
         targeted = float(policy["targeted_class_budget"])
         ratio = objective.b_median_ms / float(anchor_ms)
-        g4_ok = ratio <= targeted
-        g4_detail = (
+        anchor_ok = ratio <= targeted
+        g4_ok = g4_ok and anchor_ok
+        g4_details.append(
             f"candidate/anchor {ratio:.4f} vs targeted budget x{targeted}"
-            + ("" if g4_ok else " — cumulative budget exhausted (F.1 guard)")
+            + ("" if anchor_ok else " — cumulative budget exhausted (F.1 guard)")
         )
+    else:
+        g4_details.append("anchor not frozen; drift budget inactive")
+    guards_failed = [g for g, res in guard_results.items() if not res.get("pass")]
+    if guard_results:
+        g4_ok = g4_ok and not guards_failed
+        g4_details.append(
+            f"regression guards {len(guard_results) - len(guards_failed)}/{len(guard_results)} within budget"
+            + (f" — FAILED: {guards_failed[:4]}" if guards_failed else "")
+        )
+    objective = scores[0] if scores else None
+    request_budget = float(policy.get("request_budget", 0) or 0)
+    if objective and request_budget and objective.request_ratio is not None:
+        request_ok = objective.request_ratio <= request_budget
+        g4_ok = g4_ok and request_ok
+        g4_details.append(
+            f"request ratio {objective.request_ratio:.4f} vs budget x{request_budget}"
+            + ("" if request_ok else " — request-time regression")
+        )
+    rss_budget = float(policy.get("rss_budget", 0) or 0)
+    if objective and rss_budget and objective.rss_ratio is not None:
+        rss_ok = objective.rss_ratio <= rss_budget
+        g4_ok = g4_ok and rss_ok
+        g4_details.append(
+            f"rss ratio {objective.rss_ratio:.4f} vs budget x{rss_budget}"
+            + ("" if rss_ok else " — memory regression")
+        )
+    g4_detail = "; ".join(g4_details)
 
     env_ok = True
     env_detail = "local advisory run"
@@ -518,7 +746,7 @@ def _gates(repo_root, manifest, scores, policy, judged, dispersion,
             else "judged requires measured A/A dispersion and a frozen anchor"
         )
     return {
-        "G1": {"pass": g1_ok, "detail": "every timed sample verified; byte-identity enforced per round"},
+        "G1": {"pass": g1_ok, "detail": "every timed sample verified; cross-arm proof digests byte-identical per round" + oracle_note},
         "G2": {"pass": g2_ok, "detail": g2_detail},
         "G3": {"pass": True, "detail": "mechanism binding recorded in note; telemetry wiring pending (F.8 item 2)"},
         "G4": {"pass": g4_ok, "detail": g4_detail},

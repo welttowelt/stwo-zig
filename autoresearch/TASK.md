@@ -78,6 +78,21 @@ After submitting, record your own attribution map and dead ends with
 `stwo-perf notes add` so the next searcher starts where you stopped, not
 where you started.
 
+**The whole suite is guarded (judge review, PR 20 era).** One workload is
+scored, but your diff's impact-mapped slice of the twelve-AIR guard portfolio
+runs as paired regression guards: every guard's upper confidence bound must
+stay within its budget, cross-arm proof digests must match every round, the
+pinned Rust oracle verifies each scored workload, and request-time and RSS
+are hard-gated. Improving the objective by regressing anything else fails G4.
+`stwo-perf run --guards none` exists for inner-loop iteration only.
+
+**Sync before your final paired run — the frontier moves hourly.** A ratio
+against a stale predecessor can be a real relative win and still land behind
+the current class head, which records as `rejected` (frontier regression).
+`stwo-perf update` in the canonical checkout, re-clone or `sync` the
+workspace, and re-run the final evaluation against the fresh tip before
+packaging.
+
 **Transcripts are the default — and reasoning-first.** Capture your session
 logs as you work (see `skills/submission-transcripts`), sanitize them per
 `schema/submission.md`, and attach them with `--transcripts`. They must carry

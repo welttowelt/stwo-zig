@@ -6,9 +6,17 @@
       "reason": "initial harness installation",
       "harness_commit": null,
       "aa_dispersion": {
-        "note": "Per-board, per-class A/A paired-ratio CI half-widths, measured by `stwo-perf run --aa --board <board>` on the designated judge host and recorded here by the judge. Null means theta falls back to the manifest floor and judged promotion is disabled until measured.",
-        "core_cpu": { "small": null, "wide": null, "deep": null },
-        "riscv": { "small": null, "wide": null, "deep": null }
+        "note": "Per-board, per-class A/A paired-ratio CI half-widths, measured by `stwo-perf run --aa` on the designated judge host (arm64 macOS, 2026-07-20) and recorded here. riscv stays null until its board enables; theta = max(floor, 2 x dispersion) per class.",
+        "core_cpu": {
+          "small": 0.030362,
+          "wide": 0.011056,
+          "deep": 0.01772
+        },
+        "riscv": {
+          "small": null,
+          "wide": null,
+          "deep": null
+        }
       }
     }
   ]

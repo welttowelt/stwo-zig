@@ -40,10 +40,30 @@ runner. A claimed verdict is advisory by definition.
   },
   "tiebreakers": { "rss_ratio": 0.99, "waits": null, "dispatches": null, "energy_j": null },
   "holdout": { "seed": 180734, "pass": true, "r": 1.004 },
+  "guards": { "guard_blake_12x16": { "r": 1.004, "ci": [0.99, 1.02], "rounds": 3,
+              "budget_upper": 1.05, "pass": true, "proof_digest": "<hex>" } },
+  "rust_oracle": [ { "workload": "plonk_log14", "verified": true,
+                     "artifact_sha256": "<hex>" } ],
   "skipped_groups": [ { "group": "riscv", "reason": "stark-v adapter pending release gate" } ],
-  "evidence": { "reports": ["<paths>"], "pairing": "round-level ABBA (...)" }
+  "evidence": {
+    "pairing": "round-level ABBA (...)",
+    "per_workload": { "plonk_log14": { "round_ratios": [0.91, 0.92],
+                      "proof_digest": "<hex>", "request_ratio": 0.95,
+                      "report_sha256s": ["<hex>"] } },
+    "reports": ["<paths>"]
+  }
 }
 ```
+
+`guards` (judge review, PR 20 era): paired ABBA regression guards over the
+full native AIR portfolio, selected from the manifest's path→guard impact
+map; pass = upper CI bound ≤ the guard budget, and any failing guard fails
+G4. `rust_oracle` records one pinned-oracle verification per scored workload
+(required by gates policy; missing or failed verification fails G1). The
+`evidence.per_workload` block makes the verdict self-contained: compact
+per-round ratios, the CROSS-ARM proof digest (predecessor and candidate
+bytes are equal — enforced per round), the request-time ratio, and the
+SHA-256 of every raw report, so vanished temp files never orphan a verdict.
 
 `skipped_groups` (additive, registry v2) records every workload group the
 manifest disables at run time, with its manifest `disabled_reason` — the same

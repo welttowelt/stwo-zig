@@ -8,13 +8,13 @@
     "amendment_path": "conformance/2026-07-19-build-monorepo-baseline-epoch-2-amendment.md",
     "amendment_sha256": "60c91e0d007169f82b9f9e3307962147c26071c8a9812789268441eec014c726",
     "baseline_receipt_path": "conformance/build-monorepo-baseline-v1.json",
-    "baseline_receipt_sha256": "66677813fb3f414a4fbd7015a7b5e105a8ad2ada57a23726ec227dffd7ff0ab6",
+    "baseline_receipt_sha256": "b5616cc082fa175294563693bf5f0def1079a56d690bc53660954448fff53dc0",
     "runner_path": "autoresearch/cli/stwo_perf/runner.py",
-    "runner_sha256": "38dc927687a0296b31336ce0249479bc7966b8c446318dd608f07b37e161f147",
+    "runner_sha256": "32254bc695fc60f42d8eb5e5783f50e9f9e094b5f98f304001b13c569bcfb7c1",
     "stats_path": "autoresearch/cli/stwo_perf/stats.py",
     "stats_sha256": "78ac6b44ffc2b73f6f4418a3d01341ac50213376f5ff92d7a72168a3d965e503",
     "autoresearch_manifest_path": "autoresearch/MANIFEST.json",
-    "autoresearch_manifest_sha256": "0ab298be4576385bfefcbbb48f2f063d62c0db2f7b3e7c38edac44838f2beeff"
+    "autoresearch_manifest_sha256": "3ffb3108a45076b67457f6011c1c1146b9c93e3088886f6a1a93b6b64298a9f6"
   },
   "baseline_source": {
     "commit": "c1c70db5d8846183e36edcfd9a21c28fafc1c098",
@@ -45,33 +45,210 @@
     "riscv_hosted_challenge_seconds": 180.0
   },
   "workloads": [
-    {"id": "wide_fibonacci:log_n_rows=10,sequence_len=8", "name": "wide_fibonacci", "parameters": {"log_n_rows": 10, "sequence_len": 8}, "numerator": {"unit": "trace_rows", "units": 1024}},
-    {"id": "xor:log_size=10,log_step=2,offset=3", "name": "xor", "parameters": {"log_size": 10, "log_step": 2, "offset": 3}, "numerator": {"unit": "xor_rows", "units": 1024}},
-    {"id": "plonk:log_n_rows=10", "name": "plonk", "parameters": {"log_n_rows": 10}, "numerator": {"unit": "plonk_rows", "units": 1024}},
-    {"id": "state_machine:log_n_rows=10,initial_x=9,initial_y=3", "name": "state_machine", "parameters": {"log_n_rows": 10, "initial_x": 9, "initial_y": 3}, "numerator": {"unit": "state_transitions", "units": 1024}},
-    {"id": "blake:log_n_rows=8,n_rounds=2", "name": "blake", "parameters": {"log_n_rows": 8, "n_rounds": 2}, "numerator": {"unit": "blake_round_instances", "units": 512}},
-    {"id": "poseidon:log_n_instances=13", "name": "poseidon", "parameters": {"log_n_instances": 13}, "numerator": {"unit": "poseidon_instances", "units": 8192}}
+    {
+      "id": "wide_fibonacci:log_n_rows=10,sequence_len=8",
+      "name": "wide_fibonacci",
+      "parameters": {
+        "log_n_rows": 10,
+        "sequence_len": 8
+      },
+      "numerator": {
+        "unit": "trace_rows",
+        "units": 1024
+      }
+    },
+    {
+      "id": "xor:log_size=10,log_step=2,offset=3",
+      "name": "xor",
+      "parameters": {
+        "log_size": 10,
+        "log_step": 2,
+        "offset": 3
+      },
+      "numerator": {
+        "unit": "xor_rows",
+        "units": 1024
+      }
+    },
+    {
+      "id": "plonk:log_n_rows=10",
+      "name": "plonk",
+      "parameters": {
+        "log_n_rows": 10
+      },
+      "numerator": {
+        "unit": "plonk_rows",
+        "units": 1024
+      }
+    },
+    {
+      "id": "state_machine:log_n_rows=10,initial_x=9,initial_y=3",
+      "name": "state_machine",
+      "parameters": {
+        "log_n_rows": 10,
+        "initial_x": 9,
+        "initial_y": 3
+      },
+      "numerator": {
+        "unit": "state_transitions",
+        "units": 1024
+      }
+    },
+    {
+      "id": "blake:log_n_rows=8,n_rounds=2",
+      "name": "blake",
+      "parameters": {
+        "log_n_rows": 8,
+        "n_rounds": 2
+      },
+      "numerator": {
+        "unit": "blake_round_instances",
+        "units": 512
+      }
+    },
+    {
+      "id": "poseidon:log_n_instances=13",
+      "name": "poseidon",
+      "parameters": {
+        "log_n_instances": 13
+      },
+      "numerator": {
+        "unit": "poseidon_instances",
+        "units": 8192
+      }
+    }
   ],
   "performance_lanes": [
-    {"host_role": "macos", "backend": "cpu", "runtime_mode": "native", "proof_equality_group": "canonical-functional"},
-    {"host_role": "macos", "backend": "metal-hybrid", "runtime_mode": "source-jit", "proof_equality_group": "canonical-functional"},
-    {"host_role": "linux", "backend": "cpu", "runtime_mode": "native", "proof_equality_group": "canonical-functional"}
+    {
+      "host_role": "macos",
+      "backend": "cpu",
+      "runtime_mode": "native",
+      "proof_equality_group": "canonical-functional"
+    },
+    {
+      "host_role": "macos",
+      "backend": "metal-hybrid",
+      "runtime_mode": "source-jit",
+      "proof_equality_group": "canonical-functional"
+    },
+    {
+      "host_role": "linux",
+      "backend": "cpu",
+      "runtime_mode": "native",
+      "proof_equality_group": "canonical-functional"
+    }
   ],
   "build_comparisons": [
-    {"id": "macos-native-cpu", "host_role": "macos", "baseline_step": "stwo-zig", "candidate_step": "stwo-native-cpu", "baseline_required": true, "relative_cold_budget": true, "binary_size_diagnostic": true, "absolute_cold_seconds": null, "absolute_warm_seconds": null, "forbidden_link_tokens": ["Metal", "Foundation", "libobjc", "cairo", "riscv"]},
-    {"id": "macos-native-metal", "host_role": "macos", "baseline_step": "stwo-zig", "candidate_step": "stwo-native-metal", "baseline_required": true, "relative_cold_budget": false, "binary_size_diagnostic": true, "absolute_cold_seconds": null, "absolute_warm_seconds": null, "forbidden_link_tokens": ["cairo", "riscv"]},
-    {"id": "linux-native-cpu", "host_role": "linux", "baseline_step": "stwo-zig", "candidate_step": "stwo-native-cpu", "baseline_required": true, "relative_cold_budget": true, "binary_size_diagnostic": true, "absolute_cold_seconds": null, "absolute_warm_seconds": null, "forbidden_link_tokens": ["Metal", "Foundation", "libobjc", "cairo", "riscv"]},
-    {"id": "linux-riscv-cpu-static", "host_role": "linux", "baseline_step": "stwo-zig", "candidate_step": "stwo-zig-riscv-cpu-static", "baseline_required": false, "relative_cold_budget": true, "binary_size_diagnostic": true, "absolute_cold_seconds": 60.0, "absolute_warm_seconds": 2.0, "forbidden_link_tokens": ["PT_INTERP", "Metal", "Foundation", "libobjc", "cairo"]}
+    {
+      "id": "macos-native-cpu",
+      "host_role": "macos",
+      "baseline_step": "stwo-zig",
+      "candidate_step": "stwo-native-cpu",
+      "baseline_required": true,
+      "relative_cold_budget": true,
+      "binary_size_diagnostic": true,
+      "absolute_cold_seconds": null,
+      "absolute_warm_seconds": null,
+      "forbidden_link_tokens": [
+        "Metal",
+        "Foundation",
+        "libobjc",
+        "cairo",
+        "riscv"
+      ]
+    },
+    {
+      "id": "macos-native-metal",
+      "host_role": "macos",
+      "baseline_step": "stwo-zig",
+      "candidate_step": "stwo-native-metal",
+      "baseline_required": true,
+      "relative_cold_budget": false,
+      "binary_size_diagnostic": true,
+      "absolute_cold_seconds": null,
+      "absolute_warm_seconds": null,
+      "forbidden_link_tokens": [
+        "cairo",
+        "riscv"
+      ]
+    },
+    {
+      "id": "linux-native-cpu",
+      "host_role": "linux",
+      "baseline_step": "stwo-zig",
+      "candidate_step": "stwo-native-cpu",
+      "baseline_required": true,
+      "relative_cold_budget": true,
+      "binary_size_diagnostic": true,
+      "absolute_cold_seconds": null,
+      "absolute_warm_seconds": null,
+      "forbidden_link_tokens": [
+        "Metal",
+        "Foundation",
+        "libobjc",
+        "cairo",
+        "riscv"
+      ]
+    },
+    {
+      "id": "linux-riscv-cpu-static",
+      "host_role": "linux",
+      "baseline_step": "stwo-zig",
+      "candidate_step": "stwo-zig-riscv-cpu-static",
+      "baseline_required": false,
+      "relative_cold_budget": true,
+      "binary_size_diagnostic": true,
+      "absolute_cold_seconds": 60.0,
+      "absolute_warm_seconds": 2.0,
+      "forbidden_link_tokens": [
+        "PT_INTERP",
+        "Metal",
+        "Foundation",
+        "libobjc",
+        "cairo"
+      ]
+    }
   ],
   "host_roles": {
-    "linux": {"os": "Linux", "requires_gpu": false, "requires_metal": false, "required_builds": ["linux-native-cpu", "linux-riscv-cpu-static"]},
-    "macos": {"os": "macOS", "requires_gpu": true, "requires_metal": true, "required_builds": ["macos-native-cpu", "macos-native-metal"]}
+    "linux": {
+      "os": "Linux",
+      "requires_gpu": false,
+      "requires_metal": false,
+      "required_builds": [
+        "linux-native-cpu",
+        "linux-riscv-cpu-static"
+      ]
+    },
+    "macos": {
+      "os": "macOS",
+      "requires_gpu": true,
+      "requires_metal": true,
+      "required_builds": [
+        "macos-native-cpu",
+        "macos-native-metal"
+      ]
+    }
   },
   "trusted_stark_v": {
     "repository": "https://github.com/ClementWalter/stark-v",
     "commit": "d478f783055aa0d73a93768a433a3c6c31c91d1c"
   },
-  "artifact_kinds": ["stdout", "stderr", "proof", "verifier", "timing", "resource", "installed-manifest", "link-surface", "source-closure", "attempt-ledger", "attempt-journal", "aot-identity", "trusted-bundle", "executable"],
+  "artifact_kinds": [
+    "stdout",
+    "stderr",
+    "proof",
+    "verifier",
+    "timing",
+    "resource",
+    "installed-manifest",
+    "link-surface",
+    "source-closure",
+    "attempt-ledger",
+    "attempt-journal",
+    "aot-identity",
+    "trusted-bundle",
+    "executable"
+  ],
   "limits": {
     "max_json_bytes": 16777216,
     "max_artifacts": 20000,

@@ -3,30 +3,83 @@
   "harness": {
     "name": "stwo-perf",
     "contract": "stwo-zig-og-docs archive: 2026-07-17-performance-extraction-playbook.md, Part F",
-    "anchor_commit": null,
-    "anchor_report": null,
+    "anchor_commit": "31a3132ef2e6df99deef7773f6cb5ef797e70d0f",
+    "anchor_report": "autoresearch/reference/anchor",
     "anchor_prove_ms": {
-      "core_cpu": { "small": null, "wide": null, "deep": null },
-      "riscv": { "small": null, "wide": null, "deep": null }
+      "core_cpu": {
+        "small": 3.096,
+        "wide": 18.619,
+        "deep": 14.317
+      },
+      "riscv": {
+        "small": null,
+        "wide": null,
+        "deep": null
+      }
     },
-    "anchor_note": "Set both fields in one human-reviewed commit when the conformance goal's baseline-freeze phase produces the frozen pre-optimization baseline. Null anchor means drift budgets cannot be evaluated and judged promotion is disabled."
+    "anchor_note": "Frozen 2026-07-20 on the designated judge host (arm64 macOS): the pre-optimization original commit, medians measured same-session by autoresearch/reference/measure_peer_rust.py (reports committed under autoresearch/reference/anchor/). Drift budgets are active; riscv anchors freeze when that board enables."
   },
   "editable_paths": [
-    { "glob": "src/backends/cpu_scalar/**", "min_rung": "s3" },
-    { "glob": "src/backends/metal/**", "min_rung": "s3" },
-    { "glob": "src/core/fields/**", "min_rung": "s3" },
-    { "glob": "src/core/crypto/**", "min_rung": "s3" },
-    { "glob": "src/core/fri/**", "min_rung": "s3" },
-    { "glob": "src/core/pcs/**", "min_rung": "s3" },
-    { "glob": "src/prover/poly/**", "min_rung": "s3" },
-    { "glob": "src/prover/pcs/**", "min_rung": "s3" },
-    { "glob": "src/prover/vcs_lifted/**", "min_rung": "s3" },
-    { "glob": "src/prover/air/**", "min_rung": "s3" },
-    { "glob": "src/prover/fri.zig", "min_rung": "s3" },
-    { "glob": "src/prover/session.zig", "min_rung": "s4" },
-    { "glob": "src/prover/work_pool.zig", "min_rung": "s4" },
-    { "glob": "src/prover/fft_pool.zig", "min_rung": "s4" },
-    { "glob": "src/prover/resident_storage.zig", "min_rung": "s4" }
+    {
+      "glob": "src/backends/cpu_scalar/**",
+      "min_rung": "s3"
+    },
+    {
+      "glob": "src/backends/metal/**",
+      "min_rung": "s3"
+    },
+    {
+      "glob": "src/core/fields/**",
+      "min_rung": "s3"
+    },
+    {
+      "glob": "src/core/crypto/**",
+      "min_rung": "s3"
+    },
+    {
+      "glob": "src/core/fri/**",
+      "min_rung": "s3"
+    },
+    {
+      "glob": "src/core/pcs/**",
+      "min_rung": "s3"
+    },
+    {
+      "glob": "src/prover/poly/**",
+      "min_rung": "s3"
+    },
+    {
+      "glob": "src/prover/pcs/**",
+      "min_rung": "s3"
+    },
+    {
+      "glob": "src/prover/vcs_lifted/**",
+      "min_rung": "s3"
+    },
+    {
+      "glob": "src/prover/air/**",
+      "min_rung": "s3"
+    },
+    {
+      "glob": "src/prover/fri.zig",
+      "min_rung": "s3"
+    },
+    {
+      "glob": "src/prover/session.zig",
+      "min_rung": "s4"
+    },
+    {
+      "glob": "src/prover/work_pool.zig",
+      "min_rung": "s4"
+    },
+    {
+      "glob": "src/prover/fft_pool.zig",
+      "min_rung": "s4"
+    },
+    {
+      "glob": "src/prover/resident_storage.zig",
+      "min_rung": "s4"
+    }
   ],
   "locked_paths": [
     "autoresearch/**",
@@ -90,14 +143,137 @@
         }
       }
     },
+    "guards": {
+      "note": "The full native AIR portfolio as mandatory regression guards (judge review, PR 20 era): one declared objective workload is SCORED, but every selected guard's paired upper confidence bound must stay below its regression budget. Guards use the objective group's binary; args are data.",
+      "workloads": {
+        "guard_wf_14x32": {
+          "args": "--example wide_fibonacci --log-n-rows 14 --sequence-len 32 --warmups {warmups} --samples {samples} --protocol functional",
+          "native_unit": "trace_rows"
+        },
+        "guard_wf_16x64": {
+          "args": "--example wide_fibonacci --log-n-rows 16 --sequence-len 64 --warmups {warmups} --samples {samples} --protocol functional",
+          "native_unit": "trace_rows"
+        },
+        "guard_xor_14": {
+          "args": "--example xor --log-size 14 --log-step 2 --offset 3 --warmups {warmups} --samples {samples} --protocol functional",
+          "native_unit": "xor_rows"
+        },
+        "guard_xor_16": {
+          "args": "--example xor --log-size 16 --log-step 2 --offset 3 --warmups {warmups} --samples {samples} --protocol functional",
+          "native_unit": "xor_rows"
+        },
+        "guard_plonk_14": {
+          "args": "--example plonk --log-n-rows 14 --warmups {warmups} --samples {samples} --protocol functional",
+          "native_unit": "plonk_rows"
+        },
+        "guard_plonk_16": {
+          "args": "--example plonk --log-n-rows 16 --warmups {warmups} --samples {samples} --protocol functional",
+          "native_unit": "plonk_rows"
+        },
+        "guard_sm_14": {
+          "args": "--example state_machine --initial-x 9 --initial-y 3 --log-n-rows 14 --warmups {warmups} --samples {samples} --protocol functional",
+          "native_unit": "state_transitions"
+        },
+        "guard_sm_16": {
+          "args": "--example state_machine --initial-x 9 --initial-y 3 --log-n-rows 16 --warmups {warmups} --samples {samples} --protocol functional",
+          "native_unit": "state_transitions"
+        },
+        "guard_blake_10x10": {
+          "args": "--example blake --log-n-rows 10 --n-rounds 10 --warmups {warmups} --samples {samples} --protocol functional",
+          "native_unit": "blake_round_instances"
+        },
+        "guard_blake_12x16": {
+          "args": "--example blake --log-n-rows 12 --n-rounds 16 --warmups {warmups} --samples {samples} --protocol functional",
+          "native_unit": "blake_round_instances"
+        },
+        "guard_poseidon_10": {
+          "args": "--example poseidon --log-n-instances 10 --warmups {warmups} --samples {samples} --protocol functional",
+          "native_unit": "poseidon_instances"
+        },
+        "guard_poseidon_13": {
+          "args": "--example poseidon --log-n-instances 13 --warmups {warmups} --samples {samples} --protocol functional",
+          "native_unit": "poseidon_instances"
+        }
+      },
+      "policy": {
+        "warmups": 5,
+        "samples_per_round": 2,
+        "min_rounds": 3,
+        "max_rounds": 8,
+        "budget_upper": 1.05,
+        "inconclusive_extra_rounds": 4,
+        "note": "pass = paired upper CI bound <= budget_upper; an inconclusive guard (CI straddling the budget after min rounds) samples inconclusive_extra_rounds more, then fails closed"
+      },
+      "impact_map": {
+        "note": "Editable-path prefixes to the guard sets a diff must exercise; generic prover/PCS/FFT/accumulation code touches every native AIR. Unmatched editable paths select every guard (fail closed).",
+        "rules": [
+          {
+            "prefixes": [
+              "src/prover/",
+              "src/core/fri/",
+              "src/core/pcs/",
+              "src/core/fields/",
+              "src/backends/cpu_scalar/"
+            ],
+            "guards": "all"
+          },
+          {
+            "prefixes": [
+              "src/core/crypto/"
+            ],
+            "guards": [
+              "guard_blake_10x10",
+              "guard_blake_12x16",
+              "guard_poseidon_10",
+              "guard_poseidon_13",
+              "guard_wf_14x32",
+              "guard_plonk_14"
+            ]
+          },
+          {
+            "prefixes": [
+              "src/backends/metal/"
+            ],
+            "guards": []
+          }
+        ]
+      }
+    },
     "holdout_generator": {
       "note": "Judged runs draw one extra hold-out per class by jittering log_n_rows/sequence_len within class bounds; seed is recorded in the ledger row. Results publish as pass/fail only.",
-      "small": { "log_n_rows": [9, 11], "sequence_len": [4, 16] },
-      "wide": { "log_n_rows": [13, 15], "sequence_len": [16, 48] },
-      "deep": { "log_n_rows": [13, 15], "sequence_len": null }
+      "small": {
+        "log_n_rows": [
+          9,
+          11
+        ],
+        "sequence_len": [
+          4,
+          16
+        ]
+      },
+      "wide": {
+        "log_n_rows": [
+          13,
+          15
+        ],
+        "sequence_len": [
+          16,
+          48
+        ]
+      },
+      "deep": {
+        "log_n_rows": [
+          13,
+          15
+        ],
+        "sequence_len": null
+      }
     }
   },
   "gates_policy": {
+    "require_rust_oracle": true,
+    "request_budget": 1.05,
+    "rss_budget": 1.05,
     "ci_level": 0.95,
     "theta_floor": 0.01,
     "dispersion_multiplier": 2.0,
@@ -107,7 +283,11 @@
     "samples_per_round": 3,
     "min_rounds": 7,
     "max_rounds": 15,
-    "wall_clock_cap_seconds": { "small": 240, "wide": 600, "deep": 600 },
+    "wall_clock_cap_seconds": {
+      "small": 240,
+      "wide": 600,
+      "deep": 600
+    },
     "neutral_band_note": "Promotion requires the declared-objective CI entirely below 1 - theta, where theta = max(theta_floor, dispersion_multiplier x per-class A/A dispersion recorded in the ledger epoch)."
   },
   "qualification_policy": {
@@ -122,7 +302,9 @@
       "public_benchmark"
     ],
     "source_commit_must_descend_from_frontier": true,
-    "source_modes": ["100644"],
+    "source_modes": [
+      "100644"
+    ],
     "max_changed_paths": 100,
     "max_patch_bytes": 5242880,
     "require_github_artifact_attestation": true,
