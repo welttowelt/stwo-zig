@@ -577,6 +577,84 @@
      "verdict_kind": "claimed",
      "waits": null,
      "workload_class": "deep"
+    },
+    {
+     "board": "core_cpu",
+     "ci_high": 1.017878,
+     "ci_low": 0.95457,
+     "commit": "334f6c496dd39568c7fe5ed980e4cc2d2bb0a730",
+     "dispatches": null,
+     "energy_j": null,
+     "epoch": 1,
+     "gates": "G1..G5:pass",
+     "harness_commit": "bcd67c353ea4",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-20T21:34:54Z",
+     "judged_r": 1.002137,
+     "native_mhz": 0.0,
+     "outcome": "rejected",
+     "peak_rss_mib": 0.0,
+     "predecessor": "5d2eb59b2f9d",
+     "prove_ms": 1.603958,
+     "schema_version": 2,
+     "scope": "s3",
+     "submission_id": "2026-07-20-metal-shared-merkle-readback",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "small"
+    },
+    {
+     "board": "core_cpu",
+     "ci_high": 1.002583,
+     "ci_low": 0.958263,
+     "commit": "334f6c496dd39568c7fe5ed980e4cc2d2bb0a730",
+     "dispatches": null,
+     "energy_j": null,
+     "epoch": 1,
+     "gates": "G1..G5:pass",
+     "harness_commit": "bcd67c353ea4",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-20T21:34:55Z",
+     "judged_r": 0.987053,
+     "native_mhz": 0.0,
+     "outcome": "rejected",
+     "peak_rss_mib": 0.0,
+     "predecessor": "5d2eb59b2f9d",
+     "prove_ms": 7.498083,
+     "schema_version": 2,
+     "scope": "s3",
+     "submission_id": "2026-07-20-metal-shared-merkle-readback",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "deep"
+    },
+    {
+     "board": "core_cpu",
+     "ci_high": 1.012135,
+     "ci_low": 0.991756,
+     "commit": "334f6c496dd39568c7fe5ed980e4cc2d2bb0a730",
+     "dispatches": null,
+     "energy_j": null,
+     "epoch": 1,
+     "gates": "G1..G5:pass",
+     "harness_commit": "bcd67c353ea4",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-20T21:34:55Z",
+     "judged_r": 1.00185,
+     "native_mhz": 0.0,
+     "outcome": "rejected",
+     "peak_rss_mib": 0.0,
+     "predecessor": "5d2eb59b2f9d",
+     "prove_ms": 11.15275,
+     "schema_version": 2,
+     "scope": "s3",
+     "submission_id": "2026-07-20-metal-shared-merkle-readback",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "wide"
     }
    ],
    "frontier_by_class": {
@@ -1284,7 +1362,7 @@
   "rows_total": 12,
   "rows_with_zero_fallbacks": 0
  },
- "notes_count": 2,
+ "notes_count": 3,
  "project": {
   "contract": "stwo-zig-og-docs archive: 2026-07-17-performance-extraction-playbook.md, Part F",
   "harness": "stwo-perf",
@@ -1352,12 +1430,12 @@
   "inputs_sha256": {
    "autoresearch/MANIFEST.json": "0ab298be4576385bfefcbbb48f2f063d62c0db2f7b3e7c38edac44838f2beeff",
    "autoresearch/ledger/epochs.json": "97e69d9694297442fc0cb3b3feda79323142c0ecc45a2e81f6192da9064ca803",
-   "autoresearch/ledger/promotions.tsv": "7d8f8b8a5975e82de3294cb786a0a5e590eb351b632bf7db2c65c5834589869d",
+   "autoresearch/ledger/promotions.tsv": "138af69c244d43b820c539c06dd6fd85f200a2538fe1d05d9026e3aa5d3f2531",
    "vectors/reports/benchmark_history/index.json": "356ab43ca2a23cf5fa9b2771c5d8f4b036d6e6e41b10724fb4c9db6e9f6fc74a",
    "vectors/reports/benchmark_history/runs/2026-07-18-064334-matrix-v5-789feb4c/report.json": "8da5fae41d077ae897b44b024a4b3d2956a57daff2c0678a0441b26ec6643768"
   },
-  "repo_commit": "37279a146b28",
-  "repo_commit_time": "2026-07-20T21:20:14Z"
+  "repo_commit": "dd555de5888a",
+  "repo_commit_time": "2026-07-20T21:34:55Z"
  },
  "references": {
   "peer_rust_scalar": {
@@ -1524,6 +1602,24 @@
      "excerpt": "# Session 01 \u2014 frontier baseline and architecture search\n\nDate: 2026-07-20\nModel: GPT-5 Codex\n\n## Objective supplied by the researcher\n\nDrive the largest CPU or Metal optimization allowed by the autoresearch\ncontract, starting with a local benchmark, learning from prior notes and\ntranscripts, profiling hot paths, using architectural visualization and\ncritical analysis, and submitting as soon as a significant verified solution\nexists.\n\n## Contract and initial decisions\n\n- Updated the repo-resident `stwo-perf` CLI/frontier before benchmarking. The\n  clean base advanced seven commits and now includes the promoted packed\n  sampled-value evaluation.\n- Read every unique in-repo skill guide. The sc",
      "label": "session-01.md",
      "sha256": "ab8fda201722ab95626cbbc2a84731524e41730cf16a71a7205bcb127b75ced0"
+    }
+   ],
+   "verdict_kind": "claimed",
+   "workload_class": "deep"
+  },
+  {
+   "id": "2026-07-20-metal-shared-merkle-readback",
+   "judged_r": 0.987053,
+   "note": "# Proof-readable Merkle layers remove UMA readback epochs\n\n## Model and harness\n\nGPT-5 Codex optimized commit `cafda78e6f3d` from predecessor `5d2eb59b2f9d` with the repository-resident `stwo-perf`/`stwo-prof` tools after updating the frontier. The target was an Apple M5 Max on macOS 26.5.2 with unified memory. Native Metal benchmarks used `ReleaseFast`, the real `native-proof-bench-metal` product, included verification, 10 warmups, and either 3 samples per interleaved round or 21 samples per longer process.\n\nThe local runtime was `source-jit`: embedded MSL was compiled by the macOS Metal runtime during backend initialization, which is reported separately and excluded from timed proof samples. No offline `metal` executable or Xcode application is needed for this measurement path. The change does not alter MSL, shader ABI, or the authenticated-AOT library loading path.\n\nThe updated manifest has no enabled workload group for the CLI's `core_metal` board. Its only enabled acceptance board is `core_cpu`. Therefore the attached official S3 verdicts are CPU no-regression/advisory evidence; the Metal performance claim comes from the production-compatible Metal binary and is not mislabelled as CPU evidence.\n\n## Hypothesis\n\nProfiled wide/deep proofs spent about 2.5 ms in FRI decommit and another 0.38-0.56 ms in trace decommit. Each resident Merkle tree already batched its logical-layer reads, but non-root layers were private. After the producer command had completed, every tree still allocated a shared staging buffer, encoded many 32-byte blits, submitted a new command buffer, blocked in `waitUntilCompleted`, and copied the result to proof-owned slices.\n\nFunctional proofs have only three queries. Useful readback bytes were tiny relative to 12-17 command-buffer/wait transactions. Apple documents shared buffers as CPU/GPU accessible and requires GPU writes to complete before CPU access. Tree constructors already wait for successful producer completion before returning and mixing the root, so immutable proof-lifetime hash layers can be gathered directly on unified-memory devices without another GPU epoch.\n\nExpected falsifier: if shared hash writes slowed commitments by more than the eliminated readback waits, or if any proof/hash/fallback telemetry changed, reject the design.\n\n## Changes\n\nOne mechanism changes three files under `src/backends/metal/runtime/`:\n\n- Generic, quotient, and fused-FRI Merkle hash storage selects `MTLStorageModeShared` when `MTLDevice.hasUnifiedMemory` is true.\n- Single and batched selective hash reads detect shared layers and directly copy validated 32-byte records from immutable buffer contents.\n- Non-unified devices retain private non-root layers and the exact previous allocation/blit/wait/status-check fallback.\n\nCryptographic work, roots, ordering, dispatch telemetry, PSOs, source-JIT/AOT identity, and proof encoding are unchanged. A narrower experiment that shared only FRI trees was rejected because 21-sample medians worsened on all classes.\n\n## Results\n\nSeven harness-shaped rounds per class alternated baseline/candidate process order. Each process used 10 warmups and 3 verified samples. Repository Hodges-Lehmann/bootstrap statistics over candidate/baseline ratios reported:\n\n| Metal class | R | 95% CI | speedup |\n| --- | ---: | ---: | ---: |\n| small | 0.755333 | [0.741314, 0.786567] | 32.4% |\n| wide | 0.879952 | [0.860304, 0.907340] | 13.6% |\n| deep | 0.735199 | [0.583555, 0.983817] | 36.0% |\n\nThe suite geometric-mean ratio is 0.787652: about 21.2% less latency / 1.27x throughput. Deep timings were bimodal; an independent 21-sample A-B-B-A comparison gives a more conservative 18.8% deep reduction. That comparison also measured 32.5% small and 13.0% wide reductions.\n\nThe predicted stages moved by roughly 93-96%:\n\n| stage | small before -> after | wide before -> after | deep before -> after |\n| --- | ---: | ---: | ---: |\n| FRI decommit | 1.764 -> 0.093 ms | 2.509 -> 0.158 ms | 2.470 -> 0.158 ms |\n| trace decommit | 0.333 -> 0.014 ms | 0.383 -> 0.026 ms | 0.558 -> 0.034 ms |\n\nAll fixed proofs exactly match the untouched CPU/Metal SHA-256 values, every timed sample verifies and is byte-identical, telemetry remains `accelerated_without_fallbacks`, CPU fallbacks remain zero, and high-level Metal dispatches remain 28/36/39. A 70-query secure proof also matches the untouched hash and verifies without fallback.\n\nOfficial CPU S3 advisory ratios were 1.0021 small, 1.0018 wide, and 0.9871 deep, with every gate passing and every CI spanning neutrality/significance. This is the expected no-regression result for a Metal-only source change, not the optimization claim.\n\nValidation passed `test-native-metal`, `metal-check`, `test-metal-core-aot`, `test-metal-core-aot-probe`, diff checks, commitment/readback parity, fused FRI-tree parity, independent verification, and exact end-to-end proofs. The broad Metal runtime suite reports 78/81 passed and two stress skips; its one resident FRI fold/coordinate failure reproduces identically on the untouched predecessor on this host.\n\n## Caveats\n\n- No `core_metal` manifest workload exists, so the current autoresearch judge cannot score or promote this Metal result. The attached CPU verdicts exist only because `stwo-perf submit` requires a claimed verdict. No locked manifest change or fabricated Metal verdict was used.\n- Full Metal System Trace was attempted but `xctrace` is unavailable without full Xcode. Attribution instead uses stage timers, source wait topology, command-epoch counters, pipeline reflection, and `GPUStartTime`/`GPUEndTime` timestamps. Real Metal execution and source-JIT benchmarking do not require Xcode.\n- The fast path is feature-gated by unified memory. The private/blit fallback compiles but cannot be executed on this M5 Max.\n- AOT shader compilation was not locally possible without the offline Metal toolchain; deterministic AOT tooling/probe contracts pass, and this host-only storage policy does not alter shader artifacts.\n- Secure-protocol headline time is dominated by 26-bit proof of work, so the fixed functional suite is the meaningful latency target for this mechanism.\n\nMetal storage contract: https://developer.apple.com/documentation/metal/mtlstoragemode/shared\n\nCommand completion contract: https://developer.apple.com/documentation/metal/mtlcommandbuffer/status\n",
+   "outcome": "rejected",
+   "solver": "teddyjfpender",
+   "title": "Proof-readable Merkle layers remove UMA readback epochs",
+   "transcripts": [
+    {
+     "captured_by": "submitter",
+     "excerpt": "# Session 01 \u2014 Metal backend optimization\n\n## Objective and user direction\n\nThe user requested a fresh autoresearch campaign focused on large Metal-backend performance improvements. The required sequence is: update the repository-resident CLI and frontier first; run the local benchmark suite before using prior research; then mine existing notes, submissions, transcripts, and ideas; profile real Metal execution; use critical analysis and visual design to propose new architectures; verify bit-exact correctness; and submit as soon as a significant result exists.\n\n## Session start and contracts\n\n- The canonical checkout was clean and `stwo-perf update` fast-forwarded it from `dc07e5c11d78` to `5",
+     "label": "session-01.md",
+     "sha256": "6c78fc0c9ff92e506951f50a4bd1b4b098f6280ad0d475bbb04a6e0c3a8bb1fc"
     }
    ],
    "verdict_kind": "claimed",
