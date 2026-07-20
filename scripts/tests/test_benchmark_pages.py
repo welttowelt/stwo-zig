@@ -19,7 +19,7 @@ HISTORY = ROOT / "vectors" / "reports" / "benchmark_history"
 LATEST = (
     HISTORY
     / "runs"
-    / "2026-07-18-064334-matrix-v5-789feb4c"
+    / "2026-07-20-221601-matrix-v6-e78cca6f"
     / "report.json"
 )
 
@@ -57,15 +57,15 @@ class BenchmarkPagesTests(unittest.TestCase):
     def test_real_history_publishes_only_complete_runs(self) -> None:
         catalog = build_catalog(HISTORY)
         self.assertEqual(catalog["schema"], "stwo_benchmark_catalog_v1")
-        self.assertEqual(len(catalog["runs"]), 2)
+        self.assertEqual(len(catalog["runs"]), 3)
         self.assertEqual(len(catalog["excluded_runs"]), 6)
         latest = catalog["runs"][0]
         self.assertEqual(
             latest["revision"]["git_commit"],
-            "789feb4cf06842fbbdfe41e369cb18dadb1803f6",
+            "e78cca6ff0b849a204efce7ce172828ed0b1a88f",
         )
         self.assertEqual(latest["machine"]["chip"], "Apple M5 Max")
-        self.assertEqual(latest["captured_at"], "2026-07-18T06:43:34.232047+00:00")
+        self.assertEqual(latest["captured_at"], "2026-07-20T22:16:01.967583+00:00")
         self.assertEqual(latest["summary"]["verified_proofs"], 240)
         self.assertTrue(all(row["proof"]["rust_oracle_verified"] for row in latest["rows"]))
 
