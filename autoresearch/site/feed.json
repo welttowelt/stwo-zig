@@ -369,12 +369,90 @@
      "verdict_kind": "claimed",
      "waits": null,
      "workload_class": "small"
+    },
+    {
+     "board": "core_cpu",
+     "ci_high": 0.870776,
+     "ci_low": 0.858696,
+     "commit": "28e0b1af117dba253ce588c64098e22289e70e50",
+     "dispatches": null,
+     "energy_j": null,
+     "epoch": 1,
+     "gates": "G1..G5:pass",
+     "harness_commit": "6dbd9a6d02b1",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-20T18:54:55Z",
+     "judged_r": 0.863603,
+     "native_mhz": 0.0,
+     "outcome": "promoted",
+     "peak_rss_mib": 0.0,
+     "predecessor": "95f32a8f9f6e",
+     "prove_ms": 8.521125,
+     "schema_version": 2,
+     "scope": "s3",
+     "submission_id": "2026-07-20-four-way-fri-leaf-cascade",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "deep"
     }
    ],
    "frontier_by_class": {
     "deep": {
-     "frontier": [],
-     "head": null
+     "frontier": [
+      {
+       "board": "core_cpu",
+       "ci_high": 0.870776,
+       "ci_low": 0.858696,
+       "commit": "28e0b1af117dba253ce588c64098e22289e70e50",
+       "dispatches": null,
+       "energy_j": null,
+       "epoch": 1,
+       "gates": "G1..G5:pass",
+       "harness_commit": "6dbd9a6d02b1",
+       "holdout": "none",
+       "judged_at_utc": "2026-07-20T18:54:55Z",
+       "judged_r": 0.863603,
+       "native_mhz": 0.0,
+       "outcome": "promoted",
+       "peak_rss_mib": 0.0,
+       "predecessor": "95f32a8f9f6e",
+       "prove_ms": 8.521125,
+       "schema_version": 2,
+       "scope": "s3",
+       "submission_id": "2026-07-20-four-way-fri-leaf-cascade",
+       "supersedes": "",
+       "verdict_kind": "claimed",
+       "waits": null,
+       "workload_class": "deep"
+      }
+     ],
+     "head": {
+      "board": "core_cpu",
+      "ci_high": 0.870776,
+      "ci_low": 0.858696,
+      "commit": "28e0b1af117dba253ce588c64098e22289e70e50",
+      "dispatches": null,
+      "energy_j": null,
+      "epoch": 1,
+      "gates": "G1..G5:pass",
+      "harness_commit": "6dbd9a6d02b1",
+      "holdout": "none",
+      "judged_at_utc": "2026-07-20T18:54:55Z",
+      "judged_r": 0.863603,
+      "native_mhz": 0.0,
+      "outcome": "promoted",
+      "peak_rss_mib": 0.0,
+      "predecessor": "95f32a8f9f6e",
+      "prove_ms": 8.521125,
+      "schema_version": 2,
+      "scope": "s3",
+      "submission_id": "2026-07-20-four-way-fri-leaf-cascade",
+      "supersedes": "",
+      "verdict_kind": "claimed",
+      "waits": null,
+      "workload_class": "deep"
+     }
     },
     "small": {
      "frontier": [
@@ -1092,12 +1170,12 @@
   "inputs_sha256": {
    "autoresearch/MANIFEST.json": "0ab298be4576385bfefcbbb48f2f063d62c0db2f7b3e7c38edac44838f2beeff",
    "autoresearch/ledger/epochs.json": "97e69d9694297442fc0cb3b3feda79323142c0ecc45a2e81f6192da9064ca803",
-   "autoresearch/ledger/promotions.tsv": "1966a89fcd7e621d56e665c684a667bff0e2873bde27498e8d303864645d4104",
+   "autoresearch/ledger/promotions.tsv": "b14a8a96b236dee579d1d8b8a06eece74d71e316f9d3161020ce45609d5808a5",
    "vectors/reports/benchmark_history/index.json": "356ab43ca2a23cf5fa9b2771c5d8f4b036d6e6e41b10724fb4c9db6e9f6fc74a",
    "vectors/reports/benchmark_history/runs/2026-07-18-064334-matrix-v5-789feb4c/report.json": "8da5fae41d077ae897b44b024a4b3d2956a57daff2c0678a0441b26ec6643768"
   },
-  "repo_commit": "f339cdbcac41",
-  "repo_commit_time": "2026-07-20T18:13:18Z"
+  "repo_commit": "aba3bb6e8141",
+  "repo_commit_time": "2026-07-20T18:54:55Z"
  },
  "submissions": [
   {
@@ -1117,6 +1195,24 @@
    ],
    "verdict_kind": "claimed",
    "workload_class": "small"
+  },
+  {
+   "id": "2026-07-20-four-way-fri-leaf-cascade",
+   "judged_r": 0.863603,
+   "note": "# Extend four-way SIMD leaf hashing through the FRI cascade\n\n## Model and harness\n\nModel: GPT-5 Codex. Harness: repo-resident `stwo-perf`, updated before research\nat current `main` (`95f32a8f9f6e`). ReleaseFast on arm64 macOS, paired S3\ndeep/time against the unchanged current-main predecessor. A reasoning-first,\nsanitized transcript is attached as `transcripts/session-01.md`.\n\n## Hypothesis\n\nThe functional protocol commits an inner FRI tree after every fold. The\nexisting four-message SIMD leaf builder was selected only at 16,384 leaves, so\nthe entire smaller-tree cascade fell back to constructing and finalizing one\nincremental hasher per leaf. Warmed probes found the 8,192-leaf fallback tree\nslower than the 16,384-leaf SIMD tree and attributed roughly 3 ms of wide/deep\nproving to inner FRI Merkle commits. Extending the already-verified SIMD builder\nthrough that cascade should produce a large end-to-end win without changing\nhash order or proof bytes.\n\n## Changes\n\nThe batched-leaf crossover is lowered from 16,384 to 256 leaves. On hashers\nwith the four-message API, `buildBatched` no longer allocates an unused\nper-leaf incremental-hasher array and sizes each worker's scratch to exactly\nfour packed leaf messages. The generic non-four-way path retains its existing\nbatch storage and 256 KiB scratch policy. No field arithmetic, hash function,\ntranscript, protocol, or tree ordering changed.\n\n## Results\n\nS3 `plonk_log14` deep/time: ratio **0.8636**, 95% CI **[0.8587, 0.8708]** over\n15 paired rounds. The predecessor median was 9.853 ms and the candidate median\nwas 8.521 ms. G1\u2013G5 passed; every timed proof verified and remained\nbyte-identical.\n\nSuite-wide warmed diagnostics also preserved the existing proof hashes and\nmeasured 2.816\u21922.208 ms small, 16.469\u219212.589 ms wide, and 12.017\u21928.542 ms deep.\nThese unpaired values are mechanism/cross-class diagnostics, not promotion\nscores. ReleaseFast prover and native-CPU product closures passed across 152\nand 190 transitive Zig sources respectively.\n\n## Caveats\n\nThis is a local claimed verdict; the locked judge rerun remains authoritative.\nThe anchor is not frozen, so drift budgets and judged promotion are inactive.\nMechanism telemetry wiring is still pending in the harness; the threshold\ndiscontinuity, temporary per-layer probes summarized in the transcript, source\nallocation change, identical proof hashes, and paired end-to-end result provide\nthe current mechanism evidence.\n",
+   "outcome": "promoted",
+   "solver": "Teddy Pender",
+   "title": "Extend four-way SIMD leaf hashing through the FRI cascade",
+   "transcripts": [
+    {
+     "captured_by": "submitter",
+     "excerpt": "# Session 01 \u2014 frontier synthesis and large-step search\n\nModel: GPT-5 Codex\n\n## Objective and starting state\n\nThe user asked for the largest defensible forward step, not a sequence of small\nconstant-factor submissions. The repository-specific `stwo-perf update` was run\nbefore research and reported the checkout current at `95f32a8f9f6e`. The fresh\nworkspace was then created from that clean `main` predecessor.\n\nThe fixed objective is end-to-end CPU prove time with byte-identical proofs.\nThe scored classes are small wide-Fibonacci (`wf_log10x8`), wide\nwide-Fibonacci (`wf_log14x32`), and deep Plonk (`plonk_log14`). Promotion needs\nan S3 paired-run confidence interval wholly beyond the 1% thresho",
+     "label": "session-01.md",
+     "sha256": "f7c028171fb69232a99b92f19c2b61ec9064cd67b36b0b629be4d446edabbf97"
+    }
+   ],
+   "verdict_kind": "claimed",
+   "workload_class": "deep"
   },
   {
    "id": "2026-07-20-packed-direct-quotient-resident-merkle-pool",
