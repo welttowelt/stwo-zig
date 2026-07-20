@@ -1,12 +1,12 @@
 {
  "anchor": {
-  "commit": null,
-  "frozen": false,
+  "commit": "31a3132ef2e6df99deef7773f6cb5ef797e70d0f",
+  "frozen": true,
   "prove_ms": {
    "core_cpu": {
-    "deep": null,
-    "small": null,
-    "wide": null
+    "deep": 14.317,
+    "small": 3.096,
+    "wide": 18.619
    },
    "riscv": {
     "deep": null,
@@ -934,11 +934,11 @@
  "epoch": {
   "aa_dispersion": {
    "core_cpu": {
-    "deep": null,
-    "small": null,
-    "wide": null
+    "deep": 0.01772,
+    "small": 0.030362,
+    "wide": 0.011056
    },
-   "note": "Per-board, per-class A/A paired-ratio CI half-widths, measured by `stwo-perf run --aa --board <board>` on the designated judge host and recorded here by the judge. Null means theta falls back to the manifest floor and judged promotion is disabled until measured.",
+   "note": "Per-board, per-class A/A paired-ratio CI half-widths, measured by `stwo-perf run --aa` on the designated judge host (arm64 macOS, 2026-07-20) and recorded here. riscv stays null until its board enables; theta = max(floor, 2 x dispersion) per class.",
    "riscv": {
     "deep": null,
     "small": null,
@@ -1428,14 +1428,14 @@
   "determinism": "pure function of the named inputs; a committed feed names the commit it was generated FROM (one-commit lag by construction) \u2014 verify via inputs_sha256, not commit equality",
   "dirty_inputs": [],
   "inputs_sha256": {
-   "autoresearch/MANIFEST.json": "0ab298be4576385bfefcbbb48f2f063d62c0db2f7b3e7c38edac44838f2beeff",
-   "autoresearch/ledger/epochs.json": "97e69d9694297442fc0cb3b3feda79323142c0ecc45a2e81f6192da9064ca803",
+   "autoresearch/MANIFEST.json": "3ffb3108a45076b67457f6011c1c1146b9c93e3088886f6a1a93b6b64298a9f6",
+   "autoresearch/ledger/epochs.json": "c78b8d327def593d8d6803471534d71bb4ec890a272675267796b913da99b88a",
    "autoresearch/ledger/promotions.tsv": "138af69c244d43b820c539c06dd6fd85f200a2538fe1d05d9026e3aa5d3f2531",
    "vectors/reports/benchmark_history/index.json": "356ab43ca2a23cf5fa9b2771c5d8f4b036d6e6e41b10724fb4c9db6e9f6fc74a",
    "vectors/reports/benchmark_history/runs/2026-07-18-064334-matrix-v5-789feb4c/report.json": "8da5fae41d077ae897b44b024a4b3d2956a57daff2c0678a0441b26ec6643768"
   },
-  "repo_commit": "dd555de5888a",
-  "repo_commit_time": "2026-07-20T21:34:55Z"
+  "repo_commit": "2d1ec0688414",
+  "repo_commit_time": "2026-07-20T22:40:50+01:00"
  },
  "references": {
   "peer_rust_scalar": {
