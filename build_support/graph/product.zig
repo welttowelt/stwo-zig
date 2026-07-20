@@ -147,6 +147,12 @@ pub fn registerUnavailable(
         const test_step = b.step(name, reason);
         test_step.dependOn(&failure.step);
     }
+    // The platform-blind catalog closure asserts benchmark step names on
+    // every host; unavailable products register them fail-closed too.
+    if (descriptor.benchmark_step) |name| {
+        const benchmark_step = b.step(name, reason);
+        benchmark_step.dependOn(&failure.step);
+    }
 }
 
 fn empty(value: ?[]const u8) bool {
