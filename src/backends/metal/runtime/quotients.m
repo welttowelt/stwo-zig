@@ -135,7 +135,9 @@ bool stwo_zig_metal_compute_quotients(
                 layer_count >>= 1u;
             }
             hash_arena = [runtime.device newBufferWithLength:(NSUInteger)arena_words * sizeof(uint32_t)
-                                                     options:MTLResourceStorageModePrivate];
+                                                     options:runtime.device.hasUnifiedMemory
+                                                         ? MTLResourceStorageModeShared
+                                                         : MTLResourceStorageModePrivate];
             root_readback = [runtime.device newBufferWithLength:32u options:MTLResourceStorageModeShared];
             for (uint32_t level = 0u; level <= lifting_log_size; ++level) [layers addObject:hash_arena];
             layer_word_offsets_data = [NSData dataWithBytes:layer_word_offsets

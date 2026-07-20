@@ -88,7 +88,11 @@ void *stwo_zig_metal_merkle_commit(
         NSMutableArray<id<MTLBuffer>> *layers = [NSMutableArray arrayWithCapacity:lifting_log_size + 1u];
         uint32_t layer_count = leaf_count;
         for (uint32_t level = 0; level <= lifting_log_size; ++level) {
-            MTLResourceOptions storage = level == lifting_log_size
+            // The tree is immutable after this command completes and the CPU
+            // later reads sparse authentication nodes.  On unified-memory
+            // devices, keeping those nodes shared avoids a second command
+            // buffer solely to make a few hashes CPU-visible.
+            MTLResourceOptions storage = level == lifting_log_size || runtime.device.hasUnifiedMemory
                 ? MTLResourceStorageModeShared
                 : MTLResourceStorageModePrivate;
             id<MTLBuffer> layer = [runtime.device newBufferWithLength:(NSUInteger)layer_count * 32u
@@ -280,6 +284,19 @@ bool stwo_zig_metal_tree_copy_hashes(
         NSUInteger layer_index = (NSUInteger)(tree.logSize - layer_log_size);
         id<MTLBuffer> source = tree.layers[layer_index];
         NSUInteger layer_offset = (NSUInteger)tree_layer_word_offset(tree, layer_index) * sizeof(uint32_t);
+        if (source.storageMode == MTLStorageModeShared) {
+            const uint8_t *source_bytes = source.contents;
+            if (source_bytes == NULL) {
+                write_error(error_message, error_message_len, @"Metal shared hash layer is not CPU-visible");
+                return false;
+            }
+            source_bytes += layer_offset;
+            for (uint32_t i = 0; i < index_count; ++i) {
+                memcpy(destination + (NSUInteger)i * 32u,
+                       source_bytes + (NSUInteger)indices[i] * 32u, 32u);
+            }
+            return true;
+        }
         id<MTLBuffer> readback = [runtime.device newBufferWithLength:(NSUInteger)index_count * 32u
                                                             options:MTLResourceStorageModeShared];
         if (readback == nil) {
@@ -348,6 +365,33 @@ bool stwo_zig_metal_tree_copy_hashes_batch(
         if (total_hashes > SIZE_MAX / 32u) {
             write_error(error_message, error_message_len, @"Metal hash-read batch exceeds address space");
             return false;
+        }
+
+        // Tree-producing entry points wait for successful command completion
+        // before publishing the immutable tree.  Shared layers are therefore
+        // coherent for direct CPU point queries here; no additional GPU epoch
+        // or synchronization boundary is required.
+        bool all_layers_shared = true;
+        for (uint32_t request = 0u; request < request_count; ++request) {
+            NSUInteger layer_index = (NSUInteger)(tree.logSize - layer_log_sizes[request]);
+            id<MTLBuffer> source = tree.layers[layer_index];
+            if (source.storageMode != MTLStorageModeShared || source.contents == NULL) {
+                all_layers_shared = false;
+                break;
+            }
+        }
+        if (all_layers_shared) {
+            for (uint32_t request = 0u; request < request_count; ++request) {
+                NSUInteger layer_index = (NSUInteger)(tree.logSize - layer_log_sizes[request]);
+                id<MTLBuffer> source = tree.layers[layer_index];
+                const uint8_t *source_bytes = (const uint8_t *)source.contents +
+                    (NSUInteger)tree_layer_word_offset(tree, layer_index) * sizeof(uint32_t);
+                for (uint32_t index = 0u; index < index_counts[request]; ++index) {
+                    memcpy(destinations[request] + (NSUInteger)index * 32u,
+                           source_bytes + (NSUInteger)indices[request][index] * 32u, 32u);
+                }
+            }
+            return true;
         }
 
         id<MTLBuffer> readback = [runtime.device newBufferWithLength:(NSUInteger)total_hashes * 32u
