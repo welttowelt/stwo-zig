@@ -296,31 +296,69 @@ pub fn evaluateCoefficientPlans(
     tree_values: anytype,
     plans: anytype,
 ) (MetalError || std.mem.Allocator.Error)!f64 {
-    const coefficient_offsets = try allocator.alloc(u32, coefficients.len);
-    defer allocator.free(coefficient_offsets);
-    const coefficient_ptrs = try allocator.alloc([*]const u32, coefficients.len);
-    defer allocator.free(coefficient_ptrs);
-    const coefficient_lengths = try allocator.alloc(usize, coefficients.len);
-    defer allocator.free(coefficient_lengths);
-    var coefficient_count: usize = 0;
-    for (coefficients, 0..) |coefficient, index| {
-        const words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(coefficient.coefficients()));
-        coefficient_offsets[index] = @intCast(coefficient_count);
-        coefficient_ptrs[index] = words.ptr;
-        coefficient_lengths[index] = words.len;
-        coefficient_count += words.len;
-    }
+    const TreePlan = struct {
+        coefficients: @TypeOf(coefficients),
+        tree_values: @TypeOf(tree_values),
+        plans: @TypeOf(plans),
+    };
+    const tree_plans = [_]TreePlan{.{
+        .coefficients = coefficients,
+        .tree_values = tree_values,
+        .plans = plans,
+    }};
+    return evaluateCoefficientTreePlans(self, allocator, &tree_plans);
+}
 
+pub fn evaluateCoefficientTreePlans(
+    self: *Runtime,
+    allocator: std.mem.Allocator,
+    tree_plans: anytype,
+) (MetalError || std.mem.Allocator.Error)!f64 {
+    var coefficient_column_count: usize = 0;
+    var coefficient_count: usize = 0;
     var factor_word_count: usize = 0;
     var task_count: usize = 0;
     var basis_task_count: usize = 0;
     var basis_count: usize = 0;
-    for (plans) |plan| {
-        factor_word_count += plan.flat_factors.len * 4;
-        task_count += plan.column_indices.items.len * plan.normalized_points.len;
-        basis_task_count += plan.normalized_points.len;
-        basis_count += plan.normalized_points.len * (@as(usize, 1) << @intCast(plan.coeff_log_size));
+    var output_count: usize = 0;
+    for (tree_plans) |tree_plan| {
+        if (tree_plan.coefficients.len != tree_plan.tree_values.len)
+            return MetalError.PolynomialEvaluationFailed;
+        coefficient_column_count += tree_plan.coefficients.len;
+        for (tree_plan.coefficients) |coefficient| {
+            coefficient_count += std.mem.sliceAsBytes(coefficient.coefficients()).len / @sizeOf(u32);
+        }
+        for (tree_plan.plans) |plan| {
+            factor_word_count += plan.flat_factors.len * 4;
+            task_count += plan.column_indices.items.len * plan.normalized_points.len;
+            basis_task_count += plan.normalized_points.len;
+            basis_count += plan.normalized_points.len * (@as(usize, 1) << @intCast(plan.coeff_log_size));
+        }
+        for (tree_plan.tree_values) |values| output_count += values.len;
     }
+    if (coefficient_column_count == 0 or task_count == 0) return 0;
+
+    const coefficient_offsets = try allocator.alloc(u32, coefficient_column_count);
+    defer allocator.free(coefficient_offsets);
+    const coefficient_ptrs = try allocator.alloc([*]const u32, coefficient_column_count);
+    defer allocator.free(coefficient_ptrs);
+    const coefficient_lengths = try allocator.alloc(usize, coefficient_column_count);
+    defer allocator.free(coefficient_lengths);
+    var coefficient_cursor: usize = 0;
+    var coefficient_word_cursor: usize = 0;
+    for (tree_plans) |tree_plan| {
+        for (tree_plan.coefficients) |coefficient| {
+            const words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(coefficient.coefficients()));
+            coefficient_offsets[coefficient_cursor] = @intCast(coefficient_word_cursor);
+            coefficient_ptrs[coefficient_cursor] = words.ptr;
+            coefficient_lengths[coefficient_cursor] = words.len;
+            coefficient_cursor += 1;
+            coefficient_word_cursor += words.len;
+        }
+    }
+    std.debug.assert(coefficient_cursor == coefficient_column_count);
+    std.debug.assert(coefficient_word_cursor == coefficient_count);
+
     const factor_words = try allocator.alloc(u32, factor_word_count);
     defer allocator.free(factor_words);
     const task_words = try allocator.alloc(u32, task_count * 5);
@@ -330,55 +368,73 @@ pub fn evaluateCoefficientPlans(
     const basis_task_words = try allocator.alloc(u32, basis_task_count * 4);
     defer allocator.free(basis_task_words);
 
-    const output_offsets = try allocator.alloc(u32, tree_values.len);
+    const output_offsets = try allocator.alloc(u32, coefficient_column_count);
     defer allocator.free(output_offsets);
-    var output_count: usize = 0;
-    for (tree_values, 0..) |values, index| {
-        output_offsets[index] = @intCast(output_count);
-        output_count += values.len;
+    var output_column_cursor: usize = 0;
+    var output_cursor: usize = 0;
+    for (tree_plans) |tree_plan| {
+        for (tree_plan.tree_values) |values| {
+            output_offsets[output_column_cursor] = @intCast(output_cursor);
+            output_column_cursor += 1;
+            output_cursor += values.len;
+        }
     }
+    std.debug.assert(output_column_cursor == coefficient_column_count);
+    std.debug.assert(output_cursor == output_count);
 
     var factor_cursor: usize = 0;
     var task_cursor: usize = 0;
     var basis_task_cursor: usize = 0;
     var basis_cursor: usize = 0;
-    for (plans) |plan| {
-        const plan_factor_start = factor_cursor;
-        for (plan.flat_factors) |factor| {
-            const coordinates = factor.toM31Array();
-            inline for (0..4) |coordinate| {
-                factor_words[factor_cursor] = coordinates[coordinate].v;
-                factor_cursor += 1;
+    var tree_column_base: usize = 0;
+    for (tree_plans) |tree_plan| {
+        for (tree_plan.plans) |plan| {
+            const plan_factor_start = factor_cursor;
+            for (plan.flat_factors) |factor| {
+                const coordinates = factor.toM31Array();
+                inline for (0..4) |coordinate| {
+                    factor_words[factor_cursor] = coordinates[coordinate].v;
+                    factor_cursor += 1;
+                }
             }
-        }
-        const plan_basis_start = basis_cursor;
-        const coefficient_length = @as(usize, 1) << @intCast(plan.coeff_log_size);
-        for (0..plan.normalized_points.len) |point_index| {
-            const base = basis_task_cursor * 4;
-            basis_task_words[base..][0..4].* = .{
-                @intCast(plan_factor_start + point_index * plan.coeff_log_size * 4),
-                plan.coeff_log_size,
-                @intCast(basis_cursor),
-                @intCast(coefficient_length),
-            };
-            basis_task_cursor += 1;
-            basis_cursor += coefficient_length;
-        }
-        for (plan.column_indices.items) |column_index| {
             for (0..plan.normalized_points.len) |point_index| {
-                const base = task_cursor * 5;
-                task_words[base..][0..5].* = .{
-                    coefficient_offsets[column_index],
-                    @intCast(coefficients[column_index].coefficients().len),
-                    @intCast(plan_basis_start + point_index * coefficient_length),
+                const base = basis_task_cursor * 4;
+                const coefficient_length = @as(usize, 1) << @intCast(plan.coeff_log_size);
+                basis_task_words[base..][0..4].* = .{
+                    @intCast(plan_factor_start + point_index * plan.coeff_log_size * 4),
                     plan.coeff_log_size,
-                    output_offsets[column_index] + @as(u32, @intCast(point_index)),
+                    @intCast(basis_cursor),
+                    @intCast(coefficient_length),
                 };
-                task_columns[task_cursor] = @intCast(column_index);
-                task_cursor += 1;
+                basis_task_cursor += 1;
+                basis_cursor += coefficient_length;
+            }
+            const coefficient_length = @as(usize, 1) << @intCast(plan.coeff_log_size);
+            const plan_basis_start = basis_cursor - plan.normalized_points.len * coefficient_length;
+            for (plan.column_indices.items) |column_index| {
+                if (column_index >= tree_plan.coefficients.len)
+                    return MetalError.PolynomialEvaluationFailed;
+                const global_column = tree_column_base + column_index;
+                for (0..plan.normalized_points.len) |point_index| {
+                    const base = task_cursor * 5;
+                    task_words[base..][0..5].* = .{
+                        coefficient_offsets[global_column],
+                        @intCast(tree_plan.coefficients[column_index].coefficients().len),
+                        @intCast(plan_basis_start + point_index * coefficient_length),
+                        plan.coeff_log_size,
+                        output_offsets[global_column] + @as(u32, @intCast(point_index)),
+                    };
+                    task_columns[task_cursor] = @intCast(global_column);
+                    task_cursor += 1;
+                }
             }
         }
+        tree_column_base += tree_plan.coefficients.len;
     }
+    std.debug.assert(factor_cursor == factor_word_count);
+    std.debug.assert(task_cursor == task_count);
+    std.debug.assert(basis_task_cursor == basis_task_count);
+    std.debug.assert(basis_cursor == basis_count);
 
     const output_words = try allocator.alloc(u32, output_count * 4);
     defer allocator.free(output_words);
@@ -388,7 +444,7 @@ pub fn evaluateCoefficientPlans(
         self.handle,
         coefficient_ptrs.ptr,
         coefficient_lengths.ptr,
-        @intCast(coefficients.len),
+        @intCast(coefficient_column_count),
         coefficient_count,
         factor_words.ptr,
         factor_words.len,
@@ -407,13 +463,18 @@ pub fn evaluateCoefficientPlans(
         std.log.err("Metal polynomial evaluation failed: {s}", .{std.mem.sliceTo(&message, 0)});
         return MetalError.PolynomialEvaluationFailed;
     }
-    for (tree_values, output_offsets) |values, output_offset| {
-        for (values, 0..) |*value, point_index| {
-            var coordinates: [4]@import("stwo_core").fields.m31.M31 = undefined;
-            inline for (0..4) |coordinate| {
-                coordinates[coordinate].v = output_words[(@as(usize, output_offset) + point_index) * 4 + coordinate];
+    output_column_cursor = 0;
+    for (tree_plans) |tree_plan| {
+        for (tree_plan.tree_values) |values| {
+            const output_offset = output_offsets[output_column_cursor];
+            for (values, 0..) |*value, point_index| {
+                var coordinates: [4]@import("stwo_core").fields.m31.M31 = undefined;
+                inline for (0..4) |coordinate| {
+                    coordinates[coordinate].v = output_words[(@as(usize, output_offset) + point_index) * 4 + coordinate];
+                }
+                value.* = @import("stwo_core").fields.qm31.QM31.fromM31Array(coordinates);
             }
-            value.* = @import("stwo_core").fields.qm31.QM31.fromM31Array(coordinates);
+            output_column_cursor += 1;
         }
     }
     return gpu_ms;

@@ -15,6 +15,12 @@ const EvalPlan = struct {
     column_indices: std.ArrayList(usize),
 };
 
+const EvalTreePlan = struct {
+    coefficients: []const circle_poly.CircleCoefficients,
+    tree_values: []const []QM31,
+    plans: []const EvalPlan,
+};
+
 test "metal: polynomial evaluation shader unit matches scalar circle evaluation" {
     const allocator = std.testing.allocator;
     var runtime = try runtime_mod.Runtime.init();
@@ -68,6 +74,62 @@ test "metal: polynomial evaluation shader unit matches scalar circle evaluation"
 
     for (coefficients, outputs) |polynomial, output| {
         for (points, output) |point, actual| {
+            try std.testing.expect(polynomial.evalAtPoint(point).eql(actual));
+        }
+    }
+}
+
+test "metal: polynomial evaluation batches tree-local indices in one epoch" {
+    const allocator = std.testing.allocator;
+    var runtime = try runtime_mod.Runtime.init();
+    defer runtime.deinit();
+
+    const coefficient_values = [_][8]M31{
+        .{ .{ .v = 3 }, .{ .v = 5 }, .{ .v = 8 }, .{ .v = 13 }, .{ .v = 21 }, .{ .v = 34 }, .{ .v = 55 }, .{ .v = 89 } },
+        .{ .{ .v = 144 }, .{ .v = 233 }, .{ .v = 377 }, .{ .v = 610 }, .{ .v = 987 }, .{ .v = 1597 }, .{ .v = 2584 }, .{ .v = 4181 } },
+    };
+    const coefficients = [_]circle_poly.CircleCoefficients{
+        try circle_poly.CircleCoefficients.initBorrowed(&coefficient_values[0]),
+        try circle_poly.CircleCoefficients.initBorrowed(&coefficient_values[1]),
+    };
+    const points = [_]circle.CirclePointQM31{
+        circle.SECURE_FIELD_CIRCLE_GEN.mul(17),
+        circle.SECURE_FIELD_CIRCLE_GEN.mul(29),
+    };
+    var factors: [points.len * 3]QM31 = undefined;
+    circle_poly.fillEvalFactorsForPointsFolded(&points, 0, 3, &factors);
+
+    var first_indices = std.ArrayList(usize).empty;
+    defer first_indices.deinit(allocator);
+    try first_indices.append(allocator, 0);
+    var second_indices = std.ArrayList(usize).empty;
+    defer second_indices.deinit(allocator);
+    try second_indices.append(allocator, 0);
+    const first_plans = [_]EvalPlan{.{
+        .coeff_log_size = 3,
+        .normalized_points = &points,
+        .flat_factors = &factors,
+        .column_indices = first_indices,
+    }};
+    const second_plans = [_]EvalPlan{.{
+        .coeff_log_size = 3,
+        .normalized_points = &points,
+        .flat_factors = &factors,
+        .column_indices = second_indices,
+    }};
+    var first_output: [points.len]QM31 = undefined;
+    var second_output: [points.len]QM31 = undefined;
+    const first_outputs = [_][]QM31{&first_output};
+    const second_outputs = [_][]QM31{&second_output};
+    const tree_plans = [_]EvalTreePlan{
+        .{ .coefficients = coefficients[0..1], .tree_values = &first_outputs, .plans = &first_plans },
+        .{ .coefficients = coefficients[1..2], .tree_values = &second_outputs, .plans = &second_plans },
+    };
+
+    _ = try runtime.evaluateCoefficientTreePlans(allocator, &tree_plans);
+
+    for (coefficients, tree_plans) |polynomial, tree_plan| {
+        for (points, tree_plan.tree_values[0]) |point, actual| {
             try std.testing.expect(polynomial.evalAtPoint(point).eql(actual));
         }
     }

@@ -204,6 +204,7 @@ pub const Runtime = struct {
     pub const computeQuotients = polynomial_ops.computeQuotients;
     pub const computeQuotientsAndCommit = polynomial_ops.computeQuotientsAndCommit;
     pub const evaluateCoefficientPlans = polynomial_ops.evaluateCoefficientPlans;
+    pub const evaluateCoefficientTreePlans = polynomial_ops.evaluateCoefficientTreePlans;
     pub const transformCircle = polynomial_ops.transformCircle;
     pub const transformCircleResident = polynomial_ops.transformCircleResident;
     pub const transformCircleLde = polynomial_ops.transformCircleLde;
