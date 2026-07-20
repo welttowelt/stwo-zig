@@ -45,7 +45,7 @@ pub const products = [_]Spec{
     .{ .descriptor = core.descriptor, .scope = .core, .constructor = .core, .identity_step = "identity-stwo-core", .configure_tools = &.{"python3"}, .generated_module_roots = &.{"generated:options:"}, .configure_allowed_files = &.{"build_support/graph/identity/emitter.zig"} },
     .{ .descriptor = prover.descriptor, .scope = .prover, .constructor = .prover, .identity_step = "identity-stwo-prover", .configure_tools = &.{"python3"}, .generated_module_roots = &.{"generated:options:"}, .configure_allowed_files = &.{ "build_support/graph/identity/emitter.zig", "src/products/core/surface.zig" } },
     .{ .descriptor = native_cpu.descriptor(.cli), .scope = .native_cpu, .constructor = .native_cpu, .configure_tools = &.{"python3"}, .generated_module_roots = &.{"generated:options:"} },
-    .{ .descriptor = riscv_cpu.descriptor, .scope = .riscv_cpu, .constructor = .riscv_cpu, .configure_tools = &.{"python3"}, .generated_module_roots = &.{"generated:options:"} },
+    .{ .descriptor = riscv_cpu.descriptor, .scope = .riscv_cpu, .constructor = .riscv_cpu, .configure_tools = &.{"python3"}, .generated_module_roots = &.{"generated:options:"}, .configure_allowed_files = &.{"src/tests.zig"} },
     .{
         .descriptor = native_metal.descriptor(.cli),
         .scope = .native_metal,
