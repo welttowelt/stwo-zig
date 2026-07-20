@@ -40,8 +40,27 @@ pub fn addProducts(context: Context) void {
     );
     test_step.dependOn(&run_tests.step);
 
-    if (context.target.result.os.tag != .macos) return;
+    if (context.target.result.os.tag != .macos) {
+        addUnavailableAcceptance(b);
+        return;
+    }
     addHostedAcceptance(context, tool);
+}
+
+/// Fail-closed stubs so the platform-blind product catalog's configure
+/// closure holds on every host: the step names exist everywhere, and
+/// invoking one off macOS fails with the real reason (mirrors
+/// build_support/benchmarks/metal.zig's convention).
+fn addUnavailableAcceptance(b: *std.Build) void {
+    const reason = "Native core metallib probe and acceptance require a macOS host with Metal";
+    const failure = b.addFail(reason);
+    inline for (.{
+        "metal-core-aot-probe",
+        "test-metal-core-aot-probe",
+        "metal-core-aot-acceptance",
+    }) |name| {
+        b.step(name, reason).dependOn(&failure.step);
+    }
 }
 
 fn addHostedAcceptance(context: Context, tool: *std.Build.Step.Compile) void {
