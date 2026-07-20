@@ -1252,18 +1252,18 @@
    "vectors/reports/benchmark_history/index.json": "356ab43ca2a23cf5fa9b2771c5d8f4b036d6e6e41b10724fb4c9db6e9f6fc74a",
    "vectors/reports/benchmark_history/runs/2026-07-18-064334-matrix-v5-789feb4c/report.json": "8da5fae41d077ae897b44b024a4b3d2956a57daff2c0678a0441b26ec6643768"
   },
-  "repo_commit": "99e45ba0fe40",
-  "repo_commit_time": "2026-07-20T20:47:34+01:00"
+  "repo_commit": "af4d27eefbb8",
+  "repo_commit_time": "2026-07-20T20:55:38+01:00"
  },
  "references": {
   "peer_rust_scalar": {
    "host": "Apple M4 Max",
    "measured_at_utc": "2026-07-20",
    "method": [
-    "Same host, same session, back-to-back medians of 15 samples after 10 warmups per workload.",
+    "Same host, same session, back-to-back medians of 15 samples after 10 warmups per workload, via autoresearch/reference/measure_peer_rust.py.",
     "Reference-grade: NOT interleaved ABBA pairing and NOT a judged run; ordering and magnitude are meaningful, sub-percent differences are not.",
     "Rust prove samples include JSON wire serialization of the proof (the bench tool times prove+encode); zig timings are prove only \u2014 the Rust side is slightly overstated.",
-    "The parity tool pins upstream CpuBackend; upstream also ships a SIMD backend this reference does NOT exercise. A SIMD-matched reference is the known follow-up before any cross-implementation performance claim beyond the scalar oracle."
+    "The parity tool pins upstream CpuBackend with the `parallel` feature enabled; upstream also ships a SIMD backend this reference does NOT exercise. A SIMD-matched reference is the known follow-up before any cross-implementation performance claim beyond this oracle."
    ],
    "name": "peer-rust-scalar",
    "per_workload": [
@@ -1274,27 +1274,27 @@
       "log_n_rows": 10,
       "sequence_len": 8
      },
-     "ratio_rust_over_zig_original": 1.286391,
+     "ratio_rust_over_zig_original": 2.060228,
      "rust_samples_ms": [
-      3.891334,
-      3.889125,
-      3.938583,
-      4.002375,
-      4.127958,
-      4.116583,
-      3.8845,
-      3.84275,
-      3.9835,
-      3.87,
-      3.866625,
-      3.856209,
-      3.844792,
-      4.018292,
-      4.157292
+      6.764166,
+      6.591625,
+      6.015584,
+      6.662834,
+      5.972666,
+      6.483583,
+      6.139292,
+      6.378208,
+      6.374459,
+      5.9705,
+      6.119792,
+      6.871875,
+      6.407959,
+      6.709166,
+      5.976834
      ],
-     "rust_scalar_median_ms": 3.891334,
+     "rust_scalar_median_ms": 6.378208,
      "workload": "wf_log10x8",
-     "zig_original_median_ms": 3.025
+     "zig_original_median_ms": 3.095875
     },
     {
      "class": "wide",
@@ -1303,27 +1303,27 @@
       "log_n_rows": 14,
       "sequence_len": 32
      },
-     "ratio_rust_over_zig_original": 5.166449,
+     "ratio_rust_over_zig_original": 3.767668,
      "rust_samples_ms": [
-      86.93,
-      86.732834,
-      85.475584,
-      86.900875,
-      86.537958,
-      85.741875,
-      88.246125,
-      89.112917,
-      87.851791,
-      86.217292,
-      86.004458,
-      86.2715,
-      89.260709,
-      85.391792,
-      88.128709
+      67.316083,
+      67.099958,
+      69.05,
+      71.266625,
+      69.26725,
+      70.284666,
+      68.255416,
+      72.3525,
+      69.266208,
+      71.253209,
+      71.216208,
+      69.109041,
+      70.151458,
+      74.114167,
+      75.297792
      ],
-     "rust_scalar_median_ms": 86.732834,
+     "rust_scalar_median_ms": 70.151458,
      "workload": "wf_log14x32",
-     "zig_original_median_ms": 16.787709
+     "zig_original_median_ms": 18.619333
     },
     {
      "class": "deep",
@@ -1331,40 +1331,40 @@
      "parameters": {
       "log_n_rows": 14
      },
-     "ratio_rust_over_zig_original": 21.3748,
+     "ratio_rust_over_zig_original": 18.980091,
      "rust_samples_ms": [
-      278.4465,
-      280.143333,
-      282.55525,
-      280.717541,
-      283.452208,
-      288.310042,
-      289.415959,
-      282.668666,
-      288.952166,
-      280.3605,
-      278.737625,
-      279.044333,
-      285.085875,
-      278.865583,
-      282.907
+      270.949,
+      271.742709,
+      274.704208,
+      273.975375,
+      268.833542,
+      269.442166,
+      270.853917,
+      272.150334,
+      272.247708,
+      270.724,
+      276.155666,
+      272.544917,
+      267.695542,
+      270.984791,
+      276.908875
      ],
-     "rust_scalar_median_ms": 282.55525,
+     "rust_scalar_median_ms": 271.742709,
      "workload": "plonk_log14",
-     "zig_original_median_ms": 13.219083
+     "zig_original_median_ms": 14.31725
     }
    ],
    "rust_reference": {
-    "backend": "CpuBackend (scalar)",
+    "backend": "CpuBackend (scalar lanes) with the crate's `parallel` (rayon) feature",
     "crate_rev": "a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2",
     "tool": "tools/stwo-interop-rs --mode bench (the pinned parity oracle)",
     "toolchain": "nightly-2025-07-14"
    },
    "schema": "autoresearch-reference-v1",
-   "suite_ratio_geomean_rust_over_zig_original": 5.21782,
-   "title": "Upstream Stwo prover (Rust, CpuBackend scalar) on the matched suite",
+   "suite_ratio_geomean_rust_over_zig_original": 5.281558,
+   "title": "Upstream Stwo prover (Rust, CpuBackend + parallel feature) on the matched suite",
    "zig_reference": {
-    "build": "zig build native-proof-bench-cpu -Doptimize=ReleaseFast, zig 0.15.2",
+    "build": "zig build native-proof-bench-cpu -Doptimize=ReleaseFast",
     "commit": "31a3132ef2e6df99deef7773f6cb5ef797e70d0f",
     "description": "pre-optimization stwo-zig main \u2014 the suite-score baseline (score 100)"
    }
