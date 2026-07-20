@@ -551,6 +551,32 @@
      "verdict_kind": "claimed",
      "waits": null,
      "workload_class": "wide"
+    },
+    {
+     "board": "core_cpu",
+     "ci_high": 0.934007,
+     "ci_low": 0.8759,
+     "commit": "294e6f89428826e8e432d88e2be8bbb4792f4dfb",
+     "dispatches": null,
+     "energy_j": null,
+     "epoch": 1,
+     "gates": "G1..G5:pass",
+     "harness_commit": "bcd67c353ea4",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-20T21:20:14Z",
+     "judged_r": 0.909664,
+     "native_mhz": 0.0,
+     "outcome": "rejected",
+     "peak_rss_mib": 0.0,
+     "predecessor": "5d2eb59b2f9d",
+     "prove_ms": 8.738417,
+     "schema_version": 2,
+     "scope": "s3",
+     "submission_id": "2026-07-20-parallel-cpu-fft-constant-composition",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "deep"
     }
    ],
    "frontier_by_class": {
@@ -1258,7 +1284,7 @@
   "rows_total": 12,
   "rows_with_zero_fallbacks": 0
  },
- "notes_count": 1,
+ "notes_count": 2,
  "project": {
   "contract": "stwo-zig-og-docs archive: 2026-07-17-performance-extraction-playbook.md, Part F",
   "harness": "stwo-perf",
@@ -1326,12 +1352,12 @@
   "inputs_sha256": {
    "autoresearch/MANIFEST.json": "0ab298be4576385bfefcbbb48f2f063d62c0db2f7b3e7c38edac44838f2beeff",
    "autoresearch/ledger/epochs.json": "97e69d9694297442fc0cb3b3feda79323142c0ecc45a2e81f6192da9064ca803",
-   "autoresearch/ledger/promotions.tsv": "85333601f69dd5168cd95d3060ab6dc2bdde20a31de099544d241fac5de4ef02",
+   "autoresearch/ledger/promotions.tsv": "7d8f8b8a5975e82de3294cb786a0a5e590eb351b632bf7db2c65c5834589869d",
    "vectors/reports/benchmark_history/index.json": "356ab43ca2a23cf5fa9b2771c5d8f4b036d6e6e41b10724fb4c9db6e9f6fc74a",
    "vectors/reports/benchmark_history/runs/2026-07-18-064334-matrix-v5-789feb4c/report.json": "8da5fae41d077ae897b44b024a4b3d2956a57daff2c0678a0441b26ec6643768"
   },
-  "repo_commit": "ce1d503b645b",
-  "repo_commit_time": "2026-07-20T20:20:11Z"
+  "repo_commit": "37279a146b28",
+  "repo_commit_time": "2026-07-20T21:20:14Z"
  },
  "references": {
   "peer_rust_scalar": {
@@ -1538,6 +1564,24 @@
    ],
    "verdict_kind": "claimed",
    "workload_class": "wide"
+  },
+  {
+   "id": "2026-07-20-parallel-cpu-fft-constant-composition",
+   "judged_r": 0.909664,
+   "note": "# Parallelize large CPU FFT batches and fold constant composition columns\n\n## Model and harness\n\nModel: Claude Fable 5. Harness: repo-resident `stwo-perf` at current main\n`5d2eb59b2f9d`, candidate `c7a214981b03`, Zig 0.15.2 and Python 3.12.12,\nReleaseFast on an Apple M4 arm64 macOS host. Every S3 run used the unchanged\ncurrent-main checkout as its paired predecessor. The final claimed verdict\nuses the harness's default worker selection; a four-worker isolation replicate\nis also recorded. A reasoning-first, sanitized session transcript is attached\nas `transcripts/session-01.md`.\n\n## Hypothesis\n\nLarge CPU circle transforms choose batches only from a 256 KiB cache target.\nFor Plonk's four same-size coordinate columns, that produces one work item and\nruns interpolation or extended-domain evaluation sequentially despite the\nresident worker pool. Capping the cache batch by the fair columns-per-worker\nshare should expose independent FFT tasks without changing field arithmetic.\n\nPlonk also emits a constant secure composition column. Materializing that\ncolumn into a domain-sized accumulator makes the prover scan, interpolate, and\ncombine values that can instead remain one random-weighted scalar. Detecting a\ntruly constant column before bucket allocation should remove those passes while\npreserving coefficient order and every resulting field value.\n\n## Changes\n\nFor CPU transforms with at least two columns and 4,096 values per column,\nbatch length is now the smaller of the existing cache cap and\n`ceil(column_count / worker_count)`. Small transforms retain the existing\nbatching, and backend-owned interpolation or evaluation hooks remain untouched.\nA pure scheduling helper and unit test cover worker-count boundaries.\n\n`DomainEvaluationAccumulator.accumulateColumn` now checks all four coordinate\nplanes for a constant value. A constant is multiplied by the same consumed\nrandom coefficient and added to the existing constant bucket; any differing\ncell immediately selects the original domain-column path. A focused test proves\nthat constant columns allocate no domain bucket, varying columns still do, and\nthe finalized values match the direct formula.\n\nNo transcript, protocol, hash, field operation, or proof format changed.\n\n## Results\n\nFinal paired S3 `plonk_log14` deep/time after refreshing and rebasing onto the\nlatest predecessor: ratio **0.9097**, 95% CI **[0.8759, 0.9340]**, 15 rounds,\nwith predecessor and candidate medians of 9.269 and 8.738 ms. Every timed\nproof verified and stayed byte-identical. A four-worker replicate reported\n**0.8943 [0.8668, 0.9225]**, 10.051 to 9.078 ms.\n\nABBA profiled diagnostics tied the gain to both mechanisms. Preprocessed and\nmain-trace interpolation fell from 0.230-0.245 ms to 0.077-0.134 ms;\nextended-domain evaluation fell from 0.279-0.315 ms to 0.168-0.231 ms; and\ncomposition evaluation fell from 0.501-0.523 ms to 0.162 ms. The proof SHA-256\nremained `d63a2c92...69dbaf`.\n\nRegression S3 rows were not significant: wide ratio\n**1.0298 [0.9915, 1.0895]** and small ratio\n**1.0097 [0.9664, 1.0381]**. Both medians remain inside the 5% matrix-row\nbudget. The ReleaseFast core, prover, native CPU product, and downstream\npackage closures passed; the prover and native CPU closures covered 152 and\n190 transitive Zig sources.\n\n## Caveats\n\nThis is a local claimed verdict; the project judge's clean rerun is\nauthoritative. The benchmark host had sustained unrelated load, but both the\ndefault-worker verdict and the four-worker isolation replicate cleared the\nsignificance rule. The anchor is not frozen, so drift budgets and judged\npromotion remain inactive. Constant detection adds a read pass, but varying\ncolumns exit at their first differing coordinate. Mechanism telemetry is still\npending in the harness; stage profiles, differential tests, paired proof\nidentity, and repeated S3 results provide the current evidence.\n",
+   "outcome": "rejected",
+   "solver": "welttowelt",
+   "title": "Parallelize large CPU FFT batches and fold constant composition columns",
+   "transcripts": [
+    {
+     "captured_by": "submitter",
+     "excerpt": "# CPU prover optimization session\n\n## Objective and constraints\n\nThe objective is to reduce end-to-end prove time on the fixed `core_cpu`\nsmall, wide, and deep workloads while preserving byte-identical proofs. The\nclean main checkout is the paired predecessor. Only paths listed as editable in\n`autoresearch/MANIFEST.json` may change; the harness, tests, vectors, build\nfiles, and conformance record remain untouched.\n\nThe initial workspace and predecessor started at commit `b275053b9c42`. Zig\n0.15.2 and Python 3.12.12 are installed. `stwo-perf setup` built the native\nbench target successfully. An unchanged-tree S1-labelled harness run on the\nsmall workload produced ratio 0.9842 with 95% CI [0.9",
+     "label": "session-01.md",
+     "sha256": "5a97c5ea90314ba2ebeb244559ef8e9d9af1d0f68b766c3007fb9411935359c6"
+    }
+   ],
+   "verdict_kind": "claimed",
+   "workload_class": "deep"
   }
  ]
 }
