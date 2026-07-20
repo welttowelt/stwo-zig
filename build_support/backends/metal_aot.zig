@@ -15,6 +15,16 @@ pub fn addProducts(context: Context) void {
         .optimize = context.optimize,
     });
     tool_module.addImport("shader_manifest", context.shader_manifest_module);
+    // The catalog's platform-blind construction contract declares one
+    // generated options root for the metal_tools scope; keep it observable on
+    // every host by recording the acceptance partition itself as build options.
+    const platform_options = b.addOptions();
+    platform_options.addOption(
+        bool,
+        "hosted_acceptance_available",
+        context.target.result.os.tag == .macos,
+    );
+    tool_module.addOptions("aot_platform", platform_options);
     const tool = b.addExecutable(.{
         .name = "metal-core-aot",
         .root_module = tool_module,
