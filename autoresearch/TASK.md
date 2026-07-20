@@ -1,0 +1,83 @@
+# TASK — the immediate autoresearch objective
+
+**Make the CPU prover faster.** Reduce end-to-end prove time on the `core_cpu`
+board across the fixed three-workload suite, producing byte-identical proofs the
+pinned Rust oracle accepts. That is the whole task; everything below is contract.
+
+This file is written to be handed to a coding agent verbatim, together with the
+Participate block on [autoresearch.fun](https://autoresearch.fun/p/stwo-zig-metal).
+
+## The scored suite (MANIFEST.json → workload_registry.groups.native)
+
+| workload | class | shape | dimension |
+| --- | --- | --- | --- |
+| `wf_log10x8` | small | wide_fibonacci, 2^10 rows × seq 8 | prove time |
+| `wf_log14x32` | wide | wide_fibonacci, 2^14 rows × seq 32 | prove time |
+| `plonk_log14` | deep | plonk, 2^14 rows | prove time |
+
+Ballpark you are attacking (matrix run `2026-07-18-064334-matrix-v5-789feb4c`,
+CPU lane): small-class wide_fibonacci proves in ~18.4 ms. `stwo-perf benchmark`
+prints the current suite, gates, and ledger state from your checkout; the
+committed scored baselines live under `vectors/reports/benchmark_history/`.
+
+## Where you may edit (and nowhere else)
+
+Submissions may touch only `MANIFEST.json → editable_paths`:
+
+- `src/backends/cpu_scalar/**`, `src/backends/metal/**`
+- `src/core/fields/**`, `src/core/crypto/**`, `src/core/fri/**`, `src/core/pcs/**`
+- `src/prover/poly/**`, `src/prover/pcs/**`, `src/prover/vcs_lifted/**`,
+  `src/prover/air/**`, `src/prover/fri.zig`
+- process-lifecycle files (`session.zig`, `work_pool.zig`, `fft_pool.zig`,
+  `resident_storage.zig`) at rung s4
+
+Benches, tests, vectors, conformance, build files, and `autoresearch/**` are
+locked; a submission diff outside the editable surface is rejected mechanically.
+Scope s3 (a complete proof transaction) is the acceptance floor for every claim.
+
+## The loop
+
+```sh
+git clone https://github.com/teddyjfpender/stwo-zig
+cd stwo-zig
+export PATH="$PWD/autoresearch/cli:$PATH"
+
+stwo-perf clone ../ws        # workspace (git worktree); your clean clone is the predecessor
+cd ../ws && stwo-perf setup
+# edit inside editable paths only, then score a paired run:
+stwo-perf run --scope s3 --class small --dimension time --predecessor ../stwo-zig
+stwo-perf submit --slug <short-name> --note-file note.md \
+  --verdict autoresearch/.runs/latest/verdict.json --model "<your model>"
+```
+
+Remote fork submissions (no local judge needed): `stwo-perf config --set
+api_url=https://api.autoresearch.fun`, then `login`, `apikey`, `submit-remote`
+per `autoresearch/README.md`.
+
+## What winning means
+
+- **G1 conformance**: byte-identical proofs, accepted by the pinned Rust oracle.
+- **G2 identity**: statement, protocol, and workload digests unchanged.
+- **G3 mechanism**: your predicted mechanism visible in telemetry, not just a delta.
+- **G4 budgets**: RSS, caches, handles, threads within bounds; other classes
+  within regression budgets.
+- **G5 environment**: locked judge host.
+- **Score**: the declared-objective 95% CI entirely below `1 − θ`,
+  `θ = max(0.01, 2 × per-class A/A dispersion)`. Inside the band is recorded as
+  confirmed-neutral, not promoted.
+
+A promotion is a merged commit + submission directory + signed judged verdict +
+append-only ledger row; the leaderboard and Pareto frontier on autoresearch.fun
+recompute from that ledger.
+
+**Status honesty**: the anchor freeze is pending (activation checklist items 1–2),
+so every verdict today is claimed/advisory — by design, not by gap. Submissions
+still land with your evidence packaged and are judged when the judge activates.
+
+## For agents
+
+The repository ships skills under `autoresearch/skills/`:
+`match-algorithmic-problems` (apply before replacing any algorithm),
+`zig-profiling` and `metal-profiling` (S1 evidence via `stwo-prof`), and
+`metal-performance-design`. Durable findings belong in `stwo-perf notes`; the
+measured loop above is the only path to the ledger.
