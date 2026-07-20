@@ -63,7 +63,7 @@ pub fn MerkleProverLifted(comptime H: type) type {
                 allocator,
                 columns,
                 merkleWorkerOverride(allocator),
-                merklePoolReuseEnabled(allocator),
+                reuseAvailablePool(allocator),
             );
         }
 
@@ -176,7 +176,7 @@ pub fn MerkleProverLifted(comptime H: type) type {
                 executor.init(
                     max_out_len,
                     merkleWorkerOverride(allocator),
-                    merklePoolReuseEnabled(allocator),
+                    reuseAvailablePool(allocator),
                 );
                 defer executor.deinit();
 
@@ -329,6 +329,13 @@ pub fn MerkleProverLifted(comptime H: type) type {
         }
 
         const allColumnsConstant = columns_mod.allConstant;
+
+        /// Reuse the prover's resident pool whenever one is installed. The
+        /// environment switch remains available for standalone Merkle callers
+        /// that deliberately opt into the process-level fallback pool.
+        fn reuseAvailablePool(allocator: std.mem.Allocator) bool {
+            return work_pool_mod.getGlobalPool() != null or merklePoolReuseEnabled(allocator);
+        }
 
         fn commitConstantColumns(
             allocator: std.mem.Allocator,

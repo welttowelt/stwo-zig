@@ -124,6 +124,10 @@ pub const Scratch = struct {
 
     fn clearNumerators(self: *Scratch, row_count: usize) !void {
         if (row_count == 0 or row_count > self.row_capacity) return error.InvalidChunkSize;
+        if (row_count == self.row_capacity) {
+            @memset(self.numerators, M31.zero());
+            return;
+        }
         for (0..self.batch_count * qm31.SECURE_EXTENSION_DEGREE) |plane| {
             const start = plane * self.row_capacity;
             @memset(self.numerators[start..][0..row_count], M31.zero());
@@ -261,18 +265,63 @@ fn accumulateTile(work: *const Work, scratch: *Scratch, start: usize, row_count:
         const column_contributions = work.contributions[contribution_range.start..][0..contribution_range.len];
         for (column_contributions) |contribution| {
             const coefficients = contribution.value_coeff.toM31Array();
+            if (view.is_direct and m31.PACK_WIDTH > 1) {
+                accumulateDirectPacked(
+                    scratch,
+                    view.values[start..][0..row_count],
+                    contribution.batch_index,
+                    coefficients,
+                );
+                continue;
+            }
             for (0..row_count) |row| {
                 const position = start + row;
-                const source_index = if (view.is_direct)
-                    position
-                else
-                    ((position >> view.shift_amt) << 1) + (position & 1);
+                const source_index = ((position >> view.shift_amt) << 1) + (position & 1);
                 const base = view.values[source_index];
                 inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
                     const numerator = scratch.numerator(contribution.batch_index, coordinate, row);
                     numerator.* = numerator.add(base.mul(coefficients[coordinate]));
                 }
             }
+        }
+    }
+}
+
+/// Accumulates one direct-column contribution across a tile in native packed
+/// row lanes. Contribution order is unchanged for every output cell; only the
+/// four independent coordinate planes are traversed separately.
+fn accumulateDirectPacked(
+    scratch: *Scratch,
+    values: []const M31,
+    batch: usize,
+    coefficients: [qm31.SECURE_EXTENSION_DEGREE]M31,
+) void {
+    std.debug.assert(values.len <= scratch.row_capacity);
+    var coefficient_vectors: [qm31.SECURE_EXTENSION_DEGREE]m31.PackedM31 = undefined;
+    var numerator_planes: [qm31.SECURE_EXTENSION_DEGREE][*]M31 = undefined;
+    inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+        coefficient_vectors[coordinate] = m31.splatPacked(coefficients[coordinate]);
+        const plane = batch * qm31.SECURE_EXTENSION_DEGREE + coordinate;
+        numerator_planes[coordinate] = scratch.numerators.ptr + plane * scratch.row_capacity;
+    }
+
+    var row: usize = 0;
+    while (row + m31.PACK_WIDTH <= values.len) : (row += m31.PACK_WIDTH) {
+        const base = m31.loadPacked(values.ptr + row);
+        inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+            const numerators = numerator_planes[coordinate] + row;
+            const accumulated = m31.loadPacked(numerators);
+            m31.storePacked(
+                numerators,
+                m31.addPacked(accumulated, m31.mulPacked(base, coefficient_vectors[coordinate])),
+            );
+        }
+    }
+    while (row < values.len) : (row += 1) {
+        const base = values[row];
+        inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+            const numerator = numerator_planes[coordinate] + row;
+            numerator[0] = numerator[0].add(base.mul(coefficients[coordinate]));
         }
     }
 }
