@@ -77,6 +77,13 @@ jobs:
             --output "$RUNNER_TEMP/focused-ci-plan.json" \
             --github-output "$GITHUB_OUTPUT"
 
+      - name: Report capability-deferred lanes
+        run: |
+          if grep -q '"native_metal"' "$RUNNER_TEMP/focused-ci-plan.json"; then
+            echo "::notice title=native_metal deferred::Metal device-execution lane selected but excluded from hosted macOS runners (GPU-less VMs). Covered by local pre-push on a real Mac / judge host."
+            echo "- native_metal: deferred to local/judge-host runs (no Metal GPU on hosted runners)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Retain focused gate plan
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:

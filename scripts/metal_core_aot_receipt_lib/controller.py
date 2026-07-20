@@ -61,6 +61,39 @@ def require_receipt_outside_bundles(receipt_out: Path, bundles: tuple[Path, ...]
             raise ReceiptError("receipt output must not mutate an admitted bundle")
 
 
+def _build_twice(builder: Path, output_dir: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Run two independent AOT builds into fresh bundles; returns (commands, bundles)."""
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True)
+    compiler_workspace = output_dir / ".canonical-compiler-workspace"
+
+    commands: list[dict[str, Any]] = []
+    bundles: list[dict[str, Any]] = []
+    for bundle in (output_dir / name for name in BUNDLE_NAMES):
+        if compiler_workspace.exists():
+            shutil.rmtree(compiler_workspace)
+        commands.append(
+            run([str(builder), "build", "--output-dir", str(compiler_workspace)])
+        )
+        shutil.copytree(compiler_workspace, bundle, copy_function=shutil.copyfile)
+        bundles.append(load_bundle(bundle))
+    shutil.rmtree(compiler_workspace)
+    return commands, bundles
+
+
+def reproduce_build(args: argparse.Namespace) -> None:
+    """PR-lane verification: the AOT builds are byte-identical, asserted
+    without hosted-provenance identity and without writing any receipt —
+    the provenance-bound receipt stays exclusive to the metal-acceptance job."""
+    output_dir = args.output_dir.resolve()
+    builder = args.builder.resolve(strict=True)
+    if builder == output_dir or builder.is_relative_to(output_dir):
+        raise ReceiptError("builder must be outside the replaceable output directory")
+    _, bundles = _build_twice(builder, output_dir)
+    require_reproducible(bundles[0], bundles[1])
+
+
 def capture_build(args: argparse.Namespace) -> str:
     output_dir = args.output_dir.resolve()
     builder = args.builder.resolve(strict=True)
@@ -71,22 +104,7 @@ def capture_build(args: argparse.Namespace) -> str:
         raise ReceiptError("hosted build receipt must be inside the artifact root")
     bundle_paths = tuple(output_dir / name for name in BUNDLE_NAMES)
     require_receipt_outside_bundles(receipt_out, bundle_paths)
-    if output_dir.exists():
-        shutil.rmtree(output_dir)
-    output_dir.mkdir(parents=True)
-    compiler_workspace = output_dir / ".canonical-compiler-workspace"
-
-    commands: list[dict[str, Any]] = []
-    bundles: list[dict[str, Any]] = []
-    for bundle in bundle_paths:
-        if compiler_workspace.exists():
-            shutil.rmtree(compiler_workspace)
-        commands.append(
-            run([str(builder), "build", "--output-dir", str(compiler_workspace)])
-        )
-        shutil.copytree(compiler_workspace, bundle, copy_function=shutil.copyfile)
-        bundles.append(load_bundle(bundle))
-    shutil.rmtree(compiler_workspace)
+    commands, bundles = _build_twice(builder, output_dir)
     require_reproducible(bundles[0], bundles[1])
 
     ci = ci_identity()
@@ -180,6 +198,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     build.add_argument("--receipt-out", type=Path, required=True)
     build.add_argument("--commit", default=None)
 
+    reproduce = phases.add_parser(
+        "reproduce",
+        help="verify the two AOT builds are byte-identical without hosted "
+             "provenance (PR lanes; writes no receipt)",
+    )
+    reproduce.add_argument("--builder", type=Path, required=True)
+    reproduce.add_argument("--output-dir", type=Path, required=True)
+
     admit = phases.add_parser("admit", help="admit a hosted build receipt on a Metal device")
     admit.add_argument("--build-receipt", type=Path, required=True)
     admit.add_argument("--bundle-a", type=Path, required=True)
@@ -195,6 +221,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.phase == "build":
         digest = capture_build(args)
         print(f"Native Metal core hosted build receipt: {digest}")
+    elif args.phase == "reproduce":
+        reproduce_build(args)
+        print("Native Metal core AOT builds are byte-identical (no receipt written)")
     else:
         digest = admit_build(args)
         print(f"Native Metal core device acceptance receipt: {digest}")

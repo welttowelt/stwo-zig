@@ -201,6 +201,8 @@ class PlannerContractTests(unittest.TestCase):
         )
 
     def test_github_output_has_separate_deterministic_host_matrices(self) -> None:
+        # native_metal is hosted=false (needs a real Metal device): selected
+        # into the plan, but never emitted into a hosted matrix.
         plan = {"lanes": ["native_cpu", "native_metal", "static"]}
         with tempfile.TemporaryDirectory() as raw:
             output = Path(raw) / "github-output"
@@ -210,11 +212,26 @@ class PlannerContractTests(unittest.TestCase):
             [
                 'linux_matrix={"lane":["native_cpu","static"]}',
                 "linux_count=2",
-                'macos_matrix={"lane":["native_metal"]}',
-                "macos_count=1",
+                'macos_matrix={"lane":[]}',
+                "macos_count=0",
             ],
             lines,
         )
+
+    def test_hosted_capable_macos_lane_still_emitted(self) -> None:
+        plan = {"lanes": ["native_metal", "aggregate_metal"]}
+        with tempfile.TemporaryDirectory() as raw:
+            output = Path(raw) / "github-output"
+            ci_scope_plan.emit_github_output(output, plan, self.policy)
+            lines = output.read_text(encoding="utf-8").splitlines()
+        self.assertIn('macos_matrix={"lane":["aggregate_metal"]}', lines)
+        self.assertIn("macos_count=1", lines)
+
+    def test_hosted_flag_must_be_boolean(self) -> None:
+        policy = json.loads(json.dumps(self.policy))
+        policy["lanes"]["native_metal"]["hosted"] = "never"
+        with self.assertRaises(ci_scope_plan.PlanError):
+            ci_scope_plan.validate_policy(policy)
 
 
 def runner_policy(commands: list[list[str]], host: str | None = None) -> dict[str, object]:

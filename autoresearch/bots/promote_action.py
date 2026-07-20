@@ -14,7 +14,6 @@ location, is the authority. Outcome logic (playbook F.5/F.6):
 
 from __future__ import annotations
 
-import datetime as dt
 import json
 import os
 import subprocess
@@ -23,6 +22,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "cli"))
 from stwo_perf import frontier, ledger, signing  # noqa: E402
+from stwo_perf.promotion import decide_outcome  # noqa: E402  (re-export; tests import it here)
+from stwo_perf import promotion  # noqa: E402
 
 VERDICTS_BRANCH = "judge-verdicts"
 
@@ -64,60 +65,9 @@ def unrecorded_submissions(repo: Path) -> list[Path]:
     ]
 
 
-def decide_outcome(verdict: dict, head_prove_ms: float | None) -> tuple[str, str]:
-    """Pure outcome decision (playbook F.5); head_prove_ms is the current
-    promoted class HEAD's prove time, or None when the class has no HEAD."""
-    gates_ok = all(g["pass"] for g in verdict["gates"].values())
-    if not gates_ok:
-        failing = ",".join(g for g, v in verdict["gates"].items() if not v["pass"])
-        return "rejected", f"{failing}:fail"
-    holdout = verdict.get("holdout")
-    if holdout is not None and not holdout.get("pass"):
-        return "rejected", "G1..G5:pass"
-    if not verdict["score"]["significant"]:
-        return ("neutral" if verdict["score"]["neutral"] else "rejected"), "G1..G5:pass"
-    if head_prove_ms is not None:
-        first = next(iter(verdict["score"]["per_workload"].values()))
-        if float(first["b_median_ms"]) >= head_prove_ms:
-            return "rejected", "G1..G5:pass"
-    return "promoted", "G1..G5:pass"
-
-
-def row_from_verdict(sub: Path, verdict: dict, epoch: int, outcome: str,
-                     gates_cell: str) -> dict:
-    score = verdict["score"]
-    objective = verdict["declared_objective"]
-    first = next(iter(score["per_workload"].values()))
-    holdout = verdict.get("holdout")
-    holdout_cell = (
-        f"{'pass' if holdout['pass'] else 'fail'};seed={holdout['seed']}"
-        if holdout else "none"
-    )
-    return {
-        "schema_version": ledger.SCHEMA_VERSION,
-        "harness_commit": verdict["harness_commit"],
-        "epoch": epoch,
-        "judged_at_utc": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "commit": verdict["repo_commit"],
-        "scope": verdict["scope"],
-        "board": objective.get("board", "core_cpu"),
-        "workload_class": objective["workload_class"],
-        "outcome": outcome,
-        "judged_r": float(score["R_geomean"]),
-        "ci_low": float(first["ci"][0]),
-        "ci_high": float(first["ci"][1]),
-        "prove_ms": float(first["b_median_ms"]),
-        "native_mhz": 0.0,
-        "peak_rss_mib": 0.0,
-        "waits": None,
-        "dispatches": None,
-        "energy_j": None,
-        "gates": gates_cell,
-        "holdout": holdout_cell,
-        "submission_id": sub.name,
-        "predecessor": verdict["predecessor_commit"],
-        "supersedes": "",
-    }
+# Outcome and row construction live in stwo_perf.promotion, shared with the
+# maintainer-as-judge `stwo-perf promote-claimed` path; this bot is the only
+# writer of verdict_kind=judged rows.
 
 
 def main() -> int:
@@ -145,7 +95,9 @@ def main() -> int:
         verdict, float(head.prove_ms) if head is not None else None
     )
     epoch = ledger.current_epoch(repo)["epoch"]
-    row = row_from_verdict(sub, verdict, epoch, outcome, gates_cell)
+    row = promotion.row_from_verdict(
+        sub.name, verdict, epoch, outcome, gates_cell, verdict_kind="judged"
+    )
     ledger.append(repo, row)
     subprocess.run(["git", "add", str(ledger.ledger_path(repo))], check=True)
     subprocess.run(
