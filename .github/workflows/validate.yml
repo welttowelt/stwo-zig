@@ -1,0 +1,22 @@
+# Copy into .github/workflows/ with: stwo-perf install-workflows (or by hand).
+# Validates every PR: locked paths, append-only ledger, submission schema.
+name: autoresearch-validate
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate harness invariants
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: python3 autoresearch/bots/validate_action.py
+      - name: Harness unit tests
+        run: python3 -m unittest discover -s autoresearch/tests -v

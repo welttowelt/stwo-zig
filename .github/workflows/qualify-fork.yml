@@ -1,0 +1,94 @@
+# Participants run this workflow in their fork. The fork owner pays for the
+# hosted runner; the canonical service treats the receipt as qualification
+# evidence and independently recomputes every trust-critical property.
+name: autoresearch-qualify-fork
+
+on:
+  workflow_dispatch:
+    inputs:
+      frontier_commit:
+        description: Full commit SHA of the current canonical frontier
+        required: true
+        type: string
+      board:
+        description: Scoring board
+        required: true
+        default: core_cpu
+        type: string
+      workload_class:
+        description: Workload class
+        required: true
+        default: small
+        type: choice
+        options: [small, wide, deep]
+      dimension:
+        description: Optimization dimension
+        required: true
+        default: time
+        type: choice
+        options: [time, rss, energy]
+  workflow_call:
+    inputs:
+      frontier_commit:
+        required: true
+        type: string
+      board:
+        required: false
+        default: core_cpu
+        type: string
+      workload_class:
+        required: false
+        default: small
+        type: string
+      dimension:
+        required: false
+        default: time
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Reject locked, stray, executable, and non-frontier changes
+        run: >-
+          python3 autoresearch/bots/qualify_action.py
+          --frontier '${{ inputs.frontier_commit }}' --preflight
+      - name: Validate the locked harness
+        run: python3 -m unittest discover -s autoresearch/tests -v
+      - name: Build release benchmark targets
+        run: python3 autoresearch/cli/stwo-perf setup
+      - name: Materialize the declared frontier
+        run: git worktree add --detach "$RUNNER_TEMP/frontier" '${{ inputs.frontier_commit }}'
+      - name: Run the public paired qualification benchmark
+        run: >-
+          python3 autoresearch/cli/stwo-perf run --scope s3
+          --board '${{ inputs.board }}'
+          --class '${{ inputs.workload_class }}'
+          --dimension '${{ inputs.dimension }}'
+          --predecessor "$RUNNER_TEMP/frontier"
+          --out qualification/verdict.json
+      - name: Bind checks and source tree into a receipt
+        run: >-
+          python3 autoresearch/bots/qualify_action.py
+          --frontier '${{ inputs.frontier_commit }}'
+          --login '${{ github.actor }}'
+          --verdict qualification/verdict.json
+          --out qualification/receipt.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: autoresearch-qualification
+          path: qualification/
+          if-no-files-found: error
+      - name: Attest the qualification receipt
+        uses: actions/attest@v4
+        with:
+          subject-path: qualification/receipt.json

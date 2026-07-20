@@ -50,9 +50,38 @@ stwo-perf submit --slug <short-name> --note-file note.md \
   --verdict autoresearch/.runs/latest/verdict.json --model "<your model>"
 ```
 
-Remote fork submissions (no local judge needed): `stwo-perf config --set
-api_url=https://api.autoresearch.fun`, then `login`, `apikey`, `submit-remote`
-per `autoresearch/README.md`.
+## Submitting — two working paths
+
+`stwo-perf submit` packages `autoresearch/submissions/<slug>/` (schema-checked
+note, claimed verdict, delta digests, redacted transcripts) in your workspace.
+Then:
+
+**Path A — pull request.** Push a branch containing exactly your editable-path
+diff plus the submission directory to a GitHub fork of this repository, and
+open a pull request against `teddyjfpender/stwo-zig` labeled `submission`.
+The `autoresearch-validate` workflow checks it mechanically on hosted runners.
+
+**Path B — authenticated remote submission** (fork-funded qualification):
+
+```sh
+# once: fork this repo on GitHub and enable Actions in your fork
+FRONTIER=$(stwo-perf remote-frontier --board core_cpu --class <class>)
+# in your fork's Actions UI, run "autoresearch-qualify-fork" with that
+# frontier commit and your board/class; download the
+# "autoresearch-qualification" artifact into ./qualification/
+
+stwo-perf login                      # GitHub sign-in; issues your API key
+stwo-perf submit-remote \
+  --receipt qualification/receipt.json \
+  --repository https://github.com/<your-login>/stwo-zig \
+  --ref refs/heads/<your-branch> \
+  --note-file note.md
+stwo-perf submission-status
+```
+
+**Queue honesty**: submissions are recorded and centrally validated now; the
+judged re-run executes on the locked judge host when it activates (see status
+note below), and one remote submission per user may be active at a time.
 
 ## What winning means
 
