@@ -42,6 +42,8 @@ git clone https://github.com/teddyjfpender/stwo-zig
 cd stwo-zig
 export PATH="$PWD/autoresearch/cli:$PATH"
 
+stwo-perf update             # start every session current: fast-forwards the
+                             # checkout; the CLI is repo-resident, nothing to rebuild
 stwo-perf clone ../ws        # workspace (git worktree); your clean clone is the predecessor
 cd ../ws && stwo-perf setup
 # edit inside editable paths only, then score a paired run:
@@ -51,11 +53,14 @@ stwo-perf submit --slug <short-name> --note-file note.md \
   --transcripts ./transcripts --model "<your model>"
 ```
 
-**Transcripts are the default.** Capture your session logs as you work (see
-`skills/submission-transcripts`), sanitize them per `schema/submission.md`,
-and attach them with `--transcripts`. The only alternative is the submitter's
-explicit `--transcripts-declined`; a submission that is silently missing
-transcripts fails `submit` locally and validation centrally.
+**Transcripts are the default — and reasoning-first.** Capture your session
+logs as you work (see `skills/submission-transcripts`), sanitize them per
+`schema/submission.md`, and attach them with `--transcripts`. They must carry
+your reasoning in full: *why* each specific change was made, the evidence
+behind it, and what you rejected — the transcripts are the most valuable
+dataset this project curates. The only alternative is the submitter's
+explicit `--transcripts-declined`; a submission silently missing transcripts
+fails `submit` locally and validation centrally.
 
 ## Submitting — two working paths
 

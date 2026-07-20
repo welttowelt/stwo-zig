@@ -55,9 +55,22 @@ map and renders as "transcripts declined" wherever the submission appears.
 
 `captured_by: submitter` transcripts are labeled unverified everywhere they render.
 
-## Transcript redaction contract
+## Transcript sanitization contract
 
-Keep: user prompts, assistant decisions, tool summaries, test outcomes.
-Drop: system prompts, raw tool output dumps, reasoning traces, environment values,
-tokens/secrets, broad local paths. `stwo-perf submit` scans for secret patterns and
-fails closed on a hit; scrub and re-run, never bypass.
+Transcripts are the most valuable dataset the harness curates: they are how
+observers and future researchers learn *why* the change works and how the
+search can improve. Sanitization removes secrets, never reasoning.
+
+**Keep — maximize this**: user prompts; the agent's articulated reasoning in
+full — the hypothesis behind each specific change, the evidence and
+measurements that drove each decision, alternatives considered and why they
+were rejected, dead ends and surprises, and interpretation of every profiling
+or benchmark result; tool summaries; test outcomes. Every editable-path edit
+in the diff should be traceable to a stated *why* somewhere in the
+transcripts.
+
+**Drop — only this**: tokens/secrets, environment values, system prompts,
+raw bulk tool-output dumps (summarize them instead), broad local paths.
+
+`stwo-perf submit` scans for secret patterns and fails closed on a hit; scrub
+and re-run, never bypass.

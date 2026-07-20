@@ -1,15 +1,17 @@
 ---
 name: submission-transcripts
-description: Capture, sanitize, and attach the agent session transcripts that produced an optimization — the default part of every stwo-perf submission flow. Use from the moment work begins (capture as you go, not after) and always before `stwo-perf submit`, which refuses to package unless transcripts are attached or the submitter records an explicit declination.
+description: Capture, sanitize, and attach the agent session transcripts that produced an optimization — the default part of every stwo-perf submission flow, and the most valuable dataset the harness curates. Use from the moment work begins (capture as you go, not after) and always before `stwo-perf submit`, which refuses to package unless transcripts are attached or the submitter records an explicit declination. The transcripts must carry the agent's reasoning in full: why each specific change was made, what was measured, what was rejected.
 ---
 
 # Submission transcripts
 
-The sessions that produced a change are part of the research record: how the
-hypothesis formed, what was measured, what was rejected. The submission flow
-acquires them by default. The only accepted alternative is the submitter's
-explicit, recorded declination — silent omission fails `stwo-perf submit`
-locally and PR validation centrally.
+Transcripts are the most valuable dataset this harness curates. A diff shows
+*what* changed; the judged verdict shows *that* it worked; only the
+transcript shows **why** — and the why is what observers and future
+researchers (human or agent) mine to make the search better. The submission
+flow acquires transcripts by default; the only accepted alternative is the
+submitter's explicit, recorded declination — silent omission fails
+`stwo-perf submit` locally and PR validation centrally.
 
 ## Capture as you go
 
@@ -22,15 +24,33 @@ mkdir -p ./transcripts
 ```
 
 One file per session, numbered. If your harness exports conversation logs,
-export them raw into `./transcripts` and sanitize in place afterwards. What
-must survive is the decision trail: prompts, choices, and the measurements
-that drove them.
+export them raw into `./transcripts` and sanitize in place afterwards.
+
+## Reasoning completeness — the bar
+
+Maximize extracted reasoning; a transcript that reads as a list of actions
+has failed. Before packaging, check every item:
+
+- **Every editable-path edit maps to a stated why**: the hypothesis behind
+  that specific change, in the agent's own words, at the moment it was made.
+- **Evidence is cited**: which profile, counter, or benchmark number drove
+  each decision, and how the agent interpreted it.
+- **Alternatives are recorded**: what else was considered and why it was
+  rejected — rejected approaches are as valuable as the promoted one.
+- **Dead ends and surprises survive**: reverted attempts, wrong hypotheses,
+  and measurements that contradicted expectations stay in the record.
+- **The narrative connects**: hypothesis → evidence → decision → result, per
+  session, so a reader can replay the search, not just the outcome.
 
 ## Sanitization contract (schema/submission.md)
 
-Keep: user prompts, assistant decisions, tool summaries, test outcomes.
-Drop: system prompts, raw tool output dumps, hidden reasoning traces,
-environment values, tokens/secrets, broad local paths.
+Sanitization removes secrets, never reasoning.
+
+Keep — maximize: user prompts; the agent's full articulated reasoning (the
+why of every change, evidence, rejected alternatives, dead ends,
+interpretation of results); tool summaries; test outcomes.
+Drop — only: tokens/secrets, environment values, system prompts, raw bulk
+tool-output dumps (summarize instead), broad local paths.
 
 `stwo-perf submit` runs a fail-closed secret scan over the directory: on any
 hit, scrub the file and re-run. Never work around the scan.
