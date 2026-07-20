@@ -35,6 +35,11 @@
       "path": "runs/2026-07-17-192118-matrix-v3-e2613ba5/report.json",
       "run": "2026-07-17-192118-matrix-v3-e2613ba5"
     },
+    "facd106c0afb0f14e12263a420d5bbe6dca2dcf6b09d603f3bf3e99950385d6f": {
+      "bytes": 1161642,
+      "path": "runs/2026-07-20-221601-matrix-v6-e78cca6f/report.json",
+      "run": "2026-07-20-221601-matrix-v6-e78cca6f"
+    },
     "fafc8ece59527351aa6a09045044ede36c338e840053abfe9646737a99d0971a": {
       "bytes": 354465,
       "path": "runs/2026-07-17-192025-matrix-v3-b6f3a533/report.json",
@@ -67,6 +72,15 @@
       "path": "runs/2026-07-17-232833-matrix-v4-b0cfbc62/bundle",
       "report_sha256": "19cc8a5631e04aa2ea72242ff2ccac4d36320d04afbae05a161606995dd6a71f",
       "run": "2026-07-17-232833-matrix-v4-b0cfbc62",
+      "schema": "native_proof_matrix_bundle_v1"
+    },
+    "ef56faafa2b659af1744983de54f18088000469ac506806fdcf56b811e3c9760": {
+      "artifact_bytes": 4361974,
+      "artifact_files": 72,
+      "bundle_sha256": "ef56faafa2b659af1744983de54f18088000469ac506806fdcf56b811e3c9760",
+      "path": "runs/2026-07-20-221601-matrix-v6-e78cca6f/bundle",
+      "report_sha256": "facd106c0afb0f14e12263a420d5bbe6dca2dcf6b09d603f3bf3e99950385d6f",
+      "run": "2026-07-20-221601-matrix-v6-e78cca6f",
       "schema": "native_proof_matrix_bundle_v1"
     }
   },
@@ -148,9 +162,28 @@
       "id": "64514d64d0dd5ec78401cdb5e87f7b1e75d81355bcb600e4bde7e2e9f1a11b42",
       "report_kind": "native_proof_cross_backend_matrix_v5",
       "status": "comparable"
+    },
+    {
+      "archived_at": "2026-07-20T22:15:21Z",
+      "baseline_run": "2026-07-18-064334-matrix-v5-789feb4c",
+      "baseline_sha256": "8da5fae41d077ae897b44b024a4b3d2956a57daff2c0678a0441b26ec6643768",
+      "comparison_identity_sha256": "e68ff95c5c506e69c5933630645b22a1cc679f5502cef7173a43c548b24e27c4",
+      "current_run": "2026-07-20-221601-matrix-v6-e78cca6f",
+      "current_sha256": "facd106c0afb0f14e12263a420d5bbe6dca2dcf6b09d603f3bf3e99950385d6f",
+      "delta_path": "runs/2026-07-20-221601-matrix-v6-e78cca6f/delta-from-2026-07-18-064334-matrix-v5-789feb4c.json",
+      "delta_sha256": "0c303d99e4ae5f66ac3eccf02a51da47fa91c6670ebd54226162df008724e430",
+      "id": "561ae1818db8720affc3c8391e5a414e8f62b250c65f3563c3dcbd433781e97b",
+      "report_kind": "native_proof_cross_backend_matrix_v5->native_proof_cross_backend_matrix_v6",
+      "status": "comparable"
     }
   ],
   "deltas": {
+    "0c303d99e4ae5f66ac3eccf02a51da47fa91c6670ebd54226162df008724e430": {
+      "baseline_run": "2026-07-18-064334-matrix-v5-789feb4c",
+      "bytes": 222722,
+      "path": "runs/2026-07-20-221601-matrix-v6-e78cca6f/delta-from-2026-07-18-064334-matrix-v5-789feb4c.json",
+      "run": "2026-07-20-221601-matrix-v6-e78cca6f"
+    },
     "2f1415615b7c7b131bdac311bec3ddf93b881f887645b9bd97e9e6e0c17ecf70": {
       "baseline_run": "2026-07-18-004844-matrix-v5-44a81457",
       "bytes": 220787,
@@ -304,6 +337,26 @@
         "bytes": 1065111,
         "path": "runs/2026-07-18-064334-matrix-v5-789feb4c/report.json",
         "sha256": "8da5fae41d077ae897b44b024a4b3d2956a57daff2c0678a0441b26ec6643768"
+      }
+    },
+    "2026-07-20-221601-matrix-v6-e78cca6f": {
+      "bundle": {
+        "artifact_bytes": 4361974,
+        "artifact_files": 72,
+        "bundle_sha256": "ef56faafa2b659af1744983de54f18088000469ac506806fdcf56b811e3c9760",
+        "path": "runs/2026-07-20-221601-matrix-v6-e78cca6f/bundle",
+        "report_sha256": "facd106c0afb0f14e12263a420d5bbe6dca2dcf6b09d603f3bf3e99950385d6f",
+        "run": "2026-07-20-221601-matrix-v6-e78cca6f",
+        "schema": "native_proof_matrix_bundle_v1"
+      },
+      "deltas": [
+        "runs/2026-07-20-221601-matrix-v6-e78cca6f/delta-from-2026-07-18-064334-matrix-v5-789feb4c.json"
+      ],
+      "kind": "native_proof_cross_backend_matrix_v6",
+      "report": {
+        "bytes": 1161642,
+        "path": "runs/2026-07-20-221601-matrix-v6-e78cca6f/report.json",
+        "sha256": "facd106c0afb0f14e12263a420d5bbe6dca2dcf6b09d603f3bf3e99950385d6f"
       }
     }
   },
