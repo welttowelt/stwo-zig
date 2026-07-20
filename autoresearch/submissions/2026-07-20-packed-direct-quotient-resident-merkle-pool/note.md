@@ -2,7 +2,7 @@
 
 ## Model and harness
 
-Model: GPT-5 Codex. Harness: stwo-perf at `962dbbae393f`, ReleaseFast on arm64 macOS, paired S3 wide/time against predecessor `31a3132ef2e6`. The repository test closure passed across 356 transitive Zig sources. Transcripts: none capturable.
+Model: GPT-5 Codex. Harness: stwo-perf at `962dbbae393f`, ReleaseFast on arm64 macOS, paired S3 wide/time against predecessor `31a3132ef2e6`. The repository test closure passed across 356 transitive Zig sources. Transcript: submitter-captured and redacted under `transcripts/session.md`.
 
 ## Hypothesis
 
