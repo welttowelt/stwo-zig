@@ -95,6 +95,11 @@ def validate_policy(policy: dict[str, Any]) -> None:
         for rule in rules
     ):
         raise PlanError("CI policy rules are malformed")
+    externally_validated = policy.get("externally_validated_prefixes", [])
+    if not isinstance(externally_validated, list) or not all(
+        isinstance(prefix, str) and prefix for prefix in externally_validated
+    ):
+        raise PlanError("CI policy externally_validated_prefixes is malformed")
     if not isinstance(documentation, list) or not all(
         isinstance(prefix, str) and prefix for prefix in documentation
     ):
@@ -148,6 +153,16 @@ def is_documentation(path: str, policy: dict[str, Any]) -> bool:
     return any(owns(path, prefix) for prefix in policy["documentation_prefixes"])
 
 
+def is_externally_validated(path: str, policy: dict[str, Any]) -> bool:
+    """Paths whose correctness is enforced by a different pipeline (e.g. the
+    autoresearch harness's validate workflow) and which construct no product;
+    they must not trip the conservative unknown-path fallback."""
+    return any(
+        owns(path, prefix)
+        for prefix in policy.get("externally_validated_prefixes", [])
+    )
+
+
 def select_lanes(
     changed_paths: Iterable[str], catalog: dict[str, Any], policy: dict[str, Any],
 ) -> tuple[list[str], dict[str, list[str]]]:
@@ -164,7 +179,11 @@ def select_lanes(
         for rule in policy["rules"]:
             if any(owns(path, prefix) for prefix in rule["prefixes"]):
                 path_lanes.update(rule["lanes"])
-        if not path_lanes and not is_documentation(path, policy):
+        if (
+            not path_lanes
+            and not is_documentation(path, policy)
+            and not is_externally_validated(path, policy)
+        ):
             path_lanes = all_lanes - set(policy["always_lanes"])
         for lane in path_lanes:
             selected.add(lane)

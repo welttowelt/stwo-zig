@@ -81,6 +81,25 @@ class CiTests(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "runtime_probes.*diverges"):
             validate_actual_construction(manifest, matrix, "focused")
 
+    def test_actual_construction_allows_fully_stubbed_scope(self) -> None:
+        # An unavailable-on-this-host scope registers only fail-closed step
+        # stubs: no modules, so generated/dependency roots and external tools
+        # are unobservable. Constructors must still match.
+        manifest, matrix = self.construction_fixture()
+        manifest["actual"]["module_roots"] = []  # type: ignore[index]
+        manifest["actual"]["generated_module_roots"] = []  # type: ignore[index]
+        manifest["actual"]["external_tools"] = []  # type: ignore[index]
+        manifest["actual"]["runtime_probes"] = []  # type: ignore[index]
+        manifest["actual"]["products"] = []  # type: ignore[index]
+        manifest["constructed_products"] = []
+        validate_actual_construction(manifest, matrix, "focused")  # must not raise
+
+    def test_actual_construction_rejects_missing_generated_root_when_constructed(self) -> None:
+        manifest, matrix = self.construction_fixture()
+        manifest["actual"]["generated_module_roots"] = []  # type: ignore[index]
+        with self.assertRaisesRegex(SystemExit, "generated_module_roots.*diverges"):
+            validate_actual_construction(manifest, matrix, "focused")
+
     def test_actual_construction_allows_fully_stubbed_probe_host(self) -> None:
         # Capability partition: a host whose probing graphs are fail-closed
         # stubs (e.g. Apple frameworks on Linux) observes zero probes.

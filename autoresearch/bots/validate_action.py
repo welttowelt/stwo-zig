@@ -97,6 +97,11 @@ def main() -> int:
                 findings.append(f"{name}: submissions must carry claimed verdicts")
         secrets = submitter.scan_transcripts(sub / "transcripts")
         findings.extend(f"{name}: transcript secret scan: {s}" for s in secrets)
+        transcripts_dir = sub / "transcripts"
+        transcript_files = (
+            sorted(p.name for p in transcripts_dir.rglob("*") if p.is_file())
+            if transcripts_dir.exists() else []
+        )
         delta_path = sub / "delta.json"
         if delta_path.exists():
             try:
@@ -104,12 +109,32 @@ def main() -> int:
             except json.JSONDecodeError:
                 findings.append(f"{name}: delta.json is not valid JSON")
                 delta = {}
-            for tpath, meta in delta.get("transcripts", {}).items():
+            # Transcripts or an explicit recorded declination — never silence.
+            declined = delta.get("transcripts_declined") is True
+            if not transcript_files and not declined:
+                findings.append(
+                    f"{name}: transcripts/ is empty and delta.json does not record "
+                    "an explicit declination (transcripts_declined) — sanitized "
+                    "session transcripts are the submission-flow default"
+                )
+            if transcript_files and declined:
+                findings.append(
+                    f"{name}: delta.json declines transcripts but transcripts/ "
+                    "contains files"
+                )
+            listed = delta.get("transcripts", {})
+            for tpath, meta in listed.items():
                 file_path = sub / tpath
                 if not file_path.exists():
                     findings.append(f"{name}: delta.json names missing {tpath}")
                 elif submitter._sha256(file_path) != meta.get("sha256"):
                     findings.append(f"{name}: transcript hash mismatch for {tpath}")
+            listed_names = {tpath.split("/", 1)[-1] for tpath in listed}
+            for fname in transcript_files:
+                if fname not in listed_names:
+                    findings.append(
+                        f"{name}: transcripts/{fname} is not digest-bound in delta.json"
+                    )
 
     if findings:
         print("validation findings:")

@@ -172,6 +172,11 @@ def validate_actual_construction(
         if not isinstance(values, list) or values != sorted(set(values)):
             raise SystemExit(f"{scope} actual {field} is not a sorted unique list")
 
+    # A scope whose products are unavailable on this host constructs nothing
+    # but fail-closed step stubs: no modules, hence no generated/dependency
+    # roots and no external tool invocations to observe. Constructors must
+    # still match — the fail-closed registration is itself construction.
+    fully_stubbed = not actual["module_roots"]
     for field in (
         "constructors",
         "generated_module_roots",
@@ -180,6 +185,12 @@ def validate_actual_construction(
     ):
         observed = actual[field]
         declared = manifest[field]
+        if (
+            fully_stubbed
+            and field in ("generated_module_roots", "dependency_module_roots", "external_tools")
+            and not observed
+        ):
+            continue
         if observed != sorted(set(declared)):
             raise SystemExit(
                 f"{scope} actual {field} diverges from catalog: "

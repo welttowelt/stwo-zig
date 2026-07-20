@@ -47,8 +47,15 @@ cd ../ws && stwo-perf setup
 # edit inside editable paths only, then score a paired run:
 stwo-perf run --scope s3 --class small --dimension time --predecessor ../stwo-zig
 stwo-perf submit --slug <short-name> --note-file note.md \
-  --verdict autoresearch/.runs/latest/verdict.json --model "<your model>"
+  --verdict autoresearch/.runs/latest/verdict.json \
+  --transcripts ./transcripts --model "<your model>"
 ```
+
+**Transcripts are the default.** Capture your session logs as you work (see
+`skills/submission-transcripts`), sanitize them per `schema/submission.md`,
+and attach them with `--transcripts`. The only alternative is the submitter's
+explicit `--transcripts-declined`; a submission that is silently missing
+transcripts fails `submit` locally and validation centrally.
 
 ## Submitting — two working paths
 

@@ -178,5 +178,6 @@
       "lanes": ["build_graph", "core", "prover", "package", "native_cpu", "native_oracle", "riscv_cpu", "aggregate_cpu", "deferred", "native_metal", "aggregate_metal", "metal_compile", "metal_aot"]
     }
   ],
-  "documentation_prefixes": ["README.md", "CONTRIBUTING.md", "LICENSE", "docs", "archive", "conformance"]
+  "documentation_prefixes": ["README.md", "CONTRIBUTING.md", "LICENSE", "docs", "archive", "conformance"],
+  "externally_validated_prefixes": ["autoresearch"]
 }

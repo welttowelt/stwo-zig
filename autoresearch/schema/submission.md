@@ -11,8 +11,13 @@ autoresearch/submissions/<utc-date>-<slug>/
   note.md          public note; required sections below, <= 10 KiB
   verdict.json     the submitter's claimed acceptance-rung verdict (schema/verdict.md)
   delta.json       predecessor binding + content digests (schema below)
-  transcripts/     redacted agent session transcripts (may be empty ONLY if note.md
-                   declares "Transcripts: none capturable" in Model and harness)
+  transcripts/     sanitized agent session transcripts — the submission-flow
+                   default (skills/submission-transcripts): at least one file,
+                   every file digest-bound in delta.json. The only accepted
+                   alternative is an explicit recorded declination
+                   (`stwo-perf submit --transcripts-declined`, which sets
+                   delta.json `transcripts_declined: true`); silent omission
+                   is refused by `submit` and rejected by PR validation.
 ```
 
 ## note.md required sections, in order
@@ -39,9 +44,14 @@ no local absolute paths, plain language.
   "declared_objective": { "workload_class": "small|wide|deep", "dimension": "time|rss|energy" },
   "declared_scope": "s3|s4|s5",
   "files": { "<repo-relative path>": "sha256:<hex>" },
-  "transcripts": { "<transcripts/... path>": { "sha256": "<hex>", "captured_by": "harness|submitter" } }
+  "transcripts": { "<transcripts/... path>": { "sha256": "<hex>", "captured_by": "harness|submitter" } },
+  "transcripts_declined": false
 }
 ```
+
+`transcripts_declined: true` records the submitter's explicit decision not to
+publish transcripts; it is mutually exclusive with a non-empty `transcripts`
+map and renders as "transcripts declined" wherever the submission appears.
 
 `captured_by: submitter` transcripts are labeled unverified everywhere they render.
 
