@@ -11,6 +11,8 @@ from pathlib import Path
 
 from scripts import benchmark_delta
 from scripts import native_proof_matrix
+from scripts.benchmark_delta_lib.common import IncompatibleReports
+from scripts.benchmark_delta_lib.native_oracle import classify_transition
 from scripts.native_proof_matrix_lib.artifacts import parse_process_resources
 from scripts.native_proof_matrix_lib.evidence import validate_rust_oracle_receipt
 from scripts.native_proof_matrix_lib.model import (
@@ -267,6 +269,30 @@ class NativeMatrixPhase1EvidenceTests(unittest.TestCase):
             )
             self.assertEqual("incomparable", rejected["status"])
             self.assertIn("binary_sha256", rejected["incompatibilities"][0])
+
+    def test_v5_to_v6_allows_only_the_parallel_oracle_transition(self) -> None:
+        old = "b8b8d824fa54db7091d77918f2f72c470b5fa372d65e9d5a9c91638536b57697"
+        new = "bca74321517d41e6c2128ab20567756ab498ef18cee3fba422a51eea74b92b2b"
+        transition = classify_transition(
+            {(old, new)},
+            (benchmark_delta.NATIVE_PROTOCOL_V5, benchmark_delta.NATIVE_PROTOCOL_V6),
+            benchmark_delta.NATIVE_PROTOCOL_V4,
+            benchmark_delta.NATIVE_PROTOCOL_V5,
+            benchmark_delta.NATIVE_PROTOCOL_V6,
+        )
+        self.assertEqual("none", transition["timed_lane_impact"])
+        self.assertEqual(
+            "enable_parallel_feature_in_pinned_rust_oracle_outside_timed_lanes",
+            transition["reason"],
+        )
+        with self.assertRaises(IncompatibleReports):
+            classify_transition(
+                {(old, "9" * 64)},
+                (benchmark_delta.NATIVE_PROTOCOL_V5, benchmark_delta.NATIVE_PROTOCOL_V6),
+                benchmark_delta.NATIVE_PROTOCOL_V4,
+                benchmark_delta.NATIVE_PROTOCOL_V5,
+                benchmark_delta.NATIVE_PROTOCOL_V6,
+            )
 
 
 if __name__ == "__main__":

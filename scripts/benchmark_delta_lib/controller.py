@@ -680,7 +680,7 @@ def compare_native(
         oracle_binary_pairs,
         protocols,
         NATIVE_PROTOCOL_V4,
-        NATIVE_PROTOCOL_V5,
+        NATIVE_PROTOCOL_V5, NATIVE_PROTOCOL_V6,
     )
     product_transition = product_identity_transition(baseline, current, protocols)
 
