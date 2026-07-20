@@ -37,6 +37,163 @@ pub inline fn evalAtPointIterative(
     return pending[log_size];
 }
 
+const PackedM31 = m31.PackedM31;
+
+const PackedCM31 = struct {
+    a: PackedM31,
+    b: PackedM31,
+};
+
+const PackedQM31 = struct {
+    c0: PackedCM31,
+    c1: PackedCM31,
+};
+
+inline fn addPackedCM31(lhs: PackedCM31, rhs: PackedCM31) PackedCM31 {
+    return .{
+        .a = m31.addPacked(lhs.a, rhs.a),
+        .b = m31.addPacked(lhs.b, rhs.b),
+    };
+}
+
+inline fn subPackedCM31(lhs: PackedCM31, rhs: PackedCM31) PackedCM31 {
+    return .{
+        .a = m31.subPacked(lhs.a, rhs.a),
+        .b = m31.subPacked(lhs.b, rhs.b),
+    };
+}
+
+inline fn mulPackedCM31(lhs: PackedCM31, rhs: PackedCM31) PackedCM31 {
+    const ac = m31.mulPacked(lhs.a, rhs.a);
+    const bd = m31.mulPacked(lhs.b, rhs.b);
+    const cross = m31.mulPacked(
+        m31.addPacked(lhs.a, lhs.b),
+        m31.addPacked(rhs.a, rhs.b),
+    );
+    return .{
+        .a = m31.subPacked(ac, bd),
+        .b = m31.subPacked(m31.subPacked(cross, ac), bd),
+    };
+}
+
+inline fn mulPackedCM31ByR(value: PackedCM31) PackedCM31 {
+    // (a + bi) * (2 + i) = (2a - b) + (a + 2b)i.
+    return .{
+        .a = m31.subPacked(m31.addPacked(value.a, value.a), value.b),
+        .b = m31.addPacked(value.a, m31.addPacked(value.b, value.b)),
+    };
+}
+
+inline fn addPackedQM31(lhs: PackedQM31, rhs: PackedQM31) PackedQM31 {
+    return .{
+        .c0 = addPackedCM31(lhs.c0, rhs.c0),
+        .c1 = addPackedCM31(lhs.c1, rhs.c1),
+    };
+}
+
+inline fn mulPackedQM31(lhs: PackedQM31, rhs: PackedQM31) PackedQM31 {
+    const ac = mulPackedCM31(lhs.c0, rhs.c0);
+    const bd = mulPackedCM31(lhs.c1, rhs.c1);
+    const cross = subPackedCM31(
+        subPackedCM31(
+            mulPackedCM31(
+                addPackedCM31(lhs.c0, lhs.c1),
+                addPackedCM31(rhs.c0, rhs.c1),
+            ),
+            ac,
+        ),
+        bd,
+    );
+    return .{
+        .c0 = addPackedCM31(ac, mulPackedCM31ByR(bd)),
+        .c1 = cross,
+    };
+}
+
+inline fn packedQM31FromBase(values: PackedM31) PackedQM31 {
+    const zero: PackedM31 = @splat(0);
+    return .{
+        .c0 = .{ .a = values, .b = zero },
+        .c1 = .{ .a = zero, .b = zero },
+    };
+}
+
+inline fn splatQM31(value: QM31) PackedQM31 {
+    const limbs = value.toM31Array();
+    return .{
+        .c0 = .{
+            .a = m31.splatPacked(limbs[0]),
+            .b = m31.splatPacked(limbs[1]),
+        },
+        .c1 = .{
+            .a = m31.splatPacked(limbs[2]),
+            .b = m31.splatPacked(limbs[3]),
+        },
+    };
+}
+
+/// Evaluates one native-width batch of independent coefficient polynomials at
+/// the same secure-field point. Each polynomial occupies one packed M31 lane;
+/// its carry-style reduction and field-operation order match
+/// `evalAtPointIterative` exactly.
+pub inline fn evalBatchAtPointIterative(
+    coefficient_batches: [m31.PACK_WIDTH][]const M31,
+    factors: []const QM31,
+    log_size: u32,
+) [m31.PACK_WIDTH]QM31 {
+    const expected_len = @as(usize, 1) << @intCast(log_size);
+    for (coefficient_batches) |coefficients| {
+        std.debug.assert(coefficients.len == expected_len);
+    }
+    std.debug.assert(factors.len == log_size);
+
+    if (log_size == 0) {
+        var constants: [m31.PACK_WIDTH]QM31 = undefined;
+        for (coefficient_batches, 0..) |coefficients, lane| {
+            constants[lane] = QM31.fromBase(coefficients[0]);
+        }
+        return constants;
+    }
+
+    var packed_factors: [circle.M31_CIRCLE_LOG_ORDER]PackedQM31 = undefined;
+    for (factors, 0..) |factor, factor_idx| {
+        packed_factors[factor_idx] = splatQM31(factor);
+    }
+
+    var pending: [circle.M31_CIRCLE_LOG_ORDER + 1]PackedQM31 = undefined;
+    for (coefficient_batches[0], 0..) |_, coeff_idx| {
+        var packed_coefficients: PackedM31 = undefined;
+        for (0..m31.PACK_WIDTH) |lane| {
+            packed_coefficients[lane] = coefficient_batches[lane][coeff_idx].v;
+        }
+        var value = packedQM31FromBase(packed_coefficients);
+        var level: usize = @as(usize, @intCast(@ctz(~coeff_idx)));
+        if (level > @as(usize, @intCast(log_size))) {
+            level = @as(usize, @intCast(log_size));
+        }
+        var merge_level: usize = 0;
+        while (merge_level < level) : (merge_level += 1) {
+            value = addPackedQM31(
+                pending[merge_level],
+                mulPackedQM31(value, packed_factors[merge_level]),
+            );
+        }
+        pending[level] = value;
+    }
+
+    const packed_result = pending[log_size];
+    var results: [m31.PACK_WIDTH]QM31 = undefined;
+    for (0..m31.PACK_WIDTH) |lane| {
+        results[lane] = QM31.fromU32Unchecked(
+            packed_result.c0.a[lane],
+            packed_result.c0.b[lane],
+            packed_result.c1.a[lane],
+            packed_result.c1.b[lane],
+        );
+    }
+    return results;
+}
+
 /// Fills the circle-basis factors for one secure-field point.
 pub fn fillEvalFactorsForPoint(
     point: CirclePointQM31,

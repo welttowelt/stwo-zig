@@ -171,7 +171,24 @@ pub const CircleCoefficients = struct {
         var factor_at: usize = 0;
         for (0..point_count) |point_idx| {
             const point_factors = flat_factors[factor_at .. factor_at + log_size];
-            for (polys, out_batch) |poly, out| {
+            var poly_idx: usize = 0;
+            if (comptime m31.PACK_WIDTH > 1) {
+                while (poly_idx + m31.PACK_WIDTH <= polys.len) : (poly_idx += m31.PACK_WIDTH) {
+                    var coefficient_batches: [m31.PACK_WIDTH][]const M31 = undefined;
+                    for (0..m31.PACK_WIDTH) |lane| {
+                        coefficient_batches[lane] = polys[poly_idx + lane].coeffs;
+                    }
+                    const values = point_evaluation.evalBatchAtPointIterative(
+                        coefficient_batches,
+                        point_factors,
+                        log_size,
+                    );
+                    for (values, 0..) |value, lane| {
+                        out_batch[poly_idx + lane][point_idx] = value;
+                    }
+                }
+            }
+            for (polys[poly_idx..], out_batch[poly_idx..]) |poly, out| {
                 out[point_idx] = point_evaluation.evalAtPointIterative(
                     poly.coeffs,
                     point_factors,
@@ -523,7 +540,7 @@ test "prover poly circle poly: precomputed folded factors match scalar oracle" {
 test "prover poly circle poly: batched point evaluation matches scalar helper" {
     const alloc = std.testing.allocator;
     const log_size: u32 = 6;
-    const poly_count: usize = 5;
+    const poly_count: usize = m31.PACK_WIDTH + 1;
     const point_count: usize = 7;
 
     var prng = std.Random.DefaultPrng.init(0xd1a5_4e7b_11c2_39af);
