@@ -4,9 +4,9 @@
   "frozen": true,
   "prove_ms": {
    "core_cpu": {
-    "deep": 14.317,
-    "small": 3.096,
-    "wide": 18.619
+    "deep": 14.416,
+    "small": 2.789,
+    "wide": 17.656
    },
    "riscv": {
     "deep": null,
@@ -934,11 +934,11 @@
  "epoch": {
   "aa_dispersion": {
    "core_cpu": {
-    "deep": 0.01772,
-    "small": 0.030362,
-    "wide": 0.011056
+    "deep": 0.009139,
+    "small": 0.018654,
+    "wide": 0.014645
    },
-   "note": "Per-board, per-class A/A paired-ratio CI half-widths, measured by `stwo-perf run --aa` on the designated judge host (arm64 macOS, 2026-07-20) and recorded here. riscv stays null until its board enables; theta = max(floor, 2 x dispersion) per class.",
+   "note": "Per-board, per-class A/A paired-ratio CI half-widths, measured by `stwo-perf run --aa` on the designated Apple M5 Max judge host (arm64 macOS, 18 CPU cores, 2026-07-20) and recorded here. riscv stays null until its board enables; theta = max(floor, 2 x dispersion) per class.",
    "riscv": {
     "deep": null,
     "small": null,
@@ -949,7 +949,7 @@
  },
  "feed_schema_version": 2,
  "history": {
-  "comparisons": 6,
+  "comparisons": 7,
   "runs": [
    {
     "bundle": false,
@@ -998,31 +998,37 @@
     "kind": "native_proof_cross_backend_matrix_v5",
     "report_sha256": "8da5fae41d077ae897b44b024a4b3d2956a57daff2c0678a0441b26ec6643768",
     "run_id": "2026-07-18-064334-matrix-v5-789feb4c"
+   },
+   {
+    "bundle": true,
+    "kind": "native_proof_cross_backend_matrix_v6",
+    "report_sha256": "facd106c0afb0f14e12263a420d5bbe6dca2dcf6b09d603f3bf3e99950385d6f",
+    "run_id": "2026-07-20-221601-matrix-v6-e78cca6f"
    }
   ]
  },
  "latest_matrix": {
-  "generated_at": "2026-07-18T06:43:34.232047+00:00",
-  "protocol": "native_proof_cross_backend_matrix_v5",
-  "repo_commit": "789feb4cf06842fbbdfe41e369cb18dadb1803f6",
+  "generated_at": "2026-07-20T22:16:01.967583+00:00",
+  "protocol": "native_proof_cross_backend_matrix_v6",
+  "repo_commit": "e78cca6ff0b849a204efce7ce172828ed0b1a88f",
   "rows": [
    {
     "committed_trace_cells": 524288,
     "headline_eligible": true,
     "lanes": {
      "cpu": {
-      "native_mhz": 0.8888080487523838,
-      "peak_rss_mib": 24.62,
-      "prove_ms": 18.433729,
-      "request_ms": 19.540354
+      "native_mhz": 1.4592741153394078,
+      "peak_rss_mib": 23.7,
+      "prove_ms": 11.2275,
+      "request_ms": 12.263646
      },
      "metal": {
-      "cpu_fallbacks_per_proof": 16.0,
-      "metal_dispatches_per_proof": 20.0,
-      "native_mhz": 0.7514886532086167,
-      "peak_rss_mib": 41.73,
-      "prove_ms": 21.802083,
-      "request_ms": 22.857479
+      "cpu_fallbacks_per_proof": 0.0,
+      "metal_dispatches_per_proof": 36.0,
+      "native_mhz": 1.0895145963903,
+      "peak_rss_mib": 38.14,
+      "prove_ms": 15.038063,
+      "request_ms": 16.023438
      }
     },
     "name": "wide_fibonacci",
@@ -1037,21 +1043,21 @@
    },
    {
     "committed_trace_cells": 4194304,
-    "headline_eligible": false,
+    "headline_eligible": true,
     "lanes": {
      "cpu": {
-      "native_mhz": 0.6640612482253825,
-      "peak_rss_mib": 83.16,
-      "prove_ms": 98.708896,
-      "request_ms": 113.332604
+      "native_mhz": 0.8801004311516396,
+      "peak_rss_mib": 83.34,
+      "prove_ms": 74.464229,
+      "request_ms": 87.585896
      },
      "metal": {
-      "cpu_fallbacks_per_proof": 18.0,
-      "metal_dispatches_per_proof": 22.0,
-      "native_mhz": 0.5718513228602529,
-      "peak_rss_mib": 133.55,
-      "prove_ms": 114.603771,
-      "request_ms": 127.549291
+      "cpu_fallbacks_per_proof": 0.0,
+      "metal_dispatches_per_proof": 40.0,
+      "native_mhz": 0.6344307951940671,
+      "peak_rss_mib": 117.38,
+      "prove_ms": 103.299209,
+      "request_ms": 116.249104
      }
     },
     "name": "wide_fibonacci",
@@ -1069,18 +1075,18 @@
     "headline_eligible": true,
     "lanes": {
      "cpu": {
-      "native_mhz": 1.2894806014106348,
-      "peak_rss_mib": 22.97,
-      "prove_ms": 12.705917,
-      "request_ms": 13.023395
+      "native_mhz": 2.3851246379913746,
+      "peak_rss_mib": 22.59,
+      "prove_ms": 6.86925,
+      "request_ms": 7.156417
      },
      "metal": {
-      "cpu_fallbacks_per_proof": 16.0,
-      "metal_dispatches_per_proof": 22.0,
-      "native_mhz": 0.9503900163702512,
-      "peak_rss_mib": 36.38,
-      "prove_ms": 17.240229,
-      "request_ms": 17.547979
+      "cpu_fallbacks_per_proof": 0.0,
+      "metal_dispatches_per_proof": 39.0,
+      "native_mhz": 1.5060611403591428,
+      "peak_rss_mib": 29.88,
+      "prove_ms": 10.87873,
+      "request_ms": 11.166667
      }
     },
     "name": "xor",
@@ -1099,18 +1105,18 @@
     "headline_eligible": true,
     "lanes": {
      "cpu": {
-      "native_mhz": 2.1202768681015858,
-      "peak_rss_mib": 63.14,
-      "prove_ms": 30.909458,
-      "request_ms": 31.444333
+      "native_mhz": 3.366879809628222,
+      "peak_rss_mib": 62.7,
+      "prove_ms": 19.465,
+      "request_ms": 19.988459
      },
      "metal": {
-      "cpu_fallbacks_per_proof": 18.0,
-      "metal_dispatches_per_proof": 24.0,
-      "native_mhz": 1.5872823613984157,
-      "peak_rss_mib": 67.11,
-      "prove_ms": 41.288313,
-      "request_ms": 41.894604
+      "cpu_fallbacks_per_proof": 0.0,
+      "metal_dispatches_per_proof": 43.0,
+      "native_mhz": 2.474144666720315,
+      "peak_rss_mib": 44.62,
+      "prove_ms": 26.488437,
+      "request_ms": 27.022666
      }
     },
     "name": "xor",
@@ -1129,18 +1135,18 @@
     "headline_eligible": true,
     "lanes": {
      "cpu": {
-      "native_mhz": 1.2412156733519837,
-      "peak_rss_mib": 23.41,
-      "prove_ms": 13.200021,
-      "request_ms": 13.574958
+      "native_mhz": 2.4213845603495807,
+      "peak_rss_mib": 21.72,
+      "prove_ms": 6.766417,
+      "request_ms": 7.095542
      },
      "metal": {
-      "cpu_fallbacks_per_proof": 16.0,
-      "metal_dispatches_per_proof": 22.0,
-      "native_mhz": 0.931702745752915,
-      "peak_rss_mib": 38.14,
-      "prove_ms": 17.585208,
-      "request_ms": 17.950521
+      "cpu_fallbacks_per_proof": 0.0,
+      "metal_dispatches_per_proof": 39.0,
+      "native_mhz": 1.4776029375031512,
+      "peak_rss_mib": 30.66,
+      "prove_ms": 11.088437,
+      "request_ms": 11.415979
      }
     },
     "name": "plonk",
@@ -1157,18 +1163,18 @@
     "headline_eligible": true,
     "lanes": {
      "cpu": {
-      "native_mhz": 2.0275332714393572,
-      "peak_rss_mib": 62.19,
-      "prove_ms": 32.323021,
-      "request_ms": 32.923041
+      "native_mhz": 3.47593195367243,
+      "peak_rss_mib": 62.44,
+      "prove_ms": 18.8545,
+      "request_ms": 19.4035
      },
      "metal": {
-      "cpu_fallbacks_per_proof": 18.0,
-      "metal_dispatches_per_proof": 24.0,
-      "native_mhz": 1.5756842360739576,
-      "peak_rss_mib": 71.62,
-      "prove_ms": 41.59225,
-      "request_ms": 42.196396
+      "cpu_fallbacks_per_proof": 0.0,
+      "metal_dispatches_per_proof": 43.0,
+      "native_mhz": 2.320354375853023,
+      "peak_rss_mib": 46.58,
+      "prove_ms": 28.244021,
+      "request_ms": 28.805271
      }
     },
     "name": "plonk",
@@ -1185,18 +1191,18 @@
     "headline_eligible": true,
     "lanes": {
      "cpu": {
-      "native_mhz": 1.2857509789855976,
-      "peak_rss_mib": 24.09,
-      "prove_ms": 12.74275,
-      "request_ms": 13.032312
+      "native_mhz": 2.3855076803855884,
+      "peak_rss_mib": 22.83,
+      "prove_ms": 6.868146,
+      "request_ms": 7.131667
      },
      "metal": {
-      "cpu_fallbacks_per_proof": 16.0,
-      "metal_dispatches_per_proof": 22.0,
-      "native_mhz": 0.951844524272508,
-      "peak_rss_mib": 37.16,
-      "prove_ms": 17.212895,
-      "request_ms": 17.537625
+      "cpu_fallbacks_per_proof": 0.0,
+      "metal_dispatches_per_proof": 39.0,
+      "native_mhz": 1.5111982833802404,
+      "peak_rss_mib": 29.53,
+      "prove_ms": 10.841729,
+      "request_ms": 11.100167
      }
     },
     "name": "state_machine",
@@ -1215,18 +1221,18 @@
     "headline_eligible": true,
     "lanes": {
      "cpu": {
-      "native_mhz": 1.9873620205233242,
-      "peak_rss_mib": 60.73,
-      "prove_ms": 32.976396,
-      "request_ms": 33.679834
+      "native_mhz": 3.404739571734914,
+      "peak_rss_mib": 63.36,
+      "prove_ms": 19.250771,
+      "request_ms": 19.898563
      },
      "metal": {
-      "cpu_fallbacks_per_proof": 18.0,
-      "metal_dispatches_per_proof": 24.0,
-      "native_mhz": 1.6000553640018016,
-      "peak_rss_mib": 67.14,
-      "prove_ms": 40.958667,
-      "request_ms": 41.657833
+      "cpu_fallbacks_per_proof": 0.0,
+      "metal_dispatches_per_proof": 43.0,
+      "native_mhz": 2.381235429729826,
+      "peak_rss_mib": 44.08,
+      "prove_ms": 27.521854,
+      "request_ms": 28.165958
      }
     },
     "name": "state_machine",
@@ -1242,21 +1248,21 @@
    },
    {
     "committed_trace_cells": 983040,
-    "headline_eligible": true,
+    "headline_eligible": false,
     "lanes": {
      "cpu": {
-      "native_mhz": 0.26939851231756595,
-      "peak_rss_mib": 36.84,
-      "prove_ms": 38.010604,
-      "request_ms": 42.023604
+      "native_mhz": 0.42540640262598495,
+      "peak_rss_mib": 44.0,
+      "prove_ms": 24.071104,
+      "request_ms": 27.754
      },
      "metal": {
-      "cpu_fallbacks_per_proof": 13.0,
-      "metal_dispatches_per_proof": 15.0,
-      "native_mhz": 0.25273134030944766,
-      "peak_rss_mib": 52.22,
-      "prove_ms": 40.517417,
-      "request_ms": 44.537854
+      "cpu_fallbacks_per_proof": 0.0,
+      "metal_dispatches_per_proof": 28.0,
+      "native_mhz": 0.9977554735981327,
+      "peak_rss_mib": 56.73,
+      "prove_ms": 10.269521,
+      "request_ms": 13.953666
      }
     },
     "name": "blake",
@@ -1274,18 +1280,18 @@
     "headline_eligible": true,
     "lanes": {
      "cpu": {
-      "native_mhz": 0.5655612715331448,
-      "peak_rss_mib": 232.09,
-      "prove_ms": 115.878,
-      "request_ms": 146.978438
+      "native_mhz": 1.6382364467013024,
+      "peak_rss_mib": 175.5,
+      "prove_ms": 40.004,
+      "request_ms": 68.63625
      },
      "metal": {
-      "cpu_fallbacks_per_proof": 14.0,
-      "metal_dispatches_per_proof": 18.0,
-      "native_mhz": 0.5483056221488387,
-      "peak_rss_mib": 186.48,
-      "prove_ms": 119.567417,
-      "request_ms": 150.241792
+      "cpu_fallbacks_per_proof": 0.0,
+      "metal_dispatches_per_proof": 32.0,
+      "native_mhz": 1.6320736648330434,
+      "peak_rss_mib": 189.97,
+      "prove_ms": 40.155125,
+      "request_ms": 68.733125
      }
     },
     "name": "blake",
@@ -1300,21 +1306,21 @@
    },
    {
     "committed_trace_cells": 161792,
-    "headline_eligible": false,
+    "headline_eligible": true,
     "lanes": {
      "cpu": {
-      "native_mhz": 0.1467083719600274,
-      "peak_rss_mib": 21.38,
-      "prove_ms": 6.979833,
-      "request_ms": 8.393125
+      "native_mhz": 0.16066780502833317,
+      "peak_rss_mib": 25.5,
+      "prove_ms": 6.373542,
+      "request_ms": 7.711479
      },
      "metal": {
-      "cpu_fallbacks_per_proof": 10.0,
-      "metal_dispatches_per_proof": 12.0,
-      "native_mhz": 0.10067846877630926,
-      "peak_rss_mib": 38.34,
-      "prove_ms": 10.173792,
-      "request_ms": 11.588312
+      "cpu_fallbacks_per_proof": 0.0,
+      "metal_dispatches_per_proof": 22.0,
+      "native_mhz": 0.137043426979041,
+      "peak_rss_mib": 33.36,
+      "prove_ms": 7.472125,
+      "request_ms": 8.728041
      }
     },
     "name": "poseidon",
@@ -1331,18 +1337,18 @@
     "headline_eligible": false,
     "lanes": {
      "cpu": {
-      "native_mhz": 0.17444817959394354,
-      "peak_rss_mib": 57.08,
-      "prove_ms": 46.965646,
-      "request_ms": 54.473813
+      "native_mhz": 0.25947013227598037,
+      "peak_rss_mib": 63.2,
+      "prove_ms": 31.572125,
+      "request_ms": 38.472792
      },
      "metal": {
-      "cpu_fallbacks_per_proof": 13.0,
-      "metal_dispatches_per_proof": 15.0,
-      "native_mhz": 0.17175464697941306,
-      "peak_rss_mib": 69.06,
-      "prove_ms": 47.696104,
-      "request_ms": 54.882542
+      "cpu_fallbacks_per_proof": 0.0,
+      "metal_dispatches_per_proof": 28.0,
+      "native_mhz": 0.7052447459688005,
+      "peak_rss_mib": 67.2,
+      "prove_ms": 11.62225,
+      "request_ms": 18.529688
      }
     },
     "name": "poseidon",
@@ -1355,12 +1361,12 @@
     "proof_parity": true
    }
   ],
-  "run_id": "2026-07-18-064334-matrix-v5-789feb4c"
+  "run_id": "2026-07-20-221601-matrix-v6-e78cca6f"
  },
  "metal_resident_progress": {
-  "cpu_fallbacks_per_proof_median": 16.0,
+  "cpu_fallbacks_per_proof_median": 0.0,
   "rows_total": 12,
-  "rows_with_zero_fallbacks": 0
+  "rows_with_zero_fallbacks": 12
  },
  "notes_count": 3,
  "project": {
@@ -1428,18 +1434,18 @@
   "determinism": "pure function of the named inputs; a committed feed names the commit it was generated FROM (one-commit lag by construction) \u2014 verify via inputs_sha256, not commit equality",
   "dirty_inputs": [],
   "inputs_sha256": {
-   "autoresearch/MANIFEST.json": "3ffb3108a45076b67457f6011c1c1146b9c93e3088886f6a1a93b6b64298a9f6",
-   "autoresearch/ledger/epochs.json": "c78b8d327def593d8d6803471534d71bb4ec890a272675267796b913da99b88a",
+   "autoresearch/MANIFEST.json": "fd0697677abbcc8ce0488edc6273cb55a8b4879321f36ddbef06e451c3da492f",
+   "autoresearch/ledger/epochs.json": "b2b6c98203cc97f3a13c23a9c3da29d3b6709e7d9c6afb8b5240926166b01921",
    "autoresearch/ledger/promotions.tsv": "138af69c244d43b820c539c06dd6fd85f200a2538fe1d05d9026e3aa5d3f2531",
-   "vectors/reports/benchmark_history/index.json": "356ab43ca2a23cf5fa9b2771c5d8f4b036d6e6e41b10724fb4c9db6e9f6fc74a",
-   "vectors/reports/benchmark_history/runs/2026-07-18-064334-matrix-v5-789feb4c/report.json": "8da5fae41d077ae897b44b024a4b3d2956a57daff2c0678a0441b26ec6643768"
+   "vectors/reports/benchmark_history/index.json": "0216c5ae101a3fe33e647553a0ba7bbf2ac2b3ba8c8265fd8ff5ddde059401fe",
+   "vectors/reports/benchmark_history/runs/2026-07-20-221601-matrix-v6-e78cca6f/report.json": "facd106c0afb0f14e12263a420d5bbe6dca2dcf6b09d603f3bf3e99950385d6f"
   },
-  "repo_commit": "2d1ec0688414",
-  "repo_commit_time": "2026-07-20T22:40:50+01:00"
+  "repo_commit": "c7278d411be1",
+  "repo_commit_time": "2026-07-20T23:17:27+01:00"
  },
  "references": {
   "peer_rust_scalar": {
-   "host": "Apple M4 Max",
+   "host": "Apple M5 Max",
    "measured_at_utc": "2026-07-20",
    "method": [
     "Same host, same session, back-to-back medians of 15 samples after 10 warmups per workload, via autoresearch/reference/measure_peer_rust.py.",
@@ -1456,27 +1462,27 @@
       "log_n_rows": 10,
       "sequence_len": 8
      },
-     "ratio_rust_over_zig_original": 2.060228,
+     "ratio_rust_over_zig_original": 3.973316,
      "rust_samples_ms": [
-      6.764166,
-      6.591625,
-      6.015584,
-      6.662834,
-      5.972666,
-      6.483583,
-      6.139292,
-      6.378208,
-      6.374459,
-      5.9705,
-      6.119792,
-      6.871875,
-      6.407959,
-      6.709166,
-      5.976834
+      11.221958,
+      11.132584,
+      9.859125,
+      10.819084,
+      11.222167,
+      10.282541,
+      11.542917,
+      10.716459,
+      11.409125,
+      9.779041,
+      10.987708,
+      11.081083,
+      11.509458,
+      10.377625,
+      11.505042
      ],
-     "rust_scalar_median_ms": 6.378208,
+     "rust_scalar_median_ms": 11.081083,
      "workload": "wf_log10x8",
-     "zig_original_median_ms": 3.095875
+     "zig_original_median_ms": 2.788875
     },
     {
      "class": "wide",
@@ -1485,27 +1491,27 @@
       "log_n_rows": 14,
       "sequence_len": 32
      },
-     "ratio_rust_over_zig_original": 3.767668,
+     "ratio_rust_over_zig_original": 3.771972,
      "rust_samples_ms": [
-      67.316083,
-      67.099958,
-      69.05,
-      71.266625,
-      69.26725,
-      70.284666,
-      68.255416,
-      72.3525,
-      69.266208,
-      71.253209,
-      71.216208,
-      69.109041,
-      70.151458,
-      74.114167,
-      75.297792
+      66.687583,
+      66.317625,
+      68.198708,
+      66.148459,
+      65.38325,
+      66.277917,
+      66.59825,
+      68.022208,
+      64.897542,
+      65.530292,
+      64.71275,
+      68.796667,
+      68.325917,
+      67.610208,
+      69.01875
      ],
-     "rust_scalar_median_ms": 70.151458,
+     "rust_scalar_median_ms": 66.59825,
      "workload": "wf_log14x32",
-     "zig_original_median_ms": 18.619333
+     "zig_original_median_ms": 17.656083
     },
     {
      "class": "deep",
@@ -1513,27 +1519,27 @@
      "parameters": {
       "log_n_rows": 14
      },
-     "ratio_rust_over_zig_original": 18.980091,
+     "ratio_rust_over_zig_original": 18.780291,
      "rust_samples_ms": [
-      270.949,
-      271.742709,
-      274.704208,
-      273.975375,
-      268.833542,
-      269.442166,
-      270.853917,
-      272.150334,
-      272.247708,
-      270.724,
-      276.155666,
-      272.544917,
-      267.695542,
-      270.984791,
-      276.908875
+      269.984791,
+      267.562666,
+      278.524625,
+      272.28925,
+      282.716459,
+      265.211833,
+      270.740583,
+      263.00975,
+      265.860917,
+      264.801333,
+      269.36175,
+      284.786417,
+      280.733,
+      280.345416,
+      279.690333
      ],
-     "rust_scalar_median_ms": 271.742709,
+     "rust_scalar_median_ms": 270.740583,
      "workload": "plonk_log14",
-     "zig_original_median_ms": 14.31725
+     "zig_original_median_ms": 14.416208
     }
    ],
    "rust_reference": {
@@ -1543,7 +1549,7 @@
     "toolchain": "nightly-2025-07-14"
    },
    "schema": "autoresearch-reference-v1",
-   "suite_ratio_geomean_rust_over_zig_original": 5.281558,
+   "suite_ratio_geomean_rust_over_zig_original": 6.55352,
    "title": "Upstream Stwo prover (Rust, CpuBackend + parallel feature) on the matched suite",
    "zig_reference": {
     "build": "zig build native-proof-bench-cpu -Doptimize=ReleaseFast",
