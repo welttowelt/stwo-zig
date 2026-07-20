@@ -54,6 +54,36 @@ def validate_note(text: str) -> list[str]:
     return problems
 
 
+def resolve_transcripts(transcript_dir: Path | None, transcripts_declined: bool) -> list[Path]:
+    """Transcript consent: sanitized sessions are the submission-flow default;
+    the one legitimate absence is the submitter's explicit, recorded
+    declination. Silent omission is refused."""
+    if transcript_dir is None and not transcripts_declined:
+        raise SubmitError(
+            "transcripts are part of the submission flow: pass --transcripts <dir> "
+            "with the sanitized session transcripts, or record an explicit "
+            "declination with --transcripts-declined"
+        )
+    if transcript_dir is not None and transcripts_declined:
+        raise SubmitError("--transcripts and --transcripts-declined are mutually exclusive")
+    if transcript_dir is None:
+        return []
+    files = sorted(p for p in transcript_dir.rglob("*") if p.is_file())
+    if not files:
+        raise SubmitError(
+            f"transcript directory {transcript_dir} contains no files; include "
+            "at least one sanitized session transcript or record an explicit "
+            "declination with --transcripts-declined"
+        )
+    findings = scan_transcripts(transcript_dir)
+    if findings:
+        raise SubmitError(
+            "transcript secret scan failed (fix and re-run, never bypass):\n  - "
+            + "\n  - ".join(findings)
+        )
+    return files
+
+
 def scan_transcripts(transcript_dir: Path) -> list[str]:
     """Return secret findings as 'file: pattern' strings; empty means clean."""
     findings = []
@@ -88,6 +118,7 @@ def package(
     verdict_file: Path,
     transcript_dir: Path | None,
     model: str,
+    transcripts_declined: bool = False,
 ) -> Path:
     """Assemble autoresearch/submissions/<utc-date>-<slug>/ after all checks."""
     note_text = note_file.read_text()
@@ -113,18 +144,7 @@ def package(
     if violations:
         raise SubmitError(f"locked paths modified: {violations[:10]}")
 
-    if transcript_dir is not None:
-        findings = scan_transcripts(transcript_dir)
-        if findings:
-            raise SubmitError(
-                "transcript secret scan failed (fix and re-run, never bypass):\n  - "
-                + "\n  - ".join(findings)
-            )
-    elif "transcripts: none capturable" not in note_text.lower():
-        raise SubmitError(
-            "no transcripts given; the note must declare 'Transcripts: none capturable' "
-            "in Model and harness"
-        )
+    transcript_files = resolve_transcripts(transcript_dir, transcripts_declined)
 
     date = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
     sub_dir = repo_root / "autoresearch" / "submissions" / f"{date}-{slug}"
@@ -138,14 +158,13 @@ def package(
     transcripts_meta = {}
     tdir = sub_dir / "transcripts"
     tdir.mkdir()
-    if transcript_dir is not None:
-        for src in sorted(p for p in transcript_dir.rglob("*") if p.is_file()):
-            dest = tdir / src.name
-            shutil.copy2(src, dest)
-            transcripts_meta[f"transcripts/{src.name}"] = {
-                "sha256": _sha256(dest),
-                "captured_by": "submitter",
-            }
+    for src in transcript_files:
+        dest = tdir / src.name
+        shutil.copy2(src, dest)
+        transcripts_meta[f"transcripts/{src.name}"] = {
+            "sha256": _sha256(dest),
+            "captured_by": "submitter",
+        }
 
     delta = {
         "schema_version": 1,
@@ -154,6 +173,7 @@ def package(
         "declared_scope": verdict.get("scope"),
         "files": {p: f"sha256:{_sha256(repo_root / p)}" for p in touched if (repo_root / p).is_file()},
         "transcripts": transcripts_meta,
+        "transcripts_declined": transcripts_declined,
     }
     (sub_dir / "delta.json").write_text(json.dumps(delta, indent=2) + "\n")
     return sub_dir

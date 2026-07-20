@@ -114,6 +114,7 @@ def cmd_submit(args) -> int:
         sub_dir = submitter.package(
             m.root, m, args.slug, Path(args.note_file), Path(args.verdict),
             Path(args.transcripts) if args.transcripts else None, args.model,
+            transcripts_declined=args.transcripts_declined,
         )
     except submitter.SubmitError as exc:
         return _fail(str(exc))
@@ -454,7 +455,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--slug", required=True)
     p.add_argument("--note-file", required=True)
     p.add_argument("--verdict", required=True, help="claimed verdict.json from `run`")
-    p.add_argument("--transcripts", help="directory of redacted session transcripts")
+    p.add_argument(
+        "--transcripts",
+        help="directory of sanitized session transcripts (the default expectation; "
+             "see skills/submission-transcripts)",
+    )
+    p.add_argument(
+        "--transcripts-declined", action="store_true",
+        help="record an explicit declination to publish session transcripts "
+             "(the only accepted alternative to --transcripts)",
+    )
     p.add_argument("--model", required=True, help='e.g. "Claude Fable 5"')
 
     sub.add_parser("submissions", help="list submissions and their judged state")
