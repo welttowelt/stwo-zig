@@ -39,6 +39,7 @@ Top-level keys:
 | `provenance` | repo commit + commit time, input digests, determinism note |
 | `anchor` | frozen flag, anchor commit, per-class anchor prove-ms |
 | `epoch` | current measurement epoch and A/A dispersion (theta inputs) |
+| `promotion_scope` | v2: the decided benchmark set — manifest workload groups (board, enabled, disabled_reason, per-workload class + native unit), `owned_boards`, `future_boards`, and committed baseline directories. A board in `future_boards` exists only as scoring universe; consumers render it as out-of-scope, never as empty-but-live |
 | `boards` | per scoring board (schema/scoring.md): ledger entries + per-class frontier |
 | `metal_resident_progress` | Board-4 progress metrics while the board is empty (fallbacks/proof, zero-fallback row count) |
 | `latest_matrix` | the newest benchmark-history matrix run: per-row workload identity, headline eligibility, proof parity, and per-lane medians (prove ms, native MHz with its unit, request ms, peak RSS, fallback/dispatch counts) |
@@ -49,3 +50,13 @@ Top-level keys:
 Consumer rules: never upgrade a `claimed`/`pending` state to judged; always
 display a lane and native unit beside a number; treat feeds from forks as
 untrusted until `provenance` digests are verified against the repository.
+
+Version history: v1 had no `promotion_scope`; v2 adds it and changes nothing
+else. Consumers accepting v2 must use `promotion_scope.owned_boards` to decide
+which boards to display as live.
+
+Transport: the same document is served identically from the committed file
+(`autoresearch/site/feed.json`, e.g. via GitHub raw) and from a running
+project backend at `GET /v1/feed`. Consumers cache a fetched feed and treat it
+as current until `provenance.inputs_sha256` differs — the digest set is the
+supersession key, not timestamps or HTTP headers.

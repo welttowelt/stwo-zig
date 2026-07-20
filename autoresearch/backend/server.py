@@ -108,6 +108,16 @@ def make_handler(repo: Path, secret: bytes, store: Store, client_id: str | None,
                 if not client_id:
                     return self._json(404, {"error": "client id not configured"})
                 return self._json(200, {"github_client_id": client_id})
+            if path == "/v1/feed":
+                # Same contract as the committed autoresearch/site/feed.json
+                # (schema/site-feed.md): one document, two transports. Consumers
+                # key their caches on provenance.inputs_sha256 either way.
+                feed_path = repo / "autoresearch" / "site" / "feed.json"
+                try:
+                    document = json.loads(feed_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError) as exc:
+                    return self._json(500, {"error": f"feed unavailable: {exc}"})
+                return self._json(200, document)
             if path == "/v1/leaderboard":
                 try:
                     rows = ledger.load(repo)

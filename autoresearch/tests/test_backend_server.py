@@ -121,6 +121,18 @@ class BackendServerTest(unittest.TestCase):
         status = int(head.split(b" ", 2)[1])
         return status, json.loads(payload)
 
+    def test_feed_route_serves_the_committed_contract_document(self):
+        status, feed = self.call("GET", "/v1/feed")
+        self.assertEqual(status, 200)
+        # Identical to the committed file: one contract, two transports.
+        committed = json.loads(
+            (ROOT / "autoresearch" / "site" / "feed.json").read_text()
+        )
+        self.assertEqual(feed, committed)
+        self.assertEqual(feed["feed_schema_version"], 2)
+        self.assertIn("promotion_scope", feed)
+        self.assertIn("inputs_sha256", feed["provenance"])
+
     def test_api_key_drives_cli_identity_submission_status_and_revocation(self):
         status, issued = self.call("POST", "/v1/auth/github/keys", {}, "github-device-token")
         self.assertEqual(status, 200)

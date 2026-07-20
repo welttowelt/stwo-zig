@@ -37,6 +37,22 @@ class FeedTest(unittest.TestCase):
         from stwo_perf import ledger
         self.assertEqual(set(self.feed["boards"]), set(ledger.BOARDS))
 
+    def test_v2_promotion_scope_partitions_the_board_universe(self):
+        from stwo_perf import ledger
+        self.assertEqual(self.feed["feed_schema_version"], 2)
+        scope = self.feed["promotion_scope"]
+        owned = set(scope["owned_boards"])
+        future = set(scope["future_boards"])
+        self.assertEqual(owned | future, set(ledger.BOARDS))
+        self.assertEqual(owned & future, set())
+        # Every owned board is owned by exactly the manifest's groups.
+        self.assertEqual(owned, {g["board"] for g in scope["groups"].values()})
+        for group in scope["groups"].values():
+            self.assertIn("enabled", group)
+            self.assertTrue(group["workloads"])
+            for workload in group["workloads"].values():
+                self.assertIn(workload["class"], ("small", "wide", "deep"))
+
     def test_empty_boards_render_empty_not_invented(self):
         for board, data in self.feed["boards"].items():
             for entry in data["entries"]:

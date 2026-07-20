@@ -3,9 +3,16 @@
   "commit": null,
   "frozen": false,
   "prove_ms": {
-   "deep": null,
-   "small": null,
-   "wide": null
+   "core_cpu": {
+    "deep": null,
+    "small": null,
+    "wide": null
+   },
+   "riscv": {
+    "deep": null,
+    "small": null,
+    "wide": null
+   }
   }
  },
  "boards": {
@@ -94,6 +101,23 @@
     }
    }
   },
+  "riscv": {
+   "entries": [],
+   "frontier_by_class": {
+    "deep": {
+     "frontier": [],
+     "head": null
+    },
+    "small": {
+     "frontier": [],
+     "head": null
+    },
+    "wide": {
+     "frontier": [],
+     "head": null
+    }
+   }
+  },
   "stream": {
    "entries": [],
    "frontier_by_class": {
@@ -114,14 +138,21 @@
  },
  "epoch": {
   "aa_dispersion": {
-   "deep": null,
-   "note": "Per-class A/A paired-ratio CI half-widths, measured by `stwo-perf run --aa` on the designated judge host and recorded here by the judge. Null means theta falls back to the manifest floor and judged promotion is disabled until measured.",
-   "small": null,
-   "wide": null
+   "core_cpu": {
+    "deep": null,
+    "small": null,
+    "wide": null
+   },
+   "note": "Per-board, per-class A/A paired-ratio CI half-widths, measured by `stwo-perf run --aa --board <board>` on the designated judge host and recorded here by the judge. Null means theta falls back to the manifest floor and judged promotion is disabled until measured.",
+   "riscv": {
+    "deep": null,
+    "small": null,
+    "wide": null
+   }
   },
   "number": 1
  },
- "feed_schema_version": 1,
+ "feed_schema_version": 2,
  "history": {
   "comparisons": 6,
   "runs": [
@@ -538,23 +569,78 @@
  },
  "notes_count": 1,
  "project": {
-  "contract": "docs/design/2026-07-17-performance-extraction-playbook.md#part-f-the-autoresearch-harness",
+  "contract": "stwo-zig-og-docs archive: 2026-07-17-performance-extraction-playbook.md, Part F",
   "harness": "stwo-perf",
   "name": "Stwo in Zig with Metal",
   "slug": "stwo-zig"
+ },
+ "promotion_scope": {
+  "baselines": {
+   "core_cpu": "vectors/reports/benchmark_history/",
+   "riscv": "vectors/reports/riscv_baselines/"
+  },
+  "future_boards": [
+   "core_hybrid",
+   "core_metal",
+   "heavy_cairo",
+   "heavy_native",
+   "stream"
+  ],
+  "groups": {
+   "native": {
+    "board": "core_cpu",
+    "disabled_reason": null,
+    "enabled": true,
+    "report_schema": "native_proof_v6",
+    "workloads": {
+     "plonk_log14": {
+      "class": "deep",
+      "native_unit": "gates"
+     },
+     "wf_log10x8": {
+      "class": "small",
+      "native_unit": "trace rows"
+     },
+     "wf_log14x32": {
+      "class": "wide",
+      "native_unit": "trace rows"
+     }
+    }
+   },
+   "riscv": {
+    "board": "riscv",
+    "disabled_reason": "stark-v adapter pending release gate",
+    "enabled": false,
+    "report_schema": "riscv_proof_v1",
+    "workloads": {
+     "riscv_alu": {
+      "class": "small",
+      "native_unit": "executed instructions"
+     },
+     "riscv_fib_small": {
+      "class": "small",
+      "native_unit": "executed instructions"
+     }
+    }
+   }
+  },
+  "owned_boards": [
+   "core_cpu",
+   "riscv"
+  ]
  },
  "provenance": {
   "determinism": "pure function of the named inputs; a committed feed names the commit it was generated FROM (one-commit lag by construction) \u2014 verify via inputs_sha256, not commit equality",
   "dirty_inputs": [],
   "inputs_sha256": {
-   "autoresearch/MANIFEST.json": "64b1dee6555bf2994af2cbbe1a4b7c2cabdc6e90e73db73b8d45913385326260",
-   "autoresearch/ledger/epochs.json": "57dc8223f69d09c9c16385e1ac65e5310ee8d1c2b044b6772e69655ea7749d7d",
+   "autoresearch/MANIFEST.json": "0ab298be4576385bfefcbbb48f2f063d62c0db2f7b3e7c38edac44838f2beeff",
+   "autoresearch/ledger/epochs.json": "97e69d9694297442fc0cb3b3feda79323142c0ecc45a2e81f6192da9064ca803",
    "autoresearch/ledger/promotions.tsv": "d3ab2dd042280735865b61c184c9c81d860724563850ba05c7ee31342f5d989e",
    "vectors/reports/benchmark_history/index.json": "356ab43ca2a23cf5fa9b2771c5d8f4b036d6e6e41b10724fb4c9db6e9f6fc74a",
    "vectors/reports/benchmark_history/runs/2026-07-18-064334-matrix-v5-789feb4c/report.json": "8da5fae41d077ae897b44b024a4b3d2956a57daff2c0678a0441b26ec6643768"
   },
-  "repo_commit": "45321e7424ea",
-  "repo_commit_time": "2026-07-18T10:32:28+01:00"
+  "repo_commit": "facf4eb85926",
+  "repo_commit_time": "2026-07-20T10:10:18+01:00"
  },
  "submissions": []
 }

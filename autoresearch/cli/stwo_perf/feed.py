@@ -18,7 +18,7 @@ from pathlib import Path
 from . import frontier, ledger
 from .manifest import Manifest
 
-FEED_SCHEMA_VERSION = 1
+FEED_SCHEMA_VERSION = 2
 CLASSES = ("small", "wide", "deep")
 
 # Input roots whose uncommitted changes make a feed provenance-dishonest.
@@ -173,6 +173,35 @@ def _metal_progress(latest_matrix: dict | None) -> dict | None:
     }
 
 
+def _promotion_scope(manifest: Manifest) -> dict:
+    """The decided benchmark set: which boards a workload group actually owns.
+
+    Boards absent here exist only as future scoring universe (schema/scoring.md);
+    consumers must render them as out-of-scope, never as empty-but-live."""
+    groups = {}
+    for group in manifest.groups():
+        groups[group.group_id] = {
+            "board": group.board,
+            "enabled": group.enabled,
+            "disabled_reason": group.disabled_reason,
+            "report_schema": group.report_schema,
+            "workloads": {
+                w.workload_id: {"class": w.workload_class, "native_unit": w.native_unit}
+                for w in group.workloads
+            },
+        }
+    owned = sorted({g.board for g in manifest.groups()})
+    return {
+        "groups": groups,
+        "owned_boards": owned,
+        "future_boards": sorted(set(ledger.BOARDS) - set(owned)),
+        "baselines": {
+            "riscv": "vectors/reports/riscv_baselines/",
+            "core_cpu": "vectors/reports/benchmark_history/",
+        },
+    }
+
+
 def _boards(repo: Path, rows: list[ledger.Row]) -> dict:
     boards: dict = {}
     for board in ledger.BOARDS:
@@ -284,6 +313,7 @@ def build_feed(manifest: Manifest, allow_dirty: bool = False) -> dict:
             "number": epoch["epoch"],
             "aa_dispersion": epoch.get("aa_dispersion"),
         },
+        "promotion_scope": _promotion_scope(manifest),
         "boards": _boards(repo, rows),
         "metal_resident_progress": _metal_progress(latest),
         "latest_matrix": latest,
