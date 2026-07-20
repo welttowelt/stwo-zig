@@ -1,5 +1,9 @@
 # stwo-perf: the autoresearch harness
 
+**Start here: [TASK.md](TASK.md)** — the immediate optimization objective, the
+editable surface, the loop, and what winning means, written to be handed to a
+coding agent verbatim.
+
 Implementation of the harness contract in
 the performance-extraction playbook (Part F; archived in `stwo-zig-og-docs`),
 Part F. One CLI governs the optimization search from workspace creation to
