@@ -43,7 +43,7 @@ EXPECTED_AUTHORITY = {
     "stats_path": "autoresearch/cli/stwo_perf/stats.py",
     "stats_sha256": "78ac6b44ffc2b73f6f4418a3d01341ac50213376f5ff92d7a72168a3d965e503",
     "autoresearch_manifest_path": "autoresearch/MANIFEST.json",
-    "autoresearch_manifest_sha256": "3ffb3108a45076b67457f6011c1c1146b9c93e3088886f6a1a93b6b64298a9f6",
+    "autoresearch_manifest_sha256": "fd0697677abbcc8ce0488edc6273cb55a8b4879321f36ddbef06e451c3da492f",
 }
 EXPECTED_BUDGETS = {
     "minimum_throughput_ci_lower": 0.97,

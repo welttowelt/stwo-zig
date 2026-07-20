@@ -7,9 +7,9 @@
     "anchor_report": "autoresearch/reference/anchor",
     "anchor_prove_ms": {
       "core_cpu": {
-        "small": 3.096,
-        "wide": 18.619,
-        "deep": 14.317
+        "small": 2.789,
+        "wide": 17.656,
+        "deep": 14.416
       },
       "riscv": {
         "small": null,
@@ -17,7 +17,7 @@
         "deep": null
       }
     },
-    "anchor_note": "Frozen 2026-07-20 on the designated judge host (arm64 macOS): the pre-optimization original commit, medians measured same-session by autoresearch/reference/measure_peer_rust.py (reports committed under autoresearch/reference/anchor/). Drift budgets are active; riscv anchors freeze when that board enables."
+    "anchor_note": "Frozen 2026-07-20 on the designated Apple M5 Max judge host (arm64 macOS, 18 CPU cores): the pre-optimization original commit, medians measured same-session by autoresearch/reference/measure_peer_rust.py (reports committed under autoresearch/reference/anchor/). Drift budgets are host-local and active; riscv anchors freeze when that board enables."
   },
   "editable_paths": [
     {
