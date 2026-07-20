@@ -733,6 +733,54 @@ pub const MetalCommitBackend = struct {
             .last_layer_evaluation = terminal,
         };
     }
+
+    /// Adopts a successful resident cascade into the generic prover's private
+    /// layer types. Keeping this ownership transfer here leaves the generic
+    /// scheduler with only a narrow optional backend hook.
+    pub fn commitFriLayers(
+        comptime H: type,
+        comptime InnerLayerProver: type,
+        comptime InnerCommitResult: type,
+        allocator: std.mem.Allocator,
+        evaluation: @import("stwo_prover_impl").line.LineEvaluation,
+        channel: anytype,
+        workspace: *@import("stwo_core").fri.FoldLineWorkspace,
+        config: @import("stwo_core").fri.FriConfig,
+    ) !?InnerCommitResult {
+        var cascade = (try commitFriLineCascade(
+            H,
+            allocator,
+            evaluation,
+            channel,
+            workspace,
+            config.lastLayerDomainSize(),
+            config.fold_step,
+        )) orelse return null;
+        std.debug.assert(cascade.columns.len == cascade.trees.len);
+        const ready_layers = allocator.alloc(InnerLayerProver, cascade.columns.len) catch |err| {
+            cascade.deinit(allocator);
+            return err;
+        };
+        var layer_domain = evaluation.domain();
+        for (ready_layers, cascade.columns, cascade.trees) |*layer, column, tree| {
+            layer.* = .{
+                .domain = layer_domain,
+                .column = column,
+                .merkle_tree = tree,
+                .fold_step = 1,
+            };
+            layer_domain = layer_domain.double();
+        }
+        const terminal_evaluation = cascade.last_layer_evaluation;
+        allocator.free(cascade.columns);
+        allocator.free(cascade.trees);
+        var consumed_evaluation = evaluation;
+        consumed_evaluation.deinit(allocator);
+        return .{
+            .inner_layers = ready_layers,
+            .last_layer_evaluation = terminal_evaluation,
+        };
+    }
     pub const foldLine = cpu.foldLine;
     pub const foldLineN = cpu.foldLineN;
     pub const accumulateQuotients = cpu.accumulateQuotients;

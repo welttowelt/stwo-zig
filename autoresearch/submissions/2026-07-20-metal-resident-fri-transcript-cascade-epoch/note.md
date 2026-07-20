@@ -115,11 +115,12 @@ Metal-only hook: small 0.9970 `[0.9847, 1.0116]`, wide 0.9998
 
 Validation passes `zig build test`, `test-native-metal` (device-only prove plus
 independent verify), `metal-check`, `test-metal-core-aot`,
-`test-metal-core-aot-probe`, formatting/diff checks, and the fixed end-to-end
-proof matrix. A new five-layer cascade test compares every CPU/GPU Merkle root,
-final value, digest, draw count, and transcript error state. The broad Metal
-runtime suite reaches 79/82 with two expected skips and the same single
-resident-FRI test failure documented on the untouched predecessor.
+`test-metal-core-aot-probe`, formatting/diff checks, source conformance, and the
+fixed end-to-end proof matrix. The generic FRI owner remains below the manual
+source ceiling at 849 lines. A new five-layer cascade test compares every
+CPU/GPU Merkle root, final value, digest, draw count, and transcript error state.
+The broad Metal runtime suite reaches 79/82 with two expected skips and the same
+single resident-FRI test failure documented on the untouched predecessor.
 
 ## Caveats
 

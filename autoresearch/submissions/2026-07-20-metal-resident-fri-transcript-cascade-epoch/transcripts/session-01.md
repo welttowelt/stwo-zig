@@ -278,3 +278,26 @@ and 12/12 paired guards. CPU ratios were confirmed-neutral, as expected for a
 compile-time Metal-only branch: small 0.9970 `[0.9847, 1.0116]`, wide 0.9998
 `[0.9799, 1.0083]`, and deep 1.0027 `[0.9934, 1.0126]`. These current-harness
 verdicts replace the earlier advisory files for packaging.
+
+## Hosted static feedback and ownership-boundary refactor
+
+PR #25's package validator and prover gate passed immediately, but the focused
+static lane reported that `src/prover/fri.zig` had reached 888 lines, above the
+repository's 850-line manual-source ceiling. This was attributable to placing
+Metal cascade ownership adaptation directly in the generic scheduler, not to a
+functional failure.
+
+The adaptation was moved into `MetalCommitBackend.commitFriLayers`: the backend
+now invokes the raw cascade and moves its columns, trees, terminal evaluation,
+and source ownership into the generic prover's supplied private layer/result
+types. The generic scheduler retains only the optional call and immediate
+return. Compact error declarations bring the owner to 849 lines while the
+Metal backend remains 811 lines. `scripts/check_source_conformance.py` now
+passes with no new violations.
+
+After the refactor, `zig build test`, `metal-check`, both AOT probes, and the
+Native Metal device-only lifecycle all pass again. A fresh wide source-JIT run
+measures 12.823 ms, retains the exact `57a7d291...0f3374` hash, verifies all
+samples, reports one line-FRI epoch / 23 high-level Metal dispatches, and uses
+zero CPU fallbacks. The move changes code ownership only; the resident command
+graph and measured mechanism are unchanged.
