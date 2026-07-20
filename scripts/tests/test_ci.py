@@ -81,6 +81,20 @@ class CiTests(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "runtime_probes.*diverges"):
             validate_actual_construction(manifest, matrix, "focused")
 
+    def test_actual_construction_allows_fully_stubbed_probe_host(self) -> None:
+        # Capability partition: a host whose probing graphs are fail-closed
+        # stubs (e.g. Apple frameworks on Linux) observes zero probes.
+        manifest, matrix = self.construction_fixture()
+        manifest["actual"]["runtime_probes"] = []  # type: ignore[index]
+        validate_actual_construction(manifest, matrix, "focused")  # must not raise
+
+    def test_actual_construction_rejects_partial_probe_construction(self) -> None:
+        manifest, matrix = self.construction_fixture()
+        manifest["runtime_probes"] = ["Foundation.framework", "Metal.framework"]
+        manifest["actual"]["runtime_probes"] = ["Metal.framework"]  # type: ignore[index]
+        with self.assertRaisesRegex(SystemExit, "runtime_probes.*partial"):
+            validate_actual_construction(manifest, matrix, "focused")
+
     def test_actual_construction_rejects_constructor_mutation(self) -> None:
         manifest, matrix = self.construction_fixture()
         manifest["actual"]["constructors"] = ["products/matrix.construct.hidden"]  # type: ignore[index]
