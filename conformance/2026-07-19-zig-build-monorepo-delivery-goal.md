@@ -5,7 +5,7 @@
 **Created:** 2026-07-19
 
 **Authority:** This is the operative delivery contract for implementing
-[the accepted build-monorepo architecture](2026-07-19-zig-build-monorepo-architecture.md).
+the accepted build-monorepo architecture (design narrative archived in `stwo-zig-og-docs/design/`).
 The architecture document defines the intended design. This document defines
 the work, gates, evidence, and release decision required to claim that design
 has been delivered.
@@ -15,7 +15,7 @@ scope is complete at `68028a77`. Product construction, focused ownership,
 correctness-only gates, and fail-closed release plumbing are integrated. The
 protected cross-host authority cannot be activated on the current private
 repository plan and remains an explicit external TODO governed by
-[the activation runbook](2026-07-19-build-architecture-authority-activation.md).
+the activation runbook (archived in `stwo-zig-og-docs/design/`).
 That operational activation is not part of the revised repository-setup goal.
 
 **Protected release decision:** NO-GO until every mandatory checkpoint in this document
@@ -89,7 +89,7 @@ The following documents are normative, in descending order:
    this architecture release decision.
 5. [the RISC-V release goal](2026-07-18-riscv-release-goal.md), for specialized
    RISC-V soundness, statement, artifact, oracle, and registry requirements.
-6. [the accepted architecture](2026-07-19-zig-build-monorepo-architecture.md).
+6. the accepted architecture (archived in `stwo-zig-og-docs/design/`).
 7. [decomposition-plan.md](decomposition-plan.md) and
    [source-baseline.json](source-baseline.json), which govern existing debt.
 8. [divergence-log.md](divergence-log.md), for deliberate protocol differences.
