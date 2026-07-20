@@ -187,18 +187,17 @@ pub fn addProducts(context: Context) void {
     );
     bench_targeted_step.dependOn(&bench_targeted_compare_cmd.step);
     const bench_pages_cmd = b.addSystemCommand(&.{ "python3", "scripts/benchmark_pages.py" });
-    bench_pages_cmd.step.dependOn(&bench_full_cmd.step);
-    bench_pages_cmd.step.dependOn(&bench_contrast_long_cmd.step);
     const bench_pages_step = b.step(
         "bench-pages",
-        "Render static benchmark pages assets from family+example benchmark reports (includes RAM metrics)",
+        "Build the formal benchmark site catalog from committed immutable history",
     );
     bench_pages_step.dependOn(&bench_pages_cmd.step);
     const bench_full_step = b.step(
         "bench-full",
-        "Run full benchmark suite (11 families + long example matrix) and publish static pages data",
+        "Run the full family and long example benchmark suites",
     );
-    bench_full_step.dependOn(&bench_pages_cmd.step);
+    bench_full_step.dependOn(&bench_full_cmd.step);
+    bench_full_step.dependOn(&bench_contrast_long_cmd.step);
     const bench_pages_validate_cmd = b.addSystemCommand(&.{ "python3", "scripts/benchmark_pages.py", "--validate" });
     const bench_pages_validate_step = b.step("bench-pages-validate", "Validate static benchmark pages assets are current");
     bench_pages_validate_step.dependOn(&bench_pages_validate_cmd.step);

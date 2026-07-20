@@ -1,168 +1,191 @@
 #!/usr/bin/env python3
-"""Unit tests for fib5000 benchmark page flow payloads."""
+"""Tests for the formal benchmark publication catalog and authored shell."""
 
 from __future__ import annotations
 
 import copy
-import importlib.util
+import hashlib
+import json
+import tempfile
 import unittest
 from pathlib import Path
 
+from scripts.benchmark_pages_lib.catalog import CatalogError, build_catalog
+from scripts.benchmark_pages_lib.controller import encoded_json, run
+
 
 ROOT = Path(__file__).resolve().parents[2]
-MODULE_PATH = ROOT / "scripts" / "benchmark_pages.py"
-
-
-def load_module():
-    spec = importlib.util.spec_from_file_location("benchmark_pages", MODULE_PATH)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"failed to load module from {MODULE_PATH}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def stage(stage_id: str, seconds: float, children: list[dict] | None = None) -> dict:
-    payload = {
-        "id": stage_id,
-        "label": stage_id.replace("_", " "),
-        "seconds": seconds,
-    }
-    if children:
-        payload["children"] = children
-    return payload
+HISTORY = ROOT / "vectors" / "reports" / "benchmark_history"
+LATEST = (
+    HISTORY
+    / "runs"
+    / "2026-07-18-064334-matrix-v5-789feb4c"
+    / "report.json"
+)
 
 
 class BenchmarkPagesTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.mod = load_module()
-        self.family_report = {
-            "status": "ok",
-            "summary": {},
-            "families": [],
-        }
-        rust_top = [
-            stage("channel_and_scheme_init", 0.10),
-            stage("preprocessed_commit", 0.02),
-            stage("trace_generation", 0.30),
-            stage("main_trace_commit", 0.40),
-            stage("statement_mix", 0.01),
-            stage("core_prove", 0.90),
-            stage("proof_wire_encode", 0.03),
-            stage("artifact_write", 0.02),
-        ]
-        zig_top = [
-            stage("channel_and_scheme_init", 0.12),
-            stage("preprocessed_commit", 0.03),
-            stage("trace_generation", 0.34),
-            stage(
-                "main_trace_commit",
-                0.55,
-                [
-                    stage("interpolate_columns", 0.19),
-                    stage("evaluate_extended_domain", 0.22),
-                    stage("merkle_commit", 0.14),
-                ],
-            ),
-            stage("statement_mix", 0.01),
-            stage(
-                "core_prove",
-                1.15,
-                [
-                    stage("draw_random_coeff", 0.01),
-                    stage("composition_trace_extract", 0.06),
-                    stage("composition_evaluation", 0.09),
-                    stage("composition_interpolate_and_split", 0.12),
-                    stage("composition_commit", 0.11),
-                    stage("oods_point_and_mask_points", 0.08),
-                    stage("sampled_value_evaluation", 0.24),
-                    stage("sampled_value_channel_mix", 0.01),
-                    stage("fri_quotient_build", 0.16),
-                    stage("fri_commit", 0.08),
-                    stage("proof_of_work", 0.0),
-                    stage("fri_decommit", 0.05),
-                    stage("trace_decommit", 0.10),
-                    stage("constraint_check_and_assembly", 0.05),
-                ],
-            ),
-            stage("proof_wire_encode", 0.05),
-            stage("artifact_write", 0.02),
-        ]
-        self.examples_report = {
-            "status": "ok",
-            "summary": {},
-            "workloads": [
-                {
-                    "name": "wide_fibonacci_fib5000",
-                    "example": "wide_fibonacci",
-                    "rust": {
-                        "prove": {
-                            "avg_seconds": 1.78,
-                            "rss_peak_kb": 1000,
-                            "stage_flow": {
-                                "schema_version": 1,
-                                "runtime": "rust",
-                                "example": "wide_fibonacci",
-                                "stages": rust_top,
-                            },
-                        },
-                        "verify": {"avg_seconds": 0.01, "rss_peak_kb": 100},
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.report = json.loads(LATEST.read_text(encoding="utf-8"))
+
+    def write_history(self, root: Path, report: dict | None = None) -> Path:
+        report = copy.deepcopy(report or self.report)
+        history = root / "history"
+        report_path = history / "runs" / "formal-run" / "report.json"
+        report_path.parent.mkdir(parents=True)
+        raw = encoded_json(report)
+        report_path.write_bytes(raw)
+        index = {
+            "schema_version": 2,
+            "runs": {
+                "formal-run": {
+                    "kind": report["protocol"],
+                    "report": {
+                        "path": "runs/formal-run/report.json",
+                        "sha256": hashlib.sha256(raw).hexdigest(),
+                        "bytes": len(raw),
                     },
-                    "zig": {
-                        "prove": {
-                            "avg_seconds": 2.27,
-                            "rss_peak_kb": 1400,
-                            "stage_flow": {
-                                "schema_version": 1,
-                                "runtime": "zig",
-                                "example": "wide_fibonacci",
-                                "stages": zig_top,
-                            },
-                        },
-                        "verify": {"avg_seconds": 0.01, "rss_peak_kb": 110},
-                    },
-                    "ratios": {
-                        "zig_over_rust_prove": 1.275281,
-                        "zig_over_rust_verify": 1.0,
-                        "zig_over_rust_proof_wire_bytes": 1.0,
-                    },
+                    "bundle": None,
+                    "deltas": [],
                 }
-            ],
+            },
         }
+        (history / "index.json").write_bytes(encoded_json(index))
+        return history
 
-    def test_build_payload_includes_fib5000_flow(self) -> None:
-        payload = self.mod.build_payload(
-            self.family_report,
-            ROOT / "vectors" / "reports" / "benchmark_full_report.json",
-            self.examples_report,
-            ROOT / "vectors" / "reports" / "benchmark_contrast_long_report.json",
-        )
-        self.assertEqual(payload["schema_version"], 3)
-        flow = payload["fib5000_flow"]
-        self.assertEqual(flow["workload"], "wide_fibonacci_fib5000")
+    def test_real_history_publishes_only_complete_runs(self) -> None:
+        catalog = build_catalog(HISTORY)
+        self.assertEqual(catalog["schema"], "stwo_benchmark_catalog_v1")
+        self.assertEqual(len(catalog["runs"]), 2)
+        self.assertEqual(len(catalog["excluded_runs"]), 6)
+        latest = catalog["runs"][0]
         self.assertEqual(
-            [row["id"] for row in flow["top_level_rows"]],
-            self.mod.FLOW_TOP_LEVEL_STAGE_IDS,
+            latest["revision"]["git_commit"],
+            "789feb4cf06842fbbdfe41e369cb18dadb1803f6",
         )
-        self.assertEqual(
-            [row["id"] for row in flow["zig_main_trace_commit"]],
-            self.mod.FLOW_MAIN_TRACE_STAGE_IDS,
-        )
-        self.assertEqual(
-            [row["id"] for row in flow["zig_core_prove"]],
-            self.mod.FLOW_CORE_PROVE_STAGE_IDS,
-        )
+        self.assertEqual(latest["machine"]["chip"], "Apple M5 Max")
+        self.assertEqual(latest["captured_at"], "2026-07-18T06:43:34.232047+00:00")
+        self.assertEqual(latest["summary"]["verified_proofs"], 240)
+        self.assertTrue(all(row["proof"]["rust_oracle_verified"] for row in latest["rows"]))
 
-    def test_missing_fib5000_stage_flow_raises(self) -> None:
-        broken_report = copy.deepcopy(self.examples_report)
-        del broken_report["workloads"][0]["zig"]["prove"]["stage_flow"]
-        with self.assertRaisesRegex(RuntimeError, "fib5000 stage flow"):
-            self.mod.build_payload(
-                self.family_report,
-                ROOT / "vectors" / "reports" / "benchmark_full_report.json",
-                broken_report,
-                ROOT / "vectors" / "reports" / "benchmark_contrast_long_report.json",
+    def test_catalog_generation_is_deterministic(self) -> None:
+        self.assertEqual(encoded_json(build_catalog(HISTORY)), encoded_json(build_catalog(HISTORY)))
+
+    def test_dirty_measurement_is_not_publishable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            report = copy.deepcopy(self.report)
+            report["configuration"]["provenance"]["git_dirty"] = True
+            history = self.write_history(Path(temporary), report)
+            with self.assertRaisesRegex(CatalogError, "no provenance-complete runs"):
+                build_catalog(history)
+
+    def test_missing_machine_identity_is_not_publishable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            report = copy.deepcopy(self.report)
+            del report["configuration"]["host_environment"]["hardware"]["machine_model"]
+            history = self.write_history(Path(temporary), report)
+            with self.assertRaisesRegex(CatalogError, "no provenance-complete runs"):
+                build_catalog(history)
+
+    def test_naive_timestamp_is_not_publishable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            report = copy.deepcopy(self.report)
+            report["generated_at"] = "2026-07-18T06:43:34"
+            history = self.write_history(Path(temporary), report)
+            with self.assertRaisesRegex(CatalogError, "no provenance-complete runs"):
+                build_catalog(history)
+
+    def test_proof_parity_drift_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            report = copy.deepcopy(self.report)
+            report["rows"][0]["proof_parity"] = False
+            history = self.write_history(Path(temporary), report)
+            with self.assertRaisesRegex(CatalogError, "does not have CPU/Metal proof parity"):
+                build_catalog(history)
+
+    def test_rust_oracle_drift_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            report = copy.deepcopy(self.report)
+            report["rows"][0]["rust_oracle"]["verified"] = False
+            history = self.write_history(Path(temporary), report)
+            with self.assertRaisesRegex(CatalogError, "did not pass the Rust oracle"):
+                build_catalog(history)
+
+    def test_index_digest_drift_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            history = self.write_history(Path(temporary))
+            index_path = history / "index.json"
+            index = json.loads(index_path.read_text(encoding="utf-8"))
+            index["runs"]["formal-run"]["report"]["sha256"] = "0" * 64
+            index_path.write_bytes(encoded_json(index))
+            with self.assertRaisesRegex(CatalogError, "report digest mismatch"):
+                build_catalog(history)
+
+    def test_generate_then_validate_site_catalog(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            history = self.write_history(root)
+            site = root / "site"
+            (site / "assets").mkdir(parents=True)
+            (site / "index.html").write_text(
+                '<div role="tablist"></div><main id="overview-panel"></main>'
+                '<aside id="provenance-panel"></aside>',
+                encoding="utf-8",
             )
+            (site / "assets" / "styles.css").write_text("body{}", encoding="utf-8")
+            (site / "assets" / "responsive.css").write_text("", encoding="utf-8")
+            (site / "assets" / "app.js").write_text('"use strict";', encoding="utf-8")
+            self.assertEqual(run(["--history-dir", str(history), "--site-dir", str(site)]), 0)
+            self.assertEqual(
+                run(
+                    [
+                        "--history-dir",
+                        str(history),
+                        "--site-dir",
+                        str(site),
+                        "--validate",
+                    ]
+                ),
+                0,
+            )
+
+    def test_authored_shell_is_fixed_viewport_and_accessible(self) -> None:
+        html = (ROOT / "bench" / "site" / "index.html").read_text(encoding="utf-8")
+        css = (ROOT / "bench" / "site" / "assets" / "styles.css").read_text(
+            encoding="utf-8"
+        )
+        app = (ROOT / "bench" / "site" / "assets" / "app.js").read_text(encoding="utf-8")
+        self.assertIn('role="tablist"', html)
+        self.assertIn('role="tabpanel"', html)
+        self.assertIn("height: 100dvh", css)
+        self.assertIn("overflow: hidden", css)
+        self.assertNotIn("innerHTML", app)
+
+    def test_pages_workflow_validates_prs_and_publishes_changed_nightlies(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "benchmark-pages.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('cron: "17 03 * * *"', workflow)
+        self.assertIn("pull_request:", workflow)
+        self.assertIn("vectors/reports/benchmark_history/**", workflow)
+        self.assertIn("python3 scripts/benchmark_pages.py --validate", workflow)
+        self.assertIn("event=schedule&per_page=1", workflow)
+        self.assertIn('git diff --quiet "$previous_sha" HEAD', workflow)
+        self.assertIn("needs.validate.outputs.publish == 'true'", workflow)
+        self.assertIn("path: bench/site", workflow)
+        self.assertNotIn("bench/dev/bench", workflow)
+
+    def test_pages_build_target_does_not_run_benchmarks(self) -> None:
+        build = (ROOT / "build_support" / "benchmarks" / "native.zig").read_text(
+            encoding="utf-8"
+        )
+        pages_start = build.index("const bench_pages_cmd")
+        pages_end = build.index("// Profiling smoke gate", pages_start)
+        pages_block = build[pages_start:pages_end]
+        self.assertNotIn("bench_pages_cmd.step.dependOn", pages_block)
+        self.assertIn("bench_full_step.dependOn(&bench_full_cmd.step)", pages_block)
+        self.assertIn("bench_full_step.dependOn(&bench_contrast_long_cmd.step)", pages_block)
 
 
 if __name__ == "__main__":
