@@ -63,6 +63,64 @@ PHASE_MARKERS = {
 MIN_RUST_PARALLELISM = 1.5
 
 
+def _sysctl(key: str) -> str | None:
+    try:
+        result = subprocess.run(
+            ["sysctl", "-n", key], capture_output=True, text=True, timeout=10
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    value = result.stdout.strip()
+    return value if result.returncode == 0 and value else None
+
+
+def _tool_version(argv: list[str]) -> str | None:
+    try:
+        result = subprocess.run(argv, capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    out = (result.stdout or result.stderr).strip().splitlines()
+    return out[0] if result.returncode == 0 and out else None
+
+
+def collect_host_environment(stark_v_source: Path | None = None) -> dict[str, object]:
+    """Portable machine context for a benchmark report: what ran it, where.
+
+    No serial numbers or user data. Fields absent on non-macOS hosts are null,
+    with the platform block always populated so every report is self-describing.
+    """
+    import platform
+
+    memsize = _sysctl("hw.memsize")
+    stark_v_commit = None
+    if stark_v_source is not None:
+        stark_v_commit = _tool_version(
+            ["git", "-C", str(stark_v_source), "rev-parse", "HEAD"]
+        )
+    return {
+        "schema": "riscv_benchmark_host_environment_v1",
+        "platform": {
+            "system": platform.system(),
+            "release": platform.release(),
+            "machine": platform.machine(),
+            "os_product_version": _tool_version(["sw_vers", "-productVersion"]),
+            "os_build_version": _tool_version(["sw_vers", "-buildVersion"]),
+        },
+        "hardware": {
+            "chip": _sysctl("machdep.cpu.brand_string"),
+            "machine_model": _sysctl("hw.model"),
+            "logical_cpu_count": os.cpu_count(),
+            "physical_memory_bytes": int(memsize) if memsize else None,
+        },
+        "toolchain": {
+            "zig_version": _tool_version(["zig", "version"]),
+            "host_rustc": _tool_version(["rustc", "--version"]),
+            "python": platform.python_version(),
+        },
+        "stark_v_commit": stark_v_commit,
+    }
+
+
 def parse_phase_seconds(stderr: str) -> dict[str, float]:
     """Extract execution/prove/verify durations from bench-cli tracing output."""
     stamps: dict[str, dt.datetime] = {}
@@ -275,6 +333,7 @@ def main(argv: list[str] | None = None) -> int:
         },
         "metal_note": "RISC-V adapter is CPU-only; no RISC-V Metal prover on "
                       "either lane. Native CPU-vs-Metal is in the native proof matrix.",
+        "host_environment": collect_host_environment(args.stark_v_source.resolve()),
         "warmups": args.warmups,
         "samples": args.samples,
         "failure_count": failures,

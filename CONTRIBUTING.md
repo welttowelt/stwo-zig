@@ -1271,6 +1271,14 @@ lanes under the pinned oracle's default PCS profile). Zig rows run the staged
 CLI and carry `staged_experimental_not_release_gated` until RF-01 promotes the
 adapter; treat them as baseline candidates, never as release evidence.
 
+Both RISC-V harnesses embed a `host_environment` block (chip, cores, memory, OS,
+toolchain) so every report says what machine produced it, and their committed
+baselines live under `vectors/reports/riscv_baselines/` (the per-run
+`vectors/reports/*.json` outputs are gitignored). Those baselines are the
+reference the autoresearch harness measures against; see that directory's
+README for the anchor-freeze linkage. The native board's tracked history is
+`vectors/reports/benchmark_history/`.
+
 `scripts/build_crypto_guests.py` vendors the compiled cryptographic guests
 (SHA-256, Keccak, ECDSA from Stark-V's guest-lib, plus the repo-owned
 `vectors/riscv_guests/poseidon2_m31` guest) into `vectors/riscv_elfs/crypto/`

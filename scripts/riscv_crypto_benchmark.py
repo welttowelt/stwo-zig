@@ -44,6 +44,7 @@ from scripts.riscv_stark_v_benchmark import (  # noqa: E402
     ANSI_RE,
     MIN_RUST_PARALLELISM,
     PINNED_COMMIT,
+    collect_host_environment,
     parse_phase_seconds,
 )
 SCHEMA = "riscv_crypto_benchmark_v1"
@@ -245,6 +246,7 @@ def main(argv: list[str] | None = None) -> int:
         "metal_note": "RISC-V adapter is CPU-only (no RISC-V Metal prover on either "
                       "lane); native CPU-vs-Metal lives in the native proof matrix",
         "min_rust_cpu_wall_ratio": MIN_RUST_PARALLELISM,
+        "host_environment": collect_host_environment(args.stark_v_source.resolve()),
         "warmups": args.warmups,
         "samples": args.samples,
         "failure_count": failures,

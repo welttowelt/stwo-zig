@@ -3,6 +3,7 @@ import unittest
 from scripts.riscv_stark_v_benchmark import (
     MIN_RUST_PARALLELISM,
     PHASE_MARKERS,
+    collect_host_environment,
     parse_phase_seconds,
 )
 
@@ -47,3 +48,15 @@ class PhaseParsingTests(unittest.TestCase):
         # The floor must sit above a single core so a non-parallel Rust build
         # (cpu/wall ~ 1.0) fails, while a genuinely threaded one clears it.
         self.assertGreater(MIN_RUST_PARALLELISM, 1.0)
+
+
+class HostEnvironmentTests(unittest.TestCase):
+    def test_report_is_self_describing_on_any_host(self) -> None:
+        env = collect_host_environment()
+        self.assertEqual(env["schema"], "riscv_benchmark_host_environment_v1")
+        # The platform block is always populated so a report never lands
+        # without machine context, even off macOS where sysctl fields are null.
+        for key in ("system", "release", "machine"):
+            self.assertTrue(env["platform"][key])
+        self.assertIsNotNone(env["hardware"]["logical_cpu_count"])
+        self.assertIn("chip", env["hardware"])
