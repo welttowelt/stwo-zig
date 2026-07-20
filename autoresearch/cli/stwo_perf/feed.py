@@ -25,6 +25,7 @@ CLASSES = ("small", "wide", "deep")
 INPUT_ROOTS = (
     "autoresearch/MANIFEST.json",
     "autoresearch/ledger",
+    "autoresearch/reference",
     "autoresearch/submissions",
     "autoresearch/notes",
     "vectors/reports/benchmark_history",
@@ -318,6 +319,22 @@ def _transcripts(sub: Path) -> list[dict]:
     return refs
 
 
+def _references(repo: Path) -> dict:
+    """Committed external reference measurements (autoresearch/reference/*.json)
+    — e.g. the peer-Rust prover on the matched suite. Passed through verbatim;
+    consumers must render the recorded method caveats with the numbers."""
+    ref_dir = repo / "autoresearch" / "reference"
+    if not ref_dir.is_dir():
+        return {}
+    out = {}
+    for path in sorted(ref_dir.glob("*.json")):
+        try:
+            out[path.stem.replace("-", "_")] = json.loads(path.read_text())
+        except json.JSONDecodeError as exc:
+            raise FeedError(f"reference file {path.name} is not valid JSON: {exc}")
+    return out
+
+
 def _notes_count(repo: Path) -> int:
     notes_dir = repo / "autoresearch" / "notes"
     if not notes_dir.is_dir():
@@ -397,6 +414,7 @@ def build_feed(manifest: Manifest, allow_dirty: bool = False) -> dict:
         "metal_resident_progress": _metal_progress(latest),
         "latest_matrix": latest,
         "baseline_matrix": baseline,
+        "references": _references(repo),
         "history": {
             "runs": [
                 {"run_id": rid, "kind": e.get("kind"),
