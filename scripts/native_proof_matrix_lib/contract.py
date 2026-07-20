@@ -549,7 +549,10 @@ def validate_runtime_admission(
         return
     if not isinstance(admission, dict):
         raise MatrixError("metal.runtime_admission must be an object")
-    require_exact_keys(admission, RUNTIME_ADMISSION_KEYS, "metal.runtime_admission")
+    require_exact_keys(
+        admission, RUNTIME_ADMISSION_KEYS, "metal.runtime_admission",
+        optional={"platform_identity"},
+    )
     if require_bool(admission["initialized"], "metal.runtime_admission.initialized") is not True:
         raise MatrixError("metal.runtime_admission must be initialized")
     origin = require_string(admission["origin"], "metal.runtime_admission.origin")

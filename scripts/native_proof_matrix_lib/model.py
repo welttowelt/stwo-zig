@@ -88,6 +88,9 @@ RUNTIME_ADMISSION_KEYS = {
     "live_resident_resources",
     "initialization_count",
     "shutdown_count",
+    # Added by the Zig report schema (report.zig platform_identity): the
+    # runtime/registry/hardware identity string the admission was made under.
+    "platform_identity",
 }
 BACKEND_COUNTER_KEYS = {
     "host_merkle_commits",

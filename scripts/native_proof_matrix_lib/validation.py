@@ -9,13 +9,20 @@ from .model import MatrixError
 
 
 def require_exact_keys(
-    value: dict[str, Any], expected: set[str], context: str
+    value: dict[str, Any], expected: set[str], context: str,
+    optional: set[str] | None = None,
 ) -> None:
+    """Exact key-set schema check; `optional` keys may be absent (fields the
+    Zig report schema added after archived reports were committed — new
+    reports carry them, history stays loadable)."""
     actual = set(value)
-    if actual != expected:
+    opt = optional or set()
+    missing = (expected - opt) - actual
+    extra = actual - expected
+    if missing or extra:
         raise MatrixError(
             f"{context} has the wrong schema; "
-            f"missing={sorted(expected - actual)}, extra={sorted(actual - expected)}"
+            f"missing={sorted(missing)}, extra={sorted(extra)}"
         )
 
 
