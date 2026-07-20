@@ -292,9 +292,15 @@ pub fn Operations(comptime H: type) type {
             else
                 1;
             const per_worker_batch = @min(@min(batch_size, total_leaves), @as(usize, 1024));
-            const hashers = try allocator.alloc(H, worker_count * per_worker_batch);
+            const four_way_hashing = comptime @hasDecl(H, "leafSeed") and
+                @hasDecl(H, "hashPackedLeavesWithSeed4");
+            const hashers_per_worker = if (four_way_hashing) 0 else per_worker_batch;
+            const hashers = try allocator.alloc(H, worker_count * hashers_per_worker);
             defer allocator.free(hashers);
-            const scratch_words_per_worker = max_leaf_scratch_bytes / @sizeOf(M31);
+            const scratch_words_per_worker = if (four_way_hashing)
+                try std.math.mul(usize, 4, sorted_columns.len)
+            else
+                max_leaf_scratch_bytes / @sizeOf(M31);
             const scratch_words = if (comptime @hasDecl(H, "updateLeafPackedBytes"))
                 allocator.alloc(M31, worker_count * scratch_words_per_worker) catch null
             else
@@ -312,7 +318,7 @@ pub fn Operations(comptime H: type) type {
                     .sorted_columns = sorted_columns,
                     .max_log_size = max_log_size,
                     .out = out,
-                    .batch_hashers = hashers[worker * per_worker_batch ..][0..per_worker_batch],
+                    .batch_hashers = hashers[worker * hashers_per_worker ..][0..hashers_per_worker],
                     .scratch = if (scratch_words) |words| blk: {
                         const scratch_start = worker * scratch_words_per_worker;
                         break :blk std.mem.sliceAsBytes(words[scratch_start..][0..scratch_words_per_worker]);

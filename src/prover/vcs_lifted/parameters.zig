@@ -11,7 +11,7 @@ pub const merkle_worker_stack_size: usize = 1 << 20;
 pub const leaf_tile_len: usize = 256;
 pub const max_leaf_scratch_bytes: usize = 256 * 1024;
 pub const default_leaf_batch_size: usize = 1 << 12;
-pub const batched_leaf_threshold: usize = 1 << 14;
+pub const batched_leaf_threshold: usize = 1 << 8;
 
 pub fn layerAllocator(fallback: std.mem.Allocator) std.mem.Allocator {
     if (comptime builtin.os.tag == .macos or builtin.os.tag == .linux) {
