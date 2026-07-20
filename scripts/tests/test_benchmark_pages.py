@@ -173,6 +173,10 @@ class BenchmarkPagesTests(unittest.TestCase):
         self.assertIn("event=schedule&per_page=1", workflow)
         self.assertIn('git diff --quiet "$previous_sha" HEAD', workflow)
         self.assertIn("needs.validate.outputs.publish == 'true'", workflow)
+        self.assertIn("actions/upload-artifact@", workflow)
+        self.assertIn("name: benchmark-site-${{ github.sha }}", workflow)
+        self.assertIn("retention-days: 30", workflow)
+        self.assertIn("vars.BENCHMARK_PAGES_ENABLED == 'true'", workflow)
         self.assertIn("path: bench/site", workflow)
         self.assertNotIn("bench/dev/bench", workflow)
 

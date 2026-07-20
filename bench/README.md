@@ -47,6 +47,11 @@ python3 -m http.server 8000 --directory bench/site
 ```
 
 The first command regenerates only `site/data/catalog.json`. HTML, CSS, and
-JavaScript are authored assets and are validated separately. GitHub Pages
-publishes on relevant `main` updates and checks nightly for new benchmark or
-site commits.
+JavaScript are authored assets and are validated separately. Actions publishes
+the complete site as a 30-day artifact on relevant `main` updates and checks
+nightly for new benchmark or site commits.
+
+Live GitHub Pages deployment is additionally enabled when the repository has a
+Pages-capable plan and the repository variable `BENCHMARK_PAGES_ENABLED` is
+`true`. Artifact publication remains the fail-safe source of the exact
+deployable site when Pages is unavailable.

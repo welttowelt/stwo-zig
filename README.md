@@ -165,7 +165,7 @@ python3 scripts/install_hooks.py
 | **[Conformance](conformance/upstream.md)** | Pinned oracle revisions, API parity ledger, and the source-conformance baseline |
 | **[RISC-V release goal](conformance/2026-07-18-riscv-release-goal.md)** | Executable checkpoints, evidence requirements, and the fail-closed promotion contract |
 | **[Autoresearch](autoresearch/README.md)** | The stwo-perf harness: judged scoring, submissions, ledger, and site feed |
-| **[Benchmark dashboard](https://teddyjfpender.github.io/stwo-zig/)** | Formal CPU/SIMD and Metal results with commit, machine, capture time, and oracle provenance |
+| **[Benchmark dashboard](bench/README.md)** | Formal CPU/SIMD and Metal results with commit, machine, capture time, and oracle provenance |
 | **[Benchmark history](vectors/reports/benchmark_history/index.json)** | Immutable judged runs, deltas, and bundles under human-readable run ids |
 | **Design archive** | Prose architecture and history live in the sibling `stwo-zig-og-docs` directory |
 | **[Contributing](CONTRIBUTING.md)** | Zig, SIMD, Metal, correctness, and engineering standards |
