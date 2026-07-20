@@ -269,11 +269,13 @@ def _submissions(repo: Path, rows: list[ledger.Row]) -> list[dict]:
 
 
 def _solver(repo: Path, submission_id: str) -> str | None:
-    """Attribution from the repository itself: the author of the commit that
-    landed the submission directory. GitHub noreply addresses yield the exact
-    login; otherwise the author name is the honest attribution."""
+    """Attribution from the repository itself: the mailmapped author of the
+    commit that landed the submission directory (.mailmap maps working emails
+    to canonical GitHub noreply identities — committed source of truth, no
+    network lookups). Noreply addresses yield the exact login; otherwise the
+    author name is the honest attribution."""
     out = _git(
-        repo, "log", "--reverse", "--format=%an%x00%ae", "--",
+        repo, "log", "--reverse", "--format=%aN%x00%aE", "--",
         f"autoresearch/submissions/{submission_id}",
     ).splitlines()
     if not out:
