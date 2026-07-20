@@ -43,8 +43,9 @@ Top-level keys:
 | `boards` | per scoring board (schema/scoring.md): ledger entries + per-class frontier |
 | `metal_resident_progress` | Board-4 progress metrics while the board is empty (fallbacks/proof, zero-fallback row count) |
 | `latest_matrix` | the newest benchmark-history matrix run: per-row workload identity, headline eligibility, proof parity, and per-lane medians (prove ms, native MHz with its unit, request ms, peak RSS, fallback/dispatch counts) |
+| `baseline_matrix` | the EARLIEST committed matrix run, same shape as `latest_matrix`: the fixed pre-optimization reference vector. Suite-level progress is the vector of per-workload time ratios (latest/baseline, paired by workload name, headline-eligible rows) aggregated by geometric mean — the only consistent mean for normalized ratios — with the worst component reported alongside so no single coordinate can be gamed |
 | `history` | run index (ids, kinds, report digests) and comparison count |
-| `submissions` | id, note title, outcome (or `pending`), judged R |
+| `submissions` | id, note title, outcome (or `pending`), judged R, `verdict_kind`, `workload_class`, `solver` (landing-commit author; GitHub noreply emails yield the exact login), full public `note` text, and digest-bound `transcripts` refs (label, sha256, captured_by, short leading excerpt) |
 | `notes_count` | standalone note count |
 
 Consumer rules: never upgrade a `claimed`/`pending` state to judged; always

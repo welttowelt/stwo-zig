@@ -58,6 +58,24 @@ class FeedTest(unittest.TestCase):
             for entry in data["entries"]:
                 self.assertIn(entry["outcome"], ("promoted", "neutral", "rejected"))
 
+    def test_baseline_matrix_is_the_earliest_run(self):
+        baseline = self.feed["baseline_matrix"]
+        latest = self.feed["latest_matrix"]
+        self.assertIsNotNone(baseline)
+        self.assertLessEqual(baseline["run_id"], latest["run_id"])
+        self.assertTrue(baseline["rows"])
+
+    def test_submissions_carry_attribution_and_record(self):
+        for sub in self.feed["submissions"]:
+            self.assertIn("solver", sub)
+            self.assertIn("verdict_kind", sub)
+            self.assertIn("note", sub)
+            self.assertIn("transcripts", sub)
+            for ref in sub["transcripts"]:
+                self.assertTrue(ref["label"])
+                self.assertTrue(ref["sha256"])
+                self.assertIn(ref["captured_by"], ("harness", "submitter"))
+
     def test_latest_matrix_rows_have_lane_medians(self):
         latest = self.feed["latest_matrix"]
         if latest is None:

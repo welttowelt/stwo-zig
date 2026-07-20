@@ -109,16 +109,31 @@ def _lane_summary(lane: dict) -> dict:
     return out
 
 
-def _latest_matrix(repo: Path, index: dict) -> dict | None:
+def _matrix_run_ids(index: dict) -> list[str]:
     runs = index.get("runs", {})
-    matrix_runs = {
-        rid: entry for rid, entry in runs.items()
+    return sorted(
+        rid for rid, entry in runs.items()
         if isinstance(entry.get("kind"), str) and "matrix" in entry["kind"]
-    }
-    if not matrix_runs:
-        return None
-    latest_id = max(matrix_runs)  # run ids sort chronologically by construction
-    entry = matrix_runs[latest_id]["report"]
+    )  # run ids sort chronologically by construction
+
+
+def _latest_matrix(repo: Path, index: dict) -> dict | None:
+    ids = _matrix_run_ids(index)
+    return _matrix_from_run(repo, index, ids[-1]) if ids else None
+
+
+def _baseline_matrix(repo: Path, index: dict) -> dict | None:
+    """The earliest committed matrix run: the fixed pre-optimization reference
+    vector that suite-level ratios are computed against (consumers pair
+    workloads by name across baseline and latest and aggregate per-workload
+    time ratios by geometric mean — the vector-toward-origin reading)."""
+    ids = _matrix_run_ids(index)
+    return _matrix_from_run(repo, index, ids[0]) if ids else None
+
+
+def _matrix_from_run(repo: Path, index: dict, run_id: str) -> dict:
+    latest_id = run_id
+    entry = index["runs"][run_id]["report"]
     report_path = repo / "vectors/reports/benchmark_history" / entry["path"]
     if not report_path.is_file():
         raise FeedError(f"history index names a missing report: {entry['path']}")
@@ -227,17 +242,72 @@ def _submissions(repo: Path, rows: list[ledger.Row]) -> list[dict]:
     for sub in sorted(p for p in subs_dir.iterdir() if p.is_dir()):
         row = by_id.get(sub.name)
         title = None
+        note_text = None
         note = sub / "note.md"
         if note.exists():
-            lines = note.read_text().lstrip().splitlines()
+            note_text = note.read_text()
+            lines = note_text.lstrip().splitlines()
             title = lines[0].lstrip("# ").strip() or None if lines else None
         out.append({
             "id": sub.name,
             "title": title,
             "outcome": row.values.get("outcome") if row else "pending",
             "judged_r": row.judged_r if row else None,
+            "verdict_kind": row.values.get("verdict_kind") if row else None,
+            "workload_class": row.values.get("workload_class") if row else None,
+            "solver": _solver(repo, sub.name),
+            "note": note_text,
+            "transcripts": _transcripts(sub),
         })
     return out
+
+
+def _solver(repo: Path, submission_id: str) -> str | None:
+    """Attribution from the repository itself: the author of the commit that
+    landed the submission directory. GitHub noreply addresses yield the exact
+    login; otherwise the author name is the honest attribution."""
+    out = _git(
+        repo, "log", "--reverse", "--format=%an%x00%ae", "--",
+        f"autoresearch/submissions/{submission_id}",
+    ).splitlines()
+    if not out:
+        return None
+    name, _, email = out[0].partition("\x00")
+    if email.endswith("@users.noreply.github.com"):
+        local = email.split("@", 1)[0]
+        return local.split("+", 1)[1] if "+" in local else local
+    return name or None
+
+
+_TRANSCRIPT_EXCERPT_CHARS = 700
+
+
+def _transcripts(sub: Path) -> list[dict]:
+    """Digest-bound transcript refs with a short leading excerpt; the full
+    sanitized files stay in the repository as the source of truth."""
+    delta_path = sub / "delta.json"
+    if not delta_path.is_file():
+        return []
+    try:
+        delta = json.loads(delta_path.read_text())
+    except json.JSONDecodeError:
+        return []
+    refs = []
+    for tpath, meta in sorted(delta.get("transcripts", {}).items()):
+        file_path = sub / tpath
+        excerpt = None
+        if file_path.is_file():
+            try:
+                excerpt = file_path.read_text(errors="replace")[:_TRANSCRIPT_EXCERPT_CHARS]
+            except OSError:
+                excerpt = None
+        refs.append({
+            "label": tpath.split("/", 1)[-1],
+            "sha256": meta.get("sha256"),
+            "captured_by": meta.get("captured_by", "submitter"),
+            "excerpt": excerpt,
+        })
+    return refs
 
 
 def _notes_count(repo: Path) -> int:
@@ -262,6 +332,7 @@ def build_feed(manifest: Manifest, allow_dirty: bool = False) -> dict:
         json.loads(history_index_path.read_text()) if history_index_path.exists() else {}
     )
     latest = _latest_matrix(repo, history)
+    baseline = _baseline_matrix(repo, history)
     epoch = ledger.current_epoch(repo)
     extra_inputs = {}
     if latest is not None:
@@ -317,6 +388,7 @@ def build_feed(manifest: Manifest, allow_dirty: bool = False) -> dict:
         "boards": _boards(repo, rows),
         "metal_resident_progress": _metal_progress(latest),
         "latest_matrix": latest,
+        "baseline_matrix": baseline,
         "history": {
             "runs": [
                 {"run_id": rid, "kind": e.get("kind"),

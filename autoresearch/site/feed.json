@@ -15,6 +15,306 @@
    }
   }
  },
+ "baseline_matrix": {
+  "generated_at": "2026-07-17T06:45:20.792273+00:00",
+  "protocol": "native_proof_cross_backend_matrix_v3",
+  "repo_commit": "370f8ef80a9532239adbf70ce0620c22dd58fc06",
+  "rows": [
+   {
+    "committed_trace_cells": 8192,
+    "headline_eligible": true,
+    "lanes": {
+     "cpu": {
+      "native_mhz": 0.41064023384036435,
+      "peak_rss_mib": null,
+      "prove_ms": 2.493667,
+      "request_ms": 2.686417
+     },
+     "metal": {
+      "cpu_fallbacks_per_proof": 13,
+      "metal_dispatches_per_proof": 15,
+      "native_mhz": 0.1439870636622491,
+      "peak_rss_mib": null,
+      "prove_ms": 7.11175,
+      "request_ms": 7.312625
+     }
+    },
+    "name": "wide_fibonacci",
+    "native_unit": "trace_rows",
+    "native_units": 1024,
+    "parameters": {
+     "log_n_rows": 10,
+     "sequence_len": 8
+    },
+    "proof_bytes": 23569,
+    "proof_parity": true
+   },
+   {
+    "committed_trace_cells": 524288,
+    "headline_eligible": true,
+    "lanes": {
+     "cpu": {
+      "native_mhz": 1.3797537142988516,
+      "peak_rss_mib": null,
+      "prove_ms": 11.874583,
+      "request_ms": 12.82375
+     },
+     "metal": {
+      "cpu_fallbacks_per_proof": 16,
+      "metal_dispatches_per_proof": 20,
+      "native_mhz": 1.1198013118160706,
+      "peak_rss_mib": null,
+      "prove_ms": 14.631167,
+      "request_ms": 15.591875
+     }
+    },
+    "name": "wide_fibonacci",
+    "native_unit": "trace_rows",
+    "native_units": 16384,
+    "parameters": {
+     "log_n_rows": 14,
+     "sequence_len": 32
+    },
+    "proof_bytes": 44225,
+    "proof_parity": true
+   },
+   {
+    "committed_trace_cells": 3072,
+    "headline_eligible": true,
+    "lanes": {
+     "cpu": {
+      "native_mhz": 0.38840607855512943,
+      "peak_rss_mib": null,
+      "prove_ms": 2.636416,
+      "request_ms": 2.819417
+     },
+     "metal": {
+      "cpu_fallbacks_per_proof": 13,
+      "metal_dispatches_per_proof": 17,
+      "native_mhz": 0.16360440965010387,
+      "peak_rss_mib": null,
+      "prove_ms": 6.259,
+      "request_ms": 6.427292
+     }
+    },
+    "name": "xor",
+    "native_unit": "xor_rows",
+    "native_units": 1024,
+    "parameters": {
+     "log_size": 10,
+     "log_step": 2,
+     "offset": 3
+    },
+    "proof_bytes": 23505,
+    "proof_parity": true
+   },
+   {
+    "committed_trace_cells": 49152,
+    "headline_eligible": true,
+    "lanes": {
+     "cpu": {
+      "native_mhz": 1.5327310678151174,
+      "peak_rss_mib": null,
+      "prove_ms": 10.689416,
+      "request_ms": 10.957958
+     },
+     "metal": {
+      "cpu_fallbacks_per_proof": 16,
+      "metal_dispatches_per_proof": 22,
+      "native_mhz": 1.1344394533447582,
+      "peak_rss_mib": null,
+      "prove_ms": 14.442375,
+      "request_ms": 14.711541
+     }
+    },
+    "name": "xor",
+    "native_unit": "xor_rows",
+    "native_units": 16384,
+    "parameters": {
+     "log_size": 14,
+     "log_step": 2,
+     "offset": 3
+    },
+    "proof_bytes": 46446,
+    "proof_parity": true
+   },
+   {
+    "committed_trace_cells": 8192,
+    "headline_eligible": true,
+    "lanes": {
+     "cpu": {
+      "native_mhz": 0.37956980359116027,
+      "peak_rss_mib": null,
+      "prove_ms": 2.697791,
+      "request_ms": 2.910584
+     },
+     "metal": {
+      "cpu_fallbacks_per_proof": 13,
+      "metal_dispatches_per_proof": 17,
+      "native_mhz": 0.14603882522033465,
+      "peak_rss_mib": null,
+      "prove_ms": 7.011834,
+      "request_ms": 7.191666
+     }
+    },
+    "name": "plonk",
+    "native_unit": "plonk_rows",
+    "native_units": 1024,
+    "parameters": {
+     "log_n_rows": 10
+    },
+    "proof_bytes": 26642,
+    "proof_parity": true
+   },
+   {
+    "committed_trace_cells": 131072,
+    "headline_eligible": true,
+    "lanes": {
+     "cpu": {
+      "native_mhz": 1.4718591384808875,
+      "peak_rss_mib": null,
+      "prove_ms": 11.1315,
+      "request_ms": 11.451083
+     },
+     "metal": {
+      "cpu_fallbacks_per_proof": 16,
+      "metal_dispatches_per_proof": 22,
+      "native_mhz": 1.0764517957014856,
+      "peak_rss_mib": null,
+      "prove_ms": 15.220375,
+      "request_ms": 15.551292
+     }
+    },
+    "name": "plonk",
+    "native_unit": "plonk_rows",
+    "native_units": 16384,
+    "parameters": {
+     "log_n_rows": 14
+    },
+    "proof_bytes": 45200,
+    "proof_parity": true
+   },
+   {
+    "committed_trace_cells": 3072,
+    "headline_eligible": true,
+    "lanes": {
+     "cpu": {
+      "native_mhz": 0.4141975932854687,
+      "peak_rss_mib": null,
+      "prove_ms": 2.47225,
+      "request_ms": 2.676834
+     },
+     "metal": {
+      "cpu_fallbacks_per_proof": 13,
+      "metal_dispatches_per_proof": 17,
+      "native_mhz": 0.17557293529485796,
+      "peak_rss_mib": null,
+      "prove_ms": 5.832334,
+      "request_ms": 6.002791
+     }
+    },
+    "name": "state_machine",
+    "native_unit": "state_transitions",
+    "native_units": 1024,
+    "parameters": {
+     "initial_x": 9,
+     "initial_y": 3,
+     "log_n_rows": 10
+    },
+    "proof_bytes": 27637,
+    "proof_parity": true
+   },
+   {
+    "committed_trace_cells": 49152,
+    "headline_eligible": true,
+    "lanes": {
+     "cpu": {
+      "native_mhz": 1.5681282526769156,
+      "peak_rss_mib": null,
+      "prove_ms": 10.448125,
+      "request_ms": 10.704042
+     },
+     "metal": {
+      "cpu_fallbacks_per_proof": 16,
+      "metal_dispatches_per_proof": 22,
+      "native_mhz": 1.1085218837673125,
+      "peak_rss_mib": null,
+      "prove_ms": 14.780042,
+      "request_ms": 15.0355
+     }
+    },
+    "name": "state_machine",
+    "native_unit": "state_transitions",
+    "native_units": 16384,
+    "parameters": {
+     "initial_x": 9,
+     "initial_y": 3,
+     "log_n_rows": 14
+    },
+    "proof_bytes": 40082,
+    "proof_parity": true
+   },
+   {
+    "committed_trace_cells": 49152,
+    "headline_eligible": true,
+    "lanes": {
+     "cpu": {
+      "native_mhz": 0.22190919926319214,
+      "peak_rss_mib": null,
+      "prove_ms": 2.30725,
+      "request_ms": 2.581792
+     },
+     "metal": {
+      "cpu_fallbacks_per_proof": 11,
+      "metal_dispatches_per_proof": 13,
+      "native_mhz": 0.08967771021979096,
+      "peak_rss_mib": null,
+      "prove_ms": 5.709334,
+      "request_ms": 5.999708
+     }
+    },
+    "name": "blake",
+    "native_unit": "blake_round_instances",
+    "native_units": 512,
+    "parameters": {
+     "log_n_rows": 8,
+     "n_rounds": 2
+    },
+    "proof_bytes": 29996,
+    "proof_parity": true
+   },
+   {
+    "committed_trace_cells": 983040,
+    "headline_eligible": true,
+    "lanes": {
+     "cpu": {
+      "native_mhz": 0.43092731686977764,
+      "peak_rss_mib": null,
+      "prove_ms": 23.762708,
+      "request_ms": 27.437042
+     },
+     "metal": {
+      "cpu_fallbacks_per_proof": 13,
+      "metal_dispatches_per_proof": 15,
+      "native_mhz": 0.5146256716392708,
+      "peak_rss_mib": null,
+      "prove_ms": 19.897958,
+      "request_ms": 23.540791
+     }
+    },
+    "name": "blake",
+    "native_unit": "blake_round_instances",
+    "native_units": 10240,
+    "parameters": {
+     "log_n_rows": 10,
+     "n_rounds": 10
+    },
+    "proof_bytes": 97973,
+    "proof_parity": true
+   }
+  ],
+  "run_id": "2026-07-17-064520-matrix-v3-370f8ef8"
+ },
  "boards": {
   "core_cpu": {
    "entries": [
@@ -718,15 +1018,27 @@
    "vectors/reports/benchmark_history/index.json": "356ab43ca2a23cf5fa9b2771c5d8f4b036d6e6e41b10724fb4c9db6e9f6fc74a",
    "vectors/reports/benchmark_history/runs/2026-07-18-064334-matrix-v5-789feb4c/report.json": "8da5fae41d077ae897b44b024a4b3d2956a57daff2c0678a0441b26ec6643768"
   },
-  "repo_commit": "af1feb3fbfce",
-  "repo_commit_time": "2026-07-20T18:32:05+01:00"
+  "repo_commit": "f1225c95e3b7",
+  "repo_commit_time": "2026-07-20T18:41:55+01:00"
  },
  "submissions": [
   {
    "id": "2026-07-20-packed-direct-quotient-resident-merkle-pool",
    "judged_r": 0.973575,
+   "note": "# Pack direct quotient rows and reuse the resident Merkle pool\n\n## Model and harness\n\nModel: GPT-5 Codex. Harness: stwo-perf at `962dbbae393f`, ReleaseFast on arm64 macOS, paired S3 wide/time against predecessor `31a3132ef2e6`. The repository test closure passed across 356 transitive Zig sources. Transcript: submitter-captured and redacted under `transcripts/session.md`.\n\n## Hypothesis\n\nFRI quotient construction spends repeated scalar work accumulating direct lifting-column contributions into four M31 numerator planes. Traversing native packed row lanes should preserve each output cell's contribution order while reducing loop and arithmetic instructions. Merkle commits already run under a prover-global work pool, so their layer executors can reuse that resident pool instead of constructing short-lived pools.\n\n## Changes\n\nDirect-column quotient contributions now load four adjacent rows as one native `PackedM31`, reuse that base vector across the four secure-field coordinate planes, and perform packed multiply/add/store operations. Non-direct views retain the scalar index mapping. Full tiles clear their contiguous numerator allocation with one memset; partial tiles retain plane-aware clearing. Merkle commits reuse an installed global pool while keeping the existing environment opt-in fallback for standalone callers.\n\n## Results\n\nS1 isolated quotient-tile A/B: wall ratio 0.5089, 95% CI [0.5041, 0.5132], instruction ratio 0.3632, cycle ratio 0.4455. arm64 disassembly contains packed `ldr q`/`str q`, `umull.2d`/`umull2.2d`, `uzp1.4s`, and `add.4s` operations in `quotient_tile_executor.execute`.\n\nS3 `wf_log14x32`: ratio 0.9736, 95% CI [0.9639, 0.9862], 15 paired rounds; predecessor median 17.761 ms, candidate median 17.321 ms. Every timed sample verified and remained byte-identical; proof SHA-256 was `57a7d291eb8a103d0e4395c23fd7dc9ab7e9ed2d0f95558835cc6482630f3374`.\n\n## Caveats\n\nThis is a local claimed result. The anchor is not frozen, so budgets and judge-host promotion remain pending; the immutable judge rerun is authoritative. Native mechanism telemetry wiring is also still listed as pending by the harness, with the counter and codegen evidence above providing the current mechanism check. The optimization targets direct full-size columns, so small workloads are not expected to move materially.\n",
    "outcome": "promoted",
-   "title": "Pack direct quotient rows and reuse the resident Merkle pool"
+   "solver": "Teddy Pender",
+   "title": "Pack direct quotient rows and reuse the resident Merkle pool",
+   "transcripts": [
+    {
+     "captured_by": "submitter",
+     "excerpt": "# Redacted agent session transcript\n\n- Captured by: submitter\n- Model: GPT-5 Codex\n- Date: 2026-07-20\n- Redaction: system instructions, hidden reasoning, raw tool dumps, credentials, environment values, and broad local paths omitted.\n\n## User prompts\n\n### Participation brief\n\n> youre about to participate in an auto research task, specifically these are the instructions: How it works\n>\n> Every number on this page is a judged run. The harness rebuilds the predecessor and the candidate, interleaves them on a locked runner, and scores paired ratios \u2014 a searcher's own score is only ever a claim.\n>\n> Promotion requires every hard gate: conformance, identity, mechanism telemetry, resource budgets, ",
+     "label": "session.md",
+     "sha256": "9d1a4290a9951ff7d87472b6147fd196bc208b60570c81f8b475a76093dc66fe"
+    }
+   ],
+   "verdict_kind": "claimed",
+   "workload_class": "wide"
   }
  ]
 }
