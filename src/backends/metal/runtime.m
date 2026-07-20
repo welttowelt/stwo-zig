@@ -422,6 +422,7 @@
 @property(nonatomic, strong) NSData *layerWordOffsets;
 @property(nonatomic, strong) NSData *layerWordLengths;
 @property(nonatomic, strong) id<MTLBuffer> rootReadback;
+@property(nonatomic, assign) uint32_t rootReadbackWordOffset;
 @property(nonatomic, assign) uint32_t logSize;
 @property(nonatomic, assign) double gpuMilliseconds;
 @end

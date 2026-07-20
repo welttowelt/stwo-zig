@@ -489,6 +489,44 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
             );
             defer fold_workspace.deinit(allocator);
             const last_layer_log_size = std.math.log2_int(usize, config.lastLayerDomainSize());
+
+            if (comptime @hasDecl(B, "commitFriLineCascade")) {
+                if (try B.commitFriLineCascade(
+                    H,
+                    allocator,
+                    layer_evaluation,
+                    channel,
+                    &fold_workspace,
+                    config.lastLayerDomainSize(),
+                    config.fold_step,
+                )) |cascade_value| {
+                    var cascade = cascade_value;
+                    std.debug.assert(cascade.columns.len == cascade.trees.len);
+                    const ready_layers = allocator.alloc(InnerLayerProver, cascade.columns.len) catch |err| {
+                        cascade.deinit(allocator);
+                        return err;
+                    };
+                    var layer_domain = layer_evaluation.domain();
+                    for (ready_layers, cascade.columns, cascade.trees) |*layer, column, tree| {
+                        layer.* = .{
+                            .domain = layer_domain,
+                            .column = column,
+                            .merkle_tree = tree,
+                            .fold_step = 1,
+                        };
+                        layer_domain = layer_domain.double();
+                    }
+                    const terminal_evaluation = cascade.last_layer_evaluation;
+                    allocator.free(cascade.columns);
+                    allocator.free(cascade.trees);
+                    layer_evaluation.deinit(allocator);
+                    layer_evaluation = terminal_evaluation;
+                    return .{
+                        .inner_layers = ready_layers,
+                        .last_layer_evaluation = layer_evaluation,
+                    };
+                }
+            }
             var pending_tree: ?B.MerkleTree(H) = null;
             var pending_column: ?SecureColumnByCoords = null;
             errdefer if (pending_tree) |*tree| tree.deinit(allocator);

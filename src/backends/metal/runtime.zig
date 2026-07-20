@@ -83,6 +83,11 @@ pub const FriFoldCommitResult = struct {
     tree: Tree,
 };
 
+pub const FriLineCascadeResult = struct {
+    stats: CommandEpochStats,
+    trees: []Tree,
+};
+
 const session_ops = @import("runtime/session.zig");
 const prepared_ops = @import("runtime/prepared_execution.zig");
 const composition_ops = @import("runtime/composition_operations.zig");
@@ -155,6 +160,7 @@ pub const Runtime = struct {
     pub const foldFriCircle = opening_ops.foldFriCircle;
     pub const foldFriLine = opening_ops.foldFriLine;
     pub const foldFriLineAndCommit = opening_ops.foldFriLineAndCommit;
+    pub const foldFriLineCascade = opening_ops.foldFriLineCascade;
     pub const prepareFriFold = opening_ops.prepareFriFold;
     pub const friFoldPrepared = opening_ops.friFoldPrepared;
     pub const prepareQuotientCombine = opening_ops.prepareQuotientCombine;
