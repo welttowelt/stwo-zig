@@ -138,6 +138,12 @@ pub const DomainEvaluationAccumulator = struct {
         self.next_power_index -= 1;
         const random_coeff = self.random_coeff_powers[self.next_power_index];
 
+        if (constantColumnValue(evaluation)) |constant| {
+            self.constant_accumulations[log_size] = self.constant_accumulations[log_size]
+                .add(constant.mul(random_coeff));
+            return;
+        }
+
         if (self.sub_accumulations[log_size]) |*acc| {
             if (acc.len() != expected_len) return AccumulationError.ShapeMismatch;
             for (0..expected_len) |row| {
@@ -314,6 +320,18 @@ fn liftedValueAt(
 fn checkedPow2(log_size: u32) AccumulationError!usize {
     if (log_size >= @bitSizeOf(usize)) return AccumulationError.InvalidLogSize;
     return @as(usize, 1) << @intCast(log_size);
+}
+
+fn constantColumnValue(column: *const SecureColumnByCoords) ?QM31 {
+    std.debug.assert(column.len() != 0);
+    inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+        const values = column.columns[coordinate];
+        const first = values[0];
+        for (values[1..]) |value| {
+            if (!value.eql(first)) return null;
+        }
+    }
+    return column.at(0);
 }
 
 test "prover air accumulation: generate secure powers" {
@@ -584,5 +602,43 @@ test "prover air accumulation: constants match materialized columns after merge"
 
     for (0..combined.len()) |row| {
         try std.testing.expect(combined.at(row).eql(expected.at(row)));
+    }
+}
+
+test "prover air accumulation: constant columns bypass domain buckets" {
+    const alloc = std.testing.allocator;
+    const alpha = QM31.fromU32Unchecked(3, 1, 0, 0);
+    const constant = QM31.fromU32Unchecked(7, 2, 1, 0);
+    const constant_values = [_]QM31{constant} ** 8;
+    const varying_values = [_]QM31{
+        QM31.fromU32Unchecked(1, 0, 0, 0),
+        QM31.fromU32Unchecked(2, 0, 0, 0),
+        QM31.fromU32Unchecked(3, 0, 0, 0),
+        QM31.fromU32Unchecked(4, 0, 0, 0),
+        QM31.fromU32Unchecked(5, 0, 0, 0),
+        QM31.fromU32Unchecked(6, 0, 0, 0),
+        QM31.fromU32Unchecked(7, 0, 0, 0),
+        QM31.fromU32Unchecked(8, 0, 0, 0),
+    };
+    var constant_column = try SecureColumnByCoords.fromSecureSlice(alloc, &constant_values);
+    defer constant_column.deinit(alloc);
+    var varying_column = try SecureColumnByCoords.fromSecureSlice(alloc, &varying_values);
+    defer varying_column.deinit(alloc);
+
+    try std.testing.expect(constantColumnValue(&constant_column).?.eql(constant));
+    try std.testing.expectEqual(null, constantColumnValue(&varying_column));
+
+    var acc = try DomainEvaluationAccumulator.init(alloc, alpha, 3, 2);
+    defer acc.deinit();
+    try acc.accumulateColumn(3, &constant_column);
+    try std.testing.expect(acc.sub_accumulations[3] == null);
+    try acc.accumulateColumn(3, &varying_column);
+    try std.testing.expect(acc.sub_accumulations[3] != null);
+
+    var combined = try acc.finalize();
+    defer combined.deinit(alloc);
+    for (0..combined.len()) |row| {
+        const expected = constant.mul(alpha).add(varying_values[row]);
+        try std.testing.expect(combined.at(row).eql(expected));
     }
 }
