@@ -4,8 +4,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 const mmap_alloc = @import("../mmap_alloc.zig");
 
-pub const parallel_min_nodes: usize = 1 << 13;
-pub const parallel_min_nodes_per_worker: usize = 1 << 12;
+pub const parallel_min_nodes: usize = 1 << 11;
+pub const parallel_min_nodes_per_worker: usize = 1 << 10;
 pub const max_parallel_workers: usize = 16;
 pub const merkle_worker_stack_size: usize = 1 << 20;
 pub const leaf_tile_len: usize = 256;
