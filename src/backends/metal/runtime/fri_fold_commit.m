@@ -63,7 +63,7 @@ void *stwo_zig_metal_fri_fold_line_and_commit(
         NSMutableArray<id<MTLBuffer>> *layers = [NSMutableArray arrayWithCapacity:tree_log_size + 1u];
         uint32_t layer_count = final_count;
         for (uint32_t level = 0u; level <= tree_log_size; ++level) {
-            MTLResourceOptions storage = level == tree_log_size
+            MTLResourceOptions storage = level == tree_log_size || runtime.device.hasUnifiedMemory
                 ? MTLResourceStorageModeShared
                 : MTLResourceStorageModePrivate;
             id<MTLBuffer> layer = [runtime.device newBufferWithLength:(NSUInteger)layer_count * 32u
