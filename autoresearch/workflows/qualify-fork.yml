@@ -55,7 +55,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
       - name: Reject locked, stray, executable, and non-frontier changes
@@ -83,12 +84,13 @@ jobs:
           --login '${{ github.actor }}'
           --verdict qualification/verdict.json
           --out qualification/receipt.json
-      - uses: actions/upload-artifact@v4
+      - name: Upload qualification artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: autoresearch-qualification
           path: qualification/
           if-no-files-found: error
       - name: Attest the qualification receipt
-        uses: actions/attest@v4
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4
         with:
           subject-path: qualification/receipt.json
