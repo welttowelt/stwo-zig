@@ -115,7 +115,7 @@ def package(
     manifest: Manifest,
     slug: str,
     note_file: Path,
-    verdict_file: Path,
+    verdict_files: list[Path],
     transcript_dir: Path | None,
     model: str,
     transcripts_declined: bool = False,
@@ -128,9 +128,21 @@ def package(
     if problems:
         raise SubmitError("note.md rejected:\n  - " + "\n  - ".join(problems))
 
-    verdict = json.loads(verdict_file.read_text())
-    if verdict.get("kind") == "judged":
-        raise SubmitError("submissions carry claimed verdicts; only the judge emits judged")
+    # One mechanism, one diff — but every workload class the change moves may
+    # carry its own paired verdict, so the whole improvement is credited to
+    # the suite score instead of one class swallowing the others' gains.
+    if not verdict_files:
+        raise SubmitError("at least one claimed verdict is required")
+    verdicts = [json.loads(v.read_text()) for v in verdict_files]
+    seen_classes: set[str] = set()
+    for source, verdict in zip(verdict_files, verdicts):
+        if verdict.get("kind") == "judged":
+            raise SubmitError("submissions carry claimed verdicts; only the judge emits judged")
+        cls = str((verdict.get("declared_objective") or {}).get("workload_class"))
+        if cls in seen_classes:
+            raise SubmitError(f"duplicate verdict for class {cls} ({source})")
+        seen_classes.add(cls)
+    verdict = verdicts[0]
 
     # Prior notes/submissions on the same branch are legitimate (mirrors the
     # carve-out in runner._gates and validate_action).
@@ -153,7 +165,10 @@ def package(
     sub_dir.mkdir(parents=True)
 
     (sub_dir / "note.md").write_text(note_text)
-    shutil.copy2(verdict_file, sub_dir / "verdict.json")
+    shutil.copy2(verdict_files[0], sub_dir / "verdict.json")
+    for extra, extra_verdict in zip(verdict_files[1:], verdicts[1:]):
+        cls = str(extra_verdict["declared_objective"]["workload_class"])
+        shutil.copy2(extra, sub_dir / f"verdict-{cls}.json")
 
     transcripts_meta = {}
     tdir = sub_dir / "transcripts"

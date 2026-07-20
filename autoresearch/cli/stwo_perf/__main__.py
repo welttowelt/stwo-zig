@@ -113,7 +113,8 @@ def cmd_submit(args) -> int:
     m = manifest_mod.load()
     try:
         sub_dir = submitter.package(
-            m.root, m, args.slug, Path(args.note_file), Path(args.verdict),
+            m.root, m, args.slug, Path(args.note_file),
+            [Path(v) for v in args.verdict],
             Path(args.transcripts) if args.transcripts else None, args.model,
             transcripts_declined=args.transcripts_declined,
         )
@@ -169,17 +170,27 @@ def _warn_harness_drift() -> None:
 def cmd_promote_claimed(args) -> int:
     from . import promotion
     m = manifest_mod.load()
-    try:
-        row = promotion.promote_claimed(m.root, args.submission)
-    except promotion.PromotionError as exc:
-        return _fail(str(exc))
-    kind = ansi.style("claimed", "yellow")
-    print(
-        f"✓ ledger row appended ({kind}): {args.submission} "
-        f"outcome={row['outcome']} R={row['judged_r']:.4f}"
-    )
+    sub_dir = m.root / "autoresearch" / "submissions" / args.submission
+    verdicts = promotion.claimed_verdict_files(sub_dir)
+    if not verdicts:
+        return _fail(f"no verdicts under {sub_dir}")
+    recorded = 0
+    for verdict_path in verdicts:
+        try:
+            row = promotion.promote_claimed(m.root, args.submission, verdict_path.name)
+        except promotion.PromotionError as exc:
+            print(ansi.style(f"  {verdict_path.name}: {exc}", "dim"))
+            continue
+        kind = ansi.style("claimed", "yellow")
+        print(
+            f"✓ ledger row appended ({kind}): {args.submission} "
+            f"[{row['workload_class']}] outcome={row['outcome']} R={row['judged_r']:.4f}"
+        )
+        recorded += 1
+    if recorded == 0:
+        return _fail("no verdict could be recorded")
     print(ansi.style(
-        "  optimistic maintainer adjudication — a judged run supersedes this row",
+        "  optimistic maintainer adjudication — a judged run supersedes these rows",
         "dim",
     ))
     return 0
@@ -502,7 +513,11 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("submit", help="package a submission directory")
     p.add_argument("--slug", required=True)
     p.add_argument("--note-file", required=True)
-    p.add_argument("--verdict", required=True, help="claimed verdict.json from `run`")
+    p.add_argument(
+        "--verdict", required=True, action="append",
+        help="claimed verdict.json from `run`; repeat once per workload class "
+             "the change moves — every moved class earns its suite credit",
+    )
     p.add_argument(
         "--transcripts",
         help="directory of sanitized session transcripts (the default expectation; "

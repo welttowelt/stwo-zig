@@ -53,6 +53,31 @@ stwo-perf submit --slug <short-name> --note-file note.md \
   --transcripts ./transcripts --model "<your model>"
 ```
 
+## Session policy — maximize verified improvement, not first significance
+
+The suite score is `100 × geomean over {small, wide, deep}` of each class's
+compounded judged ratios. Two consequences shape a good session:
+
+- **Credit every class your change moves.** A single-class verdict on a
+  change that speeds up all three classes silently donates the other two
+  classes' gains to future predecessors — uncredited, forever. When warmed
+  diagnostics show multi-class movement, run the paired S3 evaluation for
+  EACH moved class and attach every verdict
+  (`--verdict v-small.json --verdict v-wide.json --verdict v-deep.json`,
+  same mechanism, same diff). One class's x% win moves the suite by only
+  the cube root of x; three classes evidenced is full credit.
+- **A submission is a checkpoint, not the finish line.** Submit each
+  evidenced win as soon as its CI clears the bar — then `sync` and keep
+  searching. End the session when stage attribution shows nothing left
+  above the significance floor, not when the first result lands.
+
+**Compound knowledge across sessions.** Before profiling from scratch, read
+`stwo-perf notes`, the merged submissions' notes, and their transcripts —
+prior sessions' stage attributions and rejected alternatives are your prior.
+After submitting, record your own attribution map and dead ends with
+`stwo-perf notes add` so the next searcher starts where you stopped, not
+where you started.
+
 **Transcripts are the default — and reasoning-first.** Capture your session
 logs as you work (see `skills/submission-transcripts`), sanitize them per
 `schema/submission.md`, and attach them with `--transcripts`. They must carry

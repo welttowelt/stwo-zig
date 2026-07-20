@@ -234,7 +234,13 @@ def _boards(repo: Path, rows: list[ledger.Row]) -> dict:
 
 
 def _submissions(repo: Path, rows: list[ledger.Row]) -> list[dict]:
-    by_id = {r.submission_id: r for r in rows}
+    # A submission may carry one row per moved class; headline with its
+    # strongest ratio and prefer a promoted outcome.
+    by_id: dict[str, ledger.Row] = {}
+    for r in rows:
+        current = by_id.get(r.submission_id)
+        if current is None or r.judged_r < current.judged_r:
+            by_id[r.submission_id] = r
     out = []
     subs_dir = repo / "autoresearch" / "submissions"
     if not subs_dir.is_dir():

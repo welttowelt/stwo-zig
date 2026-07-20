@@ -110,17 +110,27 @@ def landing_commit(repo: Path, submission_id: str) -> str:
     return out[0]
 
 
-def promote_claimed(repo: Path, submission_id: str) -> dict:
-    """Maintainer-as-judge: record a merged submission's claimed verdict as an
-    optimistic ledger row. Returns the appended row. Refuses anything that is
-    not a merged, schema-clean claimed submission or is already recorded."""
+def claimed_verdict_files(sub_dir: Path) -> list[Path]:
+    """A submission's verdicts: the primary verdict.json plus one
+    verdict-<class>.json per additional workload class the change moved."""
+    primary = sub_dir / "verdict.json"
+    extras = sorted(sub_dir.glob("verdict-*.json"))
+    return [p for p in [primary, *extras] if p.is_file()]
+
+
+def promote_claimed(repo: Path, submission_id: str,
+                    verdict_name: str = "verdict.json") -> dict:
+    """Maintainer-as-judge: record one of a merged submission's claimed
+    verdicts as an optimistic ledger row (one row per moved class). Returns
+    the appended row. Refuses anything that is not a merged, schema-clean
+    claimed submission or whose (submission, class) is already recorded."""
     if _git(repo, "status", "--porcelain").strip():
         raise PromotionError(
             "working tree is not clean; promote from a clean checkout of the "
             "merged history"
         )
     sub_dir = repo / "autoresearch" / "submissions" / submission_id
-    verdict_path = sub_dir / "verdict.json"
+    verdict_path = sub_dir / verdict_name
     if not verdict_path.is_file():
         raise PromotionError(f"no verdict at {verdict_path}")
     verdict = json.loads(verdict_path.read_text())
@@ -129,8 +139,14 @@ def promote_claimed(repo: Path, submission_id: str) -> dict:
             "promote-claimed records claimed verdicts only; judged verdicts "
             "arrive via the signed promote path"
         )
-    if any(r.submission_id == submission_id for r in ledger.load(repo)):
-        raise PromotionError(f"{submission_id} already has a ledger row")
+    verdict_class = (verdict.get("declared_objective") or {}).get("workload_class")
+    if any(
+        r.submission_id == submission_id and r.workload_class == verdict_class
+        for r in ledger.load(repo)
+    ):
+        raise PromotionError(
+            f"{submission_id} already has a ledger row for class {verdict_class}"
+        )
 
     objective = verdict["declared_objective"]
     head = frontier.view(

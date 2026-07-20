@@ -86,15 +86,22 @@ def main() -> int:
         for required in ("verdict.json", "delta.json"):
             if not (sub / required).exists():
                 findings.append(f"{name}: missing {required}")
-        verdict_path = sub / "verdict.json"
-        if verdict_path.exists():
+        verdict_paths = [sub / "verdict.json", *sorted(sub.glob("verdict-*.json"))]
+        seen_classes: set[str] = set()
+        for verdict_path in verdict_paths:
+            if not verdict_path.exists():
+                continue
             try:
                 verdict = json.loads(verdict_path.read_text())
             except json.JSONDecodeError:
-                findings.append(f"{name}: verdict.json is not valid JSON")
-                verdict = {}
+                findings.append(f"{name}: {verdict_path.name} is not valid JSON")
+                continue
             if verdict.get("kind") == "judged":
                 findings.append(f"{name}: submissions must carry claimed verdicts")
+            cls = str((verdict.get("declared_objective") or {}).get("workload_class"))
+            if cls in seen_classes:
+                findings.append(f"{name}: duplicate verdict for class {cls}")
+            seen_classes.add(cls)
         secrets = submitter.scan_transcripts(sub / "transcripts")
         findings.extend(f"{name}: transcript secret scan: {s}" for s in secrets)
         transcripts_dir = sub / "transcripts"

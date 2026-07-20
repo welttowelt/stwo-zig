@@ -100,6 +100,30 @@ class PromoteClaimedTest(unittest.TestCase):
         with self.assertRaises(promotion.PromotionError):
             promotion.promote_claimed(self.repo, "2026-07-20-packed")
 
+    def test_multi_class_verdicts_record_one_row_each(self):
+        sub = self.repo / "autoresearch" / "submissions" / "2026-07-20-multi"
+        sub.mkdir(parents=True)
+        (sub / "verdict.json").write_text(json.dumps(claimed_verdict()))
+        deep = claimed_verdict()
+        deep["declared_objective"]["workload_class"] = "deep"
+        deep["score"]["per_workload"] = {"plonk_log14": {"b_median_ms": 8.5, "ci": [0.85, 0.87]}}
+        (sub / "verdict-deep.json").write_text(json.dumps(deep))
+        (sub / "note.md").write_text("# note\n")
+        self._commit("Merge submission 2026-07-20-multi")
+
+        from stwo_perf.promotion import claimed_verdict_files
+        files = [p.name for p in claimed_verdict_files(sub)]
+        self.assertEqual(files, ["verdict.json", "verdict-deep.json"])
+
+        row_wide = promotion.promote_claimed(self.repo, "2026-07-20-multi")
+        row_deep = promotion.promote_claimed(self.repo, "2026-07-20-multi", "verdict-deep.json")
+        self.assertEqual(row_wide["workload_class"], "wide")
+        self.assertEqual(row_deep["workload_class"], "deep")
+        rows = [r for r in ledger.load(self.repo) if r.submission_id == "2026-07-20-multi"]
+        self.assertEqual(len(rows), 2)
+        with self.assertRaisesRegex(promotion.PromotionError, "class deep"):
+            promotion.promote_claimed(self.repo, "2026-07-20-multi", "verdict-deep.json")
+
     def test_insignificant_result_records_neutral(self):
         verdict = claimed_verdict()
         verdict["score"]["significant"] = False

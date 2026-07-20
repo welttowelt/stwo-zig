@@ -23,31 +23,35 @@ from stwo_perf import ledger, promotion  # noqa: E402
 
 
 def record_pending(repo: Path) -> list[str]:
-    """Append optimistic rows for merged, unrecorded claimed submissions;
-    returns the submission ids recorded (oldest first)."""
-    recorded_ids = {r.submission_id for r in ledger.load(repo)}
+    """Append optimistic rows for merged, unrecorded claimed verdicts — one
+    row per (submission, moved class); returns 'id[name]' entries recorded."""
+    recorded_pairs = {
+        (r.submission_id, r.workload_class) for r in ledger.load(repo)
+    }
     recorded: list[str] = []
     subs_dir = repo / "autoresearch" / "submissions"
     for sub in sorted(p for p in subs_dir.iterdir() if p.is_dir()):
-        if sub.name in recorded_ids:
-            continue
-        verdict_path = sub / "verdict.json"
-        if not verdict_path.is_file():
-            continue
-        try:
-            kind = json.loads(verdict_path.read_text()).get("kind")
-        except json.JSONDecodeError:
-            print(f"[record] skipping {sub.name}: verdict.json is not valid JSON")
-            continue
-        if kind != "claimed":
-            continue
-        try:
-            row = promotion.promote_claimed(repo, sub.name)
-        except promotion.PromotionError as exc:
-            print(f"[record] skipping {sub.name}: {exc}")
-            continue
-        print(f"[record] ✓ {sub.name}: outcome={row['outcome']} R={row['judged_r']}")
-        recorded.append(sub.name)
+        for verdict_path in promotion.claimed_verdict_files(sub):
+            try:
+                verdict = json.loads(verdict_path.read_text())
+            except json.JSONDecodeError:
+                print(f"[record] skipping {sub.name}/{verdict_path.name}: invalid JSON")
+                continue
+            if verdict.get("kind") != "claimed":
+                continue
+            cls = (verdict.get("declared_objective") or {}).get("workload_class")
+            if (sub.name, cls) in recorded_pairs:
+                continue
+            try:
+                row = promotion.promote_claimed(repo, sub.name, verdict_path.name)
+            except promotion.PromotionError as exc:
+                print(f"[record] skipping {sub.name}/{verdict_path.name}: {exc}")
+                continue
+            print(
+                f"[record] ✓ {sub.name} [{row['workload_class']}]: "
+                f"outcome={row['outcome']} R={row['judged_r']}"
+            )
+            recorded.append(f"{sub.name}[{verdict_path.name}]")
     return recorded
 
 
