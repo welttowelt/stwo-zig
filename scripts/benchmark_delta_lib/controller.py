@@ -745,6 +745,12 @@ def compare_reports(
         ),
         "sources": {"baseline": baseline_source, "current": current_source},
         "normalizations": [],
+        # Judge finding (PR 20 era): this delta compares two SEQUENTIAL runs,
+        # never interleaved arms — session-to-session machine drift lands in
+        # the numbers, so timing deltas here are diagnostics only. Paired
+        # ABBA evaluation (stwo-perf run) is the only scored comparison.
+        "sequencing": "sequential-runs (diagnostic only; not paired ABBA — "
+                      "never a timing claim)",
     }
     try:
         protocol_pair = (baseline["protocol"], current["protocol"])
