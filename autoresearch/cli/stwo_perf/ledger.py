@@ -6,14 +6,24 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
+# v1 column set — frozen forever as the file header (the file is append-only,
+# so the header can never change; later versions extend rows, not the header).
 COLUMNS = [
     "schema_version", "harness_commit", "epoch", "judged_at_utc", "commit",
     "scope", "board", "workload_class", "outcome", "judged_r", "ci_low",
     "ci_high", "prove_ms", "native_mhz", "peak_rss_mib", "waits", "dispatches",
     "energy_j", "gates", "holdout", "submission_id", "predecessor", "supersedes",
 ]
+
+# v2 appends verdict_kind: `judged` (signed judge verdict) or `claimed`
+# (maintainer-adjudicated optimistic promotion; superseded by a judged row).
+COLUMNS_V2 = COLUMNS + ["verdict_kind"]
+
+_COLUMNS_BY_VERSION = {1: COLUMNS, 2: COLUMNS_V2}
+
+VERDICT_KINDS = ("judged", "claimed")
 
 OUTCOMES = ("promoted", "neutral", "rejected")
 
@@ -67,9 +77,19 @@ def parse(text: str) -> list[Row]:
     rows = []
     for lineno, line in enumerate(lines[1:], start=2):
         cells = line.split("\t")
-        if len(cells) != len(COLUMNS):
-            raise LedgerError(f"line {lineno}: expected {len(COLUMNS)} columns, got {len(cells)}")
-        values: dict = dict(zip(COLUMNS, cells))
+        try:
+            version = int(cells[0])
+        except ValueError as exc:
+            raise LedgerError(f"line {lineno}: schema_version is not an integer") from exc
+        columns = _COLUMNS_BY_VERSION.get(version)
+        if columns is None:
+            raise LedgerError(f"line {lineno}: unknown schema_version {version}")
+        if len(cells) != len(columns):
+            raise LedgerError(
+                f"line {lineno}: schema v{version} expects {len(columns)} columns, "
+                f"got {len(cells)}"
+            )
+        values: dict = dict(zip(columns, cells))
         for col in _FLOAT_COLS:
             try:
                 values[col] = float(values[col])
@@ -77,8 +97,15 @@ def parse(text: str) -> list[Row]:
                 raise LedgerError(f"line {lineno}: column {col} is not a number") from exc
         for col in _OPT_FLOAT_COLS:
             values[col] = float(values[col]) if values[col] not in ("", "-") else None
-        values["schema_version"] = int(values["schema_version"])
+        values["schema_version"] = version
         values["epoch"] = int(values["epoch"])
+        if version == 1:
+            # v1 predates the column; only the judge ever appended v1 rows.
+            values["verdict_kind"] = "judged"
+        elif values["verdict_kind"] not in VERDICT_KINDS:
+            raise LedgerError(
+                f"line {lineno}: verdict_kind must be one of {VERDICT_KINDS}"
+            )
         rows.append(Row(values))
     return rows
 
@@ -88,8 +115,12 @@ def load(repo_root: Path) -> list[Row]:
 
 
 def serialize_row(values: dict) -> str:
+    try:
+        columns = _COLUMNS_BY_VERSION[int(values["schema_version"])]
+    except (KeyError, ValueError) as exc:
+        raise LedgerError("row schema_version is missing or unknown") from exc
     cells = []
-    for col in COLUMNS:
+    for col in columns:
         v = values.get(col)
         if v is None:
             cells.append("")
@@ -104,11 +135,13 @@ def serialize_row(values: dict) -> str:
 
 def append(repo_root: Path, values: dict) -> None:
     """Append one row after validating schema, epoch, and time ordering."""
-    missing = [c for c in COLUMNS if c not in values]
+    missing = [c for c in COLUMNS_V2 if c not in values]
     if missing:
         raise LedgerError(f"row missing columns: {missing}")
     if int(values["schema_version"]) != SCHEMA_VERSION:
         raise LedgerError("appends must use the current schema_version")
+    if values.get("verdict_kind") not in VERDICT_KINDS:
+        raise LedgerError(f"verdict_kind must be one of {VERDICT_KINDS}")
     if values.get("outcome") not in OUTCOMES:
         raise LedgerError(f"outcome must be one of {OUTCOMES}")
     if values.get("board") not in BOARDS:

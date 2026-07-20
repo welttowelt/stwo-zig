@@ -124,6 +124,25 @@ def cmd_submit(args) -> int:
     return 0
 
 
+def cmd_promote_claimed(args) -> int:
+    from . import promotion
+    m = manifest_mod.load()
+    try:
+        row = promotion.promote_claimed(m.root, args.submission)
+    except promotion.PromotionError as exc:
+        return _fail(str(exc))
+    kind = ansi.style("claimed", "yellow")
+    print(
+        f"✓ ledger row appended ({kind}): {args.submission} "
+        f"outcome={row['outcome']} R={row['judged_r']:.4f}"
+    )
+    print(ansi.style(
+        "  optimistic maintainer adjudication — a judged run supersedes this row",
+        "dim",
+    ))
+    return 0
+
+
 def cmd_submissions(_args) -> int:
     m = manifest_mod.load()
     subs = sorted(
@@ -440,6 +459,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("submissions", help="list submissions and their judged state")
 
+    p = sub.add_parser(
+        "promote-claimed",
+        help="maintainer-as-judge: record a merged submission's claimed verdict "
+             "as an optimistic ledger row (superseded by a judged run later)",
+    )
+    p.add_argument("submission", help="submission directory name under autoresearch/submissions/")
+
     p = sub.add_parser("submission-note", help="print a submission's note")
     p.add_argument("prefix")
 
@@ -543,6 +569,7 @@ HANDLERS = {
     "benchmark": cmd_benchmark, "frontier": cmd_frontier, "clone": cmd_clone,
     "setup": cmd_setup, "run": cmd_run, "submit": cmd_submit,
     "submissions": cmd_submissions, "submission-note": cmd_submission_note,
+    "promote-claimed": cmd_promote_claimed,
     "notes": cmd_notes, "sync": cmd_sync, "reset": cmd_reset,
     "login": cmd_login, "apikey": cmd_apikey,
     "apikey-revoke": cmd_apikey_revoke, "whoami": cmd_whoami,

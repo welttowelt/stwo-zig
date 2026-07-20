@@ -64,6 +64,7 @@ def _row(record: dict) -> dict:
         "submission_id": record["id"],
         "predecessor": verdict["predecessor_commit"],
         "supersedes": "",
+        "verdict_kind": "judged",
     }
 
 
