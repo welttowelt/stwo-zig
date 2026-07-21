@@ -184,6 +184,154 @@ pub fn Operations(comptime H: type) type {
             return out;
         }
 
+        /// Builds every internal layer above `leaves` in one pass. Workers each
+        /// build a contiguous subtree bottom-up (cache-hot, no per-level
+        /// barrier); the top `log2(W)` levels are finished serially. Layer
+        /// buffers, contents, and allocation order are identical to repeated
+        /// `buildNextLayer` calls — only the traversal schedule differs.
+        /// Appends each new layer to `out_layers` (bottom-up, excluding the
+        /// leaf layer itself).
+        pub fn buildUpperLayersSubtree(
+            list_allocator: std.mem.Allocator,
+            layer_alloc: std.mem.Allocator,
+            leaves: []const H.Hash,
+            executor: *Executor,
+            worker_override: ?usize,
+            out_layers: *std.ArrayList([]H.Hash),
+        ) !void {
+            std.debug.assert(leaves.len > 1 and std.math.isPowerOfTwo(leaves.len));
+            const log_size = std.math.log2_int(usize, leaves.len);
+
+            // Allocate every level buffer up front (same sizes and allocator
+            // as the per-level path).
+            try out_layers.ensureUnusedCapacity(list_allocator, log_size);
+            var allocated: usize = 0;
+            errdefer {
+                // Free only the buffers not yet appended; appended ones are
+                // owned by the caller's errdefer.
+                for (out_layers.items[out_layers.items.len - allocated ..]) |layer| layer_alloc.free(layer);
+                out_layers.items.len -= allocated;
+            }
+            var level_len = leaves.len >> 1;
+            while (level_len >= 1) : (level_len >>= 1) {
+                const buf = try layer_alloc.alloc(H.Hash, level_len);
+                out_layers.appendAssumeCapacity(buf);
+                allocated += 1;
+            }
+            const levels = out_layers.items[out_layers.items.len - allocated ..];
+
+            const seed_available = comptime @hasDecl(H, "nodeSeed") and @hasDecl(H, "hashChildrenWithSeed");
+            const first_out_len = leaves.len >> 1;
+            var workers = parameters.parallelWorkersForLayer(first_out_len, worker_override);
+            if (!executor.enabled or !seed_available) workers = 1;
+
+            if (workers > 1) {
+                // Power-of-two worker count so chunk boundaries align with
+                // subtree boundaries at every level.
+                var w = std.math.floorPowerOfTwo(usize, workers);
+                while (w > 1 and leaves.len / w < 2) w >>= 1;
+                if (w > 1) {
+                    buildSubtreesParallel(leaves, levels, w, executor);
+                    // Serial top: levels of size < w remain.
+                    finishTopSerial(levels, std.math.log2_int(usize, w));
+                    return;
+                }
+            }
+
+            // Serial fallback: identical to sequential buildNextLayer levels.
+            var prev: []const H.Hash = leaves;
+            for (levels) |level| {
+                buildLevelRangeSerial(level, prev, 0, level.len);
+                prev = level;
+            }
+        }
+
+        fn buildLevelRangeSerial(out: []H.Hash, prev_layer: []const H.Hash, start: usize, end: usize) void {
+            if (comptime @hasDecl(H, "nodeSeed") and @hasDecl(H, "hashChildrenWithSeed")) {
+                const ctx: SeededRangeCtx = .{
+                    .out = out,
+                    .prev_layer = prev_layer,
+                    .start = start,
+                    .end = end,
+                    .seed = H.nodeSeed(),
+                };
+                hashSeededRange(&ctx);
+            } else {
+                const ctx: BasicRangeCtx = .{
+                    .out = out,
+                    .prev_layer = prev_layer,
+                    .start = start,
+                    .end = end,
+                };
+                hashBasicRange(&ctx);
+            }
+        }
+
+        const SubtreeCtx = struct {
+            leaves: []const H.Hash,
+            levels: []const []H.Hash,
+            chunk: usize,
+            chunk_count: usize,
+            seed: NodeSeed,
+        };
+
+        fn buildSubtree(ctx: *const SubtreeCtx) void {
+            var prev: []const H.Hash = ctx.leaves;
+            for (ctx.levels) |level| {
+                if (level.len < ctx.chunk_count) break;
+                const nodes_per_chunk = level.len / ctx.chunk_count;
+                const start = ctx.chunk * nodes_per_chunk;
+                const end = start + nodes_per_chunk;
+                const sctx: SeededRangeCtx = .{
+                    .out = level,
+                    .prev_layer = prev,
+                    .start = start,
+                    .end = end,
+                    .seed = ctx.seed,
+                };
+                hashSeededRange(&sctx);
+                prev = level;
+            }
+        }
+
+        fn buildSubtreesParallel(
+            leaves: []const H.Hash,
+            levels: []const []H.Hash,
+            chunk_count: usize,
+            executor: *Executor,
+        ) void {
+            var contexts: [parameters.max_parallel_workers]SubtreeCtx = undefined;
+            const seed = H.nodeSeed();
+            for (0..chunk_count) |chunk| {
+                contexts[chunk] = .{
+                    .leaves = leaves,
+                    .levels = levels,
+                    .chunk = chunk,
+                    .chunk_count = chunk_count,
+                    .seed = seed,
+                };
+            }
+            var wait_group: WaitGroup = .{};
+            for (1..chunk_count) |chunk| {
+                executor.pool().spawnWg(&wait_group, buildSubtree, .{&contexts[chunk]});
+            }
+            buildSubtree(&contexts[0]);
+            wait_group.wait();
+        }
+
+        fn finishTopSerial(levels: []const []H.Hash, top_log: usize) void {
+            // The subtree pass filled every level with len >= chunk_count.
+            // Levels smaller than chunk_count (the top `top_log` levels)
+            // remain: build them serially from the last completed level.
+            const total = levels.len;
+            std.debug.assert(top_log <= total);
+            var idx = total - top_log;
+            while (idx < total) : (idx += 1) {
+                const prev: []const H.Hash = levels[idx - 1];
+                buildLevelRangeSerial(levels[idx], prev, 0, levels[idx].len);
+            }
+        }
+
         const SeededRangeCtx = struct {
             out: []H.Hash,
             prev_layer: []const H.Hash,

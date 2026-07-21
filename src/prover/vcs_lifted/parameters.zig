@@ -13,9 +13,64 @@ pub const max_leaf_scratch_bytes: usize = 256 * 1024;
 pub const default_leaf_batch_size: usize = 1 << 12;
 pub const batched_leaf_threshold: usize = 1 << 8;
 
+/// Layer buffers at or above this many bytes come from mmap (sequential-read
+/// hint, pages returned to the OS on free). Smaller buffers go through the
+/// general-purpose heap: an mmap/madvise/munmap round-trip plus first-touch
+/// page faults costs far more than the buffer's entire hash pass for the
+/// small upper layers and the FRI inner-layer tail.
+pub const mmap_layer_threshold_bytes: usize = 1 << 20;
+
+const SizeRoutedLayerAllocator = struct {
+    fn allocator() std.mem.Allocator {
+        return .{
+            .ptr = undefined,
+            .vtable = &.{
+                .alloc = alloc,
+                .resize = resize,
+                .remap = remap,
+                .free = free_fn,
+            },
+        };
+    }
+
+    fn heap() std.mem.Allocator {
+        return std.heap.smp_allocator;
+    }
+
+    fn alloc(_: *anyopaque, len: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
+        if (len >= mmap_layer_threshold_bytes) {
+            const mmap_vtable = mmap_alloc.MmapAllocator.allocator().vtable;
+            return mmap_vtable.alloc(undefined, len, alignment, ret_addr);
+        }
+        const h = heap();
+        return h.vtable.alloc(h.ptr, len, alignment, ret_addr);
+    }
+
+    fn resize(_: *anyopaque, buf: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
+        if (buf.len >= mmap_layer_threshold_bytes) return false;
+        if (new_len >= mmap_layer_threshold_bytes) return false;
+        const h = heap();
+        return h.vtable.resize(h.ptr, buf, alignment, new_len, ret_addr);
+    }
+
+    fn remap(_: *anyopaque, _: []u8, _: std.mem.Alignment, _: usize, _: usize) ?[*]u8 {
+        return null;
+    }
+
+    fn free_fn(_: *anyopaque, buf: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
+        if (buf.len >= mmap_layer_threshold_bytes) {
+            const mmap_vtable = mmap_alloc.MmapAllocator.allocator().vtable;
+            mmap_vtable.free(undefined, buf, alignment, ret_addr);
+            return;
+        }
+        const h = heap();
+        h.vtable.free(h.ptr, buf, alignment, ret_addr);
+    }
+};
+
 pub fn layerAllocator(fallback: std.mem.Allocator) std.mem.Allocator {
     if (comptime builtin.os.tag == .macos or builtin.os.tag == .linux) {
-        return mmap_alloc.MmapAllocator.allocator();
+        return SizeRoutedLayerAllocator.allocator();
     }
     return fallback;
 }
