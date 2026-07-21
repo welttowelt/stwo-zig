@@ -24,6 +24,7 @@ REQUIRED_WORKFLOWS = {
 REQUIRED_CHECKS = frozenset({"autoresearch-validate", "autoresearch-judge"})
 RISCV_ORACLE_COMMIT = "d478f783055aa0d73a93768a433a3c6c31c91d1c"
 RISCV_REPORT_SCHEMA = "riscv_proof_v2"
+RISCV_CALIBRATION_SCHEMA = "stwo_perf_riscv_calibration_freeze_v1"
 RISCV_RESOURCE_TELEMETRY = {
     "fail_closed": True,
     "source": "darwin.proc_pid_rusage.RUSAGE_INFO_V6",
@@ -36,8 +37,10 @@ RISCV_RESOURCE_TELEMETRY = {
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 GITHUB_ACTIONS_INTEGRATION_ID = 15368
+AUTORESEARCH_PUBLISH_DEPLOY_KEY_ID = 157962927
+AUTORESEARCH_PUBLISH_DEPLOY_KEY_TITLE = "autoresearch-publisher"
 APPROVED_BYPASS_ACTORS = frozenset({
-    (GITHUB_ACTIONS_INTEGRATION_ID, "Integration", "always"),
+    (None, "DeployKey", "always"),
 })
 
 
@@ -132,7 +135,7 @@ def validate_settings_receipt(
         if not required_identities.issubset(check_identities):
             errors.append("main does not require the autoresearch validate and judge checks")
         bypasses = payload.get("bypass_actors")
-        bypass_identities: set[tuple[int, str, str]] = set()
+        bypass_identities: set[tuple[int | None, str, str]] = set()
         if not isinstance(bypasses, list):
             errors.append("main ruleset bypass actors are missing")
         else:
@@ -145,14 +148,30 @@ def validate_settings_receipt(
                     item.get("actor_type"),
                     item.get("bypass_mode"),
                 )
-                if type(identity[0]) is not int or not all(
+                valid_actor_id = type(identity[0]) is int or (
+                    identity[0] is None and identity[1] == "DeployKey"
+                )
+                if not valid_actor_id or not all(
                     isinstance(value, str) and value for value in identity[1:]
                 ):
                     errors.append("main ruleset bypass actor is malformed")
                     continue
                 bypass_identities.add(identity)
-            if not bypass_identities.issubset(APPROVED_BYPASS_ACTORS):
-                errors.append("main ruleset has an unapproved bypass actor")
+            if bypass_identities != APPROVED_BYPASS_ACTORS:
+                errors.append(
+                    "main ruleset must grant only the approved publisher bypass"
+                )
+        write_keys = payload.get("write_deploy_keys")
+        expected_key = {
+            "id": AUTORESEARCH_PUBLISH_DEPLOY_KEY_ID,
+            "title": AUTORESEARCH_PUBLISH_DEPLOY_KEY_TITLE,
+            "verified": True,
+            "read_only": False,
+        }
+        if write_keys != [expected_key]:
+            errors.append(
+                "repository must expose exactly the pinned autoresearch publisher key"
+            )
         if payload.get("ruleset_enforcement") != "active":
             errors.append("main ruleset is not active")
         if payload.get("non_fast_forward") is not True:
@@ -312,6 +331,145 @@ def _release_phase_errors(root: Path) -> list[str]:
     return errors
 
 
+def _calibration_errors(
+    root: Path,
+    manifest: dict[str, Any],
+    oracle: dict[str, Any],
+    board: str,
+    classes: list[str],
+    anchors: dict[str, Any],
+    dispersion: dict[str, Any],
+    epoch_number: object,
+) -> list[str]:
+    errors: list[str] = []
+    config = manifest.get("harness", {}).get("riscv_calibration")
+    if not isinstance(config, dict):
+        return ["RISC-V calibration freeze is not pinned"]
+    expected_fields = {
+        "schema", "status", "board", "epoch", "artifact", "artifact_sha256",
+        "measured_commit", "designated_host",
+    }
+    if set(config) != expected_fields:
+        errors.append("RISC-V calibration binding has unexpected fields")
+    if (
+        config.get("schema") != RISCV_CALIBRATION_SCHEMA
+        or config.get("status") != "frozen"
+        or config.get("board") != board
+        or config.get("epoch") != epoch_number
+    ):
+        errors.append("RISC-V calibration binding identity is invalid")
+    relative = config.get("artifact")
+    digest = config.get("artifact_sha256")
+    if not isinstance(relative, str) or not relative or Path(relative).is_absolute():
+        return errors + ["RISC-V calibration artifact path is invalid"]
+    if not SHA256_RE.fullmatch(str(digest or "")):
+        errors.append("RISC-V calibration artifact digest is invalid")
+    repository = root.resolve()
+    path = (repository / relative).resolve()
+    try:
+        path.relative_to(repository)
+    except ValueError:
+        return errors + ["RISC-V calibration artifact escapes the repository"]
+    if not path.is_file():
+        return errors + ["RISC-V calibration artifact is missing"]
+    raw = path.read_bytes()
+    if SHA256_RE.fullmatch(str(digest or "")) and hashlib.sha256(raw).hexdigest() != digest:
+        errors.append("RISC-V calibration artifact digest mismatches")
+    try:
+        document = json.loads(raw, object_pairs_hook=_strict_object)
+    except (UnicodeDecodeError, ValueError):
+        return errors + ["RISC-V calibration artifact is not valid JSON"]
+    if not isinstance(document, dict):
+        return errors + ["RISC-V calibration artifact must be an object"]
+    if (
+        document.get("schema") != RISCV_CALIBRATION_SCHEMA
+        or document.get("status") != "frozen"
+        or document.get("board") != board
+        or document.get("epoch") != epoch_number
+    ):
+        errors.append("RISC-V calibration artifact identity is invalid")
+    repository_identity = document.get("repository")
+    if not isinstance(repository_identity, dict) or (
+        repository_identity.get("commit") != config.get("measured_commit")
+        or repository_identity.get("dirty") is not False
+        or not COMMIT_RE.fullmatch(str(repository_identity.get("tree") or ""))
+    ):
+        errors.append("RISC-V calibration repository identity is invalid")
+    host = document.get("host")
+    designated = config.get("designated_host")
+    if not isinstance(host, dict) or not isinstance(designated, dict) or any(
+        host.get(name) != designated.get(name)
+        for name in ("chip", "logical_cpu_count")
+    ):
+        errors.append("RISC-V calibration was not measured on the designated host")
+    authority = document.get("oracle")
+    release = oracle.get("release_anchor")
+    if not isinstance(authority, dict) or not isinstance(release, dict) or (
+        authority.get("authority") != "stark-v"
+        or authority.get("commit") != RISCV_ORACLE_COMMIT
+        or authority.get("release_anchor_candidate") != release.get("candidate_commit")
+        or authority.get("release_anchor_sha256") != release.get("sha256")
+        or "parallel" not in (authority.get("required_features") or [])
+    ):
+        errors.append("RISC-V calibration oracle identity is invalid")
+
+    class_evidence = document.get("classes")
+    if not isinstance(class_evidence, dict) or set(class_evidence) != set(classes):
+        return errors + ["RISC-V calibration class coverage differs from the board"]
+    for name in classes:
+        entry = class_evidence.get(name)
+        if not isinstance(entry, dict):
+            errors.append(f"RISC-V {name} calibration entry is invalid")
+            continue
+        if entry.get("anchor_prove_ms") != anchors.get(name):
+            errors.append(f"RISC-V {name} anchor differs from calibration evidence")
+        if entry.get("dispersion") != dispersion.get(name):
+            errors.append(f"RISC-V {name} dispersion differs from calibration evidence")
+        receipt_relative = entry.get("receipt")
+        receipt_digest = entry.get("receipt_sha256")
+        if (
+            not isinstance(receipt_relative, str)
+            or Path(receipt_relative).is_absolute()
+            or not SHA256_RE.fullmatch(str(receipt_digest or ""))
+        ):
+            errors.append(f"RISC-V {name} calibration receipt binding is invalid")
+            continue
+        receipt_path = (repository / receipt_relative).resolve()
+        try:
+            receipt_path.relative_to(repository)
+            receipt_raw = receipt_path.read_bytes()
+        except (ValueError, OSError):
+            errors.append(f"RISC-V {name} calibration receipt is missing or unsafe")
+            continue
+        if hashlib.sha256(receipt_raw).hexdigest() != receipt_digest:
+            errors.append(f"RISC-V {name} calibration receipt digest mismatches")
+            continue
+        try:
+            receipt = json.loads(receipt_raw, object_pairs_hook=_strict_object)
+        except (UnicodeDecodeError, ValueError):
+            errors.append(f"RISC-V {name} calibration receipt is invalid JSON")
+            continue
+        if not isinstance(receipt, dict) or (
+            receipt.get("board") != board
+            or receipt.get("workload_class") != name
+            or receipt.get("anchor_prove_ms") != entry.get("anchor_prove_ms")
+        ):
+            errors.append(f"RISC-V {name} calibration receipt identity differs")
+        observed = []
+        ci = entry.get("ci")
+        if isinstance(ci, list) and len(ci) == 2 and all(_positive(value) for value in ci):
+            observed.extend(abs(float(value) - 1.0) for value in ci)
+        for rejected in entry.get("rejected_attempts") or []:
+            rejected_ci = rejected.get("ci") if isinstance(rejected, dict) else None
+            if isinstance(rejected_ci, list) and len(rejected_ci) == 2 and all(
+                _positive(value) for value in rejected_ci
+            ):
+                observed.extend(abs(float(value) - 1.0) for value in rejected_ci)
+        if not observed or round(max(observed), 6) != entry.get("dispersion"):
+            errors.append(f"RISC-V {name} dispersion does not cover retained A/A bias")
+    return errors
+
+
 def activation_errors(
     root: Path,
     *,
@@ -382,6 +540,17 @@ def activation_errors(
             errors.append(f"RISC-V {name} anchor is not frozen")
         if not _positive(dispersion.get(name)):
             errors.append(f"RISC-V {name} A/A dispersion is not frozen")
+    if isinstance(oracle, dict):
+        errors.extend(_calibration_errors(
+            root,
+            manifest,
+            oracle,
+            board,
+            board_classes,
+            anchors,
+            dispersion,
+            epochs[-1].get("epoch") if epochs else None,
+        ))
 
     errors.extend(_workflow_errors(root))
     if settings_receipt is None:

@@ -1221,6 +1221,11 @@ def _replace_flag(args: str, flag: str, value: str) -> str:
     return " ".join(parts)
 
 
+def aa_dispersion(ci: tuple[float, float] | list[float]) -> float:
+    """Conservatively cover both interval width and A/A center bias."""
+    return max(abs(ci[0] - 1.0), abs(ci[1] - 1.0))
+
+
 def evaluate_aa(repo_root: Path, manifest: Manifest, workload_class: str,
                 out_dir: Path, board: str = "core_cpu",
                 allow_staged: bool = False) -> dict:
@@ -1248,6 +1253,7 @@ def evaluate_aa(repo_root: Path, manifest: Manifest, workload_class: str,
     ]
     portfolio = portfolio_summary(scores, float(policy["ci_level"]))
     half_width = (portfolio["ci"][1] - portfolio["ci"][0]) / 2.0
+    dispersion = aa_dispersion(portfolio["ci"])
     return {
         "workload_class": workload_class,
         "board": board,
@@ -1293,10 +1299,11 @@ def evaluate_aa(repo_root: Path, manifest: Manifest, workload_class: str,
             for score in scores
         },
         "half_width": round(half_width, 6),
+        "dispersion": round(dispersion, 6),
         "skipped_groups": skipped,
         "record_as": {
             "ledger/epochs.json": {"aa_dispersion": {
-                board: {workload_class: round(half_width, 6)},
+                board: {workload_class: round(dispersion, 6)},
             }},
             "MANIFEST.json": {"harness": {"anchor_prove_ms": {
                 board: {

@@ -1,9 +1,10 @@
 # TASK — the immediate autoresearch objective
 
-**Make the prover faster across scale, on CPU and Metal.** Reduce end-to-end
-prove time on the manifest-owned scored classes, including the large geometries
-where GPU throughput should dominate, while producing byte-identical proofs the
-pinned Rust oracle accepts. That is the whole task; everything below is contract.
+**Make the prover faster across scale, on CPU, Metal, and RISC-V.** Reduce
+end-to-end prove time on the manifest-owned scored classes, including the large
+geometries where GPU throughput should dominate, while preserving the pinned
+Rust Stwo and Stark-V correctness authorities. That is the whole task;
+everything below is contract.
 
 This file is written to be handed to a coding agent verbatim, together with the
 Participate block on [autoresearch.fun](https://autoresearch.fun/p/stwo-zig-metal).
@@ -19,10 +20,10 @@ portfolio, not merely move one convenient Fibonacci point.
 The Native frontend currently exercises six AIR families (`wide_fibonacci`,
 `xor`, `plonk`, `state_machine`, `blake`, and `poseidon`) at multiple shapes on
 both CPU/SIMD and Metal. The five-class scale basket extends that evidence from
-latency through 104,857,600 committed cells. RISC-V is a separate frontend with
-its own oracle and score basket; keep its autoresearch group disabled until the
-release-adapter and judged-activation work in issue #48 is complete. Cairo is a
-future frontend and must not be inferred from Native or RISC-V results.
+latency through 104,857,600 committed cells. RISC-V is a live, isolated
+three-class board with a release-gated adapter, pinned Stark-V authority, and
+20-program workload basket. Cairo is a future frontend and must not be inferred
+from Native or RISC-V results.
 
 Every optimization hypothesis must therefore name its expected movement across
 AIR family, shape, frontend, and backend. Profile before changing code, retain
@@ -55,6 +56,13 @@ bounds were added to the current evidence contract. Same-host timing differences
 against older reports are useful diagnostics, but they are not promotion claims.
 Start future comparable deltas from these new contract-bound reports.
 
+RISC-V epoch-2 calibration was measured at commit `d69d54cc` on the same M5
+judge host. The retained small/wide/deep portfolio anchors are 1702.918464,
+2120.534120, and 2581.797553 ms. A/A dispersion is 0.002362, 0.014801, and
+0.006444 respectively; the wide value covers both the initial biased interval
+and one predeclared clean retry. The immutable index and raw class receipts live
+under `autoresearch/reference/riscv-calibration-epoch-2*`.
+
 ## The scored suite (MANIFEST.json → workload_registry.groups.native)
 
 | workload | class | shape | dimension |
@@ -71,6 +79,20 @@ Their class-owned sampling is deliberately bounded: `huge` runs one warmup and
 one sample for three to five paired rounds (at most 20 proof transactions across
 both arms), rather than inheriting the 182-proof small-workload minimum. Each
 individual command is also bounded by the remaining class wall-clock budget.
+
+The RISC-V board scores portfolios rather than one convenient ELF:
+
+| class | programs | coverage |
+| --- | ---: | --- |
+| `small` | 6 | ALU, branch/Fibonacci, declared memory, calls, loads/stores, shifts |
+| `wide` | 7 | memcpy, sieve, sort, Collatz, Keccak-128, SHA2-128/256 |
+| `deep` | 7 | PRNG, iterative Fibonacci, GCD, multi-shard execution, SHA2-512/1024/2048 |
+
+Every RISC-V score must retain a schema-v2 proof report, independently verify
+the published artifact, and validate the immutable promoted Stark-V release
+receipt. RISC-V frontend/AIR sources remain outside the editable surface; the
+live board currently evaluates shared backend and prover optimizations without
+letting a submission weaken its statement or oracle.
 
 Ballpark you are attacking (matrix run `2026-07-18-064334-matrix-v5-789feb4c`,
 CPU lane): small-class wide_fibonacci proves in ~18.4 ms. `stwo-perf benchmark`
@@ -112,14 +134,15 @@ stwo-perf submit --slug <short-name> --note-file note.md \
 
 ## Boards — score your change where it can actually show up
 
-Two boards are live: **core_cpu** (the CPU bench) and **core_metal** (the
-Metal bench, `zig build native-proof-bench-metal`). A change under
+Three boards are live: **core_cpu** (the CPU bench), **core_metal** (the
+Metal bench, `zig build native-proof-bench-metal`), and **riscv** (the
+release-gated RV32IM proof portfolio). A change under
 `src/backends/metal/` never executes in the CPU bench — scored there it
 records an honest but useless neutral. `stwo-perf run` therefore
 auto-selects `core_metal` when your diff touches `src/backends/metal/`
 (explicit `--board` overrides). A change that moves both backends deserves
 a verdict per board: run once per board (`--board core_cpu`,
-`--board core_metal`), pass every verdict to `submit` via repeated
+`--board core_metal`, or `--board riscv`), pass every verdict to `submit` via repeated
 `--verdict` flags, and each board/class pair earns its own ledger row.
 
 ## Session policy — maximize verified improvement, not first significance
@@ -237,7 +260,9 @@ note below), and one remote submission per user may be active at a time.
 
 ## What winning means
 
-- **G1 conformance**: byte-identical proofs, accepted by the pinned Rust oracle.
+- **G1 conformance**: Native proofs are accepted by pinned Rust Stwo; RISC-V
+  artifacts bind the promoted Stark-V release authority and pass independent
+  artifact verification.
 - **G2 identity**: statement, protocol, and workload digests unchanged.
 - **G3 mechanism**: your predicted mechanism visible in telemetry, not just a delta.
 - **G4 budgets**: RSS, caches, handles, threads within bounds; other classes
@@ -251,9 +276,10 @@ A promotion is a merged commit + submission directory + signed judged verdict +
 append-only ledger row; the leaderboard and Pareto frontier on autoresearch.fun
 recompute from that ledger.
 
-**Status honesty**: the anchor freeze is pending (activation checklist items 1–2),
-so every verdict today is claimed/advisory — by design, not by gap. Submissions
-still land with your evidence packaged and are judged when the judge activates.
+**Status honesty**: CPU, Metal, and RISC-V anchors/A/A dispersions are frozen for
+epoch 2. RISC-V is promotion eligible only on its own board; it does not confer
+Native or Cairo correctness. Claimed rows remain visible until a signed judge
+row supersedes them.
 
 ## For agents
 

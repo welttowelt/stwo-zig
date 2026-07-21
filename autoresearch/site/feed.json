@@ -18,9 +18,9 @@
     "xlarge": 422.199
    },
    "riscv": {
-    "deep": null,
-    "small": null,
-    "wide": null
+    "deep": 2581.797553,
+    "small": 1702.918464,
+    "wide": 2120.53412
    }
   }
  },
@@ -1873,8 +1873,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 72,
-       "seconds": 16167
+       "commits": 81,
+       "seconds": 18581
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2196,8 +2196,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 72,
-       "seconds": 16167
+       "commits": 81,
+       "seconds": 18581
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2237,8 +2237,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 72,
-       "seconds": 16167
+       "commits": 81,
+       "seconds": 18581
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2453,8 +2453,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 72,
-       "seconds": 16167
+       "commits": 81,
+       "seconds": 18581
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2774,8 +2774,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 72,
-       "seconds": 16167
+       "commits": 81,
+       "seconds": 18581
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -4480,8 +4480,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 72,
-       "seconds": 16167
+       "commits": 81,
+       "seconds": 18581
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -4941,8 +4941,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 72,
-       "seconds": 16167
+       "commits": 81,
+       "seconds": 18581
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -4982,8 +4982,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 72,
-       "seconds": 16167
+       "commits": 81,
+       "seconds": 18581
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5268,8 +5268,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 72,
-       "seconds": 16167
+       "commits": 81,
+       "seconds": 18581
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5729,8 +5729,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 72,
-       "seconds": 16167
+       "commits": 81,
+       "seconds": 18581
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5830,8 +5830,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 72,
-       "seconds": 16167
+       "commits": 81,
+       "seconds": 18581
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5871,8 +5871,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 72,
-       "seconds": 16167
+       "commits": 81,
+       "seconds": 18581
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5912,8 +5912,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 72,
-       "seconds": 16167
+       "commits": 81,
+       "seconds": 18581
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6007,11 +6007,11 @@
     "wide": 0.019419,
     "xlarge": 0.009477
    },
-   "note": "CPU values are same-host M5 A/A measurements; all Metal/RISC-V cells fail closed until measured and frozen on the designated judge host.",
+   "note": "CPU, Metal, and RISC-V values are frozen same-host M5 A/A measurements. RISC-V dispersion conservatively covers every retained CI endpoint's distance from unity, including the predeclared wide retry.",
    "riscv": {
-    "deep": null,
-    "small": null,
-    "wide": null
+    "deep": 0.006444,
+    "small": 0.002362,
+    "wide": 0.014801
    }
   },
   "number": 2
@@ -6972,8 +6972,8 @@
    },
    "riscv": {
     "board": "riscv",
-    "disabled_reason": "RF-01 adapter release and BA-03 autoresearch activation pending",
-    "enabled": false,
+    "disabled_reason": null,
+    "enabled": true,
     "report_schema": "riscv_proof_v2",
     "workloads": {
      "riscv_alu_test": {
@@ -7069,8 +7069,8 @@
   "determinism": "pure function of the named inputs; a committed feed names the commit it was generated FROM (one-commit lag by construction) \u2014 verify via inputs_sha256, not commit equality",
   "dirty_inputs": [],
   "inputs_sha256": {
-   "autoresearch/MANIFEST.json": "f675d334346c5f0ca871a491aaa87365b1d15685e90235f43af6002542142510",
-   "autoresearch/ledger/epochs.json": "ba8ecaa345a34f4fdd65f4c544cb045b3471149648ed8513915e381cdd4d891c",
+   "autoresearch/MANIFEST.json": "fab8fac3705f203a07422a4326071aae0680d9845f7448a78f23d28f0818cf5b",
+   "autoresearch/ledger/epochs.json": "60162d440a812415d2943b1c1a2317b70be5fda727fae7eaa5c75ff408c4f7f5",
    "autoresearch/ledger/promotions.tsv": "8e69de87692b10e63f578b63244f5c07741314c95916cf582fb6881ffc23dd83",
    "autoresearch/reference/metal-calibration-epoch-2.json": "e1a733f19dfe552389e25ff71d487cb889a3117b7fd71ea47c28cbc9000147df",
    "autoresearch/reference/peer-relative-series.json": "97d97a92b01884a3a161f64802fd212051f8139e31619199dddfad5c4d68732f",
@@ -7078,6 +7078,7 @@
    "autoresearch/reference/peer-rust-simd.json": "ce288cb814b134306a5b7cab8ea3ec7a19b6d231684d6434a337bfb35d130cbf",
    "autoresearch/reference/peer-series-point.schema.json": "e0b1d6ece5e107ab72172fbf3a9a96f918e16e3c876e310072b2c2de18f1bb26",
    "autoresearch/reference/peer-series/runs/0c3cd97c500dfb69391aa77682f0e7c656e8bd49.json": "4299628cac4283bbe5ba565da2fc68caef780a48933185da8083bdf65ed0526c",
+   "autoresearch/reference/riscv-calibration-epoch-2.json": "6828deeadcf7807becaa724196f34fe5f5b01609745bb757b86f376d9c651135",
    "autoresearch/submissions/2026-07-20-deeper-merkle-pool-parallelism/verdict.json": "5b5467d17a0d90cb20836b91279d6026661b8d3a54de27d94f5473ee7ac6c603",
    "autoresearch/submissions/2026-07-20-four-way-fri-leaf-cascade/verdict.json": "0126af7e3098622480086a6fc2f2db66911964d20ab7d86bcd138fe6746f7aa1",
    "autoresearch/submissions/2026-07-20-linear-fri-coset-walk/verdict-deep.json": "2df39258fc2f5f1c23e6d7ff289b5e77ec1b01de0ec99c9a9ee98c69db23aa7c",
@@ -7172,8 +7173,8 @@
    "vectors/reports/benchmark_history/index.json": "8a925c126250082d68bfca24baca1187dfd9e13b6b9cc9d6a78216af896f0a3b",
    "vectors/reports/benchmark_history/runs/2026-07-21-192812-matrix-v6-483bca66/report.json": "53eee11540ad7976beb9c4e95773afd55a0da69676f7c58e469f670a26ac9466"
   },
-  "repo_commit": "c38c0a32088a",
-  "repo_commit_time": "2026-07-21T22:16:54+01:00"
+  "repo_commit": "2f0559d6bace",
+  "repo_commit_time": "2026-07-21T22:57:08+01:00"
  },
  "references": {
   "metal_calibration_epoch_2": {
@@ -13705,6 +13706,95 @@
     "rustc_version": "rustc 1.90.0-nightly (e9182f195 2025-07-13)\nbinary: rustc\ncommit-hash: e9182f195b8505c87c4bd055b9f6e114ccda0981\ncommit-date: 2025-07-13\nhost: aarch64-apple-darwin\nrelease: 1.90.0-nightly\nLLVM version: 20.1.7",
     "zig_version": "0.15.2"
    }
+  },
+  "riscv_calibration_epoch_2": {
+   "board": "riscv",
+   "classes": {
+    "deep": {
+     "aa_r": 0.998904,
+     "anchor_prove_ms": 2581.797553,
+     "ci": [
+      0.995859,
+      1.006444
+     ],
+     "dispersion": 0.006444,
+     "measurement_rounds": 31,
+     "measurement_seconds": 362.709933,
+     "observed_utc": "2026-07-21T22:22:16Z",
+     "receipt": "autoresearch/reference/riscv-calibration-epoch-2/deep.json",
+     "receipt_sha256": "7c65676069032ac2eba14c9ba3891606ac375840be311f21c8d21ed0be4c36d3"
+    },
+    "small": {
+     "aa_r": 0.999501,
+     "anchor_prove_ms": 1702.918464,
+     "ci": [
+      0.997638,
+      1.002362
+     ],
+     "dispersion": 0.002362,
+     "measurement_rounds": 26,
+     "measurement_seconds": 187.850444,
+     "observed_utc": "2026-07-21T22:10:06Z",
+     "receipt": "autoresearch/reference/riscv-calibration-epoch-2/small.json",
+     "receipt_sha256": "611fd318a833b43ba883435252729f39933f4b7c42af193fe28fc8ec78f9e25a"
+    },
+    "wide": {
+     "aa_r": 0.996689,
+     "anchor_prove_ms": 2120.53412,
+     "ci": [
+      0.991176,
+      0.999841
+     ],
+     "dispersion": 0.014801,
+     "measurement_rounds": 35,
+     "measurement_seconds": 343.983988,
+     "observed_utc": "2026-07-21T22:28:37Z",
+     "receipt": "autoresearch/reference/riscv-calibration-epoch-2/wide.json",
+     "receipt_sha256": "a6f50e1e554aaa9d641223d2da9b71410ec716fcf34f0f0b90bcbfa6ca1b64f5",
+     "rejected_attempts": [
+      {
+       "ci": [
+        0.985199,
+        0.997812
+       ],
+       "reason": "A/A interval excluded unity; retained so selection cannot hide the observed center bias",
+       "receipt": "autoresearch/reference/riscv-calibration-epoch-2/wide-attempt-1-rejected.json",
+       "receipt_sha256": "d676444267045e251a9b6f5c63dcc0e9e7d97ef6e05874f092846ee276ece874"
+      }
+     ]
+    }
+   },
+   "epoch": 2,
+   "host": {
+    "chip": "Apple M5 Max",
+    "logical_cpu_count": 18,
+    "memory_gib": 64,
+    "model": "MacBook Pro",
+    "model_identifier": "Mac17,7"
+   },
+   "method": {
+    "anchor": "minimum retained B-arm portfolio median geomean; conservative against false speedup claims",
+    "ci_level": 0.95,
+    "dispersion": "maximum absolute distance of every retained A/A CI endpoint from unity",
+    "protocol": "paired ABBA A/A",
+    "wide_retry": "one predeclared clean retry retained alongside the first run; dispersion covers both sessions"
+   },
+   "oracle": {
+    "authority": "stark-v",
+    "commit": "d478f783055aa0d73a93768a433a3c6c31c91d1c",
+    "release_anchor_candidate": "4c4049bdf878de450f172403a3ddac37eef0dca2",
+    "release_anchor_sha256": "92a901106ff3f3236cf03e2d29469e9a6901ec50ce82a5dc2d473d85155a768a",
+    "required_features": [
+     "parallel"
+    ]
+   },
+   "repository": {
+    "commit": "d69d54cc8069ba0fd2bb232060e63f3e66889f85",
+    "dirty": false,
+    "tree": "98795ddb666ed3ad90d16692ec9ebb03298fdc42"
+   },
+   "schema": "stwo_perf_riscv_calibration_freeze_v1",
+   "status": "frozen"
   }
  },
  "search_health": {

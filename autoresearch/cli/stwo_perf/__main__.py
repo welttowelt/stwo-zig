@@ -86,25 +86,40 @@ def cmd_run(args) -> int:
     m = manifest_mod.load()
     out_dir = m.root / "autoresearch" / ".runs" / "latest"
     board = _resolve_board(args, m)
+    if args.staged_calibration and not args.aa:
+        return _fail("--staged-calibration is valid only with --aa")
+    if args.staged_calibration and board != "riscv":
+        return _fail("--staged-calibration is restricted to the RISC-V board")
     if args.aa:
         try:
             result = runner.evaluate_aa(
                 m.root, m, args.workload_class, out_dir, board=board,
+                allow_staged=args.staged_calibration,
             )
         except runner.RunError as exc:
             return _fail(str(exc))
+        if args.out:
+            calibration_out = Path(args.out)
+            calibration_out.parent.mkdir(parents=True, exist_ok=True)
+            calibration_out.write_text(json.dumps(result, indent=2) + "\n")
         print(ansi.kv_panel("A/A dispersion", [
             ("class", result["workload_class"]),
             ("board", result["board"]),
             ("workload", result["workload"]),
             ("rounds", str(result["rounds"])),
             ("A/A r", f"{result['aa_r']}"),
-            ("CI half-width", ansi.style(f"{result['half_width']}", "bold")),
+            ("CI half-width", f"{result['half_width']}"),
+            ("dispersion", ansi.style(f"{result['dispersion']}", "bold")),
         ]))
         print()
         print("  record it: set aa_dispersion." + result["board"] + "."
               + result["workload_class"]
-              + f" = {result['half_width']} in ledger/epochs.json via a reviewed PR")
+              + f" = {result['dispersion']} in ledger/epochs.json via a reviewed PR")
+        print("  anchor it: set anchor_prove_ms." + result["board"] + "."
+              + result["workload_class"]
+              + f" = {result['anchor_prove_ms']} in MANIFEST.json via the same PR")
+        if args.out:
+            print(ansi.style(f"  calibration written to {calibration_out}", "dim"))
         return 0
     if args.scope == "s2":
         return _fail("s2 is diagnostic-only; run s1 for kernels or s3+ for acceptance")
@@ -586,6 +601,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--predecessor", help="worktree of the paired A arm (required)")
     p.add_argument("--aa", action="store_true",
                    help="A/A dispersion measurement (both arms = this tree)")
+    p.add_argument(
+        "--staged-calibration", action="store_true",
+        help="permit RISC-V A/A calibration before board activation; requires --aa",
+    )
     p.add_argument("--out", help="verdict output path")
 
     p = sub.add_parser(

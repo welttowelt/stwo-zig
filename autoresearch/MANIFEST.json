@@ -14,9 +14,9 @@
         "huge": 868.876333
       },
       "riscv": {
-        "small": null,
-        "wide": null,
-        "deep": null
+        "small": 1702.918464,
+        "wide": 2120.53412,
+        "deep": 2581.797553
       },
       "core_metal": {
         "small": 2.480041,
@@ -84,7 +84,20 @@
         "logical_cpu_count": 18
       }
     },
-    "anchor_note": "Frozen 2026-07-20 on the designated Apple M5 Max judge host (arm64 macOS, 18 CPU cores): the pre-optimization original commit, medians measured same-session by autoresearch/reference/measure_peer_rust.py (reports committed under autoresearch/reference/anchor/). Drift budgets are host-local and active; riscv anchors freeze when that board enables."
+    "riscv_calibration": {
+      "schema": "stwo_perf_riscv_calibration_freeze_v1",
+      "status": "frozen",
+      "board": "riscv",
+      "epoch": 2,
+      "artifact": "autoresearch/reference/riscv-calibration-epoch-2.json",
+      "artifact_sha256": "6828deeadcf7807becaa724196f34fe5f5b01609745bb757b86f376d9c651135",
+      "measured_commit": "d69d54cc8069ba0fd2bb232060e63f3e66889f85",
+      "designated_host": {
+        "chip": "Apple M5 Max",
+        "logical_cpu_count": 18
+      }
+    },
+    "anchor_note": "Native anchors were frozen on 2026-07-20 and RISC-V anchors on 2026-07-21 on the designated Apple M5 Max judge host (arm64 macOS, 18 CPU cores). Immutable reports live under autoresearch/reference/. Drift budgets are host-local and active."
   },
   "editable_paths": [
     {
@@ -273,9 +286,8 @@
         }
       },
       "riscv": {
-        "enabled": false,
-        "promotion_eligible": false,
-        "disabled_reason": "RF-01 adapter release and BA-03 autoresearch activation pending",
+        "enabled": true,
+        "promotion_eligible": true,
         "board": "riscv",
         "build_step": "zig build stwo-zig -Doptimize=ReleaseFast",
         "binary": "zig-out/bin/stwo-zig",
@@ -289,7 +301,12 @@
           "required_features": [
             "parallel"
           ],
-          "final_validator": true
+          "final_validator": true,
+          "release_anchor": {
+            "receipt": "conformance/evidence/riscv/release-anchor.json",
+            "sha256": "92a901106ff3f3236cf03e2d29469e9a6901ec50ce82a5dc2d473d85155a768a",
+            "candidate_commit": "4c4049bdf878de450f172403a3ddac37eef0dca2"
+          }
         },
         "gates_policy": {
           "warmups": 1,

@@ -66,7 +66,7 @@
         }
       },
       "aa_dispersion": {
-        "note": "CPU values are same-host M5 A/A measurements; all Metal/RISC-V cells fail closed until measured and frozen on the designated judge host.",
+        "note": "CPU, Metal, and RISC-V values are frozen same-host M5 A/A measurements. RISC-V dispersion conservatively covers every retained CI endpoint's distance from unity, including the predeclared wide retry.",
         "core_cpu": {
           "small": 0.018654,
           "wide": 0.014645,
@@ -75,9 +75,9 @@
           "huge": 0.006263
         },
         "riscv": {
-          "small": null,
-          "wide": null,
-          "deep": null
+          "small": 0.002362,
+          "wide": 0.014801,
+          "deep": 0.006444
         },
         "core_metal": {
           "small": 0.018043,
