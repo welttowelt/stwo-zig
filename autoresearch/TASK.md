@@ -8,6 +8,53 @@ pinned Rust oracle accepts. That is the whole task; everything below is contract
 This file is written to be handed to a coding agent verbatim, together with the
 Participate block on [autoresearch.fun](https://autoresearch.fun/p/stwo-zig-metal).
 
+## Optimization domain: Stwo at scale
+
+This is not a single-kernel or single-benchmark micro-optimization task. Treat
+the prover as a portfolio of algorithms whose bottlenecks move with AIR family,
+trace width, depth, and backend. A useful change should improve the geometric
+mean of the relevant scored classes and preserve the twelve-row structural guard
+portfolio, not merely move one convenient Fibonacci point.
+
+The Native frontend currently exercises six AIR families (`wide_fibonacci`,
+`xor`, `plonk`, `state_machine`, `blake`, and `poseidon`) at multiple shapes on
+both CPU/SIMD and Metal. The five-class scale basket extends that evidence from
+latency through 104,857,600 committed cells. RISC-V is a separate frontend with
+its own oracle and score basket; keep its autoresearch group disabled until the
+release-adapter and judged-activation work in issue #48 is complete. Cairo is a
+future frontend and must not be inferred from Native or RISC-V results.
+
+Every optimization hypothesis must therefore name its expected movement across
+AIR family, shape, frontend, and backend. Profile before changing code, retain
+the full request transaction as the acceptance scope, and treat a redistribution
+of time, memory, energy, instructions, cycles, dispatches, or CPU fallbacks as
+evidence to explain rather than a successful result by default.
+
+### Latest M5 evidence
+
+Measurement commit `483bca66` records two clean Apple M5 Max sessions on
+2026-07-21 under `vectors/reports/benchmark_history/`:
+
+- the 12-row six-AIR holistic matrix verified 240 measured CPU/Metal proofs;
+- the five-shape scale matrix verified 100 measured CPU/Metal proofs, including
+  `wf_log18x100` and `wf_log20x100`;
+- every row has CPU/Metal canonical proof equality and passes the pinned Rust
+  Stwo oracle;
+- both reports retain outer peak RSS plus governed request-batch physical
+  footprint, energy, instructions, cycles, and canonical proof bytes.
+
+The scale result exposes the current architectural priority. At `wf_log20x100`,
+CPU/SIMD proves in 870.106 ms (1.205 MHz) while Metal proves in 1,676.365 ms
+(0.626 MHz); total request time is 1,248.180 ms versus 2,050.173 ms. Conversely,
+the holistic run shows Metal wins on larger XOR, Plonk, state-machine, Blake,
+and Poseidon shapes. The next changes should explain and close this family- and
+geometry-dependent split, not tune away the small-row dispatch canary.
+
+The reports' transition deltas are explicitly `incomparable`: resource-admission
+bounds were added to the current evidence contract. Same-host timing differences
+against older reports are useful diagnostics, but they are not promotion claims.
+Start future comparable deltas from these new contract-bound reports.
+
 ## The scored suite (MANIFEST.json → workload_registry.groups.native)
 
 | workload | class | shape | dimension |

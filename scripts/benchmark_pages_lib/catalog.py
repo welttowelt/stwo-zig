@@ -26,6 +26,25 @@ METRICS = (
     "peak_rss_kib",
     "committed_mcells_per_second",
 )
+PROCESS_RESOURCE_KEYS = {
+    "measurement",
+    "measurement_locale",
+    "normalized_unit",
+    "peak_rss_kib",
+}
+REQUEST_RESOURCE_KEYS = {
+    "measurement_scope",
+    "source",
+    "measured_warmups",
+    "measured_samples",
+    "lifetime_peak_physical_footprint_bytes",
+    "energy_nj",
+    "instructions",
+    "cycles",
+    "canonical_proof_bytes",
+    "complete",
+    "unavailable_reason",
+}
 
 
 class CatalogError(RuntimeError):
@@ -258,12 +277,86 @@ def _metric(lane: dict[str, Any], name: str, label: str) -> dict[str, float]:
     }
 
 
+def _process_resources(value: Any, label: str) -> dict[str, Any]:
+    resources = _object(value, label)
+    if set(resources) != PROCESS_RESOURCE_KEYS:
+        raise CatalogError(f"{label} has the wrong schema")
+    if resources["measurement"] not in {
+        "darwin_usr_bin_time_l_v1",
+        "gnu_usr_bin_time_v_v1",
+    }:
+        raise CatalogError(f"{label}.measurement is unsupported")
+    if resources["measurement_locale"] != "C":
+        raise CatalogError(f"{label}.measurement_locale must be C")
+    if resources["normalized_unit"] != "KiB":
+        raise CatalogError(f"{label}.normalized_unit must be KiB")
+    peak = resources["peak_rss_kib"]
+    if type(peak) is not int or peak <= 0:
+        raise CatalogError(f"{label}.peak_rss_kib must be a positive integer")
+    return dict(resources)
+
+
+def _request_resources(
+    value: Any,
+    proof_bytes: int,
+    label: str,
+) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    resources = _object(value, label)
+    if set(resources) != REQUEST_RESOURCE_KEYS:
+        raise CatalogError(f"{label} has the wrong schema")
+    if resources["measurement_scope"] != "verified_process_request_batch":
+        raise CatalogError(f"{label}.measurement_scope is not governed")
+    warmups = resources["measured_warmups"]
+    samples = resources["measured_samples"]
+    if type(warmups) is not int or warmups < 0:
+        raise CatalogError(f"{label}.measured_warmups must be nonnegative")
+    if type(samples) is not int or samples <= 0:
+        raise CatalogError(f"{label}.measured_samples must be positive")
+    if resources["canonical_proof_bytes"] != proof_bytes:
+        raise CatalogError(f"{label}.canonical_proof_bytes disagrees with proof")
+
+    complete = resources["complete"]
+    if type(complete) is not bool:
+        raise CatalogError(f"{label}.complete must be boolean")
+    counters = (
+        "lifetime_peak_physical_footprint_bytes",
+        "energy_nj",
+        "instructions",
+        "cycles",
+    )
+    if complete:
+        if (
+            resources["source"] != "darwin_proc_pid_rusage_v6"
+            or resources["unavailable_reason"] is not None
+        ):
+            raise CatalogError(f"{label} complete source is invalid")
+        for counter in counters:
+            value = resources[counter]
+            if type(value) is not int or value <= 0:
+                raise CatalogError(f"{label}.{counter} must be a positive integer")
+    else:
+        reason = resources["unavailable_reason"]
+        if resources["source"] != "unsupported":
+            raise CatalogError(f"{label} incomplete source must be unsupported")
+        if not isinstance(reason, str) or not reason.strip():
+            raise CatalogError(f"{label} incomplete measurement requires a reason")
+        if any(resources[counter] is not None for counter in counters):
+            raise CatalogError(f"{label} unsupported counters must be null")
+    return dict(resources)
+
+
 def _lane(row: dict[str, Any], lane_name: str, row_index: int) -> dict[str, Any]:
     lane = _object(
         _object(row.get("lanes"), f"row[{row_index}].lanes").get(lane_name),
         f"row[{row_index}].lanes.{lane_name}",
     )
     proof = _object(lane.get("proof"), f"row[{row_index}].lanes.{lane_name}.proof")
+    proof_bytes = int(
+        _number(proof.get("bytes"), f"row[{row_index}].proof.bytes")
+    )
+    label = f"row[{row_index}].lanes.{lane_name}"
     return {
         "backend": _text(lane.get("backend"), f"row[{row_index}].lanes.{lane_name}.backend"),
         "display_name": _text(
@@ -274,7 +367,7 @@ def _lane(row: dict[str, Any], lane_name: str, row_index: int) -> dict[str, Any]
             for metric in METRICS
         },
         "proof": {
-            "bytes": int(_number(proof.get("bytes"), f"row[{row_index}].proof.bytes")),
+            "bytes": proof_bytes,
             "sha256": _text(proof.get("sha256"), f"row[{row_index}].proof.sha256"),
             "verified_samples": int(
                 _number(
@@ -284,6 +377,12 @@ def _lane(row: dict[str, Any], lane_name: str, row_index: int) -> dict[str, Any]
             ),
             "byte_identical": proof.get("all_samples_byte_identical") is True,
         },
+        "resources": _process_resources(lane.get("resources"), f"{label}.resources"),
+        "request_resources": _request_resources(
+            lane.get("request_resources"),
+            proof_bytes,
+            f"{label}.request_resources",
+        ),
         "process_wall_seconds": _number(
             lane.get("process_wall_seconds"),
             f"row[{row_index}].lanes.{lane_name}.process_wall_seconds",

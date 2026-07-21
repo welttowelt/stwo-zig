@@ -29,6 +29,9 @@ A run is publishable only when it carries all of the following:
 - complete machine, OS, GPU, and toolchain identity;
 - CPU/SIMD and Metal proof parity for every row;
 - successful verification by the pinned Rust Stwo oracle;
+- separately identified outer-process RSS and governed request-batch resource
+  telemetry (physical footprint, energy, instructions, cycles, and proof bytes)
+  when the producing report supports it;
 - content hashes that agree with the immutable history index.
 
 Historical runs that predate this contract remain in the archive. The catalog
@@ -37,6 +40,11 @@ into formal performance evidence.
 
 The measurement commit is distinct from the commit that deploys the site.
 Publishing a benchmark never rewrites its source identity.
+
+History deltas are claims only when the archived delta says the report contracts
+are compatible. A suite or resource-contract transition remains published with
+`status: incomparable`; the site may show an observational same-suite change,
+but it must not present that observation as judged promotion evidence.
 
 ## Commands
 

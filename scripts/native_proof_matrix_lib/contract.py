@@ -56,11 +56,12 @@ from .validation import (
     ordered_prove_time_drift,
 )
 from .resource_admission import validate_report_admission
+from .request_resources import validate_request_resources
 
 
 REPORT_KEYS = {
     "schema_version", "product_identity", "backend", "evidence_class", "profiled", "provenance",
-    "protocol", "workload", "resource_admission", "session", "runtime_admission", "proof", "backend_telemetry", "timing",
+    "protocol", "workload", "resource_admission", "resources", "session", "runtime_admission", "proof", "backend_telemetry", "timing",
     "throughput",
 }
 PROVENANCE_KEYS = {
@@ -746,6 +747,7 @@ def validate_report(
         validate_summary(timing[field], [float(sample[field]) for sample in samples], f"{lane}.timing.{field}")
 
     fingerprint = proof_fingerprint(report, lane, args.samples)
+    resources_complete = validate_request_resources(report, lane, args, fingerprint)
     if lane == "metal":
         backend_telemetry_valid = validate_metal_telemetry(
             report, args.warmups, args.samples
@@ -821,6 +823,8 @@ def validate_report(
             raise MatrixError(f"{lane}.throughput.{diagnostic_field} must be null")
 
     blockers = headline_blockers(report, lane)
+    if not resources_complete:
+        blockers.append(f"{lane}_request_resources_incomplete")
     ordered_drift = ordered_prove_time_drift(samples)
     if (
         headline_eligible

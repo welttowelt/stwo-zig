@@ -20,6 +20,20 @@ from .manifest import Manifest
 
 FEED_SCHEMA_VERSION = 3
 
+REQUEST_RESOURCE_KEYS = {
+    "measurement_scope",
+    "source",
+    "measured_warmups",
+    "measured_samples",
+    "lifetime_peak_physical_footprint_bytes",
+    "energy_nj",
+    "instructions",
+    "cycles",
+    "canonical_proof_bytes",
+    "complete",
+    "unavailable_reason",
+}
+
 # Input roots whose uncommitted changes make a feed provenance-dishonest.
 INPUT_ROOTS = (
     "autoresearch/MANIFEST.json",
@@ -88,6 +102,56 @@ def _sample_counter(telemetry: dict, key: str) -> float | None:
     return statistics.median(values) if values else None
 
 
+def _request_resources(lane: dict) -> dict | None:
+    resources = lane.get("request_resources")
+    if resources is None:
+        return None
+    if not isinstance(resources, dict) or set(resources) != REQUEST_RESOURCE_KEYS:
+        raise FeedError("matrix lane request_resources has the wrong schema")
+    if resources["measurement_scope"] != "verified_process_request_batch":
+        raise FeedError("matrix lane request_resources has an invalid scope")
+    warmups = resources["measured_warmups"]
+    samples = resources["measured_samples"]
+    if type(warmups) is not int or warmups < 0:
+        raise FeedError("matrix lane request resource warmups must be nonnegative")
+    if type(samples) is not int or samples <= 0:
+        raise FeedError("matrix lane request resource samples must be positive")
+    proof = lane.get("proof")
+    proof_bytes = proof.get("bytes") if isinstance(proof, dict) else None
+    if type(proof_bytes) is not int or resources["canonical_proof_bytes"] != proof_bytes:
+        raise FeedError("matrix lane request resource proof bytes disagree")
+
+    complete = resources["complete"]
+    counters = (
+        "lifetime_peak_physical_footprint_bytes",
+        "energy_nj",
+        "instructions",
+        "cycles",
+    )
+    if type(complete) is not bool:
+        raise FeedError("matrix lane request resource completeness must be boolean")
+    if complete:
+        if (
+            resources["source"] != "darwin_proc_pid_rusage_v6"
+            or resources["unavailable_reason"] is not None
+        ):
+            raise FeedError("matrix lane complete request resource source is invalid")
+        if any(
+            type(resources[counter]) is not int or resources[counter] <= 0
+            for counter in counters
+        ):
+            raise FeedError("matrix lane complete request resource counters are invalid")
+    else:
+        reason = resources["unavailable_reason"]
+        if resources["source"] != "unsupported":
+            raise FeedError("matrix lane incomplete request resource source is invalid")
+        if not isinstance(reason, str) or not reason.strip():
+            raise FeedError("matrix lane incomplete request resource reason is missing")
+        if any(resources[counter] is not None for counter in counters):
+            raise FeedError("matrix lane unsupported request resource counters must be null")
+    return dict(resources)
+
+
 def _lane_summary(lane: dict) -> dict:
     metrics = lane.get("metrics", {})
     telemetry = lane.get("backend_telemetry", {}) or {}
@@ -106,6 +170,9 @@ def _lane_summary(lane: dict) -> dict:
     dispatches = _sample_counter(telemetry, "metal_dispatches")
     if dispatches is not None:
         out["metal_dispatches_per_proof"] = dispatches
+    request_resources = _request_resources(lane)
+    if request_resources is not None:
+        out["request_resources"] = request_resources
     return out
 
 

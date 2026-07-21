@@ -87,6 +87,51 @@ class BenchmarkPagesTests(unittest.TestCase):
     def test_catalog_generation_is_deterministic(self) -> None:
         self.assertEqual(encoded_json(build_catalog(HISTORY)), encoded_json(build_catalog(HISTORY)))
 
+    def test_request_resources_are_retained_without_replacing_process_rss(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            report = copy.deepcopy(self.report)
+            lane = report["rows"][0]["lanes"]["cpu"]
+            lane["request_resources"] = {
+                "measurement_scope": "verified_process_request_batch",
+                "source": "darwin_proc_pid_rusage_v6",
+                "measured_warmups": 10,
+                "measured_samples": 10,
+                "lifetime_peak_physical_footprint_bytes": 64 * 1024 * 1024,
+                "energy_nj": 1_000_000,
+                "instructions": 2_000_000,
+                "cycles": 1_000_000,
+                "canonical_proof_bytes": lane["proof"]["bytes"],
+                "complete": True,
+                "unavailable_reason": None,
+            }
+            history = self.write_history(Path(temporary), report)
+            published = build_catalog(history)["runs"][0]["rows"][0]["lanes"]["cpu"]
+            self.assertEqual(published["resources"], lane["resources"])
+            self.assertEqual(
+                published["request_resources"], lane["request_resources"]
+            )
+
+    def test_malformed_request_resources_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            report = copy.deepcopy(self.report)
+            lane = report["rows"][0]["lanes"]["cpu"]
+            lane["request_resources"] = {
+                "measurement_scope": "verified_process_request_batch",
+                "source": "darwin_proc_pid_rusage_v6",
+                "measured_warmups": 10,
+                "measured_samples": 10,
+                "lifetime_peak_physical_footprint_bytes": 64 * 1024 * 1024,
+                "energy_nj": 1_000_000,
+                "instructions": 2_000_000,
+                "cycles": 1_000_000,
+                "canonical_proof_bytes": lane["proof"]["bytes"] + 1,
+                "complete": True,
+                "unavailable_reason": None,
+            }
+            history = self.write_history(Path(temporary), report)
+            with self.assertRaisesRegex(CatalogError, "proof"):
+                build_catalog(history)
+
     def test_dirty_measurement_is_not_publishable(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             report = copy.deepcopy(self.report)

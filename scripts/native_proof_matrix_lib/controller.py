@@ -173,6 +173,7 @@ def summarize_lane(
         },
         "metrics": lane_metrics(report, workload, resources),
         "resources": resources,
+        "request_resources": report["resources"],
         "session": report["session"],
         "backend_telemetry": report.get("backend_telemetry"),
     }
