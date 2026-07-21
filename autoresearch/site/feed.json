@@ -1071,6 +1071,32 @@
      "verdict_kind": "claimed",
      "waits": null,
      "workload_class": "deep"
+    },
+    {
+     "board": "core_cpu",
+     "ci_high": 1.012168,
+     "ci_low": 0.99518,
+     "commit": "58eefe30f62baa19f9e962d16d95584412fcb2a9",
+     "dispatches": null,
+     "energy_j": null,
+     "epoch": 1,
+     "gates": "G1..G5:pass",
+     "harness_commit": "9cd4618522e8",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-21T03:47:33Z",
+     "judged_r": 1.004291,
+     "native_mhz": 0.0,
+     "outcome": "neutral",
+     "peak_rss_mib": 0.0,
+     "predecessor": "35819ff7920d",
+     "prove_ms": 6.740625,
+     "schema_version": 2,
+     "scope": "s3",
+     "submission_id": "2026-07-21-metal-generic-merkle-multiblock",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "deep"
     }
    ],
    "frontier_by_class": {
@@ -1852,12 +1878,12 @@
   "inputs_sha256": {
    "autoresearch/MANIFEST.json": "fd0697677abbcc8ce0488edc6273cb55a8b4879321f36ddbef06e451c3da492f",
    "autoresearch/ledger/epochs.json": "b2b6c98203cc97f3a13c23a9c3da29d3b6709e7d9c6afb8b5240926166b01921",
-   "autoresearch/ledger/promotions.tsv": "186942fc6a7e5a77e4cfc3ccc14f0d310d0314346670fe83b76cb7f4b3700e56",
+   "autoresearch/ledger/promotions.tsv": "93bd22850f1500849ab8b3798a3097c92a76cb42e9440f7c83fc08d93023a8c9",
    "vectors/reports/benchmark_history/index.json": "0216c5ae101a3fe33e647553a0ba7bbf2ac2b3ba8c8265fd8ff5ddde059401fe",
    "vectors/reports/benchmark_history/runs/2026-07-20-221601-matrix-v6-e78cca6f/report.json": "facd106c0afb0f14e12263a420d5bbe6dca2dcf6b09d603f3bf3e99950385d6f"
   },
-  "repo_commit": "3d46fac007c1",
-  "repo_commit_time": "2026-07-21T03:04:11Z"
+  "repo_commit": "6a8cf0871d39",
+  "repo_commit_time": "2026-07-21T03:47:33Z"
  },
  "references": {
   "peer_rust_scalar": {
@@ -2186,6 +2212,24 @@
      "excerpt": "# Session 01 \u2014 sixth Metal-backend architecture campaign\n\nDate: 2026-07-21\nModel: GPT-5 Codex\n\n## Recorded frontier and fresh benchmark\n\nPR #29 merged fold/coordinate/leaf producer fusion and the recorder advanced\ncanonical main to `6c622c60297d`.  The repo-resident CLI was updated to that\nexact commit, a fresh isolated workspace passed `stwo-perf setup`, and the real\nReleaseFast Native Metal product was built before any source edit.\n\nThe complete fixed three-class Metal suite then ran with ten warmups and seven\ntimed verified samples per class on `--metal-runtime source-jit`:\n\n| class | prove median | request median | logical Metal dispatch telemetry |\n| --- | ---: | ---: | ---: |\n| small `",
      "label": "session-01.md",
      "sha256": "8a4f2f875315e371f8bf4137e5274481fd01cd9243d81fb7660f2771b9b25a4f"
+    }
+   ],
+   "verdict_kind": "claimed",
+   "workload_class": "deep"
+  },
+  {
+   "id": "2026-07-21-metal-generic-merkle-multiblock",
+   "judged_r": 1.004291,
+   "note": "# Parallelize generic Metal Merkle parent chains\n\n## Model and harness\n\nGPT-5 Codex optimized clean candidate `03ec753d0232` from exact promoted\npredecessor `35819ff7920d` on an Apple M5 Max.  Before source changes, the\nrepo-resident CLI was updated, the fixed three-class Metal suite was run\nlocally, and fresh profiles identified generic main-trace and composition\nMerkle commitments as the next shared hot path.\n\nAll production measurements use the real ReleaseFast\n`native-proof-bench-metal`, functional protocol, independent proof\nverification, and `--metal-runtime source-jit`.  Zig embeds the MSL and macOS\ncompiles it through `newLibraryWithSource`; shader initialization is excluded\nfrom timed post-warmup samples.  No full Xcode installation or offline `metal`\ncompiler is involved.\n\n## Hypothesis\n\nLarge generic commitments still dispatched the lower Merkle levels one at a\ntime.  A log-14 tree launched five global parent grids before its existing\nsingle-threadgroup top tail.  PR #30 had already proved that the isolated\nparent-tail kernel can reduce many independent bottom subtrees concurrently\nwithout the occupancy regression of fusing hash work into a leaf producer.\n\nThe predicted architecture was one 128-parent threadgroup per 256 leaves,\nwriting every required global layer through eight local reduction levels,\nfollowed by the existing upper tail.  A normal large parent chain would move\nfrom six dispatches to two.  Keeping leaf and parent grids in one compute\nencoder with explicit buffer barriers would also remove six encoder\nboundaries per direct commitment.\n\n## Changes\n\nPrepared generic parent chains now derive an optional multi-block bottom\nsegment from reflected pipeline/threadgroup limits and arena geometry.  The\nfast schedule is enabled only when counts halve exactly, the first count is an\nexact multiple of the local width, every bottom destination is pairwise\ndisjoint, and every destination is disjoint from the complete initial child\nrange.  This last condition prevents a cross-threadgroup read/write race on\nping-pong storage; aliased layouts retain their conservative schedule.\n\nBottom, any global middle, and top-tail grids share one compute encoder with\n`MTLBarrierScopeBuffers` barriers.  The direct commitment's leaf grid joins\nthat encoder and barriers before the first parent read.  Buffer layout, every\nmaterialized proof node, hash order, public C ABI, shader source, export\ninventory, source-JIT/AOT split, and fallback behavior are unchanged.\n\n## Results\n\nAn isolated production `commitColumns` run discards five commits and measures\nthe following 96, using exact stable roots:\n\n| log-14 commitment | predecessor GPU median | candidate GPU median | reduction |\n| --- | ---: | ---: | ---: |\n| 32 columns (wide main trace) | 0.091 ms | 0.077 ms | 15.4% |\n| 4 columns (composition) | 0.076 ms | 0.062 ms | 18.4% |\n\nFinal end-to-end evidence uses fifteen clean process pairs per class,\nalternating A-B / B-A order.  Every process performs ten verified warmups and\nseven timed verified proofs.  Statistics are the repository Walsh-average\nHodges--Lehmann estimator with deterministic bootstrap intervals.\n\n| class | predecessor | candidate | B/A (95% CI) | wins |\n| --- | ---: | ---: | ---: | ---: |\n| small `wf_log10x8` | 2.689 ms | 2.651 ms | 0.99005 [0.98088, 0.99723] | 12/15 |\n| wide `wf_log14x32` | 11.578 ms | 11.518 ms | 0.99574 [0.98490, 1.00467] | 9/15 |\n| deep `plonk_log14` | 7.026 ms | 6.997 ms | 0.99609 [0.99098, 0.99934] | 9/15 |\n\nThe three-class geometric-mean ratio is `0.993954`: about 0.60% less proof\nlatency / 1.006x throughput.  Small and deep are statistically favorable;\nwide is favorable but neutral.  One favorable small frequency-ramp outlier is\nretained and disclosed rather than pruned.\n\nAcross 90 clean reports, all 630 timed proofs independently verify, remain\nbyte-identical, and match the fixed digest for each class.  Every report has\nthe exact expected commit, complete clean provenance, source-JIT admission,\nzero post-warmup direct compilation, `accelerated_without_fallbacks`\nclassification, and zero CPU fallback.\n\n## Validation and official control\n\nA strengthened 2,048-leaf device fixture forces the new schedule, reports one\ncompute encoder/two parent dispatches, and compares all eleven materialized\nlevels with scalar Blake2s.  Its aliased ping-pong pass rejects the bottom\nschedule, uses barrier-separated globals plus the safe top tail, and produces\nthe same root.\n\nNative Metal build/lifecycle, independent verification, `metal-check`, source\nconformance, core-AOT tooling, AOT acceptance-probe contracts, formatting, and\ndiff checks pass.  A full Plonk proof passes with Metal API and GPU Validation\nenabled.  The broad Metal suite remains at the predecessor's 80/83 baseline:\ntwo expected skips and the same pre-existing resident-policy assertion.\n\nThe required CPU S3 deep control passes G1--G5 and the pinned Rust oracle at\n1.0043 [0.9952, 1.0122], correctly confirmed-neutral against theta 0.0183.\n\n## Caveats\n\n- The manifest still has no enabled `core_metal` judge workload.  The CPU\n  verdict is a no-regression packaging control; the optimization claim comes\n  from the clean production Metal evidence and is not mislabeled as CPU gain.\n- Full Metal System Trace is unavailable on this Command-Line-Tools-only host.\n  Real source-JIT execution, GPU command timestamps, stage profiles, exact\n  topology counters, validation layers, and isolated production commitments\n  provide the attribution.\n- Devices unable to provide the reflected tail capacity, and chains with\n  overlapping storage, fail closed to the existing per-level path.\n",
+   "outcome": "neutral",
+   "solver": "teddyjfpender",
+   "title": "Parallelize generic Metal Merkle parent chains",
+   "transcripts": [
+    {
+     "captured_by": "submitter",
+     "excerpt": "# Session 01 \u2014 seventh Metal-backend architecture campaign\n\nDate: 2026-07-21\nModel: GPT-5 Codex\n\n## Frontier and fresh local grounding\n\nThe recorder advanced canonical main to `35819ff7920d` after PR #30 merged the\nmulti-block FRI Merkle tail.  Before editing source, the repository CLI was\nupdated to that exact frontier, a fresh isolated workspace passed setup, and a\nreal ReleaseFast Native Metal product was built with the macOS runtime\nsource-JIT path.  Ten warmups and seven verified timed samples gave:\n\n| class | prove median | request median |\n| --- | ---: | ---: |\n| small `wf_log10x8` | 6.693 ms | 6.964 ms |\n| wide `wf_log14x32` | 11.737 ms | 12.670 ms |\n| deep `plonk_log14` | 7.038 ms |",
+     "label": "session-01.md",
+     "sha256": "8b314464289a3a263180d67c3071a96decab542f4730f65d354d8c71c29d4c4b"
     }
    ],
    "verdict_kind": "claimed",
