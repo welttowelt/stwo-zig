@@ -1,0 +1,330 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+from scripts import riscv_benchmark_matrix_contract as contract
+from scripts import riscv_benchmark_matrix_model as model
+from scripts import riscv_benchmark_matrix_runner as controller
+from scripts.riscv_release_oracle_lib.public_values import (
+    parse_proof_artifact_public_data,
+    parse_public_values_diagnostic,
+)
+
+
+DIGEST = "d" * 64
+CANDIDATE = "a" * 40
+ELF_DIGEST = "e" * 64
+INPUT = b"\x07"
+INPUT_DIGEST = hashlib.sha256(INPUT).hexdigest()
+
+
+def public_data() -> dict:
+    return {
+        "initial_pc": 0x10000,
+        "final_pc": 0x10004,
+        "clock": 1,
+        "initial_regs": [0] * 32,
+        "final_regs": [0] * 32,
+        "reg_last_clock": [0] * 32,
+        "program_root": 1,
+        "initial_rw_root": 2,
+        "final_rw_root": 3,
+        "io_entries": {
+            "input_start": 0,
+            "input_len": 1,
+            "input_words": [7],
+            "output_len": 0,
+            "output_len_addr": 0,
+            "output_data_addr": 0,
+            "output_words": [],
+        },
+    }
+
+
+def public_diagnostic(*, dirty: bool) -> str:
+    return json.dumps({
+        "schema": "riscv-public-values-diagnostic-v1",
+        "derivation": "execution_and_committed_tree_builders_without_proof_admission",
+        "provenance": {
+            "implementation_commit": CANDIDATE,
+            "implementation_dirty": dirty,
+            "oracle_commit": "d478f783055aa0d73a93768a433a3c6c31c91d1c",
+            "witness_layout_sha256": DIGEST,
+        },
+        "source": {"elf_sha256": ELF_DIGEST, "input_sha256": INPUT_DIGEST},
+        "public_data": public_data(),
+    })
+
+
+def proof_artifact(*, dirty: bool) -> str:
+    public = public_data()
+    io = public["io_entries"]
+    flat = {key: public[key] for key in public if key != "io_entries"}
+    flat.update(io)
+    return json.dumps({
+        "artifact_kind": "stwo_riscv_proof",
+        "schema_version": 3,
+        "exchange_mode": "riscv_proof_json_wire_v3",
+        "release_status": "not_release_gated",
+        "generator": "zig",
+        "air": "stark_v_rv32im",
+        "backend": "cpu",
+        "protocol": "functional",
+        "source": {"elf_sha256": ELF_DIGEST, "input_sha256": INPUT_DIGEST},
+        "provenance": {
+            "oracle_repository": "https://github.com/ClementWalter/stark-v",
+            "oracle_commit": "d478f783055aa0d73a93768a433a3c6c31c91d1c",
+            "implementation_repository": "https://github.com/teddyjfpender/stwo-zig",
+            "implementation_commit": CANDIDATE,
+            "implementation_dirty": dirty,
+            "witness_layout_sha256": DIGEST,
+        },
+        "pcs_config": {},
+        "statement": {
+            "segment_ordinal": 0,
+            "segment_count": 1,
+            "initial_pc": public["initial_pc"],
+            "final_pc": public["final_pc"],
+            "total_steps": public["clock"],
+            "components": [],
+            "infrastructure": [],
+            "public_data": flat,
+        },
+        "interaction_claim": {},
+        "proof_bytes_hex": "00",
+    })
+
+
+class InventoryTests(unittest.TestCase):
+    def test_full_inventory_is_exactly_the_reviewed_32_rows(self) -> None:
+        workloads, identities = model.load_workloads()
+        counts = {
+            row_class: sum(item.row_class == row_class for item in workloads)
+            for row_class in model.FULL_COUNTS
+        }
+        self.assertEqual(32, len(workloads))
+        self.assertEqual(
+            {"proof": 20, "execution": 10, "expected_rejection": 2},
+            counts,
+        )
+        self.assertEqual(
+            {"corpus:mul_div", "corpus:mulhu_only"},
+            {item.row_id for item in workloads if item.row_class == "expected_rejection"},
+        )
+        self.assertEqual(32, len({item.row_id for item in workloads}))
+        contract.require_sha256(identities["row_set_sha256"], "row set")
+
+    def test_fixture_digest_mismatch_fails_before_row_construction(self) -> None:
+        with mock.patch.object(model, "sha256_file", return_value="0" * 64):
+            with self.assertRaisesRegex(model.MatrixModelError, "ELF digest mismatch"):
+                model.load_workloads()
+
+    def test_filter_is_explicitly_incomplete(self) -> None:
+        workloads, _ = model.load_workloads()
+        selection = controller._selection(workloads, workloads[:1])
+        self.assertFalse(selection["complete"])
+        self.assertEqual("filtered", selection["mode"])
+        self.assertEqual(32, selection["expected_full_row_count"])
+
+
+class DirtyBindingTests(unittest.TestCase):
+    def kwargs(self) -> dict:
+        return {
+            "candidate": CANDIDATE,
+            "witness_layout_sha256": DIGEST,
+            "elf_sha256": ELF_DIGEST,
+            "input_sha256": INPUT_DIGEST,
+        }
+
+    def test_release_callers_still_default_to_clean_diagnostics(self) -> None:
+        with self.assertRaisesRegex(ValueError, "implementation_dirty differs"):
+            parse_public_values_diagnostic(public_diagnostic(dirty=True), **self.kwargs())
+        parsed = parse_public_values_diagnostic(
+            public_diagnostic(dirty=True), candidate_dirty=True, **self.kwargs(),
+        )
+        self.assertEqual(public_data(), parsed)
+
+    def test_release_callers_still_default_to_clean_artifacts(self) -> None:
+        with self.assertRaisesRegex(ValueError, "implementation_dirty differs"):
+            parse_proof_artifact_public_data(proof_artifact(dirty=True), **self.kwargs())
+        parsed = parse_proof_artifact_public_data(
+            proof_artifact(dirty=True), candidate_dirty=True, **self.kwargs(),
+        )
+        self.assertEqual(public_data(), parsed)
+
+
+class CorrectnessBoundaryTests(unittest.TestCase):
+    def test_semantic_parity_compares_the_complete_public_statement(self) -> None:
+        oracle = public_data()
+        candidate = json.loads(json.dumps(oracle))
+        receipt = controller.semantic_parity(oracle, candidate)
+        self.assertEqual(list(controller.PUBLIC_DATA_FIELDS), receipt["fields"])
+        candidate["final_regs"][31] = 9
+        with self.assertRaisesRegex(controller.MatrixRunError, "final_regs"):
+            controller.semantic_parity(oracle, candidate)
+
+    def test_stark_v_timing_cycle_evidence_is_mandatory(self) -> None:
+        with self.assertRaisesRegex(controller.MatrixRunError, "cycle count"):
+            controller._cycles_from_log(b"Guest completed")
+        self.assertEqual(
+            144,
+            controller._cycles_from_log(b"Guest program completed with 144 cycles"),
+        )
+
+    def test_exact_expected_rejection_is_fail_closed(self) -> None:
+        workload = next(
+            item for item in model.load_workloads()[0] if item.row_id == "corpus:mul_div"
+        )
+        identity = {"path": "log", "sha256": hashlib.sha256(b"").hexdigest(), "size_bytes": 0}
+        good = controller.Capture(
+            argv=("candidate",),
+            returncode=1,
+            stdout=b"",
+            stderr=controller.UNSUPPORTED_PROOF_FAMILY_STDERR,
+            duration_ns=1,
+            cpu_time_ns=1,
+            stdout_identity=identity,
+            stderr_identity=identity,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            store = controller.EvidenceStore(Path(directory) / "artifacts")
+            with mock.patch.object(controller, "run_capture", return_value=good):
+                rejection = controller.run_expected_rejection(
+                    Path("candidate"), workload, store,
+                )
+            self.assertEqual("pass", rejection["status"])
+            bad = controller.Capture(**{**good.__dict__, "stderr": b"wrong\n"})
+            with mock.patch.object(controller, "run_capture", return_value=bad):
+                with self.assertRaisesRegex(controller.MatrixRunError, "exact typed"):
+                    controller.run_expected_rejection(Path("candidate"), workload, store)
+
+
+class ContractTests(unittest.TestCase):
+    @staticmethod
+    def valid_execution_row() -> dict:
+        empty = hashlib.sha256(b"").hexdigest()
+        sidecar = {"path": "log", "sha256": empty, "size_bytes": 0}
+        sample = {
+            "iteration": 0,
+            "warmup": False,
+            "order_position": 0,
+            "argv": ["tool"],
+            "duration_ns": 100_000_000,
+            "cpu_time_ns": 100_000_000,
+            "cpu_wall_ratio": 1.0,
+            "cycles": 1,
+            "phases_seconds": {"execution": 0.1},
+            "stdout": sidecar,
+            "stderr": sidecar,
+            "evidence": None,
+        }
+        other = {**sample, "order_position": 1, "argv": ["oracle"]}
+        timing = {
+            "mode": "execution",
+            "clock": "time.monotonic_ns",
+            "warmups": 0,
+            "samples": 1,
+            "pair_orders": [["candidate", "stark_v"]],
+            "candidate": [sample],
+            "stark_v": [other],
+            "summary": {
+                "candidate_median_seconds": 0.1,
+                "stark_v_median_seconds": 0.1,
+                "candidate_over_stark_v": 1.0,
+                "stark_v_median_cpu_wall_ratio": 1.0,
+            },
+        }
+        semantics = {
+            "total_steps": 1,
+            "final_pc": 0,
+            "final_regs_sha256": DIGEST,
+            "public_data_sha256": DIGEST,
+            "source": {"path": "source", "sha256": DIGEST, "size_bytes": 1},
+            "duration_ns": 1,
+        }
+        return {
+            "id": "crypto:test:fixed",
+            "suite": "crypto",
+            "class": "execution",
+            "status": "ok",
+            "fixture": {"elf_sha256": DIGEST, "input_sha256": DIGEST},
+            "metal": contract.METAL_GATE,
+            "oracle_semantics": semantics,
+            "candidate_semantics": semantics,
+            "semantic_parity": {
+                "status": "pass",
+                "fields": list(contract.SEMANTIC_FIELDS),
+                "mismatches": [],
+                "public_data_sha256": DIGEST,
+            },
+            "timing": timing,
+            "proof": None,
+            "rejection": None,
+            "error": None,
+        }
+
+    def test_complete_execution_row_contract_passes(self) -> None:
+        contract.validate_row(self.valid_execution_row())
+
+    def test_promotion_eligibility_can_never_be_true(self) -> None:
+        payload = {field: None for field in contract.ROOT_FIELDS}
+        payload.update({
+            "schema": contract.SCHEMA,
+            "evidence_class": contract.EVIDENCE_CLASS,
+            "promotion_eligible": True,
+            "duration_ns": 1,
+        })
+        with self.assertRaisesRegex(contract.MatrixContractError, "non-promotable"):
+            contract.validate_report(payload)
+
+    def test_raw_timing_sample_requires_cycles(self) -> None:
+        empty = hashlib.sha256(b"").hexdigest()
+        sample = {
+            "iteration": 0,
+            "warmup": False,
+            "order_position": 0,
+            "argv": ["tool"],
+            "duration_ns": 1,
+            "cpu_time_ns": 1,
+            "cpu_wall_ratio": 1.0,
+            "cycles": None,
+            "phases_seconds": {"execution": 0.1},
+            "stdout": {"path": "out", "sha256": empty, "size_bytes": 0},
+            "stderr": {"path": "err", "sha256": empty, "size_bytes": 0},
+            "evidence": None,
+        }
+        with self.assertRaisesRegex(contract.MatrixContractError, "cycles"):
+            contract._validate_command_sample(sample, "sample", measured=True)
+
+    def test_ok_row_cannot_omit_semantic_oracle_parity(self) -> None:
+        row = self.valid_execution_row()
+        row["semantic_parity"] = None
+        with self.assertRaisesRegex(contract.MatrixContractError, "semantic_parity"):
+            contract.validate_row(row)
+
+    def test_artifact_tree_tampering_is_detected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            evidence = root / "proof.json"
+            evidence.write_bytes(b"proof")
+            report = {
+                "artifact_root": str(root),
+                "proof": {
+                    "path": "proof.json",
+                    "sha256": hashlib.sha256(b"proof").hexdigest(),
+                    "size_bytes": 5,
+                },
+            }
+            contract.validate_artifact_tree(report)
+            evidence.write_bytes(b"tampered")
+            with self.assertRaisesRegex(contract.MatrixContractError, "digest/size"):
+                contract.validate_artifact_tree(report)
+
+
+if __name__ == "__main__":
+    unittest.main()

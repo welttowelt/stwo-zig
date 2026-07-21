@@ -155,6 +155,7 @@ def _validate_binding(
     provenance: object,
     *,
     candidate: str,
+    candidate_dirty: bool,
     witness_layout_sha256: str,
     elf_sha256: str,
     input_sha256: str,
@@ -176,7 +177,7 @@ def _validate_binding(
     provenance = exact_fields(provenance, fields, "provenance")
     expected_provenance = {
         "implementation_commit": candidate,
-        "implementation_dirty": False,
+        "implementation_dirty": candidate_dirty,
         "oracle_commit": PINNED_ORACLE,
         "witness_layout_sha256": witness_layout_sha256,
     }
@@ -195,6 +196,7 @@ def parse_public_values_diagnostic(
     raw: str,
     *,
     candidate: str,
+    candidate_dirty: bool = False,
     witness_layout_sha256: str,
     elf_sha256: str,
     input_sha256: str,
@@ -214,6 +216,7 @@ def parse_public_values_diagnostic(
         root["source"],
         root["provenance"],
         candidate=candidate,
+        candidate_dirty=candidate_dirty,
         witness_layout_sha256=witness_layout_sha256,
         elf_sha256=elf_sha256,
         input_sha256=input_sha256,
@@ -230,6 +233,7 @@ def parse_proof_artifact_public_data(
     raw: str,
     *,
     candidate: str,
+    candidate_dirty: bool = False,
     witness_layout_sha256: str,
     elf_sha256: str,
     input_sha256: str,
@@ -254,6 +258,7 @@ def parse_proof_artifact_public_data(
         artifact["source"],
         artifact["provenance"],
         candidate=candidate,
+        candidate_dirty=candidate_dirty,
         witness_layout_sha256=witness_layout_sha256,
         elf_sha256=elf_sha256,
         input_sha256=input_sha256,
