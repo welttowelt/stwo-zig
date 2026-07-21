@@ -811,6 +811,84 @@
      "verdict_kind": "claimed",
      "waits": null,
      "workload_class": "wide"
+    },
+    {
+     "board": "core_cpu",
+     "ci_high": 1.025566,
+     "ci_low": 0.988632,
+     "commit": "016ced5f6468c59fa0eae211d5e71b93dde71972",
+     "dispatches": null,
+     "energy_j": null,
+     "epoch": 1,
+     "gates": "G1..G5:pass",
+     "harness_commit": "a9faa70efc0d",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-21T00:27:39Z",
+     "judged_r": 1.01137,
+     "native_mhz": 0.0,
+     "outcome": "neutral",
+     "peak_rss_mib": 0.0,
+     "predecessor": "564cea426cf4",
+     "prove_ms": 1.551542,
+     "schema_version": 2,
+     "scope": "s3",
+     "submission_id": "2026-07-21-metal-fri-merkle-tail-arena",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "small"
+    },
+    {
+     "board": "core_cpu",
+     "ci_high": 1.001906,
+     "ci_low": 0.984718,
+     "commit": "016ced5f6468c59fa0eae211d5e71b93dde71972",
+     "dispatches": null,
+     "energy_j": null,
+     "epoch": 1,
+     "gates": "G1..G5:pass",
+     "harness_commit": "a9faa70efc0d",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-21T00:27:39Z",
+     "judged_r": 0.992462,
+     "native_mhz": 0.0,
+     "outcome": "neutral",
+     "peak_rss_mib": 0.0,
+     "predecessor": "564cea426cf4",
+     "prove_ms": 6.723625,
+     "schema_version": 2,
+     "scope": "s3",
+     "submission_id": "2026-07-21-metal-fri-merkle-tail-arena",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "deep"
+    },
+    {
+     "board": "core_cpu",
+     "ci_high": 1.014394,
+     "ci_low": 0.993011,
+     "commit": "016ced5f6468c59fa0eae211d5e71b93dde71972",
+     "dispatches": null,
+     "energy_j": null,
+     "epoch": 1,
+     "gates": "G1..G5:pass",
+     "harness_commit": "a9faa70efc0d",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-21T00:27:39Z",
+     "judged_r": 1.007741,
+     "native_mhz": 0.0,
+     "outcome": "neutral",
+     "peak_rss_mib": 0.0,
+     "predecessor": "564cea426cf4",
+     "prove_ms": 10.929583,
+     "schema_version": 2,
+     "scope": "s3",
+     "submission_id": "2026-07-21-metal-fri-merkle-tail-arena",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "wide"
     }
    ],
    "frontier_by_class": {
@@ -1592,12 +1670,12 @@
   "inputs_sha256": {
    "autoresearch/MANIFEST.json": "fd0697677abbcc8ce0488edc6273cb55a8b4879321f36ddbef06e451c3da492f",
    "autoresearch/ledger/epochs.json": "b2b6c98203cc97f3a13c23a9c3da29d3b6709e7d9c6afb8b5240926166b01921",
-   "autoresearch/ledger/promotions.tsv": "7ce39207f091613e0c0208d62e2a862e6f1055cc9e6a8fc26c535c75fffdf1c2",
+   "autoresearch/ledger/promotions.tsv": "ce5feabd34937258c2e76222de0ea7b936086b332bed6ca041baadda5ab20f2f",
    "vectors/reports/benchmark_history/index.json": "0216c5ae101a3fe33e647553a0ba7bbf2ac2b3ba8c8265fd8ff5ddde059401fe",
    "vectors/reports/benchmark_history/runs/2026-07-20-221601-matrix-v6-e78cca6f/report.json": "facd106c0afb0f14e12263a420d5bbe6dca2dcf6b09d603f3bf3e99950385d6f"
   },
-  "repo_commit": "2362dd3ed158",
-  "repo_commit_time": "2026-07-20T23:44:33Z"
+  "repo_commit": "4b8fd16268e9",
+  "repo_commit_time": "2026-07-21T00:27:39Z"
  },
  "references": {
   "peer_rust_scalar": {
@@ -1872,6 +1950,24 @@
      "excerpt": "# CPU prover optimization session\n\n## Objective and constraints\n\nThe objective is to reduce end-to-end prove time on the fixed `core_cpu`\nsmall, wide, and deep workloads while preserving byte-identical proofs. The\nclean main checkout is the paired predecessor. Only paths listed as editable in\n`autoresearch/MANIFEST.json` may change; the harness, tests, vectors, build\nfiles, and conformance record remain untouched.\n\nThe initial workspace and predecessor started at commit `b275053b9c42`. Zig\n0.15.2 and Python 3.12.12 are installed. `stwo-perf setup` built the native\nbench target successfully. An unchanged-tree S1-labelled harness run on the\nsmall workload produced ratio 0.9842 with 95% CI [0.9",
      "label": "session-01.md",
      "sha256": "5a97c5ea90314ba2ebeb244559ef8e9d9af1d0f68b766c3007fb9411935359c6"
+    }
+   ],
+   "verdict_kind": "claimed",
+   "workload_class": "deep"
+  },
+  {
+   "id": "2026-07-21-metal-fri-merkle-tail-arena",
+   "judged_r": 0.992462,
+   "note": "# Fuse shallow FRI Merkle levels inside one Metal threadgroup\n\n## Model and harness\n\nGPT-5 Codex optimized clean candidate `e6aea4a37f5a` from recorded predecessor\n`564cea426cf4` on an Apple M5 Max running macOS 26.5.2. Native Metal evidence\nuses the real ReleaseFast `native-proof-bench-metal` product, functional\nprotocol, independent proof verification, and `--metal-runtime source-jit`.\nZig embeds the MSL and macOS compiles it with `newLibraryWithSource`; source\ncompilation is backend initialization and is excluded from timed proofs.\n\nThe manifest still has no enabled Metal scoring workload. Attached S3 verdicts\nare honest CPU no-regression controls; the performance claim below comes from\nthe production-compatible Native Metal binary and is not labeled as CPU-board\ncredit.\n\n## Hypothesis\n\nFresh profiling placed the line-FRI cascade at about 3.65 ms of device time and\n169 dispatches on wide. The cascade already uses one command buffer, but it\nbuilds thirteen geometric Merkle trees with one buffer allocation and one\ndispatch per logical level. Once a tree reaches at most 256 parents, every\nremaining level fits in one threadgroup and needs only threadgroup barriers,\nnot repeated grid dispatches.\n\nThe repository already had an exact `blake2s_parent_tail_sparse` kernel for\nthat reduction. FRI could not use it because its levels lived in separate\nbuffers, while the tail kernel consumes offset-addressed levels in one arena.\nThe prediction was fewer dispatches and Objective-C allocations with unchanged\nhashing, transcript order, proof bytes, command-buffer count, and fallback\nbehavior.\n\n## Changes\n\nThe resident line-FRI runtime now allocates one 256-byte-aligned arena for the\ntranscript plus every logical Merkle level. Returned tree handles retain the\nsame arena with exact per-level word offsets and lengths, which the existing\nroot, layer-copy, selective-decommit, and destruction paths already support.\n\nLarge parent levels still use the established grid kernel. The first level\nwith at most 256 parents begins one `blake2s_parent_tail_sparse` dispatch,\nwhich holds hashes in threadgroup memory and reduces through the root. A\nsingle-level tail is left on the original path. No MSL, C ABI, shader export,\npipeline identity, protocol, arithmetic, transcript, or generic prover code\nchanged.\n\nThe focused five-layer parity test now expects 30 rather than 45 dispatches\nand still compares every root, transcript challenge, terminal evaluation, and\nchannel state with CPU. During development, a missing leaf-arena offset was\ncaught because it overwrote the transcript header; Metal GPU validation and\nthe fixed proof hashes verified the corrected offset-aware binding.\n\n## Results\n\nSeven clean paired rounds per class alternated A-B / B-A process order. Every\nprocess used ten warmups and seven timed verified proofs. Ratios use the\nrepository's round-median Hodges--Lehmann estimator and deterministic\n100,000-resample bootstrap intervals.\n\n| class | predecessor | candidate | B/A (95% CI) | result |\n| --- | ---: | ---: | ---: | ---: |\n| small `wf_log10x8` | 2.888 ms | 2.732 ms | 0.9572 [0.9430, 1.0296] | 4.28% estimate |\n| wide `wf_log14x32` | 11.990 ms | 11.859 ms | 0.9854 [0.9651, 1.0018] | 1.46% estimate |\n| deep `plonk_log14` | 7.571 ms | 7.210 ms | 0.9489 [0.9352, 0.9587] | 5.11% confirmed |\n\nThe suite geometric-mean ratio is 0.9637, about 3.63% less latency. Deep is the\nconfirmed claim: all seven pairs improve and its upper confidence bound is\n0.9587. Small and wide intervals cross one and are not overclaimed.\n\nDebug GPU attribution shows wide line-FRI dispatches falling 169 -> 93 and its\nsteady device timestamp moving from about 3.65 to 3.37 ms. The command remains\none compute encoder, one command buffer, and one wait. The arena also replaces\nroughly one hundred per-level Metal buffer objects at the fixed wide/deep\nshape.\n\nAll 294 formal timed proofs independently verified, were byte-identical within\neach process, matched across arms, reported `accelerated_without_fallbacks`,\nused zero CPU fallbacks, and retained one line-FRI epoch. Fixed hashes are:\n\n- small: `91741aec956846d52e50f7b8fef3ac93195dbcd76cdb89e25ed33a148bea5700`\n- wide: `57a7d291eb8a103d0e4395c23fd7dc9ab7e9ed2d0f95558835cc6482630f3374`\n- deep: `d63a2c92846148edc075fbb46fe63f5cf0fc6fe05ae1d5d54d09bda33b69dbaf`\n\n## Official controls and validation\n\nFresh CPU S3 controls for all moved classes passed G1--G5, the pinned Rust\noracle, proof-digest checks, request/RSS budgets, and all 12 regression guards.\nThey are neutral as expected for Objective-C compiled only into Metal:\nsmall 1.0114 `[0.9886, 1.0256]`, wide 1.0077 `[0.9930, 1.0144]`, and deep\n0.9925 `[0.9847, 1.0019]`.\n\nValidation passes `zig build test`, `test-native-metal`, `metal-check`, both\nauthenticated-AOT core compile/probe gates, source conformance, diff checks,\nMetal API/GPU validation, exact fixed proofs, and the modified cascade parity\ntest. Broad `metal-test` is 80/83 with two expected skips and only the same\npre-existing resident-policy assertion at `resident_data_test.zig:616`.\n\n## Caveats\n\n- No enabled Metal judge workload exists, so this cannot receive Metal-board\n  credit until the harness exposes one.\n- Full Metal System Trace is unavailable because this host has Command Line\n  Tools rather than full Xcode. Real source-JIT execution, GPU timestamps,\n  stage profiles, validation layers, and mechanism telemetry support the\n  attribution.\n- The single shared arena selects shared storage. This is the same storage mode\n  the predecessor selected for every level on the target unified-memory Apple\n  GPU; no claim is made for discrete Intel-era Macs.\n",
+   "outcome": "neutral",
+   "solver": "teddyjfpender",
+   "title": "Fuse shallow FRI Merkle levels inside one Metal threadgroup",
+   "transcripts": [
+    {
+     "captured_by": "submitter",
+     "excerpt": "# Session 01 \u2014 extending the resident FRI epoch through the first layer\n\nDate: 2026-07-21\nModel: GPT-5 Codex\n\n## Objective and clean frontier\n\nContinue the user's Metal-backend optimization loop immediately after the\nsampled-value batch epoch merged and was recorded. The canonical updater moved\nmain from `bbb8c8823cca` to recorded frontier `564cea426cf4`; the preceding\nsubmission is now listed neutral on the CPU-only judge board, while its Native\nMetal evidence remains a 0.9152 suite ratio. A fresh worktree and branch\n`autoresearch/metal-epoch3` were created at the exact recorded frontier, and\nrepo setup passed before source work.\n\nThe same five repository skills remain active: algorithm mat",
+     "label": "session-01.md",
+     "sha256": "7ca6a44a6ee0e462c04bc6025476717c7c11529df751d3cdb3ebd494a2dfbbcd"
     }
    ],
    "verdict_kind": "claimed",
