@@ -1,0 +1,319 @@
+{
+  "schema_version": 1,
+  "kind": "claimed",
+  "harness_commit": "e9e4c494cbce",
+  "repo_commit": "5fbf86bee24f",
+  "predecessor_commit": "2ab16c66a306",
+  "scope": "s3",
+  "declared_objective": {
+    "board": "core_cpu",
+    "workload_class": "small",
+    "dimension": "time"
+  },
+  "environment": {
+    "host": "da0daaba4b15",
+    "os": "Darwin 25.5.0",
+    "zig_version": "0.15.2",
+    "release_fast": true,
+    "clean_tree": false,
+    "judge_lock_held": false,
+    "preflight": {
+      "load_ok": true,
+      "load1": 2.7
+    }
+  },
+  "gates": {
+    "G1": {
+      "pass": true,
+      "detail": "every timed sample verified; cross-arm proof digests byte-identical per round; pinned correctness oracle verified 1/1 workloads"
+    },
+    "G2": {
+      "pass": false,
+      "detail": "locked paths touched: ['.github/workflows/judge.yml', '.github/workflows/promote.yml', '.github/workflows/validate.yml', 'autoresearch/MANIFEST.json', 'autoresearch/backend/canonical.py']; outside editable set: ['CONTRIBUTING.md', 'README.md', 'bench/site/data/catalog.json', 'build_support/benchmarks/native.zig', 'build_support/products/catalog.zig']"
+    },
+    "G3": {
+      "pass": true,
+      "detail": "native mechanism telemetry policy unchanged"
+    },
+    "G4": {
+      "pass": true,
+      "detail": "candidate/anchor 0.3831 vs targeted budget x1.02; matrix row upper CIs 1/1 within budget x1.05; regression guards 13/13 within budget; request ratios 1/1 present rows within budget x1.05; rss ratios 0/0 present rows within budget x1.05; absent: ['wf_log10x8']"
+    },
+    "G5": {
+      "pass": true,
+      "detail": "local advisory run"
+    }
+  },
+  "score": {
+    "per_workload": {
+      "wf_log10x8": {
+        "r": 0.883109,
+        "ci": [
+          0.863699,
+          0.899429
+        ],
+        "rounds": 10,
+        "a_median_ms": 1.204,
+        "b_median_ms": 1.068334,
+        "request_ratio": 0.887788,
+        "rss_ratio": null,
+        "mechanism_verified": null
+      }
+    },
+    "R_geomean": 0.883109,
+    "portfolio": {
+      "ci_method": "independent_workload_round_bootstrap_percentile_v1",
+      "ci_level": 0.95,
+      "bootstrap_iterations": 4000,
+      "seed": 2000059846,
+      "ci": [
+        0.862495,
+        0.899429
+      ],
+      "prove_ms_method": "geometric_mean_candidate_workload_medians_ms_v1",
+      "b_median_ms_geomean": 1.068334
+    },
+    "theta": 0.037308,
+    "aa_dispersion": 0.018654,
+    "significant": true,
+    "neutral": false,
+    "promotion_significance": {
+      "eligible": true,
+      "method": "independent_workload_round_bootstrap_percentile_v1",
+      "reason": "prove-time objective uses the deterministic workload portfolio CI"
+    }
+  },
+  "tiebreakers": {
+    "rss_ratio": null,
+    "waits": null,
+    "dispatches": null,
+    "energy_j": null
+  },
+  "holdout": null,
+  "guards": {
+    "guard_blake_10x10": {
+      "r": 0.995902,
+      "ci": [
+        0.983763,
+        1.013565
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "4153acd6e32a98b9d240730062f7fa35e2e31eca915f01c179337f04d409cbd2"
+    },
+    "guard_blake_12x16": {
+      "r": 1.013369,
+      "ci": [
+        0.990813,
+        1.032564
+      ],
+      "rounds": 5,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "70e516957d2d38ed78214bfda5b0b2bdfe41f1c93439fb68e124bfef096fbc9f"
+    },
+    "guard_plonk_14": {
+      "r": 0.968058,
+      "ci": [
+        0.958535,
+        0.973083
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "d63a2c92846148edc075fbb46fe63f5cf0fc6fe05ae1d5d54d09bda33b69dbaf"
+    },
+    "guard_plonk_16": {
+      "r": 0.969909,
+      "ci": [
+        0.95832,
+        0.981446
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "cfb36bf17fb3526bf1bdd9401fb885fd91ca46b9982fee1ca5fad33a1d574b72"
+    },
+    "guard_poseidon_10": {
+      "r": 0.97721,
+      "ci": [
+        0.960944,
+        0.986242
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "af33240da8e7947362fdf7e78d306f2e11cb2e3df7e1b6f498a6e86ac3ae7b1b"
+    },
+    "guard_poseidon_13": {
+      "r": 0.998886,
+      "ci": [
+        0.994144,
+        1.000783
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "f196835da5d4a155c6311bafb44335c2863cc028879d69a7ae53b802321200f1"
+    },
+    "guard_sm_14": {
+      "r": 0.966083,
+      "ci": [
+        0.956924,
+        0.980126
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "488fadeeb4e5d76b6fc0a9c10ab258bab6673de8e912ae5de927561650920b37"
+    },
+    "guard_sm_16": {
+      "r": 0.956522,
+      "ci": [
+        0.949222,
+        0.97334
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "88ec35ee88a05ce0a5db4b6cb063f4cf7824ee65284db0908a62a9362879af73"
+    },
+    "guard_wf_10x8": {
+      "r": 0.956548,
+      "ci": [
+        0.929519,
+        0.966614
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "91741aec956846d52e50f7b8fef3ac93195dbcd76cdb89e25ed33a148bea5700"
+    },
+    "guard_wf_14x32": {
+      "r": 0.966847,
+      "ci": [
+        0.955023,
+        0.971479
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "57a7d291eb8a103d0e4395c23fd7dc9ab7e9ed2d0f95558835cc6482630f3374"
+    },
+    "guard_wf_16x64": {
+      "r": 0.915897,
+      "ci": [
+        0.899771,
+        0.933203
+      ],
+      "rounds": 6,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "42086545b7a170c5868afcc390f83d964e06d528e2d1039420fc6bfd7a6aac74"
+    },
+    "guard_xor_14": {
+      "r": 0.884824,
+      "ci": [
+        0.877375,
+        0.888297
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "35bb35714e10888c786a71ccdfe31d2b9b4651c567fac5ba4c9543bc247cad80"
+    },
+    "guard_xor_16": {
+      "r": 0.874532,
+      "ci": [
+        0.873299,
+        0.876396
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "56163b8ea3d877b3b9bf15753b7c0175d4a6ead493640eef8210c59ba7e5215c"
+    }
+  },
+  "rust_oracle": [
+    {
+      "workload": "wf_log10x8",
+      "verified": true,
+      "oracle": "pinned-rust-stwo",
+      "artifact_sha256": "6a2250b56d5e10b6385e3a0f617ef4cee001b5279fd3bbef404a5ccb58ccd7ce"
+    }
+  ],
+  "skipped_groups": [
+    {
+      "group": "riscv",
+      "reason": "RF-01 adapter release and BA-03 autoresearch activation pending"
+    }
+  ],
+  "evidence": {
+    "pairing": "round-level ABBA (bench reports expose medians, not raw samples)",
+    "per_workload": {
+      "wf_log10x8": {
+        "round_ratios": [
+          0.895353,
+          0.859653,
+          0.84842,
+          0.909502,
+          0.856717,
+          0.918587,
+          0.885174,
+          0.867744,
+          0.913684,
+          0.868273
+        ],
+        "proof_digest": "91741aec956846d52e50f7b8fef3ac93195dbcd76cdb89e25ed33a148bea5700",
+        "request_ratio": 0.887788,
+        "rss_ratio": null,
+        "report_sha256s": [
+          "9f3a7fe36ddf2bb90211b2cd8f603e44826e1062635cefb6d3a95db67add768b",
+          "026267c1337f15ea44e8d60736781729b09c8a09acad403f6df289c77c36c2d5",
+          "6f3c5cb806dc897bf0c4d1f946c9e69b88dd9a14e7999632530ac3b785ae5112",
+          "bfbef7ca04d5cd265e90cdef2dcf24a892d88c42fd5fc6c0b2b82b291cbe2f1d",
+          "f5d93b97a9aec9c2606a20e20a01dee4cc558edd76881eebdb2c10bb6711de11",
+          "1c123915f83546cc6514e6d5325d7c38a04468cf296e5ca520b612c3e32ca54b",
+          "c608522a1ccaf01afc5d1d2b668115b410b2ad1ea6fc647ef52e340cc47dccde",
+          "e117206cfc1880c08d3513b49dfc9c4dc4de5d3a8d6ce61c0e0ac30a16d3e7f0",
+          "1be6d814846b59fcc9d0b10781df195847ebd51bffe50d26bb001420375752e2",
+          "f5fb0358347d3f00cc4c5994432b38fbdfd6554156809334c8702bdfb1c30467",
+          "1206d4ecf94d1288c8337064dc922d5c4ebf6a2dce522071905db03b2a62300b",
+          "1613ea16fcb8926507c6199261954a681974f025d1b147aafc9f1ea8f384c6cf",
+          "c59b220e39eca8dad3e6e27755b9fef609cda8715ecaab0cd97f182e8ddd6987",
+          "503c579c56988e7899b1d665aa058400b8c415dcf85d234ce916990910daed28",
+          "e823e8b72e1af4bb4d006ab2b1460a3b1b53dc48d9e0a8aa56818a26effd3d7e",
+          "d1d931523bca64ff2114f598b0a8ee09e8de061b1982577d97091532025b9ed5",
+          "85ae43b54faec700c696c02f497fb06acea2c27241058f6074bc0c34517c712d",
+          "e6308f0eca49c9fe0cacc8a20ccec1d5d9779f7a5e7f56370b404fdbd42472ed",
+          "0b414be519df3b2e519351b524113ab0e5c9b9f115b95b9ff1705c3c4cff89c7",
+          "53f0b75041036ef4d06fc4b30a1f764aef09c3ff04357dfe2018a2e3faa4ead3"
+        ],
+        "mechanism_verified": null
+      }
+    },
+    "reports": [
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log10x8.a1.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log10x8.b1.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log10x8.a2.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log10x8.b2.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log10x8.a3.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log10x8.b3.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log10x8.a4.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log10x8.b4.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log10x8.a5.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log10x8.b5.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log10x8.a6.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log10x8.b6.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log10x8.a7.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log10x8.b7.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log10x8.a8.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log10x8.b8.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log10x8.a9.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log10x8.b9.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log10x8.a10.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log10x8.b10.json"
+    ]
+  }
+}

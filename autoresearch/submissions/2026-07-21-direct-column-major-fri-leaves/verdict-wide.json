@@ -1,0 +1,309 @@
+{
+  "schema_version": 1,
+  "kind": "claimed",
+  "harness_commit": "e9e4c494cbce",
+  "repo_commit": "5fbf86bee24f",
+  "predecessor_commit": "2ab16c66a306",
+  "scope": "s3",
+  "declared_objective": {
+    "board": "core_cpu",
+    "workload_class": "wide",
+    "dimension": "time"
+  },
+  "environment": {
+    "host": "da0daaba4b15",
+    "os": "Darwin 25.5.0",
+    "zig_version": "0.15.2",
+    "release_fast": true,
+    "clean_tree": true,
+    "judge_lock_held": false,
+    "preflight": {
+      "load_ok": true,
+      "load1": 2.75
+    }
+  },
+  "gates": {
+    "G1": {
+      "pass": true,
+      "detail": "every timed sample verified; cross-arm proof digests byte-identical per round; pinned correctness oracle verified 1/1 workloads"
+    },
+    "G2": {
+      "pass": false,
+      "detail": "locked paths touched: ['.github/workflows/judge.yml', '.github/workflows/promote.yml', '.github/workflows/validate.yml', 'autoresearch/MANIFEST.json', 'autoresearch/backend/canonical.py']; outside editable set: ['CONTRIBUTING.md', 'README.md', 'bench/site/data/catalog.json', 'build_support/benchmarks/native.zig', 'build_support/products/catalog.zig']"
+    },
+    "G3": {
+      "pass": true,
+      "detail": "native mechanism telemetry policy unchanged"
+    },
+    "G4": {
+      "pass": true,
+      "detail": "candidate/anchor 0.4166 vs targeted budget x1.02; matrix row upper CIs 1/1 within budget x1.05; regression guards 13/13 within budget; request ratios 1/1 present rows within budget x1.05; rss ratios 0/0 present rows within budget x1.05; absent: ['wf_log14x32']"
+    },
+    "G5": {
+      "pass": true,
+      "detail": "local advisory run"
+    }
+  },
+  "score": {
+    "per_workload": {
+      "wf_log14x32": {
+        "r": 0.981701,
+        "ci": [
+          0.968283,
+          0.994015
+        ],
+        "rounds": 8,
+        "a_median_ms": 7.4985,
+        "b_median_ms": 7.354959,
+        "request_ratio": 0.977149,
+        "rss_ratio": null,
+        "mechanism_verified": null
+      }
+    },
+    "R_geomean": 0.981701,
+    "portfolio": {
+      "ci_method": "independent_workload_round_bootstrap_percentile_v1",
+      "ci_level": 0.95,
+      "bootstrap_iterations": 4000,
+      "seed": 4133880075,
+      "ci": [
+        0.968766,
+        0.994015
+      ],
+      "prove_ms_method": "geometric_mean_candidate_workload_medians_ms_v1",
+      "b_median_ms_geomean": 7.354959
+    },
+    "theta": 0.02929,
+    "aa_dispersion": 0.014645,
+    "significant": false,
+    "neutral": false,
+    "promotion_significance": {
+      "eligible": true,
+      "method": "independent_workload_round_bootstrap_percentile_v1",
+      "reason": "prove-time objective uses the deterministic workload portfolio CI"
+    }
+  },
+  "tiebreakers": {
+    "rss_ratio": null,
+    "waits": null,
+    "dispatches": null,
+    "energy_j": null
+  },
+  "holdout": null,
+  "guards": {
+    "guard_blake_10x10": {
+      "r": 1.000116,
+      "ci": [
+        0.996949,
+        1.001399
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "4153acd6e32a98b9d240730062f7fa35e2e31eca915f01c179337f04d409cbd2"
+    },
+    "guard_blake_12x16": {
+      "r": 1.008367,
+      "ci": [
+        0.986405,
+        1.029573
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "70e516957d2d38ed78214bfda5b0b2bdfe41f1c93439fb68e124bfef096fbc9f"
+    },
+    "guard_plonk_14": {
+      "r": 0.940524,
+      "ci": [
+        0.924498,
+        0.94919
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "d63a2c92846148edc075fbb46fe63f5cf0fc6fe05ae1d5d54d09bda33b69dbaf"
+    },
+    "guard_plonk_16": {
+      "r": 0.965496,
+      "ci": [
+        0.961069,
+        0.972723
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "cfb36bf17fb3526bf1bdd9401fb885fd91ca46b9982fee1ca5fad33a1d574b72"
+    },
+    "guard_poseidon_10": {
+      "r": 0.995173,
+      "ci": [
+        0.988159,
+        1.008832
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "af33240da8e7947362fdf7e78d306f2e11cb2e3df7e1b6f498a6e86ac3ae7b1b"
+    },
+    "guard_poseidon_13": {
+      "r": 0.998261,
+      "ci": [
+        0.993984,
+        1.001138
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "f196835da5d4a155c6311bafb44335c2863cc028879d69a7ae53b802321200f1"
+    },
+    "guard_sm_14": {
+      "r": 0.970782,
+      "ci": [
+        0.963257,
+        0.976837
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "488fadeeb4e5d76b6fc0a9c10ab258bab6673de8e912ae5de927561650920b37"
+    },
+    "guard_sm_16": {
+      "r": 0.96685,
+      "ci": [
+        0.96275,
+        0.969554
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "88ec35ee88a05ce0a5db4b6cb063f4cf7824ee65284db0908a62a9362879af73"
+    },
+    "guard_wf_10x8": {
+      "r": 0.94533,
+      "ci": [
+        0.927568,
+        0.977248
+      ],
+      "rounds": 6,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "91741aec956846d52e50f7b8fef3ac93195dbcd76cdb89e25ed33a148bea5700"
+    },
+    "guard_wf_14x32": {
+      "r": 0.954245,
+      "ci": [
+        0.927831,
+        0.967055
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "57a7d291eb8a103d0e4395c23fd7dc9ab7e9ed2d0f95558835cc6482630f3374"
+    },
+    "guard_wf_16x64": {
+      "r": 0.912478,
+      "ci": [
+        0.910398,
+        0.917573
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "42086545b7a170c5868afcc390f83d964e06d528e2d1039420fc6bfd7a6aac74"
+    },
+    "guard_xor_14": {
+      "r": 0.950182,
+      "ci": [
+        0.932204,
+        0.956902
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "35bb35714e10888c786a71ccdfe31d2b9b4651c567fac5ba4c9543bc247cad80"
+    },
+    "guard_xor_16": {
+      "r": 0.966814,
+      "ci": [
+        0.954982,
+        0.971136
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "56163b8ea3d877b3b9bf15753b7c0175d4a6ead493640eef8210c59ba7e5215c"
+    }
+  },
+  "rust_oracle": [
+    {
+      "workload": "wf_log14x32",
+      "verified": true,
+      "oracle": "pinned-rust-stwo",
+      "artifact_sha256": "d32393fe3b1f9abbc4795d87c3b3316e06111f014ec30f0635f13ec0ff0587f9"
+    }
+  ],
+  "skipped_groups": [
+    {
+      "group": "riscv",
+      "reason": "RF-01 adapter release and BA-03 autoresearch activation pending"
+    }
+  ],
+  "evidence": {
+    "pairing": "round-level ABBA (bench reports expose medians, not raw samples)",
+    "per_workload": {
+      "wf_log14x32": {
+        "round_ratios": [
+          0.978034,
+          1.009748,
+          0.969327,
+          0.985333,
+          1.000764,
+          0.949146,
+          0.987265,
+          0.976171
+        ],
+        "proof_digest": "57a7d291eb8a103d0e4395c23fd7dc9ab7e9ed2d0f95558835cc6482630f3374",
+        "request_ratio": 0.977149,
+        "rss_ratio": null,
+        "report_sha256s": [
+          "65bd269f8d8928442db8697e66740b0e412e90bfa06093eff6f75428a3297037",
+          "996d486d81a107e85daa917ac95fcd557a4e95ae63ff5110331ff8574ae5ab5a",
+          "6ed2af946233b7143eb2554e21d3e4c792c531eaeab936f25f9af7420a3f1334",
+          "945a7272b5dac47e1c917dca75b5c84f06347608383abc8689dbc85b32cd9d9f",
+          "c8722da919dde70ea732cb9c19b9d836728ebab5ccf8d7dbf2ce06d36dd9a7c6",
+          "7cc4169c9e9e8c87c75252702f6ccf6b7949432eccdbe60c9d5b3f14d15118f7",
+          "e002e0aff9a1e6b616d1a5dd27d2e5f30c6e37db79b49ce2acf677aa4c3ba05d",
+          "ee204eb84beb3661cdf3edb194f8ddb2b0d0c2bcd18dc57976c35fff7e853ea0",
+          "3193e6777657eb2272adabc0f4242f7fc72b26c35fb7131d26270d6e073373e2",
+          "f9a6ff4f2f183095d09b0fac8fa89fe8d85c4e9a936d1bbf04b51fd0914afdc2",
+          "bebc3286c20d4e15702e8666a86601cdc0d65b24330b2638f83948f42aa6a5a4",
+          "60a4dcd10b0e8db4a118e77b572165d6d2820279716867b2ac83d82aa241dc06",
+          "a2989862c91ab566860a4ff34a380329f828d7e126e0b8051de1a791a3cfae53",
+          "4d168ee17385cf1ebc14a622cc6876d8b9201846730df39da60ad5e328b12191",
+          "2324a4fb5104a0463ad665680da743bfa7768db51e4f3c44e93ecaf3ae209f6a",
+          "8d9431c1029140a877c065fca7cd697776d362d9cb25c80757c93f0c1276e34d"
+        ],
+        "mechanism_verified": null
+      }
+    },
+    "reports": [
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log14x32.a1.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log14x32.b1.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log14x32.a2.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log14x32.b2.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log14x32.a3.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log14x32.b3.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log14x32.a4.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log14x32.b4.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log14x32.a5.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log14x32.b5.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log14x32.a6.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log14x32.b6.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log14x32.a7.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log14x32.b7.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log14x32.a8.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/wf_log14x32.b8.json"
+    ]
+  }
+}

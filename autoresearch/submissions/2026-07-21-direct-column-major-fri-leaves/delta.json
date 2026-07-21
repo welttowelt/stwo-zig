@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "predecessor_commit": "2ab16c66a306",
+  "declared_objective": {
+    "board": "core_cpu",
+    "workload_class": "small",
+    "dimension": "time"
+  },
+  "declared_scope": "s3",
+  "files": {
+    "src/backends/cpu_scalar/mod.zig": "sha256:cdc5f3e294ab8831e66fe9b822a03c1d99fbb4a191ab914f315f5586835cb8d7",
+    "src/core/crypto/blake2s_backend.zig": "sha256:40ef7311b0a161c4b45a8b343a3e993d62a56dee1beab0d4c1ec60d0466d685a",
+    "src/core/vcs/blake2_hash.zig": "sha256:9b0db6c9e2b3b345fcc877e47f24c5b1664d587854a21d42113de91b855607af",
+    "src/core/vcs_lifted/blake2_merkle.zig": "sha256:a0c8f855270ddd42104ed5f003ebf5c6268d3e2fbce871fbca2f3458ea7a17ea",
+    "src/prover/fri.zig": "sha256:3737bdaff4c881b1110b1b0cdec33a7142b60c377773cf46df4875b9fac33221",
+    "src/prover/vcs_lifted/first_layer_sink.zig": "sha256:6b14f1d087e17e235d7ed64a3d43c8da58e55d223ece76078ba07e8ede84802a",
+    "src/prover/vcs_lifted/leaves.zig": "sha256:a675e4c326905d17f47deba20de572a83669454e12524db4f257d9d8c19b95f4",
+    "src/prover/vcs_lifted/prover.zig": "sha256:9c6454feed7d10803b54b6713ff9488ca3d7c3012654f59788350c5cc7f4ad63"
+  },
+  "transcripts": {
+    "transcripts/session-01.md": {
+      "sha256": "e16df1140da0933914f055798df6f72d8492b51f01144f0814ab3595cacd976f",
+      "captured_by": "submitter"
+    }
+  },
+  "transcripts_declined": false
+}

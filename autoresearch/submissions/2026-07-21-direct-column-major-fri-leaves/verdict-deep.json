@@ -1,0 +1,314 @@
+{
+  "schema_version": 1,
+  "kind": "claimed",
+  "harness_commit": "e9e4c494cbce",
+  "repo_commit": "5fbf86bee24f",
+  "predecessor_commit": "2ab16c66a306",
+  "scope": "s3",
+  "declared_objective": {
+    "board": "core_cpu",
+    "workload_class": "deep",
+    "dimension": "time"
+  },
+  "environment": {
+    "host": "da0daaba4b15",
+    "os": "Darwin 25.5.0",
+    "zig_version": "0.15.2",
+    "release_fast": true,
+    "clean_tree": true,
+    "judge_lock_held": false,
+    "preflight": {
+      "load_ok": true,
+      "load1": 2.6
+    }
+  },
+  "gates": {
+    "G1": {
+      "pass": true,
+      "detail": "every timed sample verified; cross-arm proof digests byte-identical per round; pinned correctness oracle verified 1/1 workloads"
+    },
+    "G2": {
+      "pass": false,
+      "detail": "locked paths touched: ['.github/workflows/judge.yml', '.github/workflows/promote.yml', '.github/workflows/validate.yml', 'autoresearch/MANIFEST.json', 'autoresearch/backend/canonical.py']; outside editable set: ['CONTRIBUTING.md', 'README.md', 'bench/site/data/catalog.json', 'build_support/benchmarks/native.zig', 'build_support/products/catalog.zig']"
+    },
+    "G3": {
+      "pass": true,
+      "detail": "native mechanism telemetry policy unchanged"
+    },
+    "G4": {
+      "pass": true,
+      "detail": "candidate/anchor 0.3056 vs targeted budget x1.02; matrix row upper CIs 1/1 within budget x1.05; regression guards 13/13 within budget; request ratios 1/1 present rows within budget x1.05; rss ratios 0/0 present rows within budget x1.05; absent: ['plonk_log14']"
+    },
+    "G5": {
+      "pass": true,
+      "detail": "local advisory run"
+    }
+  },
+  "score": {
+    "per_workload": {
+      "plonk_log14": {
+        "r": 0.95105,
+        "ci": [
+          0.942025,
+          0.9602
+        ],
+        "rounds": 9,
+        "a_median_ms": 4.646709,
+        "b_median_ms": 4.406125,
+        "request_ratio": 0.955253,
+        "rss_ratio": null,
+        "mechanism_verified": null
+      }
+    },
+    "R_geomean": 0.95105,
+    "portfolio": {
+      "ci_method": "independent_workload_round_bootstrap_percentile_v1",
+      "ci_level": 0.95,
+      "bootstrap_iterations": 4000,
+      "seed": 223837180,
+      "ci": [
+        0.942025,
+        0.961263
+      ],
+      "prove_ms_method": "geometric_mean_candidate_workload_medians_ms_v1",
+      "b_median_ms_geomean": 4.406125
+    },
+    "theta": 0.018278,
+    "aa_dispersion": 0.009139,
+    "significant": true,
+    "neutral": false,
+    "promotion_significance": {
+      "eligible": true,
+      "method": "independent_workload_round_bootstrap_percentile_v1",
+      "reason": "prove-time objective uses the deterministic workload portfolio CI"
+    }
+  },
+  "tiebreakers": {
+    "rss_ratio": null,
+    "waits": null,
+    "dispatches": null,
+    "energy_j": null
+  },
+  "holdout": null,
+  "guards": {
+    "guard_blake_10x10": {
+      "r": 0.994993,
+      "ci": [
+        0.963461,
+        1.007784
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "4153acd6e32a98b9d240730062f7fa35e2e31eca915f01c179337f04d409cbd2"
+    },
+    "guard_blake_12x16": {
+      "r": 1.012426,
+      "ci": [
+        1.006266,
+        1.020895
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "70e516957d2d38ed78214bfda5b0b2bdfe41f1c93439fb68e124bfef096fbc9f"
+    },
+    "guard_plonk_14": {
+      "r": 0.963922,
+      "ci": [
+        0.952806,
+        0.971351
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "d63a2c92846148edc075fbb46fe63f5cf0fc6fe05ae1d5d54d09bda33b69dbaf"
+    },
+    "guard_plonk_16": {
+      "r": 0.966659,
+      "ci": [
+        0.96303,
+        0.97156
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "cfb36bf17fb3526bf1bdd9401fb885fd91ca46b9982fee1ca5fad33a1d574b72"
+    },
+    "guard_poseidon_10": {
+      "r": 0.988833,
+      "ci": [
+        0.979713,
+        1.002714
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "af33240da8e7947362fdf7e78d306f2e11cb2e3df7e1b6f498a6e86ac3ae7b1b"
+    },
+    "guard_poseidon_13": {
+      "r": 0.999365,
+      "ci": [
+        0.991804,
+        1.020689
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "f196835da5d4a155c6311bafb44335c2863cc028879d69a7ae53b802321200f1"
+    },
+    "guard_sm_14": {
+      "r": 0.952539,
+      "ci": [
+        0.946018,
+        0.956414
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "488fadeeb4e5d76b6fc0a9c10ab258bab6673de8e912ae5de927561650920b37"
+    },
+    "guard_sm_16": {
+      "r": 0.962541,
+      "ci": [
+        0.943744,
+        0.970017
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "88ec35ee88a05ce0a5db4b6cb063f4cf7824ee65284db0908a62a9362879af73"
+    },
+    "guard_wf_10x8": {
+      "r": 0.937726,
+      "ci": [
+        0.910465,
+        0.976278
+      ],
+      "rounds": 8,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "91741aec956846d52e50f7b8fef3ac93195dbcd76cdb89e25ed33a148bea5700"
+    },
+    "guard_wf_14x32": {
+      "r": 0.966445,
+      "ci": [
+        0.94669,
+        0.996636
+      ],
+      "rounds": 7,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "57a7d291eb8a103d0e4395c23fd7dc9ab7e9ed2d0f95558835cc6482630f3374"
+    },
+    "guard_wf_16x64": {
+      "r": 0.905429,
+      "ci": [
+        0.896916,
+        0.917743
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "42086545b7a170c5868afcc390f83d964e06d528e2d1039420fc6bfd7a6aac74"
+    },
+    "guard_xor_14": {
+      "r": 0.955889,
+      "ci": [
+        0.95119,
+        0.959679
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "35bb35714e10888c786a71ccdfe31d2b9b4651c567fac5ba4c9543bc247cad80"
+    },
+    "guard_xor_16": {
+      "r": 0.962201,
+      "ci": [
+        0.954443,
+        0.96782
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "56163b8ea3d877b3b9bf15753b7c0175d4a6ead493640eef8210c59ba7e5215c"
+    }
+  },
+  "rust_oracle": [
+    {
+      "workload": "plonk_log14",
+      "verified": true,
+      "oracle": "pinned-rust-stwo",
+      "artifact_sha256": "ed64ff803f2e7ec8c5eeb81f520ee3cb228c6811795a53137092a8632f9e5e68"
+    }
+  ],
+  "skipped_groups": [
+    {
+      "group": "riscv",
+      "reason": "RF-01 adapter release and BA-03 autoresearch activation pending"
+    }
+  ],
+  "evidence": {
+    "pairing": "round-level ABBA (bench reports expose medians, not raw samples)",
+    "per_workload": {
+      "plonk_log14": {
+        "round_ratios": [
+          0.941006,
+          0.969351,
+          0.93028,
+          0.954484,
+          0.942025,
+          0.971476,
+          0.957285,
+          0.95105,
+          0.948225
+        ],
+        "proof_digest": "d63a2c92846148edc075fbb46fe63f5cf0fc6fe05ae1d5d54d09bda33b69dbaf",
+        "request_ratio": 0.955253,
+        "rss_ratio": null,
+        "report_sha256s": [
+          "928445d5d6cea27c236fa120f50a8de918b757ad7ed5f1b529186b66d187b6a2",
+          "6307fa35c25afd80f274d4b355fb3ca0925b68f1985c5c198461af6433300a4e",
+          "61fa532eae054c395550b4501bd6966268b4c1e2743601a04105e50a9d40c71d",
+          "e564a2f74614fa6c34bf42b9122f5aa8d123411ccd09f38be2d5365627ca7e7f",
+          "6acf96b38f158349d63e7a793d9724e6ad9c0a21d075b7dd570ffdcaf9354173",
+          "d03ad37d2b177115e8c351d3b37a6a2f90d33155d612710735a997b31652446a",
+          "0bb9ece32b71f18794f2c03cd63adce1c99a9c800a5eca25fc6eef830f9f34b5",
+          "ab8572e545dbdebb6516651d8c005b167a2aa05669b00bde7349ebc25cd0d8a0",
+          "0ad8b5e44c87cf47a6e5a24d12921edb568056175ca21994cdadbe463230de84",
+          "5f43d5ea2b9546a64eea271a8356b3e5be84b481796c1efe0ee1c2052845f003",
+          "8a644cf389748e2bc0b6e30d6319b51a17fa15da0219615c3d2c4a87673d52b3",
+          "bb7542a764180597cb17fd6be204bcf155c0e9b04642a72b7ec9f1649cb6f003",
+          "63c30dce0862cae4ef00b2baf66a685f1b7ae98db0b005282bbf22360f16e0fe",
+          "f2fa229d689edc8d9f78cd29c3add3ce78b5bc288a77a607615ae352a9e23575",
+          "365521af12459037f76a7cb3e12ae15d258549898aa8a01f972ce72ec93185ec",
+          "7c887375343c0a3e8084942a0c7eda3d126f995fccf1be3a2b8050b660805306",
+          "9390d3b74148c248d0a8ff116bc35cfe58909ff4382e745c0a81e4bf863b3f21",
+          "ff3feac53de636f6a8fcf8a4a2a474278e87c57fe863e952ca631b5b4d251fa5"
+        ],
+        "mechanism_verified": null
+      }
+    },
+    "reports": [
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/plonk_log14.a1.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/plonk_log14.b1.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/plonk_log14.a2.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/plonk_log14.b2.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/plonk_log14.a3.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/plonk_log14.b3.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/plonk_log14.a4.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/plonk_log14.b4.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/plonk_log14.a5.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/plonk_log14.b5.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/plonk_log14.a6.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/plonk_log14.b6.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/plonk_log14.a7.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/plonk_log14.b7.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/plonk_log14.a8.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/plonk_log14.b8.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/plonk_log14.a9.json",
+      "/Users/odin/stwo-ws1/autoresearch/.runs/latest/plonk_log14.b9.json"
+    ]
+  }
+}
