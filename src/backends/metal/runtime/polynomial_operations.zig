@@ -64,6 +64,11 @@ const QuotientComputeResult = struct {
     tree: ?Tree,
 };
 
+// Below this log size, indexed reconstruction is too small a fraction of a
+// proof to repay perturbing the short host/GPU schedule. The production wide
+// and deep quotient domains are log 15; the small fixture is log 11.
+const linear_quotient_domain_log_threshold: u32 = 13;
+
 /// Materializes a full circle domain in the bit-reversed layout consumed by
 /// the quotient kernels. Walking the domain once is linear in its size;
 /// scattering natural index `j` to `bitReverse(j)` preserves the former
@@ -272,7 +277,16 @@ fn computeQuotientsConfigured(
     const domain_y = try allocator.alloc(u32, row_count);
     defer allocator.free(domain_y);
     std.debug.assert(provider.lifting_log_size == provider.domain.logSize());
-    fillBitReversedDomainCoordinates(domain_x, domain_y, provider.domain);
+    if (provider.lifting_log_size >= linear_quotient_domain_log_threshold) {
+        fillBitReversedDomainCoordinates(domain_x, domain_y, provider.domain);
+    } else {
+        const core_utils = @import("stwo_core").utils;
+        for (0..row_count) |position| {
+            const point = provider.domain.at(core_utils.bitReverseIndex(position, provider.lifting_log_size));
+            domain_x[position] = point.x.v;
+            domain_y[position] = point.y.v;
+        }
+    }
 
     if (!out.contiguous or out.columns[0].len != row_count) return MetalError.QuotientFailed;
     const output = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(out.columns[0].ptr[0 .. row_count * 4]));
