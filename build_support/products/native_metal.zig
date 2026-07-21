@@ -175,6 +175,11 @@ pub fn addProduct(context: Context) void {
         "scripts/check_native_metal_product.py",
     });
     test_step.dependOn(&marker_check.step);
+    const identity_cache_check = context.b.addSystemCommand(&.{
+        "python3",
+        "scripts/tests/test_delegated_identity_cache.py",
+    });
+    test_step.dependOn(&identity_cache_check.step);
 }
 
 fn createStwoModule(context: Context, role: graph.Role) *std.Build.Module {
