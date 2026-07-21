@@ -29,7 +29,7 @@ from scripts.native_proof_matrix_lib.resource_admission import (
     resource_limits,
 )
 
-from . import ledger, stats
+from . import dimensions, ledger, stats
 from .manifest import (
     REPORT_SCHEMA_VERSIONS,
     RISCV_STABLE_MECHANISM_FIELDS,
@@ -53,6 +53,19 @@ _RESOURCE_ADMISSION_KEYS = {
     "max_accounted_bytes",
 }
 _MAX_U64 = (1 << 64) - 1
+_NATIVE_RESOURCE_KEYS = {
+    "measurement_scope",
+    "source",
+    "measured_warmups",
+    "measured_samples",
+    "lifetime_peak_physical_footprint_bytes",
+    "energy_nj",
+    "instructions",
+    "cycles",
+    "canonical_proof_bytes",
+    "complete",
+    "unavailable_reason",
+}
 
 
 def _workload_resource_profile(workload: Workload) -> str:
@@ -99,6 +112,77 @@ def _validate_native_resource_admission(report: dict, workload: Workload) -> Non
         raise ValueError("workload exceeds its reported resource admission budget")
 
 
+def _parse_native_resources(
+    report: dict,
+    proof_samples: list,
+    warmups: int,
+    samples: int,
+) -> dict[str, float | int | None]:
+    resources = report.get("resources")
+    if not isinstance(resources, dict) or set(resources) != _NATIVE_RESOURCE_KEYS:
+        raise ValueError("resources has the wrong schema")
+    if resources["measurement_scope"] != "verified_process_request_batch":
+        raise ValueError("resources.measurement_scope is not the governed scope")
+    if resources["measured_warmups"] != warmups:
+        raise ValueError("resources.measured_warmups differs from the request")
+    if resources["measured_samples"] != samples:
+        raise ValueError("resources.measured_samples differs from the request")
+
+    proof_sizes: set[int] = set()
+    for item in proof_samples:
+        size = item.get("bytes") if isinstance(item, dict) else None
+        if type(size) is not int or size <= 0:
+            raise ValueError("proof.samples[].bytes must be a positive integer")
+        proof_sizes.add(size)
+    if len(proof_sizes) != 1:
+        raise ValueError("proof.samples contain different canonical proof sizes")
+    proof_bytes = next(iter(proof_sizes))
+    if resources["canonical_proof_bytes"] != proof_bytes:
+        raise ValueError("resources.canonical_proof_bytes disagrees with proof bytes")
+
+    complete = resources["complete"]
+    if type(complete) is not bool:
+        raise ValueError("resources.complete must be a boolean")
+    source = resources["source"]
+    reason = resources["unavailable_reason"]
+    counter_names = (
+        "lifetime_peak_physical_footprint_bytes",
+        "energy_nj",
+        "instructions",
+        "cycles",
+    )
+    if complete:
+        if source != "darwin_proc_pid_rusage_v6" or reason is not None:
+            raise ValueError("complete resources require the Darwin v6 source")
+        for name in counter_names:
+            value = resources[name]
+            if type(value) is not int or value <= 0:
+                raise ValueError(f"resources.{name} must be a positive integer")
+    else:
+        if source != "unsupported":
+            raise ValueError("incomplete resources require source=unsupported")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("incomplete resources require an unavailable reason")
+        if any(resources[name] is not None for name in counter_names):
+            raise ValueError("unsupported resource counters must be null")
+
+    peak_bytes = resources["lifetime_peak_physical_footprint_bytes"]
+    energy_nj = resources["energy_nj"]
+    return {
+        "peak_rss_mib": (
+            float(peak_bytes) / float(1024 * 1024)
+            if isinstance(peak_bytes, int) else None
+        ),
+        "energy_j": (
+            float(energy_nj) / 1_000_000_000.0
+            if isinstance(energy_nj, int) else None
+        ),
+        "proof_bytes": proof_bytes,
+        "instructions": resources["instructions"],
+        "cycles": resources["cycles"],
+    }
+
+
 @dataclass
 class ArmResult:
     prove_ms: float
@@ -109,6 +193,10 @@ class ArmResult:
     proof_digest: str | None = None
     request_ms: float | None = None
     mechanism: dict | None = None
+    energy_j: float | None = None
+    proof_bytes: int | None = None
+    instructions: int | None = None
+    cycles: int | None = None
 
 
 @dataclass
@@ -125,6 +213,8 @@ class WorkloadScore:
     request_ratio: float | None = None
     report_sha256s: list[str] = field(default_factory=list)
     mechanism_verified: bool | None = None
+    resource_estimates: dict[str, dimensions.RatioEstimate] = field(default_factory=dict)
+    candidate_resources: dict[str, float] = field(default_factory=dict)
 
 
 def portfolio_summary(scores: list[WorkloadScore], ci_level: float) -> dict:
@@ -324,7 +414,9 @@ def bench_once(
     out_path = out_dir / f"{workload.workload_id}.{tag}.json"
     try:
         if group.report_schema == "native_proof_v7":
-            result = _parse_native_report(report, group, workload, samples, out_path)
+            result = _parse_native_report(
+                report, group, workload, warmups, samples, out_path,
+            )
         elif group.report_schema == "riscv_proof_v1":
             assert proof_path is not None
             result = _parse_riscv_report(
@@ -384,6 +476,7 @@ def _parse_native_report(
     report: dict,
     group: WorkloadGroup,
     workload: Workload,
+    warmups: int,
     samples: int,
     out_path: Path,
 ) -> ArmResult:
@@ -416,6 +509,9 @@ def _parse_native_report(
     }
     if len(digests) != 1:
         raise ValueError("proof.samples contain different proof digests")
+    resources = _parse_native_resources(
+        report, sample_meta, warmups, samples,
+    )
     prove = timing.get("prove_seconds")
     if not isinstance(prove, dict):
         raise ValueError("timing.prove_seconds must be an object")
@@ -433,10 +529,14 @@ def _parse_native_report(
         ) * 1000.0,
         proof_verified=verified,
         byte_identical=identical and len(digests) == 1,
-        peak_rss_mib=_peak_rss_mib(report),
+        peak_rss_mib=resources["peak_rss_mib"],
         report_path=str(out_path),
         proof_digest=next(iter(digests)),
         request_ms=request_ms,
+        energy_j=resources["energy_j"],
+        proof_bytes=resources["proof_bytes"],
+        instructions=resources["instructions"],
+        cycles=resources["cycles"],
     )
 
 
@@ -617,17 +717,8 @@ def _parse_riscv_report(
             median_seconds, "median_seconds", positive=True,
         ) * 1000.0,
         mechanism=mechanism,
+        proof_bytes=len(proof_bytes),
     )
-
-
-def _peak_rss_mib(report: dict) -> float | None:
-    resources = report.get("resources", {})
-    if not isinstance(resources, dict):
-        raise ValueError("resources must be an object")
-    rss = resources.get("peak_rss_kib")
-    if isinstance(rss, dict):
-        rss = rss.get("median")
-    return float(rss) / 1024.0 if rss else None
 
 
 def paired_rounds(
@@ -655,6 +746,10 @@ def paired_rounds(
     reports: list[str] = []
     rss_a: list[float] = []
     rss_b: list[float] = []
+    energy_a: list[float] = []
+    energy_b: list[float] = []
+    proof_sizes_a: list[int] = []
+    proof_sizes_b: list[int] = []
     request_ratios: list[float] = []
     cross_digest: str | None = None
     mechanism_reference: dict | None = None
@@ -723,10 +818,19 @@ def paired_rounds(
         a_meds.append(a.prove_ms)
         b_meds.append(b.prove_ms)
         reports.extend([a.report_path, b.report_path])
-        if a.peak_rss_mib:
-            rss_a.append(a.peak_rss_mib)
-        if b.peak_rss_mib:
-            rss_b.append(b.peak_rss_mib)
+        for dimension, a_value, b_value, a_values, b_values in (
+            ("peak_rss_mib", a.peak_rss_mib, b.peak_rss_mib, rss_a, rss_b),
+            ("energy_j", a.energy_j, b.energy_j, energy_a, energy_b),
+            ("proof_bytes", a.proof_bytes, b.proof_bytes, proof_sizes_a, proof_sizes_b),
+        ):
+            if (a_value is None) != (b_value is None):
+                raise RunError(
+                    f"{workload.workload_id}: {dimension} availability differs "
+                    f"across A/B in round {round_no}"
+                )
+            if a_value is not None and b_value is not None:
+                a_values.append(a_value)
+                b_values.append(b_value)
 
         elapsed = time.monotonic() - started
         if round_no >= min_rounds:
@@ -740,9 +844,37 @@ def paired_rounds(
 
     r = stats.hodges_lehmann(ratios)
     ci = stats.bootstrap_ci(ratios, seed=_seed(workload.workload_id, 0))
-    rss_ratio = None
-    if rss_a and rss_b:
-        rss_ratio = (sum(rss_b) / len(rss_b)) / (sum(rss_a) / len(rss_a))
+    resource_estimates: dict[str, dimensions.RatioEstimate] = {}
+    for dimension, a_values, b_values in (
+        ("peak_rss_mib", rss_a, rss_b),
+        ("energy_j", energy_a, energy_b),
+    ):
+        if a_values:
+            resource_estimates[dimension] = dimensions.paired_ratio_estimate(
+                a_values,
+                b_values,
+                ci_level=float(policy["ci_level"]),
+                seed=_seed(f"{workload.workload_id}:{dimension}", 0),
+            )
+    if proof_sizes_a:
+        if len(set(proof_sizes_a)) != 1 or len(set(proof_sizes_b)) != 1:
+            raise RunError(
+                f"{workload.workload_id}: canonical proof size changed between rounds"
+            )
+        resource_estimates["proof_bytes"] = dimensions.exact_ratio(
+            proof_sizes_a[0], proof_sizes_b[0],
+        )
+    rss_estimate = resource_estimates.get("peak_rss_mib")
+    rss_ratio = rss_estimate.ratio if rss_estimate is not None else None
+    candidate_resources = {}
+    for dimension, values in (
+        ("peak_rss_mib", rss_b),
+        ("energy_j", energy_b),
+        ("proof_bytes", proof_sizes_b),
+    ):
+        if values:
+            ordered_values = sorted(float(value) for value in values)
+            candidate_resources[dimension] = ordered_values[len(ordered_values) // 2]
     request_ratio = (
         sorted(request_ratios)[len(request_ratios) // 2] if request_ratios else None
     )
@@ -761,6 +893,8 @@ def paired_rounds(
             hashlib.sha256(Path(rp).read_bytes()).hexdigest() for rp in reports
         ],
         mechanism_verified=mechanism_verified,
+        resource_estimates=resource_estimates,
+        candidate_resources=candidate_resources,
     )
 
 
@@ -1354,6 +1488,30 @@ def evaluate(
         dimension, portfolio["ci"], th
     )
     rss_geomean = _complete_metric_geomean(scores, "rss_ratio")
+    resource_portfolio = {}
+    for resource_dimension in dimensions.RESOURCE_DIMENSIONS:
+        estimates = [
+            score.resource_estimates.get(resource_dimension) for score in scores
+        ]
+        if estimates and all(estimate is not None for estimate in estimates):
+            admitted = [estimate for estimate in estimates if estimate is not None]
+            candidates = [
+                score.candidate_resources.get(resource_dimension) for score in scores
+            ]
+            resource_portfolio[resource_dimension] = {
+                "ratio_geomean": stats.geometric_mean(
+                    [estimate.ratio for estimate in admitted]
+                ),
+                "upper_ci_geomean": stats.geometric_mean(
+                    [estimate.ci[1] for estimate in admitted]
+                ),
+                "candidate_geomean": (
+                    stats.geometric_mean(
+                        [float(value) for value in candidates if value is not None]
+                    )
+                    if all(value is not None for value in candidates) else None
+                ),
+            }
 
     gates = _gates(repo_root, manifest, scores, policy, judged, dispersion,
                    workload_class, board, guard_results, oracle_results)
@@ -1385,6 +1543,17 @@ def evaluate(
                     "rss_ratio": (
                         round(s.rss_ratio, 6) if s.rss_ratio is not None else None
                     ),
+                    "resources": {
+                        resource_dimension: {
+                            "ratio": round(estimate.ratio, 6),
+                            "ci": [round(estimate.ci[0], 6), round(estimate.ci[1], 6)],
+                            "observations": estimate.observations,
+                            "candidate": s.candidate_resources.get(resource_dimension),
+                        }
+                        for resource_dimension, estimate in sorted(
+                            s.resource_estimates.items()
+                        )
+                    },
                     "mechanism_verified": s.mechanism_verified,
                 }
                 for s in scores
@@ -1409,6 +1578,7 @@ def evaluate(
             "significant": bool(significant),
             "neutral": bool(neutral),
             "promotion_significance": promotion_significance,
+            "resource_portfolio": resource_portfolio,
         },
         "tiebreakers": {
             "rss_ratio": (
@@ -1416,7 +1586,12 @@ def evaluate(
             ),
             "waits": None,
             "dispatches": None,
-            "energy_j": None,
+            "energy_j": (
+                resource_portfolio.get("energy_j", {}).get("candidate_geomean")
+            ),
+            "proof_bytes": (
+                resource_portfolio.get("proof_bytes", {}).get("candidate_geomean")
+            ),
         },
         "holdout": holdout_result,
         "guards": guard_results,
@@ -1432,6 +1607,17 @@ def evaluate(
                         round(s.request_ratio, 6) if s.request_ratio is not None else None
                     ),
                     "rss_ratio": round(s.rss_ratio, 6) if s.rss_ratio is not None else None,
+                    "resources": {
+                        resource_dimension: {
+                            "ratio": round(estimate.ratio, 6),
+                            "ci": [round(estimate.ci[0], 6), round(estimate.ci[1], 6)],
+                            "observations": estimate.observations,
+                            "candidate": s.candidate_resources.get(resource_dimension),
+                        }
+                        for resource_dimension, estimate in sorted(
+                            s.resource_estimates.items()
+                        )
+                    },
                     "report_sha256s": s.report_sha256s,
                     "mechanism_verified": s.mechanism_verified,
                 }
@@ -1556,8 +1742,38 @@ def _gates(repo_root, manifest, scores, policy, judged, dispersion,
             + (f" — FAILED: {request_failed[:4]}" if request_failed else "")
             + (f"; absent: {request_missing[:4]}" if request_missing else "")
         )
+    resource_budgets = policy.get("resource_budgets")
+    if scores and resource_budgets is not None:
+        if not isinstance(resource_budgets, dict):
+            raise RunError("resource_budgets must be an object")
+        resource_vectors_ok = True
+        for score in scores:
+            assessment = dimensions.assess_budgets(
+                {
+                    dimension: score.resource_estimates.get(dimension)
+                    for dimension in dimensions.RESOURCE_DIMENSIONS
+                },
+                resource_budgets,
+            )
+            g4_ok = g4_ok and assessment.passed
+            resource_vectors_ok = resource_vectors_ok and assessment.passed
+            for failure in assessment.failures:
+                margin = (
+                    f" by {failure.observed_upper - failure.budget_upper:.4f}"
+                    if failure.observed_upper is not None
+                    and failure.budget_upper is not None
+                    else ""
+                )
+                g4_details.append(
+                    f"{score.workload.workload_id} {failure.dimension} "
+                    f"{failure.reason}{margin}"
+                )
+        if resource_vectors_ok:
+            g4_details.append(
+                f"resource vectors {len(scores)}/{len(scores)} within named budgets"
+            )
     rss_budget = float(policy.get("rss_budget", 0) or 0)
-    if scores and rss_budget:
+    if scores and rss_budget and resource_budgets is None:
         rss_present = [score for score in scores if score.rss_ratio is not None]
         rss_failed = [
             score.workload.workload_id for score in rss_present
@@ -1580,11 +1796,19 @@ def _gates(repo_root, manifest, scores, policy, judged, dispersion,
     env_ok = True
     env_detail = "local advisory run"
     if judged:
-        env_ok = dispersion is not None and manifest.anchor_commit is not None
+        resources_complete = all(
+            set(score.resource_estimates) == set(dimensions.RESOURCE_DIMENSIONS)
+            for score in scores
+        )
+        env_ok = (
+            dispersion is not None
+            and manifest.anchor_commit is not None
+            and resources_complete
+        )
         env_detail = (
-            "judge lock, measured A/A dispersion, anchor present"
+            "judge lock, measured A/A dispersion, anchor, and complete resource vectors present"
             if env_ok
-            else "judged requires measured A/A dispersion and a frozen anchor"
+            else "judged requires measured A/A dispersion, a frozen anchor, and complete resource vectors"
         )
     return {
         "G1": {"pass": g1_ok, "detail": "every timed sample verified; cross-arm proof digests byte-identical per round" + oracle_note},

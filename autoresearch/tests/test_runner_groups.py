@@ -24,8 +24,13 @@ FAKE_REPORT = (
     '"accounted_bytes":131072,"max_committed_cells":33554432,'
     '"max_accounted_bytes":536870912},'
     '"proof":{"verified_samples":1,"all_samples_byte_identical":true,'
-    '"samples":[{"sha256":"' + "a" * 64 + '"}]},'
-    '"resources":{"peak_rss_kib":1024}}'
+    '"samples":[{"bytes":1024,"sha256":"' + "a" * 64 + '"}]},'
+    '"resources":{"measurement_scope":"verified_process_request_batch",'
+    '"source":"darwin_proc_pid_rusage_v6","measured_warmups":0,'
+    '"measured_samples":1,"lifetime_peak_physical_footprint_bytes":1048576,'
+    '"energy_nj":1000000000,"instructions":1000,"cycles":500,'
+    '"canonical_proof_bytes":1024,"complete":true,'
+    '"unavailable_reason":null}}'
 )
 
 GATES_POLICY = {
@@ -321,7 +326,7 @@ class RunnerGroupTest(unittest.TestCase):
         group = manifest.group("native")
         workload = manifest.workloads("small", board="core_cpu")[0]
         base = json.loads(FAKE_REPORT)
-        runner._parse_native_report(base, group, workload, 1, Path("report.json"))
+        runner._parse_native_report(base, group, workload, 0, 1, Path("report.json"))
 
         mutations = {
             "missing field": lambda report: report["resource_admission"].pop(
@@ -348,7 +353,7 @@ class RunnerGroupTest(unittest.TestCase):
             mutate(report)
             with self.subTest(name=name), self.assertRaises(ValueError):
                 runner._parse_native_report(
-                    report, group, workload, 1, Path("report.json")
+                    report, group, workload, 0, 1, Path("report.json")
                 )
 
         large_workload = runner.Workload(
@@ -364,7 +369,7 @@ class RunnerGroupTest(unittest.TestCase):
             "max_accounted_bytes": 2147483648,
         })
         runner._parse_native_report(
-            large, group, large_workload, 1, Path("large-report.json")
+            large, group, large_workload, 0, 1, Path("large-report.json")
         )
 
     def test_enabled_native_group_still_scores(self):
@@ -728,6 +733,50 @@ class RunnerGroupTest(unittest.TestCase):
             )
         self.assertFalse(gates["G3"]["pass"])
         self.assertIn("0/1 workloads", gates["G3"]["detail"])
+
+    def test_faster_candidate_over_resource_budget_fails_g4_by_dimension(self):
+        manifest = self._manifest(riscv_enabled=False)
+        workload = manifest.workloads("small", board="core_cpu")[0]
+        for failed_dimension in runner.dimensions.RESOURCE_DIMENSIONS:
+            estimates = {
+                dimension: runner.dimensions.RatioEstimate(
+                    1.0,
+                    (1.0, 1.0) if dimension == "proof_bytes" else (0.99, 1.01),
+                    7,
+                )
+                for dimension in runner.dimensions.RESOURCE_DIMENSIONS
+            }
+            estimates[failed_dimension] = runner.dimensions.RatioEstimate(
+                1.08, (1.06, 1.10), 7,
+            )
+            score = runner.WorkloadScore(
+                workload=workload,
+                ratios=[0.8] * 7,
+                r=0.8,
+                ci=(0.79, 0.81),
+                a_median_ms=10.0,
+                b_median_ms=8.0,
+                rss_ratio=estimates["peak_rss_mib"].ratio,
+                resource_estimates=estimates,
+            )
+            policy = {
+                **GATES_POLICY,
+                "resource_budgets": {
+                    "peak_rss_mib": 1.05,
+                    "energy_j": 1.05,
+                    "proof_bytes": 1.0,
+                },
+            }
+            with self.subTest(dimension=failed_dimension), mock.patch.object(
+                runner, "changed_paths", return_value=[],
+            ):
+                gates = runner._gates(
+                    self.root, manifest, [score], policy, False, None,
+                    "small", "core_cpu",
+                )
+                self.assertFalse(gates["G4"]["pass"])
+                self.assertIn(failed_dimension, gates["G4"]["detail"])
+                self.assertIn("budget_exceeded", gates["G4"]["detail"])
 
     def test_paired_round_rejects_riscv_semantic_telemetry_drift(self):
         manifest = self._riscv_manifest()

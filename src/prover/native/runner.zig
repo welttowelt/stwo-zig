@@ -14,6 +14,7 @@ const stage_profile = stwo.prover.stage_profile;
 const blake2_hash = stwo.core.vcs.blake2_hash;
 const M31_PACK_WIDTH = stwo.core.fields.m31.PACK_WIDTH;
 const HOST_TWIDDLE_BUDGET_BYTES: usize = 256 * 1024 * 1024;
+const process_usage = stwo.prover.measurement.process_usage;
 
 fn SampleOutcome(comptime Statement: type) type {
     return struct {
@@ -149,6 +150,7 @@ fn executeExample(
     workload: config.Workload,
     request: Spec.Request,
 ) ![]u8 {
+    const resource_before = try process_usage.sample();
     const blake2_selection = blake2_hash.getDefaultBackendSelection();
     const requested_blake2_mode: blake2_hash.BackendMode = switch (args.blake2_backend) {
         .auto => .auto,
@@ -430,6 +432,8 @@ fn executeExample(
         };
     } else null;
 
+    const resource_after = try process_usage.sample();
+    const resource_delta = try process_usage.difference(resource_before, resource_after);
     const report = report_mod.Report{
         .product_identity = args.product_identity,
         .backend = backend,
@@ -479,6 +483,18 @@ fn executeExample(
             .accounted_bytes = workload_admission.geometry.accounted_bytes,
             .max_committed_cells = workload_admission.limits.max_committed_cells,
             .max_accounted_bytes = workload_admission.limits.max_accounted_bytes,
+        },
+        .resources = .{
+            .source = resource_delta.source,
+            .measured_warmups = args.warmups,
+            .measured_samples = args.samples,
+            .lifetime_peak_physical_footprint_bytes = resource_delta.lifetime_peak_physical_footprint_bytes,
+            .energy_nj = resource_delta.energy_nj,
+            .instructions = resource_delta.instructions,
+            .cycles = resource_delta.cycles,
+            .canonical_proof_bytes = proof_records[0].bytes,
+            .complete = resource_delta.available(),
+            .unavailable_reason = resource_delta.unavailable_reason,
         },
         .proof = .{
             .samples = proof_records,

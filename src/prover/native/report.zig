@@ -86,6 +86,20 @@ pub const ResourceAdmission = struct {
     max_accounted_bytes: u64,
 };
 
+pub const Resources = struct {
+    measurement_scope: []const u8 = "verified_process_request_batch",
+    source: stwo.prover.measurement.process_usage.Source,
+    measured_warmups: usize,
+    measured_samples: usize,
+    lifetime_peak_physical_footprint_bytes: ?u64,
+    energy_nj: ?u64,
+    instructions: ?u64,
+    cycles: ?u64,
+    canonical_proof_bytes: usize,
+    complete: bool,
+    unavailable_reason: ?[]const u8,
+};
+
 pub const RuntimeAdmission = struct {
     initialized: bool,
     origin: []const u8,
@@ -281,6 +295,7 @@ pub const Report = struct {
     protocol: Protocol,
     workload: Workload,
     resource_admission: ResourceAdmission,
+    resources: Resources,
     session: Session,
     runtime_admission: ?RuntimeAdmission,
     proof: ProofEvidence,
@@ -300,6 +315,7 @@ pub fn encodeAlloc(allocator: std.mem.Allocator, value: Report) ![]u8 {
             protocol: Protocol,
             workload: Workload,
             resource_admission: ResourceAdmission,
+            resources: Resources,
             session: Session,
             runtime_admission: ?RuntimeAdmission,
             proof: ProofEvidence,
@@ -316,6 +332,7 @@ pub fn encodeAlloc(allocator: std.mem.Allocator, value: Report) ![]u8 {
             .protocol = value.protocol,
             .workload = value.workload,
             .resource_admission = value.resource_admission,
+            .resources = value.resources,
             .session = value.session,
             .runtime_admission = value.runtime_admission,
             .proof = value.proof,
@@ -381,6 +398,18 @@ test "native proof report: diagnostic evidence cannot populate headline rates" {
             .max_committed_cells = config.resource_admission.STANDARD_MAX_COMMITTED_CELLS,
             .max_accounted_bytes = config.resource_admission.STANDARD_MAX_ACCOUNTED_BYTES,
         },
+        .resources = .{
+            .source = .darwin_proc_pid_rusage_v6,
+            .measured_warmups = 0,
+            .measured_samples = 1,
+            .lifetime_peak_physical_footprint_bytes = 1 << 20,
+            .energy_nj = 100,
+            .instructions = 1000,
+            .cycles = 500,
+            .canonical_proof_bytes = 42,
+            .complete = true,
+            .unavailable_reason = null,
+        },
         .session = .{
             .max_circle_log = 6,
             .host_byte_budget = 1 << 20,
@@ -445,6 +474,13 @@ test "native proof report: diagnostic evidence cannot populate headline rates" {
     try std.testing.expectEqual(@as(i64, 4096), session.get("retained_host_twiddle_bytes").?.integer);
     try std.testing.expectEqual(@as(i64, 1), session.get("tower_build_count").?.integer);
     try std.testing.expect(object.get("runtime_admission").? == .null);
+    const resources = object.get("resources").?.object;
+    try std.testing.expectEqualStrings(
+        "verified_process_request_batch",
+        resources.get("measurement_scope").?.string,
+    );
+    try std.testing.expectEqual(@as(i64, 42), resources.get("canonical_proof_bytes").?.integer);
+    try std.testing.expect(resources.get("complete").?.bool);
 }
 
 test "native proof report: authenticated runtime identity is explicit" {
