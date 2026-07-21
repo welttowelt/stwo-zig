@@ -441,7 +441,12 @@ def select_guards(manifest: Manifest, touched: list[str],
     workloads = registry.get("workloads", {})
     if not workloads:
         return []
-    rules = registry.get("impact_map", {}).get("rules", [])
+    # Rules may scope to a board: a metal-path rule that spares CPU-board
+    # runs must not spare metal-board runs from their own portfolio.
+    rules = [
+        rule for rule in registry.get("impact_map", {}).get("rules", [])
+        if rule.get("board") in (None, objective_group.board)
+    ]
     selected: set[str] = set()
     source_paths = [p for p in touched if p.startswith("src/")]
     for path in source_paths:

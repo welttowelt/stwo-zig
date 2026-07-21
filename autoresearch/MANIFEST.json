@@ -15,6 +15,11 @@
         "small": null,
         "wide": null,
         "deep": null
+      },
+      "core_metal": {
+        "small": null,
+        "wide": null,
+        "deep": null
       }
     },
     "anchor_note": "Frozen 2026-07-20 on the designated Apple M5 Max judge host (arm64 macOS, 18 CPU cores): the pre-optimization original commit, medians measured same-session by autoresearch/reference/measure_peer_rust.py (reports committed under autoresearch/reference/anchor/). Drift budgets are host-local and active; riscv anchors freeze when that board enables."
@@ -141,6 +146,30 @@
             "native_unit": "executed instructions"
           }
         }
+      },
+      "metal": {
+        "enabled": true,
+        "board": "core_metal",
+        "build_step": "zig build native-proof-bench-metal -Doptimize=ReleaseFast",
+        "binary": "zig-out/bin/native-proof-bench-metal",
+        "report_schema": "native_proof_v6",
+        "workloads": {
+          "mwf_log10x8": {
+            "class": "small",
+            "args": "--example wide_fibonacci --log-n-rows 10 --sequence-len 8 --warmups {warmups} --samples {samples} --protocol functional",
+            "native_unit": "trace rows"
+          },
+          "mwf_log14x32": {
+            "class": "wide",
+            "args": "--example wide_fibonacci --log-n-rows 14 --sequence-len 32 --warmups {warmups} --samples {samples} --protocol functional",
+            "native_unit": "trace rows"
+          },
+          "mplonk_log14": {
+            "class": "deep",
+            "args": "--example plonk --log-n-rows 14 --warmups {warmups} --samples {samples} --protocol functional",
+            "native_unit": "gates"
+          }
+        }
       }
     },
     "guards": {
@@ -209,6 +238,13 @@
         "rules": [
           {
             "prefixes": [
+              "src/backends/metal/"
+            ],
+            "board": "core_metal",
+            "guards": "all"
+          },
+          {
+            "prefixes": [
               "src/prover/",
               "src/core/fri/",
               "src/core/pcs/",
@@ -234,7 +270,8 @@
             "prefixes": [
               "src/backends/metal/"
             ],
-            "guards": []
+            "guards": [],
+            "board": "core_cpu"
           }
         ]
       }

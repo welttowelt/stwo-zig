@@ -26,7 +26,7 @@ def record_pending(repo: Path) -> list[str]:
     """Append optimistic rows for merged, unrecorded claimed verdicts — one
     row per (submission, moved class); returns 'id[name]' entries recorded."""
     recorded_pairs = {
-        (r.submission_id, r.workload_class) for r in ledger.load(repo)
+        (r.submission_id, r.board, r.workload_class) for r in ledger.load(repo)
     }
     recorded: list[str] = []
     subs_dir = repo / "autoresearch" / "submissions"
@@ -39,8 +39,10 @@ def record_pending(repo: Path) -> list[str]:
                 continue
             if verdict.get("kind") != "claimed":
                 continue
-            cls = (verdict.get("declared_objective") or {}).get("workload_class")
-            if (sub.name, cls) in recorded_pairs:
+            objective = verdict.get("declared_objective") or {}
+            cls = objective.get("workload_class")
+            board = objective.get("board", "core_cpu")
+            if (sub.name, board, cls) in recorded_pairs:
                 continue
             try:
                 row = promotion.promote_claimed(repo, sub.name, verdict_path.name)

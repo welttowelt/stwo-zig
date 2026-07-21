@@ -108,7 +108,7 @@
       "local_cache": "empty",
       "global_cache": "empty",
       "wall_seconds": 58.69,
-      "user_seconds": 57.20,
+      "user_seconds": 57.2,
       "system_seconds": 1.57
     },
     "warm_noop_build": {
@@ -231,7 +231,7 @@
   },
   "statistical_policy": {
     "runner_path": "autoresearch/cli/stwo_perf/runner.py",
-    "runner_sha256": "32254bc695fc60f42d8eb5e5783f50e9f9e094b5f98f304001b13c569bcfb7c1",
+    "runner_sha256": "aabb84192965d545315cad8e7f06580f609d2b4dfeab228dcd828d9c7750007a",
     "stats_path": "autoresearch/cli/stwo_perf/stats.py",
     "stats_sha256": "78ac6b44ffc2b73f6f4418a3d01341ac50213376f5ff92d7a72168a3d965e503",
     "manifest_sha256": "0ab298be4576385bfefcbbb48f2f063d62c0db2f7b3e7c38edac44838f2beeff",

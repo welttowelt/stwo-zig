@@ -121,7 +121,7 @@ class PromoteClaimedTest(unittest.TestCase):
         self.assertEqual(row_deep["workload_class"], "deep")
         rows = [r for r in ledger.load(self.repo) if r.submission_id == "2026-07-20-multi"]
         self.assertEqual(len(rows), 2)
-        with self.assertRaisesRegex(promotion.PromotionError, "class deep"):
+        with self.assertRaisesRegex(promotion.PromotionError, "core_cpu/deep"):
             promotion.promote_claimed(self.repo, "2026-07-20-multi", "verdict-deep.json")
 
     def test_insignificant_result_records_neutral(self):

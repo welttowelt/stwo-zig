@@ -139,13 +139,17 @@ def promote_claimed(repo: Path, submission_id: str,
             "promote-claimed records claimed verdicts only; judged verdicts "
             "arrive via the signed promote path"
         )
-    verdict_class = (verdict.get("declared_objective") or {}).get("workload_class")
+    objective = verdict.get("declared_objective") or {}
+    verdict_class = objective.get("workload_class")
+    verdict_board = objective.get("board", "core_cpu")
     if any(
-        r.submission_id == submission_id and r.workload_class == verdict_class
+        r.submission_id == submission_id
+        and r.workload_class == verdict_class
+        and r.board == verdict_board
         for r in ledger.load(repo)
     ):
         raise PromotionError(
-            f"{submission_id} already has a ledger row for class {verdict_class}"
+            f"{submission_id} already has a ledger row for {verdict_board}/{verdict_class}"
         )
 
     objective = verdict["declared_objective"]
