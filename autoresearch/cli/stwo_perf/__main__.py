@@ -706,7 +706,11 @@ def cmd_feed(args) -> int:
                          "must not be published", "yellow"))
     data = json.loads(out.read_text())
     latest = data.get("latest_matrix") or {}
-    print(f"{ansi.OK} feed written: {out.relative_to(m.root)}")
+    try:
+        display_path = out.relative_to(m.root)
+    except ValueError:
+        display_path = out
+    print(f"{ansi.OK} feed written: {display_path}")
     print(ansi.kv_panel("feed", [
         ("schema", str(data["feed_schema_version"])),
         ("commit", str(data["provenance"]["repo_commit"])),
