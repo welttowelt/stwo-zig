@@ -87,7 +87,8 @@ def main() -> int:
             if not (sub / required).exists():
                 findings.append(f"{name}: missing {required}")
         verdict_paths = [sub / "verdict.json", *sorted(sub.glob("verdict-*.json"))]
-        seen_classes: set[str] = set()
+        verdicts = []
+        verdict_sources = []
         for verdict_path in verdict_paths:
             if not verdict_path.exists():
                 continue
@@ -96,12 +97,12 @@ def main() -> int:
             except json.JSONDecodeError:
                 findings.append(f"{name}: {verdict_path.name} is not valid JSON")
                 continue
-            if verdict.get("kind") == "judged":
-                findings.append(f"{name}: submissions must carry claimed verdicts")
-            cls = str((verdict.get("declared_objective") or {}).get("workload_class"))
-            if cls in seen_classes:
-                findings.append(f"{name}: duplicate verdict for class {cls}")
-            seen_classes.add(cls)
+            verdicts.append(verdict)
+            verdict_sources.append(verdict_path.name)
+        try:
+            submitter.check_claimed_verdicts(verdicts, verdict_sources)
+        except submitter.SubmitError as exc:
+            findings.append(f"{name}: {exc}")
         secrets = submitter.scan_transcripts(sub / "transcripts")
         findings.extend(f"{name}: transcript secret scan: {s}" for s in secrets)
         transcripts_dir = sub / "transcripts"

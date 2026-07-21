@@ -546,8 +546,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--note-file", required=True)
     p.add_argument(
         "--verdict", required=True, action="append",
-        help="claimed verdict.json from `run`; repeat once per workload class "
-             "the change moves — every moved class earns its suite credit",
+        help="claimed verdict.json from `run`; repeat once per board/class pair "
+             "the change moves — every moved pair earns its suite credit",
     )
     p.add_argument(
         "--transcripts",

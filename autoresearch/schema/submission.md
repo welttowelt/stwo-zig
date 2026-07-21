@@ -10,11 +10,10 @@ A submission is one directory under `autoresearch/submissions/`, added by one PR
 autoresearch/submissions/<utc-date>-<slug>/
   note.md          public note; required sections below, <= 10 KiB
   verdict.json     the submitter's claimed acceptance-rung verdict (schema/verdict.md)
-  verdict-<class>.json  OPTIONAL, one per additional workload class the same
-                   change moves (same mechanism, same diff, distinct declared
-                   class). Every moved class earns its own ledger row and its
-                   own suite-score credit — cross-class gains must never
-                   vanish into future predecessors uncredited
+  verdict-<class>.json  OPTIONAL CPU verdict, or verdict-<board>-<class>.json
+                   for another board; one per additional board/class pair the
+                   same change moves (same mechanism, same diff). Every moved
+                   pair earns its own ledger row and suite-score credit
   delta.json       predecessor binding + content digests (schema below)
   transcripts/     sanitized agent session transcripts — the submission-flow
                    default (skills/submission-transcripts): at least one file,
