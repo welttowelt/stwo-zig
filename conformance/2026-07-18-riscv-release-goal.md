@@ -189,11 +189,14 @@ The following documents are normative, in this order:
 4. [riscv-release-evidence.md](riscv-release-evidence.md), which defines the
    hosted exhaustive-anchor and fresh-challenge execution protocol without
    weakening any checkpoint in this goal.
-5. [divergence-log.md](divergence-log.md), which records intentional differences
+5. [riscv-pr-proof-gate.md](riscv-pr-proof-gate.md), which requires every
+   affected pull request to produce and independently verify the bounded
+   structural proof corpus before merge.
+6. [divergence-log.md](divergence-log.md), which records intentional differences
    and whether each difference blocks release.
-6. [2026-07-18-riscv-bias-audit.md](2026-07-18-riscv-bias-audit.md), which records
+7. [2026-07-18-riscv-bias-audit.md](2026-07-18-riscv-bias-audit.md), which records
    the independent NO-GO baseline and the audit requirements that must be closed.
-7. [decomposition-plan.md](decomposition-plan.md) and
+8. [decomposition-plan.md](decomposition-plan.md) and
    [source-baseline.json](source-baseline.json), which govern repository structure
    and existing source debt.
 

@@ -117,6 +117,17 @@ class PlannerContractTests(unittest.TestCase):
         )
         self.assertNotIn("metal_aot", selected)
 
+    def test_riscv_lane_produces_and_independently_verifies_real_proofs(self) -> None:
+        commands = self.policy["lanes"]["riscv_cpu"]["commands"]
+        self.assertIn("stwo-zig-riscv-cpu", commands[0])
+        proof_commands = [
+            command for command in commands
+            if "scripts/riscv_pr_proof_smoke.py" in command
+        ]
+        self.assertEqual(1, len(proof_commands))
+        self.assertIn("--artifact-dir", proof_commands[0])
+        self.assertIn("--report-out", proof_commands[0])
+
     def test_leaf_native_cpu_change_does_not_select_unrelated_products(self) -> None:
         self.assertEqual(
             {"static", "native_cpu"},

@@ -60,9 +60,10 @@
     },
     "riscv_cpu": {
       "host": "linux",
-      "description": "Focused RISC-V CPU product and trace parity",
+      "description": "Focused RISC-V CPU product, proof production, verification, and trace parity",
       "commands": [
-        ["zig", "build", "test-riscv-cpu-product", "-Doptimize=ReleaseFast", "-j2"],
+        ["zig", "build", "test-riscv-cpu-product", "stwo-zig-riscv-cpu", "-Doptimize=ReleaseFast", "-j2"],
+        ["python3", "scripts/riscv_pr_proof_smoke.py", "--cli", "zig-out/bin/stwo-zig-riscv-cpu", "--artifact-dir", "{output_dir}/riscv-pr-proof-smoke", "--report-out", "{output_dir}/riscv-pr-proof-smoke.json"],
         ["python3", "scripts/riscv_trace_vectors.py"]
       ]
     },

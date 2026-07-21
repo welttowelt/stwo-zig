@@ -1094,6 +1094,24 @@ zig build interop
 zig build prove-checkpoints
 ```
 
+For any shared core/prover change or RISC-V frontend change, run the blocking
+production proof smoke:
+
+```bash
+zig build test-riscv-cpu-product stwo-zig-riscv-cpu -Doptimize=ReleaseFast -j2
+python3 scripts/riscv_pr_proof_smoke.py \
+  --cli zig-out/bin/stwo-zig-riscv-cpu \
+  --artifact-dir zig-out/riscv-pr-proof-smoke \
+  --report-out zig-out/riscv-pr-proof-smoke.json
+python3 scripts/riscv_trace_vectors.py
+```
+
+This gate must produce and independently verify the branch, memory,
+cross-shard, and crypto proof corpus defined in
+[`conformance/riscv-pr-proof-gate.md`](conformance/riscv-pr-proof-gate.md).
+Unit tests and compilation do not waive it. Live pinned-Stark-V comparison
+remains mandatory in the exhaustive release gate.
+
 For Metal work on a supported Mac:
 
 ```bash
@@ -1305,6 +1323,9 @@ hosted CI. Exhaustive build-graph closure and aggregate compatibility products a
 CI, where they can execute in parallel instead of serially rebuilding every commit-bound product
 identity in the local feedback loop.
 Neither hook runs hardware benchmarks, profiles, or large SN PIE workloads.
+The RISC-V focused lane is a correctness workload exception: whenever selected,
+it runs the bounded four-program production proof gate and retains independent
+verifier receipts. It is neither a benchmark nor optional release evidence.
 
 Git permits an emergency local bypass with `--no-verify`. That bypass skips feedback only; it does
 not waive any repository requirement. Disclose its use in the PR, run the relevant focused gate
