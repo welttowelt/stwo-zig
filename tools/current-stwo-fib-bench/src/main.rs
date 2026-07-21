@@ -154,20 +154,25 @@ fn generate_trace(
 fn run_sample(inputs: &[FibInput], log_n_instances: u32) -> Sample {
     let config = PcsConfig::default();
     let prove_start = Instant::now();
-    let twiddles = CpuBackend::precompute_twiddles(
-        CanonicCoset::new(log_n_instances + 1 + config.fri_config.log_blowup_factor)
-            .circle_domain()
-            .half_coset,
+    let (twiddles, (trace, trace_generated_on_metal)) = rayon::join(
+        || {
+            CpuBackend::precompute_twiddles(
+                CanonicCoset::new(log_n_instances + 1 + config.fri_config.log_blowup_factor)
+                    .circle_domain()
+                    .half_coset,
+            )
+        },
+        || generate_trace(inputs),
     );
     let prover_channel = &mut Blake2sM31Channel::default();
     let mut commitment_scheme =
         CommitmentSchemeProver::<CpuBackend, Blake2sM31MerkleChannel>::new(config, &twiddles);
+    commitment_scheme.set_store_polynomials_coefficients();
 
     let mut tree_builder = commitment_scheme.tree_builder();
     tree_builder.extend_evals(vec![]);
     tree_builder.commit(prover_channel);
 
-    let (trace, trace_generated_on_metal) = generate_trace(inputs);
     let mut tree_builder = commitment_scheme.tree_builder();
     tree_builder.extend_evals(trace);
     tree_builder.commit(prover_channel);
@@ -295,7 +300,7 @@ fn main() {
         samples,
         rayon_threads: rayon::current_num_threads(),
         timing_scope: TimingScope {
-            prove: "twiddle precompute + trace generation + commitments + prove",
+            prove: "concurrent twiddle precompute and trace generation + commitments + prove",
             verify: "independent verifier over a cloned proof",
             total: "prove + verify; primary peer verified-request metric",
             exclusions:
