@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const cm31_mod = @import("cm31.zig");
 const m31_mod = @import("m31.zig");
 
@@ -95,6 +96,12 @@ pub const QM31 = struct {
     }
 
     pub inline fn add(lhs: QM31, rhs: QM31) QM31 {
+        if (comptime builtin.cpu.arch != .aarch64) {
+            return .{
+                .c0 = lhs.c0.add(rhs.c0),
+                .c1 = lhs.c1.add(rhs.c1),
+            };
+        }
         // Extract directly at the consuming operation.  Besides avoiding the
         // aggregate-copy miscompile covered by the high-block regressions,
         // this makes the four independent canonical additions use M31's

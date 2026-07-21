@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 /// The prime modulus p = 2^31 - 1.
 pub const Modulus: u32 = 0x7fffffff;
@@ -200,7 +201,11 @@ pub inline fn addVec4(a: Vec4u32, b: Vec4u32) Vec4u32 {
     // subtraction is larger when `sum < p` and smaller otherwise, so an
     // unsigned minimum performs the conditional reduction directly.  This
     // maps to one AdvSIMD UMIN instead of compare + mask + add on AArch64.
-    return @min(sum, sum -% P_VEC);
+    if (comptime builtin.cpu.arch == .aarch64) {
+        return @min(sum, sum -% P_VEC);
+    }
+    const geq_p = sum >= P_VEC;
+    return @select(u32, geq_p, sum -% P_VEC, sum);
 }
 
 /// Vectorized M31 subtraction: (a - b) mod p, 4 lanes.
@@ -224,7 +229,10 @@ inline fn reduceProductVec4(x: Vec4u64) Vec4u32 {
     const p64: Vec4u64 = @splat(@as(u64, Modulus));
     const folded = (x & p64) + (x >> @splat(@as(u6, 31)));
     const r: Vec4u32 = @truncate(folded);
-    return @min(r, r -% P_VEC);
+    if (comptime builtin.cpu.arch == .aarch64) {
+        return @min(r, r -% P_VEC);
+    }
+    return @select(u32, r >= P_VEC, r -% P_VEC, r);
 }
 
 /// Vectorized Mersenne reduction: x mod (2^31 - 1), 4 lanes.
@@ -305,7 +313,10 @@ pub inline fn storePacked(ptr: [*]M31, v: PackedM31) void {
 /// Packed M31 addition.
 pub inline fn addPacked(a: PackedM31, b: PackedM31) PackedM31 {
     const sum = a +% b;
-    return @min(sum, sum -% P_PACKED);
+    if (comptime builtin.cpu.arch == .aarch64) {
+        return @min(sum, sum -% P_PACKED);
+    }
+    return @select(u32, sum >= P_PACKED, sum -% P_PACKED, sum);
 }
 
 /// Packed M31 subtraction.
@@ -326,7 +337,10 @@ inline fn reduceProductPacked(x: PackedU64) PackedM31 {
     const p64: PackedU64 = @splat(@as(u64, Modulus));
     const folded = (x & p64) + (x >> @splat(@as(u6, 31)));
     const r: PackedM31 = @truncate(folded);
-    return @min(r, r -% P_PACKED);
+    if (comptime builtin.cpu.arch == .aarch64) {
+        return @min(r, r -% P_PACKED);
+    }
+    return @select(u32, r >= P_PACKED, r -% P_PACKED, r);
 }
 
 /// Packed M31 negation.
