@@ -470,7 +470,18 @@ def _solver(repo: Path, submission_id: str) -> str | None:
     commit that landed the submission directory (.mailmap maps working emails
     to canonical GitHub noreply identities — committed source of truth, no
     network lookups). Noreply addresses yield the exact login; otherwise the
-    author name is the honest attribution."""
+    author name is the honest attribution.
+
+    A committed ATTRIBUTION file (single line: the GitHub login) overrides
+    the landing author: when a contributor's PR is re-landed through a
+    maintainer review branch, the commit author is the maintainer and the
+    work is not — the override is reviewed history, so it carries the same
+    provenance weight as the commit itself."""
+    attribution = repo / "autoresearch" / "submissions" / submission_id / "ATTRIBUTION"
+    if attribution.is_file():
+        login = attribution.read_text().strip().splitlines()[0].strip()
+        if login:
+            return login
     out = _git(
         repo, "log", "--reverse", "--format=%aN%x00%aE", "--",
         f"autoresearch/submissions/{submission_id}",
