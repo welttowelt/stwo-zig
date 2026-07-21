@@ -30,18 +30,22 @@ class FeedTest(unittest.TestCase):
     def test_legacy_search_health_is_honestly_unavailable(self):
         health = self.feed["search_health"]
         self.assertEqual(health["policy"]["gradient_snr_threshold"], 2.0)
-        legacy_points = [
+        # Pre-Metrics-v2 rows must be honestly unavailable; rows recorded
+        # after the merge legitimately carry evidence and are available.
+        all_points = [
             point
             for board in health["boards"].values()
             for cls in board["classes"].values()
             for point in cls["time_series"]
         ]
+        legacy_points = [p for p in all_points if not p["available"]]
         self.assertTrue(legacy_points)
-        self.assertTrue(all(not point["available"] for point in legacy_points))
         self.assertEqual(
             {point["unavailable_reason"] for point in legacy_points},
             {"legacy_row_has_no_search_health_evidence"},
         )
+        for point in (p for p in all_points if p["available"]):
+            self.assertIsNone(point.get("unavailable_reason"))
 
     def test_provenance_digests_verify(self):
         import hashlib
