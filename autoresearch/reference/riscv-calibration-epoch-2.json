@@ -4,7 +4,7 @@
   "board": "riscv",
   "epoch": 2,
   "repository": {
-    "commit": "d69d54cc6edeb2911b27d64318c463494698b6b2",
+    "commit": "d69d54cc8069ba0fd2bb232060e63f3e66889f85",
     "tree": "98795ddb666ed3ad90d16692ec9ebb03298fdc42",
     "dirty": false
   },
