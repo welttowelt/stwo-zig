@@ -78,6 +78,18 @@ collision where several cells shared one `judged_at_utc+commit` key.
   resolves this vector from the epoch; missing classes, dimensions, or values
   fail closed before measurement can produce a score-bearing verdict.
 
+A direct-audit segment attributes the complete `predecessor..candidate` change
+to the one audited board/class. It does not apportion the measured ratio among
+commits in that interval; cross-class commits in the span are therefore assumed
+performance-neutral for this cell when interpreting attribution.
+
+Corrections replay through later audits. If `supersedes` replaces a promotion
+whose row ID was already consumed by a direct audit, that audit's recorded
+`credit_replaces` is no longer the exact active set and the class score fails
+closed. Correcting the promotion alone cannot rewrite a banked audit segment;
+the dependent audit row must also be superseded with evidence that replays the
+corrected history.
+
 The Pareto frontier and anchor-drift budgets are computed from this file by
 `stwo-perf frontier`; nothing else is authoritative.
 
