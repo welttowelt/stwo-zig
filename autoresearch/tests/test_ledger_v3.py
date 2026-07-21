@@ -183,16 +183,16 @@ class LedgerV3Test(unittest.TestCase):
 class CurrentLedgerGoldenTest(unittest.TestCase):
     def test_legacy_physical_identity_and_current_bytes_are_stable(self):
         rows = ledger.load(ROOT)
-        self.assertEqual(len(rows), 85)
+        self.assertEqual(len(rows), 89)
         self.assertEqual(
             rows[0].row_id,
             "sha256:1bcba7b980d90e3fe73eed780b90c3fdcb7f750b946c1c6f51c58fffdd1925df",
         )
         self.assertEqual(
             rows[-1].row_id,
-            "sha256:0efb2dad7d0fd61298c10a22b01150d3217d3dff8dfcb6d89fff96d70d063201",
+            "sha256:b9e4ae069180ff6247ecc356b08b7f5630579aee05d7199d1f2664aaf64879b3",
         )
-        self.assertEqual(len(ledger.resolve_corrections(rows)), 80)
+        self.assertEqual(len(ledger.resolve_corrections(rows)), 84)
 
 
 if __name__ == "__main__":
