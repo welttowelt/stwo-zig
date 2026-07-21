@@ -2,6 +2,31 @@
 
 Status: normative implementation and closure contract for GitHub Issue #44.
 
+## MVP release boundary
+
+The 2026-07-21 maintainer scope decision separates the shippable Metrics v2
+system from two host-authority activation operations. Issue #44 delivers the
+five-class CPU/Metal workload universe, large-resource admission, ledger v3,
+direct and span audit automation, shrinkage credit, complete resource vectors
+and budgets, deterministic feed v3, search-health instrumentation, honest Rust
+references, and the first same-host peer audit point. The calibration and judge
+implementations ship fail closed in this MVP.
+
+Two operational state transitions move to explicit follow-up contracts:
+
+- GitHub Issue #47 freezes the five-class Metal calibration after an
+  independently reproduced authenticated AOT bundle is available.
+- GitHub Issue #48 pins the final RF release receipt, configures live branch
+  authority, freezes RISC-V calibration, activates that board, and records the
+  first signed judged supersession.
+
+This transfer narrows the closure evidence below only where it requires live
+authority state. It does not weaken a gate: while #47 is open, Metal calibration
+remains `pending` and judged Metal G5 fails closed; while #48 is open, RISC-V
+remains disabled and claimed rows remain visibly claimed. Periodic executions
+of the shipped audit and peer-series workflows accumulate evidence after merge
+without changing metric semantics.
+
 This goal starts from the fully release-gated RISC-V adapter commit. It does not
 weaken RF-01, the Rust Stwo correctness oracle, the pinned Stark-V RISC-V oracle,
 or the locked-host judge contract. Metrics v2 is complete only when the repository
@@ -358,6 +383,12 @@ fully promoted RF commit:
     user-owned unrelated work.
 
 ## Closure evidence
+
+For the MVP boundary above, workflow gate 9 and the live-authority portion of
+gate 11 are discharged by the acceptance contracts in #47 and #48 rather than
+by fabricating or locally self-signing authority evidence. The Issue #44 close
+comment links those issues alongside the implemented calibration/audit tests;
+all other workflow and publication gates remain required for the MVP merge.
 
 Issue #44 may close only after its final comment links:
 
