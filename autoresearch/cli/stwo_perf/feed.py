@@ -376,6 +376,7 @@ def _boards(
     epoch_spec: dict,
 ) -> dict:
     epoch = int(epoch_spec["epoch"])
+    metrics_policy = metrics.policy_from_epoch(epoch_spec)
     boards: dict = {}
     owned_boards = {group.board for group in manifest.groups()}
     for board in ledger.BOARDS:
@@ -401,7 +402,9 @@ def _boards(
             "entries": entries,
             "scored_classes": classes,
             "suite_score": (
-                frontier.board_suite_score(rows, board, classes, epoch)
+                metrics.board_suite_score(
+                    rows, epoch, board, classes, policy=metrics_policy,
+                )
                 if classes else None
             ),
             "frontier_by_class": board_frontier,

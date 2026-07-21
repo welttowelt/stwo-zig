@@ -130,6 +130,14 @@ core_hybrid | core_metal | heavy_native | heavy_cairo | stream | riscv`.
 Kernel results stay out of the ledger by rule; they live in the microharness
 diagnostics reports.
 
+For a Metrics v2 epoch, the canonical site headline is the geometric mean of
+the manifest-scored classes' effective Metrics v2 ratios. Each class ratio is
+computed with directional log-CI shrinkage and direct-audit replacement before
+board aggregation; an untouched class contributes 1.0. The board headline
+therefore never compounds raw ledger `judged_r` values independently of the
+audit engine. The feed publishes the audited-only board geomean beside the
+effective headline for provenance.
+
 ## What is deliberately not scored
 
 - No blended CPU+Metal index within one basket (breaks backend identity).

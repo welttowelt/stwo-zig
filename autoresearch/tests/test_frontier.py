@@ -5,10 +5,25 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "cli"))
 from stwo_perf import frontier, ledger
 from test_ledger import HEADER, row_line
+from test_ledger_v3 import v3_values
 
 
 def rows(*lines: str) -> list[ledger.Row]:
     return ledger.parse(HEADER + "\n" + "\n".join(lines) + "\n")
+
+
+def complete_row(name: str, index: int, **overrides) -> str:
+    fields = {
+        "submission_id": name,
+        "commit": f"{index:040x}",
+        "judged_at_utc": f"2026-07-21T16:{index:02d}:00Z",
+        "peak_rss_mib": 20.0,
+        "energy_j": 2.0,
+        "proof_bytes": 4096,
+    }
+    fields.update(overrides)
+    values = v3_values(**fields)
+    return ledger.serialize_row(values)
 
 
 class FrontierTest(unittest.TestCase):
@@ -16,22 +31,28 @@ class FrontierTest(unittest.TestCase):
 
     def test_dominated_row_excluded(self):
         data = rows(
-            row_line(commit="a", prove_ms="4.0", peak_rss_mib="30"),
-            row_line(commit="b", prove_ms="3.0", peak_rss_mib="25",
-                     judged_at_utc="2026-07-18T02:00:00Z", submission_id="s2"),
+            complete_row("a", 1, prove_ms=4.0, peak_rss_mib=30.0),
+            complete_row("b", 2, prove_ms=3.0, peak_rss_mib=25.0),
         )
         v = frontier.view(data, "core_cpu", "small")
-        self.assertEqual([r.commit for r in v.frontier], ["b"])
-        self.assertEqual(v.head.commit, "b")
+        self.assertEqual([r.commit for r in v.frontier], [f"{2:040x}"])
+        self.assertEqual(v.head.commit, f"{2:040x}")
 
     def test_tradeoff_rows_both_on_frontier(self):
         data = rows(
-            row_line(commit="a", prove_ms="3.0", peak_rss_mib="40"),
-            row_line(commit="b", prove_ms="4.0", peak_rss_mib="20",
-                     judged_at_utc="2026-07-18T02:00:00Z", submission_id="s2"),
+            complete_row("a", 1, prove_ms=3.0, peak_rss_mib=40.0),
+            complete_row("b", 2, prove_ms=4.0, peak_rss_mib=20.0),
         )
         v = frontier.view(data, "core_cpu", "small")
         self.assertEqual(len(v.frontier), 2)
+
+    def test_incomplete_legacy_row_cannot_dominate_complete_vector(self):
+        data = rows(
+            row_line(commit="legacy", prove_ms="1.0", peak_rss_mib="10"),
+            complete_row("complete", 2, prove_ms=3.0, peak_rss_mib=20.0),
+        )
+        view = frontier.view(data, "core_cpu", "small")
+        self.assertEqual(len(view.frontier), 2)
 
     def test_gate_failing_row_excluded(self):
         data = rows(row_line(commit="a", gates="G3:fail", outcome="rejected"))
@@ -71,72 +92,6 @@ class FrontierTest(unittest.TestCase):
         )
         self.assertEqual(frontier.view(data, "core_cpu", "small").head.commit, "native")
         self.assertEqual(frontier.view(data, "riscv", "small").head.commit, "riscv")
-
-    def test_new_five_class_epoch_starts_at_identity(self):
-        old = rows(
-            row_line(workload_class="small", judged_r="0.5", epoch="1"),
-            row_line(
-                workload_class="xlarge", judged_r="0.2", epoch="1",
-                commit="old-large", judged_at_utc="2026-07-18T02:00:00Z",
-                submission_id="old-large",
-            ),
-        )
-        score = frontier.board_suite_score(
-            old, "core_cpu", self.SCORED_CLASSES, epoch=2,
-        )
-        self.assertEqual(score["ratio_geomean"], 1.0)
-        self.assertEqual(score["index"], 100.0)
-        self.assertEqual(score["class_ratios"], {
-            name: 1.0 for name in self.SCORED_CLASSES
-        })
-
-    def test_only_effective_current_epoch_large_promotions_move_suite(self):
-        data = rows(
-            row_line(
-                epoch="2", workload_class="xlarge", judged_r="0.9",
-                commit="xl-old", judged_at_utc="2026-07-21T01:00:00Z",
-                submission_id="xl-old",
-            ),
-            row_line(
-                epoch="2", workload_class="xlarge", judged_r="0.8",
-                commit="xl-judged", judged_at_utc="2026-07-21T02:00:00Z",
-                submission_id="xl-judged",
-                supersedes="2026-07-21T01:00:00Z+xl-old",
-            ),
-            row_line(
-                epoch="2", workload_class="huge", judged_r="0.5",
-                commit="huge", judged_at_utc="2026-07-21T03:00:00Z",
-                submission_id="huge",
-            ),
-            row_line(
-                epoch="2", workload_class="deep", judged_r="0.1",
-                outcome="neutral", commit="neutral",
-                judged_at_utc="2026-07-21T04:00:00Z", submission_id="neutral",
-            ),
-            row_line(
-                epoch="2", workload_class="wide", judged_r="0.1",
-                outcome="rejected", commit="rejected",
-                judged_at_utc="2026-07-21T05:00:00Z", submission_id="rejected",
-            ),
-            row_line(
-                epoch="2", board="riscv", workload_class="small", judged_r="0.1",
-                commit="other-board", judged_at_utc="2026-07-21T06:00:00Z",
-                submission_id="other-board",
-            ),
-            row_line(
-                epoch="1", workload_class="small", judged_r="0.1",
-                commit="old-epoch", judged_at_utc="2026-07-21T07:00:00Z",
-                submission_id="old-epoch",
-            ),
-        )
-        score = frontier.board_suite_score(
-            data, "core_cpu", self.SCORED_CLASSES, epoch=2,
-        )
-        self.assertEqual(score["class_ratios"]["xlarge"], 0.8)
-        self.assertEqual(score["class_ratios"]["huge"], 0.5)
-        self.assertEqual(score["promoted_rows"]["xlarge"], 1)
-        self.assertAlmostEqual(score["ratio_geomean"], 0.4 ** (1.0 / 5.0))
-
 
 if __name__ == "__main__":
     unittest.main()

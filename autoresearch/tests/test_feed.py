@@ -81,6 +81,8 @@ class FeedTest(unittest.TestCase):
             score = self.feed["boards"][board]["suite_score"]
             self.assertEqual(score["classes"], self.feed["boards"][board]["scored_classes"])
             self.assertEqual(score["epoch"], self.feed["epoch"]["number"])
+            self.assertEqual(score["method"], "metrics_v2_scored_class_geomean_v2")
+            self.assertIn("audited_ratio_geomean", score)
 
     def test_live_classes_publish_complete_audit_state(self):
         for board in ("core_cpu", "core_metal", "riscv"):

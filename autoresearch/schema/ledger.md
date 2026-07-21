@@ -106,8 +106,9 @@ write. A failed span keeps `covers` for diagnosis but consumes nothing. A
 failed direct audit has an empty `credit_replaces`, so it cannot retire credit.
 Null, gate-passing spans consume their observations once with zero score input.
 
-The canonical board suite score compounds only effective `promoted` ratios in
-the current epoch, assigns identity to untouched scored classes, and takes the
-geometric mean over that board's manifest-declared `scored` classes. Changing
-the scored class universe requires a new epoch so historical rows cannot dilute
-or rewrite the new score.
+The canonical board suite score takes the geometric mean of the current
+epoch's effective Metrics v2 class scores over that board's manifest-declared
+`scored` classes. This happens after shrinkage and audit replacement; it never
+re-compounds raw `judged_r`. Untouched classes contribute identity. Changing
+the scored class universe requires a new epoch so historical rows cannot
+dilute or rewrite the new score.
