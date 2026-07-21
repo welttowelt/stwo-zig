@@ -108,8 +108,6 @@ pub const exports = [_]Export{
     .{ .name = "stwo_zig_compact_finalize", .owner = .compaction },
     .{ .name = "stwo_zig_fri_fold_circle", .owner = .fri },
     .{ .name = "stwo_zig_fri_fold_line", .owner = .fri },
-    .{ .name = "stwo_zig_fri_coordinates_and_leaves", .owner = .fri },
-    .{ .name = "stwo_zig_fri_fold_line_prepare_next", .owner = .fri },
     .{ .name = "stwo_zig_qm31_to_coordinates", .owner = .quotient },
     .{ .name = "stwo_zig_quotient_rows", .owner = .quotient },
     .{ .name = "stwo_zig_quotient_rows_raw", .owner = .quotient },
@@ -363,7 +361,7 @@ fn kernelDeclaration(source: []const u8, name: []const u8) ![]const u8 {
 }
 
 test "Native core source exactly covers its non-Cairo export ABI" {
-    try std.testing.expectEqual(@as(usize, 80), native_exports.len);
+    try std.testing.expectEqual(@as(usize, 78), native_exports.len);
     try std.testing.expectEqual(native_exports.len, std.mem.count(u8, native_amalgamated_source, "kernel void "));
     try std.testing.expect(std.mem.indexOf(u8, native_amalgamated_source, "shaders/cairo/") == null);
     for (native_support_headers) |unit| try std.testing.expect(std.mem.indexOf(u8, unit.path, "/cairo/") == null);
@@ -386,7 +384,7 @@ fn expectIsolated(source: []const u8, names: []const []const u8) !void {
 
 test "metal shader manifest exactly covers source and runtime exports" {
     const runtime_source = @embedFile("../runtime.m");
-    try std.testing.expectEqual(@as(usize, 92), exports.len);
+    try std.testing.expectEqual(@as(usize, 90), exports.len);
 
     var declaration_count: usize = 0;
     var remaining: []const u8 = amalgamated_source[0 .. amalgamated_source.len - 1];
@@ -421,8 +419,8 @@ test "commitment shader bindings match core ABI version 3" {
         .{ .kernel = "stwo_zig_blake2s_parents_sparse", .argument = "prefix_bytes [[buffer(5)]]" },
         .{ .kernel = "stwo_zig_blake2s_parent_tail_sparse", .argument = "prefix_bytes [[buffer(6)]]" },
         .{ .kernel = "stwo_zig_fri_packed_leaves_resident", .argument = "prefix_bytes [[buffer(7)]]" },
-        .{ .kernel = "stwo_zig_fri_coordinates_and_leaves", .argument = "prefix_bytes [[buffer(5)]]" },
-        .{ .kernel = "stwo_zig_fri_fold_line_prepare_next", .argument = "prefix_bytes [[buffer(8)]]" },
+        .{ .kernel = "stwo_zig_qm31_to_coordinates", .argument = "prefix_bytes [[buffer(5)]]" },
+        .{ .kernel = "stwo_zig_fri_fold_line", .argument = "prefix_bytes [[buffer(8)]]" },
     };
     for (bindings) |binding| {
         const declaration = try kernelDeclaration(amalgamated_source, binding.kernel);

@@ -112,7 +112,7 @@ fn parseTrustAnchor(encoded: []const u8) ![32]u8 {
 }
 
 test "probe authority is the exact Native ABI with no function constants" {
-    try std.testing.expectEqual(@as(usize, 80), kernel_abi.len);
+    try std.testing.expectEqual(@as(usize, 78), kernel_abi.len);
     for (kernel_abi) |entry|
         try std.testing.expectEqual(@as(usize, 0), entry.function_constants.len);
 }

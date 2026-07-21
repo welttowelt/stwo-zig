@@ -32,31 +32,41 @@ inline void fri_store_coordinates_and_leaf(
     for (uint word = 0u; word < 8u; ++word) leaves[index * 8u + word] = state[word];
 }
 
-kernel void stwo_zig_fri_coordinates_and_leaves(
+kernel void stwo_zig_qm31_to_coordinates(
     device const Qm31Value *source [[buffer(0)]],
     device uint *coordinates [[buffer(1)]],
-    device uint *leaves [[buffer(2)]],
-    constant uint &value_count [[buffer(3)]],
+    constant uint &value_count [[buffer(2)]],
+    device uint *leaves [[buffer(3)]],
     constant uint *leaf_seed [[buffer(4)]],
     constant uint &prefix_bytes [[buffer(5)]],
+    constant uint &write_leaf [[buffer(6)]],
     uint index [[thread_position_in_grid]]
 ) {
     if (index >= value_count) return;
-    fri_store_coordinates_and_leaf(
-        coordinates, leaves, value_count, index, source[index], leaf_seed, prefix_bytes
-    );
+    Qm31Value value = source[index];
+    if (write_leaf != 0u)
+        fri_store_coordinates_and_leaf(
+            coordinates, leaves, value_count, index, value, leaf_seed, prefix_bytes
+        );
+    else {
+        coordinates[index] = value.a;
+        coordinates[value_count + index] = value.b;
+        coordinates[2u * value_count + index] = value.c;
+        coordinates[3u * value_count + index] = value.d;
+    }
 }
 
-kernel void stwo_zig_fri_fold_line_prepare_next(
+kernel void stwo_zig_fri_fold_line(
     device const Qm31Value *source [[buffer(0)]],
     device const uint *inverse_x [[buffer(1)]],
     constant Qm31Value &alpha [[buffer(2)]],
     device Qm31Value *destination [[buffer(3)]],
-    device uint *coordinates [[buffer(4)]],
-    device uint *leaves [[buffer(5)]],
-    constant uint &destination_count [[buffer(6)]],
+    constant uint &destination_count [[buffer(4)]],
+    device uint *coordinates [[buffer(5)]],
+    device uint *leaves [[buffer(6)]],
     constant uint *leaf_seed [[buffer(7)]],
     constant uint &prefix_bytes [[buffer(8)]],
+    constant uint &prepare_next [[buffer(9)]],
     uint index [[thread_position_in_grid]]
 ) {
     if (index >= destination_count) return;
@@ -64,9 +74,10 @@ kernel void stwo_zig_fri_fold_line_prepare_next(
         source[index << 1u], source[(index << 1u) + 1u], inverse_x[index], alpha
     );
     destination[index] = value;
-    fri_store_coordinates_and_leaf(
-        coordinates, leaves, destination_count, index, value, leaf_seed, prefix_bytes
-    );
+    if (prepare_next != 0u)
+        fri_store_coordinates_and_leaf(
+            coordinates, leaves, destination_count, index, value, leaf_seed, prefix_bytes
+        );
 }
 
 kernel void stwo_zig_blake2s_leaves(

@@ -104,11 +104,11 @@ void *stwo_zig_metal_fri_fold_line_and_commit(
                 return NULL;
             }
             [encoder setComputePipelineState:runtime.friFoldLine];
-            [encoder setBuffer:fold_source offset:0u atIndex:0];
-            [encoder setBuffer:inverse_buffer offset:inverse_byte_offset atIndex:1];
-            [encoder setBuffer:alpha_buffer offset:(NSUInteger)step * 16u atIndex:2];
-            [encoder setBuffer:fold_destination offset:0u atIndex:3];
-            [encoder setBytes:&output_count length:sizeof(output_count) atIndex:4];
+            bind_fri_line_kernel(
+                encoder, fold_source, inverse_byte_offset, inverse_buffer,
+                alpha_buffer, (NSUInteger)step * 16u, fold_destination, output_count,
+                fold_destination, fold_destination, inverse_buffer, 0u, 0u
+            );
             NSUInteger width = MIN(runtime.friFoldLine.maxTotalThreadsPerThreadgroup,
                                    runtime.friFoldLine.threadExecutionWidth * 8u);
             [encoder dispatchThreads:MTLSizeMake(output_count, 1u, 1u)
@@ -127,9 +127,10 @@ void *stwo_zig_metal_fri_fold_line_and_commit(
             return NULL;
         }
         [conversion setComputePipelineState:runtime.qm31ToCoordinates];
-        [conversion setBuffer:destination offset:0u atIndex:0];
-        [conversion setBuffer:coordinates offset:0u atIndex:1];
-        [conversion setBytes:&final_count length:sizeof(final_count) atIndex:2];
+        bind_qm31_coordinate_kernel(
+            conversion, destination, coordinates, final_count,
+            coordinates, destination, 0u, 0u
+        );
         NSUInteger conversion_width = MIN(runtime.qm31ToCoordinates.maxTotalThreadsPerThreadgroup,
                                           runtime.qm31ToCoordinates.threadExecutionWidth * 8u);
         [conversion dispatchThreads:MTLSizeMake(final_count, 1u, 1u)
@@ -372,17 +373,19 @@ bool stwo_zig_metal_fri_line_cascade(
 
         id<MTLBuffer> initial_coordinates = (__bridge id<MTLBuffer>)coordinate_ptrs[0];
         StwoZigMetalTree *initial_tree = trees[0];
-        [encoder setComputePipelineState:runtime.friCoordinatesAndLeaves];
+        [encoder setComputePipelineState:runtime.qm31ToCoordinates];
         [encoder setBuffer:initial_source offset:0u atIndex:0];
         [encoder setBuffer:initial_coordinates offset:0u atIndex:1];
+        [encoder setBytes:&source_count length:sizeof(source_count) atIndex:2];
         [encoder setBuffer:transcript_arena
             offset:(NSUInteger)tree_layer_word_offset(initial_tree, 0u) * sizeof(uint32_t)
-            atIndex:2];
-        [encoder setBytes:&source_count length:sizeof(source_count) atIndex:3];
+            atIndex:3];
         [encoder setBuffer:leaf_seed_buffer offset:0u atIndex:4];
         [encoder setBytes:&domain_prefix_bytes length:sizeof(domain_prefix_bytes) atIndex:5];
-        NSUInteger initial_width = MIN(runtime.friCoordinatesAndLeaves.maxTotalThreadsPerThreadgroup,
-                                       runtime.friCoordinatesAndLeaves.threadExecutionWidth * 8u);
+        uint32_t write_initial_leaf = 1u;
+        [encoder setBytes:&write_initial_leaf length:sizeof(write_initial_leaf) atIndex:6];
+        NSUInteger initial_width = MIN(runtime.qm31ToCoordinates.maxTotalThreadsPerThreadgroup,
+                                       runtime.qm31ToCoordinates.threadExecutionWidth * 8u);
         [encoder dispatchThreads:MTLSizeMake(source_count, 1u, 1u)
              threadsPerThreadgroup:MTLSizeMake(initial_width, 1u, 1u)];
         [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
@@ -481,29 +484,32 @@ bool stwo_zig_metal_fri_line_cascade(
 
             uint32_t destination_count = count >> 1u;
             id<MTLBuffer> destination = destinations[stage];
-            id<MTLComputePipelineState> fold_pipeline = runtime.friFoldLine;
+            uint32_t prepare_next = stage + 1u != fri_layer_count ? 1u : 0u;
+            [encoder setComputePipelineState:runtime.friFoldLine];
             [encoder setBuffer:evaluation offset:0u atIndex:0];
             [encoder setBuffer:inverse_buffer offset:inverse_offset atIndex:1];
             [encoder setBuffer:transcript_arena
                 offset:(NSUInteger)alpha_base * sizeof(uint32_t) atIndex:2];
             [encoder setBuffer:destination offset:0u atIndex:3];
-            if (stage + 1u != fri_layer_count) {
-                fold_pipeline = runtime.friFoldLinePrepareNext;
+            [encoder setBytes:&destination_count length:sizeof(destination_count) atIndex:4];
+            if (prepare_next != 0u) {
                 id<MTLBuffer> next_coordinates = (__bridge id<MTLBuffer>)coordinate_ptrs[stage + 1u];
                 StwoZigMetalTree *next_tree = trees[stage + 1u];
-                [encoder setBuffer:next_coordinates offset:0u atIndex:4];
+                [encoder setBuffer:next_coordinates offset:0u atIndex:5];
                 [encoder setBuffer:transcript_arena
                     offset:(NSUInteger)tree_layer_word_offset(next_tree, 0u) * sizeof(uint32_t)
-                    atIndex:5];
-                [encoder setBytes:&destination_count length:sizeof(destination_count) atIndex:6];
+                    atIndex:6];
                 [encoder setBuffer:leaf_seed_buffer offset:0u atIndex:7];
                 [encoder setBytes:&domain_prefix_bytes length:sizeof(domain_prefix_bytes) atIndex:8];
             } else {
-                [encoder setBytes:&destination_count length:sizeof(destination_count) atIndex:4];
+                [encoder setBuffer:destination offset:0u atIndex:5];
+                [encoder setBuffer:destination offset:0u atIndex:6];
+                [encoder setBuffer:inverse_buffer offset:inverse_offset atIndex:7];
+                [encoder setBytes:&domain_prefix_bytes length:sizeof(domain_prefix_bytes) atIndex:8];
             }
-            [encoder setComputePipelineState:fold_pipeline];
-            NSUInteger fold_width = MIN(fold_pipeline.maxTotalThreadsPerThreadgroup,
-                                        fold_pipeline.threadExecutionWidth * 8u);
+            [encoder setBytes:&prepare_next length:sizeof(prepare_next) atIndex:9];
+            NSUInteger fold_width = MIN(runtime.friFoldLine.maxTotalThreadsPerThreadgroup,
+                                        runtime.friFoldLine.threadExecutionWidth * 8u);
             [encoder dispatchThreads:MTLSizeMake(destination_count, 1u, 1u)
                  threadsPerThreadgroup:MTLSizeMake(fold_width, 1u, 1u)];
             if (stage + 1u != fri_layer_count)

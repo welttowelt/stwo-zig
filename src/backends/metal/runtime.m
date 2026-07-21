@@ -44,8 +44,6 @@
 @property(nonatomic, strong) id<MTLComputePipelineState> quotientCoefficientsResident;
 @property(nonatomic, strong) id<MTLComputePipelineState> friFoldCircle;
 @property(nonatomic, strong) id<MTLComputePipelineState> friFoldLine;
-@property(nonatomic, strong) id<MTLComputePipelineState> friCoordinatesAndLeaves;
-@property(nonatomic, strong) id<MTLComputePipelineState> friFoldLinePrepareNext;
 @property(nonatomic, strong) id<MTLComputePipelineState> friFold3Resident;
 @property(nonatomic, strong) id<MTLComputePipelineState> friFold2Resident;
 @property(nonatomic, strong) id<MTLComputePipelineState> friPackedLeavesResident;
@@ -539,8 +537,6 @@ static StwoZigMetalRuntime *create_runtime_from_library(
         runtime.quotientCoefficientsResident = make_pipeline(device, library, @"stwo_zig_quotient_coefficients_resident", error_message, error_message_len);
         runtime.friFoldCircle = make_pipeline(device, library, @"stwo_zig_fri_fold_circle", error_message, error_message_len);
         runtime.friFoldLine = make_pipeline(device, library, @"stwo_zig_fri_fold_line", error_message, error_message_len);
-        runtime.friCoordinatesAndLeaves = make_pipeline(device, library, @"stwo_zig_fri_coordinates_and_leaves", error_message, error_message_len);
-        runtime.friFoldLinePrepareNext = make_pipeline(device, library, @"stwo_zig_fri_fold_line_prepare_next", error_message, error_message_len);
         runtime.friFold3Resident = make_pipeline(device, library, @"stwo_zig_fri_fold3_resident", error_message, error_message_len);
         runtime.friFold2Resident = make_pipeline(device, library, @"stwo_zig_fri_fold2_resident", error_message, error_message_len);
         runtime.friPackedLeavesResident = make_pipeline(device, library, @"stwo_zig_fri_packed_leaves_resident", error_message, error_message_len);
@@ -605,9 +601,7 @@ static StwoZigMetalRuntime *create_runtime_from_library(
             runtime.quotientNumerator == nil || runtime.quotientFinalize == nil ||
             runtime.quotientDomainPointsResident == nil || runtime.quotientDenominatorsResident == nil ||
             runtime.quotientCombineResident == nil || runtime.quotientCoefficientsResident == nil ||
-            runtime.friFoldCircle == nil || runtime.friFoldLine == nil ||
-            runtime.friCoordinatesAndLeaves == nil || runtime.friFoldLinePrepareNext == nil ||
-            runtime.friFold3Resident == nil ||
+            runtime.friFoldCircle == nil || runtime.friFoldLine == nil || runtime.friFold3Resident == nil ||
             runtime.friFold2Resident == nil || runtime.friPackedLeavesResident == nil || runtime.friFinalLineResident == nil ||
             runtime.transcriptInitResident == nil || runtime.transcriptMixResident == nil ||
             runtime.transcriptDrawSecureResident == nil || runtime.transcriptDrawQueriesResident == nil ||
@@ -656,6 +650,39 @@ static StwoZigMetalRuntime *create_runtime_from_library(
         }
         return runtime;
     }
+}
+
+static void bind_qm31_coordinate_kernel(
+    id<MTLComputeCommandEncoder> encoder, id<MTLBuffer> source,
+    id<MTLBuffer> coordinates, uint32_t value_count, id<MTLBuffer> leaves,
+    id<MTLBuffer> leaf_seed, uint32_t prefix_bytes, uint32_t write_leaf
+) {
+    [encoder setBuffer:source offset:0u atIndex:0];
+    [encoder setBuffer:coordinates offset:0u atIndex:1];
+    [encoder setBytes:&value_count length:sizeof(value_count) atIndex:2];
+    [encoder setBuffer:leaves offset:0u atIndex:3];
+    [encoder setBuffer:leaf_seed offset:0u atIndex:4];
+    [encoder setBytes:&prefix_bytes length:sizeof(prefix_bytes) atIndex:5];
+    [encoder setBytes:&write_leaf length:sizeof(write_leaf) atIndex:6];
+}
+
+static void bind_fri_line_kernel(
+    id<MTLComputeCommandEncoder> encoder, id<MTLBuffer> source,
+    NSUInteger inverse_offset, id<MTLBuffer> inverse, id<MTLBuffer> alpha,
+    NSUInteger alpha_offset, id<MTLBuffer> destination, uint32_t destination_count,
+    id<MTLBuffer> coordinates, id<MTLBuffer> leaves, id<MTLBuffer> leaf_seed,
+    uint32_t prefix_bytes, uint32_t prepare_next
+) {
+    [encoder setBuffer:source offset:0u atIndex:0];
+    [encoder setBuffer:inverse offset:inverse_offset atIndex:1];
+    [encoder setBuffer:alpha offset:alpha_offset atIndex:2];
+    [encoder setBuffer:destination offset:0u atIndex:3];
+    [encoder setBytes:&destination_count length:sizeof(destination_count) atIndex:4];
+    [encoder setBuffer:coordinates offset:0u atIndex:5];
+    [encoder setBuffer:leaves offset:0u atIndex:6];
+    [encoder setBuffer:leaf_seed offset:0u atIndex:7];
+    [encoder setBytes:&prefix_bytes length:sizeof(prefix_bytes) atIndex:8];
+    [encoder setBytes:&prepare_next length:sizeof(prepare_next) atIndex:9];
 }
 
 #import "runtime/initialization.m"
