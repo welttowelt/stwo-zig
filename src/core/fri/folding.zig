@@ -441,6 +441,29 @@ fn foldLineInPlaceSingleStep(
     fillBitReversedCosetCoordinate(x_values, domain.coset(), .x);
     try fields.batchInverseInPlace(M31, x_values, inv_x_values);
 
+    return foldLineInPlaceSingleStepWithInvTwiddles(
+        allocator,
+        eval,
+        domain,
+        alpha,
+        inv_x_values,
+    );
+}
+
+/// Performs one in-place line fold using inverse x coordinates supplied in
+/// the exact bit-reversed butterfly order consumed by `eval`.
+fn foldLineInPlaceSingleStepWithInvTwiddles(
+    allocator: std.mem.Allocator,
+    eval: []QM31,
+    domain: line.LineDomain,
+    alpha: QM31,
+    inv_x_values: []const M31,
+) !FoldLineResult {
+    if (eval.len < 2 or (eval.len & 1) != 0) return error.InvalidEvaluationLength;
+
+    const folded_len = eval.len / 2;
+    if (inv_x_values.len != folded_len) return error.InvalidTwiddleLength;
+
     var i: usize = 0;
     while (i < folded_len) : (i += 1) {
         const inv_x = inv_x_values[i];
@@ -454,6 +477,65 @@ fn foldLineInPlaceSingleStep(
     return .{
         .domain = domain.double(),
         .values = resized,
+    };
+}
+
+/// Folds a line evaluation in place using an immutable packed sequence of
+/// inverse twiddle layers. For a source evaluation of length `n`, the slice is
+/// laid out as consecutive layers of lengths `n/2`, `n/4`, ... through the
+/// requested `n_folds`.
+///
+/// This is additive to the workspace API: callers that already retain exact
+/// FFT inverse twiddles can avoid regenerating coordinates and batch-inverting
+/// them, while all existing callers keep the original path.
+pub fn foldLineInPlaceNWithInvTwiddles(
+    allocator: std.mem.Allocator,
+    eval: []QM31,
+    domain: line.LineDomain,
+    alpha: QM31,
+    inv_twiddles: []const M31,
+    n_folds: u32,
+) !FoldLineResult {
+    var required_twiddles: usize = 0;
+    var remaining_len = eval.len;
+    var validation_step: u32 = 0;
+    while (validation_step < n_folds) : (validation_step += 1) {
+        if (remaining_len < 2 or (remaining_len & 1) != 0)
+            return error.InvalidEvaluationLength;
+        remaining_len /= 2;
+        required_twiddles = std.math.add(
+            usize,
+            required_twiddles,
+            remaining_len,
+        ) catch return error.InvalidTwiddleLength;
+    }
+    if (inv_twiddles.len != required_twiddles) return error.InvalidTwiddleLength;
+
+    var current_eval = eval;
+    var current_domain = domain;
+    var current_alpha = alpha;
+    var twiddle_offset: usize = 0;
+
+    var step: u32 = 0;
+    while (step < n_folds) : (step += 1) {
+        const layer_len = current_eval.len / 2;
+        const result = try foldLineInPlaceSingleStepWithInvTwiddles(
+            allocator,
+            current_eval,
+            current_domain,
+            current_alpha,
+            inv_twiddles[twiddle_offset .. twiddle_offset + layer_len],
+        );
+        current_eval = result.values;
+        current_domain = result.domain;
+        current_alpha = current_alpha.square();
+        twiddle_offset += layer_len;
+    }
+
+    std.debug.assert(twiddle_offset == inv_twiddles.len);
+    return .{
+        .domain = current_domain,
+        .values = current_eval,
     };
 }
 

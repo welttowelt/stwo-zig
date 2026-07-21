@@ -598,6 +598,7 @@ pub const foldLineNWithWorkspace = folding.foldLineNWithWorkspace;
 pub const foldLineWithWorkspace = folding.foldLineWithWorkspace;
 pub const foldLineInPlaceNWithWorkspace = folding.foldLineInPlaceNWithWorkspace;
 pub const foldLineInPlaceWithWorkspace = folding.foldLineInPlaceWithWorkspace;
+pub const foldLineInPlaceNWithInvTwiddles = folding.foldLineInPlaceNWithInvTwiddles;
 pub const foldCircleIntoLine = folding.foldCircleIntoLine;
 pub const foldCircleIntoLineWithWorkspace = folding.foldCircleIntoLineWithWorkspace;
 pub const foldCircleColumnsIntoLineWithWorkspace = folding.foldCircleColumnsIntoLineWithWorkspace;

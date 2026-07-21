@@ -10,40 +10,28 @@ const circle_domain = @import("stwo_core").poly.circle.domain;
 const queries_mod = @import("stwo_core").queries;
 const vcs_lifted_verifier = @import("stwo_core").vcs_lifted.verifier;
 const prover_line = @import("line.zig");
+const fri_decommitment = @import("pcs/fri_decommitment.zig");
+const fri_line_twiddles = @import("pcs/fri_line_twiddles.zig");
 const quotient_ops = @import("pcs/quotient_ops.zig");
 const secure_column = @import("secure_column.zig");
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
+const M31TwiddleTree = fri_line_twiddles.M31TwiddleTree;
 const SecureColumnByCoords = secure_column.SecureColumnByCoords;
-pub const FriDecommitError = error{
-    QueryOutOfRange,
-    FoldStepTooLarge,
-};
+pub const FriDecommitError = fri_decommitment.Error;
 pub const FriProverError = error{
     NotCanonicDomain,
     ShapeMismatch,
     InvalidLastLayerSize,
     InvalidLastLayerDegree,
     InvalidColumnSize,
+    InvalidTwiddleDomain,
+    InvalidTwiddleTree,
 };
 pub const FoldLineAndCommitResult = backend_fri.FoldLineAndCommitResult;
-pub const ValueEntry = struct {
-    position: usize,
-    value: QM31,
-};
-
-pub const DecommitmentPositionsResult = struct {
-    decommitment_positions: []usize,
-    witness_evals: []QM31,
-    value_map: []ValueEntry,
-
-    pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
-        allocator.free(self.decommitment_positions);
-        allocator.free(self.witness_evals);
-        allocator.free(self.value_map);
-        self.* = undefined;
-    }
-};
+pub const ValueEntry = fri_decommitment.ValueEntry;
+pub const DecommitmentPositionsResult = fri_decommitment.Result;
+pub const computeDecommitmentPositionsAndWitnessEvals = fri_decommitment.fromSecureSlice;
 
 pub fn LayerDecommitResult(comptime H: type) type {
     return struct {
@@ -143,7 +131,7 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
             var first_layer = try commitFirstLayer(allocator, channel, column_domain, column);
             errdefer first_layer.deinit(allocator);
 
-            var inner_commit = try commitInnerLayers(allocator, channel, config, first_layer);
+            var inner_commit = try commitInnerLayers(allocator, channel, config, first_layer, null);
             defer inner_commit.last_layer_evaluation.deinit(allocator);
             errdefer {
                 for (inner_commit.inner_layers) |*layer| layer.deinit(allocator);
@@ -179,6 +167,45 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
             column_domain: circle_domain.CircleDomain,
             provider: *quotient_ops.LazyQuotientProvider,
         ) !Self {
+            return commitLazyInternal(
+                allocator,
+                channel,
+                config,
+                column_domain,
+                provider,
+                null,
+            );
+        }
+
+        /// Fused commit using inverse FFT twiddle layers already retained for
+        /// the canonical commitment domain. Existing `commitLazy` callers keep
+        /// the coordinate-generation fallback unchanged.
+        pub fn commitLazyWithTwiddles(
+            allocator: std.mem.Allocator,
+            channel: anytype,
+            config: core_fri.FriConfig,
+            column_domain: circle_domain.CircleDomain,
+            provider: *quotient_ops.LazyQuotientProvider,
+            line_twiddles: M31TwiddleTree,
+        ) !Self {
+            return commitLazyInternal(
+                allocator,
+                channel,
+                config,
+                column_domain,
+                provider,
+                line_twiddles,
+            );
+        }
+
+        fn commitLazyInternal(
+            allocator: std.mem.Allocator,
+            channel: anytype,
+            config: core_fri.FriConfig,
+            column_domain: circle_domain.CircleDomain,
+            provider: *quotient_ops.LazyQuotientProvider,
+            line_twiddles: ?M31TwiddleTree,
+        ) !Self {
             if (!column_domain.isCanonic()) {
                 return FriProverError.NotCanonicDomain;
             }
@@ -189,7 +216,13 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
             var first_layer = try commitFirstLayerLazy(allocator, channel, column_domain, provider);
             errdefer first_layer.deinit(allocator);
 
-            var inner_commit = try commitInnerLayers(allocator, channel, config, first_layer);
+            var inner_commit = try commitInnerLayers(
+                allocator,
+                channel,
+                config,
+                first_layer,
+                line_twiddles,
+            );
             defer inner_commit.last_layer_evaluation.deinit(allocator);
             errdefer {
                 for (inner_commit.inner_layers) |*layer| layer.deinit(allocator);
@@ -386,11 +419,58 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
             last_layer_evaluation: prover_line.LineEvaluation,
         };
 
+        fn foldLineNForBackend(
+            allocator: std.mem.Allocator,
+            eval: []QM31,
+            domain: line.LineDomain,
+            alpha: QM31,
+            workspace: *core_fri.FoldLineWorkspace,
+            n_folds: u32,
+            line_twiddles: ?M31TwiddleTree,
+        ) !core_fri.FoldLineResult {
+            if (comptime @hasDecl(B, "foldLineNWithInvTwiddles")) {
+                if (line_twiddles) |tree| {
+                    const inverse_layers = try fri_line_twiddles.inverseForFolds(
+                        tree,
+                        domain,
+                        n_folds,
+                    );
+                    return B.foldLineNWithInvTwiddles(
+                        allocator,
+                        eval,
+                        domain,
+                        alpha,
+                        inverse_layers,
+                        n_folds,
+                    );
+                }
+            }
+            if (comptime @hasDecl(B, "foldLineN")) {
+                return B.foldLineN(
+                    allocator,
+                    eval,
+                    domain,
+                    alpha,
+                    workspace,
+                    n_folds,
+                );
+            }
+            return core_fri.foldLineInPlaceNWithWorkspace(
+                allocator,
+                eval,
+                domain,
+                alpha,
+                workspace,
+                n_folds,
+            );
+        }
+
         fn commitInnerLayers(
             allocator: std.mem.Allocator,
             channel: anytype,
             config: core_fri.FriConfig,
             first_layer: FirstLayerProver,
+            line_twiddles: ?M31TwiddleTree,
         ) !InnerCommitResult {
             if (config.fold_step == 0 or config.fold_step > first_layer.domain.logSize())
                 return core_fri.FriVerificationError.InvalidNumFriLayers;
@@ -454,24 +534,15 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
                     layer_evaluation.deinit(allocator);
                     layer_evaluation = folded;
                 } else {
-                    const folded = if (comptime @hasDecl(B, "foldLineN"))
-                        try B.foldLineN(
-                            allocator,
-                            @constCast(layer_evaluation.values),
-                            layer_evaluation.domain(),
-                            folding_alpha.square(),
-                            &first_line_workspace,
-                            config.fold_step - 1,
-                        )
-                    else
-                        try core_fri.foldLineInPlaceNWithWorkspace(
-                            allocator,
-                            @constCast(layer_evaluation.values),
-                            layer_evaluation.domain(),
-                            folding_alpha.square(),
-                            &first_line_workspace,
-                            config.fold_step - 1,
-                        );
+                    const folded = try foldLineNForBackend(
+                        allocator,
+                        @constCast(layer_evaluation.values),
+                        layer_evaluation.domain(),
+                        folding_alpha.square(),
+                        &first_line_workspace,
+                        config.fold_step - 1,
+                        line_twiddles,
+                    );
                     layer_evaluation.domain_value = folded.domain;
                     layer_evaluation.values = folded.values;
                     layer_evaluation.owns_values = true;
@@ -561,24 +632,15 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
                     layer_evaluation.deinit(allocator);
                     layer_evaluation = folded_evaluation;
                 } else {
-                    const folded = if (comptime @hasDecl(B, "foldLineN"))
-                        try B.foldLineN(
-                            allocator,
-                            @constCast(layer_evaluation.values),
-                            layer_evaluation.domain(),
-                            fold_alpha,
-                            &fold_workspace,
-                            this_fold_step,
-                        )
-                    else
-                        try core_fri.foldLineInPlaceNWithWorkspace(
-                            allocator,
-                            @constCast(layer_evaluation.values),
-                            layer_evaluation.domain(),
-                            fold_alpha,
-                            &fold_workspace,
-                            this_fold_step,
-                        );
+                    const folded = try foldLineNForBackend(
+                        allocator,
+                        @constCast(layer_evaluation.values),
+                        layer_evaluation.domain(),
+                        fold_alpha,
+                        &fold_workspace,
+                        this_fold_step,
+                        line_twiddles,
+                    );
                     layer_evaluation.domain_value = folded.domain;
                     layer_evaluation.values = folded.values;
                     layer_evaluation.owns_values = true;
@@ -629,7 +691,7 @@ pub fn decommitLayerExtended(
     query_positions: []const usize,
     fold_step: u32,
 ) !core_fri.ExtendedFriLayerProof(H) {
-    const helper = try computeDecommitmentPositionsAndWitnessEvalsFromCoords(
+    const helper = try fri_decommitment.fromCoords(
         allocator,
         column,
         query_positions,
@@ -688,118 +750,6 @@ pub fn decommitLayerExtended(
     };
 }
 
-/// Returns Merkle decommitment positions and witness evals needed for one FRI layer decommitment.
-///
-/// `query_positions` are expected in sorted ascending order.
-pub fn computeDecommitmentPositionsAndWitnessEvals(
-    allocator: std.mem.Allocator,
-    column: []const QM31,
-    query_positions: []const usize,
-    fold_step: u32,
-) (std.mem.Allocator.Error || FriDecommitError)!DecommitmentPositionsResult {
-    if (fold_step >= @bitSizeOf(usize)) return FriDecommitError.FoldStepTooLarge;
-
-    var decommitment_positions = std.ArrayList(usize).empty;
-    defer decommitment_positions.deinit(allocator);
-    var witness_evals = std.ArrayList(QM31).empty;
-    defer witness_evals.deinit(allocator);
-    var value_map = std.ArrayList(ValueEntry).empty;
-    defer value_map.deinit(allocator);
-
-    const subset_len = @as(usize, 1) << @intCast(fold_step);
-
-    var subset_start_idx: usize = 0;
-    while (subset_start_idx < query_positions.len) {
-        const subset_key = query_positions[subset_start_idx] >> @intCast(fold_step);
-        var subset_end_idx = subset_start_idx + 1;
-        while (subset_end_idx < query_positions.len and
-            (query_positions[subset_end_idx] >> @intCast(fold_step)) == subset_key)
-        {
-            subset_end_idx += 1;
-        }
-
-        const subset_queries = query_positions[subset_start_idx..subset_end_idx];
-        const subset_start = subset_key << @intCast(fold_step);
-        var subset_query_at: usize = 0;
-
-        var position = subset_start;
-        while (position < subset_start + subset_len) : (position += 1) {
-            if (position >= column.len) return FriDecommitError.QueryOutOfRange;
-
-            try decommitment_positions.append(allocator, position);
-            const eval = column[position];
-            try value_map.append(allocator, .{
-                .position = position,
-                .value = eval,
-            });
-
-            if (subset_query_at < subset_queries.len and subset_queries[subset_query_at] == position) {
-                subset_query_at += 1;
-            } else {
-                try witness_evals.append(allocator, eval);
-            }
-        }
-
-        subset_start_idx = subset_end_idx;
-    }
-
-    return .{
-        .decommitment_positions = try decommitment_positions.toOwnedSlice(allocator),
-        .witness_evals = try witness_evals.toOwnedSlice(allocator),
-        .value_map = try value_map.toOwnedSlice(allocator),
-    };
-}
-
-fn computeDecommitmentPositionsAndWitnessEvalsFromCoords(
-    allocator: std.mem.Allocator,
-    column: secure_column.SecureColumnByCoords,
-    query_positions: []const usize,
-    fold_step: u32,
-) (std.mem.Allocator.Error || FriDecommitError)!DecommitmentPositionsResult {
-    if (fold_step >= @bitSizeOf(usize)) return FriDecommitError.FoldStepTooLarge;
-
-    var decommitment_positions = std.ArrayList(usize).empty;
-    defer decommitment_positions.deinit(allocator);
-    var witness_evals = std.ArrayList(QM31).empty;
-    defer witness_evals.deinit(allocator);
-    var value_map = std.ArrayList(ValueEntry).empty;
-    defer value_map.deinit(allocator);
-
-    const subset_len = @as(usize, 1) << @intCast(fold_step);
-    var subset_start_idx: usize = 0;
-    while (subset_start_idx < query_positions.len) {
-        const subset_key = query_positions[subset_start_idx] >> @intCast(fold_step);
-        var subset_end_idx = subset_start_idx + 1;
-        while (subset_end_idx < query_positions.len and
-            (query_positions[subset_end_idx] >> @intCast(fold_step)) == subset_key)
-        {
-            subset_end_idx += 1;
-        }
-
-        const subset_queries = query_positions[subset_start_idx..subset_end_idx];
-        const subset_start = subset_key << @intCast(fold_step);
-        var subset_query_at: usize = 0;
-        for (subset_start..subset_start + subset_len) |position| {
-            if (position >= column.len()) return FriDecommitError.QueryOutOfRange;
-            const eval = column.at(position);
-            try decommitment_positions.append(allocator, position);
-            try value_map.append(allocator, .{ .position = position, .value = eval });
-            if (subset_query_at < subset_queries.len and subset_queries[subset_query_at] == position) {
-                subset_query_at += 1;
-            } else {
-                try witness_evals.append(allocator, eval);
-            }
-        }
-        subset_start_idx = subset_end_idx;
-    }
-
-    return .{
-        .decommitment_positions = try decommitment_positions.toOwnedSlice(allocator),
-        .witness_evals = try witness_evals.toOwnedSlice(allocator),
-        .value_map = try value_map.toOwnedSlice(allocator),
-    };
-}
-
 /// Produces a FRI layer decommitment proof for `query_positions`.
 pub fn decommitLayer(
     comptime H: type,
@@ -809,7 +759,7 @@ pub fn decommitLayer(
     query_positions: []const usize,
     fold_step: u32,
 ) !LayerDecommitResult(H) {
-    const helper = try computeDecommitmentPositionsAndWitnessEvalsFromCoords(
+    const helper = try fri_decommitment.fromCoords(
         allocator,
         column,
         query_positions,

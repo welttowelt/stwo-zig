@@ -14,18 +14,17 @@ const component_prover = @import("../air/component_prover.zig");
 const prover_circle = @import("../poly/circle/mod.zig");
 const twiddle_source_mod = @import("../poly/twiddle_source.zig");
 const stage_profile = @import("../stage_profile.zig");
-const prover_fri = @import("../fri.zig");
 const commitment_tree = @import("commitment_tree.zig");
 const circle_transforms = @import("columns/circle_transforms.zig");
 const column_preparation = @import("columns/preparation.zig");
 const column_storage = @import("columns/storage.zig");
+const fri_commit = @import("fri_commit.zig");
 const pow_search = @import("proof_of_work.zig");
 const sampled_value_transcript = @import("sampled_value_transcript.zig");
 const sampled_value_evaluation = @import("sampled_values.zig");
 const tree_builders = @import("tree_builders.zig");
 
 pub const quotient_ops = @import("quotient_ops.zig");
-
 const M31 = m31.M31;
 const QM31 = qm31.QM31;
 const CirclePointQM31 = circle.CirclePointQM31;
@@ -713,10 +712,13 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                 );
                 defer provider.deinit(allocator);
 
-                break :blk try prover_fri.FriProver(B, H, MC).commitLazy(
+                break :blk try fri_commit.commitLazy(
+                    B,
+                    H,
+                    MC,
                     allocator,
                     channel,
-                    scheme.config.fri_config,
+                    &scheme,
                     domain,
                     &provider,
                 );

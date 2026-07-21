@@ -157,6 +157,27 @@ pub const CpuBackend = struct {
         );
     }
 
+    /// Reuses the canonical inverse FFT twiddle layers already retained by
+    /// the prover session instead of rebuilding and batch-inverting line
+    /// coordinates for every FRI fold.
+    pub fn foldLineNWithInvTwiddles(
+        allocator: std.mem.Allocator,
+        eval: []QM31,
+        domain: anytype,
+        alpha: QM31,
+        inv_twiddles: []const M31,
+        n_folds: u32,
+    ) !core_fri.FoldLineResult {
+        return core_fri.foldLineInPlaceNWithInvTwiddles(
+            allocator,
+            eval,
+            domain,
+            alpha,
+            inv_twiddles,
+            n_folds,
+        );
+    }
+
     // ---------------------------------------------------------------
     // QuotientOps
     // ---------------------------------------------------------------
