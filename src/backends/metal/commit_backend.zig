@@ -34,6 +34,12 @@ pub fn shutdown() MetalCommitBackend.ShutdownError!void {
 
 pub const MetalCommitBackend = struct {
     pub const rawQuotientInputs = true;
+    /// Hybrid routing: below the resident-quotient threshold the provider is
+    /// prepared in CPU-bounded mode so the whole fused pipeline can run on
+    /// the host (see commitLazyMerkle).
+    pub fn rawQuotientInputsForLog(lifting_log_size: u32) bool {
+        return commit_policy.quotientUsesResidentMerkle(lifting_log_size);
+    }
     pub const TelemetrySnapshot = telemetry.Snapshot;
     pub const TelemetryDelta = telemetry.Delta;
     pub const TelemetryError = error{RuntimeNotInitialized};
@@ -141,6 +147,22 @@ pub const MetalCommitBackend = struct {
     }
 
     pub fn allocateLineEvaluation(
+        domain: @import("stwo_core").poly.line.LineDomain,
+    ) !@import("stwo_prover_impl").line.LineEvaluation {
+        if (!commit_policy.friFoldCommitUsesResidentMerkle(domain.size(), 1)) {
+            // Hybrid routing: small cascades live on the host heap so the CPU
+            // fold path (which reallocates in place) owns them outright.
+            return @import("stwo_prover_impl").line.LineEvaluation.newZero(
+                std.heap.smp_allocator,
+                domain,
+            );
+        }
+        return allocateResidentLineEvaluation(domain);
+    }
+
+    /// Resident allocation used by the fused cascade internals, which require
+    /// device-handle storage regardless of size.
+    fn allocateResidentLineEvaluation(
         domain: @import("stwo_core").poly.line.LineDomain,
     ) !@import("stwo_prover_impl").line.LineEvaluation {
         const QM31 = @import("stwo_core").fields.qm31.QM31;
@@ -282,14 +304,12 @@ pub const MetalCommitBackend = struct {
         out: anytype,
     ) !MerkleTree(H) {
         if (!commit_policy.quotientUsesResidentMerkle(provider.lifting_log_size)) {
-            try computeLazyQuotients(allocator, provider, out);
-            const columns = [_][]const @import("stwo_core").fields.m31.M31{
-                out.columns[0],
-                out.columns[1],
-                out.columns[2],
-                out.columns[3],
-            };
-            return commitMerkle(H, allocator, columns[0..]);
+            // Hybrid routing: below the resident threshold the whole fused
+            // quotient+Merkle pipeline runs on the CPU backend (UMA memory is
+            // host-visible, so the resident output column is written directly).
+            const host_tree = try cpu.commitLazyMerkle(H, allocator, provider, out);
+            telemetry.record(.host_merkle_commit);
+            return MerkleTree(H).fromHost(host_tree);
         }
         var lease = try shared_runtime.acquire();
         defer lease.deinit();
@@ -448,6 +468,16 @@ pub const MetalCommitBackend = struct {
         alpha: @import("stwo_core").fields.qm31.QM31,
         workspace: *@import("stwo_core").fri.FoldCircleWorkspace,
     ) !void {
+        if (!commit_policy.friFoldCommitUsesResidentMerkle(dst.len, 1)) {
+            return @import("stwo_core").fri.foldCircleColumnsIntoLineWithWorkspace(
+                allocator,
+                dst,
+                src_columns,
+                src_domain,
+                alpha,
+                workspace,
+            );
+        }
         const use_resident_inverse = dst.len >= fri_inverse_cache_min_values;
         var inverse_words: ?[]const u32 = null;
         if (!use_resident_inverse) {
@@ -484,6 +514,27 @@ pub const MetalCommitBackend = struct {
         workspace: *@import("stwo_core").fri.FoldLineWorkspace,
         n_folds: u32,
     ) !@import("stwo_prover_impl").line.LineEvaluation {
+        const QM31_t = @import("stwo_core").fields.qm31.QM31;
+        if (evaluation.resident_storage == null or
+            !commit_policy.friFoldCommitUsesResidentMerkle(evaluation.len(), 1))
+        {
+            // Hybrid routing: fold on the CPU without consuming the input
+            // (the generic scheduler deinits the source after this returns).
+            const scratch = try allocator.dupe(QM31_t, evaluation.values);
+            errdefer allocator.free(scratch);
+            const folded = try @import("stwo_core").fri.foldLineInPlaceNWithWorkspace(
+                allocator,
+                scratch,
+                evaluation.domain(),
+                alpha,
+                workspace,
+                n_folds,
+            );
+            return @import("stwo_prover_impl").line.LineEvaluation.initOwned(
+                folded.domain,
+                folded.values,
+            );
+        }
         var current = evaluation;
         var owns_current = false;
         var current_alpha = alpha;
@@ -491,7 +542,7 @@ pub const MetalCommitBackend = struct {
         var step: u32 = 0;
         while (step < n_folds) : (step += 1) {
             const destination_domain = current.domain().double();
-            var next = try allocateLineEvaluation(destination_domain);
+            var next = try allocateResidentLineEvaluation(destination_domain);
             errdefer next.deinit(allocator);
             const destination_len = next.len();
             try workspace.ensureCapacity(allocator, destination_len);
@@ -598,7 +649,7 @@ pub const MetalCommitBackend = struct {
             current_alpha = current_alpha.square();
         }
 
-        var folded = try allocateLineEvaluation(final_domain);
+        var folded = try allocateResidentLineEvaluation(final_domain);
         errdefer folded.deinit(allocator);
         var coordinates = try allocateSecureColumn(final_count);
         errdefer coordinates.deinit(allocator);
@@ -693,7 +744,7 @@ pub const MetalCommitBackend = struct {
             current_count >>= 1;
         }
 
-        var terminal = try allocateLineEvaluation(current_domain);
+        var terminal = try allocateResidentLineEvaluation(current_domain);
         errdefer terminal.deinit(allocator);
         const terminal_storage = terminal.resident_storage orelse return error.InvalidColumns;
         const source_storage = evaluation.resident_storage.?;

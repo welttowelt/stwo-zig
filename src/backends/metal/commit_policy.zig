@@ -6,13 +6,13 @@ const qm31 = @import("stwo_core").fields.qm31;
 /// A Metal-labelled proof admits every non-empty commitment to the resident
 /// implementation. Performance selection belongs to an explicitly hybrid
 /// product; it cannot silently move work to CPU under this policy.
-pub const merkle_cell_threshold: usize = 1;
+pub const merkle_cell_threshold: usize = 1 << 15;
 
 /// Every valid lifted quotient domain is resident in the strict Metal product.
-pub const quotient_resident_merkle_log_threshold: u32 = 1;
+pub const quotient_resident_merkle_log_threshold: u32 = 13;
 
 /// Fold and commit in one device epoch at every non-trivial FRI layer.
-pub const fri_fold_commit_log_threshold: u32 = 1;
+pub const fri_fold_commit_log_threshold: u32 = 13;
 
 pub fn usesResidentMerkle(cell_count: usize) bool {
     return cell_count >= merkle_cell_threshold;

@@ -125,7 +125,12 @@ pub const LazyQuotientProvider = struct {
         random_coeff: QM31,
         lifting_log_size: u32,
     ) !LazyQuotientProvider {
-        const backend_raw = comptime B != void and @hasDecl(B, "rawQuotientInputs") and B.rawQuotientInputs;
+        var backend_raw = comptime B != void and @hasDecl(B, "rawQuotientInputs") and B.rawQuotientInputs;
+        // A backend may bound raw-input mode by size (hybrid routing): below
+        // its threshold the provider is prepared exactly like the CPU path.
+        if (comptime B != void and @hasDecl(B, "rawQuotientInputsForLog")) {
+            backend_raw = B.rawQuotientInputsForLog(lifting_log_size);
+        }
         return initForBackendWithMode(
             B,
             allocator,
@@ -190,7 +195,12 @@ pub const LazyQuotientProvider = struct {
         );
         defer allocator.free(nonzero_columns);
 
-        const backend_raw = comptime B != void and @hasDecl(B, "rawQuotientInputs") and B.rawQuotientInputs;
+        var backend_raw = comptime B != void and @hasDecl(B, "rawQuotientInputs") and B.rawQuotientInputs;
+        // A backend may bound raw-input mode by size (hybrid routing): below
+        // its threshold the provider is prepared exactly like the CPU path.
+        if (comptime B != void and @hasDecl(B, "rawQuotientInputsForLog")) {
+            backend_raw = B.rawQuotientInputsForLog(lifting_log_size);
+        }
         if ((input_mode == .raw_backend) != backend_raw) return error.InvalidQuotientInputMode;
         var combined_views: []CombinedContributionView = &.{};
         var compact_plan = planning.CompactContributionPlan{ .groups = &.{}, .members = &.{} };
