@@ -9,6 +9,7 @@ const quotients = @import("stwo_core").pcs.quotients;
 const canonic = @import("stwo_core").poly.circle.canonic;
 const core_utils = @import("stwo_core").utils;
 const tile_sink = @import("quotient_tile_sink.zig");
+const domain_walk = @import("quotient_domain_walk.zig");
 
 const CircleDomain = @import("stwo_core").poly.circle.domain.CircleDomain;
 const CirclePointM31 = circle.CirclePointM31;
@@ -218,13 +219,15 @@ pub fn executeMaterialized(item: *const MaterializedWork) !void {
     const scratch = item.scratch orelse return executeMaterializedScalar(item);
     const workspace = item.workspace;
     var chunk_start = item.start;
+    var walk = domain_walk.BitReversedCosetWalk.init(
+        item.domain,
+        item.lifting_log_size,
+        item.start,
+    );
     while (chunk_start < item.end) {
         const row_count = @min(scratch.rowCapacity(), item.end - chunk_start);
-        for (scratch.domain_points[0..row_count], 0..) |*domain_point, row| {
-            domain_point.* = item.domain.at(core_utils.bitReverseIndex(
-                chunk_start + row,
-                item.lifting_log_size,
-            ));
+        for (scratch.domain_points[0..row_count]) |*domain_point| {
+            domain_point.* = walk.next();
         }
         try scratch.prepare(workspace, row_count);
 
@@ -256,8 +259,13 @@ pub fn executeMaterialized(item: *const MaterializedWork) !void {
 
 fn executeMaterializedScalar(item: *const MaterializedWork) !void {
     const workspace = item.workspace;
+    var walk = domain_walk.BitReversedCosetWalk.init(
+        item.domain,
+        item.lifting_log_size,
+        item.start,
+    );
     for (item.start..item.end) |position| {
-        const domain_point = item.domain.at(core_utils.bitReverseIndex(position, item.lifting_log_size));
+        const domain_point = walk.next();
         try workspace.beginRow(domain_point);
         for (item.lifted_columns, item.contribution_plan_ranges) |lifted_column, contribution_range| {
             const base_value = lifted_column[position];
@@ -311,13 +319,15 @@ pub fn executeStreaming(item: *StreamingWork) !void {
     const scratch = item.scratch orelse return executeStreamingScalar(item);
     const workspace = item.workspace;
     var chunk_start = item.start;
+    var walk = domain_walk.BitReversedCosetWalk.init(
+        item.domain,
+        item.lifting_log_size,
+        item.start,
+    );
     while (chunk_start < item.end) {
         const row_count = @min(scratch.rowCapacity(), item.end - chunk_start);
-        for (scratch.domain_points[0..row_count], 0..) |*domain_point, row| {
-            domain_point.* = item.domain.at(core_utils.bitReverseIndex(
-                chunk_start + row,
-                item.lifting_log_size,
-            ));
+        for (scratch.domain_points[0..row_count]) |*domain_point| {
+            domain_point.* = walk.next();
         }
         try scratch.prepare(workspace, row_count);
 
@@ -355,10 +365,15 @@ pub fn executeStreaming(item: *StreamingWork) !void {
 fn executeStreamingScalar(item: *StreamingWork) !void {
     const workspace = item.workspace;
     var tile_start = item.start;
+    var walk = domain_walk.BitReversedCosetWalk.init(
+        item.domain,
+        item.lifting_log_size,
+        item.start,
+    );
     while (tile_start < item.end) {
         const tile_end = @min(item.end, tile_start + tile_sink.DEFAULT_TILE_ROWS);
         for (tile_start..tile_end) |position| {
-            const domain_point = item.domain.at(core_utils.bitReverseIndex(position, item.lifting_log_size));
+            const domain_point = walk.next();
             try workspace.beginRow(domain_point);
             accumulateStreamingNumerators(workspace, item.combined_views, position);
             try writeQuotientRow(

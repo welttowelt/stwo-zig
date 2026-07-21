@@ -6,9 +6,9 @@ const cm31 = @import("stwo_core").fields.cm31;
 const m31 = @import("stwo_core").fields.m31;
 const qm31 = @import("stwo_core").fields.qm31;
 const quotients = @import("stwo_core").pcs.quotients;
-const core_utils = @import("stwo_core").utils;
 const row_executor = @import("quotient_row_executor.zig");
 const tile_sink = @import("quotient_tile_sink.zig");
+const domain_walk = @import("quotient_domain_walk.zig");
 const work_pool_mod = @import("../work_pool.zig");
 
 const CircleDomain = @import("stwo_core").poly.circle.domain.CircleDomain;
@@ -227,13 +227,15 @@ pub fn execute(work: *Work) !void {
 
 fn executeBatched(work: *Work, scratch: *Scratch) !void {
     var tile_start = work.start;
+    var walk = domain_walk.BitReversedCosetWalk.init(
+        work.domain,
+        work.lifting_log_size,
+        work.start,
+    );
     while (tile_start < work.end) {
         const row_count = @min(scratch.row_capacity, work.end - tile_start);
-        for (scratch.row_scratch.domain_points[0..row_count], 0..) |*point, row| {
-            point.* = work.domain.at(core_utils.bitReverseIndex(
-                tile_start + row,
-                work.lifting_log_size,
-            ));
+        for (scratch.row_scratch.domain_points[0..row_count]) |*point| {
+            point.* = walk.next();
         }
         try scratch.row_scratch.prepare(work.workspace, row_count);
         try scratch.clearNumerators(row_count);
@@ -328,13 +330,15 @@ fn accumulateDirectPacked(
 
 fn executeScalar(work: *Work) !void {
     var tile_start = work.start;
+    var walk = domain_walk.BitReversedCosetWalk.init(
+        work.domain,
+        work.lifting_log_size,
+        work.start,
+    );
     while (tile_start < work.end) {
         const tile_end = @min(work.end, tile_start + tile_sink.DEFAULT_TILE_ROWS);
         for (tile_start..tile_end) |position| {
-            const domain_point = work.domain.at(core_utils.bitReverseIndex(
-                position,
-                work.lifting_log_size,
-            ));
+            const domain_point = walk.next();
             try work.workspace.beginRow(domain_point);
             for (work.column_views, work.contribution_ranges) |view, contribution_range| {
                 const source_index = if (view.is_direct)
