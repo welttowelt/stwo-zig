@@ -88,46 +88,122 @@ kernel void stwo_zig_transcript_draw_secure_resident(
     transcript_draw_secure_felts(arena, state_base, destination_base, felt_count);
 }
 
+// Maps one BLAKE2s compression across a four-lane quad. Each lane owns one
+// column of the 4x4 state; shuffle rotations expose the diagonal G schedule
+// without moving the 16-word child message out of threadgroup memory.
+inline uint2 blake2s_compress_parent_cooperative4(
+    threadgroup const uint *message, constant uint *node_seed,
+    uint prefix_bytes, uint quad_lane, uint simd_lane
+) {
+    uint initial_a = prefix_bytes == 0u ? blake2s_iv[quad_lane] : node_seed[quad_lane];
+    uint initial_b = prefix_bytes == 0u ? blake2s_iv[quad_lane + 4u] : node_seed[quad_lane + 4u];
+    if (prefix_bytes == 0u && quad_lane == 0u) initial_a ^= 0x01010020u;
+    uint a = initial_a;
+    uint b = initial_b;
+    uint c = blake2s_iv[quad_lane];
+    uint d = blake2s_iv[quad_lane + 4u];
+    if (quad_lane == 0u) d ^= prefix_bytes + 64u;
+    if (quad_lane == 2u) d ^= 0xffffffffu;
+    uint quad_base = simd_lane & ~3u;
+
+    for (uint round = 0u; round < 10u; ++round) {
+        a = a + b + message[blake2s_sigma[round][quad_lane * 2u]];
+        d = rotr32(d ^ a, 16u);
+        c += d;
+        b = rotr32(b ^ c, 12u);
+        a = a + b + message[blake2s_sigma[round][quad_lane * 2u + 1u]];
+        d = rotr32(d ^ a, 8u);
+        c += d;
+        b = rotr32(b ^ c, 7u);
+
+        uint diagonal_b = simd_shuffle(b, quad_base + ((quad_lane + 1u) & 3u));
+        uint diagonal_c = simd_shuffle(c, quad_base + ((quad_lane + 2u) & 3u));
+        uint diagonal_d = simd_shuffle(d, quad_base + ((quad_lane + 3u) & 3u));
+        a = a + diagonal_b + message[blake2s_sigma[round][8u + quad_lane * 2u]];
+        diagonal_d = rotr32(diagonal_d ^ a, 16u);
+        diagonal_c += diagonal_d;
+        diagonal_b = rotr32(diagonal_b ^ diagonal_c, 12u);
+        a = a + diagonal_b + message[blake2s_sigma[round][9u + quad_lane * 2u]];
+        diagonal_d = rotr32(diagonal_d ^ a, 8u);
+        diagonal_c += diagonal_d;
+        diagonal_b = rotr32(diagonal_b ^ diagonal_c, 7u);
+
+        b = simd_shuffle(diagonal_b, quad_base + ((quad_lane + 3u) & 3u));
+        c = simd_shuffle(diagonal_c, quad_base + ((quad_lane + 2u) & 3u));
+        d = simd_shuffle(diagonal_d, quad_base + ((quad_lane + 1u) & 3u));
+    }
+    return uint2(
+        initial_a ^ a ^ c,
+        initial_b ^ b ^ d
+    );
+}
+
 kernel void stwo_zig_blake2s_parent_tail_sparse(
     device uint *arena [[buffer(0)]], constant uint *child_offsets [[buffer(1)]],
     constant uint *destination_offsets [[buffer(2)]], constant uint *parent_counts [[buffer(3)]],
     constant uint &level_count [[buffer(4)]], constant uint *node_seed [[buffer(5)]],
     constant uint &prefix_bytes [[buffer(6)]], constant uint *transcript_config [[buffer(7)]],
     threadgroup uint *hashes [[threadgroup(0)]], uint thread_index [[thread_index_in_threadgroup]],
-    uint group [[threadgroup_position_in_grid]]
+    uint simd_lane [[thread_index_in_simdgroup]],
+    uint3 threads_in_group [[threads_per_threadgroup]],
+    uint3 group [[threadgroup_position_in_grid]]
 ) {
     if (level_count == 0u) return;
     for (uint level = 0u; level < level_count; ++level) {
         uint parent_count = parent_counts[level];
-        uint message[16];
-        if (thread_index < parent_count) {
-            if (level == 0u) {
-                // Each threadgroup owns one contiguous bottom subtree.
-                uint source = child_offsets[0] +
-                    (group * parent_count + thread_index) * 16u;
-                for (uint i = 0u; i < 16u; ++i) message[i] = arena[source + i];
-            } else {
-                uint source = thread_index * 16u;
-                for (uint i = 0u; i < 16u; ++i) message[i] = hashes[source + i];
+        if (level != 0u && parent_count * 4u <= threads_in_group.x) {
+            // Every available four-lane quad owns one parent. Keep the result
+            // in registers until all SIMDgroups have consumed the compacted
+            // child layer: early writes would otherwise alias later messages.
+            uint hash_index = thread_index >> 2u;
+            uint quad_lane = thread_index & 3u;
+            uint2 state(0u);
+            if (hash_index < parent_count) {
+                state = blake2s_compress_parent_cooperative4(
+                    hashes + hash_index * 16u, node_seed, prefix_bytes,
+                    quad_lane, simd_lane
+                );
             }
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-        if (thread_index < parent_count) {
-            uint state[8];
-            if (prefix_bytes == 0u) blake2s_init_hash(state);
-            else blake2s_init_seeded(state, node_seed);
-            blake2s_compress(state, message, prefix_bytes + 64u, true);
-            uint destination = destination_offsets[level] +
-                (group * parent_count + thread_index) * 8u;
-            for (uint i = 0u; i < 8u; ++i) {
-                hashes[thread_index * 8u + i] = state[i];
-                arena[destination + i] = state[i];
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            if (hash_index < parent_count) {
+                hashes[hash_index * 8u + quad_lane] = state.x;
+                hashes[hash_index * 8u + quad_lane + 4u] = state.y;
+                uint destination = destination_offsets[level] +
+                    (group.x * parent_count + hash_index) * 8u;
+                arena[destination + quad_lane] = state.x;
+                arena[destination + quad_lane + 4u] = state.y;
+            }
+        } else {
+            uint message[16];
+            if (thread_index < parent_count) {
+                if (level == 0u) {
+                    // Each threadgroup owns one contiguous bottom subtree.
+                    uint source = child_offsets[0] +
+                        (group.x * parent_count + thread_index) * 16u;
+                    for (uint i = 0u; i < 16u; ++i) message[i] = arena[source + i];
+                } else {
+                    uint source = thread_index * 16u;
+                    for (uint i = 0u; i < 16u; ++i) message[i] = hashes[source + i];
+                }
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            if (thread_index < parent_count) {
+                uint state[8];
+                if (prefix_bytes == 0u) blake2s_init_hash(state);
+                else blake2s_init_seeded(state, node_seed);
+                blake2s_compress(state, message, prefix_bytes + 64u, true);
+                uint destination = destination_offsets[level] +
+                    (group.x * parent_count + thread_index) * 8u;
+                for (uint i = 0u; i < 8u; ++i) {
+                    hashes[thread_index * 8u + i] = state[i];
+                    arena[destination + i] = state[i];
+                }
             }
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
 
-    if (transcript_config[2] == 0u || group != 0u ||
+    if (transcript_config[2] == 0u || group.x != 0u ||
         parent_counts[level_count - 1u] != 1u || thread_index != 0u) return;
     uint state_base = transcript_config[0], alpha_base = transcript_config[1];
     uint digest[8], block[16];
