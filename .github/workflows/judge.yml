@@ -84,6 +84,7 @@ jobs:
           retention-days: 1
 
   publish:
+    name: autoresearch-judge
     needs: evaluate
     runs-on: ubuntu-latest
     timeout-minutes: 10

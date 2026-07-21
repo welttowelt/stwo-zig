@@ -56,6 +56,7 @@ class WorkflowContractTest(unittest.TestCase):
                 evaluate.index("Evaluate with no promotion authority"),
             )
             self.assertIn("contents: write", publish)
+            self.assertIn("name: autoresearch-judge", publish)
             self.assertLess(
                 publish.index("Revalidate immutable candidate and evidence binding"),
                 publish.index("secrets.JUDGE_HMAC_SECRET"),
@@ -78,6 +79,16 @@ class WorkflowContractTest(unittest.TestCase):
                 text.index("secrets.JUDGE_HMAC_SECRET"),
             )
             self.assertIn("python3 autoresearch/bots/promote_action.py", text)
+
+    def test_required_check_names_are_stable(self) -> None:
+        for path in (
+            ROOT / ".github/workflows/validate.yml",
+            ROOT / "autoresearch/workflows/validate.yml",
+        ):
+            self.assertIn(
+                "name: autoresearch-validate",
+                path.read_text(encoding="utf-8"),
+            )
 
         source = (ROOT / "autoresearch/bots/promote_action.py").read_text(encoding="utf-8")
         self.assertIn("signing.verify(verdict)", source)
