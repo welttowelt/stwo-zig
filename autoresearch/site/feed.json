@@ -1838,8 +1838,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 43,
-       "seconds": 8186
+       "commits": 48,
+       "seconds": 10075
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -1949,8 +1949,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 43,
-       "seconds": 8186
+       "commits": 48,
+       "seconds": 10075
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -1990,8 +1990,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 43,
-       "seconds": 8186
+       "commits": 48,
+       "seconds": 10075
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2101,8 +2101,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 43,
-       "seconds": 8186
+       "commits": 48,
+       "seconds": 10075
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2212,8 +2212,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 43,
-       "seconds": 8186
+       "commits": 48,
+       "seconds": 10075
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -3910,8 +3910,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 43,
-       "seconds": 8186
+       "commits": 48,
+       "seconds": 10075
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -4021,8 +4021,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 43,
-       "seconds": 8186
+       "commits": 48,
+       "seconds": 10075
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -4062,8 +4062,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 43,
-       "seconds": 8186
+       "commits": 48,
+       "seconds": 10075
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -4173,8 +4173,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 43,
-       "seconds": 8186
+       "commits": 48,
+       "seconds": 10075
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -4284,8 +4284,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 43,
-       "seconds": 8186
+       "commits": 48,
+       "seconds": 10075
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -4377,8 +4377,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 43,
-       "seconds": 8186
+       "commits": 48,
+       "seconds": 10075
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -4418,8 +4418,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 43,
-       "seconds": 8186
+       "commits": 48,
+       "seconds": 10075
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -4459,8 +4459,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 43,
-       "seconds": 8186
+       "commits": 48,
+       "seconds": 10075
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -4559,7 +4559,7 @@
  },
  "feed_schema_version": 3,
  "history": {
-  "comparisons": 29,
+  "comparisons": 31,
   "runs": [
    {
     "bundle": false,
@@ -4686,31 +4686,69 @@
     "kind": "native_proof_cross_backend_matrix_v6",
     "report_sha256": "770830ab765311cf46afa7fd10d3dab3868001e40e9f60115f573e788bcaa4bc",
     "run_id": "2026-07-21-085853-matrix-v6-6448467f"
+   },
+   {
+    "bundle": true,
+    "kind": "native_proof_cross_backend_matrix_v6",
+    "report_sha256": "b4d77a3c994c86d79abdf2c214d6b63f608da115e3938ba5ed7cc919c34ca6c0",
+    "run_id": "2026-07-21-192442-matrix-v6-483bca66"
+   },
+   {
+    "bundle": true,
+    "kind": "native_proof_cross_backend_matrix_v6",
+    "report_sha256": "53eee11540ad7976beb9c4e95773afd55a0da69676f7c58e469f670a26ac9466",
+    "run_id": "2026-07-21-192812-matrix-v6-483bca66"
    }
   ]
  },
  "latest_matrix": {
-  "generated_at": "2026-07-21T08:58:53.278275+00:00",
+  "generated_at": "2026-07-21T19:28:12.518673+00:00",
   "protocol": "native_proof_cross_backend_matrix_v6",
-  "repo_commit": "6448467fbdcfeaff01f0bd60ed724f94fe5741a9",
+  "repo_commit": "483bca66ea55c7e82f6b47985f08da9484db139e",
   "rows": [
    {
     "committed_trace_cells": 524288,
     "headline_eligible": false,
     "lanes": {
      "cpu": {
-      "native_mhz": 1.5152015667032863,
-      "peak_rss_mib": 23.72,
-      "prove_ms": 10.813084,
-      "request_ms": 11.854771
+      "native_mhz": 2.1916822198485355,
+      "peak_rss_mib": 25.61,
+      "prove_ms": 7.475625,
+      "request_ms": 8.329396,
+      "request_resources": {
+       "canonical_proof_bytes": 41840,
+       "complete": true,
+       "cycles": 2624461544,
+       "energy_nj": 2680733067,
+       "instructions": 7953444589,
+       "lifetime_peak_physical_footprint_bytes": 26280992,
+       "measured_samples": 10,
+       "measured_warmups": 10,
+       "measurement_scope": "verified_process_request_batch",
+       "source": "darwin_proc_pid_rusage_v6",
+       "unavailable_reason": null
+      }
      },
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
       "metal_dispatches_per_proof": 22.0,
-      "native_mhz": 1.7335408884105554,
-      "peak_rss_mib": 39.3,
-      "prove_ms": 9.452458,
-      "request_ms": 10.508084
+      "native_mhz": 2.055399482853799,
+      "peak_rss_mib": 38.34,
+      "prove_ms": 7.97225,
+      "request_ms": 8.783522,
+      "request_resources": {
+       "canonical_proof_bytes": 41840,
+       "complete": true,
+       "cycles": 739351264,
+       "energy_nj": 672928757,
+       "instructions": 2192779511,
+       "lifetime_peak_physical_footprint_bytes": 169919448,
+       "measured_samples": 10,
+       "measured_warmups": 10,
+       "measurement_scope": "verified_process_request_batch",
+       "source": "darwin_proc_pid_rusage_v6",
+       "unavailable_reason": null
+      }
      }
     },
     "name": "wide_fibonacci",
@@ -4725,21 +4763,47 @@
    },
    {
     "committed_trace_cells": 4194304,
-    "headline_eligible": false,
+    "headline_eligible": true,
     "lanes": {
      "cpu": {
-      "native_mhz": 0.8428947798488191,
-      "peak_rss_mib": 86.25,
-      "prove_ms": 77.801854,
-      "request_ms": 91.040126
+      "native_mhz": 1.6909135403087436,
+      "peak_rss_mib": 92.05,
+      "prove_ms": 38.76198,
+      "request_ms": 52.081501,
+      "request_resources": {
+       "canonical_proof_bytes": 60249,
+       "complete": true,
+       "cycles": 16650018011,
+       "energy_nj": 16280967964,
+       "instructions": 48213755761,
+       "lifetime_peak_physical_footprint_bytes": 96027800,
+       "measured_samples": 10,
+       "measured_warmups": 10,
+       "measurement_scope": "verified_process_request_batch",
+       "source": "darwin_proc_pid_rusage_v6",
+       "unavailable_reason": null
+      }
      },
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
       "metal_dispatches_per_proof": 24.0,
-      "native_mhz": 0.7433662003804363,
-      "peak_rss_mib": 130.59,
-      "prove_ms": 88.161166,
-      "request_ms": 101.148938
+      "native_mhz": 0.8413145230395018,
+      "peak_rss_mib": 130.48,
+      "prove_ms": 77.897146,
+      "request_ms": 90.874896,
+      "request_resources": {
+       "canonical_proof_bytes": 60249,
+       "complete": true,
+       "cycles": 7427474578,
+       "energy_nj": 7752974746,
+       "instructions": 13089009167,
+       "lifetime_peak_physical_footprint_bytes": 288376080,
+       "measured_samples": 10,
+       "measured_warmups": 10,
+       "measurement_scope": "verified_process_request_batch",
+       "source": "darwin_proc_pid_rusage_v6",
+       "unavailable_reason": null
+      }
      }
     },
     "name": "wide_fibonacci",
@@ -4757,18 +4821,44 @@
     "headline_eligible": false,
     "lanes": {
      "cpu": {
-      "native_mhz": 2.4408596636229745,
-      "peak_rss_mib": 22.81,
-      "prove_ms": 6.712417,
-      "request_ms": 6.996479
+      "native_mhz": 3.422536333482135,
+      "peak_rss_mib": 22.56,
+      "prove_ms": 4.787103,
+      "request_ms": 5.0755,
+      "request_resources": {
+       "canonical_proof_bytes": 46446,
+       "complete": true,
+       "cycles": 1699069312,
+       "energy_nj": 1306375420,
+       "instructions": 4305716909,
+       "lifetime_peak_physical_footprint_bytes": 23036864,
+       "measured_samples": 10,
+       "measured_warmups": 10,
+       "measurement_scope": "verified_process_request_batch",
+       "source": "darwin_proc_pid_rusage_v6",
+       "unavailable_reason": null
+      }
      },
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
       "metal_dispatches_per_proof": 24.0,
-      "native_mhz": 2.1534069300613137,
-      "peak_rss_mib": 28.92,
-      "prove_ms": 7.608416,
-      "request_ms": 8.016229
+      "native_mhz": 3.22430825006939,
+      "peak_rss_mib": 28.56,
+      "prove_ms": 5.083646,
+      "request_ms": 5.430021,
+      "request_resources": {
+       "canonical_proof_bytes": 46446,
+       "complete": true,
+       "cycles": 404207695,
+       "energy_nj": 199939396,
+       "instructions": 773438722,
+       "lifetime_peak_physical_footprint_bytes": 161710992,
+       "measured_samples": 10,
+       "measured_warmups": 10,
+       "measurement_scope": "verified_process_request_batch",
+       "source": "darwin_proc_pid_rusage_v6",
+       "unavailable_reason": null
+      }
      }
     },
     "name": "xor",
@@ -4784,21 +4874,47 @@
    },
    {
     "committed_trace_cells": 196608,
-    "headline_eligible": true,
+    "headline_eligible": false,
     "lanes": {
      "cpu": {
-      "native_mhz": 3.4045573154250803,
-      "peak_rss_mib": 62.8,
-      "prove_ms": 19.25248,
-      "request_ms": 19.797854
+      "native_mhz": 4.849005760350369,
+      "peak_rss_mib": 70.38,
+      "prove_ms": 13.515375,
+      "request_ms": 14.029458,
+      "request_resources": {
+       "canonical_proof_bytes": 54848,
+       "complete": true,
+       "cycles": 6164286617,
+       "energy_nj": 5138964567,
+       "instructions": 16347970776,
+       "lifetime_peak_physical_footprint_bytes": 72991296,
+       "measured_samples": 10,
+       "measured_warmups": 10,
+       "measurement_scope": "verified_process_request_batch",
+       "source": "darwin_proc_pid_rusage_v6",
+       "unavailable_reason": null
+      }
      },
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
       "metal_dispatches_per_proof": 26.0,
-      "native_mhz": 6.779325300788042,
-      "peak_rss_mib": 43.75,
-      "prove_ms": 9.667042,
-      "request_ms": 10.200292
+      "native_mhz": 7.944582048146021,
+      "peak_rss_mib": 43.41,
+      "prove_ms": 8.249146,
+      "request_ms": 8.788437,
+      "request_resources": {
+       "canonical_proof_bytes": 54848,
+       "complete": true,
+       "cycles": 689622251,
+       "energy_nj": 473976074,
+       "instructions": 1553684573,
+       "lifetime_peak_physical_footprint_bytes": 204162176,
+       "measured_samples": 10,
+       "measured_warmups": 10,
+       "measurement_scope": "verified_process_request_batch",
+       "source": "darwin_proc_pid_rusage_v6",
+       "unavailable_reason": null
+      }
      }
     },
     "name": "xor",
@@ -4817,18 +4933,44 @@
     "headline_eligible": false,
     "lanes": {
      "cpu": {
-      "native_mhz": 2.4477504259329157,
-      "peak_rss_mib": 21.69,
-      "prove_ms": 6.693499,
-      "request_ms": 7.022854
+      "native_mhz": 3.4320437068002434,
+      "peak_rss_mib": 19.41,
+      "prove_ms": 4.773833,
+      "request_ms": 5.092791,
+      "request_resources": {
+       "canonical_proof_bytes": 45200,
+       "complete": true,
+       "cycles": 1822777661,
+       "energy_nj": 1393666188,
+       "instructions": 4739305981,
+       "lifetime_peak_physical_footprint_bytes": 19727320,
+       "measured_samples": 10,
+       "measured_warmups": 10,
+       "measurement_scope": "verified_process_request_batch",
+       "source": "darwin_proc_pid_rusage_v6",
+       "unavailable_reason": null
+      }
      },
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
       "metal_dispatches_per_proof": 24.0,
-      "native_mhz": 2.690745523050734,
-      "peak_rss_mib": 29.67,
-      "prove_ms": 6.091917,
-      "request_ms": 6.474667
+      "native_mhz": 2.1838462466273483,
+      "peak_rss_mib": 29.14,
+      "prove_ms": 7.506833,
+      "request_ms": 8.015375,
+      "request_resources": {
+       "canonical_proof_bytes": 45200,
+       "complete": true,
+       "cycles": 470493016,
+       "energy_nj": 211270609,
+       "instructions": 916151255,
+       "lifetime_peak_physical_footprint_bytes": 162677648,
+       "measured_samples": 10,
+       "measured_warmups": 10,
+       "measurement_scope": "verified_process_request_batch",
+       "source": "darwin_proc_pid_rusage_v6",
+       "unavailable_reason": null
+      }
      }
     },
     "name": "plonk",
@@ -4842,21 +4984,47 @@
    },
    {
     "committed_trace_cells": 524288,
-    "headline_eligible": true,
+    "headline_eligible": false,
     "lanes": {
      "cpu": {
-      "native_mhz": 3.5359882535206095,
-      "peak_rss_mib": 62.44,
-      "prove_ms": 18.534188,
-      "request_ms": 19.099792
+      "native_mhz": 4.821652308569622,
+      "peak_rss_mib": 65.58,
+      "prove_ms": 13.593604,
+      "request_ms": 14.139667,
+      "request_resources": {
+       "canonical_proof_bytes": 55401,
+       "complete": true,
+       "cycles": 6400883538,
+       "energy_nj": 5565567030,
+       "instructions": 17808100134,
+       "lifetime_peak_physical_footprint_bytes": 68240488,
+       "measured_samples": 10,
+       "measured_warmups": 10,
+       "measurement_scope": "verified_process_request_batch",
+       "source": "darwin_proc_pid_rusage_v6",
+       "unavailable_reason": null
+      }
      },
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
       "metal_dispatches_per_proof": 26.0,
-      "native_mhz": 6.3056355107073365,
-      "peak_rss_mib": 45.95,
-      "prove_ms": 10.393272,
-      "request_ms": 10.964125
+      "native_mhz": 7.534458030785769,
+      "peak_rss_mib": 46.0,
+      "prove_ms": 8.698187,
+      "request_ms": 9.251646,
+      "request_resources": {
+       "canonical_proof_bytes": 55401,
+       "complete": true,
+       "cycles": 767075770,
+       "energy_nj": 533635537,
+       "instructions": 1762699199,
+       "lifetime_peak_physical_footprint_bytes": 208683896,
+       "measured_samples": 10,
+       "measured_warmups": 10,
+       "measurement_scope": "verified_process_request_batch",
+       "source": "darwin_proc_pid_rusage_v6",
+       "unavailable_reason": null
+      }
      }
     },
     "name": "plonk",
@@ -4873,18 +5041,44 @@
     "headline_eligible": false,
     "lanes": {
      "cpu": {
-      "native_mhz": 2.434849730078816,
-      "peak_rss_mib": 22.78,
-      "prove_ms": 6.728958,
-      "request_ms": 6.987563
+      "native_mhz": 3.4210217649415,
+      "peak_rss_mib": 23.84,
+      "prove_ms": 4.789292,
+      "request_ms": 5.048729,
+      "request_resources": {
+       "canonical_proof_bytes": 40082,
+       "complete": true,
+       "cycles": 1650654938,
+       "energy_nj": 1267541395,
+       "instructions": 4273173009,
+       "lifetime_peak_physical_footprint_bytes": 24363968,
+       "measured_samples": 10,
+       "measured_warmups": 10,
+       "measurement_scope": "verified_process_request_batch",
+       "source": "darwin_proc_pid_rusage_v6",
+       "unavailable_reason": null
+      }
      },
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
       "metal_dispatches_per_proof": 24.0,
-      "native_mhz": 3.0962753424667557,
-      "peak_rss_mib": 28.47,
-      "prove_ms": 5.291834,
-      "request_ms": 5.575854
+      "native_mhz": 2.3272758815809844,
+      "peak_rss_mib": 28.16,
+      "prove_ms": 7.063771,
+      "request_ms": 7.468604,
+      "request_resources": {
+       "canonical_proof_bytes": 40082,
+       "complete": true,
+       "cycles": 337052499,
+       "energy_nj": 161777419,
+       "instructions": 736632113,
+       "lifetime_peak_physical_footprint_bytes": 161252264,
+       "measured_samples": 10,
+       "measured_warmups": 10,
+       "measurement_scope": "verified_process_request_batch",
+       "source": "darwin_proc_pid_rusage_v6",
+       "unavailable_reason": null
+      }
      }
     },
     "name": "state_machine",
@@ -4903,18 +5097,44 @@
     "headline_eligible": true,
     "lanes": {
      "cpu": {
-      "native_mhz": 3.453952527112614,
-      "peak_rss_mib": 63.38,
-      "prove_ms": 18.974458,
-      "request_ms": 19.608812
+      "native_mhz": 4.8262021438410745,
+      "peak_rss_mib": 61.81,
+      "prove_ms": 13.57923,
+      "request_ms": 14.200792,
+      "request_resources": {
+       "canonical_proof_bytes": 60502,
+       "complete": true,
+       "cycles": 6121968599,
+       "energy_nj": 5173088597,
+       "instructions": 16359046130,
+       "lifetime_peak_physical_footprint_bytes": 64226312,
+       "measured_samples": 10,
+       "measured_warmups": 10,
+       "measurement_scope": "verified_process_request_batch",
+       "source": "darwin_proc_pid_rusage_v6",
+       "unavailable_reason": null
+      }
      },
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
       "metal_dispatches_per_proof": 26.0,
-      "native_mhz": 6.7992923092991715,
-      "peak_rss_mib": 43.84,
-      "prove_ms": 9.638917,
-      "request_ms": 10.278188
+      "native_mhz": 8.2378952058246,
+      "peak_rss_mib": 43.56,
+      "prove_ms": 7.955438,
+      "request_ms": 8.572021,
+      "request_resources": {
+       "canonical_proof_bytes": 60502,
+       "complete": true,
+       "cycles": 653180365,
+       "energy_nj": 518463896,
+       "instructions": 1570080665,
+       "lifetime_peak_physical_footprint_bytes": 204276840,
+       "measured_samples": 10,
+       "measured_warmups": 10,
+       "measurement_scope": "verified_process_request_batch",
+       "source": "darwin_proc_pid_rusage_v6",
+       "unavailable_reason": null
+      }
      }
     },
     "name": "state_machine",
@@ -4933,18 +5153,44 @@
     "headline_eligible": true,
     "lanes": {
      "cpu": {
-      "native_mhz": 0.4294836821335454,
-      "peak_rss_mib": 57.48,
-      "prove_ms": 23.842583,
-      "request_ms": 27.525645
+      "native_mhz": 0.5325363083876076,
+      "peak_rss_mib": 36.45,
+      "prove_ms": 19.22875,
+      "request_ms": 22.907417,
+      "request_resources": {
+       "canonical_proof_bytes": 97973,
+       "complete": true,
+       "cycles": 3410429038,
+       "energy_nj": 3680630109,
+       "instructions": 8506969994,
+       "lifetime_peak_physical_footprint_bytes": 37569448,
+       "measured_samples": 10,
+       "measured_warmups": 10,
+       "measurement_scope": "verified_process_request_batch",
+       "source": "darwin_proc_pid_rusage_v6",
+       "unavailable_reason": null
+      }
      },
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
       "metal_dispatches_per_proof": 18.0,
-      "native_mhz": 1.2727363705981618,
-      "peak_rss_mib": 64.05,
-      "prove_ms": 8.046105,
-      "request_ms": 11.713188
+      "native_mhz": 1.338102505318534,
+      "peak_rss_mib": 64.94,
+      "prove_ms": 7.656104,
+      "request_ms": 11.478584,
+      "request_resources": {
+       "canonical_proof_bytes": 97973,
+       "complete": true,
+       "cycles": 949207986,
+       "energy_nj": 746244845,
+       "instructions": 1887519946,
+       "lifetime_peak_physical_footprint_bytes": 191071216,
+       "measured_samples": 10,
+       "measured_warmups": 10,
+       "measurement_scope": "verified_process_request_batch",
+       "source": "darwin_proc_pid_rusage_v6",
+       "unavailable_reason": null
+      }
      }
     },
     "name": "blake",
@@ -4962,18 +5208,44 @@
     "headline_eligible": false,
     "lanes": {
      "cpu": {
-      "native_mhz": 1.6748804807228002,
-      "peak_rss_mib": 173.72,
-      "prove_ms": 39.128917,
-      "request_ms": 67.621479
+      "native_mhz": 1.8779742255906877,
+      "peak_rss_mib": 109.92,
+      "prove_ms": 34.897271,
+      "request_ms": 63.22627,
+      "request_resources": {
+       "canonical_proof_bytes": 152455,
+       "complete": true,
+       "cycles": 23560212489,
+       "energy_nj": 19961285916,
+       "instructions": 45029240907,
+       "lifetime_peak_physical_footprint_bytes": 114967992,
+       "measured_samples": 10,
+       "measured_warmups": 10,
+       "measurement_scope": "verified_process_request_batch",
+       "source": "darwin_proc_pid_rusage_v6",
+       "unavailable_reason": null
+      }
      },
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
       "metal_dispatches_per_proof": 20.0,
-      "native_mhz": 1.909684324985247,
-      "peak_rss_mib": 212.97,
-      "prove_ms": 34.36075,
-      "request_ms": 63.148063
+      "native_mhz": 2.0493934332789236,
+      "peak_rss_mib": 210.88,
+      "prove_ms": 31.994604,
+      "request_ms": 60.313854,
+      "request_resources": {
+       "canonical_proof_bytes": 152455,
+       "complete": true,
+       "cycles": 4495628401,
+       "energy_nj": 4066344231,
+       "instructions": 7186651674,
+       "lifetime_peak_physical_footprint_bytes": 345900472,
+       "measured_samples": 10,
+       "measured_warmups": 10,
+       "measurement_scope": "verified_process_request_batch",
+       "source": "darwin_proc_pid_rusage_v6",
+       "unavailable_reason": null
+      }
      }
     },
     "name": "blake",
@@ -4991,18 +5263,44 @@
     "headline_eligible": false,
     "lanes": {
      "cpu": {
-      "native_mhz": 0.1605693922619667,
-      "peak_rss_mib": 25.5,
-      "prove_ms": 6.377312,
-      "request_ms": 7.663042
+      "native_mhz": 0.18546119368447678,
+      "peak_rss_mib": 15.61,
+      "prove_ms": 5.521375,
+      "request_ms": 6.647687,
+      "request_resources": {
+       "canonical_proof_bytes": 112834,
+       "complete": true,
+       "cycles": 736244470,
+       "energy_nj": 663864473,
+       "instructions": 1819181515,
+       "lifetime_peak_physical_footprint_bytes": 15499912,
+       "measured_samples": 10,
+       "measured_warmups": 10,
+       "measurement_scope": "verified_process_request_batch",
+       "source": "darwin_proc_pid_rusage_v6",
+       "unavailable_reason": null
+      }
      },
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
       "metal_dispatches_per_proof": 15.0,
-      "native_mhz": 0.16759044991672473,
-      "peak_rss_mib": 34.02,
-      "prove_ms": 6.172959,
-      "request_ms": 7.496104
+      "native_mhz": 0.16818739193148946,
+      "peak_rss_mib": 38.97,
+      "prove_ms": 6.0915,
+      "request_ms": 7.238084,
+      "request_resources": {
+       "canonical_proof_bytes": 112834,
+       "complete": true,
+       "cycles": 479103860,
+       "energy_nj": 331080903,
+       "instructions": 1174500603,
+       "lifetime_peak_physical_footprint_bytes": 163447672,
+       "measured_samples": 10,
+       "measured_warmups": 10,
+       "measurement_scope": "verified_process_request_batch",
+       "source": "darwin_proc_pid_rusage_v6",
+       "unavailable_reason": null
+      }
      }
     },
     "name": "poseidon",
@@ -5016,21 +5314,47 @@
    },
    {
     "committed_trace_cells": 1294336,
-    "headline_eligible": true,
+    "headline_eligible": false,
     "lanes": {
      "cpu": {
-      "native_mhz": 0.2607228433281695,
-      "peak_rss_mib": 63.25,
-      "prove_ms": 31.420353,
-      "request_ms": 38.390271
+      "native_mhz": 0.326374696461963,
+      "peak_rss_mib": 48.88,
+      "prove_ms": 25.1,
+      "request_ms": 30.996375,
+      "request_resources": {
+       "canonical_proof_bytes": 124194,
+       "complete": true,
+       "cycles": 4599093023,
+       "energy_nj": 5132652356,
+       "instructions": 11891634472,
+       "lifetime_peak_physical_footprint_bytes": 50529264,
+       "measured_samples": 10,
+       "measured_warmups": 10,
+       "measurement_scope": "verified_process_request_batch",
+       "source": "darwin_proc_pid_rusage_v6",
+       "unavailable_reason": null
+      }
      },
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
       "metal_dispatches_per_proof": 18.0,
-      "native_mhz": 0.8059320700312069,
-      "peak_rss_mib": 72.28,
-      "prove_ms": 10.164645,
-      "request_ms": 17.311772
+      "native_mhz": 0.9017501547903772,
+      "peak_rss_mib": 73.5,
+      "prove_ms": 9.084604,
+      "request_ms": 14.985563,
+      "request_resources": {
+       "canonical_proof_bytes": 124194,
+       "complete": true,
+       "cycles": 1308478516,
+       "energy_nj": 1200957274,
+       "instructions": 3194185347,
+       "lifetime_peak_physical_footprint_bytes": 200131616,
+       "measured_samples": 10,
+       "measured_warmups": 10,
+       "measurement_scope": "verified_process_request_batch",
+       "source": "darwin_proc_pid_rusage_v6",
+       "unavailable_reason": null
+      }
      }
     },
     "name": "poseidon",
@@ -5043,7 +5367,7 @@
     "proof_parity": true
    }
   ],
-  "run_id": "2026-07-21-085853-matrix-v6-6448467f"
+  "run_id": "2026-07-21-192812-matrix-v6-483bca66"
  },
  "metal_resident_progress": {
   "cpu_fallbacks_per_proof_median": 0.0,
@@ -5384,11 +5708,11 @@
    "autoresearch/submissions/2026-07-21-paired-circle-basis-reuse/verdict.json": "626dc2f42771b87906a99120af906844d941a703a7a197c9fc241696b6dae050",
    "autoresearch/submissions/2026-07-21-qm31-direct-lane-base-multiply-cpu-metal/verdict-core_metal-wide.json": "87efb9c7ee1262a15f6ca752f7b9420585cb1ff7b0a8c5ebd84b759a8ab8731a",
    "autoresearch/submissions/2026-07-21-qm31-direct-lane-base-multiply-cpu-metal/verdict.json": "581ca6e586355ed4c9b0cf27697c273e315be5c3e76f9a0b5e49db19cda48da8",
-   "vectors/reports/benchmark_history/index.json": "c3153ed5d452c67df06dbaf4a45f51f0bd7134306634dbf18480e24fe61e0a71",
-   "vectors/reports/benchmark_history/runs/2026-07-21-085853-matrix-v6-6448467f/report.json": "770830ab765311cf46afa7fd10d3dab3868001e40e9f60115f573e788bcaa4bc"
+   "vectors/reports/benchmark_history/index.json": "8a925c126250082d68bfca24baca1187dfd9e13b6b9cc9d6a78216af896f0a3b",
+   "vectors/reports/benchmark_history/runs/2026-07-21-192812-matrix-v6-483bca66/report.json": "53eee11540ad7976beb9c4e95773afd55a0da69676f7c58e469f670a26ac9466"
   },
-  "repo_commit": "aa44f98a74db",
-  "repo_commit_time": "2026-07-21T20:03:53+01:00"
+  "repo_commit": "53812b9dd5e2",
+  "repo_commit_time": "2026-07-21T20:35:22+01:00"
  },
  "references": {
   "peer_relative_series": {
