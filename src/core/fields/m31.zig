@@ -69,7 +69,7 @@ pub const M31 = struct {
 
     pub inline fn mul(a: M31, b: M31) M31 {
         const prod: u64 = @as(u64, a.v) * @as(u64, b.v);
-        return .{ .v = reduce64(prod) };
+        return .{ .v = reduceProduct(prod) };
     }
 
     pub inline fn square(a: M31) M31 {
@@ -160,6 +160,16 @@ fn reduce64(x: u64) u32 {
     return r;
 }
 
+/// Reduce a product of two canonical M31 values. Unlike `reduce64`, the input
+/// is strictly below p^2, so one Mersenne fold lands below 2p and a single
+/// conditional subtraction canonicalizes it.
+inline fn reduceProduct(x: u64) u32 {
+    const p: u64 = Modulus;
+    const folded = (x & p) + (x >> 31);
+    const r: u32 = @intCast(folded);
+    return if (r >= Modulus) r - Modulus else r;
+}
+
 // ---------------------------------------------------------------
 // SIMD vectorized M31 operations (4-lane)
 // ---------------------------------------------------------------
@@ -203,7 +213,15 @@ pub inline fn mulVec4(a: Vec4u32, b: Vec4u32) Vec4u32 {
     const a64: Vec4u64 = a;
     const b64: Vec4u64 = b;
     const prod = a64 * b64;
-    return reduceVec4(prod);
+    return reduceProductVec4(prod);
+}
+
+/// Vector form of `reduceProduct`; every lane is a canonical product.
+inline fn reduceProductVec4(x: Vec4u64) Vec4u32 {
+    const p64: Vec4u64 = @splat(@as(u64, Modulus));
+    const folded = (x & p64) + (x >> @splat(@as(u6, 31)));
+    const r: Vec4u32 = @truncate(folded);
+    return @select(u32, r >= P_VEC, r -% P_VEC, r);
 }
 
 /// Vectorized Mersenne reduction: x mod (2^31 - 1), 4 lanes.
@@ -297,7 +315,15 @@ pub inline fn mulPacked(a: PackedM31, b: PackedM31) PackedM31 {
     const a64: PackedU64 = a;
     const b64: PackedU64 = b;
     const prod = a64 * b64;
-    return reducePacked(prod);
+    return reduceProductPacked(prod);
+}
+
+/// Native-width form of `reduceProduct`; every lane is a canonical product.
+inline fn reduceProductPacked(x: PackedU64) PackedM31 {
+    const p64: PackedU64 = @splat(@as(u64, Modulus));
+    const folded = (x & p64) + (x >> @splat(@as(u6, 31)));
+    const r: PackedM31 = @truncate(folded);
+    return @select(u32, r >= P_PACKED, r -% P_PACKED, r);
 }
 
 /// Packed M31 negation.
@@ -367,6 +393,47 @@ fn powPMinus2(a: M31) M31 {
         }
     }
     return acc;
+}
+
+test "m31: bounded product reduction matches generic reduction" {
+    const edge = [_]u32{ 0, 1, 2, Modulus / 2, Modulus - 2, Modulus - 1 };
+    for (edge) |a| {
+        for (edge) |b| {
+            const product = @as(u64, a) * @as(u64, b);
+            try std.testing.expectEqual(reduce64(product), reduceProduct(product));
+        }
+    }
+
+    var prng = std.Random.DefaultPrng.init(0xd05e_31f0_1d5f_0a57);
+    const random = prng.random();
+    for (0..4096) |_| {
+        const a = random.intRangeLessThan(u32, 0, Modulus);
+        const b = random.intRangeLessThan(u32, 0, Modulus);
+        const product = @as(u64, a) * @as(u64, b);
+        try std.testing.expectEqual(reduce64(product), reduceProduct(product));
+    }
+
+    var lhs4: [VEC_WIDTH]u32 = undefined;
+    var rhs4: [VEC_WIDTH]u32 = undefined;
+    for (&lhs4, &rhs4) |*a, *b| {
+        a.* = random.intRangeLessThan(u32, 0, Modulus);
+        b.* = random.intRangeLessThan(u32, 0, Modulus);
+    }
+    const result4: [VEC_WIDTH]u32 = mulVec4(lhs4, rhs4);
+    for (lhs4, rhs4, result4) |a, b, result| {
+        try std.testing.expectEqual(reduceProduct(@as(u64, a) * b), result);
+    }
+
+    var lhs_packed: [PACK_WIDTH]u32 = undefined;
+    var rhs_packed: [PACK_WIDTH]u32 = undefined;
+    for (&lhs_packed, &rhs_packed) |*a, *b| {
+        a.* = random.intRangeLessThan(u32, 0, Modulus);
+        b.* = random.intRangeLessThan(u32, 0, Modulus);
+    }
+    const packed_result: [PACK_WIDTH]u32 = mulPacked(lhs_packed, rhs_packed);
+    for (lhs_packed, rhs_packed, packed_result) |a, b, result| {
+        try std.testing.expectEqual(reduceProduct(@as(u64, a) * b), result);
+    }
 }
 
 test "m31: packed reduction edge cases" {
