@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -10,7 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from scripts import ci_scope_plan, ci_scope_run
+from scripts import ci_scope_plan, ci_scope_push, ci_scope_run
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -314,6 +315,24 @@ class RunnerReceiptTests(unittest.TestCase):
             return subprocess.CompletedProcess(argv, returncode, stdout, stderr)
 
         return run
+
+    def test_pre_push_clears_git_environment_before_nested_git_commands(self) -> None:
+        result = subprocess.CompletedProcess(
+            args=[], returncode=0,
+            stdout="GIT_DIR\nGIT_WORK_TREE\nGIT_INDEX_FILE\n", stderr="",
+        )
+        inherited = {
+            "GIT_DIR": "/repository/.git",
+            "GIT_WORK_TREE": "/repository",
+            "GIT_INDEX_FILE": "/repository/.git/index",
+        }
+        with (
+            mock.patch.dict(os.environ, inherited, clear=False),
+            mock.patch.object(ci_scope_push.subprocess, "run", return_value=result),
+        ):
+            ci_scope_push.clear_git_local_environment(ROOT)
+            for name in inherited:
+                self.assertNotIn(name, os.environ)
 
     def test_pass_receipt_binds_identity_output_digests_and_durations(self) -> None:
         policy = runner_policy(

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -30,6 +31,19 @@ from scripts.ci_scope_run import run_lane
 
 OID = re.compile(r"^[0-9a-f]{40}$")
 ZERO_OID = "0" * 40
+
+
+def clear_git_local_environment(root: Path) -> None:
+    """Prevent hook-local Git state from contaminating nested repositories."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--local-env-vars"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    for name in result.stdout.splitlines():
+        os.environ.pop(name, None)
 
 
 def parse_updates(lines: Iterable[str]) -> list[tuple[str, str]]:
@@ -184,6 +198,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-dir", type=Path)
     args = parser.parse_args(argv)
     try:
+        clear_git_local_environment(args.root)
         root = args.root.resolve(strict=True)
         if args.base is not None:
             resolved_head = git_output(root, "rev-parse", args.head)
