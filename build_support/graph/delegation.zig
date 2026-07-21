@@ -1,27 +1,54 @@
 //! Focused sub-build command construction and product-scoped cache policy.
 
 const std = @import("std");
+const build_identity = @import("../build_identity.zig");
 
 pub const Options = struct {
     aggregate_metal: bool,
     riscv_release_phase: []const u8,
     riscv_evidence_dir: []const u8,
-    implementation_commit: ?[]const u8,
-    implementation_dirty: ?bool,
-    implementation_tree: ?[]const u8,
-    dirty_content_sha256: ?[]const u8,
+    identity: ?build_identity.Identity,
 
     pub fn read(b: *std.Build) Options {
+        const implementation_commit = b.option(
+            []const u8,
+            "implementation-commit",
+            "Exact lowercase 40-hex source commit embedded in the production CLI",
+        );
+        const implementation_dirty = b.option(
+            bool,
+            "implementation-dirty",
+            "Whether the source embedded in the production CLI has local modifications",
+        );
+        const implementation_tree = b.option(
+            []const u8,
+            "implementation-tree",
+            "Exact lowercase 40-hex source tree for an identity override",
+        );
+        const dirty_content_sha256 = b.option(
+            []const u8,
+            "implementation-dirty-content-sha256",
+            "Canonical dirty-content digest required for a diagnostic dirty override",
+        );
         return .{
             .aggregate_metal = b.option(bool, "aggregate-metal", "Explicitly link Metal into aggregate test roots") orelse false,
             .riscv_release_phase = b.option([]const u8, "riscv-release-phase", "CP-13 phase: candidate or promoted") orelse "candidate",
             .riscv_evidence_dir = b.option([]const u8, "riscv-evidence-dir", "Fresh CP-13 evidence directory") orelse "zig-out/release-evidence/riscv",
-            .implementation_commit = b.option([]const u8, "implementation-commit", "Exact lowercase 40-hex source commit embedded in the production CLI"),
-            .implementation_dirty = b.option(bool, "implementation-dirty", "Whether the source embedded in the production CLI has local modifications"),
-            .implementation_tree = b.option([]const u8, "implementation-tree", "Exact lowercase 40-hex source tree for an identity override"),
-            .dirty_content_sha256 = b.option([]const u8, "implementation-dirty-content-sha256", "Canonical dirty-content digest required for a diagnostic dirty override"),
+            .identity = resolveIdentity(b, .{
+                .commit = implementation_commit,
+                .dirty = implementation_dirty,
+                .tree = implementation_tree,
+                .dirty_content_sha256 = dirty_content_sha256,
+            }),
         };
     }
+};
+
+const IdentityOptions = struct {
+    commit: ?[]const u8,
+    dirty: ?bool,
+    tree: ?[]const u8,
+    dirty_content_sha256: ?[]const u8,
 };
 
 pub fn addProxy(
@@ -78,15 +105,60 @@ fn commandFor(
     }
     if (b.user_input_options.get("target") != null or b.user_input_options.get("cpu") != null)
         command.addArg(b.fmt("-Dtarget={s}", .{triple}));
-    if (options.implementation_commit) |value|
-        command.addArg(b.fmt("-Dimplementation-commit={s}", .{value}));
-    if (options.implementation_dirty) |value|
-        command.addArg(b.fmt("-Dimplementation-dirty={s}", .{if (value) "true" else "false"}));
-    if (options.implementation_tree) |value|
-        command.addArg(b.fmt("-Dimplementation-tree={s}", .{value}));
-    if (options.dirty_content_sha256) |value|
-        command.addArg(b.fmt("-Dimplementation-dirty-content-sha256={s}", .{value}));
+    if (options.identity) |identity| addIdentityArguments(b, command, identity);
     return command;
+}
+
+fn resolveIdentity(b: *std.Build, options: IdentityOptions) ?build_identity.Identity {
+    if ((options.commit == null) != (options.dirty == null))
+        @panic("incomplete implementation identity override");
+    if (options.commit == null and
+        (options.tree != null or options.dirty_content_sha256 != null))
+        @panic("orphan implementation identity override");
+
+    // Dependency consumers configure this dispatcher only to discover public
+    // modules. Their package cache is not necessarily a Git checkout, and no
+    // delegated product command is run from that graph.
+    if (b.pkg_hash.len != 0 and options.commit == null) return null;
+    return build_identity.resolveWithOverride(
+        b.allocator,
+        b.pathFromRoot("."),
+        if (options.commit) |commit| .{
+            .commit = commit,
+            .tree = options.tree,
+            .dirty = options.dirty.?,
+            .dirty_content_sha256 = options.dirty_content_sha256,
+        } else null,
+    ) catch |err| std.debug.panic(
+        "cannot resolve delegated product identity: {s}",
+        .{@errorName(err)},
+    );
+}
+
+fn addIdentityArguments(
+    b: *std.Build,
+    command: *std.Build.Step.Run,
+    identity: build_identity.Identity,
+) void {
+    command.addArg(b.fmt(
+        "-Dimplementation-commit={s}",
+        .{&identity.implementation_commit},
+    ));
+    command.addArg(b.fmt(
+        "-Dimplementation-dirty={s}",
+        .{if (identity.implementation_dirty) "true" else "false"},
+    ));
+    if (identity.implementation_tree) |tree| command.addArg(b.fmt(
+        "-Dimplementation-tree={s}",
+        .{&tree},
+    ));
+    if (identity.dirty_content_sha256) |digest| {
+        const encoded = std.fmt.bytesToHex(digest, .lower);
+        command.addArg(b.fmt(
+            "-Dimplementation-dirty-content-sha256={s}",
+            .{&encoded},
+        ));
+    }
 }
 
 fn productCacheDir(b: *std.Build, scope: []const u8) []const u8 {

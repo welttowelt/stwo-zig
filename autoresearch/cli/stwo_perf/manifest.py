@@ -10,8 +10,8 @@ from pathlib import Path
 RUNGS = ("s1", "s2", "s3", "s4", "s5")
 ACCEPTANCE_FLOOR = "s3"
 REPORT_SCHEMA_VERSIONS = {
-    "native_proof_v6": 6,
-    "riscv_proof_v1": 1,
+    "native_proof_v7": 7,
+    "riscv_proof_v2": 2,
 }
 
 GROUP_GATES_POLICY_LIMITS = {
@@ -20,8 +20,22 @@ GROUP_GATES_POLICY_LIMITS = {
     "min_rounds": (1, 50),
     "max_rounds": (1, 50),
 }
-WALL_CLOCK_CLASSES = frozenset(("small", "wide", "deep"))
+SEARCH_HEALTH_POLICY_KEYS = frozenset({
+    "trailing_window",
+    "gradient_snr_threshold",
+    "auto_boost_rounds",
+    "maximum_rounds",
+})
 MAX_GROUP_WALL_CLOCK_SECONDS = 7200
+MAX_COMMAND_TIMEOUT_SECONDS = 7200
+RESOURCE_PROFILES = frozenset(("standard", "large"))
+METAL_CALIBRATION_SCHEMA = "stwo_perf_metal_calibration_freeze_v1"
+METAL_CALIBRATION_FIELDS = frozenset({
+    "schema", "status", "board", "epoch", "artifact", "artifact_sha256",
+    "measured_commit", "policy_sha256", "runtime_identity_sha256",
+    "aot_manifest_sha256", "aot_metallib_sha256", "runtime_mode",
+    "designated_host",
+})
 RISCV_MECHANISM_FIELDS = frozenset({
     "total_steps",
     "n_components",
@@ -38,6 +52,18 @@ RISCV_STABLE_MECHANISM_FIELDS = frozenset({
     "statement_sha256",
     "transcript_state_blake2s",
 })
+RISCV_RESOURCE_TELEMETRY = {
+    "fail_closed": True,
+    "source": "darwin.proc_pid_rusage.RUSAGE_INFO_V6",
+    "scope": "self_process_lifetime",
+    "sampling_points": ["before_warmups", "after_verified_samples"],
+    "fields": [
+        "lifetime_max_phys_footprint_bytes",
+        "energy_nj",
+        "instructions",
+        "cycles",
+    ],
+}
 
 
 class ManifestError(RuntimeError):
@@ -51,6 +77,16 @@ class Workload:
     args: str
     native_unit: str
     group_id: str = "native"
+
+
+@dataclass(frozen=True)
+class WorkloadClass:
+    name: str
+    scored: bool
+    resource_profile: str
+    command_timeout_seconds: int
+    wall_clock_cap_seconds: int
+    sampling: dict
 
 
 @dataclass(frozen=True)
@@ -68,6 +104,7 @@ class WorkloadGroup:
     holdout_generator: dict = field(default_factory=dict)
     correctness_oracle: dict = field(default_factory=dict)
     mechanism_telemetry: dict = field(default_factory=dict)
+    resource_telemetry: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -88,7 +125,11 @@ class Manifest:
         return dict(self.raw["gates_policy"])
 
     def gates_for_group(self, group_id: str) -> dict:
-        """Global gate policy with one group's bounded measurement overrides."""
+        """Global gate policy with one group's bounded measurement overrides.
+
+        Execution callers should use ``gates_for_workload`` so the class-owned
+        resource and sampling contract is also applied.
+        """
         policy = self.gates
         override = self.group(group_id).gates_policy
         for key, value in override.items():
@@ -100,9 +141,33 @@ class Manifest:
                 policy[key] = value
         return policy
 
+    def gates_for_workload(self, group_id: str, workload_class: str) -> dict:
+        """Resolve global, class, then group policy for one executable class."""
+        cls = self.workload_class(workload_class)
+        policy = self.gates
+        policy.update(cls.sampling)
+        policy["resource_profile"] = cls.resource_profile
+        policy["command_timeout_seconds"] = cls.command_timeout_seconds
+        policy["wall_clock_cap_seconds"] = {
+            workload_class: cls.wall_clock_cap_seconds,
+        }
+        override = self.group(group_id).gates_policy
+        for key, value in override.items():
+            if key == "wall_clock_cap_seconds":
+                caps = dict(policy[key])
+                caps.update(value)
+                policy[key] = caps
+            else:
+                policy[key] = value
+        return policy
+
     @property
     def qualification_policy(self) -> dict:
         return dict(self.raw["qualification_policy"])
+
+    @property
+    def search_health_policy(self) -> dict:
+        return dict(self.raw["gates_policy"]["search_health"])
 
     @property
     def anchor_commit(self) -> str | None:
@@ -129,8 +194,66 @@ class Manifest:
                 holdout_generator=dict(spec.get("holdout_generator", {})),
                 correctness_oracle=dict(spec.get("correctness_oracle", {})),
                 mechanism_telemetry=dict(spec.get("mechanism_telemetry", {})),
+                resource_telemetry=dict(spec.get("resource_telemetry", {})),
             ))
         return out
+
+    def classes(self, *, scored_only: bool = False) -> list[WorkloadClass]:
+        """Manifest-owned class registry in its declared scoring order."""
+        out = []
+        for name, spec in self.raw["workload_registry"]["classes"].items():
+            resource = spec["resource"]
+            cls = WorkloadClass(
+                name=name,
+                scored=spec["scored"],
+                resource_profile=resource["profile"],
+                command_timeout_seconds=resource["command_timeout_seconds"],
+                wall_clock_cap_seconds=resource["wall_clock_cap_seconds"],
+                sampling=dict(spec["sampling"]),
+            )
+            if not scored_only or cls.scored:
+                out.append(cls)
+        return out
+
+    def workload_class(self, name: str) -> WorkloadClass:
+        for cls in self.classes():
+            if cls.name == name:
+                return cls
+        raise ManifestError(f"unknown workload class: {name}")
+
+    def class_names(
+        self,
+        *,
+        board: str | None = None,
+        scored_only: bool = False,
+        include_disabled: bool = False,
+    ) -> list[str]:
+        """Declared classes, optionally restricted to one board's workload rows."""
+        declared = [cls.name for cls in self.classes(scored_only=scored_only)]
+        if board is None:
+            return declared
+        group = self.group_for_board(board)
+        if not include_disabled and not group.enabled:
+            return []
+        exposed = {workload.workload_class for workload in group.workloads}
+        return [name for name in declared if name in exposed]
+
+    def validate_workload_class(
+        self,
+        name: str,
+        *,
+        board: str | None = None,
+        include_disabled: bool = False,
+    ) -> None:
+        self.workload_class(name)
+        if board is not None:
+            group = self.group_for_board(board)
+            if not include_disabled and not group.enabled:
+                raise ManifestError(f"board {board} workload group is disabled")
+            if name not in self.class_names(board=board, include_disabled=True):
+                raise ManifestError(
+                    f"board {board} does not expose workload class: {name}"
+                )
 
     def group(self, group_id: str) -> WorkloadGroup:
         for g in self.groups():
@@ -157,6 +280,10 @@ class Manifest:
         """
         if board is None:
             raise ManifestError("board is required for workload selection")
+        if workload_class is not None:
+            self.validate_workload_class(
+                workload_class, board=board, include_disabled=True,
+            )
         groups = [self.group_for_board(board)]
         out = [
             w
@@ -250,6 +377,13 @@ def _validate(raw: dict) -> None:
             "(build_step/binary/workloads at top level) were replaced by named "
             "groups in manifest_version 2 — wrap the flat triple in a group"
         )
+    _validate_classes(registry.get("classes"))
+    if any(
+        isinstance(spec, dict) and spec.get("board") == "core_metal"
+        for spec in registry["groups"].values()
+    ):
+        _validate_metal_calibration(raw["harness"], registry["classes"])
+    _validate_search_health_policy(raw["gates_policy"], registry["classes"])
     if not registry["groups"]:
         raise ManifestError("workload_registry.groups is empty")
     seen_boards: set[str] = set()
@@ -290,7 +424,12 @@ def _validate(raw: dict) -> None:
                 f"workload group {gid} has unsupported report_schema: {report_schema!r}"
             )
         _validate_group_gates_policy(
-            gid, spec.get("gates_policy", {}), raw["gates_policy"]
+            gid, spec.get("gates_policy", {}), raw["gates_policy"],
+            {
+                workload.get("class")
+                for workload in spec.get("workloads", {}).values()
+                if isinstance(workload, dict)
+            },
         )
         if not isinstance(spec.get("correctness_oracle", {}), dict):
             raise ManifestError(
@@ -299,15 +438,63 @@ def _validate(raw: dict) -> None:
         _validate_group_mechanism_telemetry(
             gid, report_schema, spec.get("mechanism_telemetry", {})
         )
+        _validate_group_resource_telemetry(
+            gid, report_schema, spec.get("resource_telemetry", {})
+        )
         if not isinstance(spec["workloads"], dict) or not spec["workloads"]:
             raise ManifestError(f"workload group {gid}: workloads must be a non-empty object")
         for wid, w in spec["workloads"].items():
             if not isinstance(w, dict):
                 raise ManifestError(f"workload {gid}/{wid} must be an object")
-            if w.get("class") not in ("small", "wide", "deep"):
-                raise ManifestError(f"workload {gid}/{wid} has invalid class")
+            if w.get("class") not in registry["classes"]:
+                raise ManifestError(
+                    f"workload {gid}/{wid} references an unknown class: "
+                    f"{w.get('class')!r}"
+                )
+            class_spec = registry["classes"][w["class"]]
+            if (
+                class_spec["resource"]["profile"] == "large"
+                and "--resource-profile large" not in str(w.get("args", ""))
+            ):
+                raise ManifestError(
+                    f"workload {gid}/{wid} belongs to large resource class "
+                    f"{w['class']} but does not request --resource-profile large"
+                )
         _validate_group_holdout_generator(
             gid, spec.get("holdout_generator", {}), spec["workloads"]
+        )
+
+
+def _validate_search_health_policy(gates_policy: object, classes: dict) -> None:
+    if not isinstance(gates_policy, dict):
+        raise ManifestError("gates_policy must be an object")
+    policy = gates_policy.get("search_health")
+    if not isinstance(policy, dict) or set(policy) != SEARCH_HEALTH_POLICY_KEYS:
+        raise ManifestError(
+            "gates_policy.search_health requires exactly "
+            + ", ".join(sorted(SEARCH_HEALTH_POLICY_KEYS))
+        )
+    for key in ("trailing_window", "auto_boost_rounds", "maximum_rounds"):
+        value = policy[key]
+        if type(value) is not int or not 1 <= value <= 50:
+            raise ManifestError(
+                f"gates_policy.search_health.{key} must be an integer in [1, 50]"
+            )
+    threshold = policy["gradient_snr_threshold"]
+    if (
+        isinstance(threshold, bool)
+        or not isinstance(threshold, (int, float))
+        or not 0 < float(threshold) <= 100
+    ):
+        raise ManifestError(
+            "gates_policy.search_health.gradient_snr_threshold must be in (0, 100]"
+        )
+    configured = max(
+        spec["sampling"]["max_rounds"] for spec in classes.values()
+    )
+    if policy["maximum_rounds"] < configured:
+        raise ManifestError(
+            "gates_policy.search_health.maximum_rounds cannot be below a class max_rounds"
         )
 
 
@@ -316,7 +503,7 @@ def _validate_group_mechanism_telemetry(
 ) -> None:
     if not isinstance(telemetry, dict):
         raise ManifestError(f"workload group {gid}: mechanism_telemetry must be an object")
-    if report_schema != "riscv_proof_v1":
+    if report_schema != "riscv_proof_v2":
         return
     if set(telemetry) != {"fail_closed", "required_fields"}:
         raise ManifestError(
@@ -347,7 +534,144 @@ def _validate_group_mechanism_telemetry(
         )
 
 
-def _validate_group_gates_policy(gid: str, override: object, global_policy: dict) -> None:
+def _validate_classes(classes: object) -> None:
+    if not isinstance(classes, dict) or not classes:
+        raise ManifestError("workload_registry.classes must be a non-empty object")
+    for name, spec in classes.items():
+        if not isinstance(name, str) or not name or not name.replace("_", "").isalnum():
+            raise ManifestError(f"invalid workload class name: {name!r}")
+        if not isinstance(spec, dict) or set(spec) != {"scored", "resource", "sampling"}:
+            raise ManifestError(
+                f"workload class {name} requires exactly scored, resource, and sampling"
+            )
+        if not isinstance(spec["scored"], bool):
+            raise ManifestError(f"workload class {name}.scored must be a boolean")
+        resource = spec["resource"]
+        if not isinstance(resource, dict) or set(resource) != {
+            "profile", "command_timeout_seconds", "wall_clock_cap_seconds",
+        }:
+            raise ManifestError(
+                f"workload class {name}.resource requires profile, "
+                "command_timeout_seconds, and wall_clock_cap_seconds"
+            )
+        if resource["profile"] not in RESOURCE_PROFILES:
+            raise ManifestError(
+                f"workload class {name} has unsupported resource profile: "
+                f"{resource['profile']!r}"
+            )
+        for key, maximum in (
+            ("command_timeout_seconds", MAX_COMMAND_TIMEOUT_SECONDS),
+            ("wall_clock_cap_seconds", MAX_GROUP_WALL_CLOCK_SECONDS),
+        ):
+            value = resource[key]
+            if type(value) is not int or not 1 <= value <= maximum:
+                raise ManifestError(
+                    f"workload class {name}.resource.{key} must be an integer "
+                    f"in [1, {maximum}]"
+                )
+        sampling = spec["sampling"]
+        if not isinstance(sampling, dict) or set(sampling) != set(GROUP_GATES_POLICY_LIMITS):
+            raise ManifestError(
+                f"workload class {name}.sampling requires exactly "
+                + ", ".join(GROUP_GATES_POLICY_LIMITS)
+            )
+        for key, (minimum, maximum) in GROUP_GATES_POLICY_LIMITS.items():
+            value = sampling[key]
+            if type(value) is not int or not minimum <= value <= maximum:
+                raise ManifestError(
+                    f"workload class {name}.sampling.{key} must be an integer "
+                    f"in [{minimum}, {maximum}]"
+                )
+        if sampling["min_rounds"] > sampling["max_rounds"]:
+            raise ManifestError(
+                f"workload class {name}.sampling min_rounds exceeds max_rounds"
+            )
+
+
+def _validate_group_resource_telemetry(
+    gid: str, report_schema: str, telemetry: object,
+) -> None:
+    if not isinstance(telemetry, dict):
+        raise ManifestError(f"workload group {gid}: resource_telemetry must be an object")
+    if report_schema != "riscv_proof_v2":
+        if telemetry:
+            raise ManifestError(
+                f"workload group {gid}: resource_telemetry is only valid for "
+                "riscv_proof_v2"
+            )
+        return
+    if telemetry != RISCV_RESOURCE_TELEMETRY:
+        raise ManifestError(
+            f"workload group {gid}: RISC-V resource_telemetry must exactly require "
+            "Darwin RUSAGE_INFO_V6 lifetime counters before warmups and after "
+            "verified samples"
+        )
+
+
+def _validate_metal_calibration(harness: object, classes: dict) -> None:
+    if not isinstance(harness, dict):
+        raise ManifestError("harness must be an object")
+    config = harness.get("metal_calibration")
+    if not isinstance(config, dict) or set(config) != METAL_CALIBRATION_FIELDS:
+        raise ManifestError(
+            "harness.metal_calibration has the wrong freeze schema"
+        )
+    if config["schema"] != METAL_CALIBRATION_SCHEMA:
+        raise ManifestError("harness.metal_calibration.schema is unsupported")
+    if config["status"] not in {"pending", "frozen"}:
+        raise ManifestError("harness.metal_calibration.status must be pending or frozen")
+    if config["board"] != "core_metal" or config["runtime_mode"] != "source-jit":
+        raise ManifestError("Metal calibration board/runtime contract mismatch")
+    if type(config["epoch"]) is not int or config["epoch"] <= 0:
+        raise ManifestError("Metal calibration epoch must be a positive integer")
+    artifact = config["artifact"]
+    if (
+        not isinstance(artifact, str) or not artifact.startswith("autoresearch/reference/")
+        or Path(artifact).is_absolute() or ".." in Path(artifact).parts
+    ):
+        raise ManifestError("Metal calibration artifact must be a repository reference path")
+    host = config["designated_host"]
+    if (
+        not isinstance(host, dict) or set(host) != {"chip", "logical_cpu_count"}
+        or not isinstance(host["chip"], str) or not host["chip"].strip()
+        or type(host["logical_cpu_count"]) is not int
+        or host["logical_cpu_count"] <= 0
+    ):
+        raise ManifestError("Metal calibration designated_host is malformed")
+    frozen_fields = (
+        "artifact_sha256", "measured_commit", "policy_sha256",
+        "runtime_identity_sha256", "aot_manifest_sha256", "aot_metallib_sha256",
+    )
+    if config["status"] == "pending":
+        if any(config[field] is not None for field in frozen_fields):
+            raise ManifestError("pending Metal calibration contains frozen evidence")
+    else:
+        for field in frozen_fields:
+            value = config[field]
+            width = 40 if field == "measured_commit" else 64
+            if (
+                not isinstance(value, str) or len(value) != width
+                or any(char not in "0123456789abcdef" for char in value)
+            ):
+                raise ManifestError(f"frozen Metal calibration has invalid {field}")
+    class_names = list(classes)
+    for field in ("anchor_prove_ms", "anchor_request_ms", "anchor_resources"):
+        anchors = harness.get(field, {}).get("core_metal")
+        if not isinstance(anchors, dict) or list(anchors) != class_names:
+            raise ManifestError(f"harness.{field}.core_metal must cover every class")
+        for name, value in anchors.items():
+            if config["status"] == "pending" and value is not None:
+                raise ManifestError(f"pending Metal calibration has non-null {field}.{name}")
+            if config["status"] == "frozen" and value is None:
+                raise ManifestError(f"frozen Metal calibration has null {field}.{name}")
+
+
+def _validate_group_gates_policy(
+    gid: str,
+    override: object,
+    global_policy: dict,
+    workload_classes: set[str],
+) -> None:
     if not isinstance(override, dict):
         raise ManifestError(f"workload group {gid}: gates_policy must be an object")
     allowed = set(GROUP_GATES_POLICY_LIMITS) | {"wall_clock_cap_seconds", "note"}
@@ -375,7 +699,7 @@ def _validate_group_gates_policy(gid: str, override: object, global_policy: dict
         raise ManifestError(
             f"workload group {gid}: gates_policy.wall_clock_cap_seconds must be an object"
         )
-    unknown_classes = sorted(set(caps) - WALL_CLOCK_CLASSES)
+    unknown_classes = sorted(set(caps) - workload_classes)
     if unknown_classes:
         raise ManifestError(
             f"workload group {gid}: unsupported wall-clock class(es): "
@@ -395,6 +719,11 @@ def _validate_group_gates_policy(gid: str, override: object, global_policy: dict
             raise ManifestError(
                 f"workload group {gid}: gates_policy min_rounds exceeds max_rounds"
             )
+    search_maximum = global_policy["search_health"]["maximum_rounds"]
+    if merged.get("max_rounds", 0) > search_maximum:
+        raise ManifestError(
+            f"workload group {gid}: max_rounds exceeds search-health maximum_rounds"
+        )
 
 
 def _validate_group_holdout_generator(
@@ -416,7 +745,11 @@ def _validate_group_holdout_generator(
     pools = generator["pools"]
     if not isinstance(pools, dict) or not pools:
         raise ManifestError(f"workload group {gid}: holdout pools must be a non-empty object")
-    unknown_classes = sorted(set(pools) - WALL_CLOCK_CLASSES)
+    declared_classes = {
+        workload.get("class") for workload in workloads.values()
+        if isinstance(workload, dict)
+    }
+    unknown_classes = sorted(set(pools) - declared_classes)
     if unknown_classes:
         raise ManifestError(
             f"workload group {gid}: unsupported holdout class(es): "

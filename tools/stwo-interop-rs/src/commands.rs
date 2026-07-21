@@ -25,6 +25,17 @@ use crate::UPSTREAM_COMMIT;
 use anyhow::{anyhow, bail, Context, Result};
 use std::fs;
 use stwo::core::pcs::PcsConfig;
+use stwo::prover::backend::cpu::CpuBackend;
+use stwo::prover::backend::simd::SimdBackend;
+
+macro_rules! selected_backend {
+    ($cli:expr, $function:ident ( $($argument:expr),* $(,)? )) => {
+        match $cli.backend {
+            crate::model::ProverBackend::Scalar => $function::<CpuBackend>($($argument),*),
+            crate::model::ProverBackend::Simd => $function::<SimdBackend>($($argument),*),
+        }
+    };
+}
 
 fn pcs_configs_match(expected: PcsConfig, actual: PcsConfig) -> bool {
     expected.pow_bits == actual.pow_bits
@@ -49,11 +60,14 @@ pub(crate) fn run_generate(cli: &Cli) -> Result<()> {
                 log_n_rows: cli.blake_log_n_rows,
                 n_rounds: cli.blake_n_rounds,
             };
-            let (statement, proof) = blake_prove(
-                config,
-                statement,
-                cli.prove_mode,
-                cli.include_all_preprocessed_columns,
+            let (statement, proof) = selected_backend!(
+                cli,
+                blake_prove(
+                    config,
+                    statement,
+                    cli.prove_mode,
+                    cli.include_all_preprocessed_columns,
+                )
             )?;
             let proof_bytes = serde_json::to_vec(&proof_to_wire(&proof)?)?;
             InteropArtifact {
@@ -77,11 +91,14 @@ pub(crate) fn run_generate(cli: &Cli) -> Result<()> {
             let statement = PlonkStatement {
                 log_n_rows: cli.plonk_log_n_rows,
             };
-            let (statement, proof) = plonk_prove(
-                config,
-                statement,
-                cli.prove_mode,
-                cli.include_all_preprocessed_columns,
+            let (statement, proof) = selected_backend!(
+                cli,
+                plonk_prove(
+                    config,
+                    statement,
+                    cli.prove_mode,
+                    cli.include_all_preprocessed_columns,
+                )
             )?;
             let proof_bytes = serde_json::to_vec(&proof_to_wire(&proof)?)?;
             InteropArtifact {
@@ -105,11 +122,14 @@ pub(crate) fn run_generate(cli: &Cli) -> Result<()> {
             let statement = PoseidonStatement {
                 log_n_instances: cli.poseidon_log_n_instances,
             };
-            let (statement, proof) = poseidon_prove(
-                config,
-                statement,
-                cli.prove_mode,
-                cli.include_all_preprocessed_columns,
+            let (statement, proof) = selected_backend!(
+                cli,
+                poseidon_prove(
+                    config,
+                    statement,
+                    cli.prove_mode,
+                    cli.include_all_preprocessed_columns,
+                )
             )?;
             let proof_bytes = serde_json::to_vec(&proof_to_wire(&proof)?)?;
             InteropArtifact {
@@ -134,12 +154,15 @@ pub(crate) fn run_generate(cli: &Cli) -> Result<()> {
                 checked_m31(cli.sm_initial_0)?,
                 checked_m31(cli.sm_initial_1)?,
             ];
-            let (statement, proof) = state_machine_prove(
-                config,
-                cli.sm_log_n_rows,
-                initial_state,
-                cli.prove_mode,
-                cli.include_all_preprocessed_columns,
+            let (statement, proof) = selected_backend!(
+                cli,
+                state_machine_prove(
+                    config,
+                    cli.sm_log_n_rows,
+                    initial_state,
+                    cli.prove_mode,
+                    cli.include_all_preprocessed_columns,
+                )
             )?;
             let proof_bytes = serde_json::to_vec(&proof_to_wire(&proof)?)?;
             InteropArtifact {
@@ -165,11 +188,14 @@ pub(crate) fn run_generate(cli: &Cli) -> Result<()> {
                 sequence_len: cli.wf_sequence_len,
             };
             if let Some(stage_profile_out) = &cli.stage_profile_out {
-                let (proved, mut stages) = wide_fibonacci_prove_profiled(
-                    config,
-                    statement,
-                    cli.prove_mode,
-                    cli.include_all_preprocessed_columns,
+                let (proved, mut stages) = selected_backend!(
+                    cli,
+                    wide_fibonacci_prove_profiled(
+                        config,
+                        statement,
+                        cli.prove_mode,
+                        cli.include_all_preprocessed_columns,
+                    )
                 )?;
                 let (proof_bytes, proof_encode_stage) =
                     time_stage("proof_wire_encode", "Proof wire encode", || {
@@ -204,11 +230,14 @@ pub(crate) fn run_generate(cli: &Cli) -> Result<()> {
                 return Ok(());
             }
 
-            let (statement, proof) = wide_fibonacci_prove(
-                config,
-                statement,
-                cli.prove_mode,
-                cli.include_all_preprocessed_columns,
+            let (statement, proof) = selected_backend!(
+                cli,
+                wide_fibonacci_prove(
+                    config,
+                    statement,
+                    cli.prove_mode,
+                    cli.include_all_preprocessed_columns,
+                )
             )?;
             let proof_bytes = serde_json::to_vec(&proof_to_wire(&proof)?)?;
             InteropArtifact {
@@ -234,11 +263,14 @@ pub(crate) fn run_generate(cli: &Cli) -> Result<()> {
                 log_step: cli.xor_log_step,
                 offset: cli.xor_offset,
             };
-            let (statement, proof) = xor_prove(
-                config,
-                statement,
-                cli.prove_mode,
-                cli.include_all_preprocessed_columns,
+            let (statement, proof) = selected_backend!(
+                cli,
+                xor_prove(
+                    config,
+                    statement,
+                    cli.prove_mode,
+                    cli.include_all_preprocessed_columns,
+                )
             )?;
             let proof_bytes = serde_json::to_vec(&proof_to_wire(&proof)?)?;
             InteropArtifact {
@@ -365,12 +397,15 @@ pub(crate) fn run_bench(cli: &Cli) -> Result<()> {
     let mut prove_samples = Vec::with_capacity(cli.bench_repeats);
     for i in 0..total_runs {
         let start = std::time::Instant::now();
-        let (_, proof) = prove_example(
-            config,
-            example,
+        let (_, proof) = selected_backend!(
             cli,
-            cli.prove_mode,
-            cli.include_all_preprocessed_columns,
+            prove_example(
+                config,
+                example,
+                cli,
+                cli.prove_mode,
+                cli.include_all_preprocessed_columns,
+            )
         )?;
         let _encoded = serde_json::to_vec(&proof_to_wire(&proof)?)?;
         let elapsed = start.elapsed().as_secs_f64();
@@ -380,12 +415,15 @@ pub(crate) fn run_bench(cli: &Cli) -> Result<()> {
         }
     }
 
-    let (statement, baseline_proof) = prove_example(
-        config,
-        example,
+    let (statement, baseline_proof) = selected_backend!(
         cli,
-        cli.prove_mode,
-        cli.include_all_preprocessed_columns,
+        prove_example(
+            config,
+            example,
+            cli,
+            cli.prove_mode,
+            cli.include_all_preprocessed_columns,
+        )
     )?;
     let proof_metrics = proof_metrics_from_proof(&baseline_proof)?;
     let baseline_wire = proof_to_wire(&baseline_proof)?;
@@ -405,6 +443,8 @@ pub(crate) fn run_bench(cli: &Cli) -> Result<()> {
 
     let report = BenchReport {
         runtime: "rust".to_string(),
+        backend: cli.backend.name().to_string(),
+        backend_type: cli.backend.rust_type().to_string(),
         example: match example {
             Example::Blake => "blake",
             Example::Plonk => "plonk",

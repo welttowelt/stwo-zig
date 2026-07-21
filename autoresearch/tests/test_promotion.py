@@ -30,22 +30,46 @@ def write_manifest(repo: Path, *, promotion_eligible: bool = True) -> None:
         "harness": {"anchor_commit": None},
         "editable_paths": [],
         "locked_paths": [],
-        "gates_policy": {},
+        "gates_policy": {
+            "max_rounds": 1,
+            "search_health": {
+                "trailing_window": 1,
+                "gradient_snr_threshold": 2.0,
+                "auto_boost_rounds": 1,
+                "maximum_rounds": 2,
+            },
+        },
         "qualification_policy": {
             "required_checks": ["allowed_diff"],
             "max_active_per_user": 1,
         },
-        "workload_registry": {"groups": {"native": {
-            "enabled": True,
-            "promotion_eligible": promotion_eligible,
-            "board": "core_cpu",
-            "build_step": "true",
-            "binary": "bin/native",
-            "report_schema": "native_proof_v6",
-            "workloads": {"wf": {
-                "class": "small", "args": "--x", "native_unit": "rows",
+        "workload_registry": {
+            "classes": {"small": {
+                "scored": True,
+                "resource": {
+                    "profile": "standard",
+                    "command_timeout_seconds": 60,
+                    "wall_clock_cap_seconds": 60,
+                },
+                "sampling": {
+                    "warmups": 1,
+                    "samples_per_round": 1,
+                    "min_rounds": 1,
+                    "max_rounds": 1,
+                },
             }},
-        }}},
+            "groups": {"native": {
+                "enabled": True,
+                "promotion_eligible": promotion_eligible,
+                "board": "core_cpu",
+                "build_step": "true",
+                "binary": "bin/native",
+                "report_schema": "native_proof_v7",
+                "workloads": {"wf": {
+                    "class": "small", "args": "--x", "native_unit": "rows",
+                }},
+            }},
+        },
     }))
 
 
@@ -71,6 +95,7 @@ class RemotePromotionRowTest(unittest.TestCase):
             "repo_commit": "2" * 12,
             "predecessor_commit": "3" * 12,
             "scope": "s3",
+            "search_health": {"measurement_wall_seconds": 25.0},
             "declared_objective": {
                 "board": "core_cpu",
                 "workload_class": "wide",
@@ -89,6 +114,10 @@ class RemotePromotionRowTest(unittest.TestCase):
                     "ci": [0.82, 0.91],
                     "prove_ms_method": "geometric_mean_candidate_workload_medians_ms_v1",
                     "b_median_ms_geomean": 10.0,
+                    "proof_bytes_method": "rounded_geometric_mean_candidate_proof_bytes_v1",
+                    "proof_bytes": 4096,
+                    "measurement_seconds": 25.0,
+                    "measurement_rounds": 18,
                 },
             },
             "holdout": None,
@@ -114,7 +143,10 @@ class RemotePromotionRowTest(unittest.TestCase):
             record = {
                 "id": "remote",
                 "judged_verdict": {
-                    "declared_objective": {"board": "core_cpu"},
+                    "declared_objective": {
+                        "board": "core_cpu",
+                        "workload_class": "small",
+                    },
                 },
             }
             result = promotion._resume(FakeStore(), repo, record, None, "main")
@@ -184,6 +216,7 @@ class PromotionIntegrationTest(unittest.TestCase):
                 "canonical_commit": candidate, "harness_commit": "1" * 12,
                 "repo_commit": candidate[:12], "predecessor_commit": frontier[:12],
                 "scope": "s3",
+                "search_health": {"measurement_wall_seconds": 25.0},
                 "declared_objective": {
                     "board": "core_cpu", "workload_class": "small", "dimension": "time",
                 },
@@ -191,7 +224,8 @@ class PromotionIntegrationTest(unittest.TestCase):
                 "score": {
                     "R_geomean": 0.9, "significant": True, "neutral": False,
                     "per_workload": {"wf": {
-                        "ci": [0.88, 0.92], "b_median_ms": 9.0,
+                        "ci": [0.88, 0.92], "b_median_ms": 9.0, "rounds": 9,
+                        "proof_bytes": 4096, "measurement_seconds": 12.5,
                     }},
                 },
                 "holdout": {"pass": True, "seed": 7, "r": 0.95},

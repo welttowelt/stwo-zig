@@ -105,7 +105,7 @@ def report(path: Path, product_name: str, proof_digest: str) -> tuple[dict[str, 
         identity[field] != expected for field, expected in policy.items()
     ):
         raise ParityError(f"{path} product identity differs from the expected CPU product")
-    if value.get("schema_version") != 6 or value.get("backend") != "cpu_native":
+    if value.get("schema_version") != 7 or value.get("backend") != "cpu_native":
         raise ParityError(f"{path} machine report schema/backend drifted")
     if value.get("evidence_class") != "correctness_only" or value.get("profiled") is not False:
         raise ParityError(f"{path} evidence classification drifted")

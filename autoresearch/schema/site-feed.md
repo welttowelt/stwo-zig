@@ -1,4 +1,4 @@
-# Site feed schema (v1) — the repo ↔ website contract
+# Site feed schema (v3) — the repo ↔ website contract
 
 `stwo-perf feed` compiles every checked-in evidence source into one JSON
 file: `autoresearch/site/feed.json`. The website renders feeds and nothing
@@ -39,12 +39,13 @@ Top-level keys:
 | `provenance` | repo commit + commit time, input digests, determinism note |
 | `anchor` | frozen flag, anchor commit, per-class anchor prove-ms |
 | `epoch` | current measurement epoch and A/A dispersion (theta inputs) |
-| `promotion_scope` | v2: the decided benchmark set — manifest workload groups (board, enabled, disabled_reason, per-workload class + native unit), `owned_boards`, `future_boards`, and committed baseline directories. A board in `future_boards` exists only as scoring universe; consumers render it as out-of-scope, never as empty-but-live |
-| `boards` | per scoring board (schema/scoring.md): ledger entries + per-class frontier |
+| `promotion_scope` | v2: the decided benchmark set — manifest class registry (scored, resource, timeout, and sampling policy), workload groups (board, enabled, disabled_reason, per-workload class + native unit), `owned_boards`, `future_boards`, and committed baseline directories. A board in `future_boards` exists only as scoring universe; consumers render it as out-of-scope, never as empty-but-live |
+| `boards` | per scoring board (schema/scoring.md): ledger entries, manifest-owned `scored_classes`, canonical current-epoch `suite_score`, and per-class frontier. Each live class also exposes its Metrics-v2 `audit` projection: effective/audited score, `audited_through`, deterministic commit/time age, unaudited tail, due/overdue state, span coverage, and claimed-versus-judged evidence share |
+| `search_health` | v3: manifest policy plus per board/class availability, trailing summary, latest configured/actual rounds and boost decision, complete-wall measurement hours, credited log-improvement/hour, immutable time series, and trailing decay series; classes come from the manifest and historical rows, not a fixed feed list |
 | `metal_resident_progress` | Board-4 progress metrics while the board is empty (fallbacks/proof, zero-fallback row count) |
 | `latest_matrix` | the newest benchmark-history matrix run: per-row workload identity, headline eligibility, proof parity, and per-lane medians (prove ms, native MHz with its unit, request ms, peak RSS, fallback/dispatch counts) |
 | `baseline_matrix` | the EARLIEST committed matrix run, same shape as `latest_matrix`: the fixed pre-optimization reference vector. Suite-level progress is the vector of per-workload time ratios (latest/baseline, paired by workload name, headline-eligible rows) aggregated by geometric mean — the only consistent mean for normalized ratios — with the worst component reported alongside so no single coordinate can be gamed |
-| `references` | committed external reference measurements from `autoresearch/reference/*.json` (e.g. `peer_rust_scalar`: the pinned upstream Rust oracle, CpuBackend, on the matched suite vs the zig original commit — suite geomean ratio, per-workload medians and samples, host, and MANDATORY method caveats consumers must render with the numbers) |
+| `references` | committed external reference measurements from `autoresearch/reference/*.json`, plus immutable `peer-series/runs/*.json` audit points. `peer_rust_scalar` and `peer_rust_simd` are distinct backend-typed references; consumers MUST name the backend and render timing caveats. `peer_relative_series` defines the exact PR #6 wide-Fibonacci series, while discovered `peer_series_run_*` entries carry same-host four-lane points and proof-equivalence receipts. An empty series is uncalibrated, never parity. |
 | `history` | run index (ids, kinds, report digests) and comparison count |
 | `submissions` | id, note title, outcome (or `pending`), judged R, `verdict_kind`, `workload_class`, `solver` (landing-commit author; GitHub noreply emails yield the exact login), full public `note` text, and digest-bound `transcripts` refs (label, sha256, captured_by, short leading excerpt) |
 | `notes_count` | standalone note count |
@@ -53,9 +54,18 @@ Consumer rules: never upgrade a `claimed`/`pending` state to judged; always
 display a lane and native unit beside a number; treat feeds from forks as
 untrusted until `provenance` digests are verified against the repository.
 
-Version history: v1 had no `promotion_scope`; v2 adds it and changes nothing
-else. Consumers accepting v2 must use `promotion_scope.owned_boards` to decide
-which boards to display as live.
+Version history: v1 had no `promotion_scope`; v2 added it; v3 adds
+`search_health`. Consumers use `promotion_scope.owned_boards` to decide which
+boards are live. Search-health points with `available=false` remain part of the
+time series and must render their `unavailable_reason`, never a fabricated zero.
+Malformed or missing evidence on a v3 `judged` row prevents feed publication;
+legacy v1/v2 rows remain readable and explicitly unavailable.
+
+Audit age is computed from committed Git timestamps and ancestry, never the feed
+producer's wall clock. A fork or generic consumer missing the audit commit
+publishes an explicit unavailable reason and null age, never an invented zero.
+A class with no evidence publishes null coverage/share ratios, not synthetic
+percentages.
 
 Transport: the same document is served identically from the committed file
 (`autoresearch/site/feed.json`, e.g. via GitHub raw) and from a running

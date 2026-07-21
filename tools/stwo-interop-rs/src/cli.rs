@@ -1,4 +1,4 @@
-use crate::model::{Cli, Example, FriConfigWire, Mode, PcsConfigWire, ProveMode};
+use crate::model::{Cli, Example, FriConfigWire, Mode, PcsConfigWire, ProveMode, ProverBackend};
 use anyhow::{anyhow, bail, Result};
 use stwo::core::fri::FriConfig;
 use stwo::core::pcs::PcsConfig;
@@ -10,6 +10,7 @@ pub(crate) fn parse_cli(args: Vec<String>) -> Result<Cli> {
     let mut stage_profile_out: Option<String> = None;
     let mut prove_mode = ProveMode::Prove;
     let mut include_all_preprocessed_columns = false;
+    let mut backend = ProverBackend::Scalar;
 
     let mut pow_bits = 0u32;
     let mut fri_log_blowup = 1u32;
@@ -84,6 +85,13 @@ pub(crate) fn parse_cli(args: Vec<String>) -> Result<Cli> {
                     ),
                 };
             }
+            "--backend" => {
+                backend = match value.as_str() {
+                    "scalar" | "cpu-scalar" => ProverBackend::Scalar,
+                    "simd" => ProverBackend::Simd,
+                    _ => bail!("invalid backend {value}"),
+                }
+            }
             "--pow-bits" => pow_bits = value.parse()?,
             "--fri-log-blowup" => fri_log_blowup = value.parse()?,
             "--fri-log-last-layer" => fri_log_last_layer = value.parse()?,
@@ -113,6 +121,7 @@ pub(crate) fn parse_cli(args: Vec<String>) -> Result<Cli> {
         stage_profile_out,
         prove_mode,
         include_all_preprocessed_columns,
+        backend,
         pow_bits,
         fri_log_blowup,
         fri_log_last_layer,
@@ -197,8 +206,8 @@ pub(crate) fn pcs_config_from_wire(wire: &PcsConfigWire) -> Result<PcsConfig> {
 
 #[cfg(test)]
 mod tests {
-    use super::pcs_config_from_wire;
-    use crate::model::{FriConfigWire, PcsConfigWire};
+    use super::{parse_cli, pcs_config_from_wire};
+    use crate::model::{FriConfigWire, PcsConfigWire, ProverBackend};
 
     fn config_wire() -> PcsConfigWire {
         PcsConfigWire {
@@ -228,5 +237,30 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("lifting_log_size"));
+    }
+
+    #[test]
+    fn backend_selection_is_explicit_and_scalar_by_default() {
+        let scalar = parse_cli(vec![
+            "tool".into(),
+            "--mode".into(),
+            "bench".into(),
+            "--artifact".into(),
+            "unused.json".into(),
+        ])
+        .unwrap();
+        assert_eq!(scalar.backend, ProverBackend::Scalar);
+
+        let simd = parse_cli(vec![
+            "tool".into(),
+            "--mode".into(),
+            "bench".into(),
+            "--artifact".into(),
+            "unused.json".into(),
+            "--backend".into(),
+            "simd".into(),
+        ])
+        .unwrap();
+        assert_eq!(simd.backend, ProverBackend::Simd);
     }
 }

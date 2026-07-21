@@ -16,9 +16,8 @@ use stwo::core::fields::FieldExpOps;
 use stwo::core::pcs::TreeVec;
 use stwo::core::poly::circle::CanonicCoset;
 use stwo::core::utils::bit_reverse;
-use stwo::prover::backend::cpu::CpuBackend;
-use stwo::prover::poly::circle::PolyOps;
-use stwo::prover::{ComponentProver, DomainEvaluationAccumulator, Trace};
+use stwo::prover::backend::{Backend, Column};
+use stwo::prover::{ColumnAccumulator, ComponentProver, DomainEvaluationAccumulator, Trace};
 
 impl Component for StateMachineComponent {
     fn n_constraints(&self) -> usize {
@@ -59,16 +58,25 @@ impl Component for StateMachineComponent {
     }
 }
 
-impl ComponentProver<CpuBackend> for StateMachineComponent {
+fn accumulate<B: Backend>(
+    column: &mut ColumnAccumulator<'_, B>,
+    index: usize,
+    evaluation: SecureField,
+) {
+    let value = column.col.at(index) + evaluation;
+    column.col.set(index, value);
+}
+
+impl<B: Backend> ComponentProver<B> for StateMachineComponent {
     fn evaluate_constraint_quotients_on_domain(
         &self,
-        _trace: &Trace<'_, CpuBackend>,
-        evaluation_accumulator: &mut DomainEvaluationAccumulator<CpuBackend>,
+        _trace: &Trace<'_, B>,
+        evaluation_accumulator: &mut DomainEvaluationAccumulator<B>,
     ) {
         let [mut col] = evaluation_accumulator.columns([(self.trace_log_size + 1, 1)]);
         let domain_size = 1usize << (self.trace_log_size + 1);
         for i in 0..domain_size {
-            col.accumulate(i, self.composition_eval);
+            accumulate(&mut col, i, self.composition_eval);
         }
     }
 }
@@ -129,16 +137,16 @@ impl Component for WideFibonacciComponent {
     }
 }
 
-impl ComponentProver<CpuBackend> for WideFibonacciComponent {
+impl<B: Backend> ComponentProver<B> for WideFibonacciComponent {
     fn evaluate_constraint_quotients_on_domain(
         &self,
-        trace: &Trace<'_, CpuBackend>,
-        evaluation_accumulator: &mut DomainEvaluationAccumulator<CpuBackend>,
+        trace: &Trace<'_, B>,
+        evaluation_accumulator: &mut DomainEvaluationAccumulator<B>,
     ) {
         let n_constraints = self.n_constraints();
         let trace_domain = CanonicCoset::new(self.statement.log_n_rows);
         let eval_domain = CanonicCoset::new(self.statement.log_n_rows + 1).circle_domain();
-        let twiddles = CpuBackend::precompute_twiddles(eval_domain.half_coset);
+        let twiddles = B::precompute_twiddles(eval_domain.half_coset);
         let trace_cols = trace.polys[1]
             .iter()
             .map(|poly| poly.get_evaluation_on_domain(eval_domain, &twiddles))
@@ -153,18 +161,19 @@ impl ComponentProver<CpuBackend> for WideFibonacciComponent {
         let [mut col] =
             evaluation_accumulator.columns([(self.statement.log_n_rows + 1, n_constraints)]);
         for row in 0..eval_domain.size() {
-            let mut a = trace_cols[0][row];
-            let mut b = trace_cols[1][row];
+            let mut a = trace_cols[0].at(row);
+            let mut b = trace_cols[1].at(row);
             let mut row_evaluation = SecureField::zero();
             for (constraint_index, column) in trace_cols[2..].iter().enumerate() {
-                let c = column[row];
+                let c = column.at(row);
                 let constraint = c - (a.square() + b.square());
                 row_evaluation +=
                     col.random_coeff_powers[n_constraints - 1 - constraint_index] * constraint;
                 a = b;
                 b = c;
             }
-            col.accumulate(
+            accumulate(
+                &mut col,
                 row,
                 row_evaluation * denominator_inv[row >> self.statement.log_n_rows],
             );
@@ -211,17 +220,17 @@ impl Component for PlonkComponent {
     }
 }
 
-impl ComponentProver<CpuBackend> for PlonkComponent {
+impl<B: Backend> ComponentProver<B> for PlonkComponent {
     fn evaluate_constraint_quotients_on_domain(
         &self,
-        _trace: &Trace<'_, CpuBackend>,
-        evaluation_accumulator: &mut DomainEvaluationAccumulator<CpuBackend>,
+        _trace: &Trace<'_, B>,
+        evaluation_accumulator: &mut DomainEvaluationAccumulator<B>,
     ) {
         let composition_eval = plonk_composition_eval(self.statement);
         let [mut col] = evaluation_accumulator.columns([(self.statement.log_n_rows + 1, 1)]);
         let domain_size = 1usize << (self.statement.log_n_rows + 1);
         for i in 0..domain_size {
-            col.accumulate(i, composition_eval);
+            accumulate(&mut col, i, composition_eval);
         }
     }
 }
@@ -263,18 +272,18 @@ impl Component for PoseidonComponent {
     }
 }
 
-impl ComponentProver<CpuBackend> for PoseidonComponent {
+impl<B: Backend> ComponentProver<B> for PoseidonComponent {
     fn evaluate_constraint_quotients_on_domain(
         &self,
-        _trace: &Trace<'_, CpuBackend>,
-        evaluation_accumulator: &mut DomainEvaluationAccumulator<CpuBackend>,
+        _trace: &Trace<'_, B>,
+        evaluation_accumulator: &mut DomainEvaluationAccumulator<B>,
     ) {
         let log_n_rows = poseidon_log_n_rows(self.statement).unwrap_or(0);
         let composition_eval = poseidon_composition_eval(self.statement);
         let [mut col] = evaluation_accumulator.columns([(log_n_rows + 1, 1)]);
         let domain_size = 1usize << (log_n_rows + 1);
         for i in 0..domain_size {
-            col.accumulate(i, composition_eval);
+            accumulate(&mut col, i, composition_eval);
         }
     }
 }
@@ -317,17 +326,17 @@ impl Component for BlakeComponent {
     }
 }
 
-impl ComponentProver<CpuBackend> for BlakeComponent {
+impl<B: Backend> ComponentProver<B> for BlakeComponent {
     fn evaluate_constraint_quotients_on_domain(
         &self,
-        _trace: &Trace<'_, CpuBackend>,
-        evaluation_accumulator: &mut DomainEvaluationAccumulator<CpuBackend>,
+        _trace: &Trace<'_, B>,
+        evaluation_accumulator: &mut DomainEvaluationAccumulator<B>,
     ) {
         let composition_eval = blake_composition_eval(self.statement);
         let [mut col] = evaluation_accumulator.columns([(self.statement.log_n_rows + 1, 1)]);
         let domain_size = 1usize << (self.statement.log_n_rows + 1);
         for i in 0..domain_size {
-            col.accumulate(i, composition_eval);
+            accumulate(&mut col, i, composition_eval);
         }
     }
 }
@@ -371,17 +380,17 @@ impl Component for XorComponent {
     }
 }
 
-impl ComponentProver<CpuBackend> for XorComponent {
+impl<B: Backend> ComponentProver<B> for XorComponent {
     fn evaluate_constraint_quotients_on_domain(
         &self,
-        _trace: &Trace<'_, CpuBackend>,
-        evaluation_accumulator: &mut DomainEvaluationAccumulator<CpuBackend>,
+        _trace: &Trace<'_, B>,
+        evaluation_accumulator: &mut DomainEvaluationAccumulator<B>,
     ) {
         let composition_eval = xor_composition_eval(self.statement);
         let [mut col] = evaluation_accumulator.columns([(self.statement.log_size + 1, 1)]);
         let domain_size = 1usize << (self.statement.log_size + 1);
         for i in 0..domain_size {
-            col.accumulate(i, composition_eval);
+            accumulate(&mut col, i, composition_eval);
         }
     }
 }

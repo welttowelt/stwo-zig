@@ -12,7 +12,7 @@ use crate::statements::{
     verify_state_machine_statement,
 };
 use crate::traces::{
-    blake_n_columns, blake_validate_statement, cpu_eval, gen_blake_trace, gen_is_first,
+    backend_eval, blake_n_columns, blake_validate_statement, gen_blake_trace, gen_is_first,
     gen_is_step_with_offset, gen_plonk_trace, gen_poseidon_trace, gen_trace,
     gen_wide_fibonacci_trace, gen_xor_main, poseidon_log_n_rows,
 };
@@ -25,24 +25,26 @@ use stwo::core::poly::circle::CanonicCoset;
 use stwo::core::proof::StarkProof;
 use stwo::core::vcs_lifted::blake2_merkle::{Blake2sMerkleChannel, Blake2sMerkleHasher};
 use stwo::core::verifier::verify;
-use stwo::prover::backend::cpu::CpuBackend;
-use stwo::prover::poly::circle::PolyOps;
+use stwo::prover::backend::{Backend, BackendForChannel};
 use stwo::prover::{prove, prove_ex, CommitmentSchemeProver};
 
-pub(crate) fn prove_example(
+pub(crate) fn prove_example<B>(
     config: PcsConfig,
     example: Example,
     cli: &Cli,
     prove_mode: ProveMode,
     include_all_preprocessed_columns: bool,
-) -> Result<(ExampleStatement, StarkProof<Blake2sMerkleHasher>)> {
+) -> Result<(ExampleStatement, StarkProof<Blake2sMerkleHasher>)>
+where
+    B: Backend + BackendForChannel<Blake2sMerkleChannel>,
+{
     match example {
         Example::Blake => {
             let statement = BlakeStatement {
                 log_n_rows: cli.blake_log_n_rows,
                 n_rounds: cli.blake_n_rounds,
             };
-            let (statement, proof) = blake_prove(
+            let (statement, proof) = blake_prove::<B>(
                 config,
                 statement,
                 prove_mode,
@@ -54,7 +56,7 @@ pub(crate) fn prove_example(
             let statement = PlonkStatement {
                 log_n_rows: cli.plonk_log_n_rows,
             };
-            let (statement, proof) = plonk_prove(
+            let (statement, proof) = plonk_prove::<B>(
                 config,
                 statement,
                 prove_mode,
@@ -66,7 +68,7 @@ pub(crate) fn prove_example(
             let statement = PoseidonStatement {
                 log_n_instances: cli.poseidon_log_n_instances,
             };
-            let (statement, proof) = poseidon_prove(
+            let (statement, proof) = poseidon_prove::<B>(
                 config,
                 statement,
                 prove_mode,
@@ -79,7 +81,7 @@ pub(crate) fn prove_example(
                 checked_m31(cli.sm_initial_0)?,
                 checked_m31(cli.sm_initial_1)?,
             ];
-            let (statement, proof) = state_machine_prove(
+            let (statement, proof) = state_machine_prove::<B>(
                 config,
                 cli.sm_log_n_rows,
                 initial_state,
@@ -93,7 +95,7 @@ pub(crate) fn prove_example(
                 log_n_rows: cli.wf_log_n_rows,
                 sequence_len: cli.wf_sequence_len,
             };
-            let (statement, proof) = wide_fibonacci_prove(
+            let (statement, proof) = wide_fibonacci_prove::<B>(
                 config,
                 statement,
                 prove_mode,
@@ -107,7 +109,7 @@ pub(crate) fn prove_example(
                 log_step: cli.xor_log_step,
                 offset: cli.xor_offset,
             };
-            let (statement, proof) = xor_prove(
+            let (statement, proof) = xor_prove::<B>(
                 config,
                 statement,
                 prove_mode,
@@ -163,13 +165,16 @@ pub(crate) fn proof_metrics_from_proof(
     })
 }
 
-pub(crate) fn state_machine_prove(
+pub(crate) fn state_machine_prove<B>(
     config: PcsConfig,
     log_n_rows: u32,
     initial_state: [M31; 2],
     prove_mode: ProveMode,
     include_all_preprocessed_columns: bool,
-) -> Result<(StateMachineStatement, StarkProof<Blake2sMerkleHasher>)> {
+) -> Result<(StateMachineStatement, StarkProof<Blake2sMerkleHasher>)>
+where
+    B: Backend + BackendForChannel<Blake2sMerkleChannel>,
+{
     if log_n_rows == 0 || log_n_rows >= 31 {
         bail!("invalid log_n_rows {log_n_rows}");
     }
@@ -177,24 +182,23 @@ pub(crate) fn state_machine_prove(
     let mut channel = Blake2sChannel::default();
     config.mix_into(&mut channel);
 
-    let twiddles = CpuBackend::precompute_twiddles(
+    let twiddles = B::precompute_twiddles(
         CanonicCoset::new(log_n_rows + config.fri_config.log_blowup_factor + 1)
             .circle_domain()
             .half_coset,
     );
-    let mut scheme =
-        CommitmentSchemeProver::<CpuBackend, Blake2sMerkleChannel>::new(config, &twiddles);
+    let mut scheme = CommitmentSchemeProver::<B, Blake2sMerkleChannel>::new(config, &twiddles);
 
     let preprocessed = gen_is_first(log_n_rows)?;
     let mut builder = scheme.tree_builder();
-    builder.extend_evals(vec![cpu_eval(log_n_rows, preprocessed)]);
+    builder.extend_evals(vec![backend_eval::<B>(log_n_rows, preprocessed)]);
     builder.commit(&mut channel);
 
     let [trace0, trace1] = gen_trace(log_n_rows, initial_state, 0)?;
     let mut builder = scheme.tree_builder();
     builder.extend_evals(vec![
-        cpu_eval(log_n_rows, trace0),
-        cpu_eval(log_n_rows, trace1),
+        backend_eval::<B>(log_n_rows, trace0),
+        backend_eval::<B>(log_n_rows, trace1),
     ]);
     builder.commit(&mut channel);
 
@@ -220,11 +224,9 @@ pub(crate) fn state_machine_prove(
         composition_eval: statement.stmt1_x_axis_claimed_sum + statement.stmt1_y_axis_claimed_sum,
     };
     let proof = match prove_mode {
-        ProveMode::Prove => {
-            prove::<CpuBackend, Blake2sMerkleChannel>(&[&component], &mut channel, scheme)?
-        }
+        ProveMode::Prove => prove::<B, Blake2sMerkleChannel>(&[&component], &mut channel, scheme)?,
         ProveMode::ProveEx => {
-            prove_ex::<CpuBackend, Blake2sMerkleChannel>(
+            prove_ex::<B, Blake2sMerkleChannel>(
                 &[&component],
                 &mut channel,
                 scheme,
@@ -284,12 +286,15 @@ pub(crate) fn state_machine_verify(
         .map_err(|err| anyhow!("state_machine verify failed: {err}"))
 }
 
-pub(crate) fn wide_fibonacci_prove(
+pub(crate) fn wide_fibonacci_prove<B>(
     config: PcsConfig,
     statement: WideFibonacciStatement,
     prove_mode: ProveMode,
     include_all_preprocessed_columns: bool,
-) -> Result<(WideFibonacciStatement, StarkProof<Blake2sMerkleHasher>)> {
+) -> Result<(WideFibonacciStatement, StarkProof<Blake2sMerkleHasher>)>
+where
+    B: Backend + BackendForChannel<Blake2sMerkleChannel>,
+{
     if statement.log_n_rows == 0 || statement.log_n_rows >= 31 {
         bail!("invalid wide_fibonacci log_n_rows");
     }
@@ -300,13 +305,12 @@ pub(crate) fn wide_fibonacci_prove(
     let mut channel = Blake2sChannel::default();
     config.mix_into(&mut channel);
 
-    let twiddles = CpuBackend::precompute_twiddles(
+    let twiddles = B::precompute_twiddles(
         CanonicCoset::new(statement.log_n_rows + config.fri_config.log_blowup_factor + 1)
             .circle_domain()
             .half_coset,
     );
-    let mut scheme =
-        CommitmentSchemeProver::<CpuBackend, Blake2sMerkleChannel>::new(config, &twiddles);
+    let mut scheme = CommitmentSchemeProver::<B, Blake2sMerkleChannel>::new(config, &twiddles);
     scheme.set_store_polynomials_coefficients();
 
     let mut builder = scheme.tree_builder();
@@ -318,7 +322,7 @@ pub(crate) fn wide_fibonacci_prove(
     builder.extend_evals(
         trace
             .into_iter()
-            .map(|col| cpu_eval(statement.log_n_rows, col))
+            .map(|col| backend_eval::<B>(statement.log_n_rows, col))
             .collect(),
     );
     builder.commit(&mut channel);
@@ -327,11 +331,9 @@ pub(crate) fn wide_fibonacci_prove(
 
     let component = WideFibonacciComponent { statement };
     let proof = match prove_mode {
-        ProveMode::Prove => {
-            prove::<CpuBackend, Blake2sMerkleChannel>(&[&component], &mut channel, scheme)?
-        }
+        ProveMode::Prove => prove::<B, Blake2sMerkleChannel>(&[&component], &mut channel, scheme)?,
         ProveMode::ProveEx => {
-            prove_ex::<CpuBackend, Blake2sMerkleChannel>(
+            prove_ex::<B, Blake2sMerkleChannel>(
                 &[&component],
                 &mut channel,
                 scheme,
@@ -344,7 +346,7 @@ pub(crate) fn wide_fibonacci_prove(
     Ok((statement, proof))
 }
 
-pub(crate) fn wide_fibonacci_prove_profiled(
+pub(crate) fn wide_fibonacci_prove_profiled<B>(
     config: PcsConfig,
     statement: WideFibonacciStatement,
     prove_mode: ProveMode,
@@ -352,7 +354,10 @@ pub(crate) fn wide_fibonacci_prove_profiled(
 ) -> Result<(
     (WideFibonacciStatement, StarkProof<Blake2sMerkleHasher>),
     Vec<StageNode>,
-)> {
+)>
+where
+    B: Backend + BackendForChannel<Blake2sMerkleChannel>,
+{
     if statement.log_n_rows == 0 || statement.log_n_rows >= 31 {
         bail!("invalid wide_fibonacci log_n_rows");
     }
@@ -364,13 +369,12 @@ pub(crate) fn wide_fibonacci_prove_profiled(
     let init_start = std::time::Instant::now();
     let mut channel = Blake2sChannel::default();
     config.mix_into(&mut channel);
-    let twiddles = CpuBackend::precompute_twiddles(
+    let twiddles = B::precompute_twiddles(
         CanonicCoset::new(statement.log_n_rows + config.fri_config.log_blowup_factor + 1)
             .circle_domain()
             .half_coset,
     );
-    let mut scheme =
-        CommitmentSchemeProver::<CpuBackend, Blake2sMerkleChannel>::new(config, &twiddles);
+    let mut scheme = CommitmentSchemeProver::<B, Blake2sMerkleChannel>::new(config, &twiddles);
     scheme.set_store_polynomials_coefficients();
     stages.push(StageNode {
         id: "channel_and_scheme_init".to_string(),
@@ -399,7 +403,7 @@ pub(crate) fn wide_fibonacci_prove_profiled(
             builder.extend_evals(
                 trace
                     .into_iter()
-                    .map(|col| cpu_eval(statement.log_n_rows, col))
+                    .map(|col| backend_eval::<B>(statement.log_n_rows, col))
                     .collect(),
             );
             builder.commit(&mut channel);
@@ -416,11 +420,9 @@ pub(crate) fn wide_fibonacci_prove_profiled(
 
     let component = WideFibonacciComponent { statement };
     let (proof, core_prove_stage) = time_stage("core_prove", "Core prove", || match prove_mode {
-        ProveMode::Prove => {
-            prove::<CpuBackend, Blake2sMerkleChannel>(&[&component], &mut channel, scheme)
-                .map_err(Into::into)
-        }
-        ProveMode::ProveEx => prove_ex::<CpuBackend, Blake2sMerkleChannel>(
+        ProveMode::Prove => prove::<B, Blake2sMerkleChannel>(&[&component], &mut channel, scheme)
+            .map_err(Into::into),
+        ProveMode::ProveEx => prove_ex::<B, Blake2sMerkleChannel>(
             &[&component],
             &mut channel,
             scheme,
@@ -476,12 +478,15 @@ pub(crate) fn wide_fibonacci_verify(
         .map_err(|err| anyhow!("wide_fibonacci verify failed: {err}"))
 }
 
-pub(crate) fn plonk_prove(
+pub(crate) fn plonk_prove<B>(
     config: PcsConfig,
     statement: PlonkStatement,
     prove_mode: ProveMode,
     include_all_preprocessed_columns: bool,
-) -> Result<(PlonkStatement, StarkProof<Blake2sMerkleHasher>)> {
+) -> Result<(PlonkStatement, StarkProof<Blake2sMerkleHasher>)>
+where
+    B: Backend + BackendForChannel<Blake2sMerkleChannel>,
+{
     if statement.log_n_rows == 0 || statement.log_n_rows >= 31 {
         bail!("invalid plonk log_n_rows");
     }
@@ -489,13 +494,12 @@ pub(crate) fn plonk_prove(
     let mut channel = Blake2sChannel::default();
     config.mix_into(&mut channel);
 
-    let twiddles = CpuBackend::precompute_twiddles(
+    let twiddles = B::precompute_twiddles(
         CanonicCoset::new(statement.log_n_rows + config.fri_config.log_blowup_factor + 1)
             .circle_domain()
             .half_coset,
     );
-    let mut scheme =
-        CommitmentSchemeProver::<CpuBackend, Blake2sMerkleChannel>::new(config, &twiddles);
+    let mut scheme = CommitmentSchemeProver::<B, Blake2sMerkleChannel>::new(config, &twiddles);
 
     let (preprocessed, main) = gen_plonk_trace(statement.log_n_rows)?;
 
@@ -503,7 +507,7 @@ pub(crate) fn plonk_prove(
     builder.extend_evals(
         preprocessed
             .into_iter()
-            .map(|col| cpu_eval(statement.log_n_rows, col))
+            .map(|col| backend_eval::<B>(statement.log_n_rows, col))
             .collect(),
     );
     builder.commit(&mut channel);
@@ -511,7 +515,7 @@ pub(crate) fn plonk_prove(
     let mut builder = scheme.tree_builder();
     builder.extend_evals(
         main.into_iter()
-            .map(|col| cpu_eval(statement.log_n_rows, col))
+            .map(|col| backend_eval::<B>(statement.log_n_rows, col))
             .collect(),
     );
     builder.commit(&mut channel);
@@ -520,11 +524,9 @@ pub(crate) fn plonk_prove(
 
     let component = PlonkComponent { statement };
     let proof = match prove_mode {
-        ProveMode::Prove => {
-            prove::<CpuBackend, Blake2sMerkleChannel>(&[&component], &mut channel, scheme)?
-        }
+        ProveMode::Prove => prove::<B, Blake2sMerkleChannel>(&[&component], &mut channel, scheme)?,
         ProveMode::ProveEx => {
-            prove_ex::<CpuBackend, Blake2sMerkleChannel>(
+            prove_ex::<B, Blake2sMerkleChannel>(
                 &[&component],
                 &mut channel,
                 scheme,
@@ -567,24 +569,26 @@ pub(crate) fn plonk_verify(
         .map_err(|err| anyhow!("plonk verify failed: {err}"))
 }
 
-pub(crate) fn poseidon_prove(
+pub(crate) fn poseidon_prove<B>(
     config: PcsConfig,
     statement: PoseidonStatement,
     prove_mode: ProveMode,
     include_all_preprocessed_columns: bool,
-) -> Result<(PoseidonStatement, StarkProof<Blake2sMerkleHasher>)> {
+) -> Result<(PoseidonStatement, StarkProof<Blake2sMerkleHasher>)>
+where
+    B: Backend + BackendForChannel<Blake2sMerkleChannel>,
+{
     let log_n_rows = poseidon_log_n_rows(statement)?;
 
     let mut channel = Blake2sChannel::default();
     config.mix_into(&mut channel);
 
-    let twiddles = CpuBackend::precompute_twiddles(
+    let twiddles = B::precompute_twiddles(
         CanonicCoset::new(log_n_rows + config.fri_config.log_blowup_factor + 1)
             .circle_domain()
             .half_coset,
     );
-    let mut scheme =
-        CommitmentSchemeProver::<CpuBackend, Blake2sMerkleChannel>::new(config, &twiddles);
+    let mut scheme = CommitmentSchemeProver::<B, Blake2sMerkleChannel>::new(config, &twiddles);
 
     let mut builder = scheme.tree_builder();
     builder.extend_evals(vec![]);
@@ -595,7 +599,7 @@ pub(crate) fn poseidon_prove(
     builder.extend_evals(
         trace
             .into_iter()
-            .map(|col| cpu_eval(log_n_rows, col))
+            .map(|col| backend_eval::<B>(log_n_rows, col))
             .collect(),
     );
     builder.commit(&mut channel);
@@ -604,11 +608,9 @@ pub(crate) fn poseidon_prove(
 
     let component = PoseidonComponent { statement };
     let proof = match prove_mode {
-        ProveMode::Prove => {
-            prove::<CpuBackend, Blake2sMerkleChannel>(&[&component], &mut channel, scheme)?
-        }
+        ProveMode::Prove => prove::<B, Blake2sMerkleChannel>(&[&component], &mut channel, scheme)?,
         ProveMode::ProveEx => {
-            prove_ex::<CpuBackend, Blake2sMerkleChannel>(
+            prove_ex::<B, Blake2sMerkleChannel>(
                 &[&component],
                 &mut channel,
                 scheme,
@@ -649,25 +651,27 @@ pub(crate) fn poseidon_verify(
         .map_err(|err| anyhow!("poseidon verify failed: {err}"))
 }
 
-pub(crate) fn blake_prove(
+pub(crate) fn blake_prove<B>(
     config: PcsConfig,
     statement: BlakeStatement,
     prove_mode: ProveMode,
     include_all_preprocessed_columns: bool,
-) -> Result<(BlakeStatement, StarkProof<Blake2sMerkleHasher>)> {
+) -> Result<(BlakeStatement, StarkProof<Blake2sMerkleHasher>)>
+where
+    B: Backend + BackendForChannel<Blake2sMerkleChannel>,
+{
     blake_validate_statement(statement)?;
     let n_columns = blake_n_columns(statement)?;
 
     let mut channel = Blake2sChannel::default();
     config.mix_into(&mut channel);
 
-    let twiddles = CpuBackend::precompute_twiddles(
+    let twiddles = B::precompute_twiddles(
         CanonicCoset::new(statement.log_n_rows + config.fri_config.log_blowup_factor + 1)
             .circle_domain()
             .half_coset,
     );
-    let mut scheme =
-        CommitmentSchemeProver::<CpuBackend, Blake2sMerkleChannel>::new(config, &twiddles);
+    let mut scheme = CommitmentSchemeProver::<B, Blake2sMerkleChannel>::new(config, &twiddles);
 
     let mut builder = scheme.tree_builder();
     builder.extend_evals(vec![]);
@@ -678,7 +682,7 @@ pub(crate) fn blake_prove(
     builder.extend_evals(
         trace
             .into_iter()
-            .map(|col| cpu_eval(statement.log_n_rows, col))
+            .map(|col| backend_eval::<B>(statement.log_n_rows, col))
             .collect(),
     );
     builder.commit(&mut channel);
@@ -687,11 +691,9 @@ pub(crate) fn blake_prove(
 
     let component = BlakeComponent { statement };
     let proof = match prove_mode {
-        ProveMode::Prove => {
-            prove::<CpuBackend, Blake2sMerkleChannel>(&[&component], &mut channel, scheme)?
-        }
+        ProveMode::Prove => prove::<B, Blake2sMerkleChannel>(&[&component], &mut channel, scheme)?,
         ProveMode::ProveEx => {
-            prove_ex::<CpuBackend, Blake2sMerkleChannel>(
+            prove_ex::<B, Blake2sMerkleChannel>(
                 &[&component],
                 &mut channel,
                 scheme,
@@ -734,12 +736,15 @@ pub(crate) fn blake_verify(
         .map_err(|err| anyhow!("blake verify failed: {err}"))
 }
 
-pub(crate) fn xor_prove(
+pub(crate) fn xor_prove<B>(
     config: PcsConfig,
     statement: XorStatement,
     prove_mode: ProveMode,
     include_all_preprocessed_columns: bool,
-) -> Result<(XorStatement, StarkProof<Blake2sMerkleHasher>)> {
+) -> Result<(XorStatement, StarkProof<Blake2sMerkleHasher>)>
+where
+    B: Backend + BackendForChannel<Blake2sMerkleChannel>,
+{
     if statement.log_size == 0 {
         bail!("invalid xor log_size");
     }
@@ -750,38 +755,35 @@ pub(crate) fn xor_prove(
     let mut channel = Blake2sChannel::default();
     config.mix_into(&mut channel);
 
-    let twiddles = CpuBackend::precompute_twiddles(
+    let twiddles = B::precompute_twiddles(
         CanonicCoset::new(statement.log_size + config.fri_config.log_blowup_factor + 1)
             .circle_domain()
             .half_coset,
     );
-    let mut scheme =
-        CommitmentSchemeProver::<CpuBackend, Blake2sMerkleChannel>::new(config, &twiddles);
+    let mut scheme = CommitmentSchemeProver::<B, Blake2sMerkleChannel>::new(config, &twiddles);
 
     let is_first = gen_is_first(statement.log_size)?;
     let is_step =
         gen_is_step_with_offset(statement.log_size, statement.log_step, statement.offset)?;
     let mut builder = scheme.tree_builder();
     builder.extend_evals(vec![
-        cpu_eval(statement.log_size, is_first),
-        cpu_eval(statement.log_size, is_step),
+        backend_eval::<B>(statement.log_size, is_first),
+        backend_eval::<B>(statement.log_size, is_step),
     ]);
     builder.commit(&mut channel);
 
     let main = gen_xor_main(statement.log_size)?;
     let mut builder = scheme.tree_builder();
-    builder.extend_evals(vec![cpu_eval(statement.log_size, main)]);
+    builder.extend_evals(vec![backend_eval::<B>(statement.log_size, main)]);
     builder.commit(&mut channel);
 
     mix_xor_statement(&mut channel, statement);
 
     let component = XorComponent { statement };
     let proof = match prove_mode {
-        ProveMode::Prove => {
-            prove::<CpuBackend, Blake2sMerkleChannel>(&[&component], &mut channel, scheme)?
-        }
+        ProveMode::Prove => prove::<B, Blake2sMerkleChannel>(&[&component], &mut channel, scheme)?,
         ProveMode::ProveEx => {
-            prove_ex::<CpuBackend, Blake2sMerkleChannel>(
+            prove_ex::<B, Blake2sMerkleChannel>(
                 &[&component],
                 &mut channel,
                 scheme,

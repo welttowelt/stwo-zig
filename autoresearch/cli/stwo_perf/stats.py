@@ -13,6 +13,7 @@ import statistics
 
 PORTFOLIO_CI_METHOD = "independent_workload_round_bootstrap_percentile_v1"
 PORTFOLIO_PROVE_MS_METHOD = "geometric_mean_candidate_workload_medians_ms_v1"
+PORTFOLIO_PROOF_BYTES_METHOD = "rounded_geometric_mean_candidate_proof_bytes_v1"
 PORTFOLIO_BOOTSTRAP_ITERATIONS = 4000
 
 

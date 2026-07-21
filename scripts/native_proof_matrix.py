@@ -21,6 +21,7 @@ if str(SCRIPT_DIR) not in sys.path:
 from native_proof_matrix_lib import (  # noqa: E402
     ARCHIVE_STORE_COUNTER_KEYS,
     ARCHIVE_STORE_SECONDS_KEY,
+    ACCOUNTED_BYTES_PER_COMMITTED_CELL,
     BACKEND_COUNTER_KEYS,
     DEFAULT_COOLDOWN_SECONDS,
     DEFAULT_PROTOCOL,
@@ -36,8 +37,11 @@ from native_proof_matrix_lib import (  # noqa: E402
     PIPELINE_CACHE_COUNTER_KEYS,
     PIPELINE_CACHE_SECONDS_KEY,
     REPORT_SCHEMA_VERSION,
+    RESOURCE_PROFILES,
     SUMMARY_PROTOCOL,
     Workload,
+    ZIG_RESOURCE_AUTHORITY,
+    ZIG_RESOURCE_CONSTANTS,
     atomic_write_bytes,
     load_proof_artifact,
     output_dir_lock,
@@ -48,6 +52,7 @@ from native_proof_matrix_lib import (  # noqa: E402
     validate_pair,
     validate_proof_artifact,
     validate_report,
+    validate_source_contract,
     validate_suite,
     validate_workload,
     workload_descriptor_sha256,
@@ -96,7 +101,7 @@ def resolve_workloads(
 
     try:
         for workload in workloads:
-            validate_workload(workload)
+            validate_workload(workload, resource_profile=args.resource_profile)
     except ValueError as error:
         parser.error(str(error))
     if len(workloads) > MAX_MATRIX_ROWS:
@@ -146,10 +151,18 @@ def validate_controller_args(
     request_cells = sum(
         workload.committed_trace_cells for workload in args.workloads
     ) * 2 * (args.warmups + args.samples)
-    if request_cells > MAX_TOTAL_REQUEST_CELLS:
+    max_total_request_cells = (
+        MAX_TOTAL_REQUEST_CELLS
+        if args.resource_profile == "standard"
+        else RESOURCE_PROFILES["large"].max_committed_cells
+        * 2
+        * (MAX_WARMUPS + MAX_SAMPLES)
+    )
+    if request_cells > max_total_request_cells:
         parser.error(
             "matrix exceeds aggregate cell budget "
-            f"({request_cells} > {MAX_TOTAL_REQUEST_CELLS})"
+            f"for {args.resource_profile} profile "
+            f"({request_cells} > {max_total_request_cells})"
         )
 
 
@@ -192,6 +205,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--blake2-backend",
         choices=("auto", "scalar", "simd"),
         default="auto",
+    )
+    parser.add_argument(
+        "--resource-profile",
+        choices=tuple(RESOURCE_PROFILES),
+        default="standard",
+        help=(
+            "bounded Native admission profile; large is an explicit reviewed "
+            "opt-in for xlarge and huge workloads"
+        ),
     )
     parser.add_argument(
         "--metal-runtime",

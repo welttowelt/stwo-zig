@@ -173,6 +173,22 @@ trip or encoding bottleneck at sufficient scale.
 - Skip TBDR render advice for the current compute-only prover unless a render
   pass is actually introduced.
 
+## Exercise the large scored regime
+
+The Metal board's `xlarge` and `huge` classes are wide Fibonacci traces at
+log18 × 100 and log20 × 100. They use the manifest's explicit `large` resource
+profile and bounded sampling, and they are first-class suite coordinates rather
+than diagnostics. Validate architecture changes there as well as on
+small/wide/deep; the large regime is where residency, submission economics,
+bandwidth, and threadgroup reuse become visible.
+
+ClementWalter/stwo#6 provides public, bit-identical-certified hypotheses worth
+measuring here: threadgroup-tiled FFT stages and single-submission GPU commit
+chains, alongside batched constraint evaluation. Predict global-memory passes,
+command buffers, dispatches, waits, and peak in-flight bytes before porting a
+technique. Keep it only when Metal traces and complete-proof ABBA evidence match
+that prediction and the Rust Stwo oracle accepts identical proof bytes.
+
 ## Verify and retain evidence
 
 Run Metal API validation and shader warnings, correctness/parity tests, ABI

@@ -23,6 +23,7 @@ const source_closure = product_policy.SourceClosure{
         .{ .name = "stwo_native_cpu", .source = "src/stwo_native_cpu.zig" },
         .{ .name = "stwo_prover_impl", .source = "src/prover/mod.zig" },
         .{ .name = "native_proof_runner", .source = "src/prover/native/runner.zig" },
+        .{ .name = "native_resource_admission", .source = "src/prover/native/resource_admission.zig" },
         .{ .name = "native_transaction", .source = "src/integrations/native/transaction.zig" },
         .{ .name = "output_transaction", .source = "src/interop/output_transaction.zig" },
         .{ .name = "native_product_identity", .source = "src/integrations/native/product_identity.zig" },
@@ -188,6 +189,12 @@ fn createRunnerModule(
     });
     context.protocol.addImports(runner);
     runner.addImport("stwo", stwo);
+    runner.addImport("native_resource_admission", graph.create(context.b, .{
+        .product = product(role),
+        .root_source_file = "src/prover/native/resource_admission.zig",
+        .target = context.target,
+        .optimize = context.optimize,
+    }));
     return runner;
 }
 

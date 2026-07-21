@@ -3,7 +3,7 @@ const stwo = @import("stwo");
 const config = @import("config.zig");
 const statistics = @import("statistics.zig");
 
-pub const SCHEMA_VERSION: u32 = 6;
+pub const SCHEMA_VERSION: u32 = 7;
 
 pub const EnvironmentOverride = struct {
     name: []const u8,
@@ -75,6 +75,29 @@ pub const Session = struct {
     host_byte_budget: usize,
     retained_host_twiddle_bytes: usize,
     tower_build_count: u64,
+};
+
+pub const ResourceAdmission = struct {
+    profile: config.ResourceProfile,
+    accounted_bytes_per_committed_cell: u64,
+    committed_cells: u64,
+    accounted_bytes: u64,
+    max_committed_cells: u64,
+    max_accounted_bytes: u64,
+};
+
+pub const Resources = struct {
+    measurement_scope: []const u8 = "verified_process_request_batch",
+    source: stwo.prover.measurement.process_usage.Source,
+    measured_warmups: usize,
+    measured_samples: usize,
+    lifetime_peak_physical_footprint_bytes: ?u64,
+    energy_nj: ?u64,
+    instructions: ?u64,
+    cycles: ?u64,
+    canonical_proof_bytes: usize,
+    complete: bool,
+    unavailable_reason: ?[]const u8,
 };
 
 pub const RuntimeAdmission = struct {
@@ -271,6 +294,8 @@ pub const Report = struct {
     provenance: Provenance,
     protocol: Protocol,
     workload: Workload,
+    resource_admission: ResourceAdmission,
+    resources: Resources,
     session: Session,
     runtime_admission: ?RuntimeAdmission,
     proof: ProofEvidence,
@@ -289,6 +314,8 @@ pub fn encodeAlloc(allocator: std.mem.Allocator, value: Report) ![]u8 {
             provenance: Provenance,
             protocol: Protocol,
             workload: Workload,
+            resource_admission: ResourceAdmission,
+            resources: Resources,
             session: Session,
             runtime_admission: ?RuntimeAdmission,
             proof: ProofEvidence,
@@ -304,6 +331,8 @@ pub fn encodeAlloc(allocator: std.mem.Allocator, value: Report) ![]u8 {
             .provenance = value.provenance,
             .protocol = value.protocol,
             .workload = value.workload,
+            .resource_admission = value.resource_admission,
+            .resources = value.resources,
             .session = value.session,
             .runtime_admission = value.runtime_admission,
             .proof = value.proof,
@@ -360,6 +389,26 @@ test "native proof report: diagnostic evidence cannot populate headline rates" {
             .committed_trace_cells = 256,
             .native_unit = "trace_rows",
             .native_units = 32,
+        },
+        .resource_admission = .{
+            .profile = .standard,
+            .accounted_bytes_per_committed_cell = 16,
+            .committed_cells = 256,
+            .accounted_bytes = 4096,
+            .max_committed_cells = config.resource_admission.STANDARD_MAX_COMMITTED_CELLS,
+            .max_accounted_bytes = config.resource_admission.STANDARD_MAX_ACCOUNTED_BYTES,
+        },
+        .resources = .{
+            .source = .darwin_proc_pid_rusage_v6,
+            .measured_warmups = 0,
+            .measured_samples = 1,
+            .lifetime_peak_physical_footprint_bytes = 1 << 20,
+            .energy_nj = 100,
+            .instructions = 1000,
+            .cycles = 500,
+            .canonical_proof_bytes = 42,
+            .complete = true,
+            .unavailable_reason = null,
         },
         .session = .{
             .max_circle_log = 6,
@@ -425,6 +474,13 @@ test "native proof report: diagnostic evidence cannot populate headline rates" {
     try std.testing.expectEqual(@as(i64, 4096), session.get("retained_host_twiddle_bytes").?.integer);
     try std.testing.expectEqual(@as(i64, 1), session.get("tower_build_count").?.integer);
     try std.testing.expect(object.get("runtime_admission").? == .null);
+    const resources = object.get("resources").?.object;
+    try std.testing.expectEqualStrings(
+        "verified_process_request_batch",
+        resources.get("measurement_scope").?.string,
+    );
+    try std.testing.expectEqual(@as(i64, 42), resources.get("canonical_proof_bytes").?.integer);
+    try std.testing.expect(resources.get("complete").?.bool);
 }
 
 test "native proof report: authenticated runtime identity is explicit" {

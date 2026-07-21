@@ -78,6 +78,7 @@ fn sourceClosure(comptime metal: bool) policy.SourceClosure {
             .{ .name = "stwo_core", .source = "src/core/mod.zig" },
             .{ .name = "stwo_prover_impl", .source = "src/prover/mod.zig" },
             .{ .name = "native_proof_runner", .source = "src/prover/native/runner.zig" },
+            .{ .name = "native_resource_admission", .source = "src/prover/native/resource_admission.zig" },
             .{ .name = "native_transaction", .source = "src/integrations/native/transaction.zig" },
             .{ .name = "output_transaction", .source = "src/interop/output_transaction.zig" },
             .{ .name = "native_product_identity", .source = "src/integrations/native/product_identity.zig" },

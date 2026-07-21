@@ -45,13 +45,18 @@ no local absolute paths, plain language.
 {
   "schema_version": 1,
   "predecessor_commit": "<40-hex or short hash of the promoted HEAD this diff was built on>",
-  "declared_objective": { "workload_class": "small|wide|deep", "dimension": "time|rss|energy" },
+  "declared_objective": { "workload_class": "<manifest-declared class exposed by board>", "dimension": "time|rss|energy" },
   "declared_scope": "s3|s4|s5",
   "files": { "<repo-relative path>": "sha256:<hex>" },
   "transcripts": { "<transcripts/... path>": { "sha256": "<hex>", "captured_by": "harness|submitter" } },
   "transcripts_declined": false
 }
 ```
+
+`workload_class` is not a protocol enum. The current manifest owns the class
+registry and each board exposes only classes for which it has workload rows.
+Qualification and central intake reject unknown classes and board/class
+mismatches.
 
 `transcripts_declined: true` records the submitter's explicit decision not to
 publish transcripts; it is mutually exclusive with a non-empty `transcripts`

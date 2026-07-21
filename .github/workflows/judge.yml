@@ -2,7 +2,7 @@ name: autoresearch-judge
 
 on:
   pull_request:
-    types: [labeled, synchronize]
+    types: [opened, reopened, labeled, unlabeled, synchronize]
     branches: [main]
 
 permissions: {}
@@ -84,8 +84,9 @@ jobs:
           retention-days: 1
 
   publish:
-    name: autoresearch-judge
+    name: autoresearch-publish
     needs: evaluate
+    if: needs.evaluate.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -166,3 +167,31 @@ jobs:
           accepted = score.get("significant") is True or score.get("neutral") is True
           raise SystemExit(0 if gates_ok and accepted else 1)
           PY
+
+  required:
+    name: autoresearch-judge
+    needs: [evaluate, publish]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Enforce the required-check result
+        env:
+          IS_SUBMISSION: ${{ contains(github.event.pull_request.labels.*.name, 'submission') }}
+          EVALUATE_RESULT: ${{ needs.evaluate.result }}
+          PUBLISH_RESULT: ${{ needs.publish.result }}
+        run: |
+          set -euo pipefail
+          if [[ "$IS_SUBMISSION" != "true" ]]; then
+            echo "ordinary PR: autoresearch evaluation not required"
+            exit 0
+          fi
+          if [[ "$EVALUATE_RESULT" != "success" ]]; then
+            echo "submission evaluation did not succeed: $EVALUATE_RESULT" >&2
+            exit 1
+          fi
+          if [[ "$PUBLISH_RESULT" != "success" ]]; then
+            echo "submission verdict publication did not succeed: $PUBLISH_RESULT" >&2
+            exit 1
+          fi

@@ -42,6 +42,28 @@ pub(crate) enum ProveMode {
     ProveEx,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProverBackend {
+    Scalar,
+    Simd,
+}
+
+impl ProverBackend {
+    pub(crate) const fn name(self) -> &'static str {
+        match self {
+            Self::Scalar => "cpu-scalar",
+            Self::Simd => "simd",
+        }
+    }
+
+    pub(crate) const fn rust_type(self) -> &'static str {
+        match self {
+            Self::Scalar => "stwo::prover::backend::cpu::CpuBackend",
+            Self::Simd => "stwo::prover::backend::simd::SimdBackend",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct Cli {
     pub(crate) mode: Mode,
@@ -50,6 +72,7 @@ pub(crate) struct Cli {
     pub(crate) stage_profile_out: Option<String>,
     pub(crate) prove_mode: ProveMode,
     pub(crate) include_all_preprocessed_columns: bool,
+    pub(crate) backend: ProverBackend,
 
     pub(crate) pow_bits: u32,
     pub(crate) fri_log_blowup: u32,
@@ -223,6 +246,8 @@ pub(crate) struct BenchProofMetrics {
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct BenchReport {
     pub(crate) runtime: String,
+    pub(crate) backend: String,
+    pub(crate) backend_type: String,
     pub(crate) example: String,
     pub(crate) prove_mode: String,
     pub(crate) include_all_preprocessed_columns: bool,

@@ -63,3 +63,6 @@ frontier must be an ancestor, every changed path must match `editable_paths`, no
 locked or stray path may change, final source modes must be `100644`, existing
 modes may not change, the locked-tree digest must remain identical, and the
 candidate must fit the manifest's changed-path and patch-byte admission caps.
+The claim's workload class is validated dynamically against the current
+manifest and must be exposed by the claimed board; stale workflow choices,
+unknown classes, and cross-board class mismatches fail closed.

@@ -8,7 +8,7 @@ import json
 from typing import Any
 
 
-SETTINGS_SCHEMA = "autoresearch_github_settings_receipt_v1"
+SETTINGS_SCHEMA = "autoresearch_github_settings_receipt_v2"
 
 
 class SettingsCaptureError(ValueError):
@@ -47,10 +47,29 @@ def settings_payload(
     if not applicable:
         raise SettingsCaptureError("no active ruleset targets the default branch")
 
-    checks: set[str] = set()
+    checks: set[tuple[str, int]] = set()
+    bypass_actors: set[tuple[int, str, str]] = set()
     non_fast_forward = False
     identities: list[dict[str, Any]] = []
     for ruleset in applicable:
+        actors = ruleset.get("bypass_actors")
+        if not isinstance(actors, list):
+            raise SettingsCaptureError("ruleset response has no bypass_actors array")
+        for actor in actors:
+            if not isinstance(actor, dict):
+                raise SettingsCaptureError("ruleset contains a malformed bypass actor")
+            actor_id = actor.get("actor_id")
+            actor_type = actor.get("actor_type")
+            bypass_mode = actor.get("bypass_mode")
+            if (
+                type(actor_id) is not int
+                or not isinstance(actor_type, str)
+                or not actor_type
+                or not isinstance(bypass_mode, str)
+                or not bypass_mode
+            ):
+                raise SettingsCaptureError("ruleset bypass actor identity is invalid")
+            bypass_actors.add((actor_id, actor_type, bypass_mode))
         rules = ruleset.get("rules")
         if not isinstance(rules, list):
             raise SettingsCaptureError("ruleset response has no rules array")
@@ -66,9 +85,14 @@ def settings_payload(
                     raise SettingsCaptureError("required status-check rule is malformed")
                 for item in required:
                     context = item.get("context") if isinstance(item, dict) else None
-                    if not isinstance(context, str) or not context:
+                    integration_id = item.get("integration_id") if isinstance(item, dict) else None
+                    if (
+                        not isinstance(context, str)
+                        or not context
+                        or type(integration_id) is not int
+                    ):
                         raise SettingsCaptureError("required status-check context is invalid")
-                    checks.add(context)
+                    checks.add((context, integration_id))
         ruleset_id = ruleset.get("id")
         if type(ruleset_id) is not int or ruleset_id <= 0:
             raise SettingsCaptureError("ruleset identity is invalid")
@@ -80,8 +104,19 @@ def settings_payload(
 
     return {
         "default_branch": default_branch,
+        "bypass_actors": [
+            {
+                "actor_id": actor_id,
+                "actor_type": actor_type,
+                "bypass_mode": bypass_mode,
+            }
+            for actor_id, actor_type, bypass_mode in sorted(bypass_actors)
+        ],
         "non_fast_forward": non_fast_forward,
-        "required_status_checks": sorted(checks),
+        "required_status_checks": [
+            {"context": context, "integration_id": integration_id}
+            for context, integration_id in sorted(checks)
+        ],
         "ruleset_enforcement": "active",
         "rulesets": sorted(identities, key=lambda item: item["id"]),
     }

@@ -23,6 +23,8 @@ class PortfolioScoringTest(unittest.TestCase):
             a_median_ms=10.0,
             b_median_ms=10.0 * ratio,
             rss_ratio=None,
+            proof_bytes=4096,
+            measurement_seconds=1.0,
         )
 
     def test_fast_first_row_cannot_hide_regressing_portfolio_member(self):
@@ -76,6 +78,8 @@ class PortfolioScoringTest(unittest.TestCase):
             a_median_ms=12.0,
             b_median_ms=12.5,
             rss_ratio=None,
+            proof_bytes=4096,
+            measurement_seconds=1.0,
         )
         with (
             mock.patch.object(runner, "build_arm"),

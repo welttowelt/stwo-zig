@@ -1,21 +1,69 @@
 {
-  "schema": "autoresearch-reference-v1",
+  "schema": "autoresearch-reference-v2",
+  "reference_kind": "upstream-rust-backend",
   "name": "peer-rust-scalar",
-  "title": "Upstream Stwo prover (Rust, CpuBackend + parallel feature) on the matched suite",
-  "measured_at_utc": "2026-07-20",
-  "host": "Apple M5 Max",
+  "title": "Upstream Stwo Rust CpuBackend reference on the matched suite",
+  "measured_at_utc": "2026-07-21T16:37:47.709333+00:00",
+  "host": {
+    "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "processor": "Apple M5 Max",
+    "logical_cpu_count": 18
+  },
   "zig_reference": {
     "commit": "31a3132ef2e6df99deef7773f6cb5ef797e70d0f",
-    "description": "pre-optimization stwo-zig main \u2014 the suite-score baseline (score 100)",
-    "build": "zig build native-proof-bench-cpu -Doptimize=ReleaseFast"
+    "description": "pre-optimization stwo-zig suite-score baseline",
+    "build": "zig build native-proof-bench-cpu -Doptimize=ReleaseFast",
+    "zig_version": "0.15.2",
+    "executable_sha256": "f81a651af4bf4e99ff2b92922eab9a501cb4c276e0ffcc7e5c9ae562d4d5cd65"
   },
   "rust_reference": {
-    "crate_rev": "a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2",
+    "repository": "https://github.com/starkware-libs/stwo",
+    "source_commit": "a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2",
     "toolchain": "nightly-2025-07-14",
-    "tool": "tools/stwo-interop-rs --mode bench (the pinned parity oracle)",
-    "backend": "CpuBackend (scalar lanes) with the crate's `parallel` (rayon) feature"
+    "features": [
+      "parallel",
+      "prover"
+    ],
+    "tool": "tools/stwo-interop-rs --mode bench",
+    "backend_id": "cpu-scalar",
+    "backend_type": "stwo::prover::backend::cpu::CpuBackend",
+    "executable": {
+      "path": "tools/stwo-interop-rs/target/release/stwo-interop-rs",
+      "sha256": "40bbf4be76adbea2878eb21d0e7ac561090a09da1a1b5b0462bf9df36efc3a6b",
+      "build_command": [
+        "cargo",
+        "+nightly-2025-07-14",
+        "build",
+        "--release",
+        "--locked",
+        "--manifest-path",
+        "tools/stwo-interop-rs/Cargo.toml"
+      ],
+      "cargo_lock_sha256": "81e22c7772206d1296d4d7bc9c822420364b5112a8a416da554be76c77689354"
+    },
+    "toolchain_identity": {
+      "rustc_version": "rustc 1.90.0-nightly (e9182f195 2025-07-13)\nbinary: rustc\ncommit-hash: e9182f195b8505c87c4bd055b9f6e114ccda0981\ncommit-date: 2025-07-13\nhost: aarch64-apple-darwin\nrelease: 1.90.0-nightly\nLLVM version: 20.1.7",
+      "cargo_version": "cargo 1.90.0-nightly (eabb4cd92 2025-07-09)"
+    }
   },
-  "suite_ratio_geomean_rust_over_zig_original": 6.55352,
+  "workload_protocol": {
+    "suite": "small/wide/deep matched functional suite",
+    "pcs": {
+      "pow_bits": 0,
+      "fri_log_blowup": 1,
+      "fri_log_last_layer": 0,
+      "fri_queries": 3,
+      "fold_step": 1
+    }
+  },
+  "timing_semantics": {
+    "rust_metric": "wall clock around proof construction plus JSON wire encoding",
+    "zig_metric": "native report prove_seconds; input preparation, encoding, and verification excluded",
+    "aggregation": "median of 15 samples after 10 warmups",
+    "comparison_grade": "reference-grade, not paired judge evidence"
+  },
+  "suite_ratio_geomean_rust_over_zig_original": 6.495516,
   "per_workload": [
     {
       "class": "small",
@@ -25,26 +73,32 @@
         "log_n_rows": 10,
         "sequence_len": 8
       },
-      "zig_original_median_ms": 2.788875,
-      "rust_scalar_median_ms": 11.081083,
-      "ratio_rust_over_zig_original": 3.973316,
+      "zig_original_median_ms": 2.883292,
+      "rust_median_ms": 9.728291,
+      "ratio_rust_over_zig_original": 3.374022,
       "rust_samples_ms": [
-        11.221958,
-        11.132584,
-        9.859125,
-        10.819084,
-        11.222167,
-        10.282541,
-        11.542917,
-        10.716459,
-        11.409125,
-        9.779041,
-        10.987708,
-        11.081083,
-        11.509458,
-        10.377625,
-        11.505042
-      ]
+        9.5005,
+        10.056541,
+        9.772708,
+        9.793292,
+        9.656666,
+        9.156792,
+        9.541417,
+        10.47825,
+        10.230584,
+        9.559541,
+        9.728291,
+        9.65,
+        10.28,
+        8.887917,
+        10.396084
+      ],
+      "proof_parity": {
+        "proof_sha256": "f1e4b3430fb337f2ba34dbed2635175e80597f098a050dd9705622d96a9e0cc7",
+        "scalar_equals_simd": true,
+        "scalar_verified": true,
+        "simd_verified": true
+      }
     },
     {
       "class": "wide",
@@ -54,26 +108,32 @@
         "log_n_rows": 14,
         "sequence_len": 32
       },
-      "zig_original_median_ms": 17.656083,
-      "rust_scalar_median_ms": 66.59825,
-      "ratio_rust_over_zig_original": 3.771972,
+      "zig_original_median_ms": 17.165167,
+      "rust_median_ms": 65.713584,
+      "ratio_rust_over_zig_original": 3.82831,
       "rust_samples_ms": [
-        66.687583,
-        66.317625,
-        68.198708,
-        66.148459,
-        65.38325,
-        66.277917,
-        66.59825,
-        68.022208,
-        64.897542,
-        65.530292,
-        64.71275,
-        68.796667,
-        68.325917,
-        67.610208,
-        69.01875
-      ]
+        63.510459,
+        66.719917,
+        65.132834,
+        65.491208,
+        64.346584,
+        68.471333,
+        65.713584,
+        67.232042,
+        65.53875,
+        66.085958,
+        66.052833,
+        66.185875,
+        66.7435,
+        64.296917,
+        65.444083
+      ],
+      "proof_parity": {
+        "proof_sha256": "e1915cebf69e84d8cdabd22bbfef70b934daf47db8d17d4a79fbc18e1f6ed9bb",
+        "scalar_equals_simd": true,
+        "scalar_verified": true,
+        "simd_verified": true
+      }
     },
     {
       "class": "deep",
@@ -82,32 +142,62 @@
       "parameters": {
         "log_n_rows": 14
       },
-      "zig_original_median_ms": 14.416208,
-      "rust_scalar_median_ms": 270.740583,
-      "ratio_rust_over_zig_original": 18.780291,
+      "zig_original_median_ms": 12.647542,
+      "rust_median_ms": 268.344125,
+      "ratio_rust_over_zig_original": 21.217097,
       "rust_samples_ms": [
-        269.984791,
-        267.562666,
-        278.524625,
-        272.28925,
-        282.716459,
-        265.211833,
-        270.740583,
-        263.00975,
-        265.860917,
-        264.801333,
-        269.36175,
-        284.786417,
-        280.733,
-        280.345416,
-        279.690333
-      ]
+        268.479666,
+        268.898916,
+        264.380166,
+        269.655709,
+        267.142333,
+        268.105125,
+        266.887291,
+        267.28475,
+        268.702042,
+        270.392667,
+        276.703583,
+        267.9675,
+        264.930875,
+        268.344125,
+        268.802
+      ],
+      "proof_parity": {
+        "proof_sha256": "69e91f567c11bea335646879a6824b67516845dd6aa2ef6ad7464d8976c2aefb",
+        "scalar_equals_simd": true,
+        "scalar_verified": true,
+        "simd_verified": true
+      }
     }
   ],
+  "proof_equivalence_receipt": {
+    "scope": "Rust scalar versus Rust SIMD for each exact statement and PCS config",
+    "all_equal": true,
+    "workloads": {
+      "small": {
+        "proof_sha256": "f1e4b3430fb337f2ba34dbed2635175e80597f098a050dd9705622d96a9e0cc7",
+        "scalar_equals_simd": true,
+        "scalar_verified": true,
+        "simd_verified": true
+      },
+      "wide": {
+        "proof_sha256": "e1915cebf69e84d8cdabd22bbfef70b934daf47db8d17d4a79fbc18e1f6ed9bb",
+        "scalar_equals_simd": true,
+        "scalar_verified": true,
+        "simd_verified": true
+      },
+      "deep": {
+        "proof_sha256": "69e91f567c11bea335646879a6824b67516845dd6aa2ef6ad7464d8976c2aefb",
+        "scalar_equals_simd": true,
+        "scalar_verified": true,
+        "simd_verified": true
+      }
+    }
+  },
   "method": [
-    "Same host, same session, back-to-back medians of 15 samples after 10 warmups per workload, via autoresearch/reference/measure_peer_rust.py.",
-    "Reference-grade: NOT interleaved ABBA pairing and NOT a judged run; ordering and magnitude are meaningful, sub-percent differences are not.",
-    "Rust prove samples include JSON wire serialization of the proof (the bench tool times prove+encode); zig timings are prove only \u2014 the Rust side is slightly overstated.",
-    "The parity tool pins upstream CpuBackend with the `parallel` feature enabled; upstream also ships a SIMD backend this reference does NOT exercise. A SIMD-matched reference is the known follow-up before any cross-implementation performance claim beyond this oracle."
+    "Scalar and SIMD are separate real generic instantiations of the pinned Rust prover.",
+    "Rust backend order alternates by workload on the same host and executable.",
+    "Each generated artifact is independently verified; scalar and SIMD proof bytes must match.",
+    "The Rust timing includes proof wire serialization while the Zig metric is prove-only, so the Rust ratio is conservatively overstated."
   ]
 }

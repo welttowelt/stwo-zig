@@ -23,6 +23,97 @@
           "deep": null
         }
       }
+    },
+    {
+      "epoch": 2,
+      "opened_utc": "2026-07-21T16:00:00Z",
+      "reason": "Metrics v2 opens audit-anchored scoring and the manifest-owned five-class native scoring universe; the epoch boundary prevents pre-xlarge history from diluting the new geomean",
+      "harness_commit": null,
+      "metrics_v2": {
+        "schema_version": 2,
+        "score_method": "audit_anchored_directional_log_ci_shrinkage_v2",
+        "shrinkage_lambda": 1.0,
+        "span_audit_every_landed": 4,
+        "direct_audit_every_landed": 12,
+        "span_effect_theta": 0.01,
+        "audit_anchor_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
+        "resource_budgets": {
+          "small": {
+            "peak_rss_mib": 1.05,
+            "energy_j": 1.05,
+            "proof_bytes": 1.0
+          },
+          "wide": {
+            "peak_rss_mib": 1.05,
+            "energy_j": 1.05,
+            "proof_bytes": 1.0
+          },
+          "deep": {
+            "peak_rss_mib": 1.05,
+            "energy_j": 1.05,
+            "proof_bytes": 1.0
+          },
+          "xlarge": {
+            "peak_rss_mib": 1.05,
+            "energy_j": 1.05,
+            "proof_bytes": 1.0
+          },
+          "huge": {
+            "peak_rss_mib": 1.05,
+            "energy_j": 1.05,
+            "proof_bytes": 1.0
+          }
+        }
+      },
+      "aa_dispersion": {
+        "note": "small/wide/deep CPU values carry forward from the same-host M5 calibration; xlarge/huge and all Metal/RISC-V cells fail closed until measured on the designated judge host.",
+        "core_cpu": {
+          "small": 0.018654,
+          "wide": 0.014645,
+          "deep": 0.009139,
+          "xlarge": null,
+          "huge": null
+        },
+        "riscv": {
+          "small": null,
+          "wide": null,
+          "deep": null
+        },
+        "core_metal": {
+          "small": null,
+          "wide": null,
+          "deep": null,
+          "xlarge": null,
+          "huge": null
+        }
+      },
+      "metal_calibration": {
+        "schema": "stwo_perf_metal_calibration_freeze_v1",
+        "status": "pending",
+        "board": "core_metal",
+        "epoch": 2,
+        "artifact": "autoresearch/reference/metal-calibration-epoch-2.json",
+        "artifact_sha256": null,
+        "measured_commit": null,
+        "policy_sha256": null,
+        "runtime_identity_sha256": null,
+        "aot_manifest_sha256": null,
+        "aot_metallib_sha256": null,
+        "aa_dispersion": {
+          "small": null,
+          "wide": null,
+          "deep": null,
+          "xlarge": null,
+          "huge": null
+        },
+        "anchors": {
+          "small": null,
+          "wide": null,
+          "deep": null,
+          "xlarge": null,
+          "huge": null
+        }
+      }
     }
   ]
 }

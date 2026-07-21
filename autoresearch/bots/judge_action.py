@@ -16,7 +16,9 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "cli"))
+REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(REPO_ROOT / "autoresearch" / "cli"))
 from stwo_perf import ledger, manifest as manifest_mod, promotion, render, runner, signing  # noqa: E402
 
 

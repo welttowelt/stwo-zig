@@ -16,11 +16,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "cli"))
 from stwo_perf import manifest as manifest_mod, runner
 from stwo_perf.manifest import Manifest
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
 FAKE_REPORT = (
-    '{"schema_version":6,"timing":{"prove_seconds":{"median":0.001}},'
+    '{"schema_version":7,"timing":{"prove_seconds":{"median":0.001}},'
+    '"workload":{"committed_trace_cells":8192},'
+    '"resource_admission":{"profile":"standard",'
+    '"accounted_bytes_per_committed_cell":16,"committed_cells":8192,'
+    '"accounted_bytes":131072,"max_committed_cells":33554432,'
+    '"max_accounted_bytes":536870912},'
     '"proof":{"verified_samples":1,"all_samples_byte_identical":true,'
-    '"samples":[{"sha256":"' + "a" * 64 + '"}]},'
-    '"resources":{"peak_rss_kib":1024}}'
+    '"samples":[{"bytes":1024,"sha256":"' + "a" * 64 + '"}]},'
+    '"resources":{"measurement_scope":"verified_process_request_batch",'
+    '"source":"darwin_proc_pid_rusage_v6","measured_warmups":1,'
+    '"measured_samples":1,"lifetime_peak_physical_footprint_bytes":1048576,'
+    '"energy_nj":1000000000,"instructions":1000,"cycles":500,'
+    '"canonical_proof_bytes":1024,"complete":true,'
+    '"unavailable_reason":null}}'
 )
 
 GATES_POLICY = {
@@ -33,6 +45,12 @@ GATES_POLICY = {
     "samples_per_round": 1,
     "min_rounds": 3,
     "max_rounds": 3,
+    "search_health": {
+        "trailing_window": 4,
+        "gradient_snr_threshold": 2.0,
+        "auto_boost_rounds": 2,
+        "maximum_rounds": 8,
+    },
     "wall_clock_cap_seconds": {"small": 60, "wide": 60, "deep": 60},
 }
 
@@ -44,7 +62,7 @@ def make_raw(riscv_enabled: bool, native_binary: str = "bin/fakebench") -> dict:
         "board": "riscv",
         "build_step": "true",
         "binary": "bin/missing-riscv-bench",
-        "report_schema": "riscv_proof_v1",
+        "report_schema": "riscv_proof_v2",
         "mechanism_telemetry": {
             "fail_closed": True,
             "required_fields": [
@@ -54,6 +72,9 @@ def make_raw(riscv_enabled: bool, native_binary: str = "bin/fakebench") -> dict:
                 "transcript_state_blake2s",
             ],
         },
+        "resource_telemetry": json.loads(json.dumps(
+            manifest_mod.RISCV_RESOURCE_TELEMETRY
+        )),
         "workloads": {
             "riscv_alu": {
                 "class": "wide",
@@ -76,6 +97,23 @@ def make_raw(riscv_enabled: bool, native_binary: str = "bin/fakebench") -> dict:
             "max_active_per_user": 1,
         },
         "workload_registry": {
+            "classes": {
+                name: {
+                    "scored": True,
+                    "resource": {
+                        "profile": "standard",
+                        "command_timeout_seconds": 60,
+                        "wall_clock_cap_seconds": 60,
+                    },
+                    "sampling": {
+                        "warmups": 1,
+                        "samples_per_round": 1,
+                        "min_rounds": 3,
+                        "max_rounds": 3,
+                    },
+                }
+                for name in ("small", "wide", "deep")
+            },
             "groups": {
                 "native": {
                     "enabled": True,
@@ -83,7 +121,7 @@ def make_raw(riscv_enabled: bool, native_binary: str = "bin/fakebench") -> dict:
                     "board": "core_cpu",
                     "build_step": "true",
                     "binary": native_binary,
-                    "report_schema": "native_proof_v6",
+                    "report_schema": "native_proof_v7",
                     "workloads": {
                         "wf_small": {
                             "class": "small",
@@ -181,7 +219,7 @@ class RunnerGroupTest(unittest.TestCase):
             encoded = json.dumps(artifact, separators=(",", ":")).encode()
             proof_path.write_bytes(encoded)
             report = {
-                "schema": "riscv_proof_v1",
+                "schema": "riscv_proof_v2",
                 "release_status": status,
                 "mode": "bench",
                 "experimental": experimental,
@@ -206,6 +244,29 @@ class RunnerGroupTest(unittest.TestCase):
                 "executable_sha256": "6" * 64,
                 "artifact_sha256": hashlib.sha256(encoded).hexdigest(),
                 "proof_path": str(proof_path),
+                "resources": {
+                    "availability": "available",
+                    "source": "darwin.proc_pid_rusage.RUSAGE_INFO_V6",
+                    "scope": "self_process_lifetime",
+                    "unavailable_reason": None,
+                    "before_warmups": {
+                        "lifetime_max_phys_footprint_bytes": 16 * 1024 * 1024,
+                        "energy_nj": 100,
+                        "instructions": 200,
+                        "cycles": 300,
+                    },
+                    "after_verified_samples": {
+                        "lifetime_max_phys_footprint_bytes": 32 * 1024 * 1024,
+                        "energy_nj": 110,
+                        "instructions": 220,
+                        "cycles": 330,
+                    },
+                    "interval_delta": {
+                        "energy_nj": 10,
+                        "instructions": 20,
+                        "cycles": 30,
+                    },
+                },
             }
             if mutate_report:
                 mutate_report(report)
@@ -287,7 +348,7 @@ class RunnerGroupTest(unittest.TestCase):
         bench = self.root / "bin" / "fakebench"
         bench.write_text(
             "#!/bin/sh\n"
-            "echo '{\"schema_version\":5,\"timing\":{\"prove_seconds\":"
+            "echo '{\"schema_version\":6,\"timing\":{\"prove_seconds\":"
             "{\"median\":0.001}},\"proof\":{\"verified_samples\":1,"
             "\"all_samples_byte_identical\":true}}'\n"
         )
@@ -295,14 +356,14 @@ class RunnerGroupTest(unittest.TestCase):
         workload = m.workloads("small", board="core_cpu")[0]
         with self.assertRaises(runner.RunError) as ctx:
             runner.bench_once(self.root, m, workload, 0, 1, self.out_dir, "a1")
-        self.assertIn("expected native_proof_v6", str(ctx.exception))
+        self.assertIn("expected native_proof_v7", str(ctx.exception))
         self.assertFalse((self.out_dir / "wf_small.a1.json").exists())
 
     def test_bench_once_rejects_duplicate_report_fields(self):
         bench = self.root / "bin" / "fakebench"
         bench.write_text(
             "#!/bin/sh\n"
-            "echo '{\"schema_version\":6,\"schema_version\":6}'\n"
+            "echo '{\"schema_version\":7,\"schema_version\":7}'\n"
         )
         manifest = self._manifest(riscv_enabled=False)
         workload = manifest.workloads("small", board="core_cpu")[0]
@@ -310,6 +371,57 @@ class RunnerGroupTest(unittest.TestCase):
             runner.bench_once(
                 self.root, manifest, workload, 0, 1, self.out_dir, "a1",
             )
+
+    def test_native_report_resource_admission_fails_closed(self):
+        manifest = self._manifest(riscv_enabled=False)
+        group = manifest.group("native")
+        workload = manifest.workloads("small", board="core_cpu")[0]
+        base = json.loads(FAKE_REPORT)
+        runner._parse_native_report(base, group, workload, 1, 1, Path("report.json"))
+
+        mutations = {
+            "missing field": lambda report: report["resource_admission"].pop(
+                "max_accounted_bytes"
+            ),
+            "profile": lambda report: report["resource_admission"].__setitem__(
+                "profile", "large"
+            ),
+            "cells": lambda report: report["resource_admission"].__setitem__(
+                "committed_cells", 8191
+            ),
+            "accounted": lambda report: report["resource_admission"].__setitem__(
+                "accounted_bytes", 131071
+            ),
+            "factor": lambda report: report["resource_admission"].__setitem__(
+                "accounted_bytes_per_committed_cell", 4
+            ),
+            "budget": lambda report: report["resource_admission"].__setitem__(
+                "max_committed_cells", 1 << 63
+            ),
+        }
+        for name, mutate in mutations.items():
+            report = json.loads(FAKE_REPORT)
+            mutate(report)
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                runner._parse_native_report(
+                    report, group, workload, 1, 1, Path("report.json")
+                )
+
+        large_workload = runner.Workload(
+            workload_id="wf_huge",
+            workload_class="huge",
+            args="--resource-profile large --warmups {warmups} --samples {samples}",
+            native_unit="trace rows",
+        )
+        large = json.loads(FAKE_REPORT)
+        large["resource_admission"].update({
+            "profile": "large",
+            "max_committed_cells": 134217728,
+            "max_accounted_bytes": 2147483648,
+        })
+        runner._parse_native_report(
+            large, group, large_workload, 1, 1, Path("large-report.json")
+        )
 
     def test_enabled_native_group_still_scores(self):
         m = self._manifest(riscv_enabled=False)
@@ -333,6 +445,52 @@ class RunnerGroupTest(unittest.TestCase):
                          result.proof_digest)
         self.assertEqual(result.mechanism["total_steps"], 32)
         self.assertEqual(result.mechanism["statement_sha256"], "4" * 64)
+        self.assertEqual(result.peak_rss_mib, 32.0)
+        self.assertEqual(result.energy_j, 10 / 1_000_000_000.0)
+        self.assertEqual(result.instructions, 20)
+        self.assertEqual(result.cycles, 30)
+        self.assertTrue(result.resources_complete)
+
+    def test_riscv_bench_rejects_unavailable_resource_counters(self):
+        self._set_riscv_phase(promoted=True)
+        manifest = self._riscv_manifest()
+        workload = manifest.workloads("wide", board="riscv")[0]
+
+        def unavailable(report):
+            report["resources"].update({
+                "availability": "unavailable",
+                "unavailable_reason": "unsupported_platform",
+                "before_warmups": None,
+                "after_verified_samples": None,
+                "interval_delta": None,
+            })
+
+        _commands, fake_run = self._riscv_run(
+            "release_gated", False, mutate_report=unavailable,
+        )
+        with mock.patch.object(runner, "_run", side_effect=fake_run):
+            result = runner.bench_once(
+                self.root, manifest, workload, 0, 1, self.out_dir, "a1",
+            )
+        self.assertFalse(result.resources_complete)
+        self.assertIsNone(result.peak_rss_mib)
+        self.assertIsNone(result.energy_j)
+
+    def test_riscv_bench_rejects_inconsistent_resource_delta(self):
+        self._set_riscv_phase(promoted=True)
+        manifest = self._riscv_manifest()
+        workload = manifest.workloads("wide", board="riscv")[0]
+        _commands, fake_run = self._riscv_run(
+            "release_gated", False,
+            mutate_report=lambda report: report["resources"]["interval_delta"].update(
+                energy_nj=9
+            ),
+        )
+        with mock.patch.object(runner, "_run", side_effect=fake_run), \
+                self.assertRaisesRegex(runner.RunError, "energy_nj is inconsistent"):
+            runner.bench_once(
+                self.root, manifest, workload, 0, 1, self.out_dir, "a1",
+            )
 
     def test_riscv_bench_uses_promoted_admission_without_experimental(self):
         self._set_riscv_phase(promoted=True)
@@ -462,6 +620,16 @@ class RunnerGroupTest(unittest.TestCase):
         self.assertNotEqual(first.args, primary.args)
         self.assertRegex(first.args, r"riscv_elfs/(bubble_sort|collatz)\.elf")
 
+    def test_large_generated_holdouts_retain_explicit_resource_profile(self):
+        manifest = manifest_mod.load(REPO_ROOT)
+        for workload_class in ("xlarge", "huge"):
+            with self.subTest(workload_class=workload_class):
+                holdout = runner.draw_holdout(
+                    manifest, workload_class, 12345, board="core_cpu",
+                )
+                self.assertIsNotNone(holdout)
+                self.assertIn("--resource-profile large", holdout.args)
+
     def test_correctness_oracle_dispatches_by_group(self):
         native = self._manifest(riscv_enabled=False)
         native_workload = native.workloads("small", board="core_cpu")[0]
@@ -521,6 +689,14 @@ class RunnerGroupTest(unittest.TestCase):
                 "commit": "d478f783055aa0d73a93768a433a3c6c31c91d1c",
             },
         }))
+        object.__setattr__(group, "correctness_oracle", {
+            **group.correctness_oracle,
+            "release_anchor": {
+                "receipt": "release-anchor.json",
+                "sha256": hashlib.sha256(anchor.read_bytes()).hexdigest(),
+                "candidate_commit": "a" * 40,
+            },
+        })
         report = json.loads((self.out_dir / "riscv_alu.b1.json").read_text())
         artifact = json.loads(
             (self.out_dir / "riscv_alu.b1.proof.json").read_text()
@@ -534,9 +710,7 @@ class RunnerGroupTest(unittest.TestCase):
                 return json.dumps(self._riscv_verify_receipt(report, artifact))
             return "anchor valid"
 
-        with mock.patch.dict(os.environ, {
-            "STWO_ZIG_RISCV_RELEASE_ANCHOR_RECEIPT": str(anchor),
-        }), \
+        with mock.patch.dict(os.environ, {}, clear=True), \
                 mock.patch.object(runner, "_run", side_effect=fake_run):
             result = runner._riscv_stark_v_oracle_check(
                 self.root, group, workload, self.out_dir,
@@ -599,6 +773,8 @@ class RunnerGroupTest(unittest.TestCase):
                 a_median_ms=1.0,
                 b_median_ms=1.0,
                 rss_ratio=None,
+                proof_bytes=4096,
+                measurement_seconds=1.0,
             )
             result = runner.evaluate_aa(
                 self.root, m, "small", self.out_dir, board="core_cpu",
@@ -628,6 +804,8 @@ class RunnerGroupTest(unittest.TestCase):
             a_median_ms=1.0,
             b_median_ms=1.0,
             rss_ratio=None,
+            proof_bytes=4096,
+            measurement_seconds=1.0,
         )
         with mock.patch.object(runner, "build_arm"), \
                 mock.patch.object(runner, "paired_rounds", return_value=score) as paired:
@@ -642,6 +820,50 @@ class RunnerGroupTest(unittest.TestCase):
         )
         self.assertEqual(policy["wall_clock_cap_seconds"]["small"], 17)
 
+    def test_pair_arms_receive_smaller_of_command_and_remaining_class_budget(self):
+        manifest = self._manifest(riscv_enabled=False)
+        workload = manifest.workloads("small", board="core_cpu")[0]
+        report_path = self.root / "report.json"
+        report_path.write_text("{}")
+        arm = runner.ArmResult(
+            1.0, 1, True, None, str(report_path), proof_digest="7" * 64,
+            proof_bytes=4096,
+        )
+        policy = {
+            **GATES_POLICY,
+            "min_rounds": 3,
+            "max_rounds": 3,
+            "command_timeout_seconds": 4,
+            "wall_clock_cap_seconds": {"small": 10},
+        }
+        with mock.patch.object(
+            runner.time, "monotonic", side_effect=[float(value) for value in range(10)],
+        ), mock.patch.object(runner, "bench_once", return_value=arm) as bench:
+            runner.paired_rounds(
+                self.root, self.root, manifest, workload, policy, self.out_dir,
+            )
+        self.assertEqual(
+            [call.kwargs["timeout_seconds"] for call in bench.call_args_list],
+            [4, 4, 4, 4, 3, 2],
+        )
+
+    def test_pair_fails_before_launch_when_class_wall_budget_is_exhausted(self):
+        manifest = self._manifest(riscv_enabled=False)
+        workload = manifest.workloads("small", board="core_cpu")[0]
+        policy = {
+            **GATES_POLICY,
+            "command_timeout_seconds": 100,
+            "wall_clock_cap_seconds": {"small": 10},
+        }
+        with mock.patch.object(
+            runner.time, "monotonic", side_effect=[0.0, 11.0],
+        ), mock.patch.object(runner, "bench_once") as bench, \
+                self.assertRaisesRegex(runner.RunError, "wall-clock budget exhausted"):
+            runner.paired_rounds(
+                self.root, self.root, manifest, workload, policy, self.out_dir,
+            )
+        bench.assert_not_called()
+
     def test_out_of_scope_stray_fails_g2(self):
         m = self._manifest(riscv_enabled=False)
         with mock.patch.object(
@@ -652,6 +874,34 @@ class RunnerGroupTest(unittest.TestCase):
             )
         self.assertFalse(gates["G2"]["pass"])
         self.assertIn("outside editable set", gates["G2"]["detail"])
+
+    def test_judged_g5_requires_exact_class_anchor_and_dispersion(self):
+        raw = make_raw(riscv_enabled=False)
+        raw["harness"] = {
+            "anchor_commit": "a" * 40,
+            "anchor_prove_ms": {"core_cpu": {"small": None}},
+        }
+        manifest = Manifest(self.root, raw)
+        with mock.patch.object(runner, "changed_paths", return_value=[]):
+            missing_anchor = runner._gates(
+                self.root, manifest, [], GATES_POLICY, True, 0.01,
+                "small", "core_cpu",
+            )
+        self.assertFalse(missing_anchor["G5"]["pass"])
+
+        raw["harness"]["anchor_prove_ms"]["core_cpu"]["small"] = 1.0
+        manifest = Manifest(self.root, raw)
+        with mock.patch.object(runner, "changed_paths", return_value=[]):
+            missing_dispersion = runner._gates(
+                self.root, manifest, [], GATES_POLICY, True, None,
+                "small", "core_cpu",
+            )
+            complete = runner._gates(
+                self.root, manifest, [], GATES_POLICY, True, 0.01,
+                "small", "core_cpu",
+            )
+        self.assertFalse(missing_dispersion["G5"]["pass"])
+        self.assertTrue(complete["G5"]["pass"])
 
     def test_riscv_score_without_verified_mechanism_fails_g3(self):
         manifest = self._riscv_manifest()
@@ -664,6 +914,8 @@ class RunnerGroupTest(unittest.TestCase):
             b_median_ms=1.0,
             rss_ratio=None,
             mechanism_verified=False,
+            proof_bytes=4096,
+            measurement_seconds=1.0,
         )
         with mock.patch.object(runner, "changed_paths", return_value=[]):
             gates = runner._gates(
@@ -672,6 +924,78 @@ class RunnerGroupTest(unittest.TestCase):
             )
         self.assertFalse(gates["G3"]["pass"])
         self.assertIn("0/1 workloads", gates["G3"]["detail"])
+
+    def test_faster_candidate_over_resource_budget_fails_g4_by_dimension(self):
+        manifest = self._manifest(riscv_enabled=False)
+        workload = manifest.workloads("small", board="core_cpu")[0]
+        for failed_dimension in runner.dimensions.RESOURCE_DIMENSIONS:
+            estimates = {
+                dimension: runner.dimensions.RatioEstimate(
+                    1.0,
+                    (1.0, 1.0) if dimension == "proof_bytes" else (0.99, 1.01),
+                    7,
+                )
+                for dimension in runner.dimensions.RESOURCE_DIMENSIONS
+            }
+            estimates[failed_dimension] = runner.dimensions.RatioEstimate(
+                1.08, (1.06, 1.10), 7,
+            )
+            score = runner.WorkloadScore(
+                workload=workload,
+                ratios=[0.8] * 7,
+                r=0.8,
+                ci=(0.79, 0.81),
+                a_median_ms=10.0,
+                b_median_ms=8.0,
+                rss_ratio=estimates["peak_rss_mib"].ratio,
+                resource_estimates=estimates,
+            )
+            policy = {
+                **GATES_POLICY,
+                "resource_budgets": {
+                    "peak_rss_mib": 1.05,
+                    "energy_j": 1.05,
+                    "proof_bytes": 1.0,
+                },
+            }
+            with self.subTest(dimension=failed_dimension), mock.patch.object(
+                runner, "changed_paths", return_value=[],
+            ):
+                gates = runner._gates(
+                    self.root, manifest, [score], policy, False, None,
+                    "small", "core_cpu",
+                )
+                self.assertFalse(gates["G4"]["pass"])
+                self.assertIn(failed_dimension, gates["G4"]["detail"])
+                self.assertIn("budget_exceeded", gates["G4"]["detail"])
+
+    def test_judged_riscv_score_without_resources_fails_g5(self):
+        raw = make_raw(riscv_enabled=True)
+        raw["workload_registry"]["groups"]["riscv"]["binary"] = "bin/fakebench"
+        raw["harness"]["anchor_commit"] = "a" * 40
+        raw["harness"]["anchor_prove_ms"] = {"riscv": {"wide": 1.0}}
+        manifest_mod._validate(raw)
+        manifest = Manifest(self.root, raw)
+        score = runner.WorkloadScore(
+            workload=manifest.workloads("wide", board="riscv")[0],
+            ratios=[1.0],
+            r=1.0,
+            ci=(1.0, 1.0),
+            a_median_ms=1.0,
+            b_median_ms=1.0,
+            rss_ratio=None,
+            mechanism_verified=True,
+            proof_bytes=4096,
+            measurement_seconds=1.0,
+            resources_complete=False,
+        )
+        with mock.patch.object(runner, "changed_paths", return_value=[]):
+            gates = runner._gates(
+                self.root, manifest, [score], GATES_POLICY, True, 0.01,
+                "wide", "riscv",
+            )
+        self.assertFalse(gates["G5"]["pass"])
+        self.assertIn("complete resource vectors", gates["G5"]["detail"])
 
     def test_paired_round_rejects_riscv_semantic_telemetry_drift(self):
         manifest = self._riscv_manifest()
@@ -684,10 +1008,12 @@ class RunnerGroupTest(unittest.TestCase):
         }
         a = runner.ArmResult(
             1.0, 1, True, None, "a.json", proof_digest="7" * 64,
+            proof_bytes=4096,
             mechanism=stable,
         )
         b = runner.ArmResult(
             1.0, 1, True, None, "b.json", proof_digest="7" * 64,
+            proof_bytes=4096,
             mechanism={**stable, "statement_sha256": "8" * 64},
         )
         with mock.patch.object(runner, "bench_once", side_effect=[a, b]), \

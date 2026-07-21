@@ -8,6 +8,9 @@ mod statements;
 mod traces;
 mod wire;
 
+#[cfg(test)]
+mod backend_tests;
+
 use anyhow::{bail, Result};
 use cli::parse_cli;
 use commands::{run_bench, run_generate, run_verify};

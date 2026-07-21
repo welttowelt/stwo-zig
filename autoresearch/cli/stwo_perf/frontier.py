@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from . import ledger
@@ -22,6 +23,7 @@ def _dominates(a: ledger.Row, b: ledger.Row) -> bool:
         (a.prove_ms, b.prove_ms),
         (a.peak_rss_mib, b.peak_rss_mib),
         (a.energy_j, b.energy_j),
+        (a.proof_bytes, b.proof_bytes),
     ]
     strictly = False
     for av, bv in pairs:
@@ -40,12 +42,8 @@ def effective_rows(rows: list[ledger.Row]) -> list[ledger.Row]:
     Neutral and rejected rows stay in the ledger as the search record but
     never enter dominance or drift computations (playbook F.5/F.6).
     """
-    superseded_keys = {r.supersedes for r in rows if r.supersedes}
     out = []
-    for row in rows:
-        key = f"{row.judged_at_utc}+{row.commit}"
-        if key in superseded_keys:
-            continue
+    for row in ledger.resolve_corrections(rows):
         if row.values.get("outcome") != "promoted":
             continue
         out.append(row)
@@ -64,6 +62,47 @@ def view(rows: list[ledger.Row], board: str, workload_class: str) -> FrontierVie
     superseded = [r for r in eligible if r not in frontier]
     head = eligible[-1] if eligible else None
     return FrontierView(board, workload_class, frontier, superseded, head)
+
+
+def board_suite_score(
+    rows: list[ledger.Row], board: str, scored_classes: list[str], epoch: int,
+) -> dict:
+    """Canonical board score over its manifest-declared scored classes.
+
+    Each effective promoted row compounds its measured candidate/predecessor
+    ratio inside one explicit scoring epoch. Opening a new class universe opens
+    a new epoch whose anchor absorbs history, so old three-class rows cannot
+    dilute the five-class score. A class untouched in the current epoch
+    contributes the multiplicative identity. Neutral, rejected, superseded,
+    other-board, and other-epoch rows do not contribute.
+    """
+    if not scored_classes or len(scored_classes) != len(set(scored_classes)):
+        raise ValueError("scored_classes must be a unique non-empty list")
+    class_ratios = {workload_class: 1.0 for workload_class in scored_classes}
+    promoted_rows = {workload_class: 0 for workload_class in scored_classes}
+    for row in effective_rows(rows):
+        if (
+            row.epoch != epoch
+            or row.board != board
+            or row.workload_class not in class_ratios
+        ):
+            continue
+        ratio = float(row.judged_r)
+        if not math.isfinite(ratio) or ratio <= 0:
+            raise ValueError("effective promoted ratios must be positive and finite")
+        class_ratios[row.workload_class] *= ratio
+        promoted_rows[row.workload_class] += 1
+    ratio_geomean = math.prod(class_ratios.values()) ** (1.0 / len(class_ratios))
+    return {
+        "method": "manifest_scored_class_compounded_geomean_v1",
+        "epoch": epoch,
+        "classes": list(scored_classes),
+        "class_ratios": class_ratios,
+        "promoted_rows": promoted_rows,
+        "ratio_geomean": ratio_geomean,
+        "index": 100.0 * ratio_geomean,
+        "speedup": 1.0 / ratio_geomean,
+    }
 
 
 def drift_vs_anchor(

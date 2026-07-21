@@ -6,6 +6,7 @@ import datetime as dt
 import json
 import math
 import os
+import platform
 import re
 import statistics
 import subprocess
@@ -141,6 +142,7 @@ def _validate_candidate_benchmark(
         expected_commit=candidate["commit"],
         expected_dirty=candidate["dirty"],
         executable_sha256=candidate["executables"]["riscv_cpu"]["sha256"],
+        require_resource_availability=platform.system() == "Darwin",
     )
     if payload["profiled"] is not False or payload["total_steps"] <= 0:
         raise MatrixRunError(f"{workload.row_id}: candidate benchmark report drifted")

@@ -6,6 +6,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from scripts.autoresearch_activation_lib.contract import (
     SETTINGS_SCHEMA,
@@ -26,7 +27,13 @@ def settings_receipt() -> dict:
     payload = {
         "ruleset_enforcement": "active",
         "non_fast_forward": True,
-        "required_status_checks": ["autoresearch-validate", "autoresearch-judge"],
+        "required_status_checks": [
+            {"context": "autoresearch-judge", "integration_id": 15368},
+            {"context": "autoresearch-validate", "integration_id": 15368},
+        ],
+        "bypass_actors": [
+            {"actor_id": 15368, "actor_type": "Integration", "bypass_mode": "always"},
+        ],
     }
     return {
         "schema": SETTINGS_SCHEMA,
@@ -50,7 +57,9 @@ class SettingsReceiptTest(unittest.TestCase):
 
     def test_digest_and_check_tampering_fail(self) -> None:
         receipt = settings_receipt()
-        receipt["payload"]["required_status_checks"] = ["autoresearch-validate"]
+        receipt["payload"]["required_status_checks"] = [
+            {"context": "autoresearch-validate", "integration_id": 15368},
+        ]
         errors = validate_settings_receipt(
             receipt,
             repository="teddyjfpender/stwo-zig",
@@ -66,6 +75,11 @@ class SettingsReceiptTest(unittest.TestCase):
                 "id": 17,
                 "name": "main",
                 "enforcement": "active",
+                "bypass_actors": [{
+                    "actor_id": 15368,
+                    "actor_type": "Integration",
+                    "bypass_mode": "always",
+                }],
                 "updated_at": "2026-07-21T12:00:00Z",
                 "conditions": {
                     "ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []},
@@ -75,8 +89,8 @@ class SettingsReceiptTest(unittest.TestCase):
                     {
                         "type": "required_status_checks",
                         "parameters": {"required_status_checks": [
-                            {"context": "autoresearch-judge", "integration_id": None},
-                            {"context": "autoresearch-validate", "integration_id": None},
+                            {"context": "autoresearch-judge", "integration_id": 15368},
+                            {"context": "autoresearch-validate", "integration_id": 15368},
                         ]},
                     },
                 ],
@@ -86,7 +100,10 @@ class SettingsReceiptTest(unittest.TestCase):
         self.assertEqual(receipt["source"], "github-api")
         self.assertEqual(
             receipt["payload"]["required_status_checks"],
-            ["autoresearch-judge", "autoresearch-validate"],
+            [
+                {"context": "autoresearch-judge", "integration_id": 15368},
+                {"context": "autoresearch-validate", "integration_id": 15368},
+            ],
         )
         self.assertTrue(receipt["payload"]["non_fast_forward"])
         self.assertEqual(
@@ -107,6 +124,7 @@ class SettingsReceiptTest(unittest.TestCase):
                     "id": 17,
                     "name": "release",
                     "enforcement": "active",
+                    "bypass_actors": [],
                     "updated_at": "2026-07-21T12:00:00Z",
                     "conditions": {
                         "ref_name": {
@@ -126,6 +144,23 @@ class ActivationContractTest(unittest.TestCase):
         self.root = Path(temporary.name)
         (self.root / "autoresearch/ledger").mkdir(parents=True)
         (self.root / ".github/workflows").mkdir(parents=True)
+        (self.root / "src/products/riscv_cpu").mkdir(parents=True)
+        (self.root / "src/interop").mkdir(parents=True)
+        (self.root / "conformance/evidence/riscv").mkdir(parents=True)
+        candidate = "a" * 40
+        release_receipt = {
+            "schema": "riscv-oracle-receipt-v2",
+            "candidate_commit": candidate,
+            "verdict": "PASS",
+            "implementation": {"commit": candidate, "clean": True},
+            "oracle": {
+                "commit": "d478f783055aa0d73a93768a433a3c6c31c91d1c",
+                "clean": True,
+            },
+        }
+        release_path = self.root / "conformance/evidence/riscv/release-anchor.json"
+        release_path.write_bytes(canonical(release_receipt))
+        release_digest = hashlib.sha256(release_path.read_bytes()).hexdigest()
         workloads = {}
         pools = {}
         for workload_class in ("small", "wide", "deep"):
@@ -147,16 +182,26 @@ class ActivationContractTest(unittest.TestCase):
             "harness": {"anchor_prove_ms": {
                 "riscv": {"small": 1.0, "wide": 2.0, "deep": 3.0},
             }},
-            "workload_registry": {"groups": {"riscv": {
+            "workload_registry": {
+                "classes": {
+                    name: {"scored": True}
+                    for name in ("small", "wide", "deep", "xlarge", "huge")
+                },
+                "groups": {"riscv": {
                 "enabled": True,
                 "promotion_eligible": True,
                 "board": "riscv",
-                "report_schema": "riscv_proof_v1",
+                "report_schema": "riscv_proof_v2",
                 "correctness_oracle": {
                     "authority": "stark-v",
                     "commit": "d478f783055aa0d73a93768a433a3c6c31c91d1c",
                     "required_features": ["parallel"],
                     "final_validator": True,
+                    "release_anchor": {
+                        "receipt": "conformance/evidence/riscv/release-anchor.json",
+                        "sha256": release_digest,
+                        "candidate_commit": candidate,
+                    },
                 },
                 "gates_policy": {
                     "samples_per_round": 1, "min_rounds": 3, "max_rounds": 5,
@@ -166,6 +211,18 @@ class ActivationContractTest(unittest.TestCase):
                     "required_fields": [
                         "total_steps", "n_components", "mean_proving_seconds",
                         "statement_sha256",
+                    ],
+                },
+                "resource_telemetry": {
+                    "fail_closed": True,
+                    "source": "darwin.proc_pid_rusage.RUSAGE_INFO_V6",
+                    "scope": "self_process_lifetime",
+                    "sampling_points": [
+                        "before_warmups", "after_verified_samples",
+                    ],
+                    "fields": [
+                        "lifetime_max_phys_footprint_bytes", "energy_nj",
+                        "instructions", "cycles",
                     ],
                 },
                 "holdout_generator": {
@@ -185,18 +242,52 @@ class ActivationContractTest(unittest.TestCase):
         (self.root / ".github/workflows/promote.yml").write_text(
             "name: autoresearch-promote\n"
         )
+        (self.root / "src/products/riscv_cpu/capabilities.zig").write_text(
+            "pub const adapter_release_gated = true;\n"
+        )
+        (self.root / "src/interop/riscv_artifact.zig").write_text(
+            'pub const RELEASE_STATUS = "release_gated";\n'
+        )
         self.receipt = self.root / "settings.json"
         receipt = settings_receipt()
         receipt["observed_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
         self.receipt.write_text(json.dumps(receipt))
 
     def test_complete_activation_contract_passes(self) -> None:
-        self.assertEqual(activation_errors(
+        with mock.patch(
+            "scripts.autoresearch_activation_lib.contract.receipt_errors",
+            return_value=[],
+        ):
+            self.assertEqual(activation_errors(
+                self.root,
+                board="riscv",
+                settings_receipt=self.receipt,
+                repository="teddyjfpender/stwo-zig",
+            ), [])
+
+    def test_skeletal_release_receipt_cannot_activate_a_board(self) -> None:
+        errors = activation_errors(
             self.root,
             board="riscv",
             settings_receipt=self.receipt,
             repository="teddyjfpender/stwo-zig",
-        ), [])
+        )
+        self.assertTrue(any(
+            "fails the full evidence contract" in error for error in errors
+        ))
+
+    def test_non_finite_calibration_cannot_activate_a_board(self) -> None:
+        path = self.root / "autoresearch/MANIFEST.json"
+        manifest = json.loads(path.read_text())
+        manifest["harness"]["anchor_prove_ms"]["riscv"]["small"] = float("inf")
+        path.write_text(json.dumps(manifest))
+        errors = activation_errors(
+            self.root,
+            board="riscv",
+            settings_receipt=self.receipt,
+            repository="teddyjfpender/stwo-zig",
+        )
+        self.assertIn("RISC-V small anchor is not frozen", errors)
 
     def test_disabled_board_and_irrelevant_holdout_fail(self) -> None:
         path = self.root / "autoresearch/MANIFEST.json"
@@ -215,6 +306,36 @@ class ActivationContractTest(unittest.TestCase):
         self.assertIn("board riscv is disabled", errors)
         self.assertIn("board riscv is not promotion eligible", errors)
         self.assertTrue(any("holdout references" in error for error in errors))
+
+    def test_resource_contract_drift_blocks_activation(self) -> None:
+        path = self.root / "autoresearch/MANIFEST.json"
+        manifest = json.loads(path.read_text())
+        manifest["workload_registry"]["groups"]["riscv"][
+            "resource_telemetry"
+        ]["source"] = "getrusage"
+        path.write_text(json.dumps(manifest))
+        errors = activation_errors(
+            self.root,
+            board="riscv",
+            settings_receipt=self.receipt,
+            repository="teddyjfpender/stwo-zig",
+        )
+        self.assertTrue(any("resource telemetry" in error for error in errors))
+
+    def test_tampered_release_anchor_and_staged_phase_fail(self) -> None:
+        anchor = self.root / "conformance/evidence/riscv/release-anchor.json"
+        anchor.write_text("{}")
+        (self.root / "src/products/riscv_cpu/capabilities.zig").write_text(
+            "pub const adapter_release_gated = false;\n"
+        )
+        errors = activation_errors(
+            self.root,
+            board="riscv",
+            settings_receipt=self.receipt,
+            repository="teddyjfpender/stwo-zig",
+        )
+        self.assertIn("RISC-V release anchor receipt digest mismatches", errors)
+        self.assertIn("RISC-V adapter is not release gated", errors)
 
 
 if __name__ == "__main__":

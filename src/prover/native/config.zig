@@ -1,9 +1,11 @@
 const std = @import("std");
 const builtin = @import("builtin");
+pub const resource_admission = @import("native_resource_admission");
 
 pub const Backend = enum { cpu_native, metal_hybrid };
 
 pub const Blake2Backend = enum { auto, scalar, simd };
+pub const ResourceProfile = resource_admission.Profile;
 
 pub const MetalRuntimeMode = enum {
     source_jit,
@@ -174,6 +176,7 @@ pub const Args = struct {
     blake2_backend: Blake2Backend = .auto,
     metal_runtime: MetalRuntimeSelection = .{},
     product_identity: ?ProductIdentity = null,
+    resource_profile: ResourceProfile = .standard,
 
     pub fn workload(self: Args) Workload {
         return switch (self.example) {
@@ -194,14 +197,12 @@ pub const Args = struct {
 
 pub const ParseResult = union(enum) { run: Args, help };
 
-const MAX_LOG_ROWS: u32 = 22;
 const MAX_SEQUENCE_LEN: u32 = 512;
 const MAX_BLAKE_ROUNDS: u32 = 32;
 const POSEIDON_LOG_INSTANCES_PER_ROW: u32 = 3;
 const POSEIDON_COLUMNS: u64 = 1264;
 const MAX_XOR_OFFSET: usize = (1 << 31) - 1;
 const M31_MODULUS: u32 = 0x7fffffff;
-const MAX_COMMITTED_CELLS: u64 = 1 << 25;
 pub const MIN_HEADLINE_WARMUPS: usize = 10;
 pub const MAX_WARMUPS: usize = 10;
 
@@ -268,6 +269,9 @@ pub fn parseArgs(backend: Backend, argv: []const []const u8) !ParseResult {
         } else if (std.mem.eql(u8, arg, "--blake2-backend")) {
             result.blake2_backend = std.meta.stringToEnum(Blake2Backend, value) orelse
                 return error.InvalidBlake2Backend;
+        } else if (std.mem.eql(u8, arg, "--resource-profile")) {
+            result.resource_profile = std.meta.stringToEnum(ResourceProfile, value) orelse
+                return error.InvalidResourceProfile;
         } else if (std.mem.eql(u8, arg, "--metal-runtime")) {
             if (backend == .cpu_native) return error.MetalOptionRequiresMetalBackend;
             result.metal_runtime.mode = parseMetalRuntimeMode(value) orelse
@@ -327,58 +331,7 @@ fn parseSha256(encoded: []const u8) ![32]u8 {
 }
 
 fn validate(args: Args) !void {
-    const committed_cells = switch (args.workload()) {
-        .wide_fibonacci => |parameters| blk: {
-            if (parameters.log_n_rows == 0 or parameters.log_n_rows > MAX_LOG_ROWS)
-                return error.InvalidLogRows;
-            if (parameters.sequence_len < 2 or parameters.sequence_len > MAX_SEQUENCE_LEN)
-                return error.InvalidSequenceLength;
-            const rows = @as(u64, 1) << @intCast(parameters.log_n_rows);
-            break :blk try std.math.mul(u64, rows, parameters.sequence_len);
-        },
-        .xor => |parameters| blk: {
-            if (parameters.log_size == 0 or parameters.log_size > MAX_LOG_ROWS)
-                return error.InvalidLogRows;
-            if (parameters.log_step > parameters.log_size) return error.InvalidStep;
-            if (parameters.offset > MAX_XOR_OFFSET) return error.InvalidOffset;
-            const period = @as(usize, 1) << @intCast(parameters.log_step);
-            if (parameters.offset >= period) return error.InvalidOffset;
-            const rows = @as(u64, 1) << @intCast(parameters.log_size);
-            break :blk try std.math.mul(u64, rows, 3);
-        },
-        .plonk => |parameters| blk: {
-            if (parameters.log_n_rows == 0 or parameters.log_n_rows > MAX_LOG_ROWS)
-                return error.InvalidLogRows;
-            const rows = @as(u64, 1) << @intCast(parameters.log_n_rows);
-            break :blk try std.math.mul(u64, rows, 8);
-        },
-        .state_machine => |parameters| blk: {
-            if (parameters.log_n_rows == 0 or parameters.log_n_rows > MAX_LOG_ROWS)
-                return error.InvalidLogRows;
-            if (parameters.initial_x >= M31_MODULUS or parameters.initial_y >= M31_MODULUS)
-                return error.InvalidInitialState;
-            const rows = @as(u64, 1) << @intCast(parameters.log_n_rows);
-            break :blk try std.math.mul(u64, rows, 3);
-        },
-        .blake => |parameters| blk: {
-            if (parameters.log_n_rows == 0 or parameters.log_n_rows > MAX_LOG_ROWS)
-                return error.InvalidLogRows;
-            if (parameters.n_rounds == 0 or parameters.n_rounds > MAX_BLAKE_ROUNDS)
-                return error.InvalidRoundCount;
-            const rows = @as(u64, 1) << @intCast(parameters.log_n_rows);
-            const columns = try std.math.mul(u64, parameters.n_rounds, 96);
-            break :blk try std.math.mul(u64, rows, columns);
-        },
-        .poseidon => |parameters| blk: {
-            if (parameters.log_n_instances <= POSEIDON_LOG_INSTANCES_PER_ROW or
-                parameters.log_n_instances > MAX_LOG_ROWS + POSEIDON_LOG_INSTANCES_PER_ROW)
-                return error.InvalidLogNInstances;
-            const log_n_rows = parameters.log_n_instances - POSEIDON_LOG_INSTANCES_PER_ROW;
-            const rows = @as(u64, 1) << @intCast(log_n_rows);
-            break :blk try std.math.mul(u64, rows, POSEIDON_COLUMNS);
-        },
-    };
-    if (committed_cells > MAX_COMMITTED_CELLS) return error.TooManyCommittedCells;
+    _ = try admitWorkload(args.workload(), args.resource_profile);
     if (args.warmups > MAX_WARMUPS) return error.TooManyWarmups;
     if (args.samples == 0 or args.samples > 21) return error.InvalidSampleCount;
     if (args.proof_artifact_out) |path| if (path.len == 0)
@@ -396,6 +349,50 @@ fn validate(args: Args) !void {
                 return error.InvalidMetalRuntimeConfiguration;
         },
     }
+}
+
+pub fn admitWorkload(
+    workload: Workload,
+    profile: ResourceProfile,
+) !resource_admission.Admission {
+    return switch (workload) {
+        .wide_fibonacci => |parameters| blk: {
+            if (parameters.sequence_len < 2 or parameters.sequence_len > MAX_SEQUENCE_LEN)
+                return error.InvalidSequenceLength;
+            break :blk resource_admission.admit(
+                profile,
+                parameters.log_n_rows,
+                parameters.sequence_len,
+            );
+        },
+        .xor => |parameters| blk: {
+            const admission = try resource_admission.admit(profile, parameters.log_size, 3);
+            if (parameters.log_step > parameters.log_size) return error.InvalidStep;
+            if (parameters.offset > MAX_XOR_OFFSET) return error.InvalidOffset;
+            const period = @as(usize, 1) << @intCast(parameters.log_step);
+            if (parameters.offset >= period) return error.InvalidOffset;
+            break :blk admission;
+        },
+        .plonk => |parameters| resource_admission.admit(profile, parameters.log_n_rows, 8),
+        .state_machine => |parameters| blk: {
+            if (parameters.initial_x >= M31_MODULUS or parameters.initial_y >= M31_MODULUS)
+                return error.InvalidInitialState;
+            break :blk resource_admission.admit(profile, parameters.log_n_rows, 3);
+        },
+        .blake => |parameters| blk: {
+            if (parameters.n_rounds == 0 or parameters.n_rounds > MAX_BLAKE_ROUNDS)
+                return error.InvalidRoundCount;
+            const columns = try std.math.mul(u64, parameters.n_rounds, 96);
+            break :blk resource_admission.admit(profile, parameters.log_n_rows, columns);
+        },
+        .poseidon => |parameters| blk: {
+            if (parameters.log_n_instances <= POSEIDON_LOG_INSTANCES_PER_ROW or
+                parameters.log_n_instances > resource_admission.MAX_LOG_ROWS + POSEIDON_LOG_INSTANCES_PER_ROW)
+                return error.InvalidLogNInstances;
+            const log_n_rows = parameters.log_n_instances - POSEIDON_LOG_INSTANCES_PER_ROW;
+            break :blk resource_admission.admit(profile, log_n_rows, POSEIDON_COLUMNS);
+        },
+    };
 }
 
 pub fn writeUsage(writer: anytype, backend: Backend) !void {
@@ -418,6 +415,7 @@ pub fn writeUsage(writer: anytype, backend: Backend) !void {
         \\  --samples N          Verified timed samples (maximum: 21)
         \\  --proof-artifact-out PATH
         \\  --blake2-backend MODE  auto, scalar, or simd (default: auto)
+        \\  --resource-profile NAME  standard or large (default: standard)
         \\  --profiled           Diagnostic instrumentation; never headline MHz
     );
     if (backend == .metal_hybrid) try writer.writeAll(
@@ -474,6 +472,9 @@ test "native proof config: parses tagged workloads and legacy wide requests" {
 test "native proof config: bounds and tags fail closed" {
     try std.testing.expectError(error.InvalidSampleCount, parseArgs(.cpu_native, &.{ "--samples", "0" }));
     try std.testing.expectError(error.InvalidStep, parseArgs(.cpu_native, &.{ "--example", "xor", "--log-step", "11" }));
+    try std.testing.expectError(error.InvalidLogRows, parseArgs(.cpu_native, &.{
+        "--example", "xor", "--log-size", "4294967295", "--log-step", "4294967295",
+    }));
     try std.testing.expectError(error.InvalidOffset, parseArgs(.cpu_native, &.{ "--example", "xor", "--offset", "4" }));
     try std.testing.expectError(error.IrrelevantWorkloadParameter, parseArgs(.cpu_native, &.{ "--example", "xor", "--log-rows", "5" }));
     try std.testing.expectError(error.IrrelevantWorkloadParameter, parseArgs(.cpu_native, &.{ "--example", "plonk", "--sequence-len", "4" }));
@@ -481,13 +482,43 @@ test "native proof config: bounds and tags fail closed" {
     try std.testing.expectError(error.IrrelevantWorkloadParameter, parseArgs(.cpu_native, &.{ "--example", "state_machine", "--offset", "1" }));
     try std.testing.expectError(error.InvalidRoundCount, parseArgs(.cpu_native, &.{ "--example", "blake", "--n-rounds", "0" }));
     try std.testing.expectError(error.InvalidRoundCount, parseArgs(.cpu_native, &.{ "--example", "blake", "--n-rounds", "33" }));
-    try std.testing.expectError(error.TooManyCommittedCells, parseArgs(.cpu_native, &.{ "--example", "blake", "--log-n-rows", "18", "--n-rounds", "2" }));
+    try std.testing.expectError(error.CommittedCellBudgetExceeded, parseArgs(.cpu_native, &.{ "--example", "blake", "--log-n-rows", "18", "--n-rounds", "2" }));
     try std.testing.expectError(error.IrrelevantWorkloadParameter, parseArgs(.cpu_native, &.{ "--example", "plonk", "--n-rounds", "2" }));
     try std.testing.expectError(error.InvalidLogNInstances, parseArgs(.cpu_native, &.{ "--example", "poseidon", "--log-n-instances", "3" }));
-    try std.testing.expectError(error.TooManyCommittedCells, parseArgs(.cpu_native, &.{ "--example", "poseidon", "--log-n-instances", "18" }));
+    try std.testing.expectError(error.CommittedCellBudgetExceeded, parseArgs(.cpu_native, &.{ "--example", "poseidon", "--log-n-instances", "18" }));
     try std.testing.expectError(error.IrrelevantWorkloadParameter, parseArgs(.cpu_native, &.{ "--example", "poseidon", "--log-n-rows", "8" }));
     try std.testing.expectError(error.IrrelevantWorkloadParameter, parseArgs(.cpu_native, &.{ "--example", "blake", "--log-n-instances", "8" }));
     try std.testing.expectError(error.MissingArgumentValue, parseArgs(.cpu_native, &.{"--log-rows"}));
+}
+
+test "native proof config: resource profiles preserve default and admit reviewed large geometry" {
+    try std.testing.expectError(error.CommittedCellBudgetExceeded, parseArgs(.cpu_native, &.{
+        "--example", "wide_fibonacci", "--log-n-rows", "20", "--sequence-len", "100",
+    }));
+    const large = (try parseArgs(.cpu_native, &.{
+        "--example",          "wide_fibonacci",
+        "--log-n-rows",       "20",
+        "--sequence-len",     "100",
+        "--resource-profile", "large",
+    })).run;
+    try std.testing.expectEqual(ResourceProfile.large, large.resource_profile);
+    const admission = try admitWorkload(large.workload(), large.resource_profile);
+    try std.testing.expectEqual(@as(u64, 104_857_600), admission.geometry.committed_cells);
+    try std.testing.expectError(error.CommittedCellBudgetExceeded, parseArgs(.cpu_native, &.{
+        "--example",          "wide_fibonacci",
+        "--log-n-rows",       "22",
+        "--sequence-len",     "100",
+        "--resource-profile", "large",
+    }));
+    try std.testing.expectError(error.CommittedCellBudgetExceeded, parseArgs(.cpu_native, &.{
+        "--example",          "wide_fibonacci",
+        "--log-n-rows",       "22",
+        "--sequence-len",     "512",
+        "--resource-profile", "large",
+    }));
+    try std.testing.expectError(error.InvalidResourceProfile, parseArgs(.cpu_native, &.{
+        "--resource-profile", "unbounded",
+    }));
 }
 
 test "native proof config: headline warmup floor defaults to ten" {

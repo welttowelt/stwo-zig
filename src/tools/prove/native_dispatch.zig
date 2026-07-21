@@ -68,6 +68,10 @@ fn nativeArgs(request: cli.Run, execution: Execution) runner.config.Args {
             .scalar => .scalar,
             .simd => .simd,
         },
+        .resource_profile = switch (request.resource_profile) {
+            .standard => .standard,
+            .large => .large,
+        },
         .metal_runtime = .{
             .mode = switch (request.metal_runtime.mode) {
                 .source_jit => .source_jit,
@@ -111,6 +115,7 @@ test "native dispatch: CLI workload mapping preserves parameters" {
         .workload = .{ .wide_fibonacci = .{ .log_n_rows = 17, .sequence_len = 31 } },
         .blake2_backend = .simd,
         .metal_runtime = .{},
+        .resource_profile = .large,
     }, .{
         .warmups = 2,
         .samples = 7,
@@ -122,6 +127,7 @@ test "native dispatch: CLI workload mapping preserves parameters" {
     try std.testing.expectEqual(runner.config.Protocol.secure, args.protocol);
     try std.testing.expectEqual(@as(u32, 17), args.wide_fibonacci.log_n_rows);
     try std.testing.expectEqual(@as(u32, 31), args.wide_fibonacci.sequence_len);
+    try std.testing.expectEqual(runner.config.ResourceProfile.large, args.resource_profile);
     try std.testing.expectEqualStrings("proof.json", args.proof_artifact_report_path.?);
 }
 
@@ -145,6 +151,7 @@ test "native dispatch: security profiles map by meaning, not enum ordinal" {
             .workload = workload,
             .blake2_backend = .auto,
             .metal_runtime = .{},
+            .resource_profile = .standard,
         }, execution);
         try std.testing.expectEqual(pair[1], args.protocol);
     }

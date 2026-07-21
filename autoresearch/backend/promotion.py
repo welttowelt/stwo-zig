@@ -165,6 +165,7 @@ def process_one(store: Store, repo: Path, push_remote: str | None = None,
         sub = (record_writer or _write_record)(repo, record)
         row = _row(record)
         row["epoch"] = ledger.current_epoch(repo)["epoch"]
+        row["row_id"] = ledger.compute_row_id(row)
         ledger.append(repo, row)
         _git(repo, "add", str(sub), str(ledger.ledger_path(repo)))
         env = {

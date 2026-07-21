@@ -11,7 +11,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 REQUIRED_KEYS = {
     "feed_schema_version", "project", "provenance", "anchor", "epoch",
     "boards", "metal_resident_progress", "latest_matrix", "history",
-    "submissions", "notes_count",
+    "submissions", "notes_count", "search_health",
 }
 
 
@@ -27,6 +27,22 @@ class FeedTest(unittest.TestCase):
         again = feed.build_feed(self.m, allow_dirty=True)
         self.assertEqual(feed.encode(self.feed), feed.encode(again))
 
+    def test_legacy_search_health_is_honestly_unavailable(self):
+        health = self.feed["search_health"]
+        self.assertEqual(health["policy"]["gradient_snr_threshold"], 2.0)
+        legacy_points = [
+            point
+            for board in health["boards"].values()
+            for cls in board["classes"].values()
+            for point in cls["time_series"]
+        ]
+        self.assertTrue(legacy_points)
+        self.assertTrue(all(not point["available"] for point in legacy_points))
+        self.assertEqual(
+            {point["unavailable_reason"] for point in legacy_points},
+            {"legacy_row_has_no_search_health_evidence"},
+        )
+
     def test_provenance_digests_verify(self):
         import hashlib
         for rel, digest in self.feed["provenance"]["inputs_sha256"].items():
@@ -37,9 +53,9 @@ class FeedTest(unittest.TestCase):
         from stwo_perf import ledger
         self.assertEqual(set(self.feed["boards"]), set(ledger.BOARDS))
 
-    def test_v2_promotion_scope_partitions_the_board_universe(self):
+    def test_v3_promotion_scope_partitions_the_board_universe(self):
         from stwo_perf import ledger
-        self.assertEqual(self.feed["feed_schema_version"], 2)
+        self.assertEqual(self.feed["feed_schema_version"], 3)
         scope = self.feed["promotion_scope"]
         owned = set(scope["owned_boards"])
         future = set(scope["future_boards"])
@@ -51,7 +67,39 @@ class FeedTest(unittest.TestCase):
             self.assertIn("enabled", group)
             self.assertTrue(group["workloads"])
             for workload in group["workloads"].values():
-                self.assertIn(workload["class"], ("small", "wide", "deep"))
+                self.assertIn(workload["class"], scope["class_registry"])
+
+    def test_scored_classes_and_suite_score_are_manifest_owned(self):
+        expected_native = ["small", "wide", "deep", "xlarge", "huge"]
+        self.assertEqual(self.feed["boards"]["core_cpu"]["scored_classes"], expected_native)
+        self.assertEqual(self.feed["boards"]["core_metal"]["scored_classes"], expected_native)
+        self.assertEqual(
+            self.feed["boards"]["riscv"]["scored_classes"],
+            ["small", "wide", "deep"],
+        )
+        for board in ("core_cpu", "core_metal", "riscv"):
+            score = self.feed["boards"][board]["suite_score"]
+            self.assertEqual(score["classes"], self.feed["boards"][board]["scored_classes"])
+            self.assertEqual(score["epoch"], self.feed["epoch"]["number"])
+
+    def test_live_classes_publish_complete_audit_state(self):
+        for board in ("core_cpu", "core_metal", "riscv"):
+            for class_state in self.feed["boards"][board]["frontier_by_class"].values():
+                audit = class_state["audit"]
+                self.assertIn("effective_score", audit)
+                self.assertIn("audited_through", audit)
+                self.assertIn("audit_age", audit)
+                self.assertIn("unaudited_tail", audit)
+                self.assertIn("due", audit)
+                self.assertIn("overdue", audit)
+                self.assertIn("span_coverage", audit)
+                self.assertIn("evidence_share", audit)
+                age = audit["audit_age"]
+                self.assertTrue(
+                    isinstance(age.get("commits"), int)
+                    or age.get("unavailable_reason")
+                    == "audit_base_not_present_in_repository_history"
+                )
 
     def test_empty_boards_render_empty_not_invented(self):
         for board, data in self.feed["boards"].items():
@@ -85,6 +133,49 @@ class FeedTest(unittest.TestCase):
         self.assertIn("cpu", row["lanes"])
         self.assertIsNotNone(row["lanes"]["cpu"]["prove_ms"])
         self.assertIsNotNone(row["native_unit"])
+
+    def test_reference_backends_are_distinct_and_peer_series_is_discoverable(self):
+        references = self.feed["references"]
+        scalar = references["peer_rust_scalar"]
+        simd = references["peer_rust_simd"]
+        self.assertEqual(
+            scalar["rust_reference"]["backend_type"],
+            "stwo::prover::backend::cpu::CpuBackend",
+        )
+        self.assertEqual(
+            simd["rust_reference"]["backend_type"],
+            "stwo::prover::backend::simd::SimdBackend",
+        )
+        self.assertTrue(scalar["proof_equivalence_receipt"]["all_equal"])
+        self.assertTrue(simd["proof_equivalence_receipt"]["all_equal"])
+        self.assertEqual(
+            references["peer_relative_series"]["peer_source"]["commit"],
+            "07ea1ccca13351028da94e66babf79e7ce91437f",
+        )
+
+    def test_reference_files_are_bound_into_feed_provenance(self):
+        inputs = self.feed["provenance"]["inputs_sha256"]
+        self.assertIn("autoresearch/reference/peer-rust-scalar.json", inputs)
+        self.assertIn("autoresearch/reference/peer-rust-simd.json", inputs)
+        self.assertIn("autoresearch/reference/peer-relative-series.json", inputs)
+
+    def test_reference_discovery_rejects_scalar_labeled_as_simd(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            references = root / "autoresearch/reference"
+            references.mkdir(parents=True)
+            (references / "peer-rust-simd.json").write_text(json.dumps({
+                "schema": "autoresearch-reference-v2",
+                "reference_kind": "upstream-rust-backend",
+                "name": "peer-rust-simd",
+                "rust_reference": {
+                    "backend_id": "simd",
+                    "backend_type": "stwo::prover::backend::cpu::CpuBackend",
+                },
+            }))
+            with self.assertRaisesRegex(feed.FeedError, "backend identity mismatch"):
+                feed._references(root)
 
 
 class FeedGuaranteeTest(unittest.TestCase):

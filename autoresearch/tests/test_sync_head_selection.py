@@ -1,4 +1,5 @@
 import sys
+import hashlib
 import unittest
 from pathlib import Path
 
@@ -8,7 +9,14 @@ from stwo_perf.__main__ import latest_promoted_commit  # noqa: E402
 
 
 def row(board, cls, outcome, judged_at, commit, prove_ms=10.0):
+    identity = "sha256:" + hashlib.sha256(
+        f"{board}\0{cls}\0{judged_at}\0{commit}".encode()
+    ).hexdigest()
     return ledger.Row(values={
+        "schema_version": 3,
+        "epoch": 1,
+        "row_id": identity,
+        "observation_id": identity,
         "board": board,
         "workload_class": cls,
         "outcome": outcome,
@@ -16,6 +24,8 @@ def row(board, cls, outcome, judged_at, commit, prove_ms=10.0):
         "commit": commit,
         "prove_ms": prove_ms,
         "peak_rss_mib": 0.0,
+        "energy_j": None,
+        "proof_bytes": None,
         "supersedes": "",
     })
 

@@ -4,8 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import sys
 import time
 from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(REPO_ROOT / "autoresearch" / "backend"))
 
 from canonical import process_one as judge_one
 from intake import process_one as intake_one

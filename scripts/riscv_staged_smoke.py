@@ -596,6 +596,7 @@ def main() -> int:
                     expected_commit=implementation_commit,
                     expected_dirty=implementation_dirty,
                     executable_sha256=executable_sha256,
+                    require_resource_availability=sys.platform == "darwin",
                 )
                 contracts.validate_artifact(
                     benchmark_artifact_payload,

@@ -3,9 +3,24 @@
 from __future__ import annotations
 
 import math
+import statistics
 from typing import Any
 
 from .model import MatrixError
+
+
+ORDERED_PROVE_DRIFT_MIN_SAMPLES = 5
+
+
+def ordered_prove_time_drift(samples: list[dict[str, Any]]) -> float | None:
+    """Compare early and late prove-time medians without discarding order."""
+    if len(samples) < ORDERED_PROVE_DRIFT_MIN_SAMPLES:
+        return None
+    prove_seconds = [float(sample["prove_seconds"]) for sample in samples]
+    window = max(2, len(prove_seconds) // 3)
+    first = statistics.median(prove_seconds[:window])
+    last = statistics.median(prove_seconds[-window:])
+    return abs(first - last) / min(first, last)
 
 
 def require_exact_keys(

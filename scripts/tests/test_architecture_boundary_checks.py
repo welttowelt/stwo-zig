@@ -65,7 +65,7 @@ def identity(name: str) -> dict[str, object]:
 
 def report(product: str, proof_digest: str) -> dict[str, object]:
     return {
-        "schema_version": 6,
+        "schema_version": 7,
         "product_identity": identity(product),
         "backend": "cpu_native",
         "evidence_class": "correctness_only",

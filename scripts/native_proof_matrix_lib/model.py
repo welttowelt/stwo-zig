@@ -7,8 +7,14 @@ import hashlib
 from dataclasses import dataclass
 from types import MappingProxyType
 
+from .resource_admission import (
+    ACCOUNTED_BYTES_PER_COMMITTED_CELL,
+    RESOURCE_PROFILES,
+    resource_limits,
+)
 
-REPORT_SCHEMA_VERSION = 6
+
+REPORT_SCHEMA_VERSION = 7
 
 INTEROP_ARTIFACT_SCHEMA_VERSION = 1
 INTEROP_UPSTREAM_COMMIT = "a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2"
@@ -35,7 +41,7 @@ MAX_SEQUENCE_LEN = 512
 MAX_BLAKE_ROUNDS = 32
 MAX_XOR_OFFSET = (1 << 31) - 1
 M31_MODULUS = (1 << 31) - 1
-MAX_COMMITTED_TRACE_CELLS = 1 << 25
+MAX_COMMITTED_TRACE_CELLS = RESOURCE_PROFILES["standard"].max_committed_cells
 MAX_WARMUPS = 10
 MAX_SAMPLES = 21
 MAX_COOLDOWN_SECONDS = 300.0
@@ -275,6 +281,10 @@ class Workload:
         return self.trace_rows * self.committed_columns
 
     @property
+    def accounted_bytes(self) -> int:
+        return self.committed_trace_cells * ACCOUNTED_BYTES_PER_COMMITTED_CELL
+
+    @property
     def native_unit(self) -> str:
         return NATIVE_UNITS[self.name]
 
@@ -321,7 +331,7 @@ def _canonical_workload(name: str, parameters: dict[str, int]) -> Workload:
         )
     ordered = tuple((key, parameters[key]) for key in expected)
     workload = Workload(name, ordered)
-    validate_workload(workload)
+    validate_workload(workload, resource_profile="large")
     return workload
 
 
@@ -353,7 +363,7 @@ def parse_workload(value: str) -> Workload:
         raise argparse.ArgumentTypeError(str(error)) from error
 
 
-def validate_workload(workload: Workload) -> None:
+def validate_workload(workload: Workload, resource_profile: str = "standard") -> None:
     if workload.name not in PARAMETER_ORDER:
         raise ValueError(f"unsupported workload example: {workload.name}")
     if tuple(key for key, _ in workload.parameter_items) != PARAMETER_ORDER[workload.name]:
@@ -383,10 +393,18 @@ def validate_workload(workload: Workload) -> None:
         n_rounds = values["n_rounds"]
         if n_rounds < 1 or n_rounds > MAX_BLAKE_ROUNDS:
             raise ValueError(f"Blake rounds must be in [1, {MAX_BLAKE_ROUNDS}]")
-    if workload.committed_trace_cells > MAX_COMMITTED_TRACE_CELLS:
+    limits = resource_limits(resource_profile)
+    if workload.committed_trace_cells > limits.max_committed_cells:
         raise ValueError(
             "workload exceeds committed trace cell limit "
-            f"({workload.committed_trace_cells} > {MAX_COMMITTED_TRACE_CELLS})"
+            f"for {resource_profile} profile "
+            f"({workload.committed_trace_cells} > {limits.max_committed_cells})"
+        )
+    if workload.accounted_bytes > limits.max_accounted_bytes:
+        raise ValueError(
+            "workload exceeds accounted memory limit "
+            f"for {resource_profile} profile "
+            f"({workload.accounted_bytes} > {limits.max_accounted_bytes})"
         )
 
 

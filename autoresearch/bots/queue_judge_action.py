@@ -7,7 +7,9 @@ import argparse
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
+REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(REPO_ROOT / "autoresearch" / "backend"))
 from canonical import process_one  # noqa: E402
 from store import Store  # noqa: E402
 

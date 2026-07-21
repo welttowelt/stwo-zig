@@ -26,12 +26,20 @@ MANIFEST_RAW = {
                 "board": "core_cpu",
                 "build_step": "true",
                 "binary": "true",
-                "report_schema": "native_proof_v6",
+                "report_schema": "native_proof_v7",
                 "workloads": {},
             },
         },
     },
-    "gates_policy": {},
+    "gates_policy": {
+        "max_rounds": 1,
+        "search_health": {
+            "trailing_window": 1,
+            "gradient_snr_threshold": 2.0,
+            "auto_boost_rounds": 1,
+            "maximum_rounds": 2,
+        },
+    },
 }
 
 

@@ -15,11 +15,10 @@ import json
 import subprocess
 from pathlib import Path
 
-from . import frontier, ledger
+from . import frontier, ledger, metrics, search_health
 from .manifest import Manifest
 
-FEED_SCHEMA_VERSION = 2
-CLASSES = ("small", "wide", "deep")
+FEED_SCHEMA_VERSION = 3
 
 # Input roots whose uncommitted changes make a feed provenance-dishonest.
 INPUT_ROOTS = (
@@ -208,6 +207,16 @@ def _promotion_scope(manifest: Manifest) -> dict:
         }
     owned = sorted({g.board for g in manifest.groups()})
     return {
+        "class_registry": {
+            cls.name: {
+                "scored": cls.scored,
+                "resource_profile": cls.resource_profile,
+                "command_timeout_seconds": cls.command_timeout_seconds,
+                "wall_clock_cap_seconds": cls.wall_clock_cap_seconds,
+                "sampling": cls.sampling,
+            }
+            for cls in manifest.classes()
+        },
         "groups": groups,
         "owned_boards": owned,
         "future_boards": sorted(set(ledger.BOARDS) - set(owned)),
@@ -218,19 +227,118 @@ def _promotion_scope(manifest: Manifest) -> dict:
     }
 
 
-def _boards(repo: Path, rows: list[ledger.Row]) -> dict:
+def _audit_age(repo: Path, base_commit: str) -> dict:
+    try:
+        commits = int(_git(repo, "rev-list", "--count", f"{base_commit}..HEAD"))
+        base_time = int(_git(repo, "show", "-s", "--format=%ct", base_commit))
+        head_time = int(_git(repo, "show", "-s", "--format=%ct", "HEAD"))
+    except (FeedError, ValueError) as exc:
+        return {
+            "base_commit": base_commit,
+            "commits": None,
+            "seconds": None,
+            "unavailable_reason": "audit_base_not_present_in_repository_history",
+        }
+    return {
+        "base_commit": base_commit,
+        "commits": commits,
+        "seconds": max(0, head_time - base_time),
+    }
+
+
+def _audit_state(
+    repo: Path,
+    rows: list[ledger.Row],
+    epoch_spec: dict,
+    board: str,
+    workload_class: str,
+) -> dict:
+    policy = metrics.policy_from_epoch(epoch_spec)
+    state = metrics.audit_projection(
+        rows,
+        int(epoch_spec["epoch"]),
+        board,
+        workload_class,
+        policy=policy,
+    )
+    evidence_total = state.claimed_observations + state.judged_observations
+    coverage = state.neutral_observations
+    return {
+        "effective_score": state.effective_score,
+        "audited_score": state.audited_score,
+        "audited_through": state.audited_through,
+        "audit_age": _audit_age(repo, state.audit_base),
+        "unaudited_tail": {
+            "count": len(state.unaudited_tail),
+            "observation_ids": list(state.unaudited_tail),
+        },
+        "due": {
+            "span": state.span_due,
+            "span_reasons": list(state.span_reasons),
+            "direct": state.direct_due,
+        },
+        "overdue": {
+            "span": state.span_overdue_by > 0,
+            "span_by_observations": state.span_overdue_by,
+            "direct": state.direct_overdue_by > 0,
+            "direct_by_observations": state.direct_overdue_by,
+        },
+        "span_coverage": {
+            "eligible": coverage,
+            "consumed": state.span_consumed,
+            "pending": state.span_pending,
+            "share": state.span_consumed / coverage if coverage else None,
+        },
+        "evidence_share": {
+            "claimed": state.claimed_observations,
+            "judged": state.judged_observations,
+            "claimed_share": (
+                state.claimed_observations / evidence_total if evidence_total else None
+            ),
+            "judged_share": (
+                state.judged_observations / evidence_total if evidence_total else None
+            ),
+        },
+    }
+
+
+def _boards(
+    repo: Path,
+    manifest: Manifest,
+    rows: list[ledger.Row],
+    epoch_spec: dict,
+) -> dict:
+    epoch = int(epoch_spec["epoch"])
     boards: dict = {}
+    owned_boards = {group.board for group in manifest.groups()}
     for board in ledger.BOARDS:
         board_rows = [r for r in rows if r.values.get("board") == board]
         entries = [r.values for r in board_rows]
         board_frontier = {}
-        for cls in CLASSES:
+        classes = (
+            manifest.class_names(
+                board=board, scored_only=True, include_disabled=True,
+            )
+            if board in owned_boards else []
+        )
+        for cls in classes:
             view = frontier.view(board_rows, board, cls)
             board_frontier[cls] = {
                 "head": view.head.values if view.head else None,
                 "frontier": [r.values for r in view.frontier],
+                "audit": _audit_state(
+                    repo, rows, epoch_spec, board, cls,
+                ),
             }
-        boards[board] = {"entries": entries, "frontier_by_class": board_frontier}
+        boards[board] = {
+            "entries": entries,
+            "scored_classes": classes,
+            "suite_score": (
+                frontier.board_suite_score(rows, board, classes, epoch)
+                if classes else None
+            ),
+            "frontier_by_class": board_frontier,
+        }
     return boards
 
 
@@ -345,12 +453,73 @@ def _references(repo: Path) -> dict:
     if not ref_dir.is_dir():
         return {}
     out = {}
-    for path in sorted(ref_dir.glob("*.json")):
+    paths = [
+        path for path in sorted(ref_dir.glob("*.json"))
+        if not path.name.endswith(".schema.json")
+    ]
+    paths.extend(sorted((ref_dir / "peer-series" / "runs").glob("*.json")))
+    for path in paths:
         try:
-            out[path.stem.replace("-", "_")] = json.loads(path.read_text())
+            document = json.loads(path.read_text())
         except json.JSONDecodeError as exc:
             raise FeedError(f"reference file {path.name} is not valid JSON: {exc}")
+        _validate_reference(path, document)
+        if path.parent.name == "runs":
+            key = "peer_series_run_" + path.stem.replace("-", "_")
+        else:
+            key = path.stem.replace("-", "_")
+        if key in out:
+            raise FeedError(f"duplicate reference key {key}")
+        out[key] = document
     return out
+
+
+def _validate_reference(path: Path, document: dict) -> None:
+    kind = document.get("reference_kind")
+    if kind == "upstream-rust-backend":
+        name = document.get("name")
+        rust = document.get("rust_reference", {})
+        actual = (rust.get("backend_id"), rust.get("backend_type"))
+        expected = {
+            "peer-rust-scalar": (
+                "cpu-scalar",
+                "stwo::prover::backend::cpu::CpuBackend",
+            ),
+            "peer-rust-simd": (
+                "simd",
+                "stwo::prover::backend::simd::SimdBackend",
+            ),
+        }.get(name)
+        if expected is None or actual != expected:
+            raise FeedError(
+                f"reference file {path.name} backend identity mismatch: "
+                f"name={name!r}, backend={actual!r}"
+            )
+    elif kind == "peer-relative-series":
+        peer = document.get("peer_source", {})
+        if (
+            peer.get("repository") != "https://github.com/ClementWalter/stwo"
+            or peer.get("commit") != "07ea1ccca13351028da94e66babf79e7ce91437f"
+        ):
+            raise FeedError(f"reference file {path.name} peer source pin mismatch")
+    elif document.get("schema") == "peer-relative-wide-fibonacci-series-point-v1":
+        peer = document.get("peer_source", {})
+        if (
+            peer.get("repository") != "https://github.com/ClementWalter/stwo"
+            or peer.get("commit") != "07ea1ccca13351028da94e66babf79e7ce91437f"
+        ):
+            raise FeedError(f"reference file {path.name} peer series pin mismatch")
+        if [size.get("log_n_rows") for size in document.get("sizes", [])] != [14, 16, 18, 20]:
+            raise FeedError(f"reference file {path.name} peer series size vector mismatch")
+
+
+def _reference_input_files(repo: Path) -> list[Path]:
+    ref_dir = repo / "autoresearch" / "reference"
+    if not ref_dir.is_dir():
+        return []
+    paths = sorted(ref_dir.glob("*.json"))
+    paths.extend(sorted((ref_dir / "peer-series" / "runs").glob("*.json")))
+    return paths
 
 
 def _notes_count(repo: Path) -> int:
@@ -358,6 +527,35 @@ def _notes_count(repo: Path) -> int:
     if not notes_dir.is_dir():
         return 0
     return sum(1 for p in notes_dir.glob("*.md") if p.name != "README.md")
+
+
+def _credited_log_effect(repo: Path, row) -> float:
+    """Resolve row credit through Metrics v2 without coupling feed input APIs."""
+    try:
+        from . import metrics
+
+        epoch = ledger.known_epochs(repo)[int(row.epoch)]
+        policy = metrics.policy_from_epoch(epoch)
+        return float(metrics.credited_log_effect(row, policy.shrinkage_lambda))
+    except Exception as exc:
+        raise search_health.SearchHealthError(
+            f"credited log effect is unavailable for row {getattr(row, 'row_id', '?')}: {exc}"
+        ) from exc
+
+
+def build_search_health(manifest: Manifest, rows: list[ledger.Row]) -> dict:
+    """Build the W10 projection from explicit row and verdict inputs."""
+    try:
+        return search_health.projection(
+            manifest,
+            rows,
+            search_health.load_verdicts_by_evidence(manifest.root),
+            credited_log_effect_fn=lambda row: _credited_log_effect(
+                manifest.root, row
+            ),
+        )
+    except search_health.SearchHealthError as exc:
+        raise FeedError(f"cannot publish search health: {exc}") from exc
 
 
 def build_feed(manifest: Manifest, allow_dirty: bool = False) -> dict:
@@ -394,7 +592,15 @@ def build_feed(manifest: Manifest, allow_dirty: bool = False) -> dict:
         path = repo / rel
         if path.exists():
             inputs[rel] = _sha256_file(path)
+    submissions = repo / "autoresearch" / "submissions"
+    if submissions.is_dir():
+        for path in sorted(submissions.glob("*/*verdict*.json")):
+            rel = path.relative_to(repo).as_posix()
+            inputs[rel] = _sha256_file(path)
     inputs.update(extra_inputs)
+    for path in _reference_input_files(repo):
+        rel = str(path.relative_to(repo))
+        inputs[rel] = _sha256_file(path)
 
     head = _git(repo, "rev-parse", "HEAD")
     head_time = _git(repo, "show", "-s", "--format=%cI", "HEAD")
@@ -428,7 +634,8 @@ def build_feed(manifest: Manifest, allow_dirty: bool = False) -> dict:
             "aa_dispersion": epoch.get("aa_dispersion"),
         },
         "promotion_scope": _promotion_scope(manifest),
-        "boards": _boards(repo, rows),
+        "boards": _boards(repo, manifest, rows, epoch),
+        "search_health": build_search_health(manifest, rows),
         "metal_resident_progress": _metal_progress(latest),
         "latest_matrix": latest,
         "baseline_matrix": baseline,

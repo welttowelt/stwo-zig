@@ -40,10 +40,19 @@ from .model import (
     validate_workload,
     workload_descriptor_sha256,
 )
+from .resource_admission import (
+    ACCOUNTED_BYTES_PER_COMMITTED_CELL,
+    RESOURCE_PROFILES,
+    ZIG_RESOURCE_AUTHORITY,
+    ZIG_RESOURCE_CONSTANTS,
+    resource_limits,
+    validate_source_contract,
+)
 
 __all__ = [
     "ARCHIVE_STORE_COUNTER_KEYS",
     "ARCHIVE_STORE_SECONDS_KEY",
+    "ACCOUNTED_BYTES_PER_COMMITTED_CELL",
     "BACKEND_COUNTER_KEYS",
     "DEFAULT_COOLDOWN_SECONDS",
     "DEFAULT_PROTOCOL",
@@ -58,6 +67,7 @@ __all__ = [
     "PIPELINE_CACHE_COUNTER_KEYS",
     "PIPELINE_CACHE_SECONDS_KEY",
     "REPORT_SCHEMA_VERSION",
+    "RESOURCE_PROFILES",
     "RUST_ORACLE_SHA256",
     "RUNTIME_ADMISSION_KEYS",
     "SESSION_KEYS",
@@ -66,6 +76,8 @@ __all__ = [
     "WORKLOAD_SUITES",
     "Workload",
     "WorkloadSuite",
+    "ZIG_RESOURCE_AUTHORITY",
+    "ZIG_RESOURCE_CONSTANTS",
     "atomic_write_bytes",
     "atomic_write_json",
     "load_proof_artifact",
@@ -75,10 +87,12 @@ __all__ = [
     "run_matrix",
     "run_rust_oracle",
     "require_unprofiled_environment",
+    "resource_limits",
     "validate_pair",
     "validate_proof_artifact",
     "validate_report",
     "validate_suite",
+    "validate_source_contract",
     "validate_workload",
     "workload_descriptor_sha256",
 ]

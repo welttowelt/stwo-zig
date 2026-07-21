@@ -18,7 +18,7 @@ GROUP = WorkloadGroup(
     group_id="native", enabled=True, promotion_eligible=True,
     disabled_reason=None, board="core_cpu",
     build_step="zig build bench", binary="zig-out/bin/bench",
-    report_schema="native_proof_v6", workloads=[],
+    report_schema="native_proof_v7", workloads=[],
 )
 
 GUARDS = {

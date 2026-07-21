@@ -22,6 +22,12 @@ pub fn addProduct(b: *std.Build, metal_enabled: bool) void {
     else
         .{};
     const protocol = graph.createPrivateProtocolModules(b, target, optimize);
+    const resource_admission = graph.create(b, .{
+        .product = aggregate.product(metal_enabled),
+        .root_source_file = "src/prover/native/resource_admission.zig",
+        .target = target,
+        .optimize = optimize,
+    });
     const stwo = graph.create(b, .{
         .product = aggregate.product(metal_enabled),
         .root_source_file = if (metal_enabled)
@@ -38,6 +44,7 @@ pub fn addProduct(b: *std.Build, metal_enabled: bool) void {
         .optimize = optimize,
     });
     runner.addImport("stwo", stwo);
+    runner.addImport("native_resource_admission", resource_admission);
 
     const aggregate_tests = libraries.consumer(b, protocol, .{
         .root_source_file = b.path(if (metal_enabled)
@@ -60,6 +67,7 @@ pub fn addProduct(b: *std.Build, metal_enabled: bool) void {
         }),
     });
     runner_tests.root_module.addImport("stwo", stwo);
+    runner_tests.root_module.addImport("native_resource_admission", resource_admission);
     test_step.dependOn(&b.addRunArtifact(runner_tests).step);
 
     const executable = prove_cli.addProduct(.{
@@ -68,6 +76,7 @@ pub fn addProduct(b: *std.Build, metal_enabled: bool) void {
         .optimize = optimize,
         .stwo_module = stwo,
         .native_proof_runner_module = runner,
+        .native_resource_admission_module = resource_admission,
         .test_step = test_step,
         .identity = source_identity,
         .product = aggregate.product(metal_enabled),

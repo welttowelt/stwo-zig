@@ -26,6 +26,11 @@ pub fn addProducts(context: Context) void {
     protocol.addImports(stwo);
     const runner = consumer(context, protocol, "src/prover/native/runner.zig");
     runner.addImport("stwo", stwo);
+    runner.addImport("native_resource_admission", consumer(
+        context,
+        protocol,
+        "src/prover/native/resource_admission.zig",
+    ));
 
     const interop = consumer(context, protocol, "src/tools/interop/main.zig");
     interop.addImport("stwo", stwo);

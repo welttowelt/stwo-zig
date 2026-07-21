@@ -160,6 +160,35 @@ class DirtyBindingTests(unittest.TestCase):
 
 
 class CorrectnessBoundaryTests(unittest.TestCase):
+    def test_candidate_benchmark_requires_resources_only_on_darwin(self) -> None:
+        payload = {
+            "profiled": False,
+            "total_steps": 1,
+            "median_seconds": 0.1,
+            "mean_execution_seconds": 0.1,
+            "mean_witness_seconds": 0.1,
+            "mean_proving_seconds": 0.1,
+            "mean_verification_seconds": 0.1,
+        }
+        workload = mock.Mock(row_id="proof:test")
+        candidate = {
+            "commit": CANDIDATE,
+            "dirty": False,
+            "executables": {"riscv_cpu": {"sha256": DIGEST}},
+        }
+        admission = controller.riscv_cli_admission.Admission(
+            "candidate", "not_release_gated", True,
+        )
+        with mock.patch.object(
+            controller.staged_contracts, "validate_benchmark_report",
+        ) as validate, mock.patch.object(
+            controller.platform, "system", return_value="Linux",
+        ):
+            controller._validate_candidate_benchmark(
+                payload, workload, candidate, None, admission,
+            )
+        self.assertFalse(validate.call_args.kwargs["require_resource_availability"])
+
     def test_semantic_parity_compares_the_complete_public_statement(self) -> None:
         oracle = public_data()
         candidate = json.loads(json.dumps(oracle))

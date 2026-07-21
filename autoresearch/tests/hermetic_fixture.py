@@ -58,6 +58,22 @@ def manifest_document() -> dict:
         "editable_paths": [{"glob": "src/core/fields/**", "min_rung": "s3"}],
         "locked_paths": ["autoresearch/**", ".github/**"],
         "workload_registry": {
+            "classes": {
+                "small": {
+                    "scored": True,
+                    "resource": {
+                        "profile": "standard",
+                        "command_timeout_seconds": 1,
+                        "wall_clock_cap_seconds": 1,
+                    },
+                    "sampling": {
+                        "warmups": 1,
+                        "samples_per_round": 1,
+                        "min_rounds": 1,
+                        "max_rounds": 1,
+                    },
+                },
+            },
             "groups": {
                 "native": {
                     "enabled": True,
@@ -65,7 +81,7 @@ def manifest_document() -> dict:
                     "board": "core_cpu",
                     "build_step": "true",
                     "binary": "bin/hermetic-bench",
-                    "report_schema": "native_proof_v6",
+                    "report_schema": "native_proof_v7",
                     "workloads": {
                         "wf": {
                             "class": "small",
@@ -89,6 +105,12 @@ def manifest_document() -> dict:
             "samples_per_round": 1,
             "min_rounds": 1,
             "max_rounds": 1,
+            "search_health": {
+                "trailing_window": 1,
+                "gradient_snr_threshold": 2.0,
+                "auto_boost_rounds": 1,
+                "maximum_rounds": 2,
+            },
             "wall_clock_cap_seconds": {"small": 1, "wide": 1, "deep": 1},
         },
         "qualification_policy": {
@@ -220,6 +242,7 @@ def passing_verdict(candidate: Path, predecessor: Path, _manifest,
             "dimension": dimension,
         },
         "environment": {"fixture": "hermetic"},
+        "search_health": {"measurement_wall_seconds": 25.0},
         "gates": {
             name: {"pass": True}
             for name in ("G1", "G2", "G3", "G4", "G5")
@@ -235,6 +258,9 @@ def passing_verdict(candidate: Path, predecessor: Path, _manifest,
                     "ci": [0.88, 0.92],
                     "a_median_ms": 10.0,
                     "b_median_ms": 9.0,
+                    "rounds": 9,
+                    "proof_bytes": 4096,
+                    "measurement_seconds": 12.5,
                 },
             },
         },
