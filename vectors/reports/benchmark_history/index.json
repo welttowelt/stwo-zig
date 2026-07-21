@@ -40,6 +40,11 @@
       "path": "runs/2026-07-21-082920-matrix-v6-303292ce/report.json",
       "run": "2026-07-21-082920-matrix-v6-303292ce"
     },
+    "770830ab765311cf46afa7fd10d3dab3868001e40e9f60115f573e788bcaa4bc": {
+      "bytes": 1160603,
+      "path": "runs/2026-07-21-085853-matrix-v6-6448467f/report.json",
+      "run": "2026-07-21-085853-matrix-v6-6448467f"
+    },
     "79885f1d6388667541832529aec8970e7b30bdb995a109ffc7cc19c5f15d2012": {
       "bytes": 338064,
       "path": "runs/2026-07-17-064520-matrix-v3-370f8ef8/report.json",
@@ -226,6 +231,15 @@
       "path": "runs/2026-07-21-083443-matrix-v6-f7b9d33d/bundle",
       "report_sha256": "db7fafeb2e418ebf1abf69c2f6516c37a5835c1ab63de85187ce2d36deb3345f",
       "run": "2026-07-21-083443-matrix-v6-f7b9d33d",
+      "schema": "native_proof_matrix_bundle_v1"
+    },
+    "d247d78cf0bef16e56ce2cdfe27fb765c8198c483e3a98919e6ad2f80b9dcc3f": {
+      "artifact_bytes": 4361309,
+      "artifact_files": 72,
+      "bundle_sha256": "d247d78cf0bef16e56ce2cdfe27fb765c8198c483e3a98919e6ad2f80b9dcc3f",
+      "path": "runs/2026-07-21-085853-matrix-v6-6448467f/bundle",
+      "report_sha256": "770830ab765311cf46afa7fd10d3dab3868001e40e9f60115f573e788bcaa4bc",
+      "run": "2026-07-21-085853-matrix-v6-6448467f",
       "schema": "native_proof_matrix_bundle_v1"
     },
     "ef56faafa2b659af1744983de54f18088000469ac506806fdcf56b811e3c9760": {
@@ -602,6 +616,19 @@
       "id": "bc5dbc10090a2be63f8ac132d4e9be83d9210444368e50f15798f720462312e8",
       "report_kind": "native_proof_cross_backend_matrix_v6",
       "status": "comparable"
+    },
+    {
+      "archived_at": "2026-07-21T08:58:53.278275+00:00",
+      "baseline_run": "2026-07-21-084128-matrix-v6-ffbcefca",
+      "baseline_sha256": "4b1b8a4b52f3a11d53bf3044391e52f5fada7b2a38d6fcad45dbb883cbf6ac2c",
+      "comparison_identity_sha256": "b4874beb89b9049641b101a901a04d57d619a139e667ead373d49a8620aec897",
+      "current_run": "2026-07-21-085853-matrix-v6-6448467f",
+      "current_sha256": "770830ab765311cf46afa7fd10d3dab3868001e40e9f60115f573e788bcaa4bc",
+      "delta_path": "runs/2026-07-21-085853-matrix-v6-6448467f/delta-from-2026-07-21-084128-matrix-v6-ffbcefca.json",
+      "delta_sha256": "f8907d3529ce4bd1d7fcd08b581fa2f05085766d1c7c6a5a866896628e0a300f",
+      "id": "4f54bc91a38c9e0c8ee38b29de6239f94848d0bc3bba7e0aa435f9da40182208",
+      "report_kind": "native_proof_cross_backend_matrix_v6",
+      "status": "comparable"
     }
   ],
   "deltas": {
@@ -760,6 +787,12 @@
       "bytes": 229207,
       "path": "runs/2026-07-21-084128-matrix-v6-ffbcefca/delta-from-2026-07-21-084006-matrix-v6-8d09fdf3.json",
       "run": "2026-07-21-084128-matrix-v6-ffbcefca"
+    },
+    "f8907d3529ce4bd1d7fcd08b581fa2f05085766d1c7c6a5a866896628e0a300f": {
+      "baseline_run": "2026-07-21-084128-matrix-v6-ffbcefca",
+      "bytes": 230964,
+      "path": "runs/2026-07-21-085853-matrix-v6-6448467f/delta-from-2026-07-21-084128-matrix-v6-ffbcefca.json",
+      "run": "2026-07-21-085853-matrix-v6-6448467f"
     },
     "fbe443a95547cf7a27c627bf5e9ac87e9c59b08146a4c4529bcff94471c3742c": {
       "baseline_run": "2026-07-21-082920-matrix-v6-303292ce",
@@ -1139,6 +1172,26 @@
         "bytes": 1160524,
         "path": "runs/2026-07-21-084128-matrix-v6-ffbcefca/report.json",
         "sha256": "4b1b8a4b52f3a11d53bf3044391e52f5fada7b2a38d6fcad45dbb883cbf6ac2c"
+      }
+    },
+    "2026-07-21-085853-matrix-v6-6448467f": {
+      "bundle": {
+        "artifact_bytes": 4361309,
+        "artifact_files": 72,
+        "bundle_sha256": "d247d78cf0bef16e56ce2cdfe27fb765c8198c483e3a98919e6ad2f80b9dcc3f",
+        "path": "runs/2026-07-21-085853-matrix-v6-6448467f/bundle",
+        "report_sha256": "770830ab765311cf46afa7fd10d3dab3868001e40e9f60115f573e788bcaa4bc",
+        "run": "2026-07-21-085853-matrix-v6-6448467f",
+        "schema": "native_proof_matrix_bundle_v1"
+      },
+      "deltas": [
+        "runs/2026-07-21-085853-matrix-v6-6448467f/delta-from-2026-07-21-084128-matrix-v6-ffbcefca.json"
+      ],
+      "kind": "native_proof_cross_backend_matrix_v6",
+      "report": {
+        "bytes": 1160603,
+        "path": "runs/2026-07-21-085853-matrix-v6-6448467f/report.json",
+        "sha256": "770830ab765311cf46afa7fd10d3dab3868001e40e9f60115f573e788bcaa4bc"
       }
     }
   },
