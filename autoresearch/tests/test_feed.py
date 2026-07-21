@@ -134,6 +134,52 @@ class FeedTest(unittest.TestCase):
         self.assertIsNotNone(row["lanes"]["cpu"]["prove_ms"])
         self.assertIsNotNone(row["native_unit"])
 
+    def test_request_resources_are_retained_without_zero_filling_legacy_rows(self):
+        legacy = {"metrics": {}, "proof": {"bytes": 123}}
+        self.assertNotIn("request_resources", feed._lane_summary(legacy))
+
+        measured = {
+            **legacy,
+            "request_resources": {
+                "measurement_scope": "verified_process_request_batch",
+                "source": "darwin_proc_pid_rusage_v6",
+                "measured_warmups": 1,
+                "measured_samples": 2,
+                "lifetime_peak_physical_footprint_bytes": 64 * 1024 * 1024,
+                "energy_nj": 1_000_000,
+                "instructions": 2_000_000,
+                "cycles": 1_000_000,
+                "canonical_proof_bytes": 123,
+                "complete": True,
+                "unavailable_reason": None,
+            },
+        }
+        self.assertEqual(
+            feed._lane_summary(measured)["request_resources"],
+            measured["request_resources"],
+        )
+
+    def test_request_resource_proof_mismatch_fails_feed_closed(self):
+        lane = {
+            "metrics": {},
+            "proof": {"bytes": 123},
+            "request_resources": {
+                "measurement_scope": "verified_process_request_batch",
+                "source": "unsupported",
+                "measured_warmups": 1,
+                "measured_samples": 2,
+                "lifetime_peak_physical_footprint_bytes": None,
+                "energy_nj": None,
+                "instructions": None,
+                "cycles": None,
+                "canonical_proof_bytes": 124,
+                "complete": False,
+                "unavailable_reason": "unsupported platform",
+            },
+        }
+        with self.assertRaisesRegex(feed.FeedError, "proof bytes"):
+            feed._lane_summary(lane)
+
     def test_reference_backends_are_distinct_and_peer_series_is_discoverable(self):
         references = self.feed["references"]
         scalar = references["peer_rust_scalar"]

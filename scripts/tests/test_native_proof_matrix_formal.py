@@ -240,6 +240,12 @@ class NativeProofMatrixFormalTests(unittest.TestCase):
                 document["product_receipts"]["cpu"]["product_identity"]["name"],
                 "stwo-native-cpu",
             )
+            cpu_lane = document["rows"][0]["lanes"]["cpu"]
+            self.assertEqual(cpu_lane["resources"]["normalized_unit"], "KiB")
+            self.assertEqual(
+                cpu_lane["request_resources"]["measurement_scope"],
+                "verified_process_request_batch",
+            )
 
     def test_dirty_provenance_blocks_headline_without_weakening_parity(self) -> None:
         workload = MODULE.Workload.wide_fibonacci(10, 8)
