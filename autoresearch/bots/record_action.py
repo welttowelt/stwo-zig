@@ -22,6 +22,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "cli"))
 from stwo_perf import ledger, promotion  # noqa: E402
 
 
+def landing_order(repo: Path, subs: list[Path]) -> list[Path]:
+    """Sort submission dirs by when each landed on the mainline. Directory
+    names sort alphabetically within a day, which diverges from landing order
+    the moment several submissions arrive in one push — and the frontier
+    head check makes recording order adjudication order."""
+    def position(sub: Path) -> int:
+        # Ancestor count: a submission whose branch includes an earlier
+        # submission's merge always counts higher, so chained work replays
+        # in chain order. (Truly parallel branches have no order to recover.)
+        commit = promotion.landing_commit(repo, sub.name)
+        out = subprocess.run(
+            ["git", "rev-list", "--count", commit],
+            cwd=repo, capture_output=True, text=True, check=True,
+        )
+        return int(out.stdout.strip())
+    return sorted(subs, key=position)
+
+
 def record_pending(repo: Path) -> list[str]:
     """Append optimistic rows for merged, unrecorded claimed verdicts — one
     row per (submission, moved class); returns 'id[name]' entries recorded."""
@@ -30,7 +48,7 @@ def record_pending(repo: Path) -> list[str]:
     }
     recorded: list[str] = []
     subs_dir = repo / "autoresearch" / "submissions"
-    for sub in sorted(p for p in subs_dir.iterdir() if p.is_dir()):
+    for sub in landing_order(repo, [p for p in subs_dir.iterdir() if p.is_dir()]):
         for verdict_path in promotion.claimed_verdict_files(sub):
             try:
                 verdict = json.loads(verdict_path.read_text())
