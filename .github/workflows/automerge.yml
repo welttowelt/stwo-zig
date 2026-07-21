@@ -41,17 +41,22 @@ jobs:
           [ -z "$prs" ] && { echo "no open PR at $HEAD_SHA"; exit 0; }
 
           for pr in $prs; do
-            base=$(gh pr view "$pr" --repo "$REPO" --json baseRefName --jq .baseRefName)
+            # A concurrent run can merge/close the PR between the listing and
+            # these lookups; a vanished PR is a skip, not a job failure.
+            base=$(gh pr view "$pr" --repo "$REPO" --json baseRefName --jq .baseRefName) || \
+              { echo "PR #$pr: gone mid-loop — skip"; continue; }
             [ "$base" = "main" ] || { echo "PR #$pr: base $base — skip"; continue; }
 
-            assoc=$(gh pr view "$pr" --repo "$REPO" --json authorAssociation --jq .authorAssociation)
+            assoc=$(gh pr view "$pr" --repo "$REPO" --json authorAssociation --jq .authorAssociation) || \
+              { echo "PR #$pr: gone mid-loop — skip"; continue; }
             case " $AUTHOR_OK " in
               *" $assoc "*) ;;
               *) echo "PR #$pr: author association $assoc — human merge required"; continue ;;
             esac
 
             is_submission=$(gh pr view "$pr" --repo "$REPO" --json files \
-              --jq '[.files[].path | select(startswith("autoresearch/submissions/"))] | length')
+              --jq '[.files[].path | select(startswith("autoresearch/submissions/"))] | length') || \
+              { echo "PR #$pr: gone mid-loop — skip"; continue; }
             [ "$is_submission" -gt 0 ] || { echo "PR #$pr: not a submission PR — skip"; continue; }
 
             # Every check run at this head must be finished and green.
