@@ -280,7 +280,7 @@ def portfolio_promotion_status(
     }
 
 
-def _run(cmd: str, cwd: Path, timeout: int) -> str:
+def _run(cmd: str, cwd: Path, timeout: float | int) -> str:
     try:
         proc = subprocess.run(
             shlex.split(cmd), cwd=cwd, capture_output=True, text=True, timeout=timeout
@@ -387,6 +387,7 @@ def bench_once(
     samples: int,
     out_dir: Path,
     tag: str,
+    timeout_seconds: float | int | None = None,
 ) -> ArmResult:
     group = manifest.group(workload.group_id)
     binary = arm_root / group.binary
@@ -403,7 +404,14 @@ def bench_once(
         arm_root, group, workload, warmups, samples,
     )
     extra = f" --proof-out {shlex.quote(str(proof_path))}" if proof_path else ""
-    stdout = _run(f"{binary} {args}{extra}", arm_root, timeout=1200)
+    timeout = (
+        timeout_seconds
+        if timeout_seconds is not None
+        else manifest.workload_class(workload.workload_class).command_timeout_seconds
+    )
+    if timeout <= 0:
+        raise RunError(f"{workload.workload_id}: no command time budget remains")
+    stdout = _run(f"{binary} {args}{extra}", arm_root, timeout=timeout)
     try:
         report = _load_json_object(stdout, "bench report")
     except (json.JSONDecodeError, ValueError) as exc:
@@ -758,13 +766,26 @@ def paired_rounds(
 
     round_no = 0
     while round_no < max_rounds:
+        if round_no >= min_rounds and time.monotonic() - started >= cap:
+            break
         round_no += 1
         order = ("a", "b") if round_no % 2 == 1 else ("b", "a")
         results: dict[str, ArmResult] = {}
         for arm in order:
             root = a_root if arm == "a" else b_root
+            remaining = cap - (time.monotonic() - started)
+            if remaining <= 0:
+                raise RunError(
+                    f"{workload.workload_id}: class wall-clock budget exhausted "
+                    f"before completing paired round {round_no}"
+                )
+            command_timeout = min(
+                float(policy.get("command_timeout_seconds", 1200)),
+                remaining,
+            )
             results[arm] = bench_once(
-                root, manifest, workload, warmups, samples, out_dir, f"{arm}{round_no}"
+                root, manifest, workload, warmups, samples, out_dir, f"{arm}{round_no}",
+                timeout_seconds=command_timeout,
             )
         a, b = results["a"], results["b"]
         if a.proof_verified < samples or b.proof_verified < samples:
@@ -1035,7 +1056,7 @@ def evaluate_aa(repo_root: Path, manifest: Manifest, workload_class: str,
     if len(group_ids) != 1:
         raise RunError(f"board {board} selected workloads from multiple groups")
     group_id = next(iter(group_ids))
-    policy = manifest.gates_for_group(group_id)
+    policy = manifest.gates_for_workload(group_id, workload_class)
     build_arm(repo_root, manifest, groups=[manifest.group(group_id)])
     scores = [
         paired_rounds(repo_root, repo_root, manifest, workload, policy, out_dir)
@@ -1376,6 +1397,7 @@ def run_guards(a_root: Path, b_root: Path, manifest: Manifest,
         "max_rounds": int(policy.get("max_rounds", 8)),
         "theta_floor": max(budget - 1.0, 0.01),
         "wall_clock_cap_seconds": {"guard": 300},
+        "command_timeout_seconds": 300,
     }
     extra = int(policy.get("inconclusive_extra_rounds", 4))
     results: dict[str, dict] = {}
@@ -1426,7 +1448,7 @@ def evaluate(
     group_ids = {workload.group_id for workload in workloads}
     if len(group_ids) != 1:
         raise RunError(f"board {board} selected workloads from multiple groups")
-    policy = manifest.gates_for_group(next(iter(group_ids)))
+    policy = manifest.gates_for_workload(next(iter(group_ids)), workload_class)
 
     dispersion = ledger.aa_dispersion(repo_root, board, workload_class)
     th = stats.theta(dispersion, float(policy["theta_floor"]), float(policy["dispersion_multiplier"]))
@@ -1800,15 +1822,28 @@ def _gates(repo_root, manifest, scores, policy, judged, dispersion,
             set(score.resource_estimates) == set(dimensions.RESOURCE_DIMENSIONS)
             for score in scores
         )
+        class_anchor_frozen = (
+            isinstance(anchor_ms, (int, float))
+            and not isinstance(anchor_ms, bool)
+            and math.isfinite(float(anchor_ms))
+            and float(anchor_ms) > 0
+        )
+        class_dispersion_frozen = (
+            isinstance(dispersion, (int, float))
+            and not isinstance(dispersion, bool)
+            and math.isfinite(float(dispersion))
+            and float(dispersion) > 0
+        )
         env_ok = (
-            dispersion is not None
+            class_dispersion_frozen
+            and class_anchor_frozen
             and manifest.anchor_commit is not None
             and resources_complete
         )
         env_detail = (
-            "judge lock, measured A/A dispersion, anchor, and complete resource vectors present"
+            "judge lock, finite per-class A/A dispersion, anchor, and complete resource vectors present"
             if env_ok
-            else "judged requires measured A/A dispersion, a frozen anchor, and complete resource vectors"
+            else "judged requires finite positive per-class A/A dispersion, an anchor, and complete resource vectors"
         )
     return {
         "G1": {"pass": g1_ok, "detail": "every timed sample verified; cross-arm proof digests byte-identical per round" + oracle_note},

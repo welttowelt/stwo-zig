@@ -63,7 +63,7 @@ def main() -> int:
         {name: True for name in qualification.REQUIRED_CHECKS},
         _claim(verdict), workflow,
     )
-    qualification.validate_receipt(receipt)
+    qualification.validate_receipt(receipt, manifest)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")

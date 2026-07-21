@@ -31,8 +31,17 @@ def cmd_frontier(_args) -> int:
     rows = ledger.load(m.root)
     gates = m.gates
     anchors = m.raw["harness"].get("anchor_prove_ms") or {}
-    print(render.frontier_view(rows, list(ledger.BOARDS), ["small", "wide", "deep"], anchors,
-                               (gates["targeted_class_budget"], gates["matrix_row_budget"])))
+    owned = {group.board for group in m.groups()}
+    classes_by_board = {
+        board: m.class_names(
+            board=board, scored_only=True, include_disabled=True,
+        ) if board in owned else []
+        for board in ledger.BOARDS
+    }
+    print(render.frontier_view(
+        rows, list(ledger.BOARDS), classes_by_board, anchors,
+        (gates["targeted_class_budget"], gates["matrix_row_budget"]),
+    ))
     if m.anchor_commit is None:
         print()
         print(ansi.style("  anchor not frozen — drift budgets inactive, judged promotion disabled", "yellow"))
@@ -433,6 +442,13 @@ def cmd_submit_remote(args) -> int:
 
 def cmd_remote_frontier(args) -> int:
     from . import remote
+    m = manifest_mod.load()
+    try:
+        m.validate_workload_class(
+            args.workload_class, board=args.board, include_disabled=True,
+        )
+    except manifest_mod.ManifestError as exc:
+        return _fail(str(exc))
     try:
         data = remote.frontier(config.api_url(), args.board, args.workload_class)
     except remote.RemoteError as exc:
@@ -521,8 +537,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("run", help="paired reward evaluation; emits a claimed verdict")
     p.add_argument("--scope", choices=["s1", "s2", "s3", "s4", "s5"], default="s3")
-    p.add_argument("--class", dest="workload_class", choices=["small", "wide", "deep"],
-                   default="small")
+    p.add_argument(
+        "--class", dest="workload_class", default="small",
+        help="manifest-declared workload class (validated against --board)",
+    )
     p.add_argument("--dimension", choices=["time", "rss", "energy"], default="time")
     p.add_argument(
         "--guards", choices=["auto", "all", "none"], default="auto",
@@ -609,8 +627,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--coauthor", action="append", default=[], metavar="GITHUB_LOGIN")
     p = sub.add_parser("remote-frontier", help="print the full canonical commit required by fork CI")
     p.add_argument("--board", default="core_cpu")
-    p.add_argument("--class", dest="workload_class", choices=["small", "wide", "deep"],
-                   default="small")
+    p.add_argument(
+        "--class", dest="workload_class", default="small",
+        help="manifest-declared workload class (validated against --board)",
+    )
     p = sub.add_parser("submission-status", help="list remote queue state or inspect one submission")
     p.add_argument("submission_id", nargs="?")
     p = sub.add_parser("coauthor-accept", help="accept requested Git co-authorship")

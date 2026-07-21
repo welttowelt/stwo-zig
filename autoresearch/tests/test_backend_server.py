@@ -133,6 +133,19 @@ class BackendServerTest(unittest.TestCase):
         self.assertIn("promotion_scope", feed)
         self.assertIn("inputs_sha256", feed["provenance"])
 
+    def test_frontier_classes_are_derived_from_manifest_board_exposure(self):
+        status, response = self.call("GET", "/v1/frontier/core_cpu/xlarge")
+        self.assertEqual(status, 200)
+        self.assertEqual(response["class"], "xlarge")
+
+        status, response = self.call("GET", "/v1/frontier/riscv/xlarge")
+        self.assertEqual(status, 400)
+        self.assertIn("does not expose", response["error"])
+
+        status, response = self.call("GET", "/v1/frontier/core_cpu/invented")
+        self.assertEqual(status, 400)
+        self.assertIn("unknown workload class", response["error"])
+
     def test_api_key_drives_cli_identity_submission_status_and_revocation(self):
         status, issued = self.call("POST", "/v1/auth/github/keys", {}, "github-device-token")
         self.assertEqual(status, 200)

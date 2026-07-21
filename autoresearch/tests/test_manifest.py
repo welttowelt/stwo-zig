@@ -41,6 +41,55 @@ class ManifestTest(unittest.TestCase):
         self.assertTrue(small)
         self.assertTrue(all(w.workload_class == "small" for w in small))
 
+    def test_manifest_owns_scored_class_order_and_board_exposure(self):
+        self.assertEqual(
+            self.m.class_names(scored_only=True),
+            ["small", "wide", "deep", "xlarge", "huge"],
+        )
+        self.assertEqual(
+            self.m.class_names(
+                board="core_cpu", scored_only=True, include_disabled=True,
+            ),
+            ["small", "wide", "deep", "xlarge", "huge"],
+        )
+        self.assertEqual(
+            self.m.class_names(
+                board="core_metal", scored_only=True, include_disabled=True,
+            ),
+            ["small", "wide", "deep", "xlarge", "huge"],
+        )
+        self.assertEqual(
+            self.m.class_names(
+                board="riscv", scored_only=True, include_disabled=True,
+            ),
+            ["small", "wide", "deep"],
+        )
+        with self.assertRaisesRegex(manifest_mod.ManifestError, "does not expose"):
+            self.m.workloads("huge", board="riscv", include_disabled=True)
+        with self.assertRaisesRegex(manifest_mod.ManifestError, "unknown workload class"):
+            self.m.workloads("invented", board="core_cpu")
+        with self.assertRaisesRegex(manifest_mod.ManifestError, "group is disabled"):
+            self.m.validate_workload_class("small", board="riscv")
+        self.m.validate_workload_class(
+            "small", board="riscv", include_disabled=True,
+        )
+
+    def test_large_classes_have_bounded_sampling_and_explicit_resource_args(self):
+        xlarge = self.m.workload_class("xlarge")
+        huge = self.m.workload_class("huge")
+        self.assertEqual((xlarge.resource_profile, huge.resource_profile), ("large", "large"))
+        self.assertLessEqual(huge.sampling["max_rounds"], 5)
+        self.assertLessEqual(
+            2 * huge.sampling["max_rounds"]
+            * (huge.sampling["warmups"] + huge.sampling["samples_per_round"]),
+            20,
+        )
+        for board in ("core_cpu", "core_metal"):
+            for workload_class in ("xlarge", "huge"):
+                workloads = self.m.workloads(workload_class, board=board)
+                self.assertEqual(len(workloads), 1)
+                self.assertIn("--resource-profile large", workloads[0].args)
+
     def test_groups_native_enabled_riscv_disabled(self):
         by_id = {g.group_id: g for g in self.m.groups()}
         self.assertIn("native", by_id)
@@ -51,7 +100,7 @@ class ManifestTest(unittest.TestCase):
         self.assertEqual(native.board, "core_cpu")
         self.assertEqual(native.binary, "zig-out/bin/native-proof-bench-cpu")
         self.assertEqual(native.report_schema, "native_proof_v7")
-        self.assertEqual(len(native.workloads), 3)
+        self.assertEqual(len(native.workloads), 5)
         self.assertFalse(riscv.enabled)
         self.assertFalse(riscv.promotion_eligible)
         self.assertEqual(riscv.board, "riscv")
@@ -125,6 +174,22 @@ class RegistryValidationTest(unittest.TestCase):
                 "max_active_per_user": 1,
             },
             "workload_registry": {
+                "classes": {
+                    "small": {
+                        "scored": True,
+                        "resource": {
+                            "profile": "standard",
+                            "command_timeout_seconds": 60,
+                            "wall_clock_cap_seconds": 60,
+                        },
+                        "sampling": {
+                            "warmups": 1,
+                            "samples_per_round": 1,
+                            "min_rounds": 1,
+                            "max_rounds": 1,
+                        },
+                    },
+                },
                 "groups": {
                     "native": {
                         "enabled": True,
@@ -177,7 +242,7 @@ class RegistryValidationTest(unittest.TestCase):
 
     def test_invalid_workload_class_rejected(self):
         raw = self._base_raw()
-        raw["workload_registry"]["groups"]["native"]["workloads"]["wf"]["class"] = "huge"
+        raw["workload_registry"]["groups"]["native"]["workloads"]["wf"]["class"] = "invented"
         with self.assertRaises(manifest_mod.ManifestError):
             manifest_mod._validate(raw)
 
@@ -230,19 +295,17 @@ class RegistryValidationTest(unittest.TestCase):
             "samples_per_round": 1,
             "min_rounds": 3,
             "max_rounds": 5,
-            "wall_clock_cap_seconds": {"wide": 120},
+            "wall_clock_cap_seconds": {"small": 120},
         }
         manifest_mod._validate(raw)
         manifest = manifest_mod.Manifest(REPO_ROOT, raw)
-        policy = manifest.gates_for_group("native")
+        policy = manifest.gates_for_workload("native", "small")
         self.assertEqual(
             (policy["warmups"], policy["samples_per_round"],
              policy["min_rounds"], policy["max_rounds"]),
             (1, 1, 3, 5),
         )
-        self.assertEqual(policy["wall_clock_cap_seconds"], {
-            "small": 240, "wide": 120, "deep": 600,
-        })
+        self.assertEqual(policy["wall_clock_cap_seconds"], {"small": 120})
         self.assertEqual(policy["theta_floor"], 0.01)
 
     def test_group_gates_policy_rejects_unknown_or_unbounded_values(self):

@@ -58,6 +58,22 @@ def manifest_document() -> dict:
         "editable_paths": [{"glob": "src/core/fields/**", "min_rung": "s3"}],
         "locked_paths": ["autoresearch/**", ".github/**"],
         "workload_registry": {
+            "classes": {
+                "small": {
+                    "scored": True,
+                    "resource": {
+                        "profile": "standard",
+                        "command_timeout_seconds": 1,
+                        "wall_clock_cap_seconds": 1,
+                    },
+                    "sampling": {
+                        "warmups": 1,
+                        "samples_per_round": 1,
+                        "min_rounds": 1,
+                        "max_rounds": 1,
+                    },
+                },
+            },
             "groups": {
                 "native": {
                     "enabled": True,

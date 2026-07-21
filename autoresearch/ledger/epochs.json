@@ -23,6 +23,34 @@
           "deep": null
         }
       }
+    },
+    {
+      "epoch": 2,
+      "opened_utc": "2026-07-21T00:00:00Z",
+      "reason": "Metrics v2 opens the manifest-owned five-class native scoring universe; the epoch boundary prevents pre-xlarge history from diluting the new geomean",
+      "harness_commit": null,
+      "aa_dispersion": {
+        "note": "small/wide/deep retain their same-host M5 calibration; xlarge/huge remain null and therefore fail closed for judged promotion until measured on the designated judge host.",
+        "core_cpu": {
+          "small": 0.018654,
+          "wide": 0.014645,
+          "deep": 0.009139,
+          "xlarge": null,
+          "huge": null
+        },
+        "riscv": {
+          "small": null,
+          "wide": null,
+          "deep": null
+        },
+        "core_metal": {
+          "small": null,
+          "wide": null,
+          "deep": null,
+          "xlarge": null,
+          "huge": null
+        }
+      }
     }
   ]
 }

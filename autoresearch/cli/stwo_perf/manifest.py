@@ -20,8 +20,9 @@ GROUP_GATES_POLICY_LIMITS = {
     "min_rounds": (1, 50),
     "max_rounds": (1, 50),
 }
-WALL_CLOCK_CLASSES = frozenset(("small", "wide", "deep"))
 MAX_GROUP_WALL_CLOCK_SECONDS = 7200
+MAX_COMMAND_TIMEOUT_SECONDS = 7200
+RESOURCE_PROFILES = frozenset(("standard", "large"))
 RISCV_MECHANISM_FIELDS = frozenset({
     "total_steps",
     "n_components",
@@ -51,6 +52,16 @@ class Workload:
     args: str
     native_unit: str
     group_id: str = "native"
+
+
+@dataclass(frozen=True)
+class WorkloadClass:
+    name: str
+    scored: bool
+    resource_profile: str
+    command_timeout_seconds: int
+    wall_clock_cap_seconds: int
+    sampling: dict
 
 
 @dataclass(frozen=True)
@@ -88,12 +99,36 @@ class Manifest:
         return dict(self.raw["gates_policy"])
 
     def gates_for_group(self, group_id: str) -> dict:
-        """Global gate policy with one group's bounded measurement overrides."""
+        """Global gate policy with one group's bounded measurement overrides.
+
+        Execution callers should use ``gates_for_workload`` so the class-owned
+        resource and sampling contract is also applied.
+        """
         policy = self.gates
         override = self.group(group_id).gates_policy
         for key, value in override.items():
             if key == "wall_clock_cap_seconds":
                 caps = dict(policy.get(key, {}))
+                caps.update(value)
+                policy[key] = caps
+            else:
+                policy[key] = value
+        return policy
+
+    def gates_for_workload(self, group_id: str, workload_class: str) -> dict:
+        """Resolve global, class, then group policy for one executable class."""
+        cls = self.workload_class(workload_class)
+        policy = self.gates
+        policy.update(cls.sampling)
+        policy["resource_profile"] = cls.resource_profile
+        policy["command_timeout_seconds"] = cls.command_timeout_seconds
+        policy["wall_clock_cap_seconds"] = {
+            workload_class: cls.wall_clock_cap_seconds,
+        }
+        override = self.group(group_id).gates_policy
+        for key, value in override.items():
+            if key == "wall_clock_cap_seconds":
+                caps = dict(policy[key])
                 caps.update(value)
                 policy[key] = caps
             else:
@@ -132,6 +167,63 @@ class Manifest:
             ))
         return out
 
+    def classes(self, *, scored_only: bool = False) -> list[WorkloadClass]:
+        """Manifest-owned class registry in its declared scoring order."""
+        out = []
+        for name, spec in self.raw["workload_registry"]["classes"].items():
+            resource = spec["resource"]
+            cls = WorkloadClass(
+                name=name,
+                scored=spec["scored"],
+                resource_profile=resource["profile"],
+                command_timeout_seconds=resource["command_timeout_seconds"],
+                wall_clock_cap_seconds=resource["wall_clock_cap_seconds"],
+                sampling=dict(spec["sampling"]),
+            )
+            if not scored_only or cls.scored:
+                out.append(cls)
+        return out
+
+    def workload_class(self, name: str) -> WorkloadClass:
+        for cls in self.classes():
+            if cls.name == name:
+                return cls
+        raise ManifestError(f"unknown workload class: {name}")
+
+    def class_names(
+        self,
+        *,
+        board: str | None = None,
+        scored_only: bool = False,
+        include_disabled: bool = False,
+    ) -> list[str]:
+        """Declared classes, optionally restricted to one board's workload rows."""
+        declared = [cls.name for cls in self.classes(scored_only=scored_only)]
+        if board is None:
+            return declared
+        group = self.group_for_board(board)
+        if not include_disabled and not group.enabled:
+            return []
+        exposed = {workload.workload_class for workload in group.workloads}
+        return [name for name in declared if name in exposed]
+
+    def validate_workload_class(
+        self,
+        name: str,
+        *,
+        board: str | None = None,
+        include_disabled: bool = False,
+    ) -> None:
+        self.workload_class(name)
+        if board is not None:
+            group = self.group_for_board(board)
+            if not include_disabled and not group.enabled:
+                raise ManifestError(f"board {board} workload group is disabled")
+            if name not in self.class_names(board=board, include_disabled=True):
+                raise ManifestError(
+                    f"board {board} does not expose workload class: {name}"
+                )
+
     def group(self, group_id: str) -> WorkloadGroup:
         for g in self.groups():
             if g.group_id == group_id:
@@ -157,6 +249,10 @@ class Manifest:
         """
         if board is None:
             raise ManifestError("board is required for workload selection")
+        if workload_class is not None:
+            self.validate_workload_class(
+                workload_class, board=board, include_disabled=True,
+            )
         groups = [self.group_for_board(board)]
         out = [
             w
@@ -250,6 +346,7 @@ def _validate(raw: dict) -> None:
             "(build_step/binary/workloads at top level) were replaced by named "
             "groups in manifest_version 2 — wrap the flat triple in a group"
         )
+    _validate_classes(registry.get("classes"))
     if not registry["groups"]:
         raise ManifestError("workload_registry.groups is empty")
     seen_boards: set[str] = set()
@@ -290,7 +387,12 @@ def _validate(raw: dict) -> None:
                 f"workload group {gid} has unsupported report_schema: {report_schema!r}"
             )
         _validate_group_gates_policy(
-            gid, spec.get("gates_policy", {}), raw["gates_policy"]
+            gid, spec.get("gates_policy", {}), raw["gates_policy"],
+            {
+                workload.get("class")
+                for workload in spec.get("workloads", {}).values()
+                if isinstance(workload, dict)
+            },
         )
         if not isinstance(spec.get("correctness_oracle", {}), dict):
             raise ManifestError(
@@ -304,8 +406,20 @@ def _validate(raw: dict) -> None:
         for wid, w in spec["workloads"].items():
             if not isinstance(w, dict):
                 raise ManifestError(f"workload {gid}/{wid} must be an object")
-            if w.get("class") not in ("small", "wide", "deep"):
-                raise ManifestError(f"workload {gid}/{wid} has invalid class")
+            if w.get("class") not in registry["classes"]:
+                raise ManifestError(
+                    f"workload {gid}/{wid} references an unknown class: "
+                    f"{w.get('class')!r}"
+                )
+            class_spec = registry["classes"][w["class"]]
+            if (
+                class_spec["resource"]["profile"] == "large"
+                and "--resource-profile large" not in str(w.get("args", ""))
+            ):
+                raise ManifestError(
+                    f"workload {gid}/{wid} belongs to large resource class "
+                    f"{w['class']} but does not request --resource-profile large"
+                )
         _validate_group_holdout_generator(
             gid, spec.get("holdout_generator", {}), spec["workloads"]
         )
@@ -347,7 +461,66 @@ def _validate_group_mechanism_telemetry(
         )
 
 
-def _validate_group_gates_policy(gid: str, override: object, global_policy: dict) -> None:
+def _validate_classes(classes: object) -> None:
+    if not isinstance(classes, dict) or not classes:
+        raise ManifestError("workload_registry.classes must be a non-empty object")
+    for name, spec in classes.items():
+        if not isinstance(name, str) or not name or not name.replace("_", "").isalnum():
+            raise ManifestError(f"invalid workload class name: {name!r}")
+        if not isinstance(spec, dict) or set(spec) != {"scored", "resource", "sampling"}:
+            raise ManifestError(
+                f"workload class {name} requires exactly scored, resource, and sampling"
+            )
+        if not isinstance(spec["scored"], bool):
+            raise ManifestError(f"workload class {name}.scored must be a boolean")
+        resource = spec["resource"]
+        if not isinstance(resource, dict) or set(resource) != {
+            "profile", "command_timeout_seconds", "wall_clock_cap_seconds",
+        }:
+            raise ManifestError(
+                f"workload class {name}.resource requires profile, "
+                "command_timeout_seconds, and wall_clock_cap_seconds"
+            )
+        if resource["profile"] not in RESOURCE_PROFILES:
+            raise ManifestError(
+                f"workload class {name} has unsupported resource profile: "
+                f"{resource['profile']!r}"
+            )
+        for key, maximum in (
+            ("command_timeout_seconds", MAX_COMMAND_TIMEOUT_SECONDS),
+            ("wall_clock_cap_seconds", MAX_GROUP_WALL_CLOCK_SECONDS),
+        ):
+            value = resource[key]
+            if type(value) is not int or not 1 <= value <= maximum:
+                raise ManifestError(
+                    f"workload class {name}.resource.{key} must be an integer "
+                    f"in [1, {maximum}]"
+                )
+        sampling = spec["sampling"]
+        if not isinstance(sampling, dict) or set(sampling) != set(GROUP_GATES_POLICY_LIMITS):
+            raise ManifestError(
+                f"workload class {name}.sampling requires exactly "
+                + ", ".join(GROUP_GATES_POLICY_LIMITS)
+            )
+        for key, (minimum, maximum) in GROUP_GATES_POLICY_LIMITS.items():
+            value = sampling[key]
+            if type(value) is not int or not minimum <= value <= maximum:
+                raise ManifestError(
+                    f"workload class {name}.sampling.{key} must be an integer "
+                    f"in [{minimum}, {maximum}]"
+                )
+        if sampling["min_rounds"] > sampling["max_rounds"]:
+            raise ManifestError(
+                f"workload class {name}.sampling min_rounds exceeds max_rounds"
+            )
+
+
+def _validate_group_gates_policy(
+    gid: str,
+    override: object,
+    global_policy: dict,
+    workload_classes: set[str],
+) -> None:
     if not isinstance(override, dict):
         raise ManifestError(f"workload group {gid}: gates_policy must be an object")
     allowed = set(GROUP_GATES_POLICY_LIMITS) | {"wall_clock_cap_seconds", "note"}
@@ -375,7 +548,7 @@ def _validate_group_gates_policy(gid: str, override: object, global_policy: dict
         raise ManifestError(
             f"workload group {gid}: gates_policy.wall_clock_cap_seconds must be an object"
         )
-    unknown_classes = sorted(set(caps) - WALL_CLOCK_CLASSES)
+    unknown_classes = sorted(set(caps) - workload_classes)
     if unknown_classes:
         raise ManifestError(
             f"workload group {gid}: unsupported wall-clock class(es): "
@@ -416,7 +589,11 @@ def _validate_group_holdout_generator(
     pools = generator["pools"]
     if not isinstance(pools, dict) or not pools:
         raise ManifestError(f"workload group {gid}: holdout pools must be a non-empty object")
-    unknown_classes = sorted(set(pools) - WALL_CLOCK_CLASSES)
+    declared_classes = {
+        workload.get("class") for workload in workloads.values()
+        if isinstance(workload, dict)
+    }
+    unknown_classes = sorted(set(pools) - declared_classes)
     if unknown_classes:
         raise ManifestError(
             f"workload group {gid}: unsupported holdout class(es): "

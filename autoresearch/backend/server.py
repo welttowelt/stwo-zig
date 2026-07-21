@@ -133,10 +133,14 @@ def make_handler(repo: Path, secret: bytes, store: Store, client_id: str | None,
                 board, cls = parts[2], parts[3]
                 if board not in ledger.BOARDS:
                     return self._json(400, {"error": f"unknown board: {board}"})
-                if cls not in ("small", "wide", "deep"):
-                    return self._json(400, {"error": "class must be small|wide|deep"})
                 try:
+                    manifest = manifest_mod.load(repo)
+                    manifest.validate_workload_class(
+                        cls, board=board, include_disabled=True,
+                    )
                     rows = ledger.load(repo)
+                except manifest_mod.ManifestError as exc:
+                    return self._json(400, {"error": str(exc)})
                 except (OSError, ledger.LedgerError) as exc:
                     return self._json(500, {"error": str(exc)})
                 view = frontier.view(rows, board, cls)
@@ -241,7 +245,7 @@ def make_handler(repo: Path, secret: bytes, store: Store, client_id: str | None,
                 try:
                     manifest = manifest_mod.load(repo)
                     qualification.validate_receipt(
-                        body.get("qualification", {}).get("receipt", {})
+                        body.get("qualification", {}).get("receipt", {}), manifest,
                     )
                     if (manifest.qualification_policy.get(
                             "require_github_artifact_attestation", False)
@@ -249,7 +253,12 @@ def make_handler(repo: Path, secret: bytes, store: Store, client_id: str | None,
                         raise submissions_mod.SubmissionError(
                             "a GitHub artifact attestation is required by current policy"
                         )
-                    runnable = {group.board for group in manifest.groups() if group.enabled}
+                    runnable = {
+                        group.board: set(manifest.class_names(
+                            board=group.board, scored_only=True,
+                        ))
+                        for group in manifest.groups() if group.enabled
+                    }
                     record = submissions_mod.validate_request(body, author, runnable)
                     created = store.create_submission(record, max_active_per_user)
                 except (qualification.QualificationError, submissions_mod.SubmissionError,

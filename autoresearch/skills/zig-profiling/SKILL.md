@@ -91,3 +91,18 @@ is secondary (the harness scope-ladder rule for S0/S1).
   this harness is the S1 inner loop that generates hypotheses cheaply.
 - Findings worth keeping become `stwo-perf notes add` entries with the
   counter numbers inline; scratch dirs are disposable, evidence is not.
+
+## Confirm hypotheses in the large scored regime
+
+The native CPU board scores `xlarge` (`wide_fibonacci` log18 × 100 columns) and
+`huge` (log20 × 100) in addition to small/wide/deep. Use S1 isolation to choose
+an implementation, then run the relevant complete-proof class. Do not infer
+large-shape behavior from a small proof: cache capacity, memory traffic, pool
+occupancy, FFT traversal, and constraint batching change regime.
+
+For scale-oriented searches, explicitly test the public techniques demonstrated
+in ClementWalter/stwo#6: batched constraint evaluation and type-directed SIMD
+dispatch. In Zig, prefer comptime-selected concrete paths over runtime type or
+feature policy in the hot loop. Preserve the Rust Stwo oracle as the final
+correctness authority and require the current epoch's large-class gates before
+claiming suite credit.

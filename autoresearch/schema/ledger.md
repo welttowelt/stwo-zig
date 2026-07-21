@@ -27,7 +27,7 @@ Columns (tab-separated; v1 columns first, one submission per row):
 | commit | promoted repository commit |
 | scope | acceptance rung (s3..s5) |
 | board | scoring board (schema/scoring.md): core_cpu / core_hybrid / core_metal / heavy_native / heavy_cairo / stream / riscv |
-| workload_class | small / wide / deep |
+| workload_class | manifest-declared class exposed by the row's board (currently small / wide / deep / xlarge / huge for native CPU and Metal; RISC-V remains small / wide / deep) |
 | outcome | `promoted` / `neutral` / `rejected` — only promoted rows shape the frontier |
 | judged_r | geometric-mean paired ratio (<1 improves) |
 | ci_low / ci_high | 95% bootstrap CI of judged_r |
@@ -43,3 +43,9 @@ Columns (tab-separated; v1 columns first, one submission per row):
 
 The Pareto frontier and anchor-drift budgets are computed from this file by
 `stwo-perf frontier`; nothing else is authoritative.
+
+The canonical board suite score compounds only effective `promoted` ratios in
+the current epoch, assigns identity to untouched scored classes, and takes the
+geometric mean over that board's manifest-declared `scored` classes. Changing
+the scored class universe requires a new epoch so historical rows cannot dilute
+or rewrite the new score.

@@ -38,7 +38,7 @@ class PipelineFailureInjectionTest(unittest.TestCase):
 
     def submit(self) -> dict:
         record = submissions.validate_request(
-            self.repos.payload(), ALICE, {"core_cpu"},
+            self.repos.payload(), ALICE, {"core_cpu": {"small"}},
         )
         return self.store.create_submission(record)
 

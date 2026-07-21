@@ -45,13 +45,25 @@ def require_board_promotion_eligible(
 
 def require_verdict_promotion_eligible(repo: Path, verdict: dict) -> None:
     objective = verdict.get("declared_objective")
-    if not isinstance(objective, dict) or not isinstance(objective.get("board"), str):
+    if not isinstance(objective, dict):
+        raise PromotionError("verdict must declare an objective")
+    board = objective.get("board")
+    workload_class = objective.get("workload_class")
+    if not isinstance(board, str):
         raise PromotionError("verdict must declare a string board")
+    if not isinstance(workload_class, str):
+        raise PromotionError("verdict must declare a string workload_class")
     try:
         manifest = manifest_mod.load(repo)
     except manifest_mod.ManifestError as exc:
         raise PromotionError(f"cannot load current promotion authority: {exc}") from exc
-    require_board_promotion_eligible(manifest, objective["board"])
+    require_board_promotion_eligible(manifest, board)
+    try:
+        manifest.validate_workload_class(workload_class, board=board)
+    except manifest_mod.ManifestError as exc:
+        raise PromotionError(
+            f"verdict workload class is not registered for promotion: {board}/{workload_class}"
+        ) from exc
 
 
 def portfolio_ledger_summary(score: dict) -> tuple[float, float, float]:

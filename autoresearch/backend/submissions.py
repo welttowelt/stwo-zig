@@ -13,7 +13,6 @@ DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 REF_RE = re.compile(r"^refs/heads/[A-Za-z0-9._/-]{1,200}$")
 LOGIN_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$")
 REPO_RE = re.compile(r"^[A-Za-z0-9._-]{1,100}$")
-CLASSES = {"small", "wide", "deep"}
 DIMENSIONS = {"time", "rss", "energy"}
 MAX_NOTE_BYTES = 10 * 1024
 MAX_COAUTHORS = 10
@@ -59,7 +58,11 @@ def normalize_repository_url(value: object) -> str:
     return f"https://github.com/{owner}/{repo}"
 
 
-def validate_request(body: dict, author: dict, allowed_boards: set[str]) -> dict:
+def validate_request(
+    body: dict,
+    author: dict,
+    allowed_board_classes: dict[str, set[str]],
+) -> dict:
     if not isinstance(body, dict) or body.get("schema_version") != SCHEMA_VERSION:
         raise SubmissionError(f"schema_version must be {SCHEMA_VERSION}")
     source = _required_dict(body, "source")
@@ -95,10 +98,13 @@ def validate_request(body: dict, author: dict, allowed_boards: set[str]) -> dict
     workload_class = claim.get("workload_class")
     dimension = claim.get("dimension")
     score = claim.get("shipping_index")
-    if board not in allowed_boards:
+    if board not in allowed_board_classes:
         raise SubmissionError(f"claim.board is not runnable: {board}")
-    if workload_class not in CLASSES:
-        raise SubmissionError("claim.workload_class must be small|wide|deep")
+    if workload_class not in allowed_board_classes[board]:
+        allowed = "|".join(sorted(allowed_board_classes[board]))
+        raise SubmissionError(
+            f"claim.workload_class is not runnable on {board}; expected one of {allowed}"
+        )
     if dimension not in DIMENSIONS:
         raise SubmissionError("claim.dimension must be time|rss|energy")
     if (not isinstance(score, (int, float)) or isinstance(score, bool)

@@ -1,7 +1,8 @@
 # TASK — the immediate autoresearch objective
 
-**Make the CPU prover faster.** Reduce end-to-end prove time on the `core_cpu`
-board across the fixed three-workload suite, producing byte-identical proofs the
+**Make the prover faster across scale, on CPU and Metal.** Reduce end-to-end
+prove time on the manifest-owned scored classes, including the large geometries
+where GPU throughput should dominate, while producing byte-identical proofs the
 pinned Rust oracle accepts. That is the whole task; everything below is contract.
 
 This file is written to be handed to a coding agent verbatim, together with the
@@ -14,6 +15,15 @@ Participate block on [autoresearch.fun](https://autoresearch.fun/p/stwo-zig-meta
 | `wf_log10x8` | small | wide_fibonacci, 2^10 rows × seq 8 | prove time |
 | `wf_log14x32` | wide | wide_fibonacci, 2^14 rows × seq 32 | prove time |
 | `plonk_log14` | deep | plonk, 2^14 rows | prove time |
+| `wf_log18x100` | xlarge | wide_fibonacci, 2^18 rows × seq 100 | prove time |
+| `wf_log20x100` | huge | wide_fibonacci, 2^20 rows × seq 100 | prove time |
+
+The Metal group exposes the same five shapes under `mwf_*`/`mplonk_*` IDs.
+Both large classes invoke the production bench with `--resource-profile large`.
+Their class-owned sampling is deliberately bounded: `huge` runs one warmup and
+one sample for three to five paired rounds (at most 20 proof transactions across
+both arms), rather than inheriting the 182-proof small-workload minimum. Each
+individual command is also bounded by the remaining class wall-clock budget.
 
 Ballpark you are attacking (matrix run `2026-07-18-064334-matrix-v5-789feb4c`,
 CPU lane): small-class wide_fibonacci proves in ~18.4 ms. `stwo-perf benchmark`
@@ -67,17 +77,20 @@ a verdict per board: run once per board (`--board core_cpu`,
 
 ## Session policy — maximize verified improvement, not first significance
 
-The suite score is `100 × geomean over {small, wide, deep}` of each class's
-compounded judged ratios. Two consequences shape a good session:
+The suite score is `100 × geomean` over the board's manifest-declared scored
+classes (`small`, `wide`, `deep`, `xlarge`, `huge` for native CPU and Metal;
+RISC-V retains its own three-class basket). Ratios compound only inside the
+current measurement epoch; a changed class universe opens a new epoch. Two
+consequences shape a good session:
 
 - **Credit every class your change moves.** A single-class verdict on a
-  change that speeds up all three classes silently donates the other two
-  classes' gains to future predecessors — uncredited, forever. When warmed
+  change that speeds up several classes silently donates the other gains to
+  future predecessors — uncredited, forever. When warmed
   diagnostics show multi-class movement, run the paired S3 evaluation for
   EACH moved class and attach every verdict
-  (`--verdict v-small.json --verdict v-wide.json --verdict v-deep.json`,
-  same mechanism, same diff). One class's x% win moves the suite by only
-  the cube root of x; three classes evidenced is full credit.
+  (`--verdict v-small.json --verdict v-wide.json --verdict v-xlarge.json`,
+  same mechanism, same diff). One class's x% win moves a five-class suite by
+  only the fifth root of x; broad evidenced movement receives full credit.
 - **A submission is a checkpoint, not the finish line.** Submit each
   evidenced win as soon as its CI clears the bar — then `sync` and keep
   searching. End the session when stage attribution shows nothing left
@@ -97,6 +110,22 @@ stay within its budget, cross-arm proof digests must match every round, the
 pinned Rust oracle verifies each scored workload, and request-time and RSS
 are hard-gated. Improving the objective by regressing anything else fails G4.
 `stwo-perf run --guards none` exists for inner-loop iteration only.
+
+## Large-regime hypotheses
+
+Profile `xlarge` and `huge` before assuming a small-class win extrapolates.
+ClementWalter/stwo#6 is public, bit-identical-certified prior art worth mining,
+not a result to copy blindly. Test its architectural techniques against this
+repository's profiler evidence:
+
+- batch constraint evaluation that amortizes traversal and dispatch overhead;
+- compile-time/type-directed SIMD dispatch without dynamic inner-loop policy;
+- threadgroup-tiled FFT stages that reduce global-memory passes; and
+- single-submission GPU commitment chains that keep intermediate work resident.
+
+The acceptance claim remains a complete proof transaction on both large classes,
+not an isolated kernel. Record work/byte/dispatch predictions and reject a
+technique when end-to-end counters do not move as predicted.
 
 **Sync before your final paired run — the frontier moves hourly.** A ratio
 against a stale predecessor can be a real relative win and still land behind

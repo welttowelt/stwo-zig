@@ -51,7 +51,20 @@ class FeedTest(unittest.TestCase):
             self.assertIn("enabled", group)
             self.assertTrue(group["workloads"])
             for workload in group["workloads"].values():
-                self.assertIn(workload["class"], ("small", "wide", "deep"))
+                self.assertIn(workload["class"], scope["class_registry"])
+
+    def test_scored_classes_and_suite_score_are_manifest_owned(self):
+        expected_native = ["small", "wide", "deep", "xlarge", "huge"]
+        self.assertEqual(self.feed["boards"]["core_cpu"]["scored_classes"], expected_native)
+        self.assertEqual(self.feed["boards"]["core_metal"]["scored_classes"], expected_native)
+        self.assertEqual(
+            self.feed["boards"]["riscv"]["scored_classes"],
+            ["small", "wide", "deep"],
+        )
+        for board in ("core_cpu", "core_metal", "riscv"):
+            score = self.feed["boards"][board]["suite_score"]
+            self.assertEqual(score["classes"], self.feed["boards"][board]["scored_classes"])
+            self.assertEqual(score["epoch"], self.feed["epoch"]["number"])
 
     def test_empty_boards_render_empty_not_invented(self):
         for board, data in self.feed["boards"].items():

@@ -19,7 +19,6 @@ from . import frontier, ledger
 from .manifest import Manifest
 
 FEED_SCHEMA_VERSION = 2
-CLASSES = ("small", "wide", "deep")
 
 # Input roots whose uncommitted changes make a feed provenance-dishonest.
 INPUT_ROOTS = (
@@ -208,6 +207,16 @@ def _promotion_scope(manifest: Manifest) -> dict:
         }
     owned = sorted({g.board for g in manifest.groups()})
     return {
+        "class_registry": {
+            cls.name: {
+                "scored": cls.scored,
+                "resource_profile": cls.resource_profile,
+                "command_timeout_seconds": cls.command_timeout_seconds,
+                "wall_clock_cap_seconds": cls.wall_clock_cap_seconds,
+                "sampling": cls.sampling,
+            }
+            for cls in manifest.classes()
+        },
         "groups": groups,
         "owned_boards": owned,
         "future_boards": sorted(set(ledger.BOARDS) - set(owned)),
@@ -218,19 +227,34 @@ def _promotion_scope(manifest: Manifest) -> dict:
     }
 
 
-def _boards(repo: Path, rows: list[ledger.Row]) -> dict:
+def _boards(manifest: Manifest, rows: list[ledger.Row], epoch: int) -> dict:
     boards: dict = {}
+    owned_boards = {group.board for group in manifest.groups()}
     for board in ledger.BOARDS:
         board_rows = [r for r in rows if r.values.get("board") == board]
         entries = [r.values for r in board_rows]
         board_frontier = {}
-        for cls in CLASSES:
+        classes = (
+            manifest.class_names(
+                board=board, scored_only=True, include_disabled=True,
+            )
+            if board in owned_boards else []
+        )
+        for cls in classes:
             view = frontier.view(board_rows, board, cls)
             board_frontier[cls] = {
                 "head": view.head.values if view.head else None,
                 "frontier": [r.values for r in view.frontier],
             }
-        boards[board] = {"entries": entries, "frontier_by_class": board_frontier}
+        boards[board] = {
+            "entries": entries,
+            "scored_classes": classes,
+            "suite_score": (
+                frontier.board_suite_score(rows, board, classes, epoch)
+                if classes else None
+            ),
+            "frontier_by_class": board_frontier,
+        }
     return boards
 
 
@@ -428,7 +452,7 @@ def build_feed(manifest: Manifest, allow_dirty: bool = False) -> dict:
             "aa_dispersion": epoch.get("aa_dispersion"),
         },
         "promotion_scope": _promotion_scope(manifest),
-        "boards": _boards(repo, rows),
+        "boards": _boards(manifest, rows, int(epoch["epoch"])),
         "metal_resident_progress": _metal_progress(latest),
         "latest_matrix": latest,
         "baseline_matrix": baseline,

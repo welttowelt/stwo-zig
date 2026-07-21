@@ -34,6 +34,32 @@ class QualificationTest(unittest.TestCase):
         self.manifest = Manifest(self.repo, {
             "editable_paths": [{"glob": "src/core/fields/**", "min_rung": "s3"}],
             "locked_paths": ["autoresearch/**"],
+            "workload_registry": {
+                "classes": {
+                    "small": {
+                        "scored": True,
+                        "resource": {
+                            "profile": "standard",
+                            "command_timeout_seconds": 60,
+                            "wall_clock_cap_seconds": 60,
+                        },
+                        "sampling": {
+                            "warmups": 1, "samples_per_round": 1,
+                            "min_rounds": 1, "max_rounds": 1,
+                        },
+                    },
+                },
+                "groups": {
+                    "native": {
+                        "enabled": True, "promotion_eligible": True,
+                        "board": "core_cpu", "build_step": "true",
+                        "binary": "bin/bench", "report_schema": "native_proof_v6",
+                        "workloads": {
+                            "wf": {"class": "small", "args": "--x", "native_unit": "rows"},
+                        },
+                    },
+                },
+            },
         })
 
     def tearDown(self):

@@ -9,7 +9,9 @@
       "core_cpu": {
         "small": 2.789,
         "wide": 17.656,
-        "deep": 14.416
+        "deep": 14.416,
+        "xlarge": null,
+        "huge": null
       },
       "riscv": {
         "small": null,
@@ -19,7 +21,9 @@
       "core_metal": {
         "small": null,
         "wide": null,
-        "deep": null
+        "deep": null,
+        "xlarge": null,
+        "huge": null
       }
     },
     "anchor_note": "Frozen 2026-07-20 on the designated Apple M5 Max judge host (arm64 macOS, 18 CPU cores): the pre-optimization original commit, medians measured same-session by autoresearch/reference/measure_peer_rust.py (reports committed under autoresearch/reference/anchor/). Drift budgets are host-local and active; riscv anchors freeze when that board enables."
@@ -100,8 +104,80 @@
     ".github/**"
   ],
   "workload_registry": {
-    "note": "Command templates are data so flag drift is a manifest edit, not a code change. The runner prepends the built bench binary of the owning group; {warmups}/{samples} come from gates policy.",
-    "schema_note": "Registry v2 (manifest_version bumped 1 -> 2): workloads live in named groups, each carrying one exclusively owned board plus its own build_step, binary, report_schema, and enabled flag. v1's flat build_step/binary/workloads triple is exactly today's group 'native'; loaders reject the flat shape with a migration hint. Disabled groups are announced loudly by every runner entry point, never silently dropped.",
+    "note": "Command templates are data so flag drift is a manifest edit, not a code change. The runner prepends the built bench binary of the owning group; {warmups}/{samples} come from the workload class sampling policy.",
+    "schema_note": "Registry v2 (manifest_version bumped 1 -> 2): workloads live in named groups, each carrying one exclusively owned board plus its own build_step, binary, report_schema, and enabled flag. The registry now also owns the ordered workload classes plus their scoring, resource, timeout, and sampling policy; no consumer carries a parallel class enum. v1's flat build_step/binary/workloads triple is exactly today's group 'native'; loaders reject the flat shape with a migration hint. Disabled groups are announced loudly by every runner entry point, never silently dropped.",
+    "classes": {
+      "small": {
+        "scored": true,
+        "resource": {
+          "profile": "standard",
+          "command_timeout_seconds": 1200,
+          "wall_clock_cap_seconds": 240
+        },
+        "sampling": {
+          "warmups": 10,
+          "samples_per_round": 3,
+          "min_rounds": 7,
+          "max_rounds": 15
+        }
+      },
+      "wide": {
+        "scored": true,
+        "resource": {
+          "profile": "standard",
+          "command_timeout_seconds": 1200,
+          "wall_clock_cap_seconds": 600
+        },
+        "sampling": {
+          "warmups": 10,
+          "samples_per_round": 3,
+          "min_rounds": 7,
+          "max_rounds": 15
+        }
+      },
+      "deep": {
+        "scored": true,
+        "resource": {
+          "profile": "standard",
+          "command_timeout_seconds": 1200,
+          "wall_clock_cap_seconds": 600
+        },
+        "sampling": {
+          "warmups": 10,
+          "samples_per_round": 3,
+          "min_rounds": 7,
+          "max_rounds": 15
+        }
+      },
+      "xlarge": {
+        "scored": true,
+        "resource": {
+          "profile": "large",
+          "command_timeout_seconds": 900,
+          "wall_clock_cap_seconds": 900
+        },
+        "sampling": {
+          "warmups": 3,
+          "samples_per_round": 2,
+          "min_rounds": 5,
+          "max_rounds": 9
+        }
+      },
+      "huge": {
+        "scored": true,
+        "resource": {
+          "profile": "large",
+          "command_timeout_seconds": 1200,
+          "wall_clock_cap_seconds": 1200
+        },
+        "sampling": {
+          "warmups": 1,
+          "samples_per_round": 1,
+          "min_rounds": 3,
+          "max_rounds": 5
+        }
+      }
+    },
     "groups": {
       "native": {
         "enabled": true,
@@ -125,6 +201,16 @@
             "class": "deep",
             "args": "--example plonk --log-n-rows 14 --warmups {warmups} --samples {samples} --protocol functional",
             "native_unit": "gates"
+          },
+          "wf_log18x100": {
+            "class": "xlarge",
+            "args": "--example wide_fibonacci --log-n-rows 18 --sequence-len 100 --resource-profile large --warmups {warmups} --samples {samples} --protocol functional",
+            "native_unit": "trace rows"
+          },
+          "wf_log20x100": {
+            "class": "huge",
+            "args": "--example wide_fibonacci --log-n-rows 20 --sequence-len 100 --resource-profile large --warmups {warmups} --samples {samples} --protocol functional",
+            "native_unit": "trace rows"
           }
         }
       },
@@ -327,6 +413,16 @@
             "class": "deep",
             "args": "--example plonk --log-n-rows 14 --warmups {warmups} --samples {samples} --protocol functional",
             "native_unit": "gates"
+          },
+          "mwf_log18x100": {
+            "class": "xlarge",
+            "args": "--example wide_fibonacci --log-n-rows 18 --sequence-len 100 --resource-profile large --warmups {warmups} --samples {samples} --protocol functional",
+            "native_unit": "trace rows"
+          },
+          "mwf_log20x100": {
+            "class": "huge",
+            "args": "--example wide_fibonacci --log-n-rows 20 --sequence-len 100 --resource-profile large --warmups {warmups} --samples {samples} --protocol functional",
+            "native_unit": "trace rows"
           }
         }
       }
@@ -468,6 +564,26 @@
           15
         ],
         "sequence_len": null
+      },
+      "xlarge": {
+        "log_n_rows": [
+          17,
+          19
+        ],
+        "sequence_len": [
+          80,
+          120
+        ]
+      },
+      "huge": {
+        "log_n_rows": [
+          20,
+          20
+        ],
+        "sequence_len": [
+          80,
+          120
+        ]
       }
     }
   },
@@ -480,15 +596,6 @@
     "dispersion_multiplier": 2.0,
     "targeted_class_budget": 1.02,
     "matrix_row_budget": 1.05,
-    "warmups": 10,
-    "samples_per_round": 3,
-    "min_rounds": 7,
-    "max_rounds": 15,
-    "wall_clock_cap_seconds": {
-      "small": 240,
-      "wide": 600,
-      "deep": 600
-    },
     "neutral_band_note": "Promotion requires the declared-objective CI entirely below 1 - theta, where theta = max(theta_floor, dispersion_multiplier x per-class A/A dispersion recorded in the ledger epoch)."
   },
   "qualification_policy": {

@@ -12,6 +12,8 @@ def rows(*lines: str) -> list[ledger.Row]:
 
 
 class FrontierTest(unittest.TestCase):
+    SCORED_CLASSES = ["small", "wide", "deep", "xlarge", "huge"]
+
     def test_dominated_row_excluded(self):
         data = rows(
             row_line(commit="a", prove_ms="4.0", peak_rss_mib="30"),
@@ -69,6 +71,71 @@ class FrontierTest(unittest.TestCase):
         )
         self.assertEqual(frontier.view(data, "core_cpu", "small").head.commit, "native")
         self.assertEqual(frontier.view(data, "riscv", "small").head.commit, "riscv")
+
+    def test_new_five_class_epoch_starts_at_identity(self):
+        old = rows(
+            row_line(workload_class="small", judged_r="0.5", epoch="1"),
+            row_line(
+                workload_class="xlarge", judged_r="0.2", epoch="1",
+                commit="old-large", judged_at_utc="2026-07-18T02:00:00Z",
+                submission_id="old-large",
+            ),
+        )
+        score = frontier.board_suite_score(
+            old, "core_cpu", self.SCORED_CLASSES, epoch=2,
+        )
+        self.assertEqual(score["ratio_geomean"], 1.0)
+        self.assertEqual(score["index"], 100.0)
+        self.assertEqual(score["class_ratios"], {
+            name: 1.0 for name in self.SCORED_CLASSES
+        })
+
+    def test_only_effective_current_epoch_large_promotions_move_suite(self):
+        data = rows(
+            row_line(
+                epoch="2", workload_class="xlarge", judged_r="0.9",
+                commit="xl-old", judged_at_utc="2026-07-21T01:00:00Z",
+                submission_id="xl-old",
+            ),
+            row_line(
+                epoch="2", workload_class="xlarge", judged_r="0.8",
+                commit="xl-judged", judged_at_utc="2026-07-21T02:00:00Z",
+                submission_id="xl-judged",
+                supersedes="2026-07-21T01:00:00Z+xl-old",
+            ),
+            row_line(
+                epoch="2", workload_class="huge", judged_r="0.5",
+                commit="huge", judged_at_utc="2026-07-21T03:00:00Z",
+                submission_id="huge",
+            ),
+            row_line(
+                epoch="2", workload_class="deep", judged_r="0.1",
+                outcome="neutral", commit="neutral",
+                judged_at_utc="2026-07-21T04:00:00Z", submission_id="neutral",
+            ),
+            row_line(
+                epoch="2", workload_class="wide", judged_r="0.1",
+                outcome="rejected", commit="rejected",
+                judged_at_utc="2026-07-21T05:00:00Z", submission_id="rejected",
+            ),
+            row_line(
+                epoch="2", board="riscv", workload_class="small", judged_r="0.1",
+                commit="other-board", judged_at_utc="2026-07-21T06:00:00Z",
+                submission_id="other-board",
+            ),
+            row_line(
+                epoch="1", workload_class="small", judged_r="0.1",
+                commit="old-epoch", judged_at_utc="2026-07-21T07:00:00Z",
+                submission_id="old-epoch",
+            ),
+        )
+        score = frontier.board_suite_score(
+            data, "core_cpu", self.SCORED_CLASSES, epoch=2,
+        )
+        self.assertEqual(score["class_ratios"]["xlarge"], 0.8)
+        self.assertEqual(score["class_ratios"]["huge"], 0.5)
+        self.assertEqual(score["promoted_rows"]["xlarge"], 1)
+        self.assertAlmostEqual(score["ratio_geomean"], 0.4 ** (1.0 / 5.0))
 
 
 if __name__ == "__main__":

@@ -16,11 +16,10 @@ on:
         default: core_cpu
         type: string
       workload_class:
-        description: Workload class
+        description: Manifest-declared workload class
         required: true
         default: small
-        type: choice
-        options: [small, wide, deep]
+        type: string
       dimension:
         description: Optimization dimension
         required: true

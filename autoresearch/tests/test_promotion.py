@@ -35,17 +35,33 @@ def write_manifest(repo: Path, *, promotion_eligible: bool = True) -> None:
             "required_checks": ["allowed_diff"],
             "max_active_per_user": 1,
         },
-        "workload_registry": {"groups": {"native": {
-            "enabled": True,
-            "promotion_eligible": promotion_eligible,
-            "board": "core_cpu",
-            "build_step": "true",
-            "binary": "bin/native",
-            "report_schema": "native_proof_v7",
-            "workloads": {"wf": {
-                "class": "small", "args": "--x", "native_unit": "rows",
+        "workload_registry": {
+            "classes": {"small": {
+                "scored": True,
+                "resource": {
+                    "profile": "standard",
+                    "command_timeout_seconds": 60,
+                    "wall_clock_cap_seconds": 60,
+                },
+                "sampling": {
+                    "warmups": 1,
+                    "samples_per_round": 1,
+                    "min_rounds": 1,
+                    "max_rounds": 1,
+                },
             }},
-        }}},
+            "groups": {"native": {
+                "enabled": True,
+                "promotion_eligible": promotion_eligible,
+                "board": "core_cpu",
+                "build_step": "true",
+                "binary": "bin/native",
+                "report_schema": "native_proof_v7",
+                "workloads": {"wf": {
+                    "class": "small", "args": "--x", "native_unit": "rows",
+                }},
+            }},
+        },
     }))
 
 
@@ -114,7 +130,10 @@ class RemotePromotionRowTest(unittest.TestCase):
             record = {
                 "id": "remote",
                 "judged_verdict": {
-                    "declared_objective": {"board": "core_cpu"},
+                    "declared_objective": {
+                        "board": "core_cpu",
+                        "workload_class": "small",
+                    },
                 },
             }
             result = promotion._resume(FakeStore(), repo, record, None, "main")

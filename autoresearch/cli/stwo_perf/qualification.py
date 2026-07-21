@@ -10,7 +10,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from .manifest import Manifest
+from .manifest import Manifest, ManifestError
 
 SCHEMA_VERSION = 1
 HEX40_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -176,7 +176,7 @@ def build_receipt(repo: Path, manifest: Manifest, frontier_ref: str,
     }
 
 
-def validate_receipt(receipt: dict) -> None:
+def validate_receipt(receipt: dict, manifest: Manifest) -> None:
     if not isinstance(receipt, dict) or receipt.get("schema_version") != SCHEMA_VERSION:
         raise QualificationError(f"qualification schema_version must be {SCHEMA_VERSION}")
     for key in ("candidate_commit", "frontier_commit", "candidate_tree"):
@@ -204,8 +204,16 @@ def validate_receipt(receipt: dict) -> None:
     claim = receipt.get("claim")
     if not isinstance(claim, dict):
         raise QualificationError("qualification claim must be an object")
-    if claim.get("workload_class") not in ("small", "wide", "deep"):
-        raise QualificationError("qualification claim has an invalid workload_class")
+    try:
+        manifest.validate_workload_class(
+            claim.get("workload_class"),
+            board=claim.get("board"),
+            include_disabled=False,
+        )
+    except ManifestError as exc:
+        raise QualificationError(
+            f"qualification claim has an invalid workload_class: {exc}"
+        ) from exc
     if claim.get("dimension") not in ("time", "rss", "energy"):
         raise QualificationError("qualification claim has an invalid dimension")
     if not isinstance(claim.get("board"), str) or not claim["board"]:
@@ -220,7 +228,7 @@ def validate_receipt(receipt: dict) -> None:
 
 def verify_receipt(repo: Path, manifest: Manifest, receipt: dict) -> TreeEvidence:
     """Recompute all git evidence; never trust a fork receipt's pass booleans."""
-    validate_receipt(receipt)
+    validate_receipt(receipt, manifest)
     evidence = inspect_tree(repo, manifest, receipt["frontier_commit"],
                             receipt["candidate_commit"])
     comparisons = {

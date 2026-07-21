@@ -57,19 +57,45 @@ class PromoteClaimedTest(unittest.TestCase):
                 "required_checks": ["allowed_diff"],
                 "max_active_per_user": 1,
             },
-            "workload_registry": {"groups": {
-                "native": {
+            "workload_registry": {
+                "classes": {
+                    name: {
+                        "scored": True,
+                        "resource": {
+                            "profile": "standard",
+                            "command_timeout_seconds": 60,
+                            "wall_clock_cap_seconds": 60,
+                        },
+                        "sampling": {
+                            "warmups": 1,
+                            "samples_per_round": 1,
+                            "min_rounds": 1,
+                            "max_rounds": 1,
+                        },
+                    }
+                    for name in ("small", "wide", "deep")
+                },
+                "groups": {
+                    "native": {
                     "enabled": True,
                     "promotion_eligible": True,
                     "board": "core_cpu",
                     "build_step": "true",
                     "binary": "bin/native",
                     "report_schema": "native_proof_v7",
-                    "workloads": {"wf": {
-                        "class": "small", "args": "--x", "native_unit": "rows",
-                    }},
+                    "workloads": {
+                        "wf": {
+                            "class": "small", "args": "--x", "native_unit": "rows",
+                        },
+                        "wf_wide": {
+                            "class": "wide", "args": "--x", "native_unit": "rows",
+                        },
+                        "wf_deep": {
+                            "class": "deep", "args": "--x", "native_unit": "rows",
+                        },
+                    },
                 },
-                "riscv": {
+                    "riscv": {
                     "enabled": True,
                     "promotion_eligible": False,
                     "board": "riscv",
@@ -89,7 +115,8 @@ class PromoteClaimedTest(unittest.TestCase):
                         "class": "wide", "args": "--x", "native_unit": "cycles",
                     }},
                 },
-            }},
+                },
+            },
         }))
         self._commit("Harness scaffolding")
 

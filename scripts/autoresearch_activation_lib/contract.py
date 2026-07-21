@@ -18,7 +18,6 @@ REQUIRED_WORKFLOWS = {
 REQUIRED_CHECKS = frozenset({"autoresearch-validate", "autoresearch-judge"})
 RISCV_ORACLE_COMMIT = "d478f783055aa0d73a93768a433a3c6c31c91d1c"
 RISCV_REPORT_SCHEMA = "riscv_proof_v1"
-CLASSES = ("small", "wide", "deep")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -91,14 +90,43 @@ def validate_settings_receipt(
     return errors
 
 
-def _workload_errors(group: dict[str, Any]) -> list[str]:
+def _board_classes(
+    manifest: dict[str, Any], group: dict[str, Any], errors: list[str],
+) -> list[str]:
+    registry = manifest.get("workload_registry", {}).get("classes")
+    workloads = group.get("workloads")
+    if not isinstance(registry, dict) or not registry:
+        errors.append("manifest workload class registry is missing")
+        return []
+    if not isinstance(workloads, dict):
+        return []
+    exposed = {
+        spec.get("class") for spec in workloads.values() if isinstance(spec, dict)
+    }
+    unknown = sorted(exposed - set(registry))
+    if unknown:
+        errors.append("RISC-V workloads reference unknown classes: " + ", ".join(unknown))
+    unscored = sorted(
+        name for name in exposed & set(registry)
+        if not isinstance(registry[name], dict)
+        or registry[name].get("scored") is not True
+    )
+    if unscored:
+        errors.append("RISC-V workloads use unscored classes: " + ", ".join(unscored))
+    return [
+        name for name, spec in registry.items()
+        if isinstance(spec, dict) and spec.get("scored") is True and name in exposed
+    ]
+
+
+def _workload_errors(group: dict[str, Any], classes: list[str]) -> list[str]:
     errors: list[str] = []
     workloads = group.get("workloads")
     if not isinstance(workloads, dict):
         return ["RISC-V workload registry is missing"]
     by_class = {
         name: [wid for wid, spec in workloads.items() if spec.get("class") == name]
-        for name in CLASSES
+        for name in classes
     }
     for name, members in by_class.items():
         if len(members) < 2:
@@ -122,7 +150,7 @@ def _workload_errors(group: dict[str, Any]) -> list[str]:
         if not isinstance(pools, dict):
             errors.append("RISC-V holdout pools are missing")
         else:
-            for name in CLASSES:
+            for name in classes:
                 pool = pools.get(name)
                 if not isinstance(pool, list) or len(pool) < 2:
                     errors.append(f"RISC-V {name} holdout pool is too small")
@@ -163,6 +191,9 @@ def activation_errors(
     if len(matches) != 1:
         return [f"board {board} must have exactly one workload owner"]
     group = matches[0]
+    board_classes = _board_classes(manifest, group, errors)
+    if not board_classes:
+        errors.append(f"board {board} exposes no scored workload classes")
     if require_active and group.get("enabled") is not True:
         errors.append(f"board {board} is disabled")
     if require_active and group.get("promotion_eligible") is not True:
@@ -180,7 +211,7 @@ def activation_errors(
             errors.append("Stark-V is not marked as the final validator")
         if "parallel" not in (oracle.get("required_features") or []):
             errors.append("Stark-V oracle does not require the parallel feature")
-    errors.extend(_workload_errors(group))
+    errors.extend(_workload_errors(group, board_classes))
 
     telemetry = group.get("mechanism_telemetry")
     if not isinstance(telemetry, dict) or telemetry.get("fail_closed") is not True:
@@ -201,7 +232,7 @@ def activation_errors(
     epoch = _load(root / "autoresearch/ledger/epochs.json", "autoresearch epochs")
     epochs = epoch.get("epochs") or []
     dispersion = (epochs[-1].get("aa_dispersion", {}).get(board, {}) if epochs else {})
-    for name in CLASSES:
+    for name in board_classes:
         if not _positive(anchors.get(name)):
             errors.append(f"RISC-V {name} anchor is not frozen")
         if not _positive(dispersion.get(name)):

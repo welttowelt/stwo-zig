@@ -24,8 +24,10 @@ The "average across sizes" board, constructed so averaging is legitimate.
   current matrix protocol), per lane.
 - **Score:** `CoreIndex = geomean_i(prove_i / anchor_prove_i)` over all rows,
   against the frozen pre-optimization anchor. 1.00 = anchor; display as the
-  speedup `x(1/CoreIndex)`. Sub-indexes per workload class (small/wide/deep)
-  use the same construction over the class subset.
+  speedup `x(1/CoreIndex)`. The workload-class names and scoring eligibility
+  are owned by `MANIFEST.json`, not parser constants; native CPU and Metal
+  currently expose small/wide/deep/xlarge/huge while RISC-V remains a separate
+  small/wide/deep basket. Sub-indexes use the same construction over a class subset.
 - **Why not an average of scores:** a mean of MHz overweights large rows and
   mixes native units; a mean of times is unit-nonsense across AIRs. The ratio
   geomean weights every row equally, is scale-free, and matches the existing
@@ -122,7 +124,8 @@ protocol differs, not because the math does.
 ## Ledger mapping
 
 `promotions.tsv` carries a `board` column. A submission's declared objective
-is `(board, workload_class, dimension)`. The board set is `core_cpu |
+is `(board, workload_class, dimension)`, where the class must be declared and
+exposed by that board in the current manifest. The board set is `core_cpu |
 core_hybrid | core_metal | heavy_native | heavy_cairo | stream | riscv`.
 Kernel results stay out of the ledger by rule; they live in the microharness
 diagnostics reports.

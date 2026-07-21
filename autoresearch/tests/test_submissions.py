@@ -51,7 +51,9 @@ def request():
 
 class SubmissionValidationTest(unittest.TestCase):
     def test_valid_request_binds_identity_source_and_claim(self):
-        value = submissions.validate_request(request(), AUTHOR, {"core_cpu"})
+        value = submissions.validate_request(
+            request(), AUTHOR, {"core_cpu": {"small", "wide", "deep", "xlarge", "huge"}},
+        )
         self.assertEqual(value["author"]["github_id"], 1)
         self.assertEqual(value["coauthors"], [{"login": "bob", "status": "pending"}])
 
@@ -59,13 +61,30 @@ class SubmissionValidationTest(unittest.TestCase):
         body = request()
         body["source"]["repository"] = "https://github.com/mallory/stwo-zig"
         with self.assertRaises(submissions.SubmissionError):
-            submissions.validate_request(body, AUTHOR, {"core_cpu"})
+            submissions.validate_request(body, AUTHOR, {"core_cpu": {"small"}})
 
     def test_receipt_claim_mismatch_is_rejected(self):
         body = request()
         body["claim"]["shipping_index"] = 0.8
         with self.assertRaises(submissions.SubmissionError):
-            submissions.validate_request(body, AUTHOR, {"core_cpu"})
+            submissions.validate_request(body, AUTHOR, {"core_cpu": {"small"}})
+
+    def test_board_owned_classes_fail_closed(self):
+        body = request()
+        body["claim"]["workload_class"] = "huge"
+        body["qualification"]["receipt"]["claim"] = copy.deepcopy(body["claim"])
+        with self.assertRaisesRegex(submissions.SubmissionError, "not runnable on riscv"):
+            body["claim"]["board"] = "riscv"
+            body["qualification"]["receipt"]["claim"] = copy.deepcopy(body["claim"])
+            submissions.validate_request(
+                body, AUTHOR, {"riscv": {"small", "wide", "deep"}},
+            )
+
+        body = request()
+        body["claim"]["workload_class"] = "invented"
+        body["qualification"]["receipt"]["claim"] = copy.deepcopy(body["claim"])
+        with self.assertRaisesRegex(submissions.SubmissionError, "not runnable"):
+            submissions.validate_request(body, AUTHOR, {"core_cpu": {"small"}})
 
     def test_repository_parser_accepts_real_github_name_characters(self):
         self.assertEqual(

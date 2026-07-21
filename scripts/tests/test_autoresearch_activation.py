@@ -147,7 +147,12 @@ class ActivationContractTest(unittest.TestCase):
             "harness": {"anchor_prove_ms": {
                 "riscv": {"small": 1.0, "wide": 2.0, "deep": 3.0},
             }},
-            "workload_registry": {"groups": {"riscv": {
+            "workload_registry": {
+                "classes": {
+                    name: {"scored": True}
+                    for name in ("small", "wide", "deep", "xlarge", "huge")
+                },
+                "groups": {"riscv": {
                 "enabled": True,
                 "promotion_eligible": True,
                 "board": "riscv",

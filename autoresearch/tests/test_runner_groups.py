@@ -16,6 +16,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "cli"))
 from stwo_perf import manifest as manifest_mod, runner
 from stwo_perf.manifest import Manifest
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
 FAKE_REPORT = (
     '{"schema_version":7,"timing":{"prove_seconds":{"median":0.001}},'
     '"workload":{"committed_trace_cells":8192},'
@@ -26,7 +28,7 @@ FAKE_REPORT = (
     '"proof":{"verified_samples":1,"all_samples_byte_identical":true,'
     '"samples":[{"bytes":1024,"sha256":"' + "a" * 64 + '"}]},'
     '"resources":{"measurement_scope":"verified_process_request_batch",'
-    '"source":"darwin_proc_pid_rusage_v6","measured_warmups":0,'
+    '"source":"darwin_proc_pid_rusage_v6","measured_warmups":1,'
     '"measured_samples":1,"lifetime_peak_physical_footprint_bytes":1048576,'
     '"energy_nj":1000000000,"instructions":1000,"cycles":500,'
     '"canonical_proof_bytes":1024,"complete":true,'
@@ -86,6 +88,23 @@ def make_raw(riscv_enabled: bool, native_binary: str = "bin/fakebench") -> dict:
             "max_active_per_user": 1,
         },
         "workload_registry": {
+            "classes": {
+                name: {
+                    "scored": True,
+                    "resource": {
+                        "profile": "standard",
+                        "command_timeout_seconds": 60,
+                        "wall_clock_cap_seconds": 60,
+                    },
+                    "sampling": {
+                        "warmups": 1,
+                        "samples_per_round": 1,
+                        "min_rounds": 3,
+                        "max_rounds": 3,
+                    },
+                }
+                for name in ("small", "wide", "deep")
+            },
             "groups": {
                 "native": {
                     "enabled": True,
@@ -326,7 +345,7 @@ class RunnerGroupTest(unittest.TestCase):
         group = manifest.group("native")
         workload = manifest.workloads("small", board="core_cpu")[0]
         base = json.loads(FAKE_REPORT)
-        runner._parse_native_report(base, group, workload, 0, 1, Path("report.json"))
+        runner._parse_native_report(base, group, workload, 1, 1, Path("report.json"))
 
         mutations = {
             "missing field": lambda report: report["resource_admission"].pop(
@@ -353,7 +372,7 @@ class RunnerGroupTest(unittest.TestCase):
             mutate(report)
             with self.subTest(name=name), self.assertRaises(ValueError):
                 runner._parse_native_report(
-                    report, group, workload, 0, 1, Path("report.json")
+                    report, group, workload, 1, 1, Path("report.json")
                 )
 
         large_workload = runner.Workload(
@@ -369,7 +388,7 @@ class RunnerGroupTest(unittest.TestCase):
             "max_accounted_bytes": 2147483648,
         })
         runner._parse_native_report(
-            large, group, large_workload, 0, 1, Path("large-report.json")
+            large, group, large_workload, 1, 1, Path("large-report.json")
         )
 
     def test_enabled_native_group_still_scores(self):
@@ -522,6 +541,16 @@ class RunnerGroupTest(unittest.TestCase):
         primary = manifest.workloads("wide", board="riscv")[0]
         self.assertNotEqual(first.args, primary.args)
         self.assertRegex(first.args, r"riscv_elfs/(bubble_sort|collatz)\.elf")
+
+    def test_large_generated_holdouts_retain_explicit_resource_profile(self):
+        manifest = manifest_mod.load(REPO_ROOT)
+        for workload_class in ("xlarge", "huge"):
+            with self.subTest(workload_class=workload_class):
+                holdout = runner.draw_holdout(
+                    manifest, workload_class, 12345, board="core_cpu",
+                )
+                self.assertIsNotNone(holdout)
+                self.assertIn("--resource-profile large", holdout.args)
 
     def test_correctness_oracle_dispatches_by_group(self):
         native = self._manifest(riscv_enabled=False)
@@ -703,6 +732,49 @@ class RunnerGroupTest(unittest.TestCase):
         )
         self.assertEqual(policy["wall_clock_cap_seconds"]["small"], 17)
 
+    def test_pair_arms_receive_smaller_of_command_and_remaining_class_budget(self):
+        manifest = self._manifest(riscv_enabled=False)
+        workload = manifest.workloads("small", board="core_cpu")[0]
+        report_path = self.root / "report.json"
+        report_path.write_text("{}")
+        arm = runner.ArmResult(
+            1.0, 1, True, None, str(report_path), proof_digest="7" * 64,
+        )
+        policy = {
+            **GATES_POLICY,
+            "min_rounds": 3,
+            "max_rounds": 3,
+            "command_timeout_seconds": 4,
+            "wall_clock_cap_seconds": {"small": 10},
+        }
+        with mock.patch.object(
+            runner.time, "monotonic", side_effect=[float(value) for value in range(10)],
+        ), mock.patch.object(runner, "bench_once", return_value=arm) as bench:
+            runner.paired_rounds(
+                self.root, self.root, manifest, workload, policy, self.out_dir,
+            )
+        self.assertEqual(
+            [call.kwargs["timeout_seconds"] for call in bench.call_args_list],
+            [4, 4, 4, 4, 3, 2],
+        )
+
+    def test_pair_fails_before_launch_when_class_wall_budget_is_exhausted(self):
+        manifest = self._manifest(riscv_enabled=False)
+        workload = manifest.workloads("small", board="core_cpu")[0]
+        policy = {
+            **GATES_POLICY,
+            "command_timeout_seconds": 100,
+            "wall_clock_cap_seconds": {"small": 10},
+        }
+        with mock.patch.object(
+            runner.time, "monotonic", side_effect=[0.0, 11.0],
+        ), mock.patch.object(runner, "bench_once") as bench, \
+                self.assertRaisesRegex(runner.RunError, "wall-clock budget exhausted"):
+            runner.paired_rounds(
+                self.root, self.root, manifest, workload, policy, self.out_dir,
+            )
+        bench.assert_not_called()
+
     def test_out_of_scope_stray_fails_g2(self):
         m = self._manifest(riscv_enabled=False)
         with mock.patch.object(
@@ -713,6 +785,34 @@ class RunnerGroupTest(unittest.TestCase):
             )
         self.assertFalse(gates["G2"]["pass"])
         self.assertIn("outside editable set", gates["G2"]["detail"])
+
+    def test_judged_g5_requires_exact_class_anchor_and_dispersion(self):
+        raw = make_raw(riscv_enabled=False)
+        raw["harness"] = {
+            "anchor_commit": "a" * 40,
+            "anchor_prove_ms": {"core_cpu": {"small": None}},
+        }
+        manifest = Manifest(self.root, raw)
+        with mock.patch.object(runner, "changed_paths", return_value=[]):
+            missing_anchor = runner._gates(
+                self.root, manifest, [], GATES_POLICY, True, 0.01,
+                "small", "core_cpu",
+            )
+        self.assertFalse(missing_anchor["G5"]["pass"])
+
+        raw["harness"]["anchor_prove_ms"]["core_cpu"]["small"] = 1.0
+        manifest = Manifest(self.root, raw)
+        with mock.patch.object(runner, "changed_paths", return_value=[]):
+            missing_dispersion = runner._gates(
+                self.root, manifest, [], GATES_POLICY, True, None,
+                "small", "core_cpu",
+            )
+            complete = runner._gates(
+                self.root, manifest, [], GATES_POLICY, True, 0.01,
+                "small", "core_cpu",
+            )
+        self.assertFalse(missing_dispersion["G5"]["pass"])
+        self.assertTrue(complete["G5"]["pass"])
 
     def test_riscv_score_without_verified_mechanism_fails_g3(self):
         manifest = self._riscv_manifest()

@@ -62,15 +62,20 @@ def verdict(v: dict) -> str:
     return "\n".join(lines)
 
 
-def frontier_view(rows: list[ledger.Row], boards: list[str], classes: list[str],
-                  anchors: dict, budgets: tuple[float, float]) -> str:
+def frontier_view(
+    rows: list[ledger.Row],
+    boards: list[str],
+    classes_by_board: dict[str, list[str]],
+    anchors: dict,
+    budgets: tuple[float, float],
+) -> str:
     lines = [ansi.rule("promotions ledger · Pareto frontier")]
     if not rows:
         lines.append(ansi.style("  ledger is empty — no judged promotions yet", "dim"))
     for board in boards:
         lines.append("")
         lines.append(ansi.style(f"  board {board}", "bold"))
-        for cls in classes:
+        for cls in classes_by_board.get(board, []):
             v = frontier.view(rows, board, cls)
             lines.append(ansi.style(f"    {cls}", "bold"))
             if not v.head:
