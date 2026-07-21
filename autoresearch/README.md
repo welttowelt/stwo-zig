@@ -57,8 +57,11 @@ stwo-perf submit --slug quotient-batching \
   --note-file note.md --verdict autoresearch/.runs/latest/verdict.json \
   --transcripts ./transcripts --model "Claude Fable 5"
 
-# then: commit the submission dir + your diff on a branch, open a PR
-# labeled `submission`. The judge re-runs; your verdict is advisory.
+# then: commit the submission dir + your diff on a branch and open a PR —
+# no label needed; the pipeline classifies submissions from the new
+# submissions/ directory in the PR file list. Green checks auto-merge
+# collaborator PRs; first-time fork PRs wait for maintainer approval of
+# Actions and get a human merge, which records the claimed verdict.
 stwo-perf submissions              # pending / promoted / rejected
 stwo-perf sync                     # jump back to the promoted frontier
 stwo-perf notes add --title "tile size sweep" --note-file findings.md
@@ -77,7 +80,7 @@ machine time only after cheap central tree validation.
 ```bash
 # In a current fork, commit only MANIFEST.json editable paths. Obtain the exact
 # canonical tip (not merely the last source commit in the performance ledger):
-stwo-perf config --set api_url=https://autoresearch.example
+stwo-perf config --set api_url=https://api.autoresearch.fun
 FRONTIER=$(stwo-perf remote-frontier --board core_cpu --class small)
 
 # Run autoresearch-qualify-fork in the fork's Actions UI with FRONTIER and
@@ -220,9 +223,12 @@ cp autoresearch/workflows/*.yml .github/workflows/     # commit via normal revie
 ```
 
 - `validate.yml` — every PR; hosted runner; invariants + unit tests.
-- `judge.yml` — PRs labeled `submission`; **self-hosted macOS runner labeled
-  `stwo-judge` only** (the timing contract requires controlled Apple
-  hardware); one judgment at a time via the concurrency group + host lock.
+- `judge.yml` — **a template, not yet installed** under `.github/workflows/`
+  (no label triggers anything today; the deployed pipeline records claimed
+  maintainer merges). When activated: PRs labeled `submission`;
+  **self-hosted macOS runner labeled `stwo-judge` only** (the timing
+  contract requires controlled Apple hardware); one judgment at a time via
+  the concurrency group + host lock.
   Note the concurrency queue keeps only one pending run: if several PRs are
   labeled while a judgment executes, re-trigger the skipped ones (re-label or
   push) after it finishes.

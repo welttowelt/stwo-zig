@@ -122,22 +122,31 @@ Then:
 
 **Path A — pull request.** Push a branch containing exactly your editable-path
 diff plus the submission directory to a GitHub fork of this repository, and
-open a pull request against `teddyjfpender/stwo-zig` labeled `submission`.
-The `autoresearch-validate` workflow checks it mechanically on hosted runners.
-When validation and CI are fully green, collaborator submissions auto-merge
-and the recorder puts the result on the board within a minute or two;
-first-time outside contributors get a human merge (or use Path B).
+open a pull request against `teddyjfpender/stwo-zig`. No label is needed (and
+fork contributors cannot apply one): the pipeline classifies submissions from
+the new `autoresearch/submissions/<slug>/` directory in the PR's file list;
+any privileged label is applied by a maintainer, never by you. On your first
+PR the workflows will sit at `action_required` until a maintainer approves
+first-time Actions runs — expected, nothing to fix on your side. The
+`autoresearch-validate` workflow then checks the PR mechanically on hosted
+runners. When validation and CI are fully green, collaborator submissions
+auto-merge and the recorder puts the result on the board within a minute or
+two; first-time outside contributors get a human merge (or use Path B). The
+human merge is the adjudication today: it records your claimed verdict as an
+optimistic ledger row; the self-hosted judge re-run activates later.
 
 **Path B — authenticated remote submission** (fork-funded qualification):
 
 ```sh
 # once: fork this repo on GitHub and enable Actions in your fork
+stwo-perf config --set api_url=https://api.autoresearch.fun
 FRONTIER=$(stwo-perf remote-frontier --board core_cpu --class <class>)
 # in your fork's Actions UI, run "autoresearch-qualify-fork" with that
 # frontier commit and your board/class; download the
 # "autoresearch-qualification" artifact into ./qualification/
 
-stwo-perf login                      # GitHub sign-in; issues your API key
+stwo-perf login                      # GitHub device-flow sign-in
+stwo-perf apikey                     # issues and stores your CLI API key
 stwo-perf submit-remote \
   --receipt qualification/receipt.json \
   --repository https://github.com/<your-login>/stwo-zig \

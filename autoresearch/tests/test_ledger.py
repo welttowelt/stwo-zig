@@ -122,5 +122,20 @@ class SerializeTest(unittest.TestCase):
             ledger.serialize_row(values)
 
 
+class CanonicalLedgerTest(unittest.TestCase):
+    """Regression for issue #22: the production backend serves whatever the
+    committed ledger contains, so every change must keep the current parser
+    and the canonical promotions.tsv in agreement — the July 20 outage was
+    exactly this pair drifting (v2 rows landing while a pre-v2 parser served)."""
+
+    def test_current_parser_reads_committed_ledger(self):
+        repo_root = Path(__file__).resolve().parents[2]
+        rows = ledger.load(repo_root)
+        self.assertGreater(len(rows), 0)
+        for row in rows:
+            self.assertIn(row.outcome, ("promoted", "neutral", "rejected"))
+            self.assertIn(row.board, ledger.BOARDS)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -139,8 +139,10 @@ def cmd_submit(args) -> int:
         return _fail(str(exc))
     print(f"{ansi.OK} submission packaged: {sub_dir.relative_to(m.root)}")
     print("  next: commit the submission directory and your editable-path diff on a")
-    print("  branch, then open a PR labeled 'submission'. The judge re-runs before")
-    print("  anything lands; your claimed verdict is advisory.")
+    print("  branch, then open a PR against teddyjfpender/stwo-zig. No label needed —")
+    print("  the pipeline classifies submissions from the new submissions/ directory.")
+    print("  Green validation + CI auto-merges collaborator PRs; first-time outside")
+    print("  contributors get a human merge, which records your claimed verdict.")
     return 0
 
 
@@ -279,16 +281,20 @@ def cmd_notes(args) -> int:
     return 0
 
 
+def latest_promoted_commit(rows) -> str | None:
+    """Newest effective promoted row across every board: promotions land
+    linearly on main, so the last-appended promoted row is the most complete
+    tree regardless of which board it scored on. Append order also breaks
+    the second-granularity judged_at ties a single recorder run produces."""
+    from . import frontier as frontier_mod
+    effective = frontier_mod.effective_rows(rows)
+    return effective[-1].commit if effective else None
+
+
 def cmd_sync(args) -> int:
-    from . import frontier as frontier_mod, workspace
+    from . import workspace
     m = manifest_mod.load()
-    rows = ledger.load(m.root)
-    heads = [
-        frontier_mod.view(rows, cls).head
-        for cls in ("small", "wide", "deep")
-    ]
-    heads = [h for h in heads if h is not None]
-    promoted = max(heads, key=lambda h: str(h.judged_at_utc)).commit if heads else None
+    promoted = latest_promoted_commit(ledger.load(m.root))
     try:
         restored = workspace.sync(m.root, m, promoted, force=args.force)
     except workspace.WorkspaceError as exc:
