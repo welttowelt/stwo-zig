@@ -1,5 +1,9 @@
 # stwo-perf: the autoresearch harness
 
+> The research rationale for treating optimization as evidence-governed,
+> constrained, multi-dimensional search is developed in
+> [Evidence-Governed Open Optimization](papers/2026-07-21-evidence-governed-open-optimization.md).
+
 **Start here: [TASK.md](TASK.md)** — the immediate optimization objective, the
 editable surface, the loop, and what winning means, written to be handed to a
 coding agent verbatim.
@@ -20,6 +24,7 @@ implementation. Python 3.11+ stdlib only; no packages to install.
 autoresearch/
   MANIFEST.json        editable paths + rung map, locked paths, workload
                        registry, gate policy — the machine-readable contract
+  papers/              research rationale for the harness and workload model
   skills/              agent skills: complexity-first algorithm selection,
                        Metal performance design, Zig profiling, and
                        Metal profiling
