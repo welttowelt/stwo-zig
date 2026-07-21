@@ -545,10 +545,13 @@ bool stwo_zig_metal_fri_line_cascade(
                 [encoder setBuffer:node_seed_buffer offset:0u atIndex:5];
                 [encoder setBytes:&domain_prefix_bytes length:sizeof(domain_prefix_bytes) atIndex:6];
                 [encoder setBytes:transcript_config length:sizeof(transcript_config) atIndex:7];
-                [encoder setThreadgroupMemoryLength:(NSUInteger)tail_width * 8u * sizeof(uint32_t)
+                NSUInteger tail_scratch_width = MAX((NSUInteger)tail_width, (NSUInteger)16u);
+                [encoder setThreadgroupMemoryLength:tail_scratch_width * 8u * sizeof(uint32_t)
                     atIndex:0];
                 [encoder dispatchThreadgroups:MTLSizeMake(1u, 1u, 1u)
-                     threadsPerThreadgroup:MTLSizeMake(tail_width, 1u, 1u)];
+                     threadsPerThreadgroup:MTLSizeMake(
+                         MAX((NSUInteger)tail_width, runtime.parentTailSparse.threadExecutionWidth),
+                         1u, 1u)];
                 [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
                 dispatches += 1u;
             }

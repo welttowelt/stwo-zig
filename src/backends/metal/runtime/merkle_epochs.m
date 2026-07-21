@@ -503,8 +503,11 @@ void *stwo_zig_metal_merkle_parent_chain_prepare(
                                                        parent_counts, level_count, (uint32_t)capacity);
         plan.tailStart = MAX(tail_start, plan.bottomLevelCount);
         if (plan.tailStart < level_count) {
-            plan.tailThreadgroupWidth = parent_counts[plan.tailStart];
-            plan.tailScratchBytes = (NSUInteger)plan.tailThreadgroupWidth * 8u * sizeof(uint32_t);
+            uint32_t logical_width = parent_counts[plan.tailStart];
+            plan.tailThreadgroupWidth = (uint32_t)MAX(
+                (NSUInteger)logical_width, runtime.parentTailSparse.threadExecutionWidth);
+            plan.tailScratchBytes = MAX((NSUInteger)logical_width, (NSUInteger)16u) *
+                8u * sizeof(uint32_t);
         }
         return (__bridge_retained void *)plan;
     }
