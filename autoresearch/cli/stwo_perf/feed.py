@@ -255,7 +255,7 @@ def _submissions(repo: Path, rows: list[ledger.Row]) -> list[dict]:
             note_text = note.read_text()
             lines = note_text.lstrip().splitlines()
             title = lines[0].lstrip("# ").strip() or None if lines else None
-        out.append({
+        record = {
             "id": sub.name,
             "title": title,
             "outcome": row.values.get("outcome") if row else "pending",
@@ -265,8 +265,26 @@ def _submissions(repo: Path, rows: list[ledger.Row]) -> list[dict]:
             "solver": _solver(repo, sub.name),
             "note": note_text,
             "transcripts": _transcripts(sub),
-        })
+        }
+        span = _span_constituents(sub)
+        if span:
+            record["span_constituents"] = span
+        out.append(record)
     return out
+
+
+def _span_constituents(sub: Path) -> list[str] | None:
+    """A combined-span verdict credits several individually-undetectable
+    submissions as one measured delta; the site squashes them into one
+    leaderboard entry using this list."""
+    for verdict_path in sorted(sub.glob("verdict-*.json")):
+        try:
+            constituents = json.loads(verdict_path.read_text()).get("span_constituents")
+        except (json.JSONDecodeError, OSError):
+            continue
+        if constituents:
+            return [str(c) for c in constituents]
+    return None
 
 
 def _solver(repo: Path, submission_id: str) -> str | None:
