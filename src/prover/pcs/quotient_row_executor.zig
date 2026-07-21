@@ -47,6 +47,116 @@ pub inline fn shouldBatchDomain(total_rows: usize) bool {
     return total_rows >= MIN_BATCHED_DOMAIN_ROWS;
 }
 
+/// Reusable materializer for contiguous circle-domain points in bit-reversed
+/// evaluation order.
+///
+/// For an `h + 1` bit domain, positions `2k` and `2k + 1` map to circle-domain
+/// indices `bitReverse(k, h)` and `2^h + bitReverse(k, h)`. The latter is the
+/// conjugate of the former. Successive values of `bitReverse(k, h)` differ by
+/// one of `h` carry-dependent offsets, so after the first pair each new base
+/// point costs one circle addition instead of another index-to-point expansion.
+/// The bounded carry table is constructed once and reused across work-item
+/// chunks.
+pub const BitReversedDomainPointMaterializer = struct {
+    domain: CircleDomain,
+    pair_log_size: u32,
+    successor_deltas: [circle.M31_CIRCLE_LOG_ORDER]CirclePointM31,
+
+    pub fn init(domain: CircleDomain, log_size: u32) !BitReversedDomainPointMaterializer {
+        if (domain.logSize() != log_size) return error.ShapeMismatch;
+
+        var materializer = BitReversedDomainPointMaterializer{
+            .domain = domain,
+            .pair_log_size = log_size - 1,
+            .successor_deltas = undefined,
+        };
+
+        // Moving from pair k to k + 1 changes bitReverse(k) according to the
+        // carry length ctz(k + 1). The 3* term is modulo the 2^h-point
+        // subgroup. These deltas depend on the coset step, not its shift.
+        var stride = domain.half_coset.step;
+        var carry_len: usize = materializer.pair_log_size;
+        while (carry_len > 0) {
+            carry_len -= 1;
+            const doubled = stride.double();
+            materializer.successor_deltas[carry_len] = stride.add(doubled);
+            stride = doubled;
+        }
+        return materializer;
+    }
+
+    pub fn fill(
+        self: *const BitReversedDomainPointMaterializer,
+        out: []CirclePointM31,
+        start: usize,
+    ) !void {
+        const end = std.math.add(usize, start, out.len) catch return error.ShapeMismatch;
+        if (end > self.domain.size()) return error.ShapeMismatch;
+        if (out.len == 0) return;
+
+        var pair_index = start >> 1;
+        var point = self.domain.at(core_utils.bitReverseIndex(
+            pair_index,
+            self.pair_log_size,
+        ));
+        var row: usize = 0;
+
+        // The first requested position may be the conjugate half of a pair.
+        if ((start & 1) != 0) {
+            out[0] = point.conjugate();
+            row = 1;
+            if (row == out.len) return;
+
+            pair_index += 1;
+            std.debug.assert(pair_index < (self.domain.size() >> 1));
+            const carry: usize = @intCast(@ctz(pair_index));
+            point = point.add(self.successor_deltas[carry]);
+        }
+
+        while (row < out.len) {
+            out[row] = point;
+            row += 1;
+            if (row < out.len) {
+                out[row] = point.conjugate();
+                row += 1;
+            }
+            if (row == out.len) break;
+
+            pair_index += 1;
+            std.debug.assert(pair_index < (self.domain.size() >> 1));
+            const carry: usize = @intCast(@ctz(pair_index));
+            point = point.add(self.successor_deltas[carry]);
+        }
+    }
+};
+
+/// Convenience wrapper for callers that do not retain a work-item
+/// materializer. Slices contained in one even/odd pair avoid constructing the
+/// carry table entirely.
+pub fn fillBitReversedDomainPoints(
+    out: []CirclePointM31,
+    domain: CircleDomain,
+    start: usize,
+    log_size: u32,
+) !void {
+    if (domain.logSize() != log_size) return error.ShapeMismatch;
+    const end = std.math.add(usize, start, out.len) catch return error.ShapeMismatch;
+    if (end > domain.size()) return error.ShapeMismatch;
+    if (out.len == 0) return;
+
+    const first_pair = start >> 1;
+    const last_pair = (end - 1) >> 1;
+    if (first_pair == last_pair) {
+        const point = domain.at(core_utils.bitReverseIndex(first_pair, log_size - 1));
+        out[0] = if ((start & 1) == 0) point else point.conjugate();
+        if (out.len == 2) out[1] = point.conjugate();
+        return;
+    }
+
+    const materializer = try BitReversedDomainPointMaterializer.init(domain, log_size);
+    try materializer.fill(out, start);
+}
+
 pub const Scratch = struct {
     domain_points: []CirclePointM31,
     denominators: []CM31,
@@ -217,15 +327,17 @@ pub const MaterializedWork = struct {
 pub fn executeMaterialized(item: *const MaterializedWork) !void {
     const scratch = item.scratch orelse return executeMaterializedScalar(item);
     const workspace = item.workspace;
+    const point_materializer = try BitReversedDomainPointMaterializer.init(
+        item.domain,
+        item.lifting_log_size,
+    );
     var chunk_start = item.start;
     while (chunk_start < item.end) {
         const row_count = @min(scratch.rowCapacity(), item.end - chunk_start);
-        for (scratch.domain_points[0..row_count], 0..) |*domain_point, row| {
-            domain_point.* = item.domain.at(core_utils.bitReverseIndex(
-                chunk_start + row,
-                item.lifting_log_size,
-            ));
-        }
+        try point_materializer.fill(
+            scratch.domain_points[0..row_count],
+            chunk_start,
+        );
         try scratch.prepare(workspace, row_count);
 
         for (0..row_count) |row| {
@@ -310,15 +422,17 @@ pub fn executeStreaming(item: *StreamingWork) !void {
 
     const scratch = item.scratch orelse return executeStreamingScalar(item);
     const workspace = item.workspace;
+    const point_materializer = try BitReversedDomainPointMaterializer.init(
+        item.domain,
+        item.lifting_log_size,
+    );
     var chunk_start = item.start;
     while (chunk_start < item.end) {
         const row_count = @min(scratch.rowCapacity(), item.end - chunk_start);
-        for (scratch.domain_points[0..row_count], 0..) |*domain_point, row| {
-            domain_point.* = item.domain.at(core_utils.bitReverseIndex(
-                chunk_start + row,
-                item.lifting_log_size,
-            ));
-        }
+        try point_materializer.fill(
+            scratch.domain_points[0..row_count],
+            chunk_start,
+        );
         try scratch.prepare(workspace, row_count);
 
         var tile_row_start: usize = 0;
@@ -444,6 +558,114 @@ test "quotient row scratch rejects invalid, overflowing, and over-budget shapes"
     try std.testing.expectError(
         error.ScratchMemoryLimitExceeded,
         rowCapacityForBatchCount(MAX_BYTES_PER_WORKER / @sizeOf(CM31), 1),
+    );
+}
+
+test "quotient row bit-reversed point walk matches scalar indexing for shifted domains and partial chunks" {
+    var storage: [1024]CirclePointM31 = undefined;
+    var cached_storage: [1024]CirclePointM31 = undefined;
+    try std.testing.expect(@sizeOf(BitReversedDomainPointMaterializer) <= 512);
+
+    var log_size: u32 = 1;
+    while (log_size <= 30) : (log_size += 1) {
+        const canonic_domain = canonic.CanonicCoset.new(log_size).circleDomain();
+        const noncanonic_domain = CircleDomain.new(circle.Coset.new(
+            circle.CirclePointIndex.generator().mul(37 + @as(usize, log_size)),
+            log_size - 1,
+        ));
+        const shifted_domain = noncanonic_domain.shift(
+            circle.CirclePointIndex.generator().mul(113 + @as(usize, log_size) * 3),
+        );
+        const negative_step_domain = CircleDomain.new(shifted_domain.half_coset.conjugate());
+        try std.testing.expect(!shifted_domain.isCanonic());
+        try std.testing.expect(negative_step_domain.half_coset.step_size.eql(
+            shifted_domain.half_coset.step_size.neg(),
+        ));
+
+        const domains = [_]CircleDomain{
+            canonic_domain,
+            noncanonic_domain,
+            shifted_domain,
+            negative_step_domain,
+        };
+        const size = canonic_domain.size();
+        const starts = [_]usize{
+            0,
+            @min(1, size),
+            @min(2, size),
+            @min(3, size),
+            size / 2,
+            size -| 3,
+            size -| 2,
+            size -| 1,
+            size,
+        };
+        const requested_lengths = [_]usize{ 0, 1, 2, 3, 4, 5, 17, 63, 1024 };
+
+        for (domains) |domain| {
+            const materializer = try BitReversedDomainPointMaterializer.init(domain, log_size);
+            for (starts) |start| {
+                for (requested_lengths) |requested_len| {
+                    const len = @min(requested_len, size - start);
+                    const out = storage[0..len];
+                    const cached_out = cached_storage[0..len];
+                    try fillBitReversedDomainPoints(out, domain, start, log_size);
+                    try materializer.fill(cached_out, start);
+                    for (out, cached_out, 0..) |actual, cached_actual, row| {
+                        const expected = domain.at(core_utils.bitReverseIndex(
+                            start + row,
+                            log_size,
+                        ));
+                        try std.testing.expect(actual.eql(expected));
+                        try std.testing.expect(cached_actual.eql(expected));
+                    }
+                }
+            }
+
+            // Transitioning from pair 2^c - 1 to pair 2^c exercises carry
+            // table entry c. Cover every entry at every valid domain size.
+            var carry: u32 = 0;
+            while (carry < log_size - 1) : (carry += 1) {
+                const pair_index = (@as(usize, 1) << @intCast(carry)) - 1;
+                const start = pair_index * 2;
+                const out = storage[0..3];
+                try materializer.fill(out, start);
+                for (out, 0..) |actual, row| {
+                    const expected = domain.at(core_utils.bitReverseIndex(
+                        start + row,
+                        log_size,
+                    ));
+                    try std.testing.expect(actual.eql(expected));
+                }
+            }
+        }
+    }
+
+    const domain = canonic.CanonicCoset.new(3).circleDomain();
+    try std.testing.expectError(
+        error.ShapeMismatch,
+        BitReversedDomainPointMaterializer.init(domain, 2),
+    );
+    const materializer = try BitReversedDomainPointMaterializer.init(domain, 3);
+    try std.testing.expectError(
+        error.ShapeMismatch,
+        fillBitReversedDomainPoints(storage[0..1], domain, 0, 2),
+    );
+    try std.testing.expectError(
+        error.ShapeMismatch,
+        fillBitReversedDomainPoints(storage[0..2], domain, domain.size() - 1, 3),
+    );
+    try std.testing.expectError(
+        error.ShapeMismatch,
+        fillBitReversedDomainPoints(storage[0..1], domain, std.math.maxInt(usize), 3),
+    );
+    try std.testing.expectError(
+        error.ShapeMismatch,
+        materializer.fill(storage[0..2], domain.size() - 1),
+    );
+    try std.testing.expectError(
+        error.ShapeMismatch,
+        materializer.fill(storage[0..1], std.math.maxInt(usize)),
     );
 }
 

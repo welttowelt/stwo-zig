@@ -226,15 +226,17 @@ pub fn execute(work: *Work) !void {
 }
 
 fn executeBatched(work: *Work, scratch: *Scratch) !void {
+    const point_materializer = try row_executor.BitReversedDomainPointMaterializer.init(
+        work.domain,
+        work.lifting_log_size,
+    );
     var tile_start = work.start;
     while (tile_start < work.end) {
         const row_count = @min(scratch.row_capacity, work.end - tile_start);
-        for (scratch.row_scratch.domain_points[0..row_count], 0..) |*point, row| {
-            point.* = work.domain.at(core_utils.bitReverseIndex(
-                tile_start + row,
-                work.lifting_log_size,
-            ));
-        }
+        try point_materializer.fill(
+            scratch.row_scratch.domain_points[0..row_count],
+            tile_start,
+        );
         try scratch.row_scratch.prepare(work.workspace, row_count);
         try scratch.clearNumerators(row_count);
         accumulateTile(work, scratch, tile_start, row_count);
