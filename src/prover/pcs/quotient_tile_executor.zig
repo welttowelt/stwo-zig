@@ -8,6 +8,7 @@ const qm31 = @import("stwo_core").fields.qm31;
 const quotients = @import("stwo_core").pcs.quotients;
 const row_executor = @import("quotient_row_executor.zig");
 const tile_sink = @import("quotient_tile_sink.zig");
+const constraints = @import("stwo_core").constraints;
 const domain_walk = @import("quotient_domain_walk.zig");
 const work_pool_mod = @import("../work_pool.zig");
 
@@ -241,7 +242,32 @@ fn executeBatched(work: *Work, scratch: *Scratch) !void {
         try scratch.clearNumerators(row_count);
         accumulateTile(work, scratch, tile_start, row_count);
 
-        for (0..row_count) |row| {
+        var row: usize = 0;
+        while (row + m31.VEC_WIDTH <= row_count) : (row += m31.VEC_WIDTH) {
+            var ys: [m31.VEC_WIDTH]M31 = undefined;
+            inline for (0..m31.VEC_WIDTH) |lane| {
+                ys[lane] = scratch.row_scratch.domain_points[row + lane].y;
+            }
+            var row_inverses: [m31.VEC_WIDTH][]const CM31 = undefined;
+            inline for (0..m31.VEC_WIDTH) |lane| {
+                row_inverses[lane] = scratch.row_scratch.inversesForRow(row + lane) catch
+                    return error.InvalidChunkSize;
+            }
+            const quotient = finalizeGroupVec4(
+                work.quotient_constants,
+                m31.loadVec4(&ys),
+                scratch,
+                row,
+                row_inverses,
+            );
+            inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+                m31.storeVec4(
+                    work.out_columns[coordinate][tile_start + row - work.output_start ..].ptr,
+                    quotient[coordinate],
+                );
+            }
+        }
+        while (row < row_count) : (row += 1) {
             for (0..scratch.batch_count) |batch| {
                 work.workspace.batch_numerators[batch] = QM31.fromM31(
                     scratch.numerator(batch, 0, row).*,
@@ -358,6 +384,73 @@ fn executeScalar(work: *Work) !void {
         try emitTile(work, tile_start, tile_end);
         tile_start = tile_end;
     }
+}
+
+/// Karatsuba CM31 multiply over four packed rows. Identical field
+/// operations to the scalar CM31.mul, one row per lane.
+inline fn mulCM31Vec4(
+    lhs_re: m31.Vec4u32,
+    lhs_im: m31.Vec4u32,
+    rhs_re: m31.Vec4u32,
+    rhs_im: m31.Vec4u32,
+) struct { re: m31.Vec4u32, im: m31.Vec4u32 } {
+    const ac = m31.mulVec4(lhs_re, rhs_re);
+    const bd = m31.mulVec4(lhs_im, rhs_im);
+    const cross = m31.mulVec4(
+        m31.addVec4(lhs_re, lhs_im),
+        m31.addVec4(rhs_re, rhs_im),
+    );
+    return .{
+        .re = m31.subVec4(ac, bd),
+        .im = m31.subVec4(m31.subVec4(cross, ac), bd),
+    };
+}
+
+/// Finalizes one quotient for VEC_WIDTH rows in packed lanes.
+///
+/// Computes, per row, sum over batches of
+/// `(numerator_batch - linear_term_batch(y)) * denominator_inverse_batch`,
+/// reading numerator coordinate planes directly (no per-row QM31 repack).
+/// Every operation is the same exact field arithmetic as
+/// `quotients.finalizeRowQuotients`, so each output cell is byte-identical
+/// to the scalar row loop.
+fn finalizeGroupVec4(
+    quotient_constants: *const quotients.QuotientConstants,
+    ys: m31.Vec4u32,
+    scratch: *const Scratch,
+    row: usize,
+    row_inverses: [m31.VEC_WIDTH][]const CM31,
+) [qm31.SECURE_EXTENSION_DEGREE]m31.Vec4u32 {
+    var acc: [qm31.SECURE_EXTENSION_DEGREE]m31.Vec4u32 = @splat(@splat(0));
+    for (quotient_constants.batch_linear_terms, 0..) |linear_term, batch| {
+        const a_coords = linear_term.sum_a.toM31Array();
+        const b_coords = linear_term.sum_b.toM31Array();
+        var diff: [qm31.SECURE_EXTENSION_DEGREE]m31.Vec4u32 = undefined;
+        inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+            const lt = m31.addVec4(
+                m31.mulVec4(@as(m31.Vec4u32, @splat(a_coords[coordinate].v)), ys),
+                @as(m31.Vec4u32, @splat(b_coords[coordinate].v)),
+            );
+            const plane = batch * qm31.SECURE_EXTENSION_DEGREE + coordinate;
+            diff[coordinate] = m31.subVec4(
+                m31.loadVec4(scratch.numerators.ptr + plane * scratch.row_capacity + row),
+                lt,
+            );
+        }
+        var inv_re: [m31.VEC_WIDTH]u32 = undefined;
+        var inv_im: [m31.VEC_WIDTH]u32 = undefined;
+        inline for (0..m31.VEC_WIDTH) |lane| {
+            inv_re[lane] = row_inverses[lane][batch].a.v;
+            inv_im[lane] = row_inverses[lane][batch].b.v;
+        }
+        const q0 = mulCM31Vec4(diff[0], diff[1], inv_re, inv_im);
+        const q1 = mulCM31Vec4(diff[2], diff[3], inv_re, inv_im);
+        acc[0] = m31.addVec4(acc[0], q0.re);
+        acc[1] = m31.addVec4(acc[1], q0.im);
+        acc[2] = m31.addVec4(acc[2], q1.re);
+        acc[3] = m31.addVec4(acc[3], q1.im);
+    }
+    return acc;
 }
 
 fn writeRow(work: *Work, position: usize, domain_y: M31, inverses: []const CM31) !void {
@@ -538,4 +631,90 @@ test "quotient tile input policy selects only the measured batched domain" {
     try std.testing.expect(!shouldUseBoundedInput(12));
     try std.testing.expect(shouldUseBoundedInput(13));
     try std.testing.expect(shouldUseBoundedInput(14));
+}
+
+test "packed finalize matches scalar finalizeRowQuotients for all batch counts" {
+    const allocator = std.testing.allocator;
+    var rng_state: u64 = 0x9e3779b97f4a7c15;
+    const nextM31 = struct {
+        fn next(state: *u64) M31 {
+            state.* ^= state.* << 13;
+            state.* ^= state.* >> 7;
+            state.* ^= state.* << 17;
+            return M31.fromCanonical(@intCast(state.* % 2147483647));
+        }
+    }.next;
+
+    for ([_]usize{ 1, 2, 3 }) |batch_count| {
+        const line_coeffs = try allocator.alloc([]constraints.LineCoeffs, batch_count);
+        defer allocator.free(line_coeffs);
+        for (line_coeffs) |*lc| lc.* = &[_]constraints.LineCoeffs{};
+        var constants: quotients.QuotientConstants = undefined;
+        constants.line_coeffs = line_coeffs;
+        constants.batch_linear_terms = try allocator.alloc(
+            std.meta.Child(@TypeOf(constants.batch_linear_terms)),
+            batch_count,
+        );
+        defer allocator.free(constants.batch_linear_terms);
+        for (constants.batch_linear_terms) |*term| {
+            term.* = .{
+                .sum_a = QM31.fromM31(nextM31(&rng_state), nextM31(&rng_state), nextM31(&rng_state), nextM31(&rng_state)),
+                .sum_b = QM31.fromM31(nextM31(&rng_state), nextM31(&rng_state), nextM31(&rng_state), nextM31(&rng_state)),
+            };
+        }
+
+        const row_capacity: usize = 8;
+        var scratch = try Scratch.init(allocator, batch_count, row_capacity);
+        defer scratch.deinit(allocator);
+        for (scratch.numerators) |*v| v.* = nextM31(&rng_state);
+
+        var ys: [row_capacity]M31 = undefined;
+        var inverses: [row_capacity][]CM31 = undefined;
+        var inverse_storage: [row_capacity * 3]CM31 = undefined;
+        for (0..row_capacity) |row| {
+            ys[row] = nextM31(&rng_state);
+            inverses[row] = inverse_storage[row * batch_count ..][0..batch_count];
+            for (0..batch_count) |batch| {
+                inverses[row][batch] = CM31.fromM31(nextM31(&rng_state), nextM31(&rng_state));
+            }
+        }
+
+        for ([_]usize{ 0, 4 }) |row| {
+            var row_inverses: [m31.VEC_WIDTH][]const CM31 = undefined;
+            inline for (0..m31.VEC_WIDTH) |lane| {
+                row_inverses[lane] = inverses[row + lane];
+            }
+            const packed_q = finalizeGroupVec4(
+                &constants,
+                m31.loadVec4(ys[row..].ptr),
+                &scratch,
+                row,
+                row_inverses,
+            );
+            inline for (0..m31.VEC_WIDTH) |lane| {
+                var numerators: [3]QM31 = undefined;
+                for (0..batch_count) |batch| {
+                    numerators[batch] = QM31.fromM31(
+                        scratch.numerator(batch, 0, row + lane).*,
+                        scratch.numerator(batch, 1, row + lane).*,
+                        scratch.numerator(batch, 2, row + lane).*,
+                        scratch.numerator(batch, 3, row + lane).*,
+                    );
+                }
+                const scalar_q = try quotients.finalizeRowQuotients(
+                    &constants,
+                    ys[row + lane],
+                    numerators[0..batch_count],
+                    inverses[row + lane],
+                );
+                const scalar_coords = scalar_q.toM31Array();
+                inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+                    try std.testing.expectEqual(
+                        scalar_coords[coordinate].v,
+                        packed_q[coordinate][lane],
+                    );
+                }
+            }
+        }
+    }
 }
