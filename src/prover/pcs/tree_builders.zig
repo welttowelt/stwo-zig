@@ -15,6 +15,8 @@ const TreeSubspan = pcs_core.TreeSubspan;
 const ColumnEvaluation = commitment_tree.ColumnEvaluation;
 const CoefficientRetentionPolicy = column_storage.CoefficientRetentionPolicy;
 
+const deferred_commit = @import("deferred_commit.zig");
+
 pub fn appendCommittedTree(
     comptime MC: type,
     scheme: anytype,
@@ -24,9 +26,7 @@ pub fn appendCommittedTree(
 ) !void {
     // A deferred first-tree build (if any) joins and mixes its root here,
     // before this tree is appended — preserving the sequential mix order.
-    // resolvePending clears the pending slot before re-entering, so the
-    // recursive append below it observes no pending commit.
-    try scheme.resolvePending(allocator, channel);
+    try deferred_commit.resolve(MC, scheme, allocator, channel);
     try scheme.trees.append(allocator, tree);
     MC.mixRoot(channel, tree.root());
 }
