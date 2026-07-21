@@ -129,7 +129,7 @@ class BackendServerTest(unittest.TestCase):
             (ROOT / "autoresearch" / "site" / "feed.json").read_text()
         )
         self.assertEqual(feed, committed)
-        self.assertEqual(feed["feed_schema_version"], 2)
+        self.assertEqual(feed["feed_schema_version"], 3)
         self.assertIn("promotion_scope", feed)
         self.assertIn("inputs_sha256", feed["provenance"])
 
