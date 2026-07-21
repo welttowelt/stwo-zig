@@ -1,7 +1,9 @@
 import copy
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "autoresearch" / "cli"))
@@ -223,6 +225,61 @@ class AuditPowerTest(unittest.TestCase):
         self.assertEqual(boosted.target_rounds, 10)
         self.assertEqual(boosted.auto_boost_reason, "required_audit_power")
         self.assertTrue(boosted.auto_boost_applied)
+
+
+class AuditExecutionTest(unittest.TestCase):
+    def test_blocked_head_is_reported_while_later_due_cell_executes(self):
+        blocked = {
+            "item_id": "sha256:" + "1" * 64,
+            "board": "core_cpu",
+            "workload_class": "small",
+            "evidence_kind": "span_audit",
+            "runnable": False,
+            "blocked_reason": "span is not runnable",
+        }
+        runnable = {
+            "item_id": "sha256:" + "2" * 64,
+            "board": "core_cpu",
+            "workload_class": "wide",
+            "evidence_kind": "direct_audit",
+            "runnable": True,
+            "blocked_reason": None,
+        }
+        deferred = {
+            **runnable,
+            "item_id": "sha256:" + "3" * 64,
+            "workload_class": "deep",
+        }
+        plan_fixture = {"items": [blocked, runnable, deferred]}
+        with tempfile.TemporaryDirectory() as raw:
+            lock = Path(raw) / "judge.lock"
+            lock.write_text("held\n")
+            with (
+                mock.patch.object(audits, "validate_plan"),
+                mock.patch.object(audits, "load_manifest", return_value=object()),
+                mock.patch.object(
+                    audits.runner, "acquire_judge_lock", return_value=lock,
+                ),
+                mock.patch.object(
+                    audits, "_execute_item", return_value={"verdict": True},
+                ) as execute,
+            ):
+                result = audits.execute_plan(
+                    ROOT, plan_fixture, Path(raw) / "runs", max_items=1,
+                )
+
+        execute.assert_called_once_with(
+            ROOT, mock.ANY, runnable, mock.ANY,
+        )
+        self.assertEqual(result["executed_item_ids"], [runnable["item_id"]])
+        self.assertEqual(result["verdicts"], [{"verdict": True}])
+        self.assertEqual(result["blocked_items"], [{
+            "item_id": blocked["item_id"],
+            "board": "core_cpu",
+            "workload_class": "small",
+            "evidence_kind": "span_audit",
+            "blocked_reason": "span is not runnable",
+        }])
 
 
 if __name__ == "__main__":

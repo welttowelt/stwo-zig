@@ -333,14 +333,29 @@ def _execute_item(repo: Path, manifest: Manifest, item: dict, out_dir: Path) -> 
     return verdict
 
 
+def _blocked_item_report(item: dict) -> dict:
+    return {
+        "item_id": item["item_id"],
+        "board": item["board"],
+        "workload_class": item["workload_class"],
+        "evidence_kind": item["evidence_kind"],
+        "blocked_reason": item["blocked_reason"],
+    }
+
+
 def execute_plan(repo: Path, plan: dict, out_dir: Path, max_items: int = 1) -> dict:
     validate_plan(repo, plan)
     if max_items < 1:
         raise AuditError("max_items must be positive")
-    selected = plan["items"][:max_items]
-    blocked = [item for item in selected if not item["runnable"]]
-    if blocked:
-        raise AuditError(f"due audit is blocked: {blocked[0]['blocked_reason']}")
+    selected = []
+    blocked = []
+    for item in plan["items"]:
+        if len(selected) == max_items:
+            break
+        if item["runnable"]:
+            selected.append(item)
+        else:
+            blocked.append(_blocked_item_report(item))
     manifest = load_manifest(repo)
     lock = runner.acquire_judge_lock(repo)
     try:
@@ -351,6 +366,7 @@ def execute_plan(repo: Path, plan: dict, out_dir: Path, max_items: int = 1) -> d
         "schema": UNSIGNED_SCHEMA,
         "plan": plan,
         "executed_item_ids": [item["item_id"] for item in selected],
+        "blocked_items": blocked,
         "verdicts": verdicts,
     }
 
@@ -438,15 +454,30 @@ def finalize(repo: Path, unsigned: dict) -> dict:
     by_id = {item["item_id"]: item for item in plan.get("items", [])}
     epoch = int(plan.get("epoch", 0))
     executed = unsigned.get("executed_item_ids")
+    blocked = unsigned.get("blocked_items", [])
     verdicts = unsigned.get("verdicts")
     if (
         not isinstance(executed, list)
+        or not isinstance(blocked, list)
         or not isinstance(verdicts, list)
         or len(executed) != len(set(executed))
         or len(executed) != len(verdicts)
         or any(not isinstance(verdict, dict) for verdict in verdicts)
     ):
         raise AuditError("unsigned bundle execution list is malformed")
+    canonical_blocked = {
+        item["item_id"]: _blocked_item_report(item)
+        for item in plan.get("items", []) if not item["runnable"]
+    }
+    if (
+        any(
+            not isinstance(report, dict)
+            or canonical_blocked.get(report.get("item_id")) != report
+            for report in blocked
+        )
+        or len(blocked) != len({report["item_id"] for report in blocked})
+    ):
+        raise AuditError("unsigned bundle blocked-item report is malformed")
     evidence = []
     for item_id, verdict in zip(executed, verdicts):
         binding = verdict.get("audit_binding", {})
@@ -480,6 +511,7 @@ def finalize(repo: Path, unsigned: dict) -> dict:
         "schema": SIGNED_SCHEMA,
         "source": plan.get("source"),
         "epoch": epoch,
+        "blocked_items": blocked,
         "evidence": evidence,
     }
     return {**body, "bundle_sha256": _canonical_digest(body)}
