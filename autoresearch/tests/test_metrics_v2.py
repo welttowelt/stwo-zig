@@ -2,6 +2,7 @@ import math
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 ANCHOR = "0" * 40
@@ -279,6 +280,41 @@ class EpochPolicyTest(unittest.TestCase):
                 "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
             ),
         )
+
+    def test_metrics_epoch_pins_complete_resource_budgets_for_every_class(self):
+        for workload_class in ("small", "wide", "deep", "xlarge", "huge"):
+            self.assertEqual(
+                ledger.resource_budgets(ROOT, workload_class),
+                {
+                    "peak_rss_mib": 1.05,
+                    "energy_j": 1.05,
+                    "proof_bytes": 1.0,
+                },
+            )
+
+    def test_metrics_epoch_resource_budgets_fail_closed(self):
+        malformed = {
+            "metrics_v2": {
+                "resource_budgets": {
+                    "small": {
+                        "peak_rss_mib": 1.05,
+                        "energy_j": None,
+                        "proof_bytes": 1.0,
+                    }
+                }
+            }
+        }
+        with mock.patch.object(ledger, "current_epoch", return_value=malformed):
+            with self.assertRaisesRegex(ledger.LedgerError, "positive and finite"):
+                ledger.resource_budgets(ROOT, "small")
+            with self.assertRaisesRegex(ledger.LedgerError, "missing for class"):
+                ledger.resource_budgets(ROOT, "wide")
+
+    def test_legacy_epoch_has_no_dimensional_policy(self):
+        with mock.patch.object(
+            ledger, "current_epoch", return_value={"epoch": 1},
+        ):
+            self.assertIsNone(ledger.resource_budgets(ROOT, "small"))
 
 
 if __name__ == "__main__":

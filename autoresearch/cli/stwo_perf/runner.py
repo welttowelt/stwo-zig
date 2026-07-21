@@ -1678,6 +1678,12 @@ def evaluate(
     if len(group_ids) != 1:
         raise RunError(f"board {board} selected workloads from multiple groups")
     policy = manifest.gates_for_workload(next(iter(group_ids)), workload_class)
+    try:
+        epoch_resource_budgets = ledger.resource_budgets(repo_root, workload_class)
+    except ledger.LedgerError as exc:
+        raise RunError(f"invalid epoch resource budgets: {exc}") from exc
+    if epoch_resource_budgets is not None:
+        policy["resource_budgets"] = epoch_resource_budgets
 
     dispersion = ledger.aa_dispersion(repo_root, board, workload_class)
     th = stats.theta(dispersion, float(policy["theta_floor"]), float(policy["dispersion_multiplier"]))

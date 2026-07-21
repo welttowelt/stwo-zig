@@ -73,6 +73,10 @@ collision where several cells shared one `judged_at_utc+commit` key.
 - The first direct audit in an epoch names that epoch's canonical 40-hex
   `metrics_v2.audit_anchor_commit` as predecessor; later audits name the prior
   audit's candidate commit. Empty replacement credit never bypasses this chain.
+- A Metrics v2 epoch pins an exact positive finite `peak_rss_mib`, `energy_j`,
+  and `proof_bytes` upper-ratio budget for every scored class. Evaluation
+  resolves this vector from the epoch; missing classes, dimensions, or values
+  fail closed before measurement can produce a score-bearing verdict.
 
 The Pareto frontier and anchor-drift budgets are computed from this file by
 `stwo-perf frontier`; nothing else is authoritative.

@@ -36,7 +36,34 @@
         "span_audit_every_landed": 4,
         "direct_audit_every_landed": 12,
         "span_effect_theta": 0.01,
-        "audit_anchor_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc"
+        "audit_anchor_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
+        "resource_budgets": {
+          "small": {
+            "peak_rss_mib": 1.05,
+            "energy_j": 1.05,
+            "proof_bytes": 1.0
+          },
+          "wide": {
+            "peak_rss_mib": 1.05,
+            "energy_j": 1.05,
+            "proof_bytes": 1.0
+          },
+          "deep": {
+            "peak_rss_mib": 1.05,
+            "energy_j": 1.05,
+            "proof_bytes": 1.0
+          },
+          "xlarge": {
+            "peak_rss_mib": 1.05,
+            "energy_j": 1.05,
+            "proof_bytes": 1.0
+          },
+          "huge": {
+            "peak_rss_mib": 1.05,
+            "energy_j": 1.05,
+            "proof_bytes": 1.0
+          }
+        }
       },
       "aa_dispersion": {
         "note": "small/wide/deep CPU values carry forward from the same-host M5 calibration; xlarge/huge and all Metal/RISC-V cells fail closed until measured on the designated judge host.",

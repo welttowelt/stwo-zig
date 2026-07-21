@@ -454,3 +454,47 @@ def aa_dispersion(repo_root: Path, board: str, workload_class: str) -> float | N
     by_board = current_epoch(repo_root).get("aa_dispersion", {})
     value = by_board.get(board, {}).get(workload_class)
     return float(value) if value is not None else None
+
+
+def resource_budgets(
+    repo_root: Path, workload_class: str,
+) -> dict[str, float] | None:
+    """Return the current epoch's complete resource budget vector.
+
+    Legacy epochs predate Metrics v2 and return ``None``. Once Metrics v2 is
+    declared, every class used by an evaluation must have an exact, positive,
+    finite three-dimensional budget.
+    """
+    metrics = current_epoch(repo_root).get("metrics_v2")
+    if metrics is None:
+        return None
+    if not isinstance(metrics, dict):
+        raise LedgerError("metrics_v2 must be an object")
+    by_class = metrics.get("resource_budgets")
+    if not isinstance(by_class, dict):
+        raise LedgerError("Metrics v2 resource_budgets must be an object")
+    raw = by_class.get(workload_class)
+    if not isinstance(raw, dict):
+        raise LedgerError(
+            f"Metrics v2 resource budget missing for class {workload_class}"
+        )
+    required = {"peak_rss_mib", "energy_j", "proof_bytes"}
+    if set(raw) != required:
+        raise LedgerError(
+            f"Metrics v2 resource budget for {workload_class} must contain "
+            f"exactly {sorted(required)}"
+        )
+    budgets: dict[str, float] = {}
+    for dimension, value in raw.items():
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or float(value) <= 0
+        ):
+            raise LedgerError(
+                f"Metrics v2 {workload_class}/{dimension} budget must be "
+                "positive and finite"
+            )
+        budgets[dimension] = float(value)
+    return budgets
