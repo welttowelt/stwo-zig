@@ -66,26 +66,30 @@ pub const TwiddleSource = struct {
         return .{ .storage = .{ .borrowed = tower } };
     }
 
+    pub fn isBorrowed(self: *const Self) bool {
+        return self.storage == .borrowed;
+    }
+
     pub fn get(
         self: *Self,
         allocator: std.mem.Allocator,
         circle_log: u32,
     ) !ConstM31TwiddleTree {
-        self.request_count +|= 1;
+        _ = @atomicRmw(u64, &self.request_count, .Add, 1, .monotonic);
         if (circle_log < domain.MIN_CIRCLE_DOMAIN_LOG_SIZE or
             circle_log > domain.MAX_CIRCLE_DOMAIN_LOG_SIZE)
         {
-            self.rejected_request_count +|= 1;
+            _ = @atomicRmw(u64, &self.rejected_request_count, .Add, 1, .monotonic);
             return error.InvalidCircleLog;
         }
 
         return switch (self.storage) {
             .borrowed => |tower| blk: {
                 const tree = tower.view(circle_log) catch |err| {
-                    self.rejected_request_count +|= 1;
+                    _ = @atomicRmw(u64, &self.rejected_request_count, .Add, 1, .monotonic);
                     return err;
                 };
-                self.cache_hit_count +|= 1;
+                _ = @atomicRmw(u64, &self.cache_hit_count, .Add, 1, .monotonic);
                 break :blk tree;
             },
             .owned => |*owned| blk: {
