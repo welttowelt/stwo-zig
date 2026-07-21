@@ -14,8 +14,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-from scripts import riscv_benchmark_matrix_contract as contract
-from scripts import riscv_benchmark_matrix_model as model
+import scripts.riscv_benchmark_matrix_contract as contract
+import scripts.riscv_benchmark_matrix_model as model
 from scripts.riscv_benchmark_matrix_runtime import (
     DEFAULT_CANDIDATE_CLI,
     DEFAULT_TRACE_CLI,

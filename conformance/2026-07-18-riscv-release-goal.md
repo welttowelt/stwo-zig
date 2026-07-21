@@ -1405,9 +1405,29 @@ Before the RISC-V group may change to `enabled: true`:
 Gate:
 
 ```sh
+GH_TOKEN="$(gh auth token)" \
+  python3 scripts/capture_autoresearch_github_settings.py \
+  --repository teddyjfpender/stwo-zig \
+  --output "$GITHUB_SETTINGS_RECEIPT"
+
 python3 scripts/check_autoresearch_activation.py \
   --board riscv \
   --github-settings-receipt "$GITHUB_SETTINGS_RECEIPT"
+```
+
+The broader staged diagnostic matrix remains deliberately non-promotable. Run
+and validate all 32 reviewed proof, execution-only, and expected-rejection rows
+with:
+
+```sh
+python3 scripts/riscv_benchmark_matrix.py run \
+  --stark-v-source "$STARK_V_SOURCE" \
+  --artifact-dir zig-out/riscv-matrix-v2 \
+  --report-out zig-out/riscv-matrix-v2.json
+
+python3 scripts/riscv_benchmark_matrix.py validate \
+  --report zig-out/riscv-matrix-v2.json \
+  --require-complete
 ```
 
 `scripts/check_autoresearch_activation.py` is a required BA-03 deliverable and

@@ -18,8 +18,8 @@ SCRIPTS = Path(__file__).resolve().parent
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-from scripts import riscv_benchmark_matrix_contract as contract
-from scripts import riscv_benchmark_matrix_model as model
+import scripts.riscv_benchmark_matrix_contract as contract
+import scripts.riscv_benchmark_matrix_model as model
 from scripts.riscv_release_oracle_lib import build_cache
 from scripts.riscv_release_oracle_lib.oracle_build import build_oracle, resolve_build_inputs
 from scripts.riscv_release_oracle_lib.public_values import (

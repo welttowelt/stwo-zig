@@ -28,9 +28,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts import riscv_benchmark_matrix_contract as contract  # noqa: E402
-from scripts import riscv_benchmark_matrix_model as model  # noqa: E402
-from scripts import riscv_benchmark_matrix_runner as controller  # noqa: E402
+import scripts.riscv_benchmark_matrix_contract as contract  # noqa: E402
+import scripts.riscv_benchmark_matrix_model as model  # noqa: E402
+import scripts.riscv_benchmark_matrix_runner as controller  # noqa: E402
 
 
 def _parser() -> argparse.ArgumentParser:
