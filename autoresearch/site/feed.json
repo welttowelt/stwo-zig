@@ -1123,6 +1123,32 @@
      "verdict_kind": "claimed",
      "waits": null,
      "workload_class": "deep"
+    },
+    {
+     "board": "core_cpu",
+     "ci_high": 1.01161,
+     "ci_low": 0.994166,
+     "commit": "b9b19532efc37cbdb26226d4013232d45b3a29cd",
+     "dispatches": null,
+     "energy_j": null,
+     "epoch": 1,
+     "gates": "G1..G5:pass",
+     "harness_commit": "1d8462e1dcc8",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-21T05:21:45Z",
+     "judged_r": 1.003762,
+     "native_mhz": 0.0,
+     "outcome": "neutral",
+     "peak_rss_mib": 0.0,
+     "predecessor": "fcb324e4077c",
+     "prove_ms": 6.727542,
+     "schema_version": 2,
+     "scope": "s3",
+     "submission_id": "2026-07-21-metal-linear-quotient-domain-walk",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "deep"
     }
    ],
    "frontier_by_class": {
@@ -1904,12 +1930,12 @@
   "inputs_sha256": {
    "autoresearch/MANIFEST.json": "fd0697677abbcc8ce0488edc6273cb55a8b4879321f36ddbef06e451c3da492f",
    "autoresearch/ledger/epochs.json": "b2b6c98203cc97f3a13c23a9c3da29d3b6709e7d9c6afb8b5240926166b01921",
-   "autoresearch/ledger/promotions.tsv": "ac6163a9f1e9ccce051ca9fd0a18a3c79ef960b70b1fcaec48fb1c618d84c46b",
+   "autoresearch/ledger/promotions.tsv": "e8bb6a62f00e1364051275b5e4a725231032756c5fda866ad985cac8d4eef0af",
    "vectors/reports/benchmark_history/index.json": "0216c5ae101a3fe33e647553a0ba7bbf2ac2b3ba8c8265fd8ff5ddde059401fe",
    "vectors/reports/benchmark_history/runs/2026-07-20-221601-matrix-v6-e78cca6f/report.json": "facd106c0afb0f14e12263a420d5bbe6dca2dcf6b09d603f3bf3e99950385d6f"
   },
-  "repo_commit": "c560fef0f94e",
-  "repo_commit_time": "2026-07-21T04:40:50Z"
+  "repo_commit": "a8a2442274fd",
+  "repo_commit_time": "2026-07-21T05:21:46Z"
  },
  "references": {
   "peer_rust_scalar": {
@@ -2292,6 +2318,24 @@
      "excerpt": "# Session 01 \u2014 fourth Metal-backend architecture campaign\n\nDate: 2026-07-21\nModel: GPT-5 Codex\n\n## Recorded frontier and objective\n\nPR #27 merged the shared FRI hash arena and threadgroup-local shallow Merkle\ntails. The autoresearch recorder classified its CPU-only verdict neutral and\nadvanced the canonical frontier and repo-resident CLI to\n`f81b2cc64f7f`. A fresh workspace passed `stwo-perf setup` and branch\n`autoresearch/metal-epoch4` was created at that exact recorded commit.\n\nThe five repository skills remain active: algorithm matching, Metal\nperformance design plus the full compute common-pattern reference, Metal\nprofiling, Zig host profiling, and reasoning-first submission transcripts.",
      "label": "session-01.md",
      "sha256": "11609d0faef8e94a59967e63344d0123ccf4d84a24a05aee80a983470f4d651f"
+    }
+   ],
+   "verdict_kind": "claimed",
+   "workload_class": "deep"
+  },
+  {
+   "id": "2026-07-21-metal-linear-quotient-domain-walk",
+   "judged_r": 1.003762,
+   "note": "# Linearize full quotient-domain preparation on Metal\n\n## Model and harness\n\nGPT-5 Codex optimized clean candidate `8b33e5a5b4b2` from exact promoted\npredecessor `fcb324e4077c` on an Apple M5 Max. The repo-resident CLI was updated\nbefore research, setup passed in a fresh worktree, and the complete fixed\nNative Metal suite was benchmarked before source changes.\n\nMetal evidence uses the real ReleaseFast `native-proof-bench-metal`, the\nfunctional protocol, independent verification, and `--metal-runtime\nsource-jit`. Zig embeds the MSL and macOS compiles it through\n`newLibraryWithSource`; compilation occurs during backend initialization and\nis excluded from the ten warmups and seven timed samples. This change does not\nmodify shader source, the Objective-C runtime, the C/shader ABI, pipeline\nidentity, or authenticated-AOT inventory.\n\n## Hypothesis and profile\n\nFresh profiles still identified FRI quotient/build/commit as the largest\nshared stage: about 3.14 ms wide and 2.94 ms deep. A five-second macOS stack\nsample on a larger log-18 proof attributed 280 of 324 samples inside\n`computeQuotientsConfigured` to `CirclePointIndex.toPoint`; only 29 samples\nwere waiting for the quotient Metal command.\n\nThe bridge materialized both quotient-domain coordinate planes by calling\n`domain.at(bitReverse(i))` for every output. Each lookup reconstructs a circle\npoint from exponent bits, repeating roughly logarithmic group work at every\nposition. `CircleDomain.iter()` already advances the full domain with one\nfixed group addition per point. Since bit reversal is an involution, walking\nnatural point `j` once and scattering it to `bitReverse(j)` is exactly\nequivalent to the indexed gather:\n\n```text\nold: output i <- point(bitReverse(i))    N independent reconstructions\nnew: point(j) -> output bitReverse(j)    one arithmetic-progression walk\n```\n\nAn earlier isolated repository benchmark measured the same carrier at 3.823\nversus 28.177 ns per coordinate. The prediction was at least 0.25 ms less FRI\ntime on wide/deep without changing proof bytes or Metal dispatch topology.\n\n## Changes\n\nOne private helper in the Metal polynomial runtime walks a full circle domain\nonce and scatters x/y together into the existing bit-reversed upload layout.\nThe quotient bridge selects it for log-13-and-larger domains. Production wide\nand deep use log 15. The small fixture uses log 11 and retains indexed\npreparation after an unconditional prototype showed that this sub-floor shape\nwas noise-sensitive. Both sides still execute the same strict Metal quotient\nand commitment path; this is an algorithm crossover, not a CPU fallback.\n\nA selected `metal:` differential test checks both coordinate planes against\nthe independent indexed expression for shifted, non-canonical circle domains\nat every log size from 2 through 15. Quotient arithmetic, uploaded layout,\nresident output, Merkle commitment, transcript order, FRI folds, and proof\nencoding are unchanged.\n\n## Results\n\nFifteen clean process pairs per class alternated A-B/B-A order. Every process\nperformed ten verified warmups and seven timed independently verified proofs.\nRatios use the repository Hodges--Lehmann estimator and deterministic\n100,000-resample percentile bootstrap.\n\n| class | predecessor | candidate | B/A HL (95% CI) | wins |\n| --- | ---: | ---: | ---: | ---: |\n| small `wf_log10x8` | 2.598 ms | 2.571 ms | 0.99075 [0.97891, 1.00346] | 11/15 |\n| wide `wf_log14x32` | 10.893 ms | 10.093 ms | **0.92547 [0.91807, 0.93240]** | 15/15 |\n| deep `plonk_log14` | 6.274 ms | 5.536 ms | **0.88516 [0.87825, 0.89238]** | 15/15 |\n\nThe three-class geometric ratio is `0.93279`: **6.72% less proof latency**.\nWide improves 7.45% and deep 11.48%; small is neutral and is not claimed as a\npromotion. All 90 reports and 630 timed proofs independently verified, matched\nacross arms, and retained the fixed class hashes. Every report had exact clean\nprovenance, source-JIT admission, unchanged dispatch counts, zero CPU fallback,\nand zero post-warmup direct compilation.\n\nProfiled mechanism screens moved wide FRI from 3.155 to 2.403 ms and deep FRI\nfrom 3.389 to 2.154 ms while physical dispatches remained 22 and 24. Thus the\nstage fell 24--36% by removing host preparation immediately before the same\nGPU command, not by reducing GPU work or changing the protocol.\n\n## Validation and control\n\nThe exact-final CPU S3 control is confirmed neutral at 1.0038\n`[0.9942, 1.0116]` and passes G1--G5, all selected guards, and the pinned Rust\noracle. This is the required CPU-board no-regression verdict; it is not\nmisrepresented as evidence for the Metal speedup.\n\nReleaseFast aggregate tests, Native Metal product/lifecycle tests,\n`metal-check`, formatting, source conformance, and both authenticated-AOT\ntooling/probe suites pass. Source conformance reports no new findings. With\nMetal API and GPU Validation explicitly enabled, a clean final-commit Plonk\nproof completed with the fixed digest and zero fallback; the focused product\nthen independently verified the 45,200-byte artifact.\n\nThe broad Metal suite is 81/84: the new differential test passes, two\nresident-policy tests are skipped, and the same resident-FRI policy assertion\nreproduced on the untouched predecessor remains the sole failure.\n\n## Caveats\n\n- The manifest still exposes no enabled `core_metal` judge workload. The\n  attached official verdict is therefore an honest CPU no-regression control;\n  the Metal claim is supported by production source-JIT paired evidence.\n- Full Metal System Trace is unavailable on this Command-Line-Tools-only host.\n  Real device execution, macOS stack sampling, stage timers, exact proof bytes,\n  validation layers, and topology telemetry provide the attribution.\n- Building a new authenticated metallib still requires a full Metal toolchain\n  elsewhere. The unchanged authenticated-AOT contract/probe passes, and such a\n  bundle can be loaded on this host without Xcode.\n",
+   "outcome": "neutral",
+   "solver": "teddyjfpender",
+   "title": "Linearize full quotient-domain preparation on Metal",
+   "transcripts": [
+    {
+     "captured_by": "submitter",
+     "excerpt": "# Session 01 \u2014 ninth Metal-backend architecture campaign\n\nDate: 2026-07-21\nModel: GPT-5 Codex\n\n## Recorded frontier and fresh grounding\n\nPR #32 merged the Metal FRI linear walker/transcript-tail architecture and the\nrecorder advanced canonical main to `fcb324e4077c`. The repo-resident CLI was\nupdated to that exact frontier before a new isolated workspace passed setup.\nThe complete ReleaseFast source-JIT suite then ran locally with ten warmups and\nseven verified samples:\n\n| class | prove median | request median |\n| --- | ---: | ---: |\n| small `wf_log10x8` | 6.289 ms (frequency-ramp first process) | 6.546 ms |\n| wide `wf_log14x32` | 10.915 ms | 11.861 ms |\n| deep `plonk_log14` | 6.294 ms | 6.6",
+     "label": "session-01.md",
+     "sha256": "7be2d2eeff5be5b469bce7532e241c1af8a1ea164aed6e3f0ef74d10d6823625"
     }
    ],
    "verdict_kind": "claimed",
