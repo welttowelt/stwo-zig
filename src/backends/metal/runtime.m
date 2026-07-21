@@ -39,6 +39,11 @@
 @property(nonatomic, strong) id<MTLComputePipelineState> quotientNumerator;
 @property(nonatomic, strong) id<MTLComputePipelineState> quotientFinalize;
 @property(nonatomic, strong) id<MTLComputePipelineState> quotientDomainPointsResident;
+@property(nonatomic, strong) id<MTLBuffer> quotientDomainCache;
+@property(nonatomic) uint32_t quotientDomainCacheRowCount;
+@property(nonatomic) uint32_t quotientDomainCacheLogSize;
+@property(nonatomic) uint32_t quotientDomainCacheInitialIndex;
+@property(nonatomic) uint32_t quotientDomainCacheStepSize;
 @property(nonatomic, strong) id<MTLComputePipelineState> quotientDenominatorsResident;
 @property(nonatomic, strong) id<MTLComputePipelineState> quotientCombineResident;
 @property(nonatomic, strong) id<MTLComputePipelineState> quotientCoefficientsResident;

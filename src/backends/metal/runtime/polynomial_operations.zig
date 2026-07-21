@@ -67,54 +67,7 @@ const QuotientComputeResult = struct {
 // Below this log size, indexed reconstruction is too small a fraction of a
 // proof to repay perturbing the short host/GPU schedule. The production wide
 // and deep quotient domains are log 15; the small fixture is log 11.
-const linear_quotient_domain_log_threshold: u32 = 13;
-
-/// Materializes a full circle domain in the bit-reversed layout consumed by
-/// the quotient kernels. Walking the domain once is linear in its size;
-/// scattering natural index `j` to `bitReverse(j)` preserves the former
-/// gather order because bit reversal is an involution.
-fn fillBitReversedDomainCoordinates(
-    domain_x: []u32,
-    domain_y: []u32,
-    domain: @import("stwo_core").poly.circle.domain.CircleDomain,
-) void {
-    std.debug.assert(domain_x.len == domain_y.len and domain_x.len == domain.size());
-
-    const core_utils = @import("stwo_core").utils;
-    const log_size = domain.logSize();
-    var points = domain.iter();
-    for (0..domain_x.len) |natural_index| {
-        const point = points.next() orelse unreachable;
-        const output_index = core_utils.bitReverseIndex(natural_index, log_size);
-        domain_x[output_index] = point.x.v;
-        domain_y[output_index] = point.y.v;
-    }
-}
-
-test "metal: quotient domain walk matches indexed bit-reversed coordinates" {
-    const allocator = std.testing.allocator;
-    const circle = @import("stwo_core").circle;
-    const CircleDomain = @import("stwo_core").poly.circle.domain.CircleDomain;
-    const core_utils = @import("stwo_core").utils;
-
-    var log_size: u32 = 2;
-    while (log_size <= 15) : (log_size += 1) {
-        const base_half_coset = circle.Coset.halfOdds(log_size - 1);
-        const shifted_half_coset = base_half_coset.shift(base_half_coset.step_size.mul(5));
-        const domain = CircleDomain.new(shifted_half_coset);
-        const actual_x = try allocator.alloc(u32, domain.size());
-        defer allocator.free(actual_x);
-        const actual_y = try allocator.alloc(u32, domain.size());
-        defer allocator.free(actual_y);
-
-        fillBitReversedDomainCoordinates(actual_x, actual_y, domain);
-        for (actual_x, actual_y, 0..) |x, y, index| {
-            const expected = domain.at(core_utils.bitReverseIndex(index, log_size));
-            try std.testing.expectEqual(expected.x.v, x);
-            try std.testing.expectEqual(expected.y.v, y);
-        }
-    }
-}
+const resident_quotient_domain_log_threshold: u32 = 13;
 
 pub fn computeQuotients(
     self: *Runtime,
@@ -272,19 +225,18 @@ fn computeQuotientsConfigured(
     }
 
     const row_count = provider.domain_size;
-    const domain_x = try allocator.alloc(u32, row_count);
-    defer allocator.free(domain_x);
-    const domain_y = try allocator.alloc(u32, row_count);
-    defer allocator.free(domain_y);
     std.debug.assert(provider.lifting_log_size == provider.domain.logSize());
-    if (provider.lifting_log_size >= linear_quotient_domain_log_threshold) {
-        fillBitReversedDomainCoordinates(domain_x, domain_y, provider.domain);
-    } else {
+    const cache_domain = provider.lifting_log_size >= resident_quotient_domain_log_threshold;
+    const domain_x: ?[]u32 = if (cache_domain) null else try allocator.alloc(u32, row_count);
+    defer if (domain_x) |values| allocator.free(values);
+    const domain_y: ?[]u32 = if (cache_domain) null else try allocator.alloc(u32, row_count);
+    defer if (domain_y) |values| allocator.free(values);
+    if (!cache_domain) {
         const core_utils = @import("stwo_core").utils;
         for (0..row_count) |position| {
             const point = provider.domain.at(core_utils.bitReverseIndex(position, provider.lifting_log_size));
-            domain_x[position] = point.x.v;
-            domain_y[position] = point.y.v;
+            domain_x.?[position] = point.x.v;
+            domain_y.?[position] = point.y.v;
         }
     }
 
@@ -311,8 +263,12 @@ fn computeQuotientsConfigured(
         sample_words.ptr,
         linear_words.ptr,
         @intCast(samples.len),
-        domain_x.ptr,
-        domain_y.ptr,
+        cache_domain,
+        provider.lifting_log_size,
+        @intCast(provider.domain.half_coset.initial_index.v),
+        @intCast(provider.domain.half_coset.step_size.v),
+        if (domain_x) |values| values.ptr else null,
+        if (domain_y) |values| values.ptr else null,
         @intCast(row_count),
         output.ptr,
         resident_output,
