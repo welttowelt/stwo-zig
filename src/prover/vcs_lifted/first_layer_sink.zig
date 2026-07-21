@@ -38,6 +38,34 @@ pub fn FirstLayerLeafSink(comptime H: type) type {
                 var row: usize = 0;
                 if (comptime @hasDecl(H, "leafSeed") and @hasDecl(H, "hashPackedLeavesWithSeed4")) {
                     const seed = H.leafSeed();
+                    if (comptime @hasDecl(H, "supportsColumnMajorLeafHash4") and
+                        H.supportsColumnMajorLeafHash4 and
+                        @hasDecl(H, "hashLeafWordsWithSeed4"))
+                    {
+                        const Reader = struct {
+                            coordinates: @TypeOf(tile.coordinates),
+                            row: usize,
+
+                            pub inline fn readWord4(reader: @This(), coordinate: usize) [4]u32 {
+                                return .{
+                                    reader.coordinates[coordinate][reader.row + 0].v,
+                                    reader.coordinates[coordinate][reader.row + 1].v,
+                                    reader.coordinates[coordinate][reader.row + 2].v,
+                                    reader.coordinates[coordinate][reader.row + 3].v,
+                                };
+                            }
+                        };
+                        while (row + 4 <= tile_len) : (row += 4) {
+                            const hashes = H.hashLeafWordsWithSeed4(
+                                seed,
+                                qm31.SECURE_EXTENSION_DEGREE,
+                                Reader{ .coordinates = tile.coordinates, .row = row },
+                            );
+                            inline for (0..4) |lane| {
+                                self.leaves[tile.start - self.absolute_start + row + lane] = hashes[lane];
+                            }
+                        }
+                    }
                     while (row + 4 <= tile_len) : (row += 4) {
                         var values: [4][qm31.SECURE_EXTENSION_DEGREE]M31 = undefined;
                         var packed_bytes: [4][qm31.SECURE_EXTENSION_DEGREE * @sizeOf(M31)]u8 = undefined;

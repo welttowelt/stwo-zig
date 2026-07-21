@@ -51,6 +51,7 @@ fn Blake2sMerkleHasherProtocolGeneric(
         pub const protocol = hash_protocol;
 
         const Self = @This();
+        pub const supportsColumnMajorLeafHash4 = hash_protocol == .domain_prefixed;
 
         pub fn init() Self {
             return initWithMode(defaultMode());
@@ -167,6 +168,63 @@ fn Blake2sMerkleHasherProtocolGeneric(
             var out: [4]Hash = undefined;
             for (&out, messages) |*digest, message| digest.* = InnerHasher.hashWithMode(mode, message);
             return out;
+        }
+
+        /// Hash four equal-length leaf messages supplied as canonical M31
+        /// words by a caller-owned reader. Callers gate this on
+        /// `supportsColumnMajorLeafHash4`, because plain protocol leaves do
+        /// not start from the domain-prefix seed.
+        pub fn hashLeafWordsWithSeed4(
+            seed: NodeSeed,
+            word_count: usize,
+            reader: anytype,
+        ) [4]Hash {
+            return InnerHasher.hashEqualWordsFromSeed4WithMode(
+                defaultMode(),
+                seed,
+                word_count,
+                reader,
+            );
+        }
+
+        /// Hash four consecutive leaves directly from column-major M31
+        /// storage. The reader presents the same canonical word stream as the
+        /// packed-message path, including lifted indices for shorter columns.
+        pub fn hashColumnMajorLeavesWithSeed4(
+            seed: NodeSeed,
+            columns: anytype,
+            max_log_size: u32,
+            position: usize,
+        ) [4]Hash {
+            const Reader = struct {
+                columns: @TypeOf(columns),
+                max_log_size: u32,
+                position: usize,
+
+                pub inline fn readWord4(reader: @This(), word_index: usize) [4]u32 {
+                    const column = reader.columns[word_index];
+                    const shift_amt: std.math.Log2Int(usize) =
+                        @intCast(reader.max_log_size - column.log_size + 1);
+                    var words: [4]u32 = undefined;
+                    inline for (0..4) |lane| {
+                        const leaf_position = reader.position + lane;
+                        const source_index = ((leaf_position >> shift_amt) << 1) +
+                            (leaf_position & 1);
+                        words[lane] = column.values[source_index].v;
+                    }
+                    return words;
+                }
+            };
+
+            return hashLeafWordsWithSeed4(
+                seed,
+                columns.len,
+                Reader{
+                    .columns = columns,
+                    .max_log_size = max_log_size,
+                    .position = position,
+                },
+            );
         }
 
         pub fn updateLeaf(self: *Self, column_values: []const M31) void {
