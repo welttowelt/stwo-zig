@@ -231,15 +231,17 @@ def _one_zig(
     log_size: int,
     warmups: int,
 ) -> dict:
-    command = [
-        str(binary),
+    command = [str(binary)]
+    if lane == "zig_metal":
+        command.extend(("bench", "--metal-runtime", "source-jit"))
+    command.extend([
         "--example", "wide_fibonacci",
         "--log-n-rows", str(log_size),
         "--sequence-len", str(N_COLUMNS),
         "--protocol", "functional",
         "--warmups", str(warmups),
         "--samples", "1",
-    ]
+    ])
     if log_size in LARGE_LOG_SIZES:
         command.extend(LARGE_RESOURCE_ARGS)
     stdout, wall_ms = run(command, repo)
@@ -259,6 +261,9 @@ def _one_zig(
         telemetry = report.get("backend_telemetry") or {}
         if telemetry.get("total_cpu_fallbacks") != 0 or not telemetry.get("valid"):
             raise SeriesError("zig_metal did not provide zero-fallback valid telemetry")
+        runtime = report.get("runtime_admission") or {}
+        if runtime.get("origin") != "diagnostic_source_jit":
+            raise SeriesError("zig_metal did not use the declared source-JIT runtime")
     sample = report["timing"]["samples"][0]
     return {
         "lane": lane,
@@ -278,6 +283,9 @@ def _one_zig(
             "exclusions": "backend/session initialization and process startup",
         },
         "resource_profile": "large" if log_size in LARGE_LOG_SIZES else "default",
+        "metal_runtime": (
+            report.get("runtime_admission") if lane == "zig_metal" else None
+        ),
         "backend_telemetry": report.get("backend_telemetry"),
     }
 

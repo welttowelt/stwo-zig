@@ -115,14 +115,22 @@ class PeerSeriesTest(unittest.TestCase):
                 "all_samples_byte_identical": True,
                 "samples": [{"sha256": "d" * 64, "bytes": 123}],
             },
+            "runtime_admission": {"origin": "diagnostic_source_jit"},
             "backend_telemetry": {"total_cpu_fallbacks": 0, "valid": True},
             "timing": {"samples": [{"prove_seconds": 0.4, "request_seconds": 0.5}]},
         }
         with mock.patch.object(series, "run", return_value=(json.dumps(report), 501.0)) as run_mock:
             measured = series._one_zig(Path("."), Path("zig-metal"), "zig_metal", 20, 1)
         command = run_mock.call_args.args[0]
+        self.assertEqual(
+            command[:4],
+            ["zig-metal", "bench", "--metal-runtime", "source-jit"],
+        )
         self.assertEqual(command[-2:], ["--resource-profile", "large"])
         self.assertEqual(measured["resource_profile"], "large")
+        self.assertEqual(
+            measured["metal_runtime"]["origin"], "diagnostic_source_jit",
+        )
 
     def test_missing_large_resource_profile_has_an_actionable_blocker(self):
         result = mock.Mock(returncode=0, stdout="Usage: native-proof-bench", stderr="")
