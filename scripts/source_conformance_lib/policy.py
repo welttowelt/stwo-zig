@@ -44,6 +44,7 @@ PYTHON_CONTROLLER_ROOTS = {
 }
 # Higher-level evidence packages may additionally consume these lower-level contracts.
 PYTHON_LIBRARY_DEPENDENCIES = {
+    "autoresearch_activation_lib": frozenset({"riscv_release_gate_lib"}),
     "architecture_host_gate_lib": frozenset({
         "benchmark_delta_lib",
         "build_architecture_receipt_lib",

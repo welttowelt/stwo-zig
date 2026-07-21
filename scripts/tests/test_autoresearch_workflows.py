@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -45,8 +46,12 @@ class WorkflowContractTest(unittest.TestCase):
         for path in (WORKFLOWS[0], WORKFLOWS[2]):
             text = path.read_text(encoding="utf-8")
             self.assertIn("name: autoresearch-judge", text)
+            self.assertIn(
+                "types: [opened, reopened, labeled, unlabeled, synchronize]", text,
+            )
             self.assertIn("runs-on: [self-hosted, macOS, stwo-judge]", text)
-            evaluate, publish = text.split("\n  publish:\n", 1)
+            evaluate, remainder = text.split("\n  publish:\n", 1)
+            publish, required = remainder.split("\n  required:\n", 1)
             self.assertIn("contents: read", evaluate)
             self.assertNotIn("secrets.JUDGE_HMAC_SECRET", evaluate)
             self.assertNotIn("contents: write", evaluate)
@@ -56,7 +61,8 @@ class WorkflowContractTest(unittest.TestCase):
                 evaluate.index("Evaluate with no promotion authority"),
             )
             self.assertIn("contents: write", publish)
-            self.assertIn("name: autoresearch-judge", publish)
+            self.assertIn("name: autoresearch-publish", publish)
+            self.assertIn("if: needs.evaluate.result == 'success'", publish)
             self.assertLess(
                 publish.index("Revalidate immutable candidate and evidence binding"),
                 publish.index("secrets.JUDGE_HMAC_SECRET"),
@@ -65,6 +71,47 @@ class WorkflowContractTest(unittest.TestCase):
                 publish.index("Sign the identity-bound verdict"),
                 publish.index("Publish to the judge-only branch"),
             )
+            self.assertIn("name: autoresearch-judge", required)
+            self.assertIn("needs: [evaluate, publish]", required)
+            self.assertIn("if: always()", required)
+            self.assertIn("permissions: {}", required)
+            self.assertNotIn("contents: write", required)
+            self.assertIn('if [[ "$IS_SUBMISSION" != "true" ]]', required)
+            self.assertIn('if [[ "$EVALUATE_RESULT" != "success" ]]', required)
+            self.assertIn('if [[ "$PUBLISH_RESULT" != "success" ]]', required)
+
+    def test_required_judge_check_is_fail_closed_for_submissions(self) -> None:
+        cases = (
+            ("false", "skipped", "skipped", 0),
+            ("true", "success", "success", 0),
+            ("true", "failure", "skipped", 1),
+            ("true", "success", "failure", 1),
+        )
+        for path in (WORKFLOWS[0], WORKFLOWS[2]):
+            required = path.read_text(encoding="utf-8").split(
+                "\n  required:\n", 1,
+            )[1]
+            script = textwrap.dedent(required.split("        run: |\n", 1)[1])
+            for submission, evaluate, publish, expected in cases:
+                with self.subTest(
+                    path=path,
+                    submission=submission,
+                    evaluate=evaluate,
+                    publish=publish,
+                ):
+                    result = subprocess.run(
+                        ["bash", "-c", script],
+                        env={
+                            **os.environ,
+                            "IS_SUBMISSION": submission,
+                            "EVALUATE_RESULT": evaluate,
+                            "PUBLISH_RESULT": publish,
+                        },
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    self.assertEqual(result.returncode, expected, result.stderr)
 
     def test_promote_identity_signature_and_board_authority(self) -> None:
         for path in (WORKFLOWS[1], WORKFLOWS[3]):

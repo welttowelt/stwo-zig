@@ -5,12 +5,18 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import math
 import re
 from pathlib import Path
 from typing import Any
 
+try:
+    from riscv_release_gate_lib.contract import receipt_errors
+except ModuleNotFoundError:
+    from scripts.riscv_release_gate_lib.contract import receipt_errors
 
-SETTINGS_SCHEMA = "autoresearch_github_settings_receipt_v1"
+
+SETTINGS_SCHEMA = "autoresearch_github_settings_receipt_v2"
 REQUIRED_WORKFLOWS = {
     ".github/workflows/judge.yml": "autoresearch-judge",
     ".github/workflows/promote.yml": "autoresearch-promote",
@@ -28,6 +34,11 @@ RISCV_RESOURCE_TELEMETRY = {
     ],
 }
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+GITHUB_ACTIONS_INTEGRATION_ID = 15368
+APPROVED_BYPASS_ACTORS = frozenset({
+    (GITHUB_ACTIONS_INTEGRATION_ID, "Integration", "always"),
+})
 
 
 class ActivationError(ValueError):
@@ -39,7 +50,21 @@ def _canonical(value: object) -> bytes:
 
 
 def _positive(value: object) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+        and value > 0
+    )
+
+
+def _strict_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON field: {key}")
+        result[key] = value
+    return result
 
 
 def _load(path: Path, label: str) -> dict[str, Any]:
@@ -90,8 +115,44 @@ def validate_settings_receipt(
         errors.append("GitHub settings receipt payload digest mismatches")
     else:
         checks = payload.get("required_status_checks")
-        if not isinstance(checks, list) or not REQUIRED_CHECKS.issubset(set(checks)):
+        check_identities: set[tuple[str, int]] = set()
+        if isinstance(checks, list):
+            for item in checks:
+                if (
+                    not isinstance(item, dict)
+                    or not isinstance(item.get("context"), str)
+                    or type(item.get("integration_id")) is not int
+                ):
+                    errors.append("main required status-check identity is malformed")
+                    continue
+                check_identities.add((item["context"], item["integration_id"]))
+        required_identities = {
+            (context, GITHUB_ACTIONS_INTEGRATION_ID) for context in REQUIRED_CHECKS
+        }
+        if not required_identities.issubset(check_identities):
             errors.append("main does not require the autoresearch validate and judge checks")
+        bypasses = payload.get("bypass_actors")
+        bypass_identities: set[tuple[int, str, str]] = set()
+        if not isinstance(bypasses, list):
+            errors.append("main ruleset bypass actors are missing")
+        else:
+            for item in bypasses:
+                if not isinstance(item, dict):
+                    errors.append("main ruleset bypass actor is malformed")
+                    continue
+                identity = (
+                    item.get("actor_id"),
+                    item.get("actor_type"),
+                    item.get("bypass_mode"),
+                )
+                if type(identity[0]) is not int or not all(
+                    isinstance(value, str) and value for value in identity[1:]
+                ):
+                    errors.append("main ruleset bypass actor is malformed")
+                    continue
+                bypass_identities.add(identity)
+            if not bypass_identities.issubset(APPROVED_BYPASS_ACTORS):
+                errors.append("main ruleset has an unapproved bypass actor")
         if payload.get("ruleset_enforcement") != "active":
             errors.append("main ruleset is not active")
         if payload.get("non_fast_forward") is not True:
@@ -184,6 +245,73 @@ def _workflow_errors(root: Path) -> list[str]:
     return errors
 
 
+def _release_anchor_errors(root: Path, oracle: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    binding = oracle.get("release_anchor")
+    if not isinstance(binding, dict):
+        return ["RISC-V Stark-V release anchor is not pinned"]
+    if set(binding) != {"receipt", "sha256", "candidate_commit"}:
+        errors.append("RISC-V release anchor binding has unexpected fields")
+    relative = binding.get("receipt")
+    digest = binding.get("sha256")
+    candidate = binding.get("candidate_commit")
+    if not isinstance(relative, str) or not relative or Path(relative).is_absolute():
+        return errors + ["RISC-V release anchor path is invalid"]
+    if not SHA256_RE.fullmatch(str(digest or "")):
+        errors.append("RISC-V release anchor digest is invalid")
+    if not COMMIT_RE.fullmatch(str(candidate or "")):
+        errors.append("RISC-V release anchor candidate is invalid")
+
+    repository = root.resolve()
+    path = (repository / relative).resolve()
+    try:
+        path.relative_to(repository)
+    except ValueError:
+        return errors + ["RISC-V release anchor escapes the repository"]
+    if not path.is_file():
+        return errors + ["RISC-V release anchor receipt is missing"]
+    raw = path.read_bytes()
+    if SHA256_RE.fullmatch(str(digest or "")) and hashlib.sha256(raw).hexdigest() != digest:
+        errors.append("RISC-V release anchor receipt digest mismatches")
+    try:
+        receipt = json.loads(raw, object_pairs_hook=_strict_object)
+    except (UnicodeDecodeError, ValueError):
+        return errors + ["RISC-V release anchor receipt is not valid JSON"]
+    if not isinstance(receipt, dict):
+        return errors + ["RISC-V release anchor receipt must be an object"]
+    created_at = receipt.get("created_at_unix")
+    validation_time = (
+        created_at if isinstance(created_at, int) and not isinstance(created_at, bool)
+        else None
+    )
+    try:
+        evidence_errors = receipt_errors(receipt, str(candidate), now=validation_time)
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        errors.append(f"RISC-V release anchor validation failed: {error}")
+    else:
+        if evidence_errors:
+            errors.append(
+                "RISC-V release anchor fails the full evidence contract "
+                f"({len(evidence_errors)} findings): {evidence_errors[0]}"
+            )
+    return errors
+
+
+def _release_phase_errors(root: Path) -> list[str]:
+    capability = root / "src/products/riscv_cpu/capabilities.zig"
+    artifact = root / "src/interop/riscv_artifact.zig"
+    if not capability.is_file() or not artifact.is_file():
+        return ["RISC-V release phase sources are missing"]
+    capability_source = capability.read_text(encoding="utf-8")
+    artifact_source = artifact.read_text(encoding="utf-8")
+    errors = []
+    if re.search(r"pub\s+const\s+adapter_release_gated\s*=\s*true\s*;", capability_source) is None:
+        errors.append("RISC-V adapter is not release gated")
+    if re.search(r'pub\s+const\s+RELEASE_STATUS\s*=\s*"release_gated"\s*;', artifact_source) is None:
+        errors.append("RISC-V artifact status is not release gated")
+    return errors
+
+
 def activation_errors(
     root: Path,
     *,
@@ -220,6 +348,8 @@ def activation_errors(
             errors.append("Stark-V is not marked as the final validator")
         if "parallel" not in (oracle.get("required_features") or []):
             errors.append("Stark-V oracle does not require the parallel feature")
+        errors.extend(_release_anchor_errors(root, oracle))
+    errors.extend(_release_phase_errors(root))
     errors.extend(_workload_errors(group, board_classes))
 
     telemetry = group.get("mechanism_telemetry")

@@ -1370,26 +1370,22 @@ def _riscv_stark_v_oracle_check(
             f"{workload.workload_id}: RISC-V group is not bound to the pinned "
             "Stark-V correctness authority"
         )
-    anchor_raw = os.environ.get("STWO_ZIG_RISCV_RELEASE_ANCHOR_RECEIPT")
-    if not anchor_raw:
-        raise RunError(
-            f"{workload.workload_id}: "
-            "STWO_ZIG_RISCV_RELEASE_ANCHOR_RECEIPT is required; "
-            "autoresearch never produces the expensive CP-11 anchor"
-        )
-    anchor = Path(anchor_raw).expanduser().resolve()
-    if not anchor.is_file():
-        raise RunError(
-            f"{workload.workload_id}: RISC-V release anchor is not a file: {anchor}"
-        )
+    anchor, anchor_bytes = _riscv_release_anchor(
+        candidate_root, oracle_policy, workload.workload_id,
+    )
     try:
-        anchor_bytes = anchor.read_bytes()
         payload = _load_json_object(
             anchor_bytes.decode("utf-8"), "Stark-V release anchor",
         )
         anchor_candidate = _commit_hex(
             payload.get("candidate_commit"), "anchor candidate_commit",
         )
+        binding = oracle_policy.get("release_anchor")
+        if (
+            isinstance(binding, dict)
+            and binding.get("candidate_commit") != anchor_candidate
+        ):
+            raise ValueError("receipt candidate differs from the manifest release anchor")
         oracle = payload.get("oracle")
         if payload.get("schema") != "riscv-oracle-receipt-v2":
             raise ValueError("unexpected receipt schema")
@@ -1471,6 +1467,47 @@ def _riscv_stark_v_oracle_check(
         "artifact_sha256": hashlib.sha256(artifact_bytes).hexdigest(),
         "proof_sha256": verified["proof_sha256"],
     }
+
+
+def _riscv_release_anchor(
+    candidate_root: Path,
+    oracle_policy: dict,
+    workload_id: str,
+) -> tuple[Path, bytes]:
+    """Resolve the immutable release receipt, with an explicit calibration override."""
+    binding = oracle_policy.get("release_anchor")
+    anchor_raw = os.environ.get("STWO_ZIG_RISCV_RELEASE_ANCHOR_RECEIPT")
+    if anchor_raw:
+        anchor = Path(anchor_raw).expanduser().resolve()
+    else:
+        if not isinstance(binding, dict):
+            raise RunError(
+                f"{workload_id}: STWO_ZIG_RISCV_RELEASE_ANCHOR_RECEIPT is "
+                "required until the manifest pins a release_anchor"
+            )
+        relative = binding.get("receipt")
+        if not isinstance(relative, str) or not relative or Path(relative).is_absolute():
+            raise RunError(f"{workload_id}: manifest release anchor path is invalid")
+        root = candidate_root.resolve()
+        anchor = (root / relative).resolve()
+        try:
+            anchor.relative_to(root)
+        except ValueError as exc:
+            raise RunError(
+                f"{workload_id}: manifest release anchor escapes the repository"
+            ) from exc
+    if not anchor.is_file():
+        raise RunError(
+            f"{workload_id}: RISC-V release anchor is not a file: {anchor}"
+        )
+    anchor_bytes = anchor.read_bytes()
+    if isinstance(binding, dict):
+        expected = binding.get("sha256")
+        if not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{64}", expected):
+            raise RunError(f"{workload_id}: manifest release anchor digest is invalid")
+        if hashlib.sha256(anchor_bytes).hexdigest() != expected:
+            raise RunError(f"{workload_id}: manifest release anchor digest mismatches")
+    return anchor, anchor_bytes
 
 
 def _latest_riscv_candidate_artifact(

@@ -689,6 +689,14 @@ class RunnerGroupTest(unittest.TestCase):
                 "commit": "d478f783055aa0d73a93768a433a3c6c31c91d1c",
             },
         }))
+        object.__setattr__(group, "correctness_oracle", {
+            **group.correctness_oracle,
+            "release_anchor": {
+                "receipt": "release-anchor.json",
+                "sha256": hashlib.sha256(anchor.read_bytes()).hexdigest(),
+                "candidate_commit": "a" * 40,
+            },
+        })
         report = json.loads((self.out_dir / "riscv_alu.b1.json").read_text())
         artifact = json.loads(
             (self.out_dir / "riscv_alu.b1.proof.json").read_text()
@@ -702,9 +710,7 @@ class RunnerGroupTest(unittest.TestCase):
                 return json.dumps(self._riscv_verify_receipt(report, artifact))
             return "anchor valid"
 
-        with mock.patch.dict(os.environ, {
-            "STWO_ZIG_RISCV_RELEASE_ANCHOR_RECEIPT": str(anchor),
-        }), \
+        with mock.patch.dict(os.environ, {}, clear=True), \
                 mock.patch.object(runner, "_run", side_effect=fake_run):
             result = runner._riscv_stark_v_oracle_check(
                 self.root, group, workload, self.out_dir,
