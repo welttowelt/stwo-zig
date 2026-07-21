@@ -168,7 +168,15 @@ class RegistryValidationTest(unittest.TestCase):
             "harness": {"anchor_commit": None},
             "editable_paths": [],
             "locked_paths": [],
-            "gates_policy": {},
+            "gates_policy": {
+                "max_rounds": 15,
+                "search_health": {
+                    "trailing_window": 8,
+                    "gradient_snr_threshold": 2.0,
+                    "auto_boost_rounds": 5,
+                    "maximum_rounds": 25,
+                },
+            },
             "qualification_policy": {
                 "required_checks": ["allowed_diff"],
                 "max_active_per_user": 1,
@@ -288,6 +296,12 @@ class RegistryValidationTest(unittest.TestCase):
             "min_rounds": 7,
             "max_rounds": 15,
             "theta_floor": 0.01,
+            "search_health": {
+                "trailing_window": 8,
+                "gradient_snr_threshold": 2.0,
+                "auto_boost_rounds": 5,
+                "maximum_rounds": 25,
+            },
             "wall_clock_cap_seconds": {"small": 240, "wide": 600, "deep": 600},
         }
         raw["workload_registry"]["groups"]["native"]["gates_policy"] = {
@@ -332,6 +346,27 @@ class RegistryValidationTest(unittest.TestCase):
         }
         with self.assertRaisesRegex(manifest_mod.ManifestError, "min_rounds"):
             manifest_mod._validate(raw)
+
+    def test_search_health_policy_is_manifest_owned_and_bounded(self):
+        raw = self._base_raw()
+        manifest_mod._validate(raw)
+        self.assertEqual(
+            manifest_mod.Manifest(REPO_ROOT, raw).search_health_policy[
+                "gradient_snr_threshold"
+            ],
+            2.0,
+        )
+        for override in (
+            {"maximum_rounds": 14},
+            {"auto_boost_rounds": 0},
+            {"trailing_window": 0},
+            {"gradient_snr_threshold": float("inf")},
+        ):
+            with self.subTest(override=override):
+                invalid = self._base_raw()
+                invalid["gates_policy"]["search_health"].update(override)
+                with self.assertRaises(manifest_mod.ManifestError):
+                    manifest_mod._validate(invalid)
 
     def test_seeded_holdout_pool_rejects_unknown_or_wrong_class_ids(self):
         raw = self._base_raw()

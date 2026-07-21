@@ -56,7 +56,15 @@ class PromoteClaimedTest(unittest.TestCase):
             "harness": {"anchor_commit": None},
             "editable_paths": [],
             "locked_paths": [],
-            "gates_policy": {},
+            "gates_policy": {
+                "max_rounds": 1,
+                "search_health": {
+                    "trailing_window": 1,
+                    "gradient_snr_threshold": 2.0,
+                    "auto_boost_rounds": 1,
+                    "maximum_rounds": 2,
+                },
+            },
             "qualification_policy": {
                 "required_checks": ["allowed_diff"],
                 "max_active_per_user": 1,

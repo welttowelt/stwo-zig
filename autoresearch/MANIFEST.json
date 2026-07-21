@@ -596,6 +596,12 @@
     "dispersion_multiplier": 2.0,
     "targeted_class_budget": 1.02,
     "matrix_row_budget": 1.05,
+    "search_health": {
+      "trailing_window": 8,
+      "gradient_snr_threshold": 2.0,
+      "auto_boost_rounds": 5,
+      "maximum_rounds": 25
+    },
     "neutral_band_note": "Promotion requires the declared-objective CI entirely below 1 - theta, where theta = max(theta_floor, dispersion_multiplier x per-class A/A dispersion recorded in the ledger epoch)."
   },
   "qualification_policy": {

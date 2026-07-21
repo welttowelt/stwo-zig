@@ -29,7 +29,7 @@ from scripts.native_proof_matrix_lib.resource_admission import (
     resource_limits,
 )
 
-from . import dimensions, ledger, stats
+from . import dimensions, ledger, search_health, stats
 from .manifest import (
     REPORT_SCHEMA_VERSIONS,
     RISCV_STABLE_MECHANISM_FIELDS,
@@ -296,12 +296,24 @@ def portfolio_promotion_status(
     }
 
 
-def _run(cmd: str, cwd: Path, timeout: float | int) -> str:
+def _run(
+    cmd: str,
+    cwd: Path,
+    timeout: float,
+    deadline_monotonic: float | None = None,
+) -> str:
+    if deadline_monotonic is not None:
+        remaining = deadline_monotonic - time.monotonic()
+        if remaining <= 0:
+            raise RunError(f"class wall deadline expired before command: {cmd}")
+        timeout = min(timeout, remaining)
     try:
         proc = subprocess.run(
             shlex.split(cmd), cwd=cwd, capture_output=True, text=True, timeout=timeout
         )
     except subprocess.TimeoutExpired as exc:
+        if deadline_monotonic is not None:
+            raise RunError(f"command reached the fixed class wall deadline: {cmd}") from exc
         raise RunError(f"command timed out after {timeout}s: {cmd}") from exc
     if proc.returncode != 0:
         raise RunError(f"command failed ({cmd}):\n{proc.stderr.strip()[-800:]}")
@@ -404,6 +416,7 @@ def bench_once(
     out_dir: Path,
     tag: str,
     timeout_seconds: float | int | None = None,
+    deadline_monotonic: float | None = None,
 ) -> ArmResult:
     group = manifest.group(workload.group_id)
     binary = arm_root / group.binary
@@ -427,7 +440,13 @@ def bench_once(
     )
     if timeout <= 0:
         raise RunError(f"{workload.workload_id}: no command time budget remains")
-    stdout = _run(f"{binary} {args}{extra}", arm_root, timeout=timeout)
+    run_kwargs = (
+        {"deadline_monotonic": deadline_monotonic}
+        if deadline_monotonic is not None else {}
+    )
+    stdout = _run(
+        f"{binary} {args}{extra}", arm_root, timeout=float(timeout), **run_kwargs,
+    )
     try:
         report = _load_json_object(stdout, "bench report")
     except (json.JSONDecodeError, ValueError) as exc:
@@ -754,12 +773,20 @@ def paired_rounds(
     out_dir: Path,
     stop_theta: float | None = None,
     round_budget: int | None = None,
+    minimum_rounds_override: int | None = None,
+    deadline_monotonic: float | None = None,
 ) -> WorkloadScore:
     """ABBA round pairs until the CI half-width is under theta/2 or a cap hits."""
     warmups = int(policy["warmups"])
     samples = int(policy["samples_per_round"])
-    min_rounds = int(policy["min_rounds"])
+    min_rounds = (
+        int(minimum_rounds_override)
+        if minimum_rounds_override is not None
+        else int(policy["min_rounds"])
+    )
     max_rounds = round_budget or int(policy["max_rounds"])
+    if min_rounds > max_rounds:
+        raise RunError("minimum round target exceeds the round budget")
     stop_theta = stop_theta if stop_theta is not None else float(policy["theta_floor"])
     cap = int(policy["wall_clock_cap_seconds"][workload.workload_class])
     started = time.monotonic()
@@ -783,14 +810,21 @@ def paired_rounds(
 
     round_no = 0
     while round_no < max_rounds:
-        if round_no >= min_rounds and time.monotonic() - started >= cap:
-            break
+        if round_no >= min_rounds:
+            now = time.monotonic()
+            if now - started >= cap or (
+                deadline_monotonic is not None and now >= deadline_monotonic
+            ):
+                break
         round_no += 1
         order = ("a", "b") if round_no % 2 == 1 else ("b", "a")
         results: dict[str, ArmResult] = {}
         for arm in order:
             root = a_root if arm == "a" else b_root
-            remaining = cap - (time.monotonic() - started)
+            now = time.monotonic()
+            remaining = cap - (now - started)
+            if deadline_monotonic is not None:
+                remaining = min(remaining, deadline_monotonic - now)
             if remaining <= 0:
                 raise RunError(
                     f"{workload.workload_id}: class wall-clock budget exhausted "
@@ -803,6 +837,7 @@ def paired_rounds(
             results[arm] = bench_once(
                 root, manifest, workload, warmups, samples, out_dir, f"{arm}{round_no}",
                 timeout_seconds=command_timeout,
+                deadline_monotonic=deadline_monotonic,
             )
         a, b = results["a"], results["b"]
         if a.proof_verified < samples or b.proof_verified < samples:
@@ -888,6 +923,12 @@ def paired_rounds(
                 break
         elif elapsed > cap and round_no >= 3:
             break
+
+    if len(ratios) < 3:
+        raise RunError(
+            f"{workload.workload_id}: class wall deadline left fewer than "
+            "three complete paired rounds"
+        )
 
     r = stats.hodges_lehmann(ratios)
     ci = stats.bootstrap_ci(ratios, seed=_seed(workload.workload_id, 0))
@@ -1452,6 +1493,50 @@ def run_guards(a_root: Path, b_root: Path, manifest: Manifest,
     return results
 
 
+def _credited_log_effect(repo_root: Path, row) -> float:
+    """Bridge W10 diagnostics to the Metrics-v2 credit authority when present."""
+    try:
+        from . import metrics
+
+        epoch = ledger.known_epochs(repo_root)[int(row.epoch)]
+        policy = metrics.policy_from_epoch(epoch)
+        return float(metrics.credited_log_effect(row, policy.shrinkage_lambda))
+    except Exception as exc:
+        raise search_health.SearchHealthError(
+            f"credited log effect is unavailable for row {getattr(row, 'row_id', '?')}: {exc}"
+        ) from exc
+
+
+def search_health_history(
+    repo_root: Path,
+    manifest: Manifest,
+    board: str,
+    workload_class: str,
+) -> list[search_health.HistoryPoint]:
+    """Load only valid, evidence-bound history used by a pre-run decision."""
+    rows = [
+        row for row in ledger.load(repo_root)
+        if row.board == board and row.workload_class == workload_class
+    ]
+    series = search_health.class_series(
+        rows,
+        search_health.load_verdicts_by_evidence(repo_root),
+        trailing_window=int(manifest.search_health_policy["trailing_window"]),
+        credited_log_effect_fn=lambda row: _credited_log_effect(repo_root, row),
+    )
+    return search_health.history_from_class_series(series)
+
+
+def _record_search_health_decision(out_dir: Path, decision) -> Path:
+    """Persist the immutable decision before the measurement clock starts."""
+    path = out_dir / search_health.DECISION_FILE
+    path.write_text(
+        json.dumps(search_health.decision_record(decision), indent=2, sort_keys=True)
+        + "\n"
+    )
+    return path
+
+
 def evaluate(
     repo_root: Path,
     predecessor_root: Path,
@@ -1471,7 +1556,6 @@ def evaluate(
     evaluates claimed. The judged trust boundary is the HMAC signature applied
     by the judge (signing.py), never this flag alone.
     """
-    evaluation_started = time.monotonic()
     skipped = announce_skipped_groups(manifest)
     workloads = _board_workloads(manifest, board, workload_class)
     if not workloads:
@@ -1492,11 +1576,39 @@ def evaluate(
     for arm_root in (predecessor_root, repo_root):
         build_arm(arm_root, manifest, groups=active_groups)
 
+    try:
+        decision = search_health.decide_rounds(
+            board=board,
+            workload_class=workload_class,
+            configured_rounds=int(policy["max_rounds"]),
+            minimum_rounds=int(policy["min_rounds"]),
+            workload_count=len(workloads),
+            class_wall_deadline_seconds=float(
+                policy["wall_clock_cap_seconds"][workload_class]
+            ),
+            policy=manifest.search_health_policy,
+            history=search_health_history(
+                repo_root, manifest, board, workload_class
+            ),
+        )
+    except search_health.SearchHealthError as exc:
+        raise RunError(f"cannot make search-health round decision: {exc}") from exc
+    decision_path = _record_search_health_decision(out_dir, decision)
+    measurement_started = time.monotonic()
+    class_deadline = (
+        measurement_started + decision.class_wall_deadline_seconds
+    )
     scores = [
         paired_rounds(predecessor_root, repo_root, manifest, w, policy, out_dir,
-                      stop_theta=th)
+                      stop_theta=th, round_budget=decision.target_rounds,
+                      minimum_rounds_override=(
+                          decision.target_rounds if decision.auto_boost_applied else None
+                      ), deadline_monotonic=class_deadline)
         for w in workloads
     ]
+    objective_wall_seconds = time.monotonic() - measurement_started
+    if time.monotonic() > class_deadline:
+        raise RunError("objective measurement exceeded the fixed class wall deadline")
     portfolio = portfolio_summary(scores, float(policy["ci_level"]))
 
     touched = changed_paths(repo_root)
@@ -1570,9 +1682,19 @@ def evaluate(
 
     gates = _gates(repo_root, manifest, scores, policy, judged, dispersion,
                    workload_class, board, guard_results, oracle_results)
-    measurement_wall_seconds = max(
-        round(time.monotonic() - evaluation_started, 6), 0.000001
-    )
+    measurement_wall_seconds = time.monotonic() - measurement_started
+    try:
+        health_evidence = search_health.evidence_block(
+            decision,
+            actual_rounds_per_workload={
+                score.workload.workload_id: len(score.ratios) for score in scores
+            },
+            objective_wall_seconds=objective_wall_seconds,
+            measurement_wall_seconds=measurement_wall_seconds,
+        )
+    except search_health.SearchHealthError as exc:
+        raise RunError(f"invalid search-health measurement evidence: {exc}") from exc
+    health_evidence["decision_record"] = str(decision_path)
     verdict = {
         "schema_version": 1,
         "kind": "judged" if judged else "claimed",
@@ -1586,9 +1708,7 @@ def evaluate(
             "dimension": dimension,
         },
         "environment": environment_block(repo_root, judged),
-        "search_health": {
-            "measurement_wall_seconds": measurement_wall_seconds,
-        },
+        "search_health": health_evidence,
         "gates": gates,
         "score": {
             "per_workload": {

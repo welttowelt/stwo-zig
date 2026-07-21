@@ -45,6 +45,12 @@ GATES_POLICY = {
     "samples_per_round": 1,
     "min_rounds": 3,
     "max_rounds": 3,
+    "search_health": {
+        "trailing_window": 4,
+        "gradient_snr_threshold": 2.0,
+        "auto_boost_rounds": 2,
+        "maximum_rounds": 8,
+    },
     "wall_clock_cap_seconds": {"small": 60, "wide": 60, "deep": 60},
 }
 

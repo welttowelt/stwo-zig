@@ -11,7 +11,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 REQUIRED_KEYS = {
     "feed_schema_version", "project", "provenance", "anchor", "epoch",
     "boards", "metal_resident_progress", "latest_matrix", "history",
-    "submissions", "notes_count",
+    "submissions", "notes_count", "search_health",
 }
 
 
@@ -27,6 +27,22 @@ class FeedTest(unittest.TestCase):
         again = feed.build_feed(self.m, allow_dirty=True)
         self.assertEqual(feed.encode(self.feed), feed.encode(again))
 
+    def test_legacy_search_health_is_honestly_unavailable(self):
+        health = self.feed["search_health"]
+        self.assertEqual(health["policy"]["gradient_snr_threshold"], 2.0)
+        legacy_points = [
+            point
+            for board in health["boards"].values()
+            for cls in board["classes"].values()
+            for point in cls["time_series"]
+        ]
+        self.assertTrue(legacy_points)
+        self.assertTrue(all(not point["available"] for point in legacy_points))
+        self.assertEqual(
+            {point["unavailable_reason"] for point in legacy_points},
+            {"legacy_row_has_no_search_health_evidence"},
+        )
+
     def test_provenance_digests_verify(self):
         import hashlib
         for rel, digest in self.feed["provenance"]["inputs_sha256"].items():
@@ -37,9 +53,9 @@ class FeedTest(unittest.TestCase):
         from stwo_perf import ledger
         self.assertEqual(set(self.feed["boards"]), set(ledger.BOARDS))
 
-    def test_v2_promotion_scope_partitions_the_board_universe(self):
+    def test_v3_promotion_scope_partitions_the_board_universe(self):
         from stwo_perf import ledger
-        self.assertEqual(self.feed["feed_schema_version"], 2)
+        self.assertEqual(self.feed["feed_schema_version"], 3)
         scope = self.feed["promotion_scope"]
         owned = set(scope["owned_boards"])
         future = set(scope["future_boards"])

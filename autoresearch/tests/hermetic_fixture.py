@@ -105,6 +105,12 @@ def manifest_document() -> dict:
             "samples_per_round": 1,
             "min_rounds": 1,
             "max_rounds": 1,
+            "search_health": {
+                "trailing_window": 1,
+                "gradient_snr_threshold": 2.0,
+                "auto_boost_rounds": 1,
+                "maximum_rounds": 2,
+            },
             "wall_clock_cap_seconds": {"small": 1, "wide": 1, "deep": 1},
         },
         "qualification_policy": {

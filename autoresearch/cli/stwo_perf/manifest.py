@@ -20,6 +20,12 @@ GROUP_GATES_POLICY_LIMITS = {
     "min_rounds": (1, 50),
     "max_rounds": (1, 50),
 }
+SEARCH_HEALTH_POLICY_KEYS = frozenset({
+    "trailing_window",
+    "gradient_snr_threshold",
+    "auto_boost_rounds",
+    "maximum_rounds",
+})
 MAX_GROUP_WALL_CLOCK_SECONDS = 7200
 MAX_COMMAND_TIMEOUT_SECONDS = 7200
 RESOURCE_PROFILES = frozenset(("standard", "large"))
@@ -138,6 +144,10 @@ class Manifest:
     @property
     def qualification_policy(self) -> dict:
         return dict(self.raw["qualification_policy"])
+
+    @property
+    def search_health_policy(self) -> dict:
+        return dict(self.raw["gates_policy"]["search_health"])
 
     @property
     def anchor_commit(self) -> str | None:
@@ -347,6 +357,7 @@ def _validate(raw: dict) -> None:
             "groups in manifest_version 2 — wrap the flat triple in a group"
         )
     _validate_classes(registry.get("classes"))
+    _validate_search_health_policy(raw["gates_policy"], registry["classes"])
     if not registry["groups"]:
         raise ManifestError("workload_registry.groups is empty")
     seen_boards: set[str] = set()
@@ -422,6 +433,39 @@ def _validate(raw: dict) -> None:
                 )
         _validate_group_holdout_generator(
             gid, spec.get("holdout_generator", {}), spec["workloads"]
+        )
+
+
+def _validate_search_health_policy(gates_policy: object, classes: dict) -> None:
+    if not isinstance(gates_policy, dict):
+        raise ManifestError("gates_policy must be an object")
+    policy = gates_policy.get("search_health")
+    if not isinstance(policy, dict) or set(policy) != SEARCH_HEALTH_POLICY_KEYS:
+        raise ManifestError(
+            "gates_policy.search_health requires exactly "
+            + ", ".join(sorted(SEARCH_HEALTH_POLICY_KEYS))
+        )
+    for key in ("trailing_window", "auto_boost_rounds", "maximum_rounds"):
+        value = policy[key]
+        if type(value) is not int or not 1 <= value <= 50:
+            raise ManifestError(
+                f"gates_policy.search_health.{key} must be an integer in [1, 50]"
+            )
+    threshold = policy["gradient_snr_threshold"]
+    if (
+        isinstance(threshold, bool)
+        or not isinstance(threshold, (int, float))
+        or not 0 < float(threshold) <= 100
+    ):
+        raise ManifestError(
+            "gates_policy.search_health.gradient_snr_threshold must be in (0, 100]"
+        )
+    configured = max(
+        spec["sampling"]["max_rounds"] for spec in classes.values()
+    )
+    if policy["maximum_rounds"] < configured:
+        raise ManifestError(
+            "gates_policy.search_health.maximum_rounds cannot be below a class max_rounds"
         )
 
 
@@ -568,6 +612,11 @@ def _validate_group_gates_policy(
             raise ManifestError(
                 f"workload group {gid}: gates_policy min_rounds exceeds max_rounds"
             )
+    search_maximum = global_policy["search_health"]["maximum_rounds"]
+    if merged.get("max_rounds", 0) > search_maximum:
+        raise ManifestError(
+            f"workload group {gid}: max_rounds exceeds search-health maximum_rounds"
+        )
 
 
 def _validate_group_holdout_generator(

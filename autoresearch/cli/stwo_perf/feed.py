@@ -15,10 +15,10 @@ import json
 import subprocess
 from pathlib import Path
 
-from . import frontier, ledger
+from . import frontier, ledger, search_health
 from .manifest import Manifest
 
-FEED_SCHEMA_VERSION = 2
+FEED_SCHEMA_VERSION = 3
 
 # Input roots whose uncommitted changes make a feed provenance-dishonest.
 INPUT_ROOTS = (
@@ -384,6 +384,35 @@ def _notes_count(repo: Path) -> int:
     return sum(1 for p in notes_dir.glob("*.md") if p.name != "README.md")
 
 
+def _credited_log_effect(repo: Path, row) -> float:
+    """Resolve row credit through Metrics v2 without coupling feed input APIs."""
+    try:
+        from . import metrics
+
+        epoch = ledger.known_epochs(repo)[int(row.epoch)]
+        policy = metrics.policy_from_epoch(epoch)
+        return float(metrics.credited_log_effect(row, policy.shrinkage_lambda))
+    except Exception as exc:
+        raise search_health.SearchHealthError(
+            f"credited log effect is unavailable for row {getattr(row, 'row_id', '?')}: {exc}"
+        ) from exc
+
+
+def build_search_health(manifest: Manifest, rows: list[ledger.Row]) -> dict:
+    """Build the W10 projection from explicit row and verdict inputs."""
+    try:
+        return search_health.projection(
+            manifest,
+            rows,
+            search_health.load_verdicts_by_evidence(manifest.root),
+            credited_log_effect_fn=lambda row: _credited_log_effect(
+                manifest.root, row
+            ),
+        )
+    except search_health.SearchHealthError as exc:
+        raise FeedError(f"cannot publish search health: {exc}") from exc
+
+
 def build_feed(manifest: Manifest, allow_dirty: bool = False) -> dict:
     repo = manifest.root
     dirty = dirty_inputs(repo)
@@ -417,6 +446,11 @@ def build_feed(manifest: Manifest, allow_dirty: bool = False) -> dict:
     ):
         path = repo / rel
         if path.exists():
+            inputs[rel] = _sha256_file(path)
+    submissions = repo / "autoresearch" / "submissions"
+    if submissions.is_dir():
+        for path in sorted(submissions.glob("*/*verdict*.json")):
+            rel = path.relative_to(repo).as_posix()
             inputs[rel] = _sha256_file(path)
     inputs.update(extra_inputs)
 
@@ -453,6 +487,7 @@ def build_feed(manifest: Manifest, allow_dirty: bool = False) -> dict:
         },
         "promotion_scope": _promotion_scope(manifest),
         "boards": _boards(manifest, rows, int(epoch["epoch"])),
+        "search_health": build_search_health(manifest, rows),
         "metal_resident_progress": _metal_progress(latest),
         "latest_matrix": latest,
         "baseline_matrix": baseline,
