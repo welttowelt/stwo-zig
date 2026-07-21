@@ -28,6 +28,11 @@ def claimed_verdict(**overrides) -> dict:
             "R_geomean": 0.9631,
             "significant": True,
             "neutral": False,
+            "resource_portfolio": {
+                "peak_rss_mib": {"candidate_geomean": 24.5},
+                "energy_j": {"candidate_geomean": 0.25},
+                "proof_bytes": {"candidate_geomean": 4096.0},
+            },
             "per_workload": {"wf_log14x32": {
                 "b_median_ms": 95.1, "ci": [0.955, 0.972], "rounds": 9,
                 "proof_bytes": 4096, "measurement_seconds": 12.5,
@@ -263,6 +268,27 @@ class PromoteClaimedTest(unittest.TestCase):
         )
         self.assertEqual((row["ci_low"], row["ci_high"]), (0.81, 0.89))
         self.assertEqual(row["prove_ms"], 10.0)
+        self.assertEqual(row["peak_rss_mib"], 24.5)
+        self.assertEqual(row["energy_j"], 0.25)
+
+    def test_invalid_resource_portfolio_candidate_fails_closed(self):
+        verdict = claimed_verdict()
+        verdict["score"]["resource_portfolio"]["energy_j"][
+            "candidate_geomean"
+        ] = 0.0
+        with self.assertRaisesRegex(promotion.PromotionError, "energy_j"):
+            promotion.row_from_verdict(
+                "bad-resource", verdict, 2, "rejected", "G5:fail", "claimed"
+            )
+
+    def test_verdict_without_resource_portfolio_stays_incomplete(self):
+        verdict = claimed_verdict()
+        verdict["score"].pop("resource_portfolio")
+        row = promotion.row_from_verdict(
+            "legacy", verdict, 1, "promoted", "G1..G5:pass", "claimed"
+        )
+        self.assertEqual(row["peak_rss_mib"], 0.0)
+        self.assertIsNone(row["energy_j"])
 
     def test_multi_workload_row_without_portfolio_statistics_fails_closed(self):
         verdict = claimed_verdict()

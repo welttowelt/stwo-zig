@@ -23,32 +23,32 @@ digest matches, manifest and epoch bindings agree, every counter is positive,
 and each A/A confidence interval contains 1. Missing or mismatched values fail
 closed before a judged Metal run starts.
 
+The v2 freeze binds the runtime actually executed: the embedded shader source
+digest, canonical source-JIT runtime manifest, shader-amalgamation digest,
+Objective-C runtime digest, SDK manifest, and Metal platform identity. It does
+not require or bind an offline metallib that calibration never executes. A v1
+AOT-era report or freeze is rejected; migration requires a fresh v2 run.
+
 ## Measurement
 
-Build two byte-identical AOT bundles, then measure on the designated M5 host:
+Build and measure the source-JIT product on the designated M5 host:
 
 ```sh
-zig build metal-core-aot -Doptimize=ReleaseSafe
-python3 scripts/metal_core_aot_receipt.py reproduce \
-  --builder zig-out/bin/metal-core-aot \
-  --output-dir /tmp/stwo-metal-aot
+zig build native-proof-bench-metal -Doptimize=ReleaseFast
 
 autoresearch/cli/stwo-perf calibrate-metal measure \
-  --aot-bundle /tmp/stwo-metal-aot/build-a \
   --out-dir /tmp/stwo-metal-calibration
 ```
 
 The command requires a clean exact commit, Apple M5 Max with 18 logical CPUs,
-complete Darwin process counters, offline Metal tools, and production source-JIT
-runtime admission. The independently reproduced AOT bundle is not mislabeled as
-the measured runtime: its source, manifest, and metallib digests are frozen next
-to the executed source-JIT identity, and the shader-source digests must agree.
+complete Darwin process counters, the macOS SDK/Clang used by the focused
+product, and production source-JIT runtime admission. Full Xcode's offline
+`metal` and `metallib` tools are not prerequisites.
 The command executes small, wide, deep, xlarge, and huge sequentially
 in manifest order. Each class retains its own command and wall-clock limits.
 The existing ABBA runner verifies every proof and requires cross-arm byte
 identity. It records A/A dispersion, prove/request medians, peak physical
-footprint, process energy, proof bytes, raw report digests, runtime identity,
-and AOT source/manifest/metallib digests.
+footprint, process energy, proof bytes, raw report digests, and runtime identity.
 
 ## Review and freeze
 

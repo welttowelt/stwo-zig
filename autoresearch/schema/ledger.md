@@ -31,9 +31,9 @@ Columns (tab-separated; v1 columns first, one submission per row):
 | outcome | `promoted` / `neutral` / `rejected` — only promoted rows shape the frontier |
 | judged_r | geometric-mean paired ratio (<1 improves) |
 | ci_low / ci_high | 95% bootstrap CI of judged_r |
-| prove_ms / native_mhz / peak_rss_mib | per-dimension medians on the declared class |
+| prove_ms / native_mhz / peak_rss_mib | candidate portfolio geometric means on the declared class. v3 writers populate peak RSS from `score.resource_portfolio`; `0.0` is retained only as the unavailable sentinel for verdicts that predate that evidence block |
 | waits / dispatches | Metal telemetry when applicable, else empty |
-| energy_j | joules per proof when captured, else empty |
+| energy_j | candidate portfolio geometric-mean joules per proof from `score.resource_portfolio`, else empty |
 | gates | `G1..G5:pass` or the failing gate list (a failing row records a rejection) |
 | holdout | `pass`/`fail` plus the generator seed, e.g. `pass;seed=180734` |
 | submission_id | submissions/<dir> name |
@@ -78,6 +78,18 @@ collision where several cells shared one `judged_at_utc+commit` key.
   resolves this vector from the epoch; missing classes, dimensions, or values
   fail closed before measurement can produce a score-bearing verdict.
 
+A direct-audit segment attributes the complete `predecessor..candidate` change
+to the one audited board/class. It does not apportion the measured ratio among
+commits in that interval; cross-class commits in the span are therefore assumed
+performance-neutral for this cell when interpreting attribution.
+
+Corrections replay through later audits. If `supersedes` replaces a promotion
+whose row ID was already consumed by a direct audit, that audit's recorded
+`credit_replaces` is no longer the exact active set and the class score fails
+closed. Correcting the promotion alone cannot rewrite a banked audit segment;
+the dependent audit row must also be superseded with evidence that replays the
+corrected history.
+
 The Pareto frontier and anchor-drift budgets are computed from this file by
 `stwo-perf frontier`; nothing else is authoritative.
 
@@ -106,8 +118,9 @@ write. A failed span keeps `covers` for diagnosis but consumes nothing. A
 failed direct audit has an empty `credit_replaces`, so it cannot retire credit.
 Null, gate-passing spans consume their observations once with zero score input.
 
-The canonical board suite score compounds only effective `promoted` ratios in
-the current epoch, assigns identity to untouched scored classes, and takes the
-geometric mean over that board's manifest-declared `scored` classes. Changing
-the scored class universe requires a new epoch so historical rows cannot dilute
-or rewrite the new score.
+The canonical board suite score takes the geometric mean of the current
+epoch's effective Metrics v2 class scores over that board's manifest-declared
+`scored` classes. This happens after shrinkage and audit replacement; it never
+re-compounds raw `judged_r`. Untouched classes contribute identity. Changing
+the scored class universe requires a new epoch so historical rows cannot
+dilute or rewrite the new score.

@@ -15,6 +15,7 @@ from scripts.autoresearch_workflow_policy import (
     finalize_verdict,
     inspect_candidate,
 )
+from autoresearch.bots.validate_action import author_identity_findings
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -23,6 +24,10 @@ WORKFLOWS = (
     ROOT / ".github/workflows/promote.yml",
     ROOT / "autoresearch/workflows/judge.yml",
     ROOT / "autoresearch/workflows/promote.yml",
+)
+AUDIT_WORKFLOWS = (
+    ROOT / ".github/workflows/audit.yml",
+    ROOT / "autoresearch/workflows/audit.yml",
 )
 ACTION_RE = re.compile(r"uses:\s+[^@\s]+@([^\s]+)")
 
@@ -36,11 +41,43 @@ def git(repo: Path, *args: str) -> str:
 
 class WorkflowContractTest(unittest.TestCase):
     def test_all_third_party_actions_are_commit_pinned(self) -> None:
-        for path in WORKFLOWS:
+        for path in (*WORKFLOWS, *AUDIT_WORKFLOWS):
             text = path.read_text(encoding="utf-8")
             pins = ACTION_RE.findall(text)
             self.assertTrue(pins, path)
             self.assertTrue(all(re.fullmatch(r"[0-9a-f]{40}", pin) for pin in pins), path)
+
+    def test_audit_ingestion_is_exact_serialized_and_least_privilege(self) -> None:
+        self.assertEqual(AUDIT_WORKFLOWS[0].read_bytes(), AUDIT_WORKFLOWS[1].read_bytes())
+        for path in AUDIT_WORKFLOWS:
+            text = path.read_text(encoding="utf-8")
+            evaluate, remainder = text.split("\n  sign:\n", 1)
+            sign, ingest = remainder.split("\n  ingest:\n", 1)
+            self.assertIn("group: autoresearch-audit-${{ github.repository }}", text)
+            self.assertIn("cancel-in-progress: false", text)
+            self.assertIn("contents: read", evaluate)
+            self.assertNotIn("contents: write", evaluate)
+            self.assertNotIn("secrets.JUDGE_HMAC_SECRET", evaluate)
+            self.assertIn("contents: write", sign)
+            self.assertIn("contents: write", ingest)
+            self.assertNotIn("pull-requests: write", text)
+            self.assertNotIn("issues: write", text)
+            self.assertIn("needs: [evaluate, sign]", ingest)
+            self.assertIn("ref: ${{ needs.evaluate.outputs.candidate_sha }}", ingest)
+            self.assertIn(
+                'origin/audit-verdicts:bundles/${GITHUB_RUN_ID}.json', ingest,
+            )
+            self.assertIn("python3 -m stwo_perf.audits append", ingest)
+            self.assertIn('test "$candidate" = "$(git rev-parse origin/main)"', ingest)
+            self.assertIn(
+                'test "$(git diff --cached --name-only)" = '
+                "autoresearch/ledger/promotions.tsv",
+                ingest,
+            )
+            self.assertLess(
+                ingest.index("Fetch the exact signed bundle"),
+                ingest.index("Revalidate main and append"),
+            )
 
     def test_judge_identity_runner_and_authority_order(self) -> None:
         for path in (WORKFLOWS[0], WORKFLOWS[2]):
@@ -173,6 +210,19 @@ class WorkflowPolicyTest(unittest.TestCase):
         self.assertEqual(receipt["candidate_commit"], self.candidate)
         self.assertEqual(receipt["submission_id"], "20260721-test")
         self.assertRegex(receipt["receipt_sha256"], r"^[0-9a-f]{64}$")
+
+    def test_new_placeholder_author_identity_fails_closed(self) -> None:
+        findings = author_identity_findings(self.base, self.repo)
+        self.assertEqual(len(findings), 1)
+        self.assertIn("Test <test@example.com>", findings[0])
+
+        git(self.repo, "config", "user.name", "Alice Example")
+        git(
+            self.repo, "config", "user.email",
+            "101+alice@users.noreply.github.com",
+        )
+        git(self.repo, "commit", "--allow-empty", "-qm", "attributable")
+        self.assertEqual(author_identity_findings(self.candidate, self.repo), [])
 
     def test_locked_candidate_change_is_rejected(self) -> None:
         workflow = self.repo / ".github/workflows"

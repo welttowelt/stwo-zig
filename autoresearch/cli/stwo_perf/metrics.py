@@ -342,6 +342,59 @@ def score_class(
     )
 
 
+def board_suite_score(
+    rows: list[ledger.Row],
+    epoch: int,
+    board: str,
+    scored_classes: list[str],
+    *,
+    policy: AuditPolicy,
+) -> dict:
+    """Aggregate canonical Metrics-v2 class scores for one manifest board."""
+    _validate_policy(policy)
+    if not scored_classes or len(scored_classes) != len(set(scored_classes)):
+        raise MetricsError("scored_classes must be a unique non-empty list")
+    scores = {
+        workload_class: score_class(
+            rows,
+            epoch,
+            board,
+            workload_class,
+            shrinkage_lambda=policy.shrinkage_lambda,
+            audit_anchor_commit=policy.audit_anchor_commit,
+        )
+        for workload_class in scored_classes
+    }
+    ratio = math.exp(
+        sum(score.log_ratio for score in scores.values()) / len(scores)
+    )
+    audited_ratio = math.exp(
+        sum(math.log(score.audited_ratio) for score in scores.values())
+        / len(scores)
+    )
+    return {
+        "method": "metrics_v2_scored_class_geomean_v2",
+        "epoch": epoch,
+        "classes": list(scored_classes),
+        "class_ratios": {
+            workload_class: score.ratio
+            for workload_class, score in scores.items()
+        },
+        "audited_class_ratios": {
+            workload_class: score.audited_ratio
+            for workload_class, score in scores.items()
+        },
+        "active_credit_events": {
+            workload_class: len(score.active_events)
+            for workload_class, score in scores.items()
+        },
+        "ratio_geomean": ratio,
+        "audited_ratio_geomean": audited_ratio,
+        "index": 100.0 * ratio,
+        "speedup": 1.0 / ratio,
+    }
+
+
 def due_state(
     rows: list[ledger.Row],
     epoch: int,

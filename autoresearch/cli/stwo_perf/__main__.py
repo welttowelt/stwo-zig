@@ -140,7 +140,7 @@ def cmd_calibrate_metal(args) -> int:
     try:
         if args.calibration_cmd == "measure":
             path = metal_calibration_runner.measure(
-                m, Path(args.aot_bundle), Path(args.out_dir),
+                m, Path(args.out_dir),
             )
             print(f"{ansi.OK} complete Metal calibration written to {path}")
             print("  review, then freeze it with `stwo-perf calibrate-metal freeze`")
@@ -594,8 +594,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     calibration = p.add_subparsers(dest="calibration_cmd", required=True)
     measure = calibration.add_parser("measure", help="run every scored Metal class")
-    measure.add_argument("--aot-bundle", required=True,
-                         help="authenticated stwo-zig-metal-core-aot-v2 bundle")
     measure.add_argument("--out-dir", required=True,
                          help="fresh output directory (keep outside the repository)")
     freeze = calibration.add_parser("freeze", help="install a reviewed calibration")

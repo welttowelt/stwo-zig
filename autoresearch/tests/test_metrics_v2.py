@@ -200,6 +200,40 @@ class CreditAlgebraTest(unittest.TestCase):
             )
 
 
+class BoardScoreTest(unittest.TestCase):
+    POLICY = metrics.AuditPolicy(1.0, 4, 12, 0.01, ANCHOR)
+
+    def test_board_aggregates_effective_audit_anchored_class_scores(self):
+        promoted = promotion(
+            "small-promotion", 1, judged_r=0.9, ci_low=0.85, ci_high=0.95,
+        )
+        audit = evidence(
+            "small-audit", 2, "direct_audit", outcome="neutral",
+            predecessor=ANCHOR, judged_r=1.1, ci_low=1.05, ci_high=1.15,
+            credit_replaces=[promoted["row_id"]],
+        )
+        wide = promotion(
+            "wide-promotion", 3, workload_class="wide",
+            judged_r=0.9, ci_low=0.85, ci_high=0.95,
+        )
+        score = metrics.board_suite_score(
+            rows(promoted, audit, wide), 2, "core_cpu", ["small", "wide"],
+            policy=self.POLICY,
+        )
+        self.assertEqual(score["method"], "metrics_v2_scored_class_geomean_v2")
+        self.assertAlmostEqual(score["class_ratios"]["small"], 1.1)
+        self.assertAlmostEqual(score["class_ratios"]["wide"], 0.95)
+        self.assertAlmostEqual(score["ratio_geomean"], math.sqrt(1.1 * 0.95))
+        self.assertAlmostEqual(score["audited_ratio_geomean"], math.sqrt(1.1))
+
+    def test_untouched_classes_contribute_identity(self):
+        score = metrics.board_suite_score(
+            [], 2, "core_cpu", ["small", "wide"], policy=self.POLICY,
+        )
+        self.assertEqual(score["class_ratios"], {"small": 1.0, "wide": 1.0})
+        self.assertEqual(score["ratio_geomean"], 1.0)
+
+
 class DueStateTest(unittest.TestCase):
     def test_span_due_considers_only_gate_passing_neutral_promotions(self):
         neutral = promotion(

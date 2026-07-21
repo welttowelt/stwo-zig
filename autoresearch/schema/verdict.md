@@ -38,6 +38,11 @@ runner. A claimed verdict is advisory by definition.
       "measurement_seconds": 31.25,
       "measurement_rounds": 9
     },
+    "resource_portfolio": {
+      "peak_rss_mib": { "ratio_geomean": 0.99, "upper_ci_geomean": 1.01, "candidate_geomean": 24.5 },
+      "energy_j": { "ratio_geomean": 0.97, "upper_ci_geomean": 1.00, "candidate_geomean": 0.25 },
+      "proof_bytes": { "ratio_geomean": 1.0, "upper_ci_geomean": 1.0, "candidate_geomean": 45200.0 }
+    },
     "theta": 0.012,
     "aa_dispersion": 0.0151,
     "significant": true,
@@ -112,6 +117,14 @@ correction sets `supersedes` to the earlier physical row digest and otherwise
 retains the same submission/board/class observation identity. The complete
 canonical verdict, including this block and any judge signature, is bound into
 the ledger's `evidence_sha256`.
+
+`score.resource_portfolio` contains the class-level absolute candidate
+geometric mean and ratio evidence for every completely measured resource
+dimension. The ledger writer copies `peak_rss_mib` and `energy_j` from these
+absolute candidate values; deterministic proof size comes from the integer
+`score.portfolio.proof_bytes` summary. Missing resource entries remain
+explicitly incomplete and cannot participate in complete-vector Pareto
+dominance.
 
 `search_health.decision` is canonicalized and persisted before the measurement
 clock begins. Its digest is carried into the verdict. The decision may increase

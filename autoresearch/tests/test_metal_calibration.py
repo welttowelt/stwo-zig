@@ -27,7 +27,30 @@ def _git(root: Path, *args: str) -> str:
 
 def _identity_digest(identity: dict) -> str:
     payload = json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
-    return calibration.sha256(b"stwo-perf-metal-runtime-identity-v1\0" + payload)
+    return calibration.sha256(b"stwo-perf-metal-runtime-identity-v2\0" + payload)
+
+
+def _reset_pending_authority(manifest_doc: dict, epochs_doc: dict) -> None:
+    """Build a pending fixture independently of the repository's live freeze."""
+    freeze_fields = (
+        "artifact_sha256", "measured_commit", "policy_sha256",
+        "runtime_identity_sha256", "source_sha256", "runtime_manifest_sha256",
+        "runtime_objc_sha256", "platform_identity_sha256",
+    )
+    manifest_freeze = manifest_doc["harness"]["metal_calibration"]
+    epoch = epochs_doc["epochs"][-1]
+    epoch_freeze = epoch["metal_calibration"]
+    for authority in (manifest_freeze, epoch_freeze):
+        authority["status"] = "pending"
+        for field in freeze_fields:
+            authority[field] = None
+    for field in ("anchor_prove_ms", "anchor_request_ms", "anchor_resources"):
+        for workload_class in manifest_doc["harness"][field]["core_metal"]:
+            manifest_doc["harness"][field]["core_metal"][workload_class] = None
+    for workload_class in epoch["aa_dispersion"]["core_metal"]:
+        epoch["aa_dispersion"]["core_metal"][workload_class] = None
+        epoch_freeze["aa_dispersion"][workload_class] = None
+        epoch_freeze["anchors"][workload_class] = None
 
 
 class MetalCalibrationTest(unittest.TestCase):
@@ -37,6 +60,7 @@ class MetalCalibrationTest(unittest.TestCase):
         (self.repo / "autoresearch/ledger").mkdir(parents=True)
         manifest_doc = json.loads((ROOT / "autoresearch/MANIFEST.json").read_text())
         epochs_doc = json.loads((ROOT / "autoresearch/ledger/epochs.json").read_text())
+        _reset_pending_authority(manifest_doc, epochs_doc)
         (self.repo / "autoresearch/MANIFEST.json").write_text(
             json.dumps(manifest_doc, indent=2) + "\n"
         )
@@ -57,22 +81,23 @@ class MetalCalibrationTest(unittest.TestCase):
     def _document(self) -> dict:
         commit = _git(self.repo, "rev-parse", "HEAD")
         tree = _git(self.repo, "rev-parse", "HEAD^{tree}")
-        aot = {
-            "format": "stwo-zig-metal-core-aot-v2",
-            "bundle_identity_sha256": "1" * 64,
-            "source_sha256": "2" * 64,
-            "manifest_sha256": "3" * 64,
-            "metallib_sha256": "4" * 64,
-        }
-        runtime_manifest = "metal-runtime-v2:mode=source-jit;test=true"
-        aot_manifest = "none"
+        source_sha = "2" * 64
+        objc_sha = "3" * 64
+        runtime_manifest = (
+            "metal-runtime-v2:mode=source-jit;"
+            f"shader-amalgamation-sha256={source_sha};"
+            f"runtime-objc-sha256={objc_sha}"
+        )
+        sdk_manifest = "apple-metal-sdk-v2:sdk-version=fixture"
         platform_identity = "runtime-v1|fixture"
         runtime_payload = {
             "runtime_manifest": runtime_manifest,
             "runtime_manifest_sha256": calibration.sha256(runtime_manifest.encode()),
-            "aot_manifest": aot_manifest,
-            "aot_manifest_sha256": calibration.sha256(aot_manifest.encode()),
-            "source_sha256": aot["source_sha256"],
+            "sdk_manifest": sdk_manifest,
+            "sdk_manifest_sha256": calibration.sha256(sdk_manifest.encode()),
+            "source_sha256": source_sha,
+            "shader_amalgamation_sha256": source_sha,
+            "runtime_objc_sha256": objc_sha,
             "platform_identity": platform_identity,
             "platform_identity_sha256": calibration.sha256(platform_identity.encode()),
         }
@@ -113,7 +138,6 @@ class MetalCalibrationTest(unittest.TestCase):
                 "complete": True,
                 "blockers": [],
             },
-            "aot": aot,
             "runtime_identity": {
                 "identity_sha256": _identity_digest(runtime_payload),
                 **runtime_payload,
@@ -143,7 +167,7 @@ class MetalCalibrationTest(unittest.TestCase):
         payload = dict(broken["runtime_identity"])
         del payload["identity_sha256"]
         broken["runtime_identity"]["identity_sha256"] = _identity_digest(payload)
-        with self.assertRaisesRegex(calibration.CalibrationError, "AOT source"):
+        with self.assertRaisesRegex(calibration.CalibrationError, "executed shader source"):
             calibration.validate_document(broken, self.manifest)
 
         stale_raw = copy.deepcopy(self.manifest.raw)
@@ -157,6 +181,20 @@ class MetalCalibrationTest(unittest.TestCase):
     def test_pending_state_rejects_judged_use(self) -> None:
         with self.assertRaisesRegex(calibration.CalibrationError, "not frozen"):
             calibration.require_frozen(self.manifest, "small")
+
+    def test_v1_aot_contract_is_rejected_instead_of_silently_migrated(self) -> None:
+        legacy = copy.deepcopy(self.document)
+        legacy["schema"] = "stwo_perf_metal_calibration_v1"
+        legacy["aot"] = {"format": "stwo-zig-metal-core-aot-v2"}
+        with self.assertRaisesRegex(calibration.CalibrationError, "fields differ"):
+            calibration.validate_document(legacy, self.manifest)
+
+        raw = copy.deepcopy(self.manifest.raw)
+        config = raw["harness"]["metal_calibration"]
+        config["schema"] = "stwo_perf_metal_calibration_freeze_v1"
+        (self.repo / "autoresearch/MANIFEST.json").write_text(json.dumps(raw))
+        with self.assertRaisesRegex(manifest_mod.ManifestError, "unsupported"):
+            manifest_mod.load(self.repo)
 
     def test_measurement_projection_uses_real_source_jit_product(self) -> None:
         measured = calibration_runner._measurement_manifest(self.manifest)
@@ -172,8 +210,10 @@ class MetalCalibrationTest(unittest.TestCase):
             "product_identity": {
                 "backend": "metal",
                 "implementation_commit": self.document["repository"]["commit"],
+                "implementation_tree": self.document["repository"]["tree"],
                 "implementation_dirty": False,
-                "runtime_manifest": "metal-runtime-v2:mode=source-jit;fixture=true",
+                "runtime_manifest": self.document["runtime_identity"]["runtime_manifest"],
+                "sdk_manifest": self.document["runtime_identity"]["sdk_manifest"],
                 "aot_manifest": "none",
             },
             "runtime_admission": {
@@ -190,6 +230,7 @@ class MetalCalibrationTest(unittest.TestCase):
             (raw / f"r{index}.json").write_text(json.dumps(report) + "\n")
         digests, identity = calibration_runner._runtime_evidence(
             raw, self.document["repository"]["commit"],
+            self.document["repository"]["tree"],
         )
         self.assertEqual(len(digests), 1)
         self.assertEqual(identity["source_sha256"], "2" * 64)
@@ -198,6 +239,7 @@ class MetalCalibrationTest(unittest.TestCase):
         with self.assertRaisesRegex(calibration.CalibrationError, "changed during"):
             calibration_runner._runtime_evidence(
                 raw, self.document["repository"]["commit"],
+                self.document["repository"]["tree"],
             )
 
     def test_freeze_updates_both_authorities_and_revalidates(self) -> None:
@@ -241,6 +283,29 @@ class MetalCalibrationWorkflowTest(unittest.TestCase):
         self.assertIn("calibrate-metal measure", text)
         self.assertIn("calibrate-metal validate", text)
         self.assertNotIn("calibrate-metal freeze", text)
+        self.assertNotIn("metal-core-aot", text)
+        self.assertNotIn("--aot-bundle", text)
+        self.assertNotIn("--find metal\n", text)
+
+    def test_module_cli_is_hermetic_outside_repository_root(self) -> None:
+        result = subprocess.run(
+            [
+                sys.executable, "-m", "stwo_perf", "calibrate-metal", "measure",
+                "--help",
+            ],
+            cwd=self.tempdir(),
+            env={"PYTHONPATH": str(ROOT / "autoresearch/cli")},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("aot-bundle", result.stdout)
+
+    def tempdir(self) -> str:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        return temporary.name
 
 
 if __name__ == "__main__":
