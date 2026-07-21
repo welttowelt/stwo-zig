@@ -299,6 +299,7 @@ test "production transaction proves and verifies a bounded Native workload" {
         .workload = .{ .wide_fibonacci = .{ .log_n_rows = 5, .sequence_len = 8 } },
         .blake2_backend = .auto,
         .metal_runtime = .{},
+        .resource_profile = .standard,
     }, .{
         .warmups = 0,
         .samples = 1,

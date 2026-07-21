@@ -112,6 +112,15 @@ sample. `stwo-zig-native-metal` admits only its exact source-JIT identity and
 fails rather than entering a CPU commitment path. Run `applications` on any
 CLI for its compiled capability registry.
 
+Native workloads default to the conservative `standard` resource profile
+(2^25 committed cells, 512 MiB admission-accounted memory). Large evidence is
+an explicit opt-in: pass `--resource-profile large` to admit at most 2^27
+committed cells and 2 GiB accounted memory. The large profile admits wide
+Fibonacci `--log-n-rows 20 --sequence-len 100`, but still rejects log22 x100
+and maximum-width shapes. Report schema v7 records the selected profile,
+checked geometry, accounting factor, and both budgets so benchmark evidence is
+independently auditable.
+
 ## RISC-V frontend
 
 The release-gated adapter accepts an RV32IM ELF, executes it, builds the sharded witness, proves it through

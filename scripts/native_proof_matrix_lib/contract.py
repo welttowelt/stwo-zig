@@ -1,4 +1,4 @@
-"""Fail-closed report-v5, proof-artifact, telemetry, and parity validation."""
+"""Fail-closed report-v7, proof-artifact, telemetry, and parity validation."""
 
 from __future__ import annotations
 
@@ -53,12 +53,14 @@ from .validation import (
     require_number,
     require_object,
     require_string,
+    ordered_prove_time_drift,
 )
+from .resource_admission import validate_report_admission
 
 
 REPORT_KEYS = {
     "schema_version", "product_identity", "backend", "evidence_class", "profiled", "provenance",
-    "protocol", "workload", "session", "runtime_admission", "proof", "backend_telemetry", "timing",
+    "protocol", "workload", "resource_admission", "session", "runtime_admission", "proof", "backend_telemetry", "timing",
     "throughput",
 }
 PROVENANCE_KEYS = {
@@ -123,7 +125,6 @@ TELEMETRY_DELTA_KEYS = {
 # from rejecting an otherwise exact decomposition.
 REQUEST_PHASE_ABSOLUTE_TOLERANCE_SECONDS = 1e-9
 REQUEST_PHASE_RELATIVE_TOLERANCE = 1e-12
-ORDERED_PROVE_DRIFT_MIN_SAMPLES = 5
 ORDERED_PROVE_DRIFT_MAX_RELATIVE = 0.05
 M31_MODULUS = (1 << 31) - 1
 
@@ -622,17 +623,6 @@ def headline_blockers(report: dict[str, Any], lane: str) -> list[str]:
     return blockers
 
 
-def ordered_prove_time_drift(samples: list[dict[str, Any]]) -> float | None:
-    """Compare early and late prove-time medians without discarding sample order."""
-    if len(samples) < ORDERED_PROVE_DRIFT_MIN_SAMPLES:
-        return None
-    prove_seconds = [float(sample["prove_seconds"]) for sample in samples]
-    window = max(2, len(prove_seconds) // 3)
-    first = statistics.median(prove_seconds[:window])
-    last = statistics.median(prove_seconds[-window:])
-    return abs(first - last) / min(first, last)
-
-
 def validate_report(
     report: dict[str, Any], lane: str, workload: Workload, args: argparse.Namespace
 ) -> tuple[tuple[str, int], list[str]]:
@@ -726,6 +716,11 @@ def validate_report(
             raise MatrixError(f"{lane} workload field {key} does not match request")
     if require_digest(reported_workload["descriptor_sha256"], f"{lane}.workload.descriptor_sha256") != workload_descriptor_sha256(workload, args.protocol):
         raise MatrixError(f"{lane} workload descriptor digest is inconsistent")
+    profile = getattr(args, "resource_profile", "standard")
+    try:
+        validate_report_admission(report["resource_admission"], workload, profile)
+    except ValueError as error:
+        raise MatrixError(f"{lane}.{error}") from error
     validate_session(report, lane, workload, protocol)
     validate_runtime_admission(report, lane, args)
 

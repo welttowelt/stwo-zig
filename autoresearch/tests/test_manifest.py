@@ -50,7 +50,7 @@ class ManifestTest(unittest.TestCase):
         self.assertTrue(native.promotion_eligible)
         self.assertEqual(native.board, "core_cpu")
         self.assertEqual(native.binary, "zig-out/bin/native-proof-bench-cpu")
-        self.assertEqual(native.report_schema, "native_proof_v6")
+        self.assertEqual(native.report_schema, "native_proof_v7")
         self.assertEqual(len(native.workloads), 3)
         self.assertFalse(riscv.enabled)
         self.assertFalse(riscv.promotion_eligible)
@@ -132,7 +132,7 @@ class RegistryValidationTest(unittest.TestCase):
                         "board": "core_cpu",
                         "build_step": "true",
                         "binary": "bin/bench",
-                        "report_schema": "native_proof_v6",
+                        "report_schema": "native_proof_v7",
                         "workloads": {
                             "wf": {"class": "small", "args": "--x", "native_unit": "rows"},
                         },
@@ -196,7 +196,7 @@ class RegistryValidationTest(unittest.TestCase):
             "board": "core_cpu",
             "build_step": "true",
             "binary": "bin/other",
-            "report_schema": "native_proof_v6",
+            "report_schema": "native_proof_v7",
             "workloads": {},
         }
         with self.assertRaises(manifest_mod.ManifestError) as ctx:

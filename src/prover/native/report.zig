@@ -3,7 +3,7 @@ const stwo = @import("stwo");
 const config = @import("config.zig");
 const statistics = @import("statistics.zig");
 
-pub const SCHEMA_VERSION: u32 = 6;
+pub const SCHEMA_VERSION: u32 = 7;
 
 pub const EnvironmentOverride = struct {
     name: []const u8,
@@ -75,6 +75,15 @@ pub const Session = struct {
     host_byte_budget: usize,
     retained_host_twiddle_bytes: usize,
     tower_build_count: u64,
+};
+
+pub const ResourceAdmission = struct {
+    profile: config.ResourceProfile,
+    accounted_bytes_per_committed_cell: u64,
+    committed_cells: u64,
+    accounted_bytes: u64,
+    max_committed_cells: u64,
+    max_accounted_bytes: u64,
 };
 
 pub const RuntimeAdmission = struct {
@@ -271,6 +280,7 @@ pub const Report = struct {
     provenance: Provenance,
     protocol: Protocol,
     workload: Workload,
+    resource_admission: ResourceAdmission,
     session: Session,
     runtime_admission: ?RuntimeAdmission,
     proof: ProofEvidence,
@@ -289,6 +299,7 @@ pub fn encodeAlloc(allocator: std.mem.Allocator, value: Report) ![]u8 {
             provenance: Provenance,
             protocol: Protocol,
             workload: Workload,
+            resource_admission: ResourceAdmission,
             session: Session,
             runtime_admission: ?RuntimeAdmission,
             proof: ProofEvidence,
@@ -304,6 +315,7 @@ pub fn encodeAlloc(allocator: std.mem.Allocator, value: Report) ![]u8 {
             .provenance = value.provenance,
             .protocol = value.protocol,
             .workload = value.workload,
+            .resource_admission = value.resource_admission,
             .session = value.session,
             .runtime_admission = value.runtime_admission,
             .proof = value.proof,
@@ -360,6 +372,14 @@ test "native proof report: diagnostic evidence cannot populate headline rates" {
             .committed_trace_cells = 256,
             .native_unit = "trace_rows",
             .native_units = 32,
+        },
+        .resource_admission = .{
+            .profile = .standard,
+            .accounted_bytes_per_committed_cell = 16,
+            .committed_cells = 256,
+            .accounted_bytes = 4096,
+            .max_committed_cells = config.resource_admission.STANDARD_MAX_COMMITTED_CELLS,
+            .max_accounted_bytes = config.resource_admission.STANDARD_MAX_ACCOUNTED_BYTES,
         },
         .session = .{
             .max_circle_log = 6,

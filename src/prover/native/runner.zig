@@ -169,6 +169,12 @@ fn executeExample(
         .fri_config = fri_config,
     };
     const workload_geometry = try examples.geometry(workload);
+    const workload_admission = try config.admitWorkload(workload, args.resource_profile);
+    if (workload_admission.geometry.log_rows != workload_geometry.trace_log_rows or
+        workload_admission.geometry.rows != workload_geometry.trace_rows or
+        workload_admission.geometry.committed_columns != workload_geometry.committed_columns or
+        workload_admission.geometry.committed_cells != workload_geometry.committed_trace_cells)
+        return error.ResourceAdmissionGeometryMismatch;
     const max_circle_log = try Spec.requiredCircleLog(request, pcs_config);
 
     var init_timer = try std.time.Timer.start();
@@ -465,6 +471,14 @@ fn executeExample(
             .committed_trace_cells = workload_geometry.committed_trace_cells,
             .native_unit = workload_geometry.native_unit,
             .native_units = workload_geometry.native_units,
+        },
+        .resource_admission = .{
+            .profile = workload_admission.profile,
+            .accounted_bytes_per_committed_cell = workload_admission.accounted_bytes_per_committed_cell,
+            .committed_cells = workload_admission.geometry.committed_cells,
+            .accounted_bytes = workload_admission.geometry.accounted_bytes,
+            .max_committed_cells = workload_admission.limits.max_committed_cells,
+            .max_accounted_bytes = workload_admission.limits.max_accounted_bytes,
         },
         .proof = .{
             .samples = proof_records,

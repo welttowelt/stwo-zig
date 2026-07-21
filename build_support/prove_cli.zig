@@ -12,6 +12,7 @@ pub const Context = struct {
     optimize: std.builtin.OptimizeMode,
     stwo_module: *std.Build.Module,
     native_proof_runner_module: *std.Build.Module,
+    native_resource_admission_module: *std.Build.Module,
     test_step: *std.Build.Step,
     identity: build_identity.Identity,
     product: graph.Product,
@@ -21,6 +22,7 @@ pub const Context = struct {
 
 pub fn addProduct(context: Context) *std.Build.Step.Compile {
     const b = context.b;
+    const resource_admission = context.native_resource_admission_module;
     const identity = context.identity;
     const identity_options = graph_identity.buildOptions(b, identity);
     const product_options = graph_identity.productOptionsWithRuntime(
@@ -63,6 +65,7 @@ pub fn addProduct(context: Context) *std.Build.Step.Compile {
     });
     module.addImport("stwo", context.stwo_module);
     module.addImport("native_proof_runner", context.native_proof_runner_module);
+    module.addImport("native_resource_admission", resource_admission);
     const native_transaction = b.createModule(.{
         .root_source_file = b.path("src/integrations/native/transaction.zig"),
         .target = context.target,
@@ -103,8 +106,20 @@ pub fn addProduct(context: Context) *std.Build.Step.Compile {
         .target = context.target,
         .optimize = context.optimize,
     });
+    parser_module.addImport("native_resource_admission", resource_admission);
     const parser_tests = b.addTest(.{ .root_module = parser_module });
     context.test_step.dependOn(&b.addRunArtifact(parser_tests).step);
+    const resource_parser_module = b.createModule(.{
+        .root_source_file = b.path("src/tools/prove/cli_resource_test.zig"),
+        .target = context.target,
+        .optimize = context.optimize,
+    });
+    resource_parser_module.addImport("prove_cli", parser_module);
+    resource_parser_module.addImport("native_proof_runner", context.native_proof_runner_module);
+    resource_parser_module.addImport("native_resource_admission", resource_admission);
+    context.test_step.dependOn(&b.addRunArtifact(
+        b.addTest(.{ .root_module = resource_parser_module }),
+    ).step);
 
     const registry_test_module = b.createModule(.{
         .root_source_file = b.path("src/tools/prove/registry.zig"),
@@ -131,6 +146,7 @@ pub fn addProduct(context: Context) *std.Build.Step.Compile {
     });
     dispatch_module.addImport("stwo", context.stwo_module);
     dispatch_module.addImport("native_proof_runner", context.native_proof_runner_module);
+    dispatch_module.addImport("native_resource_admission", resource_admission);
     dispatch_module.addOptions("aggregate_capabilities", capabilities);
     dispatch_module.addImport("native_product_identity", native_identity);
     const dispatch_tests = b.addTest(.{ .root_module = dispatch_module });
@@ -144,6 +160,7 @@ pub fn addProduct(context: Context) *std.Build.Step.Compile {
     });
     app_module.addImport("stwo", context.stwo_module);
     app_module.addImport("native_proof_runner", context.native_proof_runner_module);
+    app_module.addImport("native_resource_admission", resource_admission);
     app_module.addImport("native_transaction", native_transaction);
     app_module.addImport("output_transaction", output_transaction);
     app_module.addOptions("build_identity", identity_options);

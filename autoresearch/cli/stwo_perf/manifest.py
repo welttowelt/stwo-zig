@@ -10,7 +10,7 @@ from pathlib import Path
 RUNGS = ("s1", "s2", "s3", "s4", "s5")
 ACCEPTANCE_FLOOR = "s3"
 REPORT_SCHEMA_VERSIONS = {
-    "native_proof_v6": 6,
+    "native_proof_v7": 7,
     "riscv_proof_v1": 1,
 }
 

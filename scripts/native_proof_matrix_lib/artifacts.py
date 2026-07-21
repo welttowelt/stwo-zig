@@ -250,6 +250,7 @@ def lane_command(
     protocol: str,
     proof_artifact_path: Path,
     *,
+    resource_profile: str = "standard",
     blake2_backend: str | None = None,
     metal_runtime: str | None = None,
     metal_aot_bundle: Path | None = None,
@@ -264,6 +265,8 @@ def lane_command(
         str(samples),
         "--protocol",
         protocol,
+        "--resource-profile",
+        resource_profile,
     ]
     if blake2_backend is not None:
         command.extend(("--blake2-backend", blake2_backend))
@@ -360,6 +363,7 @@ def run_lane(
         args.samples,
         args.protocol,
         proof_artifact_path,
+        resource_profile=getattr(args, "resource_profile", "standard"),
         blake2_backend=getattr(args, "blake2_backend", "auto"),
         metal_runtime=getattr(args, "metal_runtime", "source-jit") if lane == "metal" else None,
         metal_aot_bundle=getattr(args, "metal_aot_bundle", None),

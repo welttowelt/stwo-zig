@@ -17,7 +17,12 @@ from stwo_perf import manifest as manifest_mod, runner
 from stwo_perf.manifest import Manifest
 
 FAKE_REPORT = (
-    '{"schema_version":6,"timing":{"prove_seconds":{"median":0.001}},'
+    '{"schema_version":7,"timing":{"prove_seconds":{"median":0.001}},'
+    '"workload":{"committed_trace_cells":8192},'
+    '"resource_admission":{"profile":"standard",'
+    '"accounted_bytes_per_committed_cell":16,"committed_cells":8192,'
+    '"accounted_bytes":131072,"max_committed_cells":33554432,'
+    '"max_accounted_bytes":536870912},'
     '"proof":{"verified_samples":1,"all_samples_byte_identical":true,'
     '"samples":[{"sha256":"' + "a" * 64 + '"}]},'
     '"resources":{"peak_rss_kib":1024}}'
@@ -83,7 +88,7 @@ def make_raw(riscv_enabled: bool, native_binary: str = "bin/fakebench") -> dict:
                     "board": "core_cpu",
                     "build_step": "true",
                     "binary": native_binary,
-                    "report_schema": "native_proof_v6",
+                    "report_schema": "native_proof_v7",
                     "workloads": {
                         "wf_small": {
                             "class": "small",
@@ -287,7 +292,7 @@ class RunnerGroupTest(unittest.TestCase):
         bench = self.root / "bin" / "fakebench"
         bench.write_text(
             "#!/bin/sh\n"
-            "echo '{\"schema_version\":5,\"timing\":{\"prove_seconds\":"
+            "echo '{\"schema_version\":6,\"timing\":{\"prove_seconds\":"
             "{\"median\":0.001}},\"proof\":{\"verified_samples\":1,"
             "\"all_samples_byte_identical\":true}}'\n"
         )
@@ -295,14 +300,14 @@ class RunnerGroupTest(unittest.TestCase):
         workload = m.workloads("small", board="core_cpu")[0]
         with self.assertRaises(runner.RunError) as ctx:
             runner.bench_once(self.root, m, workload, 0, 1, self.out_dir, "a1")
-        self.assertIn("expected native_proof_v6", str(ctx.exception))
+        self.assertIn("expected native_proof_v7", str(ctx.exception))
         self.assertFalse((self.out_dir / "wf_small.a1.json").exists())
 
     def test_bench_once_rejects_duplicate_report_fields(self):
         bench = self.root / "bin" / "fakebench"
         bench.write_text(
             "#!/bin/sh\n"
-            "echo '{\"schema_version\":6,\"schema_version\":6}'\n"
+            "echo '{\"schema_version\":7,\"schema_version\":7}'\n"
         )
         manifest = self._manifest(riscv_enabled=False)
         workload = manifest.workloads("small", board="core_cpu")[0]
@@ -310,6 +315,57 @@ class RunnerGroupTest(unittest.TestCase):
             runner.bench_once(
                 self.root, manifest, workload, 0, 1, self.out_dir, "a1",
             )
+
+    def test_native_report_resource_admission_fails_closed(self):
+        manifest = self._manifest(riscv_enabled=False)
+        group = manifest.group("native")
+        workload = manifest.workloads("small", board="core_cpu")[0]
+        base = json.loads(FAKE_REPORT)
+        runner._parse_native_report(base, group, workload, 1, Path("report.json"))
+
+        mutations = {
+            "missing field": lambda report: report["resource_admission"].pop(
+                "max_accounted_bytes"
+            ),
+            "profile": lambda report: report["resource_admission"].__setitem__(
+                "profile", "large"
+            ),
+            "cells": lambda report: report["resource_admission"].__setitem__(
+                "committed_cells", 8191
+            ),
+            "accounted": lambda report: report["resource_admission"].__setitem__(
+                "accounted_bytes", 131071
+            ),
+            "factor": lambda report: report["resource_admission"].__setitem__(
+                "accounted_bytes_per_committed_cell", 4
+            ),
+            "budget": lambda report: report["resource_admission"].__setitem__(
+                "max_committed_cells", 1 << 63
+            ),
+        }
+        for name, mutate in mutations.items():
+            report = json.loads(FAKE_REPORT)
+            mutate(report)
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                runner._parse_native_report(
+                    report, group, workload, 1, Path("report.json")
+                )
+
+        large_workload = runner.Workload(
+            workload_id="wf_huge",
+            workload_class="huge",
+            args="--resource-profile large --warmups {warmups} --samples {samples}",
+            native_unit="trace rows",
+        )
+        large = json.loads(FAKE_REPORT)
+        large["resource_admission"].update({
+            "profile": "large",
+            "max_committed_cells": 134217728,
+            "max_accounted_bytes": 2147483648,
+        })
+        runner._parse_native_report(
+            large, group, large_workload, 1, Path("large-report.json")
+        )
 
     def test_enabled_native_group_still_scores(self):
         m = self._manifest(riscv_enabled=False)

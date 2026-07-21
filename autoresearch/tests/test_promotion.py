@@ -41,7 +41,7 @@ def write_manifest(repo: Path, *, promotion_eligible: bool = True) -> None:
             "board": "core_cpu",
             "build_step": "true",
             "binary": "bin/native",
-            "report_schema": "native_proof_v6",
+            "report_schema": "native_proof_v7",
             "workloads": {"wf": {
                 "class": "small", "args": "--x", "native_unit": "rows",
             }},

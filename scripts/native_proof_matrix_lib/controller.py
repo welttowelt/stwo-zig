@@ -45,16 +45,21 @@ from .evidence import (
 )
 from .model import (
     LANES,
-    MAX_COMMITTED_TRACE_CELLS,
     MAX_LOG_ROWS,
     MAX_MATRIX_ROWS,
     MAX_SEQUENCE_LEN,
+    MAX_SAMPLES,
     MAX_TOTAL_REQUEST_CELLS,
+    MAX_WARMUPS,
     MatrixError,
     PROTOCOL_PRESETS,
     Workload,
 )
 from .provenance import collect_load, collect_static, validate_environment, validate_load
+from .resource_admission import (
+    ACCOUNTED_BYTES_PER_COMMITTED_CELL,
+    resource_limits,
+)
 
 
 def numeric_summary(values: list[float]) -> dict[str, float]:
@@ -319,6 +324,15 @@ def _run_matrix_locked(
     host_environment: dict[str, object],
     load_start: dict[str, object],
 ) -> dict[str, Any]:
+    resource_profile = getattr(args, "resource_profile", "standard")
+    admission_limits = resource_limits(resource_profile)
+    max_total_request_cells = (
+        MAX_TOTAL_REQUEST_CELLS
+        if resource_profile == "standard"
+        else admission_limits.max_committed_cells
+        * len(LANES)
+        * (MAX_WARMUPS + MAX_SAMPLES)
+    )
     total_lanes = len(args.workloads) * len(LANES)
     completed_lanes = 0
     result_rows: list[dict[str, Any]] = []
@@ -480,6 +494,7 @@ def _run_matrix_locked(
         },
         "configuration": {
             "proof_protocol": args.protocol,
+            "resource_profile": resource_profile,
             "blake2_backend": getattr(args, "blake2_backend", "auto"),
             "metal_runtime": getattr(args, "metal_runtime", "source-jit"),
             "metal_aot_manifest_sha256": getattr(
@@ -498,8 +513,10 @@ def _run_matrix_locked(
                 "max_matrix_rows": MAX_MATRIX_ROWS,
                 "max_log_rows": MAX_LOG_ROWS,
                 "max_sequence_len": MAX_SEQUENCE_LEN,
-                "max_committed_trace_cells_per_row": MAX_COMMITTED_TRACE_CELLS,
-                "max_total_request_cells": MAX_TOTAL_REQUEST_CELLS,
+                "accounted_bytes_per_committed_cell": ACCOUNTED_BYTES_PER_COMMITTED_CELL,
+                "max_committed_trace_cells_per_row": admission_limits.max_committed_cells,
+                "max_accounted_bytes_per_row": admission_limits.max_accounted_bytes,
+                "max_total_request_cells": max_total_request_cells,
             },
             "binaries": {
                 lane: {"path": str(binary), "sha256": binary_hashes[lane]}

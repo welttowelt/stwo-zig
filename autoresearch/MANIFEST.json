@@ -109,7 +109,7 @@
         "board": "core_cpu",
         "build_step": "zig build native-proof-bench-cpu -Doptimize=ReleaseFast",
         "binary": "zig-out/bin/native-proof-bench-cpu",
-        "report_schema": "native_proof_v6",
+        "report_schema": "native_proof_v7",
         "workloads": {
           "wf_log10x8": {
             "class": "small",
@@ -311,7 +311,7 @@
         "board": "core_metal",
         "build_step": "zig build native-proof-bench-metal -Doptimize=ReleaseFast",
         "binary": "zig-out/bin/native-proof-bench-metal",
-        "report_schema": "native_proof_v6",
+        "report_schema": "native_proof_v7",
         "workloads": {
           "mwf_log10x8": {
             "class": "small",

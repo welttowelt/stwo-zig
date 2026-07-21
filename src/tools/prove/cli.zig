@@ -1,6 +1,7 @@
 //! Strict command-line contract for the production proof tool.
 
 const std = @import("std");
+const resource_admission = @import("native_resource_admission");
 
 pub const Command = enum { prove, bench, verify, applications };
 
@@ -20,6 +21,7 @@ pub const Air = enum {
 
 pub const Protocol = enum { secure, functional, smoke };
 pub const Blake2Backend = enum { auto, scalar, simd };
+pub const ResourceProfile = resource_admission.Profile;
 pub const MetalRuntimeMode = enum { source_jit, authenticated_aot };
 
 pub const MetalRuntime = struct {
@@ -69,6 +71,7 @@ pub const Run = struct {
     workload: Workload,
     blake2_backend: Blake2Backend,
     metal_runtime: MetalRuntime,
+    resource_profile: ResourceProfile,
 };
 
 pub const Prove = struct {
@@ -127,12 +130,10 @@ pub const Parsed = union(enum) {
     help: ?Command,
 };
 
-const MAX_LOG_ROWS: u32 = 22;
 const MAX_SEQUENCE_LEN: u32 = 512;
 const MAX_BLAKE_ROUNDS: u32 = 32;
 const MAX_XOR_OFFSET: usize = (1 << 31) - 1;
 const M31_MODULUS: u32 = 0x7fffffff;
-const MAX_COMMITTED_CELLS: u64 = 1 << 25;
 const POSEIDON_LOG_INSTANCES_PER_ROW: u32 = 3;
 const POSEIDON_COLUMNS: u64 = 1264;
 const MAX_WARMUPS: usize = 10;
@@ -158,6 +159,7 @@ const Flag = enum {
     n_rounds,
     log_n_instances,
     blake2_backend,
+    resource_profile,
     metal_runtime,
     metal_aot_bundle,
     metal_aot_manifest_sha256,
@@ -195,6 +197,7 @@ const Scratch = struct {
     n_rounds: u32 = 2,
     log_n_instances: u32 = 13,
     blake2_backend: Blake2Backend = .auto,
+    resource_profile: ResourceProfile = .standard,
     metal_runtime: MetalRuntime = .{},
     elf: ?[]const u8 = null,
     input: ?[]const u8 = null,
@@ -288,6 +291,7 @@ fn rejectElfConflicts(scratch: Scratch) !void {
         return;
     }
     if (scratch.has(.air)) return error.ElfExcludesAir;
+    if (scratch.has(.resource_profile)) return error.ResourceProfileExcludesElf;
     for (WORKLOAD_FLAGS) |flag| {
         if (scratch.has(flag)) return error.IrrelevantWorkloadArgument;
     }
@@ -315,6 +319,8 @@ fn assign(scratch: *Scratch, flag: Flag, value: []const u8) !void {
         .log_n_instances => scratch.log_n_instances = try parseInt(u32, value),
         .blake2_backend => scratch.blake2_backend = parseEnum(Blake2Backend, value) orelse
             return error.InvalidBlake2Backend,
+        .resource_profile => scratch.resource_profile = parseEnum(ResourceProfile, value) orelse
+            return error.InvalidResourceProfile,
         .metal_runtime => scratch.metal_runtime.mode = parseMetalRuntime(value) orelse
             return error.InvalidMetalRuntime,
         .metal_aot_bundle => scratch.metal_runtime.aot_bundle = value,
@@ -331,13 +337,14 @@ fn makeRun(scratch: Scratch) !Run {
     const air = scratch.air orelse return error.MissingAir;
     const backend = try checkedBackend(scratch);
     const workload = try makeWorkload(air, scratch);
-    try validateWorkload(workload);
+    _ = try admitWorkload(workload, scratch.resource_profile);
     return .{
         .backend = backend,
         .protocol = scratch.protocol,
         .workload = workload,
         .blake2_backend = scratch.blake2_backend,
         .metal_runtime = scratch.metal_runtime,
+        .resource_profile = scratch.resource_profile,
     };
 }
 
@@ -406,55 +413,50 @@ fn makeWorkload(air: Air, scratch: Scratch) !Workload {
     };
 }
 
-fn validateWorkload(workload: Workload) !void {
-    const committed_cells = switch (workload) {
+pub fn admitWorkload(
+    workload: Workload,
+    profile: ResourceProfile,
+) !resource_admission.Admission {
+    return switch (workload) {
         .wide_fibonacci => |value| blk: {
-            try validateLogRows(value.log_n_rows);
             if (value.sequence_len < 2 or value.sequence_len > MAX_SEQUENCE_LEN)
                 return error.InvalidSequenceLength;
-            break :blk try cells(value.log_n_rows, value.sequence_len);
+            break :blk resource_admission.admit(profile, value.log_n_rows, value.sequence_len);
         },
         .xor => |value| blk: {
-            try validateLogRows(value.log_size);
+            const admission = try resource_admission.admit(profile, value.log_size, 3);
             if (value.log_step > value.log_size) return error.InvalidStep;
             if (value.offset > MAX_XOR_OFFSET) return error.InvalidOffset;
             const period = @as(usize, 1) << @intCast(value.log_step);
             if (value.offset >= period) return error.InvalidOffset;
-            break :blk try cells(value.log_size, 3);
+            break :blk admission;
         },
-        .plonk => |value| blk: {
-            try validateLogRows(value.log_n_rows);
-            break :blk try cells(value.log_n_rows, 8);
-        },
+        .plonk => |value| resource_admission.admit(profile, value.log_n_rows, 8),
         .state_machine => |value| blk: {
-            try validateLogRows(value.log_n_rows);
             if (value.initial_x >= M31_MODULUS or value.initial_y >= M31_MODULUS)
                 return error.InvalidInitialState;
-            break :blk try cells(value.log_n_rows, 3);
+            break :blk resource_admission.admit(profile, value.log_n_rows, 3);
         },
         .blake => |value| blk: {
-            try validateLogRows(value.log_n_rows);
             if (value.n_rounds == 0 or value.n_rounds > MAX_BLAKE_ROUNDS)
                 return error.InvalidRoundCount;
-            break :blk try cells(value.log_n_rows, try std.math.mul(u64, value.n_rounds, 96));
+            break :blk resource_admission.admit(
+                profile,
+                value.log_n_rows,
+                try std.math.mul(u64, value.n_rounds, 96),
+            );
         },
         .poseidon => |value| blk: {
             if (value.log_n_instances <= POSEIDON_LOG_INSTANCES_PER_ROW or
-                value.log_n_instances > MAX_LOG_ROWS + POSEIDON_LOG_INSTANCES_PER_ROW)
+                value.log_n_instances > resource_admission.MAX_LOG_ROWS + POSEIDON_LOG_INSTANCES_PER_ROW)
                 return error.InvalidLogNInstances;
-            break :blk try cells(value.log_n_instances - POSEIDON_LOG_INSTANCES_PER_ROW, POSEIDON_COLUMNS);
+            break :blk resource_admission.admit(
+                profile,
+                value.log_n_instances - POSEIDON_LOG_INSTANCES_PER_ROW,
+                POSEIDON_COLUMNS,
+            );
         },
     };
-    if (committed_cells > MAX_COMMITTED_CELLS) return error.TooManyCommittedCells;
-}
-
-fn validateLogRows(value: u32) !void {
-    if (value == 0 or value > MAX_LOG_ROWS) return error.InvalidLogRows;
-}
-
-fn cells(log_rows: u32, columns: anytype) !u64 {
-    const rows = @as(u64, 1) << @intCast(log_rows);
-    return std.math.mul(u64, rows, @as(u64, columns));
 }
 
 fn validateMetalRuntime(runtime: MetalRuntime) !void {
@@ -491,9 +493,9 @@ fn rejectIrrelevant(command: Command, scratch: Scratch) !void {
 
 fn isRunFlag(flag: Flag) bool {
     return contains(&.{
-        .air,            .backend,       .protocol,         .log_n_rows,                .sequence_len, .log_size,
-        .log_step,       .offset,        .initial_x,        .initial_y,                 .n_rounds,     .log_n_instances,
-        .blake2_backend, .metal_runtime, .metal_aot_bundle, .metal_aot_manifest_sha256,
+        .air,            .backend,          .protocol,      .log_n_rows,       .sequence_len,              .log_size,
+        .log_step,       .offset,           .initial_x,     .initial_y,        .n_rounds,                  .log_n_instances,
+        .blake2_backend, .resource_profile, .metal_runtime, .metal_aot_bundle, .metal_aot_manifest_sha256,
     }, flag);
 }
 
@@ -528,6 +530,7 @@ fn parseFlag(value: []const u8) ?Flag {
         .{ "--n-rounds", Flag.n_rounds },
         .{ "--log-n-instances", Flag.log_n_instances },
         .{ "--blake2-backend", Flag.blake2_backend },
+        .{ "--resource-profile", Flag.resource_profile },
         .{ "--metal-runtime", Flag.metal_runtime },
         .{ "--metal-aot-bundle", Flag.metal_aot_bundle },
         .{ "--metal-aot-manifest-sha256", Flag.metal_aot_manifest_sha256 },
@@ -641,6 +644,7 @@ pub fn writeUsage(writer: anytype, command: ?Command) !void {
         \\  --backend NAME        cpu or metal-hybrid (required; no fallback)
         \\  --protocol NAME       secure, functional, or smoke (default: secure)
         \\  --blake2-backend NAME auto, scalar, or simd (default: auto)
+        \\  --resource-profile NAME standard or large (default: standard)
         \\  --log-n-rows N        Wide Fibonacci, Plonk, State Machine, or Blake rows
         \\  --sequence-len N      Wide Fibonacci sequence length
         \\  --log-size N          XOR log2 rows
@@ -669,6 +673,7 @@ test "prove requires explicit application backend and output" {
     })).prove;
     try std.testing.expectEqual(Backend.cpu, result.run.backend);
     try std.testing.expectEqual(Protocol.secure, result.run.protocol);
+    try std.testing.expectEqual(ResourceProfile.standard, result.run.resource_profile);
     try std.testing.expectEqual(@as(u32, 14), result.run.workload.wide_fibonacci.log_n_rows);
     try std.testing.expectEqualStrings("proof.json", result.output);
     try std.testing.expectEqualStrings("report.json", result.report_out.?);

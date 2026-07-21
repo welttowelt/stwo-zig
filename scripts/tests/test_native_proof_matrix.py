@@ -212,15 +212,75 @@ class NativeProofMatrixTests(unittest.TestCase):
             "blake:log_n_rows=8",
             "blake:log_n_rows=8,n_rounds=0",
             "blake:log_n_rows=8,n_rounds=33",
-            "blake:log_n_rows=18,n_rounds=2",
             "poseidon:log_n_instances=3",
-            "poseidon:log_n_instances=18",
             "poseidon:log_n_instances=13,log_n_rows=10",
         )
         for encoded in invalid:
             with self.subTest(encoded=encoded):
                 with self.assertRaises(argparse.ArgumentTypeError):
                     MODULE.parse_workload(encoded)
+
+    def test_resource_profiles_are_bound_to_the_zig_source_authority(self) -> None:
+        MODULE.validate_source_contract()
+        source = MODULE.ZIG_RESOURCE_AUTHORITY.read_text(encoding="utf-8")
+        self.assertIn("STANDARD_MAX_COMMITTED_CELLS", source)
+        self.assertEqual(
+            MODULE.MAX_COMMITTED_TRACE_CELLS,
+            MODULE.ZIG_RESOURCE_CONSTANTS["STANDARD_MAX_COMMITTED_CELLS"],
+        )
+        self.assertEqual(
+            MODULE.RESOURCE_PROFILES["large"].max_committed_cells,
+            MODULE.ZIG_RESOURCE_CONSTANTS["LARGE_MAX_COMMITTED_CELLS"],
+        )
+
+        workload = MODULE.parse_workload(
+            "wide_fibonacci:log_n_rows=20,sequence_len=100"
+        )
+        with self.assertRaisesRegex(ValueError, "standard profile"):
+            MODULE.validate_workload(workload)
+        MODULE.validate_workload(workload, resource_profile="large")
+        too_large = MODULE.Workload.wide_fibonacci(22, 100)
+        with self.assertRaisesRegex(ValueError, "large profile"):
+            MODULE.validate_workload(too_large, resource_profile="large")
+
+    def test_large_profile_is_explicit_in_commands_and_report_evidence(self) -> None:
+        from native_proof_matrix_lib.artifacts import lane_command
+
+        workload = MODULE.Workload.wide_fibonacci(20, 100)
+        command = lane_command(
+            Path("cpu"),
+            workload,
+            0,
+            1,
+            "functional",
+            Path("/tmp/proof.json"),
+            resource_profile="large",
+        )
+        self.assertEqual(
+            command[command.index("--resource-profile") + 1],
+            "large",
+        )
+        report = make_report(
+            "cpu",
+            workload,
+            samples=1,
+            warmups=0,
+            resource_profile="large",
+        )
+        MODULE.validate_report(
+            report,
+            "cpu",
+            workload,
+            args(samples=1, warmups=0, resource_profile="large"),
+        )
+        report["resource_admission"]["max_accounted_bytes"] -= 1
+        with self.assertRaisesRegex(MODULE.MatrixError, "reviewed profile"):
+            MODULE.validate_report(
+                report,
+                "cpu",
+                workload,
+                args(samples=1, warmups=0, resource_profile="large"),
+            )
 
     def test_controller_bounds_and_formal_oracle_are_checked_during_parse(self) -> None:
         diagnostic = MODULE.parse_args(["--allow-non-headline"])
@@ -266,6 +326,29 @@ class NativeProofMatrixTests(unittest.TestCase):
                     "21",
                 ]
             )
+        large_row = "wide_fibonacci:log_n_rows=20,sequence_len=100"
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            MODULE.parse_args([
+                "--allow-non-headline",
+                "--workload",
+                large_row,
+                "--warmups",
+                "0",
+                "--samples",
+                "1",
+            ])
+        admitted = MODULE.parse_args([
+            "--allow-non-headline",
+            "--resource-profile",
+            "large",
+            "--workload",
+            large_row,
+            "--warmups",
+            "0",
+            "--samples",
+            "1",
+        ])
+        self.assertEqual(admitted.resource_profile, "large")
 
     def test_lane_commands_use_only_canonical_tagged_flags(self) -> None:
         from native_proof_matrix_lib.artifacts import lane_command
@@ -273,12 +356,12 @@ class NativeProofMatrixTests(unittest.TestCase):
         artifact = Path("/tmp/proof.json")
         self.assertEqual(
             lane_command(Path("cpu"), MODULE.Workload.wide_fibonacci(10, 8), 1, 2, "functional", artifact),
-            ["cpu", "--example", "wide_fibonacci", "--log-n-rows", "10", "--sequence-len", "8", "--warmups", "1", "--samples", "2", "--protocol", "functional", "--proof-artifact-out", "/tmp/proof.json"],
+            ["cpu", "--example", "wide_fibonacci", "--log-n-rows", "10", "--sequence-len", "8", "--warmups", "1", "--samples", "2", "--protocol", "functional", "--resource-profile", "standard", "--proof-artifact-out", "/tmp/proof.json"],
         )
         self.assertIn("--log-step", lane_command(Path("metal"), MODULE.Workload.xor(10, 2, 3), 1, 2, "functional", artifact))
         self.assertEqual(
             lane_command(Path("cpu"), MODULE.Workload.plonk(10), 10, 2, "functional", artifact),
-            ["cpu", "--example", "plonk", "--log-n-rows", "10", "--warmups", "10", "--samples", "2", "--protocol", "functional", "--proof-artifact-out", "/tmp/proof.json"],
+            ["cpu", "--example", "plonk", "--log-n-rows", "10", "--warmups", "10", "--samples", "2", "--protocol", "functional", "--resource-profile", "standard", "--proof-artifact-out", "/tmp/proof.json"],
         )
         self.assertEqual(
             lane_command(
@@ -289,7 +372,7 @@ class NativeProofMatrixTests(unittest.TestCase):
                 "functional",
                 artifact,
             ),
-            ["metal", "--example", "state_machine", "--log-n-rows", "10", "--initial-x", "9", "--initial-y", "3", "--warmups", "10", "--samples", "2", "--protocol", "functional", "--proof-artifact-out", "/tmp/proof.json"],
+            ["metal", "--example", "state_machine", "--log-n-rows", "10", "--initial-x", "9", "--initial-y", "3", "--warmups", "10", "--samples", "2", "--protocol", "functional", "--resource-profile", "standard", "--proof-artifact-out", "/tmp/proof.json"],
         )
         self.assertEqual(
             lane_command(
@@ -300,7 +383,7 @@ class NativeProofMatrixTests(unittest.TestCase):
                 "functional",
                 artifact,
             ),
-            ["cpu", "--example", "blake", "--log-n-rows", "8", "--n-rounds", "2", "--warmups", "10", "--samples", "2", "--protocol", "functional", "--proof-artifact-out", "/tmp/proof.json"],
+            ["cpu", "--example", "blake", "--log-n-rows", "8", "--n-rounds", "2", "--warmups", "10", "--samples", "2", "--protocol", "functional", "--resource-profile", "standard", "--proof-artifact-out", "/tmp/proof.json"],
         )
         self.assertEqual(
             lane_command(
@@ -311,7 +394,7 @@ class NativeProofMatrixTests(unittest.TestCase):
                 "functional",
                 artifact,
             ),
-            ["metal", "--example", "poseidon", "--log-n-instances", "13", "--warmups", "10", "--samples", "2", "--protocol", "functional", "--proof-artifact-out", "/tmp/proof.json"],
+            ["metal", "--example", "poseidon", "--log-n-instances", "13", "--warmups", "10", "--samples", "2", "--protocol", "functional", "--resource-profile", "standard", "--proof-artifact-out", "/tmp/proof.json"],
         )
 
     def test_reports_and_artifacts_validate_for_both_examples_and_lanes(self) -> None:

@@ -250,6 +250,7 @@ def make_report(
     dirty: bool = False,
     cold_pipeline: bool = False,
     metal_fallbacks: int = 0,
+    resource_profile: str = "standard",
 ) -> dict[str, object]:
     prove = 2.0 if lane == "cpu" else 1.0
     request = 2.5 if lane == "cpu" else 1.25
@@ -346,6 +347,20 @@ def make_report(
                 workload, "functional"
             ),
         },
+        "resource_admission": {
+            "profile": resource_profile,
+            "accounted_bytes_per_committed_cell": (
+                MODULE.ACCOUNTED_BYTES_PER_COMMITTED_CELL
+            ),
+            "committed_cells": workload.committed_trace_cells,
+            "accounted_bytes": workload.accounted_bytes,
+            "max_committed_cells": (
+                MODULE.RESOURCE_PROFILES[resource_profile].max_committed_cells
+            ),
+            "max_accounted_bytes": (
+                MODULE.RESOURCE_PROFILES[resource_profile].max_accounted_bytes
+            ),
+        },
         "session": {
             "max_circle_log": workload.trace_log_rows + 1,
             "host_byte_budget": 256 * 1024 * 1024,
@@ -423,8 +438,17 @@ def make_report(
     }
 
 
-def args(samples: int = 5, warmups: int = 10) -> argparse.Namespace:
-    return argparse.Namespace(protocol="functional", samples=samples, warmups=warmups)
+def args(
+    samples: int = 5,
+    warmups: int = 10,
+    resource_profile: str = "standard",
+) -> argparse.Namespace:
+    return argparse.Namespace(
+        protocol="functional",
+        samples=samples,
+        warmups=warmups,
+        resource_profile=resource_profile,
+    )
 
 
 def lane_args(timeout_seconds: float = 2.0) -> argparse.Namespace:
@@ -432,6 +456,7 @@ def lane_args(timeout_seconds: float = 2.0) -> argparse.Namespace:
         protocol="functional",
         samples=5,
         warmups=10,
+        resource_profile="standard",
         timeout_seconds=timeout_seconds,
     )
 

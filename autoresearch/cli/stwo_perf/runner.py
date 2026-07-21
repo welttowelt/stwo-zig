@@ -24,6 +24,11 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from scripts.native_proof_matrix_lib.resource_admission import (
+    ACCOUNTED_BYTES_PER_COMMITTED_CELL,
+    resource_limits,
+)
+
 from . import ledger, stats
 from .manifest import (
     REPORT_SCHEMA_VERSIONS,
@@ -37,6 +42,61 @@ from .manifest import (
 
 class RunError(RuntimeError):
     pass
+
+
+_RESOURCE_ADMISSION_KEYS = {
+    "profile",
+    "accounted_bytes_per_committed_cell",
+    "committed_cells",
+    "accounted_bytes",
+    "max_committed_cells",
+    "max_accounted_bytes",
+}
+_MAX_U64 = (1 << 64) - 1
+
+
+def _workload_resource_profile(workload: Workload) -> str:
+    tokens = shlex.split(workload.args)
+    positions = [index for index, token in enumerate(tokens) if token == "--resource-profile"]
+    if not positions:
+        return "standard"
+    if len(positions) != 1 or positions[0] + 1 == len(tokens):
+        raise ValueError("workload args contain an invalid resource profile selector")
+    profile = tokens[positions[0] + 1]
+    resource_limits(profile)
+    return profile
+
+
+def _validate_native_resource_admission(report: dict, workload: Workload) -> None:
+    reported_workload = report.get("workload")
+    admission = report.get("resource_admission")
+    if not isinstance(reported_workload, dict):
+        raise ValueError("workload must be an object")
+    if not isinstance(admission, dict) or set(admission) != _RESOURCE_ADMISSION_KEYS:
+        raise ValueError("resource_admission has the wrong schema")
+    cells = reported_workload.get("committed_trace_cells")
+    if type(cells) is not int or cells <= 0:
+        raise ValueError("workload.committed_trace_cells must be a positive integer")
+    if admission["committed_cells"] != cells:
+        raise ValueError("resource_admission.committed_cells disagrees with workload")
+    if cells > _MAX_U64 // ACCOUNTED_BYTES_PER_COMMITTED_CELL:
+        raise ValueError("resource admission accounted-byte calculation overflows u64")
+    accounted = cells * ACCOUNTED_BYTES_PER_COMMITTED_CELL
+    if admission["accounted_bytes_per_committed_cell"] != ACCOUNTED_BYTES_PER_COMMITTED_CELL:
+        raise ValueError("resource admission accounting factor differs from Zig authority")
+    if admission["accounted_bytes"] != accounted:
+        raise ValueError("resource_admission.accounted_bytes is inconsistent")
+    profile = _workload_resource_profile(workload)
+    limits = resource_limits(profile)
+    if admission["profile"] != profile:
+        raise ValueError("resource admission profile differs from workload args")
+    if (
+        admission["max_committed_cells"] != limits.max_committed_cells
+        or admission["max_accounted_bytes"] != limits.max_accounted_bytes
+    ):
+        raise ValueError("resource admission budgets differ from Zig authority")
+    if cells > limits.max_committed_cells or accounted > limits.max_accounted_bytes:
+        raise ValueError("workload exceeds its reported resource admission budget")
 
 
 @dataclass
@@ -263,7 +323,7 @@ def bench_once(
         ) from exc
     out_path = out_dir / f"{workload.workload_id}.{tag}.json"
     try:
-        if group.report_schema == "native_proof_v6":
+        if group.report_schema == "native_proof_v7":
             result = _parse_native_report(report, group, workload, samples, out_path)
         elif group.report_schema == "riscv_proof_v1":
             assert proof_path is not None
@@ -335,6 +395,7 @@ def _parse_native_report(
             f"{group.report_schema} (schema_version={expected}), got "
             f"schema_version={actual!r}"
         )
+    _validate_native_resource_admission(report, workload)
     timing = report["timing"]
     proof = report["proof"]
     if not isinstance(timing, dict) or not isinstance(proof, dict):
@@ -906,7 +967,7 @@ def rust_oracle_check(candidate_root: Path, manifest: Manifest,
                       workload: Workload, out_dir: Path) -> dict:
     """Dispatch one scored workload to its group's pinned correctness oracle."""
     group = manifest.group(workload.group_id)
-    if group.report_schema == "native_proof_v6":
+    if group.report_schema == "native_proof_v7":
         return _native_rust_oracle_check(
             candidate_root, group, workload, out_dir,
         )

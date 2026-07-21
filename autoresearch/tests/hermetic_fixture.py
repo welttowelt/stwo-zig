@@ -65,7 +65,7 @@ def manifest_document() -> dict:
                     "board": "core_cpu",
                     "build_step": "true",
                     "binary": "bin/hermetic-bench",
-                    "report_schema": "native_proof_v6",
+                    "report_schema": "native_proof_v7",
                     "workloads": {
                         "wf": {
                             "class": "small",
