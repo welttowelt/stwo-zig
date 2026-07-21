@@ -196,8 +196,11 @@ pub inline fn storeVec4(ptr: [*]M31, v: Vec4u32) void {
 /// Vectorized M31 addition: (a + b) mod p, 4 lanes.
 pub inline fn addVec4(a: Vec4u32, b: Vec4u32) Vec4u32 {
     const sum = a +% b;
-    const geq_p = sum >= P_VEC;
-    return @select(u32, geq_p, sum -% P_VEC, sum);
+    // Canonical inputs put `sum` below 2p.  In that range the wrapping
+    // subtraction is larger when `sum < p` and smaller otherwise, so an
+    // unsigned minimum performs the conditional reduction directly.  This
+    // maps to one AdvSIMD UMIN instead of compare + mask + add on AArch64.
+    return @min(sum, sum -% P_VEC);
 }
 
 /// Vectorized M31 subtraction: (a - b) mod p, 4 lanes.
@@ -221,7 +224,7 @@ inline fn reduceProductVec4(x: Vec4u64) Vec4u32 {
     const p64: Vec4u64 = @splat(@as(u64, Modulus));
     const folded = (x & p64) + (x >> @splat(@as(u6, 31)));
     const r: Vec4u32 = @truncate(folded);
-    return @select(u32, r >= P_VEC, r -% P_VEC, r);
+    return @min(r, r -% P_VEC);
 }
 
 /// Vectorized Mersenne reduction: x mod (2^31 - 1), 4 lanes.
@@ -302,7 +305,7 @@ pub inline fn storePacked(ptr: [*]M31, v: PackedM31) void {
 /// Packed M31 addition.
 pub inline fn addPacked(a: PackedM31, b: PackedM31) PackedM31 {
     const sum = a +% b;
-    return @select(u32, sum >= P_PACKED, sum -% P_PACKED, sum);
+    return @min(sum, sum -% P_PACKED);
 }
 
 /// Packed M31 subtraction.
@@ -323,7 +326,7 @@ inline fn reduceProductPacked(x: PackedU64) PackedM31 {
     const p64: PackedU64 = @splat(@as(u64, Modulus));
     const folded = (x & p64) + (x >> @splat(@as(u6, 31)));
     const r: PackedM31 = @truncate(folded);
-    return @select(u32, r >= P_PACKED, r -% P_PACKED, r);
+    return @min(r, r -% P_PACKED);
 }
 
 /// Packed M31 negation.

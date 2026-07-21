@@ -95,10 +95,24 @@ pub const QM31 = struct {
     }
 
     pub inline fn add(lhs: QM31, rhs: QM31) QM31 {
-        return .{
-            .c0 = lhs.c0.add(rhs.c0),
-            .c1 = lhs.c1.add(rhs.c1),
+        // Extract directly at the consuming operation.  Besides avoiding the
+        // aggregate-copy miscompile covered by the high-block regressions,
+        // this makes the four independent canonical additions use M31's
+        // bounded unsigned-minimum vector reduction as one fixed-width unit.
+        const lhs_lanes: m31_mod.Vec4u32 = .{
+            lhs.c0.a.v,
+            lhs.c0.b.v,
+            lhs.c1.a.v,
+            lhs.c1.b.v,
         };
+        const rhs_lanes: m31_mod.Vec4u32 = .{
+            rhs.c0.a.v,
+            rhs.c0.b.v,
+            rhs.c1.a.v,
+            rhs.c1.b.v,
+        };
+        const sum = m31_mod.addVec4(lhs_lanes, rhs_lanes);
+        return fromU32Unchecked(sum[0], sum[1], sum[2], sum[3]);
     }
 
     pub inline fn addM31(lhs: QM31, rhs: M31) QM31 {
