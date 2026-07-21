@@ -31,19 +31,32 @@ class FeedTest(unittest.TestCase):
         health = self.feed["search_health"]
         self.assertEqual(health["policy"]["gradient_snr_threshold"], 2.0)
         # Pre-Metrics-v2 rows must be honestly unavailable; rows recorded
-        # after the merge legitimately carry evidence and are available.
+        # after the merge legitimately carry evidence and are available. An
+        # unavailable claimed v3 row (missing/invalid evidence) is also
+        # legitimate — the taxonomy below is the closed set of honest
+        # reasons, so this test never breaks on ledger growth.
         all_points = [
             point
             for board in health["boards"].values()
             for cls in board["classes"].values()
             for point in cls["time_series"]
         ]
-        legacy_points = [p for p in all_points if not p["available"]]
+        legacy_points = [
+            p for p in all_points
+            if p.get("unavailable_reason") == "legacy_row_has_no_search_health_evidence"
+        ]
         self.assertTrue(legacy_points)
-        self.assertEqual(
-            {point["unavailable_reason"] for point in legacy_points},
-            {"legacy_row_has_no_search_health_evidence"},
+        self.assertTrue(all(not p["available"] for p in legacy_points))
+        known_reasons = (
+            "legacy_row_has_no_search_health_evidence",
+            "verdict_bound_by_ledger_evidence_is_missing",
+            "invalid_search_health_evidence:",
         )
+        for point in (p for p in all_points if not p["available"]):
+            self.assertTrue(
+                str(point["unavailable_reason"]).startswith(known_reasons),
+                f"unknown unavailable_reason: {point['unavailable_reason']}",
+            )
         for point in (p for p in all_points if p["available"]):
             self.assertIsNone(point.get("unavailable_reason"))
 
