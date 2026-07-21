@@ -30,6 +30,29 @@ def _identity_digest(identity: dict) -> str:
     return calibration.sha256(b"stwo-perf-metal-runtime-identity-v2\0" + payload)
 
 
+def _reset_pending_authority(manifest_doc: dict, epochs_doc: dict) -> None:
+    """Build a pending fixture independently of the repository's live freeze."""
+    freeze_fields = (
+        "artifact_sha256", "measured_commit", "policy_sha256",
+        "runtime_identity_sha256", "source_sha256", "runtime_manifest_sha256",
+        "runtime_objc_sha256", "platform_identity_sha256",
+    )
+    manifest_freeze = manifest_doc["harness"]["metal_calibration"]
+    epoch = epochs_doc["epochs"][-1]
+    epoch_freeze = epoch["metal_calibration"]
+    for authority in (manifest_freeze, epoch_freeze):
+        authority["status"] = "pending"
+        for field in freeze_fields:
+            authority[field] = None
+    for field in ("anchor_prove_ms", "anchor_request_ms", "anchor_resources"):
+        for workload_class in manifest_doc["harness"][field]["core_metal"]:
+            manifest_doc["harness"][field]["core_metal"][workload_class] = None
+    for workload_class in epoch["aa_dispersion"]["core_metal"]:
+        epoch["aa_dispersion"]["core_metal"][workload_class] = None
+        epoch_freeze["aa_dispersion"][workload_class] = None
+        epoch_freeze["anchors"][workload_class] = None
+
+
 class MetalCalibrationTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
@@ -37,6 +60,7 @@ class MetalCalibrationTest(unittest.TestCase):
         (self.repo / "autoresearch/ledger").mkdir(parents=True)
         manifest_doc = json.loads((ROOT / "autoresearch/MANIFEST.json").read_text())
         epochs_doc = json.loads((ROOT / "autoresearch/ledger/epochs.json").read_text())
+        _reset_pending_authority(manifest_doc, epochs_doc)
         (self.repo / "autoresearch/MANIFEST.json").write_text(
             json.dumps(manifest_doc, indent=2) + "\n"
         )
