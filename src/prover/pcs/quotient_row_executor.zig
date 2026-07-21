@@ -257,7 +257,69 @@ pub fn executeMaterialized(item: *const MaterializedWork) !void {
     }
 }
 
+/// Rows per stack-resident inversion chunk in the scalar row paths.
+/// 32 rows amortize one Montgomery batch inversion across the chunk
+/// (~3 CM31 multiplies per row plus one inversion) instead of one full
+/// inversion per row, without any heap allocation: the buffers live on the
+/// stack, so peak RSS matches the old per-row path.
+const SCALAR_INVERSION_CHUNK_ROWS: usize = 32;
+const SCALAR_INVERSION_MAX_BATCHES: usize = 16;
+
+const ScalarInversionChunk = struct {
+    points: [SCALAR_INVERSION_CHUNK_ROWS]CirclePointM31,
+    denominators: [SCALAR_INVERSION_CHUNK_ROWS * SCALAR_INVERSION_MAX_BATCHES]CM31,
+    inverses: [SCALAR_INVERSION_CHUNK_ROWS * SCALAR_INVERSION_MAX_BATCHES]CM31,
+};
+
 fn executeMaterializedScalar(item: *const MaterializedWork) !void {
+    const workspace = item.workspace;
+    const batch_count = workspace.sample_point_components.len;
+    if (batch_count > SCALAR_INVERSION_MAX_BATCHES) {
+        return executeMaterializedScalarPerRow(item);
+    }
+    var walk = domain_walk.BitReversedCosetWalk.init(
+        item.domain,
+        item.lifting_log_size,
+        item.start,
+    );
+    var chunk: ScalarInversionChunk = undefined;
+    var position = item.start;
+    while (position < item.end) {
+        const row_count = @min(SCALAR_INVERSION_CHUNK_ROWS, item.end - position);
+        for (0..row_count) |row| {
+            chunk.points[row] = walk.next();
+        }
+        try workspace.prepareDenominatorInversesForRows(
+            chunk.points[0..row_count],
+            chunk.denominators[0 .. row_count * batch_count],
+            chunk.inverses[0 .. row_count * batch_count],
+        );
+        for (0..row_count) |row| {
+            const domain_point = chunk.points[row];
+            workspace.resetNumerators();
+            for (item.lifted_columns, item.contribution_plan_ranges) |lifted_column, contribution_range| {
+                const base_value = lifted_column[position + row];
+                for (item.contributions[contribution_range.start..][0..contribution_range.len]) |contribution| {
+                    workspace.batch_numerators[contribution.batch_index] =
+                        workspace.batch_numerators[contribution.batch_index].add(
+                            contribution.value_coeff.mulM31(base_value),
+                        );
+                }
+            }
+            try writeQuotientRow(
+                item.out_columns,
+                position + row,
+                item.quotient_constants,
+                domain_point.y,
+                workspace.batch_numerators,
+                chunk.inverses[row * batch_count ..][0..batch_count],
+            );
+        }
+        position += row_count;
+    }
+}
+
+fn executeMaterializedScalarPerRow(item: *const MaterializedWork) !void {
     const workspace = item.workspace;
     var walk = domain_walk.BitReversedCosetWalk.init(
         item.domain,
@@ -363,6 +425,52 @@ pub fn executeStreaming(item: *StreamingWork) !void {
 }
 
 fn executeStreamingScalar(item: *StreamingWork) !void {
+    const workspace = item.workspace;
+    const batch_count = workspace.sample_point_components.len;
+    if (batch_count > SCALAR_INVERSION_MAX_BATCHES) {
+        return executeStreamingScalarPerRow(item);
+    }
+    var walk = domain_walk.BitReversedCosetWalk.init(
+        item.domain,
+        item.lifting_log_size,
+        item.start,
+    );
+    var chunk: ScalarInversionChunk = undefined;
+    var tile_start = item.start;
+    while (tile_start < item.end) {
+        const tile_end = @min(item.end, tile_start + tile_sink.DEFAULT_TILE_ROWS);
+        var position = tile_start;
+        while (position < tile_end) {
+            const row_count = @min(SCALAR_INVERSION_CHUNK_ROWS, tile_end - position);
+            for (0..row_count) |row| {
+                chunk.points[row] = walk.next();
+            }
+            try workspace.prepareDenominatorInversesForRows(
+                chunk.points[0..row_count],
+                chunk.denominators[0 .. row_count * batch_count],
+                chunk.inverses[0 .. row_count * batch_count],
+            );
+            for (0..row_count) |row| {
+                const domain_point = chunk.points[row];
+                workspace.resetNumerators();
+                accumulateStreamingNumerators(workspace, item.combined_views, position + row);
+                try writeQuotientRow(
+                    item.out_columns,
+                    position + row - item.output_start,
+                    item.quotient_constants,
+                    domain_point.y,
+                    workspace.batch_numerators,
+                    chunk.inverses[row * batch_count ..][0..batch_count],
+                );
+            }
+            position += row_count;
+        }
+        try emitCompletedTile(item, tile_start, tile_end);
+        tile_start = tile_end;
+    }
+}
+
+fn executeStreamingScalarPerRow(item: *StreamingWork) !void {
     const workspace = item.workspace;
     var tile_start = item.start;
     var walk = domain_walk.BitReversedCosetWalk.init(
