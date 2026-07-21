@@ -4,6 +4,7 @@ from .identity import (
     PRODUCT_SPECS,
     ProductEvidenceError,
     comparable_identity,
+    revision_identity,
     validate_product_identity,
 )
 from .receipt import (
@@ -24,6 +25,7 @@ __all__ = [
     "build_receipt",
     "aggregate_diagnostic_scope",
     "comparable_identity",
+    "revision_identity",
     "validate_product_identity",
     "validate_receipt",
 ]

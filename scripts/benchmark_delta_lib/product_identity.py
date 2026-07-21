@@ -8,6 +8,7 @@ try:
     from scripts.benchmark_product_contract_lib import (
         ProductEvidenceError,
         comparable_identity,
+        revision_identity,
         validate_product_identity,
         validate_receipt,
     )
@@ -15,6 +16,7 @@ except ModuleNotFoundError:
     from benchmark_product_contract_lib import (
         ProductEvidenceError,
         comparable_identity,
+        revision_identity,
         validate_product_identity,
         validate_receipt,
     )
@@ -151,7 +153,11 @@ def product_identity_transition(
         }
     if protocols != (NATIVE_PROTOCOL_V6, NATIVE_PROTOCOL_V6):
         return None
-    result: dict[str, Any] = {"kind": "canonical_focused_products", "products": {}}
+    result: dict[str, Any] = {
+        "kind": "canonical_focused_products",
+        "products": {},
+        "artifact_revisions": {},
+    }
     for lane in ("cpu", "metal"):
         identities = []
         for report, label in ((baseline, "baseline"), (current, "current")):
@@ -170,6 +176,47 @@ def product_identity_transition(
                 f"native focused product configuration differs for lane {lane}"
             )
         result["products"][lane] = stable
+        revisions = {
+            label: revision_identity(identity)
+            for label, identity in zip(
+                ("baseline", "current"), identities, strict=True
+            )
+        }
+        configurations = []
+        for report, label in ((baseline, "baseline"), (current, "current")):
+            configuration = require_object(
+                report.get("configuration"), f"{label}.configuration"
+            )
+            binaries = require_object(
+                configuration.get("binaries"), f"{label}.configuration.binaries"
+            )
+            binary = require_object(binaries.get(lane), f"{label}.binaries.{lane}")
+            configurations.append(binary)
+        artifact_changed = (
+            revisions["baseline"]["runtime_artifacts"]
+            != revisions["current"]["runtime_artifacts"]
+            or revisions["baseline"]["aot_manifest"]
+            != revisions["current"]["aot_manifest"]
+        )
+        source_fields = (
+            "implementation_repository",
+            "implementation_commit",
+            "implementation_tree",
+            "implementation_dirty",
+            "dirty_content_sha256",
+        )
+        source_unchanged = all(
+            revisions["baseline"][field] == revisions["current"][field]
+            for field in source_fields
+        )
+        binary_unchanged = configurations[0].get("sha256") == configurations[1].get(
+            "sha256"
+        )
+        if artifact_changed and source_unchanged and binary_unchanged:
+            raise DeltaError(
+                f"{lane} runtime artifacts changed without a source or executable revision"
+            )
+        result["artifact_revisions"][lane] = revisions
     return result
 
 

@@ -162,7 +162,7 @@ def validate_product_identity(
 def comparable_identity(identity: dict[str, Any]) -> dict[str, Any]:
     """Fields that must match for timing comparisons across source revisions."""
 
-    return {
+    comparable = {
         field: identity[field]
         for field in (
             "schema_version",
@@ -179,8 +179,80 @@ def comparable_identity(identity: dict[str, Any]) -> dict[str, Any]:
             "cpu_model",
             "cpu_features_sha256",
             "optimize",
+        )
+    }
+    if identity["backend"] == "metal":
+        runtime = _parse_manifest(
+            identity["runtime_manifest"],
+            prefix="metal-runtime-v2",
+            fields=("mode", "shader-amalgamation-sha256", "runtime-objc-sha256"),
+            context="metal.product_identity.runtime_manifest",
+        )
+        sdk = _parse_manifest(
+            identity["sdk_manifest"],
+            prefix="apple-metal-sdk-v2",
+            fields=(
+                "sdk-path",
+                "sdk-version",
+                "sdk-build",
+                "objc-compiler",
+                "objc-compiler-version-sha256",
+                "compile-profile-sha256",
+            ),
+            context="metal.product_identity.sdk_manifest",
+        )
+        comparable["runtime_configuration"] = {
+            "schema": "metal-runtime-v2",
+            "mode": runtime["mode"],
+        }
+        comparable["sdk_configuration"] = {
+            "schema": "apple-metal-sdk-v2",
+            "sdk_version": sdk["sdk-version"],
+            "sdk_build": sdk["sdk-build"],
+            "objc_compiler_version_sha256": sdk[
+                "objc-compiler-version-sha256"
+            ],
+            "compile_profile_sha256": sdk["compile-profile-sha256"],
+        }
+        comparable["aot_mode"] = (
+            "none" if identity["aot_manifest"] == "none" else "authenticated"
+        )
+    else:
+        comparable["runtime_configuration"] = {"schema": "none", "mode": "none"}
+        comparable["sdk_configuration"] = {"schema": "none"}
+        comparable["aot_mode"] = "none"
+    return comparable
+
+
+def revision_identity(identity: dict[str, Any]) -> dict[str, Any]:
+    """Source and binary inputs that may change between comparable revisions."""
+
+    revision = {
+        field: identity[field]
+        for field in (
+            "identity_sha256",
+            "implementation_repository",
+            "implementation_commit",
+            "implementation_tree",
+            "implementation_dirty",
+            "dirty_content_sha256",
             "runtime_manifest",
-            "sdk_manifest",
             "aot_manifest",
         )
     }
+    if identity["backend"] == "metal":
+        runtime = _parse_manifest(
+            identity["runtime_manifest"],
+            prefix="metal-runtime-v2",
+            fields=("mode", "shader-amalgamation-sha256", "runtime-objc-sha256"),
+            context="metal.product_identity.runtime_manifest",
+        )
+        revision["runtime_artifacts"] = {
+            "shader_amalgamation_sha256": runtime[
+                "shader-amalgamation-sha256"
+            ],
+            "runtime_objc_sha256": runtime["runtime-objc-sha256"],
+        }
+    else:
+        revision["runtime_artifacts"] = None
+    return revision

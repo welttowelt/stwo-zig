@@ -96,6 +96,113 @@ def _text(value: Any, label: str) -> str:
     return value.strip()
 
 
+def _validate_blob(
+    history_dir: Path,
+    identity: dict[str, Any],
+    digest: str,
+    label: str,
+) -> Path:
+    if not SHA256_RE.fullmatch(digest):
+        raise CatalogError(f"{label} has an invalid digest")
+    path = _safe_path(history_dir, identity.get("path"), f"{label}.path")
+    raw = path.read_bytes()
+    if _sha256(raw) != digest:
+        raise CatalogError(f"{label} digest mismatch")
+    if len(raw) != identity.get("bytes"):
+        raise CatalogError(f"{label} byte count mismatch")
+    return path
+
+
+def _validate_archive_integrity(
+    history_dir: Path,
+    index: dict[str, Any],
+) -> None:
+    runs = _object(index.get("runs"), "benchmark history runs")
+    artifacts = _object(index.get("artifacts"), "benchmark history artifacts")
+    deltas = _object(index.get("deltas"), "benchmark history deltas")
+    bundles = _object(index.get("bundles"), "benchmark history bundles")
+    comparisons = _array(
+        index.get("comparisons"), "benchmark history comparisons"
+    )
+
+    for digest, value in artifacts.items():
+        identity = _object(value, f"artifact {digest}")
+        _validate_blob(history_dir, identity, digest, f"artifact {digest}")
+        run_id = identity.get("run")
+        run = _object(runs.get(run_id), f"artifact {digest}.run")
+        if run.get("report") != {
+            "path": identity.get("path"),
+            "bytes": identity.get("bytes"),
+            "sha256": digest,
+        }:
+            raise CatalogError(f"artifact {digest} disagrees with its run")
+
+    for digest, value in deltas.items():
+        identity = _object(value, f"delta {digest}")
+        _validate_blob(history_dir, identity, digest, f"delta {digest}")
+        if identity.get("run") not in runs or identity.get("baseline_run") not in runs:
+            raise CatalogError(f"delta {digest} names an unknown run")
+
+    for digest, value in bundles.items():
+        locator = _object(value, f"bundle {digest}")
+        manifest_path = _safe_path(
+            history_dir,
+            f"{locator.get('path')}/manifest.json",
+            f"bundle {digest}.manifest",
+        )
+        manifest_raw = manifest_path.read_bytes()
+        if not SHA256_RE.fullmatch(digest) or _sha256(manifest_raw) != digest:
+            raise CatalogError(f"bundle {digest} manifest digest mismatch")
+        manifest, _ = _load_json(manifest_path, f"bundle {digest} manifest")
+        run_id = locator.get("run")
+        run = _object(runs.get(run_id), f"bundle {digest}.run")
+        report = _object(run.get("report"), f"bundle {digest}.report")
+        manifest_report = _object(
+            manifest.get("report"), f"bundle {digest}.manifest.report"
+        )
+        if (
+            locator.get("report_sha256") != report.get("sha256")
+            or manifest_report.get("sha256") != report.get("sha256")
+            or manifest_report.get("bytes") != report.get("bytes")
+        ):
+            raise CatalogError(f"bundle {digest} report binding mismatch")
+        files = _array(manifest.get("files"), f"bundle {digest}.files")
+        artifact_bytes = 0
+        for file_index, value in enumerate(files):
+            item = _object(value, f"bundle {digest}.files[{file_index}]")
+            artifact = _validate_blob(
+                history_dir,
+                {
+                    "path": f"{locator.get('path')}/tree/{item.get('path')}",
+                    "bytes": item.get("bytes"),
+                },
+                str(item.get("sha256")),
+                f"bundle {digest}.files[{file_index}]",
+            )
+            artifact_bytes += artifact.stat().st_size
+        totals = _object(manifest.get("totals"), f"bundle {digest}.totals")
+        if totals != {"artifact_files": len(files), "artifact_bytes": artifact_bytes}:
+            raise CatalogError(f"bundle {digest} totals are inconsistent")
+        if (
+            locator.get("artifact_files") != len(files)
+            or locator.get("artifact_bytes") != artifact_bytes
+            or run.get("bundle") != locator
+        ):
+            raise CatalogError(f"bundle {digest} locator is inconsistent")
+
+    for index_value, value in enumerate(comparisons):
+        comparison = _object(value, f"comparison[{index_value}]")
+        if (
+            comparison.get("baseline_sha256") not in artifacts
+            or comparison.get("current_sha256") not in artifacts
+            or comparison.get("delta_sha256") not in deltas
+        ):
+            raise CatalogError(f"comparison[{index_value}] references unknown evidence")
+        delta = deltas[comparison["delta_sha256"]]
+        if comparison.get("delta_path") != delta.get("path"):
+            raise CatalogError(f"comparison[{index_value}] delta path mismatch")
+
+
 def _formal_blockers(report: dict[str, Any]) -> list[str]:
     configuration = report.get("configuration")
     if not isinstance(configuration, dict):
@@ -364,6 +471,7 @@ def build_catalog(history_dir: Path) -> dict[str, Any]:
     index, index_raw = _load_json(history_dir / "index.json", "benchmark history index")
     if index.get("schema_version") != INDEX_SCHEMA_VERSION:
         raise CatalogError("benchmark history index schema is unsupported")
+    _validate_archive_integrity(history_dir, index)
     run_entries = _object(index.get("runs"), "benchmark history runs")
     runs: list[dict[str, Any]] = []
     excluded: list[dict[str, Any]] = []

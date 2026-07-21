@@ -593,6 +593,114 @@ class BenchmarkProductContractTests(unittest.TestCase):
         self.assertEqual(delta["status"], "incomparable")
         self.assertIn("product configuration", delta["incompatibilities"][0])
 
+    def test_v6_delta_compares_metal_code_artifact_revisions(self) -> None:
+        baseline = v6_report("a" * 40, "3")
+        current = v6_report("b" * 40, "4")
+        identity = current["rows"][0]["lanes"]["metal"]["product_identity"]
+        identity["runtime_manifest"] = identity["runtime_manifest"].replace(
+            "5" * 64, "9" * 64
+        ).replace("6" * 64, "a" * 64)
+        identity["identity_sha256"] = canonical_identity_sha256(identity)
+        receipt = current["product_receipts"]["metal"]
+        receipt["product_identity"] = copy.deepcopy(identity)
+        resign(receipt)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            baseline_path = root / "baseline.json"
+            current_path = root / "current.json"
+            write_json(baseline_path, baseline)
+            write_json(current_path, current)
+            delta, _, _ = benchmark_delta.compare_reports(
+                baseline_path, current_path, "2026-07-19T12:00:00Z"
+            )
+
+        self.assertEqual(delta["status"], "comparable")
+        transition = delta["comparison_identity"]["product_identity_transition"]
+        self.assertEqual(
+            transition["products"]["metal"]["runtime_configuration"]["mode"],
+            "source-jit",
+        )
+        revisions = transition["artifact_revisions"]["metal"]
+        self.assertNotEqual(
+            revisions["baseline"]["runtime_manifest"],
+            revisions["current"]["runtime_manifest"],
+        )
+
+    def test_v6_delta_rejects_metal_sdk_configuration_drift(self) -> None:
+        baseline = v6_report("a" * 40, "3")
+        current = v6_report("b" * 40, "4")
+        identity = current["rows"][0]["lanes"]["metal"]["product_identity"]
+        identity["sdk_manifest"] = identity["sdk_manifest"].replace(
+            "sdk-version=15.0", "sdk-version=16.0"
+        )
+        identity["identity_sha256"] = canonical_identity_sha256(identity)
+        receipt = current["product_receipts"]["metal"]
+        receipt["product_identity"] = copy.deepcopy(identity)
+        resign(receipt)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            baseline_path = root / "baseline.json"
+            current_path = root / "current.json"
+            write_json(baseline_path, baseline)
+            write_json(current_path, current)
+            delta, _, _ = benchmark_delta.compare_reports(
+                baseline_path, current_path, "2026-07-19T12:00:00Z"
+            )
+
+        self.assertEqual(delta["status"], "incomparable")
+        self.assertIn("product configuration", delta["incompatibilities"][0])
+
+    def test_v6_delta_ignores_metal_tool_path_relocation(self) -> None:
+        baseline = v6_report("a" * 40, "3")
+        current = v6_report("b" * 40, "4")
+        identity = current["rows"][0]["lanes"]["metal"]["product_identity"]
+        identity["sdk_manifest"] = identity["sdk_manifest"].replace(
+            "/Applications/Xcode.app/SDKs/MacOSX.sdk", "/opt/Xcode/SDKs/MacOSX.sdk"
+        ).replace("/usr/bin/clang", "/opt/Xcode/usr/bin/clang")
+        identity["identity_sha256"] = canonical_identity_sha256(identity)
+        receipt = current["product_receipts"]["metal"]
+        receipt["product_identity"] = copy.deepcopy(identity)
+        resign(receipt)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            baseline_path = root / "baseline.json"
+            current_path = root / "current.json"
+            write_json(baseline_path, baseline)
+            write_json(current_path, current)
+            delta, _, _ = benchmark_delta.compare_reports(
+                baseline_path, current_path, "2026-07-19T12:00:00Z"
+            )
+
+        self.assertEqual(delta["status"], "comparable")
+
+    def test_v6_delta_rejects_unbound_metal_artifact_substitution(self) -> None:
+        baseline = v6_report("a" * 40, "3")
+        current = copy.deepcopy(baseline)
+        identity = current["rows"][0]["lanes"]["metal"]["product_identity"]
+        identity["runtime_manifest"] = identity["runtime_manifest"].replace(
+            "5" * 64, "9" * 64
+        )
+        identity["identity_sha256"] = canonical_identity_sha256(identity)
+        receipt = current["product_receipts"]["metal"]
+        receipt["product_identity"] = copy.deepcopy(identity)
+        resign(receipt)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            baseline_path = root / "baseline.json"
+            current_path = root / "current.json"
+            write_json(baseline_path, baseline)
+            write_json(current_path, current)
+            with self.assertRaisesRegex(
+                benchmark_delta.DeltaError, "without a source or executable revision"
+            ):
+                benchmark_delta.compare_reports(
+                    baseline_path, current_path, "2026-07-19T12:00:00Z"
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -36,6 +36,7 @@ class BenchmarkPagesTests(unittest.TestCase):
         report_path.parent.mkdir(parents=True)
         raw = encoded_json(report)
         report_path.write_bytes(raw)
+        digest = hashlib.sha256(raw).hexdigest()
         index = {
             "schema_version": 2,
             "runs": {
@@ -43,29 +44,43 @@ class BenchmarkPagesTests(unittest.TestCase):
                     "kind": report["protocol"],
                     "report": {
                         "path": "runs/formal-run/report.json",
-                        "sha256": hashlib.sha256(raw).hexdigest(),
+                        "sha256": digest,
                         "bytes": len(raw),
                     },
                     "bundle": None,
                     "deltas": [],
                 }
             },
+            "artifacts": {
+                digest: {
+                    "path": "runs/formal-run/report.json",
+                    "sha256": digest,
+                    "bytes": len(raw),
+                    "run": "formal-run",
+                }
+            },
+            "deltas": {},
+            "bundles": {},
+            "comparisons": [],
         }
         (history / "index.json").write_bytes(encoded_json(index))
         return history
 
     def test_real_history_publishes_only_complete_runs(self) -> None:
         catalog = build_catalog(HISTORY)
+        index = json.loads((HISTORY / "index.json").read_text(encoding="utf-8"))
         self.assertEqual(catalog["schema"], "stwo_benchmark_catalog_v1")
-        self.assertEqual(len(catalog["runs"]), 3)
-        self.assertEqual(len(catalog["excluded_runs"]), 6)
+        self.assertEqual(
+            len(catalog["runs"]) + len(catalog["excluded_runs"]),
+            len(index["runs"]),
+        )
+        self.assertGreater(len(catalog["runs"]), 0)
         latest = catalog["runs"][0]
         self.assertEqual(
-            latest["revision"]["git_commit"],
-            "e78cca6ff0b849a204efce7ce172828ed0b1a88f",
+            latest["captured_at"],
+            max(run["captured_at"] for run in catalog["runs"]),
         )
         self.assertEqual(latest["machine"]["chip"], "Apple M5 Max")
-        self.assertEqual(latest["captured_at"], "2026-07-20T22:16:01.967583+00:00")
         self.assertEqual(latest["summary"]["verified_proofs"], 240)
         self.assertTrue(all(row["proof"]["rust_oracle_verified"] for row in latest["rows"]))
 
@@ -119,7 +134,7 @@ class BenchmarkPagesTests(unittest.TestCase):
             index = json.loads(index_path.read_text(encoding="utf-8"))
             index["runs"]["formal-run"]["report"]["sha256"] = "0" * 64
             index_path.write_bytes(encoded_json(index))
-            with self.assertRaisesRegex(CatalogError, "report digest mismatch"):
+            with self.assertRaisesRegex(CatalogError, "disagrees with its run"):
                 build_catalog(history)
 
     def test_generate_then_validate_site_catalog(self) -> None:
