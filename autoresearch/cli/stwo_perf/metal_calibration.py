@@ -1,8 +1,8 @@
 """Metal calibration artifact, freeze, and activation contract.
 
-Calibration is deliberately separate from ordinary promotion measurement.  A
-reviewed freeze binds an epoch to one complete M5/AOT run; judged Metal scoring
-then fails closed if either policy file or the immutable artifact drifts.
+Calibration is deliberately separate from ordinary promotion measurement. A
+reviewed freeze binds an epoch to one complete M5 source-JIT run; judged Metal
+scoring then fails closed if either policy file or the immutable artifact drifts.
 """
 
 from __future__ import annotations
@@ -17,8 +17,8 @@ from pathlib import Path
 from .manifest import Manifest
 
 
-SCHEMA = "stwo_perf_metal_calibration_v1"
-FREEZE_SCHEMA = "stwo_perf_metal_calibration_freeze_v1"
+SCHEMA = "stwo_perf_metal_calibration_v2"
+FREEZE_SCHEMA = "stwo_perf_metal_calibration_freeze_v2"
 BOARD = "core_metal"
 RUNTIME_MODE = "source-jit"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -54,7 +54,7 @@ def policy_document(manifest: Manifest) -> dict:
     config = manifest.raw["harness"]["metal_calibration"]
     group = manifest.group("metal")
     return {
-        "schema": "stwo_perf_metal_calibration_policy_v1",
+        "schema": "stwo_perf_metal_calibration_policy_v2",
         "board": BOARD,
         "runtime_mode": config["runtime_mode"],
         "designated_host": config["designated_host"],
@@ -68,7 +68,7 @@ def policy_document(manifest: Manifest) -> dict:
 
 
 def policy_sha256(manifest: Manifest) -> str:
-    return sha256(b"stwo-perf-metal-calibration-policy-v1\0" + _canonical(
+    return sha256(b"stwo-perf-metal-calibration-policy-v2\0" + _canonical(
         policy_document(manifest)
     ))
 
@@ -100,6 +100,25 @@ def _exact_keys(value: object, expected: set[str], field: str) -> dict:
     return value
 
 
+def _parse_manifest(
+    value: object, *, prefix: str, fields: tuple[str, ...], field: str,
+) -> dict[str, str]:
+    if not isinstance(value, str):
+        raise CalibrationError(f"{field} must be a string")
+    actual_prefix, separator, payload = value.partition(":")
+    if separator != ":" or actual_prefix != prefix:
+        raise CalibrationError(f"{field} has an unsupported schema")
+    result: dict[str, str] = {}
+    for item in payload.split(";"):
+        key, separator, field_value = item.partition("=")
+        if separator != "=" or not key or not field_value or key in result:
+            raise CalibrationError(f"{field} is malformed")
+        result[key] = field_value
+    if tuple(result) != fields:
+        raise CalibrationError(f"{field} has unsupported fields")
+    return result
+
+
 def _validate_host(host: object, manifest: Manifest) -> dict:
     value = _exact_keys(host, {
         "schema", "platform", "hardware", "metal_device", "toolchain",
@@ -124,7 +143,7 @@ def _validate_host(host: object, manifest: Manifest) -> dict:
 def validate_document(document: object, manifest: Manifest) -> dict:
     doc = _exact_keys(document, {
         "schema", "board", "epoch", "repository", "policy_sha256",
-        "runtime_mode", "host", "aot", "runtime_identity", "classes",
+        "runtime_mode", "host", "runtime_identity", "classes",
     }, "calibration")
     if doc["schema"] != SCHEMA or doc["board"] != BOARD:
         raise CalibrationError("calibration schema or board mismatch")
@@ -147,49 +166,52 @@ def validate_document(document: object, manifest: Manifest) -> dict:
     ):
         raise CalibrationError("calibration requires an exact clean commit and tree")
     _validate_host(doc["host"], manifest)
-    aot = _exact_keys(
-        doc["aot"],
-        {"format", "bundle_identity_sha256", "source_sha256",
-         "manifest_sha256", "metallib_sha256"},
-        "aot",
-    )
-    if aot["format"] != "stwo-zig-metal-core-aot-v2":
-        raise CalibrationError("AOT format mismatch")
-    for field in aot:
-        if field != "format":
-            _digest(aot[field], f"aot.{field}")
     runtime = _exact_keys(
         doc["runtime_identity"],
         {"identity_sha256", "runtime_manifest", "runtime_manifest_sha256",
-         "aot_manifest", "aot_manifest_sha256", "source_sha256",
+         "sdk_manifest", "sdk_manifest_sha256", "source_sha256",
+         "shader_amalgamation_sha256", "runtime_objc_sha256",
          "platform_identity", "platform_identity_sha256"},
         "runtime_identity",
     )
     for field in (
-        "identity_sha256", "runtime_manifest_sha256", "aot_manifest_sha256",
-        "source_sha256", "platform_identity_sha256",
+        "identity_sha256", "runtime_manifest_sha256", "sdk_manifest_sha256",
+        "source_sha256", "shader_amalgamation_sha256", "runtime_objc_sha256",
+        "platform_identity_sha256",
     ):
         _digest(runtime[field], f"runtime_identity.{field}")
-    for field in ("runtime_manifest", "aot_manifest", "platform_identity"):
+    for field in ("runtime_manifest", "sdk_manifest", "platform_identity"):
         if not isinstance(runtime[field], str) or not runtime[field]:
             raise CalibrationError(f"runtime_identity.{field} must be non-empty")
-    if "mode=source-jit" not in runtime["runtime_manifest"]:
+    runtime_fields = _parse_manifest(
+        runtime["runtime_manifest"],
+        prefix="metal-runtime-v2",
+        fields=("mode", "shader-amalgamation-sha256", "runtime-objc-sha256"),
+        field="runtime_identity.runtime_manifest",
+    )
+    if runtime_fields["mode"] != RUNTIME_MODE:
         raise CalibrationError("runtime manifest does not select source-JIT")
-    if runtime["aot_manifest"] != "none":
-        raise CalibrationError("source-JIT product identity unexpectedly names an AOT bundle")
-    for field in ("runtime_manifest", "aot_manifest", "platform_identity"):
+    if not runtime["sdk_manifest"].startswith("apple-metal-sdk-v2:"):
+        raise CalibrationError("runtime_identity.sdk_manifest has an unsupported schema")
+    for field in ("runtime_manifest", "sdk_manifest", "platform_identity"):
         if runtime[f"{field}_sha256"] != sha256(runtime[field].encode("utf-8")):
             raise CalibrationError(f"runtime_identity.{field}_sha256 is inconsistent")
+    if runtime["shader_amalgamation_sha256"] != runtime_fields[
+        "shader-amalgamation-sha256"
+    ]:
+        raise CalibrationError("runtime shader digest differs from the runtime manifest")
+    if runtime["runtime_objc_sha256"] != runtime_fields["runtime-objc-sha256"]:
+        raise CalibrationError("runtime ObjC digest differs from the runtime manifest")
+    if runtime["source_sha256"] != runtime["shader_amalgamation_sha256"]:
+        raise CalibrationError("executed shader source differs from the runtime manifest")
     identity_payload = {
         field: value for field, value in runtime.items() if field != "identity_sha256"
     }
     expected_identity = sha256(
-        b"stwo-perf-metal-runtime-identity-v1\0" + _canonical(identity_payload)
+        b"stwo-perf-metal-runtime-identity-v2\0" + _canonical(identity_payload)
     )
     if runtime["identity_sha256"] != expected_identity:
         raise CalibrationError("runtime_identity.identity_sha256 is inconsistent")
-    if runtime["source_sha256"] != aot["source_sha256"]:
-        raise CalibrationError("runtime shader source disagrees with the AOT source")
 
     expected_classes = manifest.class_names(
         board=BOARD, scored_only=True, include_disabled=True,
@@ -265,14 +287,16 @@ def require_frozen(manifest: Manifest, workload_class: str | None = None) -> dic
             raise CalibrationError(f"{label} Metal calibration is not frozen")
         for field in (
             "artifact_sha256", "measured_commit", "policy_sha256",
-            "runtime_identity_sha256", "aot_manifest_sha256", "aot_metallib_sha256",
+            "runtime_identity_sha256", "source_sha256", "runtime_manifest_sha256",
+            "runtime_objc_sha256", "platform_identity_sha256",
         ):
             if value.get(field) is None:
                 raise CalibrationError(f"{label} Metal calibration has null {field}")
     shared = (
         "schema", "status", "board", "epoch", "artifact", "artifact_sha256",
         "measured_commit", "policy_sha256", "runtime_identity_sha256",
-        "aot_manifest_sha256", "aot_metallib_sha256",
+        "source_sha256", "runtime_manifest_sha256", "runtime_objc_sha256",
+        "platform_identity_sha256",
     )
     for field in shared:
         if config.get(field) != state.get(field):
@@ -292,10 +316,17 @@ def require_frozen(manifest: Manifest, workload_class: str | None = None) -> dic
         raise CalibrationError("artifact commit differs from its freeze")
     if artifact["runtime_identity"]["identity_sha256"] != config["runtime_identity_sha256"]:
         raise CalibrationError("artifact runtime identity differs from its freeze")
-    if artifact["aot"]["manifest_sha256"] != config["aot_manifest_sha256"]:
-        raise CalibrationError("artifact AOT manifest differs from its freeze")
-    if artifact["aot"]["metallib_sha256"] != config["aot_metallib_sha256"]:
-        raise CalibrationError("artifact metallib differs from its freeze")
+    runtime = artifact["runtime_identity"]
+    for artifact_field, freeze_field in (
+        ("source_sha256", "source_sha256"),
+        ("runtime_manifest_sha256", "runtime_manifest_sha256"),
+        ("runtime_objc_sha256", "runtime_objc_sha256"),
+        ("platform_identity_sha256", "platform_identity_sha256"),
+    ):
+        if runtime[artifact_field] != config[freeze_field]:
+            raise CalibrationError(
+                f"artifact {artifact_field} differs from its freeze"
+            )
     try:
         subprocess.run(
             ["git", "merge-base", "--is-ancestor", config["measured_commit"], "HEAD"],
@@ -383,8 +414,14 @@ def freeze(manifest: Manifest, source: Path) -> Path:
         "measured_commit": artifact["repository"]["commit"],
         "policy_sha256": artifact["policy_sha256"],
         "runtime_identity_sha256": artifact["runtime_identity"]["identity_sha256"],
-        "aot_manifest_sha256": artifact["aot"]["manifest_sha256"],
-        "aot_metallib_sha256": artifact["aot"]["metallib_sha256"],
+        "source_sha256": artifact["runtime_identity"]["source_sha256"],
+        "runtime_manifest_sha256": artifact["runtime_identity"][
+            "runtime_manifest_sha256"
+        ],
+        "runtime_objc_sha256": artifact["runtime_identity"]["runtime_objc_sha256"],
+        "platform_identity_sha256": artifact["runtime_identity"][
+            "platform_identity_sha256"
+        ],
     }
     config.clear()
     config.update({

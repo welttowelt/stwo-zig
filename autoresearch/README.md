@@ -223,9 +223,7 @@ cp autoresearch/workflows/*.yml .github/workflows/     # commit via normal revie
 ```
 
 - `validate.yml` — every PR; hosted runner; invariants + unit tests.
-- `judge.yml` — **a template, not yet installed** under `.github/workflows/`
-  (no label triggers anything today; the deployed pipeline records claimed
-  maintainer merges). When activated: PRs labeled `submission`;
+- `judge.yml` — installed under `.github/workflows/`; PRs labeled `submission`;
   **self-hosted macOS runner labeled `stwo-judge` only** (the timing
   contract requires controlled Apple hardware); one judgment at a time via
   the concurrency group + host lock.
@@ -239,7 +237,9 @@ cp autoresearch/workflows/*.yml .github/workflows/     # commit via normal revie
 - `remote-queue.yml` — optional scheduled, self-hosted alternative to the local
   queue daemon; centrally revalidates, judges, records, and fast-forwards one.
 
-Branch protection expected on `main`: require `autoresearch-validate` **and**
+The workflow installation, online runner, and secret names do not by themselves
+activate judged authority. Branch protection is still required on `main`:
+require `autoresearch-validate` **and**
 `autoresearch-judge` (an unlabeled PR reports the judge check as skipped,
 which satisfies it), require review, forbid force pushes, allow only merge
 commits, and add the promote workflow identity to the required-pull-request

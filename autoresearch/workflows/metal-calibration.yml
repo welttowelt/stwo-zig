@@ -24,30 +24,21 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Require the designated host and offline Metal tools
+      - name: Require the designated host and source-JIT toolchain
         run: |
           set -euo pipefail
           test "$(system_profiler SPHardwareDataType -json | python3 -c 'import json,sys; print(json.load(sys.stdin)["SPHardwareDataType"][0]["chip_type"])')" = "Apple M5 Max"
           test "$(sysctl -n hw.logicalcpu)" = "18"
-          xcrun --sdk macosx --find metal
-          xcrun --sdk macosx --find metallib
+          xcrun --sdk macosx --show-sdk-path
+          xcrun --sdk macosx --find clang
           test -z "$(git status --porcelain)"
 
-      - name: Build the governed products
-        run: |
-          zig build native-proof-bench-metal -Doptimize=ReleaseFast
-          zig build metal-core-aot -Doptimize=ReleaseSafe
-
-      - name: Reproduce the authenticated AOT bundle
-        run: >-
-          python3 scripts/metal_core_aot_receipt.py reproduce
-          --builder zig-out/bin/metal-core-aot
-          --output-dir "$RUNNER_TEMP/metal-aot"
+      - name: Build the governed source-JIT product
+        run: zig build native-proof-bench-metal -Doptimize=ReleaseFast
 
       - name: Measure every manifest Metal class sequentially
         run: >-
           autoresearch/cli/stwo-perf calibrate-metal measure
-          --aot-bundle "$RUNNER_TEMP/metal-aot/build-a"
           --out-dir "$RUNNER_TEMP/metal-calibration"
 
       - name: Validate the freezeable report

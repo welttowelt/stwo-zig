@@ -29,12 +29,12 @@ SEARCH_HEALTH_POLICY_KEYS = frozenset({
 MAX_GROUP_WALL_CLOCK_SECONDS = 7200
 MAX_COMMAND_TIMEOUT_SECONDS = 7200
 RESOURCE_PROFILES = frozenset(("standard", "large"))
-METAL_CALIBRATION_SCHEMA = "stwo_perf_metal_calibration_freeze_v1"
+METAL_CALIBRATION_SCHEMA = "stwo_perf_metal_calibration_freeze_v2"
 METAL_CALIBRATION_FIELDS = frozenset({
     "schema", "status", "board", "epoch", "artifact", "artifact_sha256",
     "measured_commit", "policy_sha256", "runtime_identity_sha256",
-    "aot_manifest_sha256", "aot_metallib_sha256", "runtime_mode",
-    "designated_host",
+    "source_sha256", "runtime_manifest_sha256", "runtime_objc_sha256",
+    "platform_identity_sha256", "runtime_mode", "designated_host",
 })
 RISCV_MECHANISM_FIELDS = frozenset({
     "total_steps",
@@ -640,7 +640,8 @@ def _validate_metal_calibration(harness: object, classes: dict) -> None:
         raise ManifestError("Metal calibration designated_host is malformed")
     frozen_fields = (
         "artifact_sha256", "measured_commit", "policy_sha256",
-        "runtime_identity_sha256", "aot_manifest_sha256", "aot_metallib_sha256",
+        "runtime_identity_sha256", "source_sha256", "runtime_manifest_sha256",
+        "runtime_objc_sha256", "platform_identity_sha256",
     )
     if config["status"] == "pending":
         if any(config[field] is not None for field in frozen_fields):
