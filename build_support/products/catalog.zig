@@ -97,6 +97,7 @@ pub const steps = [_]Step{
     .{ .name = "vectors", .description = "Validate committed parity vectors", .scope = .verification },
     .{ .name = "interop", .description = "Run interoperability harness (Rust <-> Zig proof exchange)", .scope = .verification },
     .{ .name = "prove-checkpoints", .description = "Run prove/prove_ex checkpoint harness (Rust -> Zig/Rust verification)", .scope = .verification },
+    .{ .name = "bench-native-holistic-smoke", .description = "Run cheap non-headline CPU/Metal parity over the holistic native suite", .scope = .verification },
     .{ .name = "bench-smoke", .description = "Run benchmark smoke harness and emit report", .scope = .verification },
     .{ .name = "bench-kernels", .description = "Run targeted kernel benchmark harness", .scope = .verification },
     .{ .name = "bench-strict", .description = "Run strict benchmark harness (base + medium workloads, stabilized samples)", .scope = .verification },

@@ -7,6 +7,43 @@ pub const Context = struct {
 pub fn addProducts(context: Context) void {
     const b = context.b;
 
+    const holistic_cpu = b.addSystemCommand(&.{
+        b.graph.zig_exe,
+        "build",
+        "benchmark-native-cpu",
+        "-Doptimize=ReleaseFast",
+    });
+    const holistic_metal = b.addSystemCommand(&.{
+        b.graph.zig_exe,
+        "build",
+        "native-proof-bench-metal",
+        "-Doptimize=ReleaseFast",
+    });
+    holistic_metal.step.dependOn(&holistic_cpu.step);
+    const holistic_smoke = b.addSystemCommand(&.{
+        "python3",
+        "scripts/native_proof_matrix.py",
+        "--suite",
+        "holistic",
+        "--protocol",
+        "smoke",
+        "--warmups",
+        "0",
+        "--samples",
+        "1",
+        "--cooldown-seconds",
+        "0",
+        "--allow-non-headline",
+        "--output-dir",
+        "zig-out/native-proof-holistic-smoke",
+    });
+    holistic_smoke.step.dependOn(&holistic_metal.step);
+    const holistic_smoke_step = b.step(
+        "bench-native-holistic-smoke",
+        "Run cheap non-headline CPU/Metal parity over the holistic native suite",
+    );
+    holistic_smoke_step.dependOn(&holistic_smoke.step);
+
     // Benchmark smoke gate with deterministic short workloads.
     const bench_smoke_cmd = b.addSystemCommand(&.{ "python3", "scripts/benchmark_smoke.py" });
     const bench_smoke_step = b.step("bench-smoke", "Run benchmark smoke harness and emit report");

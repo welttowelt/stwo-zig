@@ -26,6 +26,8 @@ from native_proof_matrix_lib import (  # noqa: E402
     DEFAULT_PROTOCOL,
     DEFAULT_WARMUPS,
     DEFAULT_WORKLOADS,
+    HOLISTIC_SUITE,
+    WORKLOAD_SUITES,
     LIBRARY_PREPARATION_SECONDS_KEY,
     MAX_COMMITTED_TRACE_CELLS,
     MIN_HEADLINE_WARMUPS,
@@ -46,6 +48,7 @@ from native_proof_matrix_lib import (  # noqa: E402
     validate_pair,
     validate_proof_artifact,
     validate_report,
+    validate_suite,
     validate_workload,
     workload_descriptor_sha256,
 )
@@ -70,9 +73,15 @@ def resolve_workloads(
 ) -> list[Workload]:
     explicit = args.workload or []
     has_product = args.log_rows is not None or args.sequence_lens is not None
+    if args.suite is not None and (explicit or has_product):
+        parser.error(
+            "--suite cannot be combined with --workload/--log-rows/--sequence-lens"
+        )
     if explicit and has_product:
         parser.error("--workload cannot be combined with --log-rows/--sequence-lens")
-    if has_product:
+    if args.suite is not None:
+        workloads = list(WORKLOAD_SUITES[args.suite].workloads)
+    elif has_product:
         if args.log_rows is None or args.sequence_lens is None:
             parser.error("--log-rows and --sequence-lens must be provided together")
         workloads = [
@@ -146,6 +155,11 @@ def validate_controller_args(
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--suite",
+        choices=tuple(WORKLOAD_SUITES),
+        help="select a canonical bounded workload suite",
+    )
     parser.add_argument(
         "--workload",
         action="append",

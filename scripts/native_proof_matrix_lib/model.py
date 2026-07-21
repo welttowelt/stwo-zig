@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 from dataclasses import dataclass
+from types import MappingProxyType
 
 
 REPORT_SCHEMA_VERSION = 6
@@ -27,7 +28,7 @@ DEFAULT_WARMUPS = 10
 DEFAULT_PROTOCOL = "functional"
 DEFAULT_COOLDOWN_SECONDS = 1.0
 
-MAX_MATRIX_ROWS = 12
+MAX_MATRIX_ROWS = 13
 MIN_HEADLINE_WARMUPS = 10
 MAX_LOG_ROWS = 22
 MAX_SEQUENCE_LEN = 512
@@ -408,3 +409,79 @@ def descriptor_bytes(workload: Workload, protocol_name: str) -> bytes:
 
 def workload_descriptor_sha256(workload: Workload, protocol_name: str) -> str:
     return hashlib.sha256(descriptor_bytes(workload, protocol_name)).hexdigest()
+
+
+@dataclass(frozen=True)
+class SuiteRow:
+    id: str
+    workload: Workload
+
+
+@dataclass(frozen=True)
+class WorkloadSuite:
+    name: str
+    description: str
+    rows: tuple[SuiteRow, ...]
+
+    @property
+    def workloads(self) -> tuple[Workload, ...]:
+        return tuple(row.workload for row in self.rows)
+
+    @property
+    def committed_trace_cells_per_lane(self) -> int:
+        return sum(workload.committed_trace_cells for workload in self.workloads)
+
+    def request_cells(self, warmups: int, samples: int) -> int:
+        return self.committed_trace_cells_per_lane * len(LANES) * (warmups + samples)
+
+
+HOLISTIC_SUITE = WorkloadSuite(
+    name="holistic",
+    description=(
+        "Latency canary plus the proven two-scale CPU/Metal parity portfolio "
+        "for all six native AIRs"
+    ),
+    rows=(
+        SuiteRow("wf_log10x8", Workload.wide_fibonacci(10, 8)),
+        SuiteRow("wf_log14x32", Workload.wide_fibonacci(14, 32)),
+        SuiteRow("wf_log16x64", Workload.wide_fibonacci(16, 64)),
+        SuiteRow("xor_log14", Workload.xor(14, 2, 3)),
+        SuiteRow("xor_log16", Workload.xor(16, 2, 3)),
+        SuiteRow("plonk_log14", Workload.plonk(14)),
+        SuiteRow("plonk_log16", Workload.plonk(16)),
+        SuiteRow("sm_log14", Workload.state_machine(14, 9, 3)),
+        SuiteRow("sm_log16", Workload.state_machine(16, 9, 3)),
+        SuiteRow("blake_log10x10", Workload.blake(10, 10)),
+        SuiteRow("blake_log12x16", Workload.blake(12, 16)),
+        SuiteRow("poseidon_log10", Workload.poseidon(10)),
+        SuiteRow("poseidon_log13", Workload.poseidon(13)),
+    ),
+)
+
+WORKLOAD_SUITES = MappingProxyType({HOLISTIC_SUITE.name: HOLISTIC_SUITE})
+
+
+def validate_suite(suite: WorkloadSuite) -> None:
+    if not suite.name or not suite.description:
+        raise ValueError("workload suite name and description must be nonempty")
+    if not suite.rows or len(suite.rows) > MAX_MATRIX_ROWS:
+        raise ValueError(
+            f"workload suite must contain between 1 and {MAX_MATRIX_ROWS} rows"
+        )
+    row_ids = tuple(row.id for row in suite.rows)
+    if any(not row_id for row_id in row_ids) or len(set(row_ids)) != len(row_ids):
+        raise ValueError("workload suite row IDs must be unique and nonempty")
+    if len(set(suite.workloads)) != len(suite.workloads):
+        raise ValueError("workload suite rows must be unique")
+    for workload in suite.workloads:
+        validate_workload(workload)
+    maximum_request_cells = suite.request_cells(MAX_WARMUPS, MAX_SAMPLES)
+    if maximum_request_cells > MAX_TOTAL_REQUEST_CELLS:
+        raise ValueError(
+            "workload suite exceeds aggregate cell budget at maximum sampling "
+            f"({maximum_request_cells} > {MAX_TOTAL_REQUEST_CELLS})"
+        )
+
+
+for _suite in WORKLOAD_SUITES.values():
+    validate_suite(_suite)

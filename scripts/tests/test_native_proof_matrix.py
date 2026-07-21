@@ -134,6 +134,65 @@ class NativeProofMatrixTests(unittest.TestCase):
             MODULE.parse_workload("10:8"), MODULE.Workload.wide_fibonacci(10, 8)
         )
 
+    def test_holistic_suite_has_stable_rows_and_fits_the_global_cell_budget(self) -> None:
+        suite = MODULE.HOLISTIC_SUITE
+        self.assertIs(MODULE.WORKLOAD_SUITES["holistic"], suite)
+        self.assertEqual(
+            [row.id for row in suite.rows],
+            [
+                "wf_log10x8",
+                "wf_log14x32",
+                "wf_log16x64",
+                "xor_log14",
+                "xor_log16",
+                "plonk_log14",
+                "plonk_log16",
+                "sm_log14",
+                "sm_log16",
+                "blake_log10x10",
+                "blake_log12x16",
+                "poseidon_log10",
+                "poseidon_log13",
+            ],
+        )
+        self.assertEqual(len(suite.rows), MODULE.MAX_MATRIX_ROWS)
+        self.assertEqual(suite.committed_trace_cells_per_lane, 14_604_288)
+        maximum_request_cells = suite.request_cells(
+            MODULE.MAX_WARMUPS, MODULE.MAX_SAMPLES
+        )
+        self.assertEqual(maximum_request_cells, 905_465_856)
+        self.assertLessEqual(maximum_request_cells, MODULE.MAX_TOTAL_REQUEST_CELLS)
+        MODULE.validate_suite(suite)
+
+    def test_holistic_suite_parser_is_opt_in_and_exclusive(self) -> None:
+        parsed = MODULE.parse_args(
+            [
+                "--suite",
+                "holistic",
+                "--allow-non-headline",
+                "--warmups",
+                "0",
+                "--samples",
+                "1",
+                "--cooldown-seconds",
+                "0",
+            ]
+        )
+        self.assertEqual(parsed.suite, "holistic")
+        self.assertEqual(tuple(parsed.workloads), MODULE.HOLISTIC_SUITE.workloads)
+
+        conflicts = (
+            ["--workload", "plonk:log_n_rows=10"],
+            ["--log-rows", "10", "--sequence-lens", "8"],
+        )
+        for selector in conflicts:
+            with self.subTest(selector=selector), contextlib.redirect_stderr(
+                io.StringIO()
+            ), self.assertRaises(SystemExit):
+                MODULE.parse_args(
+                    ["--suite", "holistic", "--allow-non-headline", *selector]
+                )
+
     def test_workload_parser_rejects_noncanonical_or_unbounded_rows(self) -> None:
         invalid = (
             "unknown:x=1",
