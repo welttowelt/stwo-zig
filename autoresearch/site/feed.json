@@ -2702,7 +2702,7 @@
  },
  "feed_schema_version": 2,
  "history": {
-  "comparisons": 7,
+  "comparisons": 29,
   "runs": [
    {
     "bundle": false,
@@ -2757,31 +2757,103 @@
     "kind": "native_proof_cross_backend_matrix_v6",
     "report_sha256": "facd106c0afb0f14e12263a420d5bbe6dca2dcf6b09d603f3bf3e99950385d6f",
     "run_id": "2026-07-20-221601-matrix-v6-e78cca6f"
+   },
+   {
+    "bundle": true,
+    "kind": "native_proof_cross_backend_matrix_v6",
+    "report_sha256": "0728d6880e73bc428fd99e30c02238e3a8d8f7d6205195c79a2c1408edaee597",
+    "run_id": "2026-07-21-082838-matrix-v6-9e16ec8e"
+   },
+   {
+    "bundle": true,
+    "kind": "native_proof_cross_backend_matrix_v6",
+    "report_sha256": "5a65e1381e32c15bc1407eace052dc81cb98d08d8cc5d44db873c103db0b0cfd",
+    "run_id": "2026-07-21-082920-matrix-v6-303292ce"
+   },
+   {
+    "bundle": true,
+    "kind": "native_proof_cross_backend_matrix_v6",
+    "report_sha256": "eb669a6d66ed4b556a4df3fe9b8381ecd7f990d26e4fdb5153131bbfbdb9028c",
+    "run_id": "2026-07-21-083039-matrix-v6-51f07230"
+   },
+   {
+    "bundle": true,
+    "kind": "native_proof_cross_backend_matrix_v6",
+    "report_sha256": "cfdb5d2e264441226961bdf4abfe8cb04e1d1a516e01b77bb95161f309083d56",
+    "run_id": "2026-07-21-083158-matrix-v6-949d24d4"
+   },
+   {
+    "bundle": true,
+    "kind": "native_proof_cross_backend_matrix_v6",
+    "report_sha256": "f538306d46403e016a5f8354dba24d8b4aa1b6bf9e086a4aa69c9d95e5f1e411",
+    "run_id": "2026-07-21-083318-matrix-v6-81a216fc"
+   },
+   {
+    "bundle": true,
+    "kind": "native_proof_cross_backend_matrix_v6",
+    "report_sha256": "db7fafeb2e418ebf1abf69c2f6516c37a5835c1ab63de85187ce2d36deb3345f",
+    "run_id": "2026-07-21-083443-matrix-v6-f7b9d33d"
+   },
+   {
+    "bundle": true,
+    "kind": "native_proof_cross_backend_matrix_v6",
+    "report_sha256": "0f269ef1379189b94c99c18c0411380caf91ebe372d30a41510a3a8dd6bbb10e",
+    "run_id": "2026-07-21-083606-matrix-v6-c93c87b6"
+   },
+   {
+    "bundle": true,
+    "kind": "native_proof_cross_backend_matrix_v6",
+    "report_sha256": "93b37d0a8d41bb1aac431d82437b3a754389db369ea6e44ac73615f3348ec139",
+    "run_id": "2026-07-21-083727-matrix-v6-e1ef7427"
+   },
+   {
+    "bundle": true,
+    "kind": "native_proof_cross_backend_matrix_v6",
+    "report_sha256": "3a470b72783829d88ed2339716f8cda62d88f3dfb80ec7237ed118647ea029a6",
+    "run_id": "2026-07-21-083847-matrix-v6-796782bd"
+   },
+   {
+    "bundle": true,
+    "kind": "native_proof_cross_backend_matrix_v6",
+    "report_sha256": "c57f5fec62fa447df750f9ea914ee2ce9167171dccc3497d6840604120faf362",
+    "run_id": "2026-07-21-084006-matrix-v6-8d09fdf3"
+   },
+   {
+    "bundle": true,
+    "kind": "native_proof_cross_backend_matrix_v6",
+    "report_sha256": "4b1b8a4b52f3a11d53bf3044391e52f5fada7b2a38d6fcad45dbb883cbf6ac2c",
+    "run_id": "2026-07-21-084128-matrix-v6-ffbcefca"
+   },
+   {
+    "bundle": true,
+    "kind": "native_proof_cross_backend_matrix_v6",
+    "report_sha256": "770830ab765311cf46afa7fd10d3dab3868001e40e9f60115f573e788bcaa4bc",
+    "run_id": "2026-07-21-085853-matrix-v6-6448467f"
    }
   ]
  },
  "latest_matrix": {
-  "generated_at": "2026-07-20T22:16:01.967583+00:00",
+  "generated_at": "2026-07-21T08:58:53.278275+00:00",
   "protocol": "native_proof_cross_backend_matrix_v6",
-  "repo_commit": "e78cca6ff0b849a204efce7ce172828ed0b1a88f",
+  "repo_commit": "6448467fbdcfeaff01f0bd60ed724f94fe5741a9",
   "rows": [
    {
     "committed_trace_cells": 524288,
-    "headline_eligible": true,
+    "headline_eligible": false,
     "lanes": {
      "cpu": {
-      "native_mhz": 1.4592741153394078,
-      "peak_rss_mib": 23.7,
-      "prove_ms": 11.2275,
-      "request_ms": 12.263646
+      "native_mhz": 1.5152015667032863,
+      "peak_rss_mib": 23.72,
+      "prove_ms": 10.813084,
+      "request_ms": 11.854771
      },
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
-      "metal_dispatches_per_proof": 36.0,
-      "native_mhz": 1.0895145963903,
-      "peak_rss_mib": 38.14,
-      "prove_ms": 15.038063,
-      "request_ms": 16.023438
+      "metal_dispatches_per_proof": 22.0,
+      "native_mhz": 1.7335408884105554,
+      "peak_rss_mib": 39.3,
+      "prove_ms": 9.452458,
+      "request_ms": 10.508084
      }
     },
     "name": "wide_fibonacci",
@@ -2796,21 +2868,21 @@
    },
    {
     "committed_trace_cells": 4194304,
-    "headline_eligible": true,
+    "headline_eligible": false,
     "lanes": {
      "cpu": {
-      "native_mhz": 0.8801004311516396,
-      "peak_rss_mib": 83.34,
-      "prove_ms": 74.464229,
-      "request_ms": 87.585896
+      "native_mhz": 0.8428947798488191,
+      "peak_rss_mib": 86.25,
+      "prove_ms": 77.801854,
+      "request_ms": 91.040126
      },
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
-      "metal_dispatches_per_proof": 40.0,
-      "native_mhz": 0.6344307951940671,
-      "peak_rss_mib": 117.38,
-      "prove_ms": 103.299209,
-      "request_ms": 116.249104
+      "metal_dispatches_per_proof": 24.0,
+      "native_mhz": 0.7433662003804363,
+      "peak_rss_mib": 130.59,
+      "prove_ms": 88.161166,
+      "request_ms": 101.148938
      }
     },
     "name": "wide_fibonacci",
@@ -2825,21 +2897,21 @@
    },
    {
     "committed_trace_cells": 49152,
-    "headline_eligible": true,
+    "headline_eligible": false,
     "lanes": {
      "cpu": {
-      "native_mhz": 2.3851246379913746,
-      "peak_rss_mib": 22.59,
-      "prove_ms": 6.86925,
-      "request_ms": 7.156417
+      "native_mhz": 2.4408596636229745,
+      "peak_rss_mib": 22.81,
+      "prove_ms": 6.712417,
+      "request_ms": 6.996479
      },
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
-      "metal_dispatches_per_proof": 39.0,
-      "native_mhz": 1.5060611403591428,
-      "peak_rss_mib": 29.88,
-      "prove_ms": 10.87873,
-      "request_ms": 11.166667
+      "metal_dispatches_per_proof": 24.0,
+      "native_mhz": 2.1534069300613137,
+      "peak_rss_mib": 28.92,
+      "prove_ms": 7.608416,
+      "request_ms": 8.016229
      }
     },
     "name": "xor",
@@ -2858,18 +2930,18 @@
     "headline_eligible": true,
     "lanes": {
      "cpu": {
-      "native_mhz": 3.366879809628222,
-      "peak_rss_mib": 62.7,
-      "prove_ms": 19.465,
-      "request_ms": 19.988459
+      "native_mhz": 3.4045573154250803,
+      "peak_rss_mib": 62.8,
+      "prove_ms": 19.25248,
+      "request_ms": 19.797854
      },
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
-      "metal_dispatches_per_proof": 43.0,
-      "native_mhz": 2.474144666720315,
-      "peak_rss_mib": 44.62,
-      "prove_ms": 26.488437,
-      "request_ms": 27.022666
+      "metal_dispatches_per_proof": 26.0,
+      "native_mhz": 6.779325300788042,
+      "peak_rss_mib": 43.75,
+      "prove_ms": 9.667042,
+      "request_ms": 10.200292
      }
     },
     "name": "xor",
@@ -2885,21 +2957,21 @@
    },
    {
     "committed_trace_cells": 131072,
-    "headline_eligible": true,
+    "headline_eligible": false,
     "lanes": {
      "cpu": {
-      "native_mhz": 2.4213845603495807,
-      "peak_rss_mib": 21.72,
-      "prove_ms": 6.766417,
-      "request_ms": 7.095542
+      "native_mhz": 2.4477504259329157,
+      "peak_rss_mib": 21.69,
+      "prove_ms": 6.693499,
+      "request_ms": 7.022854
      },
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
-      "metal_dispatches_per_proof": 39.0,
-      "native_mhz": 1.4776029375031512,
-      "peak_rss_mib": 30.66,
-      "prove_ms": 11.088437,
-      "request_ms": 11.415979
+      "metal_dispatches_per_proof": 24.0,
+      "native_mhz": 2.690745523050734,
+      "peak_rss_mib": 29.67,
+      "prove_ms": 6.091917,
+      "request_ms": 6.474667
      }
     },
     "name": "plonk",
@@ -2916,18 +2988,18 @@
     "headline_eligible": true,
     "lanes": {
      "cpu": {
-      "native_mhz": 3.47593195367243,
+      "native_mhz": 3.5359882535206095,
       "peak_rss_mib": 62.44,
-      "prove_ms": 18.8545,
-      "request_ms": 19.4035
+      "prove_ms": 18.534188,
+      "request_ms": 19.099792
      },
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
-      "metal_dispatches_per_proof": 43.0,
-      "native_mhz": 2.320354375853023,
-      "peak_rss_mib": 46.58,
-      "prove_ms": 28.244021,
-      "request_ms": 28.805271
+      "metal_dispatches_per_proof": 26.0,
+      "native_mhz": 6.3056355107073365,
+      "peak_rss_mib": 45.95,
+      "prove_ms": 10.393272,
+      "request_ms": 10.964125
      }
     },
     "name": "plonk",
@@ -2941,21 +3013,21 @@
    },
    {
     "committed_trace_cells": 49152,
-    "headline_eligible": true,
+    "headline_eligible": false,
     "lanes": {
      "cpu": {
-      "native_mhz": 2.3855076803855884,
-      "peak_rss_mib": 22.83,
-      "prove_ms": 6.868146,
-      "request_ms": 7.131667
+      "native_mhz": 2.434849730078816,
+      "peak_rss_mib": 22.78,
+      "prove_ms": 6.728958,
+      "request_ms": 6.987563
      },
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
-      "metal_dispatches_per_proof": 39.0,
-      "native_mhz": 1.5111982833802404,
-      "peak_rss_mib": 29.53,
-      "prove_ms": 10.841729,
-      "request_ms": 11.100167
+      "metal_dispatches_per_proof": 24.0,
+      "native_mhz": 3.0962753424667557,
+      "peak_rss_mib": 28.47,
+      "prove_ms": 5.291834,
+      "request_ms": 5.575854
      }
     },
     "name": "state_machine",
@@ -2974,18 +3046,18 @@
     "headline_eligible": true,
     "lanes": {
      "cpu": {
-      "native_mhz": 3.404739571734914,
-      "peak_rss_mib": 63.36,
-      "prove_ms": 19.250771,
-      "request_ms": 19.898563
+      "native_mhz": 3.453952527112614,
+      "peak_rss_mib": 63.38,
+      "prove_ms": 18.974458,
+      "request_ms": 19.608812
      },
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
-      "metal_dispatches_per_proof": 43.0,
-      "native_mhz": 2.381235429729826,
-      "peak_rss_mib": 44.08,
-      "prove_ms": 27.521854,
-      "request_ms": 28.165958
+      "metal_dispatches_per_proof": 26.0,
+      "native_mhz": 6.7992923092991715,
+      "peak_rss_mib": 43.84,
+      "prove_ms": 9.638917,
+      "request_ms": 10.278188
      }
     },
     "name": "state_machine",
@@ -3001,21 +3073,21 @@
    },
    {
     "committed_trace_cells": 983040,
-    "headline_eligible": false,
+    "headline_eligible": true,
     "lanes": {
      "cpu": {
-      "native_mhz": 0.42540640262598495,
-      "peak_rss_mib": 44.0,
-      "prove_ms": 24.071104,
-      "request_ms": 27.754
+      "native_mhz": 0.4294836821335454,
+      "peak_rss_mib": 57.48,
+      "prove_ms": 23.842583,
+      "request_ms": 27.525645
      },
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
-      "metal_dispatches_per_proof": 28.0,
-      "native_mhz": 0.9977554735981327,
-      "peak_rss_mib": 56.73,
-      "prove_ms": 10.269521,
-      "request_ms": 13.953666
+      "metal_dispatches_per_proof": 18.0,
+      "native_mhz": 1.2727363705981618,
+      "peak_rss_mib": 64.05,
+      "prove_ms": 8.046105,
+      "request_ms": 11.713188
      }
     },
     "name": "blake",
@@ -3030,21 +3102,21 @@
    },
    {
     "committed_trace_cells": 6291456,
-    "headline_eligible": true,
+    "headline_eligible": false,
     "lanes": {
      "cpu": {
-      "native_mhz": 1.6382364467013024,
-      "peak_rss_mib": 175.5,
-      "prove_ms": 40.004,
-      "request_ms": 68.63625
+      "native_mhz": 1.6748804807228002,
+      "peak_rss_mib": 173.72,
+      "prove_ms": 39.128917,
+      "request_ms": 67.621479
      },
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
-      "metal_dispatches_per_proof": 32.0,
-      "native_mhz": 1.6320736648330434,
-      "peak_rss_mib": 189.97,
-      "prove_ms": 40.155125,
-      "request_ms": 68.733125
+      "metal_dispatches_per_proof": 20.0,
+      "native_mhz": 1.909684324985247,
+      "peak_rss_mib": 212.97,
+      "prove_ms": 34.36075,
+      "request_ms": 63.148063
      }
     },
     "name": "blake",
@@ -3059,21 +3131,21 @@
    },
    {
     "committed_trace_cells": 161792,
-    "headline_eligible": true,
+    "headline_eligible": false,
     "lanes": {
      "cpu": {
-      "native_mhz": 0.16066780502833317,
+      "native_mhz": 0.1605693922619667,
       "peak_rss_mib": 25.5,
-      "prove_ms": 6.373542,
-      "request_ms": 7.711479
+      "prove_ms": 6.377312,
+      "request_ms": 7.663042
      },
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
-      "metal_dispatches_per_proof": 22.0,
-      "native_mhz": 0.137043426979041,
-      "peak_rss_mib": 33.36,
-      "prove_ms": 7.472125,
-      "request_ms": 8.728041
+      "metal_dispatches_per_proof": 15.0,
+      "native_mhz": 0.16759044991672473,
+      "peak_rss_mib": 34.02,
+      "prove_ms": 6.172959,
+      "request_ms": 7.496104
      }
     },
     "name": "poseidon",
@@ -3087,21 +3159,21 @@
    },
    {
     "committed_trace_cells": 1294336,
-    "headline_eligible": false,
+    "headline_eligible": true,
     "lanes": {
      "cpu": {
-      "native_mhz": 0.25947013227598037,
-      "peak_rss_mib": 63.2,
-      "prove_ms": 31.572125,
-      "request_ms": 38.472792
+      "native_mhz": 0.2607228433281695,
+      "peak_rss_mib": 63.25,
+      "prove_ms": 31.420353,
+      "request_ms": 38.390271
      },
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
-      "metal_dispatches_per_proof": 28.0,
-      "native_mhz": 0.7052447459688005,
-      "peak_rss_mib": 67.2,
-      "prove_ms": 11.62225,
-      "request_ms": 18.529688
+      "metal_dispatches_per_proof": 18.0,
+      "native_mhz": 0.8059320700312069,
+      "peak_rss_mib": 72.28,
+      "prove_ms": 10.164645,
+      "request_ms": 17.311772
      }
     },
     "name": "poseidon",
@@ -3114,7 +3186,7 @@
     "proof_parity": true
    }
   ],
-  "run_id": "2026-07-20-221601-matrix-v6-e78cca6f"
+  "run_id": "2026-07-21-085853-matrix-v6-6448467f"
  },
  "metal_resident_progress": {
   "cpu_fallbacks_per_proof_median": 0.0,
@@ -3210,11 +3282,11 @@
    "autoresearch/MANIFEST.json": "d89f61a5c11e9a39bb44153db15765c44251f733bebf47b45c6b6363bae6e2fd",
    "autoresearch/ledger/epochs.json": "268ac6d71b00254ebf1ffefaf2759d3fc7c41094e647ddb664f039a0a4739078",
    "autoresearch/ledger/promotions.tsv": "42ade42363a3912dba43352dd0edb6c32d3e060c3499d71d89523db84e0594f7",
-   "vectors/reports/benchmark_history/index.json": "0216c5ae101a3fe33e647553a0ba7bbf2ac2b3ba8c8265fd8ff5ddde059401fe",
-   "vectors/reports/benchmark_history/runs/2026-07-20-221601-matrix-v6-e78cca6f/report.json": "facd106c0afb0f14e12263a420d5bbe6dca2dcf6b09d603f3bf3e99950385d6f"
+   "vectors/reports/benchmark_history/index.json": "c3153ed5d452c67df06dbaf4a45f51f0bd7134306634dbf18480e24fe61e0a71",
+   "vectors/reports/benchmark_history/runs/2026-07-21-085853-matrix-v6-6448467f/report.json": "770830ab765311cf46afa7fd10d3dab3868001e40e9f60115f573e788bcaa4bc"
   },
-  "repo_commit": "b30f3e0f5693",
-  "repo_commit_time": "2026-07-21T09:46:44+01:00"
+  "repo_commit": "500f2e6b4192",
+  "repo_commit_time": "2026-07-21T10:00:28+01:00"
  },
  "references": {
   "peer_rust_scalar": {
